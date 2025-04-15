@@ -1,0 +1,39 @@
+{
+	"name": "@absolutejs/absolute",
+	"version": "0.3.1",
+	"description": "A fullstack meta-framework for building web applications with TypeScript",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/alexkahndev/absolutejs.git"
+	},
+	"main": "./dist/index.js",
+	"types": "./dist/src/index.d.ts",
+	"license": "CC BY-NC 4.0",
+	"author": "Alex Kahn",
+	"scripts": {
+		"build": "rm -rf dist && bun build src/index.ts --outdir dist --minify --splitting --target=bun --external react --external react-dom --external elysia && tsc --emitDeclarationOnly --project tsconfig.json",
+		"test": "echo \"Error: no test specified\" && exit 1",
+		"format": "prettier --write \"./**/*.{js,jsx,ts,tsx,css,json}\"",
+		"dev": "bun run --watch example/server.ts",
+		"release": "bun run format && bun run build && bun publish"
+	},
+	"peerDependencies": {
+		"elysia": ">= 1.2.0",
+		"react": ">= 19.1.0",
+		"react-dom": ">= 19.1.0"
+	},
+	"devDependencies": {
+		"@elysiajs/static": "1.0.2",
+		"@types/bun": "1.1.1",
+		"@types/react": "19.1.0",
+		"@types/react-dom": "19.1.2",
+		"@types/vue": "2.0.0",
+		"typescript": "5.7.2",
+		"react": "19.1.0",
+		"svelte": "4.2.15",
+		"vue": "3.4.26",
+		"postcss": "8.4.49",
+		"autoprefixer": "10.4.20",
+		"tailwindcss": "3.4.17"
+	}
+}

@@ -1,0 +1,8 @@
+example/
+drizzle/
+tests/
+node_modules/
+*.log
+src/ 
+.DS_Store
+**/*.env
