@@ -4,7 +4,7 @@
 	"description": "A fullstack meta-framework for building web applications with TypeScript",
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/alexkahndev/absolutejs.git"
+		"url": "https://github.com/absolutejs/absolutejs.git"
 	},
 	"main": "./dist/index.js",
 	"types": "./dist/src/index.d.ts",
