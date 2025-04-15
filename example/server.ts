@@ -13,7 +13,7 @@ const manifest = await build({
 	assetsDir: "./example/assets",
 	reactIndexDir: "./example/react/indexes",
 	javascriptDir: "./example/javascript",
-	typeScriptDir: "./example/typescript",
+	//typeScriptDir: "./example/typescript",
 	reactPagesDir: "./example/react/pages",
 	htmlDir: "./example/html",
 	htmxDir: "./example/htmx",
