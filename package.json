@@ -1,6 +1,6 @@
 {
 	"name": "@absolutejs/absolute",
-	"version": "0.3.1",
+	"version": "0.3.2",
 	"description": "A fullstack meta-framework for building web applications with TypeScript",
 	"repository": {
 		"type": "git",
@@ -23,6 +23,7 @@
 		"react-dom": ">= 19.1.0"
 	},
 	"devDependencies": {
+		"elysia": "1.2.25",
 		"@elysiajs/static": "1.0.2",
 		"@types/bun": "1.1.1",
 		"@types/react": "19.1.0",
