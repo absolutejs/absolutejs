@@ -8,48 +8,31 @@ import {
 	TIME_PRECISION
 } from "../constants";
 import { updateScriptTags } from "../utils/updateScriptTags";
-
-type BuildConfig = {
-	buildDir?: string;
-	assetsDir?: string;
-	reactIndexDir?: string;
-	javascriptDir?: string;
-	typeScriptDir?: string;
-	reactPagesDir?: string;
-	htmlDir?: string;
-	htmxDir?: string;
-	tailwind?: {
-		input: string;
-		output: string;
-	};
-};
+import { BuildConfig } from "./types";
 
 export const build = async ({
-	buildDir = "build",
-	assetsDir,
-	reactIndexDir,
-	javascriptDir,
-	typeScriptDir,
-	reactPagesDir,
-	htmlDir,
-	htmxDir,
+	buildDirectory = "build",
+	assetsDirectory,
+	reactDirectory,
+	html,
+	htmxDirectory,
 	tailwind
 }: BuildConfig) => {
 	const start = performance.now();
 
 	const projectRoot = cwd();
-	const buildDirAbsolute = join(projectRoot, buildDir);
-	const assetsDirAbsolute = assetsDir && join(projectRoot, assetsDir);
+	const buildDirAbsolute = join(projectRoot, buildDirectory);
+	const assetsDirAbsolute =
+		assetsDirectory && join(projectRoot, assetsDirectory);
 	const reactIndexDirAbsolute =
-		reactIndexDir && join(projectRoot, reactIndexDir);
-	const javascriptDirAbsolute =
-		javascriptDir && join(projectRoot, javascriptDir);
-	const typeScriptDirAbsolute =
-		typeScriptDir && join(projectRoot, typeScriptDir);
+		reactDirectory && join(projectRoot, reactDirectory, "indexes");
 	const reactPagesDirAbsolute =
-		reactPagesDir && join(projectRoot, reactPagesDir);
-	const htmlDirAbsolute = htmlDir && join(projectRoot, htmlDir);
-	const htmxDirAbsolute = htmxDir && join(projectRoot, htmxDir);
+		reactDirectory && join(projectRoot, reactDirectory, "pages");
+	const htmlDirAbsolute = html?.directory
+		? join(projectRoot, html.directory)
+		: undefined;
+
+	const htmxDirAbsolute = htmxDirectory && join(projectRoot, htmxDirectory);
 
 	await rm(buildDirAbsolute, { force: true, recursive: true });
 	await mkdir(buildDirAbsolute);
@@ -64,18 +47,8 @@ export const build = async ({
 	const reactEntryPaths =
 		reactIndexDirAbsolute &&
 		(await scanEntryPoints(reactIndexDirAbsolute, "*.tsx"));
-	const javascriptEntryPaths =
-		javascriptDirAbsolute &&
-		(await scanEntryPoints(javascriptDirAbsolute, "*.js"));
-	const typeScriptEntryPaths =
-		typeScriptDirAbsolute &&
-		(await scanEntryPoints(typeScriptDirAbsolute, "*.ts"));
 
-	const entryPaths = [
-		...(reactEntryPaths ?? []),
-		...(javascriptEntryPaths ?? []),
-		...(typeScriptEntryPaths ?? [])
-	];
+	const entryPaths = [...(reactEntryPaths ?? [])];
 
 	if (entryPaths.length === 0) {
 		console.warn("No entry points found, skipping build");

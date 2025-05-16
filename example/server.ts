@@ -9,14 +9,14 @@ import { build } from "../src/core/build";
 import { networkingPlugin } from "../src";
 
 const manifest = await build({
-	buildDir: "./example/build",
-	assetsDir: "./example/assets",
-	reactIndexDir: "./example/react/indexes",
-	javascriptDir: "./example/javascript",
-	//typeScriptDir: "./example/typescript",
-	reactPagesDir: "./example/react/pages",
-	htmlDir: "./example/html",
-	htmxDir: "./example/htmx",
+	buildDirectory: "./example/build",
+	assetsDirectory: "./example/assets",
+	reactDirectory: "./example/react",
+	html: {
+		directory: "./example/html",
+		scriptingOption: "ts+ssr"
+	},
+	htmxDirectory: "./example/htmx",
 	tailwind: {
 		input: "./example/styles/tailwind.css",
 		output: "/assets/css/tailwind.generated.css"
