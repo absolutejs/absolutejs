@@ -44,5 +44,6 @@ package-lock.json
 #local build files
 **/build/**/*
 /build
+/dist
 
 **/indexes/**/* */

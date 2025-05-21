@@ -8,7 +8,7 @@ import {
 	TIME_PRECISION
 } from "../constants";
 import { updateScriptTags } from "../utils/updateScriptTags";
-import { BuildConfig } from "./types";
+import { BuildConfig } from "../types";
 
 export const build = async ({
 	buildDirectory = "build",

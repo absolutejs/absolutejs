@@ -1,6 +1,6 @@
 {
 	"name": "@absolutejs/absolute",
-	"version": "0.5.0",
+	"version": "0.5.1",
 	"description": "A fullstack meta-framework for building web applications with TypeScript",
 	"repository": {
 		"type": "git",
@@ -11,7 +11,7 @@
 	"license": "CC BY-NC 4.0",
 	"author": "Alex Kahn",
 	"scripts": {
-		"build": "rm -rf dist && bun build src/index.ts --outdir dist --minify --splitting --target=bun --external react --external react-dom --external elysia && tsc --emitDeclarationOnly --project tsconfig.json",
+		"build": "rm -rf dist && bun build src/index.ts --outdir dist --target=bun --external react --external react-dom --external elysia && tsc --emitDeclarationOnly --project tsconfig.json",
 		"test": "echo \"Error: no test specified\" && exit 1",
 		"format": "prettier --write \"./**/*.{js,jsx,ts,tsx,css,json}\"",
 		"dev": "bun run --watch example/server.ts",
