@@ -37,12 +37,14 @@ export const build = async ({
 	await rm(buildDirAbsolute, { force: true, recursive: true });
 	await mkdir(buildDirAbsolute);
 
-	reactPagesDirAbsolute &&
+	void (
+		reactPagesDirAbsolute &&
 		reactIndexDirAbsolute &&
 		(await generateReactIndexFiles(
 			reactPagesDirAbsolute,
 			reactIndexDirAbsolute
-		));
+		))
+	);
 
 	const reactEntryPaths =
 		reactIndexDirAbsolute &&
@@ -74,8 +76,10 @@ export const build = async ({
 			console.info(log);
 	});
 
-	assetsDirAbsolute &&
-		(await $`cp -R ${assetsDirAbsolute} ${buildDirAbsolute}`);
+	void (
+		assetsDirAbsolute &&
+		(await $`cp -R ${assetsDirAbsolute} ${buildDirAbsolute}`)
+	);
 
 	if (htmlDirAbsolute) {
 		await mkdir(join(buildDirAbsolute, "html"));
@@ -116,7 +120,9 @@ export const build = async ({
 		return acc;
 	}, {});
 
-	htmlDirAbsolute && (await updateScriptTags(manifest, htmlDirAbsolute));
+	void (
+		htmlDirAbsolute && (await updateScriptTags(manifest, htmlDirAbsolute))
+	);
 
 	const end = performance.now();
 	const durationMs = end - start;

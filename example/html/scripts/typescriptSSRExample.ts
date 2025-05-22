@@ -30,7 +30,7 @@ document.addEventListener("DOMContentLoaded", () => {
 		counter.textContent = count.toString();
 	});
 
-	const links = document.querySelectorAll("#links a");
+	const links = document.querySelectorAll<HTMLAnchorElement>("#links a");
 	links.forEach((link) => {
 		link.addEventListener("mouseover", () => {
 			link.style.transform = "scale(1.2)";

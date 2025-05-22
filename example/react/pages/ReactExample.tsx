@@ -22,20 +22,18 @@ export const ReactHome = () => {
 					<header>
 						<h1>This page was built with React</h1>
 					</header>
-					<section>
-						<p>
-							Welcome to the React home page. This page was built
-							using React.
-						</p>
-						<p>Counter: {count}</p>
-						<button onClick={() => setCount(count + 1)}>
-							Increment
-						</button>
-						<div id="links">
-							<a href="/">Html</a>
-							<a href="/vue">Vue</a>
-						</div>
-					</section>
+					<p>
+						Welcome to the React home page. This page was built
+						using React.
+					</p>
+					<p>Counter: {count}</p>
+					<button onClick={() => setCount(count + 1)}>
+						Increment
+					</button>
+					<div id="links">
+						<a href="/">Html</a>
+						<a href="/vue">Vue</a>
+					</div>
 					<footer>
 						<p>© {year} AbsoluteJS</p>
 					</footer>

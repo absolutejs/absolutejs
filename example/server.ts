@@ -1,4 +1,5 @@
 import { staticPlugin } from "@elysiajs/static";
+import { file } from "bun";
 import { Elysia } from "elysia";
 import { networkingPlugin } from "../src";
 import { build } from "../src/core/build";
@@ -40,7 +41,7 @@ export const server = new Elysia()
 	.get("/react", () =>
 		handleReactPageRequest(ReactHome, manifest["ReactHomeIndex"])
 	)
-	.get("/htmx", () => Bun.file("./example/build/htmx/HtmxHome.html"))
+	.get("/htmx", () => file("./example/build/htmx/HtmxHome.html"))
 	.get("/htmx/increment", () => {
 		counter++;
 

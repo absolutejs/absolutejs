@@ -1,6 +1,6 @@
+import { file } from "bun";
 import { ComponentType, createElement } from "react";
-//@ts-expect-error - TODO: Remove this when we upgrade to React 19
-import { renderToReadableStream } from "react-dom/server.browser";
+import { renderToReadableStream } from "react-dom/server";
 
 export const handleReactPageRequest = async (
 	pageComponent: ComponentType,
@@ -16,4 +16,4 @@ export const handleReactPageRequest = async (
 	});
 };
 
-export const handleHTMLPageRequest = (html: string) => Bun.file(html);
+export const handleHTMLPageRequest = (html: string) => file(html);

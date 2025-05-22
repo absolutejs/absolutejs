@@ -1,3 +1,3 @@
-import { build } from "../core/build";
-
-// const manifest = await build({});
+export const pageRouterPlugin = () => {
+	console.log("Page Router Plugin Not Implemented Yet");
+};
