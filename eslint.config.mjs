@@ -18,7 +18,7 @@ export default defineConfig([
 	{
 		ignores: [
 			"dist/**",
-			"build/**",
+			"example/build/**",
 			"tailwind.config.ts",
 			"postcss.config.ts"
 		]
