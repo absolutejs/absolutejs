@@ -1,5 +1,3 @@
-export type HTMLScriptOption = "ts" | "js" | "ts+ssr" | "js+ssr" | undefined;
-
 export type BuildConfig = {
 	buildDirectory?: string;
 	assetsDirectory?: string;
@@ -8,10 +6,7 @@ export type BuildConfig = {
 	angularDirectory?: string;
 	astroDirectory?: string;
 	svelteDirectory?: string;
-	html?: {
-		directory?: string;
-		scriptingOption: HTMLScriptOption;
-	};
+	htmlDirectory?: string;
 	htmxDirectory?: string;
 	tailwind?: {
 		input: string;

@@ -12,10 +12,7 @@ import { ReactExample } from "./react/pages/ReactExample";
 const manifest = await build({
 	assetsDirectory: "./example/assets",
 	buildDirectory: "./example/build",
-	html: {
-		directory: "./example/html",
-		scriptingOption: "ts+ssr"
-	},
+	htmlDirectory: "./example/html",
 	htmxDirectory: "./example/htmx",
 	reactDirectory: "./example/react",
 	tailwind: {

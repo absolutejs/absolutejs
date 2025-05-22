@@ -14,46 +14,72 @@ export const build = async ({
 	buildDirectory = "build",
 	assetsDirectory,
 	reactDirectory,
-	html,
+	htmlDirectory,
 	htmxDirectory,
 	tailwind
 }: BuildConfig) => {
 	const start = performance.now();
 
 	const projectRoot = cwd();
-	const buildDirAbsolute = join(projectRoot, buildDirectory);
-	const assetsDirAbsolute =
+	const buildDirectoryAbsolute = join(projectRoot, buildDirectory);
+	const assetsDirectoryAbsolute =
 		assetsDirectory && join(projectRoot, assetsDirectory);
-	const reactIndexDirAbsolute =
+	const reactIndexesDirectory =
 		reactDirectory && join(projectRoot, reactDirectory, "indexes");
-	const reactPagesDirAbsolute =
+	const reactPagesDirectory =
 		reactDirectory && join(projectRoot, reactDirectory, "pages");
-	const htmlDirAbsolute = html?.directory
-		? join(projectRoot, html.directory)
-		: undefined;
+	const htmlPagesDirectory =
+		htmlDirectory && join(projectRoot, htmlDirectory, "pages");
+	const htmlScriptsDirectory =
+		htmlDirectory && join(projectRoot, htmlDirectory, "scripts");
+	const htmxDirectoryAbsolute =
+		htmxDirectory && join(projectRoot, htmxDirectory);
 
-	const htmxDirAbsolute = htmxDirectory && join(projectRoot, htmxDirectory);
-
-	await rm(buildDirAbsolute, { force: true, recursive: true });
-	await mkdir(buildDirAbsolute);
+	await rm(buildDirectoryAbsolute, { force: true, recursive: true });
+	await mkdir(buildDirectoryAbsolute);
 
 	void (
-		reactPagesDirAbsolute &&
-		reactIndexDirAbsolute &&
+		reactPagesDirectory &&
+		reactIndexesDirectory &&
 		(await generateReactIndexFiles(
-			reactPagesDirAbsolute,
-			reactIndexDirAbsolute
+			reactPagesDirectory,
+			reactIndexesDirectory
 		))
 	);
 
-	const reactEntryPaths =
-		reactIndexDirAbsolute &&
-		(await scanEntryPoints(reactIndexDirAbsolute, "*.tsx"));
+	void (
+		assetsDirectoryAbsolute &&
+		(await $`cp -R ${assetsDirectoryAbsolute} ${buildDirectoryAbsolute}`)
+	);
 
-	const entryPaths = [...(reactEntryPaths ?? [])];
+	if (htmlPagesDirectory) {
+		await mkdir(join(buildDirectoryAbsolute, "html", "pages"), {
+			recursive: true
+		});
+		await $`cp -R ${htmlPagesDirectory} ${join(buildDirectoryAbsolute, "html")}`;
+	}
+
+	if (htmxDirectoryAbsolute) {
+		await mkdir(join(buildDirectoryAbsolute, "htmx"));
+		await $`cp -R ${htmxDirectoryAbsolute} ${join(buildDirectoryAbsolute)}`;
+	}
+
+	if (tailwind) {
+		await $`bunx @tailwindcss/cli -i ${tailwind.input} -o ${join(buildDirectoryAbsolute, tailwind.output)}`;
+	}
+
+	const reactEntryPaths =
+		reactIndexesDirectory &&
+		(await scanEntryPoints(reactIndexesDirectory, "*.tsx"));
+
+	const htmlEntryPaths =
+		htmlScriptsDirectory &&
+		(await scanEntryPoints(htmlScriptsDirectory, "*.{js,ts}"));
+
+	const entryPaths = [...(reactEntryPaths || []), ...(htmlEntryPaths || [])];
 
 	if (entryPaths.length === 0) {
-		console.warn("No entry points found, skipping build");
+		console.warn("No entry points found, skipping building manifest");
 
 		return null;
 	}
@@ -62,7 +88,7 @@ export const build = async ({
 		entrypoints: entryPaths,
 		format: "esm",
 		naming: `[dir]/[name].[hash].[ext]`,
-		outdir: buildDirAbsolute,
+		outdir: buildDirectoryAbsolute,
 		target: "bun"
 	}).catch((error) => {
 		console.error("Build failed:", error);
@@ -76,30 +102,11 @@ export const build = async ({
 			console.info(log);
 	});
 
-	void (
-		assetsDirAbsolute &&
-		(await $`cp -R ${assetsDirAbsolute} ${buildDirAbsolute}`)
-	);
-
-	if (htmlDirAbsolute) {
-		await mkdir(join(buildDirAbsolute, "html"));
-		await $`cp -R ${htmlDirAbsolute} ${join(buildDirAbsolute)}`;
-	}
-
-	if (htmxDirAbsolute) {
-		await mkdir(join(buildDirAbsolute, "htmx"));
-		await $`cp -R ${htmxDirAbsolute} ${join(buildDirAbsolute)}`;
-	}
-
-	if (tailwind) {
-		await $`bunx @tailwindcss/cli -i ${tailwind.input} -o ${join(buildDirAbsolute, tailwind.output)}`;
-	}
-
 	const manifest = outputs.reduce<Record<string, string>>((acc, artifact) => {
 		let relativePath = artifact.path;
 
-		if (relativePath.startsWith(buildDirAbsolute)) {
-			relativePath = relativePath.slice(buildDirAbsolute.length);
+		if (relativePath.startsWith(buildDirectoryAbsolute)) {
+			relativePath = relativePath.slice(buildDirectoryAbsolute.length);
 		}
 
 		relativePath = relativePath.replace(/^\/+/, "");
@@ -121,7 +128,11 @@ export const build = async ({
 	}, {});
 
 	void (
-		htmlDirAbsolute && (await updateScriptTags(manifest, htmlDirAbsolute))
+		htmlPagesDirectory &&
+		(await updateScriptTags(
+			manifest,
+			join(buildDirectoryAbsolute, "html", "pages")
+		))
 	);
 
 	const end = performance.now();
@@ -140,15 +151,15 @@ export const build = async ({
 };
 
 const generateReactIndexFiles = async (
-	reactPagesDirAbsolute: string,
-	reactIndexDirAbsolute: string
+	reactPagesDirectory: string,
+	reactIndexesDirectory: string
 ) => {
-	await rm(reactIndexDirAbsolute, { force: true, recursive: true });
-	await mkdir(reactIndexDirAbsolute);
+	await rm(reactIndexesDirectory, { force: true, recursive: true });
+	await mkdir(reactIndexesDirectory);
 
 	const pagesGlob = new Glob("*.*");
 	const files: string[] = [];
-	for await (const file of pagesGlob.scan({ cwd: reactPagesDirAbsolute })) {
+	for await (const file of pagesGlob.scan({ cwd: reactPagesDirectory })) {
 		files.push(file);
 	}
 	const promises = files.map(async (file) => {
@@ -161,7 +172,7 @@ const generateReactIndexFiles = async (
 		].join("\n");
 
 		return writeFile(
-			join(reactIndexDirAbsolute, `${componentName}Index.tsx`),
+			join(reactIndexesDirectory, `${componentName}Index.tsx`),
 			content
 		);
 	});
