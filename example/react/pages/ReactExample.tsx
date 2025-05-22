@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-export const ReactHome = () => {
+export const ReactExample = () => {
 	const [count, setCount] = useState(0);
 	const year = new Date().getFullYear();
 

@@ -7,7 +7,7 @@ import {
 	handleHTMLPageRequest,
 	handleReactPageRequest
 } from "../src/core/pageHandlers";
-import { ReactHome } from "./react/pages/ReactExample";
+import { ReactExample } from "./react/pages/ReactExample";
 
 const manifest = await build({
 	assetsDirectory: "./example/assets",
@@ -36,10 +36,10 @@ export const server = new Elysia()
 		})
 	)
 	.get("/", () =>
-		handleHTMLPageRequest("./example/build/html/HtmlHomeIndex.html")
+		handleHTMLPageRequest("./example/build/html/pages/HtmlExample.html")
 	)
 	.get("/react", () =>
-		handleReactPageRequest(ReactHome, manifest["ReactHomeIndex"])
+		handleReactPageRequest(ReactExample, manifest["ReactExampleIndex"])
 	)
 	.get("/htmx", () => file("./example/build/htmx/HtmxHome.html"))
 	.get("/htmx/increment", () => {
