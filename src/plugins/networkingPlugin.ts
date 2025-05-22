@@ -1,8 +1,8 @@
 import { argv } from "node:process";
 import { env } from "bun";
 import { Elysia } from "elysia";
-import { getLocalIPAddress } from "../utils/networking";
 import { DEFAULT_PORT } from "../constants";
+import { getLocalIPAddress } from "../utils/networking";
 
 let host = env.HOST ?? "localhost";
 const port = env.PORT ?? DEFAULT_PORT;

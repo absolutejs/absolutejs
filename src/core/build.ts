@@ -7,8 +7,8 @@ import {
 	MILLISECONDS_IN_A_SECOND,
 	TIME_PRECISION
 } from "../constants";
-import { updateScriptTags } from "../utils/updateScriptTags";
 import { BuildConfig } from "../types";
+import { updateScriptTags } from "../utils/updateScriptTags";
 
 export const build = async ({
 	buildDirectory = "build",
@@ -52,6 +52,7 @@ export const build = async ({
 
 	if (entryPaths.length === 0) {
 		console.warn("No entry points found, skipping build");
+
 		return null;
 	}
 
@@ -110,7 +111,8 @@ export const build = async ({
 		}
 
 		const [fileName] = baseName.split(hashDelimiter);
-		acc[fileName] = "/" + relativePath;
+		acc[fileName] = `/${relativePath}`;
+
 		return acc;
 	}, {});
 
@@ -166,5 +168,6 @@ const scanEntryPoints = async (dir: string, pattern: string) => {
 	for await (const file of glob.scan({ absolute: true, cwd: dir })) {
 		entryPaths.push(file);
 	}
+
 	return entryPaths;
 };

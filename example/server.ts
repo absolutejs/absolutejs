@@ -1,22 +1,22 @@
-import { Elysia } from "elysia";
 import { staticPlugin } from "@elysiajs/static";
-import { ReactHome } from "./react/pages/ReactHome";
+import { Elysia } from "elysia";
+import { networkingPlugin } from "../src";
+import { build } from "../src/core/build";
 import {
 	handleHTMLPageRequest,
 	handleReactPageRequest
 } from "../src/core/pageHandlers";
-import { build } from "../src/core/build";
-import { networkingPlugin } from "../src";
+import { ReactHome } from "./react/pages/ReactExample";
 
 const manifest = await build({
-	buildDirectory: "./example/build",
 	assetsDirectory: "./example/assets",
-	reactDirectory: "./example/react",
+	buildDirectory: "./example/build",
 	html: {
 		directory: "./example/html",
 		scriptingOption: "ts+ssr"
 	},
 	htmxDirectory: "./example/htmx",
+	reactDirectory: "./example/react",
 	tailwind: {
 		input: "./example/styles/tailwind.css",
 		output: "/assets/css/tailwind.generated.css"
@@ -43,6 +43,7 @@ export const server = new Elysia()
 	.get("/htmx", () => Bun.file("./example/build/htmx/HtmxHome.html"))
 	.get("/htmx/increment", () => {
 		counter++;
+
 		return new Response(counter.toString(), {
 			headers: { "Content-Type": "text/plain" }
 		});

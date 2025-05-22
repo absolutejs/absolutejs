@@ -19,8 +19,8 @@ export const updateScriptTags = async (
 	const htmlGlob = new Glob("*.html");
 	const htmlFiles: string[] = [];
 	for await (const file of htmlGlob.scan({
-		cwd: htmlDir,
-		absolute: true
+		absolute: true,
+		cwd: htmlDir
 	})) {
 		htmlFiles.push(file);
 	}
@@ -49,9 +49,8 @@ export const updateScriptTags = async (
 			// Replace the matched src attribute with the new value from the manifest
 			content = content.replace(
 				regex,
-				(_, prefix, _oldBase, _ext, suffix) => {
-					return `${prefix}${newPath}${suffix}`;
-				}
+				(_, prefix, _oldBase, _ext, suffix) =>
+					`${prefix}${newPath}${suffix}`
 			);
 		}
 

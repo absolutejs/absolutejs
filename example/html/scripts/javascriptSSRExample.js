@@ -31,5 +31,5 @@ document.addEventListener("DOMContentLoaded", (event) => {
 	});
 
 	const footerText = document.getElementById("footer-text");
-	footerText.textContent = "© " + new Date().getFullYear() + " AbsoluteJS";
+	footerText.textContent = `© ${new Date().getFullYear()} AbsoluteJS`;
 });
