@@ -87,7 +87,7 @@ export const build = async ({
 	}
 
 	if (tailwind) {
-		await $`tailwindcss -i ${tailwind.input} -o ${join(buildDirAbsolute, tailwind.output)}`;
+		await $`bunx @tailwindcss/cli -i ${tailwind.input} -o ${join(buildDirAbsolute, tailwind.output)}`;
 	}
 
 	const manifest = outputs.reduce<Record<string, string>>((acc, artifact) => {

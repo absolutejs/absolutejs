@@ -1,6 +1,6 @@
 {
 	"name": "@absolutejs/absolute",
-	"version": "0.5.4",
+	"version": "0.5.5",
 	"description": "A fullstack meta-framework for building web applications with TypeScript",
 	"repository": {
 		"type": "git",
@@ -23,18 +23,20 @@
 		"react-dom": ">= 19.1.0"
 	},
 	"devDependencies": {
-		"elysia": "1.2.25",
 		"@elysiajs/static": "1.0.2",
+		"@tailwindcss/cli": "4.1.7",
 		"@types/bun": "1.1.1",
-		"@types/react": "19.1.0",
-		"@types/react-dom": "19.1.2",
+		"@types/react": "19.1.5",
+		"@types/react-dom": "19.1.5",
 		"@types/vue": "2.0.0",
-		"typescript": "5.7.2",
+		"autoprefixer": "10.4.21",
+		"elysia": "1.2.25",
+		"postcss": "8.5.3",
+		"prettier": "3.5.3",
 		"react": "19.1.0",
 		"svelte": "4.2.15",
-		"vue": "3.4.26",
-		"postcss": "8.4.49",
-		"autoprefixer": "10.4.20",
-		"tailwindcss": "3.4.17"
+		"tailwindcss": "4.1.7",
+		"typescript": "5.7.2",
+		"vue": "3.4.26"
 	}
 }
