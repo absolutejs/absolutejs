@@ -36,7 +36,9 @@ export const server = new Elysia()
 		handleHTMLPageRequest("./example/build/html/pages/HtmlExample.html")
 	)
 	.get("/react", () =>
-		handleReactPageRequest(ReactExample, manifest["ReactExampleIndex"])
+		handleReactPageRequest(ReactExample, manifest["ReactExampleIndex"], {
+			test: 123
+		})
 	)
 	.get("/htmx", () => file("./example/build/htmx/HtmxHome.html"))
 	.get("/htmx/increment", () => {

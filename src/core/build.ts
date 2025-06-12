@@ -167,8 +167,15 @@ const generateReactIndexFiles = async (
 		const [componentName] = fileName.split(".");
 		const content = [
 			`import { hydrateRoot } from 'react-dom/client';`,
+			`import type { ComponentType } from 'react'`,
 			`import { ${componentName} } from '../pages/${componentName}';\n`,
-			`hydrateRoot(document, <${componentName} />);`
+			`type PropsOf<C> = C extends ComponentType<infer P> ? P : never;\n`,
+			`declare global {
+				interface Window {
+					__INITIAL_PROPS__: PropsOf<typeof ReactExample>
+				}
+			}\n`,
+			`hydrateRoot(document, <${componentName} {...window.__INITIAL_PROPS__} />);`
 		].join("\n");
 
 		return writeFile(
