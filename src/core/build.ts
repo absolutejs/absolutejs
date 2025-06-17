@@ -170,11 +170,11 @@ const generateReactIndexFiles = async (
 			`import type { ComponentType } from 'react'`,
 			`import { ${componentName} } from '../pages/${componentName}';\n`,
 			`type PropsOf<C> = C extends ComponentType<infer P> ? P : never;\n`,
-			`declare global {
-				interface Window {
-					__INITIAL_PROPS__: PropsOf<typeof ReactExample>
-				}
-			}\n`,
+			`declare global {`,
+			`\tinterface Window {`,
+			`\t\t__INITIAL_PROPS__: PropsOf<typeof ${componentName}>`,
+			`\t}`,
+			`}\n`,
 			`hydrateRoot(document, <${componentName} {...window.__INITIAL_PROPS__} />);`
 		].join("\n");
 
