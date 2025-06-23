@@ -1,2 +1,2 @@
 export * from "./networking";
-export * from "./updateScriptTags";
+export * from "../build/updateScriptTags";

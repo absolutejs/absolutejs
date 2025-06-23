@@ -38,26 +38,21 @@ export default defineConfig([
 				project: "./tsconfig.json",
 				tsconfigRootDir: __dirname
 			}
-		}
-	},
-
-	{
-		files: ["**/*.{ts,tsx}"],
+		},
 		plugins: { "@stylistic/ts": stylisticTs },
 		rules: {
 			"@stylistic/ts/padding-line-between-statements": [
 				"error",
 				{ blankLine: "always", next: "return", prev: "*" }
-			]
+			],
+
+			"@typescript-eslint/no-unnecessary-type-assertion": "error"
 		}
 	},
 
 	{
 		files: ["**/*.{js,mjs,cjs,ts,tsx,jsx}"],
 		ignores: ["node_modules/**"],
-		languageOptions: {
-			globals: globals.browser
-		},
 		plugins: {
 			absolute: absolutePlugin,
 			import: importPlugin,
@@ -74,7 +69,6 @@ export default defineConfig([
 				{ allowedVars: ["_", "id", "db", "OK"], minLength: 3 }
 			],
 			"absolute/no-explicit-return-type": "error",
-			"absolute/no-type-cast": "error",
 			"absolute/no-useless-function": "error",
 			"absolute/sort-exports": [
 				"error",
@@ -175,6 +169,7 @@ export default defineConfig([
 			"promise/param-names": "error"
 		}
 	},
+
 	{
 		files: ["eslint.config.mjs", "src/constants.ts"],
 		rules: {

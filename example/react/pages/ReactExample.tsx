@@ -32,6 +32,7 @@ export const ReactExample = ({ test }: { test: number }) => {
 					</button>
 					<div id="links">
 						<a href="/">Html</a>
+						<a href="/svelte">Svelte</a>
 						<a href="/vue">Vue</a>
 					</div>
 					<footer>

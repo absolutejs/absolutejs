@@ -13,7 +13,7 @@
 	"scripts": {
 		"build": "rm -rf dist && bun build src/index.ts --outdir dist --sourcemap --target=bun --external react --external react-dom --external elysia && tsc --emitDeclarationOnly --project tsconfig.json",
 		"test": "echo \"Error: no test specified\" && exit 1",
-		"format": "prettier --write \"./**/*.{js,jsx,ts,tsx,css,json,mjs,md}\"",
+		"format": "prettier --write \"./**/*.{js,jsx,ts,tsx,css,json,mjs,md,svelte}\"",
 		"lint": "eslint ./",
 		"typecheck": "bun run tsc --noEmit",
 		"dev": "bun run --watch example/server.ts",
@@ -26,6 +26,7 @@
 	},
 	"devDependencies": {
 		"@elysiajs/static": "1.3.0",
+		"@stylistic/eslint-plugin-ts": "4.2.0",
 		"@tailwindcss/cli": "4.1.7",
 		"@types/bun": "1.2.14",
 		"@types/react": "19.1.5",
@@ -33,19 +34,19 @@
 		"@types/vue": "2.0.0",
 		"autoprefixer": "10.4.21",
 		"elysia": "1.3.1",
-		"postcss": "8.5.3",
-		"prettier": "3.5.3",
-		"react": "19.1.0",
-		"svelte": "4.2.15",
-		"tailwindcss": "4.1.7",
-		"typescript": "5.8.3",
-		"vue": "3.4.26",
-		"@stylistic/eslint-plugin-ts": "4.2.0",
 		"eslint": "9.26.0",
-		"eslint-plugin-absolute": "0.1.0",
+		"eslint-plugin-absolute": "0.1.4",
 		"eslint-plugin-import": "2.31.0",
 		"eslint-plugin-promise": "7.2.1",
 		"eslint-plugin-security": "3.0.1",
-		"typescript-eslint": "8.32.0"
+		"postcss": "8.5.3",
+		"prettier": "3.5.3",
+		"prettier-plugin-svelte": "^3.4.0",
+		"react": "19.1.0",
+		"svelte": "5.34.7",
+		"tailwindcss": "4.1.7",
+		"typescript": "5.8.3",
+		"typescript-eslint": "8.32.0",
+		"vue": "3.4.26"
 	}
 }

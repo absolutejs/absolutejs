@@ -4,5 +4,14 @@
 	"printWidth": 80,
 	"tabWidth": 4,
 	"endOfLine": "auto",
-	"useTabs": true
+	"useTabs": true,
+	"plugins": ["prettier-plugin-svelte"],
+	"overrides": [
+		{
+			"files": "*.svelte",
+			"options": {
+				"parser": "svelte"
+			}
+		}
+	]
 }

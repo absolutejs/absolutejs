@@ -26,9 +26,6 @@ yarn-error.log*
 # local env files
 **/*.env
 
-# vercel
-.vercel
-
 **/*.trace
 **/*.zip
 **/*.tar.gz
@@ -41,9 +38,9 @@ package-lock.json
 /db/migrations/meta
 /db/migrations/*.sql
 
-#local build files
-**/build/**/*
-/build
+build/
+!src/build/
+!src/build/**
 /dist
 
 **/indexes/**/* */

@@ -5,7 +5,8 @@ import { networkingPlugin } from "../src";
 import { build } from "../src/core/build";
 import {
 	handleHTMLPageRequest,
-	handleReactPageRequest
+	handleReactPageRequest,
+	handleSveltePageRequest
 } from "../src/core/pageHandlers";
 import { ReactExample } from "./react/pages/ReactExample";
 
@@ -15,10 +16,11 @@ const manifest = await build({
 	htmlDirectory: "./example/html",
 	htmxDirectory: "./example/htmx",
 	reactDirectory: "./example/react",
-	tailwind: {
-		input: "./example/styles/tailwind.css",
-		output: "/assets/css/tailwind.generated.css"
-	}
+	svelteDirectory: "./example/svelte"
+	// tailwind: {
+	// 	input: "./example/styles/tailwind.css",
+	// 	output: "/assets/css/tailwind.generated.css"
+	// }
 });
 
 if (manifest === null) throw new Error("Manifest was not generated");
@@ -40,6 +42,19 @@ export const server = new Elysia()
 			test: 123
 		})
 	)
+	.get("/svelte", async () => {
+		const { default: SvelteExample } = await import(
+			manifest["SvelteExample/page"]
+		);
+
+		return handleSveltePageRequest(
+			SvelteExample,
+			manifest["SvelteExample/index"],
+			{
+				test: 456
+			}
+		);
+	})
 	.get("/htmx", () => file("./example/build/htmx/HtmxHome.html"))
 	.get("/htmx/increment", () => {
 		counter++;
