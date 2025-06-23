@@ -42,5 +42,3 @@ build/
 !src/build/
 !src/build/**
 /dist
-
-**/indexes/**/* */

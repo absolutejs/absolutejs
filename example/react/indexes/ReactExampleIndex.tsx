@@ -1,12 +1,12 @@
-import type { ComponentType } from "react";
-import { hydrateRoot } from "react-dom/client";
-import { ReactExample } from "../pages/ReactExample";
+import { hydrateRoot } from 'react-dom/client';
+import type { ComponentType } from 'react'
+import { ReactExample } from '../pages/ReactExample';
 
 type PropsOf<C> = C extends ComponentType<infer P> ? P : never;
 
 declare global {
 	interface Window {
-		__INITIAL_PROPS__: PropsOf<typeof ReactExample>;
+		__INITIAL_PROPS__: PropsOf<typeof ReactExample>
 	}
 }
 
