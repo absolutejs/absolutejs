@@ -154,6 +154,10 @@ export const build = async ({
 		});
 	}
 
+	if (reactIndexesPath) {
+		await rm(reactIndexesPath, { force: true, recursive: true });
+	}
+
 	const buildDuration = performance.now() - buildStart;
 	console.log(`Build completed in ${getDurationString(buildDuration)}`);
 
