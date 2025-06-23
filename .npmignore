@@ -41,9 +41,7 @@ CONTRIBUTING.md
 CODE_OF_CONDUCT.md
 trace
 
-build.ts
 .scannerwork
-server
 
 src/**
 
