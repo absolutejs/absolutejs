@@ -1,8 +1,8 @@
 import { file } from "bun";
 import { ComponentType, createElement } from "react";
-import { renderToReadableStream } from "react-dom/server";
+import { renderToReadableStream as renderReactToReadableStream } from "react-dom/server";
 import { Component } from "svelte";
-import { render } from "svelte/server";
+import { renderToReadableStream as renderSvelteToReadableStream } from "../svelte/renderToReadableStream";
 
 export const handleReactPageRequest = async <P extends object>(
 	pageComponent: ComponentType<P>,
@@ -15,7 +15,7 @@ export const handleReactPageRequest = async <P extends object>(
 			? createElement(pageComponent, maybeProps)
 			: createElement(pageComponent);
 
-	const stream = await renderToReadableStream(element, {
+	const stream = await renderReactToReadableStream(element, {
 		bootstrapModules: [index],
 		bootstrapScriptContent: maybeProps
 			? `window.__INITIAL_PROPS__=${JSON.stringify(maybeProps)}`
@@ -27,27 +27,21 @@ export const handleReactPageRequest = async <P extends object>(
 	});
 };
 
-export const handleSveltePageRequest = <Props extends Record<string, unknown>>(
+export const handleSveltePageRequest = async <
+	Props extends Record<string, unknown>
+>(
 	pageComponent: Component<Props>,
 	index: string,
 	props: Props
 ) => {
-	const serializedProps = JSON.stringify(props).replace(/</g, "\\u003c");
+	const stream = await renderSvelteToReadableStream(pageComponent, props, {
+		bootstrapModules: [index],
+		bootstrapScriptContent: `window.__INITIAL_PROPS__=${JSON.stringify(
+			props
+		)}`
+	});
 
-	const { body, head } = render(pageComponent, { props });
-	const html = `<!DOCTYPE html>
-	<html lang="en">
-	<head>
-	${head}
-	</head>
-	<body>
-	${body}
-	<script>window.__INITIAL_PROPS__=${serializedProps};</script>
-	<script type="module" src="${index}"></script>
-	</body>
-	</html>`;
-
-	return new Response(html, {
+	return new Response(stream, {
 		headers: { "Content-Type": "text/html" }
 	});
 };

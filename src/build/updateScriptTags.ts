@@ -1,16 +1,11 @@
 import { readFile, writeFile } from "node:fs/promises";
-import { Glob } from "bun";
+import { scanEntryPoints } from "./scanEntryPoints";
 
 export const updateScriptTags = async (
 	manifest: Record<string, string>,
 	htmlDir: string
 ) => {
-	const glob = new Glob("*.html");
-	const htmlFiles: string[] = [];
-	const fileIterator = glob.scan({ absolute: true, cwd: htmlDir });
-	for await (const filePath of fileIterator) {
-		htmlFiles.push(filePath);
-	}
+	const htmlFiles = await scanEntryPoints(htmlDir, "*.html");
 
 	const tasks = htmlFiles.map(async (filePath) => {
 		const original = await readFile(filePath, "utf8");

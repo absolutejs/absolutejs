@@ -2,11 +2,11 @@ import { rm, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { cwd, exit } from "node:process";
 import { $, build as bunBuild } from "bun";
-import { compileSvelte } from "../build/compileSvelte";
 import { generateManifest } from "../build/generateManifest";
 import { generateReactIndexFiles } from "../build/generateReactIndexes";
 import { scanEntryPoints } from "../build/scanEntryPoints";
 import { updateScriptTags } from "../build/updateScriptTags";
+import { compileSvelte } from "../svelte/compileSvelte";
 import { BuildConfig } from "../types";
 import { getDurationString } from "../utils/getDurationString";
 
