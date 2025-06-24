@@ -30,16 +30,30 @@ export const handleReactPageRequest = async <P extends object>(
 export const handleSveltePageRequest = async <
 	Props extends Record<string, unknown>
 >(
-	pageComponent: Component<Props>,
-	index: string,
+	PageComponent: Component<Props>,
+	manifest: Record<string, string>,
 	props: Props
 ) => {
-	const stream = await renderSvelteToReadableStream(pageComponent, props, {
-		bootstrapModules: [index],
-		bootstrapScriptContent: `window.__INITIAL_PROPS__=${JSON.stringify(
-			props
-		)}`
-	});
+	const componentPath = PageComponent.toString();
+	const pathSegments = componentPath.split("/");
+	const lastSegment = pathSegments[pathSegments.length - 1] ?? "";
+	const componentName = lastSegment.replace(/\.svelte$/, "");
+
+	const pagePath = manifest[componentName];
+	const indexPath = manifest[`${componentName}Index`];
+
+	const { default: ImportedPageComponent } = await import(pagePath);
+
+	const stream = await renderSvelteToReadableStream(
+		ImportedPageComponent,
+		props,
+		{
+			bootstrapModules: [indexPath],
+			bootstrapScriptContent: `window.__INITIAL_PROPS__=${JSON.stringify(
+				props
+			)}`
+		}
+	);
 
 	return new Response(stream, {
 		headers: { "Content-Type": "text/html" }

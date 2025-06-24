@@ -9,6 +9,7 @@ import {
 	handleSveltePageRequest
 } from "../src/core/pageHandlers";
 import { ReactExample } from "./react/pages/ReactExample";
+import SvelteExample from "./svelte/pages/SvelteExample.svelte";
 
 const manifest = await build({
 	assetsDirectory: "./example/assets",
@@ -42,19 +43,11 @@ export const server = new Elysia()
 			test: 123
 		})
 	)
-	.get("/svelte", async () => {
-		const { default: SvelteExample } = await import(
-			manifest["SvelteExample/page"]
-		);
-
-		return handleSveltePageRequest(
-			SvelteExample,
-			manifest["SvelteExample/index"],
-			{
-				test: 456
-			}
-		);
-	})
+	.get("/svelte", async () =>
+		handleSveltePageRequest(SvelteExample, manifest, {
+			test: 123
+		})
+	)
 	.get("/htmx", () => file("./example/build/htmx/HtmxHome.html"))
 	.get("/htmx/increment", () => {
 		counter++;
