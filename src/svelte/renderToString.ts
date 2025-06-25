@@ -2,19 +2,15 @@ import type { Component } from "svelte";
 import { render } from "svelte/server";
 import { escapeScriptContent } from "../utils/escapeScriptContent";
 
-const DEFAULT_CHUNK_SIZE = 16_384;
-
-export type RenderStreamOptions = {
+export type RenderStringOptions = {
 	bootstrapScriptContent?: string;
 	bootstrapScripts?: string[];
 	bootstrapModules?: string[];
 	nonce?: string;
 	onError?: (error: unknown) => void;
-	progressiveChunkSize?: number;
-	signal?: AbortSignal;
 };
 
-export const renderToReadableStream = async <
+export const renderToString = <
 	Props extends Record<string, unknown> = Record<string, never>
 >(
 	component: Component<Props>,
@@ -24,10 +20,8 @@ export const renderToReadableStream = async <
 		bootstrapScripts = [],
 		bootstrapModules = [],
 		nonce,
-		onError = console.error,
-		progressiveChunkSize = DEFAULT_CHUNK_SIZE,
-		signal
-	}: RenderStreamOptions = {}
+		onError = console.error
+	}: RenderStringOptions = {}
 ) => {
 	try {
 		const { head, body } = render(component, { props });
@@ -45,38 +39,8 @@ export const renderToReadableStream = async <
 						`<script${nonceAttr} type="module" src="${src}"></script>`
 				)
 				.join("");
-		const encoder = new TextEncoder();
-		// Warning: this encodes the entire document into memory in one buffer
-		const full = encoder.encode(
-			`<!DOCTYPE html><html lang="en"><head>${head}</head><body>${body}${scripts}</body></html>`
-		);
 
-		let offset = 0;
-
-		return new ReadableStream<Uint8Array>({
-			type: "bytes",
-			cancel(reason) {
-				onError?.(reason);
-			},
-			pull(controller) {
-				if (signal?.aborted) {
-					controller.close();
-
-					return;
-				}
-				if (offset >= full.length) {
-					controller.close();
-
-					return;
-				}
-				const end = Math.min(
-					offset + progressiveChunkSize,
-					full.length
-				);
-				controller.enqueue(full.subarray(offset, end));
-				offset = end;
-			}
-		});
+		return `<!DOCTYPE html><html lang="en"><head>${head}</head><body>${body}${scripts}</body></html>`;
 	} catch (error) {
 		onError?.(error);
 		throw error;

@@ -1,10 +1,11 @@
+import { Readable } from "node:stream";
 import type { Component } from "svelte";
 import { render } from "svelte/server";
 import { escapeScriptContent } from "../utils/escapeScriptContent";
 
 const DEFAULT_CHUNK_SIZE = 16_384;
 
-export type RenderStreamOptions = {
+export type RenderPipeableOptions = {
 	bootstrapScriptContent?: string;
 	bootstrapScripts?: string[];
 	bootstrapModules?: string[];
@@ -14,7 +15,7 @@ export type RenderStreamOptions = {
 	signal?: AbortSignal;
 };
 
-export const renderToReadableStream = async <
+export const renderToPipeableStream = <
 	Props extends Record<string, unknown> = Record<string, never>
 >(
 	component: Component<Props>,
@@ -27,7 +28,7 @@ export const renderToReadableStream = async <
 		onError = console.error,
 		progressiveChunkSize = DEFAULT_CHUNK_SIZE,
 		signal
-	}: RenderStreamOptions = {}
+	}: RenderPipeableOptions = {}
 ) => {
 	try {
 		const { head, body } = render(component, { props });
@@ -45,27 +46,23 @@ export const renderToReadableStream = async <
 						`<script${nonceAttr} type="module" src="${src}"></script>`
 				)
 				.join("");
+
 		const encoder = new TextEncoder();
-		// Warning: this encodes the entire document into memory in one buffer
 		const full = encoder.encode(
 			`<!DOCTYPE html><html lang="en"><head>${head}</head><body>${body}${scripts}</body></html>`
 		);
 
 		let offset = 0;
 
-		return new ReadableStream<Uint8Array>({
-			type: "bytes",
-			cancel(reason) {
-				onError?.(reason);
-			},
-			pull(controller) {
+		const stream = new Readable({
+			read() {
 				if (signal?.aborted) {
-					controller.close();
+					this.destroy(signal.reason as Error);
 
 					return;
 				}
 				if (offset >= full.length) {
-					controller.close();
+					this.push(null);
 
 					return;
 				}
@@ -73,10 +70,12 @@ export const renderToReadableStream = async <
 					offset + progressiveChunkSize,
 					full.length
 				);
-				controller.enqueue(full.subarray(offset, end));
+				this.push(full.subarray(offset, end));
 				offset = end;
 			}
 		});
+
+		return stream;
 	} catch (error) {
 		onError?.(error);
 		throw error;
