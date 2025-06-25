@@ -17,7 +17,8 @@ export const build = async ({
 	htmlDirectory,
 	htmxDirectory,
 	svelteDirectory,
-	tailwind
+	tailwind,
+	options
 }: BuildConfig) => {
 	const buildStart = performance.now();
 	const projectRoot = cwd();
@@ -140,7 +141,7 @@ export const build = async ({
 		await updateScriptTags(manifest, join(buildPath, "html", "pages"));
 	}
 
-	if (svelteBuildPath) {
+	if (!options?.preserveIntermediateFiles && svelteBuildPath) {
 		await rm(join(svelteBuildPath, "indexes"), {
 			force: true,
 			recursive: true
@@ -154,7 +155,7 @@ export const build = async ({
 		});
 	}
 
-	if (reactIndexesPath) {
+	if (!options?.preserveIntermediateFiles && reactIndexesPath) {
 		await rm(reactIndexesPath, { force: true, recursive: true });
 	}
 

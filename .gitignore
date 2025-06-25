@@ -42,3 +42,7 @@ build/
 !src/build/
 !src/build/**
 /dist
+example/react/indexes/
+example/svelte/indexes/
+example/svelte/client/
+example/svelte/pages/*.js

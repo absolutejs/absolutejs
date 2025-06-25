@@ -19,6 +19,9 @@ export default defineConfig([
 		ignores: [
 			"dist/**",
 			"example/build/**",
+			"example/svelte/indexes/",
+			"example/svelte/client/",
+			"example/svelte/pages/*.js",
 			"tailwind.config.ts",
 			"postcss.config.ts"
 		]

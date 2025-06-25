@@ -1,3 +1,7 @@
+type BuildOptions = {
+	preserveIntermediateFiles?: boolean;
+};
+
 export type BuildConfig = {
 	buildDirectory?: string;
 	assetsDirectory?: string;
@@ -12,4 +16,5 @@ export type BuildConfig = {
 		input: string;
 		output: string;
 	};
+	options?: BuildOptions;
 };
