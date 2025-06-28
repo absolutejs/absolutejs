@@ -1,5 +1,5 @@
 import { rm, mkdir } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { cwd, exit } from "node:process";
 import { $, build as bunBuild } from "bun";
 import { generateManifest } from "../build/generateManifest";
@@ -110,17 +110,23 @@ export const build = async ({
 		exit(1);
 	});
 
-	const { logs: clientLogs, outputs: clientOutputs } = await bunBuild({
-		entrypoints: svelteClientPaths,
-		format: "esm",
-		naming: `[dir]/[name].[hash].[ext]`,
-		outdir: join(buildPath, "svelte"),
-		root: svelteBuildPath,
-		target: "browser"
-	}).catch((error) => {
-		console.error("Client build failed:", error);
-		exit(1);
-	});
+	let clientLogs: typeof serverLogs = [];
+	let clientOutputs: typeof serverOutputs = [];
+	if (svelteDirectory) {
+		const { logs, outputs } = await bunBuild({
+			entrypoints: svelteClientPaths,
+			format: "esm",
+			naming: `[dir]/[name].[hash].[ext]`,
+			outdir: join(buildPath, "svelte"),
+			root: svelteBuildPath,
+			target: "browser"
+		}).catch((error) => {
+			console.error("Client build failed:", error);
+			exit(1);
+		});
+		clientLogs = logs;
+		clientOutputs = outputs;
+	}
 
 	serverLogs.concat(clientLogs).forEach((log) => {
 		if (log.level === "error") console.error(log);
@@ -132,9 +138,13 @@ export const build = async ({
 	const manifest = generateManifest(allOutputs, buildPath);
 
 	if (htmlDirectory && htmlPagesPath) {
-		const outputHtmlPages = join(buildPath, htmlDirectory, "pages");
+		const outputHtmlPages = join(
+			buildPath,
+			basename(htmlDirectory),
+			"pages"
+		);
 		await mkdir(outputHtmlPages, { recursive: true });
-		await $`cp -R ${htmlPagesPath} ${join(buildPath, htmlDirectory)}`;
+		await $`cp -R ${htmlPagesPath}/. ${outputHtmlPages}`;
 		await updateScriptTags(manifest, outputHtmlPages);
 	}
 
