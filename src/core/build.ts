@@ -61,12 +61,6 @@ export const build = async ({
 		await $`cp -R ${assetsPath} ${buildPath}`;
 	}
 
-	if (htmlPagesPath) {
-		const outputHtmlPages = join(buildPath, "html", "pages");
-		await mkdir(outputHtmlPages, { recursive: true });
-		await $`cp -R ${htmlPagesPath} ${join(buildPath, "html")}`;
-	}
-
 	if (htmxPath) {
 		await mkdir(join(buildPath, "htmx"));
 		await $`cp -R ${htmxPath} ${buildPath}`;
@@ -137,8 +131,11 @@ export const build = async ({
 	const allOutputs = serverOutputs.concat(clientOutputs);
 	const manifest = generateManifest(allOutputs, buildPath);
 
-	if (htmlPagesPath) {
-		await updateScriptTags(manifest, join(buildPath, "html", "pages"));
+	if (htmlDirectory && htmlPagesPath) {
+		const outputHtmlPages = join(buildPath, htmlDirectory, "pages");
+		await mkdir(outputHtmlPages, { recursive: true });
+		await $`cp -R ${htmlPagesPath} ${join(buildPath, htmlDirectory)}`;
+		await updateScriptTags(manifest, outputHtmlPages);
 	}
 
 	if (!options?.preserveIntermediateFiles && svelteBuildPath) {
