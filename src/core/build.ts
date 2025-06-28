@@ -1,4 +1,4 @@
-import { rm, mkdir } from "node:fs/promises";
+import { rm, mkdir, cp } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { cwd, exit } from "node:process";
 import { $, build as bunBuild } from "bun";
@@ -9,6 +9,7 @@ import { updateScriptTags } from "../build/updateScriptTags";
 import { compileSvelte } from "../svelte/compileSvelte";
 import { BuildConfig } from "../types";
 import { getDurationString } from "../utils/getDurationString";
+import { validateSafePath } from "../utils/validateSafePath";
 
 export const build = async ({
 	buildDirectory = "build",
@@ -23,32 +24,29 @@ export const build = async ({
 	const buildStart = performance.now();
 	const projectRoot = cwd();
 
-	const buildPath = join(projectRoot, buildDirectory);
-	const assetsPath = assetsDirectory
-		? join(projectRoot, assetsDirectory)
+	const buildPath = validateSafePath(buildDirectory, projectRoot);
+	const assetsPath =
+		assetsDirectory && validateSafePath(assetsDirectory, projectRoot);
+	const reactDirectoryPath =
+		reactDirectory && validateSafePath(reactDirectory, projectRoot);
+	const reactIndexesPath =
+		reactDirectoryPath && join(projectRoot, reactDirectoryPath, "indexes");
+	const reactPagesPath =
+		reactDirectoryPath && join(projectRoot, reactDirectoryPath, "pages");
+	const htmlDirectoryPath =
+		htmlDirectory && validateSafePath(htmlDirectory, projectRoot);
+	const htmlPagesPath = htmlDirectoryPath
+		? join(projectRoot, htmlDirectoryPath, "pages")
 		: undefined;
-
-	const reactIndexesPath = reactDirectory
-		? join(projectRoot, reactDirectory, "indexes")
+	const htmlScriptsPath = htmlDirectoryPath
+		? join(projectRoot, htmlDirectoryPath, "scripts")
 		: undefined;
-	const reactPagesPath = reactDirectory
-		? join(projectRoot, reactDirectory, "pages")
-		: undefined;
-
-	const htmlPagesPath = htmlDirectory
-		? join(projectRoot, htmlDirectory, "pages")
-		: undefined;
-	const htmlScriptsPath = htmlDirectory
-		? join(projectRoot, htmlDirectory, "scripts")
-		: undefined;
-
-	const svelteBuildPath = svelteDirectory
-		? join(projectRoot, svelteDirectory)
-		: undefined;
-
-	const htmxPath = htmxDirectory
-		? join(projectRoot, htmxDirectory)
-		: undefined;
+	const svelteDirectoryPath =
+		svelteDirectory && validateSafePath(svelteDirectory, projectRoot);
+	const svelteBuildPath =
+		svelteDirectoryPath && join(projectRoot, svelteDirectoryPath);
+	const htmxPath =
+		htmxDirectory && validateSafePath(htmxDirectory, projectRoot);
 
 	await rm(buildPath, { force: true, recursive: true });
 	await mkdir(buildPath);
@@ -58,12 +56,18 @@ export const build = async ({
 	}
 
 	if (assetsPath) {
-		await $`cp -R ${assetsPath} ${buildPath}`;
+		await cp(assetsPath, join(buildPath, "assets"), {
+			force: true,
+			recursive: true
+		});
 	}
 
 	if (htmxPath) {
 		await mkdir(join(buildPath, "htmx"));
-		await $`cp -R ${htmxPath} ${buildPath}`;
+		await cp(htmxPath, join(buildPath, "htmx"), {
+			force: true,
+			recursive: true
+		});
 	}
 
 	if (tailwind) {
@@ -144,7 +148,10 @@ export const build = async ({
 			"pages"
 		);
 		await mkdir(outputHtmlPages, { recursive: true });
-		await $`cp -R ${htmlPagesPath}/. ${outputHtmlPages}`;
+		await cp(htmlPagesPath, outputHtmlPages, {
+			force: true,
+			recursive: true
+		});
 		await updateScriptTags(manifest, outputHtmlPages);
 	}
 

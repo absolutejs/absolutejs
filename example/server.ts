@@ -16,11 +16,17 @@ const manifest = await build({
 	buildDirectory: "./example/build",
 	htmlDirectory: "./example/html",
 	htmxDirectory: "./example/htmx",
-	reactDirectory: "./example/react",
-	svelteDirectory: "./example/svelte",
 	options: {
 		preserveIntermediateFiles: true
 	}
+	// tailwind: {
+	// 	input: "./example/styles/tailwind.css",
+	// 	output: "/assets/css/tailwind.generated.css"
+	// }, reactDirectory: "./example/react", svelteDirectory: "./example/svelte"
+	// tailwind: {
+	// 	input: "./example/styles/tailwind.css",
+	// 	output: "/assets/css/tailwind.generated.css"
+	// }, reactDirectory: "./example/react", svelteDirectory: "./example/svelte"
 	// tailwind: {
 	// 	input: "./example/styles/tailwind.css",
 	// 	output: "/assets/css/tailwind.generated.css"
