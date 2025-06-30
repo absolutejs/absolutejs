@@ -2,7 +2,7 @@ import {
 	MILLISECONDS_IN_A_SECOND,
 	TIME_PRECISION,
 	MILLISECONDS_IN_A_MINUTE
-} from "../constants";
+} from '../constants';
 
 export const getDurationString = (duration: number) => {
 	let durationString;

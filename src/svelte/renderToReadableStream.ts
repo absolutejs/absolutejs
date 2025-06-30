@@ -1,7 +1,7 @@
-import type { Component } from "svelte";
-import { render } from "svelte/server";
-import { DEFAULT_CHUNK_SIZE } from "../constants";
-import { escapeScriptContent } from "../utils/escapeScriptContent";
+import type { Component } from 'svelte';
+import { render } from 'svelte/server';
+import { DEFAULT_CHUNK_SIZE } from '../constants';
+import { escapeScriptContent } from '../utils/escapeScriptContent';
 
 export type RenderStreamOptions = {
 	bootstrapScriptContent?: string;
@@ -30,24 +30,24 @@ export const renderToReadableStream = async <
 ) => {
 	try {
 		const { head, body } =
-			typeof props === "undefined"
+			typeof props === 'undefined'
 				? // @ts-expect-error Svelte's render function can't determine which overload to choose when the component is generic
 					render(component)
 				: render(component, { props });
-		const nonceAttr = nonce ? ` nonce="${nonce}"` : "";
+		const nonceAttr = nonce ? ` nonce="${nonce}"` : '';
 		const scripts =
 			(bootstrapScriptContent
 				? `<script${nonceAttr}>${escapeScriptContent(bootstrapScriptContent)}</script>`
-				: "") +
+				: '') +
 			bootstrapScripts
 				.map((src) => `<script${nonceAttr} src="${src}"></script>`)
-				.join("") +
+				.join('') +
 			bootstrapModules
 				.map(
 					(src) =>
 						`<script${nonceAttr} type="module" src="${src}"></script>`
 				)
-				.join("");
+				.join('');
 		const encoder = new TextEncoder();
 		// Warning: this encodes the entire document into memory in one buffer
 		const full = encoder.encode(
@@ -57,7 +57,7 @@ export const renderToReadableStream = async <
 		let offset = 0;
 
 		return new ReadableStream<Uint8Array>({
-			type: "bytes",
+			type: 'bytes',
 			cancel(reason) {
 				onError?.(reason);
 			},

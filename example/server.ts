@@ -1,21 +1,21 @@
-import { staticPlugin } from "@elysiajs/static";
-import { file } from "bun";
-import { Elysia } from "elysia";
-import { networkingPlugin } from "../src";
-import { build } from "../src/core/build";
+import { staticPlugin } from '@elysiajs/static';
+import { file } from 'bun';
+import { Elysia } from 'elysia';
+import { networkingPlugin } from '../src';
+import { build } from '../src/core/build';
 import {
 	handleHTMLPageRequest,
 	handleReactPageRequest,
 	handleSveltePageRequest
-} from "../src/core/pageHandlers";
-import { ReactExample } from "./react/pages/ReactExample";
-import SvelteExample from "./svelte/pages/SvelteExample.svelte";
+} from '../src/core/pageHandlers';
+import { ReactExample } from './react/pages/ReactExample';
+import SvelteExample from './svelte/pages/SvelteExample.svelte';
 
 const manifest = await build({
-	assetsDirectory: "example/assets",
-	buildDirectory: "example/build",
-	htmlDirectory: "example/html",
-	htmxDirectory: "example/htmx",
+	assetsDirectory: 'example/assets',
+	buildDirectory: 'example/build',
+	htmlDirectory: 'example/html',
+	htmxDirectory: 'example/htmx',
 	options: {
 		preserveIntermediateFiles: true
 	}
@@ -29,38 +29,38 @@ const manifest = await build({
 	// },
 });
 
-if (manifest === null) throw new Error("Manifest was not generated");
+if (manifest === null) throw new Error('Manifest was not generated');
 
 let counter = 0;
 
 export const server = new Elysia()
 	.use(
 		staticPlugin({
-			assets: "./example/build",
-			prefix: ""
+			assets: './example/build',
+			prefix: ''
 		})
 	)
-	.get("/", () =>
-		handleHTMLPageRequest("./example/build/html/pages/HtmlExample.html")
+	.get('/', () =>
+		handleHTMLPageRequest('./example/build/html/pages/HtmlExample.html')
 	)
-	.get("/react", () =>
-		handleReactPageRequest(ReactExample, manifest["ReactExampleIndex"], {
+	.get('/react', () =>
+		handleReactPageRequest(ReactExample, manifest['ReactExampleIndex'], {
 			test: 123
 		})
 	)
-	.get("/svelte", async () =>
+	.get('/svelte', async () =>
 		handleSveltePageRequest(SvelteExample, manifest, { test: 456 })
 	)
-	.get("/htmx", () => file("./example/build/htmx/HtmxHome.html"))
-	.get("/htmx/increment", () => {
+	.get('/htmx', () => file('./example/build/htmx/HtmxHome.html'))
+	.get('/htmx/increment', () => {
 		counter++;
 
 		return new Response(counter.toString(), {
-			headers: { "Content-Type": "text/plain" }
+			headers: { 'Content-Type': 'text/plain' }
 		});
 	})
 	.use(networkingPlugin)
-	.on("error", (error) => {
+	.on('error', (error) => {
 		const { request } = error;
 		console.error(
 			`Server error on ${request.method} ${request.url}: ${error.message}`

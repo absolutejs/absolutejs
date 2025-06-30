@@ -1,2 +1,2 @@
-export * from "./build";
-export * from "./pageHandlers";
+export * from './build';
+export * from './pageHandlers';

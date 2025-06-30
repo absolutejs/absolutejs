@@ -1,6 +1,6 @@
-import type { Component } from "svelte";
-import { render } from "svelte/server";
-import { escapeScriptContent } from "../utils/escapeScriptContent";
+import type { Component } from 'svelte';
+import { render } from 'svelte/server';
+import { escapeScriptContent } from '../utils/escapeScriptContent';
 
 export type RenderStringOptions = {
 	bootstrapScriptContent?: string;
@@ -25,11 +25,11 @@ export const renderToString = <
 ) => {
 	try {
 		const { head, body } =
-			typeof props === "undefined"
+			typeof props === 'undefined'
 				? // @ts-expect-error Svelte's render function can't determine which overload to choose when the component is generic
 					render(component)
 				: render(component, { props });
-		const nonceAttr = nonce ? ` nonce="${nonce}"` : "";
+		const nonceAttr = nonce ? ` nonce="${nonce}"` : '';
 		const scripts = [
 			bootstrapScriptContent &&
 				`<script${nonceAttr}>${escapeScriptContent(bootstrapScriptContent)}</script>`,
@@ -42,7 +42,7 @@ export const renderToString = <
 			)
 		]
 			.filter(Boolean)
-			.join("");
+			.join('');
 
 		return `<!DOCTYPE html><html lang="en"><head>${head}</head><body>${body}${scripts}</body></html>`;
 	} catch (error) {

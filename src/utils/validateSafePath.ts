@@ -1,4 +1,4 @@
-import { resolve, relative, sep } from "node:path";
+import { resolve, relative, sep } from 'node:path';
 
 export const validateSafePath = (targetPath: string, baseDirectory: string) => {
 	const absoluteBase = resolve(baseDirectory);

@@ -1,44 +1,44 @@
-import { mkdir } from "node:fs/promises";
-import { basename, join } from "node:path";
-import { env } from "node:process";
-import { write, file } from "bun";
-import { compile, preprocess } from "svelte/compiler";
+import { mkdir } from 'node:fs/promises';
+import { basename, join } from 'node:path';
+import { env } from 'node:process';
+import { write, file } from 'bun';
+import { compile, preprocess } from 'svelte/compiler';
 
 export const compileSvelte = async (
 	entryPoints: string[],
 	outputDirectory: string
 ) => {
-	const pagesDir = join(outputDirectory, "pages");
-	const clientDir = join(outputDirectory, "client");
-	const indexesDir = join(outputDirectory, "indexes");
+	const pagesDir = join(outputDirectory, 'pages');
+	const clientDir = join(outputDirectory, 'client');
+	const indexesDir = join(outputDirectory, 'indexes');
 
 	await Promise.all([
 		mkdir(clientDir, { recursive: true }),
 		mkdir(indexesDir, { recursive: true })
 	]);
 
-	const isDev = env.NODE_ENV === "development";
+	const isDev = env.NODE_ENV === 'development';
 
 	const builds = await Promise.all(
 		entryPoints.map(async (entry) => {
 			const source = await file(entry).text();
 			const { code: pre } = await preprocess(source, {});
 
-			const name = basename(entry, ".svelte");
+			const name = basename(entry, '.svelte');
 
 			const { js: ssrJs } = compile(pre, {
-				css: "injected",
+				css: 'injected',
 				dev: isDev,
 				filename: entry,
-				generate: "server"
+				generate: 'server'
 			});
 			const ssrPath = join(pagesDir, `${name}.js`);
 
 			const { js: clientJs } = compile(pre, {
-				css: "injected",
+				css: 'injected',
 				dev: isDev,
 				filename: entry,
-				generate: "client"
+				generate: 'client'
 			});
 			const clientComponentPath = join(clientDir, `${name}.js`);
 

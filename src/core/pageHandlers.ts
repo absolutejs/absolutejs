@@ -1,8 +1,8 @@
-import { file } from "bun";
-import { ComponentType, createElement } from "react";
-import { renderToReadableStream as renderReactToReadableStream } from "react-dom/server";
-import { Component } from "svelte";
-import { renderToReadableStream as renderSvelteToReadableStream } from "../svelte/renderToReadableStream";
+import { file } from 'bun';
+import { ComponentType, createElement } from 'react';
+import { renderToReadableStream as renderReactToReadableStream } from 'react-dom/server';
+import { Component } from 'svelte';
+import { renderToReadableStream as renderSvelteToReadableStream } from '../svelte/renderToReadableStream';
 
 export const handleReactPageRequest = async <
 	Props extends Record<string, unknown> = Record<never, never>
@@ -25,7 +25,7 @@ export const handleReactPageRequest = async <
 	});
 
 	return new Response(stream, {
-		headers: { "Content-Type": "text/html" }
+		headers: { 'Content-Type': 'text/html' }
 	});
 };
 
@@ -50,9 +50,9 @@ export const handleSveltePageRequest: HandleSveltePageRequest = async <
 	props?: P
 ) => {
 	const componentPath = PageComponent.toString();
-	const pathSegments = componentPath.split("/");
-	const lastSegment = pathSegments[pathSegments.length - 1] ?? "";
-	const componentName = lastSegment.replace(/\.svelte$/, "");
+	const pathSegments = componentPath.split('/');
+	const lastSegment = pathSegments[pathSegments.length - 1] ?? '';
+	const componentName = lastSegment.replace(/\.svelte$/, '');
 
 	const pagePath = manifest[componentName];
 	const indexPath = manifest[`${componentName}Index`];
@@ -71,7 +71,7 @@ export const handleSveltePageRequest: HandleSveltePageRequest = async <
 	);
 
 	return new Response(stream, {
-		headers: { "Content-Type": "text/html" }
+		headers: { 'Content-Type': 'text/html' }
 	});
 };
 

@@ -1,18 +1,18 @@
-import { rm, mkdir, cp } from "node:fs/promises";
-import { basename, join } from "node:path";
-import { cwd, exit } from "node:process";
-import { $, build as bunBuild } from "bun";
-import { generateManifest } from "../build/generateManifest";
-import { generateReactIndexFiles } from "../build/generateReactIndexes";
-import { scanEntryPoints } from "../build/scanEntryPoints";
-import { updateScriptTags } from "../build/updateScriptTags";
-import { compileSvelte } from "../svelte/compileSvelte";
-import { BuildConfig } from "../types";
-import { getDurationString } from "../utils/getDurationString";
-import { validateSafePath } from "../utils/validateSafePath";
+import { rm, mkdir, cp } from 'node:fs/promises';
+import { basename, join } from 'node:path';
+import { cwd, exit } from 'node:process';
+import { $, build as bunBuild } from 'bun';
+import { generateManifest } from '../build/generateManifest';
+import { generateReactIndexFiles } from '../build/generateReactIndexes';
+import { scanEntryPoints } from '../build/scanEntryPoints';
+import { updateScriptTags } from '../build/updateScriptTags';
+import { compileSvelte } from '../svelte/compileSvelte';
+import { BuildConfig } from '../types';
+import { getDurationString } from '../utils/getDurationString';
+import { validateSafePath } from '../utils/validateSafePath';
 
 export const build = async ({
-	buildDirectory = "build",
+	buildDirectory = 'build',
 	assetsDirectory,
 	reactDirectory,
 	htmlDirectory,
@@ -37,14 +37,14 @@ export const build = async ({
 		svelteDirectory && validateSafePath(svelteDirectory, projectRoot);
 
 	const reactIndexesPath =
-		reactDirectoryPath && join(reactDirectoryPath, "indexes");
+		reactDirectoryPath && join(reactDirectoryPath, 'indexes');
 	const reactPagesPath =
-		reactDirectoryPath && join(reactDirectoryPath, "pages");
-	const htmlPagesPath = htmlDirectoryPath && join(htmlDirectoryPath, "pages");
+		reactDirectoryPath && join(reactDirectoryPath, 'pages');
+	const htmlPagesPath = htmlDirectoryPath && join(htmlDirectoryPath, 'pages');
 	const htmlScriptsPath =
-		htmlDirectoryPath && join(htmlDirectoryPath, "scripts");
+		htmlDirectoryPath && join(htmlDirectoryPath, 'scripts');
 	const sveltePagesPath =
-		svelteDirectoryPath && join(svelteDirectoryPath, "pages");
+		svelteDirectoryPath && join(svelteDirectoryPath, 'pages');
 
 	await rm(buildPath, { force: true, recursive: true });
 	await mkdir(buildPath);
@@ -54,15 +54,15 @@ export const build = async ({
 	}
 
 	if (assetsPath) {
-		await cp(assetsPath, join(buildPath, "assets"), {
+		await cp(assetsPath, join(buildPath, 'assets'), {
 			force: true,
 			recursive: true
 		});
 	}
 
 	if (htmxPath) {
-		await mkdir(join(buildPath, "htmx"));
-		await cp(htmxPath, join(buildPath, "htmx"), {
+		await mkdir(join(buildPath, 'htmx'));
+		await cp(htmxPath, join(buildPath, 'htmx'), {
 			force: true,
 			recursive: true
 		});
@@ -73,13 +73,13 @@ export const build = async ({
 	}
 
 	const reactEntryPoints = reactIndexesPath
-		? await scanEntryPoints(reactIndexesPath, "*.tsx")
+		? await scanEntryPoints(reactIndexesPath, '*.tsx')
 		: [];
 	const svelteEntryPoints = sveltePagesPath
-		? await scanEntryPoints(sveltePagesPath, "*.svelte")
+		? await scanEntryPoints(sveltePagesPath, '*.svelte')
 		: [];
 	const htmlEntryPoints = htmlScriptsPath
-		? await scanEntryPoints(htmlScriptsPath, "*.{js,ts}")
+		? await scanEntryPoints(htmlScriptsPath, '*.{js,ts}')
 		: [];
 
 	const { svelteServerPaths, svelteClientPaths } = svelteDirectoryPath
@@ -92,7 +92,7 @@ export const build = async ({
 
 	if (serverEntryPoints.length === 0) {
 		console.warn(
-			"No server entry points found, skipping manifest generation"
+			'No server entry points found, skipping manifest generation'
 		);
 
 		return null;
@@ -100,12 +100,12 @@ export const build = async ({
 
 	const { logs: serverLogs, outputs: serverOutputs } = await bunBuild({
 		entrypoints: serverEntryPoints,
-		format: "esm",
+		format: 'esm',
 		naming: `[dir]/[name].[hash].[ext]`,
 		outdir: buildPath,
-		target: "bun"
+		target: 'bun'
 	}).catch((error) => {
-		console.error("Server build failed:", error);
+		console.error('Server build failed:', error);
 		exit(1);
 	});
 
@@ -114,13 +114,13 @@ export const build = async ({
 	if (svelteDirectoryPath) {
 		const { logs, outputs } = await bunBuild({
 			entrypoints: svelteClientPaths,
-			format: "esm",
+			format: 'esm',
 			naming: `[dir]/[name].[hash].[ext]`,
-			outdir: join(buildPath, "svelte"),
+			outdir: join(buildPath, 'svelte'),
 			root: svelteDirectoryPath,
-			target: "browser"
+			target: 'browser'
 		}).catch((error) => {
-			console.error("Client build failed:", error);
+			console.error('Client build failed:', error);
 			exit(1);
 		});
 		clientLogs = logs;
@@ -128,8 +128,8 @@ export const build = async ({
 	}
 
 	serverLogs.concat(clientLogs).forEach((log) => {
-		if (log.level === "error") console.error(log);
-		else if (log.level === "warning") console.warn(log);
+		if (log.level === 'error') console.error(log);
+		else if (log.level === 'warning') console.warn(log);
 		else console.info(log);
 	});
 
@@ -140,7 +140,7 @@ export const build = async ({
 		const outputHtmlPages = join(
 			buildPath,
 			basename(htmlDirectoryPath),
-			"pages"
+			'pages'
 		);
 		await mkdir(outputHtmlPages, { recursive: true });
 		await cp(htmlPagesPath, outputHtmlPages, {
@@ -151,11 +151,11 @@ export const build = async ({
 	}
 
 	if (!options?.preserveIntermediateFiles && svelteDirectoryPath) {
-		await rm(join(svelteDirectoryPath, "indexes"), {
+		await rm(join(svelteDirectoryPath, 'indexes'), {
 			force: true,
 			recursive: true
 		});
-		await rm(join(svelteDirectoryPath, "client"), {
+		await rm(join(svelteDirectoryPath, 'client'), {
 			force: true,
 			recursive: true
 		});

@@ -1,8 +1,8 @@
-import { Readable } from "node:stream";
-import type { Component } from "svelte";
-import { render } from "svelte/server";
-import { DEFAULT_CHUNK_SIZE } from "../constants";
-import { escapeScriptContent } from "../utils/escapeScriptContent";
+import { Readable } from 'node:stream';
+import type { Component } from 'svelte';
+import { render } from 'svelte/server';
+import { DEFAULT_CHUNK_SIZE } from '../constants';
+import { escapeScriptContent } from '../utils/escapeScriptContent';
 
 export type RenderPipeableOptions = {
 	bootstrapScriptContent?: string;
@@ -31,11 +31,11 @@ export const renderToPipeableStream = <
 ) => {
 	try {
 		const { head, body } =
-			typeof props === "undefined"
+			typeof props === 'undefined'
 				? // @ts-expect-error Svelte's render function can't determine which overload to choose when the component is generic
 					render(component)
 				: render(component, { props });
-		const nonceAttr = nonce ? ` nonce="${nonce}"` : "";
+		const nonceAttr = nonce ? ` nonce="${nonce}"` : '';
 		const scripts = [
 			bootstrapScriptContent &&
 				`<script${nonceAttr}>${escapeScriptContent(bootstrapScriptContent)}</script>`,
@@ -48,7 +48,7 @@ export const renderToPipeableStream = <
 			)
 		]
 			.filter(Boolean)
-			.join("");
+			.join('');
 
 		const encoder = new TextEncoder();
 		const full = encoder.encode(

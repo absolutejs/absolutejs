@@ -1,3 +1,3 @@
 export const pageRouterPlugin = () => {
-	console.log("Page Router Plugin Not Implemented Yet");
+	console.log('Page Router Plugin Not Implemented Yet');
 };
