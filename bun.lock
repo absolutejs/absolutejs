@@ -20,7 +20,7 @@
         "eslint-plugin-security": "3.0.1",
         "postcss": "8.5.3",
         "prettier": "3.5.3",
-        "prettier-plugin-svelte": "^3.4.0",
+        "prettier-plugin-svelte": "3.4.0",
         "react": "19.1.0",
         "svelte": "5.34.7",
         "tailwindcss": "4.1.7",
