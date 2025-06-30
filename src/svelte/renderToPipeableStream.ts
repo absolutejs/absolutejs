@@ -1,9 +1,8 @@
 import { Readable } from "node:stream";
 import type { Component } from "svelte";
 import { render } from "svelte/server";
+import { DEFAULT_CHUNK_SIZE } from "../constants";
 import { escapeScriptContent } from "../utils/escapeScriptContent";
-
-const DEFAULT_CHUNK_SIZE = 16_384;
 
 export type RenderPipeableOptions = {
 	bootstrapScriptContent?: string;
@@ -19,7 +18,7 @@ export const renderToPipeableStream = <
 	Props extends Record<string, unknown> = Record<string, never>
 >(
 	component: Component<Props>,
-	props: Props,
+	props?: Props,
 	{
 		bootstrapScriptContent,
 		bootstrapScripts = [],
@@ -31,21 +30,25 @@ export const renderToPipeableStream = <
 	}: RenderPipeableOptions = {}
 ) => {
 	try {
-		const { head, body } = render(component, { props });
+		const { head, body } =
+			typeof props === "undefined"
+				? // @ts-expect-error Svelte's render function can't determine which overload to choose when the component is generic
+					render(component)
+				: render(component, { props });
 		const nonceAttr = nonce ? ` nonce="${nonce}"` : "";
-		const scripts =
-			(bootstrapScriptContent
-				? `<script${nonceAttr}>${escapeScriptContent(bootstrapScriptContent)}</script>`
-				: "") +
-			bootstrapScripts
-				.map((src) => `<script${nonceAttr} src="${src}"></script>`)
-				.join("") +
-			bootstrapModules
-				.map(
-					(src) =>
-						`<script${nonceAttr} type="module" src="${src}"></script>`
-				)
-				.join("");
+		const scripts = [
+			bootstrapScriptContent &&
+				`<script${nonceAttr}>${escapeScriptContent(bootstrapScriptContent)}</script>`,
+			...bootstrapScripts.map(
+				(src) => `<script${nonceAttr} src="${src}"></script>`
+			),
+			...bootstrapModules.map(
+				(src) =>
+					`<script${nonceAttr} type="module" src="${src}"></script>`
+			)
+		]
+			.filter(Boolean)
+			.join("");
 
 		const encoder = new TextEncoder();
 		const full = encoder.encode(
@@ -54,10 +57,14 @@ export const renderToPipeableStream = <
 
 		let offset = 0;
 
-		const stream = new Readable({
+		return new Readable({
 			read() {
 				if (signal?.aborted) {
-					this.destroy(signal.reason as Error);
+					this.destroy(
+						signal.reason instanceof Error
+							? signal.reason
+							: new Error(String(signal.reason))
+					);
 
 					return;
 				}
@@ -74,10 +81,8 @@ export const renderToPipeableStream = <
 				offset = end;
 			}
 		});
-
-		return stream;
 	} catch (error) {
-		onError?.(error);
+		onError(error);
 		throw error;
 	}
 };

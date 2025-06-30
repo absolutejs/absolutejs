@@ -1,8 +1,7 @@
 import type { Component } from "svelte";
 import { render } from "svelte/server";
+import { DEFAULT_CHUNK_SIZE } from "../constants";
 import { escapeScriptContent } from "../utils/escapeScriptContent";
-
-const DEFAULT_CHUNK_SIZE = 16_384;
 
 export type RenderStreamOptions = {
 	bootstrapScriptContent?: string;
@@ -18,7 +17,7 @@ export const renderToReadableStream = async <
 	Props extends Record<string, unknown> = Record<string, never>
 >(
 	component: Component<Props>,
-	props: Props,
+	props?: Props,
 	{
 		bootstrapScriptContent,
 		bootstrapScripts = [],
@@ -30,7 +29,11 @@ export const renderToReadableStream = async <
 	}: RenderStreamOptions = {}
 ) => {
 	try {
-		const { head, body } = render(component, { props });
+		const { head, body } =
+			typeof props === "undefined"
+				? // @ts-expect-error Svelte's render function can't determine which overload to choose when the component is generic
+					render(component)
+				: render(component, { props });
 		const nonceAttr = nonce ? ` nonce="${nonce}"` : "";
 		const scripts =
 			(bootstrapScriptContent

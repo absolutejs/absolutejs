@@ -1,5 +1,9 @@
 <script lang="ts">
-	let { test } = $props<{ test: number }>();
+	type SvelteExampleProps = {
+		test: number;
+	};
+
+	let { test }: SvelteExampleProps = $props();
 	let count = $state(test);
 
 	const year = new Date().getFullYear();

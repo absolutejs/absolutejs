@@ -4,10 +4,12 @@ import { renderToReadableStream as renderReactToReadableStream } from "react-dom
 import { Component } from "svelte";
 import { renderToReadableStream as renderSvelteToReadableStream } from "../svelte/renderToReadableStream";
 
-export const handleReactPageRequest = async <P extends object>(
-	pageComponent: ComponentType<P>,
+export const handleReactPageRequest = async <
+	Props extends Record<string, unknown>
+>(
+	pageComponent: ComponentType<Props>,
 	index: string,
-	...props: keyof P extends never ? [] : [props: P]
+	...props: keyof Props extends never ? [] : [props: Props]
 ) => {
 	const [maybeProps] = props;
 	const element =
@@ -27,12 +29,25 @@ export const handleReactPageRequest = async <P extends object>(
 	});
 };
 
-export const handleSveltePageRequest = async <
-	Props extends Record<string, unknown>
+// Declare overloads matching Svelte’s own component API to preserve correct type inference
+type HandleSveltePageRequest = {
+	(
+		PageComponent: Component<Record<string, never>>,
+		manifest: Record<string, string>
+	): Promise<Response>;
+	<P extends Record<string, unknown>>(
+		PageComponent: Component<P>,
+		manifest: Record<string, string>,
+		props: P
+	): Promise<Response>;
+};
+
+export const handleSveltePageRequest: HandleSveltePageRequest = async <
+	P extends Record<string, unknown>
 >(
-	PageComponent: Component<Props>,
+	PageComponent: Component<P>,
 	manifest: Record<string, string>,
-	props: Props
+	props?: P
 ) => {
 	const componentPath = PageComponent.toString();
 	const pathSegments = componentPath.split("/");

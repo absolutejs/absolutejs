@@ -12,3 +12,4 @@ export const MILLISECONDS_IN_A_DAY =
 export const TIME_PRECISION = 2;
 export const TWO_THIRDS = 2 / 3;
 export const DEFAULT_PORT = 3000;
+export const DEFAULT_CHUNK_SIZE = 16_384;

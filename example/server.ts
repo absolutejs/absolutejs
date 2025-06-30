@@ -12,29 +12,21 @@ import { ReactExample } from "./react/pages/ReactExample";
 import SvelteExample from "./svelte/pages/SvelteExample.svelte";
 
 const manifest = await build({
-	assetsDirectory: "./example/assets",
-	buildDirectory: "./example/build",
-	htmlDirectory: "./example/html",
-	htmxDirectory: "./example/htmx",
+	assetsDirectory: "example/assets",
+	buildDirectory: "example/build",
+	htmlDirectory: "example/html",
+	htmxDirectory: "example/htmx",
 	options: {
 		preserveIntermediateFiles: true
 	}
 	// tailwind: {
 	// 	input: "./example/styles/tailwind.css",
 	// 	output: "/assets/css/tailwind.generated.css"
-	// }, reactDirectory: "./example/react", svelteDirectory: "./example/svelte"
+	// }, , reactDirectory: "example/react", svelteDirectory: "example/svelte"
 	// tailwind: {
 	// 	input: "./example/styles/tailwind.css",
 	// 	output: "/assets/css/tailwind.generated.css"
-	// }, reactDirectory: "./example/react", svelteDirectory: "./example/svelte"
-	// tailwind: {
-	// 	input: "./example/styles/tailwind.css",
-	// 	output: "/assets/css/tailwind.generated.css"
-	// }, reactDirectory: "./example/react", svelteDirectory: "./example/svelte"
-	// tailwind: {
-	// 	input: "./example/styles/tailwind.css",
-	// 	output: "/assets/css/tailwind.generated.css"
-	// }
+	// },
 });
 
 if (manifest === null) throw new Error("Manifest was not generated");
@@ -57,9 +49,7 @@ export const server = new Elysia()
 		})
 	)
 	.get("/svelte", async () =>
-		handleSveltePageRequest(SvelteExample, manifest, {
-			test: 123
-		})
+		handleSveltePageRequest(SvelteExample, manifest, { test: 456 })
 	)
 	.get("/htmx", () => file("./example/build/htmx/HtmxHome.html"))
 	.get("/htmx/increment", () => {

@@ -29,24 +29,22 @@ export const build = async ({
 		assetsDirectory && validateSafePath(assetsDirectory, projectRoot);
 	const reactDirectoryPath =
 		reactDirectory && validateSafePath(reactDirectory, projectRoot);
-	const reactIndexesPath =
-		reactDirectoryPath && join(projectRoot, reactDirectoryPath, "indexes");
-	const reactPagesPath =
-		reactDirectoryPath && join(projectRoot, reactDirectoryPath, "pages");
 	const htmlDirectoryPath =
 		htmlDirectory && validateSafePath(htmlDirectory, projectRoot);
-	const htmlPagesPath = htmlDirectoryPath
-		? join(projectRoot, htmlDirectoryPath, "pages")
-		: undefined;
-	const htmlScriptsPath = htmlDirectoryPath
-		? join(projectRoot, htmlDirectoryPath, "scripts")
-		: undefined;
-	const svelteDirectoryPath =
-		svelteDirectory && validateSafePath(svelteDirectory, projectRoot);
-	const svelteBuildPath =
-		svelteDirectoryPath && join(projectRoot, svelteDirectoryPath);
 	const htmxPath =
 		htmxDirectory && validateSafePath(htmxDirectory, projectRoot);
+	const svelteDirectoryPath =
+		svelteDirectory && validateSafePath(svelteDirectory, projectRoot);
+
+	const reactIndexesPath =
+		reactDirectoryPath && join(reactDirectoryPath, "indexes");
+	const reactPagesPath =
+		reactDirectoryPath && join(reactDirectoryPath, "pages");
+	const htmlPagesPath = htmlDirectoryPath && join(htmlDirectoryPath, "pages");
+	const htmlScriptsPath =
+		htmlDirectoryPath && join(htmlDirectoryPath, "scripts");
+	const sveltePagesPath =
+		svelteDirectoryPath && join(svelteDirectoryPath, "pages");
 
 	await rm(buildPath, { force: true, recursive: true });
 	await mkdir(buildPath);
@@ -71,24 +69,21 @@ export const build = async ({
 	}
 
 	if (tailwind) {
-		await $`bunx @tailwindcss/cli -i ${tailwind.input} -o ${join(
-			buildPath,
-			tailwind.output
-		)}`;
+		await $`bunx @tailwindcss/cli -i ${tailwind.input} -o ${join(buildPath, tailwind.output)}`;
 	}
 
 	const reactEntryPoints = reactIndexesPath
 		? await scanEntryPoints(reactIndexesPath, "*.tsx")
 		: [];
-	const svelteEntryPoints = svelteBuildPath
-		? await scanEntryPoints(join(svelteBuildPath, "pages"), "*.svelte")
+	const svelteEntryPoints = sveltePagesPath
+		? await scanEntryPoints(sveltePagesPath, "*.svelte")
 		: [];
 	const htmlEntryPoints = htmlScriptsPath
 		? await scanEntryPoints(htmlScriptsPath, "*.{js,ts}")
 		: [];
 
-	const { svelteServerPaths, svelteClientPaths } = svelteBuildPath
-		? await compileSvelte(svelteEntryPoints, svelteBuildPath)
+	const { svelteServerPaths, svelteClientPaths } = svelteDirectoryPath
+		? await compileSvelte(svelteEntryPoints, svelteDirectoryPath)
 		: { svelteClientPaths: [], svelteServerPaths: [] };
 
 	const serverEntryPoints = reactEntryPoints
@@ -116,13 +111,13 @@ export const build = async ({
 
 	let clientLogs: typeof serverLogs = [];
 	let clientOutputs: typeof serverOutputs = [];
-	if (svelteDirectory) {
+	if (svelteDirectoryPath) {
 		const { logs, outputs } = await bunBuild({
 			entrypoints: svelteClientPaths,
 			format: "esm",
 			naming: `[dir]/[name].[hash].[ext]`,
 			outdir: join(buildPath, "svelte"),
-			root: svelteBuildPath,
+			root: svelteDirectoryPath,
 			target: "browser"
 		}).catch((error) => {
 			console.error("Client build failed:", error);
@@ -141,10 +136,10 @@ export const build = async ({
 	const allOutputs = serverOutputs.concat(clientOutputs);
 	const manifest = generateManifest(allOutputs, buildPath);
 
-	if (htmlDirectory && htmlPagesPath) {
+	if (htmlDirectoryPath && htmlPagesPath) {
 		const outputHtmlPages = join(
 			buildPath,
-			basename(htmlDirectory),
+			basename(htmlDirectoryPath),
 			"pages"
 		);
 		await mkdir(outputHtmlPages, { recursive: true });
@@ -155,18 +150,18 @@ export const build = async ({
 		await updateScriptTags(manifest, outputHtmlPages);
 	}
 
-	if (!options?.preserveIntermediateFiles && svelteBuildPath) {
-		await rm(join(svelteBuildPath, "indexes"), {
+	if (!options?.preserveIntermediateFiles && svelteDirectoryPath) {
+		await rm(join(svelteDirectoryPath, "indexes"), {
 			force: true,
 			recursive: true
 		});
-		await rm(join(svelteBuildPath, "client"), {
+		await rm(join(svelteDirectoryPath, "client"), {
 			force: true,
 			recursive: true
 		});
-		svelteServerPaths.forEach(async (path) => {
-			await rm(path, { force: true });
-		});
+		await Promise.all(
+			svelteServerPaths.map((filePath) => rm(filePath, { force: true }))
+		);
 	}
 
 	if (!options?.preserveIntermediateFiles && reactIndexesPath) {
