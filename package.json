@@ -1,6 +1,6 @@
 {
 	"name": "@absolutejs/absolute",
-	"version": "0.8.13",
+	"version": "0.8.14",
 	"description": "A fullstack meta-framework for building web applications with TypeScript",
 	"repository": {
 		"type": "git",

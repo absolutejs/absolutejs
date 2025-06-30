@@ -5,7 +5,7 @@ export const generateManifest = (
 	buildDirectoryAbsolute: string,
 	svelteDirName?: string
 ) => {
-  const prefix = svelteDirName ? `(?:${svelteDirName}/)?` : '';
+	const prefix = svelteDirName ? `(?:${svelteDirName}/)?` : '';
 	const pagesRegex = new RegExp(`^${prefix}pages/`);
 	const indexesRegex = new RegExp(`^${prefix}indexes/`);
 
