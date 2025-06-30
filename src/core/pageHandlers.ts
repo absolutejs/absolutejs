@@ -5,7 +5,7 @@ import { Component } from "svelte";
 import { renderToReadableStream as renderSvelteToReadableStream } from "../svelte/renderToReadableStream";
 
 export const handleReactPageRequest = async <
-	Props extends Record<string, unknown>
+	Props extends Record<string, unknown> = Record<never, never>
 >(
 	pageComponent: ComponentType<Props>,
 	index: string,
