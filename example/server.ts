@@ -18,15 +18,9 @@ const manifest = await build({
 	htmxDirectory: 'example/htmx',
 	options: {
 		preserveIntermediateFiles: true
-	}
-	// tailwind: {
-	// 	input: "./example/styles/tailwind.css",
-	// 	output: "/assets/css/tailwind.generated.css"
-	// }, , reactDirectory: "example/react", svelteDirectory: "example/svelte"
-	// tailwind: {
-	// 	input: "./example/styles/tailwind.css",
-	// 	output: "/assets/css/tailwind.generated.css"
-	// },
+	},
+	reactDirectory: 'example/react',
+	svelteDirectory: 'example/svelte'
 });
 
 if (manifest === null) throw new Error('Manifest was not generated');

@@ -1,4 +1,4 @@
-import { Glob } from "bun";
+import { Glob } from 'bun';
 
 export const scanEntryPoints = async (dir: string, pattern: string) => {
 	const entryPaths: string[] = [];

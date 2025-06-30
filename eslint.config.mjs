@@ -34,7 +34,11 @@ export default defineConfig([
 	{
 		files: ['**/*.{ts,tsx}'],
 		languageOptions: {
-			globals: globals.browser,
+			globals: {
+				...globals.browser,
+				BuildMessage: 'readonly',
+				ResolveMessage: 'readonly'
+			},
 			parser: tsParser,
 			parserOptions: {
 				createDefaultProgram: true,

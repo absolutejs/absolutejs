@@ -1,7 +1,7 @@
 import { rm, mkdir, cp } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { cwd, exit } from 'node:process';
-import { $, build as bunBuild } from 'bun';
+import { $, BuildArtifact, build as bunBuild } from 'bun';
 import { generateManifest } from '../build/generateManifest';
 import { generateReactIndexFiles } from '../build/generateReactIndexes';
 import { scanEntryPoints } from '../build/scanEntryPoints';
@@ -46,6 +46,24 @@ export const build = async ({
 	const sveltePagesPath =
 		svelteDirectoryPath && join(svelteDirectoryPath, 'pages');
 
+	const isSingleFrontend =
+		[
+			reactDirectoryPath,
+			htmlDirectoryPath,
+			htmxPath,
+			svelteDirectoryPath
+		].filter(Boolean).length === 1;
+	const isSvelteOnly = isSingleFrontend && svelteDirectoryPath !== undefined;
+
+	const serverOutDir = isSvelteOnly ? join(buildPath, 'pages') : buildPath;
+	const serverRoot = isSvelteOnly
+		? join(svelteDirectoryPath, 'pages')
+		: undefined;
+	const svelteOutDir = isSingleFrontend
+		? buildPath
+		: join(buildPath, basename(svelteDirectoryPath ?? ''));
+	const svelteDirName = svelteDirectoryPath && basename(svelteDirectoryPath);
+
 	await rm(buildPath, { force: true, recursive: true });
 	await mkdir(buildPath);
 
@@ -86,9 +104,11 @@ export const build = async ({
 		? await compileSvelte(svelteEntryPoints, svelteDirectoryPath)
 		: { svelteClientPaths: [], svelteServerPaths: [] };
 
-	const serverEntryPoints = reactEntryPoints
-		.concat(htmlEntryPoints)
-		.concat(svelteServerPaths);
+	const serverEntryPoints = [
+		...reactEntryPoints,
+		...htmlEntryPoints,
+		...svelteServerPaths
+	];
 
 	if (serverEntryPoints.length === 0) {
 		console.warn(
@@ -102,39 +122,45 @@ export const build = async ({
 		entrypoints: serverEntryPoints,
 		format: 'esm',
 		naming: `[dir]/[name].[hash].[ext]`,
-		outdir: buildPath,
+		outdir: serverOutDir,
+		root: serverRoot,
 		target: 'bun'
 	}).catch((error) => {
 		console.error('Server build failed:', error);
 		exit(1);
 	});
 
-	let clientLogs: typeof serverLogs = [];
-	let clientOutputs: typeof serverOutputs = [];
+	let clientLogs: (BuildMessage | ResolveMessage)[] = [];
+	let clientOutputs: BuildArtifact[] = [];
+
 	if (svelteDirectoryPath) {
 		const { logs, outputs } = await bunBuild({
 			entrypoints: svelteClientPaths,
 			format: 'esm',
 			naming: `[dir]/[name].[hash].[ext]`,
-			outdir: join(buildPath, 'svelte'),
+			outdir: svelteOutDir,
 			root: svelteDirectoryPath,
 			target: 'browser'
 		}).catch((error) => {
 			console.error('Client build failed:', error);
 			exit(1);
 		});
+
 		clientLogs = logs;
 		clientOutputs = outputs;
 	}
 
-	serverLogs.concat(clientLogs).forEach((log) => {
+	[...serverLogs, ...clientLogs].forEach((log) => {
 		if (log.level === 'error') console.error(log);
 		else if (log.level === 'warning') console.warn(log);
 		else console.info(log);
 	});
 
-	const allOutputs = serverOutputs.concat(clientOutputs);
-	const manifest = generateManifest(allOutputs, buildPath);
+	const manifest = generateManifest(
+		[...serverOutputs, ...clientOutputs],
+		buildPath,
+		svelteDirName
+	);
 
 	if (htmlDirectoryPath && htmlPagesPath) {
 		const outputHtmlPages = join(
@@ -168,8 +194,9 @@ export const build = async ({
 		await rm(reactIndexesPath, { force: true, recursive: true });
 	}
 
-	const buildDuration = performance.now() - buildStart;
-	console.log(`Build completed in ${getDurationString(buildDuration)}`);
+	console.log(
+		`Build completed in ${getDurationString(performance.now() - buildStart)}`
+	);
 
 	return manifest;
 };
