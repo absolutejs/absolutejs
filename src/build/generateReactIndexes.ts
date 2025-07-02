@@ -31,7 +31,7 @@ export const generateReactIndexFiles = async (
 		].join('\n');
 
 		return writeFile(
-			join(reactIndexesDirectory, `${componentName}Index.tsx`),
+			join(reactIndexesDirectory, `${componentName}.tsx`),
 			content
 		);
 	});

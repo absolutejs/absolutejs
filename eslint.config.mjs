@@ -35,14 +35,14 @@ export default defineConfig([
 		files: ['**/*.{ts,tsx}'],
 		languageOptions: {
 			globals: {
-				...globals.browser,
+				// TODO: These should only be applied to the src/core/build.ts file.
 				BuildMessage: 'readonly',
 				ResolveMessage: 'readonly'
 			},
 			parser: tsParser,
 			parserOptions: {
 				createDefaultProgram: true,
-				project: './tsconfig.json',
+				project: './tsconfig.lint.json',
 				tsconfigRootDir: __dirname
 			}
 		},
@@ -60,6 +60,11 @@ export default defineConfig([
 	{
 		files: ['**/*.{js,mjs,cjs,ts,tsx,jsx}'],
 		ignores: ['node_modules/**'],
+		languageOptions: {
+			globals: {
+				...globals.browser
+			}
+		},
 		plugins: {
 			absolute: absolutePlugin,
 			import: importPlugin,
@@ -184,7 +189,12 @@ export default defineConfig([
 		}
 	},
 	{
-		files: ['eslint.config.mjs'],
+		files: [
+			'eslint.config.mjs',
+			'example/vue/scripts/*.ts',
+			'example/vue/pages/*.js',
+			'example/vue/client/*.js'
+		],
 		rules: {
 			'import/no-default-export': 'off'
 		}
@@ -200,6 +210,26 @@ export default defineConfig([
 		],
 		rules: {
 			'import/no-unused-modules': 'off'
+		}
+	},
+	{
+		files: ['example/vue/scripts/*.ts'],
+		rules: {
+			'absolute/explicit-object-types': 'off',
+			'no-duplicate-imports': 'off'
+		}
+	},
+	{
+		files: ['example/vue/pages/*.js', 'example/vue/client/*.js'],
+		rules: {
+			'@typescript-eslint/no-unused-vars': 'off',
+			'func-style': 'off'
+		}
+	},
+	{
+		files: ['example/vue/client/*.js'],
+		rules: {
+			'absolute/explicit-object-types': 'off'
 		}
 	}
 ]);

@@ -9,4 +9,8 @@ const ESCAPE_LOOKUP: Record<string, string> = {
 const ESCAPE_REGEX = /[&><\u2028\u2029]/g;
 
 export const escapeScriptContent = (content: string) =>
-	content.replace(ESCAPE_REGEX, (char) => ESCAPE_LOOKUP[char]);
+	content.replace(ESCAPE_REGEX, (char) => {
+		const escaped = ESCAPE_LOOKUP[char];
+
+		return escaped !== undefined ? escaped : char;
+	});

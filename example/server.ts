@@ -1,26 +1,32 @@
 import { staticPlugin } from '@elysiajs/static';
 import { file } from 'bun';
 import { Elysia } from 'elysia';
-import { networkingPlugin } from '../src';
 import { build } from '../src/core/build';
+import { asset } from '../src/core/lookup';
 import {
 	handleHTMLPageRequest,
 	handleReactPageRequest,
-	handleSveltePageRequest
+	handleSveltePageRequest,
+	handleVuePageRequest
 } from '../src/core/pageHandlers';
+import { networkingPlugin } from '../src/plugins/networkingPlugin';
 import { ReactExample } from './react/pages/ReactExample';
 import SvelteExample from './svelte/pages/SvelteExample.svelte';
+import { vueImports } from './vueImporter';
+
+const { VueExample } = vueImports;
 
 const manifest = await build({
 	assetsDirectory: 'example/assets',
 	buildDirectory: 'example/build',
 	htmlDirectory: 'example/html',
-	htmxDirectory: 'example/htmx',
+	// htmxDirectory: 'example/htmx',
 	options: {
 		preserveIntermediateFiles: true
 	},
 	reactDirectory: 'example/react',
-	svelteDirectory: 'example/svelte'
+	svelteDirectory: 'example/svelte',
+	vueDirectory: 'example/vue'
 });
 
 if (manifest === null) throw new Error('Manifest was not generated');
@@ -38,12 +44,29 @@ export const server = new Elysia()
 		handleHTMLPageRequest('./example/build/html/pages/HtmlExample.html')
 	)
 	.get('/react', () =>
-		handleReactPageRequest(ReactExample, manifest['ReactExampleIndex'], {
-			test: 123
-		})
+		handleReactPageRequest(
+			ReactExample,
+			asset(manifest, 'ReactExampleIndex'),
+			{
+				test: 123
+			}
+		)
 	)
 	.get('/svelte', async () =>
-		handleSveltePageRequest(SvelteExample, manifest, { test: 456 })
+		handleSveltePageRequest(
+			SvelteExample,
+			asset(manifest, 'SvelteExample'),
+			asset(manifest, 'SvelteExampleIndex'),
+			{ test: 456 }
+		)
+	)
+	.get('/vue', () =>
+		handleVuePageRequest(
+			VueExample,
+			asset(manifest, 'VueExample'),
+			asset(manifest, 'VueExampleIndex'),
+			{ test: 123 }
+		)
 	)
 	.get('/htmx', () => file('./example/build/htmx/HtmxHome.html'))
 	.get('/htmx/increment', () => {

@@ -1,15 +1,36 @@
 import { rm, mkdir, cp } from 'node:fs/promises';
-import { basename, join } from 'node:path';
-import { cwd, exit } from 'node:process';
-import { $, BuildArtifact, build as bunBuild } from 'bun';
+import { basename, join, sep } from 'node:path';
+import { cwd, env, exit } from 'node:process';
+import { $, build as bunBuild, BuildArtifact } from 'bun';
+import { compileSvelte } from '../build/compileSvelte';
+import { compileVue } from '../build/compileVue';
 import { generateManifest } from '../build/generateManifest';
 import { generateReactIndexFiles } from '../build/generateReactIndexes';
 import { scanEntryPoints } from '../build/scanEntryPoints';
 import { updateScriptTags } from '../build/updateScriptTags';
-import { compileSvelte } from '../svelte/compileSvelte';
 import { BuildConfig } from '../types';
 import { getDurationString } from '../utils/getDurationString';
 import { validateSafePath } from '../utils/validateSafePath';
+
+const commonAncestor = (paths: string[], fallback: string) => {
+	if (paths.length === 0) return fallback;
+	const segmentsList = paths.map((p) => p.split(sep));
+	const [first] = segmentsList;
+	if (!first) return fallback;
+	const commonSegments = first.filter((segment, index) =>
+		segmentsList.every((pathSegs) => pathSegs[index] === segment)
+	);
+
+	return commonSegments.length ? commonSegments.join(sep) : fallback;
+};
+
+const isDev = env.NODE_ENV === 'development';
+
+const vueFeatureFlags: Record<string, string> = {
+	__VUE_OPTIONS_API__: 'true',
+	__VUE_PROD_DEVTOOLS__: isDev ? 'true' : 'false',
+	__VUE_PROD_HYDRATION_MISMATCH_DETAILS__: isDev ? 'true' : 'false'
+};
 
 export const build = async ({
 	buildDirectory = 'build',
@@ -18,6 +39,7 @@ export const build = async ({
 	htmlDirectory,
 	htmxDirectory,
 	svelteDirectory,
+	vueDirectory,
 	tailwind,
 	options
 }: BuildConfig) => {
@@ -27,147 +49,158 @@ export const build = async ({
 	const buildPath = validateSafePath(buildDirectory, projectRoot);
 	const assetsPath =
 		assetsDirectory && validateSafePath(assetsDirectory, projectRoot);
-	const reactDirectoryPath =
+	const reactDir =
 		reactDirectory && validateSafePath(reactDirectory, projectRoot);
-	const htmlDirectoryPath =
+	const htmlDir =
 		htmlDirectory && validateSafePath(htmlDirectory, projectRoot);
-	const htmxPath =
+	const htmxDir =
 		htmxDirectory && validateSafePath(htmxDirectory, projectRoot);
-	const svelteDirectoryPath =
+	const svelteDir =
 		svelteDirectory && validateSafePath(svelteDirectory, projectRoot);
+	const vueDir = vueDirectory && validateSafePath(vueDirectory, projectRoot);
 
-	const reactIndexesPath =
-		reactDirectoryPath && join(reactDirectoryPath, 'indexes');
-	const reactPagesPath =
-		reactDirectoryPath && join(reactDirectoryPath, 'pages');
-	const htmlPagesPath = htmlDirectoryPath && join(htmlDirectoryPath, 'pages');
-	const htmlScriptsPath =
-		htmlDirectoryPath && join(htmlDirectoryPath, 'scripts');
-	const sveltePagesPath =
-		svelteDirectoryPath && join(svelteDirectoryPath, 'pages');
+	const reactIndexesPath = reactDir && join(reactDir, 'indexes');
+	const reactPagesPath = reactDir && join(reactDir, 'pages');
+	const htmlPagesPath = htmlDir && join(htmlDir, 'pages');
+	const htmlScriptsPath = htmlDir && join(htmlDir, 'scripts');
+	const sveltePagesPath = svelteDir && join(svelteDir, 'pages');
+	const vuePagesPath = vueDir && join(vueDir, 'pages');
 
-	const isSingleFrontend =
-		[
-			reactDirectoryPath,
-			htmlDirectoryPath,
-			htmxPath,
-			svelteDirectoryPath
-		].filter(Boolean).length === 1;
-	const isSvelteOnly = isSingleFrontend && svelteDirectoryPath !== undefined;
+	const frontends = [reactDir, htmlDir, htmxDir, svelteDir, vueDir].filter(
+		Boolean
+	);
+	const isSingle = frontends.length === 1;
 
-	const serverOutDir = isSvelteOnly ? join(buildPath, 'pages') : buildPath;
-	const serverRoot = isSvelteOnly
-		? join(svelteDirectoryPath, 'pages')
-		: undefined;
-	const svelteOutDir = isSingleFrontend
-		? buildPath
-		: join(buildPath, basename(svelteDirectoryPath ?? ''));
-	const svelteDirName = svelteDirectoryPath && basename(svelteDirectoryPath);
+	let serverOutDir;
+	if (svelteDir) {
+		serverOutDir = join(buildPath, basename(svelteDir), 'pages');
+	} else if (vueDir) {
+		serverOutDir = join(buildPath, basename(vueDir), 'pages');
+	}
+
+	let serverRoot;
+	if (svelteDir) {
+		serverRoot = join(svelteDir, 'pages');
+	} else if (vueDir) {
+		serverRoot = join(vueDir, 'pages');
+	}
 
 	await rm(buildPath, { force: true, recursive: true });
 	await mkdir(buildPath);
 
-	if (reactIndexesPath && reactPagesPath) {
+	if (reactIndexesPath && reactPagesPath)
 		await generateReactIndexFiles(reactPagesPath, reactIndexesPath);
-	}
-
-	if (assetsPath) {
+	if (assetsPath)
 		await cp(assetsPath, join(buildPath, 'assets'), {
 			force: true,
 			recursive: true
 		});
-	}
-
-	if (htmxPath) {
+	if (htmxDir) {
 		await mkdir(join(buildPath, 'htmx'));
-		await cp(htmxPath, join(buildPath, 'htmx'), {
+		await cp(htmxDir, join(buildPath, 'htmx'), {
 			force: true,
 			recursive: true
 		});
 	}
-
-	if (tailwind) {
+	if (tailwind)
 		await $`bunx @tailwindcss/cli -i ${tailwind.input} -o ${join(buildPath, tailwind.output)}`;
-	}
 
-	const reactEntryPoints = reactIndexesPath
+	const reactEntries = reactIndexesPath
 		? await scanEntryPoints(reactIndexesPath, '*.tsx')
 		: [];
-	const svelteEntryPoints = sveltePagesPath
-		? await scanEntryPoints(sveltePagesPath, '*.svelte')
-		: [];
-	const htmlEntryPoints = htmlScriptsPath
+	const htmlEntries = htmlScriptsPath
 		? await scanEntryPoints(htmlScriptsPath, '*.{js,ts}')
 		: [];
+	const svelteEntries = sveltePagesPath
+		? await scanEntryPoints(sveltePagesPath, '*.svelte')
+		: [];
+	const vueEntries = vuePagesPath
+		? await scanEntryPoints(vuePagesPath, '*.vue')
+		: [];
 
-	const { svelteServerPaths, svelteClientPaths } = svelteDirectoryPath
-		? await compileSvelte(svelteEntryPoints, svelteDirectoryPath)
+	const { svelteServerPaths, svelteClientPaths } = svelteDir
+		? await compileSvelte(svelteEntries, svelteDir)
 		: { svelteClientPaths: [], svelteServerPaths: [] };
 
-	const serverEntryPoints = [
-		...reactEntryPoints,
-		...htmlEntryPoints,
-		...svelteServerPaths
+	const { vueServerPaths, vueClientPaths, vueCssPaths } = vueDir
+		? await compileVue(vueEntries, vueDir)
+		: { vueClientPaths: [], vueCssPaths: {}, vueServerPaths: [] };
+
+	const serverEntryPoints = [...svelteServerPaths, ...vueServerPaths];
+	const clientEntryPoints = [
+		...reactEntries,
+		...svelteClientPaths,
+		...htmlEntries,
+		...vueClientPaths
 	];
 
-	if (serverEntryPoints.length === 0) {
-		console.warn(
-			'No server entry points found, skipping manifest generation'
-		);
+	if (serverEntryPoints.length === 0 && clientEntryPoints.length === 0) {
+		console.warn('No entry points found');
 
 		return null;
 	}
 
-	const { logs: serverLogs, outputs: serverOutputs } = await bunBuild({
-		entrypoints: serverEntryPoints,
-		format: 'esm',
-		naming: `[dir]/[name].[hash].[ext]`,
-		outdir: serverOutDir,
-		root: serverRoot,
-		target: 'bun'
-	}).catch((error) => {
-		console.error('Server build failed:', error);
-		exit(1);
-	});
+	let serverLogs: (BuildMessage | ResolveMessage)[] = [];
+	let serverOutputs: BuildArtifact[] = [];
+
+	if (serverEntryPoints.length > 0) {
+		const { logs, outputs } = await bunBuild({
+			entrypoints: serverEntryPoints,
+			format: 'esm',
+			naming: `[dir]/[name].[hash].[ext]`,
+			outdir: serverOutDir,
+			root: serverRoot,
+			target: 'bun'
+		}).catch((err) => {
+			console.error('Server build failed:', err);
+			exit(1);
+		});
+		serverLogs = logs;
+		serverOutputs = outputs;
+	}
 
 	let clientLogs: (BuildMessage | ResolveMessage)[] = [];
 	let clientOutputs: BuildArtifact[] = [];
 
-	if (svelteDirectoryPath) {
+	if (clientEntryPoints.length > 0) {
+		const roots: string[] = [reactDir, svelteDir, htmlDir, vueDir].filter(
+			(dir): dir is string => Boolean(dir)
+		);
+		const clientRoot = isSingle
+			? (roots[0] ?? projectRoot)
+			: commonAncestor(roots, projectRoot);
 		const { logs, outputs } = await bunBuild({
-			entrypoints: svelteClientPaths,
+			define: vueDirectory ? vueFeatureFlags : undefined,
+			entrypoints: clientEntryPoints,
 			format: 'esm',
 			naming: `[dir]/[name].[hash].[ext]`,
-			outdir: svelteOutDir,
-			root: svelteDirectoryPath,
+			outdir: buildPath,
+			root: clientRoot,
 			target: 'browser'
-		}).catch((error) => {
-			console.error('Client build failed:', error);
+		}).catch((err) => {
+			console.error('Client build failed:', err);
 			exit(1);
 		});
-
 		clientLogs = logs;
 		clientOutputs = outputs;
 	}
 
-	[...serverLogs, ...clientLogs].forEach((log) => {
-		if (log.level === 'error') console.error(log);
-		else if (log.level === 'warning') console.warn(log);
-		else console.info(log);
-	});
+	const allLogs = [...serverLogs, ...clientLogs];
+	for (const log of allLogs) {
+		if (typeof log !== 'object' || log === null || !('level' in log))
+			continue;
+		if (log.level === 'error' && (console.error(log), 1)) continue;
+		if (log.level === 'warning' && (console.warn(log), 1)) continue;
+		console.info(log);
+	}
 
 	const manifest = generateManifest(
 		[...serverOutputs, ...clientOutputs],
-		buildPath,
-		svelteDirName
+		buildPath
 	);
 
-	if (htmlDirectoryPath && htmlPagesPath) {
-		const outputHtmlPages = join(
-			buildPath,
-			basename(htmlDirectoryPath),
-			'pages'
-		);
+	if (htmlDir && htmlPagesPath) {
+		const outputHtmlPages = join(buildPath, basename(htmlDir), 'pages');
 		await mkdir(outputHtmlPages, { recursive: true });
 		await cp(htmlPagesPath, outputHtmlPages, {
 			force: true,
@@ -176,27 +209,20 @@ export const build = async ({
 		await updateScriptTags(manifest, outputHtmlPages);
 	}
 
-	if (!options?.preserveIntermediateFiles && svelteDirectoryPath) {
-		await rm(join(svelteDirectoryPath, 'indexes'), {
-			force: true,
-			recursive: true
-		});
-		await rm(join(svelteDirectoryPath, 'client'), {
-			force: true,
-			recursive: true
-		});
+	if (!options?.preserveIntermediateFiles && svelteDir) {
+		await rm(join(svelteDir, 'indexes'), { force: true, recursive: true });
+		await rm(join(svelteDir, 'client'), { force: true, recursive: true });
 		await Promise.all(
-			svelteServerPaths.map((filePath) => rm(filePath, { force: true }))
+			svelteServerPaths.map((path) => rm(path, { force: true }))
 		);
 	}
 
-	if (!options?.preserveIntermediateFiles && reactIndexesPath) {
+	if (!options?.preserveIntermediateFiles && reactIndexesPath)
 		await rm(reactIndexesPath, { force: true, recursive: true });
-	}
 
 	console.log(
 		`Build completed in ${getDurationString(performance.now() - buildStart)}`
 	);
 
-	return manifest;
+	return { ...manifest, ...vueCssPaths };
 };
