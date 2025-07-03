@@ -1,10 +1,10 @@
 <script lang="ts">
 	type SvelteExampleProps = {
-		test: number;
+		initialCount: number;
 	};
 
-	let { test }: SvelteExampleProps = $props();
-	let count = $state(test);
+	let { initialCount }: SvelteExampleProps = $props();
+	let count = $state(initialCount);
 
 	const year = new Date().getFullYear();
 </script>

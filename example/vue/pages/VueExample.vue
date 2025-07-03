@@ -2,10 +2,10 @@
 import { ref } from 'vue';
 
 const props = defineProps<{
-	test: number;
+	initialCount: number;
 }>();
 
-const count = ref(props.test);
+const count = ref(props.initialCount);
 </script>
 
 <template>
