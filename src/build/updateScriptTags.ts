@@ -13,13 +13,13 @@ export const updateScriptTags = async (
 			(html, [scriptName, newPath]) => {
 				const esc = scriptName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 				const regex = new RegExp(
-					`(<script[^>]+src=["'])(/?(?:.*/)?${esc})(?:\\.[^."'/]+)?(\\.js)(["'][^>]*>)`,
+					`(<script[^>]+src=["'])(/?(?:.*/)?${esc})(?:\\.[^."'/]+)?(\\.(?:js|ts))(["'][^>]*>)`,
 					'g'
 				);
 
 				return html.replace(
 					regex,
-					(_, prefix, __, ___, suffix) =>
+					(_match, prefix, _oldPath, _ext, suffix) =>
 						`${prefix}${newPath}${suffix}`
 				);
 			},
