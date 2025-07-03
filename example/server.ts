@@ -20,7 +20,7 @@ const manifest = await build({
 	assetsDirectory: 'example/assets',
 	buildDirectory: 'example/build',
 	htmlDirectory: 'example/html',
-	// htmxDirectory: 'example/htmx',
+	htmxDirectory: 'example/htmx',
 	options: {
 		preserveIntermediateFiles: true
 	},
@@ -30,7 +30,7 @@ const manifest = await build({
 });
 
 if (manifest === null) throw new Error('Manifest was not generated');
-
+console.log(manifest)
 let counter = 0;
 
 export const server = new Elysia()
