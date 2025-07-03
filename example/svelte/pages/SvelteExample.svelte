@@ -5,30 +5,135 @@
 
 	let { initialCount }: SvelteExampleProps = $props();
 	let count = $state(initialCount);
-
-	const year = new Date().getFullYear();
 </script>
 
 <svelte:head>
 	<meta charset="utf-8" />
-	<title>Svelte Home</title>
-	<meta name="description" content="Welcome to AbsoluteJS" />
+	<title>AbsoluteJS + Svelte</title>
+	<meta name="description" content="AbsoluteJS Svelte Example" />
 	<meta name="viewport" content="width=device-width, initial-scale=1" />
 	<link rel="icon" href="/assets/ico/favicon.ico" />
+	<link rel="preconnect" href="https://fonts.googleapis.com" />
+	<link
+		rel="preconnect"
+		href="https://fonts.gstatic.com"
+		crossOrigin="anonymous"
+	/>
+	<link
+		href={`https://fonts.googleapis.com/css2?family=Poppins:wght@100..900&display=swap`}
+		rel="stylesheet"
+	/>
+	<link rel="stylesheet" href="/assets/css/reset.css" type="text/css" />
 </svelte:head>
 
-<main>
-	<header><h1>This page was built with Svelte</h1></header>
-
-	<p>Welcome to the Svelte home page. This page was built using Svelte.</p>
-
-	<p>Counter: {count}</p>
-	<button onclick={() => (count += 1)}>Increment</button>
-
-	<div id="links">
-		<a href="/">Html</a>
+<header>
+	<p>AbsoluteJS</p>
+	<nav>
+		<a href="/">HTML</a>
+		<a href="/react">React</a>
 		<a href="/vue">Vue</a>
-	</div>
+		<a href="/angular">Angular</a>
+		<a href="/htmx">HTMX</a>
+	</nav>
+</header>
 
-	<footer><p>© {year} AbsoluteJS</p></footer>
+<main>
+	<nav>
+		<a href="https://absolutejs.com" target="_blank">
+			<img
+				class="logo"
+				src="/assets/png/absolutejs-temp.png"
+				alt="AbsoluteJS Logo"
+			/>
+		</a>
+		<a href="https://svelte.dev" target="_blank">
+			<img
+				class="logo svelte"
+				src="/assets/svg/svelte-logo.svg"
+				alt="Svelte Logo"
+			/>
+		</a>
+	</nav>
+	<h1>AbsoluteJS + Svelte</h1>
+	<button onclick={() => (count += 1)}>count is {count}</button>
+	<p>
+		Edit <code>example/html/pages/HtmlExample.html</code> and save to update
+		the page.
+	</p>
+	<p style="margin-top: 2rem;">
+		Explore the other pages to see how AbsoluteJS seamlessly unifies
+		multiple frameworks on a single server.
+	</p>
+	<p style="color: #777; font-size: 1rem; margin-top: 2rem;">
+		Click on the AbsoluteJS and HTML logos to learn more.
+	</p>
 </main>
+
+<style>
+	header {
+		align-items: center;
+		background-color: #1a1a1a;
+		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+		display: flex;
+		justify-content: space-between;
+		padding: 2rem;
+		text-align: center;
+	}
+
+	header p {
+		font-size: 3rem;
+		font-weight: 700;
+	}
+
+	header a::after {
+		background: linear-gradient(
+			90deg,
+			#5fbeeb 0%,
+			#35d5a2 50%,
+			#ff4b91 100%
+		);
+		bottom: 0;
+		content: '';
+		height: 2px;
+		left: 0;
+		position: absolute;
+		transform: scaleX(0);
+		transform-origin: left;
+		transition: transform 0.25s ease-in-out;
+		width: 100%;
+	}
+
+	header a:hover::after {
+		transform: scaleX(1);
+	}
+
+	h1 {
+		font-size: 2.5rem;
+		margin-top: 2rem;
+	}
+
+	.logo {
+		height: 8rem;
+		width: 8rem;
+		will-change: filter;
+		transition: filter 300ms;
+	}
+	.logo:hover {
+		filter: drop-shadow(0 0 2rem #5fbeeb);
+	}
+	.logo.svelte:hover {
+		filter: drop-shadow(0 0 2rem #ff3e00);
+	}
+
+	nav {
+		display: flex;
+		gap: 4rem;
+		justify-content: center;
+	}
+
+	@media (prefers-color-scheme: light) {
+		button {
+			background-color: #ffffff;
+		}
+	}
+</style>
