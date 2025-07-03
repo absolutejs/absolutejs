@@ -9,6 +9,7 @@ export const ReactExample = ({ initialCount }: { initialCount: number }) => (
 				<p>AbsoluteJS</p>
 				<nav>
 					<a href="/">HTML</a>
+					<a href="/react">React</a>
 					<a href="/svelte">Svelte</a>
 					<a href="/vue">Vue</a>
 					<a href="/angular">Angular</a>

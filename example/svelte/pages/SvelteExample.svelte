@@ -31,6 +31,7 @@
 	<nav>
 		<a href="/">HTML</a>
 		<a href="/react">React</a>
+		<a href="/svelte">Svelte</a>
 		<a href="/vue">Vue</a>
 		<a href="/angular">Angular</a>
 		<a href="/htmx">HTMX</a>
@@ -57,9 +58,10 @@
 	<h1>AbsoluteJS + Svelte</h1>
 	<button onclick={() => (count += 1)}>count is {count}</button>
 	<p>
-		Edit <code>example/html/pages/HtmlExample.html</code> and save to update
-		the page.
+		Edit <code>example/svelte/pages/SvelteExample.svelte</code> then save and
+		refresh to update the page.
 	</p>
+	<p style="color: #777">( Hot Module Reloading is coming soon )</p>
 	<p style="margin-top: 2rem;">
 		Explore the other pages to see how AbsoluteJS seamlessly unifies
 		multiple frameworks on a single server.
