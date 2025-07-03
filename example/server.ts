@@ -48,7 +48,7 @@ export const server = new Elysia()
 			ReactExample,
 			asset(manifest, 'ReactExampleIndex'),
 			{
-				test: 123
+				initialCount: 0
 			}
 		)
 	)
@@ -57,7 +57,7 @@ export const server = new Elysia()
 			SvelteExample,
 			asset(manifest, 'SvelteExample'),
 			asset(manifest, 'SvelteExampleIndex'),
-			{ test: 456 }
+			{ test: 0 }
 		)
 	)
 	.get('/vue', () =>
@@ -65,7 +65,7 @@ export const server = new Elysia()
 			VueExample,
 			asset(manifest, 'VueExample'),
 			asset(manifest, 'VueExampleIndex'),
-			{ test: 123 }
+			{ test: 0 }
 		)
 	)
 	.get('/htmx', () => file('./example/build/htmx/HtmxHome.html'))
