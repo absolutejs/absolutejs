@@ -1,9 +1,11 @@
 import { App } from '../components/App';
 import { Head } from '../components/Head';
 
-export const ReactExample = ({ initialCount }: { initialCount: number }) => (
+type ReactExampleProps = { initialCount: number; cssPath: string };
+
+export const ReactExample = ({ initialCount, cssPath }: ReactExampleProps) => (
 	<html>
-		<Head />
+		<Head cssPath={cssPath} />
 		<body>
 			<header>
 				<p>AbsoluteJS</p>

@@ -29,7 +29,6 @@ const manifest = await build({
 	vueDirectory: 'example/vue'
 });
 
-if (manifest === null) throw new Error('Manifest was not generated');
 let counter = 0;
 
 export const server = new Elysia()
@@ -47,6 +46,7 @@ export const server = new Elysia()
 			ReactExample,
 			asset(manifest, 'ReactExampleIndex'),
 			{
+				cssPath: asset(manifest, 'ReactExampleCSS'),
 				initialCount: 0
 			}
 		)
@@ -56,7 +56,7 @@ export const server = new Elysia()
 			SvelteExample,
 			asset(manifest, 'SvelteExample'),
 			asset(manifest, 'SvelteExampleIndex'),
-			{ initialCount: 0 }
+			{ cssPath: asset(manifest, 'SvelteExampleCSS'), initialCount: 0 }
 		)
 	)
 	.get('/vue', () =>
@@ -64,6 +64,7 @@ export const server = new Elysia()
 			VueExample,
 			asset(manifest, 'VueExample'),
 			asset(manifest, 'VueExampleIndex'),
+			asset(manifest, 'VueExampleCSS'),
 			{ initialCount: 0 }
 		)
 	)

@@ -79,6 +79,7 @@ export const handleVuePageRequest = async <
 	_PageComponent: VueComponent<Props>,
 	pagePath: string,
 	indexPath: string,
+	cssPath: string,
 	...props: keyof Props extends never ? [] : [props: Props]
 ) => {
 	const [maybeProps] = props;
@@ -91,7 +92,11 @@ export const handleVuePageRequest = async <
 
 	const bodyStream = renderVueToWebStream(app);
 
-	const head = '<!DOCTYPE html><html><head></head><body><div id="app">';
+	const cssLink = cssPath
+		? `<link rel="stylesheet" href="${cssPath}" type="text/css"/>`
+		: '';
+
+	const head = `<!DOCTYPE html><html><head>${cssLink}</head><body><div id="root">`;
 	const tail = `</div><script>window.__INITIAL_PROPS__=${JSON.stringify(
 		maybeProps ?? {}
 	)}</script><script type="module" src="${indexPath}"></script></body></html>`;

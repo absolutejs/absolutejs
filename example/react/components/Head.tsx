@@ -3,13 +3,15 @@ type HeadProps = {
 	description?: string;
 	icon?: string;
 	font?: string;
+	cssPath?: string;
 };
 
 export const Head = ({
 	title = 'AbsoluteJS + React',
 	description = 'AbsoluteJS React Example',
 	icon = '/assets/ico/favicon.ico',
-	font = 'Poppins'
+	font = 'Poppins',
+	cssPath
 }: HeadProps) => (
 	<head>
 		<meta charSet="utf-8" />
@@ -27,10 +29,6 @@ export const Head = ({
 			href={`https://fonts.googleapis.com/css2?family=${font}:wght@100..900&display=swap`}
 			rel="stylesheet"
 		/>
-		<link
-			rel="stylesheet"
-			href="/assets/css/react-example.css"
-			type="text/css"
-		/>
+		{cssPath && <link rel="stylesheet" href={cssPath} type="text/css" />}
 	</head>
 );

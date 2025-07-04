@@ -7,6 +7,7 @@ import {
 	compileStyle
 } from '@vue/compiler-sfc';
 import { file, write } from 'bun';
+import { toKebab } from '../utils/stringModifiers';
 
 export const compileVue = async (
 	entryPoints: string[],
@@ -31,29 +32,28 @@ export const compileVue = async (
 			const source = await file(entry).text();
 			const filename = basename(entry);
 			const name = basename(entry, extname(entry));
+			const kebab = toKebab(name);
+			const scopeId = `data-v-${kebab}`;
 			const { descriptor } = parse(source, { filename });
+			const isScoped = descriptor.styles.some((s) => s.scoped);
 
-			const cssFiles = await Promise.all(
-				descriptor.styles.map(async (styleBlock, idx) => {
-					const outName =
-						descriptor.styles.length === 1
-							? `${name}.css`
-							: `${name}.${idx}.css`;
-					const { code } = compileStyle({
+			const styleCodes = descriptor.styles.map(
+				(styleBlock) =>
+					compileStyle({
 						filename,
-						id: name,
+						id: kebab,
 						scoped: Boolean(styleBlock.scoped),
 						source: styleBlock.content,
 						trim: true
-					});
-					await write(join(stylesDir, outName), code);
-
-					return outName;
-				})
+					}).code
 			);
+			const mergedCss = styleCodes.join('\n');
+			const mergedName = `${kebab}.css`;
+			const mergedPath = join(stylesDir, mergedName);
+			await write(mergedPath, mergedCss);
 
 			const scriptBlock = compileScript(descriptor, {
-				id: name,
+				id: kebab,
 				inlineTemplate: false
 			});
 			const scriptPath = join(scriptsDir, `${name}.ts`);
@@ -69,25 +69,25 @@ export const compileVue = async (
 					prefixIdentifiers: true
 				},
 				filename,
-				id: name,
+				id: kebab,
+				scoped: isScoped,
 				source: descriptor.template?.content ?? '',
 				ssr: true,
 				ssrCssVars: descriptor.cssVars
 			});
 
-			const serverImport = `import scriptMod, * as named from '../scripts/${name}.ts';`;
 			let ssrCode = ssrTpl.code.replace(
 				/(import\s+[^\n]+["']vue\/server-renderer["'][^\n]*\n)/,
-				`$1${serverImport}\n`
+				`$1import scriptMod, * as named from '../scripts/${name}.ts'\n`
 			);
 			if (/import\s*\{[^}]+\}\s*from\s*['"]vue['"]/.test(ssrCode)) {
 				ssrCode = ssrCode.replace(
 					/import\s*\{([^}]+)\}\s*from\s*['"]vue['"];?/,
 					(_, imports) =>
-						`import { defineComponent, ${imports.trim()} } from 'vue';`
+						`import { defineComponent, ${imports.trim()} } from 'vue'`
 				);
 			} else {
-				ssrCode = `import { defineComponent } from 'vue';\n${ssrCode}`;
+				ssrCode = `import { defineComponent } from 'vue'\n${ssrCode}`;
 			}
 
 			const ssrPath = join(pagesDir, `${name}.js`);
@@ -95,7 +95,10 @@ export const compileVue = async (
 				ssrPath,
 				[
 					ssrCode,
-					`export default defineComponent({ ...scriptMod, ...named, ssrRender });`
+					`const comp = defineComponent({ ...scriptMod, ...named })`,
+					`comp.ssrRender = ssrRender`,
+					`comp.__scopeId = '${scopeId}'`,
+					`export default comp`
 				].join('\n')
 			);
 
@@ -108,20 +111,20 @@ export const compileVue = async (
 					prefixIdentifiers: true
 				},
 				filename,
-				id: name,
+				id: kebab,
+				scoped: isScoped,
 				source: descriptor.template?.content ?? ''
 			});
 
 			let clientCode = clientTpl.code;
-			const clientImport = `import scriptMod, * as named from '../scripts/${name}.ts'`;
 			if (/import\s*\{[^}]+\}\s*from\s*['"]vue['"]/.test(clientCode)) {
 				clientCode = clientCode.replace(
 					/import\s*\{([^}]+)\}\s*from\s*['"]vue['"];?/,
 					(_, imports) =>
-						`import { defineComponent, ${imports.trim()} } from 'vue';\n${clientImport}`
+						`import { defineComponent, ${imports.trim()} } from 'vue'\nimport scriptMod, * as named from '../scripts/${name}.ts'`
 				);
 			} else {
-				clientCode = `import { defineComponent } from 'vue';\n${clientImport}\n${clientCode}`;
+				clientCode = `import { defineComponent } from 'vue'\nimport scriptMod, * as named from '../scripts/${name}.ts'\n${clientCode}`;
 			}
 
 			const clientComponentPath = join(clientDir, `${name}.js`);
@@ -129,7 +132,9 @@ export const compileVue = async (
 				clientComponentPath,
 				[
 					clientCode,
-					`export default defineComponent({ ...scriptMod, ...named, render })`
+					`const comp = defineComponent({ ...scriptMod, ...named, render })`,
+					`comp.__scopeId = '${scopeId}'`,
+					`export default comp`
 				].join('\n')
 			);
 
@@ -141,14 +146,13 @@ export const compileVue = async (
 					`import { createSSRApp } from 'vue'`,
 					`const props = window.__INITIAL_PROPS__ ?? {}`,
 					`const app = createSSRApp(Comp, props)`,
-					`app.mount('#app')`
+					`app.mount('#root')`
 				].join('\n')
 			);
 
 			return {
 				clientIndexPath,
-				cssFiles,
-				cssKey: `${name}CSS`,
+				cssPath: mergedPath,
 				serverPath: ssrPath
 			};
 		})
@@ -158,14 +162,7 @@ export const compileVue = async (
 		({ clientIndexPath }) => clientIndexPath
 	);
 	const vueServerPaths = results.map(({ serverPath }) => serverPath);
-	const vueCssPaths = results.reduce<Record<string, string[]>>(
-		(acc, { cssKey, cssFiles }) => {
-			acc[cssKey] = cssFiles;
-
-			return acc;
-		},
-		{}
-	);
+	const vueCssPaths = results.map(({ cssPath }) => cssPath);
 
 	return { vueClientPaths, vueCssPaths, vueServerPaths };
 };

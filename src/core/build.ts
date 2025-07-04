@@ -7,7 +7,7 @@ import { compileVue } from '../build/compileVue';
 import { generateManifest } from '../build/generateManifest';
 import { generateReactIndexFiles } from '../build/generateReactIndexes';
 import { scanEntryPoints } from '../build/scanEntryPoints';
-import { updateScriptTags } from '../build/updateScriptTags';
+import { updateHTMLAssetPaths } from '../build/updateHTMLAssetPaths';
 import { BuildConfig } from '../types';
 import { getDurationString } from '../utils/getDurationString';
 import { validateSafePath } from '../utils/validateSafePath';
@@ -34,7 +34,7 @@ const vueFeatureFlags: Record<string, string> = {
 
 export const build = async ({
 	buildDirectory = 'build',
-	assetsDirectory,
+	assetsDirectory = 'assets',
 	reactDirectory,
 	htmlDirectory,
 	htmxDirectory,
@@ -118,13 +118,23 @@ export const build = async ({
 		? await scanEntryPoints(vuePagesPath, '*.vue')
 		: [];
 
+	const htmlCSSEntries = htmlDir
+		? await scanEntryPoints(join(htmlDir, 'styles'), '*.css')
+		: [];
+	const reactCssEntries = reactDir
+		? await scanEntryPoints(join(reactDir, 'styles'), '*.css')
+		: [];
+	const svelteCssEntries = svelteDir
+		? await scanEntryPoints(join(svelteDir, 'styles'), '*.css')
+		: [];
+
 	const { svelteServerPaths, svelteClientPaths } = svelteDir
 		? await compileSvelte(svelteEntries, svelteDir)
 		: { svelteClientPaths: [], svelteServerPaths: [] };
 
 	const { vueServerPaths, vueClientPaths, vueCssPaths } = vueDir
 		? await compileVue(vueEntries, vueDir)
-		: { vueClientPaths: [], vueCssPaths: {}, vueServerPaths: [] };
+		: { vueClientPaths: [], vueCssPaths: [], vueServerPaths: [] };
 
 	const serverEntryPoints = [...svelteServerPaths, ...vueServerPaths];
 	const clientEntryPoints = [
@@ -133,11 +143,17 @@ export const build = async ({
 		...htmlEntries,
 		...vueClientPaths
 	];
+	const cssEntryPoints = [
+		...vueCssPaths,
+		...reactCssEntries,
+		...svelteCssEntries,
+		...htmlCSSEntries
+	];
 
 	if (serverEntryPoints.length === 0 && clientEntryPoints.length === 0) {
-		console.warn('No entry points found');
+		console.warn('No entry points found, manifest will be empty.');
 
-		return null;
+		return {};
 	}
 
 	let serverLogs: (BuildMessage | ResolveMessage)[] = [];
@@ -185,7 +201,23 @@ export const build = async ({
 		clientOutputs = outputs;
 	}
 
-	const allLogs = [...serverLogs, ...clientLogs];
+	let cssLogs: (BuildMessage | ResolveMessage)[] = [];
+	let cssOutputs: BuildArtifact[] = [];
+	if (cssEntryPoints.length > 0) {
+		const { logs, outputs } = await bunBuild({
+			entrypoints: cssEntryPoints,
+			naming: `[name].[hash].[ext]`,
+			outdir: join(buildPath, basename(assetsPath), 'css'),
+			target: 'browser'
+		}).catch((err) => {
+			console.error('CSS build failed:', err);
+			exit(1);
+		});
+		cssLogs = logs;
+		cssOutputs = outputs;
+	}
+
+	const allLogs = [...serverLogs, ...clientLogs, ...cssLogs];
 	for (const log of allLogs) {
 		if (typeof log !== 'object' || log === null || !('level' in log))
 			continue;
@@ -195,7 +227,7 @@ export const build = async ({
 	}
 
 	const manifest = generateManifest(
-		[...serverOutputs, ...clientOutputs],
+		[...serverOutputs, ...clientOutputs, ...cssOutputs],
 		buildPath
 	);
 
@@ -206,7 +238,7 @@ export const build = async ({
 			force: true,
 			recursive: true
 		});
-		await updateScriptTags(manifest, outputHtmlPages);
+		await updateHTMLAssetPaths(manifest, outputHtmlPages);
 	}
 
 	if (!options?.preserveIntermediateFiles && svelteDir) {
@@ -224,5 +256,5 @@ export const build = async ({
 		`Build completed in ${getDurationString(performance.now() - buildStart)}`
 	);
 
-	return { ...manifest, ...vueCssPaths };
+	return manifest;
 };

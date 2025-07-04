@@ -1,9 +1,10 @@
 <script lang="ts">
 	type SvelteExampleProps = {
 		initialCount: number;
+		cssPath: string;
 	};
 
-	let { initialCount }: SvelteExampleProps = $props();
+	let { initialCount, cssPath }: SvelteExampleProps = $props();
 	let count = $state(initialCount);
 </script>
 
@@ -23,7 +24,7 @@
 		href={`https://fonts.googleapis.com/css2?family=Poppins:wght@100..900&display=swap`}
 		rel="stylesheet"
 	/>
-	<link rel="stylesheet" href="/assets/css/reset.css" type="text/css" />
+	<link rel="stylesheet" href={cssPath} type="text/css" />
 </svelte:head>
 
 <header>
@@ -67,7 +68,7 @@
 		multiple frameworks on a single server.
 	</p>
 	<p style="color: #777; font-size: 1rem; margin-top: 2rem;">
-		Click on the AbsoluteJS and HTML logos to learn more.
+		Click on the AbsoluteJS and Svelte logos to learn more.
 	</p>
 </main>
 

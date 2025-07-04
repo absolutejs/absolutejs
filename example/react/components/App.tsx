@@ -1,6 +1,8 @@
 import { useState } from 'react';
 
-export const App = ({ initialCount }: { initialCount: number }) => {
+type AppProps = { initialCount: number };
+
+export const App = ({ initialCount }: AppProps) => {
 	const [count, setCount] = useState(initialCount);
 
 	return (

@@ -183,7 +183,11 @@ export default defineConfig([
 	},
 
 	{
-		files: ['eslint.config.mjs', 'src/constants.ts'],
+		files: [
+			'eslint.config.mjs',
+			'src/constants.ts',
+			'example/vue/client/*.js'
+		],
 		rules: {
 			'no-magic-numbers': 'off'
 		}
