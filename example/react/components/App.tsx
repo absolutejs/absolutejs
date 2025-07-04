@@ -45,7 +45,7 @@ export const App = ({ initialCount }: AppProps) => {
 					marginTop: '2rem'
 				}}
 			>
-				Click on the AbsoluteJS and HTML logos to learn more.
+				Click on the AbsoluteJS and React logos to learn more.
 			</p>
 		</main>
 	);
