@@ -10,6 +10,7 @@ import {
 	handleVuePageRequest
 } from '../src/core/pageHandlers';
 import { networkingPlugin } from '../src/plugins/networkingPlugin';
+import { generateHead } from '../src/utils/generateHead';
 import { ReactExample } from './react/pages/ReactExample';
 import SvelteExample from './svelte/pages/SvelteExample.svelte';
 import { vueImports } from './vueImporter';
@@ -64,7 +65,10 @@ export const server = new Elysia()
 			VueExample,
 			asset(manifest, 'VueExample'),
 			asset(manifest, 'VueExampleIndex'),
-			asset(manifest, 'VueExampleCSS'),
+			generateHead({
+				cssPath: asset(manifest, 'VueExampleCSS'),
+				title: 'AbsoluteJS + Vue'
+			}),
 			{ initialCount: 0 }
 		)
 	)
