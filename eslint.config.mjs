@@ -197,7 +197,8 @@ export default defineConfig([
 		files: [
 			'eslint.config.mjs',
 			'src/constants.ts',
-			'example/vue/client/*.js'
+			'example/vue/client/**/*.js',
+			'example/svelte/pages/**/*.js'
 		],
 		rules: {
 			'no-magic-numbers': 'off'
@@ -208,7 +209,10 @@ export default defineConfig([
 			'eslint.config.mjs',
 			'example/vue/scripts/*.ts',
 			'example/vue/pages/*.js',
-			'example/vue/client/*.js'
+			'example/vue/client/**/*.js',
+			'example/vue/pages/**/*.js',
+			'example/vue/indexes/**/*.js',
+			'example/svelte/pages/**/*.js'
 		],
 		rules: {
 			'import/no-default-export': 'off'
@@ -221,30 +225,66 @@ export default defineConfig([
 			'src/core/index.ts',
 			'src/index.ts',
 			'example/**/indexes/*',
-			'example/html/scripts/*'
+			'example/html/scripts/*',
+			'example/vue/**/*.js'
 		],
 		rules: {
 			'import/no-unused-modules': 'off'
 		}
 	},
 	{
+		files: [
+			'example/vue/pages/**/*.js',
+			'example/vue/components/**/*.js',
+			'example/vue/scripts/*.ts',
+			'example/vue/indexes/**/*.js',
+			'example/vue/client/**/*.js',
+			'example/svelte/pages/**/*.js'
+		],
+		rules: {
+			'absolute/explicit-object-types': 'off'
+		}
+	},
+	{
+		files: [
+			'example/vue/pages/**/*.js',
+			'example/vue/components/**/*.js',
+			'example/vue/indexes/**/*.js'
+		],
+		rules: {
+			'import/order': 'off'
+		}
+	},
+	{
 		files: ['example/vue/scripts/*.ts'],
 		rules: {
-			'absolute/explicit-object-types': 'off',
 			'no-duplicate-imports': 'off'
 		}
 	},
 	{
-		files: ['example/vue/pages/*.js', 'example/vue/client/*.js'],
+		files: [
+			'example/vue/pages/**/*.js',
+			'example/vue/client/*.js',
+			'example/vue/scripts/*.ts',
+			'example/vue/indexes/**/*.js',
+			'example/vue/client/**/*.js',
+			'example/svelte/pages/**/*.js'
+		],
 		rules: {
 			'@typescript-eslint/no-unused-vars': 'off',
 			'func-style': 'off'
 		}
 	},
 	{
-		files: ['example/vue/client/*.js'],
+		files: ['example/vue/client/*.js', 'example/vue/pages/**/*.js'],
 		rules: {
 			'absolute/explicit-object-types': 'off'
+		}
+	},
+	{
+		files: ['example/svelte/pages/**/*.js'],
+		rules: {
+			'no-shadow': 'off'
 		}
 	}
 ]);
