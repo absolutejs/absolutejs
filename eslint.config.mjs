@@ -42,7 +42,7 @@ export default defineConfig([
 			parser: tsParser,
 			parserOptions: {
 				createDefaultProgram: true,
-				project: './tsconfig.lint.json',
+				project: './tsconfig.json',
 				tsconfigRootDir: __dirname
 			}
 		},
@@ -181,7 +181,18 @@ export default defineConfig([
 			'promise/param-names': 'error'
 		}
 	},
-
+	{
+		//TODO: Add official eslint support for Svelte.
+		files: ['**/*.svelte.ts'],
+		languageOptions: {
+			globals: {
+				$derived: 'readonly',
+				$effect: 'readonly',
+				$props: 'readonly',
+				$state: 'readonly'
+			}
+		}
+	},
 	{
 		files: [
 			'eslint.config.mjs',
