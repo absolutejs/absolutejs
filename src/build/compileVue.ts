@@ -1,168 +1,275 @@
 import { mkdir } from 'node:fs/promises';
-import { basename, extname, join, relative } from 'node:path';
+import { basename, dirname, join, relative, resolve } from 'node:path';
+import { cwd } from 'node:process';
 import {
 	parse,
 	compileScript,
 	compileTemplate,
 	compileStyle
 } from '@vue/compiler-sfc';
-import { file, write } from 'bun';
+import { file, write, Transpiler } from 'bun';
 import { toKebab } from '../utils/stringModifiers';
 
+const transpiler = new Transpiler({ loader: 'ts', target: 'browser' });
+const projectRoot = cwd();
+
+type BuildResult = {
+	clientPath: string;
+	serverPath: string;
+	cssPaths: string[];
+	cssCodes: string[];
+	tsHelperPaths: string[];
+};
+
+const extractImports = (sourceCode: string) =>
+	Array.from(sourceCode.matchAll(/import\s+[\s\S]+?['"]([^'"]+)['"]/g))
+		.map((match) => match[1])
+		.filter((importPath): importPath is string => importPath !== undefined);
+
+const toJsFileName = (path: string) => {
+	if (path.endsWith('.vue')) {
+		return path.replace(/\.vue$/, '.js');
+	}
+	if (path.endsWith('.ts')) {
+		return path.replace(/\.ts$/, '.js');
+	}
+
+	return `${path}.js`;
+};
+
+const stripModuleExports = (sourceCode: string) =>
+	sourceCode
+		.replace(/export\s+default/, 'const script =')
+		.replace(/^export\s+/gm, '');
+
+const buildVueFile = async (
+	absolutePath: string,
+	outputDirs: { client: string; server: string; css: string },
+	cache: Map<string, BuildResult>,
+	isEntryPage = false
+) => {
+	if (cache.has(absolutePath)) return cache.get(absolutePath)!;
+
+	const relativePath = relative(projectRoot, absolutePath).replace(
+		/\\/g,
+		'/'
+	);
+	const relativePathWithoutExt = relativePath.replace(/\.vue$/, '');
+	const componentName = basename(absolutePath, '.vue');
+	const kebabId = toKebab(componentName);
+
+	const sourceCode = await file(absolutePath).text();
+	const { descriptor } = parse(sourceCode, { filename: absolutePath });
+	const originalSetupCode =
+		descriptor.scriptSetup?.content ?? descriptor.script?.content ?? '';
+
+	const relativeImports = extractImports(originalSetupCode);
+	const childVueImports = relativeImports.filter(
+		(importPath): importPath is string =>
+			importPath.startsWith('.') && importPath.endsWith('.vue')
+	);
+	const tsHelperImports = relativeImports.filter(
+		(importPath): importPath is string =>
+			importPath.startsWith('.') && !importPath.endsWith('.vue')
+	);
+
+	const childBuildResults = await Promise.all(
+		childVueImports.map((importPath) =>
+			buildVueFile(
+				resolve(dirname(absolutePath), importPath),
+				outputDirs,
+				cache,
+				false
+			)
+		)
+	);
+
+	const compiledScript = compileScript(descriptor, {
+		id: kebabId,
+		inlineTemplate: false
+	});
+
+	const transformedScript = transpiler
+		.transformSync(stripModuleExports(compiledScript.content))
+		.replace(
+			/(['"])(\.{1,2}\/[^'"]+)(['"])/g,
+			(_, quote, importPath, endQuote) =>
+				quote + toJsFileName(importPath) + endQuote
+		);
+
+	const renderBlock = (forServer: boolean) =>
+		compileTemplate({
+			compilerOptions: {
+				bindingMetadata: compiledScript.bindings,
+				prefixIdentifiers: true
+			},
+			filename: absolutePath,
+			id: kebabId,
+			scoped: descriptor.styles.some((s) => s.scoped),
+			source: descriptor.template?.content ?? '',
+			ssr: forServer,
+			ssrCssVars: descriptor.cssVars
+		}).code.replace(
+			/(['"])(\.{1,2}\/[^'"]+)(['"])/g,
+			(_, quote, importPath, endQuote) =>
+				quote + toJsFileName(importPath) + endQuote
+		);
+
+	const ownCssCodes = descriptor.styles.map(
+		(styleBlock) =>
+			compileStyle({
+				filename: absolutePath,
+				id: kebabId,
+				scoped: styleBlock.scoped,
+				source: styleBlock.content,
+				trim: true
+			}).code
+	);
+
+	const aggregatedCssCodes = [
+		...ownCssCodes,
+		...childBuildResults.flatMap((result) => result.cssCodes)
+	];
+
+	let emittedCssPaths: string[] = [];
+	if (isEntryPage && aggregatedCssCodes.length) {
+		const cssOutputPath = join(
+			outputDirs.css,
+			`${toKebab(componentName)}.css`
+		);
+		await mkdir(dirname(cssOutputPath), { recursive: true });
+		await write(cssOutputPath, aggregatedCssCodes.join('\n'));
+		emittedCssPaths = [cssOutputPath];
+	}
+
+	const buildModule = (
+		renderCode: string,
+		renderFunctionName: 'render' | 'ssrRender'
+	) => {
+		const vueHeader = 'import { defineComponent } from "vue";';
+
+		return [
+			transformedScript,
+			renderCode,
+			vueHeader,
+			`export default defineComponent({ ...script, ${renderFunctionName} });`
+		].join('\n');
+	};
+
+	const clientModuleCode = buildModule(renderBlock(false), 'render');
+	const serverModuleCode = buildModule(renderBlock(true), 'ssrRender');
+
+	const clientOutPath = join(
+		outputDirs.client,
+		`${relativePathWithoutExt}.js`
+	);
+	const serverOutPath = join(
+		outputDirs.server,
+		`${relativePathWithoutExt}.js`
+	);
+	await mkdir(dirname(clientOutPath), { recursive: true });
+	await mkdir(dirname(serverOutPath), { recursive: true });
+	await write(clientOutPath, clientModuleCode);
+	await write(serverOutPath, serverModuleCode);
+
+	const buildResult: BuildResult = {
+		clientPath: clientOutPath,
+		cssCodes: aggregatedCssCodes,
+		cssPaths: emittedCssPaths,
+		serverPath: serverOutPath,
+		tsHelperPaths: [
+			...tsHelperImports.map((helper) =>
+				resolve(
+					dirname(absolutePath),
+					helper.endsWith('.ts') ? helper : `${helper}.ts`
+				)
+			),
+			...childBuildResults.flatMap((result) => result.tsHelperPaths)
+		]
+	};
+	cache.set(absolutePath, buildResult);
+
+	return buildResult;
+};
+
 export const compileVue = async (
-	entryPoints: string[],
+	pageEntryPoints: string[],
 	outputDirectory: string
 ) => {
-	const pagesDir = join(outputDirectory, 'pages');
-	const scriptsDir = join(outputDirectory, 'scripts');
-	const stylesDir = join(outputDirectory, 'styles');
 	const clientDir = join(outputDirectory, 'client');
-	const indexesDir = join(outputDirectory, 'indexes');
+	const indexDir = join(outputDirectory, 'indexes');
+	const pagesDir = join(outputDirectory, 'pages');
+	const stylesDir = join(outputDirectory, 'styles');
 
 	await Promise.all([
-		mkdir(pagesDir, { recursive: true }),
-		mkdir(scriptsDir, { recursive: true }),
-		mkdir(stylesDir, { recursive: true }),
 		mkdir(clientDir, { recursive: true }),
-		mkdir(indexesDir, { recursive: true })
+		mkdir(indexDir, { recursive: true }),
+		mkdir(pagesDir, { recursive: true }),
+		mkdir(stylesDir, { recursive: true })
 	]);
 
-	const results = await Promise.all(
-		entryPoints.map(async (entry) => {
-			const source = await file(entry).text();
-			const filename = basename(entry);
-			const name = basename(entry, extname(entry));
-			const kebab = toKebab(name);
-			const scopeId = `data-v-${kebab}`;
-			const { descriptor } = parse(source, { filename });
-			const isScoped = descriptor.styles.some((s) => s.scoped);
+	const buildCache = new Map<string, BuildResult>();
+	const tsHelperSet = new Set<string>();
 
-			const styleCodes = descriptor.styles.map(
-				(styleBlock) =>
-					compileStyle({
-						filename,
-						id: kebab,
-						scoped: Boolean(styleBlock.scoped),
-						source: styleBlock.content,
-						trim: true
-					}).code
+	const pageResults = await Promise.all(
+		pageEntryPoints.map(async (pageEntry) => {
+			const buildResult = await buildVueFile(
+				resolve(pageEntry),
+				{ client: clientDir, css: stylesDir, server: pagesDir },
+				buildCache,
+				true
 			);
-			const mergedCss = styleCodes.join('\n');
-			const mergedName = `${kebab}.css`;
-			const mergedPath = join(stylesDir, mergedName);
-			await write(mergedPath, mergedCss);
 
-			const scriptBlock = compileScript(descriptor, {
-				id: kebab,
-				inlineTemplate: false
-			});
-			const scriptPath = join(scriptsDir, `${name}.ts`);
-			const cleanedScript = scriptBlock.content.replace(
-				/setup\(\s*__props\s*:\s*any/g,
-				'setup(__props'
+			buildResult.tsHelperPaths.forEach((p) => tsHelperSet.add(p));
+
+			const relPath = relative(projectRoot, pageEntry).replace(
+				/\.vue$/,
+				''
 			);
-			await write(scriptPath, cleanedScript);
+			const indexPath = join(indexDir, `${relPath}.js`);
+			const clientEntryPath = join(clientDir, `${relPath}.js`);
 
-			const ssrTpl = compileTemplate({
-				compilerOptions: {
-					bindingMetadata: scriptBlock.bindings,
-					prefixIdentifiers: true
-				},
-				filename,
-				id: kebab,
-				scoped: isScoped,
-				source: descriptor.template?.content ?? '',
-				ssr: true,
-				ssrCssVars: descriptor.cssVars
-			});
-
-			let ssrCode = ssrTpl.code.replace(
-				/(import\s+[^\n]+["']vue\/server-renderer["'][^\n]*\n)/,
-				`$1import scriptMod, * as named from '../scripts/${name}.ts'\n`
-			);
-			if (/import\s*\{[^}]+\}\s*from\s*['"]vue['"]/.test(ssrCode)) {
-				ssrCode = ssrCode.replace(
-					/import\s*\{([^}]+)\}\s*from\s*['"]vue['"];?/,
-					(_, imports) =>
-						`import { defineComponent, ${imports.trim()} } from 'vue'`
-				);
-			} else {
-				ssrCode = `import { defineComponent } from 'vue'\n${ssrCode}`;
-			}
-
-			const ssrPath = join(pagesDir, `${name}.js`);
+			await mkdir(dirname(indexPath), { recursive: true });
 			await write(
-				ssrPath,
+				indexPath,
 				[
-					ssrCode,
-					`const comp = defineComponent({ ...scriptMod, ...named })`,
-					`comp.ssrRender = ssrRender`,
-					`comp.__scopeId = '${scopeId}'`,
-					`export default comp`
-				].join('\n')
-			);
-
-			const clientTpl = compileTemplate({
-				compilerOptions: {
-					bindingMetadata: scriptBlock.bindings,
-					cacheHandlers: true,
-					hoistStatic: true,
-					mode: 'module',
-					prefixIdentifiers: true
-				},
-				filename,
-				id: kebab,
-				scoped: isScoped,
-				source: descriptor.template?.content ?? ''
-			});
-
-			let clientCode = clientTpl.code;
-			if (/import\s*\{[^}]+\}\s*from\s*['"]vue['"]/.test(clientCode)) {
-				clientCode = clientCode.replace(
-					/import\s*\{([^}]+)\}\s*from\s*['"]vue['"];?/,
-					(_, imports) =>
-						`import { defineComponent, ${imports.trim()} } from 'vue'\nimport scriptMod, * as named from '../scripts/${name}.ts'`
-				);
-			} else {
-				clientCode = `import { defineComponent } from 'vue'\nimport scriptMod, * as named from '../scripts/${name}.ts'\n${clientCode}`;
-			}
-
-			const clientComponentPath = join(clientDir, `${name}.js`);
-			await write(
-				clientComponentPath,
-				[
-					clientCode,
-					`const comp = defineComponent({ ...scriptMod, ...named, render })`,
-					`comp.__scopeId = '${scopeId}'`,
-					`export default comp`
-				].join('\n')
-			);
-
-			const clientIndexPath = join(indexesDir, `${name}.js`);
-			await write(
-				clientIndexPath,
-				[
-					`import Comp from '${relative(indexesDir, clientComponentPath)}'`,
-					`import { createSSRApp } from 'vue'`,
-					`const props = window.__INITIAL_PROPS__ ?? {}`,
-					`const app = createSSRApp(Comp, props)`,
-					`app.mount('#root')`
+					`import Comp from "${relative(dirname(indexPath), clientEntryPath)}";`,
+					'import { createSSRApp } from "vue";',
+					'const props = window.__INITIAL_PROPS__ ?? {};',
+					'createSSRApp(Comp, props).mount("#root");'
 				].join('\n')
 			);
 
 			return {
-				clientIndexPath,
-				cssPath: mergedPath,
-				serverPath: ssrPath
+				cssPaths: buildResult.cssPaths,
+				indexPath,
+				serverPath: buildResult.serverPath
 			};
 		})
 	);
 
-	const vueClientPaths = results.map(
-		({ clientIndexPath }) => clientIndexPath
-	);
-	const vueServerPaths = results.map(({ serverPath }) => serverPath);
-	const vueCssPaths = results.map(({ cssPath }) => cssPath);
+	await Promise.all(
+		Array.from(tsHelperSet).map(async (src) => {
+			const code = transpiler.transformSync(await file(src).text());
+			const rel = relative(projectRoot, src).replace(/\.ts$/, '.js');
+			const clientDest = join(clientDir, rel);
+			const serverDest = join(pagesDir, rel);
 
-	return { vueClientPaths, vueCssPaths, vueServerPaths };
+			await Promise.all([
+				mkdir(dirname(clientDest), { recursive: true }),
+				mkdir(dirname(serverDest), { recursive: true })
+			]);
+
+			await Promise.all([
+				write(clientDest, code),
+				write(serverDest, code)
+			]);
+		})
+	);
+
+	return {
+		vueCssPaths: pageResults.flatMap((pageResult) => pageResult.cssPaths),
+		vueIndexPaths: pageResults.map((pageResult) => pageResult.indexPath),
+		vueServerPaths: pageResults.map((pageResult) => pageResult.serverPath)
+	};
 };

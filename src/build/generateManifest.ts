@@ -4,12 +4,12 @@ import { toPascal } from '../utils/stringModifiers';
 
 export const generateManifest = (outputs: BuildArtifact[], buildPath: string) =>
 	outputs.reduce<Record<string, string>>((manifest, artifact) => {
-		let relativePath = artifact.path.startsWith(buildPath)
+		let relative = artifact.path.startsWith(buildPath)
 			? artifact.path.slice(buildPath.length)
 			: artifact.path;
-		relativePath = relativePath.replace(/^\/+/, '');
+		relative = relative.replace(/^\/+/, '');
 
-		const segments = relativePath.split('/');
+		const segments = relative.split('/');
 		const fileWithHash = segments.pop();
 		if (!fileWithHash) return manifest;
 
@@ -18,18 +18,19 @@ export const generateManifest = (outputs: BuildArtifact[], buildPath: string) =>
 
 		const ext = extname(fileWithHash);
 		if (ext === '.css') {
-			manifest[`${toPascal(baseName)}CSS`] = `/${relativePath}`;
+			manifest[`${toPascal(baseName)}CSS`] = `/${relative}`;
 
 			return manifest;
 		}
 
 		const folder = segments.length > 1 ? segments[1] : segments[0];
+
 		if (folder === 'indexes') {
-			manifest[`${baseName}Index`] = `/${relativePath}`;
+			manifest[`${baseName}Index`] = `/${relative}`;
 		} else if (folder === 'pages') {
-			manifest[baseName] = artifact.path;
+			manifest[baseName] ??= artifact.path;
 		} else {
-			manifest[baseName] = `/${relativePath}`;
+			manifest[baseName] = `/${relative}`;
 		}
 
 		return manifest;

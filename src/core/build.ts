@@ -72,29 +72,25 @@ export const build = async ({
 	const isSingle = frontends.length === 1;
 
 	let serverOutDir;
-	if (svelteDir) {
-		serverOutDir = join(buildPath, basename(svelteDir), 'pages');
-	} else if (vueDir) {
-		serverOutDir = join(buildPath, basename(vueDir), 'pages');
-	}
+	if (svelteDir) serverOutDir = join(buildPath, basename(svelteDir), 'pages');
+	else if (vueDir) serverOutDir = join(buildPath, basename(vueDir), 'pages');
 
 	let serverRoot;
-	if (svelteDir) {
-		serverRoot = join(svelteDir, 'pages');
-	} else if (vueDir) {
-		serverRoot = join(vueDir, 'pages');
-	}
+	if (svelteDir) serverRoot = join(svelteDir, 'pages');
+	else if (vueDir) serverRoot = join(vueDir, 'pages');
 
 	await rm(buildPath, { force: true, recursive: true });
 	await mkdir(buildPath);
 
 	if (reactIndexesPath && reactPagesPath)
 		await generateReactIndexFiles(reactPagesPath, reactIndexesPath);
+
 	if (assetsPath)
 		await cp(assetsPath, join(buildPath, 'assets'), {
 			force: true,
 			recursive: true
 		});
+
 	if (htmxDir) {
 		await mkdir(join(buildPath, 'htmx'));
 		await cp(htmxDir, join(buildPath, 'htmx'), {
@@ -102,6 +98,7 @@ export const build = async ({
 			recursive: true
 		});
 	}
+
 	if (tailwind)
 		await $`bunx @tailwindcss/cli -i ${tailwind.input} -o ${join(buildPath, tailwind.output)}`;
 
@@ -118,7 +115,7 @@ export const build = async ({
 		? await scanEntryPoints(vuePagesPath, '*.vue')
 		: [];
 
-	const htmlCSSEntries = htmlDir
+	const htmlCssEntries = htmlDir
 		? await scanEntryPoints(join(htmlDir, 'styles'), '*.css')
 		: [];
 	const reactCssEntries = reactDir
@@ -132,22 +129,22 @@ export const build = async ({
 		? await compileSvelte(svelteEntries, svelteDir)
 		: { svelteClientPaths: [], svelteServerPaths: [] };
 
-	const { vueServerPaths, vueClientPaths, vueCssPaths } = vueDir
+	const { vueServerPaths, vueIndexPaths, vueCssPaths } = vueDir
 		? await compileVue(vueEntries, vueDir)
-		: { vueClientPaths: [], vueCssPaths: [], vueServerPaths: [] };
+		: { vueCssPaths: [], vueIndexPaths: [], vueServerPaths: [] };
 
 	const serverEntryPoints = [...svelteServerPaths, ...vueServerPaths];
 	const clientEntryPoints = [
 		...reactEntries,
 		...svelteClientPaths,
 		...htmlEntries,
-		...vueClientPaths
+		...vueIndexPaths
 	];
 	const cssEntryPoints = [
 		...vueCssPaths,
 		...reactCssEntries,
 		...svelteCssEntries,
-		...htmlCSSEntries
+		...htmlCssEntries
 	];
 
 	if (serverEntryPoints.length === 0 && clientEntryPoints.length === 0) {
@@ -203,6 +200,7 @@ export const build = async ({
 
 	let cssLogs: (BuildMessage | ResolveMessage)[] = [];
 	let cssOutputs: BuildArtifact[] = [];
+
 	if (cssEntryPoints.length > 0) {
 		const { logs, outputs } = await bunBuild({
 			entrypoints: cssEntryPoints,
@@ -219,11 +217,9 @@ export const build = async ({
 
 	const allLogs = [...serverLogs, ...clientLogs, ...cssLogs];
 	for (const log of allLogs) {
-		if (typeof log !== 'object' || log === null || !('level' in log))
-			continue;
-		if (log.level === 'error' && (console.error(log), 1)) continue;
-		if (log.level === 'warning' && (console.warn(log), 1)) continue;
-		console.info(log);
+		if (log.level === 'error') console.error(log);
+		else if (log.level === 'warning') console.warn(log);
+		else console.info(log);
 	}
 
 	const manifest = generateManifest(
@@ -247,6 +243,20 @@ export const build = async ({
 		await Promise.all(
 			svelteServerPaths.map((path) => rm(path, { force: true }))
 		);
+	}
+
+	if (!options?.preserveIntermediateFiles && vueDir) {
+		await rm(join(vueDir, 'indexes'), { force: true, recursive: true });
+		await rm(join(vueDir, 'client'), { force: true, recursive: true });
+		await rm(join(vueDir, 'styles'), { force: true, recursive: true });
+		await Promise.all(
+			vueServerPaths.map((path) => rm(path, { force: true }))
+		);
+		// TODO: remove when the files are generated inline instead of output
+		await rm(join(vueDir, 'pages', 'example'), {
+			force: true,
+			recursive: true
+		});
 	}
 
 	if (!options?.preserveIntermediateFiles && reactIndexesPath)
