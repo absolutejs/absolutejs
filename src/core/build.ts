@@ -243,6 +243,11 @@ export const build = async ({
 		await Promise.all(
 			svelteServerPaths.map((path) => rm(path, { force: true }))
 		);
+		// TODO: remove when the files are generated inline instead of output
+		await rm(join(svelteDir, 'pages', 'example'), {
+			force: true,
+			recursive: true
+		});
 	}
 
 	if (!options?.preserveIntermediateFiles && vueDir) {

@@ -3,9 +3,9 @@
 		initialCount: number;
 		cssPath: string;
 	};
+	import Counter from '../components/Counter.svelte';
 
 	let { initialCount, cssPath }: SvelteExampleProps = $props();
-	let count = $state(initialCount);
 </script>
 
 <svelte:head>
@@ -57,7 +57,7 @@
 		</a>
 	</nav>
 	<h1>AbsoluteJS + Svelte</h1>
-	<button onclick={() => (count += 1)}>count is {count}</button>
+	<Counter {initialCount} />
 	<p>
 		Edit <code>example/svelte/pages/SvelteExample.svelte</code> then save and
 		refresh to update the page.
@@ -132,11 +132,5 @@
 		display: flex;
 		gap: 4rem;
 		justify-content: center;
-	}
-
-	@media (prefers-color-scheme: light) {
-		button {
-			background-color: #ffffff;
-		}
 	}
 </style>

@@ -55,3 +55,4 @@ example/vue/styles/
 example/vue/pages/*.js
 # TODO: remove when the files are generated inline instead of output
 example/vue/pages/example/* 
+example/svelte/pages/example/*
