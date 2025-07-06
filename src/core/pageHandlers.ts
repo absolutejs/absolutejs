@@ -121,6 +121,7 @@ export const handleVuePageRequest = async <
 };
 
 export const handleHTMLPageRequest = (html: string) => file(html);
+export const handleHTMXPageRequest = (htmx: string) => file(htmx);
 
 export const handlePageRequest = <Component>(
 	PageComponent: Component,

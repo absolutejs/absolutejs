@@ -2,11 +2,11 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { toPascal } from '../utils/stringModifiers';
 import { scanEntryPoints } from './scanEntryPoints';
 
-export const updateHTMLAssetPaths = async (
+export const updateAssetPaths = async (
 	manifest: Record<string, string>,
-	htmlDir: string
+	directory: string
 ) => {
-	const htmlFiles = await scanEntryPoints(htmlDir, '*.html');
+	const htmlFiles = await scanEntryPoints(directory, '*.html');
 	const assetRegex =
 		/((?:<script[^>]+src=|<link[^>]*?rel=["']stylesheet["'][^>]*?href=)["'])(\/?(?:.*\/)?)([^./"']+)(?:\.[^."'/]+)?(\.(?:js|ts|css))(["'][^>]*>)/g;
 

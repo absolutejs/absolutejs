@@ -7,7 +7,7 @@ import { compileVue } from '../build/compileVue';
 import { generateManifest } from '../build/generateManifest';
 import { generateReactIndexFiles } from '../build/generateReactIndexes';
 import { scanEntryPoints } from '../build/scanEntryPoints';
-import { updateHTMLAssetPaths } from '../build/updateHTMLAssetPaths';
+import { updateAssetPaths } from '../build/updateAssetPaths';
 import { BuildConfig } from '../types';
 import { getDurationString } from '../utils/getDurationString';
 import { validateSafePath } from '../utils/validateSafePath';
@@ -65,6 +65,7 @@ export const build = async ({
 	const htmlScriptsPath = htmlDir && join(htmlDir, 'scripts');
 	const sveltePagesPath = svelteDir && join(svelteDir, 'pages');
 	const vuePagesPath = vueDir && join(vueDir, 'pages');
+	const htmxPagesPath = htmxDir && join(htmxDir, 'pages');
 
 	const frontends = [reactDir, htmlDir, htmxDir, svelteDir, vueDir].filter(
 		Boolean
@@ -91,14 +92,6 @@ export const build = async ({
 			recursive: true
 		});
 
-	if (htmxDir) {
-		await mkdir(join(buildPath, 'htmx'));
-		await cp(htmxDir, join(buildPath, 'htmx'), {
-			force: true,
-			recursive: true
-		});
-	}
-
 	if (tailwind)
 		await $`bunx @tailwindcss/cli -i ${tailwind.input} -o ${join(buildPath, tailwind.output)}`;
 
@@ -117,6 +110,9 @@ export const build = async ({
 
 	const htmlCssEntries = htmlDir
 		? await scanEntryPoints(join(htmlDir, 'styles'), '*.css')
+		: [];
+	const htmxCssEntries = htmxDir
+		? await scanEntryPoints(join(htmxDir, 'styles'), '*.css')
 		: [];
 	const reactCssEntries = reactDir
 		? await scanEntryPoints(join(reactDir, 'styles'), '*.css')
@@ -144,7 +140,8 @@ export const build = async ({
 		...vueCssPaths,
 		...reactCssEntries,
 		...svelteCssEntries,
-		...htmlCssEntries
+		...htmlCssEntries,
+		...htmxCssEntries
 	];
 
 	if (serverEntryPoints.length === 0 && clientEntryPoints.length === 0) {
@@ -234,7 +231,17 @@ export const build = async ({
 			force: true,
 			recursive: true
 		});
-		await updateHTMLAssetPaths(manifest, outputHtmlPages);
+		await updateAssetPaths(manifest, outputHtmlPages);
+	}
+
+	if (htmxDir && htmxPagesPath) {
+		const outputHtmxPages = join(buildPath, basename(htmxDir), 'pages');
+		await mkdir(outputHtmxPages, { recursive: true });
+		await cp(htmxPagesPath, outputHtmxPages, {
+			force: true,
+			recursive: true
+		});
+		await updateAssetPaths(manifest, outputHtmxPages);
 	}
 
 	if (!options?.preserveIntermediateFiles && svelteDir) {

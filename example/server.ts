@@ -1,10 +1,10 @@
 import { staticPlugin } from '@elysiajs/static';
-import { file } from 'bun';
 import { Elysia } from 'elysia';
 import { build } from '../src/core/build';
 import { asset } from '../src/core/lookup';
 import {
 	handleHTMLPageRequest,
+	handleHTMXPageRequest,
 	handleReactPageRequest,
 	handleSveltePageRequest,
 	handleVuePageRequest
@@ -30,7 +30,7 @@ const manifest = await build({
 	vueDirectory: 'example/vue'
 });
 
-let counter = 0;
+let count = 0;
 
 export const server = new Elysia()
 	.use(
@@ -72,14 +72,14 @@ export const server = new Elysia()
 			{ initialCount: 0 }
 		)
 	)
-	.get('/htmx', () => file('./example/build/htmx/HtmxHome.html'))
-	.get('/htmx/increment', () => {
-		counter++;
-
-		return new Response(counter.toString(), {
-			headers: { 'Content-Type': 'text/plain' }
-		});
+	.get('/htmx', () =>
+		handleHTMXPageRequest('./example/build/htmx/pages/HtmxHome.html')
+	)
+	.post('/htmx/reset', () => {
+		count = 0;
 	})
+	.get('/htmx/count', () => count)
+	.post('/htmx/increment', () => ++count)
 	.use(networkingPlugin)
 	.on('error', (error) => {
 		const { request } = error;
