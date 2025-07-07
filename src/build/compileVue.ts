@@ -63,7 +63,7 @@ const mergeVueImports = (compiledCode: string) => {
 	return [mergedImport, ...filteredLines].join('\n');
 };
 
-const buildVueFile = async (
+const compileVueFile = async (
 	sourceAbsolutePath: string,
 	outputDirs: { client: string; server: string; css: string },
 	cache: Map<string, BuildResult>,
@@ -97,7 +97,7 @@ const buildVueFile = async (
 
 	const childBuildResults = await Promise.all(
 		childComponents.map((importPath) =>
-			buildVueFile(
+			compileVueFile(
 				resolve(dirname(sourceAbsolutePath), importPath),
 				outputDirs,
 				cache,
@@ -230,7 +230,7 @@ export const compileVue = async (entryPoints: string[], outRoot: string) => {
 
 	const pageResults = await Promise.all(
 		entryPoints.map(async (entryPoint) => {
-			const result = await buildVueFile(
+			const result = await compileVueFile(
 				resolve(entryPoint),
 				{ client: clientDir, css: stylesDir, server: pagesDir },
 				cache,
