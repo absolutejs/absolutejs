@@ -140,7 +140,7 @@ No separate config files or environment variables—just explicit arguments with
 
 ## Roadmap
 
-- **Vue** and **Angular** handlers
+- **Angular** handlers
 - Hot‑reload development server
 - First‑class Docker images & hosting recipes
 
