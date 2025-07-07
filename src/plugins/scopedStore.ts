@@ -51,7 +51,7 @@ export const scopedState = <
 
 				return {
 					scopedStore,
-					resetScopedStore: () => {
+					resetScopedStore: (ignorePreserve?: boolean) => {
 						for (const key in setup) {
 							const entry = setup[key];
 							if (entry === undefined) {
@@ -59,7 +59,7 @@ export const scopedState = <
 									`Scoped setup is missing for key "${key}".`
 								);
 							}
-							if (entry.preserve) continue;
+							if (!ignorePreserve && entry.preserve) continue;
 							scopedStore[key] = entry.value;
 						}
 					}
