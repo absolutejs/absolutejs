@@ -16,7 +16,7 @@ if (hostFlag) {
 	host = '0.0.0.0';
 }
 
-export const networkingPlugin = (app: Elysia) =>
+export const networking = (app: Elysia) =>
 	app.listen(
 		{
 			hostname: host,

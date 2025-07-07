@@ -33,3 +33,5 @@ export type PropsOf<Component> =
 				: Record<string, never>;
 
 export type PropsArgs<C> = keyof PropsOf<C> extends never ? [] : [PropsOf<C>];
+
+export type Prettify<T> = { [K in keyof T]: T[K] } & {};

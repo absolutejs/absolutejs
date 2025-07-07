@@ -1,2 +1,2 @@
-export * from './networkingPlugin';
-export * from './pageRouterPlugin';
+export * from './networking';
+export * from './pageRouter';

@@ -9,7 +9,8 @@ import {
 	handleSveltePageRequest,
 	handleVuePageRequest
 } from '../src/core/pageHandlers';
-import { networkingPlugin } from '../src/plugins/networkingPlugin';
+import { networking } from '../src/plugins/networking';
+import { scopedState } from '../src/plugins/scopedStore';
 import { generateHeadElement } from '../src/utils/generateHeadElement';
 import { ReactExample } from './react/pages/ReactExample';
 import SvelteExample from './svelte/pages/SvelteExample.svelte';
@@ -30,13 +31,16 @@ const manifest = await build({
 	vueDirectory: 'example/vue'
 });
 
-let count = 0;
-
 export const server = new Elysia()
 	.use(
 		staticPlugin({
 			assets: './example/build',
 			prefix: ''
+		})
+	)
+	.use(
+		scopedState({
+			count: { preserve: true, value: 0 }
 		})
 	)
 	.get('/', () =>
@@ -57,7 +61,10 @@ export const server = new Elysia()
 			SvelteExample,
 			asset(manifest, 'SvelteExample'),
 			asset(manifest, 'SvelteExampleIndex'),
-			{ cssPath: asset(manifest, 'SvelteExampleCSS'), initialCount: 0 }
+			{
+				cssPath: asset(manifest, 'SvelteExampleCSS'),
+				initialCount: 0
+			}
 		)
 	)
 	.get('/vue', () =>
@@ -75,12 +82,10 @@ export const server = new Elysia()
 	.get('/htmx', () =>
 		handleHTMXPageRequest('./example/build/htmx/pages/HtmxHome.html')
 	)
-	.post('/htmx/reset', () => {
-		count = 0;
-	})
-	.get('/htmx/count', () => count)
-	.post('/htmx/increment', () => ++count)
-	.use(networkingPlugin)
+	.post('/htmx/reset', ({ resetScopedStore }) => resetScopedStore())
+	.get('/htmx/count', ({ scopedStore }) => scopedStore.count)
+	.post('/htmx/increment', ({ scopedStore }) => ++scopedStore.count)
+	.use(networking)
 	.on('error', (error) => {
 		const { request } = error;
 		console.error(
