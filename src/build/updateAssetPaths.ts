@@ -8,7 +8,7 @@ export const updateAssetPaths = async (
 ) => {
 	const htmlFiles = await scanEntryPoints(directory, '*.html');
 	const assetRegex =
-		/((?:<script[^>]+src=|<link[^>]*?rel=["']stylesheet["'][^>]*?href=)["'])(\/?(?:.*\/)?)([^./"']+)(?:\.[^."'/]+)?(\.(?:js|ts|css))(["'][^>]*>)/g;
+		/((?:<script[^>]+src=|<link[^>]*?rel=["']stylesheet["'][^>]*?href=)["'])(?!\/?(?:.*\/)?htmx\.min\.js)(\/?(?:.*\/)?)([^./"']+)(?:\.[^."'/]+)?(\.(?:js|ts|css))(["'][^>]*>)/g;
 
 	const tasks = htmlFiles.map(async (filePath) => {
 		const original = await readFile(filePath, 'utf8');
