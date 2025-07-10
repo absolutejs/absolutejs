@@ -8,16 +8,18 @@ import {
 	relative,
 	sep
 } from 'node:path';
-import { cwd, env } from 'node:process';
+import { env } from 'node:process';
 import { write, file, Transpiler } from 'bun';
 import { compile, compileModule, preprocess } from 'svelte/compiler';
 
 type Built = { ssr: string; client: string };
 type Cache = Map<string, Built>;
 
-const exists = async (filepath: string) => {
+const transpiler = new Transpiler({ loader: 'ts', target: 'browser' });
+
+const exists = async (path: string) => {
 	try {
-		await stat(filepath);
+		await stat(path);
 
 		return true;
 	} catch {
@@ -50,60 +52,58 @@ const resolveSvelte = async (spec: string, from: string) => {
 	return null;
 };
 
-const transpiler = new Transpiler({ loader: 'ts', target: 'browser' });
-const projectRoot = cwd();
-
 export const compileSvelte = async (
 	entryPoints: string[],
-	outRoot: string,
+	svelteRoot: string,
 	cache: Cache = new Map()
 ) => {
-	const clientFolder = 'client';
-	const indexFolder = 'indexes';
-	const pagesFolder = 'pages';
+	const compiledRoot = join(svelteRoot, 'compiled');
+	const clientDir = join(compiledRoot, 'client');
+	const indexDir = join(compiledRoot, 'indexes');
+	const pagesDir = join(compiledRoot, 'pages');
 
 	await Promise.all(
-		[clientFolder, indexFolder, pagesFolder].map((d) =>
-			mkdir(join(outRoot, d), { recursive: true })
+		[clientDir, indexDir, pagesDir].map((dir) =>
+			mkdir(dir, { recursive: true })
 		)
 	);
 
 	const dev = env.NODE_ENV === 'development';
 
 	const build = async (src: string) => {
-		const memo = cache.get(src);
-		if (memo) return memo;
+		const memoized = cache.get(src);
+		if (memoized) return memoized;
 
 		const raw = await file(src).text();
 		const isModule =
 			src.endsWith('.svelte.ts') || src.endsWith('.svelte.js');
-		const prepped = isModule ? raw : (await preprocess(raw, {})).code;
-		const transpiledCode =
+		const preprocessed = isModule ? raw : (await preprocess(raw, {})).code;
+		const transpiled =
 			src.endsWith('.ts') || src.endsWith('.svelte.ts')
-				? transpiler.transformSync(prepped)
-				: prepped;
+				? transpiler.transformSync(preprocessed)
+				: preprocessed;
 
-		const relDir = dirname(relative(projectRoot, src));
+		const relDir = dirname(relative(svelteRoot, src)).replace(/\\/g, '/');
 		const baseName = basename(src).replace(/\.svelte(\.(ts|js))?$/, '');
 
 		const importPaths = Array.from(
-			transpiledCode.matchAll(/from\s+['"]([^'"]+)['"]/g)
+			transpiled.matchAll(/from\s+['"]([^'"]+)['"]/g)
 		)
-			.map((m) => m[1])
-			.filter((p): p is string => p !== undefined);
+			.map((match) => match[1])
+			.filter((path): path is string => path !== undefined);
 
-		const resolveResults = await Promise.all(
-			importPaths.map((p) => resolveSvelte(p, src))
+		const resolvedImports = await Promise.all(
+			importPaths.map((importPath) => resolveSvelte(importPath, src))
 		);
-		const childSources = resolveResults.filter(
-			(path): path is string => path !== undefined
+		const childSources = resolvedImports.filter(
+			(path): path is string => path !== null
 		);
-		await Promise.all(childSources.map((p) => build(p)));
+		await Promise.all(childSources.map((child) => build(child)));
 
 		const generate = (mode: 'server' | 'client') =>
 			(isModule
-				? compileModule(transpiledCode, { dev, filename: src }).js.code
-				: compile(transpiledCode, {
+				? compileModule(transpiled, { dev, filename: src }).js.code
+				: compile(transpiled, {
 						css: 'injected',
 						dev,
 						filename: src,
@@ -111,13 +111,8 @@ export const compileSvelte = async (
 					}).js.code
 			).replace(/\.svelte(?:\.(?:ts|js))?(['"])/g, '.js$1');
 
-		const ssrPath = join(outRoot, pagesFolder, relDir, `${baseName}.js`);
-		const clientPath = join(
-			outRoot,
-			clientFolder,
-			relDir,
-			`${baseName}.js`
-		);
+		const ssrPath = join(pagesDir, relDir, `${baseName}.js`);
+		const clientPath = join(clientDir, relDir, `${baseName}.js`);
 
 		await Promise.all([
 			mkdir(dirname(ssrPath), { recursive: true }),
@@ -148,35 +143,32 @@ export const compileSvelte = async (
 	const roots = await Promise.all(entryPoints.map(build));
 
 	await Promise.all(
-		roots.map(({ client }) => {
-			const relClientDir = dirname(
-				relative(join(outRoot, clientFolder), client)
-			);
+		roots.map(async ({ client }) => {
+			const relClientDir = dirname(relative(clientDir, client));
 			const name = basename(client, extname(client));
-			const indexDir = join(outRoot, indexFolder, relClientDir);
-			const importPathRaw = relative(indexDir, client)
+			const indexPath = join(indexDir, relClientDir, `${name}.js`);
+			const importRaw = relative(dirname(indexPath), client)
 				.split(sep)
 				.join('/');
-			const importPath = importPathRaw.startsWith('.')
-				? importPathRaw
-				: `./${importPathRaw}`;
-
-			const indexPath = join(indexDir, `${name}.js`);
-			const boot = `import C from "${importPath}";
+			const importPath =
+				importRaw.startsWith('.') || importRaw.startsWith('/')
+					? importRaw
+					: `./${importRaw}`;
+			const bootstrap = `import C from "${importPath}";
 import { hydrate } from "svelte";
 hydrate(C,{target:document.body,props:window.__INITIAL_PROPS__??{}});`;
 
-			return mkdir(indexDir, { recursive: true }).then(() =>
-				write(indexPath, boot)
-			);
+			await mkdir(dirname(indexPath), { recursive: true });
+
+			return write(indexPath, bootstrap);
 		})
 	);
 
 	return {
 		svelteClientPaths: roots.map(({ client }) => {
-			const rel = dirname(relative(join(outRoot, clientFolder), client));
+			const rel = dirname(relative(clientDir, client));
 
-			return join(outRoot, indexFolder, rel, basename(client));
+			return join(indexDir, rel, basename(client));
 		}),
 		svelteServerPaths: roots.map(({ ssr }) => ssr)
 	};

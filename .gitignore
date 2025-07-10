@@ -44,19 +44,7 @@ build/
 /dist
 
 example/react/indexes/
-example/svelte/indexes/
-example/svelte/client/
-example/svelte/pages/*.js
-
-example/vue/indexes/
-example/vue/client/
-example/vue/scripts/
-example/vue/styles/
-example/vue/pages/*.js
 
 example/angular/compiled/
 example/vue/compiled/
 example/svelte/compiled/
-
-# TODO: remove when the files are generated inline instead of output
-example/svelte/pages/example/*

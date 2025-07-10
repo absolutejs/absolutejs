@@ -23,13 +23,13 @@ const { VueExample } = vueImports;
 const manifest = await build({
 	assetsDirectory: 'example/assets',
 	buildDirectory: 'example/build',
-	// htmlDirectory: 'example/html',
-	// htmxDirectory: 'example/htmx',
+	htmlDirectory: 'example/html',
+	htmxDirectory: 'example/htmx',
 	options: {
-		// preserveIntermediateFiles: true
+		preserveIntermediateFiles: true
 	},
-	// reactDirectory: 'example/react',
-	// svelteDirectory: 'example/svelte',
+	reactDirectory: 'example/react',
+	svelteDirectory: 'example/svelte',
 	vueDirectory: 'example/vue'
 });
 

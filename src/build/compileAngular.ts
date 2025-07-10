@@ -25,28 +25,40 @@ export const compileAngularFile = async (inputPath: string, outDir: string) => {
 		options,
 		rootNames: [inputPath]
 	});
-	if (diagnostics?.length)
+	if (diagnostics?.length) {
 		throw new Error(
 			diagnostics
-				.map((d) =>
-					ts.flattenDiagnosticMessageText(d.messageText, '\n')
+				.map((diagnostic) =>
+					ts.flattenDiagnosticMessageText(
+						diagnostic.messageText,
+						'\n'
+					)
 				)
 				.join('\n')
 		);
-
-	const pagesDir = join(outDir, 'pages');
-	const jsFiles: string[] = [];
-
-	for (const [fileName, content] of Object.entries(emitted)) {
-		if (!fileName.endsWith('.js')) continue;
-
-		const target = join(pagesDir, basename(fileName));
-		await fs.mkdir(dirname(target), { recursive: true });
-		await fs.writeFile(target, content, 'utf-8');
-		jsFiles.push(target);
 	}
 
-	return jsFiles;
+	const pagesDir = join(outDir, 'pages');
+	const entries = Object.entries(emitted)
+		.filter(([fileName]) => fileName.endsWith('.js'))
+		.map(([fileName, content]) => {
+			const target = join(pagesDir, basename(fileName));
+
+			return { content, target };
+		});
+
+	await Promise.all(
+		entries.map(({ target }) =>
+			fs.mkdir(dirname(target), { recursive: true })
+		)
+	);
+	await Promise.all(
+		entries.map(({ target, content }) =>
+			fs.writeFile(target, content, 'utf-8')
+		)
+	);
+
+	return entries.map(({ target }) => target);
 };
 
 export const compileAngular = async (
@@ -59,42 +71,42 @@ export const compileAngular = async (
 	await fs.rm(compiledRoot, { force: true, recursive: true });
 	await fs.mkdir(indexesDir, { recursive: true });
 
-	const serverPaths: string[] = [];
-	const clientPaths: string[] = [];
-
-	for (const entry of entryPoints) {
+	const compileTasks = entryPoints.map(async (entry) => {
 		const outputs = await compileAngularFile(entry, compiledRoot);
 		const fileBase = basename(entry).replace(/\.[tj]s$/, '');
 		const jsName = `${fileBase}.js`;
+
 		const rawServerFile = outputs.find((f) =>
 			f.endsWith(`${sep}pages${sep}${jsName}`)
 		);
-		if (!rawServerFile)
+		if (!rawServerFile) {
 			throw new Error(`Compiled output not found for ${entry}`);
+		}
 
 		const original = await fs.readFile(rawServerFile, 'utf-8');
 		const rewritten = `${original.replace(
 			new RegExp(`templateUrl:\\s*['"]\\.\\/${fileBase}\\.html['"]`),
 			`templateUrl: '../../pages/${fileBase}.html'`
 		)}\nexport default ${toPascal(fileBase)};\n`;
-
 		await fs.writeFile(rawServerFile, rewritten, 'utf-8');
-		serverPaths.push(rawServerFile);
 
 		const className = toPascal(fileBase);
-		const importPath = `../pages/${jsName}`;
 		const clientFile = join(indexesDir, jsName);
 		const hydration = `
-import { bootstrapApplication } from '@angular/platform-browser'
-import { provideClientHydration } from '@angular/platform-browser'
-import { ${className} } from '${importPath}'
+import { bootstrapApplication } from '@angular/platform-browser';
+import { provideClientHydration } from '@angular/platform-browser';
+import { ${className} } from '../pages/${jsName}';
 
-bootstrapApplication(${className}, { providers: [provideClientHydration()] })
+bootstrapApplication(${className}, { providers: [provideClientHydration()] });
 `.trim();
-
 		await fs.writeFile(clientFile, hydration, 'utf-8');
-		clientPaths.push(clientFile);
-	}
+
+		return { clientPath: clientFile, serverPath: rawServerFile };
+	});
+
+	const results = await Promise.all(compileTasks);
+	const serverPaths = results.map((r) => r.serverPath);
+	const clientPaths = results.map((r) => r.clientPath);
 
 	return { clientPaths, serverPaths };
 };

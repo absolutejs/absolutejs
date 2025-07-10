@@ -263,7 +263,6 @@ export const build = async ({
 		await cleanup({
 			reactIndexesPath,
 			svelteDir,
-			svelteServerPaths,
 			vueDir
 		});
 
