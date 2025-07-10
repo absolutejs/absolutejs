@@ -55,7 +55,8 @@ example/vue/styles/
 example/vue/pages/*.js
 
 example/angular/compiled/
+example/vue/compiled/
+example/svelte/compiled/
 
 # TODO: remove when the files are generated inline instead of output
-example/vue/pages/example/* 
 example/svelte/pages/example/*

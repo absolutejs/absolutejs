@@ -264,8 +264,7 @@ export const build = async ({
 			reactIndexesPath,
 			svelteDir,
 			svelteServerPaths,
-			vueDir,
-			vueServerPaths
+			vueDir
 		});
 
 	console.log(
