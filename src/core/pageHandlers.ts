@@ -1,3 +1,8 @@
+import { bootstrapApplication } from '@angular/platform-browser';
+import {
+	provideServerRendering,
+	renderApplication
+} from '@angular/platform-server';
 import { file } from 'bun';
 import { ComponentType as ReactComponent, createElement } from 'react';
 import { renderToReadableStream as renderReactToReadableStream } from 'react-dom/server';
@@ -116,6 +121,31 @@ export const handleVuePageRequest = async <
 	});
 
 	return new Response(stream, {
+		headers: { 'Content-Type': 'text/html' }
+	});
+};
+
+export const handleAngularPageRequest = async (
+	pagePath: string,
+	indexPath: string,
+	template:
+		| string
+		| Document = '<!DOCTYPE html><html><head></head><body><app-root></app-root></body></html>'
+) => {
+	// @ts-expect-error - Angular sucks
+	if (!('Zone' in globalThis)) await import('zone.js/node');
+
+	const { default: ImportedPageComponent } = await import(pagePath);
+
+	const html = await renderApplication(
+		() =>
+			bootstrapApplication(ImportedPageComponent, {
+				providers: [provideServerRendering()]
+			}),
+		{ document: template }
+	);
+
+	return new Response(html, {
 		headers: { 'Content-Type': 'text/html' }
 	});
 };

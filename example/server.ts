@@ -3,6 +3,7 @@ import { Elysia } from 'elysia';
 import { build } from '../src/core/build';
 import { asset } from '../src/core/lookup';
 import {
+	handleAngularPageRequest,
 	handleHTMLPageRequest,
 	handleHTMXPageRequest,
 	handleReactPageRequest,
@@ -12,6 +13,7 @@ import {
 import { networking } from '../src/plugins/networking';
 import { scopedState } from '../src/plugins/scopedStore';
 import { generateHeadElement } from '../src/utils/generateHeadElement';
+import angularTemplate from './angular/index.html' with { type: 'text' };
 import { ReactExample } from './react/pages/ReactExample';
 import SvelteExample from './svelte/pages/SvelteExample.svelte';
 import { vueImports } from './vueImporter';
@@ -19,6 +21,7 @@ import { vueImports } from './vueImporter';
 const { VueExample } = vueImports;
 
 const manifest = await build({
+	angularDirectory: 'example/angular',
 	assetsDirectory: 'example/assets',
 	buildDirectory: 'example/build',
 	htmlDirectory: 'example/html',
@@ -40,7 +43,7 @@ export const server = new Elysia()
 	)
 	.use(
 		scopedState({
-			count: { preserve: true, value: 0 }
+			count: { value: 0 }
 		})
 	)
 	.get('/', () =>
@@ -77,6 +80,13 @@ export const server = new Elysia()
 				title: 'AbsoluteJS + Vue'
 			}),
 			{ initialCount: 0 }
+		)
+	)
+	.get('/angular', async () =>
+		handleAngularPageRequest(
+			asset(manifest, 'AngularExample'),
+			asset(manifest, 'AngularExampleIndex'),
+			angularTemplate.toString()
 		)
 	)
 	.get('/htmx', () =>

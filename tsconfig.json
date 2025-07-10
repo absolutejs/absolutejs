@@ -4,6 +4,7 @@
 		"allowJs": true,
 		"module": "ESNext",
 		"moduleResolution": "bundler",
+		"allowSyntheticDefaultImports": true,
 		"jsx": "react-jsx",
 		"esModuleInterop": true,
 		"forceConsistentCasingInFileNames": true,
@@ -13,8 +14,17 @@
 		"skipLibCheck": true,
 		"noUncheckedIndexedAccess": true,
 		"noImplicitAny": true,
+		"experimentalDecorators": true,
+		"emitDecoratorMetadata": true,
+		"useDefineForClassFields": false,
 		"lib": ["DOM", "DOM.Iterable", "ESNext"]
 	},
+	"angularCompilerOptions": {
+		"strictInjectionParameters": true,
+		"enableI18nLegacyMessageIdFormat": false,
+		"fullTemplateTypeCheck": true,
+		"strictTemplates": true
+	},
 	"include": ["src/**/*", "example/**/*"],
-	"exclude": ["node_modules"]
+	"exclude": ["node_modules", "example/build"]
 }

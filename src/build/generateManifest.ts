@@ -1,5 +1,6 @@
 import { extname } from 'node:path';
 import { BuildArtifact } from 'bun';
+import { UNFOUND_INDEX } from '../constants';
 import { toPascal } from '../utils/stringModifiers';
 
 export const generateManifest = (outputs: BuildArtifact[], buildPath: string) =>
@@ -16,21 +17,26 @@ export const generateManifest = (outputs: BuildArtifact[], buildPath: string) =>
 		const [baseName] = fileWithHash.split(`.${artifact.hash}.`);
 		if (!baseName) return manifest;
 
+		const pascalName = toPascal(baseName);
 		const ext = extname(fileWithHash);
+
 		if (ext === '.css') {
-			manifest[`${toPascal(baseName)}CSS`] = `/${relative}`;
+			manifest[`${pascalName}CSS`] = `/${relative}`;
 
 			return manifest;
 		}
 
-		const folder = segments.length > 1 ? segments[1] : segments[0];
+		const idx = segments.findIndex(
+			(seg) => seg === 'indexes' || seg === 'pages'
+		);
+		const folder = idx > UNFOUND_INDEX ? segments[idx] : segments[0];
 
 		if (folder === 'indexes') {
-			manifest[`${baseName}Index`] = `/${relative}`;
+			manifest[`${pascalName}Index`] = `/${relative}`;
 		} else if (folder === 'pages') {
-			manifest[baseName] ??= artifact.path;
+			manifest[pascalName] = artifact.path;
 		} else {
-			manifest[baseName] = `/${relative}`;
+			manifest[pascalName] = `/${relative}`;
 		}
 
 		return manifest;

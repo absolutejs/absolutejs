@@ -1,28 +1,20 @@
 import { rm, mkdir, cp } from 'node:fs/promises';
-import { basename, join, sep } from 'node:path';
+import { basename, join } from 'node:path';
 import { cwd, env, exit } from 'node:process';
 import { $, build as bunBuild, BuildArtifact } from 'bun';
+import { compileAngular } from '../build/compileAngular';
 import { compileSvelte } from '../build/compileSvelte';
 import { compileVue } from '../build/compileVue';
 import { generateManifest } from '../build/generateManifest';
 import { generateReactIndexFiles } from '../build/generateReactIndexes';
+import { outputLogs } from '../build/outputLogs';
 import { scanEntryPoints } from '../build/scanEntryPoints';
 import { updateAssetPaths } from '../build/updateAssetPaths';
 import { BuildConfig } from '../types';
+import { cleanup } from '../utils/cleanup';
+import { commonAncestor } from '../utils/commonAncestor';
 import { getDurationString } from '../utils/getDurationString';
 import { validateSafePath } from '../utils/validateSafePath';
-
-const commonAncestor = (paths: string[], fallback: string) => {
-	if (paths.length === 0) return fallback;
-	const segmentsList = paths.map((p) => p.split(sep));
-	const [first] = segmentsList;
-	if (!first) return fallback;
-	const commonSegments = first.filter((segment, index) =>
-		segmentsList.every((pathSegs) => pathSegs[index] === segment)
-	);
-
-	return commonSegments.length ? commonSegments.join(sep) : fallback;
-};
 
 const isDev = env.NODE_ENV === 'development';
 
@@ -38,6 +30,7 @@ export const build = async ({
 	reactDirectory,
 	htmlDirectory,
 	htmxDirectory,
+	angularDirectory,
 	svelteDirectory,
 	vueDirectory,
 	tailwind,
@@ -58,6 +51,8 @@ export const build = async ({
 	const svelteDir =
 		svelteDirectory && validateSafePath(svelteDirectory, projectRoot);
 	const vueDir = vueDirectory && validateSafePath(vueDirectory, projectRoot);
+	const angularDir =
+		angularDirectory && validateSafePath(angularDirectory, projectRoot);
 
 	const reactIndexesPath = reactDir && join(reactDir, 'indexes');
 	const reactPagesPath = reactDir && join(reactDir, 'pages');
@@ -66,10 +61,16 @@ export const build = async ({
 	const sveltePagesPath = svelteDir && join(svelteDir, 'pages');
 	const vuePagesPath = vueDir && join(vueDir, 'pages');
 	const htmxPagesPath = htmxDir && join(htmxDir, 'pages');
+	const angularPagesPath = angularDir && join(angularDir, 'pages');
 
-	const frontends = [reactDir, htmlDir, htmxDir, svelteDir, vueDir].filter(
-		Boolean
-	);
+	const frontends = [
+		reactDir,
+		htmlDir,
+		htmxDir,
+		svelteDir,
+		vueDir,
+		angularDir
+	].filter(Boolean);
 	const isSingle = frontends.length === 1;
 
 	let serverOutDir;
@@ -77,8 +78,8 @@ export const build = async ({
 	else if (vueDir) serverOutDir = join(buildPath, basename(vueDir), 'pages');
 
 	let serverRoot;
-	if (svelteDir) serverRoot = join(svelteDir, 'pages');
-	else if (vueDir) serverRoot = join(vueDir, 'pages');
+	if (sveltePagesPath) serverRoot = sveltePagesPath;
+	else if (vuePagesPath) serverRoot = vuePagesPath;
 
 	await rm(buildPath, { force: true, recursive: true });
 	await mkdir(buildPath);
@@ -107,6 +108,9 @@ export const build = async ({
 	const vueEntries = vuePagesPath
 		? await scanEntryPoints(vuePagesPath, '*.vue')
 		: [];
+	const angularEntries = angularPagesPath
+		? await scanEntryPoints(angularPagesPath, '*.ts')
+		: [];
 
 	const htmlCssEntries = htmlDir
 		? await scanEntryPoints(join(htmlDir, 'styles'), '*.css')
@@ -129,12 +133,22 @@ export const build = async ({
 		? await compileVue(vueEntries, vueDir)
 		: { vueCssPaths: [], vueIndexPaths: [], vueServerPaths: [] };
 
-	const serverEntryPoints = [...svelteServerPaths, ...vueServerPaths];
+	const { serverPaths: angularServerPaths, clientPaths: angularClientPaths } =
+		angularDir
+			? await compileAngular(angularEntries, angularDir)
+			: { clientPaths: [], serverPaths: [] };
+
+	const serverEntryPoints = [
+		...svelteServerPaths,
+		...vueServerPaths,
+		...angularServerPaths
+	];
 	const clientEntryPoints = [
 		...reactEntries,
 		...svelteClientPaths,
 		...htmlEntries,
-		...vueIndexPaths
+		...vueIndexPaths,
+		...angularClientPaths
 	];
 	const cssEntryPoints = [
 		...vueCssPaths,
@@ -173,9 +187,13 @@ export const build = async ({
 	let clientOutputs: BuildArtifact[] = [];
 
 	if (clientEntryPoints.length > 0) {
-		const roots: string[] = [reactDir, svelteDir, htmlDir, vueDir].filter(
-			(dir): dir is string => Boolean(dir)
-		);
+		const roots: string[] = [
+			reactDir,
+			svelteDir,
+			htmlDir,
+			vueDir,
+			angularDir
+		].filter((dir): dir is string => Boolean(dir));
 		const clientRoot = isSingle
 			? (roots[0] ?? projectRoot)
 			: commonAncestor(roots, projectRoot);
@@ -183,6 +201,7 @@ export const build = async ({
 			define: vueDirectory ? vueFeatureFlags : undefined,
 			entrypoints: clientEntryPoints,
 			format: 'esm',
+			minify: true,
 			naming: `[dir]/[name].[hash].[ext]`,
 			outdir: buildPath,
 			root: clientRoot,
@@ -213,11 +232,7 @@ export const build = async ({
 	}
 
 	const allLogs = [...serverLogs, ...clientLogs, ...cssLogs];
-	for (const log of allLogs) {
-		if (log.level === 'error') console.error(log);
-		else if (log.level === 'warning') console.warn(log);
-		else console.info(log);
-	}
+	outputLogs(allLogs);
 
 	const manifest = generateManifest(
 		[...serverOutputs, ...clientOutputs, ...cssOutputs],
@@ -244,35 +259,14 @@ export const build = async ({
 		await updateAssetPaths(manifest, outputHtmxPages);
 	}
 
-	if (!options?.preserveIntermediateFiles && svelteDir) {
-		await rm(join(svelteDir, 'indexes'), { force: true, recursive: true });
-		await rm(join(svelteDir, 'client'), { force: true, recursive: true });
-		await Promise.all(
-			svelteServerPaths.map((path) => rm(path, { force: true }))
-		);
-		// TODO: remove when the files are generated inline instead of output
-		await rm(join(svelteDir, 'pages', 'example'), {
-			force: true,
-			recursive: true
+	if (!options?.preserveIntermediateFiles)
+		await cleanup({
+			reactIndexesPath,
+			svelteDir,
+			svelteServerPaths,
+			vueDir,
+			vueServerPaths
 		});
-	}
-
-	if (!options?.preserveIntermediateFiles && vueDir) {
-		await rm(join(vueDir, 'indexes'), { force: true, recursive: true });
-		await rm(join(vueDir, 'client'), { force: true, recursive: true });
-		await rm(join(vueDir, 'styles'), { force: true, recursive: true });
-		await Promise.all(
-			vueServerPaths.map((path) => rm(path, { force: true }))
-		);
-		// TODO: remove when the files are generated inline instead of output
-		await rm(join(vueDir, 'pages', 'example'), {
-			force: true,
-			recursive: true
-		});
-	}
-
-	if (!options?.preserveIntermediateFiles && reactIndexesPath)
-		await rm(reactIndexesPath, { force: true, recursive: true });
 
 	console.log(
 		`Build completed in ${getDurationString(performance.now() - buildStart)}`
