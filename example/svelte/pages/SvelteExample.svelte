@@ -206,4 +206,10 @@
 		padding: 0.25rem 0;
 		white-space: nowrap;
 	}
+
+	@media (prefers-color-scheme: light) {
+		header {
+			background-color: #ffffff;
+		}
+	}
 </style>

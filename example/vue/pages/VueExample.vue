@@ -222,7 +222,7 @@ header details nav {
 	display: flex;
 	flex-direction: column;
 	gap: 0.75rem;
-	background: rgba(128, 128, 128, 0.15);
+	background: rgba(185, 185, 185, 0.1);
 	backdrop-filter: blur(4px);
 	border: 1px solid #5fbeeb;
 	border-radius: 1rem;
@@ -250,9 +250,13 @@ header details nav a {
 }
 
 @media (prefers-color-scheme: light) {
-	body {
+	:global(body) {
 		background-color: #f5f5f5;
 		color: #1a1a1a;
+	}
+
+	header {
+		background-color: #ffffff;
 	}
 
 	button {
