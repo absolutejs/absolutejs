@@ -10,11 +10,6 @@ header {
 	text-align: center;
 }
 
-header p {
-	font-size: 3rem;
-	font-weight: 700;
-}
-
 header a {
 	position: relative;
 	color: #5fbeeb;
