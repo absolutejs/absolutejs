@@ -7,19 +7,27 @@ const props = defineProps<{
 }>();
 
 const count = ref(props.initialCount);
+const isOpen = ref(false);
 </script>
 
 <template>
 	<header>
-		<p>AbsoluteJS</p>
-		<nav>
-			<a href="/">HTML</a>
-			<a href="/react">React</a>
-			<a href="/svelte">Svelte</a>
-			<a href="/vue">Vue</a>
-			<a href="/angular">Angular</a>
-			<a href="/htmx">HTMX</a>
-		</nav>
+		<a href="/">AbsoluteJS</a>
+		<details
+			:open="isOpen"
+			@pointerenter="isOpen = true"
+			@pointerleave="isOpen = false"
+		>
+			<summary>Pages</summary>
+			<nav>
+				<a href="/html">HTML</a>
+				<a href="/react">React</a>
+				<a href="/htmx">HTMX</a>
+				<a href="/svelte">Svelte</a>
+				<a href="/vue">Vue</a>
+				<a href="/angular">Angular</a>
+			</nav>
+		</details>
 	</header>
 
 	<main>
@@ -91,7 +99,7 @@ const count = ref(props.initialCount);
 	width: 100%;
 }
 
-main {
+:global(main) {
 	align-items: center;
 	display: flex;
 	flex: 1;
@@ -100,16 +108,16 @@ main {
 	text-align: center;
 }
 
-h1,
-h2,
-h3,
-h4,
-h5,
-h6 {
+:global(h1),
+:global(h2),
+:global(h3),
+:global(h4),
+:global(h5),
+:global(h6) {
 	line-height: 1.1;
 }
 
-p {
+:global(p) {
 	font-size: 1.2rem;
 	max-width: 1280px;
 }
@@ -132,22 +140,23 @@ header {
 	text-align: center;
 }
 
-header p {
-	font-size: 3rem;
-	font-weight: 700;
+header a {
+	position: relative;
+	color: #5fbeeb;
+	text-decoration: none;
 }
 
 header a::after {
-	background: linear-gradient(90deg, #5fbeeb 0%, #35d5a2 50%, #ff4b91 100%);
-	bottom: 0;
 	content: '';
-	height: 2px;
-	left: 0;
 	position: absolute;
+	left: 0;
+	bottom: 0;
+	width: 100%;
+	height: 2px;
+	background: linear-gradient(90deg, #5fbeeb 0%, #35d5a2 50%, #ff4b91 100%);
 	transform: scaleX(0);
 	transform-origin: left;
 	transition: transform 0.25s ease-in-out;
-	width: 100%;
 }
 
 header a:hover::after {
@@ -176,6 +185,68 @@ nav {
 	display: flex;
 	gap: 4rem;
 	justify-content: center;
+}
+
+header details {
+	position: relative;
+}
+
+header details summary {
+	list-style: none;
+	appearance: none;
+	-webkit-appearance: none;
+	cursor: pointer;
+	user-select: none;
+	color: #5fbeeb;
+	font-size: 1.5rem;
+	font-weight: 500;
+	padding: 0.5rem 1rem;
+}
+
+header summary::after {
+	content: '▼';
+	display: inline-block;
+	margin-left: 0.5rem;
+	font-size: 0.75rem;
+	transition: transform 0.3s ease;
+}
+
+header details[open] summary::after {
+	transform: rotate(180deg);
+}
+
+header details nav {
+	position: absolute;
+	top: 100%;
+	right: -0.5rem;
+	display: flex;
+	flex-direction: column;
+	gap: 0.75rem;
+	background: rgba(128, 128, 128, 0.15);
+	backdrop-filter: blur(4px);
+	border: 1px solid #5fbeeb;
+	border-radius: 1rem;
+	padding: 1rem 1.5rem;
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+	opacity: 0;
+	transform: translateY(-8px);
+	pointer-events: none;
+	transition:
+		opacity 0.3s ease,
+		transform 0.3s ease;
+	z-index: 1000;
+}
+
+header details[open] nav {
+	opacity: 1;
+	transform: translateY(0);
+	pointer-events: auto;
+}
+
+header details nav a {
+	font-size: 1.1rem;
+	padding: 0.25rem 0;
+	white-space: nowrap;
 }
 
 @media (prefers-color-scheme: light) {
