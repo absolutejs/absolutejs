@@ -240,7 +240,9 @@ export const build = async ({
 	);
 
 	if (htmlDir && htmlPagesPath) {
-		const outputHtmlPages = join(buildPath, basename(htmlDir), 'pages');
+		const outputHtmlPages = isSingle
+			? join(buildPath, 'pages')
+			: join(buildPath, basename(htmlDir), 'pages');
 		await mkdir(outputHtmlPages, { recursive: true });
 		await cp(htmlPagesPath, outputHtmlPages, {
 			force: true,
