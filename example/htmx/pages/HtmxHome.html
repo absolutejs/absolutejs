@@ -20,15 +20,21 @@
 		hx-swap="none"
 	>
 		<header>
-			<p>AbsoluteJS</p>
-			<nav>
-				<a href="/">HTML</a>
-				<a href="/react">React</a>
-				<a href="/svelte">Svelte</a>
-				<a href="/vue">Vue</a>
-				<a href="/angular">Angular</a>
-				<a href="/htmx">HTMX</a>
-			</nav>
+			<a href="/">AbsoluteJS</a>
+			<details
+				hx-on:pointerenter="this.open = true"
+				hx-on:pointerleave="this.open = false"
+			>
+				<summary>Pages</summary>
+				<nav>
+					<a href="/html">HTML</a>
+					<a href="/react">React</a>
+					<a href="/htmx">HTMX</a>
+					<a href="/svelte">Svelte</a>
+					<a href="/vue">Vue</a>
+					<a href="/angular">Angular</a>
+				</nav>
+			</details>
 		</header>
 		<main>
 			<nav>
