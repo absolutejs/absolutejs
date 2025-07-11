@@ -11,7 +11,7 @@ import {
 	handleVuePageRequest
 } from '../src/core/pageHandlers';
 import { networking } from '../src/plugins/networking';
-import { scopedState } from '../src/plugins/scopedStore';
+import { scopedState } from '../src/plugins/scopedState';
 import { generateHeadElement } from '../src/utils/generateHeadElement';
 import angularTemplate from './angular/index.html' with { type: 'text' };
 import { ReactExample } from './react/pages/ReactExample';
