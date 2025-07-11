@@ -55,9 +55,8 @@ export default defineConfig([
 			'@typescript-eslint/no-unnecessary-type-assertion': 'error'
 		}
 	},
-
 	{
-		files: ['**/*.{js,mjs,cjs,ts,tsx,jsx}'],
+		files: ['**/*.{js,mjs,cjs,json,ts,tsx,jsx}'],
 		ignores: ['node_modules/**'],
 		languageOptions: {
 			globals: {
@@ -210,10 +209,25 @@ export default defineConfig([
 			'src/plugins/index.ts',
 			'src/core/index.ts',
 			'src/index.ts',
-			'example/html/scripts/*'
+			'example/html/scripts/*',
+			'tsconfig.json',
+			'tsconfig.build.json',
+			'package.json',
+			'.prettierrc.json'
 		],
 		rules: {
 			'import/no-unused-modules': 'off'
+		}
+	},
+	{
+		files: [
+			'tsconfig.json',
+			'tsconfig.build.json',
+			'package.json',
+			'.prettierrc.json'
+		],
+		rules: {
+			'@typescript-eslint/no-unused-expressions': 'off'
 		}
 	}
 ]);

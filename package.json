@@ -1,18 +1,12 @@
 {
-	"name": "@absolutejs/absolute",
-	"version": "0.10.3",
 	"author": "Alex Kahn",
-	"repository": {
-		"type": "git",
-		"url": "https://github.com/absolutejs/absolutejs.git"
-	},
-	"main": "./dist/index.js",
+	"description": "A fullstack meta-framework for building web applications with TypeScript",
 	"devDependencies": {
+		"@angular/compiler-cli": "^20.1.0",
+		"@angular/core": "^20.1.0",
 		"@angular/platform-browser": "^20.1.0",
 		"@angular/platform-server": "^20.1.0",
 		"@angular/ssr": "^20.1.0",
-		"@angular/compiler-cli": "^20.1.0",
-		"@angular/core": "^20.1.0",
 		"@elysiajs/static": "1.3.0",
 		"@stylistic/eslint-plugin-ts": "4.2.0",
 		"@tailwindcss/cli": "4.1.7",
@@ -37,6 +31,9 @@
 		"vue": "3.5.17",
 		"zone.js": "0.15.1"
 	},
+	"license": "CC BY-NC 4.0",
+	"main": "./dist/index.js",
+	"name": "@absolutejs/absolute",
 	"peerDependencies": {
 		"elysia": "^1.3.0",
 		"react": "^19.1.0",
@@ -44,16 +41,19 @@
 		"svelte": "^5.35.2",
 		"vue": "^3.5.17"
 	},
-	"description": "A fullstack meta-framework for building web applications with TypeScript",
-	"license": "CC BY-NC 4.0",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/absolutejs/absolutejs.git"
+	},
 	"scripts": {
 		"build": "rm -rf dist && bun build src/index.ts --outdir dist --sourcemap --target=bun --external react --external react-dom --external vue --external @vue/compiler-sfc --external svelte --external elysia && tsc --emitDeclarationOnly --project tsconfig.build.json",
-		"test": "echo \"Error: no test specified\" && exit 1",
+		"dev": "bun run --watch example/server.ts",
 		"format": "prettier --write \"./**/*.{js,jsx,ts,tsx,css,json,mjs,md,svelte,html,vue}\"",
 		"lint": "eslint ./",
-		"typecheck": "bun run tsc --noEmit",
-		"dev": "bun run --watch example/server.ts",
-		"release": "bun run format && bun run build && bun publish"
+		"release": "bun run format && bun run build && bun publish",
+		"test": "echo \"Error: no test specified\" && exit 1",
+		"typecheck": "bun run tsc --noEmit"
 	},
-	"types": "./dist/index.d.ts"
+	"types": "./dist/index.d.ts",
+	"version": "0.10.3"
 }
