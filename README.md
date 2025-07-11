@@ -141,6 +141,8 @@ No separate config files or environment variables—just explicit arguments with
 ## Roadmap
 
 - **Angular** handlers
+- Prisma support
+- Biome support
 - Hot‑reload development server
 - First‑class Docker images & hosting recipes
 
