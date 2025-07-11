@@ -1,4 +1,4 @@
-# Absolute JS
+# AbsoluteJS
 
 Full‑stack, **type‑safe** batteries‑included platform that lets you **server‑side render _any_ modern front‑end**—React, Svelte, plain HTML, HTMX (Vue & Angular coming)—with a single Bun‑powered build step.
 
