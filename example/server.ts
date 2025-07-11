@@ -48,6 +48,9 @@ export const server = new Elysia()
 	.get('/', () =>
 		handleHTMLPageRequest('./example/build/html/pages/HtmlExample.html')
 	)
+	.get('/html', () =>
+		handleHTMLPageRequest('./example/build/html/pages/HtmlExample.html')
+	)
 	.get('/react', () =>
 		handleReactPageRequest(
 			ReactExample,
