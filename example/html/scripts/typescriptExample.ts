@@ -1,12 +1,21 @@
-const button = document.getElementById('counter-button');
-const counter = document.getElementById('counter');
-let count = 0;
+const button = document.querySelector<HTMLButtonElement>('#counter-button');
+const counter = document.querySelector<HTMLSpanElement>('#counter');
+const details = document.querySelector<HTMLDetailsElement>('header details');
 
-if (button === null || counter === null) {
-	throw new Error('Button or counter element not found');
+if (!button || !counter || !details) {
+	throw new Error('Required elements not found');
 }
 
+let count = 0;
+
 button.addEventListener('click', () => {
-	count++;
-	counter.textContent = count.toString();
+	counter.textContent = (++count).toString();
+});
+
+details.addEventListener('pointerenter', () => {
+	details.open = true;
+});
+
+details.addEventListener('pointerleave', () => {
+	details.open = false;
 });
