@@ -158,7 +158,11 @@ export const build = async ({
 		...htmxCssEntries
 	];
 
-	if (serverEntryPoints.length === 0 && clientEntryPoints.length === 0) {
+	if (
+		serverEntryPoints.length === 0 &&
+		clientEntryPoints.length === 0 &&
+		htmxDir === undefined
+	) {
 		console.warn('No entry points found, manifest will be empty.');
 
 		return {};
@@ -252,7 +256,10 @@ export const build = async ({
 	}
 
 	if (htmxDir && htmxPagesPath) {
-		const outputHtmxPages = join(buildPath, basename(htmxDir), 'pages');
+		const outputHtmxPages = isSingle
+			? join(buildPath, 'pages')
+			: join(buildPath, basename(htmxDir), 'pages');
+
 		await mkdir(outputHtmxPages, { recursive: true });
 		await cp(htmxPagesPath, outputHtmxPages, {
 			force: true,

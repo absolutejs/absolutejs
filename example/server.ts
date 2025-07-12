@@ -92,7 +92,7 @@ export const server = new Elysia()
 		)
 	)
 	.get('/htmx', () =>
-		handleHTMXPageRequest('./example/build/htmx/pages/HtmxHome.html')
+		handleHTMXPageRequest('./example/build/htmx/pages/HTMXExample.html')
 	)
 	.post('/htmx/reset', ({ resetScopedStore }) => resetScopedStore())
 	.get('/htmx/count', ({ scopedStore }) => scopedStore.count)
