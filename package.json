@@ -15,6 +15,7 @@
 		"@types/react-dom": "19.1.5",
 		"autoprefixer": "10.4.21",
 		"elysia": "1.3.1",
+		"elysia-scoped-state": "0.1.1",
 		"eslint": "9.26.0",
 		"eslint-plugin-absolute": "0.1.4",
 		"eslint-plugin-import": "2.31.0",
@@ -55,5 +56,5 @@
 		"typecheck": "bun run tsc --noEmit"
 	},
 	"types": "./dist/index.d.ts",
-	"version": "0.10.3"
+	"version": "0.11.0"
 }

@@ -1,5 +1,6 @@
 import { staticPlugin } from '@elysiajs/static';
 import { Elysia } from 'elysia';
+import { scopedState } from 'elysia-scoped-state';
 import { build } from '../src/core/build';
 import { asset } from '../src/core/lookup';
 import {
@@ -11,7 +12,6 @@ import {
 	handleVuePageRequest
 } from '../src/core/pageHandlers';
 import { networking } from '../src/plugins/networking';
-import { scopedState } from '../src/plugins/scopedState';
 import { generateHeadElement } from '../src/utils/generateHeadElement';
 import angularTemplate from './angular/index.html' with { type: 'text' };
 import { ReactExample } from './react/pages/ReactExample';
