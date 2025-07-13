@@ -1,8 +1,8 @@
-import { copyFileSync, mkdirSync } from 'node:fs';
-import { rm, mkdir, cp } from 'node:fs/promises';
+import { copyFileSync, cpSync, mkdirSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { cwd, env, exit } from 'node:process';
-import { $, build as bunBuild, BuildArtifact } from 'bun';
+import { $, build as bunBuild, BuildArtifact, Glob } from 'bun';
 import { compileAngular } from '../build/compileAngular';
 import { compileSvelte } from '../build/compileSvelte';
 import { compileVue } from '../build/compileVue';
@@ -83,13 +83,13 @@ export const build = async ({
 	else if (vuePagesPath) serverRoot = vuePagesPath;
 
 	await rm(buildPath, { force: true, recursive: true });
-	await mkdir(buildPath);
+	mkdirSync(buildPath);
 
 	if (reactIndexesPath && reactPagesPath)
 		await generateReactIndexFiles(reactPagesPath, reactIndexesPath);
 
 	if (assetsPath)
-		await cp(assetsPath, join(buildPath, 'assets'), {
+		cpSync(assetsPath, join(buildPath, 'assets'), {
 			force: true,
 			recursive: true
 		});
@@ -248,8 +248,8 @@ export const build = async ({
 		const outputHtmlPages = isSingle
 			? join(buildPath, 'pages')
 			: join(buildPath, basename(htmlDir), 'pages');
-		await mkdir(outputHtmlPages, { recursive: true });
-		await cp(htmlPagesPath, outputHtmlPages, {
+		mkdirSync(outputHtmlPages, { recursive: true });
+		cpSync(htmlPagesPath, outputHtmlPages, {
 			force: true,
 			recursive: true
 		});
@@ -261,23 +261,25 @@ export const build = async ({
 			? join(buildPath, 'pages')
 			: join(buildPath, basename(htmxDir), 'pages');
 
-		await mkdir(outputHtmxPages, { recursive: true });
-		await cp(htmxPagesPath, outputHtmxPages, {
+		mkdirSync(outputHtmxPages, { recursive: true });
+		cpSync(htmxPagesPath, outputHtmxPages, {
 			force: true,
 			recursive: true
 		});
-
-		await updateAssetPaths(manifest, outputHtmxPages);
 
 		const htmxDestDir = isSingle
 			? buildPath
 			: join(buildPath, basename(htmxDir));
 
 		mkdirSync(htmxDestDir, { recursive: true });
-		copyFileSync(
-			join(htmxDir, 'htmx.min.js'),
-			join(htmxDestDir, 'htmx.min.js')
-		);
+
+		const glob = new Glob('htmx*.min.js');
+		for (const relativePath of glob.scanSync({ cwd: htmxDir })) {
+			const src = join(htmxDir, relativePath);
+			const dest = join(htmxDestDir, 'htmx.min.js');
+			copyFileSync(src, dest);
+			break;
+		}
 	}
 
 	if (!options?.preserveIntermediateFiles)
