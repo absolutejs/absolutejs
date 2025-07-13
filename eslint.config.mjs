@@ -19,6 +19,7 @@ export default defineConfig([
 		ignores: [
 			'dist/**',
 			'**/compiled/**',
+			'**/*/htmx.min.js',
 			'example/build/**',
 			'tailwind.config.ts',
 			'postcss.config.ts',

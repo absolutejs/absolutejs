@@ -1,3 +1,4 @@
+import { copyFileSync, mkdirSync } from 'node:fs';
 import { rm, mkdir, cp } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { cwd, env, exit } from 'node:process';
@@ -265,7 +266,18 @@ export const build = async ({
 			force: true,
 			recursive: true
 		});
+
 		await updateAssetPaths(manifest, outputHtmxPages);
+
+		const htmxDestDir = isSingle
+			? buildPath
+			: join(buildPath, basename(htmxDir));
+
+		mkdirSync(htmxDestDir, { recursive: true });
+		copyFileSync(
+			join(htmxDir, 'htmx.min.js'),
+			join(htmxDestDir, 'htmx.min.js')
+		);
 	}
 
 	if (!options?.preserveIntermediateFiles)
