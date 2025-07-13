@@ -280,6 +280,7 @@ export const build = async ({
 			copyFileSync(src, dest);
 			break;
 		}
+		await updateAssetPaths(manifest, outputHtmxPages);
 	}
 
 	if (!options?.preserveIntermediateFiles)
