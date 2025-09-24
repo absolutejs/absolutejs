@@ -48,6 +48,8 @@
 	},
 	"scripts": {
 		"build": "rm -rf dist && bun build src/index.ts --outdir dist --sourcemap --target=bun --external react --external react-dom --external vue --external @vue/compiler-sfc --external svelte --external elysia && tsc --emitDeclarationOnly --project tsconfig.build.json",
+		"db:push": "drizzle-kit push",
+		"db:studio": "drizzle-kit studio",
 		"dev": "bun run --watch example/server.ts",
 		"format": "prettier --write \"./**/*.{js,jsx,ts,tsx,css,json,mjs,md,svelte,html,vue}\"",
 		"lint": "eslint ./",
@@ -56,5 +58,5 @@
 		"typecheck": "bun run tsc --noEmit"
 	},
 	"types": "./dist/index.d.ts",
-	"version": "0.12.2"
+	"version": "0.12.3"
 }
