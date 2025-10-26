@@ -3,6 +3,9 @@
   "workspaces": {
     "": {
       "name": "@absolutejs/absolute",
+      "dependencies": {
+        "chokidar": "^4.0.3",
+      },
       "devDependencies": {
         "@angular/compiler-cli": "^20.1.0",
         "@angular/core": "^20.1.0",
@@ -13,6 +16,7 @@
         "@stylistic/eslint-plugin-ts": "4.2.0",
         "@tailwindcss/cli": "4.1.7",
         "@types/bun": "latest",
+        "@types/chokidar": "^2.1.7",
         "@types/react": "19.1.5",
         "@types/react-dom": "19.1.5",
         "autoprefixer": "10.4.21",
@@ -211,6 +215,8 @@
     "@tokenizer/token": ["@tokenizer/token@0.3.0", "", {}, "sha512-OvjF+z51L3ov0OyAU0duzsYuvO01PH7x4t6DJx+guahgTnBHkhJdG7soQeTSFLWN3efnHyibZ4Z8l2EuWwJN3A=="],
 
     "@types/bun": ["@types/bun@1.2.18", "", { "dependencies": { "bun-types": "1.2.18" } }, "sha512-Xf6RaWVheyemaThV0kUfaAUvCNokFr+bH8Jxp+tTZfx7dAPA8z9ePnP9S9+Vspzuxxx9JRAXhnyccRj3GyCMdQ=="],
+
+    "@types/chokidar": ["@types/chokidar@2.1.7", "", { "dependencies": { "chokidar": "*" } }, "sha512-A7/MFHf6KF7peCzjEC1BBTF8jpmZTokb3vr/A0NxRGfwRLK3Ws+Hq6ugVn6cJIMfM6wkCak/aplWrxbTcu8oig=="],
 
     "@types/estree": ["@types/estree@1.0.8", "", {}, "sha512-dWHzHa2WqEXI/O1E9OjrocMTKJl2mSrEolh1Iomrv6U+JuNwaHXsXx9bLu5gG7BUWFIN0skIQJQ/L1rIex4X6w=="],
 
