@@ -1,6 +1,5 @@
-// src/dev/bunHMRDevServer.ts
-import { watch } from 'chokidar';
-import { EventEmitter } from 'events';
+import { watch } from 'fs';
+import { join } from 'path';
 import { build } from '../core/build';
 import { BuildConfig } from '../types';
 import { generateHeadElement } from '../utils/generateHeadElement';
@@ -24,10 +23,15 @@ export class BunHMRDevServer {
   private manifest: Record<string, string> = {};
   private server: any = null;
   // File watching stuff - chokidar is watching our source files like a hawk
-  private fileWatcher: any = null;
+  //private fileWatcher: any = null;
+  private watchers: any[] = [];
+  private debounceTimeout: NodeJS.Timeout | null = null;
   private isRebuilding: boolean = false;
   private rebuildQueue: Set<string> = new Set();
   private rebuildTimeout: NodeJS.Timeout | null = null;
+
+  private fileChangeQueue: Map<string, string[]> = new Map();
+
   /* These are our set of WebSocket clients - basically browsers that are connected to us
      We need to track them so we can tell them when stuff changes */
   private connectedClients: Set<any> = new Set();
@@ -278,138 +282,231 @@ export class BunHMRDevServer {
      We use chokidar to watch all our source directories
      When files change, we detect which framework was 
      affected and trigger rebuilds */
-  private async startFileWatching() {
-    console.log('👀 Starting file watching...');
-    
-    const watchPaths = this.getWatchPaths();
-    
-    /* Configure chokidar to watch our source directories
-       We ignore build directories because they would cause infinite loops
-       (build creates files -> file watcher sees them -> triggers rebuild -> repeat) */
-    this.fileWatcher = watch(watchPaths, {
-      ignored: [
-        /(^|[\/\\])\../, // ignore dotfiles
-        /\/build\//, // ignore build directories
-        /\/compiled\//, // ignore compiled directories
-        /\/indexes\//, // ignore indexes directories (generated files)
-        /\/node_modules\//, // ignore node_modules
-        /\.(log|tmp)$/ // ignore log and temp files
-      ],
-      persistent: true,
-      ignoreInitial: true,
-      awaitWriteFinish: {
-        stabilityThreshold: 100,
-        pollInterval: 100
+     private async startFileWatching() {
+        console.log('👀 Starting file watching with Bun native fs.watch...');
+        
+        const watchPaths = this.getWatchPaths();
+        
+        // Set up a watcher for each directory
+        for (const path of watchPaths) {
+          console.log(`🔥 Setting up Bun watcher for: ${path}`);
+          
+          const watcher = watch(
+            path,
+            { recursive: true },
+            (event, filename) => {
+              // Skip if no filename
+              if (!filename) return;
+              
+               // Skip directory changes
+        if (filename === 'compiled' || 
+            filename === 'build' || 
+            filename === 'indexes' ||
+            filename.includes('/compiled') ||
+            filename.includes('/build') ||
+            filename.includes('/indexes') ||
+            filename.endsWith('/')) {
+          console.log(`🚫 Ignoring directory/non-file change: ${filename}`);
+          return;
+        }
+        
+        // Build the full path
+        const fullPath = join(path, filename);
+        
+        // Apply ignore patterns
+        if (this.shouldIgnorePath(fullPath)) {
+          return;
+        }
+        
+        // EVENT-DRIVEN: Queue the file change
+        this.queueFileChange(fullPath);
       }
-    });
-  
-    // Set up event handlers for file changes
-    this.fileWatcher
-      .on('change', (filePath: string) => this.onFileChange(filePath))
-      .on('add', (filePath: string) => this.onFileChange(filePath))
-      .on('unlink', (filePath: string) => this.onFileChange(filePath))
-      .on('error', (error: Error) => console.error('❌ File watcher error:', error));
-  
-    console.log('✅ File watching started for:', watchPaths);
-    console.log('🚫 Ignoring build directories, compiled files, and indexes');
+    );
+    
+    this.watchers.push(watcher);
   }
+  
+  console.log('✅ Bun native file watching started');
+}
 
-  /* Get the directories we should watch based on our config
-     only watch source directories, not build output directories */
-  private getWatchPaths(): string[] {
-    const paths: string[] = [];
-    
-    if (this.config.reactDirectory) {
-      paths.push(this.config.reactDirectory);
-    }
-    if (this.config.svelteDirectory) {
-      paths.push(this.config.svelteDirectory);
-    }
-    if (this.config.vueDirectory) {
-      paths.push(this.config.vueDirectory);
-    }
-    if (this.config.angularDirectory) {
-      paths.push(this.config.angularDirectory);
-    }
-    if (this.config.htmlDirectory) {
-      paths.push(this.config.htmlDirectory);
-    }
-    if (this.config.htmxDirectory) {
-      paths.push(this.config.htmxDirectory);
-    }
-    if (this.config.assetsDirectory) {
-      paths.push(this.config.assetsDirectory);
-    }
-    
-    return paths;
-  }
-
-  /* When a file changes, we need to figure out which framework was affected
-     this is important because we only want to rebuild what actually changed */
-  private async onFileChange(filePath: string) {
-    console.log(`🔥 File changed: ${filePath}`);
-    
-    // Determine which framework was affected
+private queueFileChange(filePath: string) {
     const framework = this.detectFramework(filePath);
     
-    // Ignore build output files - they would cause infinite loops
     if (framework === 'ignored') {
-      console.log(`🚫 Ignoring build file: ${filePath}`);
       return;
     }
     
-    console.log(`🔥 Framework affected: ${framework}`);
+    console.log(`🔥 File changed: ${filePath} (Framework: ${framework})`);
     
-    // Add to rebuild queue
-    this.rebuildQueue.add(framework);
+    // Get or create queue for this framework
+    if (!this.fileChangeQueue.has(framework)) {
+      this.fileChangeQueue.set(framework, []);
+    }
     
-    /* Debounce rebuilds - wait 500ms for more changes before rebuilding
-       this prevents rapid-fire rebuilds when multiple files change at once */
+    this.fileChangeQueue.get(framework)!.push(filePath);
+    
+    // If we're already rebuilding, just queue it and wait
+    if (this.isRebuilding) {
+      console.log('⏳ Rebuild in progress, queuing changes...');
+      return;
+    }
+    
+    // Clear any existing rebuild trigger
     if (this.rebuildTimeout) {
       clearTimeout(this.rebuildTimeout);
     }
     
+    // EVENT-DRIVEN APPROACH: Wait for a short window to collect all changes
+    // This is NOT polling - it's waiting for the EVENT STREAM to stabilize
     this.rebuildTimeout = setTimeout(() => {
+      // Process all queued changes at once
+      const affectedFrameworks = Array.from(this.fileChangeQueue.keys());
+      this.fileChangeQueue.clear();
+      
+      console.log(`🔄 Processing changes for: ${affectedFrameworks.join(', ')}`);
+    
+      // Add affected frameworks to the rebuild queue
+    for (const framework of affectedFrameworks) {
+        this.rebuildQueue.add(framework);
+      }
+      
+      // Trigger rebuild using the existing method
       this.triggerRebuild();
     }, 500);
   }
 
+  /* Get the directories we should watch based on our config
+     only watch source directories, not build output directories */
+     private getWatchPaths(): string[] {
+        const paths: string[] = [];
+        
+        // Watch only specific source directories, not the entire directory
+        // This prevents watching compiled/build directories that cause infinite loops
+        
+        if (this.config.reactDirectory) {
+          // Watch React source directories only
+          paths.push(`${this.config.reactDirectory}/components`);
+          paths.push(`${this.config.reactDirectory}/pages`);
+          // Don't watch the root reactDirectory to avoid compiled/indexes
+        }
+        
+        if (this.config.svelteDirectory) {
+          // Watch Svelte source directories only
+          paths.push(`${this.config.svelteDirectory}/components`);
+          paths.push(`${this.config.svelteDirectory}/pages`);
+          paths.push(`${this.config.svelteDirectory}/composables`);
+        }
+        
+        if (this.config.vueDirectory) {
+          // Watch Vue source directories only
+          paths.push(`${this.config.vueDirectory}/components`);
+          paths.push(`${this.config.vueDirectory}/pages`);
+          paths.push(`${this.config.vueDirectory}/composables`);
+        }
+        
+        if (this.config.angularDirectory) {
+          // Watch Angular source directories only
+          paths.push(`${this.config.angularDirectory}/components`);
+          paths.push(`${this.config.angularDirectory}/pages`);
+        }
+        
+        if (this.config.htmlDirectory) {
+          // Watch HTML source directories
+          paths.push(`${this.config.htmlDirectory}/pages`);
+          paths.push(`${this.config.htmlDirectory}/scripts`);
+        }
+        
+        if (this.config.htmxDirectory) {
+          // Watch HTMX source directories
+          paths.push(`${this.config.htmxDirectory}/pages`);
+        }
+        
+        if (this.config.assetsDirectory) {
+          // Watch assets directory for CSS, images, etc.
+          paths.push(this.config.assetsDirectory);
+        }
+        
+        return paths;
+      }
+
+  // Check if we should ignore a file path
+  private shouldIgnorePath(path: string): boolean {
+    const normalizedPath = path.replace(/\\/g, '/');
+    
+    // Be more aggressive with ignoring compiled directories
+    return (
+      normalizedPath.includes('/build/') ||
+      normalizedPath.includes('/compiled/') ||  // This should catch it
+      normalizedPath.includes('/indexes/') ||
+      normalizedPath.includes('/node_modules/') ||
+      normalizedPath.includes('/.git/') ||
+      normalizedPath.endsWith('.log') ||
+      normalizedPath.endsWith('.tmp') ||
+      normalizedPath.startsWith('.') ||
+      // Add this to be extra safe
+      normalizedPath === 'compiled' ||
+      normalizedPath.endsWith('/compiled') ||
+      normalizedPath.endsWith('/compiled/')
+    );
+  }
+
+  /* When a file changes, we need to figure out which framework was affected
+     this is important because we only want to rebuild what actually changed */
+     private async onFileChange(filePath: string) {
+        const framework = this.detectFramework(filePath);
+        
+        if (framework === 'ignored') {
+          console.log(`🚫 Ignoring build file: ${filePath}`);
+          return;
+        }
+        
+        console.log(`🔥 Framework affected: ${framework}`);
+        
+        // Add to rebuild queue
+        this.rebuildQueue.add(framework);
+        
+        // Clear existing timeout and set a new one
+        if (this.rebuildTimeout) {
+          clearTimeout(this.rebuildTimeout);
+        }
+        
+        this.rebuildTimeout = setTimeout(() => {
+          this.triggerRebuild();
+        }, 500);
+      }
+
   /* This function detects which framework a file belongs to based on 
      its path and extension this is crucial for knowing what to rebuild 
      when files change */
-  private detectFramework(filePath: string): string {
-    // Ignore build output files and generated files
-    if (filePath.includes('/build/') || 
-        filePath.includes('/compiled/') || 
-        filePath.includes('/indexes/') ||  
-        filePath.includes('/node_modules/')) {
-      return 'ignored';
-    }
-  
-    // Check for HTMX first because it's more specific than HTML
-    if (filePath.includes('/htmx/')) {
-      return 'htmx';
-    }
-    if (filePath.includes('/react/') || filePath.endsWith('.tsx') || filePath.endsWith('.jsx')) {
-      return 'react';
-    }
-    if (filePath.includes('/svelte/') || filePath.endsWith('.svelte')) {
-      return 'svelte';
-    }
-    if (filePath.includes('/vue/') || filePath.endsWith('.vue')) {
-      return 'vue';
-    }
-    if (filePath.includes('/angular/') || (filePath.endsWith('.ts') && filePath.includes('angular'))) {
-      return 'angular';
-    }
-    if (filePath.includes('/html/') || filePath.endsWith('.html')) {
-      return 'html';
-    }
-    if (filePath.includes('/assets/') || filePath.endsWith('.css')) {
-      return 'assets';
-    }
-    return 'unknown';
-  }
+     private detectFramework(filePath: string): string {
+        // Check if this is an ignored file first
+        if (this.shouldIgnorePath(filePath)) {
+          return 'ignored';
+        }
+      
+        if (filePath.includes('/htmx/')) {
+          return 'htmx';
+        }
+        if (filePath.includes('/react/') || filePath.endsWith('.tsx') || filePath.endsWith('.jsx')) {
+          return 'react';
+        }
+        if (filePath.includes('/svelte/') || filePath.endsWith('.svelte')) {
+          return 'svelte';
+        }
+        if (filePath.includes('/vue/') || filePath.endsWith('.vue')) {
+          return 'vue';
+        }
+        if (filePath.includes('/angular/') || (filePath.endsWith('.ts') && filePath.includes('angular'))) {
+          return 'angular';
+        }
+        if (filePath.includes('/html/') || filePath.endsWith('.html')) {
+          return 'html';
+        }
+        if (filePath.includes('/assets/') || filePath.endsWith('.css')) {
+          return 'assets';
+        }
+        return 'unknown';
+      }
 
   /* Magic pt. 4
      When files change, we trigger a rebuild and notify all connected clients */
@@ -664,11 +761,17 @@ export class BunHMRDevServer {
 
   // Clean shutdown - stop file watching and close the server
   async stop() {
-    // Stop file watching
-    if (this.fileWatcher) {
-      await this.fileWatcher.close();
-      console.log('👀 File watching stopped');
+    // Close all Bun watchers
+    for (const watcher of this.watchers) {
+      try {
+        watcher.close();
+      } catch (error) {
+        console.error('Error closing watcher:', error);
+      }
     }
+    this.watchers = [];
+    
+    console.log('👀 File watching stopped');
   
     // Clear rebuild timeout
     if (this.rebuildTimeout) {
