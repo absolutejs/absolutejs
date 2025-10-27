@@ -1,4 +1,3 @@
-// src/dev/webSocket.ts
 import type { HMRState } from './clientManager';
 
 /* Magic pt. 2 - when a browser connects to our WebSocket
