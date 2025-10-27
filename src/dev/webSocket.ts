@@ -40,6 +40,10 @@ export function handleHMRMessage(state: HMRState, client: any, message: any): vo
       data = JSON.parse(message);
     } else if (message instanceof Buffer) {
       data = JSON.parse(message.toString());
+    } else if (message instanceof ArrayBuffer) {
+      data = JSON.parse(new TextDecoder().decode(new Uint8Array(message)));
+    } else if (ArrayBuffer.isView(message)) {
+      data = JSON.parse(new TextDecoder().decode(message as Uint8Array));
     } else if (typeof message === 'object') {
       // Message is already an object - no parsing needed
       data = message;
@@ -89,8 +93,9 @@ export function broadcastToClients(state: HMRState, message: any): void {
     timestamp: Date.now()
   });
   
+  const OPEN = (globalThis as any).WebSocket?.OPEN ?? 1;
   for (const client of state.connectedClients) {
-    if (client.readyState === 1) { // WebSocket.OPEN
+    if (client.readyState === OPEN) { // WebSocket.OPEN
       try {
         client.send(messageStr);
       } catch (error) {

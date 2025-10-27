@@ -1,3 +1,4 @@
+import { resolve as PATH_RESOLVE, sep as PATH_SEP } from 'node:path';
 import { Elysia } from 'elysia';
 import { build } from '../core/build';
 import {
@@ -13,6 +14,9 @@ import { createHMRState, type HMRState } from './clientManager';
 import { startFileWatching } from './fileWatcher';
 import { queueFileChange } from './rebuildTrigger';
 import { handleClientConnect, handleClientDisconnect, handleHMRMessage } from './webSocket';
+
+/* Build root directory for static file serving */
+const ROOT_DIR = PATH_RESOLVE('./example/build');
 
 /* Main entry point for the HMR server - orchestrates everything
    This replaces the old class-based approach with a functional one */
@@ -151,7 +155,13 @@ export async function startBunHMRDevServer(config: BuildConfig) {
       </script>
     `;
     
-    return html.replace('</body>', `${hmrScript}</body>`);
+    // Inject before </body> if present; otherwise append
+    const closingTagRegex = /<\/body\s*>/i;
+    const match = closingTagRegex.exec(html);
+
+    return match !== null
+      ? html.slice(0, match.index) + hmrScript + html.slice(match.index)
+      : html + hmrScript;
   };
   
   const injectHMRIntoResponse = async (response: Response): Promise<Response> => {
@@ -252,9 +262,16 @@ export async function startBunHMRDevServer(config: BuildConfig) {
         }
           
         default: {
-          const filePath = `./example/build${pathname}`;
+          // Normalize and constrain requests to the build root to prevent path traversal
+          const resolved = PATH_RESOLVE(ROOT_DIR, `.${pathname}`);
+          
+          // Verify that resolved path is within ROOT_DIR
+          if (resolved !== ROOT_DIR && !resolved.startsWith(ROOT_DIR + PATH_SEP)) {
+            return new Response('Forbidden', { status: 403 });
+          }
+          
           try {
-            const file = Bun.file(filePath);
+            const file = Bun.file(resolved);
             if (await file.exists()) {
               return new Response(file);
             }
