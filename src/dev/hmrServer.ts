@@ -1,0 +1,317 @@
+import { build } from '../core/build';
+import { generateHeadElement } from '../utils/generateHeadElement';
+import { Elysia } from 'elysia';
+import {
+  handleHTMLPageRequest,
+  handleReactPageRequest,
+  handleSveltePageRequest,
+  handleVuePageRequest,
+  handleHTMXPageRequest
+} from '../core/pageHandlers';
+import { createHMRState } from './clientManager';
+import { handleClientConnect, handleClientDisconnect, handleHMRMessage } from './webSocket';
+import { startFileWatching } from './fileWatcher';
+import { queueFileChange, triggerRebuild } from './rebuildTrigger';
+import type { BuildConfig } from '../types';
+import type { HMRState } from './clientManager';
+
+/* Main entry point for the HMR server - orchestrates everything
+   This replaces the old class-based approach with a functional one */
+export async function startBunHMRDevServer(config: BuildConfig) {
+  // Create initial state
+  const state = createHMRState();
+  
+  console.log('Building AbsoluteJS with HMR...');
+  
+  // Initial build
+  let manifest = await build({
+    ...config,
+    options: {
+      ...config.options,
+      preserveIntermediateFiles: true
+    }
+  });
+  
+  if (!manifest) {
+    throw new Error('Build failed - no manifest generated');
+  }
+  
+  console.log('Build completed successfully');
+  console.log('Manifest keys:', Object.keys(manifest));
+  
+  // Inject HMR client script into HTML
+  const injectHMRClient = (html: string): string => {
+    const hmrScript = `
+      <script>
+        (function() {
+          console.log('Initializing HMR client...');
+          
+          const ws = new WebSocket('ws://localhost:3000/hmr');
+          let reconnectTimeout;
+          let pingInterval;
+          let isConnected = false;
+          
+          ws.onopen = function() {
+            console.log('HMR client connected');
+            isConnected = true;
+            ws.send(JSON.stringify({ type: 'ready' }));
+            
+            if (reconnectTimeout) {
+              clearTimeout(reconnectTimeout);
+              reconnectTimeout = null;
+            }
+            
+            pingInterval = setInterval(function() {
+              if (ws.readyState === WebSocket.OPEN && isConnected) {
+                ws.send(JSON.stringify({ type: 'ping' }));
+              }
+            }, 30000);
+          };
+          
+          ws.onmessage = function(event) {
+            try {
+              const message = JSON.parse(event.data);
+              console.log('HMR message received:', message.type);
+              
+              switch (message.type) {
+                case 'manifest':
+                  console.log('Received manifest:', Object.keys(message.data));
+                  window.__HMR_MANIFEST__ = message.data;
+                  break;
+                  
+                case 'rebuild-start':
+                  console.log('Rebuild started for:', message.data.affectedFrameworks);
+                  break;
+                  
+                case 'rebuild-complete':
+                  console.log('Rebuild completed');
+                  if (window.__HMR_MANIFEST__) {
+                    window.__HMR_MANIFEST__ = message.data.manifest;
+                  }
+                  console.log('Reloading page due to rebuild...');
+                  window.location.reload();
+                  break;
+                  
+                case 'framework-update':
+                  console.log('Framework updated:', message.data.framework);
+                  break;
+                  
+                case 'rebuild-error':
+                  console.error('Rebuild error:', message.data.error);
+                  break;
+                  
+                case 'pong':
+                  console.log('Pong received - connection healthy');
+                  break;
+                  
+                case 'connected':
+                  console.log('HMR connection confirmed');
+                  break;
+                  
+                default:
+                  console.log('Unknown HMR message:', message.type);
+              }
+            } catch (error) {
+              console.error('Error processing HMR message:', error);
+            }
+          };
+          
+          ws.onclose = function(event) {
+            console.log('HMR client disconnected', event.code, event.reason);
+            isConnected = false;
+            
+            if (pingInterval) {
+              clearInterval(pingInterval);
+              pingInterval = null;
+            }
+            
+            if (event.code !== 1000 && event.code !== 1001) {
+              console.log('Connection lost, attempting to reconnect in 3 seconds...');
+              reconnectTimeout = setTimeout(function() {
+                console.log('Attempting to reconnect HMR client...');
+                window.location.reload();
+              }, 3000);
+            }
+          };
+          
+          ws.onerror = function(error) {
+            console.error('HMR WebSocket error:', error);
+            isConnected = false;
+          };
+          
+          window.__HMR_WS__ = ws;
+          
+          window.addEventListener('beforeunload', function() {
+            if (pingInterval) clearInterval(pingInterval);
+            if (reconnectTimeout) clearTimeout(reconnectTimeout);
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.close(1000, 'Page unloading');
+            }
+          });
+        })();
+      </script>
+    `;
+    
+    return html.replace('</body>', `${hmrScript}</body>`);
+  };
+  
+  const injectHMRIntoResponse = async (response: Response): Promise<Response> => {
+    const contentType = response.headers.get('content-type');
+    
+    if (contentType && contentType.includes('text/html')) {
+      const htmlContent = await response.text();
+      const htmlWithHMR = injectHMRClient(htmlContent);
+      return new Response(htmlWithHMR, {
+        headers: response.headers
+      });
+    }
+    
+    return response;
+  };
+  
+  const handleRequest = async (req: Request): Promise<Response> => {
+    const url = new URL(req.url);
+    const pathname = url.pathname;
+    
+    try {
+      switch (pathname) {
+        case '/':
+        case '/html':
+          const htmlFile = await handleHTMLPageRequest('./example/build/html/pages/HtmlExample.html');
+          const htmlContent = await htmlFile.text();
+          const htmlWithHMR = injectHMRClient(htmlContent);
+          return new Response(htmlWithHMR, {
+            headers: { 'Content-Type': 'text/html' }
+          });
+          
+        case '/react':
+          const ReactModule = await import('../../example/react/pages/ReactExample');
+          const reactResponse = await handleReactPageRequest(
+            ReactModule.ReactExample,
+            manifest['ReactExampleIndex'] || '',
+            {
+              cssPath: manifest['ReactExampleCSS'] || '',
+              initialCount: 0
+            }
+          );
+          return await injectHMRIntoResponse(reactResponse);
+          
+        case '/svelte':
+          const SvelteModule = await import('../../example/svelte/pages/SvelteExample.svelte');
+          const svelteResponse = await handleSveltePageRequest(
+            SvelteModule.default,
+            manifest['SvelteExample'] || '',
+            manifest['SvelteExampleIndex'] || '',
+            {
+              cssPath: manifest['SvelteExampleCSS'] || '',
+              initialCount: 0
+            }
+          );
+          return await injectHMRIntoResponse(svelteResponse);
+          
+        case '/vue':
+          const VueModule = await import('../../example/vue/pages/VueExample.vue');
+          const vueResponse = await handleVuePageRequest(
+            VueModule.default,
+            manifest['VueExample'] || '',
+            manifest['VueExampleIndex'] || '',
+            generateHeadElement({
+              cssPath: manifest['VueExampleCSS'] || '',
+              title: 'AbsoluteJS + Vue'
+            }),
+            {
+              initialCount: 0
+            }
+          );
+          return await injectHMRIntoResponse(vueResponse);
+          
+        case '/htmx':
+          const htmxFile = await handleHTMXPageRequest('./example/build/htmx/pages/HTMXExample.html');
+          const htmxContent = await htmxFile.text();
+          const htmxWithHMR = injectHMRClient(htmxContent);
+          return new Response(htmxWithHMR, {
+            headers: { 'Content-Type': 'text/html' }
+          });
+          
+        case '/hmr-status':
+          return new Response(JSON.stringify({
+            connectedClients: state.connectedClients.size,
+            isRebuilding: state.isRebuilding,
+            rebuildQueue: Array.from(state.rebuildQueue),
+            manifestKeys: Object.keys(manifest),
+            timestamp: Date.now()
+          }), {
+            headers: { 'Content-Type': 'application/json' }
+          });
+          
+        default:
+          const filePath = `./example/build${pathname}`;
+          try {
+            const file = Bun.file(filePath);
+            if (await file.exists()) {
+              return new Response(file);
+            }
+          } catch (error) {
+            // File doesn't exist, continue to 404
+          }
+          
+          return new Response('Not Found', { status: 404 });
+      }
+    } catch (error) {
+      console.error('Error handling request:', error);
+      return new Response('Internal Server Error', { status: 500 });
+    }
+  };
+  
+  const server = new Elysia()
+    .ws('/hmr', {
+      open: (ws) => handleClientConnect(state, ws, manifest),
+      message: (ws, message) => {
+        handleHMRMessage(state, ws, message);
+      },
+      close: (ws) => handleClientDisconnect(state, ws)
+    })
+    .get('*', handleRequest)
+    .listen(3000);
+  
+  const rebuildCallback = async (newManifest: Record<string, string>) => {
+    manifest = newManifest;
+  };
+  
+  startFileWatching(state, config, (filePath: string) => {
+    queueFileChange(state, filePath, config, rebuildCallback);
+  });
+  
+  console.log('Bun HMR Dev Server started');
+  console.log('Server: http://localhost:3000');
+  console.log('WebSocket: ws://localhost:3000/hmr');
+  console.log('File watching: Active');
+  console.log('Available routes:');
+  console.log('  - http://localhost:3000/ (HTML)');
+  console.log('  - http://localhost:3000/react (React)');
+  console.log('  - http://localhost:3000/svelte (Svelte)');
+  console.log('  - http://localhost:3000/vue (Vue)');
+  console.log('  - http://localhost:3000/htmx (HTMX)');
+  
+  return {
+    stop: async () => {
+      for (const watcher of state.watchers) {
+        try {
+          watcher.close();
+        } catch (error) {
+          console.error('Error closing watcher:', error);
+        }
+      }
+      state.watchers = [];
+      
+      console.log('File watching stopped');
+      
+      if (state.rebuildTimeout) {
+        clearTimeout(state.rebuildTimeout);
+      }
+      
+      server.stop();
+      console.log('HMR Dev Server stopped');
+    }
+  };
+}

@@ -1,2 +1,1 @@
-// src/dev/index.ts
-export { BunHMRDevServer, startBunHMRDevServer } from './bunHMRDevServer';
+export { startBunHMRDevServer } from './hmrServer';

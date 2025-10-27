@@ -1,7 +1,16 @@
-// test-hmr-server.ts
-import { startBunHMRDevServer } from './src/dev/bunHMRDevServer';
+import { startBunHMRDevServer } from './src/dev/hmrServer';
 
-const config = {
+const config: {
+  reactDirectory: string;
+  svelteDirectory: string;
+  vueDirectory: string;
+  angularDirectory: string;
+  htmlDirectory: string;
+  htmxDirectory: string;
+  assetsDirectory: string;
+  buildDirectory: string;
+  options: { preserveIntermediateFiles: boolean };
+} = {
   reactDirectory: 'example/react',
   svelteDirectory: 'example/svelte',
   vueDirectory: 'example/vue',
@@ -9,7 +18,7 @@ const config = {
   htmlDirectory: 'example/html',
   htmxDirectory: 'example/htmx',
   assetsDirectory: 'example/assets',
-  buildDirectory: 'example/build',  // ← Changed from 'build' to 'example/build'
+  buildDirectory: 'example/build',
   options: { preserveIntermediateFiles: true }
 };
 
