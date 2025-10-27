@@ -105,5 +105,6 @@ export function detectFramework(filePath: string): string {
   if (filePath.includes('/assets/') || filePath.endsWith('.css')) {
     return 'assets';
   }
+
   return 'unknown';
 }

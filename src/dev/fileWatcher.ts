@@ -1,8 +1,8 @@
 import { watch } from 'fs';
 import { join } from 'path';
-import { getWatchPaths, shouldIgnorePath } from './pathUtils';
-import type { HMRState } from './clientManager';
 import type { BuildConfig } from '../types';
+import type { HMRState } from './clientManager';
+import { getWatchPaths, shouldIgnorePath } from './pathUtils';
 
 /* Set up file watching for all configured directories
    This handles the "watch files" problem */
@@ -35,6 +35,7 @@ export function startFileWatching(
             filename.includes('/indexes') ||
             filename.endsWith('/')) {
           console.log(`🚫 Ignoring directory/non-file change: ${filename}`);
+
           return;
         }
         

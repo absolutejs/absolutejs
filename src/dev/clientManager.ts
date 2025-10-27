@@ -12,13 +12,7 @@ export type HMRState = {
   /* Initialize HMR state */
   export function createHMRState(): HMRState {
     return {
-      connectedClients: new Set(),
-      isRebuilding: false,
-      rebuildQueue: new Set(),
-      rebuildTimeout: null,
-      fileChangeQueue: new Map(),
-      debounceTimeout: null,
-      watchers: [],
+      connectedClients: new Set(), debounceTimeout: null, fileChangeQueue: new Map(), isRebuilding: false, rebuildQueue: new Set(), rebuildTimeout: null, watchers: [],
     };
   }
   

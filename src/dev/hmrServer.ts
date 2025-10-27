@@ -1,6 +1,5 @@
-import { build } from '../core/build';
-import { generateHeadElement } from '../utils/generateHeadElement';
 import { Elysia } from 'elysia';
+import { build } from '../core/build';
 import {
   handleHTMLPageRequest,
   handleReactPageRequest,
@@ -8,12 +7,12 @@ import {
   handleVuePageRequest,
   handleHTMXPageRequest
 } from '../core/pageHandlers';
-import { createHMRState } from './clientManager';
-import { handleClientConnect, handleClientDisconnect, handleHMRMessage } from './webSocket';
-import { startFileWatching } from './fileWatcher';
-import { queueFileChange, triggerRebuild } from './rebuildTrigger';
 import type { BuildConfig } from '../types';
-import type { HMRState } from './clientManager';
+import { generateHeadElement } from '../utils/generateHeadElement';
+import { createHMRState, type HMRState } from './clientManager';
+import { startFileWatching } from './fileWatcher';
+import { queueFileChange } from './rebuildTrigger';
+import { handleClientConnect, handleClientDisconnect, handleHMRMessage } from './webSocket';
 
 /* Main entry point for the HMR server - orchestrates everything
    This replaces the old class-based approach with a functional one */
@@ -161,6 +160,7 @@ export async function startBunHMRDevServer(config: BuildConfig) {
     if (contentType && contentType.includes('text/html')) {
       const htmlContent = await response.text();
       const htmlWithHMR = injectHMRClient(htmlContent);
+
       return new Response(htmlWithHMR, {
         headers: response.headers
       });
@@ -171,20 +171,22 @@ export async function startBunHMRDevServer(config: BuildConfig) {
   
   const handleRequest = async (req: Request): Promise<Response> => {
     const url = new URL(req.url);
-    const pathname = url.pathname;
+    const {pathname} = url;
     
     try {
       switch (pathname) {
         case '/':
-        case '/html':
+        case '/html': {
           const htmlFile = await handleHTMLPageRequest('./example/build/html/pages/HtmlExample.html');
           const htmlContent = await htmlFile.text();
           const htmlWithHMR = injectHMRClient(htmlContent);
+
           return new Response(htmlWithHMR, {
             headers: { 'Content-Type': 'text/html' }
           });
+        }
           
-        case '/react':
+        case '/react': {
           const ReactModule = await import('../../example/react/pages/ReactExample');
           const reactResponse = await handleReactPageRequest(
             ReactModule.ReactExample,
@@ -194,9 +196,11 @@ export async function startBunHMRDevServer(config: BuildConfig) {
               initialCount: 0
             }
           );
+
           return await injectHMRIntoResponse(reactResponse);
+        }
           
-        case '/svelte':
+        case '/svelte': {
           const SvelteModule = await import('../../example/svelte/pages/SvelteExample.svelte');
           const svelteResponse = await handleSveltePageRequest(
             SvelteModule.default,
@@ -207,9 +211,11 @@ export async function startBunHMRDevServer(config: BuildConfig) {
               initialCount: 0
             }
           );
+
           return await injectHMRIntoResponse(svelteResponse);
+        }
           
-        case '/vue':
+        case '/vue': {
           const VueModule = await import('../../example/vue/pages/VueExample.vue');
           const vueResponse = await handleVuePageRequest(
             VueModule.default,
@@ -223,53 +229,54 @@ export async function startBunHMRDevServer(config: BuildConfig) {
               initialCount: 0
             }
           );
+
           return await injectHMRIntoResponse(vueResponse);
+        }
           
-        case '/htmx':
+        case '/htmx': {
           const htmxFile = await handleHTMXPageRequest('./example/build/htmx/pages/HTMXExample.html');
           const htmxContent = await htmxFile.text();
           const htmxWithHMR = injectHMRClient(htmxContent);
+
           return new Response(htmxWithHMR, {
             headers: { 'Content-Type': 'text/html' }
           });
+        }
           
-        case '/hmr-status':
+        case '/hmr-status': {
           return new Response(JSON.stringify({
-            connectedClients: state.connectedClients.size,
-            isRebuilding: state.isRebuilding,
-            rebuildQueue: Array.from(state.rebuildQueue),
-            manifestKeys: Object.keys(manifest),
-            timestamp: Date.now()
+            connectedClients: state.connectedClients.size, isRebuilding: state.isRebuilding, manifestKeys: Object.keys(manifest), rebuildQueue: Array.from(state.rebuildQueue), timestamp: Date.now()
           }), {
             headers: { 'Content-Type': 'application/json' }
           });
+        }
           
-        default:
+        default: {
           const filePath = `./example/build${pathname}`;
           try {
             const file = Bun.file(filePath);
             if (await file.exists()) {
               return new Response(file);
             }
-          } catch (error) {
+          } catch {
             // File doesn't exist, continue to 404
           }
           
           return new Response('Not Found', { status: 404 });
+        }
       }
     } catch (error) {
       console.error('Error handling request:', error);
+
       return new Response('Internal Server Error', { status: 500 });
     }
   };
   
   const server = new Elysia()
     .ws('/hmr', {
-      open: (ws) => handleClientConnect(state, ws, manifest),
-      message: (ws, message) => {
+      close: (ws) => handleClientDisconnect(state, ws), message: (ws, message) => {
         handleHMRMessage(state, ws, message);
-      },
-      close: (ws) => handleClientDisconnect(state, ws)
+      }, open: (ws) => handleClientConnect(state, ws, manifest)
     })
     .get('*', handleRequest)
     .listen(3000);

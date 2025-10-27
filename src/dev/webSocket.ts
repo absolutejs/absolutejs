@@ -12,16 +12,12 @@ export function handleClientConnect(
   
   // Send them the current state of the menu (manifest)
   client.send(JSON.stringify({
-    type: 'manifest',
-    data: manifest,
-    timestamp: Date.now()
+    data: manifest, timestamp: Date.now(), type: 'manifest'
   }));
   
   // And confirm they're connected
   client.send(JSON.stringify({
-    type: 'connected',
-    message: 'HMR client connected successfully',
-    timestamp: Date.now()
+    message: 'HMR client connected successfully', timestamp: Date.now(), type: 'connected'
   }));
 }
 
@@ -49,6 +45,7 @@ export function handleHMRMessage(state: HMRState, client: any, message: any): vo
       data = message;
     } else {
       console.log('🤷 Unknown message type:', typeof message);
+
       return;
     }
     
@@ -58,8 +55,7 @@ export function handleHMRMessage(state: HMRState, client: any, message: any): vo
       case 'ping':
         // Client is checking if we're alive - respond with pong
         client.send(JSON.stringify({ 
-          type: 'pong', 
-          timestamp: Date.now() 
+          timestamp: Date.now(), type: 'pong' 
         }));
         break;
         

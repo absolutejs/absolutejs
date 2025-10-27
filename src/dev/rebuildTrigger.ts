@@ -1,8 +1,8 @@
 import { build } from '../core/build';
-import { broadcastToClients } from './webSocket';
-import { detectFramework } from './pathUtils';
-import type { HMRState } from './clientManager';
 import type { BuildConfig } from '../types';
+import type { HMRState } from './clientManager';
+import { detectFramework } from './pathUtils';
+import { broadcastToClients } from './webSocket';
 
 /* Queue a file change for processing
    This handles the "queue changes" problem with debouncing */
@@ -30,6 +30,7 @@ export function queueFileChange(
   // If we're already rebuilding, just queue it and wait
   if (state.isRebuilding) {
     console.log('⏳ Rebuild in progress, queuing changes...');
+
     return;
   }
   
@@ -65,6 +66,7 @@ export async function triggerRebuild(
 ): Promise<Record<string, string> | null> {
   if (state.isRebuilding) {
     console.log('⏳ Rebuild already in progress, skipping...');
+
     return null;
   }
 
@@ -76,9 +78,7 @@ export async function triggerRebuild(
 
   // Notify clients that rebuild is starting
   broadcastToClients(state, {
-    type: 'rebuild-start',
-    data: { affectedFrameworks },
-    message: 'Rebuild started...'
+    data: { affectedFrameworks }, message: 'Rebuild started...', type: 'rebuild-start'
   });
 
   try {
@@ -99,23 +99,18 @@ export async function triggerRebuild(
 
     // Notify clients of successful rebuild
     broadcastToClients(state, {
-      type: 'rebuild-complete',
       data: { 
-        manifest,
-        affectedFrameworks
-      },
-      message: 'Rebuild completed successfully'
+        affectedFrameworks, manifest
+      }, message: 'Rebuild completed successfully', type: 'rebuild-complete'
     });
 
     // Send individual framework updates
     for (const framework of affectedFrameworks) {
       broadcastToClients(state, {
-        type: 'framework-update',
         data: { 
           framework,
           manifest
-        },
-        message: `${framework} framework updated`
+        }, message: `${framework} framework updated`, type: 'framework-update'
       });
     }
     
@@ -129,12 +124,9 @@ export async function triggerRebuild(
     
     // Broadcast error to clients
     broadcastToClients(state, {
-      type: 'rebuild-error',
       data: { 
-        error: error instanceof Error ? error.message : String(error),
-        affectedFrameworks
-      },
-      message: 'Rebuild failed'
+        affectedFrameworks, error: error instanceof Error ? error.message : String(error)
+      }, message: 'Rebuild failed', type: 'rebuild-error'
     });
     
     return null;
