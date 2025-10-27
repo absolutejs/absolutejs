@@ -4,6 +4,9 @@ import { Component as VueComponent } from 'vue';
 
 export type BuildOptions = {
 	preserveIntermediateFiles?: boolean;
+	hmr?: {
+		debounceMs?: number;
+	};
 };
 
 export type BuildConfig = {

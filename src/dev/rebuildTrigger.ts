@@ -40,8 +40,7 @@ export function queueFileChange(
   }
   
   // EVENT-DRIVEN APPROACH: Wait for a short window to collect all changes
-  const DEBOUNCE_MS =
-    (config as any)?.options?.hmr?.debounceMs ?? 500;
+  const DEBOUNCE_MS = config.options?.hmr?.debounceMs ?? 500;
   state.rebuildTimeout = setTimeout((): void => {
     // Process all queued changes at once
     const affectedFrameworks = Array.from(state.fileChangeQueue.keys());
