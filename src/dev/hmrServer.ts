@@ -49,7 +49,9 @@ export async function startBunHMRDevServer(config: BuildConfig) {
         (function() {
           console.log('Initializing HMR client...');
           
-          const ws = new WebSocket('ws://localhost:3000/hmr');
+          const ws = new WebSocket(
+            \`\${location.protocol === 'https:' ? 'wss' : 'ws'}://\${location.host}/hmr\`
+          );
           let reconnectTimeout;
           let pingInterval;
           let isConnected = false;
@@ -172,7 +174,7 @@ export async function startBunHMRDevServer(config: BuildConfig) {
       const htmlWithHMR = injectHMRClient(htmlContent);
 
       return new Response(htmlWithHMR, {
-        headers: response.headers
+        headers: new Headers(response.headers)
       });
     }
     
@@ -198,9 +200,13 @@ export async function startBunHMRDevServer(config: BuildConfig) {
           
         case '/react': {
           const ReactModule = await import('../../example/react/pages/ReactExample');
+          const indexPath = manifest['ReactExampleIndex'];
+          if (!indexPath) {
+            return new Response('ReactExampleIndex not found in manifest', { status: 500 });
+          }
           const reactResponse = await handleReactPageRequest(
             ReactModule.ReactExample,
-            manifest['ReactExampleIndex'] || '',
+            indexPath,
             {
               cssPath: manifest['ReactExampleCSS'] || '',
               initialCount: 0
