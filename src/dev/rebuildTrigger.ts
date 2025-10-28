@@ -2,61 +2,102 @@ import { build } from '../core/build';
 import type { BuildConfig } from '../types';
 import type { HMRState } from './clientManager';
 import { detectFramework } from './pathUtils';
+import { computeFileHash, hasFileChanged } from './fileHashTracker';
 import { broadcastToClients } from './webSocket';
 
 /* Queue a file change for processing
    This handles the "queue changes" problem with debouncing */
-export function queueFileChange(
-  state: HMRState,
-  filePath: string,
-  config: BuildConfig,
-  onRebuildComplete: (manifest: Record<string, string>) => void
-): void {
-  const framework = detectFramework(filePath);
+   export function queueFileChange(
+    state: HMRState,
+    filePath: string,
+    config: BuildConfig,
+    onRebuildComplete: (manifest: Record<string, string>) => void
+  ): void {
+    const framework = detectFramework(filePath);
+    
+    if (framework === 'ignored') {
+      return;
+    }
+    
+    // Compute current hash
+    const currentHash = computeFileHash(filePath);
+    
+    // Check if file actually changed
+    if (!hasFileChanged(filePath, currentHash, state.fileHashes)) {
+      console.log(`⏭️ Skipping unchanged file: ${filePath}`);
+      return;
+    }
+    
+    // Update hash for future checks
+    //state.fileHashes.set(filePath, currentHash);
+    
+    console.log(`🔥 File changed: ${filePath} (Framework: ${framework})`);
+    
+    // Get or create queue for this framework
+    if (!state.fileChangeQueue.has(framework)) {
+      state.fileChangeQueue.set(framework, []);
+    }
+    
+    state.fileChangeQueue.get(framework)!.push(filePath);
+    
+    // If we're already rebuilding, just queue it and wait
+    if (state.isRebuilding) {
+      console.log('⏳ Rebuild in progress, queuing changes...');
   
-  if (framework === 'ignored') {
-    return;
-  }
-  
-  console.log(`🔥 File changed: ${filePath} (Framework: ${framework})`);
-  
-  // Get or create queue for this framework
-  if (!state.fileChangeQueue.has(framework)) {
-    state.fileChangeQueue.set(framework, []);
-  }
-  
-  state.fileChangeQueue.get(framework)!.push(filePath);
-  
-  // If we're already rebuilding, just queue it and wait
-  if (state.isRebuilding) {
-    console.log('⏳ Rebuild in progress, queuing changes...');
-
-    return;
-  }
-  
-  // Clear any existing rebuild trigger
-  if (state.rebuildTimeout) {
-    clearTimeout(state.rebuildTimeout);
-  }
-  
-  // EVENT-DRIVEN APPROACH: Wait for a short window to collect all changes
-  const DEBOUNCE_MS = config.options?.hmr?.debounceMs ?? 500;
-  state.rebuildTimeout = setTimeout((): void => {
-    // Process all queued changes at once
-    const affectedFrameworks = Array.from(state.fileChangeQueue.keys());
+      return;
+    }
+    
+    // Clear any existing rebuild trigger
+    if (state.rebuildTimeout) {
+      clearTimeout(state.rebuildTimeout);
+    }
+    
+    // EVENT-DRIVEN APPROACH: Wait for a short window to collect all changes
+    const DEBOUNCE_MS = config.options?.hmr?.debounceMs ?? 500;
+    state.rebuildTimeout = setTimeout((): void => {
+    // Re-check hashes at the last moment to catch rapid edit/undo
+    const filesToProcess: Map<string, string[]> = new Map(); // framework -> filePaths
+    
+    for (const [framework, filePaths] of state.fileChangeQueue) {
+        const validFiles: string[] = [];
+        
+        for (const filePath of filePaths) {
+        const currentHash = computeFileHash(filePath);
+        
+        // Check if file actually changed since last rebuild
+        if (!state.fileHashes.has(filePath) || state.fileHashes.get(filePath) !== currentHash) {
+            validFiles.push(filePath);
+            // Update hash now since we're processing it
+            state.fileHashes.set(filePath, currentHash);
+        } else {
+            console.log(`⏭️ Skipping unchanged file in batch: ${filePath}`);
+        }
+        }
+        
+        if (validFiles.length > 0) {
+        filesToProcess.set(framework, validFiles);
+        }
+    }
+    
     state.fileChangeQueue.clear();
     
+    if (filesToProcess.size === 0) {
+        console.log('✅ No actual changes detected in queued files');
+        return;
+    }
+    
+    const affectedFrameworks = Array.from(filesToProcess.keys());
     console.log(`🔄 Processing changes for: ${affectedFrameworks.join(', ')}`);
-  
+
     // Add affected frameworks to the rebuild queue
     for (const framework of affectedFrameworks) {
-      state.rebuildQueue.add(framework);
+        state.rebuildQueue.add(framework);
     }
     
     // Trigger rebuild - the callback will be called with the manifest
     void triggerRebuild(state, config, onRebuildComplete);
-  }, DEBOUNCE_MS);
-}
+    }, DEBOUNCE_MS);
+  }
 
 /* Trigger a rebuild of the project
    This handles the "rebuild when needed" problem */

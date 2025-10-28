@@ -6,13 +6,14 @@ export type HMRState = {
     rebuildTimeout: NodeJS.Timeout | null;
     fileChangeQueue: Map<string, string[]>;
     debounceTimeout: NodeJS.Timeout | null;
+    fileHashes: Map<string, string>; // filename -> SHA-256 hash
     watchers: any[];
   };
   
   /* Initialize HMR state */
   export function createHMRState(): HMRState {
     return {
-      connectedClients: new Set(), debounceTimeout: null, fileChangeQueue: new Map(), isRebuilding: false, rebuildQueue: new Set(), rebuildTimeout: null, watchers: [],
+      connectedClients: new Set(), debounceTimeout: null, fileChangeQueue: new Map(), isRebuilding: false, rebuildQueue: new Set(), rebuildTimeout: null, watchers: [], fileHashes: new Map(),
     };
   }
   
