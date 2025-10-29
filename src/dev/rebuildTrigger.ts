@@ -1,3 +1,4 @@
+import { getAffectedFiles } from './dependencyGraph'
 import { build } from '../core/build';
 import type { BuildConfig } from '../types';
 import type { HMRState } from './clientManager';
@@ -24,14 +25,14 @@ import { broadcastToClients } from './webSocket';
     
     // Check if file actually changed
     if (!hasFileChanged(filePath, currentHash, state.fileHashes)) {
-      console.log(`⏭️ Skipping unchanged file: ${filePath}`);
+      console.log(` Skipping unchanged file: ${filePath}`);
       return;
     }
     
     // Update hash for future checks
     //state.fileHashes.set(filePath, currentHash);
     
-    console.log(`🔥 File changed: ${filePath} (Framework: ${framework})`);
+    console.log(` File changed: ${filePath} (Framework: ${framework})`);
     
     // Get or create queue for this framework
     if (!state.fileChangeQueue.has(framework)) {
@@ -42,7 +43,7 @@ import { broadcastToClients } from './webSocket';
     
     // If we're already rebuilding, just queue it and wait
     if (state.isRebuilding) {
-      console.log('⏳ Rebuild in progress, queuing changes...');
+      console.log(' Rebuild in progress, queuing changes...');
   
       return;
     }
@@ -82,12 +83,12 @@ import { broadcastToClients } from './webSocket';
     state.fileChangeQueue.clear();
     
     if (filesToProcess.size === 0) {
-        console.log('✅ No actual changes detected in queued files');
+        console.log(' No actual changes detected in queued files');
         return;
     }
     
     const affectedFrameworks = Array.from(filesToProcess.keys());
-    console.log(`🔄 Processing changes for: ${affectedFrameworks.join(', ')}`);
+    console.log(` Processing changes for: ${affectedFrameworks.join(', ')}`);
 
     // Add affected frameworks to the rebuild queue
     for (const framework of affectedFrameworks) {
@@ -107,7 +108,7 @@ export async function triggerRebuild(
   onRebuildComplete: (manifest: Record<string, string>) => void
 ): Promise<Record<string, string> | null> {
   if (state.isRebuilding) {
-    console.log('⏳ Rebuild already in progress, skipping...');
+    console.log(' Rebuild already in progress, skipping...');
 
     return null;
   }
@@ -116,7 +117,7 @@ export async function triggerRebuild(
   const affectedFrameworks = Array.from(state.rebuildQueue);
   state.rebuildQueue.clear();
 
-  console.log(`🔄 Triggering rebuild for: ${affectedFrameworks.join(', ')}`);
+  console.log(` Triggering rebuild for: ${affectedFrameworks.join(', ')}`);
 
   // Notify clients that rebuild is starting
   broadcastToClients(state, {
@@ -136,8 +137,8 @@ export async function triggerRebuild(
       throw new Error('Build failed - no manifest generated');
     }
 
-    console.log('✅ Rebuild completed successfully');
-    console.log('📋 Updated manifest keys:', Object.keys(manifest));
+    console.log(' Rebuild completed successfully');
+    console.log(' Updated manifest keys:', Object.keys(manifest));
 
     // Notify clients of successful rebuild
     broadcastToClients(state, {

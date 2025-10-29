@@ -1,35 +1,60 @@
-/* This handles the "tracking clients" problem */
+import { createDependencyGraph, DependencyGraph } from '../dev/dependencyGraph'
+
 export type HMRState = {
-    connectedClients: Set<any>;
-    isRebuilding: boolean;
-    rebuildQueue: Set<string>;
-    rebuildTimeout: NodeJS.Timeout | null;
-    fileChangeQueue: Map<string, string[]>;
-    debounceTimeout: NodeJS.Timeout | null;
-    fileHashes: Map<string, string>; // filename -> SHA-256 hash
-    watchers: any[];
+  dependencyGraph: DependencyGraph;
+
+  connectedClients: Set<any>;
+  isRebuilding: boolean;
+
+  rebuildQueue: Set<string>;
+  rebuildTimeout: NodeJS.Timeout | null;
+
+  fileChangeQueue: Map<string, string[]>;
+  debounceTimeout: NodeJS.Timeout | null;
+
+  fileHashes: Map<string, string>;
+  watchers: any[];
+
+  // Optional fields used elsewhere
+  server?: any;
+  manifest?: Record<string, any>;
+  config?: any;
+  changedFiles?: Set<string>;
+
+  broadcast?: (msg: any) => void;
+  scheduleRebuild?: () => void;
+};
+
+export function createHMRState(): HMRState {
+  return {
+    dependencyGraph: createDependencyGraph(),
+
+    connectedClients: new Set<any>(),
+    isRebuilding: false,
+
+    rebuildQueue: new Set<string>(),
+    rebuildTimeout: null,
+
+    fileChangeQueue: new Map<string, string[]>(),
+    debounceTimeout: null,
+
+    fileHashes: new Map<string, string>(),
+    watchers: [],
+
+    changedFiles: new Set<string>(),
+    broadcast: () => {},
+    scheduleRebuild: () => {},
   };
-  
-  /* Initialize HMR state */
-  export function createHMRState(): HMRState {
-    return {
-      connectedClients: new Set(), debounceTimeout: null, fileChangeQueue: new Map(), isRebuilding: false, rebuildQueue: new Set(), rebuildTimeout: null, watchers: [], fileHashes: new Map(),
-    };
-  }
-  
-  /* Add a client to tracking */
-  export function addClient(state: HMRState, client: any): void {
-    console.log('🔥 HMR client connected');
-    state.connectedClients.add(client);
-  }
-  
-  /* Remove a client from tracking */
-  export function removeClient(state: HMRState, client: any): void {
-    console.log('🔥 HMR client disconnected');
-    state.connectedClients.delete(client);
-  }
-  
-  /* Get client count */
-  export function getClientCount(state: HMRState): number {
-    return state.connectedClients.size;
-  }
+}
+
+export function addClient(state: HMRState, client: any): void {
+  state.connectedClients.add(client);
+}
+
+export function removeClient(state: HMRState, client: any): void {
+  state.connectedClients.delete(client);
+}
+
+export function getClientCount(state: HMRState): number {
+  return state.connectedClients.size;
+}
