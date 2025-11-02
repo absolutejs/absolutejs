@@ -1,4 +1,3 @@
-import { addFileToGraph, removeFileFromGraph } from './dependencyGraph'
 import { watch } from 'fs';
 import { join } from 'path';
 import type { BuildConfig } from '../types';
@@ -12,13 +11,13 @@ export function startFileWatching(
   config: BuildConfig,
   onFileChange: (filePath: string) => void
 ): void {
-  console.log(' Starting file watching with Bun native fs.watch...');
+  console.log('👀 Starting file watching with Bun native fs.watch...');
   
   const watchPaths = getWatchPaths(config);
   
   // Set up a watcher for each directory
   for (const path of watchPaths) {
-    console.log(` Setting up Bun watcher for: ${path}`);
+    console.log(`🔥 Setting up Bun watcher for: ${path}`);
     
     const watcher = watch(
       path,
@@ -35,7 +34,7 @@ export function startFileWatching(
             filename.includes('/build') ||
             filename.includes('/indexes') ||
             filename.endsWith('/')) {
-          console.log(` Ignoring directory/non-file change: ${filename}`);
+          console.log(`🚫 Ignoring directory/non-file change: ${filename}`);
 
           return;
         }
@@ -56,6 +55,6 @@ export function startFileWatching(
     state.watchers.push(watcher);
   }
   
-  console.log(' Bun native file watching started');
-  console.log(' Watching directories:', watchPaths);
+  console.log('✅ Bun native file watching started');
+  console.log('👀 Watching directories:', watchPaths);
 }
