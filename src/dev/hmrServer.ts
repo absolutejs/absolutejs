@@ -53,6 +53,16 @@ export async function startBunHMRDevServer(config: BuildConfig) {
     const hmrScript = `
       <script>
         (function() {
+          // Declare HMR globals for TypeScript and framework HMR clients
+          if (typeof window !== 'undefined') {
+            if (!window.__HMR_MANIFEST__) {
+              window.__HMR_MANIFEST__ = {};
+            }
+            if (!window.__HMR_MODULE_UPDATES__) {
+              window.__HMR_MODULE_UPDATES__ = [];
+            }
+          }
+          
           console.log('Initializing HMR client...');
           
           const ws = new WebSocket(
@@ -88,6 +98,7 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                 case 'manifest':
                   console.log('Received manifest:', Object.keys(message.data));
                   window.__HMR_MANIFEST__ = message.data;
+                  window.__HMR_MODULE_UPDATES__ = []; // Initialize module updates array
                   break;
                   
                 case 'rebuild-start':
@@ -107,6 +118,27 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                   console.log('Framework updated:', message.data.framework);
                   break;
                   
+                case 'module-update':
+                  console.log('Module update received:', {
+                    framework: message.data.framework,
+                    moduleCount: message.data.modules?.length || 0
+                  });
+                  // Store module updates for framework-specific HMR clients
+                  if (!window.__HMR_MODULE_UPDATES__) {
+                    window.__HMR_MODULE_UPDATES__ = [];
+                  }
+                  window.__HMR_MODULE_UPDATES__.push(message.data);
+                  
+                  // Update manifest with new module paths
+                  if (window.__HMR_MANIFEST__ && message.data.manifest) {
+                    window.__HMR_MANIFEST__ = { ...window.__HMR_MANIFEST__, ...message.data.manifest };
+                  }
+                  
+                  // For now, still reload on module updates (future: implement framework-specific module replacement)
+                  console.log('Module update requires page reload (future: will update modules in-place)');
+                  window.location.reload();
+                  break;
+                
                 case 'rebuild-error':
                   console.error('Rebuild error:', message.data.error);
                   break;

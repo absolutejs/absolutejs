@@ -6,6 +6,7 @@ import { computeFileHash, hasFileChanged } from './fileHashTracker';
 import { broadcastToClients } from './webSocket';
 import { getAffectedFiles } from './dependencyGraph';
 import { existsSync } from 'node:fs';
+import { createModuleUpdates, groupModuleUpdatesByFramework } from './moduleMapper';
 
 /* Queue a file change for processing
    This handles the "queue changes" problem with debouncing */
@@ -177,8 +178,14 @@ export function queueFileChange(
         state.rebuildQueue.add(framework);
       }
       
+      // Collect all files to rebuild
+      const filesToRebuild: string[] = [];
+      for (const [framework, filePaths] of filesToProcess) {
+        filesToRebuild.push(...filePaths);
+      }
+      
       // Trigger rebuild - the callback will be called with the manifest
-      void triggerRebuild(state, config, onRebuildComplete);
+      void triggerRebuild(state, config, onRebuildComplete, filesToRebuild);
     }, DEBOUNCE_MS);
   }
 
@@ -187,7 +194,8 @@ export function queueFileChange(
 export async function triggerRebuild(
   state: HMRState,
   config: BuildConfig,
-  onRebuildComplete: (manifest: Record<string, string>) => void
+  onRebuildComplete: (manifest: Record<string, string>) => void,
+  filesToRebuild?: string[]
 ): Promise<Record<string, string> | null> {
   if (state.isRebuilding) {
     console.log('⏳ Rebuild already in progress, skipping...');
@@ -207,8 +215,15 @@ export async function triggerRebuild(
   });
 
   try {
+    if (filesToRebuild && filesToRebuild.length > 0) {
+      console.log(`🚀 Starting incremental build for ${filesToRebuild.length} file(s)`);
+    } else {
+      console.log('🚀 Starting full build');
+    }
+    
     const manifest = await build({
       ...config,
+      incrementalFiles: filesToRebuild && filesToRebuild.length > 0 ? filesToRebuild : undefined,
       options: {
         ...config.options,
         preserveIntermediateFiles: true
@@ -229,7 +244,53 @@ export async function triggerRebuild(
       }, message: 'Rebuild completed successfully', type: 'rebuild-complete'
     });
 
-    // Send individual framework updates
+    // Create smart module updates from changed files
+    if (filesToRebuild && filesToRebuild.length > 0) {
+      const allModuleUpdates: Array<{ sourceFile: string; framework: string; moduleKeys: string[]; modulePaths: Record<string, string> }> = [];
+      
+      // Group changed files by framework and create module updates
+      for (const framework of affectedFrameworks) {
+        const frameworkFiles = filesToRebuild.filter(file => detectFramework(file) === framework);
+        
+        if (frameworkFiles.length > 0) {
+          const moduleUpdates = createModuleUpdates(frameworkFiles, framework, manifest);
+          
+          if (moduleUpdates.length > 0) {
+            allModuleUpdates.push(...moduleUpdates);
+            console.log(`📦 Found ${moduleUpdates.length} module update(s) for ${framework}`);
+          } else {
+            // For files without direct manifest entries (like React components),
+            // the dependency graph ensures dependent pages are in filesToRebuild
+            // Those pages will have module updates created above
+            console.log(`ℹ️  ${frameworkFiles.length} ${framework} file(s) changed, but no direct manifest entries (likely components)`);
+          }
+        }
+      }
+      
+      // Send module-level updates grouped by framework
+      if (allModuleUpdates.length > 0) {
+        const updatesByFramework = groupModuleUpdatesByFramework(allModuleUpdates);
+        for (const [framework, updates] of updatesByFramework) {
+          console.log(`📤 Broadcasting ${updates.length} module update(s) for ${framework}`);
+          
+          broadcastToClients(state, {
+            data: {
+              framework,
+              modules: updates.map(update => ({
+                sourceFile: update.sourceFile,
+                moduleKeys: update.moduleKeys,
+                modulePaths: update.modulePaths
+              })),
+              manifest // Include full manifest for reference
+            },
+            message: `${framework} modules updated`,
+            type: 'module-update'
+          });
+        }
+      }
+    }
+
+    // Send individual framework updates (for backward compatibility)
     for (const framework of affectedFrameworks) {
       broadcastToClients(state, {
         data: { 
@@ -264,7 +325,8 @@ export async function triggerRebuild(
       for (const f of pending) state.rebuildQueue.add(f);
       if (state.rebuildTimeout) clearTimeout(state.rebuildTimeout);
       state.rebuildTimeout = setTimeout(() => {
-        void triggerRebuild(state, config, onRebuildComplete);
+        // For queued rebuilds, we don't have the files list, so do full rebuild
+        void triggerRebuild(state, config, onRebuildComplete, undefined);
       }, 50);
     }
   }

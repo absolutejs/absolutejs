@@ -1,6 +1,6 @@
 import { copyFileSync, cpSync, mkdirSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
-import { basename, join } from 'node:path';
+import { basename, join, resolve, dirname, relative } from 'node:path';
 import { cwd, env, exit } from 'node:process';
 import { $, build as bunBuild, BuildArtifact, Glob } from 'bun';
 import { compileAngular } from '../build/compileAngular';
@@ -35,10 +35,16 @@ export const build = async ({
 	svelteDirectory,
 	vueDirectory,
 	tailwind,
-	options
+	options,
+	incrementalFiles
 }: BuildConfig) => {
 	const buildStart = performance.now();
 	const projectRoot = cwd();
+	const isIncremental = incrementalFiles && incrementalFiles.length > 0;
+	
+	if (isIncremental) {
+		console.log(`⚡ Incremental build: ${incrementalFiles.length} file(s) to rebuild`);
+	}
 
 	const buildPath = validateSafePath(buildDirectory, projectRoot);
 	const assetsPath =
@@ -82,49 +88,136 @@ export const build = async ({
 	if (sveltePagesPath) serverRoot = sveltePagesPath;
 	else if (vuePagesPath) serverRoot = vuePagesPath;
 
-	await rm(buildPath, { force: true, recursive: true });
-	mkdirSync(buildPath);
+	// Only delete build directory for full builds, not incremental
+	if (!isIncremental) {
+		await rm(buildPath, { force: true, recursive: true });
+	}
+	mkdirSync(buildPath, { recursive: true });
 
-	if (reactIndexesPath && reactPagesPath)
-		await generateReactIndexFiles(reactPagesPath, reactIndexesPath);
+	// Helper to find matching entry points for incremental files
+	// The dependency graph already includes all dependent files in incrementalFiles
+	const filterToIncrementalEntries = (
+		entryPoints: string[],
+		mapToSource: (entry: string) => string | null
+	): string[] => {
+		if (!isIncremental || !incrementalFiles) return entryPoints;
+		
+		const normalizedIncremental = new Set(incrementalFiles.map(f => resolve(f)));
+		const matchingEntries: string[] = [];
+		
+		for (const entry of entryPoints) {
+			const sourceFile = mapToSource(entry);
+			if (sourceFile && normalizedIncremental.has(resolve(sourceFile))) {
+				matchingEntries.push(entry);
+			}
+		}
+		
+		return matchingEntries;
+	};
 
-	if (assetsPath)
+	// For incremental React builds, only generate indexes for changed files
+	if (reactIndexesPath && reactPagesPath) {
+		if (isIncremental && incrementalFiles) {
+			// Filter to only changed React pages/components
+			const changedReactFiles = incrementalFiles.filter(f => 
+				f.includes('/react/') && (f.endsWith('.tsx') || f.endsWith('.ts'))
+			);
+			if (changedReactFiles.length > 0) {
+				await generateReactIndexFiles(reactPagesPath, reactIndexesPath);
+			}
+		} else {
+			await generateReactIndexFiles(reactPagesPath, reactIndexesPath);
+		}
+	}
+
+	// Copy assets on full builds or if assets changed
+	if (assetsPath && (!isIncremental || incrementalFiles?.some(f => f.includes('/assets/')))) {
 		cpSync(assetsPath, join(buildPath, 'assets'), {
 			force: true,
 			recursive: true
 		});
+	}
 
-	if (tailwind)
+	// Tailwind only on full builds or if CSS changed
+	if (tailwind && (!isIncremental || incrementalFiles?.some(f => f.endsWith('.css')))) {
 		await $`bunx @tailwindcss/cli -i ${tailwind.input} -o ${join(buildPath, tailwind.output)}`;
+	}
 
-	const reactEntries = reactIndexesPath
+	const allReactEntries = reactIndexesPath
 		? await scanEntryPoints(reactIndexesPath, '*.tsx')
 		: [];
-	const htmlEntries = htmlScriptsPath
+	const allHtmlEntries = htmlScriptsPath
 		? await scanEntryPoints(htmlScriptsPath, '*.{js,ts}')
 		: [];
-	const svelteEntries = sveltePagesPath
+	const allSvelteEntries = sveltePagesPath
 		? await scanEntryPoints(sveltePagesPath, '*.svelte')
 		: [];
-	const vueEntries = vuePagesPath
+	const allVueEntries = vuePagesPath
 		? await scanEntryPoints(vuePagesPath, '*.vue')
 		: [];
-	const angularEntries = angularPagesPath
+	const allAngularEntries = angularPagesPath
 		? await scanEntryPoints(angularPagesPath, '*.ts')
 		: [];
 
-	const htmlCssEntries = htmlDir
+	const allHtmlCssEntries = htmlDir
 		? await scanEntryPoints(join(htmlDir, 'styles'), '*.css')
 		: [];
-	const htmxCssEntries = htmxDir
+	const allHtmxCssEntries = htmxDir
 		? await scanEntryPoints(join(htmxDir, 'styles'), '*.css')
 		: [];
-	const reactCssEntries = reactDir
+	const allReactCssEntries = reactDir
 		? await scanEntryPoints(join(reactDir, 'styles'), '*.css')
 		: [];
-	const svelteCssEntries = svelteDir
+	const allSvelteCssEntries = svelteDir
 		? await scanEntryPoints(join(svelteDir, 'styles'), '*.css')
 		: [];
+
+	// Filter entries for incremental builds
+	// For React: map index entries back to their source pages
+	const reactEntries = isIncremental && reactIndexesPath && reactPagesPath
+		? filterToIncrementalEntries(allReactEntries, (entry) => {
+			// Map index entry (indexes/ReactExample.tsx) to source page (pages/ReactExample.tsx)
+			if (entry.startsWith(resolve(reactIndexesPath))) {
+				const pageName = basename(entry, '.tsx');
+				return join(reactPagesPath, `${pageName}.tsx`);
+			}
+			return null;
+		})
+		: allReactEntries;
+	
+	const htmlEntries = isIncremental && htmlScriptsPath
+		? filterToIncrementalEntries(allHtmlEntries, (entry) => {
+			// HTML entries are the scripts themselves
+			return entry;
+		})
+		: allHtmlEntries;
+	
+	// For Svelte/Vue/Angular: entries are the page files themselves
+	const svelteEntries = isIncremental
+		? filterToIncrementalEntries(allSvelteEntries, (entry) => entry)
+		: allSvelteEntries;
+	
+	const vueEntries = isIncremental
+		? filterToIncrementalEntries(allVueEntries, (entry) => entry)
+		: allVueEntries;
+	
+	const angularEntries = isIncremental
+		? filterToIncrementalEntries(allAngularEntries, (entry) => entry)
+		: allAngularEntries;
+
+	// CSS entries - entries are the CSS files themselves
+	const htmlCssEntries = isIncremental
+		? filterToIncrementalEntries(allHtmlCssEntries, (entry) => entry)
+		: allHtmlCssEntries;
+	const htmxCssEntries = isIncremental
+		? filterToIncrementalEntries(allHtmxCssEntries, (entry) => entry)
+		: allHtmxCssEntries;
+	const reactCssEntries = isIncremental
+		? filterToIncrementalEntries(allReactCssEntries, (entry) => entry)
+		: allReactCssEntries;
+	const svelteCssEntries = isIncremental
+		? filterToIncrementalEntries(allSvelteCssEntries, (entry) => entry)
+		: allSvelteCssEntries;
 
 	const { svelteServerPaths, svelteClientPaths } = svelteDir
 		? await compileSvelte(svelteEntries, svelteDir)
@@ -239,12 +332,36 @@ export const build = async ({
 	const allLogs = [...serverLogs, ...clientLogs, ...cssLogs];
 	outputLogs(allLogs);
 
-	const manifest = generateManifest(
+	const newManifest = generateManifest(
 		[...serverOutputs, ...clientOutputs, ...cssOutputs],
 		buildPath
 	);
+	
+	// For incremental builds, merge with existing manifest to preserve unchanged entries
+	let manifest = newManifest;
+	if (isIncremental) {
+		// Try to load existing manifest from build directory
+		const manifestPath = join(buildPath, 'manifest.json');
+		try {
+			const manifestFile = Bun.file(manifestPath);
+			if (await manifestFile.exists()) {
+				const manifestText = await manifestFile.text();
+				const existingManifest = JSON.parse(manifestText) as Record<string, string>;
+				// Merge: new entries override old ones, but keep old entries for unchanged files
+				manifest = { ...existingManifest, ...newManifest };
+				console.log(`📋 Merged manifest: ${Object.keys(newManifest).length} new, ${Object.keys(existingManifest).length} existing entries`);
+			}
+		} catch {
+			// No existing manifest or parse error, use new one
+			manifest = newManifest;
+		}
+	}
 
-	if (htmlDir && htmlPagesPath) {
+	// For HTML/HTMX, copy pages on full builds or if HTML/HTMX files changed
+	const shouldCopyHtml = !isIncremental || (incrementalFiles?.some(f => f.includes('/html/') && f.endsWith('.html')));
+	const shouldCopyHtmx = !isIncremental || (incrementalFiles?.some(f => f.includes('/htmx/') && f.endsWith('.html')));
+
+	if (htmlDir && htmlPagesPath && shouldCopyHtml) {
 		const outputHtmlPages = isSingle
 			? join(buildPath, 'pages')
 			: join(buildPath, basename(htmlDir), 'pages');
@@ -256,7 +373,7 @@ export const build = async ({
 		await updateAssetPaths(manifest, outputHtmlPages);
 	}
 
-	if (htmxDir && htmxPagesPath) {
+	if (htmxDir && htmxPagesPath && shouldCopyHtmx) {
 		const outputHtmxPages = isSingle
 			? join(buildPath, 'pages')
 			: join(buildPath, basename(htmxDir), 'pages');
@@ -293,6 +410,15 @@ export const build = async ({
 	console.log(
 		`Build completed in ${getDurationString(performance.now() - buildStart)}`
 	);
+	
+	// Always save manifest for incremental builds (so we can merge on next incremental build)
+	const manifestPath = join(buildPath, 'manifest.json');
+	const manifestJson = JSON.stringify(manifest, null, 2);
+	try {
+		await Bun.write(manifestPath, manifestJson);
+	} catch (error) {
+		console.warn('⚠️ Could not save manifest:', error);
+	}
 
 	return manifest;
 };

@@ -24,6 +24,9 @@ export type BuildConfig = {
 		output: string;
 	};
 	options?: BuildOptions;
+	// Optional: List of files to rebuild incrementally (absolute paths)
+	// When provided, only these files and their dependencies will be rebuilt
+	incrementalFiles?: string[];
 };
 
 export type PropsOf<Component> =
