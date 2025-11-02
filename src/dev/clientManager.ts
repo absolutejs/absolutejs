@@ -1,6 +1,10 @@
+import type { DependencyGraph } from './dependencyGraph';
+import { createDependencyGraph } from './dependencyGraph';
+
 /* This handles the "tracking clients" problem */
 export type HMRState = {
   connectedClients: Set<any>;
+  dependencyGraph: DependencyGraph;
   isRebuilding: boolean;
   rebuildQueue: Set<string>;
   rebuildTimeout: NodeJS.Timeout | null;
@@ -13,7 +17,15 @@ export type HMRState = {
 /* Initialize HMR state */
 export function createHMRState(): HMRState {
   return {
-    connectedClients: new Set(), debounceTimeout: null, fileChangeQueue: new Map(), isRebuilding: false, rebuildQueue: new Set(), rebuildTimeout: null, watchers: [], fileHashes: new Map(),
+    connectedClients: new Set(), 
+    debounceTimeout: null, 
+    fileChangeQueue: new Map(), 
+    isRebuilding: false, 
+    rebuildQueue: new Set(), 
+    rebuildTimeout: null, 
+    watchers: [], 
+    fileHashes: new Map(), 
+    dependencyGraph: createDependencyGraph(),
   };
 }
 

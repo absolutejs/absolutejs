@@ -14,6 +14,8 @@ import { createHMRState, type HMRState } from './clientManager';
 import { startFileWatching } from './fileWatcher';
 import { queueFileChange } from './rebuildTrigger';
 import { handleClientConnect, handleClientDisconnect, handleHMRMessage } from './webSocket';
+import { buildInitialDependencyGraph } from './dependencyGraph';
+import { getWatchPaths } from './pathUtils';
 
 /* Build root directory for static file serving */
 const ROOT_DIR = PATH_RESOLVE('./example/build');
@@ -23,6 +25,10 @@ const ROOT_DIR = PATH_RESOLVE('./example/build');
 export async function startBunHMRDevServer(config: BuildConfig) {
   // Create initial state
   const state = createHMRState();
+  
+  // Initialize dependency graph by scanning all source files
+  const watchPaths = getWatchPaths(config);
+  buildInitialDependencyGraph(state.dependencyGraph, watchPaths);
   
   console.log('Building AbsoluteJS with HMR...');
   
