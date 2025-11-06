@@ -46,7 +46,7 @@
 		"format": "prettier --write \"./**/*.{js,jsx,ts,tsx,css,json,mjs,md,svelte,html,vue}\"",
 		"lint": "eslint ./",
 		"release": "bun run format && bun run build && bun publish",
-		"test": "echo \"Error: no test specified\" && exit 1",
+		"test": "bun test",
 		"typecheck": "bun run tsc --noEmit"
 	}, "types": "./dist/index.d.ts", "version": "0.12.3"
 }

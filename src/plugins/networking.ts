@@ -1,36 +1,40 @@
-import { argv } from 'node:process';
-import { env } from 'bun';
 import { Elysia } from 'elysia';
-import { DEFAULT_PORT } from '../constants';
-import { getLocalIPAddress } from '../utils/networking';
+import { getHostConfig } from '../utils/hostConfig';
 
-let host = env.HOST ?? 'localhost';
-const port = env.PORT ?? DEFAULT_PORT;
-let localIP: string | undefined;
-
-const args = argv;
-const hostFlag = args.includes('--host');
-
-if (hostFlag) {
-	localIP = getLocalIPAddress();
-	host = '0.0.0.0';
-}
+/* Get host configuration from shared utility
+   This eliminates code duplication and ensures consistency */
+const hostConfig = getHostConfig();
 
 export const networking = (app: Elysia) =>
 	app.listen(
 		{
-			hostname: host,
-			port: port
+			hostname: hostConfig.hostname,
+			port: hostConfig.port
 		},
 		() => {
-			//TODO: I dont think this works properly
-			if (hostFlag) {
-				console.log(`Server started on http://localhost:${port}`);
-				console.log(
-					`Server started on network: http://${localIP}:${port}`
-				);
+			if (hostConfig.enabled) {
+				// --host flag was used
+				if (hostConfig.customHost) {
+					// Custom host specified: --host <value>
+					// Format matches Vite's console output style
+					console.log(`➜  Local:   http://localhost:${hostConfig.port}/`);
+					console.log(`➜  Network: http://${hostConfig.customHost}:${hostConfig.port}/`);
+				} else {
+					// --host with no value: show all network IPs
+					// Format matches Vite's console output style
+					console.log(`➜  Local:   http://localhost:${hostConfig.port}/`);
+					if (hostConfig.networkIPs.length > 0) {
+						for (const ip of hostConfig.networkIPs) {
+							console.log(`➜  Network: http://${ip}:${hostConfig.port}/`);
+						}
+					} else {
+						console.warn('⚠️  No network IPs detected');
+					}
+				}
 			} else {
-				console.log(`Server started on http://${host}:${port}`);
+				// Default: localhost only
+				// Format matches Vite's console output style
+				console.log(`➜  Local:   http://${hostConfig.hostname}:${hostConfig.port}/`);
 			}
 		}
 	);

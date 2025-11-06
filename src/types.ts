@@ -9,6 +9,10 @@ export type BuildOptions = {
 	};
 };
 
+/* Host configuration options
+   Supports both boolean (true = bind to 0.0.0.0) and string (custom host/IP) */
+export type HostConfigOption = boolean | string;
+
 export type BuildConfig = {
 	buildDirectory?: string;
 	assetsDirectory?: string;
@@ -27,6 +31,14 @@ export type BuildConfig = {
 	// Optional: List of files to rebuild incrementally (absolute paths)
 	// When provided, only these files and their dependencies will be rebuilt
 	incrementalFiles?: string[];
+	// Optional: Host configuration for dev server
+	// - true: bind to 0.0.0.0 (all network interfaces)
+	// - string: bind to specific host/IP address
+	// Priority: CLI flag (--host) > config.host > environment variable (HOST) > default (localhost)
+	host?: HostConfigOption;
+	// Optional: Port configuration for dev server
+	// Priority: CLI flag (--port) > config.port > environment variable (PORT) > default (3000)
+	port?: number;
 };
 
 export type PropsOf<Component> =
