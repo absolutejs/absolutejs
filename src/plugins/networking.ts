@@ -5,6 +5,8 @@ import type { BuildConfig } from '../types';
 /* Create the networking plugin with optional config
    This handles the "plugin with config" problem */
    //Changed the structure of the plugin to match the Elysia plugin API and fix the hanging issue, lol sorry about that
+let hasRegisteredShutdownHandlers = false;
+
 export const createNetworkingPlugin =
 	(config?: BuildConfig) =>
 	(app: Elysia) => {
@@ -12,7 +14,7 @@ export const createNetworkingPlugin =
 	   This eliminates code duplication and ensures consistency */
 		const hostConfig = getHostConfig(config);
 
-		return app.listen(
+		const server = app.listen(
 			{
 				hostname: hostConfig.hostname,
 				port: hostConfig.port
@@ -46,6 +48,26 @@ export const createNetworkingPlugin =
 				}
 			}
 		);
+
+		if (!hasRegisteredShutdownHandlers) {
+			hasRegisteredShutdownHandlers = true;
+
+			const shutdown = async (signal: NodeJS.Signals) => {
+				console.log(`\nReceived ${signal}, shutting down AbsoluteJS server...`);
+				try {
+					await server.stop();
+				} catch (error) {
+					console.error('Error during shutdown:', error);
+				} finally {
+					process.exit(0);
+				}
+			};
+
+			process.once('SIGINT', shutdown);
+			process.once('SIGTERM', shutdown);
+		}
+
+		return server;
 	};
 
 /* Default networking plugin (backward compatible) */
