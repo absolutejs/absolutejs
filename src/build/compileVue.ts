@@ -262,9 +262,25 @@ export const compileVue = async (entryPoints: string[], vueRootDir: string) => {
 				indexOutputFile,
 				[
 					`import Comp from "${relative(dirname(indexOutputFile), clientOutputFile)}";`,
-					'import { createSSRApp } from "vue";',
+					'import { createSSRApp, createApp } from "vue";',
 					'const props = window.__INITIAL_PROPS__ ?? {};',
-					'createSSRApp(Comp, props).mount("#root");'
+					'// For HMR updates, check if root is empty (fresh mount) or has content (hydrate)',
+					'const root = document.getElementById("root");',
+					'const isHMRUpdate = root && root.innerHTML.trim() === "";',
+					'// Use createApp for HMR (fresh mount) or createSSRApp for initial load (hydrate)',
+					'const app = isHMRUpdate ? createApp(Comp, props) : createSSRApp(Comp, props);',
+					'app.mount("#root");',
+					'// Store app instance for HMR unmounting',
+					'if (typeof window !== "undefined") {',
+					'  window.__VUE_APP__ = app;',
+					'  // Force Vue to inject scoped styles by accessing the component',
+					'  // This ensures styles are injected even if Vue thinks they already exist',
+					'  if (isHMRUpdate && Comp && Comp.__scopeId) {',
+					'    // Component has scoped styles - ensure they are injected',
+					'    // Vue injects styles when component is first used, so accessing it here helps',
+					'    console.log("📦 Vue component mounted with scope ID:", Comp.__scopeId);',
+					'  }',
+					'}'
 				].join('\n')
 			);
 

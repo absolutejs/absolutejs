@@ -15,16 +15,16 @@ import { incrementModuleVersions, serializeModuleVersions } from './moduleVersio
 /* Queue a file change for processing
    This handles the "queue changes" problem with debouncing */
 export function queueFileChange(
-    state: HMRState,
-    filePath: string,
+  state: HMRState,
+  filePath: string,
     config: BuildConfig,
-    onRebuildComplete: (manifest: Record<string, string>) => void
-  ): void {
-    const framework = detectFramework(filePath);
-    
-    if (framework === 'ignored') {
-      return;
-    }
+  onRebuildComplete: (manifest: Record<string, string>) => void
+): void {
+  const framework = detectFramework(filePath);
+  
+  if (framework === 'ignored') {
+    return;
+  }
     
     // Compute current hash
     const currentHash = computeFileHash(filePath);
@@ -34,33 +34,33 @@ export function queueFileChange(
       console.log(`⏭️ Skipping unchanged file: ${filePath}`);
       return;
     }
-    
-    console.log(`🔥 File changed: ${filePath} (Framework: ${framework})`);
-    
-    // Get or create queue for this framework
-    if (!state.fileChangeQueue.has(framework)) {
-      state.fileChangeQueue.set(framework, []);
-    }
-    
+  
+  console.log(`🔥 File changed: ${filePath} (Framework: ${framework})`);
+  
+  // Get or create queue for this framework
+  if (!state.fileChangeQueue.has(framework)) {
+    state.fileChangeQueue.set(framework, []);
+  }
+  
     // Deduplicate: don't add the same file to the queue multiple times
     const queue = state.fileChangeQueue.get(framework)!;
     if (!queue.includes(filePath)) {
       queue.push(filePath);
     }
-    
-    // If we're already rebuilding, just queue it and wait
-    if (state.isRebuilding) {
-      console.log('⏳ Rebuild in progress, queuing changes...');
   
-      return;
-    }
-    
-    // Clear any existing rebuild trigger
-    if (state.rebuildTimeout) {
-      clearTimeout(state.rebuildTimeout);
-    }
-    
-    // EVENT-DRIVEN APPROACH: Wait for a short window to collect all changes
+  // If we're already rebuilding, just queue it and wait
+  if (state.isRebuilding) {
+    console.log('⏳ Rebuild in progress, queuing changes...');
+  
+    return;
+  }
+  
+  // Clear any existing rebuild trigger
+  if (state.rebuildTimeout) {
+    clearTimeout(state.rebuildTimeout);
+  }
+  
+  // EVENT-DRIVEN APPROACH: Wait for a short window to collect all changes
     const DEBOUNCE_MS = config.options?.hmr?.debounceMs ?? 500;
     state.rebuildTimeout = setTimeout((): void => {
       // Re-check hashes at the last moment to catch rapid edit/undo
@@ -107,29 +107,34 @@ export function queueFileChange(
           // Check if file actually changed since last rebuild
           // This is the critical check that prevents double rebuilds on edit/undo
           if (!storedHash || storedHash !== currentHash) {
+            // Normalize filePath to absolute path for consistent comparison
+            // getAffectedFiles returns absolute paths, so we need to normalize here too
+            const normalizedFilePath = resolve(filePath);
+            
             console.log(`\n🎯 Original changed file: ${filePath}`);
             console.log(`   Hash: ${storedHash || 'none'} → ${currentHash}`);
             
-            // Add the changed file itself
-            if (!processedFiles.has(filePath)) {
-              validFiles.push(filePath);
-              processedFiles.add(filePath);
-              console.log(`  ✅ Added: ${filePath} (directly changed)`);
+            // Add the changed file itself (using normalized path)
+            if (!processedFiles.has(normalizedFilePath)) {
+              validFiles.push(normalizedFilePath);
+              processedFiles.add(normalizedFilePath);
+              console.log(`  ✅ Added: ${normalizedFilePath} (directly changed)`);
             }
             
             // Update hash NOW - this prevents the same file from being processed twice
             // if it was queued multiple times (edit then undo)
+            // Store hash using original relative path for consistency with file watcher
             state.fileHashes.set(filePath, currentHash);
             
             // Increment source file version to force Bun to treat it as a new module
             // This bypasses Bun's module cache by appending version to import path
-            incrementSourceFileVersions(state, [filePath]);
+            incrementSourceFileVersions(state, [normalizedFilePath]);
             
             // CRITICAL: Also increment versions of files that import this file
             // When App.tsx changes, ReactExample.tsx needs a new version too
             // This forces ReactExample.tsx to re-import App.tsx fresh (bypassing cache)
             try {
-              const dependents = state.dependencyGraph.dependents.get(resolve(filePath));
+              const dependents = state.dependencyGraph.dependents.get(normalizedFilePath);
               if (dependents && dependents.size > 0) {
                 const dependentFiles = Array.from(dependents).filter(f => existsSync(f));
                 if (dependentFiles.length > 0) {
@@ -143,22 +148,22 @@ export function queueFileChange(
             
             // Get all files that depend on this changed file
             try {
-              const affectedFiles = getAffectedFiles(state.dependencyGraph, filePath);
+              const affectedFiles = getAffectedFiles(state.dependencyGraph, normalizedFilePath);
               
               if (affectedFiles.length > 1) {
                 console.log(`  📦 Found ${affectedFiles.length} affected files via dependency graph:`);
                 affectedFiles.forEach((affectedFile) => {
-                  if (affectedFile !== filePath) {
-                    console.log(`    → ${affectedFile} (depends on ${filePath})`);
+                  if (affectedFile !== normalizedFilePath) {
+                    console.log(`    → ${affectedFile} (depends on ${normalizedFilePath})`);
                   }
                 });
               } else {
-                console.log(`  ℹ️  No dependent files found for ${filePath}`);
+                console.log(`  ℹ️  No dependent files found for ${normalizedFilePath}`);
               }
               
               // Add affected files to the rebuild queue
               for (const affectedFile of affectedFiles) {
-                if (!processedFiles.has(affectedFile) && affectedFile !== filePath && existsSync(affectedFile)) {
+                if (!processedFiles.has(affectedFile) && affectedFile !== normalizedFilePath && existsSync(affectedFile)) {
                   validFiles.push(affectedFile);
                   processedFiles.add(affectedFile);
                   console.log(`  ✅ Added: ${affectedFile} (dependent file)`);
@@ -167,9 +172,9 @@ export function queueFileChange(
             } catch (error) {
               console.warn(`⚠️ Error processing dependencies for ${filePath}:`, error);
               // Still add the file itself even if dependency resolution fails
-              if (!processedFiles.has(filePath)) {
-                validFiles.push(filePath);
-                processedFiles.add(filePath);
+              if (!processedFiles.has(normalizedFilePath)) {
+                validFiles.push(normalizedFilePath);
+                processedFiles.add(normalizedFilePath);
               }
             }
           } else {
@@ -186,8 +191,8 @@ export function queueFileChange(
         }
       }
       
-      state.fileChangeQueue.clear();
-      
+    state.fileChangeQueue.clear();
+    
       if (filesToProcess.size === 0) {
         console.log('✅ No actual changes detected in queued files');
         return;
@@ -196,12 +201,12 @@ export function queueFileChange(
       const affectedFrameworks = Array.from(filesToProcess.keys());
       console.log(`\n🔄 Processing changes for: ${affectedFrameworks.join(', ')}`);
       console.log('📊 === End Dependency Graph Analysis ===\n');
-
-      // Add affected frameworks to the rebuild queue
-      for (const framework of affectedFrameworks) {
-        state.rebuildQueue.add(framework);
-      }
-      
+  
+    // Add affected frameworks to the rebuild queue
+    for (const framework of affectedFrameworks) {
+      state.rebuildQueue.add(framework);
+    }
+    
       // Collect all files to rebuild
       const filesToRebuild: string[] = [];
       for (const [framework, filePaths] of filesToProcess) {
@@ -211,7 +216,7 @@ export function queueFileChange(
       // Trigger rebuild - the callback will be called with the manifest
       void triggerRebuild(state, config, onRebuildComplete, filesToRebuild);
     }, DEBOUNCE_MS);
-  }
+}
 
 /* Trigger a rebuild of the project
    This handles the "rebuild when needed" problem */
@@ -377,6 +382,48 @@ export async function triggerRebuild(
             }
           } catch (error) {
             console.error('❌ Failed to handle HTML update:', error);
+            console.error('❌ Error stack:', error instanceof Error ? error.stack : String(error));
+          }
+        }
+      }
+      
+      // Simple Vue HMR: Re-compile and re-render, send HTML patch
+      // NOTE: Vue HMR happens AFTER the rebuild completes, so we have the updated manifest
+      if (affectedFrameworks.includes('vue') && filesToRebuild) {
+        const vueFiles = filesToRebuild.filter(file => detectFramework(file) === 'vue');
+        
+        if (vueFiles.length > 0) {
+          console.log(`🔄 Vue file(s) changed, re-compiling...`);
+          
+          // Find the Vue page component (VueExample.vue)
+          const vuePagePath = vueFiles.find(f => f.includes('/vue/pages/VueExample.vue')) 
+            || resolve('./example/vue/pages/VueExample.vue');
+          
+          // Simple approach: Re-compile with cache invalidation, re-render, send HTML
+          // The manifest passed here is the UPDATED manifest from the rebuild
+          try {
+            const { handleVueUpdate } = await import('./simpleVueHMR');
+            console.log('📦 Calling handleVueUpdate for:', vuePagePath);
+            const newHTML = await handleVueUpdate(vuePagePath, manifest);
+            
+            if (newHTML) {
+              console.log('✅ Got HTML from handleVueUpdate, length:', newHTML.length);
+              // Send simple HTML update to clients with the updated manifest
+              broadcastToClients(state, {
+                type: 'vue-update',
+                data: {
+                  framework: 'vue',
+                  sourceFile: vuePagePath,
+                  html: newHTML,
+                  manifest // This is the updated manifest from the rebuild
+                }
+              });
+              console.log('✅ Vue update sent to clients');
+            } else {
+              console.warn('⚠️ handleVueUpdate returned null/undefined - no HTML to send');
+            }
+          } catch (error) {
+            console.error('❌ Failed to handle Vue update:', error);
             console.error('❌ Error stack:', error instanceof Error ? error.stack : String(error));
           }
         }

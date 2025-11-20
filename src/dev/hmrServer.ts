@@ -176,6 +176,7 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                 message.type === 'react-update' ||
                 message.type === 'html-update' ||
                 message.type === 'htmx-update' ||
+                message.type === 'vue-update' ||
                 message.type === 'module-update' ||
                 message.type === 'rebuild-start'
               ) {
@@ -212,12 +213,13 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                   if (window.__HMR_MANIFEST__) {
                     window.__HMR_MANIFEST__ = message.data.manifest;
                   }
-                  // Don't reload for React or HTML updates - they're handled via dedicated update messages
+                  // Don't reload for React, HTML, HTMX, or Vue updates - they're handled via dedicated update messages
                   // Only reload for frameworks that don't have HMR support
                   if (message.data.affectedFrameworks && 
                       !message.data.affectedFrameworks.includes('react') && 
                       !message.data.affectedFrameworks.includes('html') &&
-                      !message.data.affectedFrameworks.includes('htmx')) {
+                      !message.data.affectedFrameworks.includes('htmx') &&
+                      !message.data.affectedFrameworks.includes('vue')) {
                     console.log('Reloading page due to rebuild (non-HMR framework)...');
                     // Force a hard reload to bypass browser cache
                     // Add cache busting to the URL to ensure fresh bundle
@@ -229,6 +231,7 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                     if (message.data.affectedFrameworks?.includes('react')) hmrFrameworks.push('React');
                     if (message.data.affectedFrameworks?.includes('html')) hmrFrameworks.push('HTML');
                     if (message.data.affectedFrameworks?.includes('htmx')) hmrFrameworks.push('HTMX');
+                    if (message.data.affectedFrameworks?.includes('vue')) hmrFrameworks.push('Vue');
                     if (hmrFrameworks.length > 0) {
                       console.log('Rebuild completed - ' + hmrFrameworks.join(' and ') + ' updates will be handled via HMR');
                     }
@@ -245,9 +248,9 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                     moduleCount: message.data.modules?.length || 0
                   });
                   
-                  // For React updates, skip version mismatch checking and reload
-                  // React updates are handled via the dedicated 'react-update' message with DOM patching
-                  if (message.data.framework === 'react') {
+                  // For React and Vue updates, skip version mismatch checking and reload
+                  // These updates are handled via dedicated update messages with DOM patching
+                  if (message.data.framework === 'react' || message.data.framework === 'vue') {
                     // Just update versions and manifest, but don't check for mismatches or reload
                     if (message.data.serverVersions) {
                       window.__HMR_SERVER_VERSIONS__ = { ...window.__HMR_SERVER_VERSIONS__, ...message.data.serverVersions };
@@ -263,8 +266,12 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                       window.__HMR_MODULE_UPDATES__ = [];
                     }
                     window.__HMR_MODULE_UPDATES__.push(message.data);
-                    console.log('✅ React module update processed (will be handled by react-update message)');
-                    break; // Don't reload - react-update message will handle the update
+                    if (message.data.framework === 'react') {
+                      console.log('✅ React module update processed (will be handled by react-update message)');
+                    } else {
+                      console.log('✅ Vue module update processed (will be handled by vue-update message)');
+                    }
+                    break; // Don't reload - dedicated update messages will handle the update
                   }
                   
                   // For non-React frameworks, do version mismatch checking
@@ -322,9 +329,19 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                     window.__HMR_MANIFEST__ = { ...window.__HMR_MANIFEST__, ...updatedManifest };
                   }
                   
-                  // Fallback: reload for non-React updates
-                  console.log('Module update requires page reload');
-                  window.location.reload();
+                  // Fallback: reload for frameworks without HMR support
+                  // React, Vue, HTML, and HTMX have dedicated update handlers, so skip reload
+                  const hasHMRSupport = message.data.framework === 'react' || 
+                                       message.data.framework === 'vue' || 
+                                       message.data.framework === 'html' || 
+                                       message.data.framework === 'htmx';
+                  
+                  if (!hasHMRSupport) {
+                    console.log('Module update requires page reload (no HMR support for ' + message.data.framework + ')');
+                    window.location.reload();
+                  } else {
+                    console.log('Module update processed (HMR will handle ' + message.data.framework + ' update)');
+                  }
                   break;
                 
                 case 'react-update':
@@ -510,6 +527,334 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                     console.warn('⚠️ No HTML in HTMX update');
                     sessionStorage.removeItem('__HMR_ACTIVE__');
                     console.error('❌ Failed to update HTMX - no HTML provided');
+                  }
+                  break;
+                
+                case 'vue-update':
+                  console.log('🔄 Vue update received:', message.data.sourceFile);
+                  
+                  // Set HMR active flag to prevent bundle hash check from triggering reload
+                  sessionStorage.setItem('__HMR_ACTIVE__', 'true');
+                  
+                  // Simple DOM patching with new HTML from server
+                  if (message.data.html) {
+                    // Vue renders to <div id="root"> inside <body>
+                    const rootContainer = document.getElementById('root');
+                    const bodyContainer = document.body;
+                    
+                    if (rootContainer || bodyContainer) {
+                      console.log('🔄 Patching DOM with new HTML...');
+                      console.log('📦 HTML length:', message.data.html.length);
+                      
+                      // CRITICAL: Unmount existing Vue app before patching
+                      // Vue apps are mounted to #root, and we need to clean up the old instance
+                      // Check if there's a Vue app instance stored globally
+                      if (window.__VUE_APP__ && typeof window.__VUE_APP__.unmount === 'function') {
+                        console.log('🔄 Unmounting existing Vue app...');
+                        try {
+                          window.__VUE_APP__.unmount();
+                          console.log('✅ Existing Vue app unmounted');
+                        } catch (error) {
+                          console.warn('⚠️ Error unmounting Vue app:', error);
+                        }
+                        window.__VUE_APP__ = null;
+                      }
+                      
+                      // Also try to unmount by checking if #root has a Vue instance attached
+                      // Vue attaches __vueParentComponent to the root element
+                      if (rootContainer && rootContainer.__vueParentComponent) {
+                        console.log('🔄 Found Vue instance on root element, cleaning up...');
+                        // Clear the Vue instance reference
+                        delete rootContainer.__vueParentComponent;
+                        // Also clear any vnode references
+                        if (rootContainer.__vnode) {
+                          delete rootContainer.__vnode;
+                        }
+                      }
+                      
+                      // CRITICAL: Remove old Vue style tags before re-importing
+                      // Vue's scoped styles are injected when components are first imported
+                      // If old styles exist, Vue might not re-inject them
+                      // Removing them ensures Vue will inject fresh styles on re-import
+                      const headElement = document.head;
+                      const styleTagsToRemove = [];
+                      
+                      // Find Vue scoped style tags (they have data-v-* attributes)
+                      for (let i = 0; i < headElement.children.length; i++) {
+                        const child = headElement.children[i];
+                        if (child.tagName === 'STYLE') {
+                          const styleElement = child;
+                          // Vue scoped styles have data-v-* attributes on the style element
+                          let hasDataV = false;
+                          for (let attrIndex = 0; attrIndex < styleElement.attributes.length; attrIndex++) {
+                            const attr = styleElement.attributes[attrIndex];
+                            if (attr.name && attr.name.startsWith('data-v-')) {
+                              hasDataV = true;
+                              break;
+                            }
+                          }
+                          const hasVueId = styleElement.id && styleElement.id.startsWith('vue-');
+                          const hasVueContent = styleElement.textContent && styleElement.textContent.includes('[data-v-');
+                          
+                          // Only remove style tags that are clearly Vue-injected
+                          // External stylesheets (with href) should be preserved
+                          if ((hasDataV || hasVueId || hasVueContent) && !styleElement.href) {
+                            styleTagsToRemove.push(styleElement);
+                          }
+                        }
+                      }
+                      
+                      // Remove stale Vue style tags (Vue will re-inject them on re-import)
+                      if (styleTagsToRemove.length > 0) {
+                        console.log('🔄 Removing', styleTagsToRemove.length, 'stale Vue style tag(s)...');
+                        for (let j = 0; j < styleTagsToRemove.length; j++) {
+                          styleTagsToRemove[j].remove();
+                        }
+                        console.log('✅ Stale Vue style tags removed (will be re-injected on re-import)');
+                      }
+                      
+                      // CRITICAL: For HMR updates, we need to mount fresh (not hydrate)
+                      // Clear the root container completely so Vue can mount fresh
+                      // This prevents hydration mismatches
+                      if (rootContainer) {
+                        console.log('📦 Clearing root container for fresh mount...');
+                        rootContainer.innerHTML = '';
+                        console.log('✅ Root container cleared');
+                      }
+                      
+                      // Re-import the Vue client bundle to re-mount the Vue app
+                      // The manifest contains the indexPath for the Vue client bundle
+                      // indexPath should be a relative URL like /vue/compiled/indexes/VueExample.abc123.js
+                      const indexPath = message.data.manifest?.VueExampleIndex;
+                      const cssPath = message.data.manifest?.VueExampleCSS;
+                      
+                      if (indexPath) {
+                        // CRITICAL: Pre-inject styles BEFORE Vue mounts
+                        // This ensures styles are available when Vue renders, preventing timing issues
+                        // We do this in parallel with fetching the bundle to minimize delay
+                        let stylesInjected = false;
+                        const injectStylesPromise = cssPath ? (function() {
+                          return new Promise(function(resolve, reject) {
+                            const normalizedCssPath = cssPath.startsWith('/') ? cssPath : '/' + cssPath;
+                            const cssCacheBuster = '?t=' + Date.now();
+                            
+                            console.log('📦 Pre-injecting Vue styles before mount...');
+                            
+                            // Fetch the CSS file and inject it as an inline style tag
+                            fetch(normalizedCssPath + cssCacheBuster)
+                              .then(function(response) {
+                                if (!response.ok) {
+                                  throw new Error('HTTP ' + response.status + ': ' + response.statusText);
+                                }
+                                return response.text();
+                              })
+                                    .then(function(cssContent) {
+                                      // Extract ALL scope IDs from the CSS file
+                                      // Child components have their own scope IDs (e.g., count-button)
+                                      // We need to extract all of them and add all to elements
+                                      const scopeIds = new Set();
+                                      const dataVPattern = /data-v-([a-z0-9-]+)/g;
+                                      let match;
+                                      while ((match = dataVPattern.exec(cssContent)) !== null) {
+                                        if (match[1]) {
+                                          scopeIds.add(match[1]);
+                                        }
+                                      }
+                                      
+                                      // Default fallback if no scope IDs found
+                                      if (scopeIds.size === 0) {
+                                        scopeIds.add('vue-example');
+                                      }
+                                      
+                                      // Create an inline style tag with the scoped attribute
+                                      // Use the first scope ID as the primary one for the style tag
+                                      const primaryScopeId = Array.from(scopeIds)[0];
+                                      const styleTag = document.createElement('style');
+                                      styleTag.setAttribute('data-v-' + primaryScopeId, '');
+                                      styleTag.textContent = cssContent;
+                                      styleTag.setAttribute('data-vue-hmr-injected', 'true');
+                                      // Store all scope IDs in a data attribute for later retrieval
+                                      styleTag.setAttribute('data-all-scope-ids', Array.from(scopeIds).join(','));
+                                      document.head.appendChild(styleTag);
+                                      
+                                      stylesInjected = true;
+                                      console.log('✅ Pre-injected Vue scoped styles with scope IDs:', Array.from(scopeIds).join(', '));
+                                      resolve(Array.from(scopeIds)); // Resolve with all scope IDs
+                                    })
+                              .catch(function(error) {
+                                console.warn('⚠️ Failed to pre-inject styles:', error);
+                                // Don't reject - continue with Vue mount even if styles fail
+                                resolve(null);
+                              });
+                          });
+                        })() : Promise.resolve(null);
+                        
+                        // Ensure the path starts with / and add cache busting
+                        // The path from manifest is already relative to build root (e.g., /vue/compiled/indexes/...)
+                        const normalizedPath = indexPath.startsWith('/') 
+                          ? indexPath 
+                          : '/' + indexPath;
+                        const cacheBuster = '?t=' + Date.now();
+                        const modulePath = normalizedPath + cacheBuster;
+                        
+                        console.log('🔄 Re-importing Vue client bundle:', modulePath);
+                        console.log('   Full URL will be:', window.location.origin + modulePath);
+                        
+                        // Wait for styles to be injected, then mount Vue
+                        // This ensures styles are available when Vue renders
+                        Promise.all([
+                          injectStylesPromise,
+                          fetch(modulePath).then(function(response) {
+                            if (!response.ok) {
+                              throw new Error('HTTP ' + response.status + ': ' + response.statusText);
+                            }
+                            return response;
+                          })
+                        ])
+                          .then(function([scopeIds, response]) {
+                            console.log('✅ Vue bundle file exists, importing...');
+                            return import(/* @vite-ignore */ modulePath).then(function() {
+                              return scopeIds; // Pass scope IDs to next then
+                            });
+                          })
+                          .then(function(scopeIds) {
+                            console.log('✅ Vue client bundle re-imported');
+                            
+                            // CRITICAL: Use MutationObserver to add ALL scope IDs immediately as Vue adds elements
+                            // This prevents flicker by ensuring styles apply as soon as elements are added to the DOM
+                            // Child components (like CountButton) have their own scope IDs, so we add ALL of them
+                            if (stylesInjected && cssPath && scopeIds && scopeIds.length > 0) {
+                              const rootElement = document.getElementById('root');
+                              if (rootElement) {
+                                // Add ALL scope IDs to root immediately
+                                for (let s = 0; s < scopeIds.length; s++) {
+                                  const scopeId = scopeIds[s];
+                                  if (!rootElement.hasAttribute('data-v-' + scopeId)) {
+                                    rootElement.setAttribute('data-v-' + scopeId, '');
+                                  }
+                                }
+                                
+                                // CRITICAL: Use MutationObserver to watch for new elements
+                                // As soon as Vue adds an element, we immediately add ALL scope IDs
+                                // This ensures both parent and child component styles work
+                                const observer = new MutationObserver(function(mutations) {
+                                  for (let i = 0; i < mutations.length; i++) {
+                                    const mutation = mutations[i];
+                                    if (mutation.addedNodes) {
+                                      for (let j = 0; j < mutation.addedNodes.length; j++) {
+                                        const node = mutation.addedNodes[j];
+                                        if (node.nodeType === 1) { // Element node
+                                          // Add ALL scope IDs to the added element
+                                          for (let s = 0; s < scopeIds.length; s++) {
+                                            const scopeId = scopeIds[s];
+                                            if (!node.hasAttribute('data-v-' + scopeId)) {
+                                              node.setAttribute('data-v-' + scopeId, '');
+                                            }
+                                          }
+                                          // Also add ALL scope IDs to all descendants
+                                          const descendants = node.querySelectorAll('*');
+                                          for (let k = 0; k < descendants.length; k++) {
+                                            for (let s = 0; s < scopeIds.length; s++) {
+                                              const scopeId = scopeIds[s];
+                                              if (!descendants[k].hasAttribute('data-v-' + scopeId)) {
+                                                descendants[k].setAttribute('data-v-' + scopeId, '');
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                });
+                                
+                                // Start observing the root for new child elements
+                                observer.observe(rootElement, {
+                                  childList: true,
+                                  subtree: true
+                                });
+                                
+                                // Also add ALL scope IDs to any existing elements immediately
+                                const existingElements = rootElement.querySelectorAll('*');
+                                let existingCount = 0;
+                                for (let i = 0; i < existingElements.length; i++) {
+                                  for (let s = 0; s < scopeIds.length; s++) {
+                                    const scopeId = scopeIds[s];
+                                    if (!existingElements[i].hasAttribute('data-v-' + scopeId)) {
+                                      existingElements[i].setAttribute('data-v-' + scopeId, '');
+                                      existingCount++;
+                                    }
+                                  }
+                                }
+                                
+                                if (existingCount > 0) {
+                                  console.log('✅ Added scope IDs', scopeIds.join(', '), 'to', existingCount, 'element attribute(s)');
+                                }
+                                
+                                // Stop observing after Vue has finished mounting
+                                // Use a longer timeout to ensure all components (including child components) are mounted
+                                // Also check if Vue app is mounted before stopping
+                                let checkCount = 0;
+                                const maxChecks = 20; // Check up to 2 seconds (20 * 100ms)
+                                const checkInterval = setInterval(function() {
+                                  checkCount++;
+                                  const vueApp = window.__VUE_APP__;
+                                  const rootHasContent = rootElement && rootElement.children.length > 0;
+                                  
+                                  // Stop if Vue app is mounted and root has content, or after max checks
+                                  if ((vueApp && rootHasContent && checkCount >= 5) || checkCount >= maxChecks) {
+                                    clearInterval(checkInterval);
+                                    observer.disconnect();
+                                    console.log('✅ MutationObserver stopped (Vue mount complete)');
+                                  }
+                                }, 100); // Check every 100ms
+                              }
+                            }
+                            
+                            // Use requestAnimationFrame to ensure Vue has rendered, then store app instance
+                            requestAnimationFrame(function() {
+                              requestAnimationFrame(function() {
+                                // Store the Vue app instance for future unmounting
+                                if (window.__VUE_APP__) {
+                                  console.log('✅ Vue app instance stored for future HMR updates');
+                                } else {
+                                  // Fallback: try to get it from the root element
+                                  const newRoot = document.getElementById('root');
+                                  if (newRoot && newRoot.__vueParentComponent) {
+                                    const component = newRoot.__vueParentComponent;
+                                    if (component && component.appContext && component.appContext.app) {
+                                      window.__VUE_APP__ = component.appContext.app;
+                                      console.log('✅ Vue app instance stored from root element');
+                                    }
+                                  }
+                                }
+                                
+                                console.log('✅ Vue app re-mounted successfully');
+                                sessionStorage.removeItem('__HMR_ACTIVE__');
+                              });
+                            });
+                          })
+                          .catch(function(error) {
+                            console.error('❌ Failed to re-import Vue client bundle:', error);
+                            console.error('   Attempted path:', modulePath);
+                            console.error('   Full URL:', window.location.origin + modulePath);
+                            console.error('   Manifest indexPath:', indexPath);
+                            console.error('   Error details:', error.message || error);
+                            console.warn('⚠️ Vue app may not be fully functional - consider reloading');
+                            sessionStorage.removeItem('__HMR_ACTIVE__');
+                          });
+                      } else {
+                        console.warn('⚠️ No VueExampleIndex found in manifest, skipping re-mount');
+                        console.warn('   Available manifest keys:', Object.keys(message.data.manifest || {}));
+                        sessionStorage.removeItem('__HMR_ACTIVE__');
+                      }
+                    } else {
+                      console.error('❌ Neither #root nor body found - this should never happen');
+                      sessionStorage.removeItem('__HMR_ACTIVE__');
+                    }
+                  } else {
+                    console.warn('⚠️ No HTML in Vue update');
+                    sessionStorage.removeItem('__HMR_ACTIVE__');
+                    console.error('❌ Failed to update Vue - no HTML provided');
                   }
                   break;
                 
@@ -1024,6 +1369,8 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                 headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0';
                 headers['Pragma'] = 'no-cache';
                 headers['Expires'] = '0';
+                // Ensure JavaScript files are served with the correct MIME type for ES modules
+                headers['Content-Type'] = 'application/javascript';
               }
               
               return new Response(file, { headers });

@@ -90,7 +90,7 @@ export const build = async ({
 
 	// Only delete build directory for full builds, not incremental
 	if (!isIncremental) {
-		await rm(buildPath, { force: true, recursive: true });
+	await rm(buildPath, { force: true, recursive: true });
 	}
 	mkdirSync(buildPath, { recursive: true });
 
@@ -329,7 +329,7 @@ export const build = async ({
 		[...serverOutputs, ...clientOutputs, ...cssOutputs],
 		buildPath
 	);
-	
+
 	// For incremental builds, merge with existing manifest to preserve unchanged entries
 	let manifest = newManifest;
 	if (isIncremental) {

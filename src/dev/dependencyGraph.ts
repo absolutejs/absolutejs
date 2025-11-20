@@ -28,45 +28,45 @@ export function extractDependencies(filePath: string): string[] {
     const content = readFileSync(filePath, 'utf-8');
     const dependencies: string[] = [];
     
-    // Match various import patterns
-    const importRegex = /import\s+.*?\s+from\s+['"]([^'"]+)['"]/g;
-    const importWithoutFromRegex = /import\s+['"]([^'"]+)['"]/g; // For CSS and side-effect imports
-    const requireRegex = /require\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
-    const dynamicImportRegex = /import\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
-    
-    let match;
-    
-    // Find static imports with 'from'
-    while ((match = importRegex.exec(content)) !== null) {
+        // Match various import patterns
+        const importRegex = /import\s+.*?\s+from\s+['"]([^'"]+)['"]/g;
+        const importWithoutFromRegex = /import\s+['"]([^'"]+)['"]/g; // For CSS and side-effect imports
+        const requireRegex = /require\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
+        const dynamicImportRegex = /import\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
+        
+        let match;
+        
+        // Find static imports with 'from'
+        while ((match = importRegex.exec(content)) !== null) {
       if (match[1]) {
-        const resolved = resolveImportPath(match[1], filePath);
-        if (resolved) dependencies.push(resolved);
+          const resolved = resolveImportPath(match[1], filePath);
+          if (resolved) dependencies.push(resolved);
       }
-    }
-    
-    // Find imports without 'from' (side-effect imports like CSS)
-    while ((match = importWithoutFromRegex.exec(content)) !== null) {
+        }
+        
+        // Find imports without 'from' (side-effect imports like CSS)
+        while ((match = importWithoutFromRegex.exec(content)) !== null) {
       if (match[1]) {
-        const resolved = resolveImportPath(match[1], filePath);
-        if (resolved) dependencies.push(resolved);
+          const resolved = resolveImportPath(match[1], filePath);
+          if (resolved) dependencies.push(resolved);
       }
-    }
-    
-    // Find require statements
-    while ((match = requireRegex.exec(content)) !== null) {
+        }
+        
+        // Find require statements
+        while ((match = requireRegex.exec(content)) !== null) {
       if (match[1]) {
-        const resolved = resolveImportPath(match[1], filePath);
-        if (resolved) dependencies.push(resolved);
+          const resolved = resolveImportPath(match[1], filePath);
+          if (resolved) dependencies.push(resolved);
       }
-    }
-    
-    // Find dynamic imports
-    while ((match = dynamicImportRegex.exec(content)) !== null) {
+        }
+        
+        // Find dynamic imports
+        while ((match = dynamicImportRegex.exec(content)) !== null) {
       if (match[1]) {
-        const resolved = resolveImportPath(match[1], filePath);
-        if (resolved) dependencies.push(resolved);
+          const resolved = resolveImportPath(match[1], filePath);
+          if (resolved) dependencies.push(resolved);
       }
-    }
+        }
     
     return dependencies;
   } catch (error) {
@@ -114,8 +114,8 @@ function resolveImportPath(importPath: string, fromFile: string): string | null 
 /* Add a file and its dependencies to the graph
    This handles the "build graph" problem */
 export function addFileToGraph(
-  graph: DependencyGraph,
-  filePath: string
+    graph: DependencyGraph,
+    filePath: string
 ): void {
   // Normalize the file path to ensure consistent format
   const normalizedPath = resolve(filePath);
@@ -127,15 +127,15 @@ export function addFileToGraph(
   }
   
   const dependencies = extractDependencies(normalizedPath);
-  
-  // Clear existing dependencies for this file
+    
+    // Clear existing dependencies for this file
   const existingDeps = graph.dependencies.get(normalizedPath);
-  if (existingDeps) {
-    for (const dep of existingDeps) {
-      const dependents = graph.dependents.get(dep);
-      if (dependents) {
+    if (existingDeps) {
+      for (const dep of existingDeps) {
+        const dependents = graph.dependents.get(dep);
+        if (dependents) {
         dependents.delete(normalizedPath);
-      }
+    }
     }
   }
   
@@ -162,34 +162,34 @@ export function addFileToGraph(
 
 /* Get all files that depend on a changed file
    This handles the "find affected files" problem */
-export function getAffectedFiles(
-  graph: DependencyGraph,
-  changedFile: string
-): string[] {
+   export function getAffectedFiles(
+    graph: DependencyGraph,
+    changedFile: string
+  ): string[] {
   // Normalize the changed file path to ensure consistent lookup
   const normalizedPath = resolve(changedFile);
-  const affected = new Set<string>();
+    const affected = new Set<string>();
   const toProcess = [normalizedPath];
-  
-  while (toProcess.length > 0) {
-    const current = toProcess.pop()!;
     
-    if (affected.has(current)) {
-      continue;
-    }
-    
-    affected.add(current);
-    
-    const dependents = graph.dependents.get(current);
-    if (dependents) {
-      for (const dependent of dependents) {
-        toProcess.push(dependent);
+    while (toProcess.length > 0) {
+      const current = toProcess.pop()!;
+      
+      if (affected.has(current)) {
+        continue;
+      }
+      
+      affected.add(current);
+      
+      const dependents = graph.dependents.get(current);
+      if (dependents) {
+        for (const dependent of dependents) {
+          toProcess.push(dependent);
+        }
       }
     }
+    
+    return Array.from(affected);
   }
-  
-  return Array.from(affected);
-}
 
 /* Remove a file from the graph
    This handles the "cleanup deleted files" problem */
@@ -222,8 +222,8 @@ export function removeFileFromGraph(
       }
     }
     graph.dependents.delete(normalizedPath);
-  }
-}
+      }
+    }
 
 /* Build dependency graph for all files in a directory
    This handles the "initialize graph" problem */
@@ -252,7 +252,7 @@ export function buildInitialDependencyGraph(
             fullPath.includes('/indexes/') ||
             entry.name.startsWith('.')) {
           continue;
-        }
+  }
         
         if (entry.isDirectory()) {
           scanDirectory(fullPath);
