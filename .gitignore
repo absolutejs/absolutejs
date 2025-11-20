@@ -48,3 +48,6 @@ example/react/indexes/
 example/angular/compiled/
 example/vue/compiled/
 example/svelte/compiled/
+
+# HMR temporary files
+.hmr-temp/

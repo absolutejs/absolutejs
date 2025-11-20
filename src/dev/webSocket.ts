@@ -1,4 +1,5 @@
 import type { HMRState } from './clientManager';
+import { serializeModuleVersions } from './moduleVersionTracker';
 
 /* Magic pt. 2 - when a browser connects to our WebSocket
    We send them the current manifest so they know what files exist
@@ -10,9 +11,15 @@ export function handleClientConnect(
 ): void {
   state.connectedClients.add(client);
   
-  // Send them the current state of the menu (manifest)
+  // Send them the current state of the menu (manifest) and module versions
+  const serverVersions = serializeModuleVersions(state.moduleVersions);
   client.send(JSON.stringify({
-    data: manifest, timestamp: Date.now(), type: 'manifest'
+    data: {
+      manifest,
+      serverVersions
+    },
+    timestamp: Date.now(),
+    type: 'manifest'
   }));
   
   // And confirm they're connected
@@ -74,6 +81,19 @@ export function handleHMRMessage(state: HMRState, client: any, message: any): vo
         console.log('✅ Client ready for HMR updates');
         break;
         
+      case 'hydration-error':
+        // Client reported a hydration error - log it for debugging
+        if (data.data) {
+          console.group('⚠️ Hydration Error Reported by Client');
+          console.error('Component:', data.data.componentName);
+          if (data.data.componentPath) {
+            console.error('File:', data.data.componentPath);
+          }
+          console.error('Error:', data.data.error);
+          console.groupEnd();
+        }
+        break;
+        
       default:
         console.log('🤷 Unknown HMR message type:', data.type);
     }
@@ -94,19 +114,28 @@ export function broadcastToClients(state: HMRState, message: any): void {
   });
   
   const OPEN = (globalThis as any).WebSocket?.OPEN ?? 1;
+  let sentCount = 0;
+  const clientsToRemove: any[] = [];
+  
   for (const client of state.connectedClients) {
     if (client.readyState === OPEN) { // WebSocket.OPEN
       try {
         client.send(messageStr);
+        sentCount++;
       } catch (error) {
         console.error('❌ Failed to send message to client:', error);
-        state.connectedClients.delete(client);
+        clientsToRemove.push(client);
       }
     } else {
-      // Remove closed clients
-      state.connectedClients.delete(client);
+      // Mark closed clients for removal
+      clientsToRemove.push(client);
     }
   }
   
-  console.log(`📡 Message sent to ${state.connectedClients.size} clients`);
+  // Remove closed/failed clients
+  for (const client of clientsToRemove) {
+    state.connectedClients.delete(client);
+  }
+  
+  console.log(`📡 Message sent to ${sentCount} client(s) (${state.connectedClients.size} total connected)`);
 }

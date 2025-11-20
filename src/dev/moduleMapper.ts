@@ -1,5 +1,6 @@
 import { basename, resolve } from 'node:path';
 import { toPascal } from '../utils/stringModifiers';
+import { classifyComponent, type ComponentType } from './reactComponentClassifier';
 
 /* Maps source files to their manifest entries
    This handles the "what modules changed" problem for Smart Module Updates */
@@ -8,6 +9,7 @@ export type ModuleUpdate = {
   framework: string;
   moduleKeys: string[]; // Manifest keys for this module (e.g., ['ReactExampleIndex', 'ReactExampleCSS'])
   modulePaths: Record<string, string>; // Map of manifest keys to their new paths
+  componentType?: ComponentType; // 'client' | 'server' - only for React components
 };
 
 /* Map a source file to its manifest entry keys
@@ -104,10 +106,18 @@ export function createModuleUpdates(
     // that any page importing this component is also in changedFiles
     // So we'll find it when processing that page file
     
-    // For React, if this is a component (not a page), skip direct mapping
-    // The page that imports it will have been rebuilt and included in changedFiles
+    // For React, if this is a component (not a page), we still want to track it
+    // for Fast Refresh, even though it doesn't have direct manifest entries.
+    // The dependency graph ensures dependent pages are rebuilt, but we need
+    // to know about component changes for client-side HMR.
+    // 
+    // However, components don't have manifest entries, so we'll skip creating
+    // a ModuleUpdate here. Instead, we'll handle component updates separately
+    // in the rebuild trigger by checking if changed files include components.
     if (framework === 'react' && !normalizedFile.includes('/react/pages/')) {
-      // This is a component - skip, the page will be processed separately
+      // This is a component - components are handled via dependency graph
+      // The page that imports it will be rebuilt and have a ModuleUpdate
+      // Component updates will be handled in Phase 2 (Client HMR)
       continue;
     }
     
@@ -121,11 +131,17 @@ export function createModuleUpdates(
     
     // Only create update if we found manifest entries
     if (Object.keys(modulePaths).length > 0) {
+      // Classify React components for Fast Refresh
+      const componentType = framework === 'react' 
+        ? classifyComponent(normalizedFile)
+        : undefined;
+      
       updates.push({
         sourceFile: normalizedFile,
         framework,
         moduleKeys: Object.keys(modulePaths),
-        modulePaths
+        modulePaths,
+        componentType
       });
     }
   }

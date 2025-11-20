@@ -1,12 +1,16 @@
 import { build } from '../core/build';
 import type { BuildConfig } from '../types';
 import type { HMRState } from './clientManager';
+import { incrementSourceFileVersions } from './clientManager';
 import { detectFramework } from './pathUtils';
 import { computeFileHash, hasFileChanged } from './fileHashTracker';
 import { broadcastToClients } from './webSocket';
 import { getAffectedFiles } from './dependencyGraph';
 import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { createModuleUpdates, groupModuleUpdatesByFramework } from './moduleMapper';
+import { incrementModuleVersions, serializeModuleVersions } from './moduleVersionTracker';
+// Note: Removed serverComponentRenderer and ssrCache imports - React HMR is now simplified
 
 /* Queue a file change for processing
    This handles the "queue changes" problem with debouncing */
@@ -116,6 +120,26 @@ export function queueFileChange(
             // Update hash NOW - this prevents the same file from being processed twice
             // if it was queued multiple times (edit then undo)
             state.fileHashes.set(filePath, currentHash);
+            
+            // Increment source file version to force Bun to treat it as a new module
+            // This bypasses Bun's module cache by appending version to import path
+            incrementSourceFileVersions(state, [filePath]);
+            
+            // CRITICAL: Also increment versions of files that import this file
+            // When App.tsx changes, ReactExample.tsx needs a new version too
+            // This forces ReactExample.tsx to re-import App.tsx fresh (bypassing cache)
+            try {
+              const dependents = state.dependencyGraph.dependents.get(resolve(filePath));
+              if (dependents && dependents.size > 0) {
+                const dependentFiles = Array.from(dependents).filter(f => existsSync(f));
+                if (dependentFiles.length > 0) {
+                  console.log(`  🔄 Incrementing versions for ${dependentFiles.length} dependent file(s) to force fresh imports`);
+                  incrementSourceFileVersions(state, dependentFiles);
+                }
+              }
+            } catch (error) {
+              console.warn(`⚠️ Error finding dependents for ${filePath}:`, error);
+            }
             
             // Get all files that depend on this changed file
             try {
@@ -246,7 +270,7 @@ export async function triggerRebuild(
 
     // Create smart module updates from changed files
     if (filesToRebuild && filesToRebuild.length > 0) {
-      const allModuleUpdates: Array<{ sourceFile: string; framework: string; moduleKeys: string[]; modulePaths: Record<string, string> }> = [];
+      const allModuleUpdates: Array<{ sourceFile: string; framework: string; moduleKeys: string[]; modulePaths: Record<string, string>; componentType?: 'client' | 'server' }> = [];
       
       // Group changed files by framework and create module updates
       for (const framework of affectedFrameworks) {
@@ -257,7 +281,19 @@ export async function triggerRebuild(
           
           if (moduleUpdates.length > 0) {
             allModuleUpdates.push(...moduleUpdates);
-            console.log(`📦 Found ${moduleUpdates.length} module update(s) for ${framework}`);
+            
+            // Log component types for React updates
+            if (framework === 'react') {
+              const serverComponents = moduleUpdates.filter(u => u.componentType === 'server').length;
+              const clientComponents = moduleUpdates.filter(u => u.componentType === 'client').length;
+              if (serverComponents > 0 || clientComponents > 0) {
+                console.log(`📦 Found ${moduleUpdates.length} module update(s) for ${framework} (${serverComponents} server, ${clientComponents} client)`);
+              } else {
+                console.log(`📦 Found ${moduleUpdates.length} module update(s) for ${framework}`);
+              }
+            } else {
+              console.log(`📦 Found ${moduleUpdates.length} module update(s) for ${framework}`);
+            }
           } else {
             // For files without direct manifest entries (like React components),
             // the dependency graph ensures dependent pages are in filesToRebuild
@@ -267,11 +303,84 @@ export async function triggerRebuild(
         }
       }
       
+      // Simple React HMR: Re-render and send HTML patch
+      if (affectedFrameworks.includes('react') && filesToRebuild) {
+        const reactFiles = filesToRebuild.filter(file => detectFramework(file) === 'react');
+        
+        if (reactFiles.length > 0) {
+          console.log(`🔄 React file(s) changed, re-rendering...`);
+          
+          // Find the React page component (ReactExample.tsx)
+          const reactPagePath = reactFiles.find(f => f.includes('/react/pages/ReactExample.tsx')) 
+            || resolve('./example/react/pages/ReactExample.tsx');
+          
+          // Simple approach: Re-import with cache busting, re-render, send HTML
+          try {
+            const { handleReactUpdate } = await import('./simpleReactHMR');
+            console.log('📦 Calling handleReactUpdate for:', reactPagePath);
+            const newHTML = await handleReactUpdate(reactPagePath, manifest);
+            
+            if (newHTML) {
+              console.log('✅ Got HTML from handleReactUpdate, length:', newHTML.length);
+              // Send simple HTML update to clients
+              broadcastToClients(state, {
+                type: 'react-update',
+                data: {
+                  framework: 'react',
+                  sourceFile: reactPagePath,
+                  html: newHTML,
+                  manifest
+                }
+              });
+              console.log('✅ React update sent to clients');
+            } else {
+              console.warn('⚠️ handleReactUpdate returned null/undefined - no HTML to send');
+            }
+          } catch (error) {
+            console.error('❌ Failed to handle React update:', error);
+            console.error('❌ Error stack:', error instanceof Error ? error.stack : String(error));
+          }
+        }
+      }
+      
+      // Increment module versions for all updated modules
+      const updatedModulePaths: string[] = [];
+      for (const update of allModuleUpdates) {
+        // Add source file path
+        updatedModulePaths.push(update.sourceFile);
+        // Add all manifest module paths
+        for (const modulePath of Object.values(update.modulePaths)) {
+          updatedModulePaths.push(modulePath);
+        }
+      }
+      
+      if (updatedModulePaths.length > 0) {
+        const versionUpdates = incrementModuleVersions(state.moduleVersions, updatedModulePaths);
+        console.log(`📌 Updated versions for ${versionUpdates.size} module(s)`);
+      }
+      
       // Send module-level updates grouped by framework
       if (allModuleUpdates.length > 0) {
         const updatesByFramework = groupModuleUpdatesByFramework(allModuleUpdates);
+        const serverVersions = serializeModuleVersions(state.moduleVersions);
+        
         for (const [framework, updates] of updatesByFramework) {
           console.log(`📤 Broadcasting ${updates.length} module update(s) for ${framework}`);
+          
+          // Get versions for updated modules
+          const moduleVersions: Record<string, number> = {};
+          for (const update of updates) {
+            const sourceVersion = state.moduleVersions.get(update.sourceFile);
+            if (sourceVersion !== undefined) {
+              moduleVersions[update.sourceFile] = sourceVersion;
+            }
+            for (const [key, path] of Object.entries(update.modulePaths)) {
+              const pathVersion = state.moduleVersions.get(path);
+              if (pathVersion !== undefined) {
+                moduleVersions[path] = pathVersion;
+              }
+            }
+          }
           
           broadcastToClients(state, {
             data: {
@@ -279,9 +388,13 @@ export async function triggerRebuild(
               modules: updates.map(update => ({
                 sourceFile: update.sourceFile,
                 moduleKeys: update.moduleKeys,
-                modulePaths: update.modulePaths
+                modulePaths: update.modulePaths,
+                componentType: update.componentType, // Include component type for React Fast Refresh
+                version: state.moduleVersions.get(update.sourceFile) // Include version
               })),
-              manifest // Include full manifest for reference
+              manifest, // Include full manifest for reference
+              moduleVersions: moduleVersions, // Include versions for updated modules
+              serverVersions: serverVersions // Include all server versions for sync check
             },
             message: `${framework} modules updated`,
             type: 'module-update'

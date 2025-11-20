@@ -116,18 +116,11 @@ export const build = async ({
 	};
 
 	// For incremental React builds, only generate indexes for changed files
+	// NOTE: We always regenerate index files to ensure they have the latest hydration error handling logic
 	if (reactIndexesPath && reactPagesPath) {
-		if (isIncremental && incrementalFiles) {
-			// Filter to only changed React pages/components
-			const changedReactFiles = incrementalFiles.filter(f => 
-				f.includes('/react/') && (f.endsWith('.tsx') || f.endsWith('.ts'))
-			);
-			if (changedReactFiles.length > 0) {
-				await generateReactIndexFiles(reactPagesPath, reactIndexesPath);
-			}
-		} else {
-			await generateReactIndexFiles(reactPagesPath, reactIndexesPath);
-		}
+		// Always regenerate React index files to ensure latest error handling is included
+		// This is safe because index files are small and generation is fast
+		await generateReactIndexFiles(reactPagesPath, reactIndexesPath);
 	}
 
 	// Copy assets on full builds or if assets changed
