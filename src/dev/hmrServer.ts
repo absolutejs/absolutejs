@@ -172,7 +172,7 @@ export async function startBunHMRDevServer(config: BuildConfig) {
               console.log('HMR message received:', message.type);
               
               // Track HMR update state to prevent WebSocket from closing during updates
-              if (message.type === 'react-update' || message.type === 'module-update' || message.type === 'rebuild-start') {
+              if (message.type === 'react-update' || message.type === 'html-update' || message.type === 'module-update' || message.type === 'rebuild-start') {
                 isHMRUpdating = true;
                 // Clear flag after update completes (give it time for DOM patching)
                 setTimeout(() => { isHMRUpdating = false; }, 2000);
@@ -206,17 +206,24 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                   if (window.__HMR_MANIFEST__) {
                     window.__HMR_MANIFEST__ = message.data.manifest;
                   }
-                  // Don't reload for React updates - they're handled via react-update message
-                  // Only reload for non-React frameworks that don't have HMR support
-                  if (message.data.affectedFrameworks && !message.data.affectedFrameworks.includes('react')) {
-                    console.log('Reloading page due to rebuild (non-React framework)...');
+                  // Don't reload for React or HTML updates - they're handled via dedicated update messages
+                  // Only reload for frameworks that don't have HMR support
+                  if (message.data.affectedFrameworks && 
+                      !message.data.affectedFrameworks.includes('react') && 
+                      !message.data.affectedFrameworks.includes('html')) {
+                    console.log('Reloading page due to rebuild (non-HMR framework)...');
                     // Force a hard reload to bypass browser cache
                     // Add cache busting to the URL to ensure fresh bundle
                     const url = new URL(window.location.href);
                     url.searchParams.set('_cb', Date.now().toString());
                     window.location.href = url.toString();
                   } else {
-                    console.log('✅ Rebuild completed - React updates will be handled via HMR');
+                    const hmrFrameworks = [];
+                    if (message.data.affectedFrameworks?.includes('react')) hmrFrameworks.push('React');
+                    if (message.data.affectedFrameworks?.includes('html')) hmrFrameworks.push('HTML');
+                    if (hmrFrameworks.length > 0) {
+                      console.log('Rebuild completed - ' + hmrFrameworks.join(' and ') + ' updates will be handled via HMR');
+                    }
                   }
                   break;
                   
@@ -421,6 +428,46 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                     sessionStorage.removeItem('__HMR_ACTIVE__');
                     // Don't reload - this is a server-side issue, not a client issue
                     console.error('❌ Failed to update React component - no HTML provided');
+                  }
+                  break;
+                
+                case 'html-update':
+                  console.log('🔄 HTML update received:', message.data.sourceFile);
+                  
+                  // Set HMR active flag to prevent bundle hash check from triggering reload
+                  sessionStorage.setItem('__HMR_ACTIVE__', 'true');
+                  
+                  // Simple DOM patching with new HTML from server
+                  if (message.data.html) {
+                    const container = document.body;
+                    if (container) {
+                      console.log('🔄 Patching DOM with new HTML...');
+                      console.log('📦 HTML length:', message.data.html.length);
+                      console.log('📦 Body before patch:', container.innerHTML.length, 'chars');
+                      
+                      // For HTML files, we can simply replace the body content
+                      // No need for React re-hydration - just patch the DOM
+                      container.innerHTML = message.data.html;
+                      console.log('✅ HTML updated via DOM patch');
+                      console.log('📦 Body after patch:', container.innerHTML.length, 'chars');
+                      
+                      // Verify the patch worked
+                      if (container.innerHTML.trim().length === 0) {
+                        console.error('❌ DOM patch resulted in empty body - this should not happen');
+                      } else {
+                        console.log('✅ DOM patch verified - body has content');
+                      }
+                      
+                      // Clear HMR active flag after successful update
+                      sessionStorage.removeItem('__HMR_ACTIVE__');
+                    } else {
+                      console.error('❌ document.body not found - this should never happen');
+                      sessionStorage.removeItem('__HMR_ACTIVE__');
+                    }
+                  } else {
+                    console.warn('⚠️ No HTML in HTML update');
+                    sessionStorage.removeItem('__HMR_ACTIVE__');
+                    console.error('❌ Failed to update HTML - no HTML provided');
                   }
                   break;
                 

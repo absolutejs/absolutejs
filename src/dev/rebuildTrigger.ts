@@ -343,6 +343,45 @@ export async function triggerRebuild(
         }
       }
       
+      // Simple HTML HMR: Read HTML file and send HTML patch
+      if (affectedFrameworks.includes('html') && filesToRebuild) {
+        const htmlFiles = filesToRebuild.filter(file => detectFramework(file) === 'html');
+        
+        if (htmlFiles.length > 0) {
+          console.log(`🔄 HTML file(s) changed, reading...`);
+          
+          // Find the HTML page file (HtmlExample.html)
+          const htmlPagePath = htmlFiles.find(f => f.includes('/html/pages/HtmlExample.html')) 
+            || resolve('./example/html/pages/HtmlExample.html');
+          
+          // Simple approach: Read HTML file, extract body, send HTML patch
+          try {
+            const { handleHTMLUpdate } = await import('./simpleHTMLHMR');
+            console.log('📦 Calling handleHTMLUpdate for:', htmlPagePath);
+            const newHTML = await handleHTMLUpdate(htmlPagePath);
+            
+            if (newHTML) {
+              console.log('✅ Got HTML from handleHTMLUpdate, length:', newHTML.length);
+              // Send simple HTML update to clients
+              broadcastToClients(state, {
+                type: 'html-update',
+                data: {
+                  framework: 'html',
+                  sourceFile: htmlPagePath,
+                  html: newHTML
+                }
+              });
+              console.log('✅ HTML update sent to clients');
+            } else {
+              console.warn('⚠️ handleHTMLUpdate returned null/undefined - no HTML to send');
+            }
+          } catch (error) {
+            console.error('❌ Failed to handle HTML update:', error);
+            console.error('❌ Error stack:', error instanceof Error ? error.stack : String(error));
+          }
+        }
+      }
+      
       // Increment module versions for all updated modules
       const updatedModulePaths: string[] = [];
       for (const update of allModuleUpdates) {
