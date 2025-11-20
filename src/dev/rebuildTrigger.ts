@@ -381,6 +381,43 @@ export async function triggerRebuild(
           }
         }
       }
+
+      // Simple HTMX HMR: Read HTMX file and send HTML patch
+      if (affectedFrameworks.includes('htmx') && filesToRebuild) {
+        const htmxFiles = filesToRebuild.filter(file => detectFramework(file) === 'htmx');
+        
+        if (htmxFiles.length > 0) {
+          console.log(`🔄 HTMX file(s) changed, reading...`);
+          
+          // Find the HTMX page file (HTMXExample.html)
+          const htmxPagePath = htmxFiles.find(f => f.includes('/htmx/pages/HTMXExample.html')) 
+            || resolve('./example/htmx/pages/HTMXExample.html');
+          
+          try {
+            const { handleHTMXUpdate } = await import('./simpleHTMXHMR');
+            console.log('📦 Calling handleHTMXUpdate for:', htmxPagePath);
+            const newHTML = await handleHTMXUpdate(htmxPagePath);
+            
+            if (newHTML) {
+              console.log('✅ Got HTML from handleHTMXUpdate, length:', newHTML.length);
+              broadcastToClients(state, {
+                type: 'htmx-update',
+                data: {
+                  framework: 'htmx',
+                  sourceFile: htmxPagePath,
+                  html: newHTML
+                }
+              });
+              console.log('✅ HTMX update sent to clients');
+            } else {
+              console.warn('⚠️ handleHTMXUpdate returned null/undefined - no HTML to send');
+            }
+          } catch (error) {
+            console.error('❌ Failed to handle HTMX update:', error);
+            console.error('❌ Error stack:', error instanceof Error ? error.stack : String(error));
+          }
+        }
+      }
       
       // Increment module versions for all updated modules
       const updatedModulePaths: string[] = [];

@@ -172,7 +172,13 @@ export async function startBunHMRDevServer(config: BuildConfig) {
               console.log('HMR message received:', message.type);
               
               // Track HMR update state to prevent WebSocket from closing during updates
-              if (message.type === 'react-update' || message.type === 'html-update' || message.type === 'module-update' || message.type === 'rebuild-start') {
+              if (
+                message.type === 'react-update' ||
+                message.type === 'html-update' ||
+                message.type === 'htmx-update' ||
+                message.type === 'module-update' ||
+                message.type === 'rebuild-start'
+              ) {
                 isHMRUpdating = true;
                 // Clear flag after update completes (give it time for DOM patching)
                 setTimeout(() => { isHMRUpdating = false; }, 2000);
@@ -210,7 +216,8 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                   // Only reload for frameworks that don't have HMR support
                   if (message.data.affectedFrameworks && 
                       !message.data.affectedFrameworks.includes('react') && 
-                      !message.data.affectedFrameworks.includes('html')) {
+                      !message.data.affectedFrameworks.includes('html') &&
+                      !message.data.affectedFrameworks.includes('htmx')) {
                     console.log('Reloading page due to rebuild (non-HMR framework)...');
                     // Force a hard reload to bypass browser cache
                     // Add cache busting to the URL to ensure fresh bundle
@@ -221,6 +228,7 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                     const hmrFrameworks = [];
                     if (message.data.affectedFrameworks?.includes('react')) hmrFrameworks.push('React');
                     if (message.data.affectedFrameworks?.includes('html')) hmrFrameworks.push('HTML');
+                    if (message.data.affectedFrameworks?.includes('htmx')) hmrFrameworks.push('HTMX');
                     if (hmrFrameworks.length > 0) {
                       console.log('Rebuild completed - ' + hmrFrameworks.join(' and ') + ' updates will be handled via HMR');
                     }
@@ -468,6 +476,40 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                     console.warn('⚠️ No HTML in HTML update');
                     sessionStorage.removeItem('__HMR_ACTIVE__');
                     console.error('❌ Failed to update HTML - no HTML provided');
+                  }
+                  break;
+
+                case 'htmx-update':
+                  console.log('🔄 HTMX update received:', message.data.sourceFile);
+                  
+                  sessionStorage.setItem('__HMR_ACTIVE__', 'true');
+                  
+                  if (message.data.html) {
+                    const container = document.body;
+                    if (container) {
+                      console.log('🔄 Patching DOM with new HTMX HTML...');
+                      console.log('📦 HTML length:', message.data.html.length);
+                      console.log('📦 Body before patch:', container.innerHTML.length, 'chars');
+                      
+                      container.innerHTML = message.data.html;
+                      console.log('✅ HTMX content updated via DOM patch');
+                      console.log('📦 Body after patch:', container.innerHTML.length, 'chars');
+                      
+                      if (container.innerHTML.trim().length === 0) {
+                        console.error('❌ HTMX DOM patch resulted in empty body - this should not happen');
+                      } else {
+                        console.log('✅ HTMX DOM patch verified - body has content');
+                      }
+                      
+                      sessionStorage.removeItem('__HMR_ACTIVE__');
+                    } else {
+                      console.error('❌ document.body not found - this should never happen');
+                      sessionStorage.removeItem('__HMR_ACTIVE__');
+                    }
+                  } else {
+                    console.warn('⚠️ No HTML in HTMX update');
+                    sessionStorage.removeItem('__HMR_ACTIVE__');
+                    console.error('❌ Failed to update HTMX - no HTML provided');
                   }
                   break;
                 
