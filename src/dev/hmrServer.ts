@@ -1,5 +1,6 @@
 import { resolve as PATH_RESOLVE, sep as PATH_SEP, resolve, dirname } from 'node:path';
 import { statSync, readFileSync } from 'node:fs';
+import { env } from 'bun';
 import { Elysia } from 'elysia';
 import { Transpiler } from 'bun';
 import { build } from '../core/build';
@@ -12,7 +13,6 @@ import {
 } from '../core/pageHandlers';
 import type { BuildConfig } from '../types';
 import { generateHeadElement } from '../utils/generateHeadElement';
-import { getHostConfig, generateWebSocketURLCode } from '../utils/hostConfig';
 import { createHMRState, type HMRState, getSourceFileVersion, incrementSourceFileVersions } from './clientManager';
 import { startFileWatching } from './fileWatcher';
 import { queueFileChange } from './rebuildTrigger';
@@ -28,9 +28,6 @@ const ROOT_DIR = PATH_RESOLVE('./example/build');
 /* Main entry point for the HMR server - orchestrates everything
    This replaces the old class-based approach with a functional one */
 export async function startBunHMRDevServer(config: BuildConfig) {
-  // Get host configuration with priority: CLI flag > config > environment > default
-  const hostConfig = getHostConfig(config);
-  
   // Create initial state
   const state = createHMRState();
   
@@ -135,9 +132,9 @@ export async function startBunHMRDevServer(config: BuildConfig) {
           
           console.log('Initializing HMR client...');
           
-          // Determine WebSocket URL based on host configuration
-          // Generated code handles --host flag, config.host, or default behavior
-          ${generateWebSocketURLCode(hostConfig)}
+          // Determine WebSocket URL (use client's current hostname and port)
+          const wsHost = location.hostname;
+          const wsPort = location.port || (location.protocol === 'https:' ? '443' : '80');
           const wsProtocol = location.protocol === 'https:' ? 'wss' : 'ws';
           const wsUrl = \`\${wsProtocol}://\${wsHost}:\${wsPort}/hmr\`;
           
@@ -1884,8 +1881,8 @@ export async function startBunHMRDevServer(config: BuildConfig) {
     })
     .get('*', handleRequest)
     .listen({
-      hostname: hostConfig.hostname,
-      port: hostConfig.port
+      hostname: config.host ?? (env.HOST ?? 'localhost'),
+      port: config.port ?? (env.PORT ? Number(env.PORT) : 3000)
     });
   
   const rebuildCallback = async (newManifest: Record<string, string>) => {
@@ -1896,45 +1893,14 @@ export async function startBunHMRDevServer(config: BuildConfig) {
     queueFileChange(state, filePath, config, rebuildCallback);
   });
   
+  const port = config.port ?? (env.PORT ? Number(env.PORT) : 3000);
+  const baseUrl = `http://localhost:${port}`;
+  
   console.log('Bun HMR Dev Server started');
-  
-  // Format console output to match Vite's style
-  if (hostConfig.enabled) {
-    if (hostConfig.customHost) {
-      // Custom host specified: --host <value>
-      console.log(`➜  Local:   http://localhost:${hostConfig.port}/`);
-      console.log(`➜  Network: http://${hostConfig.customHost}:${hostConfig.port}/`);
-    } else {
-      // --host with no value: show all network IPs
-      console.log(`➜  Local:   http://localhost:${hostConfig.port}/`);
-      if (hostConfig.networkIPs.length > 0) {
-        for (const ip of hostConfig.networkIPs) {
-          console.log(`➜  Network: http://${ip}:${hostConfig.port}/`);
-        }
-      } else {
-        console.warn('⚠️  No network IPs detected');
-      }
-    }
-  } else {
-    // Default: localhost only
-    console.log(`➜  Local:   http://${hostConfig.hostname}:${hostConfig.port}/`);
-  }
-  
-  // Show WebSocket endpoint
-  const wsHost = hostConfig.enabled && hostConfig.networkIPs.length > 0 
-    ? hostConfig.networkIPs[0] 
-    : hostConfig.enabled && hostConfig.customHost
-    ? hostConfig.customHost
-    : 'localhost';
-  console.log(`➜  WebSocket: ws://${wsHost}:${hostConfig.port}/hmr`);
-  
+  console.log(`➜  Local:   ${baseUrl}/`);
+  console.log(`➜  WebSocket: ws://localhost:${port}/hmr`);
   console.log('File watching: Active');
   console.log('Available routes:');
-  const baseUrl = hostConfig.enabled && hostConfig.networkIPs.length > 0 
-    ? `http://${hostConfig.networkIPs[0]}:${hostConfig.port}` 
-    : hostConfig.enabled && hostConfig.customHost
-    ? `http://${hostConfig.customHost}:${hostConfig.port}`
-    : `http://localhost:${hostConfig.port}`;
   console.log(`  - ${baseUrl}/ (HTML)`);
   console.log(`  - ${baseUrl}/react (React)`);
   console.log(`  - ${baseUrl}/svelte (Svelte)`);
