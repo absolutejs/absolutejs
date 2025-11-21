@@ -8,10 +8,10 @@ import { resolve } from 'node:path';
    1. Clear module from cache (by using fresh module loader)
    2. Re-render the page
    3. Return the new HTML */
-export async function handleReactUpdate(
+export const handleReactUpdate = async (
   componentPath: string,
   manifest: Record<string, string>
-): Promise<string | null> {
+) => {
   try {
     // Use fresh module loader to bypass Bun's module cache entirely
     // This ensures we always get the latest source code, even if dependencies changed
@@ -41,6 +41,7 @@ export async function handleReactUpdate(
     if (!ReactModule || !ReactModule.ReactExample) {
       console.warn('⚠️ Could not find ReactExample in module');
       console.warn('⚠️ Module keys:', Object.keys(ReactModule || {}));
+
       return null;
     }
     
@@ -50,6 +51,7 @@ export async function handleReactUpdate(
     const indexPath = manifest['ReactExampleIndex'];
     if (!indexPath) {
       console.warn('⚠️ ReactExampleIndex not found in manifest');
+
       return null;
     }
 
@@ -72,14 +74,17 @@ export async function handleReactUpdate(
     if (bodyMatch && bodyMatch[1]) {
       const bodyContent = bodyMatch[1].trim();
       console.log('📦 Server: Extracted body content length:', bodyContent.length);
+
       return bodyContent;
     }
     
     // Fallback: return full HTML if body extraction fails
     console.warn('⚠️ Server: Body extraction failed, returning full HTML');
+
     return html;
   } catch (error) {
     console.error('❌ Failed to handle React update:', error);
+
     return null;
   }
 }

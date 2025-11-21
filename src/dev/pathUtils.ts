@@ -2,7 +2,7 @@ import { BuildConfig } from '../types';
 
 /* Get the directories we should watch based on our config
    This handles the "where to watch" problem */
-export function getWatchPaths(config: BuildConfig): string[] {
+export const getWatchPaths = (config: BuildConfig) => {
   const paths: string[] = [];
   
   // Watch only specific source directories, not the entire directory
@@ -56,7 +56,7 @@ export function getWatchPaths(config: BuildConfig): string[] {
 
 /* Check if we should ignore a file path
    This handles the "what to ignore" problem */
-export function shouldIgnorePath(path: string): boolean {
+export const shouldIgnorePath = (path: string) => {
   const normalizedPath = path.replace(/\\/g, '/');
   
   // Be more aggressive with ignoring compiled directories
@@ -78,7 +78,7 @@ export function shouldIgnorePath(path: string): boolean {
 
 /* Detect which framework a file belongs to based on its path and extension
    This handles the "what framework" problem */
-export function detectFramework(filePath: string): string {
+export const detectFramework = (filePath: string) => {
   // Check if this is an ignored file first
   if (shouldIgnorePath(filePath)) {
     return 'ignored';

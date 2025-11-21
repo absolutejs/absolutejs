@@ -1,8 +1,7 @@
-import { resolve as PATH_RESOLVE, sep as PATH_SEP, resolve, dirname } from 'node:path';
-import { statSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
+import { resolve as PATH_RESOLVE, sep as PATH_SEP, resolve } from 'node:path';
 import { env } from 'bun';
 import { Elysia } from 'elysia';
-import { Transpiler } from 'bun';
 import { build } from '../core/build';
 import {
   handleHTMLPageRequest,
@@ -13,14 +12,14 @@ import {
 } from '../core/pageHandlers';
 import type { BuildConfig } from '../types';
 import { generateHeadElement } from '../utils/generateHeadElement';
-import { createHMRState, type HMRState, getSourceFileVersion, incrementSourceFileVersions } from './clientManager';
-import { startFileWatching } from './fileWatcher';
-import { queueFileChange } from './rebuildTrigger';
-import { handleClientConnect, handleClientDisconnect, handleHMRMessage } from './webSocket';
+import { createHMRState } from './clientManager';
 import { buildInitialDependencyGraph } from './dependencyGraph';
-import { getWatchPaths } from './pathUtils';
-import { generateSimpleReactHMRClientCode } from './simpleReactHMR';
+import { startFileWatching } from './fileWatcher';
 import { loadFreshModule } from './freshModuleLoader';
+import { getWatchPaths } from './pathUtils';
+import { queueFileChange } from './rebuildTrigger';
+import { generateSimpleReactHMRClientCode } from './simpleReactHMR';
+import { handleClientConnect, handleClientDisconnect, handleHMRMessage } from './webSocket';
 
 /* Build root directory for static file serving */
 const ROOT_DIR = PATH_RESOLVE('./example/build');
@@ -1606,18 +1605,20 @@ export async function startBunHMRDevServer(config: BuildConfig) {
               console.warn(`⚠️ Using regular import fallback (may be cached)`);
             } catch (fallbackError) {
               console.error(`❌ Fallback import also failed:`, fallbackError);
+
               return new Response('Failed to load ReactExample component', { status: 500 });
             }
           }
           
           if (!ReactModule || !ReactModule.ReactExample) {
             console.error('Failed to import ReactExample component');
+
             return new Response('Failed to load ReactExample component', { status: 500 });
           }
           
           console.log('📦 Server: Loaded ReactModule successfully');
           
-          const props = {
+          const props: Record<string, string | number> = {
             cssPath: manifest['ReactExampleCSS'] || '',
             initialCount: 0
           };
@@ -1650,6 +1651,7 @@ export async function startBunHMRDevServer(config: BuildConfig) {
               // Add bundle hash + timestamp cache buster
               // The bundle hash changes when the bundle is rebuilt, forcing a reload
               const cacheBuster = `?_h=${bundleHash}&_t=${Date.now()}`;
+
               return `${prefix}${basePath}${cacheBuster}${suffix}`;
             }
           );
@@ -1774,10 +1776,7 @@ export async function startBunHMRDevServer(config: BuildConfig) {
           // This ensures the browser always fetches fresh HTML and bundles
           return await injectHMRIntoResponse(new Response(cacheBustedHtml, {
             headers: { 
-              'Content-Type': 'text/html',
-              'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
-              'Pragma': 'no-cache',
-              'Expires': '0'
+              'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0', 'Content-Type': 'text/html', 'Expires': '0', 'Pragma': 'no-cache'
             }
           }));
         }
@@ -1875,9 +1874,9 @@ export async function startBunHMRDevServer(config: BuildConfig) {
   
   const server = new Elysia()
     .ws('/hmr', {
-      close: (ws) => handleClientDisconnect(state, ws), message: (ws, message) => {
-        handleHMRMessage(state, ws, message);
-      }, open: (ws) => handleClientConnect(state, ws, manifest)
+      close: (websocket) => handleClientDisconnect(state, websocket), message: (websocket, message) => {
+        handleHMRMessage(state, websocket, message);
+      }, open: (websocket) => handleClientConnect(state, websocket, manifest)
     })
     .get('*', handleRequest)
     .listen({

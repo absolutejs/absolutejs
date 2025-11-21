@@ -9,10 +9,10 @@ import { resolve } from 'node:path';
    2. Use manifest paths to import the rebuilt server component
    3. Re-render the page
    4. Return the new HTML for patching */
-export async function handleVueUpdate(
+export const handleVueUpdate = async (
   vueFilePath: string,
   manifest: Record<string, string>
-): Promise<string | null> {
+) => {
   try {
     const resolvedPath = resolve(vueFilePath);
     console.log('📦 Handling Vue update for:', resolvedPath);
@@ -35,6 +35,7 @@ export async function handleVueUpdate(
       console.warn('⚠️ VueExample not found in manifest');
       console.warn('   Available manifest keys:', Object.keys(manifest));
       console.warn('   This might mean the rebuild did not complete or Vue was not included');
+
       return null;
     }
     
@@ -47,6 +48,7 @@ export async function handleVueUpdate(
     
     if (!serverModule || !serverModule.default) {
       console.warn('⚠️ Could not find default export in Vue server module');
+
       return null;
     }
     
@@ -59,6 +61,7 @@ export async function handleVueUpdate(
       console.warn('⚠️ VueExampleIndex not found in manifest');
       console.warn('   Available manifest keys:', Object.keys(manifest));
       console.warn('   This might mean the rebuild did not complete or Vue was not included');
+
       return null;
     }
     
@@ -87,14 +90,17 @@ export async function handleVueUpdate(
     if (bodyMatch && bodyMatch[1]) {
       const bodyContent = bodyMatch[1].trim();
       console.log('📦 Server: Extracted body content length:', bodyContent.length);
+
       return bodyContent;
     }
     
     // Fallback: return full HTML if body extraction fails
     console.warn('⚠️ Server: Body extraction failed, returning full HTML');
+
     return html;
   } catch (error) {
     console.error('❌ Failed to handle Vue update:', error);
+
     return null;
   }
 }

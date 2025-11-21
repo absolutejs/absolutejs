@@ -1,10 +1,10 @@
 import { watch } from 'fs';
+import { existsSync } from 'node:fs';
 import { join } from 'path';
 import type { BuildConfig } from '../types';
 import type { HMRState } from './clientManager';
-import { getWatchPaths, shouldIgnorePath } from './pathUtils';
 import { addFileToGraph, removeFileFromGraph } from './dependencyGraph';
-import { existsSync } from 'node:fs';
+import { getWatchPaths, shouldIgnorePath } from './pathUtils';
 
 /* Set up file watching for all configured directories
    This handles the "watch files" problem */
@@ -63,6 +63,7 @@ export function startFileWatching(
           
           // Still trigger rebuild for files that depended on this one
           onFileChange(fullPath);
+
           return;
         }
         

@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 /* Dependency graph for tracking file relationships
@@ -10,16 +10,13 @@ export type DependencyGraph = {
   dependencies: Map<string, Set<string>>;
 };
 
-export function createDependencyGraph(): DependencyGraph {
-  return {
-    dependents: new Map(),
-    dependencies: new Map(),
-  };
-}
+export const createDependencyGraph = () => ({
+    dependencies: new Map(), dependents: new Map(),
+  })
 
 /* Extract import/require statements from a file
    This handles the "find dependencies" problem */
-export function extractDependencies(filePath: string): string[] {
+export const extractDependencies = (filePath: string) => {
   try {
     // Check if file exists before trying to read
     if (!existsSync(filePath)) {
@@ -71,6 +68,7 @@ export function extractDependencies(filePath: string): string[] {
     return dependencies;
   } catch (error) {
     console.warn(`⚠️ Could not extract dependencies from ${filePath}:`, error);
+
     return [];
   }
 }
@@ -96,6 +94,7 @@ function resolveImportPath(importPath: string, fromFile: string): string | null 
     const withExt = normalized + ext;
     try {
       readFileSync(withExt);
+
       return normalized + ext; // Return absolute path
     } catch {
       // File doesn't exist with this extension
@@ -105,6 +104,7 @@ function resolveImportPath(importPath: string, fromFile: string): string | null 
   // Try without extension
   try {
     readFileSync(normalized);
+
     return normalized; // Return absolute path
   } catch {
     return null;
@@ -123,6 +123,7 @@ export function addFileToGraph(
   // Skip if file doesn't exist (it might have been deleted)
   if (!existsSync(normalizedPath)) {
     console.warn(`⚠️ Cannot add non-existent file to dependency graph: ${normalizedPath}`);
+
     return;
   }
   
@@ -216,9 +217,9 @@ export function removeFileFromGraph(
   const dependents = graph.dependents.get(normalizedPath);
   if (dependents) {
     for (const dependent of dependents) {
-      const deps = graph.dependencies.get(dependent);
-      if (deps) {
-        deps.delete(normalizedPath);
+      const depList = graph.dependencies.get(dependent);
+      if (depList) {
+        depList.delete(normalizedPath);
       }
     }
     graph.dependents.delete(normalizedPath);

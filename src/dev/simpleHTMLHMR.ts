@@ -9,9 +9,9 @@ import { resolve } from 'node:path';
    1. Read the HTML file
    2. Extract body content (or return full HTML)
    3. Return the HTML for patching */
-export async function handleHTMLUpdate(
+export const handleHTMLUpdate = async (
   htmlFilePath: string
-): Promise<string | null> {
+) => {
   try {
     // The htmlFilePath is already the source path from the file watcher
     // It should be something like: ./example/html/pages/HtmlExample.html
@@ -31,6 +31,7 @@ export async function handleHTMLUpdate(
     // Check if file exists
     if (!existsSync(resolvedPath)) {
       console.error(`❌ HTML file not found: ${resolvedPath}`);
+
       return null;
     }
     
@@ -44,14 +45,17 @@ export async function handleHTMLUpdate(
     if (bodyMatch && bodyMatch[1]) {
       const bodyContent = bodyMatch[1].trim();
       console.log('📦 Server: Extracted body content length:', bodyContent.length);
+
       return bodyContent;
     }
     
     // Fallback: return full HTML if body extraction fails
     console.warn('⚠️ Server: Body extraction failed, returning full HTML');
+
     return htmlContent;
   } catch (error) {
     console.error('❌ Failed to handle HTML update:', error);
+
     return null;
   }
 }

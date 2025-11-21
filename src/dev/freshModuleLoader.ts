@@ -2,10 +2,10 @@
    Uses Bun's Transpiler API to transpile files and write them to temporary files,
    then imports from those temporary files. This bypasses Bun's module cache entirely. */
 
+import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync, statSync, mkdirSync, existsSync } from 'node:fs';
 import { resolve, dirname, basename, join, extname } from 'node:path';
 import { Transpiler } from 'bun';
-import { createHash } from 'node:crypto';
 
 /* Transpiler instances for different file types */
 const tsxTranspiler = new Transpiler({ loader: 'tsx' });
@@ -32,6 +32,7 @@ function getFileHash(filePath: string): string {
     const stats = statSync(filePath);
     // Combine content hash with modification time for better cache busting
     const hash = createHash('md5').update(content).update(stats.mtimeMs.toString()).digest('hex');
+
     return hash.substring(0, 8);
   } catch {
     return Date.now().toString(36);
@@ -70,7 +71,7 @@ function extractRelativeImports(code: string): Array<{ original: string; resolve
   let match;
   
   while ((match = importRegex.exec(code)) !== null) {
-    const importPath = match[1];
+    const [, importPath] = match;
     if (importPath.startsWith('.') || importPath.startsWith('/')) {
       imports.push({ original: importPath, resolved: '' });
     }
@@ -88,10 +89,11 @@ export async function loadFreshModule(filePath: string, visited: Set<string> = n
     // Return the temp file path if we've already processed this file
     const cached = fileToTempPath.get(resolvedPath);
     if (cached) {
-      return await import(cached);
+      return import(cached);
     }
+
     // Fallback to regular import
-    return await import(resolvedPath);
+    return import(resolvedPath);
   }
   
   visited.add(resolvedPath);
@@ -136,11 +138,7 @@ export async function loadFreshModule(filePath: string, visited: Set<string> = n
         const uniqueNames = [...new Set(jsxDEVMatches)];
         // Import jsxDEV and create aliases for each unique function name
         // Bun generates different function names for different JSX calls, but they all come from the same import
-        const imports = uniqueNames.map(name => {
-          // Extract the hash part (e.g., jsxDEV_7x81h0kn -> 7x81h0kn)
-          const hash = name.replace('jsxDEV_', '');
-          return `import { jsxDEV as ${name} } from 'react/jsx-dev-runtime';`;
-        }).join('\n');
+        const imports = uniqueNames.map(name => `import { jsxDEV as ${name} } from 'react/jsx-dev-runtime';`).join('\n');
         transpiledCode = `${imports}\n${transpiledCode}`;
       } else {
         // Fallback: import jsxDEV with a generic name
@@ -192,6 +190,7 @@ export async function loadFreshModule(filePath: string, visited: Set<string> = n
       return await import(resolvedPath);
     } catch (fallbackError) {
       console.error(`❌ Fallback import also failed:`, fallbackError);
+
       return {};
     }
   }

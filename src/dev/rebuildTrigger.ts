@@ -1,15 +1,15 @@
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { build } from '../core/build';
 import type { BuildConfig } from '../types';
 import type { HMRState } from './clientManager';
 import { incrementSourceFileVersions } from './clientManager';
-import { detectFramework } from './pathUtils';
-import { computeFileHash, hasFileChanged } from './fileHashTracker';
-import { broadcastToClients } from './webSocket';
 import { getAffectedFiles } from './dependencyGraph';
-import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { computeFileHash, hasFileChanged } from './fileHashTracker';
 import { createModuleUpdates, groupModuleUpdatesByFramework } from './moduleMapper';
 import { incrementModuleVersions, serializeModuleVersions } from './moduleVersionTracker';
+import { detectFramework } from './pathUtils';
+import { broadcastToClients } from './webSocket';
 // Note: Removed serverComponentRenderer and ssrCache imports - React HMR is now simplified
 
 /* Queue a file change for processing
@@ -32,6 +32,7 @@ export function queueFileChange(
     // Check if file actually changed
     if (!hasFileChanged(filePath, currentHash, state.fileHashes)) {
       console.log(`⏭️ Skipping unchanged file: ${filePath}`);
+
     return;
   }
   
@@ -70,23 +71,23 @@ export function queueFileChange(
       
       // Deduplicate files across the entire queue first
       const uniqueFilesByFramework = new Map<string, Set<string>>();
-      for (const [framework, filePaths] of state.fileChangeQueue) {
-        uniqueFilesByFramework.set(framework, new Set(filePaths));
+      for (const [fwKey, filePaths] of state.fileChangeQueue) {
+        uniqueFilesByFramework.set(fwKey, new Set(filePaths));
       }
       
-      for (const [framework, filePathSet] of uniqueFilesByFramework) {
+      for (const [fwKey, filePathSet] of uniqueFilesByFramework) {
         const validFiles: string[] = [];
         const processedFiles = new Set<string>(); // Track files we've already added
         
-        for (const filePath of filePathSet) {
+        for (const filePathInSet of filePathSet) {
           // Skip files that no longer exist (deleted)
-          if (!existsSync(filePath)) {
-            console.log(`⏭️ Skipping deleted file: ${filePath}`);
+          if (!existsSync(filePathInSet)) {
+            console.log(`⏭️ Skipping deleted file: ${filePathInSet}`);
             // Remove from hash tracking
-            state.fileHashes.delete(filePath);
+            state.fileHashes.delete(filePathInSet);
             // Still need to rebuild files that depended on this deleted file
             try {
-              const affectedFiles = getAffectedFiles(state.dependencyGraph, filePath);
+              const affectedFiles = getAffectedFiles(state.dependencyGraph, filePathInSet);
               for (const affectedFile of affectedFiles) {
                 if (affectedFile !== filePath && !processedFiles.has(affectedFile) && existsSync(affectedFile)) {
                   validFiles.push(affectedFile);
@@ -101,15 +102,15 @@ export function queueFileChange(
           }
           
           // Compute hash at the LAST moment to catch rapid edit/undo
-          const currentHash = computeFileHash(filePath);
-          const storedHash = state.fileHashes.get(filePath);
+          const fileHash = computeFileHash(filePathInSet);
+          const storedHash = state.fileHashes.get(filePathInSet);
           
           // Check if file actually changed since last rebuild
           // This is the critical check that prevents double rebuilds on edit/undo
-          if (!storedHash || storedHash !== currentHash) {
+          if (!storedHash || storedHash !== fileHash) {
             // Normalize filePath to absolute path for consistent comparison
             // getAffectedFiles returns absolute paths, so we need to normalize here too
-            const normalizedFilePath = resolve(filePath);
+            const normalizedFilePath = resolve(filePathInSet);
             
             console.log(`\n🎯 Original changed file: ${filePath}`);
             console.log(`   Hash: ${storedHash || 'none'} → ${currentHash}`);
@@ -195,6 +196,7 @@ export function queueFileChange(
     
       if (filesToProcess.size === 0) {
         console.log('✅ No actual changes detected in queued files');
+
         return;
       }
       
@@ -203,13 +205,13 @@ export function queueFileChange(
       console.log('📊 === End Dependency Graph Analysis ===\n');
   
     // Add affected frameworks to the rebuild queue
-    for (const framework of affectedFrameworks) {
-      state.rebuildQueue.add(framework);
+    for (const frameworkKey of affectedFrameworks) {
+      state.rebuildQueue.add(frameworkKey);
     }
     
       // Collect all files to rebuild
       const filesToRebuild: string[] = [];
-      for (const [framework, filePaths] of filesToProcess) {
+      for (const [, filePaths] of filesToProcess) {
         filesToRebuild.push(...filePaths);
       }
       
@@ -329,13 +331,9 @@ export async function triggerRebuild(
               console.log('✅ Got HTML from handleReactUpdate, length:', newHTML.length);
               // Send simple HTML update to clients
               broadcastToClients(state, {
-                type: 'react-update',
                 data: {
-                  framework: 'react',
-                  sourceFile: reactPagePath,
-                  html: newHTML,
-                  manifest
-                }
+                  framework: 'react', html: newHTML, manifest, sourceFile: reactPagePath
+                }, type: 'react-update'
               });
               console.log('✅ React update sent to clients');
             } else {
@@ -369,12 +367,9 @@ export async function triggerRebuild(
               console.log('✅ Got HTML from handleHTMLUpdate, length:', newHTML.length);
               // Send simple HTML update to clients
               broadcastToClients(state, {
-                type: 'html-update',
                 data: {
-                  framework: 'html',
-                  sourceFile: htmlPagePath,
-                  html: newHTML
-                }
+                  framework: 'html', html: newHTML, sourceFile: htmlPagePath
+                }, type: 'html-update'
               });
               console.log('✅ HTML update sent to clients');
             } else {
@@ -410,13 +405,10 @@ export async function triggerRebuild(
               console.log('✅ Got HTML from handleVueUpdate, length:', newHTML.length);
               // Send simple HTML update to clients with the updated manifest
               broadcastToClients(state, {
-                type: 'vue-update',
                 data: {
-                  framework: 'vue',
-                  sourceFile: vuePagePath,
-                  html: newHTML,
-                  manifest // This is the updated manifest from the rebuild
-                }
+                  framework: 'vue', html: newHTML, manifest
+// This is the updated manifest from the rebuild, sourceFile: vuePagePath // This is the updated manifest from the rebuild
+                }, type: 'vue-update'
               });
               console.log('✅ Vue update sent to clients');
             } else {
@@ -452,13 +444,10 @@ export async function triggerRebuild(
               console.log('✅ Got HTML from handleSvelteUpdate, length:', newHTML.length);
               // Send simple HTML update to clients with the updated manifest
               broadcastToClients(state, {
-                type: 'svelte-update',
                 data: {
-                  framework: 'svelte',
-                  sourceFile: sveltePagePath,
-                  html: newHTML,
-                  manifest // This is the updated manifest from the rebuild
-                }
+                  framework: 'svelte', html: newHTML, manifest
+// This is the updated manifest from the rebuild, sourceFile: sveltePagePath // This is the updated manifest from the rebuild
+                }, type: 'svelte-update'
               });
               console.log('✅ Svelte update sent to clients');
             } else {
@@ -490,12 +479,9 @@ export async function triggerRebuild(
             if (newHTML) {
               console.log('✅ Got HTML from handleHTMXUpdate, length:', newHTML.length);
               broadcastToClients(state, {
-                type: 'htmx-update',
                 data: {
-                  framework: 'htmx',
-                  sourceFile: htmxPagePath,
-                  html: newHTML
-                }
+                  framework: 'htmx', html: newHTML, sourceFile: htmxPagePath
+                }, type: 'htmx-update'
               });
               console.log('✅ HTMX update sent to clients');
             } else {
@@ -539,7 +525,7 @@ export async function triggerRebuild(
             if (sourceVersion !== undefined) {
               moduleVersions[update.sourceFile] = sourceVersion;
             }
-            for (const [key, path] of Object.entries(update.modulePaths)) {
+            for (const [, path] of Object.entries(update.modulePaths)) {
               const pathVersion = state.moduleVersions.get(path);
               if (pathVersion !== undefined) {
                 moduleVersions[path] = pathVersion;
@@ -549,17 +535,14 @@ export async function triggerRebuild(
           
           broadcastToClients(state, {
             data: {
-              framework,
-              modules: updates.map(update => ({
-                sourceFile: update.sourceFile,
-                moduleKeys: update.moduleKeys,
-                modulePaths: update.modulePaths,
-                componentType: update.componentType, // Include component type for React Fast Refresh
-                version: state.moduleVersions.get(update.sourceFile) // Include version
-              })),
-              manifest, // Include full manifest for reference
-              moduleVersions: moduleVersions, // Include versions for updated modules
-              serverVersions: serverVersions // Include all server versions for sync check
+              framework, manifest, modules: updates.map(update => ({
+                componentType: update.componentType, moduleKeys: update.moduleKeys, modulePaths: update.modulePaths, sourceFile: update.sourceFile, // Include component type for React Fast Refresh
+version: state.moduleVersions.get(update.sourceFile)
+// Include version // Include version
+              })), // Include full manifest for reference
+moduleVersions: moduleVersions, // Include versions for updated modules
+serverVersions: serverVersions
+// Include all server versions for sync check // Include all server versions for sync check
             },
             message: `${framework} modules updated`,
             type: 'module-update'

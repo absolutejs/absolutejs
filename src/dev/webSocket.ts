@@ -4,11 +4,11 @@ import { serializeModuleVersions } from './moduleVersionTracker';
 /* Magic pt. 2 - when a browser connects to our WebSocket
    We send them the current manifest so they know what files exist
    Like giving them a menu of all the dishes we can serve */
-export function handleClientConnect(
+export const handleClientConnect = (
   state: HMRState,
-  client: any,
+  client: unknown,
   manifest: Record<string, string>
-): void {
+) => {
   state.connectedClients.add(client);
   
   // Send them the current state of the menu (manifest) and module versions
@@ -30,13 +30,13 @@ export function handleClientConnect(
 
 /* When a client disconnects, remove them from our tracking
    This prevents memory leaks and keeps our client list clean */
-export function handleClientDisconnect(state: HMRState, client: any): void {
+export const handleClientDisconnect = (state: HMRState, client: unknown) => {
   state.connectedClients.delete(client);
 }
 
 /* Handle messages from clients - they might ping us or request rebuilds
    We need to handle different message types because WebSocket is just a pipe/stream */
-export function handleHMRMessage(state: HMRState, client: any, message: any): void {
+export const handleHMRMessage = (state: HMRState, client: unknown, message: unknown) => {
   try {
     /* WebSocket messages can come in different formats
        sometimes they're strings, sometimes they're Buffers, sometimes they're objects...
@@ -105,7 +105,7 @@ export function handleHMRMessage(state: HMRState, client: any, message: any): vo
 
 /* Send messages to all connected WebSocket clients
    this is how we notify browsers when files change */
-export function broadcastToClients(state: HMRState, message: any): void {
+export const broadcastToClients = (state: HMRState, message: {type: string}) => {
   console.log('📢 Broadcasting to clients:', message.type);
   
   const messageStr = JSON.stringify({
@@ -113,9 +113,9 @@ export function broadcastToClients(state: HMRState, message: any): void {
     timestamp: Date.now()
   });
   
-  const OPEN = (globalThis as any).WebSocket?.OPEN ?? 1;
+  const OPEN = (globalThis as {WebSocket?: {OPEN?: number}}).WebSocket?.OPEN ?? 1;
   let sentCount = 0;
-  const clientsToRemove: any[] = [];
+  const clientsToRemove: unknown[] = [];
   
   for (const client of state.connectedClients) {
     if (client.readyState === OPEN) { // WebSocket.OPEN

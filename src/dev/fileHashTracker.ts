@@ -1,16 +1,18 @@
-import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 
 /* This function computes SHA-256 hash of a file's contents
    satisfying the file hashing portion of HMR optimization */
-export function computeFileHash(filePath: string): string {
+export const computeFileHash = (filePath: string) => {
   try {
     const fileContent = readFileSync(filePath);
     const hash = createHash('sha256');
     hash.update(fileContent);
+
     return hash.digest('hex');
   } catch (error) {
     console.error(`⚠️ Failed to compute hash for ${filePath}:`, error);
+
     // Return timestamp-based hash for failed reads so we still process the change
     return Date.now().toString();
   }
@@ -19,11 +21,11 @@ export function computeFileHash(filePath: string): string {
 /* This function checks if the file has changed by comparing its 
    current hash to the previous hash
    this handles the detection of actual changes */
-export function hasFileChanged(
+export const hasFileChanged = (
   filePath: string,
   currentHash: string,
   previousHashes: Map<string, string>
-): boolean {
+) => {
   const previousHash = previousHashes.get(filePath);
   
   if (!previousHash) {
@@ -36,10 +38,10 @@ export function hasFileChanged(
 
 /* This function updates the file hash in the tracking map
    this handles keeping track of the file's state */
-export function updateFileHash(
+export const updateFileHash = (
   filePath: string,
   hash: string,
   hashMap: Map<string, string>
-): void {
+) => {
   hashMap.set(filePath, hash);
 }

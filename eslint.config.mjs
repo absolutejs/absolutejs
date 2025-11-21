@@ -35,9 +35,13 @@ export default defineConfig([
 		files: ['**/*.{ts,tsx}'],
 		languageOptions: {
 			globals: {
+				...globals.node,
 				// TODO: These should only be applied to the src/core/build.ts file.
 				BuildMessage: 'readonly',
-				ResolveMessage: 'readonly'
+				ResolveMessage: 'readonly',
+				NodeJS: 'readonly',
+				Bun: 'readonly',
+				Buffer: 'readonly'
 			},
 			parser: tsParser,
 			parserOptions: {

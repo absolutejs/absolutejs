@@ -14,10 +14,10 @@ export type ModuleUpdate = {
 
 /* Map a source file to its manifest entry keys
    This handles framework-specific manifest key derivation */
-export function mapSourceFileToManifestKeys(
+export const mapSourceFileToManifestKeys = (
   sourceFile: string,
   framework: string
-): string[] {
+) => {
   const normalizedFile = resolve(sourceFile);
   const fileName = basename(normalizedFile);
   
@@ -99,7 +99,7 @@ export function createModuleUpdates(
     processedFiles.add(normalizedFile);
     
     // Get manifest keys for this file
-    let moduleKeys = mapSourceFileToManifestKeys(normalizedFile, framework);
+    const moduleKeys = mapSourceFileToManifestKeys(normalizedFile, framework);
     
     // Special handling: For React components, check if we need to look for page-level entries
     // Components don't have direct manifest entries, but the dependency graph ensures
@@ -137,11 +137,7 @@ export function createModuleUpdates(
         : undefined;
       
       updates.push({
-        sourceFile: normalizedFile,
-        framework,
-        moduleKeys: Object.keys(modulePaths),
-        modulePaths,
-        componentType
+        componentType, framework, moduleKeys: Object.keys(modulePaths), modulePaths, sourceFile: normalizedFile
       });
     }
   }

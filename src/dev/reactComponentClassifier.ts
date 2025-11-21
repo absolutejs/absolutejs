@@ -16,7 +16,7 @@ export type ComponentType = 'client' | 'server';
    - Server Components: Re-render on server, send flight data, patch DOM
    - Client Components: Hot-replace module, re-render in client tree
 */
-export function classifyComponent(filePath: string): ComponentType {
+export const classifyComponent = (filePath: string) => {
   const normalizedPath = resolve(filePath);
   
   // Server Components: Pages are rendered on the server
@@ -39,8 +39,9 @@ export function classifyComponent(filePath: string): ComponentType {
 }
 
 /* Check if a file path is a React file */
-export function isReactFile(filePath: string): boolean {
+export const isReactFile = (filePath: string) => {
   const normalizedPath = resolve(filePath);
+
   return /\.(tsx|jsx)$/.test(normalizedPath) && normalizedPath.includes('/react/');
 }
 
