@@ -32,8 +32,8 @@ export function queueFileChange(
     // Check if file actually changed
     if (!hasFileChanged(filePath, currentHash, state.fileHashes)) {
       console.log(`⏭️ Skipping unchanged file: ${filePath}`);
-      return;
-    }
+    return;
+  }
   
   console.log(`🔥 File changed: ${filePath} (Framework: ${framework})`);
   
@@ -429,6 +429,48 @@ export async function triggerRebuild(
         }
       }
 
+      // Simple Svelte HMR: Re-compile and re-render, send HTML patch
+      // NOTE: Svelte HMR happens AFTER the rebuild completes, so we have the updated manifest
+      if (affectedFrameworks.includes('svelte') && filesToRebuild) {
+        const svelteFiles = filesToRebuild.filter(file => detectFramework(file) === 'svelte');
+        
+        if (svelteFiles.length > 0) {
+          console.log(`🔄 Svelte file(s) changed, re-compiling...`);
+          
+          // Find the Svelte page component (SvelteExample.svelte)
+          const sveltePagePath = svelteFiles.find(f => f.includes('/svelte/pages/SvelteExample.svelte')) 
+            || resolve('./example/svelte/pages/SvelteExample.svelte');
+          
+          // Simple approach: Re-compile with cache invalidation, re-render, send HTML
+          // The manifest passed here is the UPDATED manifest from the rebuild
+          try {
+            const { handleSvelteUpdate } = await import('./simpleSvelteHMR');
+            console.log('📦 Calling handleSvelteUpdate for:', sveltePagePath);
+            const newHTML = await handleSvelteUpdate(sveltePagePath, manifest);
+            
+            if (newHTML) {
+              console.log('✅ Got HTML from handleSvelteUpdate, length:', newHTML.length);
+              // Send simple HTML update to clients with the updated manifest
+              broadcastToClients(state, {
+                type: 'svelte-update',
+                data: {
+                  framework: 'svelte',
+                  sourceFile: sveltePagePath,
+                  html: newHTML,
+                  manifest // This is the updated manifest from the rebuild
+                }
+              });
+              console.log('✅ Svelte update sent to clients');
+            } else {
+              console.warn('⚠️ handleSvelteUpdate returned null/undefined - no HTML to send');
+            }
+          } catch (error) {
+            console.error('❌ Failed to handle Svelte update:', error);
+            console.error('❌ Error stack:', error instanceof Error ? error.stack : String(error));
+          }
+        }
+      }
+      
       // Simple HTMX HMR: Read HTMX file and send HTML patch
       if (affectedFrameworks.includes('htmx') && filesToRebuild) {
         const htmxFiles = filesToRebuild.filter(file => detectFramework(file) === 'htmx');

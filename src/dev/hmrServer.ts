@@ -177,6 +177,7 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                 message.type === 'html-update' ||
                 message.type === 'htmx-update' ||
                 message.type === 'vue-update' ||
+                message.type === 'svelte-update' ||
                 message.type === 'module-update' ||
                 message.type === 'rebuild-start'
               ) {
@@ -219,7 +220,8 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                       !message.data.affectedFrameworks.includes('react') && 
                       !message.data.affectedFrameworks.includes('html') &&
                       !message.data.affectedFrameworks.includes('htmx') &&
-                      !message.data.affectedFrameworks.includes('vue')) {
+                      !message.data.affectedFrameworks.includes('vue') &&
+                      !message.data.affectedFrameworks.includes('svelte')) {
                     console.log('Reloading page due to rebuild (non-HMR framework)...');
                     // Force a hard reload to bypass browser cache
                     // Add cache busting to the URL to ensure fresh bundle
@@ -232,6 +234,7 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                     if (message.data.affectedFrameworks?.includes('html')) hmrFrameworks.push('HTML');
                     if (message.data.affectedFrameworks?.includes('htmx')) hmrFrameworks.push('HTMX');
                     if (message.data.affectedFrameworks?.includes('vue')) hmrFrameworks.push('Vue');
+                    if (message.data.affectedFrameworks?.includes('svelte')) hmrFrameworks.push('Svelte');
                     if (hmrFrameworks.length > 0) {
                       console.log('Rebuild completed - ' + hmrFrameworks.join(' and ') + ' updates will be handled via HMR');
                     }
@@ -268,8 +271,10 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                     window.__HMR_MODULE_UPDATES__.push(message.data);
                     if (message.data.framework === 'react') {
                       console.log('✅ React module update processed (will be handled by react-update message)');
-                    } else {
+                    } else if (message.data.framework === 'vue') {
                       console.log('✅ Vue module update processed (will be handled by vue-update message)');
+                    } else if (message.data.framework === 'svelte') {
+                      console.log('✅ Svelte module update processed (will be handled by svelte-update message)');
                     }
                     break; // Don't reload - dedicated update messages will handle the update
                   }
@@ -330,9 +335,10 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                   }
                   
                   // Fallback: reload for frameworks without HMR support
-                  // React, Vue, HTML, and HTMX have dedicated update handlers, so skip reload
+                  // React, Vue, Svelte, HTML, and HTMX have dedicated update handlers, so skip reload
                   const hasHMRSupport = message.data.framework === 'react' || 
                                        message.data.framework === 'vue' || 
+                                       message.data.framework === 'svelte' ||
                                        message.data.framework === 'html' || 
                                        message.data.framework === 'htmx';
                   
@@ -530,6 +536,510 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                   }
                   break;
                 
+                case 'svelte-update':
+                  console.log('🔄 Svelte update received:', message.data.sourceFile);
+                  
+                  // Set HMR active flag to prevent bundle hash check from triggering reload
+                  sessionStorage.setItem('__HMR_ACTIVE__', 'true');
+                  
+                  // Simple DOM patching with new HTML from server
+                  if (message.data.html) {
+                    console.log('🔄 Patching DOM with new HTML...');
+                    console.log('📦 HTML length:', message.data.html.length);
+                    
+                    // Re-import the Svelte client bundle to re-hydrate
+                    // The manifest contains the indexPath for the Svelte client bundle
+                    const indexPath = message.data.manifest?.SvelteExampleIndex;
+                    const cssPath = message.data.manifest?.SvelteExampleCSS;
+                    
+                    // CRITICAL: Store old style tags to remove AFTER new ones are injected
+                    // This prevents a gap where no styles are applied
+                    const headElement = document.head;
+                    const styleTagsToRemove = [];
+                    
+                    // Find Svelte-injected style tags (but don't remove them yet)
+                    // CRITICAL: Svelte injects styles with id="svelte-{hash}" (e.g., "svelte-1tvw78m")
+                    // Svelte's N0 function checks for existing styles by ID and skips injection if found
+                    // We need to remove ALL style tags with IDs starting with "svelte-"
+                    for (let i = 0; i < headElement.children.length; i++) {
+                      const child = headElement.children[i];
+                      if (child.tagName === 'STYLE') {
+                        const styleElement = child;
+                        // Svelte injects styles with id="svelte-{hash}"
+                        // This is the primary way to identify Svelte-injected component styles
+                        const hasSvelteId = styleElement.id && styleElement.id.startsWith('svelte-');
+                        // Also check content as fallback (for styles without explicit ID)
+                        const hasSvelteContent = styleElement.textContent && (
+                          styleElement.textContent.includes('svelte-') ||
+                          styleElement.textContent.includes('.svelte-')
+                        );
+                        
+                        // Only mark style tags that are clearly Svelte-injected (but not our HMR-injected external CSS)
+                        // External stylesheets (with href) should be preserved
+                        if ((hasSvelteId || hasSvelteContent) && !styleElement.href && !styleElement.hasAttribute('data-svelte-hmr-injected')) {
+                          styleTagsToRemove.push(styleElement);
+                          // Log the ID for debugging
+                          if (hasSvelteId) {
+                            console.log('📦 Found Svelte style tag with ID:', styleElement.id);
+                          }
+                        }
+                      }
+                    }
+                    
+                    if (indexPath) {
+                      // Ensure the path starts with / and add cache busting
+                      const normalizedPath = indexPath.startsWith('/') 
+                        ? indexPath 
+                        : '/' + indexPath;
+                      const cacheBuster = '?t=' + Date.now();
+                      const modulePath = normalizedPath + cacheBuster;
+                      
+                      console.log('📦 Pre-injecting Svelte styles before mount...');
+                      let stylesInjected = false;
+                      
+                      const injectStylesPromise = new Promise(function(resolve, reject) {
+                        if (cssPath) {
+                          const normalizedCssPath = cssPath.startsWith('/') ? cssPath : '/' + cssPath;
+                          const cssCacheBuster = '?t=' + Date.now();
+                          
+                          fetch(normalizedCssPath + cssCacheBuster)
+                            .then(function(response) {
+                              if (!response.ok) {
+                                throw new Error('HTTP ' + response.status + ': ' + response.statusText);
+                              }
+                              return response.text();
+                            })
+                            .then(function(cssContent) {
+                              // Svelte uses scoped class names, not data-v-* attributes
+                              // We inject the CSS as-is, Svelte will handle scoping
+                              const styleTag = document.createElement('style');
+                              styleTag.textContent = cssContent;
+                              styleTag.setAttribute('data-svelte-hmr-injected', 'true');
+                              document.head.appendChild(styleTag);
+                              stylesInjected = true;
+                              console.log('✅ Pre-injected Svelte styles');
+                              
+                              // CRITICAL: Wait for the browser to parse and apply the stylesheet
+                              // Svelte's hydrate is synchronous, so we need styles ready BEFORE importing
+                              // Check if the stylesheet is actually loaded and parsed
+                              function waitForStylesheet() {
+                                const injectedStyle = document.querySelector('style[data-svelte-hmr-injected="true"]');
+                                
+                                if (injectedStyle && injectedStyle.sheet) {
+                                  try {
+                                    // Try to access cssRules to verify stylesheet is parsed
+                                    const ruleCount = injectedStyle.sheet.cssRules ? injectedStyle.sheet.cssRules.length : 0;
+                                    if (ruleCount > 0) {
+                                      // Stylesheet is loaded and parsed
+                                      console.log('✅ Stylesheet loaded with', ruleCount, 'rules');
+                                      // Wait one more RAF to ensure styles are applied
+                                      requestAnimationFrame(function() {
+                                        requestAnimationFrame(function() {
+                                          resolve('styles-injected');
+                                        });
+                                      });
+                                      return;
+                                    }
+                                  } catch (e) {
+                                    // Cross-origin or other error, but stylesheet exists
+                                    // Wait a bit and resolve anyway
+                                    console.log('⚠️ Could not access stylesheet rules (may be cross-origin), proceeding...');
+                                    requestAnimationFrame(function() {
+                                      requestAnimationFrame(function() {
+                                        resolve('styles-injected');
+                                      });
+                                    });
+                                    return;
+                                  }
+                                }
+                                
+                                // Stylesheet not ready yet, check again
+                                requestAnimationFrame(waitForStylesheet);
+                              }
+                              
+                              // Start checking after first RAF
+                              requestAnimationFrame(waitForStylesheet);
+                            })
+                            .catch(function(error) {
+                              console.error('❌ Failed to fetch and pre-inject Svelte CSS:', error);
+                              reject(error);
+                            });
+                        } else {
+                          resolve('no-css'); // Resolve if no CSS path
+                        }
+                      });
+                      
+                      // CRITICAL: Pre-inject styles BEFORE clearing/patching the body
+                      // This ensures styles are available when Svelte hydrates
+                      // Wait for styles to be ready, then patch body and hydrate
+                      injectStylesPromise
+                        .then(function() {
+                          // CRITICAL: DO NOT remove old Svelte-injected style tags
+                          // Removing them creates a brief gap where elements have no styles
+                          // Instead, keep them in place - Svelte's style injection is idempotent
+                          // and will update existing styles or add new ones as needed
+                          // This eliminates the flicker/delay by keeping styles continuously applied
+                          console.log('📦 Keeping old Svelte component styles in place to prevent flicker');
+                          
+                          // Now that external CSS is ready, clear and patch the body
+                          // Old component styles will remain in <head> to prevent any styling gap
+                          console.log('📦 Clearing body for fresh Svelte mount...');
+                          document.body.innerHTML = '';
+                          console.log('✅ Body cleared');
+                          
+                          // Patch body with new HTML from server
+                          // The HTML already has scoped class names from SSR
+                          document.body.innerHTML = message.data.html;
+                          console.log('✅ Body patched with new HTML');
+                          
+                          // CRITICAL: Force the browser to compute styles for ALL new elements
+                          // This ensures styles are applied before Svelte's hydrate runs
+                          // We MUST do this synchronously after patching, before any async operations
+                          const bodyElement = document.body;
+                          if (bodyElement && bodyElement.children.length > 0) {
+                            // Force style computation on ALL elements, not just a few
+                            // This is critical to prevent flicker
+                            const allElements = bodyElement.querySelectorAll('*');
+                            if (allElements.length > 0) {
+                              // Force style computation on every single element
+                              // This ensures styles are applied immediately
+                              for (let i = 0; i < allElements.length; i++) {
+                                void allElements[i].offsetHeight;
+                              }
+                            }
+                            // Also force on direct children
+                            for (let i = 0; i < bodyElement.children.length; i++) {
+                              void bodyElement.children[i].offsetHeight;
+                            }
+                            // And on the body itself
+                            void bodyElement.offsetHeight;
+                          }
+                          
+                          // CRITICAL: Wait multiple RAF cycles after patching the body
+                          // This ensures the browser has fully processed the new HTML structure
+                          // and applied all styles before Svelte's synchronous hydrate function runs
+                          // We use a more aggressive approach with multiple style computation passes
+                          return new Promise(function(resolve) {
+                            let rafCount = 0;
+                            const maxRafs = 4; // More RAF cycles for better style application
+                            
+                            function ensureStylesReady() {
+                              rafCount++;
+                              
+                              // Force style computation on all elements during each RAF
+                              if (bodyElement && bodyElement.children.length > 0) {
+                                const allElements = bodyElement.querySelectorAll('*');
+                                if (allElements.length > 0) {
+                                  // Force style computation on a sample of elements
+                                  // Doing all elements every RAF would be too expensive
+                                  const sampleSize = Math.min(30, allElements.length);
+                                  for (let i = 0; i < sampleSize; i++) {
+                                    void allElements[i].offsetHeight;
+                                  }
+                                }
+                                void bodyElement.offsetHeight;
+                              }
+                              
+                              if (rafCount >= maxRafs) {
+                                // One final comprehensive style computation pass
+                                if (bodyElement && bodyElement.children.length > 0) {
+                                  const allElements = bodyElement.querySelectorAll('*');
+                                  if (allElements.length > 0) {
+                                    for (let i = 0; i < Math.min(50, allElements.length); i++) {
+                                      void allElements[i].offsetHeight;
+                                    }
+                                  }
+                                  void bodyElement.offsetHeight;
+                                }
+                                resolve(undefined);
+                              } else {
+                                requestAnimationFrame(ensureStylesReady);
+                              }
+                            }
+                            
+                            requestAnimationFrame(ensureStylesReady);
+                          }).then(function() {
+                            // Now fetch and import the bundle
+                            return fetch(modulePath).then(function(response) {
+                              if (!response.ok) {
+                                throw new Error('HTTP ' + response.status + ': ' + response.statusText);
+                              }
+                              return response;
+                            });
+                          });
+                        })
+                      
+                        .then(function() {
+                          console.log('✅ Svelte bundle file exists, importing...');
+                          
+                          // CRITICAL: Set up MutationObserver BEFORE importing
+                          // This allows us to catch DOM changes as Svelte's hydrate modifies the DOM
+                          const bodyElement = document.body;
+                          let hydrationComplete = false;
+                          
+                          // Use MutationObserver to watch for DOM changes during hydration
+                          // Svelte's hydrate may modify the DOM, and we need to ensure styles are applied
+                          const observer = new MutationObserver(function(mutations) {
+                            // When DOM changes, force style computation immediately
+                            // This prevents flicker by ensuring styles are applied as soon as elements are modified
+                            if (stylesInjected && cssPath && !hydrationComplete) {
+                              // Force reflow on all elements to ensure styles are computed
+                              const allElements = bodyElement.querySelectorAll('*');
+                              if (allElements.length > 0) {
+                                // Force style computation on elements that were modified
+                                for (let i = 0; i < mutations.length; i++) {
+                                  const mutation = mutations[i];
+                                  if (mutation.target && mutation.target.nodeType === 1) {
+                                    void mutation.target.offsetHeight;
+                                  }
+                                  if (mutation.addedNodes) {
+                                    for (let j = 0; j < mutation.addedNodes.length; j++) {
+                                      const node = mutation.addedNodes[j];
+                                      if (node.nodeType === 1) {
+                                        void node.offsetHeight;
+                                        // Also force on descendants
+                                        const descendants = node.querySelectorAll('*');
+                                        for (let k = 0; k < Math.min(10, descendants.length); k++) {
+                                          void descendants[k].offsetHeight;
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          });
+                          
+                          // Start observing before import
+                          observer.observe(bodyElement, {
+                            childList: true,
+                            subtree: true,
+                            attributes: true,
+                            attributeOldValue: false
+                          });
+                          
+                          // Import will immediately call hydrate() synchronously
+                          // Svelte will also inject component styles into <head> when the component is imported
+                          // The MutationObserver will catch any DOM changes and force style computation
+                          return import(/* @vite-ignore */ modulePath).then(function() {
+                            console.log('✅ Svelte client bundle re-imported');
+                            
+                            // CRITICAL: Verify that Svelte injected component styles
+                            // Svelte injects styles synchronously when the component is imported
+                            // Svelte uses N0() which checks for style tags with id="svelte-{hash}"
+                            // Check for newly injected Svelte style tags (not our HMR-injected external CSS)
+                            const allStyleTags = document.querySelectorAll('style');
+                            const foundSvelteStyleIds = [];
+                            for (let i = 0; i < allStyleTags.length; i++) {
+                              const style = allStyleTags[i];
+                              // Skip our HMR-injected external CSS
+                              if (style.hasAttribute('data-svelte-hmr-injected')) continue;
+                              
+                              const hasSvelteId = style.id && style.id.startsWith('svelte-');
+                              const hasSvelteContent = style.textContent && (
+                                style.textContent.includes('svelte-') ||
+                                style.textContent.includes('.svelte-')
+                              );
+                              if (hasSvelteId || hasSvelteContent) {
+                                if (hasSvelteId) {
+                                  foundSvelteStyleIds.push(style.id);
+                                }
+                              }
+                            }
+                            
+                            if (foundSvelteStyleIds.length > 0) {
+                              console.log('✅ Svelte component styles injected (IDs:', foundSvelteStyleIds.join(', '), ')');
+                              
+                              // CRITICAL: Verify stylesheets are fully parsed before forcing style computation
+                              // Svelte injects styles synchronously, but the browser needs time to parse them
+                              // We wait for the stylesheets to be ready before forcing computation
+                              let stylesheetsReady = true;
+                              for (let i = 0; i < foundSvelteStyleIds.length; i++) {
+                                const styleId = foundSvelteStyleIds[i];
+                                const styleTag = document.getElementById(styleId);
+                                if (styleTag && styleTag.sheet) {
+                                  try {
+                                    // Try to access cssRules to verify stylesheet is parsed
+                                    const ruleCount = styleTag.sheet.cssRules ? styleTag.sheet.cssRules.length : 0;
+                                    if (ruleCount === 0) {
+                                      stylesheetsReady = false;
+                                      console.log('⚠️ Stylesheet', styleId, 'not fully parsed yet (0 rules)');
+                                      break;
+                                    }
+                                  } catch (e) {
+                                    // Cross-origin or other error, assume ready
+                                    console.log('⚠️ Could not access stylesheet rules for', styleId, '(may be cross-origin)');
+                                  }
+                                } else {
+                                  stylesheetsReady = false;
+                                  console.log('⚠️ Stylesheet', styleId, 'not found or not accessible');
+                                  break;
+                                }
+                              }
+                              
+                              // CRITICAL: Force style computation and application using getComputedStyle
+                              // This is more aggressive than offsetHeight - it forces the browser to actually
+                              // compute and apply styles, not just trigger a reflow
+                              const bodyElement = document.body;
+                              if (bodyElement && bodyElement.children.length > 0) {
+                                // Use getComputedStyle to force actual style computation and application
+                                // This ensures the browser matches scoped class names to the injected styles
+                                const allElements = bodyElement.querySelectorAll('*');
+                                if (allElements.length > 0) {
+                                  // Force style computation on every element using getComputedStyle
+                                  // This is more aggressive and ensures styles are actually applied
+                                  for (let i = 0; i < allElements.length; i++) {
+                                    const element = allElements[i];
+                                    // Force reflow
+                                    void element.offsetHeight;
+                                    // Force style computation - this actually applies the styles
+                                    if (window.getComputedStyle) {
+                                      window.getComputedStyle(element);
+                                    }
+                                  }
+                                }
+                                // Also force on direct children and body
+                                for (let i = 0; i < bodyElement.children.length; i++) {
+                                  const child = bodyElement.children[i];
+                                  void child.offsetHeight;
+                                  if (window.getComputedStyle) {
+                                    window.getComputedStyle(child);
+                                  }
+                                }
+                                void bodyElement.offsetHeight;
+                                if (window.getComputedStyle) {
+                                  window.getComputedStyle(bodyElement);
+                                }
+                              }
+                              
+                              if (stylesheetsReady) {
+                                console.log('✅ Forced style computation on all DOM elements (stylesheets ready)');
+                              } else {
+                                // Stylesheets not ready yet, but we still forced computation
+                                // The browser will apply styles once stylesheets are parsed
+                                console.log('⏳ Stylesheets not fully parsed yet, but forced style computation anyway');
+                                // Also wait a bit and force again
+                                requestAnimationFrame(function() {
+                                  requestAnimationFrame(function() {
+                                    if (bodyElement && bodyElement.children.length > 0) {
+                                      const allElements = bodyElement.querySelectorAll('*');
+                                      if (allElements.length > 0) {
+                                        for (let i = 0; i < allElements.length; i++) {
+                                          const element = allElements[i];
+                                          void element.offsetHeight;
+                                          if (window.getComputedStyle) {
+                                            window.getComputedStyle(element);
+                                          }
+                                        }
+                                      }
+                                      for (let i = 0; i < bodyElement.children.length; i++) {
+                                        const child = bodyElement.children[i];
+                                        void child.offsetHeight;
+                                        if (window.getComputedStyle) {
+                                          window.getComputedStyle(child);
+                                        }
+                                      }
+                                      void bodyElement.offsetHeight;
+                                      if (window.getComputedStyle) {
+                                        window.getComputedStyle(bodyElement);
+                                      }
+                                    }
+                                    console.log('✅ Forced style computation again after stylesheet parse wait');
+                                  });
+                                });
+                              }
+                            } else {
+                              console.warn('⚠️ Svelte component styles may not have been injected');
+                              console.warn('   Svelte may have skipped injection (styles may already exist)');
+                              console.warn('   This could cause missing styles - check if old styles were properly removed');
+                              console.warn('   Try checking document.head for style tags with id starting with "svelte-"');
+                            }
+                            
+                            // Mark hydration as complete
+                            hydrationComplete = true;
+                            
+                            // Wait a bit for any final DOM modifications
+                            return new Promise(function(resolve) {
+                              requestAnimationFrame(function() {
+                                requestAnimationFrame(function() {
+                                  requestAnimationFrame(function() {
+                                    // Triple RAF ensures:
+                                    // 1. Svelte has fully hydrated
+                                    // 2. Browser has processed any DOM modifications from hydrate
+                                    // 3. Styles are re-applied after reflow
+                                    // 4. Layout is stable
+                                    
+                                    // CRITICAL: Force style computation on ALL elements after hydration
+                                    // This ensures Svelte's injected styles are applied to all DOM elements
+                                    // Use getComputedStyle to force actual style application, not just reflow
+                                    const allElements = bodyElement.querySelectorAll('*');
+                                    if (allElements.length > 0) {
+                                      // Force style computation on every single element using getComputedStyle
+                                      // This is more aggressive and ensures styles are actually applied
+                                      for (let i = 0; i < allElements.length; i++) {
+                                        const element = allElements[i];
+                                        void element.offsetHeight;
+                                        if (window.getComputedStyle) {
+                                          window.getComputedStyle(element);
+                                        }
+                                      }
+                                    }
+                                    // Also force on direct children and body
+                                    for (let i = 0; i < bodyElement.children.length; i++) {
+                                      const child = bodyElement.children[i];
+                                      void child.offsetHeight;
+                                      if (window.getComputedStyle) {
+                                        window.getComputedStyle(child);
+                                      }
+                                    }
+                                    void bodyElement.offsetHeight;
+                                    if (window.getComputedStyle) {
+                                      window.getComputedStyle(bodyElement);
+                                    }
+                                    
+                                    // Stop observing
+                                    observer.disconnect();
+                                    
+                                    // Force one more comprehensive style computation pass
+                                    // This is a final check to ensure everything is ready
+                                    const finalElements = bodyElement.querySelectorAll('*');
+                                    if (finalElements.length > 0) {
+                                      for (let i = 0; i < finalElements.length; i++) {
+                                        void finalElements[i].offsetHeight;
+                                      }
+                                    }
+                                    void bodyElement.offsetHeight;
+                                    
+                                    console.log('✅ Svelte app re-mounted successfully');
+                                    sessionStorage.removeItem('__HMR_ACTIVE__');
+                                    resolve(undefined);
+                                  });
+                                });
+                              });
+                            });
+                          });
+                        })
+                        .catch(function(error) {
+                          console.error('❌ Failed to re-import Svelte client bundle:', error);
+                          console.error('   Attempted path:', modulePath);
+                          console.error('   Full URL:', window.location.origin + modulePath);
+                          console.error('   Manifest indexPath:', indexPath);
+                          console.error('   Error details:', error.message || error);
+                          console.warn('⚠️ Svelte app may not be fully functional - consider reloading');
+                          sessionStorage.removeItem('__HMR_ACTIVE__');
+                        });
+                    } else {
+                      console.warn('⚠️ No SvelteExampleIndex found in manifest, skipping re-mount');
+                      console.warn('   Available manifest keys:', Object.keys(message.data.manifest || {}));
+                      sessionStorage.removeItem('__HMR_ACTIVE__');
+                    }
+                  } else {
+                    console.warn('⚠️ No HTML in Svelte update');
+                    sessionStorage.removeItem('__HMR_ACTIVE__');
+                    console.error('❌ Failed to update Svelte - no HTML provided');
+                  }
+                  break;
+                
                 case 'vue-update':
                   console.log('🔄 Vue update received:', message.data.sourceFile);
                   
@@ -572,54 +1082,31 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                         }
                       }
                       
-                      // CRITICAL: Remove old Vue style tags before re-importing
-                      // Vue's scoped styles are injected when components are first imported
-                      // If old styles exist, Vue might not re-inject them
-                      // Removing them ensures Vue will inject fresh styles on re-import
-                      const headElement = document.head;
-                      const styleTagsToRemove = [];
+                      // CRITICAL: DO NOT remove old Vue style tags yet
+                      // Removing them creates a gap where elements have no styles (flicker)
+                      // Instead, keep them in place and let Vue update them
+                      // We'll pre-inject new styles shortly, and both old and new will coexist briefly
+                      console.log('📦 Keeping old Vue styles in place to prevent flicker');
                       
-                      // Find Vue scoped style tags (they have data-v-* attributes)
-                      for (let i = 0; i < headElement.children.length; i++) {
-                        const child = headElement.children[i];
-                        if (child.tagName === 'STYLE') {
-                          const styleElement = child;
-                          // Vue scoped styles have data-v-* attributes on the style element
-                          let hasDataV = false;
-                          for (let attrIndex = 0; attrIndex < styleElement.attributes.length; attrIndex++) {
-                            const attr = styleElement.attributes[attrIndex];
-                            if (attr.name && attr.name.startsWith('data-v-')) {
-                              hasDataV = true;
-                              break;
-                            }
-                          }
-                          const hasVueId = styleElement.id && styleElement.id.startsWith('vue-');
-                          const hasVueContent = styleElement.textContent && styleElement.textContent.includes('[data-v-');
-                          
-                          // Only remove style tags that are clearly Vue-injected
-                          // External stylesheets (with href) should be preserved
-                          if ((hasDataV || hasVueId || hasVueContent) && !styleElement.href) {
-                            styleTagsToRemove.push(styleElement);
-                          }
-                        }
-                      }
-                      
-                      // Remove stale Vue style tags (Vue will re-inject them on re-import)
-                      if (styleTagsToRemove.length > 0) {
-                        console.log('🔄 Removing', styleTagsToRemove.length, 'stale Vue style tag(s)...');
-                        for (let j = 0; j < styleTagsToRemove.length; j++) {
-                          styleTagsToRemove[j].remove();
-                        }
-                        console.log('✅ Stale Vue style tags removed (will be re-injected on re-import)');
-                      }
-                      
-                      // CRITICAL: For HMR updates, we need to mount fresh (not hydrate)
-                      // Clear the root container completely so Vue can mount fresh
-                      // This prevents hydration mismatches
+                      // CRITICAL: DO NOT clear the root container yet
+                      // Clearing it creates a blank screen (flicker) until Vue re-mounts
+                      // Instead, we'll patch it with new HTML from the server immediately after unmounting
+                      // This way the DOM goes from: old content -> new content (no gap!)
                       if (rootContainer) {
-                        console.log('📦 Clearing root container for fresh mount...');
-                        rootContainer.innerHTML = '';
-                        console.log('✅ Root container cleared');
+                        console.log('📦 Patching root container with new HTML (no clearing)...');
+                        // Extract just the #root content from the server HTML
+                        // The server HTML is the full body, but we only want the #root part
+                        const tempDiv = document.createElement('div');
+                        tempDiv.innerHTML = message.data.html;
+                        const newRootContent = tempDiv.querySelector('#root');
+                        if (newRootContent) {
+                          rootContainer.innerHTML = newRootContent.innerHTML;
+                          console.log('✅ Root container patched (no flicker)');
+                        } else {
+                          // Fallback: use the entire body HTML
+                          rootContainer.innerHTML = message.data.html;
+                          console.log('✅ Root container patched with full body HTML');
+                        }
                       }
                       
                       // Re-import the Vue client bundle to re-mount the Vue app
