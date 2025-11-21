@@ -64,7 +64,7 @@
 			/>
 		</a>
 	</nav>
-	<h1>AbsoluteJS + Svelt</h1>
+	<h1>AbsoluteJS + Svelte</h1>
 	<Counter {initialCount} />
 	<p>
 		Edit <code>example/svelte/pages/SvelteExample.svelte</code> then save and
