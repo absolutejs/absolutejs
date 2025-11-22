@@ -125,6 +125,9 @@ export const build = async ({
 	const svelteCssEntries = svelteDir
 		? await scanEntryPoints(join(svelteDir, 'styles'), '*.css')
 		: [];
+	const angularCssEntries = angularDir
+		? await scanEntryPoints(join(angularDir, 'styles'), '*.css')
+		: [];
 
 	const { svelteServerPaths, svelteClientPaths } = svelteDir
 		? await compileSvelte(svelteEntries, svelteDir)
@@ -156,7 +159,8 @@ export const build = async ({
 		...reactCssEntries,
 		...svelteCssEntries,
 		...htmlCssEntries,
-		...htmxCssEntries
+		...htmxCssEntries,
+		...angularCssEntries
 	];
 
 	if (

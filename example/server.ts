@@ -13,7 +13,6 @@ import {
 } from '../src/core/pageHandlers';
 import { networking } from '../src/plugins/networking';
 import { generateHeadElement } from '../src/utils/generateHeadElement';
-import angularTemplate from './angular/index.html' with { type: 'text' };
 import { ReactExample } from './react/pages/ReactExample';
 import SvelteExample from './svelte/pages/SvelteExample.svelte';
 import { vueImports } from './vueImporter';
@@ -25,6 +24,7 @@ const manifest = await build({
 	buildDirectory: 'example/build',
 	htmlDirectory: 'example/html',
 	htmxDirectory: 'example/htmx',
+	angularDirectory: 'example/angular',
 	options: {
 		preserveIntermediateFiles: true
 	},
@@ -32,6 +32,45 @@ const manifest = await build({
 	svelteDirectory: 'example/svelte',
 	vueDirectory: 'example/vue'
 });
+
+// Dynamically import Angular components after compilation
+// Angular compiles to example/angular/compiled/ (not example/build/compiled/)
+// The server component is in the compiled output directory
+// Find the actual compiled file path (may be deeply nested)
+import { readdirSync, statSync } from 'fs';
+import { join, resolve } from 'path';
+import { fileURLToPath } from 'url';
+
+const findAngularComponent = (dir: string, filename: string): string | null => {
+	try {
+		const entries = readdirSync(dir);
+		for (const entry of entries) {
+			const fullPath = join(dir, entry);
+			const stat = statSync(fullPath);
+			if (stat.isDirectory()) {
+				const found = findAngularComponent(fullPath, filename);
+				if (found) return found;
+			} else if (entry === filename) {
+				return fullPath;
+			}
+		}
+	} catch {
+		// Ignore errors
+	}
+	return null;
+};
+
+const angularCompiledDir = resolve(process.cwd(), 'example/angular/compiled');
+const angularServerFile = findAngularComponent(angularCompiledDir, 'angular-example.js');
+if (!angularServerFile) {
+	throw new Error('Angular compiled component not found');
+}
+
+// Use absolute path for import
+const angularModule = await import(angularServerFile);
+const AngularExampleComponent = angularModule.default;
+const CSS_PATH_TOKEN = angularModule.CSS_PATH;
+const INITIAL_COUNT_TOKEN = angularModule.INITIAL_COUNT;
 
 export const server = new Elysia()
 	.use(
@@ -86,9 +125,17 @@ export const server = new Elysia()
 	)
 	.get('/angular', async () =>
 		handleAngularPageRequest(
-			asset(manifest, 'AngularExample'),
+			AngularExampleComponent,
 			asset(manifest, 'AngularExampleIndex'),
-			angularTemplate.toString()
+			{
+				initialCount: 0,
+				cssPath: asset(manifest, 'AngularExampleCSS')
+			},
+			undefined,
+			{
+				CSS_PATH: CSS_PATH_TOKEN,
+				INITIAL_COUNT: INITIAL_COUNT_TOKEN
+			}
 		)
 	)
 	.get('/htmx', () =>
