@@ -6,7 +6,7 @@ import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 	selector: 'app-head',
 	standalone: true,
 	imports: [CommonModule],
-	template: `
+		template: `
 		<head>
 			<meta charset="UTF-8" />
 			<link

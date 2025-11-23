@@ -83,16 +83,21 @@ export const compileAngularFile = async (inputPath: string, outDir: string) => {
 	if (diagnostics?.length) {
 		const errors = diagnostics.filter(d => d.category === ts.DiagnosticCategory.Error);
 		if (errors.length) {
-			throw new Error(
-				errors
-					.map((diagnostic) =>
-						ts.flattenDiagnosticMessageText(
-							diagnostic.messageText,
-							'\n'
-						)
-					)
-					.join('\n')
-			);
+			const errorMessages: string[] = [];
+			for (const diagnostic of errors) {
+				try {
+					const message = ts.flattenDiagnosticMessageText(
+						diagnostic.messageText,
+						'\n'
+					);
+					errorMessages.push(message);
+				} catch (e) {
+					errorMessages.push(String(diagnostic.messageText || 'Unknown error'));
+				}
+			}
+			const fullMessage = errorMessages.join('\n');
+			console.error('Angular compilation errors:', fullMessage);
+			throw new Error(fullMessage);
 		}
 	}
 

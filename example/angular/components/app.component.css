@@ -6,26 +6,9 @@ main {
 	padding: 2rem;
 }
 
-nav {
-	display: flex;
-	gap: 2rem;
-	margin-bottom: 2rem;
-}
+/* Nav styles moved to global CSS for consistency */
 
-.logo {
-	height: 6em;
-	padding: 1.5em;
-	will-change: filter;
-	transition: filter 300ms;
-}
-
-.logo:hover {
-	filter: drop-shadow(0 0 2em #646cffaa);
-}
-
-.logo.angular:hover {
-	filter: drop-shadow(0 0 2em #dd0031aa);
-}
+/* Logo styles moved to global CSS for consistency */
 
 h1 {
 	font-size: 3.2em;

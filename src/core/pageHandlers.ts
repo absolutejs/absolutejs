@@ -25,7 +25,8 @@ import { Component as VueComponent, createSSRApp, h } from 'vue';
 import { renderToWebStream as renderVueToWebStream } from 'vue/server-renderer';
 import { renderToReadableStream as renderSvelteToReadableStream } from '../svelte/renderToReadableStream';
 import { renderToString as renderSvelteToString } from '../svelte/renderToString';
-import { PropsArgs } from '../types';
+import { PropsArgs, AngularPageProps, AngularInjectionTokens, AngularComponentModule, AngularComponent } from '../types';
+import { registerClientScript, getAndClearClientScripts, generateClientScriptCode } from '../utils/registerClientScript';
 
 export const handleReactPageRequest = async <
 	Props extends Record<string, unknown> = Record<never, never>
@@ -78,8 +79,7 @@ export const handleSveltePageRequest: HandleSveltePageRequest = async <
 	// CRITICAL: Run Svelte rendering outside of zone.js context
 	// zone.js (loaded for Angular) patches async operations globally and breaks Svelte streams
 	// We need to run Svelte in a context that bypasses zone.js patches
-	// @ts-expect-error - Zone may not exist if Angular hasn't been used
-	const Zone = globalThis.Zone;
+	const Zone = (globalThis as any).Zone;
 	
 	// If zone.js is active, we need to completely bypass it for Svelte
 	// zone.js patches Promise, async/await, and streams globally at module load time
@@ -173,12 +173,20 @@ export const handleVuePageRequest = async <
 };
 
 export const handleAngularPageRequest = async (
-	PageComponent: any,
+	PageComponent: AngularComponent<unknown>,
 	indexPath: string,
-	props?: { initialCount?: number; cssPath?: string },
+	props?: AngularPageProps,
 	template?: string | Document,
-	tokens?: { CSS_PATH?: any; INITIAL_COUNT?: any }
+	tokens?: AngularInjectionTokens
 ) => {
+	// Generate a unique request ID for this SSR request
+	// This allows components to register client scripts during SSR
+	const requestId = `angular_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+	
+	// Make requestId available globally for components to use during SSR
+	// Using type assertion because globalThis typing doesn't include our custom property
+	(globalThis as { __absolutejs_requestId?: string }).__absolutejs_requestId = requestId;
+	
 	// Ensure patches are applied before proceeding
 	await patchPromise;
 	
@@ -186,15 +194,22 @@ export const handleAngularPageRequest = async (
 	const CSS_PATH_TOKEN = tokens?.CSS_PATH;
 	const INITIAL_COUNT_TOKEN = tokens?.INITIAL_COUNT;
 	
-	// @ts-expect-error - zone.js doesn't have proper type definitions
-	if (!('Zone' in globalThis)) await import('zone.js/node');
+	// Load zone.js if not already loaded (required for Angular)
+	if (!('Zone' in globalThis)) {
+		try {
+			// zone.js/node doesn't have TypeScript definitions, but it exists at runtime
+			await import('zone.js/node' as string);
+		} catch {
+			// zone.js may not be installed, but Angular will handle the error
+		}
+	}
 
 	// Initialize Domino adapter - patches are already applied at module load time
 	// This ensures Angular SSR's DOM types are available globally
 	try {
 		const platformServer = await import('@angular/platform-server');
-		// @ts-expect-error - DominoAdapter exists at runtime
-		const DominoAdapter = platformServer.DominoAdapter;
+		// DominoAdapter is available at runtime but may not be in TypeScript definitions
+		const DominoAdapter = (platformServer as { DominoAdapter?: { makeCurrent?: () => void } }).DominoAdapter;
 		if (DominoAdapter?.makeCurrent) {
 			DominoAdapter.makeCurrent();
 			console.log('✅ DominoAdapter initialized (patches already applied at module load)');
@@ -220,8 +235,11 @@ export const handleAngularPageRequest = async (
 	let document: string | Document = htmlString;
 	if (typeof htmlString === 'string') {
 		try {
-			// @ts-expect-error - domino may not be installed in absolutejs, but should be in user's project
-			const domino = await import('domino').catch(() => null);
+			// domino may not be installed in absolutejs, but should be in user's project
+			// Using type assertion because domino may not have TypeScript definitions
+			const domino = await import('domino' as string).catch(() => null) as {
+				createWindow?: (html: string, url: string) => { document: Document };
+			} | null;
 			if (domino?.createWindow) {
 				// Parse the HTML string into a Document object
 				// This ensures doc.head exists immediately when Angular SSR accesses it
@@ -364,10 +382,15 @@ export const handleAngularPageRequest = async (
 	// Angular 19 SSR pattern: Bootstrap function receives BootstrapContext
 	// BootstrapContext is available in Angular 19 and 20.3+
 	const bootstrap = (context: BootstrapContext) => {
-		// Type assertions needed because TypeScript definitions vary by Angular version
-		return (bootstrapApplication as any)(PageComponent, {
+		// bootstrapApplication signature varies by Angular version, so we need type assertion
+		// In Angular 19, it accepts (component, config, context)
+		return (bootstrapApplication as (
+			component: AngularComponent<unknown>,
+			config?: { providers?: unknown[] },
+			context?: BootstrapContext
+		) => Promise<unknown>)(PageComponent, {
 			providers: providers
-		}, context);  // Pass the context as third argument
+		}, context);
 	};
 
 	try {
@@ -379,11 +402,32 @@ export const handleAngularPageRequest = async (
 			finalDocument = createDocumentProxy(document);
 		}
 		
-		const html = await renderApplication(bootstrap as any, {
+		let html = await renderApplication(bootstrap as any, {
 			document: finalDocument,
 			url: '/',
 			platformProviders: []  // Per-request platform-level providers
 		});
+
+		// Collect all client scripts registered during SSR by components
+		const registeredScripts = getAndClearClientScripts(requestId);
+		
+		// Generate and inject client scripts if any were registered
+		if (registeredScripts.length > 0) {
+			const clientScriptCode = generateClientScriptCode(registeredScripts);
+			
+			// Inject script before closing </body> tag, or before </html> if no body
+			if (html.includes('</body>')) {
+				html = html.replace('</body>', clientScriptCode + '</body>');
+			} else if (html.includes('</html>')) {
+				html = html.replace('</html>', clientScriptCode + '</html>');
+			} else {
+				// Fallback: append to end
+				html += clientScriptCode;
+			}
+		}
+		
+		// Clean up global request ID
+		delete (globalThis as { __absolutejs_requestId?: string }).__absolutejs_requestId;
 
 		return new Response(html, {
 			headers: { 'Content-Type': 'text/html' }

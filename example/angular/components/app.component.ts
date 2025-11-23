@@ -1,4 +1,4 @@
-import { Component, Input } from '@angular/core';
+import { Component, Input, ViewEncapsulation } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { CounterComponent } from './counter.component';
 
@@ -7,7 +7,8 @@ import { CounterComponent } from './counter.component';
 	standalone: true,
 	imports: [CommonModule, CounterComponent],
 	templateUrl: './app.component.html',
-	styleUrls: ['./app.component.css']
+	styleUrls: ['./app.component.css'],
+	encapsulation: ViewEncapsulation.None // Allow global styles to apply
 })
 export class AppComponent {
 	@Input() initialCount: number = 0;

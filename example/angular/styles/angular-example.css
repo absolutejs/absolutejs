@@ -53,10 +53,101 @@ h1 {
 	filter: drop-shadow(0 0 2rem #dd0031);
 }
 
+/* Ensure logo nav has proper spacing - override any component styles */
+main nav .logo {
+	height: 8rem;
+	width: 8rem;
+}
+
 nav {
 	display: flex;
 	gap: 4rem;
 	justify-content: center;
+}
+
+/* Logo nav spacing - ensure it applies to nav elements in main */
+main nav {
+	display: flex;
+	gap: 4rem;
+	justify-content: center;
+	margin-bottom: 2rem;
+}
+
+header details {
+	position: relative;
+}
+
+header details summary {
+	list-style: none;
+	appearance: none;
+	-webkit-appearance: none;
+	cursor: pointer;
+	user-select: none;
+	color: #5fbeeb;
+	font-size: 1.5rem;
+	font-weight: 500;
+	padding: 0.5rem 1rem;
+}
+
+header summary::after {
+	content: '▼';
+	display: inline-block;
+	margin-left: 0.5rem;
+	font-size: 0.75rem;
+	transition: transform 0.3s ease;
+}
+
+header details[open] summary::after {
+	transform: rotate(180deg);
+}
+
+header details nav {
+	position: absolute;
+	top: 100%;
+	right: -0.5rem;
+	display: flex;
+	flex-direction: column;
+	gap: 0.75rem;
+	background: rgba(185, 185, 185, 0.1);
+	backdrop-filter: blur(4px);
+	border: 1px solid #5fbeeb;
+	border-radius: 1rem;
+	padding: 1rem 1.5rem;
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+	opacity: 0;
+	transform: translateY(-8px);
+	pointer-events: none;
+	transition:
+		opacity 0.3s ease,
+		transform 0.3s ease;
+	z-index: 1000;
+}
+
+header details[open] nav {
+	opacity: 1;
+	transform: translateY(0);
+	pointer-events: auto;
+}
+
+header details nav a {
+	font-size: 1.1rem;
+	padding: 0.25rem 0;
+	white-space: nowrap;
+	color: #5fbeeb;
+	text-decoration: none;
+}
+
+body {
+	display: flex;
+	flex-direction: column;
+	min-height: 100vh;
+}
+
+/* Spacing between header and main content */
+app-root {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
 }
 
 main {
@@ -66,6 +157,7 @@ main {
 	flex-direction: column;
 	justify-content: center;
 	text-align: center;
+	padding-top: 2rem;
 }
 
 p {
