@@ -1,5 +1,7 @@
 import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
+// Import from source during development (will use @absolutejs/absolute in user projects)
+import { getRegisterClientScript } from '../../../src/utils/getRegisterClientScript';
 
 @Component({
 	selector: 'app-dropdown',
@@ -25,8 +27,8 @@ export class DropdownComponent implements OnInit {
 		// Register client-side event listeners for dropdown hover behavior
 		// This runs during SSR and the script will be injected into the HTML response
 		// The script will execute on the client after Angular hydrates
-		const registerScript = (globalThis as any).registerClientScript;
-		if (registerScript && typeof registerScript === 'function') {
+		const registerScript = getRegisterClientScript();
+		if (registerScript) {
 			registerScript(() => {
 				const details = document.querySelector('header app-dropdown details.dropdown') as HTMLDetailsElement | null;
 				if (details && !(details as any).__dropdownListenersAttached) {

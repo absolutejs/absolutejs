@@ -54,9 +54,11 @@ export function registerClientScript(
 }
 
 // Make registerClientScript available globally during SSR for Angular components
-// Components can use: (globalThis as any).registerClientScript(() => { ... })
+// Using type assertion for globalThis extension
 if (typeof globalThis !== 'undefined') {
-	(globalThis as any).registerClientScript = registerClientScript;
+	(globalThis as {
+		registerClientScript?: (script: () => void) => string;
+	}).registerClientScript = registerClientScript;
 }
 
 /**

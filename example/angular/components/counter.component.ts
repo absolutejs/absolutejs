@@ -1,5 +1,7 @@
 import { Component, Input, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
+// Import from source during development (will use @absolutejs/absolute in user projects)
+import { getRegisterClientScript } from '../../../src/utils/getRegisterClientScript';
 
 @Component({
 	selector: 'app-counter',
@@ -44,8 +46,8 @@ export class CounterComponent implements OnInit {
 		// Register client-side event listener for counter button
 		// This runs during SSR and the script will be injected into the HTML response
 		// The script will execute on the client after Angular hydrates
-		const registerScript = (globalThis as any).registerClientScript;
-		if (registerScript && typeof registerScript === 'function') {
+		const registerScript = getRegisterClientScript();
+		if (registerScript) {
 			registerScript(() => {
 				const button = document.querySelector('app-counter button');
 				const counterValue = document.querySelector('app-counter .counter-value');
