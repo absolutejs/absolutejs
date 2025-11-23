@@ -1,11 +1,11 @@
-import { Component, Input } from '@angular/core';
+import { Component, Input, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 
 @Component({
 	selector: 'app-counter',
 	standalone: true,
 	imports: [CommonModule],
-	template: ` <button (click)="increment()">count is {{ count }}</button> `,
+	template: ` <button>count is <span class="counter-value">{{ initialCount }}</span></button> `,
 	styles: [
 		`
 			button {
@@ -37,16 +37,32 @@ import { CommonModule } from '@angular/common';
 		`
 	]
 })
-export class CounterComponent {
+export class CounterComponent implements OnInit {
 	@Input() initialCount: number = 0;
-	count: number = 0;
 
 	ngOnInit() {
-		this.count = this.initialCount;
-	}
-
-	increment() {
-		this.count++;
+		// Register client-side event listener for counter button
+		// This runs during SSR and the script will be injected into the HTML response
+		// The script will execute on the client after Angular hydrates
+		const registerScript = (globalThis as any).registerClientScript;
+		if (registerScript && typeof registerScript === 'function') {
+			registerScript(() => {
+				const button = document.querySelector('app-counter button');
+				const counterValue = document.querySelector('app-counter .counter-value');
+				if (button && counterValue && !(button as any).__counterListenerAttached) {
+					(button as any).__counterListenerAttached = true;
+					// Initialize count from the current text content (set during SSR from initialCount)
+					let count = parseInt(counterValue.textContent || '0', 10);
+					
+					button.addEventListener('click', () => {
+						count++;
+						if (counterValue) {
+							counterValue.textContent = count.toString();
+						}
+					});
+				}
+			});
+		}
 	}
 }
 
