@@ -334,7 +334,7 @@ export async function triggerRebuild(
                 data: {
                   framework: 'react', html: newHTML, manifest, sourceFile: reactPagePath
                 }, type: 'react-update'
-              });
+    });
               console.log('✅ React update sent to clients');
             } else {
               console.warn('⚠️ handleReactUpdate returned null/undefined - no HTML to send');

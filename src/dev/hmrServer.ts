@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve as PATH_RESOLVE, sep as PATH_SEP, resolve } from 'node:path';
 import { env } from 'bun';
 import { Elysia } from 'elysia';
+import { scopedState } from 'elysia-scoped-state';
 import { build } from '../core/build';
 import {
   handleHTMLPageRequest,
@@ -124,6 +125,82 @@ export async function startBunHMRDevServer(config: BuildConfig) {
             
             await Promise.all(prefetchPromises);
             console.log('✅ Pre-fetched', modulePaths.length, 'module(s) for sync');
+          }
+          
+          // State Preservation Utilities
+          // These functions save and restore frontend state across HMR updates
+          function saveFormState() {
+            const formState = {};
+            const forms = document.querySelectorAll('form');
+            forms.forEach((form, formIndex) => {
+              const formId = form.id || 'form-' + formIndex;
+              formState[formId] = {};
+              const inputs = form.querySelectorAll('input, textarea, select');
+              inputs.forEach((input) => {
+                const element = input;
+                const name = element.name || element.id || 'input-' + formIndex + '-' + inputs.length;
+                if (element.type === 'checkbox' || element.type === 'radio') {
+                  formState[formId][name] = element.checked;
+                } else {
+                  formState[formId][name] = element.value;
+                }
+              });
+            });
+            const standaloneInputs = document.querySelectorAll('input:not(form input), textarea:not(form textarea), select:not(form select)');
+            if (standaloneInputs.length > 0) {
+              formState['__standalone__'] = {};
+              standaloneInputs.forEach((input) => {
+                const element = input;
+                const name = element.name || element.id || 'standalone-' + standaloneInputs.length;
+                if (element.type === 'checkbox' || element.type === 'radio') {
+                  formState['__standalone__'][name] = element.checked;
+                } else {
+                  formState['__standalone__'][name] = element.value;
+                }
+              });
+            }
+            return formState;
+          }
+          
+          function restoreFormState(formState) {
+            Object.keys(formState).forEach((formId) => {
+              const isStandalone = formId === '__standalone__';
+              const form = isStandalone ? null : document.getElementById(formId) || document.querySelector('form:nth-of-type(' + (parseInt(formId.replace('form-', '')) + 1) + ')');
+              Object.keys(formState[formId]).forEach((name) => {
+                let element = null;
+                if (isStandalone) {
+                  element = document.querySelector('input[name="' + name + '"], textarea[name="' + name + '"], select[name="' + name + '"]');
+                  if (!element) {
+                    element = document.getElementById(name);
+                  }
+                } else if (form) {
+                  element = form.querySelector('[name="' + name + '"], #' + name);
+                }
+                if (element) {
+                  const value = formState[formId][name];
+                  if (element.type === 'checkbox' || element.type === 'radio') {
+                    element.checked = value === true;
+                  } else {
+                    element.value = String(value);
+                  }
+                }
+              });
+            });
+          }
+          
+          function saveScrollState() {
+            return {
+              window: {
+                x: window.scrollX || window.pageXOffset,
+                y: window.scrollY || window.pageYOffset
+              }
+            };
+          }
+          
+          function restoreScrollState(scrollState) {
+            if (scrollState && scrollState.window) {
+              window.scrollTo(scrollState.window.x, scrollState.window.y);
+            }
           }
           
           // Simple React HMR Client Handler
@@ -375,45 +452,94 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                       console.log('📦 HTML length:', message.data.html.length);
                       console.log('📦 Body before patch:', container.innerHTML.length, 'chars');
                       
-                      // CRITICAL: Instead of unmounting and re-hydrating, re-render with the new component
-                      // This avoids the white flicker by keeping React connected to the DOM
-                      console.log('🔄 Re-rendering React component with fresh code...');
+                      // PRESERVE STATE: Extract current component state from the DOM before updating
+                      // For React, we need to preserve component state (like counter values) by reading from DOM
+                      // and passing as props to the re-rendered component
+                      const savedState = {
+                        forms: saveFormState(),
+                        scroll: saveScrollState(),
+                        // Try to extract counter value from button text (e.g., "count is 5" -> 5)
+                        componentState: {}
+                      };
                       
-                      // Re-import the React component directly (not the index file)
-                      // This gets us the fresh component code without going through hydration
-                      const cacheBuster = '?t=' + Date.now();
-                      const componentPath = '../../example/react/pages/ReactExample.tsx' + cacheBuster;
+                      // Extract component state from DOM (e.g., counter values from button text)
+                      const button = container.querySelector('button');
+                      if (button && button.textContent) {
+                        const countMatch = button.textContent.match(/count is (\\d+)/);
+                        if (countMatch) {
+                          savedState.componentState.count = parseInt(countMatch[1], 10);
+                          console.log('📦 Preserved counter state:', savedState.componentState.count);
+                        }
+                      }
                       
-                      Promise.all([
-                        import(/* @vite-ignore */ componentPath),
-                        import('react'),
-                        import('react-dom/client')
-                      ])
-                        .then(([ReactModule, React, ReactDOM]) => {
-                          const ReactExample = ReactModule.ReactExample;
-                          if (!ReactExample) {
-                            throw new Error('ReactExample not found in module');
+                      // Also try to get count from any data attributes or React DevTools
+                      // React might store state in data attributes in dev mode
+                      const reactRoot = container.querySelector('[data-reactroot]') || container;
+                      if (reactRoot) {
+                        // Try to find any elements with data attributes that might contain state
+                        const stateElements = reactRoot.querySelectorAll('[data-state], [data-count]');
+                        stateElements.forEach((el) => {
+                          const stateValue = el.getAttribute('data-state') || el.getAttribute('data-count');
+                          if (stateValue && !isNaN(parseInt(stateValue, 10))) {
+                            savedState.componentState.count = parseInt(stateValue, 10);
+                            console.log('📦 Found state in data attribute:', savedState.componentState.count);
                           }
+                        });
+                      }
+                      
+                      // CRITICAL: Re-import the index file instead of the component directly
+                      // The index file has proper hydration logic and will handle state preservation better
+                      console.log('🔄 Re-importing React index file for HMR update...');
+                      
+                      const indexPath = message.data.manifest?.ReactExampleIndex;
+                      if (!indexPath) {
+                        console.error('❌ No ReactExampleIndex in manifest');
+                        sessionStorage.removeItem('__HMR_ACTIVE__');
+                        return;
+                      }
+                      
+                      const modulePath = indexPath.startsWith('/') 
+                        ? indexPath + '?t=' + Date.now()
+                        : '/' + indexPath + '?t=' + Date.now();
+                      
+                      // Store preserved state in a global that the index file will check
+                      // This way we don't need to modify component files
+                      if (savedState.componentState.count !== undefined) {
+                        window.__HMR_PRESERVED_STATE__ = {
+                          initialCount: savedState.componentState.count
+                        };
+                        console.log('📦 Stored preserved state for React:', window.__HMR_PRESERVED_STATE__);
+                      }
+                      
+                      // CRITICAL: Do NOT patch DOM with innerHTML for React!
+                      // Patching breaks React's connection to the DOM and loses event handlers
+                      // Instead, let React handle the update by re-importing the index file
+                      // The index file will re-hydrate React, and React will reconcile the changes
+                      console.log('🔄 Re-importing React index (React will handle DOM updates)...');
+                      
+                      // Unmount existing root if it exists (ensures clean remount with preserved state)
+                      if (window.__REACT_ROOT__ && typeof window.__REACT_ROOT__.unmount === 'function') {
+                        console.log('🔄 Unmounting existing React root for clean remount...');
+                        try {
+                          window.__REACT_ROOT__.unmount();
+                          window.__REACT_ROOT__ = undefined;
+                          console.log('✅ Existing React root unmounted');
+                        } catch (error) {
+                          console.warn('⚠️ Error unmounting React root:', error);
+                        }
+                      }
+                      
+                      // Re-import the index file which will re-hydrate React
+                      import(/* @vite-ignore */ modulePath)
+                        .then(() => {
+                          console.log('✅ React index file re-imported, component should be re-hydrated');
                           
-                          const { createElement } = React;
-                          const props = window.__INITIAL_PROPS__ || {};
-                          const element = createElement(ReactExample, props);
-                          
-                          // Re-render using existing root (if available) or create new one
-                          if (window.__REACT_ROOT__ && typeof window.__REACT_ROOT__.render === 'function') {
-                            // Use existing root to re-render (no flicker - React handles the update smoothly!)
-                            window.__REACT_ROOT__.render(element);
-                            console.log('✅ React component re-rendered (no flicker)');
-                          } else {
-                            // No existing root, need to create one
-                            // But first, we need to patch the DOM with the new HTML so React has something to render into
-                            container.innerHTML = message.data.html;
-                            const { createRoot } = ReactDOM;
-                            const root = createRoot(document);
-                            root.render(element);
-                            window.__REACT_ROOT__ = root;
-                            console.log('✅ React root created and component rendered');
-                          }
+                          // RESTORE STATE: Restore form data and scroll position after React re-hydrates
+                          requestAnimationFrame(() => {
+                            restoreFormState(savedState.forms);
+                            restoreScrollState(savedState.scroll);
+                            console.log('✅ State preserved across React update');
+                          });
                           
                           // Clear HMR active flag after successful update
                           sessionStorage.removeItem('__HMR_ACTIVE__');
@@ -472,11 +598,80 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                       console.log('📦 HTML length:', message.data.html.length);
                       console.log('📦 Body before patch:', container.innerHTML.length, 'chars');
                       
+                      // PRESERVE STATE: Save form data and scroll position before patching
+                      const savedState = {
+                        forms: saveFormState(),
+                        scroll: saveScrollState()
+                      };
+                      
+                      // Extract counter state from DOM before patching
+                      const counterSpan = container.querySelector('#counter');
+                      const counterValue = counterSpan ? parseInt(counterSpan.textContent || '0', 10) : 0;
+                      savedState.componentState = { count: counterValue };
+                      console.log('📦 Preserved HTML counter state:', counterValue);
+                      
+                      // Store counter state in a global so scripts can access it
+                      window.__HTML_COUNTER_STATE__ = counterValue;
+                      
+                      // CRITICAL: Store existing compiled script elements before patching
+                      // We need to preserve these because the new HTML has TypeScript source paths
+                      const existingScripts = Array.from(container.querySelectorAll('script[src]')).map((script) => ({
+                        src: script.getAttribute('src') || '',
+                        type: script.getAttribute('type') || 'text/javascript'
+                      }));
+                      console.log('📦 Stored existing compiled scripts:', existingScripts.length);
+                      
                       // For HTML files, we can simply replace the body content
                       // No need for React re-hydration - just patch the DOM
                       container.innerHTML = message.data.html;
                       console.log('✅ HTML updated via DOM patch');
                       console.log('📦 Body after patch:', container.innerHTML.length, 'chars');
+                      
+                      // RESTORE STATE: Restore form data, scroll position, and counter state
+                      requestAnimationFrame(() => {
+                        restoreFormState(savedState.forms);
+                        restoreScrollState(savedState.scroll);
+                        
+                        // Restore counter state in DOM
+                        const newCounterSpan = container.querySelector('#counter');
+                        if (newCounterSpan && savedState.componentState.count !== undefined) {
+                          newCounterSpan.textContent = String(savedState.componentState.count);
+                          console.log('📦 Restored counter display:', savedState.componentState.count);
+                        }
+                        
+                        // Remove any script tags from the patched HTML (they have TypeScript source paths)
+                        const scriptsInNewHTML = container.querySelectorAll('script[src]');
+                        scriptsInNewHTML.forEach((script) => {
+                          script.remove();
+                        });
+                        console.log('🗑️ Removed', scriptsInNewHTML.length, 'script tag(s) from patched HTML');
+                        
+                        // Clear the script initialization flag so script can re-run after patching
+                        window.__HTML_SCRIPT_INITIALIZED__ = false;
+                        console.log('🔄 Cleared script initialization flag for re-initialization');
+                        
+                        // Re-append the existing compiled scripts with cache busting to trigger re-execution
+                        existingScripts.forEach((scriptInfo) => {
+                          const newScript = document.createElement('script');
+                          // Add cache buster to force reload
+                          const separator = scriptInfo.src.includes('?') ? '&' : '?';
+                          newScript.src = scriptInfo.src + separator + 't=' + Date.now();
+                          newScript.type = scriptInfo.type;
+                          container.appendChild(newScript);
+                          console.log('📦 Re-appended compiled script:', scriptInfo.src);
+                        });
+                        
+                        // Re-execute inline scripts
+                        const inlineScripts = container.querySelectorAll('script:not([src])');
+                        inlineScripts.forEach((script) => {
+                          const newScript = document.createElement('script');
+                          newScript.textContent = script.textContent || '';
+                          newScript.type = script.type || 'text/javascript';
+                          script.parentNode?.replaceChild(newScript, script);
+                        });
+                        
+                        console.log('✅ State preserved across HTML update');
+                      });
                       
                       // Verify the patch worked
                       if (container.innerHTML.trim().length === 0) {
@@ -510,9 +705,73 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                       console.log('📦 HTML length:', message.data.html.length);
                       console.log('📦 Body before patch:', container.innerHTML.length, 'chars');
                       
+                      // PRESERVE STATE: Save form data and scroll position before patching
+                      const savedState = {
+                        forms: saveFormState(),
+                        scroll: saveScrollState()
+                      };
+                      
+                      // Extract counter state from DOM before patching
+                      const countSpan = container.querySelector('#count');
+                      const countValue = countSpan ? parseInt(countSpan.textContent || '0', 10) : 0;
+                      savedState.componentState = { count: countValue };
+                      console.log('📦 Preserved HTMX counter state:', countValue);
+                      
+                      // CRITICAL: Update server-side state to match client state
+                      // HTMX uses server-side state, so we need to sync it before patching
+                      // Send a POST request to update the server-side counter
+                      if (savedState.componentState.count !== undefined && savedState.componentState.count > 0) {
+                        console.log('🔄 Syncing server-side HTMX state...');
+                        fetch('/htmx/sync-count', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ count: savedState.componentState.count })
+                        }).then(() => {
+                          console.log('✅ Server-side HTMX state synced');
+                        }).catch((error) => {
+                          console.warn('⚠️ Failed to sync server-side HTMX state:', error);
+                        });
+                      }
+                      
                       container.innerHTML = message.data.html;
                       console.log('✅ HTMX content updated via DOM patch');
                       console.log('📦 Body after patch:', container.innerHTML.length, 'chars');
+                      
+                      // RESTORE STATE: Restore form data, scroll position, and counter state
+                      requestAnimationFrame(() => {
+                        restoreFormState(savedState.forms);
+                        restoreScrollState(savedState.scroll);
+                        
+                        // Restore counter state in DOM
+                        const newCountSpan = container.querySelector('#count');
+                        if (newCountSpan && savedState.componentState.count !== undefined) {
+                          newCountSpan.textContent = String(savedState.componentState.count);
+                          console.log('📦 Restored counter display:', savedState.componentState.count);
+                        }
+                        
+                        // Re-initialize HTMX after DOM patch
+                        // HTMX needs to be re-initialized to attach event handlers to new DOM
+                        if (typeof window !== 'undefined' && window.htmx) {
+                          window.htmx.process(document.body);
+                          console.log('✅ HTMX re-initialized after DOM patch');
+                        } else if (typeof window !== 'undefined' && window.htmx === undefined) {
+                          // HTMX might not be loaded yet, try to load it
+                          const htmxScript = document.querySelector('script[src*="htmx"]');
+                          if (htmxScript) {
+                            const newScript = document.createElement('script');
+                            newScript.src = htmxScript.getAttribute('src') || '';
+                            newScript.onload = () => {
+                              if (window.htmx) {
+                                window.htmx.process(document.body);
+                                console.log('✅ HTMX loaded and initialized');
+                              }
+                            };
+                            document.head.appendChild(newScript);
+                          }
+                        }
+                        
+                        console.log('✅ State preserved across HTMX update');
+                      });
                       
                       if (container.innerHTML.trim().length === 0) {
                         console.error('❌ HTMX DOM patch resulted in empty body - this should not happen');
@@ -542,6 +801,50 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                   if (message.data.html) {
                     console.log('🔄 Patching DOM with new HTML...');
                     console.log('📦 HTML length:', message.data.html.length);
+                    
+                    // PRESERVE STATE: Save form data, scroll position, and component state before clearing body
+                    const savedState = {
+                      forms: saveFormState(),
+                      scroll: saveScrollState(),
+                      componentState: {}
+                    };
+                    
+                    // Extract component state from DOM (e.g., counter values from button text)
+                    const button = document.body.querySelector('button');
+                    if (button && button.textContent) {
+                      const countMatch = button.textContent.match(/count is (\\d+)/);
+                      if (countMatch) {
+                        savedState.componentState.count = parseInt(countMatch[1], 10);
+                        console.log('📦 Preserved Svelte counter state:', savedState.componentState.count);
+                      }
+                    }
+                    
+                    // Set HMR update flag BEFORE destroying component
+                    // This tells the index file to use mount() instead of hydrate()
+                    window.__SVELTE_HMR_UPDATE__ = true;
+                    console.log('🔄 Set Svelte HMR update flag');
+                    
+                    // Destroy existing Svelte component BEFORE clearing body
+                    // This ensures composables get re-initialized with preserved state
+                    if (window.__SVELTE_COMPONENT__ && typeof window.__SVELTE_COMPONENT__.$destroy === 'function') {
+                      console.log('🔄 Destroying existing Svelte component...');
+                      try {
+                        window.__SVELTE_COMPONENT__.$destroy();
+                        console.log('✅ Existing Svelte component destroyed');
+                      } catch (error) {
+                        console.warn('⚠️ Error destroying Svelte component:', error);
+                      }
+                      window.__SVELTE_COMPONENT__ = undefined;
+                    }
+                    
+                    // Store preserved state in a global that the index file will check
+                    // This way we don't need to modify component files
+                    if (savedState.componentState.count !== undefined) {
+                      window.__HMR_PRESERVED_STATE__ = {
+                        initialCount: savedState.componentState.count
+                      };
+                      console.log('📦 Stored preserved state for Svelte:', window.__HMR_PRESERVED_STATE__);
+                    }
                     
                     // Re-import the Svelte client bundle to re-hydrate
                     // The manifest contains the indexPath for the Svelte client bundle
@@ -677,16 +980,11 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                           // This eliminates the flicker/delay by keeping styles continuously applied
                           console.log('📦 Keeping old Svelte component styles in place to prevent flicker');
                           
-                          // Now that external CSS is ready, clear and patch the body
-                          // Old component styles will remain in <head> to prevent any styling gap
-                          console.log('📦 Clearing body for fresh Svelte mount...');
-                          document.body.innerHTML = '';
-                          console.log('✅ Body cleared');
-                          
-                          // Patch body with new HTML from server
-                          // The HTML already has scoped class names from SSR
-                          document.body.innerHTML = message.data.html;
-                          console.log('✅ Body patched with new HTML');
+                          // CRITICAL: Don't patch the body with server HTML
+                          // Server HTML has initialCount: 0, but we want to use preserved state
+                          // Instead, keep old content visible and let Svelte remount with preserved props
+                          // This eliminates the flash of "count is 0" before hydration
+                          console.log('📦 Skipping body patch - will remount Svelte with preserved state');
                           
                           // CRITICAL: Force the browser to compute styles for ALL new elements
                           // This ensures styles are applied before Svelte's hydrate runs
@@ -1007,6 +1305,12 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                                     void bodyElement.offsetHeight;
                                     
                                     console.log('✅ Svelte app re-mounted successfully');
+                                    
+                                    // RESTORE STATE: Restore form data and scroll position after Svelte re-hydrates
+                                    restoreFormState(savedState.forms);
+                                    restoreScrollState(savedState.scroll);
+                                    console.log('✅ State preserved across Svelte update');
+                                    
                                     sessionStorage.removeItem('__HMR_ACTIVE__');
                                     resolve(undefined);
                                   });
@@ -1021,6 +1325,11 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                           console.error('   Full URL:', window.location.origin + modulePath);
                           console.error('   Manifest indexPath:', indexPath);
                           console.error('   Error details:', error.message || error);
+                          // Still restore state even on error
+                          requestAnimationFrame(() => {
+                            restoreFormState(savedState.forms);
+                            restoreScrollState(savedState.scroll);
+                          });
                           console.warn('⚠️ Svelte app may not be fully functional - consider reloading');
                           sessionStorage.removeItem('__HMR_ACTIVE__');
                         });
@@ -1051,6 +1360,23 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                     if (rootContainer || bodyContainer) {
                       console.log('🔄 Patching DOM with new HTML...');
                       console.log('📦 HTML length:', message.data.html.length);
+                      
+                      // PRESERVE STATE: Save form data, scroll position, and component state before unmounting
+                      const savedState = {
+                        forms: saveFormState(),
+                        scroll: saveScrollState(),
+                        componentState: {}
+                      };
+                      
+                      // Extract component state from DOM (e.g., counter values from button text)
+                      const button = (rootContainer || bodyContainer)?.querySelector('button');
+                      if (button && button.textContent) {
+                        const countMatch = button.textContent.match(/count is (\\d+)/);
+                        if (countMatch) {
+                          savedState.componentState.count = parseInt(countMatch[1], 10);
+                          console.log('📦 Preserved Vue counter state:', savedState.componentState.count);
+                        }
+                      }
                       
                       // CRITICAL: Unmount existing Vue app before patching
                       // Vue apps are mounted to #root, and we need to clean up the old instance
@@ -1110,6 +1436,15 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                       // indexPath should be a relative URL like /vue/compiled/indexes/VueExample.abc123.js
                       const indexPath = message.data.manifest?.VueExampleIndex;
                       const cssPath = message.data.manifest?.VueExampleCSS;
+                      
+                      // Store preserved state in a global that the index file will check
+                      // This way we don't need to modify component files
+                      if (savedState.componentState.count !== undefined) {
+                        window.__HMR_PRESERVED_STATE__ = {
+                          initialCount: savedState.componentState.count
+                        };
+                        console.log('📦 Stored preserved state for Vue:', window.__HMR_PRESERVED_STATE__);
+                      }
                       
                       if (indexPath) {
                         // CRITICAL: Pre-inject styles BEFORE Vue mounts
@@ -1312,6 +1647,13 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                                 }
                                 
                                 console.log('✅ Vue app re-mounted successfully');
+                                
+                                // RESTORE STATE: Restore form data and scroll position after Vue remounts
+                                requestAnimationFrame(() => {
+                                  restoreFormState(savedState.forms);
+                                  restoreScrollState(savedState.scroll);
+                                  console.log('✅ State preserved across Vue update');
+                                });
                                 sessionStorage.removeItem('__HMR_ACTIVE__');
                               });
                             });
@@ -1322,6 +1664,11 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                             console.error('   Full URL:', window.location.origin + modulePath);
                             console.error('   Manifest indexPath:', indexPath);
                             console.error('   Error details:', error.message || error);
+                            // Still restore state even on error
+                            requestAnimationFrame(() => {
+                              restoreFormState(savedState.forms);
+                              restoreScrollState(savedState.scroll);
+                            });
                             console.warn('⚠️ Vue app may not be fully functional - consider reloading');
                             sessionStorage.removeItem('__HMR_ACTIVE__');
                           });
@@ -1340,7 +1687,7 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                     console.error('❌ Failed to update Vue - no HTML provided');
                   }
                   break;
-                
+                  
                 case 'rebuild-error':
                   console.error('Rebuild error:', message.data.error);
                   break;
@@ -1400,8 +1747,8 @@ export async function startBunHMRDevServer(config: BuildConfig) {
             if (isHMRUpdating) {
               console.log('🔄 HMR update in progress - keeping WebSocket connection alive');
               // Just clear intervals, but keep connection alive
-              if (pingInterval) clearInterval(pingInterval);
-              if (reconnectTimeout) clearTimeout(reconnectTimeout);
+            if (pingInterval) clearInterval(pingInterval);
+            if (reconnectTimeout) clearTimeout(reconnectTimeout);
               return;
             }
             
@@ -1619,8 +1966,8 @@ export async function startBunHMRDevServer(config: BuildConfig) {
           console.log('📦 Server: Loaded ReactModule successfully');
           
           const props: Record<string, string | number> = {
-            cssPath: manifest['ReactExampleCSS'] || '',
-            initialCount: 0
+              cssPath: manifest['ReactExampleCSS'] || '',
+              initialCount: 0
           };
           
           // Simple approach: Just render the page
@@ -1873,10 +2220,41 @@ export async function startBunHMRDevServer(config: BuildConfig) {
   };
   
   const server = new Elysia()
+    .use(
+      scopedState({
+        count: { value: 0 }
+      })
+    )
     .ws('/hmr', {
       close: (websocket) => handleClientDisconnect(state, websocket), message: (websocket, message) => {
         handleHMRMessage(state, websocket, message);
       }, open: (websocket) => handleClientConnect(state, websocket, manifest)
+    })
+    // HTMX endpoints for server-side counter state
+    .post('/htmx/reset', ({ resetScopedStore }) => resetScopedStore())
+    .get('/htmx/count', ({ scopedStore }) => scopedStore.count)
+    .post('/htmx/increment', ({ scopedStore }) => ++scopedStore.count)
+    .post('/htmx/sync-count', async ({ request, scopedStore }) => {
+      try {
+        const body = await request.json();
+        if (body && typeof body.count === 'number') {
+          scopedStore.count = body.count;
+          console.log('📦 Synced HTMX server-side count to:', body.count);
+          return new Response(JSON.stringify({ success: true, count: scopedStore.count }), {
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+        return new Response(JSON.stringify({ success: false, error: 'Invalid count' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      } catch (error) {
+        console.error('Error syncing HTMX count:', error);
+        return new Response(JSON.stringify({ success: false, error: 'Failed to sync' }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
     })
     .get('*', handleRequest)
     .listen({

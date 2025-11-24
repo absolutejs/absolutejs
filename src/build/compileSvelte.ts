@@ -155,8 +155,37 @@ export const compileSvelte = async (
 					? importRaw
 					: `./${importRaw}`;
 			const bootstrap = `import C from "${importPath}";
-import { hydrate } from "svelte";
-hydrate(C,{target:document.body,props:window.__INITIAL_PROPS__??{}});`;
+import { hydrate, mount } from "svelte";
+// HMR State Preservation: Check for preserved state and merge with initial props
+const preservedState = (typeof window !== "undefined" && window.__HMR_PRESERVED_STATE__) ? window.__HMR_PRESERVED_STATE__ : {};
+const mergedProps = { ...(window.__INITIAL_PROPS__ ?? {}), ...preservedState };
+console.log('📦 Svelte index: mergedProps =', JSON.stringify(mergedProps));
+// Clear preserved state after using it
+if (typeof window !== "undefined") {
+  window.__HMR_PRESERVED_STATE__ = undefined;
+}
+// Check if this is an HMR update (flag set by client HMR handler)
+const isHMRUpdate = typeof window !== 'undefined' && window.__SVELTE_HMR_UPDATE__ === true;
+console.log('📦 Svelte index: isHMRUpdate =', isHMRUpdate);
+// Clear HMR update flag
+if (typeof window !== 'undefined') {
+  window.__SVELTE_HMR_UPDATE__ = false;
+}
+// For HMR updates: clear the body before mounting to prevent duplicate content
+if (isHMRUpdate && typeof window !== 'undefined') {
+  console.log('🔄 Clearing body for fresh Svelte mount...');
+  document.body.innerHTML = '';
+}
+// For HMR updates: use mount() to create a fresh component with preserved props
+// For initial load: use hydrate() to attach to server-rendered HTML
+const component = isHMRUpdate
+  ? mount(C, { target: document.body, props: mergedProps })
+  : hydrate(C, { target: document.body, props: mergedProps });
+console.log('✅ Svelte component', isHMRUpdate ? 'mounted' : 'hydrated', 'with props:', JSON.stringify(mergedProps));
+// Store component instance for future HMR updates
+if (typeof window !== "undefined") {
+  window.__SVELTE_COMPONENT__ = component;
+}`;
 
 			await mkdir(dirname(indexPath), { recursive: true });
 

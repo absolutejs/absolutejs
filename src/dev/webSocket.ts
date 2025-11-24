@@ -134,7 +134,7 @@ export const broadcastToClients = (state: HMRState, message: {type: string}) => 
   
   // Remove closed/failed clients
   for (const client of clientsToRemove) {
-    state.connectedClients.delete(client);
+      state.connectedClients.delete(client);
   }
   
   console.log(`📡 Message sent to ${sentCount} client(s) (${state.connectedClients.size} total connected)`);
