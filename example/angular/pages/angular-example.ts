@@ -32,12 +32,12 @@ export class AngularExampleComponent {
 	// Inject values from DI in constructor
 	cssPath: string = '';
 	initialCount: number = 0;
-	
+
 	constructor() {
 		// Inject values from DI - must be in constructor for SSR
 		const cssPathToken = inject(CSS_PATH, { optional: true });
 		const initialCountToken = inject(INITIAL_COUNT, { optional: true });
-		
+
 		// Use injected values or fallback to defaults
 		this.cssPath = cssPathToken ?? '';
 		this.initialCount = initialCountToken ?? 0;

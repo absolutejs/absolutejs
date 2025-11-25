@@ -4,7 +4,6 @@ import { scopedState } from 'elysia-scoped-state';
 import { build } from '../src/core/build';
 import { asset } from '../src/core/lookup';
 import {
-	handleAngularPageRequest,
 	handleHTMLPageRequest,
 	handleHTMXPageRequest,
 	handleReactPageRequest,
@@ -33,13 +32,44 @@ const manifest = await build({
 	vueDirectory: 'example/vue'
 });
 
-// Load Angular component using type-safe utility
-import { loadAngularComponent } from '../src/utils/loadAngularComponent';
+// Dynamically import Angular components after compilation
+// Angular compiles to example/angular/compiled/ (not example/build/compiled/)
+// The server component is in the compiled output directory
+// Find the actual compiled file path (may be deeply nested)
+import { readdirSync, statSync } from 'fs';
+import { join, resolve } from 'path';
+import { fileURLToPath } from 'url';
 
-const angularModule = await loadAngularComponent(
-	'example/angular/compiled',
+const findAngularComponent = (dir: string, filename: string): string | null => {
+	try {
+		const entries = readdirSync(dir);
+		for (const entry of entries) {
+			const fullPath = join(dir, entry);
+			const stat = statSync(fullPath);
+			if (stat.isDirectory()) {
+				const found = findAngularComponent(fullPath, filename);
+				if (found) return found;
+			} else if (entry === filename) {
+				return fullPath;
+			}
+		}
+	} catch {
+		// Ignore errors
+	}
+	return null;
+};
+
+const angularCompiledDir = resolve(process.cwd(), 'example/angular/compiled');
+const angularServerFile = findAngularComponent(
+	angularCompiledDir,
 	'angular-example.js'
 );
+if (!angularServerFile) {
+	throw new Error('Angular compiled component not found');
+}
+
+// Use absolute path for import
+const angularModule = await import(angularServerFile);
 const AngularExampleComponent = angularModule.default;
 const CSS_PATH_TOKEN = angularModule.CSS_PATH;
 const INITIAL_COUNT_TOKEN = angularModule.INITIAL_COUNT;
@@ -93,21 +123,6 @@ export const server = new Elysia()
 				title: 'AbsoluteJS + Vue'
 			}),
 			{ initialCount: 0 }
-		)
-	)
-	.get('/angular', async () =>
-		handleAngularPageRequest(
-			AngularExampleComponent,
-			asset(manifest, 'AngularExampleIndex'),
-			{
-				initialCount: 0,
-				cssPath: asset(manifest, 'AngularExampleCSS')
-			},
-			undefined,
-			{
-				CSS_PATH: CSS_PATH_TOKEN,
-				INITIAL_COUNT: INITIAL_COUNT_TOKEN
-			}
 		)
 	)
 	.get('/htmx', () =>

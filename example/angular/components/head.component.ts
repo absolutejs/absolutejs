@@ -26,17 +26,18 @@ import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 export class HeadComponent implements OnChanges {
 	@Input() cssPath: string = '';
 	safeCssPath: SafeResourceUrl | string = '';
-	
+
 	constructor(private sanitizer: DomSanitizer) {}
-	
+
 	ngOnChanges(changes: SimpleChanges) {
 		// Sanitize the CSS path to allow it as a resource URL
 		// Since we control the CSS path (from manifest), it's safe to bypass sanitization
 		if (this.cssPath) {
-			this.safeCssPath = this.sanitizer.bypassSecurityTrustResourceUrl(this.cssPath);
+			this.safeCssPath = this.sanitizer.bypassSecurityTrustResourceUrl(
+				this.cssPath
+			);
 		} else {
 			this.safeCssPath = '';
 		}
 	}
 }
-
