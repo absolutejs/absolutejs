@@ -220,12 +220,37 @@ export async function startBunHMRDevServer(config: BuildConfig) {
           let isConnected = false;
           let isHMRUpdating = false; // Track if HMR update is in progress
           
+          // Detect which framework page we're currently on
+          function detectCurrentFramework() {
+            // Check for framework-specific globals
+            if (window.__REACT_ROOT__) return 'react';
+            if (window.__VUE_APP__) return 'vue';
+            if (window.__SVELTE_COMPONENT__) return 'svelte';
+            
+            // Check URL path
+            const path = window.location.pathname;
+            if (path.includes('/react')) return 'react';
+            if (path.includes('/vue')) return 'vue';
+            if (path.includes('/svelte')) return 'svelte';
+            if (path.includes('/htmx')) return 'htmx';
+            if (path.includes('/html')) return 'html';
+            
+            return null;
+          }
+          
           ws.onopen = function() {
             console.log('HMR client connected');
             isConnected = true;
             // Set HMR active flag when WebSocket connects - this prevents bundle hash check from reloading
             sessionStorage.setItem('__HMR_CONNECTED__', 'true');
-            ws.send(JSON.stringify({ type: 'ready' }));
+            
+            // Send ready message with current framework
+            const currentFramework = detectCurrentFramework();
+            ws.send(JSON.stringify({ 
+              type: 'ready',
+              framework: currentFramework
+            }));
+            console.log('📍 Current framework:', currentFramework || 'unknown');
             
             if (reconnectTimeout) {
               clearTimeout(reconnectTimeout);
@@ -424,6 +449,13 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                   break;
                 
                 case 'react-update':
+                  // Check if we're on a React page
+                  const currentFramework = detectCurrentFramework();
+                  if (currentFramework !== 'react') {
+                    console.log('📍 Ignoring React update (currently on ' + (currentFramework || 'unknown') + ' page)');
+                    break;
+                  }
+                  
                   console.log('🔄 React update received:', message.data.sourceFile);
                   console.log('📦 Update #', (window.__HMR_UPDATE_COUNT__ || 0) + 1);
                   window.__HMR_UPDATE_COUNT__ = (window.__HMR_UPDATE_COUNT__ || 0) + 1;
@@ -585,6 +617,12 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                   break;
                 
                 case 'html-update':
+                  // Check if we're on an HTML page
+                  if (detectCurrentFramework() !== 'html') {
+                    console.log('📍 Ignoring HTML update (currently on ' + (detectCurrentFramework() || 'unknown') + ' page)');
+                    break;
+                  }
+                  
                   console.log('🔄 HTML update received:', message.data.sourceFile);
                   
                   // Set HMR active flag to prevent bundle hash check from triggering reload
@@ -694,6 +732,12 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                   break;
 
                 case 'htmx-update':
+                  // Check if we're on an HTMX page
+                  if (detectCurrentFramework() !== 'htmx') {
+                    console.log('📍 Ignoring HTMX update (currently on ' + (detectCurrentFramework() || 'unknown') + ' page)');
+                    break;
+                  }
+                  
                   console.log('🔄 HTMX update received:', message.data.sourceFile);
                   
                   sessionStorage.setItem('__HMR_ACTIVE__', 'true');
@@ -792,6 +836,12 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                   break;
                 
                 case 'svelte-update':
+                  // Check if we're on a Svelte page
+                  if (detectCurrentFramework() !== 'svelte') {
+                    console.log('📍 Ignoring Svelte update (currently on ' + (detectCurrentFramework() || 'unknown') + ' page)');
+                    break;
+                  }
+                  
                   console.log('🔄 Svelte update received:', message.data.sourceFile);
                   
                   // Set HMR active flag to prevent bundle hash check from triggering reload
@@ -1346,6 +1396,12 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                   break;
                 
                 case 'vue-update':
+                  // Check if we're on a Vue page
+                  if (detectCurrentFramework() !== 'vue') {
+                    console.log('📍 Ignoring Vue update (currently on ' + (detectCurrentFramework() || 'unknown') + ' page)');
+                    break;
+                  }
+                  
                   console.log('🔄 Vue update received:', message.data.sourceFile);
                   
                   // Set HMR active flag to prevent bundle hash check from triggering reload
