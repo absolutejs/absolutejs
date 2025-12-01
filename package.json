@@ -41,7 +41,7 @@
 		"url": "https://github.com/absolutejs/absolutejs.git"
 	},
 	"scripts": {
-		"build": "rm -rf dist && bun build src/index.ts --outdir dist --sourcemap --target=bun --external react --external react-dom --external vue --external @vue/compiler-sfc --external svelte --external elysia && tsc --emitDeclarationOnly --project tsconfig.build.json",
+		"build": "rm -rf dist && bun build src/index.ts --outdir dist --sourcemap --target=bun --external react --external react-dom --external vue --external @vue/compiler-sfc --external svelte --external elysia --external typescript --external @angular/compiler-cli --external @angular/core --external @angular/common --external @angular/platform-browser --external @angular/platform-server --external @angular/ssr --external zone.js && tsc --emitDeclarationOnly --project tsconfig.build.json",
 		"db:push": "drizzle-kit push",
 		"db:studio": "drizzle-kit studio",
 		"dev": "bun run --watch example/server.ts",

@@ -1,8 +1,3 @@
-import { bootstrapApplication } from '@angular/platform-browser';
-import {
-	provideServerRendering,
-	renderApplication
-} from '@angular/platform-server';
 import { file } from 'bun';
 import { ComponentType as ReactComponent, createElement } from 'react';
 import { renderToReadableStream as renderReactToReadableStream } from 'react-dom/server';
@@ -10,6 +5,7 @@ import { Component as SvelteComponent } from 'svelte';
 import { Component as VueComponent, createSSRApp, h } from 'vue';
 import { renderToWebStream as renderVueToWebStream } from 'vue/server-renderer';
 import { renderToReadableStream as renderSvelteToReadableStream } from '../svelte/renderToReadableStream';
+import { renderToString as renderSvelteToString } from '../svelte/renderToString';
 import { PropsArgs } from '../types';
 
 export const handleReactPageRequest = async <
@@ -60,6 +56,34 @@ export const handleSveltePageRequest: HandleSveltePageRequest = async <
 	indexPath: string,
 	props?: P
 ) => {
+	// CRITICAL: Run Svelte rendering outside of zone.js context
+	// zone.js (loaded for Angular) patches async operations globally and breaks Svelte streams
+	// We need to run Svelte in a context that bypasses zone.js patches
+	// @ts-expect-error - Zone may not exist if Angular hasn't been used
+	const Zone = globalThis.Zone;
+
+	// If zone.js is active, we need to completely bypass it for Svelte
+	// zone.js patches Promise, async/await, and streams globally at module load time
+	// The solution: Use renderToString instead of renderToReadableStream when zone.js is active
+	// This avoids ReadableStream which zone.js patches, causing failures
+	if (Zone && Zone.current) {
+		// When zone.js is active, use string rendering instead of streaming
+		// This completely bypasses zone.js's ReadableStream patches
+		const { default: ImportedPageComponent } = await import(pagePath);
+
+		const html = renderSvelteToString(ImportedPageComponent, props, {
+			bootstrapModules: indexPath ? [indexPath] : [],
+			bootstrapScriptContent: `window.__INITIAL_PROPS__=${JSON.stringify(
+				props
+			)}`
+		});
+
+		return new Response(html, {
+			headers: { 'Content-Type': 'text/html' }
+		});
+	}
+
+	// If no zone.js, render normally
 	const { default: ImportedPageComponent } = await import(pagePath);
 
 	const stream = await renderSvelteToReadableStream(
@@ -121,31 +145,6 @@ export const handleVuePageRequest = async <
 	});
 
 	return new Response(stream, {
-		headers: { 'Content-Type': 'text/html' }
-	});
-};
-
-export const handleAngularPageRequest = async (
-	pagePath: string,
-	indexPath: string,
-	template:
-		| string
-		| Document = '<!DOCTYPE html><html><head></head><body><app-root></app-root></body></html>'
-) => {
-	// @ts-expect-error - Angular sucks
-	if (!('Zone' in globalThis)) await import('zone.js/node');
-
-	const { default: ImportedPageComponent } = await import(pagePath);
-
-	const html = await renderApplication(
-		() =>
-			bootstrapApplication(ImportedPageComponent, {
-				providers: [provideServerRendering()]
-			}),
-		{ document: template }
-	);
-
-	return new Response(html, {
 		headers: { 'Content-Type': 'text/html' }
 	});
 };
