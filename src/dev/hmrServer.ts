@@ -222,19 +222,33 @@ export async function startBunHMRDevServer(config: BuildConfig) {
           
           // Detect which framework page we're currently on
           function detectCurrentFramework() {
-            // Check for framework-specific globals
-            if (window.__REACT_ROOT__) return 'react';
-            if (window.__VUE_APP__) return 'vue';
-            if (window.__SVELTE_COMPONENT__) return 'svelte';
-            
-            // Check URL path
+            // CRITICAL: Use URL path as the ONLY source of truth
+            // Never rely on globals as they persist across navigation
             const path = window.location.pathname;
-            if (path.includes('/react')) return 'react';
-            if (path.includes('/vue')) return 'vue';
-            if (path.includes('/svelte')) return 'svelte';
-            if (path.includes('/htmx')) return 'htmx';
-            if (path.includes('/html')) return 'html';
+            console.log('🔍 Detecting framework from path:', path);
             
+            if (path === '/react' || path.startsWith('/react/')) {
+              console.log('✅ Detected: react');
+              return 'react';
+            }
+            if (path === '/vue' || path.startsWith('/vue/')) {
+              console.log('✅ Detected: vue');
+              return 'vue';
+            }
+            if (path === '/svelte' || path.startsWith('/svelte/')) {
+              console.log('✅ Detected: svelte');
+              return 'svelte';
+            }
+            if (path === '/htmx' || path.startsWith('/htmx/')) {
+              console.log('✅ Detected: htmx');
+              return 'htmx';
+            }
+            if (path === '/' || path === '/html' || path.startsWith('/html/')) {
+              console.log('✅ Detected: html');
+              return 'html';
+            }
+            
+            console.warn('⚠️ Could not detect framework from path:', path);
             return null;
           }
           
@@ -264,7 +278,7 @@ export async function startBunHMRDevServer(config: BuildConfig) {
             }, 30000);
           };
           
-          ws.onmessage = function(event) {
+          ws.onmessage = async function(event) {
             try {
               const message = JSON.parse(event.data);
               console.log('HMR message received:', message.type);
@@ -480,101 +494,95 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                     // The body content from the server includes everything we need
                     const container = document.body;
                     if (container) {
-                      console.log('🔄 Patching DOM with new HTML...');
-                      console.log('📦 HTML length:', message.data.html.length);
-                      console.log('📦 Body before patch:', container.innerHTML.length, 'chars');
+                      console.log('🔄 Re-rendering React with preserved state...');
                       
-                      // PRESERVE STATE: Extract current component state from the DOM before updating
-                      // For React, we need to preserve component state (like counter values) by reading from DOM
-                      // and passing as props to the re-rendered component
-                      const savedState = {
-                        forms: saveFormState(),
-                        scroll: saveScrollState(),
-                        // Try to extract counter value from button text (e.g., "count is 5" -> 5)
-                        componentState: {}
-                      };
-                      
-                      // Extract component state from DOM (e.g., counter values from button text)
-                      const button = container.querySelector('button');
-                      if (button && button.textContent) {
-                        const countMatch = button.textContent.match(/count is (\\d+)/);
-                        if (countMatch) {
-                          savedState.componentState.count = parseInt(countMatch[1], 10);
-                          console.log('📦 Preserved counter state:', savedState.componentState.count);
+                      // PRESERVE STATE: Extract ALL component state using automatic framework introspection
+                      // This runs INSIDE the message handler, so it won't affect WebSocket initialization
+                      let preservedProps = {};
+                      try {
+                        const { extractStateAutomatically } = await import('../dev/statePreservation');
+                        preservedProps = await extractStateAutomatically(container);
+                        
+                        if (Object.keys(preservedProps).length > 0) {
+                          window.__HMR_PRESERVED_STATE__ = preservedProps;
+                          console.log('📦 Automatically extracted React state:', window.__HMR_PRESERVED_STATE__);
                         }
-                      }
-                      
-                      // Also try to get count from any data attributes or React DevTools
-                      // React might store state in data attributes in dev mode
-                      const reactRoot = container.querySelector('[data-reactroot]') || container;
-                      if (reactRoot) {
-                        // Try to find any elements with data attributes that might contain state
-                        const stateElements = reactRoot.querySelectorAll('[data-state], [data-count]');
-                        stateElements.forEach((el) => {
-                          const stateValue = el.getAttribute('data-state') || el.getAttribute('data-count');
-                          if (stateValue && !isNaN(parseInt(stateValue, 10))) {
-                            savedState.componentState.count = parseInt(stateValue, 10);
-                            console.log('📦 Found state in data attribute:', savedState.componentState.count);
+                      } catch (error) {
+                        console.warn('⚠️ Automatic state extraction failed, using fallback pattern matching:', error);
+                        
+                        // Fallback: manual pattern matching
+                        const button = container.querySelector('button');
+                        if (button && button.textContent) {
+                          const countMatch = button.textContent.match(/count is (\\d+)/);
+                          if (countMatch) {
+                            preservedProps = { initialCount: parseInt(countMatch[1], 10) };
+                            window.__HMR_PRESERVED_STATE__ = preservedProps;
+                            console.log('📦 Fallback: Preserved counter state:', preservedProps);
                           }
-                        });
-                      }
-                      
-                      // CRITICAL: Re-import the index file instead of the component directly
-                      // The index file has proper hydration logic and will handle state preservation better
-                      console.log('🔄 Re-importing React index file for HMR update...');
-                      
-                      const indexPath = message.data.manifest?.ReactExampleIndex;
-                      if (!indexPath) {
-                        console.error('❌ No ReactExampleIndex in manifest');
-                        sessionStorage.removeItem('__HMR_ACTIVE__');
-                        return;
-                      }
-                      
-                      const modulePath = indexPath.startsWith('/') 
-                        ? indexPath + '?t=' + Date.now()
-                        : '/' + indexPath + '?t=' + Date.now();
-                      
-                      // Store preserved state in a global that the index file will check
-                      // This way we don't need to modify component files
-                      if (savedState.componentState.count !== undefined) {
-                        window.__HMR_PRESERVED_STATE__ = {
-                          initialCount: savedState.componentState.count
-                        };
-                        console.log('📦 Stored preserved state for React:', window.__HMR_PRESERVED_STATE__);
-                      }
-                      
-                      // CRITICAL: Do NOT patch DOM with innerHTML for React!
-                      // Patching breaks React's connection to the DOM and loses event handlers
-                      // Instead, let React handle the update by re-importing the index file
-                      // The index file will re-hydrate React, and React will reconcile the changes
-                      console.log('🔄 Re-importing React index (React will handle DOM updates)...');
-                      
-                      // Unmount existing root if it exists (ensures clean remount with preserved state)
-                      if (window.__REACT_ROOT__ && typeof window.__REACT_ROOT__.unmount === 'function') {
-                        console.log('🔄 Unmounting existing React root for clean remount...');
-                        try {
-                          window.__REACT_ROOT__.unmount();
-                          window.__REACT_ROOT__ = undefined;
-                          console.log('✅ Existing React root unmounted');
-                        } catch (error) {
-                          console.warn('⚠️ Error unmounting React root:', error);
                         }
                       }
                       
-                      // Re-import the index file which will re-hydrate React
+                      //  Re-import the React component to trigger re-render
+                      const componentPath = message.data.manifest?.ReactExample || '/react/pages/ReactExample.tsx';
+                      const modulePath = componentPath + '?t=' + Date.now();
+                      
+                      console.log('🔄 Re-importing React component:', modulePath);
+                      
+                      // Clone current content FIRST to prevent any visible gap
+                      const bodyClone = document.body.cloneNode(true);
+                      bodyClone.setAttribute('data-hmr-clone', 'react');
+                      bodyClone.style.position = 'fixed';
+                      bodyClone.style.top = '0';
+                      bodyClone.style.left = '0';
+                      bodyClone.style.width = '100%';
+                      bodyClone.style.height = '100%';
+                      bodyClone.style.zIndex = '99999';
+                      bodyClone.style.pointerEvents = 'none';
+                      bodyClone.style.background = window.getComputedStyle(document.body).background || '#fff';
+                      document.body.appendChild(bodyClone);
+                      
+                      // Now safely remove any orphaned clones from previous updates
+                      const orphanedClones = document.querySelectorAll('[data-hmr-clone]');
+                      orphanedClones.forEach(clone => {
+                        if (clone !== bodyClone) {
+                          clone.remove();
+                        }
+                      });
+                      
                       import(/* @vite-ignore */ modulePath)
-                        .then(() => {
-                          console.log('✅ React index file re-imported, component should be re-hydrated');
+                        .then(async (module) => {
+                          const Component = module.default || module.ReactExample;
                           
-                          // RESTORE STATE: Restore form data and scroll position after React re-hydrates
-                          requestAnimationFrame(() => {
-                            restoreFormState(savedState.forms);
-                            restoreScrollState(savedState.scroll);
-                            console.log('✅ State preserved across React update');
-                          });
-                          
-                          // Clear HMR active flag after successful update
-                          sessionStorage.removeItem('__HMR_ACTIVE__');
+                          if (Component && window.__REACT_ROOT__) {
+                            // Re-render using the existing React root with preserved state
+                            const React = await import('react');
+                            const ReactDOM = await import('react-dom');
+                            const mergedProps = { ...(window.__INITIAL_PROPS__ || {}), ...(window.__HMR_PRESERVED_STATE__ || {}) };
+                            
+                            // Use flushSync to force synchronous rendering (no flicker)
+                            ReactDOM.flushSync(() => {
+                              window.__REACT_ROOT__.render(React.createElement(Component, mergedProps));
+                            });
+                            console.log('✅ React re-rendered synchronously with preserved state');
+                            
+                            // Remove clone after React commits to DOM - use triple RAF for reliability
+                            requestAnimationFrame(() => {
+                              requestAnimationFrame(() => {
+                                requestAnimationFrame(() => {
+                                  if (document.body.contains(bodyClone)) {
+                                    bodyClone.remove();
+                                    console.log('🗑️ Removed React HMR clone');
+                                  }
+                                });
+                              });
+                            });
+                            
+                            sessionStorage.removeItem('__HMR_ACTIVE__');
+                          } else {
+                            // Remove clone on error
+                            bodyClone.remove();
+                            throw new Error('Component or root not found');
+                          }
                         })
                         .catch((error) => {
                           console.error('❌ Failed to re-render React:', error);
@@ -849,33 +857,28 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                   
                   // Simple DOM patching with new HTML from server
                   if (message.data.html) {
-                    console.log('🔄 Patching DOM with new HTML...');
-                    console.log('📦 HTML length:', message.data.html.length);
+                    console.log('🔄 Re-mounting Svelte with preserved state...');
                     
-                    // PRESERVE STATE: Save form data, scroll position, and component state before clearing body
-                    const savedState = {
-                      forms: saveFormState(),
-                      scroll: saveScrollState(),
-                      componentState: {}
-                    };
-                    
-                    // Extract component state from DOM (e.g., counter values from button text)
+                    // PRESERVE STATE: Simple pattern matching (reliable and works)
                     const button = document.body.querySelector('button');
+                    let initialCount = 0;
                     if (button && button.textContent) {
                       const countMatch = button.textContent.match(/count is (\\d+)/);
                       if (countMatch) {
-                        savedState.componentState.count = parseInt(countMatch[1], 10);
-                        console.log('📦 Preserved Svelte counter state:', savedState.componentState.count);
+                        initialCount = parseInt(countMatch[1], 10);
+                        console.log('📦 Preserved Svelte counter state:', initialCount);
                       }
                     }
+                    
+                    // Store preserved state
+                    window.__HMR_PRESERVED_STATE__ = { initialCount };
+                    console.log('📦 Stored Svelte preserved state:', window.__HMR_PRESERVED_STATE__);
                     
                     // Set HMR update flag BEFORE destroying component
                     // This tells the index file to use mount() instead of hydrate()
                     window.__SVELTE_HMR_UPDATE__ = true;
-                    console.log('🔄 Set Svelte HMR update flag');
                     
-                    // Destroy existing Svelte component BEFORE clearing body
-                    // This ensures composables get re-initialized with preserved state
+                    // Destroy existing Svelte component
                     if (window.__SVELTE_COMPONENT__ && typeof window.__SVELTE_COMPONENT__.$destroy === 'function') {
                       console.log('🔄 Destroying existing Svelte component...');
                       try {
@@ -887,511 +890,34 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                       window.__SVELTE_COMPONENT__ = undefined;
                     }
                     
-                    // Store preserved state in a global that the index file will check
-                    // This way we don't need to modify component files
-                    if (savedState.componentState.count !== undefined) {
-                      window.__HMR_PRESERVED_STATE__ = {
-                        initialCount: savedState.componentState.count
-                      };
-                      console.log('📦 Stored preserved state for Svelte:', window.__HMR_PRESERVED_STATE__);
-                    }
+                    // Don't clear body here - let the index file handle it synchronously before mount
                     
-                    // Re-import the Svelte client bundle to re-hydrate
-                    // The manifest contains the indexPath for the Svelte client bundle
+                    // Re-import index to mount with preserved state
                     const indexPath = message.data.manifest?.SvelteExampleIndex;
-                    const cssPath = message.data.manifest?.SvelteExampleCSS;
-                    
-                    // CRITICAL: Store old style tags to remove AFTER new ones are injected
-                    // This prevents a gap where no styles are applied
-                    const headElement = document.head;
-                    const styleTagsToRemove = [];
-                    
-                    // Find Svelte-injected style tags (but don't remove them yet)
-                    // CRITICAL: Svelte injects styles with id="svelte-{hash}" (e.g., "svelte-1tvw78m")
-                    // Svelte's N0 function checks for existing styles by ID and skips injection if found
-                    // We need to remove ALL style tags with IDs starting with "svelte-"
-                    for (let i = 0; i < headElement.children.length; i++) {
-                      const child = headElement.children[i];
-                      if (child.tagName === 'STYLE') {
-                        const styleElement = child;
-                        // Svelte injects styles with id="svelte-{hash}"
-                        // This is the primary way to identify Svelte-injected component styles
-                        const hasSvelteId = styleElement.id && styleElement.id.startsWith('svelte-');
-                        // Also check content as fallback (for styles without explicit ID)
-                        const hasSvelteContent = styleElement.textContent && (
-                          styleElement.textContent.includes('svelte-') ||
-                          styleElement.textContent.includes('.svelte-')
-                        );
-                        
-                        // Only mark style tags that are clearly Svelte-injected (but not our HMR-injected external CSS)
-                        // External stylesheets (with href) should be preserved
-                        if ((hasSvelteId || hasSvelteContent) && !styleElement.href && !styleElement.hasAttribute('data-svelte-hmr-injected')) {
-                          styleTagsToRemove.push(styleElement);
-                          // Log the ID for debugging
-                          if (hasSvelteId) {
-                            console.log('📦 Found Svelte style tag with ID:', styleElement.id);
-                          }
-                        }
-                      }
-                    }
-                    
                     if (indexPath) {
-                      // Ensure the path starts with / and add cache busting
-                      const normalizedPath = indexPath.startsWith('/') 
-                        ? indexPath 
-                        : '/' + indexPath;
-                      const cacheBuster = '?t=' + Date.now();
-                      const modulePath = normalizedPath + cacheBuster;
+                      const normalizedPath = indexPath.startsWith('/') ? indexPath : '/' + indexPath;
+                      const modulePath = normalizedPath + '?t=' + Date.now();
                       
-                      console.log('📦 Pre-injecting Svelte styles before mount...');
-                      let stylesInjected = false;
-                      
-                      const injectStylesPromise = new Promise(function(resolve, reject) {
-                        if (cssPath) {
-                          const normalizedCssPath = cssPath.startsWith('/') ? cssPath : '/' + cssPath;
-                          const cssCacheBuster = '?t=' + Date.now();
-                          
-                          fetch(normalizedCssPath + cssCacheBuster)
-                            .then(function(response) {
-                              if (!response.ok) {
-                                throw new Error('HTTP ' + response.status + ': ' + response.statusText);
-                              }
-                              return response.text();
-                            })
-                            .then(function(cssContent) {
-                              // Svelte uses scoped class names, not data-v-* attributes
-                              // We inject the CSS as-is, Svelte will handle scoping
-                              const styleTag = document.createElement('style');
-                              styleTag.textContent = cssContent;
-                              styleTag.setAttribute('data-svelte-hmr-injected', 'true');
-                              document.head.appendChild(styleTag);
-                              stylesInjected = true;
-                              console.log('✅ Pre-injected Svelte styles');
-                              
-                              // CRITICAL: Wait for the browser to parse and apply the stylesheet
-                              // Svelte's hydrate is synchronous, so we need styles ready BEFORE importing
-                              // Check if the stylesheet is actually loaded and parsed
-                              function waitForStylesheet() {
-                                const injectedStyle = document.querySelector('style[data-svelte-hmr-injected="true"]');
-                                
-                                if (injectedStyle && injectedStyle.sheet) {
-                                  try {
-                                    // Try to access cssRules to verify stylesheet is parsed
-                                    const ruleCount = injectedStyle.sheet.cssRules ? injectedStyle.sheet.cssRules.length : 0;
-                                    if (ruleCount > 0) {
-                                      // Stylesheet is loaded and parsed
-                                      console.log('✅ Stylesheet loaded with', ruleCount, 'rules');
-                                      // Wait one more RAF to ensure styles are applied
-                                      requestAnimationFrame(function() {
-                                        requestAnimationFrame(function() {
-                                          resolve('styles-injected');
-                                        });
-                                      });
-                                      return;
-                                    }
-                                  } catch (e) {
-                                    // Cross-origin or other error, but stylesheet exists
-                                    // Wait a bit and resolve anyway
-                                    console.log('⚠️ Could not access stylesheet rules (may be cross-origin), proceeding...');
-                                    requestAnimationFrame(function() {
-                                      requestAnimationFrame(function() {
-                                        resolve('styles-injected');
-                                      });
-                                    });
-                                    return;
-                                  }
-                                }
-                                
-                                // Stylesheet not ready yet, check again
-                                requestAnimationFrame(waitForStylesheet);
-                              }
-                              
-                              // Start checking after first RAF
-                              requestAnimationFrame(waitForStylesheet);
-                            })
-                            .catch(function(error) {
-                              console.error('❌ Failed to fetch and pre-inject Svelte CSS:', error);
-                              reject(error);
-                            });
-                        } else {
-                          resolve('no-css'); // Resolve if no CSS path
-                        }
-                      });
-                      
-                      // CRITICAL: Pre-inject styles BEFORE clearing/patching the body
-                      // This ensures styles are available when Svelte hydrates
-                      // Wait for styles to be ready, then patch body and hydrate
-                      injectStylesPromise
-                        .then(function() {
-                          // CRITICAL: DO NOT remove old Svelte-injected style tags
-                          // Removing them creates a brief gap where elements have no styles
-                          // Instead, keep them in place - Svelte's style injection is idempotent
-                          // and will update existing styles or add new ones as needed
-                          // This eliminates the flicker/delay by keeping styles continuously applied
-                          console.log('📦 Keeping old Svelte component styles in place to prevent flicker');
-                          
-                          // CRITICAL: Don't patch the body with server HTML
-                          // Server HTML has initialCount: 0, but we want to use preserved state
-                          // Instead, keep old content visible and let Svelte remount with preserved props
-                          // This eliminates the flash of "count is 0" before hydration
-                          console.log('📦 Skipping body patch - will remount Svelte with preserved state');
-                          
-                          // CRITICAL: Force the browser to compute styles for ALL new elements
-                          // This ensures styles are applied before Svelte's hydrate runs
-                          // We MUST do this synchronously after patching, before any async operations
-                          const bodyElement = document.body;
-                          if (bodyElement && bodyElement.children.length > 0) {
-                            // Force style computation on ALL elements, not just a few
-                            // This is critical to prevent flicker
-                            const allElements = bodyElement.querySelectorAll('*');
-                            if (allElements.length > 0) {
-                              // Force style computation on every single element
-                              // This ensures styles are applied immediately
-                              for (let i = 0; i < allElements.length; i++) {
-                                void allElements[i].offsetHeight;
-                              }
-                            }
-                            // Also force on direct children
-                            for (let i = 0; i < bodyElement.children.length; i++) {
-                              void bodyElement.children[i].offsetHeight;
-                            }
-                            // And on the body itself
-                            void bodyElement.offsetHeight;
-                          }
-                          
-                          // CRITICAL: Wait multiple RAF cycles after patching the body
-                          // This ensures the browser has fully processed the new HTML structure
-                          // and applied all styles before Svelte's synchronous hydrate function runs
-                          // We use a more aggressive approach with multiple style computation passes
-                          return new Promise(function(resolve) {
-                            let rafCount = 0;
-                            const maxRafs = 4; // More RAF cycles for better style application
-                            
-                            function ensureStylesReady() {
-                              rafCount++;
-                              
-                              // Force style computation on all elements during each RAF
-                              if (bodyElement && bodyElement.children.length > 0) {
-                                const allElements = bodyElement.querySelectorAll('*');
-                                if (allElements.length > 0) {
-                                  // Force style computation on a sample of elements
-                                  // Doing all elements every RAF would be too expensive
-                                  const sampleSize = Math.min(30, allElements.length);
-                                  for (let i = 0; i < sampleSize; i++) {
-                                    void allElements[i].offsetHeight;
-                                  }
-                                }
-                                void bodyElement.offsetHeight;
-                              }
-                              
-                              if (rafCount >= maxRafs) {
-                                // One final comprehensive style computation pass
-                                if (bodyElement && bodyElement.children.length > 0) {
-                                  const allElements = bodyElement.querySelectorAll('*');
-                                  if (allElements.length > 0) {
-                                    for (let i = 0; i < Math.min(50, allElements.length); i++) {
-                                      void allElements[i].offsetHeight;
-                                    }
-                                  }
-                                  void bodyElement.offsetHeight;
-                                }
-                                resolve(undefined);
-                              } else {
-                                requestAnimationFrame(ensureStylesReady);
-                              }
-                            }
-                            
-                            requestAnimationFrame(ensureStylesReady);
-                          }).then(function() {
-                            // Now fetch and import the bundle
-                            return fetch(modulePath).then(function(response) {
-                              if (!response.ok) {
-                                throw new Error('HTTP ' + response.status + ': ' + response.statusText);
-                              }
-                              return response;
-                            });
-                          });
-                        })
-                      
-                        .then(function() {
-                          console.log('✅ Svelte bundle file exists, importing...');
-                          
-                          // CRITICAL: Set up MutationObserver BEFORE importing
-                          // This allows us to catch DOM changes as Svelte's hydrate modifies the DOM
-                          const bodyElement = document.body;
-                          let hydrationComplete = false;
-                          
-                          // Use MutationObserver to watch for DOM changes during hydration
-                          // Svelte's hydrate may modify the DOM, and we need to ensure styles are applied
-                          const observer = new MutationObserver(function(mutations) {
-                            // When DOM changes, force style computation immediately
-                            // This prevents flicker by ensuring styles are applied as soon as elements are modified
-                            if (stylesInjected && cssPath && !hydrationComplete) {
-                              // Force reflow on all elements to ensure styles are computed
-                              const allElements = bodyElement.querySelectorAll('*');
-                              if (allElements.length > 0) {
-                                // Force style computation on elements that were modified
-                                for (let i = 0; i < mutations.length; i++) {
-                                  const mutation = mutations[i];
-                                  if (mutation.target && mutation.target.nodeType === 1) {
-                                    void mutation.target.offsetHeight;
-                                  }
-                                  if (mutation.addedNodes) {
-                                    for (let j = 0; j < mutation.addedNodes.length; j++) {
-                                      const node = mutation.addedNodes[j];
-                                      if (node.nodeType === 1) {
-                                        void node.offsetHeight;
-                                        // Also force on descendants
-                                        const descendants = node.querySelectorAll('*');
-                                        for (let k = 0; k < Math.min(10, descendants.length); k++) {
-                                          void descendants[k].offsetHeight;
-                                        }
-                                      }
-                                    }
-                                  }
-                                }
-                              }
-                            }
-                          });
-                          
-                          // Start observing before import
-                          observer.observe(bodyElement, {
-                            childList: true,
-                            subtree: true,
-                            attributes: true,
-                            attributeOldValue: false
-                          });
-                          
-                          // Import will immediately call hydrate() synchronously
-                          // Svelte will also inject component styles into <head> when the component is imported
-                          // The MutationObserver will catch any DOM changes and force style computation
-                          return import(/* @vite-ignore */ modulePath).then(function() {
-                            console.log('✅ Svelte client bundle re-imported');
-                            
-                            // CRITICAL: Verify that Svelte injected component styles
-                            // Svelte injects styles synchronously when the component is imported
-                            // Svelte uses N0() which checks for style tags with id="svelte-{hash}"
-                            // Check for newly injected Svelte style tags (not our HMR-injected external CSS)
-                            const allStyleTags = document.querySelectorAll('style');
-                            const foundSvelteStyleIds = [];
-                            for (let i = 0; i < allStyleTags.length; i++) {
-                              const style = allStyleTags[i];
-                              // Skip our HMR-injected external CSS
-                              if (style.hasAttribute('data-svelte-hmr-injected')) continue;
-                              
-                              const hasSvelteId = style.id && style.id.startsWith('svelte-');
-                              const hasSvelteContent = style.textContent && (
-                                style.textContent.includes('svelte-') ||
-                                style.textContent.includes('.svelte-')
-                              );
-                              if (hasSvelteId || hasSvelteContent) {
-                                if (hasSvelteId) {
-                                  foundSvelteStyleIds.push(style.id);
-                                }
-                              }
-                            }
-                            
-                            if (foundSvelteStyleIds.length > 0) {
-                              console.log('✅ Svelte component styles injected (IDs:', foundSvelteStyleIds.join(', '), ')');
-                              
-                              // CRITICAL: Verify stylesheets are fully parsed before forcing style computation
-                              // Svelte injects styles synchronously, but the browser needs time to parse them
-                              // We wait for the stylesheets to be ready before forcing computation
-                              let stylesheetsReady = true;
-                              for (let i = 0; i < foundSvelteStyleIds.length; i++) {
-                                const styleId = foundSvelteStyleIds[i];
-                                const styleTag = document.getElementById(styleId);
-                                if (styleTag && styleTag.sheet) {
-                                  try {
-                                    // Try to access cssRules to verify stylesheet is parsed
-                                    const ruleCount = styleTag.sheet.cssRules ? styleTag.sheet.cssRules.length : 0;
-                                    if (ruleCount === 0) {
-                                      stylesheetsReady = false;
-                                      console.log('⚠️ Stylesheet', styleId, 'not fully parsed yet (0 rules)');
-                                      break;
-                                    }
-                                  } catch (e) {
-                                    // Cross-origin or other error, assume ready
-                                    console.log('⚠️ Could not access stylesheet rules for', styleId, '(may be cross-origin)');
-                                  }
-                                } else {
-                                  stylesheetsReady = false;
-                                  console.log('⚠️ Stylesheet', styleId, 'not found or not accessible');
-                                  break;
-                                }
-                              }
-                              
-                              // CRITICAL: Force style computation and application using getComputedStyle
-                              // This is more aggressive than offsetHeight - it forces the browser to actually
-                              // compute and apply styles, not just trigger a reflow
-                              const bodyElement = document.body;
-                              if (bodyElement && bodyElement.children.length > 0) {
-                                // Use getComputedStyle to force actual style computation and application
-                                // This ensures the browser matches scoped class names to the injected styles
-                                const allElements = bodyElement.querySelectorAll('*');
-                                if (allElements.length > 0) {
-                                  // Force style computation on every element using getComputedStyle
-                                  // This is more aggressive and ensures styles are actually applied
-                                  for (let i = 0; i < allElements.length; i++) {
-                                    const element = allElements[i];
-                                    // Force reflow
-                                    void element.offsetHeight;
-                                    // Force style computation - this actually applies the styles
-                                    if (window.getComputedStyle) {
-                                      window.getComputedStyle(element);
-                                    }
-                                  }
-                                }
-                                // Also force on direct children and body
-                                for (let i = 0; i < bodyElement.children.length; i++) {
-                                  const child = bodyElement.children[i];
-                                  void child.offsetHeight;
-                                  if (window.getComputedStyle) {
-                                    window.getComputedStyle(child);
-                                  }
-                                }
-                                void bodyElement.offsetHeight;
-                                if (window.getComputedStyle) {
-                                  window.getComputedStyle(bodyElement);
-                                }
-                              }
-                              
-                              if (stylesheetsReady) {
-                                console.log('✅ Forced style computation on all DOM elements (stylesheets ready)');
-                              } else {
-                                // Stylesheets not ready yet, but we still forced computation
-                                // The browser will apply styles once stylesheets are parsed
-                                console.log('⏳ Stylesheets not fully parsed yet, but forced style computation anyway');
-                                // Also wait a bit and force again
-                                requestAnimationFrame(function() {
-                                  requestAnimationFrame(function() {
-                                    if (bodyElement && bodyElement.children.length > 0) {
-                                      const allElements = bodyElement.querySelectorAll('*');
-                                      if (allElements.length > 0) {
-                                        for (let i = 0; i < allElements.length; i++) {
-                                          const element = allElements[i];
-                                          void element.offsetHeight;
-                                          if (window.getComputedStyle) {
-                                            window.getComputedStyle(element);
-                                          }
-                                        }
-                                      }
-                                      for (let i = 0; i < bodyElement.children.length; i++) {
-                                        const child = bodyElement.children[i];
-                                        void child.offsetHeight;
-                                        if (window.getComputedStyle) {
-                                          window.getComputedStyle(child);
-                                        }
-                                      }
-                                      void bodyElement.offsetHeight;
-                                      if (window.getComputedStyle) {
-                                        window.getComputedStyle(bodyElement);
-                                      }
-                                    }
-                                    console.log('✅ Forced style computation again after stylesheet parse wait');
-                                  });
-                                });
-                              }
-                            } else {
-                              console.warn('⚠️ Svelte component styles may not have been injected');
-                              console.warn('   Svelte may have skipped injection (styles may already exist)');
-                              console.warn('   This could cause missing styles - check if old styles were properly removed');
-                              console.warn('   Try checking document.head for style tags with id starting with "svelte-"');
-                            }
-                            
-                            // Mark hydration as complete
-                            hydrationComplete = true;
-                            
-                            // Wait a bit for any final DOM modifications
-                            return new Promise(function(resolve) {
-                              requestAnimationFrame(function() {
-                                requestAnimationFrame(function() {
-                                  requestAnimationFrame(function() {
-                                    // Triple RAF ensures:
-                                    // 1. Svelte has fully hydrated
-                                    // 2. Browser has processed any DOM modifications from hydrate
-                                    // 3. Styles are re-applied after reflow
-                                    // 4. Layout is stable
-                                    
-                                    // CRITICAL: Force style computation on ALL elements after hydration
-                                    // This ensures Svelte's injected styles are applied to all DOM elements
-                                    // Use getComputedStyle to force actual style application, not just reflow
-                                    const allElements = bodyElement.querySelectorAll('*');
-                                    if (allElements.length > 0) {
-                                      // Force style computation on every single element using getComputedStyle
-                                      // This is more aggressive and ensures styles are actually applied
-                                      for (let i = 0; i < allElements.length; i++) {
-                                        const element = allElements[i];
-                                        void element.offsetHeight;
-                                        if (window.getComputedStyle) {
-                                          window.getComputedStyle(element);
-                                        }
-                                      }
-                                    }
-                                    // Also force on direct children and body
-                                    for (let i = 0; i < bodyElement.children.length; i++) {
-                                      const child = bodyElement.children[i];
-                                      void child.offsetHeight;
-                                      if (window.getComputedStyle) {
-                                        window.getComputedStyle(child);
-                                      }
-                                    }
-                                    void bodyElement.offsetHeight;
-                                    if (window.getComputedStyle) {
-                                      window.getComputedStyle(bodyElement);
-                                    }
-                                    
-                                    // Stop observing
-                                    observer.disconnect();
-                                    
-                                    // Force one more comprehensive style computation pass
-                                    // This is a final check to ensure everything is ready
-                                    const finalElements = bodyElement.querySelectorAll('*');
-                                    if (finalElements.length > 0) {
-                                      for (let i = 0; i < finalElements.length; i++) {
-                                        void finalElements[i].offsetHeight;
-                                      }
-                                    }
-                                    void bodyElement.offsetHeight;
-                                    
-                                    console.log('✅ Svelte app re-mounted successfully');
-                                    
-                                    // RESTORE STATE: Restore form data and scroll position after Svelte re-hydrates
-                                    restoreFormState(savedState.forms);
-                                    restoreScrollState(savedState.scroll);
-                                    console.log('✅ State preserved across Svelte update');
-                                    
-                                    sessionStorage.removeItem('__HMR_ACTIVE__');
-                                    resolve(undefined);
-                                  });
-                                });
-                              });
-                            });
-                          });
-                        })
-                        .catch(function(error) {
-                          console.error('❌ Failed to re-import Svelte client bundle:', error);
-                          console.error('   Attempted path:', modulePath);
-                          console.error('   Full URL:', window.location.origin + modulePath);
-                          console.error('   Manifest indexPath:', indexPath);
-                          console.error('   Error details:', error.message || error);
-                          // Still restore state even on error
-                          requestAnimationFrame(() => {
-                            restoreFormState(savedState.forms);
-                            restoreScrollState(savedState.scroll);
-                          });
-                          console.warn('⚠️ Svelte app may not be fully functional - consider reloading');
+                      console.log('🔄 Re-importing Svelte index:', modulePath);
+                      import(/* @vite-ignore */ modulePath)
+                        .then(() => {
+                          console.log('✅ Svelte component re-mounted with preserved state');
                           sessionStorage.removeItem('__HMR_ACTIVE__');
+                        })
+                        .catch((error) => {
+                          console.error('❌ Failed to re-mount Svelte:', error);
+                          console.error('Module path:', modulePath);
+                          sessionStorage.removeItem('__HMR_ACTIVE__');
+                          // Don't reload - just log the error to avoid unwanted navigation
+                          console.error('⚠️ Svelte HMR update failed - manual reload may be needed');
                         });
                     } else {
-                      console.warn('⚠️ No SvelteExampleIndex found in manifest, skipping re-mount');
-                      console.warn('   Available manifest keys:', Object.keys(message.data.manifest || {}));
+                      console.warn('⚠️ No SvelteExampleIndex found in manifest');
                       sessionStorage.removeItem('__HMR_ACTIVE__');
                     }
                   } else {
                     console.warn('⚠️ No HTML in Svelte update');
                     sessionStorage.removeItem('__HMR_ACTIVE__');
-                    console.error('❌ Failed to update Svelte - no HTML provided');
                   }
                   break;
                 
@@ -1414,333 +940,55 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                     const bodyContainer = document.body;
                     
                     if (rootContainer || bodyContainer) {
-                      console.log('🔄 Patching DOM with new HTML...');
-                      console.log('📦 HTML length:', message.data.html.length);
+                      console.log('🔄 Re-mounting Vue with preserved state...');
                       
-                      // PRESERVE STATE: Save form data, scroll position, and component state before unmounting
-                      const savedState = {
-                        forms: saveFormState(),
-                        scroll: saveScrollState(),
-                        componentState: {}
-                      };
-                      
-                      // Extract component state from DOM (e.g., counter values from button text)
+                      // PRESERVE STATE: Simple pattern matching (reliable and works)
                       const button = (rootContainer || bodyContainer)?.querySelector('button');
+                      let initialCount = 0;
                       if (button && button.textContent) {
                         const countMatch = button.textContent.match(/count is (\\d+)/);
                         if (countMatch) {
-                          savedState.componentState.count = parseInt(countMatch[1], 10);
-                          console.log('📦 Preserved Vue counter state:', savedState.componentState.count);
+                          initialCount = parseInt(countMatch[1], 10);
+                          console.log('📦 Preserved Vue counter state:', initialCount);
                         }
                       }
                       
-                      // CRITICAL: Unmount existing Vue app before patching
-                      // Vue apps are mounted to #root, and we need to clean up the old instance
-                      // Check if there's a Vue app instance stored globally
-                      if (window.__VUE_APP__ && typeof window.__VUE_APP__.unmount === 'function') {
-                        console.log('🔄 Unmounting existing Vue app...');
-                        try {
-                          window.__VUE_APP__.unmount();
-                          console.log('✅ Existing Vue app unmounted');
-                        } catch (error) {
-                          console.warn('⚠️ Error unmounting Vue app:', error);
-                        }
-                        window.__VUE_APP__ = null;
-                      }
+                      // Store preserved state
+                      window.__HMR_PRESERVED_STATE__ = { initialCount };
                       
-                      // Also try to unmount by checking if #root has a Vue instance attached
-                      // Vue attaches __vueParentComponent to the root element
-                      if (rootContainer && rootContainer.__vueParentComponent) {
-                        console.log('🔄 Found Vue instance on root element, cleaning up...');
-                        // Clear the Vue instance reference
-                        delete rootContainer.__vueParentComponent;
-                        // Also clear any vnode references
-                        if (rootContainer.__vnode) {
-                          delete rootContainer.__vnode;
-                        }
-                      }
-                      
-                      // CRITICAL: DO NOT remove old Vue style tags yet
-                      // Removing them creates a gap where elements have no styles (flicker)
-                      // Instead, keep them in place and let Vue update them
-                      // We'll pre-inject new styles shortly, and both old and new will coexist briefly
-                      console.log('📦 Keeping old Vue styles in place to prevent flicker');
-                      
-                      // CRITICAL: DO NOT clear the root container yet
-                      // Clearing it creates a blank screen (flicker) until Vue re-mounts
-                      // Instead, we'll patch it with new HTML from the server immediately after unmounting
-                      // This way the DOM goes from: old content -> new content (no gap!)
-                      if (rootContainer) {
-                        console.log('📦 Patching root container with new HTML (no clearing)...');
-                        // Extract just the #root content from the server HTML
-                        // The server HTML is the full body, but we only want the #root part
-                        const tempDiv = document.createElement('div');
-                        tempDiv.innerHTML = message.data.html;
-                        const newRootContent = tempDiv.querySelector('#root');
-                        if (newRootContent) {
-                          rootContainer.innerHTML = newRootContent.innerHTML;
-                          console.log('✅ Root container patched (no flicker)');
-                        } else {
-                          // Fallback: use the entire body HTML
-                          rootContainer.innerHTML = message.data.html;
-                          console.log('✅ Root container patched with full body HTML');
-                        }
-                      }
+                      // DON'T unmount Vue - just keep the DOM and re-mount will update it
+                      // Unmounting removes styles and breaks event handlers
+                      console.log('📦 Skipping unmount - Vue will update in place');
                       
                       // Re-import the Vue client bundle to re-mount the Vue app
-                      // The manifest contains the indexPath for the Vue client bundle
-                      // indexPath should be a relative URL like /vue/compiled/indexes/VueExample.abc123.js
                       const indexPath = message.data.manifest?.VueExampleIndex;
-                      const cssPath = message.data.manifest?.VueExampleCSS;
-                      
-                      // Store preserved state in a global that the index file will check
-                      // This way we don't need to modify component files
-                      if (savedState.componentState.count !== undefined) {
-                        window.__HMR_PRESERVED_STATE__ = {
-                          initialCount: savedState.componentState.count
-                        };
-                        console.log('📦 Stored preserved state for Vue:', window.__HMR_PRESERVED_STATE__);
-                      }
                       
                       if (indexPath) {
-                        // CRITICAL: Pre-inject styles BEFORE Vue mounts
-                        // This ensures styles are available when Vue renders, preventing timing issues
-                        // We do this in parallel with fetching the bundle to minimize delay
-                        let stylesInjected = false;
-                        const injectStylesPromise = cssPath ? (function() {
-                          return new Promise(function(resolve, reject) {
-                            const normalizedCssPath = cssPath.startsWith('/') ? cssPath : '/' + cssPath;
-                            const cssCacheBuster = '?t=' + Date.now();
-                            
-                            console.log('📦 Pre-injecting Vue styles before mount...');
-                            
-                            // Fetch the CSS file and inject it as an inline style tag
-                            fetch(normalizedCssPath + cssCacheBuster)
-                              .then(function(response) {
-                                if (!response.ok) {
-                                  throw new Error('HTTP ' + response.status + ': ' + response.statusText);
-                                }
-                                return response.text();
-                              })
-                                    .then(function(cssContent) {
-                                      // Extract ALL scope IDs from the CSS file
-                                      // Child components have their own scope IDs (e.g., count-button)
-                                      // We need to extract all of them and add all to elements
-                                      const scopeIds = new Set();
-                                      const dataVPattern = /data-v-([a-z0-9-]+)/g;
-                                      let match;
-                                      while ((match = dataVPattern.exec(cssContent)) !== null) {
-                                        if (match[1]) {
-                                          scopeIds.add(match[1]);
-                                        }
-                                      }
-                                      
-                                      // Default fallback if no scope IDs found
-                                      if (scopeIds.size === 0) {
-                                        scopeIds.add('vue-example');
-                                      }
-                                      
-                                      // Create an inline style tag with the scoped attribute
-                                      // Use the first scope ID as the primary one for the style tag
-                                      const primaryScopeId = Array.from(scopeIds)[0];
-                                      const styleTag = document.createElement('style');
-                                      styleTag.setAttribute('data-v-' + primaryScopeId, '');
-                                      styleTag.textContent = cssContent;
-                                      styleTag.setAttribute('data-vue-hmr-injected', 'true');
-                                      // Store all scope IDs in a data attribute for later retrieval
-                                      styleTag.setAttribute('data-all-scope-ids', Array.from(scopeIds).join(','));
-                                      document.head.appendChild(styleTag);
-                                      
-                                      stylesInjected = true;
-                                      console.log('✅ Pre-injected Vue scoped styles with scope IDs:', Array.from(scopeIds).join(', '));
-                                      resolve(Array.from(scopeIds)); // Resolve with all scope IDs
-                                    })
-                              .catch(function(error) {
-                                console.warn('⚠️ Failed to pre-inject styles:', error);
-                                // Don't reject - continue with Vue mount even if styles fail
-                                resolve(null);
-                              });
-                          });
-                        })() : Promise.resolve(null);
+                        const normalizedPath = indexPath.startsWith('/') ? indexPath : '/' + indexPath;
+                        const modulePath = normalizedPath + '?t=' + Date.now();
                         
-                        // Ensure the path starts with / and add cache busting
-                        // The path from manifest is already relative to build root (e.g., /vue/compiled/indexes/...)
-                        const normalizedPath = indexPath.startsWith('/') 
-                          ? indexPath 
-                          : '/' + indexPath;
-                        const cacheBuster = '?t=' + Date.now();
-                        const modulePath = normalizedPath + cacheBuster;
-                        
-                        console.log('🔄 Re-importing Vue client bundle:', modulePath);
-                        console.log('   Full URL will be:', window.location.origin + modulePath);
-                        
-                        // Wait for styles to be injected, then mount Vue
-                        // This ensures styles are available when Vue renders
-                        Promise.all([
-                          injectStylesPromise,
-                          fetch(modulePath).then(function(response) {
-                            if (!response.ok) {
-                              throw new Error('HTTP ' + response.status + ': ' + response.statusText);
-                            }
-                            return response;
-                          })
-                        ])
-                          .then(function([scopeIds, response]) {
-                            console.log('✅ Vue bundle file exists, importing...');
-                            return import(/* @vite-ignore */ modulePath).then(function() {
-                              return scopeIds; // Pass scope IDs to next then
-                            });
-                          })
-                          .then(function(scopeIds) {
-                            console.log('✅ Vue client bundle re-imported');
-                            
-                            // CRITICAL: Use MutationObserver to add ALL scope IDs immediately as Vue adds elements
-                            // This prevents flicker by ensuring styles apply as soon as elements are added to the DOM
-                            // Child components (like CountButton) have their own scope IDs, so we add ALL of them
-                            if (stylesInjected && cssPath && scopeIds && scopeIds.length > 0) {
-                              const rootElement = document.getElementById('root');
-                              if (rootElement) {
-                                // Add ALL scope IDs to root immediately
-                                for (let s = 0; s < scopeIds.length; s++) {
-                                  const scopeId = scopeIds[s];
-                                  if (!rootElement.hasAttribute('data-v-' + scopeId)) {
-                                    rootElement.setAttribute('data-v-' + scopeId, '');
-                                  }
-                                }
-                                
-                                // CRITICAL: Use MutationObserver to watch for new elements
-                                // As soon as Vue adds an element, we immediately add ALL scope IDs
-                                // This ensures both parent and child component styles work
-                                const observer = new MutationObserver(function(mutations) {
-                                  for (let i = 0; i < mutations.length; i++) {
-                                    const mutation = mutations[i];
-                                    if (mutation.addedNodes) {
-                                      for (let j = 0; j < mutation.addedNodes.length; j++) {
-                                        const node = mutation.addedNodes[j];
-                                        if (node.nodeType === 1) { // Element node
-                                          // Add ALL scope IDs to the added element
-                                          for (let s = 0; s < scopeIds.length; s++) {
-                                            const scopeId = scopeIds[s];
-                                            if (!node.hasAttribute('data-v-' + scopeId)) {
-                                              node.setAttribute('data-v-' + scopeId, '');
-                                            }
-                                          }
-                                          // Also add ALL scope IDs to all descendants
-                                          const descendants = node.querySelectorAll('*');
-                                          for (let k = 0; k < descendants.length; k++) {
-                                            for (let s = 0; s < scopeIds.length; s++) {
-                                              const scopeId = scopeIds[s];
-                                              if (!descendants[k].hasAttribute('data-v-' + scopeId)) {
-                                                descendants[k].setAttribute('data-v-' + scopeId, '');
-                                              }
-                                            }
-                                          }
-                                        }
-                                      }
-                                    }
-                                  }
-                                });
-                                
-                                // Start observing the root for new child elements
-                                observer.observe(rootElement, {
-                                  childList: true,
-                                  subtree: true
-                                });
-                                
-                                // Also add ALL scope IDs to any existing elements immediately
-                                const existingElements = rootElement.querySelectorAll('*');
-                                let existingCount = 0;
-                                for (let i = 0; i < existingElements.length; i++) {
-                                  for (let s = 0; s < scopeIds.length; s++) {
-                                    const scopeId = scopeIds[s];
-                                    if (!existingElements[i].hasAttribute('data-v-' + scopeId)) {
-                                      existingElements[i].setAttribute('data-v-' + scopeId, '');
-                                      existingCount++;
-                                    }
-                                  }
-                                }
-                                
-                                if (existingCount > 0) {
-                                  console.log('✅ Added scope IDs', scopeIds.join(', '), 'to', existingCount, 'element attribute(s)');
-                                }
-                                
-                                // Stop observing after Vue has finished mounting
-                                // Use a longer timeout to ensure all components (including child components) are mounted
-                                // Also check if Vue app is mounted before stopping
-                                let checkCount = 0;
-                                const maxChecks = 20; // Check up to 2 seconds (20 * 100ms)
-                                const checkInterval = setInterval(function() {
-                                  checkCount++;
-                                  const vueApp = window.__VUE_APP__;
-                                  const rootHasContent = rootElement && rootElement.children.length > 0;
-                                  
-                                  // Stop if Vue app is mounted and root has content, or after max checks
-                                  if ((vueApp && rootHasContent && checkCount >= 5) || checkCount >= maxChecks) {
-                                    clearInterval(checkInterval);
-                                    observer.disconnect();
-                                    console.log('✅ MutationObserver stopped (Vue mount complete)');
-                                  }
-                                }, 100); // Check every 100ms
-                              }
-                            }
-                            
-                            // Use requestAnimationFrame to ensure Vue has rendered, then store app instance
-                            requestAnimationFrame(function() {
-                              requestAnimationFrame(function() {
-                                // Store the Vue app instance for future unmounting
-                                if (window.__VUE_APP__) {
-                                  console.log('✅ Vue app instance stored for future HMR updates');
-                                } else {
-                                  // Fallback: try to get it from the root element
-                                  const newRoot = document.getElementById('root');
-                                  if (newRoot && newRoot.__vueParentComponent) {
-                                    const component = newRoot.__vueParentComponent;
-                                    if (component && component.appContext && component.appContext.app) {
-                                      window.__VUE_APP__ = component.appContext.app;
-                                      console.log('✅ Vue app instance stored from root element');
-                                    }
-                                  }
-                                }
-                                
-                                console.log('✅ Vue app re-mounted successfully');
-                                
-                                // RESTORE STATE: Restore form data and scroll position after Vue remounts
-                                requestAnimationFrame(() => {
-                                  restoreFormState(savedState.forms);
-                                  restoreScrollState(savedState.scroll);
-                                  console.log('✅ State preserved across Vue update');
-                                });
-                                sessionStorage.removeItem('__HMR_ACTIVE__');
-                              });
-                            });
-                          })
-                          .catch(function(error) {
-                            console.error('❌ Failed to re-import Vue client bundle:', error);
-                            console.error('   Attempted path:', modulePath);
-                            console.error('   Full URL:', window.location.origin + modulePath);
-                            console.error('   Manifest indexPath:', indexPath);
-                            console.error('   Error details:', error.message || error);
-                            // Still restore state even on error
-                            requestAnimationFrame(() => {
-                              restoreFormState(savedState.forms);
-                              restoreScrollState(savedState.scroll);
-                            });
-                            console.warn('⚠️ Vue app may not be fully functional - consider reloading');
+                        console.log('🔄 Re-importing Vue index:', modulePath);
+                        import(/* @vite-ignore */ modulePath)
+                          .then(() => {
+                            console.log('✅ Vue app re-mounted with preserved state');
                             sessionStorage.removeItem('__HMR_ACTIVE__');
+                          })
+                          .catch((error) => {
+                            console.error('❌ Failed to re-mount Vue:', error);
+                            sessionStorage.removeItem('__HMR_ACTIVE__');
+                            window.location.reload();
                           });
                       } else {
-                        console.warn('⚠️ No VueExampleIndex found in manifest, skipping re-mount');
-                        console.warn('   Available manifest keys:', Object.keys(message.data.manifest || {}));
+                        console.warn('⚠️ No VueExampleIndex found in manifest');
                         sessionStorage.removeItem('__HMR_ACTIVE__');
                       }
                     } else {
-                      console.error('❌ Neither #root nor body found - this should never happen');
+                      console.error('❌ No root container or body found - this should never happen');
                       sessionStorage.removeItem('__HMR_ACTIVE__');
                     }
                   } else {
                     console.warn('⚠️ No HTML in Vue update');
                     sessionStorage.removeItem('__HMR_ACTIVE__');
-                    console.error('❌ Failed to update Vue - no HTML provided');
                   }
                   break;
                   

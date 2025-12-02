@@ -171,16 +171,41 @@ console.log('📦 Svelte index: isHMRUpdate =', isHMRUpdate);
 if (typeof window !== 'undefined') {
   window.__SVELTE_HMR_UPDATE__ = false;
 }
-// For HMR updates: clear the body before mounting to prevent duplicate content
-if (isHMRUpdate && typeof window !== 'undefined') {
-  console.log('🔄 Clearing body for fresh Svelte mount...');
-  document.body.innerHTML = '';
-}
-// For HMR updates: use mount() to create a fresh component with preserved props
+// For HMR updates: Use clone overlay + forced reflow (guaranteed zero flicker)
 // For initial load: use hydrate() to attach to server-rendered HTML
-const component = isHMRUpdate
-  ? mount(C, { target: document.body, props: mergedProps })
-  : hydrate(C, { target: document.body, props: mergedProps });
+let component;
+if (isHMRUpdate) {
+  // Step 1: Clone current content (keeps it visible)
+  const bodyClone = document.body.cloneNode(true);
+  bodyClone.style.position = 'fixed';
+  bodyClone.style.top = '0';
+  bodyClone.style.left = '0';
+  bodyClone.style.width = '100%';
+  bodyClone.style.height = '100%';
+  bodyClone.style.zIndex = '99999';
+  bodyClone.style.pointerEvents = 'none';
+  bodyClone.style.background = window.getComputedStyle(document.body).background || '#fff';
+  document.body.appendChild(bodyClone);
+  
+  // Step 2: Mount new component off-screen
+  const offscreenContainer = document.createElement('div');
+  component = mount(C, { target: offscreenContainer, props: mergedProps });
+  const newChildren = Array.from(offscreenContainer.childNodes);
+  
+  // Step 3: Replace body children (happens under the clone)
+  const oldChildren = Array.from(document.body.childNodes).filter(child => child !== bodyClone);
+  oldChildren.forEach(child => child.remove());
+  newChildren.forEach(child => document.body.insertBefore(child, bodyClone));
+  
+  // Step 4: Force reflow to ensure new content is painted
+  document.body.offsetHeight;
+  
+  // Step 5: Remove clone to reveal new content (already painted)
+  bodyClone.remove();
+} else {
+  // Initial load: hydrate server-rendered HTML
+  component = hydrate(C, { target: document.body, props: mergedProps });
+}
 console.log('✅ Svelte component', isHMRUpdate ? 'mounted' : 'hydrated', 'with props:', JSON.stringify(mergedProps));
 // Store component instance for future HMR updates
 if (typeof window !== "undefined") {
