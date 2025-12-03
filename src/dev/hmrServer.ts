@@ -363,10 +363,16 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                     moduleCount: message.data.modules?.length || 0
                   });
                   
-                  // For React and Vue updates, skip version mismatch checking and reload
+                  // For frameworks with dedicated HMR handlers, skip version mismatch checking
                   // These updates are handled via dedicated update messages with DOM patching
-                  if (message.data.framework === 'react' || message.data.framework === 'vue') {
-                    // Just update versions and manifest, but don't check for mismatches or reload
+                  const hasHMRHandler = message.data.framework === 'react' || 
+                                       message.data.framework === 'vue' || 
+                                       message.data.framework === 'svelte' ||
+                                       message.data.framework === 'html' ||
+                                       message.data.framework === 'htmx';
+                  
+                  if (hasHMRHandler) {
+                    // Just update versions and manifest, but don't pre-fetch modules or reload
                     if (message.data.serverVersions) {
                       window.__HMR_SERVER_VERSIONS__ = { ...window.__HMR_SERVER_VERSIONS__, ...message.data.serverVersions };
                     }
@@ -381,13 +387,7 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                       window.__HMR_MODULE_UPDATES__ = [];
                     }
                     window.__HMR_MODULE_UPDATES__.push(message.data);
-                    if (message.data.framework === 'react') {
-                      console.log('✅ React module update processed (will be handled by react-update message)');
-                    } else if (message.data.framework === 'vue') {
-                      console.log('✅ Vue module update processed (will be handled by vue-update message)');
-                    } else if (message.data.framework === 'svelte') {
-                      console.log('✅ Svelte module update processed (will be handled by svelte-update message)');
-                    }
+                    console.log('✅', message.data.framework, 'module update processed (will be handled by dedicated update message)');
                     break; // Don't reload - dedicated update messages will handle the update
                   }
                   
@@ -522,32 +522,11 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                         }
                       }
                       
-                      //  Re-import the React component to trigger re-render
+                      // Simple approach: Re-import the React component and re-render
                       const componentPath = message.data.manifest?.ReactExample || '/react/pages/ReactExample.tsx';
                       const modulePath = componentPath + '?t=' + Date.now();
                       
                       console.log('🔄 Re-importing React component:', modulePath);
-                      
-                      // Clone current content FIRST to prevent any visible gap
-                      const bodyClone = document.body.cloneNode(true);
-                      bodyClone.setAttribute('data-hmr-clone', 'react');
-                      bodyClone.style.position = 'fixed';
-                      bodyClone.style.top = '0';
-                      bodyClone.style.left = '0';
-                      bodyClone.style.width = '100%';
-                      bodyClone.style.height = '100%';
-                      bodyClone.style.zIndex = '99999';
-                      bodyClone.style.pointerEvents = 'none';
-                      bodyClone.style.background = window.getComputedStyle(document.body).background || '#fff';
-                      document.body.appendChild(bodyClone);
-                      
-                      // Now safely remove any orphaned clones from previous updates
-                      const orphanedClones = document.querySelectorAll('[data-hmr-clone]');
-                      orphanedClones.forEach(clone => {
-                        if (clone !== bodyClone) {
-                          clone.remove();
-                        }
-                      });
                       
                       import(/* @vite-ignore */ modulePath)
                         .then(async (module) => {
@@ -556,31 +535,14 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                           if (Component && window.__REACT_ROOT__) {
                             // Re-render using the existing React root with preserved state
                             const React = await import('react');
-                            const ReactDOM = await import('react-dom');
                             const mergedProps = { ...(window.__INITIAL_PROPS__ || {}), ...(window.__HMR_PRESERVED_STATE__ || {}) };
                             
-                            // Use flushSync to force synchronous rendering (no flicker)
-                            ReactDOM.flushSync(() => {
-                              window.__REACT_ROOT__.render(React.createElement(Component, mergedProps));
-                            });
-                            console.log('✅ React re-rendered synchronously with preserved state');
-                            
-                            // Remove clone after React commits to DOM - use triple RAF for reliability
-                            requestAnimationFrame(() => {
-                              requestAnimationFrame(() => {
-                                requestAnimationFrame(() => {
-                                  if (document.body.contains(bodyClone)) {
-                                    bodyClone.remove();
-                                    console.log('🗑️ Removed React HMR clone');
-                                  }
-                                });
-                              });
-                            });
+                            // Simple re-render - React handles the rest
+                            window.__REACT_ROOT__.render(React.createElement(Component, mergedProps));
+                            console.log('✅ React re-rendered with preserved state');
                             
                             sessionStorage.removeItem('__HMR_ACTIVE__');
                           } else {
-                            // Remove clone on error
-                            bodyClone.remove();
                             throw new Error('Component or root not found');
                           }
                         })
@@ -626,12 +588,21 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                 
                 case 'html-update':
                   // Check if we're on an HTML page
-                  if (detectCurrentFramework() !== 'html') {
-                    console.log('📍 Ignoring HTML update (currently on ' + (detectCurrentFramework() || 'unknown') + ' page)');
+                  const htmlFrameworkCheck = detectCurrentFramework();
+                  if (htmlFrameworkCheck !== 'html') {
+                    console.log('📍 Ignoring HTML update (currently on ' + (htmlFrameworkCheck || 'unknown') + ' page)');
+                    console.log('📍 URL path is:', window.location.pathname);
                     break;
                   }
                   
                   console.log('🔄 HTML update received:', message.data.sourceFile);
+                  console.log('✅ On HTML page, processing update');
+                  
+                  // Clear React globals if they exist (prevents interference from previous React page)
+                  if (window.__REACT_ROOT__) {
+                    console.log('🗑️ Clearing React globals (navigated away from React)');
+                    window.__REACT_ROOT__ = undefined;
+                  }
                   
                   // Set HMR active flag to prevent bundle hash check from triggering reload
                   sessionStorage.setItem('__HMR_ACTIVE__', 'true');
@@ -667,11 +638,23 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                       }));
                       console.log('📦 Stored existing compiled scripts:', existingScripts.length);
                       
-                      // For HTML files, we can simply replace the body content
-                      // No need for React re-hydration - just patch the DOM
+                      // For HTML files, we need to preserve the HMR client script
+                      // Extract and store HMR script before patching
+                      const hmrScript = container.querySelector('script[data-hmr-client]');
+                      console.log('📦 HMR script found:', !!hmrScript);
+                      
+                      // Patch the DOM with new content
+                      console.log('📦 HTML content preview (first 500 chars):', message.data.html.substring(0, 500));
                       container.innerHTML = message.data.html;
                       console.log('✅ HTML updated via DOM patch');
                       console.log('📦 Body after patch:', container.innerHTML.length, 'chars');
+                      console.log('📦 h1 content after patch:', container.querySelector('h1')?.textContent || 'NOT FOUND');
+                      
+                      // Re-append HMR script if it was present
+                      if (hmrScript && !container.querySelector('script[data-hmr-client]')) {
+                        container.appendChild(hmrScript);
+                        console.log('✅ HMR script restored after patch');
+                      }
                       
                       // RESTORE STATE: Restore form data, scroll position, and counter state
                       requestAnimationFrame(() => {
@@ -741,12 +724,21 @@ export async function startBunHMRDevServer(config: BuildConfig) {
 
                 case 'htmx-update':
                   // Check if we're on an HTMX page
-                  if (detectCurrentFramework() !== 'htmx') {
-                    console.log('📍 Ignoring HTMX update (currently on ' + (detectCurrentFramework() || 'unknown') + ' page)');
+                  const htmxFrameworkCheck = detectCurrentFramework();
+                  if (htmxFrameworkCheck !== 'htmx') {
+                    console.log('📍 Ignoring HTMX update (currently on ' + (htmxFrameworkCheck || 'unknown') + ' page)');
+                    console.log('📍 URL path is:', window.location.pathname);
                     break;
                   }
                   
                   console.log('🔄 HTMX update received:', message.data.sourceFile);
+                  console.log('✅ On HTMX page, processing update');
+                  
+                  // Clear React globals if they exist (prevents interference from previous React page)
+                  if (window.__REACT_ROOT__) {
+                    console.log('🗑️ Clearing React globals (navigated away from React)');
+                    window.__REACT_ROOT__ = undefined;
+                  }
                   
                   sessionStorage.setItem('__HMR_ACTIVE__', 'true');
                   
@@ -784,10 +776,19 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                           console.warn('⚠️ Failed to sync server-side HTMX state:', error);
                         });
                       }
+                      // Preserve HMR client script before patching
+                      const hmrScript = container.querySelector('script[data-hmr-client]');
+                      console.log('📦 HMR script found:', !!hmrScript);
                       
                       container.innerHTML = message.data.html;
                       console.log('✅ HTMX content updated via DOM patch');
                       console.log('📦 Body after patch:', container.innerHTML.length, 'chars');
+                      
+                      // Re-append HMR script if it was present
+                      if (hmrScript && !container.querySelector('script[data-hmr-client]')) {
+                        container.appendChild(hmrScript);
+                        console.log('✅ HMR script restored after patch');
+                      }
                       
                       // RESTORE STATE: Restore form data, scroll position, and counter state
                       requestAnimationFrame(() => {
@@ -845,12 +846,35 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                 
                 case 'svelte-update':
                   // Check if we're on a Svelte page
-                  if (detectCurrentFramework() !== 'svelte') {
-                    console.log('📍 Ignoring Svelte update (currently on ' + (detectCurrentFramework() || 'unknown') + ' page)');
+                  const svelteFrameworkCheck = detectCurrentFramework();
+                  console.log('🔍 Svelte update: detected framework =', svelteFrameworkCheck);
+                  console.log('🔍 Svelte update: URL =', window.location.href);
+                  console.log('🔍 Svelte update: has __SVELTE_COMPONENT__ =', !!window.__SVELTE_COMPONENT__);
+                  console.log('🔍 Svelte update: has __REACT_ROOT__ =', !!window.__REACT_ROOT__);
+                  
+                  if (svelteFrameworkCheck !== 'svelte') {
+                    console.log('📍 Ignoring Svelte update (currently on ' + (svelteFrameworkCheck || 'unknown') + ' page)');
+                    console.log('📍 URL path is:', window.location.pathname);
                     break;
                   }
                   
+                  console.log('✅ Svelte update: Passed framework check, processing update');
                   console.log('🔄 Svelte update received:', message.data.sourceFile);
+                  
+                  // CRITICAL: Double-check we're actually on Svelte page
+                  if (!window.location.pathname.includes('/svelte')) {
+                    console.error('❌ URL does not include /svelte - ABORTING');
+                    console.error('❌ Current URL:', window.location.href);
+                    break;
+                  }
+                  
+                  console.log('✅ URL verification passed');
+                  
+                  // Clear React globals if they exist (prevents interference from previous React page)
+                  if (window.__REACT_ROOT__) {
+                    console.log('🗑️ Clearing React globals (navigated away from React)');
+                    window.__REACT_ROOT__ = undefined;
+                  }
                   
                   // Set HMR active flag to prevent bundle hash check from triggering reload
                   sessionStorage.setItem('__HMR_ACTIVE__', 'true');
@@ -923,12 +947,22 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                 
                 case 'vue-update':
                   // Check if we're on a Vue page
-                  if (detectCurrentFramework() !== 'vue') {
-                    console.log('📍 Ignoring Vue update (currently on ' + (detectCurrentFramework() || 'unknown') + ' page)');
+                  const vueFrameworkCheck = detectCurrentFramework();
+                  if (vueFrameworkCheck !== 'vue') {
+                    console.log('📍 Ignoring Vue update (currently on ' + (vueFrameworkCheck || 'unknown') + ' page)');
+                    console.log('📍 URL path is:', window.location.pathname);
                     break;
                   }
                   
                   console.log('🔄 Vue update received:', message.data.sourceFile);
+                  console.log('✅ On Vue page, processing update');
+                  
+                  // Clear React globals if they exist (prevents interference from previous React page)
+                  if (window.__REACT_ROOT__) {
+                    console.log('🗑️ Clearing React globals (navigated away from React)');
+                    window.__REACT_ROOT__ = undefined;
+                  }
+                  console.log('✅ On Vue page, processing update');
                   
                   // Set HMR active flag to prevent bundle hash check from triggering reload
                   sessionStorage.setItem('__HMR_ACTIVE__', 'true');
