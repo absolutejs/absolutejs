@@ -16,14 +16,15 @@ export const saveFormState = () => {
     
     // Save all input values
     const inputs = form.querySelectorAll('input, textarea, select');
+    const formData = formState[formId]!; // Safe: we just created it above
     inputs.forEach((input) => {
       const element = input as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
       const name = element.name || element.id || `input-${formIndex}-${inputs.length}`;
       
       if (element.type === 'checkbox' || element.type === 'radio') {
-        formState[formId][name] = (element as HTMLInputElement).checked;
+        formData[name] = (element as HTMLInputElement).checked;
       } else {
-        formState[formId][name] = element.value;
+        formData[name] = element.value;
       }
     });
   });
@@ -31,15 +32,16 @@ export const saveFormState = () => {
   // Also save standalone inputs/textarea/select elements not in forms
   const standaloneInputs = document.querySelectorAll('input:not(form input), textarea:not(form textarea), select:not(form select)');
   if (standaloneInputs.length > 0) {
-    formState['__standalone__'] = {};
+    const standaloneData: Record<string, string | boolean> = {};
+    formState['__standalone__'] = standaloneData;
     standaloneInputs.forEach((input) => {
       const element = input as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
       const name = element.name || element.id || `standalone-${standaloneInputs.length}`;
       
       if (element.type === 'checkbox' || element.type === 'radio') {
-        formState['__standalone__'][name] = (element as HTMLInputElement).checked;
+        standaloneData[name] = (element as HTMLInputElement).checked;
       } else {
-        formState['__standalone__'][name] = element.value;
+        standaloneData[name] = element.value;
       }
     });
   }
@@ -50,10 +52,13 @@ export const saveFormState = () => {
 /* Restore form data to all forms on the page */
 export const restoreFormState = (formState: Record<string, Record<string, string | boolean>>) => {
   Object.keys(formState).forEach((formId) => {
+    const formData = formState[formId];
+    if (!formData) return; // Skip if form data doesn't exist
+    
     const isStandalone = formId === '__standalone__';
     const form = isStandalone ? null : document.getElementById(formId) || document.querySelector(`form:nth-of-type(${parseInt(formId.replace('form-', '')) + 1})`);
     
-    Object.keys(formState[formId]).forEach((name) => {
+    Object.keys(formData).forEach((name) => {
       let element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null = null;
       
       if (isStandalone) {
@@ -68,7 +73,7 @@ export const restoreFormState = (formState: Record<string, Record<string, string
       }
       
       if (element) {
-        const value = formState[formId][name];
+        const value = formData[name];
         if (element.type === 'checkbox' || element.type === 'radio') {
           (element as HTMLInputElement).checked = value === true;
         } else {
@@ -136,108 +141,6 @@ export const restoreScrollState = (scrollState: {
       // Ignore selector errors
     }
   });
-};
-
-/* Save Vue component state (reactive refs, props, etc.) */
-export const saveVueState = () => {
-  const vueState: Record<string, unknown> = {};
-  
-  // Vue stores component instances on DOM elements
-  // We need to traverse the DOM and extract state from Vue components
-  const rootContainer = document.getElementById('root');
-  if (!rootContainer) {
-    return vueState;
-  }
-  
-  // Vue attaches component instances to elements
-  // We'll look for Vue's internal markers and try to extract state
-  // This is a simplified approach - Vue's internal structure is complex
-  const vueElements = rootContainer.querySelectorAll('[data-v-*]');
-  
-  vueElements.forEach((element, index) => {
-    const htmlElement = element as HTMLElement;
-    // Vue attaches component instances via internal properties
-    // Type assertion needed for framework internals
-    const vueComponent = (htmlElement as unknown as { __vueParentComponent?: unknown }).__vueParentComponent;
-    if (vueComponent) {
-      // Try to extract state from Vue component
-      // This is a best-effort approach since Vue's internals are not public API
-      const componentKey = `vue-component-${index}`;
-      vueState[componentKey] = {
-        // Store element attributes that might contain state
-        attributes: Array.from(htmlElement.attributes).reduce((acc, attr) => {
-          acc[attr.name] = attr.value;
-          return acc;
-        }, {} as Record<string, string>),
-        // Store text content as fallback
-        textContent: htmlElement.textContent
-      };
-    }
-  });
-  
-  return vueState;
-};
-
-/* Save Svelte component state */
-export const saveSvelteState = () => {
-  const svelteState: Record<string, unknown> = {};
-  
-  // Svelte stores component instances differently
-  // We'll save form data and any data attributes that might contain state
-  const svelteElements = document.querySelectorAll('[data-svelte-h]');
-  
-  svelteElements.forEach((element, index) => {
-    const htmlElement = element as HTMLElement;
-    const componentKey = `svelte-component-${index}`;
-    svelteState[componentKey] = {
-      attributes: Array.from(htmlElement.attributes).reduce((acc, attr) => {
-        acc[attr.name] = attr.value;
-        return acc;
-      }, {} as Record<string, string>),
-      textContent: htmlElement.textContent
-    };
-  });
-  
-  return svelteState;
-};
-
-/* Save all state (forms, scroll, framework-specific) */
-export const saveAllState = (framework?: string) => {
-  const state = {
-    forms: saveFormState(),
-    scroll: saveScrollState(),
-    timestamp: Date.now()
-  };
-  
-  if (framework === 'vue') {
-    return { ...state, vue: saveVueState() };
-  }
-  
-  if (framework === 'svelte') {
-    return { ...state, svelte: saveSvelteState() };
-  }
-  
-  return state;
-};
-
-/* Restore all state */
-export const restoreAllState = (state: ReturnType<typeof saveAllState>, framework?: string) => {
-  // Restore forms first (before scroll, as form restoration might change layout)
-  if (state.forms) {
-    restoreFormState(state.forms);
-  }
-  
-  // Restore scroll after a brief delay to allow DOM to settle
-  if (state.scroll) {
-    // Use requestAnimationFrame to ensure DOM is ready
-    requestAnimationFrame(() => {
-      restoreScrollState(state.scroll);
-    });
-  }
-  
-  // Framework-specific state restoration would go here
-  // For Vue and Svelte, we rely on the frameworks' own state management
-  // since their internal state structures are not easily accessible
 };
 
 /**

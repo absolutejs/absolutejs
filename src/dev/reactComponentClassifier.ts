@@ -38,10 +38,3 @@ export const classifyComponent = (filePath: string) => {
   return 'client';
 }
 
-/* Check if a file path is a React file */
-export const isReactFile = (filePath: string) => {
-  const normalizedPath = resolve(filePath);
-
-  return /\.(tsx|jsx)$/.test(normalizedPath) && normalizedPath.includes('/react/');
-}
-

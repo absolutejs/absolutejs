@@ -20,27 +20,9 @@ export type HMRState = {
 };
 
 /* Initialize HMR state */
-export const createHMRState = () => ({
-    connectedClients: new Set(), debounceTimeout: null, dependencyGraph: createDependencyGraph(), fileChangeQueue: new Map(), fileHashes: new Map(), isRebuilding: false, moduleVersions: createModuleVersionTracker(), rebuildQueue: new Set(), rebuildTimeout: null, sourceFileVersions: new Map(), watchers: [], // Track versions for source files to bypass Bun's cache
+export const createHMRState = (): HMRState => ({
+    connectedClients: new Set<HMRWebSocket>(), debounceTimeout: null, dependencyGraph: createDependencyGraph(), fileChangeQueue: new Map(), fileHashes: new Map(), isRebuilding: false, moduleVersions: createModuleVersionTracker(), rebuildQueue: new Set(), rebuildTimeout: null, sourceFileVersions: new Map(), watchers: [], // Track versions for source files to bypass Bun's cache
   })
-
-/* Add a client to tracking */
-export const addClient = (state: HMRState, client: HMRWebSocket) => {
-  console.log('🔥 HMR client connected');
-  state.connectedClients.add(client);
-}
-
-/* Remove a client from tracking */
-export const removeClient = (state: HMRState, client: HMRWebSocket) => {
-  console.log('🔥 HMR client disconnected');
-  state.connectedClients.delete(client);
-}
-
-/* Get client count */
-export const getClientCount = (state: HMRState) => state.connectedClients.size
-
-/* Get version for a source file (for cache busting) */
-export const getSourceFileVersion = (state: HMRState, filePath: string) => state.sourceFileVersions.get(filePath) || 0
 
 /* Increment version for a source file (forces Bun to treat it as a new module) */
 export const incrementSourceFileVersion = (state: HMRState, filePath: string) => {

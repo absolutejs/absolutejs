@@ -35,13 +35,3 @@ export const hasFileChanged = (
   
   return previousHash !== currentHash;
 }
-
-/* This function updates the file hash in the tracking map
-   this handles keeping track of the file's state */
-export const updateFileHash = (
-  filePath: string,
-  hash: string,
-  hashMap: Map<string, string>
-) => {
-  hashMap.set(filePath, hash);
-}

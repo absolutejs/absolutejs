@@ -90,53 +90,12 @@ export const handleReactUpdate = async (
 }
 
 /* Simple React HMR handler for client-side
-   When a React module update is received:
-   1. Re-import the module with cache busting
-   2. Patch the DOM with new HTML from server */
+   NOTE: This function is currently unused - React HMR is handled directly
+   in the react-update message handler in hmrServer.ts. Keeping the export
+   for potential future use or removal if confirmed unnecessary. */
 export function generateSimpleReactHMRClientCode(): string {
-  return `
-    // Simple React HMR Client Handler
-    function handleReactUpdate(update) {
-      if (update.framework !== 'react') {
-        return false;
-      }
-
-      console.log('🔄 React update received:', update.sourceFile);
-
-      // If server sent new HTML, patch the DOM
-      if (update.html) {
-        const container = document.querySelector('[data-react-component]') || document.body;
-        if (container) {
-          // Patch the DOM with new HTML
-          container.innerHTML = update.html;
-          console.log('✅ React component updated via DOM patch');
-          return true;
-        }
-      }
-
-      // If no HTML, try to re-import the module
-      if (update.modulePath) {
-        const cacheBuster = '?t=' + Date.now();
-        const fullPath = update.modulePath.startsWith('/') 
-          ? update.modulePath + cacheBuster
-          : '/' + update.modulePath + cacheBuster;
-
-        import(/* @vite-ignore */ fullPath)
-          .then(() => {
-            console.log('✅ React module re-imported');
-            // Trigger a re-render by dispatching a custom event
-            window.dispatchEvent(new Event('react-hmr-update'));
-          })
-          .catch((error) => {
-            console.error('❌ Failed to re-import React module:', error);
-            window.location.reload();
-          });
-
-        return true;
-      }
-
-      return false;
-    }
-  `;
+  // React HMR is handled directly in the react-update case in hmrServer.ts
+  // No client-side code generation needed at this time
+  return '';
 }
 
