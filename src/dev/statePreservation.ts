@@ -2,6 +2,8 @@
    These utilities help preserve frontend state (form data, component state, etc.)
    across HMR updates so developers don't lose their work */
 
+import './types/window-globals'; // Ensure Window interface is extended
+
 /* Save form data from all forms on the page */
 export const saveFormState = () => {
   const formState: Record<string, Record<string, string | boolean>> = {};
@@ -153,8 +155,11 @@ export const saveVueState = () => {
   const vueElements = rootContainer.querySelectorAll('[data-v-*]');
   
   vueElements.forEach((element, index) => {
-    const htmlElement = element as HTMLElement & { __vueParentComponent?: unknown };
-    if (htmlElement.__vueParentComponent) {
+    const htmlElement = element as HTMLElement;
+    // Vue attaches component instances via internal properties
+    // Type assertion needed for framework internals
+    const vueComponent = (htmlElement as unknown as { __vueParentComponent?: unknown }).__vueParentComponent;
+    if (vueComponent) {
       // Try to extract state from Vue component
       // This is a best-effort approach since Vue's internals are not public API
       const componentKey = `vue-component-${index}`;

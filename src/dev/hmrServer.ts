@@ -21,6 +21,8 @@ import { getWatchPaths } from './pathUtils';
 import { queueFileChange } from './rebuildTrigger';
 import { generateSimpleReactHMRClientCode } from './simpleReactHMR';
 import { handleClientConnect, handleClientDisconnect, handleHMRMessage } from './webSocket';
+import type { ReactModule } from './types/react';
+import './types/window-globals'; // Ensure Window interface is extended
 
 /* Build root directory for static file serving */
 const ROOT_DIR = PATH_RESOLVE('./example/build');
@@ -1263,12 +1265,17 @@ export async function startBunHMRDevServer(config: BuildConfig) {
           // This ensures server HTML always matches the latest source code
           console.log(`📦 Loading ReactExample using fresh module loader (bypassing Bun cache)`);
           
-          let ReactModule: any;
+          let ReactModule: ReactModule | null = null;
           try {
             // Use fresh module loader to ensure we get the latest code, including all dependencies
             // This transpiles files on-the-fly and imports from temp files, bypassing cache
             console.log(`📦 Loading fresh module: ${componentPath}`);
-            ReactModule = await loadFreshModule(componentPath);
+            const loadedModule = await loadFreshModule(componentPath);
+            // Type assertion needed because loadFreshModule returns any
+            // We verify the shape below
+            if (loadedModule && typeof loadedModule === 'object' && 'ReactExample' in loadedModule) {
+              ReactModule = loadedModule as ReactModule;
+            }
             console.log(`✅ Fresh module loaded successfully`);
             
             // Verify the loaded module has the expected content
@@ -1286,7 +1293,10 @@ export async function startBunHMRDevServer(config: BuildConfig) {
             // Fallback to regular import with cache busting
             try {
               const cacheBuster = `?t=${Date.now()}`;
-              ReactModule = await import(`../../example/react/pages/ReactExample.tsx${cacheBuster}`);
+              const fallbackModule = await import(`../../example/react/pages/ReactExample.tsx${cacheBuster}`);
+              if (fallbackModule && typeof fallbackModule === 'object' && 'ReactExample' in fallbackModule) {
+                ReactModule = fallbackModule as ReactModule;
+              }
               console.warn(`⚠️ Using regular import fallback (may be cached)`);
             } catch (fallbackError) {
               console.error(`❌ Fallback import also failed:`, fallbackError);

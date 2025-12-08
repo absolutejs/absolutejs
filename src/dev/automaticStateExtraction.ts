@@ -7,6 +7,13 @@
  * Works by introspecting framework-specific internal data structures.
  */
 
+import type { 
+  SvelteComponentInternal,
+  ReactFiber,
+  VueComponentInternal 
+} from './types/framework-internals';
+import './types/window-globals'; // Ensure Window interface is extended
+
 export type ExtractedState = Record<string, unknown>;
 
 /**
@@ -32,18 +39,26 @@ export function extractReactState(container: HTMLElement = document.body): Extra
         const fiberKeys = Object.keys(element).filter(key => key.startsWith('__reactFiber'));
         if (fiberKeys.length > 0) {
           const fiberKey = fiberKeys[0];
-          const fiber = (element as any)[fiberKey];
-          extractStateFromFiber(fiber, state);
+          // React attaches fiber to DOM elements via internal properties
+          // Type assertion needed to access framework internals
+          const fiber = (element as unknown as Record<string, unknown>)[fiberKey] as ReactFiber | null | undefined;
+          if (fiber) {
+            extractStateFromFiber(fiber, state);
+          }
           break;
         }
       }
     } else {
       const rootKey = reactRootKeys[0];
-      const root = (container as any)[rootKey];
+      // React attaches root to container via internal properties
+      const root = (container as unknown as Record<string, unknown>)[rootKey] as {
+        current?: ReactFiber | null;
+        _internalRoot?: { current?: ReactFiber | null };
+      } | null | undefined;
       
-      if (root && root.current) {
+      if (root?.current) {
         extractStateFromFiber(root.current, state);
-      } else if (root && root._internalRoot) {
+      } else if (root?._internalRoot?.current) {
         extractStateFromFiber(root._internalRoot.current, state);
       }
     }
@@ -60,8 +75,9 @@ export function extractReactState(container: HTMLElement = document.body): Extra
 
 /**
  * Recursively extract state from React Fiber nodes
+ * @internal - Uses React internal Fiber structure
  */
-function extractStateFromFiber(fiber: any, state: ExtractedState, depth = 0): void {
+function extractStateFromFiber(fiber: ReactFiber | null | undefined, state: ExtractedState, depth = 0): void {
   if (!fiber || depth > 50) return; // Prevent infinite recursion
   
   try {
@@ -130,13 +146,15 @@ export function extractVueState(container: HTMLElement = document.body): Extract
   
   try {
     // Vue attaches __vueParentComponent to elements
-    const vueElements = Array.from(container.querySelectorAll('*')).filter(el => 
-      (el as any).__vueParentComponent
-    );
+    // Type assertion needed to access framework internals
+    const vueElements = Array.from(container.querySelectorAll('*')).filter(el => {
+      const vueComponent = (el as unknown as { __vueParentComponent?: unknown }).__vueParentComponent;
+      return !!vueComponent;
+    });
     
     if (vueElements.length > 0) {
       const element = vueElements[0];
-      const component = (element as any).__vueParentComponent;
+      const component = (element as unknown as { __vueParentComponent?: VueComponentInternal }).__vueParentComponent;
       
       if (component && component.proxy) {
         const proxy = component.proxy;
@@ -181,8 +199,8 @@ export function extractSvelteState(container: HTMLElement = document.body): Extr
   
   try {
     // Check if there's a Svelte component instance stored globally
-    if (typeof window !== 'undefined' && (window as any).__SVELTE_COMPONENT__) {
-      const component = (window as any).__SVELTE_COMPONENT__;
+    if (typeof window !== 'undefined' && window.__SVELTE_COMPONENT__) {
+      const component = window.__SVELTE_COMPONENT__;
       
       // Svelte 5 components have internal state
       if (component.$$ && component.$$.ctx) {
@@ -328,7 +346,8 @@ function isInternalSvelteObject(value: unknown): boolean {
   if (typeof value !== 'object' || value === null) return false;
   
   // Svelte internal objects often have $$ property
-  if ((value as any).$$ || (value as any).$$scope) return true;
+  const obj = value as Record<string, unknown>;
+  if (obj.$$ || obj.$$scope) return true;
   
   return false;
 }

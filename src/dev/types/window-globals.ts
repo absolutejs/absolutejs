@@ -1,0 +1,56 @@
+import type { SvelteComponentInternal } from './framework-internals';
+
+/* Extend Window interface with HMR-specific globals */
+declare global {
+  interface Window {
+    /* HMR manifest - maps component names to built file paths */
+    __HMR_MANIFEST__?: Record<string, string>;
+
+    /* Array of pending HMR module updates */
+    __HMR_MODULE_UPDATES__?: Array<unknown>;
+
+    /* Client-side module versions - tracks what version the client has loaded */
+    __HMR_MODULE_VERSIONS__?: Record<string, number>;
+
+    /* Server-side module versions - tracks what version the server has */
+    __HMR_SERVER_VERSIONS__?: Record<string, number>;
+
+    /* React root instance for HMR re-rendering */
+    __REACT_ROOT__?: {
+      render: (element: unknown) => void;
+    };
+
+    /* Initial props passed to React component */
+    __INITIAL_PROPS__?: Record<string, unknown>;
+
+    /* Preserved state across HMR updates */
+    __HMR_PRESERVED_STATE__?: Record<string, unknown>;
+
+    /* Update counter for debugging */
+    __HMR_UPDATE_COUNT__?: number;
+
+    /* Svelte component instance */
+    __SVELTE_COMPONENT__?: SvelteComponentInternal;
+
+    /* Flag to indicate Svelte HMR update in progress */
+    __SVELTE_HMR_UPDATE__?: boolean;
+
+    /* HTML counter state */
+    __HTML_COUNTER_STATE__?: number;
+
+    /* Flag to prevent script re-initialization */
+    __HTML_SCRIPT_INITIALIZED__?: boolean;
+
+    /* WebSocket instance for HMR */
+    __HMR_WS__?: WebSocket;
+
+    /* HTMX global (if HTMX is loaded) */
+    htmx?: {
+      process: (element: HTMLElement | Document) => void;
+    };
+  }
+}
+
+/* Export empty object to make this a module */
+export {};
+

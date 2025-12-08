@@ -1,9 +1,12 @@
+import { watch } from 'fs';
+import type { FSWatcher } from 'fs';
 import { createDependencyGraph, type DependencyGraph } from './dependencyGraph';
 import { createModuleVersionTracker, type ModuleVersions } from './moduleVersionTracker';
+import type { HMRWebSocket } from './types/websocket';
 
 /* This handles the "tracking clients" problem */
 export type HMRState = {
-  connectedClients: Set<unknown>;
+  connectedClients: Set<HMRWebSocket>;
   dependencyGraph: DependencyGraph;
   isRebuilding: boolean;
   rebuildQueue: Set<string>;
@@ -11,7 +14,7 @@ export type HMRState = {
   fileChangeQueue: Map<string, string[]>;
   debounceTimeout: NodeJS.Timeout | null;
   fileHashes: Map<string, string>; // filename -> SHA-256 hash
-  watchers: unknown[];
+  watchers: FSWatcher[];
   moduleVersions: ModuleVersions; // module path -> version number (for client-server sync)
   sourceFileVersions: Map<string, number>; // source file path -> version number (for cache busting)
 };
@@ -22,13 +25,13 @@ export const createHMRState = () => ({
   })
 
 /* Add a client to tracking */
-export const addClient = (state: HMRState, client: unknown) => {
+export const addClient = (state: HMRState, client: HMRWebSocket) => {
   console.log('🔥 HMR client connected');
   state.connectedClients.add(client);
 }
 
 /* Remove a client from tracking */
-export const removeClient = (state: HMRState, client: unknown) => {
+export const removeClient = (state: HMRState, client: HMRWebSocket) => {
   console.log('🔥 HMR client disconnected');
   state.connectedClients.delete(client);
 }

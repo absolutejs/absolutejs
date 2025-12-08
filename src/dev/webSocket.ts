@@ -1,12 +1,16 @@
 import type { HMRState } from './clientManager';
 import { serializeModuleVersions } from './moduleVersionTracker';
+import type { HMRWebSocket } from './types/websocket';
+import { WS_READY_STATE_OPEN } from './types/websocket';
+import type { HMRClientMessage } from './types/messages';
+import { isValidHMRClientMessage } from './types/messages';
 
 /* Magic pt. 2 - when a browser connects to our WebSocket
    We send them the current manifest so they know what files exist
    Like giving them a menu of all the dishes we can serve */
 export const handleClientConnect = (
   state: HMRState,
-  client: unknown,
+  client: HMRWebSocket,
   manifest: Record<string, string>
 ) => {
   state.connectedClients.add(client);
@@ -30,36 +34,43 @@ export const handleClientConnect = (
 
 /* When a client disconnects, remove them from our tracking
    This prevents memory leaks and keeps our client list clean */
-export const handleClientDisconnect = (state: HMRState, client: unknown) => {
+export const handleClientDisconnect = (state: HMRState, client: HMRWebSocket) => {
   state.connectedClients.delete(client);
 }
 
 /* Handle messages from clients - they might ping us or request rebuilds
    We need to handle different message types because WebSocket is just a pipe/stream */
-export const handleHMRMessage = (state: HMRState, client: unknown, message: unknown) => {
+export const handleHMRMessage = (state: HMRState, client: HMRWebSocket, message: unknown) => {
   try {
     /* WebSocket messages can come in different formats
        sometimes they're strings, sometimes they're Buffers, sometimes they're objects...
        we need to handle all of them because JavaScript is weird like that */
-    let data;
+    let parsedData: unknown;
     
     if (typeof message === 'string') {
-      data = JSON.parse(message);
+      parsedData = JSON.parse(message);
     } else if (message instanceof Buffer) {
-      data = JSON.parse(message.toString());
+      parsedData = JSON.parse(message.toString());
     } else if (message instanceof ArrayBuffer) {
-      data = JSON.parse(new TextDecoder().decode(new Uint8Array(message)));
+      parsedData = JSON.parse(new TextDecoder().decode(new Uint8Array(message)));
     } else if (ArrayBuffer.isView(message)) {
-      data = JSON.parse(new TextDecoder().decode(message as Uint8Array));
-    } else if (typeof message === 'object') {
+      parsedData = JSON.parse(new TextDecoder().decode(message as Uint8Array));
+    } else if (typeof message === 'object' && message !== null) {
       // Message is already an object - no parsing needed
-      data = message;
+      parsedData = message;
     } else {
       console.log('🤷 Unknown message type:', typeof message);
 
       return;
     }
     
+    // Validate and type the message
+    if (!isValidHMRClientMessage(parsedData)) {
+      console.log('🤷 Invalid HMR message format');
+      return;
+    }
+    
+    const data: HMRClientMessage = parsedData;
     console.log('📨 HMR message received:', data.type);
     
     switch (data.type) {
@@ -93,9 +104,6 @@ export const handleHMRMessage = (state: HMRState, client: unknown, message: unkn
           console.groupEnd();
         }
         break;
-        
-      default:
-        console.log('🤷 Unknown HMR message type:', data.type);
     }
   } catch (error) {
     console.error('❌ Error parsing HMR message:', error);
@@ -113,12 +121,11 @@ export const broadcastToClients = (state: HMRState, message: {type: string}) => 
     timestamp: Date.now()
   });
   
-  const OPEN = (globalThis as {WebSocket?: {OPEN?: number}}).WebSocket?.OPEN ?? 1;
   let sentCount = 0;
-  const clientsToRemove: unknown[] = [];
+  const clientsToRemove: HMRWebSocket[] = [];
   
   for (const client of state.connectedClients) {
-    if (client.readyState === OPEN) { // WebSocket.OPEN
+    if (client.readyState === WS_READY_STATE_OPEN) {
       try {
         client.send(messageStr);
         sentCount++;
