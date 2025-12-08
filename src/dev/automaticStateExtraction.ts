@@ -62,10 +62,6 @@ export function extractReactState(container: HTMLElement = document.body): Extra
         extractStateFromFiber(root._internalRoot.current, state);
       }
     }
-    
-    if (Object.keys(state).length > 0) {
-      console.log('📦 Automatically extracted React state:', state);
-    }
   } catch (error) {
     console.warn('⚠️ Failed to extract React state automatically:', error);
   }
@@ -179,10 +175,6 @@ export function extractVueState(container: HTMLElement = document.body): Extract
         }
       }
     }
-    
-    if (Object.keys(state).length > 0) {
-      console.log('📦 Automatically extracted Vue state:', state);
-    }
   } catch (error) {
     console.warn('⚠️ Failed to extract Vue state automatically:', error);
   }
@@ -218,10 +210,6 @@ export function extractSvelteState(container: HTMLElement = document.body): Extr
           });
         }
       }
-    }
-    
-    if (Object.keys(state).length > 0) {
-      console.log('📦 Automatically extracted Svelte state:', state);
     }
   } catch (error) {
     console.warn('⚠️ Failed to extract Svelte state automatically:', error);
@@ -274,10 +262,6 @@ export function extractHTMLState(container: HTMLElement = document.body): Extrac
     state[`${id}_content`] = editable.textContent || '';
   });
   
-  if (Object.keys(state).length > 0) {
-    console.log('📦 Automatically extracted HTML state:', state);
-  }
-  
   return state;
 }
 
@@ -300,14 +284,6 @@ export function extractAllStateAutomatically(container: HTMLElement = document.b
     ...vueState,
     ...reactState
   };
-  
-  console.log('📦 Total automatically extracted state:', {
-    react: Object.keys(reactState).length,
-    vue: Object.keys(vueState).length,
-    svelte: Object.keys(svelteState).length,
-    html: Object.keys(htmlState).length,
-    total: Object.keys(allState).length
-  });
   
   return allState;
 }

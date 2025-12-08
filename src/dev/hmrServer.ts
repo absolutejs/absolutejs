@@ -53,7 +53,6 @@ export async function startBunHMRDevServer(config: BuildConfig) {
   }
   
   console.log('Build completed successfully');
-  console.log('Manifest keys:', Object.keys(manifest));
   
   // Inject HMR client script into HTML
   const injectHMRClient = (html: string): string => {
@@ -126,7 +125,6 @@ export async function startBunHMRDevServer(config: BuildConfig) {
             }
             
             await Promise.all(prefetchPromises);
-            console.log('✅ Pre-fetched', modulePaths.length, 'module(s) for sync');
           }
           
           // State Preservation Utilities
@@ -208,7 +206,6 @@ export async function startBunHMRDevServer(config: BuildConfig) {
           // Simple React HMR Client Handler
           ${generateSimpleReactHMRClientCode()}
           
-          console.log('Initializing HMR client...');
           
           // Determine WebSocket URL (use client's current hostname and port)
           const wsHost = location.hostname;
@@ -227,35 +224,26 @@ export async function startBunHMRDevServer(config: BuildConfig) {
             // CRITICAL: Use URL path as the ONLY source of truth
             // Never rely on globals as they persist across navigation
             const path = window.location.pathname;
-            console.log('🔍 Detecting framework from path:', path);
             
             if (path === '/react' || path.startsWith('/react/')) {
-              console.log('✅ Detected: react');
               return 'react';
             }
             if (path === '/vue' || path.startsWith('/vue/')) {
-              console.log('✅ Detected: vue');
               return 'vue';
             }
             if (path === '/svelte' || path.startsWith('/svelte/')) {
-              console.log('✅ Detected: svelte');
               return 'svelte';
             }
             if (path === '/htmx' || path.startsWith('/htmx/')) {
-              console.log('✅ Detected: htmx');
               return 'htmx';
             }
             if (path === '/' || path === '/html' || path.startsWith('/html/')) {
-              console.log('✅ Detected: html');
               return 'html';
             }
-            
-            console.warn('⚠️ Could not detect framework from path:', path);
             return null;
           }
           
           ws.onopen = function() {
-            console.log('HMR client connected');
             isConnected = true;
             // Set HMR active flag when WebSocket connects - this prevents bundle hash check from reloading
             sessionStorage.setItem('__HMR_CONNECTED__', 'true');
@@ -266,7 +254,6 @@ export async function startBunHMRDevServer(config: BuildConfig) {
               type: 'ready',
               framework: currentFramework
             }));
-            console.log('📍 Current framework:', currentFramework || 'unknown');
             
             if (reconnectTimeout) {
               clearTimeout(reconnectTimeout);
@@ -283,7 +270,6 @@ export async function startBunHMRDevServer(config: BuildConfig) {
           ws.onmessage = async function(event) {
             try {
               const message = JSON.parse(event.data);
-              console.log('HMR message received:', message.type);
               
               // Track HMR update state to prevent WebSocket from closing during updates
               if (
@@ -302,13 +288,11 @@ export async function startBunHMRDevServer(config: BuildConfig) {
               
               switch (message.type) {
                 case 'manifest':
-                  console.log('Received manifest:', Object.keys(message.data.manifest || message.data));
                   window.__HMR_MANIFEST__ = message.data.manifest || message.data;
                   
                   // Update server versions
                   if (message.data.serverVersions) {
                     window.__HMR_SERVER_VERSIONS__ = message.data.serverVersions;
-                    console.log('📌 Received server module versions');
                   }
                   
                   // Initialize client versions if not present
@@ -320,11 +304,9 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                   break;
                   
                 case 'rebuild-start':
-                  console.log('Rebuild started for:', message.data.affectedFrameworks);
                   break;
                   
                 case 'rebuild-complete':
-                  console.log('Rebuild completed');
                   if (window.__HMR_MANIFEST__) {
                     window.__HMR_MANIFEST__ = message.data.manifest;
                   }
@@ -336,7 +318,6 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                       !message.data.affectedFrameworks.includes('htmx') &&
                       !message.data.affectedFrameworks.includes('vue') &&
                       !message.data.affectedFrameworks.includes('svelte')) {
-                    console.log('Reloading page due to rebuild (non-HMR framework)...');
                     // Force a hard reload to bypass browser cache
                     // Add cache busting to the URL to ensure fresh bundle
                     const url = new URL(window.location.href);
@@ -356,14 +337,9 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                   break;
                   
                 case 'framework-update':
-                  console.log('Framework updated:', message.data.framework);
                   break;
                   
                 case 'module-update':
-                  console.log('Module update received:', {
-                    framework: message.data.framework,
-                    moduleCount: message.data.modules?.length || 0
-                  });
                   
                   // For frameworks with dedicated HMR handlers, skip version mismatch checking
                   // These updates are handled via dedicated update messages with DOM patching
@@ -389,7 +365,6 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                       window.__HMR_MODULE_UPDATES__ = [];
                     }
                     window.__HMR_MODULE_UPDATES__.push(message.data);
-                    console.log('✅', message.data.framework, 'module update processed (will be handled by dedicated update message)');
                     break; // Don't reload - dedicated update messages will handle the update
                   }
                   
@@ -411,9 +386,6 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                   );
                   
                   if (versionCheck.needsSync && versionCheck.stale.length > 0) {
-                    console.warn('⚠️ Module version mismatch detected:', versionCheck.stale.length, 'stale module(s)');
-                    console.log('Stale modules:', versionCheck.stale);
-                    
                     // If too many modules are stale, force reload for safety
                     if (versionCheck.stale.length > 10) {
                       console.error('❌ Too many stale modules, forcing full reload');
@@ -424,7 +396,6 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                     // Pre-fetch stale modules to sync
                     const updatedManifest = message.data.manifest || window.__HMR_MANIFEST__ || {};
                     prefetchModules(versionCheck.stale, updatedManifest).then(() => {
-                      console.log('✅ Module sync complete');
                       // Update client versions after successful prefetch
                       if (message.data.moduleVersions) {
                         window.__HMR_MODULE_VERSIONS__ = { ...window.__HMR_MODULE_VERSIONS__, ...message.data.moduleVersions };
@@ -457,10 +428,7 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                                        message.data.framework === 'htmx';
                   
                   if (!hasHMRSupport) {
-                    console.log('Module update requires page reload (no HMR support for ' + message.data.framework + ')');
                     window.location.reload();
-                  } else {
-                    console.log('Module update processed (HMR will handle ' + message.data.framework + ' update)');
                   }
                   break;
                 
@@ -468,12 +436,9 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                   // Check if we're on a React page
                   const currentFramework = detectCurrentFramework();
                   if (currentFramework !== 'react') {
-                    console.log('📍 Ignoring React update (currently on ' + (currentFramework || 'unknown') + ' page)');
                     break;
                   }
                   
-                  console.log('🔄 React update received:', message.data.sourceFile);
-                  console.log('📦 Update #', (window.__HMR_UPDATE_COUNT__ || 0) + 1);
                   window.__HMR_UPDATE_COUNT__ = (window.__HMR_UPDATE_COUNT__ || 0) + 1;
                   
                   // Set HMR active flag to prevent bundle hash check from triggering reload
@@ -486,7 +451,6 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                     if (bundleHashMatch) {
                       const newBundleHash = bundleHashMatch[1];
                       sessionStorage.setItem('__BUNDLE_HASH__', newBundleHash);
-                      console.log('📦 Updated bundle hash to:', newBundleHash);
                     }
                   }
                   
@@ -496,8 +460,6 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                     // The body content from the server includes everything we need
                     const container = document.body;
                     if (container) {
-                      console.log('🔄 Re-rendering React with preserved state...');
-                      
                       // PRESERVE STATE: Extract ALL component state using automatic framework introspection
                       // This runs INSIDE the message handler, so it won't affect WebSocket initialization
                       let preservedProps = {};
@@ -507,11 +469,8 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                         
                         if (Object.keys(preservedProps).length > 0) {
                           window.__HMR_PRESERVED_STATE__ = preservedProps;
-                          console.log('📦 Automatically extracted React state:', window.__HMR_PRESERVED_STATE__);
                         }
                       } catch (error) {
-                        console.warn('⚠️ Automatic state extraction failed, using fallback pattern matching:', error);
-                        
                         // Fallback: manual pattern matching
                         const button = container.querySelector('button');
                         if (button && button.textContent) {
@@ -519,7 +478,6 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                           if (countMatch) {
                             preservedProps = { initialCount: parseInt(countMatch[1], 10) };
                             window.__HMR_PRESERVED_STATE__ = preservedProps;
-                            console.log('📦 Fallback: Preserved counter state:', preservedProps);
                           }
                         }
                       }
@@ -527,8 +485,6 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                       // Simple approach: Re-import the React component and re-render
                       const componentPath = message.data.manifest?.ReactExample || '/react/pages/ReactExample.tsx';
                       const modulePath = componentPath + '?t=' + Date.now();
-                      
-                      console.log('🔄 Re-importing React component:', modulePath);
                       
                       import(/* @vite-ignore */ modulePath)
                         .then(async (module) => {
@@ -541,7 +497,6 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                             
                             // Simple re-render - React handles the rest
                             window.__REACT_ROOT__.render(React.createElement(Component, mergedProps));
-                            console.log('✅ React re-rendered with preserved state');
                             
                             sessionStorage.removeItem('__HMR_ACTIVE__');
                           } else {
@@ -550,7 +505,6 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                         })
                         .catch((error) => {
                           console.error('❌ Failed to re-render React:', error);
-                          console.warn('⚠️ Falling back to DOM patch + re-hydration...');
                           
                           // Fallback: patch DOM and re-hydrate (will cause flicker but at least it works)
                           container.innerHTML = message.data.html;
@@ -563,7 +517,6 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                             
                             import(/* @vite-ignore */ modulePath)
                               .then(() => {
-                                console.log('✅ Fallback: React re-hydrated after DOM patch');
                                 sessionStorage.removeItem('__HMR_ACTIVE__');
                               })
                               .catch(() => {
@@ -580,11 +533,8 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                       sessionStorage.removeItem('__HMR_ACTIVE__');
                     }
                   } else {
-                    console.warn('⚠️ No HTML in React update');
-                    console.warn('⚠️ Message data:', Object.keys(message.data || {}));
-                    sessionStorage.removeItem('__HMR_ACTIVE__');
-                    // Don't reload - this is a server-side issue, not a client issue
                     console.error('❌ Failed to update React component - no HTML provided');
+                    sessionStorage.removeItem('__HMR_ACTIVE__');
                   }
                   break;
                 
@@ -592,17 +542,11 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                   // Check if we're on an HTML page
                   const htmlFrameworkCheck = detectCurrentFramework();
                   if (htmlFrameworkCheck !== 'html') {
-                    console.log('📍 Ignoring HTML update (currently on ' + (htmlFrameworkCheck || 'unknown') + ' page)');
-                    console.log('📍 URL path is:', window.location.pathname);
                     break;
                   }
                   
-                  console.log('🔄 HTML update received:', message.data.sourceFile);
-                  console.log('✅ On HTML page, processing update');
-                  
                   // Clear React globals if they exist (prevents interference from previous React page)
                   if (window.__REACT_ROOT__) {
-                    console.log('🗑️ Clearing React globals (navigated away from React)');
                     window.__REACT_ROOT__ = undefined;
                   }
                   
@@ -613,10 +557,6 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                   if (message.data.html) {
                     const container = document.body;
                     if (container) {
-                      console.log('🔄 Patching DOM with new HTML...');
-                      console.log('📦 HTML length:', message.data.html.length);
-                      console.log('📦 Body before patch:', container.innerHTML.length, 'chars');
-                      
                       // PRESERVE STATE: Save form data and scroll position before patching
                       const savedState = {
                         forms: saveFormState(),
@@ -627,7 +567,6 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                       const counterSpan = container.querySelector('#counter');
                       const counterValue = counterSpan ? parseInt(counterSpan.textContent || '0', 10) : 0;
                       savedState.componentState = { count: counterValue };
-                      console.log('📦 Preserved HTML counter state:', counterValue);
                       
                       // Store counter state in a global so scripts can access it
                       window.__HTML_COUNTER_STATE__ = counterValue;
@@ -638,24 +577,17 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                         src: script.getAttribute('src') || '',
                         type: script.getAttribute('type') || 'text/javascript'
                       }));
-                      console.log('📦 Stored existing compiled scripts:', existingScripts.length);
                       
                       // For HTML files, we need to preserve the HMR client script
                       // Extract and store HMR script before patching
                       const hmrScript = container.querySelector('script[data-hmr-client]');
-                      console.log('📦 HMR script found:', !!hmrScript);
                       
                       // Patch the DOM with new content
-                      console.log('📦 HTML content preview (first 500 chars):', message.data.html.substring(0, 500));
                       container.innerHTML = message.data.html;
-                      console.log('✅ HTML updated via DOM patch');
-                      console.log('📦 Body after patch:', container.innerHTML.length, 'chars');
-                      console.log('📦 h1 content after patch:', container.querySelector('h1')?.textContent || 'NOT FOUND');
                       
                       // Re-append HMR script if it was present
                       if (hmrScript && !container.querySelector('script[data-hmr-client]')) {
                         container.appendChild(hmrScript);
-                        console.log('✅ HMR script restored after patch');
                       }
                       
                       // RESTORE STATE: Restore form data, scroll position, and counter state
@@ -667,7 +599,6 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                         const newCounterSpan = container.querySelector('#counter');
                         if (newCounterSpan && savedState.componentState.count !== undefined) {
                           newCounterSpan.textContent = String(savedState.componentState.count);
-                          console.log('📦 Restored counter display:', savedState.componentState.count);
                         }
                         
                         // Remove any script tags from the patched HTML (they have TypeScript source paths)
@@ -675,11 +606,9 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                         scriptsInNewHTML.forEach((script) => {
                           script.remove();
                         });
-                        console.log('🗑️ Removed', scriptsInNewHTML.length, 'script tag(s) from patched HTML');
                         
                         // Clear the script initialization flag so script can re-run after patching
                         window.__HTML_SCRIPT_INITIALIZED__ = false;
-                        console.log('🔄 Cleared script initialization flag for re-initialization');
                         
                         // Re-append the existing compiled scripts with cache busting to trigger re-execution
                         existingScripts.forEach((scriptInfo) => {
@@ -689,7 +618,6 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                           newScript.src = scriptInfo.src + separator + 't=' + Date.now();
                           newScript.type = scriptInfo.type;
                           container.appendChild(newScript);
-                          console.log('📦 Re-appended compiled script:', scriptInfo.src);
                         });
                         
                         // Re-execute inline scripts
@@ -700,15 +628,11 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                           newScript.type = script.type || 'text/javascript';
                           script.parentNode?.replaceChild(newScript, script);
                         });
-                        
-                        console.log('✅ State preserved across HTML update');
                       });
                       
                       // Verify the patch worked
                       if (container.innerHTML.trim().length === 0) {
                         console.error('❌ DOM patch resulted in empty body - this should not happen');
-                      } else {
-                        console.log('✅ DOM patch verified - body has content');
                       }
                       
                       // Clear HMR active flag after successful update
@@ -718,9 +642,8 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                       sessionStorage.removeItem('__HMR_ACTIVE__');
                     }
                   } else {
-                    console.warn('⚠️ No HTML in HTML update');
-                    sessionStorage.removeItem('__HMR_ACTIVE__');
                     console.error('❌ Failed to update HTML - no HTML provided');
+                    sessionStorage.removeItem('__HMR_ACTIVE__');
                   }
                   break;
 
@@ -728,17 +651,11 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                   // Check if we're on an HTMX page
                   const htmxFrameworkCheck = detectCurrentFramework();
                   if (htmxFrameworkCheck !== 'htmx') {
-                    console.log('📍 Ignoring HTMX update (currently on ' + (htmxFrameworkCheck || 'unknown') + ' page)');
-                    console.log('📍 URL path is:', window.location.pathname);
                     break;
                   }
                   
-                  console.log('🔄 HTMX update received:', message.data.sourceFile);
-                  console.log('✅ On HTMX page, processing update');
-                  
                   // Clear React globals if they exist (prevents interference from previous React page)
                   if (window.__REACT_ROOT__) {
-                    console.log('🗑️ Clearing React globals (navigated away from React)');
                     window.__REACT_ROOT__ = undefined;
                   }
                   
@@ -747,10 +664,6 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                   if (message.data.html) {
                     const container = document.body;
                     if (container) {
-                      console.log('🔄 Patching DOM with new HTMX HTML...');
-                      console.log('📦 HTML length:', message.data.html.length);
-                      console.log('📦 Body before patch:', container.innerHTML.length, 'chars');
-                      
                       // PRESERVE STATE: Save form data and scroll position before patching
                       const savedState = {
                         forms: saveFormState(),
@@ -761,35 +674,27 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                       const countSpan = container.querySelector('#count');
                       const countValue = countSpan ? parseInt(countSpan.textContent || '0', 10) : 0;
                       savedState.componentState = { count: countValue };
-                      console.log('📦 Preserved HTMX counter state:', countValue);
                       
                       // CRITICAL: Update server-side state to match client state
                       // HTMX uses server-side state, so we need to sync it before patching
                       // Send a POST request to update the server-side counter
                       if (savedState.componentState.count !== undefined && savedState.componentState.count > 0) {
-                        console.log('🔄 Syncing server-side HTMX state...');
                         fetch('/htmx/sync-count', {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify({ count: savedState.componentState.count })
-                        }).then(() => {
-                          console.log('✅ Server-side HTMX state synced');
                         }).catch((error) => {
                           console.warn('⚠️ Failed to sync server-side HTMX state:', error);
                         });
                       }
                       // Preserve HMR client script before patching
                       const hmrScript = container.querySelector('script[data-hmr-client]');
-                      console.log('📦 HMR script found:', !!hmrScript);
                       
                       container.innerHTML = message.data.html;
-                      console.log('✅ HTMX content updated via DOM patch');
-                      console.log('📦 Body after patch:', container.innerHTML.length, 'chars');
                       
                       // Re-append HMR script if it was present
                       if (hmrScript && !container.querySelector('script[data-hmr-client]')) {
                         container.appendChild(hmrScript);
-                        console.log('✅ HMR script restored after patch');
                       }
                       
                       // RESTORE STATE: Restore form data, scroll position, and counter state
@@ -801,14 +706,12 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                         const newCountSpan = container.querySelector('#count');
                         if (newCountSpan && savedState.componentState.count !== undefined) {
                           newCountSpan.textContent = String(savedState.componentState.count);
-                          console.log('📦 Restored counter display:', savedState.componentState.count);
                         }
                         
                         // Re-initialize HTMX after DOM patch
                         // HTMX needs to be re-initialized to attach event handlers to new DOM
                         if (typeof window !== 'undefined' && window.htmx) {
                           window.htmx.process(document.body);
-                          console.log('✅ HTMX re-initialized after DOM patch');
                         } else if (typeof window !== 'undefined' && window.htmx === undefined) {
                           // HTMX might not be loaded yet, try to load it
                           const htmxScript = document.querySelector('script[src*="htmx"]');
@@ -818,20 +721,15 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                             newScript.onload = () => {
                               if (window.htmx) {
                                 window.htmx.process(document.body);
-                                console.log('✅ HTMX loaded and initialized');
                               }
                             };
                             document.head.appendChild(newScript);
                           }
                         }
-                        
-                        console.log('✅ State preserved across HTMX update');
                       });
                       
                       if (container.innerHTML.trim().length === 0) {
                         console.error('❌ HTMX DOM patch resulted in empty body - this should not happen');
-                      } else {
-                        console.log('✅ HTMX DOM patch verified - body has content');
                       }
                       
                       sessionStorage.removeItem('__HMR_ACTIVE__');
@@ -840,41 +738,27 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                       sessionStorage.removeItem('__HMR_ACTIVE__');
                     }
                   } else {
-                    console.warn('⚠️ No HTML in HTMX update');
-                    sessionStorage.removeItem('__HMR_ACTIVE__');
                     console.error('❌ Failed to update HTMX - no HTML provided');
+                    sessionStorage.removeItem('__HMR_ACTIVE__');
                   }
                   break;
                 
                 case 'svelte-update':
                   // Check if we're on a Svelte page
                   const svelteFrameworkCheck = detectCurrentFramework();
-                  console.log('🔍 Svelte update: detected framework =', svelteFrameworkCheck);
-                  console.log('🔍 Svelte update: URL =', window.location.href);
-                  console.log('🔍 Svelte update: has __SVELTE_COMPONENT__ =', !!window.__SVELTE_COMPONENT__);
-                  console.log('🔍 Svelte update: has __REACT_ROOT__ =', !!window.__REACT_ROOT__);
                   
                   if (svelteFrameworkCheck !== 'svelte') {
-                    console.log('📍 Ignoring Svelte update (currently on ' + (svelteFrameworkCheck || 'unknown') + ' page)');
-                    console.log('📍 URL path is:', window.location.pathname);
                     break;
                   }
-                  
-                  console.log('✅ Svelte update: Passed framework check, processing update');
-                  console.log('🔄 Svelte update received:', message.data.sourceFile);
                   
                   // CRITICAL: Double-check we're actually on Svelte page
                   if (!window.location.pathname.includes('/svelte')) {
                     console.error('❌ URL does not include /svelte - ABORTING');
-                    console.error('❌ Current URL:', window.location.href);
                     break;
                   }
                   
-                  console.log('✅ URL verification passed');
-                  
                   // Clear React globals if they exist (prevents interference from previous React page)
                   if (window.__REACT_ROOT__) {
-                    console.log('🗑️ Clearing React globals (navigated away from React)');
                     window.__REACT_ROOT__ = undefined;
                   }
                   
@@ -883,8 +767,6 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                   
                   // Simple DOM patching with new HTML from server
                   if (message.data.html) {
-                    console.log('🔄 Re-mounting Svelte with preserved state...');
-                    
                     // PRESERVE STATE: Simple pattern matching (reliable and works)
                     const button = document.body.querySelector('button');
                     let initialCount = 0;
@@ -892,13 +774,11 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                       const countMatch = button.textContent.match(/count is (\\d+)/);
                       if (countMatch) {
                         initialCount = parseInt(countMatch[1], 10);
-                        console.log('📦 Preserved Svelte counter state:', initialCount);
                       }
                     }
                     
                     // Store preserved state
                     window.__HMR_PRESERVED_STATE__ = { initialCount };
-                    console.log('📦 Stored Svelte preserved state:', window.__HMR_PRESERVED_STATE__);
                     
                     // Set HMR update flag BEFORE destroying component
                     // This tells the index file to use mount() instead of hydrate()
@@ -906,10 +786,8 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                     
                     // Destroy existing Svelte component
                     if (window.__SVELTE_COMPONENT__ && typeof window.__SVELTE_COMPONENT__.$destroy === 'function') {
-                      console.log('🔄 Destroying existing Svelte component...');
                       try {
                         window.__SVELTE_COMPONENT__.$destroy();
-                        console.log('✅ Existing Svelte component destroyed');
                       } catch (error) {
                         console.warn('⚠️ Error destroying Svelte component:', error);
                       }
@@ -924,17 +802,13 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                       const normalizedPath = indexPath.startsWith('/') ? indexPath : '/' + indexPath;
                       const modulePath = normalizedPath + '?t=' + Date.now();
                       
-                      console.log('🔄 Re-importing Svelte index:', modulePath);
                       import(/* @vite-ignore */ modulePath)
                         .then(() => {
-                          console.log('✅ Svelte component re-mounted with preserved state');
                           sessionStorage.removeItem('__HMR_ACTIVE__');
                         })
                         .catch((error) => {
                           console.error('❌ Failed to re-mount Svelte:', error);
-                          console.error('Module path:', modulePath);
                           sessionStorage.removeItem('__HMR_ACTIVE__');
-                          // Don't reload - just log the error to avoid unwanted navigation
                           console.error('⚠️ Svelte HMR update failed - manual reload may be needed');
                         });
                     } else {
@@ -942,7 +816,7 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                       sessionStorage.removeItem('__HMR_ACTIVE__');
                     }
                   } else {
-                    console.warn('⚠️ No HTML in Svelte update');
+                    console.error('❌ Failed to update Svelte - no HTML provided');
                     sessionStorage.removeItem('__HMR_ACTIVE__');
                   }
                   break;
@@ -951,20 +825,13 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                   // Check if we're on a Vue page
                   const vueFrameworkCheck = detectCurrentFramework();
                   if (vueFrameworkCheck !== 'vue') {
-                    console.log('📍 Ignoring Vue update (currently on ' + (vueFrameworkCheck || 'unknown') + ' page)');
-                    console.log('📍 URL path is:', window.location.pathname);
                     break;
                   }
                   
-                  console.log('🔄 Vue update received:', message.data.sourceFile);
-                  console.log('✅ On Vue page, processing update');
-                  
                   // Clear React globals if they exist (prevents interference from previous React page)
                   if (window.__REACT_ROOT__) {
-                    console.log('🗑️ Clearing React globals (navigated away from React)');
                     window.__REACT_ROOT__ = undefined;
                   }
-                  console.log('✅ On Vue page, processing update');
                   
                   // Set HMR active flag to prevent bundle hash check from triggering reload
                   sessionStorage.setItem('__HMR_ACTIVE__', 'true');
@@ -976,8 +843,6 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                     const bodyContainer = document.body;
                     
                     if (rootContainer || bodyContainer) {
-                      console.log('🔄 Re-mounting Vue with preserved state...');
-                      
                       // PRESERVE STATE: Simple pattern matching (reliable and works)
                       const button = (rootContainer || bodyContainer)?.querySelector('button');
                       let initialCount = 0;
@@ -985,7 +850,6 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                         const countMatch = button.textContent.match(/count is (\\d+)/);
                         if (countMatch) {
                           initialCount = parseInt(countMatch[1], 10);
-                          console.log('📦 Preserved Vue counter state:', initialCount);
                         }
                       }
                       
@@ -994,7 +858,6 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                       
                       // DON'T unmount Vue - just keep the DOM and re-mount will update it
                       // Unmounting removes styles and breaks event handlers
-                      console.log('📦 Skipping unmount - Vue will update in place');
                       
                       // Re-import the Vue client bundle to re-mount the Vue app
                       const indexPath = message.data.manifest?.VueExampleIndex;
@@ -1003,10 +866,8 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                         const normalizedPath = indexPath.startsWith('/') ? indexPath : '/' + indexPath;
                         const modulePath = normalizedPath + '?t=' + Date.now();
                         
-                        console.log('🔄 Re-importing Vue index:', modulePath);
                         import(/* @vite-ignore */ modulePath)
                           .then(() => {
-                            console.log('✅ Vue app re-mounted with preserved state');
                             sessionStorage.removeItem('__HMR_ACTIVE__');
                           })
                           .catch((error) => {
@@ -1023,7 +884,7 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                       sessionStorage.removeItem('__HMR_ACTIVE__');
                     }
                   } else {
-                    console.warn('⚠️ No HTML in Vue update');
+                    console.error('❌ Failed to update Vue - no HTML provided');
                     sessionStorage.removeItem('__HMR_ACTIVE__');
                   }
                   break;
@@ -1033,15 +894,13 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                   break;
                   
                 case 'pong':
-                  console.log('Pong received - connection healthy');
                   break;
                   
                 case 'connected':
-                  console.log('HMR connection confirmed');
                   break;
                   
                 default:
-                  console.log('Unknown HMR message:', message.type);
+                  break;
               }
             } catch (error) {
               console.error('Error processing HMR message:', error);
@@ -1049,7 +908,6 @@ export async function startBunHMRDevServer(config: BuildConfig) {
           };
           
           ws.onclose = function(event) {
-            console.log('HMR client disconnected', event.code, event.reason);
             isConnected = false;
             
             if (pingInterval) {
@@ -1085,7 +943,6 @@ export async function startBunHMRDevServer(config: BuildConfig) {
           window.addEventListener('beforeunload', function(event) {
             // Don't close WebSocket during HMR updates - let it persist
             if (isHMRUpdating) {
-              console.log('🔄 HMR update in progress - keeping WebSocket connection alive');
               // Just clear intervals, but keep connection alive
             if (pingInterval) clearInterval(pingInterval);
             if (reconnectTimeout) clearTimeout(reconnectTimeout);
@@ -1171,8 +1028,6 @@ export async function startBunHMRDevServer(config: BuildConfig) {
             return new Response('ReactExampleIndex not found in manifest', { status: 500 });
           }
           
-          // Log the manifest path for debugging
-          console.log(`📦 Using manifest path: ${indexPath}`);
           
           // Verify the bundle file exists and check its content matches source
           const bundlePath = indexPath.startsWith('/') 
@@ -1194,12 +1049,8 @@ export async function startBunHMRDevServer(config: BuildConfig) {
             const bundleHasReact = bundleContent.includes('AbsoluteJS + React') && !bundleHasReactJS;
             
             if (sourceHasReactJS && bundleHasReact) {
-              console.warn('⚠️  Bundle is stale: source has "ReactJS" but bundle has "React"');
-              console.warn('🔄 Triggering rebuild to sync bundle with source...');
-              
               // Check if rebuild is already in progress
               if (state.isRebuilding) {
-                console.log('⏳ Rebuild already in progress, waiting...');
                 // Wait for rebuild to complete (up to 5 seconds)
                 let waitCount = 0;
                 while (state.isRebuilding && waitCount < 50) {
@@ -1210,14 +1061,12 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                 // But we need to get the new manifest path
                 const newIndexPath = manifest['ReactExampleIndex'];
                 if (newIndexPath && newIndexPath !== indexPath) {
-                  console.log(`✅ Rebuild complete, using new bundle: ${newIndexPath}`);
                   // Continue with the new bundle path
                 }
               } else {
                 // Trigger rebuild for App.tsx to update the bundle
                 queueFileChange(state, appComponentPath, config, (newManifest) => {
                   manifest = newManifest;
-                  console.log('✅ Bundle rebuilt, manifest updated');
                 });
                 
                 // Wait a bit for rebuild to start, then return a response
@@ -1235,10 +1084,6 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                   );
                 }
               }
-            } else if (bundleHasReactJS) {
-              console.log('✅ Bundle file contains "ReactJS" (matches source)');
-            } else if (bundleHasReact) {
-              console.log('✅ Bundle file contains "React" (matches source)');
             }
           } else {
             console.warn(`⚠️ Bundle file not found: ${bundlePath}, using manifest path: ${indexPath}`);
@@ -1246,47 +1091,19 @@ export async function startBunHMRDevServer(config: BuildConfig) {
           
           const componentPath = resolve('./example/react/pages/ReactExample.tsx');
           
-          // Read file content to verify what we're about to import
-          let fileContent = '';
-          try {
-            fileContent = readFileSync(componentPath, 'utf-8');
-            // Log a snippet to help debug hydration mismatches
-            if (fileContent.includes('AbsoluteJS + React')) {
-              console.log('✅ Server: Source file contains "AbsoluteJS + React"');
-            } else if (fileContent.includes('AbsoluteJS + ReactJS')) {
-              console.warn('⚠️  Server: Source file contains "AbsoluteJS + ReactJS" (old version?)');
-            }
-          } catch (error) {
-            console.warn('Failed to read component file for verification:', error);
-          }
-          
           // CRITICAL: Use fresh module loader to bypass Bun's module cache entirely
           // Bun's cache doesn't respect query parameters for transitive dependencies
           // This ensures server HTML always matches the latest source code
-          console.log(`📦 Loading ReactExample using fresh module loader (bypassing Bun cache)`);
           
           let ReactModule: ReactModule | null = null;
           try {
             // Use fresh module loader to ensure we get the latest code, including all dependencies
             // This transpiles files on-the-fly and imports from temp files, bypassing cache
-            console.log(`📦 Loading fresh module: ${componentPath}`);
             const loadedModule = await loadFreshModule(componentPath);
             // Type assertion needed because loadFreshModule returns any
             // We verify the shape below
             if (loadedModule && typeof loadedModule === 'object' && 'ReactExample' in loadedModule) {
               ReactModule = loadedModule as ReactModule;
-            }
-            console.log(`✅ Fresh module loaded successfully`);
-            
-            // Verify the loaded module has the expected content
-            if (ReactModule && ReactModule.ReactExample) {
-              // Try to render it to a string to see what it actually contains
-              const testRender = ReactModule.ReactExample.toString();
-              if (testRender.includes('ReactJS')) {
-                console.log(`⚠️  Server module contains "ReactJS" in render function`);
-              } else if (testRender.includes('React')) {
-                console.log(`✅ Server module contains "React" in render function`);
-              }
             }
           } catch (error) {
             console.error(`❌ Failed to load fresh module:`, error);
@@ -1311,7 +1128,6 @@ export async function startBunHMRDevServer(config: BuildConfig) {
             return new Response('Failed to load ReactExample component', { status: 500 });
           }
           
-          console.log('📦 Server: Loaded ReactModule successfully');
           
           const props: Record<string, string | number> = {
               cssPath: manifest['ReactExampleCSS'] || '',
@@ -1460,12 +1276,6 @@ export async function startBunHMRDevServer(config: BuildConfig) {
             `$1${bundleHashCheckScript}`
           );
           
-          // Log for debugging
-          const scriptMatch = cacheBustedHtml.match(/<script[^>]*type=["']module["'][^>]*src=["']([^"']+)/);
-          if (scriptMatch) {
-            console.log(`📦 Client bundle path: ${scriptMatch[1]}`);
-            console.log(`📦 Bundle hash: ${bundleHash}`);
-          }
 
           // Add cache-control headers to prevent browser caching in development
           // This ensures the browser always fetches fresh HTML and bundles

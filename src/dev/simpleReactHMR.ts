@@ -18,34 +18,25 @@ export const handleReactUpdate = async (
     const { loadFreshModule } = await import('./freshModuleLoader');
     const resolvedPath = resolve(componentPath);
     
-    console.log('📦 Loading fresh React module:', resolvedPath);
-    
     // Load the component using fresh module loader (bypasses cache)
     let ReactModule;
     try {
       ReactModule = await loadFreshModule(resolvedPath);
-      console.log('✅ Fresh React module loaded successfully');
-      console.log('📦 Module keys:', Object.keys(ReactModule || {}));
     } catch (freshLoadError) {
       console.error('❌ Failed to load fresh module:', freshLoadError);
       // Fallback to regular import with cache busting
-      console.log('⚠️ Falling back to regular import with cache busting...');
       const cacheBuster = `?t=${Date.now()}`;
       const relativePath = resolvedPath.includes('/react/pages/')
         ? `../../example/react/pages/ReactExample.tsx${cacheBuster}`
         : `../../${componentPath}${cacheBuster}`;
       ReactModule = await import(relativePath);
-      console.log('✅ Fallback import successful');
     }
     
     if (!ReactModule || !ReactModule.ReactExample) {
       console.warn('⚠️ Could not find ReactExample in module');
-      console.warn('⚠️ Module keys:', Object.keys(ReactModule || {}));
 
       return null;
     }
-    
-    console.log('✅ ReactExample component found in module');
 
     // Re-render the page
     const indexPath = manifest['ReactExampleIndex'];
@@ -66,14 +57,12 @@ export const handleReactUpdate = async (
     );
 
     const html = await response.text();
-    console.log('📦 Server: Generated HTML length:', html.length);
     
     // Extract just the body content for patching (not the full HTML document)
     // This makes DOM patching simpler
     const bodyMatch = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
     if (bodyMatch && bodyMatch[1]) {
       const bodyContent = bodyMatch[1].trim();
-      console.log('📦 Server: Extracted body content length:', bodyContent.length);
 
       return bodyContent;
     }

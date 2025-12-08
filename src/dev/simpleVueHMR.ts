@@ -15,7 +15,6 @@ export const handleVueUpdate = async (
 ) => {
   try {
     const resolvedPath = resolve(vueFilePath);
-    console.log('📦 Handling Vue update for:', resolvedPath);
     
     // CRITICAL: We should NOT call compileVue directly in HMR because:
     // 1. The rebuild that just completed already compiled Vue
@@ -33,13 +32,9 @@ export const handleVueUpdate = async (
     
     if (!serverPath) {
       console.warn('⚠️ VueExample not found in manifest');
-      console.warn('   Available manifest keys:', Object.keys(manifest));
-      console.warn('   This might mean the rebuild did not complete or Vue was not included');
 
       return null;
     }
-    
-    console.log('📦 Using Vue server path from manifest:', serverPath);
     
     // Re-import the server component with cache busting
     // The serverPath is the absolute path to the built server bundle
@@ -52,20 +47,14 @@ export const handleVueUpdate = async (
       return null;
     }
     
-    console.log('✅ Vue server module loaded successfully');
-    
     // Get indexPath from manifest (relative URL to built client bundle)
     const indexPath = manifest['VueExampleIndex'];
     
     if (!indexPath) {
       console.warn('⚠️ VueExampleIndex not found in manifest');
-      console.warn('   Available manifest keys:', Object.keys(manifest));
-      console.warn('   This might mean the rebuild did not complete or Vue was not included');
 
       return null;
     }
-    
-    console.log('📦 Using Vue indexPath from manifest:', indexPath);
     
     const { handleVuePageRequest } = await import('../core/pageHandlers');
     const { generateHeadElement } = await import('../utils/generateHeadElement');
@@ -82,14 +71,12 @@ export const handleVueUpdate = async (
     );
     
     const html = await response.text();
-    console.log('📦 Server: Generated HTML length:', html.length);
     
     // Extract just the body content for patching (not the full HTML document)
     // Vue renders to <div id="root"> inside <body>
     const bodyMatch = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
     if (bodyMatch && bodyMatch[1]) {
       const bodyContent = bodyMatch[1].trim();
-      console.log('📦 Server: Extracted body content length:', bodyContent.length);
 
       return bodyContent;
     }

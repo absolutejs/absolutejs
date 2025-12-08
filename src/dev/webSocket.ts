@@ -71,7 +71,6 @@ export const handleHMRMessage = (state: HMRState, client: HMRWebSocket, message:
     }
     
     const data: HMRClientMessage = parsedData;
-    console.log('📨 HMR message received:', data.type);
     
     switch (data.type) {
       case 'ping':
@@ -82,14 +81,10 @@ export const handleHMRMessage = (state: HMRState, client: HMRWebSocket, message:
         break;
         
       case 'request-rebuild':
-        // Client wants us to rebuild everything - useful for debugging
-        console.log('🔄 Client requested rebuild');
         // Note: triggerRebuild would be called from outside
         break;
         
       case 'ready':
-        // Client is ready to receive updates - just log it
-        console.log('✅ Client ready for HMR updates');
         break;
         
       case 'hydration-error':
@@ -114,8 +109,6 @@ export const handleHMRMessage = (state: HMRState, client: HMRWebSocket, message:
 /* Send messages to all connected WebSocket clients
    this is how we notify browsers when files change */
 export const broadcastToClients = (state: HMRState, message: {type: string}) => {
-  console.log('📢 Broadcasting to clients:', message.type);
-  
   const messageStr = JSON.stringify({
     ...message,
     timestamp: Date.now()
@@ -143,6 +136,4 @@ export const broadcastToClients = (state: HMRState, message: {type: string}) => 
   for (const client of clientsToRemove) {
       state.connectedClients.delete(client);
   }
-  
-  console.log(`📡 Message sent to ${sentCount} client(s) (${state.connectedClients.size} total connected)`);
 }

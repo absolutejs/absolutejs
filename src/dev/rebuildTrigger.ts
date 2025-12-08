@@ -31,12 +31,10 @@ export function queueFileChange(
     
     // Check if file actually changed
     if (!hasFileChanged(filePath, currentHash, state.fileHashes)) {
-      console.log(`⏭️ Skipping unchanged file: ${filePath}`);
-
     return;
   }
   
-  console.log(`🔥 File changed: ${filePath} (Framework: ${framework})`);
+  console.log(`File changed: ${filePath}`);
   
   // Get or create queue for this framework
   if (!state.fileChangeQueue.has(framework)) {
@@ -51,8 +49,6 @@ export function queueFileChange(
   
   // If we're already rebuilding, just queue it and wait
   if (state.isRebuilding) {
-    console.log('⏳ Rebuild in progress, queuing changes...');
-  
     return;
   }
   
@@ -67,8 +63,6 @@ export function queueFileChange(
       // Re-check hashes at the last moment to catch rapid edit/undo
       const filesToProcess: Map<string, string[]> = new Map(); // framework -> filePaths
       
-      console.log('📊 === Dependency Graph Analysis ===');
-      
       // Deduplicate files across the entire queue first
       const uniqueFilesByFramework = new Map<string, Set<string>>();
       for (const [fwKey, filePaths] of state.fileChangeQueue) {
@@ -82,7 +76,6 @@ export function queueFileChange(
         for (const filePathInSet of filePathSet) {
           // Skip files that no longer exist (deleted)
           if (!existsSync(filePathInSet)) {
-            console.log(`⏭️ Skipping deleted file: ${filePathInSet}`);
             // Remove from hash tracking
             state.fileHashes.delete(filePathInSet);
             // Still need to rebuild files that depended on this deleted file
@@ -92,7 +85,6 @@ export function queueFileChange(
                 if (affectedFile !== filePath && !processedFiles.has(affectedFile) && existsSync(affectedFile)) {
                   validFiles.push(affectedFile);
                   processedFiles.add(affectedFile);
-                  console.log(`  ✅ Added: ${affectedFile} (depends on deleted file ${filePath})`);
                 }
               }
             } catch (error) {
@@ -112,14 +104,10 @@ export function queueFileChange(
             // getAffectedFiles returns absolute paths, so we need to normalize here too
             const normalizedFilePath = resolve(filePathInSet);
             
-            console.log(`\n🎯 Original changed file: ${filePath}`);
-            console.log(`   Hash: ${storedHash || 'none'} → ${currentHash}`);
-            
             // Add the changed file itself (using normalized path)
             if (!processedFiles.has(normalizedFilePath)) {
               validFiles.push(normalizedFilePath);
               processedFiles.add(normalizedFilePath);
-              console.log(`  ✅ Added: ${normalizedFilePath} (directly changed)`);
             }
             
             // Update hash NOW - this prevents the same file from being processed twice
@@ -139,7 +127,6 @@ export function queueFileChange(
               if (dependents && dependents.size > 0) {
                 const dependentFiles = Array.from(dependents).filter(f => existsSync(f));
                 if (dependentFiles.length > 0) {
-                  console.log(`  🔄 Incrementing versions for ${dependentFiles.length} dependent file(s) to force fresh imports`);
                   incrementSourceFileVersions(state, dependentFiles);
                 }
               }
@@ -151,23 +138,11 @@ export function queueFileChange(
             try {
               const affectedFiles = getAffectedFiles(state.dependencyGraph, normalizedFilePath);
               
-              if (affectedFiles.length > 1) {
-                console.log(`  📦 Found ${affectedFiles.length} affected files via dependency graph:`);
-                affectedFiles.forEach((affectedFile) => {
-                  if (affectedFile !== normalizedFilePath) {
-                    console.log(`    → ${affectedFile} (depends on ${normalizedFilePath})`);
-                  }
-                });
-              } else {
-                console.log(`  ℹ️  No dependent files found for ${normalizedFilePath}`);
-              }
-              
               // Add affected files to the rebuild queue
               for (const affectedFile of affectedFiles) {
                 if (!processedFiles.has(affectedFile) && affectedFile !== normalizedFilePath && existsSync(affectedFile)) {
                   validFiles.push(affectedFile);
                   processedFiles.add(affectedFile);
-                  console.log(`  ✅ Added: ${affectedFile} (dependent file)`);
                 }
               }
             } catch (error) {
@@ -178,31 +153,21 @@ export function queueFileChange(
                 processedFiles.add(normalizedFilePath);
               }
             }
-          } else {
-            console.log(`⏭️ Skipping unchanged file in batch: ${filePath}`);
           }
         }
         
         if (validFiles.length > 0) {
           filesToProcess.set(framework, validFiles);
-          console.log(`\n📋 Total files to rebuild for ${framework}: ${validFiles.length}`);
-          validFiles.forEach((file, index) => {
-            console.log(`  ${index + 1}. ${file}`);
-          });
         }
       }
       
     state.fileChangeQueue.clear();
     
       if (filesToProcess.size === 0) {
-        console.log('✅ No actual changes detected in queued files');
-
         return;
       }
       
       const affectedFrameworks = Array.from(filesToProcess.keys());
-      console.log(`\n🔄 Processing changes for: ${affectedFrameworks.join(', ')}`);
-      console.log('📊 === End Dependency Graph Analysis ===\n');
   
     // Add affected frameworks to the rebuild queue
     for (const frameworkKey of affectedFrameworks) {
@@ -229,8 +194,6 @@ export async function triggerRebuild(
   filesToRebuild?: string[]
 ): Promise<Record<string, string> | null> {
   if (state.isRebuilding) {
-    console.log('⏳ Rebuild already in progress, skipping...');
-
     return null;
   }
 
@@ -238,7 +201,9 @@ export async function triggerRebuild(
   const affectedFrameworks = Array.from(state.rebuildQueue);
   state.rebuildQueue.clear();
 
-  console.log(`🔄 Triggering rebuild for: ${affectedFrameworks.join(', ')}`);
+  if (affectedFrameworks.length > 0) {
+    console.log(`Rebuilding ${affectedFrameworks.join(', ')}...`);
+  }
 
   // Notify clients that rebuild is starting
   broadcastToClients(state, {
@@ -246,11 +211,6 @@ export async function triggerRebuild(
   });
 
   try {
-    if (filesToRebuild && filesToRebuild.length > 0) {
-      console.log(`🚀 Starting incremental build for ${filesToRebuild.length} file(s)`);
-    } else {
-      console.log('🚀 Starting full build');
-    }
     
     const manifest = await build({
       ...config,
@@ -265,8 +225,7 @@ export async function triggerRebuild(
       throw new Error('Build failed - no manifest generated');
     }
 
-    console.log('✅ Rebuild completed successfully');
-    console.log('📋 Updated manifest keys:', Object.keys(manifest));
+    console.log('Rebuild completed');
 
     // Notify clients of successful rebuild
     broadcastToClients(state, {
@@ -289,23 +248,6 @@ export async function triggerRebuild(
           if (moduleUpdates.length > 0) {
             allModuleUpdates.push(...moduleUpdates);
             
-            // Log component types for React updates
-            if (framework === 'react') {
-              const serverComponents = moduleUpdates.filter(u => u.componentType === 'server').length;
-              const clientComponents = moduleUpdates.filter(u => u.componentType === 'client').length;
-              if (serverComponents > 0 || clientComponents > 0) {
-                console.log(`📦 Found ${moduleUpdates.length} module update(s) for ${framework} (${serverComponents} server, ${clientComponents} client)`);
-              } else {
-                console.log(`📦 Found ${moduleUpdates.length} module update(s) for ${framework}`);
-              }
-            } else {
-              console.log(`📦 Found ${moduleUpdates.length} module update(s) for ${framework}`);
-            }
-          } else {
-            // For files without direct manifest entries (like React components),
-            // the dependency graph ensures dependent pages are in filesToRebuild
-            // Those pages will have module updates created above
-            console.log(`ℹ️  ${frameworkFiles.length} ${framework} file(s) changed, but no direct manifest entries (likely components)`);
           }
         }
       }
@@ -315,8 +257,6 @@ export async function triggerRebuild(
         const reactFiles = filesToRebuild.filter(file => detectFramework(file) === 'react');
         
         if (reactFiles.length > 0) {
-          console.log(`🔄 React file(s) changed, re-rendering...`);
-          
           // Find the React page component (ReactExample.tsx)
           const reactPagePath = reactFiles.find(f => f.includes('/react/pages/ReactExample.tsx')) 
             || resolve('./example/react/pages/ReactExample.tsx');
@@ -324,18 +264,15 @@ export async function triggerRebuild(
           // Simple approach: Re-import with cache busting, re-render, send HTML
           try {
             const { handleReactUpdate } = await import('./simpleReactHMR');
-            console.log('📦 Calling handleReactUpdate for:', reactPagePath);
             const newHTML = await handleReactUpdate(reactPagePath, manifest);
             
             if (newHTML) {
-              console.log('✅ Got HTML from handleReactUpdate, length:', newHTML.length);
               // Send simple HTML update to clients
               broadcastToClients(state, {
                 data: {
                   framework: 'react', html: newHTML, manifest, sourceFile: reactPagePath
                 }, type: 'react-update'
     });
-              console.log('✅ React update sent to clients');
             } else {
               console.warn('⚠️ handleReactUpdate returned null/undefined - no HTML to send');
             }
@@ -351,8 +288,6 @@ export async function triggerRebuild(
         const htmlFiles = filesToRebuild.filter(file => detectFramework(file) === 'html');
         
         if (htmlFiles.length > 0) {
-          console.log(`🔄 HTML file(s) changed, reading...`);
-          
           // Find the HTML page file (HtmlExample.html)
           const htmlPagePath = htmlFiles.find(f => f.includes('/html/pages/HtmlExample.html')) 
             || resolve('./example/html/pages/HtmlExample.html');
@@ -360,18 +295,15 @@ export async function triggerRebuild(
           // Simple approach: Read HTML file, extract body, send HTML patch
           try {
             const { handleHTMLUpdate } = await import('./simpleHTMLHMR');
-            console.log('📦 Calling handleHTMLUpdate for:', htmlPagePath);
             const newHTML = await handleHTMLUpdate(htmlPagePath);
             
             if (newHTML) {
-              console.log('✅ Got HTML from handleHTMLUpdate, length:', newHTML.length);
               // Send simple HTML update to clients
               broadcastToClients(state, {
                 data: {
                   framework: 'html', html: newHTML, sourceFile: htmlPagePath
                 }, type: 'html-update'
               });
-              console.log('✅ HTML update sent to clients');
             } else {
               console.warn('⚠️ handleHTMLUpdate returned null/undefined - no HTML to send');
             }
@@ -388,8 +320,6 @@ export async function triggerRebuild(
         const vueFiles = filesToRebuild.filter(file => detectFramework(file) === 'vue');
         
         if (vueFiles.length > 0) {
-          console.log(`🔄 Vue file(s) changed, re-compiling...`);
-          
           // Find the Vue page component (VueExample.vue)
           const vuePagePath = vueFiles.find(f => f.includes('/vue/pages/VueExample.vue')) 
             || resolve('./example/vue/pages/VueExample.vue');
@@ -398,11 +328,9 @@ export async function triggerRebuild(
           // The manifest passed here is the UPDATED manifest from the rebuild
           try {
             const { handleVueUpdate } = await import('./simpleVueHMR');
-            console.log('📦 Calling handleVueUpdate for:', vuePagePath);
             const newHTML = await handleVueUpdate(vuePagePath, manifest);
             
             if (newHTML) {
-              console.log('✅ Got HTML from handleVueUpdate, length:', newHTML.length);
               // Send simple HTML update to clients with the updated manifest
               broadcastToClients(state, {
                 data: {
@@ -410,7 +338,6 @@ export async function triggerRebuild(
 // This is the updated manifest from the rebuild, sourceFile: vuePagePath // This is the updated manifest from the rebuild
                 }, type: 'vue-update'
               });
-              console.log('✅ Vue update sent to clients');
             } else {
               console.warn('⚠️ handleVueUpdate returned null/undefined - no HTML to send');
             }
@@ -427,8 +354,6 @@ export async function triggerRebuild(
         const svelteFiles = filesToRebuild.filter(file => detectFramework(file) === 'svelte');
         
         if (svelteFiles.length > 0) {
-          console.log(`🔄 Svelte file(s) changed, re-compiling...`);
-          
           // Find the Svelte page component (SvelteExample.svelte)
           const sveltePagePath = svelteFiles.find(f => f.includes('/svelte/pages/SvelteExample.svelte')) 
             || resolve('./example/svelte/pages/SvelteExample.svelte');
@@ -437,11 +362,9 @@ export async function triggerRebuild(
           // The manifest passed here is the UPDATED manifest from the rebuild
           try {
             const { handleSvelteUpdate } = await import('./simpleSvelteHMR');
-            console.log('📦 Calling handleSvelteUpdate for:', sveltePagePath);
             const newHTML = await handleSvelteUpdate(sveltePagePath, manifest);
             
             if (newHTML) {
-              console.log('✅ Got HTML from handleSvelteUpdate, length:', newHTML.length);
               // Send simple HTML update to clients with the updated manifest
               broadcastToClients(state, {
                 data: {
@@ -449,7 +372,6 @@ export async function triggerRebuild(
 // This is the updated manifest from the rebuild, sourceFile: sveltePagePath // This is the updated manifest from the rebuild
                 }, type: 'svelte-update'
               });
-              console.log('✅ Svelte update sent to clients');
             } else {
               console.warn('⚠️ handleSvelteUpdate returned null/undefined - no HTML to send');
             }
@@ -465,25 +387,20 @@ export async function triggerRebuild(
         const htmxFiles = filesToRebuild.filter(file => detectFramework(file) === 'htmx');
         
         if (htmxFiles.length > 0) {
-          console.log(`🔄 HTMX file(s) changed, reading...`);
-          
           // Find the HTMX page file (HTMXExample.html)
           const htmxPagePath = htmxFiles.find(f => f.includes('/htmx/pages/HTMXExample.html')) 
             || resolve('./example/htmx/pages/HTMXExample.html');
           
           try {
             const { handleHTMXUpdate } = await import('./simpleHTMXHMR');
-            console.log('📦 Calling handleHTMXUpdate for:', htmxPagePath);
             const newHTML = await handleHTMXUpdate(htmxPagePath);
             
             if (newHTML) {
-              console.log('✅ Got HTML from handleHTMXUpdate, length:', newHTML.length);
               broadcastToClients(state, {
                 data: {
                   framework: 'htmx', html: newHTML, sourceFile: htmxPagePath
                 }, type: 'htmx-update'
               });
-              console.log('✅ HTMX update sent to clients');
             } else {
               console.warn('⚠️ handleHTMXUpdate returned null/undefined - no HTML to send');
             }
@@ -506,8 +423,7 @@ export async function triggerRebuild(
       }
       
       if (updatedModulePaths.length > 0) {
-        const versionUpdates = incrementModuleVersions(state.moduleVersions, updatedModulePaths);
-        console.log(`📌 Updated versions for ${versionUpdates.size} module(s)`);
+        incrementModuleVersions(state.moduleVersions, updatedModulePaths);
       }
       
       // Send module-level updates grouped by framework
@@ -516,8 +432,6 @@ export async function triggerRebuild(
         const serverVersions = serializeModuleVersions(state.moduleVersions);
         
         for (const [framework, updates] of updatesByFramework) {
-          console.log(`📤 Broadcasting ${updates.length} module update(s) for ${framework}`);
-          
           // Get versions for updated modules
           const moduleVersions: Record<string, number> = {};
           for (const update of updates) {

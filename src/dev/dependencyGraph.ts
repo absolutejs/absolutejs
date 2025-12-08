@@ -152,13 +152,6 @@ export function addFileToGraph(
     graph.dependents.get(dep)!.add(normalizedPath);
   }
   
-  // Log dependency tracking (only for source files with dependencies)
-  if (dependencies.length > 0) {
-    console.log(`🔗 Dependency graph: ${normalizedPath} depends on ${dependencies.length} file(s)`);
-    dependencies.forEach(dep => {
-      console.log(`   └─ ${dep}`);
-    });
-  }
 }
 
 /* Get all files that depend on a changed file

@@ -23,7 +23,6 @@ export const handleHTMXUpdate = async (
     }
 
     const resolvedPath = resolve(sourcePath);
-    console.log('📦 Reading HTMX file:', resolvedPath);
 
     if (!existsSync(resolvedPath)) {
       console.error(`❌ HTMX file not found: ${resolvedPath}`);
@@ -32,12 +31,10 @@ export const handleHTMXUpdate = async (
     }
 
     const htmlContent = readFileSync(resolvedPath, 'utf-8');
-    console.log('📦 HTMX file read, length:', htmlContent.length);
 
     const bodyMatch = htmlContent.match(/<body[^>]*>([\s\S]*)<\/body>/i);
     if (bodyMatch && bodyMatch[1]) {
       const bodyContent = bodyMatch[1].trim();
-      console.log('📦 Server: Extracted HTMX body content length:', bodyContent.length);
 
       return bodyContent;
     }

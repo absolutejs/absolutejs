@@ -26,7 +26,6 @@ export const handleHTMLUpdate = async (
     }
     
     const resolvedPath = resolve(sourcePath);
-    console.log('📦 Reading HTML file:', resolvedPath);
     
     // Check if file exists
     if (!existsSync(resolvedPath)) {
@@ -37,14 +36,12 @@ export const handleHTMLUpdate = async (
     
     // Read the HTML file
     const htmlContent = readFileSync(resolvedPath, 'utf-8');
-    console.log('📦 HTML file read, length:', htmlContent.length);
     
     // Extract just the body content for patching (not the full HTML document)
     // This makes DOM patching simpler - we only replace the body content
     const bodyMatch = htmlContent.match(/<body[^>]*>([\s\S]*)<\/body>/i);
     if (bodyMatch && bodyMatch[1]) {
       const bodyContent = bodyMatch[1].trim();
-      console.log('📦 Server: Extracted body content length:', bodyContent.length);
 
       return bodyContent;
     }

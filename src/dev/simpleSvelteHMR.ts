@@ -15,7 +15,6 @@ export const handleSvelteUpdate = async (
 ) => {
   try {
     const resolvedPath = resolve(svelteFilePath);
-    console.log('📦 Handling Svelte update for:', resolvedPath);
     
     // CRITICAL: We should NOT call compileSvelte directly in HMR because:
     // 1. The rebuild that just completed already compiled Svelte
@@ -33,13 +32,9 @@ export const handleSvelteUpdate = async (
     
     if (!serverPath) {
       console.warn('⚠️ SvelteExample not found in manifest');
-      console.warn('   Available manifest keys:', Object.keys(manifest));
-      console.warn('   This might mean the rebuild did not complete or Svelte was not included');
 
       return null;
     }
-    
-    console.log('📦 Using Svelte server path from manifest:', serverPath);
     
     // Re-import the server component with cache busting
     // The serverPath is the absolute path to the built server bundle
@@ -52,20 +47,14 @@ export const handleSvelteUpdate = async (
       return null;
     }
     
-    console.log('✅ Svelte server module loaded successfully');
-    
     // Get indexPath from manifest (relative URL to built client bundle)
     const indexPath = manifest['SvelteExampleIndex'];
     
     if (!indexPath) {
       console.warn('⚠️ SvelteExampleIndex not found in manifest');
-      console.warn('   Available manifest keys:', Object.keys(manifest));
-      console.warn('   This might mean the rebuild did not complete or Svelte was not included');
 
       return null;
     }
-    
-    console.log('📦 Using Svelte indexPath from manifest:', indexPath);
     
     const { handleSveltePageRequest } = await import('../core/pageHandlers');
     
@@ -80,14 +69,12 @@ export const handleSvelteUpdate = async (
     );
     
     const html = await response.text();
-    console.log('📦 Server: Generated HTML length:', html.length);
     
     // Extract just the body content for patching (not the full HTML document)
     // Svelte renders to <body> directly
     const bodyMatch = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
     if (bodyMatch && bodyMatch[1]) {
       const bodyContent = bodyMatch[1].trim();
-      console.log('📦 Server: Extracted body content length:', bodyContent.length);
 
       return bodyContent;
     }

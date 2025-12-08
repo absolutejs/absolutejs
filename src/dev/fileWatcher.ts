@@ -13,13 +13,10 @@ export function startFileWatching(
   config: BuildConfig,
   onFileChange: (filePath: string) => void
 ): void {
-  console.log('👀 Starting file watching with Bun native fs.watch...');
-  
   const watchPaths = getWatchPaths(config);
   
   // Set up a watcher for each directory
   for (const path of watchPaths) {
-    console.log(`🔥 Setting up Bun watcher for: ${path}`);
     
     const watcher = watch(
       path,
@@ -36,8 +33,6 @@ export function startFileWatching(
             filename.includes('/build') ||
             filename.includes('/indexes') ||
             filename.endsWith('/')) {
-          console.log(`🚫 Ignoring directory/non-file change: ${filename}`);
-
           return;
         }
         
@@ -51,12 +46,9 @@ export function startFileWatching(
         
         // Handle file deletion
         if (event === 'rename' && !existsSync(fullPath)) {
-          console.log(`🗑️  File deleted: ${fullPath}`);
-          
           // Remove from dependency graph gracefully
           try {
             removeFileFromGraph(state.dependencyGraph, fullPath);
-            console.log(`✅ Removed ${fullPath} from dependency graph`);
           } catch (error) {
             console.warn(`⚠️ Failed to remove ${fullPath} from dependency graph:`, error);
           }
@@ -87,6 +79,5 @@ export function startFileWatching(
     state.watchers.push(watcher);
   }
   
-  console.log('✅ Bun native file watching started');
-  console.log('👀 Watching directories:', watchPaths);
+  console.log('File watching started');
 }
