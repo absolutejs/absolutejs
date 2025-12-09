@@ -142,21 +142,3 @@ export const restoreScrollState = (scrollState: {
     }
   });
 };
-
-/**
- * Extract state automatically using framework introspection
- * This is a wrapper that dynamically imports the automatic extraction module
- */
-export async function extractStateAutomatically(container: HTMLElement = document.body) {
-  try {
-    const { extractAllStateAutomatically, stateToProps } = await import('./automaticStateExtraction');
-    const extractedState = extractAllStateAutomatically(container);
-    const props = stateToProps(extractedState);
-    return props;
-  } catch (error) {
-    console.warn('⚠️ Automatic state extraction failed, using fallback:', error);
-    // Fallback to manual extraction
-    return {};
-  }
-}
-

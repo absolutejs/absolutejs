@@ -58,5 +58,5 @@
 		"typecheck": "bun run tsc --noEmit"
 	},
 	"types": "./dist/index.d.ts",
-	"version": "0.12.34-vue-no-flicker"
+	"version": "0.12.37-cleanup"
 }

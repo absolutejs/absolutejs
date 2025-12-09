@@ -451,24 +451,15 @@ function injectHMRClient(html: string): string {
                 if (message.data.html) {
                   const container = document.body;
                   if (container) {
-                    // PRESERVE STATE: Extract component state
+                    // PRESERVE STATE: Extract component state from DOM
                     let preservedProps = {};
-                    try {
-                      const { extractStateAutomatically } = await import('../dev/statePreservation');
-                      preservedProps = await extractStateAutomatically(container);
-                      
-                      if (Object.keys(preservedProps).length > 0) {
+                    const button = container.querySelector('button');
+                    if (button && button.textContent) {
+                      const countMatch = button.textContent.match(/count is (\\d+)/);
+                      if (countMatch) {
+                        preservedProps = { initialCount: parseInt(countMatch[1], 10) };
                         window.__HMR_PRESERVED_STATE__ = preservedProps;
-                      }
-                    } catch (error) {
-                      // Fallback: manual pattern matching
-                      const button = container.querySelector('button');
-                      if (button && button.textContent) {
-                        const countMatch = button.textContent.match(/count is (\\d+)/);
-                        if (countMatch) {
-                          preservedProps = { initialCount: parseInt(countMatch[1], 10) };
-                          window.__HMR_PRESERVED_STATE__ = preservedProps;
-                        }
+                        console.log('💾 Preserved React counter state:', preservedProps.initialCount);
                       }
                     }
                     
@@ -530,18 +521,17 @@ function injectHMRClient(html: string): string {
                 if (message.data.html) {
                   const container = document.body;
                   if (container) {
-                    // PRESERVE STATE: Save form data and scroll position
-                    const savedState = {
-                      forms: saveFormState(),
-                      scroll: saveScrollState()
-                    };
-                    
-                    // Extract counter state from DOM
+                    // PRESERVE STATE: Extract counter from DOM
                     const counterSpan = container.querySelector('#counter');
                     const counterValue = counterSpan ? parseInt(counterSpan.textContent || '0', 10) : 0;
-                    savedState.componentState = { count: counterValue };
                     
-                    // Store counter state globally
+                    const savedState = {
+                      forms: saveFormState(),
+                      scroll: saveScrollState(),
+                      componentState: { count: counterValue }
+                    };
+                    
+                    // Store counter state globally for the TypeScript file to read
                     window.__HTML_COUNTER_STATE__ = counterValue;
                     
                     // Store existing compiled script elements
@@ -636,16 +626,15 @@ function injectHMRClient(html: string): string {
                   console.log('📦 Client: HTML preview (first 200 chars):', message.data.html.substring(0, 200));
                   const container = document.body;
                   if (container) {
-                    // PRESERVE STATE
-                    const savedState = {
-                      forms: saveFormState(),
-                      scroll: saveScrollState()
-                    };
-                    
-                    // Extract counter state
+                    // PRESERVE STATE: Extract counter from DOM
                     const countSpan = container.querySelector('#count');
                     const countValue = countSpan ? parseInt(countSpan.textContent || '0', 10) : 0;
-                    savedState.componentState = { count: countValue };
+                    
+                    const savedState = {
+                      forms: saveFormState(),
+                      scroll: saveScrollState(),
+                      componentState: { count: countValue }
+                    };
                     
                     // Sync server-side state (HTMX uses server-side state)
                     if (savedState.componentState.count !== undefined && savedState.componentState.count > 0) {
@@ -717,15 +706,14 @@ function injectHMRClient(html: string): string {
                 sessionStorage.setItem('__HMR_ACTIVE__', 'true');
                 
                 try {
-                  // Extract and preserve current state
+                  // Extract and preserve current state from DOM
                   let preservedState = {};
                   const button = document.querySelector('button');
                   if (button) {
                     const countMatch = button.textContent?.match(/count is (\\d+)/);
                     if (countMatch) {
-                      // Use 'initialCount' key to match what the component expects
                       preservedState.initialCount = parseInt(countMatch[1], 10);
-                      console.log('💾 Preserved counter state:', preservedState.initialCount);
+                      console.log('💾 Preserved Svelte counter state:', preservedState.initialCount);
                     }
                   }
                   
@@ -775,7 +763,7 @@ function injectHMRClient(html: string): string {
                 sessionStorage.setItem('__HMR_ACTIVE__', 'true');
                 
                 try {
-                  // Extract and preserve current state
+                  // Extract and preserve current state from DOM
                   let preservedState = {};
                   const vueButton = document.querySelector('button');
                   if (vueButton) {
