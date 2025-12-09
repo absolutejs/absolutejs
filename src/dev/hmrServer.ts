@@ -31,7 +31,7 @@ const ROOT_DIR = PATH_RESOLVE('./example/build');
    This replaces the old class-based approach with a functional one */
 export async function startBunHMRDevServer(config: BuildConfig) {
   // Create initial state
-  const state = createHMRState();
+  const state = createHMRState(config);
   
   // Initialize dependency graph by scanning all source files
   const watchPaths = getWatchPaths(config);
@@ -1302,21 +1302,24 @@ export async function startBunHMRDevServer(config: BuildConfig) {
         }
           
         case '/vue': {
-          const VueModule = await import('../../example/vue/pages/VueExample.vue');
-          const vueResponse = await handleVuePageRequest(
-            VueModule.default,
-            manifest['VueExample'] || '',
-            manifest['VueExampleIndex'] || '',
-            generateHeadElement({
-              cssPath: manifest['VueExampleCSS'] || '',
-              title: 'AbsoluteJS + Vue'
-            }),
-            {
-              initialCount: 0
-            }
-          );
+          // NOTE: This is example code for the absolutejs repo's example project
+          // CLI-scaffolded projects use devServer.ts instead
+          // const VueModule = await import('../../example/vue/pages/VueExample.vue');
+          // const vueResponse = await handleVuePageRequest(
+          //   VueModule.default,
+          //   manifest['VueExample'] || '',
+          //   manifest['VueExampleIndex'] || '',
+          //   generateHeadElement({
+          //     cssPath: manifest['VueExampleCSS'] || '',
+          //     title: 'AbsoluteJS + Vue'
+          //   }),
+          //   {
+          //     initialCount: 0
+          //   }
+          // );
 
-          return await injectHMRIntoResponse(vueResponse);
+          // return await injectHMRIntoResponse(vueResponse);
+          return new Response('Vue route disabled in hmrServer', { status: 404 });
         }
           
         case '/htmx': {

@@ -14,6 +14,7 @@ export const handleClientConnect = (
   manifest: Record<string, string>
 ) => {
   state.connectedClients.add(client);
+  console.log('✅ WebSocket client connected! Total clients:', state.connectedClients.size);
   
   // Send them the current state of the menu (manifest) and module versions
   const serverVersions = serializeModuleVersions(state.moduleVersions);
@@ -36,6 +37,7 @@ export const handleClientConnect = (
    This prevents memory leaks and keeps our client list clean */
 export const handleClientDisconnect = (state: HMRState, client: HMRWebSocket) => {
   state.connectedClients.delete(client);
+  console.log('❌ WebSocket client disconnected! Total clients:', state.connectedClients.size);
 }
 
 /* Handle messages from clients - they might ping us or request rebuilds
@@ -108,11 +110,13 @@ export const handleHMRMessage = (state: HMRState, client: HMRWebSocket, message:
 
 /* Send messages to all connected WebSocket clients
    this is how we notify browsers when files change */
-export const broadcastToClients = (state: HMRState, message: {type: string}) => {
+export const broadcastToClients = (state: HMRState, message: {type: string; [key: string]: any}) => {
   const messageStr = JSON.stringify({
     ...message,
     timestamp: Date.now()
   });
+  
+  console.log(`📡 Broadcasting ${message.type} to ${state.connectedClients.size} client(s)`);
   
   let sentCount = 0;
   const clientsToRemove: HMRWebSocket[] = [];
@@ -131,6 +135,8 @@ export const broadcastToClients = (state: HMRState, message: {type: string}) => 
       clientsToRemove.push(client);
     }
   }
+  
+  console.log(`✅ Sent to ${sentCount} client(s)`);
   
   // Remove closed/failed clients
   for (const client of clientsToRemove) {

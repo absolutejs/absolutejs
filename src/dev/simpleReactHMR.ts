@@ -10,7 +10,8 @@ import { resolve } from 'node:path';
    3. Return the new HTML */
 export const handleReactUpdate = async (
   componentPath: string,
-  manifest: Record<string, string>
+  manifest: Record<string, string>,
+  reactDirectory: string
 ) => {
   try {
     // Use fresh module loader to bypass Bun's module cache entirely
@@ -26,27 +27,33 @@ export const handleReactUpdate = async (
       console.error('❌ Failed to load fresh module:', freshLoadError);
       // Fallback to regular import with cache busting
       const cacheBuster = `?t=${Date.now()}`;
-      const relativePath = resolvedPath.includes('/react/pages/')
-        ? `../../example/react/pages/ReactExample.tsx${cacheBuster}`
-        : `../../${componentPath}${cacheBuster}`;
+      const relativePath = `../../${componentPath}${cacheBuster}`;
       ReactModule = await import(relativePath);
     }
     
+    console.log('🔍 ReactModule keys:', Object.keys(ReactModule));
+    
     if (!ReactModule || !ReactModule.ReactExample) {
       console.warn('⚠️ Could not find ReactExample in module');
-
+      console.warn('Available exports:', Object.keys(ReactModule || {}));
       return null;
     }
+
+    console.log('✅ Found ReactExample component');
 
     // Re-render the page
     const indexPath = manifest['ReactExampleIndex'];
     if (!indexPath) {
       console.warn('⚠️ ReactExampleIndex not found in manifest');
-
+      console.warn('Available manifest keys:', Object.keys(manifest));
       return null;
     }
 
+    console.log('✅ Found manifest index:', indexPath);
+
     const { handleReactPageRequest } = await import('../core/pageHandlers');
+    console.log('🔄 Re-rendering React page...');
+    
     const response = await handleReactPageRequest(
       ReactModule.ReactExample,
       indexPath,
@@ -57,13 +64,14 @@ export const handleReactUpdate = async (
     );
 
     const html = await response.text();
+    console.log('✅ Got HTML response, length:', html.length);
     
     // Extract just the body content for patching (not the full HTML document)
     // This makes DOM patching simpler
     const bodyMatch = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
     if (bodyMatch && bodyMatch[1]) {
       const bodyContent = bodyMatch[1].trim();
-
+      console.log('✅ Extracted body content, length:', bodyContent.length);
       return bodyContent;
     }
     

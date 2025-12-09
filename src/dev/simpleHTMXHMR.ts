@@ -13,16 +13,7 @@ export const handleHTMXUpdate = async (
   htmxFilePath: string
 ) => {
   try {
-    let sourcePath = htmxFilePath;
-
-    // If it's a build path, convert to source path
-    if (htmxFilePath.includes('/build/htmx/')) {
-      sourcePath = htmxFilePath.replace('/build/htmx/', '/htmx/');
-    } else if (htmxFilePath.includes('build/htmx')) {
-      sourcePath = htmxFilePath.replace('build/htmx', 'htmx');
-    }
-
-    const resolvedPath = resolve(sourcePath);
+    const resolvedPath = resolve(htmxFilePath);
 
     if (!existsSync(resolvedPath)) {
       console.error(`❌ HTMX file not found: ${resolvedPath}`);
@@ -30,11 +21,13 @@ export const handleHTMXUpdate = async (
       return null;
     }
 
+    console.log('✅ Reading HTMX file:', resolvedPath);
     const htmlContent = readFileSync(resolvedPath, 'utf-8');
 
     const bodyMatch = htmlContent.match(/<body[^>]*>([\s\S]*)<\/body>/i);
     if (bodyMatch && bodyMatch[1]) {
       const bodyContent = bodyMatch[1].trim();
+      console.log('✅ Extracted body content, length:', bodyContent.length);
 
       return bodyContent;
     }
@@ -47,5 +40,4 @@ export const handleHTMXUpdate = async (
 
     return null;
   }
-}
-
+};

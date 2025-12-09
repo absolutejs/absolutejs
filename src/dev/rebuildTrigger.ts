@@ -252,21 +252,31 @@ export async function triggerRebuild(
         }
       }
       
+      console.log('🔍 DEBUG: affectedFrameworks:', affectedFrameworks);
+      console.log('🔍 DEBUG: filesToRebuild count:', filesToRebuild?.length || 0);
+      console.log('🔍 DEBUG: config.reactDirectory:', config.reactDirectory);
+      
       // Simple React HMR: Re-render and send HTML patch
-      if (affectedFrameworks.includes('react') && filesToRebuild) {
+      if (affectedFrameworks.includes('react') && filesToRebuild && config.reactDirectory) {
+        console.log('✅ Entering React HMR block');
         const reactFiles = filesToRebuild.filter(file => detectFramework(file) === 'react');
+        console.log('🔍 reactFiles count:', reactFiles.length);
         
         if (reactFiles.length > 0) {
-          // Find the React page component (ReactExample.tsx)
-          const reactPagePath = reactFiles.find(f => f.includes('/react/pages/ReactExample.tsx')) 
-            || resolve('./example/react/pages/ReactExample.tsx');
+          // Always use config.reactDirectory for the path to ensure consistency
+          const reactPagePath = resolve(config.reactDirectory, 'pages/ReactExample.tsx');
+          console.log('🔍 reactPagePath:', reactPagePath);
           
           // Simple approach: Re-import with cache busting, re-render, send HTML
           try {
+            console.log('🔄 Calling handleReactUpdate with path:', reactPagePath);
             const { handleReactUpdate } = await import('./simpleReactHMR');
-            const newHTML = await handleReactUpdate(reactPagePath, manifest);
+            console.log('📥 handleReactUpdate imported, calling...');
+            const newHTML = await handleReactUpdate(reactPagePath, manifest, config.reactDirectory);
+            console.log('📤 handleReactUpdate returned, HTML length:', newHTML ? newHTML.length : 'null');
             
             if (newHTML) {
+              console.log('✅ HTML received, broadcasting to clients...');
               // Send simple HTML update to clients
               broadcastToClients(state, {
                 data: {
@@ -284,13 +294,13 @@ export async function triggerRebuild(
       }
       
       // Simple HTML HMR: Read HTML file and send HTML patch
-      if (affectedFrameworks.includes('html') && filesToRebuild) {
+      if (affectedFrameworks.includes('html') && filesToRebuild && config.htmlDirectory) {
         const htmlFiles = filesToRebuild.filter(file => detectFramework(file) === 'html');
         
         if (htmlFiles.length > 0) {
-          // Find the HTML page file (HtmlExample.html)
-          const htmlPagePath = htmlFiles.find(f => f.includes('/html/pages/HtmlExample.html')) 
-            || resolve('./example/html/pages/HtmlExample.html');
+          // Find the HTML page file using config.htmlDirectory
+          const htmlPagePath = htmlFiles.find(f => f.includes('/pages/HtmlExample.html')) 
+            || resolve(config.htmlDirectory, 'pages/HtmlExample.html');
           
           // Simple approach: Read HTML file, extract body, send HTML patch
           try {
@@ -316,13 +326,13 @@ export async function triggerRebuild(
       
       // Simple Vue HMR: Re-compile and re-render, send HTML patch
       // NOTE: Vue HMR happens AFTER the rebuild completes, so we have the updated manifest
-      if (affectedFrameworks.includes('vue') && filesToRebuild) {
+      if (affectedFrameworks.includes('vue') && filesToRebuild && config.vueDirectory) {
         const vueFiles = filesToRebuild.filter(file => detectFramework(file) === 'vue');
         
         if (vueFiles.length > 0) {
-          // Find the Vue page component (VueExample.vue)
-          const vuePagePath = vueFiles.find(f => f.includes('/vue/pages/VueExample.vue')) 
-            || resolve('./example/vue/pages/VueExample.vue');
+          // Find the Vue page component using config.vueDirectory
+          const vuePagePath = vueFiles.find(f => f.includes('/pages/VueExample.vue')) 
+            || resolve(config.vueDirectory, 'pages/VueExample.vue');
           
           // Simple approach: Re-compile with cache invalidation, re-render, send HTML
           // The manifest passed here is the UPDATED manifest from the rebuild
@@ -350,13 +360,13 @@ export async function triggerRebuild(
 
       // Simple Svelte HMR: Re-compile and re-render, send HTML patch
       // NOTE: Svelte HMR happens AFTER the rebuild completes, so we have the updated manifest
-      if (affectedFrameworks.includes('svelte') && filesToRebuild) {
+      if (affectedFrameworks.includes('svelte') && filesToRebuild && config.svelteDirectory) {
         const svelteFiles = filesToRebuild.filter(file => detectFramework(file) === 'svelte');
         
         if (svelteFiles.length > 0) {
-          // Find the Svelte page component (SvelteExample.svelte)
-          const sveltePagePath = svelteFiles.find(f => f.includes('/svelte/pages/SvelteExample.svelte')) 
-            || resolve('./example/svelte/pages/SvelteExample.svelte');
+          // Find the Svelte page component using config.svelteDirectory
+          const sveltePagePath = svelteFiles.find(f => f.includes('/pages/SvelteExample.svelte')) 
+            || resolve(config.svelteDirectory, 'pages/SvelteExample.svelte');
           
           // Simple approach: Re-compile with cache invalidation, re-render, send HTML
           // The manifest passed here is the UPDATED manifest from the rebuild
@@ -383,19 +393,20 @@ export async function triggerRebuild(
       }
       
       // Simple HTMX HMR: Read HTMX file and send HTML patch
-      if (affectedFrameworks.includes('htmx') && filesToRebuild) {
+      if (affectedFrameworks.includes('htmx') && filesToRebuild && config.htmxDirectory) {
         const htmxFiles = filesToRebuild.filter(file => detectFramework(file) === 'htmx');
         
         if (htmxFiles.length > 0) {
-          // Find the HTMX page file (HTMXExample.html)
-          const htmxPagePath = htmxFiles.find(f => f.includes('/htmx/pages/HTMXExample.html')) 
-            || resolve('./example/htmx/pages/HTMXExample.html');
+          // Find the HTMX page file using config.htmxDirectory
+          const htmxPagePath = htmxFiles.find(f => f.includes('/pages/HTMXExample.html')) 
+            || resolve(config.htmxDirectory, 'pages/HTMXExample.html');
           
           try {
             const { handleHTMXUpdate } = await import('./simpleHTMXHMR');
             const newHTML = await handleHTMXUpdate(htmxPagePath);
             
             if (newHTML) {
+              console.log('📤 Broadcasting HTMX HTML snippet (first 100 chars):', newHTML.substring(0, 100));
               broadcastToClients(state, {
                 data: {
                   framework: 'htmx', html: newHTML, sourceFile: htmxPagePath

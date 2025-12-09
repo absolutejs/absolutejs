@@ -150,8 +150,27 @@ export const handleAngularPageRequest = async (
 	});
 };
 
-export const handleHTMLPageRequest = (html: string) => file(html);
-export const handleHTMXPageRequest = (htmx: string) => file(htmx);
+export const handleHTMLPageRequest = async (htmlPath: string) => {
+	// Read the HTML file content
+	const htmlFile = file(htmlPath);
+	const html = await htmlFile.text();
+	
+	// Return as a proper HTML Response so HMR injection can work
+	return new Response(html, {
+		headers: { 'Content-Type': 'text/html; charset=utf-8' }
+	});
+};
+
+export const handleHTMXPageRequest = async (htmxPath: string) => {
+	// Read the HTMX file content
+	const htmxFile = file(htmxPath);
+	const html = await htmxFile.text();
+	
+	// Return as a proper HTML Response so HMR injection can work
+	return new Response(html, {
+		headers: { 'Content-Type': 'text/html; charset=utf-8' }
+	});
+};
 
 export const handlePageRequest = <Component>(
 	PageComponent: Component,
