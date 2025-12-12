@@ -1417,7 +1417,7 @@ export async function startBunHMRDevServer(config: BuildConfig) {
         });
       }
     })
-    .get('*', handleRequest)
+    .get('*', (context) => handleRequest(context.request))
     .listen({
       hostname: config.host ?? (env.HOST ?? 'localhost'),
       port: config.port ?? (env.PORT ? Number(env.PORT) : 3000)

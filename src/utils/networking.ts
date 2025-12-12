@@ -32,7 +32,7 @@ export const getAllNetworkIPs = (): string[] => {
 export const getLocalIPAddress = (): string => {
 	const allIPs = getAllNetworkIPs();
 	
-	if (allIPs.length > 0) {
+	if (allIPs.length > 0 && allIPs[0]) {
 		return allIPs[0]; // Return first IPv4 address (or first available)
 	}
 	

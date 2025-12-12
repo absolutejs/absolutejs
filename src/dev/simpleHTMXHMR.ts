@@ -24,12 +24,24 @@ export const handleHTMXUpdate = async (
     console.log('✅ Reading HTMX file:', resolvedPath);
     const htmlContent = readFileSync(resolvedPath, 'utf-8');
 
+    // Extract both head and body content for patching
+    // We need head to update CSS links when CSS changes
+    const headMatch = htmlContent.match(/<head[^>]*>([\s\S]*?)<\/head>/i);
     const bodyMatch = htmlContent.match(/<body[^>]*>([\s\S]*)<\/body>/i);
+    
     if (bodyMatch && bodyMatch[1]) {
       const bodyContent = bodyMatch[1].trim();
+      const headContent = headMatch && headMatch[1] ? headMatch[1].trim() : null;
       console.log('✅ Extracted body content, length:', bodyContent.length);
+      if (headContent) {
+        console.log('✅ Extracted head content, length:', headContent.length);
+      }
 
-      return bodyContent;
+      // Return object with both head and body for comprehensive updates
+      return {
+        body: bodyContent,
+        head: headContent
+      };
     }
 
     console.warn('⚠️ Server: HTMX body extraction failed, returning full HTML');

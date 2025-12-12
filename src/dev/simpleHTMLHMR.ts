@@ -13,19 +13,9 @@ export const handleHTMLUpdate = async (
   htmlFilePath: string
 ) => {
   try {
-    // The htmlFilePath is already the source path from the file watcher
-    // It should be something like: ./example/html/pages/HtmlExample.html
-    // But we need to handle both absolute and relative paths
-    let sourcePath = htmlFilePath;
-    
-    // If it's a build path, convert to source path
-    if (htmlFilePath.includes('/build/html/')) {
-      sourcePath = htmlFilePath.replace('/build/html/', '/html/');
-    } else if (htmlFilePath.includes('build/html')) {
-      sourcePath = htmlFilePath.replace('build/html', 'html');
-    }
-    
-    const resolvedPath = resolve(sourcePath);
+    // The htmlFilePath is now the BUILT file path (e.g., build/html/pages/HTMLExample.html)
+    // This ensures we read HTML with updated CSS paths from updateAssetPaths
+    const resolvedPath = resolve(htmlFilePath);
     
     // Check if file exists
     if (!existsSync(resolvedPath)) {
@@ -34,16 +24,25 @@ export const handleHTMLUpdate = async (
       return null;
     }
     
+    console.log('✅ Reading HTML file from build:', resolvedPath);
+    
     // Read the HTML file
     const htmlContent = readFileSync(resolvedPath, 'utf-8');
     
-    // Extract just the body content for patching (not the full HTML document)
-    // This makes DOM patching simpler - we only replace the body content
+    // Extract both head and body content for patching
+    // We need head to update CSS links when CSS changes
+    const headMatch = htmlContent.match(/<head[^>]*>([\s\S]*?)<\/head>/i);
     const bodyMatch = htmlContent.match(/<body[^>]*>([\s\S]*)<\/body>/i);
+    
     if (bodyMatch && bodyMatch[1]) {
       const bodyContent = bodyMatch[1].trim();
-
-      return bodyContent;
+      const headContent = headMatch && headMatch[1] ? headMatch[1].trim() : null;
+      
+      // Return object with both head and body for comprehensive updates
+      return {
+        body: bodyContent,
+        head: headContent
+      };
     }
     
     // Fallback: return full HTML if body extraction fails

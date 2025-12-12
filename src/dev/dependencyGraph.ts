@@ -268,7 +268,11 @@ export function buildInitialDependencyGraph(
   }
   
   for (const dir of directories) {
-    scanDirectory(resolve(dir)); // Normalize directory paths
+    const resolvedDir = resolve(dir);
+    // Only scan directories that exist
+    if (existsSync(resolvedDir)) {
+      scanDirectory(resolvedDir); // Normalize directory paths
+    }
   }
   
   console.log(`✅ Dependency graph initialized with ${processedFiles.size} files`);

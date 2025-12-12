@@ -1,6 +1,6 @@
 import { watch } from 'fs';
 import { existsSync } from 'node:fs';
-import { join } from 'path';
+import { join, resolve } from 'path';
 import type { BuildConfig } from '../types';
 import type { HMRState } from './clientManager';
 import { addFileToGraph, removeFileFromGraph } from './dependencyGraph';
@@ -17,9 +17,17 @@ export function startFileWatching(
   
   // Set up a watcher for each directory
   for (const path of watchPaths) {
+    // Resolve to absolute path for existsSync check
+    const absolutePath = resolve(path);
+    
+    // Skip directories that don't exist (e.g., Vue doesn't have a source styles/ directory)
+    if (!existsSync(absolutePath)) {
+      console.log(`⏭️  Skipping watch for non-existent directory: ${path}`);
+      continue;
+    }
     
     const watcher = watch(
-      path,
+      absolutePath,
       { recursive: true },
       (event, filename) => {
         // Skip if no filename
@@ -37,7 +45,7 @@ export function startFileWatching(
         }
         
         // Build the full path
-        const fullPath = join(path, filename);
+        const fullPath = join(absolutePath, filename);
         
         // Apply ignore patterns
         if (shouldIgnorePath(fullPath)) {

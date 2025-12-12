@@ -12,6 +12,7 @@ export const getWatchPaths = (config: BuildConfig) => {
     // Watch React source directories only
     paths.push(`${config.reactDirectory}/components`);
     paths.push(`${config.reactDirectory}/pages`);
+    paths.push(`${config.reactDirectory}/styles`);
     // Don't watch the root reactDirectory to avoid compiled/indexes
   }
   
@@ -20,6 +21,7 @@ export const getWatchPaths = (config: BuildConfig) => {
     paths.push(`${config.svelteDirectory}/components`);
     paths.push(`${config.svelteDirectory}/pages`);
     paths.push(`${config.svelteDirectory}/composables`);
+    paths.push(`${config.svelteDirectory}/styles`);
   }
   
   if (config.vueDirectory) {
@@ -27,23 +29,27 @@ export const getWatchPaths = (config: BuildConfig) => {
     paths.push(`${config.vueDirectory}/components`);
     paths.push(`${config.vueDirectory}/pages`);
     paths.push(`${config.vueDirectory}/composables`);
+    paths.push(`${config.vueDirectory}/styles`);
   }
   
   if (config.angularDirectory) {
     // Watch Angular source directories only
     paths.push(`${config.angularDirectory}/components`);
     paths.push(`${config.angularDirectory}/pages`);
+    paths.push(`${config.angularDirectory}/styles`);
   }
   
   if (config.htmlDirectory) {
     // Watch HTML source directories
     paths.push(`${config.htmlDirectory}/pages`);
     paths.push(`${config.htmlDirectory}/scripts`);
+    paths.push(`${config.htmlDirectory}/styles`);
   }
   
   if (config.htmxDirectory) {
     // Watch HTMX source directories
     paths.push(`${config.htmxDirectory}/pages`);
+    paths.push(`${config.htmxDirectory}/styles`);
   }
   
   if (config.assetsDirectory) {
@@ -84,24 +90,47 @@ export const detectFramework = (filePath: string) => {
     return 'ignored';
   }
   
+  // IMPORTANT: Check framework-specific paths FIRST (before generic extensions)
+  // This ensures CSS files in framework directories trigger HMR for that framework
+  // Example: /html/styles/html-example.css should be detected as 'html', not 'assets'
+  
   if (filePath.includes('/htmx/')) {
     return 'htmx';
   }
-  if (filePath.includes('/react/') || filePath.endsWith('.tsx') || filePath.endsWith('.jsx')) {
+  if (filePath.includes('/react/')) {
     return 'react';
   }
-  if (filePath.includes('/svelte/') || filePath.endsWith('.svelte')) {
+  if (filePath.includes('/svelte/')) {
     return 'svelte';
   }
-  if (filePath.includes('/vue/') || filePath.endsWith('.vue')) {
+  if (filePath.includes('/vue/')) {
     return 'vue';
   }
-  if (filePath.includes('/angular/') || (filePath.endsWith('.ts') && filePath.includes('angular'))) {
+  if (filePath.includes('/angular/')) {
     return 'angular';
   }
-  if (filePath.includes('/html/') || filePath.endsWith('.html')) {
+  if (filePath.includes('/html/')) {
     return 'html';
   }
+  
+  // Then check file extensions for files not in framework directories
+  if (filePath.endsWith('.tsx') || filePath.endsWith('.jsx')) {
+    return 'react';
+  }
+  if (filePath.endsWith('.svelte')) {
+    return 'svelte';
+  }
+  if (filePath.endsWith('.vue')) {
+    return 'vue';
+  }
+  if (filePath.endsWith('.html')) {
+    return 'html';
+  }
+  if (filePath.endsWith('.ts') && filePath.includes('angular')) {
+    return 'angular';
+  }
+  
+  // Generic assets (CSS in root /assets/, images, etc.)
   if (filePath.includes('/assets/') || filePath.endsWith('.css')) {
     return 'assets';
   }

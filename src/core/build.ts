@@ -351,32 +351,54 @@ export const build = async ({
 	}
 
 	// For HTML/HTMX, copy pages on full builds or if HTML/HTMX files changed
-	const shouldCopyHtml = !isIncremental || (incrementalFiles?.some(f => f.includes('/html/') && f.endsWith('.html')));
-	const shouldCopyHtmx = !isIncremental || (incrementalFiles?.some(f => f.includes('/htmx/') && f.endsWith('.html')));
+	// Also update asset paths if CSS changed (to update CSS links in HTML files)
+	const htmlOrHtmlCssChanged = !isIncremental || 
+		(incrementalFiles?.some(f => f.includes('/html/') && (f.endsWith('.html') || f.endsWith('.css'))));
+	const htmxOrHtmxCssChanged = !isIncremental || 
+		(incrementalFiles?.some(f => f.includes('/htmx/') && (f.endsWith('.html') || f.endsWith('.css'))));
+	
+	const shouldCopyHtml = htmlOrHtmlCssChanged;
+	const shouldCopyHtmx = htmxOrHtmxCssChanged;
+	
+	// Update asset paths if CSS changed (even if HTML files didn't change)
+	const shouldUpdateHtmlAssetPaths = !isIncremental || 
+		(incrementalFiles?.some(f => f.includes('/html/') && (f.endsWith('.html') || f.endsWith('.css'))));
+	const shouldUpdateHtmxAssetPaths = !isIncremental || 
+		(incrementalFiles?.some(f => f.includes('/htmx/') && (f.endsWith('.html') || f.endsWith('.css'))));
 
-	if (htmlDir && htmlPagesPath && shouldCopyHtml) {
+	if (htmlDir && htmlPagesPath) {
 		const outputHtmlPages = isSingle
 			? join(buildPath, 'pages')
 			: join(buildPath, basename(htmlDir), 'pages');
+		
+		if (shouldCopyHtml) {
 		mkdirSync(outputHtmlPages, { recursive: true });
 		cpSync(htmlPagesPath, outputHtmlPages, {
 			force: true,
 			recursive: true
 		});
+		}
+		
+		// Update asset paths if HTML files changed OR CSS changed
+		if (shouldUpdateHtmlAssetPaths) {
 		await updateAssetPaths(manifest, outputHtmlPages);
+		}
 	}
 
-	if (htmxDir && htmxPagesPath && shouldCopyHtmx) {
+	if (htmxDir && htmxPagesPath) {
 		const outputHtmxPages = isSingle
 			? join(buildPath, 'pages')
 			: join(buildPath, basename(htmxDir), 'pages');
 
+		if (shouldCopyHtmx) {
 		mkdirSync(outputHtmxPages, { recursive: true });
 		cpSync(htmxPagesPath, outputHtmxPages, {
 			force: true,
 			recursive: true
 		});
+		}
 
+		if (shouldCopyHtmx) {
 		const htmxDestDir = isSingle
 			? buildPath
 			: join(buildPath, basename(htmxDir));
@@ -390,7 +412,12 @@ export const build = async ({
 			copyFileSync(src, dest);
 			break;
 		}
+		}
+		
+		// Update asset paths if HTMX files changed OR CSS changed
+		if (shouldUpdateHtmxAssetPaths) {
 		await updateAssetPaths(manifest, outputHtmxPages);
+		}
 	}
 
 	if (!options?.preserveIntermediateFiles)

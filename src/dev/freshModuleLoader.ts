@@ -72,7 +72,7 @@ function extractRelativeImports(code: string): Array<{ original: string; resolve
   
   while ((match = importRegex.exec(code)) !== null) {
     const [, importPath] = match;
-    if (importPath.startsWith('.') || importPath.startsWith('/')) {
+    if (importPath && (importPath.startsWith('.') || importPath.startsWith('/'))) {
       imports.push({ original: importPath, resolved: '' });
     }
   }

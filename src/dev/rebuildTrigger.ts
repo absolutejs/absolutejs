@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { basename, resolve } from 'node:path';
 import { build } from '../core/build';
 import type { BuildConfig } from '../types';
 import type { HMRState } from './clientManager';
@@ -157,7 +157,14 @@ export function queueFileChange(
         }
         
         if (validFiles.length > 0) {
-          filesToProcess.set(framework, validFiles);
+          // Re-detect framework from actual file paths (more reliable than using fwKey from queue)
+          // This ensures HTMX files are correctly identified even if they were queued with wrong framework
+          // Use the first valid file to determine the framework (all files in this set should have the same framework)
+          const firstFile = validFiles[0];
+          if (firstFile) {
+            const detectedFramework = detectFramework(firstFile);
+            filesToProcess.set(detectedFramework, validFiles);
+          }
         }
       }
       
@@ -294,24 +301,30 @@ export async function triggerRebuild(
       }
       
       // Simple HTML HMR: Read HTML file and send HTML patch
-      if (affectedFrameworks.includes('html') && filesToRebuild && config.htmlDirectory) {
-        const htmlFiles = filesToRebuild.filter(file => detectFramework(file) === 'html');
+      // Trigger if HTML files changed OR if CSS files in HTML directory changed (CSS updates need to push new HTML with updated CSS links)
+      if (affectedFrameworks.includes('html') && filesToRebuild && config.htmlDirectory && config.buildDirectory) {
+        const htmlFrameworkFiles = filesToRebuild.filter(file => detectFramework(file) === 'html');
         
-        if (htmlFiles.length > 0) {
-          // Find the HTML page file using config.htmlDirectory
-          const htmlPagePath = htmlFiles.find(f => f.includes('/pages/HtmlExample.html')) 
-            || resolve(config.htmlDirectory, 'pages/HtmlExample.html');
+        // Trigger update if any HTML framework files changed (HTML files OR CSS files in HTML directory)
+        if (htmlFrameworkFiles.length > 0) {
+          // Use the BUILT file path (which has updated CSS paths from updateAssetPaths)
+          // Build path: build/html/pages/HTMLExample.html (or build/pages/HTMLExample.html if single)
+          const isSingle = !config.reactDirectory && !config.svelteDirectory && !config.vueDirectory && !config.htmxDirectory;
+          const outputHtmlPages = isSingle
+            ? resolve(config.buildDirectory, 'pages')
+            : resolve(config.buildDirectory, basename(config.htmlDirectory), 'pages');
+          const builtHtmlPagePath = resolve(outputHtmlPages, 'HTMLExample.html');
           
           // Simple approach: Read HTML file, extract body, send HTML patch
           try {
             const { handleHTMLUpdate } = await import('./simpleHTMLHMR');
-            const newHTML = await handleHTMLUpdate(htmlPagePath);
+            const newHTML = await handleHTMLUpdate(builtHtmlPagePath);
             
             if (newHTML) {
-              // Send simple HTML update to clients
+              // Send simple HTML update to clients (includes updated CSS links from updateAssetPaths)
               broadcastToClients(state, {
                 data: {
-                  framework: 'html', html: newHTML, sourceFile: htmlPagePath
+                  framework: 'html', html: newHTML, sourceFile: builtHtmlPagePath
                 }, type: 'html-update'
               });
             } else {
@@ -393,23 +406,31 @@ export async function triggerRebuild(
       }
       
       // Simple HTMX HMR: Read HTMX file and send HTML patch
-      if (affectedFrameworks.includes('htmx') && filesToRebuild && config.htmxDirectory) {
-        const htmxFiles = filesToRebuild.filter(file => detectFramework(file) === 'htmx');
+      // Trigger if HTMX files changed OR if CSS files in HTMX directory changed (CSS updates need to push new HTML with updated CSS links)
+      if (affectedFrameworks.includes('htmx') && filesToRebuild && config.htmxDirectory && config.buildDirectory) {
+        const htmxFrameworkFiles = filesToRebuild.filter(file => detectFramework(file) === 'htmx');
         
-        if (htmxFiles.length > 0) {
-          // Find the HTMX page file using config.htmxDirectory
-          const htmxPagePath = htmxFiles.find(f => f.includes('/pages/HTMXExample.html')) 
-            || resolve(config.htmxDirectory, 'pages/HTMXExample.html');
+        // Trigger update if any HTMX framework files changed (HTML files OR CSS files in HTMX directory)
+        if (htmxFrameworkFiles.length > 0) {
+          // Use the BUILT file path (which has updated CSS paths from updateAssetPaths)
+          // Build path: build/htmx/pages/HTMXExample.html (or build/pages/HTMXExample.html if single)
+          const isSingle = !config.reactDirectory && !config.svelteDirectory && !config.vueDirectory && !config.htmlDirectory;
+          const outputHtmxPages = isSingle
+            ? resolve(config.buildDirectory, 'pages')
+            : resolve(config.buildDirectory, basename(config.htmxDirectory), 'pages');
+          const builtHtmxPagePath = resolve(outputHtmxPages, 'HTMXExample.html');
           
           try {
             const { handleHTMXUpdate } = await import('./simpleHTMXHMR');
-            const newHTML = await handleHTMXUpdate(htmxPagePath);
+            const newHTML = await handleHTMXUpdate(builtHtmxPagePath);
             
             if (newHTML) {
-              console.log('📤 Broadcasting HTMX HTML snippet (first 100 chars):', newHTML.substring(0, 100));
+              const htmlPreview = typeof newHTML === 'string' ? newHTML.substring(0, 100) : (newHTML.body || '').substring(0, 100);
+              console.log('📤 Broadcasting HTMX HTML snippet (first 100 chars):', htmlPreview);
+              // Send HTMX update to clients (includes updated CSS links from updateAssetPaths)
               broadcastToClients(state, {
                 data: {
-                  framework: 'htmx', html: newHTML, sourceFile: htmxPagePath
+                  framework: 'htmx', html: newHTML, sourceFile: builtHtmxPagePath
                 }, type: 'htmx-update'
               });
             } else {
