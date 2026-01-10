@@ -139,6 +139,11 @@ export const build = async ({
 	const allReactEntries = reactIndexesPath
 		? await scanEntryPoints(reactIndexesPath, '*.tsx')
 		: [];
+	// CRITICAL: Also build React page components as separate entry points for HMR
+	// This allows them to be dynamically imported during hot updates
+	const allReactPageEntries = reactPagesPath
+		? await scanEntryPoints(reactPagesPath, '*.tsx')
+		: [];
 	const allHtmlEntries = htmlScriptsPath
 		? await scanEntryPoints(htmlScriptsPath, '*.{js,ts}')
 		: [];
@@ -177,6 +182,11 @@ export const build = async ({
 			return null;
 		})
 		: allReactEntries;
+	
+	// Also filter React page entries for incremental builds
+	const reactPageEntries = isIncremental && reactPagesPath
+		? filterToIncrementalEntries(allReactPageEntries, (entry) => entry)
+		: allReactPageEntries;
 	
 	const htmlEntries = isIncremental && htmlScriptsPath
 		? filterToIncrementalEntries(allHtmlEntries, (entry) => {
@@ -232,6 +242,7 @@ export const build = async ({
 	];
 	const clientEntryPoints = [
 		...reactEntries,
+		...reactPageEntries, // Build React pages separately for HMR
 		...svelteClientPaths,
 		...htmlEntries,
 		...vueIndexPaths,
@@ -296,7 +307,9 @@ export const build = async ({
 			naming: `[dir]/[name].[hash].[ext]`,
 			outdir: buildPath,
 			root: clientRoot,
-			target: 'browser'
+			target: 'browser',
+			splitting: true, // Enable code splitting for React HMR (allows components to be imported separately)
+			external: ['react', 'react-dom', 'react-dom/client', 'react/jsx-runtime', 'react/jsx-dev-runtime'] // Prevent React from being bundled in page components (use window globals)
 		}).catch((err) => {
 			console.error('Client build failed:', err);
 			exit(1);

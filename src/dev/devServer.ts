@@ -121,6 +121,31 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
 /* Inject HMR client script into HTML
    This function contains all the client-side HMR code */
     function injectHMRClient(html: string): string {
+  // Static import map placed in <head> so dynamic imports can resolve immediately
+  // We map React to a single CDN ESM copy and set globals so all bundles share the same instance
+  const importMap = `
+    <script type="importmap" data-react-import-map>
+      {
+        "imports": {
+          "react": "https://esm.sh/react@19?dev",
+          "react-dom/client": "https://esm.sh/react-dom@19/client?dev",
+          "react/jsx-runtime": "https://esm.sh/react@19/jsx-runtime?dev",
+          "react/jsx-dev-runtime": "https://esm.sh/react@19/jsx-dev-runtime?dev"
+        }
+      }
+    </script>
+    <script type="module" data-react-globals>
+      // Ensure a single React instance is shared and exposed globally for HMR
+      import React from 'react';
+      import * as ReactDOMClient from 'react-dom/client';
+      if (!window.React) window.React = React;
+      if (!window.ReactDOM) window.ReactDOM = ReactDOMClient;
+      // For convenience, also expose default for ReactDOM
+      if (!window.ReactDOM.default) window.ReactDOM.default = ReactDOMClient;
+      console.log('✅ React globals set from import map');
+    </script>
+  `;
+  
   const hmrScript = `
     <script>
       (function() {
@@ -739,92 +764,261 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                 window.location.reload();
                 break;
               
-              case 'react-update': {
-                const currentFramework = detectCurrentFramework();
-                console.log('🔍 Client: Received react-update, detected framework:', currentFramework);
-                console.log('🔍 Client: window.__REACT_ROOT__ exists?', !!window.__REACT_ROOT__);
-                console.log('🔍 Client: Current path:', window.location.pathname);
+                case 'react-update': {
+                  const currentFramework = detectCurrentFramework();
+                  console.log('🔍 Client: Received react-update, detected framework:', currentFramework);
+                  console.log('🔍 Client: window.__REACT_ROOT__ exists?', !!window.__REACT_ROOT__);
+                  console.log('🔍 Client: Current path:', window.location.pathname);
+                  
+                  if (currentFramework !== 'react') {
+                    console.log('❌ Client: Not a React page, ignoring react-update.');
+                    break;
+                  }
+                  
+                  console.log('⚛️ Updating React component...');
+                  sessionStorage.setItem('__HMR_ACTIVE__', 'true');
+                  
+                  // Check if React root exists
+                  if (!window.__REACT_ROOT__) {
+                    console.error('❌ React root not found, cannot perform HMR update');
+                    sessionStorage.removeItem('__HMR_ACTIVE__');
+                    window.location.reload();
+                    break;
+                  }
+                  
+                  const container = document.body;
+                  if (!container) {
+                    console.error('❌ document.body not found');
+                    sessionStorage.removeItem('__HMR_ACTIVE__');
+                    break;
+                  }
+                  
+                  // PRESERVE STATE: Extract component state from DOM
+                  let preservedProps = {};
+                  const button = container.querySelector('button');
+                  if (button && button.textContent) {
+                    const countMatch = button.textContent.match(/count is (\\d+)/);
+                    if (countMatch) {
+                      preservedProps = { initialCount: parseInt(countMatch[1], 10) };
+                      console.log('💾 Preserved React counter state:', preservedProps.initialCount);
+                    }
+                  }
+                  
+                  // Extract form state if form exists
+                  const form = container.querySelector('form');
+                  if (form) {
+                    const formData = new FormData(form);
+                    const formState = {};
+                    for (const [key, value] of formData.entries()) {
+                      formState[key] = value;
+                    }
+                    // Also check checkboxes
+                    const checkboxes = form.querySelectorAll('input[type="checkbox"]');
+                    checkboxes.forEach(function(checkbox) {
+                      const input = checkbox;
+                      if (input.name) {
+                        formState[input.name] = input.checked;
+                      }
+                    });
+                    preservedProps.formState = formState;
+                  }
+                  
+                  // Save preserved state to sessionStorage (survives page reload)
+                  if (Object.keys(preservedProps).length > 0) {
+                    sessionStorage.setItem('__REACT_HMR_STATE__', JSON.stringify(preservedProps));
+                    console.log('💾 Saved React state to sessionStorage:', preservedProps);
+                  }
+                  
+                  // Also set in memory for non-reload HMR path
+                  window.__HMR_PRESERVED_STATE__ = preservedProps;
                 
-                if (currentFramework !== 'react') {
-                  console.log('❌ Client: Not a React page, ignoring react-update.');
+                // Check if this is a CSS-only update (no component files changed)
+                const hasComponentChanges = message.data.hasComponentChanges !== false; // Default to true if not specified
+                const hasCSSChanges = message.data.hasCSSChanges === true;
+                const cssPath = message.data.manifest && message.data.manifest.ReactExampleCSS;
+                
+                // If CSS-only update, just reload CSS and don't re-render component
+                if (!hasComponentChanges && hasCSSChanges && cssPath) {
+                  console.log('🎨 CSS-only update detected, reloading CSS only');
+                  const existingCSSLinks = document.head.querySelectorAll('link[rel="stylesheet"]');
+                  existingCSSLinks.forEach(function(link) {
+                    const href = link.getAttribute('href');
+                    if (href) {
+                      const hrefBase = href.split('?')[0].split('/').pop() || '';
+                      const cssPathBase = cssPath.split('?')[0].split('/').pop() || '';
+                      if (hrefBase === cssPathBase || href.includes('react-example') || cssPathBase.includes(hrefBase)) {
+                        const newHref = cssPath + (cssPath.includes('?') ? '&' : '?') + 't=' + Date.now();
+                        console.log('🔄 Reloading React CSS:', href, '→', newHref);
+                        link.href = newHref;
+                      }
+                    }
+                  });
+                  sessionStorage.removeItem('__HMR_ACTIVE__');
                   break;
                 }
                 
-                console.log('⚛️ Updating React component...');
-                sessionStorage.setItem('__HMR_ACTIVE__', 'true');
+                // Get the index path from manifest - we'll import the index file
+                // The index file imports ReactExample, so we can extract it after import
+                const indexPath = message.data.manifest && message.data.manifest.ReactExampleIndex;
+                console.log('🔍 Client: React HMR update, indexPath:', indexPath);
                 
-                if (message.data.html) {
-                  const container = document.body;
-                  if (container) {
-                    // PRESERVE STATE: Extract component state from DOM
-                    let preservedProps = {};
-                    const button = container.querySelector('button');
-                    if (button && button.textContent) {
-                      const countMatch = button.textContent.match(/count is (\\d+)/);
-                      if (countMatch) {
-                        preservedProps = { initialCount: parseInt(countMatch[1], 10) };
-                        window.__HMR_PRESERVED_STATE__ = preservedProps;
-                        console.log('💾 Preserved React counter state:', preservedProps.initialCount);
+                if (!indexPath) {
+                  console.error('❌ No ReactExampleIndex in manifest, reloading page');
+                  sessionStorage.removeItem('__HMR_ACTIVE__');
+                  window.location.reload();
+                  break;
+                }
+                
+                // CRITICAL: Find the correct page component path from the manifest
+                // The page component has a DIFFERENT hash than the index file
+                // Look for ReactExamplePage (or similar) in the manifest
+                const manifest = message.data.manifest || {};
+                let componentPath = null;
+                
+                // Try to find the page component in the manifest
+                // Look for keys like "ReactExamplePage" or extract from index name
+                const indexName = indexPath.split('/').pop().split('.')[0]; // "ReactExample"
+                const pageKey = indexName + 'Page';
+                
+                // Search manifest for the page component
+                for (const key in manifest) {
+                  if (key === pageKey || (key.includes(indexName) && key.includes('Page'))) {
+                    componentPath = manifest[key];
+                    break;
+                  }
+                }
+                
+                // Fallback: try to construct path (this will likely fail, but worth trying)
+                if (!componentPath) {
+                  console.warn('⚠️ Page component not found in manifest, trying fallback path construction');
+                  const indexPathParts = indexPath.split('/');
+                  const filename = indexPathParts[indexPathParts.length - 1];
+                  const componentDirIndex = indexPathParts.length - 2;
+                  if (indexPathParts[componentDirIndex] === 'indexes') {
+                    indexPathParts[componentDirIndex] = 'pages';
+                  }
+                  indexPathParts[indexPathParts.length - 1] = filename;
+                  componentPath = indexPathParts.join('/');
+                }
+                
+                console.log('🔍 Client: Trying to import component from:', componentPath);
+                console.log('🔍 Client: Available manifest keys:', Object.keys(manifest).join(', '));
+                
+                // Use React/ReactDOM from window globals (already loaded by index file)
+                // Then import the page component which will also use the same React instance
+                if (!window.React || !window.ReactDOM) {
+                  console.error('❌ React not found on window. Index file may not have loaded correctly.');
+                  sessionStorage.removeItem('__HMR_ACTIVE__');
+                  break;
+                }
+                
+                const React = window.React;
+                const ReactDOM = window.ReactDOM;
+                
+                // Import the page component (it will use the same React instance via externals)
+                // Use hashed path directly (no extra cache-bust) to avoid transient blanking
+                import(/* @vite-ignore */ componentPath)
+                  .then(function(ComponentModule) {
+                    console.log('✅ Component import successful, starting render...');
+                    
+                    // Get ReactExample component from the module
+                    const Component = ComponentModule.default || ComponentModule.ReactExample;
+                    
+                    if (!Component) {
+                      throw new Error('ReactExample component not found. Available exports: ' + Object.keys(ComponentModule).join(', '));
+                    }
+                    
+                    // Merge initial props with preserved state
+                    const initialProps = window.__INITIAL_PROPS__ || {};
+                    const preservedState = window.__HMR_PRESERVED_STATE__ || {};
+                    const mergedProps = {};
+                    for (const key in initialProps) {
+                      if (initialProps.hasOwnProperty(key)) {
+                        mergedProps[key] = initialProps[key];
+                      }
+                    }
+                    for (const key in preservedState) {
+                      if (preservedState.hasOwnProperty(key)) {
+                        mergedProps[key] = preservedState[key];
                       }
                     }
                     
-                    // Re-import the updated index file (contains the fresh component)
-                    const indexPath = message.data.manifest && message.data.manifest.ReactExampleIndex;
-                    console.log('🔍 Client: Importing updated index:', indexPath);
-                    
-                    if (!indexPath) {
-                      console.error('❌ No ReactExampleIndex in manifest, falling back to DOM replacement');
-                      container.innerHTML = message.data.html;
-                      sessionStorage.removeItem('__HMR_ACTIVE__');
-                      return;
+                    // Check if CSS changed (manifest has ReactExampleCSS key)
+                    const cssPathUpdate = message.data.manifest && message.data.manifest.ReactExampleCSS;
+                if (hasCSSChanges && cssPathUpdate) {
+                      // Reload CSS stylesheet if it changed
+                      const existingCSSLinks = document.head.querySelectorAll('link[rel="stylesheet"]');
+                      existingCSSLinks.forEach(function(link) {
+                        const href = link.getAttribute('href');
+                        if (href) {
+                          // Match React CSS file by checking if href contains the CSS path or 'react-example'
+                          const hrefBase = href.split('?')[0].split('/').pop() || '';
+                          const cssPathBase = cssPathUpdate.split('?')[0].split('/').pop() || '';
+                          if (hrefBase === cssPathBase || href.includes('react-example') || cssPathBase.includes(hrefBase)) {
+                            // This is the React CSS file - reload it with cache busting
+                            const newHref = cssPathUpdate + (cssPathUpdate.includes('?') ? '&' : '?') + 't=' + Date.now();
+                            console.log('🔄 Reloading React CSS:', href, '→', newHref);
+                            link.href = newHref;
+                          }
+                        }
+                      });
                     }
                     
-                    const modulePath = indexPath + '?hmr=' + Date.now();
+                    console.log('🔄 Re-rendering React component with props:', mergedProps);
+                    console.log('🔍 React root exists?', !!window.__REACT_ROOT__);
+                    console.log('🔍 Component:', Component.name || 'Anonymous');
                     
-                    import(/* @vite-ignore */ modulePath)
-                      .then(function(module) {
-                        console.log('✅ Module imported, re-rendering...');
-                        const Component = module.default || module.ReactExample;
-                        
-                        if (Component && window.__REACT_ROOT__) {
-                          import('react').then(function(ReactModule) {
-                            const React = ReactModule.default || ReactModule;
-                            const initialProps = window.__INITIAL_PROPS__ || {};
-                            const preservedState = window.__HMR_PRESERVED_STATE__ || {};
-                            const mergedProps = {};
-                            for (const key in initialProps) {
-                              if (initialProps.hasOwnProperty(key)) {
-                                mergedProps[key] = initialProps[key];
-                              }
-                            }
-                            for (const key in preservedState) {
-                              if (preservedState.hasOwnProperty(key)) {
-                                mergedProps[key] = preservedState[key];
-                              }
-                            }
-                            
-                            window.__REACT_ROOT__.render(React.createElement(Component, mergedProps));
-                            sessionStorage.removeItem('__HMR_ACTIVE__');
-                            console.log('✅ React component updated');
-                          }).catch(function(error) {
-                            console.error('❌ Failed to import React:', error);
-                            container.innerHTML = message.data.html;
-                            sessionStorage.removeItem('__HMR_ACTIVE__');
-                          });
-                        } else {
-                          console.warn('⚠️ Component or root not found, falling back to DOM replacement');
-                          container.innerHTML = message.data.html;
-                          sessionStorage.removeItem('__HMR_ACTIVE__');
-                        }
-                      })
-                      .catch(function(error) {
-                        console.error('❌ Failed to import/render:', error);
-                        console.log('📝 Falling back to DOM replacement');
-                        container.innerHTML = message.data.html;
-                        sessionStorage.removeItem('__HMR_ACTIVE__');
+                    if (!window.__REACT_ROOT__) {
+                      console.error('❌ React root not found, cannot render');
+                      throw new Error('React root not found');
+                    }
+                    
+                    // Re-render with the existing root (this will pick up className/id/style changes)
+                    const element = React.createElement(Component, mergedProps);
+                    console.log('🔍 Created React element:', element);
+                    
+                    // Flush synchronously to avoid visual gaps/flicker during updates
+                    if (ReactDOM.flushSync) {
+                      ReactDOM.flushSync(function() {
+                        window.__REACT_ROOT__.render(element);
                       });
-                  }
-                }
+                    } else {
+                      window.__REACT_ROOT__.render(element);
+                    }
+                    console.log('✅ render() called successfully');
+                    
+                    console.log('✅ React component updated via HMR');
+                    sessionStorage.removeItem('__HMR_ACTIVE__');
+                  })
+                  .catch(function(error) {
+                    console.error('❌ Failed to import/render React component:', error);
+                    console.error('❌ Error details:', error.message);
+                    
+                    // If component file doesn't exist, try page reload with state preservation
+                    if (error.message.includes('Failed to fetch') || error.message.includes('404')) {
+                      console.warn('⚠️ Component not found as separate bundle, reloading page with state preservation');
+                      
+                      // Reload CSS if changed
+                      const cssPathUpdate = message.data.manifest && message.data.manifest.ReactExampleCSS;
+                      if (cssPathUpdate) {
+                        const existingCSSLinks = document.head.querySelectorAll('link[rel="stylesheet"]');
+                        existingCSSLinks.forEach(function(link) {
+                          const href = link.getAttribute('href');
+                          if (href && (href.includes('react-example') || cssPathUpdate.includes(href.split('/').pop()))) {
+                            link.href = cssPathUpdate + '?t=' + Date.now();
+                          }
+                        });
+                      }
+                      
+                      // Reload page
+                      sessionStorage.removeItem('__HMR_ACTIVE__');
+                      const url = new URL(window.location.href);
+                      url.searchParams.set('_hmr', Date.now().toString());
+                      window.location.href = url.toString();
+                    } else {
+                      sessionStorage.removeItem('__HMR_ACTIVE__');
+                    }
+                  });
                 break;
               }
               
@@ -1923,12 +2117,24 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
     </script>
   `;
   
-  // Inject before </body> if present; otherwise append
-  const closingTagRegex = /<\/body\s*>/i;
-  const match = closingTagRegex.exec(html);
-
-  return match !== null
-    ? html.slice(0, match.index) + hmrScript + html.slice(match.index)
-    : html + hmrScript;
+  // Inject import map before </head> and HMR script before </body>
+  const headRegex = /<\/head\s*>/i;
+  const bodyRegex = /<\/body\s*>/i;
+  const headMatch = headRegex.exec(html);
+  let result = html;
+  
+  // Insert import map early so dynamic imports resolve
+  if (headMatch !== null) {
+    result = result.slice(0, headMatch.index) + importMap + result.slice(headMatch.index);
+  }
+  
+  const bodyMatch = bodyRegex.exec(result);
+  if (bodyMatch !== null) {
+    result = result.slice(0, bodyMatch.index) + hmrScript + result.slice(bodyMatch.index);
+  } else {
+    result = result + hmrScript;
+  }
+  
+  return result;
 }
 

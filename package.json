@@ -58,5 +58,5 @@
 		"typecheck": "bun run tsc --noEmit"
 	},
 	"types": "./dist/index.d.ts",
-	"version": "0.12.74-htmx-framework-fix"
+	"version": "0.13.15"
 }

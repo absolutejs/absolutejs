@@ -34,7 +34,8 @@ export const generateManifest = (outputs: BuildArtifact[], buildPath: string) =>
 		if (folder === 'indexes') {
 			manifest[`${pascalName}Index`] = `/${relative}`;
 		} else if (folder === 'pages') {
-			manifest[pascalName] = artifact.path;
+			// For React pages, add with "Page" suffix for HMR to find them
+			manifest[`${pascalName}Page`] = `/${relative}`;
 		} else {
 			manifest[pascalName] = `/${relative}`;
 		}

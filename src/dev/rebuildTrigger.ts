@@ -277,22 +277,27 @@ export async function triggerRebuild(
           // Simple approach: Re-import with cache busting, re-render, send HTML
           try {
             console.log('🔄 Calling handleReactUpdate with path:', reactPagePath);
-            const { handleReactUpdate } = await import('./simpleReactHMR');
-            console.log('📥 handleReactUpdate imported, calling...');
-            const newHTML = await handleReactUpdate(reactPagePath, manifest, config.reactDirectory);
-            console.log('📤 handleReactUpdate returned, HTML length:', newHTML ? newHTML.length : 'null');
+            // Skip server-side rendering for React HMR - let client handle it directly
+            // This avoids bundling issues with freshModuleLoader
+            // Client will import the component and re-render using existing React root
+            console.log('✅ Broadcasting react-update (client will handle re-render)');
             
-            if (newHTML) {
-              console.log('✅ HTML received, broadcasting to clients...');
-              // Send simple HTML update to clients
-              broadcastToClients(state, {
-                data: {
-                  framework: 'react', html: newHTML, manifest, sourceFile: reactPagePath
-                }, type: 'react-update'
-    });
-            } else {
-              console.warn('⚠️ handleReactUpdate returned null/undefined - no HTML to send');
-            }
+            // Check if only CSS files changed (no component files)
+            const hasComponentChanges = reactFiles.some(file => file.endsWith('.tsx') || file.endsWith('.ts') || file.endsWith('.jsx'));
+            const hasCSSChanges = reactFiles.some(file => file.endsWith('.css'));
+            
+            // Send react-update message without HTML - client will import and re-render
+            broadcastToClients(state, {
+              data: {
+                framework: 'react',
+                manifest,
+                sourceFile: reactPagePath,
+                hasComponentChanges: hasComponentChanges,
+                hasCSSChanges: hasCSSChanges
+                // No html field - client handles the update
+              },
+              type: 'react-update'
+            });
           } catch (error) {
             console.error('❌ Failed to handle React update:', error);
             console.error('❌ Error stack:', error instanceof Error ? error.stack : String(error));
