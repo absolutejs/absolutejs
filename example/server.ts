@@ -3,6 +3,8 @@ import { Elysia } from 'elysia';
 import { scopedState } from 'elysia-scoped-state';
 import { build } from '../src/core/build';
 import { asset } from '../src/core/lookup';
+import { dev, hmr } from '../src/dev';
+import { resolveBuildPaths } from '../src/dev/configResolver';
 import {
 	handleAngularPageRequest,
 	handleHTMLPageRequest,
@@ -20,7 +22,7 @@ import { vueImports } from './vueImporter';
 
 const { VueExample } = vueImports;
 
-const manifest = await build({
+const buildConfig = {
 	assetsDirectory: 'example/assets',
 	buildDirectory: 'example/build',
 	htmlDirectory: 'example/html',
@@ -31,12 +33,22 @@ const manifest = await build({
 	reactDirectory: 'example/react',
 	svelteDirectory: 'example/svelte',
 	vueDirectory: 'example/vue'
-});
+} as const;
+
+const resolvedPaths = resolveBuildPaths(buildConfig);
+const isDev = process.env.NODE_ENV !== 'production';
+
+const { manifest, hmrState } = isDev
+	? await dev(buildConfig)
+	: {
+			manifest: await build(buildConfig),
+			hmrState: null
+		};
 
 export const server = new Elysia()
 	.use(
 		staticPlugin({
-			assets: './example/build',
+			assets: resolvedPaths.buildDir,
 			prefix: ''
 		})
 	)
@@ -45,11 +57,12 @@ export const server = new Elysia()
 			count: { value: 0 }
 		})
 	)
+	.use(hmrState ? hmr(hmrState, manifest) : (app) => app)
 	.get('/', () =>
-		handleHTMLPageRequest('./example/build/html/pages/HtmlExample.html')
+		handleHTMLPageRequest(`${resolvedPaths.buildDir}/html/pages/HtmlExample.html`)
 	)
 	.get('/html', () =>
-		handleHTMLPageRequest('./example/build/html/pages/HtmlExample.html')
+		handleHTMLPageRequest(`${resolvedPaths.buildDir}/html/pages/HtmlExample.html`)
 	)
 	.get('/react', () =>
 		handleReactPageRequest(
@@ -92,7 +105,7 @@ export const server = new Elysia()
 		)
 	)
 	.get('/htmx', () =>
-		handleHTMXPageRequest('./example/build/htmx/pages/HTMXExample.html')
+		handleHTMXPageRequest(`${resolvedPaths.buildDir}/htmx/pages/HTMXExample.html`)
 	)
 	.post('/htmx/reset', ({ resetScopedStore }) => resetScopedStore())
 	.get('/htmx/count', ({ scopedStore }) => scopedStore.count)

@@ -5,15 +5,10 @@ declare global {
 		__HTML_COUNTER_STATE__?: number;
 		__HTML_COUNTER_VALUE__?: number;
 		__HTML_SCRIPT_INITIALIZED__?: boolean;
+		__HTML_COUNTER_HANDLER__?: () => void;
+		__HTML_DETAILS_ENTER__?: () => void;
+		__HTML_DETAILS_LEAVE__?: () => void;
 	}
-}
-
-// Prevent multiple initializations in the same page load
-if (window.__HTML_SCRIPT_INITIALIZED__) {
-	console.log('📦 Script already initialized, skipping re-initialization');
-	// Exit early - event listeners are already attached
-	// eslint-disable-next-line no-restricted-syntax
-	throw new Error('Script already initialized');
 }
 
 const button = document.querySelector<HTMLButtonElement>('#counter-button');
@@ -46,19 +41,39 @@ if (typeof window !== 'undefined') {
 	counter.textContent = window.__HTML_COUNTER_VALUE__.toString();
 }
 
-button.addEventListener('click', () => {
-	// Increment the persistent global counter
+// Always remove old handlers before reattaching to avoid duplicates after HMR
+if (window.__HTML_COUNTER_HANDLER__) {
+	button.removeEventListener('click', window.__HTML_COUNTER_HANDLER__);
+}
+if (window.__HTML_DETAILS_ENTER__) {
+	details.removeEventListener('pointerenter', window.__HTML_DETAILS_ENTER__);
+}
+if (window.__HTML_DETAILS_LEAVE__) {
+	details.removeEventListener('pointerleave', window.__HTML_DETAILS_LEAVE__);
+}
+
+if (window.__HTML_SCRIPT_INITIALIZED__) {
+	console.log('♻️ Re-initializing HTML script after HMR');
+	if (window.__HTML_COUNTER_VALUE__ !== undefined) {
+		counter.textContent = window.__HTML_COUNTER_VALUE__.toString();
+	}
+}
+
+window.__HTML_COUNTER_HANDLER__ = () => {
 	window.__HTML_COUNTER_VALUE__ = (window.__HTML_COUNTER_VALUE__ || 0) + 1;
 	counter.textContent = window.__HTML_COUNTER_VALUE__.toString();
-});
+};
 
-details.addEventListener('pointerenter', () => {
+window.__HTML_DETAILS_ENTER__ = () => {
 	details.open = true;
-});
-
-details.addEventListener('pointerleave', () => {
+};
+window.__HTML_DETAILS_LEAVE__ = () => {
 	details.open = false;
-});
+};
+
+button.addEventListener('click', window.__HTML_COUNTER_HANDLER__);
+details.addEventListener('pointerenter', window.__HTML_DETAILS_ENTER__);
+details.addEventListener('pointerleave', window.__HTML_DETAILS_LEAVE__);
 
 // Mark script as initialized
 window.__HTML_SCRIPT_INITIALIZED__ = true;

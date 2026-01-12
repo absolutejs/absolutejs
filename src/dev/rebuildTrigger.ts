@@ -20,7 +20,7 @@ export function queueFileChange(
     config: BuildConfig,
   onRebuildComplete: (manifest: Record<string, string>) => void
 ): void {
-  const framework = detectFramework(filePath);
+  const framework = detectFramework(filePath, state.resolvedPaths);
   
   if (framework === 'ignored') {
     return;
@@ -162,7 +162,7 @@ export function queueFileChange(
           // Use the first valid file to determine the framework (all files in this set should have the same framework)
           const firstFile = validFiles[0];
           if (firstFile) {
-            const detectedFramework = detectFramework(firstFile);
+            const detectedFramework = detectFramework(firstFile, state.resolvedPaths);
             filesToProcess.set(detectedFramework, validFiles);
           }
         }
@@ -247,10 +247,15 @@ export async function triggerRebuild(
       
       // Group changed files by framework and create module updates
       for (const framework of affectedFrameworks) {
-        const frameworkFiles = filesToRebuild.filter(file => detectFramework(file) === framework);
+        const frameworkFiles = filesToRebuild.filter(file => detectFramework(file, state.resolvedPaths) === framework);
         
         if (frameworkFiles.length > 0) {
-          const moduleUpdates = createModuleUpdates(frameworkFiles, framework, manifest);
+          const moduleUpdates = createModuleUpdates(
+            frameworkFiles,
+            framework,
+            manifest,
+            state.resolvedPaths
+          );
           
           if (moduleUpdates.length > 0) {
             allModuleUpdates.push(...moduleUpdates);
@@ -264,19 +269,24 @@ export async function triggerRebuild(
       console.log('🔍 DEBUG: config.reactDirectory:', config.reactDirectory);
       
       // Simple React HMR: Re-render and send HTML patch
-      if (affectedFrameworks.includes('react') && filesToRebuild && config.reactDirectory) {
+      if (affectedFrameworks.includes('react') && filesToRebuild && state.resolvedPaths.reactDir) {
         console.log('✅ Entering React HMR block');
-        const reactFiles = filesToRebuild.filter(file => detectFramework(file) === 'react');
+        const reactFiles = filesToRebuild.filter(file => detectFramework(file, state.resolvedPaths) === 'react');
         console.log('🔍 reactFiles count:', reactFiles.length);
         
         if (reactFiles.length > 0) {
-          // Always use config.reactDirectory for the path to ensure consistency
-          const reactPagePath = resolve(config.reactDirectory, 'pages/ReactExample.tsx');
-          console.log('🔍 reactPagePath:', reactPagePath);
+          // Prefer changed page files; fall back to any React file
+          const reactPageFiles = reactFiles.filter((file) => {
+            const normalized = file.replace(/\\/g, '/');
+            return normalized.includes('/pages/');
+          });
+          const sourceFiles = reactPageFiles.length > 0 ? reactPageFiles : reactFiles;
+          const primarySource = sourceFiles[0];
+          console.log('🔍 react primary source:', primarySource);
           
           // Simple approach: Re-import with cache busting, re-render, send HTML
           try {
-            console.log('🔄 Calling handleReactUpdate with path:', reactPagePath);
+            console.log('🔄 Broadcasting react-update for source(s):', sourceFiles);
             // Skip server-side rendering for React HMR - let client handle it directly
             // This avoids bundling issues with freshModuleLoader
             // Client will import the component and re-render using existing React root
@@ -291,7 +301,8 @@ export async function triggerRebuild(
               data: {
                 framework: 'react',
                 manifest,
-                sourceFile: reactPagePath,
+                sourceFiles,
+                primarySource,
                 hasComponentChanges: hasComponentChanges,
                 hasCSSChanges: hasCSSChanges
                 // No html field - client handles the update
@@ -307,18 +318,25 @@ export async function triggerRebuild(
       
       // Simple HTML HMR: Read HTML file and send HTML patch
       // Trigger if HTML files changed OR if CSS files in HTML directory changed (CSS updates need to push new HTML with updated CSS links)
-      if (affectedFrameworks.includes('html') && filesToRebuild && config.htmlDirectory && config.buildDirectory) {
-        const htmlFrameworkFiles = filesToRebuild.filter(file => detectFramework(file) === 'html');
+      if (affectedFrameworks.includes('html') && filesToRebuild && state.resolvedPaths.htmlDir) {
+        const htmlFrameworkFiles = filesToRebuild.filter(file => detectFramework(file, state.resolvedPaths) === 'html');
         
         // Trigger update if any HTML framework files changed (HTML files OR CSS files in HTML directory)
         if (htmlFrameworkFiles.length > 0) {
+          // Collect all affected HTML pages (from dependency graph + direct edits)
+          const htmlPageFiles = htmlFrameworkFiles.filter((f) => f.endsWith('.html'));
+          const pagesToUpdate = htmlPageFiles.length > 0 ? htmlPageFiles : [resolve(state.resolvedPaths.htmlDir, 'pages/HtmlExample.html')];
+
           // Use the BUILT file path (which has updated CSS paths from updateAssetPaths)
           // Build path: build/html/pages/HTMLExample.html (or build/pages/HTMLExample.html if single)
           const isSingle = !config.reactDirectory && !config.svelteDirectory && !config.vueDirectory && !config.htmxDirectory;
           const outputHtmlPages = isSingle
-            ? resolve(config.buildDirectory, 'pages')
-            : resolve(config.buildDirectory, basename(config.htmlDirectory), 'pages');
-          const builtHtmlPagePath = resolve(outputHtmlPages, 'HTMLExample.html');
+            ? resolve(state.resolvedPaths.buildDir, 'pages')
+            : resolve(state.resolvedPaths.buildDir, basename(config.htmlDirectory ?? 'html'), 'pages');
+          
+          for (const pageFile of pagesToUpdate) {
+            const htmlPageName = basename(pageFile);
+            const builtHtmlPagePath = resolve(outputHtmlPages, htmlPageName);
           
           // Simple approach: Read HTML file, extract body, send HTML patch
           try {
@@ -333,11 +351,12 @@ export async function triggerRebuild(
                 }, type: 'html-update'
               });
             } else {
-              console.warn('⚠️ handleHTMLUpdate returned null/undefined - no HTML to send');
+                console.warn('⚠️ handleHTMLUpdate returned null/undefined for', builtHtmlPagePath);
             }
           } catch (error) {
             console.error('❌ Failed to handle HTML update:', error);
             console.error('❌ Error stack:', error instanceof Error ? error.stack : String(error));
+            }
           }
         }
       }
@@ -345,15 +364,20 @@ export async function triggerRebuild(
       // Simple Vue HMR: Re-compile and re-render, send HTML patch
       // NOTE: Vue HMR happens AFTER the rebuild completes, so we have the updated manifest
       if (affectedFrameworks.includes('vue') && filesToRebuild && config.vueDirectory) {
-        const vueFiles = filesToRebuild.filter(file => detectFramework(file) === 'vue');
+        const vueFiles = filesToRebuild.filter(file => detectFramework(file, state.resolvedPaths) === 'vue');
         
         if (vueFiles.length > 0) {
-          // Find the Vue page component using config.vueDirectory
-          const vuePagePath = vueFiles.find(f => f.includes('/pages/VueExample.vue')) 
-            || resolve(config.vueDirectory, 'pages/VueExample.vue');
+          // Find the Vue page component using actual changed files
+          const vuePagePath =
+            vueFiles.find((f) => f.replace(/\\/g, '/').includes('/pages/')) ??
+            vueFiles[0] ??
+            (state.resolvedPaths.vueDir
+              ? resolve(state.resolvedPaths.vueDir, 'pages/VueExample.vue')
+              : undefined);
           
           // Simple approach: Re-compile with cache invalidation, re-render, send HTML
           // The manifest passed here is the UPDATED manifest from the rebuild
+          if (vuePagePath) {
           try {
             const { handleVueUpdate } = await import('./simpleVueHMR');
             const newHTML = await handleVueUpdate(vuePagePath, manifest);
@@ -362,8 +386,10 @@ export async function triggerRebuild(
               // Send simple HTML update to clients with the updated manifest
               broadcastToClients(state, {
                 data: {
-                  framework: 'vue', html: newHTML, manifest
-// This is the updated manifest from the rebuild, sourceFile: vuePagePath // This is the updated manifest from the rebuild
+                    framework: 'vue',
+                    html: newHTML,
+                    manifest,
+                    sourceFile: vuePagePath
                 }, type: 'vue-update'
               });
             } else {
@@ -372,6 +398,9 @@ export async function triggerRebuild(
           } catch (error) {
             console.error('❌ Failed to handle Vue update:', error);
             console.error('❌ Error stack:', error instanceof Error ? error.stack : String(error));
+            }
+          } else {
+            console.warn('⚠️ Skipping Vue HMR - no page path resolved');
           }
         }
       }
@@ -379,15 +408,20 @@ export async function triggerRebuild(
       // Simple Svelte HMR: Re-compile and re-render, send HTML patch
       // NOTE: Svelte HMR happens AFTER the rebuild completes, so we have the updated manifest
       if (affectedFrameworks.includes('svelte') && filesToRebuild && config.svelteDirectory) {
-        const svelteFiles = filesToRebuild.filter(file => detectFramework(file) === 'svelte');
+        const svelteFiles = filesToRebuild.filter(file => detectFramework(file, state.resolvedPaths) === 'svelte');
         
         if (svelteFiles.length > 0) {
-          // Find the Svelte page component using config.svelteDirectory
-          const sveltePagePath = svelteFiles.find(f => f.includes('/pages/SvelteExample.svelte')) 
-            || resolve(config.svelteDirectory, 'pages/SvelteExample.svelte');
+          // Find the Svelte page component using actual changed files
+          const sveltePagePath =
+            svelteFiles.find((f) => f.replace(/\\/g, '/').includes('/pages/')) ??
+            svelteFiles[0] ??
+            (state.resolvedPaths.svelteDir
+              ? resolve(state.resolvedPaths.svelteDir, 'pages/SvelteExample.svelte')
+              : undefined);
           
           // Simple approach: Re-compile with cache invalidation, re-render, send HTML
           // The manifest passed here is the UPDATED manifest from the rebuild
+          if (sveltePagePath) {
           try {
             const { handleSvelteUpdate } = await import('./simpleSvelteHMR');
             const newHTML = await handleSvelteUpdate(sveltePagePath, manifest);
@@ -396,8 +430,10 @@ export async function triggerRebuild(
               // Send simple HTML update to clients with the updated manifest
               broadcastToClients(state, {
                 data: {
-                  framework: 'svelte', html: newHTML, manifest
-// This is the updated manifest from the rebuild, sourceFile: sveltePagePath // This is the updated manifest from the rebuild
+                    framework: 'svelte',
+                    html: newHTML,
+                    manifest,
+                    sourceFile: sveltePagePath
                 }, type: 'svelte-update'
               });
             } else {
@@ -406,24 +442,31 @@ export async function triggerRebuild(
           } catch (error) {
             console.error('❌ Failed to handle Svelte update:', error);
             console.error('❌ Error stack:', error instanceof Error ? error.stack : String(error));
+            }
+          } else {
+            console.warn('⚠️ Skipping Svelte HMR - no page path resolved');
           }
         }
       }
       
       // Simple HTMX HMR: Read HTMX file and send HTML patch
       // Trigger if HTMX files changed OR if CSS files in HTMX directory changed (CSS updates need to push new HTML with updated CSS links)
-      if (affectedFrameworks.includes('htmx') && filesToRebuild && config.htmxDirectory && config.buildDirectory) {
-        const htmxFrameworkFiles = filesToRebuild.filter(file => detectFramework(file) === 'htmx');
+      if (affectedFrameworks.includes('htmx') && filesToRebuild && state.resolvedPaths.htmxDir) {
+        const htmxFrameworkFiles = filesToRebuild.filter(file => detectFramework(file, state.resolvedPaths) === 'htmx');
         
         // Trigger update if any HTMX framework files changed (HTML files OR CSS files in HTMX directory)
         if (htmxFrameworkFiles.length > 0) {
+          const htmxPageFile =
+            htmxFrameworkFiles.find((f) => f.endsWith('.html')) ?? htmxFrameworkFiles[0];
+          const htmxPageName = htmxPageFile ? basename(htmxPageFile) : 'HTMXExample.html';
+
           // Use the BUILT file path (which has updated CSS paths from updateAssetPaths)
           // Build path: build/htmx/pages/HTMXExample.html (or build/pages/HTMXExample.html if single)
           const isSingle = !config.reactDirectory && !config.svelteDirectory && !config.vueDirectory && !config.htmlDirectory;
           const outputHtmxPages = isSingle
-            ? resolve(config.buildDirectory, 'pages')
-            : resolve(config.buildDirectory, basename(config.htmxDirectory), 'pages');
-          const builtHtmxPagePath = resolve(outputHtmxPages, 'HTMXExample.html');
+            ? resolve(state.resolvedPaths.buildDir, 'pages')
+            : resolve(state.resolvedPaths.buildDir, basename(config.htmxDirectory ?? 'htmx'), 'pages');
+          const builtHtmxPagePath = resolve(outputHtmxPages, htmxPageName);
           
           try {
             const { handleHTMXUpdate } = await import('./simpleHTMXHMR');

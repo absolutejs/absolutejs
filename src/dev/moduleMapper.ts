@@ -16,7 +16,13 @@ export type ModuleUpdate = {
    This handles framework-specific manifest key derivation */
 export const mapSourceFileToManifestKeys = (
   sourceFile: string,
-  framework: string
+  framework: string,
+  resolvedPaths?: {
+    reactDir?: string;
+    svelteDir?: string;
+    vueDir?: string;
+    angularDir?: string;
+  }
 ) => {
   const normalizedFile = resolve(sourceFile);
   const fileName = basename(normalizedFile);
@@ -27,10 +33,19 @@ export const mapSourceFileToManifestKeys = (
   
   const keys: string[] = [];
   
+  const inSubdir = (dir: string | undefined, sub: string) => {
+    if (!dir) return false;
+    const prefix = `${dir.replace(/\\/g, '/')}/${sub}/`;
+    return normalizedFile.startsWith(prefix);
+  };
+  
   switch (framework) {
     case 'react':
       // React pages (in pages/ directory) have Index entries
-      if (normalizedFile.includes('/react/pages/')) {
+      if (
+        inSubdir(resolvedPaths?.reactDir, 'pages') ||
+        normalizedFile.includes('/react/pages/')
+      ) {
         keys.push(`${pascalName}Index`);
         keys.push(`${pascalName}CSS`); // CSS might exist
       }
@@ -41,7 +56,10 @@ export const mapSourceFileToManifestKeys = (
       
     case 'svelte':
       // Svelte pages have both main entry and index
-      if (normalizedFile.includes('/svelte/pages/')) {
+      if (
+        inSubdir(resolvedPaths?.svelteDir, 'pages') ||
+        normalizedFile.includes('/svelte/pages/')
+      ) {
         keys.push(pascalName);
         keys.push(`${pascalName}Index`);
         keys.push(`${pascalName}CSS`); // CSS might exist
@@ -50,7 +68,10 @@ export const mapSourceFileToManifestKeys = (
       
     case 'vue':
       // Vue pages have main entry, index, and CSS
-      if (normalizedFile.includes('/vue/pages/')) {
+      if (
+        inSubdir(resolvedPaths?.vueDir, 'pages') ||
+        normalizedFile.includes('/vue/pages/')
+      ) {
         keys.push(pascalName);
         keys.push(`${pascalName}Index`);
         keys.push(`${pascalName}CSS`);
@@ -59,7 +80,10 @@ export const mapSourceFileToManifestKeys = (
       
     case 'angular':
       // Angular pages have main entry and index
-      if (normalizedFile.includes('/angular/pages/')) {
+      if (
+        inSubdir(resolvedPaths?.angularDir, 'pages') ||
+        normalizedFile.includes('/angular/pages/')
+      ) {
         keys.push(pascalName);
         keys.push(`${pascalName}Index`);
       }
@@ -86,20 +110,31 @@ export const mapSourceFileToManifestKeys = (
 export function createModuleUpdates(
   changedFiles: string[],
   framework: string,
-  manifest: Record<string, string>
+  manifest: Record<string, string>,
+  resolvedPaths?: {
+    reactDir?: string;
+    svelteDir?: string;
+    vueDir?: string;
+    angularDir?: string;
+  }
 ): ModuleUpdate[] {
   const updates: ModuleUpdate[] = [];
   const processedFiles = new Set<string>();
   
   for (const sourceFile of changedFiles) {
     const normalizedFile = resolve(sourceFile);
+    const normalizedPath = normalizedFile.replace(/\\/g, '/');
     
     // Skip if already processed
     if (processedFiles.has(normalizedFile)) continue;
     processedFiles.add(normalizedFile);
     
     // Get manifest keys for this file
-    const moduleKeys = mapSourceFileToManifestKeys(normalizedFile, framework);
+    const moduleKeys = mapSourceFileToManifestKeys(
+      normalizedFile,
+      framework,
+      resolvedPaths
+    );
     
     // Special handling: For React components, check if we need to look for page-level entries
     // Components don't have direct manifest entries, but the dependency graph ensures
@@ -114,7 +149,11 @@ export function createModuleUpdates(
     // However, components don't have manifest entries, so we'll skip creating
     // a ModuleUpdate here. Instead, we'll handle component updates separately
     // in the rebuild trigger by checking if changed files include components.
-    if (framework === 'react' && !normalizedFile.includes('/react/pages/')) {
+    const isReactPage = resolvedPaths?.reactDir
+      ? normalizedPath.startsWith(`${resolvedPaths.reactDir.replace(/\\/g, '/')}/pages/`)
+      : normalizedPath.includes('/react/pages/');
+
+    if (framework === 'react' && !isReactPage) {
       // This is a component - components are handled via dependency graph
       // The page that imports it will be rebuilt and have a ModuleUpdate
       // Component updates will be handled in Phase 2 (Client HMR)

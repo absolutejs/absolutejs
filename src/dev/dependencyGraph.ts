@@ -24,6 +24,25 @@ export const extractDependencies = (filePath: string) => {
     }
     const content = readFileSync(filePath, 'utf-8');
     const dependencies: string[] = [];
+    const lowerPath = filePath.toLowerCase();
+    const isHtml = lowerPath.endsWith('.html') || lowerPath.endsWith('.htm');
+    
+    // Special-case HTML/HTMX: detect linked stylesheets so CSS changes map back to pages
+    if (isHtml) {
+      const linkRegex =
+        /<link\s+[^>]*rel=["']stylesheet["'][^>]*href=["']([^"']+)["'][^>]*>/gi;
+      let matchLink;
+      while ((matchLink = linkRegex.exec(content)) !== null) {
+        const href = matchLink[1];
+        if (!href) continue;
+        // Resolve relative to the HTML file
+        const resolvedHref = resolveImportPath(href, filePath);
+        if (resolvedHref) {
+          dependencies.push(resolvedHref);
+        }
+      }
+      return dependencies;
+    }
     
         // Match various import patterns
         const importRegex = /import\s+.*?\s+from\s+['"]([^'"]+)['"]/g;
@@ -88,7 +107,7 @@ function resolveImportPath(importPath: string, fromFile: string): string | null 
   const normalized = resolve(resolved);
   
   // Try common extensions
-  const extensions = ['.ts', '.tsx', '.js', '.jsx', '.vue', '.svelte', '.css'];
+  const extensions = ['.ts', '.tsx', '.js', '.jsx', '.vue', '.svelte', '.css', '.html'];
   
   for (const ext of extensions) {
     const withExt = normalized + ext;
@@ -251,9 +270,9 @@ export function buildInitialDependencyGraph(
         if (entry.isDirectory()) {
           scanDirectory(fullPath);
         } else if (entry.isFile()) {
-          // Process source files (TypeScript, JavaScript, Vue, Svelte)
+        // Process source files (TypeScript, JavaScript, Vue, Svelte, HTML)
           const ext = entry.name.split('.').pop()?.toLowerCase();
-          if (['ts', 'tsx', 'js', 'jsx', 'vue', 'svelte'].includes(ext || '')) {
+          if (['ts', 'tsx', 'js', 'jsx', 'vue', 'svelte', 'html', 'htm'].includes(ext || '')) {
             if (!processedFiles.has(fullPath)) {
               addFileToGraph(graph, fullPath);
               processedFiles.add(fullPath);

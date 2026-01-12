@@ -13,7 +13,7 @@ export function startFileWatching(
   config: BuildConfig,
   onFileChange: (filePath: string) => void
 ): void {
-  const watchPaths = getWatchPaths(config);
+  const watchPaths = getWatchPaths(config, state.resolvedPaths);
   
   // Set up a watcher for each directory
   for (const path of watchPaths) {

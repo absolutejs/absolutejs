@@ -24,17 +24,15 @@ import { handleClientConnect, handleClientDisconnect, handleHMRMessage } from '.
 import type { ReactModule } from './types/react';
 import './types/window-globals'; // Ensure Window interface is extended
 
-/* Build root directory for static file serving */
-const ROOT_DIR = PATH_RESOLVE('./example/build');
-
 /* Main entry point for the HMR server - orchestrates everything
    This replaces the old class-based approach with a functional one */
 export async function startBunHMRDevServer(config: BuildConfig) {
   // Create initial state
   const state = createHMRState(config);
+  const ROOT_DIR = state.resolvedPaths.buildDir;
   
   // Initialize dependency graph by scanning all source files
-  const watchPaths = getWatchPaths(config);
+  const watchPaths = getWatchPaths(config, state.resolvedPaths);
   buildInitialDependencyGraph(state.dependencyGraph, watchPaths);
   
   console.log('Building AbsoluteJS with HMR...');
@@ -221,25 +219,15 @@ export async function startBunHMRDevServer(config: BuildConfig) {
           
           // Detect which framework page we're currently on
           function detectCurrentFramework() {
-            // CRITICAL: Use URL path as the ONLY source of truth
-            // Never rely on globals as they persist across navigation
+            // CRITICAL: Use URL path as the primary signal; avoid sticky globals
             const path = window.location.pathname;
             
-            if (path === '/react' || path.startsWith('/react/')) {
-              return 'react';
-            }
-            if (path === '/vue' || path.startsWith('/vue/')) {
-              return 'vue';
-            }
-            if (path === '/svelte' || path.startsWith('/svelte/')) {
-              return 'svelte';
-            }
-            if (path === '/htmx' || path.startsWith('/htmx/')) {
-              return 'htmx';
-            }
-            if (path === '/' || path === '/html' || path.startsWith('/html/')) {
-              return 'html';
-            }
+            if (path === '/react' || path.startsWith('/react/')) return 'react';
+            if (path === '/vue' || path.startsWith('/vue/')) return 'vue';
+            if (path === '/svelte' || path.startsWith('/svelte/')) return 'svelte';
+            if (path === '/htmx' || path.startsWith('/htmx/')) return 'htmx';
+            if (path === '/html' || path.startsWith('/html/')) return 'html';
+            if (path === '/') return 'html';
             return null;
           }
           

@@ -1,61 +1,57 @@
 import { BuildConfig } from '../types';
+import type { ResolvedBuildPaths } from './configResolver';
 
 /* Get the directories we should watch based on our config
    This handles the "where to watch" problem */
-export const getWatchPaths = (config: BuildConfig) => {
+export const getWatchPaths = (
+  config: BuildConfig,
+  resolved?: ResolvedBuildPaths
+) => {
   const paths: string[] = [];
   
-  // Watch only specific source directories, not the entire directory
-  // This prevents watching compiled/build directories that cause infinite loops
-  
-  if (config.reactDirectory) {
-    // Watch React source directories only
-    paths.push(`${config.reactDirectory}/components`);
-    paths.push(`${config.reactDirectory}/pages`);
-    paths.push(`${config.reactDirectory}/styles`);
-    // Don't watch the root reactDirectory to avoid compiled/indexes
-  }
-  
-  if (config.svelteDirectory) {
-    // Watch Svelte source directories only
-    paths.push(`${config.svelteDirectory}/components`);
-    paths.push(`${config.svelteDirectory}/pages`);
-    paths.push(`${config.svelteDirectory}/composables`);
-    paths.push(`${config.svelteDirectory}/styles`);
-  }
-  
-  if (config.vueDirectory) {
-    // Watch Vue source directories only
-    paths.push(`${config.vueDirectory}/components`);
-    paths.push(`${config.vueDirectory}/pages`);
-    paths.push(`${config.vueDirectory}/composables`);
-    paths.push(`${config.vueDirectory}/styles`);
-  }
-  
-  if (config.angularDirectory) {
-    // Watch Angular source directories only
-    paths.push(`${config.angularDirectory}/components`);
-    paths.push(`${config.angularDirectory}/pages`);
-    paths.push(`${config.angularDirectory}/styles`);
-  }
-  
-  if (config.htmlDirectory) {
-    // Watch HTML source directories
-    paths.push(`${config.htmlDirectory}/pages`);
-    paths.push(`${config.htmlDirectory}/scripts`);
-    paths.push(`${config.htmlDirectory}/styles`);
-  }
-  
-  if (config.htmxDirectory) {
-    // Watch HTMX source directories
-    paths.push(`${config.htmxDirectory}/pages`);
-    paths.push(`${config.htmxDirectory}/styles`);
-  }
-  
-  if (config.assetsDirectory) {
-    // Watch assets directory for CSS, images, etc.
-    paths.push(config.assetsDirectory);
-  }
+  // helper to push only when base exists
+  const push = (base?: string, sub?: string) => {
+    if (!base) return;
+    paths.push(sub ? `${base}/${sub}` : base);
+  };
+
+  const cfg = resolved ?? {
+    reactDir: config.reactDirectory,
+    svelteDir: config.svelteDirectory,
+    vueDir: config.vueDirectory,
+    angularDir: config.angularDirectory,
+    htmlDir: config.htmlDirectory,
+    htmxDir: config.htmxDirectory,
+    assetsDir: config.assetsDirectory
+  };
+
+  // Watch source directories (pages/components/styles etc.)
+  push(cfg.reactDir, 'components');
+  push(cfg.reactDir, 'pages');
+  push(cfg.reactDir, 'styles');
+
+  push(cfg.svelteDir, 'components');
+  push(cfg.svelteDir, 'pages');
+  push(cfg.svelteDir, 'composables');
+  push(cfg.svelteDir, 'styles');
+
+  push(cfg.vueDir, 'components');
+  push(cfg.vueDir, 'pages');
+  push(cfg.vueDir, 'composables');
+  push(cfg.vueDir, 'styles');
+
+  push(cfg.angularDir, 'components');
+  push(cfg.angularDir, 'pages');
+  push(cfg.angularDir, 'styles');
+
+  push(cfg.htmlDir, 'pages');
+  push(cfg.htmlDir, 'scripts');
+  push(cfg.htmlDir, 'styles');
+
+  push(cfg.htmxDir, 'pages');
+  push(cfg.htmxDir, 'styles');
+
+  push(cfg.assetsDir);
   
   return paths;
 }
@@ -84,56 +80,48 @@ export const shouldIgnorePath = (path: string) => {
 
 /* Detect which framework a file belongs to based on its path and extension
    This handles the "what framework" problem */
-export const detectFramework = (filePath: string) => {
+export const detectFramework = (
+  filePath: string,
+  resolved?: ResolvedBuildPaths
+) => {
   // Check if this is an ignored file first
   if (shouldIgnorePath(filePath)) {
     return 'ignored';
   }
   
-  // IMPORTANT: Check framework-specific paths FIRST (before generic extensions)
-  // This ensures CSS files in framework directories trigger HMR for that framework
-  // Example: /html/styles/html-example.css should be detected as 'html', not 'assets'
-  
-  if (filePath.includes('/htmx/')) {
-    return 'htmx';
-  }
-  if (filePath.includes('/react/')) {
-    return 'react';
-  }
-  if (filePath.includes('/svelte/')) {
-    return 'svelte';
-  }
-  if (filePath.includes('/vue/')) {
-    return 'vue';
-  }
-  if (filePath.includes('/angular/')) {
-    return 'angular';
-  }
-  if (filePath.includes('/html/')) {
-    return 'html';
+  const normalized = filePath.replace(/\\/g, '/');
+
+  const startsWithDir = (dir?: string) =>
+    dir ? normalized.startsWith(dir.replace(/\\/g, '/')) : false;
+
+  // Prefer resolved directory prefixes when available
+  if (resolved) {
+    if (startsWithDir(resolved.htmxDir)) return 'htmx';
+    if (startsWithDir(resolved.reactDir)) return 'react';
+    if (startsWithDir(resolved.svelteDir)) return 'svelte';
+    if (startsWithDir(resolved.vueDir)) return 'vue';
+    if (startsWithDir(resolved.angularDir)) return 'angular';
+    if (startsWithDir(resolved.htmlDir)) return 'html';
+    if (startsWithDir(resolved.assetsDir)) return 'assets';
+  } else {
+    // Fallback heuristics when resolved paths are not provided
+    if (normalized.includes('/htmx/')) return 'htmx';
+    if (normalized.includes('/react/')) return 'react';
+    if (normalized.includes('/svelte/')) return 'svelte';
+    if (normalized.includes('/vue/')) return 'vue';
+    if (normalized.includes('/angular/')) return 'angular';
+    if (normalized.includes('/html/')) return 'html';
   }
   
   // Then check file extensions for files not in framework directories
-  if (filePath.endsWith('.tsx') || filePath.endsWith('.jsx')) {
-    return 'react';
-  }
-  if (filePath.endsWith('.svelte')) {
-    return 'svelte';
-  }
-  if (filePath.endsWith('.vue')) {
-    return 'vue';
-  }
-  if (filePath.endsWith('.html')) {
-    return 'html';
-  }
-  if (filePath.endsWith('.ts') && filePath.includes('angular')) {
-    return 'angular';
-  }
+  if (normalized.endsWith('.tsx') || normalized.endsWith('.jsx')) return 'react';
+  if (normalized.endsWith('.svelte')) return 'svelte';
+  if (normalized.endsWith('.vue')) return 'vue';
+  if (normalized.endsWith('.html')) return 'html';
+  if (normalized.endsWith('.ts') && normalized.includes('angular')) return 'angular';
   
   // Generic assets (CSS in root /assets/, images, etc.)
-  if (filePath.includes('/assets/') || filePath.endsWith('.css')) {
-    return 'assets';
-  }
+  if (normalized.includes('/assets/') || normalized.endsWith('.css')) return 'assets';
 
   return 'unknown';
 }

@@ -19,7 +19,7 @@ export async function dev(config: BuildConfig): Promise<{
   const state = createHMRState(config);
   
   // Initialize dependency graph by scanning all source files
-  const watchPaths = getWatchPaths(config);
+  const watchPaths = getWatchPaths(config, state.resolvedPaths);
   buildInitialDependencyGraph(state.dependencyGraph, watchPaths);
   
   console.log('🔨 Building AbsoluteJS with HMR...');
@@ -583,33 +583,23 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
         
         // Detect which framework page we're currently on
         function detectCurrentFramework() {
-          // CRITICAL: Use URL path as the ONLY source of truth
-          // Never rely on globals as they persist across navigation
+          // CRITICAL: Use URL path as the primary signal; avoid sticky globals
           const path = window.location.pathname;
           
-          // Check for framework-specific paths first
-          if (path === '/vue' || path.startsWith('/vue/')) {
-            return 'vue';
-          }
-          if (path === '/svelte' || path.startsWith('/svelte/')) {
-            return 'svelte';
-          }
-          if (path === '/htmx' || path.startsWith('/htmx/')) {
-            return 'htmx';
-          }
-          if (path === '/html' || path.startsWith('/html/')) {
-            return 'html';
-          }
+          // Prefer explicit routes
+          if (path === '/vue' || path.startsWith('/vue/')) return 'vue';
+          if (path === '/svelte' || path.startsWith('/svelte/')) return 'svelte';
+          if (path === '/htmx' || path.startsWith('/htmx/')) return 'htmx';
+          if (path === '/html' || path.startsWith('/html/')) return 'html';
           
-          // Check if React root exists - if so, this is a React page
-          if (window.__REACT_ROOT__) {
-            return 'react';
-          }
+          // Root defaults to HTML (example root renders HTML page)
+          if (path === '/') return 'html';
           
-          // Fallback: check path
-          if (path === '/react' || path.startsWith('/react/') || path === '/') {
-            return 'react';
-          }
+          // React detection: explicit routes first
+          if (path === '/react' || path.startsWith('/react/')) return 'react';
+          
+          // React fallback if a React root already exists on the page
+          if (window.__REACT_ROOT__) return 'react';
           
           return null;
         }
@@ -1569,6 +1559,15 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                       // Parse new HTML to check what changed
                       const tempDiv = document.createElement('div');
                       tempDiv.innerHTML = htmxBody;
+
+                      // Preserve counter in the incoming HTML to avoid visible flicker
+                      if (savedState.componentState.count !== undefined) {
+                        const newCounterSpan = tempDiv.querySelector('#count');
+                        if (newCounterSpan) {
+                          newCounterSpan.textContent = String(savedState.componentState.count);
+                          htmxBody = tempDiv.innerHTML;
+                        }
+                      }
                       const newScripts = Array.from(tempDiv.querySelectorAll('script[src]')).map(function(script) {
                         return {
                           src: script.getAttribute('src') || '',
