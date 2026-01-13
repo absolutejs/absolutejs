@@ -14,7 +14,6 @@ export const handleClientConnect = (
   manifest: Record<string, string>
 ) => {
   state.connectedClients.add(client);
-  console.log('✅ WebSocket client connected! Total clients:', state.connectedClients.size);
   
   // Send them the current state of the menu (manifest) and module versions
   const serverVersions = serializeModuleVersions(state.moduleVersions);
@@ -37,7 +36,6 @@ export const handleClientConnect = (
    This prevents memory leaks and keeps our client list clean */
 export const handleClientDisconnect = (state: HMRState, client: HMRWebSocket) => {
   state.connectedClients.delete(client);
-  console.log('❌ WebSocket client disconnected! Total clients:', state.connectedClients.size);
 }
 
 /* Handle messages from clients - they might ping us or request rebuilds
@@ -61,14 +59,10 @@ export const handleHMRMessage = (state: HMRState, client: HMRWebSocket, message:
       // Message is already an object - no parsing needed
       parsedData = message;
     } else {
-      console.log('🤷 Unknown message type:', typeof message);
-
       return;
     }
     
-    // Validate and type the message
     if (!isValidHMRClientMessage(parsedData)) {
-      console.log('🤷 Invalid HMR message format');
       return;
     }
     
@@ -90,21 +84,9 @@ export const handleHMRMessage = (state: HMRState, client: HMRWebSocket, message:
         break;
         
       case 'hydration-error':
-        // Client reported a hydration error - log it for debugging
-        if (data.data) {
-          console.group('⚠️ Hydration Error Reported by Client');
-          console.error('Component:', data.data.componentName);
-          if (data.data.componentPath) {
-            console.error('File:', data.data.componentPath);
-          }
-          console.error('Error:', data.data.error);
-          console.groupEnd();
-        }
         break;
     }
-  } catch (error) {
-    console.error('❌ Error parsing HMR message:', error);
-    console.log('📨 Raw message:', message);
+  } catch {
   }
 }
 
@@ -116,7 +98,6 @@ export const broadcastToClients = (state: HMRState, message: {type: string; [key
     timestamp: Date.now()
   });
   
-  console.log(`📡 Broadcasting ${message.type} to ${state.connectedClients.size} client(s)`);
   
   let sentCount = 0;
   const clientsToRemove: HMRWebSocket[] = [];
@@ -126,8 +107,7 @@ export const broadcastToClients = (state: HMRState, message: {type: string; [key
       try {
         client.send(messageStr);
         sentCount++;
-      } catch (error) {
-        console.error('❌ Failed to send message to client:', error);
+      } catch {
         clientsToRemove.push(client);
       }
     } else {
@@ -136,7 +116,6 @@ export const broadcastToClients = (state: HMRState, message: {type: string; [key
     }
   }
   
-  console.log(`✅ Sent to ${sentCount} client(s)`);
   
   // Remove closed/failed clients
   for (const client of clientsToRemove) {

@@ -20,9 +20,7 @@ export function startFileWatching(
     // Resolve to absolute path for existsSync check
     const absolutePath = resolve(path);
     
-    // Skip directories that don't exist (e.g., Vue doesn't have a source styles/ directory)
     if (!existsSync(absolutePath)) {
-      console.log(`⏭️  Skipping watch for non-existent directory: ${path}`);
       continue;
     }
     
@@ -54,11 +52,9 @@ export function startFileWatching(
         
         // Handle file deletion
         if (event === 'rename' && !existsSync(fullPath)) {
-          // Remove from dependency graph gracefully
           try {
             removeFileFromGraph(state.dependencyGraph, fullPath);
-          } catch (error) {
-            console.warn(`⚠️ Failed to remove ${fullPath} from dependency graph:`, error);
+          } catch {
           }
           
           // Still trigger rebuild for files that depended on this one
@@ -72,13 +68,9 @@ export function startFileWatching(
           // Call the callback handler
           onFileChange(fullPath);
           
-          // Track dependencies for incremental rebuilds
-          // Wrap in try-catch to prevent errors from breaking the file watcher
           try {
             addFileToGraph(state.dependencyGraph, fullPath);
-          } catch (error) {
-            // Log but don't throw - dependency tracking failures shouldn't break HMR
-            console.warn(`⚠️ Failed to track dependencies for ${fullPath}:`, error);
+          } catch {
           }
         }
       }
@@ -87,5 +79,4 @@ export function startFileWatching(
     state.watchers.push(watcher);
   }
   
-  console.log('File watching started');
 }

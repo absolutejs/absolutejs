@@ -31,28 +31,19 @@ export const handleSvelteUpdate = async (
     const serverPath = manifest['SvelteExample'];
     
     if (!serverPath) {
-      console.warn('⚠️ SvelteExample not found in manifest');
-
       return null;
     }
     
-    // Re-import the server component with cache busting
-    // The serverPath is the absolute path to the built server bundle
     const cacheBuster = `?t=${Date.now()}`;
     const serverModule = await import(`${serverPath}${cacheBuster}`);
     
     if (!serverModule || !serverModule.default) {
-      console.warn('⚠️ Could not find default export in Svelte server module');
-
       return null;
     }
     
-    // Get indexPath from manifest (relative URL to built client bundle)
     const indexPath = manifest['SvelteExampleIndex'];
     
     if (!indexPath) {
-      console.warn('⚠️ SvelteExampleIndex not found in manifest');
-
       return null;
     }
     
@@ -79,13 +70,8 @@ export const handleSvelteUpdate = async (
       return bodyContent;
     }
     
-    // Fallback: return full HTML if body extraction fails
-    console.warn('⚠️ Server: Body extraction failed, returning full HTML');
-
     return html;
-  } catch (error) {
-    console.error('❌ Failed to handle Svelte update:', error);
-
+  } catch {
     return null;
   }
 }

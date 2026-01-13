@@ -17,14 +17,10 @@ export const handleHTMLUpdate = async (
     // This ensures we read HTML with updated CSS paths from updateAssetPaths
     const resolvedPath = resolve(htmlFilePath);
     
-    // Check if file exists
     if (!existsSync(resolvedPath)) {
-      console.error(`❌ HTML file not found: ${resolvedPath}`);
-
       return null;
     }
     
-    console.log('✅ Reading HTML file from build:', resolvedPath);
     
     // Read the HTML file
     const htmlContent = readFileSync(resolvedPath, 'utf-8');
@@ -46,12 +42,9 @@ export const handleHTMLUpdate = async (
     }
     
     // Fallback: return full HTML if body extraction fails
-    console.warn('⚠️ Server: Body extraction failed, returning full HTML');
 
     return htmlContent;
-  } catch (error) {
-    console.error('❌ Failed to handle HTML update:', error);
-
+  } catch {
     return null;
   }
 }

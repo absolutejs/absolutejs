@@ -85,9 +85,7 @@ export const extractDependencies = (filePath: string) => {
         }
     
     return dependencies;
-  } catch (error) {
-    console.warn(`⚠️ Could not extract dependencies from ${filePath}:`, error);
-
+  } catch {
     return [];
   }
 }
@@ -139,10 +137,7 @@ export function addFileToGraph(
   // Normalize the file path to ensure consistent format
   const normalizedPath = resolve(filePath);
   
-  // Skip if file doesn't exist (it might have been deleted)
   if (!existsSync(normalizedPath)) {
-    console.warn(`⚠️ Cannot add non-existent file to dependency graph: ${normalizedPath}`);
-
     return;
   }
   
@@ -244,7 +239,6 @@ export function buildInitialDependencyGraph(
   graph: DependencyGraph,
   directories: string[]
 ): void {
-  console.log('🔍 Building initial dependency graph...');
   
   const processedFiles = new Set<string>();
   
@@ -280,9 +274,7 @@ export function buildInitialDependencyGraph(
           }
         }
       }
-    } catch (error) {
-      // Skip directories we can't read
-      console.warn(`⚠️ Could not scan directory ${dir}:`, error);
+    } catch {
     }
   }
   
@@ -294,5 +286,4 @@ export function buildInitialDependencyGraph(
     }
   }
   
-  console.log(`✅ Dependency graph initialized with ${processedFiles.size} files`);
 }

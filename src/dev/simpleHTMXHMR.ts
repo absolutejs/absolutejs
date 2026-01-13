@@ -16,12 +16,9 @@ export const handleHTMXUpdate = async (
     const resolvedPath = resolve(htmxFilePath);
 
     if (!existsSync(resolvedPath)) {
-      console.error(`❌ HTMX file not found: ${resolvedPath}`);
-
       return null;
     }
 
-    console.log('✅ Reading HTMX file:', resolvedPath);
     const htmlContent = readFileSync(resolvedPath, 'utf-8');
 
     // Extract both head and body content for patching
@@ -32,9 +29,7 @@ export const handleHTMXUpdate = async (
     if (bodyMatch && bodyMatch[1]) {
       const bodyContent = bodyMatch[1].trim();
       const headContent = headMatch && headMatch[1] ? headMatch[1].trim() : null;
-      console.log('✅ Extracted body content, length:', bodyContent.length);
       if (headContent) {
-        console.log('✅ Extracted head content, length:', headContent.length);
       }
 
       // Return object with both head and body for comprehensive updates
@@ -44,12 +39,9 @@ export const handleHTMXUpdate = async (
       };
     }
 
-    console.warn('⚠️ Server: HTMX body extraction failed, returning full HTML');
 
     return htmlContent;
-  } catch (error) {
-    console.error('❌ Failed to handle HTMX update:', error);
-
+  } catch {
     return null;
   }
 };

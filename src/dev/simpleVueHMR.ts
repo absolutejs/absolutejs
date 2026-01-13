@@ -31,28 +31,19 @@ export const handleVueUpdate = async (
     const serverPath = manifest['VueExample'];
     
     if (!serverPath) {
-      console.warn('⚠️ VueExample not found in manifest');
-
       return null;
     }
     
-    // Re-import the server component with cache busting
-    // The serverPath is the absolute path to the built server bundle
     const cacheBuster = `?t=${Date.now()}`;
     const serverModule = await import(`${serverPath}${cacheBuster}`);
     
     if (!serverModule || !serverModule.default) {
-      console.warn('⚠️ Could not find default export in Vue server module');
-
       return null;
     }
     
-    // Get indexPath from manifest (relative URL to built client bundle)
     const indexPath = manifest['VueExampleIndex'];
     
     if (!indexPath) {
-      console.warn('⚠️ VueExampleIndex not found in manifest');
-
       return null;
     }
     
@@ -81,13 +72,8 @@ export const handleVueUpdate = async (
       return bodyContent;
     }
     
-    // Fallback: return full HTML if body extraction fails
-    console.warn('⚠️ Server: Body extraction failed, returning full HTML');
-
     return html;
-  } catch (error) {
-    console.error('❌ Failed to handle Vue update:', error);
-
+  } catch {
     return null;
   }
 }

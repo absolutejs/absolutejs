@@ -23,36 +23,22 @@ export const handleReactUpdate = async (
     let ReactModule;
     try {
       ReactModule = await loadFreshModule(resolvedPath);
-    } catch (freshLoadError) {
-      console.error('❌ Failed to load fresh module:', freshLoadError);
-      // Fallback to regular import with cache busting
+    } catch {
       const cacheBuster = `?t=${Date.now()}`;
       const relativePath = `../../${componentPath}${cacheBuster}`;
       ReactModule = await import(relativePath);
     }
     
-    console.log('🔍 ReactModule keys:', Object.keys(ReactModule));
-    
     if (!ReactModule || !ReactModule.ReactExample) {
-      console.warn('⚠️ Could not find ReactExample in module');
-      console.warn('Available exports:', Object.keys(ReactModule || {}));
       return null;
     }
 
-    console.log('✅ Found ReactExample component');
-
-    // Re-render the page
     const indexPath = manifest['ReactExampleIndex'];
     if (!indexPath) {
-      console.warn('⚠️ ReactExampleIndex not found in manifest');
-      console.warn('Available manifest keys:', Object.keys(manifest));
       return null;
     }
 
-    console.log('✅ Found manifest index:', indexPath);
-
     const { handleReactPageRequest } = await import('../core/pageHandlers');
-    console.log('🔄 Re-rendering React page...');
     
     const response = await handleReactPageRequest(
       ReactModule.ReactExample,
@@ -64,24 +50,14 @@ export const handleReactUpdate = async (
     );
 
     const html = await response.text();
-    console.log('✅ Got HTML response, length:', html.length);
     
-    // Extract just the body content for patching (not the full HTML document)
-    // This makes DOM patching simpler
     const bodyMatch = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
     if (bodyMatch && bodyMatch[1]) {
-      const bodyContent = bodyMatch[1].trim();
-      console.log('✅ Extracted body content, length:', bodyContent.length);
-      return bodyContent;
+      return bodyMatch[1].trim();
     }
     
-    // Fallback: return full HTML if body extraction fails
-    console.warn('⚠️ Server: Body extraction failed, returning full HTML');
-
     return html;
-  } catch (error) {
-    console.error('❌ Failed to handle React update:', error);
-
+  } catch {
     return null;
   }
 }

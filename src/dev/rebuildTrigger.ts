@@ -34,7 +34,6 @@ export function queueFileChange(
     return;
   }
   
-  console.log(`File changed: ${filePath}`);
   
   // Get or create queue for this framework
   if (!state.fileChangeQueue.has(framework)) {
@@ -87,8 +86,7 @@ export function queueFileChange(
                   processedFiles.add(affectedFile);
                 }
               }
-            } catch (error) {
-              console.warn(`⚠️ Error getting affected files for deleted file ${filePath}:`, error);
+            } catch {
             }
             continue;
           }
@@ -130,8 +128,7 @@ export function queueFileChange(
                   incrementSourceFileVersions(state, dependentFiles);
                 }
               }
-            } catch (error) {
-              console.warn(`⚠️ Error finding dependents for ${filePath}:`, error);
+            } catch {
             }
             
             // Get all files that depend on this changed file
@@ -145,9 +142,7 @@ export function queueFileChange(
                   processedFiles.add(affectedFile);
                 }
               }
-            } catch (error) {
-              console.warn(`⚠️ Error processing dependencies for ${filePath}:`, error);
-              // Still add the file itself even if dependency resolution fails
+            } catch {
               if (!processedFiles.has(normalizedFilePath)) {
                 validFiles.push(normalizedFilePath);
                 processedFiles.add(normalizedFilePath);
@@ -207,10 +202,8 @@ export async function triggerRebuild(
   state.isRebuilding = true;
   const affectedFrameworks = Array.from(state.rebuildQueue);
   state.rebuildQueue.clear();
-
-  if (affectedFrameworks.length > 0) {
-    console.log(`Rebuilding ${affectedFrameworks.join(', ')}...`);
-  }
+  
+  const startTime = Date.now();
 
   // Notify clients that rebuild is starting
   broadcastToClients(state, {
@@ -232,7 +225,8 @@ export async function triggerRebuild(
       throw new Error('Build failed - no manifest generated');
     }
 
-    console.log('Rebuild completed');
+    const duration = Date.now() - startTime;
+    console.log(`✅ Rebuilt in ${duration}ms`);
 
     // Notify clients of successful rebuild
     broadcastToClients(state, {
@@ -264,15 +258,9 @@ export async function triggerRebuild(
         }
       }
       
-      console.log('🔍 DEBUG: affectedFrameworks:', affectedFrameworks);
-      console.log('🔍 DEBUG: filesToRebuild count:', filesToRebuild?.length || 0);
-      console.log('🔍 DEBUG: config.reactDirectory:', config.reactDirectory);
-      
       // Simple React HMR: Re-render and send HTML patch
       if (affectedFrameworks.includes('react') && filesToRebuild && state.resolvedPaths.reactDir) {
-        console.log('✅ Entering React HMR block');
         const reactFiles = filesToRebuild.filter(file => detectFramework(file, state.resolvedPaths) === 'react');
-        console.log('🔍 reactFiles count:', reactFiles.length);
         
         if (reactFiles.length > 0) {
           // Prefer changed page files; fall back to any React file
@@ -282,15 +270,8 @@ export async function triggerRebuild(
           });
           const sourceFiles = reactPageFiles.length > 0 ? reactPageFiles : reactFiles;
           const primarySource = sourceFiles[0];
-          console.log('🔍 react primary source:', primarySource);
           
-          // Simple approach: Re-import with cache busting, re-render, send HTML
           try {
-            console.log('🔄 Broadcasting react-update for source(s):', sourceFiles);
-            // Skip server-side rendering for React HMR - let client handle it directly
-            // This avoids bundling issues with freshModuleLoader
-            // Client will import the component and re-render using existing React root
-            console.log('✅ Broadcasting react-update (client will handle re-render)');
             
             // Check if only CSS files changed (no component files)
             const hasComponentChanges = reactFiles.some(file => file.endsWith('.tsx') || file.endsWith('.ts') || file.endsWith('.jsx'));
@@ -309,9 +290,7 @@ export async function triggerRebuild(
               },
               type: 'react-update'
             });
-          } catch (error) {
-            console.error('❌ Failed to handle React update:', error);
-            console.error('❌ Error stack:', error instanceof Error ? error.stack : String(error));
+          } catch {
           }
         }
       }
@@ -350,12 +329,8 @@ export async function triggerRebuild(
                   framework: 'html', html: newHTML, sourceFile: builtHtmlPagePath
                 }, type: 'html-update'
               });
-            } else {
-                console.warn('⚠️ handleHTMLUpdate returned null/undefined for', builtHtmlPagePath);
             }
-          } catch (error) {
-            console.error('❌ Failed to handle HTML update:', error);
-            console.error('❌ Error stack:', error instanceof Error ? error.stack : String(error));
+          } catch {
             }
           }
         }
@@ -392,15 +367,9 @@ export async function triggerRebuild(
                     sourceFile: vuePagePath
                 }, type: 'vue-update'
               });
-            } else {
-              console.warn('⚠️ handleVueUpdate returned null/undefined - no HTML to send');
             }
-          } catch (error) {
-            console.error('❌ Failed to handle Vue update:', error);
-            console.error('❌ Error stack:', error instanceof Error ? error.stack : String(error));
+          } catch {
             }
-          } else {
-            console.warn('⚠️ Skipping Vue HMR - no page path resolved');
           }
         }
       }
@@ -436,15 +405,9 @@ export async function triggerRebuild(
                     sourceFile: sveltePagePath
                 }, type: 'svelte-update'
               });
-            } else {
-              console.warn('⚠️ handleSvelteUpdate returned null/undefined - no HTML to send');
             }
-          } catch (error) {
-            console.error('❌ Failed to handle Svelte update:', error);
-            console.error('❌ Error stack:', error instanceof Error ? error.stack : String(error));
+          } catch {
             }
-          } else {
-            console.warn('⚠️ Skipping Svelte HMR - no page path resolved');
           }
         }
       }
@@ -473,20 +436,13 @@ export async function triggerRebuild(
             const newHTML = await handleHTMXUpdate(builtHtmxPagePath);
             
             if (newHTML) {
-              const htmlPreview = typeof newHTML === 'string' ? newHTML.substring(0, 100) : (newHTML.body || '').substring(0, 100);
-              console.log('📤 Broadcasting HTMX HTML snippet (first 100 chars):', htmlPreview);
-              // Send HTMX update to clients (includes updated CSS links from updateAssetPaths)
               broadcastToClients(state, {
                 data: {
                   framework: 'htmx', html: newHTML, sourceFile: builtHtmxPagePath
                 }, type: 'htmx-update'
               });
-            } else {
-              console.warn('⚠️ handleHTMXUpdate returned null/undefined - no HTML to send');
             }
-          } catch (error) {
-            console.error('❌ Failed to handle HTMX update:', error);
-            console.error('❌ Error stack:', error instanceof Error ? error.stack : String(error));
+          } catch {
           }
         }
       }
@@ -561,9 +517,6 @@ serverVersions: serverVersions
     return manifest;
 
   } catch (error) {
-    console.error('❌ Rebuild failed:', error);
-    
-    // Broadcast error to clients
     broadcastToClients(state, {
       data: { 
         affectedFrameworks, error: error instanceof Error ? error.message : String(error)

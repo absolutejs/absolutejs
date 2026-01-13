@@ -2,13 +2,14 @@ import { copyFileSync, cpSync, mkdirSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { basename, join, resolve, dirname, relative } from 'node:path';
 import { cwd, env, exit } from 'node:process';
-import { $, build as bunBuild, BuildArtifact, Glob } from 'bun';
+import { $, build as bunBuild, BuildArtifact, Glob, type BunPlugin } from 'bun';
 import { compileAngular } from '../build/compileAngular';
 import { compileSvelte } from '../build/compileSvelte';
 import { compileVue } from '../build/compileVue';
 import { generateManifest } from '../build/generateManifest';
 import { generateReactIndexFiles } from '../build/generateReactIndexes';
 import { outputLogs } from '../build/outputLogs';
+import { createReactRefreshPlugin } from '../build/reactRefreshPlugin';
 import { scanEntryPoints } from '../build/scanEntryPoints';
 import { updateAssetPaths } from '../build/updateAssetPaths';
 import { BuildConfig } from '../types';
@@ -17,7 +18,7 @@ import { commonAncestor } from '../utils/commonAncestor';
 import { getDurationString } from '../utils/getDurationString';
 import { validateSafePath } from '../utils/validateSafePath';
 
-const isDev = env.NODE_ENV === 'development';
+const isDev = env.NODE_ENV !== 'production';
 
 const vueFeatureFlags: Record<string, string> = {
 	__VUE_OPTIONS_API__: 'true',
@@ -299,17 +300,21 @@ export const build = async ({
 		const clientRoot = isSingle
 			? (roots[0] ?? projectRoot)
 			: commonAncestor(roots, projectRoot);
+		// Add React Refresh plugin in dev mode for HMR state preservation
+		const plugins: BunPlugin[] = isDev ? [createReactRefreshPlugin()] : [];
+		
 		const { logs, outputs } = await bunBuild({
 			define: vueDirectory ? vueFeatureFlags : undefined,
 			entrypoints: clientEntryPoints,
 			format: 'esm',
-			minify: true,
+			minify: !isDev, // Don't minify in dev for better debugging
 			naming: `[dir]/[name].[hash].[ext]`,
 			outdir: buildPath,
+			plugins,
 			root: clientRoot,
 			target: 'browser',
-			splitting: true, // Enable code splitting for React HMR (allows components to be imported separately)
-			external: ['react', 'react-dom', 'react-dom/client', 'react/jsx-runtime', 'react/jsx-dev-runtime'] // Prevent React from being bundled in page components (use window globals)
+			splitting: !isDev, // Disable splitting in dev to avoid duplicate export bug
+			external: isDev ? ['react', 'react-dom', 'react-dom/client', 'react/jsx-runtime', 'react/jsx-dev-runtime'] : undefined
 		}).catch((err) => {
 			console.error('Client build failed:', err);
 			exit(1);

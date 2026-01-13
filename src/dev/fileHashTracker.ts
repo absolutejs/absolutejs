@@ -10,10 +10,7 @@ export const computeFileHash = (filePath: string) => {
     hash.update(fileContent);
 
     return hash.digest('hex');
-  } catch (error) {
-    console.error(`⚠️ Failed to compute hash for ${filePath}:`, error);
-
-    // Return timestamp-based hash for failed reads so we still process the change
+  } catch {
     return Date.now().toString();
   }
 }

@@ -99,17 +99,7 @@ export async function loadFreshModule(filePath: string, visited: Set<string> = n
   visited.add(resolvedPath);
   
   try {
-    // Read source file - this ensures we always get the latest content
     const sourceCode = readFileSync(resolvedPath, 'utf-8');
-    
-    // Log for debugging hydration issues
-    if (resolvedPath.includes('App.tsx')) {
-      if (sourceCode.includes('AbsoluteJS + ReactJS')) {
-        console.log(`✅ FreshModuleLoader: App.tsx contains "ReactJS"`);
-      } else if (sourceCode.includes('AbsoluteJS + React')) {
-        console.log(`✅ FreshModuleLoader: App.tsx contains "React"`);
-      }
-    }
     
     // Transpile TypeScript/TSX to JavaScript using Transpiler
     // Select the appropriate transpiler based on file extension
@@ -183,14 +173,10 @@ export async function loadFreshModule(filePath: string, visited: Set<string> = n
     const module = await import(tempFilePath);
     
     return module;
-  } catch (error) {
-    console.error(`❌ Failed to load fresh module ${resolvedPath}:`, error);
-    // Fallback to regular import
+  } catch {
     try {
       return await import(resolvedPath);
-    } catch (fallbackError) {
-      console.error(`❌ Fallback import also failed:`, fallbackError);
-
+    } catch {
       return {};
     }
   }

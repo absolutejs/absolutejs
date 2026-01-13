@@ -58,9 +58,7 @@ export async function dev(config: BuildConfig): Promise<{
 /* HMR plugin for Elysia
    Adds WebSocket endpoint and status endpoint for HMR */
 export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
-  console.log('🔥 HMR plugin: Initializing with', hmrState.connectedClients.size, 'connected clients');
   return (app: Elysia) => {
-    console.log('🔥 HMR plugin: Applying to Elysia app');
     return app
     // WebSocket route for HMR updates
     .ws('/hmr', {
@@ -78,22 +76,16 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
     }))
     // Intercept and inject HMR client into HTML responses
     .onAfterHandle(async (context) => {
-      const { response, path } = context;
-      console.log('🔍 HMR onAfterHandle triggered for path:', path);
+      const { response } = context;
       
       // Only process Response objects with HTML content
       if (response instanceof Response) {
         const contentType = response.headers.get('content-type');
-        console.log('🔍 HMR onAfterHandle: content-type =', contentType, 'path =', path);
         if (contentType?.includes('text/html')) {
           try {
-            console.log('✅ Injecting HMR client into HTML response for path:', path);
-            // Read the entire response body (including streams)
             const html = await response.text();
             const htmlWithHMR = injectHMRClient(html);
-            console.log('✅ HMR client injected, WebSocket script present:', htmlWithHMR.includes('WebSocket') ? 'YES' : 'NO');
             
-            // Return new Response with injected HMR client
             return new Response(htmlWithHMR, {
               status: response.status,
               statusText: response.statusText,
@@ -102,15 +94,10 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                 'content-type': contentType
               }
             });
-          } catch (error) {
-            console.error('❌ Error injecting HMR client:', error);
+          } catch {
             return response;
           }
-        } else {
-          console.log('⏭️  Skipping HMR injection - not HTML content type:', contentType);
         }
-      } else {
-        console.log('⏭️  Skipping HMR injection - not a Response object:', typeof response);
       }
       
       return response;
@@ -123,10 +110,12 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
     function injectHMRClient(html: string): string {
   // Static import map placed in <head> so dynamic imports can resolve immediately
   // We map React to a single CDN ESM copy and set globals so all bundles share the same instance
+  // IMPORTANT: react-refresh/runtime is loaded BEFORE React to hook into the reconciler
   const importMap = `
     <script type="importmap" data-react-import-map>
       {
         "imports": {
+          "react-refresh/runtime": "https://esm.sh/react-refresh@0.18/runtime?dev",
           "react": "https://esm.sh/react@19?dev",
           "react-dom/client": "https://esm.sh/react-dom@19/client?dev",
           "react/jsx-runtime": "https://esm.sh/react@19/jsx-runtime?dev",
@@ -134,15 +123,31 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
         }
       }
     </script>
+    <script type="module" data-react-refresh-setup>
+      // React Refresh runtime MUST be loaded and initialized BEFORE React
+      // This hooks into React's internals to track component signatures
+      import RefreshRuntime from 'react-refresh/runtime';
+      
+      // Inject into global hook before React loads
+      RefreshRuntime.injectIntoGlobalHook(window);
+      
+      // Expose for HMR client to use
+      window.$RefreshRuntime$ = RefreshRuntime;
+      window.$RefreshReg$ = function(type, id) {
+        RefreshRuntime.register(type, id);
+      };
+      window.$RefreshSig$ = function() {
+        return RefreshRuntime.createSignatureFunctionForTransform();
+      };
+    </script>
     <script type="module" data-react-globals>
       // Ensure a single React instance is shared and exposed globally for HMR
+      // This runs AFTER react-refresh has hooked into window
       import React from 'react';
       import * as ReactDOMClient from 'react-dom/client';
       if (!window.React) window.React = React;
       if (!window.ReactDOM) window.ReactDOM = ReactDOMClient;
-      // For convenience, also expose default for ReactDOM
       if (!window.ReactDOM.default) window.ReactDOM.default = ReactDOMClient;
-      console.log('✅ React globals set from import map');
     </script>
   `;
   
@@ -370,6 +375,127 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
             }
           });
         }
+
+        // Generic DOM state snapshot/restore to preserve user-visible state across HMR
+        function saveDOMState(root) {
+          const snapshot = { items: [], activeKey: null };
+          const selector = 'input, textarea, select, option, [contenteditable="true"], details';
+          const elements = root.querySelectorAll(selector);
+          elements.forEach(function(el, idx) {
+            const entry = { tag: el.tagName.toLowerCase(), idx };
+            const id = el.getAttribute('id');
+            const name = el.getAttribute('name');
+            if (id) entry.id = id;
+            else if (name) entry.name = name;
+
+            if (el.tagName === 'INPUT') {
+              const type = el.getAttribute('type') || 'text';
+              entry.type = type;
+              if (type === 'checkbox' || type === 'radio') {
+                entry.checked = el.checked;
+              } else {
+                entry.value = el.value;
+              }
+              if (el.selectionStart !== null && el.selectionEnd !== null) {
+                entry.selStart = el.selectionStart;
+                entry.selEnd = el.selectionEnd;
+              }
+            } else if (el.tagName === 'TEXTAREA') {
+              entry.value = el.value;
+              if (el.selectionStart !== null && el.selectionEnd !== null) {
+                entry.selStart = el.selectionStart;
+                entry.selEnd = el.selectionEnd;
+              }
+            } else if (el.tagName === 'SELECT') {
+              const vals = [];
+              Array.from(el.options).forEach(function(opt) {
+                if (opt.selected) vals.push(opt.value);
+              });
+              entry.values = vals;
+            } else if (el.tagName === 'OPTION') {
+              entry.selected = el.selected;
+            } else if (el.tagName === 'DETAILS') {
+              entry.open = el.open;
+            } else if (el.getAttribute('contenteditable') === 'true') {
+              entry.text = el.textContent;
+            }
+            snapshot.items.push(entry);
+          });
+
+          const active = document.activeElement;
+          if (active && root.contains(active)) {
+            const id = active.getAttribute('id');
+            const name = active.getAttribute('name');
+            if (id) snapshot.activeKey = 'id:' + id;
+            else if (name) snapshot.activeKey = 'name:' + name;
+            else snapshot.activeKey = 'idx:' + Array.prototype.indexOf.call(elements, active);
+          }
+          return snapshot;
+        }
+
+        function restoreDOMState(root, snapshot) {
+          if (!snapshot || !snapshot.items) return;
+          const selector = 'input, textarea, select, option, [contenteditable="true"], details';
+          const elements = root.querySelectorAll(selector);
+
+          snapshot.items.forEach(function(entry) {
+            let target = null;
+            if (entry.id) {
+              target = root.querySelector('#' + CSS.escape(entry.id));
+            }
+            if (!target && entry.name) {
+              target = root.querySelector('[name="' + CSS.escape(entry.name) + '"]');
+            }
+            if (!target && elements[entry.idx]) {
+              target = elements[entry.idx];
+            }
+            if (!target) return;
+
+            if (target.tagName === 'INPUT') {
+              const type = entry.type || target.getAttribute('type') || 'text';
+              if (type === 'checkbox' || type === 'radio') {
+                if (entry.checked !== undefined) target.checked = entry.checked;
+              } else if (entry.value !== undefined) {
+                target.value = entry.value;
+              }
+              if (entry.selStart !== undefined && entry.selEnd !== undefined && target.setSelectionRange) {
+                try { target.setSelectionRange(entry.selStart, entry.selEnd); } catch {}
+              }
+            } else if (target.tagName === 'TEXTAREA') {
+              if (entry.value !== undefined) target.value = entry.value;
+              if (entry.selStart !== undefined && entry.selEnd !== undefined && target.setSelectionRange) {
+                try { target.setSelectionRange(entry.selStart, entry.selEnd); } catch {}
+              }
+            } else if (target.tagName === 'SELECT') {
+              if (Array.isArray(entry.values)) {
+                Array.from(target.options).forEach(function(opt) {
+                  opt.selected = entry.values.indexOf(opt.value) !== -1;
+                });
+              }
+            } else if (target.tagName === 'OPTION') {
+              if (entry.selected !== undefined) target.selected = entry.selected;
+            } else if (target.tagName === 'DETAILS') {
+              if (entry.open !== undefined) target.open = entry.open;
+            } else if (target.getAttribute('contenteditable') === 'true') {
+              if (entry.text !== undefined) target.textContent = entry.text;
+            }
+          });
+
+          if (snapshot.activeKey) {
+            let focusEl = null;
+            if (snapshot.activeKey.startsWith('id:')) {
+              focusEl = root.querySelector('#' + CSS.escape(snapshot.activeKey.slice(3)));
+            } else if (snapshot.activeKey.startsWith('name:')) {
+              focusEl = root.querySelector('[name="' + CSS.escape(snapshot.activeKey.slice(5)) + '"]');
+            } else if (snapshot.activeKey.startsWith('idx:')) {
+              const idx = parseInt(snapshot.activeKey.slice(4), 10);
+              if (!isNaN(idx) && elements[idx]) focusEl = elements[idx];
+            }
+            if (focusEl && focusEl.focus) {
+              focusEl.focus();
+            }
+          }
+        }
         // Declare HMR globals for TypeScript and framework HMR clients
         if (typeof window !== 'undefined') {
           if (!window.__HMR_MANIFEST__) {
@@ -432,9 +558,7 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
             
             // Pre-fetch the module
             prefetchPromises.push(
-              import(/* @vite-ignore */ fullPath).catch(function(err) {
-                console.warn('Failed to prefetch module:', modulePath, err);
-              })
+              import(/* @vite-ignore */ fullPath).catch(function() {})
             );
           }
           
@@ -547,7 +671,6 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
             }
             
             if (newHref && newHref !== href) {
-              console.log('🔄 Reloading CSS:', href, '→', newHref);
               link.href = newHref + '?t=' + Date.now();
             } else {
               // Fallback: cache busting if we can't find in manifest
@@ -567,7 +690,6 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
         const wsPort = location.port || (location.protocol === 'https:' ? '443' : '80');
         // Prevent multiple WebSocket connections
         if (window.__HMR_WS__ && window.__HMR_WS__.readyState === WebSocket.OPEN) {
-          console.log('⚠️ WebSocket already connected, skipping new connection');
           return;
         }
         
@@ -606,8 +728,6 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
         
         ws.onopen = function() {
           isConnected = true;
-          console.log('🔥 HMR connected');
-          // Set HMR active flag when WebSocket connects - this prevents bundle hash check from reloading
           sessionStorage.setItem('__HMR_CONNECTED__', 'true');
           
           // Send ready message with current framework
@@ -632,7 +752,6 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
         ws.onmessage = function(event) {
           try {
             const message = JSON.parse(event.data);
-            console.log('📨 HMR message received:', message.type);
             
             // Track HMR update state to prevent WebSocket from closing during updates
             if (
@@ -667,12 +786,9 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                 break;
                 
               case 'rebuild-start':
-                console.log('🔨 Rebuilding...');
                 break;
                 
               case 'rebuild-complete': {
-                console.log('✅ Rebuild complete');
-                console.log('🔍 Affected frameworks:', message.data.affectedFrameworks);
                 if (window.__HMR_MANIFEST__) {
                   window.__HMR_MANIFEST__ = message.data.manifest;
                 }
@@ -692,13 +808,9 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                     !message.data.affectedFrameworks.includes('htmx') &&
                     !message.data.affectedFrameworks.includes('vue') &&
                     !message.data.affectedFrameworks.includes('svelte')) {
-                  console.log('🔄 No framework-specific handler, doing full reload');
-                  // Force a hard reload to bypass browser cache
                   const url = new URL(window.location.href);
                   url.searchParams.set('_cb', Date.now().toString());
                   window.location.href = url.toString();
-                } else {
-                  console.log('✅ Framework-specific handler will process update, skipping reload');
                 }
                 break;
               }
@@ -756,21 +868,14 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
               
                 case 'react-update': {
                   const currentFramework = detectCurrentFramework();
-                  console.log('🔍 Client: Received react-update, detected framework:', currentFramework);
-                  console.log('🔍 Client: window.__REACT_ROOT__ exists?', !!window.__REACT_ROOT__);
-                  console.log('🔍 Client: Current path:', window.location.pathname);
                   
                   if (currentFramework !== 'react') {
-                    console.log('❌ Client: Not a React page, ignoring react-update.');
                     break;
                   }
                   
-                  console.log('⚛️ Updating React component...');
                   sessionStorage.setItem('__HMR_ACTIVE__', 'true');
                   
-                  // Check if React root exists
                   if (!window.__REACT_ROOT__) {
-                    console.error('❌ React root not found, cannot perform HMR update');
                     sessionStorage.removeItem('__HMR_ACTIVE__');
                     window.location.reload();
                     break;
@@ -778,49 +883,12 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                   
                   const container = document.body;
                   if (!container) {
-                    console.error('❌ document.body not found');
                     sessionStorage.removeItem('__HMR_ACTIVE__');
                     break;
                   }
                   
-                  // PRESERVE STATE: Extract component state from DOM
-                  let preservedProps = {};
-                  const button = container.querySelector('button');
-                  if (button && button.textContent) {
-                    const countMatch = button.textContent.match(/count is (\\d+)/);
-                    if (countMatch) {
-                      preservedProps = { initialCount: parseInt(countMatch[1], 10) };
-                      console.log('💾 Preserved React counter state:', preservedProps.initialCount);
-                    }
-                  }
-                  
-                  // Extract form state if form exists
-                  const form = container.querySelector('form');
-                  if (form) {
-                    const formData = new FormData(form);
-                    const formState = {};
-                    for (const [key, value] of formData.entries()) {
-                      formState[key] = value;
-                    }
-                    // Also check checkboxes
-                    const checkboxes = form.querySelectorAll('input[type="checkbox"]');
-                    checkboxes.forEach(function(checkbox) {
-                      const input = checkbox;
-                      if (input.name) {
-                        formState[input.name] = input.checked;
-                      }
-                    });
-                    preservedProps.formState = formState;
-                  }
-                  
-                  // Save preserved state to sessionStorage (survives page reload)
-                  if (Object.keys(preservedProps).length > 0) {
-                    sessionStorage.setItem('__REACT_HMR_STATE__', JSON.stringify(preservedProps));
-                    console.log('💾 Saved React state to sessionStorage:', preservedProps);
-                  }
-                  
-                  // Also set in memory for non-reload HMR path
-                  window.__HMR_PRESERVED_STATE__ = preservedProps;
+                  // Snapshot full DOM state (inputs, selects, contenteditable, details, focus) before rerender
+                  const reactDomState = saveDOMState(container);
                 
                 // Check if this is a CSS-only update (no component files changed)
                 const hasComponentChanges = message.data.hasComponentChanges !== false; // Default to true if not specified
@@ -829,7 +897,6 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                 
                 // If CSS-only update, just reload CSS and don't re-render component
                 if (!hasComponentChanges && hasCSSChanges && cssPath) {
-                  console.log('🎨 CSS-only update detected, reloading CSS only');
                   const existingCSSLinks = document.head.querySelectorAll('link[rel="stylesheet"]');
                   existingCSSLinks.forEach(function(link) {
                     const href = link.getAttribute('href');
@@ -838,7 +905,6 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                       const cssPathBase = cssPath.split('?')[0].split('/').pop() || '';
                       if (hrefBase === cssPathBase || href.includes('react-example') || cssPathBase.includes(hrefBase)) {
                         const newHref = cssPath + (cssPath.includes('?') ? '&' : '?') + 't=' + Date.now();
-                        console.log('🔄 Reloading React CSS:', href, '→', newHref);
                         link.href = newHref;
                       }
                     }
@@ -847,13 +913,9 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                   break;
                 }
                 
-                // Get the index path from manifest - we'll import the index file
-                // The index file imports ReactExample, so we can extract it after import
                 const indexPath = message.data.manifest && message.data.manifest.ReactExampleIndex;
-                console.log('🔍 Client: React HMR update, indexPath:', indexPath);
                 
                 if (!indexPath) {
-                  console.error('❌ No ReactExampleIndex in manifest, reloading page');
                   sessionStorage.removeItem('__HMR_ACTIVE__');
                   window.location.reload();
                   break;
@@ -878,9 +940,8 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                   }
                 }
                 
-                // Fallback: try to construct path (this will likely fail, but worth trying)
+                // Fallback: try to construct path
                 if (!componentPath) {
-                  console.warn('⚠️ Page component not found in manifest, trying fallback path construction');
                   const indexPathParts = indexPath.split('/');
                   const filename = indexPathParts[indexPathParts.length - 1];
                   const componentDirIndex = indexPathParts.length - 2;
@@ -891,13 +952,7 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                   componentPath = indexPathParts.join('/');
                 }
                 
-                console.log('🔍 Client: Trying to import component from:', componentPath);
-                console.log('🔍 Client: Available manifest keys:', Object.keys(manifest).join(', '));
-                
-                // Use React/ReactDOM from window globals (already loaded by index file)
-                // Then import the page component which will also use the same React instance
                 if (!window.React || !window.ReactDOM) {
-                  console.error('❌ React not found on window. Index file may not have loaded correctly.');
                   sessionStorage.removeItem('__HMR_ACTIVE__');
                   break;
                 }
@@ -906,87 +961,41 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                 const ReactDOM = window.ReactDOM;
                 
                 // Import the page component (it will use the same React instance via externals)
-                // Use hashed path directly (no extra cache-bust) to avoid transient blanking
-                import(/* @vite-ignore */ componentPath)
+                // Use cache-busted path to ensure fresh module is loaded
+                const cacheBustedPath = componentPath + '?t=' + Date.now();
+                import(/* @vite-ignore */ cacheBustedPath)
                   .then(function(ComponentModule) {
-                    console.log('✅ Component import successful, starting render...');
-                    
-                    // Get ReactExample component from the module
-                    const Component = ComponentModule.default || ComponentModule.ReactExample;
-                    
-                    if (!Component) {
-                      throw new Error('ReactExample component not found. Available exports: ' + Object.keys(ComponentModule).join(', '));
-                    }
-                    
-                    // Merge initial props with preserved state
-                    const initialProps = window.__INITIAL_PROPS__ || {};
-                    const preservedState = window.__HMR_PRESERVED_STATE__ || {};
-                    const mergedProps = {};
-                    for (const key in initialProps) {
-                      if (initialProps.hasOwnProperty(key)) {
-                        mergedProps[key] = initialProps[key];
-                      }
-                    }
-                    for (const key in preservedState) {
-                      if (preservedState.hasOwnProperty(key)) {
-                        mergedProps[key] = preservedState[key];
-                      }
+                    const RefreshRuntime = window.$RefreshRuntime$;
+                    if (!RefreshRuntime) {
+                      sessionStorage.removeItem('__HMR_ACTIVE__');
+                      window.location.reload();
+                      return;
                     }
                     
                     // Check if CSS changed (manifest has ReactExampleCSS key)
                     const cssPathUpdate = message.data.manifest && message.data.manifest.ReactExampleCSS;
-                if (hasCSSChanges && cssPathUpdate) {
+                    if (hasCSSChanges && cssPathUpdate) {
                       // Reload CSS stylesheet if it changed
                       const existingCSSLinks = document.head.querySelectorAll('link[rel="stylesheet"]');
                       existingCSSLinks.forEach(function(link) {
                         const href = link.getAttribute('href');
                         if (href) {
-                          // Match React CSS file by checking if href contains the CSS path or 'react-example'
                           const hrefBase = href.split('?')[0].split('/').pop() || '';
                           const cssPathBase = cssPathUpdate.split('?')[0].split('/').pop() || '';
                           if (hrefBase === cssPathBase || href.includes('react-example') || cssPathBase.includes(hrefBase)) {
-                            // This is the React CSS file - reload it with cache busting
                             const newHref = cssPathUpdate + (cssPathUpdate.includes('?') ? '&' : '?') + 't=' + Date.now();
-                            console.log('🔄 Reloading React CSS:', href, '→', newHref);
                             link.href = newHref;
                           }
                         }
                       });
                     }
                     
-                    console.log('🔄 Re-rendering React component with props:', mergedProps);
-                    console.log('🔍 React root exists?', !!window.__REACT_ROOT__);
-                    console.log('🔍 Component:', Component.name || 'Anonymous');
-                    
-                    if (!window.__REACT_ROOT__) {
-                      console.error('❌ React root not found, cannot render');
-                      throw new Error('React root not found');
-                    }
-                    
-                    // Re-render with the existing root (this will pick up className/id/style changes)
-                    const element = React.createElement(Component, mergedProps);
-                    console.log('🔍 Created React element:', element);
-                    
-                    // Flush synchronously to avoid visual gaps/flicker during updates
-                    if (ReactDOM.flushSync) {
-                      ReactDOM.flushSync(function() {
-                        window.__REACT_ROOT__.render(element);
-                      });
-                    } else {
-                      window.__REACT_ROOT__.render(element);
-                    }
-                    console.log('✅ render() called successfully');
-                    
-                    console.log('✅ React component updated via HMR');
+                    RefreshRuntime.performReactRefresh();
+                    restoreDOMState(container, reactDomState);
                     sessionStorage.removeItem('__HMR_ACTIVE__');
                   })
                   .catch(function(error) {
-                    console.error('❌ Failed to import/render React component:', error);
-                    console.error('❌ Error details:', error.message);
-                    
-                    // If component file doesn't exist, try page reload with state preservation
                     if (error.message.includes('Failed to fetch') || error.message.includes('404')) {
-                      console.warn('⚠️ Component not found as separate bundle, reloading page with state preservation');
                       
                       // Reload CSS if changed
                       const cssPathUpdate = message.data.manifest && message.data.manifest.ReactExampleCSS;
@@ -1015,7 +1024,6 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
               case 'html-update': {
                 const htmlFrameworkCheck = detectCurrentFramework();
                 if (htmlFrameworkCheck !== 'html') {
-                  console.log('❌ Client: Not an HTML page, ignoring html-update.');
                   break;
                 }
                 
@@ -1025,6 +1033,9 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                 }
                 
                 sessionStorage.setItem('__HMR_ACTIVE__', 'true');
+                
+                // Snapshot DOM state before patching
+                const htmlDomState = saveDOMState(document.body);
                 
                 // Handle both string (legacy) and object (new format with head + body) formats
                 let htmlBody = null;
@@ -1081,8 +1092,6 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                         const existingHref = existingHrefAttr ? existingHrefAttr.split('?')[0] : '';
                         const newHrefBase = href.split('?')[0];
                         if (existingHref !== newHrefBase) {
-                          // Different hash - add new link, wait for it to load AND be applied, then remove old
-                          console.log('🔄 CSS hash changed, adding new link before removing old:', existingHref, '→', href);
                           const newLinkElement = document.createElement('link');
                           newLinkElement.rel = 'stylesheet';
                           newLinkElement.href = href + (href.includes('?') ? '&' : '?') + 't=' + Date.now();
@@ -1093,7 +1102,6 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                             const doResolve = function() {
                               if (resolved) return;
                               resolved = true;
-                              console.log('✅ New CSS loaded and applied, removing old link');
                               if (existingLink && existingLink.parentNode) {
                                 existingLink.remove();
                               }
@@ -1111,7 +1119,6 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                               });
                             };
                             newLinkElement.onerror = function() {
-                              console.warn('⚠️ CSS load error, removing old link anyway');
                               setTimeout(function() {
                                 requestAnimationFrame(function() {
                                   doResolve();
@@ -1135,15 +1142,8 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                           
                           document.head.appendChild(newLinkElement);
                           linksToWaitFor.push(loadPromise);
-                        } else {
-                          // Same href (CSS file hasn't changed) - skip CSS reload to prevent flicker
-                          // Just update cache buster on existing link if needed, but don't reload
-                          console.log('✅ CSS file unchanged, skipping reload:', href);
-                          // No action needed - existing link is fine
                         }
                       } else {
-                        // Add new link
-                        console.log('➕ Adding new CSS link:', href);
                         const link = document.createElement('link');
                         link.rel = 'stylesheet';
                         link.href = href + (href.includes('?') ? '&' : '?') + 't=' + Date.now();
@@ -1171,7 +1171,6 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                         });
                         
                         if (!wasHandled) {
-                          console.log('➖ Marking old CSS link for removal:', existingHref);
                           linksToRemove.push(existingLink);
                         }
                       }
@@ -1321,13 +1320,8 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                             }
                           });
                           
-                          console.log('✅ Scripts re-executed to re-attach event listeners after DOM patch');
-                        } else {
-                          console.log('✅ Scripts unchanged, skipping re-execution (CSS-only update)');
                         }
                       });
-                      
-                      console.log('✅ HTML updated via DOM patching');
                       sessionStorage.removeItem('__HMR_ACTIVE__');
                     };
                     
@@ -1341,7 +1335,6 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                               // Remove old CSS links (new ones are already loaded and applied)
                               linksToRemove.forEach(function(link) {
                                 if (link.parentNode) {
-                                  console.log('➖ Removing old CSS link:', link.getAttribute('href'));
                                   link.remove();
                                 }
                               });
@@ -1358,7 +1351,6 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                           requestAnimationFrame(function() {
                             linksToRemove.forEach(function(link) {
                               if (link.parentNode) {
-                                console.log('➖ Removing old CSS link:', link.getAttribute('href'));
                                 link.remove();
                               }
                             });
@@ -1475,18 +1467,16 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                           }
                         });
                         
-                        console.log('✅ Scripts re-executed to re-attach event listeners after DOM patch');
                       });
-                      
-                      console.log('✅ HTML updated via DOM patching');
                       sessionStorage.removeItem('__HMR_ACTIVE__');
+                    
+                    // Restore generic DOM state (inputs, selects, details, focus)
+                    restoreDOMState(container, htmlDomState);
                     } else {
-                      console.error('❌ document.body not found');
                       sessionStorage.removeItem('__HMR_ACTIVE__');
                     }
                   }
                 } else {
-                  console.error('❌ No HTML provided in html-update');
                   sessionStorage.removeItem('__HMR_ACTIVE__');
                 }
                 break;
@@ -1494,15 +1484,10 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                 
               case 'htmx-update': {
                 const htmxFrameworkCheck = detectCurrentFramework();
-                console.log('🔍 Client: Received htmx-update, detected framework:', htmxFrameworkCheck);
-                console.log('🔍 Client: Current path:', window.location.pathname);
                 
                 if (htmxFrameworkCheck !== 'htmx') {
-                  console.log('❌ Client: Not an HTMX page, ignoring htmx-update.');
                   break;
                 }
-                
-                console.log('✅ Client: Processing HTMX update...');
                 
                 // Clear React globals if they exist
                 if (window.__REACT_ROOT__) {
@@ -1510,6 +1495,9 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                 }
                 
                 sessionStorage.setItem('__HMR_ACTIVE__', 'true');
+                
+                // Snapshot DOM state before HTMX patch
+                const htmxDomState = saveDOMState(document.body);
                 
                 // Handle both string (legacy) and object (new format with head + body) formats
                 let htmxBody = null;
@@ -1543,8 +1531,7 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify({ count: savedState.componentState.count })
-                        }).catch(function(error) {
-                          console.warn('⚠️ Failed to sync server-side HTMX state:', error);
+                        }).catch(function() {
                         });
                       }
                       
@@ -1616,11 +1603,6 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                       const newBodyNormalizedHTMX = normalizeHTMLForComparisonHTMX(tempDiv);
                       const htmlStructureChanged = existingBodyNormalizedHTMX !== newBodyNormalizedHTMX;
                       
-                      console.log('🔍 HTMX HTML structure changed?', htmlStructureChanged);
-                      if (htmlStructureChanged) {
-                        console.log('🔍 Existing body length:', existingBodyNormalizedHTMX.length);
-                        console.log('🔍 New body length:', newBodyNormalizedHTMX.length);
-                      }
                       
                       // Patch DOM in place (only updates changed attributes/elements, zero flicker)
                       patchDOMInPlace(container, htmxBody);
@@ -1641,10 +1623,12 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                         newCountSpan.textContent = String(savedState.componentState.count);
                       }
                       
+                      // Restore generic DOM state (inputs, selects, details, focus)
+                      restoreDOMState(container, htmxDomState);
+                      
                       // Re-execute scripts if scripts changed OR HTML structure changed (but not for CSS-only)
                       // When scripts change or HTML structure changes, we need to re-attach listeners
                       if (scriptsChanged || htmlStructureChanged) {
-                        console.log('🔄 HTMX: Scripts or HTML structure changed, re-executing scripts and re-processing HTMX');
                         // First, clone elements with listeners attached to remove old listeners, then remove flag
                         container.querySelectorAll('[data-hmr-listeners-attached]').forEach(function(el) {
                           // Clone the element to remove all event listeners
@@ -1686,20 +1670,14 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                           }
                         });
                         
-                        console.log('✅ Scripts re-executed to re-attach event listeners after DOM patch');
-                      } else {
-                        console.log('✅ HTMX: Scripts and HTML structure unchanged, skipping script re-execution (CSS-only update)');
                       }
                       
                       // Re-initialize HTMX on new content (always do this for HTMX, even for CSS-only updates)
                       // This ensures HTMX picks up any attribute changes (hx-*, classes, IDs, etc.)
                       if (window.htmx) {
-                        console.log('🔄 HTMX: Re-processing container to pick up attribute changes');
                         window.htmx.process(container);
                       }
                     });
-                    
-                    console.log('✅ HTMX updated via DOM patching');
                     sessionStorage.removeItem('__HMR_ACTIVE__');
                   };
                   
@@ -1747,8 +1725,6 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                         const existingHref = existingHrefAttr ? existingHrefAttr.split('?')[0] : '';
                         const newHrefBase = href.split('?')[0];
                         if (existingHref !== newHrefBase) {
-                          // Different hash - add new link, wait for it to load AND be applied, then remove old
-                          console.log('🔄 CSS hash changed, adding new link before removing old:', existingHref, '→', href);
                           const newLinkElement = document.createElement('link');
                           newLinkElement.rel = 'stylesheet';
                           newLinkElement.href = href + (href.includes('?') ? '&' : '?') + 't=' + Date.now();
@@ -1759,7 +1735,6 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                             const doResolve = function() {
                               if (resolved) return;
                               resolved = true;
-                              console.log('✅ New CSS loaded and applied, removing old link');
                               if (existingLink && existingLink.parentNode) {
                                 existingLink.remove();
                               }
@@ -1777,7 +1752,6 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                               });
                             };
                             newLinkElement.onerror = function() {
-                              console.warn('⚠️ CSS load error, removing old link anyway');
                               setTimeout(function() {
                                 requestAnimationFrame(function() {
                                   doResolve();
@@ -1802,13 +1776,8 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                           document.head.appendChild(newLinkElement);
                           linksToWaitForHTMX.push(loadPromise);
                           } else {
-                            // Same href (CSS file hasn't changed) - skip CSS reload to prevent flicker
-                            console.log('✅ CSS file unchanged, skipping reload:', href);
-                            // No action needed - existing link is fine
                           }
-                      } else {
-                        // Add new link
-                        console.log('➕ Adding new CSS link:', href);
+                        } else {
                         const link = document.createElement('link');
                         link.rel = 'stylesheet';
                         link.href = href + (href.includes('?') ? '&' : '?') + 't=' + Date.now();
@@ -1836,7 +1805,6 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                         });
                         
                         if (!wasHandled) {
-                          console.log('➖ Marking old CSS link for removal:', existingHref);
                           linksToRemoveHTMX.push(existingLink);
                         }
                       }
@@ -1853,7 +1821,6 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                               // Remove old CSS links
                               linksToRemoveHTMX.forEach(function(link) {
                                 if (link.parentNode) {
-                                  console.log('➖ Removing old CSS link:', link.getAttribute('href'));
                                   link.remove();
                                 }
                               });
@@ -1870,7 +1837,6 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                           requestAnimationFrame(function() {
                             linksToRemoveHTMX.forEach(function(link) {
                               if (link.parentNode) {
-                                console.log('➖ Removing old CSS link:', link.getAttribute('href'));
                                 link.remove();
                               }
                             });
@@ -1884,7 +1850,6 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                     updateHTMXBodyAfterCSS();
                   }
                 } else {
-                  console.error('❌ No HTML provided in htmx-update');
                   sessionStorage.removeItem('__HMR_ACTIVE__');
                 }
                 break;
@@ -1892,14 +1857,10 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                 
               case 'svelte-update': {
                 const svelteFrameworkCheck = detectCurrentFramework();
-                console.log('🔍 Client: Received svelte-update, detected framework:', svelteFrameworkCheck);
                 
                 if (svelteFrameworkCheck !== 'svelte') {
-                  console.log('❌ Client: Not a Svelte page, ignoring svelte-update.');
                   break;
                 }
-                
-                console.log('✅ Client: Processing Svelte component update...');
                 
                 // Clear React globals if they exist
                 if (window.__REACT_ROOT__) {
@@ -1916,7 +1877,6 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                     const countMatch = button.textContent && button.textContent.match(/count is (\\d+)/);
                     if (countMatch) {
                       preservedState.initialCount = parseInt(countMatch[1], 10);
-                      console.log('💾 Preserved Svelte counter state:', preservedState.initialCount);
                     }
                   }
                   
@@ -1928,12 +1888,10 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                   // Get the new component path from manifest
                   const indexPath = message.data.manifest && message.data.manifest.SvelteExampleIndex;
                   if (!indexPath) {
-                    console.error('❌ SvelteExampleIndex not found in manifest');
                     window.location.reload();
                     break;
                   }
                   
-                  console.log('📦 Importing new Svelte index (self-executing):', indexPath);
                   
                   // Import the index file with cache busting
                   // The index file is self-executing and will:
@@ -1943,18 +1901,13 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                   const modulePath = indexPath + '?hmr=' + Date.now();
                   import(/* @vite-ignore */ modulePath)
                     .then(function() {
-                      console.log('✅ Svelte component hot-swapped successfully!');
                       sessionStorage.removeItem('__HMR_ACTIVE__');
                     })
-                    .catch(function(error) {
-                      console.error('❌ Failed to hot-swap Svelte component:', error);
-                      console.log('🔄 Falling back to full reload...');
+                    .catch(function() {
                       sessionStorage.removeItem('__HMR_ACTIVE__');
                       window.location.reload();
                     });
-                } catch (error) {
-                  console.error('❌ Failed to hot-swap Svelte component:', error);
-                  console.log('🔄 Falling back to full reload...');
+                } catch (e) {
                   sessionStorage.removeItem('__HMR_ACTIVE__');
                   window.location.reload();
                 }
@@ -1963,14 +1916,10 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                 
               case 'vue-update': {
                 const vueFrameworkCheck = detectCurrentFramework();
-                console.log('🔍 Client: Received vue-update, detected framework:', vueFrameworkCheck);
                 
                 if (vueFrameworkCheck !== 'vue') {
-                  console.log('❌ Client: Not a Vue page, ignoring vue-update.');
                   break;
                 }
-                
-                console.log('✅ Client: Processing Vue component update...');
                 sessionStorage.setItem('__HMR_ACTIVE__', 'true');
                 
                 try {
@@ -1981,13 +1930,11 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                     const vueCountMatch = vueButton.textContent?.match(/count is (\\d+)/);
                     if (vueCountMatch) {
                       preservedState.initialCount = parseInt(vueCountMatch[1], 10);
-                      console.log('💾 Preserved Vue counter state:', preservedState.initialCount);
                     }
                   }
                   
                   // Unmount the old Vue app
                   if (window.__VUE_APP__) {
-                    console.log('🔄 Unmounting old Vue app...');
                     window.__VUE_APP__.unmount();
                     window.__VUE_APP__ = null;
                   }
@@ -1995,7 +1942,6 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                   // Get the new HTML from the server (sent in the message)
                   const newHTML = message.data.html;
                   if (!newHTML) {
-                    console.error('❌ No HTML in vue-update message');
                     window.location.reload();
                     break;
                   }
@@ -2014,13 +1960,11 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                       /count is 0/g,
                       'count is ' + preservedState.initialCount
                     );
-                    console.log('🎯 Pre-updated HTML with preserved count:', preservedState.initialCount);
                   }
                   
                   // Replace the root content with the new server-rendered HTML
                   const root = document.getElementById('root');
                   if (root) {
-                    console.log('📝 Replacing root HTML for re-hydration...');
                     root.innerHTML = innerContent;
                   }
                   
@@ -2030,12 +1974,10 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                   // Get the new Vue index path
                   const indexPath = message.data.manifest && message.data.manifest.VueExampleIndex;
                   if (!indexPath) {
-                    console.error('❌ VueExampleIndex not found in manifest');
                     window.location.reload();
                     break;
                   }
                   
-                  console.log('📦 Importing new Vue index for re-hydration:', indexPath);
                   
                   // Import the new index with cache busting
                   // The index will detect the HTML in root and use createSSRApp to hydrate
@@ -2043,18 +1985,13 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                   const modulePath = indexPath + '?hmr=' + Date.now();
                   import(/* @vite-ignore */ modulePath)
                     .then(function() {
-                      console.log('✅ Vue component hot-swapped successfully!');
                       sessionStorage.removeItem('__HMR_ACTIVE__');
                     })
-                    .catch(function(error) {
-                      console.error('❌ Failed to hot-swap Vue component:', error);
-                      console.log('🔄 Falling back to full reload...');
+                    .catch(function() {
                       sessionStorage.removeItem('__HMR_ACTIVE__');
                       window.location.reload();
                     });
-                } catch (error) {
-                  console.error('❌ Failed to hot-swap Vue component:', error);
-                  console.log('🔄 Falling back to full reload...');
+                } catch (e) {
                   sessionStorage.removeItem('__HMR_ACTIVE__');
                   window.location.reload();
                 }
@@ -2062,7 +1999,6 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
               }
                 
               case 'rebuild-error':
-                console.error('❌ Rebuild error:', message.data.error);
                 break;
                 
               case 'pong':
@@ -2074,8 +2010,7 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
               default:
                 break;
             }
-          } catch (error) {
-            console.error('Error processing HMR message:', error);
+          } catch {
           }
         };
         
@@ -2088,15 +2023,13 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
           }
           
           if (event.code !== 1000 && event.code !== 1001) {
-            console.log('Connection lost, attempting to reconnect in 3 seconds...');
             reconnectTimeout = setTimeout(function() {
               window.location.reload();
             }, 3000);
           }
         };
         
-        ws.onerror = function(error) {
-          console.error('HMR WebSocket error:', error);
+        ws.onerror = function() {
           isConnected = false;
         };
         
