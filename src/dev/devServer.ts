@@ -1022,8 +1022,11 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
               }
               
               case 'html-update': {
+                console.log('[HMR] Received html-update message');
                 const htmlFrameworkCheck = detectCurrentFramework();
+                console.log('[HMR] Current framework:', htmlFrameworkCheck);
                 if (htmlFrameworkCheck !== 'html') {
+                  console.log('[HMR] Skipping - not on HTML page');
                   break;
                 }
                 
@@ -1046,10 +1049,14 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                   htmlBody = message.data.html.body || message.data.html;
                   htmlHead = message.data.html.head || null;
                 }
+                console.log('[HMR] htmlBody length:', htmlBody ? htmlBody.length : 'null');
+                console.log('[HMR] htmlHead:', htmlHead ? 'present' : 'null');
                 
                 if (htmlBody) {
+                  console.log('[HMR] Processing htmlBody');
                   // Update head CSS links if head content is provided
                   if (htmlHead) {
+                    console.log('[HMR] Has htmlHead, processing CSS');
                     const tempDiv = document.createElement('div');
                     tempDiv.innerHTML = htmlHead;
                     const newStylesheets = tempDiv.querySelectorAll('link[rel="stylesheet"]');
@@ -1096,15 +1103,15 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                           newLinkElement.rel = 'stylesheet';
                           newLinkElement.href = href + (href.includes('?') ? '&' : '?') + 't=' + Date.now();
                           
-                          // Wait for new link to load AND be fully applied before removing old one
+                          // Track old link for removal AFTER body patch (prevents flash)
+                          linksToRemove.push(existingLink);
+                          
+                          // Wait for new link to load AND be fully applied
                           const loadPromise = new Promise(function(resolve) {
                             let resolved = false;
                             const doResolve = function() {
                               if (resolved) return;
                               resolved = true;
-                              if (existingLink && existingLink.parentNode) {
-                                existingLink.remove();
-                              }
                               resolve();
                             };
                             
@@ -1138,6 +1145,13 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                                 });
                               }
                             }, 100);
+                            
+                            // Ultimate fallback: always resolve after 500ms to prevent stuck promises
+                            setTimeout(function() {
+                              if (!resolved) {
+                                doResolve();
+                              }
+                            }, 500);
                           });
                           
                           document.head.appendChild(newLinkElement);
@@ -1178,8 +1192,12 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                     
                     // STEP 3: Wait for CSS to load BEFORE patching body to prevent flicker
                     const updateBodyAfterCSS = function() {
+                      console.log('[HMR] updateBodyAfterCSS called');
                       const container = document.body;
-                      if (!container) return;
+                      if (!container) {
+                        console.log('[HMR] ERROR: document.body not found');
+                        return;
+                      }
                       
                       // PRESERVE STATE: Extract counter from DOM
                       const counterSpan = container.querySelector('#counter');
@@ -1191,8 +1209,14 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                         componentState: { count: counterValue }
                       };
                       
-                      // Store counter state globally for the TypeScript file to read
-                      window.__HTML_COUNTER_STATE__ = counterValue;
+                      // Pre-fill counter value in new HTML to prevent flash of "0"
+                      // This ensures the DOM patch shows the correct value immediately
+                      if (counterValue > 0) {
+                        htmlBody = htmlBody.replace(
+                          new RegExp('<span id="counter">0<' + '/span>', 'g'),
+                          '<span id="counter">' + counterValue + '<' + '/span>'
+                        );
+                      }
                       
                       // Store existing compiled script elements
                       const existingScripts = Array.from(container.querySelectorAll('script[src]')).map(function(script) {
@@ -1294,9 +1318,6 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                             }
                           });
                           
-                          // Clear script initialization flag
-                          window.__HTML_SCRIPT_INITIALIZED__ = false;
-                          
                           // Re-append compiled scripts with cache busting
                           // Use new cache buster timestamp to ensure fresh execution
                           newScripts.forEach(function(scriptInfo) {
@@ -1326,40 +1347,56 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                     };
                     
                     // Wait for CSS to load AND be fully applied before patching body (prevents flicker)
+                    console.log('[HMR] linksToWaitFor count:', linksToWaitFor.length);
                     if (linksToWaitFor.length > 0) {
+                      console.log('[HMR] Waiting for CSS to load...');
                       Promise.all(linksToWaitFor).then(function() {
-                        // Triple RAF ensures CSS is fully processed, painted, and styles applied
-                        requestAnimationFrame(function() {
+                        console.log('[HMR] CSS loaded, waiting for paint...');
+                        // Add delay to ensure CSS is fully painted (fixes Windows Chrome timing)
+                        setTimeout(function() {
+                          // Triple RAF ensures CSS is fully processed, painted, and styles applied
                           requestAnimationFrame(function() {
                             requestAnimationFrame(function() {
-                              // Remove old CSS links (new ones are already loaded and applied)
+                              requestAnimationFrame(function() {
+                                console.log('[HMR] Patching body');
+                                // Patch body FIRST while both old and new CSS are present
+                                updateBodyAfterCSS();
+                                console.log('[HMR] Body patched');
+                                // Remove old CSS links AFTER body is patched (prevents flash)
+                                requestAnimationFrame(function() {
+                                  linksToRemove.forEach(function(link) {
+                                    if (link.parentNode) {
+                                      link.remove();
+                                    }
+                                  });
+                                });
+                              });
+                            });
+                          });
+                        }, 50); // Small delay for CSS to be fully painted
+                      });
+                    } else {
+                      console.log('[HMR] No CSS to wait for, patching body immediately');
+                      // No CSS to wait for, patch body immediately
+                      requestAnimationFrame(function() {
+                        requestAnimationFrame(function() {
+                          requestAnimationFrame(function() {
+                            updateBodyAfterCSS();
+                            console.log('[HMR] Body patched (no CSS wait)');
+                            // Remove old CSS links AFTER body is patched
+                            requestAnimationFrame(function() {
                               linksToRemove.forEach(function(link) {
                                 if (link.parentNode) {
                                   link.remove();
                                 }
                               });
-                              // Now patch body (CSS is fully loaded and applied, no flicker)
-                              updateBodyAfterCSS();
                             });
-                          });
-                        });
-                      });
-                    } else {
-                      // No CSS to wait for, patch body immediately and remove old links
-                      requestAnimationFrame(function() {
-                        requestAnimationFrame(function() {
-                          requestAnimationFrame(function() {
-                            linksToRemove.forEach(function(link) {
-                              if (link.parentNode) {
-                                link.remove();
-                              }
-                            });
-                            updateBodyAfterCSS();
                           });
                         });
                       });
                     }
                   } else {
+                    console.log('[HMR] No htmlHead, patching body directly');
                     // No head content, just update body immediately using DOM patching
                     const container = document.body;
                     if (container) {
@@ -1373,8 +1410,13 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                         componentState: { count: counterValue }
                       };
                       
-                      // Store counter state globally for the TypeScript file to read
-                      window.__HTML_COUNTER_STATE__ = counterValue;
+                      // Pre-fill counter value in new HTML to prevent flash of "0"
+                      if (counterValue > 0) {
+                        htmlBody = htmlBody.replace(
+                          new RegExp('<span id="counter">0<' + '/span>', 'g'),
+                          '<span id="counter">' + counterValue + '<' + '/span>'
+                        );
+                      }
                       
                       // Store existing compiled script elements
                       const existingScripts = Array.from(container.querySelectorAll('script[src]')).map((script) => ({
@@ -1441,9 +1483,6 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                             script.remove();
                           }
                         });
-                        
-                        // Clear script initialization flag
-                        window.__HTML_SCRIPT_INITIALIZED__ = false;
                         
                         // Re-append compiled scripts with cache busting
                         newScripts.forEach((scriptInfo) => {
@@ -1729,15 +1768,15 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                           newLinkElement.rel = 'stylesheet';
                           newLinkElement.href = href + (href.includes('?') ? '&' : '?') + 't=' + Date.now();
                           
-                          // Wait for new link to load AND be fully applied before removing old one
+                          // Track old link for removal AFTER body patch (prevents flash)
+                          linksToRemoveHTMX.push(existingLink);
+                          
+                          // Wait for new link to load AND be fully applied
                           const loadPromise = new Promise(function(resolve) {
                             let resolved = false;
                             const doResolve = function() {
                               if (resolved) return;
                               resolved = true;
-                              if (existingLink && existingLink.parentNode) {
-                                existingLink.remove();
-                              }
                               resolve();
                             };
                             
@@ -1771,11 +1810,17 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                                 });
                               }
                             }, 100);
+                            
+                            // Ultimate fallback: always resolve after 500ms to prevent stuck promises
+                            setTimeout(function() {
+                              if (!resolved) {
+                                doResolve();
+                              }
+                            }, 500);
                           });
                           
                           document.head.appendChild(newLinkElement);
                           linksToWaitForHTMX.push(loadPromise);
-                          } else {
                           }
                         } else {
                         const link = document.createElement('link');
@@ -1814,33 +1859,41 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                     // Use requestAnimationFrame to batch CSS and DOM updates together
                     if (linksToWaitForHTMX.length > 0) {
                       Promise.all(linksToWaitForHTMX).then(function() {
-                        // Triple RAF ensures CSS is fully processed, painted, and styles applied
-                        requestAnimationFrame(function() {
+                        // Add delay to ensure CSS is fully painted (fixes Windows Chrome timing)
+                        setTimeout(function() {
+                          // Triple RAF ensures CSS is fully processed, painted, and styles applied
                           requestAnimationFrame(function() {
                             requestAnimationFrame(function() {
-                              // Remove old CSS links
+                              requestAnimationFrame(function() {
+                                // Patch body FIRST while both old and new CSS are present
+                                updateHTMXBodyAfterCSS();
+                                // Remove old CSS links AFTER body is patched (prevents flash)
+                                requestAnimationFrame(function() {
+                                  linksToRemoveHTMX.forEach(function(link) {
+                                    if (link.parentNode) {
+                                      link.remove();
+                                    }
+                                  });
+                                });
+                              });
+                            });
+                          });
+                        }, 50); // Small delay for CSS to be fully painted
+                      });
+                    } else {
+                      // No CSS to wait for, patch body immediately
+                      requestAnimationFrame(function() {
+                        requestAnimationFrame(function() {
+                          requestAnimationFrame(function() {
+                            updateHTMXBodyAfterCSS();
+                            // Remove old CSS links AFTER body is patched
+                            requestAnimationFrame(function() {
                               linksToRemoveHTMX.forEach(function(link) {
                                 if (link.parentNode) {
                                   link.remove();
                                 }
                               });
-                              // Now patch body (CSS is fully loaded and applied, no flicker)
-                              updateHTMXBodyAfterCSS();
                             });
-                          });
-                        });
-                      });
-                    } else {
-                      // No CSS to wait for, patch body immediately and remove old links
-                      requestAnimationFrame(function() {
-                        requestAnimationFrame(function() {
-                          requestAnimationFrame(function() {
-                            linksToRemoveHTMX.forEach(function(link) {
-                              if (link.parentNode) {
-                                link.remove();
-                              }
-                            });
-                            updateHTMXBodyAfterCSS();
                           });
                         });
                       });

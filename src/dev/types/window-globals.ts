@@ -35,12 +35,6 @@ declare global {
     /* Flag to indicate Svelte HMR update in progress */
     __SVELTE_HMR_UPDATE__?: boolean;
 
-    /* HTML counter state */
-    __HTML_COUNTER_STATE__?: number;
-
-    /* Flag to prevent script re-initialization */
-    __HTML_SCRIPT_INITIALIZED__?: boolean;
-
     /* WebSocket instance for HMR */
     __HMR_WS__?: WebSocket;
 

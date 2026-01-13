@@ -556,8 +556,14 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                       const counterValue = counterSpan ? parseInt(counterSpan.textContent || '0', 10) : 0;
                       savedState.componentState = { count: counterValue };
                       
-                      // Store counter state in a global so scripts can access it
-                      window.__HTML_COUNTER_STATE__ = counterValue;
+                      // Pre-fill counter value in new HTML to prevent flash of "0"
+                      let htmlToApply = message.data.html;
+                      if (counterValue > 0) {
+                        htmlToApply = htmlToApply.replace(
+                          new RegExp('<span id="counter">0<' + '/span>', 'g'),
+                          '<span id="counter">' + counterValue + '<' + '/span>'
+                        );
+                      }
                       
                       // CRITICAL: Store existing compiled script elements before patching
                       // We need to preserve these because the new HTML has TypeScript source paths
@@ -570,8 +576,8 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                       // Extract and store HMR script before patching
                       const hmrScript = container.querySelector('script[data-hmr-client]');
                       
-                      // Patch the DOM with new content
-                      container.innerHTML = message.data.html;
+                      // Patch the DOM with new content (using pre-filled HTML)
+                      container.innerHTML = htmlToApply;
                       
                       // Re-append HMR script if it was present
                       if (hmrScript && !container.querySelector('script[data-hmr-client]')) {
@@ -594,9 +600,6 @@ export async function startBunHMRDevServer(config: BuildConfig) {
                         scriptsInNewHTML.forEach((script) => {
                           script.remove();
                         });
-                        
-                        // Clear the script initialization flag so script can re-run after patching
-                        window.__HTML_SCRIPT_INITIALIZED__ = false;
                         
                         // Re-append the existing compiled scripts with cache busting to trigger re-execution
                         existingScripts.forEach((scriptInfo) => {
