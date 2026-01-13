@@ -21,6 +21,7 @@ export function queueFileChange(
   onRebuildComplete: (manifest: Record<string, string>) => void
 ): void {
   const framework = detectFramework(filePath, state.resolvedPaths);
+  console.log('[HMR Server] File change detected:', { filePath, framework, htmxDir: state.resolvedPaths.htmxDir });
   
   if (framework === 'ignored') {
     return;
@@ -414,8 +415,15 @@ export async function triggerRebuild(
       
       // Simple HTMX HMR: Read HTMX file and send HTML patch
       // Trigger if HTMX files changed OR if CSS files in HTMX directory changed (CSS updates need to push new HTML with updated CSS links)
+      console.log('[HMR Server] Checking HTMX:', {
+        hasHtmx: affectedFrameworks.includes('htmx'),
+        hasFiles: !!filesToRebuild,
+        htmxDir: state.resolvedPaths.htmxDir,
+        affectedFrameworks
+      });
       if (affectedFrameworks.includes('htmx') && filesToRebuild && state.resolvedPaths.htmxDir) {
         const htmxFrameworkFiles = filesToRebuild.filter(file => detectFramework(file, state.resolvedPaths) === 'htmx');
+        console.log('[HMR Server] HTMX files detected:', htmxFrameworkFiles.length, htmxFrameworkFiles);
         
         // Trigger update if any HTMX framework files changed (HTML files OR CSS files in HTMX directory)
         if (htmxFrameworkFiles.length > 0) {

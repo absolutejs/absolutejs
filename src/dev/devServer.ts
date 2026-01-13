@@ -2102,6 +2102,11 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
     </script>
   `;
   
+  // Guard: Don't inject if HMR script is already present (prevents double connection)
+  if (html.includes('data-hmr-client')) {
+    return html;
+  }
+  
   // Inject import map before </head> and HMR script before </body>
   const headRegex = /<\/head\s*>/i;
   const bodyRegex = /<\/body\s*>/i;

@@ -953,6 +953,11 @@ export async function startBunHMRDevServer(config: BuildConfig) {
       </script>
     `;
     
+    // Guard: Don't inject if HMR script is already present (prevents double connection)
+    if (html.includes('data-hmr-client') || html.includes('__HMR_MANIFEST__')) {
+      return html;
+    }
+    
     // Inject before </body> if present; otherwise append
     const closingTagRegex = /<\/body\s*>/i;
     const match = closingTagRegex.exec(html);
