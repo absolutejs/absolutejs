@@ -119,18 +119,66 @@ export const compileSvelte = async (
 			mkdir(dirname(clientPath), { recursive: true })
 		]);
 
+		// Generate HMR ID from relative file path
+		const hmrId = relative(svelteRoot, src).replace(/\\/g, '/').replace(/\.svelte(\.(ts|js))?$/, '');
+
+		// HMR wrapper for client components
+		const wrapWithHMR = (code: string) => {
+			if (!dev) return code;
+			return `${code}
+
+// Svelte HMR - accept updates and re-mount component
+if (typeof import.meta !== "undefined" && import.meta.hot) {
+  import.meta.hot.accept((newModule) => {
+    if (newModule && newModule.default && typeof window !== "undefined") {
+      console.log('[HMR] Svelte component updated:', ${JSON.stringify(hmrId)});
+      // Store props before destroying
+      const currentProps = window.__SVELTE_PROPS__ || window.__INITIAL_PROPS__ || {};
+      // Destroy old component if it exists
+      if (window.__SVELTE_COMPONENT__) {
+        try {
+          // Svelte 5 uses unmount, Svelte 4 uses $destroy
+          if (typeof window.__SVELTE_COMPONENT__.unmount === 'function') {
+            window.__SVELTE_COMPONENT__.unmount();
+          } else if (typeof window.__SVELTE_COMPONENT__.$destroy === 'function') {
+            window.__SVELTE_COMPONENT__.$destroy();
+          }
+        } catch (e) {
+          console.warn('[HMR] Error destroying old component:', e);
+        }
+      }
+      // Mount new component with preserved props
+      try {
+        const { mount } = await import('svelte');
+        window.__SVELTE_COMPONENT__ = mount(newModule.default, {
+          target: document.body,
+          props: currentProps
+        });
+        window.__SVELTE_PROPS__ = currentProps;
+        console.log('[HMR] Svelte component re-mounted with preserved state');
+      } catch (e) {
+        console.warn('[HMR] Error mounting new component:', e);
+        window.location.reload();
+      }
+    }
+  });
+}`;
+		};
+
 		if (isModule) {
 			const bundle = generate('client');
+			const clientBundleWithHMR = wrapWithHMR(bundle);
 			await Promise.all([
 				write(ssrPath, bundle),
-				write(clientPath, bundle)
+				write(clientPath, clientBundleWithHMR)
 			]);
 		} else {
 			const serverBundle = generate('server');
 			const clientBundle = generate('client');
+			const clientBundleWithHMR = wrapWithHMR(clientBundle);
 			await Promise.all([
 				write(ssrPath, serverBundle),
-				write(clientPath, clientBundle)
+				write(clientPath, clientBundleWithHMR)
 			]);
 		}
 
@@ -219,11 +267,13 @@ if (typeof window !== "undefined") {
 	);
 
 	return {
-		svelteClientPaths: roots.map(({ client }) => {
+		// Index paths (entry points for hydration)
+		svelteIndexPaths: roots.map(({ client }) => {
 			const rel = dirname(relative(clientDir, client));
-
 			return join(indexDir, rel, basename(client));
 		}),
+		// Actual client component paths (for official HMR module imports)
+		svelteClientPaths: roots.map(({ client }) => client),
 		svelteServerPaths: roots.map(({ ssr }) => ssr)
 	};
 };

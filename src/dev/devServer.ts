@@ -6,7 +6,6 @@ import { buildInitialDependencyGraph } from './dependencyGraph';
 import { startFileWatching } from './fileWatcher';
 import { getWatchPaths } from './pathUtils';
 import { queueFileChange } from './rebuildTrigger';
-import { generateSimpleReactHMRClientCode } from './simpleReactHMR';
 import { handleClientConnect, handleClientDisconnect, handleHMRMessage } from './webSocket';
 
 /* Development mode function - replaces build() during development
@@ -112,14 +111,15 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
   // We map React to a single CDN ESM copy and set globals so all bundles share the same instance
   // IMPORTANT: react-refresh/runtime is loaded BEFORE React to hook into the reconciler
   const importMap = `
-    <script type="importmap" data-react-import-map>
+    <script type="importmap" data-hmr-import-map>
       {
         "imports": {
           "react-refresh/runtime": "https://esm.sh/react-refresh@0.18/runtime?dev",
           "react": "https://esm.sh/react@19?dev",
           "react-dom/client": "https://esm.sh/react-dom@19/client?dev",
           "react/jsx-runtime": "https://esm.sh/react@19/jsx-runtime?dev",
-          "react/jsx-dev-runtime": "https://esm.sh/react@19/jsx-dev-runtime?dev"
+          "react/jsx-dev-runtime": "https://esm.sh/react@19/jsx-dev-runtime?dev",
+          "vue": "https://esm.sh/vue@3?dev"
         }
       }
     </script>
@@ -680,11 +680,7 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
             }
           });
         }
-        
-        // Simple React HMR Client Handler
-        ${generateSimpleReactHMRClientCode()}
-        
-        
+
         // Determine WebSocket URL (use client's current hostname and port)
         const wsHost = location.hostname;
         const wsPort = location.port || (location.protocol === 'https:' ? '443' : '80');
@@ -702,7 +698,8 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
         let pingInterval;
         let isConnected = false;
         let isHMRUpdating = false; // Track if HMR update is in progress
-        
+        let isFirstHMRUpdate = true; // Track if this is the first HMR update since page load
+
         // Detect which framework page we're currently on
         function detectCurrentFramework() {
           // CRITICAL: Use URL path as the primary signal; avoid sticky globals
@@ -722,10 +719,53 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
           
           // React fallback if a React root already exists on the page
           if (window.__REACT_ROOT__) return 'react';
-          
+
           return null;
         }
-        
+
+        // Derive manifest key from source file path
+        // Example: "example/svelte/pages/SvelteExample.svelte" -> "SvelteExample"
+        function getComponentNameFromPath(filePath) {
+          if (!filePath) return null;
+          const parts = filePath.replace(/\\\\/g, '/').split('/');
+          const fileName = parts[parts.length - 1] || '';
+          const baseName = fileName.replace(/\\.(tsx?|jsx?|vue|svelte|html)$/, '');
+          // Convert to PascalCase: split on hyphen/underscore, capitalize each word
+          return baseName.split(/[-_]/).map(function(word) {
+            return word.charAt(0).toUpperCase() + word.slice(1);
+          }).join('');
+        }
+
+        // Find index path in manifest by deriving from source file or searching for pattern
+        function findIndexPath(manifest, sourceFile, framework) {
+          if (!manifest) return null;
+
+          // Try to derive from source file first
+          if (sourceFile) {
+            const componentName = getComponentNameFromPath(sourceFile);
+            if (componentName) {
+              const indexKey = componentName + 'Index';
+              if (manifest[indexKey]) return manifest[indexKey];
+            }
+          }
+
+          // Fallback: search for any Index key matching the framework
+          const frameworkPatterns = {
+            react: /react/i,
+            svelte: /svelte/i,
+            vue: /vue/i
+          };
+          const pattern = frameworkPatterns[framework];
+
+          for (const key in manifest) {
+            if (key.endsWith('Index') && (!pattern || pattern.test(key) || manifest[key].includes('/' + framework + '/'))) {
+              return manifest[key];
+            }
+          }
+
+          return null;
+        }
+
         ws.onopen = function() {
           isConnected = true;
           sessionStorage.setItem('__HMR_CONNECTED__', 'true');
@@ -913,8 +953,9 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                   break;
                 }
                 
-                const indexPath = message.data.manifest && message.data.manifest.ReactExampleIndex;
-                
+                // Dynamically find index path from manifest using source file or framework pattern
+                const indexPath = findIndexPath(message.data.manifest, message.data.primarySource, 'react');
+
                 if (!indexPath) {
                   sessionStorage.removeItem('__HMR_ACTIVE__');
                   window.location.reload();
@@ -1101,51 +1142,68 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                         if (existingHref !== newHrefBase) {
                           const newLinkElement = document.createElement('link');
                           newLinkElement.rel = 'stylesheet';
-                          newLinkElement.href = href + (href.includes('?') ? '&' : '?') + 't=' + Date.now();
-                          
+                          // Start with media="print" to prevent FOUC - CSS loads but doesn't apply
+                          newLinkElement.media = 'print';
+                          const newHref = href + (href.includes('?') ? '&' : '?') + 't=' + Date.now();
+                          newLinkElement.href = newHref;
+
                           // Track old link for removal AFTER body patch (prevents flash)
                           linksToRemove.push(existingLink);
-                          
-                          // Wait for new link to load AND be fully applied
+
+                          // Wait for new link to load AND be verified in CSSOM
                           const loadPromise = new Promise(function(resolve) {
                             let resolved = false;
                             const doResolve = function() {
                               if (resolved) return;
                               resolved = true;
-                              resolve();
-                            };
-                            
-                            newLinkElement.onload = function() {
-                              // Triple RAF ensures CSS is fully processed, painted, and styles applied
+                              // Activate CSS by changing media to "all"
+                              newLinkElement.media = 'all';
+                              // Wait for browser to apply styles after activation
                               requestAnimationFrame(function() {
                                 requestAnimationFrame(function() {
-                                  requestAnimationFrame(function() {
-                                    doResolve();
-                                  });
+                                  resolve();
                                 });
                               });
                             };
+
+                            // Helper to verify CSS is in CSSOM
+                            const verifyCSSOM = function() {
+                              try {
+                                const sheets = Array.from(document.styleSheets);
+                                return sheets.some(function(sheet) {
+                                  return sheet.href && sheet.href.includes(newHref.split('?')[0]);
+                                });
+                              } catch (e) {
+                                return false;
+                              }
+                            };
+
+                            newLinkElement.onload = function() {
+                              // Wait for CSSOM to register the stylesheet
+                              var checkCount = 0;
+                              var checkCSSOM = function() {
+                                checkCount++;
+                                if (verifyCSSOM() || checkCount > 10) {
+                                  doResolve();
+                                } else {
+                                  requestAnimationFrame(checkCSSOM);
+                                }
+                              };
+                              requestAnimationFrame(checkCSSOM);
+                            };
                             newLinkElement.onerror = function() {
                               setTimeout(function() {
-                                requestAnimationFrame(function() {
-                                  doResolve();
-                                });
+                                doResolve();
                               }, 50);
                             };
-                            
-                            // Fallback: if onload doesn't fire (some browsers), check after a delay
+
+                            // Fallback: if onload doesn't fire, check sheet property
                             setTimeout(function() {
                               if (newLinkElement.sheet && !resolved) {
-                                requestAnimationFrame(function() {
-                                  requestAnimationFrame(function() {
-                                    requestAnimationFrame(function() {
-                                      doResolve();
-                                    });
-                                  });
-                                });
+                                doResolve();
                               }
                             }, 100);
-                            
+
                             // Ultimate fallback: always resolve after 500ms to prevent stuck promises
                             setTimeout(function() {
                               if (!resolved) {
@@ -1153,7 +1211,7 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                               }
                             }, 500);
                           });
-                          
+
                           document.head.appendChild(newLinkElement);
                           linksToWaitFor.push(loadPromise);
                         }
@@ -1298,17 +1356,25 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                         // Re-execute scripts if scripts changed OR HTML structure changed (but not for CSS-only)
                         // When scripts change or HTML structure changes, we need to re-attach listeners
                         if (scriptsChanged || htmlStructureChanged) {
-                          // First, clone elements with listeners attached to remove old listeners, then remove flag
-                          container.querySelectorAll('[data-hmr-listeners-attached]').forEach(function(el) {
+                          // Clone ALL potentially interactive elements to remove old event listeners
+                          // This prevents listener accumulation (e.g., counter incrementing by 2, 3, 4...)
+                          // We clone instead of relying on data-hmr-listeners-attached (which scripts may not set)
+                          var interactiveSelectors = 'button, [onclick], [onchange], [oninput], [onsubmit], ' +
+                              'details, input[type="button"], input[type="submit"], input[type="reset"]';
+                          container.querySelectorAll(interactiveSelectors).forEach(function(el) {
                             // Clone the element to remove all event listeners
-                            const cloned = el.cloneNode(true);
+                            var cloned = el.cloneNode(true);
                             if (el.parentNode) {
                               el.parentNode.replaceChild(cloned, el);
                             }
-                            // Remove the flag from the cloned element so scripts can re-attach
-                            cloned.removeAttribute('data-hmr-listeners-attached');
                           });
-                          
+
+                          // Expose preserved state to window BEFORE scripts run
+                          // Scripts can check window.__HMR_DOM_STATE__ for initial values
+                          window.__HMR_DOM_STATE__ = {
+                            count: savedState.componentState.count || 0
+                          };
+
                           // Remove old script tags first to prevent duplicate execution
                           const scriptsInNewHTML = container.querySelectorAll('script[src]');
                           scriptsInNewHTML.forEach(function(script) {
@@ -1376,24 +1442,35 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                         }, 50); // Small delay for CSS to be fully painted
                       });
                     } else {
-                      console.log('[HMR] No CSS to wait for, patching body immediately');
-                      // No CSS to wait for, patch body immediately
-                      requestAnimationFrame(function() {
+                      console.log('[HMR] No CSS to wait for');
+
+                      var doUpdate = function() {
                         requestAnimationFrame(function() {
                           requestAnimationFrame(function() {
-                            updateBodyAfterCSS();
-                            console.log('[HMR] Body patched (no CSS wait)');
-                            // Remove old CSS links AFTER body is patched
                             requestAnimationFrame(function() {
-                              linksToRemove.forEach(function(link) {
-                                if (link.parentNode) {
-                                  link.remove();
-                                }
+                              updateBodyAfterCSS();
+                              console.log('[HMR] Body patched (no CSS wait)');
+                              // Remove old CSS links AFTER body is patched
+                              requestAnimationFrame(function() {
+                                linksToRemove.forEach(function(link) {
+                                  if (link.parentNode) {
+                                    link.remove();
+                                  }
+                                });
                               });
                             });
                           });
                         });
-                      });
+                      };
+
+                      // On first HMR update, add delay for CSS/paint stabilization to prevent FOUC
+                      if (isFirstHMRUpdate) {
+                        console.log('[HMR] First update - adding CSS stabilization delay');
+                        isFirstHMRUpdate = false;
+                        setTimeout(doUpdate, 50);
+                      } else {
+                        doUpdate();
+                      }
                     }
                   } else {
                     console.log('[HMR] No htmlHead, patching body directly');
@@ -1766,51 +1843,68 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                         if (existingHref !== newHrefBase) {
                           const newLinkElement = document.createElement('link');
                           newLinkElement.rel = 'stylesheet';
-                          newLinkElement.href = href + (href.includes('?') ? '&' : '?') + 't=' + Date.now();
-                          
+                          // Start with media="print" to prevent FOUC - CSS loads but doesn't apply
+                          newLinkElement.media = 'print';
+                          const newHref = href + (href.includes('?') ? '&' : '?') + 't=' + Date.now();
+                          newLinkElement.href = newHref;
+
                           // Track old link for removal AFTER body patch (prevents flash)
                           linksToRemoveHTMX.push(existingLink);
-                          
-                          // Wait for new link to load AND be fully applied
+
+                          // Wait for new link to load AND be verified in CSSOM
                           const loadPromise = new Promise(function(resolve) {
                             let resolved = false;
                             const doResolve = function() {
                               if (resolved) return;
                               resolved = true;
-                              resolve();
-                            };
-                            
-                            newLinkElement.onload = function() {
-                              // Triple RAF ensures CSS is fully processed, painted, and styles applied
+                              // Activate CSS by changing media to "all"
+                              newLinkElement.media = 'all';
+                              // Wait for browser to apply styles after activation
                               requestAnimationFrame(function() {
                                 requestAnimationFrame(function() {
-                                  requestAnimationFrame(function() {
-                                    doResolve();
-                                  });
+                                  resolve();
                                 });
                               });
                             };
+
+                            // Helper to verify CSS is in CSSOM
+                            const verifyCSSOM = function() {
+                              try {
+                                const sheets = Array.from(document.styleSheets);
+                                return sheets.some(function(sheet) {
+                                  return sheet.href && sheet.href.includes(newHref.split('?')[0]);
+                                });
+                              } catch (e) {
+                                return false;
+                              }
+                            };
+
+                            newLinkElement.onload = function() {
+                              // Wait for CSSOM to register the stylesheet
+                              var checkCount = 0;
+                              var checkCSSOM = function() {
+                                checkCount++;
+                                if (verifyCSSOM() || checkCount > 10) {
+                                  doResolve();
+                                } else {
+                                  requestAnimationFrame(checkCSSOM);
+                                }
+                              };
+                              requestAnimationFrame(checkCSSOM);
+                            };
                             newLinkElement.onerror = function() {
                               setTimeout(function() {
-                                requestAnimationFrame(function() {
-                                  doResolve();
-                                });
+                                doResolve();
                               }, 50);
                             };
-                            
-                            // Fallback: if onload doesn't fire (some browsers), check after a delay
+
+                            // Fallback: if onload doesn't fire, check sheet property
                             setTimeout(function() {
                               if (newLinkElement.sheet && !resolved) {
-                                requestAnimationFrame(function() {
-                                  requestAnimationFrame(function() {
-                                    requestAnimationFrame(function() {
-                                      doResolve();
-                                    });
-                                  });
-                                });
+                                doResolve();
                               }
                             }, 100);
-                            
+
                             // Ultimate fallback: always resolve after 500ms to prevent stuck promises
                             setTimeout(function() {
                               if (!resolved) {
@@ -1818,7 +1912,7 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                               }
                             }, 500);
                           });
-                          
+
                           document.head.appendChild(newLinkElement);
                           linksToWaitForHTMX.push(loadPromise);
                           }
@@ -1910,143 +2004,243 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                 
               case 'svelte-update': {
                 const svelteFrameworkCheck = detectCurrentFramework();
-                
+
                 if (svelteFrameworkCheck !== 'svelte') {
                   break;
                 }
-                
+
+                // CSS-only update: hot-swap stylesheet without remounting component (preserves state!)
+                if (message.data.updateType === 'css-only' && message.data.cssUrl) {
+                  console.log('[HMR] Svelte CSS-only update (state preserved)');
+                  var cssBaseName = message.data.cssBaseName || '';
+                  var existingLink = null;
+                  document.querySelectorAll('link[rel="stylesheet"]').forEach(function(link) {
+                    var href = link.getAttribute('href') || '';
+                    if (href.includes(cssBaseName) || href.includes('svelte')) {
+                      existingLink = link;
+                    }
+                  });
+
+                  if (existingLink) {
+                    var newLink = document.createElement('link');
+                    newLink.rel = 'stylesheet';
+                    newLink.href = message.data.cssUrl + '?t=' + Date.now();
+                    newLink.onload = function() {
+                      if (existingLink && existingLink.parentNode) {
+                        existingLink.remove();
+                      }
+                      console.log('[HMR] Svelte CSS updated');
+                    };
+                    document.head.appendChild(newLink);
+                  }
+                  break;
+                }
+
                 // Clear React globals if they exist
                 if (window.__REACT_ROOT__) {
                   window.__REACT_ROOT__ = undefined;
                 }
-                
+
                 sessionStorage.setItem('__HMR_ACTIVE__', 'true');
-                
-                try {
-                  // Extract and preserve current state from DOM
-                  let preservedState = {};
-                  const button = document.querySelector('button');
-                  if (button) {
-                    const countMatch = button.textContent && button.textContent.match(/count is (\\d+)/);
-                    if (countMatch) {
-                      preservedState.initialCount = parseInt(countMatch[1], 10);
-                    }
-                  }
-                  
-                  // Set HMR flags for the Svelte index file to read
-                  // The index file checks for __SVELTE_HMR_UPDATE__ and handles the update itself
-                  window.__SVELTE_HMR_UPDATE__ = true;
-                  window.__HMR_PRESERVED_STATE__ = preservedState;
-                  
-                  // Get the new component path from manifest
-                  const indexPath = message.data.manifest && message.data.manifest.SvelteExampleIndex;
-                  if (!indexPath) {
-                    window.location.reload();
-                    break;
-                  }
-                  
-                  
-                  // Import the index file with cache busting
-                  // The index file is self-executing and will:
-                  // 1. Read __SVELTE_HMR_UPDATE__ flag
-                  // 2. Read __HMR_PRESERVED_STATE__
-                  // 3. Use the clone-and-replace technique for zero-flicker updates
-                  const modulePath = indexPath + '?hmr=' + Date.now();
-                  import(/* @vite-ignore */ modulePath)
+
+                // Try official HMR first: import the client module which triggers import.meta.hot.accept()
+                // The accept handler destroys old component and mounts new one with preserved props
+                if (message.data.clientModuleUrl) {
+                  // Store current props before HMR
+                  window.__SVELTE_PROPS__ = window.__SVELTE_PROPS__ || window.__INITIAL_PROPS__ || {};
+
+                  var clientModuleUrl = message.data.clientModuleUrl + '?t=' + Date.now();
+                  console.log('[HMR] Svelte official HMR: importing', clientModuleUrl);
+
+                  import(/* @vite-ignore */ clientModuleUrl)
                     .then(function() {
                       sessionStorage.removeItem('__HMR_ACTIVE__');
+                      console.log('[HMR] Svelte component updated via official HMR (state preserved)');
                     })
-                    .catch(function() {
-                      sessionStorage.removeItem('__HMR_ACTIVE__');
-                      window.location.reload();
+                    .catch(function(err) {
+                      console.warn('[HMR] Svelte official HMR failed, trying fallback:', err);
+                      // Fall back to index-based approach
+                      performSvelteFallback();
                     });
-                } catch (e) {
-                  sessionStorage.removeItem('__HMR_ACTIVE__');
-                  window.location.reload();
+                  break;
+                }
+
+                // Fallback: Index-based approach
+                performSvelteFallback();
+
+                function performSvelteFallback() {
+                  try {
+                    // Extract and preserve current state from DOM
+                    var preservedState = {};
+                    var button = document.querySelector('button');
+                    if (button) {
+                      var countMatch = button.textContent && button.textContent.match(/count is (\d+)/);
+                      if (countMatch) {
+                        preservedState.initialCount = parseInt(countMatch[1], 10);
+                      }
+                    }
+
+                    // Set HMR flags for the Svelte index file to read
+                    window.__SVELTE_HMR_UPDATE__ = true;
+                    window.__HMR_PRESERVED_STATE__ = preservedState;
+
+                    // Dynamically find index path from manifest
+                    var indexPath = findIndexPath(message.data.manifest, message.data.sourceFile, 'svelte');
+                    if (!indexPath) {
+                      window.location.reload();
+                      return;
+                    }
+
+                    // Import the index file with cache busting
+                    var modulePath = indexPath + '?hmr=' + Date.now();
+                    import(/* @vite-ignore */ modulePath)
+                      .then(function() {
+                        sessionStorage.removeItem('__HMR_ACTIVE__');
+                        console.log('[HMR] Svelte component updated via fallback');
+                      })
+                      .catch(function() {
+                        sessionStorage.removeItem('__HMR_ACTIVE__');
+                        window.location.reload();
+                      });
+                  } catch (e) {
+                    sessionStorage.removeItem('__HMR_ACTIVE__');
+                    window.location.reload();
+                  }
                 }
                 break;
               }
                 
               case 'vue-update': {
                 const vueFrameworkCheck = detectCurrentFramework();
-                
+
                 if (vueFrameworkCheck !== 'vue') {
                   break;
                 }
-                sessionStorage.setItem('__HMR_ACTIVE__', 'true');
-                
-                try {
-                  // Extract and preserve current state from DOM
-                  let preservedState = {};
-                  const vueButton = document.querySelector('button');
-                  if (vueButton) {
-                    const vueCountMatch = vueButton.textContent?.match(/count is (\\d+)/);
-                    if (vueCountMatch) {
-                      preservedState.initialCount = parseInt(vueCountMatch[1], 10);
+
+                // CSS-only update: hot-swap stylesheet without remounting component (preserves state!)
+                if (message.data.updateType === 'css-only' && message.data.cssUrl) {
+                  console.log('[HMR] Vue CSS-only update (state preserved)');
+                  var cssBaseName = message.data.cssBaseName || '';
+                  var existingLink = null;
+                  document.querySelectorAll('link[rel="stylesheet"]').forEach(function(link) {
+                    var href = link.getAttribute('href') || '';
+                    if (href.includes(cssBaseName) || href.includes('vue')) {
+                      existingLink = link;
                     }
+                  });
+
+                  if (existingLink) {
+                    var newLink = document.createElement('link');
+                    newLink.rel = 'stylesheet';
+                    newLink.href = message.data.cssUrl + '?t=' + Date.now();
+                    newLink.onload = function() {
+                      if (existingLink && existingLink.parentNode) {
+                        existingLink.remove();
+                      }
+                      console.log('[HMR] Vue CSS updated');
+                    };
+                    document.head.appendChild(newLink);
                   }
-                  
-                  // Unmount the old Vue app
-                  if (window.__VUE_APP__) {
-                    window.__VUE_APP__.unmount();
-                    window.__VUE_APP__ = null;
-                  }
-                  
-                  // Get the new HTML from the server (sent in the message)
-                  const newHTML = message.data.html;
-                  if (!newHTML) {
-                    window.location.reload();
-                    break;
-                  }
-                  
-                  // Extract just the INNER content of the root div (not the root div itself)
-                  // The server HTML includes <div id="root">...</div>, but we only want the ...
-                  const tempDiv = document.createElement('div');
-                  tempDiv.innerHTML = newHTML;
-                  const newRootDiv = tempDiv.querySelector('#root');
-                  let innerContent = newRootDiv ? newRootDiv.innerHTML : newHTML;
-                  
-                  // Pre-update the HTML to show the preserved state (eliminates flicker)
-                  // Server renders with initialCount: 0, but we want to show the preserved count
-                  if (preservedState.initialCount !== undefined) {
-                    innerContent = innerContent.replace(
-                      /count is 0/g,
-                      'count is ' + preservedState.initialCount
-                    );
-                  }
-                  
-                  // Replace the root content with the new server-rendered HTML
-                  const root = document.getElementById('root');
-                  if (root) {
-                    root.innerHTML = innerContent;
-                  }
-                  
-                  // Set preserved state for Vue to read
-                  window.__HMR_PRESERVED_STATE__ = preservedState;
-                  
-                  // Get the new Vue index path
-                  const indexPath = message.data.manifest && message.data.manifest.VueExampleIndex;
-                  if (!indexPath) {
-                    window.location.reload();
-                    break;
-                  }
-                  
-                  
-                  // Import the new index with cache busting
-                  // The index will detect the HTML in root and use createSSRApp to hydrate
-                  // This will add the data-v-* attributes needed for scoped styles
-                  const modulePath = indexPath + '?hmr=' + Date.now();
-                  import(/* @vite-ignore */ modulePath)
+                  break;
+                }
+
+                sessionStorage.setItem('__HMR_ACTIVE__', 'true');
+
+                // Try official HMR first: import the client module which triggers import.meta.hot.accept()
+                // The accept handler calls __VUE_HMR_RUNTIME__.reload() to update in place
+                if (message.data.clientModuleUrl) {
+                  var clientModuleUrl = message.data.clientModuleUrl + '?t=' + Date.now();
+                  console.log('[HMR] Vue official HMR: importing', clientModuleUrl);
+
+                  import(/* @vite-ignore */ clientModuleUrl)
                     .then(function() {
                       sessionStorage.removeItem('__HMR_ACTIVE__');
+                      console.log('[HMR] Vue component updated via official HMR (state preserved)');
                     })
-                    .catch(function() {
-                      sessionStorage.removeItem('__HMR_ACTIVE__');
-                      window.location.reload();
+                    .catch(function(err) {
+                      console.warn('[HMR] Vue official HMR failed, trying fallback:', err);
+                      // Fall back to HTML patching
+                      performVueFallback();
                     });
-                } catch (e) {
-                  sessionStorage.removeItem('__HMR_ACTIVE__');
-                  window.location.reload();
+                  break;
+                }
+
+                // Fallback: HTML patching approach
+                performVueFallback();
+
+                function performVueFallback() {
+                  try {
+                    // Extract and preserve current state from DOM
+                    var preservedState = {};
+                    var vueButton = document.querySelector('button');
+                    if (vueButton) {
+                      var vueCountMatch = vueButton.textContent && vueButton.textContent.match(/count is (\d+)/);
+                      if (vueCountMatch) {
+                        preservedState.initialCount = parseInt(vueCountMatch[1], 10);
+                      }
+                    }
+
+                    // Unmount the old Vue app
+                    if (window.__VUE_APP__) {
+                      window.__VUE_APP__.unmount();
+                      window.__VUE_APP__ = null;
+                    }
+
+                    // Get the new HTML from the server (sent in the message)
+                    var newHTML = message.data.html;
+                    if (!newHTML) {
+                      window.location.reload();
+                      return;
+                    }
+
+                    // Extract just the INNER content of the root div
+                    var tempDiv = document.createElement('div');
+                    tempDiv.innerHTML = newHTML;
+                    var newRootDiv = tempDiv.querySelector('#root');
+                    var innerContent = newRootDiv ? newRootDiv.innerHTML : newHTML;
+
+                    // Pre-update the HTML to show the preserved state (eliminates flicker)
+                    if (preservedState.initialCount !== undefined) {
+                      innerContent = innerContent.replace(
+                        /count is 0/g,
+                        'count is ' + preservedState.initialCount
+                      );
+                    }
+
+                    // Replace the root content with the new server-rendered HTML
+                    var root = document.getElementById('root');
+                    if (root) {
+                      root.innerHTML = innerContent;
+                    }
+
+                    // Set preserved state for Vue to read
+                    window.__HMR_PRESERVED_STATE__ = preservedState;
+
+                    // Dynamically find index path from manifest
+                    var indexPath = findIndexPath(message.data.manifest, message.data.sourceFile, 'vue');
+                    if (!indexPath) {
+                      console.warn('[HMR] Vue index path not found, reloading');
+                      window.location.reload();
+                      return;
+                    }
+
+                    // Import the new index with cache busting
+                    var modulePath = indexPath + '?hmr=' + Date.now();
+                    import(/* @vite-ignore */ modulePath)
+                      .then(function() {
+                        sessionStorage.removeItem('__HMR_ACTIVE__');
+                        console.log('[HMR] Vue component updated via HTML patching fallback');
+                      })
+                      .catch(function(err) {
+                        console.warn('[HMR] Vue fallback import failed:', err);
+                        sessionStorage.removeItem('__HMR_ACTIVE__');
+                        window.location.reload();
+                      });
+                  } catch (e) {
+                    console.warn('[HMR] Vue fallback error:', e);
+                    sessionStorage.removeItem('__HMR_ACTIVE__');
+                    window.location.reload();
+                  }
                 }
                 break;
               }

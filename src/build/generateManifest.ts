@@ -27,15 +27,35 @@ export const generateManifest = (outputs: BuildArtifact[], buildPath: string) =>
 		}
 
 		const idx = segments.findIndex(
-			(seg) => seg === 'indexes' || seg === 'pages'
+			(seg) => seg === 'indexes' || seg === 'pages' || seg === 'client'
 		);
 		const folder = idx > UNFOUND_INDEX ? segments[idx] : segments[0];
 
+		// Detect framework from path segments
+		const isReact = segments.some((seg) => seg === 'react');
+		const isVue = segments.some((seg) => seg === 'vue');
+		const isSvelte = segments.some((seg) => seg === 'svelte');
+
+		// Check if this is a client component (for official HMR)
+		const isClientComponent = segments.includes('client');
+
 		if (folder === 'indexes') {
 			manifest[`${pascalName}Index`] = `/${relative}`;
+		} else if (isClientComponent) {
+			// Client components get {Name}Client key for HMR module imports
+			manifest[`${pascalName}Client`] = `/${relative}`;
 		} else if (folder === 'pages') {
-			// For React pages, add with "Page" suffix for HMR to find them
-			manifest[`${pascalName}Page`] = `/${relative}`;
+			// Only add "Page" suffix for React pages
+			// Vue and Svelte pages use their base PascalCase name
+			if (isReact) {
+				manifest[`${pascalName}Page`] = `/${relative}`;
+			} else if (isVue || isSvelte) {
+				// Vue/Svelte pages use base name without suffix
+				manifest[pascalName] = `/${relative}`;
+			} else {
+				// Default behavior for other frameworks
+				manifest[`${pascalName}Page`] = `/${relative}`;
+			}
 		} else {
 			manifest[pascalName] = `/${relative}`;
 		}

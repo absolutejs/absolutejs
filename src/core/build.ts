@@ -223,13 +223,13 @@ export const build = async ({
 		? filterToIncrementalEntries(allSvelteCssEntries, (entry) => entry)
 		: allSvelteCssEntries;
 
-	const { svelteServerPaths, svelteClientPaths } = svelteDir
+	const { svelteServerPaths, svelteIndexPaths, svelteClientPaths } = svelteDir
 		? await compileSvelte(svelteEntries, svelteDir)
-		: { svelteClientPaths: [], svelteServerPaths: [] };
+		: { svelteClientPaths: [], svelteIndexPaths: [], svelteServerPaths: [] };
 
-	const { vueServerPaths, vueIndexPaths, vueCssPaths } = vueDir
+	const { vueServerPaths, vueIndexPaths, vueClientPaths, vueCssPaths } = vueDir
 		? await compileVue(vueEntries, vueDir)
-		: { vueCssPaths: [], vueIndexPaths: [], vueServerPaths: [] };
+		: { vueClientPaths: [], vueCssPaths: [], vueIndexPaths: [], vueServerPaths: [] };
 
 	const { serverPaths: angularServerPaths, clientPaths: angularClientPaths } =
 		angularDir
@@ -244,9 +244,11 @@ export const build = async ({
 	const clientEntryPoints = [
 		...reactEntries,
 		...reactPageEntries, // Build React pages separately for HMR
-		...svelteClientPaths,
+		...svelteIndexPaths, // Svelte hydration entry points
+		...svelteClientPaths, // Svelte client components for official HMR
 		...htmlEntries,
 		...vueIndexPaths,
+		...vueClientPaths, // Build Vue client components separately for official HMR
 		...angularClientPaths
 	];
 	const cssEntryPoints = [

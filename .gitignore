@@ -52,3 +52,5 @@ example/svelte/compiled/
 # HMR temporary files
 .hmr-temp/
 docs/
+
+CLAUDE.md

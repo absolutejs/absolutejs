@@ -121,7 +121,25 @@ export const detectFramework = (
   if (normalized.endsWith('.ts') && normalized.includes('angular')) return 'angular';
   
   // Generic assets (CSS in root /assets/, images, etc.)
-  if (normalized.includes('/assets/') || normalized.endsWith('.css')) return 'assets';
+  // IMPORTANT: Only return 'assets' for CSS files that are NOT in framework directories
+  // CSS files in framework directories (like /vue/styles/ or /svelte/styles/) should have
+  // been caught by the framework checks above. If we reach here with a .css file, it means
+  // the file wasn't in a framework directory, so it's a true asset.
+  if (normalized.includes('/assets/')) return 'assets';
+
+  // For CSS files not caught by framework directory checks, check one more time
+  // using path segment matching (handles cases where resolved paths might not match exactly)
+  if (normalized.endsWith('.css')) {
+    // Check if this CSS is in a framework styles directory by looking for common patterns
+    if (normalized.includes('/vue/') || normalized.includes('/vue-')) return 'vue';
+    if (normalized.includes('/svelte/') || normalized.includes('/svelte-')) return 'svelte';
+    if (normalized.includes('/react/') || normalized.includes('/react-')) return 'react';
+    if (normalized.includes('/angular/') || normalized.includes('/angular-')) return 'angular';
+    if (normalized.includes('/html/') || normalized.includes('/html-')) return 'html';
+    if (normalized.includes('/htmx/') || normalized.includes('/htmx-')) return 'htmx';
+    // If no framework match, it's a generic asset
+    return 'assets';
+  }
 
   return 'unknown';
 }

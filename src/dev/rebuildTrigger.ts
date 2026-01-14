@@ -305,7 +305,8 @@ export async function triggerRebuild(
         if (htmlFrameworkFiles.length > 0) {
           // Collect all affected HTML pages (from dependency graph + direct edits)
           const htmlPageFiles = htmlFrameworkFiles.filter((f) => f.endsWith('.html'));
-          const pagesToUpdate = htmlPageFiles.length > 0 ? htmlPageFiles : [resolve(state.resolvedPaths.htmlDir, 'pages/HtmlExample.html')];
+          // Only process if we have actual HTML files - skip if only CSS changed (CSS updates will be picked up on page reload)
+          const pagesToUpdate = htmlPageFiles;
 
           // Use the BUILT file path (which has updated CSS paths from updateAssetPaths)
           // Build path: build/html/pages/HTMLExample.html (or build/pages/HTMLExample.html if single)
@@ -341,35 +342,87 @@ export async function triggerRebuild(
       // NOTE: Vue HMR happens AFTER the rebuild completes, so we have the updated manifest
       if (affectedFrameworks.includes('vue') && filesToRebuild && config.vueDirectory) {
         const vueFiles = filesToRebuild.filter(file => detectFramework(file, state.resolvedPaths) === 'vue');
-        
+
         if (vueFiles.length > 0) {
-          // Find the Vue page component using actual changed files
-          const vuePagePath =
-            vueFiles.find((f) => f.replace(/\\/g, '/').includes('/pages/')) ??
-            vueFiles[0] ??
-            (state.resolvedPaths.vueDir
-              ? resolve(state.resolvedPaths.vueDir, 'pages/VueExample.vue')
-              : undefined);
-          
-          // Simple approach: Re-compile with cache invalidation, re-render, send HTML
-          // The manifest passed here is the UPDATED manifest from the rebuild
-          if (vuePagePath) {
-          try {
-            const { handleVueUpdate } = await import('./simpleVueHMR');
-            const newHTML = await handleVueUpdate(vuePagePath, manifest);
-            
-            if (newHTML) {
-              // Send simple HTML update to clients with the updated manifest
+          // Detect CSS-only changes (no .vue files changed, only .css files)
+          const vueComponentFiles = vueFiles.filter(f => f.endsWith('.vue'));
+          const vueCssFiles = vueFiles.filter(f => f.endsWith('.css'));
+          const isCssOnlyChange = vueComponentFiles.length === 0 && vueCssFiles.length > 0;
+
+          // Find all Vue page components from changed files (supports multi-component)
+          const vuePageFiles = vueFiles.filter((f) => f.replace(/\\/g, '/').includes('/pages/'));
+          // If no pages found, use all .vue files (component changes trigger page rebuilds via dependency graph)
+          const pagesToUpdate = vuePageFiles.length > 0 ? vuePageFiles : vueComponentFiles;
+
+          // For CSS-only changes, we still need to trigger an update but with CSS info
+          if (isCssOnlyChange && vueCssFiles.length > 0) {
+            const { basename } = await import('node:path');
+            const { toPascal } = await import('../utils/stringModifiers');
+
+            // Get CSS file info
+            const cssFile = vueCssFiles[0];
+            if (cssFile) {
+              const cssBaseName = basename(cssFile, '.css');
+              const cssPascalName = toPascal(cssBaseName);
+              const cssKey = `${cssPascalName}CSS`;
+              const cssUrl = manifest[cssKey] || null;
+
+              // Broadcast CSS-only update
               broadcastToClients(state, {
                 data: {
-                    framework: 'vue',
-                    html: newHTML,
-                    manifest,
-                    sourceFile: vuePagePath
+                  framework: 'vue',
+                  updateType: 'css-only',
+                  cssUrl,
+                  cssBaseName,
+                  manifest,
+                  sourceFile: cssFile
                 }, type: 'vue-update'
               });
             }
-          } catch {
+          }
+
+          // Process each affected Vue page
+          for (const vuePagePath of pagesToUpdate) {
+            try {
+              const { handleVueUpdate } = await import('./simpleVueHMR');
+              const newHTML = await handleVueUpdate(vuePagePath, manifest);
+
+              // Generate HMR ID from source file path (matches compileVue.ts format)
+              const { basename, relative } = await import('node:path');
+              const { toPascal } = await import('../utils/stringModifiers');
+              const fileName = basename(vuePagePath);
+              const baseName = fileName.replace(/\.vue$/, '');
+              const pascalName = toPascal(baseName);
+
+              // Calculate HMR ID (relative path without .vue extension, matches compileVue.ts)
+              const vueRoot = config.vueDirectory;
+              const hmrId = vueRoot
+                ? relative(vueRoot, vuePagePath).replace(/\\/g, '/').replace(/\.vue$/, '')
+                : baseName;
+
+              // Get client module URL from manifest for official HMR
+              const clientKey = `${pascalName}Client`;
+              const clientModuleUrl = manifest[clientKey] || null;
+
+              // Get CSS URL from manifest
+              const cssKey = `${pascalName}CSS`;
+              const cssUrl = manifest[cssKey] || null;
+
+              // Send HMR update with official HMR data (clientModuleUrl, hmrId)
+              // Client will import the module which triggers import.meta.hot.accept()
+              broadcastToClients(state, {
+                data: {
+                  framework: 'vue',
+                  html: newHTML, // Fallback HTML if official HMR fails
+                  hmrId,
+                  clientModuleUrl, // Official HMR: client module to import
+                  cssUrl,
+                  updateType: 'full',
+                  manifest,
+                  sourceFile: vuePagePath
+                }, type: 'vue-update'
+              });
+            } catch {
             }
           }
         }
@@ -379,35 +432,87 @@ export async function triggerRebuild(
       // NOTE: Svelte HMR happens AFTER the rebuild completes, so we have the updated manifest
       if (affectedFrameworks.includes('svelte') && filesToRebuild && config.svelteDirectory) {
         const svelteFiles = filesToRebuild.filter(file => detectFramework(file, state.resolvedPaths) === 'svelte');
-        
+
         if (svelteFiles.length > 0) {
-          // Find the Svelte page component using actual changed files
-          const sveltePagePath =
-            svelteFiles.find((f) => f.replace(/\\/g, '/').includes('/pages/')) ??
-            svelteFiles[0] ??
-            (state.resolvedPaths.svelteDir
-              ? resolve(state.resolvedPaths.svelteDir, 'pages/SvelteExample.svelte')
-              : undefined);
-          
-          // Simple approach: Re-compile with cache invalidation, re-render, send HTML
-          // The manifest passed here is the UPDATED manifest from the rebuild
-          if (sveltePagePath) {
-          try {
-            const { handleSvelteUpdate } = await import('./simpleSvelteHMR');
-            const newHTML = await handleSvelteUpdate(sveltePagePath, manifest);
-            
-            if (newHTML) {
-              // Send simple HTML update to clients with the updated manifest
+          // Detect CSS-only changes (no .svelte files changed, only .css files)
+          const svelteComponentFiles = svelteFiles.filter(f => f.endsWith('.svelte'));
+          const svelteCssFiles = svelteFiles.filter(f => f.endsWith('.css'));
+          const isCssOnlyChange = svelteComponentFiles.length === 0 && svelteCssFiles.length > 0;
+
+          // Find all Svelte page components from changed files (supports multi-component)
+          const sveltePageFiles = svelteFiles.filter((f) => f.replace(/\\/g, '/').includes('/pages/'));
+          // If no pages found, use all .svelte files (component changes trigger page rebuilds via dependency graph)
+          const pagesToUpdate = sveltePageFiles.length > 0 ? sveltePageFiles : svelteComponentFiles;
+
+          // For CSS-only changes, send CSS-only update (preserves component state!)
+          if (isCssOnlyChange && svelteCssFiles.length > 0) {
+            const { basename } = await import('node:path');
+            const { toPascal } = await import('../utils/stringModifiers');
+
+            // Get CSS file info
+            const cssFile = svelteCssFiles[0];
+            if (cssFile) {
+              const cssBaseName = basename(cssFile, '.css');
+              const cssPascalName = toPascal(cssBaseName);
+              const cssKey = `${cssPascalName}CSS`;
+              const cssUrl = manifest[cssKey] || null;
+
+              // Broadcast CSS-only update
               broadcastToClients(state, {
                 data: {
-                    framework: 'svelte',
-                    html: newHTML,
-                    manifest,
-                    sourceFile: sveltePagePath
+                  framework: 'svelte',
+                  updateType: 'css-only',
+                  cssUrl,
+                  cssBaseName,
+                  manifest,
+                  sourceFile: cssFile
                 }, type: 'svelte-update'
               });
             }
-          } catch {
+          }
+
+          // Process each affected Svelte page
+          for (const sveltePagePath of pagesToUpdate) {
+            try {
+              const { handleSvelteUpdate } = await import('./simpleSvelteHMR');
+              const newHTML = await handleSvelteUpdate(sveltePagePath, manifest);
+
+              // Get component info
+              const { basename, relative } = await import('node:path');
+              const { toPascal } = await import('../utils/stringModifiers');
+              const fileName = basename(sveltePagePath);
+              const baseName = fileName.replace(/\.svelte$/, '');
+              const pascalName = toPascal(baseName);
+
+              // Calculate HMR ID (relative path without .svelte extension, matches compileSvelte.ts)
+              const svelteRoot = config.svelteDirectory;
+              const hmrId = svelteRoot
+                ? relative(svelteRoot, sveltePagePath).replace(/\\/g, '/').replace(/\.svelte$/, '')
+                : baseName;
+
+              // Get client module URL from manifest for official HMR
+              const clientKey = `${pascalName}Client`;
+              const clientModuleUrl = manifest[clientKey] || null;
+
+              // Get CSS URL from manifest
+              const cssKey = `${pascalName}CSS`;
+              const cssUrl = manifest[cssKey] || null;
+
+              // Send Svelte update with official HMR data
+              broadcastToClients(state, {
+                data: {
+                  framework: 'svelte',
+                  html: newHTML, // Fallback HTML if official HMR fails
+                  hmrId,
+                  clientModuleUrl, // Official HMR: client module to import
+                  cssUrl,
+                  cssBaseName: baseName,
+                  updateType: 'full',
+                  manifest,
+                  sourceFile: sveltePagePath
+                }, type: 'svelte-update'
+              });
+            } catch {
             }
           }
         }
@@ -427,30 +532,34 @@ export async function triggerRebuild(
         
         // Trigger update if any HTMX framework files changed (HTML files OR CSS files in HTMX directory)
         if (htmxFrameworkFiles.length > 0) {
-          const htmxPageFile =
-            htmxFrameworkFiles.find((f) => f.endsWith('.html')) ?? htmxFrameworkFiles[0];
-          const htmxPageName = htmxPageFile ? basename(htmxPageFile) : 'HTMXExample.html';
+          // Only process if we have actual HTML page files - skip if only CSS changed
+          const htmxPageFiles = htmxFrameworkFiles.filter((f) => f.endsWith('.html'));
 
           // Use the BUILT file path (which has updated CSS paths from updateAssetPaths)
-          // Build path: build/htmx/pages/HTMXExample.html (or build/pages/HTMXExample.html if single)
+          // Build path: build/htmx/pages/*.html (or build/pages/*.html if single)
           const isSingle = !config.reactDirectory && !config.svelteDirectory && !config.vueDirectory && !config.htmlDirectory;
           const outputHtmxPages = isSingle
             ? resolve(state.resolvedPaths.buildDir, 'pages')
             : resolve(state.resolvedPaths.buildDir, basename(config.htmxDirectory ?? 'htmx'), 'pages');
-          const builtHtmxPagePath = resolve(outputHtmxPages, htmxPageName);
-          
-          try {
-            const { handleHTMXUpdate } = await import('./simpleHTMXHMR');
-            const newHTML = await handleHTMXUpdate(builtHtmxPagePath);
-            
-            if (newHTML) {
-              broadcastToClients(state, {
-                data: {
-                  framework: 'htmx', html: newHTML, sourceFile: builtHtmxPagePath
-                }, type: 'htmx-update'
-              });
+
+          // Process each affected HTMX page
+          for (const htmxPageFile of htmxPageFiles) {
+            const htmxPageName = basename(htmxPageFile);
+            const builtHtmxPagePath = resolve(outputHtmxPages, htmxPageName);
+
+            try {
+              const { handleHTMXUpdate } = await import('./simpleHTMXHMR');
+              const newHTML = await handleHTMXUpdate(builtHtmxPagePath);
+
+              if (newHTML) {
+                broadcastToClients(state, {
+                  data: {
+                    framework: 'htmx', html: newHTML, sourceFile: builtHtmxPagePath
+                  }, type: 'htmx-update'
+                });
+              }
+            } catch {
             }
-          } catch {
           }
         }
       }

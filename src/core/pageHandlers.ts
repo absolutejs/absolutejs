@@ -4,6 +4,7 @@ import {
 	renderApplication
 } from '@angular/platform-server';
 import { file } from 'bun';
+import { resolve } from 'node:path';
 import { ComponentType as ReactComponent, createElement } from 'react';
 import { renderToReadableStream as renderReactToReadableStream } from 'react-dom/server';
 import { Component as SvelteComponent } from 'svelte';
@@ -99,7 +100,13 @@ export const handleSveltePageRequest: HandleSveltePageRequest = async <
 	indexPath: string,
 	props?: P
 ) => {
-	const { default: ImportedPageComponent } = await import(pagePath);
+	// Convert URL path to file system path
+	// pagePath is like "/svelte/compiled/pages/SvelteExample.abc123.js"
+	// Resolve relative to cwd/example/build
+	const buildDir = resolve(process.cwd(), 'example/build');
+	const fsPath = resolve(buildDir, pagePath.replace(/^\//, ''));
+
+	const { default: ImportedPageComponent } = await import(fsPath);
 
 	const stream = await renderSvelteToReadableStream(
 		ImportedPageComponent,
@@ -128,7 +135,13 @@ export const handleVuePageRequest = async <
 ) => {
 	const [maybeProps] = props;
 
-	const { default: ImportedPageComponent } = await import(pagePath);
+	// Convert URL path to file system path
+	// pagePath is like "/vue/compiled/pages/VueExample.abc123.js"
+	// Resolve relative to cwd/example/build
+	const buildDir = resolve(process.cwd(), 'example/build');
+	const fsPath = resolve(buildDir, pagePath.replace(/^\//, ''));
+
+	const { default: ImportedPageComponent } = await import(fsPath);
 
 	const app = createSSRApp({
 		render: () => h(ImportedPageComponent, maybeProps ?? {})

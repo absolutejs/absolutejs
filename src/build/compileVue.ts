@@ -161,23 +161,50 @@ const compileVueFile = async (
 		cssOutputPaths = [cssOutputFile];
 	}
 
+	// Generate HMR ID from relative file path for Vue's official HMR runtime
+	const hmrId = relativeFilePath.replace(/\.vue$/, '');
+
 	const assembleModule = (
 		renderCode: string,
-		renderFnName: 'render' | 'ssrRender'
-	) =>
-		mergeVueImports(
+		renderFnName: 'render' | 'ssrRender',
+		includeHMR: boolean = false
+	) => {
+		const hmrCode = includeHMR
+			? [
+					'',
+					'// Vue HMR Registration',
+					`script.__hmrId = ${JSON.stringify(hmrId)};`,
+					'if (typeof __VUE_HMR_RUNTIME__ !== "undefined") {',
+					`  __VUE_HMR_RUNTIME__.createRecord(script.__hmrId, script);`,
+					'}',
+					'',
+					'// Vue HMR Acceptance Handler - receives updates and triggers official HMR',
+					'if (typeof import.meta !== "undefined" && import.meta.hot) {',
+					'  import.meta.hot.accept((newModule) => {',
+					'    if (newModule && newModule.default && typeof __VUE_HMR_RUNTIME__ !== "undefined") {',
+					`      __VUE_HMR_RUNTIME__.reload(${JSON.stringify(hmrId)}, newModule.default);`,
+					'    }',
+					'  });',
+					'}'
+				].join('\n')
+			: '';
+
+		return mergeVueImports(
 			[
 				transpiledScript,
 				renderCode,
 				`script.${renderFnName} = ${renderFnName};`,
+				hmrCode,
 				'export default script;'
 			].join('\n')
 		);
+	};
 
-	const clientCode = assembleModule(generateRenderFunction(false), 'render');
+	const clientCode = assembleModule(generateRenderFunction(false), 'render', true);
 	const serverCode = assembleModule(
 		generateRenderFunction(true),
-		'ssrRender'
+		'ssrRender',
+		false
 	);
 
 	const clientOutputPath = join(
@@ -283,6 +310,7 @@ export const compileVue = async (entryPoints: string[], vueRootDir: string) => {
 			);
 
 			return {
+				clientPath: clientOutputFile,
 				cssPaths: result.cssPaths,
 				indexPath: indexOutputFile,
 				serverPath: result.serverPath
@@ -308,6 +336,7 @@ export const compileVue = async (entryPoints: string[], vueRootDir: string) => {
 	);
 
 	return {
+		vueClientPaths: compiledPages.map((result) => result.clientPath),
 		vueCssPaths: compiledPages.flatMap((result) => result.cssPaths),
 		vueIndexPaths: compiledPages.map((result) => result.indexPath),
 		vueServerPaths: compiledPages.map((result) => result.serverPath)
