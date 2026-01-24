@@ -1,5 +1,6 @@
 {
   "lockfileVersion": 1,
+  "configVersion": 0,
   "workspaces": {
     "": {
       "name": "@absolutejs/absolute",
@@ -12,7 +13,7 @@
         "@elysiajs/static": "1.4.0",
         "@stylistic/eslint-plugin-ts": "4.2.0",
         "@tailwindcss/cli": "4.1.7",
-        "@types/bun": "latest",
+        "@types/bun": "^1.2.18",
         "@types/react": "19.2.0",
         "@types/react-dom": "19.2.0",
         "autoprefixer": "10.4.21",

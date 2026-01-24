@@ -20,3 +20,4 @@ export function getRegisterClientScript(): ((script: () => void) => string) | nu
 	return null;
 }
 
+

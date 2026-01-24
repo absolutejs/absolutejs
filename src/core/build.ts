@@ -2,14 +2,13 @@ import { copyFileSync, cpSync, mkdirSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { basename, join, resolve, dirname, relative } from 'node:path';
 import { cwd, env, exit } from 'node:process';
-import { $, build as bunBuild, BuildArtifact, Glob, type BunPlugin } from 'bun';
+import { $, build as bunBuild, BuildArtifact, Glob } from 'bun';
 import { compileAngular } from '../build/compileAngular';
 import { compileSvelte } from '../build/compileSvelte';
 import { compileVue } from '../build/compileVue';
 import { generateManifest } from '../build/generateManifest';
 import { generateReactIndexFiles } from '../build/generateReactIndexes';
 import { outputLogs } from '../build/outputLogs';
-import { createReactRefreshPlugin } from '../build/reactRefreshPlugin';
 import { scanEntryPoints } from '../build/scanEntryPoints';
 import { updateAssetPaths } from '../build/updateAssetPaths';
 import { BuildConfig } from '../types';
@@ -302,9 +301,7 @@ export const build = async ({
 		const clientRoot = isSingle
 			? (roots[0] ?? projectRoot)
 			: commonAncestor(roots, projectRoot);
-		// Add React Refresh plugin in dev mode for HMR state preservation
-		const plugins: BunPlugin[] = isDev ? [createReactRefreshPlugin()] : [];
-		
+
 		const { logs, outputs } = await bunBuild({
 			define: vueDirectory ? vueFeatureFlags : undefined,
 			entrypoints: clientEntryPoints,
@@ -312,7 +309,8 @@ export const build = async ({
 			minify: !isDev, // Don't minify in dev for better debugging
 			naming: `[dir]/[name].[hash].[ext]`,
 			outdir: buildPath,
-			plugins,
+			// @ts-expect-error - reactFastRefresh is new in Bun 1.3.6, types will catch up
+			reactFastRefresh: isDev,
 			root: clientRoot,
 			target: 'browser',
 			splitting: !isDev, // Disable splitting in dev to avoid duplicate export bug
