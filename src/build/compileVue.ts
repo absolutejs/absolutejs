@@ -161,50 +161,26 @@ const compileVueFile = async (
 		cssOutputPaths = [cssOutputFile];
 	}
 
-	// Generate HMR ID from relative file path for Vue's official HMR runtime
-	const hmrId = relativeFilePath.replace(/\.vue$/, '');
-
 	const assembleModule = (
 		renderCode: string,
-		renderFnName: 'render' | 'ssrRender',
-		includeHMR: boolean = false
+		renderFnName: 'render' | 'ssrRender'
 	) => {
-		const hmrCode = includeHMR
-			? [
-					'',
-					'// Vue HMR Registration',
-					`script.__hmrId = ${JSON.stringify(hmrId)};`,
-					'if (typeof __VUE_HMR_RUNTIME__ !== "undefined") {',
-					`  __VUE_HMR_RUNTIME__.createRecord(script.__hmrId, script);`,
-					'}',
-					'',
-					'// Vue HMR Acceptance Handler - receives updates and triggers official HMR',
-					'if (typeof import.meta !== "undefined" && import.meta.hot) {',
-					'  import.meta.hot.accept((newModule) => {',
-					'    if (newModule && newModule.default && typeof __VUE_HMR_RUNTIME__ !== "undefined") {',
-					`      __VUE_HMR_RUNTIME__.reload(${JSON.stringify(hmrId)}, newModule.default);`,
-					'    }',
-					'  });',
-					'}'
-				].join('\n')
-			: '';
-
+		// Note: Vue's official HMR API (__VUE_HMR_RUNTIME__, import.meta.hot) doesn't work
+		// with Bun's bundler. We use HTML patching + remount approach instead (see devServer.ts).
 		return mergeVueImports(
 			[
 				transpiledScript,
 				renderCode,
 				`script.${renderFnName} = ${renderFnName};`,
-				hmrCode,
 				'export default script;'
 			].join('\n')
 		);
 	};
 
-	const clientCode = assembleModule(generateRenderFunction(false), 'render', true);
+	const clientCode = assembleModule(generateRenderFunction(false), 'render');
 	const serverCode = assembleModule(
 		generateRenderFunction(true),
-		'ssrRender',
-		false
+		'ssrRender'
 	);
 
 	const clientOutputPath = join(

@@ -17,8 +17,8 @@ export function startFileWatching(
   
   // Set up a watcher for each directory
   for (const path of watchPaths) {
-    // Resolve to absolute path for existsSync check
-    const absolutePath = resolve(path);
+    // Resolve to absolute path for existsSync check (normalize to forward slashes for cross-platform)
+    const absolutePath = resolve(path).replace(/\\/g, '/');
     
     if (!existsSync(absolutePath)) {
       continue;
@@ -42,8 +42,8 @@ export function startFileWatching(
           return;
         }
         
-        // Build the full path
-        const fullPath = join(absolutePath, filename);
+        // Build the full path (normalize to forward slashes for cross-platform compatibility)
+        const fullPath = join(absolutePath, filename).replace(/\\/g, '/');
         
         // Apply ignore patterns
         if (shouldIgnorePath(fullPath)) {

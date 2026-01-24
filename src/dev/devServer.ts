@@ -1114,6 +1114,7 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                     // Track which links need to be removed after new ones load
                     const linksToRemove = [];
                     const linksToWaitFor = [];
+                    const linksToActivate = [];  // Track new CSS links to activate AFTER body patch
                     
                     // STEP 1: Add/update new stylesheet links FIRST (before removing old ones)
                     newStylesheets.forEach(function(newLink) {
@@ -1150,20 +1151,18 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                           // Track old link for removal AFTER body patch (prevents flash)
                           linksToRemove.push(existingLink);
 
+                          // Track this link for activation AFTER body is patched
+                          linksToActivate.push(newLinkElement);
+
                           // Wait for new link to load AND be verified in CSSOM
                           const loadPromise = new Promise(function(resolve) {
                             let resolved = false;
                             const doResolve = function() {
                               if (resolved) return;
                               resolved = true;
-                              // Activate CSS by changing media to "all"
-                              newLinkElement.media = 'all';
-                              // Wait for browser to apply styles after activation
-                              requestAnimationFrame(function() {
-                                requestAnimationFrame(function() {
-                                  resolve();
-                                });
-                              });
+                              // DON'T activate CSS here - keep media="print" hidden
+                              // CSS will be activated AFTER body is patched to prevent flash
+                              resolve();
                             };
 
                             // Helper to verify CSS is in CSSOM
@@ -1425,10 +1424,15 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                             requestAnimationFrame(function() {
                               requestAnimationFrame(function() {
                                 console.log('[HMR] Patching body');
-                                // Patch body FIRST while both old and new CSS are present
+                                // Patch body FIRST while new CSS is still hidden (media="print")
                                 updateBodyAfterCSS();
                                 console.log('[HMR] Body patched');
-                                // Remove old CSS links AFTER body is patched (prevents flash)
+                                // NOW activate new CSS (change media to "all") - DOM structure is ready
+                                linksToActivate.forEach(function(link) {
+                                  link.media = 'all';
+                                });
+                                console.log('[HMR] CSS activated');
+                                // Remove old CSS links AFTER body is patched and new CSS is active
                                 requestAnimationFrame(function() {
                                   linksToRemove.forEach(function(link) {
                                     if (link.parentNode) {
@@ -1815,6 +1819,7 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                     // Track which links need to be removed after new ones load
                     const linksToRemoveHTMX = [];
                     const linksToWaitForHTMX = [];
+                    const linksToActivateHTMX = [];  // Track new CSS links to activate AFTER body patch
                     
                     // STEP 1: Add/update new stylesheet links FIRST (before removing old ones)
                     newStylesheets.forEach(function(newLink) {
@@ -1851,20 +1856,18 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                           // Track old link for removal AFTER body patch (prevents flash)
                           linksToRemoveHTMX.push(existingLink);
 
+                          // Track this link for activation AFTER body is patched
+                          linksToActivateHTMX.push(newLinkElement);
+
                           // Wait for new link to load AND be verified in CSSOM
                           const loadPromise = new Promise(function(resolve) {
                             let resolved = false;
                             const doResolve = function() {
                               if (resolved) return;
                               resolved = true;
-                              // Activate CSS by changing media to "all"
-                              newLinkElement.media = 'all';
-                              // Wait for browser to apply styles after activation
-                              requestAnimationFrame(function() {
-                                requestAnimationFrame(function() {
-                                  resolve();
-                                });
-                              });
+                              // DON'T activate CSS here - keep media="print" hidden
+                              // CSS will be activated AFTER body is patched to prevent flash
+                              resolve();
                             };
 
                             // Helper to verify CSS is in CSSOM
@@ -1959,9 +1962,13 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                           requestAnimationFrame(function() {
                             requestAnimationFrame(function() {
                               requestAnimationFrame(function() {
-                                // Patch body FIRST while both old and new CSS are present
+                                // Patch body FIRST while new CSS is still hidden (media="print")
                                 updateHTMXBodyAfterCSS();
-                                // Remove old CSS links AFTER body is patched (prevents flash)
+                                // NOW activate new CSS (change media to "all") - DOM structure is ready
+                                linksToActivateHTMX.forEach(function(link) {
+                                  link.media = 'all';
+                                });
+                                // Remove old CSS links AFTER body is patched and new CSS is active
                                 requestAnimationFrame(function() {
                                   linksToRemoveHTMX.forEach(function(link) {
                                     if (link.parentNode) {
@@ -2146,102 +2153,76 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
 
                 sessionStorage.setItem('__HMR_ACTIVE__', 'true');
 
-                // Try official HMR first: import the client module which triggers import.meta.hot.accept()
-                // The accept handler calls __VUE_HMR_RUNTIME__.reload() to update in place
-                if (message.data.clientModuleUrl) {
-                  var clientModuleUrl = message.data.clientModuleUrl + '?t=' + Date.now();
-                  console.log('[HMR] Vue official HMR: importing', clientModuleUrl);
+                // Save DOM state (form inputs, scroll, focus) before update
+                var vueRoot = document.getElementById('root');
+                var vueDomState = vueRoot ? saveDOMState(vueRoot) : null;
 
-                  import(/* @vite-ignore */ clientModuleUrl)
-                    .then(function() {
-                      sessionStorage.removeItem('__HMR_ACTIVE__');
-                      console.log('[HMR] Vue component updated via official HMR (state preserved)');
-                    })
-                    .catch(function(err) {
-                      console.warn('[HMR] Vue official HMR failed, trying fallback:', err);
-                      // Fall back to HTML patching
-                      performVueFallback();
-                    });
+                // Extract Vue reactive state from DOM (counters, buttons with state)
+                var vuePreservedState = {};
+                var countButton = document.querySelector('button');
+                if (countButton && countButton.textContent) {
+                  var countMatch = countButton.textContent.match(/count is (\d+)/i);
+                  if (countMatch) {
+                    vuePreservedState.initialCount = parseInt(countMatch[1], 10);
+                  }
+                }
+
+                // Set preserved state for Vue index to read
+                window.__HMR_PRESERVED_STATE__ = vuePreservedState;
+
+                // Unmount the old Vue app
+                if (window.__VUE_APP__) {
+                  window.__VUE_APP__.unmount();
+                  window.__VUE_APP__ = null;
+                }
+
+                // Get the new HTML from the server
+                var newHTML = message.data.html;
+                if (!newHTML) {
+                  window.location.reload();
                   break;
                 }
 
-                // Fallback: HTML patching approach
-                performVueFallback();
+                // Extract inner content
+                var tempDiv = document.createElement('div');
+                tempDiv.innerHTML = newHTML;
+                var newRootDiv = tempDiv.querySelector('#root');
+                var innerContent = newRootDiv ? newRootDiv.innerHTML : newHTML;
 
-                function performVueFallback() {
-                  try {
-                    // Extract and preserve current state from DOM
-                    var preservedState = {};
-                    var vueButton = document.querySelector('button');
-                    if (vueButton) {
-                      var vueCountMatch = vueButton.textContent && vueButton.textContent.match(/count is (\d+)/);
-                      if (vueCountMatch) {
-                        preservedState.initialCount = parseInt(vueCountMatch[1], 10);
-                      }
+                // Pre-apply preserved state to HTML (prevents flicker showing count=0)
+                if (vuePreservedState.initialCount !== undefined) {
+                  innerContent = innerContent.replace(/count is 0/g, 'count is ' + vuePreservedState.initialCount);
+                }
+
+                // Update DOM
+                if (vueRoot) {
+                  vueRoot.innerHTML = innerContent;
+                }
+
+                // Find index path from manifest
+                var indexPath = findIndexPath(message.data.manifest, message.data.sourceFile, 'vue');
+                if (!indexPath) {
+                  console.warn('[HMR] Vue index path not found, reloading');
+                  window.location.reload();
+                  break;
+                }
+
+                // Import the new index with proper cache-busting
+                var modulePath = indexPath + '?t=' + Date.now();
+                import(/* @vite-ignore */ modulePath)
+                  .then(function() {
+                    // Restore form state after Vue mounts
+                    if (vueRoot && vueDomState) {
+                      restoreDOMState(vueRoot, vueDomState);
                     }
-
-                    // Unmount the old Vue app
-                    if (window.__VUE_APP__) {
-                      window.__VUE_APP__.unmount();
-                      window.__VUE_APP__ = null;
-                    }
-
-                    // Get the new HTML from the server (sent in the message)
-                    var newHTML = message.data.html;
-                    if (!newHTML) {
-                      window.location.reload();
-                      return;
-                    }
-
-                    // Extract just the INNER content of the root div
-                    var tempDiv = document.createElement('div');
-                    tempDiv.innerHTML = newHTML;
-                    var newRootDiv = tempDiv.querySelector('#root');
-                    var innerContent = newRootDiv ? newRootDiv.innerHTML : newHTML;
-
-                    // Pre-update the HTML to show the preserved state (eliminates flicker)
-                    if (preservedState.initialCount !== undefined) {
-                      innerContent = innerContent.replace(
-                        /count is 0/g,
-                        'count is ' + preservedState.initialCount
-                      );
-                    }
-
-                    // Replace the root content with the new server-rendered HTML
-                    var root = document.getElementById('root');
-                    if (root) {
-                      root.innerHTML = innerContent;
-                    }
-
-                    // Set preserved state for Vue to read
-                    window.__HMR_PRESERVED_STATE__ = preservedState;
-
-                    // Dynamically find index path from manifest
-                    var indexPath = findIndexPath(message.data.manifest, message.data.sourceFile, 'vue');
-                    if (!indexPath) {
-                      console.warn('[HMR] Vue index path not found, reloading');
-                      window.location.reload();
-                      return;
-                    }
-
-                    // Import the new index with cache busting
-                    var modulePath = indexPath + '?hmr=' + Date.now();
-                    import(/* @vite-ignore */ modulePath)
-                      .then(function() {
-                        sessionStorage.removeItem('__HMR_ACTIVE__');
-                        console.log('[HMR] Vue component updated via HTML patching fallback');
-                      })
-                      .catch(function(err) {
-                        console.warn('[HMR] Vue fallback import failed:', err);
-                        sessionStorage.removeItem('__HMR_ACTIVE__');
-                        window.location.reload();
-                      });
-                  } catch (e) {
-                    console.warn('[HMR] Vue fallback error:', e);
+                    sessionStorage.removeItem('__HMR_ACTIVE__');
+                    console.log('[HMR] Vue updated (state preserved)');
+                  })
+                  .catch(function(err) {
+                    console.warn('[HMR] Vue import failed:', err);
                     sessionStorage.removeItem('__HMR_ACTIVE__');
                     window.location.reload();
-                  }
-                }
+                  });
                 break;
               }
                 

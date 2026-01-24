@@ -15,26 +15,22 @@ type ResolvedPaths = {
 /** Normalize and default build paths so HMR works outside the example app. */
 export function resolveBuildPaths(config: BuildConfig): ResolvedPaths {
 	const cwd = process.cwd();
+	// Normalize to forward slashes for cross-platform compatibility (Windows uses backslashes)
+	const normalize = (path: string) => path.replace(/\\/g, '/');
 	const withDefault = (value: string | undefined, fallback: string) =>
-		resolve(cwd, value ?? fallback);
+		normalize(resolve(cwd, value ?? fallback));
+	const optional = (value: string | undefined) =>
+		value ? normalize(resolve(cwd, value)) : undefined;
 
 	return {
 		buildDir: withDefault(config.buildDirectory, 'build'),
-		assetsDir: config.assetsDirectory
-			? resolve(cwd, config.assetsDirectory)
-			: undefined,
-		reactDir: config.reactDirectory
-			? resolve(cwd, config.reactDirectory)
-			: undefined,
-		svelteDir: config.svelteDirectory
-			? resolve(cwd, config.svelteDirectory)
-			: undefined,
-		vueDir: config.vueDirectory ? resolve(cwd, config.vueDirectory) : undefined,
-		angularDir: config.angularDirectory
-			? resolve(cwd, config.angularDirectory)
-			: undefined,
-		htmlDir: config.htmlDirectory ? resolve(cwd, config.htmlDirectory) : undefined,
-		htmxDir: config.htmxDirectory ? resolve(cwd, config.htmxDirectory) : undefined
+		assetsDir: optional(config.assetsDirectory),
+		reactDir: optional(config.reactDirectory),
+		svelteDir: optional(config.svelteDirectory),
+		vueDir: optional(config.vueDirectory),
+		angularDir: optional(config.angularDirectory),
+		htmlDir: optional(config.htmlDirectory),
+		htmxDir: optional(config.htmxDirectory)
 	};
 }
 

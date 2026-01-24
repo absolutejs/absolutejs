@@ -400,22 +400,17 @@ export async function triggerRebuild(
                 ? relative(vueRoot, vuePagePath).replace(/\\/g, '/').replace(/\.vue$/, '')
                 : baseName;
 
-              // Get client module URL from manifest for official HMR
-              const clientKey = `${pascalName}Client`;
-              const clientModuleUrl = manifest[clientKey] || null;
-
               // Get CSS URL from manifest
               const cssKey = `${pascalName}CSS`;
               const cssUrl = manifest[cssKey] || null;
 
-              // Send HMR update with official HMR data (clientModuleUrl, hmrId)
-              // Client will import the module which triggers import.meta.hot.accept()
+              // Send HMR update - uses HTML patching + remount approach
+              // (Vue's official HMR API doesn't work with Bun's bundler)
               broadcastToClients(state, {
                 data: {
                   framework: 'vue',
-                  html: newHTML, // Fallback HTML if official HMR fails
+                  html: newHTML,
                   hmrId,
-                  clientModuleUrl, // Official HMR: client module to import
                   cssUrl,
                   updateType: 'full',
                   manifest,
