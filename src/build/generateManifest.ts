@@ -1,13 +1,18 @@
 import { extname } from 'node:path';
 import { BuildArtifact } from 'bun';
 import { UNFOUND_INDEX } from '../constants';
+import { normalizePath } from '../utils/normalizePath';
 import { toPascal } from '../utils/stringModifiers';
 
 export const generateManifest = (outputs: BuildArtifact[], buildPath: string) =>
 	outputs.reduce<Record<string, string>>((manifest, artifact) => {
-		let relative = artifact.path.startsWith(buildPath)
-			? artifact.path.slice(buildPath.length)
-			: artifact.path;
+		// Normalize both paths for consistent comparison across platforms
+		const normalizedArtifactPath = normalizePath(artifact.path);
+		const normalizedBuildPath = normalizePath(buildPath);
+
+		let relative = normalizedArtifactPath.startsWith(normalizedBuildPath)
+			? normalizedArtifactPath.slice(normalizedBuildPath.length)
+			: normalizedArtifactPath;
 		relative = relative.replace(/^\/+/, '');
 
 		const segments = relative.split('/');

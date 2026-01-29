@@ -28,6 +28,17 @@ export const updateAssetPaths = async (
 
 				const newPath = manifest[key];
 				if (newPath) {
+					// For script tags (JS/TS), add type="module" if not already present
+					// Required because Bun bundles with format: 'esm'
+					if (ext === '.js' || ext === '.ts') {
+						const hasTypeModule = /type\s*=\s*["']module["']/i.test(match);
+
+						if (!hasTypeModule) {
+							// Inject type="module" before the closing >
+							const newSuffix = suffix.replace(/>$/, ' type="module">');
+							return `${prefix}${newPath}${newSuffix}`;
+						}
+					}
 					return `${prefix}${newPath}${suffix}`;
 				}
 

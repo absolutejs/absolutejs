@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
 import { build } from '../core/build';
 import type { BuildConfig } from '../types';
+import { logger } from '../utils/logger';
 import type { HMRState } from './clientManager';
 import { incrementSourceFileVersions } from './clientManager';
 import { getAffectedFiles } from './dependencyGraph';
@@ -10,7 +11,6 @@ import { createModuleUpdates, groupModuleUpdatesByFramework } from './moduleMapp
 import { incrementModuleVersions, serializeModuleVersions } from './moduleVersionTracker';
 import { detectFramework } from './pathUtils';
 import { broadcastToClients } from './webSocket';
-// Note: Removed serverComponentRenderer and ssrCache imports - React HMR is now simplified
 
 /* Queue a file change for processing
    This handles the "queue changes" problem with debouncing */
@@ -21,8 +21,7 @@ export function queueFileChange(
   onRebuildComplete: (manifest: Record<string, string>) => void
 ): void {
   const framework = detectFramework(filePath, state.resolvedPaths);
-  console.log('[HMR Server] File change detected:', { filePath, framework, htmxDir: state.resolvedPaths.htmxDir });
-  
+
   if (framework === 'ignored') {
     return;
   }
@@ -227,7 +226,7 @@ export async function triggerRebuild(
     }
 
     const duration = Date.now() - startTime;
-    console.log(`✅ Rebuilt in ${duration}ms`);
+    logger.rebuilt(duration);
 
     // Notify clients of successful rebuild
     broadcastToClients(state, {
@@ -277,7 +276,14 @@ export async function triggerRebuild(
             // Check if only CSS files changed (no component files)
             const hasComponentChanges = reactFiles.some(file => file.endsWith('.tsx') || file.endsWith('.ts') || file.endsWith('.jsx'));
             const hasCSSChanges = reactFiles.some(file => file.endsWith('.css'));
-            
+
+            // Log the HMR update
+            if (hasCSSChanges && !hasComponentChanges) {
+              logger.cssUpdate(primarySource ?? reactFiles[0] ?? '', 'react');
+            } else {
+              logger.hmrUpdate(primarySource ?? reactFiles[0] ?? '', 'react');
+            }
+
             // Send react-update message without HTML - client will import and re-render
             broadcastToClients(state, {
               data: {
@@ -296,16 +302,61 @@ export async function triggerRebuild(
         }
       }
       
+      // SCRIPT-ONLY HMR: If only TypeScript/JavaScript scripts changed (not HTML pages),
+      // send a lightweight script-update message. The client will use import.meta.hot to
+      // hot-reload just the script, preserving DOM and state.
+      if (affectedFrameworks.includes('html') && filesToRebuild && state.resolvedPaths.htmlDir) {
+        const htmlFrameworkFiles = filesToRebuild.filter(file => detectFramework(file, state.resolvedPaths) === 'html');
+
+        if (htmlFrameworkFiles.length > 0) {
+          // Separate script files from HTML page files
+          const scriptFiles = htmlFrameworkFiles.filter((f) =>
+            (f.endsWith('.ts') || f.endsWith('.js') || f.endsWith('.tsx') || f.endsWith('.jsx')) &&
+            f.replace(/\\/g, '/').includes('/scripts/')
+          );
+          const htmlPageFiles = htmlFrameworkFiles.filter((f) => f.endsWith('.html'));
+
+          // If ONLY scripts changed (no HTML pages), send script-update for each
+          if (scriptFiles.length > 0 && htmlPageFiles.length === 0) {
+            for (const scriptFile of scriptFiles) {
+              // Get the built script path from manifest
+              const { basename } = await import('node:path');
+              const { toPascal } = await import('../utils/stringModifiers');
+              const scriptBaseName = basename(scriptFile).replace(/\.(ts|js|tsx|jsx)$/, '');
+              const pascalName = toPascal(scriptBaseName);
+              const manifestKey = pascalName;
+              const scriptPath = manifest[manifestKey] || null;
+
+              if (scriptPath) {
+                logger.scriptUpdate(scriptFile, 'html');
+                broadcastToClients(state, {
+                  data: {
+                    framework: 'html',
+                    scriptPath,
+                    sourceFile: scriptFile,
+                    manifest
+                  },
+                  type: 'script-update'
+                });
+              } else {
+                logger.warn(`Script not found in manifest: ${manifestKey}`);
+              }
+            }
+            // Skip full HTML update since we handled the scripts
+          }
+        }
+      }
+
       // Simple HTML HMR: Read HTML file and send HTML patch
       // Trigger if HTML files changed OR if CSS files in HTML directory changed (CSS updates need to push new HTML with updated CSS links)
       if (affectedFrameworks.includes('html') && filesToRebuild && state.resolvedPaths.htmlDir) {
         const htmlFrameworkFiles = filesToRebuild.filter(file => detectFramework(file, state.resolvedPaths) === 'html');
-        
+
         // Trigger update if any HTML framework files changed (HTML files OR CSS files in HTML directory)
         if (htmlFrameworkFiles.length > 0) {
           // Collect all affected HTML pages (from dependency graph + direct edits)
           const htmlPageFiles = htmlFrameworkFiles.filter((f) => f.endsWith('.html'));
-          // Only process if we have actual HTML files - skip if only CSS changed (CSS updates will be picked up on page reload)
+          // Only process if we have actual HTML files - skip if only scripts/CSS changed
           const pagesToUpdate = htmlPageFiles;
 
           // Use the BUILT file path (which has updated CSS paths from updateAssetPaths)
@@ -325,6 +376,7 @@ export async function triggerRebuild(
             const newHTML = await handleHTMLUpdate(builtHtmlPagePath);
             
             if (newHTML) {
+              logger.hmrUpdate(pageFile, 'html');
               // Send simple HTML update to clients (includes updated CSS links from updateAssetPaths)
               broadcastToClients(state, {
                 data: {
@@ -367,6 +419,7 @@ export async function triggerRebuild(
               const cssKey = `${cssPascalName}CSS`;
               const cssUrl = manifest[cssKey] || null;
 
+              logger.cssUpdate(cssFile, 'vue');
               // Broadcast CSS-only update
               broadcastToClients(state, {
                 data: {
@@ -404,6 +457,7 @@ export async function triggerRebuild(
               const cssKey = `${pascalName}CSS`;
               const cssUrl = manifest[cssKey] || null;
 
+              logger.hmrUpdate(vuePagePath, 'vue');
               // Send HMR update - uses HTML patching + remount approach
               // (Vue's official HMR API doesn't work with Bun's bundler)
               broadcastToClients(state, {
@@ -452,6 +506,7 @@ export async function triggerRebuild(
               const cssKey = `${cssPascalName}CSS`;
               const cssUrl = manifest[cssKey] || null;
 
+              logger.cssUpdate(cssFile, 'svelte');
               // Broadcast CSS-only update
               broadcastToClients(state, {
                 data: {
@@ -493,6 +548,7 @@ export async function triggerRebuild(
               const cssKey = `${pascalName}CSS`;
               const cssUrl = manifest[cssKey] || null;
 
+              logger.hmrUpdate(sveltePagePath, 'svelte');
               // Send Svelte update with official HMR data
               broadcastToClients(state, {
                 data: {
@@ -513,21 +569,51 @@ export async function triggerRebuild(
         }
       }
       
-      // Simple HTMX HMR: Read HTMX file and send HTML patch
-      // Trigger if HTMX files changed OR if CSS files in HTMX directory changed (CSS updates need to push new HTML with updated CSS links)
-      console.log('[HMR Server] Checking HTMX:', {
-        hasHtmx: affectedFrameworks.includes('htmx'),
-        hasFiles: !!filesToRebuild,
-        htmxDir: state.resolvedPaths.htmxDir,
-        affectedFrameworks
-      });
+      // HTMX SCRIPT-ONLY HMR: Same as HTML - if only scripts changed, send script-update
       if (affectedFrameworks.includes('htmx') && filesToRebuild && state.resolvedPaths.htmxDir) {
         const htmxFrameworkFiles = filesToRebuild.filter(file => detectFramework(file, state.resolvedPaths) === 'htmx');
-        console.log('[HMR Server] HTMX files detected:', htmxFrameworkFiles.length, htmxFrameworkFiles);
-        
+
+        if (htmxFrameworkFiles.length > 0) {
+          const htmxScriptFiles = htmxFrameworkFiles.filter((f) =>
+            (f.endsWith('.ts') || f.endsWith('.js') || f.endsWith('.tsx') || f.endsWith('.jsx')) &&
+            f.replace(/\\/g, '/').includes('/scripts/')
+          );
+          const htmxHtmlFiles = htmxFrameworkFiles.filter((f) => f.endsWith('.html'));
+
+          if (htmxScriptFiles.length > 0 && htmxHtmlFiles.length === 0) {
+            for (const scriptFile of htmxScriptFiles) {
+              const { basename } = await import('node:path');
+              const { toPascal } = await import('../utils/stringModifiers');
+              const scriptBaseName = basename(scriptFile).replace(/\.(ts|js|tsx|jsx)$/, '');
+              const pascalName = toPascal(scriptBaseName);
+              const manifestKey = pascalName;
+              const scriptPath = manifest[manifestKey] || null;
+
+              if (scriptPath) {
+                logger.scriptUpdate(scriptFile, 'htmx');
+                broadcastToClients(state, {
+                  data: {
+                    framework: 'htmx',
+                    scriptPath,
+                    sourceFile: scriptFile,
+                    manifest
+                  },
+                  type: 'script-update'
+                });
+              }
+            }
+          }
+        }
+      }
+
+      // Simple HTMX HMR: Read HTMX file and send HTML patch
+      // Trigger if HTMX files changed OR if CSS files in HTMX directory changed (CSS updates need to push new HTML with updated CSS links)
+      if (affectedFrameworks.includes('htmx') && filesToRebuild && state.resolvedPaths.htmxDir) {
+        const htmxFrameworkFiles = filesToRebuild.filter(file => detectFramework(file, state.resolvedPaths) === 'htmx');
+
         // Trigger update if any HTMX framework files changed (HTML files OR CSS files in HTMX directory)
         if (htmxFrameworkFiles.length > 0) {
-          // Only process if we have actual HTML page files - skip if only CSS changed
+          // Only process if we have actual HTML page files - skip if only scripts/CSS changed
           const htmxPageFiles = htmxFrameworkFiles.filter((f) => f.endsWith('.html'));
 
           // Use the BUILT file path (which has updated CSS paths from updateAssetPaths)
@@ -547,6 +633,7 @@ export async function triggerRebuild(
               const newHTML = await handleHTMXUpdate(builtHtmxPagePath);
 
               if (newHTML) {
+                logger.hmrUpdate(htmxPageFile, 'htmx');
                 broadcastToClients(state, {
                   data: {
                     framework: 'htmx', html: newHTML, sourceFile: builtHtmxPagePath

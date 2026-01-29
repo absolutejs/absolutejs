@@ -8,6 +8,7 @@ import { compileSvelte } from '../build/compileSvelte';
 import { compileVue } from '../build/compileVue';
 import { generateManifest } from '../build/generateManifest';
 import { generateReactIndexFiles } from '../build/generateReactIndexes';
+import { createHTMLScriptHMRPlugin } from '../build/htmlScriptHMRPlugin';
 import { outputLogs } from '../build/outputLogs';
 import { scanEntryPoints } from '../build/scanEntryPoints';
 import { updateAssetPaths } from '../build/updateAssetPaths';
@@ -15,6 +16,8 @@ import { BuildConfig } from '../types';
 import { cleanup } from '../utils/cleanup';
 import { commonAncestor } from '../utils/commonAncestor';
 import { getDurationString } from '../utils/getDurationString';
+import { logger } from '../utils/logger';
+import { normalizePath } from '../utils/normalizePath';
 import { validateSafePath } from '../utils/validateSafePath';
 
 const isDev = env.NODE_ENV !== 'production';
@@ -41,7 +44,10 @@ export const build = async ({
 	const buildStart = performance.now();
 	const projectRoot = cwd();
 	const isIncremental = incrementalFiles && incrementalFiles.length > 0;
-	
+
+	// Normalize incrementalFiles for consistent cross-platform path checking
+	const normalizedIncrementalFiles = incrementalFiles?.map(normalizePath);
+
 	if (isIncremental) {
 		console.log(`⚡ Incremental build: ${incrementalFiles.length} file(s) to rebuild`);
 	}
@@ -124,7 +130,7 @@ export const build = async ({
 	}
 
 	// Copy assets on full builds or if assets changed
-	if (assetsPath && (!isIncremental || incrementalFiles?.some(f => f.includes('/assets/')))) {
+	if (assetsPath && (!isIncremental || normalizedIncrementalFiles?.some(f => f.includes('/assets/')))) {
 		cpSync(assetsPath, join(buildPath, 'assets'), {
 			force: true,
 			recursive: true
@@ -132,7 +138,7 @@ export const build = async ({
 	}
 
 	// Tailwind only on full builds or if CSS changed
-	if (tailwind && (!isIncremental || incrementalFiles?.some(f => f.endsWith('.css')))) {
+	if (tailwind && (!isIncremental || normalizedIncrementalFiles?.some(f => f.endsWith('.css')))) {
 		await $`bunx @tailwindcss/cli -i ${tailwind.input} -o ${join(buildPath, tailwind.output)}`;
 	}
 
@@ -263,7 +269,7 @@ export const build = async ({
 		clientEntryPoints.length === 0 &&
 		htmxDir === undefined
 	) {
-		console.warn('No entry points found, manifest will be empty.');
+		logger.warn('No entry points found, manifest will be empty');
 
 		return {};
 	}
@@ -280,7 +286,7 @@ export const build = async ({
 			root: serverRoot,
 			target: 'bun'
 		}).catch((err) => {
-			console.error('Server build failed:', err);
+			logger.error('Server build failed', err);
 			exit(1);
 		});
 		serverLogs = logs;
@@ -302,6 +308,11 @@ export const build = async ({
 			? (roots[0] ?? projectRoot)
 			: commonAncestor(roots, projectRoot);
 
+		// Create HTML script HMR plugin for dev mode
+		const htmlScriptPlugin = isDev
+			? createHTMLScriptHMRPlugin(htmlDir, htmxDir)
+			: undefined;
+
 		const { logs, outputs } = await bunBuild({
 			define: vueDirectory ? vueFeatureFlags : undefined,
 			entrypoints: clientEntryPoints,
@@ -309,6 +320,7 @@ export const build = async ({
 			minify: !isDev, // Don't minify in dev for better debugging
 			naming: `[dir]/[name].[hash].[ext]`,
 			outdir: buildPath,
+			plugins: htmlScriptPlugin ? [htmlScriptPlugin] : undefined,
 			// @ts-expect-error - reactFastRefresh is new in Bun 1.3.6, types will catch up
 			reactFastRefresh: isDev,
 			root: clientRoot,
@@ -316,7 +328,7 @@ export const build = async ({
 			splitting: !isDev, // Disable splitting in dev to avoid duplicate export bug
 			external: isDev ? ['react', 'react-dom', 'react-dom/client', 'react/jsx-runtime', 'react/jsx-dev-runtime'] : undefined
 		}).catch((err) => {
-			console.error('Client build failed:', err);
+			logger.error('Client build failed', err);
 			exit(1);
 		});
 		clientLogs = logs;
@@ -333,7 +345,7 @@ export const build = async ({
 			outdir: join(buildPath, basename(assetsPath), 'css'),
 			target: 'browser'
 		}).catch((err) => {
-			console.error('CSS build failed:', err);
+			logger.error('CSS build failed', err);
 			exit(1);
 		});
 		cssLogs = logs;
@@ -360,7 +372,6 @@ export const build = async ({
 				const existingManifest = JSON.parse(manifestText) as Record<string, string>;
 				// Merge: new entries override old ones, but keep old entries for unchanged files
 				manifest = { ...existingManifest, ...newManifest };
-				console.log(`📋 Merged manifest: ${Object.keys(newManifest).length} new, ${Object.keys(existingManifest).length} existing entries`);
 			}
 		} catch {
 			// No existing manifest or parse error, use new one
@@ -370,19 +381,19 @@ export const build = async ({
 
 	// For HTML/HTMX, copy pages on full builds or if HTML/HTMX files changed
 	// Also update asset paths if CSS changed (to update CSS links in HTML files)
-	const htmlOrHtmlCssChanged = !isIncremental || 
-		(incrementalFiles?.some(f => f.includes('/html/') && (f.endsWith('.html') || f.endsWith('.css'))));
-	const htmxOrHtmxCssChanged = !isIncremental || 
-		(incrementalFiles?.some(f => f.includes('/htmx/') && (f.endsWith('.html') || f.endsWith('.css'))));
-	
+	const htmlOrHtmlCssChanged = !isIncremental ||
+		(normalizedIncrementalFiles?.some(f => f.includes('/html/') && (f.endsWith('.html') || f.endsWith('.css'))));
+	const htmxOrHtmxCssChanged = !isIncremental ||
+		(normalizedIncrementalFiles?.some(f => f.includes('/htmx/') && (f.endsWith('.html') || f.endsWith('.css'))));
+
 	const shouldCopyHtml = htmlOrHtmlCssChanged;
 	const shouldCopyHtmx = htmxOrHtmxCssChanged;
-	
+
 	// Update asset paths if CSS changed (even if HTML files didn't change)
-	const shouldUpdateHtmlAssetPaths = !isIncremental || 
-		(incrementalFiles?.some(f => f.includes('/html/') && (f.endsWith('.html') || f.endsWith('.css'))));
-	const shouldUpdateHtmxAssetPaths = !isIncremental || 
-		(incrementalFiles?.some(f => f.includes('/htmx/') && (f.endsWith('.html') || f.endsWith('.css'))));
+	const shouldUpdateHtmlAssetPaths = !isIncremental ||
+		(normalizedIncrementalFiles?.some(f => f.includes('/html/') && (f.endsWith('.html') || f.endsWith('.css'))));
+	const shouldUpdateHtmxAssetPaths = !isIncremental ||
+		(normalizedIncrementalFiles?.some(f => f.includes('/htmx/') && (f.endsWith('.html') || f.endsWith('.css'))));
 
 	if (htmlDir && htmlPagesPath) {
 		const outputHtmlPages = isSingle
@@ -455,7 +466,7 @@ export const build = async ({
 	try {
 		await Bun.write(manifestPath, manifestJson);
 	} catch (error) {
-		console.warn('⚠️ Could not save manifest:', error);
+		logger.warn(`Could not save manifest: ${error}`);
 	}
 
 	return manifest;

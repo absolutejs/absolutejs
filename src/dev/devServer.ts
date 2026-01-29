@@ -1061,7 +1061,60 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                   });
                 break;
               }
-              
+
+              case 'script-update': {
+                // Script-only HMR: Hot-reload just the script using import.meta.hot
+                // This is faster than full HTML updates and preserves more state
+                console.log('[HMR] Received script-update message');
+                const scriptFramework = message.data.framework;
+                const currentFw = detectCurrentFramework();
+
+                // Only handle if we're on the right framework page
+                if (currentFw !== scriptFramework) {
+                  console.log('[HMR] Skipping script update - different framework:', currentFw, 'vs', scriptFramework);
+                  break;
+                }
+
+                const scriptPath = message.data.scriptPath;
+                if (!scriptPath) {
+                  console.warn('[HMR] No script path in update');
+                  break;
+                }
+
+                console.log('[HMR] Hot-reloading script:', scriptPath);
+
+                // Clone interactive elements to remove old event listeners
+                // This prevents duplicate handlers when script re-runs
+                var interactiveSelectors = 'button, [onclick], [onchange], [oninput], details, input, select, textarea';
+                document.body.querySelectorAll(interactiveSelectors).forEach(function(el) {
+                  var cloned = el.cloneNode(true);
+                  if (el.parentNode) {
+                    el.parentNode.replaceChild(cloned, el);
+                  }
+                });
+
+                // Preserve counter value in __HMR_DOM_STATE__ for script to read
+                var counterSpan = document.querySelector('#counter');
+                if (counterSpan) {
+                  window.__HMR_DOM_STATE__ = {
+                    count: parseInt(counterSpan.textContent || '0', 10)
+                  };
+                }
+
+                // Dynamic import with cache busting triggers import.meta.hot.accept()
+                var cacheBustedPath = scriptPath + '?t=' + Date.now();
+                import(/* @vite-ignore */ cacheBustedPath)
+                  .then(function() {
+                    console.log('[HMR] Script hot-reloaded successfully');
+                  })
+                  .catch(function(err) {
+                    console.error('[HMR] Script hot-reload failed, falling back to page reload:', err);
+                    window.location.reload();
+                  });
+
+                break;
+              }
+
               case 'html-update': {
                 console.log('[HMR] Received html-update message');
                 const htmlFrameworkCheck = detectCurrentFramework();

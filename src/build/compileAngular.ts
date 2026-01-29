@@ -1,5 +1,6 @@
 import { promises as fs } from 'fs';
-import { join, basename, sep, dirname } from 'path';
+import { join, basename, dirname } from 'path';
+import { normalizePath } from '../utils/normalizePath';
 import {
 	readConfiguration,
 	createCompilerHost,
@@ -77,7 +78,7 @@ export const compileAngular = async (
 		const jsName = `${fileBase}.js`;
 
 		const rawServerFile = outputs.find((f) =>
-			f.endsWith(`${sep}pages${sep}${jsName}`)
+			normalizePath(f).endsWith(`/pages/${jsName}`)
 		);
 		if (!rawServerFile) {
 			throw new Error(`Compiled output not found for ${entry}`);

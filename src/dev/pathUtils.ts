@@ -1,4 +1,5 @@
 import { BuildConfig } from '../types';
+import { normalizePath } from '../utils/normalizePath';
 import type { ResolvedBuildPaths } from './configResolver';
 
 /* Get the directories we should watch based on our config
@@ -8,11 +9,12 @@ export const getWatchPaths = (
   resolved?: ResolvedBuildPaths
 ) => {
   const paths: string[] = [];
-  
-  // helper to push only when base exists
+
+  // helper to push only when base exists, normalizing for cross-platform compatibility
   const push = (base?: string, sub?: string) => {
     if (!base) return;
-    paths.push(sub ? `${base}/${sub}` : base);
+    const normalizedBase = normalizePath(base);
+    paths.push(sub ? `${normalizedBase}/${sub}` : normalizedBase);
   };
 
   const cfg = resolved ?? {

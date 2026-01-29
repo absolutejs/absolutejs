@@ -42,6 +42,9 @@ declare global {
     htmx?: {
       process: (element: HTMLElement | Document) => void;
     };
+
+    /* DOM state preserved during HTML/HTMX HMR updates */
+    __HMR_DOM_STATE__?: { count?: number; [key: string]: unknown };
   }
 }
 

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { normalizePath } from '../utils/normalizePath';
 
 /* This function computes SHA-256 hash of a file's contents
    satisfying the file hashing portion of HMR optimization */
@@ -15,7 +16,7 @@ export const computeFileHash = (filePath: string) => {
   }
 }
 
-/* This function checks if the file has changed by comparing its 
+/* This function checks if the file has changed by comparing its
    current hash to the previous hash
    this handles the detection of actual changes */
 export const hasFileChanged = (
@@ -23,12 +24,14 @@ export const hasFileChanged = (
   currentHash: string,
   previousHashes: Map<string, string>
 ) => {
-  const previousHash = previousHashes.get(filePath);
-  
+  // Normalize path for consistent Map key lookup across platforms
+  const normalizedPath = normalizePath(filePath);
+  const previousHash = previousHashes.get(normalizedPath);
+
   if (!previousHash) {
     // "First time seeing this file, definitely changed" essentially
     return true;
   }
-  
+
   return previousHash !== currentHash;
 }
