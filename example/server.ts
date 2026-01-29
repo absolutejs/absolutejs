@@ -110,6 +110,13 @@ export const server = new Elysia()
 	.post('/htmx/reset', ({ resetScopedStore }) => resetScopedStore())
 	.get('/htmx/count', ({ scopedStore }) => scopedStore.count)
 	.post('/htmx/increment', ({ scopedStore }) => ++scopedStore.count)
+	.post('/htmx/sync-count', ({ body, scopedStore }) => {
+		if (body && typeof body === 'object' && 'count' in body) {
+			scopedStore.count = Number(body.count);
+			return { success: true };
+		}
+		return { success: false };
+	})
 	.use(networking)
 	.on('error', (error) => {
 		const { request } = error;
