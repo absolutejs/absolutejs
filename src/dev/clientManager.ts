@@ -21,6 +21,7 @@ export type HMRState = {
   sourceFileVersions: Map<string, number>; // source file path -> version number (for cache busting)
   config: BuildConfig; // Build configuration for path resolution
   resolvedPaths: ResolvedBuildPaths; // Normalized paths derived from config
+  vueChangeTypes: Map<string, 'template-only' | 'script' | 'full'>; // Vue HMR change type tracking
 };
 
 /* Initialize HMR state */
@@ -37,7 +38,8 @@ export const createHMRState = (config: BuildConfig): HMRState => ({
   sourceFileVersions: new Map(),
   watchers: [],
   config,
-  resolvedPaths: resolveBuildPaths(config) // Track versions for source files to bypass Bun's cache
+  resolvedPaths: resolveBuildPaths(config), // Track versions for source files to bypass Bun's cache
+  vueChangeTypes: new Map() // Vue HMR change type tracking
 });
 
 /* Increment version for a source file (forces Bun to treat it as a new module) */

@@ -127,6 +127,13 @@ export type VueUpdateMessage = {
     sourceFile: string;
     html?: string;
     manifest?: Record<string, string>;
+    // Native Vue HMR fields
+    hmrId?: string;
+    changeType?: 'style-only' | 'template-only' | 'script' | 'full';
+    componentPath?: string;
+    cssUrl?: string;
+    cssBaseName?: string;
+    updateType?: 'css-only' | 'full';
   };
   timestamp: number;
 };

@@ -437,9 +437,6 @@ export async function triggerRebuild(
           // Process each affected Vue page
           for (const vuePagePath of pagesToUpdate) {
             try {
-              const { handleVueUpdate } = await import('./simpleVueHMR');
-              const newHTML = await handleVueUpdate(vuePagePath, manifest);
-
               // Generate HMR ID from source file path (matches compileVue.ts format)
               const { basename, relative } = await import('node:path');
               const { toPascal } = await import('../utils/stringModifiers');
@@ -457,14 +454,47 @@ export async function triggerRebuild(
               const cssKey = `${pascalName}CSS`;
               const cssUrl = manifest[cssKey] || null;
 
+              // Get change type from vueHmrMetadata (populated during compile)
+              // This enables native Vue HMR: rerender() for template-only, reload() for script
+              // style-only changes get CSS hot-swap (state preserved!)
+              const { vueHmrMetadata } = await import('../build/compileVue');
+              const hmrMeta = vueHmrMetadata.get(resolve(vuePagePath));
+              const changeType = hmrMeta?.changeType ?? 'full';
+
+              // Check for style-only change - send CSS-only update (preserves state!)
+              if (changeType === 'style-only') {
+                logger.cssUpdate(vuePagePath, 'vue');
+                broadcastToClients(state, {
+                  data: {
+                    framework: 'vue',
+                    updateType: 'css-only',
+                    changeType: 'style-only',
+                    cssUrl,
+                    cssBaseName: baseName,
+                    hmrId,
+                    manifest,
+                    sourceFile: vuePagePath
+                  }, type: 'vue-update'
+                });
+                continue; // Skip full update - CSS hot-swap is enough
+              }
+
+              const { handleVueUpdate } = await import('./simpleVueHMR');
+              const newHTML = await handleVueUpdate(vuePagePath, manifest, state.resolvedPaths.buildDir);
+
+              // Get component path from manifest for client-side import
+              const componentPath = manifest[`${pascalName}Client`] || null;
+
               logger.hmrUpdate(vuePagePath, 'vue');
-              // Send HMR update - uses HTML patching + remount approach
-              // (Vue's official HMR API doesn't work with Bun's bundler)
+              // Send HMR update with native HMR metadata
+              // Client will try native __VUE_HMR_RUNTIME__ first, fallback to remount
               broadcastToClients(state, {
                 data: {
                   framework: 'vue',
                   html: newHTML,
                   hmrId,
+                  changeType,
+                  componentPath,
                   cssUrl,
                   updateType: 'full',
                   manifest,
@@ -525,7 +555,7 @@ export async function triggerRebuild(
           for (const sveltePagePath of pagesToUpdate) {
             try {
               const { handleSvelteUpdate } = await import('./simpleSvelteHMR');
-              const newHTML = await handleSvelteUpdate(sveltePagePath, manifest);
+              const newHTML = await handleSvelteUpdate(sveltePagePath, manifest, state.resolvedPaths.buildDir);
 
               // Get component info
               const { basename, relative } = await import('node:path');

@@ -149,6 +149,14 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
       if (!window.ReactDOM) window.ReactDOM = ReactDOMClient;
       if (!window.ReactDOM.default) window.ReactDOM.default = ReactDOMClient;
     </script>
+    <script type="module" data-vue-hmr-setup>
+      // Vue Native HMR Setup
+      // Initialize component registry for Vue HMR runtime
+      // This enables state-preserving hot updates via __VUE_HMR_RUNTIME__
+      if (typeof window !== 'undefined') {
+        window.__VUE_HMR_COMPONENTS__ = window.__VUE_HMR_COMPONENTS__ || {};
+      }
+    </script>
   `;
   
   const hmrScript = `
@@ -2560,24 +2568,135 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                   break;
                 }
 
+                // Full update: always use fallback remount approach
+                // Manual render function swapping doesn't work because __VUE_APP__._instance
+                // is the root app instance, not the page component instance
+                console.log('[HMR] Vue update - remounting component');
+
+                // Update CSS before remount if present
+                if (message.data.cssUrl) {
+                  var vueCssBaseName = message.data.cssBaseName || '';
+                  var vueExistingLink = null;
+                  document.querySelectorAll('link[rel="stylesheet"]').forEach(function(link) {
+                    var href = link.getAttribute('href') || '';
+                    if (href.includes(vueCssBaseName) || href.includes('vue')) {
+                      vueExistingLink = link;
+                    }
+                  });
+                  if (vueExistingLink) {
+                    var vueCssLink = document.createElement('link');
+                    vueCssLink.rel = 'stylesheet';
+                    vueCssLink.href = message.data.cssUrl + '?t=' + Date.now();
+                    vueCssLink.onload = function() {
+                      if (vueExistingLink && vueExistingLink.parentNode) {
+                        vueExistingLink.remove();
+                      }
+                    };
+                    document.head.appendChild(vueCssLink);
+                  }
+                }
+
+                performVueFallback(message);
+                break;
+              }
+
+              // Helper function to extract state from child Vue component instances
+              function extractChildComponentState(instance, state) {
+                if (!instance || !instance.subTree) return;
+
+                // Walk through child components recursively
+                function walkVNode(vnode) {
+                  if (!vnode) return;
+
+                  // Check if this vnode has a component instance with setupState
+                  if (vnode.component && vnode.component.setupState) {
+                    var childState = vnode.component.setupState;
+                    var keys = Object.keys(childState);
+                    for (var i = 0; i < keys.length; i++) {
+                      var key = keys[i];
+                      var value = childState[key];
+                      // Check if it's a ref (has .value property)
+                      if (value && typeof value === 'object' && 'value' in value) {
+                        state[key] = value.value;
+                      } else if (typeof value !== 'function') {
+                        // Also capture non-ref reactive state
+                        state[key] = value;
+                      }
+                    }
+                  }
+
+                  // Recurse into children array
+                  if (vnode.children && Array.isArray(vnode.children)) {
+                    for (var j = 0; j < vnode.children.length; j++) {
+                      walkVNode(vnode.children[j]);
+                    }
+                  }
+                  // Recurse into component's subTree
+                  if (vnode.component && vnode.component.subTree) {
+                    walkVNode(vnode.component.subTree);
+                  }
+                }
+
+                walkVNode(instance.subTree);
+              }
+
+              // Fallback function for Vue HMR (used when native HMR is unavailable)
+              function performVueFallback(message) {
                 sessionStorage.setItem('__HMR_ACTIVE__', 'true');
 
                 // Save DOM state (form inputs, scroll, focus) before update
                 var vueRoot = document.getElementById('root');
                 var vueDomState = vueRoot ? saveDOMState(vueRoot) : null;
 
-                // Extract Vue reactive state from DOM (counters, buttons with state)
+                // Extract Vue reactive state from app instance (not DOM)
                 var vuePreservedState = {};
-                var countButton = document.querySelector('button');
-                if (countButton && countButton.textContent) {
-                  var countMatch = countButton.textContent.match(/count is (\d+)/i);
-                  if (countMatch) {
-                    vuePreservedState.initialCount = parseInt(countMatch[1], 10);
+
+                if (window.__VUE_APP__ && window.__VUE_APP__._instance) {
+                  var instance = window.__VUE_APP__._instance;
+
+                  // Extract from setupState (where refs live in <script setup>)
+                  if (instance.setupState) {
+                    var setupKeys = Object.keys(instance.setupState);
+                    for (var i = 0; i < setupKeys.length; i++) {
+                      var key = setupKeys[i];
+                      var value = instance.setupState[key];
+                      // Check if it's a ref (has .value property)
+                      if (value && typeof value === 'object' && 'value' in value) {
+                        vuePreservedState[key] = value.value;
+                      } else if (typeof value !== 'function') {
+                        vuePreservedState[key] = value;
+                      }
+                    }
+                  }
+
+                  // Also extract from child components (like CountButton)
+                  extractChildComponentState(instance, vuePreservedState);
+                }
+
+                // Fallback: DOM extraction if app instance not available
+                if (Object.keys(vuePreservedState).length === 0) {
+                  var countButton = document.querySelector('button');
+                  if (countButton && countButton.textContent) {
+                    var countMatch = countButton.textContent.match(/count is (\d+)/i);
+                    if (countMatch) {
+                      vuePreservedState.initialCount = parseInt(countMatch[1], 10);
+                    }
                   }
                 }
 
+                // Ensure initialCount is set for prop-based state (used by CountButton)
+                if (vuePreservedState.count !== undefined && vuePreservedState.initialCount === undefined) {
+                  vuePreservedState.initialCount = vuePreservedState.count;
+                }
+
+                // Backup to sessionStorage for resilience
+                try {
+                  sessionStorage.setItem('__VUE_HMR_STATE__', JSON.stringify(vuePreservedState));
+                } catch (e) {}
+
                 // Set preserved state for Vue index to read
                 window.__HMR_PRESERVED_STATE__ = vuePreservedState;
+                console.log('[HMR] Vue state preserved:', JSON.stringify(vuePreservedState));
 
                 // Unmount the old Vue app
                 if (window.__VUE_APP__) {
@@ -2589,7 +2708,7 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                 var newHTML = message.data.html;
                 if (!newHTML) {
                   window.location.reload();
-                  break;
+                  return;
                 }
 
                 // Extract inner content
@@ -2613,7 +2732,7 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                 if (!indexPath) {
                   console.warn('[HMR] Vue index path not found, reloading');
                   window.location.reload();
-                  break;
+                  return;
                 }
 
                 // Import the new index with proper cache-busting
@@ -2625,14 +2744,13 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                       restoreDOMState(vueRoot, vueDomState);
                     }
                     sessionStorage.removeItem('__HMR_ACTIVE__');
-                    console.log('[HMR] Vue updated (state preserved)');
+                    console.log('[HMR] Vue updated via fallback (state preserved)');
                   })
                   .catch(function(err) {
                     console.warn('[HMR] Vue import failed:', err);
                     sessionStorage.removeItem('__HMR_ACTIVE__');
                     window.location.reload();
                   });
-                break;
               }
                 
               case 'rebuild-error':
