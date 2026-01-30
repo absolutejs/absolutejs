@@ -497,6 +497,15 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
           }
         }
 
+        // Helper to extract base CSS name without hash or extension
+        // "html-example.ezn4j1h1.css" -> "html-example"
+        // This is critical for matching CSS files when their content hash changes
+        function getCSSBaseName(href) {
+          const fileName = href.split('?')[0].split('/').pop() || '';
+          // Split by dots and take first segment (before hash and extension)
+          return fileName.split('.')[0];
+        }
+
         // Head element patching for HMR updates (title, meta, favicon, etc.)
         // This function diffs and patches <head> elements in place without page reload
         function patchHeadInPlace(newHeadHTML) {
@@ -1433,35 +1442,32 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                     // Collect new CSS hrefs (normalize by removing query params and hash for comparison)
                     const newHrefs = Array.from(newStylesheets).map(function(link) {
                       const href = link.getAttribute('href') || '';
-                      // Extract base path before hash (e.g., /assets/css/html-example.abc123.css -> /assets/css/html-example)
-                      const baseName = href.split('?')[0].split('/').pop();
-                      return baseName ? baseName.replace(/\.[^.]*$/, '') : '';
+                      // Extract base name without hash or extension (e.g., /assets/css/html-example.abc123.css -> html-example)
+                      return getCSSBaseName(href);
                     });
                     
                     // Track which links need to be removed after new ones load
                     const linksToRemove = [];
                     const linksToWaitFor = [];
                     const linksToActivate = [];  // Track new CSS links to activate AFTER body patch
-                    
+
                     // STEP 1: Add/update new stylesheet links FIRST (before removing old ones)
                     newStylesheets.forEach(function(newLink) {
                       const href = newLink.getAttribute('href');
                       if (!href) return;
-                      
-                      const baseName = href.split('?')[0].split('/').pop();
-                      const baseNew = baseName ? baseName.replace(/\.[^.]*$/, '') : '';
-                      
+
+                      const baseNew = getCSSBaseName(href);
+
                       // Find existing link with same base path
                       let existingLink = null;
                       document.head.querySelectorAll('link[rel="stylesheet"]').forEach(function(existing) {
                         const existingHref = existing.getAttribute('href') || '';
-                        const existingBaseName = existingHref.split('?')[0].split('/').pop();
-                        const baseExisting = existingBaseName ? existingBaseName.replace(/\.[^.]*$/, '') : '';
+                        const baseExisting = getCSSBaseName(existingHref);
                         if (baseExisting === baseNew || baseExisting.includes(baseNew) || baseNew.includes(baseExisting)) {
                           existingLink = existing;
                         }
                       });
-                      
+
                       if (existingLink) {
                         // Check if href actually changed (new hash)
                         const existingHrefAttr = existingLink.getAttribute('href');
@@ -1542,38 +1548,57 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                           linksToWaitFor.push(loadPromise);
                         }
                       } else {
-                        const link = document.createElement('link');
-                        link.rel = 'stylesheet';
-                        link.href = href + (href.includes('?') ? '&' : '?') + 't=' + Date.now();
-                        document.head.appendChild(link);
+                        // New stylesheet - add with media="print" protection to prevent FOUC
+                        const newLinkElement = document.createElement('link');
+                        newLinkElement.rel = 'stylesheet';
+                        newLinkElement.media = 'print';  // Hide until loaded
+                        const newHref = href + (href.includes('?') ? '&' : '?') + 't=' + Date.now();
+                        newLinkElement.href = newHref;
+
+                        // Track for activation after body patch
+                        linksToActivate.push(newLinkElement);
+
+                        // Wait for this CSS to load before body patching
+                        const loadPromise = new Promise(function(resolve) {
+                          let resolved = false;
+                          const doResolve = function() {
+                            if (resolved) return;
+                            resolved = true;
+                            resolve();
+                          };
+                          newLinkElement.onload = function() { doResolve(); };
+                          newLinkElement.onerror = function() { setTimeout(doResolve, 50); };
+                          setTimeout(function() { if (!resolved) doResolve(); }, 500);
+                        });
+
+                        document.head.appendChild(newLinkElement);
+                        linksToWaitFor.push(loadPromise);
                       }
                     });
-                    
+
                     // STEP 2: Mark old CSS links that are no longer present for removal (after new ones load)
                     existingStylesheets.forEach(function(existingLink) {
                       const existingHref = existingLink.getAttribute('href') || '';
-                      const existingBaseName = existingHref.split('?')[0].split('/').pop();
-                      const baseExisting = existingBaseName ? existingBaseName.replace(/\.[^.]*$/, '') : '';
+                      const baseExisting = getCSSBaseName(existingHref);
                       const stillExists = newHrefs.some(function(newBase) {
                         // Match by base filename (e.g., "html-example" matches "html-example")
                         return baseExisting === newBase || baseExisting.includes(newBase) || newBase.includes(baseExisting);
                       });
-                      
+
                       if (!stillExists) {
                         // Only remove if not already handled above (hash change case)
                         const wasHandled = Array.from(newStylesheets).some(function(newLink) {
                           const newHref = newLink.getAttribute('href') || '';
-                          const newBaseName = newHref.split('?')[0].split('/').pop();
-                          const baseNewLocal = newBaseName ? newBaseName.replace(/\.[^.]*$/, '') : '';
+                          const baseNewLocal = getCSSBaseName(newHref);
                           return baseExisting === baseNewLocal || baseExisting.includes(baseNewLocal) || baseNewLocal.includes(baseExisting);
                         });
-                        
+
                         if (!wasHandled) {
                           linksToRemove.push(existingLink);
                         }
                       }
                     });
-                    
+
                     // STEP 3: Wait for CSS to load BEFORE patching body to prevent flicker
                     const updateBodyAfterCSS = function() {
                       console.log('[HMR] updateBodyAfterCSS called');
@@ -2143,35 +2168,32 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                     // Collect new CSS hrefs (normalize by removing query params and hash for comparison)
                     const newHrefs = Array.from(newStylesheets).map(link => {
                       const href = link.getAttribute('href') || '';
-                      // Extract base path before hash (e.g., /assets/css/htmx-example.abc123.css -> /assets/css/htmx-example)
-                      const baseName = href.split('?')[0].split('/').pop();
-                      return baseName ? baseName.replace(/\.[^.]*$/, '') : '';
+                      // Extract base name without hash or extension (e.g., /assets/css/htmx-example.abc123.css -> htmx-example)
+                      return getCSSBaseName(href);
                     });
-                    
+
                     // Track which links need to be removed after new ones load
                     const linksToRemoveHTMX = [];
                     const linksToWaitForHTMX = [];
                     const linksToActivateHTMX = [];  // Track new CSS links to activate AFTER body patch
-                    
+
                     // STEP 1: Add/update new stylesheet links FIRST (before removing old ones)
                     newStylesheets.forEach(function(newLink) {
                       const href = newLink.getAttribute('href');
                       if (!href) return;
-                      
-                      const baseName = href.split('?')[0].split('/').pop();
-                      const baseNew = baseName ? baseName.replace(/\.[^.]*$/, '') : '';
-                      
+
+                      const baseNew = getCSSBaseName(href);
+
                       // Find existing link with same base path
                       let existingLink = null;
                       document.head.querySelectorAll('link[rel="stylesheet"]').forEach(function(existing) {
                         const existingHref = existing.getAttribute('href') || '';
-                        const existingBaseName = existingHref.split('?')[0].split('/').pop();
-                        const baseExisting = existingBaseName ? existingBaseName.replace(/\.[^.]*$/, '') : '';
+                        const baseExisting = getCSSBaseName(existingHref);
                         if (baseExisting === baseNew || baseExisting.includes(baseNew) || baseNew.includes(baseExisting)) {
                           existingLink = existing;
                         }
                       });
-                      
+
                       if (existingLink) {
                         // Check if href actually changed (new hash)
                         const existingHrefAttr = existingLink.getAttribute('href');
@@ -2252,38 +2274,57 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                           linksToWaitForHTMX.push(loadPromise);
                           }
                         } else {
-                        const link = document.createElement('link');
-                        link.rel = 'stylesheet';
-                        link.href = href + (href.includes('?') ? '&' : '?') + 't=' + Date.now();
-                        document.head.appendChild(link);
+                        // New stylesheet - add with media="print" protection to prevent FOUC
+                        const newLinkElement = document.createElement('link');
+                        newLinkElement.rel = 'stylesheet';
+                        newLinkElement.media = 'print';  // Hide until loaded
+                        const newHref = href + (href.includes('?') ? '&' : '?') + 't=' + Date.now();
+                        newLinkElement.href = newHref;
+
+                        // Track for activation after body patch
+                        linksToActivateHTMX.push(newLinkElement);
+
+                        // Wait for this CSS to load before body patching
+                        const loadPromise = new Promise(function(resolve) {
+                          let resolved = false;
+                          const doResolve = function() {
+                            if (resolved) return;
+                            resolved = true;
+                            resolve();
+                          };
+                          newLinkElement.onload = function() { doResolve(); };
+                          newLinkElement.onerror = function() { setTimeout(doResolve, 50); };
+                          setTimeout(function() { if (!resolved) doResolve(); }, 500);
+                        });
+
+                        document.head.appendChild(newLinkElement);
+                        linksToWaitForHTMX.push(loadPromise);
                       }
                     });
-                    
+
                     // STEP 2: Mark old CSS links that are no longer present for removal (after new ones load)
                     existingStylesheets.forEach(function(existingLink) {
                       const existingHref = existingLink.getAttribute('href') || '';
-                      const existingBaseName = existingHref.split('?')[0].split('/').pop();
-                      const baseExisting = existingBaseName ? existingBaseName.replace(/\.[^.]*$/, '') : '';
+                      const baseExisting = getCSSBaseName(existingHref);
                       const stillExists = newHrefs.some(function(newBase) {
                         // Match by base filename (e.g., "htmx-example" matches "htmx-example")
                         return baseExisting === newBase || baseExisting.includes(newBase) || newBase.includes(baseExisting);
                       });
-                      
+
                       if (!stillExists) {
                         // Only remove if not already handled above (hash change case)
                         const wasHandled = Array.from(newStylesheets).some(function(newLink) {
                           const newHref = newLink.getAttribute('href') || '';
-                          const newBaseName = newHref.split('?')[0].split('/').pop();
-                          const baseNewLocal = newBaseName ? newBaseName.replace(/\.[^.]*$/, '') : '';
+                          const baseNewLocal = getCSSBaseName(newHref);
                           return baseExisting === baseNewLocal || baseExisting.includes(baseNewLocal) || baseNewLocal.includes(baseExisting);
                         });
-                        
+
                         if (!wasHandled) {
                           linksToRemoveHTMX.push(existingLink);
                         }
                       }
                     });
-                    
+
                     // STEP 3: Wait for CSS to load before patching body (prevents flicker)
                     // Use requestAnimationFrame to batch CSS and DOM updates together
                     if (linksToWaitForHTMX.length > 0) {
