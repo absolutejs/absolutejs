@@ -26,50 +26,11 @@ export const handleReactPageRequest = async <
 			? createElement(pageComponent, maybeProps)
 			: createElement(pageComponent);
 
-	// Wrap React output in a stable root container to allow scoped hydration without requiring user-defined #root
-	const Wrapped = createElement(
-		'div',
-		{ 'data-absolute-react-root': 'true' },
-		element
-	);
-
-	const reactStream = await renderReactToReadableStream(Wrapped, {
+	const stream = await renderReactToReadableStream(element, {
 		bootstrapModules: [index],
 		bootstrapScriptContent: maybeProps
 			? `window.__INITIAL_PROPS__=${JSON.stringify(maybeProps)}`
 			: undefined
-	});
-
-	// Build simple HTML shell to host the React root and ensure head exists for scripts/importmaps/CSS
-	const cssPath =
-		typeof maybeProps === 'object' && maybeProps && 'cssPath' in maybeProps
-			? (maybeProps as Record<string, unknown>).cssPath
-			: undefined;
-	const head = `<!DOCTYPE html><html><head>${
-		cssPath ? `<link rel="stylesheet" href="${cssPath}">` : ''
-	}</head><body>`;
-	const tail = `</body></html>`;
-
-	const stream = new ReadableStream({
-		start(controller) {
-			controller.enqueue(head);
-			const reader = reactStream.getReader();
-			const pump = () => {
-				reader
-					.read()
-					.then(({ done, value }) => {
-						if (done) {
-							controller.enqueue(tail);
-							controller.close();
-						} else {
-							controller.enqueue(value);
-							pump();
-						}
-					})
-					.catch((err) => controller.error(err));
-			};
-			pump();
-		}
 	});
 
 	return new Response(stream, {
