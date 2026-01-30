@@ -496,6 +496,276 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
             }
           }
         }
+
+        // Head element patching for HMR updates (title, meta, favicon, etc.)
+        // This function diffs and patches <head> elements in place without page reload
+        function patchHeadInPlace(newHeadHTML) {
+          if (!newHeadHTML) return;
+
+          // Parse new head content into a temporary container
+          const tempDiv = document.createElement('div');
+          tempDiv.innerHTML = newHeadHTML;
+
+          // Helper to generate a unique key for head elements
+          function getHeadElementKey(el) {
+            const tag = el.tagName.toLowerCase();
+
+            // Title is singleton
+            if (tag === 'title') return 'title';
+
+            // Meta charset
+            if (tag === 'meta' && el.hasAttribute('charset')) {
+              return 'meta:charset';
+            }
+
+            // Meta with name attribute (e.g., description, viewport, author)
+            if (tag === 'meta' && el.hasAttribute('name')) {
+              return 'meta:name:' + el.getAttribute('name');
+            }
+
+            // Meta with property attribute (Open Graph tags)
+            if (tag === 'meta' && el.hasAttribute('property')) {
+              return 'meta:property:' + el.getAttribute('property');
+            }
+
+            // Meta with http-equiv attribute
+            if (tag === 'meta' && el.hasAttribute('http-equiv')) {
+              return 'meta:http-equiv:' + el.getAttribute('http-equiv');
+            }
+
+            // Link favicon (rel="icon", rel="shortcut icon", rel="apple-touch-icon")
+            if (tag === 'link') {
+              const rel = (el.getAttribute('rel') || '').toLowerCase();
+              if (rel === 'icon' || rel === 'shortcut icon' || rel === 'apple-touch-icon') {
+                return 'link:icon:' + rel;
+              }
+              // Skip stylesheet links - handled by existing CSS HMR logic
+              if (rel === 'stylesheet') {
+                return null; // Return null to skip
+              }
+              // Preconnect links
+              if (rel === 'preconnect') {
+                return 'link:preconnect:' + (el.getAttribute('href') || '');
+              }
+              // Preload links
+              if (rel === 'preload') {
+                return 'link:preload:' + (el.getAttribute('href') || '');
+              }
+              // Canonical link
+              if (rel === 'canonical') {
+                return 'link:canonical';
+              }
+              // DNS-prefetch
+              if (rel === 'dns-prefetch') {
+                return 'link:dns-prefetch:' + (el.getAttribute('href') || '');
+              }
+            }
+
+            // Script with data-hmr-id (for inline scripts that should be HMR-updateable)
+            if (tag === 'script' && el.hasAttribute('data-hmr-id')) {
+              return 'script:hmr:' + el.getAttribute('data-hmr-id');
+            }
+
+            // Skip scripts without data-hmr-id (don't interfere with React globals, etc.)
+            if (tag === 'script') {
+              return null;
+            }
+
+            // Base tag
+            if (tag === 'base') {
+              return 'base';
+            }
+
+            return null; // Unknown elements are skipped
+          }
+
+          // Check if element should be preserved (never removed by HMR)
+          function shouldPreserveElement(el) {
+            // Preserve HMR infrastructure elements
+            if (el.hasAttribute('data-hmr-import-map')) return true;
+            if (el.hasAttribute('data-hmr-client')) return true;
+            if (el.hasAttribute('data-react-refresh-setup')) return true;
+            if (el.hasAttribute('data-react-globals')) return true;
+
+            // Preserve any element with data-hmr-* attributes
+            const attrs = Array.from(el.attributes);
+            for (var i = 0; i < attrs.length; i++) {
+              if (attrs[i].name.startsWith('data-hmr-')) return true;
+            }
+
+            // Preserve HTMX script
+            if (el.tagName === 'SCRIPT') {
+              const src = el.getAttribute('src') || '';
+              if (src.includes('htmx.min.js') || src.includes('htmx.js')) return true;
+            }
+
+            return false;
+          }
+
+          // Update an existing head element with new content
+          function updateHeadElement(oldEl, newEl, key) {
+            const tag = oldEl.tagName.toLowerCase();
+
+            // Title: update both element textContent and document.title
+            if (tag === 'title') {
+              const newTitle = newEl.textContent || '';
+              if (oldEl.textContent !== newTitle) {
+                oldEl.textContent = newTitle;
+                document.title = newTitle;
+                console.log('[HMR] Updated title to:', newTitle);
+              }
+              return;
+            }
+
+            // Meta tags: update content attribute
+            if (tag === 'meta') {
+              const newContent = newEl.getAttribute('content');
+              const oldContent = oldEl.getAttribute('content');
+              if (oldContent !== newContent && newContent !== null) {
+                oldEl.setAttribute('content', newContent);
+                console.log('[HMR] Updated meta', key, 'to:', newContent);
+              }
+              // Also update charset if present
+              if (newEl.hasAttribute('charset')) {
+                const newCharset = newEl.getAttribute('charset');
+                if (oldEl.getAttribute('charset') !== newCharset) {
+                  oldEl.setAttribute('charset', newCharset);
+                }
+              }
+              return;
+            }
+
+            // Link tags (favicon, preconnect, etc.): update href
+            if (tag === 'link') {
+              const rel = (oldEl.getAttribute('rel') || '').toLowerCase();
+              const newHref = newEl.getAttribute('href');
+              const oldHref = oldEl.getAttribute('href');
+
+              // For favicons, add cache buster to force browser refresh
+              if (rel === 'icon' || rel === 'shortcut icon' || rel === 'apple-touch-icon') {
+                if (newHref && oldHref) {
+                  // Strip existing cache buster and compare base paths
+                  const oldBase = oldHref.split('?')[0];
+                  const newBase = newHref.split('?')[0];
+                  if (oldBase !== newBase) {
+                    const cacheBustedHref = newHref + (newHref.includes('?') ? '&' : '?') + 't=' + Date.now();
+                    oldEl.setAttribute('href', cacheBustedHref);
+                    console.log('[HMR] Updated favicon to:', newBase);
+                  }
+                }
+              } else if (newHref && oldHref !== newHref) {
+                oldEl.setAttribute('href', newHref);
+                console.log('[HMR] Updated link', rel, 'to:', newHref);
+              }
+
+              // Update other attributes (type, sizes, crossorigin, etc.)
+              const attrsToCheck = ['type', 'sizes', 'crossorigin', 'as', 'media'];
+              attrsToCheck.forEach(function(attr) {
+                const newVal = newEl.getAttribute(attr);
+                const oldVal = oldEl.getAttribute(attr);
+                if (newVal !== null && oldVal !== newVal) {
+                  oldEl.setAttribute(attr, newVal);
+                } else if (newVal === null && oldVal !== null) {
+                  oldEl.removeAttribute(attr);
+                }
+              });
+              return;
+            }
+
+            // Base tag: update href and target
+            if (tag === 'base') {
+              const newHref = newEl.getAttribute('href');
+              const newTarget = newEl.getAttribute('target');
+              if (newHref && oldEl.getAttribute('href') !== newHref) {
+                oldEl.setAttribute('href', newHref);
+              }
+              if (newTarget && oldEl.getAttribute('target') !== newTarget) {
+                oldEl.setAttribute('target', newTarget);
+              }
+              return;
+            }
+          }
+
+          // Add a new head element
+          function addHeadElement(newEl, key) {
+            const clone = newEl.cloneNode(true);
+            clone.setAttribute('data-hmr-source', 'patched');
+
+            // Insert in appropriate position (maintain order: title → meta → link → script)
+            const tag = newEl.tagName.toLowerCase();
+            const head = document.head;
+            let insertBefore = null;
+
+            if (tag === 'title') {
+              // Title goes first
+              insertBefore = head.firstChild;
+            } else if (tag === 'meta') {
+              // Meta goes after title, before links
+              const firstLink = head.querySelector('link');
+              const firstScript = head.querySelector('script');
+              insertBefore = firstLink || firstScript;
+            } else if (tag === 'link') {
+              // Links go after meta, before scripts
+              const firstScript = head.querySelector('script');
+              insertBefore = firstScript;
+            }
+
+            if (insertBefore) {
+              head.insertBefore(clone, insertBefore);
+            } else {
+              head.appendChild(clone);
+            }
+            console.log('[HMR] Added head element:', key);
+          }
+
+          // Build maps of existing and new head elements by key
+          const existingMap = new Map();
+          const newMap = new Map();
+
+          // Map existing head elements
+          Array.from(document.head.children).forEach(function(el) {
+            if (shouldPreserveElement(el)) return; // Skip preserved elements
+            const key = getHeadElementKey(el);
+            if (key) {
+              existingMap.set(key, el);
+            }
+          });
+
+          // Map new head elements
+          Array.from(tempDiv.children).forEach(function(el) {
+            const key = getHeadElementKey(el);
+            if (key) {
+              newMap.set(key, el);
+            }
+          });
+
+          // Update existing elements that exist in both maps
+          newMap.forEach(function(newEl, key) {
+            const existingEl = existingMap.get(key);
+            if (existingEl) {
+              updateHeadElement(existingEl, newEl, key);
+            } else {
+              // Add new element
+              addHeadElement(newEl, key);
+            }
+          });
+
+          // Remove elements that no longer exist in new head
+          existingMap.forEach(function(existingEl, key) {
+            if (!newMap.has(key)) {
+              // Don't remove if it's a preserved element or stylesheet
+              if (!shouldPreserveElement(existingEl)) {
+                const tag = existingEl.tagName.toLowerCase();
+                const rel = existingEl.getAttribute('rel') || '';
+                // Don't remove stylesheets (handled by CSS HMR)
+                if (tag === 'link' && rel === 'stylesheet') return;
+                existingEl.remove();
+                console.log('[HMR] Removed head element:', key);
+              }
+            }
+          });
+        }
+
         // Declare HMR globals for TypeScript and framework HMR clients
         if (typeof window !== 'undefined') {
           if (!window.__HMR_MANIFEST__) {
@@ -1148,9 +1418,13 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                 
                 if (htmlBody) {
                   console.log('[HMR] Processing htmlBody');
-                  // Update head CSS links if head content is provided
+                  // Update head elements (title, meta, favicon, etc.) if head content is provided
                   if (htmlHead) {
-                    console.log('[HMR] Has htmlHead, processing CSS');
+                    console.log('[HMR] Has htmlHead, patching head elements');
+                    patchHeadInPlace(htmlHead);
+
+                    // Process CSS links separately (existing CSS HMR logic)
+                    console.log('[HMR] Processing CSS links');
                     const tempDiv = document.createElement('div');
                     tempDiv.innerHTML = htmlHead;
                     const newStylesheets = tempDiv.querySelectorAll('link[rel="stylesheet"]');
@@ -1854,8 +2128,13 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                     sessionStorage.removeItem('__HMR_ACTIVE__');
                   };
                   
-                  // Update head CSS links if head content is provided
+                  // Update head elements (title, meta, favicon, etc.) if head content is provided
                   if (htmxHead) {
+                    console.log('[HMR] Has htmxHead, patching head elements');
+                    patchHeadInPlace(htmxHead);
+
+                    // Process CSS links separately (existing CSS HMR logic)
+                    console.log('[HMR] Processing CSS links');
                     const tempDiv = document.createElement('div');
                     tempDiv.innerHTML = htmxHead;
                     const newStylesheets = tempDiv.querySelectorAll('link[rel="stylesheet"]');

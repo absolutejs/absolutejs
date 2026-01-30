@@ -68,7 +68,7 @@ export const compileSvelte = async (
 		)
 	);
 
-	const dev = env.NODE_ENV === 'development';
+	const dev = env.NODE_ENV !== 'production';
 
 	const build = async (src: string) => {
 		const memoized = cache.get(src);
@@ -129,7 +129,7 @@ export const compileSvelte = async (
 
 // Svelte HMR - accept updates and re-mount component
 if (typeof import.meta !== "undefined" && import.meta.hot) {
-  import.meta.hot.accept((newModule) => {
+  import.meta.hot.accept(async (newModule) => {
     if (newModule && newModule.default && typeof window !== "undefined") {
       console.log('[HMR] Svelte component updated:', ${JSON.stringify(hmrId)});
       // Store props before destroying
