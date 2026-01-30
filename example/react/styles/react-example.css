@@ -38,13 +38,11 @@ h1 {
 	margin-top: 2rem;
 }
 
-[data-absolute-react-root] main {
+body > main {
 	margin-top: 2rem;
 }
 
-[data-absolute-react-root] {
-	display: flex;
-	flex-direction: column;
+body {
 	flex: 1;
 }
 

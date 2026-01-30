@@ -7,7 +7,7 @@ type ReactExampleProps = { initialCount: number; cssPath: string };
 export const ReactExample = ({ initialCount, cssPath }: ReactExampleProps) => (
 	<html>
 		<Head cssPath={cssPath} />
-		<body data-absolute-react-root>
+		<body>
 			<header>
 				<a href="/">AbsoluteJS</a>
 				<Dropdown />
