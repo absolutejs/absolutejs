@@ -1430,7 +1430,17 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                   // Update head elements (title, meta, favicon, etc.) if head content is provided
                   if (htmlHead) {
                     console.log('[HMR] Has htmlHead, patching head elements');
-                    patchHeadInPlace(htmlHead);
+
+                    var doPatchHeadHTML = function() {
+                      patchHeadInPlace(htmlHead);
+                    };
+
+                    if (isFirstHMRUpdate) {
+                      console.log('[HMR] First update - adding head patch stabilization delay');
+                      setTimeout(doPatchHeadHTML, 50);
+                    } else {
+                      doPatchHeadHTML();
+                    }
 
                     // Process CSS links separately (existing CSS HMR logic)
                     console.log('[HMR] Processing CSS links');
@@ -1791,6 +1801,9 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                                       link.remove();
                                     }
                                   });
+                                  if (isFirstHMRUpdate) {
+                                    isFirstHMRUpdate = false;
+                                  }
                                 });
                               });
                             });
@@ -2156,7 +2169,17 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                   // Update head elements (title, meta, favicon, etc.) if head content is provided
                   if (htmxHead) {
                     console.log('[HMR] Has htmxHead, patching head elements');
-                    patchHeadInPlace(htmxHead);
+
+                    var doPatchHeadHTMX = function() {
+                      patchHeadInPlace(htmxHead);
+                    };
+
+                    if (isFirstHMRUpdate) {
+                      console.log('[HMR] First update - adding head patch stabilization delay');
+                      setTimeout(doPatchHeadHTMX, 50);
+                    } else {
+                      doPatchHeadHTMX();
+                    }
 
                     // Process CSS links separately (existing CSS HMR logic)
                     console.log('[HMR] Processing CSS links');
@@ -2348,6 +2371,9 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                                       link.remove();
                                     }
                                   });
+                                  if (isFirstHMRUpdate) {
+                                    isFirstHMRUpdate = false;
+                                  }
                                 });
                               });
                             });
@@ -2356,21 +2382,31 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                       });
                     } else {
                       // No CSS to wait for, patch body immediately
-                      requestAnimationFrame(function() {
+                      var doHTMXUpdate = function() {
                         requestAnimationFrame(function() {
                           requestAnimationFrame(function() {
-                            updateHTMXBodyAfterCSS();
-                            // Remove old CSS links AFTER body is patched
                             requestAnimationFrame(function() {
-                              linksToRemoveHTMX.forEach(function(link) {
-                                if (link.parentNode) {
-                                  link.remove();
-                                }
+                              updateHTMXBodyAfterCSS();
+                              // Remove old CSS links AFTER body is patched
+                              requestAnimationFrame(function() {
+                                linksToRemoveHTMX.forEach(function(link) {
+                                  if (link.parentNode) {
+                                    link.remove();
+                                  }
+                                });
                               });
                             });
                           });
                         });
-                      });
+                      };
+
+                      if (isFirstHMRUpdate) {
+                        console.log('[HMR] First HTMX update - adding CSS stabilization delay');
+                        isFirstHMRUpdate = false;
+                        setTimeout(doHTMXUpdate, 50);
+                      } else {
+                        doHTMXUpdate();
+                      }
                     }
                   } else {
                     // No head content, just update body immediately
@@ -2381,7 +2417,7 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                 }
                 break;
               }
-                
+
               case 'svelte-update': {
                 const svelteFrameworkCheck = detectCurrentFramework();
 
