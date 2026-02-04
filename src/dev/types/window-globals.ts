@@ -1,5 +1,3 @@
-import type { SvelteComponentInternal } from './framework-internals';
-
 /* Extend Window interface with HMR-specific globals */
 declare global {
   interface Window {
@@ -30,7 +28,11 @@ declare global {
     __HMR_UPDATE_COUNT__?: number;
 
     /* Svelte component instance */
-    __SVELTE_COMPONENT__?: SvelteComponentInternal;
+    __SVELTE_COMPONENT__?: {
+      $destroy?: () => void;
+      unmount?: () => void;
+      [key: string]: unknown;
+    };
 
     /* Flag to indicate Svelte HMR update in progress */
     __SVELTE_HMR_UPDATE__?: boolean;

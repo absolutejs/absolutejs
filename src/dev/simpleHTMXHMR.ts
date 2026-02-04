@@ -29,8 +29,6 @@ export const handleHTMXUpdate = async (
     if (bodyMatch && bodyMatch[1]) {
       const bodyContent = bodyMatch[1].trim();
       const headContent = headMatch && headMatch[1] ? headMatch[1].trim() : null;
-      if (headContent) {
-      }
 
       // Return object with both head and body for comprehensive updates
       return {
