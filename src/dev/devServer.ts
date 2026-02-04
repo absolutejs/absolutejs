@@ -1,6 +1,7 @@
 import { Elysia } from 'elysia';
 import { build } from '../core/build';
-import type { BuildConfig } from '../types';
+import { createBuildResult } from '../core/createBuildResult';
+import type { BuildConfig, BuildResult } from '../types';
 import { createHMRState, type HMRState } from './clientManager';
 import { buildInitialDependencyGraph } from './dependencyGraph';
 import { startFileWatching } from './fileWatcher';
@@ -8,50 +9,57 @@ import { getWatchPaths } from './pathUtils';
 import { queueFileChange } from './rebuildTrigger';
 import { handleClientConnect, handleClientDisconnect, handleHMRMessage } from './webSocket';
 
-/* Development mode function - replaces build() during development
-   Returns both the manifest and HMR state for use with the hmr() plugin */
-export async function dev(config: BuildConfig): Promise<{
-  manifest: Record<string, string>;
+export type DevResult = BuildResult & {
   hmrState: HMRState;
-}> {
+};
+
+/* Development mode function - replaces build() during development
+   Returns DevResult with manifest, buildDir, asset(), and hmrState for use with the hmr() plugin */
+export async function dev(config: BuildConfig): Promise<DevResult> {
   // Create initial HMR state with config
   const state = createHMRState(config);
-  
+
   // Initialize dependency graph by scanning all source files
   const watchPaths = getWatchPaths(config, state.resolvedPaths);
   buildInitialDependencyGraph(state.dependencyGraph, watchPaths);
-  
+
   console.log('🔨 Building AbsoluteJS with HMR...');
-  
+
   // Initial build
-  const manifest = await build({
+  const buildResult = await build({
     ...config,
     options: {
       ...config.options,
       preserveIntermediateFiles: true
     }
   });
-  
-  if (!manifest) {
-    throw new Error('Build failed - no manifest generated');
+
+  if (!buildResult.manifest || Object.keys(buildResult.manifest).length === 0) {
+    // Allow empty manifests for HTML/HTMX-only projects
+    console.log('⚠️ Manifest is empty - this is OK for HTML/HTMX-only projects');
   }
-  
+
   console.log('✅ Build completed successfully');
-  
+
   // Start file watching with callback to update manifest
   // We use a reference so the manifest object can be updated in-place
-  let manifestRef = manifest;
+  let manifestRef = buildResult.manifest;
+  const { buildDir } = buildResult;
+
   startFileWatching(state, config, (filePath: string) => {
-    queueFileChange(state, filePath, config, (newManifest) => {
+    queueFileChange(state, filePath, config, (newBuildResult) => {
       // Update the manifest in-place so the hmr() plugin always has the latest
-      Object.assign(manifestRef, newManifest);
+      Object.assign(manifestRef, newBuildResult.manifest);
     });
   });
-  
+
   console.log('👀 File watching: Active');
   console.log('🔥 HMR: Ready');
-  
-  return { manifest: manifestRef, hmrState: state };
+
+  return {
+    ...createBuildResult(manifestRef, buildDir),
+    hmrState: state
+  };
 }
 
 /* HMR plugin for Elysia
@@ -1111,15 +1119,10 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                 if (window.__HMR_MANIFEST__) {
                   window.__HMR_MANIFEST__ = message.data.manifest;
                 }
-                
-                // Check if CSS files changed (manifest has new CSS entries)
-                const currentFrameworkForCSS = detectCurrentFramework();
-                if ((currentFrameworkForCSS === 'html' || currentFrameworkForCSS === 'htmx') && message.data.manifest) {
-                  // Reload CSS stylesheets when manifest updates (CSS files changed)
-                  reloadCSSStylesheets(message.data.manifest);
-                }
-                
+
                 // Don't reload for React, HTML, HTMX, Vue, or Svelte - they're handled via dedicated update messages
+                // Note: HTML/HTMX CSS updates are handled in their dedicated update handlers (html-update/htmx-update)
+                // using the proper media="print" preload technique to avoid flash/flicker
                 // Only reload for frameworks that don't have HMR support
                 if (message.data.affectedFrameworks && 
                     !message.data.affectedFrameworks.includes('react') && 
@@ -1694,9 +1697,16 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                       const existingBodyNormalized = normalizeHTMLForComparison(container);
                       const newBodyNormalized = normalizeHTMLForComparison(tempDiv);
                       const htmlStructureChanged = existingBodyNormalized !== newBodyNormalized;
-                      
-                      // Smart DOM patching: Only update changed elements, not full replacement
-                      patchDOMInPlace(container, htmlBody);
+
+                      // CSS-only optimization: Skip body patching if structure didn't change
+                      // This prevents the flash that occurs when DOM is patched while new CSS is hidden
+                      if (!htmlStructureChanged && !scriptsChanged) {
+                        console.log('[HMR] CSS-only change detected - skipping body patch');
+                        // Don't call patchDOMInPlace - just let CSS swap happen
+                      } else {
+                        // Smart DOM patching: Only update changed elements, not full replacement
+                        patchDOMInPlace(container, htmlBody);
+                      }
                     
                       // Re-append HMR script if it was removed
                       if (hmrScript && !container.querySelector('script[data-hmr-client]')) {

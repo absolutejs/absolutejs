@@ -13,7 +13,8 @@ import { toPascal } from '../utils/stringModifiers';
    5. Return the new HTML for patching */
 export const handleVueUpdate = async (
   vueFilePath: string,
-  manifest: Record<string, string>
+  manifest: Record<string, string>,
+  buildDir?: string
 ) => {
   try {
     const resolvedPath = resolve(vueFilePath);
@@ -54,10 +55,15 @@ export const handleVueUpdate = async (
     const { handleVuePageRequest } = await import('../core/pageHandlers');
     const { generateHeadElement } = await import('../utils/generateHeadElement');
 
+    // Create a minimal result object for the handler
+    // Use provided buildDir or fall back to process.cwd()/example/build for compatibility
+    const resultBuildDir = buildDir || resolve(process.cwd(), 'example/build');
+
     const response = await handleVuePageRequest(
       serverModule.default,
       serverPath,
       indexPath,
+      { manifest, buildDir: resultBuildDir },
       generateHeadElement({
         cssPath: manifest[cssKey] || '',
         title: 'AbsoluteJS + Vue'

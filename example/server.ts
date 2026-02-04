@@ -2,9 +2,7 @@ import { staticPlugin } from '@elysiajs/static';
 import { Elysia } from 'elysia';
 import { scopedState } from 'elysia-scoped-state';
 import { build } from '../src/core/build';
-import { asset } from '../src/core/lookup';
 import { dev, hmr } from '../src/dev';
-import { resolveBuildPaths } from '../src/dev/configResolver';
 import {
 	handleAngularPageRequest,
 	handleHTMLPageRequest,
@@ -35,20 +33,19 @@ const buildConfig = {
 	vueDirectory: 'example/vue'
 } as const;
 
-const resolvedPaths = resolveBuildPaths(buildConfig);
 const isDev = process.env.NODE_ENV !== 'production';
 
-const { manifest, hmrState } = isDev
+const result = isDev
 	? await dev(buildConfig)
 	: {
-			manifest: await build(buildConfig),
+			...(await build(buildConfig)),
 			hmrState: null
 		};
 
 export const server = new Elysia()
 	.use(
 		staticPlugin({
-			assets: resolvedPaths.buildDir,
+			assets: result.buildDir,
 			prefix: ''
 		})
 	)
@@ -57,30 +54,23 @@ export const server = new Elysia()
 			count: { value: 0 }
 		})
 	)
-	.use(hmrState ? hmr(hmrState, manifest) : (app) => app)
-	.get('/', () =>
-		handleHTMLPageRequest(`${resolvedPaths.buildDir}/html/pages/HtmlExample.html`)
-	)
-	.get('/html', () =>
-		handleHTMLPageRequest(`${resolvedPaths.buildDir}/html/pages/HtmlExample.html`)
-	)
+	.use(result.hmrState ? hmr(result.hmrState, result.manifest) : (app) => app)
+	.get('/', () => handleHTMLPageRequest(result, 'HtmlExampleHTML'))
+	.get('/html', () => handleHTMLPageRequest(result, 'HtmlExampleHTML'))
 	.get('/react', () =>
-		handleReactPageRequest(
-			ReactExample,
-			asset(manifest, 'ReactExampleIndex'),
-			{
-				cssPath: asset(manifest, 'ReactExampleCSS'),
-				initialCount: 0
-			}
-		)
+		handleReactPageRequest(ReactExample, result.asset('ReactExampleIndex'), {
+			cssPath: result.asset('ReactExampleCSS'),
+			initialCount: 0
+		})
 	)
 	.get('/svelte', async () =>
 		handleSveltePageRequest(
 			SvelteExample,
-			asset(manifest, 'SvelteExample'),
-			asset(manifest, 'SvelteExampleIndex'),
+			result.asset('SvelteExample'),
+			result.asset('SvelteExampleIndex'),
+			result,
 			{
-				cssPath: asset(manifest, 'SvelteExampleCSS'),
+				cssPath: result.asset('SvelteExampleCSS'),
 				initialCount: 0
 			}
 		)
@@ -88,10 +78,11 @@ export const server = new Elysia()
 	.get('/vue', () =>
 		handleVuePageRequest(
 			VueExample,
-			asset(manifest, 'VueExample'),
-			asset(manifest, 'VueExampleIndex'),
+			result.asset('VueExample'),
+			result.asset('VueExampleIndex'),
+			result,
 			generateHeadElement({
-				cssPath: asset(manifest, 'VueExampleCSS'),
+				cssPath: result.asset('VueExampleCSS'),
 				title: 'AbsoluteJS + Vue'
 			}),
 			{ initialCount: 0 }
@@ -99,14 +90,12 @@ export const server = new Elysia()
 	)
 	.get('/angular', async () =>
 		handleAngularPageRequest(
-			asset(manifest, 'AngularExample'),
-			asset(manifest, 'AngularExampleIndex'),
+			result.asset('AngularExample'),
+			result.asset('AngularExampleIndex'),
 			angularTemplate.toString()
 		)
 	)
-	.get('/htmx', () =>
-		handleHTMXPageRequest(`${resolvedPaths.buildDir}/htmx/pages/HTMXExample.html`)
-	)
+	.get('/htmx', () => handleHTMXPageRequest(result, 'HTMXExampleHTMX'))
 	.post('/htmx/reset', ({ resetScopedStore }) => resetScopedStore())
 	.get('/htmx/count', ({ scopedStore }) => scopedStore.count)
 	.post('/htmx/increment', ({ scopedStore }) => ++scopedStore.count)

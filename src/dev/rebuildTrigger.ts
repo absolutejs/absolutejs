@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
 import { build } from '../core/build';
-import type { BuildConfig } from '../types';
+import type { BuildConfig, BuildResult } from '../types';
 import { logger } from '../utils/logger';
 import type { HMRState } from './clientManager';
 import { incrementSourceFileVersions } from './clientManager';
@@ -18,7 +18,7 @@ export function queueFileChange(
   state: HMRState,
   filePath: string,
     config: BuildConfig,
-  onRebuildComplete: (manifest: Record<string, string>) => void
+  onRebuildComplete: (result: BuildResult) => void
 ): void {
   const framework = detectFramework(filePath, state.resolvedPaths);
 
@@ -192,9 +192,9 @@ export function queueFileChange(
 export async function triggerRebuild(
   state: HMRState,
   config: BuildConfig,
-  onRebuildComplete: (manifest: Record<string, string>) => void,
+  onRebuildComplete: (result: BuildResult) => void,
   filesToRebuild?: string[]
-): Promise<Record<string, string> | null> {
+): Promise<BuildResult | null> {
   if (state.isRebuilding) {
     return null;
   }
@@ -211,8 +211,8 @@ export async function triggerRebuild(
   });
 
   try {
-    
-    const manifest = await build({
+
+    const buildResult = await build({
       ...config,
       incrementalFiles: filesToRebuild && filesToRebuild.length > 0 ? filesToRebuild : undefined,
       options: {
@@ -220,17 +220,19 @@ export async function triggerRebuild(
         preserveIntermediateFiles: true
       }
     });
-    
-    if (!manifest) {
+
+    if (!buildResult || !buildResult.manifest) {
       throw new Error('Build failed - no manifest generated');
     }
+
+    const { manifest } = buildResult;
 
     const duration = Date.now() - startTime;
     logger.rebuilt(duration);
 
     // Notify clients of successful rebuild
     broadcastToClients(state, {
-      data: { 
+      data: {
         affectedFrameworks, manifest
       }, message: 'Rebuild completed successfully', type: 'rebuild-complete'
     });
@@ -238,11 +240,11 @@ export async function triggerRebuild(
     // Create smart module updates from changed files
     if (filesToRebuild && filesToRebuild.length > 0) {
       const allModuleUpdates: Array<{ sourceFile: string; framework: string; moduleKeys: string[]; modulePaths: Record<string, string>; componentType?: 'client' | 'server' }> = [];
-      
+
       // Group changed files by framework and create module updates
       for (const framework of affectedFrameworks) {
         const frameworkFiles = filesToRebuild.filter(file => detectFramework(file, state.resolvedPaths) === framework);
-        
+
         if (frameworkFiles.length > 0) {
           const moduleUpdates = createModuleUpdates(
             frameworkFiles,
@@ -250,10 +252,10 @@ export async function triggerRebuild(
             manifest,
             state.resolvedPaths
           );
-          
+
           if (moduleUpdates.length > 0) {
             allModuleUpdates.push(...moduleUpdates);
-            
+
           }
         }
       }
@@ -438,7 +440,7 @@ export async function triggerRebuild(
           for (const vuePagePath of pagesToUpdate) {
             try {
               const { handleVueUpdate } = await import('./simpleVueHMR');
-              const newHTML = await handleVueUpdate(vuePagePath, manifest);
+              const newHTML = await handleVueUpdate(vuePagePath, manifest, state.resolvedPaths.buildDir);
 
               // Generate HMR ID from source file path (matches compileVue.ts format)
               const { basename, relative } = await import('node:path');
@@ -525,7 +527,7 @@ export async function triggerRebuild(
           for (const sveltePagePath of pagesToUpdate) {
             try {
               const { handleSvelteUpdate } = await import('./simpleSvelteHMR');
-              const newHTML = await handleSvelteUpdate(sveltePagePath, manifest);
+              const newHTML = await handleSvelteUpdate(sveltePagePath, manifest, state.resolvedPaths.buildDir);
 
               // Get component info
               const { basename, relative } = await import('node:path');
@@ -710,10 +712,10 @@ serverVersions: serverVersions
       });
     }
     
-    // Call the callback with the new manifest
-    onRebuildComplete(manifest);
-    
-    return manifest;
+    // Call the callback with the new build result
+    onRebuildComplete(buildResult);
+
+    return buildResult;
 
   } catch (error) {
     broadcastToClients(state, {

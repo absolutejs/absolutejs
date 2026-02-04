@@ -12,7 +12,8 @@ import { createHTMLScriptHMRPlugin } from '../build/htmlScriptHMRPlugin';
 import { outputLogs } from '../build/outputLogs';
 import { scanEntryPoints } from '../build/scanEntryPoints';
 import { updateAssetPaths } from '../build/updateAssetPaths';
-import { BuildConfig } from '../types';
+import type { BuildConfig, BuildResult } from '../types';
+import { createBuildResult } from './createBuildResult';
 import { cleanup } from '../utils/cleanup';
 import { commonAncestor } from '../utils/commonAncestor';
 import { getDurationString } from '../utils/getDurationString';
@@ -267,11 +268,12 @@ export const build = async ({
 	if (
 		serverEntryPoints.length === 0 &&
 		clientEntryPoints.length === 0 &&
-		htmxDir === undefined
+		htmxDir === undefined &&
+		htmlDir === undefined
 	) {
 		logger.warn('No entry points found, manifest will be empty');
 
-		return {};
+		return createBuildResult({}, buildPath);
 	}
 
 	let serverLogs: (BuildMessage | ResolveMessage)[] = [];
@@ -399,7 +401,7 @@ export const build = async ({
 		const outputHtmlPages = isSingle
 			? join(buildPath, 'pages')
 			: join(buildPath, basename(htmlDir), 'pages');
-		
+
 		if (shouldCopyHtml) {
 		mkdirSync(outputHtmlPages, { recursive: true });
 		cpSync(htmlPagesPath, outputHtmlPages, {
@@ -407,10 +409,18 @@ export const build = async ({
 			recursive: true
 		});
 		}
-		
+
 		// Update asset paths if HTML files changed OR CSS changed
 		if (shouldUpdateHtmlAssetPaths) {
 		await updateAssetPaths(manifest, outputHtmlPages);
+		}
+
+		// Add HTML pages to manifest
+		const htmlPageFiles = await scanEntryPoints(outputHtmlPages, '*.html');
+		for (const htmlFile of htmlPageFiles) {
+			const fileName = basename(htmlFile, '.html');
+			const relativePath = '/' + relative(buildPath, htmlFile).replace(/\\/g, '/');
+			manifest[`${fileName}HTML`] = relativePath;
 		}
 	}
 
@@ -435,17 +445,25 @@ export const build = async ({
 		mkdirSync(htmxDestDir, { recursive: true });
 
 		const glob = new Glob('htmx*.min.js');
-		for (const relativePath of glob.scanSync({ cwd: htmxDir })) {
-			const src = join(htmxDir, relativePath);
+		for (const relPath of glob.scanSync({ cwd: htmxDir })) {
+			const src = join(htmxDir, relPath);
 			const dest = join(htmxDestDir, 'htmx.min.js');
 			copyFileSync(src, dest);
 			break;
 		}
 		}
-		
+
 		// Update asset paths if HTMX files changed OR CSS changed
 		if (shouldUpdateHtmxAssetPaths) {
 		await updateAssetPaths(manifest, outputHtmxPages);
+		}
+
+		// Add HTMX pages to manifest
+		const htmxPageFiles = await scanEntryPoints(outputHtmxPages, '*.html');
+		for (const htmxFile of htmxPageFiles) {
+			const fileName = basename(htmxFile, '.html');
+			const relativePath = '/' + relative(buildPath, htmxFile).replace(/\\/g, '/');
+			manifest[`${fileName}HTMX`] = relativePath;
 		}
 	}
 
@@ -469,5 +487,5 @@ export const build = async ({
 		logger.warn(`Could not save manifest: ${error}`);
 	}
 
-	return manifest;
+	return createBuildResult(manifest, buildPath);
 };
