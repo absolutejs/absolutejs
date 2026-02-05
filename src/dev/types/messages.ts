@@ -198,4 +198,3 @@ export function isValidHMRClientMessage(data: unknown): data is HMRClientMessage
       return false;
   }
 }
-

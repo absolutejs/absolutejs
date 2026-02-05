@@ -4,7 +4,7 @@ import {
 	renderApplication
 } from '@angular/platform-server';
 import { file } from 'bun';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { ComponentType as ReactComponent, createElement } from 'react';
 import { renderToReadableStream as renderReactToReadableStream } from 'react-dom/server';
 import { Component as SvelteComponent } from 'svelte';
@@ -12,6 +12,11 @@ import { Component as VueComponent, createSSRApp, h } from 'vue';
 import { renderToWebStream as renderVueToWebStream } from 'vue/server-renderer';
 import { renderToReadableStream as renderSvelteToReadableStream } from '../svelte/renderToReadableStream';
 import { PropsArgs } from '../types';
+
+type BuildResultLike = {
+	manifest: Record<string, string>;
+	buildDir: string;
+};
 
 export const handleReactPageRequest = async <
 	Props extends Record<string, unknown> = Record<never, never>
@@ -38,17 +43,19 @@ export const handleReactPageRequest = async <
 	});
 };
 
-// Declare overloads matching Svelte’s own component API to preserve correct type inference
+// Declare overloads matching Svelte's own component API to preserve correct type inference
 type HandleSveltePageRequest = {
 	(
 		PageComponent: SvelteComponent<Record<string, never>>,
 		pagePath: string,
-		indexPath: string
+		indexPath: string,
+		result: BuildResultLike
 	): Promise<Response>;
 	<P extends Record<string, unknown>>(
 		PageComponent: SvelteComponent<P>,
 		pagePath: string,
 		indexPath: string,
+		result: BuildResultLike,
 		props: P
 	): Promise<Response>;
 };
@@ -59,13 +66,13 @@ export const handleSveltePageRequest: HandleSveltePageRequest = async <
 	_PageComponent: SvelteComponent<P>,
 	pagePath: string,
 	indexPath: string,
+	result: BuildResultLike,
 	props?: P
 ) => {
 	// Convert URL path to file system path
 	// pagePath is like "/svelte/compiled/pages/SvelteExample.abc123.js"
-	// Resolve relative to cwd/example/build
-	const buildDir = resolve(process.cwd(), 'example/build');
-	const fsPath = resolve(buildDir, pagePath.replace(/^\//, ''));
+	// Resolve relative to result.buildDir
+	const fsPath = resolve(result.buildDir, pagePath.replace(/^\//, ''));
 
 	const { default: ImportedPageComponent } = await import(fsPath);
 
@@ -91,6 +98,7 @@ export const handleVuePageRequest = async <
 	_PageComponent: VueComponent<Props>,
 	pagePath: string,
 	indexPath: string,
+	result: BuildResultLike,
 	headTag: `<head>${string}</head>` = '<head></head>',
 	...props: keyof Props extends never ? [] : [props: Props]
 ) => {
@@ -98,9 +106,8 @@ export const handleVuePageRequest = async <
 
 	// Convert URL path to file system path
 	// pagePath is like "/vue/compiled/pages/VueExample.abc123.js"
-	// Resolve relative to cwd/example/build
-	const buildDir = resolve(process.cwd(), 'example/build');
-	const fsPath = resolve(buildDir, pagePath.replace(/^\//, ''));
+	// Resolve relative to result.buildDir
+	const fsPath = resolve(result.buildDir, pagePath.replace(/^\//, ''));
 
 	const { default: ImportedPageComponent } = await import(fsPath);
 
@@ -163,23 +170,35 @@ export const handleAngularPageRequest = async (
 	});
 };
 
-export const handleHTMLPageRequest = async (htmlPath: string) => {
-	// Read the HTML file content
+export const handleHTMLPageRequest = async (
+	result: BuildResultLike,
+	assetName: string
+) => {
+	const relativePath = result.manifest[assetName];
+	if (!relativePath) {
+		throw new Error(`HTML asset "${assetName}" not found in manifest`);
+	}
+	const htmlPath = join(result.buildDir, relativePath.replace(/^\//, ''));
 	const htmlFile = file(htmlPath);
 	const html = await htmlFile.text();
-	
-	// Return as a proper HTML Response so HMR injection can work
+
 	return new Response(html, {
 		headers: { 'Content-Type': 'text/html; charset=utf-8' }
 	});
 };
 
-export const handleHTMXPageRequest = async (htmxPath: string) => {
-	// Read the HTMX file content
+export const handleHTMXPageRequest = async (
+	result: BuildResultLike,
+	assetName: string
+) => {
+	const relativePath = result.manifest[assetName];
+	if (!relativePath) {
+		throw new Error(`HTMX asset "${assetName}" not found in manifest`);
+	}
+	const htmxPath = join(result.buildDir, relativePath.replace(/^\//, ''));
 	const htmxFile = file(htmxPath);
 	const html = await htmxFile.text();
-	
-	// Return as a proper HTML Response so HMR injection can work
+
 	return new Response(html, {
 		headers: { 'Content-Type': 'text/html; charset=utf-8' }
 	});
