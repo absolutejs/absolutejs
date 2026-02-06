@@ -3,7 +3,6 @@ import { rm } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { cwd, env, exit } from 'node:process';
 import { $, build as bunBuild, BuildArtifact, Glob } from 'bun';
-import { compileAngular } from '../build/compileAngular';
 import { compileSvelte } from '../build/compileSvelte';
 import { compileVue } from '../build/compileVue';
 import { generateManifest } from '../build/generateManifest';
@@ -134,22 +133,12 @@ export const build = async ({
 		? await compileVue(vueEntries, vueDir)
 		: { vueCssPaths: [], vueIndexPaths: [], vueServerPaths: [] };
 
-	const { serverPaths: angularServerPaths, clientPaths: angularClientPaths } =
-		angularDir
-			? await compileAngular(angularEntries, angularDir)
-			: { clientPaths: [], serverPaths: [] };
-
-	const serverEntryPoints = [
-		...svelteServerPaths,
-		...vueServerPaths,
-		...angularServerPaths
-	];
+	const serverEntryPoints = [...svelteServerPaths, ...vueServerPaths];
 	const clientEntryPoints = [
 		...reactEntries,
 		...svelteClientPaths,
 		...htmlEntries,
-		...vueIndexPaths,
-		...angularClientPaths
+		...vueIndexPaths
 	];
 	const cssEntryPoints = [
 		...vueCssPaths,

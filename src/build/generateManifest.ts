@@ -8,7 +8,7 @@ export const generateManifest = (outputs: BuildArtifact[], buildPath: string) =>
 		let relative = artifact.path.startsWith(buildPath)
 			? artifact.path.slice(buildPath.length)
 			: artifact.path;
-		relative = relative.replace(/^\/+/, '');
+		relative = relative.replace(/\\/g, '/').replace(/^\/+/, '');
 
 		const segments = relative.split('/');
 		const fileWithHash = segments.pop();

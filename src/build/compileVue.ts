@@ -261,7 +261,7 @@ export const compileVue = async (entryPoints: string[], vueRootDir: string) => {
 			await write(
 				indexOutputFile,
 				[
-					`import Comp from "${relative(dirname(indexOutputFile), clientOutputFile)}";`,
+					`import Comp from "${relative(dirname(indexOutputFile), clientOutputFile).replace(/\\/g, '/')}";`,
 					'import { createSSRApp } from "vue";',
 					'const props = window.__INITIAL_PROPS__ ?? {};',
 					'createSSRApp(Comp, props).mount("#root");'
