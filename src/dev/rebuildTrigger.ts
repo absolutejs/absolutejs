@@ -10,7 +10,90 @@ import { computeFileHash, hasFileChanged } from './fileHashTracker';
 import { createModuleUpdates, groupModuleUpdatesByFramework } from './moduleMapper';
 import { incrementModuleVersions, serializeModuleVersions } from './moduleVersionTracker';
 import { detectFramework } from './pathUtils';
+import type { ResolvedBuildPaths } from './configResolver';
 import { broadcastToClients } from './webSocket';
+
+type BuildLog = {
+  level?: string;
+  message: string | { text: string };
+  position?: { file?: string; line?: number; column?: number; lineText?: string };
+};
+
+/** Parse file:line:column or similar from error message (Svelte, Vue, Angular, etc.) */
+function parseErrorLocationFromMessage(msg: string): { file?: string; line?: number; column?: number } {
+  // file:line:column or file:line
+  const pathLineCol = msg.match(/^([^\s:]+):(\d+)(?::(\d+))?/);
+  if (pathLineCol) {
+    const [, file, lineStr, colStr] = pathLineCol;
+    return {
+      file,
+      line: lineStr ? parseInt(lineStr, 10) : undefined,
+      column: colStr ? parseInt(colStr, 10) : undefined
+    };
+  }
+  // "at path (line: col:)" or "at path:line:col"
+  const atMatch = msg.match(/(?:at|in)\s+([^(:\s]+)(?:\s*\([^)]*line\s*(\d+)[^)]*col(?:umn)?\s*(\d+)[^)]*\)|:(\d+):(\d+)?)/i);
+  if (atMatch) {
+    const [, file, line1, col1, line2, col2] = atMatch;
+    return {
+      file: file?.trim(),
+      line: line1 ? parseInt(line1, 10) : line2 ? parseInt(line2, 10) : undefined,
+      column: col1 ? parseInt(col1, 10) : col2 ? parseInt(col2, 10) : undefined
+    };
+  }
+  // "path (line X, column Y)"
+  const parenMatch = msg.match(/([^\s(]+)\s*\([^)]*line\s*(\d+)[^)]*col(?:umn)?\s*(\d+)/i);
+  if (parenMatch) {
+    const [, file, lineStr, colStr] = parenMatch;
+    return {
+      file: file ?? undefined,
+      line: lineStr ? parseInt(lineStr, 10) : undefined,
+      column: colStr ? parseInt(colStr, 10) : undefined
+    };
+  }
+  return {};
+}
+
+/** Extract file, line, column, lineText, and framework from build error for the overlay */
+function extractBuildErrorDetails(
+  error: unknown,
+  affectedFrameworks: string[],
+  resolvedPaths?: ResolvedBuildPaths
+): { file?: string; line?: number; column?: number; lineText?: string; framework?: string } {
+  // AggregateError (Bun 1.2+ throws this) - errors array may contain BuildMessage-like objects
+  let logs = (error as { logs?: BuildLog[] })?.logs;
+  if (!logs && error instanceof AggregateError && (error as AggregateError).errors?.length) {
+    logs = (error as AggregateError).errors as BuildLog[];
+  }
+  if (logs && Array.isArray(logs) && logs.length > 0) {
+    const errLog = logs.find((l) => l.level === 'error') ?? logs[0];
+    const pos = errLog?.position;
+    // Position can be a class instance - ensure we read properties
+    const file = pos && 'file' in pos ? (pos as { file?: string }).file : undefined;
+    const line = pos && 'line' in pos ? (pos as { line?: number }).line : undefined;
+    const column = pos && 'column' in pos ? (pos as { column?: number }).column : undefined;
+    const lineText = pos && 'lineText' in pos ? (pos as { lineText?: string }).lineText : undefined;
+    const framework =
+      file && resolvedPaths
+        ? detectFramework(file, resolvedPaths)
+        : affectedFrameworks[0] ?? 'unknown';
+    return {
+      file,
+      line,
+      column,
+      lineText,
+      framework: framework !== 'ignored' ? framework : affectedFrameworks[0]
+    };
+  }
+  const msg = error instanceof Error ? error.message : String(error);
+  const parsed = parseErrorLocationFromMessage(msg);
+  let fw = affectedFrameworks[0];
+  if (parsed.file && resolvedPaths) {
+    const detected = detectFramework(parsed.file, resolvedPaths);
+    fw = detected !== 'ignored' ? detected : affectedFrameworks[0];
+  }
+  return { ...parsed, framework: fw };
+}
 
 /* Queue a file change for processing
    This handles the "queue changes" problem with debouncing */
@@ -217,7 +300,8 @@ export async function triggerRebuild(
       incrementalFiles: filesToRebuild && filesToRebuild.length > 0 ? filesToRebuild : undefined,
       options: {
         ...config.options,
-        preserveIntermediateFiles: true
+        preserveIntermediateFiles: true,
+        throwOnError: true
       }
     });
 
@@ -718,12 +802,17 @@ serverVersions: serverVersions
     return buildResult;
 
   } catch (error) {
+    const errorData = extractBuildErrorDetails(error, affectedFrameworks, state.resolvedPaths);
     broadcastToClients(state, {
-      data: { 
-        affectedFrameworks, error: error instanceof Error ? error.message : String(error)
-      }, message: 'Rebuild failed', type: 'rebuild-error'
+      data: {
+        affectedFrameworks,
+        error: error instanceof Error ? error.message : String(error),
+        ...errorData
+      },
+      message: 'Rebuild failed',
+      type: 'rebuild-error'
     });
-    
+
     return null;
   } finally {
     state.isRebuilding = false;

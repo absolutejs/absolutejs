@@ -4,6 +4,8 @@ import { Component as VueComponent } from 'vue';
 
 export type BuildOptions = {
 	preserveIntermediateFiles?: boolean;
+	/** When true, build() throws on error instead of exit(1) - used by HMR rebuilds */
+	throwOnError?: boolean;
 	hmr?: {
 		debounceMs?: number;
 	};

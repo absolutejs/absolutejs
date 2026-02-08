@@ -41,7 +41,7 @@ export const build = async ({
 	tailwind,
 	options,
 	incrementalFiles
-}: BuildConfig) => {
+}: BuildConfig): Promise<BuildResult> => {
 	const buildStart = performance.now();
 	const projectRoot = cwd();
 	const isIncremental = incrementalFiles && incrementalFiles.length > 0;
@@ -53,6 +53,7 @@ export const build = async ({
 		console.log(`⚡ Incremental build: ${incrementalFiles.length} file(s) to rebuild`);
 	}
 
+	const throwOnError = options?.throwOnError === true;
 	const buildPath = validateSafePath(buildDirectory, projectRoot);
 	const assetsPath =
 		assetsDirectory && validateSafePath(assetsDirectory, projectRoot);
@@ -280,19 +281,25 @@ export const build = async ({
 	let serverOutputs: BuildArtifact[] = [];
 
 	if (serverEntryPoints.length > 0) {
-		const { logs, outputs } = await bunBuild({
+		const result = await bunBuild({
 			entrypoints: serverEntryPoints,
 			format: 'esm',
 			naming: `[dir]/[name].[hash].[ext]`,
 			outdir: serverOutDir,
 			root: serverRoot,
-			target: 'bun'
-		}).catch((err) => {
-			logger.error('Server build failed', err);
-			exit(1);
+			target: 'bun',
+			throw: false
 		});
-		serverLogs = logs;
-		serverOutputs = outputs;
+		serverLogs = result.logs;
+		serverOutputs = result.outputs;
+		if (!result.success && result.logs.length > 0) {
+			const errLog = result.logs.find((l) => l.level === 'error') ?? result.logs[0]!;
+			const err = new Error(typeof errLog.message === 'string' ? errLog.message : String(errLog.message));
+			(err as Error & { logs?: unknown }).logs = result.logs;
+			logger.error('Server build failed', err);
+			if (throwOnError) throw err;
+			exit(1);
+		}
 	}
 
 	let clientLogs: (BuildMessage | ResolveMessage)[] = [];
@@ -315,7 +322,7 @@ export const build = async ({
 			? createHTMLScriptHMRPlugin(htmlDir, htmxDir)
 			: undefined;
 
-		const { logs, outputs } = await bunBuild({
+		const clientResult = await bunBuild({
 			define: vueDirectory ? vueFeatureFlags : undefined,
 			entrypoints: clientEntryPoints,
 			format: 'esm',
@@ -328,30 +335,42 @@ export const build = async ({
 			root: clientRoot,
 			target: 'browser',
 			splitting: !isDev, // Disable splitting in dev to avoid duplicate export bug
-			external: isDev ? ['react', 'react-dom', 'react-dom/client', 'react/jsx-runtime', 'react/jsx-dev-runtime'] : undefined
-		}).catch((err) => {
-			logger.error('Client build failed', err);
-			exit(1);
+			external: isDev ? ['react', 'react-dom', 'react-dom/client', 'react/jsx-runtime', 'react/jsx-dev-runtime'] : undefined,
+			throw: false
 		});
-		clientLogs = logs;
-		clientOutputs = outputs;
+		clientLogs = clientResult.logs;
+		clientOutputs = clientResult.outputs;
+		if (!clientResult.success && clientResult.logs.length > 0) {
+			const errLog = clientResult.logs.find((l) => l.level === 'error') ?? clientResult.logs[0]!;
+			const err = new Error(typeof errLog.message === 'string' ? errLog.message : String(errLog.message));
+			(err as Error & { logs?: unknown }).logs = clientResult.logs;
+			logger.error('Client build failed', err);
+			if (throwOnError) throw err;
+			exit(1);
+		}
 	}
 
 	let cssLogs: (BuildMessage | ResolveMessage)[] = [];
 	let cssOutputs: BuildArtifact[] = [];
 
 	if (cssEntryPoints.length > 0) {
-		const { logs, outputs } = await bunBuild({
+		const cssResult = await bunBuild({
 			entrypoints: cssEntryPoints,
 			naming: `[name].[hash].[ext]`,
 			outdir: join(buildPath, basename(assetsPath), 'css'),
-			target: 'browser'
-		}).catch((err) => {
-			logger.error('CSS build failed', err);
-			exit(1);
+			target: 'browser',
+			throw: false
 		});
-		cssLogs = logs;
-		cssOutputs = outputs;
+		cssLogs = cssResult.logs;
+		cssOutputs = cssResult.outputs;
+		if (!cssResult.success && cssResult.logs.length > 0) {
+			const errLog = cssResult.logs.find((l) => l.level === 'error') ?? cssResult.logs[0]!;
+			const err = new Error(typeof errLog.message === 'string' ? errLog.message : String(errLog.message));
+			(err as Error & { logs?: unknown }).logs = cssResult.logs;
+			logger.error('CSS build failed', err);
+			if (throwOnError) throw err;
+			exit(1);
+		}
 	}
 
 	const allLogs = [...serverLogs, ...clientLogs, ...cssLogs];
