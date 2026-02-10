@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 
+import { $ } from 'bun';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -23,15 +24,28 @@ const readDbScripts = async () => {
 	return { upCommand, downCommand };
 };
 
+const timed = async (label: string, fn: () => Promise<void>) => {
+	process.stdout.write(label);
+	const start = performance.now();
+	await fn();
+	const duration = ((performance.now() - start) / 1000).toFixed(2);
+	process.stdout.write(` \x1b[90m${duration}s\x1b[0m\n`);
+};
+
 const startDatabase = async (scripts: DbScripts) => {
-	console.log('Starting database container...');
-	const { exitCode } = await Bun.$`${{ raw: scripts.upCommand }}`.nothrow();
-	if (exitCode !== 0) process.exit(exitCode);
+	await timed('Starting database container...', async () => {
+		const { exitCode } = await $`${{ raw: scripts.upCommand }}`
+			.quiet()
+			.nothrow();
+		if (exitCode !== 0) process.exit(exitCode);
+	});
 };
 
 const stopDatabase = async (scripts: DbScripts) => {
-	console.log('\nStopping database container...');
-	await Bun.$`${{ raw: scripts.downCommand }}`.quiet().nothrow();
+	process.stdout.write('\n');
+	await timed('Stopping database container...', async () => {
+		await $`${{ raw: scripts.downCommand }}`.quiet().nothrow();
+	});
 };
 
 const dev = async (serverEntry: string) => {
