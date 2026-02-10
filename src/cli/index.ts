@@ -23,29 +23,15 @@ const readDbScripts = async () => {
 	return { upCommand, downCommand };
 };
 
-const execCommand = async (command: string) => {
-	const args = command.split(' ');
-	const proc = Bun.spawn(args, {
-		stdin: 'inherit',
-		stdout: 'inherit',
-		stderr: 'inherit'
-	});
-	return proc.exited;
-};
-
 const startDatabase = async (scripts: DbScripts) => {
 	console.log('Starting database container...');
-	const exitCode = await execCommand(scripts.upCommand);
+	const { exitCode } = await Bun.$`${{ raw: scripts.upCommand }}`.nothrow();
 	if (exitCode !== 0) process.exit(exitCode);
 };
 
 const stopDatabase = async (scripts: DbScripts) => {
 	console.log('\nStopping database container...');
-	try {
-		await execCommand(scripts.downCommand);
-	} catch {
-		console.error('Failed to stop database container');
-	}
+	await Bun.$`${{ raw: scripts.downCommand }}`.quiet().nothrow();
 };
 
 const dev = async (serverEntry: string) => {
@@ -62,22 +48,24 @@ const dev = async (serverEntry: string) => {
 
 	let cleaning = false;
 
-	const cleanup = async () => {
+	const cleanup = async (exitCode = 0) => {
 		if (cleaning) return;
 		cleaning = true;
-		server.kill();
+		try {
+			server.kill();
+		} catch (err) {
+			console.error('Failed to kill server process:', err);
+		}
 		await server.exited;
 		if (scripts) await stopDatabase(scripts);
-		process.exit(0);
+		process.exit(exitCode);
 	};
 
-	process.on('SIGINT', cleanup);
-	process.on('SIGTERM', cleanup);
+	process.on('SIGINT', () => cleanup(0));
+	process.on('SIGTERM', () => cleanup(0));
 
-	const exitCode = await server.exited;
-
-	if (!cleaning && scripts) await stopDatabase(scripts);
-	if (!cleaning) process.exit(exitCode);
+	await server.exited;
+	await cleanup(0);
 };
 
 const command = process.argv[2];
