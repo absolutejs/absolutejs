@@ -1,36 +1,40 @@
-import { argv } from 'node:process';
-import { env } from 'bun';
 import { Elysia } from 'elysia';
+import { env } from 'bun';
 import { DEFAULT_PORT } from '../constants';
-import { getLocalIPAddress } from '../utils/networking';
 
-let host = env.HOST ?? 'localhost';
-const port = env.PORT ?? DEFAULT_PORT;
-let localIP: string | undefined;
+export const networking = (app: Elysia) => {
+	const prev = (globalThis as Record<string, unknown>).__absoluteServer;
+	const skipRestart = (globalThis as Record<string, unknown>)
+		.__hmrSkipServerRestart;
 
-const args = argv;
-const hostFlag = args.includes('--host');
+	if (skipRestart) {
+		delete (globalThis as Record<string, unknown>)
+			.__hmrSkipServerRestart;
+		// Framework change — keep existing server, let HMR handle it
+		return app;
+	}
 
-if (hostFlag) {
-	localIP = getLocalIPAddress();
-	host = '0.0.0.0';
-}
+	if (prev && typeof prev === 'object' && 'stop' in prev) {
+		(prev as { stop: () => void }).stop();
+	}
 
-export const networking = (app: Elysia) =>
 	app.listen(
 		{
-			hostname: host,
-			port: port
+			hostname: env.HOST ?? 'localhost',
+			port: env.PORT ? Number(env.PORT) : DEFAULT_PORT
 		},
 		() => {
-			//TODO: I dont think this works properly
-			if (hostFlag) {
-				console.log(`Server started on http://localhost:${port}`);
+			const port = env.PORT ? Number(env.PORT) : DEFAULT_PORT;
+			if (prev) {
 				console.log(
-					`Server started on network: http://${localIP}:${port}`
+					`\x1b[36m[hmr] Server listening on port ${port}\x1b[0m`
 				);
 			} else {
-				console.log(`Server started on http://${host}:${port}`);
+				console.log(`➜  Local:   http://localhost:${port}/`);
 			}
 		}
 	);
+
+	(globalThis as Record<string, unknown>).__absoluteServer = app.server;
+	return app;
+};

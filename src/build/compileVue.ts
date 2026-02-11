@@ -164,8 +164,10 @@ const compileVueFile = async (
 	const assembleModule = (
 		renderCode: string,
 		renderFnName: 'render' | 'ssrRender'
-	) =>
-		mergeVueImports(
+	) => {
+		// Note: Vue's official HMR API (__VUE_HMR_RUNTIME__, import.meta.hot) doesn't work
+		// with Bun's bundler. We use HTML patching + remount approach instead (see devServer.ts).
+		return mergeVueImports(
 			[
 				transpiledScript,
 				renderCode,
@@ -173,6 +175,7 @@ const compileVueFile = async (
 				'export default script;'
 			].join('\n')
 		);
+	};
 
 	const clientCode = assembleModule(generateRenderFunction(false), 'render');
 	const serverCode = assembleModule(
@@ -263,12 +266,27 @@ export const compileVue = async (entryPoints: string[], vueRootDir: string) => {
 				[
 					`import Comp from "${relative(dirname(indexOutputFile), clientOutputFile).replace(/\\/g, '/')}";`,
 					'import { createSSRApp } from "vue";',
-					'const props = window.__INITIAL_PROPS__ ?? {};',
-					'createSSRApp(Comp, props).mount("#root");'
+					'// HMR State Preservation: Check for preserved state from HMR',
+					'const preservedState = (typeof window !== "undefined" && window.__HMR_PRESERVED_STATE__) ? window.__HMR_PRESERVED_STATE__ : {};',
+					'const mergedProps = { ...(window.__INITIAL_PROPS__ ?? {}), ...preservedState };',
+					'// Clear preserved state after using it',
+					'if (typeof window !== "undefined") {',
+					'  window.__HMR_PRESERVED_STATE__ = undefined;',
+					'}',
+					'// Always use createSSRApp for proper SSR hydration',
+					'// This ensures data-v-* attributes are added for scoped styles',
+					'// Note: If HMR preserved state, there may be a harmless hydration mismatch warning',
+					'const app = createSSRApp(Comp, mergedProps);',
+					'app.mount("#root");',
+					'// Store app instance for HMR',
+					'if (typeof window !== "undefined") {',
+					'  window.__VUE_APP__ = app;',
+					'}'
 				].join('\n')
 			);
 
 			return {
+				clientPath: clientOutputFile,
 				cssPaths: result.cssPaths,
 				indexPath: indexOutputFile,
 				serverPath: result.serverPath
@@ -294,6 +312,7 @@ export const compileVue = async (entryPoints: string[], vueRootDir: string) => {
 	);
 
 	return {
+		vueClientPaths: compiledPages.map((result) => result.clientPath),
 		vueCssPaths: compiledPages.flatMap((result) => result.cssPaths),
 		vueIndexPaths: compiledPages.map((result) => result.indexPath),
 		vueServerPaths: compiledPages.map((result) => result.serverPath)

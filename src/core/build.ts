@@ -1,22 +1,26 @@
 import { copyFileSync, cpSync, mkdirSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
-import { basename, join } from 'node:path';
+import { basename, join, resolve, dirname, relative } from 'node:path';
 import { cwd, env, exit } from 'node:process';
 import { $, build as bunBuild, BuildArtifact, Glob } from 'bun';
 import { compileSvelte } from '../build/compileSvelte';
 import { compileVue } from '../build/compileVue';
 import { generateManifest } from '../build/generateManifest';
 import { generateReactIndexFiles } from '../build/generateReactIndexes';
+import { createHTMLScriptHMRPlugin } from '../build/htmlScriptHMRPlugin';
 import { outputLogs } from '../build/outputLogs';
 import { scanEntryPoints } from '../build/scanEntryPoints';
 import { updateAssetPaths } from '../build/updateAssetPaths';
-import { BuildConfig } from '../types';
+import type { BuildConfig, BuildResult } from '../types';
+import { createBuildResult } from './createBuildResult';
 import { cleanup } from '../utils/cleanup';
 import { commonAncestor } from '../utils/commonAncestor';
 import { getDurationString } from '../utils/getDurationString';
+import { logger } from '../utils/logger';
+import { normalizePath } from '../utils/normalizePath';
 import { validateSafePath } from '../utils/validateSafePath';
 
-const isDev = env.NODE_ENV === 'development';
+const isDev = env.NODE_ENV !== 'production';
 
 const vueFeatureFlags: Record<string, string> = {
 	__VUE_OPTIONS_API__: 'true',
@@ -34,11 +38,21 @@ export const build = async ({
 	svelteDirectory,
 	vueDirectory,
 	tailwind,
-	options
-}: BuildConfig) => {
+	options,
+	incrementalFiles
+}: BuildConfig): Promise<BuildResult> => {
 	const buildStart = performance.now();
 	const projectRoot = cwd();
+	const isIncremental = incrementalFiles && incrementalFiles.length > 0;
 
+	// Normalize incrementalFiles for consistent cross-platform path checking
+	const normalizedIncrementalFiles = incrementalFiles?.map(normalizePath);
+
+	if (isIncremental) {
+		console.log(`⚡ Incremental build: ${incrementalFiles.length} file(s) to rebuild`);
+	}
+
+	const throwOnError = options?.throwOnError === true;
 	const buildPath = validateSafePath(buildDirectory, projectRoot);
 	const assetsPath =
 		assetsDirectory && validateSafePath(assetsDirectory, projectRoot);
@@ -81,64 +95,157 @@ export const build = async ({
 	if (sveltePagesPath) serverRoot = sveltePagesPath;
 	else if (vuePagesPath) serverRoot = vuePagesPath;
 
+	// Only delete build directory for full builds, not incremental
+	if (!isIncremental) {
 	await rm(buildPath, { force: true, recursive: true });
-	mkdirSync(buildPath);
+	}
+	mkdirSync(buildPath, { recursive: true });
 
-	if (reactIndexesPath && reactPagesPath)
+	// Helper to find matching entry points for incremental files
+	// The dependency graph already includes all dependent files in incrementalFiles
+	const filterToIncrementalEntries = (
+		entryPoints: string[],
+		mapToSource: (entry: string) => string | null
+	): string[] => {
+		if (!isIncremental || !incrementalFiles) return entryPoints;
+		
+		const normalizedIncremental = new Set(incrementalFiles.map(f => resolve(f)));
+		const matchingEntries: string[] = [];
+		
+		for (const entry of entryPoints) {
+			const sourceFile = mapToSource(entry);
+			if (sourceFile && normalizedIncremental.has(resolve(sourceFile))) {
+				matchingEntries.push(entry);
+			}
+		}
+		
+		return matchingEntries;
+	};
+
+	// For incremental React builds, only generate indexes for changed files
+	// NOTE: We always regenerate index files to ensure they have the latest hydration error handling logic
+	if (reactIndexesPath && reactPagesPath) {
+		// Always regenerate React index files to ensure latest error handling is included
+		// This is safe because index files are small and generation is fast
 		await generateReactIndexFiles(reactPagesPath, reactIndexesPath);
+	}
 
-	if (assetsPath)
+	// Copy assets on full builds or if assets changed
+	if (assetsPath && (!isIncremental || normalizedIncrementalFiles?.some(f => f.includes('/assets/')))) {
 		cpSync(assetsPath, join(buildPath, 'assets'), {
 			force: true,
 			recursive: true
 		});
+	}
 
-	if (tailwind)
+	// Tailwind only on full builds or if CSS changed
+	if (tailwind && (!isIncremental || normalizedIncrementalFiles?.some(f => f.endsWith('.css')))) {
 		await $`bunx @tailwindcss/cli -i ${tailwind.input} -o ${join(buildPath, tailwind.output)}`;
+	}
 
-	const reactEntries = reactIndexesPath
+	const allReactEntries = reactIndexesPath
 		? await scanEntryPoints(reactIndexesPath, '*.tsx')
 		: [];
-	const htmlEntries = htmlScriptsPath
+	// CRITICAL: Also build React page components as separate entry points for HMR
+	// This allows them to be dynamically imported during hot updates
+	const allReactPageEntries = reactPagesPath
+		? await scanEntryPoints(reactPagesPath, '*.tsx')
+		: [];
+	const allHtmlEntries = htmlScriptsPath
 		? await scanEntryPoints(htmlScriptsPath, '*.{js,ts}')
 		: [];
-	const svelteEntries = sveltePagesPath
+	const allSvelteEntries = sveltePagesPath
 		? await scanEntryPoints(sveltePagesPath, '*.svelte')
 		: [];
-	const vueEntries = vuePagesPath
+	const allVueEntries = vuePagesPath
 		? await scanEntryPoints(vuePagesPath, '*.vue')
 		: [];
-	const angularEntries = angularPagesPath
+	const allAngularEntries = angularPagesPath
 		? await scanEntryPoints(angularPagesPath, '*.ts')
 		: [];
 
-	const htmlCssEntries = htmlDir
+	const allHtmlCssEntries = htmlDir
 		? await scanEntryPoints(join(htmlDir, 'styles'), '*.css')
 		: [];
-	const htmxCssEntries = htmxDir
+	const allHtmxCssEntries = htmxDir
 		? await scanEntryPoints(join(htmxDir, 'styles'), '*.css')
 		: [];
-	const reactCssEntries = reactDir
+	const allReactCssEntries = reactDir
 		? await scanEntryPoints(join(reactDir, 'styles'), '*.css')
 		: [];
-	const svelteCssEntries = svelteDir
+	const allSvelteCssEntries = svelteDir
 		? await scanEntryPoints(join(svelteDir, 'styles'), '*.css')
 		: [];
 
-	const { svelteServerPaths, svelteClientPaths } = svelteDir
-		? await compileSvelte(svelteEntries, svelteDir)
-		: { svelteClientPaths: [], svelteServerPaths: [] };
+	// Filter entries for incremental builds
+	// For React: map index entries back to their source pages
+	const reactEntries = isIncremental && reactIndexesPath && reactPagesPath
+		? filterToIncrementalEntries(allReactEntries, (entry) => {
+			// Map index entry (indexes/ReactExample.tsx) to source page (pages/ReactExample.tsx)
+			if (entry.startsWith(resolve(reactIndexesPath))) {
+				const pageName = basename(entry, '.tsx');
+				return join(reactPagesPath, `${pageName}.tsx`);
+			}
+			return null;
+		})
+		: allReactEntries;
+	
+	// Also filter React page entries for incremental builds
+	const reactPageEntries = isIncremental && reactPagesPath
+		? filterToIncrementalEntries(allReactPageEntries, (entry) => entry)
+		: allReactPageEntries;
+	
+	const htmlEntries = isIncremental && htmlScriptsPath
+		? filterToIncrementalEntries(allHtmlEntries, (entry) => {
+			// HTML entries are the scripts themselves
+			return entry;
+		})
+		: allHtmlEntries;
+	
+	// For Svelte/Vue/Angular: entries are the page files themselves
+	const svelteEntries = isIncremental
+		? filterToIncrementalEntries(allSvelteEntries, (entry) => entry)
+		: allSvelteEntries;
+	
+	const vueEntries = isIncremental
+		? filterToIncrementalEntries(allVueEntries, (entry) => entry)
+		: allVueEntries;
+	
+	const angularEntries = isIncremental
+		? filterToIncrementalEntries(allAngularEntries, (entry) => entry)
+		: allAngularEntries;
 
-	const { vueServerPaths, vueIndexPaths, vueCssPaths } = vueDir
+	// CSS entries - entries are the CSS files themselves
+	const htmlCssEntries = isIncremental
+		? filterToIncrementalEntries(allHtmlCssEntries, (entry) => entry)
+		: allHtmlCssEntries;
+	const htmxCssEntries = isIncremental
+		? filterToIncrementalEntries(allHtmxCssEntries, (entry) => entry)
+		: allHtmxCssEntries;
+	const reactCssEntries = isIncremental
+		? filterToIncrementalEntries(allReactCssEntries, (entry) => entry)
+		: allReactCssEntries;
+	const svelteCssEntries = isIncremental
+		? filterToIncrementalEntries(allSvelteCssEntries, (entry) => entry)
+		: allSvelteCssEntries;
+
+	const { svelteServerPaths, svelteIndexPaths, svelteClientPaths } = svelteDir
+		? await compileSvelte(svelteEntries, svelteDir)
+		: { svelteClientPaths: [], svelteIndexPaths: [], svelteServerPaths: [] };
+
+	const { vueServerPaths, vueIndexPaths, vueClientPaths, vueCssPaths } = vueDir
 		? await compileVue(vueEntries, vueDir)
-		: { vueCssPaths: [], vueIndexPaths: [], vueServerPaths: [] };
+		: { vueClientPaths: [], vueCssPaths: [], vueIndexPaths: [], vueServerPaths: [] };
 
 	const serverEntryPoints = [...svelteServerPaths, ...vueServerPaths];
 	const clientEntryPoints = [
 		...reactEntries,
-		...svelteClientPaths,
+		...reactPageEntries, // Build React pages separately for HMR
+		...svelteIndexPaths, // Svelte hydration entry points
+		...svelteClientPaths, // Svelte client components for official HMR
 		...htmlEntries,
-		...vueIndexPaths
+		...vueIndexPaths,
+		...vueClientPaths // Build Vue client components separately for official HMR
 	];
 	const cssEntryPoints = [
 		...vueCssPaths,
@@ -151,30 +258,37 @@ export const build = async ({
 	if (
 		serverEntryPoints.length === 0 &&
 		clientEntryPoints.length === 0 &&
-		htmxDir === undefined
+		htmxDir === undefined &&
+		htmlDir === undefined
 	) {
-		console.warn('No entry points found, manifest will be empty.');
+		logger.warn('No entry points found, manifest will be empty');
 
-		return {};
+		return createBuildResult({}, buildPath);
 	}
 
 	let serverLogs: (BuildMessage | ResolveMessage)[] = [];
 	let serverOutputs: BuildArtifact[] = [];
 
 	if (serverEntryPoints.length > 0) {
-		const { logs, outputs } = await bunBuild({
+		const result = await bunBuild({
 			entrypoints: serverEntryPoints,
 			format: 'esm',
 			naming: `[dir]/[name].[hash].[ext]`,
 			outdir: serverOutDir,
 			root: serverRoot,
-			target: 'bun'
-		}).catch((err) => {
-			console.error('Server build failed:', err);
-			exit(1);
+			target: 'bun',
+			throw: false
 		});
-		serverLogs = logs;
-		serverOutputs = outputs;
+		serverLogs = result.logs;
+		serverOutputs = result.outputs;
+		if (!result.success && result.logs.length > 0) {
+			const errLog = result.logs.find((l) => l.level === 'error') ?? result.logs[0]!;
+			const err = new Error(typeof errLog.message === 'string' ? errLog.message : String(errLog.message));
+			(err as Error & { logs?: unknown }).logs = result.logs;
+			logger.error('Server build failed', err);
+			if (throwOnError) throw err;
+			exit(1);
+		}
 	}
 
 	let clientLogs: (BuildMessage | ResolveMessage)[] = [];
@@ -191,58 +305,131 @@ export const build = async ({
 		const clientRoot = isSingle
 			? (roots[0] ?? projectRoot)
 			: commonAncestor(roots, projectRoot);
-		const { logs, outputs } = await bunBuild({
+
+		// Create HTML script HMR plugin for dev mode
+		const htmlScriptPlugin = isDev
+			? createHTMLScriptHMRPlugin(htmlDir, htmxDir)
+			: undefined;
+
+		const clientResult = await bunBuild({
 			define: vueDirectory ? vueFeatureFlags : undefined,
 			entrypoints: clientEntryPoints,
 			format: 'esm',
-			minify: true,
+			minify: !isDev, // Don't minify in dev for better debugging
 			naming: `[dir]/[name].[hash].[ext]`,
 			outdir: buildPath,
+			plugins: htmlScriptPlugin ? [htmlScriptPlugin] : undefined,
+			// @ts-expect-error - reactFastRefresh is new in Bun 1.3.6, types will catch up
+			reactFastRefresh: isDev,
 			root: clientRoot,
-			target: 'browser'
-		}).catch((err) => {
-			console.error('Client build failed:', err);
-			exit(1);
+			target: 'browser',
+			splitting: !isDev, // Disable splitting in dev to avoid duplicate export bug
+			external: isDev ? ['react', 'react-dom', 'react-dom/client', 'react/jsx-runtime', 'react/jsx-dev-runtime'] : undefined,
+			throw: false
 		});
-		clientLogs = logs;
-		clientOutputs = outputs;
+		clientLogs = clientResult.logs;
+		clientOutputs = clientResult.outputs;
+		if (!clientResult.success && clientResult.logs.length > 0) {
+			const errLog = clientResult.logs.find((l) => l.level === 'error') ?? clientResult.logs[0]!;
+			const err = new Error(typeof errLog.message === 'string' ? errLog.message : String(errLog.message));
+			(err as Error & { logs?: unknown }).logs = clientResult.logs;
+			logger.error('Client build failed', err);
+			if (throwOnError) throw err;
+			exit(1);
+		}
 	}
 
 	let cssLogs: (BuildMessage | ResolveMessage)[] = [];
 	let cssOutputs: BuildArtifact[] = [];
 
 	if (cssEntryPoints.length > 0) {
-		const { logs, outputs } = await bunBuild({
+		const cssResult = await bunBuild({
 			entrypoints: cssEntryPoints,
 			naming: `[name].[hash].[ext]`,
 			outdir: join(buildPath, basename(assetsPath), 'css'),
-			target: 'browser'
-		}).catch((err) => {
-			console.error('CSS build failed:', err);
-			exit(1);
+			target: 'browser',
+			throw: false
 		});
-		cssLogs = logs;
-		cssOutputs = outputs;
+		cssLogs = cssResult.logs;
+		cssOutputs = cssResult.outputs;
+		if (!cssResult.success && cssResult.logs.length > 0) {
+			const errLog = cssResult.logs.find((l) => l.level === 'error') ?? cssResult.logs[0]!;
+			const err = new Error(typeof errLog.message === 'string' ? errLog.message : String(errLog.message));
+			(err as Error & { logs?: unknown }).logs = cssResult.logs;
+			logger.error('CSS build failed', err);
+			if (throwOnError) throw err;
+			exit(1);
+		}
 	}
 
 	const allLogs = [...serverLogs, ...clientLogs, ...cssLogs];
 	outputLogs(allLogs);
 
-	const manifest = generateManifest(
+	const newManifest = generateManifest(
 		[...serverOutputs, ...clientOutputs, ...cssOutputs],
 		buildPath
 	);
+
+	// For incremental builds, merge with existing manifest to preserve unchanged entries
+	let manifest = newManifest;
+	if (isIncremental) {
+		// Try to load existing manifest from build directory
+		const manifestPath = join(buildPath, 'manifest.json');
+		try {
+			const manifestFile = Bun.file(manifestPath);
+			if (await manifestFile.exists()) {
+				const manifestText = await manifestFile.text();
+				const existingManifest = JSON.parse(manifestText) as Record<string, string>;
+				// Merge: new entries override old ones, but keep old entries for unchanged files
+				manifest = { ...existingManifest, ...newManifest };
+			}
+		} catch {
+			// No existing manifest or parse error, use new one
+			manifest = newManifest;
+		}
+	}
+
+	// For HTML/HTMX, copy pages on full builds or if HTML/HTMX files changed
+	// Also update asset paths if CSS changed (to update CSS links in HTML files)
+	const htmlOrHtmlCssChanged = !isIncremental ||
+		(normalizedIncrementalFiles?.some(f => f.includes('/html/') && (f.endsWith('.html') || f.endsWith('.css'))));
+	const htmxOrHtmxCssChanged = !isIncremental ||
+		(normalizedIncrementalFiles?.some(f => f.includes('/htmx/') && (f.endsWith('.html') || f.endsWith('.css'))));
+
+	const shouldCopyHtml = htmlOrHtmlCssChanged;
+	const shouldCopyHtmx = htmxOrHtmxCssChanged;
+
+	// Update asset paths if CSS changed (even if HTML files didn't change)
+	const shouldUpdateHtmlAssetPaths = !isIncremental ||
+		(normalizedIncrementalFiles?.some(f => f.includes('/html/') && (f.endsWith('.html') || f.endsWith('.css'))));
+	const shouldUpdateHtmxAssetPaths = !isIncremental ||
+		(normalizedIncrementalFiles?.some(f => f.includes('/htmx/') && (f.endsWith('.html') || f.endsWith('.css'))));
 
 	if (htmlDir && htmlPagesPath) {
 		const outputHtmlPages = isSingle
 			? join(buildPath, 'pages')
 			: join(buildPath, basename(htmlDir), 'pages');
+
+		if (shouldCopyHtml) {
 		mkdirSync(outputHtmlPages, { recursive: true });
 		cpSync(htmlPagesPath, outputHtmlPages, {
 			force: true,
 			recursive: true
 		});
+		}
+
+		// Update asset paths if HTML files changed OR CSS changed
+		if (shouldUpdateHtmlAssetPaths) {
 		await updateAssetPaths(manifest, outputHtmlPages);
+		}
+
+		// Add HTML pages to manifest
+		const htmlPageFiles = await scanEntryPoints(outputHtmlPages, '*.html');
+		for (const htmlFile of htmlPageFiles) {
+			const fileName = basename(htmlFile, '.html');
+			const relativePath = '/' + relative(buildPath, htmlFile).replace(/\\/g, '/');
+			manifest[`${fileName}HTML`] = relativePath;
+		}
 	}
 
 	if (htmxDir && htmxPagesPath) {
@@ -250,12 +437,15 @@ export const build = async ({
 			? join(buildPath, 'pages')
 			: join(buildPath, basename(htmxDir), 'pages');
 
+		if (shouldCopyHtmx) {
 		mkdirSync(outputHtmxPages, { recursive: true });
 		cpSync(htmxPagesPath, outputHtmxPages, {
 			force: true,
 			recursive: true
 		});
+		}
 
+		if (shouldCopyHtmx) {
 		const htmxDestDir = isSingle
 			? buildPath
 			: join(buildPath, basename(htmxDir));
@@ -263,13 +453,26 @@ export const build = async ({
 		mkdirSync(htmxDestDir, { recursive: true });
 
 		const glob = new Glob('htmx*.min.js');
-		for (const relativePath of glob.scanSync({ cwd: htmxDir })) {
-			const src = join(htmxDir, relativePath);
+		for (const relPath of glob.scanSync({ cwd: htmxDir })) {
+			const src = join(htmxDir, relPath);
 			const dest = join(htmxDestDir, 'htmx.min.js');
 			copyFileSync(src, dest);
 			break;
 		}
+		}
+
+		// Update asset paths if HTMX files changed OR CSS changed
+		if (shouldUpdateHtmxAssetPaths) {
 		await updateAssetPaths(manifest, outputHtmxPages);
+		}
+
+		// Add HTMX pages to manifest
+		const htmxPageFiles = await scanEntryPoints(outputHtmxPages, '*.html');
+		for (const htmxFile of htmxPageFiles) {
+			const fileName = basename(htmxFile, '.html');
+			const relativePath = '/' + relative(buildPath, htmxFile).replace(/\\/g, '/');
+			manifest[`${fileName}HTMX`] = relativePath;
+		}
 	}
 
 	if (!options?.preserveIntermediateFiles)
@@ -282,6 +485,15 @@ export const build = async ({
 	console.log(
 		`Build completed in ${getDurationString(performance.now() - buildStart)}`
 	);
+	
+	// Always save manifest for incremental builds (so we can merge on next incremental build)
+	const manifestPath = join(buildPath, 'manifest.json');
+	const manifestJson = JSON.stringify(manifest, null, 2);
+	try {
+		await Bun.write(manifestPath, manifestJson);
+	} catch (error) {
+		logger.warn(`Could not save manifest: ${error}`);
+	}
 
-	return manifest;
+	return createBuildResult(manifest, buildPath);
 };

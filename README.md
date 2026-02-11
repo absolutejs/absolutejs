@@ -115,7 +115,7 @@ Absolute JS piggybacks on the [Elysia plugin API](https://elysiajs.com/plugins).
 | Plugin                 | Description                                                                                                                     |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
 | **`absolute-auth`**    | Full OAuth2 flow configured with 66 providers and allows full customizability with event handlers                               |
-| **`networkingPlugin`** | Starts your Elysia server with HOST/PORT defaults and adds a --host flag to toggle listening on localhost or your LAN interface |
+| **`networkingPlugin`** | Starts your Elysia server with HOST/PORT defaults from environment variables |
 
 ---
 

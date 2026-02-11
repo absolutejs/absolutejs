@@ -4,6 +4,11 @@ import { Component as VueComponent } from 'vue';
 
 export type BuildOptions = {
 	preserveIntermediateFiles?: boolean;
+	/** When true, build() throws on error instead of exit(1) - used by HMR rebuilds */
+	throwOnError?: boolean;
+	hmr?: {
+		debounceMs?: number;
+	};
 };
 
 export type BuildConfig = {
@@ -21,6 +26,15 @@ export type BuildConfig = {
 		output: string;
 	};
 	options?: BuildOptions;
+	// Optional: List of files to rebuild incrementally (absolute paths)
+	// When provided, only these files and their dependencies will be rebuilt
+	incrementalFiles?: string[];
+	// Optional: Host configuration for dev server
+	// Default: environment variable (HOST) or 'localhost'
+	host?: string;
+	// Optional: Port configuration for dev server
+	// Default: environment variable (PORT) or 3000
+	port?: number;
 };
 
 export type PropsOf<Component> =
@@ -35,3 +49,10 @@ export type PropsOf<Component> =
 export type PropsArgs<C> = keyof PropsOf<C> extends never ? [] : [PropsOf<C>];
 
 export type Prettify<T> = { [K in keyof T]: T[K] } & {};
+
+export type BuildResult = {
+	manifest: Record<string, string>;
+	buildDir: string;
+	/** Shorthand for looking up an asset in the manifest */
+	asset: (name: string) => string;
+};
