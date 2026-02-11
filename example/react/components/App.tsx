@@ -23,7 +23,7 @@ export const App = ({ initialCount }: AppProps) => {
 					/>
 				</a>
 			</nav>
-			<h1>AbsoluteJS + ReactJS</h1>
+			<h1>AbsoluteJS + React</h1>
 			<button onClick={() => setCount(count + 1)}>
 				count is {count}
 			</button>
