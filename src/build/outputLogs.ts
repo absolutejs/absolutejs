@@ -1,14 +1,10 @@
-import {
-	ANGULAR_BUILD_WARNING_SUPPRESSION,
-	BUN_BUILD_WARNING_SUPPRESSION
-} from '../constants';
+import { BUN_BUILD_WARNING_SUPPRESSION } from '../constants';
 
 export const outputLogs = (logs: (BuildMessage | ResolveMessage)[]) => {
 	for (const log of logs) {
 		if (
 			// TODO: When bun supports wildcard sideEffects, remove this suppression
-			log.message.includes(BUN_BUILD_WARNING_SUPPRESSION) &&
-			log.position?.file?.includes(ANGULAR_BUILD_WARNING_SUPPRESSION)
+			log.message.includes(BUN_BUILD_WARNING_SUPPRESSION)
 		)
 			continue;
 

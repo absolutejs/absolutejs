@@ -3,7 +3,6 @@ import { rm } from 'node:fs/promises';
 import { basename, join, resolve, dirname, relative } from 'node:path';
 import { cwd, env, exit } from 'node:process';
 import { $, build as bunBuild, BuildArtifact, Glob } from 'bun';
-import { compileAngular } from '../build/compileAngular';
 import { compileSvelte } from '../build/compileSvelte';
 import { compileVue } from '../build/compileVue';
 import { generateManifest } from '../build/generateManifest';
@@ -238,16 +237,7 @@ export const build = async ({
 		? await compileVue(vueEntries, vueDir)
 		: { vueClientPaths: [], vueCssPaths: [], vueIndexPaths: [], vueServerPaths: [] };
 
-	const { serverPaths: angularServerPaths, clientPaths: angularClientPaths } =
-		angularDir
-			? await compileAngular(angularEntries, angularDir)
-			: { clientPaths: [], serverPaths: [] };
-
-	const serverEntryPoints = [
-		...svelteServerPaths,
-		...vueServerPaths,
-		...angularServerPaths
-	];
+	const serverEntryPoints = [...svelteServerPaths, ...vueServerPaths];
 	const clientEntryPoints = [
 		...reactEntries,
 		...reactPageEntries, // Build React pages separately for HMR
@@ -255,8 +245,7 @@ export const build = async ({
 		...svelteClientPaths, // Svelte client components for official HMR
 		...htmlEntries,
 		...vueIndexPaths,
-		...vueClientPaths, // Build Vue client components separately for official HMR
-		...angularClientPaths
+		...vueClientPaths // Build Vue client components separately for official HMR
 	];
 	const cssEntryPoints = [
 		...vueCssPaths,

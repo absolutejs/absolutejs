@@ -4,7 +4,6 @@ import { scopedState } from 'elysia-scoped-state';
 import { build } from '../src/core/build';
 import { dev, hmr } from '../src/dev';
 import {
-	handleAngularPageRequest,
 	handleHTMLPageRequest,
 	handleHTMXPageRequest,
 	handleReactPageRequest,
@@ -13,7 +12,6 @@ import {
 } from '../src/core/pageHandlers';
 import { networking } from '../src/plugins/networking';
 import { generateHeadElement } from '../src/utils/generateHeadElement';
-import angularTemplate from './angular/index.html' with { type: 'text' };
 import { ReactExample } from './react/pages/ReactExample';
 import SvelteExample from './svelte/pages/SvelteExample.svelte';
 import { vueImports } from './vueImporter';
@@ -86,13 +84,6 @@ export const server = new Elysia()
 				title: 'AbsoluteJS + Vue'
 			}),
 			{ initialCount: 0 }
-		)
-	)
-	.get('/angular', async () =>
-		handleAngularPageRequest(
-			result.asset('AngularExample'),
-			result.asset('AngularExampleIndex'),
-			angularTemplate.toString()
 		)
 	)
 	.get('/htmx', () => handleHTMXPageRequest(result, 'HTMXExampleHTMX'))
