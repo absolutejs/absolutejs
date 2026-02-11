@@ -42,10 +42,8 @@ const startDatabase = async (scripts: DbScripts) => {
 };
 
 const stopDatabase = async (scripts: DbScripts) => {
-	process.stdout.write('\n');
-	await timed('Stopping database container...', async () => {
-		await $`${{ raw: scripts.downCommand }}`.quiet().nothrow();
-	});
+	console.log('\nStopping database container...');
+	await $`${{ raw: scripts.downCommand }}`.quiet().nothrow();
 };
 
 const dev = async (serverEntry: string) => {
