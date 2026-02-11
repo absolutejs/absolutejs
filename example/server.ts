@@ -2,7 +2,7 @@ import { staticPlugin } from '@elysiajs/static';
 import { Elysia } from 'elysia';
 import { scopedState } from 'elysia-scoped-state';
 import { build } from '../src/core/build';
-import { dev, hmr } from '../src/dev';
+import { devBuild, hmr } from '../src/dev';
 import {
 	handleHTMLPageRequest,
 	handleHTMXPageRequest,
@@ -34,7 +34,7 @@ const buildConfig = {
 const isDev = process.env.NODE_ENV !== 'production';
 
 const result = isDev
-	? await dev(buildConfig)
+	? await devBuild(buildConfig)
 	: {
 			...(await build(buildConfig)),
 			hmrState: null

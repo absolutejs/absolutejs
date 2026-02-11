@@ -819,12 +819,15 @@ serverVersions: serverVersions
     // Flush changes accumulated during rebuild
     if (state.fileChangeQueue.size > 0) {
       const pending = Array.from(state.fileChangeQueue.keys());
+      const queuedFiles: string[] = [];
+      for (const [, filePaths] of state.fileChangeQueue) {
+        queuedFiles.push(...filePaths);
+      }
       state.fileChangeQueue.clear();
       for (const f of pending) state.rebuildQueue.add(f);
       if (state.rebuildTimeout) clearTimeout(state.rebuildTimeout);
       state.rebuildTimeout = setTimeout(() => {
-        // For queued rebuilds, we don't have the files list, so do full rebuild
-        void triggerRebuild(state, config, onRebuildComplete, undefined);
+        void triggerRebuild(state, config, onRebuildComplete, queuedFiles.length > 0 ? queuedFiles : undefined);
       }, 50);
     }
   }

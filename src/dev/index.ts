@@ -1,1 +1,1 @@
-export { dev, hmr } from './devServer';
+export { devBuild, hmr } from './devServer';

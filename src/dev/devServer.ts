@@ -1,3 +1,4 @@
+import { statSync } from 'node:fs';
 import { Elysia } from 'elysia';
 import { build } from '../core/build';
 import { createBuildResult } from '../core/createBuildResult';
@@ -15,7 +16,26 @@ export type DevResult = BuildResult & {
 
 /* Development mode function - replaces build() during development
    Returns DevResult with manifest, buildDir, asset(), and hmrState for use with the hmr() plugin */
-export async function dev(config: BuildConfig): Promise<DevResult> {
+export async function devBuild(config: BuildConfig): Promise<DevResult> {
+  // On Bun --hot reload, return cached result instead of rebuilding
+  const cached = (globalThis as Record<string, unknown>).__hmrDevResult as DevResult | undefined;
+  if (cached) {
+    const serverMtime = statSync(Bun.main).mtimeMs;
+    const lastMtime = (globalThis as Record<string, unknown>).__hmrServerMtime as number;
+    (globalThis as Record<string, unknown>).__hmrServerMtime = serverMtime;
+
+    if (serverMtime !== lastMtime) {
+      // Server entry file changed — allow normal restart
+      // (networking() will stop old server and start new one)
+      console.log('\x1b[36m[hmr] Server module reloaded\x1b[0m');
+    } else {
+      // Framework file changed — skip server restart, let HMR handle it
+      (globalThis as Record<string, unknown>).__hmrSkipServerRestart = true;
+      console.log('\x1b[36m[hmr] Hot module update detected\x1b[0m');
+    }
+    return cached;
+  }
+
   // Create initial HMR state with config
   const state = createHMRState(config);
 
@@ -56,10 +76,16 @@ export async function dev(config: BuildConfig): Promise<DevResult> {
   console.log('👀 File watching: Active');
   console.log('🔥 HMR: Ready');
 
-  return {
+  const result: DevResult = {
     ...createBuildResult(manifestRef, buildDir),
     hmrState: state
   };
+
+  // Cache for Bun --hot reloads
+  (globalThis as Record<string, unknown>).__hmrDevResult = result;
+  (globalThis as Record<string, unknown>).__hmrServerMtime = statSync(Bun.main).mtimeMs;
+
+  return result;
 }
 
 /* HMR plugin for Elysia
@@ -2762,12 +2788,16 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                 break;
               }
                 
+              case 'full-reload':
+                setTimeout(function() { window.location.reload(); }, 100);
+                break;
+
               case 'pong':
                 break;
-                
+
               case 'connected':
                 break;
-                
+
               default:
                 break;
             }
@@ -2777,16 +2807,28 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
         
         ws.onclose = function(event) {
           isConnected = false;
-          
+
           if (pingInterval) {
             clearInterval(pingInterval);
             pingInterval = null;
           }
-          
-          if (event.code !== 1000 && event.code !== 1001) {
-            reconnectTimeout = setTimeout(function() {
-              window.location.reload();
-            }, 3000);
+
+          if (event.code !== 1000) {
+            // Server went away — poll until it's back, then reload
+            var attempts = 0;
+            reconnectTimeout = setTimeout(function pollServer() {
+              attempts++;
+              if (attempts > 50) return;
+
+              fetch('/hmr-status')
+                .then(function(r) {
+                  if (r.ok) window.location.reload();
+                  else reconnectTimeout = setTimeout(pollServer, 300);
+                })
+                .catch(function() {
+                  reconnectTimeout = setTimeout(pollServer, 300);
+                });
+            }, 200);
           }
         };
         

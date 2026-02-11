@@ -7,5 +7,6 @@ export const WS_READY_STATE_OPEN = 1;
    Compatible with Elysia's WebSocket implementation */
 export interface HMRWebSocket {
   send(data: string): void;
+  close(code?: number, reason?: string): void;
   readyState: number;
 }
