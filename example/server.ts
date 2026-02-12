@@ -56,10 +56,14 @@ export const server = new Elysia()
 	.get('/', () => handleHTMLPageRequest(result, 'HtmlExampleHTML'))
 	.get('/html', () => handleHTMLPageRequest(result, 'HtmlExampleHTML'))
 	.get('/react', () =>
-		handleReactPageRequest(ReactExample, result.asset('ReactExampleIndex'), {
-			cssPath: result.asset('ReactExampleCSS'),
-			initialCount: 0
-		})
+		handleReactPageRequest(
+			ReactExample,
+			result.asset('ReactExampleIndex'),
+			{
+				cssPath: result.asset('ReactExampleCSS'),
+				initialCount: 0
+			}
+		)
 	)
 	.get('/svelte', async () =>
 		handleSveltePageRequest(
@@ -97,7 +101,7 @@ export const server = new Elysia()
 		}
 		return { success: false };
 	})
-	.use(networking)
+	.use(networking({ hmrState: result.hmrState }))
 	.on('error', (error) => {
 		const { request } = error;
 		console.error(

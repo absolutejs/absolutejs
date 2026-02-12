@@ -120,7 +120,9 @@ export const compileSvelte = async (
 		]);
 
 		// Generate HMR ID from relative file path
-		const hmrId = relative(svelteRoot, src).replace(/\\/g, '/').replace(/\.svelte(\.(ts|js))?$/, '');
+		const hmrId = relative(svelteRoot, src)
+			.replace(/\\/g, '/')
+			.replace(/\.svelte(\.(ts|js))?$/, '');
 
 		// HMR wrapper for client components
 		const wrapWithHMR = (code: string) => {

@@ -56,6 +56,11 @@ const dev = async (serverEntry: string) => {
 
 	const spawnServer = () =>
 		Bun.spawn(['bun', '--hot', serverEntry], {
+			cwd: process.cwd(),
+			env: {
+				...process.env,
+				ABSOLUTEJS_SERVER_ENTRY: resolve(process.cwd(), serverEntry)
+			},
 			stdin: 'inherit',
 			stdout: 'inherit',
 			stderr: 'inherit'

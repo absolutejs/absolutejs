@@ -35,4 +35,3 @@ export function resolveBuildPaths(config: BuildConfig): ResolvedPaths {
 }
 
 export type ResolvedBuildPaths = ReturnType<typeof resolveBuildPaths>;
-
