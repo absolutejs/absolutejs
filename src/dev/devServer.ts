@@ -2835,9 +2835,25 @@ function injectHMRClient(html: string): string {
               case 'full-reload': {
                 var reloadUrl = new URL(window.location.href);
                 reloadUrl.searchParams.set('_hmr', Date.now().toString());
-                setTimeout(function() {
-                  window.location.replace(reloadUrl.toString());
-                }, 150);
+                var serverWasDown = false;
+                var attempts = 0;
+                function pollThenReload() {
+                  attempts++;
+                  if (attempts > 120) return;
+                  fetch('/hmr-status', { cache: 'no-store' })
+                    .then(function(r) {
+                      if (r.ok && serverWasDown) {
+                        window.location.replace(reloadUrl.toString());
+                      } else {
+                        setTimeout(pollThenReload, 200);
+                      }
+                    })
+                    .catch(function() {
+                      serverWasDown = true;
+                      setTimeout(pollThenReload, 300);
+                    });
+                }
+                setTimeout(pollThenReload, 150);
                 break;
               }
 
