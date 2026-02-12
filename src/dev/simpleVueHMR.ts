@@ -12,89 +12,106 @@ import { toPascal } from '../utils/stringModifiers';
    4. Re-render the page
    5. Return the new HTML for patching */
 export const handleVueUpdate = async (
-  vueFilePath: string,
-  manifest: Record<string, string>,
-  buildDir?: string
+	vueFilePath: string,
+	manifest: Record<string, string>,
+	buildDir?: string
 ) => {
-  try {
-    const resolvedPath = resolve(vueFilePath);
+	try {
+		const resolvedPath = resolve(vueFilePath);
 
-    // Derive manifest keys dynamically from the source file path
-    const fileName = basename(resolvedPath);
-    const baseName = fileName.replace(/\.vue$/, '');
-    const pascalName = toPascal(baseName);
+		// Derive manifest keys dynamically from the source file path
+		const fileName = basename(resolvedPath);
+		const baseName = fileName.replace(/\.vue$/, '');
+		const pascalName = toPascal(baseName);
 
-    // Vue manifest keys follow the pattern:
-    // - {PascalName}: server bundle path
-    // - {PascalName}Index: client bundle path
-    // - {PascalName}CSS: CSS path (optional)
-    const componentKey = pascalName;
-    const indexKey = `${pascalName}Index`;
-    const cssKey = `${pascalName}CSS`;
+		// Vue manifest keys follow the pattern:
+		// - {PascalName}: server bundle path
+		// - {PascalName}Index: client bundle path
+		// - {PascalName}CSS: CSS path (optional)
+		const componentKey = pascalName;
+		const indexKey = `${pascalName}Index`;
+		const cssKey = `${pascalName}CSS`;
 
-    // Get server path from manifest (URL path like /vue/compiled/pages/VueExample.abc123.js)
-    const serverPath = manifest[componentKey];
+		// Get server path from manifest (URL path like /vue/compiled/pages/VueExample.abc123.js)
+		const serverPath = manifest[componentKey];
 
-    if (!serverPath) {
-      console.warn('[Vue HMR] Server path not found in manifest for:', componentKey);
-      console.warn('[Vue HMR] Available manifest keys:', Object.keys(manifest).join(', '));
-      return null;
-    }
+		if (!serverPath) {
+			console.warn(
+				'[Vue HMR] Server path not found in manifest for:',
+				componentKey
+			);
+			console.warn(
+				'[Vue HMR] Available manifest keys:',
+				Object.keys(manifest).join(', ')
+			);
+			return null;
+		}
 
-    // Convert URL path to absolute filesystem path
-    // Manifest stores paths like "/vue/compiled/pages/VueExample.abc123.js"
-    // Need to resolve relative to project build directory
-    const projectRoot = buildDir || process.cwd();
-    const absoluteServerPath = join(projectRoot, serverPath.replace(/^\//, ''));
+		// Convert URL path to absolute filesystem path
+		// Manifest stores paths like "/vue/compiled/pages/VueExample.abc123.js"
+		const projectRoot = buildDir || process.cwd();
+		const absoluteServerPath = join(
+			projectRoot,
+			serverPath.replace(/^\//, '')
+		);
 
-    const cacheBuster = `?t=${Date.now()}`;
-    const serverModule = await import(`${absoluteServerPath}${cacheBuster}`);
+		const cacheBuster = `?t=${Date.now()}`;
+		const serverModule = await import(`${absoluteServerPath}${cacheBuster}`);
 
-    if (!serverModule || !serverModule.default) {
-      console.warn('[Vue HMR] Module has no default export:', absoluteServerPath);
-      return null;
-    }
+		if (!serverModule || !serverModule.default) {
+			console.warn(
+				'[Vue HMR] Module has no default export:',
+				absoluteServerPath
+			);
+			return null;
+		}
 
-    const indexPath = manifest[indexKey];
+		const indexPath = manifest[indexKey];
 
-    if (!indexPath) {
-      console.warn('[Vue HMR] Index path not found in manifest for:', indexKey);
-      return null;
-    }
+		if (!indexPath) {
+			console.warn(
+				'[Vue HMR] Index path not found in manifest for:',
+				indexKey
+			);
+			return null;
+		}
 
-    const { handleVuePageRequest } = await import('../core/pageHandlers');
-    const { generateHeadElement } = await import('../utils/generateHeadElement');
+		const { handleVuePageRequest } = await import('../core/pageHandlers');
+		const { generateHeadElement } = await import(
+			'../utils/generateHeadElement'
+		);
 
-    // Create a minimal result object for the handler
-    // Use provided buildDir or fall back to process.cwd()/example/build for compatibility
-    const resultBuildDir = buildDir || resolve(process.cwd(), 'example/build');
+		// Create a minimal result object for the handler
+		// Use provided buildDir or fall back to process.cwd()/example/build for compatibility
+		const resultBuildDir =
+			buildDir || resolve(process.cwd(), 'example/build');
 
-    const response = await handleVuePageRequest(
-      serverModule.default,
-      serverPath,
-      indexPath,
-      { manifest, buildDir: resultBuildDir },
-      generateHeadElement({
-        cssPath: manifest[cssKey] || '',
-        title: 'AbsoluteJS + Vue'
-      }),
-      { initialCount: 0 }
-    );
+		const response = await handleVuePageRequest(
+			serverModule.default,
+			serverPath,
+			indexPath,
+			{ manifest, buildDir: resultBuildDir },
+			generateHeadElement({
+				cssPath: manifest[cssKey] || '',
+				title: 'AbsoluteJS + Vue'
+			}),
+			{ initialCount: 0 }
+		);
 
-    const html = await response.text();
+		const html = await response.text();
 
-    // Extract just the body content for patching (not the full HTML document)
-    // Vue renders to <div id="root"> inside <body>
-    const bodyMatch = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
-    if (bodyMatch && bodyMatch[1]) {
-      const bodyContent = bodyMatch[1].trim();
+		// Extract just the body content for patching (not the full HTML document)
+		// Vue renders to <div id="root"> inside <body>
+		const bodyMatch = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
+		if (bodyMatch && bodyMatch[1]) {
+			const bodyContent = bodyMatch[1].trim();
 
-      return bodyContent;
-    }
+			return bodyContent;
+		}
 
-    return html;
-  } catch (err) {
-    console.error('[Vue HMR] Error in handleVueUpdate:', err);
-    return null;
-  }
-}
+		return html;
+	} catch (err) {
+		console.error('[Vue HMR] Error in handleVueUpdate:', err);
+		return null;
+	}
+};

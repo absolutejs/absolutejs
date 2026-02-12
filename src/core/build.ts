@@ -3,7 +3,6 @@ import { rm } from 'node:fs/promises';
 import { basename, join, resolve, dirname, relative } from 'node:path';
 import { cwd, env, exit } from 'node:process';
 import { $, build as bunBuild, BuildArtifact, Glob } from 'bun';
-import { compileAngular } from '../build/compileAngular';
 import { compileSvelte } from '../build/compileSvelte';
 import { compileVue } from '../build/compileVue';
 import { generateManifest } from '../build/generateManifest';
@@ -41,7 +40,7 @@ export const build = async ({
 	tailwind,
 	options,
 	incrementalFiles
-}: BuildConfig) => {
+}: BuildConfig): Promise<BuildResult> => {
 	const buildStart = performance.now();
 	const projectRoot = cwd();
 	const isIncremental = incrementalFiles && incrementalFiles.length > 0;
@@ -50,9 +49,12 @@ export const build = async ({
 	const normalizedIncrementalFiles = incrementalFiles?.map(normalizePath);
 
 	if (isIncremental) {
-		console.log(`⚡ Incremental build: ${incrementalFiles.length} file(s) to rebuild`);
+		console.log(
+			`⚡ Incremental build: ${incrementalFiles.length} file(s) to rebuild`
+		);
 	}
 
+	const throwOnError = options?.throwOnError === true;
 	const buildPath = validateSafePath(buildDirectory, projectRoot);
 	const assetsPath =
 		assetsDirectory && validateSafePath(assetsDirectory, projectRoot);
@@ -97,7 +99,7 @@ export const build = async ({
 
 	// Only delete build directory for full builds, not incremental
 	if (!isIncremental) {
-	await rm(buildPath, { force: true, recursive: true });
+		await rm(buildPath, { force: true, recursive: true });
 	}
 	mkdirSync(buildPath, { recursive: true });
 
@@ -108,17 +110,19 @@ export const build = async ({
 		mapToSource: (entry: string) => string | null
 	): string[] => {
 		if (!isIncremental || !incrementalFiles) return entryPoints;
-		
-		const normalizedIncremental = new Set(incrementalFiles.map(f => resolve(f)));
+
+		const normalizedIncremental = new Set(
+			incrementalFiles.map((f) => resolve(f))
+		);
 		const matchingEntries: string[] = [];
-		
+
 		for (const entry of entryPoints) {
 			const sourceFile = mapToSource(entry);
 			if (sourceFile && normalizedIncremental.has(resolve(sourceFile))) {
 				matchingEntries.push(entry);
 			}
 		}
-		
+
 		return matchingEntries;
 	};
 
@@ -131,7 +135,11 @@ export const build = async ({
 	}
 
 	// Copy assets on full builds or if assets changed
-	if (assetsPath && (!isIncremental || normalizedIncrementalFiles?.some(f => f.includes('/assets/')))) {
+	if (
+		assetsPath &&
+		(!isIncremental ||
+			normalizedIncrementalFiles?.some((f) => f.includes('/assets/')))
+	) {
 		cpSync(assetsPath, join(buildPath, 'assets'), {
 			force: true,
 			recursive: true
@@ -139,7 +147,11 @@ export const build = async ({
 	}
 
 	// Tailwind only on full builds or if CSS changed
-	if (tailwind && (!isIncremental || normalizedIncrementalFiles?.some(f => f.endsWith('.css')))) {
+	if (
+		tailwind &&
+		(!isIncremental ||
+			normalizedIncrementalFiles?.some((f) => f.endsWith('.css')))
+	) {
 		await $`bunx @tailwindcss/cli -i ${tailwind.input} -o ${join(buildPath, tailwind.output)}`;
 	}
 
@@ -179,38 +191,41 @@ export const build = async ({
 
 	// Filter entries for incremental builds
 	// For React: map index entries back to their source pages
-	const reactEntries = isIncremental && reactIndexesPath && reactPagesPath
-		? filterToIncrementalEntries(allReactEntries, (entry) => {
-			// Map index entry (indexes/ReactExample.tsx) to source page (pages/ReactExample.tsx)
-			if (entry.startsWith(resolve(reactIndexesPath))) {
-				const pageName = basename(entry, '.tsx');
-				return join(reactPagesPath, `${pageName}.tsx`);
-			}
-			return null;
-		})
-		: allReactEntries;
-	
+	const reactEntries =
+		isIncremental && reactIndexesPath && reactPagesPath
+			? filterToIncrementalEntries(allReactEntries, (entry) => {
+					// Map index entry (indexes/ReactExample.tsx) to source page (pages/ReactExample.tsx)
+					if (entry.startsWith(resolve(reactIndexesPath))) {
+						const pageName = basename(entry, '.tsx');
+						return join(reactPagesPath, `${pageName}.tsx`);
+					}
+					return null;
+				})
+			: allReactEntries;
+
 	// Also filter React page entries for incremental builds
-	const reactPageEntries = isIncremental && reactPagesPath
-		? filterToIncrementalEntries(allReactPageEntries, (entry) => entry)
-		: allReactPageEntries;
-	
-	const htmlEntries = isIncremental && htmlScriptsPath
-		? filterToIncrementalEntries(allHtmlEntries, (entry) => {
-			// HTML entries are the scripts themselves
-			return entry;
-		})
-		: allHtmlEntries;
-	
+	const reactPageEntries =
+		isIncremental && reactPagesPath
+			? filterToIncrementalEntries(allReactPageEntries, (entry) => entry)
+			: allReactPageEntries;
+
+	const htmlEntries =
+		isIncremental && htmlScriptsPath
+			? filterToIncrementalEntries(allHtmlEntries, (entry) => {
+					// HTML entries are the scripts themselves
+					return entry;
+				})
+			: allHtmlEntries;
+
 	// For Svelte/Vue/Angular: entries are the page files themselves
 	const svelteEntries = isIncremental
 		? filterToIncrementalEntries(allSvelteEntries, (entry) => entry)
 		: allSvelteEntries;
-	
+
 	const vueEntries = isIncremental
 		? filterToIncrementalEntries(allVueEntries, (entry) => entry)
 		: allVueEntries;
-	
+
 	const angularEntries = isIncremental
 		? filterToIncrementalEntries(allAngularEntries, (entry) => entry)
 		: allAngularEntries;
@@ -231,22 +246,23 @@ export const build = async ({
 
 	const { svelteServerPaths, svelteIndexPaths, svelteClientPaths } = svelteDir
 		? await compileSvelte(svelteEntries, svelteDir)
-		: { svelteClientPaths: [], svelteIndexPaths: [], svelteServerPaths: [] };
+		: {
+				svelteClientPaths: [],
+				svelteIndexPaths: [],
+				svelteServerPaths: []
+			};
 
-	const { vueServerPaths, vueIndexPaths, vueClientPaths, vueCssPaths } = vueDir
-		? await compileVue(vueEntries, vueDir)
-		: { vueClientPaths: [], vueCssPaths: [], vueIndexPaths: [], vueServerPaths: [] };
+	const { vueServerPaths, vueIndexPaths, vueClientPaths, vueCssPaths } =
+		vueDir
+			? await compileVue(vueEntries, vueDir)
+			: {
+					vueClientPaths: [],
+					vueCssPaths: [],
+					vueIndexPaths: [],
+					vueServerPaths: []
+				};
 
-	const { serverPaths: angularServerPaths, clientPaths: angularClientPaths } =
-		angularDir
-			? await compileAngular(angularEntries, angularDir)
-			: { clientPaths: [], serverPaths: [] };
-
-	const serverEntryPoints = [
-		...svelteServerPaths,
-		...vueServerPaths,
-		...angularServerPaths
-	];
+	const serverEntryPoints = [...svelteServerPaths, ...vueServerPaths];
 	const clientEntryPoints = [
 		...reactEntries,
 		...reactPageEntries, // Build React pages separately for HMR
@@ -254,8 +270,7 @@ export const build = async ({
 		...svelteClientPaths, // Svelte client components for official HMR
 		...htmlEntries,
 		...vueIndexPaths,
-		...vueClientPaths, // Build Vue client components separately for official HMR
-		...angularClientPaths
+		...vueClientPaths // Build Vue client components separately for official HMR
 	];
 	const cssEntryPoints = [
 		...vueCssPaths,
@@ -280,19 +295,30 @@ export const build = async ({
 	let serverOutputs: BuildArtifact[] = [];
 
 	if (serverEntryPoints.length > 0) {
-		const { logs, outputs } = await bunBuild({
+		const result = await bunBuild({
 			entrypoints: serverEntryPoints,
 			format: 'esm',
 			naming: `[dir]/[name].[hash].[ext]`,
 			outdir: serverOutDir,
 			root: serverRoot,
-			target: 'bun'
-		}).catch((err) => {
-			logger.error('Server build failed', err);
-			exit(1);
+			target: 'bun',
+			throw: false
 		});
-		serverLogs = logs;
-		serverOutputs = outputs;
+		serverLogs = result.logs;
+		serverOutputs = result.outputs;
+		if (!result.success && result.logs.length > 0) {
+			const errLog =
+				result.logs.find((l) => l.level === 'error') ?? result.logs[0]!;
+			const err = new Error(
+				typeof errLog.message === 'string'
+					? errLog.message
+					: String(errLog.message)
+			);
+			(err as Error & { logs?: unknown }).logs = result.logs;
+			logger.error('Server build failed', err);
+			if (throwOnError) throw err;
+			exit(1);
+		}
 	}
 
 	let clientLogs: (BuildMessage | ResolveMessage)[] = [];
@@ -315,7 +341,7 @@ export const build = async ({
 			? createHTMLScriptHMRPlugin(htmlDir, htmxDir)
 			: undefined;
 
-		const { logs, outputs } = await bunBuild({
+		const clientResult = await bunBuild({
 			define: vueDirectory ? vueFeatureFlags : undefined,
 			entrypoints: clientEntryPoints,
 			format: 'esm',
@@ -328,30 +354,62 @@ export const build = async ({
 			root: clientRoot,
 			target: 'browser',
 			splitting: !isDev, // Disable splitting in dev to avoid duplicate export bug
-			external: isDev ? ['react', 'react-dom', 'react-dom/client', 'react/jsx-runtime', 'react/jsx-dev-runtime'] : undefined
-		}).catch((err) => {
-			logger.error('Client build failed', err);
-			exit(1);
+			external: isDev
+				? [
+						'react',
+						'react-dom',
+						'react-dom/client',
+						'react/jsx-runtime',
+						'react/jsx-dev-runtime'
+					]
+				: undefined,
+			throw: false
 		});
-		clientLogs = logs;
-		clientOutputs = outputs;
+		clientLogs = clientResult.logs;
+		clientOutputs = clientResult.outputs;
+		if (!clientResult.success && clientResult.logs.length > 0) {
+			const errLog =
+				clientResult.logs.find((l) => l.level === 'error') ??
+				clientResult.logs[0]!;
+			const err = new Error(
+				typeof errLog.message === 'string'
+					? errLog.message
+					: String(errLog.message)
+			);
+			(err as Error & { logs?: unknown }).logs = clientResult.logs;
+			logger.error('Client build failed', err);
+			if (throwOnError) throw err;
+			exit(1);
+		}
 	}
 
 	let cssLogs: (BuildMessage | ResolveMessage)[] = [];
 	let cssOutputs: BuildArtifact[] = [];
 
 	if (cssEntryPoints.length > 0) {
-		const { logs, outputs } = await bunBuild({
+		const cssResult = await bunBuild({
 			entrypoints: cssEntryPoints,
 			naming: `[name].[hash].[ext]`,
 			outdir: join(buildPath, basename(assetsPath), 'css'),
-			target: 'browser'
-		}).catch((err) => {
-			logger.error('CSS build failed', err);
-			exit(1);
+			target: 'browser',
+			throw: false
 		});
-		cssLogs = logs;
-		cssOutputs = outputs;
+		cssLogs = cssResult.logs;
+		cssOutputs = cssResult.outputs;
+		if (!cssResult.success && cssResult.logs.length > 0) {
+			const errLog =
+				cssResult.logs.find((l) => l.level === 'error') ??
+				cssResult.logs[0]!;
+			const err = new Error(
+				typeof errLog.message === 'string'
+					? errLog.message
+					: String(errLog.message)
+			);
+			(err as Error & { logs?: unknown }).logs = cssResult.logs;
+			logger.error('CSS build failed', err);
+			if (throwOnError) throw err;
+			exit(1);
+		}
 	}
 
 	const allLogs = [...serverLogs, ...clientLogs, ...cssLogs];
@@ -371,7 +429,10 @@ export const build = async ({
 			const manifestFile = Bun.file(manifestPath);
 			if (await manifestFile.exists()) {
 				const manifestText = await manifestFile.text();
-				const existingManifest = JSON.parse(manifestText) as Record<string, string>;
+				const existingManifest = JSON.parse(manifestText) as Record<
+					string,
+					string
+				>;
 				// Merge: new entries override old ones, but keep old entries for unchanged files
 				manifest = { ...existingManifest, ...newManifest };
 			}
@@ -383,19 +444,39 @@ export const build = async ({
 
 	// For HTML/HTMX, copy pages on full builds or if HTML/HTMX files changed
 	// Also update asset paths if CSS changed (to update CSS links in HTML files)
-	const htmlOrHtmlCssChanged = !isIncremental ||
-		(normalizedIncrementalFiles?.some(f => f.includes('/html/') && (f.endsWith('.html') || f.endsWith('.css'))));
-	const htmxOrHtmxCssChanged = !isIncremental ||
-		(normalizedIncrementalFiles?.some(f => f.includes('/htmx/') && (f.endsWith('.html') || f.endsWith('.css'))));
+	const htmlOrHtmlCssChanged =
+		!isIncremental ||
+		normalizedIncrementalFiles?.some(
+			(f) =>
+				f.includes('/html/') &&
+				(f.endsWith('.html') || f.endsWith('.css'))
+		);
+	const htmxOrHtmxCssChanged =
+		!isIncremental ||
+		normalizedIncrementalFiles?.some(
+			(f) =>
+				f.includes('/htmx/') &&
+				(f.endsWith('.html') || f.endsWith('.css'))
+		);
 
 	const shouldCopyHtml = htmlOrHtmlCssChanged;
 	const shouldCopyHtmx = htmxOrHtmxCssChanged;
 
 	// Update asset paths if CSS changed (even if HTML files didn't change)
-	const shouldUpdateHtmlAssetPaths = !isIncremental ||
-		(normalizedIncrementalFiles?.some(f => f.includes('/html/') && (f.endsWith('.html') || f.endsWith('.css'))));
-	const shouldUpdateHtmxAssetPaths = !isIncremental ||
-		(normalizedIncrementalFiles?.some(f => f.includes('/htmx/') && (f.endsWith('.html') || f.endsWith('.css'))));
+	const shouldUpdateHtmlAssetPaths =
+		!isIncremental ||
+		normalizedIncrementalFiles?.some(
+			(f) =>
+				f.includes('/html/') &&
+				(f.endsWith('.html') || f.endsWith('.css'))
+		);
+	const shouldUpdateHtmxAssetPaths =
+		!isIncremental ||
+		normalizedIncrementalFiles?.some(
+			(f) =>
+				f.includes('/htmx/') &&
+				(f.endsWith('.html') || f.endsWith('.css'))
+		);
 
 	if (htmlDir && htmlPagesPath) {
 		const outputHtmlPages = isSingle
@@ -403,23 +484,24 @@ export const build = async ({
 			: join(buildPath, basename(htmlDir), 'pages');
 
 		if (shouldCopyHtml) {
-		mkdirSync(outputHtmlPages, { recursive: true });
-		cpSync(htmlPagesPath, outputHtmlPages, {
-			force: true,
-			recursive: true
-		});
+			mkdirSync(outputHtmlPages, { recursive: true });
+			cpSync(htmlPagesPath, outputHtmlPages, {
+				force: true,
+				recursive: true
+			});
 		}
 
 		// Update asset paths if HTML files changed OR CSS changed
 		if (shouldUpdateHtmlAssetPaths) {
-		await updateAssetPaths(manifest, outputHtmlPages);
+			await updateAssetPaths(manifest, outputHtmlPages);
 		}
 
 		// Add HTML pages to manifest
 		const htmlPageFiles = await scanEntryPoints(outputHtmlPages, '*.html');
 		for (const htmlFile of htmlPageFiles) {
 			const fileName = basename(htmlFile, '.html');
-			const relativePath = '/' + relative(buildPath, htmlFile).replace(/\\/g, '/');
+			const relativePath =
+				'/' + relative(buildPath, htmlFile).replace(/\\/g, '/');
 			manifest[`${fileName}HTML`] = relativePath;
 		}
 	}
@@ -430,39 +512,40 @@ export const build = async ({
 			: join(buildPath, basename(htmxDir), 'pages');
 
 		if (shouldCopyHtmx) {
-		mkdirSync(outputHtmxPages, { recursive: true });
-		cpSync(htmxPagesPath, outputHtmxPages, {
-			force: true,
-			recursive: true
-		});
+			mkdirSync(outputHtmxPages, { recursive: true });
+			cpSync(htmxPagesPath, outputHtmxPages, {
+				force: true,
+				recursive: true
+			});
 		}
 
 		if (shouldCopyHtmx) {
-		const htmxDestDir = isSingle
-			? buildPath
-			: join(buildPath, basename(htmxDir));
+			const htmxDestDir = isSingle
+				? buildPath
+				: join(buildPath, basename(htmxDir));
 
-		mkdirSync(htmxDestDir, { recursive: true });
+			mkdirSync(htmxDestDir, { recursive: true });
 
-		const glob = new Glob('htmx*.min.js');
-		for (const relPath of glob.scanSync({ cwd: htmxDir })) {
-			const src = join(htmxDir, relPath);
-			const dest = join(htmxDestDir, 'htmx.min.js');
-			copyFileSync(src, dest);
-			break;
-		}
+			const glob = new Glob('htmx*.min.js');
+			for (const relPath of glob.scanSync({ cwd: htmxDir })) {
+				const src = join(htmxDir, relPath);
+				const dest = join(htmxDestDir, 'htmx.min.js');
+				copyFileSync(src, dest);
+				break;
+			}
 		}
 
 		// Update asset paths if HTMX files changed OR CSS changed
 		if (shouldUpdateHtmxAssetPaths) {
-		await updateAssetPaths(manifest, outputHtmxPages);
+			await updateAssetPaths(manifest, outputHtmxPages);
 		}
 
 		// Add HTMX pages to manifest
 		const htmxPageFiles = await scanEntryPoints(outputHtmxPages, '*.html');
 		for (const htmxFile of htmxPageFiles) {
 			const fileName = basename(htmxFile, '.html');
-			const relativePath = '/' + relative(buildPath, htmxFile).replace(/\\/g, '/');
+			const relativePath =
+				'/' + relative(buildPath, htmxFile).replace(/\\/g, '/');
 			manifest[`${fileName}HTMX`] = relativePath;
 		}
 	}
@@ -477,7 +560,7 @@ export const build = async ({
 	console.log(
 		`Build completed in ${getDurationString(performance.now() - buildStart)}`
 	);
-	
+
 	// Always save manifest for incremental builds (so we can merge on next incremental build)
 	const manifestPath = join(buildPath, 'manifest.json');
 	const manifestJson = JSON.stringify(manifest, null, 2);

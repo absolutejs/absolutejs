@@ -409,7 +409,7 @@ export const compileVue = async (entryPoints: string[], vueRootDir: string) => {
 			await write(
 				indexOutputFile,
 				[
-					`import Comp from "${relative(dirname(indexOutputFile), clientOutputFile)}";`,
+					`import Comp from "${relative(dirname(indexOutputFile), clientOutputFile).replace(/\\/g, '/')}";`,
 					'import { createSSRApp } from "vue";',
 					'',
 					'// HMR State Preservation: Check for preserved state from HMR',

@@ -112,10 +112,10 @@ export const server = new Elysia()
 
 Absolute JS piggybacks on the [Elysia plugin API](https://elysiajs.com/plugins). Any Elysia plugin works out of the box; Absolute adds helpers for:
 
-| Plugin                 | Description                                                                                                                     |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| **`absolute-auth`**    | Full OAuth2 flow configured with 66 providers and allows full customizability with event handlers                               |
-| **`networkingPlugin`** | Starts your Elysia server with HOST/PORT defaults from environment variables |
+| Plugin                 | Description                                                                                       |
+| ---------------------- | ------------------------------------------------------------------------------------------------- |
+| **`absolute-auth`**    | Full OAuth2 flow configured with 66 providers and allows full customizability with event handlers |
+| **`networkingPlugin`** | Starts your Elysia server with HOST/PORT defaults from environment variables                      |
 
 ---
 

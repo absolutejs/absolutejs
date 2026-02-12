@@ -1,3 +1,5 @@
+import { statSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { Elysia } from 'elysia';
 import { build } from '../core/build';
 import { createBuildResult } from '../core/createBuildResult';
@@ -7,118 +9,186 @@ import { buildInitialDependencyGraph } from './dependencyGraph';
 import { startFileWatching } from './fileWatcher';
 import { getWatchPaths } from './pathUtils';
 import { queueFileChange } from './rebuildTrigger';
-import { handleClientConnect, handleClientDisconnect, handleHMRMessage } from './webSocket';
+import {
+	handleClientConnect,
+	handleClientDisconnect,
+	handleHMRMessage
+} from './webSocket';
 
 export type DevResult = BuildResult & {
-  hmrState: HMRState;
+	hmrState: HMRState;
 };
 
 /* Development mode function - replaces build() during development
    Returns DevResult with manifest, buildDir, asset(), and hmrState for use with the hmr() plugin */
-export async function dev(config: BuildConfig): Promise<DevResult> {
-  // Create initial HMR state with config
-  const state = createHMRState(config);
+export async function devBuild(config: BuildConfig): Promise<DevResult> {
+	// On Bun --hot reload, return cached result instead of rebuilding
+	const cached = (globalThis as Record<string, unknown>).__hmrDevResult as
+		| DevResult
+		| undefined;
+	if (cached) {
+		// Use explicit server entry path from CLI when available; else Bun.main
+		const serverEntryPath =
+			process.env.ABSOLUTEJS_SERVER_ENTRY ||
+			(typeof Bun !== 'undefined' && Bun.main);
+		const serverMtime = serverEntryPath
+			? statSync(resolve(serverEntryPath)).mtimeMs
+			: 0;
+		const lastMtime = (globalThis as Record<string, unknown>)
+			.__hmrServerMtime as number;
+		(globalThis as Record<string, unknown>).__hmrServerMtime = serverMtime;
 
-  // Initialize dependency graph by scanning all source files
-  const watchPaths = getWatchPaths(config, state.resolvedPaths);
-  buildInitialDependencyGraph(state.dependencyGraph, watchPaths);
+		if (serverMtime !== lastMtime) {
+			// Server entry file changed — allow normal restart
+			// (networking() will stop old server and start new one)
+			console.log('\x1b[36m[hmr] Server module reloaded\x1b[0m');
+		} else {
+			// Framework file changed — skip server restart, let HMR handle it
+			(globalThis as Record<string, unknown>).__hmrSkipServerRestart =
+				true;
+			console.log('\x1b[36m[hmr] Hot module update detected\x1b[0m');
+		}
+		return cached;
+	}
 
-  console.log('🔨 Building AbsoluteJS with HMR...');
+	// Create initial HMR state with config
+	const state = createHMRState(config);
 
-  // Initial build
-  const buildResult = await build({
-    ...config,
-    options: {
-      ...config.options,
-      preserveIntermediateFiles: true
-    }
-  });
+	// Initialize dependency graph by scanning all source files
+	const watchPaths = getWatchPaths(config, state.resolvedPaths);
+	buildInitialDependencyGraph(state.dependencyGraph, watchPaths);
 
-  if (!buildResult.manifest || Object.keys(buildResult.manifest).length === 0) {
-    // Allow empty manifests for HTML/HTMX-only projects
-    console.log('⚠️ Manifest is empty - this is OK for HTML/HTMX-only projects');
-  }
+	console.log('🔨 Building AbsoluteJS with HMR...');
 
-  console.log('✅ Build completed successfully');
+	// Initial build
+	const buildResult = await build({
+		...config,
+		options: {
+			...config.options,
+			preserveIntermediateFiles: true
+		}
+	});
 
-  // Start file watching with callback to update manifest
-  // We use a reference so the manifest object can be updated in-place
-  let manifestRef = buildResult.manifest;
-  const { buildDir } = buildResult;
+	if (
+		!buildResult.manifest ||
+		Object.keys(buildResult.manifest).length === 0
+	) {
+		// Allow empty manifests for HTML/HTMX-only projects
+		console.log(
+			'⚠️ Manifest is empty - this is OK for HTML/HTMX-only projects'
+		);
+	}
 
-  startFileWatching(state, config, (filePath: string) => {
-    queueFileChange(state, filePath, config, (newBuildResult) => {
-      // Update the manifest in-place so the hmr() plugin always has the latest
-      Object.assign(manifestRef, newBuildResult.manifest);
-    });
-  });
+	console.log('✅ Build completed successfully');
 
-  console.log('👀 File watching: Active');
-  console.log('🔥 HMR: Ready');
+	// Start file watching with callback to update manifest
+	// We use a reference so the manifest object can be updated in-place
+	let manifestRef = buildResult.manifest;
+	const { buildDir } = buildResult;
 
-  return {
-    ...createBuildResult(manifestRef, buildDir),
-    hmrState: state
-  };
+	startFileWatching(state, config, (filePath: string) => {
+		queueFileChange(state, filePath, config, (newBuildResult) => {
+			// Update the manifest in-place so the hmr() plugin always has the latest
+			Object.assign(manifestRef, newBuildResult.manifest);
+		});
+	});
+
+	console.log('👀 File watching: Active');
+	console.log('🔥 HMR: Ready');
+
+	const result: DevResult = {
+		...createBuildResult(manifestRef, buildDir),
+		hmrState: state
+	};
+
+	(globalThis as Record<string, unknown>).__hmrServerStartup =
+		Date.now().toString();
+
+	// Cache for Bun --hot reloads
+	(globalThis as Record<string, unknown>).__hmrDevResult = result;
+	const serverEntryPath =
+		process.env.ABSOLUTEJS_SERVER_ENTRY ||
+		(typeof Bun !== 'undefined' && Bun.main);
+	(globalThis as Record<string, unknown>).__hmrServerMtime = serverEntryPath
+		? statSync(resolve(serverEntryPath)).mtimeMs
+		: 0;
+
+	return result;
 }
 
 /* HMR plugin for Elysia
    Adds WebSocket endpoint and status endpoint for HMR */
 export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
-  return (app: Elysia) => {
-    return app
-    // WebSocket route for HMR updates
-    .ws('/hmr', {
-      open: (ws) => handleClientConnect(hmrState, ws, manifest),
-      message: (ws, msg) => handleHMRMessage(hmrState, ws, msg),
-      close: (ws) => handleClientDisconnect(hmrState, ws)
-    })
-    // Status endpoint for debugging
-    .get('/hmr-status', () => ({
-      connectedClients: hmrState.connectedClients.size,
-      isRebuilding: hmrState.isRebuilding,
-      manifestKeys: Object.keys(manifest),
-      rebuildQueue: Array.from(hmrState.rebuildQueue),
-      timestamp: Date.now()
-    }))
-    // Intercept and inject HMR client into HTML responses
-    .onAfterHandle(async (context) => {
-      const { response } = context;
-      
-      // Only process Response objects with HTML content
-      if (response instanceof Response) {
-        const contentType = response.headers.get('content-type');
-        if (contentType?.includes('text/html')) {
-          try {
-            const html = await response.text();
-            const htmlWithHMR = injectHMRClient(html);
-            
-            return new Response(htmlWithHMR, {
-              status: response.status,
-              statusText: response.statusText,
-              headers: {
-                ...Object.fromEntries(response.headers),
-                'content-type': contentType
-              }
-            });
-          } catch {
-            return response;
-          }
-        }
-      }
-      
-      return response;
-    });
-  };
+	return (app: Elysia) => {
+		return (
+			app
+				// WebSocket route for HMR updates
+				.ws('/hmr', {
+					open: (ws) => handleClientConnect(hmrState, ws, manifest),
+					message: (ws, msg) => handleHMRMessage(hmrState, ws, msg),
+					close: (ws) => handleClientDisconnect(hmrState, ws)
+				})
+				// Status endpoint for debugging
+				.get('/hmr-status', () => ({
+					connectedClients: hmrState.connectedClients.size,
+					isRebuilding: hmrState.isRebuilding,
+					manifestKeys: Object.keys(manifest),
+					rebuildQueue: Array.from(hmrState.rebuildQueue),
+					timestamp: Date.now()
+				}))
+				// Intercept and inject HMR client into HTML responses
+				.onAfterHandle(async (context) => {
+					const { response } = context;
+
+					// Only process Response objects with HTML content
+					if (response instanceof Response) {
+						const contentType =
+							response.headers.get('content-type');
+						if (contentType?.includes('text/html')) {
+							try {
+								const html = await response.text();
+								const htmlWithHMR = injectHMRClient(html);
+
+								const headers = new Headers(
+									Object.fromEntries(response.headers)
+								);
+								headers.set('content-type', contentType);
+								headers.set(
+									'Cache-Control',
+									'no-store, no-cache, must-revalidate'
+								);
+								headers.set('Pragma', 'no-cache');
+								const startup =
+									(globalThis as Record<string, unknown>)
+										.__hmrServerStartup as string | undefined;
+								if (startup) {
+									headers.set('X-Server-Startup', startup);
+								}
+
+								return new Response(htmlWithHMR, {
+									status: response.status,
+									statusText: response.statusText,
+									headers
+								});
+							} catch {
+								return response;
+							}
+						}
+					}
+
+					return response;
+				})
+		);
+	};
 }
 
 /* Inject HMR client script into HTML
    This function contains all the client-side HMR code */
-    function injectHMRClient(html: string): string {
-  // Static import map placed in <head> so dynamic imports can resolve immediately
-  // We map React to a single CDN ESM copy and set globals so all bundles share the same instance
-  // IMPORTANT: react-refresh/runtime is loaded BEFORE React to hook into the reconciler
-  const importMap = `
+function injectHMRClient(html: string): string {
+	// Static import map placed in <head> so dynamic imports can resolve immediately
+	// We map React to a single CDN ESM copy and set globals so all bundles share the same instance
+	// IMPORTANT: react-refresh/runtime is loaded BEFORE React to hook into the reconciler
+	const importMap = `
     <script type="importmap" data-hmr-import-map>
       {
         "imports": {
@@ -166,10 +236,110 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
       }
     </script>
   `;
-  
-  const hmrScript = `
+
+	const hmrScript = `
     <script>
       (function() {
+        // AbsoluteJS Error Overlay - branded, per-framework, modern styling
+        var __HMR_ERROR_OVERLAY__ = null;
+        function showErrorOverlay(opts) {
+          var message = opts.message || 'Build failed';
+          var file = opts.file;
+          var line = opts.line;
+          var column = opts.column;
+          var lineText = opts.lineText;
+          var framework = (opts.framework || 'unknown').toLowerCase();
+          var frameworkLabels = {
+            react: 'React',
+            svelte: 'Svelte',
+            vue: 'Vue',
+            angular: 'Angular',
+            html: 'HTML',
+            htmx: 'HTMX',
+            assets: 'Assets',
+            unknown: 'Unknown'
+          };
+          var frameworkLabel = frameworkLabels[framework] || framework;
+          var frameworkColors = {
+            react: '#61dafb',
+            svelte: '#ff3e00',
+            vue: '#42b883',
+            angular: '#dd0031',
+            html: '#e34c26',
+            htmx: '#1a365d',
+            assets: '#563d7c',
+            unknown: '#94a3b8'
+          };
+          var accent = frameworkColors[framework] || '#94a3b8';
+          hideErrorOverlay();
+          var overlay = document.createElement('div');
+          overlay.id = 'absolutejs-error-overlay';
+          overlay.setAttribute('data-hmr-overlay', 'true');
+          overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:linear-gradient(135deg,rgba(15,23,42,0.98) 0%,rgba(30,41,59,0.98) 100%);backdrop-filter:blur(12px);color:#e2e8f0;font-family:"JetBrains Mono","Fira Code",ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:14px;line-height:1.6;overflow:auto;padding:32px;box-sizing:border-box;display:flex;align-items:flex-start;justify-content:center;';
+          var card = document.createElement('div');
+          card.style.cssText = 'max-width:720px;width:100%;background:rgba(30,41,59,0.6);border:1px solid rgba(71,85,105,0.5);border-radius:16px;box-shadow:0 25px 50px -12px rgba(0,0,0,0.5),0 0 0 1px rgba(255,255,255,0.05);overflow:hidden;';
+          var header = document.createElement('div');
+          header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:16px;padding:20px 24px;background:rgba(15,23,42,0.5);border-bottom:1px solid rgba(71,85,105,0.4);';
+          header.innerHTML = '<div style="display:flex;align-items:center;gap:12px;"><span style="font-weight:700;font-size:20px;color:#fff;letter-spacing:-0.02em;">AbsoluteJS</span><span style="padding:5px 10px;border-radius:8px;font-size:12px;font-weight:600;background:' + accent + ';color:#fff;opacity:0.95;box-shadow:0 2px 4px rgba(0,0,0,0.2);">' + frameworkLabel + '</span></div><span style="color:#94a3b8;font-size:13px;font-weight:500;">Compilation Error</span>';
+          card.appendChild(header);
+          var content = document.createElement('div');
+          content.style.cssText = 'padding:24px;';
+          var errorSection = document.createElement('div');
+          errorSection.style.cssText = 'margin-bottom:20px;';
+          var errorLabel = document.createElement('div');
+          errorLabel.style.cssText = 'font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:#94a3b8;margin-bottom:8px;';
+          errorLabel.textContent = 'What went wrong';
+          errorSection.appendChild(errorLabel);
+          var msgEl = document.createElement('pre');
+          msgEl.style.cssText = 'margin:0;padding:16px 20px;background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.25);border-radius:10px;overflow-x:auto;white-space:pre-wrap;word-break:break-word;color:#fca5a5;font-size:13px;line-height:1.5;';
+          msgEl.textContent = message;
+          errorSection.appendChild(msgEl);
+          content.appendChild(errorSection);
+          if (file || line != null || column != null || lineText) {
+            var locSection = document.createElement('div');
+            locSection.style.cssText = 'margin-bottom:20px;';
+            var locLabel = document.createElement('div');
+            locLabel.style.cssText = 'font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:#94a3b8;margin-bottom:8px;';
+            locLabel.textContent = 'Where';
+            locSection.appendChild(locLabel);
+            var locParts = [];
+            if (file) locParts.push(file);
+            if (line != null) locParts.push(String(line));
+            if (column != null) locParts.push(String(column));
+            var loc = locParts.join(':') || 'Unknown location';
+            var locEl = document.createElement('div');
+            locEl.style.cssText = 'padding:12px 20px;background:rgba(71,85,105,0.3);border-radius:10px;border:1px solid rgba(71,85,105,0.4);color:#cbd5e1;font-size:13px;';
+            locEl.textContent = loc;
+            locSection.appendChild(locEl);
+            if (lineText) {
+              var codeBlock = document.createElement('pre');
+              codeBlock.style.cssText = 'margin:8px 0 0;padding:14px 20px;background:rgba(15,23,42,0.8);border-radius:10px;border:1px solid rgba(71,85,105,0.4);color:#94a3b8;font-size:13px;overflow-x:auto;white-space:pre;';
+              codeBlock.textContent = lineText;
+              locSection.appendChild(codeBlock);
+            }
+            content.appendChild(locSection);
+          }
+          var footer = document.createElement('div');
+          footer.style.cssText = 'display:flex;justify-content:flex-end;padding-top:8px;';
+          var dismiss = document.createElement('button');
+          dismiss.textContent = 'Dismiss';
+          dismiss.style.cssText = 'padding:10px 20px;background:' + accent + ';color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.2);transition:opacity 0.15s,transform 0.15s;';
+          dismiss.onmouseover = function() { dismiss.style.opacity = '0.9'; dismiss.style.transform = 'translateY(-1px)'; };
+          dismiss.onmouseout = function() { dismiss.style.opacity = '1'; dismiss.style.transform = 'translateY(0)'; };
+          dismiss.onclick = hideErrorOverlay;
+          footer.appendChild(dismiss);
+          content.appendChild(footer);
+          card.appendChild(content);
+          overlay.appendChild(card);
+          document.body.appendChild(overlay);
+          __HMR_ERROR_OVERLAY__ = overlay;
+        }
+        function hideErrorOverlay() {
+          if (__HMR_ERROR_OVERLAY__ && __HMR_ERROR_OVERLAY__.parentNode) {
+            __HMR_ERROR_OVERLAY__.parentNode.removeChild(__HMR_ERROR_OVERLAY__);
+            __HMR_ERROR_OVERLAY__ = null;
+          }
+        }
         // DOM diffing/patching function for in-place updates (zero flicker)
         function patchDOMInPlace(oldContainer, newHTML) {
           // Parse new HTML into a temporary container
@@ -272,11 +442,14 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
               const oldChildren = Array.from(oldNode.childNodes);
               const newChildren = Array.from(newNode.childNodes);
               
-              // Handle scripts specially - preserve HMR script
+              // Handle scripts and overlay specially - preserve during DOM patch
               function isHMRScript(el) {
                 return el.nodeType === Node.ELEMENT_NODE && 
                        el.hasAttribute && 
                        el.hasAttribute('data-hmr-client');
+              }
+              function isHMRPreserved(el) {
+                return isHMRScript(el) || (el.nodeType === Node.ELEMENT_NODE && el.hasAttribute && el.hasAttribute('data-hmr-overlay'));
               }
               
               // Filter out HMR script and regular script tags from both
@@ -327,9 +500,9 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                 }
               });
               
-              // Remove unmatched old children
+              // Remove unmatched old children (preserve HMR script and error overlay)
               oldChildrenFiltered.forEach(function(oldChild) {
-                if (!matchedOld.has(oldChild) && !isHMRScript(oldChild)) {
+                if (!matchedOld.has(oldChild) && !isHMRPreserved(oldChild)) {
                   oldChild.remove();
                 }
               });
@@ -382,11 +555,11 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
             }
           });
           
-          // Remove unmatched old children
+          // Remove unmatched old children (preserve HMR script and error overlay)
           oldChildrenFiltered.forEach(function(oldChild) {
             if (!matchedOld.has(oldChild) && 
-                !(oldChild.nodeType === Node.ELEMENT_NODE && oldChild.tagName === 'SCRIPT' && 
-                  oldChild.hasAttribute('data-hmr-client'))) {
+                !(oldChild.nodeType === Node.ELEMENT_NODE && oldChild.tagName === 'SCRIPT' && oldChild.hasAttribute('data-hmr-client')) &&
+                !(oldChild.nodeType === Node.ELEMENT_NODE && oldChild.hasAttribute && oldChild.hasAttribute('data-hmr-overlay'))) {
               oldChild.remove();
             }
           });
@@ -1124,6 +1297,7 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                 break;
                 
               case 'rebuild-complete': {
+                hideErrorOverlay();
                 if (window.__HMR_MANIFEST__) {
                   window.__HMR_MANIFEST__ = message.data.manifest;
                 }
@@ -2763,15 +2937,50 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
                   });
               }
                 
-              case 'rebuild-error':
+              case 'rebuild-error': {
+                var errData = message.data || {};
+                showErrorOverlay({
+                  message: errData.error || 'Build failed',
+                  file: errData.file,
+                  line: errData.line,
+                  column: errData.column,
+                  lineText: errData.lineText,
+                  framework: errData.framework || (errData.affectedFrameworks && errData.affectedFrameworks[0])
+                });
                 break;
+              }
                 
+              case 'full-reload': {
+                var reloadUrl = new URL(window.location.href);
+                reloadUrl.searchParams.set('_hmr', Date.now().toString());
+                var serverWasDown = false;
+                var attempts = 0;
+                function pollThenReload() {
+                  attempts++;
+                  if (attempts > 120) return;
+                  fetch('/hmr-status', { cache: 'no-store' })
+                    .then(function(r) {
+                      if (r.ok && serverWasDown) {
+                        window.location.replace(reloadUrl.toString());
+                      } else {
+                        setTimeout(pollThenReload, 200);
+                      }
+                    })
+                    .catch(function() {
+                      serverWasDown = true;
+                      setTimeout(pollThenReload, 300);
+                    });
+                }
+                setTimeout(pollThenReload, 150);
+                break;
+              }
+
               case 'pong':
                 break;
-                
+
               case 'connected':
                 break;
-                
+
               default:
                 break;
             }
@@ -2781,16 +2990,33 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
         
         ws.onclose = function(event) {
           isConnected = false;
-          
+
           if (pingInterval) {
             clearInterval(pingInterval);
             pingInterval = null;
           }
-          
-          if (event.code !== 1000 && event.code !== 1001) {
-            reconnectTimeout = setTimeout(function() {
-              window.location.reload();
-            }, 3000);
+
+          if (event.code !== 1000) {
+            // Server went away — poll until it's back, then reload with cache-busting
+            var attempts = 0;
+            reconnectTimeout = setTimeout(function pollServer() {
+              attempts++;
+              if (attempts > 60) return;
+
+              fetch('/hmr-status', { cache: 'no-store' })
+                .then(function(r) {
+                  if (r.ok) {
+                    var url = new URL(window.location.href);
+                    url.searchParams.set('_hmr', Date.now().toString());
+                    window.location.replace(url.toString());
+                  } else {
+                    reconnectTimeout = setTimeout(pollServer, 300);
+                  }
+                })
+                .catch(function() {
+                  reconnectTimeout = setTimeout(pollServer, 300);
+                });
+            }, 500);
           }
         };
         
@@ -2813,30 +3039,35 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
       })();
     </script>
   `;
-  
-  // Guard: Don't inject if HMR script is already present (prevents double connection)
-  if (html.includes('data-hmr-client')) {
-    return html;
-  }
-  
-  // Inject import map before </head> and HMR script before </body>
-  const headRegex = /<\/head\s*>/i;
-  const bodyRegex = /<\/body\s*>/i;
-  const headMatch = headRegex.exec(html);
-  let result = html;
-  
-  // Insert import map early so dynamic imports resolve
-  if (headMatch !== null) {
-    result = result.slice(0, headMatch.index) + importMap + result.slice(headMatch.index);
-  }
-  
-  const bodyMatch = bodyRegex.exec(result);
-  if (bodyMatch !== null) {
-    result = result.slice(0, bodyMatch.index) + hmrScript + result.slice(bodyMatch.index);
-  } else {
-    result = result + hmrScript;
-  }
-  
-  return result;
-}
 
+	// Guard: Don't inject if HMR script is already present (prevents double connection)
+	if (html.includes('data-hmr-client')) {
+		return html;
+	}
+
+	// Inject import map before </head> and HMR script before </body>
+	const headRegex = /<\/head\s*>/i;
+	const bodyRegex = /<\/body\s*>/i;
+	const headMatch = headRegex.exec(html);
+	let result = html;
+
+	// Insert import map early so dynamic imports resolve
+	if (headMatch !== null) {
+		result =
+			result.slice(0, headMatch.index) +
+			importMap +
+			result.slice(headMatch.index);
+	}
+
+	const bodyMatch = bodyRegex.exec(result);
+	if (bodyMatch !== null) {
+		result =
+			result.slice(0, bodyMatch.index) +
+			hmrScript +
+			result.slice(bodyMatch.index);
+	} else {
+		result = result + hmrScript;
+	}
+
+	return result;
+}

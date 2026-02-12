@@ -2,9 +2,8 @@ import { staticPlugin } from '@elysiajs/static';
 import { Elysia } from 'elysia';
 import { scopedState } from 'elysia-scoped-state';
 import { build } from '../src/core/build';
-import { dev, hmr } from '../src/dev';
+import { devBuild, hmr } from '../src/dev';
 import {
-	handleAngularPageRequest,
 	handleHTMLPageRequest,
 	handleHTMXPageRequest,
 	handleReactPageRequest,
@@ -13,7 +12,6 @@ import {
 } from '../src/core/pageHandlers';
 import { networking } from '../src/plugins/networking';
 import { generateHeadElement } from '../src/utils/generateHeadElement';
-import angularTemplate from './angular/index.html' with { type: 'text' };
 import { ReactExample } from './react/pages/ReactExample';
 import SvelteExample from './svelte/pages/SvelteExample.svelte';
 import { vueImports } from './vueImporter';
@@ -36,7 +34,7 @@ const buildConfig = {
 const isDev = process.env.NODE_ENV !== 'production';
 
 const result = isDev
-	? await dev(buildConfig)
+	? await devBuild(buildConfig)
 	: {
 			...(await build(buildConfig)),
 			hmrState: null
@@ -58,10 +56,14 @@ export const server = new Elysia()
 	.get('/', () => handleHTMLPageRequest(result, 'HtmlExampleHTML'))
 	.get('/html', () => handleHTMLPageRequest(result, 'HtmlExampleHTML'))
 	.get('/react', () =>
-		handleReactPageRequest(ReactExample, result.asset('ReactExampleIndex'), {
-			cssPath: result.asset('ReactExampleCSS'),
-			initialCount: 0
-		})
+		handleReactPageRequest(
+			ReactExample,
+			result.asset('ReactExampleIndex'),
+			{
+				cssPath: result.asset('ReactExampleCSS'),
+				initialCount: 0
+			}
+		)
 	)
 	.get('/svelte', async () =>
 		handleSveltePageRequest(
@@ -88,13 +90,6 @@ export const server = new Elysia()
 			{ initialCount: 0 }
 		)
 	)
-	.get('/angular', async () =>
-		handleAngularPageRequest(
-			result.asset('AngularExample'),
-			result.asset('AngularExampleIndex'),
-			angularTemplate.toString()
-		)
-	)
 	.get('/htmx', () => handleHTMXPageRequest(result, 'HTMXExampleHTMX'))
 	.post('/htmx/reset', ({ resetScopedStore }) => resetScopedStore())
 	.get('/htmx/count', ({ scopedStore }) => scopedStore.count)
@@ -106,7 +101,7 @@ export const server = new Elysia()
 		}
 		return { success: false };
 	})
-	.use(networking)
+	.use(networking({ hmrState: result.hmrState }))
 	.on('error', (error) => {
 		const { request } = error;
 		console.error(

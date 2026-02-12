@@ -14,40 +14,40 @@ let globalVersionCounter = 0;
 export const getNextVersion = () => ++globalVersionCounter;
 
 /* Create a new module version tracker */
-export const createModuleVersionTracker = () => new Map<string, ModuleVersion>();
+export const createModuleVersionTracker = () =>
+	new Map<string, ModuleVersion>();
 
 /* Increment version for a module */
 export const incrementModuleVersion = (
-  versions: ModuleVersions,
-  modulePath: string
+	versions: ModuleVersions,
+	modulePath: string
 ) => {
-  const newVersion = getNextVersion();
-  versions.set(modulePath, newVersion);
+	const newVersion = getNextVersion();
+	versions.set(modulePath, newVersion);
 
-  return newVersion;
-}
+	return newVersion;
+};
 
 /* Increment versions for multiple modules */
 export const incrementModuleVersions = (
-  versions: ModuleVersions,
-  modulePaths: string[]
+	versions: ModuleVersions,
+	modulePaths: string[]
 ) => {
-  const updated = new Map<string, ModuleVersion>();
-  for (const path of modulePaths) {
-    const version = incrementModuleVersion(versions, path);
-    updated.set(path, version);
-  }
+	const updated = new Map<string, ModuleVersion>();
+	for (const path of modulePaths) {
+		const version = incrementModuleVersion(versions, path);
+		updated.set(path, version);
+	}
 
-  return updated;
-}
+	return updated;
+};
 
 /* Serialize module versions for transmission */
 export const serializeModuleVersions = (versions: ModuleVersions) => {
-  const serialized: Record<string, number> = {};
-  for (const [path, version] of versions.entries()) {
-    serialized[path] = version;
-  }
+	const serialized: Record<string, number> = {};
+	for (const [path, version] of versions.entries()) {
+		serialized[path] = version;
+	}
 
-  return serialized;
-}
-
+	return serialized;
+};
