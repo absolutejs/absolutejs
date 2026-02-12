@@ -90,7 +90,7 @@ export const handleSveltePageRequest: HandleSveltePageRequest = async <
 export const handleVuePageRequest = async <
 	Props extends Record<string, unknown> = Record<never, never>
 >(
-	_PageComponent: VueComponent<Props>,
+	pageComponent: VueComponent<Props>,
 	pagePath: string,
 	indexPath: string,
 	result: BuildResultLike,
@@ -99,15 +99,8 @@ export const handleVuePageRequest = async <
 ) => {
 	const [maybeProps] = props;
 
-	// Convert URL path to file system path
-	// pagePath is like "/vue/compiled/pages/VueExample.abc123.js"
-	// Resolve relative to result.buildDir
-	const fsPath = resolve(result.buildDir, pagePath.replace(/^\//, ''));
-
-	const { default: ImportedPageComponent } = await import(fsPath);
-
 	const app = createSSRApp({
-		render: () => h(ImportedPageComponent, maybeProps ?? {})
+		render: () => h(pageComponent, maybeProps ?? {})
 	});
 
 	const bodyStream = renderVueToWebStream(app);
