@@ -51,8 +51,6 @@ export type PropsArgs<C> = keyof PropsOf<C> extends never ? [] : [PropsOf<C>];
 export type Prettify<T> = { [K in keyof T]: T[K] } & {};
 
 export type BuildResult = {
-	manifest: Record<string, string>;
 	buildDir: string;
-	/** Shorthand for looking up an asset in the manifest */
-	asset: (name: string) => string;
+	manifest: Record<string, string>;
 };

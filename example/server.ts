@@ -1,16 +1,15 @@
 import { staticPlugin } from '@elysiajs/static';
 import { Elysia } from 'elysia';
 import { scopedState } from 'elysia-scoped-state';
-import { build } from '../src/core/build';
-import { devBuild, hmr } from '../src/dev';
 import {
+	asset,
+	createApp,
 	handleHTMLPageRequest,
 	handleHTMXPageRequest,
 	handleReactPageRequest,
 	handleSveltePageRequest,
 	handleVuePageRequest
-} from '../src/core/pageHandlers';
-import { networking } from '../src/plugins/networking';
+} from '../src/core';
 import { generateHeadElement } from '../src/utils/generateHeadElement';
 import { ReactExample } from './react/pages/ReactExample';
 import SvelteExample from './svelte/pages/SvelteExample.svelte';
@@ -31,80 +30,71 @@ const buildConfig = {
 	vueDirectory: 'example/vue'
 } as const;
 
-const isDev = process.env.NODE_ENV !== 'production';
-
-const result = isDev
-	? await devBuild(buildConfig)
-	: {
-			...(await build(buildConfig)),
-			hmrState: null
-		};
-
-export const server = new Elysia()
-	.use(
-		staticPlugin({
-			assets: result.buildDir,
-			prefix: ''
-		})
-	)
-	.use(
-		scopedState({
-			count: { value: 0 }
-		})
-	)
-	.use(result.hmrState ? hmr(result.hmrState, result.manifest) : (app) => app)
-	.get('/', () => handleHTMLPageRequest(result, 'HtmlExampleHTML'))
-	.get('/html', () => handleHTMLPageRequest(result, 'HtmlExampleHTML'))
-	.get('/react', () =>
-		handleReactPageRequest(
-			ReactExample,
-			result.asset('ReactExampleIndex'),
-			{
-				cssPath: result.asset('ReactExampleCSS'),
-				initialCount: 0
+export const server = await createApp(buildConfig, (result) =>
+	new Elysia()
+		.use(
+			staticPlugin({
+				assets: result.buildDir,
+				prefix: ''
+			})
+		)
+		.use(
+			scopedState({
+				count: { value: 0 }
+			})
+		)
+		.get('/', () => handleHTMLPageRequest(result, 'HtmlExampleHTML'))
+		.get('/html', () => handleHTMLPageRequest(result, 'HtmlExampleHTML'))
+		.get('/react', () =>
+			handleReactPageRequest(
+				ReactExample,
+				asset(result.manifest, 'ReactExampleIndex'),
+				{
+					cssPath: asset(result.manifest, 'ReactExampleCSS'),
+					initialCount: 0
+				}
+			)
+		)
+		.get('/svelte', async () =>
+			handleSveltePageRequest(
+				SvelteExample,
+				asset(result.manifest, 'SvelteExample'),
+				asset(result.manifest, 'SvelteExampleIndex'),
+				result,
+				{
+					cssPath: asset(result.manifest, 'SvelteExampleCSS'),
+					initialCount: 0
+				}
+			)
+		)
+		.get('/vue', () =>
+			handleVuePageRequest(
+				VueExample,
+				asset(result.manifest, 'VueExample'),
+				asset(result.manifest, 'VueExampleIndex'),
+				result,
+				generateHeadElement({
+					cssPath: asset(result.manifest, 'VueExampleCSS'),
+					title: 'AbsoluteJS + Vue'
+				}),
+				{ initialCount: 0 }
+			)
+		)
+		.get('/htmx', () => handleHTMXPageRequest(result, 'HTMXExampleHTMX'))
+		.post('/htmx/reset', ({ resetScopedStore }) => resetScopedStore())
+		.get('/htmx/count', ({ scopedStore }) => scopedStore.count)
+		.post('/htmx/increment', ({ scopedStore }) => ++scopedStore.count)
+		.post('/htmx/sync-count', ({ body, scopedStore }) => {
+			if (body && typeof body === 'object' && 'count' in body) {
+				scopedStore.count = Number(body.count);
+				return { success: true };
 			}
-		)
-	)
-	.get('/svelte', async () =>
-		handleSveltePageRequest(
-			SvelteExample,
-			result.asset('SvelteExample'),
-			result.asset('SvelteExampleIndex'),
-			result,
-			{
-				cssPath: result.asset('SvelteExampleCSS'),
-				initialCount: 0
-			}
-		)
-	)
-	.get('/vue', () =>
-		handleVuePageRequest(
-			VueExample,
-			result.asset('VueExample'),
-			result.asset('VueExampleIndex'),
-			result,
-			generateHeadElement({
-				cssPath: result.asset('VueExampleCSS'),
-				title: 'AbsoluteJS + Vue'
-			}),
-			{ initialCount: 0 }
-		)
-	)
-	.get('/htmx', () => handleHTMXPageRequest(result, 'HTMXExampleHTMX'))
-	.post('/htmx/reset', ({ resetScopedStore }) => resetScopedStore())
-	.get('/htmx/count', ({ scopedStore }) => scopedStore.count)
-	.post('/htmx/increment', ({ scopedStore }) => ++scopedStore.count)
-	.post('/htmx/sync-count', ({ body, scopedStore }) => {
-		if (body && typeof body === 'object' && 'count' in body) {
-			scopedStore.count = Number(body.count);
-			return { success: true };
-		}
-		return { success: false };
-	})
-	.use(networking({ hmrState: result.hmrState }))
-	.on('error', (error) => {
-		const { request } = error;
-		console.error(
-			`Server error on ${request.method} ${request.url}: ${error.message}`
-		);
-	});
+			return { success: false };
+		})
+		.on('error', (error) => {
+			const { request } = error;
+			console.error(
+				`Server error on ${request.method} ${request.url}: ${error.message}`
+			);
+		})
+);

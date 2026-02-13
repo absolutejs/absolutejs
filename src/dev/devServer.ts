@@ -158,9 +158,9 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
 									'no-store, no-cache, must-revalidate'
 								);
 								headers.set('Pragma', 'no-cache');
-								const startup =
-									(globalThis as Record<string, unknown>)
-										.__hmrServerStartup as string | undefined;
+								const startup = (
+									globalThis as Record<string, unknown>
+								).__hmrServerStartup as string | undefined;
 								if (startup) {
 									headers.set('X-Server-Startup', startup);
 								}
