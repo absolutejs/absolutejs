@@ -100,7 +100,7 @@ export const handleVuePageRequest = async <
 	const [maybeProps] = props;
 
 	const app = createSSRApp({
-		render: () => h(pageComponent, maybeProps ?? {})
+		render: () => h(pageComponent, maybeProps ?? null)
 	});
 
 	const bodyStream = renderVueToWebStream(app);
