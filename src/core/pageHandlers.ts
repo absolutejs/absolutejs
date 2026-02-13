@@ -34,7 +34,10 @@ export const handleReactPageRequest = async <
 	});
 
 	return new Response(stream, {
-		headers: { 'Content-Type': 'text/html' }
+		headers: {
+			'Content-Type': 'text/html',
+			'X-HMR-Framework': 'react'
+		}
 	});
 };
 
@@ -83,7 +86,10 @@ export const handleSveltePageRequest: HandleSveltePageRequest = async <
 	);
 
 	return new Response(stream, {
-		headers: { 'Content-Type': 'text/html' }
+		headers: {
+			'Content-Type': 'text/html',
+			'X-HMR-Framework': 'svelte'
+		}
 	});
 };
 
@@ -136,7 +142,10 @@ export const handleVuePageRequest = async <
 	});
 
 	return new Response(stream, {
-		headers: { 'Content-Type': 'text/html' }
+		headers: {
+			'Content-Type': 'text/html',
+			'X-HMR-Framework': 'vue'
+		}
 	});
 };
 
@@ -153,7 +162,10 @@ export const handleHTMLPageRequest = async (
 	const html = await htmlFile.text();
 
 	return new Response(html, {
-		headers: { 'Content-Type': 'text/html; charset=utf-8' }
+		headers: {
+			'Content-Type': 'text/html; charset=utf-8',
+			'X-HMR-Framework': 'html'
+		}
 	});
 };
 
@@ -170,7 +182,10 @@ export const handleHTMXPageRequest = async (
 	const html = await htmxFile.text();
 
 	return new Response(html, {
-		headers: { 'Content-Type': 'text/html; charset=utf-8' }
+		headers: {
+			'Content-Type': 'text/html; charset=utf-8',
+			'X-HMR-Framework': 'htmx'
+		}
 	});
 };
 

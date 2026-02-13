@@ -146,8 +146,14 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
 							response.headers.get('content-type');
 						if (contentType?.includes('text/html')) {
 							try {
+								const framework =
+									response.headers.get('X-HMR-Framework') ||
+									null;
 								const html = await response.text();
-								const htmlWithHMR = injectHMRClient(html);
+								const htmlWithHMR = injectHMRClient(
+									html,
+									framework
+								);
 
 								const headers = new Headers(
 									Object.fromEntries(response.headers)
@@ -183,8 +189,9 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
 }
 
 /* Inject HMR client script into HTML
-   This function contains all the client-side HMR code */
-function injectHMRClient(html: string): string {
+   This function contains all the client-side HMR code.
+   framework: from X-HMR-Framework header, sets window.__HMR_FRAMEWORK__ for detection */
+function injectHMRClient(html: string, framework?: string | null): string {
 	// Static import map placed in <head> so dynamic imports can resolve immediately
 	// We map React to a single CDN ESM copy and set globals so all bundles share the same instance
 	// IMPORTANT: react-refresh/runtime is loaded BEFORE React to hook into the reconciler
@@ -1161,25 +1168,18 @@ function injectHMRClient(html: string): string {
         let isFirstHMRUpdate = true; // Track if this is the first HMR update since page load
 
         // Detect which framework page we're currently on
+        // Primary: Server injects window.__HMR_FRAMEWORK__ via X-HMR-Framework header (route-agnostic)
+        // Fallback: URL path heuristics for pages without the header
         function detectCurrentFramework() {
-          // CRITICAL: Use URL path as the primary signal; avoid sticky globals
+          if (window.__HMR_FRAMEWORK__) return window.__HMR_FRAMEWORK__;
           const path = window.location.pathname;
-          
-          // Prefer explicit routes
           if (path === '/vue' || path.startsWith('/vue/')) return 'vue';
           if (path === '/svelte' || path.startsWith('/svelte/')) return 'svelte';
           if (path === '/htmx' || path.startsWith('/htmx/')) return 'htmx';
           if (path === '/html' || path.startsWith('/html/')) return 'html';
-          
-          // Root defaults to HTML (example root renders HTML page)
           if (path === '/') return 'html';
-          
-          // React detection: explicit routes first
           if (path === '/react' || path.startsWith('/react/')) return 'react';
-          
-          // React fallback if a React root already exists on the page
           if (window.__REACT_ROOT__) return 'react';
-
           return null;
         }
 
@@ -2931,14 +2931,20 @@ function injectHMRClient(html: string): string {
 			result.slice(headMatch.index);
 	}
 
+	const frameworkScript =
+		framework && /^[a-z]+$/.test(framework)
+			? `<script>window.__HMR_FRAMEWORK__="${framework}";</script>`
+			: '';
+
 	const bodyMatch = bodyRegex.exec(result);
 	if (bodyMatch !== null) {
 		result =
 			result.slice(0, bodyMatch.index) +
+			frameworkScript +
 			hmrScript +
 			result.slice(bodyMatch.index);
 	} else {
-		result = result + hmrScript;
+		result = result + frameworkScript + hmrScript;
 	}
 
 	return result;
