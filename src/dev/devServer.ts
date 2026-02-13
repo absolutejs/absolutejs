@@ -2194,16 +2194,6 @@ function injectHMRClient(html: string): string {
                         componentState: { count: countValue }
                       };
                       
-                      // Sync server-side state (HTMX uses server-side state)
-                      if (savedState.componentState.count !== undefined && savedState.componentState.count > 0) {
-                        fetch('/htmx/sync-count', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ count: savedState.componentState.count })
-                        }).catch(function() {
-                        });
-                      }
-                      
                       // Store existing compiled script elements
                       const existingScripts = Array.from(container.querySelectorAll('script[src]')).map(function(script) {
                         return {

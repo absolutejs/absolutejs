@@ -84,13 +84,6 @@ export const server = await createApp(buildConfig, (result) =>
 		.post('/htmx/reset', ({ resetScopedStore }) => resetScopedStore())
 		.get('/htmx/count', ({ scopedStore }) => scopedStore.count)
 		.post('/htmx/increment', ({ scopedStore }) => ++scopedStore.count)
-		.post('/htmx/sync-count', ({ body, scopedStore }) => {
-			if (body && typeof body === 'object' && 'count' in body) {
-				scopedStore.count = Number(body.count);
-				return { success: true };
-			}
-			return { success: false };
-		})
 		.on('error', (error) => {
 			const { request } = error;
 			console.error(
