@@ -189,6 +189,24 @@ export const build = async ({
 		? await scanEntryPoints(join(svelteDir, 'styles'), '*.css')
 		: [];
 
+	// When HTML/HTMX pages change, we must include their CSS and scripts in the build
+	// so the manifest has those entries for updateAssetPaths. Otherwise incremental
+	// builds drop them and updateAssetPaths fails with "no manifest entry".
+	const shouldIncludeHtmlAssets =
+		!isIncremental ||
+		normalizedIncrementalFiles?.some(
+			(f) =>
+				f.includes('/html/') &&
+				(f.endsWith('.html') || f.endsWith('.css'))
+		);
+	const shouldIncludeHtmxAssets =
+		!isIncremental ||
+		normalizedIncrementalFiles?.some(
+			(f) =>
+				f.includes('/htmx/') &&
+				(f.endsWith('.html') || f.endsWith('.css'))
+		);
+
 	// Filter entries for incremental builds
 	// For React: map index entries back to their source pages
 	const reactEntries =
@@ -210,11 +228,8 @@ export const build = async ({
 			: allReactPageEntries;
 
 	const htmlEntries =
-		isIncremental && htmlScriptsPath
-			? filterToIncrementalEntries(allHtmlEntries, (entry) => {
-					// HTML entries are the scripts themselves
-					return entry;
-				})
+		isIncremental && htmlScriptsPath && !shouldIncludeHtmlAssets
+			? filterToIncrementalEntries(allHtmlEntries, (entry) => entry)
 			: allHtmlEntries;
 
 	// For Svelte/Vue/Angular: entries are the page files themselves
@@ -231,12 +246,14 @@ export const build = async ({
 		: allAngularEntries;
 
 	// CSS entries - entries are the CSS files themselves
-	const htmlCssEntries = isIncremental
-		? filterToIncrementalEntries(allHtmlCssEntries, (entry) => entry)
-		: allHtmlCssEntries;
-	const htmxCssEntries = isIncremental
-		? filterToIncrementalEntries(allHtmxCssEntries, (entry) => entry)
-		: allHtmxCssEntries;
+	const htmlCssEntries =
+		isIncremental && !shouldIncludeHtmlAssets
+			? filterToIncrementalEntries(allHtmlCssEntries, (entry) => entry)
+			: allHtmlCssEntries;
+	const htmxCssEntries =
+		isIncremental && !shouldIncludeHtmxAssets
+			? filterToIncrementalEntries(allHtmxCssEntries, (entry) => entry)
+			: allHtmxCssEntries;
 	const reactCssEntries = isIncremental
 		? filterToIncrementalEntries(allReactCssEntries, (entry) => entry)
 		: allReactCssEntries;
@@ -344,6 +361,15 @@ export const build = async ({
 		const clientResult = await bunBuild({
 			define: vueDirectory ? vueFeatureFlags : undefined,
 			entrypoints: clientEntryPoints,
+			external:
+				isDev && reactDir
+					? [
+							'react',
+							'react-dom',
+							'react/jsx-dev-runtime',
+							'react/jsx-runtime'
+						]
+					: undefined,
 			format: 'esm',
 			minify: !isDev, // Don't minify in dev for better debugging
 			naming: `[dir]/[name].[hash].[ext]`,
@@ -354,7 +380,6 @@ export const build = async ({
 			root: clientRoot,
 			target: 'browser',
 			splitting: !isDev, // Disable splitting in dev to avoid duplicate export bug
-			external: undefined,
 			throw: false
 		});
 		clientLogs = clientResult.logs;

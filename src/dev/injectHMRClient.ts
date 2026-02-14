@@ -5,15 +5,27 @@ export function injectHMRClient(
 	html: string,
 	framework?: string | null
 ): string {
-	// Import map only for react-refresh/runtime (small standalone package).
-	// React itself is bundled into the client JS by Bun — no need to load from CDN.
-	const importMap = `
+	// Synchronous stub for React Fast Refresh globals. Bun's reactFastRefresh injects
+	// $RefreshSig$() calls in the bundle; the real runtime loads async from esm.sh.
+	// This stub prevents "ReferenceError: $RefreshSig$ is not defined" when the
+	// React bundle runs before the runtime loads. Inject for React pages only.
+	const reactRefreshStub =
+		framework === 'react'
+			? `<script data-hmr-react-refresh-stub>
+(function(){var g=typeof globalThis!=='undefined'?globalThis:window;
+g.$RefreshSig$=g.$RefreshSig$||function(){return function(t){return t;}};
+g.$RefreshReg$=g.$RefreshReg$||function(){};
+g.$RefreshRuntime$=g.$RefreshRuntime$||{};})();
+</script>`
+			: '';
+
+	// Import map for React: externalize react/react-dom so index and page bundles
+	// share one instance (avoids duplicate-React / invalid-hook during Fast Refresh)
+	const importMap =
+		framework === 'react'
+			? `
     <script type="importmap" data-hmr-import-map>
-      {
-        "imports": {
-          "react-refresh/runtime": "https://esm.sh/react-refresh@0.18/runtime?dev"
-        }
-      }
+      {"imports":{"react":"https://esm.sh/react@19.2.1?dev","react/jsx-dev-runtime":"https://esm.sh/react@19.2.1/jsx-dev-runtime?dev","react/jsx-runtime":"https://esm.sh/react@19.2.1/jsx-runtime?dev","react-dom":"https://esm.sh/react-dom@19.2.1?dev","react-dom/client":"https://esm.sh/react-dom@19.2.1/client?dev","react-refresh/runtime":"https://esm.sh/react-refresh@0.18/runtime?dev"}}
     </script>
     <script type="module" data-react-refresh-setup>
       import RefreshRuntime from 'react-refresh/runtime';
@@ -26,7 +38,8 @@ export function injectHMRClient(
         return RefreshRuntime.createSignatureFunctionForTransform();
       };
     </script>
-  `;
+  `
+			: '';
 
 	const hmrScript = `
     <script>
@@ -2701,18 +2714,30 @@ export function injectHMRClient(
 		return html;
 	}
 
-	// Inject import map before </head> and HMR script before </body>
-	const headRegex = /<\/head\s*>/i;
+	// Inject React Refresh stub as FIRST script in head (must run before React bundle),
+	// then import map. Use <head> to inject at start of head so stub runs before any other scripts.
+	const headOpenRegex = /<head(?:\s[^>]*)?>/i;
+	const headCloseRegex = /<\/head\s*>/i;
 	const bodyRegex = /<\/body\s*>/i;
-	const headMatch = headRegex.exec(html);
+	const headOpenMatch = headOpenRegex.exec(html);
+	const headCloseMatch = headCloseRegex.exec(html);
 	let result = html;
 
-	// Insert import map early so dynamic imports resolve
-	if (headMatch !== null) {
-		result =
-			result.slice(0, headMatch.index) +
-			importMap +
-			result.slice(headMatch.index);
+	if (headCloseMatch !== null) {
+		const headContent = reactRefreshStub + importMap;
+		if (headOpenMatch !== null) {
+			// Insert stub + import map immediately after <head> so stub runs first
+			const insertPos = headOpenMatch.index + headOpenMatch[0].length;
+			result =
+				result.slice(0, insertPos) +
+				headContent +
+				result.slice(insertPos);
+		} else {
+			result =
+				result.slice(0, headCloseMatch.index) +
+				headContent +
+				result.slice(headCloseMatch.index);
+		}
 	}
 
 	const frameworkScript =

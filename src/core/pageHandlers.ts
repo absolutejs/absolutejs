@@ -4,8 +4,36 @@ import { renderToReadableStream as renderReactToReadableStream } from 'react-dom
 import { Component as SvelteComponent } from 'svelte';
 import { Component as VueComponent, createSSRApp, h } from 'vue';
 import { renderToWebStream as renderVueToWebStream } from 'vue/server-renderer';
+import { injectHMRClient } from '../dev/injectHMRClient';
 import { renderToReadableStream as renderSvelteToReadableStream } from '../svelte/renderToReadableStream';
 import { PropsArgs } from '../types';
+
+const hasHMR = () =>
+	Boolean((globalThis as Record<string, unknown>).__hmrDevResult);
+
+async function maybeInjectHMR(
+	htmlOrStream: string | ReadableStream,
+	framework: string,
+	baseHeaders: Record<string, string>
+): Promise<Response> {
+	if (!hasHMR()) {
+		return new Response(htmlOrStream, { headers: baseHeaders });
+	}
+	const html =
+		typeof htmlOrStream === 'string'
+			? htmlOrStream
+			: await new Response(htmlOrStream).text();
+	const htmlWithHMR = injectHMRClient(html, framework);
+	const headers = new Headers(baseHeaders);
+	headers.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+	headers.set('Pragma', 'no-cache');
+	const startup = (globalThis as Record<string, unknown>)
+		.__hmrServerStartup as string | undefined;
+	if (startup) {
+		headers.set('X-Server-Startup', startup);
+	}
+	return new Response(htmlWithHMR, { headers });
+}
 
 export const handleReactPageRequest = async <
 	Props extends Record<string, unknown> = Record<never, never>
@@ -27,11 +55,9 @@ export const handleReactPageRequest = async <
 			: undefined
 	});
 
-	return new Response(stream, {
-		headers: {
-			'Content-Type': 'text/html',
-			'X-HMR-Framework': 'react'
-		}
+	return maybeInjectHMR(stream, 'react', {
+		'Content-Type': 'text/html',
+		'X-HMR-Framework': 'react'
 	});
 };
 
@@ -71,11 +97,9 @@ export const handleSveltePageRequest: HandleSveltePageRequest = async <
 		}
 	);
 
-	return new Response(stream, {
-		headers: {
-			'Content-Type': 'text/html',
-			'X-HMR-Framework': 'svelte'
-		}
+	return maybeInjectHMR(stream, 'svelte', {
+		'Content-Type': 'text/html',
+		'X-HMR-Framework': 'svelte'
 	});
 };
 
@@ -121,11 +145,9 @@ export const handleVuePageRequest = async <
 		}
 	});
 
-	return new Response(stream, {
-		headers: {
-			'Content-Type': 'text/html',
-			'X-HMR-Framework': 'vue'
-		}
+	return maybeInjectHMR(stream, 'vue', {
+		'Content-Type': 'text/html',
+		'X-HMR-Framework': 'vue'
 	});
 };
 
@@ -133,11 +155,9 @@ export const handleHTMLPageRequest = async (pagePath: string) => {
 	const htmlFile = file(pagePath);
 	const html = await htmlFile.text();
 
-	return new Response(html, {
-		headers: {
-			'Content-Type': 'text/html; charset=utf-8',
-			'X-HMR-Framework': 'html'
-		}
+	return maybeInjectHMR(html, 'html', {
+		'Content-Type': 'text/html; charset=utf-8',
+		'X-HMR-Framework': 'html'
 	});
 };
 
@@ -145,11 +165,9 @@ export const handleHTMXPageRequest = async (pagePath: string) => {
 	const htmxFile = file(pagePath);
 	const html = await htmxFile.text();
 
-	return new Response(html, {
-		headers: {
-			'Content-Type': 'text/html; charset=utf-8',
-			'X-HMR-Framework': 'htmx'
-		}
+	return maybeInjectHMR(html, 'htmx', {
+		'Content-Type': 'text/html; charset=utf-8',
+		'X-HMR-Framework': 'htmx'
 	});
 };
 
