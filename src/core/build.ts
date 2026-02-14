@@ -11,13 +11,13 @@ import { createHTMLScriptHMRPlugin } from '../build/htmlScriptHMRPlugin';
 import { outputLogs } from '../build/outputLogs';
 import { scanEntryPoints } from '../build/scanEntryPoints';
 import { updateAssetPaths } from '../build/updateAssetPaths';
-import type { BuildConfig, BuildResult } from '../types';
-import { createBuildResult } from './createBuildResult';
+import type { BuildConfig } from '../types';
 import { cleanup } from '../utils/cleanup';
 import { commonAncestor } from '../utils/commonAncestor';
 import { getDurationString } from '../utils/getDurationString';
 import { logger } from '../utils/logger';
 import { normalizePath } from '../utils/normalizePath';
+import { toPascal } from '../utils/stringModifiers';
 import { validateSafePath } from '../utils/validateSafePath';
 
 const isDev = env.NODE_ENV !== 'production';
@@ -40,7 +40,7 @@ export const build = async ({
 	tailwind,
 	options,
 	incrementalFiles
-}: BuildConfig): Promise<BuildResult> => {
+}: BuildConfig) => {
 	const buildStart = performance.now();
 	const projectRoot = cwd();
 	const isIncremental = incrementalFiles && incrementalFiles.length > 0;
@@ -189,6 +189,24 @@ export const build = async ({
 		? await scanEntryPoints(join(svelteDir, 'styles'), '*.css')
 		: [];
 
+	// When HTML/HTMX pages change, we must include their CSS and scripts in the build
+	// so the manifest has those entries for updateAssetPaths. Otherwise incremental
+	// builds drop them and updateAssetPaths fails with "no manifest entry".
+	const shouldIncludeHtmlAssets =
+		!isIncremental ||
+		normalizedIncrementalFiles?.some(
+			(f) =>
+				f.includes('/html/') &&
+				(f.endsWith('.html') || f.endsWith('.css'))
+		);
+	const shouldIncludeHtmxAssets =
+		!isIncremental ||
+		normalizedIncrementalFiles?.some(
+			(f) =>
+				f.includes('/htmx/') &&
+				(f.endsWith('.html') || f.endsWith('.css'))
+		);
+
 	// Filter entries for incremental builds
 	// For React: map index entries back to their source pages
 	const reactEntries =
@@ -210,11 +228,8 @@ export const build = async ({
 			: allReactPageEntries;
 
 	const htmlEntries =
-		isIncremental && htmlScriptsPath
-			? filterToIncrementalEntries(allHtmlEntries, (entry) => {
-					// HTML entries are the scripts themselves
-					return entry;
-				})
+		isIncremental && htmlScriptsPath && !shouldIncludeHtmlAssets
+			? filterToIncrementalEntries(allHtmlEntries, (entry) => entry)
 			: allHtmlEntries;
 
 	// For Svelte/Vue/Angular: entries are the page files themselves
@@ -231,12 +246,14 @@ export const build = async ({
 		: allAngularEntries;
 
 	// CSS entries - entries are the CSS files themselves
-	const htmlCssEntries = isIncremental
-		? filterToIncrementalEntries(allHtmlCssEntries, (entry) => entry)
-		: allHtmlCssEntries;
-	const htmxCssEntries = isIncremental
-		? filterToIncrementalEntries(allHtmxCssEntries, (entry) => entry)
-		: allHtmxCssEntries;
+	const htmlCssEntries =
+		isIncremental && !shouldIncludeHtmlAssets
+			? filterToIncrementalEntries(allHtmlCssEntries, (entry) => entry)
+			: allHtmlCssEntries;
+	const htmxCssEntries =
+		isIncremental && !shouldIncludeHtmxAssets
+			? filterToIncrementalEntries(allHtmxCssEntries, (entry) => entry)
+			: allHtmxCssEntries;
 	const reactCssEntries = isIncremental
 		? filterToIncrementalEntries(allReactCssEntries, (entry) => entry)
 		: allReactCssEntries;
@@ -288,7 +305,7 @@ export const build = async ({
 	) {
 		logger.warn('No entry points found, manifest will be empty');
 
-		return createBuildResult({}, buildPath);
+		return {};
 	}
 
 	let serverLogs: (BuildMessage | ResolveMessage)[] = [];
@@ -344,6 +361,15 @@ export const build = async ({
 		const clientResult = await bunBuild({
 			define: vueDirectory ? vueFeatureFlags : undefined,
 			entrypoints: clientEntryPoints,
+			external:
+				isDev && reactDir
+					? [
+							'react',
+							'react-dom',
+							'react/jsx-dev-runtime',
+							'react/jsx-runtime'
+						]
+					: undefined,
 			format: 'esm',
 			minify: !isDev, // Don't minify in dev for better debugging
 			naming: `[dir]/[name].[hash].[ext]`,
@@ -354,15 +380,6 @@ export const build = async ({
 			root: clientRoot,
 			target: 'browser',
 			splitting: !isDev, // Disable splitting in dev to avoid duplicate export bug
-			external: isDev
-				? [
-						'react',
-						'react-dom',
-						'react-dom/client',
-						'react/jsx-runtime',
-						'react/jsx-dev-runtime'
-					]
-				: undefined,
 			throw: false
 		});
 		clientLogs = clientResult.logs;
@@ -415,31 +432,18 @@ export const build = async ({
 	const allLogs = [...serverLogs, ...clientLogs, ...cssLogs];
 	outputLogs(allLogs);
 
-	const newManifest = generateManifest(
+	const manifest = generateManifest(
 		[...serverOutputs, ...clientOutputs, ...cssOutputs],
 		buildPath
 	);
 
-	// For incremental builds, merge with existing manifest to preserve unchanged entries
-	let manifest = newManifest;
-	if (isIncremental) {
-		// Try to load existing manifest from build directory
-		const manifestPath = join(buildPath, 'manifest.json');
-		try {
-			const manifestFile = Bun.file(manifestPath);
-			if (await manifestFile.exists()) {
-				const manifestText = await manifestFile.text();
-				const existingManifest = JSON.parse(manifestText) as Record<
-					string,
-					string
-				>;
-				// Merge: new entries override old ones, but keep old entries for unchanged files
-				manifest = { ...existingManifest, ...newManifest };
-			}
-		} catch {
-			// No existing manifest or parse error, use new one
-			manifest = newManifest;
-		}
+	// Svelte/Vue server pages need absolute file paths for SSR import(),
+	// not web-relative paths. Overwrite with absolute paths like HTML/HTMX.
+	for (const artifact of serverOutputs) {
+		const fileWithHash = basename(artifact.path);
+		const [baseName] = fileWithHash.split(`.${artifact.hash}.`);
+		if (!baseName) continue;
+		manifest[toPascal(baseName)] = artifact.path;
 	}
 
 	// For HTML/HTMX, copy pages on full builds or if HTML/HTMX files changed
@@ -496,13 +500,11 @@ export const build = async ({
 			await updateAssetPaths(manifest, outputHtmlPages);
 		}
 
-		// Add HTML pages to manifest
+		// Add HTML pages to manifest (absolute paths for Bun.file())
 		const htmlPageFiles = await scanEntryPoints(outputHtmlPages, '*.html');
 		for (const htmlFile of htmlPageFiles) {
 			const fileName = basename(htmlFile, '.html');
-			const relativePath =
-				'/' + relative(buildPath, htmlFile).replace(/\\/g, '/');
-			manifest[`${fileName}HTML`] = relativePath;
+			manifest[fileName] = htmlFile;
 		}
 	}
 
@@ -540,13 +542,11 @@ export const build = async ({
 			await updateAssetPaths(manifest, outputHtmxPages);
 		}
 
-		// Add HTMX pages to manifest
+		// Add HTMX pages to manifest (absolute paths for Bun.file())
 		const htmxPageFiles = await scanEntryPoints(outputHtmxPages, '*.html');
 		for (const htmxFile of htmxPageFiles) {
 			const fileName = basename(htmxFile, '.html');
-			const relativePath =
-				'/' + relative(buildPath, htmxFile).replace(/\\/g, '/');
-			manifest[`${fileName}HTMX`] = relativePath;
+			manifest[fileName] = htmxFile;
 		}
 	}
 
@@ -561,14 +561,5 @@ export const build = async ({
 		`Build completed in ${getDurationString(performance.now() - buildStart)}`
 	);
 
-	// Always save manifest for incremental builds (so we can merge on next incremental build)
-	const manifestPath = join(buildPath, 'manifest.json');
-	const manifestJson = JSON.stringify(manifest, null, 2);
-	try {
-		await Bun.write(manifestPath, manifestJson);
-	} catch (error) {
-		logger.warn(`Could not save manifest: ${error}`);
-	}
-
-	return createBuildResult(manifest, buildPath);
+	return manifest;
 };

@@ -1,17 +1,39 @@
 import { file } from 'bun';
-import { join, resolve } from 'node:path';
 import { ComponentType as ReactComponent, createElement } from 'react';
 import { renderToReadableStream as renderReactToReadableStream } from 'react-dom/server';
 import { Component as SvelteComponent } from 'svelte';
 import { Component as VueComponent, createSSRApp, h } from 'vue';
 import { renderToWebStream as renderVueToWebStream } from 'vue/server-renderer';
+import { injectHMRClient } from '../dev/injectHMRClient';
 import { renderToReadableStream as renderSvelteToReadableStream } from '../svelte/renderToReadableStream';
 import { PropsArgs } from '../types';
 
-type BuildResultLike = {
-	manifest: Record<string, string>;
-	buildDir: string;
-};
+const hasHMR = () =>
+	Boolean((globalThis as Record<string, unknown>).__hmrDevResult);
+
+async function maybeInjectHMR(
+	htmlOrStream: string | ReadableStream,
+	framework: string,
+	baseHeaders: Record<string, string>
+): Promise<Response> {
+	if (!hasHMR()) {
+		return new Response(htmlOrStream, { headers: baseHeaders });
+	}
+	const html =
+		typeof htmlOrStream === 'string'
+			? htmlOrStream
+			: await new Response(htmlOrStream).text();
+	const htmlWithHMR = injectHMRClient(html, framework);
+	const headers = new Headers(baseHeaders);
+	headers.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+	headers.set('Pragma', 'no-cache');
+	const startup = (globalThis as Record<string, unknown>)
+		.__hmrServerStartup as string | undefined;
+	if (startup) {
+		headers.set('X-Server-Startup', startup);
+	}
+	return new Response(htmlWithHMR, { headers });
+}
 
 export const handleReactPageRequest = async <
 	Props extends Record<string, unknown> = Record<never, never>
@@ -33,8 +55,9 @@ export const handleReactPageRequest = async <
 			: undefined
 	});
 
-	return new Response(stream, {
-		headers: { 'Content-Type': 'text/html' }
+	return maybeInjectHMR(stream, 'react', {
+		'Content-Type': 'text/html',
+		'X-HMR-Framework': 'react'
 	});
 };
 
@@ -43,14 +66,12 @@ type HandleSveltePageRequest = {
 	(
 		PageComponent: SvelteComponent<Record<string, never>>,
 		pagePath: string,
-		indexPath: string,
-		result: BuildResultLike
+		indexPath: string
 	): Promise<Response>;
 	<P extends Record<string, unknown>>(
 		PageComponent: SvelteComponent<P>,
 		pagePath: string,
 		indexPath: string,
-		result: BuildResultLike,
 		props: P
 	): Promise<Response>;
 };
@@ -61,15 +82,9 @@ export const handleSveltePageRequest: HandleSveltePageRequest = async <
 	_PageComponent: SvelteComponent<P>,
 	pagePath: string,
 	indexPath: string,
-	result: BuildResultLike,
 	props?: P
 ) => {
-	// Convert URL path to file system path
-	// pagePath is like "/svelte/compiled/pages/SvelteExample.abc123.js"
-	// Resolve relative to result.buildDir
-	const fsPath = resolve(result.buildDir, pagePath.replace(/^\//, ''));
-
-	const { default: ImportedPageComponent } = await import(fsPath);
+	const { default: ImportedPageComponent } = await import(pagePath);
 
 	const stream = await renderSvelteToReadableStream(
 		ImportedPageComponent,
@@ -82,8 +97,9 @@ export const handleSveltePageRequest: HandleSveltePageRequest = async <
 		}
 	);
 
-	return new Response(stream, {
-		headers: { 'Content-Type': 'text/html' }
+	return maybeInjectHMR(stream, 'svelte', {
+		'Content-Type': 'text/html',
+		'X-HMR-Framework': 'svelte'
 	});
 };
 
@@ -93,14 +109,15 @@ export const handleVuePageRequest = async <
 	pageComponent: VueComponent<Props>,
 	pagePath: string,
 	indexPath: string,
-	result: BuildResultLike,
 	headTag: `<head>${string}</head>` = '<head></head>',
 	...props: keyof Props extends never ? [] : [props: Props]
 ) => {
 	const [maybeProps] = props;
 
+	const { default: ImportedPageComponent } = await import(pagePath);
+
 	const app = createSSRApp({
-		render: () => h(pageComponent, maybeProps ?? null)
+		render: () => h(ImportedPageComponent, maybeProps ?? null)
 	});
 
 	const bodyStream = renderVueToWebStream(app);
@@ -128,42 +145,29 @@ export const handleVuePageRequest = async <
 		}
 	});
 
-	return new Response(stream, {
-		headers: { 'Content-Type': 'text/html' }
+	return maybeInjectHMR(stream, 'vue', {
+		'Content-Type': 'text/html',
+		'X-HMR-Framework': 'vue'
 	});
 };
 
-export const handleHTMLPageRequest = async (
-	result: BuildResultLike,
-	assetName: string
-) => {
-	const relativePath = result.manifest[assetName];
-	if (!relativePath) {
-		throw new Error(`HTML asset "${assetName}" not found in manifest`);
-	}
-	const htmlPath = join(result.buildDir, relativePath.replace(/^\//, ''));
-	const htmlFile = file(htmlPath);
+export const handleHTMLPageRequest = async (pagePath: string) => {
+	const htmlFile = file(pagePath);
 	const html = await htmlFile.text();
 
-	return new Response(html, {
-		headers: { 'Content-Type': 'text/html; charset=utf-8' }
+	return maybeInjectHMR(html, 'html', {
+		'Content-Type': 'text/html; charset=utf-8',
+		'X-HMR-Framework': 'html'
 	});
 };
 
-export const handleHTMXPageRequest = async (
-	result: BuildResultLike,
-	assetName: string
-) => {
-	const relativePath = result.manifest[assetName];
-	if (!relativePath) {
-		throw new Error(`HTMX asset "${assetName}" not found in manifest`);
-	}
-	const htmxPath = join(result.buildDir, relativePath.replace(/^\//, ''));
-	const htmxFile = file(htmxPath);
+export const handleHTMXPageRequest = async (pagePath: string) => {
+	const htmxFile = file(pagePath);
 	const html = await htmxFile.text();
 
-	return new Response(html, {
-		headers: { 'Content-Type': 'text/html; charset=utf-8' }
+	return maybeInjectHMR(html, 'htmx', {
+		'Content-Type': 'text/html; charset=utf-8',
+		'X-HMR-Framework': 'htmx'
 	});
 };
 

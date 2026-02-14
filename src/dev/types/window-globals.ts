@@ -1,6 +1,9 @@
 /* Extend Window interface with HMR-specific globals */
 declare global {
 	interface Window {
+		/* Framework for current page, set by server via X-HMR-Framework header */
+		__HMR_FRAMEWORK__?: string;
+
 		/* HMR manifest - maps component names to built file paths */
 		__HMR_MANIFEST__?: Record<string, string>;
 

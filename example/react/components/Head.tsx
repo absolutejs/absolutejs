@@ -31,6 +31,13 @@ export const Head = ({
 			rel="stylesheet"
 			suppressHydrationWarning
 		/>
-		{cssPath && <link rel="stylesheet" href={cssPath} type="text/css" suppressHydrationWarning />}
+		{cssPath && (
+			<link
+				rel="stylesheet"
+				href={cssPath}
+				type="text/css"
+				suppressHydrationWarning
+			/>
+		)}
 	</head>
 );

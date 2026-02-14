@@ -1,215 +1,35 @@
-import { statSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { Elysia } from 'elysia';
-import { build } from '../core/build';
-import { createBuildResult } from '../core/createBuildResult';
-import type { BuildConfig, BuildResult } from '../types';
-import { createHMRState, type HMRState } from './clientManager';
-import { buildInitialDependencyGraph } from './dependencyGraph';
-import { startFileWatching } from './fileWatcher';
-import { getWatchPaths } from './pathUtils';
-import { queueFileChange } from './rebuildTrigger';
-import {
-	handleClientConnect,
-	handleClientDisconnect,
-	handleHMRMessage
-} from './webSocket';
-
-export type DevResult = BuildResult & {
-	hmrState: HMRState;
-};
-
-/* Development mode function - replaces build() during development
-   Returns DevResult with manifest, buildDir, asset(), and hmrState for use with the hmr() plugin */
-export async function devBuild(config: BuildConfig): Promise<DevResult> {
-	// On Bun --hot reload, return cached result instead of rebuilding
-	const cached = (globalThis as Record<string, unknown>).__hmrDevResult as
-		| DevResult
-		| undefined;
-	if (cached) {
-		// Use explicit server entry path from CLI when available; else Bun.main
-		const serverEntryPath =
-			process.env.ABSOLUTEJS_SERVER_ENTRY ||
-			(typeof Bun !== 'undefined' && Bun.main);
-		const serverMtime = serverEntryPath
-			? statSync(resolve(serverEntryPath)).mtimeMs
-			: 0;
-		const lastMtime = (globalThis as Record<string, unknown>)
-			.__hmrServerMtime as number;
-		(globalThis as Record<string, unknown>).__hmrServerMtime = serverMtime;
-
-		if (serverMtime !== lastMtime) {
-			// Server entry file changed — allow normal restart
-			// (networking() will stop old server and start new one)
-			console.log('\x1b[36m[hmr] Server module reloaded\x1b[0m');
-		} else {
-			// Framework file changed — skip server restart, let HMR handle it
-			(globalThis as Record<string, unknown>).__hmrSkipServerRestart =
-				true;
-			console.log('\x1b[36m[hmr] Hot module update detected\x1b[0m');
-		}
-		return cached;
-	}
-
-	// Create initial HMR state with config
-	const state = createHMRState(config);
-
-	// Initialize dependency graph by scanning all source files
-	const watchPaths = getWatchPaths(config, state.resolvedPaths);
-	buildInitialDependencyGraph(state.dependencyGraph, watchPaths);
-
-	console.log('🔨 Building AbsoluteJS with HMR...');
-
-	// Initial build
-	const buildResult = await build({
-		...config,
-		options: {
-			...config.options,
-			preserveIntermediateFiles: true
-		}
-	});
-
-	if (
-		!buildResult.manifest ||
-		Object.keys(buildResult.manifest).length === 0
-	) {
-		// Allow empty manifests for HTML/HTMX-only projects
-		console.log(
-			'⚠️ Manifest is empty - this is OK for HTML/HTMX-only projects'
-		);
-	}
-
-	console.log('✅ Build completed successfully');
-
-	// Start file watching with callback to update manifest
-	// We use a reference so the manifest object can be updated in-place
-	let manifestRef = buildResult.manifest;
-	const { buildDir } = buildResult;
-
-	startFileWatching(state, config, (filePath: string) => {
-		queueFileChange(state, filePath, config, (newBuildResult) => {
-			// Update the manifest in-place so the hmr() plugin always has the latest
-			Object.assign(manifestRef, newBuildResult.manifest);
-		});
-	});
-
-	console.log('👀 File watching: Active');
-	console.log('🔥 HMR: Ready');
-
-	const result: DevResult = {
-		...createBuildResult(manifestRef, buildDir),
-		hmrState: state
-	};
-
-	(globalThis as Record<string, unknown>).__hmrServerStartup =
-		Date.now().toString();
-
-	// Cache for Bun --hot reloads
-	(globalThis as Record<string, unknown>).__hmrDevResult = result;
-	const serverEntryPath =
-		process.env.ABSOLUTEJS_SERVER_ENTRY ||
-		(typeof Bun !== 'undefined' && Bun.main);
-	(globalThis as Record<string, unknown>).__hmrServerMtime = serverEntryPath
-		? statSync(resolve(serverEntryPath)).mtimeMs
-		: 0;
-
-	return result;
-}
-
-/* HMR plugin for Elysia
-   Adds WebSocket endpoint and status endpoint for HMR */
-export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
-	return (app: Elysia) => {
-		return (
-			app
-				// WebSocket route for HMR updates
-				.ws('/hmr', {
-					open: (ws) => handleClientConnect(hmrState, ws, manifest),
-					message: (ws, msg) => handleHMRMessage(hmrState, ws, msg),
-					close: (ws) => handleClientDisconnect(hmrState, ws)
-				})
-				// Status endpoint for debugging
-				.get('/hmr-status', () => ({
-					connectedClients: hmrState.connectedClients.size,
-					isRebuilding: hmrState.isRebuilding,
-					manifestKeys: Object.keys(manifest),
-					rebuildQueue: Array.from(hmrState.rebuildQueue),
-					timestamp: Date.now()
-				}))
-				// Intercept and inject HMR client into HTML responses
-				.onAfterHandle(async (context) => {
-					const { response } = context;
-
-					// Only process Response objects with HTML content
-					if (response instanceof Response) {
-						const contentType =
-							response.headers.get('content-type');
-						if (contentType?.includes('text/html')) {
-							try {
-								const html = await response.text();
-								const htmlWithHMR = injectHMRClient(html);
-
-								const headers = new Headers(
-									Object.fromEntries(response.headers)
-								);
-								headers.set('content-type', contentType);
-								headers.set(
-									'Cache-Control',
-									'no-store, no-cache, must-revalidate'
-								);
-								headers.set('Pragma', 'no-cache');
-								const startup =
-									(globalThis as Record<string, unknown>)
-										.__hmrServerStartup as string | undefined;
-								if (startup) {
-									headers.set('X-Server-Startup', startup);
-								}
-
-								return new Response(htmlWithHMR, {
-									status: response.status,
-									statusText: response.statusText,
-									headers
-								});
-							} catch {
-								return response;
-							}
-						}
-					}
-
-					return response;
-				})
-		);
-	};
-}
-
 /* Inject HMR client script into HTML
-   This function contains all the client-side HMR code */
-function injectHMRClient(html: string): string {
-	// Static import map placed in <head> so dynamic imports can resolve immediately
-	// We map React to a single CDN ESM copy and set globals so all bundles share the same instance
-	// IMPORTANT: react-refresh/runtime is loaded BEFORE React to hook into the reconciler
-	const importMap = `
+   This function contains all the client-side HMR code.
+   framework: from X-HMR-Framework header, sets window.__HMR_FRAMEWORK__ for detection */
+export function injectHMRClient(
+	html: string,
+	framework?: string | null
+): string {
+	// Synchronous stub for React Fast Refresh globals. Bun's reactFastRefresh injects
+	// $RefreshSig$() calls in the bundle; the real runtime loads async from esm.sh.
+	// This stub prevents "ReferenceError: $RefreshSig$ is not defined" when the
+	// React bundle runs before the runtime loads. Inject for React pages only.
+	const reactRefreshStub =
+		framework === 'react'
+			? `<script data-hmr-react-refresh-stub>
+(function(){var g=typeof globalThis!=='undefined'?globalThis:window;
+g.$RefreshSig$=g.$RefreshSig$||function(){return function(t){return t;}};
+g.$RefreshReg$=g.$RefreshReg$||function(){};
+g.$RefreshRuntime$=g.$RefreshRuntime$||{};})();
+</script>`
+			: '';
+
+	// Import map for React: externalize react/react-dom so index and page bundles
+	// share one instance (avoids duplicate-React / invalid-hook during Fast Refresh)
+	const importMap =
+		framework === 'react'
+			? `
     <script type="importmap" data-hmr-import-map>
-      {
-        "imports": {
-          "react-refresh/runtime": "https://esm.sh/react-refresh@0.18/runtime?dev",
-          "react": "https://esm.sh/react@19?dev",
-          "react-dom/client": "https://esm.sh/react-dom@19/client?dev",
-          "react/jsx-runtime": "https://esm.sh/react@19/jsx-runtime?dev",
-          "react/jsx-dev-runtime": "https://esm.sh/react@19/jsx-dev-runtime?dev",
-          "vue": "https://esm.sh/vue@3?dev"
-        }
-      }
+      {"imports":{"react":"https://esm.sh/react@19.2.1?dev","react/jsx-dev-runtime":"https://esm.sh/react@19.2.1/jsx-dev-runtime?dev","react/jsx-runtime":"https://esm.sh/react@19.2.1/jsx-runtime?dev","react-dom":"https://esm.sh/react-dom@19.2.1?dev","react-dom/client":"https://esm.sh/react-dom@19.2.1/client?dev","react-refresh/runtime":"https://esm.sh/react-refresh@0.18/runtime?dev"}}
     </script>
     <script type="module" data-react-refresh-setup>
-      // React Refresh runtime MUST be loaded and initialized BEFORE React
-      // This hooks into React's internals to track component signatures
       import RefreshRuntime from 'react-refresh/runtime';
-      
-      // Inject into global hook before React loads
       RefreshRuntime.injectIntoGlobalHook(window);
-      
-      // Expose for HMR client to use
       window.$RefreshRuntime$ = RefreshRuntime;
       window.$RefreshReg$ = function(type, id) {
         RefreshRuntime.register(type, id);
@@ -235,7 +55,8 @@ function injectHMRClient(html: string): string {
         window.__VUE_HMR_COMPONENTS__ = window.__VUE_HMR_COMPONENTS__ || {};
       }
     </script>
-  `;
+  `
+			: '';
 
 	const hmrScript = `
     <script>
@@ -783,7 +604,6 @@ function injectHMRClient(html: string): string {
             if (el.hasAttribute('data-hmr-import-map')) return true;
             if (el.hasAttribute('data-hmr-client')) return true;
             if (el.hasAttribute('data-react-refresh-setup')) return true;
-            if (el.hasAttribute('data-react-globals')) return true;
 
             // Preserve any element with data-hmr-* attributes
             const attrs = Array.from(el.attributes);
@@ -1169,25 +989,18 @@ function injectHMRClient(html: string): string {
         let isFirstHMRUpdate = true; // Track if this is the first HMR update since page load
 
         // Detect which framework page we're currently on
+        // Primary: Server injects window.__HMR_FRAMEWORK__ via X-HMR-Framework header (route-agnostic)
+        // Fallback: URL path heuristics for pages without the header
         function detectCurrentFramework() {
-          // CRITICAL: Use URL path as the primary signal; avoid sticky globals
+          if (window.__HMR_FRAMEWORK__) return window.__HMR_FRAMEWORK__;
           const path = window.location.pathname;
-          
-          // Prefer explicit routes
           if (path === '/vue' || path.startsWith('/vue/')) return 'vue';
           if (path === '/svelte' || path.startsWith('/svelte/')) return 'svelte';
           if (path === '/htmx' || path.startsWith('/htmx/')) return 'htmx';
           if (path === '/html' || path.startsWith('/html/')) return 'html';
-          
-          // Root defaults to HTML (example root renders HTML page)
           if (path === '/') return 'html';
-          
-          // React detection: explicit routes first
           if (path === '/react' || path.startsWith('/react/')) return 'react';
-          
-          // React fallback if a React root already exists on the page
           if (window.__REACT_ROOT__) return 'react';
-
           return null;
         }
 
@@ -1457,15 +1270,8 @@ function injectHMRClient(html: string): string {
                   componentPath = indexPathParts.join('/');
                 }
                 
-                if (!window.React || !window.ReactDOM) {
-                  sessionStorage.removeItem('__HMR_ACTIVE__');
-                  break;
-                }
-                
-                const React = window.React;
-                const ReactDOM = window.ReactDOM;
-                
-                // Import the page component (it will use the same React instance via externals)
+                // Import the updated component module — Bun's reactFastRefresh
+                // injected $RefreshReg$ calls, so the refresh runtime tracks it.
                 // Use cache-busted path to ensure fresh module is loaded
                 const cacheBustedPath = componentPath + '?t=' + Date.now();
                 import(/* @vite-ignore */ cacheBustedPath)
@@ -2201,16 +2007,6 @@ function injectHMRClient(html: string): string {
                         scroll: saveScrollState(),
                         componentState: { count: countValue }
                       };
-                      
-                      // Sync server-side state (HTMX uses server-side state)
-                      if (savedState.componentState.count !== undefined && savedState.componentState.count > 0) {
-                        fetch('/htmx/sync-count', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ count: savedState.componentState.count })
-                        }).catch(function() {
-                        });
-                      }
                       
                       // Store existing compiled script elements
                       const existingScripts = Array.from(container.querySelectorAll('script[src]')).map(function(script) {
@@ -3045,28 +2841,46 @@ function injectHMRClient(html: string): string {
 		return html;
 	}
 
-	// Inject import map before </head> and HMR script before </body>
-	const headRegex = /<\/head\s*>/i;
+	// Inject React Refresh stub as FIRST script in head (must run before React bundle),
+	// then import map. Use <head> to inject at start of head so stub runs before any other scripts.
+	const headOpenRegex = /<head(?:\s[^>]*)?>/i;
+	const headCloseRegex = /<\/head\s*>/i;
 	const bodyRegex = /<\/body\s*>/i;
-	const headMatch = headRegex.exec(html);
+	const headOpenMatch = headOpenRegex.exec(html);
+	const headCloseMatch = headCloseRegex.exec(html);
 	let result = html;
 
-	// Insert import map early so dynamic imports resolve
-	if (headMatch !== null) {
-		result =
-			result.slice(0, headMatch.index) +
-			importMap +
-			result.slice(headMatch.index);
+	if (headCloseMatch !== null) {
+		const headContent = reactRefreshStub + importMap;
+		if (headOpenMatch !== null) {
+			// Insert stub + import map immediately after <head> so stub runs first
+			const insertPos = headOpenMatch.index + headOpenMatch[0].length;
+			result =
+				result.slice(0, insertPos) +
+				headContent +
+				result.slice(insertPos);
+		} else {
+			result =
+				result.slice(0, headCloseMatch.index) +
+				headContent +
+				result.slice(headCloseMatch.index);
+		}
 	}
+
+	const frameworkScript =
+		framework && /^[a-z]+$/.test(framework)
+			? `<script>window.__HMR_FRAMEWORK__="${framework}";</script>`
+			: '';
 
 	const bodyMatch = bodyRegex.exec(result);
 	if (bodyMatch !== null) {
 		result =
 			result.slice(0, bodyMatch.index) +
+			frameworkScript +
 			hmrScript +
 			result.slice(bodyMatch.index);
 	} else {
-		result = result + hmrScript;
+		result = result + frameworkScript + hmrScript;
 	}
 
 	return result;

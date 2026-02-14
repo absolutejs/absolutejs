@@ -8,7 +8,9 @@ if (!button || !counter || !details) {
 
 // Use preserved state from HMR if available, otherwise start from 0
 // window.__HMR_DOM_STATE__ is set by the HMR client before scripts run
-const hmrState = (window as unknown as { __HMR_DOM_STATE__?: { count?: number } }).__HMR_DOM_STATE__;
+const hmrState = (
+	window as unknown as { __HMR_DOM_STATE__?: { count?: number } }
+).__HMR_DOM_STATE__;
 let count = hmrState?.count ?? 0;
 
 button.addEventListener('click', () => {

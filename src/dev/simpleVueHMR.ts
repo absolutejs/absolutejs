@@ -81,16 +81,10 @@ export const handleVueUpdate = async (
 			'../utils/generateHeadElement'
 		);
 
-		// Create a minimal result object for the handler
-		// Use provided buildDir or fall back to process.cwd()/example/build for compatibility
-		const resultBuildDir =
-			buildDir || resolve(process.cwd(), 'example/build');
-
 		const response = await handleVuePageRequest(
 			serverModule.default,
 			serverPath,
 			indexPath,
-			{ manifest, buildDir: resultBuildDir },
 			generateHeadElement({
 				cssPath: manifest[cssKey] || '',
 				title: 'AbsoluteJS + Vue'

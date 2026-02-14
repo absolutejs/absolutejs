@@ -1,24 +1,27 @@
 import { staticPlugin } from '@elysiajs/static';
 import { Elysia } from 'elysia';
 import { scopedState } from 'elysia-scoped-state';
-import { build } from '../src/core/build';
-import { devBuild, hmr } from '../src/dev';
+import { generateHeadElement } from '../src/utils/generateHeadElement';
+import { ReactExample } from './react/pages/ReactExample';
+import SvelteExample from './svelte/pages/SvelteExample.svelte';
+import { vueImports } from './vueImporter';
+import { BuildConfig } from '../src/types';
+import { env } from 'bun';
 import {
+	asset,
+	build,
+	devBuild,
 	handleHTMLPageRequest,
 	handleHTMXPageRequest,
 	handleReactPageRequest,
 	handleSveltePageRequest,
 	handleVuePageRequest
-} from '../src/core/pageHandlers';
+} from '../src';
 import { networking } from '../src/plugins/networking';
-import { generateHeadElement } from '../src/utils/generateHeadElement';
-import { ReactExample } from './react/pages/ReactExample';
-import SvelteExample from './svelte/pages/SvelteExample.svelte';
-import { vueImports } from './vueImporter';
 
 const { VueExample } = vueImports;
 
-const buildConfig = {
+const buildConfig: BuildConfig = {
 	assetsDirectory: 'example/assets',
 	buildDirectory: 'example/build',
 	htmlDirectory: 'example/html',
@@ -29,21 +32,15 @@ const buildConfig = {
 	reactDirectory: 'example/react',
 	svelteDirectory: 'example/svelte',
 	vueDirectory: 'example/vue'
-} as const;
+};
 
-const isDev = process.env.NODE_ENV !== 'production';
-
-const result = isDev
-	? await devBuild(buildConfig)
-	: {
-			...(await build(buildConfig)),
-			hmrState: null
-		};
+const isDev = env.NODE_ENV !== 'production';
+const result = isDev ? await devBuild(buildConfig) : await build(buildConfig);
 
 export const server = new Elysia()
 	.use(
 		staticPlugin({
-			assets: result.buildDir,
+			assets: './example/build',
 			prefix: ''
 		})
 	)
@@ -52,15 +49,14 @@ export const server = new Elysia()
 			count: { value: 0 }
 		})
 	)
-	.use(result.hmrState ? hmr(result.hmrState, result.manifest) : (app) => app)
-	.get('/', () => handleHTMLPageRequest(result, 'HtmlExampleHTML'))
-	.get('/html', () => handleHTMLPageRequest(result, 'HtmlExampleHTML'))
+	.get('/', () => handleHTMLPageRequest(asset(result, 'HtmlExample')))
+	.get('/html', () => handleHTMLPageRequest(asset(result, 'HtmlExample')))
 	.get('/react', () =>
 		handleReactPageRequest(
 			ReactExample,
-			result.asset('ReactExampleIndex'),
+			asset(result, 'ReactExampleIndex'),
 			{
-				cssPath: result.asset('ReactExampleCSS'),
+				cssPath: asset(result, 'ReactExampleCSS'),
 				initialCount: 0
 			}
 		)
@@ -68,11 +64,10 @@ export const server = new Elysia()
 	.get('/svelte', async () =>
 		handleSveltePageRequest(
 			SvelteExample,
-			result.asset('SvelteExample'),
-			result.asset('SvelteExampleIndex'),
-			result,
+			asset(result, 'SvelteExample'),
+			asset(result, 'SvelteExampleIndex'),
 			{
-				cssPath: result.asset('SvelteExampleCSS'),
+				cssPath: asset(result, 'SvelteExampleCSS'),
 				initialCount: 0
 			}
 		)
@@ -80,31 +75,23 @@ export const server = new Elysia()
 	.get('/vue', () =>
 		handleVuePageRequest(
 			VueExample,
-			result.asset('VueExample'),
-			result.asset('VueExampleIndex'),
-			result,
+			asset(result, 'VueExample'),
+			asset(result, 'VueExampleIndex'),
 			generateHeadElement({
-				cssPath: result.asset('VueExampleCSS'),
+				cssPath: asset(result, 'VueExampleCSS'),
 				title: 'AbsoluteJS + Vue'
 			}),
 			{ initialCount: 0 }
 		)
 	)
-	.get('/htmx', () => handleHTMXPageRequest(result, 'HTMXExampleHTMX'))
+	.get('/htmx', () => handleHTMXPageRequest(asset(result, 'HTMXExample')))
 	.post('/htmx/reset', ({ resetScopedStore }) => resetScopedStore())
 	.get('/htmx/count', ({ scopedStore }) => scopedStore.count)
 	.post('/htmx/increment', ({ scopedStore }) => ++scopedStore.count)
-	.post('/htmx/sync-count', ({ body, scopedStore }) => {
-		if (body && typeof body === 'object' && 'count' in body) {
-			scopedStore.count = Number(body.count);
-			return { success: true };
-		}
-		return { success: false };
-	})
-	.use(networking({ hmrState: result.hmrState }))
 	.on('error', (error) => {
 		const { request } = error;
 		console.error(
 			`Server error on ${request.method} ${request.url}: ${error.message}`
 		);
-	});
+	})
+	.use(networking);
