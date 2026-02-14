@@ -47,13 +47,14 @@ export const handleVueUpdate = async (
 			return null;
 		}
 
-		// Convert URL path to absolute filesystem path
-		// Manifest stores paths like "/vue/compiled/pages/VueExample.abc123.js"
-		const projectRoot = buildDir || process.cwd();
-		const absoluteServerPath = join(
-			projectRoot,
-			serverPath.replace(/^\//, '')
-		);
+		// Manifest stores absolute paths for Vue server bundles (artifact.path)
+		// Use directly if absolute; otherwise join with buildDir for relative paths
+		const absoluteServerPath =
+			resolve(serverPath) === serverPath ||
+			serverPath.startsWith('/') ||
+			/^[A-Za-z]:[\\/]/.test(serverPath)
+				? serverPath
+				: join(buildDir || process.cwd(), serverPath.replace(/^\//, ''));
 
 		const cacheBuster = `?t=${Date.now()}`;
 		const serverModule = await import(`${absoluteServerPath}${cacheBuster}`);

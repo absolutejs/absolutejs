@@ -5,19 +5,16 @@ export function injectHMRClient(
 	html: string,
 	framework?: string | null
 ): string {
-	// Synchronous stub for React Fast Refresh globals. Bun's reactFastRefresh injects
-	// $RefreshSig$() calls in the bundle; the real runtime loads async from esm.sh.
-	// This stub prevents "ReferenceError: $RefreshSig$ is not defined" when the
-	// React bundle runs before the runtime loads. Inject for React pages only.
-	const reactRefreshStub =
-		framework === 'react'
-			? `<script data-hmr-react-refresh-stub>
+	// Synchronous stub for $RefreshSig$ etc. Bun's reactFastRefresh injects these
+	// calls in ALL client bundles (React, Vue, Svelte) when enabled. The stub
+	// prevents "ReferenceError: $RefreshSig$ is not defined". Inject for all
+	// frameworks since Vue/Svelte bundles also get the transform.
+	const reactRefreshStub = `<script data-hmr-react-refresh-stub>
 (function(){var g=typeof globalThis!=='undefined'?globalThis:window;
 g.$RefreshSig$=g.$RefreshSig$||function(){return function(t){return t;}};
 g.$RefreshReg$=g.$RefreshReg$||function(){};
 g.$RefreshRuntime$=g.$RefreshRuntime$||{};})();
-</script>`
-			: '';
+</script>`;
 
 	// Import map for React: externalize react/react-dom so index and page bundles
 	// share one instance (avoids duplicate-React / invalid-hook during Fast Refresh)
@@ -38,19 +35,14 @@ g.$RefreshRuntime$=g.$RefreshRuntime$||{};})();
         return RefreshRuntime.createSignatureFunctionForTransform();
       };
     </script>
-    <script type="module" data-react-globals>
-      // Ensure a single React instance is shared and exposed globally for HMR
-      // This runs AFTER react-refresh has hooked into window
-      import React from 'react';
-      import * as ReactDOMClient from 'react-dom/client';
-      if (!window.React) window.React = React;
-      if (!window.ReactDOM) window.ReactDOM = ReactDOMClient;
-      if (!window.ReactDOM.default) window.ReactDOM.default = ReactDOMClient;
-    </script>
+  `
+			: '';
+
+	// Vue HMR component registry - only for Vue pages (React pages must not load this)
+	const vueHmrSetup =
+		framework === 'vue'
+			? `
     <script type="module" data-vue-hmr-setup>
-      // Vue Native HMR Setup
-      // Initialize component registry for Vue HMR runtime
-      // This enables state-preserving hot updates via __VUE_HMR_RUNTIME__
       if (typeof window !== 'undefined') {
         window.__VUE_HMR_COMPONENTS__ = window.__VUE_HMR_COMPONENTS__ || {};
       }
@@ -1334,14 +1326,14 @@ g.$RefreshRuntime$=g.$RefreshRuntime$||{};})();
 
               case 'script-update': {
                 // Script-only HMR: Hot-reload just the script using import.meta.hot
-                // This is faster than full HTML updates and preserves more state
-                console.log('[HMR] Received script-update message');
-                const scriptFramework = message.data.framework;
+                // Only for HTML/HTMX - cloning interactive elements destroys Vue/React/Svelte
+                // event listeners, so we must never run this on framework pages
                 const currentFw = detectCurrentFramework();
-
-                // Only handle if we're on the right framework page
+                if (currentFw !== 'html' && currentFw !== 'htmx') {
+                  break;
+                }
+                const scriptFramework = message.data.framework;
                 if (currentFw !== scriptFramework) {
-                  console.log('[HMR] Skipping script update - different framework:', currentFw, 'vs', scriptFramework);
                   break;
                 }
 
@@ -2843,6 +2835,10 @@ g.$RefreshRuntime$=g.$RefreshRuntime$||{};})();
 
 	// Inject React Refresh stub as FIRST script in head (must run before React bundle),
 	// then import map. Use <head> to inject at start of head so stub runs before any other scripts.
+	const frameworkScript =
+		framework && /^[a-z]+$/.test(framework)
+			? `<script>window.__HMR_FRAMEWORK__="${framework}";</script>`
+			: '';
 	const headOpenRegex = /<head(?:\s[^>]*)?>/i;
 	const headCloseRegex = /<\/head\s*>/i;
 	const bodyRegex = /<\/body\s*>/i;
@@ -2851,7 +2847,12 @@ g.$RefreshRuntime$=g.$RefreshRuntime$||{};})();
 	let result = html;
 
 	if (headCloseMatch !== null) {
-		const headContent = reactRefreshStub + importMap;
+		const headContent =
+			reactRefreshStub +
+			importMap +
+			vueHmrSetup +
+			frameworkScript +
+			hmrScript;
 		if (headOpenMatch !== null) {
 			// Insert stub + import map immediately after <head> so stub runs first
 			const insertPos = headOpenMatch.index + headOpenMatch[0].length;
@@ -2867,21 +2868,7 @@ g.$RefreshRuntime$=g.$RefreshRuntime$||{};})();
 		}
 	}
 
-	const frameworkScript =
-		framework && /^[a-z]+$/.test(framework)
-			? `<script>window.__HMR_FRAMEWORK__="${framework}";</script>`
-			: '';
-
-	const bodyMatch = bodyRegex.exec(result);
-	if (bodyMatch !== null) {
-		result =
-			result.slice(0, bodyMatch.index) +
-			frameworkScript +
-			hmrScript +
-			result.slice(bodyMatch.index);
-	} else {
-		result = result + frameworkScript + hmrScript;
-	}
-
+	// HMR scripts are now in headContent (injected in head) so they run before body,
+	// avoiding any interference with Vue/React hydration of body content
 	return result;
 }
