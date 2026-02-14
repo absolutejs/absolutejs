@@ -29,12 +29,6 @@ export type BuildConfig = {
 	// Optional: List of files to rebuild incrementally (absolute paths)
 	// When provided, only these files and their dependencies will be rebuilt
 	incrementalFiles?: string[];
-	// Optional: Host configuration for dev server
-	// Default: environment variable (HOST) or 'localhost'
-	host?: string;
-	// Optional: Port configuration for dev server
-	// Default: environment variable (PORT) or 3000
-	port?: number;
 };
 
 export type PropsOf<Component> =
@@ -49,8 +43,3 @@ export type PropsOf<Component> =
 export type PropsArgs<C> = keyof PropsOf<C> extends never ? [] : [PropsOf<C>];
 
 export type Prettify<T> = { [K in keyof T]: T[K] } & {};
-
-export type BuildResult = {
-	buildDir: string;
-	manifest: Record<string, string>;
-};

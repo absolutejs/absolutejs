@@ -1,5 +1,4 @@
 import { file } from 'bun';
-import { join, resolve } from 'node:path';
 import { ComponentType as ReactComponent, createElement } from 'react';
 import { renderToReadableStream as renderReactToReadableStream } from 'react-dom/server';
 import { Component as SvelteComponent } from 'svelte';
@@ -7,11 +6,6 @@ import { Component as VueComponent, createSSRApp, h } from 'vue';
 import { renderToWebStream as renderVueToWebStream } from 'vue/server-renderer';
 import { renderToReadableStream as renderSvelteToReadableStream } from '../svelte/renderToReadableStream';
 import { PropsArgs } from '../types';
-
-type BuildResultLike = {
-	manifest: Record<string, string>;
-	buildDir: string;
-};
 
 export const handleReactPageRequest = async <
 	Props extends Record<string, unknown> = Record<never, never>
@@ -46,14 +40,12 @@ type HandleSveltePageRequest = {
 	(
 		PageComponent: SvelteComponent<Record<string, never>>,
 		pagePath: string,
-		indexPath: string,
-		result: BuildResultLike
+		indexPath: string
 	): Promise<Response>;
 	<P extends Record<string, unknown>>(
 		PageComponent: SvelteComponent<P>,
 		pagePath: string,
 		indexPath: string,
-		result: BuildResultLike,
 		props: P
 	): Promise<Response>;
 };
@@ -64,15 +56,9 @@ export const handleSveltePageRequest: HandleSveltePageRequest = async <
 	_PageComponent: SvelteComponent<P>,
 	pagePath: string,
 	indexPath: string,
-	result: BuildResultLike,
 	props?: P
 ) => {
-	// Convert URL path to file system path
-	// pagePath is like "/svelte/compiled/pages/SvelteExample.abc123.js"
-	// Resolve relative to result.buildDir
-	const fsPath = resolve(result.buildDir, pagePath.replace(/^\//, ''));
-
-	const { default: ImportedPageComponent } = await import(fsPath);
+	const { default: ImportedPageComponent } = await import(pagePath);
 
 	const stream = await renderSvelteToReadableStream(
 		ImportedPageComponent,
@@ -99,18 +85,12 @@ export const handleVuePageRequest = async <
 	_PageComponent: VueComponent<Props>,
 	pagePath: string,
 	indexPath: string,
-	result: BuildResultLike,
 	headTag: `<head>${string}</head>` = '<head></head>',
 	...props: keyof Props extends never ? [] : [props: Props]
 ) => {
 	const [maybeProps] = props;
 
-	// Convert URL path to file system path
-	// pagePath is like "/vue/compiled/pages/VueExample.abc123.js"
-	// Resolve relative to result.buildDir
-	const fsPath = resolve(result.buildDir, pagePath.replace(/^\//, ''));
-
-	const { default: ImportedPageComponent } = await import(fsPath);
+	const { default: ImportedPageComponent } = await import(pagePath);
 
 	const app = createSSRApp({
 		render: () => h(ImportedPageComponent, maybeProps ?? {})
@@ -149,16 +129,8 @@ export const handleVuePageRequest = async <
 	});
 };
 
-export const handleHTMLPageRequest = async (
-	result: BuildResultLike,
-	assetName: string
-) => {
-	const relativePath = result.manifest[assetName];
-	if (!relativePath) {
-		throw new Error(`HTML asset "${assetName}" not found in manifest`);
-	}
-	const htmlPath = join(result.buildDir, relativePath.replace(/^\//, ''));
-	const htmlFile = file(htmlPath);
+export const handleHTMLPageRequest = async (pagePath: string) => {
+	const htmlFile = file(pagePath);
 	const html = await htmlFile.text();
 
 	return new Response(html, {
@@ -169,16 +141,8 @@ export const handleHTMLPageRequest = async (
 	});
 };
 
-export const handleHTMXPageRequest = async (
-	result: BuildResultLike,
-	assetName: string
-) => {
-	const relativePath = result.manifest[assetName];
-	if (!relativePath) {
-		throw new Error(`HTMX asset "${assetName}" not found in manifest`);
-	}
-	const htmxPath = join(result.buildDir, relativePath.replace(/^\//, ''));
-	const htmxFile = file(htmxPath);
+export const handleHTMXPageRequest = async (pagePath: string) => {
+	const htmxFile = file(pagePath);
 	const html = await htmxFile.text();
 
 	return new Response(html, {

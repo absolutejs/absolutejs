@@ -18,21 +18,14 @@ export const generateReactIndexFiles = async (
 		const fileName = basename(file);
 		const [componentName] = fileName.split('.');
 		const content = [
-			`import * as React from 'react';`,
-			`import * as ReactDOMClient from 'react-dom/client';`,
 			`import { hydrateRoot, createRoot } from 'react-dom/client';`,
 			`import { createElement } from 'react';`,
 			`import type { ComponentType } from 'react'`,
 			`import { ${componentName} } from '../pages/${componentName}';\n`,
-			`// Expose React on window for HMR (ensures same instance is used)`,
-			`if (typeof window !== 'undefined') {`,
-			`\twindow.React = React;`,
-			`\twindow.ReactDOM = ReactDOMClient;`,
-			`}\n`,
 			`type PropsOf<C> = C extends ComponentType<infer P> ? P : never;\n`,
 			`declare global {`,
 			`\tinterface Window {`,
-			`\t\t__INITIAL_PROPS__: PropsOf<typeof ${componentName}>`,
+			`\t\t__INITIAL_PROPS__?: PropsOf<typeof ${componentName}>`,
 			`\t\t__REACT_ROOT__?: ReturnType<typeof hydrateRoot | typeof createRoot>`,
 			`\t\t__HMR_CLIENT_ONLY_MODE__?: boolean`,
 			`\t}`,

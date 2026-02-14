@@ -1,222 +1,23 @@
-import { statSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { Elysia } from 'elysia';
-import { build } from '../core/build';
-import { createBuildResult } from '../core/createBuildResult';
-import type { BuildConfig, BuildResult } from '../types';
-import { createHMRState, type HMRState } from './clientManager';
-import { buildInitialDependencyGraph } from './dependencyGraph';
-import { startFileWatching } from './fileWatcher';
-import { getWatchPaths } from './pathUtils';
-import { queueFileChange } from './rebuildTrigger';
-import {
-	handleClientConnect,
-	handleClientDisconnect,
-	handleHMRMessage
-} from './webSocket';
-
-export type DevResult = BuildResult & {
-	hmrState: HMRState;
-};
-
-/* Development mode function - replaces build() during development
-   Returns DevResult with manifest, buildDir, asset(), and hmrState for use with the hmr() plugin */
-export async function devBuild(config: BuildConfig): Promise<DevResult> {
-	// On Bun --hot reload, return cached result instead of rebuilding
-	const cached = (globalThis as Record<string, unknown>).__hmrDevResult as
-		| DevResult
-		| undefined;
-	if (cached) {
-		// Use explicit server entry path from CLI when available; else Bun.main
-		const serverEntryPath =
-			process.env.ABSOLUTEJS_SERVER_ENTRY ||
-			(typeof Bun !== 'undefined' && Bun.main);
-		const serverMtime = serverEntryPath
-			? statSync(resolve(serverEntryPath)).mtimeMs
-			: 0;
-		const lastMtime = (globalThis as Record<string, unknown>)
-			.__hmrServerMtime as number;
-		(globalThis as Record<string, unknown>).__hmrServerMtime = serverMtime;
-
-		if (serverMtime !== lastMtime) {
-			// Server entry file changed — allow normal restart
-			// (networking() will stop old server and start new one)
-			console.log('\x1b[36m[hmr] Server module reloaded\x1b[0m');
-		} else {
-			// Framework file changed — skip server restart, let HMR handle it
-			(globalThis as Record<string, unknown>).__hmrSkipServerRestart =
-				true;
-			console.log('\x1b[36m[hmr] Hot module update detected\x1b[0m');
-		}
-		return cached;
-	}
-
-	// Create initial HMR state with config
-	const state = createHMRState(config);
-
-	// Initialize dependency graph by scanning all source files
-	const watchPaths = getWatchPaths(config, state.resolvedPaths);
-	buildInitialDependencyGraph(state.dependencyGraph, watchPaths);
-
-	console.log('🔨 Building AbsoluteJS with HMR...');
-
-	// Initial build
-	const buildResult = await build({
-		...config,
-		options: {
-			...config.options,
-			preserveIntermediateFiles: true
-		}
-	});
-
-	if (
-		!buildResult.manifest ||
-		Object.keys(buildResult.manifest).length === 0
-	) {
-		// Allow empty manifests for HTML/HTMX-only projects
-		console.log(
-			'⚠️ Manifest is empty - this is OK for HTML/HTMX-only projects'
-		);
-	}
-
-	console.log('✅ Build completed successfully');
-
-	// Start file watching with callback to update manifest
-	// We use a reference so the manifest object can be updated in-place
-	let manifestRef = buildResult.manifest;
-	const { buildDir } = buildResult;
-
-	startFileWatching(state, config, (filePath: string) => {
-		queueFileChange(state, filePath, config, (newBuildResult) => {
-			// Update the manifest in-place so the hmr() plugin always has the latest
-			Object.assign(manifestRef, newBuildResult.manifest);
-		});
-	});
-
-	console.log('👀 File watching: Active');
-	console.log('🔥 HMR: Ready');
-
-	const result: DevResult = {
-		...createBuildResult(manifestRef, buildDir),
-		hmrState: state
-	};
-
-	(globalThis as Record<string, unknown>).__hmrServerStartup =
-		Date.now().toString();
-
-	// Cache for Bun --hot reloads
-	(globalThis as Record<string, unknown>).__hmrDevResult = result;
-	const serverEntryPath =
-		process.env.ABSOLUTEJS_SERVER_ENTRY ||
-		(typeof Bun !== 'undefined' && Bun.main);
-	(globalThis as Record<string, unknown>).__hmrServerMtime = serverEntryPath
-		? statSync(resolve(serverEntryPath)).mtimeMs
-		: 0;
-
-	return result;
-}
-
-/* HMR plugin for Elysia
-   Adds WebSocket endpoint and status endpoint for HMR */
-export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
-	return (app: Elysia) => {
-		return (
-			app
-				// WebSocket route for HMR updates
-				.ws('/hmr', {
-					open: (ws) => handleClientConnect(hmrState, ws, manifest),
-					message: (ws, msg) => handleHMRMessage(hmrState, ws, msg),
-					close: (ws) => handleClientDisconnect(hmrState, ws)
-				})
-				// Status endpoint for debugging
-				.get('/hmr-status', () => ({
-					connectedClients: hmrState.connectedClients.size,
-					isRebuilding: hmrState.isRebuilding,
-					manifestKeys: Object.keys(manifest),
-					rebuildQueue: Array.from(hmrState.rebuildQueue),
-					timestamp: Date.now()
-				}))
-				// Intercept and inject HMR client into HTML responses
-				.onAfterHandle(async (context) => {
-					const { response } = context;
-
-					// Only process Response objects with HTML content
-					if (response instanceof Response) {
-						const contentType =
-							response.headers.get('content-type');
-						if (contentType?.includes('text/html')) {
-							try {
-								const framework =
-									response.headers.get('X-HMR-Framework') ||
-									null;
-								const html = await response.text();
-								const htmlWithHMR = injectHMRClient(
-									html,
-									framework
-								);
-
-								const headers = new Headers(
-									Object.fromEntries(response.headers)
-								);
-								headers.set('content-type', contentType);
-								headers.set(
-									'Cache-Control',
-									'no-store, no-cache, must-revalidate'
-								);
-								headers.set('Pragma', 'no-cache');
-								const startup = (
-									globalThis as Record<string, unknown>
-								).__hmrServerStartup as string | undefined;
-								if (startup) {
-									headers.set('X-Server-Startup', startup);
-								}
-
-								return new Response(htmlWithHMR, {
-									status: response.status,
-									statusText: response.statusText,
-									headers
-								});
-							} catch {
-								return response;
-							}
-						}
-					}
-
-					return response;
-				})
-		);
-	};
-}
-
 /* Inject HMR client script into HTML
    This function contains all the client-side HMR code.
    framework: from X-HMR-Framework header, sets window.__HMR_FRAMEWORK__ for detection */
-function injectHMRClient(html: string, framework?: string | null): string {
-	// Static import map placed in <head> so dynamic imports can resolve immediately
-	// We map React to a single CDN ESM copy and set globals so all bundles share the same instance
-	// IMPORTANT: react-refresh/runtime is loaded BEFORE React to hook into the reconciler
+export function injectHMRClient(
+	html: string,
+	framework?: string | null
+): string {
+	// Import map only for react-refresh/runtime (small standalone package).
+	// React itself is bundled into the client JS by Bun — no need to load from CDN.
 	const importMap = `
     <script type="importmap" data-hmr-import-map>
       {
         "imports": {
-          "react-refresh/runtime": "https://esm.sh/react-refresh@0.18/runtime?dev",
-          "react": "https://esm.sh/react@19?dev",
-          "react-dom/client": "https://esm.sh/react-dom@19/client?dev",
-          "react/jsx-runtime": "https://esm.sh/react@19/jsx-runtime?dev",
-          "react/jsx-dev-runtime": "https://esm.sh/react@19/jsx-dev-runtime?dev",
-          "vue": "https://esm.sh/vue@3?dev"
+          "react-refresh/runtime": "https://esm.sh/react-refresh@0.18/runtime?dev"
         }
       }
     </script>
     <script type="module" data-react-refresh-setup>
-      // React Refresh runtime MUST be loaded and initialized BEFORE React
-      // This hooks into React's internals to track component signatures
       import RefreshRuntime from 'react-refresh/runtime';
-      
-      // Inject into global hook before React loads
       RefreshRuntime.injectIntoGlobalHook(window);
-      
-      // Expose for HMR client to use
       window.$RefreshRuntime$ = RefreshRuntime;
       window.$RefreshReg$ = function(type, id) {
         RefreshRuntime.register(type, id);
@@ -224,15 +25,6 @@ function injectHMRClient(html: string, framework?: string | null): string {
       window.$RefreshSig$ = function() {
         return RefreshRuntime.createSignatureFunctionForTransform();
       };
-    </script>
-    <script type="module" data-react-globals>
-      // Ensure a single React instance is shared and exposed globally for HMR
-      // This runs AFTER react-refresh has hooked into window
-      import React from 'react';
-      import * as ReactDOMClient from 'react-dom/client';
-      if (!window.React) window.React = React;
-      if (!window.ReactDOM) window.ReactDOM = ReactDOMClient;
-      if (!window.ReactDOM.default) window.ReactDOM.default = ReactDOMClient;
     </script>
   `;
 
@@ -782,7 +574,6 @@ function injectHMRClient(html: string, framework?: string | null): string {
             if (el.hasAttribute('data-hmr-import-map')) return true;
             if (el.hasAttribute('data-hmr-client')) return true;
             if (el.hasAttribute('data-react-refresh-setup')) return true;
-            if (el.hasAttribute('data-react-globals')) return true;
 
             // Preserve any element with data-hmr-* attributes
             const attrs = Array.from(el.attributes);
@@ -1449,15 +1240,8 @@ function injectHMRClient(html: string, framework?: string | null): string {
                   componentPath = indexPathParts.join('/');
                 }
                 
-                if (!window.React || !window.ReactDOM) {
-                  sessionStorage.removeItem('__HMR_ACTIVE__');
-                  break;
-                }
-                
-                const React = window.React;
-                const ReactDOM = window.ReactDOM;
-                
-                // Import the page component (it will use the same React instance via externals)
+                // Import the updated component module — Bun's reactFastRefresh
+                // injected $RefreshReg$ calls, so the refresh runtime tracks it.
                 // Use cache-busted path to ensure fresh module is loaded
                 const cacheBustedPath = componentPath + '?t=' + Date.now();
                 import(/* @vite-ignore */ cacheBustedPath)

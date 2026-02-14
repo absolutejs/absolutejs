@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
 import { build } from '../core/build';
-import type { BuildConfig, BuildResult } from '../types';
+import type { BuildConfig } from '../types';
 import { logger } from '../utils/logger';
 import type { HMRState } from './clientManager';
 import { incrementSourceFileVersions } from './clientManager';
@@ -147,7 +147,10 @@ export function queueFileChange(
 	state: HMRState,
 	filePath: string,
 	config: BuildConfig,
-	onRebuildComplete: (result: BuildResult) => void
+	onRebuildComplete: (result: {
+		manifest: Record<string, string>;
+		hmrState: HMRState;
+	}) => void
 ): void {
 	const framework = detectFramework(filePath, state.resolvedPaths);
 
@@ -343,9 +346,12 @@ export function queueFileChange(
 export async function triggerRebuild(
 	state: HMRState,
 	config: BuildConfig,
-	onRebuildComplete: (result: BuildResult) => void,
+	onRebuildComplete: (result: {
+		manifest: Record<string, string>;
+		hmrState: HMRState;
+	}) => void,
 	filesToRebuild?: string[]
-): Promise<BuildResult | null> {
+) {
 	if (state.isRebuilding) {
 		return null;
 	}
@@ -364,7 +370,7 @@ export async function triggerRebuild(
 	});
 
 	try {
-		const buildResult = await build({
+		const manifest = await build({
 			...config,
 			incrementalFiles:
 				filesToRebuild && filesToRebuild.length > 0
@@ -377,11 +383,9 @@ export async function triggerRebuild(
 			}
 		});
 
-		if (!buildResult || !buildResult.manifest) {
+		if (!manifest) {
 			throw new Error('Build failed - no manifest generated');
 		}
-
-		const { manifest } = buildResult;
 
 		const duration = Date.now() - startTime;
 		logger.rebuilt(duration);
@@ -1075,9 +1079,9 @@ export async function triggerRebuild(
 		}
 
 		// Call the callback with the new build result
-		onRebuildComplete(buildResult);
+		onRebuildComplete({ manifest, hmrState: state });
 
-		return buildResult;
+		return manifest;
 	} catch (error) {
 		const errorData = extractBuildErrorDetails(
 			error,
