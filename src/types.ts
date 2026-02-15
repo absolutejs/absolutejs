@@ -9,6 +9,7 @@ export type BuildOptions = {
 export type BuildConfig = {
 	buildDirectory?: string;
 	assetsDirectory?: string;
+	publicDirectory?: string;
 	reactDirectory?: string;
 	vueDirectory?: string;
 	angularDirectory?: string;
