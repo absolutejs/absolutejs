@@ -1222,41 +1222,10 @@ g.$RefreshRuntime$=g.$RefreshRuntime$||{};})();
                   break;
                 }
                 
-                // CRITICAL: Find the correct page component path from the manifest
-                // The page component has a DIFFERENT hash than the index file
-                // Look for ReactExamplePage (or similar) in the manifest
-                const manifest = message.data.manifest || {};
-                let componentPath = null;
-                
-                // Try to find the page component in the manifest
-                // Look for keys like "ReactExamplePage" or extract from index name
-                const indexName = indexPath.split('/').pop().split('.')[0]; // "ReactExample"
-                const pageKey = indexName + 'Page';
-                
-                // Search manifest for the page component
-                for (const key in manifest) {
-                  if (key === pageKey || (key.includes(indexName) && key.includes('Page'))) {
-                    componentPath = manifest[key];
-                    break;
-                  }
-                }
-                
-                // Fallback: try to construct path
-                if (!componentPath) {
-                  const indexPathParts = indexPath.split('/');
-                  const filename = indexPathParts[indexPathParts.length - 1];
-                  const componentDirIndex = indexPathParts.length - 2;
-                  if (indexPathParts[componentDirIndex] === 'indexes') {
-                    indexPathParts[componentDirIndex] = 'pages';
-                  }
-                  indexPathParts[indexPathParts.length - 1] = filename;
-                  componentPath = indexPathParts.join('/');
-                }
-                
-                // Import the updated component module — Bun's reactFastRefresh
-                // injected $RefreshReg$ calls, so the refresh runtime tracks it.
-                // Use cache-busted path to ensure fresh module is loaded
-                const cacheBustedPath = componentPath + '?t=' + Date.now();
+                // Import the updated index bundle — Bun's reactFastRefresh
+                // injected $RefreshReg$ calls into the index (which inlines the page
+                // component), so the refresh runtime tracks it.
+                const cacheBustedPath = indexPath + '?t=' + Date.now();
                 import(/* @vite-ignore */ cacheBustedPath)
                   .then(function(ComponentModule) {
                     const RefreshRuntime = window.$RefreshRuntime$;
@@ -1305,9 +1274,7 @@ g.$RefreshRuntime$=g.$RefreshRuntime$||{};})();
                       
                       // Reload page
                       sessionStorage.removeItem('__HMR_ACTIVE__');
-                      const url = new URL(window.location.href);
-                      url.searchParams.set('_hmr', Date.now().toString());
-                      window.location.href = url.toString();
+                      window.location.reload();
                     } else {
                       sessionStorage.removeItem('__HMR_ACTIVE__');
                     }
@@ -2620,27 +2587,7 @@ g.$RefreshRuntime$=g.$RefreshRuntime$||{};})();
               }
                 
               case 'full-reload': {
-                var reloadUrl = new URL(window.location.href);
-                reloadUrl.searchParams.set('_hmr', Date.now().toString());
-                var serverWasDown = false;
-                var attempts = 0;
-                function pollThenReload() {
-                  attempts++;
-                  if (attempts > 120) return;
-                  fetch('/hmr-status', { cache: 'no-store' })
-                    .then(function(r) {
-                      if (r.ok && serverWasDown) {
-                        window.location.replace(reloadUrl.toString());
-                      } else {
-                        setTimeout(pollThenReload, 200);
-                      }
-                    })
-                    .catch(function() {
-                      serverWasDown = true;
-                      setTimeout(pollThenReload, 300);
-                    });
-                }
-                setTimeout(pollThenReload, 150);
+                setTimeout(function() { window.location.reload(); }, 200);
                 break;
               }
 
@@ -2675,9 +2622,7 @@ g.$RefreshRuntime$=g.$RefreshRuntime$||{};})();
               fetch('/hmr-status', { cache: 'no-store' })
                 .then(function(r) {
                   if (r.ok) {
-                    var url = new URL(window.location.href);
-                    url.searchParams.set('_hmr', Date.now().toString());
-                    window.location.replace(url.toString());
+                    window.location.reload();
                   } else {
                     reconnectTimeout = setTimeout(pollServer, 300);
                   }

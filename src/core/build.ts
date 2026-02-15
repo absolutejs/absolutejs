@@ -171,11 +171,6 @@ export const build = async ({
 	const allReactEntries = reactIndexesPath
 		? await scanEntryPoints(reactIndexesPath, '*.tsx')
 		: [];
-	// CRITICAL: Also build React page components as separate entry points for HMR
-	// This allows them to be dynamically imported during hot updates
-	const allReactPageEntries = reactPagesPath
-		? await scanEntryPoints(reactPagesPath, '*.tsx')
-		: [];
 	const allHtmlEntries = htmlScriptsPath
 		? await scanEntryPoints(htmlScriptsPath, '*.{js,ts}')
 		: [];
@@ -234,12 +229,6 @@ export const build = async ({
 				})
 			: allReactEntries;
 
-	// Also filter React page entries for incremental builds
-	const reactPageEntries =
-		isIncremental && reactPagesPath
-			? filterToIncrementalEntries(allReactPageEntries, (entry) => entry)
-			: allReactPageEntries;
-
 	const htmlEntries =
 		isIncremental && htmlScriptsPath && !shouldIncludeHtmlAssets
 			? filterToIncrementalEntries(allHtmlEntries, (entry) => entry)
@@ -293,7 +282,7 @@ export const build = async ({
 				};
 
 	const serverEntryPoints = [...svelteServerPaths, ...vueServerPaths];
-	const reactClientEntryPoints = [...reactEntries, ...reactPageEntries];
+	const reactClientEntryPoints = [...reactEntries];
 	const nonReactClientEntryPoints = [
 		...svelteIndexPaths,
 		...svelteClientPaths,

@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { build } from './build';
 import type { BuildConfig } from '../types';
 import { createHMRState, type HMRState } from '../dev/clientManager';
+import { broadcastToClients } from '../dev/webSocket';
 import { buildInitialDependencyGraph } from '../dev/dependencyGraph';
 import { startFileWatching } from '../dev/fileWatcher';
 import { getWatchPaths } from '../dev/pathUtils';
@@ -28,9 +29,8 @@ export async function devBuild(config: BuildConfig) {
 		(globalThis as Record<string, unknown>).__hmrServerMtime = serverMtime;
 
 		if (serverMtime !== lastMtime) {
-			// Server entry file changed — allow normal restart
-			// (networking() will stop old server and start new one)
 			console.log('\x1b[36m[hmr] Server module reloaded\x1b[0m');
+			broadcastToClients(cached.hmrState, { type: 'full-reload' });
 		} else {
 			// Framework file changed — skip server restart, let HMR handle it
 			(globalThis as Record<string, unknown>).__hmrSkipServerRestart =
@@ -69,7 +69,7 @@ export async function devBuild(config: BuildConfig) {
 
 	startFileWatching(state, config, (filePath: string) => {
 		queueFileChange(state, filePath, config, (newBuildResult) => {
-			Object.assign(manifest, newBuildResult);
+			Object.assign(manifest, newBuildResult.manifest);
 		});
 	});
 
