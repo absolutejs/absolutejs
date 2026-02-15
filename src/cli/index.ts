@@ -89,6 +89,12 @@ const dev = async (serverEntry: string) => {
 		while (!cleaning) {
 			const exitCode = await serverProcess.exited;
 			if (cleaning) continue;
+			// Exit codes 130 (SIGINT) and 143 (SIGTERM) mean the child was
+			// killed by a signal — treat as intentional shutdown, not a crash.
+			if (exitCode === 130 || exitCode === 143) {
+				await cleanup(0);
+				return;
+			}
 			console.error(
 				`\x1b[31m[cli] Server exited (code ${exitCode}), restarting...\x1b[0m`
 			);

@@ -89,6 +89,19 @@ export const build = async ({
 	].filter(Boolean);
 	const isSingle = frontends.length === 1;
 
+	// Shared root for all client builds so output paths preserve framework directory names.
+	// generateManifest detects frameworks by checking for "react"/"svelte"/"vue" path segments.
+	const clientRoots: string[] = [
+		reactDir,
+		svelteDir,
+		htmlDir,
+		vueDir,
+		angularDir
+	].filter((dir): dir is string => Boolean(dir));
+	const clientRoot = isSingle
+		? (clientRoots[0] ?? projectRoot)
+		: commonAncestor(clientRoots, projectRoot);
+
 	let serverOutDir;
 	if (svelteDir) serverOutDir = join(buildPath, basename(svelteDir), 'pages');
 	else if (vueDir) serverOutDir = join(buildPath, basename(vueDir), 'pages');
@@ -280,14 +293,13 @@ export const build = async ({
 				};
 
 	const serverEntryPoints = [...svelteServerPaths, ...vueServerPaths];
-	const clientEntryPoints = [
-		...reactEntries,
-		...reactPageEntries, // Build React pages separately for HMR
-		...svelteIndexPaths, // Svelte hydration entry points
-		...svelteClientPaths, // Svelte client components for official HMR
+	const reactClientEntryPoints = [...reactEntries, ...reactPageEntries];
+	const nonReactClientEntryPoints = [
+		...svelteIndexPaths,
+		...svelteClientPaths,
 		...htmlEntries,
 		...vueIndexPaths,
-		...vueClientPaths // Build Vue client components separately for official HMR
+		...vueClientPaths
 	];
 	const cssEntryPoints = [
 		...vueCssPaths,
@@ -299,7 +311,8 @@ export const build = async ({
 
 	if (
 		serverEntryPoints.length === 0 &&
-		clientEntryPoints.length === 0 &&
+		reactClientEntryPoints.length === 0 &&
+		nonReactClientEntryPoints.length === 0 &&
 		htmxDir === undefined &&
 		htmlDir === undefined
 	) {
@@ -338,63 +351,87 @@ export const build = async ({
 		}
 	}
 
-	let clientLogs: (BuildMessage | ResolveMessage)[] = [];
-	let clientOutputs: BuildArtifact[] = [];
+	let reactClientLogs: (BuildMessage | ResolveMessage)[] = [];
+	let reactClientOutputs: BuildArtifact[] = [];
 
-	if (clientEntryPoints.length > 0) {
-		const roots: string[] = [
-			reactDir,
-			svelteDir,
-			htmlDir,
-			vueDir,
-			angularDir
-		].filter((dir): dir is string => Boolean(dir));
-		const clientRoot = isSingle
-			? (roots[0] ?? projectRoot)
-			: commonAncestor(roots, projectRoot);
-
-		// Create HTML script HMR plugin for dev mode
-		const htmlScriptPlugin = isDev
-			? createHTMLScriptHMRPlugin(htmlDir, htmxDir)
-			: undefined;
-
-		const clientResult = await bunBuild({
-			define: vueDirectory ? vueFeatureFlags : undefined,
-			entrypoints: clientEntryPoints,
-			external:
-				isDev && reactDir
-					? [
-							'react',
-							'react-dom',
-							'react/jsx-dev-runtime',
-							'react/jsx-runtime'
-						]
-					: undefined,
+	if (reactClientEntryPoints.length > 0) {
+		const reactClientResult = await bunBuild({
+			entrypoints: reactClientEntryPoints,
+			external: isDev
+				? [
+						'react',
+						'react-dom',
+						'react/jsx-dev-runtime',
+						'react/jsx-runtime'
+					]
+				: undefined,
 			format: 'esm',
-			minify: !isDev, // Don't minify in dev for better debugging
+			minify: !isDev,
 			naming: `[dir]/[name].[hash].[ext]`,
 			outdir: buildPath,
-			plugins: htmlScriptPlugin ? [htmlScriptPlugin] : undefined,
 			// @ts-expect-error - reactFastRefresh is new in Bun 1.3.6, types will catch up
 			reactFastRefresh: isDev,
 			root: clientRoot,
 			target: 'browser',
-			splitting: !isDev, // Disable splitting in dev to avoid duplicate export bug
+			splitting: !isDev,
 			throw: false
 		});
-		clientLogs = clientResult.logs;
-		clientOutputs = clientResult.outputs;
-		if (!clientResult.success && clientResult.logs.length > 0) {
+		reactClientLogs = reactClientResult.logs;
+		reactClientOutputs = reactClientResult.outputs;
+		if (!reactClientResult.success && reactClientResult.logs.length > 0) {
 			const errLog =
-				clientResult.logs.find((l) => l.level === 'error') ??
-				clientResult.logs[0]!;
+				reactClientResult.logs.find((l) => l.level === 'error') ??
+				reactClientResult.logs[0]!;
 			const err = new Error(
 				typeof errLog.message === 'string'
 					? errLog.message
 					: String(errLog.message)
 			);
-			(err as Error & { logs?: unknown }).logs = clientResult.logs;
-			logger.error('Client build failed', err);
+			(err as Error & { logs?: unknown }).logs = reactClientResult.logs;
+			logger.error('React client build failed', err);
+			if (throwOnError) throw err;
+			exit(1);
+		}
+	}
+
+	let nonReactClientLogs: (BuildMessage | ResolveMessage)[] = [];
+	let nonReactClientOutputs: BuildArtifact[] = [];
+
+	if (nonReactClientEntryPoints.length > 0) {
+		const htmlScriptPlugin = isDev
+			? createHTMLScriptHMRPlugin(htmlDir, htmxDir)
+			: undefined;
+
+		const nonReactClientResult = await bunBuild({
+			define: vueDirectory ? vueFeatureFlags : undefined,
+			entrypoints: nonReactClientEntryPoints,
+			format: 'esm',
+			minify: !isDev,
+			naming: `[dir]/[name].[hash].[ext]`,
+			outdir: buildPath,
+			plugins: htmlScriptPlugin ? [htmlScriptPlugin] : undefined,
+			root: clientRoot,
+			target: 'browser',
+			splitting: !isDev,
+			throw: false
+		});
+		nonReactClientLogs = nonReactClientResult.logs;
+		nonReactClientOutputs = nonReactClientResult.outputs;
+		if (
+			!nonReactClientResult.success &&
+			nonReactClientResult.logs.length > 0
+		) {
+			const errLog =
+				nonReactClientResult.logs.find((l) => l.level === 'error') ??
+				nonReactClientResult.logs[0]!;
+			const err = new Error(
+				typeof errLog.message === 'string'
+					? errLog.message
+					: String(errLog.message)
+			);
+			(err as Error & { logs?: unknown }).logs =
+				nonReactClientResult.logs;
+			logger.error('Non-React client build failed', err);
 			if (throwOnError) throw err;
 			exit(1);
 		}
@@ -429,11 +466,21 @@ export const build = async ({
 		}
 	}
 
-	const allLogs = [...serverLogs, ...clientLogs, ...cssLogs];
+	const allLogs = [
+		...serverLogs,
+		...reactClientLogs,
+		...nonReactClientLogs,
+		...cssLogs
+	];
 	outputLogs(allLogs);
 
 	const manifest = generateManifest(
-		[...serverOutputs, ...clientOutputs, ...cssOutputs],
+		[
+			...serverOutputs,
+			...reactClientOutputs,
+			...nonReactClientOutputs,
+			...cssOutputs
+		],
 		buildPath
 	);
 
