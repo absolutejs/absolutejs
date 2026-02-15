@@ -48,3 +48,5 @@ example/react/indexes/
 example/angular/compiled/
 example/vue/compiled/
 example/svelte/compiled/
+
+/.claude

@@ -27,6 +27,7 @@ const manifest = await build({
 		preserveIntermediateFiles: true
 	},
 	reactDirectory: 'example/react',
+	publicDirectory: 'example/public',
 	svelteDirectory: 'example/svelte',
 	vueDirectory: 'example/vue'
 });

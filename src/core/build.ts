@@ -26,7 +26,8 @@ const vueFeatureFlags: Record<string, string> = {
 
 export const build = async ({
 	buildDirectory = 'build',
-	assetsDirectory = 'assets',
+	assetsDirectory,
+	publicDirectory,
 	reactDirectory,
 	htmlDirectory,
 	htmxDirectory,
@@ -81,8 +82,14 @@ export const build = async ({
 	if (sveltePagesPath) serverRoot = sveltePagesPath;
 	else if (vuePagesPath) serverRoot = vuePagesPath;
 
+	const publicPath =
+		publicDirectory && validateSafePath(publicDirectory, projectRoot);
+
 	await rm(buildPath, { force: true, recursive: true });
 	mkdirSync(buildPath);
+
+	if (publicPath)
+		cpSync(publicPath, buildPath, { force: true, recursive: true });
 
 	if (reactIndexesPath && reactPagesPath)
 		await generateReactIndexFiles(reactPagesPath, reactIndexesPath);
@@ -215,7 +222,11 @@ export const build = async ({
 		const { logs, outputs } = await bunBuild({
 			entrypoints: cssEntryPoints,
 			naming: `[name].[hash].[ext]`,
-			outdir: join(buildPath, basename(assetsPath), 'css'),
+			outdir: join(
+				buildPath,
+				assetsPath ? basename(assetsPath) : 'assets',
+				'css'
+			),
 			target: 'browser'
 		}).catch((err) => {
 			console.error('CSS build failed:', err);
