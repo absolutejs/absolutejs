@@ -1,7 +1,9 @@
-/* React HMR update handler */
+/* React HMR update handler
+   Uses React Fast Refresh to hot-swap components while preserving state.
+   Code splitting ensures React lives in a shared chunk that stays cached,
+   so dynamic import of the rebuilt entry reuses the same React instance. */
 
-import { saveDOMState, restoreDOMState } from '../domState';
-import { findIndexPath, detectCurrentFramework } from '../frameworkDetect';
+import { detectCurrentFramework } from '../frameworkDetect';
 
 export const handleReactUpdate = (message: {
 	data: {
@@ -14,83 +16,42 @@ export const handleReactUpdate = (message: {
 	const currentFramework = detectCurrentFramework();
 	if (currentFramework !== 'react') return;
 
-	sessionStorage.setItem('__HMR_ACTIVE__', 'true');
-
-	if (!window.__REACT_ROOT__) {
-		sessionStorage.removeItem('__HMR_ACTIVE__');
-		window.location.reload();
-		return;
-	}
-
-	const container = document.body;
-	if (!container) {
-		sessionStorage.removeItem('__HMR_ACTIVE__');
-		return;
-	}
-
-	const reactDomState = saveDOMState(container);
-
 	const hasComponentChanges = message.data.hasComponentChanges !== false;
 	const hasCSSChanges = message.data.hasCSSChanges === true;
 	const cssPath =
 		message.data.manifest && message.data.manifest.ReactExampleCSS;
 
+	// CSS-only change: hot-swap the stylesheet link without reloading
 	if (!hasComponentChanges && hasCSSChanges && cssPath) {
 		reloadReactCSS(cssPath);
-		sessionStorage.removeItem('__HMR_ACTIVE__');
 		return;
 	}
 
-	const indexPath = findIndexPath(
-		message.data.manifest,
-		message.data.primarySource,
-		'react'
-	);
+	// Component change: use React Fast Refresh to preserve state
+	const win = window as unknown as Record<string, unknown>;
+	const componentKey = win.__REACT_COMPONENT_KEY__ as string | undefined;
+	const newUrl = componentKey && message.data.manifest?.[componentKey];
+	const refreshRuntime = win.$RefreshRuntime$ as
+		| { performReactRefresh: () => void }
+		| undefined;
 
-	if (!indexPath) {
-		sessionStorage.removeItem('__HMR_ACTIVE__');
-		window.location.reload();
+	if (newUrl && refreshRuntime) {
+		import(newUrl + '?t=' + Date.now())
+			.then(() => {
+				refreshRuntime.performReactRefresh();
+			})
+			.catch((err) => {
+				console.warn(
+					'[HMR] React Fast Refresh failed, falling back to reload:',
+					err
+				);
+				window.location.reload();
+			});
 		return;
 	}
 
-	const cacheBustedPath = indexPath + '?t=' + Date.now();
-	import(/* @vite-ignore */ cacheBustedPath)
-		.then(function () {
-			const RefreshRuntime = window.$RefreshRuntime$;
-			if (!RefreshRuntime) {
-				sessionStorage.removeItem('__HMR_ACTIVE__');
-				window.location.reload();
-				return;
-			}
-
-			const cssPathUpdate =
-				message.data.manifest && message.data.manifest.ReactExampleCSS;
-			if (hasCSSChanges && cssPathUpdate) {
-				reloadReactCSS(cssPathUpdate);
-			}
-
-			RefreshRuntime.performReactRefresh();
-			restoreDOMState(container, reactDomState);
-			sessionStorage.removeItem('__HMR_ACTIVE__');
-		})
-		.catch(function (error: Error) {
-			if (
-				error.message.includes('Failed to fetch') ||
-				error.message.includes('404')
-			) {
-				const cssPathUpdate =
-					message.data.manifest &&
-					message.data.manifest.ReactExampleCSS;
-				if (cssPathUpdate) {
-					reloadReactCSS(cssPathUpdate);
-				}
-
-				sessionStorage.removeItem('__HMR_ACTIVE__');
-				window.location.reload();
-			} else {
-				sessionStorage.removeItem('__HMR_ACTIVE__');
-			}
-		});
+	// Fallback: full page reload
+	window.location.reload();
 };
 
 const reloadReactCSS = (cssPath: string) => {

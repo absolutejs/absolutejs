@@ -34,15 +34,16 @@ HTML injection. The esm.sh import map is unnecessary because Bun can bundle
 
 - Add `isDev` parameter to `generateReactIndexFiles(reactPagesDir, indexesDir, isDev)`
 - When `isDev` is true, prepend to each generated `.tsx` file:
-  ```ts
-  import RefreshRuntime from 'react-refresh/runtime';
-  RefreshRuntime.injectIntoGlobalHook(window);
-  window.$RefreshRuntime$ = RefreshRuntime;
-  window.$RefreshReg$ = (type, id) => RefreshRuntime.register(type, id);
-  window.$RefreshSig$ = () => RefreshRuntime.createSignatureFunctionForTransform();
-  window.__HMR_FRAMEWORK__ = "react";
-  import '../dev/client/hmrClient';
-  ```
+    ```ts
+    import RefreshRuntime from 'react-refresh/runtime';
+    RefreshRuntime.injectIntoGlobalHook(window);
+    window.$RefreshRuntime$ = RefreshRuntime;
+    window.$RefreshReg$ = (type, id) => RefreshRuntime.register(type, id);
+    window.$RefreshSig$ = () =>
+    	RefreshRuntime.createSignatureFunctionForTransform();
+    window.__HMR_FRAMEWORK__ = 'react';
+    import '../dev/client/hmrClient';
+    ```
 - When `isDev` is false (production), none of this is included
 - The `$RefreshSig$`/`$RefreshReg$` stubs that were in `getHMRHeadScripts` are
   no longer needed — the real implementations are set up before hydration runs
@@ -57,10 +58,10 @@ HTML injection. The esm.sh import map is unnecessary because Bun can bundle
 
 - Pass `isDev` into the Svelte compilation function
 - In the generated bootstrap code (~line 207), when `isDev`:
-  ```ts
-  window.__HMR_FRAMEWORK__ = "svelte";
-  import '...hmrClient';
-  ```
+    ```ts
+    window.__HMR_FRAMEWORK__ = 'svelte';
+    import '...hmrClient';
+    ```
 - These go at the top of the bootstrap before the component mount code
 
 ### Step 4: Add HMR imports to generated Vue index
@@ -69,23 +70,23 @@ HTML injection. The esm.sh import map is unnecessary because Bun can bundle
 
 - Pass `isDev` into the Vue compilation function
 - In the generated index code (~line 264), when `isDev`:
-  ```ts
-  window.__HMR_FRAMEWORK__ = "vue";
-  import '...hmrClient';
-  ```
+    ```ts
+    window.__HMR_FRAMEWORK__ = 'vue';
+    import '...hmrClient';
+    ```
 
 ### Step 5: Handle HTML/HTMX pages
 
 HTML and HTMX pages have no generated index files — they're plain `.html` files.
 Two options (pick one):
 
-**Option A (recommended):** Keep a slimmed-down inline injection for HTML/HTMX only.
+**Option A (AI recommended):** Keep a slimmed-down inline injection for HTML/HTMX only.
 Rewrite the injection to embed the HMR client as an inline `<script>` (the bundled
 text, not a `<script src>`). This means `buildHMRClient` survives but only for
 HTML/HTMX, and the bundled text is inserted into the HTML at dev-build time or
 at request time. This is the smallest change that works.
 
-**Option B:** At dev-build time, copy HTML/HTMX files into the build directory and
+**Option B (Alex Recommended):** At dev-build time, copy HTML/HTMX files into the build directory and
 inject the inline HMR script during the copy. Handlers then serve the build copy
 as-is. Cleaner at runtime but more build complexity.
 
@@ -140,18 +141,18 @@ version is retained for HTML/HTMX per Step 5 Option A)
 
 ## Files Summary
 
-| File | Action |
-|------|--------|
-| `src/dev/client/hmrClient.ts` | Modify — remove IIFE wrapper |
-| `src/build/generateReactIndexes.ts` | Modify — add `isDev` param, add React Refresh + HMR client imports |
-| `src/build/compileSvelte.ts` | Modify — add `isDev` param, add HMR client import to bootstrap |
-| `src/build/compileVue.ts` | Modify — add `isDev` param, add HMR client import to index |
-| `src/core/pageHandlers.ts` | Modify — remove all HMR injection logic (~80 lines removed) |
-| `src/plugins/hmr.ts` | Modify — remove `/__hmr-client.js` route, drop `clientBundle` param |
-| `src/dev/buildHMRClient.ts` | Delete (or retain for HTML/HTMX only) |
-| `src/core/devBuild.ts` | Modify — remove `buildHMRClient` call, pass `isDev` to build |
-| `src/dev/injectHMRClient.ts` | Delete (or retain slim version for HTML/HTMX only) |
-| `example/server.ts` | Modify — update `hmr()` call |
+| File                                | Action                                                              |
+| ----------------------------------- | ------------------------------------------------------------------- |
+| `src/dev/client/hmrClient.ts`       | Modify — remove IIFE wrapper                                        |
+| `src/build/generateReactIndexes.ts` | Modify — add `isDev` param, add React Refresh + HMR client imports  |
+| `src/build/compileSvelte.ts`        | Modify — add `isDev` param, add HMR client import to bootstrap      |
+| `src/build/compileVue.ts`           | Modify — add `isDev` param, add HMR client import to index          |
+| `src/core/pageHandlers.ts`          | Modify — remove all HMR injection logic (~80 lines removed)         |
+| `src/plugins/hmr.ts`                | Modify — remove `/__hmr-client.js` route, drop `clientBundle` param |
+| `src/dev/buildHMRClient.ts`         | Delete (or retain for HTML/HTMX only)                               |
+| `src/core/devBuild.ts`              | Modify — remove `buildHMRClient` call, pass `isDev` to build        |
+| `src/dev/injectHMRClient.ts`        | Delete (or retain slim version for HTML/HTMX only)                  |
+| `example/server.ts`                 | Modify — update `hmr()` call                                        |
 
 ## Import Path Resolution Note
 

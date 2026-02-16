@@ -12,6 +12,11 @@ import { env } from 'node:process';
 import { write, file, Transpiler } from 'bun';
 import { compile, compileModule, preprocess } from 'svelte/compiler';
 
+const hmrClientPath = resolve(
+	import.meta.dir,
+	'../dev/client/hmrClient.ts'
+).replace(/\\/g, '/');
+
 type Built = { ssr: string; client: string };
 type Cache = Map<string, Built>;
 
@@ -55,7 +60,8 @@ const resolveSvelte = async (spec: string, from: string) => {
 export const compileSvelte = async (
 	entryPoints: string[],
 	svelteRoot: string,
-	cache: Cache = new Map()
+	cache: Cache = new Map(),
+	isDev = false
 ) => {
 	const compiledRoot = join(svelteRoot, 'compiled');
 	const clientDir = join(compiledRoot, 'client');
@@ -204,7 +210,10 @@ if (typeof import.meta !== "undefined" && import.meta.hot) {
 				importRaw.startsWith('.') || importRaw.startsWith('/')
 					? importRaw
 					: `./${importRaw}`;
-			const bootstrap = `import C from "${importPath}";
+			const hmrImports = isDev
+				? `window.__HMR_FRAMEWORK__ = "svelte";\nimport "${hmrClientPath}";\n`
+				: '';
+			const bootstrap = `${hmrImports}import C from "${importPath}";
 import { hydrate, mount } from "svelte";
 // HMR State Preservation: Check for preserved state and merge with initial props
 const preservedState = (typeof window !== "undefined" && window.__HMR_PRESERVED_STATE__) ? window.__HMR_PRESERVED_STATE__ : {};

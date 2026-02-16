@@ -9,6 +9,11 @@ import {
 import { file, write, Transpiler } from 'bun';
 import { toKebab } from '../utils/stringModifiers';
 
+const hmrClientPath = resolve(
+	import.meta.dir,
+	'../dev/client/hmrClient.ts'
+).replace(/\\/g, '/');
+
 const transpiler = new Transpiler({ loader: 'ts', target: 'browser' });
 
 type BuildResult = {
@@ -218,7 +223,11 @@ const compileVueFile = async (
 	return result;
 };
 
-export const compileVue = async (entryPoints: string[], vueRootDir: string) => {
+export const compileVue = async (
+	entryPoints: string[],
+	vueRootDir: string,
+	isDev = false
+) => {
 	const compiledOutputRoot = join(vueRootDir, 'compiled');
 	const clientOutputDir = join(compiledOutputRoot, 'client');
 	const indexOutputDir = join(compiledOutputRoot, 'indexes');
@@ -261,9 +270,16 @@ export const compileVue = async (entryPoints: string[], vueRootDir: string) => {
 			);
 
 			await mkdir(dirname(indexOutputFile), { recursive: true });
+			const vueHmrImports = isDev
+				? [
+						`window.__HMR_FRAMEWORK__ = "vue";`,
+						`import "${hmrClientPath}";`
+					]
+				: [];
 			await write(
 				indexOutputFile,
 				[
+					...vueHmrImports,
 					`import Comp from "${relative(dirname(indexOutputFile), clientOutputFile).replace(/\\/g, '/')}";`,
 					'import { createSSRApp } from "vue";',
 					'// HMR State Preservation: Check for preserved state from HMR',

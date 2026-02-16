@@ -35,9 +35,7 @@ if (typeof window !== 'undefined') {
 }
 
 // Prevent multiple WebSocket connections
-if (
-	!(window.__HMR_WS__ && window.__HMR_WS__.readyState === WebSocket.OPEN)
-) {
+if (!(window.__HMR_WS__ && window.__HMR_WS__.readyState === WebSocket.OPEN)) {
 	// Determine WebSocket URL
 	const wsHost = location.hostname;
 	const wsPort =
@@ -66,10 +64,7 @@ if (
 		}
 
 		hmrState.pingInterval = setInterval(function () {
-			if (
-				wsc.readyState === WebSocket.OPEN &&
-				hmrState.isConnected
-			) {
+			if (wsc.readyState === WebSocket.OPEN && hmrState.isConnected) {
 				wsc.send(JSON.stringify({ type: 'ping' }));
 			}
 		}, 30000);
@@ -169,31 +164,25 @@ if (
 
 		if (event.code !== 1000) {
 			let attempts = 0;
-			hmrState.reconnectTimeout = setTimeout(
-				function pollServer() {
-					attempts++;
-					if (attempts > 60) return;
+			hmrState.reconnectTimeout = setTimeout(function pollServer() {
+				attempts++;
+				if (attempts > 60) return;
 
-					fetch('/hmr-status', { cache: 'no-store' })
-						.then(function (res) {
-							if (res.ok) {
-								window.location.reload();
-							} else {
-								hmrState.reconnectTimeout = setTimeout(
-									pollServer,
-									300
-								);
-							}
-						})
-						.catch(function () {
+				fetch('/hmr-status', { cache: 'no-store' })
+					.then(function (res) {
+						if (res.ok) {
+							window.location.reload();
+						} else {
 							hmrState.reconnectTimeout = setTimeout(
 								pollServer,
 								300
 							);
-						});
-				},
-				500
-			);
+						}
+					})
+					.catch(function () {
+						hmrState.reconnectTimeout = setTimeout(pollServer, 300);
+					});
+			}, 500);
 		}
 	};
 
@@ -203,15 +192,13 @@ if (
 
 	window.addEventListener('beforeunload', function () {
 		if (hmrState.isHMRUpdating) {
-			if (hmrState.pingInterval)
-				clearInterval(hmrState.pingInterval);
+			if (hmrState.pingInterval) clearInterval(hmrState.pingInterval);
 			if (hmrState.reconnectTimeout)
 				clearTimeout(hmrState.reconnectTimeout);
 			return;
 		}
 
 		if (hmrState.pingInterval) clearInterval(hmrState.pingInterval);
-		if (hmrState.reconnectTimeout)
-			clearTimeout(hmrState.reconnectTimeout);
+		if (hmrState.reconnectTimeout) clearTimeout(hmrState.reconnectTimeout);
 	});
 }
