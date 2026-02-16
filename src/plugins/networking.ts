@@ -1,36 +1,74 @@
-import { argv } from 'node:process';
-import { env } from 'bun';
 import { Elysia } from 'elysia';
-import { DEFAULT_PORT } from '../constants';
-import { getLocalIPAddress } from '../utils/networking';
+import { getHostConfig } from '../utils/hostConfig';
+import type { BuildConfig } from '../types';
 
-let host = env.HOST ?? 'localhost';
-const port = env.PORT ?? DEFAULT_PORT;
-let localIP: string | undefined;
+/* Create the networking plugin with optional config
+   This handles the "plugin with config" problem */
+   //Changed the structure of the plugin to match the Elysia plugin API and fix the hanging issue, lol sorry about that
+let hasRegisteredShutdownHandlers = false;
 
-const args = argv;
-const hostFlag = args.includes('--host');
+export const createNetworkingPlugin =
+	(config?: BuildConfig) =>
+	(app: Elysia) => {
+	/* Get host configuration from shared utility
+	   This eliminates code duplication and ensures consistency */
+		const hostConfig = getHostConfig(config);
 
-if (hostFlag) {
-	localIP = getLocalIPAddress();
-	host = '0.0.0.0';
-}
-
-export const networking = (app: Elysia) =>
-	app.listen(
-		{
-			hostname: host,
-			port: port
-		},
-		() => {
-			//TODO: I dont think this works properly
-			if (hostFlag) {
-				console.log(`Server started on http://localhost:${port}`);
-				console.log(
-					`Server started on network: http://${localIP}:${port}`
-				);
-			} else {
-				console.log(`Server started on http://${host}:${port}`);
+		const server = app.listen(
+			{
+				hostname: hostConfig.hostname,
+				port: hostConfig.port
+			},
+			() => {
+				if (hostConfig.enabled) {
+					// --host flag was used
+					if (hostConfig.customHost) {
+						// Custom host specified: --host <value>
+						// Format matches Vite's console output style
+						console.log(`➜  Local:   http://localhost:${hostConfig.port}/`);
+						console.log(
+							`➜  Network: http://${hostConfig.customHost}:${hostConfig.port}/`
+						);
+					} else {
+						// --host with no value: show all network IPs
+						// Format matches Vite's console output style
+						console.log(`➜  Local:   http://localhost:${hostConfig.port}/`);
+						if (hostConfig.networkIPs.length > 0) {
+							for (const ip of hostConfig.networkIPs) {
+								console.log(`➜  Network: http://${ip}:${hostConfig.port}/`);
+							}
+						} else {
+							console.warn('⚠️  No network IPs detected');
+						}
+					}
+				} else {
+					// Default: localhost only
+					// Format matches Vite's console output style
+					console.log(`➜  Local:   http://${hostConfig.hostname}:${hostConfig.port}/`);
+				}
 			}
+		);
+
+		if (!hasRegisteredShutdownHandlers) {
+			hasRegisteredShutdownHandlers = true;
+
+			const shutdown = async (signal: NodeJS.Signals) => {
+				console.log(`\nReceived ${signal}, shutting down AbsoluteJS server...`);
+				try {
+					await server.stop();
+				} catch (error) {
+					console.error('Error during shutdown:', error);
+				} finally {
+					process.exit(0);
+				}
+			};
+
+			process.once('SIGINT', shutdown);
+			process.once('SIGTERM', shutdown);
 		}
-	);
+
+		return server;
+	};
+
+/* Default networking plugin (backward compatible) */
+export const networking = createNetworkingPlugin();
