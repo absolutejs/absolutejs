@@ -18,28 +18,26 @@ import {
 	handleRebuildError
 } from './handlers/rebuild';
 
-(function () {
-	// Initialize HMR globals
-	if (typeof window !== 'undefined') {
-		if (!window.__HMR_MANIFEST__) {
-			window.__HMR_MANIFEST__ = {};
-		}
-		if (!window.__HMR_MODULE_UPDATES__) {
-			window.__HMR_MODULE_UPDATES__ = [];
-		}
-		if (!window.__HMR_MODULE_VERSIONS__) {
-			window.__HMR_MODULE_VERSIONS__ = {};
-		}
-		if (!window.__HMR_SERVER_VERSIONS__) {
-			window.__HMR_SERVER_VERSIONS__ = {};
-		}
+// Initialize HMR globals
+if (typeof window !== 'undefined') {
+	if (!window.__HMR_MANIFEST__) {
+		window.__HMR_MANIFEST__ = {};
 	}
-
-	// Prevent multiple WebSocket connections
-	if (window.__HMR_WS__ && window.__HMR_WS__.readyState === WebSocket.OPEN) {
-		return;
+	if (!window.__HMR_MODULE_UPDATES__) {
+		window.__HMR_MODULE_UPDATES__ = [];
 	}
+	if (!window.__HMR_MODULE_VERSIONS__) {
+		window.__HMR_MODULE_VERSIONS__ = {};
+	}
+	if (!window.__HMR_SERVER_VERSIONS__) {
+		window.__HMR_SERVER_VERSIONS__ = {};
+	}
+}
 
+// Prevent multiple WebSocket connections
+if (
+	!(window.__HMR_WS__ && window.__HMR_WS__.readyState === WebSocket.OPEN)
+) {
 	// Determine WebSocket URL
 	const wsHost = location.hostname;
 	const wsPort =
@@ -47,15 +45,15 @@ import {
 	const wsProtocol = location.protocol === 'https:' ? 'wss' : 'ws';
 	const wsUrl = wsProtocol + '://' + wsHost + ':' + wsPort + '/hmr';
 
-	const ws = new WebSocket(wsUrl);
-	window.__HMR_WS__ = ws;
+	const wsc = new WebSocket(wsUrl);
+	window.__HMR_WS__ = wsc;
 
-	ws.onopen = function () {
+	wsc.onopen = function () {
 		hmrState.isConnected = true;
 		sessionStorage.setItem('__HMR_CONNECTED__', 'true');
 
 		const currentFramework = detectCurrentFramework();
-		ws.send(
+		wsc.send(
 			JSON.stringify({
 				framework: currentFramework,
 				type: 'ready'
@@ -68,13 +66,16 @@ import {
 		}
 
 		hmrState.pingInterval = setInterval(function () {
-			if (ws.readyState === WebSocket.OPEN && hmrState.isConnected) {
-				ws.send(JSON.stringify({ type: 'ping' }));
+			if (
+				wsc.readyState === WebSocket.OPEN &&
+				hmrState.isConnected
+			) {
+				wsc.send(JSON.stringify({ type: 'ping' }));
 			}
 		}, 30000);
 	};
 
-	ws.onmessage = function (event: MessageEvent) {
+	wsc.onmessage = function (event: MessageEvent) {
 		try {
 			const message = JSON.parse(event.data as string);
 
@@ -158,7 +159,7 @@ import {
 		}
 	};
 
-	ws.onclose = function (event: CloseEvent) {
+	wsc.onclose = function (event: CloseEvent) {
 		hmrState.isConnected = false;
 
 		if (hmrState.pingInterval) {
@@ -168,43 +169,49 @@ import {
 
 		if (event.code !== 1000) {
 			let attempts = 0;
-			hmrState.reconnectTimeout = setTimeout(function pollServer() {
-				attempts++;
-				if (attempts > 60) return;
+			hmrState.reconnectTimeout = setTimeout(
+				function pollServer() {
+					attempts++;
+					if (attempts > 60) return;
 
-				fetch('/hmr-status', { cache: 'no-store' })
-					.then(function (res) {
-						if (res.ok) {
-							window.location.reload();
-						} else {
+					fetch('/hmr-status', { cache: 'no-store' })
+						.then(function (res) {
+							if (res.ok) {
+								window.location.reload();
+							} else {
+								hmrState.reconnectTimeout = setTimeout(
+									pollServer,
+									300
+								);
+							}
+						})
+						.catch(function () {
 							hmrState.reconnectTimeout = setTimeout(
 								pollServer,
 								300
 							);
-						}
-					})
-					.catch(function () {
-						hmrState.reconnectTimeout = setTimeout(pollServer, 300);
-					});
-			}, 500);
+						});
+				},
+				500
+			);
 		}
 	};
 
-	ws.onerror = function () {
+	wsc.onerror = function () {
 		hmrState.isConnected = false;
 	};
 
-	window.__HMR_WS__ = ws;
-
 	window.addEventListener('beforeunload', function () {
 		if (hmrState.isHMRUpdating) {
-			if (hmrState.pingInterval) clearInterval(hmrState.pingInterval);
+			if (hmrState.pingInterval)
+				clearInterval(hmrState.pingInterval);
 			if (hmrState.reconnectTimeout)
 				clearTimeout(hmrState.reconnectTimeout);
 			return;
 		}
 
 		if (hmrState.pingInterval) clearInterval(hmrState.pingInterval);
-		if (hmrState.reconnectTimeout) clearTimeout(hmrState.reconnectTimeout);
+		if (hmrState.reconnectTimeout)
+			clearTimeout(hmrState.reconnectTimeout);
 	});
-})();
+}
