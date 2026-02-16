@@ -30,9 +30,9 @@ export type HMRClientMessage =
 	| HydrationErrorMessage;
 
 /* Type guard for client messages */
-export function isValidHMRClientMessage(
+export const isValidHMRClientMessage = (
 	data: unknown
-): data is HMRClientMessage {
+): data is HMRClientMessage => {
 	if (!data || typeof data !== 'object') {
 		return false;
 	}
@@ -55,4 +55,4 @@ export function isValidHMRClientMessage(
 		default:
 			return false;
 	}
-}
+};

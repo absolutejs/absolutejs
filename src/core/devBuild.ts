@@ -12,7 +12,7 @@ import { buildHMRClient } from '../dev/buildHMRClient';
 
 /* Development mode function - replaces build() during development
    Returns DevResult with manifest, buildDir, asset(), and hmrState for use with the hmr() plugin */
-export async function devBuild(config: BuildConfig) {
+export const devBuild = async (config: BuildConfig) => {
 	// On Bun --hot reload, return cached result instead of rebuilding
 	const cached = (globalThis as Record<string, unknown>).__hmrDevResult as
 		| {
@@ -103,4 +103,4 @@ export async function devBuild(config: BuildConfig) {
 		: 0;
 
 	return result;
-}
+};

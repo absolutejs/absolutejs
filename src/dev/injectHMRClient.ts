@@ -3,10 +3,7 @@
    This module only handles injecting the small <script> tag and framework-specific setup. */
 
 /* Full HTML injection for HTML/HTMX pages (read from disk, regex-based) */
-export function injectHMRClient(
-	html: string,
-	framework?: string | null
-): string {
+export const injectHMRClient = (html: string, framework?: string | null) => {
 	// Guard: Don't inject if HMR script is already present (prevents double connection)
 	if (html.includes('data-hmr-client')) {
 		return html;
@@ -37,10 +34,10 @@ export function injectHMRClient(
 	}
 
 	return result;
-}
+};
 
 /* Returns <head> scripts for HMR: React refresh stub + import map (React only) */
-export function getHMRHeadScripts(framework: string): string {
+export const getHMRHeadScripts = (framework: string) => {
 	if (framework !== 'react') return '';
 
 	const reactRefreshStub = `<script data-hmr-react-refresh-stub>
@@ -68,10 +65,10 @@ g.$RefreshRuntime$=g.$RefreshRuntime$||{};})();
   `;
 
 	return reactRefreshStub + importMap;
-}
+};
 
 /* Returns <body> scripts for HMR: framework global + external client script tag */
-export function getHMRBodyScripts(framework: string): string {
+export const getHMRBodyScripts = (framework: string) => {
 	const frameworkScript =
 		framework && /^[a-z]+$/.test(framework)
 			? `<script>window.__HMR_FRAMEWORK__="${framework}";</script>`
@@ -81,4 +78,4 @@ export function getHMRBodyScripts(framework: string): string {
 		'<script src="/__hmr-client.js" data-hmr-client></script>';
 
 	return frameworkScript + clientScript;
-}
+};

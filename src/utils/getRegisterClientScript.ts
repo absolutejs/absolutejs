@@ -7,9 +7,7 @@
  *
  * @returns The registerClientScript function if available, null otherwise
  */
-export function getRegisterClientScript():
-	| ((script: () => void) => string)
-	| null {
+export const getRegisterClientScript = () => {
 	// Type-safe access to global registerClientScript
 	const globalRegister = (
 		globalThis as {
@@ -22,4 +20,4 @@ export function getRegisterClientScript():
 	}
 
 	return null;
-}
+};

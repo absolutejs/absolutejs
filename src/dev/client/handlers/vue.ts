@@ -3,7 +3,7 @@
 import { saveDOMState, restoreDOMState } from '../domState';
 import { detectCurrentFramework, findIndexPath } from '../frameworkDetect';
 
-export function handleVueUpdate(message: {
+export const handleVueUpdate = (message: {
 	data: {
 		cssBaseName?: string;
 		cssUrl?: string;
@@ -12,7 +12,7 @@ export function handleVueUpdate(message: {
 		sourceFile?: string;
 		updateType?: string;
 	};
-}): void {
+}) => {
 	const vueFrameworkCheck = detectCurrentFramework();
 	if (vueFrameworkCheck !== 'vue') return;
 
@@ -114,4 +114,4 @@ export function handleVueUpdate(message: {
 			sessionStorage.removeItem('__HMR_ACTIVE__');
 			window.location.reload();
 		});
-}
+};

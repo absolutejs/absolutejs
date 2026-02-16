@@ -121,7 +121,7 @@ export const build = async ({
 	const filterToIncrementalEntries = (
 		entryPoints: string[],
 		mapToSource: (entry: string) => string | null
-	): string[] => {
+	) => {
 		if (!isIncremental || !incrementalFiles) return entryPoints;
 
 		const normalizedIncremental = new Set(

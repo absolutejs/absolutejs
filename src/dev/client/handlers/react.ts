@@ -3,14 +3,14 @@
 import { saveDOMState, restoreDOMState } from '../domState';
 import { findIndexPath, detectCurrentFramework } from '../frameworkDetect';
 
-export function handleReactUpdate(message: {
+export const handleReactUpdate = (message: {
 	data: {
 		hasCSSChanges?: boolean;
 		hasComponentChanges?: boolean;
 		manifest?: Record<string, string>;
 		primarySource?: string;
 	};
-}): void {
+}) => {
 	const currentFramework = detectCurrentFramework();
 	if (currentFramework !== 'react') return;
 
@@ -91,9 +91,9 @@ export function handleReactUpdate(message: {
 				sessionStorage.removeItem('__HMR_ACTIVE__');
 			}
 		});
-}
+};
 
-function reloadReactCSS(cssPath: string): void {
+const reloadReactCSS = (cssPath: string) => {
 	const existingCSSLinks = document.head.querySelectorAll(
 		'link[rel="stylesheet"]'
 	);
@@ -116,4 +116,4 @@ function reloadReactCSS(cssPath: string): void {
 			}
 		}
 	});
-}
+};

@@ -11,11 +11,11 @@ import {
    NOTE: HMR client injection is done per-handler in pageHandlers.ts using native
    framework injection points (TransformStream for React, template options for
    Svelte, string concatenation for Vue, regex for HTML/HTMX). */
-export function hmr(
+export const hmr = (
 	hmrState: HMRState,
 	manifest: Record<string, string>,
 	clientBundle: string
-) {
+) => {
 	return (app: Elysia) => {
 		return app
 			.ws('/hmr', {
@@ -42,4 +42,4 @@ export function hmr(
 					})
 			);
 	};
-}
+};

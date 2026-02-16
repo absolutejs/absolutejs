@@ -12,13 +12,13 @@ import {
 import { renderToReadableStream as renderSvelteToReadableStream } from '../svelte/renderToReadableStream';
 import { PropsArgs } from '../types';
 
-const hasHMR = (): boolean =>
+const hasHMR = () =>
 	Boolean((globalThis as Record<string, unknown>).__hmrDevResult);
 
-function withDevHeaders(
+const withDevHeaders = (
 	response: Response,
 	extraHeaders?: Record<string, string>
-): Response {
+) => {
 	if (!hasHMR()) {
 		if (extraHeaders) {
 			for (const [key, val] of Object.entries(extraHeaders)) {
@@ -43,7 +43,7 @@ function withDevHeaders(
 		}
 	}
 	return response;
-}
+};
 
 export const handleReactPageRequest = async <
 	Props extends Record<string, unknown> = Record<never, never>
@@ -230,9 +230,7 @@ export const handleVuePageRequest = async <
 	return withDevHeaders(new Response(stream, { headers }), headers);
 };
 
-export const handleHTMLPageRequest = async (
-	pagePath: string
-): Promise<Response> => {
+export const handleHTMLPageRequest = async (pagePath: string) => {
 	const htmlFile = file(pagePath);
 	const html = hasHMR()
 		? injectHMRClient(await htmlFile.text(), 'html')
@@ -246,9 +244,7 @@ export const handleHTMLPageRequest = async (
 	return withDevHeaders(new Response(html, { headers }), headers);
 };
 
-export const handleHTMXPageRequest = async (
-	pagePath: string
-): Promise<Response> => {
+export const handleHTMXPageRequest = async (pagePath: string) => {
 	const htmxFile = file(pagePath);
 	const html = hasHMR()
 		? injectHMRClient(await htmxFile.text(), 'htmx')

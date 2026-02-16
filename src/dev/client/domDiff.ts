@@ -1,15 +1,15 @@
 /* DOM diffing/patching for in-place updates (zero flicker) */
 
-function getElementKey(el: Node, index: number): string {
+const getElementKey = (el: Node, index: number) => {
 	if (el.nodeType !== Node.ELEMENT_NODE) return 'text_' + index;
 	const element = el as Element;
 	if (element.id) return 'id_' + element.id;
 	if (element.hasAttribute('data-key'))
 		return 'key_' + element.getAttribute('data-key');
 	return 'tag_' + element.tagName + '_' + index;
-}
+};
 
-function updateElementAttributes(oldEl: Element, newEl: Element): void {
+const updateElementAttributes = (oldEl: Element, newEl: Element) => {
 	const newAttrs = Array.from(newEl.attributes);
 	const oldAttrs = Array.from(oldEl.attributes);
 	const runtimeAttrs = ['data-hmr-listeners-attached'];
@@ -35,23 +35,20 @@ function updateElementAttributes(oldEl: Element, newEl: Element): void {
 			oldEl.setAttribute(newAttr.name, newAttr.value);
 		}
 	});
-}
+};
 
-function updateTextNode(oldNode: Node, newNode: Node): void {
+const updateTextNode = (oldNode: Node, newNode: Node) => {
 	if (oldNode.nodeValue !== newNode.nodeValue) {
 		oldNode.nodeValue = newNode.nodeValue;
 	}
-}
+};
 
 interface KeyedEntry {
 	index: number;
 	node: Node;
 }
 
-function matchChildren(
-	oldChildren: Node[],
-	newChildren: Node[]
-): { newMap: Map<string, KeyedEntry[]>; oldMap: Map<string, KeyedEntry[]> } {
+const matchChildren = (oldChildren: Node[], newChildren: Node[]) => {
 	const oldMap = new Map<string, KeyedEntry[]>();
 	const newMap = new Map<string, KeyedEntry[]>();
 
@@ -72,26 +69,26 @@ function matchChildren(
 	});
 
 	return { newMap, oldMap };
-}
+};
 
-function isHMRScript(el: Node): boolean {
+const isHMRScript = (el: Node) => {
 	return (
 		el.nodeType === Node.ELEMENT_NODE &&
 		(el as Element).hasAttribute &&
 		(el as Element).hasAttribute('data-hmr-client')
 	);
-}
+};
 
-function isHMRPreserved(el: Node): boolean {
+const isHMRPreserved = (el: Node) => {
 	return (
 		isHMRScript(el) ||
 		(el.nodeType === Node.ELEMENT_NODE &&
 			(el as Element).hasAttribute &&
 			(el as Element).hasAttribute('data-hmr-overlay'))
 	);
-}
+};
 
-function patchNode(oldNode: Node, newNode: Node): void {
+const patchNode = (oldNode: Node, newNode: Node) => {
 	if (
 		oldNode.nodeType === Node.TEXT_NODE &&
 		newNode.nodeType === Node.TEXT_NODE
@@ -183,12 +180,9 @@ function patchNode(oldNode: Node, newNode: Node): void {
 			}
 		});
 	}
-}
+};
 
-export function patchDOMInPlace(
-	oldContainer: HTMLElement,
-	newHTML: string
-): void {
+export const patchDOMInPlace = (oldContainer: HTMLElement, newHTML: string) => {
 	const tempDiv = document.createElement('div');
 	tempDiv.innerHTML = newHTML;
 	const newContainer = tempDiv;
@@ -264,4 +258,4 @@ export function patchDOMInPlace(
 			oldChild.remove();
 		}
 	});
-}
+};

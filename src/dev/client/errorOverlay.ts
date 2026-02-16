@@ -26,14 +26,14 @@ const frameworkColors: Record<string, string> = {
 	vue: '#42b883'
 };
 
-export function hideErrorOverlay(): void {
+export const hideErrorOverlay = () => {
 	if (errorOverlayElement && errorOverlayElement.parentNode) {
 		errorOverlayElement.parentNode.removeChild(errorOverlayElement);
 		errorOverlayElement = null;
 	}
-}
+};
 
-export function showErrorOverlay(opts: ErrorOverlayOptions): void {
+export const showErrorOverlay = (opts: ErrorOverlayOptions) => {
 	const message = opts.message || 'Build failed';
 	const file = opts.file;
 	const line = opts.line;
@@ -142,4 +142,4 @@ export function showErrorOverlay(opts: ErrorOverlayOptions): void {
 	overlay.appendChild(card);
 	document.body.appendChild(overlay);
 	errorOverlayElement = overlay;
-}
+};
