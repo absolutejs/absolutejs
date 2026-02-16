@@ -7,11 +7,15 @@ import {
 } from '../dev/webSocket';
 
 /* HMR plugin for Elysia
-   Adds WebSocket endpoint and status endpoint.
-   NOTE: HMR client injection is done in pageHandlers.ts via maybeInjectHMR(),
-   not here. Elysia snapshots hooks at route registration time, so onAfterHandle
-   added here won't apply to routes defined before this plugin is registered. */
-export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
+   Adds WebSocket endpoint, status endpoint, and serves the compiled HMR client bundle.
+   NOTE: HMR client injection is done per-handler in pageHandlers.ts using native
+   framework injection points (TransformStream for React, template options for
+   Svelte, string concatenation for Vue, regex for HTML/HTMX). */
+export function hmr(
+	hmrState: HMRState,
+	manifest: Record<string, string>,
+	clientBundle: string
+) {
 	return (app: Elysia) => {
 		return app
 			.ws('/hmr', {
@@ -25,6 +29,17 @@ export function hmr(hmrState: HMRState, manifest: Record<string, string>) {
 				manifestKeys: Object.keys(manifest),
 				rebuildQueue: Array.from(hmrState.rebuildQueue),
 				timestamp: Date.now()
-			}));
+			}))
+			.get(
+				'/__hmr-client.js',
+				() =>
+					new Response(clientBundle, {
+						headers: {
+							'Cache-Control':
+								'no-store, no-cache, must-revalidate',
+							'Content-Type': 'application/javascript'
+						}
+					})
+			);
 	};
 }

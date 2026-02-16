@@ -8,13 +8,18 @@ import { buildInitialDependencyGraph } from '../dev/dependencyGraph';
 import { startFileWatching } from '../dev/fileWatcher';
 import { getWatchPaths } from '../dev/pathUtils';
 import { queueFileChange } from '../dev/rebuildTrigger';
+import { buildHMRClient } from '../dev/buildHMRClient';
 
 /* Development mode function - replaces build() during development
    Returns DevResult with manifest, buildDir, asset(), and hmrState for use with the hmr() plugin */
 export async function devBuild(config: BuildConfig) {
 	// On Bun --hot reload, return cached result instead of rebuilding
 	const cached = (globalThis as Record<string, unknown>).__hmrDevResult as
-		| { manifest: Record<string, string>; hmrState: HMRState }
+		| {
+				hmrClientBundle: string;
+				hmrState: HMRState;
+				manifest: Record<string, string>;
+		  }
 		| undefined;
 	if (cached) {
 		// Use explicit server entry path from CLI when available; else Bun.main
@@ -67,6 +72,9 @@ export async function devBuild(config: BuildConfig) {
 
 	console.log('✅ Build completed successfully');
 
+	const hmrClientBundle = await buildHMRClient();
+	console.log('📦 HMR client bundle compiled');
+
 	startFileWatching(state, config, (filePath: string) => {
 		queueFileChange(state, filePath, config, (newBuildResult) => {
 			Object.assign(manifest, newBuildResult.manifest);
@@ -77,8 +85,9 @@ export async function devBuild(config: BuildConfig) {
 	console.log('🔥 HMR: Ready');
 
 	const result = {
-		manifest,
-		hmrState: state
+		hmrClientBundle,
+		hmrState: state,
+		manifest
 	};
 
 	(globalThis as Record<string, unknown>).__hmrServerStartup =
