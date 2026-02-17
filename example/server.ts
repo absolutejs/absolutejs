@@ -15,7 +15,8 @@ import {
 	handleHTMXPageRequest,
 	handleReactPageRequest,
 	handleSveltePageRequest,
-	handleVuePageRequest
+	handleVuePageRequest,
+	hmr
 } from '../src';
 import { networking } from '../src/plugins/networking';
 
@@ -95,3 +96,12 @@ export const server = new Elysia()
 		);
 	})
 	.use(networking);
+
+if (
+	result.hmrState &&
+	typeof result.hmrState !== 'string' &&
+	typeof result.manifest === 'object' &&
+	result.hmrClientBundle
+) {
+	server.use(hmr(result.hmrState, result.manifest, result.hmrClientBundle));
+}

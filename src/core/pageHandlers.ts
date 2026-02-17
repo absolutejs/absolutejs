@@ -4,35 +4,45 @@ import { renderToReadableStream as renderReactToReadableStream } from 'react-dom
 import { Component as SvelteComponent } from 'svelte';
 import { Component as VueComponent, createSSRApp, h } from 'vue';
 import { renderToWebStream as renderVueToWebStream } from 'vue/server-renderer';
-import { injectHMRClient } from '../dev/injectHMRClient';
+import {
+	getHMRBodyScripts,
+	getHMRHeadScripts,
+	injectHMRClient
+} from '../dev/injectHMRClient';
 import { renderToReadableStream as renderSvelteToReadableStream } from '../svelte/renderToReadableStream';
 import { PropsArgs } from '../types';
 
-const hasHMR = () =>
+const hasHMR = (): boolean =>
 	Boolean((globalThis as Record<string, unknown>).__hmrDevResult);
 
-async function maybeInjectHMR(
-	htmlOrStream: string | ReadableStream,
-	framework: string,
-	baseHeaders: Record<string, string>
-): Promise<Response> {
+function withDevHeaders(
+	response: Response,
+	extraHeaders?: Record<string, string>
+): Response {
 	if (!hasHMR()) {
-		return new Response(htmlOrStream, { headers: baseHeaders });
+		if (extraHeaders) {
+			for (const [key, val] of Object.entries(extraHeaders)) {
+				response.headers.set(key, val);
+			}
+		}
+		return response;
 	}
-	const html =
-		typeof htmlOrStream === 'string'
-			? htmlOrStream
-			: await new Response(htmlOrStream).text();
-	const htmlWithHMR = injectHMRClient(html, framework);
-	const headers = new Headers(baseHeaders);
-	headers.set('Cache-Control', 'no-store, no-cache, must-revalidate');
-	headers.set('Pragma', 'no-cache');
+	response.headers.set(
+		'Cache-Control',
+		'no-store, no-cache, must-revalidate'
+	);
+	response.headers.set('Pragma', 'no-cache');
 	const startup = (globalThis as Record<string, unknown>)
 		.__hmrServerStartup as string | undefined;
 	if (startup) {
-		headers.set('X-Server-Startup', startup);
+		response.headers.set('X-Server-Startup', startup);
 	}
-	return new Response(htmlWithHMR, { headers });
+	if (extraHeaders) {
+		for (const [key, val] of Object.entries(extraHeaders)) {
+			response.headers.set(key, val);
+		}
+	}
+	return response;
 }
 
 export const handleReactPageRequest = async <
@@ -55,10 +65,68 @@ export const handleReactPageRequest = async <
 			: undefined
 	});
 
-	return maybeInjectHMR(stream, 'react', {
+	const headers: Record<string, string> = {
 		'Content-Type': 'text/html',
 		'X-HMR-Framework': 'react'
-	});
+	};
+
+	if (hasHMR()) {
+		const headScripts = getHMRHeadScripts('react');
+		const bodyScripts = getHMRBodyScripts('react');
+		const encoder = new TextEncoder();
+		const decoder = new TextDecoder();
+		let injectedHead = false;
+		let injectedBody = false;
+
+		const hmrStream = stream.pipeThrough(
+			new TransformStream<Uint8Array, Uint8Array>({
+				transform(chunk, controller) {
+					if (injectedHead && injectedBody) {
+						controller.enqueue(chunk);
+						return;
+					}
+
+					const text = decoder.decode(chunk, { stream: true });
+					let result = text;
+
+					if (!injectedHead) {
+						const headMatch = /<head[^>]*>/i.exec(result);
+						if (headMatch) {
+							const pos = headMatch.index + headMatch[0].length;
+							result =
+								result.slice(0, pos) +
+								headScripts +
+								result.slice(pos);
+							injectedHead = true;
+						}
+					}
+
+					if (!injectedBody) {
+						const bodyCloseMatch = /<\/body\s*>/i.exec(result);
+						if (bodyCloseMatch) {
+							const pos = bodyCloseMatch.index;
+							result =
+								result.slice(0, pos) +
+								bodyScripts +
+								result.slice(pos);
+							injectedBody = true;
+						}
+					}
+
+					controller.enqueue(encoder.encode(result));
+				},
+				flush(controller) {
+					if (!injectedBody) {
+						controller.enqueue(encoder.encode(bodyScripts));
+					}
+				}
+			})
+		);
+
+		return withDevHeaders(new Response(hmrStream, { headers }), headers);
+	}
+
+	return new Response(stream, { headers });
 };
 
 // Declare overloads matching Svelte's own component API to preserve correct type inference
@@ -93,14 +161,18 @@ export const handleSveltePageRequest: HandleSveltePageRequest = async <
 			bootstrapModules: indexPath ? [indexPath] : [],
 			bootstrapScriptContent: `window.__INITIAL_PROPS__=${JSON.stringify(
 				props
-			)}`
+			)}`,
+			headContent: hasHMR() ? getHMRHeadScripts('svelte') : undefined,
+			bodyContent: hasHMR() ? getHMRBodyScripts('svelte') : undefined
 		}
 	);
 
-	return maybeInjectHMR(stream, 'svelte', {
+	const headers: Record<string, string> = {
 		'Content-Type': 'text/html',
 		'X-HMR-Framework': 'svelte'
-	});
+	};
+
+	return withDevHeaders(new Response(stream, { headers }), headers);
 };
 
 export const handleVuePageRequest = async <
@@ -122,10 +194,15 @@ export const handleVuePageRequest = async <
 
 	const bodyStream = renderVueToWebStream(app);
 
-	const head = `<!DOCTYPE html><html>${headTag}<body><div id="root">`;
+	const headWithHMR = hasHMR()
+		? headTag.replace('</head>', getHMRHeadScripts('vue') + '</head>')
+		: headTag;
+	const hmrBody = hasHMR() ? getHMRBodyScripts('vue') : '';
+
+	const head = `<!DOCTYPE html><html>${headWithHMR}<body><div id="root">`;
 	const tail = `</div><script>window.__INITIAL_PROPS__=${JSON.stringify(
 		maybeProps ?? {}
-	)}</script><script type="module" src="${indexPath}"></script></body></html>`;
+	)}</script><script type="module" src="${indexPath}"></script>${hmrBody}</body></html>`;
 
 	const stream = new ReadableStream({
 		start(controller) {
@@ -145,30 +222,44 @@ export const handleVuePageRequest = async <
 		}
 	});
 
-	return maybeInjectHMR(stream, 'vue', {
+	const headers: Record<string, string> = {
 		'Content-Type': 'text/html',
 		'X-HMR-Framework': 'vue'
-	});
+	};
+
+	return withDevHeaders(new Response(stream, { headers }), headers);
 };
 
-export const handleHTMLPageRequest = async (pagePath: string) => {
+export const handleHTMLPageRequest = async (
+	pagePath: string
+): Promise<Response> => {
 	const htmlFile = file(pagePath);
-	const html = await htmlFile.text();
+	const html = hasHMR()
+		? injectHMRClient(await htmlFile.text(), 'html')
+		: await htmlFile.text();
 
-	return maybeInjectHMR(html, 'html', {
+	const headers: Record<string, string> = {
 		'Content-Type': 'text/html; charset=utf-8',
 		'X-HMR-Framework': 'html'
-	});
+	};
+
+	return withDevHeaders(new Response(html, { headers }), headers);
 };
 
-export const handleHTMXPageRequest = async (pagePath: string) => {
+export const handleHTMXPageRequest = async (
+	pagePath: string
+): Promise<Response> => {
 	const htmxFile = file(pagePath);
-	const html = await htmxFile.text();
+	const html = hasHMR()
+		? injectHMRClient(await htmxFile.text(), 'htmx')
+		: await htmxFile.text();
 
-	return maybeInjectHMR(html, 'htmx', {
+	const headers: Record<string, string> = {
 		'Content-Type': 'text/html; charset=utf-8',
 		'X-HMR-Framework': 'htmx'
-	});
+	};
+
+	return withDevHeaders(new Response(html, { headers }), headers);
 };
 
 export const handlePageRequest = <Component>(

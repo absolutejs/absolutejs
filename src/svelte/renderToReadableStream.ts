@@ -11,6 +11,8 @@ export type RenderStreamOptions = {
 	onError?: (error: unknown) => void;
 	progressiveChunkSize?: number;
 	signal?: AbortSignal;
+	headContent?: string;
+	bodyContent?: string;
 };
 
 export const renderToReadableStream = async <
@@ -25,7 +27,9 @@ export const renderToReadableStream = async <
 		nonce,
 		onError = console.error,
 		progressiveChunkSize = DEFAULT_CHUNK_SIZE,
-		signal
+		signal,
+		headContent,
+		bodyContent
 	}: RenderStreamOptions = {}
 ) => {
 	try {
@@ -51,7 +55,7 @@ export const renderToReadableStream = async <
 		const encoder = new TextEncoder();
 		// Warning: this encodes the entire document into memory in one buffer
 		const full = encoder.encode(
-			`<!DOCTYPE html><html lang="en"><head>${head}</head><body>${body}${scripts}</body></html>`
+			`<!DOCTYPE html><html lang="en"><head>${head}${headContent ?? ''}</head><body>${body}${scripts}${bodyContent ?? ''}</body></html>`
 		);
 
 		let offset = 0;
