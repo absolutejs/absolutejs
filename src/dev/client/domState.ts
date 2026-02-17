@@ -2,7 +2,7 @@
 
 import type { DOMStateEntry, DOMStateSnapshot } from './types';
 
-export function saveDOMState(root: HTMLElement): DOMStateSnapshot {
+export const saveDOMState = (root: HTMLElement) => {
 	const snapshot: DOMStateSnapshot = { activeKey: null, items: [] };
 	const selector =
 		'input, textarea, select, option, [contenteditable="true"], details';
@@ -69,12 +69,12 @@ export function saveDOMState(root: HTMLElement): DOMStateSnapshot {
 				'idx:' + Array.prototype.indexOf.call(elements, active);
 	}
 	return snapshot;
-}
+};
 
-export function restoreDOMState(
+export const restoreDOMState = (
 	root: HTMLElement,
 	snapshot: DOMStateSnapshot
-): void {
+) => {
 	if (!snapshot || !snapshot.items) return;
 	const selector =
 		'input, textarea, select, option, [contenteditable="true"], details';
@@ -164,12 +164,9 @@ export function restoreDOMState(
 			(focusEl as HTMLElement).focus();
 		}
 	}
-}
+};
 
-export function saveFormState(): Record<
-	string,
-	Record<string, boolean | string>
-> {
+export const saveFormState = () => {
 	const formState: Record<string, Record<string, boolean | string>> = {};
 	const forms = document.querySelectorAll('form');
 	forms.forEach(function (form, formIndex) {
@@ -209,11 +206,11 @@ export function saveFormState(): Record<
 		});
 	}
 	return formState;
-}
+};
 
-export function restoreFormState(
+export const restoreFormState = (
 	formState: Record<string, Record<string, boolean | string>>
-): void {
+) => {
 	Object.keys(formState).forEach(function (formId) {
 		const isStandalone = formId === '__standalone__';
 		const form = isStandalone
@@ -254,21 +251,21 @@ export function restoreFormState(
 			}
 		});
 	});
-}
+};
 
-export function saveScrollState(): { window: { x: number; y: number } } {
+export const saveScrollState = () => {
 	return {
 		window: {
 			x: window.scrollX || window.pageXOffset,
 			y: window.scrollY || window.pageYOffset
 		}
 	};
-}
+};
 
-export function restoreScrollState(scrollState: {
+export const restoreScrollState = (scrollState: {
 	window: { x: number; y: number };
-}): void {
+}) => {
 	if (scrollState && scrollState.window) {
 		window.scrollTo(scrollState.window.x, scrollState.window.y);
 	}
-}
+};

@@ -34,7 +34,7 @@ const frameworkColors: Record<string, string> = {
 /**
  * Format timestamp as "HH:MM:SS AM/PM" (Vite style)
  */
-function formatTimestamp(): string {
+const formatTimestamp = () => {
 	const now = new Date();
 	let hours = now.getHours();
 	const minutes = now.getMinutes().toString().padStart(2, '0');
@@ -42,12 +42,12 @@ function formatTimestamp(): string {
 	const ampm = hours >= 12 ? 'PM' : 'AM';
 	hours = hours % 12 || 12;
 	return `${hours}:${minutes}:${seconds} ${ampm}`;
-}
+};
 
 /**
  * Format a file path for display (relative, clean)
  */
-function formatPath(filePath: string): string {
+const formatPath = (filePath: string) => {
 	const cwd = process.cwd();
 	let relative = filePath.startsWith(cwd)
 		? filePath.slice(cwd.length + 1)
@@ -59,19 +59,19 @@ function formatPath(filePath: string): string {
 		relative = '/' + relative;
 	}
 	return relative;
-}
+};
 
 /**
  * Get color for a framework
  */
-function getFrameworkColor(framework: string): string {
+const getFrameworkColor = (framework: string) => {
 	return frameworkColors[framework] || colors.white;
-}
+};
 
 /**
  * Core logging function with Vite-style format
  */
-function log(
+const log = (
 	action: string,
 	options?: {
 		framework?: string;
@@ -79,7 +79,7 @@ function log(
 		path?: string;
 		color?: string;
 	}
-): void {
+) => {
 	const timestamp = `${colors.dim}${formatTimestamp()}${colors.reset}`;
 	const tag = `${colors.cyan}[hmr]${colors.reset}`;
 
@@ -99,29 +99,29 @@ function log(
 	}
 
 	console.log(`${timestamp} ${tag} ${message}`);
-}
+};
 
 /**
  * Error logging with red color
  */
-function logError(message: string, error?: Error | string): void {
+const logError = (message: string, error?: Error | string) => {
 	const timestamp = `${colors.dim}${formatTimestamp()}${colors.reset}`;
 	const tag = `${colors.red}[hmr]${colors.reset}`;
 	const errorMsg = error instanceof Error ? error.message : error;
 	const fullMessage = `${colors.red}error${colors.reset} ${message}${errorMsg ? `: ${errorMsg}` : ''}`;
 	console.error(`${timestamp} ${tag} ${fullMessage}`);
-}
+};
 
 /**
  * Warning logging with yellow color
  */
-function logWarn(message: string): void {
+const logWarn = (message: string) => {
 	const timestamp = `${colors.dim}${formatTimestamp()}${colors.reset}`;
 	const tag = `${colors.yellow}[hmr]${colors.reset}`;
 	console.warn(
 		`${timestamp} ${tag} ${colors.yellow}warning${colors.reset} ${message}`
 	);
-}
+};
 
 // Public API
 export const logger = {
@@ -129,7 +129,7 @@ export const logger = {
 	 * HMR update message
 	 * Format: "10:30:45 AM [hmr] hmr update /pages/App.tsx"
 	 */
-	hmrUpdate(path: string, framework?: string): void {
+	hmrUpdate(path: string, framework?: string) {
 		log('hmr update', { path, framework });
 	},
 
@@ -137,7 +137,7 @@ export const logger = {
 	 * Page reload message
 	 * Format: "10:30:45 AM [hmr] page reload /src/App.tsx"
 	 */
-	pageReload(path: string, framework?: string): void {
+	pageReload(path: string, framework?: string) {
 		log('page reload', { path, framework });
 	},
 
@@ -145,7 +145,7 @@ export const logger = {
 	 * CSS update message
 	 * Format: "10:30:45 AM [hmr] css update /styles/main.css"
 	 */
-	cssUpdate(path: string, framework?: string): void {
+	cssUpdate(path: string, framework?: string) {
 		log('css update', { path, framework: framework ?? 'css' });
 	},
 
@@ -153,7 +153,7 @@ export const logger = {
 	 * Script update message
 	 * Format: "10:30:45 AM [hmr] script update /scripts/counter.ts"
 	 */
-	scriptUpdate(path: string, framework?: string): void {
+	scriptUpdate(path: string, framework?: string) {
 		log('script update', { path, framework });
 	},
 
@@ -161,7 +161,7 @@ export const logger = {
 	 * Rebuild complete message
 	 * Format: "10:30:45 AM [hmr] rebuilt (125ms)"
 	 */
-	rebuilt(duration: number): void {
+	rebuilt(duration: number) {
 		const timestamp = `${colors.dim}${formatTimestamp()}${colors.reset}`;
 		const tag = `${colors.cyan}[hmr]${colors.reset}`;
 		const message = `${colors.green}rebuilt${colors.reset} ${colors.dim}(${duration}ms)${colors.reset}`;
@@ -172,7 +172,7 @@ export const logger = {
 	 * Build error
 	 * Format: "10:30:45 AM [hmr] error Build failed: ..."
 	 */
-	error(message: string, error?: Error | string): void {
+	error(message: string, error?: Error | string) {
 		logError(message, error);
 	},
 
@@ -180,14 +180,14 @@ export const logger = {
 	 * Warning message
 	 * Format: "10:30:45 AM [hmr] warning ..."
 	 */
-	warn(message: string): void {
+	warn(message: string) {
 		logWarn(message);
 	},
 
 	/**
 	 * Generic info message
 	 */
-	info(message: string): void {
+	info(message: string) {
 		log(message);
 	}
 };

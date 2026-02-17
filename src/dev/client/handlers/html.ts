@@ -15,9 +15,9 @@ import { detectCurrentFramework } from '../frameworkDetect';
 import type { ScriptInfo } from '../types';
 import { hmrState } from '../types';
 
-export function handleScriptUpdate(message: {
+export const handleScriptUpdate = (message: {
 	data: { framework?: string; scriptPath?: string };
-}): void {
+}) => {
 	console.log('[HMR] Received script-update message');
 	const scriptFramework = message.data.framework;
 	const currentFw = detectCurrentFramework();
@@ -68,13 +68,13 @@ export function handleScriptUpdate(message: {
 			);
 			window.location.reload();
 		});
-}
+};
 
-export function handleHTMLUpdate(message: {
+export const handleHTMLUpdate = (message: {
 	data: {
 		html?: string | { body?: string; head?: string } | null;
 	};
-}): void {
+}) => {
 	console.log('[HMR] Received html-update message');
 	const htmlFrameworkCheck = detectCurrentFramework();
 	console.log('[HMR] Current framework:', htmlFrameworkCheck);
@@ -144,13 +144,13 @@ export function handleHTMLUpdate(message: {
 	} else {
 		sessionStorage.removeItem('__HMR_ACTIVE__');
 	}
-}
+};
 
-function updateHTMLBody(
+const updateHTMLBody = (
 	htmlBody: string,
 	htmlDomState: ReturnType<typeof saveDOMState>,
 	container: HTMLElement
-): void {
+) => {
 	console.log('[HMR] updateBodyAfterCSS called');
 	if (!container) {
 		console.log('[HMR] ERROR: document.body not found');
@@ -215,13 +215,13 @@ function updateHTMLBody(
 		}
 	});
 	sessionStorage.removeItem('__HMR_ACTIVE__');
-}
+};
 
-function updateHTMLBodyDirect(
+const updateHTMLBodyDirect = (
 	htmlBody: string,
 	htmlDomState: ReturnType<typeof saveDOMState>,
 	container: HTMLElement
-): void {
+) => {
 	const counterSpan = container.querySelector('#counter');
 	const counterValue = counterSpan
 		? parseInt(counterSpan.textContent || '0', 10)
@@ -298,11 +298,11 @@ function updateHTMLBodyDirect(
 		});
 	});
 	sessionStorage.removeItem('__HMR_ACTIVE__');
-}
+};
 
 /* Shared helpers for HTML body updates */
 
-function collectScripts(container: HTMLElement): ScriptInfo[] {
+const collectScripts = (container: HTMLElement) => {
 	return Array.from(container.querySelectorAll('script[src]')).map(
 		function (script) {
 			return {
@@ -311,9 +311,9 @@ function collectScripts(container: HTMLElement): ScriptInfo[] {
 			};
 		}
 	);
-}
+};
 
-function collectScriptsFromElement(el: HTMLElement): ScriptInfo[] {
+const collectScriptsFromElement = (el: HTMLElement) => {
 	return Array.from(el.querySelectorAll('script[src]')).map(
 		function (script) {
 			return {
@@ -322,12 +322,12 @@ function collectScriptsFromElement(el: HTMLElement): ScriptInfo[] {
 			};
 		}
 	);
-}
+};
 
-function didScriptsChange(
+const didScriptsChange = (
 	oldScripts: ScriptInfo[],
 	newScripts: ScriptInfo[]
-): boolean {
+) => {
 	return (
 		oldScripts.length !== newScripts.length ||
 		oldScripts.some(function (oldScript, idx) {
@@ -338,9 +338,9 @@ function didScriptsChange(
 			return oldSrcBase !== newSrcBase;
 		})
 	);
-}
+};
 
-function normalizeHTMLForComparison(element: HTMLElement): string {
+const normalizeHTMLForComparison = (element: HTMLElement) => {
 	const clone = element.cloneNode(true) as HTMLElement;
 	const scripts = clone.querySelectorAll('script');
 	scripts.forEach(function (script) {
@@ -356,19 +356,19 @@ function normalizeHTMLForComparison(element: HTMLElement): string {
 		clone.removeAttribute('data-hmr-listeners-attached');
 	}
 	return clone.innerHTML;
-}
+};
 
-function didHTMLStructureChange(
+const didHTMLStructureChange = (
 	container: HTMLElement,
 	tempDiv: HTMLElement
-): boolean {
+) => {
 	return (
 		normalizeHTMLForComparison(container) !==
 		normalizeHTMLForComparison(tempDiv)
 	);
-}
+};
 
-function cloneInteractiveElements(container: HTMLElement): void {
+const cloneInteractiveElements = (container: HTMLElement) => {
 	const interactiveSelectors =
 		'button, [onclick], [onchange], [oninput], [onsubmit], ' +
 		'details, input[type="button"], input[type="submit"], input[type="reset"]';
@@ -378,21 +378,18 @@ function cloneInteractiveElements(container: HTMLElement): void {
 			el.parentNode.replaceChild(cloned, el);
 		}
 	});
-}
+};
 
-function removeOldScripts(container: HTMLElement): void {
+const removeOldScripts = (container: HTMLElement) => {
 	const scriptsInNewHTML = container.querySelectorAll('script[src]');
 	scriptsInNewHTML.forEach(function (script) {
 		if (!(script as Element).hasAttribute('data-hmr-client')) {
 			script.remove();
 		}
 	});
-}
+};
 
-function reExecuteScripts(
-	container: HTMLElement,
-	newScripts: ScriptInfo[]
-): void {
+const reExecuteScripts = (container: HTMLElement, newScripts: ScriptInfo[]) => {
 	removeOldScripts(container);
 
 	newScripts.forEach(function (scriptInfo) {
@@ -415,4 +412,4 @@ function reExecuteScripts(
 			}
 		}
 	});
-}
+};

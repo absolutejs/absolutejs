@@ -98,10 +98,8 @@ export const server = new Elysia()
 	.use(networking);
 
 if (
-	result.hmrState &&
 	typeof result.hmrState !== 'string' &&
-	typeof result.manifest === 'object' &&
-	result.hmrClientBundle
+	typeof result.manifest === 'object'
 ) {
-	server.use(hmr(result.hmrState, result.manifest, result.hmrClientBundle));
+	server.use(hmr(result.hmrState, result.manifest));
 }

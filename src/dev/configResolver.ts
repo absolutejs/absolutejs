@@ -13,7 +13,7 @@ type ResolvedPaths = {
 };
 
 /** Normalize and default build paths so HMR works outside the example app. */
-export function resolveBuildPaths(config: BuildConfig): ResolvedPaths {
+export const resolveBuildPaths = (config: BuildConfig) => {
 	const cwd = process.cwd();
 	// Normalize to forward slashes for cross-platform compatibility (Windows uses backslashes)
 	const normalize = (path: string) => path.replace(/\\/g, '/');
@@ -32,6 +32,6 @@ export function resolveBuildPaths(config: BuildConfig): ResolvedPaths {
 		htmlDir: optional(config.htmlDirectory),
 		htmxDir: optional(config.htmxDirectory)
 	};
-}
+};
 
 export type ResolvedBuildPaths = ReturnType<typeof resolveBuildPaths>;

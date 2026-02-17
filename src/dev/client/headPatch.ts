@@ -1,6 +1,6 @@
 /* Head element patching for HMR updates (title, meta, favicon, etc.) */
 
-function getHeadElementKey(el: Element): string | null {
+const getHeadElementKey = (el: Element) => {
 	const tag = el.tagName.toLowerCase();
 
 	if (tag === 'title') return 'title';
@@ -36,9 +36,9 @@ function getHeadElementKey(el: Element): string | null {
 	if (tag === 'base') return 'base';
 
 	return null;
-}
+};
 
-function shouldPreserveElement(el: Element): boolean {
+const shouldPreserveElement = (el: Element) => {
 	if (el.hasAttribute('data-hmr-import-map')) return true;
 	if (el.hasAttribute('data-hmr-client')) return true;
 	if (el.hasAttribute('data-react-refresh-setup')) return true;
@@ -54,9 +54,9 @@ function shouldPreserveElement(el: Element): boolean {
 	}
 
 	return false;
-}
+};
 
-function updateHeadElement(oldEl: Element, newEl: Element, key: string): void {
+const updateHeadElement = (oldEl: Element, newEl: Element, key: string) => {
 	const tag = oldEl.tagName.toLowerCase();
 
 	if (tag === 'title') {
@@ -137,9 +137,9 @@ function updateHeadElement(oldEl: Element, newEl: Element, key: string): void {
 		}
 		return;
 	}
-}
+};
 
-function addHeadElement(newEl: Element, key: string): void {
+const addHeadElement = (newEl: Element, key: string) => {
 	const clone = newEl.cloneNode(true) as Element;
 	clone.setAttribute('data-hmr-source', 'patched');
 
@@ -164,9 +164,9 @@ function addHeadElement(newEl: Element, key: string): void {
 		head.appendChild(clone);
 	}
 	console.log('[HMR] Added head element:', key);
-}
+};
 
-export function patchHeadInPlace(newHeadHTML: string): void {
+export const patchHeadInPlace = (newHeadHTML: string) => {
 	if (!newHeadHTML) return;
 
 	const tempDiv = document.createElement('div');
@@ -210,4 +210,4 @@ export function patchHeadInPlace(newHeadHTML: string): void {
 			}
 		}
 	});
-}
+};

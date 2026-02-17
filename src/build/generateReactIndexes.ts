@@ -1,10 +1,21 @@
 import { mkdir, rm, writeFile } from 'fs/promises';
-import { basename, join } from 'path';
+import { basename, join, resolve } from 'path';
 import { Glob } from 'bun';
+
+const hmrClientPath = resolve(
+	import.meta.dir,
+	'../dev/client/hmrClient.ts'
+).replace(/\\/g, '/');
+
+const refreshSetupPath = resolve(
+	import.meta.dir,
+	'../dev/client/reactRefreshSetup.ts'
+).replace(/\\/g, '/');
 
 export const generateReactIndexFiles = async (
 	reactPagesDirectory: string,
-	reactIndexesDirectory: string
+	reactIndexesDirectory: string,
+	isDev = false
 ) => {
 	await rm(reactIndexesDirectory, { force: true, recursive: true });
 	await mkdir(reactIndexesDirectory);
@@ -17,7 +28,18 @@ export const generateReactIndexFiles = async (
 	const promises = files.map(async (file) => {
 		const fileName = basename(file);
 		const [componentName] = fileName.split('.');
+
+		const hmrPreamble = isDev
+			? [
+					`window.__HMR_FRAMEWORK__ = "react";`,
+					`window.__REACT_COMPONENT_KEY__ = "${componentName}Index";`,
+					`import '${refreshSetupPath}';`,
+					`import '${hmrClientPath}';\n`
+				]
+			: [];
+
 		const content = [
+			...hmrPreamble,
 			`import { hydrateRoot, createRoot } from 'react-dom/client';`,
 			`import { createElement } from 'react';`,
 			`import type { ComponentType } from 'react'`,
@@ -31,8 +53,7 @@ export const generateReactIndexFiles = async (
 			`\t}`,
 			`}\n`,
 			`// Hydration with error handling and fallback`,
-			`// For HMR, we're always in development mode`,
-			`const isDev = true;`,
+			`const isDev = ${isDev};`,
 			`const componentPath = '../pages/${componentName}';\n`,
 			`function isHydrationError(error) {`,
 			`\tif (!error) return false;`,
@@ -215,4 +236,14 @@ export const generateReactIndexFiles = async (
 		);
 	});
 	await Promise.all(promises);
+
+	// Generate a dummy entry that imports React so code splitting extracts
+	// React into a shared chunk. This lets HMR re-import component entries
+	// without creating a duplicate React instance.
+	if (isDev) {
+		await writeFile(
+			join(reactIndexesDirectory, '_refresh.tsx'),
+			`import 'react';\nimport 'react-dom/client';\n`
+		);
+	}
 };

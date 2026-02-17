@@ -8,15 +8,13 @@ import { buildInitialDependencyGraph } from '../dev/dependencyGraph';
 import { startFileWatching } from '../dev/fileWatcher';
 import { getWatchPaths } from '../dev/pathUtils';
 import { queueFileChange } from '../dev/rebuildTrigger';
-import { buildHMRClient } from '../dev/buildHMRClient';
 
 /* Development mode function - replaces build() during development
    Returns DevResult with manifest, buildDir, asset(), and hmrState for use with the hmr() plugin */
-export async function devBuild(config: BuildConfig) {
+export const devBuild = async (config: BuildConfig) => {
 	// On Bun --hot reload, return cached result instead of rebuilding
 	const cached = (globalThis as Record<string, unknown>).__hmrDevResult as
 		| {
-				hmrClientBundle: string;
 				hmrState: HMRState;
 				manifest: Record<string, string>;
 		  }
@@ -54,7 +52,7 @@ export async function devBuild(config: BuildConfig) {
 
 	console.log('🔨 Building AbsoluteJS with HMR...');
 
-	// Initial build
+	// Initial build (HMR client is baked into index files and HTML/HTMX pages)
 	const manifest = await build({
 		...config,
 		options: {
@@ -72,9 +70,6 @@ export async function devBuild(config: BuildConfig) {
 
 	console.log('✅ Build completed successfully');
 
-	const hmrClientBundle = await buildHMRClient();
-	console.log('📦 HMR client bundle compiled');
-
 	startFileWatching(state, config, (filePath: string) => {
 		queueFileChange(state, filePath, config, (newBuildResult) => {
 			Object.assign(manifest, newBuildResult.manifest);
@@ -85,7 +80,6 @@ export async function devBuild(config: BuildConfig) {
 	console.log('🔥 HMR: Ready');
 
 	const result = {
-		hmrClientBundle,
 		hmrState: state,
 		manifest
 	};
@@ -103,4 +97,4 @@ export async function devBuild(config: BuildConfig) {
 		: 0;
 
 	return result;
-}
+};

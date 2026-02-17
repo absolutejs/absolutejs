@@ -37,10 +37,10 @@ const getRequestId = () => `req_${Date.now()}_${++requestCounter}`;
  * @param requestId - Optional request ID. If not provided, uses the current request context.
  * @returns The request ID for this script registration
  */
-export function registerClientScript(
+export const registerClientScript = (
 	script: () => void,
 	requestId?: string
-): string {
+) => {
 	// If no requestId provided, try to get it from global context (set by page handler during SSR)
 	const id =
 		requestId ||
@@ -54,7 +54,7 @@ export function registerClientScript(
 	scriptRegistry.get(id)!.add(script);
 
 	return id;
-}
+};
 
 // Make registerClientScript available globally during SSR for Angular components
 // Using type assertion for globalThis extension
@@ -73,7 +73,7 @@ if (typeof globalThis !== 'undefined') {
  * @param requestId - The request ID to get scripts for
  * @returns Array of script functions, or empty array if none registered
  */
-export function getAndClearClientScripts(requestId: string): (() => void)[] {
+export const getAndClearClientScripts = (requestId: string) => {
 	const scripts = scriptRegistry.get(requestId);
 	if (!scripts) {
 		return [];
@@ -83,7 +83,7 @@ export function getAndClearClientScripts(requestId: string): (() => void)[] {
 	scriptRegistry.delete(requestId);
 
 	return scriptArray;
-}
+};
 
 /**
  * Generate JavaScript code from registered scripts.
@@ -92,7 +92,7 @@ export function getAndClearClientScripts(requestId: string): (() => void)[] {
  * @param scripts - Array of script functions
  * @returns JavaScript code string to inject
  */
-export function generateClientScriptCode(scripts: (() => void)[]): string {
+export const generateClientScriptCode = (scripts: (() => void)[]) => {
 	if (scripts.length === 0) {
 		return '';
 	}
@@ -142,11 +142,11 @@ export function generateClientScriptCode(scripts: (() => void)[]): string {
 ${scriptCode}
 })();
 </script>`;
-}
+};
 
 /**
  * Clear all registered scripts (useful for cleanup or testing)
  */
-export function clearAllClientScripts(): void {
+export const clearAllClientScripts = () => {
 	scriptRegistry.clear();
-}
+};
