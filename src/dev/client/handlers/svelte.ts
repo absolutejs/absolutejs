@@ -1,12 +1,49 @@
 /* Svelte HMR update handler */
 
+import {
+	saveDOMState,
+	restoreDOMState,
+	saveScrollState,
+	restoreScrollState
+} from '../domState';
 import { detectCurrentFramework, findIndexPath } from '../frameworkDetect';
+
+/* Swap a stylesheet link by matching cssBaseName or framework name */
+const swapStylesheet = (
+	cssUrl: string,
+	cssBaseName: string,
+	framework: string
+): void => {
+	let existingLink: HTMLLinkElement | null = null;
+	document
+		.querySelectorAll('link[rel="stylesheet"]')
+		.forEach(function (link) {
+			const href =
+				(link as HTMLLinkElement).getAttribute('href') || '';
+			if (href.includes(cssBaseName) || href.includes(framework)) {
+				existingLink = link as HTMLLinkElement;
+			}
+		});
+
+	if (existingLink) {
+		const capturedExisting = existingLink as HTMLLinkElement;
+		const newLink = document.createElement('link');
+		newLink.rel = 'stylesheet';
+		newLink.href = cssUrl + '?t=' + Date.now();
+		newLink.onload = function () {
+			if (capturedExisting && capturedExisting.parentNode) {
+				capturedExisting.remove();
+			}
+		};
+		document.head.appendChild(newLink);
+	}
+};
 
 export const handleSvelteUpdate = (message: {
 	data: {
-		clientModuleUrl?: string;
 		cssBaseName?: string;
 		cssUrl?: string;
+		html?: string;
 		manifest?: Record<string, string>;
 		sourceFile?: string;
 		updateType?: string;
@@ -15,113 +52,80 @@ export const handleSvelteUpdate = (message: {
 	const svelteFrameworkCheck = detectCurrentFramework();
 	if (svelteFrameworkCheck !== 'svelte') return;
 
+	/* CSS-only update: hot-swap stylesheet, no remount needed */
 	if (message.data.updateType === 'css-only' && message.data.cssUrl) {
-		console.log('[HMR] Svelte CSS-only update (state preserved)');
-		const cssBaseName = message.data.cssBaseName || '';
-		let existingLink: HTMLLinkElement | null = null;
-		document
-			.querySelectorAll('link[rel="stylesheet"]')
-			.forEach(function (link) {
-				const href =
-					(link as HTMLLinkElement).getAttribute('href') || '';
-				if (href.includes(cssBaseName) || href.includes('svelte')) {
-					existingLink = link as HTMLLinkElement;
-				}
-			});
-
-		if (existingLink) {
-			const capturedExisting = existingLink as HTMLLinkElement;
-			const newLink = document.createElement('link');
-			newLink.rel = 'stylesheet';
-			newLink.href = message.data.cssUrl + '?t=' + Date.now();
-			newLink.onload = function () {
-				if (capturedExisting && capturedExisting.parentNode) {
-					capturedExisting.remove();
-				}
-				console.log('[HMR] Svelte CSS updated');
-			};
-			document.head.appendChild(newLink);
-		}
-		return;
-	}
-
-	if (window.__REACT_ROOT__) {
-		window.__REACT_ROOT__ = undefined;
-	}
-
-	sessionStorage.setItem('__HMR_ACTIVE__', 'true');
-
-	if (message.data.clientModuleUrl) {
-		window.__SVELTE_PROPS__ =
-			window.__SVELTE_PROPS__ || window.__INITIAL_PROPS__ || {};
-
-		const clientModuleUrl =
-			message.data.clientModuleUrl + '?t=' + Date.now();
-		console.log('[HMR] Svelte official HMR: importing', clientModuleUrl);
-
-		import(/* @vite-ignore */ clientModuleUrl)
-			.then(function () {
-				sessionStorage.removeItem('__HMR_ACTIVE__');
-				console.log(
-					'[HMR] Svelte component updated via official HMR (state preserved)'
-				);
-			})
-			.catch(function (err: unknown) {
-				console.warn(
-					'[HMR] Svelte official HMR failed, trying fallback:',
-					err
-				);
-				performSvelteFallback(message);
-			});
-		return;
-	}
-
-	performSvelteFallback(message);
-};
-
-const performSvelteFallback = (message: {
-	data: {
-		manifest?: Record<string, string>;
-		sourceFile?: string;
-	};
-}) => {
-	try {
-		const preservedState: Record<string, unknown> = {};
-		const button = document.querySelector('button');
-		if (button) {
-			const countMatch =
-				button.textContent &&
-				button.textContent.match(/count is (\d+)/);
-			if (countMatch) {
-				preservedState.initialCount = parseInt(countMatch[1]!, 10);
-			}
-		}
-
-		window.__SVELTE_HMR_UPDATE__ = true;
-		window.__HMR_PRESERVED_STATE__ = preservedState;
-
-		const indexPath = findIndexPath(
-			message.data.manifest,
-			message.data.sourceFile,
+		console.log('[HMR] Svelte CSS-only update');
+		swapStylesheet(
+			message.data.cssUrl,
+			message.data.cssBaseName || '',
 			'svelte'
 		);
-		if (!indexPath) {
-			window.location.reload();
-			return;
-		}
-
-		const modulePath = indexPath + '?hmr=' + Date.now();
-		import(/* @vite-ignore */ modulePath)
-			.then(function () {
-				sessionStorage.removeItem('__HMR_ACTIVE__');
-				console.log('[HMR] Svelte component updated via fallback');
-			})
-			.catch(function () {
-				sessionStorage.removeItem('__HMR_ACTIVE__');
-				window.location.reload();
-			});
-	} catch {
-		sessionStorage.removeItem('__HMR_ACTIVE__');
-		window.location.reload();
+		console.log('[HMR] Svelte CSS updated');
+		return;
 	}
+
+	/* Component update: preserve state, re-import (bootstrap handles unmount + mount) */
+	console.log('[HMR] Svelte update - remounting component');
+
+	/* Save DOM state and scroll position */
+	const domState = saveDOMState(document.body);
+	const scrollState = saveScrollState();
+
+	/* Extract state from DOM (Svelte 5 $state is not externally accessible) */
+	const preservedState: Record<string, unknown> = {};
+	const countButton = document.querySelector('button');
+	if (countButton && countButton.textContent) {
+		const countMatch =
+			countButton.textContent.match(/count is (\d+)/i);
+		if (countMatch) {
+			preservedState.initialCount = parseInt(countMatch[1]!, 10);
+		}
+	}
+
+	/* Set preserved state on window + backup to sessionStorage */
+	window.__HMR_PRESERVED_STATE__ = preservedState;
+	try {
+		sessionStorage.setItem(
+			'__SVELTE_HMR_STATE__',
+			JSON.stringify(preservedState)
+		);
+	} catch (_err) {
+		/* ignore */
+	}
+	console.log(
+		'[HMR] Svelte state preserved:',
+		JSON.stringify(preservedState)
+	);
+
+	/* CSS pre-update: swap stylesheet BEFORE unmounting to prevent FOUC */
+	if (message.data.cssUrl) {
+		swapStylesheet(
+			message.data.cssUrl,
+			message.data.cssBaseName || '',
+			'svelte'
+		);
+	}
+
+	const indexPath = findIndexPath(
+		message.data.manifest,
+		message.data.sourceFile,
+		'svelte'
+	);
+	if (!indexPath) {
+		console.warn('[HMR] Svelte index path not found, reloading');
+		window.location.reload();
+		return;
+	}
+
+	const modulePath = indexPath + '?t=' + Date.now();
+	import(/* @vite-ignore */ modulePath)
+		.then(function () {
+			restoreDOMState(document.body, domState);
+			restoreScrollState(scrollState);
+			console.log('[HMR] Svelte component updated (state preserved)');
+		})
+		.catch(function (err: unknown) {
+			console.warn('[HMR] Svelte import failed, reloading:', err);
+			window.location.reload();
+		});
 };

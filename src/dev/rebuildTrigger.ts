@@ -846,10 +846,7 @@ export const triggerRebuild = async (
 								state.resolvedPaths.buildDir
 							);
 
-							// Get component info
-							const { basename, relative } = await import(
-								'node:path'
-							);
+							const { basename } = await import('node:path');
 							const { toPascal } = await import(
 								'../utils/stringModifiers'
 							);
@@ -857,30 +854,15 @@ export const triggerRebuild = async (
 							const baseName = fileName.replace(/\.svelte$/, '');
 							const pascalName = toPascal(baseName);
 
-							// Calculate HMR ID (relative path without .svelte extension, matches compileSvelte.ts)
-							const svelteRoot = config.svelteDirectory;
-							const hmrId = svelteRoot
-								? relative(svelteRoot, sveltePagePath)
-										.replace(/\\/g, '/')
-										.replace(/\.svelte$/, '')
-								: baseName;
-
-							// Get client module URL from manifest for official HMR
-							const clientKey = `${pascalName}Client`;
-							const clientModuleUrl = manifest[clientKey] || null;
-
 							// Get CSS URL from manifest
 							const cssKey = `${pascalName}CSS`;
 							const cssUrl = manifest[cssKey] || null;
 
 							logger.hmrUpdate(sveltePagePath, 'svelte');
-							// Send Svelte update with official HMR data
 							broadcastToClients(state, {
 								data: {
 									framework: 'svelte',
-									html: newHTML, // Fallback HTML if official HMR fails
-									hmrId,
-									clientModuleUrl, // Official HMR: client module to import
+									html: newHTML,
 									cssUrl,
 									cssBaseName: baseName,
 									updateType: 'full',
