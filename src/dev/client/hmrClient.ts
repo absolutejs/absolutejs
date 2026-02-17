@@ -1,9 +1,9 @@
 /* AbsoluteJS HMR Client - Entry point
    Initializes WebSocket connection, dispatches messages to framework handlers */
 
-import './types'; // Window global type extensions
+import '../../../types/client'; // Window global type extensions
 
-import { hmrState } from './types';
+import { hmrState } from '../../../types/client';
 import { detectCurrentFramework } from './frameworkDetect';
 import { handleReactUpdate } from './handlers/react';
 import { handleHTMLUpdate, handleScriptUpdate } from './handlers/html';

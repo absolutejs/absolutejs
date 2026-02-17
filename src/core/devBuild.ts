@@ -1,7 +1,7 @@
 import { statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { build } from './build';
-import type { BuildConfig } from '../types';
+import type { BuildConfig } from '../../types/build';
 import { createHMRState, type HMRState } from '../dev/clientManager';
 import { broadcastToClients } from '../dev/webSocket';
 import { buildInitialDependencyGraph } from '../dev/dependencyGraph';

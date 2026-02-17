@@ -1,5 +1,5 @@
 import { resolve } from 'node:path';
-import type { BuildConfig } from '../types';
+import type { BuildConfig } from '../../types/build';
 
 type ResolvedPaths = {
 	buildDir: string;

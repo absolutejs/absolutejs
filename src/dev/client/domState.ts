@@ -1,6 +1,6 @@
 /* DOM state snapshot/restore to preserve user-visible state across HMR */
 
-import type { DOMStateEntry, DOMStateSnapshot } from './types';
+import type { DOMStateEntry, DOMStateSnapshot } from '../../../types/client';
 
 export const saveDOMState = (root: HTMLElement) => {
 	const snapshot: DOMStateSnapshot = { activeKey: null, items: [] };

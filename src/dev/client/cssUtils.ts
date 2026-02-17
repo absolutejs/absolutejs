@@ -1,7 +1,7 @@
 /* CSS reload/preload utilities for HMR */
 
-import type { CSSUpdateResult } from './types';
-import { hmrState } from './types';
+import type { CSSUpdateResult } from '../../../types/client';
+import { hmrState } from '../../../types/client';
 
 export const getCSSBaseName = (href: string) => {
 	const fileName = href.split('?')[0]!.split('/').pop() || '';

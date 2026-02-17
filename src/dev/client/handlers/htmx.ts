@@ -12,8 +12,8 @@ import {
 import { processCSSLinks, waitForCSSAndUpdate } from '../cssUtils';
 import { patchHeadInPlace } from '../headPatch';
 import { detectCurrentFramework } from '../frameworkDetect';
-import type { ScriptInfo } from '../types';
-import { hmrState } from '../types';
+import type { ScriptInfo } from '../../../../types/client';
+import { hmrState } from '../../../../types/client';
 
 export const handleHTMXUpdate = (message: {
 	data: {

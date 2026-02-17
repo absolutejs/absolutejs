@@ -4,8 +4,8 @@ import {
 	createModuleVersionTracker,
 	type ModuleVersions
 } from './moduleVersionTracker';
-import type { HMRWebSocket } from './types/websocket';
-import type { BuildConfig } from '../types';
+import type { HMRWebSocket } from '../../types/websocket';
+import type { BuildConfig } from '../../types/build';
 import { resolveBuildPaths, type ResolvedBuildPaths } from './configResolver';
 
 /* This handles the "tracking clients" problem */

@@ -1,6 +1,6 @@
 /* AbsoluteJS Error Overlay - branded, per-framework, modern styling */
 
-import type { ErrorOverlayOptions } from './types';
+import type { ErrorOverlayOptions } from '../../../types/client';
 
 let errorOverlayElement: HTMLDivElement | null = null;
 

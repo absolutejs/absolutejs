@@ -5,7 +5,7 @@ import { generateHeadElement } from '../src/utils/generateHeadElement';
 import { ReactExample } from './react/pages/ReactExample';
 import SvelteExample from './svelte/pages/SvelteExample.svelte';
 import { vueImports } from './vueImporter';
-import { BuildConfig } from '../src/types';
+import { BuildConfig } from '../types/build';
 import { env } from 'bun';
 import {
 	asset,

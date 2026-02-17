@@ -1,4 +1,4 @@
-import { BuildConfig } from '../types';
+import { BuildConfig } from '../../types/build';
 import { normalizePath } from '../utils/normalizePath';
 import type { ResolvedBuildPaths } from './configResolver';
 

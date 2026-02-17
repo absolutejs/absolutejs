@@ -5,7 +5,7 @@ import { Component as SvelteComponent } from 'svelte';
 import { Component as VueComponent, createSSRApp, h } from 'vue';
 import { renderToWebStream as renderVueToWebStream } from 'vue/server-renderer';
 import { renderToReadableStream as renderSvelteToReadableStream } from '../svelte/renderToReadableStream';
-import { PropsArgs } from '../types';
+import { PropsArgs } from '../../types/build';
 
 export const handleReactPageRequest = async <
 	Props extends Record<string, unknown> = Record<never, never>

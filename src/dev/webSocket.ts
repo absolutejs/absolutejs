@@ -1,9 +1,9 @@
 import type { HMRState } from './clientManager';
 import { serializeModuleVersions } from './moduleVersionTracker';
-import type { HMRWebSocket } from './types/websocket';
-import { WS_READY_STATE_OPEN } from './types/websocket';
-import type { HMRClientMessage } from './types/messages';
-import { isValidHMRClientMessage } from './types/messages';
+import type { HMRWebSocket } from '../../types/websocket';
+import { WS_READY_STATE_OPEN } from '../../types/websocket';
+import type { HMRClientMessage } from '../../types/messages';
+import { isValidHMRClientMessage } from '../../types/messages';
 
 /* Magic pt. 2 - when a browser connects to our WebSocket
    We send them the current manifest so they know what files exist

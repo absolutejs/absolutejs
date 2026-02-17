@@ -18,7 +18,7 @@ import { outputLogs } from '../build/outputLogs';
 import { scanEntryPoints } from '../build/scanEntryPoints';
 import { updateAssetPaths } from '../build/updateAssetPaths';
 import { buildHMRClient } from '../dev/buildHMRClient';
-import type { BuildConfig } from '../types';
+import type { BuildConfig } from '../../types/build';
 import { cleanup } from '../utils/cleanup';
 import { commonAncestor } from '../utils/commonAncestor';
 import { getDurationString } from '../utils/getDurationString';

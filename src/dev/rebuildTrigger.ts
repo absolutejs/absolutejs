@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
 import { build } from '../core/build';
-import type { BuildConfig } from '../types';
+import type { BuildConfig } from '../../types/build';
 import { logger } from '../utils/logger';
 import type { HMRState } from './clientManager';
 import { incrementSourceFileVersions } from './clientManager';

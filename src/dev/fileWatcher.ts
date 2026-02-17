@@ -1,7 +1,7 @@
 import { watch } from 'fs';
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'path';
-import type { BuildConfig } from '../types';
+import type { BuildConfig } from '../../types/build';
 import type { HMRState } from './clientManager';
 import { addFileToGraph, removeFileFromGraph } from './dependencyGraph';
 import { getWatchPaths, shouldIgnorePath } from './pathUtils';
