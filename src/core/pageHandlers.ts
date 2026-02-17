@@ -76,7 +76,7 @@ export const handleSveltePageRequest: HandleSveltePageRequest = async <
 export const handleVuePageRequest = async <
 	Props extends Record<string, unknown> = Record<never, never>
 >(
-	_PageComponent: VueComponent<Props>,
+	pageComponent: VueComponent<Props>,
 	pagePath: string,
 	indexPath: string,
 	headTag: `<head>${string}</head>` = '<head></head>',
@@ -87,7 +87,7 @@ export const handleVuePageRequest = async <
 	const { default: ImportedPageComponent } = await import(pagePath);
 
 	const app = createSSRApp({
-		render: () => h(ImportedPageComponent, maybeProps ?? {})
+		render: () => h(ImportedPageComponent, maybeProps ?? null)
 	});
 
 	const bodyStream = renderVueToWebStream(app);

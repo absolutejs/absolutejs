@@ -1,7 +1,7 @@
 /* Simple Vue HMR Implementation
    Lightweight approach: use rebuilt files → re-render → send HTML patch */
 
-import { basename, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { toPascal } from '../utils/stringModifiers';
 
 /* Simple Vue HMR handler for server-side
@@ -32,23 +32,48 @@ export const handleVueUpdate = async (
 		const indexKey = `${pascalName}Index`;
 		const cssKey = `${pascalName}CSS`;
 
-		// Get server path from manifest (absolute path to built server bundle)
+		// Get server path from manifest (URL path like /vue/compiled/pages/VueExample.abc123.js)
 		const serverPath = manifest[componentKey];
 
 		if (!serverPath) {
+			console.warn(
+				'[Vue HMR] Server path not found in manifest for:',
+				componentKey
+			);
+			console.warn(
+				'[Vue HMR] Available manifest keys:',
+				Object.keys(manifest).join(', ')
+			);
 			return null;
 		}
 
+		// Manifest stores absolute paths for Vue server bundles (artifact.path)
+		// Use directly if absolute; otherwise join with buildDir for relative paths
+		const absoluteServerPath =
+			resolve(serverPath) === serverPath ||
+			serverPath.startsWith('/') ||
+			/^[A-Za-z]:[\\/]/.test(serverPath)
+				? serverPath
+				: join(buildDir || process.cwd(), serverPath.replace(/^\//, ''));
+
 		const cacheBuster = `?t=${Date.now()}`;
-		const serverModule = await import(`${serverPath}${cacheBuster}`);
+		const serverModule = await import(`${absoluteServerPath}${cacheBuster}`);
 
 		if (!serverModule || !serverModule.default) {
+			console.warn(
+				'[Vue HMR] Module has no default export:',
+				absoluteServerPath
+			);
 			return null;
 		}
 
 		const indexPath = manifest[indexKey];
 
 		if (!indexPath) {
+			console.warn(
+				'[Vue HMR] Index path not found in manifest for:',
+				indexKey
+			);
 			return null;
 		}
 
@@ -80,7 +105,8 @@ export const handleVueUpdate = async (
 		}
 
 		return html;
-	} catch {
+	} catch (err) {
+		console.error('[Vue HMR] Error in handleVueUpdate:', err);
 		return null;
 	}
 };

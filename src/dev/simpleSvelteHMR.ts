@@ -1,7 +1,7 @@
 /* Simple Svelte HMR Implementation
    Lightweight approach: use rebuilt files → re-render → send HTML patch */
 
-import { basename, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { toPascal } from '../utils/stringModifiers';
 
 /* Simple Svelte HMR handler for server-side
@@ -32,23 +32,47 @@ export const handleSvelteUpdate = async (
 		const indexKey = `${pascalName}Index`;
 		const cssKey = `${pascalName}CSS`;
 
-		// Get server path from manifest (absolute path to built server bundle)
+		// Get server path from manifest (URL path like /svelte/compiled/pages/SvelteExample.abc123.js)
 		const serverPath = manifest[componentKey];
 
 		if (!serverPath) {
+			console.warn(
+				'[Svelte HMR] Server path not found in manifest for:',
+				componentKey
+			);
+			console.warn(
+				'[Svelte HMR] Available manifest keys:',
+				Object.keys(manifest).join(', ')
+			);
 			return null;
 		}
 
+		// Convert URL path to absolute filesystem path
+		// Manifest stores paths like "/svelte/compiled/pages/SvelteExample.abc123.js"
+		const projectRoot = buildDir || process.cwd();
+		const absoluteServerPath = join(
+			projectRoot,
+			serverPath.replace(/^\//, '')
+		);
+
 		const cacheBuster = `?t=${Date.now()}`;
-		const serverModule = await import(`${serverPath}${cacheBuster}`);
+		const serverModule = await import(`${absoluteServerPath}${cacheBuster}`);
 
 		if (!serverModule || !serverModule.default) {
+			console.warn(
+				'[Svelte HMR] Module has no default export:',
+				absoluteServerPath
+			);
 			return null;
 		}
 
 		const indexPath = manifest[indexKey];
 
 		if (!indexPath) {
+			console.warn(
+				'[Svelte HMR] Index path not found in manifest for:',
+				indexKey
+			);
 			return null;
 		}
 
@@ -78,7 +102,8 @@ export const handleSvelteUpdate = async (
 		}
 
 		return html;
-	} catch {
+	} catch (err) {
+		console.error('[Svelte HMR] Error in handleSvelteUpdate:', err);
 		return null;
 	}
 };

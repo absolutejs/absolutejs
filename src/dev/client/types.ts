@@ -91,7 +91,22 @@ declare global {
 		};
 		__SVELTE_HMR_UPDATE__?: boolean;
 		__SVELTE_PROPS__?: Record<string, unknown>;
-		__VUE_APP__?: { unmount: () => void } | null;
+		__VUE_APP__?:
+			| ({
+					unmount: () => void;
+					_instance?: {
+						setupState?: Record<string, unknown>;
+						subTree?: {
+							children?: unknown[];
+							component?: {
+								setupState?: Record<string, unknown>;
+								subTree?: unknown;
+							};
+						};
+					};
+			  } & Record<string, unknown>)
+			| null;
+		__VUE_HMR_COMPONENTS__?: Record<string, unknown>;
 		htmx?: { process: (element: HTMLElement | Document) => void };
 	}
 }

@@ -651,7 +651,7 @@ export const triggerRebuild = async (
 							? vuePageFiles
 							: vueComponentFiles;
 
-					// For CSS-only changes, we still need to trigger an update but with CSS info
+					// For CSS-only changes (no .vue files changed), send CSS-only update
 					if (isCssOnlyChange && vueCssFiles.length > 0) {
 						const { basename } = await import('node:path');
 						const { toPascal } = await import(
@@ -685,16 +685,6 @@ export const triggerRebuild = async (
 					// Process each affected Vue page
 					for (const vuePagePath of pagesToUpdate) {
 						try {
-							const { handleVueUpdate } = await import(
-								'./simpleVueHMR'
-							);
-							const newHTML = await handleVueUpdate(
-								vuePagePath,
-								manifest,
-								state.resolvedPaths.buildDir
-							);
-
-							// Generate HMR ID from source file path (matches compileVue.ts format)
 							const { basename, relative } = await import(
 								'node:path'
 							);
@@ -717,14 +707,56 @@ export const triggerRebuild = async (
 							const cssKey = `${pascalName}CSS`;
 							const cssUrl = manifest[cssKey] || null;
 
+							// Get change type from vueHmrMetadata (populated during compile)
+							// Enables native Vue HMR: rerender() for template-only, reload() for script
+							// style-only changes get CSS hot-swap (state preserved!)
+							const { vueHmrMetadata } = await import(
+								'../build/compileVue'
+							);
+							const hmrMeta = vueHmrMetadata.get(
+								resolve(vuePagePath)
+							);
+							const changeType = hmrMeta?.changeType ?? 'full';
+
+							// Check for style-only change - send CSS-only update (preserves state!)
+							if (changeType === 'style-only') {
+								logger.cssUpdate(vuePagePath, 'vue');
+								broadcastToClients(state, {
+									data: {
+										framework: 'vue',
+										updateType: 'css-only',
+										changeType: 'style-only',
+										cssUrl,
+										cssBaseName: baseName,
+										hmrId,
+										manifest,
+										sourceFile: vuePagePath
+									},
+									type: 'vue-update'
+								});
+								continue;
+							}
+
+							const { handleVueUpdate } = await import(
+								'./simpleVueHMR'
+							);
+							const newHTML = await handleVueUpdate(
+								vuePagePath,
+								manifest,
+								state.resolvedPaths.buildDir
+							);
+
+							const componentPath =
+								manifest[`${pascalName}Client`] || null;
+
 							logger.hmrUpdate(vuePagePath, 'vue');
-							// Send HMR update - uses HTML patching + remount approach
-							// (Vue's official HMR API doesn't work with Bun's bundler)
 							broadcastToClients(state, {
 								data: {
 									framework: 'vue',
 									html: newHTML,
 									hmrId,
+									changeType,
+									componentPath,
 									cssUrl,
 									updateType: 'full',
 									manifest,
