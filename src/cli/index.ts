@@ -57,7 +57,7 @@ const dev = async (serverEntry: string) => {
 			cwd: process.cwd(),
 			env: {
 				...process.env,
-				ABSOLUTEJS_SERVER_ENTRY: resolve(process.cwd(), serverEntry)
+				NODE_ENV: 'development'
 			},
 			stdin: 'inherit',
 			stdout: 'inherit',

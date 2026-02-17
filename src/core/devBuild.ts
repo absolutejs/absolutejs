@@ -20,13 +20,7 @@ export const devBuild = async (config: BuildConfig) => {
 		  }
 		| undefined;
 	if (cached) {
-		// Use explicit server entry path from CLI when available; else Bun.main
-		const serverEntryPath =
-			process.env.ABSOLUTEJS_SERVER_ENTRY ||
-			(typeof Bun !== 'undefined' && Bun.main);
-		const serverMtime = serverEntryPath
-			? statSync(resolve(serverEntryPath)).mtimeMs
-			: 0;
+		const serverMtime = statSync(resolve(Bun.main)).mtimeMs;
 		const lastMtime = (globalThis as Record<string, unknown>)
 			.__hmrServerMtime as number;
 		(globalThis as Record<string, unknown>).__hmrServerMtime = serverMtime;
@@ -88,12 +82,9 @@ export const devBuild = async (config: BuildConfig) => {
 
 	// Cache for Bun --hot reloads
 	(globalThis as Record<string, unknown>).__hmrDevResult = result;
-	const serverEntryPath =
-		process.env.ABSOLUTEJS_SERVER_ENTRY ||
-		(typeof Bun !== 'undefined' && Bun.main);
-	(globalThis as Record<string, unknown>).__hmrServerMtime = serverEntryPath
-		? statSync(resolve(serverEntryPath)).mtimeMs
-		: 0;
+	(globalThis as Record<string, unknown>).__hmrServerMtime = statSync(
+		resolve(Bun.main)
+	).mtimeMs;
 
 	return result;
 };
