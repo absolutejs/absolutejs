@@ -50,7 +50,7 @@ export const hmr = (hmrState: HMRState, manifest: Record<string, string>) => {
 
 				const bytes = lookupAsset(hmrState.assetStore, pathname);
 				if (bytes) {
-					return new Response(bytes, {
+					return new Response(new Uint8Array(bytes).buffer, {
 						headers: {
 							'Cache-Control':
 								'public, max-age=31536000, immutable',
