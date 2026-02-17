@@ -359,7 +359,10 @@ export const build = async ({
 
 	// In dev, add the _refresh entry to force React into a shared chunk
 	// so HMR can re-import component entries without duplicating React.
-	if (isDev && reactIndexesPath) {
+	// Only add when React entries exist (i.e. React files actually changed
+	// or this is a full build) to avoid producing stale React outputs
+	// during non-React incremental rebuilds.
+	if (isDev && reactIndexesPath && reactClientEntryPoints.length > 0) {
 		const refreshEntry = join(reactIndexesPath, '_refresh.tsx');
 		if (!reactClientEntryPoints.includes(refreshEntry)) {
 			reactClientEntryPoints.push(refreshEntry);

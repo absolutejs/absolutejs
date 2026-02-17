@@ -171,6 +171,14 @@ var isHMR = typeof window !== "undefined" && window.__SVELTE_COMPONENT__ !== und
 var component;
 
 if (isHMR) {
+  var headLinks = document.querySelectorAll('link[rel="stylesheet"]');
+  var preservedLinks = [];
+  headLinks.forEach(function(link) {
+    var clone = link.cloneNode(true);
+    clone.setAttribute("data-hmr-preserve", "true");
+    document.head.appendChild(clone);
+    preservedLinks.push(clone);
+  });
   if (typeof window.__SVELTE_UNMOUNT__ === "function") {
     try { window.__SVELTE_UNMOUNT__(); } catch (err) { console.warn("[HMR] unmount error:", err); }
   }
@@ -183,6 +191,9 @@ if (isHMR) {
   }
   var mergedProps = preservedState ? Object.assign({}, initialProps, preservedState) : initialProps;
   component = mount(Component, { target: document.body, props: mergedProps });
+  requestAnimationFrame(function() {
+    preservedLinks.forEach(function(link) { link.remove(); });
+  });
   window.__HMR_PRESERVED_STATE__ = undefined;
 } else {
   component = hydrate(Component, { target: document.body, props: initialProps });

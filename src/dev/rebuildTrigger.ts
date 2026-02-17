@@ -15,6 +15,7 @@ import {
 	incrementModuleVersions,
 	serializeModuleVersions
 } from './moduleVersionTracker';
+import { cleanStaleAssets, populateAssetStore } from './assetStore';
 import { detectFramework } from './pathUtils';
 import type { ResolvedBuildPaths } from './configResolver';
 import { broadcastToClients } from './webSocket';
@@ -1084,6 +1085,22 @@ export const triggerRebuild = async (
 
 		// Call the callback with the new build result
 		onRebuildComplete({ manifest, hmrState: state });
+
+		// Refresh in-memory asset store and clean stale files AFTER all
+		// broadcasts are sent. This must come last because populateAssetStore
+		// is async — if it runs before broadcasts, Bun --hot can restart
+		// the server in the gap, dropping WebSocket clients before they
+		// receive the HMR update.
+		await populateAssetStore(
+			state.assetStore,
+			manifest,
+			state.resolvedPaths.buildDir
+		);
+		await cleanStaleAssets(
+			state.assetStore,
+			manifest,
+			state.resolvedPaths.buildDir
+		);
 
 		return manifest;
 	} catch (error) {

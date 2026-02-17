@@ -1,5 +1,6 @@
 import Elysia from 'elysia';
 import { HMRState } from '../dev/clientManager';
+import { getMimeType, lookupAsset } from '../dev/assetStore';
 import {
 	handleClientConnect,
 	handleClientDisconnect,
@@ -36,6 +37,28 @@ export const hmr = (hmrState: HMRState, manifest: Record<string, string>) => {
 		restoreStore(app);
 
 		return app
+			.onBeforeHandle(({ request }) => {
+				/* Fast path: only parse URL for requests that could be assets.
+				   Asset paths always start with / and contain a dot (extension).
+				   Skip API routes, WebSocket upgrades, and page navigations. */
+				const rawUrl = request.url;
+				const qIdx = rawUrl.indexOf('?');
+				const pathEnd = qIdx === -1 ? rawUrl.length : qIdx;
+				/* URL is absolute (http://host/path), find the path portion */
+				const pathStart = rawUrl.indexOf('/', rawUrl.indexOf('//') + 2);
+				const pathname = rawUrl.slice(pathStart, pathEnd);
+
+				const bytes = lookupAsset(hmrState.assetStore, pathname);
+				if (bytes) {
+					return new Response(bytes, {
+						headers: {
+							'Cache-Control':
+								'public, max-age=31536000, immutable',
+							'Content-Type': getMimeType(pathname)
+						}
+					});
+				}
+			})
 			.ws('/hmr', {
 				close: (ws) => handleClientDisconnect(hmrState, ws),
 				message: (ws, msg) => handleHMRMessage(hmrState, ws, msg),

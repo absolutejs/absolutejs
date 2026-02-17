@@ -7,6 +7,7 @@ import { broadcastToClients } from '../dev/webSocket';
 import { buildInitialDependencyGraph } from '../dev/dependencyGraph';
 import { startFileWatching } from '../dev/fileWatcher';
 import { getWatchPaths } from '../dev/pathUtils';
+import { cleanStaleAssets, populateAssetStore } from '../dev/assetStore';
 import { queueFileChange } from '../dev/rebuildTrigger';
 
 /* Development mode function - replaces build() during development
@@ -60,6 +61,18 @@ export const devBuild = async (config: BuildConfig) => {
 			'⚠️ Manifest is empty - this is OK for HTML/HTMX-only projects'
 		);
 	}
+
+	// Populate in-memory asset store so client assets are served from memory
+	await populateAssetStore(
+		state.assetStore,
+		manifest ?? {},
+		state.resolvedPaths.buildDir
+	);
+	await cleanStaleAssets(
+		state.assetStore,
+		manifest ?? {},
+		state.resolvedPaths.buildDir
+	);
 
 	console.log('✅ Build completed successfully');
 
