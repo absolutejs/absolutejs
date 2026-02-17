@@ -5,20 +5,20 @@ import { Component as SvelteComponent } from 'svelte';
 import { Component as VueComponent, createSSRApp, h } from 'vue';
 import { renderToWebStream as renderVueToWebStream } from 'vue/server-renderer';
 import { renderToReadableStream as renderSvelteToReadableStream } from '../svelte/renderToReadableStream';
-import { PropsArgs } from '../types';
+import { PropsArgs } from '../../types/build';
 
 export const handleReactPageRequest = async <
 	Props extends Record<string, unknown> = Record<never, never>
 >(
-	pageComponent: ReactComponent<Props>,
+	PageComponent: ReactComponent<Props>,
 	index: string,
 	...props: keyof Props extends never ? [] : [props: Props]
 ) => {
 	const [maybeProps] = props;
 	const element =
 		maybeProps !== undefined
-			? createElement(pageComponent, maybeProps)
-			: createElement(pageComponent);
+			? createElement(PageComponent, maybeProps)
+			: createElement(PageComponent);
 
 	const stream = await renderReactToReadableStream(element, {
 		bootstrapModules: [index],
@@ -32,7 +32,7 @@ export const handleReactPageRequest = async <
 	});
 };
 
-// Declare overloads matching Svelte’s own component API to preserve correct type inference
+// Declare overloads matching Svelte's own component API to preserve correct type inference
 type HandleSveltePageRequest = {
 	(
 		PageComponent: SvelteComponent<Record<string, never>>,
@@ -87,7 +87,7 @@ export const handleVuePageRequest = async <
 	const { default: ImportedPageComponent } = await import(pagePath);
 
 	const app = createSSRApp({
-		render: () => h(ImportedPageComponent, maybeProps ?? {})
+		render: () => h(ImportedPageComponent, maybeProps ?? null)
 	});
 
 	const bodyStream = renderVueToWebStream(app);
@@ -120,8 +120,9 @@ export const handleVuePageRequest = async <
 	});
 };
 
-export const handleHTMLPageRequest = (html: string) => file(html);
-export const handleHTMXPageRequest = (htmx: string) => file(htmx);
+export const handleHTMLPageRequest = (pagePath: string) => file(pagePath);
+
+export const handleHTMXPageRequest = (pagePath: string) => file(pagePath);
 
 export const handlePageRequest = <Component>(
 	PageComponent: Component,

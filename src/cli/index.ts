@@ -52,23 +52,30 @@ const dev = async (serverEntry: string) => {
 
 	if (scripts) await startDatabase(scripts);
 
-	const server = Bun.spawn(['bun', '--watch', serverEntry], {
-		stdin: 'inherit',
-		stdout: 'inherit',
-		stderr: 'inherit'
-	});
+	const spawnServer = () =>
+		Bun.spawn(['bun', '--hot', serverEntry], {
+			cwd: process.cwd(),
+			env: {
+				...process.env,
+				NODE_ENV: 'development'
+			},
+			stdin: 'inherit',
+			stdout: 'inherit',
+			stderr: 'inherit'
+		});
 
+	let serverProcess = spawnServer();
 	let cleaning = false;
 
 	const cleanup = async (exitCode = 0) => {
 		if (cleaning) return;
 		cleaning = true;
 		try {
-			server.kill();
-		} catch (err) {
-			console.error('Failed to kill server process:', err);
+			serverProcess.kill();
+		} catch {
+			/* process already exited */
 		}
-		await server.exited;
+		await serverProcess.exited;
 		if (scripts) await stopDatabase(scripts);
 		process.exit(exitCode);
 	};
@@ -76,8 +83,24 @@ const dev = async (serverEntry: string) => {
 	process.on('SIGINT', () => cleanup(0));
 	process.on('SIGTERM', () => cleanup(0));
 
-	await server.exited;
-	await cleanup(0);
+	const monitorServer = async () => {
+		while (!cleaning) {
+			const exitCode = await serverProcess.exited;
+			if (cleaning) continue;
+			// Exit codes 130 (SIGINT) and 143 (SIGTERM) mean the child was
+			// killed by a signal — treat as intentional shutdown, not a crash.
+			if (exitCode === 130 || exitCode === 143) {
+				await cleanup(0);
+				return;
+			}
+			console.error(
+				`\x1b[31m[cli] Server exited (code ${exitCode}), restarting...\x1b[0m`
+			);
+			serverProcess = spawnServer();
+		}
+	};
+
+	await monitorServer();
 };
 
 const command = process.argv[2];

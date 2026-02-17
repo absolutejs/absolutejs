@@ -1,10 +1,21 @@
 import { mkdir, rm, writeFile } from 'fs/promises';
-import { basename, join } from 'path';
+import { basename, join, resolve } from 'path';
 import { Glob } from 'bun';
+
+const hmrClientPath = resolve(
+	import.meta.dir,
+	'../dev/client/hmrClient.ts'
+).replace(/\\/g, '/');
+
+const refreshSetupPath = resolve(
+	import.meta.dir,
+	'../dev/client/reactRefreshSetup.ts'
+).replace(/\\/g, '/');
 
 export const generateReactIndexFiles = async (
 	reactPagesDirectory: string,
-	reactIndexesDirectory: string
+	reactIndexesDirectory: string,
+	isDev = false
 ) => {
 	await rm(reactIndexesDirectory, { force: true, recursive: true });
 	await mkdir(reactIndexesDirectory);
@@ -17,17 +28,206 @@ export const generateReactIndexFiles = async (
 	const promises = files.map(async (file) => {
 		const fileName = basename(file);
 		const [componentName] = fileName.split('.');
+
+		const hmrPreamble = isDev
+			? [
+					`window.__HMR_FRAMEWORK__ = "react";`,
+					`window.__REACT_COMPONENT_KEY__ = "${componentName}Index";`,
+					`import '${refreshSetupPath}';`,
+					`import '${hmrClientPath}';\n`
+				]
+			: [];
+
 		const content = [
-			`import { hydrateRoot } from 'react-dom/client';`,
+			...hmrPreamble,
+			`import { hydrateRoot, createRoot } from 'react-dom/client';`,
+			`import { createElement } from 'react';`,
 			`import type { ComponentType } from 'react'`,
 			`import { ${componentName} } from '../pages/${componentName}';\n`,
 			`type PropsOf<C> = C extends ComponentType<infer P> ? P : never;\n`,
 			`declare global {`,
 			`\tinterface Window {`,
-			`\t\t__INITIAL_PROPS__: PropsOf<typeof ${componentName}>`,
+			`\t\t__INITIAL_PROPS__?: PropsOf<typeof ${componentName}>`,
+			`\t\t__REACT_ROOT__?: ReturnType<typeof hydrateRoot | typeof createRoot>`,
+			`\t\t__HMR_CLIENT_ONLY_MODE__?: boolean`,
 			`\t}`,
 			`}\n`,
-			`hydrateRoot(document, <${componentName} {...window.__INITIAL_PROPS__} />);`
+			`// Hydration with error handling and fallback`,
+			`const isDev = ${isDev};`,
+			`const componentPath = '../pages/${componentName}';\n`,
+			`function isHydrationError(error) {`,
+			`\tif (!error) return false;`,
+			`\tconst errorMessage = error instanceof Error ? error.message : String(error);`,
+			`\tconst errorString = String(error);`,
+			`\tconst fullMessage = errorMessage + ' ' + errorString;`,
+			`\tconst hydrationKeywords = ['hydration', 'Hydration', 'mismatch', 'Mismatch', 'did not match', 'server rendered HTML', 'server HTML', 'client HTML', 'Hydration failed'];`,
+			`\tconst isHydration = hydrationKeywords.some(keyword => fullMessage.includes(keyword));`,
+			`\t`,
+			`\t// Ignore whitespace-only mismatches in <head> - these are harmless formatting differences`,
+			`\t// The error often shows: + <link...> vs - {"\\n            "} which is just formatting`,
+			`\tif (isHydration) {`,
+			`\t\t// Check if this is a head/link/stylesheet related mismatch`,
+			`\t\tconst isHeadRelated = fullMessage.includes('<head') || fullMessage.includes('</head>') || fullMessage.includes('head>') || fullMessage.includes('<link') || fullMessage.includes('link>') || fullMessage.includes('stylesheet') || fullMessage.includes('fonts.googleapis') || fullMessage.includes('rel="stylesheet"');`,
+			`\t\t`,
+			`\t\t// Check if the mismatch involves only whitespace/newlines`,
+			`\t\t// Pattern: looks for {"\\n"} or {"\\n            "} or similar whitespace-only content`,
+			`\t\t// Also check for patterns like: - {"\\n            "} or + <link...>`,
+			`\t\tconst hasWhitespacePattern = /\\{\\s*["']\\\\n[^"']*["']\\s*\\}/.test(fullMessage) || /\\{\\s*["'][\\\\n\\\\r\\\\s]+["']\\s*\\}/.test(fullMessage) || /-\\s*\\{\\s*["'][\\\\n\\\\r\\\\s]+["']\\s*\\}/.test(fullMessage);`,
+			`\t\tconst isWhitespaceOnly = /^[\\s\\n\\r]*$/.test(errorString) || /^[\\s\\n\\r]*$/.test(errorMessage);`,
+			`\t\tconst hasNewlinePattern = fullMessage.includes('\\\\n') || fullMessage.includes('\\\\r') || fullMessage.includes('\\n') || fullMessage.includes('\\r');`,
+			`\t\t`,
+			`\t\t// If it's head-related and involves whitespace/newlines, ignore it`,
+			`\t\tif (isHeadRelated && (hasWhitespacePattern || isWhitespaceOnly || hasNewlinePattern)) {`,
+			`\t\t\treturn false; // Don't treat whitespace-only head mismatches as errors`,
+			`\t\t}`,
+			`\t}`,
+			`\treturn isHydration;`,
+			`}\n`,
+			`function logHydrationError(error, componentName) {`,
+			`\tif (!isDev) return;`,
+			`\tif (window.__HMR_WS__ && window.__HMR_WS__.readyState === WebSocket.OPEN) {`,
+			`\t\ttry {`,
+			`\t\t\twindow.__HMR_WS__.send(JSON.stringify({`,
+			`\t\t\t\ttype: 'hydration-error',`,
+			`\t\t\t\tdata: {`,
+			`\t\t\t\t\tcomponentName: '${componentName}',`,
+			`\t\t\t\t\tcomponentPath: componentPath,`,
+			`\t\t\t\t\terror: error instanceof Error ? error.message : String(error),`,
+			`\t\t\t\t\ttimestamp: Date.now()`,
+			`\t\t\t\t}`,
+			`\t\t\t}));`,
+			`\t\t} catch (err) {}`,
+			`\t}`,
+			`}\n`,
+			`// Track if we've already switched to client-only mode`,
+			`let hasSwitchedToClientOnly = false;`,
+			`let hydrationErrorDetected = false;\n`,
+			`function handleHydrationFallback(error) {`,
+			`\tif (hasSwitchedToClientOnly) return; // Already handled`,
+			`\thasSwitchedToClientOnly = true;`,
+			`\thydrationErrorDetected = true;\n`,
+			`\tlogHydrationError(error, '${componentName}');\n`,
+			`\t// Fallback: client-only render (no hydration)`,
+			`\ttry {`,
+			`\t\t// Unmount existing root if it exists`,
+			`\t\tif (window.__REACT_ROOT__ && typeof window.__REACT_ROOT__.unmount === 'function') {`,
+			`\t\t\ttry {`,
+			`\t\t\twindow.__REACT_ROOT__.unmount();`,
+			`\t\t\t} catch (e) {`,
+			`\t\t\t\t// Ignore unmount errors`,
+			`\t\t\t}`,
+			`\t\t}\n`,
+			`\t\t// Render into the same root container when falling back to client-only`,
+			`\t\tconst root = createRoot(container);`,
+			`\t\troot.render(createElement(${componentName}, mergedProps));`,
+			`\t\twindow.__REACT_ROOT__ = root;`,
+			`\t\twindow.__HMR_CLIENT_ONLY_MODE__ = true;`,
+			`\t} catch (fallbackError) {`,
+			`\t\twindow.location.reload();`,
+			`\t}`,
+			`}\n`,
+			`// HMR State Preservation: Check for preserved state and merge with initial props`,
+			`// This allows state to be preserved across HMR updates without modifying component files`,
+			`let preservedState = (typeof window !== 'undefined' && window.__HMR_PRESERVED_STATE__) ? window.__HMR_PRESERVED_STATE__ : {};\n`,
+			`// Also check sessionStorage for state that survived a page reload (for React HMR)`,
+			`if (typeof window !== 'undefined' && typeof sessionStorage !== 'undefined') {`,
+			`\tconst hmrStateJson = sessionStorage.getItem('__REACT_HMR_STATE__');`,
+			`\tif (hmrStateJson) {`,
+			`\t\ttry {`,
+			`\t\t\tconst hmrState = JSON.parse(hmrStateJson);`,
+			`\t\t\tpreservedState = { ...preservedState, ...hmrState };`,
+			`\t\t\tsessionStorage.removeItem('__REACT_HMR_STATE__');`,
+			`\t\t} catch (e) {}`,
+			`\t}`,
+			`}\n`,
+			`const mergedProps = { ...(window.__INITIAL_PROPS__ || {}), ...preservedState };`,
+			`// Clear preserved state after using it (so it doesn't persist across multiple updates)`,
+			`if (typeof window !== 'undefined') {`,
+			`\twindow.__HMR_PRESERVED_STATE__ = undefined;`,
+			`}\n`,
+			`// Attempt hydration with error handling`,
+			`// Use document (not document.body) when the page renders <html><head><body>`,
+			`// to avoid "In HTML, <html> cannot be a child of <body>" hydration error`,
+			`const container = typeof document !== 'undefined' ? document : null;`,
+			`if (!container) {`,
+			`\tthrow new Error('React root container not found: document is null');`,
+			`}\n`,
+			`// Guard: only hydrate on first load. During HMR re-imports, skip hydration`,
+			`// so React Fast Refresh can swap components in-place and preserve state.`,
+			`if (!window.__REACT_ROOT__) {`,
+			`\tlet root;`,
+			`\ttry {`,
+			`\t\t// Use onRecoverableError to catch hydration errors (React 19)`,
+			`\t\troot = hydrateRoot(`,
+			`\t\t\tcontainer,`,
+			`\t\t\tcreateElement(${componentName}, mergedProps),`,
+			`\t\t\t{`,
+			`\t\t\t\tonRecoverableError: (error) => {`,
+			`\t\t\t\t\t// Check if this is a hydration error (isHydrationError filters out whitespace-only head mismatches)`,
+			`\t\t\t\t\tif (isDev && isHydrationError(error)) {`,
+			`\t\t\t\t\t\t// Real hydration error - handle it`,
+			`\t\t\t\t\t\thandleHydrationFallback(error);`,
+			`\t\t\t\t\t} else {`,
+			`\t\t\t\t\t\t// Not a hydration error, or it's a whitespace-only mismatch that was filtered out`,
+			`\t\t\t\t\t\t// Check if it's a whitespace-only head mismatch using the same logic as isHydrationError`,
+			`\t\t\t\t\t\tconst errorMessage = error instanceof Error ? error.message : String(error);`,
+			`\t\t\t\t\t\tconst errorString = String(error);`,
+			`\t\t\t\t\t\tconst fullMessage = errorMessage + ' ' + errorString;`,
+			`\t\t\t\t\t\tconst hydrationKeywords = ['hydration', 'Hydration', 'mismatch', 'Mismatch', 'did not match', 'server rendered HTML', 'server HTML', 'client HTML', 'Hydration failed'];`,
+			`\t\t\t\t\t\tconst isHydration = hydrationKeywords.some(keyword => fullMessage.includes(keyword));`,
+			`\t\t\t\t\t\tif (isHydration) {`,
+			`\t\t\t\t\t\t\t// Check if this is a head/link/stylesheet related mismatch`,
+			`\t\t\t\t\t\t\tconst isHeadRelated = fullMessage.includes('<head') || fullMessage.includes('</head>') || fullMessage.includes('head>') || fullMessage.includes('<link') || fullMessage.includes('link>') || fullMessage.includes('stylesheet') || fullMessage.includes('fonts.googleapis') || fullMessage.includes('rel="stylesheet"');`,
+			`\t\t\t\t\t\t\t// Check if the mismatch involves only whitespace/newlines`,
+			`\t\t\t\t\t\t\tconst hasWhitespacePattern = /\\{\\s*["']\\\\n[^"']*["']\\s*\\}/.test(fullMessage) || /\\{\\s*["'][\\\\n\\\\r\\\\s]+["']\\s*\\}/.test(fullMessage) || /-\\s*\\{\\s*["'][\\\\n\\\\r\\\\s]+["']\\s*\\}/.test(fullMessage);`,
+			`\t\t\t\t\t\t\tconst isWhitespaceOnly = /^[\\s\\n\\r]*$/.test(errorString) || /^[\\s\\n\\r]*$/.test(errorMessage);`,
+			`\t\t\t\t\t\t\tconst hasNewlinePattern = fullMessage.includes('\\\\n') || fullMessage.includes('\\\\r') || fullMessage.includes('\\n') || fullMessage.includes('\\r');`,
+			`\t\t\t\t\t\t\t// If it's head-related and involves whitespace/newlines, silently ignore it`,
+			`\t\t\t\t\t\t\tif (isHeadRelated && (hasWhitespacePattern || isWhitespaceOnly || hasNewlinePattern)) {`,
+			`\t\t\t\t\t\t\t\t// Already logged by isHydrationError, just return silently`,
+			`\t\t\t\t\t\t\t\treturn;`,
+			`\t\t\t\t\t\t\t}`,
+			`\t\t\t\t\t\t}`,
+			`\t\t\t\t\t\t// Log other recoverable errors`,
+			`\t\t\t\t\t\tconsole.error('React recoverable error:', error);`,
+			`\t\t\t\t\t}`,
+			`\t\t\t\t}`,
+			`\t\t\t}`,
+			`\t\t);`,
+			`\t\twindow.__REACT_ROOT__ = root;`,
+			`\t} catch (error) {`,
+			`\t\t// Catch synchronous errors (shouldn't happen with hydrateRoot, but safety net)`,
+			`\t\tif (isDev && isHydrationError(error)) {`,
+			`\t\t\thandleHydrationFallback(error);`,
+			`\t\t} else {`,
+			`\t\t\tthrow error;`,
+			`\t\t}`,
+			`\t}\n`,
+			`\t// Also listen for hydration errors via console.error (React logs them there)`,
+			`\tif (isDev) {`,
+			`\t\tconst originalError = console.error;`,
+			`\t\tconsole.error = function(...args) {`,
+			`\t\t\tconst errorMessage = args.map(arg => {`,
+			`\t\t\t\tif (arg instanceof Error) return arg.message;`,
+			`\t\t\t\treturn String(arg);`,
+			`\t\t\t}).join(' ');`,
+			`\t\t\t`,
+			`\t\t\t// Check if this is a hydration error`,
+			`\t\t\tif (isHydrationError({ message: errorMessage }) && !hydrationErrorDetected) {`,
+			`\t\t\t\thydrationErrorDetected = true;`,
+			`\t\t\t\t// Create a synthetic error for fallback`,
+			`\t\t\t\tconst syntheticError = new Error(errorMessage);`,
+			`\t\t\t\t// Use setTimeout to ensure this happens after React's error handling`,
+			`\t\t\t\tsetTimeout(() => {`,
+			`\t\t\t\t\thandleHydrationFallback(syntheticError);`,
+			`\t\t\t\t}, 0);`,
+			`\t\t\t}`,
+			`\t\t\t`,
+			`\t\t\t// Call original console.error`,
+			`\t\t\toriginalError.apply(console, args);`,
+			`\t\t};`,
+			`\t}`,
+			`}`
 		].join('\n');
 
 		return writeFile(
@@ -36,4 +236,14 @@ export const generateReactIndexFiles = async (
 		);
 	});
 	await Promise.all(promises);
+
+	// Generate a dummy entry that imports React so code splitting extracts
+	// React into a shared chunk. This lets HMR re-import component entries
+	// without creating a duplicate React instance.
+	if (isDev) {
+		await writeFile(
+			join(reactIndexesDirectory, '_refresh.tsx'),
+			`import 'react';\nimport 'react-dom/client';\n`
+		);
+	}
 };

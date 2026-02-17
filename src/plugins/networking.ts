@@ -23,7 +23,6 @@ export const networking = (app: Elysia) =>
 			port: port
 		},
 		() => {
-			//TODO: I dont think this works properly
 			if (hostFlag) {
 				console.log(`Server started on http://localhost:${port}`);
 				console.log(

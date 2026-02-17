@@ -4,6 +4,11 @@ import { Component as VueComponent } from 'vue';
 
 export type BuildOptions = {
 	preserveIntermediateFiles?: boolean;
+	/** When true, build() throws on error instead of exit(1) - used by HMR rebuilds */
+	throwOnError?: boolean;
+	hmr?: {
+		debounceMs?: number;
+	};
 };
 
 export type BuildConfig = {
@@ -22,6 +27,9 @@ export type BuildConfig = {
 		output: string;
 	};
 	options?: BuildOptions;
+	// Optional: List of files to rebuild incrementally (absolute paths)
+	// When provided, only these files and their dependencies will be rebuilt
+	incrementalFiles?: string[];
 };
 
 export type PropsOf<Component> =

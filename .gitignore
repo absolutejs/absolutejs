@@ -49,4 +49,9 @@ example/angular/compiled/
 example/vue/compiled/
 example/svelte/compiled/
 
+# HMR temporary files
+.hmr-temp/
+docs/
+
+CLAUDE.md
 /.claude

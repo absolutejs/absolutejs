@@ -26,5 +26,5 @@
 		"useDefineForClassFields": false
 	},
 	"exclude": ["node_modules", "example/build"],
-	"include": ["src/**/*", "example/**/*"]
+	"include": ["src/**/*", "types/**/*", "example/**/*"]
 }

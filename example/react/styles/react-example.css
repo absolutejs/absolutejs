@@ -38,6 +38,14 @@ h1 {
 	margin-top: 2rem;
 }
 
+body > main {
+	margin-top: 2rem;
+}
+
+body {
+	flex: 1;
+}
+
 .logo {
 	height: 8rem;
 	width: 8rem;
