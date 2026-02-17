@@ -1,16 +1,21 @@
+import { existsSync } from 'fs';
 import { mkdir, rm, writeFile } from 'fs/promises';
 import { basename, join, resolve } from 'path';
 import { Glob } from 'bun';
 
-const hmrClientPath = resolve(
-	import.meta.dir,
-	'../dev/client/hmrClient.ts'
-).replace(/\\/g, '/');
+const devClientDir = (() => {
+	const fromSource = resolve(import.meta.dir, '../dev/client');
+	if (existsSync(fromSource)) return fromSource;
 
-const refreshSetupPath = resolve(
-	import.meta.dir,
-	'../dev/client/reactRefreshSetup.ts'
-).replace(/\\/g, '/');
+	return resolve(import.meta.dir, './dev/client');
+})();
+
+const hmrClientPath = join(devClientDir, 'hmrClient.ts').replace(/\\/g, '/');
+
+const refreshSetupPath = join(devClientDir, 'reactRefreshSetup.ts').replace(
+	/\\/g,
+	'/'
+);
 
 export const generateReactIndexFiles = async (
 	reactPagesDirectory: string,

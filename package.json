@@ -48,7 +48,7 @@
 		"url": "https://github.com/absolutejs/absolutejs.git"
 	},
 	"scripts": {
-		"build": "rm -rf dist && bun build src/index.ts --outdir dist --sourcemap --target=bun --external react --external react-dom --external vue --external @vue/compiler-sfc --external svelte --external elysia && bun build src/cli/index.ts --outfile dist/cli/index.js --target=bun && tsc --emitDeclarationOnly --project tsconfig.build.json",
+		"build": "rm -rf dist && bun build src/index.ts --outdir dist --sourcemap --target=bun --external react --external react-dom --external vue --external @vue/compiler-sfc --external svelte --external elysia && bun build src/cli/index.ts --outfile dist/cli/index.js --target=bun && tsc --emitDeclarationOnly --project tsconfig.build.json && mkdir -p dist/dev && cp -r src/dev/client dist/dev/client",
 		"db:push": "drizzle-kit push",
 		"db:studio": "drizzle-kit studio",
 		"dev": "bun run src/cli/index.ts dev example/server.ts",
@@ -59,6 +59,6 @@
 		"test": "bun test",
 		"typecheck": "bun run tsc --noEmit"
 	},
-	"types": "./dist/index.d.ts",
-	"version": "0.15.0"
+	"types": "./dist/src/index.d.ts",
+	"version": "0.15.1"
 }

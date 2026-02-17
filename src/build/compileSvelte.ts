@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { mkdir, stat } from 'node:fs/promises';
 import {
 	dirname,
@@ -12,10 +13,14 @@ import { env } from 'node:process';
 import { write, file, Transpiler } from 'bun';
 import { compile, compileModule, preprocess } from 'svelte/compiler';
 
-const hmrClientPath = resolve(
-	import.meta.dir,
-	'../dev/client/hmrClient.ts'
-).replace(/\\/g, '/');
+const devClientDir = (() => {
+	const fromSource = resolve(import.meta.dir, '../dev/client');
+	if (existsSync(fromSource)) return fromSource;
+
+	return resolve(import.meta.dir, './dev/client');
+})();
+
+const hmrClientPath = join(devClientDir, 'hmrClient.ts').replace(/\\/g, '/');
 
 type Built = { ssr: string; client: string };
 type Cache = Map<string, Built>;

@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import {
@@ -10,10 +11,14 @@ import {
 import { file, write, Transpiler } from 'bun';
 import { toKebab } from '../utils/stringModifiers';
 
-const hmrClientPath = resolve(
-	import.meta.dir,
-	'../dev/client/hmrClient.ts'
-).replace(/\\/g, '/');
+const devClientDir = (() => {
+	const fromSource = resolve(import.meta.dir, '../dev/client');
+	if (existsSync(fromSource)) return fromSource;
+
+	return resolve(import.meta.dir, './dev/client');
+})();
+
+const hmrClientPath = join(devClientDir, 'hmrClient.ts').replace(/\\/g, '/');
 
 const transpiler = new Transpiler({ loader: 'ts', target: 'browser' });
 
