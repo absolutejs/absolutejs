@@ -33,7 +33,6 @@ export const devBuild = async (config: BuildConfig) => {
 
 		if (serverMtime !== lastMtime) {
 			console.log('\x1b[36m[hmr] Server module reloaded\x1b[0m');
-			broadcastToClients(cached.hmrState, { type: 'full-reload' });
 		} else {
 			// Framework file changed — skip server restart, let HMR handle it
 			(globalThis as Record<string, unknown>).__hmrSkipServerRestart =

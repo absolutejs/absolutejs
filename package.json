@@ -51,7 +51,7 @@
 		"build": "rm -rf dist && bun build src/index.ts --outdir dist --sourcemap --target=bun --external react --external react-dom --external vue --external @vue/compiler-sfc --external svelte --external elysia && bun build src/cli/index.ts --outfile dist/cli/index.js --target=bun && tsc --emitDeclarationOnly --project tsconfig.build.json",
 		"db:push": "drizzle-kit push",
 		"db:studio": "drizzle-kit studio",
-		"dev": "NODE_ENV=development bun run example/server.ts",
+		"dev": "NODE_ENV=development bun run --hot example/server.ts",
 		"start": "NODE_ENV=production bun run example/server.ts",
 		"format": "prettier --write \"./**/*.{js,jsx,ts,tsx,css,json,mjs,md,svelte,html,vue}\"",
 		"lint": "eslint ./",

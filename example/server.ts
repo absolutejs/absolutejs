@@ -36,7 +36,7 @@ const buildConfig: BuildConfig = {
 	vueDirectory: 'example/vue'
 };
 
-const isDev = env.NODE_ENV !== 'production';
+const isDev = env.NODE_ENV === 'development';
 const result = isDev ? await devBuild(buildConfig) : await build(buildConfig);
 
 export const server = new Elysia()
