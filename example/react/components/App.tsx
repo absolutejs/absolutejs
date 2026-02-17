@@ -28,11 +28,8 @@ export const App = ({ initialCount }: AppProps) => {
 				count is {count}
 			</button>
 			<p>
-				Edit <code>example/react/pages/ReactExample.tsx</code> then save
-				and refresh to update the page.
-			</p>
-			<p style={{ color: '#777' }}>
-				( Hot Module Reloading is coming soon )
+				Edit <code>example/react/pages/ReactExample.tsx</code> and save
+				to test HMR.
 			</p>
 			<p style={{ marginTop: '2rem' }}>
 				Explore the other pages to see how AbsoluteJS seamlessly unifies

@@ -50,10 +50,9 @@ const isOpen = ref(false);
 		<h1>AbsoluteJS + Vue</h1>
 		<CountButton :initialCount="count" />
 		<p>
-			Edit <code>example/vue/pages/VueExample.vue</code> then save and
-			refresh to update the page.
+			Edit <code>example/vue/pages/VueExample.vue</code> and save to test
+			HMR.
 		</p>
-		<p style="color: #777">( Hot Module Reloading is coming soon )</p>
 		<p style="margin-top: 2rem">
 			Explore the other pages to see how AbsoluteJS seamlessly unifies
 			multiple frameworks on a single server.

@@ -67,10 +67,9 @@
 	<h1>AbsoluteJS + Svelte</h1>
 	<Counter {initialCount} />
 	<p>
-		Edit <code>example/svelte/pages/SvelteExample.svelte</code> then save and
-		refresh to update the page.
+		Edit <code>example/svelte/pages/SvelteExample.svelte</code> and save to test
+		HMR.
 	</p>
-	<p style="color: #777">( Hot Module Reloading is coming soon )</p>
 	<p style="margin-top: 2rem;">
 		Explore the other pages to see how AbsoluteJS seamlessly unifies
 		multiple frameworks on a single server.
