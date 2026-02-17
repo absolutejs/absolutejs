@@ -10,15 +10,15 @@ import { PropsArgs } from '../types';
 export const handleReactPageRequest = async <
 	Props extends Record<string, unknown> = Record<never, never>
 >(
-	pageComponent: ReactComponent<Props>,
+	PageComponent: ReactComponent<Props>,
 	index: string,
 	...props: keyof Props extends never ? [] : [props: Props]
 ) => {
 	const [maybeProps] = props;
 	const element =
 		maybeProps !== undefined
-			? createElement(pageComponent, maybeProps)
-			: createElement(pageComponent);
+			? createElement(PageComponent, maybeProps)
+			: createElement(PageComponent);
 
 	const stream = await renderReactToReadableStream(element, {
 		bootstrapModules: [index],
@@ -76,7 +76,7 @@ export const handleSveltePageRequest: HandleSveltePageRequest = async <
 export const handleVuePageRequest = async <
 	Props extends Record<string, unknown> = Record<never, never>
 >(
-	pageComponent: VueComponent<Props>,
+	_PageComponent: VueComponent<Props>,
 	pagePath: string,
 	indexPath: string,
 	headTag: `<head>${string}</head>` = '<head></head>',
@@ -120,17 +120,9 @@ export const handleVuePageRequest = async <
 	});
 };
 
-export const handleHTMLPageRequest = async (pagePath: string) => {
-	return new Response(file(pagePath), {
-		headers: { 'Content-Type': 'text/html; charset=utf-8' }
-	});
-};
+export const handleHTMLPageRequest = (pagePath: string) => file(pagePath);
 
-export const handleHTMXPageRequest = async (pagePath: string) => {
-	return new Response(file(pagePath), {
-		headers: { 'Content-Type': 'text/html; charset=utf-8' }
-	});
-};
+export const handleHTMXPageRequest = (pagePath: string) => file(pagePath);
 
 export const handlePageRequest = <Component>(
 	PageComponent: Component,

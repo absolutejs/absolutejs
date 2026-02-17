@@ -18,8 +18,7 @@ const swapStylesheet = (
 	document
 		.querySelectorAll('link[rel="stylesheet"]')
 		.forEach(function (link) {
-			const href =
-				(link as HTMLLinkElement).getAttribute('href') || '';
+			const href = (link as HTMLLinkElement).getAttribute('href') || '';
 			if (href.includes(cssBaseName) || href.includes(framework)) {
 				existingLink = link as HTMLLinkElement;
 			}
@@ -75,8 +74,7 @@ export const handleSvelteUpdate = (message: {
 	const preservedState: Record<string, unknown> = {};
 	const countButton = document.querySelector('button');
 	if (countButton && countButton.textContent) {
-		const countMatch =
-			countButton.textContent.match(/count is (\d+)/i);
+		const countMatch = countButton.textContent.match(/count is (\d+)/i);
 		if (countMatch) {
 			preservedState.initialCount = parseInt(countMatch[1]!, 10);
 		}

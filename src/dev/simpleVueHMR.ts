@@ -54,10 +54,15 @@ export const handleVueUpdate = async (
 			serverPath.startsWith('/') ||
 			/^[A-Za-z]:[\\/]/.test(serverPath)
 				? serverPath
-				: join(buildDir || process.cwd(), serverPath.replace(/^\//, ''));
+				: join(
+						buildDir || process.cwd(),
+						serverPath.replace(/^\//, '')
+					);
 
 		const cacheBuster = `?t=${Date.now()}`;
-		const serverModule = await import(`${absoluteServerPath}${cacheBuster}`);
+		const serverModule = await import(
+			`${absoluteServerPath}${cacheBuster}`
+		);
 
 		if (!serverModule || !serverModule.default) {
 			console.warn(

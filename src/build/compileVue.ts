@@ -325,7 +325,11 @@ if (typeof __VUE_HMR_RUNTIME__ !== 'undefined') {
 	};
 
 	// Client bundles include HMR registration code; server bundles do not
-	const clientCode = assembleModule(generateRenderFunction(false), 'render', true);
+	const clientCode = assembleModule(
+		generateRenderFunction(false),
+		'render',
+		true
+	);
 	const serverCode = assembleModule(
 		generateRenderFunction(true),
 		'ssrRender',

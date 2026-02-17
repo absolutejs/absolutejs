@@ -139,13 +139,9 @@ export const handleVueUpdate = (message: {
 	if (Object.keys(vuePreservedState).length === 0) {
 		const countButton = document.querySelector('button');
 		if (countButton && countButton.textContent) {
-			const countMatch =
-				countButton.textContent.match(/count is (\d+)/i);
+			const countMatch = countButton.textContent.match(/count is (\d+)/i);
 			if (countMatch) {
-				vuePreservedState.initialCount = parseInt(
-					countMatch[1]!,
-					10
-				);
+				vuePreservedState.initialCount = parseInt(countMatch[1]!, 10);
 			}
 		}
 	}
@@ -183,10 +179,7 @@ export const handleVueUpdate = (message: {
 			.forEach(function (link) {
 				const href =
 					(link as HTMLLinkElement).getAttribute('href') || '';
-				if (
-					href.includes(vueCssBaseName) ||
-					href.includes('vue')
-				) {
+				if (href.includes(vueCssBaseName) || href.includes('vue')) {
 					vueExistingLink = link as HTMLLinkElement;
 				}
 			});

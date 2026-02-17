@@ -127,7 +127,10 @@ export const compileSvelte = async (
 
 		if (isModule) {
 			const bundle = generate('client');
-			await Promise.all([write(ssrPath, bundle), write(clientPath, bundle)]);
+			await Promise.all([
+				write(ssrPath, bundle),
+				write(clientPath, bundle)
+			]);
 		} else {
 			const serverBundle = generate('server');
 			const clientBundle = generate('client');
