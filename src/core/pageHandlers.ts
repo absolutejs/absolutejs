@@ -7,39 +7,6 @@ import { renderToWebStream as renderVueToWebStream } from 'vue/server-renderer';
 import { renderToReadableStream as renderSvelteToReadableStream } from '../svelte/renderToReadableStream';
 import { PropsArgs } from '../types';
 
-const hasHMR = () =>
-	Boolean((globalThis as Record<string, unknown>).__hmrDevResult);
-
-const withDevHeaders = (
-	response: Response,
-	extraHeaders?: Record<string, string>
-) => {
-	if (!hasHMR()) {
-		if (extraHeaders) {
-			for (const [key, val] of Object.entries(extraHeaders)) {
-				response.headers.set(key, val);
-			}
-		}
-		return response;
-	}
-	response.headers.set(
-		'Cache-Control',
-		'no-store, no-cache, must-revalidate'
-	);
-	response.headers.set('Pragma', 'no-cache');
-	const startup = (globalThis as Record<string, unknown>)
-		.__hmrServerStartup as string | undefined;
-	if (startup) {
-		response.headers.set('X-Server-Startup', startup);
-	}
-	if (extraHeaders) {
-		for (const [key, val] of Object.entries(extraHeaders)) {
-			response.headers.set(key, val);
-		}
-	}
-	return response;
-};
-
 export const handleReactPageRequest = async <
 	Props extends Record<string, unknown> = Record<never, never>
 >(
@@ -60,12 +27,9 @@ export const handleReactPageRequest = async <
 			: undefined
 	});
 
-	const headers: Record<string, string> = {
-		'Content-Type': 'text/html',
-		'X-HMR-Framework': 'react'
-	};
-
-	return withDevHeaders(new Response(stream, { headers }), headers);
+	return new Response(stream, {
+		headers: { 'Content-Type': 'text/html' }
+	});
 };
 
 // Declare overloads matching Svelte's own component API to preserve correct type inference
@@ -104,12 +68,9 @@ export const handleSveltePageRequest: HandleSveltePageRequest = async <
 		}
 	);
 
-	const headers: Record<string, string> = {
-		'Content-Type': 'text/html',
-		'X-HMR-Framework': 'svelte'
-	};
-
-	return withDevHeaders(new Response(stream, { headers }), headers);
+	return new Response(stream, {
+		headers: { 'Content-Type': 'text/html' }
+	});
 };
 
 export const handleVuePageRequest = async <
@@ -154,30 +115,21 @@ export const handleVuePageRequest = async <
 		}
 	});
 
-	const headers: Record<string, string> = {
-		'Content-Type': 'text/html',
-		'X-HMR-Framework': 'vue'
-	};
-
-	return withDevHeaders(new Response(stream, { headers }), headers);
+	return new Response(stream, {
+		headers: { 'Content-Type': 'text/html' }
+	});
 };
 
 export const handleHTMLPageRequest = async (pagePath: string) => {
-	const headers: Record<string, string> = {
-		'Content-Type': 'text/html; charset=utf-8',
-		'X-HMR-Framework': 'html'
-	};
-
-	return withDevHeaders(new Response(file(pagePath), { headers }), headers);
+	return new Response(file(pagePath), {
+		headers: { 'Content-Type': 'text/html; charset=utf-8' }
+	});
 };
 
 export const handleHTMXPageRequest = async (pagePath: string) => {
-	const headers: Record<string, string> = {
-		'Content-Type': 'text/html; charset=utf-8',
-		'X-HMR-Framework': 'htmx'
-	};
-
-	return withDevHeaders(new Response(file(pagePath), { headers }), headers);
+	return new Response(file(pagePath), {
+		headers: { 'Content-Type': 'text/html; charset=utf-8' }
+	});
 };
 
 export const handlePageRequest = <Component>(
