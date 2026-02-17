@@ -34,7 +34,7 @@
 		"typescript-eslint": "8.32.0",
 		"vue": "3.5.27"
 	},
-	"license": "CC BY-NC 4.0",
+	"license": "BSL-1.1",
 	"main": "./dist/index.js",
 	"name": "@absolutejs/absolute",
 	"peerDependencies": {
@@ -60,5 +60,5 @@
 		"typecheck": "bun run tsc --noEmit"
 	},
 	"types": "./dist/index.d.ts",
-	"version": "0.13.15"
+	"version": "0.14.0"
 }

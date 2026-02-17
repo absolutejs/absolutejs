@@ -31,6 +31,7 @@ const buildConfig: BuildConfig = {
 		preserveIntermediateFiles: true
 	},
 	reactDirectory: 'example/react',
+	publicDirectory: 'example/public',
 	svelteDirectory: 'example/svelte',
 	vueDirectory: 'example/vue'
 };

@@ -37,7 +37,8 @@ const vueFeatureFlags: Record<string, string> = {
 
 export const build = async ({
 	buildDirectory = 'build',
-	assetsDirectory = 'assets',
+	assetsDirectory,
+	publicDirectory,
 	reactDirectory,
 	htmlDirectory,
 	htmxDirectory,
@@ -117,11 +118,17 @@ export const build = async ({
 	if (sveltePagesPath) serverRoot = sveltePagesPath;
 	else if (vuePagesPath) serverRoot = vuePagesPath;
 
+	const publicPath =
+		publicDirectory && validateSafePath(publicDirectory, projectRoot);
+
 	// Only delete build directory for full builds, not incremental
 	if (!isIncremental) {
 		await rm(buildPath, { force: true, recursive: true });
 	}
 	mkdirSync(buildPath, { recursive: true });
+
+	if (publicPath)
+		cpSync(publicPath, buildPath, { force: true, recursive: true });
 
 	// Helper to find matching entry points for incremental files
 	// The dependency graph already includes all dependent files in incrementalFiles
@@ -448,7 +455,11 @@ export const build = async ({
 		const cssResult = await bunBuild({
 			entrypoints: cssEntryPoints,
 			naming: `[name].[hash].[ext]`,
-			outdir: join(buildPath, basename(assetsPath), 'css'),
+			outdir: join(
+				buildPath,
+				assetsPath ? basename(assetsPath) : 'assets',
+				'css'
+			),
 			target: 'browser',
 			throw: false
 		});
