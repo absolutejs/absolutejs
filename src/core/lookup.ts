@@ -8,7 +8,7 @@ const isWrapped = (
 export const asset = (
 	source: Record<string, string> | { manifest: Record<string, string> },
 	name: string
-): string => {
+) => {
 	const assetPath = isWrapped(source) ? source.manifest[name] : source[name];
 
 	if (assetPath === undefined) {

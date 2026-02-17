@@ -8,11 +8,11 @@ import { getWatchPaths, shouldIgnorePath } from './pathUtils';
 
 /* Set up file watching for all configured directories
    This handles the "watch files" problem */
-export function startFileWatching(
+export const startFileWatching = (
 	state: HMRState,
 	config: BuildConfig,
 	onFileChange: (filePath: string) => void
-): void {
+) => {
 	const watchPaths = getWatchPaths(config, state.resolvedPaths);
 
 	// Set up a watcher for each directory
@@ -81,4 +81,4 @@ export function startFileWatching(
 
 		state.watchers.push(watcher);
 	}
-}
+};

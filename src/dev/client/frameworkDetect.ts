@@ -1,6 +1,6 @@
 /* Framework detection and manifest lookup utilities */
 
-export function detectCurrentFramework(): string | null {
+export const detectCurrentFramework = () => {
 	if (window.__HMR_FRAMEWORK__) return window.__HMR_FRAMEWORK__;
 	const path = window.location.pathname;
 	if (path === '/vue' || path.startsWith('/vue/')) return 'vue';
@@ -11,9 +11,9 @@ export function detectCurrentFramework(): string | null {
 	if (path === '/react' || path.startsWith('/react/')) return 'react';
 	if (window.__REACT_ROOT__) return 'react';
 	return null;
-}
+};
 
-export function getComponentNameFromPath(filePath: string): string | null {
+export const getComponentNameFromPath = (filePath: string) => {
 	if (!filePath) return null;
 	const parts = filePath.replace(/\\/g, '/').split('/');
 	const fileName = parts[parts.length - 1] || '';
@@ -24,13 +24,13 @@ export function getComponentNameFromPath(filePath: string): string | null {
 			return word.charAt(0).toUpperCase() + word.slice(1);
 		})
 		.join('');
-}
+};
 
-export function findIndexPath(
+export const findIndexPath = (
 	manifest: Record<string, string> | undefined,
 	sourceFile: string | undefined,
 	framework: string
-): string | null {
+) => {
 	if (!manifest) return null;
 
 	if (sourceFile) {
@@ -60,4 +60,4 @@ export function findIndexPath(
 	}
 
 	return null;
-}
+};

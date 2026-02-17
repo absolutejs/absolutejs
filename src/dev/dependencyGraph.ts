@@ -94,10 +94,7 @@ export const extractDependencies = (filePath: string) => {
 
 /* Resolve relative import paths to absolute paths
    This handles the "resolve imports" problem */
-function resolveImportPath(
-	importPath: string,
-	fromFile: string
-): string | null {
+const resolveImportPath = (importPath: string, fromFile: string) => {
 	// Skip external packages
 	if (!importPath.startsWith('.') && !importPath.startsWith('/')) {
 		return null;
@@ -140,11 +137,11 @@ function resolveImportPath(
 	} catch {
 		return null;
 	}
-}
+};
 
 /* Add a file and its dependencies to the graph
    This handles the "build graph" problem */
-export function addFileToGraph(graph: DependencyGraph, filePath: string): void {
+export const addFileToGraph = (graph: DependencyGraph, filePath: string) => {
 	// Normalize the file path to ensure consistent format
 	const normalizedPath = resolve(filePath);
 
@@ -176,14 +173,14 @@ export function addFileToGraph(graph: DependencyGraph, filePath: string): void {
 		}
 		graph.dependents.get(dep)!.add(normalizedPath);
 	}
-}
+};
 
 /* Get all files that depend on a changed file
    This handles the "find affected files" problem */
-export function getAffectedFiles(
+export const getAffectedFiles = (
 	graph: DependencyGraph,
 	changedFile: string
-): string[] {
+) => {
 	// Normalize the changed file path to ensure consistent lookup
 	const normalizedPath = resolve(changedFile);
 	const affected = new Set<string>();
@@ -207,14 +204,14 @@ export function getAffectedFiles(
 	}
 
 	return Array.from(affected);
-}
+};
 
 /* Remove a file from the graph
    This handles the "cleanup deleted files" problem */
-export function removeFileFromGraph(
+export const removeFileFromGraph = (
 	graph: DependencyGraph,
 	filePath: string
-): void {
+) => {
 	// Normalize the file path to ensure consistent format
 	const normalizedPath = resolve(filePath);
 
@@ -241,17 +238,17 @@ export function removeFileFromGraph(
 		}
 		graph.dependents.delete(normalizedPath);
 	}
-}
+};
 
 /* Build dependency graph for all files in a directory
    This handles the "initialize graph" problem */
-export function buildInitialDependencyGraph(
+export const buildInitialDependencyGraph = (
 	graph: DependencyGraph,
 	directories: string[]
-): void {
+) => {
 	const processedFiles = new Set<string>();
 
-	function scanDirectory(dir: string): void {
+	const scanDirectory = (dir: string) => {
 		// Normalize directory path
 		const normalizedDir = resolve(dir);
 		try {
@@ -297,7 +294,7 @@ export function buildInitialDependencyGraph(
 				}
 			}
 		} catch {}
-	}
+	};
 
 	for (const dir of directories) {
 		const resolvedDir = resolve(dir);
@@ -306,4 +303,4 @@ export function buildInitialDependencyGraph(
 			scanDirectory(resolvedDir); // Normalize directory paths
 		}
 	}
-}
+};

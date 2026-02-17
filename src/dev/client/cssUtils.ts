@@ -3,12 +3,12 @@
 import type { CSSUpdateResult } from './types';
 import { hmrState } from './types';
 
-export function getCSSBaseName(href: string): string {
+export const getCSSBaseName = (href: string) => {
 	const fileName = href.split('?')[0]!.split('/').pop() || '';
 	return fileName.split('.')[0]!;
-}
+};
 
-export function reloadCSSStylesheets(manifest: Record<string, string>): void {
+export const reloadCSSStylesheets = (manifest: Record<string, string>) => {
 	const stylesheets = document.querySelectorAll('link[rel="stylesheet"]');
 	stylesheets.forEach(function (link) {
 		const href = (link as HTMLLinkElement).getAttribute('href');
@@ -48,11 +48,11 @@ export function reloadCSSStylesheets(manifest: Record<string, string>): void {
 			(link as HTMLLinkElement).href = url.toString();
 		}
 	});
-}
+};
 
 /* Shared CSS preload/swap logic used by HTML and HTMX handlers.
    Returns tracking arrays for coordinating CSS load with body patching. */
-export function processCSSLinks(headHTML: string): CSSUpdateResult {
+export const processCSSLinks = (headHTML: string) => {
 	const tempDiv = document.createElement('div');
 	tempDiv.innerHTML = headHTML;
 	const newStylesheets = tempDiv.querySelectorAll('link[rel="stylesheet"]');
@@ -166,12 +166,12 @@ export function processCSSLinks(headHTML: string): CSSUpdateResult {
 	});
 
 	return { linksToActivate, linksToRemove, linksToWaitFor };
-}
+};
 
-function createCSSLoadPromise(
+const createCSSLoadPromise = (
 	linkElement: HTMLLinkElement,
 	newHref: string
-): Promise<void> {
+) => {
 	return new Promise<void>(function (resolve) {
 		let resolved = false;
 		const doResolve = function () {
@@ -225,14 +225,14 @@ function createCSSLoadPromise(
 			}
 		}, 500);
 	});
-}
+};
 
 /* Coordinate CSS load with body update: waits for CSS, patches body,
    activates new CSS, removes old CSS. Handles first-update delay. */
-export function waitForCSSAndUpdate(
+export const waitForCSSAndUpdate = (
 	cssResult: CSSUpdateResult,
 	updateBody: () => void
-): void {
+) => {
 	const { linksToActivate, linksToRemove, linksToWaitFor } = cssResult;
 
 	if (linksToWaitFor.length > 0) {
@@ -285,4 +285,4 @@ export function waitForCSSAndUpdate(
 			doUpdate();
 		}
 	}
-}
+};

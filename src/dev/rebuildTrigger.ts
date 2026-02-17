@@ -31,11 +31,7 @@ type BuildLog = {
 };
 
 /** Parse file:line:column or similar from error message (Svelte, Vue, Angular, etc.) */
-function parseErrorLocationFromMessage(msg: string): {
-	file?: string;
-	line?: number;
-	column?: number;
-} {
+const parseErrorLocationFromMessage = (msg: string) => {
 	// file:line:column or file:line
 	const pathLineCol = msg.match(/^([^\s:]+):(\d+)(?::(\d+))?/);
 	if (pathLineCol) {
@@ -79,20 +75,14 @@ function parseErrorLocationFromMessage(msg: string): {
 		};
 	}
 	return {};
-}
+};
 
 /** Extract file, line, column, lineText, and framework from build error for the overlay */
-function extractBuildErrorDetails(
+const extractBuildErrorDetails = (
 	error: unknown,
 	affectedFrameworks: string[],
 	resolvedPaths?: ResolvedBuildPaths
-): {
-	file?: string;
-	line?: number;
-	column?: number;
-	lineText?: string;
-	framework?: string;
-} {
+) => {
 	// AggregateError (Bun 1.2+ throws this) - errors array may contain BuildMessage-like objects
 	let logs = (error as { logs?: BuildLog[] })?.logs;
 	if (
@@ -139,11 +129,11 @@ function extractBuildErrorDetails(
 		fw = detected !== 'ignored' ? detected : affectedFrameworks[0];
 	}
 	return { ...parsed, framework: fw };
-}
+};
 
 /* Queue a file change for processing
    This handles the "queue changes" problem with debouncing */
-export function queueFileChange(
+export const queueFileChange = (
 	state: HMRState,
 	filePath: string,
 	config: BuildConfig,
@@ -151,7 +141,7 @@ export function queueFileChange(
 		manifest: Record<string, string>;
 		hmrState: HMRState;
 	}) => void
-): void {
+) => {
 	const framework = detectFramework(filePath, state.resolvedPaths);
 
 	if (framework === 'ignored') {
@@ -189,7 +179,7 @@ export function queueFileChange(
 
 	// EVENT-DRIVEN APPROACH: Wait for a short window to collect all changes
 	const DEBOUNCE_MS = config.options?.hmr?.debounceMs ?? 500;
-	state.rebuildTimeout = setTimeout((): void => {
+	state.rebuildTimeout = setTimeout(() => {
 		// Re-check hashes at the last moment to catch rapid edit/undo
 		const filesToProcess: Map<string, string[]> = new Map(); // framework -> filePaths
 
@@ -339,11 +329,11 @@ export function queueFileChange(
 		// Trigger rebuild - the callback will be called with the manifest
 		void triggerRebuild(state, config, onRebuildComplete, filesToRebuild);
 	}, DEBOUNCE_MS);
-}
+};
 
 /* Trigger a rebuild of the project
    This handles the "rebuild when needed" problem */
-export async function triggerRebuild(
+export const triggerRebuild = async (
 	state: HMRState,
 	config: BuildConfig,
 	onRebuildComplete: (result: {
@@ -351,7 +341,7 @@ export async function triggerRebuild(
 		hmrState: HMRState;
 	}) => void,
 	filesToRebuild?: string[]
-) {
+) => {
 	if (state.isRebuilding) {
 		return null;
 	}
@@ -1153,4 +1143,4 @@ export async function triggerRebuild(
 			}, 50);
 		}
 	}
-}
+};

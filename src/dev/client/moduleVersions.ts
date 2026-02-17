@@ -1,9 +1,9 @@
 /* Module version validation and sync */
 
-export function checkModuleVersions(
+export const checkModuleVersions = (
 	serverVersions: Record<string, number> | undefined,
 	clientVersions: Record<string, number> | undefined
-): { needsSync: boolean; stale: string[] } {
+) => {
 	if (!serverVersions || !clientVersions) {
 		return { needsSync: false, stale: [] };
 	}
@@ -21,12 +21,12 @@ export function checkModuleVersions(
 	}
 
 	return { needsSync, stale };
-}
+};
 
-export function prefetchModules(
+export const prefetchModules = (
 	modulePaths: string[],
 	manifest: Record<string, string> | undefined
-): Promise<unknown[]> {
+) => {
 	const prefetchPromises: Promise<unknown>[] = [];
 
 	for (const modulePath of modulePaths) {
@@ -54,4 +54,4 @@ export function prefetchModules(
 	}
 
 	return Promise.all(prefetchPromises);
-}
+};

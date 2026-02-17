@@ -2,7 +2,7 @@
 
 import { detectCurrentFramework, findIndexPath } from '../frameworkDetect';
 
-export function handleSvelteUpdate(message: {
+export const handleSvelteUpdate = (message: {
 	data: {
 		clientModuleUrl?: string;
 		cssBaseName?: string;
@@ -11,7 +11,7 @@ export function handleSvelteUpdate(message: {
 		sourceFile?: string;
 		updateType?: string;
 	};
-}): void {
+}) => {
 	const svelteFrameworkCheck = detectCurrentFramework();
 	if (svelteFrameworkCheck !== 'svelte') return;
 
@@ -77,14 +77,14 @@ export function handleSvelteUpdate(message: {
 	}
 
 	performSvelteFallback(message);
-}
+};
 
-function performSvelteFallback(message: {
+const performSvelteFallback = (message: {
 	data: {
 		manifest?: Record<string, string>;
 		sourceFile?: string;
 	};
-}): void {
+}) => {
 	try {
 		const preservedState: Record<string, unknown> = {};
 		const button = document.querySelector('button');
@@ -124,4 +124,4 @@ function performSvelteFallback(message: {
 		sessionStorage.removeItem('__HMR_ACTIVE__');
 		window.location.reload();
 	}
-}
+};

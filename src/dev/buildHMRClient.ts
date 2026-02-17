@@ -1,7 +1,7 @@
 import { build as bunBuild } from 'bun';
 import { resolve } from 'node:path';
 
-export async function buildHMRClient(): Promise<string> {
+export const buildHMRClient = async () => {
 	const entryPoint = resolve(import.meta.dir, 'client/hmrClient.ts');
 	const result = await bunBuild({
 		entrypoints: [entryPoint],
@@ -14,4 +14,4 @@ export async function buildHMRClient(): Promise<string> {
 		return '// HMR client build failed';
 	}
 	return await result.outputs[0]!.text();
-}
+};

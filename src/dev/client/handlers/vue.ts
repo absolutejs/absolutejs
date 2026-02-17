@@ -15,13 +15,13 @@ interface VueComponentInstance {
 }
 
 /* Extract state from child Vue component instances recursively */
-function extractChildComponentState(
+const extractChildComponentState = (
 	instance: VueComponentInstance,
 	state: Record<string, unknown>
-): void {
+): void => {
 	if (!instance || !instance.subTree) return;
 
-	function walkVNode(vnode: VueVNode | undefined): void {
+	const walkVNode = (vnode: VueVNode | undefined): void => {
 		if (!vnode) return;
 
 		if (vnode.component && vnode.component.setupState) {
@@ -50,12 +50,12 @@ function extractChildComponentState(
 		if (vnode.component && vnode.component.subTree) {
 			walkVNode(vnode.component.subTree);
 		}
-	}
+	};
 
 	walkVNode(instance.subTree);
-}
+};
 
-export function handleVueUpdate(message: {
+export const handleVueUpdate = (message: {
 	data: {
 		cssBaseName?: string;
 		cssUrl?: string;
@@ -64,7 +64,7 @@ export function handleVueUpdate(message: {
 		sourceFile?: string;
 		updateType?: string;
 	};
-}): void {
+}) => {
 	const vueFrameworkCheck = detectCurrentFramework();
 	if (vueFrameworkCheck !== 'vue') return;
 
@@ -258,4 +258,4 @@ export function handleVueUpdate(message: {
 			sessionStorage.removeItem('__HMR_ACTIVE__');
 			window.location.reload();
 		});
-}
+};

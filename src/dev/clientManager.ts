@@ -1,4 +1,3 @@
-import { watch } from 'fs';
 import type { FSWatcher } from 'fs';
 import { createDependencyGraph, type DependencyGraph } from './dependencyGraph';
 import {

@@ -13,10 +13,10 @@ import { wrapHTMLScriptWithHMR } from './wrapHTMLScript';
  * @param htmxDir - The HTMX directory path (normalized with forward slashes)
  * @returns Bun build plugin
  */
-export function createHTMLScriptHMRPlugin(
+export const createHTMLScriptHMRPlugin = (
 	htmlDir?: string,
 	htmxDir?: string
-): BunPlugin {
+): BunPlugin => {
 	return {
 		name: 'html-script-hmr',
 		setup(build) {
@@ -56,4 +56,4 @@ export function createHTMLScriptHMRPlugin(
 			});
 		}
 	};
-}
+};

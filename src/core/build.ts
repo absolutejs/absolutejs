@@ -1,4 +1,10 @@
-import { copyFileSync, cpSync, mkdirSync } from 'node:fs';
+import {
+	copyFileSync,
+	cpSync,
+	mkdirSync,
+	readFileSync,
+	writeFileSync
+} from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { basename, join, resolve, dirname, relative } from 'node:path';
 import { cwd, env, exit } from 'node:process';
@@ -11,6 +17,7 @@ import { createHTMLScriptHMRPlugin } from '../build/htmlScriptHMRPlugin';
 import { outputLogs } from '../build/outputLogs';
 import { scanEntryPoints } from '../build/scanEntryPoints';
 import { updateAssetPaths } from '../build/updateAssetPaths';
+import { buildHMRClient } from '../dev/buildHMRClient';
 import type { BuildConfig } from '../types';
 import { cleanup } from '../utils/cleanup';
 import { commonAncestor } from '../utils/commonAncestor';
@@ -121,7 +128,7 @@ export const build = async ({
 	const filterToIncrementalEntries = (
 		entryPoints: string[],
 		mapToSource: (entry: string) => string | null
-	): string[] => {
+	) => {
 		if (!isIncremental || !incrementalFiles) return entryPoints;
 
 		const normalizedIncremental = new Set(
@@ -144,7 +151,7 @@ export const build = async ({
 	if (reactIndexesPath && reactPagesPath) {
 		// Always regenerate React index files to ensure latest error handling is included
 		// This is safe because index files are small and generation is fast
-		await generateReactIndexFiles(reactPagesPath, reactIndexesPath);
+		await generateReactIndexFiles(reactPagesPath, reactIndexesPath, isDev);
 	}
 
 	// Copy assets on full builds or if assets changed
@@ -264,7 +271,7 @@ export const build = async ({
 		: allSvelteCssEntries;
 
 	const { svelteServerPaths, svelteIndexPaths, svelteClientPaths } = svelteDir
-		? await compileSvelte(svelteEntries, svelteDir)
+		? await compileSvelte(svelteEntries, svelteDir, new Map(), isDev)
 		: {
 				svelteClientPaths: [],
 				svelteIndexPaths: [],
@@ -273,7 +280,7 @@ export const build = async ({
 
 	const { vueServerPaths, vueIndexPaths, vueClientPaths, vueCssPaths } =
 		vueDir
-			? await compileVue(vueEntries, vueDir)
+			? await compileVue(vueEntries, vueDir, isDev)
 			: {
 					vueClientPaths: [],
 					vueCssPaths: [],
@@ -343,28 +350,36 @@ export const build = async ({
 	let reactClientLogs: (BuildMessage | ResolveMessage)[] = [];
 	let reactClientOutputs: BuildArtifact[] = [];
 
+	// In dev, add the _refresh entry to force React into a shared chunk
+	// so HMR can re-import component entries without duplicating React.
+	if (isDev && reactIndexesPath) {
+		const refreshEntry = join(reactIndexesPath, '_refresh.tsx');
+		if (!reactClientEntryPoints.includes(refreshEntry)) {
+			reactClientEntryPoints.push(refreshEntry);
+		}
+	}
+
 	if (reactClientEntryPoints.length > 0) {
-		const reactClientResult = await bunBuild({
+		const reactBuildConfig = {
 			entrypoints: reactClientEntryPoints,
-			external: isDev
-				? [
-						'react',
-						'react-dom',
-						'react/jsx-dev-runtime',
-						'react/jsx-runtime'
-					]
-				: undefined,
-			format: 'esm',
+			format: 'esm' as const,
 			minify: !isDev,
 			naming: `[dir]/[name].[hash].[ext]`,
 			outdir: buildPath,
-			// @ts-expect-error - reactFastRefresh is new in Bun 1.3.6, types will catch up
-			reactFastRefresh: isDev,
 			root: clientRoot,
-			target: 'browser',
-			splitting: !isDev,
+			splitting: true,
+			target: 'browser' as const,
 			throw: false
-		});
+		};
+
+		// Bun's reactFastRefresh option injects $RefreshReg$/$RefreshSig$
+		// calls for React Fast Refresh support in dev
+		if (isDev) {
+			(reactBuildConfig as Record<string, unknown>).reactFastRefresh =
+				true;
+		}
+
+		const reactClientResult = await bunBuild(reactBuildConfig);
 		reactClientLogs = reactClientResult.logs;
 		reactClientOutputs = reactClientResult.outputs;
 		if (!reactClientResult.success && reactClientResult.logs.length > 0) {
@@ -518,6 +533,24 @@ export const build = async ({
 				(f.endsWith('.html') || f.endsWith('.css'))
 		);
 
+	// Build HMR client bundle once for HTML/HTMX injection during dev builds
+	const hmrClientBundle =
+		isDev && (htmlDir || htmxDir) ? await buildHMRClient() : null;
+
+	const injectHMRIntoHTMLFile = (filePath: string, framework: string) => {
+		if (!hmrClientBundle) return;
+		let html = readFileSync(filePath, 'utf-8');
+		if (html.includes('data-hmr-client')) return;
+		const tag =
+			`<script>window.__HMR_FRAMEWORK__="${framework}";</script>` +
+			`<script data-hmr-client>${hmrClientBundle}</script>`;
+		const bodyClose = /<\/body\s*>/i.exec(html);
+		html = bodyClose
+			? html.slice(0, bodyClose.index) + tag + html.slice(bodyClose.index)
+			: html + tag;
+		writeFileSync(filePath, html);
+	};
+
 	if (htmlDir && htmlPagesPath) {
 		const outputHtmlPages = isSingle
 			? join(buildPath, 'pages')
@@ -539,6 +572,7 @@ export const build = async ({
 		// Add HTML pages to manifest (absolute paths for Bun.file())
 		const htmlPageFiles = await scanEntryPoints(outputHtmlPages, '*.html');
 		for (const htmlFile of htmlPageFiles) {
+			if (isDev) injectHMRIntoHTMLFile(htmlFile, 'html');
 			const fileName = basename(htmlFile, '.html');
 			manifest[fileName] = htmlFile;
 		}
@@ -581,6 +615,7 @@ export const build = async ({
 		// Add HTMX pages to manifest (absolute paths for Bun.file())
 		const htmxPageFiles = await scanEntryPoints(outputHtmxPages, '*.html');
 		for (const htmxFile of htmxPageFiles) {
+			if (isDev) injectHMRIntoHTMLFile(htmxFile, 'htmx');
 			const fileName = basename(htmxFile, '.html');
 			manifest[fileName] = htmxFile;
 		}

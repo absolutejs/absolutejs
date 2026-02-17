@@ -2,12 +2,12 @@
 
 import { hideErrorOverlay, showErrorOverlay } from '../errorOverlay';
 
-export function handleManifest(message: {
+export const handleManifest = (message: {
 	data: {
 		manifest?: Record<string, string>;
 		serverVersions?: Record<string, number>;
 	};
-}): void {
+}) => {
 	window.__HMR_MANIFEST__ =
 		message.data.manifest ||
 		(message.data as unknown as Record<string, string>);
@@ -21,14 +21,14 @@ export function handleManifest(message: {
 	}
 
 	window.__HMR_MODULE_UPDATES__ = [];
-}
+};
 
-export function handleRebuildComplete(message: {
+export const handleRebuildComplete = (message: {
 	data: {
 		affectedFrameworks?: string[];
 		manifest?: Record<string, string>;
 	};
-}): void {
+}) => {
 	hideErrorOverlay();
 	if (window.__HMR_MANIFEST__) {
 		window.__HMR_MANIFEST__ = message.data.manifest;
@@ -46,16 +46,16 @@ export function handleRebuildComplete(message: {
 		url.searchParams.set('_cb', Date.now().toString());
 		window.location.href = url.toString();
 	}
-}
+};
 
-export function handleModuleUpdate(message: {
+export const handleModuleUpdate = (message: {
 	data: {
 		framework?: string;
 		manifest?: Record<string, string>;
 		moduleVersions?: Record<string, number>;
 		serverVersions?: Record<string, number>;
 	};
-}): void {
+}) => {
 	const hasHMRHandler =
 		message.data.framework === 'react' ||
 		message.data.framework === 'vue' ||
@@ -114,9 +114,9 @@ export function handleModuleUpdate(message: {
 	}
 
 	window.location.reload();
-}
+};
 
-export function handleRebuildError(message: {
+export const handleRebuildError = (message: {
 	data: {
 		affectedFrameworks?: string[];
 		column?: number;
@@ -126,7 +126,7 @@ export function handleRebuildError(message: {
 		line?: number;
 		lineText?: string;
 	};
-}): void {
+}) => {
 	const errData = message.data || {};
 	showErrorOverlay({
 		column: errData.column,
@@ -138,10 +138,10 @@ export function handleRebuildError(message: {
 		lineText: errData.lineText,
 		message: errData.error || 'Build failed'
 	});
-}
+};
 
-export function handleFullReload(): void {
+export const handleFullReload = () => {
 	setTimeout(function () {
 		window.location.reload();
 	}, 200);
-}
+};

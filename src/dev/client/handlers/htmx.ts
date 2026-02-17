@@ -15,11 +15,11 @@ import { detectCurrentFramework } from '../frameworkDetect';
 import type { ScriptInfo } from '../types';
 import { hmrState } from '../types';
 
-export function handleHTMXUpdate(message: {
+export const handleHTMXUpdate = (message: {
 	data: {
 		html?: string | { body?: string; head?: string } | null;
 	};
-}): void {
+}) => {
 	const htmxFrameworkCheck = detectCurrentFramework();
 	if (htmxFrameworkCheck !== 'htmx') return;
 
@@ -72,13 +72,13 @@ export function handleHTMXUpdate(message: {
 	} else {
 		sessionStorage.removeItem('__HMR_ACTIVE__');
 	}
-}
+};
 
-function updateHTMXBody(
+const updateHTMXBody = (
 	htmxBody: string,
 	htmxDomState: ReturnType<typeof saveDOMState>,
 	container: HTMLElement
-): void {
+) => {
 	if (!container) return;
 
 	const countSpan = container.querySelector('#count');
@@ -177,11 +177,11 @@ function updateHTMXBody(
 		}
 	});
 	sessionStorage.removeItem('__HMR_ACTIVE__');
-}
+};
 
 /* Shared helpers */
 
-function collectScripts(container: HTMLElement): ScriptInfo[] {
+const collectScripts = (container: HTMLElement) => {
 	return Array.from(container.querySelectorAll('script[src]')).map(
 		function (script) {
 			return {
@@ -190,9 +190,9 @@ function collectScripts(container: HTMLElement): ScriptInfo[] {
 			};
 		}
 	);
-}
+};
 
-function collectScriptsFromElement(el: HTMLElement): ScriptInfo[] {
+const collectScriptsFromElement = (el: HTMLElement) => {
 	return Array.from(el.querySelectorAll('script[src]')).map(
 		function (script) {
 			return {
@@ -201,12 +201,12 @@ function collectScriptsFromElement(el: HTMLElement): ScriptInfo[] {
 			};
 		}
 	);
-}
+};
 
-function didScriptsChange(
+const didScriptsChange = (
 	oldScripts: ScriptInfo[],
 	newScripts: ScriptInfo[]
-): boolean {
+) => {
 	return (
 		oldScripts.length !== newScripts.length ||
 		oldScripts.some(function (oldScript, idx) {
@@ -217,9 +217,9 @@ function didScriptsChange(
 			return oldSrcBase !== newSrcBase;
 		})
 	);
-}
+};
 
-function normalizeHTMLForComparison(element: HTMLElement): string {
+const normalizeHTMLForComparison = (element: HTMLElement) => {
 	const clone = element.cloneNode(true) as HTMLElement;
 	const scripts = clone.querySelectorAll('script');
 	scripts.forEach(function (script) {
@@ -235,14 +235,14 @@ function normalizeHTMLForComparison(element: HTMLElement): string {
 		clone.removeAttribute('data-hmr-listeners-attached');
 	}
 	return clone.innerHTML;
-}
+};
 
-function didHTMLStructureChange(
+const didHTMLStructureChange = (
 	container: HTMLElement,
 	tempDiv: HTMLElement
-): boolean {
+) => {
 	return (
 		normalizeHTMLForComparison(container) !==
 		normalizeHTMLForComparison(tempDiv)
 	);
-}
+};

@@ -110,7 +110,7 @@ export const mapSourceFileToManifestKeys = (
 
 /* Create module update payloads from changed files
    This handles the "build module updates" problem */
-export function createModuleUpdates(
+export const createModuleUpdates = (
 	changedFiles: string[],
 	framework: string,
 	manifest: Record<string, string>,
@@ -120,7 +120,7 @@ export function createModuleUpdates(
 		vueDir?: string;
 		angularDir?: string;
 	}
-): ModuleUpdate[] {
+) => {
 	const updates: ModuleUpdate[] = [];
 	const processedFiles = new Set<string>();
 
@@ -192,13 +192,11 @@ export function createModuleUpdates(
 	}
 
 	return updates;
-}
+};
 
 /* Group module updates by framework
    This handles the "organize updates" problem */
-export function groupModuleUpdatesByFramework(
-	updates: ModuleUpdate[]
-): Map<string, ModuleUpdate[]> {
+export const groupModuleUpdatesByFramework = (updates: ModuleUpdate[]) => {
 	const grouped = new Map<string, ModuleUpdate[]>();
 
 	for (const update of updates) {
@@ -209,4 +207,4 @@ export function groupModuleUpdatesByFramework(
 	}
 
 	return grouped;
-}
+};
