@@ -117,6 +117,9 @@ export type SvelteUpdateMessage = {
     sourceFile: string;
     html?: string;
     manifest?: Record<string, string>;
+    cssUrl?: string;
+    cssBaseName?: string;
+    updateType?: string;
   };
   timestamp: number;
 };

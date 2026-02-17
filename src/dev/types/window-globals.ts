@@ -31,14 +31,10 @@ declare global {
 		__HMR_UPDATE_COUNT__?: number;
 
 		/* Svelte component instance */
-		__SVELTE_COMPONENT__?: {
-			$destroy?: () => void;
-			unmount?: () => void;
-			[key: string]: unknown;
-		};
+		__SVELTE_COMPONENT__?: Record<string, unknown>;
 
-		/* Flag to indicate Svelte HMR update in progress */
-		__SVELTE_HMR_UPDATE__?: boolean;
+		/* Svelte unmount function (closure over current runtime + component) */
+		__SVELTE_UNMOUNT__?: () => void;
 
 		/* WebSocket instance for HMR */
 		__HMR_WS__?: WebSocket;
