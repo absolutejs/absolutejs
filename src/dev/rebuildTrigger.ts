@@ -379,7 +379,6 @@ export const triggerRebuild = async (
 		}
 
 		const duration = Date.now() - startTime;
-		logger.rebuilt(duration);
 
 		// Notify clients of successful rebuild
 		broadcastToClients(state, {
@@ -459,12 +458,14 @@ export const triggerRebuild = async (
 						if (hasCSSChanges && !hasComponentChanges) {
 							logger.cssUpdate(
 								primarySource ?? reactFiles[0] ?? '',
-								'react'
+								'react',
+								duration
 							);
 						} else {
 							logger.hmrUpdate(
 								primarySource ?? reactFiles[0] ?? '',
-								'react'
+								'react',
+								duration
 							);
 						}
 
@@ -529,7 +530,11 @@ export const triggerRebuild = async (
 							const scriptPath = manifest[manifestKey] || null;
 
 							if (scriptPath) {
-								logger.scriptUpdate(scriptFile, 'html');
+								logger.scriptUpdate(
+									scriptFile,
+									'html',
+									duration
+								);
 								broadcastToClients(state, {
 									data: {
 										framework: 'html',
@@ -602,7 +607,7 @@ export const triggerRebuild = async (
 								await handleHTMLUpdate(builtHtmlPagePath);
 
 							if (newHTML) {
-								logger.hmrUpdate(pageFile, 'html');
+								logger.hmrUpdate(pageFile, 'html', duration);
 								// Send simple HTML update to clients (includes updated CSS links from updateAssetPaths)
 								broadcastToClients(state, {
 									data: {
@@ -667,7 +672,7 @@ export const triggerRebuild = async (
 							const cssKey = `${cssPascalName}CSS`;
 							const cssUrl = manifest[cssKey] || null;
 
-							logger.cssUpdate(cssFile, 'vue');
+							logger.cssUpdate(cssFile, 'vue', duration);
 							// Broadcast CSS-only update
 							broadcastToClients(state, {
 								data: {
@@ -721,7 +726,7 @@ export const triggerRebuild = async (
 
 							// Check for style-only change - send CSS-only update (preserves state!)
 							if (changeType === 'style-only') {
-								logger.cssUpdate(vuePagePath, 'vue');
+								logger.cssUpdate(vuePagePath, 'vue', duration);
 								broadcastToClients(state, {
 									data: {
 										framework: 'vue',
@@ -750,7 +755,7 @@ export const triggerRebuild = async (
 							const componentPath =
 								manifest[`${pascalName}Client`] || null;
 
-							logger.hmrUpdate(vuePagePath, 'vue');
+							logger.hmrUpdate(vuePagePath, 'vue', duration);
 							broadcastToClients(state, {
 								data: {
 									framework: 'vue',
@@ -819,7 +824,7 @@ export const triggerRebuild = async (
 							const cssKey = `${cssPascalName}CSS`;
 							const cssUrl = manifest[cssKey] || null;
 
-							logger.cssUpdate(cssFile, 'svelte');
+							logger.cssUpdate(cssFile, 'svelte', duration);
 							// Broadcast CSS-only update
 							broadcastToClients(state, {
 								data: {
@@ -859,7 +864,11 @@ export const triggerRebuild = async (
 							const cssKey = `${pascalName}CSS`;
 							const cssUrl = manifest[cssKey] || null;
 
-							logger.hmrUpdate(sveltePagePath, 'svelte');
+							logger.hmrUpdate(
+								sveltePagePath,
+								'svelte',
+								duration
+							);
 							broadcastToClients(state, {
 								data: {
 									framework: 'svelte',
@@ -919,7 +928,11 @@ export const triggerRebuild = async (
 							const scriptPath = manifest[manifestKey] || null;
 
 							if (scriptPath) {
-								logger.scriptUpdate(scriptFile, 'htmx');
+								logger.scriptUpdate(
+									scriptFile,
+									'htmx',
+									duration
+								);
 								broadcastToClients(state, {
 									data: {
 										framework: 'htmx',
@@ -985,7 +998,11 @@ export const triggerRebuild = async (
 								await handleHTMXUpdate(builtHtmxPagePath);
 
 							if (newHTML) {
-								logger.hmrUpdate(htmxPageFile, 'htmx');
+								logger.hmrUpdate(
+									htmxPageFile,
+									'htmx',
+									duration
+								);
 								broadcastToClients(state, {
 									data: {
 										framework: 'htmx',

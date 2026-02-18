@@ -58,12 +58,6 @@ export const build = async ({
 	// Normalize incrementalFiles for consistent cross-platform path checking
 	const normalizedIncrementalFiles = incrementalFiles?.map(normalizePath);
 
-	if (isIncremental) {
-		console.log(
-			`⚡ Incremental build: ${incrementalFiles.length} file(s) to rebuild`
-		);
-	}
-
 	const throwOnError = options?.throwOnError === true;
 	const hmr = options?.injectHMR === true;
 	const buildPath = validateSafePath(buildDirectory, projectRoot);
@@ -668,9 +662,11 @@ export const build = async ({
 			vueDir
 		});
 
-	console.log(
-		`Build completed in ${getDurationString(performance.now() - buildStart)}`
-	);
+	if (!isIncremental && !options?.injectHMR) {
+		console.log(
+			`Build completed in ${getDurationString(performance.now() - buildStart)}`
+		);
+	}
 
 	return manifest;
 };
