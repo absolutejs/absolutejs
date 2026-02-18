@@ -27,9 +27,6 @@ const buildConfig: BuildConfig = {
 	buildDirectory: 'example/build',
 	htmlDirectory: 'example/html',
 	htmxDirectory: 'example/htmx',
-	options: {
-		preserveIntermediateFiles: true
-	},
 	reactDirectory: 'example/react',
 	publicDirectory: 'example/public',
 	svelteDirectory: 'example/svelte',
