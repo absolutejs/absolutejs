@@ -369,6 +369,7 @@ export const triggerRebuild = async (
 					: undefined,
 			options: {
 				...config.options,
+				injectHMR: true,
 				preserveIntermediateFiles: true,
 				throwOnError: true
 			}
