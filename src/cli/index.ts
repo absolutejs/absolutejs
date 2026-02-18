@@ -53,7 +53,7 @@ const dev = async (serverEntry: string) => {
 	if (scripts) await startDatabase(scripts);
 
 	const spawnServer = () =>
-		Bun.spawn(['bun', '--hot', serverEntry], {
+		Bun.spawn(['bun', '--hot', '--no-clear-screen', serverEntry], {
 			cwd: process.cwd(),
 			env: {
 				...process.env,
