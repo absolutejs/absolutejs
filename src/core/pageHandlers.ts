@@ -6,6 +6,7 @@ import { Component as VueComponent, createSSRApp, h } from 'vue';
 import { renderToWebStream as renderVueToWebStream } from 'vue/server-renderer';
 import { renderToReadableStream as renderSvelteToReadableStream } from '../svelte/renderToReadableStream';
 import { PropsArgs } from '../../types/build';
+import { ssrErrorPage } from '../utils/ssrErrorPage';
 
 export const handleReactPageRequest = async <
 	Props extends Record<string, unknown> = Record<never, never>
@@ -14,22 +15,34 @@ export const handleReactPageRequest = async <
 	index: string,
 	...props: keyof Props extends never ? [] : [props: Props]
 ) => {
-	const [maybeProps] = props;
-	const element =
-		maybeProps !== undefined
-			? createElement(PageComponent, maybeProps)
-			: createElement(PageComponent);
+	try {
+		const [maybeProps] = props;
+		const element =
+			maybeProps !== undefined
+				? createElement(PageComponent, maybeProps)
+				: createElement(PageComponent);
 
-	const stream = await renderReactToReadableStream(element, {
-		bootstrapModules: [index],
-		bootstrapScriptContent: maybeProps
-			? `window.__INITIAL_PROPS__=${JSON.stringify(maybeProps)}`
-			: undefined
-	});
+		const stream = await renderReactToReadableStream(element, {
+			bootstrapModules: [index],
+			bootstrapScriptContent: maybeProps
+				? `window.__INITIAL_PROPS__=${JSON.stringify(maybeProps)}`
+				: undefined,
+			onError(error: unknown) {
+				console.error('[SSR] React streaming error:', error);
+			}
+		});
 
-	return new Response(stream, {
-		headers: { 'Content-Type': 'text/html' }
-	});
+		return new Response(stream, {
+			headers: { 'Content-Type': 'text/html' }
+		});
+	} catch (error) {
+		console.error('[SSR] React render error:', error);
+
+		return new Response(ssrErrorPage('react', error), {
+			status: 500,
+			headers: { 'Content-Type': 'text/html' }
+		});
+	}
 };
 
 // Declare overloads matching Svelte's own component API to preserve correct type inference
@@ -55,22 +68,31 @@ export const handleSveltePageRequest: HandleSveltePageRequest = async <
 	indexPath: string,
 	props?: P
 ) => {
-	const { default: ImportedPageComponent } = await import(pagePath);
+	try {
+		const { default: ImportedPageComponent } = await import(pagePath);
 
-	const stream = await renderSvelteToReadableStream(
-		ImportedPageComponent,
-		props,
-		{
-			bootstrapModules: indexPath ? [indexPath] : [],
-			bootstrapScriptContent: `window.__INITIAL_PROPS__=${JSON.stringify(
-				props
-			)}`
-		}
-	);
+		const stream = await renderSvelteToReadableStream(
+			ImportedPageComponent,
+			props,
+			{
+				bootstrapModules: indexPath ? [indexPath] : [],
+				bootstrapScriptContent: `window.__INITIAL_PROPS__=${JSON.stringify(
+					props
+				)}`
+			}
+		);
 
-	return new Response(stream, {
-		headers: { 'Content-Type': 'text/html' }
-	});
+		return new Response(stream, {
+			headers: { 'Content-Type': 'text/html' }
+		});
+	} catch (error) {
+		console.error('[SSR] Svelte render error:', error);
+
+		return new Response(ssrErrorPage('svelte', error), {
+			status: 500,
+			headers: { 'Content-Type': 'text/html' }
+		});
+	}
 };
 
 export const handleVuePageRequest = async <
@@ -82,42 +104,51 @@ export const handleVuePageRequest = async <
 	headTag: `<head>${string}</head>` = '<head></head>',
 	...props: keyof Props extends never ? [] : [props: Props]
 ) => {
-	const [maybeProps] = props;
+	try {
+		const [maybeProps] = props;
 
-	const { default: ImportedPageComponent } = await import(pagePath);
+		const { default: ImportedPageComponent } = await import(pagePath);
 
-	const app = createSSRApp({
-		render: () => h(ImportedPageComponent, maybeProps ?? null)
-	});
+		const app = createSSRApp({
+			render: () => h(ImportedPageComponent, maybeProps ?? null)
+		});
 
-	const bodyStream = renderVueToWebStream(app);
+		const bodyStream = renderVueToWebStream(app);
 
-	const head = `<!DOCTYPE html><html>${headTag}<body><div id="root">`;
-	const tail = `</div><script>window.__INITIAL_PROPS__=${JSON.stringify(
-		maybeProps ?? {}
-	)}</script><script type="module" src="${indexPath}"></script></body></html>`;
+		const head = `<!DOCTYPE html><html>${headTag}<body><div id="root">`;
+		const tail = `</div><script>window.__INITIAL_PROPS__=${JSON.stringify(
+			maybeProps ?? {}
+		)}</script><script type="module" src="${indexPath}"></script></body></html>`;
 
-	const stream = new ReadableStream({
-		start(controller) {
-			controller.enqueue(head);
-			const reader = bodyStream.getReader();
-			const pumpLoop = () => {
-				reader
-					.read()
-					.then(({ done, value }) =>
-						done
-							? (controller.enqueue(tail), controller.close())
-							: (controller.enqueue(value), pumpLoop())
-					)
-					.catch((err) => controller.error(err));
-			};
-			pumpLoop();
-		}
-	});
+		const stream = new ReadableStream({
+			start(controller) {
+				controller.enqueue(head);
+				const reader = bodyStream.getReader();
+				const pumpLoop = () => {
+					reader
+						.read()
+						.then(({ done, value }) =>
+							done
+								? (controller.enqueue(tail), controller.close())
+								: (controller.enqueue(value), pumpLoop())
+						)
+						.catch((err) => controller.error(err));
+				};
+				pumpLoop();
+			}
+		});
 
-	return new Response(stream, {
-		headers: { 'Content-Type': 'text/html' }
-	});
+		return new Response(stream, {
+			headers: { 'Content-Type': 'text/html' }
+		});
+	} catch (error) {
+		console.error('[SSR] Vue render error:', error);
+
+		return new Response(ssrErrorPage('vue', error), {
+			status: 500,
+			headers: { 'Content-Type': 'text/html' }
+		});
+	}
 };
 
 export const handleHTMLPageRequest = (pagePath: string) => file(pagePath);
