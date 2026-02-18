@@ -63,6 +63,7 @@ export const build = async ({
 	}
 
 	const throwOnError = options?.throwOnError === true;
+	const hmr = options?.injectHMR === true;
 	const buildPath = validateSafePath(buildDirectory, projectRoot);
 	const assetsPath =
 		assetsDirectory && validateSafePath(assetsDirectory, projectRoot);
@@ -158,7 +159,7 @@ export const build = async ({
 	if (reactIndexesPath && reactPagesPath) {
 		// Always regenerate React index files to ensure latest error handling is included
 		// This is safe because index files are small and generation is fast
-		await generateReactIndexFiles(reactPagesPath, reactIndexesPath, isDev);
+		await generateReactIndexFiles(reactPagesPath, reactIndexesPath, hmr);
 	}
 
 	// Copy assets on full builds or if assets changed
@@ -278,7 +279,7 @@ export const build = async ({
 		: allSvelteCssEntries;
 
 	const { svelteServerPaths, svelteIndexPaths, svelteClientPaths } = svelteDir
-		? await compileSvelte(svelteEntries, svelteDir, new Map(), isDev)
+		? await compileSvelte(svelteEntries, svelteDir, new Map(), hmr)
 		: {
 				svelteClientPaths: [],
 				svelteIndexPaths: [],
@@ -287,7 +288,7 @@ export const build = async ({
 
 	const { vueServerPaths, vueIndexPaths, vueClientPaths, vueCssPaths } =
 		vueDir
-			? await compileVue(vueEntries, vueDir, isDev)
+			? await compileVue(vueEntries, vueDir, hmr)
 			: {
 					vueClientPaths: [],
 					vueCssPaths: [],
@@ -362,7 +363,7 @@ export const build = async ({
 	// Only add when React entries exist (i.e. React files actually changed
 	// or this is a full build) to avoid producing stale React outputs
 	// during non-React incremental rebuilds.
-	if (isDev && reactIndexesPath && reactClientEntryPoints.length > 0) {
+	if (hmr && reactIndexesPath && reactClientEntryPoints.length > 0) {
 		const refreshEntry = join(reactIndexesPath, '_refresh.tsx');
 		if (!reactClientEntryPoints.includes(refreshEntry)) {
 			reactClientEntryPoints.push(refreshEntry);
@@ -384,7 +385,7 @@ export const build = async ({
 
 		// Bun's reactFastRefresh option injects $RefreshReg$/$RefreshSig$
 		// calls for React Fast Refresh support in dev
-		if (isDev) {
+		if (hmr) {
 			(reactBuildConfig as Record<string, unknown>).reactFastRefresh =
 				true;
 		}
@@ -412,7 +413,7 @@ export const build = async ({
 	let nonReactClientOutputs: BuildArtifact[] = [];
 
 	if (nonReactClientEntryPoints.length > 0) {
-		const htmlScriptPlugin = isDev
+		const htmlScriptPlugin = hmr
 			? createHTMLScriptHMRPlugin(htmlDir, htmxDir)
 			: undefined;
 
@@ -549,7 +550,7 @@ export const build = async ({
 
 	// Build HMR client bundle once for HTML/HTMX injection during dev builds
 	const hmrClientBundle =
-		isDev && (htmlDir || htmxDir) ? await buildHMRClient() : null;
+		hmr && (htmlDir || htmxDir) ? await buildHMRClient() : null;
 
 	const injectHMRIntoHTMLFile = (filePath: string, framework: string) => {
 		if (!hmrClientBundle) return;
@@ -586,7 +587,7 @@ export const build = async ({
 		// Add HTML pages to manifest (absolute paths for Bun.file())
 		const htmlPageFiles = await scanEntryPoints(outputHtmlPages, '*.html');
 		for (const htmlFile of htmlPageFiles) {
-			if (isDev) injectHMRIntoHTMLFile(htmlFile, 'html');
+			if (hmr) injectHMRIntoHTMLFile(htmlFile, 'html');
 			const fileName = basename(htmlFile, '.html');
 			manifest[fileName] = htmlFile;
 		}
@@ -629,7 +630,7 @@ export const build = async ({
 		// Add HTMX pages to manifest (absolute paths for Bun.file())
 		const htmxPageFiles = await scanEntryPoints(outputHtmxPages, '*.html');
 		for (const htmxFile of htmxPageFiles) {
-			if (isDev) injectHMRIntoHTMLFile(htmxFile, 'htmx');
+			if (hmr) injectHMRIntoHTMLFile(htmxFile, 'htmx');
 			const fileName = basename(htmxFile, '.html');
 			manifest[fileName] = htmxFile;
 		}
