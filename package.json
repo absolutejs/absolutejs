@@ -41,7 +41,8 @@
 	"name": "@absolutejs/absolute",
 	"peerDependencies": {
 		"elysia": "^1.4.0",
-		"react": "^19.1.0",
+		"react": "^19.2.0",
+		"react-dom": "^19.2.0",
 		"svelte": "^5.35.2",
 		"vue": "^3.5.27"
 	},
@@ -62,5 +63,5 @@
 		"typecheck": "bun run tsc --noEmit"
 	},
 	"types": "./dist/src/index.d.ts",
-	"version": "0.15.7"
+	"version": "0.15.8"
 }
