@@ -18,6 +18,8 @@ import { outputLogs } from '../build/outputLogs';
 import { scanEntryPoints } from '../build/scanEntryPoints';
 import { updateAssetPaths } from '../build/updateAssetPaths';
 import { buildHMRClient } from '../dev/buildHMRClient';
+import { rewriteReactImports } from '../build/rewriteReactImports';
+import { getDevVendorPaths } from './devVendorPaths';
 import type { BuildConfig } from '../../types/build';
 import { cleanup } from '../utils/cleanup';
 import { commonAncestor } from '../utils/commonAncestor';
@@ -370,8 +372,13 @@ export const build = async ({
 		}
 	}
 
+	// In dev mode, check if vendor paths are set. When set, React is
+	// externalized and imports are rewritten to stable vendor file paths
+	// after the build. This prevents duplicate React instances during HMR.
+	const vendorPaths = getDevVendorPaths();
+
 	if (reactClientEntryPoints.length > 0) {
-		const reactBuildConfig = {
+		const reactBuildConfig: Record<string, unknown> = {
 			entrypoints: reactClientEntryPoints,
 			format: 'esm' as const,
 			minify: !isDev,
@@ -383,14 +390,22 @@ export const build = async ({
 			throw: false
 		};
 
+		// When vendor paths are available (dev mode), externalize React so
+		// Bun doesn't bundle it. The bare specifiers in the output are
+		// rewritten to vendor paths after the build completes.
+		if (vendorPaths) {
+			reactBuildConfig.external = Object.keys(vendorPaths);
+		}
+
 		// Bun's reactFastRefresh option injects $RefreshReg$/$RefreshSig$
 		// calls for React Fast Refresh support in dev
 		if (hmr) {
-			(reactBuildConfig as Record<string, unknown>).reactFastRefresh =
-				true;
+			reactBuildConfig.reactFastRefresh = true;
 		}
 
-		const reactClientResult = await bunBuild(reactBuildConfig);
+		const reactClientResult = await bunBuild(
+			reactBuildConfig as unknown as Parameters<typeof bunBuild>[0]
+		);
 		reactClientLogs = reactClientResult.logs;
 		reactClientOutputs = reactClientResult.outputs;
 		if (!reactClientResult.success && reactClientResult.logs.length > 0) {
@@ -406,6 +421,16 @@ export const build = async ({
 			logger.error('React client build failed', err);
 			if (throwOnError) throw err;
 			exit(1);
+		}
+
+		// Post-process: rewrite bare React specifiers to vendor paths.
+		// Bun outputs `from "react"` for externals — browsers can't resolve
+		// bare specifiers, so we rewrite them to `/vendor/react.js` etc.
+		if (vendorPaths) {
+			await rewriteReactImports(
+				reactClientOutputs.map((artifact) => artifact.path),
+				vendorPaths
+			);
 		}
 	}
 

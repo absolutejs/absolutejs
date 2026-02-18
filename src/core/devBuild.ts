@@ -1,7 +1,13 @@
+import { readdir } from 'node:fs/promises';
 import { statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { build } from './build';
+import { setDevVendorPaths } from './devVendorPaths';
 import type { BuildConfig } from '../../types/build';
+import {
+	buildReactVendor,
+	computeVendorPaths
+} from '../build/buildReactVendor';
 import { createHMRState, type HMRState } from '../dev/clientManager';
 import { buildInitialDependencyGraph } from '../dev/dependencyGraph';
 import { startFileWatching } from '../dev/fileWatcher';
@@ -43,6 +49,12 @@ export const devBuild = async (config: BuildConfig) => {
 	const watchPaths = getWatchPaths(config, state.resolvedPaths);
 	buildInitialDependencyGraph(state.dependencyGraph, watchPaths);
 
+	// Pre-compute vendor paths so build() can externalize React.
+	// The actual vendor files are built after build() creates the output dir.
+	if (config.reactDirectory) {
+		setDevVendorPaths(computeVendorPaths());
+	}
+
 	console.log('🔨 Building AbsoluteJS with HMR...');
 
 	// Initial build (HMR client is baked into index files and HTML/HTMX pages)
@@ -73,6 +85,30 @@ export const devBuild = async (config: BuildConfig) => {
 		manifest ?? {},
 		state.resolvedPaths.buildDir
 	);
+
+	// Build React vendor files now that the build directory exists.
+	// These stable files (no content hash) are what the rewritten
+	// imports in the build output point to.
+	if (config.reactDirectory) {
+		await buildReactVendor(state.resolvedPaths.buildDir);
+
+		// Load vendor files into the in-memory asset store
+		const vendorDir = resolve(
+			state.resolvedPaths.buildDir,
+			'react',
+			'vendor'
+		);
+		try {
+			const entries = await readdir(vendorDir);
+			for (const entry of entries) {
+				const webPath = `/react/vendor/${entry}`;
+				const bytes = await Bun.file(resolve(vendorDir, entry)).bytes();
+				state.assetStore.set(webPath, bytes);
+			}
+		} catch {
+			/* vendor dir may not exist if React build failed */
+		}
+	}
 
 	console.log('✅ Build completed successfully');
 
