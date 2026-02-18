@@ -3,6 +3,7 @@
    Code splitting ensures React lives in a shared chunk that stays cached,
    so dynamic import of the rebuilt entry reuses the same React instance. */
 
+import { hideErrorOverlay } from '../errorOverlay';
 import { detectCurrentFramework } from '../frameworkDetect';
 
 export const handleReactUpdate = (message: {
@@ -39,6 +40,11 @@ export const handleReactUpdate = (message: {
 		import(newUrl + '?t=' + Date.now())
 			.then(() => {
 				refreshRuntime.performReactRefresh();
+				if (window.__ERROR_BOUNDARY__) {
+					window.__ERROR_BOUNDARY__.reset();
+				} else {
+					hideErrorOverlay();
+				}
 			})
 			.catch((err) => {
 				console.warn(
