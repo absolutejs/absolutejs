@@ -62,8 +62,7 @@ export const devBuild = async (config: BuildConfig) => {
 		...config,
 		options: {
 			...config.options,
-			injectHMR: true,
-			preserveIntermediateFiles: true
+			injectHMR: true
 		}
 	});
 
