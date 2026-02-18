@@ -3,6 +3,7 @@
 import type { ErrorOverlayOptions } from '../../../types/client';
 
 let errorOverlayElement: HTMLDivElement | null = null;
+let currentOverlayKind: 'compilation' | 'runtime' | null = null;
 
 const frameworkLabels: Record<string, string> = {
 	angular: 'Angular',
@@ -26,12 +27,31 @@ const frameworkColors: Record<string, string> = {
 	vue: '#42b883'
 };
 
-export const hideErrorOverlay = () => {
+const removeOverlayElement = () => {
 	if (errorOverlayElement && errorOverlayElement.parentNode) {
 		errorOverlayElement.parentNode.removeChild(errorOverlayElement);
-		errorOverlayElement = null;
 	}
+	errorOverlayElement = null;
+	currentOverlayKind = null;
 };
+
+export const hideErrorOverlay = () => {
+	const elm = errorOverlayElement;
+	if (!elm || !elm.parentNode) {
+		removeOverlayElement();
+		return;
+	}
+	elm.style.transition = 'opacity 150ms ease-out';
+	elm.style.opacity = '0';
+	errorOverlayElement = null;
+	currentOverlayKind = null;
+	setTimeout(() => {
+		if (elm.parentNode) elm.parentNode.removeChild(elm);
+	}, 150);
+};
+
+export const isRuntimeErrorOverlay = (): boolean =>
+	currentOverlayKind === 'runtime';
 
 export const showErrorOverlay = (opts: ErrorOverlayOptions) => {
 	const message = opts.message || 'Build failed';
@@ -43,7 +63,8 @@ export const showErrorOverlay = (opts: ErrorOverlayOptions) => {
 	const frameworkLabel = frameworkLabels[framework] || framework;
 	const accent = frameworkColors[framework] || '#94a3b8';
 
-	hideErrorOverlay();
+	removeOverlayElement();
+	currentOverlayKind = opts.kind || 'compilation';
 
 	const overlay = document.createElement('div');
 	overlay.id = 'absolutejs-error-overlay';
@@ -63,7 +84,9 @@ export const showErrorOverlay = (opts: ErrorOverlayOptions) => {
 		accent +
 		';color:#fff;opacity:0.95;box-shadow:0 2px 4px rgba(0,0,0,0.2);">' +
 		frameworkLabel +
-		'</span></div><span style="color:#94a3b8;font-size:13px;font-weight:500;">Compilation Error</span>';
+		'</span></div><span style="color:#94a3b8;font-size:13px;font-weight:500;">' +
+		(opts.kind === 'runtime' ? 'Runtime Error' : 'Compilation Error') +
+		'</span>';
 	card.appendChild(header);
 
 	const content = document.createElement('div');

@@ -1,6 +1,10 @@
 /* Rebuild, manifest, module-update, and error handlers */
 
-import { hideErrorOverlay, showErrorOverlay } from '../errorOverlay';
+import {
+	hideErrorOverlay,
+	isRuntimeErrorOverlay,
+	showErrorOverlay
+} from '../errorOverlay';
 
 export const handleManifest = (message: {
 	data: {
@@ -29,7 +33,9 @@ export const handleRebuildComplete = (message: {
 		manifest?: Record<string, string>;
 	};
 }) => {
-	hideErrorOverlay();
+	if (!isRuntimeErrorOverlay()) {
+		hideErrorOverlay();
+	}
 	if (window.__HMR_MANIFEST__) {
 		window.__HMR_MANIFEST__ = message.data.manifest;
 	}

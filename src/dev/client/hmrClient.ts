@@ -5,6 +5,7 @@ import '../../../types/client'; // Window global type extensions
 
 import { hmrState } from '../../../types/client';
 import { detectCurrentFramework } from './frameworkDetect';
+import { hideErrorOverlay, showErrorOverlay } from './errorOverlay';
 import { handleReactUpdate } from './handlers/react';
 import { handleHTMLUpdate, handleScriptUpdate } from './handlers/html';
 import { handleHTMXUpdate } from './handlers/htmx';
@@ -33,6 +34,31 @@ if (typeof window !== 'undefined') {
 		window.__HMR_SERVER_VERSIONS__ = {};
 	}
 }
+
+// Catch uncaught runtime errors and show the error overlay
+window.addEventListener('error', function (evt) {
+	if (!evt.error) return;
+	showErrorOverlay({
+		framework: detectCurrentFramework() || undefined,
+		kind: 'runtime',
+		message:
+			evt.error instanceof Error
+				? evt.error.stack || evt.error.message
+				: String(evt.error)
+	});
+});
+
+window.addEventListener('unhandledrejection', function (evt) {
+	if (!evt.reason) return;
+	showErrorOverlay({
+		framework: detectCurrentFramework() || undefined,
+		kind: 'runtime',
+		message:
+			evt.reason instanceof Error
+				? evt.reason.stack || evt.reason.message
+				: String(evt.reason)
+	});
+});
 
 // Prevent multiple WebSocket connections
 if (!(window.__HMR_WS__ && window.__HMR_WS__.readyState === WebSocket.OPEN)) {
@@ -105,6 +131,7 @@ if (!(window.__HMR_WS__ && window.__HMR_WS__.readyState === WebSocket.OPEN)) {
 					break;
 
 				case 'module-update':
+					hideErrorOverlay();
 					handleModuleUpdate(message);
 					break;
 
@@ -113,22 +140,27 @@ if (!(window.__HMR_WS__ && window.__HMR_WS__.readyState === WebSocket.OPEN)) {
 					break;
 
 				case 'script-update':
+					hideErrorOverlay();
 					handleScriptUpdate(message);
 					break;
 
 				case 'html-update':
+					hideErrorOverlay();
 					handleHTMLUpdate(message);
 					break;
 
 				case 'htmx-update':
+					hideErrorOverlay();
 					handleHTMXUpdate(message);
 					break;
 
 				case 'svelte-update':
+					hideErrorOverlay();
 					handleSvelteUpdate(message);
 					break;
 
 				case 'vue-update':
+					hideErrorOverlay();
 					handleVueUpdate(message);
 					break;
 
@@ -195,6 +227,7 @@ if (!(window.__HMR_WS__ && window.__HMR_WS__.readyState === WebSocket.OPEN)) {
 			if (hmrState.pingInterval) clearInterval(hmrState.pingInterval);
 			if (hmrState.reconnectTimeout)
 				clearTimeout(hmrState.reconnectTimeout);
+
 			return;
 		}
 

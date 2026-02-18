@@ -4,6 +4,7 @@ export interface ErrorOverlayOptions {
 	column?: number;
 	file?: string;
 	framework?: string;
+	kind?: 'compilation' | 'runtime';
 	line?: number;
 	lineText?: string;
 	message?: string;
@@ -82,6 +83,7 @@ declare global {
 		__HMR_SERVER_VERSIONS__?: Record<string, number>;
 		__HMR_UPDATE_COUNT__?: number;
 		__HMR_WS__?: WebSocket;
+		__ERROR_BOUNDARY__?: { reset: () => void };
 		__INITIAL_PROPS__?: Record<string, unknown>;
 		__REACT_ROOT__?: { render: (element: unknown) => void };
 		__SVELTE_COMPONENT__?: Record<string, unknown>;

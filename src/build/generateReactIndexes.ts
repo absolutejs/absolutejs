@@ -10,6 +10,11 @@ const devClientDir = (() => {
 	return resolve(import.meta.dir, './dev/client');
 })();
 
+const errorOverlayPath = join(devClientDir, 'errorOverlay.ts').replace(
+	/\\/g,
+	'/'
+);
+
 const hmrClientPath = join(devClientDir, 'hmrClient.ts').replace(/\\/g, '/');
 
 const refreshSetupPath = join(devClientDir, 'reactRefreshSetup.ts').replace(
@@ -39,14 +44,60 @@ export const generateReactIndexFiles = async (
 					`window.__HMR_FRAMEWORK__ = "react";`,
 					`window.__REACT_COMPONENT_KEY__ = "${componentName}Index";`,
 					`import '${refreshSetupPath}';`,
-					`import '${hmrClientPath}';\n`
+					`import '${hmrClientPath}';`,
+					`import { showErrorOverlay, hideErrorOverlay } from '${errorOverlayPath}';\n`
+				]
+			: [];
+
+		const reactImports = isDev
+			? [
+					`import { hydrateRoot, createRoot } from 'react-dom/client';`,
+					`import { createElement, Component } from 'react';`
+				]
+			: [
+					`import { hydrateRoot, createRoot } from 'react-dom/client';`,
+					`import { createElement } from 'react';`
+				];
+
+		const errorBoundaryDef = isDev
+			? [
+					`\n// Dev-only Error Boundary to catch React render errors`,
+					`class ErrorBoundary extends Component {`,
+					`\tconstructor(props) {`,
+					`\t\tsuper(props);`,
+					`\t\tthis.state = { hasError: false };`,
+					`\t\twindow.__ERROR_BOUNDARY__ = this;`,
+					`\t}`,
+					`\tstatic getDerivedStateFromError() {`,
+					`\t\treturn { hasError: true };`,
+					`\t}`,
+					`\tcomponentDidCatch(error) {`,
+					`\t\tshowErrorOverlay({`,
+					`\t\t\tframework: 'react',`,
+					`\t\t\tkind: 'runtime',`,
+					`\t\t\tmessage: error && error.stack ? error.stack : String(error)`,
+					`\t\t});`,
+					`\t}`,
+					`\tcomponentDidUpdate(prevProps, prevState) {`,
+					`\t\tif (prevState.hasError && !this.state.hasError) {`,
+					`\t\t\thideErrorOverlay();`,
+					`\t\t}`,
+					`\t}`,
+					`\treset() {`,
+					`\t\tthis.setState({ hasError: false });`,
+					`\t}`,
+					`\trender() {`,
+					`\t\tif (this.state.hasError) return null;`,
+					``,
+					`\t\treturn this.props.children;`,
+					`\t}`,
+					`}\n`
 				]
 			: [];
 
 		const content = [
 			...hmrPreamble,
-			`import { hydrateRoot, createRoot } from 'react-dom/client';`,
-			`import { createElement } from 'react';`,
+			...reactImports,
 			`import type { ComponentType } from 'react'`,
 			`import { ${componentName} } from '../pages/${componentName}';\n`,
 			`type PropsOf<C> = C extends ComponentType<infer P> ? P : never;\n`,
@@ -57,6 +108,7 @@ export const generateReactIndexFiles = async (
 			`\t\t__HMR_CLIENT_ONLY_MODE__?: boolean`,
 			`\t}`,
 			`}\n`,
+			...errorBoundaryDef,
 			`// Hydration with error handling and fallback`,
 			`const isDev = ${isDev};`,
 			`const componentPath = '../pages/${componentName}';\n`,
@@ -124,7 +176,7 @@ export const generateReactIndexFiles = async (
 			`\t\t}\n`,
 			`\t\t// Render into the same root container when falling back to client-only`,
 			`\t\tconst root = createRoot(container);`,
-			`\t\troot.render(createElement(${componentName}, mergedProps));`,
+			`\t\troot.render(${isDev ? `createElement(ErrorBoundary, null, createElement(${componentName}, mergedProps))` : `createElement(${componentName}, mergedProps)`});`,
 			`\t\twindow.__REACT_ROOT__ = root;`,
 			`\t\twindow.__HMR_CLIENT_ONLY_MODE__ = true;`,
 			`\t} catch (fallbackError) {`,
@@ -165,7 +217,7 @@ export const generateReactIndexFiles = async (
 			`\t\t// Use onRecoverableError to catch hydration errors (React 19)`,
 			`\t\troot = hydrateRoot(`,
 			`\t\t\tcontainer,`,
-			`\t\t\tcreateElement(${componentName}, mergedProps),`,
+			`\t\t\t${isDev ? `createElement(ErrorBoundary, null, createElement(${componentName}, mergedProps))` : `createElement(${componentName}, mergedProps)`},`,
 			`\t\t\t{`,
 			`\t\t\t\tonRecoverableError: (error) => {`,
 			`\t\t\t\t\t// Check if this is a hydration error (isHydrationError filters out whitespace-only head mismatches)`,
