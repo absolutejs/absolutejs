@@ -1,6 +1,8 @@
 import { ComponentType as ReactComponent } from 'react';
 import { Component as SvelteComponent } from 'svelte';
 import { Component as VueComponent } from 'vue';
+import { build } from '../src/core/build';
+import { devBuild } from '../src/core/devBuild';
 
 export type BuildOptions = {
 	preserveIntermediateFiles?: boolean;
@@ -33,6 +35,10 @@ export type BuildConfig = {
 	// When provided, only these files and their dependencies will be rebuilt
 	incrementalFiles?: string[];
 };
+
+export type BuildResult = ReturnType<typeof build>;
+export type DevBuildResult = ReturnType<typeof devBuild>;
+export type Result = BuildResult | DevBuildResult;
 
 export type PropsOf<Component> =
 	Component extends ReactComponent<infer Props>
