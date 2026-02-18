@@ -97,7 +97,7 @@ export const killStaleProcesses = (port: number): void => {
 			}
 		}
 		console.log(
-			`\x1b[33m[cli] Killed ${pids.length} stale process(es) on port ${port}.\x1b[0m`
+			`\x1b[33m[cli] Killed ${pids.length} stale ${pids.length === 1 ? 'process' : 'processes'} on port ${port}.\x1b[0m`
 		);
 	} catch {
 		/* lsof not found or no processes — safe to ignore */
