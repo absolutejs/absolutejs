@@ -62,5 +62,5 @@
 		"typecheck": "bun run tsc --noEmit"
 	},
 	"types": "./dist/src/index.d.ts",
-	"version": "0.15.5"
+	"version": "0.15.6"
 }

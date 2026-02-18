@@ -27,7 +27,7 @@ import { normalizePath } from '../utils/normalizePath';
 import { toPascal } from '../utils/stringModifiers';
 import { validateSafePath } from '../utils/validateSafePath';
 
-const isDev = env.NODE_ENV !== 'production';
+const isDev = env.NODE_ENV === 'development';
 
 const vueFeatureFlags: Record<string, string> = {
 	__VUE_OPTIONS_API__: 'true',
