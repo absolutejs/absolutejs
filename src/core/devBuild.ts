@@ -56,18 +56,23 @@ export const devBuild = async (config: BuildConfig) => {
 	}
 
 	// Store version for the startup banner
-	// Resolve relative to this source file so it works both in the repo
-	// and when installed as a dependency (node_modules/absolutejs/src/core/)
-	try {
-		const pkg = await Bun.file(
-			resolve(import.meta.dir, '..', '..', 'package.json')
-		).json();
-		if (pkg.name === '@absolutejs/absolute') {
-			(globalThis as Record<string, unknown>).__absoluteVersion =
-				pkg.version;
+	// Try multiple paths: '../..' works from source (src/core/devBuild.ts),
+	// '..' works from bundled dist (dist/index.js)
+	const candidates = [
+		resolve(import.meta.dir, '..', '..', 'package.json'),
+		resolve(import.meta.dir, '..', 'package.json')
+	];
+	for (const candidate of candidates) {
+		try {
+			const pkg = await Bun.file(candidate).json();
+			if (pkg.name === '@absolutejs/absolute') {
+				(globalThis as Record<string, unknown>).__absoluteVersion =
+					pkg.version;
+				break;
+			}
+		} catch {
+			/* try next candidate */
 		}
-	} catch {
-		/* version unavailable */
 	}
 
 	const buildStart = performance.now();
