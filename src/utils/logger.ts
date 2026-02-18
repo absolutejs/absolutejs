@@ -1,7 +1,9 @@
 /**
  * Centralized logger utility for AbsoluteJS
- * Provides Vite-style formatted output with ANSI colors and timestamps
+ * Provides formatted output with ANSI colors and timestamps
  */
+
+import { getDurationString } from './getDurationString';
 
 // ANSI color codes
 const colors = {
@@ -32,7 +34,7 @@ const frameworkColors: Record<string, string> = {
 };
 
 /**
- * Format timestamp as "HH:MM:SS AM/PM" (Vite style)
+ * Format timestamp as "HH:MM:SS AM/PM"
  */
 const formatTimestamp = () => {
 	const now = new Date();
@@ -54,7 +56,7 @@ const formatPath = (filePath: string) => {
 		: filePath;
 	// Normalize slashes
 	relative = relative.replace(/\\/g, '/');
-	// Ensure it starts with / for consistency with Vite
+	// Ensure it starts with /
 	if (!relative.startsWith('/')) {
 		relative = '/' + relative;
 	}
@@ -69,7 +71,7 @@ const getFrameworkColor = (framework: string) => {
 };
 
 /**
- * Core logging function with Vite-style format
+ * Core logging function
  */
 const log = (
 	action: string,
@@ -123,49 +125,66 @@ const logWarn = (message: string) => {
 	);
 };
 
+/**
+ * Startup banner
+ */
+const startupBanner = (options: {
+	version: string;
+	duration: number;
+	port: string | number;
+	host: string;
+	networkUrl?: string;
+}) => {
+	const { version, duration, port, host, networkUrl } = options;
+	const name = `${colors.cyan}${colors.bold}ABSOLUTEJS${colors.reset}`;
+	const ver = `${colors.dim}v${version}${colors.reset}`;
+	const time = `${colors.dim}ready in${colors.reset} ${colors.bold}${getDurationString(duration)}${colors.reset}`;
+	console.log('');
+	console.log(`  ${name} ${ver}  ${time}`);
+	console.log('');
+	console.log(
+		`  ${colors.green}➜${colors.reset}  ${colors.bold}Local:${colors.reset}   http://${host === '0.0.0.0' ? 'localhost' : host}:${port}/`
+	);
+	if (networkUrl) {
+		console.log(
+			`  ${colors.green}➜${colors.reset}  ${colors.bold}Network:${colors.reset} ${networkUrl}`
+		);
+	}
+	console.log('');
+};
+
 // Public API
 export const logger = {
 	/**
 	 * HMR update message
 	 * Format: "10:30:45 AM [hmr] hmr update /pages/App.tsx"
 	 */
-	hmrUpdate(path: string, framework?: string) {
-		log('hmr update', { path, framework });
+	hmrUpdate(path: string, framework?: string, duration?: number) {
+		log('hmr update', { path, framework, duration });
 	},
 
 	/**
 	 * Page reload message
-	 * Format: "10:30:45 AM [hmr] page reload /src/App.tsx"
+	 * Format: "10:30:45 AM [hmr] page reload /src/App.tsx (125ms)"
 	 */
-	pageReload(path: string, framework?: string) {
-		log('page reload', { path, framework });
+	pageReload(path: string, framework?: string, duration?: number) {
+		log('page reload', { path, framework, duration });
 	},
 
 	/**
 	 * CSS update message
-	 * Format: "10:30:45 AM [hmr] css update /styles/main.css"
+	 * Format: "10:30:45 AM [hmr] css update /styles/main.css (125ms)"
 	 */
-	cssUpdate(path: string, framework?: string) {
-		log('css update', { path, framework: framework ?? 'css' });
+	cssUpdate(path: string, framework?: string, duration?: number) {
+		log('css update', { path, framework: framework ?? 'css', duration });
 	},
 
 	/**
 	 * Script update message
-	 * Format: "10:30:45 AM [hmr] script update /scripts/counter.ts"
+	 * Format: "10:30:45 AM [hmr] script update /scripts/counter.ts (125ms)"
 	 */
-	scriptUpdate(path: string, framework?: string) {
-		log('script update', { path, framework });
-	},
-
-	/**
-	 * Rebuild complete message
-	 * Format: "10:30:45 AM [hmr] rebuilt (125ms)"
-	 */
-	rebuilt(duration: number) {
-		const timestamp = `${colors.dim}${formatTimestamp()}${colors.reset}`;
-		const tag = `${colors.cyan}[hmr]${colors.reset}`;
-		const message = `${colors.green}rebuilt${colors.reset} ${colors.dim}(${duration}ms)${colors.reset}`;
-		console.log(`${timestamp} ${tag} ${message}`);
+	scriptUpdate(path: string, framework?: string, duration?: number) {
+		log('script update', { path, framework, duration });
 	},
 
 	/**
@@ -189,5 +208,17 @@ export const logger = {
 	 */
 	info(message: string) {
 		log(message);
-	}
+	},
+
+	/**
+	 * Server module reloaded (Bun --hot triggered a server-side change)
+	 */
+	serverReload() {
+		log(`${colors.cyan}server module reloaded${colors.reset}`);
+	},
+
+	/**
+	 * Startup banner
+	 */
+	ready: startupBanner
 };

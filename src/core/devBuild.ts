@@ -14,6 +14,7 @@ import { startFileWatching } from '../dev/fileWatcher';
 import { getWatchPaths } from '../dev/pathUtils';
 import { cleanStaleAssets, populateAssetStore } from '../dev/assetStore';
 import { queueFileChange } from '../dev/rebuildTrigger';
+import { logger } from '../utils/logger';
 
 /* Development mode function - replaces build() during development
    Returns DevResult with manifest, buildDir, asset(), and hmrState for use with the hmr() plugin */
@@ -32,12 +33,11 @@ export const devBuild = async (config: BuildConfig) => {
 		(globalThis as Record<string, unknown>).__hmrServerMtime = serverMtime;
 
 		if (serverMtime !== lastMtime) {
-			console.log('\x1b[36m[hmr] Server module reloaded\x1b[0m');
+			logger.serverReload();
 		} else {
 			// Framework file changed — skip server restart, let HMR handle it
 			(globalThis as Record<string, unknown>).__hmrSkipServerRestart =
 				true;
-			console.log('\x1b[36m[hmr] Hot module update detected\x1b[0m');
 		}
 		return cached;
 	}
@@ -55,7 +55,22 @@ export const devBuild = async (config: BuildConfig) => {
 		setDevVendorPaths(computeVendorPaths());
 	}
 
-	console.log('🔨 Building AbsoluteJS with HMR...');
+	// Store version for the startup banner
+	// Resolve relative to this source file so it works both in the repo
+	// and when installed as a dependency (node_modules/absolutejs/src/core/)
+	try {
+		const pkg = await Bun.file(
+			resolve(import.meta.dir, '..', '..', 'package.json')
+		).json();
+		if (pkg.name === '@absolutejs/absolute') {
+			(globalThis as Record<string, unknown>).__absoluteVersion =
+				pkg.version;
+		}
+	} catch {
+		/* version unavailable */
+	}
+
+	const buildStart = performance.now();
 
 	// Initial build (HMR client is baked into index files and HTML/HTMX pages)
 	const manifest = await build({
@@ -109,24 +124,20 @@ export const devBuild = async (config: BuildConfig) => {
 		}
 	}
 
-	console.log('✅ Build completed successfully');
-
 	startFileWatching(state, config, (filePath: string) => {
 		queueFileChange(state, filePath, config, (newBuildResult) => {
 			Object.assign(manifest, newBuildResult.manifest);
 		});
 	});
 
-	console.log('👀 File watching: Active');
-	console.log('🔥 HMR: Ready');
+	// Store build duration for the startup banner (printed by networking plugin)
+	(globalThis as Record<string, unknown>).__hmrBuildDuration =
+		performance.now() - buildStart;
 
 	const result = {
 		hmrState: state,
 		manifest
 	};
-
-	(globalThis as Record<string, unknown>).__hmrServerStartup =
-		Date.now().toString();
 
 	// Cache for Bun --hot reloads
 	(globalThis as Record<string, unknown>).__hmrDevResult = result;
