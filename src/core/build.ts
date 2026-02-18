@@ -107,11 +107,11 @@ export const build = async ({
 		? (clientRoots[0] ?? projectRoot)
 		: commonAncestor(clientRoots, projectRoot);
 
-	let serverOutDir;
+	let serverOutDir: string | undefined;
 	if (svelteDir) serverOutDir = join(buildPath, basename(svelteDir), 'pages');
 	else if (vueDir) serverOutDir = join(buildPath, basename(vueDir), 'pages');
 
-	let serverRoot;
+	let serverRoot: string | undefined;
 	if (sveltePagesPath) serverRoot = sveltePagesPath;
 	else if (vuePagesPath) serverRoot = vuePagesPath;
 
@@ -170,44 +170,37 @@ export const build = async ({
 		});
 	}
 
-	// Tailwind only on full builds or if CSS changed
-	if (
+	// Tailwind + entry point scanning run in parallel (they're independent)
+	const tailwindPromise =
 		tailwind &&
 		(!isIncremental ||
 			normalizedIncrementalFiles?.some((f) => f.endsWith('.css')))
-	) {
-		await $`bunx @tailwindcss/cli -i ${tailwind.input} -o ${join(buildPath, tailwind.output)}`;
-	}
+			? $`bunx @tailwindcss/cli -i ${tailwind.input} -o ${join(buildPath, tailwind.output)}`
+			: undefined;
 
-	const allReactEntries = reactIndexesPath
-		? await scanEntryPoints(reactIndexesPath, '*.tsx')
-		: [];
-	const allHtmlEntries = htmlScriptsPath
-		? await scanEntryPoints(htmlScriptsPath, '*.{js,ts}')
-		: [];
-	const allSvelteEntries = sveltePagesPath
-		? await scanEntryPoints(sveltePagesPath, '*.svelte')
-		: [];
-	const allVueEntries = vuePagesPath
-		? await scanEntryPoints(vuePagesPath, '*.vue')
-		: [];
-	const allAngularEntries = angularPagesPath
-		? await scanEntryPoints(angularPagesPath, '*.ts')
-		: [];
-
-	const allHtmlCssEntries = htmlDir
-		? await scanEntryPoints(join(htmlDir, 'styles'), '*.css')
-		: [];
-	const allHtmxCssEntries = htmxDir
-		? await scanEntryPoints(join(htmxDir, 'styles'), '*.css')
-		: [];
-	const allReactCssEntries = reactDir
-		? await scanEntryPoints(join(reactDir, 'styles'), '*.css')
-		: [];
-	const allSvelteCssEntries = svelteDir
-		? await scanEntryPoints(join(svelteDir, 'styles'), '*.css')
-		: [];
-
+	const [
+		,
+		allReactEntries,
+		allHtmlEntries,
+		allSvelteEntries,
+		allVueEntries,
+		allAngularEntries,
+		allHtmlCssEntries,
+		allHtmxCssEntries,
+		allReactCssEntries,
+		allSvelteCssEntries
+	] = await Promise.all([
+		tailwindPromise,
+		reactIndexesPath ? scanEntryPoints(reactIndexesPath, '*.tsx') : [],
+		htmlScriptsPath ? scanEntryPoints(htmlScriptsPath, '*.{js,ts}') : [],
+		sveltePagesPath ? scanEntryPoints(sveltePagesPath, '*.svelte') : [],
+		vuePagesPath ? scanEntryPoints(vuePagesPath, '*.vue') : [],
+		angularPagesPath ? scanEntryPoints(angularPagesPath, '*.ts') : [],
+		htmlDir ? scanEntryPoints(join(htmlDir, 'styles'), '*.css') : [],
+		htmxDir ? scanEntryPoints(join(htmxDir, 'styles'), '*.css') : [],
+		reactDir ? scanEntryPoints(join(reactDir, 'styles'), '*.css') : [],
+		svelteDir ? scanEntryPoints(join(svelteDir, 'styles'), '*.css') : []
+	]);
 	// When HTML/HTMX pages change, we must include their CSS and scripts in the build
 	// so the manifest has those entries for updateAssetPaths. Otherwise incremental
 	// builds drop them and updateAssetPaths fails with "no manifest entry".
@@ -274,23 +267,31 @@ export const build = async ({
 		? filterToIncrementalEntries(allSvelteCssEntries, (entry) => entry)
 		: allSvelteCssEntries;
 
-	const { svelteServerPaths, svelteIndexPaths, svelteClientPaths } = svelteDir
-		? await compileSvelte(svelteEntries, svelteDir, new Map(), hmr)
-		: {
-				svelteClientPaths: [],
-				svelteIndexPaths: [],
-				svelteServerPaths: []
-			};
+	// Start HMR client build early — it has no dependency on compile/bunBuild
+	// results and will resolve during the compile phase for free.
+	const hmrClientBundlePromise =
+		hmr && (htmlDir || htmxDir) ? buildHMRClient() : undefined;
 
-	const { vueServerPaths, vueIndexPaths, vueClientPaths, vueCssPaths } =
-		vueDir
-			? await compileVue(vueEntries, vueDir, hmr)
+	const [
+		{ svelteServerPaths, svelteIndexPaths, svelteClientPaths },
+		{ vueServerPaths, vueIndexPaths, vueClientPaths, vueCssPaths }
+	] = await Promise.all([
+		svelteDir
+			? compileSvelte(svelteEntries, svelteDir, new Map(), hmr)
 			: {
-					vueClientPaths: [],
-					vueCssPaths: [],
-					vueIndexPaths: [],
-					vueServerPaths: []
-				};
+					svelteClientPaths: [] as string[],
+					svelteIndexPaths: [] as string[],
+					svelteServerPaths: [] as string[]
+				},
+		vueDir
+			? compileVue(vueEntries, vueDir, hmr)
+			: {
+					vueClientPaths: [] as string[],
+					vueCssPaths: [] as string[],
+					vueIndexPaths: [] as string[],
+					vueServerPaths: [] as string[]
+				}
+	]);
 
 	const serverEntryPoints = [...svelteServerPaths, ...vueServerPaths];
 	const reactClientEntryPoints = [...reactEntries];
@@ -321,39 +322,6 @@ export const build = async ({
 		return {};
 	}
 
-	let serverLogs: (BuildMessage | ResolveMessage)[] = [];
-	let serverOutputs: BuildArtifact[] = [];
-
-	if (serverEntryPoints.length > 0) {
-		const result = await bunBuild({
-			entrypoints: serverEntryPoints,
-			format: 'esm',
-			naming: `[dir]/[name].[hash].[ext]`,
-			outdir: serverOutDir,
-			root: serverRoot,
-			target: 'bun',
-			throw: false
-		});
-		serverLogs = result.logs;
-		serverOutputs = result.outputs;
-		if (!result.success && result.logs.length > 0) {
-			const errLog =
-				result.logs.find((l) => l.level === 'error') ?? result.logs[0]!;
-			const err = new Error(
-				typeof errLog.message === 'string'
-					? errLog.message
-					: String(errLog.message)
-			);
-			(err as Error & { logs?: unknown }).logs = result.logs;
-			logger.error('Server build failed', err);
-			if (throwOnError) throw err;
-			exit(1);
-		}
-	}
-
-	let reactClientLogs: (BuildMessage | ResolveMessage)[] = [];
-	let reactClientOutputs: BuildArtifact[] = [];
-
 	// In dev, add the _refresh entry to force React into a shared chunk
 	// so HMR can re-import component entries without duplicating React.
 	// Only add when React entries exist (i.e. React files actually changed
@@ -371,35 +339,124 @@ export const build = async ({
 	// after the build. This prevents duplicate React instances during HMR.
 	const vendorPaths = getDevVendorPaths();
 
-	if (reactClientEntryPoints.length > 0) {
-		const reactBuildConfig: Record<string, unknown> = {
-			entrypoints: reactClientEntryPoints,
-			format: 'esm' as const,
-			minify: !isDev,
-			naming: `[dir]/[name].[hash].[ext]`,
-			outdir: buildPath,
-			root: clientRoot,
-			splitting: true,
-			target: 'browser' as const,
-			throw: false
-		};
+	const htmlScriptPlugin = hmr
+		? createHTMLScriptHMRPlugin(htmlDir, htmxDir)
+		: undefined;
 
-		// When vendor paths are available (dev mode), externalize React so
-		// Bun doesn't bundle it. The bare specifiers in the output are
-		// rewritten to vendor paths after the build completes.
-		if (vendorPaths) {
-			reactBuildConfig.external = Object.keys(vendorPaths);
+	// Build React config before parallel execution
+	const reactBuildConfig: Record<string, unknown> | undefined =
+		reactClientEntryPoints.length > 0
+			? (() => {
+					const cfg: Record<string, unknown> = {
+						entrypoints: reactClientEntryPoints,
+						format: 'esm' as const,
+						minify: !isDev,
+						naming: `[dir]/[name].[hash].[ext]`,
+						outdir: buildPath,
+						root: clientRoot,
+						splitting: true,
+						target: 'browser' as const,
+						throw: false
+					};
+
+					// When vendor paths are available (dev mode), externalize React so
+					// Bun doesn't bundle it. The bare specifiers in the output are
+					// rewritten to vendor paths after the build completes.
+					if (vendorPaths) {
+						cfg.external = Object.keys(vendorPaths);
+					}
+
+					// Bun's reactFastRefresh option injects $RefreshReg$/$RefreshSig$
+					// calls for React Fast Refresh support in dev
+					if (hmr) {
+						cfg.reactFastRefresh = true;
+					}
+
+					return cfg;
+				})()
+			: undefined;
+
+	// Run all 4 Bun.build passes in parallel — they write to different
+	// directories and have independent entry points.
+	const [serverResult, reactClientResult, nonReactClientResult, cssResult] =
+		await Promise.all([
+			serverEntryPoints.length > 0
+				? bunBuild({
+						entrypoints: serverEntryPoints,
+						format: 'esm',
+						naming: `[dir]/[name].[hash].[ext]`,
+						outdir: serverOutDir,
+						root: serverRoot,
+						target: 'bun',
+						throw: false
+					})
+				: undefined,
+			reactBuildConfig
+				? bunBuild(
+						reactBuildConfig as unknown as Parameters<
+							typeof bunBuild
+						>[0]
+					)
+				: undefined,
+			nonReactClientEntryPoints.length > 0
+				? bunBuild({
+						define: vueDirectory ? vueFeatureFlags : undefined,
+						entrypoints: nonReactClientEntryPoints,
+						format: 'esm',
+						minify: !isDev,
+						naming: `[dir]/[name].[hash].[ext]`,
+						outdir: buildPath,
+						plugins: htmlScriptPlugin
+							? [htmlScriptPlugin]
+							: undefined,
+						root: clientRoot,
+						target: 'browser',
+						splitting: !isDev,
+						throw: false
+					})
+				: undefined,
+			cssEntryPoints.length > 0
+				? bunBuild({
+						entrypoints: cssEntryPoints,
+						naming: `[name].[hash].[ext]`,
+						outdir: join(
+							buildPath,
+							assetsPath ? basename(assetsPath) : 'assets',
+							'css'
+						),
+						target: 'browser',
+						throw: false
+					})
+				: undefined
+		]);
+
+	// Check each build result for errors
+	let serverLogs: (BuildMessage | ResolveMessage)[] = [];
+	let serverOutputs: BuildArtifact[] = [];
+
+	if (serverResult) {
+		serverLogs = serverResult.logs;
+		serverOutputs = serverResult.outputs;
+		if (!serverResult.success && serverResult.logs.length > 0) {
+			const errLog =
+				serverResult.logs.find((l) => l.level === 'error') ??
+				serverResult.logs[0]!;
+			const err = new Error(
+				typeof errLog.message === 'string'
+					? errLog.message
+					: String(errLog.message)
+			);
+			(err as Error & { logs?: unknown }).logs = serverResult.logs;
+			logger.error('Server build failed', err);
+			if (throwOnError) throw err;
+			exit(1);
 		}
+	}
 
-		// Bun's reactFastRefresh option injects $RefreshReg$/$RefreshSig$
-		// calls for React Fast Refresh support in dev
-		if (hmr) {
-			reactBuildConfig.reactFastRefresh = true;
-		}
+	let reactClientLogs: (BuildMessage | ResolveMessage)[] = [];
+	let reactClientOutputs: BuildArtifact[] = [];
 
-		const reactClientResult = await bunBuild(
-			reactBuildConfig as unknown as Parameters<typeof bunBuild>[0]
-		);
+	if (reactClientResult) {
 		reactClientLogs = reactClientResult.logs;
 		reactClientOutputs = reactClientResult.outputs;
 		if (!reactClientResult.success && reactClientResult.logs.length > 0) {
@@ -431,24 +488,7 @@ export const build = async ({
 	let nonReactClientLogs: (BuildMessage | ResolveMessage)[] = [];
 	let nonReactClientOutputs: BuildArtifact[] = [];
 
-	if (nonReactClientEntryPoints.length > 0) {
-		const htmlScriptPlugin = hmr
-			? createHTMLScriptHMRPlugin(htmlDir, htmxDir)
-			: undefined;
-
-		const nonReactClientResult = await bunBuild({
-			define: vueDirectory ? vueFeatureFlags : undefined,
-			entrypoints: nonReactClientEntryPoints,
-			format: 'esm',
-			minify: !isDev,
-			naming: `[dir]/[name].[hash].[ext]`,
-			outdir: buildPath,
-			plugins: htmlScriptPlugin ? [htmlScriptPlugin] : undefined,
-			root: clientRoot,
-			target: 'browser',
-			splitting: !isDev,
-			throw: false
-		});
+	if (nonReactClientResult) {
 		nonReactClientLogs = nonReactClientResult.logs;
 		nonReactClientOutputs = nonReactClientResult.outputs;
 		if (
@@ -474,18 +514,7 @@ export const build = async ({
 	let cssLogs: (BuildMessage | ResolveMessage)[] = [];
 	let cssOutputs: BuildArtifact[] = [];
 
-	if (cssEntryPoints.length > 0) {
-		const cssResult = await bunBuild({
-			entrypoints: cssEntryPoints,
-			naming: `[name].[hash].[ext]`,
-			outdir: join(
-				buildPath,
-				assetsPath ? basename(assetsPath) : 'assets',
-				'css'
-			),
-			target: 'browser',
-			throw: false
-		});
+	if (cssResult) {
 		cssLogs = cssResult.logs;
 		cssOutputs = cssResult.outputs;
 		if (!cssResult.success && cssResult.logs.length > 0) {
@@ -567,9 +596,10 @@ export const build = async ({
 				(f.endsWith('.html') || f.endsWith('.css'))
 		);
 
-	// Build HMR client bundle once for HTML/HTMX injection during dev builds
-	const hmrClientBundle =
-		hmr && (htmlDir || htmxDir) ? await buildHMRClient() : null;
+	// Await the HMR client bundle that was started before the compile phase
+	const hmrClientBundle = hmrClientBundlePromise
+		? await hmrClientBundlePromise
+		: null;
 
 	const injectHMRIntoHTMLFile = (filePath: string, framework: string) => {
 		if (!hmrClientBundle) return;
@@ -585,75 +615,85 @@ export const build = async ({
 		writeFileSync(filePath, html);
 	};
 
-	if (htmlDir && htmlPagesPath) {
-		const outputHtmlPages = isSingle
-			? join(buildPath, 'pages')
-			: join(buildPath, basename(htmlDir), 'pages');
+	// HTML + HTMX post-processing run in parallel (independent directories)
+	await Promise.all([
+		(async () => {
+			if (!(htmlDir && htmlPagesPath)) return;
+			const outputHtmlPages = isSingle
+				? join(buildPath, 'pages')
+				: join(buildPath, basename(htmlDir), 'pages');
 
-		if (shouldCopyHtml) {
-			mkdirSync(outputHtmlPages, { recursive: true });
-			cpSync(htmlPagesPath, outputHtmlPages, {
-				force: true,
-				recursive: true
-			});
-		}
-
-		// Update asset paths if HTML files changed OR CSS changed
-		if (shouldUpdateHtmlAssetPaths) {
-			await updateAssetPaths(manifest, outputHtmlPages);
-		}
-
-		// Add HTML pages to manifest (absolute paths for Bun.file())
-		const htmlPageFiles = await scanEntryPoints(outputHtmlPages, '*.html');
-		for (const htmlFile of htmlPageFiles) {
-			if (hmr) injectHMRIntoHTMLFile(htmlFile, 'html');
-			const fileName = basename(htmlFile, '.html');
-			manifest[fileName] = htmlFile;
-		}
-	}
-
-	if (htmxDir && htmxPagesPath) {
-		const outputHtmxPages = isSingle
-			? join(buildPath, 'pages')
-			: join(buildPath, basename(htmxDir), 'pages');
-
-		if (shouldCopyHtmx) {
-			mkdirSync(outputHtmxPages, { recursive: true });
-			cpSync(htmxPagesPath, outputHtmxPages, {
-				force: true,
-				recursive: true
-			});
-		}
-
-		if (shouldCopyHtmx) {
-			const htmxDestDir = isSingle
-				? buildPath
-				: join(buildPath, basename(htmxDir));
-
-			mkdirSync(htmxDestDir, { recursive: true });
-
-			const glob = new Glob('htmx*.min.js');
-			for (const relPath of glob.scanSync({ cwd: htmxDir })) {
-				const src = join(htmxDir, relPath);
-				const dest = join(htmxDestDir, 'htmx.min.js');
-				copyFileSync(src, dest);
-				break;
+			if (shouldCopyHtml) {
+				mkdirSync(outputHtmlPages, { recursive: true });
+				cpSync(htmlPagesPath, outputHtmlPages, {
+					force: true,
+					recursive: true
+				});
 			}
-		}
 
-		// Update asset paths if HTMX files changed OR CSS changed
-		if (shouldUpdateHtmxAssetPaths) {
-			await updateAssetPaths(manifest, outputHtmxPages);
-		}
+			// Update asset paths if HTML files changed OR CSS changed
+			if (shouldUpdateHtmlAssetPaths) {
+				await updateAssetPaths(manifest, outputHtmlPages);
+			}
 
-		// Add HTMX pages to manifest (absolute paths for Bun.file())
-		const htmxPageFiles = await scanEntryPoints(outputHtmxPages, '*.html');
-		for (const htmxFile of htmxPageFiles) {
-			if (hmr) injectHMRIntoHTMLFile(htmxFile, 'htmx');
-			const fileName = basename(htmxFile, '.html');
-			manifest[fileName] = htmxFile;
-		}
-	}
+			// Add HTML pages to manifest (absolute paths for Bun.file())
+			const htmlPageFiles = await scanEntryPoints(
+				outputHtmlPages,
+				'*.html'
+			);
+			for (const htmlFile of htmlPageFiles) {
+				if (hmr) injectHMRIntoHTMLFile(htmlFile, 'html');
+				const fileName = basename(htmlFile, '.html');
+				manifest[fileName] = htmlFile;
+			}
+		})(),
+		(async () => {
+			if (!(htmxDir && htmxPagesPath)) return;
+			const outputHtmxPages = isSingle
+				? join(buildPath, 'pages')
+				: join(buildPath, basename(htmxDir), 'pages');
+
+			if (shouldCopyHtmx) {
+				mkdirSync(outputHtmxPages, { recursive: true });
+				cpSync(htmxPagesPath, outputHtmxPages, {
+					force: true,
+					recursive: true
+				});
+			}
+
+			if (shouldCopyHtmx) {
+				const htmxDestDir = isSingle
+					? buildPath
+					: join(buildPath, basename(htmxDir));
+
+				mkdirSync(htmxDestDir, { recursive: true });
+
+				const glob = new Glob('htmx*.min.js');
+				for (const relPath of glob.scanSync({ cwd: htmxDir })) {
+					const src = join(htmxDir, relPath);
+					const dest = join(htmxDestDir, 'htmx.min.js');
+					copyFileSync(src, dest);
+					break;
+				}
+			}
+
+			// Update asset paths if HTMX files changed OR CSS changed
+			if (shouldUpdateHtmxAssetPaths) {
+				await updateAssetPaths(manifest, outputHtmxPages);
+			}
+
+			// Add HTMX pages to manifest (absolute paths for Bun.file())
+			const htmxPageFiles = await scanEntryPoints(
+				outputHtmxPages,
+				'*.html'
+			);
+			for (const htmxFile of htmxPageFiles) {
+				if (hmr) injectHMRIntoHTMLFile(htmxFile, 'htmx');
+				const fileName = basename(htmxFile, '.html');
+				manifest[fileName] = htmxFile;
+			}
+		})()
+	]);
 
 	if (!options?.preserveIntermediateFiles)
 		await cleanup({

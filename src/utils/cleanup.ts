@@ -12,14 +12,18 @@ export const cleanup = async ({
 	vueDir,
 	reactIndexesPath
 }: CleanupProps) => {
-	if (svelteDir) {
-		await rm(join(svelteDir, 'compiled'), { force: true, recursive: true });
-	}
-
-	if (vueDir) {
-		await rm(join(vueDir, 'compiled'), { force: true, recursive: true });
-	}
-
-	if (reactIndexesPath)
-		await rm(reactIndexesPath, { force: true, recursive: true });
+	await Promise.all([
+		svelteDir
+			? rm(join(svelteDir, 'compiled'), {
+					force: true,
+					recursive: true
+				})
+			: undefined,
+		vueDir
+			? rm(join(vueDir, 'compiled'), { force: true, recursive: true })
+			: undefined,
+		reactIndexesPath
+			? rm(reactIndexesPath, { force: true, recursive: true })
+			: undefined
+	]);
 };
