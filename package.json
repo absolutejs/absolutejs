@@ -46,6 +46,20 @@
 		"svelte": "^5.35.2",
 		"vue": "^3.5.27"
 	},
+	"peerDependenciesMeta": {
+		"react": {
+			"optional": true
+		},
+		"react-dom": {
+			"optional": true
+		},
+		"svelte": {
+			"optional": true
+		},
+		"vue": {
+			"optional": true
+		}
+	},
 	"repository": {
 		"type": "git",
 		"url": "https://github.com/absolutejs/absolutejs.git"
@@ -63,5 +77,5 @@
 		"typecheck": "bun run tsc --noEmit"
 	},
 	"types": "./dist/src/index.d.ts",
-	"version": "0.15.15"
+	"version": "0.15.16"
 }
