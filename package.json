@@ -92,12 +92,12 @@
 		"db:studio": "drizzle-kit studio",
 		"dev": "bun run src/cli/index.ts dev example/server.ts",
 		"start": "NODE_ENV=production bun run example/server.ts",
-		"format": "prettier --write \"./**/*.{js,jsx,ts,tsx,css,json,mjs,md,svelte,html,vue}\"",
-		"lint": "eslint ./",
+		"format": "bun run src/cli/index.ts prettier --write",
+		"lint": "bun run src/cli/index.ts eslint",
 		"release": "bun run format && bun run build && bun publish",
 		"test": "bun test",
 		"typecheck": "bun run tsc --noEmit"
 	},
 	"types": "./dist/src/index.d.ts",
-	"version": "0.16.8"
+	"version": "0.16.9"
 }

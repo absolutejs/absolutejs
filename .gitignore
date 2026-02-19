@@ -53,5 +53,7 @@ example/svelte/compiled/
 .hmr-temp/
 docs/
 
+.absolutejs
+
 CLAUDE.md
 /.claude

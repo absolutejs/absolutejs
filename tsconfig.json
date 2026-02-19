@@ -13,6 +13,8 @@
 		"esModuleInterop": true,
 		"experimentalDecorators": true,
 		"forceConsistentCasingInFileNames": true,
+		"incremental": true,
+		"tsBuildInfoFile": ".absolutejs/tsconfig.tsbuildinfo",
 		"jsx": "react-jsx",
 		"lib": ["DOM", "DOM.Iterable", "ESNext"],
 		"module": "ESNext",
