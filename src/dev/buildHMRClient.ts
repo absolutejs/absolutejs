@@ -1,8 +1,16 @@
+import { existsSync } from 'node:fs';
 import { build as bunBuild } from 'bun';
 import { resolve } from 'node:path';
 
+const hmrClientPath = (() => {
+	const fromSource = resolve(import.meta.dir, 'client/hmrClient.ts');
+	if (existsSync(fromSource)) return fromSource;
+
+	return resolve(import.meta.dir, 'dev/client/hmrClient.ts');
+})();
+
 export const buildHMRClient = async () => {
-	const entryPoint = resolve(import.meta.dir, 'client/hmrClient.ts');
+	const entryPoint = hmrClientPath;
 	const result = await bunBuild({
 		entrypoints: [entryPoint],
 		format: 'iife',

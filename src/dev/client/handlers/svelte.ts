@@ -53,18 +53,15 @@ export const handleSvelteUpdate = (message: {
 
 	/* CSS-only update: hot-swap stylesheet, no remount needed */
 	if (message.data.updateType === 'css-only' && message.data.cssUrl) {
-		console.log('[HMR] Svelte CSS-only update');
 		swapStylesheet(
 			message.data.cssUrl,
 			message.data.cssBaseName || '',
 			'svelte'
 		);
-		console.log('[HMR] Svelte CSS updated');
 		return;
 	}
 
 	/* Component update: preserve state, re-import (bootstrap handles unmount + mount) */
-	console.log('[HMR] Svelte update - remounting component');
 
 	/* Save DOM state and scroll position */
 	const domState = saveDOMState(document.body);
@@ -90,11 +87,6 @@ export const handleSvelteUpdate = (message: {
 	} catch (_err) {
 		/* ignore */
 	}
-	console.log(
-		'[HMR] Svelte state preserved:',
-		JSON.stringify(preservedState)
-	);
-
 	/* CSS pre-update: swap stylesheet BEFORE unmounting to prevent FOUC */
 	if (message.data.cssUrl) {
 		swapStylesheet(
@@ -120,7 +112,6 @@ export const handleSvelteUpdate = (message: {
 		.then(function () {
 			restoreDOMState(document.body, domState);
 			restoreScrollState(scrollState);
-			console.log('[HMR] Svelte component updated (state preserved)');
 		})
 		.catch(function (err: unknown) {
 			console.warn('[HMR] Svelte import failed, reloading:', err);

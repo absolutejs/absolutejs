@@ -113,10 +113,13 @@ export const compileSvelte = async (
 
 		const generate = (mode: 'server' | 'client') =>
 			(isModule
-				? compileModule(transpiled, { dev, filename: src }).js.code
+				? compileModule(transpiled, {
+						dev: mode === 'client' && dev,
+						filename: src
+					}).js.code
 				: compile(transpiled, {
 						css: 'injected',
-						dev,
+						dev: mode === 'client' && dev,
 						filename: src,
 						generate: mode
 					}).js.code

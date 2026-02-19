@@ -48,21 +48,15 @@ export const handleHTMXUpdate = (message: {
 		};
 
 		if (htmxHead) {
-			console.log('[HMR] Has htmxHead, patching head elements');
-
 			const doPatchHead = function () {
 				patchHeadInPlace(htmxHead!);
 			};
 			if (hmrState.isFirstHMRUpdate) {
-				console.log(
-					'[HMR] First update - adding head patch stabilization delay'
-				);
 				setTimeout(doPatchHead, 50);
 			} else {
 				doPatchHead();
 			}
 
-			console.log('[HMR] Processing CSS links');
 			const cssResult = processCSSLinks(htmxHead);
 
 			waitForCSSAndUpdate(cssResult, updateHTMXBodyAfterCSS);

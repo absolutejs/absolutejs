@@ -69,7 +69,6 @@ export const handleVueUpdate = (message: {
 	if (vueFrameworkCheck !== 'vue') return;
 
 	if (message.data.updateType === 'css-only' && message.data.cssUrl) {
-		console.log('[HMR] Vue CSS-only update (state preserved)');
 		const cssBaseName = message.data.cssBaseName || '';
 		let existingLink: HTMLLinkElement | null = null;
 		document
@@ -91,14 +90,12 @@ export const handleVueUpdate = (message: {
 				if (capturedExisting && capturedExisting.parentNode) {
 					capturedExisting.remove();
 				}
-				console.log('[HMR] Vue CSS updated');
 			};
 			document.head.appendChild(newLink);
 		}
 		return;
 	}
 
-	console.log('[HMR] Vue update - remounting component');
 	sessionStorage.setItem('__HMR_ACTIVE__', 'true');
 
 	const vueRoot = document.getElementById('root');
@@ -165,10 +162,6 @@ export const handleVueUpdate = (message: {
 	}
 
 	window.__HMR_PRESERVED_STATE__ = vuePreservedState;
-	console.log(
-		'[HMR] Vue state preserved:',
-		JSON.stringify(vuePreservedState)
-	);
 
 	/* CSS pre-update: swap stylesheet BEFORE unmounting to prevent FOUC */
 	if (message.data.cssUrl) {
@@ -244,7 +237,6 @@ export const handleVueUpdate = (message: {
 				restoreDOMState(vueRoot, vueDomState);
 			}
 			sessionStorage.removeItem('__HMR_ACTIVE__');
-			console.log('[HMR] Vue updated (state preserved)');
 		})
 		.catch(function (err: unknown) {
 			console.warn('[HMR] Vue import failed:', err);
