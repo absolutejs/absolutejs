@@ -302,7 +302,7 @@ export const build = async ({
 	const {
 		clientPaths: angularClientPaths,
 		serverPaths: angularServerPaths
-	} = angularDir
+	} = angularDir && angularEntries.length > 0
 		? await compileAngular(angularEntries, angularDir)
 		: { clientPaths: [] as string[], serverPaths: [] as string[] };
 
@@ -313,7 +313,8 @@ export const build = async ({
 		...svelteClientPaths,
 		...htmlEntries,
 		...vueIndexPaths,
-		...vueClientPaths
+		...vueClientPaths,
+		...angularClientPaths
 	];
 	const cssEntryPoints = [
 		...vueCssPaths,
@@ -712,7 +713,6 @@ export const build = async ({
 
 	if (!options?.preserveIntermediateFiles)
 		await cleanup({
-			angularDir,
 			reactIndexesPath,
 			svelteDir,
 			vueDir

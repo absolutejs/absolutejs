@@ -162,6 +162,10 @@ export const compileAngular = async (
 	const compiledRoot = join(outRoot, 'compiled');
 	const indexesDir = join(compiledRoot, 'indexes');
 
+	if (entryPoints.length === 0) {
+		return { clientPaths: [] as string[], serverPaths: [] as string[] };
+	}
+
 	await fs.rm(compiledRoot, { force: true, recursive: true });
 	await fs.mkdir(indexesDir, { recursive: true });
 
@@ -212,9 +216,12 @@ export const compileAngular = async (
 		const hydration = `
 import { bootstrapApplication } from '@angular/platform-browser';
 import { provideClientHydration } from '@angular/platform-browser';
+import { provideExperimentalZonelessChangeDetection } from '@angular/core';
 import ${componentClassName} from '${normalizedImportPath}';
 
-bootstrapApplication(${componentClassName}, { providers: [provideClientHydration()] });
+bootstrapApplication(${componentClassName}, {
+    providers: [provideClientHydration(), provideExperimentalZonelessChangeDetection()]
+});
 `.trim();
 		await fs.writeFile(clientFile, hydration, 'utf-8');
 

@@ -169,12 +169,14 @@ export const handleAngularPageRequest = async (
 			angularPatchModule,
 			{ bootstrapApplication },
 			{ renderApplication, provideServerRendering, INITIAL_CONFIG },
-			{ APP_BASE_HREF }
+			{ APP_BASE_HREF },
+			{ provideExperimentalZonelessChangeDetection }
 		] = await Promise.all([
 			import('./angularPatch'),
 			import('@angular/platform-browser'),
 			import('@angular/platform-server'),
-			import('@angular/common')
+			import('@angular/common'),
+			import('@angular/core')
 		]);
 
 		const { createDocumentProxy } = angularPatchModule;
@@ -199,27 +201,16 @@ export const handleAngularPageRequest = async (
 		const CSS_PATH_TOKEN = tokens?.CSS_PATH;
 		const INITIAL_COUNT_TOKEN = tokens?.INITIAL_COUNT;
 
-		// Load zone.js if not already loaded (required for Angular)
-		if (!('Zone' in globalThis)) {
-			try {
-				await import('zone.js/node' as string);
-			} catch {
-				// zone.js may not be installed
-			}
-		}
-
 		// Initialize Domino adapter
 		try {
 			const platformServer = await import(
 				'@angular/platform-server'
 			);
 			const DominoAdapter = (
-				platformServer as {
-					DominoAdapter?: {
-						makeCurrent?: () => void;
-					};
-				}
-			).DominoAdapter;
+				platformServer as any
+			).ɵDominoAdapter as
+				| { makeCurrent?: () => void }
+				| undefined;
 			if (DominoAdapter?.makeCurrent) {
 				DominoAdapter.makeCurrent();
 			}
@@ -425,6 +416,7 @@ export const handleAngularPageRequest = async (
 		// Build providers array
 		const providers: any[] = [
 			provideServerRendering(),
+			provideExperimentalZonelessChangeDetection(),
 			{ provide: APP_BASE_HREF, useValue: '/' }
 		];
 
