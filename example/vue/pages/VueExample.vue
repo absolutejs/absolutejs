@@ -47,7 +47,7 @@ const isOpen = ref(false);
 				/>
 			</a>
 		</nav>
-		<h1>AbsoluteJS + Vue</h1>
+		<h1>AbsoluteJS + Vueqqq</h1>
 		<CountButton :initialCount="count" />
 		<p>
 			Edit <code>example/vue/pages/VueExample.vue</code> and save to test
