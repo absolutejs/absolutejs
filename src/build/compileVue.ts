@@ -1,12 +1,12 @@
 import { existsSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { basename, dirname, join, relative, resolve } from 'node:path';
-import {
-	parse,
-	compileScript,
-	compileTemplate,
-	compileStyle,
-	type SFCDescriptor
+import type {
+	SFCDescriptor,
+	compileScript as CompileScriptFn,
+	compileStyle as CompileStyleFn,
+	compileTemplate as CompileTemplateFn,
+	parse as ParseFn
 } from '@vue/compiler-sfc';
 import { file, write, Transpiler } from 'bun';
 import { toKebab } from '../utils/stringModifiers';
@@ -178,12 +178,20 @@ const mergeVueImports = (code: string) => {
 		: nonVueLines.join('\n');
 };
 
+type VueCompiler = {
+	parse: typeof ParseFn;
+	compileScript: typeof CompileScriptFn;
+	compileTemplate: typeof CompileTemplateFn;
+	compileStyle: typeof CompileStyleFn;
+};
+
 const compileVueFile = async (
 	sourceFilePath: string,
 	outputDirs: { client: string; server: string; css: string },
 	cacheMap: Map<string, BuildResult>,
 	isEntryPoint: boolean,
-	vueRootDir: string
+	vueRootDir: string,
+	compiler: VueCompiler
 ) => {
 	const cachedResult = cacheMap.get(sourceFilePath);
 	if (cachedResult) return cachedResult;
@@ -197,7 +205,9 @@ const compileVueFile = async (
 	const componentId = toKebab(fileBaseName);
 
 	const sourceContent = await file(sourceFilePath).text();
-	const { descriptor } = parse(sourceContent, { filename: sourceFilePath });
+	const { descriptor } = compiler.parse(sourceContent, {
+		filename: sourceFilePath
+	});
 
 	// Generate HMR ID and detect change type
 	const hmrId = generateVueHmrId(sourceFilePath, vueRootDir);
@@ -224,12 +234,13 @@ const compileVueFile = async (
 				outputDirs,
 				cacheMap,
 				false,
-				vueRootDir
+				vueRootDir,
+				compiler
 			)
 		)
 	);
 
-	const compiledScript = compileScript(descriptor, {
+	const compiledScript = compiler.compileScript(descriptor, {
 		id: componentId,
 		inlineTemplate: false
 	});
@@ -243,26 +254,30 @@ const compileVueFile = async (
 		);
 
 	const generateRenderFunction = (ssr: boolean) =>
-		compileTemplate({
-			compilerOptions: {
-				bindingMetadata: compiledScript.bindings,
-				prefixIdentifiers: true
-			},
-			filename: sourceFilePath,
-			id: componentId,
-			scoped: descriptor.styles.some((styleBlock) => styleBlock.scoped),
-			source: descriptor.template?.content ?? '',
-			ssr,
-			ssrCssVars: descriptor.cssVars
-		}).code.replace(
-			/(['"])(\.{1,2}\/[^'"]+)(['"])/g,
-			(_, quoteStart, relativeImport, quoteEnd) =>
-				`${quoteStart}${toJs(relativeImport)}${quoteEnd}`
-		);
+		compiler
+			.compileTemplate({
+				compilerOptions: {
+					bindingMetadata: compiledScript.bindings,
+					prefixIdentifiers: true
+				},
+				filename: sourceFilePath,
+				id: componentId,
+				scoped: descriptor.styles.some(
+					(styleBlock) => styleBlock.scoped
+				),
+				source: descriptor.template?.content ?? '',
+				ssr,
+				ssrCssVars: descriptor.cssVars
+			})
+			.code.replace(
+				/(['"])(\.{1,2}\/[^'"]+)(['"])/g,
+				(_, quoteStart, relativeImport, quoteEnd) =>
+					`${quoteStart}${toJs(relativeImport)}${quoteEnd}`
+			);
 
 	const localCss = descriptor.styles.map(
 		(styleBlock) =>
-			compileStyle({
+			compiler.compileStyle({
 				filename: sourceFilePath,
 				id: componentId,
 				scoped: styleBlock.scoped,
@@ -382,6 +397,8 @@ export const compileVue = async (
 	vueRootDir: string,
 	isDev = false
 ) => {
+	const compiler: VueCompiler = await import('@vue/compiler-sfc');
+
 	const compiledOutputRoot = join(vueRootDir, 'compiled');
 	const clientOutputDir = join(compiledOutputRoot, 'client');
 	const indexOutputDir = join(compiledOutputRoot, 'indexes');
@@ -409,7 +426,8 @@ export const compileVue = async (
 				},
 				buildCache,
 				true,
-				vueRootDir
+				vueRootDir,
+				compiler
 			);
 
 			result.tsHelperPaths.forEach((path) => allTsHelperPaths.add(path));

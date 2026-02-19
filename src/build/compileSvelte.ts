@@ -11,7 +11,7 @@ import {
 } from 'node:path';
 import { env } from 'node:process';
 import { write, file, Transpiler } from 'bun';
-import { compile, compileModule, preprocess } from 'svelte/compiler';
+import type { compile as CompileFn } from 'svelte/compiler';
 
 const devClientDir = (() => {
 	const fromSource = resolve(import.meta.dir, '../dev/client');
@@ -68,6 +68,10 @@ export const compileSvelte = async (
 	cache: Cache = new Map(),
 	isDev = false
 ) => {
+	const { compile, compileModule, preprocess } = await import(
+		'svelte/compiler'
+	);
+
 	const compiledRoot = join(svelteRoot, 'compiled');
 	const clientDir = join(compiledRoot, 'client');
 	const indexDir = join(compiledRoot, 'indexes');

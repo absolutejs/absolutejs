@@ -1,0 +1,1 @@
+export { handleVuePageRequest } from './pageHandler';

@@ -1,6 +1,3 @@
-import { ComponentType as ReactComponent } from 'react';
-import { Component as SvelteComponent } from 'svelte';
-import { Component as VueComponent } from 'vue';
 import { build } from '../src/core/build';
 import { devBuild } from '../src/core/devBuild';
 
@@ -39,16 +36,5 @@ export type BuildConfig = {
 export type BuildResult = ReturnType<typeof build>;
 export type DevBuildResult = ReturnType<typeof devBuild>;
 export type Result = BuildResult | DevBuildResult;
-
-export type PropsOf<Component> =
-	Component extends ReactComponent<infer Props>
-		? Props
-		: Component extends SvelteComponent<infer Props>
-			? Props
-			: Component extends VueComponent<infer Props>
-				? Props
-				: Record<string, never>;
-
-export type PropsArgs<C> = keyof PropsOf<C> extends never ? [] : [PropsOf<C>];
 
 export type Prettify<T> = { [K in keyof T]: T[K] } & {};
