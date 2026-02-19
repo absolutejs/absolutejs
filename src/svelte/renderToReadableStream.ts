@@ -1,5 +1,4 @@
 import type { Component } from 'svelte';
-import { render } from 'svelte/server';
 import { DEFAULT_CHUNK_SIZE } from '../constants';
 import { escapeScriptContent } from '../utils/escapeScriptContent';
 
@@ -33,6 +32,7 @@ export const renderToReadableStream = async <
 	}: RenderStreamOptions = {}
 ) => {
 	try {
+		const { render } = await import('svelte/server');
 		const { head, body } =
 			typeof props === 'undefined'
 				? // @ts-expect-error Svelte's render function can't determine which overload to choose when the component is generic

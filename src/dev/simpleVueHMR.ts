@@ -82,7 +82,7 @@ export const handleVueUpdate = async (
 			return null;
 		}
 
-		const { handleVuePageRequest } = await import('../core/pageHandlers');
+		const { handleVuePageRequest } = await import('../vue/pageHandler');
 		const { generateHeadElement } = await import(
 			'../utils/generateHeadElement'
 		);

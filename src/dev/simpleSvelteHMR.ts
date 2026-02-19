@@ -83,7 +83,7 @@ export const handleSvelteUpdate = async (
 		}
 
 		const { handleSveltePageRequest } = await import(
-			'../core/pageHandlers'
+			'../svelte/pageHandler'
 		);
 
 		const response = await handleSveltePageRequest(

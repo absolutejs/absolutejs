@@ -4,6 +4,9 @@
   "workspaces": {
     "": {
       "name": "@absolutejs/absolute",
+      "dependencies": {
+        "react-refresh": "^0.18.0",
+      },
       "devDependencies": {
         "@elysiajs/static": "1.4.0",
         "@stylistic/eslint-plugin-ts": "4.2.0",
@@ -24,7 +27,6 @@
         "prettier-plugin-svelte": "3.4.0",
         "react": "19.2.1",
         "react-dom": "19.2.1",
-        "react-refresh": "^0.18.0",
         "svelte": "5.35.2",
         "tailwindcss": "4.1.7",
         "typescript": "5.8.3",
@@ -33,10 +35,17 @@
       },
       "peerDependencies": {
         "elysia": "^1.4.0",
-        "react": "^19.1.0",
+        "react": "^19.2.0",
+        "react-dom": "^19.2.0",
         "svelte": "^5.35.2",
         "vue": "^3.5.27",
       },
+      "optionalPeers": [
+        "react",
+        "react-dom",
+        "svelte",
+        "vue",
+      ],
     },
   },
   "packages": {
