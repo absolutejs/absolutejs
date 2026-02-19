@@ -170,7 +170,7 @@ export const handleAngularPageRequest = async (
 			{ bootstrapApplication },
 			{ renderApplication, provideServerRendering, INITIAL_CONFIG },
 			{ APP_BASE_HREF },
-			{ provideExperimentalZonelessChangeDetection }
+			{ provideZonelessChangeDetection }
 		] = await Promise.all([
 			import('./angularPatch'),
 			import('@angular/platform-browser'),
@@ -416,7 +416,7 @@ export const handleAngularPageRequest = async (
 		// Build providers array
 		const providers: any[] = [
 			provideServerRendering(),
-			provideExperimentalZonelessChangeDetection(),
+			provideZonelessChangeDetection(),
 			{ provide: APP_BASE_HREF, useValue: '/' }
 		];
 

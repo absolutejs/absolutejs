@@ -136,7 +136,7 @@ export const compileAngularFile = async (inputPath: string, outDir: string) => {
 				}
 			);
 			// Replace usage of InjectFlags
-			processedContent = processedContent.replace(/\bInjectFlags\b/g, 'InternalInjectFlags');
+			processedContent = processedContent.replace(/\b(?<!Internal)InjectFlags\b/g, 'InternalInjectFlags');
 
 			return { content: processedContent, target };
 		});
@@ -216,11 +216,11 @@ export const compileAngular = async (
 		const hydration = `
 import { bootstrapApplication } from '@angular/platform-browser';
 import { provideClientHydration } from '@angular/platform-browser';
-import { provideExperimentalZonelessChangeDetection } from '@angular/core';
+import { provideZonelessChangeDetection } from '@angular/core';
 import ${componentClassName} from '${normalizedImportPath}';
 
 bootstrapApplication(${componentClassName}, {
-    providers: [provideClientHydration(), provideExperimentalZonelessChangeDetection()]
+    providers: [provideClientHydration(), provideZonelessChangeDetection()]
 });
 `.trim();
 		await fs.writeFile(clientFile, hydration, 'utf-8');
