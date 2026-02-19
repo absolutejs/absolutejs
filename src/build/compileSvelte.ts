@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { mkdir, stat } from 'node:fs/promises';
 import {
 	dirname,
@@ -11,6 +12,15 @@ import {
 import { env } from 'node:process';
 import { write, file, Transpiler } from 'bun';
 import { compile, compileModule, preprocess } from 'svelte/compiler';
+
+const devClientDir = (() => {
+	const fromSource = resolve(import.meta.dir, '../dev/client');
+	if (existsSync(fromSource)) return fromSource;
+
+	return resolve(import.meta.dir, './dev/client');
+})();
+
+const hmrClientPath = join(devClientDir, 'hmrClient.ts').replace(/\\/g, '/');
 
 type Built = { ssr: string; client: string };
 type Cache = Map<string, Built>;
@@ -55,7 +65,8 @@ const resolveSvelte = async (spec: string, from: string) => {
 export const compileSvelte = async (
 	entryPoints: string[],
 	svelteRoot: string,
-	cache: Cache = new Map()
+	cache: Cache = new Map(),
+	isDev = false
 ) => {
 	const compiledRoot = join(svelteRoot, 'compiled');
 	const clientDir = join(compiledRoot, 'client');
@@ -68,7 +79,7 @@ export const compileSvelte = async (
 		)
 	);
 
-	const dev = env.NODE_ENV === 'development';
+	const dev = env.NODE_ENV !== 'production';
 
 	const build = async (src: string) => {
 		const memoized = cache.get(src);
@@ -102,10 +113,13 @@ export const compileSvelte = async (
 
 		const generate = (mode: 'server' | 'client') =>
 			(isModule
-				? compileModule(transpiled, { dev, filename: src }).js.code
+				? compileModule(transpiled, {
+						dev: mode === 'client' && dev,
+						filename: src
+					}).js.code
 				: compile(transpiled, {
 						css: 'injected',
-						dev,
+						dev: mode === 'client' && dev,
 						filename: src,
 						generate: mode
 					}).js.code
@@ -154,9 +168,49 @@ export const compileSvelte = async (
 				importRaw.startsWith('.') || importRaw.startsWith('/')
 					? importRaw
 					: `./${importRaw}`;
-			const bootstrap = `import C from "${importPath}";
-import { hydrate } from "svelte";
-hydrate(C,{target:document.body,props:window.__INITIAL_PROPS__??{}});`;
+			const hmrImports = isDev
+				? `window.__HMR_FRAMEWORK__ = "svelte";\nimport "${hmrClientPath}";\n`
+				: '';
+			const bootstrap = `${hmrImports}import Component from "${importPath}";
+import { hydrate, mount, unmount } from "svelte";
+
+var initialProps = (typeof window !== "undefined" && window.__INITIAL_PROPS__) ? window.__INITIAL_PROPS__ : {};
+var isHMR = typeof window !== "undefined" && window.__SVELTE_COMPONENT__ !== undefined;
+var component;
+
+if (isHMR) {
+  var headLinks = document.querySelectorAll('link[rel="stylesheet"]');
+  var preservedLinks = [];
+  headLinks.forEach(function(link) {
+    var clone = link.cloneNode(true);
+    clone.setAttribute("data-hmr-preserve", "true");
+    document.head.appendChild(clone);
+    preservedLinks.push(clone);
+  });
+  if (typeof window.__SVELTE_UNMOUNT__ === "function") {
+    try { window.__SVELTE_UNMOUNT__(); } catch (err) { console.warn("[HMR] unmount error:", err); }
+  }
+  var preservedState = window.__HMR_PRESERVED_STATE__;
+  if (!preservedState) {
+    try {
+      var stored = sessionStorage.getItem("__SVELTE_HMR_STATE__");
+      if (stored) preservedState = JSON.parse(stored);
+    } catch (err) { /* ignore */ }
+  }
+  var mergedProps = preservedState ? Object.assign({}, initialProps, preservedState) : initialProps;
+  component = mount(Component, { target: document.body, props: mergedProps });
+  requestAnimationFrame(function() {
+    preservedLinks.forEach(function(link) { link.remove(); });
+  });
+  window.__HMR_PRESERVED_STATE__ = undefined;
+} else {
+  component = hydrate(Component, { target: document.body, props: initialProps });
+}
+
+if (typeof window !== "undefined") {
+  window.__SVELTE_COMPONENT__ = component;
+  window.__SVELTE_UNMOUNT__ = function() { unmount(component); };
+}`;
 
 			await mkdir(dirname(indexPath), { recursive: true });
 
@@ -165,11 +219,13 @@ hydrate(C,{target:document.body,props:window.__INITIAL_PROPS__??{}});`;
 	);
 
 	return {
-		svelteClientPaths: roots.map(({ client }) => {
+		// Index paths (entry points for hydration)
+		svelteIndexPaths: roots.map(({ client }) => {
 			const rel = dirname(relative(clientDir, client));
-
 			return join(indexDir, rel, basename(client));
 		}),
+		// Actual client component paths (for official HMR module imports)
+		svelteClientPaths: roots.map(({ client }) => client),
 		svelteServerPaths: roots.map(({ ssr }) => ssr)
 	};
 };

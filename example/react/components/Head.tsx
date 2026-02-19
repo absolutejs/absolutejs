@@ -13,7 +13,7 @@ export const Head = ({
 	font = 'Poppins',
 	cssPath
 }: HeadProps) => (
-	<head>
+	<head suppressHydrationWarning>
 		<meta charSet="utf-8" />
 		<title>{title}</title>
 		<meta name="description" content={description} />
@@ -24,11 +24,20 @@ export const Head = ({
 			rel="preconnect"
 			href="https://fonts.gstatic.com"
 			crossOrigin="anonymous"
+			suppressHydrationWarning
 		/>
 		<link
 			href={`https://fonts.googleapis.com/css2?family=${font}:wght@100..900&display=swap`}
 			rel="stylesheet"
+			suppressHydrationWarning
 		/>
-		{cssPath && <link rel="stylesheet" href={cssPath} type="text/css" />}
+		{cssPath && (
+			<link
+				rel="stylesheet"
+				href={cssPath}
+				type="text/css"
+				suppressHydrationWarning
+			/>
+		)}
 	</head>
 );

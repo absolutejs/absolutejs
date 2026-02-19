@@ -4,7 +4,7 @@ Full‑stack, **type‑safe** batteries‑included platform that lets you **serv
 
 [![bun-required](https://img.shields.io/badge/runtime-bun%401.x-yellowgreen?logo=bun)](https://bun.sh)
 [![elysia-required](https://img.shields.io/badge/server-elysia%40latest-blue?logo=elysia)](https://elysiajs.com)
-![license](https://img.shields.io/badge/license-CC%20BY--NC%204.0-lightgrey)
+![license](https://img.shields.io/badge/license-BSL--1.1-lightgrey)
 
 ---
 
@@ -112,10 +112,10 @@ export const server = new Elysia()
 
 Absolute JS piggybacks on the [Elysia plugin API](https://elysiajs.com/plugins). Any Elysia plugin works out of the box; Absolute adds helpers for:
 
-| Plugin                 | Description                                                                                                                     |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| **`absolute-auth`**    | Full OAuth2 flow configured with 66 providers and allows full customizability with event handlers                               |
-| **`networkingPlugin`** | Starts your Elysia server with HOST/PORT defaults and adds a --host flag to toggle listening on localhost or your LAN interface |
+| Plugin                 | Description                                                                                       |
+| ---------------------- | ------------------------------------------------------------------------------------------------- |
+| **`absolute-auth`**    | Full OAuth2 flow configured with 66 providers and allows full customizability with event handlers |
+| **`networkingPlugin`** | Starts your Elysia server with HOST/PORT defaults from environment variables                      |
 
 ---
 
@@ -160,4 +160,4 @@ Pull requests and issues are welcome! Whether it’s a new plugin, framework han
 
 ## License
 
-Creative Commons **CC BY‑NC 4.0** – see [`LICENSE`](./LICENSE) for details.
+**Business Source License 1.1 (BSL-1.1)** – see [`LICENSE`](./LICENSE) for details.

@@ -5,7 +5,7 @@
 
 import { readdirSync, statSync } from 'fs';
 import { join, resolve } from 'path';
-import type { AngularComponentModule } from '../types';
+import type { AngularComponentModule } from '../../types/build';
 
 /**
  * Recursively find a file in a directory tree

@@ -1,18 +1,27 @@
 import { ComponentType as ReactComponent } from 'react';
 import { Component as SvelteComponent } from 'svelte';
 import { Component as VueComponent } from 'vue';
-import type { Type, InjectionToken } from '@angular/core';
+import { build } from '../src/core/build';
+import { devBuild } from '../src/core/devBuild';
 
-// Export AngularComponent type alias for convenience
-export type AngularComponent<T = unknown> = Type<T>;
+// Structural type — no @angular/core import needed
+export type AngularComponent<T = unknown> = new (...args: any[]) => T;
 
 export type BuildOptions = {
 	preserveIntermediateFiles?: boolean;
+	/** When true, build() throws on error instead of exit(1) - used by HMR rebuilds */
+	throwOnError?: boolean;
+	/** When true, HMR client code is injected into built assets. Set by devBuild(). */
+	injectHMR?: boolean;
+	hmr?: {
+		debounceMs?: number;
+	};
 };
 
 export type BuildConfig = {
 	buildDirectory?: string;
 	assetsDirectory?: string;
+	publicDirectory?: string;
 	reactDirectory?: string;
 	vueDirectory?: string;
 	angularDirectory?: string;
@@ -25,7 +34,14 @@ export type BuildConfig = {
 		output: string;
 	};
 	options?: BuildOptions;
+	// Optional: List of files to rebuild incrementally (absolute paths)
+	// When provided, only these files and their dependencies will be rebuilt
+	incrementalFiles?: string[];
 };
+
+export type BuildResult = ReturnType<typeof build>;
+export type DevBuildResult = ReturnType<typeof devBuild>;
+export type Result = BuildResult | DevBuildResult;
 
 export type PropsOf<Component> =
 	Component extends ReactComponent<infer Props>
@@ -51,11 +67,11 @@ export interface AngularPageProps {
 }
 
 /**
- * Injection tokens for Angular page components
+ * Injection tokens for Angular page components — uses unknown to avoid @angular/core dependency
  */
 export interface AngularInjectionTokens {
-	CSS_PATH?: InjectionToken<string>;
-	INITIAL_COUNT?: InjectionToken<number>;
+	CSS_PATH?: unknown;
+	INITIAL_COUNT?: unknown;
 }
 
 /**
@@ -63,6 +79,6 @@ export interface AngularInjectionTokens {
  */
 export interface AngularComponentModule {
 	default: AngularComponent<unknown>;
-	CSS_PATH?: InjectionToken<string>;
-	INITIAL_COUNT?: InjectionToken<number>;
+	CSS_PATH?: unknown;
+	INITIAL_COUNT?: unknown;
 }

@@ -1,37 +1,42 @@
 import { staticPlugin } from '@elysiajs/static';
 import { Elysia } from 'elysia';
 import { scopedState } from 'elysia-scoped-state';
-import { build } from '../src/core/build';
-import { asset } from '../src/core/lookup';
+import { generateHeadElement } from '../src/utils/generateHeadElement';
+import { ReactExample } from './react/pages/ReactExample';
+import SvelteExample from './svelte/pages/SvelteExample.svelte';
+import { vueImports } from './vueImporter';
+import { BuildConfig } from '../types/build';
+import { env } from 'bun';
 import {
+	asset,
+	build,
+	devBuild,
 	handleAngularPageRequest,
 	handleHTMLPageRequest,
 	handleHTMXPageRequest,
 	handleReactPageRequest,
 	handleSveltePageRequest,
-	handleVuePageRequest
-} from '../src/core/pageHandlers';
+	handleVuePageRequest,
+	hmr
+} from '../src';
 import { networking } from '../src/plugins/networking';
-import { generateHeadElement } from '../src/utils/generateHeadElement';
-import { ReactExample } from './react/pages/ReactExample';
-import SvelteExample from './svelte/pages/SvelteExample.svelte';
-import { vueImports } from './vueImporter';
 
 const { VueExample } = vueImports;
 
-const manifest = await build({
+const buildConfig: BuildConfig = {
 	assetsDirectory: 'example/assets',
 	buildDirectory: 'example/build',
 	htmlDirectory: 'example/html',
 	htmxDirectory: 'example/htmx',
 	angularDirectory: 'example/angular',
-	options: {
-		preserveIntermediateFiles: true
-	},
 	reactDirectory: 'example/react',
+	publicDirectory: 'example/public',
 	svelteDirectory: 'example/svelte',
 	vueDirectory: 'example/vue'
-});
+};
+
+const isDev = env.NODE_ENV === 'development';
+const result = isDev ? await devBuild(buildConfig) : await build(buildConfig);
 
 // Load Angular component using type-safe utility
 import { loadAngularComponent } from '../src/utils/loadAngularComponent';
@@ -56,18 +61,14 @@ export const server = new Elysia()
 			count: { value: 0 }
 		})
 	)
-	.get('/', () =>
-		handleHTMLPageRequest('./example/build/html/pages/HtmlExample.html')
-	)
-	.get('/html', () =>
-		handleHTMLPageRequest('./example/build/html/pages/HtmlExample.html')
-	)
+	.get('/', () => handleHTMLPageRequest(asset(result, 'HtmlExample')))
+	.get('/html', () => handleHTMLPageRequest(asset(result, 'HtmlExample')))
 	.get('/react', () =>
 		handleReactPageRequest(
 			ReactExample,
-			asset(manifest, 'ReactExampleIndex'),
+			asset(result, 'ReactExampleIndex'),
 			{
-				cssPath: asset(manifest, 'ReactExampleCSS'),
+				cssPath: asset(result, 'ReactExampleCSS'),
 				initialCount: 0
 			}
 		)
@@ -75,10 +76,10 @@ export const server = new Elysia()
 	.get('/svelte', async () =>
 		handleSveltePageRequest(
 			SvelteExample,
-			asset(manifest, 'SvelteExample'),
-			asset(manifest, 'SvelteExampleIndex'),
+			asset(result, 'SvelteExample'),
+			asset(result, 'SvelteExampleIndex'),
 			{
-				cssPath: asset(manifest, 'SvelteExampleCSS'),
+				cssPath: asset(result, 'SvelteExampleCSS'),
 				initialCount: 0
 			}
 		)
@@ -86,10 +87,10 @@ export const server = new Elysia()
 	.get('/vue', () =>
 		handleVuePageRequest(
 			VueExample,
-			asset(manifest, 'VueExample'),
-			asset(manifest, 'VueExampleIndex'),
+			asset(result, 'VueExample'),
+			asset(result, 'VueExampleIndex'),
 			generateHeadElement({
-				cssPath: asset(manifest, 'VueExampleCSS'),
+				cssPath: asset(result, 'VueExampleCSS'),
 				title: 'AbsoluteJS + Vue'
 			}),
 			{ initialCount: 0 }
@@ -98,10 +99,10 @@ export const server = new Elysia()
 	.get('/angular', async () =>
 		handleAngularPageRequest(
 			AngularExampleComponent,
-			asset(manifest, 'AngularExampleIndex'),
+			asset(result, 'AngularExampleIndex'),
 			{
 				initialCount: 0,
-				cssPath: asset(manifest, 'AngularExampleCSS')
+				cssPath: asset(result, 'AngularExampleCSS')
 			},
 			undefined,
 			{
@@ -110,16 +111,21 @@ export const server = new Elysia()
 			}
 		)
 	)
-	.get('/htmx', () =>
-		handleHTMXPageRequest('./example/build/htmx/pages/HTMXExample.html')
-	)
+	.get('/htmx', () => handleHTMXPageRequest(asset(result, 'HTMXExample')))
 	.post('/htmx/reset', ({ resetScopedStore }) => resetScopedStore())
 	.get('/htmx/count', ({ scopedStore }) => scopedStore.count)
 	.post('/htmx/increment', ({ scopedStore }) => ++scopedStore.count)
-	.use(networking)
 	.on('error', (error) => {
 		const { request } = error;
 		console.error(
 			`Server error on ${request.method} ${request.url}: ${error.message}`
 		);
-	});
+	})
+	.use(networking);
+
+if (
+	typeof result.hmrState !== 'string' &&
+	typeof result.manifest === 'object'
+) {
+	server.use(hmr(result.hmrState, result.manifest));
+}

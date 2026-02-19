@@ -50,3 +50,10 @@ example/vue/compiled/
 example/svelte/compiled/
 
 /DOCS
+
+# HMR temporary files
+.hmr-temp/
+docs/
+
+CLAUDE.md
+/.claude

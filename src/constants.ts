@@ -16,4 +16,3 @@ export const DEFAULT_PORT = 3000;
 export const DEFAULT_CHUNK_SIZE = 16_384;
 export const BUN_BUILD_WARNING_SUPPRESSION =
 	'wildcard sideEffects are not supported yet';
-export const ANGULAR_BUILD_WARNING_SUPPRESSION = '@angular/common/package.json';
