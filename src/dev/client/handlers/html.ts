@@ -18,17 +18,10 @@ import { hmrState } from '../../../../types/client';
 export const handleScriptUpdate = (message: {
 	data: { framework?: string; scriptPath?: string };
 }) => {
-	console.log('[HMR] Received script-update message');
 	const scriptFramework = message.data.framework;
 	const currentFw = detectCurrentFramework();
 
 	if (currentFw !== scriptFramework) {
-		console.log(
-			'[HMR] Skipping script update - different framework:',
-			currentFw,
-			'vs',
-			scriptFramework
-		);
 		return;
 	}
 
@@ -37,8 +30,6 @@ export const handleScriptUpdate = (message: {
 		console.warn('[HMR] No script path in update');
 		return;
 	}
-
-	console.log('[HMR] Hot-reloading script:', scriptPath);
 
 	const interactiveSelectors =
 		'button, [onclick], [onchange], [oninput], details, input, select, textarea';
@@ -59,7 +50,7 @@ export const handleScriptUpdate = (message: {
 	const cacheBustedPath = scriptPath + '?t=' + Date.now();
 	import(/* @vite-ignore */ cacheBustedPath)
 		.then(function () {
-			console.log('[HMR] Script hot-reloaded successfully');
+			/* script reloaded */
 		})
 		.catch(function (err: unknown) {
 			console.error(
@@ -75,11 +66,8 @@ export const handleHTMLUpdate = (message: {
 		html?: string | { body?: string; head?: string } | null;
 	};
 }) => {
-	console.log('[HMR] Received html-update message');
 	const htmlFrameworkCheck = detectCurrentFramework();
-	console.log('[HMR] Current framework:', htmlFrameworkCheck);
 	if (htmlFrameworkCheck !== 'html') {
-		console.log('[HMR] Skipping - not on HTML page');
 		return;
 	}
 
@@ -99,40 +87,25 @@ export const handleHTMLUpdate = (message: {
 		htmlBody = message.data.html.body || null;
 		htmlHead = message.data.html.head || null;
 	}
-	console.log('[HMR] htmlBody length:', htmlBody ? htmlBody.length : 'null');
-	console.log('[HMR] htmlHead:', htmlHead ? 'present' : 'null');
-
 	if (htmlBody) {
-		console.log('[HMR] Processing htmlBody');
 		if (htmlHead) {
-			console.log('[HMR] Has htmlHead, patching head elements');
-
 			const doPatchHead = function () {
 				patchHeadInPlace(htmlHead!);
 			};
 			if (hmrState.isFirstHMRUpdate) {
-				console.log(
-					'[HMR] First update - adding head patch stabilization delay'
-				);
 				setTimeout(doPatchHead, 50);
 			} else {
 				doPatchHead();
 			}
 
-			console.log('[HMR] Processing CSS links');
 			const cssResult = processCSSLinks(htmlHead);
 
 			const updateBodyAfterCSS = function () {
 				updateHTMLBody(htmlBody!, htmlDomState, document.body);
 			};
 
-			console.log(
-				'[HMR] linksToWaitFor count:',
-				cssResult.linksToWaitFor.length
-			);
 			waitForCSSAndUpdate(cssResult, updateBodyAfterCSS);
 		} else {
-			console.log('[HMR] No htmlHead, patching body directly');
 			const container = document.body;
 			if (container) {
 				updateHTMLBodyDirect(htmlBody, htmlDomState, container);
@@ -151,9 +124,7 @@ const updateHTMLBody = (
 	htmlDomState: ReturnType<typeof saveDOMState>,
 	container: HTMLElement
 ) => {
-	console.log('[HMR] updateBodyAfterCSS called');
 	if (!container) {
-		console.log('[HMR] ERROR: document.body not found');
 		return;
 	}
 
@@ -186,7 +157,6 @@ const updateHTMLBody = (
 	const htmlStructureChanged = didHTMLStructureChange(container, tempDiv);
 
 	if (!htmlStructureChanged && !scriptsChanged) {
-		console.log('[HMR] CSS-only change detected - skipping body patch');
 	} else {
 		patchDOMInPlace(container, body);
 	}

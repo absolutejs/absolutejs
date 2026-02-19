@@ -64,7 +64,6 @@ const updateHeadElement = (oldEl: Element, newEl: Element, key: string) => {
 		if (oldEl.textContent !== newTitle) {
 			oldEl.textContent = newTitle;
 			document.title = newTitle;
-			console.log('[HMR] Updated title to:', newTitle);
 		}
 		return;
 	}
@@ -74,7 +73,6 @@ const updateHeadElement = (oldEl: Element, newEl: Element, key: string) => {
 		const oldContent = oldEl.getAttribute('content');
 		if (oldContent !== newContent && newContent !== null) {
 			oldEl.setAttribute('content', newContent);
-			console.log('[HMR] Updated meta', key, 'to:', newContent);
 		}
 		if (newEl.hasAttribute('charset')) {
 			const newCharset = newEl.getAttribute('charset');
@@ -105,12 +103,10 @@ const updateHeadElement = (oldEl: Element, newEl: Element, key: string) => {
 						't=' +
 						Date.now();
 					oldEl.setAttribute('href', cacheBustedHref);
-					console.log('[HMR] Updated favicon to:', newBase);
 				}
 			}
 		} else if (newHref && oldHref !== newHref) {
 			oldEl.setAttribute('href', newHref);
-			console.log('[HMR] Updated link', rel, 'to:', newHref);
 		}
 
 		const attrsToCheck = ['type', 'sizes', 'crossorigin', 'as', 'media'];
@@ -163,7 +159,6 @@ const addHeadElement = (newEl: Element, key: string) => {
 	} else {
 		head.appendChild(clone);
 	}
-	console.log('[HMR] Added head element:', key);
 };
 
 export const patchHeadInPlace = (newHeadHTML: string) => {
@@ -206,7 +201,6 @@ export const patchHeadInPlace = (newHeadHTML: string) => {
 				const rel = existingEl.getAttribute('rel') || '';
 				if (tag === 'link' && rel === 'stylesheet') return;
 				existingEl.remove();
-				console.log('[HMR] Removed head element:', key);
 			}
 		}
 	});

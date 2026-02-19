@@ -383,6 +383,7 @@ export const build = async ({
 			serverEntryPoints.length > 0
 				? bunBuild({
 						entrypoints: serverEntryPoints,
+						external: ['svelte', 'svelte/*', 'vue', 'vue/*'],
 						format: 'esm',
 						naming: `[dir]/[name].[hash].[ext]`,
 						outdir: serverOutDir,
