@@ -16,5 +16,7 @@ export type DbScripts = {
 };
 
 export type InteractiveHandler = {
+	clearPrompt: () => void;
 	dispose: () => void;
+	showPrompt: () => void;
 };

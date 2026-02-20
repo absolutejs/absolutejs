@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { DbScripts, InteractiveHandler } from '../../../types/cli';
 import { DEFAULT_PORT } from '../../constants';
+import { formatTimestamp } from '../../utils/logger';
 import { createInteractiveHandler } from '../interactive';
 import {
 	COMPOSE_PATH,
@@ -15,6 +16,9 @@ import {
 	startDatabase,
 	stopDatabase
 } from '../utils';
+
+const cliTag = (color: string, message: string) =>
+	`\x1b[2m${formatTimestamp()}\x1b[0m ${color}[cli]\x1b[0m ${color}${message}\x1b[0m`;
 
 export const dev = async (serverEntry: string): Promise<void> => {
 	const port = Number(env.PORT) || DEFAULT_PORT;
@@ -28,6 +32,8 @@ export const dev = async (serverEntry: string): Promise<void> => {
 	let paused = false;
 	let cleaning = false;
 	let interactive: InteractiveHandler | null = null;
+
+	let serverReady = false;
 
 	const spawnServer = () => {
 		const proc = Bun.spawn(
@@ -54,7 +60,17 @@ export const dev = async (serverEntry: string): Promise<void> => {
 					.read()
 					.then(({ done, value }) => {
 						if (done) return;
+						if (serverReady) interactive?.clearPrompt();
 						dest.write(value);
+						if (!serverReady) {
+							const chunk = Buffer.from(value).toString();
+							if (chunk.includes('Local:')) {
+								serverReady = true;
+								interactive?.showPrompt();
+							}
+						} else {
+							interactive?.showPrompt();
+						}
 						pump();
 					})
 					.catch(() => {});
@@ -85,7 +101,8 @@ export const dev = async (serverEntry: string): Promise<void> => {
 	};
 
 	const restartServer = async (): Promise<void> => {
-		console.log('\x1b[36m[cli] Restarting server...\x1b[0m');
+		serverReady = false;
+		console.log(cliTag('\x1b[36m', 'Restarting server...'));
 		const old = serverProcess;
 		if (paused) {
 			sendSignal('SIGCONT');
@@ -98,7 +115,7 @@ export const dev = async (serverEntry: string): Promise<void> => {
 		}
 		serverProcess = spawnServer();
 		await old.exited;
-		console.log('\x1b[32m[cli] Server restarted.\x1b[0m');
+		console.log(cliTag('\x1b[32m', 'Server restarted.'));
 	};
 
 	const sendSignal = (signal: 'SIGSTOP' | 'SIGCONT'): void => {
@@ -117,12 +134,12 @@ export const dev = async (serverEntry: string): Promise<void> => {
 		if (paused) {
 			sendSignal('SIGCONT');
 			paused = false;
-			console.log('\x1b[32m[cli] Server resumed.\x1b[0m');
+			console.log(cliTag('\x1b[32m', 'Server resumed.'));
 		} else {
 			sendSignal('SIGSTOP');
 			paused = true;
 			console.log(
-				'\x1b[33m[cli] Server paused.\x1b[0m \x1b[90m[paused]\x1b[0m'
+				`${cliTag('\x1b[33m', 'Server paused.')} \x1b[90m[paused]\x1b[0m`
 			);
 		}
 	};
@@ -150,10 +167,10 @@ export const dev = async (serverEntry: string): Promise<void> => {
 				stdout: 'ignore',
 				stderr: 'ignore'
 			});
-			console.log(`\x1b[36m[cli] Opening ${url}\x1b[0m`);
+			console.log(cliTag('\x1b[36m', `Opening ${url}`));
 		} catch {
 			console.log(
-				`\x1b[33m[cli] Could not open browser. Visit ${url}\x1b[0m`
+				cliTag('\x1b[33m', `Could not open browser. Visit ${url}`)
 			);
 		}
 	};
@@ -192,7 +209,10 @@ export const dev = async (serverEntry: string): Promise<void> => {
 				return;
 			}
 			console.error(
-				`\x1b[31m[cli] Server exited (code ${exitCode}), restarting...\x1b[0m`
+				cliTag(
+					'\x1b[31m',
+					`Server exited (code ${exitCode}), restarting...`
+				)
 			);
 			serverProcess = spawnServer();
 		}
