@@ -1,9 +1,6 @@
 import { build } from '../src/core/build';
 import { devBuild } from '../src/core/devBuild';
 
-// Structural type — no @angular/core import needed
-export type AngularComponent<T = unknown> = new (...args: any[]) => T;
-
 export type BuildOptions = {
 	preserveIntermediateFiles?: boolean;
 	/** When true, build() throws on error instead of exit(1) - used by HMR rebuilds */

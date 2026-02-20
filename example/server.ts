@@ -11,15 +11,15 @@ import {
 	asset,
 	build,
 	devBuild,
-	handleAngularPageRequest,
 	handleHTMLPageRequest,
 	handleHTMXPageRequest,
 	handleReactPageRequest,
 	hmr
 } from '../src';
+import { handleAngularPageRequest } from '../src/angular';
 import { networking } from '../src/plugins/networking';
-import { handleVuePageRequest } from '../src/vue';
 import { handleSveltePageRequest } from '../src/svelte';
+import { handleVuePageRequest } from '../src/vue';
 
 const { VueExample } = vueImports;
 

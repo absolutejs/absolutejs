@@ -9,7 +9,7 @@ import { rm } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 import { cwd, env, exit } from 'node:process';
 import { $, build as bunBuild, BuildArtifact, Glob } from 'bun';
-import { compileAngular } from '../build/compileAngular';
+import type { compileAngular } from '../build/compileAngular';
 import type { compileSvelte } from '../build/compileSvelte';
 import type { compileVue } from '../build/compileVue';
 import { generateManifest } from '../build/generateManifest';
@@ -280,7 +280,8 @@ export const build = async ({
 
 	const [
 		{ svelteServerPaths, svelteIndexPaths, svelteClientPaths },
-		{ vueServerPaths, vueIndexPaths, vueClientPaths, vueCssPaths }
+		{ vueServerPaths, vueIndexPaths, vueClientPaths, vueCssPaths },
+		{ clientPaths: angularClientPaths, serverPaths: angularServerPaths }
 	] = await Promise.all([
 		svelteDir
 			? import('../build/compileSvelte').then(
@@ -309,15 +310,18 @@ export const build = async ({
 					vueCssPaths: [] as string[],
 					vueIndexPaths: [] as string[],
 					vueServerPaths: [] as string[]
-				}
+				},
+		angularDir && angularEntries.length > 0
+			? import('../build/compileAngular').then(
+					(mod) =>
+						mod.compileAngular(
+							angularEntries,
+							angularDir,
+							hmr
+						) as ReturnType<typeof compileAngular>
+				)
+			: { clientPaths: [] as string[], serverPaths: [] as string[] }
 	]);
-
-	const {
-		clientPaths: angularClientPaths,
-		serverPaths: angularServerPaths
-	} = angularDir && angularEntries.length > 0
-		? await compileAngular(angularEntries, angularDir, hmr)
-		: { clientPaths: [] as string[], serverPaths: [] as string[] };
 
 	const serverEntryPoints = [...svelteServerPaths, ...vueServerPaths];
 	const reactClientEntryPoints = [...reactEntries];

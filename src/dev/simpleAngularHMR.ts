@@ -63,7 +63,7 @@ export const handleAngularUpdate = async (
 		const serverPathWithCacheBuster = `${serverPath}${cacheBuster}`;
 
 		const { handleAngularPageRequest } = await import(
-			'../core/pageHandlers'
+			'../angular/pageHandler'
 		);
 		const { generateHeadElement } = await import(
 			'../utils/generateHeadElement'
