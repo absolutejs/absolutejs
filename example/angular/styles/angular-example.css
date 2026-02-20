@@ -53,24 +53,10 @@ h1 {
 	filter: drop-shadow(0 0 2rem #dd0031);
 }
 
-/* Ensure logo nav has proper spacing - override any component styles */
-main nav .logo {
-	height: 8rem;
-	width: 8rem;
-}
-
 nav {
 	display: flex;
 	gap: 4rem;
 	justify-content: center;
-}
-
-/* Logo nav spacing - ensure it applies to nav elements in main */
-main nav {
-	display: flex;
-	gap: 4rem;
-	justify-content: center;
-	margin-bottom: 2rem;
 }
 
 header details {
@@ -137,32 +123,17 @@ header details nav a {
 	text-decoration: none;
 }
 
-body {
+/* Flex wrappers for Angular custom elements */
+angular-page {
 	display: flex;
+	flex: 1;
 	flex-direction: column;
-	min-height: 100vh;
 }
 
-/* Spacing between header and main content */
 app-root {
 	display: flex;
 	flex: 1;
 	flex-direction: column;
-}
-
-main {
-	align-items: center;
-	display: flex;
-	flex: 1;
-	flex-direction: column;
-	justify-content: center;
-	text-align: center;
-	padding-top: 2rem;
-}
-
-p {
-	font-size: 1.2rem;
-	max-width: 1280px;
 }
 
 @media (prefers-color-scheme: light) {

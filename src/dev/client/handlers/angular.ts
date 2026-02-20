@@ -123,6 +123,12 @@ export const handleAngularUpdate = (message: {
 		window.__ANGULAR_APP__ = null;
 	}
 
+	/* Remove Angular-injected <style> tags from <head> to prevent
+	   stale component styles from overriding the page stylesheet */
+	document.head.querySelectorAll('style').forEach(function (style) {
+		style.remove();
+	});
+
 	/* Replace body content with new HTML */
 	document.body.innerHTML = patchedHTML;
 
