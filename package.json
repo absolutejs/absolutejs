@@ -44,6 +44,28 @@
 		"react-refresh": "^0.18.0"
 	},
 	"license": "BSL-1.1",
+	"exports": {
+		".": {
+			"types": "./dist/src/index.d.ts",
+			"import": "./dist/index.js"
+		},
+		"./react": {
+			"types": "./dist/src/react/index.d.ts",
+			"import": "./dist/react/index.js"
+		},
+		"./react/hooks": {
+			"types": "./dist/src/react/hooks/index.d.ts",
+			"import": "./dist/react/hooks/index.js"
+		},
+		"./svelte": {
+			"types": "./dist/src/svelte/index.d.ts",
+			"import": "./dist/svelte/index.js"
+		},
+		"./vue": {
+			"types": "./dist/src/vue/index.d.ts",
+			"import": "./dist/vue/index.js"
+		}
+	},
 	"main": "./dist/index.js",
 	"name": "@absolutejs/absolute",
 	"peerDependencies": {
@@ -100,17 +122,17 @@
 		"url": "https://github.com/absolutejs/absolutejs.git"
 	},
 	"scripts": {
-		"build": "rm -rf dist && bun build src/index.ts --outdir dist --sourcemap --target=bun --external react --external react-dom --external vue --external @vue/compiler-sfc --external svelte --external elysia --external @angular/compiler-cli --external @angular/core --external @angular/common --external @angular/platform-browser --external @angular/platform-server --external @angular/ssr --external zone.js && bun build src/cli/index.ts --outfile dist/cli/index.js --target=bun && tsc --emitDeclarationOnly --project tsconfig.build.json && mkdir -p dist/dev && cp -r src/dev/client dist/dev/client",
+		"build": "rm -rf dist && bun build src/index.ts src/react/index.ts src/react/hooks/index.ts src/svelte/index.ts src/vue/index.ts --outdir dist --sourcemap --target=bun --external react --external react-dom --external vue --external @vue/compiler-sfc --external vue/server-renderer --external svelte --external svelte/compiler --external svelte/server --external elysia --external @angular/compiler-cli --external @angular/core --external @angular/common --external @angular/platform-browser --external @angular/platform-server --external @angular/ssr --external zone.js && bun build src/cli/index.ts --outfile dist/cli/index.js --target=bun && tsc --emitDeclarationOnly --project tsconfig.build.json && mkdir -p dist/dev && cp -r src/dev/client dist/dev/client",
 		"db:push": "drizzle-kit push",
 		"db:studio": "drizzle-kit studio",
 		"dev": "bun run src/cli/index.ts dev example/server.ts",
 		"start": "NODE_ENV=production bun run example/server.ts",
-		"format": "prettier --write \"./**/*.{js,jsx,ts,tsx,css,json,mjs,md,svelte,html,vue}\"",
-		"lint": "eslint ./",
+		"format": "bun run src/cli/index.ts prettier --write",
+		"lint": "bun run src/cli/index.ts eslint",
 		"release": "bun run format && bun run build && bun publish",
 		"test": "bun test",
 		"typecheck": "bun run tsc --noEmit"
 	},
 	"types": "./dist/src/index.d.ts",
-	"version": "0.15.23"
+	"version": "0.16.10"
 }

@@ -6,12 +6,12 @@ import {
 	writeFileSync
 } from 'node:fs';
 import { rm } from 'node:fs/promises';
-import { basename, join, resolve, dirname, relative } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { cwd, env, exit } from 'node:process';
 import { $, build as bunBuild, BuildArtifact, Glob } from 'bun';
 import { compileAngular } from '../build/compileAngular';
-import { compileSvelte } from '../build/compileSvelte';
-import { compileVue } from '../build/compileVue';
+import type { compileSvelte } from '../build/compileSvelte';
+import type { compileVue } from '../build/compileVue';
 import { generateManifest } from '../build/generateManifest';
 import { generateReactIndexFiles } from '../build/generateReactIndexes';
 import { createHTMLScriptHMRPlugin } from '../build/htmlScriptHMRPlugin';
@@ -283,14 +283,27 @@ export const build = async ({
 		{ vueServerPaths, vueIndexPaths, vueClientPaths, vueCssPaths }
 	] = await Promise.all([
 		svelteDir
-			? compileSvelte(svelteEntries, svelteDir, new Map(), hmr)
+			? import('../build/compileSvelte').then(
+					(mod) =>
+						mod.compileSvelte(
+							svelteEntries,
+							svelteDir,
+							new Map(),
+							hmr
+						) as ReturnType<typeof compileSvelte>
+				)
 			: {
 					svelteClientPaths: [] as string[],
 					svelteIndexPaths: [] as string[],
 					svelteServerPaths: [] as string[]
 				},
 		vueDir
-			? compileVue(vueEntries, vueDir, hmr)
+			? import('../build/compileVue').then(
+					(mod) =>
+						mod.compileVue(vueEntries, vueDir, hmr) as ReturnType<
+							typeof compileVue
+						>
+				)
 			: {
 					vueClientPaths: [] as string[],
 					vueCssPaths: [] as string[],

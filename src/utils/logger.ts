@@ -33,17 +33,34 @@ const frameworkColors: Record<string, string> = {
 	assets: colors.dim
 };
 
+const MONTHS = [
+	'Jan',
+	'Feb',
+	'Mar',
+	'Apr',
+	'May',
+	'Jun',
+	'Jul',
+	'Aug',
+	'Sep',
+	'Oct',
+	'Nov',
+	'Dec'
+] as const;
+
 /**
- * Format timestamp as "HH:MM:SS AM/PM"
+ * Format timestamp as "Mon DD HH:MM:SS AM/PM"
  */
-const formatTimestamp = () => {
+export const formatTimestamp = () => {
 	const now = new Date();
+	const month = MONTHS[now.getMonth()];
+	const day = now.getDate().toString().padStart(2, '0');
 	let hours = now.getHours();
 	const minutes = now.getMinutes().toString().padStart(2, '0');
 	const seconds = now.getSeconds().toString().padStart(2, '0');
 	const ampm = hours >= 12 ? 'PM' : 'AM';
 	hours = hours % 12 || 12;
-	return `${hours}:${minutes}:${seconds} ${ampm}`;
+	return `${month} ${day} ${hours}:${minutes}:${seconds} ${ampm}`;
 };
 
 /**

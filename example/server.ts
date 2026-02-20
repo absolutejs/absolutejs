@@ -15,11 +15,11 @@ import {
 	handleHTMLPageRequest,
 	handleHTMXPageRequest,
 	handleReactPageRequest,
-	handleSveltePageRequest,
-	handleVuePageRequest,
 	hmr
 } from '../src';
 import { networking } from '../src/plugins/networking';
+import { handleVuePageRequest } from '../src/vue';
+import { handleSveltePageRequest } from '../src/svelte';
 
 const { VueExample } = vueImports;
 

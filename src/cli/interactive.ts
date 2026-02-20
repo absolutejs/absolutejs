@@ -64,14 +64,14 @@ export const createInteractiveHandler = (
 	const handleLine = async (line: string) => {
 		const trimmed = line.trim();
 		if (trimmed === '') {
-			needsPrompt = true;
+			renderLine('');
 
 			return;
 		}
 
 		if (trimmed === '$') {
 			shellMode = true;
-			needsPrompt = true;
+			renderLine('');
 
 			return;
 		}
@@ -84,7 +84,7 @@ export const createInteractiveHandler = (
 				} catch {
 					/* command failed */
 				}
-				needsPrompt = true;
+				renderLine('');
 
 				return;
 			}
@@ -93,7 +93,11 @@ export const createInteractiveHandler = (
 		const wordAction = WORD_COMMANDS[trimmed.toLowerCase()];
 		if (wordAction) {
 			await actions[wordAction]();
-			needsPrompt = true;
+			if (wordAction === 'restart') {
+				needsPrompt = true;
+			} else {
+				renderLine('');
+			}
 
 			return;
 		}
@@ -102,7 +106,11 @@ export const createInteractiveHandler = (
 			const shortcutAction = SHORTCUTS[trimmed];
 			if (shortcutAction) {
 				await actions[shortcutAction]();
-				needsPrompt = true;
+				if (shortcutAction === 'restart') {
+					needsPrompt = true;
+				} else {
+					renderLine('');
+				}
 
 				return;
 			}
@@ -111,14 +119,14 @@ export const createInteractiveHandler = (
 		console.log(
 			`\x1b[31mUnknown command: ${trimmed}\x1b[0m (press h + enter for help)`
 		);
-		needsPrompt = true;
+		renderLine('');
 	};
 
 	const handleShellLine = async (line: string) => {
 		const trimmed = line.trim();
 		if (trimmed === '') {
 			shellMode = false;
-			needsPrompt = true;
+			renderLine('');
 
 			return;
 		}
@@ -129,7 +137,7 @@ export const createInteractiveHandler = (
 			/* command failed or was cancelled */
 		}
 		shellMode = false;
-		needsPrompt = true;
+		renderLine('');
 	};
 
 	const handleArrow = (arrow: string) => {
@@ -278,5 +286,13 @@ export const createInteractiveHandler = (
 		process.stdin.pause();
 	};
 
-	return { dispose };
+	const clearPrompt = () => {
+		process.stdout.write('\r\x1b[2K');
+	};
+
+	const showPrompt = () => {
+		renderLine(buffer);
+	};
+
+	return { clearPrompt, dispose, showPrompt };
 };

@@ -16,5 +16,5 @@
 		"target": "ESNext"
 	},
 	"exclude": ["node_modules", "src/dev/client"],
-	"include": ["src/**/*"]
+	"include": ["src/**/*", "types/**/*"]
 }

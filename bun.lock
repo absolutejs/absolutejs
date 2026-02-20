@@ -84,7 +84,7 @@
 
     "@angular/platform-server": ["@angular/platform-server@21.1.5", "", { "dependencies": { "tslib": "^2.3.0", "xhr2": "^0.2.0" }, "peerDependencies": { "@angular/common": "21.1.5", "@angular/compiler": "21.1.5", "@angular/core": "21.1.5", "@angular/platform-browser": "21.1.5", "rxjs": "^6.5.3 || ^7.4.0" } }, "sha512-7S66We60szZ5M/LfW6OAvua+qNCS08IHFN0Re5ZwqqfyDVBGPt18JUN6NKR5FfAhW4s5B9+TtF+tdLcxYxHWaQ=="],
 
-    "@angular/router": ["@angular/router@19.2.18", "", { "dependencies": { "tslib": "^2.3.0" }, "peerDependencies": { "@angular/common": "19.2.18", "@angular/core": "19.2.18", "@angular/platform-browser": "19.2.18", "rxjs": "^6.5.3 || ^7.4.0" } }, "sha512-7cimxtPODSwokFQ0TRYzX0ad8Yjrl0MJfzaDCJejd1n/q7RZ7KZmHd0DS/LkDNXVMEh4swr00fK+3YWG/Szsrg=="],
+    "@angular/router": ["@angular/router@21.1.5", "", { "dependencies": { "tslib": "^2.3.0" }, "peerDependencies": { "@angular/common": "21.1.5", "@angular/core": "21.1.5", "@angular/platform-browser": "21.1.5", "rxjs": "^6.5.3 || ^7.4.0" } }, "sha512-OjFn6Nw51CU712CMbl2U9TxlCkzOmjMLYPAfnV4+RdG7o+/eOS2nV0oapJ88RNCw7Yl04PA1amc3ql3agDFd4A=="],
 
     "@angular/ssr": ["@angular/ssr@21.1.4", "", { "dependencies": { "tslib": "^2.3.0" }, "peerDependencies": { "@angular/common": "^21.0.0", "@angular/core": "^21.0.0", "@angular/platform-server": "^21.0.0", "@angular/router": "^21.0.0" }, "optionalPeers": ["@angular/platform-server"] }, "sha512-KUKEuZPS9NOeN0mmlG7nld9U9cxDfqR0DG/Kf2QglfoiTmEXundytrC27u63feIby2hULR7mQWZ+Ouj9Hh78NQ=="],
 
@@ -989,8 +989,6 @@
     "zod": ["zod@3.25.76", "", {}, "sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ=="],
 
     "zod-to-json-schema": ["zod-to-json-schema@3.24.6", "", { "peerDependencies": { "zod": "^3.24.1" } }, "sha512-h/z3PKvcTcTetyjl1fkj79MHNEjm+HpD6NXheWjzOekY7kV+lwDYnHw+ivHkijnCSMz1yJaWBD9vu/Fcmk+vEg=="],
-
-    "zone.js": ["zone.js@0.15.1", "", {}, "sha512-XE96n56IQpJM7NAoXswY3XRLcWFW83xe0BiAOeMD7K5k5xecOeul3Qcpx6GqEeeHNkW5DWL5zOyTbEfB4eti8w=="],
 
     "@babel/core/convert-source-map": ["convert-source-map@2.0.0", "", {}, "sha512-Kvp459HrV2FEJ1CAsi1Ku+MY3kasH19TFykTz2xWmMeq6bk2NU3XXvfJ+Q61m0xktWwt+1HSYf3JZsTms3aRJg=="],
 
