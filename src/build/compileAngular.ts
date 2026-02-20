@@ -1,3 +1,4 @@
+import { existsSync } from 'fs';
 import { promises as fs } from 'fs';
 import { join, basename, sep, dirname, resolve, relative } from 'path';
 import {
@@ -8,6 +9,15 @@ import {
 import type { CompilerOptions } from '@angular/compiler-cli';
 import ts from 'typescript';
 import { toPascal } from '../utils/stringModifiers';
+
+const devClientDir = (() => {
+	const fromSource = resolve(import.meta.dir, '../dev/client');
+	if (existsSync(fromSource)) return fromSource;
+
+	return resolve(import.meta.dir, './dev/client');
+})();
+
+const hmrClientPath = join(devClientDir, 'hmrClient.ts').replace(/\\/g, '/');
 
 export const compileAngularFile = async (inputPath: string, outDir: string) => {
 	// Resolve TypeScript lib directory dynamically (prevents hardcoded paths)
@@ -41,6 +51,14 @@ export const compileAngularFile = async (inputPath: string, outDir: string) => {
 	// Force newLine again after spread to ensure it's not overwritten
 	options.newLine = ts.NewLineKind.LineFeed;
 
+	// Force outDir after spread — config.options may contain an absolute "dist" path
+	// that overwrites our outDir, causing deeply nested compiled output
+	options.outDir = outDir;
+
+	// Explicit rootDir prevents TypeScript from computing it from the single entry file,
+	// which would cause imports from other directories to get absolute-path-based output
+	options.rootDir = process.cwd();
+
 	// Use TypeScript's createCompilerHost directly
 	const host = ts.createCompilerHost(options);
 
@@ -66,10 +84,13 @@ export const compileAngularFile = async (inputPath: string, outDir: string) => {
 	};
 
 	const emitted: Record<string, string> = {};
+	const resolvedOutDir = resolve(outDir);
 	host.writeFile = (fileName, text) => {
-		const relativePath = fileName.startsWith(outDir)
-			? fileName.substring(outDir.length + 1)
-			: fileName;
+		const relativePath = fileName.startsWith(resolvedOutDir)
+			? fileName.substring(resolvedOutDir.length + 1)
+			: fileName.startsWith(outDir)
+				? fileName.substring(outDir.length + 1)
+				: fileName;
 		emitted[relativePath] = text;
 	};
 
@@ -157,16 +178,22 @@ export const compileAngularFile = async (inputPath: string, outDir: string) => {
 
 export const compileAngular = async (
 	entryPoints: string[],
-	outRoot: string
+	outRoot: string,
+	hmr = false
 ) => {
-	const compiledRoot = join(outRoot, 'compiled');
-	const indexesDir = join(compiledRoot, 'indexes');
+	const compiledParent = join(outRoot, 'compiled');
 
 	if (entryPoints.length === 0) {
 		return { clientPaths: [] as string[], serverPaths: [] as string[] };
 	}
 
-	await fs.rm(compiledRoot, { force: true, recursive: true });
+	// Unique build ID ensures Bun's ESM cache never returns stale modules
+	// during HMR — all file paths are fresh, forcing re-import of the
+	// entire dependency chain (not just the top-level page file).
+	const buildId = Date.now().toString(36);
+	const compiledRoot = join(compiledParent, buildId);
+	const indexesDir = join(compiledRoot, 'indexes');
+
 	await fs.mkdir(indexesDir, { recursive: true });
 
 	const compileTasks = entryPoints.map(async (entry) => {
@@ -213,14 +240,25 @@ export const compileAngular = async (
 			: './' + relativePath;
 
 		const clientFile = join(indexesDir, jsName);
-		const hydration = `
+		const hmrPreamble = hmr
+			? `window.__HMR_FRAMEWORK__ = "angular";\nimport "${hmrClientPath}";\n`
+			: '';
+		const hydration = `${hmrPreamble}
+import '@angular/compiler';
 import { bootstrapApplication } from '@angular/platform-browser';
 import { provideClientHydration } from '@angular/platform-browser';
 import { provideZonelessChangeDetection } from '@angular/core';
 import ${componentClassName} from '${normalizedImportPath}';
 
+if (window.__ANGULAR_APP__) {
+    try { window.__ANGULAR_APP__.destroy(); } catch (_err) { /* ignore */ }
+    window.__ANGULAR_APP__ = null;
+}
+
 bootstrapApplication(${componentClassName}, {
     providers: [provideClientHydration(), provideZonelessChangeDetection()]
+}).then(function (appRef) {
+    window.__ANGULAR_APP__ = appRef;
 });
 `.trim();
 		await fs.writeFile(clientFile, hydration, 'utf-8');
@@ -231,6 +269,21 @@ bootstrapApplication(${componentClassName}, {
 	const results = await Promise.all(compileTasks);
 	const serverPaths = results.map((r) => r.serverPath);
 	const clientPaths = results.map((r) => r.clientPath);
+
+	// Clean up old compiled builds (keep only current)
+	try {
+		const dirs = await fs.readdir(compiledParent);
+		await Promise.all(
+			dirs
+				.filter((dir) => dir !== buildId)
+				.map((dir) =>
+					fs.rm(join(compiledParent, dir), {
+						recursive: true,
+						force: true
+					})
+				)
+		);
+	} catch {}
 
 	return { clientPaths, serverPaths };
 };

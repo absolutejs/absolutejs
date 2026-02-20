@@ -89,10 +89,11 @@ export const server = new Elysia()
 		handleAngularPageRequest(
 			asset(result, 'AngularExample'),
 			asset(result, 'AngularExampleIndex'),
-			{
-				initialCount: 0,
-				cssPath: asset(result, 'AngularExampleCSS')
-			}
+			generateHeadElement({
+				cssPath: asset(result, 'AngularExampleCSS'),
+				title: 'AbsoluteJS + Angular'
+			}),
+			{ initialCount: 0 }
 		)
 	)
 	.get('/htmx', () => handleHTMXPageRequest(asset(result, 'HTMXExample')))

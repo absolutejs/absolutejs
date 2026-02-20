@@ -157,6 +157,7 @@ export const handleAngularPageRequest = async <
 >(
 	pagePath: string,
 	indexPath: string,
+	headTag: `<head>${string}</head>` = '<head></head>',
 	...props: keyof Props extends never ? [] : [props: Props]
 ) => {
 	try {
@@ -186,10 +187,10 @@ export const handleAngularPageRequest = async <
 		// Lazy-load Angular deps — only when this handler is actually called
 		const [
 			angularPatchModule,
-			{ bootstrapApplication },
+			{ bootstrapApplication, DomSanitizer, provideClientHydration },
 			{ renderApplication, provideServerRendering },
 			{ APP_BASE_HREF },
-			{ provideZonelessChangeDetection }
+			{ provideZonelessChangeDetection, Sanitizer }
 		] = await Promise.all([
 			import('./angularPatch'),
 			import('@angular/platform-browser'),
@@ -197,6 +198,49 @@ export const handleAngularPageRequest = async <
 			import('@angular/common'),
 			import('@angular/core')
 		]);
+
+		// SSR-safe sanitizer: during server-side rendering there is no
+		// browser XSS risk, so we bypass Angular's DomSanitizerImpl which
+		// depends on a real DOCUMENT and throws NG0904 with domino.
+		const SsrSanitizer = class extends DomSanitizer {
+			sanitize(_ctx: any, value: any): string | null {
+				if (value == null) return null;
+				if (typeof value === 'string') return value;
+				if (
+					typeof value === 'object' &&
+					'changingThisBreaksApplicationSecurity' in
+						value
+				) {
+					return value.changingThisBreaksApplicationSecurity;
+				}
+				return String(value);
+			}
+			bypassSecurityTrustHtml(value: string) {
+				return {
+					changingThisBreaksApplicationSecurity: value
+				} as any;
+			}
+			bypassSecurityTrustStyle(value: string) {
+				return {
+					changingThisBreaksApplicationSecurity: value
+				} as any;
+			}
+			bypassSecurityTrustScript(value: string) {
+				return {
+					changingThisBreaksApplicationSecurity: value
+				} as any;
+			}
+			bypassSecurityTrustUrl(value: string) {
+				return {
+					changingThisBreaksApplicationSecurity: value
+				} as any;
+			}
+			bypassSecurityTrustResourceUrl(value: string) {
+				return {
+					changingThisBreaksApplicationSecurity: value
+				} as any;
+			}
+		};
 
 		const { createDocumentProxy } = angularPatchModule;
 
@@ -236,8 +280,13 @@ export const handleAngularPageRequest = async <
 			);
 		}
 
-		const htmlString =
-			'<!DOCTYPE html><html><head></head><body></body></html>';
+		// Read the selector from Angular's compiled component metadata (ɵcmp).
+		// This gives us the custom element tag the component expects to hydrate into.
+		const cmpDef = (PageComponent as any).ɵcmp;
+		const selector =
+			cmpDef?.selectors?.[0]?.[0] || 'ng-app';
+
+		const htmlString = `<!DOCTYPE html><html>${headTag}<body><${selector}></${selector}></body></html>`;
 
 		// Parse with domino to ensure doc.head exists when Angular SSR accesses it
 		let document: string | Document = htmlString as
@@ -426,10 +475,14 @@ export const handleAngularPageRequest = async <
 		}
 
 		// Build providers array
+		const ssrSanitizer = new SsrSanitizer();
 		const providers: any[] = [
 			provideServerRendering(),
+			provideClientHydration(),
 			provideZonelessChangeDetection(),
-			{ provide: APP_BASE_HREF, useValue: '/' }
+			{ provide: APP_BASE_HREF, useValue: '/' },
+			{ provide: DomSanitizer, useValue: ssrSanitizer },
+			{ provide: Sanitizer, useValue: ssrSanitizer }
 		];
 
 		// Auto-map props to injection tokens via SCREAMING_SNAKE naming convention
@@ -500,6 +553,24 @@ export const handleAngularPageRequest = async <
 				);
 			} else {
 				html += clientScriptCode;
+			}
+		}
+
+		// Inject Angular hydration index module script
+		if (indexPath) {
+			const indexScriptTag = `<script type="module" src="${indexPath}"></script>`;
+			if (html.includes('</body>')) {
+				html = html.replace(
+					'</body>',
+					indexScriptTag + '</body>'
+				);
+			} else if (html.includes('</html>')) {
+				html = html.replace(
+					'</html>',
+					indexScriptTag + '</html>'
+				);
+			} else {
+				html += indexScriptTag;
 			}
 		}
 

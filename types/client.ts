@@ -88,6 +88,7 @@ declare global {
 		__REACT_ROOT__?: { render: (element: unknown) => void };
 		__SVELTE_COMPONENT__?: Record<string, unknown>;
 		__SVELTE_UNMOUNT__?: () => void;
+		__ANGULAR_APP__?: { destroy: () => void } | null;
 		__VUE_APP__?:
 			| ({
 					unmount: () => void;

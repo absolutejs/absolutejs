@@ -303,7 +303,7 @@ export const build = async ({
 		clientPaths: angularClientPaths,
 		serverPaths: angularServerPaths
 	} = angularDir && angularEntries.length > 0
-		? await compileAngular(angularEntries, angularDir)
+		? await compileAngular(angularEntries, angularDir, hmr)
 		: { clientPaths: [] as string[], serverPaths: [] as string[] };
 
 	const serverEntryPoints = [...svelteServerPaths, ...vueServerPaths];

@@ -886,6 +886,116 @@ export const triggerRebuild = async (
 				}
 			}
 
+			// Simple Angular HMR: Re-render and send HTML patch
+			// NOTE: Angular HMR happens AFTER the rebuild completes, so we have the updated manifest
+			if (
+				affectedFrameworks.includes('angular') &&
+				filesToRebuild &&
+				config.angularDirectory
+			) {
+				const angularFiles = filesToRebuild.filter(
+					(file) =>
+						detectFramework(file, state.resolvedPaths) ===
+						'angular'
+				);
+
+				if (angularFiles.length > 0) {
+					// Detect CSS-only changes (no .ts/.html component files changed, only .css files)
+					const angularComponentFiles = angularFiles.filter(
+						(f) => f.endsWith('.ts') || f.endsWith('.html')
+					);
+					const angularCssFiles = angularFiles.filter((f) =>
+						f.endsWith('.css')
+					);
+					const isCssOnlyChange =
+						angularComponentFiles.length === 0 &&
+						angularCssFiles.length > 0;
+
+					// Find Angular page files from changed files
+					const angularPageFiles = angularFiles.filter((f) =>
+						f.replace(/\\/g, '/').includes('/pages/')
+					);
+					// If no pages found, use component files (component changes trigger page rebuilds via dependency graph)
+					const pagesToUpdate =
+						angularPageFiles.length > 0
+							? angularPageFiles
+							: angularComponentFiles;
+
+					// For CSS-only changes, send CSS-only update (preserves component state!)
+					if (isCssOnlyChange && angularCssFiles.length > 0) {
+						const { basename } = await import('node:path');
+						const { toPascal } = await import(
+							'../utils/stringModifiers'
+						);
+
+						const cssFile = angularCssFiles[0];
+						if (cssFile) {
+							const cssBaseName = basename(cssFile, '.css');
+							const cssPascalName = toPascal(cssBaseName);
+							const cssKey = `${cssPascalName}CSS`;
+							const cssUrl = manifest[cssKey] || null;
+
+							logger.cssUpdate(cssFile, 'angular', duration);
+							broadcastToClients(state, {
+								data: {
+									framework: 'angular',
+									updateType: 'css-only',
+									cssUrl,
+									cssBaseName,
+									manifest,
+									sourceFile: cssFile
+								},
+								type: 'angular-update'
+							});
+						}
+					}
+
+					// Process each affected Angular page
+					for (const angularPagePath of pagesToUpdate) {
+						try {
+							const { handleAngularUpdate } = await import(
+								'./simpleAngularHMR'
+							);
+							const newHTML = await handleAngularUpdate(
+								angularPagePath,
+								manifest,
+								state.resolvedPaths.buildDir
+							);
+
+							const { basename } = await import('node:path');
+							const { toPascal } = await import(
+								'../utils/stringModifiers'
+							);
+							const fileName = basename(angularPagePath);
+							const baseName = fileName.replace(/\.[tj]s$/, '');
+							const pascalName = toPascal(baseName);
+
+							// Get CSS URL from manifest
+							const cssKey = `${pascalName}CSS`;
+							const cssUrl = manifest[cssKey] || null;
+
+							logger.hmrUpdate(
+								angularPagePath,
+								'angular',
+								duration
+							);
+							broadcastToClients(state, {
+								data: {
+									framework: 'angular',
+									html: newHTML,
+									cssUrl,
+									cssBaseName: baseName,
+									updateType: 'full',
+									manifest,
+									sourceFile: angularPagePath
+								},
+								type: 'angular-update'
+							});
+						} catch {}
+					}
+				}
+			}
+
 			// HTMX SCRIPT-ONLY HMR: Same as HTML - if only scripts changed, send script-update
 			if (
 				affectedFrameworks.includes('htmx') &&
