@@ -5,13 +5,9 @@ import { Component as SvelteComponent } from 'svelte';
 import { Component as VueComponent, createSSRApp, h } from 'vue';
 import { renderToWebStream as renderVueToWebStream } from 'vue/server-renderer';
 import { renderToReadableStream as renderSvelteToReadableStream } from '../svelte/renderToReadableStream';
-import type {
-	AngularComponent,
-	AngularInjectionTokens,
-	AngularPageProps,
-	PropsArgs
-} from '../../types/build';
+import type { AngularComponent, PropsArgs } from '../../types/build';
 import { ssrErrorPage } from '../utils/ssrErrorPage';
+import { toScreamingSnake } from '../utils/stringModifiers';
 
 export const handleReactPageRequest = async <
 	Props extends Record<string, unknown> = Record<never, never>
@@ -156,19 +152,42 @@ export const handleVuePageRequest = async <
 	}
 };
 
-export const handleAngularPageRequest = async (
-	PageComponent: AngularComponent<unknown>,
+export const handleAngularPageRequest = async <
+	Props extends Record<string, unknown> = Record<never, never>
+>(
+	pagePath: string,
 	indexPath: string,
-	props?: AngularPageProps,
-	template?: string | Document,
-	tokens?: AngularInjectionTokens
+	...props: keyof Props extends never ? [] : [props: Props]
 ) => {
 	try {
+		const [maybeProps] = props;
+
+		// Dynamic import — pagePath is an absolute path from the manifest
+		const pageModule = await import(pagePath);
+		const PageComponent: AngularComponent<unknown> =
+			pageModule.default;
+
+		// Auto-discover InjectionToken exports from the module.
+		// Angular's InjectionToken instances expose ngMetadataName === 'InjectionToken'.
+		const tokenMap = new Map<string, unknown>();
+		for (const [exportName, exportValue] of Object.entries(
+			pageModule
+		)) {
+			if (
+				exportValue &&
+				typeof exportValue === 'object' &&
+				(exportValue as { ngMetadataName?: string })
+					.ngMetadataName === 'InjectionToken'
+			) {
+				tokenMap.set(exportName, exportValue);
+			}
+		}
+
 		// Lazy-load Angular deps — only when this handler is actually called
 		const [
 			angularPatchModule,
 			{ bootstrapApplication },
-			{ renderApplication, provideServerRendering, INITIAL_CONFIG },
+			{ renderApplication, provideServerRendering },
 			{ APP_BASE_HREF },
 			{ provideZonelessChangeDetection }
 		] = await Promise.all([
@@ -197,10 +216,6 @@ export const handleAngularPageRequest = async (
 			generateClientScriptCode
 		} = await import('../utils/registerClientScript');
 
-		// Get injection tokens
-		const CSS_PATH_TOKEN = tokens?.CSS_PATH;
-		const INITIAL_COUNT_TOKEN = tokens?.INITIAL_COUNT;
-
 		// Initialize Domino adapter
 		try {
 			const platformServer = await import(
@@ -222,138 +237,169 @@ export const handleAngularPageRequest = async (
 		}
 
 		const htmlString =
-			template ||
 			'<!DOCTYPE html><html><head></head><body></body></html>';
 
 		// Parse with domino to ensure doc.head exists when Angular SSR accesses it
 		let document: string | Document = htmlString as
 			| string
 			| Document;
-		if (typeof htmlString === 'string') {
-			try {
-				const domino = (await import(
-					'domino' as string
-				).catch(() => null)) as {
-					createWindow?: (
-						html: string,
-						url: string
-					) => { document: Document };
-				} | null;
-				if (domino?.createWindow) {
-					const window = domino.createWindow(
-						htmlString,
-						'/'
-					);
-					const doc = window.document;
+		try {
+			const domino = (await import(
+				'domino' as string
+			).catch(() => null)) as {
+				createWindow?: (
+					html: string,
+					url: string
+				) => { document: Document };
+			} | null;
+			if (domino?.createWindow) {
+				const window = domino.createWindow(
+					htmlString,
+					'/'
+				);
+				const doc = window.document;
 
-					if (!doc.head) {
-						const head = doc.createElement('head');
-						if (doc.documentElement) {
-							doc.documentElement.insertBefore(
-								head,
-								doc.documentElement.firstChild
-							);
-						}
+				if (!doc.head) {
+					const head = doc.createElement('head');
+					if (doc.documentElement) {
+						doc.documentElement.insertBefore(
+							head,
+							doc.documentElement.firstChild
+						);
 					}
+				}
 
-					// Ensure head has querySelectorAll/querySelector
-					if (
-						doc.head &&
-						typeof doc.head.querySelectorAll !==
-							'function'
-					) {
-						try {
-							Object.defineProperty(
-								doc.head,
-								'querySelectorAll',
-								{
-									value: (
-										selector: string
-									) => {
-										if (
-											doc.querySelectorAll
-										) {
-											const all =
-												doc.querySelectorAll(
-													selector
-												);
-
-											return Array.from(
-												all
-											).filter(
-												(el: any) =>
-													el.parentElement ===
-														doc.head ||
-													doc.head.contains(
-														el
-													)
+				// Ensure head has querySelectorAll/querySelector
+				if (
+					doc.head &&
+					typeof doc.head.querySelectorAll !==
+						'function'
+				) {
+					try {
+						Object.defineProperty(
+							doc.head,
+							'querySelectorAll',
+							{
+								value: (
+									selector: string
+								) => {
+									if (
+										doc.querySelectorAll
+									) {
+										const all =
+											doc.querySelectorAll(
+												selector
 											);
-										}
 
-										return [];
-									},
-									writable: true,
-									enumerable: false,
-									configurable: true
-								}
-							);
-						} catch {
-							// Property may be read-only
-						}
-					}
-					if (
-						doc.head &&
-						typeof doc.head.querySelector !==
-							'function'
-					) {
-						try {
-							Object.defineProperty(
-								doc.head,
-								'querySelector',
-								{
-									value: (
-										selector: string
-									) => {
-										if (doc.querySelector) {
-											const el =
-												doc.querySelector(
-													selector
-												);
-											if (
-												el &&
-												(el.parentElement ===
+										return Array.from(
+											all
+										).filter(
+											(el: any) =>
+												el.parentElement ===
 													doc.head ||
-													doc.head.contains(
-														el
-													))
-											) {
-												return el;
-											}
-										}
+												doc.head.contains(
+													el
+												)
+										);
+									}
 
-										return null;
-									},
-									writable: true,
-									enumerable: false,
-									configurable: true
-								}
-							);
-						} catch {
-							// Property may be read-only
-						}
+									return [];
+								},
+								writable: true,
+								enumerable: false,
+								configurable: true
+							}
+						);
+					} catch {
+						// Property may be read-only
 					}
+				}
+				if (
+					doc.head &&
+					typeof doc.head.querySelector !==
+						'function'
+				) {
+					try {
+						Object.defineProperty(
+							doc.head,
+							'querySelector',
+							{
+								value: (
+									selector: string
+								) => {
+									if (doc.querySelector) {
+										const el =
+											doc.querySelector(
+												selector
+											);
+										if (
+											el &&
+											(el.parentElement ===
+												doc.head ||
+												doc.head.contains(
+													el
+												))
+										) {
+											return el;
+										}
+									}
 
-					// Ensure head has children property
-					if (!doc.head.children) {
+									return null;
+								},
+								writable: true,
+								enumerable: false,
+								configurable: true
+							}
+						);
+					} catch {
+						// Property may be read-only
+					}
+				}
+
+				// Ensure head has children property
+				if (!doc.head.children) {
+					const elementNodes = Array.from(
+						doc.head.childNodes
+					).filter(
+						(node: any) => node.nodeType === 1
+					);
+					const childrenArray: any[] = [];
+					elementNodes.forEach((node, index) => {
+						childrenArray[index] = node;
+					});
+					childrenArray.length =
+						elementNodes.length;
+					Object.defineProperty(
+						doc.head,
+						'children',
+						{
+							value: childrenArray,
+							writable: false,
+							enumerable: true,
+							configurable: false
+						}
+					);
+				} else {
+					const children = doc.head.children;
+					if (
+						typeof children.length ===
+							'undefined' ||
+						(children[0] === undefined &&
+							children.length > 0)
+					) {
 						const elementNodes = Array.from(
 							doc.head.childNodes
 						).filter(
-							(node: any) => node.nodeType === 1
+							(node: any) =>
+								node.nodeType === 1
 						);
 						const childrenArray: any[] = [];
-						elementNodes.forEach((node, index) => {
-							childrenArray[index] = node;
-						});
+						elementNodes.forEach(
+							(node, index) => {
+								childrenArray[index] =
+									node;
+							}
+						);
 						childrenArray.length =
 							elementNodes.length;
 						Object.defineProperty(
@@ -366,51 +412,17 @@ export const handleAngularPageRequest = async (
 								configurable: false
 							}
 						);
-					} else {
-						const children = doc.head.children;
-						if (
-							typeof children.length ===
-								'undefined' ||
-							(children[0] === undefined &&
-								children.length > 0)
-						) {
-							const elementNodes = Array.from(
-								doc.head.childNodes
-							).filter(
-								(node: any) =>
-									node.nodeType === 1
-							);
-							const childrenArray: any[] = [];
-							elementNodes.forEach(
-								(node, index) => {
-									childrenArray[index] =
-										node;
-								}
-							);
-							childrenArray.length =
-								elementNodes.length;
-							Object.defineProperty(
-								doc.head,
-								'children',
-								{
-									value: childrenArray,
-									writable: false,
-									enumerable: true,
-									configurable: false
-								}
-							);
-						}
 					}
-
-					document = createDocumentProxy(doc);
 				}
-			} catch (error) {
-				console.error(
-					'Failed to parse document with domino, using string:',
-					error
-				);
-				document = htmlString;
+
+				document = createDocumentProxy(doc);
 			}
+		} catch (error) {
+			console.error(
+				'Failed to parse document with domino, using string:',
+				error
+			);
+			document = htmlString;
 		}
 
 		// Build providers array
@@ -420,25 +432,19 @@ export const handleAngularPageRequest = async (
 			{ provide: APP_BASE_HREF, useValue: '/' }
 		];
 
-		if (props) {
-			if (
-				props.cssPath !== undefined &&
-				CSS_PATH_TOKEN
-			) {
-				providers.push({
-					provide: CSS_PATH_TOKEN,
-					useValue: props.cssPath
-				});
-			}
-
-			if (
-				props.initialCount !== undefined &&
-				INITIAL_COUNT_TOKEN
-			) {
-				providers.push({
-					provide: INITIAL_COUNT_TOKEN,
-					useValue: props.initialCount
-				});
+		// Auto-map props to injection tokens via SCREAMING_SNAKE naming convention
+		if (maybeProps) {
+			for (const [propName, propValue] of Object.entries(
+				maybeProps
+			)) {
+				const tokenName = toScreamingSnake(propName);
+				const token = tokenMap.get(tokenName);
+				if (token) {
+					providers.push({
+						provide: token,
+						useValue: propValue
+					});
+				}
 			}
 		}
 

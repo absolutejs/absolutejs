@@ -38,17 +38,6 @@ const buildConfig: BuildConfig = {
 const isDev = env.NODE_ENV === 'development';
 const result = isDev ? await devBuild(buildConfig) : await build(buildConfig);
 
-// Load Angular component using type-safe utility
-import { loadAngularComponent } from '../src/utils/loadAngularComponent';
-
-const angularModule = await loadAngularComponent(
-	'example/angular/compiled',
-	'angular-example.js'
-);
-const AngularExampleComponent = angularModule.default;
-const CSS_PATH_TOKEN = angularModule.CSS_PATH;
-const INITIAL_COUNT_TOKEN = angularModule.INITIAL_COUNT;
-
 export const server = new Elysia()
 	.use(
 		staticPlugin({
@@ -98,16 +87,11 @@ export const server = new Elysia()
 	)
 	.get('/angular', async () =>
 		handleAngularPageRequest(
-			AngularExampleComponent,
+			asset(result, 'AngularExample'),
 			asset(result, 'AngularExampleIndex'),
 			{
 				initialCount: 0,
 				cssPath: asset(result, 'AngularExampleCSS')
-			},
-			undefined,
-			{
-				CSS_PATH: CSS_PATH_TOKEN,
-				INITIAL_COUNT: INITIAL_COUNT_TOKEN
 			}
 		)
 	)

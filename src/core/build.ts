@@ -576,6 +576,13 @@ export const build = async ({
 		manifest[toPascal(baseName)] = artifact.path;
 	}
 
+	// Angular server pages need absolute file paths for SSR import(),
+	// same pattern as Svelte/Vue above.
+	for (const serverPath of angularServerPaths) {
+		const fileBase = basename(serverPath, '.js');
+		manifest[toPascal(fileBase)] = resolve(serverPath);
+	}
+
 	// For HTML/HTMX, copy pages on full builds or if HTML/HTMX files changed
 	// Also update asset paths if CSS changed (to update CSS links in HTML files)
 	const htmlOrHtmlCssChanged =

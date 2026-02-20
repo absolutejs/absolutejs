@@ -58,27 +58,3 @@ export type PropsArgs<C> = keyof PropsOf<C> extends never ? [] : [PropsOf<C>];
 
 export type Prettify<T> = { [K in keyof T]: T[K] } & {};
 
-/**
- * Standard props interface for Angular page components
- */
-export interface AngularPageProps {
-	initialCount?: number;
-	cssPath?: string;
-}
-
-/**
- * Injection tokens for Angular page components — uses unknown to avoid @angular/core dependency
- */
-export interface AngularInjectionTokens {
-	CSS_PATH?: unknown;
-	INITIAL_COUNT?: unknown;
-}
-
-/**
- * Type-safe Angular component module export
- */
-export interface AngularComponentModule {
-	default: AngularComponent<unknown>;
-	CSS_PATH?: unknown;
-	INITIAL_COUNT?: unknown;
-}
