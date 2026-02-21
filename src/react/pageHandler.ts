@@ -18,11 +18,23 @@ export const handleReactPageRequest = async <
 				? createElement(PageComponent, maybeProps)
 				: createElement(PageComponent);
 
+		// In dev mode, Bun's reactFastRefresh injects $RefreshReg$/$RefreshSig$
+		// calls into component code. With code splitting, shared component chunks
+		// may load before the chunk containing reactRefreshSetup.ts — causing a
+		// ReferenceError. These no-op stubs ensure the globals exist before any
+		// module code runs. reactRefreshSetup.ts overwrites them with the real
+		// implementations once its chunk executes.
+		const refreshStubs =
+			process.env.NODE_ENV === 'development'
+				? 'window.$RefreshReg$=function(){};window.$RefreshSig$=function(){return function(t){return t}};'
+				: '';
+		const propsScript = maybeProps
+			? `window.__INITIAL_PROPS__=${JSON.stringify(maybeProps)}`
+			: '';
+
 		const stream = await renderToReadableStream(element, {
 			bootstrapModules: [index],
-			bootstrapScriptContent: maybeProps
-				? `window.__INITIAL_PROPS__=${JSON.stringify(maybeProps)}`
-				: undefined,
+			bootstrapScriptContent: refreshStubs + propsScript || undefined,
 			onError(error: unknown) {
 				console.error('[SSR] React streaming error:', error);
 			}
