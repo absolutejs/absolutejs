@@ -1,7 +1,7 @@
 {
 	"author": "Alex Kahn",
 	"bin": {
-		"absolutejs": "./dist/cli/index.js"
+		"absolute": "./dist/cli/index.js"
 	},
 	"description": "A fullstack meta-framework for building web applications with TypeScript",
 	"engines": {
