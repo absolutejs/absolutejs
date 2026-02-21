@@ -123,11 +123,9 @@ export const handleAngularUpdate = (message: {
 		window.__ANGULAR_APP__ = null;
 	}
 
-	/* Remove Angular-injected <style> tags from <head> to prevent
-	   stale component styles from overriding the page stylesheet */
-	document.head.querySelectorAll('style').forEach(function (style) {
-		style.remove();
-	});
+	/* Capture Angular-injected <style> tags — defer removal until after
+	   re-bootstrap so component styles are never absent (prevents flicker) */
+	const oldStyles = Array.from(document.head.querySelectorAll('style'));
 
 	/* Replace body content with new HTML */
 	document.body.innerHTML = patchedHTML;
@@ -161,6 +159,13 @@ export const handleAngularUpdate = (message: {
 	const modulePath = indexPath + '?t=' + Date.now();
 	import(/* @vite-ignore */ modulePath)
 		.then(function () {
+			requestAnimationFrame(function () {
+				oldStyles.forEach(function (style) {
+					if (style.parentNode) {
+						style.remove();
+					}
+				});
+			});
 			restoreDOMState(document.body, domState);
 			restoreScrollState(scrollState);
 		})
