@@ -297,10 +297,15 @@ export const generateReactIndexFiles = async (
 	// Generate a dummy entry that imports React so code splitting extracts
 	// React into a shared chunk. This lets HMR re-import component entries
 	// without creating a duplicate React instance.
+	// IMPORTANT: reactRefreshSetup MUST be imported BEFORE react so that
+	// injectIntoGlobalHook patches window.__REACT_DEVTOOLS_GLOBAL_HOOK__
+	// before React initializes and checks it. Without this, the Refresh
+	// Runtime can't reach React's reconciler and performReactRefresh()
+	// silently does nothing.
 	if (isDev) {
 		await writeFile(
 			join(reactIndexesDirectory, '_refresh.tsx'),
-			`import 'react';\nimport 'react-dom/client';\n`
+			`import '${refreshSetupPath}';\nimport 'react';\nimport 'react-dom/client';\n`
 		);
 	}
 };
