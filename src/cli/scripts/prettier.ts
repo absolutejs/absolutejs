@@ -15,11 +15,11 @@ export const prettierAdapter: ToolAdapter = {
 		'**/*.css'
 	],
 	ignorePatterns: [
-		'node_modules/**',
-		'dist/**',
-		'build/**',
-		'.absolutejs/**',
-		'*.min.js'
+		'**/node_modules/**',
+		'**/dist/**',
+		'**/build/**',
+		'**/.absolutejs/**',
+		'**/*.min.js'
 	],
 	configFiles: ['.prettierrc.json'],
 	buildCommand: (files, args) => ['bun', 'prettier', ...args, ...files]
