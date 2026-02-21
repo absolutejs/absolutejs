@@ -380,6 +380,25 @@ export const triggerRebuild = async (
 
 		const duration = Date.now() - startTime;
 
+		// Populate the in-memory asset store BEFORE broadcasting to clients.
+		// Clients that receive HMR messages (e.g. react-update) will immediately
+		// try to fetch new bundles via HTTP. If the asset store hasn't been
+		// populated yet, the server can't serve them — causing a race condition
+		// where HMR is detected but changes don't appear in the browser.
+		// This is safe to run before broadcasts: populateAssetStore only reads
+		// built files into a Map and doesn't modify source modules, so it won't
+		// trigger a Bun --hot restart.
+		await populateAssetStore(
+			state.assetStore,
+			manifest,
+			state.resolvedPaths.buildDir
+		);
+		await cleanStaleAssets(
+			state.assetStore,
+			manifest,
+			state.resolvedPaths.buildDir
+		);
+
 		// Notify clients of successful rebuild
 		broadcastToClients(state, {
 			data: {
@@ -1212,22 +1231,6 @@ export const triggerRebuild = async (
 
 		// Call the callback with the new build result
 		onRebuildComplete({ manifest, hmrState: state });
-
-		// Refresh in-memory asset store and clean stale files AFTER all
-		// broadcasts are sent. This must come last because populateAssetStore
-		// is async — if it runs before broadcasts, Bun --hot can restart
-		// the server in the gap, dropping WebSocket clients before they
-		// receive the HMR update.
-		await populateAssetStore(
-			state.assetStore,
-			manifest,
-			state.resolvedPaths.buildDir
-		);
-		await cleanStaleAssets(
-			state.assetStore,
-			manifest,
-			state.resolvedPaths.buildDir
-		);
 
 		return manifest;
 	} catch (error) {

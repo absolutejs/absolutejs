@@ -134,9 +134,10 @@
 		"format": "bun run src/cli/index.ts prettier --write",
 		"lint": "bun run src/cli/index.ts eslint",
 		"release": "bun run format && bun run build && bun publish",
+		"release:beta": "bun run format && bun run build && bun publish --tag beta",
 		"test": "bun test",
 		"typecheck": "bun run tsc --noEmit"
 	},
 	"types": "./dist/src/index.d.ts",
-	"version": "0.16.10"
+	"version": "0.16.12"
 }

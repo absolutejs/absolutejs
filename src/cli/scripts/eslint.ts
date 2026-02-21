@@ -12,11 +12,11 @@ export const eslintAdapter: ToolAdapter = {
 		'**/*.svelte'
 	],
 	ignorePatterns: [
-		'node_modules/**',
-		'dist/**',
+		'**/node_modules/**',
+		'**/dist/**',
 		'**/compiled/**',
-		'build/**',
-		'.absolutejs/**'
+		'**/build/**',
+		'**/.absolutejs/**'
 	],
 	configFiles: ['eslint.config.mjs'],
 	buildCommand: (files, args) => ['bun', 'eslint', ...args, ...files]
