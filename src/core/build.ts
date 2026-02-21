@@ -174,8 +174,8 @@ export const build = async ({
 	// Tailwind + entry point scanning run in parallel (they're independent)
 	const tailwindPromise =
 		tailwind &&
-		(!isIncremental ||
-			normalizedIncrementalFiles?.some((f) => f.endsWith('.css')))
+			(!isIncremental ||
+				normalizedIncrementalFiles?.some((f) => f.endsWith('.css')))
 			? $`bunx @tailwindcss/cli -i ${tailwind.input} -o ${join(buildPath, tailwind.output)}`
 			: undefined;
 
@@ -227,13 +227,13 @@ export const build = async ({
 	const reactEntries =
 		isIncremental && reactIndexesPath && reactPagesPath
 			? filterToIncrementalEntries(allReactEntries, (entry) => {
-					// Map index entry (indexes/ReactExample.tsx) to source page (pages/ReactExample.tsx)
-					if (entry.startsWith(resolve(reactIndexesPath))) {
-						const pageName = basename(entry, '.tsx');
-						return join(reactPagesPath, `${pageName}.tsx`);
-					}
-					return null;
-				})
+				// Map index entry (indexes/ReactExample.tsx) to source page (pages/ReactExample.tsx)
+				if (entry.startsWith(resolve(reactIndexesPath))) {
+					const pageName = basename(entry, '.tsx');
+					return join(reactPagesPath, `${pageName}.tsx`);
+				}
+				return null;
+			})
 			: allReactEntries;
 
 	const htmlEntries =
@@ -278,48 +278,54 @@ export const build = async ({
 	const hmrClientBundlePromise =
 		hmr && (htmlDir || htmxDir) ? buildHMRClient() : undefined;
 
+	// Angular HMR Optimization — Skip Svelte/Vue compilation when their entries are
+	// empty during incremental builds (avoids importing/initializing unused compilers)
+	const shouldCompileSvelte = svelteDir && svelteEntries.length > 0;
+	const shouldCompileVue = vueDir && vueEntries.length > 0;
+	const shouldCompileAngular = angularDir && angularEntries.length > 0;
+
 	const [
 		{ svelteServerPaths, svelteIndexPaths, svelteClientPaths },
 		{ vueServerPaths, vueIndexPaths, vueClientPaths, vueCssPaths },
 		{ clientPaths: angularClientPaths, serverPaths: angularServerPaths }
 	] = await Promise.all([
-		svelteDir
+		shouldCompileSvelte
 			? import('../build/compileSvelte').then(
-					(mod) =>
-						mod.compileSvelte(
-							svelteEntries,
-							svelteDir,
-							new Map(),
-							hmr
-						) as ReturnType<typeof compileSvelte>
-				)
+				(mod) =>
+					mod.compileSvelte(
+						svelteEntries,
+						svelteDir!,
+						new Map(),
+						hmr
+					) as ReturnType<typeof compileSvelte>
+			)
 			: {
-					svelteClientPaths: [] as string[],
-					svelteIndexPaths: [] as string[],
-					svelteServerPaths: [] as string[]
-				},
-		vueDir
+				svelteClientPaths: [] as string[],
+				svelteIndexPaths: [] as string[],
+				svelteServerPaths: [] as string[]
+			},
+		shouldCompileVue
 			? import('../build/compileVue').then(
-					(mod) =>
-						mod.compileVue(vueEntries, vueDir, hmr) as ReturnType<
-							typeof compileVue
-						>
-				)
+				(mod) =>
+					mod.compileVue(vueEntries, vueDir!, hmr) as ReturnType<
+						typeof compileVue
+					>
+			)
 			: {
-					vueClientPaths: [] as string[],
-					vueCssPaths: [] as string[],
-					vueIndexPaths: [] as string[],
-					vueServerPaths: [] as string[]
-				},
-		angularDir && angularEntries.length > 0
+				vueClientPaths: [] as string[],
+				vueCssPaths: [] as string[],
+				vueIndexPaths: [] as string[],
+				vueServerPaths: [] as string[]
+			},
+		shouldCompileAngular
 			? import('../build/compileAngular').then(
-					(mod) =>
-						mod.compileAngular(
-							angularEntries,
-							angularDir,
-							hmr
-						) as ReturnType<typeof compileAngular>
-				)
+				(mod) =>
+					mod.compileAngular(
+						angularEntries,
+						angularDir!,
+						hmr
+					) as ReturnType<typeof compileAngular>
+			)
 			: { clientPaths: [] as string[], serverPaths: [] as string[] }
 	]);
 
@@ -379,33 +385,33 @@ export const build = async ({
 	const reactBuildConfig: Record<string, unknown> | undefined =
 		reactClientEntryPoints.length > 0
 			? (() => {
-					const cfg: Record<string, unknown> = {
-						entrypoints: reactClientEntryPoints,
-						format: 'esm' as const,
-						minify: !isDev,
-						naming: `[dir]/[name].[hash].[ext]`,
-						outdir: buildPath,
-						root: clientRoot,
-						splitting: true,
-						target: 'browser' as const,
-						throw: false
-					};
+				const cfg: Record<string, unknown> = {
+					entrypoints: reactClientEntryPoints,
+					format: 'esm' as const,
+					minify: !isDev,
+					naming: `[dir]/[name].[hash].[ext]`,
+					outdir: buildPath,
+					root: clientRoot,
+					splitting: true,
+					target: 'browser' as const,
+					throw: false
+				};
 
-					// When vendor paths are available (dev mode), externalize React so
-					// Bun doesn't bundle it. The bare specifiers in the output are
-					// rewritten to vendor paths after the build completes.
-					if (vendorPaths) {
-						cfg.external = Object.keys(vendorPaths);
-					}
+				// When vendor paths are available (dev mode), externalize React so
+				// Bun doesn't bundle it. The bare specifiers in the output are
+				// rewritten to vendor paths after the build completes.
+				if (vendorPaths) {
+					cfg.external = Object.keys(vendorPaths);
+				}
 
-					// Bun's reactFastRefresh option injects $RefreshReg$/$RefreshSig$
-					// calls for React Fast Refresh support in dev
-					if (hmr) {
-						cfg.reactFastRefresh = true;
-					}
+				// Bun's reactFastRefresh option injects $RefreshReg$/$RefreshSig$
+				// calls for React Fast Refresh support in dev
+				if (hmr) {
+					cfg.reactFastRefresh = true;
+				}
 
-					return cfg;
-				})()
+				return cfg;
+			})()
 			: undefined;
 
 	// Run all 4 Bun.build passes in parallel — they write to different
@@ -414,52 +420,52 @@ export const build = async ({
 		await Promise.all([
 			serverEntryPoints.length > 0
 				? bunBuild({
-						entrypoints: serverEntryPoints,
-						external: ['svelte', 'svelte/*', 'vue', 'vue/*'],
-						format: 'esm',
-						naming: `[dir]/[name].[hash].[ext]`,
-						outdir: serverOutDir,
-						root: serverRoot,
-						target: 'bun',
-						throw: false
-					})
+					entrypoints: serverEntryPoints,
+					external: ['svelte', 'svelte/*', 'vue', 'vue/*'],
+					format: 'esm',
+					naming: `[dir]/[name].[hash].[ext]`,
+					outdir: serverOutDir,
+					root: serverRoot,
+					target: 'bun',
+					throw: false
+				})
 				: undefined,
 			reactBuildConfig
 				? bunBuild(
-						reactBuildConfig as unknown as Parameters<
-							typeof bunBuild
-						>[0]
-					)
+					reactBuildConfig as unknown as Parameters<
+						typeof bunBuild
+					>[0]
+				)
 				: undefined,
 			nonReactClientEntryPoints.length > 0
 				? bunBuild({
-						define: vueDirectory ? vueFeatureFlags : undefined,
-						entrypoints: nonReactClientEntryPoints,
-						format: 'esm',
-						minify: !isDev,
-						naming: `[dir]/[name].[hash].[ext]`,
-						outdir: buildPath,
-						plugins: htmlScriptPlugin
-							? [htmlScriptPlugin]
-							: undefined,
-						root: clientRoot,
-						target: 'browser',
-						splitting: !isDev,
-						throw: false
-					})
+					define: vueDirectory ? vueFeatureFlags : undefined,
+					entrypoints: nonReactClientEntryPoints,
+					format: 'esm',
+					minify: !isDev,
+					naming: `[dir]/[name].[hash].[ext]`,
+					outdir: buildPath,
+					plugins: htmlScriptPlugin
+						? [htmlScriptPlugin]
+						: undefined,
+					root: clientRoot,
+					target: 'browser',
+					splitting: !isDev,
+					throw: false
+				})
 				: undefined,
 			cssEntryPoints.length > 0
 				? bunBuild({
-						entrypoints: cssEntryPoints,
-						naming: `[name].[hash].[ext]`,
-						outdir: join(
-							buildPath,
-							assetsPath ? basename(assetsPath) : 'assets',
-							'css'
-						),
-						target: 'browser',
-						throw: false
-					})
+					entrypoints: cssEntryPoints,
+					naming: `[name].[hash].[ext]`,
+					outdir: join(
+						buildPath,
+						assetsPath ? basename(assetsPath) : 'assets',
+						'css'
+					),
+					target: 'browser',
+					throw: false
+				})
 				: undefined
 		]);
 

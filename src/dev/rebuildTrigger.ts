@@ -216,7 +216,7 @@ export const queueFileChange = (
 								processedFiles.add(affectedFile);
 							}
 						}
-					} catch {}
+					} catch { }
 					continue;
 				}
 
@@ -264,7 +264,7 @@ export const queueFileChange = (
 								);
 							}
 						}
-					} catch {}
+					} catch { }
 
 					// Get all files that depend on this changed file
 					try {
@@ -501,7 +501,7 @@ export const triggerRebuild = async (
 							},
 							type: 'react-update'
 						});
-					} catch {}
+					} catch { }
 				}
 			}
 
@@ -605,10 +605,10 @@ export const triggerRebuild = async (
 					const outputHtmlPages = isSingle
 						? resolve(state.resolvedPaths.buildDir, 'pages')
 						: resolve(
-								state.resolvedPaths.buildDir,
-								basename(config.htmlDirectory ?? 'html'),
-								'pages'
-							);
+							state.resolvedPaths.buildDir,
+							basename(config.htmlDirectory ?? 'html'),
+							'pages'
+						);
 
 					for (const pageFile of pagesToUpdate) {
 						const htmlPageName = basename(pageFile);
@@ -637,7 +637,7 @@ export const triggerRebuild = async (
 									type: 'html-update'
 								});
 							}
-						} catch {}
+						} catch { }
 					}
 				}
 			}
@@ -724,8 +724,8 @@ export const triggerRebuild = async (
 							const vueRoot = config.vueDirectory;
 							const hmrId = vueRoot
 								? relative(vueRoot, vuePagePath)
-										.replace(/\\/g, '/')
-										.replace(/\.vue$/, '')
+									.replace(/\\/g, '/')
+									.replace(/\.vue$/, '')
 								: baseName;
 
 							// Get CSS URL from manifest
@@ -789,7 +789,7 @@ export const triggerRebuild = async (
 								},
 								type: 'vue-update'
 							});
-						} catch {}
+						} catch { }
 					}
 				}
 			}
@@ -900,12 +900,12 @@ export const triggerRebuild = async (
 								},
 								type: 'svelte-update'
 							});
-						} catch {}
+						} catch { }
 					}
 				}
 			}
 
-			// Simple Angular HMR: Re-render and send HTML patch
+			// Angular HMR Optimization — Re-render and send HTML patch with update classification
 			// NOTE: Angular HMR happens AFTER the rebuild completes, so we have the updated manifest
 			if (
 				affectedFrameworks.includes('angular') &&
@@ -919,20 +919,41 @@ export const triggerRebuild = async (
 				);
 
 				if (angularFiles.length > 0) {
-					// Detect CSS-only changes (no .ts/.html component files changed, only .css files)
-					const angularComponentFiles = angularFiles.filter(
-						(f) => f.endsWith('.ts') || f.endsWith('.html')
+					// Angular HMR Optimization — Classify update type for smart HMR
+					// style: only .css files changed → CSS hot-swap, no destroy
+					// template: only .html files changed → DOM patch, no destroy
+					// logic: .ts files changed → full destroy + bootstrap
+					const angularTsFiles = angularFiles.filter(
+						(f) => f.endsWith('.ts')
+					);
+					const angularHtmlFiles = angularFiles.filter(
+						(f) => f.endsWith('.html')
 					);
 					const angularCssFiles = angularFiles.filter((f) =>
 						f.endsWith('.css')
 					);
+
 					const isCssOnlyChange =
-						angularComponentFiles.length === 0 &&
+						angularTsFiles.length === 0 &&
+						angularHtmlFiles.length === 0 &&
 						angularCssFiles.length > 0;
+					const isTemplateOnlyChange =
+						angularTsFiles.length === 0 &&
+						angularHtmlFiles.length > 0 &&
+						angularCssFiles.length === 0;
+
+					// Determine updateType for the WebSocket message
+					let angularUpdateType: 'style' | 'template' | 'logic' = 'logic';
+					if (isCssOnlyChange) angularUpdateType = 'style';
+					else if (isTemplateOnlyChange) angularUpdateType = 'template';
 
 					// Find Angular page files from changed files
 					const angularPageFiles = angularFiles.filter((f) =>
 						f.replace(/\\/g, '/').includes('/pages/')
+					);
+					// Angular component files (non-CSS)
+					const angularComponentFiles = angularFiles.filter(
+						(f) => f.endsWith('.ts') || f.endsWith('.html')
 					);
 					// If no pages found, use component files (component changes trigger page rebuilds via dependency graph)
 					const pagesToUpdate =
@@ -958,7 +979,7 @@ export const triggerRebuild = async (
 							broadcastToClients(state, {
 								data: {
 									framework: 'angular',
-									updateType: 'css-only',
+									updateType: 'style',
 									cssUrl,
 									cssBaseName,
 									manifest,
@@ -1004,13 +1025,13 @@ export const triggerRebuild = async (
 									html: newHTML,
 									cssUrl,
 									cssBaseName: baseName,
-									updateType: 'full',
+									updateType: angularUpdateType,
 									manifest,
 									sourceFile: angularPagePath
 								},
 								type: 'angular-update'
 							});
-						} catch {}
+						} catch { }
 					}
 				}
 			}
@@ -1106,10 +1127,10 @@ export const triggerRebuild = async (
 					const outputHtmxPages = isSingle
 						? resolve(state.resolvedPaths.buildDir, 'pages')
 						: resolve(
-								state.resolvedPaths.buildDir,
-								basename(config.htmxDirectory ?? 'htmx'),
-								'pages'
-							);
+							state.resolvedPaths.buildDir,
+							basename(config.htmxDirectory ?? 'htmx'),
+							'pages'
+						);
 
 					// Process each affected HTMX page
 					for (const htmxPageFile of htmxPageFiles) {
@@ -1141,7 +1162,7 @@ export const triggerRebuild = async (
 									type: 'htmx-update'
 								});
 							}
-						} catch {}
+						} catch { }
 					}
 				}
 			}

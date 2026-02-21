@@ -1,4 +1,4 @@
-import { existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { promises as fs } from 'fs';
 import { join, basename, sep, dirname, resolve, relative } from 'path';
 import {
@@ -9,6 +9,34 @@ import {
 import type { CompilerOptions } from '@angular/compiler-cli';
 import ts from 'typescript';
 import { toPascal } from '../utils/stringModifiers';
+import { createHash } from 'crypto';
+
+// Angular HMR Optimization — Compiler cache interface
+// Persists compiler host and options across incremental rebuilds to avoid
+// expensive re-creation of TypeScript compiler host (lib dir resolution,
+// source file overrides). Only used during dev/HMR; production always fresh.
+interface AngularCompilerCache {
+	host: ts.CompilerHost;
+	options: CompilerOptions;
+	configHash: string;
+	tsLibDir: string;
+	lastUsed: number;
+}
+
+// Angular HMR Optimization — Global cache for compiler state
+declare global {
+	var __angularCompilerCache: AngularCompilerCache | undefined;
+}
+
+/** Compute a fast hash of tsconfig.json content for cache invalidation */
+const computeConfigHash = (): string => {
+	try {
+		const content = readFileSync('./tsconfig.json', 'utf-8');
+		return createHash('md5').update(content).digest('hex');
+	} catch {
+		return '';
+	}
+};
 
 const devClientDir = (() => {
 	const fromSource = resolve(import.meta.dir, '../dev/client');
@@ -20,68 +48,94 @@ const devClientDir = (() => {
 const hmrClientPath = join(devClientDir, 'hmrClient.ts').replace(/\\/g, '/');
 
 export const compileAngularFile = async (inputPath: string, outDir: string) => {
-	// Resolve TypeScript lib directory dynamically (prevents hardcoded paths)
-	const tsPath = require.resolve('typescript');
-	const tsRootDir = dirname(tsPath);
-	const tsLibDir = tsRootDir.endsWith('lib') ? tsRootDir : resolve(tsRootDir, 'lib');
+	// Angular HMR Optimization — Reuse cached compiler host/options when tsconfig unchanged
+	const configHash = computeConfigHash();
+	const cached = globalThis.__angularCompilerCache;
 
-	// Read configuration from tsconfig.json to get angularCompilerOptions
-	const config = readConfiguration('./tsconfig.json');
+	let host: ts.CompilerHost;
+	let options: CompilerOptions;
+	let tsLibDir: string;
 
-	// Build options object with newLine FIRST, then spread config
-	// IMPORTANT: target MUST be ES2022 (not ESNext) to avoid hardcoded lib.esnext.full.d.ts path
-	const options: CompilerOptions = {
-		newLine: ts.NewLineKind.LineFeed,  // Set FIRST - critical for createCompilerHost
-		target: ts.ScriptTarget.ES2022, // Use ES2022 instead of ESNext to avoid hardcoded lib paths
-		module: ts.ModuleKind.ESNext,
-		outDir,
-		experimentalDecorators: false,
-		emitDecoratorMetadata: false,
-		moduleResolution: ts.ModuleResolutionKind.Bundler,
-		esModuleInterop: true,
-		skipLibCheck: true,
-		noLib: false,
-		...config.options  // Spread AFTER to add Angular options
-	};
+	if (cached && cached.configHash === configHash) {
+		// Cache hit — reuse host and options, only update outDir
+		host = cached.host;
+		options = { ...cached.options, outDir, rootDir: process.cwd() };
+		tsLibDir = cached.tsLibDir;
+		cached.lastUsed = Date.now();
+	} else {
+		// Cache miss — create fresh compiler host and options
+		// Resolve TypeScript lib directory dynamically (prevents hardcoded paths)
+		const tsPath = require.resolve('typescript');
+		const tsRootDir = dirname(tsPath);
+		tsLibDir = tsRootDir.endsWith('lib') ? tsRootDir : resolve(tsRootDir, 'lib');
 
-	// CRITICAL: Force target to ES2022 AFTER spread to ensure it's not overwritten
-	// ESNext target causes hardcoded lib.esnext.full.d.ts path issues
-	options.target = ts.ScriptTarget.ES2022;
-	
-	// Force newLine again after spread to ensure it's not overwritten
-	options.newLine = ts.NewLineKind.LineFeed;
+		// Read configuration from tsconfig.json to get angularCompilerOptions
+		const config = readConfiguration('./tsconfig.json');
 
-	// Force outDir after spread — config.options may contain an absolute "dist" path
-	// that overwrites our outDir, causing deeply nested compiled output
-	options.outDir = outDir;
+		// Build options object with newLine FIRST, then spread config
+		// IMPORTANT: target MUST be ES2022 (not ESNext) to avoid hardcoded lib.esnext.full.d.ts path
+		options = {
+			newLine: ts.NewLineKind.LineFeed,  // Set FIRST - critical for createCompilerHost
+			target: ts.ScriptTarget.ES2022, // Use ES2022 instead of ESNext to avoid hardcoded lib paths
+			module: ts.ModuleKind.ESNext,
+			outDir,
+			experimentalDecorators: false,
+			emitDecoratorMetadata: false,
+			moduleResolution: ts.ModuleResolutionKind.Bundler,
+			esModuleInterop: true,
+			skipLibCheck: true,
+			noLib: false,
+			...config.options  // Spread AFTER to add Angular options
+		};
 
-	// Explicit rootDir prevents TypeScript from computing it from the single entry file,
-	// which would cause imports from other directories to get absolute-path-based output
-	options.rootDir = process.cwd();
+		// CRITICAL: Force target to ES2022 AFTER spread to ensure it's not overwritten
+		// ESNext target causes hardcoded lib.esnext.full.d.ts path issues
+		options.target = ts.ScriptTarget.ES2022;
 
-	// Use TypeScript's createCompilerHost directly
-	const host = ts.createCompilerHost(options);
+		// Force newLine again after spread to ensure it's not overwritten
+		options.newLine = ts.NewLineKind.LineFeed;
 
-	// Override lib resolution to use dynamic paths
-	const originalGetDefaultLibLocation = host.getDefaultLibLocation;
-	host.getDefaultLibLocation = () => {
-		return tsLibDir || (originalGetDefaultLibLocation ? originalGetDefaultLibLocation() : '');
-	};
+		// Force outDir after spread — config.options may contain an absolute "dist" path
+		// that overwrites our outDir, causing deeply nested compiled output
+		options.outDir = outDir;
 
-	const originalGetDefaultLibFileName = host.getDefaultLibFileName;
-	host.getDefaultLibFileName = (opts: ts.CompilerOptions) => {
-		const fileName = originalGetDefaultLibFileName ? originalGetDefaultLibFileName(opts) : 'lib.d.ts';
-		return basename(fileName);
-	};
+		// Explicit rootDir prevents TypeScript from computing it from the single entry file,
+		// which would cause imports from other directories to get absolute-path-based output
+		options.rootDir = process.cwd();
 
-	const originalGetSourceFile = host.getSourceFile;
-	host.getSourceFile = (fileName: string, languageVersion: ts.ScriptTarget, onError?: (message: string) => void) => {
-		if (fileName.startsWith('lib.') && fileName.endsWith('.d.ts') && tsLibDir) {
-			const resolvedPath = join(tsLibDir, fileName);
-			return originalGetSourceFile?.call(host, resolvedPath, languageVersion, onError);
-		}
-		return originalGetSourceFile?.call(host, fileName, languageVersion, onError);
-	};
+		// Use TypeScript's createCompilerHost directly
+		host = ts.createCompilerHost(options);
+
+		// Override lib resolution to use dynamic paths
+		const originalGetDefaultLibLocation = host.getDefaultLibLocation;
+		host.getDefaultLibLocation = () => {
+			return tsLibDir || (originalGetDefaultLibLocation ? originalGetDefaultLibLocation() : '');
+		};
+
+		const originalGetDefaultLibFileName = host.getDefaultLibFileName;
+		host.getDefaultLibFileName = (opts: ts.CompilerOptions) => {
+			const fileName = originalGetDefaultLibFileName ? originalGetDefaultLibFileName(opts) : 'lib.d.ts';
+			return basename(fileName);
+		};
+
+		const originalGetSourceFile = host.getSourceFile;
+		host.getSourceFile = (fileName: string, languageVersion: ts.ScriptTarget, onError?: (message: string) => void) => {
+			if (fileName.startsWith('lib.') && fileName.endsWith('.d.ts') && tsLibDir) {
+				const resolvedPath = join(tsLibDir, fileName);
+				return originalGetSourceFile?.call(host, resolvedPath, languageVersion, onError);
+			}
+			return originalGetSourceFile?.call(host, fileName, languageVersion, onError);
+		};
+
+		// Angular HMR Optimization — Persist cache for next rebuild
+		globalThis.__angularCompilerCache = {
+			host,
+			options: { ...options },
+			configHash,
+			tsLibDir,
+			lastUsed: Date.now()
+		};
+	}
 
 	const emitted: Record<string, string> = {};
 	const resolvedOutDir = resolve(outDir);
@@ -100,7 +154,7 @@ export const compileAngularFile = async (inputPath: string, outDir: string) => {
 		options,
 		rootNames: [inputPath]
 	});
-	
+
 	if (diagnostics?.length) {
 		const errors = diagnostics.filter(d => d.category === ts.DiagnosticCategory.Error);
 		if (errors.length) {
@@ -126,7 +180,7 @@ export const compileAngularFile = async (inputPath: string, outDir: string) => {
 		.filter(([fileName]) => fileName.endsWith('.js'))
 		.map(([fileName, content]) => {
 			const target = join(outDir, fileName);
-			
+
 			// Post-process the compiled output:
 			// 1. Add .js extensions to imports
 			let processedContent = content.replace(
@@ -138,7 +192,7 @@ export const compileAngularFile = async (inputPath: string, outDir: string) => {
 					return match;
 				}
 			);
-			
+
 			// 2. Fix Angular ɵɵdom* functions to standard ɵɵ* functions
 			processedContent = processedContent
 				.replace(/ɵɵdomElementStart/g, 'ɵɵelementStart')
@@ -205,38 +259,38 @@ export const compileAngular = async (
 		let rawServerFile = outputs.find((f) =>
 			f.endsWith(`${sep}pages${sep}${jsName}`)
 		);
-		
+
 		// If not found in pages/, try root level
 		if (!rawServerFile) {
 			rawServerFile = outputs.find((f) => f.endsWith(`${sep}${jsName}`));
 		}
-		
+
 		if (!rawServerFile) {
 			throw new Error(`Compiled output not found for ${entry}. Looking for: ${jsName}. Available: ${outputs.join(', ')}`);
 		}
 
 		const original = await fs.readFile(rawServerFile, 'utf-8');
 		const componentClassName = `${toPascal(fileBase)}Component`;
-		
+
 		// Replace templateUrl if it exists
 		let rewritten = original.replace(
 			new RegExp(`templateUrl:\\s*['"]\\.\\/${fileBase}\\.html['"]`),
 			`templateUrl: '../../pages/${fileBase}.html'`
 		);
-		
+
 		// Only add default export if one doesn't already exist
 		if (!rewritten.includes('export default')) {
 			rewritten += `\nexport default ${componentClassName};\n`;
 		}
-		
+
 		await fs.writeFile(rawServerFile, rewritten, 'utf-8');
 
 		// Calculate relative path from indexes directory to the server file
 		// This handles deeply nested paths that Angular compiler may create
 		const relativePath = relative(indexesDir, rawServerFile).replace(/\\/g, '/');
 		// Ensure it starts with ./ or ../ for relative imports
-		const normalizedImportPath = relativePath.startsWith('.') 
-			? relativePath 
+		const normalizedImportPath = relativePath.startsWith('.')
+			? relativePath
 			: './' + relativePath;
 
 		const clientFile = join(indexesDir, jsName);
@@ -283,7 +337,7 @@ bootstrapApplication(${componentClassName}, {
 					})
 				)
 		);
-	} catch {}
+	} catch { }
 
 	return { clientPaths, serverPaths };
 };
