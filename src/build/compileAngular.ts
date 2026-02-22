@@ -47,6 +47,33 @@ const devClientDir = (() => {
 
 const hmrClientPath = join(devClientDir, 'hmrClient.ts').replace(/\\/g, '/');
 
+// Angular HMR Runtime Layer (Level 3) — Path to runtime module
+const hmrRuntimePath = join(devClientDir, 'handlers', 'angularRuntime.ts').replace(/\\/g, '/');
+
+/** Angular HMR Runtime Layer (Level 3) — Inject HMR registration calls into compiled component JS.
+ *  Detects exported Angular component classes and appends register() calls.
+ *  Only active when hmr=true (dev mode). */
+const injectHMRRegistration = (content: string, sourceId: string): string => {
+	// Find exported component classes: `export class XxxComponent` or `class XxxComponent`
+	const componentClassRegex = /(?:export\s+)?class\s+(\w+Component)\s/g;
+	const componentNames: string[] = [];
+	let match;
+	while ((match = componentClassRegex.exec(content)) !== null) {
+		if (match[1]) componentNames.push(match[1]);
+	}
+
+	if (componentNames.length === 0) return content;
+
+	// Build registration code block
+	const registrations = componentNames.map(name =>
+		`  if (typeof ${name} === 'function') window.__ANGULAR_HMR__.register('${sourceId}#${name}', ${name});`
+	).join('\n');
+
+	const hmrBlock = `\n// Angular HMR Runtime Layer (Level 3) — Auto-registration\nif (typeof window !== 'undefined' && window.__ANGULAR_HMR__) {\n${registrations}\n}\n`;
+
+	return content + hmrBlock;
+};
+
 export const compileAngularFile = async (inputPath: string, outDir: string) => {
 	// Angular HMR Optimization — Reuse cached compiler host/options when tsconfig unchanged
 	const configHash = computeConfigHash();
@@ -230,6 +257,174 @@ export const compileAngularFile = async (inputPath: string, outDir: string) => {
 	return entries.map(({ target }) => target);
 };
 
+/** Angular HMR Runtime Layer (Level 3) — JIT-mode compilation for dev/HMR builds.
+ *  Uses ts.transpileModule() instead of Angular AOT performCompilation().
+ *  Inlines templateUrl → template and styleUrls → styles from disk.
+ *  Recursively transpiles all local imports so Bun's bundler can resolve them.
+ *  ~50-100ms for a tree of ~10 files vs ~500-700ms for AOT. */
+export const compileAngularFileJIT = async (inputPath: string, outDir: string) => {
+	const allOutputs: string[] = [];
+	const visited = new Set<string>();
+
+	const transpileOpts: ts.CompilerOptions = {
+		target: ts.ScriptTarget.ES2022,
+		module: ts.ModuleKind.ESNext,
+		moduleResolution: ts.ModuleResolutionKind.Bundler,
+		experimentalDecorators: true,
+		emitDecoratorMetadata: true,
+		esModuleInterop: true,
+		skipLibCheck: true,
+		declaration: false,
+		sourceMap: false
+	};
+
+	const cwd = process.cwd();
+
+	/** Inline templateUrl and styleUrls/styleUrl from external files */
+	const inlineResources = async (source: string, fileDir: string): Promise<string> => {
+		let result = source;
+
+		// Inline templateUrl: './foo.html' → template: `<content>`
+		const templateUrlMatch = result.match(/templateUrl\s*:\s*['"]([^'"]+)['"]/);
+		if (templateUrlMatch && templateUrlMatch[1]) {
+			const templatePath = join(fileDir, templateUrlMatch[1]);
+			if (existsSync(templatePath)) {
+				const templateContent = await fs.readFile(templatePath, 'utf-8');
+				// Escape backticks and ${} in template content
+				const escaped = templateContent
+					.replace(/\\/g, '\\\\')
+					.replace(/`/g, '\\`')
+					.replace(/\$\{/g, '\\${');
+				result = result.replace(
+					/templateUrl\s*:\s*['"][^'"]+['"]/,
+					`template: \`${escaped}\``
+				);
+			}
+		}
+
+		// Inline styleUrls: ['./foo.css'] → styles: [`<content>`]
+		const styleUrlsMatch = result.match(/styleUrls\s*:\s*\[([^\]]+)\]/);
+		if (styleUrlsMatch && styleUrlsMatch[1]) {
+			const urlMatches = styleUrlsMatch[1].match(/['"]([^'"]+)['"]/g);
+			if (urlMatches) {
+				const inlinedStyles: string[] = [];
+				for (const urlMatch of urlMatches) {
+					const styleUrl = urlMatch.replace(/['"]/g, '');
+					const stylePath = join(fileDir, styleUrl);
+					if (existsSync(stylePath)) {
+						const styleContent = await fs.readFile(stylePath, 'utf-8');
+						const escaped = styleContent
+							.replace(/\\/g, '\\\\')
+							.replace(/`/g, '\\`')
+							.replace(/\$\{/g, '\\${');
+						inlinedStyles.push(`\`${escaped}\``);
+					}
+				}
+				if (inlinedStyles.length > 0) {
+					result = result.replace(
+						/styleUrls\s*:\s*\[[^\]]+\]/,
+						`styles: [${inlinedStyles.join(', ')}]`
+					);
+				}
+			}
+		}
+
+		// Inline singular styleUrl: './foo.css' → styles: [`<content>`]
+		const styleUrlMatch = result.match(/styleUrl\s*:\s*['"]([^'"]+)['"]/);
+		if (styleUrlMatch && styleUrlMatch[1]) {
+			const stylePath = join(fileDir, styleUrlMatch[1]);
+			if (existsSync(stylePath)) {
+				const styleContent = await fs.readFile(stylePath, 'utf-8');
+				const escaped = styleContent
+					.replace(/\\/g, '\\\\')
+					.replace(/`/g, '\\`')
+					.replace(/\$\{/g, '\\${');
+				result = result.replace(
+					/styleUrl\s*:\s*['"][^'"]+['"]/,
+					`styles: [\`${escaped}\`]`
+				);
+			}
+		}
+
+		return result;
+	};
+
+	/** Transpile a single .ts file and recursively process its local imports */
+	const transpileFile = async (filePath: string): Promise<void> => {
+		const resolved = resolve(filePath);
+		if (visited.has(resolved)) return;
+		visited.add(resolved);
+
+		// Only transpile .ts files that exist
+		let actualPath = resolved;
+		if (!actualPath.endsWith('.ts')) actualPath += '.ts';
+		if (!existsSync(actualPath)) return;
+
+		let sourceCode = await fs.readFile(actualPath, 'utf-8');
+
+		// Angular HMR Runtime Layer (Level 3) — Inline templateUrl and styleUrls
+		// This resolves external resources at transpile time so Angular JIT
+		// doesn't try to fetch them via HTTP (which fails on the server)
+		sourceCode = await inlineResources(sourceCode, dirname(actualPath));
+
+		// Find all relative imports to process recursively
+		const importRegex = /from\s+['"](\.\.?\/[^'"]+)['"]/g;
+		const localImports: string[] = [];
+		let importMatch;
+		while ((importMatch = importRegex.exec(sourceCode)) !== null) {
+			if (importMatch[1]) localImports.push(importMatch[1]);
+		}
+
+		// Transpile this file
+		const result = ts.transpileModule(sourceCode, {
+			compilerOptions: transpileOpts,
+			fileName: actualPath
+		});
+
+		let processedContent = result.outputText;
+
+		// Add .js extensions to relative imports
+		processedContent = processedContent.replace(
+			/from\s+(['"])(\.\.?\/[^'"]+)(\1)/g,
+			(match, quote, path) => {
+				if (!path.match(/\.(js|ts|mjs|cjs)$/)) {
+					return `from ${quote}${path}.js${quote}`;
+				}
+				// Replace .ts extension with .js
+				if (path.endsWith('.ts')) {
+					return `from ${quote}${path.replace(/\.ts$/, '.js')}${quote}`;
+				}
+				return match;
+			}
+		);
+
+		// Compute output path preserving directory structure
+		const inputDir = dirname(actualPath);
+		const relativeDir = inputDir.startsWith(cwd)
+			? inputDir.substring(cwd.length + 1)
+			: inputDir;
+		const fileBase = basename(actualPath).replace(/\.ts$/, '.js');
+		const targetDir = join(outDir, relativeDir);
+		const targetPath = join(targetDir, fileBase);
+
+		await fs.mkdir(targetDir, { recursive: true });
+		await fs.writeFile(targetPath, processedContent, 'utf-8');
+		allOutputs.push(targetPath);
+
+		// Recursively transpile local imports
+		const inputDirForResolve = dirname(actualPath);
+		await Promise.all(
+			localImports.map((imp) => {
+				const importPath = resolve(inputDirForResolve, imp);
+				return transpileFile(importPath);
+			})
+		);
+	};
+
+	await transpileFile(inputPath);
+	return allOutputs;
+};
+
 export const compileAngular = async (
 	entryPoints: string[],
 	outRoot: string,
@@ -251,7 +446,12 @@ export const compileAngular = async (
 	await fs.mkdir(indexesDir, { recursive: true });
 
 	const compileTasks = entryPoints.map(async (entry) => {
-		const outputs = await compileAngularFile(entry, compiledRoot);
+		// Angular HMR Runtime Layer (Level 3) — Use JIT compilation for dev/HMR builds.
+		// JIT uses ts.transpileModule() with template/style inlining (~50-100ms)
+		// instead of AOT performCompilation() (~500-700ms).
+		const outputs = hmr
+			? await compileAngularFileJIT(entry, compiledRoot)
+			: await compileAngularFile(entry, compiledRoot);
 		const fileBase = basename(entry).replace(/\.[tj]s$/, '');
 		const jsName = `${fileBase}.js`;
 
@@ -283,6 +483,11 @@ export const compileAngular = async (
 			rewritten += `\nexport default ${componentClassName};\n`;
 		}
 
+		// Angular HMR Runtime Layer (Level 3) — Inject HMR registration in dev mode
+		if (hmr) {
+			rewritten = injectHMRRegistration(rewritten, entry);
+		}
+
 		await fs.writeFile(rawServerFile, rewritten, 'utf-8');
 
 		// Calculate relative path from indexes directory to the server file
@@ -294,10 +499,41 @@ export const compileAngular = async (
 			: './' + relativePath;
 
 		const clientFile = join(indexesDir, jsName);
+		// Angular HMR Runtime Layer (Level 3) — Import runtime before HMR client
 		const hmrPreamble = hmr
-			? `window.__HMR_FRAMEWORK__ = "angular";\nimport "${hmrClientPath}";\n`
+			? `window.__HMR_FRAMEWORK__ = "angular";\nimport "${hmrRuntimePath}";\nimport "${hmrClientPath}";\n`
 			: '';
-		const hydration = `${hmrPreamble}
+		const hydration = hmr ? `${hmrPreamble}
+import '@angular/compiler';
+import { bootstrapApplication } from '@angular/platform-browser';
+import { provideClientHydration } from '@angular/platform-browser';
+import { provideZonelessChangeDetection } from '@angular/core';
+import ${componentClassName} from '${normalizedImportPath}';
+
+// Angular HMR Runtime Layer (Level 3) — Export component for runtime patcher
+export { ${componentClassName} };
+
+// Angular HMR Runtime Layer (Level 3) — Skip bootstrap on re-import when runtime patching
+// When __ANGULAR_HMR__ is active and __ANGULAR_APP__ already exists, this is a
+// re-import triggered by the runtime patcher. The patcher will read the exported
+// component and swap prototypes — no need to destroy/bootstrap.
+if (window.__ANGULAR_APP__ && window.__ANGULAR_HMR__) {
+    // Re-import: just register the updated component, don't bootstrap
+    window.__ANGULAR_HMR__.register('${entry}#${componentClassName}', ${componentClassName});
+} else {
+    // Initial load: destroy any stale app and bootstrap fresh
+    if (window.__ANGULAR_APP__) {
+        try { window.__ANGULAR_APP__.destroy(); } catch (_err) { /* ignore */ }
+        window.__ANGULAR_APP__ = null;
+    }
+
+    bootstrapApplication(${componentClassName}, {
+        providers: [provideClientHydration(), provideZonelessChangeDetection()]
+    }).then(function (appRef) {
+        window.__ANGULAR_APP__ = appRef;
+    });
+}
+`.trim() : `
 import '@angular/compiler';
 import { bootstrapApplication } from '@angular/platform-browser';
 import { provideClientHydration } from '@angular/platform-browser';

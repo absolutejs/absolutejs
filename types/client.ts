@@ -89,6 +89,12 @@ declare global {
 		__SVELTE_COMPONENT__?: Record<string, unknown>;
 		__SVELTE_UNMOUNT__?: () => void;
 		__ANGULAR_APP__?: { destroy: () => void; tick: () => void } | null;
+		__ANGULAR_HMR__?: {
+			register: (id: string, ctor: unknown) => void;
+			applyUpdate: (id: string, newCtor: unknown) => boolean;
+			refresh: () => void;
+			getStats: () => { componentCount: number; updateCount: number };
+		};
 		__VUE_APP__?:
 		| ({
 			unmount: () => void;

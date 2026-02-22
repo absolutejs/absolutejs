@@ -34,6 +34,10 @@ export const handleAngularPageRequest = async <
 			}
 		}
 
+		// Angular HMR Runtime Layer (Level 3) — Ensure JIT compiler is available
+		// for server-side rendering. Must be imported BEFORE Angular platform modules.
+		await import('@angular/compiler');
+
 		// Lazy-load Angular deps — only when this handler is actually called
 		const [
 			angularPatchModule,
@@ -59,7 +63,7 @@ export const handleAngularPageRequest = async <
 				if (
 					typeof value === 'object' &&
 					'changingThisBreaksApplicationSecurity' in
-						value
+					value
 				) {
 					return value.changingThisBreaksApplicationSecurity;
 				}
@@ -132,9 +136,21 @@ export const handleAngularPageRequest = async <
 
 		// Read the selector from Angular's compiled component metadata (ɵcmp).
 		// This gives us the custom element tag the component expects to hydrate into.
+		// In JIT mode, ɵcmp is created at decorator execution time by @angular/compiler.
+		// Fallback: check decorator annotations for selector.
 		const cmpDef = (PageComponent as any).ɵcmp;
-		const selector =
-			cmpDef?.selectors?.[0]?.[0] || 'ng-app';
+		let selector = cmpDef?.selectors?.[0]?.[0];
+		if (!selector) {
+			// JIT fallback: read from decorator annotations
+			const annotations = (PageComponent as any).__annotations__ ||
+				(PageComponent as any).decorators?.map((d: any) => d.annotation);
+			if (annotations) {
+				for (const ann of annotations) {
+					if (ann?.selector) { selector = ann.selector; break; }
+				}
+			}
+		}
+		selector = selector || 'ng-app';
 
 		const htmlString = `<!DOCTYPE html><html>${headTag}<body><${selector}></${selector}></body></html>`;
 
@@ -172,7 +188,7 @@ export const handleAngularPageRequest = async <
 				if (
 					doc.head &&
 					typeof doc.head.querySelectorAll !==
-						'function'
+					'function'
 				) {
 					try {
 						Object.defineProperty(
@@ -195,7 +211,7 @@ export const handleAngularPageRequest = async <
 										).filter(
 											(el: any) =>
 												el.parentElement ===
-													doc.head ||
+												doc.head ||
 												doc.head.contains(
 													el
 												)
@@ -216,7 +232,7 @@ export const handleAngularPageRequest = async <
 				if (
 					doc.head &&
 					typeof doc.head.querySelector !==
-						'function'
+					'function'
 				) {
 					try {
 						Object.defineProperty(
@@ -282,7 +298,7 @@ export const handleAngularPageRequest = async <
 					const children = doc.head.children;
 					if (
 						typeof children.length ===
-							'undefined' ||
+						'undefined' ||
 						(children[0] === undefined &&
 							children.length > 0)
 					) {

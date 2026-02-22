@@ -993,15 +993,6 @@ export const triggerRebuild = async (
 					// Process each affected Angular page
 					for (const angularPagePath of pagesToUpdate) {
 						try {
-							const { handleAngularUpdate } = await import(
-								'./simpleAngularHMR'
-							);
-							const newHTML = await handleAngularUpdate(
-								angularPagePath,
-								manifest,
-								state.resolvedPaths.buildDir
-							);
-
 							const { basename } = await import('node:path');
 							const { toPascal } = await import(
 								'../utils/stringModifiers'
@@ -1013,6 +1004,21 @@ export const triggerRebuild = async (
 							// Get CSS URL from manifest
 							const cssKey = `${pascalName}CSS`;
 							const cssUrl = manifest[cssKey] || null;
+
+							// Angular HMR Runtime Layer (Level 3) — Skip SSR re-render for logic updates.
+							// The Level 3 client does its own fast re-bootstrap from compiled JS,
+							// so it doesn't need server-rendered HTML. Only do SSR for template updates.
+							let newHTML = null;
+							if (angularUpdateType !== 'logic') {
+								const { handleAngularUpdate } = await import(
+									'./simpleAngularHMR'
+								);
+								newHTML = await handleAngularUpdate(
+									angularPagePath,
+									manifest,
+									state.resolvedPaths.buildDir
+								);
+							}
 
 							logger.hmrUpdate(
 								angularPagePath,

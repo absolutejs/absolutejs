@@ -99,8 +99,158 @@ export const handleAngularUpdate = (message: {
 		return;
 	}
 
-	/* Logic update: full destroy + bootstrap (original behavior, targeting #root) */
-	handleLogicUpdate(message);
+	/* Angular HMR Runtime Layer (Level 3) — Logic update: try runtime patch first */
+	if (window.__ANGULAR_HMR__) {
+		handleRuntimePatch(message);
+	} else {
+		/* Fallback if runtime not available: full destroy + bootstrap */
+		handleLogicUpdate(message);
+	}
+};
+
+// Angular HMR Runtime Layer (Level 3) — Fast re-bootstrap approach
+// Instead of pure prototype swapping (limited by Angular's TView template caching),
+// we do a lightweight destroy + bootstrap cycle that skips the expensive
+// SSR re-render, DOM innerHTML wipe, and script re-execution.
+// The Angular app is destroyed and re-bootstrapped with the new component
+// in-place, keeping the DOM structure intact for fast hydration.
+const handleRuntimePatch = (message: {
+	data: {
+		cssBaseName?: string;
+		cssUrl?: string;
+		html?: string;
+		manifest?: Record<string, string>;
+		sourceFile?: string;
+		updateType?: string;
+	};
+}) => {
+	/* Save lightweight state */
+	const scrollState = saveScrollState();
+	const formState = saveFormState();
+
+	/* CSS pre-update if available */
+	if (message.data.cssUrl) {
+		swapStylesheet(
+			message.data.cssUrl,
+			message.data.cssBaseName || '',
+			'angular'
+		);
+	}
+
+	const indexPath = findIndexPath(
+		message.data.manifest,
+		message.data.sourceFile,
+		'angular'
+	);
+
+	if (!indexPath) {
+		console.warn('[HMR] Angular index path not found for runtime patch, falling back');
+		handleLogicUpdate(message);
+		return;
+	}
+
+	/* Angular HMR Runtime Layer (Level 3) — Import updated module.
+	   The module guard detects __ANGULAR_HMR__ + __ANGULAR_APP__ and
+	   skips bootstrap, just exporting the new component constructor. */
+	const modulePath = indexPath + '?t=' + Date.now();
+	import(/* @vite-ignore */ modulePath)
+		.then(function (mod) {
+			try {
+				/* Find the exported component constructor */
+				let NewComponent = null;
+				const exportedKeys = Object.keys(mod);
+				for (const key of exportedKeys) {
+					const exported = mod[key];
+					if (typeof exported === 'function' && exported.ɵcmp) {
+						NewComponent = exported;
+						break;
+					}
+				}
+				if (!NewComponent && mod.default && typeof mod.default === 'function') {
+					NewComponent = mod.default;
+				}
+
+				if (!NewComponent) {
+					console.warn('[HMR] No Angular component found in module, falling back');
+					handleLogicUpdate(message);
+					return;
+				}
+
+				/* Angular HMR Runtime Layer (Level 3) — HMR boundary check
+				   If providers changed, fall back to full update */
+				if (window.__ANGULAR_HMR__) {
+					const sourceFile = message.data.sourceFile || '';
+					const componentId = sourceFile + '#' + (NewComponent.name || 'default');
+					const result = window.__ANGULAR_HMR__.applyUpdate(componentId, NewComponent);
+					if (result === false) {
+						console.warn('[HMR] Provider change detected, falling back to full update');
+						handleLogicUpdate(message);
+						return;
+					}
+				}
+
+				/* Angular HMR Runtime Layer (Level 3) — Fast re-bootstrap
+				   Destroy the current app, then bootstrap with the new component.
+				   This skips: SSR re-render, innerHTML replacement, script re-execution.
+				   Angular re-renders into the existing <angular-page> element. */
+				const oldStyles = Array.from(document.head.querySelectorAll('style'));
+
+				/* Capture DOM snapshot BEFORE destroy to prevent flicker.
+				   destroy() removes Angular's rendered DOM — we restore it immediately
+				   so there's no visual gap. Angular then hydrates over the snapshot. */
+				const hostEl = document.querySelector('angular-page');
+				const domSnapshot = hostEl ? hostEl.innerHTML : '';
+
+				if (window.__ANGULAR_APP__) {
+					try { window.__ANGULAR_APP__.destroy(); } catch (_e) { /* ignore */ }
+					window.__ANGULAR_APP__ = null;
+				}
+
+				/* Restore DOM snapshot immediately after destroy — prevents flicker */
+				if (hostEl && domSnapshot) {
+					hostEl.innerHTML = domSnapshot;
+				}
+
+				/* Dynamically import bootstrap (already in the bundle) */
+				Promise.all([
+					import(/* @vite-ignore */ '@angular/platform-browser'),
+					import(/* @vite-ignore */ '@angular/core')
+				]).then(function ([platformBrowser, core]) {
+					const bootstrapApplication = platformBrowser.bootstrapApplication;
+					const provideClientHydration = platformBrowser.provideClientHydration;
+					const provideZonelessChangeDetection = core.provideZonelessChangeDetection;
+
+					bootstrapApplication(NewComponent, {
+						providers: [provideClientHydration(), provideZonelessChangeDetection()]
+					}).then(function (appRef: { destroy: () => void; tick: () => void }) {
+						window.__ANGULAR_APP__ = appRef;
+
+						/* Clean up old styles after new ones are injected */
+						requestAnimationFrame(function () {
+							oldStyles.forEach(function (style) {
+								if (style.parentNode) style.remove();
+							});
+						});
+
+						restoreFormState(formState);
+						restoreScrollState(scrollState);
+					}).catch(function (err: unknown) {
+						console.warn('[HMR] Angular fast re-bootstrap failed:', err);
+						handleLogicUpdate(message);
+					});
+				}).catch(function (err: unknown) {
+					console.warn('[HMR] Angular imports failed:', err);
+					handleLogicUpdate(message);
+				});
+			} catch (err) {
+				console.warn('[HMR] Angular runtime patch failed:', err);
+				handleLogicUpdate(message);
+			}
+		})
+		.catch(function (err: unknown) {
+			console.warn('[HMR] Angular module import failed:', err);
+			handleLogicUpdate(message);
+		});
 };
 
 // Angular HMR Optimization — Template-only update without destroying Angular app
