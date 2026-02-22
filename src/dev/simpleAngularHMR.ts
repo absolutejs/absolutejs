@@ -91,14 +91,10 @@ export const handleAngularUpdate = async (
 
 		const html = await response.text();
 
-		// Extract just the body content for patching (not the full HTML document)
-		const bodyMatch = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
-		if (bodyMatch && bodyMatch[1]) {
-			const bodyContent = bodyMatch[1].trim();
-
-			return bodyContent;
-		}
-
+		// Return the full HTML — the client handler extracts both:
+		// - <head> content (Angular's <style> tags from component CSS)
+		// - #root / <body> content (rendered component markup)
+		// Sending body-only would lose Angular SSR's <style> tags from <head>.
 		return html;
 	} catch (err) {
 		console.error('[Angular HMR] Error in handleAngularUpdate:', err);

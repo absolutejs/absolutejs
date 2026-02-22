@@ -219,9 +219,6 @@ const handleSSRUpdate = (message: HMRMessage) => {
 		window.__ANGULAR_APP__ = null;
 	}
 
-	// Capture old styles for deferred cleanup (prevents FOUC)
-	const oldStyles = Array.from(document.head.querySelectorAll('style'));
-
 	// Angular HMR — Zoneless Runtime Preservation: replace #root content with SSR HTML
 	// Patch counter value in the new HTML to preserve DOM-managed state
 	let patchedHTML = newHTML;
@@ -244,6 +241,30 @@ const handleSSRUpdate = (message: HMRMessage) => {
 		const headContent = extractHeadContent(patchedHTML);
 		if (headContent) {
 			patchHeadInPlace(headContent);
+
+			// Angular HMR — Zoneless Runtime Preservation: inject SSR <style> tags
+			// patchHeadInPlace ignores <style> elements (no key for them).
+			// Angular SSR puts component styles (app.component.css) in <head> as <style>.
+			// Extract and inject them so component CSS persists after HMR.
+			const tempHead = document.createElement('div');
+			tempHead.innerHTML = headContent;
+			const ssrStyles = tempHead.querySelectorAll('style');
+			ssrStyles.forEach(function (styleEl) {
+				const content = styleEl.textContent || '';
+				// Check if this style already exists in head (avoid duplicates)
+				let alreadyExists = false;
+				document.head.querySelectorAll('style').forEach(function (existing) {
+					if ((existing.textContent || '').trim() === content.trim()) {
+						alreadyExists = true;
+					}
+				});
+				if (!alreadyExists && content.trim()) {
+					const newStyle = document.createElement('style');
+					newStyle.textContent = content;
+					newStyle.setAttribute('data-hmr-angular-ssr', 'true');
+					document.head.appendChild(newStyle);
+				}
+			});
 		}
 	} else {
 		document.body.innerHTML = patchedHTML;
@@ -286,12 +307,10 @@ const handleSSRUpdate = (message: HMRMessage) => {
 	const modulePath = indexPath + '?t=' + Date.now();
 	import(/* @vite-ignore */ modulePath)
 		.then(function () {
-			// Clean up old styles after new ones are injected
-			requestAnimationFrame(function () {
-				oldStyles.forEach(function (style) {
-					if (style.parentNode) style.remove();
-				});
-			});
+			// Angular HMR — Zoneless Runtime Preservation: keep old <style> tags.
+			// Since bootstrap is skipped (stub __ANGULAR_APP__), Angular won't
+			// inject new component styles. Removing old ones would lose styles
+			// from app.component.css (e.g. `code` tag styling).
 			restoreDOMSnapshot(snapshot);
 		})
 		.catch(function (err: unknown) {
