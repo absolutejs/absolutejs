@@ -196,7 +196,11 @@ const handleSSRUpdate = (message: HMRMessage) => {
 
 	const newHTML = message.data.html;
 	if (!newHTML) {
-		window.location.reload();
+		// Angular HMR — Zoneless Runtime Preservation: no SSR HTML available.
+		// This happens when a new component file is created but not yet wired
+		// into a page (manifest has no entry for it). Skip silently — the
+		// component will be picked up when the page file imports it.
+		// Do NOT reload, as that would wipe counter/form state.
 		return;
 	}
 
@@ -299,8 +303,9 @@ const handleSSRUpdate = (message: HMRMessage) => {
 		'angular'
 	);
 	if (!indexPath) {
-		console.warn('[HMR] Angular index path not found, reloading');
-		window.location.reload();
+		// No index path — SSR HTML is already in place and working.
+		// Just restore DOM state and continue.
+		restoreDOMSnapshot(snapshot);
 		return;
 	}
 
@@ -314,7 +319,11 @@ const handleSSRUpdate = (message: HMRMessage) => {
 			restoreDOMSnapshot(snapshot);
 		})
 		.catch(function (err: unknown) {
-			console.warn('[HMR] Angular import failed, reloading:', err);
-			window.location.reload();
+			// Angular HMR — Zoneless Runtime Preservation: don't reload on import failure.
+			// Since bootstrap is skipped (stub __ANGULAR_APP__), the module import
+			// is only for component registration. The SSR HTML + re-executed
+			// inline scripts already provide full interactivity.
+			console.warn('[HMR] Angular module import failed (non-fatal):', err);
+			restoreDOMSnapshot(snapshot);
 		});
 };

@@ -951,15 +951,26 @@ export const triggerRebuild = async (
 					const angularPageFiles = angularFiles.filter((f) =>
 						f.replace(/\\/g, '/').includes('/pages/')
 					);
-					// Angular component files (non-CSS)
-					const angularComponentFiles = angularFiles.filter(
-						(f) => f.endsWith('.ts') || f.endsWith('.html')
-					);
-					// If no pages found, use component files (component changes trigger page rebuilds via dependency graph)
-					const pagesToUpdate =
-						angularPageFiles.length > 0
-							? angularPageFiles
-							: angularComponentFiles;
+
+					// If no page files changed directly, resolve component files
+					// to their parent pages via the dependency graph.
+					// Without this, component file changes (e.g. app.component.html)
+					// get passed directly to the SSR handler which can't find them
+					// in the manifest (only page entries exist), causing null HTML.
+					let pagesToUpdate = angularPageFiles;
+					if (pagesToUpdate.length === 0 && state.dependencyGraph) {
+						const { getAffectedFiles } = await import('./dependencyGraph');
+						const resolvedPages = new Set<string>();
+						for (const componentFile of angularFiles) {
+							const affected = getAffectedFiles(state.dependencyGraph, componentFile);
+							for (const file of affected) {
+								if (file.replace(/\\/g, '/').includes('/pages/') && file.endsWith('.ts')) {
+									resolvedPages.add(file);
+								}
+							}
+						}
+						pagesToUpdate = Array.from(resolvedPages);
+					}
 
 					// For CSS-only changes, send CSS-only update (preserves component state!)
 					if (isCssOnlyChange && angularCssFiles.length > 0) {
