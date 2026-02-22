@@ -1,77 +1,77 @@
-/* Angular HMR Runtime Layer (Level 3)
-   Runtime component patching that avoids destroy + bootstrap.
-   Swaps component implementations in-place via prototype replacement
-   and Angular internal metadata patching (ɵcmp, ɵfac).
+/* Angular HMR — Zoneless Runtime Preservation
+   DEV MODE ONLY — never included in production builds.
 
-   DEV MODE ONLY — this module is never included in production builds. */
+   Runtime component patching via prototype swap and ɵcmp metadata swap.
+   State persists naturally via instance continuity — NO serialization.
 
-// Angular HMR Runtime Layer (Level 3) — Component constructor type
+   Why state serialization was removed:
+     Angular component + service state lives on JS object instances.
+     Prototype swapping replaces method implementations without destroying
+     instances, so all state (properties, injected services, etc.) survives.
+     Serializing and reassigning state is fragile, lossy, and unnecessary.
+
+   Why zoneless requires manual tick():
+     With provideZonelessChangeDetection(), there is no Zone.js to
+     auto-trigger change detection. After swapping prototypes or templates,
+     we must explicitly call ApplicationRef.tick() to re-render.
+
+   Why this is safe in a multi-framework environment:
+     This module only touches Angular-specific globals (__ANGULAR_APP__,
+     __ANGULAR_HMR__). It never modifies document.body, React roots,
+     Vue instances, or Svelte components. The registry is keyed by
+     source file path, so name collisions across frameworks are impossible. */
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type ComponentCtor = any;
 
-// Angular HMR Runtime Layer (Level 3) — Component registry entry
+// Angular HMR — Zoneless Runtime Preservation: Component registry entry
 interface RegistryEntry {
     /** The ORIGINAL constructor that Angular bootstrapped with.
-     *  This is the live reference — all existing component instances
-     *  have their __proto__ pointing at this constructor's prototype.
-     *  We ALWAYS swap onto this; we NEVER replace it. */
+     *  Existing component instances have __proto__ pointing here.
+     *  We swap onto this; we never replace it. */
     liveCtor: ComponentCtor;
     id: string;
     registeredAt: number;
     updateCount: number;
 }
 
-// Angular HMR Runtime Layer (Level 3) — Component registry
+// Angular HMR — Zoneless Runtime Preservation: Component registry
 const componentRegistry = new Map<string, RegistryEntry>();
-
-// Angular HMR Runtime Layer (Level 3) — Track global update count for debugging
 let globalUpdateCount = 0;
 
-/** Check if a constructor has Angular injectable metadata */
+// Angular HMR — Zoneless Runtime Preservation: HMR boundary detection
+// Returns true if providers / injector metadata changed (unsafe to hot-patch)
 const hasProviderChanges = (
     oldCtor: ComponentCtor,
     newCtor: ComponentCtor
 ): boolean => {
-    // Angular HMR Runtime Layer (Level 3) — HMR boundary detection
-    // If NgModule injector metadata changed, we can't safely hot-patch
+    // NgModule injector metadata
     if (oldCtor.ɵinj !== undefined && newCtor.ɵinj !== undefined) {
-        const oldProviders = oldCtor.ɵinj?.providers;
-        const newProviders = newCtor.ɵinj?.providers;
-        if (oldProviders && newProviders) {
-            if (
-                Array.isArray(oldProviders) &&
-                Array.isArray(newProviders) &&
-                oldProviders.length !== newProviders.length
-            ) {
-                return true;
-            }
-        }
-    }
-
-    // Check if component-level providers changed
-    if (oldCtor.ɵcmp && newCtor.ɵcmp) {
-        const oldCompProviders = oldCtor.ɵcmp.providersResolver;
-        const newCompProviders = newCtor.ɵcmp.providersResolver;
+        const oldP = oldCtor.ɵinj?.providers;
+        const newP = newCtor.ɵinj?.providers;
         if (
-            (oldCompProviders === undefined) !== (newCompProviders === undefined)
+            Array.isArray(oldP) &&
+            Array.isArray(newP) &&
+            oldP.length !== newP.length
         ) {
             return true;
         }
     }
 
+    // Component-level providers
+    if (oldCtor.ɵcmp && newCtor.ɵcmp) {
+        const a = oldCtor.ɵcmp.providersResolver;
+        const b = newCtor.ɵcmp.providersResolver;
+        if ((a === undefined) !== (b === undefined)) return true;
+    }
+
     return false;
 };
 
-/** Angular HMR Runtime Layer (Level 3) — Register a component constructor.
- *  IMPORTANT: Only stores the constructor on FIRST call. Subsequent calls
- *  are no-ops — the registry keeps the original "live" constructor that
- *  Angular bootstrapped with. applyUpdate() swaps onto this live reference. */
+/** Angular HMR — Zoneless Runtime Preservation: Register component.
+ *  Only stores on FIRST call — keeps the live constructor Angular bootstrapped with. */
 const register = (id: string, ctor: ComponentCtor): void => {
     if (!id || typeof ctor !== 'function') return;
-
-    // Only store on first registration — this is the constructor Angular
-    // actually used for bootstrapApplication(). All existing component
-    // instances reference this constructor's prototype.
     if (!componentRegistry.has(id)) {
         componentRegistry.set(id, {
             liveCtor: ctor,
@@ -80,166 +80,75 @@ const register = (id: string, ctor: ComponentCtor): void => {
             updateCount: 0
         });
     }
-    // On subsequent calls (re-imports), do nothing.
-    // The new constructor will be passed to applyUpdate() separately.
 };
 
-/** Angular HMR Runtime Layer (Level 3) — Apply a component update via prototype swap.
- *  Swaps methods and Angular metadata from newCtor onto the LIVE (original) constructor.
- *  Returns true if patch succeeded, false if full reload needed. */
+/** Angular HMR — Zoneless Runtime Preservation: Swap prototype + ɵcmp metadata.
+ *  Runtime state persists by prototype swap (no serialization).
+ *  Returns true on success, false if full reload required. */
 const applyUpdate = (id: string, newCtor: ComponentCtor): boolean => {
     const entry = componentRegistry.get(id);
-
     if (!entry) {
-        // First time seeing this component — just register it
         register(id, newCtor);
         return true;
     }
 
     const liveCtor = entry.liveCtor;
+    if (liveCtor === newCtor) return true;
 
-    // Same constructor reference — nothing to patch (initial load)
-    if (liveCtor === newCtor) {
-        return true;
-    }
-
-    // Angular HMR Runtime Layer (Level 3) — HMR boundary check
+    // Angular HMR — Zoneless Runtime Preservation: safety boundary
     if (hasProviderChanges(liveCtor, newCtor)) {
-        console.warn(
-            '[HMR] Angular provider/injector change detected for',
-            id,
-            '— falling back to full reload'
-        );
+        console.warn('[HMR] Angular provider change detected for', id, '→ full reload');
         return false;
     }
-
-    // New constructor must be a valid Angular component
     if (newCtor.ɵcmp === undefined && liveCtor.ɵcmp !== undefined) {
-        console.warn(
-            '[HMR] New constructor missing ɵcmp for',
-            id,
-            '— falling back to full reload'
-        );
+        console.warn('[HMR] New constructor missing ɵcmp for', id, '→ full reload');
         return false;
     }
 
     try {
-        // Angular HMR Runtime Layer (Level 3) — Swap prototype methods
-        // Existing component instances have __proto__ === liveCtor.prototype,
-        // so modifying liveCtor.prototype immediately affects all instances.
+        // Angular HMR — Zoneless Runtime Preservation: swap prototype methods
         const newProto = newCtor.prototype;
-
-        const newPropNames = Object.getOwnPropertyNames(newProto);
-        for (const propName of newPropNames) {
-            if (propName === 'constructor') continue;
+        for (const prop of Object.getOwnPropertyNames(newProto)) {
+            if (prop === 'constructor') continue;
             try {
-                const descriptor = Object.getOwnPropertyDescriptor(
-                    newProto,
-                    propName
-                );
-                if (descriptor) {
-                    Object.defineProperty(liveCtor.prototype, propName, descriptor);
-                }
-            } catch (_e) {
-                // Some properties may not be configurable — skip them
-            }
+                const desc = Object.getOwnPropertyDescriptor(newProto, prop);
+                if (desc) Object.defineProperty(liveCtor.prototype, prop, desc);
+            } catch (_e) { /* non-configurable */ }
         }
 
-        // Angular HMR Runtime Layer (Level 3) — Swap Angular internal metadata
+        // Angular HMR — Zoneless Runtime Preservation: swap ɵcmp metadata
         if (newCtor.ɵcmp) {
-            // Template function — the key for visual updates
-            if (newCtor.ɵcmp.template) {
-                liveCtor.ɵcmp.template = newCtor.ɵcmp.template;
-            }
-            // Structural directives referenced in template
-            if (newCtor.ɵcmp.directiveDefs !== undefined) {
-                liveCtor.ɵcmp.directiveDefs = newCtor.ɵcmp.directiveDefs;
-            }
-            // Pipes referenced in template
-            if (newCtor.ɵcmp.pipeDefs !== undefined) {
-                liveCtor.ɵcmp.pipeDefs = newCtor.ɵcmp.pipeDefs;
-            }
-            // Component styles
-            if (newCtor.ɵcmp.styles !== undefined) {
-                liveCtor.ɵcmp.styles = newCtor.ɵcmp.styles;
-            }
-            // Content queries (@ContentChild, @ContentChildren)
-            if (newCtor.ɵcmp.contentQueries !== undefined) {
-                liveCtor.ɵcmp.contentQueries = newCtor.ɵcmp.contentQueries;
-            }
-            // View queries (@ViewChild, @ViewChildren)
-            if (newCtor.ɵcmp.viewQuery !== undefined) {
-                liveCtor.ɵcmp.viewQuery = newCtor.ɵcmp.viewQuery;
-            }
-            // Host bindings
-            if (newCtor.ɵcmp.hostBindings !== undefined) {
-                liveCtor.ɵcmp.hostBindings = newCtor.ɵcmp.hostBindings;
-            }
-            // Inputs/outputs
-            if (newCtor.ɵcmp.inputs !== undefined) {
-                liveCtor.ɵcmp.inputs = newCtor.ɵcmp.inputs;
-            }
-            if (newCtor.ɵcmp.outputs !== undefined) {
-                liveCtor.ɵcmp.outputs = newCtor.ɵcmp.outputs;
-            }
-            // Declarations (standalone component imports)
-            if (newCtor.ɵcmp.dependencies !== undefined) {
-                liveCtor.ɵcmp.dependencies = newCtor.ɵcmp.dependencies;
-            }
-            // Feature functions
-            if (newCtor.ɵcmp.features !== undefined) {
-                liveCtor.ɵcmp.features = newCtor.ɵcmp.features;
-            }
+            liveCtor.ɵcmp = newCtor.ɵcmp;
         }
 
-        // Factory function for creating new instances
+        // Angular HMR — Zoneless Runtime Preservation: swap ɵfac
         if (newCtor.ɵfac) {
             liveCtor.ɵfac = newCtor.ɵfac;
         }
 
         // Swap configurable static properties
-        const staticProps = Object.getOwnPropertyNames(newCtor);
-        for (const prop of staticProps) {
-            if (
-                prop === 'prototype' ||
-                prop === 'length' ||
-                prop === 'name' ||
-                prop === 'caller' ||
-                prop === 'arguments'
-            ) {
-                continue;
-            }
+        for (const prop of Object.getOwnPropertyNames(newCtor)) {
+            if (['prototype', 'length', 'name', 'caller', 'arguments'].includes(prop)) continue;
             try {
-                const descriptor = Object.getOwnPropertyDescriptor(
-                    newCtor,
-                    prop
-                );
-                if (descriptor && descriptor.configurable) {
-                    Object.defineProperty(liveCtor, prop, descriptor);
-                }
-            } catch (_e) {
-                // Skip non-configurable static properties
-            }
+                const desc = Object.getOwnPropertyDescriptor(newCtor, prop);
+                if (desc?.configurable) Object.defineProperty(liveCtor, prop, desc);
+            } catch (_e) { /* skip */ }
         }
 
         globalUpdateCount++;
         entry.updateCount++;
         entry.registeredAt = Date.now();
-
         return true;
     } catch (err) {
-        console.error(
-            '[HMR] Angular runtime patch failed for',
-            id,
-            ':',
-            err
-        );
+        console.error('[HMR] Angular runtime patch failed for', id, ':', err);
         return false;
     }
 };
 
-/** Angular HMR Runtime Layer (Level 3) — Trigger change detection after patch */
+/** Angular HMR — Zoneless Runtime Preservation: trigger change detection.
+ *  Zoneless Angular will NOT auto-detect changes — explicit tick() required. */
 const refresh = (): void => {
+    // Angular HMR — Zoneless Runtime Preservation: manual tick() required
     if (window.__ANGULAR_APP__) {
         try {
             window.__ANGULAR_APP__.tick();
@@ -249,25 +158,17 @@ const refresh = (): void => {
     }
 };
 
-/** Angular HMR Runtime Layer (Level 3) — Get registry stats for debugging */
-const getStats = (): { componentCount: number; updateCount: number } => {
-    return {
-        componentCount: componentRegistry.size,
-        updateCount: globalUpdateCount
-    };
-};
+/** Angular HMR — Zoneless Runtime Preservation: debug stats */
+const getStats = (): { componentCount: number; updateCount: number } => ({
+    componentCount: componentRegistry.size,
+    updateCount: globalUpdateCount
+});
 
-// Angular HMR Runtime Layer (Level 3) — Install global HMR API
+// Angular HMR — Zoneless Runtime Preservation: install global API
 export const installAngularHMRRuntime = (): void => {
     if (typeof window === 'undefined') return;
-
-    window.__ANGULAR_HMR__ = {
-        register,
-        applyUpdate,
-        refresh,
-        getStats
-    };
+    window.__ANGULAR_HMR__ = { register, applyUpdate, refresh, getStats };
 };
 
-// Angular HMR Runtime Layer (Level 3) — Auto-install on import
+// Angular HMR — Zoneless Runtime Preservation: auto-install on import
 installAngularHMRRuntime();
