@@ -1,4 +1,4 @@
-import { staticPlugin } from '@elysiajs/static';
+
 import { Elysia } from 'elysia';
 import { scopedState } from 'elysia-scoped-state';
 import { generateHeadElement } from '../src/utils/generateHeadElement';
@@ -14,7 +14,8 @@ import {
 	handleHTMLPageRequest,
 	handleHTMXPageRequest,
 	handleReactPageRequest,
-	hmr
+	hmr,
+	staticPlugin
 } from '../src';
 import { networking } from '../src/plugins/networking';
 import { handleVuePageRequest } from '../src/vue';
