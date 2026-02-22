@@ -106,8 +106,8 @@ export const compileAngularFile = async (inputPath: string, outDir: string) => {
 			target: ts.ScriptTarget.ES2022, // Use ES2022 instead of ESNext to avoid hardcoded lib paths
 			module: ts.ModuleKind.ESNext,
 			outDir,
-			experimentalDecorators: false,
-			emitDecoratorMetadata: false,
+			experimentalDecorators: true,
+			emitDecoratorMetadata: true,
 			moduleResolution: ts.ModuleResolutionKind.Bundler,
 			esModuleInterop: true,
 			skipLibCheck: true,
@@ -118,6 +118,10 @@ export const compileAngularFile = async (inputPath: string, outDir: string) => {
 		// CRITICAL: Force target to ES2022 AFTER spread to ensure it's not overwritten
 		// ESNext target causes hardcoded lib.esnext.full.d.ts path issues
 		options.target = ts.ScriptTarget.ES2022;
+
+		// Force TypeScript legacy decorators required by Angular 21's DI system
+		options.experimentalDecorators = true;
+		options.emitDecoratorMetadata = true;
 
 		// Force newLine again after spread to ensure it's not overwritten
 		options.newLine = ts.NewLineKind.LineFeed;
