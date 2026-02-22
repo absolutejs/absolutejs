@@ -33,10 +33,10 @@ export class DropdownComponent implements OnInit {
 				const details = document.querySelector('header app-dropdown details.dropdown') as HTMLDetailsElement | null;
 				if (details && !(details as any).__dropdownListenersAttached) {
 					(details as any).__dropdownListenersAttached = true;
-					details.addEventListener('mouseenter', function() {
+					details.addEventListener('mouseenter', function () {
 						details.open = true;
 					});
-					details.addEventListener('mouseleave', function() {
+					details.addEventListener('mouseleave', function () {
 						details.open = false;
 					});
 				}
