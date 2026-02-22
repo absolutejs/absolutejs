@@ -89,6 +89,9 @@ declare global {
 		__SVELTE_COMPONENT__?: Record<string, unknown>;
 		__SVELTE_UNMOUNT__?: () => void;
 		__ANGULAR_APP__?: { destroy: () => void; tick: () => void } | null;
+		__HMR_SKIP_HYDRATION__?: boolean;
+		__HMR_NEW_PAGE_CLASS__?: unknown;
+		__NG_REPLACE_METADATA__?: (...args: unknown[]) => void;
 		__ANGULAR_HMR__?: {
 			register: (id: string, ctor: unknown) => void;
 			applyUpdate: (id: string, newCtor: unknown) => boolean;

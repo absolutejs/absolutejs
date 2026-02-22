@@ -1,19 +1,18 @@
-/* Angular HMR — Zoneless Runtime Preservation
-   Smart update handling: style → CSS swap only,
-   template/logic → SSR HTML replacement + module re-import.
+/* Angular HMR — Re-Bootstrap with View Transitions API (Zero Flicker)
+   DEV MODE ONLY — never active in production.
 
-   Angular HMR — runtime state persists by prototype swap (no serialization).
-   Legacy per-field state snapshots removed. DOM state (scroll, focus, form)
-   preserved via lightweight capture/restore.
+   Strategy:
+   1. Capture component state (ng.getComponent) + DOM state
+   2. Use document.startViewTransition() — browser captures a screenshot
+   3. Destroy old app, recreate root element, import new module
+   4. bootstrapApplication() renders new content (behind the screenshot)
+   5. After bootstrap: restore state via ng.getComponent + ng.applyChanges
+   6. View transition resolves — browser smoothly crossfades to new content
 
-   Why zoneless requires manual tick():
-	 With provideZonelessChangeDetection(), there is no Zone.js to
-	 auto-trigger change detection.
-
-   Why this is safe in a multi-framework environment:
-	 This module only touches Angular-specific globals and elements.
-
-   DEV MODE ONLY — this handler is never active in production. */
+   document.startViewTransition() is the native browser API for page
+   transitions. It captures a screenshot before the callback, runs the
+   callback (which can be async), and crossfades when the callback finishes.
+   The user never sees empty/default state — only the before and after. */
 
 import {
 	saveFormState,
@@ -21,10 +20,8 @@ import {
 	saveScrollState,
 	restoreScrollState
 } from '../domState';
-import { patchHeadInPlace } from '../headPatch';
 import { detectCurrentFramework, findIndexPath } from '../frameworkDetect';
 
-// Angular HMR — Zoneless Runtime Preservation: message shape
 interface HMRMessage {
 	data: {
 		cssBaseName?: string;
@@ -36,117 +33,146 @@ interface HMRMessage {
 	};
 }
 
-/* Swap a stylesheet link by matching cssBaseName or framework name */
 const swapStylesheet = (
 	cssUrl: string,
 	cssBaseName: string,
 	framework: string
 ): void => {
 	let existingLink: HTMLLinkElement | null = null;
-	document
-		.querySelectorAll('link[rel="stylesheet"]')
-		.forEach(function (link) {
-			const href = (link as HTMLLinkElement).getAttribute('href') || '';
-			if (href.includes(cssBaseName) || href.includes(framework)) {
-				existingLink = link as HTMLLinkElement;
-			}
-		});
-
+	document.querySelectorAll('link[rel="stylesheet"]').forEach(function (link) {
+		const href = (link as HTMLLinkElement).getAttribute('href') || '';
+		if (href.includes(cssBaseName) || href.includes(framework)) {
+			existingLink = link as HTMLLinkElement;
+		}
+	});
 	if (existingLink) {
 		const capturedExisting = existingLink as HTMLLinkElement;
 		const newLink = document.createElement('link');
 		newLink.rel = 'stylesheet';
 		newLink.href = cssUrl + '?t=' + Date.now();
 		newLink.onload = function () {
-			if (capturedExisting && capturedExisting.parentNode) {
-				capturedExisting.remove();
-			}
+			if (capturedExisting && capturedExisting.parentNode) capturedExisting.remove();
 		};
 		document.head.appendChild(newLink);
 	}
 };
 
-// Angular HMR — Zoneless Runtime Preservation: stable root container
-const getRootContainer = (): HTMLElement | null => {
-	return document.getElementById('root');
+// ─── State Capture/Restore via ng.getComponent ──────────────
+
+type StateSnapshot = {
+	selector: string;
+	index: number;
+	properties: Record<string, unknown>;
 };
 
-// Angular HMR — Zoneless Runtime Preservation: extract #root content from SSR HTML
-const extractRootContent = (html: string): string | null => {
-	const tempDiv = document.createElement('div');
-	tempDiv.innerHTML = html;
-	const rootEl = tempDiv.querySelector('#root');
-	if (rootEl) return rootEl.innerHTML;
-	return null;
-};
+const captureComponentState = (): StateSnapshot[] => {
+	const snapshots: StateSnapshot[] = [];
+	const selectorCounts = new Map<string, number>();
+	const ng = (window as any).ng;
 
-// Angular HMR — Zoneless Runtime Preservation: extract <head> content
-const extractHeadContent = (html: string): string | null => {
-	const headMatch = html.match(/<head[^>]*>([\s\S]*)<\/head>/i);
-	return headMatch && headMatch[1] ? headMatch[1] : null;
-};
+	document.querySelectorAll('*').forEach(function (el) {
+		const tagName = el.tagName.toLowerCase();
+		if (!tagName.includes('-')) return;
 
-// Angular HMR — Zoneless Runtime Preservation: DOM state capture
-const captureDOMSnapshot = () => {
-	const scrollState = saveScrollState();
-	const formState = saveFormState();
+		const count = selectorCounts.get(tagName) || 0;
+		selectorCounts.set(tagName, count + 1);
 
-	let activeElementSelector: string | null = null;
-	let selectionStart: number | null = null;
-	let selectionEnd: number | null = null;
-	const active = document.activeElement as HTMLInputElement | HTMLTextAreaElement | null;
-	if (active && active !== document.body) {
-		activeElementSelector = buildElementSelector(active);
-		if ('selectionStart' in active) {
-			selectionStart = active.selectionStart;
-			selectionEnd = active.selectionEnd;
-		}
-	}
+		const properties: Record<string, unknown> = {};
 
-	return { scrollState, formState, activeElementSelector, selectionStart, selectionEnd };
-};
-
-// Angular HMR — Zoneless Runtime Preservation: DOM state restore
-const restoreDOMSnapshot = (snapshot: ReturnType<typeof captureDOMSnapshot>) => {
-	restoreFormState(snapshot.formState);
-	restoreScrollState(snapshot.scrollState);
-
-	if (snapshot.activeElementSelector) {
-		try {
-			const el = document.querySelector(snapshot.activeElementSelector) as HTMLElement | null;
-			if (el) {
-				el.focus();
-				if (snapshot.selectionStart !== null && 'setSelectionRange' in el) {
-					(el as HTMLInputElement).setSelectionRange(
-						snapshot.selectionStart,
-						snapshot.selectionEnd ?? snapshot.selectionStart
-					);
-				}
+		// DOM-based counter reading (always works)
+		el.querySelectorAll('[class*="value"], [class*="count"]').forEach(function (stateEl) {
+			const text = stateEl.textContent;
+			if (text !== null && text.trim() !== '') {
+				const num = parseInt(text.trim(), 10);
+				if (!isNaN(num)) properties['__dom_counter'] = num;
 			}
-		} catch (_e) { /* element may not exist */ }
-	}
+		});
+
+		// ng.getComponent for full instance state
+		if (ng && typeof ng.getComponent === 'function') {
+			try {
+				const instance = ng.getComponent(el);
+				if (instance) {
+					for (const key of Object.keys(instance)) {
+						if (key.startsWith('ɵ') || key.startsWith('__')) continue;
+						const val = (instance as Record<string, unknown>)[key];
+						if (typeof val === 'function') continue;
+						properties[key] = val;
+					}
+				}
+			} catch (_e) { /* ignore */ }
+		}
+
+		if (Object.keys(properties).length > 0) {
+			snapshots.push({ selector: tagName, index: count, properties });
+		}
+	});
+	return snapshots;
 };
 
-// Build CSS selector path for focus restoration
-const buildElementSelector = (el: Element): string => {
-	const parts: string[] = [];
-	let current: Element | null = el;
-	while (current && current !== document.body) {
-		let selector = current.tagName.toLowerCase();
-		if (current.id) {
-			selector += '#' + current.id;
-			parts.unshift(selector);
-			break;
-		}
-		if (current.parentElement) {
-			const siblings = Array.from(current.parentElement.children);
-			const idx = siblings.indexOf(current);
-			selector += ':nth-child(' + (idx + 1) + ')';
-		}
-		parts.unshift(selector);
-		current = current.parentElement;
+const restoreComponentState = (snapshots: StateSnapshot[]): void => {
+	const ng = (window as any).ng;
+	if (snapshots.length === 0) return;
+
+	const bySelector = new Map<string, StateSnapshot[]>();
+	for (const snap of snapshots) {
+		const list = bySelector.get(snap.selector) || [];
+		list.push(snap);
+		bySelector.set(snap.selector, list);
 	}
-	return parts.join(' > ');
+
+	bySelector.forEach(function (snaps, selector) {
+		const elements = document.querySelectorAll(selector);
+		snaps.forEach(function (snap) {
+			const el = elements[snap.index];
+			if (!el) return;
+
+			if (ng && typeof ng.getComponent === 'function') {
+				try {
+					const instance = ng.getComponent(el);
+					if (instance) {
+						const domCounter = snap.properties['__dom_counter'];
+						for (const [key, value] of Object.entries(snap.properties)) {
+							if (key === '__dom_counter') continue;
+							try { (instance as Record<string, unknown>)[key] = value; } catch (_e) { }
+						}
+						if (domCounter !== undefined && typeof domCounter === 'number') {
+							if ('count' in instance) {
+								(instance as Record<string, unknown>)['count'] = domCounter;
+							}
+						}
+						// Force re-render in zoneless
+						if (typeof ng.applyChanges === 'function') ng.applyChanges(el);
+						return;
+					}
+				} catch (_e) { /* ignore */ }
+			}
+
+			// Fallback: patch DOM directly
+			const domCounter = snap.properties['__dom_counter'];
+			if (domCounter !== undefined) {
+				el.querySelectorAll('[class*="value"], [class*="count"]').forEach(function (counterEl) {
+					counterEl.textContent = String(domCounter);
+				});
+			}
+		});
+	});
+};
+
+// ─── Wait for Angular bootstrap ─────────────────────────────
+
+const waitForAngularApp = (): Promise<void> => {
+	return new Promise(function (resolve) {
+		if (window.__ANGULAR_APP__) { resolve(); return; }
+		let attempts = 0;
+		const timer = setInterval(function () {
+			attempts++;
+			if (window.__ANGULAR_APP__ || attempts >= 500) {
+				clearInterval(timer);
+				resolve();
+			}
+		}, 1); // Poll every 1ms for instant detection (was 10ms)
+	});
 };
 
 // ============================================================
@@ -154,176 +180,106 @@ const buildElementSelector = (el: Element): string => {
 // ============================================================
 
 export const handleAngularUpdate = (message: HMRMessage) => {
-	const angularFrameworkCheck = detectCurrentFramework();
-	if (angularFrameworkCheck !== 'angular') return;
+	if (detectCurrentFramework() !== 'angular') return;
 
 	const updateType = message.data.updateType || 'logic';
 
-	// Angular HMR — Zoneless Runtime Preservation: STYLE update
-	// CSS hot swap only — no Angular interaction
 	if ((updateType === 'style' || updateType === 'css-only') && message.data.cssUrl) {
-		swapStylesheet(
-			message.data.cssUrl,
-			message.data.cssBaseName || '',
-			'angular'
-		);
+		swapStylesheet(message.data.cssUrl, message.data.cssBaseName || '', 'angular');
 		return;
 	}
 
-	// Angular HMR — Zoneless Runtime Preservation: TEMPLATE + LOGIC update
-	// Uses SSR HTML replacement + module re-import.
-	// SSR generates inline scripts for event listeners (getRegisterClientScript).
-	handleSSRUpdate(message);
+	handleFullUpdate(message);
 };
 
 // ============================================================
-// SSR-BASED UPDATE (Template + Logic)
+// RE-BOOTSTRAP WITH VIEW TRANSITIONS API
 // ============================================================
 
-// Angular HMR — Zoneless Runtime Preservation: SSR-based update
-// Replaces #root content with server-rendered HTML, re-executes inline scripts,
-// re-imports the module to re-bootstrap Angular.
-// DOM state (scroll, focus, form) is preserved.
-const handleSSRUpdate = (message: HMRMessage) => {
-	const rootContainer = getRootContainer();
-	const stateRoot = rootContainer || document.body;
-	const snapshot = captureDOMSnapshot();
+const handleFullUpdate = (message: HMRMessage) => {
+	// 1. Capture state BEFORE anything changes
+	const componentState = captureComponentState();
+	const scrollState = saveScrollState();
+	const formState = saveFormState();
 
-	// CSS pre-update
+	// 2. CSS pre-update
 	if (message.data.cssUrl) {
 		swapStylesheet(message.data.cssUrl, message.data.cssBaseName || '', 'angular');
 	}
 
-	const newHTML = message.data.html;
-	if (!newHTML) {
-		// Angular HMR — Zoneless Runtime Preservation: no SSR HTML available.
-		// This happens when a new component file is created but not yet wired
-		// into a page (manifest has no entry for it). Skip silently — the
-		// component will be picked up when the page file imports it.
-		// Do NOT reload, as that would wipe counter/form state.
-		return;
+	// 3. Find root selector + index path
+	let rootSelector: string | null = null;
+	const rootContainer = document.getElementById('root') || document.body;
+	const candidates = rootContainer.querySelectorAll('*');
+	for (let i = 0; i < candidates.length; i++) {
+		const tag = candidates[i]!.tagName.toLowerCase();
+		if (tag.includes('-')) { rootSelector = tag; break; }
 	}
 
-	// Angular HMR — Zoneless Runtime Preservation: capture DOM-managed state
-	// The counter value lives in span.counter-value textContent, managed by
-	// a vanilla JS click handler (not Angular binding). Capture it before
-	// replacing the DOM so we can patch the new SSR HTML.
-	let preservedCounterValue: number | null = null;
-	const counterValueEl = document.querySelector('app-counter .counter-value');
-	if (counterValueEl && counterValueEl.textContent) {
-		const count = parseInt(counterValueEl.textContent.trim(), 10);
-		if (!isNaN(count)) {
-			preservedCounterValue = count;
-		}
-	}
-
-	// Angular HMR — Zoneless Runtime Preservation: destroy old app
-	if (window.__ANGULAR_APP__) {
-		try { window.__ANGULAR_APP__.destroy(); } catch (_e) { /* ignore */ }
-		window.__ANGULAR_APP__ = null;
-	}
-
-	// Angular HMR — Zoneless Runtime Preservation: replace #root content with SSR HTML
-	// Patch counter value in the new HTML to preserve DOM-managed state
-	let patchedHTML = newHTML;
-	if (preservedCounterValue !== null) {
-		patchedHTML = patchedHTML.replace(
-			/counter-value">0</g,
-			'counter-value">' + preservedCounterValue + '<'
-		);
-	}
-
-	if (rootContainer) {
-		const rootContent = extractRootContent(patchedHTML);
-		if (rootContent !== null) {
-			rootContainer.innerHTML = rootContent;
-		} else {
-			rootContainer.innerHTML = patchedHTML;
-		}
-
-		// Patch head elements (title, meta, favicon)
-		const headContent = extractHeadContent(patchedHTML);
-		if (headContent) {
-			patchHeadInPlace(headContent);
-
-			// Angular HMR — Zoneless Runtime Preservation: inject SSR <style> tags
-			// patchHeadInPlace ignores <style> elements (no key for them).
-			// Angular SSR puts component styles (app.component.css) in <head> as <style>.
-			// Extract and inject them so component CSS persists after HMR.
-			const tempHead = document.createElement('div');
-			tempHead.innerHTML = headContent;
-			const ssrStyles = tempHead.querySelectorAll('style');
-			ssrStyles.forEach(function (styleEl) {
-				const content = styleEl.textContent || '';
-				// Check if this style already exists in head (avoid duplicates)
-				let alreadyExists = false;
-				document.head.querySelectorAll('style').forEach(function (existing) {
-					if ((existing.textContent || '').trim() === content.trim()) {
-						alreadyExists = true;
-					}
-				});
-				if (!alreadyExists && content.trim()) {
-					const newStyle = document.createElement('style');
-					newStyle.textContent = content;
-					newStyle.setAttribute('data-hmr-angular-ssr', 'true');
-					document.head.appendChild(newStyle);
-				}
-			});
-		}
-	} else {
-		document.body.innerHTML = patchedHTML;
-	}
-
-	// Angular HMR — Zoneless Runtime Preservation: re-execute inline scripts
-	// Scripts set via innerHTML don't execute — recreate them so event listeners attach.
-	const scriptRoot = rootContainer || document.body;
-	const scripts = scriptRoot.querySelectorAll('script');
-	scripts.forEach(function (oldScript) {
-		if (oldScript.type === 'module' || oldScript.hasAttribute('data-hmr-client')) return;
-		if (oldScript.type && oldScript.type !== 'text/javascript') return;
-		const newScript = document.createElement('script');
-		newScript.textContent = oldScript.textContent;
-		if (oldScript.parentNode) {
-			oldScript.parentNode.replaceChild(newScript, oldScript);
-		}
-	});
-
-	// Angular HMR — Zoneless Runtime Preservation: skip re-bootstrap
-	// Set __ANGULAR_APP__ to a stub BEFORE importing the module.
-	// The client entry guard checks: if (__ANGULAR_APP__ && __ANGULAR_HMR__) → register only.
-	// This prevents bootstrapApplication() from re-rendering and overwriting
-	// the SSR HTML (which has the preserved counter state) with defaults.
-	// The SSR HTML + re-executed inline scripts provide full interactivity.
-	window.__ANGULAR_APP__ = { destroy: function () { /* no-op stub */ }, tick: function () { /* no-op stub */ } };
-
-	// Re-import module — guard skips bootstrap, just registers the component
 	const indexPath = findIndexPath(
 		message.data.manifest,
 		message.data.sourceFile,
 		'angular'
 	);
-	if (!indexPath) {
-		// No index path — SSR HTML is already in place and working.
-		// Just restore DOM state and continue.
-		restoreDOMSnapshot(snapshot);
-		return;
-	}
+	if (!indexPath) return;
 
-	const modulePath = indexPath + '?t=' + Date.now();
-	import(/* @vite-ignore */ modulePath)
-		.then(function () {
-			// Angular HMR — Zoneless Runtime Preservation: keep old <style> tags.
-			// Since bootstrap is skipped (stub __ANGULAR_APP__), Angular won't
-			// inject new component styles. Removing old ones would lose styles
-			// from app.component.css (e.g. `code` tag styling).
-			restoreDOMSnapshot(snapshot);
-		})
-		.catch(function (err: unknown) {
-			// Angular HMR — Zoneless Runtime Preservation: don't reload on import failure.
-			// Since bootstrap is skipped (stub __ANGULAR_APP__), the module import
-			// is only for component registration. The SSR HTML + re-executed
-			// inline scripts already provide full interactivity.
-			console.warn('[HMR] Angular module import failed (non-fatal):', err);
-			restoreDOMSnapshot(snapshot);
+	// 4. The async update function — does destroy + re-bootstrap
+	const doUpdate = async (): Promise<void> => {
+		// Destroy old app
+		if (window.__ANGULAR_APP__) {
+			try { window.__ANGULAR_APP__.destroy(); } catch (_e) { }
+			window.__ANGULAR_APP__ = null;
+		}
+
+		// Recreate root element
+		if (rootSelector && !rootContainer.querySelector(rootSelector)) {
+			rootContainer.appendChild(document.createElement(rootSelector));
+		}
+
+		// Skip hydration for re-bootstrap
+		(window as any).__HMR_SKIP_HYDRATION__ = true;
+
+		// Import new module → triggers bootstrapApplication
+		await import(/* @vite-ignore */ indexPath + '?t=' + Date.now());
+		await waitForAngularApp();
+
+		// Immediately restore state (don't wait for requestAnimationFrame, it delays the View Transition)
+		restoreComponentState(componentState);
+
+		// Trigger change detection
+		if (window.__ANGULAR_APP__) {
+			try { (window.__ANGULAR_APP__ as any).tick(); } catch (_e) { }
+		}
+
+		// Restore DOM state
+		restoreFormState(formState);
+		restoreScrollState(scrollState);
+	};
+
+	// 5. Use View Transitions API if available (Chrome 111+)
+	//    The browser captures a screenshot, runs our async update behind it,
+	//    and crossfades to the new content when the update finishes.
+	const doc = document as any;
+	if (typeof doc.startViewTransition === 'function') {
+		// Disable the default crossfade animation for instant swap
+		let styleEl: HTMLStyleElement | null = null;
+		try {
+			styleEl = document.createElement('style');
+			styleEl.textContent = '::view-transition-old(root),::view-transition-new(root){animation:none!important}';
+			document.head.appendChild(styleEl);
+		} catch (_e) { }
+
+		doc.startViewTransition(async () => {
+			await doUpdate();
+		}).finished.then(() => {
+			if (styleEl && styleEl.parentNode) styleEl.remove();
+		}).catch(() => {
+			if (styleEl && styleEl.parentNode) styleEl.remove();
 		});
+	} else {
+		// Fallback for browsers without View Transitions API
+		doUpdate().catch(function (err: unknown) {
+			console.warn('[HMR] Angular update failed (non-fatal):', err);
+		});
+	}
 };

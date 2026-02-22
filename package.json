@@ -41,6 +41,7 @@
 	},
 	"dependencies": {
 		"@angular/compiler": "^21.0.0",
+		"@angular/forms": "19.1.5",
 		"react-refresh": "^0.18.0"
 	},
 	"license": "BSL-1.1",

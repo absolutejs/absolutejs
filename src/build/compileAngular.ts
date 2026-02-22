@@ -510,29 +510,23 @@ import { provideClientHydration } from '@angular/platform-browser';
 import { provideZonelessChangeDetection } from '@angular/core';
 import ${componentClassName} from '${normalizedImportPath}';
 
-// Angular HMR Runtime Layer (Level 3) — Export component for runtime patcher
-export { ${componentClassName} };
-
-// Angular HMR Runtime Layer (Level 3) — Skip bootstrap on re-import when runtime patching
-// When __ANGULAR_HMR__ is active and __ANGULAR_APP__ already exists, this is a
-// re-import triggered by the runtime patcher. The patcher will read the exported
-// component and swap prototypes — no need to destroy/bootstrap.
-if (window.__ANGULAR_APP__ && window.__ANGULAR_HMR__) {
-    // Re-import: just register the updated component, don't bootstrap
-    window.__ANGULAR_HMR__.register('${entry}#${componentClassName}', ${componentClassName});
-} else {
-    // Initial load: destroy any stale app and bootstrap fresh
-    if (window.__ANGULAR_APP__) {
-        try { window.__ANGULAR_APP__.destroy(); } catch (_err) { /* ignore */ }
-        window.__ANGULAR_APP__ = null;
-    }
-
-    bootstrapApplication(${componentClassName}, {
-        providers: [provideClientHydration(), provideZonelessChangeDetection()]
-    }).then(function (appRef) {
-        window.__ANGULAR_APP__ = appRef;
-    });
+// Re-Bootstrap HMR with View Transitions API
+if (window.__ANGULAR_APP__) {
+    try { window.__ANGULAR_APP__.destroy(); } catch (_err) { /* ignore */ }
+    window.__ANGULAR_APP__ = null;
 }
+
+var providers = [provideZonelessChangeDetection()];
+if (!window.__HMR_SKIP_HYDRATION__) {
+    providers.push(provideClientHydration());
+}
+delete window.__HMR_SKIP_HYDRATION__;
+
+bootstrapApplication(${componentClassName}, {
+    providers: providers
+}).then(function (appRef) {
+    window.__ANGULAR_APP__ = appRef;
+});
 `.trim() : `
 import '@angular/compiler';
 import { bootstrapApplication } from '@angular/platform-browser';
