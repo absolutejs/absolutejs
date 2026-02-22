@@ -74,7 +74,7 @@ declare global {
 			register: (type: unknown, id: string) => void;
 		};
 		$RefreshSig$?: () => (type: unknown) => unknown;
-		__HMR_DOM_STATE__?: { count?: number; [key: string]: unknown };
+		__HMR_DOM_STATE__?: { count?: number;[key: string]: unknown };
 		__HMR_FRAMEWORK__?: string;
 		__HMR_MANIFEST__?: Record<string, string>;
 		__HMR_MODULE_UPDATES__?: Array<unknown>;
@@ -88,24 +88,34 @@ declare global {
 		__REACT_ROOT__?: { render: (element: unknown) => void };
 		__SVELTE_COMPONENT__?: Record<string, unknown>;
 		__SVELTE_UNMOUNT__?: () => void;
+		__ANGULAR_APP__?: { destroy: () => void; tick: () => void } | null;
+		__HMR_SKIP_HYDRATION__?: boolean;
+		__HMR_NEW_PAGE_CLASS__?: unknown;
+		__NG_REPLACE_METADATA__?: (...args: unknown[]) => void;
+		__ANGULAR_HMR__?: {
+			register: (id: string, ctor: unknown) => void;
+			applyUpdate: (id: string, newCtor: unknown) => boolean;
+			refresh: () => void;
+			getStats: () => { componentCount: number; updateCount: number };
+		};
 		__VUE_APP__?:
-			| ({
-					unmount: () => void;
-					_instance?: {
+		| ({
+			unmount: () => void;
+			_instance?: {
+				setupState?: Record<string, unknown>;
+				subTree?: {
+					children?: unknown[];
+					component?: {
 						setupState?: Record<string, unknown>;
-						subTree?: {
-							children?: unknown[];
-							component?: {
-								setupState?: Record<string, unknown>;
-								subTree?: unknown;
-							};
-						};
+						subTree?: unknown;
 					};
-			  } & Record<string, unknown>)
-			| null;
+				};
+			};
+		} & Record<string, unknown>)
+		| null;
 		__VUE_HMR_COMPONENTS__?: Record<string, unknown>;
 		htmx?: { process: (element: HTMLElement | Document) => void };
 	}
 }
 
-export {};
+export { };

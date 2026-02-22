@@ -16,9 +16,10 @@ import {
 	handleReactPageRequest,
 	hmr
 } from '../src';
+import { handleAngularPageRequest } from '../src/angular';
 import { networking } from '../src/plugins/networking';
-import { handleVuePageRequest } from '../src/vue';
 import { handleSveltePageRequest } from '../src/svelte';
+import { handleVuePageRequest } from '../src/vue';
 
 const { VueExample } = vueImports;
 
@@ -27,6 +28,7 @@ const buildConfig: BuildConfig = {
 	buildDirectory: 'example/build',
 	htmlDirectory: 'example/html',
 	htmxDirectory: 'example/htmx',
+	angularDirectory: 'example/angular',
 	reactDirectory: 'example/react',
 	publicDirectory: 'example/public',
 	svelteDirectory: 'example/svelte',
@@ -79,6 +81,17 @@ export const server = new Elysia()
 			generateHeadElement({
 				cssPath: asset(result, 'VueExampleCSS'),
 				title: 'AbsoluteJS + Vue'
+			}),
+			{ initialCount: 0 }
+		)
+	)
+	.get('/angular', async () =>
+		handleAngularPageRequest(
+			asset(result, 'AngularExample'),
+			asset(result, 'AngularExampleIndex'),
+			generateHeadElement({
+				cssPath: asset(result, 'AngularExampleCSS'),
+				title: 'AbsoluteJS + Angular'
 			}),
 			{ initialCount: 0 }
 		)

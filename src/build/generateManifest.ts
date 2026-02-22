@@ -40,6 +40,7 @@ export const generateManifest = (outputs: BuildArtifact[], buildPath: string) =>
 		const isReact = segments.some((seg) => seg === 'react');
 		const isVue = segments.some((seg) => seg === 'vue');
 		const isSvelte = segments.some((seg) => seg === 'svelte');
+		const isAngular = segments.some((seg) => seg === 'angular');
 
 		// Check if this is a client component (for official HMR)
 		const isClientComponent = segments.includes('client');
@@ -54,8 +55,8 @@ export const generateManifest = (outputs: BuildArtifact[], buildPath: string) =>
 			// Vue and Svelte pages use their base PascalCase name
 			if (isReact) {
 				manifest[`${pascalName}Page`] = `/${relative}`;
-			} else if (isVue || isSvelte) {
-				// Vue/Svelte pages use base name without suffix
+			} else if (isVue || isSvelte || isAngular) {
+				// Vue/Svelte/Angular pages use base name without suffix
 				manifest[pascalName] = `/${relative}`;
 			} else {
 				// Default behavior for other frameworks

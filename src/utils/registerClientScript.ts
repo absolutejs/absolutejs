@@ -30,6 +30,12 @@ const scriptRegistry = new Map<string, Set<() => void>>();
 let requestCounter = 0;
 const getRequestId = () => `req_${Date.now()}_${++requestCounter}`;
 
+// Allow SSR frameworks to inject a request context getter (e.g. AsyncLocalStorage)
+let ssrContextGetter: (() => string | undefined) | null = null;
+export const setSsrContextGetter = (getter: () => string | undefined) => {
+	ssrContextGetter = getter;
+};
+
 /**
  * Register a client-side script to be injected into the HTML response.
  *
@@ -41,9 +47,10 @@ export const registerClientScript = (
 	script: () => void,
 	requestId?: string
 ) => {
-	// If no requestId provided, try to get it from global context (set by page handler during SSR)
+	// Try to get requestId from explicit arg, then Async Context, then global fallback
 	const id =
 		requestId ||
+		ssrContextGetter?.() ||
 		(globalThis as any).__absolutejs_requestId ||
 		getRequestId();
 
@@ -73,14 +80,17 @@ if (typeof globalThis !== 'undefined') {
  * @param requestId - The request ID to get scripts for
  * @returns Array of script functions, or empty array if none registered
  */
-export const getAndClearClientScripts = (requestId: string) => {
-	const scripts = scriptRegistry.get(requestId);
+export const getAndClearClientScripts = (requestId?: string) => {
+	const id = requestId || ssrContextGetter?.();
+	if (!id) return [];
+
+	const scripts = scriptRegistry.get(id);
 	if (!scripts) {
 		return [];
 	}
 
 	const scriptArray = Array.from(scripts);
-	scriptRegistry.delete(requestId);
+	scriptRegistry.delete(id);
 
 	return scriptArray;
 };
@@ -117,20 +127,20 @@ export const generateClientScriptCode = (scripts: (() => void)[]) => {
 		function executeScript_${index}() {
 			${body}
 		}
-		
+
 		// Try executing immediately if DOM is ready
 		if (document.readyState === 'complete' || document.readyState === 'interactive') {
 			executeScript_${index}();
 		} else {
 			document.addEventListener('DOMContentLoaded', executeScript_${index});
 		}
-		
+
 		// Also try with delays to ensure element is available after hydration
 		setTimeout(executeScript_${index}, 100);
 		setTimeout(executeScript_${index}, 300);
 		setTimeout(executeScript_${index}, 500);
 		setTimeout(executeScript_${index}, 1000);
-		
+
 		// Fallback on window load
 		window.addEventListener('load', executeScript_${index});
 	})();`;

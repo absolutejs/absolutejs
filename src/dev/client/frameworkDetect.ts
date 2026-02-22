@@ -5,6 +5,7 @@ export const detectCurrentFramework = () => {
 	const path = window.location.pathname;
 	if (path === '/vue' || path.startsWith('/vue/')) return 'vue';
 	if (path === '/svelte' || path.startsWith('/svelte/')) return 'svelte';
+	if (path === '/angular' || path.startsWith('/angular/')) return 'angular';
 	if (path === '/htmx' || path.startsWith('/htmx/')) return 'htmx';
 	if (path === '/html' || path.startsWith('/html/')) return 'html';
 	if (path === '/') return 'html';
@@ -42,6 +43,7 @@ export const findIndexPath = (
 	}
 
 	const frameworkPatterns: Record<string, RegExp> = {
+		angular: /angular/i,
 		react: /react/i,
 		svelte: /svelte/i,
 		vue: /vue/i

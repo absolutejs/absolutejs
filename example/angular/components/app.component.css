@@ -1,0 +1,13 @@
+code {
+	background-color: #1a1a1a;
+	padding: 0.2rem 0.4rem;
+	border-radius: 0.25rem;
+	font-size: 0.9em;
+}
+
+@media (prefers-color-scheme: light) {
+	code {
+		background-color: #f0f0f0;
+	}
+}
+

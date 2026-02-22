@@ -213,25 +213,27 @@ export const restoreFormState = (
 ) => {
 	Object.keys(formState).forEach(function (formId) {
 		const isStandalone = formId === '__standalone__';
-		const form = isStandalone
-			? null
-			: document.getElementById(formId) ||
-				document.querySelector(
-					'form:nth-of-type(' +
-						(parseInt(formId.replace('form-', '')) + 1) +
-						')'
-				);
+		const formIndex = parseInt(formId.replace('form-', ''));
+		let form: Element | null = null;
+		if (!isStandalone) {
+			form = document.getElementById(formId);
+			if (!form && !isNaN(formIndex)) {
+				try {
+					form = document.querySelector('form:nth-of-type(' + (formIndex + 1) + ')');
+				} catch (_e) { /* invalid selector */ }
+			}
+		}
 		Object.keys(formState[formId]!).forEach(function (name) {
 			let element: HTMLInputElement | null = null;
 			if (isStandalone) {
 				element = document.querySelector(
 					'input[name="' +
-						name +
-						'"], textarea[name="' +
-						name +
-						'"], select[name="' +
-						name +
-						'"]'
+					name +
+					'"], textarea[name="' +
+					name +
+					'"], select[name="' +
+					name +
+					'"]'
 				);
 				if (!element) {
 					element = document.getElementById(
