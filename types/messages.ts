@@ -23,11 +23,32 @@ export type HydrationErrorMessage = {
 	};
 };
 
+export type SyncStateMessage = {
+	type: 'sync-state';
+	states: Array<{
+		id: string;
+		framework: string;
+		type: 'signal' | 'store' | 'reactive';
+		currentValue: any;
+		subscribers: number;
+	}>;
+};
+
+export type HydrationMetricsMessage = {
+	type: 'hydration-metrics';
+	metrics: {
+		hydrationTimeMs: number;
+		mismatchWarnings: string[];
+	};
+};
+
 export type HMRClientMessage =
 	| PingMessage
 	| ReadyMessage
 	| RequestRebuildMessage
-	| HydrationErrorMessage;
+	| HydrationErrorMessage
+	| SyncStateMessage
+	| HydrationMetricsMessage;
 
 /* Server-to-client message types */
 export type ManifestMessage = {
@@ -198,6 +219,10 @@ export const isValidHMRClientMessage = (
 		case 'request-rebuild':
 			return true;
 		case 'hydration-error':
+			return true;
+		case 'sync-state':
+			return true;
+		case 'hydration-metrics':
 			return true;
 		default:
 			return false;

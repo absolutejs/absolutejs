@@ -30,6 +30,7 @@ export const handleSveltePageRequest: HandleSveltePageRequest = async <
 			'./renderToReadableStream'
 		);
 
+		const renderStart = performance.now();
 		const stream = await renderToReadableStream(
 			ImportedPageComponent,
 			props,
@@ -37,9 +38,35 @@ export const handleSveltePageRequest: HandleSveltePageRequest = async <
 				bootstrapModules: indexPath ? [indexPath] : [],
 				bootstrapScriptContent: `window.__INITIAL_PROPS__=${JSON.stringify(
 					props
-				)}`
+				)};
+				// Intercept mount to measure hydration time
+				window.__MEASURE_HYDRATION__ = function(startTime) {
+					requestAnimationFrame(function() {
+						const hydrationTime = performance.now() - startTime;
+						if (window.__HMR_WS__ && window.__HMR_WS__.readyState === WebSocket.OPEN) {
+							window.__HMR_WS__.send(JSON.stringify({
+								type: 'hydration-metrics',
+								metrics: {
+									hydrationTimeMs: hydrationTime,
+									mismatchWarnings: []
+								}
+							}));
+						}
+					});
+				};`
 			}
 		);
+		const serverRenderTimeMs = performance.now() - renderStart;
+
+		// Track server render time in a global dev registry
+		if (process.env.NODE_ENV === 'development') {
+			(globalThis as any).__ABS_LAST_SSR_METRICS__ = {
+				serverRenderTimeMs,
+				hydrationTimeMs: 0,
+				payloadSizeBytes: 0, // Hard to measure exactly due to stream
+				mismatchWarnings: []
+			};
+		}
 
 		return new Response(stream, {
 			headers: { 'Content-Type': 'text/html' }

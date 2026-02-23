@@ -98,7 +98,7 @@ export const compileSvelte = async (
 				? transpiler.transformSync(preprocessed)
 				: preprocessed;
 
-		const relDir = dirname(relative(svelteRoot, src)).replace(/\\/g, '/');
+		const relDir = dirname(relative(process.cwd(), src)).replace(/\\/g, '/');
 		const baseName = basename(src).replace(/\.svelte(\.(ts|js))?$/, '');
 
 		const importPaths = Array.from(
@@ -118,15 +118,15 @@ export const compileSvelte = async (
 		const generate = (mode: 'server' | 'client') =>
 			(isModule
 				? compileModule(transpiled, {
-						dev: mode === 'client' && dev,
-						filename: src
-					}).js.code
+					dev: mode === 'client' && dev,
+					filename: src
+				}).js.code
 				: compile(transpiled, {
-						css: 'injected',
-						dev: mode === 'client' && dev,
-						filename: src,
-						generate: mode
-					}).js.code
+					css: 'injected',
+					dev: mode === 'client' && dev,
+					filename: src,
+					generate: mode
+				}).js.code
 			).replace(/\.svelte(?:\.(?:ts|js))?(['"])/g, '.js$1');
 
 		const ssrPath = join(pagesDir, relDir, `${baseName}.js`);

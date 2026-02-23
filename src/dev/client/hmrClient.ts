@@ -33,6 +33,24 @@ if (typeof window !== 'undefined') {
 	if (!window.__HMR_SERVER_VERSIONS__) {
 		window.__HMR_SERVER_VERSIONS__ = {};
 	}
+	if (!window.__ABS_STATE_REGISTRY__) {
+		window.__ABS_STATE_REGISTRY__ = new Map();
+	}
+}
+
+// Intercept window.__ABS_STATE_REGISTRY__.set to automatically sync updates
+if (typeof window !== 'undefined' && window.__ABS_STATE_REGISTRY__) {
+	const originalSet = window.__ABS_STATE_REGISTRY__.set.bind(window.__ABS_STATE_REGISTRY__);
+	window.__ABS_STATE_REGISTRY__.set = function (key: string, value: any) {
+		const result = originalSet(key, value);
+		if (window.__HMR_WS__ && window.__HMR_WS__.readyState === WebSocket.OPEN) {
+			window.__HMR_WS__.send(JSON.stringify({
+				type: 'sync-state',
+				states: [value]
+			}));
+		}
+		return result;
+	};
 }
 
 // Catch uncaught runtime errors and show the error overlay
@@ -83,6 +101,16 @@ if (!(window.__HMR_WS__ && window.__HMR_WS__.readyState === WebSocket.OPEN)) {
 				type: 'ready'
 			})
 		);
+
+		// Sync initial state registry on connect
+		if (window.__ABS_STATE_REGISTRY__ && window.__ABS_STATE_REGISTRY__.size > 0) {
+			wsc.send(
+				JSON.stringify({
+					type: 'sync-state',
+					states: Array.from(window.__ABS_STATE_REGISTRY__.values())
+				})
+			);
+		}
 
 		if (hmrState.reconnectTimeout) {
 			clearTimeout(hmrState.reconnectTimeout);
@@ -176,6 +204,17 @@ if (!(window.__HMR_WS__ && window.__HMR_WS__.readyState === WebSocket.OPEN)) {
 					break;
 
 				case 'connected':
+					break;
+
+				case 'state-update':
+					if (window.__ABS_STATE_REGISTRY__ && message.id) {
+						const existing = window.__ABS_STATE_REGISTRY__.get(message.id);
+						if (existing) {
+							// Update local map silently without triggering our broadcast interceptor
+							const originalSet = Map.prototype.set.bind(window.__ABS_STATE_REGISTRY__);
+							originalSet(message.id, { ...existing, currentValue: message.newValue });
+						}
+					}
 					break;
 
 				default:

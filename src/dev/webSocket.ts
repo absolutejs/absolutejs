@@ -56,8 +56,8 @@ export const handleHMRMessage = (
 ) => {
 	try {
 		/* WebSocket messages can come in different formats
-       sometimes they're strings, sometimes they're Buffers, sometimes they're objects...
-       we need to handle all of them because JavaScript is weird like that */
+	   sometimes they're strings, sometimes they're Buffers, sometimes they're objects...
+	   we need to handle all of them because JavaScript is weird like that */
 		let parsedData: unknown;
 
 		if (typeof message === 'string') {
@@ -105,20 +105,57 @@ export const handleHMRMessage = (
 
 			case 'hydration-error':
 				break;
+
+			case 'sync-state':
+				if (data.states && Array.isArray(data.states)) {
+					for (const s of data.states) {
+						state.stateRegistry.set(s.id, s);
+					}
+				}
+				break;
+
+			case 'hydration-metrics':
+				if ((globalThis as any).__ABS_LAST_SSR_METRICS__) {
+					(globalThis as any).__ABS_LAST_SSR_METRICS__.hydrationTimeMs = data.metrics?.hydrationTimeMs || 0;
+					if (data.metrics?.mismatchWarnings) {
+						(globalThis as any).__ABS_LAST_SSR_METRICS__.mismatchWarnings = data.metrics.mismatchWarnings;
+					}
+				}
+				break;
 		}
-	} catch {}
+	} catch { }
+};
+
+export const pushHMREvent = (state: HMRState, event: Omit<HMRState['hmrEvents'][number], 'timestamp'>) => {
+	state.hmrEvents.unshift({
+		...event,
+		timestamp: Date.now()
+	});
+	if (state.hmrEvents.length > 200) {
+		state.hmrEvents.pop();
+	}
 };
 
 /* Send messages to all connected WebSocket clients
    this is how we notify browsers when files change */
 export const broadcastToClients = (
 	state: HMRState,
-	message: { type: string; [key: string]: any }
+	message: { type: string;[key: string]: any }
 ) => {
 	const messageStr = JSON.stringify({
 		...message,
 		timestamp: Date.now()
 	});
+
+	if (message.type === 'update') {
+		pushHMREvent(state, {
+			framework: message.framework || 'unknown',
+			updateType: message.updateType || 'full',
+			durationMs: message.durationMs || 0,
+			fallback: message.fallback || false,
+			reason: message.reason
+		});
+	}
 
 	let sentCount = 0;
 	const clientsToRemove: HMRWebSocket[] = [];

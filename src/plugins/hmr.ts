@@ -6,6 +6,7 @@ import {
 	handleClientDisconnect,
 	handleHMRMessage
 } from '../dev/webSocket';
+import { createDevIntrospectionServer } from '../dev/studio/server';
 
 const STORE_KEY = '__elysiaStore';
 
@@ -35,6 +36,9 @@ const restoreStore = (app: Elysia) => {
 export const hmr = (hmrState: HMRState, manifest: Record<string, string>) => {
 	return (app: Elysia) => {
 		restoreStore(app);
+
+		// Mount Absolute Studio APIs in development
+		createDevIntrospectionServer(app, hmrState, manifest);
 
 		return app
 			.onBeforeHandle(({ request }) => {
