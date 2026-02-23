@@ -28,28 +28,36 @@ export const handleVuePageRequest = async <
 		const hydrationScript = process.env.NODE_ENV === 'development' ? `
 			<script type="module">
 			// Vue specific hydration execution check. Executes sequentially after the framework is initialized.
-			const startTime = performance.now();
+			var fallbackStart = performance.now();
 			requestAnimationFrame(function() {
 				// startTime is a relative performance.now() captured when HMR client initialized
-				const hmrBootTime = window.__hmrBootTime || startTime;
-				const endTime = performance.now();
-				const hydrationTime = endTime - hmrBootTime;
-				if (window.__HMR_WS__ && window.__HMR_WS__.readyState === WebSocket.OPEN) {
-					window.__HMR_WS__.send(JSON.stringify({
-						type: 'hydration-metrics',
-						metrics: {
-							hydrationTimeMs: hydrationTime,
-							mismatchWarnings: []
+				var hmrBootTime = window.__hmrBootTime || fallbackStart;
+				var endTime = performance.now();
+				var hydrationTime = endTime - hmrBootTime;
+				
+				var sendMetrics = function() {
+					if (window.__HMR_WS__) {
+						if (window.__HMR_WS__.readyState === 1) { // WebSocket.OPEN
+							window.__HMR_WS__.send(JSON.stringify({
+								type: 'hydration-metrics',
+								metrics: {
+									hydrationTimeMs: hydrationTime,
+									mismatchWarnings: []
+								}
+							}));
+						} else {
+							setTimeout(sendMetrics, 50);
 						}
-					}));
-				}
+					}
+				};
+				sendMetrics();
 			});
 			</script>
 		` : '';
 
 		const tail = `</div><script>window.__INITIAL_PROPS__=${JSON.stringify(
 			maybeProps ?? {}
-		)}</script>${hydrationScript}<script type="module" src="${indexPath}"></script></body></html>`;
+		)}</script><script type="module" src="${indexPath}"></script>${hydrationScript}</body></html>`;
 
 		const stream = new ReadableStream({
 			start(controller) {

@@ -20,7 +20,7 @@ export const createDevIntrospectionServer = (app: Elysia, hmrState: HMRState, ma
             let type: 'api' | 'page' = url.pathname.startsWith('/api') || url.pathname.startsWith('/trpc') ? 'api' : 'page';
             let ssr = false;
 
-            console.log(`[DevTracker] ${url.pathname} response type:`, response?.constructor?.name, 'instanceof Response:', response instanceof Response);
+            // console.log(`[DevTracker] ${url.pathname} response type:`, response?.constructor?.name, 'instanceof Response:', response instanceof Response);
 
             if (response instanceof Response) {
                 if (response.headers.has('X-Absolute-Framework')) {
