@@ -80,6 +80,30 @@ window.addEventListener('unhandledrejection', function (evt) {
 
 // Prevent multiple WebSocket connections
 if (!(window.__HMR_WS__ && window.__HMR_WS__.readyState === WebSocket.OPEN)) {
+	// Generic framework-agnostic hydration tracking (primarily for React)
+	if (typeof (window as any).__INITIAL_PROPS__ !== 'undefined') {
+		const hmrBootTime = performance.now();
+		(window as any).__hmrBootTime = hmrBootTime;
+
+		if (typeof window.__MEASURE_HYDRATION__ === 'function') {
+			const root = document.getElementById('root') || document.body || document.documentElement;
+			if (root) {
+				const observer = new MutationObserver((mutations, obs) => {
+					observer.disconnect();
+					if (typeof window.__MEASURE_HYDRATION__ === 'function') {
+						window.__MEASURE_HYDRATION__(hmrBootTime);
+					}
+				});
+
+				setTimeout(() => {
+					observer.disconnect();
+				}, 5000);
+
+				observer.observe(root, { childList: true, subtree: true, attributes: true });
+			}
+		}
+	}
+
 	// Determine WebSocket URL
 	const wsHost = location.hostname;
 	const wsPort =
@@ -98,6 +122,8 @@ if (!(window.__HMR_WS__ && window.__HMR_WS__.readyState === WebSocket.OPEN)) {
 		wsc.send(
 			JSON.stringify({
 				framework: currentFramework,
+				route: window.location.pathname,
+				ssrEnabled: typeof (window as any).__INITIAL_PROPS__ !== 'undefined',
 				type: 'ready'
 			})
 		);

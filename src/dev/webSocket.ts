@@ -4,6 +4,7 @@ import type { HMRWebSocket } from '../../types/websocket';
 import { WS_READY_STATE_OPEN } from '../../types/websocket';
 import type { HMRClientMessage } from '../../types/messages';
 import { isValidHMRClientMessage } from '../../types/messages';
+import { setActiveRuntime } from './runtime/devRuntimeState';
 
 /* Magic pt. 2 - when a browser connects to our WebSocket
    We send them the current manifest so they know what files exist
@@ -101,6 +102,17 @@ export const handleHMRMessage = (
 				break;
 
 			case 'ready':
+				if (data.route) {
+					setActiveRuntime({
+						route: data.route,
+						framework: data.framework || 'unknown',
+						type: 'page', // HMR only boots on pages
+						ssrEnabled: data.ssrEnabled || false,
+						hmrStrategy: 'websocket',
+						lastAccessed: Date.now(),
+						accessCount: 1
+					});
+				}
 				break;
 
 			case 'hydration-error':
@@ -109,7 +121,12 @@ export const handleHMRMessage = (
 			case 'sync-state':
 				if (data.states && Array.isArray(data.states)) {
 					for (const s of data.states) {
-						state.stateRegistry.set(s.id, s);
+						// Don't overwrite existing state with undefined/initial values on reconnect
+						// Only allow updates if the new value is meaningful, or if it doesn't exist yet
+						const existing = state.stateRegistry.get(s.id);
+						if (!existing || s.currentValue !== undefined) {
+							state.stateRegistry.set(s.id, s);
+						}
 					}
 				}
 				break;

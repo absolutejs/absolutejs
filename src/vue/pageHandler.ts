@@ -21,12 +21,35 @@ export const handleVuePageRequest = async <
 			render: () => h(ImportedPageComponent, maybeProps ?? null)
 		});
 
+		const renderStart = performance.now();
 		const bodyStream = renderToWebStream(app);
 
 		const head = `<!DOCTYPE html><html>${headTag}<body><div id="root">`;
+		const hydrationScript = process.env.NODE_ENV === 'development' ? `
+			<script type="module">
+			// Vue specific hydration execution check. Executes sequentially after the framework is initialized.
+			const startTime = performance.now();
+			requestAnimationFrame(function() {
+				// startTime is a relative performance.now() captured when HMR client initialized
+				const hmrBootTime = window.__hmrBootTime || startTime;
+				const endTime = performance.now();
+				const hydrationTime = endTime - hmrBootTime;
+				if (window.__HMR_WS__ && window.__HMR_WS__.readyState === WebSocket.OPEN) {
+					window.__HMR_WS__.send(JSON.stringify({
+						type: 'hydration-metrics',
+						metrics: {
+							hydrationTimeMs: hydrationTime,
+							mismatchWarnings: []
+						}
+					}));
+				}
+			});
+			</script>
+		` : '';
+
 		const tail = `</div><script>window.__INITIAL_PROPS__=${JSON.stringify(
 			maybeProps ?? {}
-		)}</script><script type="module" src="${indexPath}"></script></body></html>`;
+		)}</script>${hydrationScript}<script type="module" src="${indexPath}"></script></body></html>`;
 
 		const stream = new ReadableStream({
 			start(controller) {
@@ -45,9 +68,26 @@ export const handleVuePageRequest = async <
 				pumpLoop();
 			}
 		});
+		const serverRenderTimeMs = performance.now() - renderStart;
+
+		if (process.env.NODE_ENV === 'development') {
+			(globalThis as any).__ABS_LAST_SSR_METRICS__ = {
+				serverRenderTimeMs,
+				hydrationTimeMs: 0,
+				payloadSizeBytes: 0,
+				mismatchWarnings: []
+			};
+		}
 
 		return new Response(stream, {
-			headers: { 'Content-Type': 'text/html' }
+			headers: {
+				'Content-Type': 'text/html',
+				...(process.env.NODE_ENV === 'development' ? {
+					'X-Absolute-Framework': 'vue',
+					'X-Absolute-Type': 'page',
+					'X-Absolute-SSR': 'true'
+				} : {})
+			}
 		});
 	} catch (error) {
 		console.error('[SSR] Vue render error:', error);

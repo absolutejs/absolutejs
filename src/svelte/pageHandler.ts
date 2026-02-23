@@ -39,21 +39,26 @@ export const handleSveltePageRequest: HandleSveltePageRequest = async <
 				bootstrapScriptContent: `window.__INITIAL_PROPS__=${JSON.stringify(
 					props
 				)};
-				// Intercept mount to measure hydration time
-				window.__MEASURE_HYDRATION__ = function(startTime) {
-					requestAnimationFrame(function() {
-						const hydrationTime = performance.now() - startTime;
-						if (window.__HMR_WS__ && window.__HMR_WS__.readyState === WebSocket.OPEN) {
-							window.__HMR_WS__.send(JSON.stringify({
-								type: 'hydration-metrics',
-								metrics: {
-									hydrationTimeMs: hydrationTime,
-									mismatchWarnings: []
-								}
-							}));
+				// Execute measurement after the window loads so Svelte has time to hydrate fully
+				window.addEventListener('load', function() {
+					var fallbackStart = performance.now();
+					requestAnimationFrame(function () {
+						var hmrBootTime = window.__hmrBootTime || fallbackStart;
+						var endTime = performance.now();
+						var hydrationTime = endTime - hmrBootTime;
+						if (window.__HMR_WS__) {
+							if (window.__HMR_WS__.readyState === 1) { // 1 = WebSocket.OPEN
+								window.__HMR_WS__.send(JSON.stringify({
+									type: 'hydration-metrics',
+									metrics: {
+										hydrationTimeMs: hydrationTime,
+										mismatchWarnings: []
+									}
+								}));
+							}
 						}
 					});
-				};`
+				});`
 			}
 		);
 		const serverRenderTimeMs = performance.now() - renderStart;
@@ -69,7 +74,14 @@ export const handleSveltePageRequest: HandleSveltePageRequest = async <
 		}
 
 		return new Response(stream, {
-			headers: { 'Content-Type': 'text/html' }
+			headers: {
+				'Content-Type': 'text/html',
+				...(process.env.NODE_ENV === 'development' ? {
+					'X-Absolute-Framework': 'svelte',
+					'X-Absolute-Type': 'page',
+					'X-Absolute-SSR': 'true'
+				} : {})
+			}
 		});
 	} catch (error) {
 		console.error('[SSR] Svelte render error:', error);

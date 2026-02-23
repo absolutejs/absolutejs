@@ -2,13 +2,49 @@ import Elysia from 'elysia';
 import type { HMRState } from '../clientManager';
 import { broadcastToClients } from '../webSocket';
 import { getStudioAppHtml } from './bundler';
+import { setActiveRuntime, getActiveRuntime } from '../runtime/devRuntimeState';
 
 export const createDevIntrospectionServer = (app: Elysia, hmrState: HMRState, manifest: Record<string, string>) => {
     // Dev-only tracking variables
     const runtimeSampleShapes = new Map<string, any>();
 
-    app.onAfterHandle(({ request, response }) => {
+    app.onAfterHandle({ as: 'global' }, ({ request, response }) => {
         const url = new URL(request.url);
+
+        // Track active application route runtime
+        if (
+            !url.pathname.startsWith('/__absolute_dev') &&
+            !url.pathname.startsWith('/__absolute_studio')
+        ) {
+            let fw = 'unknown';
+            let type: 'api' | 'page' = url.pathname.startsWith('/api') || url.pathname.startsWith('/trpc') ? 'api' : 'page';
+            let ssr = false;
+
+            console.log(`[DevTracker] ${url.pathname} response type:`, response?.constructor?.name, 'instanceof Response:', response instanceof Response);
+
+            if (response instanceof Response) {
+                if (response.headers.has('X-Absolute-Framework')) {
+                    fw = response.headers.get('X-Absolute-Framework')!;
+                    ssr = response.headers.get('X-Absolute-SSR') === 'true';
+                    type = (response.headers.get('X-Absolute-Type') as 'page' | 'api') || 'page';
+                }
+            }
+
+            // Only set if we actually identified it as an absolute handled request, or if it's an API route
+            if (fw !== 'unknown' || type === 'api') {
+                setActiveRuntime({
+                    route: url.pathname,
+                    framework: fw,
+                    type,
+                    ssrEnabled: ssr,
+                    hmrStrategy: 'websocket', // Currently static globally
+                    lastAccessed: Date.now(),
+                    accessCount: 1 // Re-calculated by setActiveRuntime logic internally
+                });
+            }
+        }
+
+        // Response sampling logic
         if (
             !url.pathname.startsWith('/__absolute') &&
             (url.pathname.startsWith('/api') || url.pathname.startsWith('/trpc'))
@@ -105,10 +141,15 @@ export const createDevIntrospectionServer = (app: Elysia, hmrState: HMRState, ma
                 return routes.filter((r) => !r.path.startsWith('/__absolute') && r.path !== '/*');
             })
             .get('/runtime', () => {
+                const active = getActiveRuntime();
+                if (!active) {
+                    return {
+                        status: 'no-active-route',
+                        message: 'No application route accessed yet.'
+                    };
+                }
                 return {
-                    pageFramework: 'absolute', // Multi-framework
-                    ssrEnabled: true,
-                    hmrStrategy: 'websocket',
+                    ...active,
                     devMode: true
                 };
             })

@@ -8,6 +8,8 @@ export type PingMessage = {
 export type ReadyMessage = {
 	type: 'ready';
 	framework?: string | null;
+	route?: string;
+	ssrEnabled?: boolean;
 };
 
 export type RequestRebuildMessage = {
