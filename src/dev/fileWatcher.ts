@@ -2,6 +2,7 @@ import { watch } from 'fs';
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'path';
 import type { BuildConfig } from '../../types/build';
+import { sendTelemetryEvent } from '../cli/telemetryEvent';
 import type { HMRState } from './clientManager';
 import { addFileToGraph, removeFileFromGraph } from './dependencyGraph';
 import { getWatchPaths, shouldIgnorePath } from './pathUtils';
@@ -59,7 +60,13 @@ export const startFileWatching = (
 				if (event === 'rename' && !existsSync(fullPath)) {
 					try {
 						removeFileFromGraph(state.dependencyGraph, fullPath);
-					} catch {}
+					} catch (err) {
+						sendTelemetryEvent('hmr:graph-error', {
+							operation: 'remove',
+							message:
+								err instanceof Error ? err.message : String(err)
+						});
+					}
 
 					// Still trigger rebuild for files that depended on this one
 					onFileChange(fullPath);
@@ -74,7 +81,13 @@ export const startFileWatching = (
 
 					try {
 						addFileToGraph(state.dependencyGraph, fullPath);
-					} catch {}
+					} catch (err) {
+						sendTelemetryEvent('hmr:graph-error', {
+							operation: 'add',
+							message:
+								err instanceof Error ? err.message : String(err)
+						});
+					}
 				}
 			}
 		);

@@ -1,4 +1,5 @@
 import { readFile, writeFile } from 'node:fs/promises';
+import { sendTelemetryEvent } from '../cli/telemetryEvent';
 import { toPascal } from '../utils/stringModifiers';
 import { scanEntryPoints } from './scanEntryPoints';
 
@@ -50,6 +51,11 @@ export const updateAssetPaths = async (
 				console.error(
 					`error: no manifest entry for ${ext.slice(1)} "${name}" referenced in ${filePath}`
 				);
+				sendTelemetryEvent('build:missing-manifest-entry', {
+					assetName: name,
+					assetType: ext.slice(1),
+					htmlFile: filePath
+				});
 
 				return match;
 			}
