@@ -1085,7 +1085,15 @@ export const triggerRebuild = async (
 									},
 									type: 'angular-update'
 								});
-							} catch {}
+							} catch (err) {
+								sendTelemetryEvent('hmr:error', {
+									framework: 'angular',
+									message:
+										err instanceof Error
+											? err.message
+											: String(err)
+								});
+							}
 						}
 					}
 				}
