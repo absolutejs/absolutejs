@@ -56,6 +56,10 @@ const loadAngularDeps = async () => {
 			} | null>
 		]);
 
+	if (process.env.NODE_ENV !== 'development') {
+		core.enableProdMode();
+	}
+
 	// Initialize DominoAdapter once
 	try {
 		const DominoAdapter = (platformServer as any).ɵDominoAdapter as
@@ -66,6 +70,53 @@ const loadAngularDeps = async () => {
 		}
 	} catch (err) {
 		console.error('Failed to initialize DominoAdapter:', err);
+	}
+
+	// Patch domino's head prototype once — these polyfills fix missing
+	// DOM APIs that Angular SSR expects (querySelector, querySelectorAll,
+	// children). Applied to the prototype so every domino document
+	// inherits them automatically.
+	if (domino?.createWindow) {
+		try {
+			const probeWin = domino.createWindow('', '/');
+			const headProto = Object.getPrototypeOf(probeWin.document.head);
+
+			if (headProto && typeof headProto.querySelectorAll !== 'function') {
+				headProto.querySelectorAll = function (sel: string) {
+					const doc = this.ownerDocument;
+					if (doc?.querySelectorAll) {
+						const all = doc.querySelectorAll(sel);
+						const self = this;
+
+						return Array.from(all).filter(
+							(el: any) =>
+								el.parentElement === self || self.contains(el)
+						);
+					}
+
+					return [];
+				};
+			}
+
+			if (headProto && typeof headProto.querySelector !== 'function') {
+				headProto.querySelector = function (sel: string) {
+					const doc = this.ownerDocument;
+					if (doc?.querySelector) {
+						const el = doc.querySelector(sel);
+						if (
+							el &&
+							(el.parentElement === this || this.contains(el))
+						) {
+							return el;
+						}
+					}
+
+					return null;
+				};
+			}
+		} catch {
+			// Probe failed — per-document polyfills will handle it
+		}
 	}
 
 	return {
@@ -156,6 +207,23 @@ const getSsrSanitizer = (deps: AngularDeps) => {
 
 // --- Domino document creation helper ---
 
+const patchChildren = (head: any) => {
+	const elementNodes = Array.from(head.childNodes).filter(
+		(node: any) => node.nodeType === 1
+	);
+	const childrenArray: any[] = [];
+	elementNodes.forEach((node, index) => {
+		childrenArray[index] = node;
+	});
+	childrenArray.length = elementNodes.length;
+	Object.defineProperty(head, 'children', {
+		value: childrenArray,
+		writable: false,
+		enumerable: true,
+		configurable: false
+	});
+};
+
 const createDominoDocument = (
 	htmlString: string,
 	domino: AngularDeps['domino']
@@ -176,82 +244,13 @@ const createDominoDocument = (
 			}
 		}
 
-		// Ensure head has querySelectorAll
-		if (doc.head && typeof doc.head.querySelectorAll !== 'function') {
-			try {
-				Object.defineProperty(doc.head, 'querySelectorAll', {
-					value: (sel: string) => {
-						if (doc.querySelectorAll) {
-							const all = doc.querySelectorAll(sel);
-
-							return Array.from(all).filter(
-								(el: any) =>
-									el.parentElement === doc.head ||
-									doc.head.contains(el)
-							);
-						}
-
-						return [];
-					},
-					writable: true,
-					enumerable: false,
-					configurable: true
-				});
-			} catch {
-				// Property may be read-only
-			}
-		}
-
-		// Ensure head has querySelector
-		if (doc.head && typeof doc.head.querySelector !== 'function') {
-			try {
-				Object.defineProperty(doc.head, 'querySelector', {
-					value: (sel: string) => {
-						if (doc.querySelector) {
-							const el = doc.querySelector(sel);
-							if (
-								el &&
-								(el.parentElement === doc.head ||
-									doc.head.contains(el))
-							) {
-								return el;
-							}
-						}
-
-						return null;
-					},
-					writable: true,
-					enumerable: false,
-					configurable: true
-				});
-			} catch {
-				// Property may be read-only
-			}
-		}
-
-		// Ensure head has children property
-		const patchChildren = (head: any) => {
-			const elementNodes = Array.from(head.childNodes).filter(
-				(node: any) => node.nodeType === 1
-			);
-			const childrenArray: any[] = [];
-			elementNodes.forEach((node, index) => {
-				childrenArray[index] = node;
-			});
-			childrenArray.length = elementNodes.length;
-			Object.defineProperty(head, 'children', {
-				value: childrenArray,
-				writable: false,
-				enumerable: true,
-				configurable: false
-			});
-		};
-
-		if (!doc.head.children) {
-			patchChildren(doc.head);
-		} else {
+		// children is instance-specific (depends on actual child nodes)
+		// — must be patched per-document unlike querySelector/querySelectorAll
+		// which are patched on the prototype once during init.
+		if (doc.head) {
 			const children = doc.head.children;
 			if (
+				!children ||
 				typeof children.length === 'undefined' ||
 				(children[0] === undefined && children.length > 0)
 			) {
@@ -283,6 +282,26 @@ const injectBeforeClose = (html: string, snippet: string) => {
 	return html + snippet;
 };
 
+// --- Last-used props cache for HMR ---
+// Stores { props, headTag } from the most recent real request per route
+// so HMR re-renders with the same data the user last saw (Vite/Next behavior).
+
+type CachedRouteData = {
+	props: Record<string, unknown> | undefined;
+	headTag: `<head>${string}</head>`;
+};
+
+const routePropsCache = new Map<string, CachedRouteData>();
+
+export const getCachedRouteData = (pagePath: string) =>
+	routePropsCache.get(pagePath);
+
+// --- Selector cache ---
+// Component selectors never change for a given pagePath, so we cache them
+// to avoid re-reading ɵcmp metadata / decorator annotations every request.
+
+const selectorCache = new Map<string, string>();
+
 // --- Handler ---
 
 export const handleAngularPageRequest = async <
@@ -298,6 +317,11 @@ export const handleAngularPageRequest = async <
 	return angularSsrContext.run(requestId, async () => {
 		try {
 			const [maybeProps] = props;
+
+			// Cache props + headTag for HMR replay — strip query strings
+			// so cache-busted HMR paths match the original manifest path.
+			const cacheKey = pagePath.split('?')[0] ?? pagePath;
+			routePropsCache.set(cacheKey, { props: maybeProps, headTag });
 
 			const deps = await getAngularDeps();
 
@@ -320,25 +344,29 @@ export const handleAngularPageRequest = async <
 				}
 			}
 
-			// Read selector from component metadata (ɵcmp) or decorator annotations
-			const cmpDef = (PageComponent as any).ɵcmp;
-			let selector = cmpDef?.selectors?.[0]?.[0];
+			// Read selector — cached per pagePath since it never changes
+			let selector = selectorCache.get(pagePath);
 			if (!selector) {
-				const annotations =
-					(PageComponent as any).__annotations__ ||
-					(PageComponent as any).decorators?.map(
-						(d: any) => d.annotation
-					);
-				if (annotations) {
-					for (const ann of annotations) {
-						if (ann?.selector) {
-							selector = ann.selector;
-							break;
+				const cmpDef = (PageComponent as any).ɵcmp;
+				selector = cmpDef?.selectors?.[0]?.[0];
+				if (!selector) {
+					const annotations =
+						(PageComponent as any).__annotations__ ||
+						(PageComponent as any).decorators?.map(
+							(d: any) => d.annotation
+						);
+					if (annotations) {
+						for (const ann of annotations) {
+							if (ann?.selector) {
+								selector = ann.selector;
+								break;
+							}
 						}
 					}
 				}
+				selector = selector || 'ng-app';
+				selectorCache.set(pagePath, selector);
 			}
-			selector = selector || 'ng-app';
 
 			const htmlString = `<!DOCTYPE html><html>${headTag}<body><${selector}></${selector}></body></html>`;
 			const document = createDominoDocument(htmlString, deps.domino);

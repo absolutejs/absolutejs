@@ -532,16 +532,12 @@ bootstrapApplication(${componentClassName}, {
     window.__ANGULAR_APP__ = appRef;
 });
 `.trim() : `
-import '@angular/compiler';
 import { bootstrapApplication } from '@angular/platform-browser';
 import { provideClientHydration } from '@angular/platform-browser';
-import { provideZonelessChangeDetection } from '@angular/core';
+import { enableProdMode, provideZonelessChangeDetection } from '@angular/core';
 import ${componentClassName} from '${normalizedImportPath}';
 
-if (window.__ANGULAR_APP__) {
-    try { window.__ANGULAR_APP__.destroy(); } catch (_err) { /* ignore */ }
-    window.__ANGULAR_APP__ = null;
-}
+enableProdMode();
 
 bootstrapApplication(${componentClassName}, {
     providers: [provideClientHydration(), provideZonelessChangeDetection()]

@@ -181,22 +181,39 @@ const restoreComponentState = (snapshots: StateSnapshot[]): void => {
 	});
 };
 
-// ─── Wait for Angular bootstrap ─────────────────────────────
+// ─── Wait for Angular bootstrap (event-based, no polling) ───
+// Installs a property setter trap on window.__ANGULAR_APP__ that
+// resolves the promise the instant the bootstrap code writes to it.
+// Falls back to a short timeout in case the setter is bypassed.
 
 const waitForAngularApp = (): Promise<void> => {
+	if (window.__ANGULAR_APP__) return Promise.resolve();
+
 	return new Promise(function (resolve) {
-		if (window.__ANGULAR_APP__) {
-			resolve();
-			return;
-		}
-		let attempts = 0;
-		const timer = setInterval(function () {
-			attempts++;
-			if (window.__ANGULAR_APP__ || attempts >= 500) {
-				clearInterval(timer);
+		const timeout = setTimeout(resolve, 500);
+
+		// Capture any value already on the property
+		let stored = window.__ANGULAR_APP__;
+
+		Object.defineProperty(window, '__ANGULAR_APP__', {
+			get() {
+				return stored;
+			},
+			set(val) {
+				stored = val;
+				// Restore as a normal property so future writes work normally
+				Object.defineProperty(window, '__ANGULAR_APP__', {
+					value: val,
+					writable: true,
+					configurable: true,
+					enumerable: true
+				});
+				clearTimeout(timeout);
 				resolve();
-			}
-		}, 1); // Poll every 1ms for instant detection (was 10ms)
+			},
+			configurable: true,
+			enumerable: true
+		});
 	});
 };
 

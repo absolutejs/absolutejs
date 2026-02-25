@@ -17,6 +17,7 @@ import {
 } from './moduleVersionTracker';
 import { cleanStaleAssets, populateAssetStore } from './assetStore';
 import { detectFramework } from './pathUtils';
+import { toPascal } from '../utils/stringModifiers';
 import type { ResolvedBuildPaths } from './configResolver';
 import { broadcastToClients } from './webSocket';
 
@@ -960,9 +961,6 @@ export const triggerRebuild = async (
 					// in the manifest (only page entries exist), causing null HTML.
 					let pagesToUpdate = angularPageFiles;
 					if (pagesToUpdate.length === 0 && state.dependencyGraph) {
-						const { getAffectedFiles } = await import(
-							'./dependencyGraph'
-						);
 						const resolvedPages = new Set<string>();
 						for (const componentFile of angularFiles) {
 							const affected = getAffectedFiles(
@@ -984,12 +982,8 @@ export const triggerRebuild = async (
 					}
 
 					// For CSS-only changes, send CSS-only update (preserves component state!)
+					// Skip the full SSR re-render — stylesheet swap is sufficient.
 					if (isCssOnlyChange && angularCssFiles.length > 0) {
-						const { basename } = await import('node:path');
-						const { toPascal } = await import(
-							'../utils/stringModifiers'
-						);
-
 						const cssFile = angularCssFiles[0];
 						if (cssFile) {
 							const cssBaseName = basename(cssFile, '.css');
@@ -1010,53 +1004,52 @@ export const triggerRebuild = async (
 								type: 'angular-update'
 							});
 						}
-					}
+					} else {
+						// Process each affected Angular page (non-CSS changes only)
+						for (const angularPagePath of pagesToUpdate) {
+							try {
+								const fileName = basename(angularPagePath);
+								const baseName = fileName.replace(
+									/\.[tj]s$/,
+									''
+								);
+								const pascalName = toPascal(baseName);
 
-					// Process each affected Angular page
-					for (const angularPagePath of pagesToUpdate) {
-						try {
-							const { basename } = await import('node:path');
-							const { toPascal } = await import(
-								'../utils/stringModifiers'
-							);
-							const fileName = basename(angularPagePath);
-							const baseName = fileName.replace(/\.[tj]s$/, '');
-							const pascalName = toPascal(baseName);
+								// Get CSS URL from manifest
+								const cssKey = `${pascalName}CSS`;
+								const cssUrl = manifest[cssKey] || null;
 
-							// Get CSS URL from manifest
-							const cssKey = `${pascalName}CSS`;
-							const cssUrl = manifest[cssKey] || null;
-
-							// Angular HMR — Zoneless Runtime Preservation: SSR re-render for all update types.
-							// SSR generates inline scripts for event listeners (getRegisterClientScript).
-							// Client-side-only re-bootstrap cannot replicate this mechanism.
-							const { handleAngularUpdate } = await import(
-								'./simpleAngularHMR'
-							);
-							const newHTML = await handleAngularUpdate(
-								angularPagePath,
-								manifest,
-								state.resolvedPaths.buildDir
-							);
-
-							logger.hmrUpdate(
-								angularPagePath,
-								'angular',
-								duration
-							);
-							broadcastToClients(state, {
-								data: {
-									framework: 'angular',
-									html: newHTML,
-									cssUrl,
-									cssBaseName: baseName,
-									updateType: angularUpdateType,
+								// Angular HMR — Zoneless Runtime Preservation: SSR re-render for all update types.
+								// SSR generates inline scripts for event listeners (getRegisterClientScript).
+								// Client-side-only re-bootstrap cannot replicate this mechanism.
+								const { handleAngularUpdate } = await import(
+									'./simpleAngularHMR'
+								);
+								const newHTML = await handleAngularUpdate(
+									angularPagePath,
 									manifest,
-									sourceFile: angularPagePath
-								},
-								type: 'angular-update'
-							});
-						} catch {}
+									state.resolvedPaths.buildDir
+								);
+
+								logger.hmrUpdate(
+									angularPagePath,
+									'angular',
+									duration
+								);
+								broadcastToClients(state, {
+									data: {
+										framework: 'angular',
+										html: newHTML,
+										cssUrl,
+										cssBaseName: baseName,
+										updateType: angularUpdateType,
+										manifest,
+										sourceFile: angularPagePath
+									},
+									type: 'angular-update'
+								});
+							} catch {}
+						}
 					}
 				}
 			}

@@ -8,8 +8,8 @@ import { toPascal } from '../utils/stringModifiers';
    When an Angular file changes:
    1. The rebuild already compiled Angular and updated the manifest
    2. Derive manifest keys dynamically from the source file path
-   3. Use manifest paths to call handleAngularPageRequest (which does its own import)
-   4. Re-render the page
+   3. Replay last-used props from the route cache (Vite/Next behavior)
+   4. Use manifest paths to call handleAngularPageRequest (which does its own import)
    5. Return the new HTML for patching */
 export const handleAngularUpdate = async (
 	angularFilePath: string,
@@ -44,6 +44,7 @@ export const handleAngularUpdate = async (
 				'[Angular HMR] Available manifest keys:',
 				Object.keys(manifest).join(', ')
 			);
+
 			return null;
 		}
 
@@ -54,6 +55,7 @@ export const handleAngularUpdate = async (
 				'[Angular HMR] Index path not found in manifest for:',
 				indexKey
 			);
+
 			return null;
 		}
 
@@ -62,22 +64,37 @@ export const handleAngularUpdate = async (
 		const cacheBuster = `?t=${Date.now()}`;
 		const serverPathWithCacheBuster = `${serverPath}${cacheBuster}`;
 
-		const { handleAngularPageRequest } = await import(
+		const { handleAngularPageRequest, getCachedRouteData } = await import(
 			'../angular/pageHandler'
 		);
 		const { generateHeadElement } = await import(
 			'../utils/generateHeadElement'
 		);
 
-		const response = await handleAngularPageRequest(
-			serverPathWithCacheBuster,
-			indexPath,
+		// Replay last-used props from the route cache — the user sees
+		// the same data they had on their last real request (Vite/Next behavior).
+		// Falls back to the original serverPath key for cache lookup since
+		// HMR paths have cache-busters appended.
+		const cached = getCachedRouteData(serverPath);
+		const headTag =
+			cached?.headTag ??
 			generateHeadElement({
 				cssPath: manifest[cssKey] || '',
 				title: 'AbsoluteJS + Angular'
-			}),
-			{ initialCount: 0 }
-		);
+			});
+
+		const response = cached?.props
+			? await handleAngularPageRequest(
+					serverPathWithCacheBuster,
+					indexPath,
+					headTag,
+					cached.props
+				)
+			: await handleAngularPageRequest(
+					serverPathWithCacheBuster,
+					indexPath,
+					headTag
+				);
 
 		if (response.status !== 200) {
 			console.warn(
@@ -98,6 +115,7 @@ export const handleAngularUpdate = async (
 		return html;
 	} catch (err) {
 		console.error('[Angular HMR] Error in handleAngularUpdate:', err);
+
 		return null;
 	}
 };
