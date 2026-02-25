@@ -1,9 +1,6 @@
 // Patches Angular SSR's DominoAdapter to guard against null doc.head
 // Must be imported before any Angular SSR modules are used (top-level await)
 
-// Minimal passthrough kept for type compatibility with pageHandlers.ts
-export const createDocumentProxy = (doc: any): any => doc;
-
 const patchesApplied = (async () => {
 	try {
 		const platformServer = await import('@angular/platform-server');

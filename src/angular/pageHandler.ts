@@ -8,11 +8,6 @@ import {
 	generateClientScriptCode
 } from '../utils/registerClientScript';
 
-// Identity passthrough — inlined here to avoid a static import of
-// angularPatch.ts, whose top-level IIFE imports @angular/platform-server
-// and would trigger JIT compilation before @angular/compiler is loaded.
-const createDocumentProxy = (doc: any): any => doc;
-
 const angularSsrContext = new AsyncLocalStorage<string>();
 setSsrContextGetter(() => angularSsrContext.getStore());
 
@@ -111,13 +106,12 @@ const bypassValue = (value: string) =>
 // Deferred: SsrSanitizer class is built after deps load because it
 // extends DomSanitizer which comes from the lazy import. We cache the
 // class + singleton instance after the first request.
-let SsrSanitizerClass: (new () => any) | null = null;
 let ssrSanitizer: any = null;
 
 const getSsrSanitizer = (deps: AngularDeps) => {
 	if (ssrSanitizer) return ssrSanitizer;
 
-	SsrSanitizerClass = class extends deps.DomSanitizer {
+	const SsrSanitizerClass = class extends deps.DomSanitizer {
 		sanitize(ctx: any, value: any): string | null {
 			if (value == null) return null;
 			let strValue: string;
@@ -265,7 +259,7 @@ const createDominoDocument = (
 			}
 		}
 
-		return createDocumentProxy(doc) as string | Document;
+		return doc as string | Document;
 	} catch (err) {
 		console.error(
 			'Failed to parse document with domino, using string:',
@@ -389,10 +383,7 @@ export const handleAngularPageRequest = async <
 				)(PageComponent, { providers }, context);
 
 			let html = await deps.renderApplication(bootstrap as any, {
-				document:
-					typeof document !== 'string' && document
-						? createDocumentProxy(document)
-						: document,
+				document,
 				url: '/',
 				platformProviders: []
 			});
