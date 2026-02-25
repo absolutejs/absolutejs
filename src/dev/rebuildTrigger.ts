@@ -15,6 +15,7 @@ import {
 	incrementModuleVersions,
 	serializeModuleVersions
 } from './moduleVersionTracker';
+import { sendTelemetryEvent } from '../cli/telemetryEvent';
 import { cleanStaleAssets, populateAssetStore } from './assetStore';
 import { detectFramework } from './pathUtils';
 import type { ResolvedBuildPaths } from './configResolver';
@@ -380,6 +381,12 @@ export const triggerRebuild = async (
 
 		const duration = Date.now() - startTime;
 
+		sendTelemetryEvent('hmr:rebuild-complete', {
+			framework: affectedFrameworks[0] ?? 'unknown',
+			durationMs: duration,
+			fileCount: filesToRebuild?.length ?? 0
+		});
+
 		// Populate the in-memory asset store BEFORE broadcasting to clients.
 		// Clients that receive HMR messages (e.g. react-update) will immediately
 		// try to fetch new bundles via HTTP. If the asset store hasn't been
@@ -501,7 +508,13 @@ export const triggerRebuild = async (
 							},
 							type: 'react-update'
 						});
-					} catch {}
+					} catch (err) {
+						sendTelemetryEvent('hmr:error', {
+							framework: 'react',
+							message:
+								err instanceof Error ? err.message : String(err)
+						});
+					}
 				}
 			}
 
@@ -637,7 +650,15 @@ export const triggerRebuild = async (
 									type: 'html-update'
 								});
 							}
-						} catch {}
+						} catch (err) {
+							sendTelemetryEvent('hmr:error', {
+								framework: 'html',
+								message:
+									err instanceof Error
+										? err.message
+										: String(err)
+							});
+						}
 					}
 				}
 			}
@@ -789,7 +810,15 @@ export const triggerRebuild = async (
 								},
 								type: 'vue-update'
 							});
-						} catch {}
+						} catch (err) {
+							sendTelemetryEvent('hmr:error', {
+								framework: 'vue',
+								message:
+									err instanceof Error
+										? err.message
+										: String(err)
+							});
+						}
 					}
 				}
 			}
@@ -900,7 +929,15 @@ export const triggerRebuild = async (
 								},
 								type: 'svelte-update'
 							});
-						} catch {}
+						} catch (err) {
+							sendTelemetryEvent('hmr:error', {
+								framework: 'svelte',
+								message:
+									err instanceof Error
+										? err.message
+										: String(err)
+							});
+						}
 					}
 				}
 			}
@@ -1031,7 +1068,15 @@ export const triggerRebuild = async (
 									type: 'htmx-update'
 								});
 							}
-						} catch {}
+						} catch (err) {
+							sendTelemetryEvent('hmr:error', {
+								framework: 'htmx',
+								message:
+									err instanceof Error
+										? err.message
+										: String(err)
+							});
+						}
 					}
 				}
 			}
@@ -1124,6 +1169,13 @@ export const triggerRebuild = async (
 
 		return manifest;
 	} catch (error) {
+		sendTelemetryEvent('hmr:rebuild-error', {
+			framework: affectedFrameworks[0] ?? 'unknown',
+			frameworks: affectedFrameworks,
+			message: error instanceof Error ? error.message : String(error),
+			fileCount: filesToRebuild?.length ?? 0,
+			durationMs: Date.now() - startTime
+		});
 		const errorData = extractBuildErrorDetails(
 			error,
 			affectedFrameworks,

@@ -102,9 +102,6 @@ export const handleHMRMessage = (
 
 			case 'ready':
 				break;
-
-			case 'hydration-error':
-				break;
 		}
 	} catch {}
 };

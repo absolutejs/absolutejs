@@ -6,6 +6,7 @@ import type { DbScripts, InteractiveHandler } from '../../../types/cli';
 import { DEFAULT_PORT } from '../../constants';
 import { formatTimestamp } from '../../utils/logger';
 import { createInteractiveHandler } from '../interactive';
+import { sendTelemetryEvent } from '../telemetryEvent';
 import {
 	COMPOSE_PATH,
 	isWSLEnvironment,
@@ -84,10 +85,16 @@ export const dev = async (serverEntry: string): Promise<void> => {
 	};
 
 	let serverProcess = spawnServer();
+	const sessionStart = Date.now();
+	sendTelemetryEvent('dev:start', { entry: serverEntry });
 
 	const cleanup = async (exitCode = 0): Promise<void> => {
 		if (cleaning) return;
 		cleaning = true;
+		sendTelemetryEvent('dev:session-duration', {
+			duration: Math.round((Date.now() - sessionStart) / 1000),
+			entry: serverEntry
+		});
 		if (interactive) interactive.dispose();
 		if (paused) sendSignal('SIGCONT');
 		try {
@@ -214,6 +221,10 @@ export const dev = async (serverEntry: string): Promise<void> => {
 					`Server exited (code ${exitCode}), restarting...`
 				)
 			);
+			sendTelemetryEvent('dev:server-crash', {
+				exitCode,
+				entry: serverEntry
+			});
 			serverProcess = spawnServer();
 		}
 	};
