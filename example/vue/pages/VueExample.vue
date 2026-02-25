@@ -25,7 +25,7 @@ const isOpen = ref(false);
 				<a href="/htmx">HTMX</a>
 				<a href="/svelte">Svelte</a>
 				<a href="/vue">Vue</a>
-				<!-- <a href="/angular">Angular</a> -->
+				<a href="/angular">Angular</a>
 			</nav>
 		</details>
 	</header>

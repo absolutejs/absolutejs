@@ -18,6 +18,7 @@ import {
 import { sendTelemetryEvent } from '../cli/telemetryEvent';
 import { cleanStaleAssets, populateAssetStore } from './assetStore';
 import { detectFramework } from './pathUtils';
+import { toPascal } from '../utils/stringModifiers';
 import type { ResolvedBuildPaths } from './configResolver';
 import { broadcastToClients } from './webSocket';
 
@@ -937,6 +938,162 @@ export const triggerRebuild = async (
 										? err.message
 										: String(err)
 							});
+						}
+					}
+				}
+			}
+
+			// Angular HMR Optimization — Re-render and send HTML patch with update classification
+			// NOTE: Angular HMR happens AFTER the rebuild completes, so we have the updated manifest
+			if (
+				affectedFrameworks.includes('angular') &&
+				filesToRebuild &&
+				config.angularDirectory
+			) {
+				const angularFiles = filesToRebuild.filter(
+					(file) =>
+						detectFramework(file, state.resolvedPaths) === 'angular'
+				);
+
+				if (angularFiles.length > 0) {
+					// Angular HMR Optimization — Classify update type for smart HMR
+					// style: only .css files changed → CSS hot-swap, no destroy
+					// template: only .html files changed → DOM patch, no destroy
+					// logic: .ts files changed → full destroy + bootstrap
+					const angularTsFiles = angularFiles.filter((f) =>
+						f.endsWith('.ts')
+					);
+					const angularHtmlFiles = angularFiles.filter((f) =>
+						f.endsWith('.html')
+					);
+					const angularCssFiles = angularFiles.filter((f) =>
+						f.endsWith('.css')
+					);
+
+					const isCssOnlyChange =
+						angularTsFiles.length === 0 &&
+						angularHtmlFiles.length === 0 &&
+						angularCssFiles.length > 0;
+					const isTemplateOnlyChange =
+						angularTsFiles.length === 0 &&
+						angularHtmlFiles.length > 0 &&
+						angularCssFiles.length === 0;
+
+					// Determine updateType for the WebSocket message
+					let angularUpdateType: 'style' | 'template' | 'logic' =
+						'logic';
+					if (isCssOnlyChange) angularUpdateType = 'style';
+					else if (isTemplateOnlyChange)
+						angularUpdateType = 'template';
+
+					// Find Angular page files from changed files
+					const angularPageFiles = angularFiles.filter((f) =>
+						f.replace(/\\/g, '/').includes('/pages/')
+					);
+
+					// If no page files changed directly, resolve component files
+					// to their parent pages via the dependency graph.
+					// Without this, component file changes (e.g. app.component.html)
+					// get passed directly to the SSR handler which can't find them
+					// in the manifest (only page entries exist), causing null HTML.
+					let pagesToUpdate = angularPageFiles;
+					if (pagesToUpdate.length === 0 && state.dependencyGraph) {
+						const resolvedPages = new Set<string>();
+						for (const componentFile of angularFiles) {
+							const affected = getAffectedFiles(
+								state.dependencyGraph,
+								componentFile
+							);
+							for (const file of affected) {
+								if (
+									file
+										.replace(/\\/g, '/')
+										.includes('/pages/') &&
+									file.endsWith('.ts')
+								) {
+									resolvedPages.add(file);
+								}
+							}
+						}
+						pagesToUpdate = Array.from(resolvedPages);
+					}
+
+					// For CSS-only changes, send CSS-only update (preserves component state!)
+					// Skip the full SSR re-render — stylesheet swap is sufficient.
+					if (isCssOnlyChange && angularCssFiles.length > 0) {
+						const cssFile = angularCssFiles[0];
+						if (cssFile) {
+							const cssBaseName = basename(cssFile, '.css');
+							const cssPascalName = toPascal(cssBaseName);
+							const cssKey = `${cssPascalName}CSS`;
+							const cssUrl = manifest[cssKey] || null;
+
+							logger.cssUpdate(cssFile, 'angular', duration);
+							broadcastToClients(state, {
+								data: {
+									framework: 'angular',
+									updateType: 'style',
+									cssUrl,
+									cssBaseName,
+									manifest,
+									sourceFile: cssFile
+								},
+								type: 'angular-update'
+							});
+						}
+					} else {
+						// Process each affected Angular page (non-CSS changes only)
+						for (const angularPagePath of pagesToUpdate) {
+							try {
+								const fileName = basename(angularPagePath);
+								const baseName = fileName.replace(
+									/\.[tj]s$/,
+									''
+								);
+								const pascalName = toPascal(baseName);
+
+								// Get CSS URL from manifest
+								const cssKey = `${pascalName}CSS`;
+								const cssUrl = manifest[cssKey] || null;
+
+								// Angular HMR — Zoneless Runtime Preservation: SSR re-render for all update types.
+								// SSR generates inline scripts for event listeners (getRegisterClientScript).
+								// Client-side-only re-bootstrap cannot replicate this mechanism.
+								const { handleAngularUpdate } = await import(
+									'./simpleAngularHMR'
+								);
+								const newHTML = await handleAngularUpdate(
+									angularPagePath,
+									manifest,
+									state.resolvedPaths.buildDir
+								);
+
+								logger.hmrUpdate(
+									angularPagePath,
+									'angular',
+									duration
+								);
+								broadcastToClients(state, {
+									data: {
+										framework: 'angular',
+										html: newHTML,
+										cssUrl,
+										cssBaseName: baseName,
+										updateType: angularUpdateType,
+										manifest,
+										sourceFile: angularPagePath
+									},
+									type: 'angular-update'
+								});
+							} catch (err) {
+								sendTelemetryEvent('hmr:error', {
+									framework: 'angular',
+									message:
+										err instanceof Error
+											? err.message
+											: String(err)
+								});
+							}
 						}
 					}
 				}

@@ -42,6 +42,7 @@ export const handleRebuildComplete = (message: {
 
 	if (
 		message.data.affectedFrameworks &&
+		!message.data.affectedFrameworks.includes('angular') &&
 		!message.data.affectedFrameworks.includes('react') &&
 		!message.data.affectedFrameworks.includes('html') &&
 		!message.data.affectedFrameworks.includes('htmx') &&
@@ -63,6 +64,7 @@ export const handleModuleUpdate = (message: {
 	};
 }) => {
 	const hasHMRHandler =
+		message.data.framework === 'angular' ||
 		message.data.framework === 'react' ||
 		message.data.framework === 'vue' ||
 		message.data.framework === 'svelte' ||

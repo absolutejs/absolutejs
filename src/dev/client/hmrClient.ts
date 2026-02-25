@@ -6,6 +6,7 @@ import '../../../types/client'; // Window global type extensions
 import { hmrState } from '../../../types/client';
 import { detectCurrentFramework } from './frameworkDetect';
 import { hideErrorOverlay, showErrorOverlay } from './errorOverlay';
+import { handleAngularUpdate } from './handlers/angular';
 import { handleReactUpdate } from './handlers/react';
 import { handleHTMLUpdate, handleScriptUpdate } from './handlers/html';
 import { handleHTMXUpdate } from './handlers/htmx';
@@ -101,6 +102,7 @@ if (!(window.__HMR_WS__ && window.__HMR_WS__.readyState === WebSocket.OPEN)) {
 			const message = JSON.parse(event.data as string);
 
 			if (
+				message.type === 'angular-update' ||
 				message.type === 'react-update' ||
 				message.type === 'html-update' ||
 				message.type === 'htmx-update' ||
@@ -162,6 +164,11 @@ if (!(window.__HMR_WS__ && window.__HMR_WS__.readyState === WebSocket.OPEN)) {
 				case 'vue-update':
 					hideErrorOverlay();
 					handleVueUpdate(message);
+					break;
+
+				case 'angular-update':
+					hideErrorOverlay();
+					handleAngularUpdate(message);
 					break;
 
 				case 'rebuild-error':

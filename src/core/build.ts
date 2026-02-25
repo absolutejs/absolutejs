@@ -9,6 +9,7 @@ import { rm } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 import { cwd, env, exit } from 'node:process';
 import { $, build as bunBuild, BuildArtifact, Glob } from 'bun';
+import type { compileAngular } from '../build/compileAngular';
 import type { compileSvelte } from '../build/compileSvelte';
 import type { compileVue } from '../build/compileVue';
 import { generateManifest } from '../build/generateManifest';
@@ -203,7 +204,8 @@ export const build = async ({
 		allHtmlCssEntries,
 		allHtmxCssEntries,
 		allReactCssEntries,
-		allSvelteCssEntries
+		allSvelteCssEntries,
+		allAngularCssEntries
 	] = await Promise.all([
 		tailwindPromise,
 		reactIndexesPath ? scanEntryPoints(reactIndexesPath, '*.tsx') : [],
@@ -214,7 +216,8 @@ export const build = async ({
 		htmlDir ? scanEntryPoints(join(htmlDir, 'styles'), '*.css') : [],
 		htmxDir ? scanEntryPoints(join(htmxDir, 'styles'), '*.css') : [],
 		reactDir ? scanEntryPoints(join(reactDir, 'styles'), '*.css') : [],
-		svelteDir ? scanEntryPoints(join(svelteDir, 'styles'), '*.css') : []
+		svelteDir ? scanEntryPoints(join(svelteDir, 'styles'), '*.css') : [],
+		angularDir ? scanEntryPoints(join(angularDir, 'styles'), '*.css') : []
 	]);
 	// When HTML/HTMX pages change, we must include their CSS and scripts in the build
 	// so the manifest has those entries for updateAssetPaths. Otherwise incremental
@@ -281,22 +284,32 @@ export const build = async ({
 	const svelteCssEntries = isIncremental
 		? filterToIncrementalEntries(allSvelteCssEntries, (entry) => entry)
 		: allSvelteCssEntries;
+	const angularCssEntries = isIncremental
+		? filterToIncrementalEntries(allAngularCssEntries, (entry) => entry)
+		: allAngularCssEntries;
 
 	// Start HMR client build early — it has no dependency on compile/bunBuild
 	// results and will resolve during the compile phase for free.
 	const hmrClientBundlePromise =
 		hmr && (htmlDir || htmxDir) ? buildHMRClient() : undefined;
 
+	// Angular HMR Optimization — Skip Svelte/Vue compilation when their entries are
+	// empty during incremental builds (avoids importing/initializing unused compilers)
+	const shouldCompileSvelte = svelteDir && svelteEntries.length > 0;
+	const shouldCompileVue = vueDir && vueEntries.length > 0;
+	const shouldCompileAngular = angularDir && angularEntries.length > 0;
+
 	const [
 		{ svelteServerPaths, svelteIndexPaths, svelteClientPaths },
-		{ vueServerPaths, vueIndexPaths, vueClientPaths, vueCssPaths }
+		{ vueServerPaths, vueIndexPaths, vueClientPaths, vueCssPaths },
+		{ clientPaths: angularClientPaths, serverPaths: angularServerPaths }
 	] = await Promise.all([
-		svelteDir
+		shouldCompileSvelte
 			? import('../build/compileSvelte').then(
 					(mod) =>
 						mod.compileSvelte(
 							svelteEntries,
-							svelteDir,
+							svelteDir!,
 							new Map(),
 							hmr
 						) as ReturnType<typeof compileSvelte>
@@ -306,10 +319,10 @@ export const build = async ({
 					svelteIndexPaths: [] as string[],
 					svelteServerPaths: [] as string[]
 				},
-		vueDir
+		shouldCompileVue
 			? import('../build/compileVue').then(
 					(mod) =>
-						mod.compileVue(vueEntries, vueDir, hmr) as ReturnType<
+						mod.compileVue(vueEntries, vueDir!, hmr) as ReturnType<
 							typeof compileVue
 						>
 				)
@@ -318,7 +331,17 @@ export const build = async ({
 					vueCssPaths: [] as string[],
 					vueIndexPaths: [] as string[],
 					vueServerPaths: [] as string[]
-				}
+				},
+		shouldCompileAngular
+			? import('../build/compileAngular').then(
+					(mod) =>
+						mod.compileAngular(
+							angularEntries,
+							angularDir!,
+							hmr
+						) as ReturnType<typeof compileAngular>
+				)
+			: { clientPaths: [] as string[], serverPaths: [] as string[] }
 	]);
 
 	const serverEntryPoints = [...svelteServerPaths, ...vueServerPaths];
@@ -328,14 +351,16 @@ export const build = async ({
 		...svelteClientPaths,
 		...htmlEntries,
 		...vueIndexPaths,
-		...vueClientPaths
+		...vueClientPaths,
+		...angularClientPaths
 	];
 	const cssEntryPoints = [
 		...vueCssPaths,
 		...reactCssEntries,
 		...svelteCssEntries,
 		...htmlCssEntries,
-		...htmxCssEntries
+		...htmxCssEntries,
+		...angularCssEntries
 	];
 
 	if (
@@ -614,6 +639,13 @@ export const build = async ({
 		const [baseName] = fileWithHash.split(`.${artifact.hash}.`);
 		if (!baseName) continue;
 		manifest[toPascal(baseName)] = artifact.path;
+	}
+
+	// Angular server pages need absolute file paths for SSR import(),
+	// same pattern as Svelte/Vue above.
+	for (const serverPath of angularServerPaths) {
+		const fileBase = basename(serverPath, '.js');
+		manifest[toPascal(fileBase)] = resolve(serverPath);
 	}
 
 	// For HTML/HTMX, copy pages on full builds or if HTML/HTMX files changed

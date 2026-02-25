@@ -86,6 +86,43 @@ export const extractDependencies = (filePath: string) => {
 			}
 		}
 
+		// Angular: detect templateUrl and styleUrls/styleUrl in @Component decorators
+		const templateUrlRegex = /templateUrl\s*:\s*['"]([^'"]+)['"]/g;
+		const styleUrlSingularRegex = /styleUrl\s*:\s*['"]([^'"]+)['"]/g;
+		const styleUrlsRegex = /styleUrls\s*:\s*\[([^\]]*)\]/g;
+		const stringLiteralRegex = /['"]([^'"]+)['"]/g;
+
+		while ((match = templateUrlRegex.exec(content)) !== null) {
+			if (match[1]) {
+				const resolved = resolveImportPath(match[1], filePath);
+				if (resolved) dependencies.push(resolved);
+			}
+		}
+
+		while ((match = styleUrlSingularRegex.exec(content)) !== null) {
+			if (match[1]) {
+				const resolved = resolveImportPath(match[1], filePath);
+				if (resolved) dependencies.push(resolved);
+			}
+		}
+
+		while ((match = styleUrlsRegex.exec(content)) !== null) {
+			if (match[1]) {
+				let urlMatch;
+				while (
+					(urlMatch = stringLiteralRegex.exec(match[1])) !== null
+				) {
+					if (urlMatch[1]) {
+						const resolved = resolveImportPath(
+							urlMatch[1],
+							filePath
+						);
+						if (resolved) dependencies.push(resolved);
+					}
+				}
+			}
+		}
+
 		return dependencies;
 	} catch {
 		return [];

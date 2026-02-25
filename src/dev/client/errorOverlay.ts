@@ -163,6 +163,7 @@ export const showErrorOverlay = (opts: ErrorOverlayOptions) => {
 	content.appendChild(footer);
 	card.appendChild(content);
 	overlay.appendChild(card);
+	if (!document.body) return;
 	document.body.appendChild(overlay);
 	errorOverlayElement = overlay;
 };
