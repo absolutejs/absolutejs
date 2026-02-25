@@ -2,10 +2,294 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import type { AngularComponent } from '../../types/angular';
 import { ssrErrorPage } from '../utils/ssrErrorPage';
 import { toScreamingSnake } from '../utils/stringModifiers';
-import { setSsrContextGetter } from '../utils/registerClientScript';
+import {
+	setSsrContextGetter,
+	getAndClearClientScripts,
+	generateClientScriptCode
+} from '../utils/registerClientScript';
+
+// Identity passthrough — inlined here to avoid a static import of
+// angularPatch.ts, whose top-level IIFE imports @angular/platform-server
+// and would trigger JIT compilation before @angular/compiler is loaded.
+const createDocumentProxy = (doc: any): any => doc;
 
 const angularSsrContext = new AsyncLocalStorage<string>();
 setSsrContextGetter(() => angularSsrContext.getStore());
+
+// --- Module-level lazy singleton for Angular dependencies ---
+
+type AngularDeps = {
+	bootstrapApplication: any;
+	DomSanitizer: any;
+	provideClientHydration: any;
+	renderApplication: any;
+	provideServerRendering: any;
+	APP_BASE_HREF: any;
+	provideZonelessChangeDetection: any;
+	Sanitizer: any;
+	SecurityContext: any;
+	domino: {
+		createWindow?: (html: string, url: string) => { document: Document };
+	} | null;
+};
+
+let angularDeps: Promise<AngularDeps> | null = null;
+
+const loadAngularDeps = async () => {
+	// JIT compiler MUST be fully loaded before any other Angular import.
+	// Angular packages like @angular/common contain partially compiled
+	// injectables (e.g. PlatformLocation) that need the JIT compiler
+	// facade to be registered first.
+	await import('@angular/compiler');
+
+	// angularPatch imports @angular/platform-server internally, so it
+	// must also run after the compiler is available.
+	await import('./angularPatch').then((mod) => mod.default);
+
+	// Now safe to load all Angular packages in parallel
+	const [platformBrowser, platformServer, common, core, domino] =
+		await Promise.all([
+			import('@angular/platform-browser'),
+			import('@angular/platform-server'),
+			import('@angular/common'),
+			import('@angular/core'),
+			import('domino' as string).catch(() => null) as Promise<{
+				createWindow?: (
+					html: string,
+					url: string
+				) => { document: Document };
+			} | null>
+		]);
+
+	// Initialize DominoAdapter once
+	try {
+		const DominoAdapter = (platformServer as any).ɵDominoAdapter as
+			| { makeCurrent?: () => void }
+			| undefined;
+		if (DominoAdapter?.makeCurrent) {
+			DominoAdapter.makeCurrent();
+		}
+	} catch (err) {
+		console.error('Failed to initialize DominoAdapter:', err);
+	}
+
+	return {
+		bootstrapApplication: platformBrowser.bootstrapApplication,
+		DomSanitizer: platformBrowser.DomSanitizer,
+		provideClientHydration: platformBrowser.provideClientHydration,
+		renderApplication: platformServer.renderApplication,
+		provideServerRendering: platformServer.provideServerRendering,
+		APP_BASE_HREF: common.APP_BASE_HREF,
+		provideZonelessChangeDetection: core.provideZonelessChangeDetection,
+		Sanitizer: core.Sanitizer,
+		SecurityContext: core.SecurityContext,
+		domino
+	};
+};
+
+const getAngularDeps = () => {
+	if (!angularDeps) {
+		angularDeps = loadAngularDeps();
+	}
+
+	return angularDeps;
+};
+
+// --- Module-level SSR Sanitizer ---
+
+const escapeHtml = (str: string) => {
+	return String(str)
+		.replace(/&/g, '&amp;')
+		.replace(/</g, '&lt;')
+		.replace(/>/g, '&gt;')
+		.replace(/"/g, '&quot;');
+};
+
+const bypassValue = (value: string) =>
+	({ changingThisBreaksApplicationSecurity: value }) as any;
+
+// Deferred: SsrSanitizer class is built after deps load because it
+// extends DomSanitizer which comes from the lazy import. We cache the
+// class + singleton instance after the first request.
+let SsrSanitizerClass: (new () => any) | null = null;
+let ssrSanitizer: any = null;
+
+const getSsrSanitizer = (deps: AngularDeps) => {
+	if (ssrSanitizer) return ssrSanitizer;
+
+	SsrSanitizerClass = class extends deps.DomSanitizer {
+		sanitize(ctx: any, value: any): string | null {
+			if (value == null) return null;
+			let strValue: string;
+			if (typeof value === 'string') {
+				strValue = value;
+			} else if (
+				typeof value === 'object' &&
+				'changingThisBreaksApplicationSecurity' in value
+			) {
+				strValue = String(value.changingThisBreaksApplicationSecurity);
+			} else {
+				strValue = String(value);
+			}
+
+			if (ctx === deps.SecurityContext?.HTML || ctx === 1) {
+				return escapeHtml(strValue);
+			}
+
+			return strValue;
+		}
+		bypassSecurityTrustHtml(value: string) {
+			return bypassValue(escapeHtml(value));
+		}
+		bypassSecurityTrustStyle(value: string) {
+			return bypassValue(value);
+		}
+		bypassSecurityTrustScript(value: string) {
+			return bypassValue(value);
+		}
+		bypassSecurityTrustUrl(value: string) {
+			return bypassValue(value);
+		}
+		bypassSecurityTrustResourceUrl(value: string) {
+			return bypassValue(value);
+		}
+	};
+
+	ssrSanitizer = new SsrSanitizerClass();
+
+	return ssrSanitizer;
+};
+
+// --- Domino document creation helper ---
+
+const createDominoDocument = (
+	htmlString: string,
+	domino: AngularDeps['domino']
+) => {
+	if (!domino?.createWindow) return htmlString as string | Document;
+
+	try {
+		const win = domino.createWindow(htmlString, '/');
+		const doc = win.document;
+
+		if (!doc.head) {
+			const head = doc.createElement('head');
+			if (doc.documentElement) {
+				doc.documentElement.insertBefore(
+					head,
+					doc.documentElement.firstChild
+				);
+			}
+		}
+
+		// Ensure head has querySelectorAll
+		if (doc.head && typeof doc.head.querySelectorAll !== 'function') {
+			try {
+				Object.defineProperty(doc.head, 'querySelectorAll', {
+					value: (sel: string) => {
+						if (doc.querySelectorAll) {
+							const all = doc.querySelectorAll(sel);
+
+							return Array.from(all).filter(
+								(el: any) =>
+									el.parentElement === doc.head ||
+									doc.head.contains(el)
+							);
+						}
+
+						return [];
+					},
+					writable: true,
+					enumerable: false,
+					configurable: true
+				});
+			} catch {
+				// Property may be read-only
+			}
+		}
+
+		// Ensure head has querySelector
+		if (doc.head && typeof doc.head.querySelector !== 'function') {
+			try {
+				Object.defineProperty(doc.head, 'querySelector', {
+					value: (sel: string) => {
+						if (doc.querySelector) {
+							const el = doc.querySelector(sel);
+							if (
+								el &&
+								(el.parentElement === doc.head ||
+									doc.head.contains(el))
+							) {
+								return el;
+							}
+						}
+
+						return null;
+					},
+					writable: true,
+					enumerable: false,
+					configurable: true
+				});
+			} catch {
+				// Property may be read-only
+			}
+		}
+
+		// Ensure head has children property
+		const patchChildren = (head: any) => {
+			const elementNodes = Array.from(head.childNodes).filter(
+				(node: any) => node.nodeType === 1
+			);
+			const childrenArray: any[] = [];
+			elementNodes.forEach((node, index) => {
+				childrenArray[index] = node;
+			});
+			childrenArray.length = elementNodes.length;
+			Object.defineProperty(head, 'children', {
+				value: childrenArray,
+				writable: false,
+				enumerable: true,
+				configurable: false
+			});
+		};
+
+		if (!doc.head.children) {
+			patchChildren(doc.head);
+		} else {
+			const children = doc.head.children;
+			if (
+				typeof children.length === 'undefined' ||
+				(children[0] === undefined && children.length > 0)
+			) {
+				patchChildren(doc.head);
+			}
+		}
+
+		return createDocumentProxy(doc) as string | Document;
+	} catch (err) {
+		console.error(
+			'Failed to parse document with domino, using string:',
+			err
+		);
+
+		return htmlString as string | Document;
+	}
+};
+
+// --- Inject HTML helper ---
+
+const injectBeforeClose = (html: string, snippet: string) => {
+	if (html.includes('</body>')) {
+		return html.replace('</body>', snippet + '</body>');
+	}
+	if (html.includes('</html>')) {
+		return html.replace('</html>', snippet + '</html>');
+	}
+
+	return html + snippet;
+};
+
+// --- Handler ---
 
 export const handleAngularPageRequest = async <
 	Props extends Record<string, unknown> = Record<never, never>
@@ -15,20 +299,19 @@ export const handleAngularPageRequest = async <
 	headTag: `<head>${string}</head>` = '<head></head>',
 	...props: keyof Props extends never ? [] : [props: Props]
 ) => {
-	// Generate a unique request ID for this SSR request
 	const requestId = `angular_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
 
 	return angularSsrContext.run(requestId, async () => {
 		try {
 			const [maybeProps] = props;
 
+			const deps = await getAngularDeps();
+
 			// Dynamic import — pagePath is an absolute path from the manifest
 			const pageModule = await import(pagePath);
-			const PageComponent: AngularComponent<unknown> =
-				pageModule.default;
+			const PageComponent: AngularComponent<unknown> = pageModule.default;
 
-			// Auto-discover InjectionToken exports from the module.
-			// Angular's InjectionToken instances expose ngMetadataName === 'InjectionToken'.
+			// Auto-discover InjectionToken exports from the module
 			const tokenMap = new Map<string, unknown>();
 			for (const [exportName, exportValue] of Object.entries(
 				pageModule
@@ -43,333 +326,43 @@ export const handleAngularPageRequest = async <
 				}
 			}
 
-			// Angular HMR Runtime Layer (Level 3) — Ensure JIT compiler is available
-			// for server-side rendering. Must be imported BEFORE Angular platform modules.
-			await import('@angular/compiler');
-
-			// Lazy-load Angular deps — only when this handler is actually called
-			const [
-				angularPatchModule,
-				{ bootstrapApplication, DomSanitizer, provideClientHydration },
-				{ renderApplication, provideServerRendering },
-				{ APP_BASE_HREF },
-				{ provideZonelessChangeDetection, Sanitizer, SecurityContext }
-			] = await Promise.all([
-				import('./angularPatch'),
-				import('@angular/platform-browser'),
-				import('@angular/platform-server'),
-				import('@angular/common'),
-				import('@angular/core')
-			]);
-
-			const escapeHtml = (str: string) => {
-				return String(str)
-					.replace(/&/g, '&amp;')
-					.replace(/</g, '&lt;')
-					.replace(/>/g, '&gt;')
-					.replace(/"/g, '&quot;');
-			};
-
-			// SSR-safe sanitizer: during server-side rendering there is no
-			// browser XSS risk, so we bypass Angular's DomSanitizerImpl which
-			// depends on a real DOCUMENT and throws NG0904 with domino.
-			const SsrSanitizer = class extends DomSanitizer {
-				sanitize(ctx: any, value: any): string | null {
-					if (value == null) return null;
-					let strValue: string;
-					if (typeof value === 'string') {
-						strValue = value;
-					} else if (
-						typeof value === 'object' &&
-						'changingThisBreaksApplicationSecurity' in value
-					) {
-						strValue = String(value.changingThisBreaksApplicationSecurity);
-					} else {
-						strValue = String(value);
-					}
-
-					if (ctx === SecurityContext?.HTML || ctx === 1) {
-						return escapeHtml(strValue);
-					}
-					return strValue;
-				}
-				bypassSecurityTrustHtml(value: string) {
-					return {
-						changingThisBreaksApplicationSecurity: escapeHtml(value)
-					} as any;
-				}
-				bypassSecurityTrustStyle(value: string) {
-					return {
-						changingThisBreaksApplicationSecurity: value
-					} as any;
-				}
-				bypassSecurityTrustScript(value: string) {
-					return {
-						changingThisBreaksApplicationSecurity: value
-					} as any;
-				}
-				bypassSecurityTrustUrl(value: string) {
-					return {
-						changingThisBreaksApplicationSecurity: value
-					} as any;
-				}
-				bypassSecurityTrustResourceUrl(value: string) {
-					return {
-						changingThisBreaksApplicationSecurity: value
-					} as any;
-				}
-			};
-
-			const { createDocumentProxy } = angularPatchModule;
-
-			// Ensure patches are applied
-			await angularPatchModule.default;
-
-
-			// Lazy-load registerClientScript utilities
-			const {
-				getAndClearClientScripts,
-				generateClientScriptCode
-			} = await import('../utils/registerClientScript');
-
-			// Initialize Domino adapter
-			try {
-				const platformServer = await import(
-					'@angular/platform-server'
-				);
-				const DominoAdapter = (
-					platformServer as any
-				).ɵDominoAdapter as
-					| { makeCurrent?: () => void }
-					| undefined;
-				if (DominoAdapter?.makeCurrent) {
-					DominoAdapter.makeCurrent();
-				}
-			} catch (error) {
-				console.error(
-					'Failed to initialize DominoAdapter:',
-					error
-				);
-			}
-
-			// Read the selector from Angular's compiled component metadata (ɵcmp).
-			// This gives us the custom element tag the component expects to hydrate into.
-			// In JIT mode, ɵcmp is created at decorator execution time by @angular/compiler.
-			// Fallback: check decorator annotations for selector.
+			// Read selector from component metadata (ɵcmp) or decorator annotations
 			const cmpDef = (PageComponent as any).ɵcmp;
 			let selector = cmpDef?.selectors?.[0]?.[0];
 			if (!selector) {
-				// JIT fallback: read from decorator annotations
-				const annotations = (PageComponent as any).__annotations__ ||
-					(PageComponent as any).decorators?.map((d: any) => d.annotation);
+				const annotations =
+					(PageComponent as any).__annotations__ ||
+					(PageComponent as any).decorators?.map(
+						(d: any) => d.annotation
+					);
 				if (annotations) {
 					for (const ann of annotations) {
-						if (ann?.selector) { selector = ann.selector; break; }
+						if (ann?.selector) {
+							selector = ann.selector;
+							break;
+						}
 					}
 				}
 			}
 			selector = selector || 'ng-app';
 
 			const htmlString = `<!DOCTYPE html><html>${headTag}<body><${selector}></${selector}></body></html>`;
+			const document = createDominoDocument(htmlString, deps.domino);
 
-			// Parse with domino to ensure doc.head exists when Angular SSR accesses it
-			let document: string | Document = htmlString as
-				| string
-				| Document;
-			try {
-				const domino = (await import(
-					'domino' as string
-				).catch(() => null)) as {
-					createWindow?: (
-						html: string,
-						url: string
-					) => { document: Document };
-				} | null;
-				if (domino?.createWindow) {
-					const window = domino.createWindow(
-						htmlString,
-						'/'
-					);
-					const doc = window.document;
-
-					if (!doc.head) {
-						const head = doc.createElement('head');
-						if (doc.documentElement) {
-							doc.documentElement.insertBefore(
-								head,
-								doc.documentElement.firstChild
-							);
-						}
-					}
-
-					// Ensure head has querySelectorAll/querySelector
-					if (
-						doc.head &&
-						typeof doc.head.querySelectorAll !==
-						'function'
-					) {
-						try {
-							Object.defineProperty(
-								doc.head,
-								'querySelectorAll',
-								{
-									value: (
-										selector: string
-									) => {
-										if (
-											doc.querySelectorAll
-										) {
-											const all =
-												doc.querySelectorAll(
-													selector
-												);
-
-											return Array.from(
-												all
-											).filter(
-												(el: any) =>
-													el.parentElement ===
-													doc.head ||
-													doc.head.contains(
-														el
-													)
-											);
-										}
-
-										return [];
-									},
-									writable: true,
-									enumerable: false,
-									configurable: true
-								}
-							);
-						} catch {
-							// Property may be read-only
-						}
-					}
-					if (
-						doc.head &&
-						typeof doc.head.querySelector !==
-						'function'
-					) {
-						try {
-							Object.defineProperty(
-								doc.head,
-								'querySelector',
-								{
-									value: (
-										selector: string
-									) => {
-										if (doc.querySelector) {
-											const el =
-												doc.querySelector(
-													selector
-												);
-											if (
-												el &&
-												(el.parentElement ===
-													doc.head ||
-													doc.head.contains(
-														el
-													))
-											) {
-												return el;
-											}
-										}
-
-										return null;
-									},
-									writable: true,
-									enumerable: false,
-									configurable: true
-								}
-							);
-						} catch {
-							// Property may be read-only
-						}
-					}
-
-					// Ensure head has children property
-					if (!doc.head.children) {
-						const elementNodes = Array.from(
-							doc.head.childNodes
-						).filter(
-							(node: any) => node.nodeType === 1
-						);
-						const childrenArray: any[] = [];
-						elementNodes.forEach((node, index) => {
-							childrenArray[index] = node;
-						});
-						childrenArray.length =
-							elementNodes.length;
-						Object.defineProperty(
-							doc.head,
-							'children',
-							{
-								value: childrenArray,
-								writable: false,
-								enumerable: true,
-								configurable: false
-							}
-						);
-					} else {
-						const children = doc.head.children;
-						if (
-							typeof children.length ===
-							'undefined' ||
-							(children[0] === undefined &&
-								children.length > 0)
-						) {
-							const elementNodes = Array.from(
-								doc.head.childNodes
-							).filter(
-								(node: any) =>
-									node.nodeType === 1
-							);
-							const childrenArray: any[] = [];
-							elementNodes.forEach(
-								(node, index) => {
-									childrenArray[index] =
-										node;
-								}
-							);
-							childrenArray.length =
-								elementNodes.length;
-							Object.defineProperty(
-								doc.head,
-								'children',
-								{
-									value: childrenArray,
-									writable: false,
-									enumerable: true,
-									configurable: false
-								}
-							);
-						}
-					}
-
-					document = createDocumentProxy(doc);
-				}
-			} catch (error) {
-				console.error(
-					'Failed to parse document with domino, using string:',
-					error
-				);
-				document = htmlString;
-			}
-
-			// Build providers array
-			const ssrSanitizer = new SsrSanitizer();
+			// Build providers
+			const sanitizer = getSsrSanitizer(deps);
 			const providers: any[] = [
-				provideServerRendering(),
-				provideClientHydration(),
-				provideZonelessChangeDetection(),
-				{ provide: APP_BASE_HREF, useValue: '/' },
-				{ provide: DomSanitizer, useValue: ssrSanitizer },
-				{ provide: Sanitizer, useValue: ssrSanitizer }
+				deps.provideServerRendering(),
+				deps.provideClientHydration(),
+				deps.provideZonelessChangeDetection(),
+				{ provide: deps.APP_BASE_HREF, useValue: '/' },
+				{
+					provide: deps.DomSanitizer,
+					useValue: sanitizer
+				},
+				{ provide: deps.Sanitizer, useValue: sanitizer }
 			];
 
-			// Auto-map props to injection tokens via SCREAMING_SNAKE naming convention
 			if (maybeProps) {
 				for (const [propName, propValue] of Object.entries(
 					maybeProps
@@ -385,79 +378,41 @@ export const handleAngularPageRequest = async <
 				}
 			}
 
-			// Bootstrap function for Angular SSR
+			// Bootstrap + render
 			const bootstrap = (context: any) =>
 				(
-					bootstrapApplication as (
+					deps.bootstrapApplication as (
 						component: AngularComponent<unknown>,
 						config?: { providers?: unknown[] },
 						context?: any
 					) => Promise<unknown>
-				)(
-					PageComponent,
-					{ providers },
-					context
-				);
+				)(PageComponent, { providers }, context);
 
-			// Convert Document object to proxy if needed
-			let finalDocument: string | Document = document;
-			if (
-				typeof document !== 'string' &&
-				document
-			) {
-				finalDocument = createDocumentProxy(document);
-			}
+			let html = await deps.renderApplication(bootstrap as any, {
+				document:
+					typeof document !== 'string' && document
+						? createDocumentProxy(document)
+						: document,
+				url: '/',
+				platformProviders: []
+			});
 
-			let html = await renderApplication(
-				bootstrap as any,
-				{
-					document: finalDocument,
-					url: '/',
-					platformProviders: []
-				}
-			);
-
-			// Collect and inject client scripts registered during SSR
-			const registeredScripts =
-				getAndClearClientScripts(requestId);
-
+			// Inject client scripts registered during SSR
+			const registeredScripts = getAndClearClientScripts(requestId);
 			if (registeredScripts.length > 0) {
-				const clientScriptCode =
-					generateClientScriptCode(registeredScripts);
-
-				if (html.includes('</body>')) {
-					html = html.replace(
-						'</body>',
-						clientScriptCode + '</body>'
-					);
-				} else if (html.includes('</html>')) {
-					html = html.replace(
-						'</html>',
-						clientScriptCode + '</html>'
-					);
-				} else {
-					html += clientScriptCode;
-				}
+				html = injectBeforeClose(
+					html,
+					generateClientScriptCode(registeredScripts)
+				);
 			}
 
 			// Inject Angular hydration index module script
 			if (indexPath) {
-				const indexScriptTag = `<script type="module" src="${indexPath}"></script>`;
-				if (html.includes('</body>')) {
-					html = html.replace(
-						'</body>',
-						indexScriptTag + '</body>'
-					);
-				} else if (html.includes('</html>')) {
-					html = html.replace(
-						'</html>',
-						indexScriptTag + '</html>'
-					);
-				} else {
-					html += indexScriptTag;
-				}
+				html = injectBeforeClose(
+					html,
+					`<script type="module" src="${indexPath}"></script>`
+				);
 			}
-
 
 			return new Response(html, {
 				headers: { 'Content-Type': 'text/html' }

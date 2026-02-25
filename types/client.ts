@@ -74,7 +74,7 @@ declare global {
 			register: (type: unknown, id: string) => void;
 		};
 		$RefreshSig$?: () => (type: unknown) => unknown;
-		__HMR_DOM_STATE__?: { count?: number;[key: string]: unknown };
+		__HMR_DOM_STATE__?: { count?: number; [key: string]: unknown };
 		__HMR_FRAMEWORK__?: string;
 		__HMR_MANIFEST__?: Record<string, string>;
 		__HMR_MODULE_UPDATES__?: Array<unknown>;
@@ -99,23 +99,23 @@ declare global {
 			getStats: () => { componentCount: number; updateCount: number };
 		};
 		__VUE_APP__?:
-		| ({
-			unmount: () => void;
-			_instance?: {
-				setupState?: Record<string, unknown>;
-				subTree?: {
-					children?: unknown[];
-					component?: {
+			| ({
+					unmount: () => void;
+					_instance?: {
 						setupState?: Record<string, unknown>;
-						subTree?: unknown;
+						subTree?: {
+							children?: unknown[];
+							component?: {
+								setupState?: Record<string, unknown>;
+								subTree?: unknown;
+							};
+						};
 					};
-				};
-			};
-		} & Record<string, unknown>)
-		| null;
+			  } & Record<string, unknown>)
+			| null;
 		__VUE_HMR_COMPONENTS__?: Record<string, unknown>;
 		htmx?: { process: (element: HTMLElement | Document) => void };
 	}
 }
 
-export { };
+export {};

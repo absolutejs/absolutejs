@@ -216,7 +216,7 @@ export const queueFileChange = (
 								processedFiles.add(affectedFile);
 							}
 						}
-					} catch { }
+					} catch {}
 					continue;
 				}
 
@@ -264,7 +264,7 @@ export const queueFileChange = (
 								);
 							}
 						}
-					} catch { }
+					} catch {}
 
 					// Get all files that depend on this changed file
 					try {
@@ -501,7 +501,7 @@ export const triggerRebuild = async (
 							},
 							type: 'react-update'
 						});
-					} catch { }
+					} catch {}
 				}
 			}
 
@@ -605,10 +605,10 @@ export const triggerRebuild = async (
 					const outputHtmlPages = isSingle
 						? resolve(state.resolvedPaths.buildDir, 'pages')
 						: resolve(
-							state.resolvedPaths.buildDir,
-							basename(config.htmlDirectory ?? 'html'),
-							'pages'
-						);
+								state.resolvedPaths.buildDir,
+								basename(config.htmlDirectory ?? 'html'),
+								'pages'
+							);
 
 					for (const pageFile of pagesToUpdate) {
 						const htmlPageName = basename(pageFile);
@@ -637,7 +637,7 @@ export const triggerRebuild = async (
 									type: 'html-update'
 								});
 							}
-						} catch { }
+						} catch {}
 					}
 				}
 			}
@@ -724,8 +724,8 @@ export const triggerRebuild = async (
 							const vueRoot = config.vueDirectory;
 							const hmrId = vueRoot
 								? relative(vueRoot, vuePagePath)
-									.replace(/\\/g, '/')
-									.replace(/\.vue$/, '')
+										.replace(/\\/g, '/')
+										.replace(/\.vue$/, '')
 								: baseName;
 
 							// Get CSS URL from manifest
@@ -789,7 +789,7 @@ export const triggerRebuild = async (
 								},
 								type: 'vue-update'
 							});
-						} catch { }
+						} catch {}
 					}
 				}
 			}
@@ -900,7 +900,7 @@ export const triggerRebuild = async (
 								},
 								type: 'svelte-update'
 							});
-						} catch { }
+						} catch {}
 					}
 				}
 			}
@@ -914,8 +914,7 @@ export const triggerRebuild = async (
 			) {
 				const angularFiles = filesToRebuild.filter(
 					(file) =>
-						detectFramework(file, state.resolvedPaths) ===
-						'angular'
+						detectFramework(file, state.resolvedPaths) === 'angular'
 				);
 
 				if (angularFiles.length > 0) {
@@ -923,11 +922,11 @@ export const triggerRebuild = async (
 					// style: only .css files changed → CSS hot-swap, no destroy
 					// template: only .html files changed → DOM patch, no destroy
 					// logic: .ts files changed → full destroy + bootstrap
-					const angularTsFiles = angularFiles.filter(
-						(f) => f.endsWith('.ts')
+					const angularTsFiles = angularFiles.filter((f) =>
+						f.endsWith('.ts')
 					);
-					const angularHtmlFiles = angularFiles.filter(
-						(f) => f.endsWith('.html')
+					const angularHtmlFiles = angularFiles.filter((f) =>
+						f.endsWith('.html')
 					);
 					const angularCssFiles = angularFiles.filter((f) =>
 						f.endsWith('.css')
@@ -943,9 +942,11 @@ export const triggerRebuild = async (
 						angularCssFiles.length === 0;
 
 					// Determine updateType for the WebSocket message
-					let angularUpdateType: 'style' | 'template' | 'logic' = 'logic';
+					let angularUpdateType: 'style' | 'template' | 'logic' =
+						'logic';
 					if (isCssOnlyChange) angularUpdateType = 'style';
-					else if (isTemplateOnlyChange) angularUpdateType = 'template';
+					else if (isTemplateOnlyChange)
+						angularUpdateType = 'template';
 
 					// Find Angular page files from changed files
 					const angularPageFiles = angularFiles.filter((f) =>
@@ -959,12 +960,22 @@ export const triggerRebuild = async (
 					// in the manifest (only page entries exist), causing null HTML.
 					let pagesToUpdate = angularPageFiles;
 					if (pagesToUpdate.length === 0 && state.dependencyGraph) {
-						const { getAffectedFiles } = await import('./dependencyGraph');
+						const { getAffectedFiles } = await import(
+							'./dependencyGraph'
+						);
 						const resolvedPages = new Set<string>();
 						for (const componentFile of angularFiles) {
-							const affected = getAffectedFiles(state.dependencyGraph, componentFile);
+							const affected = getAffectedFiles(
+								state.dependencyGraph,
+								componentFile
+							);
 							for (const file of affected) {
-								if (file.replace(/\\/g, '/').includes('/pages/') && file.endsWith('.ts')) {
+								if (
+									file
+										.replace(/\\/g, '/')
+										.includes('/pages/') &&
+									file.endsWith('.ts')
+								) {
 									resolvedPages.add(file);
 								}
 							}
@@ -1045,7 +1056,7 @@ export const triggerRebuild = async (
 								},
 								type: 'angular-update'
 							});
-						} catch { }
+						} catch {}
 					}
 				}
 			}
@@ -1141,10 +1152,10 @@ export const triggerRebuild = async (
 					const outputHtmxPages = isSingle
 						? resolve(state.resolvedPaths.buildDir, 'pages')
 						: resolve(
-							state.resolvedPaths.buildDir,
-							basename(config.htmxDirectory ?? 'htmx'),
-							'pages'
-						);
+								state.resolvedPaths.buildDir,
+								basename(config.htmxDirectory ?? 'htmx'),
+								'pages'
+							);
 
 					// Process each affected HTMX page
 					for (const htmxPageFile of htmxPageFiles) {
@@ -1176,7 +1187,7 @@ export const triggerRebuild = async (
 									type: 'htmx-update'
 								});
 							}
-						} catch { }
+						} catch {}
 					}
 				}
 			}

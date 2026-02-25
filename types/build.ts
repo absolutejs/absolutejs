@@ -38,4 +38,3 @@ export type DevBuildResult = ReturnType<typeof devBuild>;
 export type Result = BuildResult | DevBuildResult;
 
 export type Prettify<T> = { [K in keyof T]: T[K] } & {};
-

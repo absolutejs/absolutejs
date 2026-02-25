@@ -13,4 +13,3 @@ import { CounterComponent } from './counter.component';
 export class AppComponent {
 	@Input() initialCount: number = 0;
 }
-

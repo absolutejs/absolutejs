@@ -39,19 +39,22 @@ const swapStylesheet = (
 	framework: string
 ): void => {
 	let existingLink: HTMLLinkElement | null = null;
-	document.querySelectorAll('link[rel="stylesheet"]').forEach(function (link) {
-		const href = (link as HTMLLinkElement).getAttribute('href') || '';
-		if (href.includes(cssBaseName) || href.includes(framework)) {
-			existingLink = link as HTMLLinkElement;
-		}
-	});
+	document
+		.querySelectorAll('link[rel="stylesheet"]')
+		.forEach(function (link) {
+			const href = (link as HTMLLinkElement).getAttribute('href') || '';
+			if (href.includes(cssBaseName) || href.includes(framework)) {
+				existingLink = link as HTMLLinkElement;
+			}
+		});
 	if (existingLink) {
 		const capturedExisting = existingLink as HTMLLinkElement;
 		const newLink = document.createElement('link');
 		newLink.rel = 'stylesheet';
 		newLink.href = cssUrl + '?t=' + Date.now();
 		newLink.onload = function () {
-			if (capturedExisting && capturedExisting.parentNode) capturedExisting.remove();
+			if (capturedExisting && capturedExisting.parentNode)
+				capturedExisting.remove();
 		};
 		document.head.appendChild(newLink);
 	}
@@ -80,13 +83,15 @@ const captureComponentState = (): StateSnapshot[] => {
 		const properties: Record<string, unknown> = {};
 
 		// DOM-based counter reading (always works)
-		el.querySelectorAll('[class*="value"], [class*="count"]').forEach(function (stateEl) {
-			const text = stateEl.textContent;
-			if (text !== null && text.trim() !== '') {
-				const num = parseInt(text.trim(), 10);
-				if (!isNaN(num)) properties['__dom_counter'] = num;
+		el.querySelectorAll('[class*="value"], [class*="count"]').forEach(
+			function (stateEl) {
+				const text = stateEl.textContent;
+				if (text !== null && text.trim() !== '') {
+					const num = parseInt(text.trim(), 10);
+					if (!isNaN(num)) properties['__dom_counter'] = num;
+				}
 			}
-		});
+		);
 
 		// ng.getComponent for full instance state
 		if (ng && typeof ng.getComponent === 'function') {
@@ -94,13 +99,16 @@ const captureComponentState = (): StateSnapshot[] => {
 				const instance = ng.getComponent(el);
 				if (instance) {
 					for (const key of Object.keys(instance)) {
-						if (key.startsWith('ɵ') || key.startsWith('__')) continue;
+						if (key.startsWith('ɵ') || key.startsWith('__'))
+							continue;
 						const val = (instance as Record<string, unknown>)[key];
 						if (typeof val === 'function') continue;
 						properties[key] = val;
 					}
 				}
-			} catch (_e) { /* ignore */ }
+			} catch (_e) {
+				/* ignore */
+			}
 		}
 
 		if (Object.keys(properties).length > 0) {
@@ -132,26 +140,40 @@ const restoreComponentState = (snapshots: StateSnapshot[]): void => {
 					const instance = ng.getComponent(el);
 					if (instance) {
 						const domCounter = snap.properties['__dom_counter'];
-						for (const [key, value] of Object.entries(snap.properties)) {
+						for (const [key, value] of Object.entries(
+							snap.properties
+						)) {
 							if (key === '__dom_counter') continue;
-							try { (instance as Record<string, unknown>)[key] = value; } catch (_e) { }
+							try {
+								(instance as Record<string, unknown>)[key] =
+									value;
+							} catch (_e) {}
 						}
-						if (domCounter !== undefined && typeof domCounter === 'number') {
+						if (
+							domCounter !== undefined &&
+							typeof domCounter === 'number'
+						) {
 							if ('count' in instance) {
-								(instance as Record<string, unknown>)['count'] = domCounter;
+								(instance as Record<string, unknown>)['count'] =
+									domCounter;
 							}
 						}
 						// Force re-render in zoneless
-						if (typeof ng.applyChanges === 'function') ng.applyChanges(el);
+						if (typeof ng.applyChanges === 'function')
+							ng.applyChanges(el);
 						return;
 					}
-				} catch (_e) { /* ignore */ }
+				} catch (_e) {
+					/* ignore */
+				}
 			}
 
 			// Fallback: patch DOM directly
 			const domCounter = snap.properties['__dom_counter'];
 			if (domCounter !== undefined) {
-				el.querySelectorAll('[class*="value"], [class*="count"]').forEach(function (counterEl) {
+				el.querySelectorAll(
+					'[class*="value"], [class*="count"]'
+				).forEach(function (counterEl) {
 					counterEl.textContent = String(domCounter);
 				});
 			}
@@ -163,7 +185,10 @@ const restoreComponentState = (snapshots: StateSnapshot[]): void => {
 
 const waitForAngularApp = (): Promise<void> => {
 	return new Promise(function (resolve) {
-		if (window.__ANGULAR_APP__) { resolve(); return; }
+		if (window.__ANGULAR_APP__) {
+			resolve();
+			return;
+		}
 		let attempts = 0;
 		const timer = setInterval(function () {
 			attempts++;
@@ -184,8 +209,15 @@ export const handleAngularUpdate = (message: HMRMessage) => {
 
 	const updateType = message.data.updateType || 'logic';
 
-	if ((updateType === 'style' || updateType === 'css-only') && message.data.cssUrl) {
-		swapStylesheet(message.data.cssUrl, message.data.cssBaseName || '', 'angular');
+	if (
+		(updateType === 'style' || updateType === 'css-only') &&
+		message.data.cssUrl
+	) {
+		swapStylesheet(
+			message.data.cssUrl,
+			message.data.cssBaseName || '',
+			'angular'
+		);
 		return;
 	}
 
@@ -204,7 +236,11 @@ const handleFullUpdate = (message: HMRMessage) => {
 
 	// 2. CSS pre-update
 	if (message.data.cssUrl) {
-		swapStylesheet(message.data.cssUrl, message.data.cssBaseName || '', 'angular');
+		swapStylesheet(
+			message.data.cssUrl,
+			message.data.cssBaseName || '',
+			'angular'
+		);
 	}
 
 	// 3. Find root selector + index path
@@ -213,7 +249,10 @@ const handleFullUpdate = (message: HMRMessage) => {
 	const candidates = rootContainer.querySelectorAll('*');
 	for (let i = 0; i < candidates.length; i++) {
 		const tag = candidates[i]!.tagName.toLowerCase();
-		if (tag.includes('-')) { rootSelector = tag; break; }
+		if (tag.includes('-')) {
+			rootSelector = tag;
+			break;
+		}
 	}
 
 	const indexPath = findIndexPath(
@@ -227,7 +266,9 @@ const handleFullUpdate = (message: HMRMessage) => {
 	const doUpdate = async (): Promise<void> => {
 		// Destroy old app
 		if (window.__ANGULAR_APP__) {
-			try { window.__ANGULAR_APP__.destroy(); } catch (_e) { }
+			try {
+				window.__ANGULAR_APP__.destroy();
+			} catch (_e) {}
 			window.__ANGULAR_APP__ = null;
 		}
 
@@ -248,7 +289,9 @@ const handleFullUpdate = (message: HMRMessage) => {
 
 		// Trigger change detection
 		if (window.__ANGULAR_APP__) {
-			try { (window.__ANGULAR_APP__ as any).tick(); } catch (_e) { }
+			try {
+				(window.__ANGULAR_APP__ as any).tick();
+			} catch (_e) {}
 		}
 
 		// Restore DOM state
@@ -265,17 +308,20 @@ const handleFullUpdate = (message: HMRMessage) => {
 		let styleEl: HTMLStyleElement | null = null;
 		try {
 			styleEl = document.createElement('style');
-			styleEl.textContent = '::view-transition-old(root),::view-transition-new(root){animation:none!important}';
+			styleEl.textContent =
+				'::view-transition-old(root),::view-transition-new(root){animation:none!important}';
 			document.head.appendChild(styleEl);
-		} catch (_e) { }
+		} catch (_e) {}
 
 		doc.startViewTransition(async () => {
 			await doUpdate();
-		}).finished.then(() => {
-			if (styleEl && styleEl.parentNode) styleEl.remove();
-		}).catch(() => {
-			if (styleEl && styleEl.parentNode) styleEl.remove();
-		});
+		})
+			.finished.then(() => {
+				if (styleEl && styleEl.parentNode) styleEl.remove();
+			})
+			.catch(() => {
+				if (styleEl && styleEl.parentNode) styleEl.remove();
+			});
 	} else {
 		// Fallback for browsers without View Transitions API
 		doUpdate().catch(function (err: unknown) {

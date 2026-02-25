@@ -5,7 +5,11 @@ import { CommonModule } from '@angular/common';
 	selector: 'app-counter',
 	standalone: true,
 	imports: [CommonModule],
-	template: ` <button (click)="increment()">count is <span class="counter-value">{{ count }}</span></button> `,
+	template: `
+		<button (click)="increment()">
+			count is <span class="counter-value">{{ count }}</span>
+		</button>
+	`,
 	styles: [
 		`
 			button {

@@ -37,15 +37,10 @@ const patchesApplied = (async () => {
 		}
 
 		// Patch createHtmlDocument — ensure created docs have a valid head
-		if (
-			proto.createHtmlDocument &&
-			!proto.__abs_origCreateHtmlDocument
-		) {
-			proto.__abs_origCreateHtmlDocument =
-				proto.createHtmlDocument;
+		if (proto.createHtmlDocument && !proto.__abs_origCreateHtmlDocument) {
+			proto.__abs_origCreateHtmlDocument = proto.createHtmlDocument;
 			proto.createHtmlDocument = function () {
-				const doc =
-					proto.__abs_origCreateHtmlDocument.call(this);
+				const doc = proto.__abs_origCreateHtmlDocument.call(this);
 				if (doc && !doc.head) {
 					try {
 						const head = doc.createElement('head');
@@ -65,15 +60,10 @@ const patchesApplied = (async () => {
 		}
 
 		// Patch getDefaultDocument — same guard
-		if (
-			proto.getDefaultDocument &&
-			!proto.__abs_origGetDefaultDocument
-		) {
-			proto.__abs_origGetDefaultDocument =
-				proto.getDefaultDocument;
+		if (proto.getDefaultDocument && !proto.__abs_origGetDefaultDocument) {
+			proto.__abs_origGetDefaultDocument = proto.getDefaultDocument;
 			proto.getDefaultDocument = function () {
-				const doc =
-					proto.__abs_origGetDefaultDocument.call(this);
+				const doc = proto.__abs_origGetDefaultDocument.call(this);
 				if (doc && !doc.head) {
 					try {
 						const head = doc.createElement('head');
@@ -94,10 +84,7 @@ const patchesApplied = (async () => {
 
 		return true;
 	} catch (error) {
-		console.warn(
-			'[Angular Patch] Failed to apply patches:',
-			error
-		);
+		console.warn('[Angular Patch] Failed to apply patches:', error);
 
 		return false;
 	}

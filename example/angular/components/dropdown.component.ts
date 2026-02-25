@@ -6,9 +6,12 @@ import { CommonModule } from '@angular/common';
 	standalone: true,
 	imports: [CommonModule],
 	template: `
-		<details class="dropdown" [attr.open]="isOpen ? '' : null"
+		<details
+			class="dropdown"
+			[attr.open]="isOpen ? '' : null"
 			(mouseenter)="isOpen = true"
-			(mouseleave)="isOpen = false">
+			(mouseleave)="isOpen = false"
+		>
 			<summary>Pages</summary>
 			<nav class="menu">
 				<a href="/">HTML</a>

@@ -219,8 +219,12 @@ export const restoreFormState = (
 			form = document.getElementById(formId);
 			if (!form && !isNaN(formIndex)) {
 				try {
-					form = document.querySelector('form:nth-of-type(' + (formIndex + 1) + ')');
-				} catch (_e) { /* invalid selector */ }
+					form = document.querySelector(
+						'form:nth-of-type(' + (formIndex + 1) + ')'
+					);
+				} catch (_e) {
+					/* invalid selector */
+				}
 			}
 		}
 		Object.keys(formState[formId]!).forEach(function (name) {
@@ -228,12 +232,12 @@ export const restoreFormState = (
 			if (isStandalone) {
 				element = document.querySelector(
 					'input[name="' +
-					name +
-					'"], textarea[name="' +
-					name +
-					'"], select[name="' +
-					name +
-					'"]'
+						name +
+						'"], textarea[name="' +
+						name +
+						'"], select[name="' +
+						name +
+						'"]'
 				);
 				if (!element) {
 					element = document.getElementById(
