@@ -20,6 +20,7 @@ import { scanEntryPoints } from '../build/scanEntryPoints';
 import { updateAssetPaths } from '../build/updateAssetPaths';
 import { buildHMRClient } from '../dev/buildHMRClient';
 import { rewriteReactImports } from '../build/rewriteReactImports';
+import { sendTelemetryEvent } from '../cli/telemetryEvent';
 import { getDevVendorPaths } from './devVendorPaths';
 import type { BuildConfig } from '../../types/build';
 import { cleanup } from '../utils/cleanup';
@@ -94,6 +95,20 @@ export const build = async ({
 		angularDir
 	].filter(Boolean);
 	const isSingle = frontends.length === 1;
+
+	const frameworkNames = [
+		reactDir && 'react',
+		htmlDir && 'html',
+		htmxDir && 'htmx',
+		svelteDir && 'svelte',
+		vueDir && 'vue',
+		angularDir && 'angular'
+	].filter(Boolean);
+	sendTelemetryEvent('build:start', {
+		framework: frameworkNames[0],
+		frameworks: frameworkNames,
+		tailwind: !!tailwind
+	});
 
 	// Shared root for all client builds so output paths preserve framework directory names.
 	// generateManifest detects frameworks by checking for "react"/"svelte"/"vue" path segments.
@@ -356,6 +371,9 @@ export const build = async ({
 		htmlDir === undefined
 	) {
 		logger.warn('No entry points found, manifest will be empty');
+		sendTelemetryEvent('build:empty', {
+			frameworks: frameworkNames
+		});
 
 		return {};
 	}
@@ -486,6 +504,12 @@ export const build = async ({
 					: String(errLog.message)
 			);
 			(err as Error & { logs?: unknown }).logs = serverResult.logs;
+			sendTelemetryEvent('build:error', {
+				pass: 'server',
+				frameworks: frameworkNames,
+				message: err.message,
+				incremental: !!isIncremental
+			});
 			logger.error('Server build failed', err);
 			if (throwOnError) throw err;
 			exit(1);
@@ -508,6 +532,12 @@ export const build = async ({
 					: String(errLog.message)
 			);
 			(err as Error & { logs?: unknown }).logs = reactClientResult.logs;
+			sendTelemetryEvent('build:error', {
+				pass: 'react-client',
+				frameworks: frameworkNames,
+				message: err.message,
+				incremental: !!isIncremental
+			});
 			logger.error('React client build failed', err);
 			if (throwOnError) throw err;
 			exit(1);
@@ -544,6 +574,12 @@ export const build = async ({
 			);
 			(err as Error & { logs?: unknown }).logs =
 				nonReactClientResult.logs;
+			sendTelemetryEvent('build:error', {
+				pass: 'non-react-client',
+				frameworks: frameworkNames,
+				message: err.message,
+				incremental: !!isIncremental
+			});
 			logger.error('Non-React client build failed', err);
 			if (throwOnError) throw err;
 			exit(1);
@@ -566,6 +602,12 @@ export const build = async ({
 					: String(errLog.message)
 			);
 			(err as Error & { logs?: unknown }).logs = cssResult.logs;
+			sendTelemetryEvent('build:error', {
+				pass: 'css',
+				frameworks: frameworkNames,
+				message: err.message,
+				incremental: !!isIncremental
+			});
 			logger.error('CSS build failed', err);
 			if (throwOnError) throw err;
 			exit(1);
@@ -753,6 +795,11 @@ export const build = async ({
 			`Build completed in ${getDurationString(performance.now() - buildStart)}`
 		);
 	}
+
+	sendTelemetryEvent('build:complete', {
+		frameworks: frameworkNames,
+		durationMs: Math.round(performance.now() - buildStart)
+	});
 
 	return manifest;
 };
