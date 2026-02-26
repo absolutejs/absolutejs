@@ -1,11 +1,6 @@
 import { existsSync, readFileSync } from 'fs';
 import { promises as fs } from 'fs';
 import { join, basename, sep, dirname, resolve, relative } from 'path';
-import {
-	readConfiguration,
-	performCompilation,
-	EmitFlags
-} from '@angular/compiler-cli';
 import type { CompilerOptions } from '@angular/compiler-cli';
 import ts from 'typescript';
 import { toPascal } from '../utils/stringModifiers';
@@ -75,6 +70,12 @@ const injectHMRRegistration = (content: string, sourceId: string): string => {
 };
 
 export const compileAngularFile = async (inputPath: string, outDir: string) => {
+	const {
+		readConfiguration,
+		performCompilation,
+		EmitFlags
+	} = await import('@angular/compiler-cli');
+
 	// Angular HMR Optimization — Reuse cached compiler host/options when tsconfig unchanged
 	const configHash = computeConfigHash();
 	const cached = globalThis.__angularCompilerCache;
