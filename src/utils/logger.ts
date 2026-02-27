@@ -3,7 +3,9 @@
  * Provides formatted output with ANSI colors and timestamps
  */
 
-import { getDurationString } from './getDurationString';
+import { formatTimestamp, startupBanner } from './startupBanner';
+
+export { formatTimestamp };
 
 // ANSI color codes
 const colors = {
@@ -31,36 +33,6 @@ const frameworkColors: Record<string, string> = {
 	htmx: colors.white,
 	css: colors.cyan,
 	assets: colors.dim
-};
-
-const MONTHS = [
-	'Jan',
-	'Feb',
-	'Mar',
-	'Apr',
-	'May',
-	'Jun',
-	'Jul',
-	'Aug',
-	'Sep',
-	'Oct',
-	'Nov',
-	'Dec'
-] as const;
-
-/**
- * Format timestamp as "Mon DD HH:MM:SS AM/PM"
- */
-export const formatTimestamp = () => {
-	const now = new Date();
-	const month = MONTHS[now.getMonth()];
-	const day = now.getDate().toString().padStart(2, '0');
-	let hours = now.getHours();
-	const minutes = now.getMinutes().toString().padStart(2, '0');
-	const seconds = now.getSeconds().toString().padStart(2, '0');
-	const ampm = hours >= 12 ? 'PM' : 'AM';
-	hours = hours % 12 || 12;
-	return `${month} ${day} ${hours}:${minutes}:${seconds} ${ampm}`;
 };
 
 /**
@@ -140,34 +112,6 @@ const logWarn = (message: string) => {
 	console.warn(
 		`${timestamp} ${tag} ${colors.yellow}warning${colors.reset} ${message}`
 	);
-};
-
-/**
- * Startup banner
- */
-const startupBanner = (options: {
-	version: string;
-	duration: number;
-	port: string | number;
-	host: string;
-	networkUrl?: string;
-}) => {
-	const { version, duration, port, host, networkUrl } = options;
-	const name = `${colors.cyan}${colors.bold}ABSOLUTEJS${colors.reset}`;
-	const ver = `${colors.dim}v${version}${colors.reset}`;
-	const time = `${colors.dim}ready in${colors.reset} ${colors.bold}${getDurationString(duration)}${colors.reset}`;
-	console.log('');
-	console.log(`  ${name} ${ver}  ${time}`);
-	console.log('');
-	console.log(
-		`  ${colors.green}➜${colors.reset}  ${colors.bold}Local:${colors.reset}   http://${host === '0.0.0.0' ? 'localhost' : host}:${port}/`
-	);
-	if (networkUrl) {
-		console.log(
-			`  ${colors.green}➜${colors.reset}  ${colors.bold}Network:${colors.reset} ${networkUrl}`
-		);
-	}
-	console.log('');
 };
 
 // Public API

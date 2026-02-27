@@ -4,7 +4,7 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { DbScripts, InteractiveHandler } from '../../../types/cli';
 import { DEFAULT_PORT } from '../../constants';
-import { formatTimestamp } from '../../utils/logger';
+import { formatTimestamp } from '../../utils/startupBanner';
 import { createInteractiveHandler } from '../interactive';
 import { sendTelemetryEvent } from '../telemetryEvent';
 import {

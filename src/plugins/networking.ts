@@ -3,7 +3,7 @@ import { env } from 'bun';
 import { Elysia } from 'elysia';
 import { DEFAULT_PORT } from '../constants';
 import { getLocalIPAddress } from '../utils/networking';
-import { logger } from '../utils/logger';
+import { startupBanner } from '../utils/startupBanner';
 
 let host = env.HOST ?? 'localhost';
 const port = env.PORT ?? DEFAULT_PORT;
@@ -44,7 +44,7 @@ export const networking = (app: Elysia) =>
 				env.ABSOLUTE_VERSION ||
 				'';
 
-			logger.ready({
+			startupBanner({
 				duration: buildDuration,
 				host,
 				networkUrl: hostFlag ? `http://${localIP}:${port}/` : undefined,

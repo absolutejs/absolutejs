@@ -5,7 +5,7 @@ import type { DbScripts } from '../../../types/cli';
 import { DEFAULT_PORT } from '../../constants';
 import { getDurationString } from '../../utils/getDurationString';
 import { loadConfig } from '../../utils/loadConfig';
-import { formatTimestamp } from '../../utils/logger';
+import { formatTimestamp } from '../../utils/startupBanner';
 import { sendTelemetryEvent } from '../telemetryEvent';
 import {
 	COMPOSE_PATH,

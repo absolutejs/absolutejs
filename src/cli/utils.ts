@@ -3,7 +3,7 @@ import { execSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { DbScripts } from '../../types/cli';
-import { formatTimestamp } from '../utils/logger';
+import { formatTimestamp } from '../utils/startupBanner';
 
 export const isWSLEnvironment = (): boolean => {
 	try {
