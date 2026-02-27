@@ -31,6 +31,8 @@ export type BuildConfig = {
 	// Optional: List of files to rebuild incrementally (absolute paths)
 	// When provided, only these files and their dependencies will be rebuilt
 	incrementalFiles?: string[];
+	// Tracks which command triggered the build for telemetry
+	mode?: 'production' | 'development';
 };
 
 export type BuildResult = ReturnType<typeof build>;

@@ -51,9 +51,20 @@ export const start = async (
 	const buildStepStart = performance.now();
 	process.stdout.write(cliTag('\x1b[36m', `Building assets`));
 
+	const buildConfig = await loadConfig(configPath);
+	buildConfig.buildDirectory = resolvedOutdir;
+	buildConfig.mode = 'production';
+
+	const frameworks = [
+		buildConfig.reactDirectory && 'react',
+		buildConfig.htmlDirectory && 'html',
+		buildConfig.htmxDirectory && 'htmx',
+		buildConfig.svelteDirectory && 'svelte',
+		buildConfig.vueDirectory && 'vue',
+		buildConfig.angularDirectory && 'angular'
+	].filter(Boolean) as string[];
+
 	try {
-		const buildConfig = await loadConfig(configPath);
-		buildConfig.buildDirectory = resolvedOutdir;
 		const candidates = [
 			resolve(import.meta.dir, '..', '..', 'core', 'build'),
 			resolve(import.meta.dir, '..', 'build')
@@ -189,6 +200,15 @@ export const start = async (
 		for (const log of serverBundle.logs) {
 			console.error(log);
 		}
+		sendTelemetryEvent('start:bundle-error', {
+			entry: serverEntry,
+			durationMs: Math.round(performance.now() - bundleStart),
+			message:
+				serverBundle.logs
+					.find((l) => l.level === 'error')
+					?.message?.toString()
+					.slice(0, 200) ?? 'Unknown error'
+		});
 		console.error(cliTag('\x1b[31m', 'Server bundle failed.'));
 		process.exit(1);
 	}
@@ -201,8 +221,14 @@ export const start = async (
 		process.exit(1);
 	}
 
+	const bundleDurationMs = Math.round(performance.now() - bundleStart);
 	const bundleDuration = getDurationString(performance.now() - bundleStart);
 	console.log(` \x1b[2m(${bundleDuration})\x1b[0m`);
+
+	sendTelemetryEvent('start:bundle-complete', {
+		entry: serverEntry,
+		durationMs: bundleDurationMs
+	});
 
 	// ── Run production server ────────────────────────────────────────
 	const usesDocker = existsSync(resolve(COMPOSE_PATH));
@@ -212,9 +238,15 @@ export const start = async (
 
 	let cleaning = false;
 	const sessionStart = Date.now();
-	sendTelemetryEvent('start:start', { entry: serverEntry });
-
 	const totalDuration = performance.now() - buildStepStart;
+	sendTelemetryEvent('start:start', {
+		entry: serverEntry,
+		frameworks,
+		buildDurationMs:
+			Math.round(performance.now() - buildStepStart) - bundleDurationMs,
+		bundleDurationMs,
+		totalDurationMs: Math.round(totalDuration)
+	});
 
 	const serverProcess = Bun.spawn(['bun', 'run', outputPath], {
 		cwd: process.cwd(),

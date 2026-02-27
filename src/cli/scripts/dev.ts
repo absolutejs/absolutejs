@@ -7,6 +7,7 @@ import { DEFAULT_PORT } from '../../constants';
 import { formatTimestamp } from '../../utils/startupBanner';
 import { createInteractiveHandler } from '../interactive';
 import { sendTelemetryEvent } from '../telemetryEvent';
+import { loadConfig } from '../../utils/loadConfig';
 import {
 	COMPOSE_PATH,
 	isWSLEnvironment,
@@ -90,7 +91,23 @@ export const dev = async (
 
 	let serverProcess = spawnServer();
 	const sessionStart = Date.now();
-	sendTelemetryEvent('dev:start', { entry: serverEntry });
+
+	let frameworks: string[] = [];
+	try {
+		const cfg = await loadConfig(configPath);
+		frameworks = [
+			cfg.reactDirectory && 'react',
+			cfg.htmlDirectory && 'html',
+			cfg.htmxDirectory && 'htmx',
+			cfg.svelteDirectory && 'svelte',
+			cfg.vueDirectory && 'vue',
+			cfg.angularDirectory && 'angular'
+		].filter(Boolean) as string[];
+	} catch {
+		/* config may not be loadable — frameworks stays empty */
+	}
+
+	sendTelemetryEvent('dev:start', { entry: serverEntry, frameworks });
 
 	const cleanup = async (exitCode = 0): Promise<void> => {
 		if (cleaning) return;
@@ -114,6 +131,7 @@ export const dev = async (
 	const restartServer = async (): Promise<void> => {
 		serverReady = false;
 		console.log(cliTag('\x1b[36m', 'Restarting server...'));
+		sendTelemetryEvent('dev:restart', { entry: serverEntry });
 		const old = serverProcess;
 		if (paused) {
 			sendSignal('SIGCONT');

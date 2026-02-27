@@ -80,6 +80,7 @@ export const devBuild = async (config: BuildConfig) => {
 	// Initial build (HMR client is baked into index files and HTML/HTMX pages)
 	const manifest = await build({
 		...config,
+		mode: 'development',
 		options: {
 			...config.options,
 			injectHMR: true

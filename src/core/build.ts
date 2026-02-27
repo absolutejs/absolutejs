@@ -53,7 +53,8 @@ export const build = async ({
 	vueDirectory,
 	tailwind,
 	options,
-	incrementalFiles
+	incrementalFiles,
+	mode
 }: BuildConfig) => {
 	const buildStart = performance.now();
 	const projectRoot = cwd();
@@ -127,7 +128,8 @@ export const build = async ({
 	sendTelemetryEvent('build:start', {
 		framework: frameworkNames[0],
 		frameworks: frameworkNames,
-		tailwind: !!tailwind
+		tailwind: !!tailwind,
+		mode: mode ?? (isDev ? 'development' : 'production')
 	});
 
 	// Shared root for all client builds so output paths preserve framework directory names.
@@ -851,7 +853,8 @@ export const build = async ({
 
 	sendTelemetryEvent('build:complete', {
 		frameworks: frameworkNames,
-		durationMs: Math.round(performance.now() - buildStart)
+		durationMs: Math.round(performance.now() - buildStart),
+		mode: mode ?? (isDev ? 'development' : 'production')
 	});
 
 	writeFileSync(
