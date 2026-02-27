@@ -784,15 +784,6 @@ export const triggerRebuild = async (
 								continue;
 							}
 
-							const { handleVueUpdate } = await import(
-								'./simpleVueHMR'
-							);
-							const newHTML = await handleVueUpdate(
-								vuePagePath,
-								manifest,
-								state.resolvedPaths.buildDir
-							);
-
 							const componentPath =
 								manifest[`${pascalName}Client`] || null;
 
@@ -800,7 +791,7 @@ export const triggerRebuild = async (
 							broadcastToClients(state, {
 								data: {
 									framework: 'vue',
-									html: newHTML,
+									html: null,
 									hmrId,
 									changeType,
 									componentPath,
@@ -892,15 +883,6 @@ export const triggerRebuild = async (
 					// Process each affected Svelte page
 					for (const sveltePagePath of pagesToUpdate) {
 						try {
-							const { handleSvelteUpdate } = await import(
-								'./simpleSvelteHMR'
-							);
-							const newHTML = await handleSvelteUpdate(
-								sveltePagePath,
-								manifest,
-								state.resolvedPaths.buildDir
-							);
-
 							const { basename } = await import('node:path');
 							const { toPascal } = await import(
 								'../utils/stringModifiers'
@@ -921,7 +903,7 @@ export const triggerRebuild = async (
 							broadcastToClients(state, {
 								data: {
 									framework: 'svelte',
-									html: newHTML,
+									html: null,
 									cssUrl,
 									cssBaseName: baseName,
 									updateType: 'full',
@@ -1000,9 +982,25 @@ export const triggerRebuild = async (
 					if (pagesToUpdate.length === 0 && state.dependencyGraph) {
 						const resolvedPages = new Set<string>();
 						for (const componentFile of angularFiles) {
+							// Angular .html templates aren't tracked in
+							// the dependency graph (they're referenced via
+							// templateUrl, not import). Resolve them to
+							// the co-located .ts file first so the graph
+							// lookup can find the parent page.
+							let lookupFile = componentFile;
+							if (componentFile.endsWith('.html')) {
+								const tsCounterpart = componentFile.replace(
+									/\.html$/,
+									'.ts'
+								);
+								if (existsSync(tsCounterpart)) {
+									lookupFile = tsCounterpart;
+								}
+							}
+
 							const affected = getAffectedFiles(
 								state.dependencyGraph,
-								componentFile
+								lookupFile
 							);
 							for (const file of affected) {
 								if (

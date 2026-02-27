@@ -403,6 +403,19 @@ export const handleAngularPageRequest = async <
 			}
 
 			// Bootstrap + render
+			// Suppress Angular's "development mode" console noise during
+			// SSR — it's meant for the browser, not server.
+			const origLog = console.log;
+			console.log = (...args: unknown[]) => {
+				if (
+					typeof args[0] === 'string' &&
+					args[0].includes('development mode')
+				) {
+					return;
+				}
+				origLog.apply(console, args);
+			};
+
 			const bootstrap = (context: any) =>
 				(
 					deps.bootstrapApplication as (
@@ -412,11 +425,16 @@ export const handleAngularPageRequest = async <
 					) => Promise<unknown>
 				)(PageComponent, { providers }, context);
 
-			let html = await deps.renderApplication(bootstrap as any, {
-				document,
-				url: '/',
-				platformProviders: []
-			});
+			let html: string;
+			try {
+				html = await deps.renderApplication(bootstrap as any, {
+					document,
+					url: '/',
+					platformProviders: []
+				});
+			} finally {
+				console.log = origLog;
+			}
 
 			// Inject client scripts registered during SSR
 			const registeredScripts = getAndClearClientScripts(requestId);

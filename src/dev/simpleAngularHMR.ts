@@ -1,7 +1,7 @@
 /* Simple Angular HMR Implementation
    Lightweight approach: use rebuilt files → re-render → send HTML patch */
 
-import { basename, resolve } from 'node:path';
+import { basename, isAbsolute, resolve } from 'node:path';
 import { toPascal } from '../utils/stringModifiers';
 
 /* Simple Angular HMR handler for server-side
@@ -59,27 +59,14 @@ export const handleAngularUpdate = async (
 			return null;
 		}
 
-		// Angular's handleAngularPageRequest does its own import() internally,
-		// so we pass the server path string with a cache-buster (not the imported module)
+		// handleAngularPageRequest does its own import(pagePath) internally
+		// (the _importer parameter is unused), so we only need to pass the
+		// server path with a cache-buster to force a fresh module load.
 		const cacheBuster = `?t=${Date.now()}`;
-		const serverPathWithCacheBuster = `${serverPath}${cacheBuster}`;
-
-		const absoluteServerPath = /^[A-Za-z]:[\\/]/.test(serverPath)
+		const absoluteServerPath = isAbsolute(serverPath)
 			? serverPath
 			: resolve(buildDir || process.cwd(), serverPath.replace(/^\//, ''));
-
-		const serverModule = await import(
-			`${absoluteServerPath}${cacheBuster}`
-		);
-
-		if (!serverModule) {
-			console.warn(
-				'[Angular HMR] Failed to import module:',
-				absoluteServerPath
-			);
-
-			return null;
-		}
+		const serverPathWithCacheBuster = `${absoluteServerPath}${cacheBuster}`;
 
 		const { handleAngularPageRequest, getCachedRouteData } = await import(
 			'../angular/pageHandler'
@@ -100,28 +87,50 @@ export const handleAngularUpdate = async (
 				title: 'AbsoluteJS + Angular'
 			});
 
-		const importer = () =>
-			Promise.resolve({
-				factory: serverModule.default as (
-					props: Record<string, unknown>
-				) => unknown
-			});
+		// Stub importer — handleAngularPageRequest imports via pagePath directly
+		const importer = () => Promise.resolve({ factory: () => ({}) });
 
-		const response = await handleAngularPageRequest(
-			importer,
-			serverPathWithCacheBuster,
-			indexPath,
-			headTag,
-			cached?.props ?? {}
-		);
+		// Suppress Angular's "development mode" console noise during
+		// HMR SSR re-renders — it's meant for the browser, not server,
+		// and just clutters the terminal on every save.
+		const origLog = console.log;
+		const origWarn = console.warn;
+		const filterDevMode = (...args: unknown[]) =>
+			typeof args[0] === 'string' && args[0].includes('development mode');
+		console.log = (...args: unknown[]) => {
+			if (!filterDevMode(...args)) origLog.apply(console, args);
+		};
+		console.warn = (...args: unknown[]) => {
+			if (!filterDevMode(...args)) origWarn.apply(console, args);
+		};
+
+		let response: Response;
+		try {
+			const args = cached?.props
+				? ([
+						importer,
+						serverPathWithCacheBuster,
+						indexPath,
+						headTag,
+						cached.props
+					] as const)
+				: ([
+						importer,
+						serverPathWithCacheBuster,
+						indexPath,
+						headTag
+					] as const);
+			response = await (
+				handleAngularPageRequest as (
+					...a: unknown[]
+				) => Promise<Response>
+			)(...args);
+		} finally {
+			console.log = origLog;
+			console.warn = origWarn;
+		}
 
 		if (response.status !== 200) {
-			console.warn(
-				'[Angular HMR] SSR returned status',
-				response.status,
-				'— falling back to reload'
-			);
-
 			return null;
 		}
 

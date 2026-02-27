@@ -190,33 +190,15 @@ export const handleVueUpdate = (message: {
 		}
 	}
 
-	/* Unmount old Vue app */
+	/* Unmount old Vue app but keep DOM visually intact during async import.
+	   unmount() clears the container — snapshot and restore synchronously. */
+	const savedHTML = vueRoot ? vueRoot.innerHTML : '';
 	if (window.__VUE_APP__) {
 		window.__VUE_APP__.unmount();
 		window.__VUE_APP__ = null;
 	}
-
-	const newHTML = message.data.html;
-	if (!newHTML) {
-		window.location.reload();
-		return;
-	}
-
-	const tempDiv = document.createElement('div');
-	tempDiv.innerHTML = newHTML;
-	const newRootDiv = tempDiv.querySelector('#root');
-	let innerContent = newRootDiv ? newRootDiv.innerHTML : newHTML;
-
-	/* Pre-apply preserved state to HTML (prevents flicker showing count=0) */
-	if (vuePreservedState.initialCount !== undefined) {
-		innerContent = innerContent.replace(
-			/count is 0/g,
-			'count is ' + vuePreservedState.initialCount
-		);
-	}
-
 	if (vueRoot) {
-		vueRoot.innerHTML = innerContent;
+		vueRoot.innerHTML = savedHTML;
 	}
 
 	const indexPath = findIndexPath(
