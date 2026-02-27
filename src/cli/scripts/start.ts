@@ -1,5 +1,5 @@
 import { env } from 'bun';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
 import type { DbScripts } from '../../../types/cli';
 import { DEFAULT_PORT } from '../../constants';
@@ -24,11 +24,55 @@ export const start = async (serverEntry: string, outdir?: string) => {
 	const entryName = basename(serverEntry).replace(/\.[^.]+$/, '');
 	const resolvedOutdir = resolve(outdir ?? 'dist');
 
+	// ── Resolve package version ─────────────────────────────────────
+	let absoluteVersion = '';
+	const versionCandidates = [
+		resolve(import.meta.dir, '..', '..', '..', 'package.json'),
+		resolve(import.meta.dir, '..', '..', 'package.json')
+	];
+	for (const candidate of versionCandidates) {
+		try {
+			const pkg = JSON.parse(readFileSync(candidate, 'utf-8'));
+			if (pkg.name === '@absolutejs/absolute') {
+				absoluteVersion = pkg.version;
+				break;
+			}
+		} catch {
+			/* try next candidate */
+		}
+	}
+
+	// ── Run build step ──────────────────────────────────────────────
+	const buildStepStart = performance.now();
+	process.stdout.write(cliTag('\x1b[36m', `Building assets`));
+
+	const buildProcess = Bun.spawn(['bun', 'run', resolve(serverEntry)], {
+		cwd: process.cwd(),
+		env: {
+			...process.env,
+			FORCE_COLOR: '1',
+			NODE_ENV: 'production',
+			ABSOLUTE_BUILD_ONLY: '1'
+		},
+		stdin: 'inherit',
+		stdout: 'inherit',
+		stderr: 'inherit'
+	});
+
+	const buildExitCode = await buildProcess.exited;
+	if (buildExitCode !== 0) {
+		console.error(cliTag('\x1b[31m', 'Build step failed.'));
+		process.exit(1);
+	}
+
+	const buildStepDuration = getDurationString(
+		performance.now() - buildStepStart
+	);
+	console.log(` \x1b[2m(${buildStepDuration})\x1b[0m`);
+
 	// ── Bundle production server ─────────────────────────────────────
 	const bundleStart = performance.now();
-	process.stdout.write(
-		cliTag('\x1b[36m', `Bundling production server`)
-	);
+	process.stdout.write(cliTag('\x1b[36m', `Bundling production server`));
 
 	const stubPlugin: import('bun').BunPlugin = {
 		name: 'stub-framework-sources',
@@ -39,6 +83,60 @@ export const start = async (serverEntry: string, outdir?: string) => {
 			}));
 			bld.onLoad({ filter: /devBuild\.ts$/ }, () => ({
 				contents: 'export const devBuild = () => {}',
+				loader: 'js'
+			}));
+			bld.onLoad({ filter: /core\/build\.ts$/ }, () => ({
+				contents: 'export const build = () => ({})',
+				loader: 'js'
+			}));
+			bld.onLoad({ filter: /src\/build\.ts$/ }, () => ({
+				contents:
+					'export const build = () => ({}); export const devBuild = () => {};',
+				loader: 'js'
+			}));
+			// Stub HMR plugin — only used in dev mode
+			bld.onLoad({ filter: /plugins\/hmr\.ts$/ }, () => ({
+				contents: 'export const hmr = () => (app) => app;',
+				loader: 'js'
+			}));
+			// Stub dev modules — only used during HMR/dev builds
+			bld.onLoad(
+				{
+					filter: /dev\/(assetStore|clientManager|webSocket|moduleVersionTracker|buildHMRClient)\.ts$/
+				},
+				() => ({
+					contents: 'export {};',
+					loader: 'js'
+				})
+			);
+			// Stub telemetry — not needed in production bundle
+			bld.onLoad(
+				{ filter: /cli\/(telemetryEvent|scripts\/telemetry)\.ts$/ },
+				() => ({
+					contents:
+						'export const sendTelemetryEvent = () => {}; export const getTelemetryConfig = () => null; export const telemetry = () => {};',
+					loader: 'js'
+				})
+			);
+			// Stub react-dom legacy browser SSR renderer — only
+			// renderToReadableStream (from the bun production file) is used;
+			// renderToString / renderToStaticMarkup add ~4 000 lines of dead code.
+			bld.onLoad(
+				{
+					filter: /react-dom-server-legacy\.browser\.(production|development)\.js$/
+				},
+				() => ({
+					contents:
+						'exports.renderToString = undefined; exports.renderToStaticMarkup = undefined;',
+					loader: 'js'
+				})
+			);
+			// Stub debug — it's a transitive dep of node-cache (via @elysiajs/static)
+			// and is a no-op in production anyway. Stubbing it also eliminates ms,
+			// has-flag, and supports-color from the bundle.
+			bld.onLoad({ filter: /node_modules\/debug/ }, () => ({
+				contents:
+					'module.exports = () => { const noop = () => {}; noop.enabled = false; return noop; }; module.exports.enable = () => {}; module.exports.disable = () => {}; module.exports.enabled = () => false;',
 				loader: 'js'
 			}));
 			bld.onLoad({ filter: /\.ts$/ }, async (args) => {
@@ -58,8 +156,12 @@ export const start = async (serverEntry: string, outdir?: string) => {
 		entrypoints: [resolve(serverEntry)],
 		define: { 'process.env.NODE_ENV': '"production"' },
 		external: [
+			'vue',
+			'vue/*',
 			'@vue/compiler-sfc',
-			'svelte/compiler',
+			'@vue/server-renderer',
+			'svelte',
+			'svelte/*',
 			'@angular/compiler',
 			'@angular/compiler-cli',
 			'@angular/core',
@@ -101,10 +203,14 @@ export const start = async (serverEntry: string, outdir?: string) => {
 	const sessionStart = Date.now();
 	sendTelemetryEvent('start:start', { entry: serverEntry });
 
+	const totalDuration = performance.now() - buildStepStart;
+
 	const serverProcess = Bun.spawn(['bun', 'run', outputPath], {
 		cwd: process.cwd(),
 		env: {
 			...process.env,
+			ABSOLUTE_BUILD_DURATION: String(Math.round(totalDuration)),
+			ABSOLUTE_VERSION: absoluteVersion,
 			FORCE_COLOR: '1',
 			NODE_ENV: 'production'
 		},

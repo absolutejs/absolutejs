@@ -6,7 +6,7 @@ import { getTelemetryConfig } from './scripts/telemetry';
 
 const getVersion = () => {
 	try {
-		const pkgPath = resolve(__dirname, '../../package.json');
+		const pkgPath = resolve(import.meta.dir, '../../package.json');
 		const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
 
 		return pkg.version as string;

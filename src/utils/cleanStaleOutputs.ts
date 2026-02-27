@@ -8,9 +8,7 @@ export const cleanStaleOutputs = async (
 	buildPath: string,
 	currentOutputPaths: string[]
 ) => {
-	const currentPaths = new Set(
-		currentOutputPaths.map((p) => resolve(p))
-	);
+	const currentPaths = new Set(currentOutputPaths.map((p) => resolve(p)));
 
 	const glob = new Glob('**/*');
 	const removals: Promise<void>[] = [];

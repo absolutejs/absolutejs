@@ -1,26 +1,20 @@
+import { readFileSync } from 'node:fs';
 import { staticPlugin } from '@elysiajs/static';
 import { Elysia } from 'elysia';
 import { scopedState } from 'elysia-scoped-state';
 import { generateHeadElement } from '../src/utils/generateHeadElement';
 import { ReactExample } from './react/pages/ReactExample';
-import SvelteExample from './svelte/pages/SvelteExample.svelte';
-import { vueImports } from './vueImporter';
 import { BuildConfig } from '../types/build';
 import {
 	asset,
-	build,
-	devBuild,
 	handleHTMLPageRequest,
 	handleHTMXPageRequest,
-	handleReactPageRequest,
-	hmr
+	handleReactPageRequest
 } from '../src';
 import { handleAngularPageRequest } from '../src/angular';
 import { networking } from '../src/plugins/networking';
 import { handleSveltePageRequest } from '../src/svelte';
 import { handleVuePageRequest } from '../src/vue';
-
-const { VueExample } = vueImports;
 
 const isDev = process.env.NODE_ENV === 'development';
 
@@ -36,7 +30,25 @@ const buildConfig: BuildConfig = {
 	vueDirectory: 'example/vue'
 };
 
-const result = isDev ? await devBuild(buildConfig) : await build(buildConfig);
+let result:
+	| Record<string, string>
+	| {
+			hmrState: import('../src/dev/clientManager').HMRState;
+			manifest: Record<string, string>;
+	  };
+
+if (isDev) {
+	const { devBuild } = await import('../src/build');
+	result = await devBuild(buildConfig);
+} else if (process.env.ABSOLUTE_BUILD_ONLY) {
+	const { build } = await import('../src/build');
+	await build(buildConfig);
+	process.exit(0);
+} else {
+	result = JSON.parse(
+		readFileSync(`${buildConfig.buildDirectory}/manifest.json`, 'utf-8')
+	);
+}
 
 export const server = new Elysia()
 	.use(
@@ -62,8 +74,12 @@ export const server = new Elysia()
 			}
 		)
 	)
-	.get('/svelte', async () =>
-		handleSveltePageRequest(
+	.get('/svelte', async () => {
+		const SvelteExample = (
+			await import('./svelte/pages/SvelteExample.svelte')
+		).default;
+
+		return handleSveltePageRequest(
 			SvelteExample,
 			asset(result, 'SvelteExample'),
 			asset(result, 'SvelteExampleIndex'),
@@ -71,10 +87,12 @@ export const server = new Elysia()
 				cssPath: asset(result, 'SvelteExampleCSS'),
 				initialCount: 0
 			}
-		)
-	)
-	.get('/vue', () =>
-		handleVuePageRequest(
+		);
+	})
+	.get('/vue', async () => {
+		const { VueExample } = (await import('./vueImporter')).vueImports;
+
+		return handleVuePageRequest(
 			VueExample,
 			asset(result, 'VueExample'),
 			asset(result, 'VueExampleIndex'),
@@ -83,8 +101,8 @@ export const server = new Elysia()
 				title: 'AbsoluteJS + Vue'
 			}),
 			{ initialCount: 0 }
-		)
-	)
+		);
+	})
 	.get('/angular', async () =>
 		handleAngularPageRequest(
 			() => import('./angular/pages/angular-example'),
@@ -113,5 +131,6 @@ if (
 	typeof result.hmrState !== 'string' &&
 	typeof result.manifest === 'object'
 ) {
+	const { hmr } = await import('../src/plugins/hmr');
 	server.use(hmr(result.hmrState, result.manifest));
 }

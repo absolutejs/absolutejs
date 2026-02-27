@@ -492,9 +492,7 @@ export const build = async ({
 							...(angularDir && !isDev
 								? [angularLinkerPlugin]
 								: []),
-							...(htmlScriptPlugin
-								? [htmlScriptPlugin]
-								: [])
+							...(htmlScriptPlugin ? [htmlScriptPlugin] : [])
 						],
 						root: clientRoot,
 						target: 'browser',
@@ -839,6 +837,11 @@ export const build = async ({
 		frameworks: frameworkNames,
 		durationMs: Math.round(performance.now() - buildStart)
 	});
+
+	writeFileSync(
+		join(buildPath, 'manifest.json'),
+		JSON.stringify(manifest, null, '\t')
+	);
 
 	return manifest;
 };

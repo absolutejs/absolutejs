@@ -121,28 +121,36 @@ export const generateClientScriptCode = (scripts: (() => void)[]) => {
 
 			const body = bodyMatch[1].trim();
 
-			// Wrap in IIFE with retry logic for DOM readiness
+			// Wrap in IIFE with MutationObserver for DOM readiness
 			return `
 	(function() {
+		var executed = false;
 		function executeScript_${index}() {
+			if (executed) return;
+			executed = true;
 			${body}
 		}
 
-		// Try executing immediately if DOM is ready
 		if (document.readyState === 'complete' || document.readyState === 'interactive') {
 			executeScript_${index}();
 		} else {
 			document.addEventListener('DOMContentLoaded', executeScript_${index});
 		}
 
-		// Also try with delays to ensure element is available after hydration
-		setTimeout(executeScript_${index}, 100);
-		setTimeout(executeScript_${index}, 300);
-		setTimeout(executeScript_${index}, 500);
-		setTimeout(executeScript_${index}, 1000);
+		// Watch for hydration-added elements
+		var observer = new MutationObserver(function() {
+			executeScript_${index}();
+			if (executed) observer.disconnect();
+		});
+		if (!executed) {
+			observer.observe(document.body || document.documentElement, { childList: true, subtree: true });
+		}
 
-		// Fallback on window load
-		window.addEventListener('load', executeScript_${index});
+		// Single fallback timeout
+		setTimeout(function() {
+			executeScript_${index}();
+			observer.disconnect();
+		}, 1000);
 	})();`;
 		})
 		.join('\n');

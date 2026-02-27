@@ -35,12 +35,14 @@ export const networking = (app: Elysia) =>
 			const buildDuration =
 				((globalThis as Record<string, unknown>).__hmrBuildDuration as
 					| number
-					| undefined) ?? 0;
+					| undefined) ?? Number(env.ABSOLUTE_BUILD_DURATION || 0);
 
 			const version =
 				((globalThis as Record<string, unknown>).__absoluteVersion as
 					| string
-					| undefined) ?? '';
+					| undefined) ||
+				env.ABSOLUTE_VERSION ||
+				'';
 
 			logger.ready({
 				duration: buildDuration,
