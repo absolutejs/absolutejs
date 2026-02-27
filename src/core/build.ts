@@ -400,7 +400,31 @@ export const build = async ({
 	) {
 		logger.warn('No entry points found, manifest will be empty');
 		sendTelemetryEvent('build:empty', {
-			frameworks: frameworkNames
+			frameworks: frameworkNames,
+			mode: mode ?? (isDev ? 'development' : 'production'),
+			incremental: !!isIncremental,
+			configuredDirs: {
+				react: !!reactDir,
+				html: !!htmlDir,
+				htmx: !!htmxDir,
+				svelte: !!svelteDir,
+				vue: !!vueDir,
+				angular: !!angularDir
+			},
+			scannedEntries: {
+				react: allReactEntries.length,
+				html: allHtmlEntries.length,
+				svelte: allSvelteEntries.length,
+				vue: allVueEntries.length,
+				angular: allAngularEntries.length
+			},
+			filteredEntries: {
+				react: reactEntries.length,
+				html: htmlEntries.length,
+				svelte: svelteEntries.length,
+				vue: vueEntries.length,
+				angular: angularEntries.length
+			}
 		});
 
 		return {};
