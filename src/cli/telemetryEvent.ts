@@ -20,6 +20,7 @@ export const sendTelemetryEvent = (
 	payload: Record<string, unknown>
 ) => {
 	try {
+		if (process.env.TELEMETRY_OFF === '1') return;
 		const config = getTelemetryConfig();
 		if (!config?.enabled) return;
 
