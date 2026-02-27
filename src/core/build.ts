@@ -3,6 +3,7 @@ import {
 	cpSync,
 	mkdirSync,
 	readFileSync,
+	rmSync,
 	writeFileSync
 } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
@@ -456,6 +457,21 @@ export const build = async ({
 					return cfg;
 				})()
 			: undefined;
+
+	// Remove old hashed indexes before bundling so stale files
+	// from previous builds don't accumulate in dist/.
+	if (reactDir && reactClientEntryPoints.length > 0) {
+		rmSync(join(buildPath, 'react', 'indexes'), {
+			force: true,
+			recursive: true
+		});
+	}
+	if (angularDir && angularClientPaths.length > 0) {
+		rmSync(join(buildPath, 'angular', 'indexes'), {
+			force: true,
+			recursive: true
+		});
+	}
 
 	// Run all 4 Bun.build passes in parallel — they write to different
 	// directories and have independent entry points.
