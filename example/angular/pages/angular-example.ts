@@ -31,7 +31,7 @@ export class AngularExampleComponent {
 	}
 }
 
-export const AngularExample = (props: AngularPageProps) => {
+export const factory = (props: AngularPageProps) => {
 	const component = new AngularExampleComponent();
 	component.initialCount = props.initialCount;
 	return component;

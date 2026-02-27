@@ -37,9 +37,13 @@ export const startFileWatching = (
 					filename === 'compiled' ||
 					filename === 'build' ||
 					filename === 'indexes' ||
+					filename === 'server' ||
+					filename === 'client' ||
 					filename.includes('/compiled') ||
 					filename.includes('/build') ||
 					filename.includes('/indexes') ||
+					filename.includes('/server') ||
+					filename.includes('/client') ||
 					filename.endsWith('/')
 				) {
 					return;

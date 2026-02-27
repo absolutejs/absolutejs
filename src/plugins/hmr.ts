@@ -1,5 +1,5 @@
 import Elysia from 'elysia';
-import { HMRState } from '../dev/clientManager';
+import type { HMRState } from '../dev/clientManager';
 import { getMimeType, lookupAsset } from '../dev/assetStore';
 import {
 	handleClientConnect,

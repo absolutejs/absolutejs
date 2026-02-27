@@ -14,6 +14,7 @@
 		"@angular/platform-browser": "^21.0.0",
 		"@angular/platform-server": "^21.0.0",
 		"@angular/ssr": "^21.0.0",
+		"@babel/preset-typescript": "^7.28.5",
 		"@elysiajs/static": "1.4.0",
 		"@stylistic/eslint-plugin-ts": "4.2.0",
 		"@tailwindcss/cli": "4.1.7",
@@ -37,7 +38,8 @@
 		"tailwindcss": "4.1.7",
 		"typescript": "^5.9.3",
 		"typescript-eslint": "8.32.0",
-		"vue": "3.5.27"
+		"vue": "3.5.27",
+		"vue-tsc": "^3.2.5"
 	},
 	"dependencies": {
 		"@angular/compiler": "^21.0.0",
@@ -130,14 +132,14 @@
 		"db:push": "drizzle-kit push",
 		"db:studio": "drizzle-kit studio",
 		"dev": "bun run src/cli/index.ts dev example/server.ts",
-		"start": "NODE_ENV=production bun run example/server.ts",
+		"start": "bun run src/cli/index.ts start example/server.ts --outdir example/dist",
 		"format": "bun run src/cli/index.ts prettier --write",
 		"lint": "bun run src/cli/index.ts eslint",
 		"release": "bun run format && bun run build && bun publish",
 		"release:beta": "bun run format && bun run build && bun publish --tag beta",
 		"test": "bun test",
-		"typecheck": "bun run tsc --noEmit"
+		"typecheck": "bun run vue-tsc --noEmit"
 	},
 	"types": "./dist/src/index.d.ts",
-	"version": "0.17.2"
+	"version": "0.17.4"
 }

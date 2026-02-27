@@ -1,1 +1,1 @@
-export { handleAngularPageRequest } from './pageHandler';
+export { getCachedRouteData, handleAngularPageRequest } from './pageHandler';

@@ -8,7 +8,7 @@ export const handleVuePageRequest = async <
 	pagePath: string,
 	indexPath: string,
 	headTag: `<head>${string}</head>` = '<head></head>',
-	...props: keyof Props extends never ? [] : [props: Props]
+	...props: keyof Props extends never ? [] : [props: NoInfer<Props>]
 ) => {
 	try {
 		const [maybeProps] = props;

@@ -399,11 +399,10 @@ export const compileVue = async (
 ) => {
 	const compiler: VueCompiler = await import('@vue/compiler-sfc');
 
-	const compiledOutputRoot = join(vueRootDir, 'compiled');
-	const clientOutputDir = join(compiledOutputRoot, 'client');
-	const indexOutputDir = join(compiledOutputRoot, 'indexes');
-	const serverOutputDir = join(compiledOutputRoot, 'pages');
-	const cssOutputDir = join(compiledOutputRoot, 'styles');
+	const clientOutputDir = join(vueRootDir, 'client');
+	const indexOutputDir = join(vueRootDir, 'indexes');
+	const serverOutputDir = join(vueRootDir, 'server');
+	const cssOutputDir = join(vueRootDir, 'compiled');
 
 	await Promise.all([
 		mkdir(clientOutputDir, { recursive: true }),

@@ -64,6 +64,23 @@ export const handleAngularUpdate = async (
 		const cacheBuster = `?t=${Date.now()}`;
 		const serverPathWithCacheBuster = `${serverPath}${cacheBuster}`;
 
+		const absoluteServerPath = /^[A-Za-z]:[\\/]/.test(serverPath)
+			? serverPath
+			: resolve(buildDir || process.cwd(), serverPath.replace(/^\//, ''));
+
+		const serverModule = await import(
+			`${absoluteServerPath}${cacheBuster}`
+		);
+
+		if (!serverModule) {
+			console.warn(
+				'[Angular HMR] Failed to import module:',
+				absoluteServerPath
+			);
+
+			return null;
+		}
+
 		const { handleAngularPageRequest, getCachedRouteData } = await import(
 			'../angular/pageHandler'
 		);
@@ -83,18 +100,20 @@ export const handleAngularUpdate = async (
 				title: 'AbsoluteJS + Angular'
 			});
 
-		const response = cached?.props
-			? await handleAngularPageRequest(
-					serverPathWithCacheBuster,
-					indexPath,
-					headTag,
-					cached.props
-				)
-			: await handleAngularPageRequest(
-					serverPathWithCacheBuster,
-					indexPath,
-					headTag
-				);
+		const importer = () =>
+			Promise.resolve({
+				factory: serverModule.default as (
+					props: Record<string, unknown>
+				) => unknown
+			});
+
+		const response = await handleAngularPageRequest(
+			importer,
+			serverPathWithCacheBuster,
+			indexPath,
+			headTag,
+			cached?.props ?? {}
+		);
 
 		if (response.status !== 200) {
 			console.warn(

@@ -267,7 +267,7 @@ export const compileAngularFile = async (inputPath: string, outDir: string) => {
  *  Inlines templateUrl → template and styleUrls → styles from disk.
  *  Recursively transpiles all local imports so Bun's bundler can resolve them.
  *  ~50-100ms for a tree of ~10 files vs ~500-700ms for AOT. */
-export const compileAngularFileJIT = async (inputPath: string, outDir: string) => {
+export const compileAngularFileJIT = async (inputPath: string, outDir: string, rootDir?: string) => {
 	const allOutputs: string[] = [];
 	const visited = new Set<string>();
 
@@ -283,7 +283,7 @@ export const compileAngularFileJIT = async (inputPath: string, outDir: string) =
 		sourceMap: false
 	};
 
-	const cwd = process.cwd();
+	const baseDir = resolve(rootDir ?? process.cwd());
 
 	/** Inline templateUrl and styleUrls/styleUrl from external files */
 	const inlineResources = async (source: string, fileDir: string): Promise<string> => {
@@ -405,8 +405,8 @@ export const compileAngularFileJIT = async (inputPath: string, outDir: string) =
 
 		// Compute output path preserving directory structure
 		const inputDir = dirname(actualPath);
-		const relativeDir = inputDir.startsWith(cwd)
-			? inputDir.substring(cwd.length + 1)
+		const relativeDir = inputDir.startsWith(baseDir)
+			? inputDir.substring(baseDir.length + 1)
 			: inputDir;
 		const fileBase = basename(actualPath).replace(/\.ts$/, '.js');
 		const targetDir = join(outDir, relativeDir);
@@ -444,9 +444,14 @@ export const compileAngular = async (
 	// Unique build ID ensures Bun's ESM cache never returns stale modules
 	// during HMR — all file paths are fresh, forcing re-import of the
 	// entire dependency chain (not just the top-level page file).
-	const buildId = Date.now().toString(36);
-	const compiledRoot = join(compiledParent, buildId);
-	const indexesDir = join(compiledRoot, 'indexes');
+	// In production (hmr=false), output directly to compiled/ without
+	// the buildId subdirectory — cleanup() removes it after bundling.
+	const buildId = hmr ? Date.now().toString(36) : undefined;
+	const compiledRoot = buildId ? join(compiledParent, buildId) : compiledParent;
+	// In production, place index files directly at outRoot/indexes so Bun's
+	// bundler output lands at dist/angular/indexes/ (not dist/angular/compiled/indexes/).
+	// In dev, keep them under compiledRoot so each HMR build has unique paths.
+	const indexesDir = hmr ? join(compiledRoot, 'indexes') : join(outRoot, 'indexes');
 
 	await fs.mkdir(indexesDir, { recursive: true });
 
@@ -455,7 +460,7 @@ export const compileAngular = async (
 		// JIT uses ts.transpileModule() with template/style inlining (~50-100ms)
 		// instead of AOT performCompilation() (~500-700ms).
 		const outputs = hmr
-			? await compileAngularFileJIT(entry, compiledRoot)
+			? await compileAngularFileJIT(entry, compiledRoot, outRoot)
 			: await compileAngularFile(entry, compiledRoot);
 		const fileBase = basename(entry).replace(/\.[tj]s$/, '');
 		const jsName = `${fileBase}.js`;
@@ -555,20 +560,22 @@ bootstrapApplication(${componentClassName}, {
 	const serverPaths = results.map((r) => r.serverPath);
 	const clientPaths = results.map((r) => r.clientPath);
 
-	// Clean up old compiled builds (keep only current)
-	try {
-		const dirs = await fs.readdir(compiledParent);
-		await Promise.all(
-			dirs
-				.filter((dir) => dir !== buildId)
-				.map((dir) =>
-					fs.rm(join(compiledParent, dir), {
-						recursive: true,
-						force: true
-					})
-				)
-		);
-	} catch { }
+	// Clean up old compiled builds (keep only current) — dev/HMR only
+	if (buildId) {
+		try {
+			const dirs = await fs.readdir(compiledParent);
+			await Promise.all(
+				dirs
+					.filter((dir) => dir !== buildId)
+					.map((dir) =>
+						fs.rm(join(compiledParent, dir), {
+							recursive: true,
+							force: true
+						})
+					)
+			);
+		} catch { }
+	}
 
 	return { clientPaths, serverPaths };
 };

@@ -72,13 +72,12 @@ export const compileSvelte = async (
 		'svelte/compiler'
 	);
 
-	const compiledRoot = join(svelteRoot, 'compiled');
-	const clientDir = join(compiledRoot, 'client');
-	const indexDir = join(compiledRoot, 'indexes');
-	const pagesDir = join(compiledRoot, 'pages');
+	const clientDir = join(svelteRoot, 'client');
+	const indexDir = join(svelteRoot, 'indexes');
+	const serverDir = join(svelteRoot, 'server');
 
 	await Promise.all(
-		[clientDir, indexDir, pagesDir].map((dir) =>
+		[clientDir, indexDir, serverDir].map((dir) =>
 			mkdir(dir, { recursive: true })
 		)
 	);
@@ -129,7 +128,7 @@ export const compileSvelte = async (
 					}).js.code
 			).replace(/\.svelte(?:\.(?:ts|js))?(['"])/g, '.js$1');
 
-		const ssrPath = join(pagesDir, relDir, `${baseName}.js`);
+		const ssrPath = join(serverDir, relDir, `${baseName}.js`);
 		const clientPath = join(clientDir, relDir, `${baseName}.js`);
 
 		await Promise.all([

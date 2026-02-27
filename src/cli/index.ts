@@ -4,6 +4,7 @@ import { dev } from './scripts/dev';
 import { eslint } from './scripts/eslint';
 import { info } from './scripts/info';
 import { prettier } from './scripts/prettier';
+import { start } from './scripts/start';
 import { telemetry } from './scripts/telemetry';
 import { sendTelemetryEvent } from './telemetryEvent';
 import { DEFAULT_SERVER_ENTRY } from './utils';
@@ -15,6 +16,18 @@ if (command === 'dev') {
 	sendTelemetryEvent('cli:command', { command });
 	const serverEntry = args[0] ?? DEFAULT_SERVER_ENTRY;
 	await dev(serverEntry);
+} else if (command === 'start') {
+	sendTelemetryEvent('cli:command', { command });
+	const outdirIndex = args.indexOf('--outdir');
+	const outdir = outdirIndex !== -1 ? args[outdirIndex + 1] : undefined;
+	const positionalArgs =
+		outdirIndex !== -1
+			? args.filter(
+					(_, idx) => idx !== outdirIndex && idx !== outdirIndex + 1
+				)
+			: args;
+	const serverEntry = positionalArgs[0] ?? DEFAULT_SERVER_ENTRY;
+	await start(serverEntry, outdir);
 } else if (command === 'eslint') {
 	sendTelemetryEvent('cli:command', { command });
 	await eslint(args);
@@ -35,6 +48,7 @@ if (command === 'dev') {
 	console.error('Usage: absolute <command>');
 	console.error('Commands:');
 	console.error('  dev [entry]   Start development server');
+	console.error('  start [entry] [--outdir dir] Start production server');
 	console.error('  eslint        Run ESLint (cached)');
 	console.error('  info          Print system info for bug reports');
 	console.error('  prettier      Run Prettier check (cached)');

@@ -2,6 +2,7 @@
    Lightweight approach: use rebuilt files → re-render → send HTML patch */
 
 import { basename, join, resolve } from 'node:path';
+import type { Component } from 'vue';
 import { toPascal } from '../utils/stringModifiers';
 
 /* Simple Vue HMR handler for server-side
@@ -87,8 +88,10 @@ export const handleVueUpdate = async (
 			'../utils/generateHeadElement'
 		);
 
+		const component: Component<Record<string, unknown>> =
+			serverModule.default;
 		const response = await handleVuePageRequest(
-			serverModule.default,
+			component,
 			serverPath,
 			indexPath,
 			generateHeadElement({

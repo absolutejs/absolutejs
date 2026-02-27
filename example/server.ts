@@ -6,7 +6,6 @@ import { ReactExample } from './react/pages/ReactExample';
 import SvelteExample from './svelte/pages/SvelteExample.svelte';
 import { vueImports } from './vueImporter';
 import { BuildConfig } from '../types/build';
-import { env } from 'bun';
 import {
 	asset,
 	build,
@@ -23,9 +22,11 @@ import { handleVuePageRequest } from '../src/vue';
 
 const { VueExample } = vueImports;
 
+const isDev = process.env.NODE_ENV === 'development';
+
 const buildConfig: BuildConfig = {
 	assetsDirectory: 'example/assets',
-	buildDirectory: 'example/build',
+	buildDirectory: isDev ? 'example/build' : 'example/dist',
 	htmlDirectory: 'example/html',
 	htmxDirectory: 'example/htmx',
 	angularDirectory: 'example/angular',
@@ -35,13 +36,12 @@ const buildConfig: BuildConfig = {
 	vueDirectory: 'example/vue'
 };
 
-const isDev = env.NODE_ENV === 'development';
 const result = isDev ? await devBuild(buildConfig) : await build(buildConfig);
 
 export const server = new Elysia()
 	.use(
 		staticPlugin({
-			assets: './example/build',
+			assets: buildConfig.buildDirectory,
 			prefix: ''
 		})
 	)
@@ -87,6 +87,7 @@ export const server = new Elysia()
 	)
 	.get('/angular', async () =>
 		handleAngularPageRequest(
+			() => import('./angular/pages/angular-example'),
 			asset(result, 'AngularExample'),
 			asset(result, 'AngularExampleIndex'),
 			generateHeadElement({

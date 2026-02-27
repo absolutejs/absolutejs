@@ -1,7 +1,6 @@
 import type { Component as SvelteComponent } from 'svelte';
 import { ssrErrorPage } from '../utils/ssrErrorPage';
 
-// Declare overloads matching Svelte's own component API to preserve correct type inference
 export type HandleSveltePageRequest = {
 	(
 		PageComponent: SvelteComponent<Record<string, never>>,
@@ -12,7 +11,7 @@ export type HandleSveltePageRequest = {
 		PageComponent: SvelteComponent<P>,
 		pagePath: string,
 		indexPath: string,
-		props: P
+		props: NoInfer<P>
 	): Promise<Response>;
 };
 

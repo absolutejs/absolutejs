@@ -6,7 +6,7 @@ export const handleReactPageRequest = async <
 >(
 	PageComponent: ReactComponent<Props>,
 	index: string,
-	...props: keyof Props extends never ? [] : [props: Props]
+	...props: keyof Props extends never ? [] : [props: NoInfer<Props>]
 ) => {
 	try {
 		const [maybeProps] = props;

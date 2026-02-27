@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import type { AngularComponent } from '../../types/angular';
+import type { Type } from '@angular/core';
+import type { AngularPageImporter } from '../../types/angular';
 import { ssrErrorPage } from '../utils/ssrErrorPage';
 import { toScreamingSnake } from '../utils/stringModifiers';
 import {
@@ -307,10 +308,11 @@ const selectorCache = new Map<string, string>();
 export const handleAngularPageRequest = async <
 	Props extends Record<string, unknown> = Record<never, never>
 >(
+	_importer: AngularPageImporter<Props>,
 	pagePath: string,
 	indexPath: string,
 	headTag: `<head>${string}</head>` = '<head></head>',
-	...props: keyof Props extends never ? [] : [props: Props]
+	...props: keyof Props extends never ? [] : [props: NoInfer<Props>]
 ) => {
 	const requestId = `angular_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
 
@@ -327,7 +329,7 @@ export const handleAngularPageRequest = async <
 
 			// Dynamic import — pagePath is an absolute path from the manifest
 			const pageModule = await import(pagePath);
-			const PageComponent: AngularComponent<unknown> = pageModule.default;
+			const PageComponent: Type<unknown> = pageModule.default;
 
 			// Auto-discover InjectionToken exports from the module
 			const tokenMap = new Map<string, unknown>();
@@ -404,7 +406,7 @@ export const handleAngularPageRequest = async <
 			const bootstrap = (context: any) =>
 				(
 					deps.bootstrapApplication as (
-						component: AngularComponent<unknown>,
+						component: Type<unknown>,
 						config?: { providers?: unknown[] },
 						context?: any
 					) => Promise<unknown>

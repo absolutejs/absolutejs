@@ -41,13 +41,19 @@ package-lock.json
 build/
 !src/build/
 !src/build/**
-/dist
+dist/
+**/dist/
 
 example/react/indexes/
 
 example/angular/compiled/
 example/vue/compiled/
-example/svelte/compiled/
+example/vue/client/
+example/vue/indexes/
+example/vue/server/
+example/svelte/client/
+example/svelte/indexes/
+example/svelte/server/
 
 /DOCS
 
@@ -56,6 +62,7 @@ example/svelte/compiled/
 docs/
 
 .absolutejs
+.cache/
 
 CLAUDE.md
 /.claude

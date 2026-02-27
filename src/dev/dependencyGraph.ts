@@ -301,6 +301,8 @@ export const buildInitialDependencyGraph = (
 					fullPath.includes('/build/') ||
 					fullPath.includes('/compiled/') ||
 					fullPath.includes('/indexes/') ||
+					fullPath.includes('/server/') ||
+					fullPath.includes('/client/') ||
 					entry.name.startsWith('.')
 				) {
 					continue;

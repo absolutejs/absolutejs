@@ -68,6 +68,8 @@ export const shouldIgnorePath = (path: string) => {
 		normalizedPath.includes('/build/') ||
 		normalizedPath.includes('/compiled/') || // This should catch it
 		normalizedPath.includes('/indexes/') ||
+		normalizedPath.includes('/server/') ||
+		normalizedPath.includes('/client/') ||
 		normalizedPath.includes('/node_modules/') ||
 		normalizedPath.includes('/.git/') ||
 		normalizedPath.endsWith('.log') ||

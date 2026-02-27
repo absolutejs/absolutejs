@@ -27,6 +27,6 @@
 		"target": "ESNext",
 		"useDefineForClassFields": false
 	},
-	"exclude": ["node_modules", "example/build"],
+	"exclude": ["node_modules", "example/build", "example/dist"],
 	"include": ["src/**/*", "types/**/*", "example/**/*"]
 }

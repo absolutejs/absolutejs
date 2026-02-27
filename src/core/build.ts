@@ -5,7 +5,6 @@ import {
 	readFileSync,
 	writeFileSync
 } from 'node:fs';
-import { rm } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 import { cwd, env, exit } from 'node:process';
 import { $, build as bunBuild, BuildArtifact, Glob } from 'bun';
@@ -23,6 +22,8 @@ import { rewriteReactImports } from '../build/rewriteReactImports';
 import { sendTelemetryEvent } from '../cli/telemetryEvent';
 import { getDevVendorPaths } from './devVendorPaths';
 import type { BuildConfig } from '../../types/build';
+import { angularLinkerPlugin } from '../build/angularLinkerPlugin';
+import { cleanStaleOutputs } from '../utils/cleanStaleOutputs';
 import { cleanup } from '../utils/cleanup';
 import { commonAncestor } from '../utils/commonAncestor';
 import { getDurationString } from '../utils/getDurationString';
@@ -55,6 +56,24 @@ export const build = async ({
 }: BuildConfig) => {
 	const buildStart = performance.now();
 	const projectRoot = cwd();
+
+	// Set version for the startup banner (same resolution as devBuild)
+	const versionCandidates = [
+		resolve(import.meta.dir, '..', '..', 'package.json'),
+		resolve(import.meta.dir, '..', 'package.json')
+	];
+	for (const candidate of versionCandidates) {
+		try {
+			const pkg = await Bun.file(candidate).json();
+			if (pkg.name === '@absolutejs/absolute') {
+				(globalThis as Record<string, unknown>).__absoluteVersion =
+					pkg.version;
+				break;
+			}
+		} catch {
+			/* try next candidate */
+		}
+	}
 	const isIncremental = incrementalFiles && incrementalFiles.length > 0;
 
 	// Normalize incrementalFiles for consistent cross-platform path checking
@@ -123,21 +142,27 @@ export const build = async ({
 		? (clientRoots[0] ?? projectRoot)
 		: commonAncestor(clientRoots, projectRoot);
 
-	let serverOutDir: string | undefined;
-	if (svelteDir) serverOutDir = join(buildPath, basename(svelteDir), 'pages');
-	else if (vueDir) serverOutDir = join(buildPath, basename(vueDir), 'pages');
+	const serverFrameworkDirs = [svelteDir, vueDir].filter(
+		(dir): dir is string => Boolean(dir)
+	);
 
+	let serverOutDir: string | undefined;
 	let serverRoot: string | undefined;
-	if (sveltePagesPath) serverRoot = sveltePagesPath;
-	else if (vuePagesPath) serverRoot = vuePagesPath;
+
+	if (serverFrameworkDirs.length === 1) {
+		serverRoot = join(serverFrameworkDirs[0]!, 'server');
+		serverOutDir = join(buildPath, basename(serverFrameworkDirs[0]!));
+	} else if (serverFrameworkDirs.length > 1) {
+		// Use framework dirs (not server/ subdirs) as input to
+		// commonAncestor — the server/ suffix would cause a false
+		// match at the trailing segment due to how filter works.
+		serverRoot = commonAncestor(serverFrameworkDirs, projectRoot);
+		serverOutDir = buildPath;
+	}
 
 	const publicPath =
 		publicDirectory && validateSafePath(publicDirectory, projectRoot);
 
-	// Only delete build directory for full builds, not incremental
-	if (!isIncremental) {
-		await rm(buildPath, { force: true, recursive: true });
-	}
 	mkdirSync(buildPath, { recursive: true });
 
 	if (publicPath)
@@ -463,9 +488,14 @@ export const build = async ({
 						minify: !isDev,
 						naming: `[dir]/[name].[hash].[ext]`,
 						outdir: buildPath,
-						plugins: htmlScriptPlugin
-							? [htmlScriptPlugin]
-							: undefined,
+						plugins: [
+							...(angularDir && !isDev
+								? [angularLinkerPlugin]
+								: []),
+							...(htmlScriptPlugin
+								? [htmlScriptPlugin]
+								: [])
+						],
 						root: clientRoot,
 						target: 'browser',
 						splitting: !isDev,
@@ -783,17 +813,26 @@ export const build = async ({
 		})()
 	]);
 
+	if (!isIncremental) {
+		await cleanStaleOutputs(buildPath, [
+			...serverOutputs.map((a) => a.path),
+			...reactClientOutputs.map((a) => a.path),
+			...nonReactClientOutputs.map((a) => a.path),
+			...cssOutputs.map((a) => a.path)
+		]);
+	}
+
 	if (!options?.preserveIntermediateFiles)
 		await cleanup({
+			angularDir,
 			reactIndexesPath,
 			svelteDir,
 			vueDir
 		});
 
-	if (!isIncremental && !options?.injectHMR) {
-		console.log(
-			`Build completed in ${getDurationString(performance.now() - buildStart)}`
-		);
+	if (!isIncremental) {
+		(globalThis as Record<string, unknown>).__hmrBuildDuration =
+			performance.now() - buildStart;
 	}
 
 	sendTelemetryEvent('build:complete', {
