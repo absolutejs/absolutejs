@@ -1,15 +1,28 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { arch, platform } from 'node:os';
-import { resolve } from 'node:path';
+import { dirname, join, parse } from 'node:path';
 import type { TelemetryEvent } from '../../types/telemetry';
 import { getTelemetryConfig } from './scripts/telemetry';
 
 const getVersion = () => {
 	try {
-		const pkgPath = resolve(import.meta.dir, '../../package.json');
-		const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+		let dir = import.meta.dir;
 
-		return pkg.version as string;
+		while (dir !== parse(dir).root) {
+			const candidate = join(dir, 'package.json');
+
+			if (existsSync(candidate)) {
+				const pkg = JSON.parse(readFileSync(candidate, 'utf-8'));
+
+				if (pkg.name === '@absolutejs/absolute') {
+					return pkg.version as string;
+				}
+			}
+
+			dir = dirname(dir);
+		}
+
+		return 'unknown';
 	} catch {
 		return 'unknown';
 	}
