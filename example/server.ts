@@ -1,75 +1,36 @@
-import { readFileSync } from 'node:fs';
-import { staticPlugin } from '@elysiajs/static';
 import { Elysia } from 'elysia';
 import { scopedState } from 'elysia-scoped-state';
 import { generateHeadElement } from '../src/utils/generateHeadElement';
 import { ReactExample } from './react/pages/ReactExample';
-import { BuildConfig } from '../types/build';
 import {
 	asset,
 	handleHTMLPageRequest,
 	handleHTMXPageRequest,
-	handleReactPageRequest
+	handleReactPageRequest,
+	prepare
 } from '../src';
 import { handleAngularPageRequest } from '../src/angular';
 import { networking } from '../src/plugins/networking';
 import { handleSveltePageRequest } from '../src/svelte';
 import { handleVuePageRequest } from '../src/vue';
 
-const isDev = process.env.NODE_ENV === 'development';
-
-const buildConfig: BuildConfig = {
-	assetsDirectory: 'example/assets',
-	buildDirectory: isDev ? 'example/build' : 'example/dist',
-	htmlDirectory: 'example/html',
-	htmxDirectory: 'example/htmx',
-	angularDirectory: 'example/angular',
-	reactDirectory: 'example/react',
-	publicDirectory: 'example/public',
-	svelteDirectory: 'example/svelte',
-	vueDirectory: 'example/vue'
-};
-
-let result:
-	| Record<string, string>
-	| {
-			hmrState: import('../src/dev/clientManager').HMRState;
-			manifest: Record<string, string>;
-	  };
-
-if (isDev) {
-	const { devBuild } = await import('../src/build');
-	result = await devBuild(buildConfig);
-} else if (process.env.ABSOLUTE_BUILD_ONLY) {
-	const { build } = await import('../src/build');
-	await build(buildConfig);
-	process.exit(0);
-} else {
-	result = JSON.parse(
-		readFileSync(`${buildConfig.buildDirectory}/manifest.json`, 'utf-8')
-	);
-}
+const { absolutejs, manifest } = await prepare();
 
 export const server = new Elysia()
-	.use(
-		staticPlugin({
-			assets: buildConfig.buildDirectory,
-			prefix: ''
-		})
-	)
+	.use(absolutejs)
 	.use(
 		scopedState({
 			count: { value: 0 }
 		})
 	)
-	.get('/', () => handleHTMLPageRequest(asset(result, 'HtmlExample')))
-	.get('/html', () => handleHTMLPageRequest(asset(result, 'HtmlExample')))
+	.get('/', () => handleHTMLPageRequest(asset(manifest, 'HtmlExample')))
+	.get('/html', () => handleHTMLPageRequest(asset(manifest, 'HtmlExample')))
 	.get('/react', () =>
 		handleReactPageRequest(
 			ReactExample,
-			asset(result, 'ReactExampleIndex'),
+			asset(manifest, 'ReactExampleIndex'),
 			{
-				cssPath: asset(result, 'ReactExampleCSS'),
+				cssPath: asset(manifest, 'ReactExampleCSS'),
 				initialCount: 0
 			}
 		)
@@ -81,10 +42,10 @@ export const server = new Elysia()
 
 		return handleSveltePageRequest(
 			SvelteExample,
-			asset(result, 'SvelteExample'),
-			asset(result, 'SvelteExampleIndex'),
+			asset(manifest, 'SvelteExample'),
+			asset(manifest, 'SvelteExampleIndex'),
 			{
-				cssPath: asset(result, 'SvelteExampleCSS'),
+				cssPath: asset(manifest, 'SvelteExampleCSS'),
 				initialCount: 0
 			}
 		);
@@ -94,10 +55,10 @@ export const server = new Elysia()
 
 		return handleVuePageRequest(
 			VueExample,
-			asset(result, 'VueExample'),
-			asset(result, 'VueExampleIndex'),
+			asset(manifest, 'VueExample'),
+			asset(manifest, 'VueExampleIndex'),
 			generateHeadElement({
-				cssPath: asset(result, 'VueExampleCSS'),
+				cssPath: asset(manifest, 'VueExampleCSS'),
 				title: 'AbsoluteJS + Vue'
 			}),
 			{ initialCount: 0 }
@@ -106,16 +67,16 @@ export const server = new Elysia()
 	.get('/angular', async () =>
 		handleAngularPageRequest(
 			() => import('./angular/pages/angular-example'),
-			asset(result, 'AngularExample'),
-			asset(result, 'AngularExampleIndex'),
+			asset(manifest, 'AngularExample'),
+			asset(manifest, 'AngularExampleIndex'),
 			generateHeadElement({
-				cssPath: asset(result, 'AngularExampleCSS'),
+				cssPath: asset(manifest, 'AngularExampleCSS'),
 				title: 'AbsoluteJS + Angular'
 			}),
 			{ initialCount: 0 }
 		)
 	)
-	.get('/htmx', () => handleHTMXPageRequest(asset(result, 'HTMXExample')))
+	.get('/htmx', () => handleHTMXPageRequest(asset(manifest, 'HTMXExample')))
 	.post('/htmx/reset', ({ resetScopedStore }) => resetScopedStore())
 	.get('/htmx/count', ({ scopedStore }) => scopedStore.count)
 	.post('/htmx/increment', ({ scopedStore }) => ++scopedStore.count)
@@ -127,10 +88,4 @@ export const server = new Elysia()
 	})
 	.use(networking);
 
-if (
-	typeof result.hmrState !== 'string' &&
-	typeof result.manifest === 'object'
-) {
-	const { hmr } = await import('../src/plugins/hmr');
-	server.use(hmr(result.hmrState, result.manifest));
-}
+// server.use(absolutejs);

@@ -12,22 +12,36 @@ import { DEFAULT_SERVER_ENTRY } from './utils';
 const command = process.argv[2];
 const args = process.argv.slice(3);
 
+const parseNamedArg = (flag: string): string | undefined => {
+	const idx = args.indexOf(flag);
+	if (idx === -1) return undefined;
+
+	return args[idx + 1];
+};
+
+const stripNamedArgs = (...flags: string[]) =>
+	args.filter((_, idx) =>
+		flags.every((flag) => {
+			const flagIdx = args.indexOf(flag);
+			if (flagIdx === -1) return true;
+
+			return idx !== flagIdx && idx !== flagIdx + 1;
+		})
+	);
+
 if (command === 'dev') {
 	sendTelemetryEvent('cli:command', { command });
-	const serverEntry = args[0] ?? DEFAULT_SERVER_ENTRY;
-	await dev(serverEntry);
+	const configPath = parseNamedArg('--config');
+	const positionalArgs = stripNamedArgs('--config');
+	const serverEntry = positionalArgs[0] ?? DEFAULT_SERVER_ENTRY;
+	await dev(serverEntry, configPath);
 } else if (command === 'start') {
 	sendTelemetryEvent('cli:command', { command });
-	const outdirIndex = args.indexOf('--outdir');
-	const outdir = outdirIndex !== -1 ? args[outdirIndex + 1] : undefined;
-	const positionalArgs =
-		outdirIndex !== -1
-			? args.filter(
-					(_, idx) => idx !== outdirIndex && idx !== outdirIndex + 1
-				)
-			: args;
+	const outdir = parseNamedArg('--outdir');
+	const configPath = parseNamedArg('--config');
+	const positionalArgs = stripNamedArgs('--outdir', '--config');
 	const serverEntry = positionalArgs[0] ?? DEFAULT_SERVER_ENTRY;
-	await start(serverEntry, outdir);
+	await start(serverEntry, outdir, configPath);
 } else if (command === 'eslint') {
 	sendTelemetryEvent('cli:command', { command });
 	await eslint(args);

@@ -21,7 +21,10 @@ import {
 const cliTag = (color: string, message: string) =>
 	`\x1b[2m${formatTimestamp()}\x1b[0m ${color}[cli]\x1b[0m ${color}${message}\x1b[0m`;
 
-export const dev = async (serverEntry: string): Promise<void> => {
+export const dev = async (
+	serverEntry: string,
+	configPath?: string
+): Promise<void> => {
 	const port = Number(env.PORT) || DEFAULT_PORT;
 	killStaleProcesses(port);
 
@@ -44,7 +47,8 @@ export const dev = async (serverEntry: string): Promise<void> => {
 				env: {
 					...process.env,
 					FORCE_COLOR: '1',
-					NODE_ENV: 'development'
+					NODE_ENV: 'development',
+					...(configPath ? { ABSOLUTE_CONFIG: configPath } : {})
 				},
 				stdin: 'ignore',
 				stdout: 'pipe',

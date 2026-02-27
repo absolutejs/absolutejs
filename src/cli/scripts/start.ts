@@ -4,6 +4,7 @@ import { basename, resolve } from 'node:path';
 import type { DbScripts } from '../../../types/cli';
 import { DEFAULT_PORT } from '../../constants';
 import { getDurationString } from '../../utils/getDurationString';
+import { loadConfig } from '../../utils/loadConfig';
 import { formatTimestamp } from '../../utils/logger';
 import { sendTelemetryEvent } from '../telemetryEvent';
 import {
@@ -17,7 +18,11 @@ import {
 const cliTag = (color: string, message: string) =>
 	`\x1b[2m${formatTimestamp()}\x1b[0m ${color}[cli]\x1b[0m ${color}${message}\x1b[0m`;
 
-export const start = async (serverEntry: string, outdir?: string) => {
+export const start = async (
+	serverEntry: string,
+	outdir?: string,
+	configPath?: string
+) => {
 	const port = Number(env.PORT) || DEFAULT_PORT;
 	killStaleProcesses(port);
 
@@ -46,22 +51,28 @@ export const start = async (serverEntry: string, outdir?: string) => {
 	const buildStepStart = performance.now();
 	process.stdout.write(cliTag('\x1b[36m', `Building assets`));
 
-	const buildProcess = Bun.spawn(['bun', 'run', resolve(serverEntry)], {
-		cwd: process.cwd(),
-		env: {
-			...process.env,
-			FORCE_COLOR: '1',
-			NODE_ENV: 'production',
-			ABSOLUTE_BUILD_ONLY: '1'
-		},
-		stdin: 'inherit',
-		stdout: 'inherit',
-		stderr: 'inherit'
-	});
-
-	const buildExitCode = await buildProcess.exited;
-	if (buildExitCode !== 0) {
+	try {
+		const buildConfig = await loadConfig(configPath);
+		buildConfig.buildDirectory = resolvedOutdir;
+		const candidates = [
+			resolve(import.meta.dir, '..', '..', 'core', 'build'),
+			resolve(import.meta.dir, '..', 'build')
+		];
+		let build: typeof import('../../core/build').build | undefined;
+		for (const candidate of candidates) {
+			try {
+				const mod = await import(candidate);
+				build = mod.build;
+				break;
+			} catch {
+				/* try next candidate */
+			}
+		}
+		if (!build) throw new Error('Could not locate build module');
+		await build(buildConfig);
+	} catch (err) {
 		console.error(cliTag('\x1b[31m', 'Build step failed.'));
+		console.error(err);
 		process.exit(1);
 	}
 
@@ -209,10 +220,12 @@ export const start = async (serverEntry: string, outdir?: string) => {
 		cwd: process.cwd(),
 		env: {
 			...process.env,
+			ABSOLUTE_BUILD_DIR: resolvedOutdir,
 			ABSOLUTE_BUILD_DURATION: String(Math.round(totalDuration)),
 			ABSOLUTE_VERSION: absoluteVersion,
 			FORCE_COLOR: '1',
-			NODE_ENV: 'production'
+			NODE_ENV: 'production',
+			...(configPath ? { ABSOLUTE_CONFIG: configPath } : {})
 		},
 		stdin: 'inherit',
 		stdout: 'inherit',

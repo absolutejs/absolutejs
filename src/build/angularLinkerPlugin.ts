@@ -2,7 +2,6 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import type { BunPlugin } from 'bun';
-import { needsLinking } from '@angular/compiler-cli/linker';
 
 const CACHE_DIR = resolve('.cache', 'angular-linker');
 
@@ -19,6 +18,8 @@ export const angularLinkerPlugin: BunPlugin = {
 	name: 'angular-linker',
 	setup(bld) {
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		let needsLinking: any;
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		let babelTransform: any;
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		let linkerPlugin: any;
@@ -27,6 +28,13 @@ export const angularLinkerPlugin: BunPlugin = {
 			{ filter: /[\\/]@angular[\\/].*\.m?js$/ },
 			async (args) => {
 				const source = await Bun.file(args.path).text();
+
+				if (!needsLinking) {
+					const mod = await import(
+						'@angular/compiler-cli/linker' as string
+					);
+					needsLinking = mod.needsLinking;
+				}
 
 				if (!needsLinking(args.path, source)) {
 					return undefined;
