@@ -1,7 +1,6 @@
 /* Simple HTML HMR Implementation
    Lightweight approach: read HTML file → send HTML patch */
 
-import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 /* Simple HTML HMR handler for server-side
@@ -14,13 +13,14 @@ export const handleHTMLUpdate = async (htmlFilePath: string) => {
 		// The htmlFilePath is now the BUILT file path (e.g., build/html/pages/HTMLExample.html)
 		// This ensures we read HTML with updated CSS paths from updateAssetPaths
 		const resolvedPath = resolve(htmlFilePath);
+		const file = Bun.file(resolvedPath);
 
-		if (!existsSync(resolvedPath)) {
+		if (!(await file.exists())) {
 			return null;
 		}
 
-		// Read the HTML file
-		const htmlContent = readFileSync(resolvedPath, 'utf-8');
+		// Bun.file().text() uses native Zig I/O — faster than readFileSync
+		const htmlContent = await file.text();
 
 		// Extract both head and body content for patching
 		// We need head to update CSS links when CSS changes

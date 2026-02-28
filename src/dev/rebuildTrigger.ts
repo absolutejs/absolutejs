@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { basename, resolve } from 'node:path';
+import { basename, relative, resolve } from 'node:path';
 import { build } from '../core/build';
 import type { BuildConfig } from '../../types/build';
 import { logger } from '../utils/logger';
@@ -228,7 +228,7 @@ export const queueFileChange = (
 
 				// Check if file actually changed since last rebuild
 				// This is the critical check that prevents double rebuilds on edit/undo
-				if (!storedHash || storedHash !== fileHash) {
+				if (storedHash === undefined || storedHash !== fileHash) {
 					// Normalize filePath to absolute path for consistent comparison
 					// getAffectedFiles returns absolute paths, so we need to normalize here too
 					const normalizedFilePath = resolve(filePathInSet);
@@ -558,6 +558,512 @@ export const triggerRebuild = async (
 			return manifest;
 		}
 
+		// React-only fast path: skip server, non-react client, and CSS
+		// build passes. Only regenerate the changed index file + single
+		// Bun.build for React client entries. Saves ~300-500ms.
+		const isReactOnlyChange =
+			affectedFrameworks.length === 1 &&
+			affectedFrameworks[0] === 'react' &&
+			config.reactDirectory &&
+			Object.keys(state.manifest).length > 0 &&
+			filesToRebuild &&
+			filesToRebuild.length > 0 &&
+			!filesToRebuild.some((f) => f.endsWith('.css'));
+
+		if (isReactOnlyChange) {
+			const reactDir = config.reactDirectory!;
+			const reactPagesPath = resolve(reactDir, 'pages');
+			const reactIndexesPath = resolve(reactDir, 'indexes');
+			const buildDir = state.resolvedPaths.buildDir;
+
+			// Regenerate index files — cleanup() removes them after the
+			// initial build, so they may not exist. This is fast (~5ms)
+			// since it only generates small template files.
+			const { generateReactIndexFiles } = await import(
+				'../build/generateReactIndexes'
+			);
+			await generateReactIndexFiles(
+				reactPagesPath,
+				reactIndexesPath,
+				true
+			);
+
+			// Resolve changed files to their index entry points
+			const reactEntries: string[] = [];
+			const pagesPathResolved = resolve(reactPagesPath);
+			for (const file of filesToRebuild) {
+				const normalized = resolve(file);
+				if (normalized.startsWith(pagesPathResolved)) {
+					const pageName = basename(normalized, '.tsx');
+					const indexPath = resolve(
+						reactIndexesPath,
+						`${pageName}.tsx`
+					);
+					if (existsSync(indexPath)) {
+						reactEntries.push(indexPath);
+					}
+				} else {
+					// Non-page file (component/util) — find which pages depend on it
+					const affected = getAffectedFiles(
+						state.dependencyGraph,
+						normalized
+					);
+					for (const dep of affected) {
+						if (dep.startsWith(pagesPathResolved)) {
+							const pageName = basename(dep, '.tsx');
+							const indexPath = resolve(
+								reactIndexesPath,
+								`${pageName}.tsx`
+							);
+							if (
+								existsSync(indexPath) &&
+								!reactEntries.includes(indexPath)
+							) {
+								reactEntries.push(indexPath);
+							}
+						}
+					}
+				}
+			}
+
+			if (reactEntries.length > 0) {
+				const { build: bunBuild } = await import('bun');
+				const { generateManifest } = await import(
+					'../build/generateManifest'
+				);
+				const { getDevVendorPaths } = await import(
+					'../core/devVendorPaths'
+				);
+				const { rewriteReactImports } = await import(
+					'../build/rewriteReactImports'
+				);
+				const { commonAncestor } = await import(
+					'../utils/commonAncestor'
+				);
+
+				// Add _refresh entry for shared React chunk
+				const refreshEntry = resolve(reactIndexesPath, '_refresh.tsx');
+				if (!reactEntries.includes(refreshEntry)) {
+					reactEntries.push(refreshEntry);
+				}
+
+				// Compute clientRoot same as build.ts
+				const clientRoots = [
+					state.resolvedPaths.reactDir,
+					state.resolvedPaths.svelteDir,
+					state.resolvedPaths.htmlDir,
+					state.resolvedPaths.vueDir,
+					state.resolvedPaths.angularDir
+				].filter((dir): dir is string => Boolean(dir));
+				const clientRoot =
+					clientRoots.length === 1
+						? (clientRoots[0] ?? process.cwd())
+						: commonAncestor(clientRoots, process.cwd());
+
+				const vendorPaths = getDevVendorPaths();
+
+				const { rmSync } = await import('node:fs');
+				rmSync(resolve(buildDir, 'react', 'indexes'), {
+					force: true,
+					recursive: true
+				});
+
+				const clientResult = await bunBuild({
+					entrypoints: reactEntries,
+					format: 'esm',
+					naming: '[dir]/[name].[hash].[ext]',
+					outdir: buildDir,
+					root: clientRoot,
+					splitting: true,
+					target: 'browser',
+					throw: false,
+					reactFastRefresh: true,
+					...(vendorPaths
+						? { external: Object.keys(vendorPaths) }
+						: {})
+				});
+
+				if (clientResult.success) {
+					if (vendorPaths) {
+						await rewriteReactImports(
+							clientResult.outputs.map((a) => a.path),
+							vendorPaths
+						);
+					}
+
+					const clientManifest = generateManifest(
+						clientResult.outputs,
+						buildDir
+					);
+					Object.assign(state.manifest, clientManifest);
+					await populateAssetStore(
+						state.assetStore,
+						clientManifest,
+						buildDir
+					);
+				}
+			}
+
+			const manifest = state.manifest;
+			const duration = Date.now() - startTime;
+
+			// Send React HMR update
+			const reactFiles = filesToRebuild.filter(
+				(file) => detectFramework(file, state.resolvedPaths) === 'react'
+			);
+			const reactPageFiles = reactFiles.filter((f) =>
+				f.replace(/\\/g, '/').includes('/pages/')
+			);
+			const sourceFiles =
+				reactPageFiles.length > 0 ? reactPageFiles : reactFiles;
+
+			logger.hmrUpdate(
+				sourceFiles[0] ?? reactFiles[0] ?? '',
+				'react',
+				duration
+			);
+			broadcastToClients(state, {
+				data: {
+					framework: 'react',
+					manifest,
+					sourceFiles,
+					primarySource: sourceFiles[0],
+					hasComponentChanges: true,
+					hasCSSChanges: false
+				},
+				type: 'react-update'
+			});
+
+			onRebuildComplete({ manifest, hmrState: state });
+
+			return manifest;
+		}
+
+		// Svelte-only fast path: skip React, Angular, HTML builds.
+		// Only compile changed .svelte files + single Bun.build for
+		// server + client entries.
+		const isSvelteOnlyChange =
+			affectedFrameworks.length === 1 &&
+			affectedFrameworks[0] === 'svelte' &&
+			config.svelteDirectory &&
+			Object.keys(state.manifest).length > 0 &&
+			filesToRebuild &&
+			filesToRebuild.length > 0 &&
+			!filesToRebuild.some((f) => f.endsWith('.css'));
+
+		if (isSvelteOnlyChange) {
+			const svelteDir = config.svelteDirectory!;
+			const buildDir = state.resolvedPaths.buildDir;
+
+			// Filter to svelte files that changed
+			const svelteFiles = filesToRebuild.filter(
+				(f) =>
+					f.endsWith('.svelte') &&
+					resolve(f).startsWith(resolve(svelteDir, 'pages'))
+			);
+
+			if (svelteFiles.length > 0) {
+				const { compileSvelte } = await import(
+					'../build/compileSvelte'
+				);
+				const { build: bunBuild } = await import('bun');
+				const { generateManifest } = await import(
+					'../build/generateManifest'
+				);
+				const { commonAncestor } = await import(
+					'../utils/commonAncestor'
+				);
+
+				const {
+					svelteServerPaths,
+					svelteIndexPaths,
+					svelteClientPaths
+				} = await compileSvelte(
+					svelteFiles,
+					svelteDir,
+					new Map(),
+					true
+				);
+
+				const clientRoots = [
+					state.resolvedPaths.reactDir,
+					state.resolvedPaths.svelteDir,
+					state.resolvedPaths.htmlDir,
+					state.resolvedPaths.vueDir,
+					state.resolvedPaths.angularDir
+				].filter((dir): dir is string => Boolean(dir));
+				const clientRoot =
+					clientRoots.length === 1
+						? (clientRoots[0] ?? process.cwd())
+						: commonAncestor(clientRoots, process.cwd());
+
+				// Server + client builds in parallel
+				const serverEntries = [...svelteServerPaths];
+				const clientEntries = [
+					...svelteIndexPaths,
+					...svelteClientPaths
+				];
+
+				const serverFrameworkDirs = [svelteDir].filter(Boolean);
+				const serverRoot = resolve(serverFrameworkDirs[0]!, 'server');
+				const serverOutDir = resolve(
+					buildDir,
+					basename(serverFrameworkDirs[0]!)
+				);
+
+				const [serverResult, clientResult] = await Promise.all([
+					serverEntries.length > 0
+						? bunBuild({
+								entrypoints: serverEntries,
+								external: ['svelte', 'svelte/*'],
+								format: 'esm',
+								naming: '[dir]/[name].[hash].[ext]',
+								outdir: serverOutDir,
+								root: serverRoot,
+								target: 'bun',
+								throw: false
+							})
+						: undefined,
+					clientEntries.length > 0
+						? bunBuild({
+								entrypoints: clientEntries,
+								format: 'esm',
+								naming: '[dir]/[name].[hash].[ext]',
+								outdir: buildDir,
+								root: clientRoot,
+								target: 'browser',
+								throw: false
+							})
+						: undefined
+				]);
+
+				if (serverResult?.success) {
+					const serverManifest = generateManifest(
+						serverResult.outputs,
+						buildDir
+					);
+					// Server pages use absolute paths for SSR import()
+					for (const artifact of serverResult.outputs) {
+						const fileWithHash = basename(artifact.path);
+						const [baseName] = fileWithHash.split(
+							`.${artifact.hash}.`
+						);
+						if (baseName) {
+							state.manifest[toPascal(baseName)] = artifact.path;
+						}
+					}
+				}
+
+				if (clientResult?.success) {
+					const clientManifest = generateManifest(
+						clientResult.outputs,
+						buildDir
+					);
+					Object.assign(state.manifest, clientManifest);
+					await populateAssetStore(
+						state.assetStore,
+						clientManifest,
+						buildDir
+					);
+				}
+			}
+
+			const manifest = state.manifest;
+			const duration = Date.now() - startTime;
+
+			// Send Svelte HMR update for each page
+			for (const sveltePagePath of svelteFiles.length > 0
+				? svelteFiles
+				: filesToRebuild) {
+				const fileName = basename(sveltePagePath);
+				const baseName = fileName.replace(/\.svelte$/, '');
+				const pascalName = toPascal(baseName);
+				const cssKey = `${pascalName}CSS`;
+				const cssUrl = manifest[cssKey] || null;
+
+				logger.hmrUpdate(sveltePagePath, 'svelte', duration);
+				broadcastToClients(state, {
+					data: {
+						framework: 'svelte',
+						html: null,
+						cssUrl,
+						cssBaseName: baseName,
+						updateType: 'full',
+						manifest,
+						sourceFile: sveltePagePath
+					},
+					type: 'svelte-update'
+				});
+			}
+
+			onRebuildComplete({ manifest, hmrState: state });
+
+			return manifest;
+		}
+
+		// Vue-only fast path: skip React, Angular, HTML builds.
+		// Only compile changed .vue files + single Bun.build for
+		// server + client entries.
+		const isVueOnlyChange =
+			affectedFrameworks.length === 1 &&
+			affectedFrameworks[0] === 'vue' &&
+			config.vueDirectory &&
+			Object.keys(state.manifest).length > 0 &&
+			filesToRebuild &&
+			filesToRebuild.length > 0 &&
+			!filesToRebuild.some((f) => f.endsWith('.css'));
+
+		if (isVueOnlyChange) {
+			const vueDir = config.vueDirectory!;
+			const buildDir = state.resolvedPaths.buildDir;
+
+			// Filter to vue files that changed
+			const vueFiles = filesToRebuild.filter(
+				(f) =>
+					f.endsWith('.vue') &&
+					resolve(f).startsWith(resolve(vueDir, 'pages'))
+			);
+
+			if (vueFiles.length > 0) {
+				const { compileVue } = await import('../build/compileVue');
+				const { build: bunBuild } = await import('bun');
+				const { generateManifest } = await import(
+					'../build/generateManifest'
+				);
+				const { commonAncestor } = await import(
+					'../utils/commonAncestor'
+				);
+
+				const {
+					vueServerPaths,
+					vueIndexPaths,
+					vueClientPaths,
+					vueCssPaths
+				} = await compileVue(vueFiles, vueDir, true);
+
+				const clientRoots = [
+					state.resolvedPaths.reactDir,
+					state.resolvedPaths.svelteDir,
+					state.resolvedPaths.htmlDir,
+					state.resolvedPaths.vueDir,
+					state.resolvedPaths.angularDir
+				].filter((dir): dir is string => Boolean(dir));
+				const clientRoot =
+					clientRoots.length === 1
+						? (clientRoots[0] ?? process.cwd())
+						: commonAncestor(clientRoots, process.cwd());
+
+				const serverEntries = [...vueServerPaths];
+				const clientEntries = [...vueIndexPaths, ...vueClientPaths];
+
+				const serverFrameworkDirs = [vueDir].filter(Boolean);
+				const serverRoot = resolve(serverFrameworkDirs[0]!, 'server');
+				const serverOutDir = resolve(
+					buildDir,
+					basename(serverFrameworkDirs[0]!)
+				);
+
+				const vueFeatureFlags: Record<string, string> = {
+					__VUE_OPTIONS_API__: 'true',
+					__VUE_PROD_DEVTOOLS__: 'true',
+					__VUE_PROD_HYDRATION_MISMATCH_DETAILS__: 'true'
+				};
+
+				const [serverResult, clientResult] = await Promise.all([
+					serverEntries.length > 0
+						? bunBuild({
+								entrypoints: serverEntries,
+								external: ['vue', 'vue/*'],
+								format: 'esm',
+								naming: '[dir]/[name].[hash].[ext]',
+								outdir: serverOutDir,
+								root: serverRoot,
+								target: 'bun',
+								throw: false
+							})
+						: undefined,
+					clientEntries.length > 0
+						? bunBuild({
+								define: vueFeatureFlags,
+								entrypoints: clientEntries,
+								format: 'esm',
+								naming: '[dir]/[name].[hash].[ext]',
+								outdir: buildDir,
+								root: clientRoot,
+								target: 'browser',
+								throw: false
+							})
+						: undefined
+				]);
+
+				if (serverResult?.success) {
+					for (const artifact of serverResult.outputs) {
+						const fileWithHash = basename(artifact.path);
+						const [baseName] = fileWithHash.split(
+							`.${artifact.hash}.`
+						);
+						if (baseName) {
+							state.manifest[toPascal(baseName)] = artifact.path;
+						}
+					}
+				}
+
+				if (clientResult?.success) {
+					const clientManifest = generateManifest(
+						clientResult.outputs,
+						buildDir
+					);
+					Object.assign(state.manifest, clientManifest);
+					await populateAssetStore(
+						state.assetStore,
+						clientManifest,
+						buildDir
+					);
+				}
+			}
+
+			const manifest = state.manifest;
+			const duration = Date.now() - startTime;
+
+			// Send Vue HMR update for each page
+			const vuePageFiles =
+				vueFiles.length > 0 ? vueFiles : filesToRebuild;
+			for (const vuePagePath of vuePageFiles) {
+				const fileName = basename(vuePagePath);
+				const baseName = fileName.replace(/\.vue$/, '');
+				const pascalName = toPascal(baseName);
+				const cssKey = `${pascalName}CSS`;
+				const cssUrl = manifest[cssKey] || null;
+
+				const vueRoot = config.vueDirectory;
+				const hmrId = vueRoot
+					? relative(vueRoot, vuePagePath)
+							.replace(/\\/g, '/')
+							.replace(/\.vue$/, '')
+					: baseName;
+
+				logger.hmrUpdate(vuePagePath, 'vue', duration);
+				broadcastToClients(state, {
+					data: {
+						framework: 'vue',
+						html: null,
+						hmrId,
+						changeType: 'full',
+						componentPath: manifest[`${pascalName}Client`] || null,
+						cssUrl,
+						updateType: 'full',
+						manifest,
+						sourceFile: vuePagePath
+					},
+					type: 'vue-update'
+				});
+			}
+
+			onRebuildComplete({ manifest, hmrState: state });
+
+			return manifest;
+		}
+
 		const manifest = await build({
 			...config,
 			incrementalFiles:
@@ -588,15 +1094,15 @@ export const triggerRebuild = async (
 		// try to fetch new bundles via HTTP. If the asset store hasn't been
 		// populated yet, the server can't serve them — causing a race condition
 		// where HMR is detected but changes don't appear in the browser.
-		// This is safe to run before broadcasts: populateAssetStore only reads
-		// built files into a Map and doesn't modify source modules, so it won't
-		// trigger a Bun --hot restart.
 		await populateAssetStore(
 			state.assetStore,
 			manifest,
 			state.resolvedPaths.buildDir
 		);
-		await cleanStaleAssets(
+
+		// Fire-and-forget: stale asset cleanup is non-critical and should
+		// not block HMR broadcasts. It only removes old hashed files from disk.
+		void cleanStaleAssets(
 			state.assetStore,
 			manifest,
 			state.resolvedPaths.buildDir
@@ -745,10 +1251,6 @@ export const triggerRebuild = async (
 					if (scriptFiles.length > 0 && htmlPageFiles.length === 0) {
 						for (const scriptFile of scriptFiles) {
 							// Get the built script path from manifest
-							const { basename } = await import('node:path');
-							const { toPascal } = await import(
-								'../utils/stringModifiers'
-							);
 							const scriptBaseName = basename(scriptFile).replace(
 								/\.(ts|js|tsx|jsx)$/,
 								''
@@ -895,11 +1397,6 @@ export const triggerRebuild = async (
 
 					// For CSS-only changes (no .vue files changed), send CSS-only update
 					if (isCssOnlyChange && vueCssFiles.length > 0) {
-						const { basename } = await import('node:path');
-						const { toPascal } = await import(
-							'../utils/stringModifiers'
-						);
-
 						// Get CSS file info
 						const cssFile = vueCssFiles[0];
 						if (cssFile) {
@@ -927,12 +1424,6 @@ export const triggerRebuild = async (
 					// Process each affected Vue page
 					for (const vuePagePath of pagesToUpdate) {
 						try {
-							const { basename, relative } = await import(
-								'node:path'
-							);
-							const { toPascal } = await import(
-								'../utils/stringModifiers'
-							);
 							const fileName = basename(vuePagePath);
 							const baseName = fileName.replace(/\.vue$/, '');
 							const pascalName = toPascal(baseName);
@@ -1046,11 +1537,6 @@ export const triggerRebuild = async (
 
 					// For CSS-only changes, send CSS-only update (preserves component state!)
 					if (isCssOnlyChange && svelteCssFiles.length > 0) {
-						const { basename } = await import('node:path');
-						const { toPascal } = await import(
-							'../utils/stringModifiers'
-						);
-
 						// Get CSS file info
 						const cssFile = svelteCssFiles[0];
 						if (cssFile) {
@@ -1078,10 +1564,6 @@ export const triggerRebuild = async (
 					// Process each affected Svelte page
 					for (const sveltePagePath of pagesToUpdate) {
 						try {
-							const { basename } = await import('node:path');
-							const { toPascal } = await import(
-								'../utils/stringModifiers'
-							);
 							const fileName = basename(sveltePagePath);
 							const baseName = fileName.replace(/\.svelte$/, '');
 							const pascalName = toPascal(baseName);
@@ -1287,10 +1769,6 @@ export const triggerRebuild = async (
 						htmxHtmlFiles.length === 0
 					) {
 						for (const scriptFile of htmxScriptFiles) {
-							const { basename } = await import('node:path');
-							const { toPascal } = await import(
-								'../utils/stringModifiers'
-							);
 							const scriptBaseName = basename(scriptFile).replace(
 								/\.(ts|js|tsx|jsx)$/,
 								''

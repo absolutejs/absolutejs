@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, existsSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 /* Dependency graph for tracking file relationships
@@ -15,122 +15,29 @@ export const createDependencyGraph = () => ({
 	dependents: new Map()
 });
 
-/* Extract import/require statements from a file
-   This handles the "find dependencies" problem */
-export const extractDependencies = (filePath: string) => {
-	try {
-		// Check if file exists before trying to read
-		if (!existsSync(filePath)) {
-			return [];
-		}
-		const content = readFileSync(filePath, 'utf-8');
-		const dependencies: string[] = [];
-		const lowerPath = filePath.toLowerCase();
-		const isHtml =
-			lowerPath.endsWith('.html') || lowerPath.endsWith('.htm');
+/* Shared transpiler instance for scanImports(). Bun.Transpiler
+   is a native Zig parser — much faster than regex for extracting
+   imports from TS/TSX/JS/JSX files. */
+const tsTranspiler = new Bun.Transpiler({ loader: 'tsx' });
+const jsTranspiler = new Bun.Transpiler({ loader: 'js' });
 
-		// Special-case HTML/HTMX: detect linked stylesheets so CSS changes map back to pages
-		if (isHtml) {
-			const linkRegex =
-				/<link\s+[^>]*rel=["']stylesheet["'][^>]*href=["']([^"']+)["'][^>]*>/gi;
-			let matchLink;
-			while ((matchLink = linkRegex.exec(content)) !== null) {
-				const href = matchLink[1];
-				if (!href) continue;
-				// Resolve relative to the HTML file
-				const resolvedHref = resolveImportPath(href, filePath);
-				if (resolvedHref) {
-					dependencies.push(resolvedHref);
-				}
-			}
-			return dependencies;
-		}
+const loaderForFile = (filePath: string): 'tsx' | 'js' | 'html' | null => {
+	const lower = filePath.toLowerCase();
+	if (
+		lower.endsWith('.ts') ||
+		lower.endsWith('.tsx') ||
+		lower.endsWith('.jsx')
+	)
+		return 'tsx';
+	if (lower.endsWith('.js') || lower.endsWith('.mjs')) return 'js';
+	if (lower.endsWith('.html') || lower.endsWith('.htm')) return 'html';
 
-		// Match various import patterns
-		const importRegex = /import\s+.*?\s+from\s+['"]([^'"]+)['"]/g;
-		const importWithoutFromRegex = /import\s+['"]([^'"]+)['"]/g; // For CSS and side-effect imports
-		const requireRegex = /require\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
-		const dynamicImportRegex = /import\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
-
-		let match;
-
-		// Find static imports with 'from'
-		while ((match = importRegex.exec(content)) !== null) {
-			if (match[1]) {
-				const resolved = resolveImportPath(match[1], filePath);
-				if (resolved) dependencies.push(resolved);
-			}
-		}
-
-		// Find imports without 'from' (side-effect imports like CSS)
-		while ((match = importWithoutFromRegex.exec(content)) !== null) {
-			if (match[1]) {
-				const resolved = resolveImportPath(match[1], filePath);
-				if (resolved) dependencies.push(resolved);
-			}
-		}
-
-		// Find require statements
-		while ((match = requireRegex.exec(content)) !== null) {
-			if (match[1]) {
-				const resolved = resolveImportPath(match[1], filePath);
-				if (resolved) dependencies.push(resolved);
-			}
-		}
-
-		// Find dynamic imports
-		while ((match = dynamicImportRegex.exec(content)) !== null) {
-			if (match[1]) {
-				const resolved = resolveImportPath(match[1], filePath);
-				if (resolved) dependencies.push(resolved);
-			}
-		}
-
-		// Angular: detect templateUrl and styleUrls/styleUrl in @Component decorators
-		const templateUrlRegex = /templateUrl\s*:\s*['"]([^'"]+)['"]/g;
-		const styleUrlSingularRegex = /styleUrl\s*:\s*['"]([^'"]+)['"]/g;
-		const styleUrlsRegex = /styleUrls\s*:\s*\[([^\]]*)\]/g;
-		const stringLiteralRegex = /['"]([^'"]+)['"]/g;
-
-		while ((match = templateUrlRegex.exec(content)) !== null) {
-			if (match[1]) {
-				const resolved = resolveImportPath(match[1], filePath);
-				if (resolved) dependencies.push(resolved);
-			}
-		}
-
-		while ((match = styleUrlSingularRegex.exec(content)) !== null) {
-			if (match[1]) {
-				const resolved = resolveImportPath(match[1], filePath);
-				if (resolved) dependencies.push(resolved);
-			}
-		}
-
-		while ((match = styleUrlsRegex.exec(content)) !== null) {
-			if (match[1]) {
-				let urlMatch;
-				while (
-					(urlMatch = stringLiteralRegex.exec(match[1])) !== null
-				) {
-					if (urlMatch[1]) {
-						const resolved = resolveImportPath(
-							urlMatch[1],
-							filePath
-						);
-						if (resolved) dependencies.push(resolved);
-					}
-				}
-			}
-		}
-
-		return dependencies;
-	} catch {
-		return [];
-	}
+	return null;
 };
 
-/* Resolve relative import paths to absolute paths
-   This handles the "resolve imports" problem */
+/* Resolve relative import paths to absolute paths using existsSync
+   instead of readFileSync — avoids reading file content just to check
+   existence. */
 const resolveImportPath = (importPath: string, fromFile: string) => {
 	// Skip external packages
 	if (!importPath.startsWith('.') && !importPath.startsWith('/')) {
@@ -138,10 +45,7 @@ const resolveImportPath = (importPath: string, fromFile: string) => {
 	}
 
 	const fromDir = resolve(fromFile, '..');
-	const resolved = resolve(fromDir, importPath);
-
-	// Normalize the path to ensure consistent format (absolute path)
-	const normalized = resolve(resolved);
+	const normalized = resolve(fromDir, importPath);
 
 	// Try common extensions
 	const extensions = [
@@ -157,22 +61,128 @@ const resolveImportPath = (importPath: string, fromFile: string) => {
 
 	for (const ext of extensions) {
 		const withExt = normalized + ext;
-		try {
-			readFileSync(withExt);
-
-			return normalized + ext; // Return absolute path
-		} catch {
-			// File doesn't exist with this extension
-		}
+		if (existsSync(withExt)) return withExt;
 	}
 
-	// Try without extension
-	try {
-		readFileSync(normalized);
+	// Try without extension (already has one, or is extensionless)
+	if (existsSync(normalized)) return normalized;
 
-		return normalized; // Return absolute path
+	return null;
+};
+
+/* Extract import/require statements from a file.
+   Uses Bun.Transpiler.scanImports() for JS/TS files (native Zig parser)
+   and falls back to regex for HTML (stylesheet links) and .vue/.svelte. */
+export const extractDependencies = (filePath: string) => {
+	try {
+		const loader = loaderForFile(filePath);
+		const lowerPath = filePath.toLowerCase();
+		const isSvelteOrVue =
+			lowerPath.endsWith('.svelte') || lowerPath.endsWith('.vue');
+
+		// HTML: detect linked stylesheets
+		if (loader === 'html') {
+			const content = readFileSync(filePath, 'utf-8');
+			const dependencies: string[] = [];
+			const linkRegex =
+				/<link\s+[^>]*rel=["']stylesheet["'][^>]*href=["']([^"']+)["'][^>]*>/gi;
+			let matchLink;
+			while ((matchLink = linkRegex.exec(content)) !== null) {
+				const href = matchLink[1];
+				if (!href) continue;
+				const resolvedHref = resolveImportPath(href, filePath);
+				if (resolvedHref) dependencies.push(resolvedHref);
+			}
+
+			return dependencies;
+		}
+
+		// JS/TS/JSX/TSX: use Bun.Transpiler.scanImports() — native Zig,
+		// much faster than regex. Also handles dynamic imports and require.
+		if (loader === 'tsx' || loader === 'js') {
+			const content = readFileSync(filePath, 'utf-8');
+			const transpiler = loader === 'tsx' ? tsTranspiler : jsTranspiler;
+			const imports = transpiler.scanImports(content);
+			const dependencies: string[] = [];
+
+			for (const imp of imports) {
+				const resolved = resolveImportPath(imp.path, filePath);
+				if (resolved) dependencies.push(resolved);
+			}
+
+			// Angular: detect templateUrl and styleUrls in @Component
+			if (content.includes('@Component')) {
+				const templateUrlRegex = /templateUrl\s*:\s*['"]([^'"]+)['"]/g;
+				const styleUrlSingularRegex =
+					/styleUrl\s*:\s*['"]([^'"]+)['"]/g;
+				const styleUrlsRegex = /styleUrls\s*:\s*\[([^\]]*)\]/g;
+				const stringLiteralRegex = /['"]([^'"]+)['"]/g;
+
+				let match;
+				while ((match = templateUrlRegex.exec(content)) !== null) {
+					if (match[1]) {
+						const resolved = resolveImportPath(match[1], filePath);
+						if (resolved) dependencies.push(resolved);
+					}
+				}
+
+				while ((match = styleUrlSingularRegex.exec(content)) !== null) {
+					if (match[1]) {
+						const resolved = resolveImportPath(match[1], filePath);
+						if (resolved) dependencies.push(resolved);
+					}
+				}
+
+				while ((match = styleUrlsRegex.exec(content)) !== null) {
+					if (match[1]) {
+						let urlMatch;
+						while (
+							(urlMatch = stringLiteralRegex.exec(match[1])) !==
+							null
+						) {
+							if (urlMatch[1]) {
+								const resolved = resolveImportPath(
+									urlMatch[1],
+									filePath
+								);
+								if (resolved) dependencies.push(resolved);
+							}
+						}
+					}
+				}
+			}
+
+			return dependencies;
+		}
+
+		// Svelte/Vue: extract <script> content, then use transpiler
+		if (isSvelteOrVue) {
+			const content = readFileSync(filePath, 'utf-8');
+			const dependencies: string[] = [];
+
+			// Extract script blocks and scan their imports
+			const scriptRegex = /<script[^>]*>([\s\S]*?)<\/script>/gi;
+			let scriptMatch;
+			while ((scriptMatch = scriptRegex.exec(content)) !== null) {
+				const scriptContent = scriptMatch[1];
+				if (!scriptContent?.trim()) continue;
+				try {
+					const imports = tsTranspiler.scanImports(scriptContent);
+					for (const imp of imports) {
+						const resolved = resolveImportPath(imp.path, filePath);
+						if (resolved) dependencies.push(resolved);
+					}
+				} catch {
+					// Fall through to regex if transpiler fails on script content
+				}
+			}
+
+			return dependencies;
+		}
+
+		return [];
 	} catch {
-		return null;
+		return [];
 	}
 };
 
@@ -289,7 +299,9 @@ export const buildInitialDependencyGraph = (
 		// Normalize directory path
 		const normalizedDir = resolve(dir);
 		try {
-			const entries = readdirSync(normalizedDir, { withFileTypes: true });
+			const entries = readdirSync(normalizedDir, {
+				withFileTypes: true
+			});
 
 			for (const entry of entries) {
 				const fullPath = resolve(normalizedDir, entry.name);
@@ -339,7 +351,7 @@ export const buildInitialDependencyGraph = (
 		const resolvedDir = resolve(dir);
 		// Only scan directories that exist
 		if (existsSync(resolvedDir)) {
-			scanDirectory(resolvedDir); // Normalize directory paths
+			scanDirectory(resolvedDir);
 		}
 	}
 };

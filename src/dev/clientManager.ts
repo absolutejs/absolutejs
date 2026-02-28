@@ -17,7 +17,7 @@ export type HMRState = {
 	rebuildTimeout: NodeJS.Timeout | null;
 	fileChangeQueue: Map<string, string[]>;
 	debounceTimeout: NodeJS.Timeout | null;
-	fileHashes: Map<string, string>; // filename -> SHA-256 hash
+	fileHashes: Map<string, number>; // filename -> Bun.hash (Wyhash) value
 	watchers: FSWatcher[];
 	moduleVersions: ModuleVersions; // module path -> version number (for client-server sync)
 	sourceFileVersions: Map<string, number>; // source file path -> version number (for cache busting)

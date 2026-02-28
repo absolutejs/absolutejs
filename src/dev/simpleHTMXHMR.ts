@@ -1,7 +1,6 @@
 /* Simple HTMX HMR Implementation
    Lightweight approach: read HTMX HTML file → send HTML patch */
 
-import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 /* Simple HTMX HMR handler for server-side
@@ -12,12 +11,14 @@ import { resolve } from 'node:path';
 export const handleHTMXUpdate = async (htmxFilePath: string) => {
 	try {
 		const resolvedPath = resolve(htmxFilePath);
+		const file = Bun.file(resolvedPath);
 
-		if (!existsSync(resolvedPath)) {
+		if (!(await file.exists())) {
 			return null;
 		}
 
-		const htmlContent = readFileSync(resolvedPath, 'utf-8');
+		// Bun.file().text() uses native Zig I/O — faster than readFileSync
+		const htmlContent = await file.text();
 
 		// Extract both head and body content for patching
 		// We need head to update CSS links when CSS changes

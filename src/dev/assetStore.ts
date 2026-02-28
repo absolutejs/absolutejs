@@ -55,6 +55,10 @@ export const populateAssetStore = async (
 	}
 
 	for (const webPath of newIdentities.values()) {
+		// Skip entries already in the store — their content hasn't changed
+		// (same hash in the filename). Only load new or replaced assets.
+		if (store.has(webPath)) continue;
+
 		loadPromises.push(
 			Bun.file(resolve(buildDir, webPath.slice(1)))
 				.bytes()

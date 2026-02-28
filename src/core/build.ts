@@ -875,7 +875,9 @@ export const build = async ({
 		]);
 	}
 
-	if (!options?.preserveIntermediateFiles)
+	// Skip cleanup during incremental builds — removing compiled/ intermediates
+	// adds I/O latency and they'll just get recreated on next rebuild.
+	if (!options?.preserveIntermediateFiles && !isIncremental)
 		await cleanup({
 			angularDir,
 			reactIndexesPath,
@@ -894,10 +896,15 @@ export const build = async ({
 		mode: mode ?? (isDev ? 'development' : 'production')
 	});
 
-	writeFileSync(
-		join(buildPath, 'manifest.json'),
-		JSON.stringify(manifest, null, '\t')
-	);
+	// Skip manifest.json disk write during incremental (HMR) builds —
+	// the in-memory manifest is authoritative and writing to disk on
+	// every keystroke adds unnecessary I/O latency.
+	if (!isIncremental) {
+		writeFileSync(
+			join(buildPath, 'manifest.json'),
+			JSON.stringify(manifest, null, '\t')
+		);
+	}
 
 	return manifest;
 };
