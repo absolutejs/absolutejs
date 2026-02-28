@@ -181,7 +181,7 @@ export const queueFileChange = (
 	}
 
 	// EVENT-DRIVEN APPROACH: Wait for a short window to collect all changes
-	const DEBOUNCE_MS = config.options?.hmr?.debounceMs ?? 500;
+	const DEBOUNCE_MS = config.options?.hmr?.debounceMs ?? 20;
 	state.rebuildTimeout = setTimeout(() => {
 		// Re-check hashes at the last moment to catch rapid edit/undo
 		const filesToProcess: Map<string, string[]> = new Map(); // framework -> filePaths
