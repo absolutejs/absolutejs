@@ -218,6 +218,86 @@ const waitForAngularApp = (): Promise<void> => {
 };
 
 // ============================================================
+// FAST UPDATE — Runtime patching without destroy/re-bootstrap
+// ============================================================
+
+const handleFastUpdate = async (message: HMRMessage): Promise<boolean> => {
+	const hmr = window.__ANGULAR_HMR__;
+	if (!hmr || !hmr.getRegistry) return false;
+
+	const registry = hmr.getRegistry();
+	if (registry.size === 0) return false;
+
+	const indexPath = findIndexPath(
+		message.data.manifest,
+		message.data.sourceFile,
+		'angular'
+	);
+	if (!indexPath) return false;
+
+	// Suppress NG0912 Component ID collision warnings during HMR
+	const origWarn = console.warn;
+	console.warn = function (...args: unknown[]) {
+		if (typeof args[0] === 'string' && args[0].includes('NG0912')) return;
+		origWarn.apply(console, args);
+	};
+
+	try {
+		// Import the new module with cache-busting
+		const newModule = await import(
+			/* @vite-ignore */ indexPath + '?t=' + Date.now()
+		);
+
+		console.warn = origWarn;
+
+		// Find component classes in the new module (those with ɵcmp)
+		let allPatched = true;
+		let patchedAny = false;
+
+		for (const exportName of Object.keys(newModule)) {
+			const exported = newModule[exportName];
+			if (typeof exported !== 'function' || !exported.ɵcmp) continue;
+
+			// Build the registry ID: sourceFile#ClassName
+			const sourceFile = message.data.sourceFile || '';
+			const registryId = sourceFile + '#' + exportName;
+
+			// Check if this component is registered
+			if (!registry.has(registryId)) continue;
+
+			const success = hmr.applyUpdate(registryId, exported);
+			if (success) {
+				patchedAny = true;
+			} else {
+				allPatched = false;
+				break;
+			}
+		}
+
+		if (!patchedAny) return false;
+		if (!allPatched) return false;
+
+		// All patches succeeded — trigger change detection instead of re-bootstrap
+		hmr.refresh();
+
+		// Swap CSS if provided
+		if (message.data.cssUrl) {
+			swapStylesheet(
+				message.data.cssUrl,
+				message.data.cssBaseName || '',
+				'angular'
+			);
+		}
+
+		return true;
+	} catch (err) {
+		console.warn = origWarn;
+		console.warn('[HMR] Angular fast update failed, falling back:', err);
+		return false;
+	}
+};
+
+// ============================================================
 // MAIN ENTRY POINT
 // ============================================================
 
@@ -238,7 +318,10 @@ export const handleAngularUpdate = (message: HMRMessage) => {
 		return;
 	}
 
-	handleFullUpdate(message);
+	// Try fast runtime patching first, fall back to full re-bootstrap
+	handleFastUpdate(message).then(function (patched) {
+		if (!patched) handleFullUpdate(message);
+	});
 };
 
 // ============================================================

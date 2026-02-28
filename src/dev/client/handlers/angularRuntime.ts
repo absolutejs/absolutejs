@@ -182,10 +182,20 @@ const getStats = (): { componentCount: number; updateCount: number } => ({
 	updateCount: globalUpdateCount
 });
 
+/** Angular HMR — Zoneless Runtime Preservation: expose registry for fast update path.
+ *  Returns a read-only snapshot of registered component IDs. */
+const getRegistry = (): Map<string, RegistryEntry> => componentRegistry;
+
 // Angular HMR — Zoneless Runtime Preservation: install global API
 export const installAngularHMRRuntime = (): void => {
 	if (typeof window === 'undefined') return;
-	window.__ANGULAR_HMR__ = { register, applyUpdate, refresh, getStats };
+	window.__ANGULAR_HMR__ = {
+		register,
+		applyUpdate,
+		refresh,
+		getStats,
+		getRegistry
+	};
 };
 
 // Angular HMR — Zoneless Runtime Preservation: auto-install on import

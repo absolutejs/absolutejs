@@ -97,6 +97,15 @@ declare global {
 			applyUpdate: (id: string, newCtor: unknown) => boolean;
 			refresh: () => void;
 			getStats: () => { componentCount: number; updateCount: number };
+			getRegistry: () => Map<
+				string,
+				{
+					liveCtor: unknown;
+					id: string;
+					registeredAt: number;
+					updateCount: number;
+				}
+			>;
 		};
 		__VUE_APP__?:
 			| ({
