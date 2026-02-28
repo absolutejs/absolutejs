@@ -1,4 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import type { Type } from '@angular/core';
 import type { AngularPageImporter } from '../../types/angular';
 import { ssrErrorPage } from '../utils/ssrErrorPage';
@@ -11,6 +13,63 @@ import {
 
 const angularSsrContext = new AsyncLocalStorage<string>();
 setSsrContextGetter(() => angularSsrContext.getStore());
+
+// --- Patch Angular injector singleton for HMR compatibility ---
+// Bun's --hot mode can create duplicate Angular module instances during
+// HMR rebuilds. Angular's _currentInjector is a module-level variable in
+// _not_found-chunk.mjs — when duplicated, R3Injector.get() sets it in
+// instance A while the factory's inject() reads from instance B (undefined),
+// causing NG0203. This patch stores _currentInjector on globalThis so all
+// instances share the same value.
+
+const patchAngularInjectorSingleton = () => {
+	try {
+		const coreDir = dirname(require.resolve('@angular/core/package.json'));
+		const chunkPath = join(coreDir, 'fesm2022', '_not_found-chunk.mjs');
+		const content = readFileSync(chunkPath, 'utf-8');
+
+		if (content.includes('Symbol.for("angular.currentInjector")')) {
+			return; // Already patched
+		}
+
+		const original = [
+			'let _currentInjector = undefined;',
+			'function getCurrentInjector() {',
+			'  return _currentInjector;',
+			'}',
+			'function setCurrentInjector(injector) {',
+			'  const former = _currentInjector;',
+			'  _currentInjector = injector;',
+			'  return former;',
+			'}'
+		].join('\n');
+
+		const replacement = [
+			'const _injSym = Symbol.for("angular.currentInjector");',
+			'if (!globalThis[_injSym]) globalThis[_injSym] = { v: undefined };',
+			'function getCurrentInjector() {',
+			'  return globalThis[_injSym].v;',
+			'}',
+			'function setCurrentInjector(injector) {',
+			'  const former = globalThis[_injSym].v;',
+			'  globalThis[_injSym].v = injector;',
+			'  return former;',
+			'}'
+		].join('\n');
+
+		const patched = content.replace(original, replacement);
+
+		if (patched !== content) {
+			writeFileSync(chunkPath, patched, 'utf-8');
+		}
+	} catch {
+		// Non-fatal — HMR may see NG0203 on second+ edits
+	}
+};
+
+// Apply immediately at module load so the file is patched before any
+// Angular module is first evaluated by Bun's --hot mode or linker plugin.
+patchAngularInjectorSingleton();
 
 // --- Module-level lazy singleton for Angular dependencies ---
 
@@ -32,6 +91,11 @@ type AngularDeps = {
 let angularDeps: Promise<AngularDeps> | null = null;
 
 const loadAngularDeps = async () => {
+	// Patch Angular's _currentInjector to use globalThis BEFORE any
+	// Angular module is loaded — this prevents NG0203 when Bun's --hot
+	// mode creates duplicate module instances during HMR rebuilds.
+	patchAngularInjectorSingleton();
+
 	// JIT compiler MUST be fully loaded before any other Angular import.
 	// Angular packages like @angular/common contain partially compiled
 	// injectables (e.g. PlatformLocation) that need the JIT compiler
@@ -325,11 +389,65 @@ export const handleAngularPageRequest = async <
 			const cacheKey = pagePath.split('?')[0] ?? pagePath;
 			routePropsCache.set(cacheKey, { props: maybeProps, headTag });
 
-			const deps = await getAngularDeps();
+			// Load base Angular deps (ensures compiler + patches are initialized)
+			const baseDeps = await getAngularDeps();
 
-			// Dynamic import — pagePath is an absolute path from the manifest
+			// Use dynamic import() with a cache-busting query string to get
+			// a fresh module on each request. This avoids bun --hot watching
+			// and re-evaluating compiled modules (which caused ~800ms delays
+			// on 2nd+ HMR changes). The re-exported Angular deps (__angularCore
+			// etc.) guarantee token identity regardless of which module graph
+			// the import creates.
 			const pageModule = await import(pagePath);
 			const PageComponent: Type<unknown> = pageModule.default;
+
+			// Load Angular dep re-exports from the sibling .ssr-deps.js
+			// file (written by compileAngular in HMR mode). These are in
+			// a separate file to avoid require() calls leaking into the
+			// client bundle. Falls back to baseDeps if the file doesn't exist.
+			const ssrDepsPath = pagePath
+				.split('?')[0]!
+				.replace(/\.js$/, '.ssr-deps.js');
+			let core: any = null;
+			let platformBrowser: any = null;
+			let platformServer: any = null;
+			let common: any = null;
+			try {
+				const ssrDeps = await import(ssrDepsPath);
+				core = ssrDeps.__angularCore;
+				platformBrowser = ssrDeps.__angularPlatformBrowser;
+				platformServer = ssrDeps.__angularPlatformServer;
+				common = ssrDeps.__angularCommon;
+			} catch {
+				// No ssr-deps file — use baseDeps (production or first load)
+			}
+
+			const deps: AngularDeps = core
+				? {
+						bootstrapApplication:
+							platformBrowser?.bootstrapApplication ??
+							baseDeps.bootstrapApplication,
+						DomSanitizer:
+							platformBrowser?.DomSanitizer ??
+							baseDeps.DomSanitizer,
+						provideClientHydration:
+							platformBrowser?.provideClientHydration ??
+							baseDeps.provideClientHydration,
+						renderApplication:
+							platformServer?.renderApplication ??
+							baseDeps.renderApplication,
+						provideServerRendering:
+							platformServer?.provideServerRendering ??
+							baseDeps.provideServerRendering,
+						APP_BASE_HREF:
+							common?.APP_BASE_HREF ?? baseDeps.APP_BASE_HREF,
+						provideZonelessChangeDetection:
+							core.provideZonelessChangeDetection,
+						Sanitizer: core.Sanitizer,
+						SecurityContext: core.SecurityContext,
+						domino: baseDeps.domino
+					}
+				: baseDeps;
 
 			// Auto-discover InjectionToken exports from the module
 			const tokenMap = new Map<string, unknown>();
@@ -373,7 +491,10 @@ export const handleAngularPageRequest = async <
 			const htmlString = `<!DOCTYPE html><html>${headTag}<body><${selector}></${selector}></body></html>`;
 			const document = createDominoDocument(htmlString, deps.domino);
 
-			// Build providers
+			// Build providers — when using re-exported deps (core !== undefined),
+			// the DomSanitizer class may differ from the cached one, so we
+			// must rebuild the sanitizer to avoid instanceof mismatches.
+			if (core) ssrSanitizer = null;
 			const sanitizer = getSsrSanitizer(deps);
 			const providers: any[] = [
 				deps.provideServerRendering(),

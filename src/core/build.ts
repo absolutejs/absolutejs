@@ -21,7 +21,7 @@ import { updateAssetPaths } from '../build/updateAssetPaths';
 import { buildHMRClient } from '../dev/buildHMRClient';
 import { rewriteReactImports } from '../build/rewriteReactImports';
 import { sendTelemetryEvent } from '../cli/telemetryEvent';
-import { getDevVendorPaths } from './devVendorPaths';
+import { getDevVendorPaths, getAngularVendorPaths } from './devVendorPaths';
 import type { BuildConfig } from '../../types/build';
 import { angularLinkerPlugin } from '../build/angularLinkerPlugin';
 import { cleanStaleOutputs } from '../utils/cleanStaleOutputs';
@@ -446,6 +446,7 @@ export const build = async ({
 	// externalized and imports are rewritten to stable vendor file paths
 	// after the build. This prevents duplicate React instances during HMR.
 	const vendorPaths = getDevVendorPaths();
+	const angularVendorPaths = getAngularVendorPaths();
 
 	const htmlScriptPlugin = hmr
 		? createHTMLScriptHMRPlugin(htmlDir, htmxDir)
@@ -526,6 +527,9 @@ export const build = async ({
 				? bunBuild({
 						define: vueDirectory ? vueFeatureFlags : undefined,
 						entrypoints: nonReactClientEntryPoints,
+						...(angularVendorPaths
+							? { external: Object.keys(angularVendorPaths) }
+							: {}),
 						format: 'esm',
 						minify: !isDev,
 						naming: `[dir]/[name].[hash].[ext]`,
@@ -654,6 +658,15 @@ export const build = async ({
 			if (throwOnError) throw err;
 			exit(1);
 		}
+	}
+
+	// Post-process: rewrite bare Angular specifiers to vendor paths.
+	if (angularVendorPaths && nonReactClientOutputs.length > 0) {
+		const { rewriteImports } = await import('../build/rewriteImports');
+		await rewriteImports(
+			nonReactClientOutputs.map((artifact) => artifact.path),
+			angularVendorPaths
+		);
 	}
 
 	let cssLogs: (BuildMessage | ResolveMessage)[] = [];

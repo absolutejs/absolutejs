@@ -363,6 +363,201 @@ export const triggerRebuild = async (
 	});
 
 	try {
+		// Angular-only fast path: skip the full 4-pass Bun bundling.
+		// Only JIT-compiles Angular files + bundles the client index
+		// (single Bun.build pass) + SSR re-render. Skipping server,
+		// React, and CSS bundling reduces Angular HMR significantly.
+		const isAngularOnlyChange =
+			affectedFrameworks.length === 1 &&
+			affectedFrameworks[0] === 'angular' &&
+			config.angularDirectory &&
+			Object.keys(state.manifest).length > 0 &&
+			filesToRebuild &&
+			filesToRebuild.length > 0 &&
+			!filesToRebuild.some((f) => f.endsWith('.css'));
+
+		if (isAngularOnlyChange) {
+			const angularDir = config.angularDirectory!;
+
+			// Resolve affected files to page entry points
+			const angularFiles = filesToRebuild!.filter(
+				(file) =>
+					detectFramework(file, state.resolvedPaths) === 'angular'
+			);
+
+			// Find page .ts files from the changed files
+			const angularPagesPath = resolve(angularDir, 'pages');
+			let pageEntries = angularFiles.filter(
+				(f) =>
+					f.endsWith('.ts') && resolve(f).startsWith(angularPagesPath)
+			);
+
+			// If no page files changed directly, resolve component files
+			// to their parent pages via the dependency graph
+			if (pageEntries.length === 0 && state.dependencyGraph) {
+				const resolvedPages = new Set<string>();
+				for (const componentFile of angularFiles) {
+					let lookupFile = componentFile;
+					if (componentFile.endsWith('.html')) {
+						const tsCounterpart = componentFile.replace(
+							/\.html$/,
+							'.ts'
+						);
+						if (existsSync(tsCounterpart))
+							lookupFile = tsCounterpart;
+					}
+					const affected = getAffectedFiles(
+						state.dependencyGraph,
+						lookupFile
+					);
+					for (const file of affected) {
+						if (
+							file.endsWith('.ts') &&
+							resolve(file).startsWith(angularPagesPath)
+						) {
+							resolvedPages.add(file);
+						}
+					}
+				}
+				pageEntries = Array.from(resolvedPages);
+			}
+
+			if (pageEntries.length > 0) {
+				// JIT compile Angular pages
+				const { compileAngular } = await import(
+					'../build/compileAngular'
+				);
+				const { clientPaths, serverPaths } = await compileAngular(
+					pageEntries,
+					angularDir,
+					true
+				);
+
+				// Update Angular server paths in cached manifest
+				for (const serverPath of serverPaths) {
+					const fileBase = basename(serverPath, '.js');
+					state.manifest[toPascal(fileBase)] = resolve(serverPath);
+				}
+
+				// Bundle Angular client indexes so the browser gets
+				// updated component code.
+				if (clientPaths.length > 0) {
+					const { build: bunBuild } = await import('bun');
+					const { generateManifest } = await import(
+						'../build/generateManifest'
+					);
+					const { getAngularVendorPaths } = await import(
+						'../core/devVendorPaths'
+					);
+					const { commonAncestor } = await import(
+						'../utils/commonAncestor'
+					);
+					const buildDir = state.resolvedPaths.buildDir;
+
+					// Compute the same clientRoot as build.ts to ensure
+					// output paths match the initial build structure.
+					const clientRoots = [
+						state.resolvedPaths.reactDir,
+						state.resolvedPaths.svelteDir,
+						state.resolvedPaths.htmlDir,
+						state.resolvedPaths.vueDir,
+						state.resolvedPaths.angularDir
+					].filter((dir): dir is string => Boolean(dir));
+					const clientRoot =
+						clientRoots.length === 1
+							? (clientRoots[0] ?? process.cwd())
+							: commonAncestor(clientRoots, process.cwd());
+
+					// Externalize Angular packages (same as initial
+					// build) so Bun only bundles user code (~50ms
+					// instead of ~500ms bundling the full framework).
+					const angVendorPaths = getAngularVendorPaths();
+
+					const clientResult = await bunBuild({
+						entrypoints: clientPaths,
+						...(angVendorPaths
+							? {
+									external: Object.keys(angVendorPaths)
+								}
+							: {}),
+						format: 'esm',
+						naming: '[dir]/[name].[hash].[ext]',
+						outdir: buildDir,
+						root: clientRoot,
+						target: 'browser',
+						throw: false
+					});
+					if (clientResult.success) {
+						// Rewrite bare Angular specifiers to vendor URLs
+						if (angVendorPaths) {
+							const { rewriteImports } = await import(
+								'../build/rewriteImports'
+							);
+							await rewriteImports(
+								clientResult.outputs.map(
+									(artifact) => artifact.path
+								),
+								angVendorPaths
+							);
+						}
+
+						const clientManifest = generateManifest(
+							clientResult.outputs,
+							buildDir
+						);
+						Object.assign(state.manifest, clientManifest);
+						await populateAssetStore(
+							state.assetStore,
+							clientManifest,
+							buildDir
+						);
+					}
+				}
+			}
+
+			const manifest = state.manifest;
+
+			// Run Angular HMR handler — same logic as the full path
+			const angularHmrFiles = angularFiles.filter(
+				(f) => f.endsWith('.ts') || f.endsWith('.html')
+			);
+			const angularPageFiles = angularHmrFiles.filter((f) =>
+				f.replace(/\\/g, '/').includes('/pages/')
+			);
+
+			let pagesToUpdate =
+				angularPageFiles.length > 0 ? angularPageFiles : pageEntries;
+
+			// Skip SSR re-render for Angular HMR — the client re-bootstraps
+			// the app by importing the updated index module directly.
+			// SSR was taking ~450ms and the result was never used by the client.
+			for (const angularPagePath of pagesToUpdate) {
+				const fileName = basename(angularPagePath);
+				const baseName = fileName.replace(/\.[tj]s$/, '');
+				const pascalName = toPascal(baseName);
+				const cssKey = `${pascalName}CSS`;
+				const cssUrl = manifest[cssKey] || null;
+
+				const duration = Date.now() - startTime;
+				logger.hmrUpdate(angularPagePath, 'angular', duration);
+				broadcastToClients(state, {
+					data: {
+						framework: 'angular',
+						cssUrl,
+						cssBaseName: baseName,
+						updateType: 'logic' as const,
+						manifest,
+						sourceFile: angularPagePath
+					},
+					type: 'angular-update'
+				});
+			}
+
+			onRebuildComplete({ manifest, hmrState: state });
+
+			return manifest;
+		}
+
 		const manifest = await build({
 			...config,
 			incrementalFiles:
@@ -938,35 +1133,14 @@ export const triggerRebuild = async (
 				);
 
 				if (angularFiles.length > 0) {
-					// Angular HMR Optimization — Classify update type for smart HMR
-					// style: only .css files changed → CSS hot-swap, no destroy
-					// template: only .html files changed → DOM patch, no destroy
-					// logic: .ts files changed → full destroy + bootstrap
-					const angularTsFiles = angularFiles.filter((f) =>
-						f.endsWith('.ts')
-					);
-					const angularHtmlFiles = angularFiles.filter((f) =>
-						f.endsWith('.html')
-					);
+					// Classify update type: CSS-only changes get a
+					// lightweight stylesheet swap that preserves state.
 					const angularCssFiles = angularFiles.filter((f) =>
 						f.endsWith('.css')
 					);
-
 					const isCssOnlyChange =
-						angularTsFiles.length === 0 &&
-						angularHtmlFiles.length === 0 &&
+						angularFiles.every((f) => f.endsWith('.css')) &&
 						angularCssFiles.length > 0;
-					const isTemplateOnlyChange =
-						angularTsFiles.length === 0 &&
-						angularHtmlFiles.length > 0 &&
-						angularCssFiles.length === 0;
-
-					// Determine updateType for the WebSocket message
-					let angularUpdateType: 'style' | 'template' | 'logic' =
-						'logic';
-					if (isCssOnlyChange) angularUpdateType = 'style';
-					else if (isTemplateOnlyChange)
-						angularUpdateType = 'template';
 
 					// Find Angular page files from changed files
 					const angularPageFiles = angularFiles.filter((f) =>
@@ -975,9 +1149,6 @@ export const triggerRebuild = async (
 
 					// If no page files changed directly, resolve component files
 					// to their parent pages via the dependency graph.
-					// Without this, component file changes (e.g. app.component.html)
-					// get passed directly to the SSR handler which can't find them
-					// in the manifest (only page entries exist), causing null HTML.
 					let pagesToUpdate = angularPageFiles;
 					if (pagesToUpdate.length === 0 && state.dependencyGraph) {
 						const resolvedPages = new Set<string>();
@@ -1054,18 +1225,9 @@ export const triggerRebuild = async (
 								const cssKey = `${pascalName}CSS`;
 								const cssUrl = manifest[cssKey] || null;
 
-								// Angular HMR — Zoneless Runtime Preservation: SSR re-render for all update types.
-								// SSR generates inline scripts for event listeners (getRegisterClientScript).
-								// Client-side-only re-bootstrap cannot replicate this mechanism.
-								const { handleAngularUpdate } = await import(
-									'./simpleAngularHMR'
-								);
-								const newHTML = await handleAngularUpdate(
-									angularPagePath,
-									manifest,
-									state.resolvedPaths.buildDir
-								);
-
+								// Skip SSR re-render — the client re-bootstraps
+								// Angular by importing the updated index module
+								// directly, so SSR HTML is never used.
 								logger.hmrUpdate(
 									angularPagePath,
 									'angular',
@@ -1074,10 +1236,9 @@ export const triggerRebuild = async (
 								broadcastToClients(state, {
 									data: {
 										framework: 'angular',
-										html: newHTML,
 										cssUrl,
 										cssBaseName: baseName,
-										updateType: angularUpdateType,
+										updateType: 'logic' as const,
 										manifest,
 										sourceFile: angularPagePath
 									},

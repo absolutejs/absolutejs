@@ -297,9 +297,24 @@ const handleFullUpdate = (message: HMRMessage) => {
 		// Skip hydration for re-bootstrap
 		(window as any).__HMR_SKIP_HYDRATION__ = true;
 
+		// Suppress NG0912 Component ID collision warnings during HMR.
+		// When Angular packages are shared via vendor files (single instance),
+		// re-importing a component re-registers it in Angular's global registry.
+		// The warning is expected and harmless during HMR.
+		const origWarn = console.warn;
+		console.warn = function (...args: unknown[]) {
+			if (typeof args[0] === 'string' && args[0].includes('NG0912')) {
+				return;
+			}
+			origWarn.apply(console, args);
+		};
+
 		// Import new module → triggers bootstrapApplication
 		await import(/* @vite-ignore */ indexPath + '?t=' + Date.now());
 		await waitForAngularApp();
+
+		// Restore console.warn after module import
+		console.warn = origWarn;
 
 		// Immediately restore state (don't wait for requestAnimationFrame, it delays the View Transition)
 		restoreComponentState(componentState);

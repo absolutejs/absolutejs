@@ -2,12 +2,16 @@ import { readdir } from 'node:fs/promises';
 import { statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { build } from './build';
-import { setDevVendorPaths } from './devVendorPaths';
+import { setDevVendorPaths, setAngularVendorPaths } from './devVendorPaths';
 import type { BuildConfig } from '../../types/build';
 import {
 	buildReactVendor,
 	computeVendorPaths
 } from '../build/buildReactVendor';
+import {
+	buildAngularVendor,
+	computeAngularVendorPaths
+} from '../build/buildAngularVendor';
 import { createHMRState, type HMRState } from '../dev/clientManager';
 import { buildInitialDependencyGraph } from '../dev/dependencyGraph';
 import { startFileWatching } from '../dev/fileWatcher';
@@ -54,7 +58,9 @@ export const devBuild = async (config: BuildConfig) => {
 	if (config.reactDirectory) {
 		setDevVendorPaths(computeVendorPaths());
 	}
-
+	if (config.angularDirectory) {
+		setAngularVendorPaths(computeAngularVendorPaths());
+	}
 	// Store version for the startup banner
 	// Try multiple paths: '../..' works from source (src/core/devBuild.ts),
 	// '..' works from bundled dist (dist/index.js)
@@ -130,9 +136,34 @@ export const devBuild = async (config: BuildConfig) => {
 		}
 	}
 
+	// Build Angular vendor files — same pattern as React.
+	if (config.angularDirectory) {
+		await buildAngularVendor(state.resolvedPaths.buildDir);
+
+		const vendorDir = resolve(
+			state.resolvedPaths.buildDir,
+			'angular',
+			'vendor'
+		);
+		try {
+			const entries = await readdir(vendorDir);
+			for (const entry of entries) {
+				const webPath = `/angular/vendor/${entry}`;
+				const bytes = await Bun.file(resolve(vendorDir, entry)).bytes();
+				state.assetStore.set(webPath, bytes);
+			}
+		} catch {
+			/* vendor dir may not exist if Angular build failed */
+		}
+	}
+
+	// Store initial manifest on HMR state for Angular fast-path HMR
+	state.manifest = manifest;
+
 	startFileWatching(state, config, (filePath: string) => {
 		queueFileChange(state, filePath, config, (newBuildResult) => {
 			Object.assign(manifest, newBuildResult.manifest);
+			state.manifest = manifest;
 		});
 	});
 

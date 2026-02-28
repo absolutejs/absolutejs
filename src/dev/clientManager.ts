@@ -25,6 +25,7 @@ export type HMRState = {
 	resolvedPaths: ResolvedBuildPaths; // Normalized paths derived from config
 	vueChangeTypes: Map<string, 'template-only' | 'script' | 'full'>; // Vue HMR change type tracking
 	assetStore: Map<string, Uint8Array>; // In-memory client asset store for dev mode
+	manifest: Record<string, string>; // Current build manifest (for Angular fast-path HMR)
 };
 
 /* Initialize HMR state */
@@ -43,7 +44,8 @@ export const createHMRState = (config: BuildConfig): HMRState => ({
 	config,
 	resolvedPaths: resolveBuildPaths(config), // Track versions for source files to bypass Bun's cache
 	vueChangeTypes: new Map(), // Vue HMR change type tracking
-	assetStore: new Map() // In-memory client asset store for dev mode
+	assetStore: new Map(), // In-memory client asset store for dev mode
+	manifest: {} // Current build manifest (populated after initial build)
 });
 
 /* Increment version for a source file (forces Bun to treat it as a new module) */

@@ -12,3 +12,13 @@ export const setDevVendorPaths = (paths: Record<string, string>): void => {
 
 export const getDevVendorPaths = (): Record<string, string> | null =>
 	devVendorPaths;
+
+/** Angular vendor paths — same pattern as React. */
+let angularVendorPaths: Record<string, string> | null = null;
+
+export const setAngularVendorPaths = (paths: Record<string, string>): void => {
+	angularVendorPaths = paths;
+};
+
+export const getAngularVendorPaths = (): Record<string, string> | null =>
+	angularVendorPaths;

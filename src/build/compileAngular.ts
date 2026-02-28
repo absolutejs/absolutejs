@@ -262,6 +262,11 @@ export const compileAngularFile = async (inputPath: string, outDir: string) => {
 	return entries.map(({ target }) => target);
 };
 
+// Module-level cache: source content hash → compiled output path.
+// Skips re-transpilation of unchanged files during HMR, preventing
+// bun --hot from re-evaluating the growing module graph on each change.
+const jitContentCache = new Map<string, string>();
+
 /** Angular HMR Runtime Layer (Level 3) — JIT-mode compilation for dev/HMR builds.
  *  Uses ts.transpileModule() instead of Angular AOT performCompilation().
  *  Inlines templateUrl → template and styleUrls → styles from disk.
@@ -372,37 +377,6 @@ export const compileAngularFileJIT = async (inputPath: string, outDir: string, r
 		// doesn't try to fetch them via HTTP (which fails on the server)
 		sourceCode = await inlineResources(sourceCode, dirname(actualPath));
 
-		// Find all relative imports to process recursively
-		const importRegex = /from\s+['"](\.\.?\/[^'"]+)['"]/g;
-		const localImports: string[] = [];
-		let importMatch;
-		while ((importMatch = importRegex.exec(sourceCode)) !== null) {
-			if (importMatch[1]) localImports.push(importMatch[1]);
-		}
-
-		// Transpile this file
-		const result = ts.transpileModule(sourceCode, {
-			compilerOptions: transpileOpts,
-			fileName: actualPath
-		});
-
-		let processedContent = result.outputText;
-
-		// Add .js extensions to relative imports
-		processedContent = processedContent.replace(
-			/from\s+(['"])(\.\.?\/[^'"]+)(\1)/g,
-			(match, quote, path) => {
-				if (!path.match(/\.(js|ts|mjs|cjs)$/)) {
-					return `from ${quote}${path}.js${quote}`;
-				}
-				// Replace .ts extension with .js
-				if (path.endsWith('.ts')) {
-					return `from ${quote}${path.replace(/\.ts$/, '.js')}${quote}`;
-				}
-				return match;
-			}
-		);
-
 		// Compute output path preserving directory structure
 		const inputDir = dirname(actualPath);
 		const relativeDir = inputDir.startsWith(baseDir)
@@ -412,9 +386,52 @@ export const compileAngularFileJIT = async (inputPath: string, outDir: string, r
 		const targetDir = join(outDir, relativeDir);
 		const targetPath = join(targetDir, fileBase);
 
-		await fs.mkdir(targetDir, { recursive: true });
-		await fs.writeFile(targetPath, processedContent, 'utf-8');
-		allOutputs.push(targetPath);
+		// Find all relative imports to process recursively (needed
+		// even when skipping transpilation for cache-hit files)
+		const importRegex = /from\s+['"](\.\.?\/[^'"]+)['"]/g;
+		const localImports: string[] = [];
+		let importMatch;
+		while ((importMatch = importRegex.exec(sourceCode)) !== null) {
+			if (importMatch[1]) localImports.push(importMatch[1]);
+		}
+
+		// Skip transpilation if source content hasn't changed — the
+		// compiled output on disk is already up-to-date. This avoids
+		// unnecessary disk writes that trigger bun --hot re-evaluation
+		// and cause progressively slower compile times.
+		const contentHash = Bun.hash(sourceCode).toString(36);
+		const cacheKey = actualPath;
+		if (jitContentCache.get(cacheKey) === contentHash && existsSync(targetPath)) {
+			allOutputs.push(targetPath);
+		} else {
+			// Transpile this file
+			const result = ts.transpileModule(sourceCode, {
+				compilerOptions: transpileOpts,
+				fileName: actualPath
+			});
+
+			let processedContent = result.outputText;
+
+			// Add .js extensions to relative imports
+			processedContent = processedContent.replace(
+				/from\s+(['"])(\.\.?\/[^'"]+)(\1)/g,
+				(match, quote, path) => {
+					if (!path.match(/\.(js|ts|mjs|cjs)$/)) {
+						return `from ${quote}${path}.js${quote}`;
+					}
+					// Replace .ts extension with .js
+					if (path.endsWith('.ts')) {
+						return `from ${quote}${path.replace(/\.ts$/, '.js')}${quote}`;
+					}
+					return match;
+				}
+			);
+
+			await fs.mkdir(targetDir, { recursive: true });
+			await fs.writeFile(targetPath, processedContent, 'utf-8');
+			allOutputs.push(targetPath);
+			jitContentCache.set(cacheKey, contentHash);
+		}
 
 		// Recursively transpile local imports
 		const inputDirForResolve = dirname(actualPath);
@@ -427,6 +444,7 @@ export const compileAngularFileJIT = async (inputPath: string, outDir: string, r
 	};
 
 	await transpileFile(inputPath);
+
 	return allOutputs;
 };
 
@@ -441,13 +459,15 @@ export const compileAngular = async (
 		return { clientPaths: [] as string[], serverPaths: [] as string[] };
 	}
 
-	// Unique build ID ensures Bun's ESM cache never returns stale modules
-	// during HMR — all file paths are fresh, forcing re-import of the
-	// entire dependency chain (not just the top-level page file).
+	// In dev/HMR, compile to a fixed compiled/ directory (no unique buildId).
+	// The page handler uses require() with require.cache invalidation to
+	// reload fresh content while reusing cached @angular/core ESM instances.
+	// Unique build IDs caused Bun to create duplicate Angular module instances
+	// (different file paths → different ESM cache entries for dependencies),
+	// leading to NG0201/NG0203 token identity mismatches during HMR.
 	// In production (hmr=false), output directly to compiled/ without
 	// the buildId subdirectory — cleanup() removes it after bundling.
-	const buildId = hmr ? Date.now().toString(36) : undefined;
-	const compiledRoot = buildId ? join(compiledParent, buildId) : compiledParent;
+	const compiledRoot = compiledParent;
 	// In production, place index files directly at outRoot/indexes so Bun's
 	// bundler output lands at dist/angular/indexes/ (not dist/angular/compiled/indexes/).
 	// In dev, keep them under compiledRoot so each HMR build has unique paths.
@@ -496,6 +516,22 @@ export const compileAngular = async (
 		// Angular HMR Runtime Layer (Level 3) — Inject HMR registration in dev mode
 		if (hmr) {
 			rewritten = injectHMRRegistration(rewritten, entry);
+
+			// Write Angular dependency re-exports to a SEPARATE file so
+			// they don't leak into the client bundle (require() doesn't
+			// work in browsers). handleAngularPageRequest imports this
+			// sibling file for identity-safe SSR rendering.
+			const ssrDepsFile = rawServerFile.replace(/\.js$/, '.ssr-deps.js');
+			const ssrDepsContent = [
+				'// HMR SSR: re-export Angular deps for identity-safe SSR rendering.',
+				'// Separate file to avoid bundling require() calls into client code.',
+				'export const __angularCore = require("@angular/core");',
+				'export const __angularPlatformServer = require("@angular/platform-server");',
+				'export const __angularPlatformBrowser = require("@angular/platform-browser");',
+				'export const __angularCommon = require("@angular/common");',
+				''
+			].join('\n');
+			await fs.writeFile(ssrDepsFile, ssrDepsContent, 'utf-8');
 		}
 
 		await fs.writeFile(rawServerFile, rewritten, 'utf-8');
@@ -559,23 +595,6 @@ bootstrapApplication(${componentClassName}, {
 	const results = await Promise.all(compileTasks);
 	const serverPaths = results.map((r) => r.serverPath);
 	const clientPaths = results.map((r) => r.clientPath);
-
-	// Clean up old compiled builds (keep only current) — dev/HMR only
-	if (buildId) {
-		try {
-			const dirs = await fs.readdir(compiledParent);
-			await Promise.all(
-				dirs
-					.filter((dir) => dir !== buildId)
-					.map((dir) =>
-						fs.rm(join(compiledParent, dir), {
-							recursive: true,
-							force: true
-						})
-					)
-			);
-		} catch { }
-	}
 
 	return { clientPaths, serverPaths };
 };
