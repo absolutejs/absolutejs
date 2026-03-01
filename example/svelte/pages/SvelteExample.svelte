@@ -1,12 +1,15 @@
 <script lang="ts">
 	type SvelteExampleProps = {
 		initialCount: number;
-		cssPath: string;
+		cssPath?: string;
+		cssPaths?: string[];
 	};
 	import Counter from '../components/Counter.svelte';
 
-	let { initialCount, cssPath }: SvelteExampleProps = $props();
+	let { initialCount, cssPath, cssPaths = [] }: SvelteExampleProps = $props();
 	let isOpen = $state(false);
+
+	let allCssPaths = $derived([...(cssPath ? [cssPath] : []), ...cssPaths]);
 </script>
 
 <svelte:head>
@@ -25,7 +28,9 @@
 		href={`https://fonts.googleapis.com/css2?family=Poppins:wght@100..900&display=swap`}
 		rel="stylesheet"
 	/>
-	<link rel="stylesheet" href={cssPath} type="text/css" />
+	{#each allCssPaths as path}
+		<link rel="stylesheet" href={path} type="text/css" />
+	{/each}
 </svelte:head>
 
 <header>
@@ -64,7 +69,7 @@
 			/>
 		</a>
 	</nav>
-	<h1>AbsoluteJS + Svelte</h1>
+	<h1 class="global-test">AbsoluteJS + Svelte</h1>
 	<Counter {initialCount} />
 	<p>
 		Edit <code>example/svelte/pages/SvelteExample.svelte</code> and save to test

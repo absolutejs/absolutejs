@@ -1,4 +1,4 @@
-@import url('../../styles/reset.css');
+@import url('../../styles/partials/reset.css');
 
 header {
 	align-items: center;
@@ -38,7 +38,7 @@ h1 {
 	margin-top: 2rem;
 }
 
-body > main {
+body>main {
 	margin-top: 2rem;
 }
 
@@ -143,6 +143,7 @@ header details nav a {
 	from {
 		transform: rotate(0deg);
 	}
+
 	to {
 		transform: rotate(360deg);
 	}

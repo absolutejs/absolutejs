@@ -218,7 +218,7 @@ export const queueFileChange = (
 								processedFiles.add(affectedFile);
 							}
 						}
-					} catch {}
+					} catch { }
 					continue;
 				}
 
@@ -266,7 +266,7 @@ export const queueFileChange = (
 								);
 							}
 						}
-					} catch {}
+					} catch { }
 
 					// Get all files that depend on this changed file
 					try {
@@ -477,8 +477,8 @@ export const triggerRebuild = async (
 						entrypoints: clientPaths,
 						...(angVendorPaths
 							? {
-									external: Object.keys(angVendorPaths)
-								}
+								external: Object.keys(angVendorPaths)
+							}
 							: {}),
 						format: 'esm',
 						naming: '[dir]/[name].[hash].[ext]',
@@ -814,26 +814,26 @@ export const triggerRebuild = async (
 				const [serverResult, clientResult] = await Promise.all([
 					serverEntries.length > 0
 						? bunBuild({
-								entrypoints: serverEntries,
-								external: ['svelte', 'svelte/*'],
-								format: 'esm',
-								naming: '[dir]/[name].[hash].[ext]',
-								outdir: serverOutDir,
-								root: serverRoot,
-								target: 'bun',
-								throw: false
-							})
+							entrypoints: serverEntries,
+							external: ['svelte', 'svelte/*'],
+							format: 'esm',
+							naming: '[dir]/[name].[hash].[ext]',
+							outdir: serverOutDir,
+							root: serverRoot,
+							target: 'bun',
+							throw: false
+						})
 						: undefined,
 					clientEntries.length > 0
 						? bunBuild({
-								entrypoints: clientEntries,
-								format: 'esm',
-								naming: '[dir]/[name].[hash].[ext]',
-								outdir: buildDir,
-								root: clientRoot,
-								target: 'browser',
-								throw: false
-							})
+							entrypoints: clientEntries,
+							format: 'esm',
+							naming: '[dir]/[name].[hash].[ext]',
+							outdir: buildDir,
+							root: clientRoot,
+							target: 'browser',
+							throw: false
+						})
 						: undefined
 				]);
 
@@ -972,27 +972,27 @@ export const triggerRebuild = async (
 				const [serverResult, clientResult] = await Promise.all([
 					serverEntries.length > 0
 						? bunBuild({
-								entrypoints: serverEntries,
-								external: ['vue', 'vue/*'],
-								format: 'esm',
-								naming: '[dir]/[name].[hash].[ext]',
-								outdir: serverOutDir,
-								root: serverRoot,
-								target: 'bun',
-								throw: false
-							})
+							entrypoints: serverEntries,
+							external: ['vue', 'vue/*'],
+							format: 'esm',
+							naming: '[dir]/[name].[hash].[ext]',
+							outdir: serverOutDir,
+							root: serverRoot,
+							target: 'bun',
+							throw: false
+						})
 						: undefined,
 					clientEntries.length > 0
 						? bunBuild({
-								define: vueFeatureFlags,
-								entrypoints: clientEntries,
-								format: 'esm',
-								naming: '[dir]/[name].[hash].[ext]',
-								outdir: buildDir,
-								root: clientRoot,
-								target: 'browser',
-								throw: false
-							})
+							define: vueFeatureFlags,
+							entrypoints: clientEntries,
+							format: 'esm',
+							naming: '[dir]/[name].[hash].[ext]',
+							outdir: buildDir,
+							root: clientRoot,
+							target: 'browser',
+							throw: false
+						})
 						: undefined
 				]);
 
@@ -1038,8 +1038,8 @@ export const triggerRebuild = async (
 				const vueRoot = config.vueDirectory;
 				const hmrId = vueRoot
 					? relative(vueRoot, vuePagePath)
-							.replace(/\\/g, '/')
-							.replace(/\.vue$/, '')
+						.replace(/\\/g, '/')
+						.replace(/\.vue$/, '')
 					: baseName;
 
 				logger.hmrUpdate(vuePagePath, 'vue', duration);
@@ -1072,6 +1072,7 @@ export const triggerRebuild = async (
 					: undefined,
 			options: {
 				...config.options,
+				baseManifest: state.manifest,
 				injectHMR: true,
 				throwOnError: true
 			}
@@ -1316,10 +1317,10 @@ export const triggerRebuild = async (
 					const outputHtmlPages = isSingle
 						? resolve(state.resolvedPaths.buildDir, 'pages')
 						: resolve(
-								state.resolvedPaths.buildDir,
-								basename(config.htmlDirectory ?? 'html'),
-								'pages'
-							);
+							state.resolvedPaths.buildDir,
+							basename(config.htmlDirectory ?? 'html'),
+							'pages'
+						);
 
 					for (const pageFile of pagesToUpdate) {
 						const htmlPageName = basename(pageFile);
@@ -1343,6 +1344,7 @@ export const triggerRebuild = async (
 									data: {
 										framework: 'html',
 										html: newHTML,
+										manifest,
 										sourceFile: builtHtmlPagePath
 									},
 									type: 'html-update'
@@ -1432,8 +1434,8 @@ export const triggerRebuild = async (
 							const vueRoot = config.vueDirectory;
 							const hmrId = vueRoot
 								? relative(vueRoot, vuePagePath)
-										.replace(/\\/g, '/')
-										.replace(/\.vue$/, '')
+									.replace(/\\/g, '/')
+									.replace(/\.vue$/, '')
 								: baseName;
 
 							// Get CSS URL from manifest
@@ -1827,10 +1829,10 @@ export const triggerRebuild = async (
 					const outputHtmxPages = isSingle
 						? resolve(state.resolvedPaths.buildDir, 'pages')
 						: resolve(
-								state.resolvedPaths.buildDir,
-								basename(config.htmxDirectory ?? 'htmx'),
-								'pages'
-							);
+							state.resolvedPaths.buildDir,
+							basename(config.htmxDirectory ?? 'htmx'),
+							'pages'
+						);
 
 					// Process each affected HTMX page
 					for (const htmxPageFile of htmxPageFiles) {
@@ -1857,6 +1859,7 @@ export const triggerRebuild = async (
 									data: {
 										framework: 'htmx',
 										html: newHTML,
+										manifest,
 										sourceFile: builtHtmxPagePath
 									},
 									type: 'htmx-update'
@@ -1948,13 +1951,27 @@ export const triggerRebuild = async (
 
 		// Send individual framework updates (for backward compatibility)
 		for (const framework of affectedFrameworks) {
+			const type =
+				framework === 'styles' || framework === 'assets'
+					? 'style-update'
+					: 'framework-update';
+
+			if (type === 'style-update' && filesToRebuild) {
+				const duration = Date.now() - startTime;
+				for (const file of filesToRebuild) {
+					// Only log the files that actually belong to this global framework category
+					if (detectFramework(file, state.resolvedPaths) === framework) {
+						logger.cssUpdate(file, framework, duration);
+					}
+				}
+			}
 			broadcastToClients(state, {
 				data: {
 					framework,
 					manifest
 				},
 				message: `${framework} framework updated`,
-				type: 'framework-update'
+				type: type as any
 			});
 		}
 

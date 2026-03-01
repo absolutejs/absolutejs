@@ -10,6 +10,7 @@ type ResolvedPaths = {
 	angularDir?: string;
 	htmlDir?: string;
 	htmxDir?: string;
+	stylesDir?: string;
 };
 
 /** Normalize and default build paths so HMR works outside the example app. */
@@ -30,7 +31,8 @@ export const resolveBuildPaths = (config: BuildConfig) => {
 		vueDir: optional(config.vueDirectory),
 		angularDir: optional(config.angularDirectory),
 		htmlDir: optional(config.htmlDirectory),
-		htmxDir: optional(config.htmxDirectory)
+		htmxDir: optional(config.htmxDirectory),
+		stylesDir: optional(config.stylesDirectory)
 	};
 };
 

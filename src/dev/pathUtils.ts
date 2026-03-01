@@ -24,7 +24,8 @@ export const getWatchPaths = (
 		angularDir: config.angularDirectory,
 		htmlDir: config.htmlDirectory,
 		htmxDir: config.htmxDirectory,
-		assetsDir: config.assetsDirectory
+		assetsDir: config.assetsDirectory,
+		stylesDir: config.stylesDirectory
 	};
 
 	// Watch source directories (pages/components/styles etc.)
@@ -54,6 +55,7 @@ export const getWatchPaths = (
 	push(cfg.htmxDir, 'styles');
 
 	push(cfg.assetsDir);
+	push(cfg.stylesDir);
 
 	return paths;
 };
