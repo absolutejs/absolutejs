@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import { basename, relative, resolve } from 'node:path';
 import { build } from '../core/build';
 import type { BuildConfig } from '../../types/build';
@@ -704,6 +705,8 @@ export const triggerRebuild = async (
 				}
 			}
 
+			await rm(reactIndexesPath, { force: true, recursive: true });
+
 			const manifest = state.manifest;
 			const duration = Date.now() - startTime;
 
@@ -868,6 +871,21 @@ export const triggerRebuild = async (
 				}
 			}
 
+			await Promise.all([
+				rm(resolve(svelteDir, 'client'), {
+					force: true,
+					recursive: true
+				}),
+				rm(resolve(svelteDir, 'indexes'), {
+					force: true,
+					recursive: true
+				}),
+				rm(resolve(svelteDir, 'server'), {
+					force: true,
+					recursive: true
+				})
+			]);
+
 			const manifest = state.manifest;
 			const duration = Date.now() - startTime;
 
@@ -1021,6 +1039,25 @@ export const triggerRebuild = async (
 					);
 				}
 			}
+
+			await Promise.all([
+				rm(resolve(vueDir, 'client'), {
+					force: true,
+					recursive: true
+				}),
+				rm(resolve(vueDir, 'indexes'), {
+					force: true,
+					recursive: true
+				}),
+				rm(resolve(vueDir, 'server'), {
+					force: true,
+					recursive: true
+				}),
+				rm(resolve(vueDir, 'compiled'), {
+					force: true,
+					recursive: true
+				})
+			]);
 
 			const manifest = state.manifest;
 			const duration = Date.now() - startTime;

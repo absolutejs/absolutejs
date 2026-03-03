@@ -875,9 +875,7 @@ export const build = async ({
 		]);
 	}
 
-	// Skip cleanup during incremental builds — removing compiled/ intermediates
-	// adds I/O latency and they'll just get recreated on next rebuild.
-	if (!options?.preserveIntermediateFiles && !isIncremental)
+	if (!options?.preserveIntermediateFiles)
 		await cleanup({
 			angularDir,
 			reactIndexesPath,
