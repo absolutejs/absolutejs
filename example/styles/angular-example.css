@@ -1,0 +1,18 @@
+@import url('./partials/reset.css');
+
+.logo.angular:hover {
+	filter: drop-shadow(0 0 2rem #dc087d);
+}
+
+/* Flex wrappers for Angular custom elements */
+angular-page {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+}
+
+app-root {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+}

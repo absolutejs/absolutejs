@@ -233,11 +233,6 @@ export const build = async ({
 		allSvelteEntries,
 		allVueEntries,
 		allAngularEntries,
-		allHtmlCssEntries,
-		allHtmxCssEntries,
-		allReactCssEntries,
-		allSvelteCssEntries,
-		allAngularCssEntries,
 		allGlobalCssEntries
 	] = await Promise.all([
 		tailwindPromise,
@@ -246,11 +241,6 @@ export const build = async ({
 		sveltePagesPath ? scanEntryPoints(sveltePagesPath, '*.svelte') : [],
 		vuePagesPath ? scanEntryPoints(vuePagesPath, '*.vue') : [],
 		angularPagesPath ? scanEntryPoints(angularPagesPath, '*.ts') : [],
-		htmlDir ? scanCssEntryPoints(join(htmlDir, 'styles')) : [],
-		htmxDir ? scanCssEntryPoints(join(htmxDir, 'styles')) : [],
-		reactDir ? scanCssEntryPoints(join(reactDir, 'styles')) : [],
-		svelteDir ? scanCssEntryPoints(join(svelteDir, 'styles')) : [],
-		angularDir ? scanCssEntryPoints(join(angularDir, 'styles')) : [],
 		stylesDir ? scanCssEntryPoints(stylesDir) : []
 	]);
 	// When HTML/HTMX pages change, we must include their CSS and scripts in the build
@@ -304,23 +294,6 @@ export const build = async ({
 		: allAngularEntries;
 
 	// CSS entries - entries are the CSS files themselves
-	const htmlCssEntries =
-		isIncremental && !shouldIncludeHtmlAssets
-			? filterToIncrementalEntries(allHtmlCssEntries, (entry) => entry)
-			: allHtmlCssEntries;
-	const htmxCssEntries =
-		isIncremental && !shouldIncludeHtmxAssets
-			? filterToIncrementalEntries(allHtmxCssEntries, (entry) => entry)
-			: allHtmxCssEntries;
-	const reactCssEntries = isIncremental
-		? filterToIncrementalEntries(allReactCssEntries, (entry) => entry)
-		: allReactCssEntries;
-	const svelteCssEntries = isIncremental
-		? filterToIncrementalEntries(allSvelteCssEntries, (entry) => entry)
-		: allSvelteCssEntries;
-	const angularCssEntries = isIncremental
-		? filterToIncrementalEntries(allAngularCssEntries, (entry) => entry)
-		: allAngularCssEntries;
 	const globalCssEntries = isIncremental
 		? filterToIncrementalEntries(allGlobalCssEntries, (entry) => entry)
 		: allGlobalCssEntries;
@@ -390,15 +363,6 @@ export const build = async ({
 		...vueIndexPaths,
 		...vueClientPaths,
 		...angularClientPaths
-	];
-	const cssEntryPoints = [
-		...vueCssPaths,
-		...reactCssEntries,
-		...svelteCssEntries,
-		...htmlCssEntries,
-		...htmxCssEntries,
-		...angularCssEntries,
-		...globalCssEntries
 	];
 
 	if (
@@ -512,7 +476,7 @@ export const build = async ({
 
 	// Run all 4 Bun.build passes in parallel — they write to different
 	// directories and have independent entry points.
-	const [serverResult, reactClientResult, nonReactClientResult, cssResult] =
+	const [serverResult, reactClientResult, nonReactClientResult, globalCssResult, vueCssResult] =
 		await Promise.all([
 			serverEntryPoints.length > 0
 				? bunBuild({
@@ -556,9 +520,19 @@ export const build = async ({
 					throw: false
 				})
 				: undefined,
-			cssEntryPoints.length > 0
+			globalCssEntries.length > 0
 				? bunBuild({
-					entrypoints: cssEntryPoints,
+					entrypoints: globalCssEntries,
+					naming: `[dir]/[name].[hash].[ext]`,
+					outdir: stylesDir ? join(buildPath, basename(stylesDir)) : buildPath,
+					root: stylesDir || clientRoot,
+					target: 'browser',
+					throw: false
+				})
+				: undefined,
+			vueCssPaths.length > 0
+				? bunBuild({
+					entrypoints: vueCssPaths,
 					naming: `[name].[hash].[ext]`,
 					outdir: join(
 						buildPath,
@@ -682,26 +656,51 @@ export const build = async ({
 	let cssLogs: (BuildMessage | ResolveMessage)[] = [];
 	let cssOutputs: BuildArtifact[] = [];
 
-	if (cssResult) {
-		cssLogs = cssResult.logs;
-		cssOutputs = cssResult.outputs;
-		if (!cssResult.success && cssResult.logs.length > 0) {
+	if (globalCssResult) {
+		cssLogs.push(...globalCssResult.logs);
+		cssOutputs.push(...globalCssResult.outputs);
+		if (!globalCssResult.success && globalCssResult.logs.length > 0) {
 			const errLog =
-				cssResult.logs.find((l) => l.level === 'error') ??
-				cssResult.logs[0]!;
+				globalCssResult.logs.find((l) => l.level === 'error') ??
+				globalCssResult.logs[0]!;
 			const err = new Error(
 				typeof errLog.message === 'string'
 					? errLog.message
 					: String(errLog.message)
 			);
-			(err as Error & { logs?: unknown }).logs = cssResult.logs;
+			(err as Error & { logs?: unknown }).logs = globalCssResult.logs;
 			sendTelemetryEvent('build:error', {
-				pass: 'css',
+				pass: 'global-css',
 				frameworks: frameworkNames,
 				message: err.message,
 				incremental: !!isIncremental
 			});
-			logger.error('CSS build failed', err);
+			logger.error('Global CSS build failed', err);
+			if (throwOnError) throw err;
+			exit(1);
+		}
+	}
+
+	if (vueCssResult) {
+		cssLogs.push(...vueCssResult.logs);
+		cssOutputs.push(...vueCssResult.outputs);
+		if (!vueCssResult.success && vueCssResult.logs.length > 0) {
+			const errLog =
+				vueCssResult.logs.find((l) => l.level === 'error') ??
+				vueCssResult.logs[0]!;
+			const err = new Error(
+				typeof errLog.message === 'string'
+					? errLog.message
+					: String(errLog.message)
+			);
+			(err as Error & { logs?: unknown }).logs = vueCssResult.logs;
+			sendTelemetryEvent('build:error', {
+				pass: 'vue-css',
+				frameworks: frameworkNames,
+				message: err.message,
+				incremental: !!isIncremental
+			});
+			logger.error('Vue CSS build failed', err);
 			if (throwOnError) throw err;
 			exit(1);
 		}

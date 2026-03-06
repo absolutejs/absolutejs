@@ -1184,19 +1184,11 @@ export const triggerRebuild = async (
 						);
 
 						// Log the HMR update
-						if (hasCSSChanges && !hasComponentChanges) {
-							logger.cssUpdate(
-								primarySource ?? reactFiles[0] ?? '',
-								'react',
-								duration
-							);
-						} else {
-							logger.hmrUpdate(
-								primarySource ?? reactFiles[0] ?? '',
-								'react',
-								duration
-							);
-						}
+						logger.hmrUpdate(
+							primarySource ?? reactFiles[0] ?? '',
+							'react',
+							duration
+						);
 
 						// Send react-update message without HTML - client will import and re-render
 						broadcastToClients(state, {
