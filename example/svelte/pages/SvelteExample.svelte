@@ -88,4 +88,5 @@
 
 	.logo.svelte:hover {
 		filter: drop-shadow(0 0 2rem #ff3e00);
+	}
 </style>
