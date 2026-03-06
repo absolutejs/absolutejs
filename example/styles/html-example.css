@@ -1,0 +1,5 @@
+@import url('./partials/reset.css');
+
+.logo.html:hover {
+	filter: drop-shadow(0 0 2rem #e34f26);
+}

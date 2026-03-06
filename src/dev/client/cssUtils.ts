@@ -16,10 +16,7 @@ export const reloadCSSStylesheets = (manifest: Record<string, string>) => {
 
 		let newHref: string | null = null;
 		if (manifest) {
-			const baseName = href
-				.split('/')
-				.pop()!
-				.replace(/\.[^.]*$/, '');
+			const baseName = getCSSBaseName(href);
 			const manifestKey =
 				baseName
 					.split('-')
