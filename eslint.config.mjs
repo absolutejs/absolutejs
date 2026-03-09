@@ -21,8 +21,6 @@ export default defineConfig([
 			'**/compiled/**',
 			'**/*/htmx.*.min.js',
 			'example/build/**',
-			'tailwind.config.ts',
-			'postcss.config.ts',
 			'example/react/indexes/*'
 		]
 	},
