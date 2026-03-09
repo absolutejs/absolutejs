@@ -9,30 +9,29 @@ export { formatTimestamp };
 
 // ANSI color codes
 const colors = {
-	reset: '\x1b[0m',
+	blue: '\x1b[34m',
 	bold: '\x1b[1m',
-	dim: '\x1b[2m',
-
 	// Core colors
 	cyan: '\x1b[36m',
+	dim: '\x1b[2m',
 	green: '\x1b[32m',
-	yellow: '\x1b[33m',
-	red: '\x1b[31m',
-	blue: '\x1b[34m',
 	magenta: '\x1b[35m',
-	white: '\x1b[37m'
+	red: '\x1b[31m',
+	reset: '\x1b[0m',
+	white: '\x1b[37m',
+	yellow: '\x1b[33m'
 } as const;
 
 // Framework color mapping
 const frameworkColors: Record<string, string> = {
-	react: colors.blue,
-	vue: colors.green,
-	svelte: colors.yellow,
 	angular: colors.magenta,
+	assets: colors.dim,
+	css: colors.cyan,
 	html: colors.white,
 	htmx: colors.white,
-	css: colors.cyan,
-	assets: colors.dim
+	react: colors.blue,
+	svelte: colors.yellow,
+	vue: colors.green
 };
 
 /**
@@ -47,17 +46,17 @@ const formatPath = (filePath: string) => {
 	relative = relative.replace(/\\/g, '/');
 	// Ensure it starts with /
 	if (!relative.startsWith('/')) {
-		relative = '/' + relative;
+		relative = `/${relative}`;
 	}
+
 	return relative;
 };
 
 /**
  * Get color for a framework
  */
-const getFrameworkColor = (framework: string) => {
-	return frameworkColors[framework] || colors.white;
-};
+const getFrameworkColor = (framework: string) =>
+	frameworkColors[framework] || colors.white;
 
 /**
  * Core logging function
@@ -117,37 +116,16 @@ const logWarn = (message: string) => {
 // Public API
 export const logger = {
 	/**
-	 * HMR update message
-	 * Format: "10:30:45 AM [hmr] hmr update /pages/App.tsx"
+	 * Startup banner
 	 */
-	hmrUpdate(path: string, framework?: string, duration?: number) {
-		log('hmr update', { path, framework, duration });
-	},
-
-	/**
-	 * Page reload message
-	 * Format: "10:30:45 AM [hmr] page reload /src/App.tsx (125ms)"
-	 */
-	pageReload(path: string, framework?: string, duration?: number) {
-		log('page reload', { path, framework, duration });
-	},
-
+	ready: startupBanner,
 	/**
 	 * CSS update message
 	 * Format: "10:30:45 AM [hmr] css update /styles/main.css (125ms)"
 	 */
 	cssUpdate(path: string, framework?: string, duration?: number) {
-		log('css update', { path, framework: framework ?? 'css', duration });
+		log('css update', { duration, framework: framework ?? 'css', path });
 	},
-
-	/**
-	 * Script update message
-	 * Format: "10:30:45 AM [hmr] script update /scripts/counter.ts (125ms)"
-	 */
-	scriptUpdate(path: string, framework?: string, duration?: number) {
-		log('script update', { path, framework, duration });
-	},
-
 	/**
 	 * Build error
 	 * Format: "10:30:45 AM [hmr] error Build failed: ..."
@@ -155,31 +133,44 @@ export const logger = {
 	error(message: string, error?: Error | string) {
 		logError(message, error);
 	},
-
 	/**
-	 * Warning message
-	 * Format: "10:30:45 AM [hmr] warning ..."
+	 * HMR update message
+	 * Format: "10:30:45 AM [hmr] hmr update /pages/App.tsx"
 	 */
-	warn(message: string) {
-		logWarn(message);
+	hmrUpdate(path: string, framework?: string, duration?: number) {
+		log('hmr update', { duration, framework, path });
 	},
-
 	/**
 	 * Generic info message
 	 */
 	info(message: string) {
 		log(message);
 	},
-
+	/**
+	 * Page reload message
+	 * Format: "10:30:45 AM [hmr] page reload /src/App.tsx (125ms)"
+	 */
+	pageReload(path: string, framework?: string, duration?: number) {
+		log('page reload', { duration, framework, path });
+	},
+	/**
+	 * Script update message
+	 * Format: "10:30:45 AM [hmr] script update /scripts/counter.ts (125ms)"
+	 */
+	scriptUpdate(path: string, framework?: string, duration?: number) {
+		log('script update', { duration, framework, path });
+	},
 	/**
 	 * Server module reloaded (Bun --hot triggered a server-side change)
 	 */
 	serverReload() {
 		log(`${colors.cyan}server module reloaded${colors.reset}`);
 	},
-
 	/**
-	 * Startup banner
+	 * Warning message
+	 * Format: "10:30:45 AM [hmr] warning ..."
 	 */
-	ready: startupBanner
+	warn(message: string) {
+		logWarn(message);
+	}
 };

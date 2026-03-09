@@ -10,16 +10,16 @@ export const App = ({ initialCount }: AppProps) => {
 			<nav>
 				<a href="https://absolutejs.com" target="_blank">
 					<img
+						alt="AbsoluteJS Logo"
 						className="logo"
 						src="/assets/png/absolutejs-temp.png"
-						alt="AbsoluteJS Logo"
 					/>
 				</a>
 				<a href="https://react.dev/">
 					<img
+						alt="React Logo"
 						className="logo react"
 						src="/assets/svg/react.svg"
-						alt="React Logo"
 					/>
 				</a>
 			</nav>

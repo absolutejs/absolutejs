@@ -13,7 +13,6 @@
 		"experimentalDecorators": true,
 		"forceConsistentCasingInFileNames": true,
 		"incremental": true,
-		"tsBuildInfoFile": ".absolutejs/tsconfig.tsbuildinfo",
 		"jsx": "react-jsx",
 		"lib": ["DOM", "DOM.Iterable", "ESNext"],
 		"module": "ESNext",
@@ -24,6 +23,7 @@
 		"skipLibCheck": true,
 		"strict": true,
 		"target": "ESNext",
+		"tsBuildInfoFile": ".absolutejs/tsconfig.tsbuildinfo",
 		"useDefineForClassFields": false
 	},
 	"exclude": ["node_modules", "example/build", "example/dist"],

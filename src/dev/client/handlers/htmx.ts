@@ -49,7 +49,7 @@ export const handleHTMXUpdate = (message: {
 
 		if (htmxHead) {
 			const doPatchHead = function () {
-				patchHeadInPlace(htmxHead!);
+				patchHeadInPlace(htmxHead);
 			};
 			if (hmrState.isFirstHMRUpdate) {
 				setTimeout(doPatchHead, 50);
@@ -114,7 +114,7 @@ const updateHTMXBody = (
 		container.appendChild(hmrScript);
 	}
 
-	requestAnimationFrame(function () {
+	requestAnimationFrame(() => {
 		restoreFormState(savedState.forms);
 		restoreScrollState(savedState.scroll);
 
@@ -128,7 +128,7 @@ const updateHTMXBody = (
 		if (scriptsChanged || htmlStructureChanged) {
 			container
 				.querySelectorAll('[data-hmr-listeners-attached]')
-				.forEach(function (el) {
+				.forEach((el) => {
 					const cloned = el.cloneNode(true) as Element;
 					if (el.parentNode) {
 						el.parentNode.replaceChild(cloned, el);
@@ -137,24 +137,24 @@ const updateHTMXBody = (
 				});
 
 			const scriptsInNewHTML = container.querySelectorAll('script[src]');
-			scriptsInNewHTML.forEach(function (script) {
-				if (!(script as Element).hasAttribute('data-hmr-client')) {
+			scriptsInNewHTML.forEach((script) => {
+				if (!script.hasAttribute('data-hmr-client')) {
 					script.remove();
 				}
 			});
 
-			newScripts.forEach(function (scriptInfo) {
+			newScripts.forEach((scriptInfo) => {
 				const newScript = document.createElement('script');
 				const separator = scriptInfo.src.includes('?') ? '&' : '?';
-				newScript.src = scriptInfo.src + separator + 't=' + Date.now();
+				newScript.src = `${scriptInfo.src + separator}t=${Date.now()}`;
 				newScript.type = scriptInfo.type;
 				container.appendChild(newScript);
 			});
 
 			const inlineScripts =
 				container.querySelectorAll('script:not([src])');
-			inlineScripts.forEach(function (script) {
-				if (!(script as Element).hasAttribute('data-hmr-client')) {
+			inlineScripts.forEach((script) => {
+				if (!script.hasAttribute('data-hmr-client')) {
 					const newScript = document.createElement('script');
 					newScript.textContent = script.textContent || '';
 					newScript.type =
@@ -175,68 +175,48 @@ const updateHTMXBody = (
 
 /* Shared helpers */
 
-const collectScripts = (container: HTMLElement) => {
-	return Array.from(container.querySelectorAll('script[src]')).map(
-		function (script) {
-			return {
-				src: script.getAttribute('src') || '',
-				type: script.getAttribute('type') || 'text/javascript'
-			};
-		}
-	);
-};
+const collectScripts = (container: HTMLElement) =>
+	Array.from(container.querySelectorAll('script[src]')).map((script) => ({
+		src: script.getAttribute('src') || '',
+		type: script.getAttribute('type') || 'text/javascript'
+	}));
 
-const collectScriptsFromElement = (el: HTMLElement) => {
-	return Array.from(el.querySelectorAll('script[src]')).map(
-		function (script) {
-			return {
-				src: script.getAttribute('src') || '',
-				type: script.getAttribute('type') || 'text/javascript'
-			};
-		}
-	);
-};
+const collectScriptsFromElement = (el: HTMLElement) =>
+	Array.from(el.querySelectorAll('script[src]')).map((script) => ({
+		src: script.getAttribute('src') || '',
+		type: script.getAttribute('type') || 'text/javascript'
+	}));
 
-const didScriptsChange = (
-	oldScripts: ScriptInfo[],
-	newScripts: ScriptInfo[]
-) => {
-	return (
-		oldScripts.length !== newScripts.length ||
-		oldScripts.some(function (oldScript, idx) {
-			const oldSrcBase = oldScript.src.split('?')[0]!.split('&')[0];
-			const newScript = newScripts[idx];
-			if (!newScript) return true;
-			const newSrcBase = newScript.src.split('?')[0]!.split('&')[0];
-			return oldSrcBase !== newSrcBase;
-		})
-	);
-};
+const didScriptsChange = (oldScripts: ScriptInfo[], newScripts: ScriptInfo[]) =>
+	oldScripts.length !== newScripts.length ||
+	oldScripts.some((oldScript, idx) => {
+		const oldSrcBase = oldScript.src.split('?')[0]!.split('&')[0];
+		const newScript = newScripts[idx];
+		if (!newScript) return true;
+		const newSrcBase = newScript.src.split('?')[0]!.split('&')[0];
+
+		return oldSrcBase !== newSrcBase;
+	});
 
 const normalizeHTMLForComparison = (element: HTMLElement) => {
 	const clone = element.cloneNode(true) as HTMLElement;
 	const scripts = clone.querySelectorAll('script');
-	scripts.forEach(function (script) {
+	scripts.forEach((script) => {
 		if (script.parentNode) {
 			script.parentNode.removeChild(script);
 		}
 	});
 	const allElements = clone.querySelectorAll('*');
-	allElements.forEach(function (el) {
+	allElements.forEach((el) => {
 		el.removeAttribute('data-hmr-listeners-attached');
 	});
 	if (clone.removeAttribute) {
 		clone.removeAttribute('data-hmr-listeners-attached');
 	}
+
 	return clone.innerHTML;
 };
 
-const didHTMLStructureChange = (
-	container: HTMLElement,
-	tempDiv: HTMLElement
-) => {
-	return (
-		normalizeHTMLForComparison(container) !==
-		normalizeHTMLForComparison(tempDiv)
-	);
-};
+const didHTMLStructureChange = (container: HTMLElement, tempDiv: HTMLElement) =>
+	normalizeHTMLForComparison(container) !==
+	normalizeHTMLForComparison(tempDiv);

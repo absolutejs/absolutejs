@@ -25,8 +25,9 @@ export const networking = (app: Elysia) =>
 		},
 		() => {
 			// Skip logging on Bun --hot reloads (HMR handles its own output)
-			const isHotReload = !!(globalThis as Record<string, unknown>)
-				.__hmrServerStartup;
+			const isHotReload = Boolean(
+				(globalThis as Record<string, unknown>).__hmrServerStartup
+			);
 			(globalThis as Record<string, unknown>).__hmrServerStartup = true;
 			if (isHotReload) {
 				return;

@@ -16,14 +16,14 @@ export const Head = ({
 	<head suppressHydrationWarning>
 		<meta charSet="utf-8" />
 		<title>{title}</title>
-		<meta name="description" content={description} />
-		<meta name="viewport" content="width=device-width, initial-scale=1" />
-		<link rel="icon" href={icon} />
-		<link rel="preconnect" href="https://fonts.googleapis.com" />
+		<meta content={description} name="description" />
+		<meta content="width=device-width, initial-scale=1" name="viewport" />
+		<link href={icon} rel="icon" />
+		<link href="https://fonts.googleapis.com" rel="preconnect" />
 		<link
-			rel="preconnect"
-			href="https://fonts.gstatic.com"
 			crossOrigin="anonymous"
+			href="https://fonts.gstatic.com"
+			rel="preconnect"
 			suppressHydrationWarning
 		/>
 		<link
@@ -33,10 +33,10 @@ export const Head = ({
 		/>
 		{cssPath && (
 			<link
-				rel="stylesheet"
 				href={cssPath}
-				type="text/css"
+				rel="stylesheet"
 				suppressHydrationWarning
+				type="text/css"
 			/>
 		)}
 	</head>

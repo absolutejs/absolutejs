@@ -2,7 +2,7 @@ import type { ToolAdapter } from '../../../types/tool';
 import { runTool } from '../cache';
 
 export const eslintAdapter: ToolAdapter = {
-	name: 'eslint',
+	configFiles: ['eslint.config.mjs'],
 	fileGlobs: [
 		'**/*.ts',
 		'**/*.tsx',
@@ -18,7 +18,7 @@ export const eslintAdapter: ToolAdapter = {
 		'**/build/**',
 		'**/.absolutejs/**'
 	],
-	configFiles: ['eslint.config.mjs'],
+	name: 'eslint',
 	buildCommand: (files, args) => ['bun', 'eslint', ...args, ...files]
 };
 

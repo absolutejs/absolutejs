@@ -6,11 +6,11 @@ const getHeadElementKey = (el: Element) => {
 	if (tag === 'title') return 'title';
 	if (tag === 'meta' && el.hasAttribute('charset')) return 'meta:charset';
 	if (tag === 'meta' && el.hasAttribute('name'))
-		return 'meta:name:' + el.getAttribute('name');
+		return `meta:name:${el.getAttribute('name')}`;
 	if (tag === 'meta' && el.hasAttribute('property'))
-		return 'meta:property:' + el.getAttribute('property');
+		return `meta:property:${el.getAttribute('property')}`;
 	if (tag === 'meta' && el.hasAttribute('http-equiv'))
-		return 'meta:http-equiv:' + el.getAttribute('http-equiv');
+		return `meta:http-equiv:${el.getAttribute('http-equiv')}`;
 
 	if (tag === 'link') {
 		const rel = (el.getAttribute('rel') || '').toLowerCase();
@@ -19,19 +19,19 @@ const getHeadElementKey = (el: Element) => {
 			rel === 'shortcut icon' ||
 			rel === 'apple-touch-icon'
 		)
-			return 'link:icon:' + rel;
+			return `link:icon:${rel}`;
 		if (rel === 'stylesheet') return null;
 		if (rel === 'preconnect')
-			return 'link:preconnect:' + (el.getAttribute('href') || '');
+			return `link:preconnect:${el.getAttribute('href') || ''}`;
 		if (rel === 'preload')
-			return 'link:preload:' + (el.getAttribute('href') || '');
+			return `link:preload:${el.getAttribute('href') || ''}`;
 		if (rel === 'canonical') return 'link:canonical';
 		if (rel === 'dns-prefetch')
-			return 'link:dns-prefetch:' + (el.getAttribute('href') || '');
+			return `link:dns-prefetch:${el.getAttribute('href') || ''}`;
 	}
 
 	if (tag === 'script' && el.hasAttribute('data-hmr-id'))
-		return 'script:hmr:' + el.getAttribute('data-hmr-id');
+		return `script:hmr:${el.getAttribute('data-hmr-id')}`;
 	if (tag === 'script') return null;
 	if (tag === 'base') return 'base';
 
@@ -65,6 +65,7 @@ const updateHeadElement = (oldEl: Element, newEl: Element, key: string) => {
 			oldEl.textContent = newTitle;
 			document.title = newTitle;
 		}
+
 		return;
 	}
 
@@ -80,6 +81,7 @@ const updateHeadElement = (oldEl: Element, newEl: Element, key: string) => {
 				oldEl.setAttribute('charset', newCharset!);
 			}
 		}
+
 		return;
 	}
 
@@ -97,11 +99,9 @@ const updateHeadElement = (oldEl: Element, newEl: Element, key: string) => {
 				const oldBase = oldHref.split('?')[0];
 				const newBase = newHref.split('?')[0];
 				if (oldBase !== newBase) {
-					const cacheBustedHref =
-						newHref +
-						(newHref.includes('?') ? '&' : '?') +
-						't=' +
-						Date.now();
+					const cacheBustedHref = `${
+						newHref + (newHref.includes('?') ? '&' : '?')
+					}t=${Date.now()}`;
 					oldEl.setAttribute('href', cacheBustedHref);
 				}
 			}
@@ -110,7 +110,7 @@ const updateHeadElement = (oldEl: Element, newEl: Element, key: string) => {
 		}
 
 		const attrsToCheck = ['type', 'sizes', 'crossorigin', 'as', 'media'];
-		attrsToCheck.forEach(function (attr) {
+		attrsToCheck.forEach((attr) => {
 			const newVal = newEl.getAttribute(attr);
 			const oldVal = oldEl.getAttribute(attr);
 			if (newVal !== null && oldVal !== newVal) {
@@ -119,6 +119,7 @@ const updateHeadElement = (oldEl: Element, newEl: Element, key: string) => {
 				oldEl.removeAttribute(attr);
 			}
 		});
+
 		return;
 	}
 
@@ -131,7 +132,6 @@ const updateHeadElement = (oldEl: Element, newEl: Element, key: string) => {
 		if (newTarget && oldEl.getAttribute('target') !== newTarget) {
 			oldEl.setAttribute('target', newTarget);
 		}
-		return;
 	}
 };
 
@@ -140,7 +140,7 @@ const addHeadElement = (newEl: Element, key: string) => {
 	clone.setAttribute('data-hmr-source', 'patched');
 
 	const tag = newEl.tagName.toLowerCase();
-	const head = document.head;
+	const { head } = document;
 	let insertBefore: Node | null = null;
 
 	if (tag === 'title') {
@@ -170,7 +170,7 @@ export const patchHeadInPlace = (newHeadHTML: string) => {
 	const existingMap = new Map<string, Element>();
 	const newMap = new Map<string, Element>();
 
-	Array.from(document.head.children).forEach(function (el) {
+	Array.from(document.head.children).forEach((el) => {
 		if (shouldPreserveElement(el)) return;
 		const key = getHeadElementKey(el);
 		if (key) {
@@ -178,14 +178,14 @@ export const patchHeadInPlace = (newHeadHTML: string) => {
 		}
 	});
 
-	Array.from(tempDiv.children).forEach(function (el) {
+	Array.from(tempDiv.children).forEach((el) => {
 		const key = getHeadElementKey(el);
 		if (key) {
 			newMap.set(key, el);
 		}
 	});
 
-	newMap.forEach(function (newEl, key) {
+	newMap.forEach((newEl, key) => {
 		const existingEl = existingMap.get(key);
 		if (existingEl) {
 			updateHeadElement(existingEl, newEl, key);
@@ -194,7 +194,7 @@ export const patchHeadInPlace = (newHeadHTML: string) => {
 		}
 	});
 
-	existingMap.forEach(function (existingEl, key) {
+	existingMap.forEach((existingEl, key) => {
 		if (!newMap.has(key)) {
 			if (!shouldPreserveElement(existingEl)) {
 				const tag = existingEl.tagName.toLowerCase();

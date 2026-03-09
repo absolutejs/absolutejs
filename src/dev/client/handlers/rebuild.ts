@@ -6,6 +6,11 @@ import {
 	showErrorOverlay
 } from '../errorOverlay';
 
+export const handleFullReload = () => {
+	setTimeout(() => {
+		window.location.reload();
+	}, 200);
+};
 export const handleManifest = (message: {
 	data: {
 		manifest?: Record<string, string>;
@@ -26,35 +31,6 @@ export const handleManifest = (message: {
 
 	window.__HMR_MODULE_UPDATES__ = [];
 };
-
-export const handleRebuildComplete = (message: {
-	data: {
-		affectedFrameworks?: string[];
-		manifest?: Record<string, string>;
-	};
-}) => {
-	if (!isRuntimeErrorOverlay()) {
-		hideErrorOverlay();
-	}
-	if (window.__HMR_MANIFEST__) {
-		window.__HMR_MANIFEST__ = message.data.manifest;
-	}
-
-	if (
-		message.data.affectedFrameworks &&
-		!message.data.affectedFrameworks.includes('angular') &&
-		!message.data.affectedFrameworks.includes('react') &&
-		!message.data.affectedFrameworks.includes('html') &&
-		!message.data.affectedFrameworks.includes('htmx') &&
-		!message.data.affectedFrameworks.includes('vue') &&
-		!message.data.affectedFrameworks.includes('svelte')
-	) {
-		const url = new URL(window.location.href);
-		url.searchParams.set('_cb', Date.now().toString());
-		window.location.href = url.toString();
-	}
-};
-
 export const handleModuleUpdate = (message: {
 	data: {
 		framework?: string;
@@ -118,12 +94,39 @@ export const handleModuleUpdate = (message: {
 			window.__HMR_MODULE_UPDATES__ = [];
 		}
 		window.__HMR_MODULE_UPDATES__.push(message.data);
+
 		return;
 	}
 
 	window.location.reload();
 };
+export const handleRebuildComplete = (message: {
+	data: {
+		affectedFrameworks?: string[];
+		manifest?: Record<string, string>;
+	};
+}) => {
+	if (!isRuntimeErrorOverlay()) {
+		hideErrorOverlay();
+	}
+	if (window.__HMR_MANIFEST__) {
+		window.__HMR_MANIFEST__ = message.data.manifest;
+	}
 
+	if (
+		message.data.affectedFrameworks &&
+		!message.data.affectedFrameworks.includes('angular') &&
+		!message.data.affectedFrameworks.includes('react') &&
+		!message.data.affectedFrameworks.includes('html') &&
+		!message.data.affectedFrameworks.includes('htmx') &&
+		!message.data.affectedFrameworks.includes('vue') &&
+		!message.data.affectedFrameworks.includes('svelte')
+	) {
+		const url = new URL(window.location.href);
+		url.searchParams.set('_cb', Date.now().toString());
+		window.location.href = url.toString();
+	}
+};
 export const handleRebuildError = (message: {
 	data: {
 		affectedFrameworks?: string[];
@@ -146,10 +149,4 @@ export const handleRebuildError = (message: {
 		lineText: errData.lineText,
 		message: errData.error || 'Build failed'
 	});
-};
-
-export const handleFullReload = () => {
-	setTimeout(function () {
-		window.location.reload();
-	}, 200);
 };

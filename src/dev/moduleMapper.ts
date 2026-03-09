@@ -17,99 +17,6 @@ export type ModuleUpdate = {
 
 /* Map a source file to its manifest entry keys
    This handles framework-specific manifest key derivation */
-export const mapSourceFileToManifestKeys = (
-	sourceFile: string,
-	framework: string,
-	resolvedPaths?: {
-		reactDir?: string;
-		svelteDir?: string;
-		vueDir?: string;
-		angularDir?: string;
-	}
-) => {
-	const normalizedFile = resolve(sourceFile);
-	const fileName = basename(normalizedFile);
-
-	// Extract base name without extension
-	const baseName = fileName.replace(/\.(tsx?|jsx?|vue|svelte|css|html)$/, '');
-	const pascalName = toPascal(baseName);
-
-	const keys: string[] = [];
-
-	const inSubdir = (dir: string | undefined, sub: string) => {
-		if (!dir) return false;
-		const prefix = `${dir.replace(/\\/g, '/')}/${sub}/`;
-		return normalizedFile.startsWith(prefix);
-	};
-
-	switch (framework) {
-		case 'react':
-			// React pages (in pages/ directory) have Index entries
-			if (
-				inSubdir(resolvedPaths?.reactDir, 'pages') ||
-				normalizedFile.includes('/react/pages/')
-			) {
-				keys.push(`${pascalName}Index`);
-				keys.push(`${pascalName}CSS`); // CSS might exist
-			}
-			// React components don't have direct manifest entries
-			// They're bundled into the page that imports them
-			// The dependency graph ensures the page is rebuilt when a component changes
-			break;
-
-		case 'svelte':
-			// Svelte pages have both main entry and index
-			if (
-				inSubdir(resolvedPaths?.svelteDir, 'pages') ||
-				normalizedFile.includes('/svelte/pages/')
-			) {
-				keys.push(pascalName);
-				keys.push(`${pascalName}Index`);
-				keys.push(`${pascalName}CSS`); // CSS might exist
-			}
-			break;
-
-		case 'vue':
-			// Vue pages have main entry, index, and CSS
-			if (
-				inSubdir(resolvedPaths?.vueDir, 'pages') ||
-				normalizedFile.includes('/vue/pages/')
-			) {
-				keys.push(pascalName);
-				keys.push(`${pascalName}Index`);
-				keys.push(`${pascalName}CSS`);
-			}
-			break;
-
-		case 'angular':
-			// Angular pages have main entry and index
-			if (
-				inSubdir(resolvedPaths?.angularDir, 'pages') ||
-				normalizedFile.includes('/angular/pages/')
-			) {
-				keys.push(pascalName);
-				keys.push(`${pascalName}Index`);
-			}
-			break;
-
-		case 'html':
-		case 'htmx':
-			// HTML/HTMX files are directly referenced, no manifest entries needed
-			break;
-
-		case 'assets':
-			// CSS files use CSS suffix
-			if (normalizedFile.endsWith('.css')) {
-				keys.push(`${pascalName}CSS`);
-			}
-			break;
-	}
-
-	return keys;
-};
-
-/* Create module update payloads from changed files
-   This handles the "build module updates" problem */
 export const createModuleUpdates = (
 	changedFiles: string[],
 	framework: string,
@@ -193,9 +100,6 @@ export const createModuleUpdates = (
 
 	return updates;
 };
-
-/* Group module updates by framework
-   This handles the "organize updates" problem */
 export const groupModuleUpdatesByFramework = (updates: ModuleUpdate[]) => {
 	const grouped = new Map<string, ModuleUpdate[]>();
 
@@ -207,4 +111,95 @@ export const groupModuleUpdatesByFramework = (updates: ModuleUpdate[]) => {
 	}
 
 	return grouped;
+};
+export const mapSourceFileToManifestKeys = (
+	sourceFile: string,
+	framework: string,
+	resolvedPaths?: {
+		reactDir?: string;
+		svelteDir?: string;
+		vueDir?: string;
+		angularDir?: string;
+	}
+) => {
+	const normalizedFile = resolve(sourceFile);
+	const fileName = basename(normalizedFile);
+
+	// Extract base name without extension
+	const baseName = fileName.replace(/\.(tsx?|jsx?|vue|svelte|css|html)$/, '');
+	const pascalName = toPascal(baseName);
+
+	const keys: string[] = [];
+
+	const inSubdir = (dir: string | undefined, sub: string) => {
+		if (!dir) return false;
+		const prefix = `${dir.replace(/\\/g, '/')}/${sub}/`;
+
+		return normalizedFile.startsWith(prefix);
+	};
+
+	switch (framework) {
+		case 'react':
+			// React pages (in pages/ directory) have Index entries
+			if (
+				inSubdir(resolvedPaths?.reactDir, 'pages') ||
+				normalizedFile.includes('/react/pages/')
+			) {
+				keys.push(`${pascalName}Index`);
+				keys.push(`${pascalName}CSS`); // CSS might exist
+			}
+			// React components don't have direct manifest entries
+			// They're bundled into the page that imports them
+			// The dependency graph ensures the page is rebuilt when a component changes
+			break;
+
+		case 'svelte':
+			// Svelte pages have both main entry and index
+			if (
+				inSubdir(resolvedPaths?.svelteDir, 'pages') ||
+				normalizedFile.includes('/svelte/pages/')
+			) {
+				keys.push(pascalName);
+				keys.push(`${pascalName}Index`);
+				keys.push(`${pascalName}CSS`); // CSS might exist
+			}
+			break;
+
+		case 'vue':
+			// Vue pages have main entry, index, and CSS
+			if (
+				inSubdir(resolvedPaths?.vueDir, 'pages') ||
+				normalizedFile.includes('/vue/pages/')
+			) {
+				keys.push(pascalName);
+				keys.push(`${pascalName}Index`);
+				keys.push(`${pascalName}CSS`);
+			}
+			break;
+
+		case 'angular':
+			// Angular pages have main entry and index
+			if (
+				inSubdir(resolvedPaths?.angularDir, 'pages') ||
+				normalizedFile.includes('/angular/pages/')
+			) {
+				keys.push(pascalName);
+				keys.push(`${pascalName}Index`);
+			}
+			break;
+
+		case 'html':
+		case 'htmx':
+			// HTML/HTMX files are directly referenced, no manifest entries needed
+			break;
+
+		case 'assets':
+			// CSS files use CSS suffix
+			if (normalizedFile.endsWith('.css')) {
+				keys.push(`${pascalName}CSS`);
+			}
+			break;
+	}
+
+	return keys;
 };

@@ -2,75 +2,6 @@
 
 import type { DOMStateEntry, DOMStateSnapshot } from '../../../types/client';
 
-export const saveDOMState = (root: HTMLElement) => {
-	const snapshot: DOMStateSnapshot = { activeKey: null, items: [] };
-	const selector =
-		'input, textarea, select, option, [contenteditable="true"], details';
-	const elements = root.querySelectorAll(selector);
-
-	elements.forEach(function (el, idx) {
-		const entry: DOMStateEntry = {
-			idx,
-			tag: el.tagName.toLowerCase()
-		};
-		const id = el.getAttribute('id');
-		const name = el.getAttribute('name');
-		if (id) entry.id = id;
-		else if (name) entry.name = name;
-
-		if (el.tagName === 'INPUT') {
-			const input = el as HTMLInputElement;
-			const type = input.getAttribute('type') || 'text';
-			entry.type = type;
-			if (type === 'checkbox' || type === 'radio') {
-				entry.checked = input.checked;
-			} else {
-				entry.value = input.value;
-			}
-			if (input.selectionStart !== null && input.selectionEnd !== null) {
-				entry.selStart = input.selectionStart;
-				entry.selEnd = input.selectionEnd;
-			}
-		} else if (el.tagName === 'TEXTAREA') {
-			const textarea = el as HTMLTextAreaElement;
-			entry.value = textarea.value;
-			if (
-				textarea.selectionStart !== null &&
-				textarea.selectionEnd !== null
-			) {
-				entry.selStart = textarea.selectionStart;
-				entry.selEnd = textarea.selectionEnd;
-			}
-		} else if (el.tagName === 'SELECT') {
-			const select = el as HTMLSelectElement;
-			const vals: string[] = [];
-			Array.from(select.options).forEach(function (opt) {
-				if (opt.selected) vals.push(opt.value);
-			});
-			entry.values = vals;
-		} else if (el.tagName === 'OPTION') {
-			entry.selected = (el as HTMLOptionElement).selected;
-		} else if (el.tagName === 'DETAILS') {
-			entry.open = (el as HTMLDetailsElement).open;
-		} else if (el.getAttribute('contenteditable') === 'true') {
-			entry.text = el.textContent || undefined;
-		}
-		snapshot.items.push(entry);
-	});
-
-	const active = document.activeElement;
-	if (active && root.contains(active)) {
-		const id = active.getAttribute('id');
-		const name = active.getAttribute('name');
-		if (id) snapshot.activeKey = 'id:' + id;
-		else if (name) snapshot.activeKey = 'name:' + name;
-		else
-			snapshot.activeKey =
-				'idx:' + Array.prototype.indexOf.call(elements, active);
-	}
-	return snapshot;
-};
-
 export const restoreDOMState = (
 	root: HTMLElement,
 	snapshot: DOMStateSnapshot
@@ -80,15 +11,13 @@ export const restoreDOMState = (
 		'input, textarea, select, option, [contenteditable="true"], details';
 	const elements = root.querySelectorAll(selector);
 
-	snapshot.items.forEach(function (entry) {
+	snapshot.items.forEach((entry) => {
 		let target: Element | null = null;
 		if (entry.id) {
-			target = root.querySelector('#' + CSS.escape(entry.id));
+			target = root.querySelector(`#${CSS.escape(entry.id)}`);
 		}
 		if (!target && entry.name) {
-			target = root.querySelector(
-				'[name="' + CSS.escape(entry.name) + '"]'
-			);
+			target = root.querySelector(`[name="${CSS.escape(entry.name)}"]`);
 		}
 		if (!target && elements[entry.idx]) {
 			target = elements[entry.idx]!;
@@ -131,7 +60,7 @@ export const restoreDOMState = (
 		} else if (target.tagName === 'SELECT') {
 			if (Array.isArray(entry.values)) {
 				const select = target as HTMLSelectElement;
-				Array.from(select.options).forEach(function (opt) {
+				Array.from(select.options).forEach((opt) => {
 					opt.selected = entry.values!.indexOf(opt.value) !== -1;
 				});
 			}
@@ -150,11 +79,11 @@ export const restoreDOMState = (
 		let focusEl: Element | null = null;
 		if (snapshot.activeKey.startsWith('id:')) {
 			focusEl = root.querySelector(
-				'#' + CSS.escape(snapshot.activeKey.slice(3))
+				`#${CSS.escape(snapshot.activeKey.slice(3))}`
 			);
 		} else if (snapshot.activeKey.startsWith('name:')) {
 			focusEl = root.querySelector(
-				'[name="' + CSS.escape(snapshot.activeKey.slice(5)) + '"]'
+				`[name="${CSS.escape(snapshot.activeKey.slice(5))}"]`
 			);
 		} else if (snapshot.activeKey.startsWith('idx:')) {
 			const idx = parseInt(snapshot.activeKey.slice(4), 10);
@@ -165,20 +94,140 @@ export const restoreDOMState = (
 		}
 	}
 };
+export const restoreFormState = (
+	formState: Record<string, Record<string, boolean | string>>
+) => {
+	Object.keys(formState).forEach((formId) => {
+		const isStandalone = formId === '__standalone__';
+		const formIndex = parseInt(formId.replace('form-', ''));
+		let form: Element | null = null;
+		if (!isStandalone) {
+			form = document.getElementById(formId);
+			if (!form && !isNaN(formIndex)) {
+				try {
+					form = document.querySelector(
+						`form:nth-of-type(${formIndex + 1})`
+					);
+				} catch (_e) {
+					/* invalid selector */
+				}
+			}
+		}
+		Object.keys(formState[formId]!).forEach((name) => {
+			let element: HTMLInputElement | null = null;
+			if (isStandalone) {
+				element = document.querySelector(
+					`input[name="${name}"], textarea[name="${
+						name
+					}"], select[name="${name}"]`
+				);
+				if (!element) {
+					element = document.getElementById(
+						name
+					) as HTMLInputElement | null;
+				}
+			} else if (form) {
+				element = form.querySelector(`[name="${name}"], #${name}`);
+			}
+			if (element) {
+				const value = formState[formId]![name]!;
+				if (element.type === 'checkbox' || element.type === 'radio') {
+					element.checked = value === true;
+				} else {
+					element.value = String(value);
+				}
+			}
+		});
+	});
+};
+export const restoreScrollState = (scrollState: {
+	window: { x: number; y: number };
+}) => {
+	if (scrollState && scrollState.window) {
+		window.scrollTo(scrollState.window.x, scrollState.window.y);
+	}
+};
+export const saveDOMState = (root: HTMLElement) => {
+	const snapshot: DOMStateSnapshot = { activeKey: null, items: [] };
+	const selector =
+		'input, textarea, select, option, [contenteditable="true"], details';
+	const elements = root.querySelectorAll(selector);
 
+	elements.forEach((el, idx) => {
+		const entry: DOMStateEntry = {
+			idx,
+			tag: el.tagName.toLowerCase()
+		};
+		const id = el.getAttribute('id');
+		const name = el.getAttribute('name');
+		if (id) entry.id = id;
+		else if (name) entry.name = name;
+
+		if (el.tagName === 'INPUT') {
+			const input = el as HTMLInputElement;
+			const type = input.getAttribute('type') || 'text';
+			entry.type = type;
+			if (type === 'checkbox' || type === 'radio') {
+				entry.checked = input.checked;
+			} else {
+				entry.value = input.value;
+			}
+			if (input.selectionStart !== null && input.selectionEnd !== null) {
+				entry.selStart = input.selectionStart;
+				entry.selEnd = input.selectionEnd;
+			}
+		} else if (el.tagName === 'TEXTAREA') {
+			const textarea = el as HTMLTextAreaElement;
+			entry.value = textarea.value;
+			if (
+				textarea.selectionStart !== null &&
+				textarea.selectionEnd !== null
+			) {
+				entry.selStart = textarea.selectionStart;
+				entry.selEnd = textarea.selectionEnd;
+			}
+		} else if (el.tagName === 'SELECT') {
+			const select = el as HTMLSelectElement;
+			const vals: string[] = [];
+			Array.from(select.options).forEach((opt) => {
+				if (opt.selected) vals.push(opt.value);
+			});
+			entry.values = vals;
+		} else if (el.tagName === 'OPTION') {
+			entry.selected = (el as HTMLOptionElement).selected;
+		} else if (el.tagName === 'DETAILS') {
+			entry.open = (el as HTMLDetailsElement).open;
+		} else if (el.getAttribute('contenteditable') === 'true') {
+			entry.text = el.textContent || undefined;
+		}
+		snapshot.items.push(entry);
+	});
+
+	const active = document.activeElement;
+	if (active && root.contains(active)) {
+		const id = active.getAttribute('id');
+		const name = active.getAttribute('name');
+		if (id) snapshot.activeKey = `id:${id}`;
+		else if (name) snapshot.activeKey = `name:${name}`;
+		else
+			snapshot.activeKey = `idx:${Array.prototype.indexOf.call(elements, active)}`;
+	}
+
+	return snapshot;
+};
 export const saveFormState = () => {
 	const formState: Record<string, Record<string, boolean | string>> = {};
 	const forms = document.querySelectorAll('form');
-	forms.forEach(function (form, formIndex) {
-		const formId = form.id || 'form-' + formIndex;
+	forms.forEach((form, formIndex) => {
+		const formId = form.id || `form-${formIndex}`;
 		formState[formId] = {};
 		const inputs = form.querySelectorAll('input, textarea, select');
-		inputs.forEach(function (input) {
+		inputs.forEach((input) => {
 			const element = input as HTMLInputElement;
 			const name =
 				element.name ||
 				element.id ||
-				'input-' + formIndex + '-' + inputs.length;
+				`input-${formIndex}-${inputs.length}`;
 			if (element.type === 'checkbox' || element.type === 'radio') {
 				formState[formId]![name] = element.checked;
 			} else {
@@ -192,12 +241,12 @@ export const saveFormState = () => {
 	);
 	if (standaloneInputs.length > 0) {
 		formState['__standalone__'] = {};
-		standaloneInputs.forEach(function (input) {
+		standaloneInputs.forEach((input) => {
 			const element = input as HTMLInputElement;
 			const name =
 				element.name ||
 				element.id ||
-				'standalone-' + standaloneInputs.length;
+				`standalone-${standaloneInputs.length}`;
 			if (element.type === 'checkbox' || element.type === 'radio') {
 				formState['__standalone__']![name] = element.checked;
 			} else {
@@ -205,73 +254,12 @@ export const saveFormState = () => {
 			}
 		});
 	}
+
 	return formState;
 };
-
-export const restoreFormState = (
-	formState: Record<string, Record<string, boolean | string>>
-) => {
-	Object.keys(formState).forEach(function (formId) {
-		const isStandalone = formId === '__standalone__';
-		const formIndex = parseInt(formId.replace('form-', ''));
-		let form: Element | null = null;
-		if (!isStandalone) {
-			form = document.getElementById(formId);
-			if (!form && !isNaN(formIndex)) {
-				try {
-					form = document.querySelector(
-						'form:nth-of-type(' + (formIndex + 1) + ')'
-					);
-				} catch (_e) {
-					/* invalid selector */
-				}
-			}
-		}
-		Object.keys(formState[formId]!).forEach(function (name) {
-			let element: HTMLInputElement | null = null;
-			if (isStandalone) {
-				element = document.querySelector(
-					'input[name="' +
-						name +
-						'"], textarea[name="' +
-						name +
-						'"], select[name="' +
-						name +
-						'"]'
-				);
-				if (!element) {
-					element = document.getElementById(
-						name
-					) as HTMLInputElement | null;
-				}
-			} else if (form) {
-				element = form.querySelector('[name="' + name + '"], #' + name);
-			}
-			if (element) {
-				const value = formState[formId]![name]!;
-				if (element.type === 'checkbox' || element.type === 'radio') {
-					element.checked = value === true;
-				} else {
-					element.value = String(value);
-				}
-			}
-		});
-	});
-};
-
-export const saveScrollState = () => {
-	return {
-		window: {
-			x: window.scrollX || window.pageXOffset,
-			y: window.scrollY || window.pageYOffset
-		}
-	};
-};
-
-export const restoreScrollState = (scrollState: {
-	window: { x: number; y: number };
-}) => {
-	if (scrollState && scrollState.window) {
-		window.scrollTo(scrollState.window.x, scrollState.window.y);
+export const saveScrollState = () => ({
+	window: {
+		x: window.scrollX || window.pageXOffset,
+		y: window.scrollY || window.pageYOffset
 	}
-};
+});

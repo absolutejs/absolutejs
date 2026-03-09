@@ -30,22 +30,22 @@ export type HMRState = {
 
 /* Initialize HMR state */
 export const createHMRState = (config: BuildConfig): HMRState => ({
+	assetStore: new Map(), // In-memory client asset store for dev mode,
+	config,
 	connectedClients: new Set<HMRWebSocket>(),
 	debounceTimeout: null,
 	dependencyGraph: createDependencyGraph(),
 	fileChangeQueue: new Map(),
 	fileHashes: new Map(),
 	isRebuilding: false,
+	manifest: {}, // Current build manifest (populated after initial build)
 	moduleVersions: createModuleVersionTracker(),
 	rebuildQueue: new Set(),
 	rebuildTimeout: null,
-	sourceFileVersions: new Map(),
-	watchers: [],
-	config,
 	resolvedPaths: resolveBuildPaths(config), // Track versions for source files to bypass Bun's cache
+	sourceFileVersions: new Map(),
 	vueChangeTypes: new Map(), // Vue HMR change type tracking
-	assetStore: new Map(), // In-memory client asset store for dev mode
-	manifest: {} // Current build manifest (populated after initial build)
+	watchers: []
 });
 
 /* Increment version for a source file (forces Bun to treat it as a new module) */

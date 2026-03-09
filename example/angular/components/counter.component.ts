@@ -2,14 +2,9 @@ import { Component, Input } from '@angular/core';
 import { CommonModule } from '@angular/common';
 
 @Component({
+	imports: [CommonModule],
 	selector: 'app-counter',
 	standalone: true,
-	imports: [CommonModule],
-	template: `
-		<button (click)="increment()">
-			count is <span class="counter-value">{{ count }}</span>
-		</button>
-	`,
 	styles: [
 		`
 			button {
@@ -39,7 +34,12 @@ import { CommonModule } from '@angular/common';
 				}
 			}
 		`
-	]
+	],
+	template: `
+		<button (click)="increment()">
+			count is <span class="counter-value">{{ count }}</span>
+		</button>
+	`
 })
 export class CounterComponent {
 	@Input() initialCount: number = 0;

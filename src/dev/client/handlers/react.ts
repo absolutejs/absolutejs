@@ -25,6 +25,7 @@ export const handleReactUpdate = (message: {
 	// CSS-only change: hot-swap the stylesheet link without reloading
 	if (!hasComponentChanges && hasCSSChanges && cssPath) {
 		reloadReactCSS(cssPath);
+
 		return;
 	}
 
@@ -37,7 +38,7 @@ export const handleReactUpdate = (message: {
 		| undefined;
 
 	if (newUrl && refreshRuntime) {
-		import(newUrl + '?t=' + Date.now())
+		import(`${newUrl}?t=${Date.now()}`)
 			.then(() => {
 				refreshRuntime.performReactRefresh();
 				if (window.__ERROR_BOUNDARY__) {
@@ -53,6 +54,7 @@ export const handleReactUpdate = (message: {
 				);
 				window.location.reload();
 			});
+
 		return;
 	}
 
@@ -64,7 +66,7 @@ const reloadReactCSS = (cssPath: string) => {
 	const existingCSSLinks = document.head.querySelectorAll(
 		'link[rel="stylesheet"]'
 	);
-	existingCSSLinks.forEach(function (link) {
+	existingCSSLinks.forEach((link) => {
 		const href = (link as HTMLLinkElement).getAttribute('href');
 		if (href) {
 			const hrefBase = href.split('?')[0]!.split('/').pop() || '';
@@ -74,11 +76,9 @@ const reloadReactCSS = (cssPath: string) => {
 				href.includes('react-example') ||
 				cssPathBase.includes(hrefBase)
 			) {
-				const newHref =
-					cssPath +
-					(cssPath.includes('?') ? '&' : '?') +
-					't=' +
-					Date.now();
+				const newHref = `${
+					cssPath + (cssPath.includes('?') ? '&' : '?')
+				}t=${Date.now()}`;
 				(link as HTMLLinkElement).href = newHref;
 			}
 		}

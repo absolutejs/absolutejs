@@ -23,11 +23,11 @@ export const prepare = async (configOrPath?: string) => {
 		const hmrPlugin = hmr(result.hmrState, result.manifest);
 
 		return {
+			manifest: result.manifest,
 			absolutejs: (app: import('elysia').Elysia) =>
 				hmrPlugin(
 					app.use(staticPlugin({ assets: buildDir, prefix: '' }))
-				),
-			manifest: result.manifest
+				)
 		};
 	}
 

@@ -39,19 +39,17 @@ const swapStylesheet = (
 	framework: string
 ): void => {
 	let existingLink: HTMLLinkElement | null = null;
-	document
-		.querySelectorAll('link[rel="stylesheet"]')
-		.forEach(function (link) {
-			const href = (link as HTMLLinkElement).getAttribute('href') || '';
-			if (href.includes(cssBaseName) || href.includes(framework)) {
-				existingLink = link as HTMLLinkElement;
-			}
-		});
+	document.querySelectorAll('link[rel="stylesheet"]').forEach((link) => {
+		const href = (link as HTMLLinkElement).getAttribute('href') || '';
+		if (href.includes(cssBaseName) || href.includes(framework)) {
+			existingLink = link as HTMLLinkElement;
+		}
+	});
 	if (existingLink) {
 		const capturedExisting = existingLink as HTMLLinkElement;
 		const newLink = document.createElement('link');
 		newLink.rel = 'stylesheet';
-		newLink.href = cssUrl + '?t=' + Date.now();
+		newLink.href = `${cssUrl}?t=${Date.now()}`;
 		newLink.onload = function () {
 			if (capturedExisting && capturedExisting.parentNode)
 				capturedExisting.remove();
@@ -71,9 +69,9 @@ type StateSnapshot = {
 const captureComponentState = (): StateSnapshot[] => {
 	const snapshots: StateSnapshot[] = [];
 	const selectorCounts = new Map<string, number>();
-	const ng = (window as any).ng;
+	const { ng } = window as any;
 
-	document.querySelectorAll('*').forEach(function (el) {
+	document.querySelectorAll('*').forEach((el) => {
 		const tagName = el.tagName.toLowerCase();
 		if (!tagName.includes('-')) return;
 
@@ -84,7 +82,7 @@ const captureComponentState = (): StateSnapshot[] => {
 
 		// DOM-based counter reading (always works)
 		el.querySelectorAll('[class*="value"], [class*="count"]').forEach(
-			function (stateEl) {
+			(stateEl) => {
 				const text = stateEl.textContent;
 				if (text !== null && text.trim() !== '') {
 					const num = parseInt(text.trim(), 10);
@@ -112,14 +110,15 @@ const captureComponentState = (): StateSnapshot[] => {
 		}
 
 		if (Object.keys(properties).length > 0) {
-			snapshots.push({ selector: tagName, index: count, properties });
+			snapshots.push({ index: count, properties, selector: tagName });
 		}
 	});
+
 	return snapshots;
 };
 
 const restoreComponentState = (snapshots: StateSnapshot[]): void => {
-	const ng = (window as any).ng;
+	const { ng } = window as any;
 	if (snapshots.length === 0) return;
 
 	const bySelector = new Map<string, StateSnapshot[]>();
@@ -129,9 +128,9 @@ const restoreComponentState = (snapshots: StateSnapshot[]): void => {
 		bySelector.set(snap.selector, list);
 	}
 
-	bySelector.forEach(function (snaps, selector) {
+	bySelector.forEach((snaps, selector) => {
 		const elements = document.querySelectorAll(selector);
-		snaps.forEach(function (snap) {
+		snaps.forEach((snap) => {
 			const el = elements[snap.index];
 			if (!el) return;
 
@@ -161,6 +160,7 @@ const restoreComponentState = (snapshots: StateSnapshot[]): void => {
 						// Force re-render in zoneless
 						if (typeof ng.applyChanges === 'function')
 							ng.applyChanges(el);
+
 						return;
 					}
 				} catch (_e) {
@@ -173,7 +173,7 @@ const restoreComponentState = (snapshots: StateSnapshot[]): void => {
 			if (domCounter !== undefined) {
 				el.querySelectorAll(
 					'[class*="value"], [class*="count"]'
-				).forEach(function (counterEl) {
+				).forEach((counterEl) => {
 					counterEl.textContent = String(domCounter);
 				});
 			}
@@ -189,13 +189,15 @@ const restoreComponentState = (snapshots: StateSnapshot[]): void => {
 const waitForAngularApp = (): Promise<void> => {
 	if (window.__ANGULAR_APP__) return Promise.resolve();
 
-	return new Promise(function (resolve) {
+	return new Promise((resolve) => {
 		const timeout = setTimeout(resolve, 500);
 
 		// Capture any value already on the property
 		let stored = window.__ANGULAR_APP__;
 
 		Object.defineProperty(window, '__ANGULAR_APP__', {
+			configurable: true,
+			enumerable: true,
 			get() {
 				return stored;
 			},
@@ -203,16 +205,14 @@ const waitForAngularApp = (): Promise<void> => {
 				stored = val;
 				// Restore as a normal property so future writes work normally
 				Object.defineProperty(window, '__ANGULAR_APP__', {
-					value: val,
-					writable: true,
 					configurable: true,
-					enumerable: true
+					enumerable: true,
+					value: val,
+					writable: true
 				});
 				clearTimeout(timeout);
 				resolve();
-			},
-			configurable: true,
-			enumerable: true
+			}
 		});
 	});
 };
@@ -245,7 +245,7 @@ const handleFastUpdate = async (message: HMRMessage): Promise<boolean> => {
 	try {
 		// Import the new module with cache-busting
 		const newModule = await import(
-			/* @vite-ignore */ indexPath + '?t=' + Date.now()
+			/* @vite-ignore */ `${indexPath}?t=${Date.now()}`
 		);
 
 		console.warn = origWarn;
@@ -260,7 +260,7 @@ const handleFastUpdate = async (message: HMRMessage): Promise<boolean> => {
 
 			// Build the registry ID: sourceFile#ClassName
 			const sourceFile = message.data.sourceFile || '';
-			const registryId = sourceFile + '#' + exportName;
+			const registryId = `${sourceFile}#${exportName}`;
 
 			// Check if this component is registered
 			if (!registry.has(registryId)) continue;
@@ -293,6 +293,7 @@ const handleFastUpdate = async (message: HMRMessage): Promise<boolean> => {
 	} catch (err) {
 		console.warn = origWarn;
 		console.warn('[HMR] Angular fast update failed, falling back:', err);
+
 		return false;
 	}
 };
@@ -315,11 +316,12 @@ export const handleAngularUpdate = (message: HMRMessage) => {
 			message.data.cssBaseName || '',
 			'angular'
 		);
+
 		return;
 	}
 
 	// Try fast runtime patching first, fall back to full re-bootstrap
-	handleFastUpdate(message).then(function (patched) {
+	handleFastUpdate(message).then((patched) => {
 		if (!patched) handleFullUpdate(message);
 	});
 };
@@ -393,7 +395,7 @@ const handleFullUpdate = (message: HMRMessage) => {
 		};
 
 		// Import new module → triggers bootstrapApplication
-		await import(/* @vite-ignore */ indexPath + '?t=' + Date.now());
+		await import(/* @vite-ignore */ `${indexPath}?t=${Date.now()}`);
 		await waitForAngularApp();
 
 		// Restore console.warn after module import
@@ -439,7 +441,7 @@ const handleFullUpdate = (message: HMRMessage) => {
 			});
 	} else {
 		// Fallback for browsers without View Transitions API
-		doUpdate().catch(function (err: unknown) {
+		doUpdate().catch((err: unknown) => {
 			console.warn('[HMR] Angular update failed (non-fatal):', err);
 		});
 	}

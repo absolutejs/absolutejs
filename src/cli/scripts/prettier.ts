@@ -2,7 +2,7 @@ import type { ToolAdapter } from '../../../types/tool';
 import { runTool } from '../cache';
 
 export const prettierAdapter: ToolAdapter = {
-	name: 'prettier',
+	configFiles: ['.prettierrc.json'],
 	fileGlobs: [
 		'**/*.ts',
 		'**/*.tsx',
@@ -21,7 +21,7 @@ export const prettierAdapter: ToolAdapter = {
 		'**/.absolutejs/**',
 		'**/*.min.js'
 	],
-	configFiles: ['.prettierrc.json'],
+	name: 'prettier',
 	buildCommand: (files, args) => ['bun', 'prettier', ...args, ...files]
 };
 

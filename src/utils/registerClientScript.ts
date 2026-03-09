@@ -32,17 +32,6 @@ const getRequestId = () => `req_${Date.now()}_${++requestCounter}`;
 
 // Allow SSR frameworks to inject a request context getter (e.g. AsyncLocalStorage)
 let ssrContextGetter: (() => string | undefined) | null = null;
-export const setSsrContextGetter = (getter: () => string | undefined) => {
-	ssrContextGetter = getter;
-};
-
-/**
- * Register a client-side script to be injected into the HTML response.
- *
- * @param script - A function containing the client-side code to execute
- * @param requestId - Optional request ID. If not provided, uses the current request context.
- * @returns The request ID for this script registration
- */
 export const registerClientScript = (
 	script: () => void,
 	requestId?: string
@@ -62,6 +51,9 @@ export const registerClientScript = (
 
 	return id;
 };
+export const setSsrContextGetter = (getter: () => string | undefined) => {
+	ssrContextGetter = getter;
+};
 
 // Make registerClientScript available globally during SSR for Angular components
 // Using type assertion for globalThis extension
@@ -80,28 +72,9 @@ if (typeof globalThis !== 'undefined') {
  * @param requestId - The request ID to get scripts for
  * @returns Array of script functions, or empty array if none registered
  */
-export const getAndClearClientScripts = (requestId?: string) => {
-	const id = requestId || ssrContextGetter?.();
-	if (!id) return [];
-
-	const scripts = scriptRegistry.get(id);
-	if (!scripts) {
-		return [];
-	}
-
-	const scriptArray = Array.from(scripts);
-	scriptRegistry.delete(id);
-
-	return scriptArray;
+export const clearAllClientScripts = () => {
+	scriptRegistry.clear();
 };
-
-/**
- * Generate JavaScript code from registered scripts.
- * Wraps each script in an IIFE and combines them.
- *
- * @param scripts - Array of script functions
- * @returns JavaScript code string to inject
- */
 export const generateClientScriptCode = (scripts: (() => void)[]) => {
 	if (scripts.length === 0) {
 		return '';
@@ -161,10 +134,17 @@ ${scriptCode}
 })();
 </script>`;
 };
+export const getAndClearClientScripts = (requestId?: string) => {
+	const id = requestId || ssrContextGetter?.();
+	if (!id) return [];
 
-/**
- * Clear all registered scripts (useful for cleanup or testing)
- */
-export const clearAllClientScripts = () => {
-	scriptRegistry.clear();
+	const scripts = scriptRegistry.get(id);
+	if (!scripts) {
+		return [];
+	}
+
+	const scriptArray = Array.from(scripts);
+	scriptRegistry.delete(id);
+
+	return scriptArray;
 };

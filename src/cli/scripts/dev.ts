@@ -51,9 +51,9 @@ export const dev = async (
 					NODE_ENV: 'development',
 					...(configPath ? { ABSOLUTE_CONFIG: configPath } : {})
 				},
+				stderr: 'pipe',
 				stdin: 'ignore',
-				stdout: 'pipe',
-				stderr: 'pipe'
+				stdout: 'pipe'
 			}
 		);
 		const forward = (
@@ -193,8 +193,8 @@ export const dev = async (
 		const args = isWSL ? ['/c', 'start', url] : [url];
 		try {
 			Bun.spawn([cmd, ...args], {
-				stdout: 'ignore',
-				stderr: 'ignore'
+				stderr: 'ignore',
+				stdout: 'ignore'
 			});
 			console.log(cliTag('\x1b[36m', `Opening ${url}`));
 		} catch {
@@ -205,6 +205,7 @@ export const dev = async (
 	};
 
 	interactive = createInteractiveHandler({
+		shell: runShellCommand,
 		clear: () => {
 			process.stdout.write('\x1Bc');
 		},
@@ -218,8 +219,7 @@ export const dev = async (
 		quit: () => {
 			cleanup(0);
 		},
-		restart: () => restartServer(),
-		shell: runShellCommand
+		restart: () => restartServer()
 	});
 
 	process.on('SIGINT', () => cleanup(0));
@@ -244,8 +244,8 @@ export const dev = async (
 				)
 			);
 			sendTelemetryEvent('dev:server-crash', {
-				exitCode,
-				entry: serverEntry
+				entry: serverEntry,
+				exitCode
 			});
 			serverProcess = spawnServer();
 		}

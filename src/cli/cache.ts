@@ -5,53 +5,6 @@ import type { ToolAdapter, ToolCacheData } from '../../types/tool';
 
 export const CACHE_DIR = '.absolutejs';
 export const MAX_FILES_PER_BATCH = 200;
-
-export const hashFile = async (path: string) => {
-	const buffer = await Bun.file(path).arrayBuffer();
-
-	return Bun.hash(buffer).toString(36);
-};
-
-export const hashFiles = async (paths: string[]) => {
-	const entries = await Promise.all(
-		paths.map(async (path) => [path, await hashFile(path)] as const)
-	);
-
-	return Object.fromEntries(entries);
-};
-
-export const hashConfigs = async (configFiles: string[]) => {
-	const hashes = await Promise.all(
-		configFiles.map(async (file) => {
-			try {
-				return await hashFile(file);
-			} catch {
-				return 'missing';
-			}
-		})
-	);
-
-	return hashes.join(':');
-};
-
-export const loadCache = async (tool: string) => {
-	try {
-		const path = join(CACHE_DIR, `${tool}.cache.json`);
-
-		const data = await Bun.file(path).json();
-
-		return data as ToolCacheData;
-	} catch {
-		return null;
-	}
-};
-
-export const saveCache = async (tool: string, data: ToolCacheData) => {
-	await mkdir(CACHE_DIR, { recursive: true });
-	const path = join(CACHE_DIR, `${tool}.cache.json`);
-	await Bun.write(path, JSON.stringify(data, null, '\t'));
-};
-
 export const getChangedFiles = async (adapter: ToolAdapter) => {
 	const allFiles: string[] = [];
 
@@ -81,16 +34,51 @@ export const getChangedFiles = async (adapter: ToolAdapter) => {
 	const newCache: ToolCacheData = { configHash, files: fileHashes };
 
 	if (!existing || existing.configHash !== configHash) {
-		return { changed: allFiles, cache: newCache };
+		return { cache: newCache, changed: allFiles };
 	}
 
 	const changed = allFiles.filter(
 		(file) => fileHashes[file] !== existing.files[file]
 	);
 
-	return { changed, cache: newCache };
+	return { cache: newCache, changed };
 };
+export const hashConfigs = async (configFiles: string[]) => {
+	const hashes = await Promise.all(
+		configFiles.map(async (file) => {
+			try {
+				return await hashFile(file);
+			} catch {
+				return 'missing';
+			}
+		})
+	);
 
+	return hashes.join(':');
+};
+export const hashFile = async (path: string) => {
+	const buffer = await Bun.file(path).arrayBuffer();
+
+	return Bun.hash(buffer).toString(36);
+};
+export const hashFiles = async (paths: string[]) => {
+	const entries = await Promise.all(
+		paths.map(async (path) => [path, await hashFile(path)] as const)
+	);
+
+	return Object.fromEntries(entries);
+};
+export const loadCache = async (tool: string) => {
+	try {
+		const path = join(CACHE_DIR, `${tool}.cache.json`);
+
+		const data = await Bun.file(path).json();
+
+		return data as ToolCacheData;
+	} catch {
+		return null;
+	}
+};
 export const runTool = async (adapter: ToolAdapter, args: string[]) => {
 	const { changed, cache } = await getChangedFiles(adapter);
 	const totalFiles = Object.keys(cache.files).length;
@@ -113,8 +101,8 @@ export const runTool = async (adapter: ToolAdapter, args: string[]) => {
 	for (const batch of batches) {
 		const command = adapter.buildCommand(batch, args);
 		const proc = Bun.spawn(command, {
-			stdout: 'inherit',
-			stderr: 'inherit'
+			stderr: 'inherit',
+			stdout: 'inherit'
 		});
 		const exitCode = await proc.exited;
 
@@ -136,4 +124,9 @@ export const runTool = async (adapter: ToolAdapter, args: string[]) => {
 	}
 
 	console.log('\x1b[32m✓\x1b[0m Passed');
+};
+export const saveCache = async (tool: string, data: ToolCacheData) => {
+	await mkdir(CACHE_DIR, { recursive: true });
+	const path = join(CACHE_DIR, `${tool}.cache.json`);
+	await Bun.write(path, JSON.stringify(data, null, '\t'));
 };

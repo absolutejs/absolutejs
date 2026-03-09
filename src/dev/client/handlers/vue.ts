@@ -71,21 +71,18 @@ export const handleVueUpdate = (message: {
 	if (message.data.updateType === 'css-only' && message.data.cssUrl) {
 		const cssBaseName = message.data.cssBaseName || '';
 		let existingLink: HTMLLinkElement | null = null;
-		document
-			.querySelectorAll('link[rel="stylesheet"]')
-			.forEach(function (link) {
-				const href =
-					(link as HTMLLinkElement).getAttribute('href') || '';
-				if (cssBaseName && href.includes(cssBaseName)) {
-					existingLink = link as HTMLLinkElement;
-				}
-			});
+		document.querySelectorAll('link[rel="stylesheet"]').forEach((link) => {
+			const href = (link as HTMLLinkElement).getAttribute('href') || '';
+			if (cssBaseName && href.includes(cssBaseName)) {
+				existingLink = link as HTMLLinkElement;
+			}
+		});
 
 		if (existingLink) {
 			const capturedExisting = existingLink as HTMLLinkElement;
 			const newLink = document.createElement('link');
 			newLink.rel = 'stylesheet';
-			newLink.href = message.data.cssUrl + '?t=' + Date.now();
+			newLink.href = `${message.data.cssUrl}?t=${Date.now()}`;
 			newLink.onload = function () {
 				if (capturedExisting && capturedExisting.parentNode) {
 					capturedExisting.remove();
@@ -93,6 +90,7 @@ export const handleVueUpdate = (message: {
 			};
 			document.head.appendChild(newLink);
 		}
+
 		return;
 	}
 
@@ -167,20 +165,17 @@ export const handleVueUpdate = (message: {
 	if (message.data.cssUrl) {
 		const vueCssBaseName = message.data.cssBaseName || '';
 		let vueExistingLink: HTMLLinkElement | null = null;
-		document
-			.querySelectorAll('link[rel="stylesheet"]')
-			.forEach(function (link) {
-				const href =
-					(link as HTMLLinkElement).getAttribute('href') || '';
-				if (vueCssBaseName && href.includes(vueCssBaseName)) {
-					vueExistingLink = link as HTMLLinkElement;
-				}
-			});
+		document.querySelectorAll('link[rel="stylesheet"]').forEach((link) => {
+			const href = (link as HTMLLinkElement).getAttribute('href') || '';
+			if (vueCssBaseName && href.includes(vueCssBaseName)) {
+				vueExistingLink = link as HTMLLinkElement;
+			}
+		});
 		if (vueExistingLink) {
 			const capturedVueLink = vueExistingLink as HTMLLinkElement;
 			const vueCssLink = document.createElement('link');
 			vueCssLink.rel = 'stylesheet';
-			vueCssLink.href = message.data.cssUrl + '?t=' + Date.now();
+			vueCssLink.href = `${message.data.cssUrl}?t=${Date.now()}`;
 			vueCssLink.onload = function () {
 				if (capturedVueLink && capturedVueLink.parentNode) {
 					capturedVueLink.remove();
@@ -209,18 +204,19 @@ export const handleVueUpdate = (message: {
 	if (!indexPath) {
 		console.warn('[HMR] Vue index path not found, reloading');
 		window.location.reload();
+
 		return;
 	}
 
-	const modulePath = indexPath + '?t=' + Date.now();
+	const modulePath = `${indexPath}?t=${Date.now()}`;
 	import(/* @vite-ignore */ modulePath)
-		.then(function () {
+		.then(() => {
 			if (vueRoot && vueDomState) {
 				restoreDOMState(vueRoot, vueDomState);
 			}
 			sessionStorage.removeItem('__HMR_ACTIVE__');
 		})
-		.catch(function (err: unknown) {
+		.catch((err: unknown) => {
 			console.warn('[HMR] Vue import failed:', err);
 			sessionStorage.removeItem('__HMR_ACTIVE__');
 			window.location.reload();

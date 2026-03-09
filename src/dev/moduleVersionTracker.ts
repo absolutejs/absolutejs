@@ -11,13 +11,9 @@ export type ModuleVersions = Map<string, ModuleVersion>;
 let globalVersionCounter = 0;
 
 /* Get next version number */
-export const getNextVersion = () => ++globalVersionCounter;
-
-/* Create a new module version tracker */
 export const createModuleVersionTracker = () =>
 	new Map<string, ModuleVersion>();
-
-/* Increment version for a module */
+export const getNextVersion = () => ++globalVersionCounter;
 export const incrementModuleVersion = (
 	versions: ModuleVersions,
 	modulePath: string
@@ -27,8 +23,6 @@ export const incrementModuleVersion = (
 
 	return newVersion;
 };
-
-/* Increment versions for multiple modules */
 export const incrementModuleVersions = (
 	versions: ModuleVersions,
 	modulePaths: string[]
@@ -41,8 +35,6 @@ export const incrementModuleVersions = (
 
 	return updated;
 };
-
-/* Serialize module versions for transmission */
 export const serializeModuleVersions = (versions: ModuleVersions) => {
 	const serialized: Record<string, number> = {};
 	for (const [path, version] of versions.entries()) {

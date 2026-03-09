@@ -43,6 +43,7 @@ export const devBuild = async (config: BuildConfig) => {
 			(globalThis as Record<string, unknown>).__hmrSkipServerRestart =
 				true;
 		}
+
 		return cached;
 	}
 

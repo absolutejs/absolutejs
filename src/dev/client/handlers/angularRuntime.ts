@@ -74,8 +74,8 @@ const register = (id: string, ctor: ComponentCtor): void => {
 	if (!id || typeof ctor !== 'function') return;
 	if (!componentRegistry.has(id)) {
 		componentRegistry.set(id, {
-			liveCtor: ctor,
 			id,
+			liveCtor: ctor,
 			registeredAt: Date.now(),
 			updateCount: 0
 		});
@@ -89,10 +89,11 @@ const applyUpdate = (id: string, newCtor: ComponentCtor): boolean => {
 	const entry = componentRegistry.get(id);
 	if (!entry) {
 		register(id, newCtor);
+
 		return true;
 	}
 
-	const liveCtor = entry.liveCtor;
+	const { liveCtor } = entry;
 	if (liveCtor === newCtor) return true;
 
 	// Angular HMR — Zoneless Runtime Preservation: safety boundary
@@ -102,6 +103,7 @@ const applyUpdate = (id: string, newCtor: ComponentCtor): boolean => {
 			id,
 			'→ full reload'
 		);
+
 		return false;
 	}
 	if (newCtor.ɵcmp === undefined && liveCtor.ɵcmp !== undefined) {
@@ -110,6 +112,7 @@ const applyUpdate = (id: string, newCtor: ComponentCtor): boolean => {
 			id,
 			'→ full reload'
 		);
+
 		return false;
 	}
 
@@ -156,9 +159,11 @@ const applyUpdate = (id: string, newCtor: ComponentCtor): boolean => {
 		globalUpdateCount++;
 		entry.updateCount++;
 		entry.registeredAt = Date.now();
+
 		return true;
 	} catch (err) {
 		console.error('[HMR] Angular runtime patch failed for', id, ':', err);
+
 		return false;
 	}
 };
@@ -190,11 +195,11 @@ const getRegistry = (): Map<string, RegistryEntry> => componentRegistry;
 export const installAngularHMRRuntime = (): void => {
 	if (typeof window === 'undefined') return;
 	window.__ANGULAR_HMR__ = {
-		register,
 		applyUpdate,
-		refresh,
+		getRegistry,
 		getStats,
-		getRegistry
+		refresh,
+		register
 	};
 };
 

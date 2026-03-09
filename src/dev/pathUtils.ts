@@ -4,98 +4,6 @@ import type { ResolvedBuildPaths } from './configResolver';
 
 /* Get the directories we should watch based on our config
    This handles the "where to watch" problem */
-export const getWatchPaths = (
-	config: BuildConfig,
-	resolved?: ResolvedBuildPaths
-) => {
-	const paths: string[] = [];
-
-	// helper to push only when base exists, normalizing for cross-platform compatibility
-	const push = (base?: string, sub?: string) => {
-		if (!base) return;
-		const normalizedBase = normalizePath(base);
-		paths.push(sub ? `${normalizedBase}/${sub}` : normalizedBase);
-	};
-
-	const cfg = resolved ?? {
-		reactDir: config.reactDirectory,
-		svelteDir: config.svelteDirectory,
-		vueDir: config.vueDirectory,
-		angularDir: config.angularDirectory,
-		htmlDir: config.htmlDirectory,
-		htmxDir: config.htmxDirectory,
-		assetsDir: config.assetsDirectory,
-		stylesDir:
-			typeof config.stylesConfig === 'string'
-				? config.stylesConfig
-				: config.stylesConfig?.path
-	};
-
-	// Watch source directories (pages/components/styles etc.)
-	push(cfg.reactDir, 'components');
-	push(cfg.reactDir, 'pages');
-	push(cfg.reactDir, 'styles');
-
-	push(cfg.svelteDir, 'components');
-	push(cfg.svelteDir, 'pages');
-	push(cfg.svelteDir, 'composables');
-	push(cfg.svelteDir, 'styles');
-
-	push(cfg.vueDir, 'components');
-	push(cfg.vueDir, 'pages');
-	push(cfg.vueDir, 'composables');
-	push(cfg.vueDir, 'styles');
-
-	push(cfg.angularDir, 'components');
-	push(cfg.angularDir, 'pages');
-	push(cfg.angularDir, 'styles');
-
-	push(cfg.htmlDir, 'pages');
-	push(cfg.htmlDir, 'scripts');
-	push(cfg.htmlDir, 'styles');
-
-	push(cfg.htmxDir, 'pages');
-	push(cfg.htmxDir, 'styles');
-
-	push(cfg.assetsDir);
-	push(cfg.stylesDir);
-
-	return paths;
-};
-
-/* Check if we should ignore a file path
-   This handles the "what to ignore" problem */
-export const shouldIgnorePath = (
-	path: string,
-	resolved?: ResolvedBuildPaths
-) => {
-	const normalizedPath = path.replace(/\\/g, '/');
-
-	// Allow files inside the configured styles directory through
-	if (resolved?.stylesDir && normalizedPath.startsWith(resolved.stylesDir)) {
-		return false;
-	}
-
-	// Be more aggressive with ignoring compiled directories
-	return (
-		normalizedPath.includes('/build/') ||
-		normalizedPath.includes('/compiled/') ||
-		normalizedPath.includes('/indexes/') ||
-		normalizedPath.includes('/server/') ||
-		normalizedPath.includes('/client/') ||
-		normalizedPath.includes('/node_modules/') ||
-		normalizedPath.includes('/.git/') ||
-		normalizedPath.endsWith('.log') ||
-		normalizedPath.endsWith('.tmp') ||
-		normalizedPath.startsWith('.') ||
-		normalizedPath === 'compiled' ||
-		normalizedPath.endsWith('/compiled') ||
-		normalizedPath.endsWith('/compiled/')
-	);
-};
-
-/* Detect which framework a file belongs to based on its path and extension
-   This handles the "what framework" problem */
 export const detectFramework = (
 	filePath: string,
 	resolved?: ResolvedBuildPaths
@@ -165,9 +73,96 @@ export const detectFramework = (
 			return 'html';
 		if (normalized.includes('/htmx/') || normalized.includes('/htmx-'))
 			return 'htmx';
+
 		// If no framework match, it's a generic asset
 		return 'assets';
 	}
 
 	return 'unknown';
+};
+export const getWatchPaths = (
+	config: BuildConfig,
+	resolved?: ResolvedBuildPaths
+) => {
+	const paths: string[] = [];
+
+	// helper to push only when base exists, normalizing for cross-platform compatibility
+	const push = (base?: string, sub?: string) => {
+		if (!base) return;
+		const normalizedBase = normalizePath(base);
+		paths.push(sub ? `${normalizedBase}/${sub}` : normalizedBase);
+	};
+
+	const cfg = resolved ?? {
+		angularDir: config.angularDirectory,
+		assetsDir: config.assetsDirectory,
+		htmlDir: config.htmlDirectory,
+		htmxDir: config.htmxDirectory,
+		reactDir: config.reactDirectory,
+		stylesDir:
+			typeof config.stylesConfig === 'string'
+				? config.stylesConfig
+				: config.stylesConfig?.path,
+		svelteDir: config.svelteDirectory,
+		vueDir: config.vueDirectory
+	};
+
+	// Watch source directories (pages/components/styles etc.)
+	push(cfg.reactDir, 'components');
+	push(cfg.reactDir, 'pages');
+	push(cfg.reactDir, 'styles');
+
+	push(cfg.svelteDir, 'components');
+	push(cfg.svelteDir, 'pages');
+	push(cfg.svelteDir, 'composables');
+	push(cfg.svelteDir, 'styles');
+
+	push(cfg.vueDir, 'components');
+	push(cfg.vueDir, 'pages');
+	push(cfg.vueDir, 'composables');
+	push(cfg.vueDir, 'styles');
+
+	push(cfg.angularDir, 'components');
+	push(cfg.angularDir, 'pages');
+	push(cfg.angularDir, 'styles');
+
+	push(cfg.htmlDir, 'pages');
+	push(cfg.htmlDir, 'scripts');
+	push(cfg.htmlDir, 'styles');
+
+	push(cfg.htmxDir, 'pages');
+	push(cfg.htmxDir, 'styles');
+
+	push(cfg.assetsDir);
+	push(cfg.stylesDir);
+
+	return paths;
+};
+export const shouldIgnorePath = (
+	path: string,
+	resolved?: ResolvedBuildPaths
+) => {
+	const normalizedPath = path.replace(/\\/g, '/');
+
+	// Allow files inside the configured styles directory through
+	if (resolved?.stylesDir && normalizedPath.startsWith(resolved.stylesDir)) {
+		return false;
+	}
+
+	// Be more aggressive with ignoring compiled directories
+	return (
+		normalizedPath.includes('/build/') ||
+		normalizedPath.includes('/compiled/') ||
+		normalizedPath.includes('/indexes/') ||
+		normalizedPath.includes('/server/') ||
+		normalizedPath.includes('/client/') ||
+		normalizedPath.includes('/node_modules/') ||
+		normalizedPath.includes('/.git/') ||
+		normalizedPath.endsWith('.log') ||
+		normalizedPath.endsWith('.tmp') ||
+		normalizedPath.startsWith('.') ||
+		normalizedPath === 'compiled' ||
+		normalizedPath.endsWith('/compiled') ||
+		normalizedPath.endsWith('/compiled/')
+	);
 };

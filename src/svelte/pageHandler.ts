@@ -47,8 +47,8 @@ export const handleSveltePageRequest: HandleSveltePageRequest = async <
 		console.error('[SSR] Svelte render error:', error);
 
 		return new Response(ssrErrorPage('svelte', error), {
-			status: 500,
-			headers: { 'Content-Type': 'text/html' }
+			headers: { 'Content-Type': 'text/html' },
+			status: 500
 		});
 	}
 };

@@ -72,9 +72,11 @@ export const startFileWatching = (
 						removeFileFromGraph(state.dependencyGraph, fullPath);
 					} catch (err) {
 						sendTelemetryEvent('hmr:graph-error', {
-							operation: 'remove',
 							message:
-								err instanceof Error ? err.message : String(err)
+								err instanceof Error
+									? err.message
+									: String(err),
+							operation: 'remove'
 						});
 					}
 
@@ -93,9 +95,11 @@ export const startFileWatching = (
 						addFileToGraph(state.dependencyGraph, fullPath);
 					} catch (err) {
 						sendTelemetryEvent('hmr:graph-error', {
-							operation: 'add',
 							message:
-								err instanceof Error ? err.message : String(err)
+								err instanceof Error
+									? err.message
+									: String(err),
+							operation: 'add'
 						});
 					}
 				}

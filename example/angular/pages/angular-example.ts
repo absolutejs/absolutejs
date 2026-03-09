@@ -11,9 +11,9 @@ type AngularPageProps = {
 };
 
 @Component({
+	imports: [CommonModule, DropdownComponent, AppComponent],
 	selector: 'angular-page',
 	standalone: true,
-	imports: [CommonModule, DropdownComponent, AppComponent],
 	template: `
 		<header>
 			<a href="/">AbsoluteJS</a>
@@ -34,5 +34,6 @@ export class AngularExampleComponent {
 export const factory = (props: AngularPageProps) => {
 	const component = new AngularExampleComponent();
 	component.initialCount = props.initialCount;
+
 	return component;
 };

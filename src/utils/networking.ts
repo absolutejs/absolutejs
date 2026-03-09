@@ -37,5 +37,6 @@ export const getLocalIPAddress = () => {
 	}
 
 	console.warn('No IP address found, falling back to localhost');
+
 	return 'localhost'; // Fallback to localhost if no IP found
 };

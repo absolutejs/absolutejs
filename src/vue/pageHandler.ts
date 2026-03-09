@@ -53,8 +53,8 @@ export const handleVuePageRequest = async <
 		console.error('[SSR] Vue render error:', error);
 
 		return new Response(ssrErrorPage('vue', error), {
-			status: 500,
-			headers: { 'Content-Type': 'text/html' }
+			headers: { 'Content-Type': 'text/html' },
+			status: 500
 		});
 	}
 };

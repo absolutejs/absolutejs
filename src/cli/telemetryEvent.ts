@@ -6,7 +6,7 @@ import { getTelemetryConfig } from './scripts/telemetry';
 
 const getVersion = () => {
 	try {
-		let dir = import.meta.dir;
+		let { dir } = import.meta;
 
 		while (dir !== parse(dir).root) {
 			const candidate = join(dir, 'package.json');
@@ -38,20 +38,20 @@ export const sendTelemetryEvent = (
 		if (!config?.enabled) return;
 
 		const body: TelemetryEvent = {
-			event,
 			anonymousId: config.anonymousId,
-			version: getVersion(),
-			os: platform(),
 			arch: arch(),
 			bunVersion: Bun.version,
+			event,
+			os: platform(),
+			payload,
 			timestamp: new Date().toISOString(),
-			payload
+			version: getVersion()
 		};
 
 		fetch('https://absolutejs.com/api/telemetry', {
-			method: 'POST',
+			body: JSON.stringify(body),
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify(body)
+			method: 'POST'
 		}).catch(() => {});
 	} catch {
 		/* silently ignore */

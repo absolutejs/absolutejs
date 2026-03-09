@@ -8,6 +8,37 @@ import { isValidHMRClientMessage } from '../../types/messages';
 /* Magic pt. 2 - when a browser connects to our WebSocket
    We send them the current manifest so they know what files exist
    Like giving them a menu of all the dishes we can serve */
+export const broadcastToClients = (
+	state: HMRState,
+	message: { type: string; [key: string]: any }
+) => {
+	const messageStr = JSON.stringify({
+		...message,
+		timestamp: Date.now()
+	});
+
+	let sentCount = 0;
+	const clientsToRemove: HMRWebSocket[] = [];
+
+	for (const client of state.connectedClients) {
+		if (client.readyState === WS_READY_STATE_OPEN) {
+			try {
+				client.send(messageStr);
+				sentCount++;
+			} catch {
+				clientsToRemove.push(client);
+			}
+		} else {
+			// Mark closed clients for removal
+			clientsToRemove.push(client);
+		}
+	}
+
+	// Remove closed/failed clients
+	for (const client of clientsToRemove) {
+		state.connectedClients.delete(client);
+	}
+};
 export const handleClientConnect = (
 	state: HMRState,
 	client: HMRWebSocket,
@@ -37,18 +68,12 @@ export const handleClientConnect = (
 		})
 	);
 };
-
-/* When a client disconnects, remove them from our tracking
-   This prevents memory leaks and keeps our client list clean */
 export const handleClientDisconnect = (
 	state: HMRState,
 	client: HMRWebSocket
 ) => {
 	state.connectedClients.delete(client);
 };
-
-/* Handle messages from clients - they might ping us or request rebuilds
-   We need to handle different message types because WebSocket is just a pipe/stream */
 export const handleHMRMessage = (
 	state: HMRState,
 	client: HMRWebSocket,
@@ -104,38 +129,4 @@ export const handleHMRMessage = (
 				break;
 		}
 	} catch {}
-};
-
-/* Send messages to all connected WebSocket clients
-   this is how we notify browsers when files change */
-export const broadcastToClients = (
-	state: HMRState,
-	message: { type: string; [key: string]: any }
-) => {
-	const messageStr = JSON.stringify({
-		...message,
-		timestamp: Date.now()
-	});
-
-	let sentCount = 0;
-	const clientsToRemove: HMRWebSocket[] = [];
-
-	for (const client of state.connectedClients) {
-		if (client.readyState === WS_READY_STATE_OPEN) {
-			try {
-				client.send(messageStr);
-				sentCount++;
-			} catch {
-				clientsToRemove.push(client);
-			}
-		} else {
-			// Mark closed clients for removal
-			clientsToRemove.push(client);
-		}
-	}
-
-	// Remove closed/failed clients
-	for (const client of clientsToRemove) {
-		state.connectedClients.delete(client);
-	}
 };

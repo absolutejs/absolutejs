@@ -194,6 +194,12 @@ export default defineConfig([
 		}
 	},
 	{
+		files: ['src/constants.ts'],
+		rules: {
+			'absolute/sort-exports': 'off'
+		}
+	},
+	{
 		files: [
 			'tsconfig.json',
 			'tsconfig.build.json',

@@ -41,13 +41,13 @@ export const prefetchModules = (
 			}
 		}
 
-		const cacheBuster = '?t=' + Date.now();
+		const cacheBuster = `?t=${Date.now()}`;
 		const fullPath = manifestPath.startsWith('/')
 			? manifestPath + cacheBuster
-			: '/' + manifestPath + cacheBuster;
+			: `/${manifestPath}${cacheBuster}`;
 
 		prefetchPromises.push(
-			import(/* @vite-ignore */ fullPath).catch(function () {
+			import(/* @vite-ignore */ fullPath).catch(() => {
 				/* ignore */
 			})
 		);

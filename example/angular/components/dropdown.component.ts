@@ -2,9 +2,10 @@ import { Component } from '@angular/core';
 import { CommonModule } from '@angular/common';
 
 @Component({
+	imports: [CommonModule],
 	selector: 'app-dropdown',
 	standalone: true,
-	imports: [CommonModule],
+	styles: [],
 	template: `
 		<details
 			class="dropdown"
@@ -22,8 +23,7 @@ import { CommonModule } from '@angular/common';
 				<a href="/htmx">HTMX</a>
 			</nav>
 		</details>
-	`,
-	styles: []
+	`
 })
 export class DropdownComponent {
 	isOpen = false;

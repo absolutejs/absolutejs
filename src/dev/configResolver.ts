@@ -24,19 +24,19 @@ export const resolveBuildPaths = (config: BuildConfig) => {
 		value ? normalize(resolve(cwd, value)) : undefined;
 
 	return {
-		buildDir: withDefault(config.buildDirectory, 'build'),
-		assetsDir: optional(config.assetsDirectory),
-		reactDir: optional(config.reactDirectory),
-		svelteDir: optional(config.svelteDirectory),
-		vueDir: optional(config.vueDirectory),
 		angularDir: optional(config.angularDirectory),
+		assetsDir: optional(config.assetsDirectory),
+		buildDir: withDefault(config.buildDirectory, 'build'),
 		htmlDir: optional(config.htmlDirectory),
 		htmxDir: optional(config.htmxDirectory),
+		reactDir: optional(config.reactDirectory),
 		stylesDir: optional(
 			typeof config.stylesConfig === 'string'
 				? config.stylesConfig
 				: config.stylesConfig?.path
-		)
+		),
+		svelteDir: optional(config.svelteDirectory),
+		vueDir: optional(config.vueDirectory)
 	};
 };
 

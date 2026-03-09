@@ -32,8 +32,8 @@ const restoreStore = (app: Elysia) => {
    HMR client code is baked into framework index files (React/Svelte/Vue)
    and injected into HTML/HTMX files at build time.
    Also preserves Elysia store state across hot reloads. */
-export const hmr = (hmrState: HMRState, manifest: Record<string, string>) => {
-	return (app: Elysia) => {
+export const hmr =
+	(hmrState: HMRState, manifest: Record<string, string>) => (app: Elysia) => {
 		restoreStore(app);
 
 		return app
@@ -72,4 +72,3 @@ export const hmr = (hmrState: HMRState, manifest: Record<string, string>) => {
 				timestamp: Date.now()
 			}));
 	};
-};

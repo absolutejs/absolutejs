@@ -15,20 +15,18 @@ const swapStylesheet = (
 	framework: string
 ): void => {
 	let existingLink: HTMLLinkElement | null = null;
-	document
-		.querySelectorAll('link[rel="stylesheet"]')
-		.forEach(function (link) {
-			const href = (link as HTMLLinkElement).getAttribute('href') || '';
-			if (href.includes(cssBaseName) || href.includes(framework)) {
-				existingLink = link as HTMLLinkElement;
-			}
-		});
+	document.querySelectorAll('link[rel="stylesheet"]').forEach((link) => {
+		const href = (link as HTMLLinkElement).getAttribute('href') || '';
+		if (href.includes(cssBaseName) || href.includes(framework)) {
+			existingLink = link as HTMLLinkElement;
+		}
+	});
 
 	if (existingLink) {
 		const capturedExisting = existingLink as HTMLLinkElement;
 		const newLink = document.createElement('link');
 		newLink.rel = 'stylesheet';
-		newLink.href = cssUrl + '?t=' + Date.now();
+		newLink.href = `${cssUrl}?t=${Date.now()}`;
 		newLink.onload = function () {
 			if (capturedExisting && capturedExisting.parentNode) {
 				capturedExisting.remove();
@@ -58,6 +56,7 @@ export const handleSvelteUpdate = (message: {
 			message.data.cssBaseName || '',
 			'svelte'
 		);
+
 		return;
 	}
 
@@ -115,6 +114,7 @@ export const handleSvelteUpdate = (message: {
 	if (!indexPath) {
 		console.warn('[HMR] Svelte index path not found, reloading');
 		window.location.reload();
+
 		return;
 	}
 
@@ -134,15 +134,15 @@ export const handleSvelteUpdate = (message: {
 	const preservedStyles: HTMLStyleElement[] = [];
 	document
 		.querySelectorAll<HTMLLinkElement>('head link[rel="stylesheet"]')
-		.forEach(function (link) {
+		.forEach((link) => {
 			try {
-				const sheet = link.sheet;
+				const { sheet } = link;
 				if (sheet && sheet.cssRules.length > 0) {
 					const style = document.createElement('style');
 					style.dataset.hmrPreserved = 'true';
 					let rules = '';
 					for (let idx = 0; idx < sheet.cssRules.length; idx++) {
-						rules += sheet.cssRules[idx]!.cssText + '\n';
+						rules += `${sheet.cssRules[idx]!.cssText}\n`;
 					}
 					style.textContent = rules;
 					document.head.appendChild(style);
@@ -161,16 +161,16 @@ export const handleSvelteUpdate = (message: {
 		.querySelectorAll<HTMLStyleElement>(
 			'head style:not([data-hmr-preserved])'
 		)
-		.forEach(function (style) {
+		.forEach((style) => {
 			const clone = document.createElement('style');
 			clone.dataset.hmrPreserved = 'true';
 			clone.textContent = style.textContent;
 			document.head.appendChild(clone);
 		});
 
-	const modulePath = indexPath + '?t=' + Date.now();
+	const modulePath = `${indexPath}?t=${Date.now()}`;
 	import(/* @vite-ignore */ modulePath)
-		.then(function () {
+		.then(() => {
 			/* Wait for new <link> stylesheets (re-added by svelte:head in mount)
 			   to fully load before removing preserved styles. Without this,
 			   removing inline preserved styles leaves a gap until <link> loads. */
@@ -178,10 +178,10 @@ export const handleSvelteUpdate = (message: {
 				'head link[rel="stylesheet"]:not([data-hmr-preserved])'
 			);
 			const loadPromises: Promise<void>[] = [];
-			newLinks.forEach(function (link) {
+			newLinks.forEach((link) => {
 				if (!link.sheet || link.sheet.cssRules.length === 0) {
 					loadPromises.push(
-						new Promise<void>(function (resolve) {
+						new Promise<void>((resolve) => {
 							link.onload = function () {
 								resolve();
 							};
@@ -197,7 +197,7 @@ export const handleSvelteUpdate = (message: {
 			const cleanup = function () {
 				document
 					.querySelectorAll('[data-hmr-preserved="true"]')
-					.forEach(function (element) {
+					.forEach((element) => {
 						element.remove();
 					});
 				restoreDOMState(document.body, domState);
@@ -210,7 +210,7 @@ export const handleSvelteUpdate = (message: {
 				cleanup();
 			}
 		})
-		.catch(function (err: unknown) {
+		.catch((err: unknown) => {
 			console.warn('[HMR] Svelte import failed, reloading:', err);
 			window.location.reload();
 		});

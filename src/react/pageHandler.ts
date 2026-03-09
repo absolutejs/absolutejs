@@ -47,8 +47,8 @@ export const handleReactPageRequest = async <
 		console.error('[SSR] React render error:', error);
 
 		return new Response(ssrErrorPage('react', error), {
-			status: 500,
-			headers: { 'Content-Type': 'text/html' }
+			headers: { 'Content-Type': 'text/html' },
+			status: 500
 		});
 	}
 };

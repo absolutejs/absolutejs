@@ -185,16 +185,16 @@ const loadAngularDeps = async () => {
 	}
 
 	return {
+		APP_BASE_HREF: common.APP_BASE_HREF,
 		bootstrapApplication: platformBrowser.bootstrapApplication,
+		domino,
 		DomSanitizer: platformBrowser.DomSanitizer,
 		provideClientHydration: platformBrowser.provideClientHydration,
-		renderApplication: platformServer.renderApplication,
 		provideServerRendering: platformServer.provideServerRendering,
-		APP_BASE_HREF: common.APP_BASE_HREF,
 		provideZonelessChangeDetection: core.provideZonelessChangeDetection,
+		renderApplication: platformServer.renderApplication,
 		Sanitizer: core.Sanitizer,
-		SecurityContext: core.SecurityContext,
-		domino
+		SecurityContext: core.SecurityContext
 	};
 };
 
@@ -208,13 +208,12 @@ const getAngularDeps = () => {
 
 // --- Module-level SSR Sanitizer ---
 
-const escapeHtml = (str: string) => {
-	return String(str)
+const escapeHtml = (str: string) =>
+	String(str)
 		.replace(/&/g, '&amp;')
 		.replace(/</g, '&lt;')
 		.replace(/>/g, '&gt;')
 		.replace(/"/g, '&quot;');
-};
 
 const bypassValue = (value: string) =>
 	({ changingThisBreaksApplicationSecurity: value }) as any;
@@ -282,10 +281,10 @@ const patchChildren = (head: any) => {
 	});
 	childrenArray.length = elementNodes.length;
 	Object.defineProperty(head, 'children', {
-		value: childrenArray,
-		writable: false,
+		configurable: false,
 		enumerable: true,
-		configurable: false
+		value: childrenArray,
+		writable: false
 	});
 };
 
@@ -313,7 +312,7 @@ const createDominoDocument = (
 		// — must be patched per-document unlike querySelector/querySelectorAll
 		// which are patched on the prototype once during init.
 		if (doc.head) {
-			const children = doc.head.children;
+			const { children } = doc.head;
 			if (
 				!children ||
 				typeof children.length === 'undefined' ||
@@ -338,10 +337,10 @@ const createDominoDocument = (
 
 const injectBeforeClose = (html: string, snippet: string) => {
 	if (html.includes('</body>')) {
-		return html.replace('</body>', snippet + '</body>');
+		return html.replace('</body>', `${snippet}</body>`);
 	}
 	if (html.includes('</html>')) {
-		return html.replace('</html>', snippet + '</html>');
+		return html.replace('</html>', `${snippet}</html>`);
 	}
 
 	return html + snippet;
@@ -387,7 +386,7 @@ export const handleAngularPageRequest = async <
 			// Cache props + headTag for HMR replay — strip query strings
 			// so cache-busted HMR paths match the original manifest path.
 			const cacheKey = pagePath.split('?')[0] ?? pagePath;
-			routePropsCache.set(cacheKey, { props: maybeProps, headTag });
+			routePropsCache.set(cacheKey, { headTag, props: maybeProps });
 
 			// Load base Angular deps (ensures compiler + patches are initialized)
 			const baseDeps = await getAngularDeps();
@@ -424,28 +423,28 @@ export const handleAngularPageRequest = async <
 
 			const deps: AngularDeps = core
 				? {
+						APP_BASE_HREF:
+							common?.APP_BASE_HREF ?? baseDeps.APP_BASE_HREF,
 						bootstrapApplication:
 							platformBrowser?.bootstrapApplication ??
 							baseDeps.bootstrapApplication,
+						domino: baseDeps.domino,
 						DomSanitizer:
 							platformBrowser?.DomSanitizer ??
 							baseDeps.DomSanitizer,
 						provideClientHydration:
 							platformBrowser?.provideClientHydration ??
 							baseDeps.provideClientHydration,
-						renderApplication:
-							platformServer?.renderApplication ??
-							baseDeps.renderApplication,
 						provideServerRendering:
 							platformServer?.provideServerRendering ??
 							baseDeps.provideServerRendering,
-						APP_BASE_HREF:
-							common?.APP_BASE_HREF ?? baseDeps.APP_BASE_HREF,
 						provideZonelessChangeDetection:
 							core.provideZonelessChangeDetection,
+						renderApplication:
+							platformServer?.renderApplication ??
+							baseDeps.renderApplication,
 						Sanitizer: core.Sanitizer,
-						SecurityContext: core.SecurityContext,
-						domino: baseDeps.domino
+						SecurityContext: core.SecurityContext
 					}
 				: baseDeps;
 
@@ -550,8 +549,8 @@ export const handleAngularPageRequest = async <
 			try {
 				html = await deps.renderApplication(bootstrap as any, {
 					document,
-					url: '/',
-					platformProviders: []
+					platformProviders: [],
+					url: '/'
 				});
 			} finally {
 				console.log = origLog;
@@ -581,8 +580,8 @@ export const handleAngularPageRequest = async <
 			console.error('[SSR] Angular render error:', error);
 
 			return new Response(ssrErrorPage('angular', error), {
-				status: 500,
-				headers: { 'Content-Type': 'text/html' }
+				headers: { 'Content-Type': 'text/html' },
+				status: 500
 			});
 		}
 	});

@@ -175,8 +175,8 @@ export const start = async (
 	};
 
 	const serverBundle = await Bun.build({
-		entrypoints: [resolve(serverEntry)],
 		define: { 'process.env.NODE_ENV': '"production"' },
+		entrypoints: [resolve(serverEntry)],
 		external: [
 			'vue',
 			'vue/*',
@@ -201,8 +201,8 @@ export const start = async (
 			console.error(log);
 		}
 		sendTelemetryEvent('start:bundle-error', {
-			entry: serverEntry,
 			durationMs: Math.round(performance.now() - bundleStart),
+			entry: serverEntry,
 			message:
 				serverBundle.logs
 					.find((l) => l.level === 'error')
@@ -226,8 +226,8 @@ export const start = async (
 	console.log(` \x1b[2m(${bundleDuration})\x1b[0m`);
 
 	sendTelemetryEvent('start:bundle-complete', {
-		entry: serverEntry,
-		durationMs: bundleDurationMs
+		durationMs: bundleDurationMs,
+		entry: serverEntry
 	});
 
 	// ── Run production server ────────────────────────────────────────
@@ -240,11 +240,11 @@ export const start = async (
 	const sessionStart = Date.now();
 	const totalDuration = performance.now() - buildStepStart;
 	sendTelemetryEvent('start:start', {
-		entry: serverEntry,
-		frameworks,
 		buildDurationMs:
 			Math.round(performance.now() - buildStepStart) - bundleDurationMs,
 		bundleDurationMs,
+		entry: serverEntry,
+		frameworks,
 		totalDurationMs: Math.round(totalDuration)
 	});
 
@@ -259,9 +259,9 @@ export const start = async (
 			NODE_ENV: 'production',
 			...(configPath ? { ABSOLUTE_CONFIG: configPath } : {})
 		},
+		stderr: 'inherit',
 		stdin: 'inherit',
-		stdout: 'inherit',
-		stderr: 'inherit'
+		stdout: 'inherit'
 	});
 
 	const cleanup = async (exitCode = 0): Promise<void> => {
@@ -290,8 +290,8 @@ export const start = async (
 			cliTag('\x1b[31m', `Server exited with code ${exitCode}.`)
 		);
 		sendTelemetryEvent('start:server-exit', {
-			exitCode,
-			entry: serverEntry
+			entry: serverEntry,
+			exitCode
 		});
 		if (scripts) await stopDatabase(scripts);
 		process.exit(exitCode);

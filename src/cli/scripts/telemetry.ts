@@ -25,15 +25,15 @@ export const isTelemetryEnabled = () => {
 
 export const saveTelemetryConfig = (config: TelemetryConfig) => {
 	mkdirSync(configDir, { recursive: true });
-	writeFileSync(configPath, JSON.stringify(config, null, '\t') + '\n');
+	writeFileSync(configPath, `${JSON.stringify(config, null, '\t')}\n`);
 };
 
 const enable = () => {
 	const existing = getTelemetryConfig();
 	const config: TelemetryConfig = {
-		enabled: true,
 		anonymousId: existing?.anonymousId ?? crypto.randomUUID(),
-		createdAt: existing?.createdAt ?? new Date().toISOString()
+		createdAt: existing?.createdAt ?? new Date().toISOString(),
+		enabled: true
 	};
 	saveTelemetryConfig(config);
 	console.log('Telemetry enabled.');

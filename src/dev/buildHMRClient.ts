@@ -24,7 +24,9 @@ export const buildHMRClient = async () => {
 			logCount: result.logs.length,
 			message: result.logs.map((l) => l.message).join('; ')
 		});
+
 		return '// HMR client build failed';
 	}
+
 	return await result.outputs[0]!.text();
 };

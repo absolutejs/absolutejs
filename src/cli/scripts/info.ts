@@ -11,8 +11,8 @@ const getBinaryVersion = (binary: string, flag = '--version') => {
 	try {
 		const raw = execSync(`${binary} ${flag}`, {
 			encoding: 'utf-8',
-			timeout: 5000,
-			stdio: ['pipe', 'pipe', 'pipe']
+			stdio: ['pipe', 'pipe', 'pipe'],
+			timeout: 5000
 		}).trim();
 		const match = /(\d+\.\d+\.\d+[\w.-]*)/.exec(raw);
 

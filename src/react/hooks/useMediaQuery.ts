@@ -18,12 +18,12 @@ const useUserAgentType = (): UserAgentType => {
 };
 
 const defaultBreakpoints: Breakpoints = {
-	xs: 0,
-	sm: 640,
-	md: 768,
+	'2xl': 1536,
 	lg: 1024,
+	md: 768,
+	sm: 640,
 	xl: 1280,
-	'2xl': 1536
+	xs: 0
 };
 
 const userAgentInitialWidth: Record<UserAgentType, number> = {
@@ -63,6 +63,7 @@ const ensureListener = () => {
 const subscribe = (callback: () => void) => {
 	ensureListener();
 	subscribers.add(callback);
+
 	return () => subscribers.delete(callback);
 };
 
@@ -74,6 +75,7 @@ const computeBreakpoint = (widthValue: number, breakpoints: Breakpoints) => {
 	if (widthValue < breakpoints.lg) return 'md';
 	if (widthValue < breakpoints.xl) return 'lg';
 	if (widthValue < breakpoints['2xl']) return 'xl';
+
 	return '2xl';
 };
 

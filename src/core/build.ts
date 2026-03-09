@@ -135,8 +135,8 @@ export const build = async ({
 	sendTelemetryEvent('build:start', {
 		framework: frameworkNames[0],
 		frameworks: frameworkNames,
-		tailwind: !!tailwind,
-		mode: mode ?? (isDev ? 'development' : 'production')
+		mode: mode ?? (isDev ? 'development' : 'production'),
+		tailwind: Boolean(tailwind)
 	});
 
 	// Shared root for all client builds so output paths preserve framework directory names.
@@ -272,8 +272,10 @@ export const build = async ({
 					// Map index entry (indexes/ReactExample.tsx) to source page (pages/ReactExample.tsx)
 					if (entry.startsWith(resolve(reactIndexesPath))) {
 						const pageName = basename(entry, '.tsx');
+
 						return join(reactPagesPath, `${pageName}.tsx`);
 					}
+
 					return null;
 				})
 			: allReactEntries;
@@ -318,14 +320,8 @@ export const build = async ({
 		{ clientPaths: angularClientPaths, serverPaths: angularServerPaths }
 	] = await Promise.all([
 		shouldCompileSvelte
-			? import('../build/compileSvelte').then(
-					(mod) =>
-						mod.compileSvelte(
-							svelteEntries,
-							svelteDir!,
-							new Map(),
-							hmr
-						) as ReturnType<typeof compileSvelte>
+			? import('../build/compileSvelte').then((mod) =>
+					mod.compileSvelte(svelteEntries, svelteDir, new Map(), hmr)
 				)
 			: {
 					svelteClientPaths: [] as string[],
@@ -333,11 +329,8 @@ export const build = async ({
 					svelteServerPaths: [] as string[]
 				},
 		shouldCompileVue
-			? import('../build/compileVue').then(
-					(mod) =>
-						mod.compileVue(vueEntries, vueDir!, hmr) as ReturnType<
-							typeof compileVue
-						>
+			? import('../build/compileVue').then((mod) =>
+					mod.compileVue(vueEntries, vueDir, hmr)
 				)
 			: {
 					vueClientPaths: [] as string[],
@@ -346,13 +339,8 @@ export const build = async ({
 					vueServerPaths: [] as string[]
 				},
 		shouldCompileAngular
-			? import('../build/compileAngular').then(
-					(mod) =>
-						mod.compileAngular(
-							angularEntries,
-							angularDir!,
-							hmr
-						) as ReturnType<typeof compileAngular>
+			? import('../build/compileAngular').then((mod) =>
+					mod.compileAngular(angularEntries, angularDir, hmr)
 				)
 			: { clientPaths: [] as string[], serverPaths: [] as string[] }
 	]);
@@ -377,30 +365,30 @@ export const build = async ({
 	) {
 		logger.warn('No entry points found, manifest will be empty');
 		sendTelemetryEvent('build:empty', {
-			frameworks: frameworkNames,
-			mode: mode ?? (isDev ? 'development' : 'production'),
-			incremental: !!isIncremental,
 			configuredDirs: {
-				react: !!reactDir,
-				html: !!htmlDir,
-				htmx: !!htmxDir,
-				svelte: !!svelteDir,
-				vue: !!vueDir,
-				angular: !!angularDir
-			},
-			scannedEntries: {
-				react: allReactEntries.length,
-				html: allHtmlEntries.length,
-				svelte: allSvelteEntries.length,
-				vue: allVueEntries.length,
-				angular: allAngularEntries.length
+				angular: Boolean(angularDir),
+				html: Boolean(htmlDir),
+				htmx: Boolean(htmxDir),
+				react: Boolean(reactDir),
+				svelte: Boolean(svelteDir),
+				vue: Boolean(vueDir)
 			},
 			filteredEntries: {
-				react: reactEntries.length,
+				angular: angularEntries.length,
 				html: htmlEntries.length,
+				react: reactEntries.length,
 				svelte: svelteEntries.length,
-				vue: vueEntries.length,
-				angular: angularEntries.length
+				vue: vueEntries.length
+			},
+			frameworks: frameworkNames,
+			incremental: Boolean(isIncremental),
+			mode: mode ?? (isDev ? 'development' : 'production'),
+			scannedEntries: {
+				angular: allAngularEntries.length,
+				html: allHtmlEntries.length,
+				react: allReactEntries.length,
+				svelte: allSvelteEntries.length,
+				vue: allVueEntries.length
 			}
 		});
 
@@ -571,10 +559,10 @@ export const build = async ({
 			);
 			(err as Error & { logs?: unknown }).logs = serverResult.logs;
 			sendTelemetryEvent('build:error', {
-				pass: 'server',
 				frameworks: frameworkNames,
+				incremental: Boolean(isIncremental),
 				message: err.message,
-				incremental: !!isIncremental
+				pass: 'server'
 			});
 			logger.error('Server build failed', err);
 			if (throwOnError) throw err;
@@ -599,10 +587,10 @@ export const build = async ({
 			);
 			(err as Error & { logs?: unknown }).logs = reactClientResult.logs;
 			sendTelemetryEvent('build:error', {
-				pass: 'react-client',
 				frameworks: frameworkNames,
+				incremental: Boolean(isIncremental),
 				message: err.message,
-				incremental: !!isIncremental
+				pass: 'react-client'
 			});
 			logger.error('React client build failed', err);
 			if (throwOnError) throw err;
@@ -641,10 +629,10 @@ export const build = async ({
 			(err as Error & { logs?: unknown }).logs =
 				nonReactClientResult.logs;
 			sendTelemetryEvent('build:error', {
-				pass: 'non-react-client',
 				frameworks: frameworkNames,
+				incremental: Boolean(isIncremental),
 				message: err.message,
-				incremental: !!isIncremental
+				pass: 'non-react-client'
 			});
 			logger.error('Non-React client build failed', err);
 			if (throwOnError) throw err;
@@ -661,8 +649,8 @@ export const build = async ({
 		);
 	}
 
-	let cssLogs: (BuildMessage | ResolveMessage)[] = [];
-	let cssOutputs: BuildArtifact[] = [];
+	const cssLogs: (BuildMessage | ResolveMessage)[] = [];
+	const cssOutputs: BuildArtifact[] = [];
 
 	if (globalCssResult) {
 		cssLogs.push(...globalCssResult.logs);
@@ -678,10 +666,10 @@ export const build = async ({
 			);
 			(err as Error & { logs?: unknown }).logs = globalCssResult.logs;
 			sendTelemetryEvent('build:error', {
-				pass: 'global-css',
 				frameworks: frameworkNames,
+				incremental: Boolean(isIncremental),
 				message: err.message,
-				incremental: !!isIncremental
+				pass: 'global-css'
 			});
 			logger.error('Global CSS build failed', err);
 			if (throwOnError) throw err;
@@ -703,10 +691,10 @@ export const build = async ({
 			);
 			(err as Error & { logs?: unknown }).logs = vueCssResult.logs;
 			sendTelemetryEvent('build:error', {
-				pass: 'vue-css',
 				frameworks: frameworkNames,
+				incremental: Boolean(isIncremental),
 				message: err.message,
-				incremental: !!isIncremental
+				pass: 'vue-css'
 			});
 			logger.error('Vue CSS build failed', err);
 			if (throwOnError) throw err;
@@ -909,8 +897,8 @@ export const build = async ({
 	}
 
 	sendTelemetryEvent('build:complete', {
-		frameworks: frameworkNames,
 		durationMs: Math.round(performance.now() - buildStart),
+		frameworks: frameworkNames,
 		mode: mode ?? (isDev ? 'development' : 'production')
 	});
 

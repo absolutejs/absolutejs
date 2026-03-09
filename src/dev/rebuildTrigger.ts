@@ -40,10 +40,11 @@ const parseErrorLocationFromMessage = (msg: string) => {
 	const pathLineCol = msg.match(/^([^\s:]+):(\d+)(?::(\d+))?/);
 	if (pathLineCol) {
 		const [, file, lineStr, colStr] = pathLineCol;
+
 		return {
+			column: colStr ? parseInt(colStr, 10) : undefined,
 			file,
-			line: lineStr ? parseInt(lineStr, 10) : undefined,
-			column: colStr ? parseInt(colStr, 10) : undefined
+			line: lineStr ? parseInt(lineStr, 10) : undefined
 		};
 	}
 	// "at path (line: col:)" or "at path:line:col"
@@ -52,17 +53,18 @@ const parseErrorLocationFromMessage = (msg: string) => {
 	);
 	if (atMatch) {
 		const [, file, line1, col1, line2, col2] = atMatch;
+
 		return {
+			column: col1
+				? parseInt(col1, 10)
+				: col2
+					? parseInt(col2, 10)
+					: undefined,
 			file: file?.trim(),
 			line: line1
 				? parseInt(line1, 10)
 				: line2
 					? parseInt(line2, 10)
-					: undefined,
-			column: col1
-				? parseInt(col1, 10)
-				: col2
-					? parseInt(col2, 10)
 					: undefined
 		};
 	}
@@ -72,12 +74,14 @@ const parseErrorLocationFromMessage = (msg: string) => {
 	);
 	if (parenMatch) {
 		const [, file, lineStr, colStr] = parenMatch;
+
 		return {
+			column: colStr ? parseInt(colStr, 10) : undefined,
 			file: file ?? undefined,
-			line: lineStr ? parseInt(lineStr, 10) : undefined,
-			column: colStr ? parseInt(colStr, 10) : undefined
+			line: lineStr ? parseInt(lineStr, 10) : undefined
 		};
 	}
+
 	return {};
 };
 
@@ -89,12 +93,8 @@ const extractBuildErrorDetails = (
 ) => {
 	// AggregateError (Bun 1.2+ throws this) - errors array may contain BuildMessage-like objects
 	let logs = (error as { logs?: BuildLog[] })?.logs;
-	if (
-		!logs &&
-		error instanceof AggregateError &&
-		(error as AggregateError).errors?.length
-	) {
-		logs = (error as AggregateError).errors as BuildLog[];
+	if (!logs && error instanceof AggregateError && error.errors?.length) {
+		logs = error.errors as BuildLog[];
 	}
 	if (logs && Array.isArray(logs) && logs.length > 0) {
 		const errLog = logs.find((l) => l.level === 'error') ?? logs[0];
@@ -116,13 +116,14 @@ const extractBuildErrorDetails = (
 			file && resolvedPaths
 				? detectFramework(file, resolvedPaths)
 				: (affectedFrameworks[0] ?? 'unknown');
+
 		return {
-			file,
-			line,
 			column,
-			lineText,
+			file,
 			framework:
-				framework !== 'ignored' ? framework : affectedFrameworks[0]
+				framework !== 'ignored' ? framework : affectedFrameworks[0],
+			line,
+			lineText
 		};
 	}
 	const msg = error instanceof Error ? error.message : String(error);
@@ -132,6 +133,7 @@ const extractBuildErrorDetails = (
 		const detected = detectFramework(parsed.file, resolvedPaths);
 		fw = detected !== 'ignored' ? detected : affectedFrameworks[0];
 	}
+
 	return { ...parsed, framework: fw };
 };
 
@@ -381,7 +383,7 @@ export const triggerRebuild = async (
 			const angularDir = config.angularDirectory!;
 
 			// Resolve affected files to page entry points
-			const angularFiles = filesToRebuild!.filter(
+			const angularFiles = filesToRebuild.filter(
 				(file) =>
 					detectFramework(file, state.resolvedPaths) === 'angular'
 			);
@@ -453,7 +455,7 @@ export const triggerRebuild = async (
 					const { commonAncestor } = await import(
 						'../utils/commonAncestor'
 					);
-					const buildDir = state.resolvedPaths.buildDir;
+					const { buildDir } = state.resolvedPaths;
 
 					// Compute the same clientRoot as build.ts to ensure
 					// output paths match the initial build structure.
@@ -516,7 +518,7 @@ export const triggerRebuild = async (
 				}
 			}
 
-			const manifest = state.manifest;
+			const { manifest } = state;
 
 			// Run Angular HMR handler — same logic as the full path
 			const angularHmrFiles = angularFiles.filter(
@@ -526,7 +528,7 @@ export const triggerRebuild = async (
 				f.replace(/\\/g, '/').includes('/pages/')
 			);
 
-			let pagesToUpdate =
+			const pagesToUpdate =
 				angularPageFiles.length > 0 ? angularPageFiles : pageEntries;
 
 			// Skip SSR re-render for Angular HMR — the client re-bootstraps
@@ -543,18 +545,18 @@ export const triggerRebuild = async (
 				logger.hmrUpdate(angularPagePath, 'angular', duration);
 				broadcastToClients(state, {
 					data: {
-						framework: 'angular',
-						cssUrl,
 						cssBaseName: baseName,
-						updateType: 'logic' as const,
+						cssUrl,
+						framework: 'angular',
 						manifest,
-						sourceFile: angularPagePath
+						sourceFile: angularPagePath,
+						updateType: 'logic' as const
 					},
 					type: 'angular-update'
 				});
 			}
 
-			onRebuildComplete({ manifest, hmrState: state });
+			onRebuildComplete({ hmrState: state, manifest });
 
 			return manifest;
 		}
@@ -575,7 +577,7 @@ export const triggerRebuild = async (
 			const reactDir = config.reactDirectory!;
 			const reactPagesPath = resolve(reactDir, 'pages');
 			const reactIndexesPath = resolve(reactDir, 'indexes');
-			const buildDir = state.resolvedPaths.buildDir;
+			const { buildDir } = state.resolvedPaths;
 
 			// Regenerate index files — cleanup() removes them after the
 			// initial build, so they may not exist. This is fast (~5ms)
@@ -707,7 +709,7 @@ export const triggerRebuild = async (
 
 			await rm(reactIndexesPath, { force: true, recursive: true });
 
-			const manifest = state.manifest;
+			const { manifest } = state;
 			const duration = Date.now() - startTime;
 
 			// Send React HMR update
@@ -728,16 +730,16 @@ export const triggerRebuild = async (
 			broadcastToClients(state, {
 				data: {
 					framework: 'react',
-					manifest,
-					sourceFiles,
-					primarySource: sourceFiles[0],
 					hasComponentChanges: true,
-					hasCSSChanges: false
+					hasCSSChanges: false,
+					manifest,
+					primarySource: sourceFiles[0],
+					sourceFiles
 				},
 				type: 'react-update'
 			});
 
-			onRebuildComplete({ manifest, hmrState: state });
+			onRebuildComplete({ hmrState: state, manifest });
 
 			return manifest;
 		}
@@ -756,7 +758,7 @@ export const triggerRebuild = async (
 
 		if (isSvelteOnlyChange) {
 			const svelteDir = config.svelteDirectory!;
-			const buildDir = state.resolvedPaths.buildDir;
+			const { buildDir } = state.resolvedPaths;
 
 			// Filter to svelte files that changed
 			const svelteFiles = filesToRebuild.filter(
@@ -886,7 +888,7 @@ export const triggerRebuild = async (
 				})
 			]);
 
-			const manifest = state.manifest;
+			const { manifest } = state;
 			const duration = Date.now() - startTime;
 
 			// Send Svelte HMR update for each page
@@ -902,19 +904,19 @@ export const triggerRebuild = async (
 				logger.hmrUpdate(sveltePagePath, 'svelte', duration);
 				broadcastToClients(state, {
 					data: {
+						cssBaseName: baseName,
+						cssUrl,
 						framework: 'svelte',
 						html: null,
-						cssUrl,
-						cssBaseName: baseName,
-						updateType: 'full',
 						manifest,
-						sourceFile: sveltePagePath
+						sourceFile: sveltePagePath,
+						updateType: 'full'
 					},
 					type: 'svelte-update'
 				});
 			}
 
-			onRebuildComplete({ manifest, hmrState: state });
+			onRebuildComplete({ hmrState: state, manifest });
 
 			return manifest;
 		}
@@ -933,7 +935,7 @@ export const triggerRebuild = async (
 
 		if (isVueOnlyChange) {
 			const vueDir = config.vueDirectory!;
-			const buildDir = state.resolvedPaths.buildDir;
+			const { buildDir } = state.resolvedPaths;
 
 			// Filter to vue files that changed
 			const vueFiles = filesToRebuild.filter(
@@ -1059,7 +1061,7 @@ export const triggerRebuild = async (
 				})
 			]);
 
-			const manifest = state.manifest;
+			const { manifest } = state;
 			const duration = Date.now() - startTime;
 
 			// Send Vue HMR update for each page
@@ -1082,21 +1084,21 @@ export const triggerRebuild = async (
 				logger.hmrUpdate(vuePagePath, 'vue', duration);
 				broadcastToClients(state, {
 					data: {
-						framework: 'vue',
-						html: null,
-						hmrId,
 						changeType: 'full',
 						componentPath: manifest[`${pascalName}Client`] || null,
 						cssUrl,
-						updateType: 'full',
+						framework: 'vue',
+						hmrId,
+						html: null,
 						manifest,
-						sourceFile: vuePagePath
+						sourceFile: vuePagePath,
+						updateType: 'full'
 					},
 					type: 'vue-update'
 				});
 			}
 
-			onRebuildComplete({ manifest, hmrState: state });
+			onRebuildComplete({ hmrState: state, manifest });
 
 			return manifest;
 		}
@@ -1122,9 +1124,9 @@ export const triggerRebuild = async (
 		const duration = Date.now() - startTime;
 
 		sendTelemetryEvent('hmr:rebuild-complete', {
-			framework: affectedFrameworks[0] ?? 'unknown',
 			durationMs: duration,
-			fileCount: filesToRebuild?.length ?? 0
+			fileCount: filesToRebuild?.length ?? 0,
+			framework: affectedFrameworks[0] ?? 'unknown'
 		});
 
 		// Populate the in-memory asset store BEFORE broadcasting to clients.
@@ -1202,6 +1204,7 @@ export const triggerRebuild = async (
 					// Prefer changed page files; fall back to any React file
 					const reactPageFiles = reactFiles.filter((file) => {
 						const normalized = file.replace(/\\/g, '/');
+
 						return normalized.includes('/pages/');
 					});
 					const sourceFiles =
@@ -1231,11 +1234,11 @@ export const triggerRebuild = async (
 						broadcastToClients(state, {
 							data: {
 								framework: 'react',
-								manifest,
-								sourceFiles,
-								primarySource,
 								hasComponentChanges: hasComponentChanges,
-								hasCSSChanges: hasCSSChanges
+								hasCSSChanges: hasCSSChanges,
+								manifest,
+								primarySource,
+								sourceFiles
 								// No html field - client handles the update
 							},
 							type: 'react-update'
@@ -1298,9 +1301,9 @@ export const triggerRebuild = async (
 								broadcastToClients(state, {
 									data: {
 										framework: 'html',
+										manifest,
 										scriptPath,
-										sourceFile: scriptFile,
-										manifest
+										sourceFile: scriptFile
 									},
 									type: 'script-update'
 								});
@@ -1440,12 +1443,12 @@ export const triggerRebuild = async (
 							// Broadcast CSS-only update
 							broadcastToClients(state, {
 								data: {
-									framework: 'vue',
-									updateType: 'css-only',
-									cssUrl,
 									cssBaseName,
+									cssUrl,
+									framework: 'vue',
 									manifest,
-									sourceFile: cssFile
+									sourceFile: cssFile,
+									updateType: 'css-only'
 								},
 								type: 'vue-update'
 							});
@@ -1487,14 +1490,14 @@ export const triggerRebuild = async (
 								logger.cssUpdate(vuePagePath, 'vue', duration);
 								broadcastToClients(state, {
 									data: {
-										framework: 'vue',
-										updateType: 'css-only',
 										changeType: 'style-only',
-										cssUrl,
 										cssBaseName: baseName,
+										cssUrl,
+										framework: 'vue',
 										hmrId,
 										manifest,
-										sourceFile: vuePagePath
+										sourceFile: vuePagePath,
+										updateType: 'css-only'
 									},
 									type: 'vue-update'
 								});
@@ -1507,15 +1510,15 @@ export const triggerRebuild = async (
 							logger.hmrUpdate(vuePagePath, 'vue', duration);
 							broadcastToClients(state, {
 								data: {
-									framework: 'vue',
-									html: null,
-									hmrId,
 									changeType,
 									componentPath,
 									cssUrl,
-									updateType: 'full',
+									framework: 'vue',
+									hmrId,
+									html: null,
 									manifest,
-									sourceFile: vuePagePath
+									sourceFile: vuePagePath,
+									updateType: 'full'
 								},
 								type: 'vue-update'
 							});
@@ -1580,12 +1583,12 @@ export const triggerRebuild = async (
 							// Broadcast CSS-only update
 							broadcastToClients(state, {
 								data: {
-									framework: 'svelte',
-									updateType: 'css-only',
-									cssUrl,
 									cssBaseName,
+									cssUrl,
+									framework: 'svelte',
 									manifest,
-									sourceFile: cssFile
+									sourceFile: cssFile,
+									updateType: 'css-only'
 								},
 								type: 'svelte-update'
 							});
@@ -1610,13 +1613,13 @@ export const triggerRebuild = async (
 							);
 							broadcastToClients(state, {
 								data: {
+									cssBaseName: baseName,
+									cssUrl,
 									framework: 'svelte',
 									html: null,
-									cssUrl,
-									cssBaseName: baseName,
-									updateType: 'full',
 									manifest,
-									sourceFile: sveltePagePath
+									sourceFile: sveltePagePath,
+									updateType: 'full'
 								},
 								type: 'svelte-update'
 							});
@@ -1713,12 +1716,12 @@ export const triggerRebuild = async (
 							logger.cssUpdate(cssFile, 'angular', duration);
 							broadcastToClients(state, {
 								data: {
-									framework: 'angular',
-									updateType: 'style',
-									cssUrl,
 									cssBaseName,
+									cssUrl,
+									framework: 'angular',
 									manifest,
-									sourceFile: cssFile
+									sourceFile: cssFile,
+									updateType: 'style'
 								},
 								type: 'angular-update'
 							});
@@ -1748,12 +1751,12 @@ export const triggerRebuild = async (
 								);
 								broadcastToClients(state, {
 									data: {
-										framework: 'angular',
-										cssUrl,
 										cssBaseName: baseName,
-										updateType: 'logic' as const,
+										cssUrl,
+										framework: 'angular',
 										manifest,
-										sourceFile: angularPagePath
+										sourceFile: angularPagePath,
+										updateType: 'logic' as const
 									},
 									type: 'angular-update'
 								});
@@ -1817,9 +1820,9 @@ export const triggerRebuild = async (
 								broadcastToClients(state, {
 									data: {
 										framework: 'htmx',
+										manifest,
 										scriptPath,
-										sourceFile: scriptFile,
-										manifest
+										sourceFile: scriptFile
 									},
 									type: 'script-update'
 								});
@@ -2007,16 +2010,16 @@ export const triggerRebuild = async (
 		}
 
 		// Call the callback with the new build result
-		onRebuildComplete({ manifest, hmrState: state });
+		onRebuildComplete({ hmrState: state, manifest });
 
 		return manifest;
 	} catch (error) {
 		sendTelemetryEvent('hmr:rebuild-error', {
+			durationMs: Date.now() - startTime,
+			fileCount: filesToRebuild?.length ?? 0,
 			framework: affectedFrameworks[0] ?? 'unknown',
 			frameworks: affectedFrameworks,
-			message: error instanceof Error ? error.message : String(error),
-			fileCount: filesToRebuild?.length ?? 0,
-			durationMs: Date.now() - startTime
+			message: error instanceof Error ? error.message : String(error)
 		});
 		const errorData = extractBuildErrorDetails(
 			error,

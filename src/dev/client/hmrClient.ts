@@ -38,7 +38,7 @@ if (typeof window !== 'undefined') {
 }
 
 // Catch uncaught runtime errors and show the error overlay
-window.addEventListener('error', function (evt) {
+window.addEventListener('error', (evt) => {
 	if (!evt.error) return;
 	showErrorOverlay({
 		framework: detectCurrentFramework() || undefined,
@@ -50,7 +50,7 @@ window.addEventListener('error', function (evt) {
 	});
 });
 
-window.addEventListener('unhandledrejection', function (evt) {
+window.addEventListener('unhandledrejection', (evt) => {
 	if (!evt.reason) return;
 	showErrorOverlay({
 		framework: detectCurrentFramework() || undefined,
@@ -69,7 +69,7 @@ if (!(window.__HMR_WS__ && window.__HMR_WS__.readyState === WebSocket.OPEN)) {
 	const wsPort =
 		location.port || (location.protocol === 'https:' ? '443' : '80');
 	const wsProtocol = location.protocol === 'https:' ? 'wss' : 'ws';
-	const wsUrl = wsProtocol + '://' + wsHost + ':' + wsPort + '/hmr';
+	const wsUrl = `${wsProtocol}://${wsHost}:${wsPort}/hmr`;
 
 	const wsc = new WebSocket(wsUrl);
 	window.__HMR_WS__ = wsc;
@@ -91,7 +91,7 @@ if (!(window.__HMR_WS__ && window.__HMR_WS__.readyState === WebSocket.OPEN)) {
 			hmrState.reconnectTimeout = null;
 		}
 
-		hmrState.pingInterval = setInterval(function () {
+		hmrState.pingInterval = setInterval(() => {
 			if (wsc.readyState === WebSocket.OPEN && hmrState.isConnected) {
 				wsc.send(JSON.stringify({ type: 'ping' }));
 			}
@@ -114,7 +114,7 @@ if (!(window.__HMR_WS__ && window.__HMR_WS__.readyState === WebSocket.OPEN)) {
 				message.type === 'rebuild-start'
 			) {
 				hmrState.isHMRUpdating = true;
-				setTimeout(function () {
+				setTimeout(() => {
 					hmrState.isHMRUpdating = false;
 				}, 2000);
 			}
@@ -211,7 +211,7 @@ if (!(window.__HMR_WS__ && window.__HMR_WS__.readyState === WebSocket.OPEN)) {
 				if (attempts > 60) return;
 
 				fetch('/hmr-status', { cache: 'no-store' })
-					.then(function (res) {
+					.then((res) => {
 						if (res.ok) {
 							window.location.reload();
 						} else {
@@ -221,7 +221,7 @@ if (!(window.__HMR_WS__ && window.__HMR_WS__.readyState === WebSocket.OPEN)) {
 							);
 						}
 					})
-					.catch(function () {
+					.catch(() => {
 						hmrState.reconnectTimeout = setTimeout(pollServer, 300);
 					});
 			}, 500);
@@ -232,7 +232,7 @@ if (!(window.__HMR_WS__ && window.__HMR_WS__.readyState === WebSocket.OPEN)) {
 		hmrState.isConnected = false;
 	};
 
-	window.addEventListener('beforeunload', function () {
+	window.addEventListener('beforeunload', () => {
 		if (hmrState.isHMRUpdating) {
 			if (hmrState.pingInterval) clearInterval(hmrState.pingInterval);
 			if (hmrState.reconnectTimeout)

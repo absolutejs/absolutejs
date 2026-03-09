@@ -73,6 +73,105 @@ const resolveImportPath = (importPath: string, fromFile: string) => {
 /* Extract import/require statements from a file.
    Uses Bun.Transpiler.scanImports() for JS/TS files (native Zig parser)
    and falls back to regex for HTML (stylesheet links) and .vue/.svelte. */
+export const addFileToGraph = (graph: DependencyGraph, filePath: string) => {
+	// Normalize the file path to ensure consistent format
+	const normalizedPath = resolve(filePath);
+
+	if (!existsSync(normalizedPath)) {
+		return;
+	}
+
+	const dependencies = extractDependencies(normalizedPath);
+
+	// Clear existing dependencies for this file
+	const existingDeps = graph.dependencies.get(normalizedPath);
+	if (existingDeps) {
+		for (const dep of existingDeps) {
+			const dependents = graph.dependents.get(dep);
+			if (dependents) {
+				dependents.delete(normalizedPath);
+			}
+		}
+	}
+
+	// Add new dependencies
+	const newDeps = new Set(dependencies);
+	graph.dependencies.set(normalizedPath, newDeps);
+
+	// Update dependents (reverse relationship)
+	for (const dep of dependencies) {
+		if (!graph.dependents.has(dep)) {
+			graph.dependents.set(dep, new Set());
+		}
+		graph.dependents.get(dep)!.add(normalizedPath);
+	}
+};
+export const buildInitialDependencyGraph = (
+	graph: DependencyGraph,
+	directories: string[]
+) => {
+	const processedFiles = new Set<string>();
+
+	const scanDirectory = (dir: string) => {
+		// Normalize directory path
+		const normalizedDir = resolve(dir);
+		try {
+			const entries = readdirSync(normalizedDir, {
+				withFileTypes: true
+			});
+
+			for (const entry of entries) {
+				const fullPath = resolve(normalizedDir, entry.name);
+
+				// Skip ignored paths
+				if (
+					fullPath.includes('/node_modules/') ||
+					fullPath.includes('/.git/') ||
+					fullPath.includes('/build/') ||
+					fullPath.includes('/compiled/') ||
+					fullPath.includes('/indexes/') ||
+					fullPath.includes('/server/') ||
+					fullPath.includes('/client/') ||
+					entry.name.startsWith('.')
+				) {
+					continue;
+				}
+
+				if (entry.isDirectory()) {
+					scanDirectory(fullPath);
+				} else if (entry.isFile()) {
+					// Process source files (TypeScript, JavaScript, Vue, Svelte, HTML)
+					const ext = entry.name.split('.').pop()?.toLowerCase();
+					if (
+						[
+							'ts',
+							'tsx',
+							'js',
+							'jsx',
+							'vue',
+							'svelte',
+							'html',
+							'htm'
+						].includes(ext || '')
+					) {
+						if (!processedFiles.has(fullPath)) {
+							addFileToGraph(graph, fullPath);
+							processedFiles.add(fullPath);
+						}
+					}
+				}
+			}
+		} catch {}
+	};
+
+	for (const dir of directories) {
+		const resolvedDir = resolve(dir);
+		// Only scan directories that exist
+		if (existsSync(resolvedDir)) {
+			scanDirectory(resolvedDir);
+		}
+	}
+};
 export const extractDependencies = (filePath: string) => {
 	try {
 		const loader = loaderForFile(filePath);
@@ -185,45 +284,6 @@ export const extractDependencies = (filePath: string) => {
 		return [];
 	}
 };
-
-/* Add a file and its dependencies to the graph
-   This handles the "build graph" problem */
-export const addFileToGraph = (graph: DependencyGraph, filePath: string) => {
-	// Normalize the file path to ensure consistent format
-	const normalizedPath = resolve(filePath);
-
-	if (!existsSync(normalizedPath)) {
-		return;
-	}
-
-	const dependencies = extractDependencies(normalizedPath);
-
-	// Clear existing dependencies for this file
-	const existingDeps = graph.dependencies.get(normalizedPath);
-	if (existingDeps) {
-		for (const dep of existingDeps) {
-			const dependents = graph.dependents.get(dep);
-			if (dependents) {
-				dependents.delete(normalizedPath);
-			}
-		}
-	}
-
-	// Add new dependencies
-	const newDeps = new Set(dependencies);
-	graph.dependencies.set(normalizedPath, newDeps);
-
-	// Update dependents (reverse relationship)
-	for (const dep of dependencies) {
-		if (!graph.dependents.has(dep)) {
-			graph.dependents.set(dep, new Set());
-		}
-		graph.dependents.get(dep)!.add(normalizedPath);
-	}
-};
-
-/* Get all files that depend on a changed file
-   This handles the "find affected files" problem */
 export const getAffectedFiles = (
 	graph: DependencyGraph,
 	changedFile: string
@@ -252,9 +312,6 @@ export const getAffectedFiles = (
 
 	return Array.from(affected);
 };
-
-/* Remove a file from the graph
-   This handles the "cleanup deleted files" problem */
 export const removeFileFromGraph = (
 	graph: DependencyGraph,
 	filePath: string
@@ -284,74 +341,5 @@ export const removeFileFromGraph = (
 			}
 		}
 		graph.dependents.delete(normalizedPath);
-	}
-};
-
-/* Build dependency graph for all files in a directory
-   This handles the "initialize graph" problem */
-export const buildInitialDependencyGraph = (
-	graph: DependencyGraph,
-	directories: string[]
-) => {
-	const processedFiles = new Set<string>();
-
-	const scanDirectory = (dir: string) => {
-		// Normalize directory path
-		const normalizedDir = resolve(dir);
-		try {
-			const entries = readdirSync(normalizedDir, {
-				withFileTypes: true
-			});
-
-			for (const entry of entries) {
-				const fullPath = resolve(normalizedDir, entry.name);
-
-				// Skip ignored paths
-				if (
-					fullPath.includes('/node_modules/') ||
-					fullPath.includes('/.git/') ||
-					fullPath.includes('/build/') ||
-					fullPath.includes('/compiled/') ||
-					fullPath.includes('/indexes/') ||
-					fullPath.includes('/server/') ||
-					fullPath.includes('/client/') ||
-					entry.name.startsWith('.')
-				) {
-					continue;
-				}
-
-				if (entry.isDirectory()) {
-					scanDirectory(fullPath);
-				} else if (entry.isFile()) {
-					// Process source files (TypeScript, JavaScript, Vue, Svelte, HTML)
-					const ext = entry.name.split('.').pop()?.toLowerCase();
-					if (
-						[
-							'ts',
-							'tsx',
-							'js',
-							'jsx',
-							'vue',
-							'svelte',
-							'html',
-							'htm'
-						].includes(ext || '')
-					) {
-						if (!processedFiles.has(fullPath)) {
-							addFileToGraph(graph, fullPath);
-							processedFiles.add(fullPath);
-						}
-					}
-				}
-			}
-		} catch {}
-	};
-
-	for (const dir of directories) {
-		const resolvedDir = resolve(dir);
-		// Only scan directories that exist
-		if (existsSync(resolvedDir)) {
-			scanDirectory(resolvedDir);
-		}
 	}
 };

@@ -39,6 +39,7 @@ export const hideErrorOverlay = () => {
 	const elm = errorOverlayElement;
 	if (!elm || !elm.parentNode) {
 		removeOverlayElement();
+
 		return;
 	}
 	elm.style.transition = 'opacity 150ms ease-out';
@@ -55,10 +56,10 @@ export const isRuntimeErrorOverlay = (): boolean =>
 
 export const showErrorOverlay = (opts: ErrorOverlayOptions) => {
 	const message = opts.message || 'Build failed';
-	const file = opts.file;
-	const line = opts.line;
-	const column = opts.column;
-	const lineText = opts.lineText;
+	const { file } = opts;
+	const { line } = opts;
+	const { column } = opts;
+	const { lineText } = opts;
 	const framework = (opts.framework || 'unknown').toLowerCase();
 	const frameworkLabel = frameworkLabels[framework] || framework;
 	const accent = frameworkColors[framework] || '#94a3b8';
@@ -79,14 +80,13 @@ export const showErrorOverlay = (opts: ErrorOverlayOptions) => {
 	const header = document.createElement('div');
 	header.style.cssText =
 		'display:flex;align-items:center;justify-content:space-between;gap:16px;padding:20px 24px;background:rgba(15,23,42,0.5);border-bottom:1px solid rgba(71,85,105,0.4);';
-	header.innerHTML =
-		'<div style="display:flex;align-items:center;gap:12px;"><span style="font-weight:700;font-size:20px;color:#fff;letter-spacing:-0.02em;">AbsoluteJS</span><span style="padding:5px 10px;border-radius:8px;font-size:12px;font-weight:600;background:' +
-		accent +
-		';color:#fff;opacity:0.95;box-shadow:0 2px 4px rgba(0,0,0,0.2);">' +
-		frameworkLabel +
-		'</span></div><span style="color:#94a3b8;font-size:13px;font-weight:500;">' +
-		(opts.kind === 'runtime' ? 'Runtime Error' : 'Compilation Error') +
-		'</span>';
+	header.innerHTML = `<div style="display:flex;align-items:center;gap:12px;"><span style="font-weight:700;font-size:20px;color:#fff;letter-spacing:-0.02em;">AbsoluteJS</span><span style="padding:5px 10px;border-radius:8px;font-size:12px;font-weight:600;background:${
+		accent
+	};color:#fff;opacity:0.95;box-shadow:0 2px 4px rgba(0,0,0,0.2);">${
+		frameworkLabel
+	}</span></div><span style="color:#94a3b8;font-size:13px;font-weight:500;">${
+		opts.kind === 'runtime' ? 'Runtime Error' : 'Compilation Error'
+	}</span>`;
 	card.appendChild(header);
 
 	const content = document.createElement('div');
@@ -146,10 +146,9 @@ export const showErrorOverlay = (opts: ErrorOverlayOptions) => {
 
 	const dismiss = document.createElement('button');
 	dismiss.textContent = 'Dismiss';
-	dismiss.style.cssText =
-		'padding:10px 20px;background:' +
-		accent +
-		';color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.2);transition:opacity 0.15s,transform 0.15s;';
+	dismiss.style.cssText = `padding:10px 20px;background:${
+		accent
+	};color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.2);transition:opacity 0.15s,transform 0.15s;`;
 	dismiss.onmouseover = function () {
 		dismiss.style.opacity = '0.9';
 		dismiss.style.transform = 'translateY(-1px)';
