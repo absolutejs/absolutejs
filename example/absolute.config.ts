@@ -10,5 +10,5 @@ export default defineConfig({
 	publicDirectory: 'example/public',
 	svelteDirectory: 'example/svelte',
 	vueDirectory: 'example/vue',
-	stylesDirectory: 'example/styles'
+	stylesConfig: 'example/styles/indexes'
 });

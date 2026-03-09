@@ -52,7 +52,7 @@ export const build = async ({
 	angularDirectory,
 	svelteDirectory,
 	vueDirectory,
-	stylesDirectory,
+	stylesConfig,
 	tailwind,
 	options,
 	incrementalFiles,
@@ -99,8 +99,12 @@ export const build = async ({
 	const vueDir = vueDirectory && validateSafePath(vueDirectory, projectRoot);
 	const angularDir =
 		angularDirectory && validateSafePath(angularDirectory, projectRoot);
+	const stylesPath =
+		typeof stylesConfig === 'string' ? stylesConfig : stylesConfig?.path;
+	const stylesIgnore =
+		typeof stylesConfig === 'object' ? stylesConfig.ignore : undefined;
 	const stylesDir =
-		stylesDirectory && validateSafePath(stylesDirectory, projectRoot);
+		stylesPath && validateSafePath(stylesPath, projectRoot);
 
 	const reactIndexesPath = reactDir && join(reactDir, 'indexes');
 	const reactPagesPath = reactDir && join(reactDir, 'pages');
@@ -241,7 +245,7 @@ export const build = async ({
 		sveltePagesPath ? scanEntryPoints(sveltePagesPath, '*.svelte') : [],
 		vuePagesPath ? scanEntryPoints(vuePagesPath, '*.vue') : [],
 		angularPagesPath ? scanEntryPoints(angularPagesPath, '*.ts') : [],
-		stylesDir ? scanCssEntryPoints(stylesDir) : []
+		stylesDir ? scanCssEntryPoints(stylesDir, stylesIgnore) : []
 	]);
 	// When HTML/HTMX pages change, we must include their CSS and scripts in the build
 	// so the manifest has those entries for updateAssetPaths. Otherwise incremental

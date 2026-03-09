@@ -4,7 +4,6 @@ type HeadProps = {
 	icon?: string;
 	font?: string;
 	cssPath?: string;
-	cssPaths?: string[];
 };
 
 export const Head = ({
@@ -12,12 +11,8 @@ export const Head = ({
 	description = 'AbsoluteJS React Example',
 	icon = '/assets/ico/favicon.ico',
 	font = 'Poppins',
-	cssPath,
-	cssPaths = []
-}: HeadProps) => {
-	const allCssPaths = [...(cssPath ? [cssPath] : []), ...cssPaths];
-
-	return (
+	cssPath
+}: HeadProps) => (
 		<head suppressHydrationWarning>
 			<meta charSet="utf-8" />
 			<title>{title}</title>
@@ -36,15 +31,13 @@ export const Head = ({
 				rel="stylesheet"
 				suppressHydrationWarning
 			/>
-			{allCssPaths.map((path, index) => (
+			{cssPath && (
 				<link
-					key={index}
 					rel="stylesheet"
-					href={path}
+					href={cssPath}
 					type="text/css"
 					suppressHydrationWarning
 				/>
-			))}
+			)}
 		</head>
 	);
-};

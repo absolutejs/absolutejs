@@ -14,6 +14,11 @@ export type BuildOptions = {
 	baseManifest?: Record<string, string>;
 };
 
+export type StylesConfig = {
+	path: string;
+	ignore?: string[];
+};
+
 export type BuildConfig = {
 	buildDirectory?: string;
 	assetsDirectory?: string;
@@ -25,7 +30,7 @@ export type BuildConfig = {
 	svelteDirectory?: string;
 	htmlDirectory?: string;
 	htmxDirectory?: string;
-	stylesDirectory?: string;
+	stylesConfig?: string | StylesConfig;
 	tailwind?: {
 		input: string;
 		output: string;

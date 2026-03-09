@@ -5,16 +5,14 @@ import { Head } from '../components/Head';
 type ReactExampleProps = {
 	initialCount: number;
 	cssPath?: string;
-	cssPaths?: string[];
 };
 
 export const ReactExample = ({
 	initialCount,
-	cssPath,
-	cssPaths
+	cssPath
 }: ReactExampleProps) => (
 	<html>
-		<Head cssPath={cssPath} cssPaths={cssPaths} />
+		<Head cssPath={cssPath} />
 		<body>
 			<header>
 				<a href="/">AbsoluteJS</a>

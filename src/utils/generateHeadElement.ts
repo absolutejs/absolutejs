@@ -1,6 +1,5 @@
 type GenerateHeadElementProps = {
-	cssPath?: string;
-	cssPaths?: string[];
+	cssPath?: string | string[];
 	title?: string;
 	icon?: string;
 	description?: string;
@@ -9,14 +8,11 @@ type GenerateHeadElementProps = {
 
 export const generateHeadElement = ({
 	cssPath,
-	cssPaths = [],
 	title = 'AbsoluteJS',
 	description = 'A page created using AbsoluteJS',
 	font,
 	icon = '/assets/ico/favicon.ico'
 }: GenerateHeadElementProps = {}) => {
-	const allCssPaths = [...(cssPath ? [cssPath] : []), ...cssPaths];
-
 	return `<head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -29,8 +25,11 @@ export const generateHeadElement = ({
   <link href="https://fonts.googleapis.com/css2?family=${font}:wght@100..900&display=swap" rel="stylesheet">`
 			: ''
 		}
-  ${allCssPaths
-			.map((path) => `<link rel="stylesheet" href="${path}" type="text/css">`)
-			.join('\n  ')}
+  ${cssPath
+			? (Array.isArray(cssPath) ? cssPath : [cssPath])
+					.map((path) => `<link rel="stylesheet" href="${path}" type="text/css">`)
+					.join('\n  ')
+			: ''
+		}
 </head>` as const;
 };

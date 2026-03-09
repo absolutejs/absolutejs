@@ -32,7 +32,11 @@ export const resolveBuildPaths = (config: BuildConfig) => {
 		angularDir: optional(config.angularDirectory),
 		htmlDir: optional(config.htmlDirectory),
 		htmxDir: optional(config.htmxDirectory),
-		stylesDir: optional(config.stylesDirectory)
+		stylesDir: optional(
+			typeof config.stylesConfig === 'string'
+				? config.stylesConfig
+				: config.stylesConfig?.path
+		)
 	};
 };
 

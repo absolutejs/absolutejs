@@ -1,4 +1,4 @@
-@import url('./partials/reset.css');
+@import url('../main.css');
 
 body>main {
 	margin-top: 2rem;

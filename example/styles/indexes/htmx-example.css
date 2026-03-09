@@ -1,4 +1,4 @@
-@import url('./partials/reset.css');
+@import url('../main.css');
 
 .logo.htmx:hover {
 	filter: drop-shadow(0 0 2rem #3465a4);

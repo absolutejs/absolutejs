@@ -31,7 +31,6 @@ export const server = new Elysia()
 			asset(manifest, 'ReactExampleIndex'),
 			{
 				cssPath: asset(manifest, 'ReactExampleCSS'),
-				cssPaths: [asset(manifest, 'MainCSS')],
 				initialCount: 0
 			}
 		)
@@ -47,7 +46,6 @@ export const server = new Elysia()
 			asset(manifest, 'SvelteExampleIndex'),
 			{
 				cssPath: asset(manifest, 'SvelteExampleCSS'),
-				cssPaths: [asset(manifest, 'MainCSS')],
 				initialCount: 0
 			}
 		);
@@ -60,8 +58,10 @@ export const server = new Elysia()
 			asset(manifest, 'VueExample'),
 			asset(manifest, 'VueExampleIndex'),
 			generateHeadElement({
-				cssPath: asset(manifest, 'VueExampleCSS'),
-				cssPaths: [asset(manifest, 'MainCSS')],
+				cssPath: [
+					asset(manifest, 'VueExampleCSS'),
+					asset(manifest, 'VueExampleCompiledCSS')
+				],
 				title: 'AbsoluteJS + Vue'
 			}),
 			{ initialCount: 0 }
@@ -74,7 +74,6 @@ export const server = new Elysia()
 			asset(manifest, 'AngularExampleIndex'),
 			generateHeadElement({
 				cssPath: asset(manifest, 'AngularExampleCSS'),
-				cssPaths: [asset(manifest, 'MainCSS')],
 				title: 'AbsoluteJS + Angular'
 			}),
 			{ initialCount: 0 }

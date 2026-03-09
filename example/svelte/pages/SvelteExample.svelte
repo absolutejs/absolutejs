@@ -2,14 +2,11 @@
 	type SvelteExampleProps = {
 		initialCount: number;
 		cssPath?: string;
-		cssPaths?: string[];
 	};
 	import Counter from '../components/Counter.svelte';
 
-	let { initialCount, cssPath, cssPaths = [] }: SvelteExampleProps = $props();
+	let { initialCount, cssPath }: SvelteExampleProps = $props();
 	let isOpen = $state(false);
-
-	let allCssPaths = $derived([...(cssPath ? [cssPath] : []), ...cssPaths]);
 </script>
 
 <svelte:head>
@@ -28,9 +25,9 @@
 		href={`https://fonts.googleapis.com/css2?family=Poppins:wght@100..900&display=swap`}
 		rel="stylesheet"
 	/>
-	{#each allCssPaths as path}
-		<link rel="stylesheet" href={path} type="text/css" />
-	{/each}
+	{#if cssPath}
+		<link rel="stylesheet" href={cssPath} type="text/css" />
+	{/if}
 </svelte:head>
 
 <header>
@@ -83,10 +80,3 @@
 		Click on the AbsoluteJS and Svelte logos to learn more.
 	</p>
 </main>
-
-<style>
-
-	.logo.svelte:hover {
-		filter: drop-shadow(0 0 2rem #ff3e00);
-	}
-</style>
