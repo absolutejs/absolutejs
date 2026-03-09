@@ -2,11 +2,10 @@
 import { dirname } from 'path';
 import { fileURLToPath } from 'url';
 import pluginJs from '@eslint/js';
-import stylisticTs from '@stylistic/eslint-plugin-ts';
+import stylistic from '@stylistic/eslint-plugin';
 import tsParser from '@typescript-eslint/parser';
 import { defineConfig } from 'eslint/config';
 import absolutePlugin from 'eslint-plugin-absolute';
-import importPlugin from 'eslint-plugin-import';
 import promisePlugin from 'eslint-plugin-promise';
 import securityPlugin from 'eslint-plugin-security';
 import globals from 'globals';
@@ -48,9 +47,9 @@ export default defineConfig([
 				tsconfigRootDir: __dirname
 			}
 		},
-		plugins: { '@stylistic/ts': stylisticTs },
+		plugins: { '@stylistic': stylistic },
 		rules: {
-			'@stylistic/ts/padding-line-between-statements': [
+			'@stylistic/padding-line-between-statements': [
 				'error',
 				{ blankLine: 'always', next: 'return', prev: '*' }
 			],
@@ -68,7 +67,6 @@ export default defineConfig([
 		},
 		plugins: {
 			absolute: absolutePlugin,
-			import: importPlugin,
 			promise: promisePlugin,
 			security: securityPlugin
 		},
@@ -109,11 +107,6 @@ export default defineConfig([
 				'expression',
 				{ allowArrowFunctions: true }
 			],
-			'import/no-cycle': 'error',
-			'import/no-default-export': 'error',
-			'import/no-relative-packages': 'error',
-			'import/no-unused-modules': ['error', { missingExports: true }],
-			'import/order': ['error', { alphabetize: { order: 'asc' } }],
 			'no-await-in-loop': 'error',
 			'no-debugger': 'error',
 			'no-duplicate-case': 'error',
@@ -198,28 +191,6 @@ export default defineConfig([
 		files: ['eslint.config.mjs', 'src/constants.ts'],
 		rules: {
 			'no-magic-numbers': 'off'
-		}
-	},
-	{
-		files: ['eslint.config.mjs'],
-		rules: {
-			'import/no-default-export': 'off'
-		}
-	},
-	{
-		files: [
-			'src/utils/index.ts',
-			'src/plugins/index.ts',
-			'src/core/index.ts',
-			'src/index.ts',
-			'example/html/scripts/*',
-			'tsconfig.json',
-			'tsconfig.build.json',
-			'package.json',
-			'.prettierrc.json'
-		],
-		rules: {
-			'import/no-unused-modules': 'off'
 		}
 	},
 	{
