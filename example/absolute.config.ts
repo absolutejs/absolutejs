@@ -9,5 +9,6 @@ export default defineConfig({
 	reactDirectory: 'example/react',
 	publicDirectory: 'example/public',
 	svelteDirectory: 'example/svelte',
-	vueDirectory: 'example/vue'
+	vueDirectory: 'example/vue',
+	stylesConfig: 'example/styles/indexes'
 });

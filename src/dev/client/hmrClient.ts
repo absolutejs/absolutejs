@@ -12,6 +12,7 @@ import { handleHTMLUpdate, handleScriptUpdate } from './handlers/html';
 import { handleHTMXUpdate } from './handlers/htmx';
 import { handleSvelteUpdate } from './handlers/svelte';
 import { handleVueUpdate } from './handlers/vue';
+import { reloadCSSStylesheets } from './cssUtils';
 import {
 	handleFullReload,
 	handleManifest,
@@ -108,6 +109,7 @@ if (!(window.__HMR_WS__ && window.__HMR_WS__.readyState === WebSocket.OPEN)) {
 				message.type === 'htmx-update' ||
 				message.type === 'vue-update' ||
 				message.type === 'svelte-update' ||
+				message.type === 'style-update' ||
 				message.type === 'module-update' ||
 				message.type === 'rebuild-start'
 			) {
@@ -182,7 +184,8 @@ if (!(window.__HMR_WS__ && window.__HMR_WS__.readyState === WebSocket.OPEN)) {
 				case 'pong':
 					break;
 
-				case 'connected':
+				case 'style-update':
+					reloadCSSStylesheets(message.data.manifest);
 					break;
 
 				default:

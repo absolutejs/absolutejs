@@ -58,7 +58,10 @@ export const server = new Elysia()
 			asset(manifest, 'VueExample'),
 			asset(manifest, 'VueExampleIndex'),
 			generateHeadElement({
-				cssPath: asset(manifest, 'VueExampleCSS'),
+				cssPath: [
+					asset(manifest, 'VueExampleCSS'),
+					asset(manifest, 'VueExampleCompiledCSS')
+				],
 				title: 'AbsoluteJS + Vue'
 			}),
 			{ initialCount: 0 }

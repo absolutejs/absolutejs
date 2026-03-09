@@ -294,7 +294,7 @@ const compileVueFile = async (
 	if (isEntryPoint && allCss.length) {
 		const cssOutputFile = join(
 			outputDirs.css,
-			`${toKebab(fileBaseName)}.css`
+			`${toKebab(fileBaseName)}-compiled.css`
 		);
 		await mkdir(dirname(cssOutputFile), { recursive: true });
 		await write(cssOutputFile, allCss.join('\n'));

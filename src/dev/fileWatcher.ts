@@ -16,6 +16,8 @@ export const startFileWatching = (
 ) => {
 	const watchPaths = getWatchPaths(config, state.resolvedPaths);
 
+	const stylesDir = state.resolvedPaths?.stylesDir;
+
 	// Set up a watcher for each directory
 	for (const path of watchPaths) {
 		// Resolve to absolute path for existsSync check (normalize to forward slashes for cross-platform)
@@ -25,6 +27,10 @@ export const startFileWatching = (
 			continue;
 		}
 
+		// Check if this watched path is the configured styles directory
+		const isStylesDir =
+			stylesDir && absolutePath.startsWith(stylesDir);
+
 		const watcher = watch(
 			absolutePath,
 			{ recursive: true },
@@ -32,18 +38,19 @@ export const startFileWatching = (
 				// Skip if no filename
 				if (!filename) return;
 
-				// Skip directory changes
+				// Skip directory changes (but allow styles directory through)
 				if (
-					filename === 'compiled' ||
-					filename === 'build' ||
-					filename === 'indexes' ||
-					filename === 'server' ||
-					filename === 'client' ||
-					filename.includes('/compiled') ||
-					filename.includes('/build') ||
-					filename.includes('/indexes') ||
-					filename.includes('/server') ||
-					filename.includes('/client') ||
+					!isStylesDir &&
+					(filename === 'compiled' ||
+						filename === 'build' ||
+						filename === 'indexes' ||
+						filename === 'server' ||
+						filename === 'client' ||
+						filename.includes('/compiled') ||
+						filename.includes('/build') ||
+						filename.includes('/indexes') ||
+						filename.includes('/server') ||
+						filename.includes('/client')) ||
 					filename.endsWith('/')
 				) {
 					return;
@@ -56,7 +63,7 @@ export const startFileWatching = (
 				);
 
 				// Apply ignore patterns
-				if (shouldIgnorePath(fullPath)) {
+				if (shouldIgnorePath(fullPath, state.resolvedPaths)) {
 					return;
 				}
 

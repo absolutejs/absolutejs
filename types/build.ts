@@ -10,6 +10,13 @@ export type BuildOptions = {
 	hmr?: {
 		debounceMs?: number;
 	};
+	/** Base manifest to merge into for incremental builds */
+	baseManifest?: Record<string, string>;
+};
+
+export type StylesConfig = {
+	path: string;
+	ignore?: string[];
 };
 
 export type BuildConfig = {
@@ -23,6 +30,7 @@ export type BuildConfig = {
 	svelteDirectory?: string;
 	htmlDirectory?: string;
 	htmxDirectory?: string;
+	stylesConfig?: string | StylesConfig;
 	tailwind?: {
 		input: string;
 		output: string;

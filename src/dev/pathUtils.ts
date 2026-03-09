@@ -24,7 +24,11 @@ export const getWatchPaths = (
 		angularDir: config.angularDirectory,
 		htmlDir: config.htmlDirectory,
 		htmxDir: config.htmxDirectory,
-		assetsDir: config.assetsDirectory
+		assetsDir: config.assetsDirectory,
+		stylesDir:
+			typeof config.stylesConfig === 'string'
+				? config.stylesConfig
+				: config.stylesConfig?.path
 	};
 
 	// Watch source directories (pages/components/styles etc.)
@@ -54,19 +58,28 @@ export const getWatchPaths = (
 	push(cfg.htmxDir, 'styles');
 
 	push(cfg.assetsDir);
+	push(cfg.stylesDir);
 
 	return paths;
 };
 
 /* Check if we should ignore a file path
    This handles the "what to ignore" problem */
-export const shouldIgnorePath = (path: string) => {
+export const shouldIgnorePath = (
+	path: string,
+	resolved?: ResolvedBuildPaths
+) => {
 	const normalizedPath = path.replace(/\\/g, '/');
+
+	// Allow files inside the configured styles directory through
+	if (resolved?.stylesDir && normalizedPath.startsWith(resolved.stylesDir)) {
+		return false;
+	}
 
 	// Be more aggressive with ignoring compiled directories
 	return (
 		normalizedPath.includes('/build/') ||
-		normalizedPath.includes('/compiled/') || // This should catch it
+		normalizedPath.includes('/compiled/') ||
 		normalizedPath.includes('/indexes/') ||
 		normalizedPath.includes('/server/') ||
 		normalizedPath.includes('/client/') ||
@@ -75,7 +88,6 @@ export const shouldIgnorePath = (path: string) => {
 		normalizedPath.endsWith('.log') ||
 		normalizedPath.endsWith('.tmp') ||
 		normalizedPath.startsWith('.') ||
-		// Add this to be extra safe
 		normalizedPath === 'compiled' ||
 		normalizedPath.endsWith('/compiled') ||
 		normalizedPath.endsWith('/compiled/')
@@ -89,7 +101,7 @@ export const detectFramework = (
 	resolved?: ResolvedBuildPaths
 ) => {
 	// Check if this is an ignored file first
-	if (shouldIgnorePath(filePath)) {
+	if (shouldIgnorePath(filePath, resolved)) {
 		return 'ignored';
 	}
 
@@ -100,6 +112,7 @@ export const detectFramework = (
 
 	// Prefer resolved directory prefixes when available
 	if (resolved) {
+		if (startsWithDir(resolved.stylesDir)) return 'styles';
 		if (startsWithDir(resolved.htmxDir)) return 'htmx';
 		if (startsWithDir(resolved.reactDir)) return 'react';
 		if (startsWithDir(resolved.svelteDir)) return 'svelte';

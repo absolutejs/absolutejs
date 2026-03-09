@@ -1,0 +1,12 @@
+@import url('../main.css');
+
+#root {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	width: 100%;
+}
+
+.logo.vue:hover {
+	filter: drop-shadow(0 0 2rem #42b883);
+}

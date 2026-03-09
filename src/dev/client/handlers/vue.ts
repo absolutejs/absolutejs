@@ -76,7 +76,7 @@ export const handleVueUpdate = (message: {
 			.forEach(function (link) {
 				const href =
 					(link as HTMLLinkElement).getAttribute('href') || '';
-				if (href.includes(cssBaseName) || href.includes('vue')) {
+				if (cssBaseName && href.includes(cssBaseName)) {
 					existingLink = link as HTMLLinkElement;
 				}
 			});
@@ -172,7 +172,7 @@ export const handleVueUpdate = (message: {
 			.forEach(function (link) {
 				const href =
 					(link as HTMLLinkElement).getAttribute('href') || '';
-				if (href.includes(vueCssBaseName) || href.includes('vue')) {
+				if (vueCssBaseName && href.includes(vueCssBaseName)) {
 					vueExistingLink = link as HTMLLinkElement;
 				}
 			});
