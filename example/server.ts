@@ -23,8 +23,8 @@ export const server = new Elysia()
 			count: { value: 0 }
 		})
 	)
-	.get('/', () => handleHTMLPageRequest(asset(manifest, 'HtmlExample')))
-	.get('/html', () => handleHTMLPageRequest(asset(manifest, 'HtmlExample')))
+	.get('/', () => handleHTMLPageRequest(asset(manifest, 'HTMLExample')))
+	.get('/html', () => handleHTMLPageRequest(asset(manifest, 'HTMLExample')))
 	.get('/react', () =>
 		handleReactPageRequest(
 			ReactExample,

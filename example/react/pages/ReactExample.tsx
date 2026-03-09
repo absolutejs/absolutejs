@@ -7,10 +7,7 @@ type ReactExampleProps = {
 	cssPath?: string;
 };
 
-export const ReactExample = ({
-	initialCount,
-	cssPath
-}: ReactExampleProps) => (
+export const ReactExample = ({ initialCount, cssPath }: ReactExampleProps) => (
 	<html>
 		<Head cssPath={cssPath} />
 		<body>

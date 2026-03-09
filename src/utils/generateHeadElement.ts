@@ -19,17 +19,22 @@ export const generateHeadElement = ({
   <title>${title}</title>
   <meta name="description" content="${description}">
   <link rel="icon" href="${icon}" type="image/x-icon">
-  ${font
+  ${
+		font
 			? `<link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=${font}:wght@100..900&display=swap" rel="stylesheet">`
 			: ''
-		}
-  ${cssPath
+  }
+  ${
+		cssPath
 			? (Array.isArray(cssPath) ? cssPath : [cssPath])
-					.map((path) => `<link rel="stylesheet" href="${path}" type="text/css">`)
+					.map(
+						(path) =>
+							`<link rel="stylesheet" href="${path}" type="text/css">`
+					)
 					.join('\n  ')
 			: ''
-		}
+  }
 </head>` as const;
 };

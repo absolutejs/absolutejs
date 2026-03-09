@@ -28,8 +28,7 @@ export const startFileWatching = (
 		}
 
 		// Check if this watched path is the configured styles directory
-		const isStylesDir =
-			stylesDir && absolutePath.startsWith(stylesDir);
+		const isStylesDir = stylesDir && absolutePath.startsWith(stylesDir);
 
 		const watcher = watch(
 			absolutePath,
@@ -40,17 +39,17 @@ export const startFileWatching = (
 
 				// Skip directory changes (but allow styles directory through)
 				if (
-					!isStylesDir &&
-					(filename === 'compiled' ||
-						filename === 'build' ||
-						filename === 'indexes' ||
-						filename === 'server' ||
-						filename === 'client' ||
-						filename.includes('/compiled') ||
-						filename.includes('/build') ||
-						filename.includes('/indexes') ||
-						filename.includes('/server') ||
-						filename.includes('/client')) ||
+					(!isStylesDir &&
+						(filename === 'compiled' ||
+							filename === 'build' ||
+							filename === 'indexes' ||
+							filename === 'server' ||
+							filename === 'client' ||
+							filename.includes('/compiled') ||
+							filename.includes('/build') ||
+							filename.includes('/indexes') ||
+							filename.includes('/server') ||
+							filename.includes('/client'))) ||
 					filename.endsWith('/')
 				) {
 					return;

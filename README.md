@@ -72,7 +72,7 @@ export const server = new Elysia()
 
 	// HTML
 	.get('/', () =>
-		handleHTMLPageRequest('./example/build/html/pages/HtmlExample.html')
+		handleHTMLPageRequest('./example/build/html/pages/HTMLExample.html')
 	)
 
 	// React
