@@ -150,11 +150,25 @@ const resolveFormElement = (
 	}
 	if (!form) return null;
 
-	return form.querySelector(`[name="${name}"], #${name}`);
+	const found = form.querySelector(`[name="${name}"], #${name}`);
+	if (
+		found instanceof HTMLInputElement ||
+		found instanceof HTMLTextAreaElement ||
+		found instanceof HTMLSelectElement
+	)
+		return found;
+
+	return null;
 };
 
-const applyFormValue = (element: HTMLInputElement, value: boolean | string) => {
-	if (element.type === 'checkbox' || element.type === 'radio') {
+const applyFormValue = (
+	element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
+	value: boolean | string
+) => {
+	if (
+		element instanceof HTMLInputElement &&
+		(element.type === 'checkbox' || element.type === 'radio')
+	) {
 		element.checked = value === true;
 
 		return;

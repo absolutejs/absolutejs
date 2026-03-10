@@ -1,1 +1,2 @@
-export { getCachedRouteData, handleAngularPageRequest } from './pageHandler';
+export { handleAngularPageRequest } from './pageHandler';
+export { getCachedRouteData } from './ssrRender';

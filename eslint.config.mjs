@@ -158,6 +158,20 @@ export default defineConfig([
 					]
 				}
 			],
+			'no-restricted-syntax': [
+				'error',
+				{
+					message:
+						'Do not use IIFEs. Extract to a named function instead.',
+					selector:
+						'CallExpression[callee.type="ArrowFunctionExpression"]'
+				},
+				{
+					message:
+						'Do not use IIFEs. Extract to a named function instead.',
+					selector: 'CallExpression[callee.type="FunctionExpression"]'
+				}
+			],
 			'no-return-await': 'error',
 			'no-shadow': 'error',
 			'no-undef': 'error',
