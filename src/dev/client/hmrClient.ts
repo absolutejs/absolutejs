@@ -220,7 +220,10 @@ if (!(window.__HMR_WS__ && window.__HMR_WS__.readyState === WebSocket.OPEN)) {
 						}
 					})
 					.catch(() => {
-						hmrState.reconnectTimeout = setTimeout(pollServer, RECONNECT_POLL_INTERVAL_MS);
+						hmrState.reconnectTimeout = setTimeout(
+							pollServer,
+							RECONNECT_POLL_INTERVAL_MS
+						);
 					});
 			}, RECONNECT_INITIAL_DELAY_MS);
 		}

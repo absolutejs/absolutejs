@@ -305,7 +305,9 @@ export const start = async (
 		if (cleaning) return;
 		cleaning = true;
 		sendTelemetryEvent('start:session-duration', {
-			duration: Math.round((Date.now() - sessionStart) / MILLISECONDS_IN_A_SECOND),
+			duration: Math.round(
+				(Date.now() - sessionStart) / MILLISECONDS_IN_A_SECOND
+			),
 			entry: serverEntry
 		});
 		try {

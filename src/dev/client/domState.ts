@@ -99,9 +99,13 @@ const resolveFocusElement = (
 	activeKey: string
 ) => {
 	if (activeKey.startsWith('id:'))
-		return root.querySelector(`#${CSS.escape(activeKey.slice(FOCUS_ID_PREFIX_LENGTH))}`);
+		return root.querySelector(
+			`#${CSS.escape(activeKey.slice(FOCUS_ID_PREFIX_LENGTH))}`
+		);
 	if (activeKey.startsWith('name:'))
-		return root.querySelector(`[name="${CSS.escape(activeKey.slice(FOCUS_NAME_PREFIX_LENGTH))}"]`);
+		return root.querySelector(
+			`[name="${CSS.escape(activeKey.slice(FOCUS_NAME_PREFIX_LENGTH))}"]`
+		);
 	if (!activeKey.startsWith('idx:')) return null;
 	const idx = parseInt(activeKey.slice(FOCUS_IDX_PREFIX_LENGTH), 10);
 	if (isNaN(idx) || !elements[idx]) return null;

@@ -136,6 +136,10 @@ export default defineConfig([
 			'no-new-native-nonconstructor': 'error',
 			'no-new-wrappers': 'error',
 			'no-param-reassign': 'error',
+			'no-restricted-exports': [
+				'error',
+				{ restrictDefaultExports: { direct: true } }
+			],
 			'no-restricted-imports': [
 				'error',
 				{
@@ -191,6 +195,16 @@ export default defineConfig([
 				$props: 'readonly',
 				$state: 'readonly'
 			}
+		}
+	},
+	{
+		files: [
+			'eslint.config.mjs',
+			'**/absolute.config.ts',
+			'types/vue-shim.d.ts'
+		],
+		rules: {
+			'no-restricted-exports': 'off'
 		}
 	},
 	{

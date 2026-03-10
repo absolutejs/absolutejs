@@ -97,6 +97,9 @@ export const timed = async (label: string, fn: () => Promise<void>) => {
 	process.stdout.write(label);
 	const start = performance.now();
 	await fn();
-	const duration = ((performance.now() - start) / MILLISECONDS_IN_A_SECOND).toFixed(2);
+	const duration = (
+		(performance.now() - start) /
+		MILLISECONDS_IN_A_SECOND
+	).toFixed(2);
 	process.stdout.write(` \x1b[90m${duration}s\x1b[0m\n`);
 };

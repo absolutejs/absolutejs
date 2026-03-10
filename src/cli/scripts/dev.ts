@@ -123,7 +123,9 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 		if (cleaning) return;
 		cleaning = true;
 		sendTelemetryEvent('dev:session-duration', {
-			duration: Math.round((Date.now() - sessionStart) / MILLISECONDS_IN_A_SECOND),
+			duration: Math.round(
+				(Date.now() - sessionStart) / MILLISECONDS_IN_A_SECOND
+			),
 			entry: serverEntry
 		});
 		if (interactive) interactive.dispose();

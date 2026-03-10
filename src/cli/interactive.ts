@@ -1,11 +1,7 @@
 import { openSync } from 'node:fs';
 import { ReadStream } from 'node:tty';
 import type { Actions, InteractiveHandler } from '../../types/cli';
-import {
-	ANSI_ESCAPE_LENGTH,
-	ASCII_SPACE,
-	UNFOUND_INDEX
-} from '../constants';
+import { ANSI_ESCAPE_LENGTH, ASCII_SPACE, UNFOUND_INDEX } from '../constants';
 
 const SHORTCUTS: Record<string, keyof Omit<Actions, 'shell'>> = {
 	c: 'clear',

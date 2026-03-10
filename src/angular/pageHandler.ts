@@ -176,7 +176,7 @@ const loadAngularDeps = async () => {
 
 	// angularPatch imports @angular/platform-server internally, so it
 	// must also run after the compiler is available.
-	await import('./angularPatch').then((mod) => mod.default);
+	await import('./angularPatch').then((mod) => mod.patchesApplied);
 
 	// Now safe to load all Angular packages in parallel
 	const [platformBrowser, platformServer, common, core, domino] =
