@@ -14,26 +14,6 @@
  * @param scriptId - Unique identifier for this script (usually the file path)
  * @returns Wrapped code with HMR support
  */
-export const wrapHTMLScriptWithHMR = (code: string, scriptId: string) => {
-	const escapedId = JSON.stringify(scriptId);
-
-	return `${code}
-
-// HMR acceptance - allows this script to be hot-reloaded
-if (typeof import.meta !== "undefined" && import.meta.hot) {
-  import.meta.hot.accept();
-  console.log('[HMR] Script ready:', ${escapedId});
-}
-`;
-};
-
-/**
- * Check if a file path is an HTML/HTMX script that should be wrapped
- * @param filePath - The file path to check
- * @param htmlDir - The HTML directory path
- * @param htmxDir - The HTMX directory path
- * @returns true if this script should be wrapped with HMR
- */
 export const isHTMLScript = (
 	filePath: string,
 	htmlDir?: string,
@@ -56,4 +36,16 @@ export const isHTMLScript = (
 	}
 
 	return false;
+};
+export const wrapHTMLScriptWithHMR = (code: string, scriptId: string) => {
+	const escapedId = JSON.stringify(scriptId);
+
+	return `${code}
+
+// HMR acceptance - allows this script to be hot-reloaded
+if (typeof import.meta !== "undefined" && import.meta.hot) {
+  import.meta.hot.accept();
+  console.log('[HMR] Script ready:', ${escapedId});
+}
+`;
 };

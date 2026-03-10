@@ -27,6 +27,7 @@ declare global {
 const computeConfigHash = (): string => {
 	try {
 		const content = readFileSync('./tsconfig.json', 'utf-8');
+
 		return createHash('md5').update(content).digest('hex');
 	} catch {
 		return '';
@@ -140,13 +141,12 @@ export const compileAngularFile = async (inputPath: string, outDir: string) => {
 
 		// Override lib resolution to use dynamic paths
 		const originalGetDefaultLibLocation = host.getDefaultLibLocation;
-		host.getDefaultLibLocation = () => {
-			return tsLibDir || (originalGetDefaultLibLocation ? originalGetDefaultLibLocation() : '');
-		};
+		host.getDefaultLibLocation = () => tsLibDir || (originalGetDefaultLibLocation ? originalGetDefaultLibLocation() : '');
 
 		const originalGetDefaultLibFileName = host.getDefaultLibFileName;
 		host.getDefaultLibFileName = (opts: ts.CompilerOptions) => {
 			const fileName = originalGetDefaultLibFileName ? originalGetDefaultLibFileName(opts) : 'lib.d.ts';
+
 			return basename(fileName);
 		};
 
@@ -154,18 +154,20 @@ export const compileAngularFile = async (inputPath: string, outDir: string) => {
 		host.getSourceFile = (fileName: string, languageVersion: ts.ScriptTarget, onError?: (message: string) => void) => {
 			if (fileName.startsWith('lib.') && fileName.endsWith('.d.ts') && tsLibDir) {
 				const resolvedPath = join(tsLibDir, fileName);
+
 				return originalGetSourceFile?.call(host, resolvedPath, languageVersion, onError);
 			}
+
 			return originalGetSourceFile?.call(host, fileName, languageVersion, onError);
 		};
 
 		// Angular HMR Optimization — Persist cache for next rebuild
 		globalThis.__angularCompilerCache = {
-			host,
-			options: { ...options },
 			configHash,
-			tsLibDir,
-			lastUsed: Date.now()
+			host,
+			lastUsed: Date.now(),
+			options: { ...options },
+			tsLibDir
 		};
 	}
 
@@ -221,6 +223,7 @@ export const compileAngularFile = async (inputPath: string, outDir: string) => {
 					if (!path.match(/\.(js|ts|mjs|cjs)$/)) {
 						return `from ${quote}${path}.js${quote}`;
 					}
+
 					return match;
 				}
 			);
@@ -239,6 +242,7 @@ export const compileAngularFile = async (inputPath: string, outDir: string) => {
 				/import\s*{\s*([^}]*)\bInjectFlags\b([^}]*)\s*}\s*from\s*['"]@angular\/core['"]/g,
 				(match, before, after) => {
 					const cleaned = (before + after).replace(/,\s*,/g, ',').replace(/^\s*,\s*/, '').replace(/,\s*$/, '');
+
 					return cleaned ? `import { ${cleaned}, InternalInjectFlags } from '@angular/core'` : `import { InternalInjectFlags } from '@angular/core'`;
 				}
 			);
@@ -282,15 +286,15 @@ export const compileAngularFileJIT = async (inputPath: string, outDir: string, r
 	const visited = new Set<string>();
 
 	const transpileOpts: ts.CompilerOptions = {
-		target: ts.ScriptTarget.ES2022,
-		module: ts.ModuleKind.ESNext,
-		moduleResolution: ts.ModuleResolutionKind.Bundler,
-		experimentalDecorators: true,
+		declaration: false,
 		emitDecoratorMetadata: true,
 		esModuleInterop: true,
+		experimentalDecorators: true,
+		module: ts.ModuleKind.ESNext,
+		moduleResolution: ts.ModuleResolutionKind.Bundler,
 		skipLibCheck: true,
-		declaration: false,
-		sourceMap: false
+		sourceMap: false,
+		target: ts.ScriptTarget.ES2022
 	};
 
 	const baseDir = resolve(rootDir ?? process.cwd());
@@ -428,6 +432,7 @@ export const compileAngularFileJIT = async (inputPath: string, outDir: string, r
 					if (path.endsWith('.ts')) {
 						return `from ${quote}${path.replace(/\.ts$/, '.js')}${quote}`;
 					}
+
 					return match;
 				}
 			);
@@ -443,6 +448,7 @@ export const compileAngularFileJIT = async (inputPath: string, outDir: string, r
 		await Promise.all(
 			localImports.map((imp) => {
 				const importPath = resolve(inputDirForResolve, imp);
+
 				return transpileFile(importPath);
 			})
 		);
@@ -516,7 +522,8 @@ export const compileAngular = async (
 		if (hmr && cachedWrapper && cachedWrapper.serverHash === serverContentHash) {
 			// Compiled output identical — reuse existing files on disk
 			const clientFile = join(indexesDir, jsName);
-			return { clientPath: clientFile, serverPath: rawServerFile, indexUnchanged: true };
+
+			return { clientPath: clientFile, indexUnchanged: true, serverPath: rawServerFile };
 		}
 
 		// Replace templateUrl if it exists
@@ -559,7 +566,7 @@ export const compileAngular = async (
 		// Ensure it starts with ./ or ../ for relative imports
 		const normalizedImportPath = relativePath.startsWith('.')
 			? relativePath
-			: './' + relativePath;
+			: `./${  relativePath}`;
 
 		const clientFile = join(indexesDir, jsName);
 		// Angular HMR Runtime Layer (Level 3) — Import runtime before HMR client
@@ -613,9 +620,9 @@ bootstrapApplication(${componentClassName}, {
 		await fs.writeFile(clientFile, hydration, 'utf-8');
 
 		// Update wrapper cache
-		wrapperOutputCache.set(entry, { serverHash: serverContentHash, indexHash });
+		wrapperOutputCache.set(entry, { indexHash, serverHash: serverContentHash });
 
-		return { clientPath: clientFile, serverPath: rawServerFile, indexUnchanged };
+		return { clientPath: clientFile, indexUnchanged, serverPath: rawServerFile };
 	});
 
 	const results = await Promise.all(compileTasks);
@@ -623,10 +630,10 @@ bootstrapApplication(${componentClassName}, {
 	const clientPaths = results.map((r) => r.clientPath);
 
 	return {
-		clientPaths,
-		serverPaths,
 		// Angular HMR Optimization — Signal to rebuildTrigger that bundling
 		// can be skipped when all index files are unchanged.
-		allIndexesUnchanged: hmr && results.every((r) => r.indexUnchanged)
+		allIndexesUnchanged: hmr && results.every((r) => r.indexUnchanged),
+		clientPaths,
+		serverPaths
 	};
 };

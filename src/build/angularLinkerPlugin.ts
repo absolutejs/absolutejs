@@ -63,29 +63,29 @@ export const angularLinkerPlugin: BunPlugin = {
 						'@angular/compiler-cli/linker/babel' as string
 					);
 					linkerPlugin = mod.createEs2015LinkerPlugin({
-						linkerJitMode: false,
 						fileSystem: {
-							resolve,
-							exists: existsSync,
 							dirname,
+							exists: existsSync,
+							readFile: readFileSync,
 							relative,
-							readFile: readFileSync
+							resolve
 						} as any,
+						linkerJitMode: false,
 						logger: {
+							error: console.error,
 							level: 1,
-							debug: () => {},
-							info: () => {},
 							warn: console.warn,
-							error: console.error
+							debug: () => {},
+							info: () => {}
 						} as any
 					});
 				}
 
 				const result = babelTransform(source, {
+					compact: false,
 					filename: args.path,
 					filenameRelative: args.path,
 					plugins: [linkerPlugin],
-					compact: false,
 					sourceMaps: false
 				});
 

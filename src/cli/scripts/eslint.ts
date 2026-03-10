@@ -1,27 +1,21 @@
-import type { ToolAdapter } from '../../../types/tool';
-import { runTool } from '../cache';
-
-export const eslintAdapter: ToolAdapter = {
-	configFiles: ['eslint.config.mjs'],
-	fileGlobs: [
-		'**/*.ts',
-		'**/*.tsx',
-		'**/*.js',
-		'**/*.mjs',
-		'**/*.json',
-		'**/*.svelte'
-	],
-	ignorePatterns: [
-		'**/node_modules/**',
-		'**/dist/**',
-		'**/compiled/**',
-		'**/build/**',
-		'**/.absolutejs/**'
-	],
-	name: 'eslint',
-	buildCommand: (files, args) => ['bun', 'eslint', ...args, ...files]
-};
-
 export const eslint = async (args: string[]) => {
-	await runTool(eslintAdapter, args);
+	const command = [
+		'bun',
+		'eslint',
+		'--cache',
+		'--cache-location',
+		'.absolutejs/eslint-cache',
+		...args,
+		'.'
+	];
+
+	const proc = Bun.spawn(command, {
+		stderr: 'inherit',
+		stdout: 'inherit'
+	});
+	const exitCode = await proc.exited;
+
+	if (exitCode !== 0) process.exit(exitCode);
+
+	console.log('\x1b[32m✓\x1b[0m Passed');
 };

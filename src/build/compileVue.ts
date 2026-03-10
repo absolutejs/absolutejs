@@ -45,13 +45,13 @@ export const vueHmrMetadata = new Map<
 	string,
 	{ hmrId: string; changeType: VueChangeType }
 >();
-
-/**
- * Detect what type of change occurred in a Vue component
- * Returns 'template-only' for template changes (supports rerender)
- * Returns 'script' for script/scriptSetup changes (requires reload)
- * Returns 'full' for first compile or when detection fails
- */
+export const clearVueHmrCaches = () => {
+	scriptCache.clear();
+	scriptSetupCache.clear();
+	templateCache.clear();
+	styleCache.clear();
+	vueHmrMetadata.clear();
+};
 export const detectVueChangeType = (
 	filePath: string,
 	descriptor: SFCDescriptor
@@ -110,31 +110,12 @@ export const detectVueChangeType = (
 	// No changes detected (shouldn't happen in practice)
 	return 'full';
 };
-
-/**
- * Generate a stable HMR ID for a Vue component
- * Uses relative path from Vue root without extension
- * Example: "pages/VueExample" or "components/CountButton"
- */
 export const generateVueHmrId = (
 	sourceFilePath: string,
 	vueRootDir: string
-): string => {
-	return relative(vueRootDir, sourceFilePath)
+): string => relative(vueRootDir, sourceFilePath)
 		.replace(/\\/g, '/')
 		.replace(/\.vue$/, '');
-};
-
-/**
- * Clear HMR caches (useful for testing or full rebuilds)
- */
-export const clearVueHmrCaches = () => {
-	scriptCache.clear();
-	scriptSetupCache.clear();
-	templateCache.clear();
-	styleCache.clear();
-	vueHmrMetadata.clear();
-};
 
 const extractImports = (sourceCode: string) =>
 	Array.from(sourceCode.matchAll(/import\s+[\s\S]+?['"]([^'"]+)['"]/g))
@@ -214,7 +195,7 @@ const compileVueFile = async (
 	const changeType = detectVueChangeType(sourceFilePath, descriptor);
 
 	// Store HMR metadata for rebuildTrigger to access
-	vueHmrMetadata.set(sourceFilePath, { hmrId, changeType });
+	vueHmrMetadata.set(sourceFilePath, { changeType, hmrId });
 
 	const scriptSource =
 		descriptor.scriptSetup?.content ?? descriptor.script?.content ?? '';
@@ -374,6 +355,7 @@ if (typeof __VUE_HMR_RUNTIME__ !== 'undefined') {
 		clientPath: clientOutputPath,
 		cssCodes: allCss,
 		cssPaths: cssOutputPaths,
+		hmrId,
 		serverPath: serverOutputPath,
 		tsHelperPaths: [
 			...helperModulePaths.map((helper) =>
@@ -383,8 +365,7 @@ if (typeof __VUE_HMR_RUNTIME__ !== 'undefined') {
 				)
 			),
 			...childBuildResults.flatMap((child) => child.tsHelperPaths)
-		],
-		hmrId
+		]
 	};
 
 	cacheMap.set(sourceFilePath, result);
@@ -569,11 +550,11 @@ export const compileVue = async (
 	);
 
 	return {
+		// Export HMR metadata from vueHmrMetadata map (populated during compilation)
+		hmrMetadata: new Map(vueHmrMetadata),
 		vueClientPaths: compiledPages.map((result) => result.clientPath),
 		vueCssPaths: compiledPages.flatMap((result) => result.cssPaths),
 		vueIndexPaths: compiledPages.map((result) => result.indexPath),
-		vueServerPaths: compiledPages.map((result) => result.serverPath),
-		// Export HMR metadata from vueHmrMetadata map (populated during compilation)
-		hmrMetadata: new Map(vueHmrMetadata)
+		vueServerPaths: compiledPages.map((result) => result.serverPath)
 	};
 };

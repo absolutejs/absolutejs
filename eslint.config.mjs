@@ -16,10 +16,16 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 export default defineConfig([
 	{
 		ignores: [
+			'node_modules/**',
 			'dist/**',
+			'build/**',
 			'**/compiled/**',
 			'**/*/htmx.*.min.js',
+			'.absolutejs/**',
+			'.cache/**',
+			'.claude/**',
 			'example/build/**',
+			'example/dist/**',
 			'example/react/indexes/*'
 		]
 	},

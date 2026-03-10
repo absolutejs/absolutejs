@@ -45,7 +45,7 @@ const generateEntrySource = async (specifier: string): Promise<string> => {
 		lines.push(`export { default } from '${specifier}';`);
 	}
 
-	return lines.join('\n') + '\n';
+	return `${lines.join('\n')  }\n`;
 };
 
 /** Build React packages into stable vendor files (no content hash).

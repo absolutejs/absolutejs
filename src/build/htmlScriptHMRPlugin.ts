@@ -16,8 +16,7 @@ import { wrapHTMLScriptWithHMR } from './wrapHTMLScript';
 export const createHTMLScriptHMRPlugin = (
 	htmlDir?: string,
 	htmxDir?: string
-): BunPlugin => {
-	return {
+): BunPlugin => ({
 		name: 'html-script-hmr',
 		setup(build) {
 			// Only apply to TypeScript/JavaScript files
@@ -55,5 +54,4 @@ export const createHTMLScriptHMRPlugin = (
 				};
 			});
 		}
-	};
-};
+	});

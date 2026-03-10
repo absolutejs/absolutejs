@@ -211,13 +211,14 @@ if (typeof window !== "undefined") {
 	);
 
 	return {
+		// Actual client component paths (for official HMR module imports)
+		svelteClientPaths: roots.map(({ client }) => client),
 		// Index paths (entry points for hydration)
 		svelteIndexPaths: roots.map(({ client }) => {
 			const rel = dirname(relative(clientDir, client));
+
 			return join(indexDir, rel, basename(client));
 		}),
-		// Actual client component paths (for official HMR module imports)
-		svelteClientPaths: roots.map(({ client }) => client),
 		svelteServerPaths: roots.map(({ ssr }) => ssr)
 	};
 };

@@ -42,9 +42,11 @@ export const updateAssetPaths = async (
 								/>$/,
 								' type="module">'
 							);
+
 							return `${prefix}${newPath}${newSuffix}`;
 						}
 					}
+
 					return `${prefix}${newPath}${suffix}`;
 				}
 

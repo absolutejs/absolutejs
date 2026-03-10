@@ -22,20 +22,6 @@ const toSafeFileName = (specifier: string): string =>
 
 /** Compute the deterministic vendor paths mapping (no build needed).
  *  This can be called before vendor files exist on disk. */
-export const computeAngularVendorPaths = (): Record<string, string> => {
-	const paths: Record<string, string> = {};
-	for (const specifier of angularSpecifiers) {
-		paths[specifier] = `/angular/vendor/${toSafeFileName(specifier)}.js`;
-	}
-
-	return paths;
-};
-
-/** Build Angular packages into stable vendor files (no content hash).
- *  Output goes to {buildDir}/angular/vendor/ with predictable names.
- *  Uses splitting: true so Angular packages share internal modules
- *  (e.g. @angular/platform-browser reuses the same @angular/core
- *  instance rather than bundling its own copy). */
 export const buildAngularVendor = async (buildDir: string): Promise<void> => {
 	const vendorDir = join(buildDir, 'angular', 'vendor');
 	mkdirSync(vendorDir, { recursive: true });
@@ -69,4 +55,12 @@ export const buildAngularVendor = async (buildDir: string): Promise<void> => {
 	if (!result.success) {
 		console.warn('⚠️ Angular vendor build had errors:', result.logs);
 	}
+};
+export const computeAngularVendorPaths = (): Record<string, string> => {
+	const paths: Record<string, string> = {};
+	for (const specifier of angularSpecifiers) {
+		paths[specifier] = `/angular/vendor/${toSafeFileName(specifier)}.js`;
+	}
+
+	return paths;
 };
