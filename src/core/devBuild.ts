@@ -20,6 +20,57 @@ import { cleanStaleAssets, populateAssetStore } from '../dev/assetStore';
 import { queueFileChange } from '../dev/rebuildTrigger';
 import { logger } from '../utils/logger';
 
+const handleCachedReload = () => {
+	const serverMtime = statSync(resolve(Bun.main)).mtimeMs;
+	const lastMtime = (globalThis as Record<string, unknown>)
+		.__hmrServerMtime as number;
+	(globalThis as Record<string, unknown>).__hmrServerMtime = serverMtime;
+
+	if (serverMtime !== lastMtime) {
+		logger.serverReload();
+	} else {
+		(globalThis as Record<string, unknown>).__hmrSkipServerRestart = true;
+	}
+};
+
+const tryReadPackageVersion = async (path: string) => {
+	const pkg = await Bun.file(path)
+		.json()
+		.catch(() => null);
+	if (!pkg || pkg.name !== '@absolutejs/absolute') {
+		return false;
+	}
+	(globalThis as Record<string, unknown>).__absoluteVersion = pkg.version;
+
+	return true;
+};
+
+const resolveAbsoluteVersion = async () => {
+	const candidates = [
+		resolve(import.meta.dir, '..', '..', 'package.json'),
+		resolve(import.meta.dir, '..', 'package.json')
+	];
+	for (const candidate of candidates) {
+		const found = await tryReadPackageVersion(candidate);
+		if (found) {
+			return;
+		}
+	}
+};
+
+const loadVendorFiles = async (
+	assetStore: Map<string, Uint8Array>,
+	vendorDir: string,
+	framework: string
+) => {
+	const entries = await readdir(vendorDir).catch(() => [] as string[]);
+	for (const entry of entries) {
+		const webPath = `/${framework}/vendor/${entry}`;
+		const bytes = await Bun.file(resolve(vendorDir, entry)).bytes();
+		assetStore.set(webPath, bytes);
+	}
+};
+
 /* Development mode function - replaces build() during development
    Returns DevResult with manifest, buildDir, asset(), and hmrState for use with the hmr() plugin */
 export const devBuild = async (config: BuildConfig) => {
@@ -31,18 +82,7 @@ export const devBuild = async (config: BuildConfig) => {
 		  }
 		| undefined;
 	if (cached) {
-		const serverMtime = statSync(resolve(Bun.main)).mtimeMs;
-		const lastMtime = (globalThis as Record<string, unknown>)
-			.__hmrServerMtime as number;
-		(globalThis as Record<string, unknown>).__hmrServerMtime = serverMtime;
-
-		if (serverMtime !== lastMtime) {
-			logger.serverReload();
-		} else {
-			// Framework file changed — skip server restart, let HMR handle it
-			(globalThis as Record<string, unknown>).__hmrSkipServerRestart =
-				true;
-		}
+		handleCachedReload();
 
 		return cached;
 	}
@@ -62,25 +102,8 @@ export const devBuild = async (config: BuildConfig) => {
 	if (config.angularDirectory) {
 		setAngularVendorPaths(computeAngularVendorPaths());
 	}
-	// Store version for the startup banner
-	// Try multiple paths: '../..' works from source (src/core/devBuild.ts),
-	// '..' works from bundled dist (dist/index.js)
-	const candidates = [
-		resolve(import.meta.dir, '..', '..', 'package.json'),
-		resolve(import.meta.dir, '..', 'package.json')
-	];
-	for (const candidate of candidates) {
-		try {
-			const pkg = await Bun.file(candidate).json();
-			if (pkg.name === '@absolutejs/absolute') {
-				(globalThis as Record<string, unknown>).__absoluteVersion =
-					pkg.version;
-				break;
-			}
-		} catch {
-			/* try next candidate */
-		}
-	}
+
+	await resolveAbsoluteVersion();
 
 	const buildStart = performance.now();
 
@@ -114,48 +137,25 @@ export const devBuild = async (config: BuildConfig) => {
 	);
 
 	// Build React vendor files now that the build directory exists.
-	// These stable files (no content hash) are what the rewritten
-	// imports in the build output point to.
 	if (config.reactDirectory) {
 		await buildReactVendor(state.resolvedPaths.buildDir);
-
-		// Load vendor files into the in-memory asset store
 		const vendorDir = resolve(
 			state.resolvedPaths.buildDir,
 			'react',
 			'vendor'
 		);
-		try {
-			const entries = await readdir(vendorDir);
-			for (const entry of entries) {
-				const webPath = `/react/vendor/${entry}`;
-				const bytes = await Bun.file(resolve(vendorDir, entry)).bytes();
-				state.assetStore.set(webPath, bytes);
-			}
-		} catch {
-			/* vendor dir may not exist if React build failed */
-		}
+		await loadVendorFiles(state.assetStore, vendorDir, 'react');
 	}
 
 	// Build Angular vendor files — same pattern as React.
 	if (config.angularDirectory) {
 		await buildAngularVendor(state.resolvedPaths.buildDir);
-
 		const vendorDir = resolve(
 			state.resolvedPaths.buildDir,
 			'angular',
 			'vendor'
 		);
-		try {
-			const entries = await readdir(vendorDir);
-			for (const entry of entries) {
-				const webPath = `/angular/vendor/${entry}`;
-				const bytes = await Bun.file(resolve(vendorDir, entry)).bytes();
-				state.assetStore.set(webPath, bytes);
-			}
-		} catch {
-			/* vendor dir may not exist if Angular build failed */
-		}
+		await loadVendorFiles(state.assetStore, vendorDir, 'angular');
 	}
 
 	// Store initial manifest on HMR state for Angular fast-path HMR

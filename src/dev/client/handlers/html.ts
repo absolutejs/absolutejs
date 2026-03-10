@@ -15,6 +15,67 @@ import { detectCurrentFramework } from '../frameworkDetect';
 import type { ScriptInfo } from '../../../../types/client';
 import { hmrState } from '../../../../types/client';
 
+const parseHTMLMessage = (
+	html: string | { body?: string; head?: string } | null | undefined
+) => {
+	let body: string | null = null;
+	let head: string | null = null;
+	if (typeof html === 'string') {
+		body = html;
+	} else if (html && typeof html === 'object') {
+		body = html.body || null;
+		head = html.head || null;
+	}
+
+	return { body, head };
+};
+
+const applyHeadPatch = (htmlHead: string | null) => {
+	if (!htmlHead) {
+		return;
+	}
+
+	const doPatchHead = () => {
+		patchHeadInPlace(htmlHead);
+	};
+	if (hmrState.isFirstHMRUpdate) {
+		setTimeout(doPatchHead, 50);
+	} else {
+		doPatchHead();
+	}
+};
+
+const handleHTMLBodyWithHead = (
+	htmlBody: string,
+	htmlHead: string,
+	htmlDomState: ReturnType<typeof saveDOMState>
+) => {
+	applyHeadPatch(htmlHead);
+
+	const cssResult = processCSSLinks(htmlHead);
+
+	const updateBodyAfterCSS = () => {
+		updateHTMLBody(htmlBody, htmlDomState, document.body);
+	};
+
+	waitForCSSAndUpdate(cssResult, updateBodyAfterCSS);
+};
+
+const handleHTMLBodyWithoutHead = (
+	htmlBody: string,
+	htmlDomState: ReturnType<typeof saveDOMState>
+) => {
+	const container = document.body;
+	if (!container) {
+		sessionStorage.removeItem('__HMR_ACTIVE__');
+
+		return;
+	}
+
+	updateHTMLBodyDirect(htmlBody, htmlDomState, container);
+	restoreDOMState(container, htmlDomState);
+};
+
 export const handleHTMLUpdate = (message: {
 	data: {
 		html?: string | { body?: string; head?: string } | null;
@@ -32,44 +93,20 @@ export const handleHTMLUpdate = (message: {
 	sessionStorage.setItem('__HMR_ACTIVE__', 'true');
 
 	const htmlDomState = saveDOMState(document.body);
+	const { body: htmlBody, head: htmlHead } = parseHTMLMessage(
+		message.data.html
+	);
 
-	let htmlBody: string | null = null;
-	let htmlHead: string | null = null;
-	if (typeof message.data.html === 'string') {
-		htmlBody = message.data.html;
-	} else if (message.data.html && typeof message.data.html === 'object') {
-		htmlBody = message.data.html.body || null;
-		htmlHead = message.data.html.head || null;
-	}
-	if (htmlBody) {
-		if (htmlHead) {
-			const doPatchHead = function () {
-				patchHeadInPlace(htmlHead);
-			};
-			if (hmrState.isFirstHMRUpdate) {
-				setTimeout(doPatchHead, 50);
-			} else {
-				doPatchHead();
-			}
-
-			const cssResult = processCSSLinks(htmlHead);
-
-			const updateBodyAfterCSS = function () {
-				updateHTMLBody(htmlBody, htmlDomState, document.body);
-			};
-
-			waitForCSSAndUpdate(cssResult, updateBodyAfterCSS);
-		} else {
-			const container = document.body;
-			if (container) {
-				updateHTMLBodyDirect(htmlBody, htmlDomState, container);
-				restoreDOMState(container, htmlDomState);
-			} else {
-				sessionStorage.removeItem('__HMR_ACTIVE__');
-			}
-		}
-	} else {
+	if (!htmlBody) {
 		sessionStorage.removeItem('__HMR_ACTIVE__');
+
+		return;
+	}
+
+	if (htmlHead) {
+		handleHTMLBodyWithHead(htmlBody, htmlHead, htmlDomState);
+	} else {
+		handleHTMLBodyWithoutHead(htmlBody, htmlDomState);
 	}
 };
 export const handleScriptUpdate = (message: {
@@ -119,6 +156,49 @@ export const handleScriptUpdate = (message: {
 		});
 };
 
+const saveHTMLState = (container: HTMLElement) => {
+	const counterSpan = container.querySelector('#counter');
+	const counterValue = counterSpan
+		? parseInt(counterSpan.textContent || '0', 10)
+		: 0;
+
+	return {
+		componentState: { count: counterValue },
+		forms: saveFormState(),
+		scroll: saveScrollState()
+	};
+};
+
+const applyCounterToBody = (body: string, counterValue: number) => {
+	if (counterValue <= 0) {
+		return body;
+	}
+
+	return body.replace(
+		new RegExp('<span id="counter">0<' + '/span>', 'g'),
+		`<span id="counter">${counterValue}<` + `/span>`
+	);
+};
+
+const restoreCounterSpan = (
+	container: HTMLElement,
+	count: number | undefined
+) => {
+	const newCounterSpan = container.querySelector('#counter');
+	if (newCounterSpan && count !== undefined) {
+		newCounterSpan.textContent = String(count);
+	}
+};
+
+const preserveHmrScript = (
+	container: HTMLElement,
+	hmrScript: Element | null
+) => {
+	if (hmrScript && !container.querySelector('script[data-hmr-client]')) {
+		container.appendChild(hmrScript);
+	}
+};
+
 const updateHTMLBody = (
 	htmlBody: string,
 	htmlDomState: ReturnType<typeof saveDOMState>,
@@ -128,24 +208,8 @@ const updateHTMLBody = (
 		return;
 	}
 
-	const counterSpan = container.querySelector('#counter');
-	const counterValue = counterSpan
-		? parseInt(counterSpan.textContent || '0', 10)
-		: 0;
-
-	const savedState = {
-		componentState: { count: counterValue },
-		forms: saveFormState(),
-		scroll: saveScrollState()
-	};
-
-	let body = htmlBody;
-	if (counterValue > 0) {
-		body = body.replace(
-			new RegExp('<span id="counter">0<' + '/span>', 'g'),
-			`<span id="counter">${counterValue}<` + `/span>`
-		);
-	}
+	const savedState = saveHTMLState(container);
+	const body = applyCounterToBody(htmlBody, savedState.componentState.count);
 
 	const existingScripts = collectScripts(container);
 	const hmrScript = container.querySelector('script[data-hmr-client]');
@@ -156,25 +220,16 @@ const updateHTMLBody = (
 	const scriptsChanged = didScriptsChange(existingScripts, newScripts);
 	const htmlStructureChanged = didHTMLStructureChange(container, tempDiv);
 
-	if (!htmlStructureChanged && !scriptsChanged) {
-	} else {
+	if (htmlStructureChanged || scriptsChanged) {
 		patchDOMInPlace(container, body);
 	}
 
-	if (hmrScript && !container.querySelector('script[data-hmr-client]')) {
-		container.appendChild(hmrScript);
-	}
+	preserveHmrScript(container, hmrScript);
 
 	requestAnimationFrame(() => {
 		restoreFormState(savedState.forms);
 		restoreScrollState(savedState.scroll);
-
-		const newCounterSpan = container.querySelector('#counter');
-		if (newCounterSpan && savedState.componentState.count !== undefined) {
-			newCounterSpan.textContent = String(
-				savedState.componentState.count
-			);
-		}
+		restoreCounterSpan(container, savedState.componentState.count);
 
 		if (scriptsChanged || htmlStructureChanged) {
 			cloneInteractiveElements(container);
@@ -187,29 +242,38 @@ const updateHTMLBody = (
 	sessionStorage.removeItem('__HMR_ACTIVE__');
 };
 
+const cloneHmrListenerElements = (container: HTMLElement) => {
+	container
+		.querySelectorAll('[data-hmr-listeners-attached]')
+		.forEach((el) => {
+			const cloned = el.cloneNode(true) as Element;
+			if (el.parentNode) {
+				el.parentNode.replaceChild(cloned, el);
+			}
+			cloned.removeAttribute('data-hmr-listeners-attached');
+		});
+};
+
+const replaceInlineScript = (script: Element) => {
+	if (script.hasAttribute('data-hmr-client')) {
+		return;
+	}
+
+	const newScript = document.createElement('script');
+	newScript.textContent = script.textContent || '';
+	newScript.type = (script as HTMLScriptElement).type || 'text/javascript';
+	if (script.parentNode) {
+		script.parentNode.replaceChild(newScript, script);
+	}
+};
+
 const updateHTMLBodyDirect = (
 	htmlBody: string,
 	htmlDomState: ReturnType<typeof saveDOMState>,
 	container: HTMLElement
 ) => {
-	const counterSpan = container.querySelector('#counter');
-	const counterValue = counterSpan
-		? parseInt(counterSpan.textContent || '0', 10)
-		: 0;
-
-	const savedState = {
-		componentState: { count: counterValue },
-		forms: saveFormState(),
-		scroll: saveScrollState()
-	};
-
-	let body = htmlBody;
-	if (counterValue > 0) {
-		body = body.replace(
-			new RegExp('<span id="counter">0<' + '/span>', 'g'),
-			`<span id="counter">${counterValue}<` + `/span>`
-		);
-	}
+	const savedState = saveHTMLState(container);
+	const body = applyCounterToBody(htmlBody, savedState.componentState.count);
 
 	const existingScripts = collectScripts(container);
 	const tempDiv = document.createElement('div');
@@ -220,30 +284,14 @@ const updateHTMLBodyDirect = (
 
 	patchDOMInPlace(container, body);
 
-	if (hmrScript && !container.querySelector('script[data-hmr-client]')) {
-		container.appendChild(hmrScript);
-	}
+	preserveHmrScript(container, hmrScript);
 
 	requestAnimationFrame(() => {
 		restoreFormState(savedState.forms);
 		restoreScrollState(savedState.scroll);
+		restoreCounterSpan(container, savedState.componentState.count);
 
-		const newCounterSpan = container.querySelector('#counter');
-		if (newCounterSpan && savedState.componentState.count !== undefined) {
-			newCounterSpan.textContent = String(
-				savedState.componentState.count
-			);
-		}
-
-		container
-			.querySelectorAll('[data-hmr-listeners-attached]')
-			.forEach((el) => {
-				const cloned = el.cloneNode(true) as Element;
-				if (el.parentNode) {
-					el.parentNode.replaceChild(cloned, el);
-				}
-				cloned.removeAttribute('data-hmr-listeners-attached');
-			});
+		cloneHmrListenerElements(container);
 
 		removeOldScripts(container);
 		newScripts.forEach((scriptInfo) => {
@@ -255,17 +303,7 @@ const updateHTMLBodyDirect = (
 		});
 
 		const inlineScripts = container.querySelectorAll('script:not([src])');
-		inlineScripts.forEach((script) => {
-			if (!script.hasAttribute('data-hmr-client')) {
-				const newScript = document.createElement('script');
-				newScript.textContent = script.textContent || '';
-				newScript.type =
-					(script as HTMLScriptElement).type || 'text/javascript';
-				if (script.parentNode) {
-					script.parentNode.replaceChild(newScript, script);
-				}
-			}
-		});
+		inlineScripts.forEach(replaceInlineScript);
 	});
 	sessionStorage.removeItem('__HMR_ACTIVE__');
 };
@@ -351,15 +389,5 @@ const reExecuteScripts = (container: HTMLElement, newScripts: ScriptInfo[]) => {
 	});
 
 	const inlineScripts = container.querySelectorAll('script:not([src])');
-	inlineScripts.forEach((script) => {
-		if (!script.hasAttribute('data-hmr-client')) {
-			const newScript = document.createElement('script');
-			newScript.textContent = script.textContent || '';
-			newScript.type =
-				(script as HTMLScriptElement).type || 'text/javascript';
-			if (script.parentNode) {
-				script.parentNode.replaceChild(newScript, script);
-			}
-		}
-	});
+	inlineScripts.forEach(replaceInlineScript);
 };

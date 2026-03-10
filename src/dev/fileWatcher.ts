@@ -7,6 +7,88 @@ import type { HMRState } from './clientManager';
 import { addFileToGraph, removeFileFromGraph } from './dependencyGraph';
 import { getWatchPaths, shouldIgnorePath } from './pathUtils';
 
+const safeRemoveFromGraph = (
+	graph: HMRState['dependencyGraph'],
+	fullPath: string
+) => {
+	try {
+		removeFileFromGraph(graph, fullPath);
+	} catch (err) {
+		sendTelemetryEvent('hmr:graph-error', {
+			message: err instanceof Error ? err.message : String(err),
+			operation: 'remove'
+		});
+	}
+};
+
+const safeAddToGraph = (
+	graph: HMRState['dependencyGraph'],
+	fullPath: string
+) => {
+	try {
+		addFileToGraph(graph, fullPath);
+	} catch (err) {
+		sendTelemetryEvent('hmr:graph-error', {
+			message: err instanceof Error ? err.message : String(err),
+			operation: 'add'
+		});
+	}
+};
+
+const shouldSkipFilename = (filename: string, isStylesDir: boolean) =>
+	(!isStylesDir &&
+		(filename === 'compiled' ||
+			filename === 'build' ||
+			filename === 'indexes' ||
+			filename === 'server' ||
+			filename === 'client' ||
+			filename.includes('/compiled') ||
+			filename.includes('/build') ||
+			filename.includes('/indexes') ||
+			filename.includes('/server') ||
+			filename.includes('/client'))) ||
+	filename.endsWith('/');
+
+const setupWatcher = (
+	absolutePath: string,
+	isStylesDir: boolean,
+	state: HMRState,
+	onFileChange: (filePath: string) => void
+) => {
+	const watcher = watch(
+		absolutePath,
+		{ recursive: true },
+		(event, filename) => {
+			if (!filename) {
+				return;
+			}
+			if (shouldSkipFilename(filename, isStylesDir)) {
+				return;
+			}
+
+			const fullPath = join(absolutePath, filename).replace(/\\/g, '/');
+
+			if (shouldIgnorePath(fullPath, state.resolvedPaths)) {
+				return;
+			}
+
+			if (event === 'rename' && !existsSync(fullPath)) {
+				safeRemoveFromGraph(state.dependencyGraph, fullPath);
+				onFileChange(fullPath);
+
+				return;
+			}
+
+			if (existsSync(fullPath)) {
+				onFileChange(fullPath);
+				safeAddToGraph(state.dependencyGraph, fullPath);
+			}
+		}
+	);
+
+	state.watchers.push(watcher);
+};
+
 /* Set up file watching for all configured directories
    This handles the "watch files" problem */
 export const startFileWatching = (
@@ -15,97 +97,17 @@ export const startFileWatching = (
 	onFileChange: (filePath: string) => void
 ) => {
 	const watchPaths = getWatchPaths(config, state.resolvedPaths);
-
 	const stylesDir = state.resolvedPaths?.stylesDir;
 
-	// Set up a watcher for each directory
-	for (const path of watchPaths) {
-		// Resolve to absolute path for existsSync check (normalize to forward slashes for cross-platform)
+	watchPaths.forEach((path) => {
 		const absolutePath = resolve(path).replace(/\\/g, '/');
-
 		if (!existsSync(absolutePath)) {
-			continue;
+			return;
 		}
 
-		// Check if this watched path is the configured styles directory
-		const isStylesDir = stylesDir && absolutePath.startsWith(stylesDir);
-
-		const watcher = watch(
-			absolutePath,
-			{ recursive: true },
-			(event, filename) => {
-				// Skip if no filename
-				if (!filename) return;
-
-				// Skip directory changes (but allow styles directory through)
-				if (
-					(!isStylesDir &&
-						(filename === 'compiled' ||
-							filename === 'build' ||
-							filename === 'indexes' ||
-							filename === 'server' ||
-							filename === 'client' ||
-							filename.includes('/compiled') ||
-							filename.includes('/build') ||
-							filename.includes('/indexes') ||
-							filename.includes('/server') ||
-							filename.includes('/client'))) ||
-					filename.endsWith('/')
-				) {
-					return;
-				}
-
-				// Build the full path (normalize to forward slashes for cross-platform compatibility)
-				const fullPath = join(absolutePath, filename).replace(
-					/\\/g,
-					'/'
-				);
-
-				// Apply ignore patterns
-				if (shouldIgnorePath(fullPath, state.resolvedPaths)) {
-					return;
-				}
-
-				// Handle file deletion
-				if (event === 'rename' && !existsSync(fullPath)) {
-					try {
-						removeFileFromGraph(state.dependencyGraph, fullPath);
-					} catch (err) {
-						sendTelemetryEvent('hmr:graph-error', {
-							message:
-								err instanceof Error
-									? err.message
-									: String(err),
-							operation: 'remove'
-						});
-					}
-
-					// Still trigger rebuild for files that depended on this one
-					onFileChange(fullPath);
-
-					return;
-				}
-
-				// Handle file creation/modification
-				if (existsSync(fullPath)) {
-					// Call the callback handler
-					onFileChange(fullPath);
-
-					try {
-						addFileToGraph(state.dependencyGraph, fullPath);
-					} catch (err) {
-						sendTelemetryEvent('hmr:graph-error', {
-							message:
-								err instanceof Error
-									? err.message
-									: String(err),
-							operation: 'add'
-						});
-					}
-				}
-			}
+		const isStylesDir = Boolean(
+			stylesDir && absolutePath.startsWith(stylesDir)
 		);
-
-		state.watchers.push(watcher);
-	}
+		setupWatcher(absolutePath, isStylesDir, state, onFileChange);
+	});
 };

@@ -5,25 +5,31 @@ import type { ToolAdapter, ToolCacheData } from '../../types/tool';
 
 export const CACHE_DIR = '.absolutejs';
 export const MAX_FILES_PER_BATCH = 200;
-export const getChangedFiles = async (adapter: ToolAdapter) => {
-	const allFiles: string[] = [];
+const isIgnored = (file: string, ignorePatterns: string[]) =>
+	ignorePatterns.some((pat) => new Glob(pat).match(file));
 
-	for (const pattern of adapter.fileGlobs) {
-		const glob = new Glob(pattern);
-		for await (const file of glob.scan({
-			cwd: '.',
-			dot: false
-		})) {
-			const ignored = adapter.ignorePatterns.some((pat) => {
-				const globPat = new Glob(pat);
-
-				return globPat.match(file);
-			});
-			if (!ignored) {
-				allFiles.push(file);
-			}
-		}
+const collectFiles = async (pattern: string, ignorePatterns: string[]) => {
+	const files: string[] = [];
+	const glob = new Glob(pattern);
+	for await (const file of glob.scan({
+		cwd: '.',
+		dot: false
+	})) {
+		if (!isIgnored(file, ignorePatterns)) files.push(file);
 	}
+
+	return files;
+};
+
+export const getChangedFiles = async (adapter: ToolAdapter) => {
+	const results = await Promise.all(
+		adapter.fileGlobs.map((pattern) =>
+			collectFiles(pattern, adapter.ignorePatterns)
+		)
+	);
+	const allFiles = results
+		.flat()
+		.filter((file): file is string => Boolean(file));
 
 	const [fileHashes, configHash, existing] = await Promise.all([
 		hashFiles(allFiles),
@@ -79,6 +85,24 @@ export const loadCache = async (tool: string) => {
 		return null;
 	}
 };
+const runBatch = async (
+	adapter: ToolAdapter,
+	batch: string[],
+	args: string[],
+	failedFiles: Set<string>
+) => {
+	const command = adapter.buildCommand(batch, args);
+	const proc = Bun.spawn(command, {
+		stderr: 'inherit',
+		stdout: 'inherit'
+	});
+	const exitCode = await proc.exited;
+
+	if (exitCode !== 0) {
+		batch.forEach((file) => failedFiles.add(file));
+	}
+};
+
 export const runTool = async (adapter: ToolAdapter, args: string[]) => {
 	const { changed, cache } = await getChangedFiles(adapter);
 	const totalFiles = Object.keys(cache.files).length;
@@ -99,18 +123,7 @@ export const runTool = async (adapter: ToolAdapter, args: string[]) => {
 	const failedFiles = new Set<string>();
 
 	for (const batch of batches) {
-		const command = adapter.buildCommand(batch, args);
-		const proc = Bun.spawn(command, {
-			stderr: 'inherit',
-			stdout: 'inherit'
-		});
-		const exitCode = await proc.exited;
-
-		if (exitCode !== 0) {
-			for (const file of batch) {
-				failedFiles.add(file);
-			}
-		}
+		await runBatch(adapter, batch, args, failedFiles);
 	}
 
 	for (const file of failedFiles) {

@@ -24,53 +24,47 @@
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type ComponentCtor = any;
 
-// Angular HMR — Zoneless Runtime Preservation: Component registry entry
-interface RegistryEntry {
-	/** The ORIGINAL constructor that Angular bootstrapped with.
-	 *  Existing component instances have __proto__ pointing here.
-	 *  We swap onto this; we never replace it. */
+type RegistryEntry = {
 	liveCtor: ComponentCtor;
 	id: string;
 	registeredAt: number;
 	updateCount: number;
-}
+};
 
-// Angular HMR — Zoneless Runtime Preservation: Component registry
 const componentRegistry = new Map<string, RegistryEntry>();
 let globalUpdateCount = 0;
 
-// Angular HMR — Zoneless Runtime Preservation: HMR boundary detection
-// Returns true if providers / injector metadata changed (unsafe to hot-patch)
-const hasProviderChanges = (
+const hasInjectorProviderChanges = (
 	oldCtor: ComponentCtor,
 	newCtor: ComponentCtor
-): boolean => {
-	// NgModule injector metadata
-	if (oldCtor.ɵinj !== undefined && newCtor.ɵinj !== undefined) {
-		const oldP = oldCtor.ɵinj?.providers;
-		const newP = newCtor.ɵinj?.providers;
-		if (
-			Array.isArray(oldP) &&
-			Array.isArray(newP) &&
-			oldP.length !== newP.length
-		) {
-			return true;
-		}
-	}
+) => {
+	if (oldCtor.ɵinj === undefined || newCtor.ɵinj === undefined) return false;
+	const oldP = oldCtor.ɵinj?.providers;
+	const newP = newCtor.ɵinj?.providers;
+	if (!Array.isArray(oldP) || !Array.isArray(newP)) return false;
 
-	// Component-level providers
-	if (oldCtor.ɵcmp && newCtor.ɵcmp) {
-		const a = oldCtor.ɵcmp.providersResolver;
-		const b = newCtor.ɵcmp.providersResolver;
-		if ((a === undefined) !== (b === undefined)) return true;
-	}
+	return oldP.length !== newP.length;
+};
+
+const hasComponentProviderChanges = (
+	oldCtor: ComponentCtor,
+	newCtor: ComponentCtor
+) => {
+	if (!oldCtor.ɵcmp || !newCtor.ɵcmp) return false;
+	const _a = oldCtor.ɵcmp.providersResolver;
+	const _b = newCtor.ɵcmp.providersResolver;
+
+	return (_a === undefined) !== (_b === undefined);
+};
+
+const hasProviderChanges = (oldCtor: ComponentCtor, newCtor: ComponentCtor) => {
+	if (hasInjectorProviderChanges(oldCtor, newCtor)) return true;
+	if (hasComponentProviderChanges(oldCtor, newCtor)) return true;
 
 	return false;
 };
 
-/** Angular HMR — Zoneless Runtime Preservation: Register component.
- *  Only stores on FIRST call — keeps the live constructor Angular bootstrapped with. */
-const register = (id: string, ctor: ComponentCtor): void => {
+const register = (id: string, ctor: ComponentCtor) => {
 	if (!id || typeof ctor !== 'function') return;
 	if (!componentRegistry.has(id)) {
 		componentRegistry.set(id, {
@@ -82,10 +76,68 @@ const register = (id: string, ctor: ComponentCtor): void => {
 	}
 };
 
-/** Angular HMR — Zoneless Runtime Preservation: Swap prototype + ɵcmp metadata.
- *  Runtime state persists by prototype swap (no serialization).
- *  Returns true on success, false if full reload required. */
-const applyUpdate = (id: string, newCtor: ComponentCtor): boolean => {
+const SKIP_STATIC_PROPS = [
+	'prototype',
+	'length',
+	'name',
+	'caller',
+	'arguments'
+];
+
+const swapPrototypeProp = (
+	liveCtor: ComponentCtor,
+	newProto: ComponentCtor,
+	prop: string
+) => {
+	if (prop === 'constructor') return;
+	try {
+		const desc = Object.getOwnPropertyDescriptor(newProto, prop);
+		if (desc) Object.defineProperty(liveCtor.prototype, prop, desc);
+	} catch (_e) {
+		/* non-configurable */
+	}
+};
+
+const swapStaticProp = (
+	liveCtor: ComponentCtor,
+	newCtor: ComponentCtor,
+	prop: string
+) => {
+	if (SKIP_STATIC_PROPS.includes(prop)) return;
+	try {
+		const desc = Object.getOwnPropertyDescriptor(newCtor, prop);
+		if (desc?.configurable) Object.defineProperty(liveCtor, prop, desc);
+	} catch (_e) {
+		/* skip */
+	}
+};
+
+const patchConstructor = (entry: RegistryEntry, newCtor: ComponentCtor) => {
+	const { liveCtor } = entry;
+
+	const newProto = newCtor.prototype;
+	Object.getOwnPropertyNames(newProto).forEach((prop) => {
+		swapPrototypeProp(liveCtor, newProto, prop);
+	});
+
+	if (newCtor.ɵcmp) {
+		liveCtor.ɵcmp = newCtor.ɵcmp;
+	}
+
+	if (newCtor.ɵfac) {
+		liveCtor.ɵfac = newCtor.ɵfac;
+	}
+
+	Object.getOwnPropertyNames(newCtor).forEach((prop) => {
+		swapStaticProp(liveCtor, newCtor, prop);
+	});
+
+	globalUpdateCount++;
+	entry.updateCount++;
+	entry.registeredAt = Date.now();
+};
+
+const applyUpdate = (id: string, newCtor: ComponentCtor) => {
 	const entry = componentRegistry.get(id);
 	if (!entry) {
 		register(id, newCtor);
@@ -96,7 +148,6 @@ const applyUpdate = (id: string, newCtor: ComponentCtor): boolean => {
 	const { liveCtor } = entry;
 	if (liveCtor === newCtor) return true;
 
-	// Angular HMR — Zoneless Runtime Preservation: safety boundary
 	if (hasProviderChanges(liveCtor, newCtor)) {
 		console.warn(
 			'[HMR] Angular provider change detected for',
@@ -117,48 +168,7 @@ const applyUpdate = (id: string, newCtor: ComponentCtor): boolean => {
 	}
 
 	try {
-		// Angular HMR — Zoneless Runtime Preservation: swap prototype methods
-		const newProto = newCtor.prototype;
-		for (const prop of Object.getOwnPropertyNames(newProto)) {
-			if (prop === 'constructor') continue;
-			try {
-				const desc = Object.getOwnPropertyDescriptor(newProto, prop);
-				if (desc) Object.defineProperty(liveCtor.prototype, prop, desc);
-			} catch (_e) {
-				/* non-configurable */
-			}
-		}
-
-		// Angular HMR — Zoneless Runtime Preservation: swap ɵcmp metadata
-		if (newCtor.ɵcmp) {
-			liveCtor.ɵcmp = newCtor.ɵcmp;
-		}
-
-		// Angular HMR — Zoneless Runtime Preservation: swap ɵfac
-		if (newCtor.ɵfac) {
-			liveCtor.ɵfac = newCtor.ɵfac;
-		}
-
-		// Swap configurable static properties
-		for (const prop of Object.getOwnPropertyNames(newCtor)) {
-			if (
-				['prototype', 'length', 'name', 'caller', 'arguments'].includes(
-					prop
-				)
-			)
-				continue;
-			try {
-				const desc = Object.getOwnPropertyDescriptor(newCtor, prop);
-				if (desc?.configurable)
-					Object.defineProperty(liveCtor, prop, desc);
-			} catch (_e) {
-				/* skip */
-			}
-		}
-
-		globalUpdateCount++;
-		entry.updateCount++;
-		entry.registeredAt = Date.now();
+		patchConstructor(entry, newCtor);
 
 		return true;
 	} catch (err) {
@@ -168,31 +178,23 @@ const applyUpdate = (id: string, newCtor: ComponentCtor): boolean => {
 	}
 };
 
-/** Angular HMR — Zoneless Runtime Preservation: trigger change detection.
- *  Zoneless Angular will NOT auto-detect changes — explicit tick() required. */
-const refresh = (): void => {
-	// Angular HMR — Zoneless Runtime Preservation: manual tick() required
-	if (window.__ANGULAR_APP__) {
-		try {
-			window.__ANGULAR_APP__.tick();
-		} catch (err) {
-			console.warn('[HMR] Angular tick() failed after patch:', err);
-		}
+const refresh = () => {
+	if (!window.__ANGULAR_APP__) return;
+	try {
+		window.__ANGULAR_APP__.tick();
+	} catch (err) {
+		console.warn('[HMR] Angular tick() failed after patch:', err);
 	}
 };
 
-/** Angular HMR — Zoneless Runtime Preservation: debug stats */
-const getStats = (): { componentCount: number; updateCount: number } => ({
+const getStats = () => ({
 	componentCount: componentRegistry.size,
 	updateCount: globalUpdateCount
 });
 
-/** Angular HMR — Zoneless Runtime Preservation: expose registry for fast update path.
- *  Returns a read-only snapshot of registered component IDs. */
-const getRegistry = (): Map<string, RegistryEntry> => componentRegistry;
+const getRegistry = () => componentRegistry;
 
-// Angular HMR — Zoneless Runtime Preservation: install global API
-export const installAngularHMRRuntime = (): void => {
+export const installAngularHMRRuntime = () => {
 	if (typeof window === 'undefined') return;
 	window.__ANGULAR_HMR__ = {
 		applyUpdate,
@@ -203,5 +205,4 @@ export const installAngularHMRRuntime = (): void => {
 	};
 };
 
-// Angular HMR — Zoneless Runtime Preservation: auto-install on import
 installAngularHMRRuntime();

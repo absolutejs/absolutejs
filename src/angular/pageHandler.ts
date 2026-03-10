@@ -22,46 +22,51 @@ setSsrContextGetter(() => angularSsrContext.getStore());
 // causing NG0203. This patch stores _currentInjector on globalThis so all
 // instances share the same value.
 
+const applyInjectorPatch = (chunkPath: string, content: string) => {
+	if (content.includes('Symbol.for("angular.currentInjector")')) {
+		return;
+	}
+
+	const original = [
+		'let _currentInjector = undefined;',
+		'function getCurrentInjector() {',
+		'  return _currentInjector;',
+		'}',
+		'function setCurrentInjector(injector) {',
+		'  const former = _currentInjector;',
+		'  _currentInjector = injector;',
+		'  return former;',
+		'}'
+	].join('\n');
+
+	const replacement = [
+		'const _injSym = Symbol.for("angular.currentInjector");',
+		'if (!globalThis[_injSym]) globalThis[_injSym] = { v: undefined };',
+		'function getCurrentInjector() {',
+		'  return globalThis[_injSym].v;',
+		'}',
+		'function setCurrentInjector(injector) {',
+		'  const former = globalThis[_injSym].v;',
+		'  globalThis[_injSym].v = injector;',
+		'  return former;',
+		'}'
+	].join('\n');
+
+	const patched = content.replace(original, replacement);
+
+	if (patched === content) {
+		return;
+	}
+
+	writeFileSync(chunkPath, patched, 'utf-8');
+};
+
 const patchAngularInjectorSingleton = () => {
 	try {
 		const coreDir = dirname(require.resolve('@angular/core/package.json'));
 		const chunkPath = join(coreDir, 'fesm2022', '_not_found-chunk.mjs');
 		const content = readFileSync(chunkPath, 'utf-8');
-
-		if (content.includes('Symbol.for("angular.currentInjector")')) {
-			return; // Already patched
-		}
-
-		const original = [
-			'let _currentInjector = undefined;',
-			'function getCurrentInjector() {',
-			'  return _currentInjector;',
-			'}',
-			'function setCurrentInjector(injector) {',
-			'  const former = _currentInjector;',
-			'  _currentInjector = injector;',
-			'  return former;',
-			'}'
-		].join('\n');
-
-		const replacement = [
-			'const _injSym = Symbol.for("angular.currentInjector");',
-			'if (!globalThis[_injSym]) globalThis[_injSym] = { v: undefined };',
-			'function getCurrentInjector() {',
-			'  return globalThis[_injSym].v;',
-			'}',
-			'function setCurrentInjector(injector) {',
-			'  const former = globalThis[_injSym].v;',
-			'  globalThis[_injSym].v = injector;',
-			'  return former;',
-			'}'
-		].join('\n');
-
-		const patched = content.replace(original, replacement);
-
-		if (patched !== content) {
-			writeFileSync(chunkPath, patched, 'utf-8');
-		}
+		applyInjectorPatch(chunkPath, content);
 	} catch {
 		// Non-fatal — HMR may see NG0203 on second+ edits
 	}
@@ -89,6 +94,72 @@ type AngularDeps = {
 };
 
 let angularDeps: Promise<AngularDeps> | null = null;
+
+const initDominoAdapter = (platformServer: any) => {
+	try {
+		const DominoAdapter = platformServer.ɵDominoAdapter as
+			| { makeCurrent?: () => void }
+			| undefined;
+		DominoAdapter?.makeCurrent?.();
+	} catch (err) {
+		console.error('Failed to initialize DominoAdapter:', err);
+	}
+};
+
+const patchQuerySelectorAll = (headProto: any) => {
+	if (!headProto || typeof headProto.querySelectorAll === 'function') {
+		return;
+	}
+
+	headProto.querySelectorAll = function (sel: string) {
+		const doc = this.ownerDocument;
+		if (!doc?.querySelectorAll) {
+			return [];
+		}
+
+		const all = doc.querySelectorAll(sel);
+		const self = this;
+
+		return Array.from(all).filter(
+			(elm: any) => elm.parentElement === self || self.contains(elm)
+		);
+	};
+};
+
+const patchQuerySelector = (headProto: any) => {
+	if (!headProto || typeof headProto.querySelector === 'function') {
+		return;
+	}
+
+	headProto.querySelector = function (sel: string) {
+		const doc = this.ownerDocument;
+		if (!doc?.querySelector) {
+			return null;
+		}
+
+		const elm = doc.querySelector(sel);
+		if (elm && (elm.parentElement === this || this.contains(elm))) {
+			return elm;
+		}
+
+		return null;
+	};
+};
+
+const patchDominoPrototype = (domino: NonNullable<AngularDeps['domino']>) => {
+	if (!domino.createWindow) {
+		return;
+	}
+
+	try {
+		const probeWin = domino.createWindow('', '/');
+		const headProto = Object.getPrototypeOf(probeWin.document.head);
+		patchQuerySelectorAll(headProto);
+		patchQuerySelector(headProto);
+	} catch {
+		// Probe failed — per-document polyfills will handle it
+	}
+};
 
 const loadAngularDeps = async () => {
 	// Patch Angular's _currentInjector to use globalThis BEFORE any
@@ -125,63 +196,14 @@ const loadAngularDeps = async () => {
 		core.enableProdMode();
 	}
 
-	// Initialize DominoAdapter once
-	try {
-		const DominoAdapter = (platformServer as any).ɵDominoAdapter as
-			| { makeCurrent?: () => void }
-			| undefined;
-		if (DominoAdapter?.makeCurrent) {
-			DominoAdapter.makeCurrent();
-		}
-	} catch (err) {
-		console.error('Failed to initialize DominoAdapter:', err);
-	}
+	initDominoAdapter(platformServer);
 
 	// Patch domino's head prototype once — these polyfills fix missing
 	// DOM APIs that Angular SSR expects (querySelector, querySelectorAll,
 	// children). Applied to the prototype so every domino document
 	// inherits them automatically.
-	if (domino?.createWindow) {
-		try {
-			const probeWin = domino.createWindow('', '/');
-			const headProto = Object.getPrototypeOf(probeWin.document.head);
-
-			if (headProto && typeof headProto.querySelectorAll !== 'function') {
-				headProto.querySelectorAll = function (sel: string) {
-					const doc = this.ownerDocument;
-					if (doc?.querySelectorAll) {
-						const all = doc.querySelectorAll(sel);
-						const self = this;
-
-						return Array.from(all).filter(
-							(el: any) =>
-								el.parentElement === self || self.contains(el)
-						);
-					}
-
-					return [];
-				};
-			}
-
-			if (headProto && typeof headProto.querySelector !== 'function') {
-				headProto.querySelector = function (sel: string) {
-					const doc = this.ownerDocument;
-					if (doc?.querySelector) {
-						const el = doc.querySelector(sel);
-						if (
-							el &&
-							(el.parentElement === this || this.contains(el))
-						) {
-							return el;
-						}
-					}
-
-					return null;
-				};
-			}
-		} catch {
-			// Probe failed — per-document polyfills will handle it
-		}
+	if (domino) {
+		patchDominoPrototype(domino);
 	}
 
 	return {
@@ -227,7 +249,7 @@ const getSsrSanitizer = (deps: AngularDeps) => {
 	if (ssrSanitizer) return ssrSanitizer;
 
 	const SsrSanitizerClass = class extends deps.DomSanitizer {
-		sanitize(ctx: any, value: any): string | null {
+		sanitize(ctx: any, value: any) {
 			if (value == null) return null;
 			let strValue: string;
 			if (typeof value === 'string') {
@@ -288,6 +310,35 @@ const patchChildren = (head: any) => {
 	});
 };
 
+const ensureDocHead = (doc: Document) => {
+	if (doc.head) {
+		return;
+	}
+
+	const head = doc.createElement('head');
+	if (!doc.documentElement) {
+		return;
+	}
+
+	doc.documentElement.insertBefore(head, doc.documentElement.firstChild);
+};
+
+const patchDocHeadChildren = (doc: Document) => {
+	if (!doc.head) {
+		return;
+	}
+
+	const { children } = doc.head;
+	const needsPatch =
+		!children ||
+		typeof children.length === 'undefined' ||
+		(children[0] === undefined && children.length > 0);
+
+	if (needsPatch) {
+		patchChildren(doc.head);
+	}
+};
+
 const createDominoDocument = (
 	htmlString: string,
 	domino: AngularDeps['domino']
@@ -297,30 +348,11 @@ const createDominoDocument = (
 	try {
 		const win = domino.createWindow(htmlString, '/');
 		const doc = win.document;
-
-		if (!doc.head) {
-			const head = doc.createElement('head');
-			if (doc.documentElement) {
-				doc.documentElement.insertBefore(
-					head,
-					doc.documentElement.firstChild
-				);
-			}
-		}
-
+		ensureDocHead(doc);
 		// children is instance-specific (depends on actual child nodes)
 		// — must be patched per-document unlike querySelector/querySelectorAll
 		// which are patched on the prototype once during init.
-		if (doc.head) {
-			const { children } = doc.head;
-			if (
-				!children ||
-				typeof children.length === 'undefined' ||
-				(children[0] === undefined && children.length > 0)
-			) {
-				patchChildren(doc.head);
-			}
-		}
+		patchDocHeadChildren(doc);
 
 		return doc as string | Document;
 	} catch (err) {
@@ -366,6 +398,213 @@ export const getCachedRouteData = (pagePath: string) =>
 
 const selectorCache = new Map<string, string>();
 
+// --- SSR deps loader ---
+
+type SsrDepsResult = {
+	common: any;
+	core: any;
+	platformBrowser: any;
+	platformServer: any;
+};
+
+const loadSsrDeps = async (pagePath: string) => {
+	const ssrDepsPath = pagePath
+		.split('?')[0]!
+		.replace(/\.js$/, '.ssr-deps.js');
+
+	try {
+		const ssrDeps = await import(ssrDepsPath);
+
+		return {
+			common: ssrDeps.__angularCommon,
+			core: ssrDeps.__angularCore,
+			platformBrowser: ssrDeps.__angularPlatformBrowser,
+			platformServer: ssrDeps.__angularPlatformServer
+		} as SsrDepsResult;
+	} catch {
+		return null;
+	}
+};
+
+const buildDeps = (ssrResult: SsrDepsResult | null, baseDeps: AngularDeps) => {
+	if (!ssrResult?.core) {
+		return baseDeps;
+	}
+
+	const { common, core, platformBrowser, platformServer } = ssrResult;
+
+	return {
+		APP_BASE_HREF: common?.APP_BASE_HREF ?? baseDeps.APP_BASE_HREF,
+		bootstrapApplication:
+			platformBrowser?.bootstrapApplication ??
+			baseDeps.bootstrapApplication,
+		domino: baseDeps.domino,
+		DomSanitizer: platformBrowser?.DomSanitizer ?? baseDeps.DomSanitizer,
+		provideClientHydration:
+			platformBrowser?.provideClientHydration ??
+			baseDeps.provideClientHydration,
+		provideServerRendering:
+			platformServer?.provideServerRendering ??
+			baseDeps.provideServerRendering,
+		provideZonelessChangeDetection: core.provideZonelessChangeDetection,
+		renderApplication:
+			platformServer?.renderApplication ?? baseDeps.renderApplication,
+		Sanitizer: core.Sanitizer,
+		SecurityContext: core.SecurityContext
+	} as AngularDeps;
+};
+
+// --- Token discovery ---
+
+const isInjectionToken = (value: unknown) =>
+	Boolean(value) &&
+	typeof value === 'object' &&
+	(value as { ngMetadataName?: string }).ngMetadataName === 'InjectionToken';
+
+const discoverTokens = (pageModule: Record<string, unknown>) =>
+	new Map(
+		Object.entries(pageModule).filter(([, value]) =>
+			isInjectionToken(value)
+		)
+	);
+
+// --- Selector resolution ---
+
+const extractSelectorFromAnnotations = (PageComponent: Type<unknown>) => {
+	const annotations =
+		(PageComponent as any).__annotations__ ||
+		(PageComponent as any).decorators?.map((dec: any) => dec.annotation);
+
+	if (!annotations) {
+		return undefined;
+	}
+
+	for (const ann of annotations) {
+		if (ann?.selector) {
+			return ann.selector as string;
+		}
+	}
+
+	return undefined;
+};
+
+const resolveSelector = (pagePath: string, PageComponent: Type<unknown>) => {
+	const cached = selectorCache.get(pagePath);
+	if (cached) {
+		return cached;
+	}
+
+	const cmpDef = (PageComponent as any).ɵcmp;
+	const selector =
+		cmpDef?.selectors?.[0]?.[0] ??
+		extractSelectorFromAnnotations(PageComponent) ??
+		'ng-app';
+	selectorCache.set(pagePath, selector);
+
+	return selector;
+};
+
+// --- Provider building ---
+
+const buildProviders = (
+	deps: AngularDeps,
+	sanitizer: any,
+	maybeProps: Record<string, unknown> | undefined,
+	tokenMap: Map<string, unknown>
+) => {
+	const providers: any[] = [
+		deps.provideServerRendering(),
+		deps.provideClientHydration(),
+		deps.provideZonelessChangeDetection(),
+		{ provide: deps.APP_BASE_HREF, useValue: '/' },
+		{
+			provide: deps.DomSanitizer,
+			useValue: sanitizer
+		},
+		{ provide: deps.Sanitizer, useValue: sanitizer }
+	];
+
+	if (!maybeProps) {
+		return providers;
+	}
+
+	const propProviders = Object.entries(maybeProps)
+		.map(([propName, propValue]) => ({
+			token: tokenMap.get(toScreamingSnake(propName)),
+			value: propValue
+		}))
+		.filter((entry) => entry.token)
+		.map((entry) => ({ provide: entry.token, useValue: entry.value }));
+
+	return [...providers, ...propProviders];
+};
+
+// --- Post-render HTML injection ---
+
+const injectSsrScripts = (
+	html: string,
+	requestId: string,
+	indexPath: string
+) => {
+	let result = html;
+
+	const registeredScripts = getAndClearClientScripts(requestId);
+	if (registeredScripts.length > 0) {
+		result = injectBeforeClose(
+			result,
+			generateClientScriptCode(registeredScripts)
+		);
+	}
+
+	if (indexPath) {
+		result = injectBeforeClose(
+			result,
+			`<script type="module" src="${indexPath}"></script>`
+		);
+	}
+
+	return result;
+};
+
+// --- Render with suppressed dev logs ---
+
+const renderAngularApp = async (
+	deps: AngularDeps,
+	PageComponent: Type<unknown>,
+	providers: any[],
+	document: string | Document
+) => {
+	const origLog = console.log;
+	console.log = (...args: unknown[]) => {
+		if (
+			typeof args[0] === 'string' &&
+			args[0].includes('development mode')
+		) {
+			return;
+		}
+		origLog.apply(console, args);
+	};
+
+	const bootstrap = (context: any) =>
+		(
+			deps.bootstrapApplication as (
+				component: Type<unknown>,
+				config?: { providers?: unknown[] },
+				context?: any
+			) => Promise<unknown>
+		)(PageComponent, { providers }, context);
+
+	try {
+		return await deps.renderApplication(bootstrap as any, {
+			document,
+			platformProviders: [],
+			url: '/'
+		});
+	} finally {
+		console.log = origLog;
+	}
+};
+
 // --- Handler ---
 
 export const handleAngularPageRequest = async <
@@ -388,190 +627,36 @@ export const handleAngularPageRequest = async <
 			const cacheKey = pagePath.split('?')[0] ?? pagePath;
 			routePropsCache.set(cacheKey, { headTag, props: maybeProps });
 
-			// Load base Angular deps (ensures compiler + patches are initialized)
 			const baseDeps = await getAngularDeps();
-
-			// Use dynamic import() with a cache-busting query string to get
-			// a fresh module on each request. This avoids bun --hot watching
-			// and re-evaluating compiled modules (which caused ~800ms delays
-			// on 2nd+ HMR changes). The re-exported Angular deps (__angularCore
-			// etc.) guarantee token identity regardless of which module graph
-			// the import creates.
 			const pageModule = await import(pagePath);
 			const PageComponent: Type<unknown> = pageModule.default;
 
-			// Load Angular dep re-exports from the sibling .ssr-deps.js
-			// file (written by compileAngular in HMR mode). These are in
-			// a separate file to avoid require() calls leaking into the
-			// client bundle. Falls back to baseDeps if the file doesn't exist.
-			const ssrDepsPath = pagePath
-				.split('?')[0]!
-				.replace(/\.js$/, '.ssr-deps.js');
-			let core: any = null;
-			let platformBrowser: any = null;
-			let platformServer: any = null;
-			let common: any = null;
-			try {
-				const ssrDeps = await import(ssrDepsPath);
-				core = ssrDeps.__angularCore;
-				platformBrowser = ssrDeps.__angularPlatformBrowser;
-				platformServer = ssrDeps.__angularPlatformServer;
-				common = ssrDeps.__angularCommon;
-			} catch {
-				// No ssr-deps file — use baseDeps (production or first load)
-			}
+			const ssrResult = await loadSsrDeps(pagePath);
+			const deps = buildDeps(ssrResult, baseDeps);
 
-			const deps: AngularDeps = core
-				? {
-						APP_BASE_HREF:
-							common?.APP_BASE_HREF ?? baseDeps.APP_BASE_HREF,
-						bootstrapApplication:
-							platformBrowser?.bootstrapApplication ??
-							baseDeps.bootstrapApplication,
-						domino: baseDeps.domino,
-						DomSanitizer:
-							platformBrowser?.DomSanitizer ??
-							baseDeps.DomSanitizer,
-						provideClientHydration:
-							platformBrowser?.provideClientHydration ??
-							baseDeps.provideClientHydration,
-						provideServerRendering:
-							platformServer?.provideServerRendering ??
-							baseDeps.provideServerRendering,
-						provideZonelessChangeDetection:
-							core.provideZonelessChangeDetection,
-						renderApplication:
-							platformServer?.renderApplication ??
-							baseDeps.renderApplication,
-						Sanitizer: core.Sanitizer,
-						SecurityContext: core.SecurityContext
-					}
-				: baseDeps;
-
-			// Auto-discover InjectionToken exports from the module
-			const tokenMap = new Map<string, unknown>();
-			for (const [exportName, exportValue] of Object.entries(
-				pageModule
-			)) {
-				if (
-					exportValue &&
-					typeof exportValue === 'object' &&
-					(exportValue as { ngMetadataName?: string })
-						.ngMetadataName === 'InjectionToken'
-				) {
-					tokenMap.set(exportName, exportValue);
-				}
-			}
-
-			// Read selector — cached per pagePath since it never changes
-			let selector = selectorCache.get(pagePath);
-			if (!selector) {
-				const cmpDef = (PageComponent as any).ɵcmp;
-				selector = cmpDef?.selectors?.[0]?.[0];
-				if (!selector) {
-					const annotations =
-						(PageComponent as any).__annotations__ ||
-						(PageComponent as any).decorators?.map(
-							(d: any) => d.annotation
-						);
-					if (annotations) {
-						for (const ann of annotations) {
-							if (ann?.selector) {
-								selector = ann.selector;
-								break;
-							}
-						}
-					}
-				}
-				selector = selector || 'ng-app';
-				selectorCache.set(pagePath, selector);
-			}
+			const tokenMap = discoverTokens(pageModule);
+			const selector = resolveSelector(pagePath, PageComponent);
 
 			const htmlString = `<!DOCTYPE html><html>${headTag}<body><${selector}></${selector}></body></html>`;
 			const document = createDominoDocument(htmlString, deps.domino);
 
-			// Build providers — when using re-exported deps (core !== undefined),
-			// the DomSanitizer class may differ from the cached one, so we
-			// must rebuild the sanitizer to avoid instanceof mismatches.
-			if (core) ssrSanitizer = null;
+			if (ssrResult?.core) ssrSanitizer = null;
 			const sanitizer = getSsrSanitizer(deps);
-			const providers: any[] = [
-				deps.provideServerRendering(),
-				deps.provideClientHydration(),
-				deps.provideZonelessChangeDetection(),
-				{ provide: deps.APP_BASE_HREF, useValue: '/' },
-				{
-					provide: deps.DomSanitizer,
-					useValue: sanitizer
-				},
-				{ provide: deps.Sanitizer, useValue: sanitizer }
-			];
+			const providers = buildProviders(
+				deps,
+				sanitizer,
+				maybeProps,
+				tokenMap
+			);
 
-			if (maybeProps) {
-				for (const [propName, propValue] of Object.entries(
-					maybeProps
-				)) {
-					const tokenName = toScreamingSnake(propName);
-					const token = tokenMap.get(tokenName);
-					if (token) {
-						providers.push({
-							provide: token,
-							useValue: propValue
-						});
-					}
-				}
-			}
+			const rawHtml: string = await renderAngularApp(
+				deps,
+				PageComponent,
+				providers,
+				document
+			);
 
-			// Bootstrap + render
-			// Suppress Angular's "development mode" console noise during
-			// SSR — it's meant for the browser, not server.
-			const origLog = console.log;
-			console.log = (...args: unknown[]) => {
-				if (
-					typeof args[0] === 'string' &&
-					args[0].includes('development mode')
-				) {
-					return;
-				}
-				origLog.apply(console, args);
-			};
-
-			const bootstrap = (context: any) =>
-				(
-					deps.bootstrapApplication as (
-						component: Type<unknown>,
-						config?: { providers?: unknown[] },
-						context?: any
-					) => Promise<unknown>
-				)(PageComponent, { providers }, context);
-
-			let html: string;
-			try {
-				html = await deps.renderApplication(bootstrap as any, {
-					document,
-					platformProviders: [],
-					url: '/'
-				});
-			} finally {
-				console.log = origLog;
-			}
-
-			// Inject client scripts registered during SSR
-			const registeredScripts = getAndClearClientScripts(requestId);
-			if (registeredScripts.length > 0) {
-				html = injectBeforeClose(
-					html,
-					generateClientScriptCode(registeredScripts)
-				);
-			}
-
-			// Inject Angular hydration index module script
-			if (indexPath) {
-				html = injectBeforeClose(
-					html,
-					`<script type="module" src="${indexPath}"></script>`
-				);
-			}
+			const html = injectSsrScripts(rawHtml, requestId, indexPath);
 
 			return new Response(html, {
 				headers: { 'Content-Type': 'text/html' }

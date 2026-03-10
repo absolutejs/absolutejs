@@ -5,9 +5,16 @@ import { WS_READY_STATE_OPEN } from '../../types/websocket';
 import type { HMRClientMessage } from '../../types/messages';
 import { isValidHMRClientMessage } from '../../types/messages';
 
-/* Magic pt. 2 - when a browser connects to our WebSocket
-   We send them the current manifest so they know what files exist
-   Like giving them a menu of all the dishes we can serve */
+const trySendMessage = (client: HMRWebSocket, messageStr: string) => {
+	try {
+		client.send(messageStr);
+
+		return true;
+	} catch {
+		return false;
+	}
+};
+
 export const broadcastToClients = (
 	state: HMRState,
 	message: { type: string; [key: string]: any }
@@ -17,27 +24,20 @@ export const broadcastToClients = (
 		timestamp: Date.now()
 	});
 
-	let sentCount = 0;
+	const shouldRemove = (client: HMRWebSocket) => {
+		if (client.readyState !== WS_READY_STATE_OPEN) return true;
+
+		return !trySendMessage(client, messageStr);
+	};
+
 	const clientsToRemove: HMRWebSocket[] = [];
+	state.connectedClients.forEach((client) => {
+		if (shouldRemove(client)) clientsToRemove.push(client);
+	});
 
-	for (const client of state.connectedClients) {
-		if (client.readyState === WS_READY_STATE_OPEN) {
-			try {
-				client.send(messageStr);
-				sentCount++;
-			} catch {
-				clientsToRemove.push(client);
-			}
-		} else {
-			// Mark closed clients for removal
-			clientsToRemove.push(client);
-		}
-	}
-
-	// Remove closed/failed clients
-	for (const client of clientsToRemove) {
+	clientsToRemove.forEach((client) => {
 		state.connectedClients.delete(client);
-	}
+	});
 };
 export const handleClientConnect = (
 	state: HMRState,
@@ -46,7 +46,6 @@ export const handleClientConnect = (
 ) => {
 	state.connectedClients.add(client);
 
-	// Send them the current state of the menu (manifest) and module versions
 	const serverVersions = serializeModuleVersions(state.moduleVersions);
 	client.send(
 		JSON.stringify({
@@ -59,7 +58,6 @@ export const handleClientConnect = (
 		})
 	);
 
-	// And confirm they're connected
 	client.send(
 		JSON.stringify({
 			message: 'HMR client connected successfully',
@@ -74,33 +72,62 @@ export const handleClientDisconnect = (
 ) => {
 	state.connectedClients.delete(client);
 };
+
+const parseMessage = (message: unknown) => {
+	if (typeof message === 'string') {
+		return JSON.parse(message) as unknown;
+	}
+
+	if (message instanceof Buffer) {
+		return JSON.parse(message.toString()) as unknown;
+	}
+
+	if (message instanceof ArrayBuffer) {
+		return JSON.parse(
+			new TextDecoder().decode(new Uint8Array(message))
+		) as unknown;
+	}
+
+	if (ArrayBuffer.isView(message)) {
+		return JSON.parse(
+			new TextDecoder().decode(message as Uint8Array)
+		) as unknown;
+	}
+
+	if (typeof message === 'object' && message !== null) {
+		return message;
+	}
+
+	return null;
+};
+
+const handleParsedMessage = (client: HMRWebSocket, data: HMRClientMessage) => {
+	switch (data.type) {
+		case 'ping':
+			client.send(
+				JSON.stringify({
+					timestamp: Date.now(),
+					type: 'pong'
+				})
+			);
+			break;
+
+		case 'request-rebuild':
+			break;
+
+		case 'ready':
+			break;
+	}
+};
+
 export const handleHMRMessage = (
 	state: HMRState,
 	client: HMRWebSocket,
 	message: unknown
 ) => {
 	try {
-		/* WebSocket messages can come in different formats
-       sometimes they're strings, sometimes they're Buffers, sometimes they're objects...
-       we need to handle all of them because JavaScript is weird like that */
-		let parsedData: unknown;
-
-		if (typeof message === 'string') {
-			parsedData = JSON.parse(message);
-		} else if (message instanceof Buffer) {
-			parsedData = JSON.parse(message.toString());
-		} else if (message instanceof ArrayBuffer) {
-			parsedData = JSON.parse(
-				new TextDecoder().decode(new Uint8Array(message))
-			);
-		} else if (ArrayBuffer.isView(message)) {
-			parsedData = JSON.parse(
-				new TextDecoder().decode(message as Uint8Array)
-			);
-		} else if (typeof message === 'object' && message !== null) {
-			// Message is already an object - no parsing needed
-			parsedData = message;
-		} else {
+		const parsedData = parseMessage(message);
+		if (parsedData === null) {
 			return;
 		}
 
@@ -108,25 +135,6 @@ export const handleHMRMessage = (
 			return;
 		}
 
-		const data: HMRClientMessage = parsedData;
-
-		switch (data.type) {
-			case 'ping':
-				// Client is checking if we're alive - respond with pong
-				client.send(
-					JSON.stringify({
-						timestamp: Date.now(),
-						type: 'pong'
-					})
-				);
-				break;
-
-			case 'request-rebuild':
-				// Note: triggerRebuild would be called from outside
-				break;
-
-			case 'ready':
-				break;
-		}
+		handleParsedMessage(client, parsedData);
 	} catch {}
 };

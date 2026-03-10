@@ -12,7 +12,7 @@ import { DEFAULT_SERVER_ENTRY } from './utils';
 const command = process.argv[2];
 const args = process.argv.slice(3);
 
-const parseNamedArg = (flag: string): string | undefined => {
+const parseNamedArg = (flag: string) => {
 	const idx = args.indexOf(flag);
 	if (idx === -1) return undefined;
 

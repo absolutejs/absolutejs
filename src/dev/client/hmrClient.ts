@@ -1,8 +1,6 @@
 /* AbsoluteJS HMR Client - Entry point
    Initializes WebSocket connection, dispatches messages to framework handlers */
 
-import '../../../types/client'; // Window global type extensions
-
 import { hmrState } from '../../../types/client';
 import { detectCurrentFramework } from './frameworkDetect';
 import { hideErrorOverlay, showErrorOverlay } from './errorOverlay';
@@ -62,6 +60,85 @@ window.addEventListener('unhandledrejection', (evt) => {
 	});
 });
 
+const hmrUpdateTypes = new Set([
+	'angular-update',
+	'react-update',
+	'html-update',
+	'htmx-update',
+	'vue-update',
+	'svelte-update',
+	'style-update',
+	'module-update',
+	'rebuild-start'
+]);
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const handleHMRMessage = (message: any) => {
+	if (hmrUpdateTypes.has(message.type)) {
+		hmrState.isHMRUpdating = true;
+		setTimeout(() => {
+			hmrState.isHMRUpdating = false;
+		}, 2000);
+	}
+
+	switch (message.type) {
+		case 'manifest':
+			handleManifest(message);
+			break;
+		case 'rebuild-start':
+			break;
+		case 'rebuild-complete':
+			handleRebuildComplete(message);
+			break;
+		case 'framework-update':
+			break;
+		case 'module-update':
+			hideErrorOverlay();
+			handleModuleUpdate(message);
+			break;
+		case 'react-update':
+			handleReactUpdate(message);
+			break;
+		case 'script-update':
+			hideErrorOverlay();
+			handleScriptUpdate(message);
+			break;
+		case 'html-update':
+			hideErrorOverlay();
+			handleHTMLUpdate(message);
+			break;
+		case 'htmx-update':
+			hideErrorOverlay();
+			handleHTMXUpdate(message);
+			break;
+		case 'svelte-update':
+			hideErrorOverlay();
+			handleSvelteUpdate(message);
+			break;
+		case 'vue-update':
+			hideErrorOverlay();
+			handleVueUpdate(message);
+			break;
+		case 'angular-update':
+			hideErrorOverlay();
+			handleAngularUpdate(message);
+			break;
+		case 'rebuild-error':
+			handleRebuildError(message);
+			break;
+		case 'full-reload':
+			handleFullReload();
+			break;
+		case 'pong':
+			break;
+		case 'style-update':
+			reloadCSSStylesheets(message.data.manifest);
+			break;
+		default:
+			break;
+	}
+};
+
 // Prevent multiple WebSocket connections
 if (!(window.__HMR_WS__ && window.__HMR_WS__.readyState === WebSocket.OPEN)) {
 	// Determine WebSocket URL
@@ -99,101 +176,14 @@ if (!(window.__HMR_WS__ && window.__HMR_WS__.readyState === WebSocket.OPEN)) {
 	};
 
 	wsc.onmessage = function (event: MessageEvent) {
+		let message;
 		try {
-			const message = JSON.parse(event.data as string);
-
-			if (
-				message.type === 'angular-update' ||
-				message.type === 'react-update' ||
-				message.type === 'html-update' ||
-				message.type === 'htmx-update' ||
-				message.type === 'vue-update' ||
-				message.type === 'svelte-update' ||
-				message.type === 'style-update' ||
-				message.type === 'module-update' ||
-				message.type === 'rebuild-start'
-			) {
-				hmrState.isHMRUpdating = true;
-				setTimeout(() => {
-					hmrState.isHMRUpdating = false;
-				}, 2000);
-			}
-
-			switch (message.type) {
-				case 'manifest':
-					handleManifest(message);
-					break;
-
-				case 'rebuild-start':
-					break;
-
-				case 'rebuild-complete':
-					handleRebuildComplete(message);
-					break;
-
-				case 'framework-update':
-					break;
-
-				case 'module-update':
-					hideErrorOverlay();
-					handleModuleUpdate(message);
-					break;
-
-				case 'react-update':
-					handleReactUpdate(message);
-					break;
-
-				case 'script-update':
-					hideErrorOverlay();
-					handleScriptUpdate(message);
-					break;
-
-				case 'html-update':
-					hideErrorOverlay();
-					handleHTMLUpdate(message);
-					break;
-
-				case 'htmx-update':
-					hideErrorOverlay();
-					handleHTMXUpdate(message);
-					break;
-
-				case 'svelte-update':
-					hideErrorOverlay();
-					handleSvelteUpdate(message);
-					break;
-
-				case 'vue-update':
-					hideErrorOverlay();
-					handleVueUpdate(message);
-					break;
-
-				case 'angular-update':
-					hideErrorOverlay();
-					handleAngularUpdate(message);
-					break;
-
-				case 'rebuild-error':
-					handleRebuildError(message);
-					break;
-
-				case 'full-reload':
-					handleFullReload();
-					break;
-
-				case 'pong':
-					break;
-
-				case 'style-update':
-					reloadCSSStylesheets(message.data.manifest);
-					break;
-
-				default:
-					break;
-			}
+			message = JSON.parse(event.data as string);
 		} catch {
-			/* ignore parse errors */
+			return;
 		}
+
+		handleHMRMessage(message);
 	};
 
 	wsc.onclose = function (event: CloseEvent) {

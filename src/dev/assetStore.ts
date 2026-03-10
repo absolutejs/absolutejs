@@ -13,7 +13,7 @@ const mimeTypes: Record<string, string> = {
 };
 
 /** Determine Content-Type from a file path extension */
-export const getMimeType = (filePath: string): string => {
+export const getMimeType = (filePath: string) => {
 	const ext = filePath.slice(filePath.lastIndexOf('.'));
 
 	return mimeTypes[ext] ?? 'application/octet-stream';
@@ -24,8 +24,30 @@ const HASHED_FILE_RE = /\.[a-z0-9]{8}\.(js|css|mjs)$/;
 
 /** Strip the 8-char hash from a hashed path to get its logical identity.
  *  e.g. /react/indexes/ReactExample.abc12345.js → /react/indexes/ReactExample.js */
-const stripHash = (webPath: string): string =>
+const stripHash = (webPath: string) =>
 	webPath.replace(/\.[a-z0-9]{8}(\.(js|css|mjs))$/, '$1');
+
+const processWalkEntry = (
+	entry: import('node:fs').Dirent,
+	dir: string,
+	liveByIdentity: Map<string, string>,
+	walkAndClean: (dir: string) => Promise<void>
+) => {
+	const fullPath = resolve(dir, entry.name);
+	if (entry.isDirectory()) {
+		return walkAndClean(fullPath);
+	}
+	if (!HASHED_FILE_RE.test(entry.name)) {
+		return null;
+	}
+	const identity = stripHash(fullPath);
+	const livePath = liveByIdentity.get(identity);
+	if (livePath && livePath !== fullPath) {
+		return unlink(fullPath).catch(() => {});
+	}
+
+	return null;
+};
 
 /** Upsert build outputs into the in-memory asset store.
  *  Evicts previous entries for the same logical asset (same base name,
@@ -47,34 +69,21 @@ export const cleanStaleAssets = async (
 	// SSR server files from the manifest (absolute disk paths like
 	// /home/.../build/svelte/.../SvelteExample.hash.js)
 	const absBuildDir = resolve(buildDir);
-	for (const val of Object.values(manifest)) {
-		if (!HASHED_FILE_RE.test(val)) continue;
-		// Absolute disk paths start with the buildDir; web-relative
-		// paths (e.g. /svelte/compiled/...) are short and already
-		// covered by the store above.
+	Object.values(manifest).forEach((val) => {
+		if (!HASHED_FILE_RE.test(val)) return;
 		if (val.startsWith(absBuildDir)) {
 			liveByIdentity.set(stripHash(val), val);
 		}
-	}
+	});
 
 	try {
 		const walkAndClean = async (dir: string) => {
 			const entries = await readdir(dir, { withFileTypes: true });
-			const tasks: Promise<void>[] = [];
-			for (const entry of entries) {
-				const fullPath = resolve(dir, entry.name);
-				if (entry.isDirectory()) {
-					tasks.push(walkAndClean(fullPath));
-				} else if (HASHED_FILE_RE.test(entry.name)) {
-					const identity = stripHash(fullPath);
-					const livePath = liveByIdentity.get(identity);
-					// Only delete if we have a DIFFERENT version of the
-					// same logical file. Untracked files are left alone.
-					if (livePath && livePath !== fullPath) {
-						tasks.push(unlink(fullPath).catch(() => {}));
-					}
-				}
-			}
+			const tasks = entries
+				.map((entry) =>
+					processWalkEntry(entry, dir, liveByIdentity, walkAndClean)
+				)
+				.filter((task): task is Promise<void> => task !== null);
 			await Promise.all(tasks);
 		};
 		await walkAndClean(buildDir);
@@ -82,10 +91,35 @@ export const cleanStaleAssets = async (
 		/* buildDir may not exist */
 	}
 };
-export const lookupAsset = (
+export const lookupAsset = (store: Map<string, Uint8Array>, path: string) =>
+	store.get(path);
+
+const processScanEntry = (
+	entry: import('node:fs').Dirent,
+	dir: string,
+	prefix: string,
 	store: Map<string, Uint8Array>,
-	path: string
-): Uint8Array | undefined => store.get(path);
+	scanDir: (dir: string, prefix: string) => Promise<void>
+) => {
+	if (entry.isDirectory()) {
+		return scanDir(resolve(dir, entry.name), `${prefix}${entry.name}/`);
+	}
+	if (!entry.name.startsWith('chunk-')) {
+		return null;
+	}
+	const webPath = `/${prefix}${entry.name}`;
+	if (store.has(webPath)) {
+		return null;
+	}
+
+	return Bun.file(resolve(dir, entry.name))
+		.bytes()
+		.then((bytes) => {
+			store.set(webPath, bytes);
+		})
+		.catch(() => {});
+};
+
 export const populateAssetStore = async (
 	store: Map<string, Uint8Array>,
 	manifest: Record<string, string>,
@@ -102,13 +136,12 @@ export const populateAssetStore = async (
 	}
 
 	// Evict old store entries whose logical identity is being replaced
-	for (const existingPath of store.keys()) {
-		const identity = stripHash(existingPath);
-		const replacement = newIdentities.get(identity);
-		if (replacement && replacement !== existingPath) {
-			store.delete(existingPath);
-		}
-	}
+	const staleKeys = [...store.keys()].filter((existingPath) => {
+		const replacement = newIdentities.get(stripHash(existingPath));
+
+		return replacement !== undefined && replacement !== existingPath;
+	});
+	staleKeys.forEach((key) => store.delete(key));
 
 	for (const webPath of newIdentities.values()) {
 		// Skip entries already in the store — their content hasn't changed
@@ -132,29 +165,11 @@ export const populateAssetStore = async (
 	try {
 		const scanDir = async (dir: string, prefix: string) => {
 			const entries = await readdir(dir, { withFileTypes: true });
-			const subTasks: Promise<void>[] = [];
-			for (const entry of entries) {
-				if (entry.isDirectory()) {
-					subTasks.push(
-						scanDir(
-							resolve(dir, entry.name),
-							`${prefix}${entry.name}/`
-						)
-					);
-				} else if (entry.name.startsWith('chunk-')) {
-					const webPath = `/${prefix}${entry.name}`;
-					if (!store.has(webPath)) {
-						subTasks.push(
-							Bun.file(resolve(dir, entry.name))
-								.bytes()
-								.then((bytes) => {
-									store.set(webPath, bytes);
-								})
-								.catch(() => {})
-						);
-					}
-				}
-			}
+			const subTasks = entries
+				.map((entry) =>
+					processScanEntry(entry, dir, prefix, store, scanDir)
+				)
+				.filter((task): task is Promise<void> => task !== null);
 			await Promise.all(subTasks);
 		};
 		await scanDir(buildDir, '');

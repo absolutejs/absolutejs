@@ -13,16 +13,9 @@ export const getAllNetworkIPs = () => {
 	// Only collect IPv4 addresses
 	const ipv4Addresses: string[] = [];
 
-	for (const addr of addresses) {
-		// Skip loopback and internal addresses
-		if (addr.internal) continue;
-
-		// Only include IPv4 addresses
-		if (addr.family === 'IPv4') {
-			ipv4Addresses.push(addr.address);
-		}
-		// IPv6 addresses are excluded completely
-	}
+	addresses
+		.filter((addr) => !addr.internal && addr.family === 'IPv4')
+		.forEach((addr) => ipv4Addresses.push(addr.address));
 
 	return ipv4Addresses;
 };

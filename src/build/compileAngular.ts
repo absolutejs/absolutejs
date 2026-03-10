@@ -365,7 +365,7 @@ export const compileAngularFileJIT = async (inputPath: string, outDir: string, r
 	};
 
 	/** Transpile a single .ts file and recursively process its local imports */
-	const transpileFile = async (filePath: string): Promise<void> => {
+	const transpileFile = async (filePath: string) => {
 		const resolved = resolve(filePath);
 		if (visited.has(resolved)) return;
 		visited.add(resolved);

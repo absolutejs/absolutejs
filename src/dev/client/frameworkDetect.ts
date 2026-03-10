@@ -23,9 +23,9 @@ export const findIndexPath = (
 
 	if (sourceFile) {
 		const componentName = getComponentNameFromPath(sourceFile);
-		if (componentName) {
-			const indexKey = `${componentName}Index`;
-			if (manifest[indexKey]) return manifest[indexKey];
+		const indexKey = componentName ? `${componentName}Index` : null;
+		if (indexKey && manifest[indexKey]) {
+			return manifest[indexKey];
 		}
 	}
 

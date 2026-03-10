@@ -21,19 +21,26 @@ const WORD_COMMANDS: Record<string, keyof Omit<Actions, 'shell'>> = {
 	resume: 'pause'
 };
 
-const openTtyStream = (): ReadStream | null => {
-	// Try process.stdin first if it supports raw mode
-	if (typeof process.stdin.setRawMode === 'function') {
-		try {
-			process.stdin.setRawMode(true);
-
-			return process.stdin as unknown as ReadStream;
-		} catch {
-			/* stdin is not a real TTY */
-		}
+const trySetRawMode = () => {
+	if (typeof process.stdin.setRawMode !== 'function') {
+		return null;
 	}
 
-	// Fallback: open /dev/tty directly to bypass piped stdin
+	try {
+		process.stdin.setRawMode(true);
+	} catch {
+		return null;
+	}
+
+	return process.stdin as unknown as ReadStream;
+};
+
+const openTtyStream = () => {
+	const fromStdin = trySetRawMode();
+	if (fromStdin) {
+		return fromStdin;
+	}
+
 	try {
 		const ttyStream = new ReadStream(openSync('/dev/tty', 'r'));
 		ttyStream.setRawMode(true);
@@ -42,6 +49,28 @@ const openTtyStream = (): ReadStream | null => {
 	} catch {
 		return null;
 	}
+};
+
+const runShellCommand = async (actions: Actions, cmd: string) => {
+	try {
+		await actions.shell(cmd);
+	} catch {
+		/* command failed */
+	}
+};
+
+const handleActionResult = (
+	action: string,
+	renderLine: (value: string) => void,
+	setNeedsPrompt: (value: boolean) => void
+) => {
+	if (action === 'restart') {
+		setNeedsPrompt(true);
+
+		return;
+	}
+
+	renderLine('');
 };
 
 export const createInteractiveHandler = (
@@ -53,6 +82,10 @@ export const createInteractiveHandler = (
 	let escapeSeq = '';
 	const history: string[] = [];
 	let historyIndex = -1;
+
+	const setNeedsPrompt = (value: boolean) => {
+		needsPrompt = value;
+	};
 
 	const renderLine = (value: string) => {
 		const prefix = shellMode ? '\x1b[33m$ \x1b[0m' : '\x1b[90m> \x1b[0m';
@@ -78,48 +111,45 @@ export const createInteractiveHandler = (
 
 		if (trimmed.startsWith('$')) {
 			const cmd = trimmed.slice(1).trim();
-			if (cmd.length > 0) {
-				try {
-					await actions.shell(cmd);
-				} catch {
-					/* command failed */
-				}
-				renderLine('');
-
+			if (cmd.length === 0) {
 				return;
 			}
+
+			await runShellCommand(actions, cmd);
+			renderLine('');
+
+			return;
 		}
 
 		const wordAction = WORD_COMMANDS[trimmed.toLowerCase()];
 		if (wordAction) {
 			await actions[wordAction]();
-			if (wordAction === 'restart') {
-				needsPrompt = true;
-			} else {
-				renderLine('');
-			}
+			handleActionResult(wordAction, renderLine, setNeedsPrompt);
 
 			return;
 		}
 
-		if (trimmed.length === 1) {
-			const shortcutAction = SHORTCUTS[trimmed];
-			if (shortcutAction) {
-				await actions[shortcutAction]();
-				if (shortcutAction === 'restart') {
-					needsPrompt = true;
-				} else {
-					renderLine('');
-				}
+		if (trimmed.length !== 1) {
+			console.log(
+				`\x1b[31mUnknown command: ${trimmed}\x1b[0m (press h + enter for help)`
+			);
+			renderLine('');
 
-				return;
-			}
+			return;
 		}
 
-		console.log(
-			`\x1b[31mUnknown command: ${trimmed}\x1b[0m (press h + enter for help)`
-		);
-		renderLine('');
+		const shortcutAction = SHORTCUTS[trimmed];
+		if (!shortcutAction) {
+			console.log(
+				`\x1b[31mUnknown command: ${trimmed}\x1b[0m (press h + enter for help)`
+			);
+			renderLine('');
+
+			return;
+		}
+
+		await actions[shortcutAction]();
+		handleActionResult(shortcutAction, renderLine, setNeedsPrompt);
 	};
 
 	const handleShellLine = async (line: string) => {
@@ -140,128 +170,127 @@ export const createInteractiveHandler = (
 		renderLine('');
 	};
 
-	const handleArrow = (arrow: string) => {
-		// Up arrow
-		if (arrow === 'A' && history.length > 0) {
-			if (historyIndex < history.length - 1) {
-				historyIndex++;
-			}
-			const entry = history[history.length - 1 - historyIndex];
-			if (entry) renderLine(entry);
+	const navigateHistoryUp = () => {
+		if (history.length === 0) {
+			return;
 		}
 
-		// Down arrow
-		if (arrow === 'B') {
-			if (historyIndex > 0) {
-				historyIndex--;
-				const entry = history[history.length - 1 - historyIndex];
-				if (entry) renderLine(entry);
-			} else {
-				historyIndex = -1;
-				renderLine('');
-			}
+		if (historyIndex < history.length - 1) {
+			historyIndex++;
 		}
+		const entry = history[history.length - 1 - historyIndex];
+		if (entry) renderLine(entry);
+	};
+
+	const navigateHistoryDown = () => {
+		if (historyIndex <= 0) {
+			historyIndex = -1;
+			renderLine('');
+
+			return;
+		}
+
+		historyIndex--;
+		const entry = history[history.length - 1 - historyIndex];
+		if (entry) renderLine(entry);
+	};
+
+	const handleArrow = (arrow: string) => {
+		if (arrow === 'A') navigateHistoryUp();
+		if (arrow === 'B') navigateHistoryDown();
+	};
+
+	const handleCtrlC = () => {
+		const wasShellMode = shellMode;
+		shellMode = false;
+		buffer = '';
+		historyIndex = -1;
+		process.stdout.write('\n');
+		if (wasShellMode) {
+			needsPrompt = true;
+
+			return;
+		}
+
+		actions.quit();
+	};
+
+	const handleEnter = () => {
+		process.stdout.write('\n');
+		const line = buffer;
+		buffer = '';
+		historyIndex = -1;
+
+		if (line.trim().length > 0) history.push(line);
+		if (shellMode) handleShellLine(line);
+		else handleLine(line);
 	};
 
 	const handleChar = (char: string) => {
-		// Ctrl+C
 		if (char === '\x03') {
-			if (shellMode) {
-				shellMode = false;
-				buffer = '';
-				historyIndex = -1;
-				needsPrompt = true;
-				process.stdout.write('\n');
-			} else {
-				buffer = '';
-				historyIndex = -1;
-				process.stdout.write('\n');
-				actions.quit();
-			}
+			handleCtrlC();
 
 			return;
 		}
 
-		// Backspace
 		if (char === '\x7f' || char === '\b') {
-			if (buffer.length > 0) {
-				renderLine(buffer.slice(0, -1));
-			}
+			if (buffer.length > 0) renderLine(buffer.slice(0, -1));
 
 			return;
 		}
 
-		// Enter
 		if (char === '\r' || char === '\n') {
-			process.stdout.write('\n');
-			const line = buffer;
-			buffer = '';
-			historyIndex = -1;
-
-			if (line.trim().length > 0) {
-				history.push(line);
-			}
-
-			if (shellMode) {
-				handleShellLine(line);
-			} else {
-				handleLine(line);
-			}
+			handleEnter();
 
 			return;
 		}
 
-		// Ignore other control characters
 		if (char.charCodeAt(0) < 32) {
 			return;
 		}
 
-		// Lazy prompt: first visible char after an action
-		// renders on whatever line the cursor is now on
 		if (needsPrompt) {
 			process.stdout.write('\n');
 		}
 		renderLine(buffer + char);
 	};
 
+	const processEscapeChar = (char: string) => {
+		escapeSeq += char;
+
+		if (escapeSeq.length === 2 && char !== '[') {
+			escapeSeq = '';
+
+			return;
+		}
+
+		if (escapeSeq.length === 3) {
+			handleArrow(char);
+			escapeSeq = '';
+		}
+	};
+
+	const processChar = (char: string) => {
+		if (escapeSeq.length > 0) {
+			processEscapeChar(char);
+
+			return;
+		}
+
+		if (char === '\x1b') {
+			escapeSeq = '\x1b';
+
+			return;
+		}
+
+		handleChar(char);
+	};
+
 	const onData = (data: Buffer) => {
 		const str = data.toString();
 
 		for (let idx = 0; idx < str.length; idx++) {
-			const char = str.charAt(idx);
-
-			// Collecting escape sequence across data events
-			if (escapeSeq.length > 0) {
-				escapeSeq += char;
-
-				// Got ESC + next char: must be '[' or bail
-				if (escapeSeq.length === 2) {
-					if (char !== '[') {
-						escapeSeq = '';
-					}
-
-					continue;
-				}
-
-				// Got ESC [ X: handle arrow and reset
-				if (escapeSeq.length === 3) {
-					handleArrow(char);
-					escapeSeq = '';
-
-					continue;
-				}
-
-				continue;
-			}
-
-			// Start of escape sequence
-			if (char === '\x1b') {
-				escapeSeq = '\x1b';
-
-				continue;
-			}
-
-			handleChar(char);
+			processChar(str.charAt(idx));
 		}
 	};
 
@@ -271,18 +300,24 @@ export const createInteractiveHandler = (
 	input.resume();
 	input.on('data', onData);
 
-	const dispose = () => {
-		input.removeListener('data', onData);
-		if (ttyStream) {
-			try {
-				ttyStream.setRawMode(false);
-			} catch {
-				/* already closed */
-			}
+	const disposeTtyStream = () => {
+		if (!ttyStream) {
+			return;
 		}
-		if (ttyStream && ttyStream !== (process.stdin as unknown)) {
+
+		try {
+			ttyStream.setRawMode(false);
+		} catch {
+			/* already closed */
+		}
+		if (ttyStream !== (process.stdin as unknown)) {
 			ttyStream.destroy();
 		}
+	};
+
+	const dispose = () => {
+		input.removeListener('data', onData);
+		disposeTtyStream();
 		process.stdin.pause();
 	};
 

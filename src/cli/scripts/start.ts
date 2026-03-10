@@ -18,6 +18,74 @@ import {
 const cliTag = (color: string, message: string) =>
 	`\x1b[2m${formatTimestamp()}\x1b[0m ${color}[cli]\x1b[0m ${color}${message}\x1b[0m`;
 
+const resolvePackageVersion = (candidates: string[]) => {
+	for (const candidate of candidates) {
+		const version = readPackageVersion(candidate);
+		if (version) {
+			return version;
+		}
+	}
+
+	return '';
+};
+
+const readPackageVersion = (candidate: string) => {
+	try {
+		const pkg = JSON.parse(readFileSync(candidate, 'utf-8'));
+		if (pkg.name === '@absolutejs/absolute') {
+			return pkg.version as string;
+		}
+	} catch {
+		/* try next candidate */
+	}
+
+	return null;
+};
+
+const resolveBuildModule = async (candidates: string[]) => {
+	for (const candidate of candidates) {
+		const mod = await tryImportBuild(candidate);
+		if (mod) {
+			return mod;
+		}
+	}
+
+	return undefined;
+};
+
+const tryImportBuild = async (candidate: string) => {
+	try {
+		const mod = await import(candidate);
+
+		return mod.build as typeof import('../../core/build').build;
+	} catch {
+		return null;
+	}
+};
+
+const handleBundleFailure = (
+	serverBundle: {
+		logs: Array<{ level: string; message?: { toString(): string } }>;
+	},
+	bundleStart: number,
+	serverEntry: string
+) => {
+	serverBundle.logs.forEach((log) => {
+		console.error(log);
+	});
+	sendTelemetryEvent('start:bundle-error', {
+		durationMs: Math.round(performance.now() - bundleStart),
+		entry: serverEntry,
+		message:
+			serverBundle.logs
+				.find((log) => log.level === 'error')
+				?.message?.toString()
+				.slice(0, 200) ?? 'Unknown error'
+	});
+	console.error(cliTag('\x1b[31m', 'Server bundle failed.'));
+	process.exit(1);
+};
+
 export const start = async (
 	serverEntry: string,
 	outdir?: string,
@@ -30,22 +98,10 @@ export const start = async (
 	const resolvedOutdir = resolve(outdir ?? 'dist');
 
 	// ── Resolve package version ─────────────────────────────────────
-	let absoluteVersion = '';
-	const versionCandidates = [
+	const absoluteVersion = resolvePackageVersion([
 		resolve(import.meta.dir, '..', '..', '..', 'package.json'),
 		resolve(import.meta.dir, '..', '..', 'package.json')
-	];
-	for (const candidate of versionCandidates) {
-		try {
-			const pkg = JSON.parse(readFileSync(candidate, 'utf-8'));
-			if (pkg.name === '@absolutejs/absolute') {
-				absoluteVersion = pkg.version;
-				break;
-			}
-		} catch {
-			/* try next candidate */
-		}
-	}
+	]);
 
 	// ── Run build step ──────────────────────────────────────────────
 	const buildStepStart = performance.now();
@@ -65,20 +121,10 @@ export const start = async (
 	].filter(Boolean) as string[];
 
 	try {
-		const candidates = [
+		const build = await resolveBuildModule([
 			resolve(import.meta.dir, '..', '..', 'core', 'build'),
 			resolve(import.meta.dir, '..', 'build')
-		];
-		let build: typeof import('../../core/build').build | undefined;
-		for (const candidate of candidates) {
-			try {
-				const mod = await import(candidate);
-				build = mod.build;
-				break;
-			} catch {
-				/* try next candidate */
-			}
-		}
+		]);
 		if (!build) throw new Error('Could not locate build module');
 		await build(buildConfig);
 	} catch (err) {
@@ -197,20 +243,7 @@ export const start = async (
 	});
 
 	if (!serverBundle.success) {
-		for (const log of serverBundle.logs) {
-			console.error(log);
-		}
-		sendTelemetryEvent('start:bundle-error', {
-			durationMs: Math.round(performance.now() - bundleStart),
-			entry: serverEntry,
-			message:
-				serverBundle.logs
-					.find((l) => l.level === 'error')
-					?.message?.toString()
-					.slice(0, 200) ?? 'Unknown error'
-		});
-		console.error(cliTag('\x1b[31m', 'Server bundle failed.'));
-		process.exit(1);
+		handleBundleFailure(serverBundle, bundleStart, serverEntry);
 	}
 
 	const outputPath = resolve(resolvedOutdir, `${entryName}.js`);
@@ -264,7 +297,7 @@ export const start = async (
 		stdout: 'inherit'
 	});
 
-	const cleanup = async (exitCode = 0): Promise<void> => {
+	const cleanup = async (exitCode = 0) => {
 		if (cleaning) return;
 		cleaning = true;
 		sendTelemetryEvent('start:session-duration', {
@@ -285,15 +318,15 @@ export const start = async (
 	process.on('SIGTERM', () => cleanup(0));
 
 	const exitCode = await serverProcess.exited;
-	if (!cleaning) {
-		console.error(
-			cliTag('\x1b[31m', `Server exited with code ${exitCode}.`)
-		);
-		sendTelemetryEvent('start:server-exit', {
-			entry: serverEntry,
-			exitCode
-		});
-		if (scripts) await stopDatabase(scripts);
-		process.exit(exitCode);
+	if (cleaning) {
+		return;
 	}
+
+	console.error(cliTag('\x1b[31m', `Server exited with code ${exitCode}.`));
+	sendTelemetryEvent('start:server-exit', {
+		entry: serverEntry,
+		exitCode
+	});
+	if (scripts) await stopDatabase(scripts);
+	process.exit(exitCode);
 };

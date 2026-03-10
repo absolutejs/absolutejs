@@ -11,6 +11,7 @@ export const handleFullReload = () => {
 		window.location.reload();
 	}, 200);
 };
+
 export const handleManifest = (message: {
 	data: {
 		manifest?: Record<string, string>;
@@ -31,6 +32,54 @@ export const handleManifest = (message: {
 
 	window.__HMR_MODULE_UPDATES__ = [];
 };
+
+const HMR_FRAMEWORKS = ['angular', 'react', 'vue', 'svelte', 'html', 'htmx'];
+
+const mergeRecord = (
+	source: Record<string, string | number>,
+	target: Record<string, string | number>
+) => {
+	Object.keys(source)
+		.filter((key) => Object.prototype.hasOwnProperty.call(source, key))
+		.forEach((key) => {
+			target[key] = source[key]!;
+		});
+};
+
+const mergeServerVersions = (
+	serverVersions: Record<string, number> | undefined
+) => {
+	if (!serverVersions) return;
+	const existing = window.__HMR_SERVER_VERSIONS__ || {};
+	mergeRecord(
+		serverVersions as Record<string, string | number>,
+		existing as Record<string, string | number>
+	);
+	window.__HMR_SERVER_VERSIONS__ = existing;
+};
+
+const mergeModuleVersions = (
+	moduleVersions: Record<string, number> | undefined
+) => {
+	if (!moduleVersions) return;
+	const existing = window.__HMR_MODULE_VERSIONS__ || {};
+	mergeRecord(
+		moduleVersions as Record<string, string | number>,
+		existing as Record<string, string | number>
+	);
+	window.__HMR_MODULE_VERSIONS__ = existing;
+};
+
+const mergeManifest = (manifest: Record<string, string> | undefined) => {
+	if (!manifest) return;
+	const existing = window.__HMR_MANIFEST__ || {};
+	mergeRecord(
+		manifest as Record<string, string | number>,
+		existing as Record<string, string | number>
+	);
+	window.__HMR_MANIFEST__ = existing;
+};
+
 export const handleModuleUpdate = (message: {
 	data: {
 		framework?: string;
@@ -39,67 +88,24 @@ export const handleModuleUpdate = (message: {
 		serverVersions?: Record<string, number>;
 	};
 }) => {
-	const hasHMRHandler =
-		message.data.framework === 'angular' ||
-		message.data.framework === 'react' ||
-		message.data.framework === 'vue' ||
-		message.data.framework === 'svelte' ||
-		message.data.framework === 'html' ||
-		message.data.framework === 'htmx';
+	const hasHMRHandler = HMR_FRAMEWORKS.includes(message.data.framework || '');
 
-	if (hasHMRHandler) {
-		if (message.data.serverVersions) {
-			const serverVersions = window.__HMR_SERVER_VERSIONS__ || {};
-			for (const key in message.data.serverVersions) {
-				if (
-					Object.prototype.hasOwnProperty.call(
-						message.data.serverVersions,
-						key
-					)
-				) {
-					serverVersions[key] = message.data.serverVersions[key]!;
-				}
-			}
-			window.__HMR_SERVER_VERSIONS__ = serverVersions;
-		}
-		if (message.data.moduleVersions) {
-			const moduleVersions = window.__HMR_MODULE_VERSIONS__ || {};
-			for (const key in message.data.moduleVersions) {
-				if (
-					Object.prototype.hasOwnProperty.call(
-						message.data.moduleVersions,
-						key
-					)
-				) {
-					moduleVersions[key] = message.data.moduleVersions[key]!;
-				}
-			}
-			window.__HMR_MODULE_VERSIONS__ = moduleVersions;
-		}
-		if (message.data.manifest) {
-			const manifest = window.__HMR_MANIFEST__ || {};
-			for (const key in message.data.manifest) {
-				if (
-					Object.prototype.hasOwnProperty.call(
-						message.data.manifest,
-						key
-					)
-				) {
-					manifest[key] = message.data.manifest[key]!;
-				}
-			}
-			window.__HMR_MANIFEST__ = manifest;
-		}
-		if (!window.__HMR_MODULE_UPDATES__) {
-			window.__HMR_MODULE_UPDATES__ = [];
-		}
-		window.__HMR_MODULE_UPDATES__.push(message.data);
+	if (!hasHMRHandler) {
+		window.location.reload();
 
 		return;
 	}
 
-	window.location.reload();
+	mergeServerVersions(message.data.serverVersions);
+	mergeModuleVersions(message.data.moduleVersions);
+	mergeManifest(message.data.manifest);
+
+	if (!window.__HMR_MODULE_UPDATES__) {
+		window.__HMR_MODULE_UPDATES__ = [];
+	}
+	window.__HMR_MODULE_UPDATES__.push(message.data);
 };
+
 export const handleRebuildComplete = (message: {
 	data: {
 		affectedFrameworks?: string[];
@@ -127,6 +133,7 @@ export const handleRebuildComplete = (message: {
 		window.location.href = url.toString();
 	}
 };
+
 export const handleRebuildError = (message: {
 	data: {
 		affectedFrameworks?: string[];

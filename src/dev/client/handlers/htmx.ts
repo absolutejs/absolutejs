@@ -15,6 +15,54 @@ import { detectCurrentFramework } from '../frameworkDetect';
 import type { ScriptInfo } from '../../../../types/client';
 import { hmrState } from '../../../../types/client';
 
+const parseHTMXMessage = (
+	html: string | { body?: string; head?: string } | null | undefined
+) => {
+	let body: string | null = null;
+	let head: string | null = null;
+	if (typeof html === 'string') {
+		body = html;
+	} else if (html && typeof html === 'object') {
+		body = html.body || null;
+		head = html.head || null;
+	}
+
+	return { body, head };
+};
+
+const applyHeadPatch = (htmxHead: string | null) => {
+	if (!htmxHead) {
+		return;
+	}
+
+	const doPatchHead = () => {
+		patchHeadInPlace(htmxHead);
+	};
+	if (hmrState.isFirstHMRUpdate) {
+		setTimeout(doPatchHead, 50);
+	} else {
+		doPatchHead();
+	}
+};
+
+const handleHTMXBodyUpdate = (
+	htmxBody: string,
+	htmxHead: string | null,
+	htmxDomState: ReturnType<typeof saveDOMState>
+) => {
+	const updateHTMXBodyAfterCSS = () => {
+		updateHTMXBody(htmxBody, htmxDomState, document.body);
+	};
+
+	if (htmxHead) {
+		applyHeadPatch(htmxHead);
+		const cssResult = processCSSLinks(htmxHead);
+		waitForCSSAndUpdate(cssResult, updateHTMXBodyAfterCSS);
+	} else {
+		updateHTMXBodyAfterCSS();
+	}
+};
+
 export const handleHTMXUpdate = (message: {
 	data: {
 		html?: string | { body?: string; head?: string } | null;
@@ -30,41 +78,86 @@ export const handleHTMXUpdate = (message: {
 	sessionStorage.setItem('__HMR_ACTIVE__', 'true');
 
 	const htmxDomState = saveDOMState(document.body);
+	const { body: htmxBody, head: htmxHead } = parseHTMXMessage(
+		message.data.html
+	);
 
-	let htmxBody: string | null = null;
-	let htmxHead: string | null = null;
-	if (typeof message.data.html === 'string') {
-		htmxBody = message.data.html;
-	} else if (message.data.html && typeof message.data.html === 'object') {
-		htmxBody = message.data.html.body || null;
-		htmxHead = message.data.html.head || null;
+	if (!htmxBody) {
+		sessionStorage.removeItem('__HMR_ACTIVE__');
+
+		return;
 	}
 
-	if (htmxBody) {
-		const capturedBody = htmxBody;
+	handleHTMXBodyUpdate(htmxBody, htmxHead, htmxDomState);
+};
 
-		const updateHTMXBodyAfterCSS = function () {
-			updateHTMXBody(capturedBody, htmxDomState, document.body);
-		};
-
-		if (htmxHead) {
-			const doPatchHead = function () {
-				patchHeadInPlace(htmxHead);
-			};
-			if (hmrState.isFirstHMRUpdate) {
-				setTimeout(doPatchHead, 50);
-			} else {
-				doPatchHead();
+const cloneHmrListenerElements = (container: HTMLElement) => {
+	container
+		.querySelectorAll('[data-hmr-listeners-attached]')
+		.forEach((el) => {
+			const cloned = el.cloneNode(true) as Element;
+			if (el.parentNode) {
+				el.parentNode.replaceChild(cloned, el);
 			}
+			cloned.removeAttribute('data-hmr-listeners-attached');
+		});
+};
 
-			const cssResult = processCSSLinks(htmxHead);
-
-			waitForCSSAndUpdate(cssResult, updateHTMXBodyAfterCSS);
-		} else {
-			updateHTMXBodyAfterCSS();
+const removeOldScripts = (container: HTMLElement) => {
+	const scriptsInNewHTML = container.querySelectorAll('script[src]');
+	scriptsInNewHTML.forEach((script) => {
+		if (!script.hasAttribute('data-hmr-client')) {
+			script.remove();
 		}
-	} else {
-		sessionStorage.removeItem('__HMR_ACTIVE__');
+	});
+};
+
+const addNewScripts = (container: HTMLElement, newScripts: ScriptInfo[]) => {
+	newScripts.forEach((scriptInfo) => {
+		const newScript = document.createElement('script');
+		const separator = scriptInfo.src.includes('?') ? '&' : '?';
+		newScript.src = `${scriptInfo.src + separator}t=${Date.now()}`;
+		newScript.type = scriptInfo.type;
+		container.appendChild(newScript);
+	});
+};
+
+const replaceInlineScript = (script: Element) => {
+	if (script.hasAttribute('data-hmr-client')) {
+		return;
+	}
+
+	const newScript = document.createElement('script');
+	newScript.textContent = script.textContent || '';
+	newScript.type = (script as HTMLScriptElement).type || 'text/javascript';
+	if (script.parentNode) {
+		script.parentNode.replaceChild(newScript, script);
+	}
+};
+
+const reExecuteScripts = (container: HTMLElement, newScripts: ScriptInfo[]) => {
+	removeOldScripts(container);
+	addNewScripts(container, newScripts);
+
+	const inlineScripts = container.querySelectorAll('script:not([src])');
+	inlineScripts.forEach(replaceInlineScript);
+};
+
+const handleScriptsAndStructureChange = (
+	container: HTMLElement,
+	newScripts: ScriptInfo[]
+) => {
+	cloneHmrListenerElements(container);
+	reExecuteScripts(container, newScripts);
+};
+
+const restoreCounterSpan = (
+	container: HTMLElement,
+	count: number | undefined
+) => {
+	const newCountSpan = container.querySelector('#count');
+	if (newCountSpan && count !== undefined) {
+		newCountSpan.textContent = String(count);
 	}
 };
 
@@ -92,12 +185,7 @@ const updateHTMXBody = (
 	tempDiv.innerHTML = htmxBody;
 
 	if (savedState.componentState.count !== undefined) {
-		const newCounterSpan = tempDiv.querySelector('#count');
-		if (newCounterSpan) {
-			newCounterSpan.textContent = String(
-				savedState.componentState.count
-			);
-		}
+		restoreCounterSpan(tempDiv, savedState.componentState.count);
 	}
 
 	const patchedBody = tempDiv.innerHTML;
@@ -117,53 +205,11 @@ const updateHTMXBody = (
 	requestAnimationFrame(() => {
 		restoreFormState(savedState.forms);
 		restoreScrollState(savedState.scroll);
-
-		const newCountSpan = container.querySelector('#count');
-		if (newCountSpan && savedState.componentState.count !== undefined) {
-			newCountSpan.textContent = String(savedState.componentState.count);
-		}
-
+		restoreCounterSpan(container, savedState.componentState.count);
 		restoreDOMState(container, htmxDomState);
 
 		if (scriptsChanged || htmlStructureChanged) {
-			container
-				.querySelectorAll('[data-hmr-listeners-attached]')
-				.forEach((el) => {
-					const cloned = el.cloneNode(true) as Element;
-					if (el.parentNode) {
-						el.parentNode.replaceChild(cloned, el);
-					}
-					cloned.removeAttribute('data-hmr-listeners-attached');
-				});
-
-			const scriptsInNewHTML = container.querySelectorAll('script[src]');
-			scriptsInNewHTML.forEach((script) => {
-				if (!script.hasAttribute('data-hmr-client')) {
-					script.remove();
-				}
-			});
-
-			newScripts.forEach((scriptInfo) => {
-				const newScript = document.createElement('script');
-				const separator = scriptInfo.src.includes('?') ? '&' : '?';
-				newScript.src = `${scriptInfo.src + separator}t=${Date.now()}`;
-				newScript.type = scriptInfo.type;
-				container.appendChild(newScript);
-			});
-
-			const inlineScripts =
-				container.querySelectorAll('script:not([src])');
-			inlineScripts.forEach((script) => {
-				if (!script.hasAttribute('data-hmr-client')) {
-					const newScript = document.createElement('script');
-					newScript.textContent = script.textContent || '';
-					newScript.type =
-						(script as HTMLScriptElement).type || 'text/javascript';
-					if (script.parentNode) {
-						script.parentNode.replaceChild(newScript, script);
-					}
-				}
-			});
+			handleScriptsAndStructureChange(container, newScripts);
 		}
 
 		if (window.htmx) {

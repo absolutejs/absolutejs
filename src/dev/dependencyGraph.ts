@@ -21,7 +21,7 @@ export const createDependencyGraph = () => ({
 const tsTranspiler = new Bun.Transpiler({ loader: 'tsx' });
 const jsTranspiler = new Bun.Transpiler({ loader: 'js' });
 
-const loaderForFile = (filePath: string): 'tsx' | 'js' | 'html' | null => {
+const loaderForFile = (filePath: string) => {
 	const lower = filePath.toLowerCase();
 	if (
 		lower.endsWith('.ts') ||
@@ -70,276 +70,358 @@ const resolveImportPath = (importPath: string, fromFile: string) => {
 	return null;
 };
 
+const clearExistingDependents = (
+	graph: DependencyGraph,
+	normalizedPath: string
+) => {
+	const existingDeps = graph.dependencies.get(normalizedPath);
+	if (!existingDeps) return;
+
+	for (const dep of existingDeps) {
+		const dependents = graph.dependents.get(dep);
+		if (!dependents) continue;
+		dependents.delete(normalizedPath);
+	}
+};
+
 /* Extract import/require statements from a file.
    Uses Bun.Transpiler.scanImports() for JS/TS files (native Zig parser)
    and falls back to regex for HTML (stylesheet links) and .vue/.svelte. */
 export const addFileToGraph = (graph: DependencyGraph, filePath: string) => {
-	// Normalize the file path to ensure consistent format
 	const normalizedPath = resolve(filePath);
 
-	if (!existsSync(normalizedPath)) {
-		return;
-	}
+	if (!existsSync(normalizedPath)) return;
 
 	const dependencies = extractDependencies(normalizedPath);
 
-	// Clear existing dependencies for this file
-	const existingDeps = graph.dependencies.get(normalizedPath);
-	if (existingDeps) {
-		for (const dep of existingDeps) {
-			const dependents = graph.dependents.get(dep);
-			if (dependents) {
-				dependents.delete(normalizedPath);
-			}
-		}
-	}
+	clearExistingDependents(graph, normalizedPath);
 
-	// Add new dependencies
 	const newDeps = new Set(dependencies);
 	graph.dependencies.set(normalizedPath, newDeps);
 
-	// Update dependents (reverse relationship)
-	for (const dep of dependencies) {
+	const addDependent = (dep: string) => {
 		if (!graph.dependents.has(dep)) {
 			graph.dependents.set(dep, new Set());
 		}
 		graph.dependents.get(dep)!.add(normalizedPath);
-	}
+	};
+
+	dependencies.forEach(addDependent);
 };
+
+const IGNORED_SEGMENTS = [
+	'/node_modules/',
+	'/.git/',
+	'/build/',
+	'/compiled/',
+	'/indexes/',
+	'/server/',
+	'/client/'
+];
+
+const SCANNABLE_EXTENSIONS = new Set([
+	'ts',
+	'tsx',
+	'js',
+	'jsx',
+	'vue',
+	'svelte',
+	'html',
+	'htm'
+]);
+
+const isIgnoredPath = (fullPath: string, entryName: string) =>
+	entryName.startsWith('.') ||
+	IGNORED_SEGMENTS.some((seg) => fullPath.includes(seg));
+
+const isScannableFile = (fileName: string) => {
+	const ext = fileName.split('.').pop()?.toLowerCase() ?? '';
+
+	return SCANNABLE_EXTENSIONS.has(ext);
+};
+
+const processEntry = (
+	graph: DependencyGraph,
+	processedFiles: Set<string>,
+	scanDir: (dir: string) => void,
+	normalizedDir: string,
+	entry: { name: string; isDirectory: () => boolean; isFile: () => boolean }
+) => {
+	const fullPath = resolve(normalizedDir, entry.name);
+
+	if (isIgnoredPath(fullPath, entry.name)) return;
+
+	if (entry.isDirectory()) {
+		scanDir(fullPath);
+
+		return;
+	}
+
+	if (!entry.isFile()) return;
+	if (!isScannableFile(entry.name)) return;
+	if (processedFiles.has(fullPath)) return;
+
+	addFileToGraph(graph, fullPath);
+	processedFiles.add(fullPath);
+};
+
 export const buildInitialDependencyGraph = (
 	graph: DependencyGraph,
 	directories: string[]
 ) => {
 	const processedFiles = new Set<string>();
 
+	const scanEntries = (normalizedDir: string) => {
+		const entries = readdirSync(normalizedDir, {
+			withFileTypes: true
+		});
+
+		entries.forEach((entry) => {
+			processEntry(
+				graph,
+				processedFiles,
+				scanDirectory,
+				normalizedDir,
+				entry
+			);
+		});
+	};
+
 	const scanDirectory = (dir: string) => {
-		// Normalize directory path
 		const normalizedDir = resolve(dir);
 		try {
-			const entries = readdirSync(normalizedDir, {
-				withFileTypes: true
-			});
-
-			for (const entry of entries) {
-				const fullPath = resolve(normalizedDir, entry.name);
-
-				// Skip ignored paths
-				if (
-					fullPath.includes('/node_modules/') ||
-					fullPath.includes('/.git/') ||
-					fullPath.includes('/build/') ||
-					fullPath.includes('/compiled/') ||
-					fullPath.includes('/indexes/') ||
-					fullPath.includes('/server/') ||
-					fullPath.includes('/client/') ||
-					entry.name.startsWith('.')
-				) {
-					continue;
-				}
-
-				if (entry.isDirectory()) {
-					scanDirectory(fullPath);
-				} else if (entry.isFile()) {
-					// Process source files (TypeScript, JavaScript, Vue, Svelte, HTML)
-					const ext = entry.name.split('.').pop()?.toLowerCase();
-					if (
-						[
-							'ts',
-							'tsx',
-							'js',
-							'jsx',
-							'vue',
-							'svelte',
-							'html',
-							'htm'
-						].includes(ext || '')
-					) {
-						if (!processedFiles.has(fullPath)) {
-							addFileToGraph(graph, fullPath);
-							processedFiles.add(fullPath);
-						}
-					}
-				}
-			}
+			scanEntries(normalizedDir);
 		} catch {}
 	};
 
 	for (const dir of directories) {
 		const resolvedDir = resolve(dir);
-		// Only scan directories that exist
-		if (existsSync(resolvedDir)) {
-			scanDirectory(resolvedDir);
-		}
+		if (!existsSync(resolvedDir)) continue;
+		scanDirectory(resolvedDir);
 	}
 };
+
+const extractHtmlDependencies = (filePath: string, content: string) => {
+	const dependencies: string[] = [];
+	const linkRegex =
+		/<link\s+[^>]*rel=["']stylesheet["'][^>]*href=["']([^"']+)["'][^>]*>/gi;
+	let matchLink;
+	while ((matchLink = linkRegex.exec(content)) !== null) {
+		const href = matchLink[1];
+		if (!href) continue;
+		const resolvedHref = resolveImportPath(href, filePath);
+		if (resolvedHref) dependencies.push(resolvedHref);
+	}
+
+	return dependencies;
+};
+
+const resolveRegexMatches = (
+	regex: RegExp,
+	content: string,
+	filePath: string,
+	dependencies: string[]
+) => {
+	let match;
+	while ((match = regex.exec(content)) !== null) {
+		if (!match[1]) continue;
+		const resolved = resolveImportPath(match[1], filePath);
+		if (resolved) dependencies.push(resolved);
+	}
+};
+
+const resolveStyleUrls = (
+	matchContent: string,
+	filePath: string,
+	dependencies: string[]
+) => {
+	const stringLiteralRegex = /['"]([^'"]+)['"]/g;
+	let urlMatch;
+	while ((urlMatch = stringLiteralRegex.exec(matchContent)) !== null) {
+		if (!urlMatch[1]) continue;
+		const resolved = resolveImportPath(urlMatch[1], filePath);
+		if (resolved) dependencies.push(resolved);
+	}
+};
+
+const extractStyleUrlsDependencies = (
+	content: string,
+	filePath: string,
+	dependencies: string[]
+) => {
+	const styleUrlsRegex = /styleUrls\s*:\s*\[([^\]]*)\]/g;
+
+	let match;
+	while ((match = styleUrlsRegex.exec(content)) !== null) {
+		if (!match[1]) continue;
+		resolveStyleUrls(match[1], filePath, dependencies);
+	}
+};
+
+const extractAngularDependencies = (
+	content: string,
+	filePath: string,
+	dependencies: string[]
+) => {
+	const templateUrlRegex = /templateUrl\s*:\s*['"]([^'"]+)['"]/g;
+	const styleUrlSingularRegex = /styleUrl\s*:\s*['"]([^'"]+)['"]/g;
+
+	resolveRegexMatches(templateUrlRegex, content, filePath, dependencies);
+	resolveRegexMatches(styleUrlSingularRegex, content, filePath, dependencies);
+	extractStyleUrlsDependencies(content, filePath, dependencies);
+};
+
+const extractJsDependencies = (
+	filePath: string,
+	content: string,
+	loader: 'tsx' | 'js'
+) => {
+	const transpiler = loader === 'tsx' ? tsTranspiler : jsTranspiler;
+	const imports = transpiler.scanImports(content);
+	const dependencies: string[] = [];
+
+	for (const imp of imports) {
+		const resolved = resolveImportPath(imp.path, filePath);
+		if (resolved) dependencies.push(resolved);
+	}
+
+	if (content.includes('@Component')) {
+		extractAngularDependencies(content, filePath, dependencies);
+	}
+
+	return dependencies;
+};
+
+const resolveScannedImports = (
+	imports: ReturnType<typeof tsTranspiler.scanImports>,
+	filePath: string,
+	dependencies: string[]
+) => {
+	for (const imp of imports) {
+		const resolved = resolveImportPath(imp.path, filePath);
+		if (resolved) dependencies.push(resolved);
+	}
+};
+
+const extractScriptImports = (
+	scriptContent: string,
+	filePath: string,
+	dependencies: string[]
+) => {
+	try {
+		const imports = tsTranspiler.scanImports(scriptContent);
+		resolveScannedImports(imports, filePath, dependencies);
+	} catch {}
+};
+
+const extractSvelteVueDependencies = (filePath: string, content: string) => {
+	const dependencies: string[] = [];
+	const scriptRegex = /<script[^>]*>([\s\S]*?)<\/script>/gi;
+	let scriptMatch;
+	while ((scriptMatch = scriptRegex.exec(content)) !== null) {
+		const scriptContent = scriptMatch[1];
+		if (!scriptContent?.trim()) continue;
+		extractScriptImports(scriptContent, filePath, dependencies);
+	}
+
+	return dependencies;
+};
+
+const extractDependenciesForFile = (filePath: string) => {
+	const loader = loaderForFile(filePath);
+	const lowerPath = filePath.toLowerCase();
+	const isSvelteOrVue =
+		lowerPath.endsWith('.svelte') || lowerPath.endsWith('.vue');
+
+	if (loader === 'html') {
+		const content = readFileSync(filePath, 'utf-8');
+
+		return extractHtmlDependencies(filePath, content);
+	}
+
+	if (loader === 'tsx' || loader === 'js') {
+		const content = readFileSync(filePath, 'utf-8');
+
+		return extractJsDependencies(filePath, content, loader);
+	}
+
+	if (isSvelteOrVue) {
+		const content = readFileSync(filePath, 'utf-8');
+
+		return extractSvelteVueDependencies(filePath, content);
+	}
+
+	return [];
+};
+
 export const extractDependencies = (filePath: string) => {
 	try {
-		const loader = loaderForFile(filePath);
-		const lowerPath = filePath.toLowerCase();
-		const isSvelteOrVue =
-			lowerPath.endsWith('.svelte') || lowerPath.endsWith('.vue');
-
-		// HTML: detect linked stylesheets
-		if (loader === 'html') {
-			const content = readFileSync(filePath, 'utf-8');
-			const dependencies: string[] = [];
-			const linkRegex =
-				/<link\s+[^>]*rel=["']stylesheet["'][^>]*href=["']([^"']+)["'][^>]*>/gi;
-			let matchLink;
-			while ((matchLink = linkRegex.exec(content)) !== null) {
-				const href = matchLink[1];
-				if (!href) continue;
-				const resolvedHref = resolveImportPath(href, filePath);
-				if (resolvedHref) dependencies.push(resolvedHref);
-			}
-
-			return dependencies;
-		}
-
-		// JS/TS/JSX/TSX: use Bun.Transpiler.scanImports() — native Zig,
-		// much faster than regex. Also handles dynamic imports and require.
-		if (loader === 'tsx' || loader === 'js') {
-			const content = readFileSync(filePath, 'utf-8');
-			const transpiler = loader === 'tsx' ? tsTranspiler : jsTranspiler;
-			const imports = transpiler.scanImports(content);
-			const dependencies: string[] = [];
-
-			for (const imp of imports) {
-				const resolved = resolveImportPath(imp.path, filePath);
-				if (resolved) dependencies.push(resolved);
-			}
-
-			// Angular: detect templateUrl and styleUrls in @Component
-			if (content.includes('@Component')) {
-				const templateUrlRegex = /templateUrl\s*:\s*['"]([^'"]+)['"]/g;
-				const styleUrlSingularRegex =
-					/styleUrl\s*:\s*['"]([^'"]+)['"]/g;
-				const styleUrlsRegex = /styleUrls\s*:\s*\[([^\]]*)\]/g;
-				const stringLiteralRegex = /['"]([^'"]+)['"]/g;
-
-				let match;
-				while ((match = templateUrlRegex.exec(content)) !== null) {
-					if (match[1]) {
-						const resolved = resolveImportPath(match[1], filePath);
-						if (resolved) dependencies.push(resolved);
-					}
-				}
-
-				while ((match = styleUrlSingularRegex.exec(content)) !== null) {
-					if (match[1]) {
-						const resolved = resolveImportPath(match[1], filePath);
-						if (resolved) dependencies.push(resolved);
-					}
-				}
-
-				while ((match = styleUrlsRegex.exec(content)) !== null) {
-					if (match[1]) {
-						let urlMatch;
-						while (
-							(urlMatch = stringLiteralRegex.exec(match[1])) !==
-							null
-						) {
-							if (urlMatch[1]) {
-								const resolved = resolveImportPath(
-									urlMatch[1],
-									filePath
-								);
-								if (resolved) dependencies.push(resolved);
-							}
-						}
-					}
-				}
-			}
-
-			return dependencies;
-		}
-
-		// Svelte/Vue: extract <script> content, then use transpiler
-		if (isSvelteOrVue) {
-			const content = readFileSync(filePath, 'utf-8');
-			const dependencies: string[] = [];
-
-			// Extract script blocks and scan their imports
-			const scriptRegex = /<script[^>]*>([\s\S]*?)<\/script>/gi;
-			let scriptMatch;
-			while ((scriptMatch = scriptRegex.exec(content)) !== null) {
-				const scriptContent = scriptMatch[1];
-				if (!scriptContent?.trim()) continue;
-				try {
-					const imports = tsTranspiler.scanImports(scriptContent);
-					for (const imp of imports) {
-						const resolved = resolveImportPath(imp.path, filePath);
-						if (resolved) dependencies.push(resolved);
-					}
-				} catch {
-					// Fall through to regex if transpiler fails on script content
-				}
-			}
-
-			return dependencies;
-		}
-
-		return [];
+		return extractDependenciesForFile(filePath);
 	} catch {
 		return [];
 	}
 };
+
 export const getAffectedFiles = (
 	graph: DependencyGraph,
 	changedFile: string
 ) => {
-	// Normalize the changed file path to ensure consistent lookup
 	const normalizedPath = resolve(changedFile);
 	const affected = new Set<string>();
 	const toProcess = [normalizedPath];
 
-	while (toProcess.length > 0) {
-		const current = toProcess.pop()!;
-
-		if (affected.has(current)) {
-			continue;
-		}
+	const processNode = (current: string) => {
+		if (affected.has(current)) return;
 
 		affected.add(current);
 
 		const dependents = graph.dependents.get(current);
-		if (dependents) {
-			for (const dependent of dependents) {
-				toProcess.push(dependent);
-			}
-		}
+		if (!dependents) return;
+
+		dependents.forEach((dependent) => toProcess.push(dependent));
+	};
+
+	while (toProcess.length > 0) {
+		const current = toProcess.pop()!;
+		processNode(current);
 	}
 
 	return Array.from(affected);
 };
+
+const removeDepsForFile = (graph: DependencyGraph, normalizedPath: string) => {
+	const deps = graph.dependencies.get(normalizedPath);
+	if (!deps) return;
+
+	for (const dep of deps) {
+		const dependents = graph.dependents.get(dep);
+		if (!dependents) continue;
+		dependents.delete(normalizedPath);
+	}
+	graph.dependencies.delete(normalizedPath);
+};
+
+const removeDependentsForFile = (
+	graph: DependencyGraph,
+	normalizedPath: string
+) => {
+	const dependents = graph.dependents.get(normalizedPath);
+	if (!dependents) return;
+
+	for (const dependent of dependents) {
+		const depList = graph.dependencies.get(dependent);
+		if (!depList) continue;
+		depList.delete(normalizedPath);
+	}
+	graph.dependents.delete(normalizedPath);
+};
+
 export const removeFileFromGraph = (
 	graph: DependencyGraph,
 	filePath: string
 ) => {
-	// Normalize the file path to ensure consistent format
 	const normalizedPath = resolve(filePath);
 
-	// Remove from dependencies
-	const deps = graph.dependencies.get(normalizedPath);
-	if (deps) {
-		for (const dep of deps) {
-			const dependents = graph.dependents.get(dep);
-			if (dependents) {
-				dependents.delete(normalizedPath);
-			}
-		}
-		graph.dependencies.delete(normalizedPath);
-	}
-
-	// Remove from dependents
-	const dependents = graph.dependents.get(normalizedPath);
-	if (dependents) {
-		for (const dependent of dependents) {
-			const depList = graph.dependencies.get(dependent);
-			if (depList) {
-				depList.delete(normalizedPath);
-			}
-		}
-		graph.dependents.delete(normalizedPath);
-	}
+	removeDepsForFile(graph, normalizedPath);
+	removeDependentsForFile(graph, normalizedPath);
 };

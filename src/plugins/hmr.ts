@@ -19,9 +19,9 @@ const restoreStore = (app: Elysia) => {
 
 	if (saved) {
 		const store = app.store as Record<string, unknown>;
-		for (const key of Object.keys(saved)) {
+		Object.keys(saved).forEach((key) => {
 			store[key] = saved[key];
-		}
+		});
 	}
 
 	(globalThis as Record<string, unknown>)[STORE_KEY] = app.store;

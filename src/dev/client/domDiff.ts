@@ -1,5 +1,10 @@
 /* DOM diffing/patching for in-place updates (zero flicker) */
 
+type KeyedEntry = {
+	index: number;
+	node: Node;
+};
+
 const getElementKey = (el: Node, index: number) => {
 	if (el.nodeType !== Node.ELEMENT_NODE) return `text_${index}`;
 	const element = el as Element;
@@ -44,11 +49,6 @@ const updateTextNode = (oldNode: Node, newNode: Node) => {
 	}
 };
 
-interface KeyedEntry {
-	index: number;
-	node: Node;
-}
-
 const matchChildren = (oldChildren: Node[], newChildren: Node[]) => {
 	const oldMap = new Map<string, KeyedEntry[]>();
 	const newMap = new Map<string, KeyedEntry[]>();
@@ -83,6 +83,48 @@ const isHMRPreserved = (el: Node) =>
 		(el as Element).hasAttribute &&
 		(el as Element).hasAttribute('data-hmr-overlay'));
 
+const isNonHMRScript = (child: Node) =>
+	child.nodeType === Node.ELEMENT_NODE &&
+	(child as Element).tagName === 'SCRIPT';
+
+const findBestMatch = (oldMatches: KeyedEntry[], matchedOld: Set<Node>) => {
+	const unmatched = oldMatches.find((entry) => !matchedOld.has(entry.node));
+	if (unmatched) return unmatched;
+	if (oldMatches.length > 0) return oldMatches[0]!;
+
+	return null;
+};
+
+const reconcileChild = (
+	newChild: Node,
+	newIndex: number,
+	oldMap: Map<string, KeyedEntry[]>,
+	matchedOld: Set<Node>,
+	parentNode: Node,
+	oldChildrenFiltered: Node[]
+) => {
+	const newKey = getElementKey(newChild, newIndex);
+	const oldMatches = oldMap.get(newKey) || [];
+
+	if (oldMatches.length === 0) {
+		const clone = newChild.cloneNode(true);
+		parentNode.insertBefore(clone, oldChildrenFiltered[newIndex] || null);
+
+		return;
+	}
+
+	const bestMatch = findBestMatch(oldMatches, matchedOld);
+	if (bestMatch && !matchedOld.has(bestMatch.node)) {
+		matchedOld.add(bestMatch.node);
+		patchNode(bestMatch.node, newChild);
+
+		return;
+	}
+
+	const clone = newChild.cloneNode(true);
+	parentNode.insertBefore(clone, oldChildrenFiltered[newIndex] || null);
+};
+
 const patchNode = (oldNode: Node, newNode: Node) => {
 	if (
 		oldNode.nodeType === Node.TEXT_NODE &&
@@ -94,87 +136,53 @@ const patchNode = (oldNode: Node, newNode: Node) => {
 	}
 
 	if (
-		oldNode.nodeType === Node.ELEMENT_NODE &&
-		newNode.nodeType === Node.ELEMENT_NODE
+		oldNode.nodeType !== Node.ELEMENT_NODE ||
+		newNode.nodeType !== Node.ELEMENT_NODE
 	) {
-		const oldEl = oldNode as Element;
-		const newEl = newNode as Element;
-
-		if (oldEl.tagName !== newEl.tagName) {
-			const clone = newEl.cloneNode(true);
-			oldEl.replaceWith(clone);
-
-			return;
-		}
-
-		updateElementAttributes(oldEl, newEl);
-
-		const oldChildren = Array.from(oldNode.childNodes);
-		const newChildren = Array.from(newNode.childNodes);
-
-		const oldChildrenFiltered = oldChildren.filter(
-			(child) =>
-				!isHMRScript(child) &&
-				!(
-					child.nodeType === Node.ELEMENT_NODE &&
-					(child as Element).tagName === 'SCRIPT'
-				)
-		);
-		const newChildrenFiltered = newChildren.filter(
-			(child) =>
-				!isHMRScript(child) &&
-				!(
-					child.nodeType === Node.ELEMENT_NODE &&
-					(child as Element).tagName === 'SCRIPT'
-				)
-		);
-
-		const { oldMap } = matchChildren(
-			oldChildrenFiltered,
-			newChildrenFiltered
-		);
-		const matchedOld = new Set<Node>();
-
-		newChildrenFiltered.forEach((newChild, newIndex) => {
-			const newKey = getElementKey(newChild, newIndex);
-			const oldMatches = oldMap.get(newKey) || [];
-
-			if (oldMatches.length > 0) {
-				let bestMatch: KeyedEntry | null = null;
-				for (let idx = 0; idx < oldMatches.length; idx++) {
-					if (!matchedOld.has(oldMatches[idx]!.node)) {
-						bestMatch = oldMatches[idx]!;
-						break;
-					}
-				}
-				if (!bestMatch && oldMatches.length > 0) {
-					bestMatch = oldMatches[0]!;
-				}
-				if (bestMatch && !matchedOld.has(bestMatch.node)) {
-					matchedOld.add(bestMatch.node);
-					patchNode(bestMatch.node, newChild);
-				} else if (oldMatches.length > 0) {
-					const clone = newChild.cloneNode(true);
-					oldNode.insertBefore(
-						clone,
-						oldChildrenFiltered[newIndex] || null
-					);
-				}
-			} else {
-				const clone = newChild.cloneNode(true);
-				oldNode.insertBefore(
-					clone,
-					oldChildrenFiltered[newIndex] || null
-				);
-			}
-		});
-
-		oldChildrenFiltered.forEach((oldChild) => {
-			if (!matchedOld.has(oldChild) && !isHMRPreserved(oldChild)) {
-				oldChild.remove();
-			}
-		});
+		return;
 	}
+
+	const oldEl = oldNode as Element;
+	const newEl = newNode as Element;
+
+	if (oldEl.tagName !== newEl.tagName) {
+		const clone = newEl.cloneNode(true);
+		oldEl.replaceWith(clone);
+
+		return;
+	}
+
+	updateElementAttributes(oldEl, newEl);
+
+	const oldChildren = Array.from(oldNode.childNodes);
+	const newChildren = Array.from(newNode.childNodes);
+
+	const oldChildrenFiltered = oldChildren.filter(
+		(child) => !isHMRScript(child) && !isNonHMRScript(child)
+	);
+	const newChildrenFiltered = newChildren.filter(
+		(child) => !isHMRScript(child) && !isNonHMRScript(child)
+	);
+
+	const { oldMap } = matchChildren(oldChildrenFiltered, newChildrenFiltered);
+	const matchedOld = new Set<Node>();
+
+	newChildrenFiltered.forEach((newChild, newIndex) => {
+		reconcileChild(
+			newChild,
+			newIndex,
+			oldMap,
+			matchedOld,
+			oldNode,
+			oldChildrenFiltered
+		);
+	});
+
+	oldChildrenFiltered.forEach((oldChild) => {
+		if (!matchedOld.has(oldChild) && !isHMRPreserved(oldChild)) {
+			oldChild.remove();
+		}
+	});
 };
 
 export const patchDOMInPlace = (oldContainer: HTMLElement, newHTML: string) => {
@@ -194,65 +202,26 @@ export const patchDOMInPlace = (oldContainer: HTMLElement, newHTML: string) => {
 			)
 	);
 	const newChildrenFiltered = newChildren.filter(
-		(child) =>
-			!(
-				child.nodeType === Node.ELEMENT_NODE &&
-				(child as Element).tagName === 'SCRIPT'
-			)
+		(child) => !isNonHMRScript(child)
 	);
 
 	const { oldMap } = matchChildren(oldChildrenFiltered, newChildrenFiltered);
 	const matchedOld = new Set<Node>();
 
 	newChildrenFiltered.forEach((newChild, newIndex) => {
-		const newKey = getElementKey(newChild, newIndex);
-		const oldMatches = oldMap.get(newKey) || [];
-
-		if (oldMatches.length > 0) {
-			let bestMatch: KeyedEntry | null = null;
-			for (let idx = 0; idx < oldMatches.length; idx++) {
-				if (!matchedOld.has(oldMatches[idx]!.node)) {
-					bestMatch = oldMatches[idx]!;
-					break;
-				}
-			}
-			if (!bestMatch && oldMatches.length > 0) {
-				bestMatch = oldMatches[0]!;
-			}
-			if (bestMatch && !matchedOld.has(bestMatch.node)) {
-				matchedOld.add(bestMatch.node);
-				patchNode(bestMatch.node, newChild);
-			} else {
-				const clone = newChild.cloneNode(true);
-				oldContainer.insertBefore(
-					clone,
-					oldChildrenFiltered[newIndex] || null
-				);
-			}
-		} else {
-			const clone = newChild.cloneNode(true);
-			oldContainer.insertBefore(
-				clone,
-				oldChildrenFiltered[newIndex] || null
-			);
-		}
+		reconcileChild(
+			newChild,
+			newIndex,
+			oldMap,
+			matchedOld,
+			oldContainer,
+			oldChildrenFiltered
+		);
 	});
 
 	oldChildrenFiltered.forEach((oldChild) => {
-		if (
-			!matchedOld.has(oldChild) &&
-			!(
-				oldChild.nodeType === Node.ELEMENT_NODE &&
-				(oldChild as Element).tagName === 'SCRIPT' &&
-				(oldChild as Element).hasAttribute('data-hmr-client')
-			) &&
-			!(
-				oldChild.nodeType === Node.ELEMENT_NODE &&
-				(oldChild as Element).hasAttribute &&
-				(oldChild as Element).hasAttribute('data-hmr-overlay')
-			)
-		) {
-			oldChild.remove();
-		}
+		if (matchedOld.has(oldChild)) return;
+		if (isHMRPreserved(oldChild)) return;
+		oldChild.remove();
 	});
 };

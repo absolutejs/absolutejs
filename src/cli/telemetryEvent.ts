@@ -4,28 +4,40 @@ import { dirname, join, parse } from 'node:path';
 import type { TelemetryEvent } from '../../types/telemetry';
 import { getTelemetryConfig } from './scripts/telemetry';
 
+const checkCandidate = (candidate: string) => {
+	if (!existsSync(candidate)) {
+		return null;
+	}
+	const pkg = JSON.parse(readFileSync(candidate, 'utf-8'));
+
+	if (pkg.name === '@absolutejs/absolute') {
+		return pkg.version as string;
+	}
+
+	return null;
+};
+
 const getVersion = () => {
 	try {
-		let { dir } = import.meta;
-
-		while (dir !== parse(dir).root) {
-			const candidate = join(dir, 'package.json');
-
-			if (existsSync(candidate)) {
-				const pkg = JSON.parse(readFileSync(candidate, 'utf-8'));
-
-				if (pkg.name === '@absolutejs/absolute') {
-					return pkg.version as string;
-				}
-			}
-
-			dir = dirname(dir);
-		}
-
-		return 'unknown';
+		return findPackageVersion();
 	} catch {
 		return 'unknown';
 	}
+};
+
+const findPackageVersion = () => {
+	let { dir } = import.meta;
+
+	while (dir !== parse(dir).root) {
+		const candidate = join(dir, 'package.json');
+		const version = checkCandidate(candidate);
+		if (version) {
+			return version;
+		}
+		dir = dirname(dir);
+	}
+
+	return 'unknown';
 };
 
 export const sendTelemetryEvent = (

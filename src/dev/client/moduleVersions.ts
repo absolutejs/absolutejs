@@ -8,19 +8,32 @@ export const checkModuleVersions = (
 		return { needsSync: false, stale: [] };
 	}
 
-	const stale: string[] = [];
-	let needsSync = false;
+	const stale = Object.entries(serverVersions)
+		.filter(([modulePath, serverVersion]) => {
+			const clientVersion = clientVersions[modulePath];
 
-	for (const [modulePath, serverVersion] of Object.entries(serverVersions)) {
-		const clientVersion = clientVersions[modulePath];
+			return clientVersion === undefined || clientVersion < serverVersion;
+		})
+		.map(([modulePath]) => modulePath);
 
-		if (clientVersion === undefined || clientVersion < serverVersion) {
-			stale.push(modulePath);
-			needsSync = true;
+	return { needsSync: stale.length > 0, stale };
+};
+
+const resolveManifestPath = (
+	modulePath: string,
+	manifest: Record<string, string> | undefined
+) => {
+	if (!manifest) {
+		return modulePath;
+	}
+	for (const key of Object.keys(manifest)) {
+		const path = manifest[key]!;
+		if (path === modulePath || path.includes(modulePath)) {
+			return path;
 		}
 	}
 
-	return { needsSync, stale };
+	return modulePath;
 };
 
 export const prefetchModules = (
@@ -30,16 +43,7 @@ export const prefetchModules = (
 	const prefetchPromises: Promise<unknown>[] = [];
 
 	for (const modulePath of modulePaths) {
-		let manifestPath = modulePath;
-		for (const key in manifest || {}) {
-			if (Object.prototype.hasOwnProperty.call(manifest, key)) {
-				const path = manifest![key]!;
-				if (path === modulePath || path.includes(modulePath)) {
-					manifestPath = path;
-					break;
-				}
-			}
-		}
+		const manifestPath = resolveManifestPath(modulePath, manifest);
 
 		const cacheBuster = `?t=${Date.now()}`;
 		const fullPath = manifestPath.startsWith('/')

@@ -22,10 +22,7 @@ import {
 const cliTag = (color: string, message: string) =>
 	`\x1b[2m${formatTimestamp()}\x1b[0m ${color}[cli]\x1b[0m ${color}${message}\x1b[0m`;
 
-export const dev = async (
-	serverEntry: string,
-	configPath?: string
-): Promise<void> => {
+export const dev = async (serverEntry: string, configPath?: string) => {
 	const port = Number(env.PORT) || DEFAULT_PORT;
 	killStaleProcesses(port);
 
@@ -39,6 +36,22 @@ export const dev = async (
 	let interactive: InteractiveHandler | null = null;
 
 	let serverReady = false;
+
+	const checkServerReady = (value: Uint8Array) => {
+		const chunk = Buffer.from(value).toString();
+		if (!chunk.includes('Local:')) return;
+		serverReady = true;
+		interactive?.showPrompt();
+	};
+
+	const handleChunk = (value: Uint8Array) => {
+		if (!serverReady) {
+			checkServerReady(value);
+
+			return;
+		}
+		interactive?.showPrompt();
+	};
 
 	const spawnServer = () => {
 		const proc = Bun.spawn(
@@ -61,22 +74,14 @@ export const dev = async (
 			dest: NodeJS.WriteStream
 		) => {
 			const reader = stream.getReader();
-			const pump = (): void => {
+			const pump = () => {
 				reader
 					.read()
 					.then(({ done, value }) => {
 						if (done) return;
 						if (serverReady) interactive?.clearPrompt();
 						dest.write(value);
-						if (!serverReady) {
-							const chunk = Buffer.from(value).toString();
-							if (chunk.includes('Local:')) {
-								serverReady = true;
-								interactive?.showPrompt();
-							}
-						} else {
-							interactive?.showPrompt();
-						}
+						handleChunk(value);
 						pump();
 					})
 					.catch(() => {});
@@ -109,7 +114,7 @@ export const dev = async (
 
 	sendTelemetryEvent('dev:start', { entry: serverEntry, frameworks });
 
-	const cleanup = async (exitCode = 0): Promise<void> => {
+	const cleanup = async (exitCode = 0) => {
 		if (cleaning) return;
 		cleaning = true;
 		sendTelemetryEvent('dev:session-duration', {
@@ -128,7 +133,7 @@ export const dev = async (
 		process.exit(exitCode);
 	};
 
-	const restartServer = async (): Promise<void> => {
+	const restartServer = async () => {
 		serverReady = false;
 		console.log(cliTag('\x1b[36m', 'Restarting server...'));
 		sendTelemetryEvent('dev:restart', { entry: serverEntry });
@@ -147,19 +152,26 @@ export const dev = async (
 		console.log(cliTag('\x1b[32m', 'Server restarted.'));
 	};
 
-	const sendSignal = (signal: 'SIGSTOP' | 'SIGCONT'): void => {
+	const sendSignalToGroup = (signal: 'SIGSTOP' | 'SIGCONT') => {
 		try {
 			process.kill(-serverProcess.pid, signal);
+
+			return true;
 		} catch {
-			try {
-				process.kill(serverProcess.pid, signal);
-			} catch {
-				/* already exited */
-			}
+			return false;
 		}
 	};
 
-	const togglePause = (): void => {
+	const sendSignal = (signal: 'SIGSTOP' | 'SIGCONT') => {
+		if (sendSignalToGroup(signal)) return;
+		try {
+			process.kill(serverProcess.pid, signal);
+		} catch {
+			/* already exited */
+		}
+	};
+
+	const togglePause = () => {
 		if (paused) {
 			sendSignal('SIGCONT');
 			paused = false;
@@ -173,13 +185,13 @@ export const dev = async (
 		}
 	};
 
-	const runShellCommand = async (command: string): Promise<void> => {
+	const runShellCommand = async (command: string) => {
 		await $`${{ raw: command }}`
 			.env({ ...process.env, FORCE_COLOR: '1' })
 			.nothrow();
 	};
 
-	const openInBrowser = async (): Promise<void> => {
+	const openInBrowser = async () => {
 		const url = `http://localhost:${port}`;
 		const { platform } = process;
 		const isWSL = platform === 'linux' && isWSLEnvironment();
@@ -227,27 +239,34 @@ export const dev = async (
 
 	printHint();
 
-	const monitorServer = async (): Promise<void> => {
+	const handleServerExit = async (exitCode: number) => {
+		if (exitCode === 130 || exitCode === 143) {
+			await cleanup(0);
+
+			return false;
+		}
+		console.error(
+			cliTag(
+				'\x1b[31m',
+				`Server exited (code ${exitCode}), restarting...`
+			)
+		);
+		sendTelemetryEvent('dev:server-crash', {
+			entry: serverEntry,
+			exitCode
+		});
+		serverProcess = spawnServer();
+
+		return true;
+	};
+
+	const monitorServer = async () => {
 		while (!cleaning) {
 			const current = serverProcess;
 			const exitCode = await current.exited;
 			if (cleaning || serverProcess !== current) continue;
-			if (exitCode === 130 || exitCode === 143) {
-				await cleanup(0);
-
-				return;
-			}
-			console.error(
-				cliTag(
-					'\x1b[31m',
-					`Server exited (code ${exitCode}), restarting...`
-				)
-			);
-			sendTelemetryEvent('dev:server-crash', {
-				entry: serverEntry,
-				exitCode
-			});
-			serverProcess = spawnServer();
+			const shouldContinue = await handleServerExit(exitCode);
+			if (!shouldContinue) return;
 		}
 	};
 

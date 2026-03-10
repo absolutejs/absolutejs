@@ -1,5 +1,21 @@
 /* Head element patching for HMR updates (title, meta, favicon, etc.) */
 
+const getLinkElementKey = (el: Element) => {
+	const rel = (el.getAttribute('rel') || '').toLowerCase();
+	if (rel === 'icon' || rel === 'shortcut icon' || rel === 'apple-touch-icon')
+		return `link:icon:${rel}`;
+	if (rel === 'stylesheet') return null;
+	if (rel === 'preconnect')
+		return `link:preconnect:${el.getAttribute('href') || ''}`;
+	if (rel === 'preload')
+		return `link:preload:${el.getAttribute('href') || ''}`;
+	if (rel === 'canonical') return 'link:canonical';
+	if (rel === 'dns-prefetch')
+		return `link:dns-prefetch:${el.getAttribute('href') || ''}`;
+
+	return null;
+};
+
 const getHeadElementKey = (el: Element) => {
 	const tag = el.tagName.toLowerCase();
 
@@ -12,23 +28,7 @@ const getHeadElementKey = (el: Element) => {
 	if (tag === 'meta' && el.hasAttribute('http-equiv'))
 		return `meta:http-equiv:${el.getAttribute('http-equiv')}`;
 
-	if (tag === 'link') {
-		const rel = (el.getAttribute('rel') || '').toLowerCase();
-		if (
-			rel === 'icon' ||
-			rel === 'shortcut icon' ||
-			rel === 'apple-touch-icon'
-		)
-			return `link:icon:${rel}`;
-		if (rel === 'stylesheet') return null;
-		if (rel === 'preconnect')
-			return `link:preconnect:${el.getAttribute('href') || ''}`;
-		if (rel === 'preload')
-			return `link:preload:${el.getAttribute('href') || ''}`;
-		if (rel === 'canonical') return 'link:canonical';
-		if (rel === 'dns-prefetch')
-			return `link:dns-prefetch:${el.getAttribute('href') || ''}`;
-	}
+	if (tag === 'link') return getLinkElementKey(el);
 
 	if (tag === 'script' && el.hasAttribute('data-hmr-id'))
 		return `script:hmr:${el.getAttribute('data-hmr-id')}`;
@@ -56,82 +56,100 @@ const shouldPreserveElement = (el: Element) => {
 	return false;
 };
 
+const updateTitleElement = (oldEl: Element, newEl: Element) => {
+	const newTitle = newEl.textContent || '';
+	if (oldEl.textContent === newTitle) return;
+	oldEl.textContent = newTitle;
+	document.title = newTitle;
+};
+
+const updateMetaElement = (oldEl: Element, newEl: Element) => {
+	const newContent = newEl.getAttribute('content');
+	const oldContent = oldEl.getAttribute('content');
+	if (oldContent !== newContent && newContent !== null) {
+		oldEl.setAttribute('content', newContent);
+	}
+	if (!newEl.hasAttribute('charset')) return;
+	const newCharset = newEl.getAttribute('charset');
+	if (oldEl.getAttribute('charset') !== newCharset) {
+		oldEl.setAttribute('charset', newCharset!);
+	}
+};
+
+const updateFaviconHref = (
+	oldEl: Element,
+	newHref: string,
+	oldHref: string
+) => {
+	const oldBase = oldHref.split('?')[0];
+	const newBase = newHref.split('?')[0];
+	if (oldBase === newBase) return;
+	const cacheBustedHref = `${
+		newHref + (newHref.includes('?') ? '&' : '?')
+	}t=${Date.now()}`;
+	oldEl.setAttribute('href', cacheBustedHref);
+};
+
+const updateLinkElement = (oldEl: Element, newEl: Element) => {
+	const rel = (oldEl.getAttribute('rel') || '').toLowerCase();
+	const newHref = newEl.getAttribute('href');
+	const oldHref = oldEl.getAttribute('href');
+
+	const isIcon =
+		rel === 'icon' || rel === 'shortcut icon' || rel === 'apple-touch-icon';
+
+	if (isIcon && newHref && oldHref) {
+		updateFaviconHref(oldEl, newHref, oldHref);
+	} else if (!isIcon && newHref && oldHref !== newHref) {
+		oldEl.setAttribute('href', newHref);
+	}
+
+	const attrsToCheck = ['type', 'sizes', 'crossorigin', 'as', 'media'];
+	attrsToCheck.forEach((attr) => {
+		const newVal = newEl.getAttribute(attr);
+		const oldVal = oldEl.getAttribute(attr);
+		if (newVal !== null && oldVal !== newVal) {
+			oldEl.setAttribute(attr, newVal);
+		} else if (newVal === null && oldVal !== null) {
+			oldEl.removeAttribute(attr);
+		}
+	});
+};
+
+const updateBaseElement = (oldEl: Element, newEl: Element) => {
+	const newHref = newEl.getAttribute('href');
+	const newTarget = newEl.getAttribute('target');
+	if (newHref && oldEl.getAttribute('href') !== newHref) {
+		oldEl.setAttribute('href', newHref);
+	}
+	if (newTarget && oldEl.getAttribute('target') !== newTarget) {
+		oldEl.setAttribute('target', newTarget);
+	}
+};
+
 const updateHeadElement = (oldEl: Element, newEl: Element, key: string) => {
 	const tag = oldEl.tagName.toLowerCase();
 
 	if (tag === 'title') {
-		const newTitle = newEl.textContent || '';
-		if (oldEl.textContent !== newTitle) {
-			oldEl.textContent = newTitle;
-			document.title = newTitle;
-		}
+		updateTitleElement(oldEl, newEl);
 
 		return;
 	}
 
 	if (tag === 'meta') {
-		const newContent = newEl.getAttribute('content');
-		const oldContent = oldEl.getAttribute('content');
-		if (oldContent !== newContent && newContent !== null) {
-			oldEl.setAttribute('content', newContent);
-		}
-		if (newEl.hasAttribute('charset')) {
-			const newCharset = newEl.getAttribute('charset');
-			if (oldEl.getAttribute('charset') !== newCharset) {
-				oldEl.setAttribute('charset', newCharset!);
-			}
-		}
+		updateMetaElement(oldEl, newEl);
 
 		return;
 	}
 
 	if (tag === 'link') {
-		const rel = (oldEl.getAttribute('rel') || '').toLowerCase();
-		const newHref = newEl.getAttribute('href');
-		const oldHref = oldEl.getAttribute('href');
-
-		if (
-			rel === 'icon' ||
-			rel === 'shortcut icon' ||
-			rel === 'apple-touch-icon'
-		) {
-			if (newHref && oldHref) {
-				const oldBase = oldHref.split('?')[0];
-				const newBase = newHref.split('?')[0];
-				if (oldBase !== newBase) {
-					const cacheBustedHref = `${
-						newHref + (newHref.includes('?') ? '&' : '?')
-					}t=${Date.now()}`;
-					oldEl.setAttribute('href', cacheBustedHref);
-				}
-			}
-		} else if (newHref && oldHref !== newHref) {
-			oldEl.setAttribute('href', newHref);
-		}
-
-		const attrsToCheck = ['type', 'sizes', 'crossorigin', 'as', 'media'];
-		attrsToCheck.forEach((attr) => {
-			const newVal = newEl.getAttribute(attr);
-			const oldVal = oldEl.getAttribute(attr);
-			if (newVal !== null && oldVal !== newVal) {
-				oldEl.setAttribute(attr, newVal);
-			} else if (newVal === null && oldVal !== null) {
-				oldEl.removeAttribute(attr);
-			}
-		});
+		updateLinkElement(oldEl, newEl);
 
 		return;
 	}
 
 	if (tag === 'base') {
-		const newHref = newEl.getAttribute('href');
-		const newTarget = newEl.getAttribute('target');
-		if (newHref && oldEl.getAttribute('href') !== newHref) {
-			oldEl.setAttribute('href', newHref);
-		}
-		if (newTarget && oldEl.getAttribute('target') !== newTarget) {
-			oldEl.setAttribute('target', newTarget);
-		}
+		updateBaseElement(oldEl, newEl);
 	}
 };
 
@@ -159,6 +177,14 @@ const addHeadElement = (newEl: Element, key: string) => {
 	} else {
 		head.appendChild(clone);
 	}
+};
+
+const removeStaleElement = (existingEl: Element) => {
+	if (shouldPreserveElement(existingEl)) return;
+	const tag = existingEl.tagName.toLowerCase();
+	const rel = existingEl.getAttribute('rel') || '';
+	if (tag === 'link' && rel === 'stylesheet') return;
+	existingEl.remove();
 };
 
 export const patchHeadInPlace = (newHeadHTML: string) => {
@@ -196,12 +222,7 @@ export const patchHeadInPlace = (newHeadHTML: string) => {
 
 	existingMap.forEach((existingEl, key) => {
 		if (!newMap.has(key)) {
-			if (!shouldPreserveElement(existingEl)) {
-				const tag = existingEl.tagName.toLowerCase();
-				const rel = existingEl.getAttribute('rel') || '';
-				if (tag === 'link' && rel === 'stylesheet') return;
-				existingEl.remove();
-			}
+			removeStaleElement(existingEl);
 		}
 	});
 };

@@ -36,6 +36,67 @@ import { validateSafePath } from '../utils/validateSafePath';
 
 const isDev = env.NODE_ENV === 'development';
 
+const extractBuildError = (
+	logs: (BuildMessage | ResolveMessage)[],
+	pass: string,
+	label: string,
+	frameworkNames: string[],
+	isIncremental: boolean | 0 | undefined,
+	throwOnError: boolean
+) => {
+	const errLog = logs.find((log) => log.level === 'error') ?? logs[0]!;
+	const err = new Error(
+		typeof errLog.message === 'string'
+			? errLog.message
+			: String(errLog.message)
+	);
+	(err as Error & { logs?: unknown }).logs = logs;
+	sendTelemetryEvent('build:error', {
+		frameworks: frameworkNames,
+		incremental: Boolean(isIncremental),
+		message: err.message,
+		pass
+	});
+	logger.error(`${label} build failed`, err);
+	if (throwOnError) throw err;
+	exit(1);
+};
+
+const copyHtmxVendor = (htmxDir: string, htmxDestDir: string) => {
+	mkdirSync(htmxDestDir, { recursive: true });
+	const glob = new Glob('htmx*.min.js');
+	for (const relPath of glob.scanSync({ cwd: htmxDir })) {
+		const src = join(htmxDir, relPath);
+		const dest = join(htmxDestDir, 'htmx.min.js');
+		copyFileSync(src, dest);
+
+		return;
+	}
+};
+
+const tryReadPackageJson = async (path: string) => {
+	try {
+		return await Bun.file(path).json();
+	} catch {
+		return null;
+	}
+};
+
+const resolveAbsoluteVersion = async () => {
+	const candidates = [
+		resolve(import.meta.dir, '..', '..', 'package.json'),
+		resolve(import.meta.dir, '..', 'package.json')
+	];
+	for (const candidate of candidates) {
+		const pkg = await tryReadPackageJson(candidate);
+		if (!pkg) continue;
+		if (pkg.name !== '@absolutejs/absolute') continue;
+		(globalThis as Record<string, unknown>).__absoluteVersion = pkg.version;
+
+		return;
+	}
+};
+
 const vueFeatureFlags: Record<string, string> = {
 	__VUE_OPTIONS_API__: 'true',
 	__VUE_PROD_DEVTOOLS__: isDev ? 'true' : 'false',
@@ -61,23 +122,7 @@ export const build = async ({
 	const buildStart = performance.now();
 	const projectRoot = cwd();
 
-	// Set version for the startup banner (same resolution as devBuild)
-	const versionCandidates = [
-		resolve(import.meta.dir, '..', '..', 'package.json'),
-		resolve(import.meta.dir, '..', 'package.json')
-	];
-	for (const candidate of versionCandidates) {
-		try {
-			const pkg = await Bun.file(candidate).json();
-			if (pkg.name === '@absolutejs/absolute') {
-				(globalThis as Record<string, unknown>).__absoluteVersion =
-					pkg.version;
-				break;
-			}
-		} catch {
-			/* try next candidate */
-		}
-	}
+	await resolveAbsoluteVersion();
 	const isIncremental = incrementalFiles && incrementalFiles.length > 0;
 
 	// Normalize incrementalFiles for consistent cross-platform path checking
@@ -131,7 +176,7 @@ export const build = async ({
 		svelteDir && 'svelte',
 		vueDir && 'vue',
 		angularDir && 'angular'
-	].filter(Boolean);
+	].filter((name): name is string => Boolean(name));
 	sendTelemetryEvent('build:start', {
 		framework: frameworkNames[0],
 		frameworks: frameworkNames,
@@ -193,9 +238,9 @@ export const build = async ({
 
 		for (const entry of entryPoints) {
 			const sourceFile = mapToSource(entry);
-			if (sourceFile && normalizedIncremental.has(resolve(sourceFile))) {
-				matchingEntries.push(entry);
-			}
+			if (!sourceFile) continue;
+			if (!normalizedIncremental.has(resolve(sourceFile))) continue;
+			matchingEntries.push(entry);
 		}
 
 		return matchingEntries;
@@ -402,9 +447,8 @@ export const build = async ({
 	// during non-React incremental rebuilds.
 	if (hmr && reactIndexesPath && reactClientEntryPoints.length > 0) {
 		const refreshEntry = join(reactIndexesPath, '_refresh.tsx');
-		if (!reactClientEntryPoints.includes(refreshEntry)) {
+		if (!reactClientEntryPoints.includes(refreshEntry))
 			reactClientEntryPoints.push(refreshEntry);
-		}
 	}
 
 	// In dev mode, check if vendor paths are set. When set, React is
@@ -417,37 +461,23 @@ export const build = async ({
 		? createHTMLScriptHMRPlugin(htmlDir, htmxDir)
 		: undefined;
 
-	// Build React config before parallel execution
 	const reactBuildConfig: Record<string, unknown> | undefined =
 		reactClientEntryPoints.length > 0
-			? (() => {
-					const cfg: Record<string, unknown> = {
-						entrypoints: reactClientEntryPoints,
-						format: 'esm' as const,
-						minify: !isDev,
-						naming: `[dir]/[name].[hash].[ext]`,
-						outdir: buildPath,
-						root: clientRoot,
-						splitting: true,
-						target: 'browser' as const,
-						throw: false
-					};
-
-					// When vendor paths are available (dev mode), externalize React so
-					// Bun doesn't bundle it. The bare specifiers in the output are
-					// rewritten to vendor paths after the build completes.
-					if (vendorPaths) {
-						cfg.external = Object.keys(vendorPaths);
-					}
-
-					// Bun's reactFastRefresh option injects $RefreshReg$/$RefreshSig$
-					// calls for React Fast Refresh support in dev
-					if (hmr) {
-						cfg.reactFastRefresh = true;
-					}
-
-					return cfg;
-				})()
+			? {
+					entrypoints: reactClientEntryPoints,
+					...(vendorPaths
+						? { external: Object.keys(vendorPaths) }
+						: {}),
+					format: 'esm' as const,
+					minify: !isDev,
+					naming: `[dir]/[name].[hash].[ext]`,
+					outdir: buildPath,
+					...(hmr ? { reactFastRefresh: true } : {}),
+					root: clientRoot,
+					splitting: true,
+					target: 'browser' as const,
+					throw: false
+				}
 			: undefined;
 
 	// Remove old hashed indexes before bundling so stale files
@@ -541,103 +571,61 @@ export const build = async ({
 			: undefined
 	]);
 
-	// Check each build result for errors
-	let serverLogs: (BuildMessage | ResolveMessage)[] = [];
-	let serverOutputs: BuildArtifact[] = [];
+	const serverLogs = serverResult?.logs ?? [];
+	const serverOutputs = serverResult?.outputs ?? [];
 
-	if (serverResult) {
-		serverLogs = serverResult.logs;
-		serverOutputs = serverResult.outputs;
-		if (!serverResult.success && serverResult.logs.length > 0) {
-			const errLog =
-				serverResult.logs.find((l) => l.level === 'error') ??
-				serverResult.logs[0]!;
-			const err = new Error(
-				typeof errLog.message === 'string'
-					? errLog.message
-					: String(errLog.message)
-			);
-			(err as Error & { logs?: unknown }).logs = serverResult.logs;
-			sendTelemetryEvent('build:error', {
-				frameworks: frameworkNames,
-				incremental: Boolean(isIncremental),
-				message: err.message,
-				pass: 'server'
-			});
-			logger.error('Server build failed', err);
-			if (throwOnError) throw err;
-			exit(1);
-		}
+	if (serverResult && !serverResult.success && serverLogs.length > 0) {
+		extractBuildError(
+			serverLogs,
+			'server',
+			'Server',
+			frameworkNames,
+			isIncremental,
+			throwOnError
+		);
 	}
 
-	let reactClientLogs: (BuildMessage | ResolveMessage)[] = [];
-	let reactClientOutputs: BuildArtifact[] = [];
+	const reactClientLogs = reactClientResult?.logs ?? [];
+	const reactClientOutputs = reactClientResult?.outputs ?? [];
 
-	if (reactClientResult) {
-		reactClientLogs = reactClientResult.logs;
-		reactClientOutputs = reactClientResult.outputs;
-		if (!reactClientResult.success && reactClientResult.logs.length > 0) {
-			const errLog =
-				reactClientResult.logs.find((l) => l.level === 'error') ??
-				reactClientResult.logs[0]!;
-			const err = new Error(
-				typeof errLog.message === 'string'
-					? errLog.message
-					: String(errLog.message)
-			);
-			(err as Error & { logs?: unknown }).logs = reactClientResult.logs;
-			sendTelemetryEvent('build:error', {
-				frameworks: frameworkNames,
-				incremental: Boolean(isIncremental),
-				message: err.message,
-				pass: 'react-client'
-			});
-			logger.error('React client build failed', err);
-			if (throwOnError) throw err;
-			exit(1);
-		}
-
-		// Post-process: rewrite bare React specifiers to vendor paths.
-		// Bun outputs `from "react"` for externals — browsers can't resolve
-		// bare specifiers, so we rewrite them to `/vendor/react.js` etc.
-		if (vendorPaths) {
-			await rewriteReactImports(
-				reactClientOutputs.map((artifact) => artifact.path),
-				vendorPaths
-			);
-		}
+	if (
+		reactClientResult &&
+		!reactClientResult.success &&
+		reactClientLogs.length > 0
+	) {
+		extractBuildError(
+			reactClientLogs,
+			'react-client',
+			'React client',
+			frameworkNames,
+			isIncremental,
+			throwOnError
+		);
 	}
 
-	let nonReactClientLogs: (BuildMessage | ResolveMessage)[] = [];
-	let nonReactClientOutputs: BuildArtifact[] = [];
+	if (vendorPaths && reactClientOutputs.length > 0) {
+		await rewriteReactImports(
+			reactClientOutputs.map((artifact) => artifact.path),
+			vendorPaths
+		);
+	}
 
-	if (nonReactClientResult) {
-		nonReactClientLogs = nonReactClientResult.logs;
-		nonReactClientOutputs = nonReactClientResult.outputs;
-		if (
-			!nonReactClientResult.success &&
-			nonReactClientResult.logs.length > 0
-		) {
-			const errLog =
-				nonReactClientResult.logs.find((l) => l.level === 'error') ??
-				nonReactClientResult.logs[0]!;
-			const err = new Error(
-				typeof errLog.message === 'string'
-					? errLog.message
-					: String(errLog.message)
-			);
-			(err as Error & { logs?: unknown }).logs =
-				nonReactClientResult.logs;
-			sendTelemetryEvent('build:error', {
-				frameworks: frameworkNames,
-				incremental: Boolean(isIncremental),
-				message: err.message,
-				pass: 'non-react-client'
-			});
-			logger.error('Non-React client build failed', err);
-			if (throwOnError) throw err;
-			exit(1);
-		}
+	const nonReactClientLogs = nonReactClientResult?.logs ?? [];
+	const nonReactClientOutputs = nonReactClientResult?.outputs ?? [];
+
+	if (
+		nonReactClientResult &&
+		!nonReactClientResult.success &&
+		nonReactClientLogs.length > 0
+	) {
+		extractBuildError(
+			nonReactClientLogs,
+			'non-react-client',
+			'Non-React client',
+			frameworkNames,
+			isIncremental,
+			throwOnError
+		);
 	}
 
 	// Post-process: rewrite bare Angular specifiers to vendor paths.
@@ -649,57 +637,39 @@ export const build = async ({
 		);
 	}
 
-	const cssLogs: (BuildMessage | ResolveMessage)[] = [];
-	const cssOutputs: BuildArtifact[] = [];
+	const cssLogs: (BuildMessage | ResolveMessage)[] = [
+		...(globalCssResult?.logs ?? []),
+		...(vueCssResult?.logs ?? [])
+	];
+	const cssOutputs: BuildArtifact[] = [
+		...(globalCssResult?.outputs ?? []),
+		...(vueCssResult?.outputs ?? [])
+	];
 
-	if (globalCssResult) {
-		cssLogs.push(...globalCssResult.logs);
-		cssOutputs.push(...globalCssResult.outputs);
-		if (!globalCssResult.success && globalCssResult.logs.length > 0) {
-			const errLog =
-				globalCssResult.logs.find((l) => l.level === 'error') ??
-				globalCssResult.logs[0]!;
-			const err = new Error(
-				typeof errLog.message === 'string'
-					? errLog.message
-					: String(errLog.message)
-			);
-			(err as Error & { logs?: unknown }).logs = globalCssResult.logs;
-			sendTelemetryEvent('build:error', {
-				frameworks: frameworkNames,
-				incremental: Boolean(isIncremental),
-				message: err.message,
-				pass: 'global-css'
-			});
-			logger.error('Global CSS build failed', err);
-			if (throwOnError) throw err;
-			exit(1);
-		}
+	if (
+		globalCssResult &&
+		!globalCssResult.success &&
+		globalCssResult.logs.length > 0
+	) {
+		extractBuildError(
+			globalCssResult.logs,
+			'global-css',
+			'Global CSS',
+			frameworkNames,
+			isIncremental,
+			throwOnError
+		);
 	}
 
-	if (vueCssResult) {
-		cssLogs.push(...vueCssResult.logs);
-		cssOutputs.push(...vueCssResult.outputs);
-		if (!vueCssResult.success && vueCssResult.logs.length > 0) {
-			const errLog =
-				vueCssResult.logs.find((l) => l.level === 'error') ??
-				vueCssResult.logs[0]!;
-			const err = new Error(
-				typeof errLog.message === 'string'
-					? errLog.message
-					: String(errLog.message)
-			);
-			(err as Error & { logs?: unknown }).logs = vueCssResult.logs;
-			sendTelemetryEvent('build:error', {
-				frameworks: frameworkNames,
-				incremental: Boolean(isIncremental),
-				message: err.message,
-				pass: 'vue-css'
-			});
-			logger.error('Vue CSS build failed', err);
-			if (throwOnError) throw err;
-			exit(1);
-		}
+	if (vueCssResult && !vueCssResult.success && vueCssResult.logs.length > 0) {
+		extractBuildError(
+			vueCssResult.logs,
+			'vue-css',
+			'Vue CSS',
+			frameworkNames,
+			isIncremental,
+			throwOnError
+		);
 	}
 
 	const allLogs = [
@@ -844,16 +814,7 @@ export const build = async ({
 				const htmxDestDir = isSingle
 					? buildPath
 					: join(buildPath, basename(htmxDir));
-
-				mkdirSync(htmxDestDir, { recursive: true });
-
-				const glob = new Glob('htmx*.min.js');
-				for (const relPath of glob.scanSync({ cwd: htmxDir })) {
-					const src = join(htmxDir, relPath);
-					const dest = join(htmxDestDir, 'htmx.min.js');
-					copyFileSync(src, dest);
-					break;
-				}
+				copyHtmxVendor(htmxDir, htmxDestDir);
 			}
 
 			// Update asset paths if HTMX files changed OR CSS changed

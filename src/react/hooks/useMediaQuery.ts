@@ -6,7 +6,7 @@ const UserAgentContext = createContext<UserAgentType | null>(null);
 
 export const UserAgentProvider = UserAgentContext.Provider;
 
-const useUserAgentType = (): UserAgentType => {
+const useUserAgentType = () => {
 	const context = useContext(UserAgentContext);
 	if (context === null) {
 		throw new Error(

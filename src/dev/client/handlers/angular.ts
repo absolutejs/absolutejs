@@ -22,7 +22,7 @@ import {
 } from '../domState';
 import { detectCurrentFramework, findIndexPath } from '../frameworkDetect';
 
-interface HMRMessage {
+type HMRMessage = {
 	data: {
 		cssBaseName?: string;
 		cssUrl?: string;
@@ -31,13 +31,13 @@ interface HMRMessage {
 		sourceFile?: string;
 		updateType?: string;
 	};
-}
+};
 
 const swapStylesheet = (
 	cssUrl: string,
 	cssBaseName: string,
 	framework: string
-): void => {
+) => {
 	let existingLink: HTMLLinkElement | null = null;
 	document.querySelectorAll('link[rel="stylesheet"]').forEach((link) => {
 		const href = (link as HTMLLinkElement).getAttribute('href') || '';
@@ -45,17 +45,17 @@ const swapStylesheet = (
 			existingLink = link as HTMLLinkElement;
 		}
 	});
-	if (existingLink) {
-		const capturedExisting = existingLink as HTMLLinkElement;
-		const newLink = document.createElement('link');
-		newLink.rel = 'stylesheet';
-		newLink.href = `${cssUrl}?t=${Date.now()}`;
-		newLink.onload = function () {
-			if (capturedExisting && capturedExisting.parentNode)
-				capturedExisting.remove();
-		};
-		document.head.appendChild(newLink);
-	}
+	if (!existingLink) return;
+
+	const capturedExisting = existingLink as HTMLLinkElement;
+	const newLink = document.createElement('link');
+	newLink.rel = 'stylesheet';
+	newLink.href = `${cssUrl}?t=${Date.now()}`;
+	newLink.onload = function () {
+		if (capturedExisting && capturedExisting.parentNode)
+			capturedExisting.remove();
+	};
+	document.head.appendChild(newLink);
 };
 
 // ─── State Capture/Restore via ng.getComponent ──────────────
@@ -66,7 +66,55 @@ type StateSnapshot = {
 	properties: Record<string, unknown>;
 };
 
-const captureComponentState = (): StateSnapshot[] => {
+const readDomCounter = (
+	element: Element,
+	properties: Record<string, unknown>
+) => {
+	element
+		.querySelectorAll('[class*="value"], [class*="count"]')
+		.forEach((stateEl) => {
+			const text = stateEl.textContent;
+			if (text === null || text.trim() === '') return;
+			const num = parseInt(text.trim(), 10);
+			if (!isNaN(num)) properties['__dom_counter'] = num;
+		});
+};
+
+const copyInstanceProperty = (
+	instance: Record<string, unknown>,
+	key: string,
+	properties: Record<string, unknown>
+) => {
+	if (key.startsWith('ɵ') || key.startsWith('__')) return;
+	const val = instance[key];
+	if (typeof val === 'function') return;
+	properties[key] = val;
+};
+
+const captureInstanceProperties = (
+	ngApi: any,
+	element: Element,
+	properties: Record<string, unknown>
+) => {
+	if (!ngApi || typeof ngApi.getComponent !== 'function') return;
+
+	try {
+		const instance = ngApi.getComponent(element);
+		if (!instance) return;
+
+		Object.keys(instance).forEach((key) => {
+			copyInstanceProperty(
+				instance as Record<string, unknown>,
+				key,
+				properties
+			);
+		});
+	} catch (_e) {
+		/* ignore */
+	}
+};
+
+const captureComponentState = () => {
 	const snapshots: StateSnapshot[] = [];
 	const selectorCounts = new Map<string, number>();
 	const { ng } = window as any;
@@ -79,35 +127,8 @@ const captureComponentState = (): StateSnapshot[] => {
 		selectorCounts.set(tagName, count + 1);
 
 		const properties: Record<string, unknown> = {};
-
-		// DOM-based counter reading (always works)
-		el.querySelectorAll('[class*="value"], [class*="count"]').forEach(
-			(stateEl) => {
-				const text = stateEl.textContent;
-				if (text !== null && text.trim() !== '') {
-					const num = parseInt(text.trim(), 10);
-					if (!isNaN(num)) properties['__dom_counter'] = num;
-				}
-			}
-		);
-
-		// ng.getComponent for full instance state
-		if (ng && typeof ng.getComponent === 'function') {
-			try {
-				const instance = ng.getComponent(el);
-				if (instance) {
-					for (const key of Object.keys(instance)) {
-						if (key.startsWith('ɵ') || key.startsWith('__'))
-							continue;
-						const val = (instance as Record<string, unknown>)[key];
-						if (typeof val === 'function') continue;
-						properties[key] = val;
-					}
-				}
-			} catch (_e) {
-				/* ignore */
-			}
-		}
+		readDomCounter(el, properties);
+		captureInstanceProperties(ng, el, properties);
 
 		if (Object.keys(properties).length > 0) {
 			snapshots.push({ index: count, properties, selector: tagName });
@@ -117,7 +138,67 @@ const captureComponentState = (): StateSnapshot[] => {
 	return snapshots;
 };
 
-const restoreComponentState = (snapshots: StateSnapshot[]): void => {
+const safeSetProperty = (
+	instance: Record<string, unknown>,
+	key: string,
+	value: unknown
+) => {
+	try {
+		instance[key] = value;
+	} catch (_e) {}
+};
+
+const restoreInstanceProperties = (
+	instance: Record<string, unknown>,
+	snap: StateSnapshot
+) => {
+	const domCounter = snap.properties['__dom_counter'];
+	Object.entries(snap.properties).forEach(([key, value]) => {
+		if (key === '__dom_counter') return;
+		safeSetProperty(instance, key, value);
+	});
+	if (
+		domCounter !== undefined &&
+		typeof domCounter === 'number' &&
+		'count' in instance
+	) {
+		instance['count'] = domCounter;
+	}
+};
+
+const restoreViaInstance = (
+	ngApi: any,
+	element: Element,
+	snap: StateSnapshot
+) => {
+	if (!ngApi || typeof ngApi.getComponent !== 'function') return false;
+
+	try {
+		const instance = ngApi.getComponent(element);
+		if (!instance) return false;
+
+		restoreInstanceProperties(instance as Record<string, unknown>, snap);
+		if (typeof ngApi.applyChanges === 'function')
+			ngApi.applyChanges(element);
+
+		return true;
+	} catch (_e) {
+		return false;
+	}
+};
+
+const restoreDomFallback = (element: Element, snap: StateSnapshot) => {
+	const domCounter = snap.properties['__dom_counter'];
+	if (domCounter === undefined) return;
+
+	element
+		.querySelectorAll('[class*="value"], [class*="count"]')
+		.forEach((counterEl) => {
+			counterEl.textContent = String(domCounter);
+		});
+};
+
+const restoreComponentState = (snapshots: StateSnapshot[]) => {
 	const { ng } = window as any;
 	if (snapshots.length === 0) return;
 
@@ -131,52 +212,11 @@ const restoreComponentState = (snapshots: StateSnapshot[]): void => {
 	bySelector.forEach((snaps, selector) => {
 		const elements = document.querySelectorAll(selector);
 		snaps.forEach((snap) => {
-			const el = elements[snap.index];
-			if (!el) return;
+			const element = elements[snap.index];
+			if (!element) return;
 
-			if (ng && typeof ng.getComponent === 'function') {
-				try {
-					const instance = ng.getComponent(el);
-					if (instance) {
-						const domCounter = snap.properties['__dom_counter'];
-						for (const [key, value] of Object.entries(
-							snap.properties
-						)) {
-							if (key === '__dom_counter') continue;
-							try {
-								(instance as Record<string, unknown>)[key] =
-									value;
-							} catch (_e) {}
-						}
-						if (
-							domCounter !== undefined &&
-							typeof domCounter === 'number'
-						) {
-							if ('count' in instance) {
-								(instance as Record<string, unknown>)['count'] =
-									domCounter;
-							}
-						}
-						// Force re-render in zoneless
-						if (typeof ng.applyChanges === 'function')
-							ng.applyChanges(el);
-
-						return;
-					}
-				} catch (_e) {
-					/* ignore */
-				}
-			}
-
-			// Fallback: patch DOM directly
-			const domCounter = snap.properties['__dom_counter'];
-			if (domCounter !== undefined) {
-				el.querySelectorAll(
-					'[class*="value"], [class*="count"]'
-				).forEach((counterEl) => {
-					counterEl.textContent = String(domCounter);
-				});
-			}
+			const restored = restoreViaInstance(ng, element, snap);
+			if (!restored) restoreDomFallback(element, snap);
 		});
 	});
 };
@@ -186,13 +226,12 @@ const restoreComponentState = (snapshots: StateSnapshot[]): void => {
 // resolves the promise the instant the bootstrap code writes to it.
 // Falls back to a short timeout in case the setter is bypassed.
 
-const waitForAngularApp = (): Promise<void> => {
+const waitForAngularApp = () => {
 	if (window.__ANGULAR_APP__) return Promise.resolve();
 
-	return new Promise((resolve) => {
+	return new Promise<void>((resolve) => {
 		const timeout = setTimeout(resolve, 500);
 
-		// Capture any value already on the property
 		let stored = window.__ANGULAR_APP__;
 
 		Object.defineProperty(window, '__ANGULAR_APP__', {
@@ -203,7 +242,6 @@ const waitForAngularApp = (): Promise<void> => {
 			},
 			set(val) {
 				stored = val;
-				// Restore as a normal property so future writes work normally
 				Object.defineProperty(window, '__ANGULAR_APP__', {
 					configurable: true,
 					enumerable: true,
@@ -221,7 +259,100 @@ const waitForAngularApp = (): Promise<void> => {
 // FAST UPDATE — Runtime patching without destroy/re-bootstrap
 // ============================================================
 
-const handleFastUpdate = async (message: HMRMessage): Promise<boolean> => {
+const suppressNg0912 = () => {
+	const origWarn = console.warn;
+	console.warn = function (...args: unknown[]) {
+		if (typeof args[0] === 'string' && args[0].includes('NG0912')) return;
+		origWarn.apply(console, args);
+	};
+
+	return origWarn;
+};
+
+const tryPatchExport = (
+	exportName: string,
+	newModule: Record<string, any>,
+	registry: Map<string, unknown>,
+	hmr: any,
+	sourceFile: string
+) => {
+	const exported = newModule[exportName];
+	if (typeof exported !== 'function' || !exported.ɵcmp) return 'skip';
+
+	const registryId = `${sourceFile}#${exportName}`;
+	if (!registry.has(registryId)) return 'skip';
+
+	const success = hmr.applyUpdate(registryId, exported);
+	if (!success) return 'fail';
+
+	return 'patched';
+};
+
+const patchRegisteredComponents = (
+	newModule: Record<string, any>,
+	registry: Map<string, unknown>,
+	hmr: any,
+	sourceFile: string
+) => {
+	let patchedAny = false;
+	const allPatched = Object.keys(newModule).every((exportName) => {
+		const result = tryPatchExport(
+			exportName,
+			newModule,
+			registry,
+			hmr,
+			sourceFile
+		);
+		if (result === 'skip') {
+			return true;
+		}
+		if (result === 'fail') {
+			return false;
+		}
+		patchedAny = true;
+
+		return true;
+	});
+
+	return { allPatched, patchedAny };
+};
+
+const attemptFastPatch = async (
+	indexPath: string,
+	registry: Map<string, unknown>,
+	hmr: any,
+	sourceFile: string,
+	origWarn: typeof console.warn
+) => {
+	try {
+		const newModule = await import(
+			/* @vite-ignore */ `${indexPath}?t=${Date.now()}`
+		);
+
+		console.warn = origWarn;
+
+		const { allPatched, patchedAny } = patchRegisteredComponents(
+			newModule,
+			registry,
+			hmr,
+			sourceFile
+		);
+
+		if (!patchedAny) return false;
+		if (!allPatched) return false;
+
+		hmr.refresh();
+
+		return true;
+	} catch (err) {
+		console.warn = origWarn;
+		console.warn('[HMR] Angular fast update failed, falling back:', err);
+
+		return false;
+	}
+};
+
+const handleFastUpdate = async (message: HMRMessage) => {
 	const hmr = window.__ANGULAR_HMR__;
 	if (!hmr || !hmr.getRegistry) return false;
 
@@ -235,67 +366,25 @@ const handleFastUpdate = async (message: HMRMessage): Promise<boolean> => {
 	);
 	if (!indexPath) return false;
 
-	// Suppress NG0912 Component ID collision warnings during HMR
-	const origWarn = console.warn;
-	console.warn = function (...args: unknown[]) {
-		if (typeof args[0] === 'string' && args[0].includes('NG0912')) return;
-		origWarn.apply(console, args);
-	};
+	const origWarn = suppressNg0912();
 
-	try {
-		// Import the new module with cache-busting
-		const newModule = await import(
-			/* @vite-ignore */ `${indexPath}?t=${Date.now()}`
+	const patched = await attemptFastPatch(
+		indexPath,
+		registry,
+		hmr,
+		message.data.sourceFile || '',
+		origWarn
+	);
+
+	if (patched && message.data.cssUrl) {
+		swapStylesheet(
+			message.data.cssUrl,
+			message.data.cssBaseName || '',
+			'angular'
 		);
-
-		console.warn = origWarn;
-
-		// Find component classes in the new module (those with ɵcmp)
-		let allPatched = true;
-		let patchedAny = false;
-
-		for (const exportName of Object.keys(newModule)) {
-			const exported = newModule[exportName];
-			if (typeof exported !== 'function' || !exported.ɵcmp) continue;
-
-			// Build the registry ID: sourceFile#ClassName
-			const sourceFile = message.data.sourceFile || '';
-			const registryId = `${sourceFile}#${exportName}`;
-
-			// Check if this component is registered
-			if (!registry.has(registryId)) continue;
-
-			const success = hmr.applyUpdate(registryId, exported);
-			if (success) {
-				patchedAny = true;
-			} else {
-				allPatched = false;
-				break;
-			}
-		}
-
-		if (!patchedAny) return false;
-		if (!allPatched) return false;
-
-		// All patches succeeded — trigger change detection instead of re-bootstrap
-		hmr.refresh();
-
-		// Swap CSS if provided
-		if (message.data.cssUrl) {
-			swapStylesheet(
-				message.data.cssUrl,
-				message.data.cssBaseName || '',
-				'angular'
-			);
-		}
-
-		return true;
-	} catch (err) {
-		console.warn = origWarn;
-		console.warn('[HMR] Angular fast update failed, falling back:', err);
-
-		return false;
 	}
+
+	return patched;
 };
 
 // ============================================================
@@ -320,7 +409,6 @@ export const handleAngularUpdate = (message: HMRMessage) => {
 		return;
 	}
 
-	// Try fast runtime patching first, fall back to full re-bootstrap
 	handleFastUpdate(message).then((patched) => {
 		if (!patched) handleFullUpdate(message);
 	});
@@ -330,13 +418,86 @@ export const handleAngularUpdate = (message: HMRMessage) => {
 // RE-BOOTSTRAP WITH VIEW TRANSITIONS API
 // ============================================================
 
+const findRootSelector = (container: Element) => {
+	const candidates = container.querySelectorAll('*');
+	for (let idx = 0; idx < candidates.length; idx++) {
+		const tag = candidates[idx]!.tagName.toLowerCase();
+		if (tag.includes('-')) return tag;
+	}
+
+	return null;
+};
+
+const destroyAngularApp = () => {
+	if (!window.__ANGULAR_APP__) return;
+
+	try {
+		window.__ANGULAR_APP__.destroy();
+	} catch (_e) {}
+	window.__ANGULAR_APP__ = null;
+};
+
+const bootstrapAngularModule = async (
+	indexPath: string,
+	rootSelector: string | null,
+	rootContainer: Element
+) => {
+	if (rootSelector && !rootContainer.querySelector(rootSelector)) {
+		rootContainer.appendChild(document.createElement(rootSelector));
+	}
+
+	(window as any).__HMR_SKIP_HYDRATION__ = true;
+
+	const origWarn = suppressNg0912();
+
+	await import(/* @vite-ignore */ `${indexPath}?t=${Date.now()}`);
+	await waitForAngularApp();
+
+	console.warn = origWarn;
+};
+
+const tickAngularApp = () => {
+	if (!window.__ANGULAR_APP__) return;
+
+	try {
+		(window.__ANGULAR_APP__ as any).tick();
+	} catch (_e) {}
+};
+
+const runWithViewTransition = (updateFn: () => Promise<void>) => {
+	const doc = document as any;
+	if (typeof doc.startViewTransition !== 'function') {
+		updateFn().catch((err: unknown) => {
+			console.warn('[HMR] Angular update failed (non-fatal):', err);
+		});
+
+		return;
+	}
+
+	let styleEl: HTMLStyleElement | null = null;
+	try {
+		styleEl = document.createElement('style');
+		styleEl.textContent =
+			'::view-transition-old(root),::view-transition-new(root){animation:none!important}';
+		document.head.appendChild(styleEl);
+	} catch (_e) {}
+
+	const removeStyle = () => {
+		if (styleEl && styleEl.parentNode) styleEl.remove();
+	};
+
+	doc.startViewTransition(async () => {
+		await updateFn();
+	})
+		.finished.then(removeStyle)
+		.catch(removeStyle);
+};
+
 const handleFullUpdate = (message: HMRMessage) => {
-	// 1. Capture state BEFORE anything changes
 	const componentState = captureComponentState();
 	const scrollState = saveScrollState();
 	const formState = saveFormState();
 
-	// 2. CSS pre-update
 	if (message.data.cssUrl) {
 		swapStylesheet(
 			message.data.cssUrl,
@@ -345,17 +506,8 @@ const handleFullUpdate = (message: HMRMessage) => {
 		);
 	}
 
-	// 3. Find root selector + index path
-	let rootSelector: string | null = null;
 	const rootContainer = document.getElementById('root') || document.body;
-	const candidates = rootContainer.querySelectorAll('*');
-	for (let i = 0; i < candidates.length; i++) {
-		const tag = candidates[i]!.tagName.toLowerCase();
-		if (tag.includes('-')) {
-			rootSelector = tag;
-			break;
-		}
-	}
+	const rootSelector = findRootSelector(rootContainer);
 
 	const indexPath = findIndexPath(
 		message.data.manifest,
@@ -364,85 +516,14 @@ const handleFullUpdate = (message: HMRMessage) => {
 	);
 	if (!indexPath) return;
 
-	// 4. The async update function — does destroy + re-bootstrap
-	const doUpdate = async (): Promise<void> => {
-		// Destroy old app
-		if (window.__ANGULAR_APP__) {
-			try {
-				window.__ANGULAR_APP__.destroy();
-			} catch (_e) {}
-			window.__ANGULAR_APP__ = null;
-		}
-
-		// Recreate root element
-		if (rootSelector && !rootContainer.querySelector(rootSelector)) {
-			rootContainer.appendChild(document.createElement(rootSelector));
-		}
-
-		// Skip hydration for re-bootstrap
-		(window as any).__HMR_SKIP_HYDRATION__ = true;
-
-		// Suppress NG0912 Component ID collision warnings during HMR.
-		// When Angular packages are shared via vendor files (single instance),
-		// re-importing a component re-registers it in Angular's global registry.
-		// The warning is expected and harmless during HMR.
-		const origWarn = console.warn;
-		console.warn = function (...args: unknown[]) {
-			if (typeof args[0] === 'string' && args[0].includes('NG0912')) {
-				return;
-			}
-			origWarn.apply(console, args);
-		};
-
-		// Import new module → triggers bootstrapApplication
-		await import(/* @vite-ignore */ `${indexPath}?t=${Date.now()}`);
-		await waitForAngularApp();
-
-		// Restore console.warn after module import
-		console.warn = origWarn;
-
-		// Immediately restore state (don't wait for requestAnimationFrame, it delays the View Transition)
+	const doUpdate = async () => {
+		destroyAngularApp();
+		await bootstrapAngularModule(indexPath, rootSelector, rootContainer);
 		restoreComponentState(componentState);
-
-		// Trigger change detection
-		if (window.__ANGULAR_APP__) {
-			try {
-				(window.__ANGULAR_APP__ as any).tick();
-			} catch (_e) {}
-		}
-
-		// Restore DOM state
+		tickAngularApp();
 		restoreFormState(formState);
 		restoreScrollState(scrollState);
 	};
 
-	// 5. Use View Transitions API if available (Chrome 111+)
-	//    The browser captures a screenshot, runs our async update behind it,
-	//    and crossfades to the new content when the update finishes.
-	const doc = document as any;
-	if (typeof doc.startViewTransition === 'function') {
-		// Disable the default crossfade animation for instant swap
-		let styleEl: HTMLStyleElement | null = null;
-		try {
-			styleEl = document.createElement('style');
-			styleEl.textContent =
-				'::view-transition-old(root),::view-transition-new(root){animation:none!important}';
-			document.head.appendChild(styleEl);
-		} catch (_e) {}
-
-		doc.startViewTransition(async () => {
-			await doUpdate();
-		})
-			.finished.then(() => {
-				if (styleEl && styleEl.parentNode) styleEl.remove();
-			})
-			.catch(() => {
-				if (styleEl && styleEl.parentNode) styleEl.remove();
-			});
-	} else {
-		// Fallback for browsers without View Transitions API
-		doUpdate().catch((err: unknown) => {
-			console.warn('[HMR] Angular update failed (non-fatal):', err);
-		});
-	}
+	runWithViewTransition(doUpdate);
 };

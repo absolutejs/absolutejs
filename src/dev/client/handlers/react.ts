@@ -68,19 +68,20 @@ const reloadReactCSS = (cssPath: string) => {
 	);
 	existingCSSLinks.forEach((link) => {
 		const href = (link as HTMLLinkElement).getAttribute('href');
-		if (href) {
-			const hrefBase = href.split('?')[0]!.split('/').pop() || '';
-			const cssPathBase = cssPath.split('?')[0]!.split('/').pop() || '';
-			if (
-				hrefBase === cssPathBase ||
-				href.includes('react-example') ||
-				cssPathBase.includes(hrefBase)
-			) {
-				const newHref = `${
-					cssPath + (cssPath.includes('?') ? '&' : '?')
-				}t=${Date.now()}`;
-				(link as HTMLLinkElement).href = newHref;
-			}
+		if (!href) {
+			return;
+		}
+		const hrefBase = href.split('?')[0]!.split('/').pop() || '';
+		const cssPathBase = cssPath.split('?')[0]!.split('/').pop() || '';
+		if (
+			hrefBase === cssPathBase ||
+			href.includes('react-example') ||
+			cssPathBase.includes(hrefBase)
+		) {
+			const newHref = `${
+				cssPath + (cssPath.includes('?') ? '&' : '?')
+			}t=${Date.now()}`;
+			(link as HTMLLinkElement).href = newHref;
 		}
 	});
 };

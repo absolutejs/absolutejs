@@ -17,6 +17,76 @@ export type ModuleUpdate = {
 
 /* Map a source file to its manifest entry keys
    This handles framework-specific manifest key derivation */
+const buildModulePaths = (
+	moduleKeys: string[],
+	manifest: Record<string, string>
+) => {
+	const modulePaths: Record<string, string> = {};
+	moduleKeys.forEach((key) => {
+		if (manifest[key]) {
+			modulePaths[key] = manifest[key];
+		}
+	});
+
+	return modulePaths;
+};
+
+const processChangedFile = (
+	sourceFile: string,
+	framework: string,
+	manifest: Record<string, string>,
+	resolvedPaths:
+		| {
+				reactDir?: string;
+				svelteDir?: string;
+				vueDir?: string;
+				angularDir?: string;
+		  }
+		| undefined,
+	processedFiles: Set<string>
+) => {
+	const normalizedFile = resolve(sourceFile);
+	const normalizedPath = normalizedFile.replace(/\\/g, '/');
+
+	if (processedFiles.has(normalizedFile)) {
+		return null;
+	}
+	processedFiles.add(normalizedFile);
+
+	const moduleKeys = mapSourceFileToManifestKeys(
+		normalizedFile,
+		framework,
+		resolvedPaths
+	);
+
+	const isReactPage = resolvedPaths?.reactDir
+		? normalizedPath.startsWith(
+				`${resolvedPaths.reactDir.replace(/\\/g, '/')}/pages/`
+			)
+		: normalizedPath.includes('/react/pages/');
+
+	if (framework === 'react' && !isReactPage) {
+		return null;
+	}
+
+	const modulePaths = buildModulePaths(moduleKeys, manifest);
+
+	if (Object.keys(modulePaths).length === 0) {
+		return null;
+	}
+
+	const componentType =
+		framework === 'react' ? classifyComponent(normalizedFile) : undefined;
+
+	return {
+		componentType,
+		framework,
+		moduleKeys: Object.keys(modulePaths),
+		modulePaths,
+		sourceFile: normalizedFile
+	} satisfies ModuleUpdate;
+};
+
 export const createModuleUpdates = (
 	changedFiles: string[],
 	framework: string,
@@ -28,87 +98,29 @@ export const createModuleUpdates = (
 		angularDir?: string;
 	}
 ) => {
-	const updates: ModuleUpdate[] = [];
 	const processedFiles = new Set<string>();
 
-	for (const sourceFile of changedFiles) {
-		const normalizedFile = resolve(sourceFile);
-		const normalizedPath = normalizedFile.replace(/\\/g, '/');
-
-		// Skip if already processed
-		if (processedFiles.has(normalizedFile)) continue;
-		processedFiles.add(normalizedFile);
-
-		// Get manifest keys for this file
-		const moduleKeys = mapSourceFileToManifestKeys(
-			normalizedFile,
-			framework,
-			resolvedPaths
-		);
-
-		// Special handling: For React components, check if we need to look for page-level entries
-		// Components don't have direct manifest entries, but the dependency graph ensures
-		// that any page importing this component is also in changedFiles
-		// So we'll find it when processing that page file
-
-		// For React, if this is a component (not a page), we still want to track it
-		// for Fast Refresh, even though it doesn't have direct manifest entries.
-		// The dependency graph ensures dependent pages are rebuilt, but we need
-		// to know about component changes for client-side HMR.
-		//
-		// However, components don't have manifest entries, so we'll skip creating
-		// a ModuleUpdate here. Instead, we'll handle component updates separately
-		// in the rebuild trigger by checking if changed files include components.
-		const isReactPage = resolvedPaths?.reactDir
-			? normalizedPath.startsWith(
-					`${resolvedPaths.reactDir.replace(/\\/g, '/')}/pages/`
-				)
-			: normalizedPath.includes('/react/pages/');
-
-		if (framework === 'react' && !isReactPage) {
-			// This is a component - components are handled via dependency graph
-			// The page that imports it will be rebuilt and have a ModuleUpdate
-			// Component updates will be handled in Phase 2 (Client HMR)
-			continue;
-		}
-
-		// Build module paths from manifest (only include keys that exist)
-		const modulePaths: Record<string, string> = {};
-		for (const key of moduleKeys) {
-			if (manifest[key]) {
-				modulePaths[key] = manifest[key];
-			}
-		}
-
-		// Only create update if we found manifest entries
-		if (Object.keys(modulePaths).length > 0) {
-			// Classify React components for Fast Refresh
-			const componentType =
-				framework === 'react'
-					? classifyComponent(normalizedFile)
-					: undefined;
-
-			updates.push({
-				componentType,
+	return changedFiles
+		.map((sourceFile) =>
+			processChangedFile(
+				sourceFile,
 				framework,
-				moduleKeys: Object.keys(modulePaths),
-				modulePaths,
-				sourceFile: normalizedFile
-			});
-		}
-	}
-
-	return updates;
+				manifest,
+				resolvedPaths,
+				processedFiles
+			)
+		)
+		.filter((update) => update !== null);
 };
 export const groupModuleUpdatesByFramework = (updates: ModuleUpdate[]) => {
 	const grouped = new Map<string, ModuleUpdate[]>();
 
-	for (const update of updates) {
+	updates.forEach((update) => {
 		if (!grouped.has(update.framework)) {
 			grouped.set(update.framework, []);
 		}
 		grouped.get(update.framework)!.push(update);
-	}
+	});
 
 	return grouped;
 };

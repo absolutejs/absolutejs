@@ -51,8 +51,49 @@ export const hideErrorOverlay = () => {
 	}, 150);
 };
 
-export const isRuntimeErrorOverlay = (): boolean =>
-	currentOverlayKind === 'runtime';
+export const isRuntimeErrorOverlay = () => currentOverlayKind === 'runtime';
+
+const buildLocationSection = (
+	file: string | undefined,
+	line: number | undefined,
+	column: number | undefined,
+	lineText: string | undefined
+) => {
+	if (!file && line === undefined && column === undefined && !lineText) {
+		return null;
+	}
+
+	const locSection = document.createElement('div');
+	locSection.style.cssText = 'margin-bottom:20px;';
+
+	const locLabel = document.createElement('div');
+	locLabel.style.cssText =
+		'font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:#94a3b8;margin-bottom:8px;';
+	locLabel.textContent = 'Where';
+	locSection.appendChild(locLabel);
+
+	const locParts: string[] = [];
+	if (file) locParts.push(file);
+	if (line !== undefined) locParts.push(String(line));
+	if (column !== undefined) locParts.push(String(column));
+	const loc = locParts.join(':') || 'Unknown location';
+
+	const locEl = document.createElement('div');
+	locEl.style.cssText =
+		'padding:12px 20px;background:rgba(71,85,105,0.3);border-radius:10px;border:1px solid rgba(71,85,105,0.4);color:#cbd5e1;font-size:13px;';
+	locEl.textContent = loc;
+	locSection.appendChild(locEl);
+
+	if (lineText) {
+		const codeBlock = document.createElement('pre');
+		codeBlock.style.cssText =
+			'margin:8px 0 0;padding:14px 20px;background:rgba(15,23,42,0.8);border-radius:10px;border:1px solid rgba(71,85,105,0.4);color:#94a3b8;font-size:13px;overflow-x:auto;white-space:pre;';
+		codeBlock.textContent = lineText;
+		locSection.appendChild(codeBlock);
+	}
+
+	return locSection;
+};
 
 export const showErrorOverlay = (opts: ErrorOverlayOptions) => {
 	const message = opts.message || 'Build failed';
@@ -108,35 +149,8 @@ export const showErrorOverlay = (opts: ErrorOverlayOptions) => {
 	errorSection.appendChild(msgEl);
 	content.appendChild(errorSection);
 
-	if (file || line != null || column != null || lineText) {
-		const locSection = document.createElement('div');
-		locSection.style.cssText = 'margin-bottom:20px;';
-
-		const locLabel = document.createElement('div');
-		locLabel.style.cssText =
-			'font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:#94a3b8;margin-bottom:8px;';
-		locLabel.textContent = 'Where';
-		locSection.appendChild(locLabel);
-
-		const locParts: string[] = [];
-		if (file) locParts.push(file);
-		if (line != null) locParts.push(String(line));
-		if (column != null) locParts.push(String(column));
-		const loc = locParts.join(':') || 'Unknown location';
-
-		const locEl = document.createElement('div');
-		locEl.style.cssText =
-			'padding:12px 20px;background:rgba(71,85,105,0.3);border-radius:10px;border:1px solid rgba(71,85,105,0.4);color:#cbd5e1;font-size:13px;';
-		locEl.textContent = loc;
-		locSection.appendChild(locEl);
-
-		if (lineText) {
-			const codeBlock = document.createElement('pre');
-			codeBlock.style.cssText =
-				'margin:8px 0 0;padding:14px 20px;background:rgba(15,23,42,0.8);border-radius:10px;border:1px solid rgba(71,85,105,0.4);color:#94a3b8;font-size:13px;overflow-x:auto;white-space:pre;';
-			codeBlock.textContent = lineText;
-			locSection.appendChild(codeBlock);
-		}
+	const locSection = buildLocationSection(file, line, column, lineText);
+	if (locSection) {
 		content.appendChild(locSection);
 	}
 

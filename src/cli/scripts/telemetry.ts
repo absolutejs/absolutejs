@@ -6,7 +6,7 @@ import type { TelemetryConfig } from '../../../types/telemetry';
 const configDir = join(homedir(), '.absolutejs');
 const configPath = join(configDir, 'telemetry.json');
 
-export const getTelemetryConfig = (): TelemetryConfig | null => {
+export const getTelemetryConfig = () => {
 	try {
 		if (!existsSync(configPath)) return null;
 		const raw = readFileSync(configPath, 'utf-8');
@@ -63,21 +63,31 @@ export const telemetry = (args: string[]) => {
 
 	if (subcommand === 'enable') {
 		enable();
-	} else if (subcommand === 'disable') {
-		disable();
-	} else if (subcommand === 'status' || !subcommand) {
-		status();
-		if (!subcommand) {
-			console.log('');
-			console.log('Usage: absolute telemetry <command>');
-			console.log('Commands:');
-			console.log('  enable    Enable anonymous telemetry');
-			console.log('  disable   Disable telemetry');
-			console.log('  status    Show current telemetry status');
-		}
-	} else {
-		console.error(`Unknown telemetry command: ${subcommand}`);
-		console.error('Usage: absolute telemetry <enable|disable|status>');
-		process.exit(1);
+
+		return;
 	}
+	if (subcommand === 'disable') {
+		disable();
+
+		return;
+	}
+	if (subcommand === 'status') {
+		status();
+
+		return;
+	}
+	if (!subcommand) {
+		status();
+		console.log('');
+		console.log('Usage: absolute telemetry <command>');
+		console.log('Commands:');
+		console.log('  enable    Enable anonymous telemetry');
+		console.log('  disable   Disable telemetry');
+		console.log('  status    Show current telemetry status');
+
+		return;
+	}
+	console.error(`Unknown telemetry command: ${subcommand}`);
+	console.error('Usage: absolute telemetry <enable|disable|status>');
+	process.exit(1);
 };

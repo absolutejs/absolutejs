@@ -7,7 +7,7 @@ import { formatTimestamp } from '../utils/startupBanner';
 
 export const COMPOSE_PATH = 'db/docker-compose.db.yml';
 export const DEFAULT_SERVER_ENTRY = 'src/backend/server.ts';
-export const isWSLEnvironment = (): boolean => {
+export const isWSLEnvironment = () => {
 	try {
 		const release = readFileSync('/proc/version', 'utf-8');
 
@@ -16,35 +16,41 @@ export const isWSLEnvironment = (): boolean => {
 		return false;
 	}
 };
-export const killStaleProcesses = (port: number): void => {
+const safeKill = (pid: number) => {
 	try {
-		const output = execSync(
-			`lsof -ti tcp:${port} -sTCP:LISTEN 2>/dev/null`,
-			{ encoding: 'utf-8' }
-		).trim();
-		if (!output) return;
-
-		const pids = output
-			.split('\n')
-			.map(Number)
-			.filter((pid) => pid !== process.pid && pid > 0);
-		if (pids.length === 0) return;
-
-		for (const pid of pids) {
-			try {
-				process.kill(pid, 'SIGTERM');
-			} catch {
-				/* already exited */
-			}
-		}
-		console.log(
-			`\x1b[2m${formatTimestamp()}\x1b[0m \x1b[33m[cli]\x1b[0m \x1b[33mKilled ${pids.length} stale ${pids.length === 1 ? 'process' : 'processes'} on port ${port}.\x1b[0m`
-		);
+		process.kill(pid, 'SIGTERM');
 	} catch {
-		/* lsof not found or no processes — safe to ignore */
+		/* already exited */
 	}
 };
-export const printHelp = (): void => {
+
+export const killStaleProcesses = (port: number) => {
+	let output: string;
+	try {
+		output = execSync(`lsof -ti tcp:${port} -sTCP:LISTEN 2>/dev/null`, {
+			encoding: 'utf-8'
+		}).trim();
+	} catch {
+		return;
+	}
+	if (!output) {
+		return;
+	}
+
+	const pids = output
+		.split('\n')
+		.map(Number)
+		.filter((pid) => pid !== process.pid && pid > 0);
+	if (pids.length === 0) {
+		return;
+	}
+
+	pids.forEach(safeKill);
+	console.log(
+		`\x1b[2m${formatTimestamp()}\x1b[0m \x1b[33m[cli]\x1b[0m \x1b[33mKilled ${pids.length} stale ${pids.length === 1 ? 'process' : 'processes'} on port ${port}.\x1b[0m`
+	);
+};
+export const printHelp = () => {
 	console.log('');
 	console.log('\x1b[1mShortcuts:\x1b[0m');
 	console.log('  \x1b[36mr\x1b[0m / restart  — Restart server');
@@ -59,10 +65,10 @@ export const printHelp = (): void => {
 	);
 	console.log('');
 };
-export const printHint = (): void => {
+export const printHint = () => {
 	console.log('\x1b[90mpress h + enter to show shortcuts\x1b[0m');
 };
-export const readDbScripts = async (): Promise<DbScripts | null> => {
+export const readDbScripts = async () => {
 	const pkgPath = resolve('package.json');
 	if (!existsSync(pkgPath)) return null;
 
@@ -74,7 +80,7 @@ export const readDbScripts = async (): Promise<DbScripts | null> => {
 
 	return { downCommand, upCommand };
 };
-export const startDatabase = async (scripts: DbScripts): Promise<void> => {
+export const startDatabase = async (scripts: DbScripts) => {
 	await timed('Starting database container...', async () => {
 		const { exitCode } = await $`${{ raw: scripts.upCommand }}`
 			.quiet()
@@ -82,14 +88,11 @@ export const startDatabase = async (scripts: DbScripts): Promise<void> => {
 		if (exitCode !== 0) process.exit(exitCode);
 	});
 };
-export const stopDatabase = async (scripts: DbScripts): Promise<void> => {
+export const stopDatabase = async (scripts: DbScripts) => {
 	console.log('\nStopping database container...');
 	await $`${{ raw: scripts.downCommand }}`.quiet().nothrow();
 };
-export const timed = async (
-	label: string,
-	fn: () => Promise<void>
-): Promise<void> => {
+export const timed = async (label: string, fn: () => Promise<void>) => {
 	process.stdout.write(label);
 	const start = performance.now();
 	await fn();

@@ -1,4 +1,4 @@
-export const ssrErrorPage = (framework: string, error: unknown): string => {
+export const ssrErrorPage = (framework: string, error: unknown) => {
 	const frameworkColors: Record<string, string> = {
 		angular: '#dd0031',
 		html: '#e34c26',

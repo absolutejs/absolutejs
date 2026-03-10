@@ -13,7 +13,7 @@ const swapStylesheet = (
 	cssUrl: string,
 	cssBaseName: string,
 	framework: string
-): void => {
+) => {
 	let existingLink: HTMLLinkElement | null = null;
 	document.querySelectorAll('link[rel="stylesheet"]').forEach((link) => {
 		const href = (link as HTMLLinkElement).getAttribute('href') || '';
@@ -22,17 +22,179 @@ const swapStylesheet = (
 		}
 	});
 
-	if (existingLink) {
-		const capturedExisting = existingLink as HTMLLinkElement;
-		const newLink = document.createElement('link');
-		newLink.rel = 'stylesheet';
-		newLink.href = `${cssUrl}?t=${Date.now()}`;
-		newLink.onload = function () {
-			if (capturedExisting && capturedExisting.parentNode) {
-				capturedExisting.remove();
+	if (!existingLink) {
+		return;
+	}
+
+	const capturedExisting = existingLink as HTMLLinkElement;
+	const newLink = document.createElement('link');
+	newLink.rel = 'stylesheet';
+	newLink.href = `${cssUrl}?t=${Date.now()}`;
+	newLink.onload = () => {
+		if (capturedExisting && capturedExisting.parentNode) {
+			capturedExisting.remove();
+		}
+	};
+	document.head.appendChild(newLink);
+};
+
+const extractCountFromDOM = () => {
+	const countButton = document.querySelector('button');
+	if (!countButton || !countButton.textContent) {
+		return {};
+	}
+
+	const countMatch = countButton.textContent.match(/(\d+)/);
+	if (!countMatch) {
+		return {};
+	}
+
+	return { initialCount: parseInt(countMatch[1]!, 10) };
+};
+
+const loadStateFromSession = () => {
+	try {
+		const stored = sessionStorage.getItem('__SVELTE_HMR_STATE__');
+		if (!stored) {
+			return {};
+		}
+
+		const parsed = JSON.parse(stored) as Record<string, unknown>;
+		if (parsed && Object.keys(parsed).length > 0) {
+			return parsed;
+		}
+
+		return {};
+	} catch (_err) {
+		return {};
+	}
+};
+
+const saveStateToSession = (preservedState: Record<string, unknown>) => {
+	if (Object.keys(preservedState).length === 0) {
+		return;
+	}
+
+	try {
+		sessionStorage.setItem(
+			'__SVELTE_HMR_STATE__',
+			JSON.stringify(preservedState)
+		);
+	} catch (_err) {
+		/* ignore */
+	}
+};
+
+const collectCssRules = (sheet: CSSStyleSheet) => {
+	let rules = '';
+	for (let idx = 0; idx < sheet.cssRules.length; idx++) {
+		rules += `${sheet.cssRules[idx]!.cssText}\n`;
+	}
+
+	return rules;
+};
+
+const preserveLinkAsInlineStyle = (link: HTMLLinkElement) => {
+	try {
+		const { sheet } = link;
+		if (!sheet || sheet.cssRules.length === 0) {
+			return null;
+		}
+
+		const style = document.createElement('style');
+		style.dataset.hmrPreserved = 'true';
+		style.textContent = collectCssRules(sheet);
+		document.head.appendChild(style);
+
+		return style;
+	} catch (_err) {
+		/* Cross-origin sheets (e.g. Google Fonts) — clone as fallback */
+		const clone = link.cloneNode(true) as HTMLLinkElement;
+		clone.dataset.hmrPreserved = 'true';
+		document.head.appendChild(clone);
+
+		return null;
+	}
+};
+
+const preserveAllStylesheets = () => {
+	const preservedStyles: HTMLStyleElement[] = [];
+	document
+		.querySelectorAll<HTMLLinkElement>('head link[rel="stylesheet"]')
+		.forEach((link) => {
+			const style = preserveLinkAsInlineStyle(link);
+			if (style) {
+				preservedStyles.push(style);
 			}
+		});
+
+	/* Also preserve Svelte injected <style> tags (css: 'injected' mode) */
+	document
+		.querySelectorAll<HTMLStyleElement>(
+			'head style:not([data-hmr-preserved])'
+		)
+		.forEach((style) => {
+			const clone = document.createElement('style');
+			clone.dataset.hmrPreserved = 'true';
+			clone.textContent = style.textContent;
+			document.head.appendChild(clone);
+		});
+
+	return preservedStyles;
+};
+
+const buildLinkLoadPromise = (link: HTMLLinkElement) => {
+	if (link.sheet && link.sheet.cssRules.length > 0) {
+		return null;
+	}
+
+	return new Promise<void>((resolve) => {
+		link.onload = () => {
+			resolve();
 		};
-		document.head.appendChild(newLink);
+		link.onerror = () => {
+			resolve();
+		};
+		setTimeout(resolve, 500);
+	});
+};
+
+const cleanupAfterImport = (
+	domState: ReturnType<typeof saveDOMState>,
+	scrollState: ReturnType<typeof saveScrollState>
+) => {
+	document
+		.querySelectorAll('[data-hmr-preserved="true"]')
+		.forEach((element) => {
+			element.remove();
+		});
+	restoreDOMState(document.body, domState);
+	restoreScrollState(scrollState);
+};
+
+const waitForStylesAndCleanup = (
+	domState: ReturnType<typeof saveDOMState>,
+	scrollState: ReturnType<typeof saveScrollState>
+) => {
+	const newLinks = document.querySelectorAll<HTMLLinkElement>(
+		'head link[rel="stylesheet"]:not([data-hmr-preserved])'
+	);
+	const loadPromises: Promise<void>[] = [];
+	newLinks.forEach((link) => {
+		const promise = buildLinkLoadPromise(link);
+		if (promise) {
+			loadPromises.push(promise);
+		}
+	});
+
+	const cleanup = () => {
+		cleanupAfterImport(domState, scrollState);
+	};
+
+	if (loadPromises.length > 0) {
+		Promise.all(loadPromises).then(cleanup);
+	} else {
+		cleanup();
 	}
 };
 
@@ -66,46 +228,16 @@ export const handleSvelteUpdate = (message: {
 	const domState = saveDOMState(document.body);
 	const scrollState = saveScrollState();
 
-	/* Extract state from DOM (Svelte 5 $state is not externally accessible).
-	   Use a flexible regex — the template text around the number may change
-	   between HMR cycles (e.g. user adds/removes text near {getCount()}). */
-	let preservedState: Record<string, unknown> = {};
-	const countButton = document.querySelector('button');
-	if (countButton && countButton.textContent) {
-		const countMatch = countButton.textContent.match(/(\d+)/);
-		if (countMatch) {
-			preservedState.initialCount = parseInt(countMatch[1]!, 10);
-		}
-	}
+	let preservedState: Record<string, unknown> = extractCountFromDOM();
 
-	/* If DOM extraction failed, fall back to sessionStorage instead of
-	   overwriting a good previous value with empty state. */
 	if (Object.keys(preservedState).length === 0) {
-		try {
-			const stored = sessionStorage.getItem('__SVELTE_HMR_STATE__');
-			if (stored) {
-				const parsed = JSON.parse(stored) as Record<string, unknown>;
-				if (parsed && Object.keys(parsed).length > 0) {
-					preservedState = parsed;
-				}
-			}
-		} catch (_err) {
-			/* ignore */
-		}
+		preservedState = loadStateFromSession();
 	}
 
 	/* Set preserved state on window + backup to sessionStorage */
 	window.__HMR_PRESERVED_STATE__ = preservedState;
-	if (Object.keys(preservedState).length > 0) {
-		try {
-			sessionStorage.setItem(
-				'__SVELTE_HMR_STATE__',
-				JSON.stringify(preservedState)
-			);
-		} catch (_err) {
-			/* ignore */
-		}
-	}
+	saveStateToSession(preservedState);
+
 	const indexPath = findIndexPath(
 		message.data.manifest,
 		message.data.sourceFile,
@@ -127,88 +259,12 @@ export const handleSvelteUpdate = (message: {
 		);
 	}
 
-	/* Preserve styles as inline <style> elements so they survive the
-	   unmount/mount cycle. Svelte removes <svelte:head> content (including
-	   <link> tags) on unmount. Inline styles apply synchronously — unlike
-	   cloned <link> tags which need to re-fetch even from cache. */
-	const preservedStyles: HTMLStyleElement[] = [];
-	document
-		.querySelectorAll<HTMLLinkElement>('head link[rel="stylesheet"]')
-		.forEach((link) => {
-			try {
-				const { sheet } = link;
-				if (sheet && sheet.cssRules.length > 0) {
-					const style = document.createElement('style');
-					style.dataset.hmrPreserved = 'true';
-					let rules = '';
-					for (let idx = 0; idx < sheet.cssRules.length; idx++) {
-						rules += `${sheet.cssRules[idx]!.cssText}\n`;
-					}
-					style.textContent = rules;
-					document.head.appendChild(style);
-					preservedStyles.push(style);
-				}
-			} catch (_err) {
-				/* Cross-origin sheets (e.g. Google Fonts) — clone as fallback */
-				const clone = link.cloneNode(true) as HTMLLinkElement;
-				clone.dataset.hmrPreserved = 'true';
-				document.head.appendChild(clone);
-			}
-		});
-
-	/* Also preserve Svelte injected <style> tags (css: 'injected' mode) */
-	document
-		.querySelectorAll<HTMLStyleElement>(
-			'head style:not([data-hmr-preserved])'
-		)
-		.forEach((style) => {
-			const clone = document.createElement('style');
-			clone.dataset.hmrPreserved = 'true';
-			clone.textContent = style.textContent;
-			document.head.appendChild(clone);
-		});
+	preserveAllStylesheets();
 
 	const modulePath = `${indexPath}?t=${Date.now()}`;
 	import(/* @vite-ignore */ modulePath)
 		.then(() => {
-			/* Wait for new <link> stylesheets (re-added by svelte:head in mount)
-			   to fully load before removing preserved styles. Without this,
-			   removing inline preserved styles leaves a gap until <link> loads. */
-			const newLinks = document.querySelectorAll<HTMLLinkElement>(
-				'head link[rel="stylesheet"]:not([data-hmr-preserved])'
-			);
-			const loadPromises: Promise<void>[] = [];
-			newLinks.forEach((link) => {
-				if (!link.sheet || link.sheet.cssRules.length === 0) {
-					loadPromises.push(
-						new Promise<void>((resolve) => {
-							link.onload = function () {
-								resolve();
-							};
-							link.onerror = function () {
-								resolve();
-							};
-							setTimeout(resolve, 500);
-						})
-					);
-				}
-			});
-
-			const cleanup = function () {
-				document
-					.querySelectorAll('[data-hmr-preserved="true"]')
-					.forEach((element) => {
-						element.remove();
-					});
-				restoreDOMState(document.body, domState);
-				restoreScrollState(scrollState);
-			};
-
-			if (loadPromises.length > 0) {
-				Promise.all(loadPromises).then(cleanup);
-			} else {
-				cleanup();
-			}
+			waitForStylesAndCleanup(domState, scrollState);
 		})
 		.catch((err: unknown) => {
 			console.warn('[HMR] Svelte import failed, reloading:', err);
