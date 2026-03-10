@@ -16,13 +16,12 @@ import {
 
 const routePropsCache = new Map<string, CachedRouteData>();
 
-export const getCachedRouteData = (pagePath: string) =>
-	routePropsCache.get(pagePath);
-
 export const cacheRouteData = (pagePath: string, data: CachedRouteData) => {
 	const cacheKey = pagePath.split('?')[0] ?? pagePath;
 	routePropsCache.set(cacheKey, data);
 };
+export const getCachedRouteData = (pagePath: string) =>
+	routePropsCache.get(pagePath);
 
 // --- Selector cache ---
 // Component selectors never change for a given pagePath, so we cache them
@@ -31,25 +30,6 @@ export const cacheRouteData = (pagePath: string, data: CachedRouteData) => {
 const selectorCache = new Map<string, string>();
 
 // --- SSR deps loader ---
-
-export const loadSsrDeps = async (pagePath: string) => {
-	const ssrDepsPath = pagePath
-		.split('?')[0]!
-		.replace(/\.js$/, '.ssr-deps.js');
-
-	try {
-		const ssrDeps = await import(ssrDepsPath);
-
-		return {
-			common: ssrDeps.__angularCommon,
-			core: ssrDeps.__angularCore,
-			platformBrowser: ssrDeps.__angularPlatformBrowser,
-			platformServer: ssrDeps.__angularPlatformServer
-		} as SsrDepsResult;
-	} catch {
-		return null;
-	}
-};
 
 export const buildDeps = (
 	ssrResult: SsrDepsResult | null,
@@ -80,6 +60,24 @@ export const buildDeps = (
 		Sanitizer: core.Sanitizer,
 		SecurityContext: core.SecurityContext
 	} as AngularDeps;
+};
+export const loadSsrDeps = async (pagePath: string) => {
+	const ssrDepsPath = pagePath
+		.split('?')[0]!
+		.replace(/\.js$/, '.ssr-deps.js');
+
+	try {
+		const ssrDeps = await import(ssrDepsPath);
+
+		return {
+			common: ssrDeps.__angularCommon,
+			core: ssrDeps.__angularCore,
+			platformBrowser: ssrDeps.__angularPlatformBrowser,
+			platformServer: ssrDeps.__angularPlatformServer
+		} as SsrDepsResult;
+	} catch {
+		return null;
+	}
 };
 
 // --- Token discovery ---
@@ -116,27 +114,6 @@ const extractSelectorFromAnnotations = (PageComponent: Type<unknown>) => {
 	return undefined;
 };
 
-export const resolveSelector = (
-	pagePath: string,
-	PageComponent: Type<unknown>
-) => {
-	const cached = selectorCache.get(pagePath);
-	if (cached) {
-		return cached;
-	}
-
-	const cmpDef = (PageComponent as any).ɵcmp;
-	const selector =
-		cmpDef?.selectors?.[0]?.[0] ??
-		extractSelectorFromAnnotations(PageComponent) ??
-		'ng-app';
-	selectorCache.set(pagePath, selector);
-
-	return selector;
-};
-
-// --- Provider building ---
-
 export const buildProviders = (
 	deps: AngularDeps,
 	sanitizer: any,
@@ -168,6 +145,24 @@ export const buildProviders = (
 		.map((entry) => ({ provide: entry.token, useValue: entry.value }));
 
 	return [...providers, ...propProviders];
+};
+export const resolveSelector = (
+	pagePath: string,
+	PageComponent: Type<unknown>
+) => {
+	const cached = selectorCache.get(pagePath);
+	if (cached) {
+		return cached;
+	}
+
+	const cmpDef = (PageComponent as any).ɵcmp;
+	const selector =
+		cmpDef?.selectors?.[0]?.[0] ??
+		extractSelectorFromAnnotations(PageComponent) ??
+		'ng-app';
+	selectorCache.set(pagePath, selector);
+
+	return selector;
 };
 
 // --- Inject HTML helper ---

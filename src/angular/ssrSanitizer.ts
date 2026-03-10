@@ -15,10 +15,6 @@ const bypassValue = (value: string) =>
 // class + singleton instance after the first request.
 let ssrSanitizer: any = null;
 
-export const resetSsrSanitizer = () => {
-	ssrSanitizer = null;
-};
-
 export const getSsrSanitizer = (deps: AngularDeps) => {
 	if (ssrSanitizer) return ssrSanitizer;
 
@@ -63,4 +59,7 @@ export const getSsrSanitizer = (deps: AngularDeps) => {
 	ssrSanitizer = new SsrSanitizerClass();
 
 	return ssrSanitizer;
+};
+export const resetSsrSanitizer = () => {
+	ssrSanitizer = null;
 };
