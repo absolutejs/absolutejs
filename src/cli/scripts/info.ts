@@ -2,6 +2,7 @@ import { execSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { arch, cpus, platform, totalmem, version } from 'node:os';
 import { resolve } from 'node:path';
+import { BYTES_PER_KILOBYTE } from '../../constants';
 import { isWSLEnvironment } from '../utils';
 
 const bold = (str: string) => `\x1b[1m${str}\x1b[0m`;
@@ -71,7 +72,8 @@ const isDockerEnvironment = () => {
 	}
 };
 
-const getMemoryMB = () => Math.round(totalmem() / 1024 / 1024);
+const getMemoryMB = () =>
+	Math.round(totalmem() / BYTES_PER_KILOBYTE / BYTES_PER_KILOBYTE);
 
 const getGlibcVersion = () => {
 	if (platform() !== 'linux') return null;

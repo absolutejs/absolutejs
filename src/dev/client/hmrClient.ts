@@ -2,6 +2,14 @@
    Initializes WebSocket connection, dispatches messages to framework handlers */
 
 import { hmrState } from '../../../types/client';
+import {
+	HMR_UPDATE_TIMEOUT_MS,
+	MAX_RECONNECT_ATTEMPTS,
+	PING_INTERVAL_MS,
+	RECONNECT_INITIAL_DELAY_MS,
+	RECONNECT_POLL_INTERVAL_MS,
+	WEBSOCKET_NORMAL_CLOSURE
+} from '../../constants';
 import { detectCurrentFramework } from './frameworkDetect';
 import { hideErrorOverlay, showErrorOverlay } from './errorOverlay';
 import { handleAngularUpdate } from './handlers/angular';
@@ -78,7 +86,7 @@ const handleHMRMessage = (message: any) => {
 		hmrState.isHMRUpdating = true;
 		setTimeout(() => {
 			hmrState.isHMRUpdating = false;
-		}, 2000);
+		}, HMR_UPDATE_TIMEOUT_MS);
 	}
 
 	switch (message.type) {
@@ -172,7 +180,7 @@ if (!(window.__HMR_WS__ && window.__HMR_WS__.readyState === WebSocket.OPEN)) {
 			if (wsc.readyState === WebSocket.OPEN && hmrState.isConnected) {
 				wsc.send(JSON.stringify({ type: 'ping' }));
 			}
-		}, 30000);
+		}, PING_INTERVAL_MS);
 	};
 
 	wsc.onmessage = function (event: MessageEvent) {
@@ -194,11 +202,11 @@ if (!(window.__HMR_WS__ && window.__HMR_WS__.readyState === WebSocket.OPEN)) {
 			hmrState.pingInterval = null;
 		}
 
-		if (event.code !== 1000) {
+		if (event.code !== WEBSOCKET_NORMAL_CLOSURE) {
 			let attempts = 0;
 			hmrState.reconnectTimeout = setTimeout(function pollServer() {
 				attempts++;
-				if (attempts > 60) return;
+				if (attempts > MAX_RECONNECT_ATTEMPTS) return;
 
 				fetch('/hmr-status', { cache: 'no-store' })
 					.then((res) => {
@@ -207,14 +215,14 @@ if (!(window.__HMR_WS__ && window.__HMR_WS__.readyState === WebSocket.OPEN)) {
 						} else {
 							hmrState.reconnectTimeout = setTimeout(
 								pollServer,
-								300
+								RECONNECT_POLL_INTERVAL_MS
 							);
 						}
 					})
 					.catch(() => {
-						hmrState.reconnectTimeout = setTimeout(pollServer, 300);
+						hmrState.reconnectTimeout = setTimeout(pollServer, RECONNECT_POLL_INTERVAL_MS);
 					});
-			}, 500);
+			}, RECONNECT_INITIAL_DELAY_MS);
 		}
 	};
 

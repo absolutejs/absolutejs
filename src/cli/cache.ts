@@ -2,6 +2,7 @@ import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Glob } from 'bun';
 import type { ToolAdapter, ToolCacheData } from '../../types/tool';
+import { BASE_36_RADIX } from '../constants';
 
 export const CACHE_DIR = '.absolutejs';
 export const MAX_FILES_PER_BATCH = 200;
@@ -65,7 +66,7 @@ export const hashConfigs = async (configFiles: string[]) => {
 export const hashFile = async (path: string) => {
 	const buffer = await Bun.file(path).arrayBuffer();
 
-	return Bun.hash(buffer).toString(36);
+	return Bun.hash(buffer).toString(BASE_36_RADIX);
 };
 export const hashFiles = async (paths: string[]) => {
 	const entries = await Promise.all(

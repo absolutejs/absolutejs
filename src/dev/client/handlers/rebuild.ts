@@ -1,5 +1,6 @@
 /* Rebuild, manifest, module-update, and error handlers */
 
+import { REBUILD_RELOAD_DELAY_MS } from '../../../constants';
 import {
 	hideErrorOverlay,
 	isRuntimeErrorOverlay,
@@ -9,7 +10,7 @@ import {
 export const handleFullReload = () => {
 	setTimeout(() => {
 		window.location.reload();
-	}, 200);
+	}, REBUILD_RELOAD_DELAY_MS);
 };
 
 export const handleManifest = (message: {

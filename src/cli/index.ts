@@ -7,14 +7,15 @@ import { prettier } from './scripts/prettier';
 import { start } from './scripts/start';
 import { telemetry } from './scripts/telemetry';
 import { sendTelemetryEvent } from './telemetryEvent';
+import { CLI_ARGS_OFFSET, UNFOUND_INDEX } from '../constants';
 import { DEFAULT_SERVER_ENTRY } from './utils';
 
 const command = process.argv[2];
-const args = process.argv.slice(3);
+const args = process.argv.slice(CLI_ARGS_OFFSET);
 
 const parseNamedArg = (flag: string) => {
 	const idx = args.indexOf(flag);
-	if (idx === -1) return undefined;
+	if (idx === UNFOUND_INDEX) return undefined;
 
 	return args[idx + 1];
 };
@@ -23,7 +24,7 @@ const stripNamedArgs = (...flags: string[]) =>
 	args.filter((_, idx) =>
 		flags.every((flag) => {
 			const flagIdx = args.indexOf(flag);
-			if (flagIdx === -1) return true;
+			if (flagIdx === UNFOUND_INDEX) return true;
 
 			return idx !== flagIdx && idx !== flagIdx + 1;
 		})

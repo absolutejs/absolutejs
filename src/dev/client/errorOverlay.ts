@@ -1,6 +1,7 @@
 /* AbsoluteJS Error Overlay - branded, per-framework, modern styling */
 
 import type { ErrorOverlayOptions } from '../../../types/client';
+import { OVERLAY_FADE_DURATION_MS } from '../../constants';
 
 let errorOverlayElement: HTMLDivElement | null = null;
 let currentOverlayKind: 'compilation' | 'runtime' | null = null;
@@ -48,7 +49,7 @@ export const hideErrorOverlay = () => {
 	currentOverlayKind = null;
 	setTimeout(() => {
 		if (elm.parentNode) elm.parentNode.removeChild(elm);
-	}, 150);
+	}, OVERLAY_FADE_DURATION_MS);
 };
 
 export const isRuntimeErrorOverlay = () => currentOverlayKind === 'runtime';

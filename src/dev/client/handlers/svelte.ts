@@ -1,5 +1,6 @@
 /* Svelte HMR update handler */
 
+import { SVELTE_CSS_LOAD_TIMEOUT_MS } from '../../../constants';
 import {
 	saveDOMState,
 	restoreDOMState,
@@ -155,7 +156,7 @@ const buildLinkLoadPromise = (link: HTMLLinkElement) => {
 		link.onerror = () => {
 			resolve();
 		};
-		setTimeout(resolve, 500);
+		setTimeout(resolve, SVELTE_CSS_LOAD_TIMEOUT_MS);
 	});
 };
 

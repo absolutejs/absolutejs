@@ -1,6 +1,11 @@
 import { openSync } from 'node:fs';
 import { ReadStream } from 'node:tty';
 import type { Actions, InteractiveHandler } from '../../types/cli';
+import {
+	ANSI_ESCAPE_LENGTH,
+	ASCII_SPACE,
+	UNFOUND_INDEX
+} from '../constants';
 
 const SHORTCUTS: Record<string, keyof Omit<Actions, 'shell'>> = {
 	c: 'clear',
@@ -81,7 +86,7 @@ export const createInteractiveHandler = (
 	let needsPrompt = true;
 	let escapeSeq = '';
 	const history: string[] = [];
-	let historyIndex = -1;
+	let historyIndex = UNFOUND_INDEX;
 
 	const setNeedsPrompt = (value: boolean) => {
 		needsPrompt = value;
@@ -184,7 +189,7 @@ export const createInteractiveHandler = (
 
 	const navigateHistoryDown = () => {
 		if (historyIndex <= 0) {
-			historyIndex = -1;
+			historyIndex = UNFOUND_INDEX;
 			renderLine('');
 
 			return;
@@ -204,7 +209,7 @@ export const createInteractiveHandler = (
 		const wasShellMode = shellMode;
 		shellMode = false;
 		buffer = '';
-		historyIndex = -1;
+		historyIndex = UNFOUND_INDEX;
 		process.stdout.write('\n');
 		if (wasShellMode) {
 			needsPrompt = true;
@@ -219,7 +224,7 @@ export const createInteractiveHandler = (
 		process.stdout.write('\n');
 		const line = buffer;
 		buffer = '';
-		historyIndex = -1;
+		historyIndex = UNFOUND_INDEX;
 
 		if (line.trim().length > 0) history.push(line);
 		if (shellMode) handleShellLine(line);
@@ -234,7 +239,7 @@ export const createInteractiveHandler = (
 		}
 
 		if (char === '\x7f' || char === '\b') {
-			if (buffer.length > 0) renderLine(buffer.slice(0, -1));
+			if (buffer.length > 0) renderLine(buffer.slice(0, UNFOUND_INDEX));
 
 			return;
 		}
@@ -245,7 +250,7 @@ export const createInteractiveHandler = (
 			return;
 		}
 
-		if (char.charCodeAt(0) < 32) {
+		if (char.charCodeAt(0) < ASCII_SPACE) {
 			return;
 		}
 
@@ -264,7 +269,7 @@ export const createInteractiveHandler = (
 			return;
 		}
 
-		if (escapeSeq.length === 3) {
+		if (escapeSeq.length === ANSI_ESCAPE_LENGTH) {
 			handleArrow(char);
 			escapeSeq = '';
 		}

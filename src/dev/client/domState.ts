@@ -1,6 +1,12 @@
 /* DOM state snapshot/restore to preserve user-visible state across HMR */
 
 import type { DOMStateEntry, DOMStateSnapshot } from '../../../types/client';
+import {
+	FOCUS_ID_PREFIX_LENGTH,
+	FOCUS_IDX_PREFIX_LENGTH,
+	FOCUS_NAME_PREFIX_LENGTH,
+	UNFOUND_INDEX
+} from '../../constants';
 
 const trySetSelectionRange = (
 	element: HTMLInputElement | HTMLTextAreaElement,
@@ -48,7 +54,7 @@ const restoreSelectEntry = (target: Element, entry: DOMStateEntry) => {
 	if (!Array.isArray(entry.values)) return;
 	const select = target as HTMLSelectElement;
 	Array.from(select.options).forEach((opt) => {
-		opt.selected = entry.values!.indexOf(opt.value) !== -1;
+		opt.selected = entry.values!.indexOf(opt.value) !== UNFOUND_INDEX;
 	});
 };
 
@@ -93,11 +99,11 @@ const resolveFocusElement = (
 	activeKey: string
 ) => {
 	if (activeKey.startsWith('id:'))
-		return root.querySelector(`#${CSS.escape(activeKey.slice(3))}`);
+		return root.querySelector(`#${CSS.escape(activeKey.slice(FOCUS_ID_PREFIX_LENGTH))}`);
 	if (activeKey.startsWith('name:'))
-		return root.querySelector(`[name="${CSS.escape(activeKey.slice(5))}"]`);
+		return root.querySelector(`[name="${CSS.escape(activeKey.slice(FOCUS_NAME_PREFIX_LENGTH))}"]`);
 	if (!activeKey.startsWith('idx:')) return null;
-	const idx = parseInt(activeKey.slice(4), 10);
+	const idx = parseInt(activeKey.slice(FOCUS_IDX_PREFIX_LENGTH), 10);
 	if (isNaN(idx) || !elements[idx]) return null;
 
 	return elements[idx];

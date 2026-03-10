@@ -2,7 +2,11 @@ import { env } from 'bun';
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
 import type { DbScripts } from '../../../types/cli';
-import { DEFAULT_PORT } from '../../constants';
+import {
+	DEFAULT_PORT,
+	MAX_ERROR_LENGTH,
+	MILLISECONDS_IN_A_SECOND
+} from '../../constants';
 import { getDurationString } from '../../utils/getDurationString';
 import { loadConfig } from '../../utils/loadConfig';
 import { formatTimestamp } from '../../utils/startupBanner';
@@ -80,7 +84,7 @@ const handleBundleFailure = (
 			serverBundle.logs
 				.find((log) => log.level === 'error')
 				?.message?.toString()
-				.slice(0, 200) ?? 'Unknown error'
+				.slice(0, MAX_ERROR_LENGTH) ?? 'Unknown error'
 	});
 	console.error(cliTag('\x1b[31m', 'Server bundle failed.'));
 	process.exit(1);
@@ -301,7 +305,7 @@ export const start = async (
 		if (cleaning) return;
 		cleaning = true;
 		sendTelemetryEvent('start:session-duration', {
-			duration: Math.round((Date.now() - sessionStart) / 1000),
+			duration: Math.round((Date.now() - sessionStart) / MILLISECONDS_IN_A_SECOND),
 			entry: serverEntry
 		});
 		try {

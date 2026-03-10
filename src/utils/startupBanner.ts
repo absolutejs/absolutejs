@@ -1,3 +1,4 @@
+import { HOURS_IN_HALF_DAY } from '../constants';
 import { getDurationString } from './getDurationString';
 
 const colors = {
@@ -30,8 +31,8 @@ export const formatTimestamp = () => {
 	let hours = now.getHours();
 	const minutes = now.getMinutes().toString().padStart(2, '0');
 	const seconds = now.getSeconds().toString().padStart(2, '0');
-	const ampm = hours >= 12 ? 'PM' : 'AM';
-	hours = hours % 12 || 12;
+	const ampm = hours >= HOURS_IN_HALF_DAY ? 'PM' : 'AM';
+	hours = hours % HOURS_IN_HALF_DAY || HOURS_IN_HALF_DAY;
 
 	return `${month} ${day} ${hours}:${minutes}:${seconds} ${ampm}`;
 };

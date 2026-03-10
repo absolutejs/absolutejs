@@ -3,6 +3,7 @@ import { promises as fs } from 'fs';
 import { join, basename, sep, dirname, resolve, relative } from 'path';
 import type { CompilerOptions } from '@angular/compiler-cli';
 import ts from 'typescript';
+import { BASE_36_RADIX } from '../constants';
 import { toPascal } from '../utils/stringModifiers';
 import { createHash } from 'crypto';
 
@@ -408,7 +409,7 @@ export const compileAngularFileJIT = async (inputPath: string, outDir: string, r
 		// compiled output on disk is already up-to-date. This avoids
 		// unnecessary disk writes that trigger bun --hot re-evaluation
 		// and cause progressively slower compile times.
-		const contentHash = Bun.hash(sourceCode).toString(36);
+		const contentHash = Bun.hash(sourceCode).toString(BASE_36_RADIX);
 		const cacheKey = actualPath;
 		if (jitContentCache.get(cacheKey) === contentHash && existsSync(targetPath)) {
 			allOutputs.push(targetPath);
@@ -517,7 +518,7 @@ export const compileAngular = async (
 		// If it hasn't changed since last HMR cycle, skip all the rewriting,
 		// HMR registration injection, SSR deps writing, and index regeneration.
 		// This eliminates ~100-500ms of wrapper overhead on cache hits.
-		const serverContentHash = Bun.hash(original).toString(36);
+		const serverContentHash = Bun.hash(original).toString(BASE_36_RADIX);
 		const cachedWrapper = wrapperOutputCache.get(entry);
 		if (hmr && cachedWrapper && cachedWrapper.serverHash === serverContentHash) {
 			// Compiled output identical — reuse existing files on disk
@@ -614,7 +615,7 @@ bootstrapApplication(${componentClassName}, {
 
 		// Angular HMR Optimization — Hash index content to detect if bundling
 		// can be skipped (index content is deterministic for a given import path).
-		const indexHash = Bun.hash(hydration).toString(36);
+		const indexHash = Bun.hash(hydration).toString(BASE_36_RADIX);
 		const indexUnchanged = cachedWrapper?.indexHash === indexHash;
 
 		await fs.writeFile(clientFile, hydration, 'utf-8');

@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { UNFOUND_INDEX } from '../constants';
 import { normalizePath } from '../utils/normalizePath';
 
 /* Bun.hash (Wyhash) returns a number — comparing numbers is faster
@@ -10,7 +11,7 @@ export const computeFileHash = (filePath: string) => {
 
 		return Number(Bun.hash(fileContent));
 	} catch {
-		return -1;
+		return UNFOUND_INDEX;
 	}
 };
 

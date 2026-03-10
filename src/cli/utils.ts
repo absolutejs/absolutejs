@@ -3,6 +3,7 @@ import { execSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { DbScripts } from '../../types/cli';
+import { MILLISECONDS_IN_A_SECOND } from '../constants';
 import { formatTimestamp } from '../utils/startupBanner';
 
 export const COMPOSE_PATH = 'db/docker-compose.db.yml';
@@ -96,6 +97,6 @@ export const timed = async (label: string, fn: () => Promise<void>) => {
 	process.stdout.write(label);
 	const start = performance.now();
 	await fn();
-	const duration = ((performance.now() - start) / 1000).toFixed(2);
+	const duration = ((performance.now() - start) / MILLISECONDS_IN_A_SECOND).toFixed(2);
 	process.stdout.write(` \x1b[90m${duration}s\x1b[0m\n`);
 };

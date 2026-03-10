@@ -3,7 +3,12 @@ import { env } from 'bun';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { DbScripts, InteractiveHandler } from '../../../types/cli';
-import { DEFAULT_PORT } from '../../constants';
+import {
+	DEFAULT_PORT,
+	MILLISECONDS_IN_A_SECOND,
+	SIGINT_EXIT_CODE,
+	SIGTERM_EXIT_CODE
+} from '../../constants';
 import { formatTimestamp } from '../../utils/startupBanner';
 import { createInteractiveHandler } from '../interactive';
 import { sendTelemetryEvent } from '../telemetryEvent';
@@ -118,7 +123,7 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 		if (cleaning) return;
 		cleaning = true;
 		sendTelemetryEvent('dev:session-duration', {
-			duration: Math.round((Date.now() - sessionStart) / 1000),
+			duration: Math.round((Date.now() - sessionStart) / MILLISECONDS_IN_A_SECOND),
 			entry: serverEntry
 		});
 		if (interactive) interactive.dispose();
@@ -240,7 +245,7 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 	printHint();
 
 	const handleServerExit = async (exitCode: number) => {
-		if (exitCode === 130 || exitCode === 143) {
+		if (exitCode === SIGINT_EXIT_CODE || exitCode === SIGTERM_EXIT_CODE) {
 			await cleanup(0);
 
 			return false;

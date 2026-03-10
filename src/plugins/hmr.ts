@@ -1,4 +1,5 @@
 import Elysia from 'elysia';
+import { UNFOUND_INDEX } from '../constants';
 import type { HMRState } from '../dev/clientManager';
 import { getMimeType, lookupAsset } from '../dev/assetStore';
 import {
@@ -43,7 +44,7 @@ export const hmr =
 				   Skip API routes, WebSocket upgrades, and page navigations. */
 				const rawUrl = request.url;
 				const qIdx = rawUrl.indexOf('?');
-				const pathEnd = qIdx === -1 ? rawUrl.length : qIdx;
+				const pathEnd = qIdx === UNFOUND_INDEX ? rawUrl.length : qIdx;
 				/* URL is absolute (http://host/path), find the path portion */
 				const pathStart = rawUrl.indexOf('/', rawUrl.indexOf('//') + 2);
 				const pathname = rawUrl.slice(pathStart, pathEnd);

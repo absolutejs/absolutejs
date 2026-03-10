@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { Type } from '@angular/core';
 import type { AngularPageImporter } from '../../types/angular';
+import { BASE_36_RADIX, RANDOM_ID_END_INDEX } from '../constants';
 import { ssrErrorPage } from '../utils/ssrErrorPage';
 import { toScreamingSnake } from '../utils/stringModifiers';
 import {
@@ -616,7 +617,7 @@ export const handleAngularPageRequest = async <
 	headTag: `<head>${string}</head>` = '<head></head>',
 	...props: keyof Props extends never ? [] : [props: NoInfer<Props>]
 ) => {
-	const requestId = `angular_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+	const requestId = `angular_${Date.now()}_${Math.random().toString(BASE_36_RADIX).substring(2, RANDOM_ID_END_INDEX)}`;
 
 	return angularSsrContext.run(requestId, async () => {
 		try {

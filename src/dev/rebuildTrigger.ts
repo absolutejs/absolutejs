@@ -7,6 +7,7 @@ import { logger } from '../utils/logger';
 import type { HMRState } from './clientManager';
 import { incrementSourceFileVersions } from './clientManager';
 import { getAffectedFiles } from './dependencyGraph';
+import { DEFAULT_DEBOUNCE_MS, REBUILD_BATCH_DELAY_MS } from '../constants';
 import { computeFileHash, hasFileChanged } from './fileHashTracker';
 import {
 	createModuleUpdates,
@@ -359,7 +360,7 @@ export const queueFileChange = (
 		clearTimeout(state.rebuildTimeout);
 	}
 
-	const DEBOUNCE_MS = config.options?.hmr?.debounceMs ?? 20;
+	const DEBOUNCE_MS = config.options?.hmr?.debounceMs ?? DEFAULT_DEBOUNCE_MS;
 	state.rebuildTimeout = setTimeout(() => {
 		const filesToProcess = buildFilesToProcess(state);
 		state.fileChangeQueue.clear();
@@ -2274,7 +2275,7 @@ const drainPendingQueue = (
 			onRebuildComplete,
 			queuedFiles.length > 0 ? queuedFiles : undefined
 		);
-	}, 50);
+	}, REBUILD_BATCH_DELAY_MS);
 };
 
 export const triggerRebuild = async (

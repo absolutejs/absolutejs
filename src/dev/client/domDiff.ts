@@ -1,5 +1,7 @@
 /* DOM diffing/patching for in-place updates (zero flicker) */
 
+import { UNFOUND_INDEX } from '../../constants';
+
 type KeyedEntry = {
 	index: number;
 	node: Node;
@@ -23,7 +25,7 @@ const updateElementAttributes = (oldEl: Element, newEl: Element) => {
 	oldAttrs.forEach((oldAttr) => {
 		if (
 			!newEl.hasAttribute(oldAttr.name) &&
-			runtimeAttrs.indexOf(oldAttr.name) === -1
+			runtimeAttrs.indexOf(oldAttr.name) === UNFOUND_INDEX
 		) {
 			oldEl.removeAttribute(oldAttr.name);
 		}
@@ -31,7 +33,7 @@ const updateElementAttributes = (oldEl: Element, newEl: Element) => {
 
 	newAttrs.forEach((newAttr) => {
 		if (
-			runtimeAttrs.indexOf(newAttr.name) !== -1 &&
+			runtimeAttrs.indexOf(newAttr.name) !== UNFOUND_INDEX &&
 			oldEl.hasAttribute(newAttr.name)
 		) {
 			return;

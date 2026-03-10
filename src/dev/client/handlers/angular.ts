@@ -14,6 +14,7 @@
    callback (which can be async), and crossfades when the callback finishes.
    The user never sees empty/default state — only the before and after. */
 
+import { ANGULAR_INIT_TIMEOUT_MS } from '../../../constants';
 import {
 	saveFormState,
 	restoreFormState,
@@ -230,7 +231,7 @@ const waitForAngularApp = () => {
 	if (window.__ANGULAR_APP__) return Promise.resolve();
 
 	return new Promise<void>((resolve) => {
-		const timeout = setTimeout(resolve, 500);
+		const timeout = setTimeout(resolve, ANGULAR_INIT_TIMEOUT_MS);
 
 		let stored = window.__ANGULAR_APP__;
 

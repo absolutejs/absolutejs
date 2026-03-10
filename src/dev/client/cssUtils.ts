@@ -2,6 +2,14 @@
 
 import type { CSSUpdateResult } from '../../../types/client';
 import { hmrState } from '../../../types/client';
+import {
+	CSS_ERROR_RESOLVE_DELAY_MS,
+	CSS_MAX_CHECK_ATTEMPTS,
+	CSS_MAX_PARSE_TIMEOUT_MS,
+	CSS_SHEET_READY_TIMEOUT_MS,
+	DOM_UPDATE_DELAY_MS,
+	RAF_BATCH_COUNT
+} from '../../constants';
 
 export const getCSSBaseName = (href: string) => {
 	const fileName = href.split('?')[0]!.split('/').pop() || '';
@@ -196,7 +204,7 @@ const createCSSLoadPromise = (linkElement: HTMLLinkElement, newHref: string) =>
 			let checkCount = 0;
 			const checkCSSOM = function () {
 				checkCount++;
-				if (verifyCSSOM() || checkCount > 10) {
+				if (verifyCSSOM() || checkCount > CSS_MAX_CHECK_ATTEMPTS) {
 					doResolve();
 				} else {
 					requestAnimationFrame(checkCSSOM);
@@ -208,20 +216,20 @@ const createCSSLoadPromise = (linkElement: HTMLLinkElement, newHref: string) =>
 		linkElement.onerror = function () {
 			setTimeout(() => {
 				doResolve();
-			}, 50);
+			}, CSS_ERROR_RESOLVE_DELAY_MS);
 		};
 
 		setTimeout(() => {
 			if (linkElement.sheet && !resolved) {
 				doResolve();
 			}
-		}, 100);
+		}, CSS_SHEET_READY_TIMEOUT_MS);
 
 		setTimeout(() => {
 			if (!resolved) {
 				doResolve();
 			}
-		}, 500);
+		}, CSS_MAX_PARSE_TIMEOUT_MS);
 	});
 
 const removeLinks = (linksToRemove: HTMLLinkElement[]) => {
@@ -260,7 +268,7 @@ export const waitForCSSAndUpdate = (
 	if (linksToWaitFor.length > 0) {
 		Promise.all(linksToWaitFor).then(() => {
 			setTimeout(() => {
-				chainRAF(3, () => {
+				chainRAF(RAF_BATCH_COUNT, () => {
 					updateBody();
 					activateLinks(linksToActivate);
 					requestAnimationFrame(() => {
@@ -270,14 +278,14 @@ export const waitForCSSAndUpdate = (
 						}
 					});
 				});
-			}, 50);
+			}, DOM_UPDATE_DELAY_MS);
 		});
 
 		return;
 	}
 
 	const doUpdate = function () {
-		chainRAF(3, () => {
+		chainRAF(RAF_BATCH_COUNT, () => {
 			updateBody();
 			requestAnimationFrame(() => {
 				removeLinks(linksToRemove);
@@ -287,7 +295,7 @@ export const waitForCSSAndUpdate = (
 
 	if (hmrState.isFirstHMRUpdate) {
 		hmrState.isFirstHMRUpdate = false;
-		setTimeout(doUpdate, 50);
+		setTimeout(doUpdate, DOM_UPDATE_DELAY_MS);
 	} else {
 		doUpdate();
 	}
