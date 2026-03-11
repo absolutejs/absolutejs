@@ -29,12 +29,7 @@ export type DOMStateSnapshot = {
 	items: DOMStateEntry[];
 };
 
-export type SavedComponentState = {
-	count: number;
-};
-
 export type SavedState = {
-	componentState: SavedComponentState;
 	forms: Record<string, Record<string, boolean | string>>;
 	scroll: { window: { x: number; y: number } };
 };
@@ -79,7 +74,6 @@ declare global {
 			register: (type: unknown, id: string) => void;
 		};
 		$RefreshSig$?: () => (type: unknown) => unknown;
-		__HMR_DOM_STATE__?: { count?: number; [key: string]: unknown };
 		__HMR_FRAMEWORK__?: string;
 		__HMR_MANIFEST__?: Record<string, string>;
 		__HMR_MODULE_UPDATES__?: Array<unknown>;

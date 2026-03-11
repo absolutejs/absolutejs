@@ -326,9 +326,7 @@ const attemptFastPatch = async (
 	origWarn: typeof console.warn
 ) => {
 	try {
-		const newModule = await import(
-			/* @vite-ignore */ `${indexPath}?t=${Date.now()}`
-		);
+		const newModule = await import(`${indexPath}?t=${Date.now()}`);
 
 		console.warn = origWarn;
 
@@ -449,7 +447,7 @@ const bootstrapAngularModule = async (
 
 	const origWarn = suppressNg0912();
 
-	await import(/* @vite-ignore */ `${indexPath}?t=${Date.now()}`);
+	await import(`${indexPath}?t=${Date.now()}`);
 	await waitForAngularApp();
 
 	console.warn = origWarn;

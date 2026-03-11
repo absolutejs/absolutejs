@@ -15,6 +15,7 @@ import { patchHeadInPlace } from '../headPatch';
 import { detectCurrentFramework } from '../frameworkDetect';
 import type { ScriptInfo } from '../../../../types/client';
 import { hmrState } from '../../../../types/client';
+import { restoreDOMChanges, snapshotDOMChanges } from '../domTracker';
 
 const parseHTMLMessage = (
 	html: string | { body?: string; head?: string } | null | undefined
@@ -136,15 +137,8 @@ export const handleScriptUpdate = (message: {
 		}
 	});
 
-	const counterSpan = document.querySelector('#counter');
-	if (counterSpan) {
-		window.__HMR_DOM_STATE__ = {
-			count: parseInt(counterSpan.textContent || '0', 10)
-		};
-	}
-
 	const cacheBustedPath = `${scriptPath}?t=${Date.now()}`;
-	import(/* @vite-ignore */ cacheBustedPath)
+	import(cacheBustedPath)
 		.then(() => {
 			/* script reloaded */
 		})
@@ -157,39 +151,10 @@ export const handleScriptUpdate = (message: {
 		});
 };
 
-const saveHTMLState = (container: HTMLElement) => {
-	const counterSpan = container.querySelector('#counter');
-	const counterValue = counterSpan
-		? parseInt(counterSpan.textContent || '0', 10)
-		: 0;
-
-	return {
-		componentState: { count: counterValue },
-		forms: saveFormState(),
-		scroll: saveScrollState()
-	};
-};
-
-const applyCounterToBody = (body: string, counterValue: number) => {
-	if (counterValue <= 0) {
-		return body;
-	}
-
-	return body.replace(
-		new RegExp('<span id="counter">0<' + '/span>', 'g'),
-		`<span id="counter">${counterValue}<` + `/span>`
-	);
-};
-
-const restoreCounterSpan = (
-	container: HTMLElement,
-	count: number | undefined
-) => {
-	const newCounterSpan = container.querySelector('#counter');
-	if (newCounterSpan && count !== undefined) {
-		newCounterSpan.textContent = String(count);
-	}
-};
+const saveHTMLState = () => ({
+	forms: saveFormState(),
+	scroll: saveScrollState()
+});
 
 const preserveHmrScript = (
 	container: HTMLElement,
@@ -209,34 +174,32 @@ const updateHTMLBody = (
 		return;
 	}
 
-	const savedState = saveHTMLState(container);
-	const body = applyCounterToBody(htmlBody, savedState.componentState.count);
+	const savedState = saveHTMLState();
+	const domSnapshot = snapshotDOMChanges(container);
 
 	const existingScripts = collectScripts(container);
 	const hmrScript = container.querySelector('script[data-hmr-client]');
 	const tempDiv = document.createElement('div');
-	tempDiv.innerHTML = body;
+	tempDiv.innerHTML = htmlBody;
 	const newScripts = collectScriptsFromElement(tempDiv);
 
 	const scriptsChanged = didScriptsChange(existingScripts, newScripts);
 	const htmlStructureChanged = didHTMLStructureChange(container, tempDiv);
 
 	if (htmlStructureChanged || scriptsChanged) {
-		patchDOMInPlace(container, body);
+		patchDOMInPlace(container, htmlBody);
+		restoreDOMChanges(container, domSnapshot, htmlBody);
 	}
 
 	preserveHmrScript(container, hmrScript);
 
 	requestAnimationFrame(() => {
+		restoreDOMState(container, htmlDomState);
 		restoreFormState(savedState.forms);
 		restoreScrollState(savedState.scroll);
-		restoreCounterSpan(container, savedState.componentState.count);
 
 		if (scriptsChanged || htmlStructureChanged) {
 			cloneInteractiveElements(container);
-			window.__HMR_DOM_STATE__ = {
-				count: savedState.componentState.count || 0
-			};
 			reExecuteScripts(container, newScripts);
 		}
 	});
@@ -273,24 +236,25 @@ const updateHTMLBodyDirect = (
 	htmlDomState: ReturnType<typeof saveDOMState>,
 	container: HTMLElement
 ) => {
-	const savedState = saveHTMLState(container);
-	const body = applyCounterToBody(htmlBody, savedState.componentState.count);
+	const savedState = saveHTMLState();
+	const domSnapshot = snapshotDOMChanges(container);
 
 	const existingScripts = collectScripts(container);
 	const tempDiv = document.createElement('div');
-	tempDiv.innerHTML = body;
+	tempDiv.innerHTML = htmlBody;
 	const newScripts = collectScriptsFromElement(tempDiv);
 	const scriptsChanged = didScriptsChange(existingScripts, newScripts);
 	const hmrScript = container.querySelector('script[data-hmr-client]');
 
-	patchDOMInPlace(container, body);
+	patchDOMInPlace(container, htmlBody);
+	restoreDOMChanges(container, domSnapshot, htmlBody);
 
 	preserveHmrScript(container, hmrScript);
 
 	requestAnimationFrame(() => {
+		restoreDOMState(container, htmlDomState);
 		restoreFormState(savedState.forms);
 		restoreScrollState(savedState.scroll);
-		restoreCounterSpan(container, savedState.componentState.count);
 
 		cloneHmrListenerElements(container);
 

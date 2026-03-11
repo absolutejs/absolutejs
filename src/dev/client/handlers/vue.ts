@@ -230,7 +230,7 @@ export const handleVueUpdate = (message: {
 	}
 
 	const modulePath = `${indexPath}?t=${Date.now()}`;
-	import(/* @vite-ignore */ modulePath)
+	import(modulePath)
 		.then(() => {
 			handleVueImportSuccess(vueRoot, vueDomState);
 		})

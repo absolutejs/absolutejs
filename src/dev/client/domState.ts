@@ -188,6 +188,28 @@ const resolveForm = (formId: string) => {
 	}
 };
 
+const restoreRadioGroup = (
+	isStandalone: boolean,
+	form: Element | null,
+	groupName: string,
+	selectedValue: string
+) => {
+	const scope = isStandalone ? document : form;
+	if (!scope) return;
+
+	const escapedName = CSS.escape(groupName);
+	const escapedValue = CSS.escape(selectedValue);
+	const radio = scope.querySelector<HTMLInputElement>(
+		`input[type="radio"][name="${escapedName}"][value="${escapedValue}"]`
+	);
+
+	if (radio) {
+		radio.checked = true;
+	}
+};
+
+const RADIO_PREFIX = '__radio__';
+
 export const restoreFormState = (
 	formState: Record<string, Record<string, boolean | string>>
 ) => {
@@ -195,6 +217,13 @@ export const restoreFormState = (
 		const isStandalone = formId === '__standalone__';
 		const form = isStandalone ? null : resolveForm(formId);
 		Object.keys(formState[formId]!).forEach((name) => {
+			if (name.startsWith(RADIO_PREFIX)) {
+				const groupName = name.slice(RADIO_PREFIX.length);
+				const value = formState[formId]![name]!;
+				restoreRadioGroup(isStandalone, form, groupName, String(value));
+
+				return;
+			}
 			const element = resolveFormElement(isStandalone, form, name);
 			if (!element) return;
 			applyFormValue(element, formState[formId]![name]!);
@@ -298,7 +327,14 @@ const collectInputState = (
 	name: string,
 	target: Record<string, boolean | string>
 ) => {
-	if (element.type === 'checkbox' || element.type === 'radio') {
+	if (element.type === 'radio') {
+		if (element.checked) {
+			target[`__radio__${name}`] = element.value;
+		}
+
+		return;
+	}
+	if (element.type === 'checkbox') {
 		target[name] = element.checked;
 
 		return;

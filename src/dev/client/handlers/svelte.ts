@@ -263,7 +263,7 @@ export const handleSvelteUpdate = (message: {
 	preserveAllStylesheets();
 
 	const modulePath = `${indexPath}?t=${Date.now()}`;
-	import(/* @vite-ignore */ modulePath)
+	import(modulePath)
 		.then(() => {
 			waitForStylesAndCleanup(domState, scrollState);
 		})

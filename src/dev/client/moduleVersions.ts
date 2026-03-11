@@ -51,7 +51,7 @@ export const prefetchModules = (
 			: `/${manifestPath}${cacheBuster}`;
 
 		prefetchPromises.push(
-			import(/* @vite-ignore */ fullPath).catch(() => {
+			import(fullPath).catch(() => {
 				/* ignore */
 			})
 		);
