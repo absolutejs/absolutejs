@@ -131,6 +131,10 @@ export const runTool = async (adapter: ToolAdapter, args: string[]) => {
 		delete cache.files[file];
 	}
 
+	const successFiles = changed.filter((file) => !failedFiles.has(file));
+	const updatedHashes = await hashFiles(successFiles);
+	Object.assign(cache.files, updatedHashes);
+
 	await saveCache(adapter.name, cache);
 
 	if (failedFiles.size > 0) {
