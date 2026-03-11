@@ -40,14 +40,15 @@ export const registerClientScript = (
 	const id =
 		requestId ||
 		ssrContextGetter?.() ||
-		(globalThis as any).__absolutejs_requestId ||
+		Object.getOwnPropertyDescriptor(globalThis, '__absolutejs_requestId')
+			?.value ||
 		getRequestId();
 
 	if (!scriptRegistry.has(id)) {
 		scriptRegistry.set(id, new Set());
 	}
 
-	scriptRegistry.get(id)!.add(script);
+	scriptRegistry.get(id)?.add(script);
 
 	return id;
 };
@@ -58,11 +59,7 @@ export const setSsrContextGetter = (getter: () => string | undefined) => {
 // Make registerClientScript available globally during SSR for Angular components
 // Using type assertion for globalThis extension
 if (typeof globalThis !== 'undefined') {
-	(
-		globalThis as {
-			registerClientScript?: (script: () => void) => string;
-		}
-	).registerClientScript = registerClientScript;
+	Object.assign(globalThis, { registerClientScript });
 }
 
 /**
