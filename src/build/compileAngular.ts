@@ -587,6 +587,12 @@ if (window.__ANGULAR_APP__) {
     window.__ANGULAR_APP__ = null;
 }
 
+// Ensure root element exists after destroy (Angular removes it)
+var _sel = ${componentClassName}.ɵcmp?.selectors?.[0]?.[0] || 'ng-app';
+if (!document.querySelector(_sel)) {
+    (document.getElementById('root') || document.body).appendChild(document.createElement(_sel));
+}
+
 var providers = [provideZonelessChangeDetection()];
 if (!window.__HMR_SKIP_HYDRATION__) {
     providers.push(provideClientHydration());

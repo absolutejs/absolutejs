@@ -103,12 +103,20 @@ const swapStaticProp = (
 	newCtor: ComponentCtor,
 	prop: string
 ) => {
-	if (SKIP_STATIC_PROPS.includes(prop)) return;
+	if (SKIP_STATIC_PROPS.includes(prop)) return true;
 	try {
 		const desc = Object.getOwnPropertyDescriptor(newCtor, prop);
-		if (desc?.configurable) Object.defineProperty(liveCtor, prop, desc);
+		if (!desc) return true;
+		if (desc.configurable) {
+			Object.defineProperty(liveCtor, prop, desc);
+
+			return true;
+		}
+
+		/* Non-configurable ɵcmp/ɵfac means fast patch can't work */
+		return prop !== 'ɵcmp' && prop !== 'ɵfac';
 	} catch (_e) {
-		/* skip */
+		return prop !== 'ɵcmp' && prop !== 'ɵfac';
 	}
 };
 
@@ -120,17 +128,13 @@ const patchConstructor = (entry: RegistryEntry, newCtor: ComponentCtor) => {
 		swapPrototypeProp(liveCtor, newProto, prop);
 	});
 
-	if (newCtor.ɵcmp) {
-		liveCtor.ɵcmp = newCtor.ɵcmp;
-	}
+	const allPatched = Object.getOwnPropertyNames(newCtor).every((prop) =>
+		swapStaticProp(liveCtor, newCtor, prop)
+	);
 
-	if (newCtor.ɵfac) {
-		liveCtor.ɵfac = newCtor.ɵfac;
+	if (!allPatched) {
+		throw new Error('Cannot patch non-configurable Angular metadata');
 	}
-
-	Object.getOwnPropertyNames(newCtor).forEach((prop) => {
-		swapStaticProp(liveCtor, newCtor, prop);
-	});
 
 	globalUpdateCount++;
 	entry.updateCount++;

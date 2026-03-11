@@ -538,7 +538,7 @@ const compileAndBundleAngular = async (
 		state.manifest[toPascal(fileBase)] = resolve(serverPath);
 	});
 
-	if (clientPaths.length > 0 && !allIndexesUnchanged) {
+	if (clientPaths.length > 0) {
 		await bundleAngularClient(
 			state,
 			clientPaths,
