@@ -3,7 +3,7 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import type { BunPlugin } from 'bun';
 
-const CACHE_DIR = resolve('.cache', 'angular-linker');
+const CACHE_DIR = resolve('.absolutejs', 'cache', 'angular-linker');
 
 /**
  * Bun bundler plugin that runs the Angular Linker on partially compiled
