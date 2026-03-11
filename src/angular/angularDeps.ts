@@ -12,61 +12,6 @@ const initDominoAdapter = (platformServer: any) => {
 	}
 };
 
-const patchQuerySelectorAll = (headProto: any) => {
-	if (!headProto || typeof headProto.querySelectorAll === 'function') {
-		return;
-	}
-
-	headProto.querySelectorAll = function (sel: string) {
-		const doc = this.ownerDocument;
-		if (!doc?.querySelectorAll) {
-			return [];
-		}
-
-		const all = doc.querySelectorAll(sel);
-		const self = this;
-
-		return Array.from(all).filter(
-			(elm: any) => elm.parentElement === self || self.contains(elm)
-		);
-	};
-};
-
-const patchQuerySelector = (headProto: any) => {
-	if (!headProto || typeof headProto.querySelector === 'function') {
-		return;
-	}
-
-	headProto.querySelector = function (sel: string) {
-		const doc = this.ownerDocument;
-		if (!doc?.querySelector) {
-			return null;
-		}
-
-		const elm = doc.querySelector(sel);
-		if (elm && (elm.parentElement === this || this.contains(elm))) {
-			return elm;
-		}
-
-		return null;
-	};
-};
-
-const patchDominoPrototype = (domino: NonNullable<AngularDeps['domino']>) => {
-	if (!domino.createWindow) {
-		return;
-	}
-
-	try {
-		const probeWin = domino.createWindow('', '/');
-		const headProto = Object.getPrototypeOf(probeWin.document.head);
-		patchQuerySelectorAll(headProto);
-		patchQuerySelector(headProto);
-	} catch {
-		// Probe failed — per-document polyfills will handle it
-	}
-};
-
 const loadAngularDeps = async () => {
 	// Patch Angular's _currentInjector to use globalThis BEFORE any
 	// Angular module is loaded — this prevents NG0203 when Bun's --hot
@@ -85,19 +30,12 @@ const loadAngularDeps = async () => {
 	await applyPatches();
 
 	// Now safe to load all Angular packages in parallel
-	const [platformBrowser, platformServer, common, core, domino] =
-		await Promise.all([
-			import('@angular/platform-browser'),
-			import('@angular/platform-server'),
-			import('@angular/common'),
-			import('@angular/core'),
-			import('domino' as string).catch(() => null) as Promise<{
-				createWindow?: (
-					html: string,
-					url: string
-				) => { document: Document };
-			} | null>
-		]);
+	const [platformBrowser, platformServer, common, core] = await Promise.all([
+		import('@angular/platform-browser'),
+		import('@angular/platform-server'),
+		import('@angular/common'),
+		import('@angular/core')
+	]);
 
 	if (process.env.NODE_ENV !== 'development') {
 		core.enableProdMode();
@@ -105,18 +43,9 @@ const loadAngularDeps = async () => {
 
 	initDominoAdapter(platformServer);
 
-	// Patch domino's head prototype once — these polyfills fix missing
-	// DOM APIs that Angular SSR expects (querySelector, querySelectorAll,
-	// children). Applied to the prototype so every domino document
-	// inherits them automatically.
-	if (domino) {
-		patchDominoPrototype(domino);
-	}
-
 	return {
 		APP_BASE_HREF: common.APP_BASE_HREF,
 		bootstrapApplication: platformBrowser.bootstrapApplication,
-		domino,
 		DomSanitizer: platformBrowser.DomSanitizer,
 		provideClientHydration: platformBrowser.provideClientHydration,
 		provideServerRendering: platformServer.provideServerRendering,

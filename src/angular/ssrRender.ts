@@ -46,7 +46,6 @@ export const buildDeps = (
 		bootstrapApplication:
 			platformBrowser?.bootstrapApplication ??
 			baseDeps.bootstrapApplication,
-		domino: baseDeps.domino,
 		DomSanitizer: platformBrowser?.DomSanitizer ?? baseDeps.DomSanitizer,
 		provideClientHydration:
 			platformBrowser?.provideClientHydration ??

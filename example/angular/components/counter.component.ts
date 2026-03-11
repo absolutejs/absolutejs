@@ -37,7 +37,7 @@ import { CommonModule } from '@angular/common';
 	],
 	template: `
 		<button (click)="increment()">
-			count is <span class="counter-value">{{ count }}</span>
+			count is xxxw<span class="counter-value">{{ count }}</span>
 		</button>
 	`
 })
