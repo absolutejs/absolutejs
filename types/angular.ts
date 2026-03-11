@@ -1,16 +1,13 @@
 export type AngularDeps = {
-	bootstrapApplication: any;
-	DomSanitizer: any;
-	provideClientHydration: any;
-	renderApplication: any;
-	provideServerRendering: any;
-	APP_BASE_HREF: any;
-	provideZonelessChangeDetection: any;
-	Sanitizer: any;
-	SecurityContext: any;
-	domino: {
-		createWindow?: (html: string, url: string) => { document: Document };
-	} | null;
+	APP_BASE_HREF: typeof import('@angular/common').APP_BASE_HREF;
+	bootstrapApplication: typeof import('@angular/platform-browser').bootstrapApplication;
+	DomSanitizer: typeof import('@angular/platform-browser').DomSanitizer;
+	provideClientHydration: typeof import('@angular/platform-browser').provideClientHydration;
+	provideServerRendering: typeof import('@angular/platform-server').provideServerRendering;
+	provideZonelessChangeDetection: typeof import('@angular/core').provideZonelessChangeDetection;
+	renderApplication: typeof import('@angular/platform-server').renderApplication;
+	Sanitizer: typeof import('@angular/core').Sanitizer;
+	SecurityContext: typeof import('@angular/core').SecurityContext;
 };
 
 export type AngularPageFactory<
@@ -27,8 +24,8 @@ export type CachedRouteData = {
 };
 
 export type SsrDepsResult = {
-	common: any;
-	core: any;
-	platformBrowser: any;
-	platformServer: any;
+	common: typeof import('@angular/common');
+	core: typeof import('@angular/core');
+	platformBrowser: typeof import('@angular/platform-browser');
+	platformServer: typeof import('@angular/platform-server');
 };

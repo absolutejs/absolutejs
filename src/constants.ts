@@ -33,6 +33,8 @@ export const MILLISECONDS_IN_A_DAY =
 	MINUTES_IN_AN_HOUR *
 	HOURS_IN_DAY;
 export const OVERLAY_FADE_DURATION_MS = 150;
+export const PENDING_UPDATE_MAX_AGE_MS = 10_000;
+export const PENDING_UPDATE_MAX_COUNT = 50;
 export const PING_INTERVAL_MS = 30_000;
 export const RAF_BATCH_COUNT = 3;
 export const RANDOM_ID_END_INDEX = 11;

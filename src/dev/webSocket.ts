@@ -4,6 +4,10 @@ import type { HMRWebSocket } from '../../types/websocket';
 import { WS_READY_STATE_OPEN } from '../../types/websocket';
 import type { HMRClientMessage } from '../../types/messages';
 import { isValidHMRClientMessage } from '../../types/messages';
+import {
+	PENDING_UPDATE_MAX_AGE_MS,
+	PENDING_UPDATE_MAX_COUNT
+} from '../constants';
 
 const trySendMessage = (client: HMRWebSocket, messageStr: string) => {
 	try {
@@ -15,14 +19,31 @@ const trySendMessage = (client: HMRWebSocket, messageStr: string) => {
 	}
 };
 
+const pruneExpiredUpdates = (state: HMRState) => {
+	const cutoff = Date.now() - PENDING_UPDATE_MAX_AGE_MS;
+	let first = state.pendingUpdates[0];
+	while (first && first.timestamp < cutoff) {
+		state.pendingUpdates.shift();
+		first = state.pendingUpdates[0];
+	}
+};
+
 export const broadcastToClients = (
 	state: HMRState,
 	message: { type: string; [key: string]: any }
 ) => {
+	const timestamp = Date.now();
 	const messageStr = JSON.stringify({
 		...message,
-		timestamp: Date.now()
+		timestamp
 	});
+
+	/* Buffer the broadcast so reconnecting clients can replay missed updates */
+	pruneExpiredUpdates(state);
+	state.pendingUpdates.push({ message: messageStr, timestamp });
+	if (state.pendingUpdates.length > PENDING_UPDATE_MAX_COUNT) {
+		state.pendingUpdates.shift();
+	}
 
 	const shouldRemove = (client: HMRWebSocket) => {
 		if (client.readyState !== WS_READY_STATE_OPEN) return true;
@@ -65,6 +86,18 @@ export const handleClientConnect = (
 			type: 'connected'
 		})
 	);
+
+	/* Replay any buffered updates the client may have missed during reconnection */
+	replayPendingUpdates(state, client);
+};
+
+const replayPendingUpdates = (state: HMRState, client: HMRWebSocket) => {
+	pruneExpiredUpdates(state);
+	for (const pending of state.pendingUpdates) {
+		trySendMessage(client, pending.message);
+	}
+	/* Clear pending updates after replay — the client is now caught up */
+	state.pendingUpdates.length = 0;
 };
 export const handleClientDisconnect = (
 	state: HMRState,

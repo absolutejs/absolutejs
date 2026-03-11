@@ -5,7 +5,6 @@ import { BASE_36_RADIX, RANDOM_ID_END_INDEX } from '../constants';
 import { ssrErrorPage } from '../utils/ssrErrorPage';
 import { setSsrContextGetter } from '../utils/registerClientScript';
 import { getAngularDeps } from './angularDeps';
-import { createDominoDocument } from './dominoDocument';
 import { getSsrSanitizer, resetSsrSanitizer } from './ssrSanitizer';
 import {
 	buildDeps,
@@ -51,7 +50,6 @@ export const handleAngularPageRequest = async <
 			const selector = resolveSelector(pagePath, PageComponent);
 
 			const htmlString = `<!DOCTYPE html><html>${headTag}<body><${selector}></${selector}></body></html>`;
-			const document = createDominoDocument(htmlString, deps.domino);
 
 			if (ssrResult?.core) resetSsrSanitizer();
 			const sanitizer = getSsrSanitizer(deps);
@@ -66,7 +64,7 @@ export const handleAngularPageRequest = async <
 				deps,
 				PageComponent,
 				providers,
-				document
+				htmlString
 			);
 
 			const html = injectSsrScripts(rawHtml, requestId, indexPath);

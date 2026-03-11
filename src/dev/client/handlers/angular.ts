@@ -410,9 +410,7 @@ export const handleAngularUpdate = (message: HMRMessage) => {
 		return;
 	}
 
-	handleFastUpdate(message).then((patched) => {
-		if (!patched) handleFullUpdate(message);
-	});
+	handleFullUpdate(message);
 };
 
 // ============================================================

@@ -26,6 +26,15 @@ const handleCachedReload = () => {
 		.__hmrServerMtime as number;
 	(globalThis as Record<string, unknown>).__hmrServerMtime = serverMtime;
 
+	/* Clear stale WebSocket connections from the previous Elysia instance.
+	   Bun --hot tears down the old server, so these refs are dead. */
+	const cached = (globalThis as Record<string, unknown>).__hmrDevResult as
+		| { hmrState: HMRState }
+		| undefined;
+	if (cached) {
+		cached.hmrState.connectedClients.clear();
+	}
+
 	if (serverMtime !== lastMtime) {
 		logger.serverReload();
 	} else {

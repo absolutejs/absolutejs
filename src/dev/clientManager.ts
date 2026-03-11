@@ -9,6 +9,11 @@ import type { BuildConfig } from '../../types/build';
 import { resolveBuildPaths, type ResolvedBuildPaths } from './configResolver';
 
 /* This handles the "tracking clients" problem */
+export type PendingUpdate = {
+	message: string;
+	timestamp: number;
+};
+
 export type HMRState = {
 	connectedClients: Set<HMRWebSocket>;
 	dependencyGraph: DependencyGraph;
@@ -26,6 +31,7 @@ export type HMRState = {
 	vueChangeTypes: Map<string, 'template-only' | 'script' | 'full'>; // Vue HMR change type tracking
 	assetStore: Map<string, Uint8Array>; // In-memory client asset store for dev mode
 	manifest: Record<string, string>; // Current build manifest (for Angular fast-path HMR)
+	pendingUpdates: PendingUpdate[]; // Buffered broadcasts for replay on reconnect
 };
 
 /* Initialize HMR state */
@@ -40,6 +46,7 @@ export const createHMRState = (config: BuildConfig): HMRState => ({
 	isRebuilding: false,
 	manifest: {}, // Current build manifest (populated after initial build)
 	moduleVersions: createModuleVersionTracker(),
+	pendingUpdates: [],
 	rebuildQueue: new Set(),
 	rebuildTimeout: null,
 	resolvedPaths: resolveBuildPaths(config), // Track versions for source files to bypass Bun's cache
