@@ -13,8 +13,11 @@ import {
 import { processCSSLinks, waitForCSSAndUpdate } from '../cssUtils';
 import { patchHeadInPlace } from '../headPatch';
 import { detectCurrentFramework } from '../frameworkDetect';
-import type { ScriptInfo } from '../../../../types/client';
-import { hmrState } from '../../../../types/client';
+import {
+	type HTMXSavedState,
+	type ScriptInfo,
+	hmrState
+} from '../../../../types/client';
 
 const parseHTMXMessage = (
 	html: string | { body?: string; head?: string } | null | undefined
@@ -95,10 +98,10 @@ export const handleHTMXUpdate = (message: {
 const cloneHmrListenerElements = (container: HTMLElement) => {
 	container
 		.querySelectorAll('[data-hmr-listeners-attached]')
-		.forEach((el) => {
-			const cloned = el.cloneNode(true) as Element;
-			if (el.parentNode) {
-				el.parentNode.replaceChild(cloned, el);
+		.forEach((elem) => {
+			const cloned = elem.cloneNode(true) as Element; // eslint-disable-line @typescript-eslint/consistent-type-assertions
+			if (elem.parentNode) {
+				elem.parentNode.replaceChild(cloned, elem);
 			}
 			cloned.removeAttribute('data-hmr-listeners-attached');
 		});
@@ -130,7 +133,7 @@ const replaceInlineScript = (script: Element) => {
 
 	const newScript = document.createElement('script');
 	newScript.textContent = script.textContent || '';
-	newScript.type = (script as HTMLScriptElement).type || 'text/javascript';
+	newScript.type = script.getAttribute('type') || 'text/javascript';
 	if (script.parentNode) {
 		script.parentNode.replaceChild(newScript, script);
 	}
@@ -174,7 +177,7 @@ const updateHTMXBody = (
 		? parseInt(countSpan.textContent || '0', 10)
 		: 0;
 
-	const savedState = {
+	const savedState: HTMXSavedState = {
 		componentState: { count: countValue },
 		forms: saveFormState(),
 		scroll: saveScrollState()
@@ -228,8 +231,8 @@ const collectScripts = (container: HTMLElement) =>
 		type: script.getAttribute('type') || 'text/javascript'
 	}));
 
-const collectScriptsFromElement = (el: HTMLElement) =>
-	Array.from(el.querySelectorAll('script[src]')).map((script) => ({
+const collectScriptsFromElement = (elem: HTMLElement) =>
+	Array.from(elem.querySelectorAll('script[src]')).map((script) => ({
 		src: script.getAttribute('src') || '',
 		type: script.getAttribute('type') || 'text/javascript'
 	}));
@@ -237,16 +240,18 @@ const collectScriptsFromElement = (el: HTMLElement) =>
 const didScriptsChange = (oldScripts: ScriptInfo[], newScripts: ScriptInfo[]) =>
 	oldScripts.length !== newScripts.length ||
 	oldScripts.some((oldScript, idx) => {
-		const oldSrcBase = oldScript.src.split('?')[0]!.split('&')[0];
+		const [oldBeforeQuery = ''] = oldScript.src.split('?');
+		const [oldSrcBase] = oldBeforeQuery.split('&');
 		const newScript = newScripts[idx];
 		if (!newScript) return true;
-		const newSrcBase = newScript.src.split('?')[0]!.split('&')[0];
+		const [newBeforeQuery = ''] = newScript.src.split('?');
+		const [newSrcBase] = newBeforeQuery.split('&');
 
 		return oldSrcBase !== newSrcBase;
 	});
 
 const normalizeHTMLForComparison = (element: HTMLElement) => {
-	const clone = element.cloneNode(true) as HTMLElement;
+	const clone = element.cloneNode(true) as HTMLElement; // eslint-disable-line @typescript-eslint/consistent-type-assertions
 	const scripts = clone.querySelectorAll('script');
 	scripts.forEach((script) => {
 		if (script.parentNode) {
@@ -254,8 +259,8 @@ const normalizeHTMLForComparison = (element: HTMLElement) => {
 		}
 	});
 	const allElements = clone.querySelectorAll('*');
-	allElements.forEach((el) => {
-		el.removeAttribute('data-hmr-listeners-attached');
+	allElements.forEach((elem) => {
+		elem.removeAttribute('data-hmr-listeners-attached');
 	});
 	if (clone.removeAttribute) {
 		clone.removeAttribute('data-hmr-listeners-attached');

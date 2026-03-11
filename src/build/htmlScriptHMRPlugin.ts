@@ -7,6 +7,15 @@
 import type { BunPlugin } from 'bun';
 import { wrapHTMLScriptWithHMR } from './wrapHTMLScript';
 
+const scriptLoaders = new Set(['ts', 'js', 'tsx', 'jsx'] as const);
+const toLoader = (ext: string) => {
+	for (const loader of scriptLoaders) {
+		if (loader === ext) return loader;
+	}
+
+	return 'ts' as const;
+};
+
 /**
  * Creates a Bun build plugin that wraps HTML/HTMX scripts with HMR support
  * @param htmlDir - The HTML directory path (normalized with forward slashes)
@@ -45,8 +54,8 @@ export const createHTMLScriptHMRPlugin = (
 				const wrapped = wrapHTMLScriptWithHMR(text, normalizedPath);
 
 				// Determine the loader based on file extension
-				const ext = args.path.split('.').pop() || 'ts';
-				const loader = ext as 'ts' | 'js' | 'tsx' | 'jsx';
+				const ext = args.path.split('.').pop() ?? 'ts';
+				const loader = toLoader(ext);
 
 				return {
 					contents: wrapped,

@@ -13,8 +13,7 @@ import {
 import { processCSSLinks, waitForCSSAndUpdate } from '../cssUtils';
 import { patchHeadInPlace } from '../headPatch';
 import { detectCurrentFramework } from '../frameworkDetect';
-import type { ScriptInfo } from '../../../../types/client';
-import { hmrState } from '../../../../types/client';
+import { type ScriptInfo, hmrState } from '../.././../../types/client';
 import { restoreDOMChanges, snapshotDOMChanges } from '../domTracker';
 
 const parseHTMLMessage = (
@@ -130,18 +129,16 @@ export const handleScriptUpdate = (message: {
 
 	const interactiveSelectors =
 		'button, [onclick], [onchange], [oninput], details, input, select, textarea';
-	document.body.querySelectorAll(interactiveSelectors).forEach((el) => {
-		const cloned = el.cloneNode(true);
-		if (el.parentNode) {
-			el.parentNode.replaceChild(cloned, el);
+	document.body.querySelectorAll(interactiveSelectors).forEach((elem) => {
+		const cloned = elem.cloneNode(true);
+		if (elem.parentNode) {
+			elem.parentNode.replaceChild(cloned, elem);
 		}
 	});
 
 	const cacheBustedPath = `${scriptPath}?t=${Date.now()}`;
 	import(cacheBustedPath)
-		.then(() => {
-			/* script reloaded */
-		})
+		.then(() => true)
 		.catch((err: unknown) => {
 			console.error(
 				'[HMR] Script hot-reload failed, falling back to page reload:',
@@ -151,6 +148,7 @@ export const handleScriptUpdate = (message: {
 		});
 };
 
+// eslint-disable-next-line absolute/no-useless-function -- must be called each time to capture current state
 const saveHTMLState = () => ({
 	forms: saveFormState(),
 	scroll: saveScrollState()
@@ -183,10 +181,9 @@ const updateHTMLBody = (
 	tempDiv.innerHTML = htmlBody;
 	const newScripts = collectScriptsFromElement(tempDiv);
 
-	const scriptsChanged = didScriptsChange(existingScripts, newScripts);
 	const htmlStructureChanged = didHTMLStructureChange(container, tempDiv);
 
-	if (htmlStructureChanged || scriptsChanged) {
+	if (htmlStructureChanged || didScriptsChange(existingScripts, newScripts)) {
 		patchDOMInPlace(container, htmlBody);
 		restoreDOMChanges(container, domSnapshot, htmlBody);
 	}
@@ -198,7 +195,10 @@ const updateHTMLBody = (
 		restoreFormState(savedState.forms);
 		restoreScrollState(savedState.scroll);
 
-		if (scriptsChanged || htmlStructureChanged) {
+		if (
+			didScriptsChange(existingScripts, newScripts) ||
+			htmlStructureChanged
+		) {
 			cloneInteractiveElements(container);
 			reExecuteScripts(container, newScripts);
 		}
@@ -209,12 +209,14 @@ const updateHTMLBody = (
 const cloneHmrListenerElements = (container: HTMLElement) => {
 	container
 		.querySelectorAll('[data-hmr-listeners-attached]')
-		.forEach((el) => {
-			const cloned = el.cloneNode(true) as Element;
-			if (el.parentNode) {
-				el.parentNode.replaceChild(cloned, el);
+		.forEach((elem) => {
+			const cloned = elem.cloneNode(true);
+			if (elem.parentNode) {
+				elem.parentNode.replaceChild(cloned, elem);
 			}
-			cloned.removeAttribute('data-hmr-listeners-attached');
+			if (cloned instanceof Element) {
+				cloned.removeAttribute('data-hmr-listeners-attached');
+			}
 		});
 };
 
@@ -225,7 +227,8 @@ const replaceInlineScript = (script: Element) => {
 
 	const newScript = document.createElement('script');
 	newScript.textContent = script.textContent || '';
-	newScript.type = (script as HTMLScriptElement).type || 'text/javascript';
+	const scriptEl = script instanceof HTMLScriptElement ? script : null;
+	newScript.type = scriptEl?.type || 'text/javascript';
 	if (script.parentNode) {
 		script.parentNode.replaceChild(newScript, script);
 	}
@@ -239,11 +242,9 @@ const updateHTMLBodyDirect = (
 	const savedState = saveHTMLState();
 	const domSnapshot = snapshotDOMChanges(container);
 
-	const existingScripts = collectScripts(container);
 	const tempDiv = document.createElement('div');
 	tempDiv.innerHTML = htmlBody;
 	const newScripts = collectScriptsFromElement(tempDiv);
-	const scriptsChanged = didScriptsChange(existingScripts, newScripts);
 	const hmrScript = container.querySelector('script[data-hmr-client]');
 
 	patchDOMInPlace(container, htmlBody);
@@ -281,8 +282,8 @@ const collectScripts = (container: HTMLElement) =>
 		type: script.getAttribute('type') || 'text/javascript'
 	}));
 
-const collectScriptsFromElement = (el: HTMLElement) =>
-	Array.from(el.querySelectorAll('script[src]')).map((script) => ({
+const collectScriptsFromElement = (elem: HTMLElement) =>
+	Array.from(elem.querySelectorAll('script[src]')).map((script) => ({
 		src: script.getAttribute('src') || '',
 		type: script.getAttribute('type') || 'text/javascript'
 	}));
@@ -290,16 +291,18 @@ const collectScriptsFromElement = (el: HTMLElement) =>
 const didScriptsChange = (oldScripts: ScriptInfo[], newScripts: ScriptInfo[]) =>
 	oldScripts.length !== newScripts.length ||
 	oldScripts.some((oldScript, idx) => {
-		const oldSrcBase = oldScript.src.split('?')[0]!.split('&')[0];
+		const [oldSrcBase] = oldScript.src.split('?')[0]?.split('&') ?? [''];
 		const newScript = newScripts[idx];
 		if (!newScript) return true;
-		const newSrcBase = newScript.src.split('?')[0]!.split('&')[0];
+		const [newSrcBase] = newScript.src.split('?')[0]?.split('&') ?? [''];
 
 		return oldSrcBase !== newSrcBase;
 	});
 
 const normalizeHTMLForComparison = (element: HTMLElement) => {
-	const clone = element.cloneNode(true) as HTMLElement;
+	const clonedNode = element.cloneNode(true);
+	if (!(clonedNode instanceof HTMLElement)) return '';
+	const clone = clonedNode;
 	const scripts = clone.querySelectorAll('script');
 	scripts.forEach((script) => {
 		if (script.parentNode) {
@@ -307,8 +310,8 @@ const normalizeHTMLForComparison = (element: HTMLElement) => {
 		}
 	});
 	const allElements = clone.querySelectorAll('*');
-	allElements.forEach((el) => {
-		el.removeAttribute('data-hmr-listeners-attached');
+	allElements.forEach((elem) => {
+		elem.removeAttribute('data-hmr-listeners-attached');
 	});
 	if (clone.removeAttribute) {
 		clone.removeAttribute('data-hmr-listeners-attached');
@@ -325,10 +328,10 @@ const cloneInteractiveElements = (container: HTMLElement) => {
 	const interactiveSelectors =
 		'button, [onclick], [onchange], [oninput], [onsubmit], ' +
 		'details, input[type="button"], input[type="submit"], input[type="reset"]';
-	container.querySelectorAll(interactiveSelectors).forEach((el) => {
-		const cloned = el.cloneNode(true);
-		if (el.parentNode) {
-			el.parentNode.replaceChild(cloned, el);
+	container.querySelectorAll(interactiveSelectors).forEach((elem) => {
+		const cloned = elem.cloneNode(true);
+		if (elem.parentNode) {
+			elem.parentNode.replaceChild(cloned, elem);
 		}
 	});
 };

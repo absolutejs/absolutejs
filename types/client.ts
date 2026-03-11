@@ -34,6 +34,12 @@ export type SavedState = {
 	scroll: { window: { x: number; y: number } };
 };
 
+export type HTMXSavedState = {
+	componentState: { count: number };
+	forms: Record<string, Record<string, boolean | string>>;
+	scroll: { window: { x: number; y: number } };
+};
+
 export type ScriptInfo = {
 	src: string;
 	type: string;
@@ -59,4 +65,3 @@ export const hmrState: {
 	pingInterval: null,
 	reconnectTimeout: null
 };
-

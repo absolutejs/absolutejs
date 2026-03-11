@@ -11,7 +11,9 @@ const checkCandidate = (candidate: string) => {
 	const pkg = JSON.parse(readFileSync(candidate, 'utf-8'));
 
 	if (pkg.name === '@absolutejs/absolute') {
-		return pkg.version as string;
+		const ver: string = pkg.version;
+
+		return ver;
 	}
 
 	return null;
@@ -64,7 +66,7 @@ export const sendTelemetryEvent = (
 			body: JSON.stringify(body),
 			headers: { 'Content-Type': 'application/json' },
 			method: 'POST'
-		}).catch(() => {});
+		}).catch(() => undefined);
 	} catch {
 		/* silently ignore */
 	}

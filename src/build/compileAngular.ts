@@ -1,5 +1,4 @@
-import { existsSync, readFileSync } from 'fs';
-import { promises as fs } from 'fs';
+import { existsSync, readFileSync, promises as fs } from 'fs';
 import { join, basename, sep, dirname, resolve, relative } from 'path';
 import type { CompilerOptions } from '@angular/compiler-cli';
 import ts from 'typescript';
@@ -25,7 +24,7 @@ declare global {
 }
 
 /** Compute a fast hash of tsconfig.json content for cache invalidation */
-const computeConfigHash = (): string => {
+const computeConfigHash = () => {
 	try {
 		const content = readFileSync('./tsconfig.json', 'utf-8');
 
@@ -35,12 +34,14 @@ const computeConfigHash = (): string => {
 	}
 };
 
-const devClientDir = (() => {
+const resolveDevClientDir = () => {
 	const fromSource = resolve(import.meta.dir, '../dev/client');
 	if (existsSync(fromSource)) return fromSource;
 
 	return resolve(import.meta.dir, './dev/client');
-})();
+};
+
+const devClientDir = resolveDevClientDir();
 
 const hmrClientPath = join(devClientDir, 'hmrClient.ts').replace(/\\/g, '/');
 
@@ -50,7 +51,7 @@ const hmrRuntimePath = join(devClientDir, 'handlers', 'angularRuntime.ts').repla
 /** Angular HMR Runtime Layer (Level 3) — Inject HMR registration calls into compiled component JS.
  *  Detects exported Angular component classes and appends register() calls.
  *  Only active when hmr=true (dev mode). */
-const injectHMRRegistration = (content: string, sourceId: string): string => {
+const injectHMRRegistration = (content: string, sourceId: string) => {
 	// Find exported component classes: `export class XxxComponent` or `class XxxComponent`
 	const componentClassRegex = /(?:export\s+)?class\s+(\w+Component)\s/g;
 	const componentNames: string[] = [];
@@ -71,6 +72,32 @@ const injectHMRRegistration = (content: string, sourceId: string): string => {
 	return content + hmrBlock;
 };
 
+const formatDiagnosticMessage = (diagnostic: ts.Diagnostic) => {
+	try {
+		return ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n');
+	} catch {
+		return String(diagnostic.messageText || 'Unknown error');
+	}
+};
+
+const throwOnCompilationErrors = (diagnostics: readonly ts.Diagnostic[] | undefined) => {
+	if (!diagnostics?.length) return;
+
+	const errors = diagnostics.filter(diag => diag.category === ts.DiagnosticCategory.Error);
+	if (!errors.length) return;
+
+	const fullMessage = errors.map(formatDiagnosticMessage).join('\n');
+	console.error('Angular compilation errors:', fullMessage);
+	throw new Error(fullMessage);
+};
+
+const resolveRelativePath = (fileName: string, resolvedOutDir: string, outDir: string) => {
+	if (fileName.startsWith(resolvedOutDir)) return fileName.substring(resolvedOutDir.length + 1);
+	if (fileName.startsWith(outDir)) return fileName.substring(outDir.length + 1);
+
+	return fileName;
+};
+
 export const compileAngularFile = async (inputPath: string, outDir: string) => {
 	const {
 		readConfiguration,
@@ -88,9 +115,9 @@ export const compileAngularFile = async (inputPath: string, outDir: string) => {
 
 	if (cached && cached.configHash === configHash) {
 		// Cache hit — reuse host and options, only update outDir
-		host = cached.host;
+		({ host } = cached);
 		options = { ...cached.options, outDir, rootDir: process.cwd() };
-		tsLibDir = cached.tsLibDir;
+		({ tsLibDir } = cached);
 		cached.lastUsed = Date.now();
 	} else {
 		// Cache miss — create fresh compiler host and options
@@ -105,16 +132,16 @@ export const compileAngularFile = async (inputPath: string, outDir: string) => {
 		// Build options object with newLine FIRST, then spread config
 		// IMPORTANT: target MUST be ES2022 (not ESNext) to avoid hardcoded lib.esnext.full.d.ts path
 		options = {
-			newLine: ts.NewLineKind.LineFeed,  // Set FIRST - critical for createCompilerHost
-			target: ts.ScriptTarget.ES2022, // Use ES2022 instead of ESNext to avoid hardcoded lib paths
-			module: ts.ModuleKind.ESNext,
-			outDir,
-			experimentalDecorators: true,
 			emitDecoratorMetadata: true,
-			moduleResolution: ts.ModuleResolutionKind.Bundler,
 			esModuleInterop: true,
-			skipLibCheck: true,
+			experimentalDecorators: true,
+			module: ts.ModuleKind.ESNext,
+			moduleResolution: ts.ModuleResolutionKind.Bundler,
+			newLine: ts.NewLineKind.LineFeed,  // Set FIRST - critical for createCompilerHost
 			noLib: false,
+			outDir,
+			skipLibCheck: true,
+			target: ts.ScriptTarget.ES2022, // Use ES2022 instead of ESNext to avoid hardcoded lib paths
 			...config.options  // Spread AFTER to add Angular options
 		};
 
@@ -175,11 +202,7 @@ export const compileAngularFile = async (inputPath: string, outDir: string) => {
 	const emitted: Record<string, string> = {};
 	const resolvedOutDir = resolve(outDir);
 	host.writeFile = (fileName, text) => {
-		const relativePath = fileName.startsWith(resolvedOutDir)
-			? fileName.substring(resolvedOutDir.length + 1)
-			: fileName.startsWith(outDir)
-				? fileName.substring(outDir.length + 1)
-				: fileName;
+		const relativePath = resolveRelativePath(fileName, resolvedOutDir, outDir);
 		emitted[relativePath] = text;
 	};
 
@@ -190,26 +213,7 @@ export const compileAngularFile = async (inputPath: string, outDir: string) => {
 		rootNames: [inputPath]
 	});
 
-	if (diagnostics?.length) {
-		const errors = diagnostics.filter(d => d.category === ts.DiagnosticCategory.Error);
-		if (errors.length) {
-			const errorMessages: string[] = [];
-			for (const diagnostic of errors) {
-				try {
-					const message = ts.flattenDiagnosticMessageText(
-						diagnostic.messageText,
-						'\n'
-					);
-					errorMessages.push(message);
-				} catch (e) {
-					errorMessages.push(String(diagnostic.messageText || 'Unknown error'));
-				}
-			}
-			const fullMessage = errorMessages.join('\n');
-			console.error('Angular compilation errors:', fullMessage);
-			throw new Error(fullMessage);
-		}
-	}
+	throwOnCompilationErrors(diagnostics);
 
 	const entries = Object.entries(emitted)
 		.filter(([fileName]) => fileName.endsWith('.js'))
@@ -277,6 +281,66 @@ const jitContentCache = new Map<string, string>();
 // generation when only transpilation changed but the wrapper output is identical.
 const wrapperOutputCache = new Map<string, { serverHash: string; indexHash: string }>();
 
+const escapeTemplateContent = (content: string) => content
+	.replace(/\\/g, '\\\\')
+	.replace(/`/g, '\\`')
+	.replace(/\$\{/g, '\\${');
+
+const readAndEscapeFile = async (filePath: string) => {
+	if (!existsSync(filePath)) return null;
+	const content = await fs.readFile(filePath, 'utf-8');
+
+	return escapeTemplateContent(content);
+};
+
+const inlineTemplateUrl = async (source: string, fileDir: string) => {
+	const templateUrlMatch = source.match(/templateUrl\s*:\s*['"]([^'"]+)['"]/);
+	if (!templateUrlMatch?.[1]) return source;
+
+	const escaped = await readAndEscapeFile(join(fileDir, templateUrlMatch[1]));
+	if (!escaped) return source;
+
+	return source.replace(/templateUrl\s*:\s*['"][^'"]+['"]/, `template: \`${escaped}\``);
+};
+
+const inlineStyleUrls = async (source: string, fileDir: string) => {
+	const styleUrlsMatch = source.match(/styleUrls\s*:\s*\[([^\]]+)\]/);
+	if (!styleUrlsMatch?.[1]) return source;
+
+	const urlMatches = styleUrlsMatch[1].match(/['"]([^'"]+)['"]/g);
+	if (!urlMatches) return source;
+
+	const stylePromises = urlMatches.map(urlMatch => {
+		const styleUrl = urlMatch.replace(/['"]/g, '');
+
+		return readAndEscapeFile(join(fileDir, styleUrl));
+	});
+	const results = await Promise.all(stylePromises);
+	const inlinedStyles = results.filter(Boolean).map(escaped => `\`${escaped}\``);
+	if (inlinedStyles.length === 0) return source;
+
+	return source.replace(/styleUrls\s*:\s*\[[^\]]+\]/, `styles: [${inlinedStyles.join(', ')}]`);
+};
+
+const inlineSingleStyleUrl = async (source: string, fileDir: string) => {
+	const styleUrlMatch = source.match(/styleUrl\s*:\s*['"]([^'"]+)['"]/);
+	if (!styleUrlMatch?.[1]) return source;
+
+	const escaped = await readAndEscapeFile(join(fileDir, styleUrlMatch[1]));
+	if (!escaped) return source;
+
+	return source.replace(/styleUrl\s*:\s*['"][^'"]+['"]/, `styles: [\`${escaped}\`]`);
+};
+
+/** Inline templateUrl and styleUrls/styleUrl from external files */
+const inlineResources = async (source: string, fileDir: string) => {
+	let result = await inlineTemplateUrl(source, fileDir);
+	result = await inlineStyleUrls(result, fileDir);
+	result = await inlineSingleStyleUrl(result, fileDir);
+
+	return result;
+};
+
 /** Angular HMR Runtime Layer (Level 3) — JIT-mode compilation for dev/HMR builds.
  *  Uses ts.transpileModule() instead of Angular AOT performCompilation().
  *  Inlines templateUrl → template and styleUrls → styles from disk.
@@ -299,75 +363,6 @@ export const compileAngularFileJIT = async (inputPath: string, outDir: string, r
 	};
 
 	const baseDir = resolve(rootDir ?? process.cwd());
-
-	/** Inline templateUrl and styleUrls/styleUrl from external files */
-	const inlineResources = async (source: string, fileDir: string): Promise<string> => {
-		let result = source;
-
-		// Inline templateUrl: './foo.html' → template: `<content>`
-		const templateUrlMatch = result.match(/templateUrl\s*:\s*['"]([^'"]+)['"]/);
-		if (templateUrlMatch && templateUrlMatch[1]) {
-			const templatePath = join(fileDir, templateUrlMatch[1]);
-			if (existsSync(templatePath)) {
-				const templateContent = await fs.readFile(templatePath, 'utf-8');
-				// Escape backticks and ${} in template content
-				const escaped = templateContent
-					.replace(/\\/g, '\\\\')
-					.replace(/`/g, '\\`')
-					.replace(/\$\{/g, '\\${');
-				result = result.replace(
-					/templateUrl\s*:\s*['"][^'"]+['"]/,
-					`template: \`${escaped}\``
-				);
-			}
-		}
-
-		// Inline styleUrls: ['./foo.css'] → styles: [`<content>`]
-		const styleUrlsMatch = result.match(/styleUrls\s*:\s*\[([^\]]+)\]/);
-		if (styleUrlsMatch && styleUrlsMatch[1]) {
-			const urlMatches = styleUrlsMatch[1].match(/['"]([^'"]+)['"]/g);
-			if (urlMatches) {
-				const inlinedStyles: string[] = [];
-				for (const urlMatch of urlMatches) {
-					const styleUrl = urlMatch.replace(/['"]/g, '');
-					const stylePath = join(fileDir, styleUrl);
-					if (existsSync(stylePath)) {
-						const styleContent = await fs.readFile(stylePath, 'utf-8');
-						const escaped = styleContent
-							.replace(/\\/g, '\\\\')
-							.replace(/`/g, '\\`')
-							.replace(/\$\{/g, '\\${');
-						inlinedStyles.push(`\`${escaped}\``);
-					}
-				}
-				if (inlinedStyles.length > 0) {
-					result = result.replace(
-						/styleUrls\s*:\s*\[[^\]]+\]/,
-						`styles: [${inlinedStyles.join(', ')}]`
-					);
-				}
-			}
-		}
-
-		// Inline singular styleUrl: './foo.css' → styles: [`<content>`]
-		const styleUrlMatch = result.match(/styleUrl\s*:\s*['"]([^'"]+)['"]/);
-		if (styleUrlMatch && styleUrlMatch[1]) {
-			const stylePath = join(fileDir, styleUrlMatch[1]);
-			if (existsSync(stylePath)) {
-				const styleContent = await fs.readFile(stylePath, 'utf-8');
-				const escaped = styleContent
-					.replace(/\\/g, '\\\\')
-					.replace(/`/g, '\\`')
-					.replace(/\$\{/g, '\\${');
-				result = result.replace(
-					/styleUrl\s*:\s*['"][^'"]+['"]/,
-					`styles: [\`${escaped}\`]`
-				);
-			}
-		}
-
-		return result;
-	};
 
 	/** Transpile a single .ts file and recursively process its local imports */
 	const transpileFile = async (filePath: string) => {
@@ -468,7 +463,9 @@ export const compileAngular = async (
 	const compiledParent = join(outRoot, 'compiled');
 
 	if (entryPoints.length === 0) {
-		return { clientPaths: [] as string[], serverPaths: [] as string[] };
+		const emptyPaths: string[] = [];
+
+		return { clientPaths: [...emptyPaths], serverPaths: [...emptyPaths] };
 	}
 
 	// In dev/HMR, compile to a fixed compiled/ directory (no unique buildId).
@@ -498,13 +495,13 @@ export const compileAngular = async (
 		const jsName = `${fileBase}.js`;
 
 		// Try to find the file in pages/ subdirectory first, then at root
-		let rawServerFile = outputs.find((f) =>
-			f.endsWith(`${sep}pages${sep}${jsName}`)
+		let rawServerFile = outputs.find((file) =>
+			file.endsWith(`${sep}pages${sep}${jsName}`)
 		);
 
 		// If not found in pages/, try root level
 		if (!rawServerFile) {
-			rawServerFile = outputs.find((f) => f.endsWith(`${sep}${jsName}`));
+			rawServerFile = outputs.find((file) => file.endsWith(`${sep}${jsName}`));
 		}
 
 		if (!rawServerFile) {

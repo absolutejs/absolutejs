@@ -36,9 +36,10 @@ const resolvePackageVersion = (candidates: string[]) => {
 const readPackageVersion = (candidate: string) => {
 	try {
 		const pkg = JSON.parse(readFileSync(candidate, 'utf-8'));
-		if (pkg.name === '@absolutejs/absolute') {
-			return pkg.version as string;
-		}
+		if (pkg.name !== '@absolutejs/absolute') return null;
+		const ver: string = pkg.version;
+
+		return ver;
 	} catch {
 		/* try next candidate */
 	}
@@ -48,6 +49,7 @@ const readPackageVersion = (candidate: string) => {
 
 const resolveBuildModule = async (candidates: string[]) => {
 	for (const candidate of candidates) {
+		// eslint-disable-next-line no-await-in-loop -- each import depends on the previous failing
 		const mod = await tryImportBuild(candidate);
 		if (mod) {
 			return mod;
@@ -61,7 +63,9 @@ const tryImportBuild = async (candidate: string) => {
 	try {
 		const mod = await import(candidate);
 
-		return mod.build as typeof import('../../core/build').build;
+		const buildFn: typeof import('../../core/build').build = mod.build;
+
+		return buildFn;
 	} catch {
 		return null;
 	}
@@ -122,7 +126,7 @@ export const start = async (
 		buildConfig.svelteDirectory && 'svelte',
 		buildConfig.vueDirectory && 'vue',
 		buildConfig.angularDirectory && 'angular'
-	].filter(Boolean) as string[];
+	].filter((val): val is string => Boolean(val));
 
 	try {
 		const build = await resolveBuildModule([
@@ -212,7 +216,7 @@ export const start = async (
 				loader: 'js'
 			}));
 			bld.onLoad({ filter: /\.ts$/ }, async (args) => {
-				if (args.path.includes('node_modules')) return;
+				if (args.path.includes('node_modules')) return undefined;
 				const text = await Bun.file(args.path).text();
 				if (text.includes('@Component')) {
 					return {
@@ -220,6 +224,8 @@ export const start = async (
 						loader: 'js'
 					};
 				}
+
+				return undefined;
 			});
 		}
 	};

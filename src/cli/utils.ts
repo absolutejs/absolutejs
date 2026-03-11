@@ -93,10 +93,10 @@ export const stopDatabase = async (scripts: DbScripts) => {
 	console.log('\nStopping database container...');
 	await $`${{ raw: scripts.downCommand }}`.quiet().nothrow();
 };
-export const timed = async (label: string, fn: () => Promise<void>) => {
+export const timed = async (label: string, task: () => Promise<void>) => {
 	process.stdout.write(label);
 	const start = performance.now();
-	await fn();
+	await task();
 	const duration = (
 		(performance.now() - start) /
 		MILLISECONDS_IN_A_SECOND

@@ -218,6 +218,8 @@ if (!(window.__HMR_WS__ && window.__HMR_WS__.readyState === WebSocket.OPEN)) {
 								RECONNECT_POLL_INTERVAL_MS
 							);
 						}
+
+						return undefined;
 					})
 					.catch(() => {
 						hmrState.reconnectTimeout = setTimeout(

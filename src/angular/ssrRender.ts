@@ -58,7 +58,7 @@ export const buildDeps = (
 			platformServer?.renderApplication ?? baseDeps.renderApplication,
 		Sanitizer: core.Sanitizer,
 		SecurityContext: core.SecurityContext
-	} as AngularDeps;
+	} satisfies AngularDeps;
 };
 export const buildProviders = (
 	deps: AngularDeps,
@@ -93,10 +93,15 @@ export const buildProviders = (
 	return [...providers, ...propProviders];
 };
 
-const isInjectionToken = (value: unknown) =>
-	Boolean(value) &&
-	typeof value === 'object' &&
-	(value as { ngMetadataName?: string }).ngMetadataName === 'InjectionToken';
+const isInjectionToken = (value: unknown) => {
+	if (!value || typeof value !== 'object') {
+		return false;
+	}
+
+	return (
+		'ngMetadataName' in value && value.ngMetadataName === 'InjectionToken'
+	);
+};
 
 export const discoverTokens = (pageModule: Record<string, unknown>) =>
 	new Map(
@@ -105,19 +110,22 @@ export const discoverTokens = (pageModule: Record<string, unknown>) =>
 		)
 	);
 export const loadSsrDeps = async (pagePath: string) => {
-	const ssrDepsPath = pagePath
-		.split('?')[0]!
-		.replace(/\.js$/, '.ssr-deps.js');
+	const ssrDepsPath = (pagePath.split('?')[0] ?? pagePath).replace(
+		/\.js$/,
+		'.ssr-deps.js'
+	);
 
 	try {
 		const ssrDeps = await import(ssrDepsPath);
 
-		return {
+		const result: SsrDepsResult = {
 			common: ssrDeps.__angularCommon,
 			core: ssrDeps.__angularCore,
 			platformBrowser: ssrDeps.__angularPlatformBrowser,
 			platformServer: ssrDeps.__angularPlatformServer
-		} as SsrDepsResult;
+		};
+
+		return result;
 	} catch {
 		return null;
 	}

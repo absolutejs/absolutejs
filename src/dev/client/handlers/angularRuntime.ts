@@ -51,10 +51,10 @@ const hasComponentProviderChanges = (
 	newCtor: ComponentCtor
 ) => {
 	if (!oldCtor.ɵcmp || !newCtor.ɵcmp) return false;
-	const _a = oldCtor.ɵcmp.providersResolver;
-	const _b = newCtor.ɵcmp.providersResolver;
+	const oldResolver = oldCtor.ɵcmp.providersResolver;
+	const newResolver = newCtor.ɵcmp.providersResolver;
 
-	return (_a === undefined) !== (_b === undefined);
+	return (oldResolver === undefined) !== (newResolver === undefined);
 };
 
 const hasProviderChanges = (oldCtor: ComponentCtor, newCtor: ComponentCtor) => {
@@ -93,7 +93,7 @@ const swapPrototypeProp = (
 	try {
 		const desc = Object.getOwnPropertyDescriptor(newProto, prop);
 		if (desc) Object.defineProperty(liveCtor.prototype, prop, desc);
-	} catch (_e) {
+	} catch {
 		/* non-configurable */
 	}
 };
@@ -107,15 +107,11 @@ const swapStaticProp = (
 	try {
 		const desc = Object.getOwnPropertyDescriptor(newCtor, prop);
 		if (!desc) return true;
-		if (desc.configurable) {
-			Object.defineProperty(liveCtor, prop, desc);
+		if (!desc.configurable) return prop !== 'ɵcmp' && prop !== 'ɵfac';
+		Object.defineProperty(liveCtor, prop, desc);
 
-			return true;
-		}
-
-		/* Non-configurable ɵcmp/ɵfac means fast patch can't work */
-		return prop !== 'ɵcmp' && prop !== 'ɵfac';
-	} catch (_e) {
+		return true;
+	} catch {
 		return prop !== 'ɵcmp' && prop !== 'ɵfac';
 	}
 };
@@ -191,21 +187,18 @@ const refresh = () => {
 	}
 };
 
-const getStats = () => ({
-	componentCount: componentRegistry.size,
-	updateCount: globalUpdateCount
-});
-
-const getRegistry = () => componentRegistry;
-
 export const installAngularHMRRuntime = () => {
 	if (typeof window === 'undefined') return;
 	window.__ANGULAR_HMR__ = {
 		applyUpdate,
-		getRegistry,
-		getStats,
 		refresh,
-		register
+		register,
+		getRegistry: () => componentRegistry,
+		// eslint-disable-next-line absolute/no-useless-function -- must be a callable method on the HMR API
+		getStats: () => ({
+			componentCount: componentRegistry.size,
+			updateCount: globalUpdateCount
+		})
 	};
 };
 

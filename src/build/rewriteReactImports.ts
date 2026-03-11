@@ -6,13 +6,45 @@
  *  resolve them. Rewriting to absolute URL paths lets the browser load
  *  the pre-built vendor files directly. */
 
-const escapeRegex = (str: string): string =>
+const escapeRegex = (str: string) =>
 	str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const applyAllReplacements = (
+	content: string,
+	replacements: [string, string][]
+) => {
+	let result = content;
+
+	for (const [specifier, webPath] of replacements) {
+		const escaped = escapeRegex(specifier);
+
+		// Match ES import: from "react" / from 'react' / from"react"
+		const fromRegex = new RegExp(`(from\\s*["'])${escaped}(["'])`, 'g');
+		result = result.replace(fromRegex, `$1${webPath}$2`);
+
+		// Match bare side-effect import: import"react" / import 'react';
+		// (used by _refresh.tsx which imports React for code-splitting)
+		const bareRegex = new RegExp(
+			`(import\\s*["'])${escaped}(["']\\s*;?)`,
+			'g'
+		);
+		result = result.replace(bareRegex, `$1${webPath}$2`);
+
+		// Match dynamic import: import("react") / import('react')
+		const dynamicRegex = new RegExp(
+			`(import\\s*\\(\\s*["'])${escaped}(["']\\s*\\))`,
+			'g'
+		);
+		result = result.replace(dynamicRegex, `$1${webPath}$2`);
+	}
+
+	return result;
+};
 
 export const rewriteReactImports = async (
 	outputPaths: string[],
 	vendorPaths: Record<string, string>
-): Promise<void> => {
+) => {
 	const jsFiles = outputPaths.filter((path) => path.endsWith('.js'));
 	if (jsFiles.length === 0) return;
 
@@ -22,53 +54,14 @@ export const rewriteReactImports = async (
 		([keyA], [keyB]) => keyB.length - keyA.length
 	);
 
-	for (const filePath of jsFiles) {
-		let content = await Bun.file(filePath).text();
-		let modified = false;
+	await Promise.all(
+		jsFiles.map(async (filePath) => {
+			const original = await Bun.file(filePath).text();
+			const content = applyAllReplacements(original, replacements);
 
-		for (const [specifier, webPath] of replacements) {
-			const escaped = escapeRegex(specifier);
-
-			// Match ES import: from "react" / from 'react' / from"react"
-			const fromRegex = new RegExp(`(from\\s*["'])${escaped}(["'])`, 'g');
-			const newContent = content.replace(fromRegex, `$1${webPath}$2`);
-
-			if (newContent !== content) {
-				content = newContent;
-				modified = true;
+			if (content !== original) {
+				await Bun.write(filePath, content);
 			}
-
-			// Match bare side-effect import: import"react" / import 'react';
-			// (used by _refresh.tsx which imports React for code-splitting)
-			const bareRegex = new RegExp(
-				`(import\\s*["'])${escaped}(["']\\s*;?)`,
-				'g'
-			);
-			const newContent1b = content.replace(
-				bareRegex,
-				`$1${webPath}$2`
-			);
-
-			if (newContent1b !== content) {
-				content = newContent1b;
-				modified = true;
-			}
-
-			// Match dynamic import: import("react") / import('react')
-			const dynamicRegex = new RegExp(
-				`(import\\s*\\(\\s*["'])${escaped}(["']\\s*\\))`,
-				'g'
-			);
-			const newContent2 = content.replace(dynamicRegex, `$1${webPath}$2`);
-
-			if (newContent2 !== content) {
-				content = newContent2;
-				modified = true;
-			}
-		}
-
-		if (modified) {
-			await Bun.write(filePath, content);
-		}
-	}
+		})
+	);
 };

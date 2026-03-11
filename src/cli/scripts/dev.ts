@@ -1,5 +1,4 @@
-import { $ } from 'bun';
-import { env } from 'bun';
+import { $, env } from 'bun';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { DbScripts, InteractiveHandler } from '../../../types/cli';
@@ -83,13 +82,17 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 				reader
 					.read()
 					.then(({ done, value }) => {
-						if (done) return;
+						if (done) return undefined;
 						if (serverReady) interactive?.clearPrompt();
 						dest.write(value);
 						handleChunk(value);
 						pump();
+
+						return undefined;
 					})
-					.catch(() => {});
+					.catch(() => {
+						/* noop */
+					});
 			};
 			pump();
 		};
@@ -112,7 +115,7 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 			cfg.svelteDirectory && 'svelte',
 			cfg.vueDirectory && 'vue',
 			cfg.angularDirectory && 'angular'
-		].filter(Boolean) as string[];
+		].filter((val): val is string => Boolean(val));
 	} catch {
 		/* config may not be loadable — frameworks stays empty */
 	}
@@ -202,13 +205,16 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 		const url = `http://localhost:${port}`;
 		const { platform } = process;
 		const isWSL = platform === 'linux' && isWSLEnvironment();
-		const cmd = isWSL
-			? 'cmd.exe'
-			: platform === 'darwin'
-				? 'open'
-				: platform === 'win32'
-					? 'start'
-					: 'xdg-open';
+		let cmd: string;
+		if (isWSL) {
+			cmd = 'cmd.exe';
+		} else if (platform === 'darwin') {
+			cmd = 'open';
+		} else if (platform === 'win32') {
+			cmd = 'start';
+		} else {
+			cmd = 'xdg-open';
+		}
 		const args = isWSL ? ['/c', 'start', url] : [url];
 		try {
 			Bun.spawn([cmd, ...args], {
@@ -270,8 +276,10 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 	const monitorServer = async () => {
 		while (!cleaning) {
 			const current = serverProcess;
+			// eslint-disable-next-line no-await-in-loop -- must wait for each server process sequentially
 			const exitCode = await current.exited;
 			if (cleaning || serverProcess !== current) continue;
+			// eslint-disable-next-line no-await-in-loop -- cleanup depends on previous iteration
 			const shouldContinue = await handleServerExit(exitCode);
 			if (!shouldContinue) return;
 		}

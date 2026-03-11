@@ -3,12 +3,14 @@ import { mkdir, rm, writeFile } from 'fs/promises';
 import { basename, join, resolve } from 'path';
 import { Glob } from 'bun';
 
-const devClientDir = (() => {
+const resolveDevClientDir = () => {
 	const fromSource = resolve(import.meta.dir, '../dev/client');
 	if (existsSync(fromSource)) return fromSource;
 
 	return resolve(import.meta.dir, './dev/client');
-})();
+};
+
+const devClientDir = resolveDevClientDir();
 
 const errorOverlayPath = join(devClientDir, 'errorOverlay.ts').replace(
 	/\\/g,

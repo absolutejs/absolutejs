@@ -11,7 +11,9 @@ export const getTelemetryConfig = () => {
 		if (!existsSync(configPath)) return null;
 		const raw = readFileSync(configPath, 'utf-8');
 
-		return JSON.parse(raw) as TelemetryConfig;
+		const config: TelemetryConfig = JSON.parse(raw);
+
+		return config;
 	} catch {
 		return null;
 	}
@@ -59,7 +61,7 @@ const status = () => {
 };
 
 export const telemetry = (args: string[]) => {
-	const subcommand = args[0];
+	const [subcommand] = args;
 
 	if (subcommand === 'enable') {
 		enable();

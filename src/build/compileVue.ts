@@ -11,12 +11,14 @@ import type {
 import { file, write, Transpiler } from 'bun';
 import { toKebab } from '../utils/stringModifiers';
 
-const devClientDir = (() => {
+const resolveDevClientDir = () => {
 	const fromSource = resolve(import.meta.dir, '../dev/client');
 	if (existsSync(fromSource)) return fromSource;
 
 	return resolve(import.meta.dir, './dev/client');
-})();
+};
+
+const devClientDir = resolveDevClientDir();
 
 const hmrClientPath = join(devClientDir, 'hmrClient.ts').replace(/\\/g, '/');
 
@@ -55,7 +57,7 @@ export const clearVueHmrCaches = () => {
 export const detectVueChangeType = (
 	filePath: string,
 	descriptor: SFCDescriptor
-): VueChangeType => {
+) => {
 	const prevScript = scriptCache.get(filePath);
 	const prevScriptSetup = scriptSetupCache.get(filePath);
 	const prevTemplate = templateCache.get(filePath);
@@ -113,7 +115,7 @@ export const detectVueChangeType = (
 export const generateVueHmrId = (
 	sourceFilePath: string,
 	vueRootDir: string
-): string => relative(vueRootDir, sourceFilePath)
+) => relative(vueRootDir, sourceFilePath)
 		.replace(/\\/g, '/')
 		.replace(/\.vue$/, '');
 

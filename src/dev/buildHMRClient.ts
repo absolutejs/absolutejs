@@ -3,12 +3,14 @@ import { resolve } from 'node:path';
 import { build as bunBuild } from 'bun';
 import { sendTelemetryEvent } from '../cli/telemetryEvent';
 
-const hmrClientPath = (() => {
+const resolveHmrClientPath = () => {
 	const fromSource = resolve(import.meta.dir, 'client/hmrClient.ts');
 	if (existsSync(fromSource)) return fromSource;
 
 	return resolve(import.meta.dir, 'dev/client/hmrClient.ts');
-})();
+};
+
+const hmrClientPath = resolveHmrClientPath();
 
 export const buildHMRClient = async () => {
 	const entryPoint = hmrClientPath;
@@ -22,11 +24,14 @@ export const buildHMRClient = async () => {
 		console.error('Failed to build HMR client:', result.logs);
 		sendTelemetryEvent('hmr:client-build-failed', {
 			logCount: result.logs.length,
-			message: result.logs.map((l) => l.message).join('; ')
+			message: result.logs.map((log) => log.message).join('; ')
 		});
 
 		return '// HMR client build failed';
 	}
 
-	return await result.outputs[0]!.text();
+	const [firstOutput] = result.outputs;
+	if (!firstOutput) return '// HMR client build failed';
+
+	return firstOutput.text();
 };

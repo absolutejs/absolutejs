@@ -89,7 +89,7 @@ export default defineConfig([
 			'absolute/max-jsxnesting': ['error', 5],
 			'absolute/min-var-length': [
 				'error',
-				{ allowedVars: ['_', 'id', 'db', 'OK'], minLength: 3 }
+				{ allowedVars: ['_', 'id', 'db', 'OK', 'ws'], minLength: 3 }
 			],
 			'absolute/no-explicit-return-type': 'error',
 			'absolute/no-useless-function': 'error',

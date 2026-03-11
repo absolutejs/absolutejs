@@ -1,7 +1,6 @@
 /* CSS reload/preload utilities for HMR */
 
-import type { CSSUpdateResult } from '../../../types/client';
-import { hmrState } from '../../../types/client';
+import { type CSSUpdateResult, hmrState } from '../../../types/client';
 import {
 	CSS_ERROR_RESOLVE_DELAY_MS,
 	CSS_MAX_CHECK_ATTEMPTS,
@@ -12,9 +11,9 @@ import {
 } from '../../constants';
 
 export const getCSSBaseName = (href: string) => {
-	const fileName = href.split('?')[0]!.split('/').pop() || '';
+	const fileName = href.split('?')[0]?.split('/').pop() || '';
 
-	return fileName.split('.')[0]!;
+	return fileName.split('.')[0] ?? '';
 };
 
 const baseNamesMatch = (baseA: string, baseB: string) =>
@@ -23,11 +22,11 @@ const baseNamesMatch = (baseA: string, baseB: string) =>
 const findMatchingLink = (baseNew: string) => {
 	const links = document.head.querySelectorAll('link[rel="stylesheet"]');
 	for (const existing of links) {
-		const existingHref =
-			(existing as HTMLLinkElement).getAttribute('href') || '';
+		if (!(existing instanceof HTMLLinkElement)) continue;
+		const existingHref = existing.getAttribute('href') || '';
 		const baseExisting = getCSSBaseName(existingHref);
 		if (baseNamesMatch(baseExisting, baseNew)) {
-			return existing as HTMLLinkElement;
+			return existing;
 		}
 	}
 
@@ -68,7 +67,7 @@ const processNewLink = (
 
 	const existingHrefAttr = existingLink.getAttribute('href');
 	const existingHref = existingHrefAttr ? existingHrefAttr.split('?')[0] : '';
-	const newHrefBase = href.split('?')[0];
+	const [newHrefBase] = href.split('?');
 	if (existingHref === newHrefBase) return;
 
 	const { newHref, newLinkElement } = createTimestampedLink(href);
@@ -152,7 +151,8 @@ const updateStylesheetLink = (
 	link: Element,
 	manifest: Record<string, string>
 ) => {
-	const href = (link as HTMLLinkElement).getAttribute('href');
+	if (!(link instanceof HTMLLinkElement)) return;
+	const href = link.getAttribute('href');
 	if (!href || href.includes('htmx.min.js')) return;
 
 	let newHref: string | null = null;
@@ -162,11 +162,11 @@ const updateStylesheetLink = (
 	}
 
 	if (newHref && newHref !== href) {
-		(link as HTMLLinkElement).href = `${newHref}?t=${Date.now()}`;
+		link.href = `${newHref}?t=${Date.now()}`;
 	} else {
 		const url = new URL(href, window.location.origin);
 		url.searchParams.set('t', Date.now().toString());
-		(link as HTMLLinkElement).href = url.toString();
+		link.href = url.toString();
 	}
 };
 
@@ -178,6 +178,7 @@ export const reloadCSSStylesheets = (manifest: Record<string, string>) => {
 };
 
 const createCSSLoadPromise = (linkElement: HTMLLinkElement, newHref: string) =>
+	// eslint-disable-next-line promise/avoid-new
 	new Promise<void>((resolve) => {
 		let resolved = false;
 		const doResolve = function () {
@@ -193,7 +194,7 @@ const createCSSLoadPromise = (linkElement: HTMLLinkElement, newHref: string) =>
 				return sheets.some(
 					(sheet) =>
 						sheet.href &&
-						sheet.href.includes(newHref.split('?')[0]!)
+						sheet.href.includes(newHref.split('?')[0] ?? '')
 				);
 			} catch {
 				return false;
@@ -266,7 +267,7 @@ export const waitForCSSAndUpdate = (
 	const { linksToActivate, linksToRemove, linksToWaitFor } = cssResult;
 
 	if (linksToWaitFor.length > 0) {
-		Promise.all(linksToWaitFor).then(() => {
+		void Promise.all(linksToWaitFor).then(() => {
 			setTimeout(() => {
 				chainRAF(RAF_BATCH_COUNT, () => {
 					updateBody();
@@ -279,6 +280,8 @@ export const waitForCSSAndUpdate = (
 					});
 				});
 			}, DOM_UPDATE_DELAY_MS);
+
+			return undefined;
 		});
 
 		return;

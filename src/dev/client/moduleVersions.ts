@@ -27,7 +27,7 @@ const resolveManifestPath = (
 		return modulePath;
 	}
 	for (const key of Object.keys(manifest)) {
-		const path = manifest[key]!;
+		const path = manifest[key] ?? modulePath;
 		if (path === modulePath || path.includes(modulePath)) {
 			return path;
 		}

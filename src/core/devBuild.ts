@@ -12,7 +12,7 @@ import {
 	buildAngularVendor,
 	computeAngularVendorPaths
 } from '../build/buildAngularVendor';
-import { createHMRState, type HMRState } from '../dev/clientManager';
+import { createHMRState } from '../dev/clientManager';
 import { buildInitialDependencyGraph } from '../dev/dependencyGraph';
 import { startFileWatching } from '../dev/fileWatcher';
 import { getWatchPaths } from '../dev/pathUtils';
@@ -61,6 +61,7 @@ const resolveAbsoluteVersion = async () => {
 		resolve(import.meta.dir, '..', 'package.json')
 	];
 	for (const candidate of candidates) {
+		// eslint-disable-next-line no-await-in-loop -- iterations depend on each other (short-circuits on first match)
 		const found = await tryReadPackageVersion(candidate);
 		if (found) {
 			return;
@@ -73,9 +74,11 @@ const loadVendorFiles = async (
 	vendorDir: string,
 	framework: string
 ) => {
-	const entries = await readdir(vendorDir).catch(() => [] as string[]);
+	const emptyStringArray: string[] = [];
+	const entries = await readdir(vendorDir).catch(() => emptyStringArray);
 	for (const entry of entries) {
 		const webPath = `/${framework}/vendor/${entry}`;
+		// eslint-disable-next-line no-await-in-loop -- iterations depend on each other (sequential asset loading)
 		const bytes = await Bun.file(resolve(vendorDir, entry)).bytes();
 		assetStore.set(webPath, bytes);
 	}
@@ -176,7 +179,7 @@ export const devBuild = async (config: BuildConfig) => {
 	// Store build duration for the startup banner (printed by networking plugin)
 	globalThis.__hmrBuildDuration = performance.now() - buildStart;
 
-	const result = {
+	const result: NonNullable<typeof globalThis.__hmrDevResult> = {
 		hmrState: state,
 		manifest
 	};

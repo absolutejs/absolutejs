@@ -13,19 +13,21 @@ const STORE_KEY = '__elysiaStore';
 /* Preserve Elysia store across bun --hot reloads.
    globalThis survives re-evaluation, so we save the store reference
    before each reload and restore values into the fresh instance. */
-const restoreStore = (app: Elysia) => {
-	const saved = (globalThis as Record<string, unknown>)[STORE_KEY] as
-		| Record<string, unknown>
-		| undefined;
+const getGlobalValue = (key: string) => Reflect.get(globalThis, key);
 
-	if (saved) {
-		const store = app.store as Record<string, unknown>;
-		Object.keys(saved).forEach((key) => {
-			store[key] = saved[key];
+const restoreStore = (app: Elysia) => {
+	const saved = getGlobalValue(STORE_KEY);
+
+	if (saved && typeof saved === 'object') {
+		const savedRecord: Record<string, unknown> = saved;
+		const { store } = app;
+		const storeRecord: Record<string, unknown> = store;
+		Object.keys(savedRecord).forEach((key) => {
+			storeRecord[key] = savedRecord[key];
 		});
 	}
 
-	(globalThis as Record<string, unknown>)[STORE_KEY] = app.store;
+	Reflect.set(globalThis, STORE_KEY, app.store);
 };
 
 /* HMR plugin for Elysia
@@ -50,15 +52,16 @@ export const hmr =
 				const pathname = rawUrl.slice(pathStart, pathEnd);
 
 				const bytes = lookupAsset(hmrState.assetStore, pathname);
-				if (bytes) {
-					return new Response(new Uint8Array(bytes).buffer, {
-						headers: {
-							'Cache-Control':
-								'public, max-age=31536000, immutable',
-							'Content-Type': getMimeType(pathname)
-						}
-					});
+				if (!bytes) {
+					return undefined;
 				}
+
+				return new Response(new Uint8Array(bytes).buffer, {
+					headers: {
+						'Cache-Control': 'public, max-age=31536000, immutable',
+						'Content-Type': getMimeType(pathname)
+					}
+				});
 			})
 			.ws('/hmr', {
 				close: (ws) => handleClientDisconnect(hmrState, ws),

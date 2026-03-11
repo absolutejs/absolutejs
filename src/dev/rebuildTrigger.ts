@@ -9,8 +9,7 @@ import {
 	logScriptUpdate,
 	logWarn
 } from '../utils/logger';
-import type { HMRState } from './clientManager';
-import { incrementSourceFileVersions } from './clientManager';
+import { incrementSourceFileVersions, type HMRState } from './clientManager';
 import { getAffectedFiles } from './dependencyGraph';
 import { DEFAULT_DEBOUNCE_MS, REBUILD_BATCH_DELAY_MS } from '../constants';
 import { computeFileHash, hasFileChanged } from './fileHashTracker';
@@ -58,18 +57,18 @@ const parseErrorLocationFromMessage = (msg: string) => {
 	if (atMatch) {
 		const [, file, line1, col1, line2, col2] = atMatch;
 
+		let parsedCol: number | undefined;
+		if (col1) parsedCol = parseInt(col1, 10);
+		else if (col2) parsedCol = parseInt(col2, 10);
+
+		let parsedLine: number | undefined;
+		if (line1) parsedLine = parseInt(line1, 10);
+		else if (line2) parsedLine = parseInt(line2, 10);
+
 		return {
-			column: col1
-				? parseInt(col1, 10)
-				: col2
-					? parseInt(col2, 10)
-					: undefined,
+			column: parsedCol,
 			file: file?.trim(),
-			line: line1
-				? parseInt(line1, 10)
-				: line2
-					? parseInt(line2, 10)
-					: undefined
+			line: parsedLine
 		};
 	}
 	const parenMatch = msg.match(
@@ -93,25 +92,23 @@ const extractBuildErrorDetails = (
 	affectedFrameworks: string[],
 	resolvedPaths?: ResolvedBuildPaths
 ) => {
-	let logs = (error as { logs?: BuildLog[] })?.logs;
-	if (!logs && error instanceof AggregateError && error.errors?.length) {
-		logs = error.errors as BuildLog[];
-	}
+	const errorObj = error && typeof error === 'object' ? error : undefined;
+	const rawLogs =
+		errorObj && 'logs' in errorObj && Array.isArray(errorObj.logs)
+			? errorObj.logs
+			: undefined;
+	const logs: BuildLog[] | undefined =
+		rawLogs ??
+		(error instanceof AggregateError && error.errors?.length
+			? error.errors
+			: undefined);
 	if (logs && Array.isArray(logs) && logs.length > 0) {
 		const errLog = logs.find((l) => l.level === 'error') ?? logs[0];
 		const pos = errLog?.position;
-		const file =
-			pos && 'file' in pos ? (pos as { file?: string }).file : undefined;
-		const line =
-			pos && 'line' in pos ? (pos as { line?: number }).line : undefined;
-		const column =
-			pos && 'column' in pos
-				? (pos as { column?: number }).column
-				: undefined;
-		const lineText =
-			pos && 'lineText' in pos
-				? (pos as { lineText?: string }).lineText
-				: undefined;
+		const file = pos?.file;
+		const line = pos?.line;
+		const column = pos?.column;
+		const lineText = pos?.lineText;
 		const framework =
 			file && resolvedPaths
 				? detectFramework(file, resolvedPaths)
@@ -128,7 +125,7 @@ const extractBuildErrorDetails = (
 	}
 	const msg = error instanceof Error ? error.message : String(error);
 	const parsed = parseErrorLocationFromMessage(msg);
-	let detectedFw = affectedFrameworks[0];
+	let [detectedFw] = affectedFrameworks;
 	if (parsed.file && resolvedPaths) {
 		const detected = detectFramework(parsed.file, resolvedPaths);
 		detectedFw = detected !== 'ignored' ? detected : affectedFrameworks[0];
@@ -171,7 +168,9 @@ const collectDeletedFileAffected = (
 				processedFiles.add(affectedFile);
 			}
 		});
-	} catch {}
+	} catch {
+		/* ignored */
+	}
 };
 
 const incrementDependentVersions = (
@@ -191,7 +190,9 @@ const incrementDependentVersions = (
 			return;
 		}
 		incrementSourceFileVersions(state, dependentFiles);
-	} catch {}
+	} catch {
+		/* ignored */
+	}
 };
 
 const addUnprocessedFile = (
@@ -289,7 +290,7 @@ const detectFrameworkForValidFiles = (
 	validFiles: string[],
 	state: HMRState
 ) => {
-	const firstFile = validFiles[0];
+	const [firstFile] = validFiles;
 	if (!firstFile) {
 		return undefined;
 	}
@@ -352,8 +353,8 @@ export const queueFileChange = (
 		state.fileChangeQueue.set(framework, []);
 	}
 
-	const queue = state.fileChangeQueue.get(framework)!;
-	if (!queue.includes(filePath)) {
+	const queue = state.fileChangeQueue.get(framework);
+	if (queue && !queue.includes(filePath)) {
 		queue.push(filePath);
 	}
 
@@ -545,8 +546,11 @@ const compileAndBundleAngular = async (
 	angularDir: string
 ) => {
 	const { compileAngular } = await import('../build/compileAngular');
-	const { clientPaths, serverPaths, allIndexesUnchanged } =
-		await compileAngular(pageEntries, angularDir, true);
+	const { clientPaths, serverPaths } = await compileAngular(
+		pageEntries,
+		angularDir,
+		true
+	);
 
 	serverPaths.forEach((serverPath) => {
 		const fileBase = basename(serverPath, '.js');
@@ -572,7 +576,7 @@ const handleAngularFastPath = async (
 		hmrState: HMRState;
 	}) => void
 ) => {
-	const angularDir = config.angularDirectory!;
+	const angularDir = config.angularDirectory ?? '';
 	const angularFiles = filesToRebuild.filter(
 		(file) => detectFramework(file, state.resolvedPaths) === 'angular'
 	);
@@ -731,11 +735,11 @@ const bundleReactClient = async (
 		format: 'esm',
 		naming: '[dir]/[name].[hash].[ext]',
 		outdir: buildDir,
+		reactFastRefresh: true,
 		root: clientRoot,
 		splitting: true,
 		target: 'browser',
 		throw: false,
-		reactFastRefresh: true,
 		...(vendorPaths ? { external: Object.keys(vendorPaths) } : {})
 	});
 
@@ -765,7 +769,7 @@ const handleReactFastPath = async (
 		hmrState: HMRState;
 	}) => void
 ) => {
-	const reactDir = config.reactDirectory!;
+	const reactDir = config.reactDirectory ?? '';
 	const reactPagesPath = resolve(reactDir, 'pages');
 	const reactIndexesPath = resolve(reactDir, 'indexes');
 	const { buildDir } = state.resolvedPaths;
@@ -824,8 +828,7 @@ const handleReactFastPath = async (
 
 const handleServerManifestUpdate = (
 	state: HMRState,
-	serverResult: Awaited<ReturnType<typeof import('bun').build>> | undefined,
-	_buildDir: string
+	serverResult: Awaited<ReturnType<typeof import('bun').build>> | undefined
 ) => {
 	if (!serverResult?.success) {
 		return;
@@ -861,7 +864,7 @@ const handleSvelteFastPath = async (
 		hmrState: HMRState;
 	}) => void
 ) => {
-	const svelteDir = config.svelteDirectory!;
+	const svelteDir = config.svelteDirectory ?? '';
 	const { buildDir } = state.resolvedPaths;
 
 	const svelteFiles = filesToRebuild.filter(
@@ -910,7 +913,7 @@ const handleSvelteFastPath = async (
 				: undefined
 		]);
 
-		handleServerManifestUpdate(state, serverResult, buildDir);
+		handleServerManifestUpdate(state, serverResult);
 		await handleClientManifestUpdate(state, clientResult, buildDir);
 	}
 
@@ -971,7 +974,7 @@ const handleVueFastPath = async (
 		hmrState: HMRState;
 	}) => void
 ) => {
-	const vueDir = config.vueDirectory!;
+	const vueDir = config.vueDirectory ?? '';
 	const { buildDir } = state.resolvedPaths;
 
 	const vueFiles = filesToRebuild.filter(
@@ -1027,7 +1030,7 @@ const handleVueFastPath = async (
 				: undefined
 		]);
 
-		handleServerManifestUpdate(state, serverResult, buildDir);
+		handleServerManifestUpdate(state, serverResult);
 		await handleClientManifestUpdate(state, clientResult, buildDir);
 	}
 
@@ -1178,7 +1181,7 @@ const handleReactHMR = (
 		file.replace(/\\/g, '/').includes('/pages/')
 	);
 	const sourceFiles = reactPageFiles.length > 0 ? reactPageFiles : reactFiles;
-	const primarySource = sourceFiles[0];
+	const [primarySource] = sourceFiles;
 
 	try {
 		const hasComponentChanges = reactFiles.some(
@@ -1364,6 +1367,7 @@ const handleHTMLPageHMR = async (
 	for (const pageFile of htmlPageFiles) {
 		const htmlPageName = basename(pageFile);
 		const builtHtmlPagePath = resolve(outputHtmlPages, htmlPageName);
+		// eslint-disable-next-line no-await-in-loop
 		await processHtmlPageUpdate(
 			state,
 			pageFile,
@@ -1380,7 +1384,7 @@ const handleVueCssOnlyUpdate = (
 	manifest: Record<string, string>,
 	duration: number
 ) => {
-	const cssFile = vueCssFiles[0];
+	const [cssFile] = vueCssFiles;
 	if (!cssFile) {
 		return;
 	}
@@ -1567,6 +1571,7 @@ const handleVueHMR = async (
 	}
 
 	for (const vuePagePath of pagesToUpdate) {
+		// eslint-disable-next-line no-await-in-loop
 		await processVuePageUpdate(
 			state,
 			config,
@@ -1583,7 +1588,7 @@ const handleSvelteCssOnlyUpdate = (
 	manifest: Record<string, string>,
 	duration: number
 ) => {
-	const cssFile = svelteCssFiles[0];
+	const [cssFile] = svelteCssFiles;
 	if (!cssFile) {
 		return;
 	}
@@ -1716,7 +1721,7 @@ const handleAngularCssOnlyUpdate = (
 	manifest: Record<string, string>,
 	duration: number
 ) => {
-	const cssFile = angularCssFiles[0];
+	const [cssFile] = angularCssFiles;
 	if (!cssFile) {
 		return;
 	}
@@ -1919,6 +1924,7 @@ const handleHTMXPageHMR = async (
 	for (const htmxPageFile of htmxPageFiles) {
 		const htmxPageName = basename(htmxPageFile);
 		const builtHtmxPagePath = resolve(outputHtmxPages, htmxPageName);
+		// eslint-disable-next-line no-await-in-loop
 		await processHtmxPageUpdate(
 			state,
 			htmxPageFile,
@@ -2091,7 +2097,7 @@ const broadcastSingleFrameworkUpdate = (
 			manifest
 		},
 		message: `${framework} framework updated`,
-		type: type as any
+		type
 	});
 };
 
@@ -2136,7 +2142,7 @@ const performFullRebuild = async (
 		return handleAngularFastPath(
 			state,
 			config,
-			filesToRebuild!,
+			filesToRebuild ?? [],
 			startTime,
 			onRebuildComplete
 		);
@@ -2154,7 +2160,7 @@ const performFullRebuild = async (
 		return handleReactFastPath(
 			state,
 			config,
-			filesToRebuild!,
+			filesToRebuild ?? [],
 			startTime,
 			onRebuildComplete
 		);
@@ -2172,7 +2178,7 @@ const performFullRebuild = async (
 		return handleSvelteFastPath(
 			state,
 			config,
-			filesToRebuild!,
+			filesToRebuild ?? [],
 			startTime,
 			onRebuildComplete
 		);
@@ -2190,7 +2196,7 @@ const performFullRebuild = async (
 		return handleVueFastPath(
 			state,
 			config,
-			filesToRebuild!,
+			filesToRebuild ?? [],
 			startTime,
 			onRebuildComplete
 		);

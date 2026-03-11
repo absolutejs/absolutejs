@@ -81,7 +81,9 @@ export const loadCache = async (tool: string) => {
 
 		const data = await Bun.file(path).json();
 
-		return data as ToolCacheData;
+		const result: ToolCacheData = data;
+
+		return result;
 	} catch {
 		return null;
 	}
@@ -124,6 +126,7 @@ export const runTool = async (adapter: ToolAdapter, args: string[]) => {
 	const failedFiles = new Set<string>();
 
 	for (const batch of batches) {
+		// eslint-disable-next-line no-await-in-loop -- batches run sequentially to avoid overwhelming the system
 		await runBatch(adapter, batch, args, failedFiles);
 	}
 

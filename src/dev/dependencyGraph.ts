@@ -10,10 +10,10 @@ export type DependencyGraph = {
 	dependencies: Map<string, Set<string>>;
 };
 
-export const createDependencyGraph = () => ({
+export const emptyDependencyGraph: DependencyGraph = {
 	dependencies: new Map(),
 	dependents: new Map()
-});
+};
 
 /* Shared transpiler instance for scanImports(). Bun.Transpiler
    is a native Zig parser — much faster than regex for extracting
@@ -103,7 +103,7 @@ export const addFileToGraph = (graph: DependencyGraph, filePath: string) => {
 		if (!graph.dependents.has(dep)) {
 			graph.dependents.set(dep, new Set());
 		}
-		graph.dependents.get(dep)!.add(normalizedPath);
+		graph.dependents.get(dep)?.add(normalizedPath);
 	};
 
 	dependencies.forEach(addDependent);
@@ -191,7 +191,9 @@ export const buildInitialDependencyGraph = (
 		const normalizedDir = resolve(dir);
 		try {
 			scanEntries(normalizedDir);
-		} catch {}
+		} catch {
+			/* ignored */
+		}
 	};
 
 	for (const dir of directories) {
@@ -207,7 +209,7 @@ const extractHtmlDependencies = (filePath: string, content: string) => {
 		/<link\s+[^>]*rel=["']stylesheet["'][^>]*href=["']([^"']+)["'][^>]*>/gi;
 	let matchLink;
 	while ((matchLink = linkRegex.exec(content)) !== null) {
-		const href = matchLink[1];
+		const [, href] = matchLink;
 		if (!href) continue;
 		const resolvedHref = resolveImportPath(href, filePath);
 		if (resolvedHref) dependencies.push(resolvedHref);
@@ -311,7 +313,9 @@ const extractScriptImports = (
 	try {
 		const imports = tsTranspiler.scanImports(scriptContent);
 		resolveScannedImports(imports, filePath, dependencies);
-	} catch {}
+	} catch {
+		/* ignored */
+	}
 };
 
 const extractSvelteVueDependencies = (filePath: string, content: string) => {
@@ -319,7 +323,7 @@ const extractSvelteVueDependencies = (filePath: string, content: string) => {
 	const scriptRegex = /<script[^>]*>([\s\S]*?)<\/script>/gi;
 	let scriptMatch;
 	while ((scriptMatch = scriptRegex.exec(content)) !== null) {
-		const scriptContent = scriptMatch[1];
+		const [, scriptContent] = scriptMatch;
 		if (!scriptContent?.trim()) continue;
 		extractScriptImports(scriptContent, filePath, dependencies);
 	}
@@ -382,7 +386,7 @@ export const getAffectedFiles = (
 	};
 
 	while (toProcess.length > 0) {
-		const current = toProcess.pop()!;
+		const current = toProcess.pop() ?? normalizedPath;
 		processNode(current);
 	}
 

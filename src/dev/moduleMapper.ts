@@ -119,7 +119,7 @@ export const groupModuleUpdatesByFramework = (updates: ModuleUpdate[]) => {
 		if (!grouped.has(update.framework)) {
 			grouped.set(update.framework, []);
 		}
-		grouped.get(update.framework)!.push(update);
+		grouped.get(update.framework)?.push(update);
 	});
 
 	return grouped;

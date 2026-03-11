@@ -4,6 +4,28 @@ import { UNFOUND_INDEX } from '../constants';
 import { normalizePath } from '../utils/normalizePath';
 import { toPascal } from '../utils/stringModifiers';
 
+const getManifestKey = (
+	folder: string | undefined,
+	pascalName: string,
+	isClientComponent: boolean,
+	isReact: boolean,
+	isVue: boolean,
+	isSvelte: boolean,
+	isAngular: boolean
+) => {
+	if (folder === 'indexes') return `${pascalName}Index`;
+	if (isClientComponent) return `${pascalName}Client`;
+	if (folder !== 'pages') return pascalName;
+
+	// Only add "Page" suffix for React pages
+	// Vue and Svelte pages use their base PascalCase name
+	if (isReact) return `${pascalName}Page`;
+	if (isVue || isSvelte || isAngular) return pascalName;
+
+	// Default behavior for other frameworks
+	return `${pascalName}Page`;
+};
+
 export const generateManifest = (outputs: BuildArtifact[], buildPath: string) =>
 	outputs.reduce<Record<string, string>>((manifest, artifact) => {
 		// Normalize both paths for consistent comparison across platforms
@@ -45,26 +67,16 @@ export const generateManifest = (outputs: BuildArtifact[], buildPath: string) =>
 		// Check if this is a client component (for official HMR)
 		const isClientComponent = segments.includes('client');
 
-		if (folder === 'indexes') {
-			manifest[`${pascalName}Index`] = `/${relative}`;
-		} else if (isClientComponent) {
-			// Client components get {Name}Client key for HMR module imports
-			manifest[`${pascalName}Client`] = `/${relative}`;
-		} else if (folder === 'pages') {
-			// Only add "Page" suffix for React pages
-			// Vue and Svelte pages use their base PascalCase name
-			if (isReact) {
-				manifest[`${pascalName}Page`] = `/${relative}`;
-			} else if (isVue || isSvelte || isAngular) {
-				// Vue/Svelte/Angular pages use base name without suffix
-				manifest[pascalName] = `/${relative}`;
-			} else {
-				// Default behavior for other frameworks
-				manifest[`${pascalName}Page`] = `/${relative}`;
-			}
-		} else {
-			manifest[pascalName] = `/${relative}`;
-		}
+		const manifestKey = getManifestKey(
+			folder,
+			pascalName,
+			isClientComponent,
+			isReact,
+			isVue,
+			isSvelte,
+			isAngular
+		);
+		manifest[manifestKey] = `/${relative}`;
 
 		return manifest;
 	}, {});

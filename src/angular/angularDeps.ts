@@ -3,9 +3,8 @@ import { patchAngularInjectorSingleton } from './injectorPatch';
 
 const initDominoAdapter = (platformServer: SsrDepsResult['platformServer']) => {
 	try {
-		const DominoAdapter = platformServer.ɵDominoAdapter as
-			| { makeCurrent?: () => void }
-			| undefined;
+		const DominoAdapter: { makeCurrent?: () => void } | undefined =
+			platformServer.ɵDominoAdapter;
 		DominoAdapter?.makeCurrent?.();
 	} catch (err) {
 		console.error('Failed to initialize DominoAdapter:', err);

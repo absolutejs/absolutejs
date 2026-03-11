@@ -7,7 +7,7 @@
  *  but browsers can't resolve them. Rewriting to absolute URL paths
  *  lets the browser load the pre-built vendor files directly. */
 
-const escapeRegex = (str: string): string =>
+const escapeRegex = (str: string) =>
 	str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** Apply a regex replacement, returning new content (tracks changes via reference comparison) */
@@ -15,12 +15,47 @@ const applyReplace = (
 	content: string,
 	regex: RegExp,
 	replacement: string
-): string => content.replace(regex, replacement);
+) => content.replace(regex, replacement);
+
+const applyAllReplacements = (
+	content: string,
+	replacements: [string, string][]
+) => {
+	let result = content;
+
+	for (const [specifier, webPath] of replacements) {
+		const escaped = escapeRegex(specifier);
+
+		// Match ES import: from "@angular/core" / from '@angular/core'
+		const fromRegex = new RegExp(
+			`(from\\s*["'])${escaped}(["'])`,
+			'g'
+		);
+		result = applyReplace(result, fromRegex, `$1${webPath}$2`);
+
+		// Match side-effect import: import "@angular/compiler"
+		// Bun preserves these for externalized packages.
+		const sideEffectRegex = new RegExp(
+			`(import\\s*["'])${escaped}(["'])`,
+			'g'
+		);
+		result = applyReplace(result, sideEffectRegex, `$1${webPath}$2`);
+
+		// Match dynamic import: import("@angular/core")
+		const dynamicRegex = new RegExp(
+			`(import\\s*\\(\\s*["'])${escaped}(["']\\s*\\))`,
+			'g'
+		);
+		result = applyReplace(result, dynamicRegex, `$1${webPath}$2`);
+	}
+
+	return result;
+};
 
 export const rewriteImports = async (
 	outputPaths: string[],
 	vendorPaths: Record<string, string>
-): Promise<void> => {
+) => {
 	const jsFiles = outputPaths.filter((path) => path.endsWith('.js'));
 	if (jsFiles.length === 0) return;
 
@@ -31,47 +66,14 @@ export const rewriteImports = async (
 		([keyA], [keyB]) => keyB.length - keyA.length
 	);
 
-	for (const filePath of jsFiles) {
-		const original = await Bun.file(filePath).text();
-		let content = original;
+	await Promise.all(
+		jsFiles.map(async (filePath) => {
+			const original = await Bun.file(filePath).text();
+			const content = applyAllReplacements(original, replacements);
 
-		for (const [specifier, webPath] of replacements) {
-			const escaped = escapeRegex(specifier);
-
-			// Match ES import: from "@angular/core" / from '@angular/core'
-			const fromRegex = new RegExp(
-				`(from\\s*["'])${escaped}(["'])`,
-				'g'
-			);
-			content = applyReplace(content, fromRegex, `$1${webPath}$2`);
-
-			// Match side-effect import: import "@angular/compiler"
-			// Bun preserves these for externalized packages.
-			const sideEffectRegex = new RegExp(
-				`(import\\s*["'])${escaped}(["'])`,
-				'g'
-			);
-			content = applyReplace(
-				content,
-				sideEffectRegex,
-				`$1${webPath}$2`
-			);
-
-			// Match dynamic import: import("@angular/core")
-			const dynamicRegex = new RegExp(
-				`(import\\s*\\(\\s*["'])${escaped}(["']\\s*\\))`,
-				'g'
-			);
-			content = applyReplace(
-				content,
-				dynamicRegex,
-				`$1${webPath}$2`
-			);
-
-		}
-
-		if (content !== original) {
-			await Bun.write(filePath, content);
-		}
-	}
+			if (content !== original) {
+				await Bun.write(filePath, content);
+			}
+		})
+	);
 };

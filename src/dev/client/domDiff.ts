@@ -7,14 +7,14 @@ type KeyedEntry = {
 	node: Node;
 };
 
-const getElementKey = (el: Node, index: number) => {
-	if (el.nodeType !== Node.ELEMENT_NODE) return `text_${index}`;
-	const element = el as Element;
-	if (element.id) return `id_${element.id}`;
-	if (element.hasAttribute('data-key'))
-		return `key_${element.getAttribute('data-key')}`;
+const getElementKey = (elem: Node, index: number) => {
+	if (elem.nodeType !== Node.ELEMENT_NODE) return `text_${index}`;
+	if (!(elem instanceof Element)) return `text_${index}`;
+	if (elem.id) return `id_${elem.id}`;
+	if (elem.hasAttribute('data-key'))
+		return `key_${elem.getAttribute('data-key')}`;
 
-	return `tag_${element.tagName}_${index}`;
+	return `tag_${elem.tagName}_${index}`;
 };
 
 const updateElementAttributes = (oldEl: Element, newEl: Element) => {
@@ -60,7 +60,7 @@ const matchChildren = (oldChildren: Node[], newChildren: Node[]) => {
 		if (!oldMap.has(key)) {
 			oldMap.set(key, []);
 		}
-		oldMap.get(key)!.push({ index: idx, node: child });
+		oldMap.get(key)?.push({ index: idx, node: child });
 	});
 
 	newChildren.forEach((child, idx) => {
@@ -68,31 +68,26 @@ const matchChildren = (oldChildren: Node[], newChildren: Node[]) => {
 		if (!newMap.has(key)) {
 			newMap.set(key, []);
 		}
-		newMap.get(key)!.push({ index: idx, node: child });
+		newMap.get(key)?.push({ index: idx, node: child });
 	});
 
 	return { newMap, oldMap };
 };
 
-const isHMRScript = (el: Node) =>
-	el.nodeType === Node.ELEMENT_NODE &&
-	(el as Element).hasAttribute &&
-	(el as Element).hasAttribute('data-hmr-client');
+const isHMRScript = (elem: Node) =>
+	elem instanceof Element && elem.hasAttribute('data-hmr-client');
 
-const isHMRPreserved = (el: Node) =>
-	isHMRScript(el) ||
-	(el.nodeType === Node.ELEMENT_NODE &&
-		(el as Element).hasAttribute &&
-		(el as Element).hasAttribute('data-hmr-overlay'));
+const isHMRPreserved = (elem: Node) =>
+	isHMRScript(elem) ||
+	(elem instanceof Element && elem.hasAttribute('data-hmr-overlay'));
 
 const isNonHMRScript = (child: Node) =>
-	child.nodeType === Node.ELEMENT_NODE &&
-	(child as Element).tagName === 'SCRIPT';
+	child instanceof Element && child.tagName === 'SCRIPT';
 
 const findBestMatch = (oldMatches: KeyedEntry[], matchedOld: Set<Node>) => {
 	const unmatched = oldMatches.find((entry) => !matchedOld.has(entry.node));
 	if (unmatched) return unmatched;
-	if (oldMatches.length > 0) return oldMatches[0]!;
+	if (oldMatches.length > 0) return oldMatches[0] ?? null;
 
 	return null;
 };
@@ -144,8 +139,9 @@ const patchNode = (oldNode: Node, newNode: Node) => {
 		return;
 	}
 
-	const oldEl = oldNode as Element;
-	const newEl = newNode as Element;
+	if (!(oldNode instanceof Element) || !(newNode instanceof Element)) return;
+	const oldEl = oldNode;
+	const newEl = newNode;
 
 	if (oldEl.tagName !== newEl.tagName) {
 		const clone = newEl.cloneNode(true);
@@ -198,9 +194,9 @@ export const patchDOMInPlace = (oldContainer: HTMLElement, newHTML: string) => {
 	const oldChildrenFiltered = oldChildren.filter(
 		(child) =>
 			!(
-				child.nodeType === Node.ELEMENT_NODE &&
-				(child as Element).tagName === 'SCRIPT' &&
-				!(child as Element).hasAttribute('data-hmr-client')
+				child instanceof Element &&
+				child.tagName === 'SCRIPT' &&
+				!child.hasAttribute('data-hmr-client')
 			)
 	);
 	const newChildrenFiltered = newChildren.filter(

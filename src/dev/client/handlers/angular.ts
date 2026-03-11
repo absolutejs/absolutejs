@@ -34,6 +34,9 @@ type HMRMessage = {
 	};
 };
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type NgApi = any;
+
 const swapStylesheet = (
 	cssUrl: string,
 	cssBaseName: string,
@@ -41,14 +44,15 @@ const swapStylesheet = (
 ) => {
 	let existingLink: HTMLLinkElement | null = null;
 	document.querySelectorAll('link[rel="stylesheet"]').forEach((link) => {
-		const href = (link as HTMLLinkElement).getAttribute('href') || '';
+		const linkEl = link instanceof HTMLLinkElement ? link : null;
+		const href = linkEl?.getAttribute('href') ?? '';
 		if (href.includes(cssBaseName) || href.includes(framework)) {
-			existingLink = link as HTMLLinkElement;
+			existingLink = linkEl;
 		}
 	});
 	if (!existingLink) return;
 
-	const capturedExisting = existingLink as HTMLLinkElement;
+	const capturedExisting: HTMLLinkElement = existingLink;
 	const newLink = document.createElement('link');
 	newLink.rel = 'stylesheet';
 	newLink.href = `${cssUrl}?t=${Date.now()}`;
@@ -93,7 +97,7 @@ const copyInstanceProperty = (
 };
 
 const captureInstanceProperties = (
-	ngApi: any,
+	ngApi: NgApi,
 	element: Element,
 	properties: Record<string, unknown>
 ) => {
@@ -103,33 +107,31 @@ const captureInstanceProperties = (
 		const instance = ngApi.getComponent(element);
 		if (!instance) return;
 
-		Object.keys(instance).forEach((key) => {
-			copyInstanceProperty(
-				instance as Record<string, unknown>,
-				key,
-				properties
-			);
+		const record: Record<string, unknown> = instance;
+		Object.keys(record).forEach((key) => {
+			copyInstanceProperty(record, key, properties);
 		});
-	} catch (_e) {
-		/* ignore */
+	} catch {
+		/* ignored */
 	}
 };
 
 const captureComponentState = () => {
 	const snapshots: StateSnapshot[] = [];
 	const selectorCounts = new Map<string, number>();
-	const { ng } = window as any;
+	// eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-explicit-any
+	const ngApi: NgApi = (window as any).ng;
 
-	document.querySelectorAll('*').forEach((el) => {
-		const tagName = el.tagName.toLowerCase();
+	document.querySelectorAll('*').forEach((elem) => {
+		const tagName = elem.tagName.toLowerCase();
 		if (!tagName.includes('-')) return;
 
 		const count = selectorCounts.get(tagName) || 0;
 		selectorCounts.set(tagName, count + 1);
 
 		const properties: Record<string, unknown> = {};
-		readDomCounter(el, properties);
-		captureInstanceProperties(ng, el, properties);
+		readDomCounter(elem, properties);
+		captureInstanceProperties(ngApi, elem, properties);
 
 		if (Object.keys(properties).length > 0) {
 			snapshots.push({ index: count, properties, selector: tagName });
@@ -146,7 +148,9 @@ const safeSetProperty = (
 ) => {
 	try {
 		instance[key] = value;
-	} catch (_e) {}
+	} catch {
+		/* ignored */
+	}
 };
 
 const restoreInstanceProperties = (
@@ -168,7 +172,7 @@ const restoreInstanceProperties = (
 };
 
 const restoreViaInstance = (
-	ngApi: any,
+	ngApi: NgApi,
 	element: Element,
 	snap: StateSnapshot
 ) => {
@@ -178,12 +182,13 @@ const restoreViaInstance = (
 		const instance = ngApi.getComponent(element);
 		if (!instance) return false;
 
-		restoreInstanceProperties(instance as Record<string, unknown>, snap);
+		const record: Record<string, unknown> = instance;
+		restoreInstanceProperties(record, snap);
 		if (typeof ngApi.applyChanges === 'function')
 			ngApi.applyChanges(element);
 
 		return true;
-	} catch (_e) {
+	} catch {
 		return false;
 	}
 };
@@ -200,7 +205,8 @@ const restoreDomFallback = (element: Element, snap: StateSnapshot) => {
 };
 
 const restoreComponentState = (snapshots: StateSnapshot[]) => {
-	const { ng } = window as any;
+	// eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-explicit-any
+	const ngApi: NgApi = (window as any).ng;
 	if (snapshots.length === 0) return;
 
 	const bySelector = new Map<string, StateSnapshot[]>();
@@ -216,7 +222,7 @@ const restoreComponentState = (snapshots: StateSnapshot[]) => {
 			const element = elements[snap.index];
 			if (!element) return;
 
-			const restored = restoreViaInstance(ng, element, snap);
+			const restored = restoreViaInstance(ngApi, element, snap);
 			if (!restored) restoreDomFallback(element, snap);
 		});
 	});
@@ -230,6 +236,7 @@ const restoreComponentState = (snapshots: StateSnapshot[]) => {
 const waitForAngularApp = () => {
 	if (window.__ANGULAR_APP__) return Promise.resolve();
 
+	// eslint-disable-next-line promise/avoid-new
 	return new Promise<void>((resolve) => {
 		const timeout = setTimeout(resolve, ANGULAR_INIT_TIMEOUT_MS);
 
@@ -272,8 +279,10 @@ const suppressNg0912 = () => {
 
 const tryPatchExport = (
 	exportName: string,
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	newModule: Record<string, any>,
 	registry: Map<string, unknown>,
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	hmr: any,
 	sourceFile: string
 ) => {
@@ -290,8 +299,10 @@ const tryPatchExport = (
 };
 
 const patchRegisteredComponents = (
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	newModule: Record<string, any>,
 	registry: Map<string, unknown>,
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	hmr: any,
 	sourceFile: string
 ) => {
@@ -321,6 +332,7 @@ const patchRegisteredComponents = (
 const attemptFastPatch = async (
 	indexPath: string,
 	registry: Map<string, unknown>,
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	hmr: any,
 	sourceFile: string,
 	origWarn: typeof console.warn
@@ -351,7 +363,9 @@ const attemptFastPatch = async (
 	}
 };
 
-const handleFastUpdate = async (message: HMRMessage) => {
+// handleFastUpdate is kept for future use when the fast path is re-enabled.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const _handleFastUpdate = async (message: HMRMessage) => {
 	const hmr = window.__ANGULAR_HMR__;
 	if (!hmr || !hmr.getRegistry) return false;
 
@@ -418,7 +432,9 @@ export const handleAngularUpdate = (message: HMRMessage) => {
 const findRootSelector = (container: Element) => {
 	const candidates = container.querySelectorAll('*');
 	for (let idx = 0; idx < candidates.length; idx++) {
-		const tag = candidates[idx]!.tagName.toLowerCase();
+		const candidate = candidates[idx];
+		if (!candidate) continue;
+		const tag = candidate.tagName.toLowerCase();
 		if (tag.includes('-')) return tag;
 	}
 
@@ -430,7 +446,9 @@ const destroyAngularApp = () => {
 
 	try {
 		window.__ANGULAR_APP__.destroy();
-	} catch (_e) {}
+	} catch {
+		/* ignored */
+	}
 	window.__ANGULAR_APP__ = null;
 };
 
@@ -443,7 +461,7 @@ const bootstrapAngularModule = async (
 		rootContainer.appendChild(document.createElement(rootSelector));
 	}
 
-	(window as any).__HMR_SKIP_HYDRATION__ = true;
+	window.__HMR_SKIP_HYDRATION__ = true;
 
 	const origWarn = suppressNg0912();
 
@@ -457,11 +475,14 @@ const tickAngularApp = () => {
 	if (!window.__ANGULAR_APP__) return;
 
 	try {
-		(window.__ANGULAR_APP__ as any).tick();
-	} catch (_e) {}
+		window.__ANGULAR_APP__.tick();
+	} catch {
+		/* ignored */
+	}
 };
 
 const runWithViewTransition = (updateFn: () => Promise<void>) => {
+	// eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-explicit-any
 	const doc = document as any;
 	if (typeof doc.startViewTransition !== 'function') {
 		updateFn().catch((err: unknown) => {
@@ -477,7 +498,9 @@ const runWithViewTransition = (updateFn: () => Promise<void>) => {
 		styleEl.textContent =
 			'::view-transition-old(root),::view-transition-new(root){animation:none!important}';
 		document.head.appendChild(styleEl);
-	} catch (_e) {}
+	} catch {
+		/* ignored */
+	}
 
 	const removeStyle = () => {
 		if (styleEl && styleEl.parentNode) styleEl.remove();

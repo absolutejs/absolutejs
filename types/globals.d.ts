@@ -1,4 +1,3 @@
-/* eslint-disable no-var */
 declare global {
 	/* Server-side globals (Bun --hot reload state) */
 	var __hmrServerStartup: boolean | undefined;
@@ -36,6 +35,7 @@ declare global {
 		__HMR_WS__?: WebSocket;
 		__ERROR_BOUNDARY__?: { reset: () => void };
 		__INITIAL_PROPS__?: Record<string, unknown>;
+		__REACT_COMPONENT_KEY__?: string;
 		__REACT_ROOT__?: { render: (element: unknown) => void };
 		__SVELTE_COMPONENT__?: Record<string, unknown>;
 		__SVELTE_UNMOUNT__?: () => void;

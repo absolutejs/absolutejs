@@ -17,12 +17,9 @@ const CACHE_DIR = resolve('.cache', 'angular-linker');
 export const angularLinkerPlugin: BunPlugin = {
 	name: 'angular-linker',
 	setup(bld) {
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		let needsLinking: any;
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		let babelTransform: any;
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		let linkerPlugin: any;
+		let needsLinking: ((path: string, source: string) => boolean) | undefined;
+		let babelTransform: ((source: string, options: Record<string, unknown>) => { code?: string } | null) | undefined;
+		let linkerPlugin: unknown;
 
 		bld.onLoad(
 			{ filter: /[\\/]@angular[\\/].*\.m?js$/ },
@@ -30,13 +27,13 @@ export const angularLinkerPlugin: BunPlugin = {
 				const source = await Bun.file(args.path).text();
 
 				if (!needsLinking) {
-					const mod = await import(
-						'@angular/compiler-cli/linker' as string
-					);
-					needsLinking = mod.needsLinking;
+					const specifier = '@angular/compiler-cli/linker';
+					const mod = await import(specifier);
+					({ needsLinking } = mod);
 				}
 
-				if (!needsLinking(args.path, source)) {
+				const checkLink = needsLinking;
+				if (!checkLink || !checkLink(args.path, source)) {
 					return undefined;
 				}
 
@@ -53,15 +50,13 @@ export const angularLinkerPlugin: BunPlugin = {
 				}
 
 				if (!babelTransform) {
-					const babel = await import(
-						'@babel/core' as string
-					);
+					const babelSpecifier = '@babel/core';
+					const babel = await import(babelSpecifier);
 					babelTransform = babel.transformSync;
 				}
 				if (!linkerPlugin) {
-					const mod = await import(
-						'@angular/compiler-cli/linker/babel' as string
-					);
+					const linkerSpecifier = '@angular/compiler-cli/linker/babel';
+					const mod = await import(linkerSpecifier);
 					linkerPlugin = mod.createEs2015LinkerPlugin({
 						fileSystem: {
 							dirname,
@@ -69,19 +64,24 @@ export const angularLinkerPlugin: BunPlugin = {
 							readFile: readFileSync,
 							relative,
 							resolve
-						} as any,
+						},
 						linkerJitMode: false,
 						logger: {
 							error: console.error,
 							level: 1,
 							warn: console.warn,
-							debug: () => {},
-							info: () => {}
-						} as any
+							debug: () => { /* noop */ },
+							info: () => { /* noop */ }
+						}
 					});
 				}
 
-				const result = babelTransform(source, {
+				const transform = babelTransform;
+				if (!transform) {
+					return { contents: source, loader: 'js' };
+				}
+
+				const result = transform(source, {
 					compact: false,
 					filename: args.path,
 					filenameRelative: args.path,

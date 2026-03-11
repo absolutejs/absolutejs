@@ -9,9 +9,6 @@ import {
 import { basename, join, resolve } from 'node:path';
 import { cwd, env, exit } from 'node:process';
 import { $, build as bunBuild, BuildArtifact, Glob } from 'bun';
-import type { compileAngular } from '../build/compileAngular';
-import type { compileSvelte } from '../build/compileSvelte';
-import type { compileVue } from '../build/compileVue';
 import { generateManifest } from '../build/generateManifest';
 import { generateReactIndexFiles } from '../build/generateReactIndexes';
 import { createHTMLScriptHMRPlugin } from '../build/htmlScriptHMRPlugin';
@@ -33,7 +30,6 @@ import { angularLinkerPlugin } from '../build/angularLinkerPlugin';
 import { cleanStaleOutputs } from '../utils/cleanStaleOutputs';
 import { cleanup } from '../utils/cleanup';
 import { commonAncestor } from '../utils/commonAncestor';
-import { getDurationString } from '../utils/getDurationString';
 import { logError, logWarn } from '../utils/logger';
 import { normalizePath } from '../utils/normalizePath';
 import { toPascal } from '../utils/stringModifiers';
@@ -49,13 +45,18 @@ const extractBuildError = (
 	isIncremental: boolean | 0 | undefined,
 	throwOnError: boolean
 ) => {
-	const errLog = logs.find((log) => log.level === 'error') ?? logs[0]!;
+	const errLog = logs.find((log) => log.level === 'error') ?? logs[0];
+	if (!errLog) {
+		exit(1);
+
+		return;
+	}
 	const err = new Error(
 		typeof errLog.message === 'string'
 			? errLog.message
 			: String(errLog.message)
 	);
-	(err as Error & { logs?: unknown }).logs = logs;
+	Object.assign(err, { logs });
 	sendTelemetryEvent('build:error', {
 		frameworks: frameworkNames,
 		incremental: Boolean(isIncremental),
@@ -93,6 +94,7 @@ const resolveAbsoluteVersion = async () => {
 		resolve(import.meta.dir, '..', 'package.json')
 	];
 	for (const candidate of candidates) {
+		// eslint-disable-next-line no-await-in-loop -- iterations depend on each other (short-circuits on first match)
 		const pkg = await tryReadPackageJson(candidate);
 		if (!pkg) continue;
 		if (pkg.name !== '@absolutejs/absolute') continue;
@@ -209,9 +211,10 @@ export const build = async ({
 	let serverOutDir: string | undefined;
 	let serverRoot: string | undefined;
 
-	if (serverFrameworkDirs.length === 1) {
-		serverRoot = join(serverFrameworkDirs[0]!, 'server');
-		serverOutDir = join(buildPath, basename(serverFrameworkDirs[0]!));
+	const [firstServerDir] = serverFrameworkDirs;
+	if (serverFrameworkDirs.length === 1 && firstServerDir) {
+		serverRoot = join(firstServerDir, 'server');
+		serverOutDir = join(buildPath, basename(firstServerDir));
 	} else if (serverFrameworkDirs.length > 1) {
 		// Use framework dirs (not server/ subdirs) as input to
 		// commonAncestor — the server/ suffix would cause a false
@@ -306,14 +309,6 @@ export const build = async ({
 				f.includes('/html/') &&
 				(f.endsWith('.html') || f.endsWith('.css'))
 		);
-	const shouldIncludeHtmxAssets =
-		!isIncremental ||
-		normalizedIncrementalFiles?.some(
-			(f) =>
-				f.includes('/htmx/') &&
-				(f.endsWith('.html') || f.endsWith('.css'))
-		);
-
 	// Filter entries for incremental builds
 	// For React: map index entries back to their source pages
 	const reactEntries =
@@ -364,6 +359,8 @@ export const build = async ({
 	const shouldCompileVue = vueDir && vueEntries.length > 0;
 	const shouldCompileAngular = angularDir && angularEntries.length > 0;
 
+	const emptyStringArray: string[] = [];
+
 	const [
 		{ svelteServerPaths, svelteIndexPaths, svelteClientPaths },
 		{ vueServerPaths, vueIndexPaths, vueClientPaths, vueCssPaths },
@@ -374,25 +371,28 @@ export const build = async ({
 					mod.compileSvelte(svelteEntries, svelteDir, new Map(), hmr)
 				)
 			: {
-					svelteClientPaths: [] as string[],
-					svelteIndexPaths: [] as string[],
-					svelteServerPaths: [] as string[]
+					svelteClientPaths: [...emptyStringArray],
+					svelteIndexPaths: [...emptyStringArray],
+					svelteServerPaths: [...emptyStringArray]
 				},
 		shouldCompileVue
 			? import('../build/compileVue').then((mod) =>
 					mod.compileVue(vueEntries, vueDir, hmr)
 				)
 			: {
-					vueClientPaths: [] as string[],
-					vueCssPaths: [] as string[],
-					vueIndexPaths: [] as string[],
-					vueServerPaths: [] as string[]
+					vueClientPaths: [...emptyStringArray],
+					vueCssPaths: [...emptyStringArray],
+					vueIndexPaths: [...emptyStringArray],
+					vueServerPaths: [...emptyStringArray]
 				},
 		shouldCompileAngular
 			? import('../build/compileAngular').then((mod) =>
 					mod.compileAngular(angularEntries, angularDir, hmr)
 				)
-			: { clientPaths: [] as string[], serverPaths: [] as string[] }
+			: {
+					clientPaths: [...emptyStringArray],
+					serverPaths: [...emptyStringArray]
+				}
 	]);
 
 	const serverEntryPoints = [...svelteServerPaths, ...vueServerPaths];
@@ -480,21 +480,21 @@ export const build = async ({
 		? createHTMLScriptHMRPlugin(htmlDir, htmxDir)
 		: undefined;
 
-	const reactBuildConfig: Record<string, unknown> | undefined =
+	const reactBuildConfig: Parameters<typeof bunBuild>[0] | undefined =
 		reactClientEntryPoints.length > 0
 			? {
 					entrypoints: reactClientEntryPoints,
 					...(vendorPaths
 						? { external: Object.keys(vendorPaths) }
 						: {}),
-					format: 'esm' as const,
+					format: 'esm',
 					minify: !isDev,
 					naming: `[dir]/[name].[hash].[ext]`,
 					outdir: buildPath,
 					...(hmr ? { reactFastRefresh: true } : {}),
 					root: clientRoot,
 					splitting: true,
-					target: 'browser' as const,
+					target: 'browser',
 					throw: false
 				}
 			: undefined;
@@ -535,13 +535,7 @@ export const build = async ({
 					throw: false
 				})
 			: undefined,
-		reactBuildConfig
-			? bunBuild(
-					reactBuildConfig as unknown as Parameters<
-						typeof bunBuild
-					>[0]
-				)
-			: undefined,
+		reactBuildConfig ? bunBuild(reactBuildConfig) : undefined,
 		nonReactClientEntryPoints.length > 0
 			? bunBuild({
 					define: vueDirectory ? vueFeatureFlags : undefined,
@@ -558,8 +552,8 @@ export const build = async ({
 						...(htmlScriptPlugin ? [htmlScriptPlugin] : [])
 					],
 					root: clientRoot,
-					target: 'browser',
 					splitting: !isDev,
+					target: 'browser',
 					throw: false
 				})
 			: undefined,
@@ -699,7 +693,7 @@ export const build = async ({
 	];
 	outputLogs(allLogs);
 
-	const manifest = {
+	const manifest: Record<string, string> = {
 		...(options?.baseManifest || {}),
 		...generateManifest(
 			[
@@ -784,75 +778,70 @@ export const build = async ({
 	};
 
 	// HTML + HTMX post-processing run in parallel (independent directories)
-	await Promise.all([
-		(async () => {
-			if (!(htmlDir && htmlPagesPath)) return;
-			const outputHtmlPages = isSingle
-				? join(buildPath, 'pages')
-				: join(buildPath, basename(htmlDir), 'pages');
+	const processHtmlPages = async () => {
+		if (!(htmlDir && htmlPagesPath)) return;
+		const outputHtmlPages = isSingle
+			? join(buildPath, 'pages')
+			: join(buildPath, basename(htmlDir), 'pages');
 
-			if (shouldCopyHtml) {
-				mkdirSync(outputHtmlPages, { recursive: true });
-				cpSync(htmlPagesPath, outputHtmlPages, {
-					force: true,
-					recursive: true
-				});
-			}
+		if (shouldCopyHtml) {
+			mkdirSync(outputHtmlPages, { recursive: true });
+			cpSync(htmlPagesPath, outputHtmlPages, {
+				force: true,
+				recursive: true
+			});
+		}
 
-			// Update asset paths if HTML files changed OR CSS changed
-			if (shouldUpdateHtmlAssetPaths) {
-				await updateAssetPaths(manifest, outputHtmlPages);
-			}
+		// Update asset paths if HTML files changed OR CSS changed
+		if (shouldUpdateHtmlAssetPaths) {
+			await updateAssetPaths(manifest, outputHtmlPages);
+		}
 
-			// Add HTML pages to manifest (absolute paths for Bun.file())
-			const htmlPageFiles = await scanEntryPoints(
-				outputHtmlPages,
-				'*.html'
-			);
-			for (const htmlFile of htmlPageFiles) {
-				if (hmr) injectHMRIntoHTMLFile(htmlFile, 'html');
-				const fileName = basename(htmlFile, '.html');
-				manifest[fileName] = htmlFile;
-			}
-		})(),
-		(async () => {
-			if (!(htmxDir && htmxPagesPath)) return;
-			const outputHtmxPages = isSingle
-				? join(buildPath, 'pages')
-				: join(buildPath, basename(htmxDir), 'pages');
+		// Add HTML pages to manifest (absolute paths for Bun.file())
+		const htmlPageFiles = await scanEntryPoints(outputHtmlPages, '*.html');
+		for (const htmlFile of htmlPageFiles) {
+			if (hmr) injectHMRIntoHTMLFile(htmlFile, 'html');
+			const fileName = basename(htmlFile, '.html');
+			manifest[fileName] = htmlFile;
+		}
+	};
 
-			if (shouldCopyHtmx) {
-				mkdirSync(outputHtmxPages, { recursive: true });
-				cpSync(htmxPagesPath, outputHtmxPages, {
-					force: true,
-					recursive: true
-				});
-			}
+	const processHtmxPages = async () => {
+		if (!(htmxDir && htmxPagesPath)) return;
+		const outputHtmxPages = isSingle
+			? join(buildPath, 'pages')
+			: join(buildPath, basename(htmxDir), 'pages');
 
-			if (shouldCopyHtmx) {
-				const htmxDestDir = isSingle
-					? buildPath
-					: join(buildPath, basename(htmxDir));
-				copyHtmxVendor(htmxDir, htmxDestDir);
-			}
+		if (shouldCopyHtmx) {
+			mkdirSync(outputHtmxPages, { recursive: true });
+			cpSync(htmxPagesPath, outputHtmxPages, {
+				force: true,
+				recursive: true
+			});
+		}
 
-			// Update asset paths if HTMX files changed OR CSS changed
-			if (shouldUpdateHtmxAssetPaths) {
-				await updateAssetPaths(manifest, outputHtmxPages);
-			}
+		if (shouldCopyHtmx) {
+			const htmxDestDir = isSingle
+				? buildPath
+				: join(buildPath, basename(htmxDir));
+			copyHtmxVendor(htmxDir, htmxDestDir);
+		}
 
-			// Add HTMX pages to manifest (absolute paths for Bun.file())
-			const htmxPageFiles = await scanEntryPoints(
-				outputHtmxPages,
-				'*.html'
-			);
-			for (const htmxFile of htmxPageFiles) {
-				if (hmr) injectHMRIntoHTMLFile(htmxFile, 'htmx');
-				const fileName = basename(htmxFile, '.html');
-				manifest[fileName] = htmxFile;
-			}
-		})()
-	]);
+		// Update asset paths if HTMX files changed OR CSS changed
+		if (shouldUpdateHtmxAssetPaths) {
+			await updateAssetPaths(manifest, outputHtmxPages);
+		}
+
+		// Add HTMX pages to manifest (absolute paths for Bun.file())
+		const htmxPageFiles = await scanEntryPoints(outputHtmxPages, '*.html');
+		for (const htmxFile of htmxPageFiles) {
+			if (hmr) injectHMRIntoHTMLFile(htmxFile, 'htmx');
+			const fileName = basename(htmxFile, '.html');
+			manifest[fileName] = htmxFile;
+		}
+	};
+
+	await Promise.all([processHtmlPages(), processHtmxPages()]);
 
 	if (!isIncremental) {
 		await cleanStaleOutputs(buildPath, [

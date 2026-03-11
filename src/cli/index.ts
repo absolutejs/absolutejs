@@ -10,7 +10,7 @@ import { sendTelemetryEvent } from './telemetryEvent';
 import { CLI_ARGS_OFFSET, UNFOUND_INDEX } from '../constants';
 import { DEFAULT_SERVER_ENTRY } from './utils';
 
-const command = process.argv[2];
+const [command] = process.argv.slice(2);
 const args = process.argv.slice(CLI_ARGS_OFFSET);
 
 const parseNamedArg = (flag: string) => {

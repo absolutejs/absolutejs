@@ -6,7 +6,6 @@ import { BYTES_PER_KILOBYTE } from '../../constants';
 import { isWSLEnvironment } from '../utils';
 
 const bold = (str: string) => `\x1b[1m${str}\x1b[0m`;
-const dim = (str: string) => `\x1b[2m${str}\x1b[0m`;
 
 const getBinaryVersion = (binary: string, flag = '--version') => {
 	try {
@@ -17,7 +16,9 @@ const getBinaryVersion = (binary: string, flag = '--version') => {
 		}).trim();
 		const match = /(\d+\.\d+\.\d+[\w.-]*)/.exec(raw);
 
-		return match !== null ? match[1]! : raw.replace(/^v/, '');
+		return match !== null
+			? (match[1] ?? raw.replace(/^v/, ''))
+			: raw.replace(/^v/, '');
 	} catch {
 		return 'N/A';
 	}
@@ -29,8 +30,9 @@ const getPackageVersion = (packageName: string) => {
 			paths: [process.cwd()]
 		});
 		const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+		const ver: string = pkg.version;
 
-		return pkg.version as string;
+		return ver;
 	} catch {
 		return 'N/A';
 	}
@@ -40,8 +42,9 @@ const getAbsoluteVersion = () => {
 	try {
 		const pkgPath = resolve(__dirname, '../../../package.json');
 		const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+		const ver: string = pkg.version;
 
-		return pkg.version as string;
+		return ver;
 	} catch {
 		return getPackageVersion('@absolutejs/absolute');
 	}
@@ -84,7 +87,7 @@ const getGlibcVersion = () => {
 		});
 		const match = /(\d+\.\d+)/.exec(output);
 
-		return match !== null ? match[1]! : 'N/A';
+		return match !== null ? (match[1] ?? 'N/A') : 'N/A';
 	} catch {
 		return 'N/A';
 	}

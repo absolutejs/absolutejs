@@ -1,7 +1,6 @@
 import type { HMRState } from './clientManager';
 import { serializeModuleVersions } from './moduleVersionTracker';
-import type { HMRWebSocket } from '../../types/websocket';
-import { WS_READY_STATE_OPEN } from '../../types/websocket';
+import { type HMRWebSocket, WS_READY_STATE_OPEN } from '../../types/websocket';
 import type { HMRClientMessage } from '../../types/messages';
 import { isValidHMRClientMessage } from '../../types/typeGuards';
 
@@ -17,7 +16,7 @@ const trySendMessage = (client: HMRWebSocket, messageStr: string) => {
 
 export const broadcastToClients = (
 	state: HMRState,
-	message: { type: string; [key: string]: any }
+	message: { type: string; [key: string]: unknown }
 ) => {
 	const messageStr = JSON.stringify({
 		...message,
@@ -73,25 +72,29 @@ export const handleClientDisconnect = (
 	state.connectedClients.delete(client);
 };
 
+const parseJsonSafe = (raw: string) => JSON.parse(raw);
+
 const parseMessage = (message: unknown) => {
 	if (typeof message === 'string') {
-		return JSON.parse(message) as unknown;
+		return parseJsonSafe(message);
 	}
 
 	if (message instanceof Buffer) {
-		return JSON.parse(message.toString()) as unknown;
+		return parseJsonSafe(message.toString());
 	}
 
 	if (message instanceof ArrayBuffer) {
-		return JSON.parse(
-			new TextDecoder().decode(new Uint8Array(message))
-		) as unknown;
+		return parseJsonSafe(new TextDecoder().decode(new Uint8Array(message)));
 	}
 
 	if (ArrayBuffer.isView(message)) {
-		return JSON.parse(
-			new TextDecoder().decode(message as Uint8Array)
-		) as unknown;
+		const view: Uint8Array = new Uint8Array(
+			message.buffer,
+			message.byteOffset,
+			message.byteLength
+		);
+
+		return parseJsonSafe(new TextDecoder().decode(view));
 	}
 
 	if (typeof message === 'object' && message !== null) {
@@ -136,5 +139,7 @@ export const handleHMRMessage = (
 		}
 
 		handleParsedMessage(client, parsedData);
-	} catch {}
+	} catch {
+		/* ignored */
+	}
 };

@@ -38,13 +38,13 @@ export const findIndexPath = (
 	const pattern = frameworkPatterns[framework];
 
 	for (const key in manifest) {
+		const value = manifest[key];
 		if (
 			key.endsWith('Index') &&
-			(!pattern ||
-				pattern.test(key) ||
-				manifest[key]!.includes(`/${framework}/`))
+			value &&
+			(!pattern || pattern.test(key) || value.includes(`/${framework}/`))
 		) {
-			return manifest[key]!;
+			return value;
 		}
 	}
 

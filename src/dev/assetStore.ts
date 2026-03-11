@@ -43,7 +43,9 @@ const processWalkEntry = (
 	const identity = stripHash(fullPath);
 	const livePath = liveByIdentity.get(identity);
 	if (livePath && livePath !== fullPath) {
-		return unlink(fullPath).catch(() => {});
+		return unlink(fullPath).catch(() => {
+			/* noop */
+		});
 	}
 
 	return null;
@@ -116,8 +118,12 @@ const processScanEntry = (
 		.bytes()
 		.then((bytes) => {
 			store.set(webPath, bytes);
+
+			return undefined;
 		})
-		.catch(() => {});
+		.catch(() => {
+			/* noop */
+		});
 };
 
 export const populateAssetStore = async (
@@ -153,6 +159,8 @@ export const populateAssetStore = async (
 				.bytes()
 				.then((bytes) => {
 					store.set(webPath, bytes);
+
+					return undefined;
 				})
 				.catch(() => {
 					/* file may not exist yet (SSR-only entry) — ignore */

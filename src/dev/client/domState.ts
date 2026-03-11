@@ -34,7 +34,8 @@ const restoreSelectionRange = (
 };
 
 const restoreInputEntry = (target: Element, entry: DOMStateEntry) => {
-	const input = target as HTMLInputElement;
+	if (!(target instanceof HTMLInputElement)) return;
+	const input = target;
 	const type = entry.type || input.getAttribute('type') || 'text';
 	if (type === 'checkbox' || type === 'radio') {
 		if (entry.checked !== undefined) input.checked = entry.checked;
@@ -45,33 +46,47 @@ const restoreInputEntry = (target: Element, entry: DOMStateEntry) => {
 };
 
 const restoreTextareaEntry = (target: Element, entry: DOMStateEntry) => {
-	const textarea = target as HTMLTextAreaElement;
+	if (!(target instanceof HTMLTextAreaElement)) return;
+	const textarea = target;
 	if (entry.value !== undefined) textarea.value = entry.value;
 	restoreSelectionRange(textarea, entry);
 };
 
 const restoreSelectEntry = (target: Element, entry: DOMStateEntry) => {
 	if (!Array.isArray(entry.values)) return;
-	const select = target as HTMLSelectElement;
+	if (!(target instanceof HTMLSelectElement)) return;
+	const select = target;
+	const { values } = entry;
 	Array.from(select.options).forEach((opt) => {
-		opt.selected = entry.values!.indexOf(opt.value) !== UNFOUND_INDEX;
+		opt.selected = values.indexOf(opt.value) !== UNFOUND_INDEX;
 	});
 };
 
 const restoreEntry = (target: Element, entry: DOMStateEntry) => {
-	if (target.tagName === 'INPUT') return restoreInputEntry(target, entry);
-	if (target.tagName === 'TEXTAREA')
-		return restoreTextareaEntry(target, entry);
-	if (target.tagName === 'SELECT') return restoreSelectEntry(target, entry);
+	if (target.tagName === 'INPUT') {
+		restoreInputEntry(target, entry);
+
+		return;
+	}
+	if (target.tagName === 'TEXTAREA') {
+		restoreTextareaEntry(target, entry);
+
+		return;
+	}
+	if (target.tagName === 'SELECT') {
+		restoreSelectEntry(target, entry);
+
+		return;
+	}
 	if (target.tagName === 'OPTION') {
-		if (entry.selected !== undefined)
-			(target as HTMLOptionElement).selected = entry.selected;
+		if (entry.selected !== undefined && target instanceof HTMLOptionElement)
+			target.selected = entry.selected;
 
 		return;
 	}
 	if (target.tagName === 'DETAILS') {
-		if (entry.open !== undefined)
-			(target as HTMLDetailsElement).open = entry.open;
+		if (entry.open !== undefined && target instanceof HTMLDetailsElement)
+			target.open = entry.open;
 
 		return;
 	}
@@ -88,7 +103,7 @@ const findEntryTarget = (
 	if (entry.id) return root.querySelector(`#${CSS.escape(entry.id)}`);
 	if (entry.name)
 		return root.querySelector(`[name="${CSS.escape(entry.name)}"]`);
-	if (elements[entry.idx]) return elements[entry.idx]!;
+	if (elements[entry.idx]) return elements[entry.idx] ?? null;
 
 	return null;
 };
@@ -130,8 +145,8 @@ export const restoreDOMState = (
 
 	if (!snapshot.activeKey) return;
 	const focusEl = resolveFocusElement(root, elements, snapshot.activeKey);
-	if (focusEl && (focusEl as HTMLElement).focus) {
-		(focusEl as HTMLElement).focus();
+	if (focusEl instanceof HTMLElement) {
+		focusEl.focus();
 	}
 };
 
@@ -146,7 +161,10 @@ const resolveFormElement = (
 		);
 		if (element) return element;
 
-		return document.getElementById(name) as HTMLInputElement | null;
+		const byId = document.getElementById(name);
+		if (byId instanceof HTMLInputElement) return byId;
+
+		return null;
 	}
 	if (!form) return null;
 
@@ -183,7 +201,7 @@ const resolveForm = (formId: string) => {
 	if (isNaN(formIndex)) return null;
 	try {
 		return document.querySelector(`form:nth-of-type(${formIndex + 1})`);
-	} catch (_e) {
+	} catch {
 		return null;
 	}
 };
@@ -216,17 +234,22 @@ export const restoreFormState = (
 	Object.keys(formState).forEach((formId) => {
 		const isStandalone = formId === '__standalone__';
 		const form = isStandalone ? null : resolveForm(formId);
-		Object.keys(formState[formId]!).forEach((name) => {
+		const formData = formState[formId];
+		if (!formData) return;
+		Object.keys(formData).forEach((name) => {
 			if (name.startsWith(RADIO_PREFIX)) {
 				const groupName = name.slice(RADIO_PREFIX.length);
-				const value = formState[formId]![name]!;
+				const value = formData[name];
+				if (value === undefined) return;
 				restoreRadioGroup(isStandalone, form, groupName, String(value));
 
 				return;
 			}
 			const element = resolveFormElement(isStandalone, form, name);
 			if (!element) return;
-			applyFormValue(element, formState[formId]![name]!);
+			const value = formData[name];
+			if (value === undefined) return;
+			applyFormValue(element, value);
 		});
 	});
 };
@@ -239,8 +262,9 @@ export const restoreScrollState = (scrollState: {
 	}
 };
 
-const saveInputEntry = (el: Element, entry: DOMStateEntry) => {
-	const input = el as HTMLInputElement;
+const saveInputEntry = (elem: Element, entry: DOMStateEntry) => {
+	if (!(elem instanceof HTMLInputElement)) return;
+	const input = elem;
 	const type = input.getAttribute('type') || 'text';
 	entry.type = type;
 	if (type === 'checkbox' || type === 'radio') {
@@ -254,8 +278,9 @@ const saveInputEntry = (el: Element, entry: DOMStateEntry) => {
 	}
 };
 
-const saveTextareaEntry = (el: Element, entry: DOMStateEntry) => {
-	const textarea = el as HTMLTextAreaElement;
+const saveTextareaEntry = (elem: Element, entry: DOMStateEntry) => {
+	if (!(elem instanceof HTMLTextAreaElement)) return;
+	const textarea = elem;
 	entry.value = textarea.value;
 	if (textarea.selectionStart !== null && textarea.selectionEnd !== null) {
 		entry.selStart = textarea.selectionStart;
@@ -263,8 +288,9 @@ const saveTextareaEntry = (el: Element, entry: DOMStateEntry) => {
 	}
 };
 
-const saveSelectEntry = (el: Element, entry: DOMStateEntry) => {
-	const select = el as HTMLSelectElement;
+const saveSelectEntry = (elem: Element, entry: DOMStateEntry) => {
+	if (!(elem instanceof HTMLSelectElement)) return;
+	const select = elem;
 	const vals: string[] = [];
 	Array.from(select.options).forEach((opt) => {
 		if (opt.selected) vals.push(opt.value);
@@ -272,22 +298,34 @@ const saveSelectEntry = (el: Element, entry: DOMStateEntry) => {
 	entry.values = vals;
 };
 
-const saveElementEntry = (el: Element, entry: DOMStateEntry) => {
-	if (el.tagName === 'INPUT') return saveInputEntry(el, entry);
-	if (el.tagName === 'TEXTAREA') return saveTextareaEntry(el, entry);
-	if (el.tagName === 'SELECT') return saveSelectEntry(el, entry);
-	if (el.tagName === 'OPTION') {
-		entry.selected = (el as HTMLOptionElement).selected;
+const saveElementEntry = (elem: Element, entry: DOMStateEntry) => {
+	if (elem.tagName === 'INPUT') {
+		saveInputEntry(elem, entry);
 
 		return;
 	}
-	if (el.tagName === 'DETAILS') {
-		entry.open = (el as HTMLDetailsElement).open;
+	if (elem.tagName === 'TEXTAREA') {
+		saveTextareaEntry(elem, entry);
 
 		return;
 	}
-	if (el.getAttribute('contenteditable') === 'true') {
-		entry.text = el.textContent || undefined;
+	if (elem.tagName === 'SELECT') {
+		saveSelectEntry(elem, entry);
+
+		return;
+	}
+	if (elem.tagName === 'OPTION') {
+		if (elem instanceof HTMLOptionElement) entry.selected = elem.selected;
+
+		return;
+	}
+	if (elem.tagName === 'DETAILS') {
+		if (elem instanceof HTMLDetailsElement) entry.open = elem.open;
+
+		return;
+	}
+	if (elem.getAttribute('contenteditable') === 'true') {
+		entry.text = elem.textContent || undefined;
 	}
 };
 
@@ -328,9 +366,7 @@ const collectInputState = (
 	target: Record<string, boolean | string>
 ) => {
 	if (element.type === 'radio') {
-		if (element.checked) {
-			target[`__radio__${name}`] = element.value;
-		}
+		if (element.checked) target[`__radio__${name}`] = element.value;
 
 		return;
 	}
@@ -347,15 +383,14 @@ export const saveFormState = () => {
 	const forms = document.querySelectorAll('form');
 	forms.forEach((form, formIndex) => {
 		const formId = form.id || `form-${formIndex}`;
-		formState[formId] = {};
+		const formData: Record<string, boolean | string> = {};
+		formState[formId] = formData;
 		const inputs = form.querySelectorAll('input, textarea, select');
 		inputs.forEach((input) => {
-			const element = input as HTMLInputElement;
+			if (!(input instanceof HTMLInputElement)) return;
 			const name =
-				element.name ||
-				element.id ||
-				`input-${formIndex}-${inputs.length}`;
-			collectInputState(element, name, formState[formId]!);
+				input.name || input.id || `input-${formIndex}-${inputs.length}`;
+			collectInputState(input, name, formData);
 		});
 	});
 
@@ -363,22 +398,23 @@ export const saveFormState = () => {
 		'input:not(form input), textarea:not(form textarea), select:not(form select)'
 	);
 	if (standaloneInputs.length <= 0) return formState;
-	formState['__standalone__'] = {};
+	const standaloneData: Record<string, boolean | string> = {};
+	formState['__standalone__'] = standaloneData;
 	standaloneInputs.forEach((input) => {
-		const element = input as HTMLInputElement;
+		if (!(input instanceof HTMLInputElement)) return;
 		const name =
-			element.name ||
-			element.id ||
-			`standalone-${standaloneInputs.length}`;
-		collectInputState(element, name, formState['__standalone__']!);
+			input.name || input.id || `standalone-${standaloneInputs.length}`;
+		collectInputState(input, name, standaloneData);
 	});
 
 	return formState;
 };
 
-export const saveScrollState = () => ({
-	window: {
-		x: window.scrollX || window.pageXOffset,
-		y: window.scrollY || window.pageYOffset
-	}
-});
+export const saveScrollState = () => {
+	const scrollX = window.scrollX || window.pageXOffset;
+	const scrollY = window.scrollY || window.pageYOffset;
+
+	return {
+		window: { x: scrollX, y: scrollY }
+	};
+};

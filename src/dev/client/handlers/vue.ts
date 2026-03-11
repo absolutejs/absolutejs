@@ -20,12 +20,8 @@ const collectSetupValue = (
 	key: string,
 	value: unknown
 ) => {
-	if (
-		value &&
-		typeof value === 'object' &&
-		'value' in (value as Record<string, unknown>)
-	) {
-		target[key] = (value as { value: unknown }).value;
+	if (value && typeof value === 'object' && 'value' in value) {
+		target[key] = value.value;
 
 		return;
 	}
@@ -42,7 +38,8 @@ const collectSetupState = (
 ) => {
 	const keys = Object.keys(setupState);
 	for (let idx = 0; idx < keys.length; idx++) {
-		const key = keys[idx]!;
+		const key = keys[idx];
+		if (key === undefined) continue;
 		collectSetupValue(target, key, setupState[key]);
 	}
 };
@@ -82,12 +79,14 @@ const extractChildComponentState = (
 /* Find an existing stylesheet link matching the given base name */
 const findMatchingStylesheetLink = (cssBaseName: string) => {
 	let found: HTMLLinkElement | null = null;
-	document.querySelectorAll('link[rel="stylesheet"]').forEach((link) => {
-		const href = (link as HTMLLinkElement).getAttribute('href') || '';
-		if (cssBaseName && href.includes(cssBaseName)) {
-			found = link as HTMLLinkElement;
-		}
-	});
+	document
+		.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]')
+		.forEach((link) => {
+			const href = link.getAttribute('href') ?? '';
+			if (cssBaseName && href.includes(cssBaseName)) {
+				found = link;
+			}
+		});
 
 	return found;
 };
@@ -97,7 +96,7 @@ const swapStylesheet = (cssUrl: string, cssBaseName: string) => {
 	const existingLink = findMatchingStylesheetLink(cssBaseName);
 	if (!existingLink) return;
 
-	const capturedExisting = existingLink as HTMLLinkElement;
+	const capturedExisting: HTMLLinkElement = existingLink;
 	const newLink = document.createElement('link');
 	newLink.rel = 'stylesheet';
 	newLink.href = `${cssUrl}?t=${Date.now()}`;
@@ -119,6 +118,7 @@ const extractVueAppState = (vuePreservedState: Record<string, unknown>) => {
 		collectSetupState(vuePreservedState, instance.setupState);
 	}
 
+	// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- Window._instance type is broader than VueComponentInstance
 	extractChildComponentState(
 		instance as VueComponentInstance,
 		vuePreservedState
@@ -135,7 +135,7 @@ const extractCountFromDOM = (vuePreservedState: Record<string, unknown>) => {
 	const countMatch = countButton.textContent.match(/count is (\d+)/i);
 	if (!countMatch) return;
 
-	vuePreservedState.initialCount = parseInt(countMatch[1]!, 10);
+	vuePreservedState.initialCount = parseInt(countMatch[1] ?? '0', 10);
 };
 
 /* Handle completion of Vue module reimport */
@@ -195,7 +195,7 @@ export const handleVueUpdate = (message: {
 			'__VUE_HMR_STATE__',
 			JSON.stringify(vuePreservedState)
 		);
-	} catch (_err) {
+	} catch {
 		/* ignore */
 	}
 
@@ -233,6 +233,8 @@ export const handleVueUpdate = (message: {
 	import(modulePath)
 		.then(() => {
 			handleVueImportSuccess(vueRoot, vueDomState);
+
+			return undefined;
 		})
 		.catch((err: unknown) => {
 			console.warn('[HMR] Vue import failed:', err);

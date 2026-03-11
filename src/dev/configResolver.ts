@@ -1,18 +1,6 @@
 import { resolve } from 'node:path';
 import type { BuildConfig } from '../../types/build';
 
-type ResolvedPaths = {
-	buildDir: string;
-	assetsDir?: string;
-	reactDir?: string;
-	svelteDir?: string;
-	vueDir?: string;
-	angularDir?: string;
-	htmlDir?: string;
-	htmxDir?: string;
-	stylesDir?: string;
-};
-
 /** Normalize and default build paths so HMR works outside the example app. */
 export const resolveBuildPaths = (config: BuildConfig) => {
 	const cwd = process.cwd();

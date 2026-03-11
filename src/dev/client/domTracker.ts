@@ -19,12 +19,11 @@ export const restoreDOMChanges = (
 	snapshot.text.forEach((liveText, elId) => {
 		const newEl = tempDiv.querySelector(`#${CSS.escape(elId)}`);
 		const newText = newEl ? newEl.textContent || '' : '';
+		if (liveText === newText) return;
 
-		if (liveText !== newText) {
-			const liveEl = root.querySelector(`#${CSS.escape(elId)}`);
-			if (liveEl) {
-				liveEl.textContent = liveText;
-			}
+		const liveEl = root.querySelector(`#${CSS.escape(elId)}`);
+		if (liveEl) {
+			liveEl.textContent = liveText;
 		}
 	});
 
@@ -32,12 +31,11 @@ export const restoreDOMChanges = (
 	snapshot.children.forEach((liveHTML, elId) => {
 		const newEl = tempDiv.querySelector(`#${CSS.escape(elId)}`);
 		const newInner = newEl ? newEl.innerHTML : '';
+		if (liveHTML === newInner || liveHTML.length <= newInner.length) return;
 
-		if (liveHTML !== newInner && liveHTML.length > newInner.length) {
-			const liveEl = root.querySelector(`#${CSS.escape(elId)}`);
-			if (liveEl) {
-				liveEl.innerHTML = liveHTML;
-			}
+		const liveEl = root.querySelector(`#${CSS.escape(elId)}`);
+		if (liveEl) {
+			liveEl.innerHTML = liveHTML;
 		}
 	});
 };
@@ -45,16 +43,16 @@ export const snapshotDOMChanges = (root: HTMLElement): DOMSnapshot => {
 	const text = new Map<string, string>();
 	const children = new Map<string, string>();
 
-	root.querySelectorAll('[id]').forEach((el) => {
-		const { childNodes } = el;
+	root.querySelectorAll('[id]').forEach((elem) => {
+		const { childNodes } = elem;
 		const isTextLeaf = Array.from(childNodes).every(
 			(child) => child.nodeType === Node.TEXT_NODE
 		);
 
 		if (isTextLeaf && childNodes.length > 0) {
-			text.set(el.id, el.textContent || '');
-		} else if (el.children.length > 0) {
-			children.set(el.id, el.innerHTML);
+			text.set(elem.id, elem.textContent || '');
+		} else if (elem.children.length > 0) {
+			children.set(elem.id, elem.innerHTML);
 		}
 	});
 

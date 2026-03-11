@@ -13,12 +13,12 @@ const reactSpecifiers = [
 ];
 
 /** Convert a bare specifier to a safe filename: react-dom/client → react-dom_client */
-const toSafeFileName = (specifier: string): string =>
+const toSafeFileName = (specifier: string) =>
 	specifier.replace(/\//g, '_');
 
 /** Compute the deterministic vendor paths mapping (no build needed).
  *  This can be called before vendor files exist on disk. */
-export const computeVendorPaths = (): Record<string, string> => {
+export const computeVendorPaths = () => {
 	const paths: Record<string, string> = {};
 	for (const specifier of reactSpecifiers) {
 		paths[specifier] = `/react/vendor/${toSafeFileName(specifier)}.js`;
@@ -31,7 +31,7 @@ export const computeVendorPaths = (): Record<string, string> => {
  *  with explicit named re-exports. This is necessary because React is a
  *  CJS module — `export * from 'react'` can't statically determine the
  *  export names, so Bun produces an empty re-export. */
-const generateEntrySource = async (specifier: string): Promise<string> => {
+const generateEntrySource = async (specifier: string) => {
 	const mod = await import(specifier);
 	const exportNames = Object.keys(mod).filter(
 		(key) => key !== 'default' && key !== '__esModule'
@@ -52,7 +52,7 @@ const generateEntrySource = async (specifier: string): Promise<string> => {
  *  Output goes to {buildDir}/react/vendor/ with predictable names like
  *  react.js, react-dom_client.js, etc. These files never change between
  *  rebuilds, so the browser always loads React from a single source. */
-export const buildReactVendor = async (buildDir: string): Promise<void> => {
+export const buildReactVendor = async (buildDir: string) => {
 	const vendorDir = join(buildDir, 'react', 'vendor');
 	mkdirSync(vendorDir, { recursive: true });
 
@@ -60,14 +60,16 @@ export const buildReactVendor = async (buildDir: string): Promise<void> => {
 	mkdirSync(tmpDir, { recursive: true });
 
 	// Create temp entry files with explicit named exports
-	const entrypoints: string[] = [];
-	for (const specifier of reactSpecifiers) {
-		const safeName = toSafeFileName(specifier);
-		const entryPath = join(tmpDir, `${safeName}.ts`);
-		const source = await generateEntrySource(specifier);
-		await Bun.write(entryPath, source);
-		entrypoints.push(entryPath);
-	}
+	const entrypoints = await Promise.all(
+		reactSpecifiers.map(async (specifier) => {
+			const safeName = toSafeFileName(specifier);
+			const entryPath = join(tmpDir, `${safeName}.ts`);
+			const source = await generateEntrySource(specifier);
+			await Bun.write(entryPath, source);
+
+			return entryPath;
+		})
+	);
 
 	const result = await bunBuild({
 		entrypoints,

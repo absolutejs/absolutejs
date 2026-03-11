@@ -1,5 +1,5 @@
 import type { FSWatcher } from 'fs';
-import { createDependencyGraph, type DependencyGraph } from './dependencyGraph';
+import { emptyDependencyGraph, type DependencyGraph } from './dependencyGraph';
 import {
 	createModuleVersionTracker,
 	type ModuleVersions
@@ -34,7 +34,7 @@ export const createHMRState = (config: BuildConfig): HMRState => ({
 	config,
 	connectedClients: new Set<HMRWebSocket>(),
 	debounceTimeout: null,
-	dependencyGraph: createDependencyGraph(),
+	dependencyGraph: emptyDependencyGraph,
 	fileChangeQueue: new Map(),
 	fileHashes: new Map(),
 	isRebuilding: false,

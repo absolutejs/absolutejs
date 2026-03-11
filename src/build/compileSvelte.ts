@@ -11,14 +11,14 @@ import {
 } from 'node:path';
 import { env } from 'node:process';
 import { write, file, Transpiler } from 'bun';
-import type { compile as CompileFn } from 'svelte/compiler';
-
-const devClientDir = (() => {
+const resolveDevClientDir = () => {
 	const fromSource = resolve(import.meta.dir, '../dev/client');
 	if (existsSync(fromSource)) return fromSource;
 
 	return resolve(import.meta.dir, './dev/client');
-})();
+};
+
+const devClientDir = resolveDevClientDir();
 
 const hmrClientPath = join(devClientDir, 'hmrClient.ts').replace(/\\/g, '/');
 

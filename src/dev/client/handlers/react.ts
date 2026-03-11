@@ -30,12 +30,9 @@ export const handleReactUpdate = (message: {
 	}
 
 	// Component change: use React Fast Refresh to preserve state
-	const win = window as unknown as Record<string, unknown>;
-	const componentKey = win.__REACT_COMPONENT_KEY__ as string | undefined;
+	const componentKey = window.__REACT_COMPONENT_KEY__;
 	const newUrl = componentKey && message.data.manifest?.[componentKey];
-	const refreshRuntime = win.$RefreshRuntime$ as
-		| { performReactRefresh: () => void }
-		| undefined;
+	const refreshRuntime = window.$RefreshRuntime$;
 
 	if (newUrl && refreshRuntime) {
 		import(`${newUrl}?t=${Date.now()}`)
@@ -46,6 +43,8 @@ export const handleReactUpdate = (message: {
 				} else {
 					hideErrorOverlay();
 				}
+
+				return undefined;
 			})
 			.catch((err) => {
 				console.warn(
@@ -63,16 +62,17 @@ export const handleReactUpdate = (message: {
 };
 
 const reloadReactCSS = (cssPath: string) => {
-	const existingCSSLinks = document.head.querySelectorAll(
+	const existingCSSLinks = document.head.querySelectorAll<HTMLLinkElement>(
 		'link[rel="stylesheet"]'
 	);
 	existingCSSLinks.forEach((link) => {
-		const href = (link as HTMLLinkElement).getAttribute('href');
+		const href = link.getAttribute('href');
 		if (!href) {
 			return;
 		}
-		const hrefBase = href.split('?')[0]!.split('/').pop() || '';
-		const cssPathBase = cssPath.split('?')[0]!.split('/').pop() || '';
+		const hrefBase = (href.split('?')[0] ?? '').split('/').pop() ?? '';
+		const cssPathBase =
+			(cssPath.split('?')[0] ?? '').split('/').pop() ?? '';
 		if (
 			hrefBase === cssPathBase ||
 			href.includes('react-example') ||
@@ -81,7 +81,7 @@ const reloadReactCSS = (cssPath: string) => {
 			const newHref = `${
 				cssPath + (cssPath.includes('?') ? '&' : '?')
 			}t=${Date.now()}`;
-			(link as HTMLLinkElement).href = newHref;
+			link.href = newHref;
 		}
 	});
 };

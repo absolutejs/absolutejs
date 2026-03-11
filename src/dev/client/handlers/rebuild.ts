@@ -19,9 +19,7 @@ export const handleManifest = (message: {
 		serverVersions?: Record<string, number>;
 	};
 }) => {
-	window.__HMR_MANIFEST__ =
-		message.data.manifest ||
-		(message.data as unknown as Record<string, string>);
+	window.__HMR_MANIFEST__ = message.data.manifest;
 
 	if (message.data.serverVersions) {
 		window.__HMR_SERVER_VERSIONS__ = message.data.serverVersions;
@@ -43,7 +41,10 @@ const mergeRecord = (
 	Object.keys(source)
 		.filter((key) => Object.prototype.hasOwnProperty.call(source, key))
 		.forEach((key) => {
-			target[key] = source[key]!;
+			const value = source[key];
+			if (value !== undefined) {
+				target[key] = value;
+			}
 		});
 };
 
@@ -51,11 +52,8 @@ const mergeServerVersions = (
 	serverVersions: Record<string, number> | undefined
 ) => {
 	if (!serverVersions) return;
-	const existing = window.__HMR_SERVER_VERSIONS__ || {};
-	mergeRecord(
-		serverVersions as Record<string, string | number>,
-		existing as Record<string, string | number>
-	);
+	const existing = window.__HMR_SERVER_VERSIONS__ ?? {};
+	mergeRecord(serverVersions, existing);
 	window.__HMR_SERVER_VERSIONS__ = existing;
 };
 
@@ -63,21 +61,15 @@ const mergeModuleVersions = (
 	moduleVersions: Record<string, number> | undefined
 ) => {
 	if (!moduleVersions) return;
-	const existing = window.__HMR_MODULE_VERSIONS__ || {};
-	mergeRecord(
-		moduleVersions as Record<string, string | number>,
-		existing as Record<string, string | number>
-	);
+	const existing = window.__HMR_MODULE_VERSIONS__ ?? {};
+	mergeRecord(moduleVersions, existing);
 	window.__HMR_MODULE_VERSIONS__ = existing;
 };
 
 const mergeManifest = (manifest: Record<string, string> | undefined) => {
 	if (!manifest) return;
-	const existing = window.__HMR_MANIFEST__ || {};
-	mergeRecord(
-		manifest as Record<string, string | number>,
-		existing as Record<string, string | number>
-	);
+	const existing = window.__HMR_MANIFEST__ ?? {};
+	mergeRecord(manifest, existing);
 	window.__HMR_MANIFEST__ = existing;
 };
 

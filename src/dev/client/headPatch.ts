@@ -1,55 +1,55 @@
 /* Head element patching for HMR updates (title, meta, favicon, etc.) */
 
-const getLinkElementKey = (el: Element) => {
-	const rel = (el.getAttribute('rel') || '').toLowerCase();
+const getLinkElementKey = (elem: Element) => {
+	const rel = (elem.getAttribute('rel') || '').toLowerCase();
 	if (rel === 'icon' || rel === 'shortcut icon' || rel === 'apple-touch-icon')
 		return `link:icon:${rel}`;
 	if (rel === 'stylesheet') return null;
 	if (rel === 'preconnect')
-		return `link:preconnect:${el.getAttribute('href') || ''}`;
+		return `link:preconnect:${elem.getAttribute('href') || ''}`;
 	if (rel === 'preload')
-		return `link:preload:${el.getAttribute('href') || ''}`;
+		return `link:preload:${elem.getAttribute('href') || ''}`;
 	if (rel === 'canonical') return 'link:canonical';
 	if (rel === 'dns-prefetch')
-		return `link:dns-prefetch:${el.getAttribute('href') || ''}`;
+		return `link:dns-prefetch:${elem.getAttribute('href') || ''}`;
 
 	return null;
 };
 
-const getHeadElementKey = (el: Element) => {
-	const tag = el.tagName.toLowerCase();
+const getHeadElementKey = (elem: Element) => {
+	const tag = elem.tagName.toLowerCase();
 
 	if (tag === 'title') return 'title';
-	if (tag === 'meta' && el.hasAttribute('charset')) return 'meta:charset';
-	if (tag === 'meta' && el.hasAttribute('name'))
-		return `meta:name:${el.getAttribute('name')}`;
-	if (tag === 'meta' && el.hasAttribute('property'))
-		return `meta:property:${el.getAttribute('property')}`;
-	if (tag === 'meta' && el.hasAttribute('http-equiv'))
-		return `meta:http-equiv:${el.getAttribute('http-equiv')}`;
+	if (tag === 'meta' && elem.hasAttribute('charset')) return 'meta:charset';
+	if (tag === 'meta' && elem.hasAttribute('name'))
+		return `meta:name:${elem.getAttribute('name')}`;
+	if (tag === 'meta' && elem.hasAttribute('property'))
+		return `meta:property:${elem.getAttribute('property')}`;
+	if (tag === 'meta' && elem.hasAttribute('http-equiv'))
+		return `meta:http-equiv:${elem.getAttribute('http-equiv')}`;
 
-	if (tag === 'link') return getLinkElementKey(el);
+	if (tag === 'link') return getLinkElementKey(elem);
 
-	if (tag === 'script' && el.hasAttribute('data-hmr-id'))
-		return `script:hmr:${el.getAttribute('data-hmr-id')}`;
+	if (tag === 'script' && elem.hasAttribute('data-hmr-id'))
+		return `script:hmr:${elem.getAttribute('data-hmr-id')}`;
 	if (tag === 'script') return null;
 	if (tag === 'base') return 'base';
 
 	return null;
 };
 
-const shouldPreserveElement = (el: Element) => {
-	if (el.hasAttribute('data-hmr-import-map')) return true;
-	if (el.hasAttribute('data-hmr-client')) return true;
-	if (el.hasAttribute('data-react-refresh-setup')) return true;
+const shouldPreserveElement = (elem: Element) => {
+	if (elem.hasAttribute('data-hmr-import-map')) return true;
+	if (elem.hasAttribute('data-hmr-client')) return true;
+	if (elem.hasAttribute('data-react-refresh-setup')) return true;
 
-	const attrs = Array.from(el.attributes);
+	const attrs = Array.from(elem.attributes);
 	for (let idx = 0; idx < attrs.length; idx++) {
-		if (attrs[idx]!.name.startsWith('data-hmr-')) return true;
+		if (attrs[idx]?.name.startsWith('data-hmr-')) return true;
 	}
 
-	if (el.tagName === 'SCRIPT') {
-		const src = el.getAttribute('src') || '';
+	if (elem.tagName === 'SCRIPT') {
+		const src = elem.getAttribute('src') || '';
 		if (src.includes('htmx.min.js') || src.includes('htmx.js')) return true;
 	}
 
@@ -71,8 +71,8 @@ const updateMetaElement = (oldEl: Element, newEl: Element) => {
 	}
 	if (!newEl.hasAttribute('charset')) return;
 	const newCharset = newEl.getAttribute('charset');
-	if (oldEl.getAttribute('charset') !== newCharset) {
-		oldEl.setAttribute('charset', newCharset!);
+	if (oldEl.getAttribute('charset') !== newCharset && newCharset !== null) {
+		oldEl.setAttribute('charset', newCharset);
 	}
 };
 
@@ -81,8 +81,8 @@ const updateFaviconHref = (
 	newHref: string,
 	oldHref: string
 ) => {
-	const oldBase = oldHref.split('?')[0];
-	const newBase = newHref.split('?')[0];
+	const [oldBase] = oldHref.split('?');
+	const [newBase] = newHref.split('?');
 	if (oldBase === newBase) return;
 	const cacheBustedHref = `${
 		newHref + (newHref.includes('?') ? '&' : '?')
@@ -127,7 +127,7 @@ const updateBaseElement = (oldEl: Element, newEl: Element) => {
 	}
 };
 
-const updateHeadElement = (oldEl: Element, newEl: Element, key: string) => {
+const updateHeadElement = (oldEl: Element, newEl: Element) => {
 	const tag = oldEl.tagName.toLowerCase();
 
 	if (tag === 'title') {
@@ -153,8 +153,12 @@ const updateHeadElement = (oldEl: Element, newEl: Element, key: string) => {
 	}
 };
 
-const addHeadElement = (newEl: Element, key: string) => {
-	const clone = newEl.cloneNode(true) as Element;
+const addHeadElement = (newEl: Element) => {
+	const clone = document.createElement(newEl.tagName.toLowerCase());
+	for (const attr of Array.from(newEl.attributes)) {
+		clone.setAttribute(attr.name, attr.value);
+	}
+	clone.textContent = newEl.textContent;
 	clone.setAttribute('data-hmr-source', 'patched');
 
 	const tag = newEl.tagName.toLowerCase();
@@ -196,27 +200,27 @@ export const patchHeadInPlace = (newHeadHTML: string) => {
 	const existingMap = new Map<string, Element>();
 	const newMap = new Map<string, Element>();
 
-	Array.from(document.head.children).forEach((el) => {
-		if (shouldPreserveElement(el)) return;
-		const key = getHeadElementKey(el);
+	Array.from(document.head.children).forEach((elem) => {
+		if (shouldPreserveElement(elem)) return;
+		const key = getHeadElementKey(elem);
 		if (key) {
-			existingMap.set(key, el);
+			existingMap.set(key, elem);
 		}
 	});
 
-	Array.from(tempDiv.children).forEach((el) => {
-		const key = getHeadElementKey(el);
+	Array.from(tempDiv.children).forEach((elem) => {
+		const key = getHeadElementKey(elem);
 		if (key) {
-			newMap.set(key, el);
+			newMap.set(key, elem);
 		}
 	});
 
 	newMap.forEach((newEl, key) => {
 		const existingEl = existingMap.get(key);
 		if (existingEl) {
-			updateHeadElement(existingEl, newEl, key);
+			updateHeadElement(existingEl, newEl);
 		} else {
-			addHeadElement(newEl, key);
+			addHeadElement(newEl);
 		}
 	});
 

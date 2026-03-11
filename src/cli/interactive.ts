@@ -33,6 +33,7 @@ const trySetRawMode = () => {
 		return null;
 	}
 
+	// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- stdin with rawMode is compatible with ReadStream
 	return process.stdin as unknown as ReadStream;
 };
 
@@ -311,6 +312,7 @@ export const createInteractiveHandler = (
 		} catch {
 			/* already closed */
 		}
+		// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- comparing ttyStream identity to stdin
 		if (ttyStream !== (process.stdin as unknown)) {
 			ttyStream.destroy();
 		}

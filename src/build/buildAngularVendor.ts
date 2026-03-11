@@ -17,12 +17,12 @@ const angularSpecifiers = [
 
 /** Convert a bare specifier to a safe filename:
  *  @angular/common/http → angular_common_http */
-const toSafeFileName = (specifier: string): string =>
+const toSafeFileName = (specifier: string) =>
 	specifier.replace(/^@/, '').replace(/\//g, '_');
 
 /** Compute the deterministic vendor paths mapping (no build needed).
  *  This can be called before vendor files exist on disk. */
-export const buildAngularVendor = async (buildDir: string): Promise<void> => {
+export const buildAngularVendor = async (buildDir: string) => {
 	const vendorDir = join(buildDir, 'angular', 'vendor');
 	mkdirSync(vendorDir, { recursive: true });
 
@@ -31,13 +31,15 @@ export const buildAngularVendor = async (buildDir: string): Promise<void> => {
 
 	// Angular packages are proper ESM — use `export * from` directly.
 	// (Unlike React which is CJS and needs runtime introspection.)
-	const entrypoints: string[] = [];
-	for (const specifier of angularSpecifiers) {
-		const safeName = toSafeFileName(specifier);
-		const entryPath = join(tmpDir, `${safeName}.ts`);
-		await Bun.write(entryPath, `export * from '${specifier}';\n`);
-		entrypoints.push(entryPath);
-	}
+	const entrypoints = await Promise.all(
+		angularSpecifiers.map(async (specifier) => {
+			const safeName = toSafeFileName(specifier);
+			const entryPath = join(tmpDir, `${safeName}.ts`);
+			await Bun.write(entryPath, `export * from '${specifier}';\n`);
+
+			return entryPath;
+		})
+	);
 
 	const result = await bunBuild({
 		entrypoints,
@@ -56,7 +58,7 @@ export const buildAngularVendor = async (buildDir: string): Promise<void> => {
 		console.warn('⚠️ Angular vendor build had errors:', result.logs);
 	}
 };
-export const computeAngularVendorPaths = (): Record<string, string> => {
+export const computeAngularVendorPaths = () => {
 	const paths: Record<string, string> = {};
 	for (const specifier of angularSpecifiers) {
 		paths[specifier] = `/angular/vendor/${toSafeFileName(specifier)}.js`;
