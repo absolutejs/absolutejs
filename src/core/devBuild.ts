@@ -26,6 +26,19 @@ const handleCachedReload = () => {
 		.__hmrServerMtime as number;
 	(globalThis as Record<string, unknown>).__hmrServerMtime = serverMtime;
 
+	/* Restore vendor paths — module-level state is reset on --hot reload
+	   but devBuild() returns early from cache, skipping setDevVendorPaths.
+	   Without this, HMR rebuilds bundle React inline instead of externalizing. */
+	const cached = (globalThis as Record<string, unknown>).__hmrDevResult as
+		| { hmrState: HMRState }
+		| undefined;
+	if (cached?.hmrState.config.reactDirectory) {
+		setDevVendorPaths(computeVendorPaths());
+	}
+	if (cached?.hmrState.config.angularDirectory) {
+		setAngularVendorPaths(computeAngularVendorPaths());
+	}
+
 	if (serverMtime !== lastMtime) {
 		logger.serverReload();
 	} else {
