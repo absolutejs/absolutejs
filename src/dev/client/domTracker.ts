@@ -46,7 +46,7 @@ export const snapshotDOMChanges = (root: HTMLElement): DOMSnapshot => {
 	const children = new Map<string, string>();
 
 	root.querySelectorAll('[id]').forEach((el) => {
-		const {childNodes} = el;
+		const { childNodes } = el;
 		const isTextLeaf = Array.from(childNodes).every(
 			(child) => child.nodeType === Node.TEXT_NODE
 		);
