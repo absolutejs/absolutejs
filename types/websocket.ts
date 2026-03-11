@@ -1,5 +1,3 @@
-/* WebSocket types for HMR */
-
 /* WebSocket ready state constant */
 export const WS_READY_STATE_OPEN = 1;
 
@@ -9,4 +7,4 @@ export type HMRWebSocket = {
 	send(data: string): void;
 	close(code?: number, reason?: string): void;
 	readyState: number;
-}
+};

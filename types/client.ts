@@ -1,5 +1,3 @@
-/* Client-side HMR type definitions */
-
 export type ErrorOverlayOptions = {
 	column?: number;
 	file?: string;
