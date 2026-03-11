@@ -3,7 +3,12 @@ import { rm } from 'node:fs/promises';
 import { basename, relative, resolve } from 'node:path';
 import { build } from '../core/build';
 import type { BuildConfig } from '../../types/build';
-import { logger } from '../utils/logger';
+import {
+	logCssUpdate,
+	logHmrUpdate,
+	logScriptUpdate,
+	logWarn
+} from '../utils/logger';
 import type { HMRState } from './clientManager';
 import { incrementSourceFileVersions } from './clientManager';
 import { getAffectedFiles } from './dependencyGraph';
@@ -519,7 +524,7 @@ const broadcastAngularPageUpdates = (
 		const cssUrl = manifest[cssKey] || null;
 
 		const duration = Date.now() - startTime;
-		logger.hmrUpdate(angularPagePath, 'angular', duration);
+		logHmrUpdate(angularPagePath, 'angular', duration);
 		broadcastToClients(state, {
 			data: {
 				cssBaseName: baseName,
@@ -799,7 +804,7 @@ const handleReactFastPath = async (
 	);
 	const sourceFiles = reactPageFiles.length > 0 ? reactPageFiles : reactFiles;
 
-	logger.hmrUpdate(sourceFiles[0] ?? reactFiles[0] ?? '', 'react', duration);
+	logHmrUpdate(sourceFiles[0] ?? reactFiles[0] ?? '', 'react', duration);
 	broadcastToClients(state, {
 		data: {
 			framework: 'react',
@@ -936,7 +941,7 @@ const handleSvelteFastPath = async (
 		const cssKey = `${pascalName}CSS`;
 		const cssUrl = manifest[cssKey] || null;
 
-		logger.hmrUpdate(sveltePagePath, 'svelte', duration);
+		logHmrUpdate(sveltePagePath, 'svelte', duration);
 		broadcastToClients(state, {
 			data: {
 				cssBaseName: baseName,
@@ -1063,7 +1068,7 @@ const handleVueFastPath = async (
 					.replace(/\.vue$/, '')
 			: baseName;
 
-		logger.hmrUpdate(vuePagePath, 'vue', duration);
+		logHmrUpdate(vuePagePath, 'vue', duration);
 		broadcastToClients(state, {
 			data: {
 				changeType: 'full',
@@ -1184,11 +1189,7 @@ const handleReactHMR = (
 		);
 		const hasCSSChanges = reactFiles.some((file) => file.endsWith('.css'));
 
-		logger.hmrUpdate(
-			primarySource ?? reactFiles[0] ?? '',
-			'react',
-			duration
-		);
+		logHmrUpdate(primarySource ?? reactFiles[0] ?? '', 'react', duration);
 
 		broadcastToClients(state, {
 			data: {
@@ -1224,12 +1225,12 @@ const handleScriptUpdate = (
 	const scriptPath = manifest[pascalName] || null;
 
 	if (!scriptPath) {
-		logger.warn(`Script not found in manifest: ${pascalName}`);
+		logWarn(`Script not found in manifest: ${pascalName}`);
 
 		return;
 	}
 
-	logger.scriptUpdate(scriptFile, framework, duration);
+	logScriptUpdate(scriptFile, framework, duration);
 	broadcastToClients(state, {
 		data: {
 			framework,
@@ -1318,7 +1319,7 @@ const processHtmlPageUpdate = async (
 			return;
 		}
 
-		logger.hmrUpdate(pageFile, 'html', duration);
+		logHmrUpdate(pageFile, 'html', duration);
 		broadcastToClients(state, {
 			data: {
 				framework: 'html',
@@ -1389,7 +1390,7 @@ const handleVueCssOnlyUpdate = (
 	const cssKey = `${cssPascalName}CSS`;
 	const cssUrl = manifest[cssKey] || null;
 
-	logger.cssUpdate(cssFile, 'vue', duration);
+	logCssUpdate(cssFile, 'vue', duration);
 	broadcastToClients(state, {
 		data: {
 			cssBaseName,
@@ -1412,7 +1413,7 @@ const broadcastVueStyleOnly = (
 	manifest: Record<string, string>,
 	duration: number
 ) => {
-	logger.cssUpdate(vuePagePath, 'vue', duration);
+	logCssUpdate(vuePagePath, 'vue', duration);
 	broadcastToClients(state, {
 		data: {
 			changeType: 'style-only',
@@ -1440,7 +1441,7 @@ const broadcastVueFullUpdate = (
 ) => {
 	const componentPath = manifest[`${pascalName}Client`] || null;
 
-	logger.hmrUpdate(vuePagePath, 'vue', duration);
+	logHmrUpdate(vuePagePath, 'vue', duration);
 	broadcastToClients(state, {
 		data: {
 			changeType,
@@ -1592,7 +1593,7 @@ const handleSvelteCssOnlyUpdate = (
 	const cssKey = `${cssPascalName}CSS`;
 	const cssUrl = manifest[cssKey] || null;
 
-	logger.cssUpdate(cssFile, 'svelte', duration);
+	logCssUpdate(cssFile, 'svelte', duration);
 	broadcastToClients(state, {
 		data: {
 			cssBaseName,
@@ -1619,7 +1620,7 @@ const broadcastSveltePageUpdate = (
 		const cssKey = `${pascalName}CSS`;
 		const cssUrl = manifest[cssKey] || null;
 
-		logger.hmrUpdate(sveltePagePath, 'svelte', duration);
+		logHmrUpdate(sveltePagePath, 'svelte', duration);
 		broadcastToClients(state, {
 			data: {
 				cssBaseName: baseName,
@@ -1725,7 +1726,7 @@ const handleAngularCssOnlyUpdate = (
 	const cssKey = `${cssPascalName}CSS`;
 	const cssUrl = manifest[cssKey] || null;
 
-	logger.cssUpdate(cssFile, 'angular', duration);
+	logCssUpdate(cssFile, 'angular', duration);
 	broadcastToClients(state, {
 		data: {
 			cssBaseName,
@@ -1752,7 +1753,7 @@ const broadcastAngularPageHmrUpdate = (
 		const cssKey = `${pascalName}CSS`;
 		const cssUrl = manifest[cssKey] || null;
 
-		logger.hmrUpdate(angularPagePath, 'angular', duration);
+		logHmrUpdate(angularPagePath, 'angular', duration);
 		broadcastToClients(state, {
 			data: {
 				cssBaseName: baseName,
@@ -1873,7 +1874,7 @@ const processHtmxPageUpdate = async (
 			return;
 		}
 
-		logger.hmrUpdate(htmxPageFile, 'htmx', duration);
+		logHmrUpdate(htmxPageFile, 'htmx', duration);
 		broadcastToClients(state, {
 			data: {
 				framework: 'htmx',
@@ -2059,7 +2060,7 @@ const logStyleUpdatesForFramework = (
 	const dur = Date.now() - startTime;
 	filesToRebuild.forEach((file) => {
 		if (detectFramework(file, state.resolvedPaths) === framework) {
-			logger.cssUpdate(file, framework, dur);
+			logCssUpdate(file, framework, dur);
 		}
 	});
 };

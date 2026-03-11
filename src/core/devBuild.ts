@@ -18,7 +18,7 @@ import { startFileWatching } from '../dev/fileWatcher';
 import { getWatchPaths } from '../dev/pathUtils';
 import { cleanStaleAssets, populateAssetStore } from '../dev/assetStore';
 import { queueFileChange } from '../dev/rebuildTrigger';
-import { logger } from '../utils/logger';
+import { logServerReload } from '../utils/logger';
 
 const handleCachedReload = () => {
 	const serverMtime = statSync(resolve(Bun.main)).mtimeMs;
@@ -40,7 +40,7 @@ const handleCachedReload = () => {
 	}
 
 	if (serverMtime !== lastMtime) {
-		logger.serverReload();
+		logServerReload();
 	} else {
 		(globalThis as Record<string, unknown>).__hmrSkipServerRestart = true;
 	}

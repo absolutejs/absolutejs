@@ -34,7 +34,7 @@ import { cleanStaleOutputs } from '../utils/cleanStaleOutputs';
 import { cleanup } from '../utils/cleanup';
 import { commonAncestor } from '../utils/commonAncestor';
 import { getDurationString } from '../utils/getDurationString';
-import { logger } from '../utils/logger';
+import { logError, logWarn } from '../utils/logger';
 import { normalizePath } from '../utils/normalizePath';
 import { toPascal } from '../utils/stringModifiers';
 import { validateSafePath } from '../utils/validateSafePath';
@@ -62,7 +62,7 @@ const extractBuildError = (
 		message: err.message,
 		pass
 	});
-	logger.error(`${label} build failed`, err);
+	logError(`${label} build failed`, err);
 	if (throwOnError) throw err;
 	exit(1);
 };
@@ -413,7 +413,7 @@ export const build = async ({
 		htmxDir === undefined &&
 		htmlDir === undefined
 	) {
-		logger.warn('No entry points found, manifest will be empty');
+		logWarn('No entry points found, manifest will be empty');
 		sendTelemetryEvent('build:empty', {
 			configuredDirs: {
 				angular: Boolean(angularDir),

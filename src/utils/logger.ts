@@ -92,9 +92,27 @@ const log = (
 };
 
 /**
- * Error logging with red color
+ * Startup banner
  */
-const logError = (message: string, error?: Error | string) => {
+export const logReady = startupBanner;
+
+/**
+ * CSS update message
+ * Format: "10:30:45 AM [hmr] css update /styles/main.css (125ms)"
+ */
+export const logCssUpdate = (
+	path: string,
+	framework?: string,
+	duration?: number
+) => {
+	log('css update', { duration, framework: framework ?? 'css', path });
+};
+
+/**
+ * Build error
+ * Format: "10:30:45 AM [hmr] error Build failed: ..."
+ */
+export const logError = (message: string, error?: Error | string) => {
 	const timestamp = `${colors.dim}${formatTimestamp()}${colors.reset}`;
 	const tag = `${colors.red}[hmr]${colors.reset}`;
 	const errorMsg = error instanceof Error ? error.message : error;
@@ -103,74 +121,63 @@ const logError = (message: string, error?: Error | string) => {
 };
 
 /**
- * Warning logging with yellow color
+ * HMR update message
+ * Format: "10:30:45 AM [hmr] hmr update /pages/App.tsx"
  */
-const logWarn = (message: string) => {
+export const logHmrUpdate = (
+	path: string,
+	framework?: string,
+	duration?: number
+) => {
+	log('hmr update', { duration, framework, path });
+};
+
+/**
+ * Generic info message
+ */
+export const logInfo = (message: string) => {
+	log(message);
+};
+
+/**
+ * Page reload message
+ * Format: "10:30:45 AM [hmr] page reload /src/App.tsx (125ms)"
+ */
+export const logPageReload = (
+	path: string,
+	framework?: string,
+	duration?: number
+) => {
+	log('page reload', { duration, framework, path });
+};
+
+/**
+ * Script update message
+ * Format: "10:30:45 AM [hmr] script update /scripts/counter.ts (125ms)"
+ */
+export const logScriptUpdate = (
+	path: string,
+	framework?: string,
+	duration?: number
+) => {
+	log('script update', { duration, framework, path });
+};
+
+/**
+ * Server module reloaded (Bun --hot triggered a server-side change)
+ */
+export const logServerReload = () => {
+	log(`${colors.cyan}server module reloaded${colors.reset}`);
+};
+
+/**
+ * Warning message
+ * Format: "10:30:45 AM [hmr] warning ..."
+ */
+export const logWarn = (message: string) => {
 	const timestamp = `${colors.dim}${formatTimestamp()}${colors.reset}`;
 	const tag = `${colors.yellow}[hmr]${colors.reset}`;
 	console.warn(
 		`${timestamp} ${tag} ${colors.yellow}warning${colors.reset} ${message}`
 	);
-};
-
-// Public API
-export const logger = {
-	/**
-	 * Startup banner
-	 */
-	ready: startupBanner,
-	/**
-	 * CSS update message
-	 * Format: "10:30:45 AM [hmr] css update /styles/main.css (125ms)"
-	 */
-	cssUpdate(path: string, framework?: string, duration?: number) {
-		log('css update', { duration, framework: framework ?? 'css', path });
-	},
-	/**
-	 * Build error
-	 * Format: "10:30:45 AM [hmr] error Build failed: ..."
-	 */
-	error(message: string, error?: Error | string) {
-		logError(message, error);
-	},
-	/**
-	 * HMR update message
-	 * Format: "10:30:45 AM [hmr] hmr update /pages/App.tsx"
-	 */
-	hmrUpdate(path: string, framework?: string, duration?: number) {
-		log('hmr update', { duration, framework, path });
-	},
-	/**
-	 * Generic info message
-	 */
-	info(message: string) {
-		log(message);
-	},
-	/**
-	 * Page reload message
-	 * Format: "10:30:45 AM [hmr] page reload /src/App.tsx (125ms)"
-	 */
-	pageReload(path: string, framework?: string, duration?: number) {
-		log('page reload', { duration, framework, path });
-	},
-	/**
-	 * Script update message
-	 * Format: "10:30:45 AM [hmr] script update /scripts/counter.ts (125ms)"
-	 */
-	scriptUpdate(path: string, framework?: string, duration?: number) {
-		log('script update', { duration, framework, path });
-	},
-	/**
-	 * Server module reloaded (Bun --hot triggered a server-side change)
-	 */
-	serverReload() {
-		log(`${colors.cyan}server module reloaded${colors.reset}`);
-	},
-	/**
-	 * Warning message
-	 * Format: "10:30:45 AM [hmr] warning ..."
-	 */
-	warn(message: string) {
-		logWarn(message);
-	}
 };
