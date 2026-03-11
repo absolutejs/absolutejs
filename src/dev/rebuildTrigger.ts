@@ -465,7 +465,17 @@ const bundleAngularClient = async (
 	const { getAngularVendorPaths } = await import('../core/devVendorPaths');
 	const clientRoot = await computeClientRoot(state.resolvedPaths);
 
-	const angVendorPaths = getAngularVendorPaths();
+	let angVendorPaths = getAngularVendorPaths();
+	if (!angVendorPaths) {
+		const { computeAngularVendorPaths } = await import(
+			'../build/buildAngularVendor'
+		);
+		const { setAngularVendorPaths } = await import(
+			'../core/devVendorPaths'
+		);
+		angVendorPaths = computeAngularVendorPaths();
+		setAngularVendorPaths(angVendorPaths);
+	}
 
 	const clientResult = await bunBuild({
 		entrypoints: clientPaths,
@@ -695,7 +705,15 @@ const bundleReactClient = async (
 		reactEntries.push(refreshEntry);
 	}
 
-	const vendorPaths = getDevVendorPaths();
+	let vendorPaths = getDevVendorPaths();
+	if (!vendorPaths) {
+		const { computeVendorPaths } = await import(
+			'../build/buildReactVendor'
+		);
+		const { setDevVendorPaths } = await import('../core/devVendorPaths');
+		vendorPaths = computeVendorPaths();
+		setDevVendorPaths(vendorPaths);
+	}
 
 	const { rmSync } = await import('node:fs');
 	rmSync(resolve(buildDir, 'react', 'indexes'), {

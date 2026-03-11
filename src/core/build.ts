@@ -22,7 +22,12 @@ import { updateAssetPaths } from '../build/updateAssetPaths';
 import { buildHMRClient } from '../dev/buildHMRClient';
 import { rewriteReactImports } from '../build/rewriteReactImports';
 import { sendTelemetryEvent } from '../cli/telemetryEvent';
-import { getDevVendorPaths, getAngularVendorPaths } from './devVendorPaths';
+import {
+	getAngularVendorPaths,
+	getDevVendorPaths,
+	setAngularVendorPaths,
+	setDevVendorPaths
+} from './devVendorPaths';
 import type { BuildConfig } from '../../types/build';
 import { angularLinkerPlugin } from '../build/angularLinkerPlugin';
 import { cleanStaleOutputs } from '../utils/cleanStaleOutputs';
@@ -451,11 +456,25 @@ export const build = async ({
 			reactClientEntryPoints.push(refreshEntry);
 	}
 
-	// In dev mode, check if vendor paths are set. When set, React is
-	// externalized and imports are rewritten to stable vendor file paths
-	// after the build. This prevents duplicate React instances during HMR.
-	const vendorPaths = getDevVendorPaths();
-	const angularVendorPaths = getAngularVendorPaths();
+	// In dev mode, externalize React so imports get rewritten to stable
+	// vendor file paths. If module-level state was lost (Bun --hot
+	// re-evaluated devVendorPaths.ts), recompute and restore it.
+	let vendorPaths = getDevVendorPaths();
+	if (!vendorPaths && hmr && reactDir) {
+		const { computeVendorPaths } = await import(
+			'../build/buildReactVendor'
+		);
+		vendorPaths = computeVendorPaths();
+		setDevVendorPaths(vendorPaths);
+	}
+	let angularVendorPaths = getAngularVendorPaths();
+	if (!angularVendorPaths && hmr && angularDir) {
+		const { computeAngularVendorPaths } = await import(
+			'../build/buildAngularVendor'
+		);
+		angularVendorPaths = computeAngularVendorPaths();
+		setAngularVendorPaths(angularVendorPaths);
+	}
 
 	const htmlScriptPlugin = hmr
 		? createHTMLScriptHMRPlugin(htmlDir, htmxDir)

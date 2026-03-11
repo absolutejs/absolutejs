@@ -38,6 +38,22 @@ export const rewriteReactImports = async (
 				modified = true;
 			}
 
+			// Match bare side-effect import: import"react" / import 'react';
+			// (used by _refresh.tsx which imports React for code-splitting)
+			const bareRegex = new RegExp(
+				`(import\\s*["'])${escaped}(["']\\s*;?)`,
+				'g'
+			);
+			const newContent1b = content.replace(
+				bareRegex,
+				`$1${webPath}$2`
+			);
+
+			if (newContent1b !== content) {
+				content = newContent1b;
+				modified = true;
+			}
+
 			// Match dynamic import: import("react") / import('react')
 			const dynamicRegex = new RegExp(
 				`(import\\s*\\(\\s*["'])${escaped}(["']\\s*\\))`,
