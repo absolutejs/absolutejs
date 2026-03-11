@@ -47,7 +47,7 @@ export const handleAngularPageRequest = async <
 			const deps = buildDeps(ssrResult, baseDeps);
 
 			const tokenMap = discoverTokens(pageModule);
-			const selector = resolveSelector(pagePath, PageComponent);
+			const selector = resolveSelector(deps, pagePath, PageComponent);
 
 			const htmlString = `<!DOCTYPE html><html>${headTag}<body><${selector}></${selector}></body></html>`;
 

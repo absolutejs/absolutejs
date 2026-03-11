@@ -5,6 +5,7 @@ export type AngularDeps = {
 	provideClientHydration: typeof import('@angular/platform-browser').provideClientHydration;
 	provideServerRendering: typeof import('@angular/platform-server').provideServerRendering;
 	provideZonelessChangeDetection: typeof import('@angular/core').provideZonelessChangeDetection;
+	reflectComponentType: typeof import('@angular/core').reflectComponentType;
 	renderApplication: typeof import('@angular/platform-server').renderApplication;
 	Sanitizer: typeof import('@angular/core').Sanitizer;
 	SecurityContext: typeof import('@angular/core').SecurityContext;

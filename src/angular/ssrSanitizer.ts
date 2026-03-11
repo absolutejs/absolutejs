@@ -1,3 +1,5 @@
+import type { SecurityContext } from '@angular/core';
+import type { SafeValue } from '@angular/platform-browser';
 import type { AngularDeps } from '../../types/angular';
 
 const escapeHtml = (str: string) =>
@@ -7,20 +9,21 @@ const escapeHtml = (str: string) =>
 		.replace(/>/g, '&gt;')
 		.replace(/"/g, '&quot;');
 
-const bypassValue = (value: string) =>
-	({ changingThisBreaksApplicationSecurity: value }) as any;
+const bypassValue = (value: string): SafeValue => ({
+	changingThisBreaksApplicationSecurity: value
+});
 
 // Deferred: SsrSanitizer class is built after deps load because it
 // extends DomSanitizer which comes from the lazy import. We cache the
 // class + singleton instance after the first request.
-let ssrSanitizer: any = null;
+let ssrSanitizer: InstanceType<AngularDeps['DomSanitizer']> | null = null;
 
 export const getSsrSanitizer = (deps: AngularDeps) => {
 	if (ssrSanitizer) return ssrSanitizer;
 
 	const SsrSanitizerClass = class extends deps.DomSanitizer {
-		sanitize(ctx: any, value: any) {
-			if (value == null) return null;
+		sanitize(ctx: SecurityContext, value: SafeValue | string | null) {
+			if (value === null) return null;
 			let strValue: string;
 			if (typeof value === 'string') {
 				strValue = value;
@@ -33,7 +36,7 @@ export const getSsrSanitizer = (deps: AngularDeps) => {
 				strValue = String(value);
 			}
 
-			if (ctx === deps.SecurityContext?.HTML || ctx === 1) {
+			if (ctx === deps.SecurityContext.HTML) {
 				return escapeHtml(strValue);
 			}
 

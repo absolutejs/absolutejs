@@ -1,4 +1,5 @@
-import type { Type } from '@angular/core';
+import type { EnvironmentProviders, Provider, Type } from '@angular/core';
+import type { BootstrapContext } from '@angular/platform-browser';
 import type {
 	AngularDeps,
 	CachedRouteData,
@@ -24,8 +25,6 @@ export const getCachedRouteData = (pagePath: string) =>
 	routePropsCache.get(pagePath);
 
 // --- Selector cache ---
-// Component selectors never change for a given pagePath, so we cache them
-// to avoid re-reading ɵcmp metadata / decorator annotations every request.
 
 const selectorCache = new Map<string, string>();
 
@@ -54,72 +53,20 @@ export const buildDeps = (
 			platformServer?.provideServerRendering ??
 			baseDeps.provideServerRendering,
 		provideZonelessChangeDetection: core.provideZonelessChangeDetection,
+		reflectComponentType: core.reflectComponentType,
 		renderApplication:
 			platformServer?.renderApplication ?? baseDeps.renderApplication,
 		Sanitizer: core.Sanitizer,
 		SecurityContext: core.SecurityContext
 	} as AngularDeps;
 };
-export const loadSsrDeps = async (pagePath: string) => {
-	const ssrDepsPath = pagePath
-		.split('?')[0]!
-		.replace(/\.js$/, '.ssr-deps.js');
-
-	try {
-		const ssrDeps = await import(ssrDepsPath);
-
-		return {
-			common: ssrDeps.__angularCommon,
-			core: ssrDeps.__angularCore,
-			platformBrowser: ssrDeps.__angularPlatformBrowser,
-			platformServer: ssrDeps.__angularPlatformServer
-		} as SsrDepsResult;
-	} catch {
-		return null;
-	}
-};
-
-// --- Token discovery ---
-
-const isInjectionToken = (value: unknown) =>
-	Boolean(value) &&
-	typeof value === 'object' &&
-	(value as { ngMetadataName?: string }).ngMetadataName === 'InjectionToken';
-
-export const discoverTokens = (pageModule: Record<string, unknown>) =>
-	new Map(
-		Object.entries(pageModule).filter(([, value]) =>
-			isInjectionToken(value)
-		)
-	);
-
-// --- Selector resolution ---
-
-const extractSelectorFromAnnotations = (PageComponent: Type<unknown>) => {
-	const annotations =
-		(PageComponent as any).__annotations__ ||
-		(PageComponent as any).decorators?.map((dec: any) => dec.annotation);
-
-	if (!annotations) {
-		return undefined;
-	}
-
-	for (const ann of annotations) {
-		if (ann?.selector) {
-			return ann.selector as string;
-		}
-	}
-
-	return undefined;
-};
-
 export const buildProviders = (
 	deps: AngularDeps,
-	sanitizer: any,
+	sanitizer: InstanceType<AngularDeps['DomSanitizer']>,
 	maybeProps: Record<string, unknown> | undefined,
 	tokenMap: Map<string, unknown>
 ) => {
-	const providers: any[] = [
+	const providers: (Provider | EnvironmentProviders)[] = [
 		deps.provideServerRendering(),
 		deps.provideClientHydration(),
 		deps.provideZonelessChangeDetection(),
@@ -145,7 +92,38 @@ export const buildProviders = (
 
 	return [...providers, ...propProviders];
 };
+
+const isInjectionToken = (value: unknown) =>
+	Boolean(value) &&
+	typeof value === 'object' &&
+	(value as { ngMetadataName?: string }).ngMetadataName === 'InjectionToken';
+
+export const discoverTokens = (pageModule: Record<string, unknown>) =>
+	new Map(
+		Object.entries(pageModule).filter(([, value]) =>
+			isInjectionToken(value)
+		)
+	);
+export const loadSsrDeps = async (pagePath: string) => {
+	const ssrDepsPath = pagePath
+		.split('?')[0]!
+		.replace(/\.js$/, '.ssr-deps.js');
+
+	try {
+		const ssrDeps = await import(ssrDepsPath);
+
+		return {
+			common: ssrDeps.__angularCommon,
+			core: ssrDeps.__angularCore,
+			platformBrowser: ssrDeps.__angularPlatformBrowser,
+			platformServer: ssrDeps.__angularPlatformServer
+		} as SsrDepsResult;
+	} catch {
+		return null;
+	}
+};
 export const resolveSelector = (
+	deps: AngularDeps,
 	pagePath: string,
 	PageComponent: Type<unknown>
 ) => {
@@ -154,11 +132,8 @@ export const resolveSelector = (
 		return cached;
 	}
 
-	const cmpDef = (PageComponent as any).ɵcmp;
 	const selector =
-		cmpDef?.selectors?.[0]?.[0] ??
-		extractSelectorFromAnnotations(PageComponent) ??
-		'ng-app';
+		deps.reflectComponentType(PageComponent)?.selector ?? 'ng-app';
 	selectorCache.set(pagePath, selector);
 
 	return selector;
@@ -209,7 +184,7 @@ export const injectSsrScripts = (
 export const renderAngularApp = async (
 	deps: AngularDeps,
 	PageComponent: Type<unknown>,
-	providers: any[],
+	providers: (Provider | EnvironmentProviders)[],
 	document: string | Document
 ) => {
 	const origLog = console.log;
@@ -223,17 +198,11 @@ export const renderAngularApp = async (
 		origLog.apply(console, args);
 	};
 
-	const bootstrap = (context: any) =>
-		(
-			deps.bootstrapApplication as (
-				component: Type<unknown>,
-				config?: { providers?: unknown[] },
-				context?: any
-			) => Promise<unknown>
-		)(PageComponent, { providers }, context);
+	const bootstrap = (context: BootstrapContext) =>
+		deps.bootstrapApplication(PageComponent, { providers }, context);
 
 	try {
-		return await deps.renderApplication(bootstrap as any, {
+		return await deps.renderApplication(bootstrap, {
 			document,
 			platformProviders: [],
 			url: '/'

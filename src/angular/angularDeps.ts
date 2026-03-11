@@ -1,7 +1,7 @@
-import type { AngularDeps } from '../../types/angular';
+import type { AngularDeps, SsrDepsResult } from '../../types/angular';
 import { patchAngularInjectorSingleton } from './injectorPatch';
 
-const initDominoAdapter = (platformServer: any) => {
+const initDominoAdapter = (platformServer: SsrDepsResult['platformServer']) => {
 	try {
 		const DominoAdapter = platformServer.ɵDominoAdapter as
 			| { makeCurrent?: () => void }
@@ -50,6 +50,7 @@ const loadAngularDeps = async () => {
 		provideClientHydration: platformBrowser.provideClientHydration,
 		provideServerRendering: platformServer.provideServerRendering,
 		provideZonelessChangeDetection: core.provideZonelessChangeDetection,
+		reflectComponentType: core.reflectComponentType,
 		renderApplication: platformServer.renderApplication,
 		Sanitizer: core.Sanitizer,
 		SecurityContext: core.SecurityContext

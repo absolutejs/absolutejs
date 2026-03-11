@@ -60,6 +60,11 @@ export default defineConfig([
 				{ blankLine: 'always', next: 'return', prev: '*' }
 			],
 
+			'@typescript-eslint/consistent-type-assertions': [
+				'error',
+				{ assertionStyle: 'never' }
+			],
+			'@typescript-eslint/no-non-null-assertion': 'error',
 			'@typescript-eslint/no-unnecessary-type-assertion': 'error'
 		}
 	},
