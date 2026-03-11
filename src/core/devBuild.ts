@@ -22,16 +22,13 @@ import { logServerReload } from '../utils/logger';
 
 const handleCachedReload = () => {
 	const serverMtime = statSync(resolve(Bun.main)).mtimeMs;
-	const lastMtime = (globalThis as Record<string, unknown>)
-		.__hmrServerMtime as number;
-	(globalThis as Record<string, unknown>).__hmrServerMtime = serverMtime;
+	const lastMtime = globalThis.__hmrServerMtime;
+	globalThis.__hmrServerMtime = serverMtime;
 
 	/* Restore vendor paths — module-level state is reset on --hot reload
 	   but devBuild() returns early from cache, skipping setDevVendorPaths.
 	   Without this, HMR rebuilds bundle React inline instead of externalizing. */
-	const cached = (globalThis as Record<string, unknown>).__hmrDevResult as
-		| { hmrState: HMRState }
-		| undefined;
+	const cached = globalThis.__hmrDevResult;
 	if (cached?.hmrState.config.reactDirectory) {
 		setDevVendorPaths(computeVendorPaths());
 	}
@@ -42,7 +39,7 @@ const handleCachedReload = () => {
 	if (serverMtime !== lastMtime) {
 		logServerReload();
 	} else {
-		(globalThis as Record<string, unknown>).__hmrSkipServerRestart = true;
+		globalThis.__hmrSkipServerRestart = true;
 	}
 };
 
@@ -53,7 +50,7 @@ const tryReadPackageVersion = async (path: string) => {
 	if (!pkg || pkg.name !== '@absolutejs/absolute') {
 		return false;
 	}
-	(globalThis as Record<string, unknown>).__absoluteVersion = pkg.version;
+	globalThis.__absoluteVersion = pkg.version;
 
 	return true;
 };
@@ -88,12 +85,7 @@ const loadVendorFiles = async (
    Returns DevResult with manifest, buildDir, asset(), and hmrState for use with the hmr() plugin */
 export const devBuild = async (config: BuildConfig) => {
 	// On Bun --hot reload, return cached result instead of rebuilding
-	const cached = (globalThis as Record<string, unknown>).__hmrDevResult as
-		| {
-				hmrState: HMRState;
-				manifest: Record<string, string>;
-		  }
-		| undefined;
+	const cached = globalThis.__hmrDevResult;
 	if (cached) {
 		handleCachedReload();
 
@@ -182,8 +174,7 @@ export const devBuild = async (config: BuildConfig) => {
 	});
 
 	// Store build duration for the startup banner (printed by networking plugin)
-	(globalThis as Record<string, unknown>).__hmrBuildDuration =
-		performance.now() - buildStart;
+	globalThis.__hmrBuildDuration = performance.now() - buildStart;
 
 	const result = {
 		hmrState: state,
@@ -191,10 +182,8 @@ export const devBuild = async (config: BuildConfig) => {
 	};
 
 	// Cache for Bun --hot reloads
-	(globalThis as Record<string, unknown>).__hmrDevResult = result;
-	(globalThis as Record<string, unknown>).__hmrServerMtime = statSync(
-		resolve(Bun.main)
-	).mtimeMs;
+	globalThis.__hmrDevResult = result;
+	globalThis.__hmrServerMtime = statSync(resolve(Bun.main)).mtimeMs;
 
 	return result;
 };

@@ -96,7 +96,7 @@ const resolveAbsoluteVersion = async () => {
 		const pkg = await tryReadPackageJson(candidate);
 		if (!pkg) continue;
 		if (pkg.name !== '@absolutejs/absolute') continue;
-		(globalThis as Record<string, unknown>).__absoluteVersion = pkg.version;
+		globalThis.__absoluteVersion = pkg.version;
 
 		return;
 	}
@@ -872,8 +872,7 @@ export const build = async ({
 		});
 
 	if (!isIncremental) {
-		(globalThis as Record<string, unknown>).__hmrBuildDuration =
-			performance.now() - buildStart;
+		globalThis.__hmrBuildDuration = performance.now() - buildStart;
 	}
 
 	sendTelemetryEvent('build:complete', {

@@ -25,25 +25,18 @@ export const networking = (app: Elysia) =>
 		},
 		() => {
 			// Skip logging on Bun --hot reloads (HMR handles its own output)
-			const isHotReload = Boolean(
-				(globalThis as Record<string, unknown>).__hmrServerStartup
-			);
-			(globalThis as Record<string, unknown>).__hmrServerStartup = true;
+			const isHotReload = Boolean(globalThis.__hmrServerStartup);
+			globalThis.__hmrServerStartup = true;
 			if (isHotReload) {
 				return;
 			}
 
 			const buildDuration =
-				((globalThis as Record<string, unknown>).__hmrBuildDuration as
-					| number
-					| undefined) ?? Number(env.ABSOLUTE_BUILD_DURATION || 0);
+				globalThis.__hmrBuildDuration ??
+				Number(env.ABSOLUTE_BUILD_DURATION || 0);
 
 			const version =
-				((globalThis as Record<string, unknown>).__absoluteVersion as
-					| string
-					| undefined) ||
-				env.ABSOLUTE_VERSION ||
-				'';
+				globalThis.__absoluteVersion || env.ABSOLUTE_VERSION || '';
 
 			startupBanner({
 				duration: buildDuration,
