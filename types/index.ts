@@ -5,4 +5,5 @@ export * from './client';
 export * from './messages';
 export * from './telemetry';
 export * from './tool';
+export * from './typeGuards';
 export * from './websocket';

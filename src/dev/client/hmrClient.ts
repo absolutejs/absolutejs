@@ -186,7 +186,7 @@ if (!(window.__HMR_WS__ && window.__HMR_WS__.readyState === WebSocket.OPEN)) {
 	wsc.onmessage = function (event: MessageEvent) {
 		let message;
 		try {
-			message = JSON.parse(event.data as string);
+			message = JSON.parse(event.data);
 		} catch {
 			return;
 		}

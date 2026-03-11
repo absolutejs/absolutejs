@@ -1,6 +1,6 @@
 /* Client-side HMR type definitions */
 
-export interface ErrorOverlayOptions {
+export type ErrorOverlayOptions = {
 	column?: number;
 	file?: string;
 	framework?: string;
@@ -8,9 +8,9 @@ export interface ErrorOverlayOptions {
 	line?: number;
 	lineText?: string;
 	message?: string;
-}
+};
 
-export interface DOMStateEntry {
+export type DOMStateEntry = {
 	checked?: boolean;
 	id?: string;
 	idx: number;
@@ -24,45 +24,52 @@ export interface DOMStateEntry {
 	type?: string;
 	value?: string;
 	values?: string[];
-}
+};
 
-export interface DOMStateSnapshot {
+export type DOMStateSnapshot = {
 	activeKey: string | null;
 	items: DOMStateEntry[];
-}
+};
 
-export interface SavedComponentState {
+export type SavedComponentState = {
 	count: number;
-}
+};
 
-export interface SavedState {
+export type SavedState = {
 	componentState: SavedComponentState;
 	forms: Record<string, Record<string, boolean | string>>;
 	scroll: { window: { x: number; y: number } };
-}
+};
 
-export interface ScriptInfo {
+export type ScriptInfo = {
 	src: string;
 	type: string;
-}
+};
 
-export interface CSSUpdateResult {
+export type CSSUpdateResult = {
 	linksToActivate: HTMLLinkElement[];
 	linksToRemove: HTMLLinkElement[];
 	linksToWaitFor: Promise<void>[];
-}
+};
 
 /* Shared mutable state for the HMR client */
-export const hmrState = {
+export const hmrState: {
+	isConnected: boolean;
+	isFirstHMRUpdate: boolean;
+	isHMRUpdating: boolean;
+	pingInterval: ReturnType<typeof setInterval> | null;
+	reconnectTimeout: ReturnType<typeof setTimeout> | null;
+} = {
 	isConnected: false,
 	isFirstHMRUpdate: true,
 	isHMRUpdating: false,
-	pingInterval: null as ReturnType<typeof setInterval> | null,
-	reconnectTimeout: null as ReturnType<typeof setTimeout> | null
+	pingInterval: null,
+	reconnectTimeout: null
 };
 
 /* Window interface extensions for HMR globals */
 declare global {
+	// eslint-disable-next-line @typescript-eslint/consistent-type-definitions -- declaration merging requires interface
 	interface Window {
 		$RefreshReg$?: (type: unknown, id: string) => void;
 		$RefreshRuntime$?: {
@@ -126,5 +133,3 @@ declare global {
 		htmx?: { process: (element: HTMLElement | Document) => void };
 	}
 }
-
-export {};

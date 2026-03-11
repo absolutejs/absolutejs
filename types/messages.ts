@@ -175,31 +175,3 @@ export type HMRServerMessage =
 	| RebuildErrorMessage
 	| PongMessage
 	| ConnectedMessage;
-
-/* Type guard for client messages */
-export const isValidHMRClientMessage = (
-	data: unknown
-): data is HMRClientMessage => {
-	if (!data || typeof data !== 'object') {
-		return false;
-	}
-
-	const message = data as Record<string, unknown>;
-
-	if (!('type' in message) || typeof message.type !== 'string') {
-		return false;
-	}
-
-	switch (message.type) {
-		case 'ping':
-			return true;
-		case 'ready':
-			return true;
-		case 'request-rebuild':
-			return true;
-		case 'hydration-error':
-			return true;
-		default:
-			return false;
-	}
-};

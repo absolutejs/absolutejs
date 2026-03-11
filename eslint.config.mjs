@@ -64,6 +64,10 @@ export default defineConfig([
 				'error',
 				{ assertionStyle: 'never' }
 			],
+			'@typescript-eslint/consistent-type-definitions': [
+				'error',
+				'type'
+			],
 			'@typescript-eslint/no-non-null-assertion': 'error',
 			'@typescript-eslint/no-unnecessary-type-assertion': 'error'
 		}

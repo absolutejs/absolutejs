@@ -11,7 +11,7 @@ import { createHash } from 'crypto';
 // Persists compiler host and options across incremental rebuilds to avoid
 // expensive re-creation of TypeScript compiler host (lib dir resolution,
 // source file overrides). Only used during dev/HMR; production always fresh.
-interface AngularCompilerCache {
+type AngularCompilerCache = {
 	host: ts.CompilerHost;
 	options: CompilerOptions;
 	configHash: string;
