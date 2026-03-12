@@ -49,7 +49,9 @@ describe('Svelte HMR', () => {
 			(m) => m.type === 'svelte-update'
 		);
 		expect(updates.length).toBeGreaterThan(0);
-		const data = updates[0].data as Record<string, unknown>;
+		const first = updates[0];
+		if (!first) return;
+		const data = first.data as Record<string, unknown>;
 		expect(data.framework).toBe('svelte');
 		expect(data.manifest).toBeDefined();
 		expect(data.sourceFile).toBeDefined();

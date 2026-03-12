@@ -50,7 +50,9 @@ describe('handleClientConnect', () => {
 		const sendFn = client.send as ReturnType<typeof mock>;
 		expect(sendFn).toHaveBeenCalledTimes(2);
 
-		const manifestMsg = JSON.parse(sendFn.mock.calls[0][0] as string);
+		const call = sendFn.mock.calls[0];
+		if (!call) return;
+		const manifestMsg = JSON.parse(String(call[0]));
 		expect(manifestMsg.type).toBe('manifest');
 		expect(manifestMsg.data.manifest).toEqual(manifest);
 		expect(manifestMsg.data.serverVersions).toBeDefined();
@@ -62,7 +64,9 @@ describe('handleClientConnect', () => {
 		handleClientConnect(state, client, {});
 
 		const sendFn = client.send as ReturnType<typeof mock>;
-		const connectedMsg = JSON.parse(sendFn.mock.calls[1][0] as string);
+		const call = sendFn.mock.calls[1];
+		if (!call) return;
+		const connectedMsg = JSON.parse(String(call[0]));
 		expect(connectedMsg.type).toBe('connected');
 	});
 });
@@ -107,7 +111,9 @@ describe('broadcastToClients', () => {
 		broadcastToClients(state, { type: 'test' });
 
 		const sendFn = client.send as ReturnType<typeof mock>;
-		const msg = JSON.parse(sendFn.mock.calls[0][0] as string);
+		const call = sendFn.mock.calls[0];
+		if (!call) return;
+		const msg = JSON.parse(String(call[0]));
 		expect(msg.timestamp).toBeDefined();
 		expect(typeof msg.timestamp).toBe('number');
 	});
@@ -136,7 +142,9 @@ describe('handleHMRMessage', () => {
 
 		const sendFn = client.send as ReturnType<typeof mock>;
 		expect(sendFn).toHaveBeenCalledTimes(1);
-		const pong = JSON.parse(sendFn.mock.calls[0][0] as string);
+		const pongCall = sendFn.mock.calls[0];
+		if (!pongCall) return;
+		const pong = JSON.parse(String(pongCall[0]));
 		expect(pong.type).toBe('pong');
 	});
 

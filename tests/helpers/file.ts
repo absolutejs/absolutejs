@@ -27,8 +27,8 @@ export const restoreFile = (filePath: string) => {
 	const resolved = resolve(filePath);
 	const idx = backups.findIndex((b) => b.path === resolved);
 	if (idx === -1) return;
-	const [entry] = backups.splice(idx, 1);
-	writeFileSync(resolved, entry.content, 'utf-8');
+	const entry = backups.splice(idx, 1)[0];
+	if (entry) writeFileSync(resolved, entry.content, 'utf-8');
 };
 export const withFileMutation = async <T>(
 	filePath: string,
