@@ -1,18 +1,8 @@
 /* Vue HMR update handler */
 
+import type { VueComponentInstance, VueVNode } from '../../../../types/vue';
 import { saveDOMState, restoreDOMState } from '../domState';
 import { detectCurrentFramework, findIndexPath } from '../frameworkDetect';
-
-/* Local Vue internal types (avoids importing Vue) */
-type VueVNode = {
-	children?: VueVNode[];
-	component?: VueComponentInstance;
-};
-
-type VueComponentInstance = {
-	setupState?: Record<string, unknown>;
-	subTree?: VueVNode;
-};
 
 /* Collect reactive value from a setup state entry into the target record */
 const collectSetupValue = (
@@ -118,11 +108,7 @@ const extractVueAppState = (vuePreservedState: Record<string, unknown>) => {
 		collectSetupState(vuePreservedState, instance.setupState);
 	}
 
-	// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- Window._instance type is broader than VueComponentInstance
-	extractChildComponentState(
-		instance as VueComponentInstance,
-		vuePreservedState
-	);
+	extractChildComponentState(instance, vuePreservedState);
 };
 
 /* DOM fallback: extract count from button text when app instance is unavailable */

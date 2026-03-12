@@ -61,16 +61,7 @@ declare global {
 		__VUE_APP__?:
 			| ({
 					unmount: () => void;
-					_instance?: {
-						setupState?: Record<string, unknown>;
-						subTree?: {
-							children?: unknown[];
-							component?: {
-								setupState?: Record<string, unknown>;
-								subTree?: unknown;
-							};
-						};
-					};
+					_instance?: import('./vue').VueComponentInstance;
 			  } & Record<string, unknown>)
 			| null;
 		__VUE_HMR_COMPONENTS__?: Record<string, unknown>;

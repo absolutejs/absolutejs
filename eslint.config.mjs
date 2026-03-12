@@ -24,6 +24,7 @@ export default defineConfig([
 			'.absolutejs/**',
 			'.cache/**',
 			'.claude/**',
+			'.test-builds/**',
 			'example/build/**',
 			'example/dist/**',
 			'example/react/indexes/*'
@@ -248,6 +249,19 @@ export default defineConfig([
 		],
 		rules: {
 			'@typescript-eslint/no-unused-expressions': 'off'
+		}
+	},
+	{
+		files: ['tests/**/*.ts'],
+		rules: {
+			'@typescript-eslint/consistent-type-assertions': 'off',
+			'absolute/max-depth-extended': 'off',
+			'absolute/min-var-length': 'off',
+			'absolute/no-useless-function': 'off',
+			'no-await-in-loop': 'off',
+			'no-empty-function': 'off',
+			'no-magic-numbers': 'off',
+			'promise/avoid-new': 'off'
 		}
 	}
 ]);
