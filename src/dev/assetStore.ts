@@ -42,7 +42,10 @@ const processWalkEntry = (
 	}
 	const identity = stripHash(fullPath);
 	const livePath = liveByIdentity.get(identity);
-	if (livePath && livePath !== fullPath) {
+	// Delete if: (a) no live entry exists (page was deleted), or
+	// (b) a different hash is live (stale version of an existing page).
+	// Only keep the file when it IS the current live version.
+	if (livePath !== fullPath) {
 		return unlink(fullPath).catch(() => {
 			/* noop */
 		});
@@ -141,11 +144,18 @@ export const populateAssetStore = async (
 		newIdentities.set(stripHash(webPath), webPath);
 	}
 
-	// Evict old store entries whose logical identity is being replaced
+	// Evict old store entries that are either:
+	// (a) being replaced by a new hash (same identity, different path), or
+	// (b) no longer in the manifest at all (page was deleted).
+	// Chunk files (chunk-XXXX.js) are kept — they're not tracked in the manifest.
+	const liveWebPaths = new Set(newIdentities.values());
 	const staleKeys = [...store.keys()].filter((existingPath) => {
+		if (existingPath.includes('/chunk-')) return false;
 		const replacement = newIdentities.get(stripHash(existingPath));
+		// Delete if replaced by a different hash OR if no identity exists at all
+		if (replacement !== undefined) return replacement !== existingPath;
 
-		return replacement !== undefined && replacement !== existingPath;
+		return !liveWebPaths.has(existingPath);
 	});
 	staleKeys.forEach((key) => store.delete(key));
 

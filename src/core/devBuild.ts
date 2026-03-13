@@ -116,9 +116,14 @@ const rebuildManifest = async (
 ) => {
 	const state = cached.hmrState;
 
-	// Block file-watcher rebuilds while we do a full build.
-	// Without this, the watcher's React fast-path can delete the indexes
-	// directory while build() is still trying to bundle from it.
+	// Wait for any in-flight file-watcher build to finish before starting.
+	// Without this, a concurrent fast-path build (React, Vue, Svelte) can
+	// delete intermediate directories (indexes/, server/) while this full
+	// build is trying to read from them, causing ModuleNotFound errors.
+	while (state.isRebuilding) {
+		await Bun.sleep(10);
+	}
+
 	state.isRebuilding = true;
 
 	try {
@@ -132,6 +137,16 @@ const rebuildManifest = async (
 			}
 		});
 		if (newManifest) {
+			// Replace manifest contents instead of just merging.
+			// Object.assign only adds/updates keys — it never removes them,
+			// so deleted pages would leave dead keys in the manifest forever.
+			// Deleting stale keys first ensures cleanStaleAssets can also
+			// remove orphaned build artifacts from disk.
+			for (const key of Object.keys(cached.manifest)) {
+				if (!(key in newManifest)) {
+					delete (cached.manifest as Record<string, unknown>)[key];
+				}
+			}
 			Object.assign(cached.manifest, newManifest);
 			state.manifest = cached.manifest;
 
