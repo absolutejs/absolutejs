@@ -6,7 +6,7 @@ import {
 	FOCUS_IDX_PREFIX_LENGTH,
 	FOCUS_NAME_PREFIX_LENGTH,
 	UNFOUND_INDEX
-} from '../../constants';
+} from './constants';
 
 const trySetSelectionRange = (
 	element: HTMLInputElement | HTMLTextAreaElement,

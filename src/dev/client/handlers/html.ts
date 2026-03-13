@@ -1,6 +1,6 @@
 /* HTML + script HMR update handlers */
 
-import { DOM_UPDATE_DELAY_MS } from '../../../constants';
+import { DOM_UPDATE_DELAY_MS } from '../constants';
 import { patchDOMInPlace } from '../domDiff';
 import {
 	saveDOMState,

@@ -14,7 +14,7 @@
    callback (which can be async), and crossfades when the callback finishes.
    The user never sees empty/default state — only the before and after. */
 
-import { ANGULAR_INIT_TIMEOUT_MS } from '../../../constants';
+import { ANGULAR_INIT_TIMEOUT_MS } from '../constants';
 import {
 	saveFormState,
 	restoreFormState,

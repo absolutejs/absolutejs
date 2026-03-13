@@ -4,6 +4,7 @@
 		"absolute": "./dist/cli/index.js"
 	},
 	"dependencies": {
+		"@absolutejs/absolute": "0.18.2-beta.1",
 		"@angular/compiler": "^21.0.0",
 		"react-refresh": "^0.18.0"
 	},
@@ -151,5 +152,5 @@
 		"typecheck": "bun run vue-tsc --noEmit"
 	},
 	"types": "./dist/src/index.d.ts",
-	"version": "0.18.1"
+	"version": "0.18.2"
 }

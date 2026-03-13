@@ -1,6 +1,6 @@
 /* Rebuild, manifest, module-update, and error handlers */
 
-import { REBUILD_RELOAD_DELAY_MS } from '../../../constants';
+import { REBUILD_RELOAD_DELAY_MS } from '../constants';
 import {
 	hideErrorOverlay,
 	isRuntimeErrorOverlay,

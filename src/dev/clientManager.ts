@@ -26,11 +26,12 @@ export type HMRState = {
 	vueChangeTypes: Map<string, 'template-only' | 'script' | 'full'>; // Vue HMR change type tracking
 	assetStore: Map<string, Uint8Array>; // In-memory client asset store for dev mode
 	manifest: Record<string, string>; // Current build manifest (for Angular fast-path HMR)
+	rebuildCount: number; // Incremented after each successful rebuild
 };
 
 /* Initialize HMR state */
 export const createHMRState = (config: BuildConfig): HMRState => ({
-	assetStore: new Map(), // In-memory client asset store for dev mode,
+	assetStore: new Map(), // In-memory client asset store for dev mode,,
 	config,
 	connectedClients: new Set<HMRWebSocket>(),
 	debounceTimeout: null,
@@ -38,13 +39,14 @@ export const createHMRState = (config: BuildConfig): HMRState => ({
 	fileChangeQueue: new Map(),
 	fileHashes: new Map(),
 	isRebuilding: false,
-	manifest: {}, // Current build manifest (populated after initial build)
+	manifest: {}, // Current build manifest (populated after initial build),
 	moduleVersions: createModuleVersionTracker(),
+	rebuildCount: 0,
 	rebuildQueue: new Set(),
 	rebuildTimeout: null,
-	resolvedPaths: resolveBuildPaths(config), // Track versions for source files to bypass Bun's cache
+	resolvedPaths: resolveBuildPaths(config), // Track versions for source files to bypass Bun's cache,
 	sourceFileVersions: new Map(),
-	vueChangeTypes: new Map(), // Vue HMR change type tracking
+	vueChangeTypes: new Map(), // Vue HMR change type tracking,
 	watchers: []
 });
 

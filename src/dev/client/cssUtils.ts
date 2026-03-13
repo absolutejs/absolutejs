@@ -8,7 +8,7 @@ import {
 	CSS_SHEET_READY_TIMEOUT_MS,
 	DOM_UPDATE_DELAY_MS,
 	RAF_BATCH_COUNT
-} from '../../constants';
+} from './constants';
 
 export const getCSSBaseName = (href: string) => {
 	const fileName = href.split('?')[0]?.split('/').pop() || '';

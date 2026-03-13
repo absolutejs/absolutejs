@@ -89,6 +89,27 @@ const setupWatcher = (
 	state.watchers.push(watcher);
 };
 
+/* Add file watchers for specific paths (used when new framework directories are added at runtime) */
+export const addFileWatchers = (
+	state: HMRState,
+	paths: string[],
+	onFileChange: (filePath: string) => void
+) => {
+	const stylesDir = state.resolvedPaths?.stylesDir;
+
+	paths.forEach((path) => {
+		const absolutePath = resolve(path).replace(/\\/g, '/');
+		if (!existsSync(absolutePath)) {
+			return;
+		}
+
+		const isStylesDir = Boolean(
+			stylesDir && absolutePath.startsWith(stylesDir)
+		);
+		setupWatcher(absolutePath, isStylesDir, state, onFileChange);
+	});
+};
+
 /* Set up file watching for all configured directories
    This handles the "watch files" problem */
 export const startFileWatching = (

@@ -1,6 +1,6 @@
 /* DOM diffing/patching for in-place updates (zero flicker) */
 
-import { UNFOUND_INDEX } from '../../constants';
+import { UNFOUND_INDEX } from './constants';
 
 type KeyedEntry = {
 	index: number;

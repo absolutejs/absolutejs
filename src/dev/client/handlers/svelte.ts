@@ -1,6 +1,6 @@
 /* Svelte HMR update handler */
 
-import { SVELTE_CSS_LOAD_TIMEOUT_MS } from '../../../constants';
+import { SVELTE_CSS_LOAD_TIMEOUT_MS } from '../constants';
 import {
 	saveDOMState,
 	restoreDOMState,

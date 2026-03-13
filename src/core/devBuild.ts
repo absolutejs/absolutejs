@@ -13,14 +13,151 @@ import {
 	computeAngularVendorPaths
 } from '../build/buildAngularVendor';
 import { createHMRState } from '../dev/clientManager';
+import { resolveBuildPaths } from '../dev/configResolver';
 import { buildInitialDependencyGraph } from '../dev/dependencyGraph';
-import { startFileWatching } from '../dev/fileWatcher';
+import { addFileWatchers, startFileWatching } from '../dev/fileWatcher';
 import { getWatchPaths } from '../dev/pathUtils';
 import { cleanStaleAssets, populateAssetStore } from '../dev/assetStore';
 import { queueFileChange } from '../dev/rebuildTrigger';
 import { logServerReload } from '../utils/logger';
 
-const handleCachedReload = () => {
+const FRAMEWORK_DIR_KEYS = [
+	'reactDirectory',
+	'svelteDirectory',
+	'vueDirectory',
+	'htmlDirectory',
+	'htmxDirectory',
+	'angularDirectory'
+] as const;
+
+/** Re-read absolute.config.ts bypassing Bun's module cache by parsing the file directly */
+const reloadConfig = async (): Promise<Partial<BuildConfig> | null> => {
+	try {
+		const configPath = resolve(
+			process.env.ABSOLUTE_CONFIG ?? 'absolute.config.ts'
+		);
+		const source = await Bun.file(configPath).text();
+
+		// Extract directory values from the config source.
+		// Config files use defineConfig({ key: 'value' }) format.
+		const config: Partial<BuildConfig> = {};
+		const dirPattern = /(\w+Directory)\s*:\s*['"]([^'"]+)['"]/g;
+		let match;
+		while ((match = dirPattern.exec(source)) !== null) {
+			const [, key, value] = match;
+			(config as Record<string, string>)[key!] = value!;
+		}
+
+		return Object.keys(config).length > 0 ? config : null;
+	} catch {
+		return null;
+	}
+};
+
+/** Detect config changes on HMR reload and update watchers for new framework directories */
+const detectConfigChanges = async (
+	cached: NonNullable<typeof globalThis.__hmrDevResult>
+) => {
+	const newConfig = await reloadConfig();
+	if (!newConfig) return;
+
+	const state = cached.hmrState;
+	const oldConfig = state.config;
+
+	// Check if any framework directory changed
+	let hasChanges = false;
+	for (const key of FRAMEWORK_DIR_KEYS) {
+		if (newConfig[key] !== oldConfig[key]) {
+			hasChanges = true;
+			break;
+		}
+	}
+	if (!hasChanges) return;
+
+	// Snapshot old watch paths before updating config
+	const oldWatchPaths = new Set(
+		getWatchPaths(oldConfig, state.resolvedPaths)
+	);
+
+	// Update config in-place so all references stay valid
+	for (const key of FRAMEWORK_DIR_KEYS) {
+		(state.config as Record<string, unknown>)[key] = newConfig[key];
+	}
+	state.resolvedPaths = resolveBuildPaths(state.config);
+
+	// Set up vendor paths for newly added React/Angular
+	if (!oldConfig.reactDirectory && Boolean(newConfig.reactDirectory)) {
+		setDevVendorPaths(computeVendorPaths());
+	}
+	if (!oldConfig.angularDirectory && Boolean(newConfig.angularDirectory)) {
+		setAngularVendorPaths(computeAngularVendorPaths());
+	}
+
+	// Compute new watch paths and start watchers for additions
+	const newWatchPaths = getWatchPaths(state.config, state.resolvedPaths);
+	const addedPaths = newWatchPaths.filter((p) => !oldWatchPaths.has(p));
+
+	if (addedPaths.length > 0) {
+		buildInitialDependencyGraph(state.dependencyGraph, addedPaths);
+		addFileWatchers(state, addedPaths, (filePath: string) => {
+			queueFileChange(state, filePath, state.config, (newBuildResult) => {
+				Object.assign(cached.manifest, newBuildResult.manifest);
+				state.manifest = cached.manifest;
+			});
+		});
+	}
+};
+
+/** Rebuild manifest and update asset store — called on every server.ts HMR reload.
+ *  Sets isRebuilding to prevent the file-watcher fast path from running concurrently,
+ *  which would delete the indexes directory mid-build and cause ModuleNotFound errors. */
+const rebuildManifest = async (
+	cached: NonNullable<typeof globalThis.__hmrDevResult>
+) => {
+	const state = cached.hmrState;
+
+	// Block file-watcher rebuilds while we do a full build.
+	// Without this, the watcher's React fast-path can delete the indexes
+	// directory while build() is still trying to bundle from it.
+	state.isRebuilding = true;
+
+	try {
+		const newManifest = await build({
+			...state.config,
+			mode: 'development',
+			options: {
+				...state.config.options,
+				injectHMR: true,
+				throwOnError: true
+			}
+		});
+		if (newManifest) {
+			Object.assign(cached.manifest, newManifest);
+			state.manifest = cached.manifest;
+
+			await populateAssetStore(
+				state.assetStore,
+				cached.manifest,
+				state.resolvedPaths.buildDir
+			);
+			await cleanStaleAssets(
+				state.assetStore,
+				cached.manifest,
+				state.resolvedPaths.buildDir
+			);
+		}
+		state.rebuildCount++;
+	} catch {
+		// Build errors are logged by build() itself
+	} finally {
+		state.isRebuilding = false;
+		// Clear any file-change queue entries that accumulated during the full build —
+		// the full build already picked up those files, so they don't need rebuilding.
+		state.fileChangeQueue.clear();
+	}
+};
+
+const handleCachedReload = async () => {
 	const serverMtime = statSync(resolve(Bun.main)).mtimeMs;
 	const lastMtime = globalThis.__hmrServerMtime;
 	globalThis.__hmrServerMtime = serverMtime;
@@ -38,6 +175,13 @@ const handleCachedReload = () => {
 
 	if (serverMtime !== lastMtime) {
 		logServerReload();
+		if (cached) {
+			// Detect config changes (new framework directories) and update watchers
+			await detectConfigChanges(cached);
+			// Always rebuild when server.ts changes — new pages/routes may have been added
+			// even if config directories haven't changed
+			await rebuildManifest(cached);
+		}
 	} else {
 		globalThis.__hmrSkipServerRestart = true;
 	}
@@ -90,7 +234,7 @@ export const devBuild = async (config: BuildConfig) => {
 	// On Bun --hot reload, return cached result instead of rebuilding
 	const cached = globalThis.__hmrDevResult;
 	if (cached) {
-		handleCachedReload();
+		await handleCachedReload();
 
 		return cached;
 	}

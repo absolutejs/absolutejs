@@ -1,7 +1,7 @@
 /* AbsoluteJS Error Overlay - branded, per-framework, modern styling */
 
 import type { ErrorOverlayOptions } from '../../../types/client';
-import { OVERLAY_FADE_DURATION_MS } from '../../constants';
+import { OVERLAY_FADE_DURATION_MS } from './constants';
 
 let errorOverlayElement: HTMLDivElement | null = null;
 let currentOverlayKind: 'compilation' | 'runtime' | null = null;

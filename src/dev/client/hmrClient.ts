@@ -9,7 +9,7 @@ import {
 	RECONNECT_INITIAL_DELAY_MS,
 	RECONNECT_POLL_INTERVAL_MS,
 	WEBSOCKET_NORMAL_CLOSURE
-} from '../../constants';
+} from './constants';
 import { detectCurrentFramework } from './frameworkDetect';
 import { hideErrorOverlay, showErrorOverlay } from './errorOverlay';
 import { handleAngularUpdate } from './handlers/angular';

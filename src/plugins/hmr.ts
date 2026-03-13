@@ -72,6 +72,7 @@ export const hmr =
 				connectedClients: hmrState.connectedClients.size,
 				isRebuilding: hmrState.isRebuilding,
 				manifestKeys: Object.keys(manifest),
+				rebuildCount: hmrState.rebuildCount,
 				rebuildQueue: Array.from(hmrState.rebuildQueue),
 				timestamp: Date.now()
 			}));
