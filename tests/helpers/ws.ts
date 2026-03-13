@@ -32,9 +32,10 @@ export const connectHMR = (port: number) =>
 
 				// Check all waiters (not just first match) to handle out-of-order delivery
 				for (let i = waiters.length - 1; i >= 0; i--) {
-					if (waiters[i].type === msg.type) {
-						const [waiter] = waiters.splice(i, 1);
-						waiter.resolve(msg);
+					const entry = waiters[i];
+					if (entry && entry.type === msg.type) {
+						waiters.splice(i, 1);
+						entry.resolve(msg);
 						break;
 					}
 				}
@@ -53,9 +54,8 @@ export const connectHMR = (port: number) =>
 					// Check already-received messages
 					const idx = messages.findIndex((m) => m.type === type);
 					if (idx !== -1) {
-						const [found] = messages.splice(idx, 1);
-
-						return Promise.resolve(found);
+						const found = messages.splice(idx, 1)[0];
+						if (found) return Promise.resolve(found);
 					}
 
 					return new Promise<HMRMessage>((_resolve, _reject) => {

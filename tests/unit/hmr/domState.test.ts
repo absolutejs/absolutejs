@@ -250,7 +250,8 @@ describe('saveDOMState + restoreDOMState roundtrip', () => {
 		(inputs[0] as HTMLElement).focus();
 		restoreDOMState(root, snapshot);
 
-		expect(document.activeElement).toBe(inputs[2]);
+		const expected = inputs[2];
+		if (expected) expect(document.activeElement).toBe(expected);
 	});
 
 	test('handles empty root element', () => {

@@ -47,7 +47,9 @@ describe('Vue HMR', () => {
 	test('update message contains framework data', async () => {
 		const updates = client.messages.filter((m) => m.type === 'vue-update');
 		expect(updates.length).toBeGreaterThan(0);
-		const data = updates[0].data as Record<string, unknown>;
+		const first = updates[0];
+		if (!first) return;
+		const data = first.data as Record<string, unknown>;
 		expect(data.framework).toBe('vue');
 		expect(data.manifest).toBeDefined();
 		expect(data.changeType).toBeDefined();
