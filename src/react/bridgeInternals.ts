@@ -24,6 +24,7 @@ const findInternals = (
 		const val = mod[key] as Record<string, unknown> | undefined;
 		if (val) return val;
 	}
+
 	return undefined;
 };
 
@@ -46,14 +47,14 @@ export const bridgeReactInternals = async (): Promise<void> => {
 
 	for (const prop of Object.keys(pinnedInternals)) {
 		Object.defineProperty(currentInternals, prop, {
+			configurable: true,
+			enumerable: true,
 			get() {
 				return pinnedInternals[prop];
 			},
 			set(v: unknown) {
 				pinnedInternals[prop] = v;
-			},
-			configurable: true,
-			enumerable: true
+			}
 		});
 	}
 };

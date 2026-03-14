@@ -151,5 +151,5 @@
 		"typecheck": "bun run vue-tsc --noEmit"
 	},
 	"types": "./dist/src/index.d.ts",
-	"version": "0.18.3-beta.14"
+	"version": "0.18.4"
 }
