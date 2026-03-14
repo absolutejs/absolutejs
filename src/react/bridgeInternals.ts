@@ -17,26 +17,28 @@ const INTERNALS_KEYS = [
 	'__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED'
 ] as const;
 
-const findInternals = (
-	mod: Record<string, unknown>
-): Record<string, unknown> | undefined => {
+const isRecord = (val: unknown): val is Record<string, unknown> =>
+	typeof val === 'object' && val !== null;
+
+const findInternals = (mod: Record<string, unknown>) => {
 	for (const key of INTERNALS_KEYS) {
-		const val = mod[key] as Record<string, unknown> | undefined;
-		if (val) return val;
+		const val = mod[key];
+		if (isRecord(val)) return val;
 	}
 
 	return undefined;
 };
 
-export const bridgeReactInternals = async (): Promise<void> => {
-	const pinned = globalThis.__reactModuleRef;
+export const bridgeReactInternals = async () => {
+	const pinned: Record<string, unknown> | undefined =
+		globalThis.__reactModuleRef;
 	if (!pinned) return;
 
-	const react = await import('react');
+	const react: Record<string, unknown> = await import('react');
 	if (pinned === react) return;
 
-	const pinnedInternals = findInternals(pinned as Record<string, unknown>);
-	const currentInternals = findInternals(react as Record<string, unknown>);
+	const pinnedInternals = findInternals(pinned);
+	const currentInternals = findInternals(react);
 
 	if (
 		!pinnedInternals ||
@@ -52,8 +54,8 @@ export const bridgeReactInternals = async (): Promise<void> => {
 			get() {
 				return pinnedInternals[prop];
 			},
-			set(v: unknown) {
-				pinnedInternals[prop] = v;
+			set(value: unknown) {
+				pinnedInternals[prop] = value;
 			}
 		});
 	}

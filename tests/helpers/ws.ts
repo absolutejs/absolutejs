@@ -54,7 +54,7 @@ export const connectHMR = (port: number) =>
 					// Check already-received messages
 					const idx = messages.findIndex((m) => m.type === type);
 					if (idx !== -1) {
-						const found = messages.splice(idx, 1)[0];
+						const [found] = messages.splice(idx, 1);
 						if (found) return Promise.resolve(found);
 					}
 

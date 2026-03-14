@@ -30,25 +30,28 @@ const FRAMEWORK_DIR_KEYS = [
 	'angularDirectory'
 ] as const;
 
+/** Parse directory keys from config source text */
+const parseDirectoryConfig = (source: string) => {
+	const config: Partial<BuildConfig> = {};
+	const dirPattern = /(\w+Directory)\s*:\s*['"]([^'"]+)['"]/g;
+	let match;
+	while ((match = dirPattern.exec(source)) !== null) {
+		const [, key, value] = match;
+		if (key && value) Object.assign(config, { [key]: value });
+	}
+
+	return Object.keys(config).length > 0 ? config : null;
+};
+
 /** Re-read absolute.config.ts bypassing Bun's module cache by parsing the file directly */
-const reloadConfig = async (): Promise<Partial<BuildConfig> | null> => {
+const reloadConfig = async () => {
 	try {
 		const configPath = resolve(
 			process.env.ABSOLUTE_CONFIG ?? 'absolute.config.ts'
 		);
 		const source = await Bun.file(configPath).text();
 
-		// Extract directory values from the config source.
-		// Config files use defineConfig({ key: 'value' }) format.
-		const config: Partial<BuildConfig> = {};
-		const dirPattern = /(\w+Directory)\s*:\s*['"]([^'"]+)['"]/g;
-		let match;
-		while ((match = dirPattern.exec(source)) !== null) {
-			const [, key, value] = match;
-			(config as Record<string, string>)[key!] = value!;
-		}
-
-		return Object.keys(config).length > 0 ? config : null;
+		return parseDirectoryConfig(source);
 	} catch {
 		return null;
 	}
@@ -65,13 +68,9 @@ const detectConfigChanges = async (
 	const oldConfig = state.config;
 
 	// Check if any framework directory changed
-	let hasChanges = false;
-	for (const key of FRAMEWORK_DIR_KEYS) {
-		if (newConfig[key] !== oldConfig[key]) {
-			hasChanges = true;
-			break;
-		}
-	}
+	const hasChanges = FRAMEWORK_DIR_KEYS.some(
+		(key) => newConfig[key] !== oldConfig[key]
+	);
 	if (!hasChanges) return;
 
 	// Snapshot old watch paths before updating config
@@ -81,7 +80,7 @@ const detectConfigChanges = async (
 
 	// Update config in-place so all references stay valid
 	for (const key of FRAMEWORK_DIR_KEYS) {
-		(state.config as Record<string, unknown>)[key] = newConfig[key];
+		state.config[key] = newConfig[key];
 	}
 	state.resolvedPaths = resolveBuildPaths(state.config);
 
@@ -95,7 +94,7 @@ const detectConfigChanges = async (
 
 	// Compute new watch paths and start watchers for additions
 	const newWatchPaths = getWatchPaths(state.config, state.resolvedPaths);
-	const addedPaths = newWatchPaths.filter((p) => !oldWatchPaths.has(p));
+	const addedPaths = newWatchPaths.filter((path) => !oldWatchPaths.has(path));
 
 	if (addedPaths.length > 0) {
 		buildInitialDependencyGraph(state.dependencyGraph, addedPaths);
@@ -108,6 +107,26 @@ const detectConfigChanges = async (
 	}
 };
 
+/** Remove keys from target that don't exist in source */
+const removeStaleKeys = (
+	target: Record<string, string>,
+	source: Record<string, string>
+) => {
+	for (const key of Object.keys(target)) {
+		if (!(key in source)) delete target[key];
+	}
+};
+
+const REBUILD_POLL_MS = 10;
+
+/** Wait for any in-flight file-watcher build to finish */
+const waitForRebuild = async (state: { isRebuilding: boolean }) => {
+	while (state.isRebuilding) {
+		// eslint-disable-next-line no-await-in-loop -- intentional polling for concurrent build lock
+		await Bun.sleep(REBUILD_POLL_MS);
+	}
+};
+
 /** Rebuild manifest and update asset store — called on every server.ts HMR reload.
  *  Sets isRebuilding to prevent the file-watcher fast path from running concurrently,
  *  which would delete the indexes directory mid-build and cause ModuleNotFound errors. */
@@ -116,13 +135,10 @@ const rebuildManifest = async (
 ) => {
 	const state = cached.hmrState;
 
-	// Wait for any in-flight file-watcher build to finish before starting.
 	// Without this, a concurrent fast-path build (React, Vue, Svelte) can
 	// delete intermediate directories (indexes/, server/) while this full
 	// build is trying to read from them, causing ModuleNotFound errors.
-	while (state.isRebuilding) {
-		await Bun.sleep(10);
-	}
+	await waitForRebuild(state);
 
 	state.isRebuilding = true;
 
@@ -136,35 +152,29 @@ const rebuildManifest = async (
 				throwOnError: true
 			}
 		});
-		if (newManifest) {
-			// Replace manifest contents instead of just merging.
-			// Object.assign only adds/updates keys — it never removes them,
-			// so deleted pages would leave dead keys in the manifest forever.
-			// Deleting stale keys first ensures cleanStaleAssets can also
-			// remove orphaned build artifacts from disk.
-			for (const key of Object.keys(cached.manifest)) {
-				if (!(key in newManifest)) {
-					delete (cached.manifest as Record<string, unknown>)[key];
-				}
-			}
-			Object.assign(cached.manifest, newManifest);
-			state.manifest = cached.manifest;
+		if (!newManifest) return;
 
-			await populateAssetStore(
-				state.assetStore,
-				cached.manifest,
-				state.resolvedPaths.buildDir
-			);
-			await cleanStaleAssets(
-				state.assetStore,
-				cached.manifest,
-				state.resolvedPaths.buildDir
-			);
-		}
-		state.rebuildCount++;
+		// Replace manifest contents instead of just merging.
+		// Object.assign only adds/updates keys — it never removes them,
+		// so deleted pages would leave dead keys in the manifest forever.
+		removeStaleKeys(cached.manifest, newManifest);
+		Object.assign(cached.manifest, newManifest);
+		state.manifest = cached.manifest;
+
+		await populateAssetStore(
+			state.assetStore,
+			cached.manifest,
+			state.resolvedPaths.buildDir
+		);
+		await cleanStaleAssets(
+			state.assetStore,
+			cached.manifest,
+			state.resolvedPaths.buildDir
+		);
 	} catch {
 		// Build errors are logged by build() itself
 	} finally {
+		state.rebuildCount++;
 		state.isRebuilding = false;
 		// Clear any file-change queue entries that accumulated during the full build —
 		// the full build already picked up those files, so they don't need rebuilding.
@@ -188,18 +198,20 @@ const handleCachedReload = async () => {
 		setAngularVendorPaths(computeAngularVendorPaths());
 	}
 
-	if (serverMtime !== lastMtime) {
-		logServerReload();
-		if (cached) {
-			// Detect config changes (new framework directories) and update watchers
-			await detectConfigChanges(cached);
-			// Always rebuild when server.ts changes — new pages/routes may have been added
-			// even if config directories haven't changed
-			await rebuildManifest(cached);
-		}
-	} else {
+	if (serverMtime === lastMtime) {
 		globalThis.__hmrSkipServerRestart = true;
+
+		return;
 	}
+
+	logServerReload();
+	if (!cached) return;
+
+	// Detect config changes (new framework directories) and update watchers
+	await detectConfigChanges(cached);
+	// Always rebuild when server.ts changes — new pages/routes may have been added
+	// even if config directories haven't changed
+	await rebuildManifest(cached);
 };
 
 const tryReadPackageVersion = async (path: string) => {
@@ -312,12 +324,12 @@ export const devBuild = async (config: BuildConfig) => {
 			'vendor'
 		);
 		await loadVendorFiles(state.assetStore, vendorDir, 'react');
+	}
 
-		// Pin the React module reference so we can detect when bun install
-		// causes Bun to resolve a new instance (two-copies problem).
-		if (!globalThis.__reactModuleRef) {
-			globalThis.__reactModuleRef = await import('react');
-		}
+	// Pin the React module reference so we can detect when bun install
+	// causes Bun to resolve a new instance (two-copies problem).
+	if (config.reactDirectory && !globalThis.__reactModuleRef) {
+		globalThis.__reactModuleRef = await import('react');
 	}
 
 	// Build Angular vendor files — same pattern as React.

@@ -250,7 +250,7 @@ describe('saveDOMState + restoreDOMState roundtrip', () => {
 		(inputs[0] as HTMLElement).focus();
 		restoreDOMState(root, snapshot);
 
-		const expected = inputs[2];
+		const [, , expected] = inputs;
 		if (expected) expect(document.activeElement).toBe(expected);
 	});
 
