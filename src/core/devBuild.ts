@@ -312,6 +312,12 @@ export const devBuild = async (config: BuildConfig) => {
 			'vendor'
 		);
 		await loadVendorFiles(state.assetStore, vendorDir, 'react');
+
+		// Pin the React module reference so we can detect when bun install
+		// causes Bun to resolve a new instance (two-copies problem).
+		if (!globalThis.__reactModuleRef) {
+			globalThis.__reactModuleRef = await import('react');
+		}
 	}
 
 	// Build Angular vendor files — same pattern as React.

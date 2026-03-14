@@ -2,6 +2,7 @@ import Elysia from 'elysia';
 import { UNFOUND_INDEX } from '../constants';
 import type { HMRState } from '../dev/clientManager';
 import { getMimeType, lookupAsset } from '../dev/assetStore';
+import { bridgeReactInternals } from '../react/bridgeInternals';
 import {
 	handleClientConnect,
 	handleClientDisconnect,
@@ -40,7 +41,13 @@ export const hmr =
 		restoreStore(app);
 
 		return app
-			.onBeforeHandle(({ request }) => {
+			.onBeforeHandle(async ({ request }) => {
+				// Bridge React internals if bun install created a duplicate instance.
+				// Runs before any route handler so page handlers stay clean.
+				if (globalThis.__reactModuleRef) {
+					await bridgeReactInternals();
+				}
+
 				/* Fast path: only parse URL for requests that could be assets.
 				   Asset paths always start with / and contain a dot (extension).
 				   Skip API routes, WebSocket upgrades, and page navigations. */

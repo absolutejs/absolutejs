@@ -5,6 +5,10 @@ declare global {
 	var __absoluteVersion: string | undefined;
 	var __hmrServerMtime: number | undefined;
 	var __hmrSkipServerRestart: boolean | undefined;
+	/** Pinned React module from initial devBuild — used to detect and bridge
+	 *  duplicate React instances after bun install invalidates the module cache. */
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	var __reactModuleRef: any;
 	var __hmrDevResult:
 		| {
 				hmrState: import('../src/dev/clientManager').HMRState;
