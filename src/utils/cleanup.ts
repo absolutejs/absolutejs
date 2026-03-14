@@ -15,14 +15,17 @@ export const cleanup = async ({
 	reactIndexesPath
 }: CleanupProps) => {
 	await Promise.all([
-		// Angular compiled/ is NOT removed — it contains AOT server files
-		// used at runtime via import(). Only the indexes/ dir (which Bun's
-		// bundler has already consumed) is cleaned up.
 		angularDir
-			? rm(join(angularDir, 'indexes'), {
-					force: true,
-					recursive: true
-				})
+			? Promise.all([
+					rm(join(angularDir, 'compiled'), {
+						force: true,
+						recursive: true
+					}),
+					rm(join(angularDir, 'indexes'), {
+						force: true,
+						recursive: true
+					})
+				])
 			: undefined,
 		svelteDir
 			? Promise.all([

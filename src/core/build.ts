@@ -204,22 +204,26 @@ export const build = async ({
 		? (clientRoots[0] ?? projectRoot)
 		: commonAncestor(clientRoots, projectRoot);
 
-	const serverFrameworkDirs = [svelteDir, vueDir].filter(
-		(dir): dir is string => Boolean(dir)
-	);
+	const serverDirMap: { dir: string; subdir: string }[] = [];
+	if (svelteDir) serverDirMap.push({ dir: svelteDir, subdir: 'server' });
+	if (vueDir) serverDirMap.push({ dir: vueDir, subdir: 'server' });
+	if (angularDir) serverDirMap.push({ dir: angularDir, subdir: 'compiled' });
 
 	let serverOutDir: string | undefined;
 	let serverRoot: string | undefined;
 
-	const [firstServerDir] = serverFrameworkDirs;
-	if (serverFrameworkDirs.length === 1 && firstServerDir) {
-		serverRoot = join(firstServerDir, 'server');
-		serverOutDir = join(buildPath, basename(firstServerDir));
-	} else if (serverFrameworkDirs.length > 1) {
-		// Use framework dirs (not server/ subdirs) as input to
-		// commonAncestor — the server/ suffix would cause a false
+	if (serverDirMap.length === 1) {
+		const firstEntry = serverDirMap[0]!;
+		serverRoot = join(firstEntry.dir, firstEntry.subdir);
+		serverOutDir = join(buildPath, basename(firstEntry.dir));
+	} else if (serverDirMap.length > 1) {
+		// Use framework dirs (not server/compiled subdirs) as input to
+		// commonAncestor — the subdirectory suffix would cause a false
 		// match at the trailing segment due to how filter works.
-		serverRoot = commonAncestor(serverFrameworkDirs, projectRoot);
+		serverRoot = commonAncestor(
+			serverDirMap.map((e) => e.dir),
+			projectRoot
+		);
 		serverOutDir = buildPath;
 	}
 
@@ -395,7 +399,11 @@ export const build = async ({
 				}
 	]);
 
-	const serverEntryPoints = [...svelteServerPaths, ...vueServerPaths];
+	const serverEntryPoints = [
+		...svelteServerPaths,
+		...vueServerPaths,
+		...angularServerPaths
+	];
 	const reactClientEntryPoints = [...reactEntries];
 	const nonReactClientEntryPoints = [
 		...svelteIndexPaths,
@@ -526,7 +534,22 @@ export const build = async ({
 		serverEntryPoints.length > 0
 			? bunBuild({
 					entrypoints: serverEntryPoints,
-					external: ['svelte', 'svelte/*', 'vue', 'vue/*'],
+					external: [
+						'svelte',
+						'svelte/*',
+						'vue',
+						'vue/*',
+						'@angular/core',
+						'@angular/core/*',
+						'@angular/common',
+						'@angular/common/*',
+						'@angular/compiler',
+						'@angular/compiler/*',
+						'@angular/platform-browser',
+						'@angular/platform-browser/*',
+						'@angular/platform-server',
+						'@angular/platform-server/*'
+					],
 					format: 'esm',
 					naming: `[dir]/[name].[hash].[ext]`,
 					outdir: serverOutDir,
@@ -706,20 +729,13 @@ export const build = async ({
 		)
 	};
 
-	// Svelte/Vue server pages need absolute file paths for SSR import(),
-	// not web-relative paths. Overwrite with absolute paths like HTML/HTMX.
+	// Server pages (Svelte, Vue, Angular) need absolute file paths for SSR
+	// import(), not web-relative paths. Overwrite with absolute paths.
 	for (const artifact of serverOutputs) {
 		const fileWithHash = basename(artifact.path);
 		const [baseName] = fileWithHash.split(`.${artifact.hash}.`);
 		if (!baseName) continue;
 		manifest[toPascal(baseName)] = artifact.path;
-	}
-
-	// Angular server pages need absolute file paths for SSR import(),
-	// same pattern as Svelte/Vue above.
-	for (const serverPath of angularServerPaths) {
-		const fileBase = basename(serverPath, '.js');
-		manifest[toPascal(fileBase)] = resolve(serverPath);
 	}
 
 	// For HTML/HTMX, copy pages on full builds or if HTML/HTMX files changed

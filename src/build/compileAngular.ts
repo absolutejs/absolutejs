@@ -468,14 +468,11 @@ export const compileAngular = async (
 		return { clientPaths: [...emptyPaths], serverPaths: [...emptyPaths] };
 	}
 
-	// In dev/HMR, compile to a fixed compiled/ directory (no unique buildId).
-	// The page handler uses require() with require.cache invalidation to
-	// reload fresh content while reusing cached @angular/core ESM instances.
-	// Unique build IDs caused Bun to create duplicate Angular module instances
-	// (different file paths → different ESM cache entries for dependencies),
-	// leading to NG0201/NG0203 token identity mismatches during HMR.
-	// In production (hmr=false), output directly to compiled/ without
-	// the buildId subdirectory — cleanup() removes it after bundling.
+	// Compile to a fixed compiled/ directory. Server files are bundled by
+	// Bun's server pass (same as Svelte/Vue) and cleanup() removes compiled/
+	// after bundling. In dev/HMR, a fixed path avoids duplicate Angular
+	// module instances (different file paths → different ESM cache entries),
+	// preventing NG0201/NG0203 token identity mismatches.
 	const compiledRoot = compiledParent;
 	// In production, place index files directly at outRoot/indexes so Bun's
 	// bundler output lands at dist/angular/indexes/ (not dist/angular/compiled/indexes/).
