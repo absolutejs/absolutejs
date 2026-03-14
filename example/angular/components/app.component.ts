@@ -44,8 +44,8 @@ import { CounterComponent } from './counter.component';
 			<h1>AbsoluteJS + Angular</h1>
 			<app-counter [initialCount]="initialCount"></app-counter>
 			<p>
-				Edit <code>example/angular/pages/angular-example.ts</code> and save to
-				test HMR.
+				Edit <code>example/angular/pages/angular-example.ts</code> and
+				save to test HMR.
 			</p>
 			<p style="margin-top: 2rem">
 				Explore the other pages to see how AbsoluteJS seamlessly unifies

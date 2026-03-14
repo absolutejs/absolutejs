@@ -736,6 +736,7 @@ const bundleReactClient = async (
 		naming: '[dir]/[name].[hash].[ext]',
 		outdir: buildDir,
 		reactFastRefresh: true,
+		jsx: { development: true },
 		root: clientRoot,
 		splitting: true,
 		target: 'browser',

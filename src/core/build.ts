@@ -499,7 +499,9 @@ export const build = async ({
 					minify: !isDev,
 					naming: `[dir]/[name].[hash].[ext]`,
 					outdir: buildPath,
-					...(hmr ? { reactFastRefresh: true } : {}),
+					...(hmr
+						? { reactFastRefresh: true, jsx: { development: true } }
+						: {}),
 					root: clientRoot,
 					splitting: true,
 					target: 'browser',
