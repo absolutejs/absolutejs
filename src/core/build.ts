@@ -213,7 +213,9 @@ export const build = async ({
 	let serverRoot: string | undefined;
 
 	if (serverDirMap.length === 1) {
-		const firstEntry = serverDirMap[0]!;
+		const [firstEntry] = serverDirMap;
+		if (!firstEntry)
+			throw new Error('Expected at least one server directory entry');
 		serverRoot = join(firstEntry.dir, firstEntry.subdir);
 		serverOutDir = join(buildPath, basename(firstEntry.dir));
 	} else if (serverDirMap.length > 1) {
@@ -221,7 +223,7 @@ export const build = async ({
 		// commonAncestor — the subdirectory suffix would cause a false
 		// match at the trailing segment due to how filter works.
 		serverRoot = commonAncestor(
-			serverDirMap.map((e) => e.dir),
+			serverDirMap.map((entry) => entry.dir),
 			projectRoot
 		);
 		serverOutDir = buildPath;
@@ -500,7 +502,7 @@ export const build = async ({
 					naming: `[dir]/[name].[hash].[ext]`,
 					outdir: buildPath,
 					...(hmr
-						? { reactFastRefresh: true, jsx: { development: true } }
+						? { jsx: { development: true }, reactFastRefresh: true }
 						: {}),
 					root: clientRoot,
 					splitting: true,

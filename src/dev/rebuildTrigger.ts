@@ -733,10 +733,10 @@ const bundleReactClient = async (
 	const clientResult = await bunBuild({
 		entrypoints: reactEntries,
 		format: 'esm',
+		jsx: { development: true },
 		naming: '[dir]/[name].[hash].[ext]',
 		outdir: buildDir,
 		reactFastRefresh: true,
-		jsx: { development: true },
 		root: clientRoot,
 		splitting: true,
 		target: 'browser',
