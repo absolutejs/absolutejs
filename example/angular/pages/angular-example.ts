@@ -14,13 +14,7 @@ type AngularPageProps = {
 	imports: [CommonModule, DropdownComponent, AppComponent],
 	selector: 'angular-page',
 	standalone: true,
-	template: `
-		<header>
-			<a href="/">AbsoluteJS</a>
-			<app-dropdown></app-dropdown>
-		</header>
-		<app-root [initialCount]="initialCount"></app-root>
-	`
+	templateUrl: '../templates/angular-example.html'
 })
 export class AngularExampleComponent {
 	initialCount: number = 0;

@@ -1,0 +1,16 @@
+<details
+	class="dropdown"
+	[attr.open]="isOpen ? '' : null"
+	(mouseenter)="isOpen = true"
+	(mouseleave)="isOpen = false"
+>
+	<summary>Pages</summary>
+	<nav class="menu">
+		<a href="/">HTML</a>
+		<a href="/react">React</a>
+		<a href="/svelte">Svelte</a>
+		<a href="/vue">Vue</a>
+		<a href="/angular">Angular</a>
+		<a href="/htmx">HTMX</a>
+	</nav>
+</details>
