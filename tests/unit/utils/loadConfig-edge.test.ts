@@ -23,7 +23,7 @@ describe('loadConfig edge cases', () => {
 		const config = await loadConfig(configPath);
 
 		expect(config).toBeDefined();
-		expect(config.reactDirectory).toBeDefined();
+		expect(config.reactConfig).toBeDefined();
 		expect(config.buildDirectory).toBeDefined();
 	});
 
@@ -34,7 +34,7 @@ describe('loadConfig edge cases', () => {
 		const config = await loadConfig();
 
 		expect(config).toBeDefined();
-		expect(config.reactDirectory).toBeDefined();
+		expect(config.reactConfig).toBeDefined();
 
 		delete process.env.ABSOLUTE_CONFIG;
 	});

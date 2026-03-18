@@ -28,6 +28,8 @@ export const getCachedRouteData = (pagePath: string) =>
 
 const selectorCache = new Map<string, string>();
 
+export const clearSelectorCache = () => selectorCache.clear();
+
 // --- SSR deps loader ---
 
 export const buildDeps = (
@@ -110,13 +112,17 @@ export const discoverTokens = (pageModule: Record<string, unknown>) =>
 		)
 	);
 export const loadSsrDeps = async (pagePath: string) => {
-	const ssrDepsPath = (pagePath.split('?')[0] ?? pagePath).replace(
+	const [basePath, query] = pagePath.split('?');
+	const ssrDepsPath = (basePath ?? pagePath).replace(
 		/\.js$/,
 		'.ssr-deps.js'
 	);
+	const ssrDepsImportPath = query
+		? `${ssrDepsPath}?${query}`
+		: ssrDepsPath;
 
 	try {
-		const ssrDeps = await import(ssrDepsPath);
+		const ssrDeps = await import(ssrDepsImportPath);
 
 		const result: SsrDepsResult = {
 			common: ssrDeps.__angularCommon,

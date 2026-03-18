@@ -9,12 +9,12 @@ describe('loadConfig', () => {
 		const config = await loadConfig(
 			resolve(PROJECT_ROOT, 'example/absolute.config.ts')
 		);
-		expect(config.reactDirectory).toBeDefined();
-		expect(config.svelteDirectory).toBeDefined();
-		expect(config.vueDirectory).toBeDefined();
-		expect(config.angularDirectory).toBeDefined();
-		expect(config.htmlDirectory).toBeDefined();
-		expect(config.htmxDirectory).toBeDefined();
+		expect(config.reactConfig).toBeDefined();
+		expect(config.svelteConfig).toBeDefined();
+		expect(config.vueConfig).toBeDefined();
+		expect(config.angularConfig).toBeDefined();
+		expect(config.htmlConfig).toBeDefined();
+		expect(config.htmxConfig).toBeDefined();
 	});
 
 	test('config paths point to existing directories', async () => {
@@ -22,14 +22,38 @@ describe('loadConfig', () => {
 			resolve(PROJECT_ROOT, 'example/absolute.config.ts')
 		);
 		const { existsSync } = await import('node:fs');
-		if (config.reactDirectory)
-			expect(existsSync(config.reactDirectory)).toBe(true);
-		if (config.svelteDirectory)
-			expect(existsSync(config.svelteDirectory)).toBe(true);
-		if (config.vueDirectory)
-			expect(existsSync(config.vueDirectory)).toBe(true);
-		if (config.angularDirectory)
-			expect(existsSync(config.angularDirectory)).toBe(true);
+		if (config.reactConfig)
+			expect(
+				existsSync(
+					typeof config.reactConfig === 'string'
+						? config.reactConfig
+						: config.reactConfig.directory
+				)
+			).toBe(true);
+		if (config.svelteConfig)
+			expect(
+				existsSync(
+					typeof config.svelteConfig === 'string'
+						? config.svelteConfig
+						: config.svelteConfig.directory
+				)
+			).toBe(true);
+		if (config.vueConfig)
+			expect(
+				existsSync(
+					typeof config.vueConfig === 'string'
+						? config.vueConfig
+						: config.vueConfig.directory
+				)
+			).toBe(true);
+		if (config.angularConfig)
+			expect(
+				existsSync(
+					typeof config.angularConfig === 'string'
+						? config.angularConfig
+						: config.angularConfig.directory
+				)
+			).toBe(true);
 	});
 
 	test('returns buildDirectory', async () => {

@@ -10,12 +10,21 @@ import {
 	buildDeps,
 	buildProviders,
 	cacheRouteData,
+	clearSelectorCache,
 	discoverTokens,
 	injectSsrScripts,
 	loadSsrDeps,
 	renderAngularApp,
 	resolveSelector
 } from './ssrRender';
+
+const isDev = process.env.NODE_ENV === 'development';
+let ssrCacheBust = Date.now();
+
+export const invalidateAngularSsrCache = () => {
+	ssrCacheBust = Date.now();
+	clearSelectorCache();
+};
 
 const angularSsrContext = new AsyncLocalStorage<string>();
 setSsrContextGetter(() => angularSsrContext.getStore());
@@ -40,10 +49,11 @@ export const handleAngularPageRequest = async <
 			cacheRouteData(pagePath, { headTag, props: maybeProps });
 
 			const baseDeps = await getAngularDeps();
-			const pageModule = await import(pagePath);
+			const importPath = isDev ? `${pagePath}?t=${ssrCacheBust}` : pagePath;
+			const pageModule = await import(importPath);
 			const PageComponent: Type<unknown> = pageModule.default;
 
-			const ssrResult = await loadSsrDeps(pagePath);
+			const ssrResult = await loadSsrDeps(importPath);
 			const deps = buildDeps(ssrResult, baseDeps);
 
 			const tokenMap = discoverTokens(pageModule);

@@ -24,7 +24,7 @@ describe('HMR config change detection', () => {
 	test('start server without svelte, verify svelte pages absent from manifest', async () => {
 		// Remove svelteDirectory from config
 		const configWithoutSvelte = originalConfig.replace(
-			/\tsvelteDirectory:.*,?\n/,
+			/\tsvelteConfig:.*,?\n/,
 			''
 		);
 		writeFileSync(CONFIG_PATH, configWithoutSvelte);

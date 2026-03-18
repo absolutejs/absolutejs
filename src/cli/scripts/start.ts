@@ -120,12 +120,12 @@ export const start = async (
 	buildConfig.mode = 'production';
 
 	const frameworks = [
-		buildConfig.reactDirectory && 'react',
-		buildConfig.htmlDirectory && 'html',
-		buildConfig.htmxDirectory && 'htmx',
-		buildConfig.svelteDirectory && 'svelte',
-		buildConfig.vueDirectory && 'vue',
-		buildConfig.angularDirectory && 'angular'
+		buildConfig.reactConfig && 'react',
+		buildConfig.htmlConfig && 'html',
+		buildConfig.htmxConfig && 'htmx',
+		buildConfig.svelteConfig && 'svelte',
+		buildConfig.vueConfig && 'vue',
+		buildConfig.angularConfig && 'angular'
 	].filter((val): val is string => Boolean(val));
 
 	try {

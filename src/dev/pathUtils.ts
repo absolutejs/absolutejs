@@ -1,6 +1,9 @@
-import { BuildConfig } from '../../types/build';
+import type { BuildConfig, FrameworkConfig } from '../../types/build';
 import { normalizePath } from '../utils/normalizePath';
 import type { ResolvedBuildPaths } from './configResolver';
+
+const extractDir = (value: string | FrameworkConfig | undefined) =>
+	value ? (typeof value === 'string' ? value : value.directory) : undefined;
 
 /* Get the directories we should watch based on our config
    This handles the "where to watch" problem */
@@ -87,51 +90,32 @@ export const getWatchPaths = (
 	const paths: string[] = [];
 
 	// helper to push only when base exists, normalizing for cross-platform compatibility
-	const push = (base?: string, sub?: string) => {
+	const push = (base?: string) => {
 		if (!base) return;
-		const normalizedBase = normalizePath(base);
-		paths.push(sub ? `${normalizedBase}/${sub}` : normalizedBase);
+		paths.push(normalizePath(base));
 	};
 
 	const cfg = resolved ?? {
-		angularDir: config.angularDirectory,
+		angularDir: extractDir(config.angularConfig),
 		assetsDir: config.assetsDirectory,
-		htmlDir: config.htmlDirectory,
-		htmxDir: config.htmxDirectory,
-		reactDir: config.reactDirectory,
+		htmlDir: extractDir(config.htmlConfig),
+		htmxDir: extractDir(config.htmxConfig),
+		reactDir: extractDir(config.reactConfig),
 		stylesDir:
 			typeof config.stylesConfig === 'string'
 				? config.stylesConfig
 				: config.stylesConfig?.path,
-		svelteDir: config.svelteDirectory,
-		vueDir: config.vueDirectory
+		svelteDir: extractDir(config.svelteConfig),
+		vueDir: extractDir(config.vueConfig)
 	};
 
-	// Watch source directories (pages/components/styles etc.)
-	push(cfg.reactDir, 'components');
-	push(cfg.reactDir, 'pages');
-	push(cfg.reactDir, 'styles');
-
-	push(cfg.svelteDir, 'components');
-	push(cfg.svelteDir, 'pages');
-	push(cfg.svelteDir, 'composables');
-	push(cfg.svelteDir, 'styles');
-
-	push(cfg.vueDir, 'components');
-	push(cfg.vueDir, 'pages');
-	push(cfg.vueDir, 'composables');
-	push(cfg.vueDir, 'styles');
-
-	push(cfg.angularDir, 'components');
-	push(cfg.angularDir, 'pages');
-	push(cfg.angularDir, 'styles');
-
-	push(cfg.htmlDir, 'pages');
-	push(cfg.htmlDir, 'scripts');
-	push(cfg.htmlDir, 'styles');
-
-	push(cfg.htmxDir, 'pages');
-	push(cfg.htmxDir, 'styles');
+	// Watch entire framework root directories
+	push(cfg.reactDir);
+	push(cfg.svelteDir);
+	push(cfg.vueDir);
+	push(cfg.angularDir);
+	push(cfg.htmlDir);
+	push(cfg.htmxDir);
 
 	push(cfg.assetsDir);
 	push(cfg.stylesDir);

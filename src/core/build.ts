@@ -25,7 +25,7 @@ import {
 	setAngularVendorPaths,
 	setDevVendorPaths
 } from './devVendorPaths';
-import type { BuildConfig } from '../../types/build';
+import type { BuildConfig, FrameworkConfig } from '../../types/build';
 import { angularLinkerPlugin } from '../build/angularLinkerPlugin';
 import { cleanStaleOutputs } from '../utils/cleanStaleOutputs';
 import { cleanup } from '../utils/cleanup';
@@ -114,12 +114,12 @@ export const build = async ({
 	buildDirectory = 'build',
 	assetsDirectory,
 	publicDirectory,
-	reactDirectory,
-	htmlDirectory,
-	htmxDirectory,
-	angularDirectory,
-	svelteDirectory,
-	vueDirectory,
+	reactConfig,
+	htmlConfig,
+	htmxConfig,
+	angularConfig,
+	svelteConfig,
+	vueConfig,
 	stylesConfig,
 	tailwind,
 	options,
@@ -135,22 +135,32 @@ export const build = async ({
 	// Normalize incrementalFiles for consistent cross-platform path checking
 	const normalizedIncrementalFiles = incrementalFiles?.map(normalizePath);
 
+	const extractDir = (value: string | FrameworkConfig | undefined) =>
+		value
+			? typeof value === 'string'
+				? value
+				: value.directory
+			: undefined;
+	const extractPages = (value: string | FrameworkConfig | undefined) =>
+		typeof value === 'object' && value.pages ? value.pages : 'pages';
+
 	const throwOnError = options?.throwOnError === true;
 	const hmr = options?.injectHMR === true;
 	const buildPath = validateSafePath(buildDirectory, projectRoot);
 	const assetsPath =
 		assetsDirectory && validateSafePath(assetsDirectory, projectRoot);
-	const reactDir =
-		reactDirectory && validateSafePath(reactDirectory, projectRoot);
-	const htmlDir =
-		htmlDirectory && validateSafePath(htmlDirectory, projectRoot);
-	const htmxDir =
-		htmxDirectory && validateSafePath(htmxDirectory, projectRoot);
-	const svelteDir =
-		svelteDirectory && validateSafePath(svelteDirectory, projectRoot);
-	const vueDir = vueDirectory && validateSafePath(vueDirectory, projectRoot);
-	const angularDir =
-		angularDirectory && validateSafePath(angularDirectory, projectRoot);
+	const reactRaw = extractDir(reactConfig);
+	const reactDir = reactRaw && validateSafePath(reactRaw, projectRoot);
+	const htmlRaw = extractDir(htmlConfig);
+	const htmlDir = htmlRaw && validateSafePath(htmlRaw, projectRoot);
+	const htmxRaw = extractDir(htmxConfig);
+	const htmxDir = htmxRaw && validateSafePath(htmxRaw, projectRoot);
+	const svelteRaw = extractDir(svelteConfig);
+	const svelteDir = svelteRaw && validateSafePath(svelteRaw, projectRoot);
+	const vueRaw = extractDir(vueConfig);
+	const vueDir = vueRaw && validateSafePath(vueRaw, projectRoot);
+	const angularRaw = extractDir(angularConfig);
+	const angularDir = angularRaw && validateSafePath(angularRaw, projectRoot);
 	const stylesPath =
 		typeof stylesConfig === 'string' ? stylesConfig : stylesConfig?.path;
 	const stylesIgnore =
@@ -158,13 +168,16 @@ export const build = async ({
 	const stylesDir = stylesPath && validateSafePath(stylesPath, projectRoot);
 
 	const reactIndexesPath = reactDir && join(reactDir, 'indexes');
-	const reactPagesPath = reactDir && join(reactDir, 'pages');
-	const htmlPagesPath = htmlDir && join(htmlDir, 'pages');
+	const reactPagesPath =
+		reactDir && join(reactDir, extractPages(reactConfig));
+	const htmlPagesPath = htmlDir && join(htmlDir, extractPages(htmlConfig));
 	const htmlScriptsPath = htmlDir && join(htmlDir, 'scripts');
-	const sveltePagesPath = svelteDir && join(svelteDir, 'pages');
-	const vuePagesPath = vueDir && join(vueDir, 'pages');
-	const htmxPagesPath = htmxDir && join(htmxDir, 'pages');
-	const angularPagesPath = angularDir && join(angularDir, 'pages');
+	const sveltePagesPath =
+		svelteDir && join(svelteDir, extractPages(svelteConfig));
+	const vuePagesPath = vueDir && join(vueDir, extractPages(vueConfig));
+	const htmxPagesPath = htmxDir && join(htmxDir, extractPages(htmxConfig));
+	const angularPagesPath =
+		angularDir && join(angularDir, extractPages(angularConfig));
 
 	const frontends = [
 		reactDir,
@@ -565,7 +578,7 @@ export const build = async ({
 		reactBuildConfig ? bunBuild(reactBuildConfig) : undefined,
 		nonReactClientEntryPoints.length > 0
 			? bunBuild({
-					define: vueDirectory ? vueFeatureFlags : undefined,
+					define: vueConfig ? vueFeatureFlags : undefined,
 					entrypoints: nonReactClientEntryPoints,
 					...(angularVendorPaths
 						? { external: Object.keys(angularVendorPaths) }

@@ -3,7 +3,7 @@ import { statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { build } from './build';
 import { setDevVendorPaths, setAngularVendorPaths } from './devVendorPaths';
-import type { BuildConfig } from '../../types/build';
+import type { BuildConfig, FrameworkConfig } from '../../types/build';
 import {
 	buildReactVendor,
 	computeVendorPaths
@@ -21,23 +21,35 @@ import { cleanStaleAssets, populateAssetStore } from '../dev/assetStore';
 import { queueFileChange } from '../dev/rebuildTrigger';
 import { logServerReload } from '../utils/logger';
 
-const FRAMEWORK_DIR_KEYS = [
-	'reactDirectory',
-	'svelteDirectory',
-	'vueDirectory',
-	'htmlDirectory',
-	'htmxDirectory',
-	'angularDirectory'
+const FRAMEWORK_CONFIG_KEYS = [
+	'reactConfig',
+	'svelteConfig',
+	'vueConfig',
+	'htmlConfig',
+	'htmxConfig',
+	'angularConfig'
 ] as const;
 
-/** Parse directory keys from config source text */
+const extractDir = (value: string | FrameworkConfig | undefined) =>
+	value ? (typeof value === 'string' ? value : value.directory) : undefined;
+
+/** Parse framework config keys from config source text */
 const parseDirectoryConfig = (source: string) => {
 	const config: Partial<BuildConfig> = {};
-	const dirPattern = /(\w+Directory)\s*:\s*['"]([^'"]+)['"]/g;
+	// Match string shorthand: reactConfig: 'example/react'
+	const stringPattern = /(\w+Config)\s*:\s*['"]([^'"]+)['"]/g;
 	let match;
-	while ((match = dirPattern.exec(source)) !== null) {
+	while ((match = stringPattern.exec(source)) !== null) {
 		const [, key, value] = match;
 		if (key && value) Object.assign(config, { [key]: value });
+	}
+	// Match object form: reactConfig: { directory: 'example/react' }
+	const objectPattern =
+		/(\w+Config)\s*:\s*\{[^}]*directory\s*:\s*['"]([^'"]+)['"]/g;
+	while ((match = objectPattern.exec(source)) !== null) {
+		const [, key, value] = match;
+		if (key && value && !(key in config))
+			Object.assign(config, { [key]: value });
 	}
 
 	return Object.keys(config).length > 0 ? config : null;
@@ -68,8 +80,8 @@ const detectConfigChanges = async (
 	const oldConfig = state.config;
 
 	// Check if any framework directory changed
-	const hasChanges = FRAMEWORK_DIR_KEYS.some(
-		(key) => newConfig[key] !== oldConfig[key]
+	const hasChanges = FRAMEWORK_CONFIG_KEYS.some(
+		(key) => extractDir(newConfig[key]) !== extractDir(oldConfig[key])
 	);
 	if (!hasChanges) return;
 
@@ -79,16 +91,22 @@ const detectConfigChanges = async (
 	);
 
 	// Update config in-place so all references stay valid
-	for (const key of FRAMEWORK_DIR_KEYS) {
-		state.config[key] = newConfig[key];
+	for (const key of FRAMEWORK_CONFIG_KEYS) {
+		(state.config as Record<string, unknown>)[key] = newConfig[key];
 	}
 	state.resolvedPaths = resolveBuildPaths(state.config);
 
 	// Set up vendor paths for newly added React/Angular
-	if (!oldConfig.reactDirectory && Boolean(newConfig.reactDirectory)) {
+	if (
+		!extractDir(oldConfig.reactConfig) &&
+		Boolean(extractDir(newConfig.reactConfig))
+	) {
 		setDevVendorPaths(computeVendorPaths());
 	}
-	if (!oldConfig.angularDirectory && Boolean(newConfig.angularDirectory)) {
+	if (
+		!extractDir(oldConfig.angularConfig) &&
+		Boolean(extractDir(newConfig.angularConfig))
+	) {
 		setAngularVendorPaths(computeAngularVendorPaths());
 	}
 
@@ -191,10 +209,10 @@ const handleCachedReload = async () => {
 	   but devBuild() returns early from cache, skipping setDevVendorPaths.
 	   Without this, HMR rebuilds bundle React inline instead of externalizing. */
 	const cached = globalThis.__hmrDevResult;
-	if (cached?.hmrState.config.reactDirectory) {
+	if (cached?.hmrState.config.reactConfig) {
 		setDevVendorPaths(computeVendorPaths());
 	}
-	if (cached?.hmrState.config.angularDirectory) {
+	if (cached?.hmrState.config.angularConfig) {
 		setAngularVendorPaths(computeAngularVendorPaths());
 	}
 
@@ -275,10 +293,10 @@ export const devBuild = async (config: BuildConfig) => {
 
 	// Pre-compute vendor paths so build() can externalize React.
 	// The actual vendor files are built after build() creates the output dir.
-	if (config.reactDirectory) {
+	if (config.reactConfig) {
 		setDevVendorPaths(computeVendorPaths());
 	}
-	if (config.angularDirectory) {
+	if (config.angularConfig) {
 		setAngularVendorPaths(computeAngularVendorPaths());
 	}
 
@@ -316,7 +334,7 @@ export const devBuild = async (config: BuildConfig) => {
 	);
 
 	// Build React vendor files now that the build directory exists.
-	if (config.reactDirectory) {
+	if (config.reactConfig) {
 		await buildReactVendor(state.resolvedPaths.buildDir);
 		const vendorDir = resolve(
 			state.resolvedPaths.buildDir,
@@ -328,12 +346,12 @@ export const devBuild = async (config: BuildConfig) => {
 
 	// Pin the React module reference so we can detect when bun install
 	// causes Bun to resolve a new instance (two-copies problem).
-	if (config.reactDirectory && !globalThis.__reactModuleRef) {
+	if (config.reactConfig && !globalThis.__reactModuleRef) {
 		globalThis.__reactModuleRef = await import('react');
 	}
 
 	// Build Angular vendor files — same pattern as React.
-	if (config.angularDirectory) {
+	if (config.angularConfig) {
 		await buildAngularVendor(state.resolvedPaths.buildDir);
 		const vendorDir = resolve(
 			state.resolvedPaths.buildDir,

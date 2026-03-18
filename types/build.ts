@@ -19,17 +19,21 @@ export type StylesConfig = {
 	ignore?: string[];
 };
 
+export type FrameworkConfig = {
+	directory: string;
+	pages?: string;
+};
+
 export type BuildConfig = {
 	buildDirectory?: string;
 	assetsDirectory?: string;
 	publicDirectory?: string;
-	reactDirectory?: string;
-	vueDirectory?: string;
-	angularDirectory?: string;
-	astroDirectory?: string;
-	svelteDirectory?: string;
-	htmlDirectory?: string;
-	htmxDirectory?: string;
+	reactConfig?: string | FrameworkConfig;
+	vueConfig?: string | FrameworkConfig;
+	angularConfig?: string | FrameworkConfig;
+	svelteConfig?: string | FrameworkConfig;
+	htmlConfig?: string | FrameworkConfig;
+	htmxConfig?: string | FrameworkConfig;
 	stylesConfig?: string | StylesConfig;
 	tailwind?: {
 		input: string;

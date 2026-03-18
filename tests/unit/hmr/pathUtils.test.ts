@@ -10,14 +10,20 @@ const makePaths = (
 	overrides?: Partial<ResolvedBuildPaths>
 ): ResolvedBuildPaths => ({
 	angularDir: '/project/example/angular',
+	angularPagesDir: '/project/example/angular/pages',
 	assetsDir: '/project/example/assets',
 	buildDir: '/project/build',
 	htmlDir: '/project/example/html',
+	htmlPagesDir: '/project/example/html/pages',
 	htmxDir: '/project/example/htmx',
+	htmxPagesDir: '/project/example/htmx/pages',
 	reactDir: '/project/example/react',
+	reactPagesDir: '/project/example/react/pages',
 	stylesDir: '/project/example/styles',
 	svelteDir: '/project/example/svelte',
+	sveltePagesDir: '/project/example/svelte/pages',
 	vueDir: '/project/example/vue',
+	vuePagesDir: '/project/example/vue/pages',
 	...overrides
 });
 
@@ -154,23 +160,21 @@ describe('shouldIgnorePath', () => {
 describe('getWatchPaths', () => {
 	test('returns paths for configured frameworks', () => {
 		const paths = getWatchPaths({
-			reactDirectory: 'example/react',
-			svelteDirectory: 'example/svelte'
+			reactConfig: 'example/react',
+			svelteConfig: 'example/svelte'
 		});
 		const joined = paths.join(' ');
 		expect(joined).toContain('react');
 		expect(joined).toContain('svelte');
 	});
 
-	test('includes component, page, and style subdirs for react', () => {
-		const paths = getWatchPaths({ reactDirectory: 'example/react' });
-		expect(paths.some((p) => p.includes('components'))).toBe(true);
-		expect(paths.some((p) => p.includes('pages'))).toBe(true);
-		expect(paths.some((p) => p.includes('styles'))).toBe(true);
+	test('watches framework root directory', () => {
+		const paths = getWatchPaths({ reactConfig: 'example/react' });
+		expect(paths.some((p) => p.endsWith('react'))).toBe(true);
 	});
 
 	test('skips unconfigured frameworks', () => {
-		const paths = getWatchPaths({ reactDirectory: 'example/react' });
+		const paths = getWatchPaths({ reactConfig: 'example/react' });
 		const joined = paths.join(' ');
 		expect(joined).not.toContain('svelte');
 		expect(joined).not.toContain('vue');

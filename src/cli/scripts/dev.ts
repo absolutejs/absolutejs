@@ -109,12 +109,12 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 	try {
 		const cfg = await loadConfig(configPath);
 		frameworks = [
-			cfg.reactDirectory && 'react',
-			cfg.htmlDirectory && 'html',
-			cfg.htmxDirectory && 'htmx',
-			cfg.svelteDirectory && 'svelte',
-			cfg.vueDirectory && 'vue',
-			cfg.angularDirectory && 'angular'
+			cfg.reactConfig && 'react',
+			cfg.htmlConfig && 'html',
+			cfg.htmxConfig && 'htmx',
+			cfg.svelteConfig && 'svelte',
+			cfg.vueConfig && 'vue',
+			cfg.angularConfig && 'angular'
 		].filter((val): val is string => Boolean(val));
 	} catch {
 		/* config may not be loadable — frameworks stays empty */

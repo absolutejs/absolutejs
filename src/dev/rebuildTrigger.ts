@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { basename, relative, resolve } from 'node:path';
 import { build } from '../core/build';
-import type { BuildConfig } from '../../types/build';
+import type { BuildConfig, FrameworkConfig } from '../../types/build';
 import {
 	logCssUpdate,
 	logHmrUpdate,
@@ -28,6 +28,10 @@ import { detectFramework } from './pathUtils';
 import { toPascal } from '../utils/stringModifiers';
 import type { ResolvedBuildPaths } from './configResolver';
 import { broadcastToClients } from './webSocket';
+import { invalidateAngularSsrCache } from '../angular/pageHandler';
+
+const extractDir = (value: string | FrameworkConfig | undefined) =>
+	value ? (typeof value === 'string' ? value : value.directory) : undefined;
 
 type BuildLog = {
 	level?: string;
@@ -576,12 +580,13 @@ const handleAngularFastPath = async (
 		hmrState: HMRState;
 	}) => void
 ) => {
-	const angularDir = config.angularDirectory ?? '';
+	const angularDir = extractDir(config.angularConfig) ?? '';
 	const angularFiles = filesToRebuild.filter(
 		(file) => detectFramework(file, state.resolvedPaths) === 'angular'
 	);
 
-	const angularPagesPath = resolve(angularDir, 'pages');
+	const angularPagesPath =
+		state.resolvedPaths.angularPagesDir ?? resolve(angularDir, 'pages');
 	const pageEntries = resolveAngularPageEntries(
 		state,
 		angularFiles,
@@ -590,6 +595,7 @@ const handleAngularFastPath = async (
 
 	if (pageEntries.length > 0) {
 		await compileAndBundleAngular(state, pageEntries, angularDir);
+		invalidateAngularSsrCache();
 	}
 
 	const { manifest } = state;
@@ -770,8 +776,9 @@ const handleReactFastPath = async (
 		hmrState: HMRState;
 	}) => void
 ) => {
-	const reactDir = config.reactDirectory ?? '';
-	const reactPagesPath = resolve(reactDir, 'pages');
+	const reactDir = extractDir(config.reactConfig) ?? '';
+	const reactPagesPath =
+		state.resolvedPaths.reactPagesDir ?? resolve(reactDir, 'pages');
 	const reactIndexesPath = resolve(reactDir, 'indexes');
 	const { buildDir } = state.resolvedPaths;
 
@@ -865,13 +872,15 @@ const handleSvelteFastPath = async (
 		hmrState: HMRState;
 	}) => void
 ) => {
-	const svelteDir = config.svelteDirectory ?? '';
+	const svelteDir = extractDir(config.svelteConfig) ?? '';
 	const { buildDir } = state.resolvedPaths;
+	const sveltePagesPath =
+		state.resolvedPaths.sveltePagesDir ?? resolve(svelteDir, 'pages');
 
 	const svelteFiles = filesToRebuild.filter(
 		(file) =>
 			file.endsWith('.svelte') &&
-			resolve(file).startsWith(resolve(svelteDir, 'pages'))
+			resolve(file).startsWith(resolve(sveltePagesPath))
 	);
 
 	if (svelteFiles.length > 0) {
@@ -975,13 +984,15 @@ const handleVueFastPath = async (
 		hmrState: HMRState;
 	}) => void
 ) => {
-	const vueDir = config.vueDirectory ?? '';
+	const vueDir = extractDir(config.vueConfig) ?? '';
 	const { buildDir } = state.resolvedPaths;
+	const vuePagesPath =
+		state.resolvedPaths.vuePagesDir ?? resolve(vueDir, 'pages');
 
 	const vueFiles = filesToRebuild.filter(
 		(file) =>
 			file.endsWith('.vue') &&
-			resolve(file).startsWith(resolve(vueDir, 'pages'))
+			resolve(file).startsWith(resolve(vuePagesPath))
 	);
 
 	if (vueFiles.length > 0) {
@@ -1065,7 +1076,7 @@ const handleVueFastPath = async (
 		const cssKey = `${pascalName}CSS`;
 		const cssUrl = manifest[cssKey] || null;
 
-		const vueRoot = config.vueDirectory;
+		const vueRoot = extractDir(config.vueConfig);
 		const hmrId = vueRoot
 			? relative(vueRoot, vuePagePath)
 					.replace(/\\/g, '/')
@@ -1291,10 +1302,10 @@ const computeOutputPagesDir = (
 	framework: 'html' | 'htmx'
 ) => {
 	const isSingle =
-		!config.reactDirectory &&
-		!config.svelteDirectory &&
-		!config.vueDirectory &&
-		(framework === 'html' ? !config.htmxDirectory : !config.htmlDirectory);
+		!config.reactConfig &&
+		!config.svelteConfig &&
+		!config.vueConfig &&
+		(framework === 'html' ? !config.htmxConfig : !config.htmlConfig);
 
 	if (isSingle) {
 		return resolve(state.resolvedPaths.buildDir, 'pages');
@@ -1302,8 +1313,8 @@ const computeOutputPagesDir = (
 
 	const dirName =
 		framework === 'html'
-			? basename(config.htmlDirectory ?? 'html')
-			: basename(config.htmxDirectory ?? 'htmx');
+			? basename(extractDir(config.htmlConfig) ?? 'html')
+			: basename(extractDir(config.htmxConfig) ?? 'htmx');
 
 	return resolve(state.resolvedPaths.buildDir, dirName, 'pages');
 };
@@ -1474,7 +1485,7 @@ const broadcastVuePageChange = async (
 	const baseName = fileName.replace(/\.vue$/, '');
 	const pascalName = toPascal(baseName);
 
-	const vueRoot = config.vueDirectory;
+	const vueRoot = extractDir(config.vueConfig);
 	const hmrId = vueRoot
 		? relative(vueRoot, vuePagePath)
 				.replace(/\\/g, '/')
@@ -1544,7 +1555,7 @@ const handleVueHMR = async (
 	manifest: Record<string, string>,
 	duration: number
 ) => {
-	if (!config.vueDirectory) {
+	if (!config.vueConfig) {
 		return;
 	}
 
@@ -1654,7 +1665,7 @@ const handleSvelteHMR = (
 	manifest: Record<string, string>,
 	duration: number
 ) => {
-	if (!config.svelteDirectory) {
+	if (!config.svelteConfig) {
 		return;
 	}
 
@@ -1786,7 +1797,7 @@ const handleAngularHMR = (
 	manifest: Record<string, string>,
 	duration: number
 ) => {
-	if (!config.angularDirectory) {
+	if (!config.angularConfig) {
 		return;
 	}
 
@@ -2135,7 +2146,7 @@ const performFullRebuild = async (
 		isFrameworkOnlyChange(
 			affectedFrameworks,
 			'angular',
-			config.angularDirectory,
+			extractDir(config.angularConfig),
 			state,
 			filesToRebuild
 		)
@@ -2153,7 +2164,7 @@ const performFullRebuild = async (
 		isFrameworkOnlyChange(
 			affectedFrameworks,
 			'react',
-			config.reactDirectory,
+			extractDir(config.reactConfig),
 			state,
 			filesToRebuild
 		)
@@ -2171,7 +2182,7 @@ const performFullRebuild = async (
 		isFrameworkOnlyChange(
 			affectedFrameworks,
 			'svelte',
-			config.svelteDirectory,
+			extractDir(config.svelteConfig),
 			state,
 			filesToRebuild
 		)
@@ -2189,7 +2200,7 @@ const performFullRebuild = async (
 		isFrameworkOnlyChange(
 			affectedFrameworks,
 			'vue',
-			config.vueDirectory,
+			extractDir(config.vueConfig),
 			state,
 			filesToRebuild
 		)
@@ -2268,6 +2279,10 @@ const performFullRebuild = async (
 		manifest,
 		startTime
 	);
+
+	if (affectedFrameworks.includes('angular')) {
+		invalidateAngularSsrCache();
+	}
 
 	onRebuildComplete({ hmrState: state, manifest });
 

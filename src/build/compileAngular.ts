@@ -1,7 +1,6 @@
 import { existsSync, readFileSync, promises as fs } from 'fs';
 import { join, basename, sep, dirname, resolve, relative } from 'path';
 import type { CompilerOptions } from '@angular/compiler-cli';
-import ts from 'typescript';
 import { BASE_36_RADIX } from '../constants';
 import { toPascal } from '../utils/stringModifiers';
 import { createHash } from 'crypto';
@@ -11,7 +10,7 @@ import { createHash } from 'crypto';
 // expensive re-creation of TypeScript compiler host (lib dir resolution,
 // source file overrides). Only used during dev/HMR; production always fresh.
 type AngularCompilerCache = {
-	host: ts.CompilerHost;
+	host: import('typescript').CompilerHost;
 	options: CompilerOptions;
 	configHash: string;
 	tsLibDir: string;
@@ -72,25 +71,6 @@ const injectHMRRegistration = (content: string, sourceId: string) => {
 	return content + hmrBlock;
 };
 
-const formatDiagnosticMessage = (diagnostic: ts.Diagnostic) => {
-	try {
-		return ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n');
-	} catch {
-		return String(diagnostic.messageText || 'Unknown error');
-	}
-};
-
-const throwOnCompilationErrors = (diagnostics: readonly ts.Diagnostic[] | undefined) => {
-	if (!diagnostics?.length) return;
-
-	const errors = diagnostics.filter(diag => diag.category === ts.DiagnosticCategory.Error);
-	if (!errors.length) return;
-
-	const fullMessage = errors.map(formatDiagnosticMessage).join('\n');
-	console.error('Angular compilation errors:', fullMessage);
-	throw new Error(fullMessage);
-};
-
 const resolveRelativePath = (fileName: string, resolvedOutDir: string, outDir: string) => {
 	if (fileName.startsWith(resolvedOutDir)) return fileName.substring(resolvedOutDir.length + 1);
 	if (fileName.startsWith(outDir)) return fileName.substring(outDir.length + 1);
@@ -99,17 +79,40 @@ const resolveRelativePath = (fileName: string, resolvedOutDir: string, outDir: s
 };
 
 export const compileAngularFile = async (inputPath: string, outDir: string) => {
-	const {
-		readConfiguration,
-		performCompilation,
-		EmitFlags
-	} = await import('@angular/compiler-cli');
+	type TS = typeof import('typescript');
+
+	const [
+		ts,
+		{ readConfiguration, performCompilation, EmitFlags }
+	] = await Promise.all([
+		import('typescript').then(m => m.default) as Promise<TS>,
+		import('@angular/compiler-cli')
+	]);
+
+	const formatDiagnosticMessage = (diagnostic: import('typescript').Diagnostic) => {
+		try {
+			return ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n');
+		} catch {
+			return String(diagnostic.messageText || 'Unknown error');
+		}
+	};
+
+	const throwOnCompilationErrors = (diagnostics: readonly import('typescript').Diagnostic[] | undefined) => {
+		if (!diagnostics?.length) return;
+
+		const errors = diagnostics.filter(diag => diag.category === ts.DiagnosticCategory.Error);
+		if (!errors.length) return;
+
+		const fullMessage = errors.map(formatDiagnosticMessage).join('\n');
+		console.error('Angular compilation errors:', fullMessage);
+		throw new Error(fullMessage);
+	};
 
 	// Angular HMR Optimization — Reuse cached compiler host/options when tsconfig unchanged
 	const configHash = computeConfigHash();
 	const cached = globalThis.__angularCompilerCache;
 
-	let host: ts.CompilerHost;
+	let host: import('typescript').CompilerHost;
 	let options: CompilerOptions;
 	let tsLibDir: string;
 
@@ -172,14 +175,14 @@ export const compileAngularFile = async (inputPath: string, outDir: string) => {
 		host.getDefaultLibLocation = () => tsLibDir || (originalGetDefaultLibLocation ? originalGetDefaultLibLocation() : '');
 
 		const originalGetDefaultLibFileName = host.getDefaultLibFileName;
-		host.getDefaultLibFileName = (opts: ts.CompilerOptions) => {
+		host.getDefaultLibFileName = (opts: import('typescript').CompilerOptions) => {
 			const fileName = originalGetDefaultLibFileName ? originalGetDefaultLibFileName(opts) : 'lib.d.ts';
 
 			return basename(fileName);
 		};
 
 		const originalGetSourceFile = host.getSourceFile;
-		host.getSourceFile = (fileName: string, languageVersion: ts.ScriptTarget, onError?: (message: string) => void) => {
+		host.getSourceFile = (fileName: string, languageVersion: import('typescript').ScriptTarget, onError?: (message: string) => void) => {
 			if (fileName.startsWith('lib.') && fileName.endsWith('.d.ts') && tsLibDir) {
 				const resolvedPath = join(tsLibDir, fileName);
 
@@ -201,7 +204,7 @@ export const compileAngularFile = async (inputPath: string, outDir: string) => {
 
 	const emitted: Record<string, string> = {};
 	const resolvedOutDir = resolve(outDir);
-	host.writeFile = (fileName, text) => {
+	host.writeFile = (fileName: string, text: string) => {
 		const relativePath = resolveRelativePath(fileName, resolvedOutDir, outDir);
 		emitted[relativePath] = text;
 	};
@@ -342,25 +345,24 @@ const inlineResources = async (source: string, fileDir: string) => {
 };
 
 /** Angular HMR Runtime Layer (Level 3) — JIT-mode compilation for dev/HMR builds.
- *  Uses ts.transpileModule() instead of Angular AOT performCompilation().
+ *  Uses Bun.Transpiler instead of Angular AOT performCompilation().
  *  Inlines templateUrl → template and styleUrls → styles from disk.
  *  Recursively transpiles all local imports so Bun's bundler can resolve them.
- *  ~50-100ms for a tree of ~10 files vs ~500-700ms for AOT. */
+ *  ~10-15ms per file vs ~100-150ms with ts.transpileModule(). */
 export const compileAngularFileJIT = async (inputPath: string, outDir: string, rootDir?: string) => {
 	const allOutputs: string[] = [];
 	const visited = new Set<string>();
 
-	const transpileOpts: ts.CompilerOptions = {
-		declaration: false,
-		emitDecoratorMetadata: true,
-		esModuleInterop: true,
-		experimentalDecorators: true,
-		module: ts.ModuleKind.ESNext,
-		moduleResolution: ts.ModuleResolutionKind.Bundler,
-		skipLibCheck: true,
-		sourceMap: false,
-		target: ts.ScriptTarget.ES2022
-	};
+	const bunTranspiler = new Bun.Transpiler({
+		loader: 'ts',
+		target: 'browser',
+		tsconfig: JSON.stringify({
+			compilerOptions: {
+				experimentalDecorators: true,
+				emitDecoratorMetadata: true
+			}
+		})
+	});
 
 	const baseDir = resolve(rootDir ?? process.cwd());
 
@@ -409,13 +411,7 @@ export const compileAngularFileJIT = async (inputPath: string, outDir: string, r
 		if (jitContentCache.get(cacheKey) === contentHash && existsSync(targetPath)) {
 			allOutputs.push(targetPath);
 		} else {
-			// Transpile this file
-			const result = ts.transpileModule(sourceCode, {
-				compilerOptions: transpileOpts,
-				fileName: actualPath
-			});
-
-			let processedContent = result.outputText;
+			let processedContent = bunTranspiler.transformSync(sourceCode);
 
 			// Add .js extensions to relative imports
 			processedContent = processedContent.replace(

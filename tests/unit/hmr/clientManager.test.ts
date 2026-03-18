@@ -31,14 +31,14 @@ describe('createHMRState', () => {
 	});
 
 	test('stores config reference', () => {
-		const config = makeConfig({ reactDirectory: 'example/react' });
+		const config = makeConfig({ reactConfig: 'example/react' });
 		const state = createHMRState(config);
 		expect(state.config).toBe(config);
 	});
 
 	test('resolves build paths from config', () => {
 		const state = createHMRState(
-			makeConfig({ reactDirectory: 'example/react' })
+			makeConfig({ reactConfig: 'example/react' })
 		);
 		expect(state.resolvedPaths).toBeDefined();
 		expect(state.resolvedPaths.buildDir).toBeDefined();
