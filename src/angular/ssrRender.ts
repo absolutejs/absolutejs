@@ -28,8 +28,6 @@ export const getCachedRouteData = (pagePath: string) =>
 
 const selectorCache = new Map<string, string>();
 
-// --- SSR deps loader ---
-
 export const buildDeps = (
 	ssrResult: SsrDepsResult | null,
 	baseDeps: AngularDeps
@@ -92,6 +90,7 @@ export const buildProviders = (
 
 	return [...providers, ...propProviders];
 };
+export const clearSelectorCache = () => selectorCache.clear();
 
 const isInjectionToken = (value: unknown) => {
 	if (!value || typeof value !== 'object') {

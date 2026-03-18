@@ -46,11 +46,7 @@ describe('Multi-framework simultaneous changes', () => {
 
 		await client.waitFor('rebuild-start', 15_000);
 
-		const response = await Promise.race([
-			client.waitFor('rebuild-complete', 30_000),
-			client.waitFor('react-update', 30_000),
-			client.waitFor('svelte-update', 30_000)
-		]);
+		const response = await client.waitFor('rebuild-complete', 30_000);
 
 		expect(response.type).toBeDefined();
 	}, 60_000);

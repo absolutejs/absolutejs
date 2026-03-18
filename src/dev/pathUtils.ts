@@ -122,9 +122,7 @@ export const getWatchPaths = (
 	push(cfg.vueDir, 'composables');
 	push(cfg.vueDir, 'styles');
 
-	push(cfg.angularDir, 'components');
-	push(cfg.angularDir, 'pages');
-	push(cfg.angularDir, 'styles');
+	push(cfg.angularDir);
 
 	push(cfg.htmlDir, 'pages');
 	push(cfg.htmlDir, 'scripts');

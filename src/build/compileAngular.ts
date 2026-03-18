@@ -514,10 +514,8 @@ export const compileAngular = async (
 		// This eliminates ~100-500ms of wrapper overhead on cache hits.
 		const serverContentHash = Bun.hash(original).toString(BASE_36_RADIX);
 		const cachedWrapper = wrapperOutputCache.get(entry);
-		if (hmr && cachedWrapper && cachedWrapper.serverHash === serverContentHash) {
-			// Compiled output identical — reuse existing files on disk
-			const clientFile = join(indexesDir, jsName);
-
+		const clientFile = join(indexesDir, jsName);
+		if (hmr && cachedWrapper && cachedWrapper.serverHash === serverContentHash && existsSync(clientFile)) {
 			return { clientPath: clientFile, indexUnchanged: true, serverPath: rawServerFile };
 		}
 
@@ -563,7 +561,6 @@ export const compileAngular = async (
 			? relativePath
 			: `./${  relativePath}`;
 
-		const clientFile = join(indexesDir, jsName);
 		// Angular HMR Runtime Layer (Level 3) — Import runtime before HMR client
 		const hmrPreamble = hmr
 			? `window.__HMR_FRAMEWORK__ = "angular";\nimport "${hmrRuntimePath}";\nimport "${hmrClientPath}";\n`

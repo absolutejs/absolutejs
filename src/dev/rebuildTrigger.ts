@@ -28,6 +28,7 @@ import { detectFramework } from './pathUtils';
 import { toPascal } from '../utils/stringModifiers';
 import type { ResolvedBuildPaths } from './configResolver';
 import { broadcastToClients } from './webSocket';
+import { invalidateAngularSsrCache } from '../angular/pageHandler';
 
 type BuildLog = {
 	level?: string;
@@ -390,13 +391,27 @@ export const queueFileChange = (
 	}, DEBOUNCE_MS);
 };
 
-const resolveComponentLookupFile = (componentFile: string) => {
+const resolveComponentLookupFile = (
+	componentFile: string,
+	graph?: HMRState['dependencyGraph']
+) => {
 	if (!componentFile.endsWith('.html')) {
 		return componentFile;
 	}
+	// Try same-name .ts counterpart (co-located template)
 	const tsCounterpart = componentFile.replace(/\.html$/, '.ts');
 	if (existsSync(tsCounterpart)) {
 		return tsCounterpart;
+	}
+	// For external templates (templateUrl in a different dir),
+	// use the dependency graph to find the .ts that references this .html
+	if (!graph) return componentFile;
+
+	const dependents = graph.dependents.get(resolve(componentFile));
+	if (!dependents) return componentFile;
+
+	for (const dep of dependents) {
+		if (dep.endsWith('.ts')) return dep;
 	}
 
 	return componentFile;
@@ -418,7 +433,10 @@ const resolveAngularPageEntries = (
 
 	const resolvedPages = new Set<string>();
 	angularFiles.forEach((componentFile) => {
-		const lookupFile = resolveComponentLookupFile(componentFile);
+		const lookupFile = resolveComponentLookupFile(
+			componentFile,
+			state.dependencyGraph
+		);
 		const affected = getAffectedFiles(state.dependencyGraph, lookupFile);
 		affected.forEach((file) => {
 			if (
@@ -590,6 +608,14 @@ const handleAngularFastPath = async (
 
 	if (pageEntries.length > 0) {
 		await compileAndBundleAngular(state, pageEntries, angularDir);
+		invalidateAngularSsrCache();
+	}
+
+	if (pageEntries.length > 0 && !config.options?.preserveIntermediateFiles) {
+		await rm(resolve(angularDir, 'compiled'), {
+			force: true,
+			recursive: true
+		});
 	}
 
 	const { manifest } = state;
@@ -1708,7 +1734,10 @@ const resolveAngularPagesFromDependencyGraph = (
 ) => {
 	const resolvedPages = new Set<string>();
 	angularFiles.forEach((componentFile) => {
-		const lookupFile = resolveComponentLookupFile(componentFile);
+		const lookupFile = resolveComponentLookupFile(
+			componentFile,
+			state.dependencyGraph
+		);
 		const affected = getAffectedFiles(state.dependencyGraph, lookupFile);
 		collectAngularAffectedPages(affected, resolvedPages);
 	});
@@ -2268,6 +2297,10 @@ const performFullRebuild = async (
 		manifest,
 		startTime
 	);
+
+	if (affectedFrameworks.includes('angular')) {
+		invalidateAngularSsrCache();
+	}
 
 	onRebuildComplete({ hmrState: state, manifest });
 
