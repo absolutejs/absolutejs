@@ -104,7 +104,11 @@ const parseMessage = (message: unknown) => {
 	return null;
 };
 
-const handleParsedMessage = (client: HMRWebSocket, data: HMRClientMessage) => {
+const handleParsedMessage = (
+	state: HMRState,
+	client: HMRWebSocket,
+	data: HMRClientMessage
+) => {
 	switch (data.type) {
 		case 'ping':
 			client.send(
@@ -119,6 +123,9 @@ const handleParsedMessage = (client: HMRWebSocket, data: HMRClientMessage) => {
 			break;
 
 		case 'ready':
+			if (data.framework) {
+				state.activeFrameworks.add(data.framework);
+			}
 			break;
 	}
 };
@@ -138,7 +145,7 @@ export const handleHMRMessage = (
 			return;
 		}
 
-		handleParsedMessage(client, parsedData);
+		handleParsedMessage(state, client, parsedData);
 	} catch {
 		/* ignored */
 	}

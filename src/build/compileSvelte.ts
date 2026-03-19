@@ -25,6 +25,17 @@ const hmrClientPath = join(devClientDir, 'hmrClient.ts').replace(/\\/g, '/');
 type Built = { ssr: string; client: string };
 type Cache = Map<string, Built>;
 
+// Persistent cache across HMR cycles — avoids recompiling unchanged Svelte components
+const persistentCache: Cache = new Map();
+
+// Content hash cache to detect unchanged source files
+const sourceHashCache = new Map<string, string>();
+
+export const clearSvelteCompilerCache = () => {
+	persistentCache.clear();
+	sourceHashCache.clear();
+};
+
 const transpiler = new Transpiler({ loader: 'ts', target: 'browser' });
 
 const exists = async (path: string) => {
@@ -89,6 +100,19 @@ export const compileSvelte = async (
 		if (memoized) return memoized;
 
 		const raw = await file(src).text();
+
+		// Check if source is unchanged since last compilation
+		const contentHash = Bun.hash(raw).toString(36);
+		const prevHash = sourceHashCache.get(src);
+		const persistent = persistentCache.get(src);
+
+		if (prevHash === contentHash && persistent) {
+			cache.set(src, persistent);
+
+			return persistent;
+		}
+
+		sourceHashCache.set(src, contentHash);
 		const isModule =
 			src.endsWith('.svelte.ts') || src.endsWith('.svelte.js');
 		const preprocessed = isModule ? raw : (await preprocess(raw, {})).code;
@@ -153,6 +177,7 @@ export const compileSvelte = async (
 
 		const built: Built = { client: clientPath, ssr: ssrPath };
 		cache.set(src, built);
+		persistentCache.set(src, built);
 
 		return built;
 	};

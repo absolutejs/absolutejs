@@ -1,6 +1,7 @@
-import { existsSync } from 'node:fs';
+import { existsSync, rmSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { basename, relative, resolve } from 'node:path';
+import { build as bunBuild } from 'bun';
 import { build } from '../core/build';
 import type { BuildConfig } from '../../types/build';
 import {
@@ -29,6 +30,14 @@ import { toPascal } from '../utils/stringModifiers';
 import type { ResolvedBuildPaths } from './configResolver';
 import { broadcastToClients } from './webSocket';
 import { invalidateAngularSsrCache } from '../angular/pageHandler';
+import { generateManifest } from '../build/generateManifest';
+import { generateReactIndexFiles } from '../build/generateReactIndexes';
+import { compileSvelte } from '../build/compileSvelte';
+import { compileVue, vueHmrMetadata } from '../build/compileVue';
+import { compileAngular } from '../build/compileAngular';
+import { commonAncestor } from '../utils/commonAncestor';
+import { getDevVendorPaths, getAngularVendorPaths } from '../core/devVendorPaths';
+import { rewriteReactImports } from '../build/rewriteReactImports';
 
 type BuildLog = {
 	level?: string;
@@ -451,7 +460,7 @@ const resolveAngularPageEntries = (
 	return Array.from(resolvedPages);
 };
 
-const computeClientRoot = async (resolvedPaths: ResolvedBuildPaths) => {
+const computeClientRoot = (resolvedPaths: ResolvedBuildPaths) => {
 	const clientRoots = [
 		resolvedPaths.reactDir,
 		resolvedPaths.svelteDir,
@@ -459,8 +468,6 @@ const computeClientRoot = async (resolvedPaths: ResolvedBuildPaths) => {
 		resolvedPaths.vueDir,
 		resolvedPaths.angularDir
 	].filter((dir): dir is string => Boolean(dir));
-
-	const { commonAncestor } = await import('../utils/commonAncestor');
 
 	return clientRoots.length === 1
 		? (clientRoots[0] ?? process.cwd())
@@ -484,10 +491,7 @@ const bundleAngularClient = async (
 	clientPaths: string[],
 	buildDir: string
 ) => {
-	const { build: bunBuild } = await import('bun');
-	const { generateManifest } = await import('../build/generateManifest');
-	const { getAngularVendorPaths } = await import('../core/devVendorPaths');
-	const clientRoot = await computeClientRoot(state.resolvedPaths);
+	const clientRoot = computeClientRoot(state.resolvedPaths);
 
 	let angVendorPaths = getAngularVendorPaths();
 	if (!angVendorPaths) {
@@ -526,7 +530,7 @@ const bundleAngularClient = async (
 
 	const clientManifest = generateManifest(clientResult.outputs, buildDir);
 	Object.assign(state.manifest, clientManifest);
-	await populateAssetStore(state.assetStore, clientManifest, buildDir);
+	void populateAssetStore(state.assetStore, clientManifest, buildDir);
 };
 
 const broadcastAngularPageUpdates = (
@@ -563,7 +567,6 @@ const compileAndBundleAngular = async (
 	pageEntries: string[],
 	angularDir: string
 ) => {
-	const { compileAngular } = await import('../build/compileAngular');
 	const { clientPaths, serverPaths } = await compileAngular(
 		pageEntries,
 		angularDir,
@@ -727,13 +730,7 @@ const bundleReactClient = async (
 	reactIndexesPath: string,
 	buildDir: string
 ) => {
-	const { build: bunBuild } = await import('bun');
-	const { generateManifest } = await import('../build/generateManifest');
-	const { getDevVendorPaths } = await import('../core/devVendorPaths');
-	const { rewriteReactImports } = await import(
-		'../build/rewriteReactImports'
-	);
-	const clientRoot = await computeClientRoot(state.resolvedPaths);
+	const clientRoot = computeClientRoot(state.resolvedPaths);
 
 	const refreshEntry = resolve(reactIndexesPath, '_refresh.tsx');
 	if (!reactEntries.includes(refreshEntry)) {
@@ -750,7 +747,6 @@ const bundleReactClient = async (
 		setDevVendorPaths(vendorPaths);
 	}
 
-	const { rmSync } = await import('node:fs');
 	rmSync(resolve(buildDir, 'react', 'indexes'), {
 		force: true,
 		recursive: true
@@ -783,7 +779,7 @@ const bundleReactClient = async (
 
 	const clientManifest = generateManifest(clientResult.outputs, buildDir);
 	Object.assign(state.manifest, clientManifest);
-	await populateAssetStore(state.assetStore, clientManifest, buildDir);
+	void populateAssetStore(state.assetStore, clientManifest, buildDir);
 };
 
 const handleReactFastPath = async (
@@ -801,9 +797,6 @@ const handleReactFastPath = async (
 	const reactIndexesPath = resolve(reactDir, 'indexes');
 	const { buildDir } = state.resolvedPaths;
 
-	const { generateReactIndexFiles } = await import(
-		'../build/generateReactIndexes'
-	);
 	await generateReactIndexFiles(reactPagesPath, reactIndexesPath, true);
 
 	const reactEntries = collectReactEntries(
@@ -866,7 +859,7 @@ const handleServerManifestUpdate = (
 	});
 };
 
-const handleClientManifestUpdate = async (
+const handleClientManifestUpdate = (
 	state: HMRState,
 	clientResult: Awaited<ReturnType<typeof import('bun').build>> | undefined,
 	buildDir: string
@@ -875,10 +868,9 @@ const handleClientManifestUpdate = async (
 		return;
 	}
 
-	const { generateManifest } = await import('../build/generateManifest');
 	const clientManifest = generateManifest(clientResult.outputs, buildDir);
 	Object.assign(state.manifest, clientManifest);
-	await populateAssetStore(state.assetStore, clientManifest, buildDir);
+	void populateAssetStore(state.assetStore, clientManifest, buildDir);
 };
 
 const handleSvelteFastPath = async (
@@ -901,9 +893,7 @@ const handleSvelteFastPath = async (
 	);
 
 	if (svelteFiles.length > 0) {
-		const { compileSvelte } = await import('../build/compileSvelte');
-		const { build: bunBuild } = await import('bun');
-		const clientRoot = await computeClientRoot(state.resolvedPaths);
+		const clientRoot = computeClientRoot(state.resolvedPaths);
 
 		const { svelteServerPaths, svelteIndexPaths, svelteClientPaths } =
 			await compileSvelte(svelteFiles, svelteDir, new Map(), true);
@@ -941,23 +931,8 @@ const handleSvelteFastPath = async (
 		]);
 
 		handleServerManifestUpdate(state, serverResult);
-		await handleClientManifestUpdate(state, clientResult, buildDir);
+		handleClientManifestUpdate(state, clientResult, buildDir);
 	}
-
-	await Promise.all([
-		rm(resolve(svelteDir, 'client'), {
-			force: true,
-			recursive: true
-		}),
-		rm(resolve(svelteDir, 'indexes'), {
-			force: true,
-			recursive: true
-		}),
-		rm(resolve(svelteDir, 'server'), {
-			force: true,
-			recursive: true
-		})
-	]);
 
 	const { manifest } = state;
 	const duration = Date.now() - startTime;
@@ -988,7 +963,128 @@ const handleSvelteFastPath = async (
 
 	onRebuildComplete({ hmrState: state, manifest });
 
+	void Promise.all([
+		rm(resolve(svelteDir, 'client'), {
+			force: true,
+			recursive: true
+		}),
+		rm(resolve(svelteDir, 'indexes'), {
+			force: true,
+			recursive: true
+		}),
+		rm(resolve(svelteDir, 'server'), {
+			force: true,
+			recursive: true
+		})
+	]);
+
 	return manifest;
+};
+
+const buildVueStyleOnly = async (
+	state: HMRState,
+	vueCssPaths: string[],
+	buildDir: string
+) => {
+	const cssResult = await bunBuild({
+		entrypoints: vueCssPaths,
+		naming: '[name].[hash].[ext]',
+		outdir: resolve(buildDir, 'assets', 'css'),
+		target: 'browser',
+		throw: false
+	});
+
+	if (!cssResult.success) {
+		return;
+	}
+
+	const cssManifest = generateManifest(cssResult.outputs, buildDir);
+	Object.assign(state.manifest, cssManifest);
+	void populateAssetStore(state.assetStore, cssManifest, buildDir);
+};
+
+const buildVueFullBundle = async (
+	state: HMRState,
+	vueServerPaths: string[],
+	vueIndexPaths: string[],
+	vueClientPaths: string[],
+	vueDir: string,
+	buildDir: string
+) => {
+	const clientRoot = computeClientRoot(state.resolvedPaths);
+	const serverEntries = [...vueServerPaths];
+	const clientEntries = [...vueIndexPaths, ...vueClientPaths];
+
+	const serverRoot = resolve(vueDir, 'server');
+	const serverOutDir = resolve(buildDir, basename(vueDir));
+
+	const vueFeatureFlags: Record<string, string> = {
+		__VUE_OPTIONS_API__: 'true',
+		__VUE_PROD_DEVTOOLS__: 'true',
+		__VUE_PROD_HYDRATION_MISMATCH_DETAILS__: 'true'
+	};
+
+	const [serverResult, clientResult] = await Promise.all([
+		serverEntries.length > 0
+			? bunBuild({
+					entrypoints: serverEntries,
+					external: ['vue', 'vue/*'],
+					format: 'esm',
+					naming: '[dir]/[name].[hash].[ext]',
+					outdir: serverOutDir,
+					root: serverRoot,
+					target: 'bun',
+					throw: false
+				})
+			: undefined,
+		clientEntries.length > 0
+			? bunBuild({
+					define: vueFeatureFlags,
+					entrypoints: clientEntries,
+					format: 'esm',
+					naming: '[dir]/[name].[hash].[ext]',
+					outdir: buildDir,
+					root: clientRoot,
+					target: 'browser',
+					throw: false
+				})
+			: undefined
+	]);
+
+	handleServerManifestUpdate(state, serverResult);
+	handleClientManifestUpdate(state, clientResult, buildDir);
+};
+
+const buildVueFastPathOutputs = async (
+	state: HMRState,
+	vueFiles: string[],
+	vueDir: string,
+	buildDir: string
+) => {
+	const { vueServerPaths, vueIndexPaths, vueClientPaths, vueCssPaths } =
+		await compileVue(vueFiles, vueDir, true);
+
+	// Style-only changes: skip JS bundling entirely, only rebuild CSS
+	const allStyleOnly = vueFiles.every((file) => {
+		const meta = vueHmrMetadata.get(resolve(file));
+
+		return meta?.changeType === 'style-only';
+	});
+
+	if (allStyleOnly && vueCssPaths.length > 0) {
+		await buildVueStyleOnly(state, vueCssPaths, buildDir);
+
+		return;
+	}
+
+	await buildVueFullBundle(
+		state,
+		vueServerPaths,
+		vueIndexPaths,
+		vueClientPaths,
+		vueDir,
+		buildDir
+	);
 };
 
 const handleVueFastPath = async (
@@ -1011,74 +1107,8 @@ const handleVueFastPath = async (
 	);
 
 	if (vueFiles.length > 0) {
-		const { compileVue } = await import('../build/compileVue');
-		const { build: bunBuild } = await import('bun');
-		const clientRoot = await computeClientRoot(state.resolvedPaths);
-
-		const { vueServerPaths, vueIndexPaths, vueClientPaths } =
-			await compileVue(vueFiles, vueDir, true);
-
-		const serverEntries = [...vueServerPaths];
-		const clientEntries = [...vueIndexPaths, ...vueClientPaths];
-
-		const serverRoot = resolve(vueDir, 'server');
-		const serverOutDir = resolve(buildDir, basename(vueDir));
-
-		const vueFeatureFlags: Record<string, string> = {
-			__VUE_OPTIONS_API__: 'true',
-			__VUE_PROD_DEVTOOLS__: 'true',
-			__VUE_PROD_HYDRATION_MISMATCH_DETAILS__: 'true'
-		};
-
-		const [serverResult, clientResult] = await Promise.all([
-			serverEntries.length > 0
-				? bunBuild({
-						entrypoints: serverEntries,
-						external: ['vue', 'vue/*'],
-						format: 'esm',
-						naming: '[dir]/[name].[hash].[ext]',
-						outdir: serverOutDir,
-						root: serverRoot,
-						target: 'bun',
-						throw: false
-					})
-				: undefined,
-			clientEntries.length > 0
-				? bunBuild({
-						define: vueFeatureFlags,
-						entrypoints: clientEntries,
-						format: 'esm',
-						naming: '[dir]/[name].[hash].[ext]',
-						outdir: buildDir,
-						root: clientRoot,
-						target: 'browser',
-						throw: false
-					})
-				: undefined
-		]);
-
-		handleServerManifestUpdate(state, serverResult);
-		await handleClientManifestUpdate(state, clientResult, buildDir);
+		await buildVueFastPathOutputs(state, vueFiles, vueDir, buildDir);
 	}
-
-	await Promise.all([
-		rm(resolve(vueDir, 'client'), {
-			force: true,
-			recursive: true
-		}),
-		rm(resolve(vueDir, 'indexes'), {
-			force: true,
-			recursive: true
-		}),
-		rm(resolve(vueDir, 'server'), {
-			force: true,
-			recursive: true
-		}),
-		rm(resolve(vueDir, 'compiled'), {
-			force: true,
-			recursive: true
-		})
-	]);
 
 	const { manifest } = state;
 	const duration = Date.now() - startTime;
@@ -1116,6 +1146,25 @@ const handleVueFastPath = async (
 	});
 
 	onRebuildComplete({ hmrState: state, manifest });
+
+	void Promise.all([
+		rm(resolve(vueDir, 'client'), {
+			force: true,
+			recursive: true
+		}),
+		rm(resolve(vueDir, 'indexes'), {
+			force: true,
+			recursive: true
+		}),
+		rm(resolve(vueDir, 'server'), {
+			force: true,
+			recursive: true
+		}),
+		rm(resolve(vueDir, 'compiled'), {
+			force: true,
+			recursive: true
+		})
+	]);
 
 	return manifest;
 };
@@ -1510,7 +1559,6 @@ const broadcastVuePageChange = async (
 	const cssKey = `${pascalName}CSS`;
 	const cssUrl = manifest[cssKey] || null;
 
-	const { vueHmrMetadata } = await import('../build/compileVue');
 	const hmrMeta = vueHmrMetadata.get(resolve(vuePagePath));
 	const changeType = hmrMeta?.changeType ?? 'full';
 
@@ -2258,7 +2306,16 @@ const performFullRebuild = async (
 		framework: affectedFrameworks[0] ?? 'unknown'
 	});
 
-	await populateAssetStore(
+	broadcastToClients(state, {
+		data: {
+			affectedFrameworks,
+			manifest
+		},
+		message: 'Rebuild completed successfully',
+		type: 'rebuild-complete'
+	});
+
+	void populateAssetStore(
 		state.assetStore,
 		manifest,
 		state.resolvedPaths.buildDir
@@ -2269,15 +2326,6 @@ const performFullRebuild = async (
 		manifest,
 		state.resolvedPaths.buildDir
 	);
-
-	broadcastToClients(state, {
-		data: {
-			affectedFrameworks,
-			manifest
-		},
-		message: 'Rebuild completed successfully',
-		type: 'rebuild-complete'
-	});
 
 	if (filesToRebuild && filesToRebuild.length > 0) {
 		await handleFullBuildHMR(

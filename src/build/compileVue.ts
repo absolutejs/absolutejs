@@ -42,6 +42,12 @@ const scriptSetupCache = new Map<string, string>();
 const templateCache = new Map<string, string>();
 const styleCache = new Map<string, string>();
 
+// Persistent build result cache across HMR cycles — avoids recompiling unchanged Vue components
+const persistentBuildCache = new Map<string, BuildResult>();
+
+// Source content hash cache to detect unchanged files
+const vueSourceHashCache = new Map<string, string>();
+
 // HMR metadata storage (exported for rebuildTrigger to access)
 export const vueHmrMetadata = new Map<
 	string,
@@ -53,6 +59,8 @@ export const clearVueHmrCaches = () => {
 	templateCache.clear();
 	styleCache.clear();
 	vueHmrMetadata.clear();
+	persistentBuildCache.clear();
+	vueSourceHashCache.clear();
 };
 export const detectVueChangeType = (
 	filePath: string,
@@ -188,6 +196,19 @@ const compileVueFile = async (
 	const componentId = toKebab(fileBaseName);
 
 	const sourceContent = await file(sourceFilePath).text();
+
+	// Check persistent cache — skip recompilation if source unchanged
+	const contentHash = Bun.hash(sourceContent).toString(36);
+	const prevHash = vueSourceHashCache.get(sourceFilePath);
+	const persistent = persistentBuildCache.get(sourceFilePath);
+
+	if (prevHash === contentHash && persistent) {
+		cacheMap.set(sourceFilePath, persistent);
+
+		return persistent;
+	}
+
+	vueSourceHashCache.set(sourceFilePath, contentHash);
 	const { descriptor } = compiler.parse(sourceContent, {
 		filename: sourceFilePath
 	});
@@ -371,6 +392,7 @@ if (typeof __VUE_HMR_RUNTIME__ !== 'undefined') {
 	};
 
 	cacheMap.set(sourceFilePath, result);
+	persistentBuildCache.set(sourceFilePath, result);
 
 	return result;
 };

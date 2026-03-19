@@ -315,33 +315,39 @@ export const devBuild = async (config: BuildConfig) => {
 		state.resolvedPaths.buildDir
 	);
 
-	// Build React vendor files now that the build directory exists.
-	if (config.reactDirectory) {
-		await buildReactVendor(state.resolvedPaths.buildDir);
-		const vendorDir = resolve(
-			state.resolvedPaths.buildDir,
-			'react',
-			'vendor'
-		);
-		await loadVendorFiles(state.assetStore, vendorDir, 'react');
-	}
+	// Build React and Angular vendor files in parallel now that the build directory exists.
+	const buildReactVendorTask = config.reactDirectory
+		? buildReactVendor(state.resolvedPaths.buildDir).then(async () => {
+				const vendorDir = resolve(
+					state.resolvedPaths.buildDir,
+					'react',
+					'vendor'
+				);
+				await loadVendorFiles(state.assetStore, vendorDir, 'react');
+				// Pin the React module reference so we can detect when bun install
+				// causes Bun to resolve a new instance (two-copies problem).
+				if (!globalThis.__reactModuleRef) {
+					globalThis.__reactModuleRef = await import('react');
+				}
 
-	// Pin the React module reference so we can detect when bun install
-	// causes Bun to resolve a new instance (two-copies problem).
-	if (config.reactDirectory && !globalThis.__reactModuleRef) {
-		globalThis.__reactModuleRef = await import('react');
-	}
+				return true;
+			})
+		: undefined;
 
-	// Build Angular vendor files — same pattern as React.
-	if (config.angularDirectory) {
-		await buildAngularVendor(state.resolvedPaths.buildDir);
-		const vendorDir = resolve(
-			state.resolvedPaths.buildDir,
-			'angular',
-			'vendor'
-		);
-		await loadVendorFiles(state.assetStore, vendorDir, 'angular');
-	}
+	const buildAngularVendorTask = config.angularDirectory
+		? buildAngularVendor(state.resolvedPaths.buildDir).then(async () => {
+				const vendorDir = resolve(
+					state.resolvedPaths.buildDir,
+					'angular',
+					'vendor'
+				);
+				await loadVendorFiles(state.assetStore, vendorDir, 'angular');
+
+				return true;
+			})
+		: undefined;
+
+	await Promise.all([buildReactVendorTask, buildAngularVendorTask]);
 
 	// Store initial manifest on HMR state for Angular fast-path HMR
 	state.manifest = manifest;

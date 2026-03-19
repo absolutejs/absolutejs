@@ -74,15 +74,17 @@ describe('HMR config change detection', () => {
 		// Restore server.ts with svelte route (triggers HMR)
 		writeFileSync(SERVER_PATH, originalServer);
 
-		// Wait for the rebuild to complete (detectConfigChanges runs a full build)
-		// The rebuild takes ~1-2 seconds based on debug logs
-		await Bun.sleep(5000);
+		// Poll until the rebuild completes and the svelte route is available
+		let res: Response | undefined;
+		for (let i = 0; i < 20; i++) {
+			await Bun.sleep(1000);
+			res = await fetch(`${server.baseUrl}/svelte`);
+			if (res.ok) break;
+		}
 
-		// Verify /svelte page now works
-		const res = await fetch(`${server.baseUrl}/svelte`);
-		expect(res.ok).toBe(true);
+		expect(res?.ok).toBe(true);
 
-		const html = await res.text();
+		const html = await res!.text();
 		expect(html).toContain('Svelte');
 	}, 30_000);
 });

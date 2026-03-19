@@ -1,7 +1,9 @@
-import { existsSync } from 'fs';
-import { mkdir, rm, writeFile } from 'fs/promises';
+import { existsSync, mkdirSync } from 'fs';
+import { readdir, rm, writeFile } from 'fs/promises';
 import { basename, join, resolve } from 'path';
 import { Glob } from 'bun';
+
+const indexContentCache = new Map<string, string>();
 
 const resolveDevClientDir = () => {
 	const fromSource = resolve(import.meta.dir, '../dev/client');
@@ -29,14 +31,47 @@ export const generateReactIndexFiles = async (
 	reactIndexesDirectory: string,
 	isDev = false
 ) => {
-	await rm(reactIndexesDirectory, { force: true, recursive: true });
-	await mkdir(reactIndexesDirectory);
+	if (!existsSync(reactIndexesDirectory)) {
+		mkdirSync(reactIndexesDirectory, { recursive: true });
+	}
 
 	const pagesGlob = new Glob('*.*');
 	const files: string[] = [];
 	for await (const file of pagesGlob.scan({ cwd: reactPagesDirectory })) {
 		files.push(file);
 	}
+
+	// Remove stale indexes whose source pages no longer exist
+	const currentPageNames = new Set(
+		files.map((file) => basename(file).split('.')[0])
+	);
+
+	const emptyStringArray: string[] = [];
+
+	const existingIndexes = await readdir(reactIndexesDirectory).catch(
+		() => emptyStringArray
+	);
+
+	const staleIndexes = existingIndexes.filter((indexFile) => {
+		const indexName = indexFile.replace(/\.tsx$/, '');
+
+		return indexName !== '_refresh' && !currentPageNames.has(indexName);
+	});
+
+	if (staleIndexes.length > 0) {
+		await Promise.all(
+			staleIndexes.map((indexFile) => {
+				indexContentCache.delete(
+					join(reactIndexesDirectory, indexFile)
+				);
+
+				return rm(join(reactIndexesDirectory, indexFile), {
+					force: true
+				});
+			})
+		);
+	}
+
 	const promises = files.map(async (file) => {
 		const fileName = basename(file);
 		const [componentName] = fileName.split('.');
@@ -289,10 +324,17 @@ export const generateReactIndexFiles = async (
 			`}`
 		].join('\n');
 
-		return writeFile(
-			join(reactIndexesDirectory, `${componentName}.tsx`),
-			content
-		);
+		const indexPath = join(reactIndexesDirectory, `${componentName}.tsx`);
+		const hasher = new Bun.CryptoHasher('md5');
+		hasher.update(content);
+		const contentHash = hasher.digest('hex');
+
+		if (indexContentCache.get(indexPath) === contentHash) {
+			return;
+		}
+
+		indexContentCache.set(indexPath, contentHash);
+		await writeFile(indexPath, content);
 	});
 	await Promise.all(promises);
 
@@ -304,9 +346,15 @@ export const generateReactIndexFiles = async (
 	// before React initializes and checks it. Without this, the Refresh
 	// Runtime can't reach React's reconciler and performReactRefresh()
 	// silently does nothing.
-	if (isDev) {
+	if (!isDev) {
+		return;
+	}
+
+	const refreshPath = join(reactIndexesDirectory, '_refresh.tsx');
+
+	if (!existsSync(refreshPath)) {
 		await writeFile(
-			join(reactIndexesDirectory, '_refresh.tsx'),
+			refreshPath,
 			`import '${refreshSetupPath}';\nimport 'react';\nimport 'react-dom/client';\n`
 		);
 	}

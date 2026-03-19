@@ -11,6 +11,7 @@ import { resolveBuildPaths, type ResolvedBuildPaths } from './configResolver';
 /* This handles the "tracking clients" problem */
 export type HMRState = {
 	connectedClients: Set<HMRWebSocket>;
+	activeFrameworks: Set<string>; // Frameworks with active browser clients
 	dependencyGraph: DependencyGraph;
 	isRebuilding: boolean;
 	rebuildQueue: Set<string>;
@@ -31,6 +32,7 @@ export type HMRState = {
 
 /* Initialize HMR state */
 export const createHMRState = (config: BuildConfig): HMRState => ({
+	activeFrameworks: new Set(), // Frameworks with active browser clients
 	assetStore: new Map(), // In-memory client asset store for dev mode,,
 	config,
 	connectedClients: new Set<HMRWebSocket>(),
