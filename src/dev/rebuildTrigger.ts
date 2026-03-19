@@ -36,8 +36,14 @@ import { compileSvelte } from '../build/compileSvelte';
 import { compileVue, vueHmrMetadata } from '../build/compileVue';
 import { compileAngular } from '../build/compileAngular';
 import { commonAncestor } from '../utils/commonAncestor';
-import { getDevVendorPaths, getAngularVendorPaths } from '../core/devVendorPaths';
-import { rewriteReactImports } from '../build/rewriteReactImports';
+import {
+	getDevVendorPaths,
+	getAngularVendorPaths
+} from '../core/devVendorPaths';
+import {
+	patchRefreshGlobals,
+	rewriteReactImports
+} from '../build/rewriteReactImports';
 
 type BuildLog = {
 	level?: string;
@@ -770,12 +776,13 @@ const bundleReactClient = async (
 		return;
 	}
 
+	const clientOutputPaths = clientResult.outputs.map((art) => art.path);
+
 	if (vendorPaths) {
-		await rewriteReactImports(
-			clientResult.outputs.map((art) => art.path),
-			vendorPaths
-		);
+		await rewriteReactImports(clientOutputPaths, vendorPaths);
 	}
+
+	await patchRefreshGlobals(clientOutputPaths);
 
 	const clientManifest = generateManifest(clientResult.outputs, buildDir);
 	Object.assign(state.manifest, clientManifest);
@@ -817,12 +824,13 @@ const buildReactPageModule = async (
 		return undefined;
 	}
 
+	const pageOutputPaths = result.outputs.map((artifact) => artifact.path);
+
 	if (vendorPaths) {
-		await rewriteReactImports(
-			result.outputs.map((artifact) => artifact.path),
-			vendorPaths
-		);
+		await rewriteReactImports(pageOutputPaths, vendorPaths);
 	}
+
+	await patchRefreshGlobals(pageOutputPaths);
 
 	const pageManifest = generateManifest(result.outputs, buildDir);
 	Object.assign(state.manifest, pageManifest);
@@ -863,11 +871,7 @@ const handleReactEsmFastPath = async (
 		return undefined;
 	}
 
-	const pageModuleUrl = await buildReactPageModule(
-		state,
-		pageFile,
-		buildDir
-	);
+	const pageModuleUrl = await buildReactPageModule(state, pageFile, buildDir);
 
 	if (!pageModuleUrl) {
 		return undefined;

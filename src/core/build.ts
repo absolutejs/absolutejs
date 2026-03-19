@@ -17,7 +17,10 @@ import { scanEntryPoints } from '../build/scanEntryPoints';
 import { scanCssEntryPoints } from '../build/scanCssEntryPoints';
 import { updateAssetPaths } from '../build/updateAssetPaths';
 import { buildHMRClient } from '../dev/buildHMRClient';
-import { rewriteReactImports } from '../build/rewriteReactImports';
+import {
+	patchRefreshGlobals,
+	rewriteReactImports
+} from '../build/rewriteReactImports';
 import { sendTelemetryEvent } from '../cli/telemetryEvent';
 import {
 	getAngularVendorPaths,
@@ -643,11 +646,16 @@ export const build = async ({
 		);
 	}
 
-	if (vendorPaths && reactClientOutputs.length > 0) {
-		await rewriteReactImports(
-			reactClientOutputs.map((artifact) => artifact.path),
-			vendorPaths
-		);
+	const reactClientOutputPaths = reactClientOutputs.map(
+		(artifact) => artifact.path
+	);
+
+	if (vendorPaths && reactClientOutputPaths.length > 0) {
+		await rewriteReactImports(reactClientOutputPaths, vendorPaths);
+	}
+
+	if (hmr && reactClientOutputPaths.length > 0) {
+		await patchRefreshGlobals(reactClientOutputPaths);
 	}
 
 	const nonReactClientLogs = nonReactClientResult?.logs ?? [];

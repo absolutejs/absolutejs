@@ -41,6 +41,8 @@ package-lock.json
 build/
 !src/build/
 !src/build/**
+!tests/**/build/
+!tests/**/build/**
 dist/
 **/dist/
 

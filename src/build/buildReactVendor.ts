@@ -12,6 +12,24 @@ const reactSpecifiers = [
 	'react/jsx-dev-runtime'
 ];
 
+const isResolvable = (specifier: string) => {
+	try {
+		require.resolve(specifier);
+		return true;
+	} catch {
+		return false;
+	}
+};
+
+/** Includes react-refresh/runtime when the package is installed (dev HMR) */
+const resolveVendorSpecifiers = () => {
+	if (isResolvable('react-refresh/runtime')) {
+		return [...reactSpecifiers, 'react-refresh/runtime'];
+	}
+
+	return reactSpecifiers;
+};
+
 /** Convert a bare specifier to a safe filename: react-dom/client → react-dom_client */
 const toSafeFileName = (specifier: string) =>
 	specifier.replace(/\//g, '_');
@@ -20,7 +38,7 @@ const toSafeFileName = (specifier: string) =>
  *  This can be called before vendor files exist on disk. */
 export const computeVendorPaths = () => {
 	const paths: Record<string, string> = {};
-	for (const specifier of reactSpecifiers) {
+	for (const specifier of resolveVendorSpecifiers()) {
 		paths[specifier] = `/react/vendor/${toSafeFileName(specifier)}.js`;
 	}
 
@@ -59,9 +77,11 @@ export const buildReactVendor = async (buildDir: string) => {
 	const tmpDir = join(buildDir, '_vendor_tmp');
 	mkdirSync(tmpDir, { recursive: true });
 
+	const specifiers = resolveVendorSpecifiers();
+
 	// Create temp entry files with explicit named exports
 	const entrypoints = await Promise.all(
-		reactSpecifiers.map(async (specifier) => {
+		specifiers.map(async (specifier) => {
 			const safeName = toSafeFileName(specifier);
 			const entryPath = join(tmpDir, `${safeName}.ts`);
 			const source = await generateEntrySource(specifier);

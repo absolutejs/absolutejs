@@ -5,9 +5,7 @@
     "": {
       "name": "@absolutejs/absolute",
       "dependencies": {
-        "@absolutejs/absolute": "0.18.2-beta.1",
         "@angular/compiler": "^21.0.0",
-        "react-refresh": "^0.18.0",
       },
       "devDependencies": {
         "@angular/common": "^21.0.0",
@@ -39,6 +37,7 @@
         "prettier-plugin-svelte": "3.4.0",
         "react": "19.2.1",
         "react-dom": "19.2.1",
+        "react-refresh": "0.18.0",
         "svelte": "5.35.2",
         "tailwindcss": "4.1.7",
         "typescript": "^5.9.3",
@@ -56,6 +55,7 @@
         "elysia": "^1.4.0",
         "react": "^19.2.0",
         "react-dom": "^19.2.0",
+        "react-refresh": "^0.18.0",
         "svelte": "^5.35.2",
         "vue": "^3.5.27",
         "zone.js": "^0.15.0",
@@ -69,6 +69,7 @@
         "@angular/ssr",
         "react",
         "react-dom",
+        "react-refresh",
         "svelte",
         "vue",
         "zone.js",
@@ -79,8 +80,6 @@
     "@typescript-eslint/utils": "8.56.1",
   },
   "packages": {
-    "@absolutejs/absolute": ["@absolutejs/absolute@0.18.2-beta.1", "", { "dependencies": { "@angular/compiler": "^21.0.0", "react-refresh": "^0.18.0" }, "peerDependencies": { "@angular/common": "^21.0.0", "@angular/compiler-cli": "^21.0.0", "@angular/core": "^21.0.0", "@angular/platform-browser": "^21.0.0", "@angular/platform-server": "^21.0.0", "@angular/ssr": "^21.0.0", "elysia": "^1.4.0", "react": "^19.2.0", "react-dom": "^19.2.0", "svelte": "^5.35.2", "vue": "^3.5.27", "zone.js": "^0.15.0" }, "optionalPeers": ["@angular/common", "@angular/compiler-cli", "@angular/core", "@angular/platform-browser", "@angular/platform-server", "@angular/ssr", "react", "react-dom", "svelte", "vue", "zone.js"], "bin": { "absolute": "dist/cli/index.js" } }, "sha512-OODgE4sZdXg5MbNDWyfLmeS8qRdIKk/v3PtM7qxiIVqHP1RgFi9cRHOv7XXKT32TbHoGFE2oklgP5KkdhV+zPw=="],
-
     "@ampproject/remapping": ["@ampproject/remapping@2.3.0", "", { "dependencies": { "@jridgewell/gen-mapping": "^0.3.5", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-30iZtAPgz+LTIYoeivqYo853f02jBYSd5uGnGpkFV0M3xOt9aN73erkgYAmZU43x4VfqcnLxW9Kpg3R5LC4YYw=="],
 
     "@angular/common": ["@angular/common@21.2.1", "", { "dependencies": { "tslib": "^2.3.0" }, "peerDependencies": { "@angular/core": "21.2.1", "rxjs": "^6.5.3 || ^7.4.0" } }, "sha512-xhv2i1Q9s1kpGbGsfj+o36+XUC/TQLcZyRuRxn3GwaN7Rv34FabC88ycpvoE+sW/txj4JRx9yPA0dRSZjwZ+Gg=="],

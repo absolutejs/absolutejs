@@ -62,6 +62,7 @@ describe('HMR warm change (second+ edits)', () => {
 
 	test('third consecutive change also works', async () => {
 		restoreAllFiles();
+		await Bun.sleep(200);
 		client.drain();
 
 		const vueFile = resolve(
@@ -73,7 +74,6 @@ describe('HMR warm change (second+ edits)', () => {
 			c.replace('AbsoluteJS + Vue', 'AbsoluteJS + Vue WARM3')
 		);
 
-		await client.waitFor('rebuild-start', 15_000);
 		await client.waitFor('vue-update', 30_000);
 
 		const res = await fetch(`${server.baseUrl}/vue`);

@@ -4,8 +4,7 @@
 		"absolute": "./dist/cli/index.js"
 	},
 	"dependencies": {
-		"@angular/compiler": "^21.0.0",
-		"react-refresh": "^0.18.0"
+		"@angular/compiler": "^21.0.0"
 	},
 	"description": "A fullstack meta-framework for building web applications with TypeScript",
 	"devDependencies": {
@@ -38,6 +37,7 @@
 		"prettier-plugin-svelte": "3.4.0",
 		"react": "19.2.1",
 		"react-dom": "19.2.1",
+		"react-refresh": "0.18.0",
 		"svelte": "5.35.2",
 		"tailwindcss": "4.1.7",
 		"typescript": "^5.9.3",
@@ -94,6 +94,7 @@
 		"elysia": "^1.4.0",
 		"react": "^19.2.0",
 		"react-dom": "^19.2.0",
+		"react-refresh": "^0.18.0",
 		"svelte": "^5.35.2",
 		"vue": "^3.5.27",
 		"zone.js": "^0.15.0"
@@ -121,6 +122,9 @@
 			"optional": true
 		},
 		"react-dom": {
+			"optional": true
+		},
+		"react-refresh": {
 			"optional": true
 		},
 		"svelte": {
@@ -151,5 +155,5 @@
 		"typecheck": "bun run vue-tsc --noEmit"
 	},
 	"types": "./dist/src/index.d.ts",
-	"version": "0.18.7"
+	"version": "0.18.9"
 }

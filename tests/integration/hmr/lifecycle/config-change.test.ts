@@ -67,19 +67,21 @@ describe('HMR config change detection', () => {
 	}, 60_000);
 
 	test('add svelteDirectory to config + restore server.ts, verify /svelte page works', async () => {
-		// Re-add svelteDirectory to config
+		// Write both files back-to-back so Bun's --hot coalesces them into
+		// a single reload cycle (one full rebuild instead of two).
 		writeFileSync(CONFIG_PATH, originalConfig);
-		await Bun.sleep(200);
-
-		// Restore server.ts with svelte route (triggers HMR)
 		writeFileSync(SERVER_PATH, originalServer);
 
-		// Poll until the rebuild completes and the svelte route is available
+		// Poll until the rebuild completes and the svelte route is available.
 		let res: Response | undefined;
-		for (let i = 0; i < 20; i++) {
-			await Bun.sleep(1000);
-			res = await fetch(`${server.baseUrl}/svelte`);
-			if (res.ok) break;
+		for (let i = 0; i < 50; i++) {
+			await Bun.sleep(500);
+			try {
+				res = await fetch(`${server.baseUrl}/svelte`);
+				if (res.ok) break;
+			} catch {
+				// Server may be restarting — retry
+			}
 		}
 
 		expect(res?.ok).toBe(true);

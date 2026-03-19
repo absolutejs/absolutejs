@@ -52,10 +52,15 @@ describe('Multi-framework simultaneous changes', () => {
 	}, 60_000);
 
 	test('server health after multi-framework change', async () => {
-		const res = await fetch(`${server.baseUrl}/hmr-status`);
-		expect(res.ok).toBe(true);
-
-		const status = (await res.json()) as { isRebuilding: boolean };
+		// With fast batch delays, drainPendingQueue may trigger a follow-up
+		// rebuild after the first completes — poll until the server settles.
+		let status: { isRebuilding: boolean } = { isRebuilding: true };
+		for (let i = 0; i < 20 && status.isRebuilding; i++) {
+			await Bun.sleep(500);
+			const res = await fetch(`${server.baseUrl}/hmr-status`);
+			expect(res.ok).toBe(true);
+			status = (await res.json()) as { isRebuilding: boolean };
+		}
 		expect(status.isRebuilding).toBe(false);
 	}, 60_000);
 });

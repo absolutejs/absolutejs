@@ -12,19 +12,50 @@ const BUILD_ROUNDS = 10;
 const DEV_START_ROUNDS = 10;
 const HMR_ROUNDS = 20;
 
-const FRAMEWORKS = ['react', 'svelte', 'vue', 'angular', 'html', 'htmx'] as const;
+const FRAMEWORKS = [
+	'react',
+	'svelte',
+	'vue',
+	'angular',
+	'html',
+	'htmx'
+] as const;
 
-const HMR_TARGETS: Record<string, { path: string; marker: string; replacement: (i: number) => string }> = {
+const HMR_TARGETS: Record<
+	string,
+	{ path: string; marker: string; replacement: (i: number) => string }
+> = {
 	react: {
 		path: 'example/react/pages/ReactExample.tsx',
 		marker: '<App initialCount={initialCount} />',
-		replacement: (i) => `<App initialCount={initialCount} /> {/* speed-test-${i} */}`
+		replacement: (i) =>
+			`<App initialCount={initialCount} /> {/* speed-test-${i} */}`
 	},
-	svelte: { path: 'example/svelte/pages/SvelteExample.svelte', marker: '', replacement: () => '' },
-	vue: { path: 'example/vue/pages/VueExample.vue', marker: '', replacement: () => '' },
-	angular: { path: 'example/angular/pages/angular-example.ts', marker: '', replacement: () => '' },
-	html: { path: 'example/html/pages/HTMLExample.html', marker: '', replacement: () => '' },
-	htmx: { path: 'example/htmx/pages/HTMXExample.html', marker: '', replacement: () => '' }
+	svelte: {
+		path: 'example/svelte/pages/SvelteExample.svelte',
+		marker: '',
+		replacement: () => ''
+	},
+	vue: {
+		path: 'example/vue/pages/VueExample.vue',
+		marker: '',
+		replacement: () => ''
+	},
+	angular: {
+		path: 'example/angular/pages/angular-example.ts',
+		marker: '',
+		replacement: () => ''
+	},
+	html: {
+		path: 'example/html/pages/HTMLExample.html',
+		marker: '',
+		replacement: () => ''
+	},
+	htmx: {
+		path: 'example/htmx/pages/HTMXExample.html',
+		marker: '',
+		replacement: () => ''
+	}
 };
 
 // ── Helpers ──
@@ -42,8 +73,10 @@ const pad = (s: string, len: number) => s.padEnd(len);
 const sleep = (t: number) => new Promise<void>((r) => setTimeout(r, t));
 
 const avg = (arr: number[]) => arr.reduce((a, b) => a + b, 0) / arr.length;
-const p50 = (arr: number[]) => [...arr].sort((a, b) => a - b)[Math.floor(arr.length / 2)];
-const p95 = (arr: number[]) => [...arr].sort((a, b) => a - b)[Math.floor(arr.length * 0.95)];
+const p50 = (arr: number[]) =>
+	[...arr].sort((a, b) => a - b)[Math.floor(arr.length / 2)];
+const p95 = (arr: number[]) =>
+	[...arr].sort((a, b) => a - b)[Math.floor(arr.length * 0.95)];
 const minVal = (arr: number[]) => Math.min(...arr);
 const maxVal = (arr: number[]) => Math.max(...arr);
 
@@ -58,8 +91,15 @@ type HmrFrameworkResult = { cold: HmrTiming[]; warm: HmrTiming[] };
 type DevStartTiming = { total: number; boot: number; build: number };
 
 const UPDATE_TYPES = new Set([
-	'react-update', 'svelte-update', 'vue-update', 'angular-update',
-	'html-update', 'htmx-update', 'full-reload', 'module-update', 'script-update'
+	'react-update',
+	'svelte-update',
+	'vue-update',
+	'angular-update',
+	'html-update',
+	'htmx-update',
+	'full-reload',
+	'module-update',
+	'script-update'
 ]);
 
 // ── Detect HMR markers from actual files ──
@@ -84,22 +124,32 @@ const initHmrTargets = () => {
 		if (idx === -1) continue;
 
 		target.marker = lines[idx];
-		target.replacement = fw === 'angular'
-			? (i) => `${lines[idx]} // speed-test-${i}`
-			: (i) => `${lines[idx]}<!-- speed-test-${i} -->`;
+		target.replacement =
+			fw === 'angular'
+				? (i) => `${lines[idx]} // speed-test-${i}`
+				: (i) => `${lines[idx]}<!-- speed-test-${i} -->`;
 	}
 };
 
 const killPort = async (port: number) => {
 	try {
-		const proc = Bun.spawn(['lsof', '-i', `:${port}`, '-t'], { stdout: 'pipe', stderr: 'pipe' });
+		const proc = Bun.spawn(['lsof', '-i', `:${port}`, '-t'], {
+			stdout: 'pipe',
+			stderr: 'pipe'
+		});
 		const text = await new Response(proc.stdout).text();
 		const pids = text.trim().split('\n').filter(Boolean);
 		for (const pid of pids) {
-			try { process.kill(parseInt(pid), 'SIGKILL'); } catch { /* already dead */ }
+			try {
+				process.kill(parseInt(pid), 'SIGKILL');
+			} catch {
+				/* already dead */
+			}
 		}
 		if (pids.length) await sleep(500);
-	} catch { /* lsof not found or no processes */ }
+	} catch {
+		/* lsof not found or no processes */
+	}
 };
 
 // ── Build speed ──
@@ -111,11 +161,27 @@ const measureBuild = async () => {
 	for (let i = 0; i < BUILD_ROUNDS; i++) {
 		const start = performance.now();
 		const proc = Bun.spawn(
-			['bun', 'run', 'src/cli/index.ts', 'start', SERVER_ENTRY, '--outdir', 'example/dist', '--config', CONFIG_PATH],
+			[
+				'bun',
+				'run',
+				'src/cli/index.ts',
+				'start',
+				SERVER_ENTRY,
+				'--outdir',
+				'example/dist',
+				'--config',
+				CONFIG_PATH
+			],
 			{
 				cwd: process.cwd(),
-				env: { ...process.env, TELEMETRY_OFF: '1', NODE_ENV: 'production', PORT: String(PORT + 100) },
-				stdout: 'pipe', stderr: 'pipe'
+				env: {
+					...process.env,
+					TELEMETRY_OFF: '1',
+					NODE_ENV: 'production',
+					PORT: String(PORT + 100)
+				},
+				stdout: 'pipe',
+				stderr: 'pipe'
 			}
 		);
 
@@ -152,10 +218,15 @@ const measureDevStart = async () => {
 			{
 				cwd: process.cwd(),
 				env: {
-					...process.env, TELEMETRY_OFF: '1', NODE_ENV: 'development',
-					PORT: String(PORT), ABSOLUTE_CONFIG: CONFIG_PATH
+					...process.env,
+					TELEMETRY_OFF: '1',
+					NODE_ENV: 'development',
+					PORT: String(PORT),
+					ABSOLUTE_CONFIG: CONFIG_PATH
 				},
-				stdout: 'pipe', stderr: 'pipe', stdin: 'ignore'
+				stdout: 'pipe',
+				stderr: 'pipe',
+				stdin: 'ignore'
 			}
 		);
 
@@ -164,9 +235,14 @@ const measureDevStart = async () => {
 		while (!ready) {
 			const { done, value } = await reader.read();
 			if (done) break;
-			const chunk = Buffer.from(value).toString().replace(/\x1b\[[0-9;]*m/g, '');
+			const chunk = Buffer.from(value)
+				.toString()
+				.replace(/\x1b\[[0-9;]*m/g, '');
 			const m = chunk.match(/ready in\s+(?:(\d+(?:\.\d+)?)s|(\d+)ms)/);
-			if (m) reportedBuildMs = m[1] ? parseFloat(m[1]) * 1000 : parseInt(m[2], 10);
+			if (m)
+				reportedBuildMs = m[1]
+					? parseFloat(m[1]) * 1000
+					: parseInt(m[2], 10);
 			if (chunk.includes('Local:')) ready = true;
 		}
 		const total = performance.now() - start;
@@ -176,7 +252,9 @@ const measureDevStart = async () => {
 		const build = reportedBuildMs || total;
 		const boot = total - build;
 		timings.push({ total, boot: Math.max(0, boot), build });
-		log(`  run ${i + 1}/${DEV_START_ROUNDS}: ${fmtMs(total)} ${dim(`(boot ${fmtMs(Math.max(0, boot))} + build ${fmtMs(build)})`)}`);
+		log(
+			`  run ${i + 1}/${DEV_START_ROUNDS}: ${fmtMs(total)} ${dim(`(boot ${fmtMs(Math.max(0, boot))} + build ${fmtMs(build)})`)}`
+		);
 	}
 
 	return timings;
@@ -187,14 +265,28 @@ const measureDevStart = async () => {
 const connectWs = (port: number) =>
 	new Promise<WebSocket>((resolve, reject) => {
 		const ws = new WebSocket(`ws://localhost:${port}/hmr`);
-		const timer = setTimeout(() => { ws.close(); reject(new Error('WS timeout')); }, 10_000);
-		ws.onopen = () => { clearTimeout(timer); ws.send(JSON.stringify({ type: 'ready', framework: 'react' })); resolve(ws); };
-		ws.onerror = () => { clearTimeout(timer); reject(new Error('WS failed')); };
+		const timer = setTimeout(() => {
+			ws.close();
+			reject(new Error('WS timeout'));
+		}, 10_000);
+		ws.onopen = () => {
+			clearTimeout(timer);
+			ws.send(JSON.stringify({ type: 'ready', framework: 'react' }));
+			resolve(ws);
+		};
+		ws.onerror = () => {
+			clearTimeout(timer);
+			reject(new Error('WS failed'));
+		};
 	});
 
 // Wait for one complete HMR rebuild cycle. Resolves with timing breakdown.
 // fileWriteTime should be set to performance.now() right before writing the file.
-const waitForRebuild = (ws: WebSocket, fileWriteTime: number, timeoutMs = 15_000) =>
+const waitForRebuild = (
+	ws: WebSocket,
+	fileWriteTime: number,
+	timeoutMs = 15_000
+) =>
 	new Promise<HmrTiming>((resolve, reject) => {
 		let rebuildStartAt = 0;
 		let doneAt = 0;
@@ -215,7 +307,11 @@ const waitForRebuild = (ws: WebSocket, fileWriteTime: number, timeoutMs = 15_000
 			// Fast paths: rebuild-start → framework-update (no rebuild-complete)
 			// Full rebuilds: rebuild-start → rebuild-complete → framework-updates
 			// Either way, the first update/complete after rebuild-start marks the end.
-			if (rebuildStartAt && (UPDATE_TYPES.has(data.type) || data.type === 'rebuild-complete')) {
+			if (
+				rebuildStartAt &&
+				(UPDATE_TYPES.has(data.type) ||
+					data.type === 'rebuild-complete')
+			) {
 				if (!doneAt) {
 					doneAt = now;
 					clearTimeout(timer);
@@ -242,10 +338,15 @@ const measureHmr = async () => {
 		{
 			cwd: process.cwd(),
 			env: {
-				...process.env, TELEMETRY_OFF: '1', NODE_ENV: 'development',
-				PORT: String(PORT), ABSOLUTE_CONFIG: CONFIG_PATH
+				...process.env,
+				TELEMETRY_OFF: '1',
+				NODE_ENV: 'development',
+				PORT: String(PORT),
+				ABSOLUTE_CONFIG: CONFIG_PATH
 			},
-			stdout: 'pipe', stderr: 'pipe', stdin: 'ignore'
+			stdout: 'pipe',
+			stderr: 'pipe',
+			stdin: 'ignore'
 		}
 	);
 
@@ -254,12 +355,14 @@ const measureHmr = async () => {
 	while (!serverReady) {
 		const { done, value } = await reader.read();
 		if (done) break;
-		if (Buffer.from(value).toString().includes('Local:')) serverReady = true;
+		if (Buffer.from(value).toString().includes('Local:'))
+			serverReady = true;
 	}
 
 	if (!serverReady) {
 		log(red('Dev server failed to start'));
-		proc.kill(); await proc.exited;
+		proc.kill();
+		await proc.exited;
 		return {};
 	}
 
@@ -272,7 +375,8 @@ const measureHmr = async () => {
 		log(green('WebSocket connected'));
 	} catch {
 		log(red('Failed to connect WebSocket'));
-		proc.kill(); await proc.exited;
+		proc.kill();
+		await proc.exited;
 		return {};
 	}
 
@@ -291,7 +395,11 @@ const measureHmr = async () => {
 		const coldTimings: HmrTiming[] = [];
 		const warmTimings: HmrTiming[] = [];
 
-		log(dim(`  ${fw}: ${WARM_UP_ROUNDS} warm-up + ${HMR_ROUNDS} measured...`));
+		log(
+			dim(
+				`  ${fw}: ${WARM_UP_ROUNDS} warm-up + ${HMR_ROUNDS} measured...`
+			)
+		);
 
 		const totalRounds = WARM_UP_ROUNDS + HMR_ROUNDS;
 
@@ -333,8 +441,12 @@ const measureHmr = async () => {
 		results[fw] = { cold: coldTimings, warm: warmTimings };
 
 		if (coldTimings.length > 0 && warmTimings.length > 0) {
-			log(`  ${fw} cold: ${fmtMs(coldTimings[0].total)} ${dim(`(detect ${fmtMs(coldTimings[0].detection)} + build ${fmtMs(coldTimings[0].build)})`)}`);
-			log(`  ${fw} warm avg: ${fmtMs(avg(warmTimings.map((t) => t.total)))} ${dim(`(detect ${fmtMs(avg(warmTimings.map((t) => t.detection)))} + build ${fmtMs(avg(warmTimings.map((t) => t.build)))})`)}`);
+			log(
+				`  ${fw} cold: ${fmtMs(coldTimings[0].total)} ${dim(`(detect ${fmtMs(coldTimings[0].detection)} + build ${fmtMs(coldTimings[0].build)})`)}`
+			);
+			log(
+				`  ${fw} warm avg: ${fmtMs(avg(warmTimings.map((t) => t.total)))} ${dim(`(detect ${fmtMs(avg(warmTimings.map((t) => t.detection)))} + build ${fmtMs(avg(warmTimings.map((t) => t.build)))})`)}`
+			);
 		}
 	}
 
@@ -353,9 +465,21 @@ const printSummary = (
 	hmrResults: Record<string, HmrFrameworkResult>
 ) => {
 	console.log('\n');
-	console.log(bold('╔════════════════════════════════════════════════════════════════════════╗'));
-	console.log(bold('║                        SPEED TEST RESULTS                             ║'));
-	console.log(bold('╚════════════════════════════════════════════════════════════════════════╝'));
+	console.log(
+		bold(
+			'╔════════════════════════════════════════════════════════════════════════╗'
+		)
+	);
+	console.log(
+		bold(
+			'║                        SPEED TEST RESULTS                             ║'
+		)
+	);
+	console.log(
+		bold(
+			'╚════════════════════════════════════════════════════════════════════════╝'
+		)
+	);
 
 	const row = (label: string, times: number[]) => {
 		if (!times.length) return;
@@ -365,7 +489,11 @@ const printSummary = (
 	};
 
 	const headerRow = () => {
-		console.log(bold(`  ${pad('Metric', 28)} ${pad('Avg', 8)} ${pad('p50', 8)} ${pad('p95', 8)} ${pad('Min', 8)} Max`));
+		console.log(
+			bold(
+				`  ${pad('Metric', 28)} ${pad('Avg', 8)} ${pad('p50', 8)} ${pad('p95', 8)} ${pad('Min', 8)} Max`
+			)
+		);
 	};
 
 	separator();
@@ -378,9 +506,18 @@ const printSummary = (
 	console.log(bold(magenta('  Dev Server Cold Start')));
 	separator();
 	headerRow();
-	row('Total', devStartTimings.map((t) => t.total));
-	row('  Bun boot (overhead)', devStartTimings.map((t) => t.boot));
-	row('  Build + vendors', devStartTimings.map((t) => t.build));
+	row(
+		'Total',
+		devStartTimings.map((t) => t.total)
+	);
+	row(
+		'  Bun boot (overhead)',
+		devStartTimings.map((t) => t.boot)
+	);
+	row(
+		'  Build + vendors',
+		devStartTimings.map((t) => t.build)
+	);
 
 	separator();
 	console.log(bold(magenta('  HMR by Framework (warm)')));
@@ -392,10 +529,22 @@ const printSummary = (
 		if (!r?.warm?.length) continue;
 
 		console.log(bold(`  ${fw}`));
-		row('  Total (cold)', r.cold.map((t) => t.total));
-		row('  Total (warm)', r.warm.map((t) => t.total));
-		row('    Detection (fs→ws)', r.warm.map((t) => t.detection));
-		row('    Build (compile+bundle)', r.warm.map((t) => t.build));
+		row(
+			'  Total (cold)',
+			r.cold.map((t) => t.total)
+		);
+		row(
+			'  Total (warm)',
+			r.warm.map((t) => t.total)
+		);
+		row(
+			'    Detection (fs→ws)',
+			r.warm.map((t) => t.detection)
+		);
+		row(
+			'    Build (compile+bundle)',
+			r.warm.map((t) => t.build)
+		);
 	}
 
 	separator();
@@ -426,7 +575,11 @@ const printSummary = (
 
 const main = async () => {
 	console.log(bold(cyan('\n  AbsoluteJS Speed Test\n')));
-	console.log(dim(`  Build: ${BUILD_ROUNDS} rounds | Dev start: ${DEV_START_ROUNDS} rounds | HMR: ${HMR_ROUNDS} rounds (+${WARM_UP_ROUNDS} warm-up)`));
+	console.log(
+		dim(
+			`  Build: ${BUILD_ROUNDS} rounds | Dev start: ${DEV_START_ROUNDS} rounds | HMR: ${HMR_ROUNDS} rounds (+${WARM_UP_ROUNDS} warm-up)`
+		)
+	);
 	console.log(dim(`  Port: ${PORT}`));
 	console.log('');
 

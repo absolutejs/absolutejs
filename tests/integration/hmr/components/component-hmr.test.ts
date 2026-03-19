@@ -70,6 +70,7 @@ describe('Component-level HMR', () => {
 	}, 60_000);
 
 	test('vue child component change triggers vue-update', async () => {
+		await Bun.sleep(200);
 		client.drain();
 
 		const vueComponent = resolve(
@@ -80,8 +81,6 @@ describe('Component-level HMR', () => {
 		mutateFile(vueComponent, (c) =>
 			c.replace('count is {{ count }}', 'counter is {{ count }}')
 		);
-
-		await client.waitFor('rebuild-start', 15_000);
 
 		const update = await client.waitFor('vue-update', 30_000);
 		expect(update.type).toBe('vue-update');

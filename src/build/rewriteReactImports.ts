@@ -41,6 +41,33 @@ const applyAllReplacements = (
 	return result;
 };
 
+/** Bun's reactFastRefresh transform injects bare $RefreshReg$/$RefreshSig$
+ *  calls into component code. With code splitting, component chunks can
+ *  evaluate before the chunk containing reactRefreshSetup (which defines
+ *  the globals), because Bun doesn't guarantee chunk import order matches
+ *  source import order. Prepending no-op stubs to affected chunks ensures
+ *  the globals always exist. The real react-refresh runtime overrides them. */
+const REFRESH_STUBS =
+	'window.$RefreshReg$||(window.$RefreshReg$=function(){});' +
+	'window.$RefreshSig$||(window.$RefreshSig$=function(){return function(t){return t}});\n';
+
+export const patchRefreshGlobals = async (outputPaths: string[]) => {
+	const jsFiles = outputPaths.filter((path) => path.endsWith('.js'));
+
+	await Promise.all(
+		jsFiles.map(async (filePath) => {
+			const content = await Bun.file(filePath).text();
+			if (
+				!content.includes('$RefreshReg$(') &&
+				!content.includes('$RefreshSig$(')
+			)
+				return;
+			if (content.startsWith('window.$RefreshReg$')) return;
+			await Bun.write(filePath, REFRESH_STUBS + content);
+		})
+	);
+};
+
 export const rewriteReactImports = async (
 	outputPaths: string[],
 	vendorPaths: Record<string, string>
