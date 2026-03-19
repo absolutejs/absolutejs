@@ -247,12 +247,13 @@ const loadVendorFiles = async (
 ) => {
 	const emptyStringArray: string[] = [];
 	const entries = await readdir(vendorDir).catch(() => emptyStringArray);
-	for (const entry of entries) {
-		const webPath = `/${framework}/vendor/${entry}`;
-		// eslint-disable-next-line no-await-in-loop -- iterations depend on each other (sequential asset loading)
-		const bytes = await Bun.file(resolve(vendorDir, entry)).bytes();
-		assetStore.set(webPath, bytes);
-	}
+	await Promise.all(
+		entries.map(async (entry) => {
+			const webPath = `/${framework}/vendor/${entry}`;
+			const bytes = await Bun.file(resolve(vendorDir, entry)).bytes();
+			assetStore.set(webPath, bytes);
+		})
+	);
 };
 
 /* Development mode function - replaces build() during development
@@ -297,7 +298,6 @@ export const devBuild = async (config: BuildConfig) => {
 	});
 
 	if (!manifest || Object.keys(manifest).length === 0) {
-		// Allow empty manifests for HTML/HTMX-only projects
 		console.log(
 			'⚠️ Manifest is empty - this is OK for HTML/HTMX-only projects'
 		);
@@ -309,7 +309,7 @@ export const devBuild = async (config: BuildConfig) => {
 		manifest ?? {},
 		state.resolvedPaths.buildDir
 	);
-	await cleanStaleAssets(
+	void cleanStaleAssets(
 		state.assetStore,
 		manifest ?? {},
 		state.resolvedPaths.buildDir
@@ -324,8 +324,7 @@ export const devBuild = async (config: BuildConfig) => {
 					'vendor'
 				);
 				await loadVendorFiles(state.assetStore, vendorDir, 'react');
-				// Pin the React module reference so we can detect when bun install
-				// causes Bun to resolve a new instance (two-copies problem).
+
 				if (!globalThis.__reactModuleRef) {
 					globalThis.__reactModuleRef = await import('react');
 				}

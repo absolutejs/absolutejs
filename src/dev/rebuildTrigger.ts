@@ -782,6 +782,118 @@ const bundleReactClient = async (
 	void populateAssetStore(state.assetStore, clientManifest, buildDir);
 };
 
+const buildReactPageModule = async (
+	state: HMRState,
+	pageFile: string,
+	buildDir: string
+) => {
+	const clientRoot = computeClientRoot(state.resolvedPaths);
+
+	let vendorPaths = getDevVendorPaths();
+	if (!vendorPaths) {
+		const { computeVendorPaths } = await import(
+			'../build/buildReactVendor'
+		);
+		const { setDevVendorPaths } = await import('../core/devVendorPaths');
+		vendorPaths = computeVendorPaths();
+		setDevVendorPaths(vendorPaths);
+	}
+
+	const result = await bunBuild({
+		entrypoints: [pageFile],
+		external: vendorPaths ? Object.keys(vendorPaths) : [],
+		format: 'esm',
+		jsx: { development: true },
+		naming: '[dir]/[name].[hash].[ext]',
+		outdir: buildDir,
+		reactFastRefresh: true,
+		root: clientRoot,
+		splitting: false,
+		target: 'browser',
+		throw: false
+	});
+
+	if (!result.success) {
+		return undefined;
+	}
+
+	if (vendorPaths) {
+		await rewriteReactImports(
+			result.outputs.map((artifact) => artifact.path),
+			vendorPaths
+		);
+	}
+
+	const pageManifest = generateManifest(result.outputs, buildDir);
+	Object.assign(state.manifest, pageManifest);
+	void populateAssetStore(state.assetStore, pageManifest, buildDir);
+
+	// Return the web path of the built page module
+	const [firstOutput] = result.outputs;
+
+	return firstOutput
+		? `/${basename(resolve(buildDir))}/${relative(buildDir, firstOutput.path).replace(/\\/g, '/')}`
+		: undefined;
+};
+
+const isReactPageFile = (file: string, reactPagesPath: string) =>
+	(file.endsWith('.tsx') || file.endsWith('.jsx')) &&
+	resolve(file).startsWith(resolve(reactPagesPath));
+
+const handleReactEsmFastPath = async (
+	state: HMRState,
+	config: BuildConfig,
+	filesToRebuild: string[],
+	startTime: number,
+	onRebuildComplete: (result: {
+		manifest: Record<string, string>;
+		hmrState: HMRState;
+	}) => void
+) => {
+	const reactDir = config.reactDirectory ?? '';
+	const reactPagesPath = resolve(reactDir, 'pages');
+	const { buildDir } = state.resolvedPaths;
+
+	const reactPageFiles = filesToRebuild.filter((file) =>
+		isReactPageFile(file, reactPagesPath)
+	);
+	const [pageFile] = reactPageFiles;
+
+	if (!pageFile) {
+		return undefined;
+	}
+
+	const pageModuleUrl = await buildReactPageModule(
+		state,
+		pageFile,
+		buildDir
+	);
+
+	if (!pageModuleUrl) {
+		return undefined;
+	}
+
+	const duration = Date.now() - startTime;
+
+	logHmrUpdate(pageFile, 'react', duration);
+	broadcastToClients(state, {
+		data: {
+			framework: 'react',
+			hasComponentChanges: true,
+			hasCSSChanges: false,
+			manifest: state.manifest,
+			pageModuleUrl,
+			primarySource: pageFile,
+			sourceFiles: reactPageFiles
+		},
+		type: 'react-update'
+	});
+
+	onRebuildComplete({ hmrState: state, manifest: state.manifest });
+
+	return state.manifest;
+};
+
 const handleReactFastPath = async (
 	state: HMRState,
 	config: BuildConfig,
@@ -794,6 +906,31 @@ const handleReactFastPath = async (
 ) => {
 	const reactDir = config.reactDirectory ?? '';
 	const reactPagesPath = resolve(reactDir, 'pages');
+
+	// ESM fast path: if only page files changed, skip index generation
+	// and bundle only the changed page module directly
+	const reactFiles = filesToRebuild.filter(
+		(file) => detectFramework(file, state.resolvedPaths) === 'react'
+	);
+	const allArePageFiles = reactFiles.every((file) =>
+		isReactPageFile(file, reactPagesPath)
+	);
+
+	if (allArePageFiles && reactFiles.length > 0) {
+		const result = await handleReactEsmFastPath(
+			state,
+			config,
+			filesToRebuild,
+			startTime,
+			onRebuildComplete
+		);
+
+		if (result) {
+			return result;
+		}
+	}
+
+	// Fallback: full React rebuild (index generation + bundling)
 	const reactIndexesPath = resolve(reactDir, 'indexes');
 	const { buildDir } = state.resolvedPaths;
 
@@ -820,9 +957,6 @@ const handleReactFastPath = async (
 	const { manifest } = state;
 	const duration = Date.now() - startTime;
 
-	const reactFiles = filesToRebuild.filter(
-		(file) => detectFramework(file, state.resolvedPaths) === 'react'
-	);
 	const reactPageFiles = reactFiles.filter((file) =>
 		file.replace(/\\/g, '/').includes('/pages/')
 	);

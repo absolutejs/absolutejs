@@ -11,6 +11,7 @@ export const handleReactUpdate = (message: {
 		hasCSSChanges?: boolean;
 		hasComponentChanges?: boolean;
 		manifest?: Record<string, string>;
+		pageModuleUrl?: string;
 		primarySource?: string;
 	};
 }) => {
@@ -29,36 +30,53 @@ export const handleReactUpdate = (message: {
 		return;
 	}
 
+	const refreshRuntime = window.$RefreshRuntime$;
+
+	// ESM fast path: import the page module directly (no index re-import)
+	const pageModuleUrl = message.data.pageModuleUrl;
+
+	if (pageModuleUrl && refreshRuntime) {
+		applyRefreshImport(pageModuleUrl, refreshRuntime);
+
+		return;
+	}
+
 	// Component change: use React Fast Refresh to preserve state
 	const componentKey = window.__REACT_COMPONENT_KEY__;
 	const newUrl = componentKey && message.data.manifest?.[componentKey];
-	const refreshRuntime = window.$RefreshRuntime$;
 
 	if (newUrl && refreshRuntime) {
-		import(`${newUrl}?t=${Date.now()}`)
-			.then(() => {
-				refreshRuntime.performReactRefresh();
-				if (window.__ERROR_BOUNDARY__) {
-					window.__ERROR_BOUNDARY__.reset();
-				} else {
-					hideErrorOverlay();
-				}
-
-				return undefined;
-			})
-			.catch((err) => {
-				console.warn(
-					'[HMR] React Fast Refresh failed, falling back to reload:',
-					err
-				);
-				window.location.reload();
-			});
+		applyRefreshImport(newUrl, refreshRuntime);
 
 		return;
 	}
 
 	// Fallback: full page reload
 	window.location.reload();
+};
+
+const applyRefreshImport = (
+	moduleUrl: string,
+	refreshRuntime: { performReactRefresh: () => void }
+) => {
+	import(`${moduleUrl}?t=${Date.now()}`)
+		.then(() => {
+			refreshRuntime.performReactRefresh();
+			if (window.__ERROR_BOUNDARY__) {
+				window.__ERROR_BOUNDARY__.reset();
+			} else {
+				hideErrorOverlay();
+			}
+
+			return undefined;
+		})
+		.catch((err) => {
+			console.warn(
+				'[HMR] React Fast Refresh failed, falling back to reload:',
+				err
+			);
+			window.location.reload();
+		});
 };
 
 const reloadReactCSS = (cssPath: string) => {
