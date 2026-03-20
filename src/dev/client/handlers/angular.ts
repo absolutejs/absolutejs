@@ -29,6 +29,8 @@ type HMRMessage = {
 		cssUrl?: string;
 		html?: string;
 		manifest?: Record<string, string>;
+		pageModuleUrl?: string;
+		serverDuration?: number;
 		sourceFile?: string;
 		updateType?: string;
 	};

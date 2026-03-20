@@ -141,6 +141,8 @@ export const handleVueUpdate = (message: {
 		cssUrl?: string;
 		html?: string;
 		manifest?: Record<string, string>;
+		pageModuleUrl?: string;
+		serverDuration?: number;
 		sourceFile?: string;
 		updateType?: string;
 	};
@@ -187,6 +189,40 @@ export const handleVueUpdate = (message: {
 
 	window.__HMR_PRESERVED_STATE__ = vuePreservedState;
 
+	// O(1) Vue HMR: import the changed module directly.
+	// __VUE_HMR_RUNTIME__.reload() inside the module hot-swaps the
+	// component in place — same pattern as React Fast Refresh.
+	// No unmount/remount, state preserved by Vue runtime.
+	const pageModuleUrl = message.data.pageModuleUrl;
+	if (pageModuleUrl) {
+		const clientStart = performance.now();
+		const modulePath = `${pageModuleUrl}?t=${Date.now()}`;
+		import(modulePath)
+			.then(() => {
+				sessionStorage.removeItem('__HMR_ACTIVE__');
+
+				if (window.__HMR_WS__ && message.data.serverDuration != null) {
+					const clientMs = Math.round(
+						performance.now() - clientStart
+					);
+					const total = (message.data.serverDuration ?? 0) + clientMs;
+					window.__HMR_WS__.send(
+						JSON.stringify({ duration: total, type: 'hmr-timing' })
+					);
+				}
+
+				return undefined;
+			})
+			.catch((err: unknown) => {
+				console.warn('[HMR] Vue HMR failed, reloading:', err);
+				sessionStorage.removeItem('__HMR_ACTIVE__');
+				window.location.reload();
+			});
+
+		return;
+	}
+
+
 	/* CSS pre-update: swap stylesheet BEFORE unmounting to prevent FOUC */
 	if (message.data.cssUrl) {
 		swapStylesheet(message.data.cssUrl, message.data.cssBaseName || '');
@@ -203,6 +239,7 @@ export const handleVueUpdate = (message: {
 		vueRoot.innerHTML = savedHTML;
 	}
 
+	// Bundled fallback: re-import the index file
 	const indexPath = findIndexPath(
 		message.data.manifest,
 		message.data.sourceFile,

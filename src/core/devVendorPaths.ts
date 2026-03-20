@@ -18,3 +18,19 @@ export const getAngularVendorPaths = () => angularVendorPaths;
 export const setAngularVendorPaths = (paths: Record<string, string>) => {
 	angularVendorPaths = paths;
 };
+
+/** Svelte vendor paths — same pattern as React. */
+let svelteVendorPaths: Record<string, string> | null = null;
+
+export const getSvelteVendorPaths = () => svelteVendorPaths;
+export const setSvelteVendorPaths = (paths: Record<string, string>) => {
+	svelteVendorPaths = paths;
+};
+
+/** Vue vendor paths — same pattern as React. */
+let vueVendorPaths: Record<string, string> | null = null;
+
+export const getVueVendorPaths = () => vueVendorPaths;
+export const setVueVendorPaths = (paths: Record<string, string>) => {
+	vueVendorPaths = paths;
+};

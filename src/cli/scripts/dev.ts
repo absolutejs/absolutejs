@@ -58,21 +58,18 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 	};
 
 	const spawnServer = () => {
-		const proc = Bun.spawn(
-			['bun', '--no-clear-screen', serverEntry],
-			{
-				cwd: process.cwd(),
-				env: {
-					...process.env,
-					FORCE_COLOR: '1',
-					NODE_ENV: 'development',
-					...(configPath ? { ABSOLUTE_CONFIG: configPath } : {})
-				},
-				stderr: 'pipe',
-				stdin: 'ignore',
-				stdout: 'pipe'
-			}
-		);
+		const proc = Bun.spawn(['bun', '--no-clear-screen', serverEntry], {
+			cwd: process.cwd(),
+			env: {
+				...process.env,
+				FORCE_COLOR: '1',
+				NODE_ENV: 'development',
+				...(configPath ? { ABSOLUTE_CONFIG: configPath } : {})
+			},
+			stderr: 'pipe',
+			stdin: 'ignore',
+			stdout: 'pipe'
+		});
 		const forward = (
 			stream: ReadableStream<Uint8Array>,
 			dest: NodeJS.WriteStream
@@ -136,14 +133,26 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 	// changes are handled by the HMR file watcher inside the server.
 	const { watch } = await import('fs');
 	const serverDir = resolve(serverEntry, '..');
+	let resolvedBuildDir = '';
+	try {
+		const cfg = await loadConfig(configPath);
+		resolvedBuildDir = resolve(cfg.buildDirectory ?? 'build');
+	} catch {
+		/* use empty string — no build dir to exclude */
+	}
+
 	const isFrameworkFile = (filePath: string) =>
 		frameworkDirs.some((dir) => resolve(filePath).startsWith(dir));
+	const isBuildFile = (filePath: string) =>
+		resolvedBuildDir !== '' &&
+		resolve(filePath).startsWith(resolvedBuildDir);
 
 	let restartTimeout: NodeJS.Timeout | null = null;
 	watch(serverDir, { recursive: true }, (_event, filename) => {
 		if (!filename) return;
 		const fullPath = resolve(serverDir, filename);
 		if (isFrameworkFile(fullPath)) return;
+		if (isBuildFile(fullPath)) return;
 		if (!filename.endsWith('.ts') && !filename.endsWith('.tsx')) return;
 
 		if (restartTimeout) clearTimeout(restartTimeout);

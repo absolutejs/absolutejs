@@ -25,8 +25,10 @@ import { sendTelemetryEvent } from '../cli/telemetryEvent';
 import {
 	getAngularVendorPaths,
 	getDevVendorPaths,
+	getVueVendorPaths,
 	setAngularVendorPaths,
-	setDevVendorPaths
+	setDevVendorPaths,
+	setVueVendorPaths
 } from './devVendorPaths';
 import type { BuildConfig } from '../../types/build';
 import { angularLinkerPlugin } from '../build/angularLinkerPlugin';
@@ -511,6 +513,14 @@ export const build = async ({
 		angularVendorPaths = computeAngularVendorPaths();
 		setAngularVendorPaths(angularVendorPaths);
 	}
+	let vueVendorPaths = getVueVendorPaths();
+	if (!vueVendorPaths && hmr && vueDir) {
+		const { computeVueVendorPaths } = await import(
+			'../build/buildVueVendor'
+		);
+		vueVendorPaths = computeVueVendorPaths();
+		setVueVendorPaths(vueVendorPaths);
+	}
 
 	const htmlScriptPlugin = hmr
 		? createHTMLScriptHMRPlugin(htmlDir, htmxDir)
@@ -593,9 +603,10 @@ export const build = async ({
 			? bunBuild({
 					define: vueDirectory ? vueFeatureFlags : undefined,
 					entrypoints: nonReactClientEntryPoints,
-					...(angularVendorPaths
-						? { external: Object.keys(angularVendorPaths) }
-						: {}),
+					external: [
+						...Object.keys(angularVendorPaths ?? {}),
+						...Object.keys(vueVendorPaths ?? {})
+					],
 					format: 'esm',
 					minify: !isDev,
 					naming: `[dir]/[name].[hash].[ext]`,
@@ -699,13 +710,21 @@ export const build = async ({
 		);
 	}
 
-	// Post-process: rewrite bare Angular specifiers to vendor paths.
-	if (angularVendorPaths && nonReactClientOutputs.length > 0) {
-		const { rewriteImports } = await import('../build/rewriteImports');
-		await rewriteImports(
-			nonReactClientOutputs.map((artifact) => artifact.path),
-			angularVendorPaths
-		);
+	// Post-process: rewrite bare Angular/Vue specifiers to vendor paths.
+	if (nonReactClientOutputs.length > 0) {
+		const allNonReactVendorPaths = {
+			...(angularVendorPaths ?? {}),
+			...(vueVendorPaths ?? {})
+		};
+		if (Object.keys(allNonReactVendorPaths).length > 0) {
+			const { rewriteImports } = await import(
+				'../build/rewriteImports'
+			);
+			await rewriteImports(
+				nonReactClientOutputs.map((artifact) => artifact.path),
+				allNonReactVendorPaths
+			);
+		}
 	}
 
 	const cssLogs: (BuildMessage | ResolveMessage)[] = [
@@ -920,10 +939,7 @@ export const build = async ({
 		).replace(/\\/g, '/');
 
 		for (const file of indexFiles) {
-			let content = readFileSync(
-				join(reactIndexesPath, file),
-				'utf-8'
-			);
+			let content = readFileSync(join(reactIndexesPath, file), 'utf-8');
 			// Rewrite '../pages/ComponentName' to '/@src/src/frontend/pages/ComponentName'
 			content = content.replace(
 				/from\s*['"]\.\.\/pages\/([^'"]+)['"]/g,

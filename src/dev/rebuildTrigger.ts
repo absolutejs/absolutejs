@@ -786,10 +786,10 @@ const bundleReactClient = async (
 	await populateAssetStore(state.assetStore, clientManifest, buildDir);
 };
 
-// O(1) React HMR: invalidate cache, pre-transpile the changed file,
+// O(1) HMR: invalidate cache, pre-transpile the changed file,
 // and return the /@src/ URL. Pre-warming ensures the browser fetch
-// hits a warm cache.
-const getReactModuleUrl = async (pageFile: string) => {
+// hits a warm cache. Used by React and Vue (component-level swap).
+const getModuleUrl = async (pageFile: string) => {
 	const { invalidateModule, warmCache, SRC_URL_PREFIX } = await import(
 		'../dev/moduleServer'
 	);
@@ -799,6 +799,54 @@ const getReactModuleUrl = async (pageFile: string) => {
 	warmCache(url);
 
 	return url;
+};
+
+const getReactModuleUrl = getModuleUrl;
+
+// Svelte: invalidate changed files, resolve the PAGE component,
+// and return an /@hmr/ URL that bootstraps the full page remount.
+// (Svelte lacks a component-level HMR runtime like React/Vue.)
+const getFrameworkPageUrl = async (
+	changedFiles: string[],
+	pagesDir: string,
+	framework: string,
+	dependencyGraph: Parameters<typeof getAffectedFiles>[0]
+) => {
+	const { invalidateModule } = await import('../dev/moduleServer');
+
+	for (const file of changedFiles) {
+		invalidateModule(file);
+	}
+
+	const pagesResolved = resolve(pagesDir);
+	let pageFile: string | null = null;
+
+	for (const file of changedFiles) {
+		if (resolve(file).startsWith(pagesResolved)) {
+			pageFile = file;
+			break;
+		}
+	}
+
+	if (!pageFile) {
+		for (const file of changedFiles) {
+			const affected = getAffectedFiles(dependencyGraph, file);
+			const page = affected.find((dep) =>
+				resolve(dep).startsWith(pagesResolved)
+			);
+			if (page) {
+				pageFile = page;
+				invalidateModule(page);
+				break;
+			}
+		}
+	}
+
+	if (!pageFile) return null;
+
+	const pageRel = relative(process.cwd(), pageFile).replace(/\\/g, '/');
+
+	return `/@hmr/${framework}/${pageRel}`;
 };
 
 const handleReactFastPath = async (
@@ -944,9 +992,63 @@ const handleSvelteFastPath = async (
 	}) => void
 ) => {
 	const svelteDir = config.svelteDirectory ?? '';
-	const { buildDir } = state.resolvedPaths;
 
 	const svelteFiles = filesToRebuild.filter(
+		(file) =>
+			(file.endsWith('.svelte') || file.includes('.svelte.')) &&
+			detectFramework(file, state.resolvedPaths) === 'svelte'
+	);
+
+	// O(1) fast path via /@hmr/ bootstrap (full page remount)
+	const sveltePageUrl =
+		svelteFiles.length > 0
+			? await getFrameworkPageUrl(
+					svelteFiles,
+					resolve(svelteDir, 'pages'),
+					'svelte',
+					state.dependencyGraph
+				)
+			: null;
+
+	if (sveltePageUrl) {
+		for (const file of svelteFiles) {
+			state.fileHashes.set(resolve(file), computeFileHash(file));
+		}
+
+		const serverDuration = Date.now() - startTime;
+		const primaryFile = svelteFiles[0] ?? '';
+		state.lastHmrPath = primaryFile;
+		state.lastHmrFramework = 'svelte';
+
+		broadcastToClients(state, {
+			data: {
+				cssBaseName: basename(primaryFile).replace(
+					/\.svelte(?:\.\w+)?$/,
+					''
+				),
+				cssUrl: null,
+				framework: 'svelte',
+				html: null,
+				manifest: state.manifest,
+				pageModuleUrl: sveltePageUrl,
+				serverDuration,
+				sourceFile: primaryFile,
+				sourceFiles: svelteFiles,
+				updateType: 'full'
+			},
+			type: 'svelte-update'
+		});
+		onRebuildComplete({
+			hmrState: state,
+			manifest: state.manifest
+		});
+
+		return state.manifest;
+	}
+
+	// Bundled fallback
+	const { buildDir } = state.resolvedPaths;
+	const sveltePageFiles = svelteFiles.filter(
 		(file) =>
 			file.endsWith('.svelte') &&
 			resolve(file).startsWith(resolve(svelteDir, 'pages'))
@@ -1014,9 +1116,9 @@ const handleSvelteFastPath = async (
 	const { manifest } = state;
 	const duration = Date.now() - startTime;
 
-	const sveltePageFiles =
+	const broadcastFiles =
 		svelteFiles.length > 0 ? svelteFiles : filesToRebuild;
-	sveltePageFiles.forEach((sveltePagePath) => {
+	broadcastFiles.forEach((sveltePagePath) => {
 		const fileName = basename(sveltePagePath);
 		const baseName = fileName.replace(/\.svelte$/, '');
 		const pascalName = toPascal(baseName);
@@ -1053,123 +1155,53 @@ const handleVueFastPath = async (
 		hmrState: HMRState;
 	}) => void
 ) => {
-	const vueDir = config.vueDirectory ?? '';
-	const { buildDir } = state.resolvedPaths;
-
 	const vueFiles = filesToRebuild.filter(
 		(file) =>
 			file.endsWith('.vue') &&
-			resolve(file).startsWith(resolve(vueDir, 'pages'))
+			detectFramework(file, state.resolvedPaths) === 'vue'
 	);
 
+	// O(1) fast path: Vue HMR runtime swaps components in place.
+	// Vue is now externalized in the initial build (same vendor instance),
+	// so __VUE_HMR_RUNTIME__.reload() works like React Fast Refresh.
 	if (vueFiles.length > 0) {
-		const { compileVue } = await import('../build/compileVue');
-		const { build: bunBuild } = await import('bun');
-		const clientRoot = await computeClientRoot(state.resolvedPaths);
+		const changedFile = vueFiles[0];
+		if (changedFile) {
+			const pageModuleUrl = await getModuleUrl(changedFile);
 
-		const { vueServerPaths, vueIndexPaths, vueClientPaths } =
-			await compileVue(vueFiles, vueDir, true);
+			for (const file of vueFiles) {
+				state.fileHashes.set(resolve(file), computeFileHash(file));
+			}
 
-		const serverEntries = [...vueServerPaths];
-		const clientEntries = [...vueIndexPaths, ...vueClientPaths];
+			const serverDuration = Date.now() - startTime;
+			state.lastHmrPath = changedFile;
+			state.lastHmrFramework = 'vue';
 
-		const serverRoot = resolve(vueDir, 'server');
-		const serverOutDir = resolve(buildDir, basename(vueDir));
+			broadcastToClients(state, {
+				data: {
+					framework: 'vue',
+					manifest: state.manifest,
+					pageModuleUrl,
+					serverDuration,
+					sourceFile: changedFile,
+					sourceFiles: vueFiles,
+					updateType: 'full'
+				},
+				type: 'vue-update'
+			});
+			onRebuildComplete({
+				hmrState: state,
+				manifest: state.manifest
+			});
 
-		const vueFeatureFlags: Record<string, string> = {
-			__VUE_OPTIONS_API__: 'true',
-			__VUE_PROD_DEVTOOLS__: 'true',
-			__VUE_PROD_HYDRATION_MISMATCH_DETAILS__: 'true'
-		};
-
-		const [serverResult, clientResult] = await Promise.all([
-			serverEntries.length > 0
-				? bunBuild({
-						entrypoints: serverEntries,
-						external: ['vue', 'vue/*'],
-						format: 'esm',
-						naming: '[dir]/[name].[hash].[ext]',
-						outdir: serverOutDir,
-						root: serverRoot,
-						target: 'bun',
-						throw: false
-					})
-				: undefined,
-			clientEntries.length > 0
-				? bunBuild({
-						define: vueFeatureFlags,
-						entrypoints: clientEntries,
-						format: 'esm',
-						naming: '[dir]/[name].[hash].[ext]',
-						outdir: buildDir,
-						root: clientRoot,
-						target: 'browser',
-						throw: false
-					})
-				: undefined
-		]);
-
-		handleServerManifestUpdate(state, serverResult);
-		await handleClientManifestUpdate(state, clientResult, buildDir);
+			return state.manifest;
+		}
 	}
 
-	await Promise.all([
-		rm(resolve(vueDir, 'client'), {
-			force: true,
-			recursive: true
-		}),
-		rm(resolve(vueDir, 'indexes'), {
-			force: true,
-			recursive: true
-		}),
-		rm(resolve(vueDir, 'server'), {
-			force: true,
-			recursive: true
-		}),
-		rm(resolve(vueDir, 'compiled'), {
-			force: true,
-			recursive: true
-		})
-	]);
+	// Bundled fallback
+	onRebuildComplete({ hmrState: state, manifest: state.manifest });
 
-	const { manifest } = state;
-	const duration = Date.now() - startTime;
-
-	const vuePageFiles = vueFiles.length > 0 ? vueFiles : filesToRebuild;
-	vuePageFiles.forEach((vuePagePath) => {
-		const fileName = basename(vuePagePath);
-		const baseName = fileName.replace(/\.vue$/, '');
-		const pascalName = toPascal(baseName);
-		const cssKey = `${pascalName}CSS`;
-		const cssUrl = manifest[cssKey] || null;
-
-		const vueRoot = config.vueDirectory;
-		const hmrId = vueRoot
-			? relative(vueRoot, vuePagePath)
-					.replace(/\\/g, '/')
-					.replace(/\.vue$/, '')
-			: baseName;
-
-		logHmrUpdate(vuePagePath, 'vue', duration);
-		broadcastToClients(state, {
-			data: {
-				changeType: 'full',
-				componentPath: manifest[`${pascalName}Client`] || null,
-				cssUrl,
-				framework: 'vue',
-				hmrId,
-				html: null,
-				manifest,
-				sourceFile: vuePagePath,
-				updateType: 'full'
-			},
-			type: 'vue-update'
-		});
-	});
-
-	onRebuildComplete({ hmrState: state, manifest });
-
-	return manifest;
+	return state.manifest;
 };
 
 const isFrameworkOnlyChange = (

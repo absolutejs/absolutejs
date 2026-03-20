@@ -212,6 +212,8 @@ export const handleSvelteUpdate = (message: {
 		cssUrl?: string;
 		html?: string;
 		manifest?: Record<string, string>;
+		pageModuleUrl?: string;
+		serverDuration?: number;
 		sourceFile?: string;
 		updateType?: string;
 	};
@@ -246,6 +248,50 @@ export const handleSvelteUpdate = (message: {
 	window.__HMR_PRESERVED_STATE__ = preservedState;
 	saveStateToSession(preservedState);
 
+	/* CSS pre-update: swap stylesheet BEFORE importing to prevent FOUC */
+	if (message.data.cssUrl) {
+		swapStylesheet(
+			message.data.cssUrl,
+			message.data.cssBaseName || '',
+			'svelte'
+		);
+	}
+
+	// O(1) unbundled ESM fast path: import the single changed module directly
+	const pageModuleUrl = message.data.pageModuleUrl;
+	if (pageModuleUrl) {
+		const clientStart = performance.now();
+		preserveAllStylesheets();
+
+		const modulePath = `${pageModuleUrl}?t=${Date.now()}`;
+		import(modulePath)
+			.then(() => {
+				waitForStylesAndCleanup(domState, scrollState);
+
+				if (window.__HMR_WS__ && message.data.serverDuration != null) {
+					const clientMs = Math.round(
+						performance.now() - clientStart
+					);
+					const total = (message.data.serverDuration ?? 0) + clientMs;
+					window.__HMR_WS__.send(
+						JSON.stringify({ duration: total, type: 'hmr-timing' })
+					);
+				}
+
+				return undefined;
+			})
+			.catch((err: unknown) => {
+				console.warn(
+					'[HMR] Svelte unbundled import failed, reloading:',
+					err
+				);
+				window.location.reload();
+			});
+
+		return;
+	}
+
+	// Bundled fallback: re-import the index file
 	const indexPath = findIndexPath(
 		message.data.manifest,
 		message.data.sourceFile,
@@ -256,15 +302,6 @@ export const handleSvelteUpdate = (message: {
 		window.location.reload();
 
 		return;
-	}
-
-	/* CSS pre-update: swap stylesheet BEFORE importing to prevent FOUC */
-	if (message.data.cssUrl) {
-		swapStylesheet(
-			message.data.cssUrl,
-			message.data.cssBaseName || '',
-			'svelte'
-		);
 	}
 
 	preserveAllStylesheets();

@@ -1,5 +1,5 @@
-import { readFileSync, statSync } from 'node:fs';
-import { dirname, extname, resolve, relative } from 'node:path';
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { basename, dirname, extname, resolve, relative } from 'node:path';
 import { getTransformed, setTransformed, invalidate } from './transformCache';
 
 const SRC_PREFIX = '/@src/';
@@ -52,10 +52,12 @@ const REACT_EXTENSIONS = new Set(['.tsx', '.jsx']);
 type ModuleServerConfig = {
 	projectRoot: string;
 	vendorPaths: Record<string, string>;
+	frameworkDirs?: {
+		vue?: string;
+	};
 };
 
-const escapeRegex = (str: string) =>
-	str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const escapeRegex = (str: string) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 const buildImportRewriter = (vendorPaths: Record<string, string>) => {
 	const entries = Object.entries(vendorPaths).sort(
@@ -77,6 +79,21 @@ const buildImportRewriter = (vendorPaths: Record<string, string>) => {
 	);
 
 	return { dynamicRegex, fromRegex, lookup, sideEffectRegex };
+};
+
+// Build a /@src/ URL with the file's mtime as a cache buster.
+// The browser caches ESM static imports by URL — appending mtime
+// ensures a fresh fetch only when that specific file actually changed.
+const srcUrl = (relPath: string, projectRoot: string) => {
+	const base = `${SRC_PREFIX}${relPath.replace(/\\/g, '/')}`;
+
+	try {
+		const stat = statSync(resolve(projectRoot, relPath));
+
+		return `${base}?v=${Math.round(stat.mtimeMs)}`;
+	} catch {
+		return base;
+	}
 };
 
 const rewriteImports = (
@@ -149,7 +166,14 @@ const rewriteImports = (
 			const rel = relative(projectRoot, absPath);
 			let srcPath = rel;
 			if (!extname(srcPath)) {
-				const extensions = ['.tsx', '.ts', '.jsx', '.js'];
+				const extensions = [
+					'.tsx',
+					'.ts',
+					'.jsx',
+					'.js',
+					'.svelte',
+					'.vue'
+				];
 				for (const ext of extensions) {
 					try {
 						statSync(resolve(projectRoot, srcPath + ext));
@@ -160,7 +184,16 @@ const rewriteImports = (
 					}
 				}
 			}
-			return `${prefix}${SRC_PREFIX}${srcPath.replace(/\\/g, '/')}${suffix}`;
+			// Resolve Svelte module files: .svelte → .svelte.ts / .svelte.js
+			if (extname(srcPath) === '.svelte') {
+				const resolved = resolveSvelteModulePath(
+					resolve(projectRoot, srcPath)
+				);
+				const resolvedRel = relative(projectRoot, resolved);
+
+				srcPath = resolvedRel;
+			}
+			return `${prefix}${srcUrl(srcPath, projectRoot)}${suffix}`;
 		}
 	);
 
@@ -170,7 +203,7 @@ const rewriteImports = (
 		(_match, prefix, relPath, suffix) => {
 			const absPath = resolve(fileDir, relPath);
 			const rel = relative(projectRoot, absPath);
-			return `${prefix}${SRC_PREFIX}${rel.replace(/\\/g, '/')}${suffix}`;
+			return `${prefix}${srcUrl(rel, projectRoot)}${suffix}`;
 		}
 	);
 
@@ -182,7 +215,15 @@ const rewriteImports = (
 			const rel = relative(projectRoot, absPath);
 			let srcPath = rel;
 			if (!extname(srcPath)) {
-				const extensions = ['.tsx', '.ts', '.jsx', '.js', '.css'];
+				const extensions = [
+					'.tsx',
+					'.ts',
+					'.jsx',
+					'.js',
+					'.css',
+					'.svelte',
+					'.vue'
+				];
 				for (const ext of extensions) {
 					try {
 						statSync(resolve(projectRoot, srcPath + ext));
@@ -193,7 +234,7 @@ const rewriteImports = (
 					}
 				}
 			}
-			return `${prefix}${SRC_PREFIX}${srcPath.replace(/\\/g, '/')}${suffix}`;
+			return `${prefix}${srcUrl(srcPath, projectRoot)}${suffix}`;
 		}
 	);
 
@@ -203,17 +244,14 @@ const rewriteImports = (
 		/((?:from|import)\s*["'])(\/[^"']+\.(tsx?|jsx?|ts))(["'])/g,
 		(_match, prefix, absPath, _ext, suffix) => {
 			if (absPath.startsWith(projectRoot)) {
-				const rel = relative(projectRoot, absPath).replace(
-					/\\/g,
-					'/'
-				);
-				return `${prefix}${SRC_PREFIX}${rel}${suffix}`;
+				const rel = relative(projectRoot, absPath).replace(/\\/g, '/');
+				return `${prefix}${srcUrl(rel, projectRoot)}${suffix}`;
 			}
 			// Path outside project root (e.g., node_modules package src)
 			// Try to make it relative to project root anyway
 			const rel = relative(projectRoot, absPath).replace(/\\/g, '/');
 			if (!rel.startsWith('..')) {
-				return `${prefix}${SRC_PREFIX}${rel}${suffix}`;
+				return `${prefix}${srcUrl(rel, projectRoot)}${suffix}`;
 			}
 			return _match;
 		}
@@ -311,9 +349,7 @@ const injectRefreshRegistration = (
 
 		// Convert export const/let → var (allows reassignment for _s wrapping)
 		result = result.replace(
-			new RegExp(
-				`export\\s+(?:const|let)\\s+(${comp.name}\\s*=)`
-			),
+			new RegExp(`export\\s+(?:const|let)\\s+(${comp.name}\\s*=)`),
 			`var $1`
 		);
 		exportedNames.push(comp.name);
@@ -416,8 +452,14 @@ const transformReactFile = (
 		''
 	);
 	// Map the aliased names to the window globals
-	transpiled = transpiled.replace(/\$RefreshReg\$_[a-z0-9]+/g, '$RefreshReg$');
-	transpiled = transpiled.replace(/\$RefreshSig\$_[a-z0-9]+/g, '$RefreshSig$');
+	transpiled = transpiled.replace(
+		/\$RefreshReg\$_[a-z0-9]+/g,
+		'$RefreshReg$'
+	);
+	transpiled = transpiled.replace(
+		/\$RefreshSig\$_[a-z0-9]+/g,
+		'$RefreshSig$'
+	);
 	// Prepend window global stubs for ESM scope
 	transpiled =
 		'var $RefreshReg$ = window.$RefreshReg$ || function(){};\n' +
@@ -454,6 +496,180 @@ const transformPlainFile = (
 	return rewriteImports(transpiled, filePath, projectRoot, rewriter);
 };
 
+// ─── Framework-specific transforms (Svelte, Vue) ────────────
+// Cached compiler references — avoid re-importing on every request
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let svelteCompiler: any = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let vueCompiler: any = null;
+
+// Compile .svelte files to client JS using svelte/compiler.
+// Keeps .svelte extensions in imports so the module server handles children.
+const transformSvelteFile = async (
+	filePath: string,
+	projectRoot: string,
+	rewriter: ReturnType<typeof buildImportRewriter>
+) => {
+	const raw = readFileSync(filePath, 'utf-8');
+
+	if (!svelteCompiler) {
+		svelteCompiler = await import('svelte/compiler');
+	}
+
+	const isModule =
+		filePath.endsWith('.svelte.ts') || filePath.endsWith('.svelte.js');
+
+	let code: string;
+	if (isModule) {
+		// Module files (.svelte.ts) — transpile TS first, then compileModule
+		const source = tsTranspiler.transformSync(raw);
+		code = svelteCompiler.compileModule(source, {
+			dev: true,
+			filename: filePath
+		}).js.code;
+	} else {
+		// Svelte 5 compiler handles <script lang="ts"> natively — no
+		// pre-transpilation needed. Pass raw source directly.
+		code = svelteCompiler.compile(raw, {
+			css: 'injected',
+			dev: true,
+			filename: filePath,
+			generate: 'client'
+		}).js.code;
+	}
+
+	return rewriteImports(code, filePath, projectRoot, rewriter);
+};
+
+// Compile .vue SFC files to client JS using @vue/compiler-sfc.
+const transformVueFile = async (
+	filePath: string,
+	projectRoot: string,
+	rewriter: ReturnType<typeof buildImportRewriter>,
+	vueDir?: string
+) => {
+	const raw = readFileSync(filePath, 'utf-8');
+
+	if (!vueCompiler) {
+		vueCompiler = await import('@vue/compiler-sfc');
+	}
+
+	const fileName = basename(filePath, '.vue');
+	const componentId = fileName.toLowerCase();
+	const { descriptor } = vueCompiler.parse(raw, { filename: filePath });
+
+	// Always compile with inlineTemplate: false so we get a separate
+	// render function. This enables __VUE_HMR_RUNTIME__.rerender()
+	// which preserves reactive state (like React Fast Refresh).
+	const compiledScript = vueCompiler.compileScript(descriptor, {
+		id: componentId,
+		inlineTemplate: false
+	});
+
+	let code: string = compiledScript.content;
+
+	// Compile template separately — render function used for HMR rerender
+	if (descriptor.template) {
+		const isScoped = descriptor.styles.some(
+			(style: { scoped: boolean }) => style.scoped
+		);
+		const templateResult = vueCompiler.compileTemplate({
+			compilerOptions: {
+				bindingMetadata: compiledScript.bindings,
+				prefixIdentifiers: true
+			},
+			filename: filePath,
+			id: componentId,
+			scoped: isScoped,
+			source: descriptor.template.content
+		});
+
+		code = code.replace('export default', 'const __script__ =');
+		code += `\n${templateResult.code}`;
+		code += '\n__script__.render = render;';
+		code += '\nexport default __script__;';
+	}
+
+	// Compile and inject scoped CSS as inline <style>
+	if (descriptor.styles.length > 0) {
+		const cssCode = descriptor.styles
+			.map(
+				(style: { scoped: boolean; content: string }) =>
+					vueCompiler.compileStyle({
+						filename: filePath,
+						id: `data-v-${componentId}`,
+						scoped: style.scoped,
+						source: style.content,
+						trim: true
+					}).code
+			)
+			.join('\n');
+
+		const escaped = cssCode
+			.replace(/\\/g, '\\\\')
+			.replace(/`/g, '\\`')
+			.replace(/\$/g, '\\$');
+		const hmrId = JSON.stringify(filePath);
+		const cssInjection = [
+			`var __style=document.createElement('style');`,
+			`__style.textContent=\`${escaped}\`;`,
+			`__style.dataset.hmrId=${hmrId};`,
+			`var __prev=document.querySelector('style[data-hmr-id="${filePath}"]');`,
+			`if(__prev)__prev.remove();`,
+			`document.head.appendChild(__style);`
+		].join('');
+
+		code = `${cssInjection}\n${code}`;
+	}
+
+	// Vue's compileScript strips user TypeScript but the generated
+	// wrapper code still has `: any` annotations (e.g. __props: any,
+	// _ctx: any). Run through the TS transpiler to strip those.
+	code = tsTranspiler.transformSync(code);
+
+	// Inject Vue HMR — use rerender() to preserve reactive state.
+	// rerender() only swaps the render function (like React Fast Refresh).
+	// reload() would reset state by re-running setup().
+	const hmrBase = vueDir ? resolve(vueDir) : projectRoot;
+	const hmrId = relative(hmrBase, filePath)
+		.replace(/\\/g, '/')
+		.replace(/\.vue$/, '');
+	code = code.replace(
+		/export\s+default\s+/,
+		'var __hmr_comp__ = '
+	);
+	code += [
+		'',
+		`__hmr_comp__.__hmrId = ${JSON.stringify(hmrId)};`,
+		`if (typeof __VUE_HMR_RUNTIME__ !== "undefined") {`,
+		`  __VUE_HMR_RUNTIME__.createRecord(${JSON.stringify(hmrId)}, __hmr_comp__);`,
+		`  __VUE_HMR_RUNTIME__.rerender(${JSON.stringify(hmrId)}, __hmr_comp__.render);`,
+		`}`,
+		'export default __hmr_comp__;'
+	].join('\n');
+
+	// Rewrite .vue imports to keep them for module server handling
+	return rewriteImports(code, filePath, projectRoot, rewriter);
+};
+
+// Resolve .svelte module files that may exist as .svelte.ts or .svelte.js
+const resolveSvelteModulePath = (path: string) => {
+	if (existsSync(path)) return path;
+	if (existsSync(`${path}.ts`)) return `${path}.ts`;
+	if (existsSync(`${path}.js`)) return `${path}.js`;
+
+	return path;
+};
+
+// Shared response builder for transformed modules
+const jsResponse = (body: string) =>
+	new Response(body, {
+		headers: {
+			'Cache-Control': 'no-cache',
+			'Content-Type': 'application/javascript'
+		}
+	});
+
 const handleCssRequest = (filePath: string) => {
 	const raw = readFileSync(filePath, 'utf-8');
 	const escaped = raw
@@ -470,8 +686,91 @@ const handleCssRequest = (filePath: string) => {
 	].join('\n');
 };
 
+// Generate HMR bootstrap wrapper for Svelte.
+// Uses dynamic import() with a cache-busting timestamp so the
+// browser fetches the freshly compiled component every time.
+const generateSvelteHmrBootstrap = (
+	srcUrl: string,
+	vendorPaths: Record<string, string>,
+	timestamp: string
+) => {
+	const sveltePath = vendorPaths['svelte'] || '/svelte/vendor/svelte.js';
+
+	return [
+		`import { mount, unmount } from "${sveltePath}";`,
+		`const { default: Component } = await import("${srcUrl}?t=${timestamp}");`,
+		``,
+		`// Extract count from DOM before unmount (survives across runtime instances)`,
+		`var countBtn = document.querySelector("button");`,
+		`var countMatch = countBtn && countBtn.textContent && countBtn.textContent.match(/(\\d+)/);`,
+		`var domCount = countMatch ? parseInt(countMatch[1], 10) : null;`,
+		``,
+		`var preservedState = window.__HMR_PRESERVED_STATE__ || {};`,
+		`if (domCount !== null && preservedState.initialCount === undefined) {`,
+		`  preservedState.initialCount = domCount;`,
+		`}`,
+		`var initialProps = window.__INITIAL_PROPS__ || {};`,
+		`var mergedProps = Object.assign({}, initialProps, preservedState);`,
+		``,
+		`// Update __INITIAL_PROPS__ so subsequent HMR cycles start with current state`,
+		`if (domCount !== null) window.__INITIAL_PROPS__ = Object.assign({}, initialProps, { initialCount: domCount });`,
+		``,
+		`if (typeof window.__SVELTE_UNMOUNT__ === "function") {`,
+		`  try { window.__SVELTE_UNMOUNT__(); } catch (err) { /* ignore */ }`,
+		`}`,
+		``,
+		`var component = mount(Component, { target: document.body, props: mergedProps });`,
+		`window.__SVELTE_COMPONENT__ = component;`,
+		`window.__SVELTE_UNMOUNT__ = function() { unmount(component); };`,
+		`window.__HMR_PRESERVED_STATE__ = undefined;`
+	].join('\n');
+};
+
+// Generate HMR bootstrap wrapper for Vue.
+// Same approach as Svelte — full remount via vendor Vue's createApp.
+const generateVueHmrBootstrap = (
+	srcUrl: string,
+	vendorPaths: Record<string, string>,
+	timestamp: string
+) => {
+	const vuePath = vendorPaths['vue'] || '/vue/vendor/vue.js';
+
+	return [
+		`import { createApp } from "${vuePath}";`,
+		`const { default: Component } = await import("${srcUrl}?t=${timestamp}");`,
+		``,
+		`// Extract count from DOM before unmount (works across Vue instances)`,
+		`var countBtn = document.querySelector("button");`,
+		`var countMatch = countBtn && countBtn.textContent && countBtn.textContent.match(/(\\d+)/);`,
+		`var domCount = countMatch ? parseInt(countMatch[1], 10) : null;`,
+		``,
+		`var preservedState = window.__HMR_PRESERVED_STATE__ || {};`,
+		`if (domCount !== null && preservedState.initialCount === undefined) {`,
+		`  preservedState.initialCount = domCount;`,
+		`}`,
+		`var initialProps = window.__INITIAL_PROPS__ || {};`,
+		`var mergedProps = Object.assign({}, initialProps, preservedState);`,
+		``,
+		`// Update __INITIAL_PROPS__ so subsequent HMR cycles start with current state`,
+		`if (domCount !== null) window.__INITIAL_PROPS__ = Object.assign({}, initialProps, { initialCount: domCount });`,
+		``,
+		`var root = document.getElementById("root");`,
+		`var savedHTML = root ? root.innerHTML : "";`,
+		`if (window.__VUE_APP__) {`,
+		`  window.__VUE_APP__.unmount();`,
+		`  window.__VUE_APP__ = null;`,
+		`}`,
+		`if (root) root.innerHTML = savedHTML;`,
+		``,
+		`var app = createApp(Component, mergedProps);`,
+		`app.mount(root);`,
+		`window.__VUE_APP__ = app;`,
+		`window.__HMR_PRESERVED_STATE__ = undefined;`
+	].join('\n');
+};
+
 export const createModuleServer = (config: ModuleServerConfig) => {
-	const { projectRoot, vendorPaths } = config;
+	const { projectRoot, vendorPaths, frameworkDirs } = config;
 	const rewriter = buildImportRewriter(vendorPaths);
 
 	return async (pathname: string) => {
@@ -505,6 +804,38 @@ export const createModuleServer = (config: ModuleServerConfig) => {
 			});
 		}
 
+		// HMR bootstrap wrappers for non-React frameworks.
+		if (pathname.startsWith('/@hmr/')) {
+			const rest = pathname.slice('/@hmr/'.length);
+			const slashIdx = rest.indexOf('/');
+			if (slashIdx === -1) return undefined;
+
+			const framework = rest.slice(0, slashIdx);
+			const componentRelPath = rest.slice(slashIdx + 1);
+			const srcUrl = `${SRC_PREFIX}${componentRelPath}`;
+			const timestamp = String(Date.now());
+
+			let bootstrap: string | null = null;
+
+			if (framework === 'svelte') {
+				bootstrap = generateSvelteHmrBootstrap(
+					srcUrl,
+					vendorPaths,
+					timestamp
+				);
+			} else if (framework === 'vue') {
+				bootstrap = generateVueHmrBootstrap(
+					srcUrl,
+					vendorPaths,
+					timestamp
+				);
+			}
+
+			if (!bootstrap) return undefined;
+
+			return jsResponse(bootstrap);
+		}
+
 		if (!pathname.startsWith(SRC_PREFIX)) return undefined;
 
 		const relPath = pathname.slice(SRC_PREFIX.length);
@@ -513,7 +844,7 @@ export const createModuleServer = (config: ModuleServerConfig) => {
 
 		// Resolve missing extensions (e.g., /@src/src/pages/Home → Home.tsx)
 		if (!ext) {
-			const tryExts = ['.tsx', '.ts', '.jsx', '.js'];
+			const tryExts = ['.tsx', '.ts', '.jsx', '.js', '.svelte', '.vue'];
 			for (const tryExt of tryExts) {
 				try {
 					statSync(filePath + tryExt);
@@ -526,50 +857,72 @@ export const createModuleServer = (config: ModuleServerConfig) => {
 			}
 		}
 
+		// Resolve Svelte module files: .svelte → .svelte.ts / .svelte.js
+		// (imports reference .svelte but the actual file may be .svelte.ts)
+		if (ext === '.svelte') {
+			filePath = resolveSvelteModulePath(filePath);
+		}
+
 		try {
-			if (ext === '.css') {
-				return new Response(handleCssRequest(filePath), {
-					headers: {
-						'Cache-Control': 'no-cache',
-						'Content-Type': 'application/javascript'
-					}
-				});
+			if (ext === '.css') return jsResponse(handleCssRequest(filePath));
+
+			// Svelte files (.svelte, .svelte.ts, .svelte.js)
+			const isSvelte =
+				ext === '.svelte' ||
+				filePath.endsWith('.svelte.ts') ||
+				filePath.endsWith('.svelte.js');
+
+			if (isSvelte) {
+				const cached = getTransformed(filePath);
+				if (cached) return jsResponse(cached);
+
+				const stat = statSync(filePath);
+				const content = await transformSvelteFile(
+					filePath,
+					projectRoot,
+					rewriter
+				);
+				setTransformed(filePath, content, stat.mtimeMs);
+
+				return jsResponse(content);
+			}
+
+			// Vue SFC files
+			if (ext === '.vue') {
+				const cached = getTransformed(filePath);
+				if (cached) return jsResponse(cached);
+
+				const stat = statSync(filePath);
+				const content = await transformVueFile(
+					filePath,
+					projectRoot,
+					rewriter,
+					frameworkDirs?.vue
+				);
+				setTransformed(filePath, content, stat.mtimeMs);
+
+				return jsResponse(content);
 			}
 
 			if (!TRANSPILABLE.has(ext)) return undefined;
 
 			// Check transform cache first
 			const cached = getTransformed(filePath);
-			if (cached) {
-				return new Response(cached, {
-					headers: {
-						'Cache-Control': 'no-cache',
-						'Content-Type': 'application/javascript'
-					}
-				});
-			}
+			if (cached) return jsResponse(cached);
 
 			const stat = statSync(filePath);
-			let content: string;
-
-			if (REACT_EXTENSIONS.has(ext)) {
-				content = transformReactFile(filePath, projectRoot, rewriter);
-			} else {
-				content = transformPlainFile(filePath, projectRoot, rewriter);
-			}
+			const content = REACT_EXTENSIONS.has(ext)
+				? transformReactFile(filePath, projectRoot, rewriter)
+				: transformPlainFile(filePath, projectRoot, rewriter);
 
 			setTransformed(filePath, content, stat.mtimeMs);
 
-			return new Response(content, {
-				headers: {
-					'Cache-Control': 'no-cache',
-					'Content-Type': 'application/javascript'
-				}
-			});
+			return jsResponse(content);
 		} catch (err) {
-			const message = err instanceof Error ? err.message : String(err);
+			const errMsg = err instanceof Error ? err.message : String(err);
+
 			return new Response(
-				`console.error('[ModuleServer] Transform error:', ${JSON.stringify(message)});`,
+				`console.error('[ModuleServer] Transform error:', ${JSON.stringify(errMsg)});`,
 				{
 					headers: { 'Content-Type': 'application/javascript' },
 					status: 500
@@ -591,13 +944,14 @@ export const warmCache = (pathname: string) => {
 };
 
 // Store the module server handler globally so warmCache can access it
-let globalModuleServer: ((pathname: string) => Promise<Response | undefined> | Response | undefined) | null =
-	null;
-
-export const setGlobalModuleServer = (
-	handler: typeof globalModuleServer
-) => {
-	globalModuleServer = handler;
-};
+let globalModuleServer:
+	| ((
+			pathname: string
+	  ) => Promise<Response | undefined> | Response | undefined)
+	| null = null;
 
 export const SRC_URL_PREFIX = SRC_PREFIX;
+
+export const setGlobalModuleServer = (handler: typeof globalModuleServer) => {
+	globalModuleServer = handler;
+};

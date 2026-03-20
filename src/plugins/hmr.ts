@@ -40,7 +40,9 @@ export const hmr =
 	(
 		hmrState: HMRState,
 		manifest: Record<string, string>,
-		moduleServerHandler?: (pathname: string) => Promise<Response | undefined> | Response | undefined
+		moduleServerHandler?: (
+			pathname: string
+		) => Promise<Response | undefined> | Response | undefined
 	) =>
 	(app: Elysia) => {
 		restoreStore(app);

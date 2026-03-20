@@ -2,7 +2,12 @@ import { readdir } from 'node:fs/promises';
 import { statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { build } from './build';
-import { setDevVendorPaths, setAngularVendorPaths } from './devVendorPaths';
+import {
+	setDevVendorPaths,
+	setAngularVendorPaths,
+	setSvelteVendorPaths,
+	setVueVendorPaths
+} from './devVendorPaths';
 import type { BuildConfig } from '../../types/build';
 import {
 	buildReactVendor,
@@ -12,6 +17,11 @@ import {
 	buildAngularVendor,
 	computeAngularVendorPaths
 } from '../build/buildAngularVendor';
+import {
+	buildSvelteVendor,
+	computeSvelteVendorPaths
+} from '../build/buildSvelteVendor';
+import { buildVueVendor, computeVueVendorPaths } from '../build/buildVueVendor';
 import { createHMRState } from '../dev/clientManager';
 import { resolveBuildPaths } from '../dev/configResolver';
 import { buildInitialDependencyGraph } from '../dev/dependencyGraph';
@@ -84,12 +94,18 @@ const detectConfigChanges = async (
 	}
 	state.resolvedPaths = resolveBuildPaths(state.config);
 
-	// Set up vendor paths for newly added React/Angular
+	// Set up vendor paths for newly added frameworks
 	if (!oldConfig.reactDirectory && Boolean(newConfig.reactDirectory)) {
 		setDevVendorPaths(computeVendorPaths());
 	}
 	if (!oldConfig.angularDirectory && Boolean(newConfig.angularDirectory)) {
 		setAngularVendorPaths(computeAngularVendorPaths());
+	}
+	if (!oldConfig.svelteDirectory && Boolean(newConfig.svelteDirectory)) {
+		setSvelteVendorPaths(computeSvelteVendorPaths());
+	}
+	if (!oldConfig.vueDirectory && Boolean(newConfig.vueDirectory)) {
+		setVueVendorPaths(computeVueVendorPaths());
 	}
 
 	// Compute new watch paths and start watchers for additions
@@ -197,6 +213,12 @@ const handleCachedReload = async () => {
 	if (cached?.hmrState.config.angularDirectory) {
 		setAngularVendorPaths(computeAngularVendorPaths());
 	}
+	if (cached?.hmrState.config.svelteDirectory) {
+		setSvelteVendorPaths(computeSvelteVendorPaths());
+	}
+	if (cached?.hmrState.config.vueDirectory) {
+		setVueVendorPaths(computeVueVendorPaths());
+	}
 
 	if (serverMtime === lastMtime) {
 		globalThis.__hmrSkipServerRestart = true;
@@ -274,13 +296,19 @@ export const devBuild = async (config: BuildConfig) => {
 	const watchPaths = getWatchPaths(config, state.resolvedPaths);
 	buildInitialDependencyGraph(state.dependencyGraph, watchPaths);
 
-	// Pre-compute vendor paths so build() can externalize React.
+	// Pre-compute vendor paths so build() can externalize frameworks.
 	// The actual vendor files are built after build() creates the output dir.
 	if (config.reactDirectory) {
 		setDevVendorPaths(computeVendorPaths());
 	}
 	if (config.angularDirectory) {
 		setAngularVendorPaths(computeAngularVendorPaths());
+	}
+	if (config.svelteDirectory) {
+		setSvelteVendorPaths(computeSvelteVendorPaths());
+	}
+	if (config.vueDirectory) {
+		setVueVendorPaths(computeVueVendorPaths());
 	}
 
 	await resolveAbsoluteVersion();
@@ -346,6 +374,32 @@ export const devBuild = async (config: BuildConfig) => {
 			})
 		: undefined;
 
+	const buildSvelteVendorTask = config.svelteDirectory
+		? buildSvelteVendor(state.resolvedPaths.buildDir).then(async () => {
+				const vendorDir = resolve(
+					state.resolvedPaths.buildDir,
+					'svelte',
+					'vendor'
+				);
+				await loadVendorFiles(state.assetStore, vendorDir, 'svelte');
+
+				return true;
+			})
+		: undefined;
+
+	const buildVueVendorTask = config.vueDirectory
+		? buildVueVendor(state.resolvedPaths.buildDir).then(async () => {
+				const vendorDir = resolve(
+					state.resolvedPaths.buildDir,
+					'vue',
+					'vendor'
+				);
+				await loadVendorFiles(state.assetStore, vendorDir, 'vue');
+
+				return true;
+			})
+		: undefined;
+
 	// Pre-bundle ALL npm dependencies so the module server can resolve them.
 	// Scans source files for bare import specifiers, bundles each into /vendor/.
 	const { buildDepVendor } = await import('../build/buildDepVendor');
@@ -372,7 +426,17 @@ export const devBuild = async (config: BuildConfig) => {
 	await Promise.all([
 		buildReactVendorTask,
 		buildAngularVendorTask,
+		buildSvelteVendorTask,
+		buildVueVendorTask,
 		buildDepVendorTask
+	]);
+
+	// Pre-warm framework compilers so the first HMR edit is fast.
+	// Await ensures they're cached before the server starts listening.
+	// Adds ~30ms to startup but eliminates the first-edit cold start.
+	await Promise.all([
+		config.svelteDirectory ? import('svelte/compiler') : undefined,
+		config.vueDirectory ? import('@vue/compiler-sfc') : undefined
 	]);
 
 	// Store initial manifest on HMR state for Angular fast-path HMR
