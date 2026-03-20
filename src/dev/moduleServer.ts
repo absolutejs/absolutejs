@@ -87,32 +87,57 @@ const rewriteImports = (
 ) => {
 	let result = code;
 
-	// Rewrite bare specifiers in import/from statements to vendor paths.
-	// Use line-anchored patterns to avoid matching inside string literals
-	// (e.g., "unregister from" in JSX text would false-match).
+	// Step 1: Rewrite KNOWN vendor specifiers (safe — no false matches
+	// because the alternation only matches exact package names).
+	if (rewriter) {
+		const replacer = (
+			_match: string,
+			prefix: string,
+			specifier: string,
+			suffix: string
+		) => {
+			const webPath = rewriter.lookup.get(specifier);
+			if (!webPath) return _match;
+			return `${prefix}${webPath}${suffix}`;
+		};
+
+		rewriter.fromRegex.lastIndex = 0;
+		rewriter.sideEffectRegex.lastIndex = 0;
+		rewriter.dynamicRegex.lastIndex = 0;
+		result = result.replace(rewriter.fromRegex, replacer);
+		result = result.replace(rewriter.sideEffectRegex, replacer);
+		result = result.replace(rewriter.dynamicRegex, replacer);
+	}
+
+	// Step 2: Rewrite remaining bare specifiers (unknown packages) to stubs.
+	// Line-anchored to avoid matching inside string literals.
+	const stubReplace = (
+		_match: string,
+		prefix: string,
+		specifier: string,
+		suffix: string
+	) => {
+		// Skip if already rewritten to a path
+		if (specifier.startsWith('/') || specifier.startsWith('.'))
+			return _match;
+		return `${prefix}/@stub/${encodeURIComponent(specifier)}${suffix}`;
+	};
+
 	result = result.replace(
 		/^(import\s+.+?\s+from\s*["'])([^"'./][^"']*)(["'])/gm,
-		(_match, prefix, specifier, suffix) => {
-			const webPath = rewriter?.lookup.get(specifier);
-			if (webPath) return `${prefix}${webPath}${suffix}`;
-			return `${prefix}/@stub/${encodeURIComponent(specifier)}${suffix}`;
-		}
+		stubReplace
 	);
 	result = result.replace(
 		/^(import\s*["'])([^"'./][^"']*)(["'])/gm,
-		(_match, prefix, specifier, suffix) => {
-			const webPath = rewriter?.lookup.get(specifier);
-			if (webPath) return `${prefix}${webPath}${suffix}`;
-			return `${prefix}/@stub/${encodeURIComponent(specifier)}${suffix}`;
-		}
+		stubReplace
 	);
 	result = result.replace(
 		/^(export\s+.+?\s+from\s*["'])([^"'./][^"']*)(["'])/gm,
-		(_match, prefix, specifier, suffix) => {
-			const webPath = rewriter?.lookup.get(specifier);
-			if (webPath) return `${prefix}${webPath}${suffix}`;
-			return `${prefix}/@stub/${encodeURIComponent(specifier)}${suffix}`;
-		}
+		stubReplace
+	);
+	result = result.replace(
+		/(import\s*\(\s*["'])([^"'./][^"']*)(["']\s*\))/g,
+		stubReplace
 	);
 
 	// Rewrite relative imports to /@src/ absolute paths

@@ -1,6 +1,6 @@
 {
 	"name": "@absolutejs/native-darwin-arm64",
-	"version": "0.19.0-beta.41",
+	"version": "0.19.0-beta.45",
 	"description": "Native optimizations for AbsoluteJS (darwin arm64)",
 	"license": "BSL-1.1",
 	"os": [

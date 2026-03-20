@@ -786,25 +786,19 @@ const bundleReactClient = async (
 	await populateAssetStore(state.assetStore, clientManifest, buildDir);
 };
 
-// O(1) React HMR: transpile the changed file and return both the URL
-// and the code. The code is sent via WebSocket so the browser can
-// evaluate it from a blob URL — no HTTP fetch needed, immune to
-// bun --hot server restarts.
-const getReactModule = async (pageFile: string) => {
+// O(1) React HMR: invalidate cache, pre-transpile the changed file,
+// and return the /@src/ URL. Pre-warming ensures the browser fetch
+// hits a warm cache.
+const getReactModuleUrl = async (pageFile: string) => {
 	const { invalidateModule, warmCache, SRC_URL_PREFIX } = await import(
 		'../dev/moduleServer'
 	);
-	const { getTransformed } = await import('../dev/transformCache');
-
 	invalidateModule(pageFile);
 	const rel = relative(process.cwd(), pageFile).replace(/\\/g, '/');
 	const url = `${SRC_URL_PREFIX}${rel}`;
-
-	// Pre-transpile and get the cached code
 	warmCache(url);
-	const code = getTransformed(resolve(pageFile));
 
-	return { code, url };
+	return url;
 };
 
 const handleReactFastPath = async (
@@ -832,20 +826,19 @@ const handleReactFastPath = async (
 	if (reactFiles.length > 0) {
 		const [changedFile] = reactFiles;
 		if (changedFile) {
-			const { code, url } = await getReactModule(changedFile);
+			const pageModuleUrl = await getReactModuleUrl(changedFile);
 
-			if (url) {
+			if (pageModuleUrl) {
 				const serverDuration = Date.now() - startTime;
 				state.lastHmrPath = changedFile;
 				state.lastHmrFramework = 'react';
 				broadcastToClients(state, {
 					data: {
-						code,
 						framework: 'react',
 						hasComponentChanges: true,
 						hasCSSChanges: false,
 						manifest: state.manifest,
-						pageModuleUrl: url,
+						pageModuleUrl,
 						primarySource: changedFile,
 						serverDuration,
 						sourceFiles: reactFiles

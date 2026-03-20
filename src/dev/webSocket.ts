@@ -130,20 +130,13 @@ const handleParsedMessage = (
 			break;
 
 		case 'hmr-timing': {
-			const timing = data as { duration?: number; serverMs?: number; fetchMs?: number; refreshMs?: number };
+			const timing = data as { duration?: number };
 			if (timing.duration !== undefined) {
-				const lastPath = state.lastHmrPath ?? '';
-				const breakdown = timing.serverMs !== undefined
-					? ` (server ${timing.serverMs}ms + fetch ${timing.fetchMs ?? 0}ms + refresh ${timing.refreshMs ?? 0}ms)`
-					: '';
 				logHmrUpdate(
-					lastPath,
+					state.lastHmrPath ?? '',
 					state.lastHmrFramework,
 					timing.duration
 				);
-				if (breakdown) {
-					console.log(`         ${breakdown}`);
-				}
 			}
 			break;
 		}
