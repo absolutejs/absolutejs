@@ -4,9 +4,49 @@ import { getTransformed, setTransformed, invalidate } from './transformCache';
 
 const SRC_PREFIX = '/@src/';
 
-const jsTranspiler = new Bun.Transpiler({ loader: 'js' });
+const jsTranspiler = new Bun.Transpiler({
+	loader: 'js',
+	trimUnusedImports: true
+});
+
+// Shared transpiler for TypeScript files — trimUnusedImports strips
+// type-only imports so the browser doesn't request unnecessary modules
+const tsTranspiler = new Bun.Transpiler({
+	loader: 'tsx',
+	trimUnusedImports: true
+});
 
 const TRANSPILABLE = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs']);
+
+// Regex to find all export names in original TypeScript source
+const ALL_EXPORTS_RE =
+	/export\s+(?:type|interface|const|let|var|function|class|enum|abstract\s+class)\s+(\w+)/g;
+
+// After transpilation, type exports are stripped. Inject stubs so
+// importing modules can resolve the names (as undefined).
+const preserveTypeExports = (
+	originalSource: string,
+	transpiled: string,
+	valueExports: string[]
+) => {
+	const allExports: string[] = [];
+	let match;
+	ALL_EXPORTS_RE.lastIndex = 0;
+	while ((match = ALL_EXPORTS_RE.exec(originalSource)) !== null) {
+		if (match[1]) allExports.push(match[1]);
+	}
+
+	const valueSet = new Set(valueExports);
+	const typeExports = allExports.filter((e) => !valueSet.has(e));
+
+	if (typeExports.length === 0) return transpiled;
+
+	const stubs = typeExports
+		.map((name) => `export const ${name} = undefined;`)
+		.join('\n');
+
+	return `${transpiled}\n${stubs}\n`;
+};
 const REACT_EXTENSIONS = new Set(['.tsx', '.jsx']);
 
 type ModuleServerConfig = {
@@ -313,7 +353,8 @@ const addJsxImport = (code: string) => {
 // Falls back to plain transpilation if reactFastRefresh isn't available.
 const reactTranspiler = new Bun.Transpiler({
 	loader: 'tsx',
-	reactFastRefresh: true
+	reactFastRefresh: true,
+	trimUnusedImports: true
 } as ConstructorParameters<typeof Bun.Transpiler>[0]);
 
 const transformReactFile = (
@@ -322,7 +363,9 @@ const transformReactFile = (
 	rewriter: ReturnType<typeof buildImportRewriter>
 ) => {
 	const raw = readFileSync(filePath, 'utf-8');
+	const valueExports = tsTranspiler.scan(raw).exports;
 	let transpiled = reactTranspiler.transformSync(raw);
+	transpiled = preserveTypeExports(raw, transpiled, valueExports);
 
 	// Bun.Transpiler auto-generates JSX function names (jsxDEV_XXXXXXXX)
 	// but doesn't emit the import — it expects the bundler to resolve it.
@@ -362,11 +405,15 @@ const transformPlainFile = (
 ) => {
 	const raw = readFileSync(filePath, 'utf-8');
 	const ext = extname(filePath);
+	const isTS = ext === '.ts' || ext === '.tsx';
 
-	const transpiled =
-		ext === '.js' || ext === '.mjs'
-			? jsTranspiler.transformSync(raw)
-			: new Bun.Transpiler({ loader: 'tsx' }).transformSync(raw);
+	const transpiler = isTS ? tsTranspiler : jsTranspiler;
+	const valueExports = isTS ? transpiler.scan(raw).exports : [];
+	let transpiled = transpiler.transformSync(raw);
+
+	if (isTS) {
+		transpiled = preserveTypeExports(raw, transpiled, valueExports);
+	}
 
 	return rewriteImports(transpiled, filePath, projectRoot, rewriter);
 };
@@ -425,8 +472,23 @@ export const createModuleServer = (config: ModuleServerConfig) => {
 		if (!pathname.startsWith(SRC_PREFIX)) return undefined;
 
 		const relPath = pathname.slice(SRC_PREFIX.length);
-		const filePath = resolve(projectRoot, relPath);
-		const ext = extname(filePath);
+		let filePath = resolve(projectRoot, relPath);
+		let ext = extname(filePath);
+
+		// Resolve missing extensions (e.g., /@src/src/pages/Home → Home.tsx)
+		if (!ext) {
+			const tryExts = ['.tsx', '.ts', '.jsx', '.js'];
+			for (const tryExt of tryExts) {
+				try {
+					statSync(filePath + tryExt);
+					filePath += tryExt;
+					ext = tryExt;
+					break;
+				} catch {
+					// try next
+				}
+			}
+		}
 
 		try {
 			if (ext === '.css') {

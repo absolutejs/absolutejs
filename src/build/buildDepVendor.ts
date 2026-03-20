@@ -122,8 +122,11 @@ export const buildDepVendor = async (
 		})
 	);
 
+	// Externalize framework packages so vendor files import from the
+	// same vendor instances — prevents duplicate React/Svelte/Vue/Angular
 	const result = await bunBuild({
 		entrypoints,
+		external: [...FRAMEWORK_SPECIFIERS],
 		format: 'esm',
 		minify: false,
 		naming: '[name].[ext]',
@@ -134,6 +137,45 @@ export const buildDepVendor = async (
 	});
 
 	await rm(tmpDir, { force: true, recursive: true });
+
+	// Post-process: rewrite framework bare specifiers in vendor output
+	// to their vendor paths so the browser can resolve them
+	if (result.success) {
+		const { readdirSync, readFileSync, writeFileSync } = await import(
+			'node:fs'
+		);
+		const { computeVendorPaths } = await import('./buildReactVendor');
+		const reactPaths = computeVendorPaths();
+
+		const files = readdirSync(vendorDir).filter((f) =>
+			f.endsWith('.js')
+		);
+		for (const file of files) {
+			const filePath = join(vendorDir, file);
+			let content = readFileSync(filePath, 'utf-8');
+			let changed = false;
+
+			for (const [specifier, webPath] of Object.entries(reactPaths)) {
+				const escaped = specifier.replace(
+					/[.*+?^${}()|[\]\\]/g,
+					'\\$&'
+				);
+				const re = new RegExp(
+					`(from\\s*["'])${escaped}(["'])`,
+					'g'
+				);
+				const newContent = content.replace(re, `$1${webPath}$2`);
+				if (newContent !== content) {
+					content = newContent;
+					changed = true;
+				}
+			}
+
+			if (changed) {
+				writeFileSync(filePath, content);
+			}
+		}
+	}
 
 	if (!result.success) {
 		console.warn('⚠️ Dependency vendor build had errors:', result.logs);

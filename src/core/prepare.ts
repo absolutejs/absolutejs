@@ -47,23 +47,20 @@ export const prepare = async (configOrPath?: string) => {
 		// Override React index manifest entries to /@src/ URLs so the initial
 		// page load uses the module server (same module system as HMR)
 		const { SRC_URL_PREFIX } = await import('../dev/moduleServer');
-		const reactDir = config.reactDirectory;
-		if (reactDir) {
-			const indexesDir = resolve(reactDir, 'indexes');
-			for (const key of Object.keys(result.manifest)) {
-				if (
-					key.endsWith('Index') &&
-					typeof result.manifest[key] === 'string' &&
-					result.manifest[key].includes('/indexes/')
-				) {
-					const fileName = key.replace(/Index$/, '') + '.tsx';
-					const srcPath = resolve(indexesDir, fileName);
-					const rel = relative(process.cwd(), srcPath).replace(
-						/\\/g,
-						'/'
-					);
-					result.manifest[key] = `${SRC_URL_PREFIX}${rel}`;
-				}
+		const devIndexDir = resolve(buildDir, '_src_indexes');
+		for (const key of Object.keys(result.manifest)) {
+			if (
+				key.endsWith('Index') &&
+				typeof result.manifest[key] === 'string' &&
+				result.manifest[key].includes('/indexes/')
+			) {
+				const fileName = key.replace(/Index$/, '') + '.tsx';
+				const srcPath = resolve(devIndexDir, fileName);
+				const rel = relative(process.cwd(), srcPath).replace(
+					/\\/g,
+					'/'
+				);
+				result.manifest[key] = `${SRC_URL_PREFIX}${rel}`;
 			}
 		}
 

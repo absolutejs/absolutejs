@@ -6,7 +6,7 @@ import {
 	rmSync,
 	writeFileSync
 } from 'node:fs';
-import { basename, join, resolve } from 'node:path';
+import { basename, join, relative, resolve } from 'node:path';
 import { cwd, env, exit } from 'node:process';
 import { build as bunBuild, BuildArtifact, Glob } from 'bun';
 import { generateManifest } from '../build/generateManifest';
@@ -903,12 +903,40 @@ export const build = async ({
 		]);
 	}
 
+	// In dev mode, copy source indexes to build dir before cleanup.
+	// Rewrite relative page imports to absolute /@src/ paths since
+	// the indexes are moved from src/frontend/indexes/ to build/_src_indexes/
+	if (hmr && reactIndexesPath && reactPagesPath) {
+		const { readdirSync: readDir } = await import('node:fs');
+		const devIndexDir = join(buildPath, '_src_indexes');
+		mkdirSync(devIndexDir, { recursive: true });
+
+		const indexFiles = readDir(reactIndexesPath).filter((f: string) =>
+			f.endsWith('.tsx')
+		);
+		const pagesRel = relative(
+			process.cwd(),
+			resolve(reactPagesPath)
+		).replace(/\\/g, '/');
+
+		for (const file of indexFiles) {
+			let content = readFileSync(
+				join(reactIndexesPath, file),
+				'utf-8'
+			);
+			// Rewrite '../pages/ComponentName' to '/@src/src/frontend/pages/ComponentName'
+			content = content.replace(
+				/from\s*['"]\.\.\/pages\/([^'"]+)['"]/g,
+				`from '/@src/${pagesRel}/$1'`
+			);
+			writeFileSync(join(devIndexDir, file), content);
+		}
+	}
+
 	if (!options?.preserveIntermediateFiles)
 		await cleanup({
 			angularDir,
-			// Keep React indexes in dev mode — the module server serves them
-			// as /@src/ URLs for the initial page load
-			reactIndexesPath: hmr ? undefined : reactIndexesPath,
+			reactIndexesPath,
 			svelteDir,
 			vueDir
 		});

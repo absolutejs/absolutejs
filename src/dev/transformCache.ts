@@ -5,7 +5,14 @@ type CacheEntry = {
 	mtime: number;
 };
 
-const cache = new Map<string, CacheEntry>();
+// Persist across bun --hot reloads so HMR doesn't refetch everything
+const globalStore = globalThis as unknown as Record<
+	string,
+	Map<string, CacheEntry> | undefined
+>;
+const cache: Map<string, CacheEntry> =
+	globalStore.__transformCache ?? new Map<string, CacheEntry>();
+globalStore.__transformCache = cache;
 
 export const getTransformed = (filePath: string) => {
 	const entry = cache.get(filePath);
