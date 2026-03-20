@@ -1,6 +1,6 @@
 {
 	"name": "@absolutejs/native-linux-arm64",
-	"version": "0.19.0-beta.39",
+	"version": "0.19.0-beta.41",
 	"description": "Native optimizations for AbsoluteJS (linux arm64)",
 	"license": "BSL-1.1",
 	"os": [

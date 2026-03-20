@@ -87,19 +87,30 @@ const rewriteImports = (
 ) => {
 	let result = code;
 
-	// Rewrite bare specifiers to vendor paths. Unknown bare specifiers
-	// (e.g., server-only packages leaking through shared imports) get
-	// rewritten to an empty stub so the browser doesn't fail.
-	const bareSpecifierRe =
-		/((?:from|import)\s*["'])([^"'./][^"']*)(["'])/g;
+	// Rewrite bare specifiers in import/from statements to vendor paths.
+	// Use line-anchored patterns to avoid matching inside string literals
+	// (e.g., "unregister from" in JSX text would false-match).
 	result = result.replace(
-		bareSpecifierRe,
+		/^(import\s+.+?\s+from\s*["'])([^"'./][^"']*)(["'])/gm,
 		(_match, prefix, specifier, suffix) => {
-			// Check vendor paths first
 			const webPath = rewriter?.lookup.get(specifier);
 			if (webPath) return `${prefix}${webPath}${suffix}`;
-
-			// Unknown bare specifier — serve empty stub
+			return `${prefix}/@stub/${encodeURIComponent(specifier)}${suffix}`;
+		}
+	);
+	result = result.replace(
+		/^(import\s*["'])([^"'./][^"']*)(["'])/gm,
+		(_match, prefix, specifier, suffix) => {
+			const webPath = rewriter?.lookup.get(specifier);
+			if (webPath) return `${prefix}${webPath}${suffix}`;
+			return `${prefix}/@stub/${encodeURIComponent(specifier)}${suffix}`;
+		}
+	);
+	result = result.replace(
+		/^(export\s+.+?\s+from\s*["'])([^"'./][^"']*)(["'])/gm,
+		(_match, prefix, specifier, suffix) => {
+			const webPath = rewriter?.lookup.get(specifier);
+			if (webPath) return `${prefix}${webPath}${suffix}`;
 			return `${prefix}/@stub/${encodeURIComponent(specifier)}${suffix}`;
 		}
 	);
