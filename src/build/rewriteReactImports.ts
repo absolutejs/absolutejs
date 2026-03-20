@@ -9,35 +9,81 @@
 const escapeRegex = (str: string) =>
 	str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+type CompiledRewriter = {
+	fromRegex: RegExp;
+	sideEffectRegex: RegExp;
+	dynamicRegex: RegExp;
+	lookup: Map<string, string>;
+};
+
+const rewriterCache = new Map<string, CompiledRewriter>();
+
+const cacheKey = (vendorPaths: Record<string, string>) => {
+	const entries = Object.entries(vendorPaths).sort(([a], [b]) =>
+		a.localeCompare(b)
+	);
+	let key = '';
+	for (const [k, v] of entries) {
+		key += `${k}\0${v}\0`;
+	}
+	return key;
+};
+
+const getOrCompileRewriter = (vendorPaths: Record<string, string>) => {
+	const key = cacheKey(vendorPaths);
+	const cached = rewriterCache.get(key);
+	if (cached) return cached;
+
+	const replacements = Object.entries(vendorPaths).sort(
+		([keyA], [keyB]) => keyB.length - keyA.length
+	);
+
+	const lookup = new Map<string, string>(replacements);
+	const alt = replacements.map(([spec]) => escapeRegex(spec)).join('|');
+
+	const fromRegex = new RegExp(`(from\\s*["'])(${alt})(["'])`, 'g');
+	const sideEffectRegex = new RegExp(
+		`(import\\s*["'])(${alt})(["']\\s*;?)`,
+		'g'
+	);
+	const dynamicRegex = new RegExp(
+		`(import\\s*\\(\\s*["'])(${alt})(["']\\s*\\))`,
+		'g'
+	);
+
+	const rewriter: CompiledRewriter = {
+		dynamicRegex,
+		fromRegex,
+		lookup,
+		sideEffectRegex
+	};
+	rewriterCache.set(key, rewriter);
+	return rewriter;
+};
+
 const applyAllReplacements = (
 	content: string,
-	replacements: [string, string][]
+	rewriter: CompiledRewriter
 ) => {
+	const replacer = (
+		_match: string,
+		prefix: string,
+		specifier: string,
+		suffix: string
+	) => {
+		const webPath = rewriter.lookup.get(specifier);
+		if (!webPath) return _match;
+		return `${prefix}${webPath}${suffix}`;
+	};
+
+	rewriter.fromRegex.lastIndex = 0;
+	rewriter.sideEffectRegex.lastIndex = 0;
+	rewriter.dynamicRegex.lastIndex = 0;
+
 	let result = content;
-
-	for (const [specifier, webPath] of replacements) {
-		const escaped = escapeRegex(specifier);
-
-		// Match ES import: from "react" / from 'react' / from"react"
-		const fromRegex = new RegExp(`(from\\s*["'])${escaped}(["'])`, 'g');
-		result = result.replace(fromRegex, `$1${webPath}$2`);
-
-		// Match bare side-effect import: import"react" / import 'react';
-		// (used by _refresh.tsx which imports React for code-splitting)
-		const bareRegex = new RegExp(
-			`(import\\s*["'])${escaped}(["']\\s*;?)`,
-			'g'
-		);
-		result = result.replace(bareRegex, `$1${webPath}$2`);
-
-		// Match dynamic import: import("react") / import('react')
-		const dynamicRegex = new RegExp(
-			`(import\\s*\\(\\s*["'])${escaped}(["']\\s*\\))`,
-			'g'
-		);
-		result = result.replace(dynamicRegex, `$1${webPath}$2`);
-	}
-
+	result = result.replace(rewriter.fromRegex, replacer);
+	result = result.replace(rewriter.sideEffectRegex, replacer);
+	result = result.replace(rewriter.dynamicRegex, replacer);
 	return result;
 };
 
@@ -75,16 +121,12 @@ export const rewriteReactImports = async (
 	const jsFiles = outputPaths.filter((path) => path.endsWith('.js'));
 	if (jsFiles.length === 0) return;
 
-	// Build replacement pairs sorted by specifier length (longest first)
-	// to avoid partial matches like "react" matching before "react-dom"
-	const replacements = Object.entries(vendorPaths).sort(
-		([keyA], [keyB]) => keyB.length - keyA.length
-	);
+	const rewriter = getOrCompileRewriter(vendorPaths);
 
 	await Promise.all(
 		jsFiles.map(async (filePath) => {
 			const original = await Bun.file(filePath).text();
-			const content = applyAllReplacements(original, replacements);
+			const content = applyAllReplacements(original, rewriter);
 
 			if (content !== original) {
 				await Bun.write(filePath, content);

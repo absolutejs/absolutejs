@@ -329,7 +329,10 @@ export const generateReactIndexFiles = async (
 		hasher.update(content);
 		const contentHash = hasher.digest('hex');
 
-		if (indexContentCache.get(indexPath) === contentHash) {
+		if (
+			indexContentCache.get(indexPath) === contentHash &&
+			existsSync(indexPath)
+		) {
 			return;
 		}
 

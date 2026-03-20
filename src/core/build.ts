@@ -8,7 +8,7 @@ import {
 } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { cwd, env, exit } from 'node:process';
-import { $, build as bunBuild, BuildArtifact, Glob } from 'bun';
+import { build as bunBuild, BuildArtifact, Glob } from 'bun';
 import { generateManifest } from '../build/generateManifest';
 import { generateReactIndexFiles } from '../build/generateReactIndexes';
 import { createHTMLScriptHMRPlugin } from '../build/htmlScriptHMRPlugin';
@@ -288,7 +288,30 @@ export const build = async ({
 		tailwind &&
 		(!isIncremental ||
 			normalizedIncrementalFiles?.some((f) => f.endsWith('.css')))
-			? $`bunx @tailwindcss/cli -i ${tailwind.input} -o ${join(buildPath, tailwind.output)}`
+			? (async () => {
+					let binPath: string;
+					try {
+						binPath = import.meta.resolve(
+							'@tailwindcss/cli/dist/index.mjs'
+						);
+						if (binPath.startsWith('file://'))
+							binPath = binPath.slice(7);
+					} catch {
+						binPath = 'tailwindcss';
+					}
+					const proc = Bun.spawn(
+						[
+							'bun',
+							binPath,
+							'-i',
+							tailwind.input,
+							'-o',
+							join(buildPath, tailwind.output)
+						],
+						{ stdout: 'pipe', stderr: 'pipe' }
+					);
+					await proc.exited;
+				})()
 			: undefined;
 
 	const [

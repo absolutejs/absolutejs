@@ -2,15 +2,14 @@
 
 export const detectCurrentFramework = () => {
 	if (window.__HMR_FRAMEWORK__) return window.__HMR_FRAMEWORK__;
+	if (window.__REACT_ROOT__) return 'react';
 	const path = window.location.pathname;
 	if (path === '/vue' || path.startsWith('/vue/')) return 'vue';
 	if (path === '/svelte' || path.startsWith('/svelte/')) return 'svelte';
 	if (path === '/angular' || path.startsWith('/angular/')) return 'angular';
 	if (path === '/htmx' || path.startsWith('/htmx/')) return 'htmx';
 	if (path === '/html' || path.startsWith('/html/')) return 'html';
-	if (path === '/') return 'html';
 	if (path === '/react' || path.startsWith('/react/')) return 'react';
-	if (window.__REACT_ROOT__) return 'react';
 
 	return null;
 };
