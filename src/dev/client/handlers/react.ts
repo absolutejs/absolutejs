@@ -13,6 +13,7 @@ export const handleReactUpdate = (message: {
 		manifest?: Record<string, string>;
 		pageModuleUrl?: string;
 		primarySource?: string;
+		serverDuration?: number;
 	};
 }) => {
 	const currentFramework = detectCurrentFramework();
@@ -32,11 +33,13 @@ export const handleReactUpdate = (message: {
 
 	const refreshRuntime = window.$RefreshRuntime$;
 
+	const serverDuration = message.data.serverDuration;
+
 	// ESM fast path: import the page module directly (no index re-import)
 	const pageModuleUrl = message.data.pageModuleUrl;
 
 	if (pageModuleUrl && refreshRuntime) {
-		applyRefreshImport(pageModuleUrl, refreshRuntime);
+		applyRefreshImport(pageModuleUrl, refreshRuntime, serverDuration);
 
 		return;
 	}
@@ -46,7 +49,7 @@ export const handleReactUpdate = (message: {
 	const newUrl = componentKey && message.data.manifest?.[componentKey];
 
 	if (newUrl && refreshRuntime) {
-		applyRefreshImport(newUrl, refreshRuntime);
+		applyRefreshImport(newUrl, refreshRuntime, serverDuration);
 
 		return;
 	}
@@ -57,11 +60,31 @@ export const handleReactUpdate = (message: {
 
 const applyRefreshImport = (
 	moduleUrl: string,
-	refreshRuntime: { performReactRefresh: () => void }
+	refreshRuntime: { performReactRefresh: () => void },
+	serverDuration?: number
 ) => {
+	const clientStart = performance.now();
 	import(`${moduleUrl}?t=${Date.now()}`)
 		.then(() => {
+			const fetchDone = performance.now();
 			refreshRuntime.performReactRefresh();
+			const refreshDone = performance.now();
+
+			if (window.__HMR_WS__) {
+				const fetchMs = Math.round(fetchDone - clientStart);
+				const refreshMs = Math.round(refreshDone - fetchDone);
+				const total = (serverDuration ?? 0) + fetchMs + refreshMs;
+				window.__HMR_WS__.send(
+					JSON.stringify({
+						duration: total,
+						fetchMs,
+						refreshMs,
+						serverMs: serverDuration ?? 0,
+						type: 'hmr-timing'
+					})
+				);
+			}
+
 			if (window.__ERROR_BOUNDARY__) {
 				window.__ERROR_BOUNDARY__.reset();
 			} else {

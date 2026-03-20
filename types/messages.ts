@@ -23,11 +23,17 @@ export type HydrationErrorMessage = {
 	};
 };
 
+export type HMRTimingMessage = {
+	type: 'hmr-timing';
+	duration: number;
+};
+
 export type HMRClientMessage =
 	| PingMessage
 	| ReadyMessage
 	| RequestRebuildMessage
-	| HydrationErrorMessage;
+	| HydrationErrorMessage
+	| HMRTimingMessage;
 
 /* Server-to-client message types */
 export type ManifestMessage = {

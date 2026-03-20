@@ -786,71 +786,16 @@ const bundleReactClient = async (
 	await populateAssetStore(state.assetStore, clientManifest, buildDir);
 };
 
-const buildSingleReactPage = async (
-	state: HMRState,
-	pageFile: string,
-	buildDir: string
-) => {
-	const { build: bunBuild } = await import('bun');
-	const { generateManifest } = await import('../build/generateManifest');
-	const { getDevVendorPaths } = await import('../core/devVendorPaths');
-	const { rewriteReactImports } = await import(
-		'../build/rewriteReactImports'
+// O(1) React HMR: invalidate the module server cache and return the
+// /@src/ URL for the changed file. No Bun.build() needed — the browser
+// re-imports the single module and React Fast Refresh swaps it in.
+const getReactModuleUrl = async (pageFile: string) => {
+	const { invalidateModule, SRC_URL_PREFIX } = await import(
+		'../dev/moduleServer'
 	);
-	const { commonAncestor } = await import('../utils/commonAncestor');
-
-	const clientRoots = [
-		state.resolvedPaths.reactDir,
-		state.resolvedPaths.svelteDir,
-		state.resolvedPaths.htmlDir,
-		state.resolvedPaths.vueDir,
-		state.resolvedPaths.angularDir
-	].filter((dir): dir is string => Boolean(dir));
-	const clientRoot =
-		clientRoots.length === 1
-			? (clientRoots[0] ?? process.cwd())
-			: commonAncestor(clientRoots, process.cwd());
-
-	let vendorPaths = getDevVendorPaths();
-	if (!vendorPaths) {
-		const { computeVendorPaths } = await import(
-			'../build/buildReactVendor'
-		);
-		const { setDevVendorPaths } = await import('../core/devVendorPaths');
-		vendorPaths = computeVendorPaths();
-		setDevVendorPaths(vendorPaths);
-	}
-
-	const result = await bunBuild({
-		entrypoints: [pageFile],
-		external: vendorPaths ? Object.keys(vendorPaths) : [],
-		format: 'esm',
-		jsx: { development: true },
-		naming: '[dir]/[name].[hash].[ext]',
-		outdir: buildDir,
-		reactFastRefresh: true,
-		root: clientRoot,
-		splitting: false,
-		target: 'browser',
-		throw: false
-	});
-
-	if (!result.success) return undefined;
-
-	const outputPaths = result.outputs.map((a) => a.path);
-
-	if (vendorPaths) {
-		await rewriteReactImports(outputPaths, vendorPaths);
-	}
-
-	const pageManifest = generateManifest(result.outputs, buildDir);
-	Object.assign(state.manifest, pageManifest);
-	await populateAssetStore(state.assetStore, pageManifest, buildDir);
-
-	const [firstOutput] = result.outputs;
-	if (!firstOutput) return undefined;
-
-	return `/${relative(buildDir, firstOutput.path).replace(/\\/g, '/')}`;
+	invalidateModule(pageFile);
+	const rel = relative(process.cwd(), pageFile).replace(/\\/g, '/');
+	return `${SRC_URL_PREFIX}${rel}`;
 };
 
 const handleReactFastPath = async (
@@ -868,33 +813,22 @@ const handleReactFastPath = async (
 	const reactIndexesPath = resolve(reactDir, 'indexes');
 	const { buildDir } = state.resolvedPaths;
 
-	// O(1) fast path: if only page files changed, build just the changed
-	// page with splitting:false. Skips index generation, chunk computation,
-	// and processing all other entries.
+	// O(1) fast path: serve the changed file via the module server.
+	// No Bun.build() at all — the browser re-imports the single module
+	// and React Fast Refresh swaps the component in place.
 	const reactFiles = filesToRebuild.filter(
 		(file) => detectFramework(file, state.resolvedPaths) === 'react'
 	);
-	const pagesPathResolved = resolve(reactPagesPath);
-	const allArePageFiles =
-		reactFiles.length > 0 &&
-		reactFiles.every(
-			(file) =>
-				(file.endsWith('.tsx') || file.endsWith('.jsx')) &&
-				resolve(file).startsWith(pagesPathResolved)
-		);
 
-	if (allArePageFiles) {
-		const [pageFile] = reactFiles;
-		if (pageFile) {
-			const pageModuleUrl = await buildSingleReactPage(
-				state,
-				pageFile,
-				buildDir
-			);
+	if (reactFiles.length > 0) {
+		const [changedFile] = reactFiles;
+		if (changedFile) {
+			const pageModuleUrl = await getReactModuleUrl(changedFile);
 
 			if (pageModuleUrl) {
-				const duration = Date.now() - startTime;
-				logHmrUpdate(pageFile, 'react', duration);
+				const serverDuration = Date.now() - startTime;
+				state.lastHmrPath = changedFile;
+				state.lastHmrFramework = 'react';
 				broadcastToClients(state, {
 					data: {
 						framework: 'react',
@@ -902,7 +836,8 @@ const handleReactFastPath = async (
 						hasCSSChanges: false,
 						manifest: state.manifest,
 						pageModuleUrl,
-						primarySource: pageFile,
+						primarySource: changedFile,
+						serverDuration,
 						sourceFiles: reactFiles
 					},
 					type: 'react-update'

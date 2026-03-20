@@ -21,6 +21,8 @@ export const isValidHMRClientMessage = (
 			return true;
 		case 'hydration-error':
 			return true;
+		case 'hmr-timing':
+			return true;
 		default:
 			return false;
 	}

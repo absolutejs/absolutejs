@@ -20,7 +20,26 @@ export const prepare = async (configOrPath?: string) => {
 		const result = await devBuild(config);
 		const { hmr } = await import('../plugins/hmr');
 		const { staticPlugin } = await import('@elysiajs/static');
-		const hmrPlugin = hmr(result.hmrState, result.manifest);
+		const { createModuleServer } = await import('../dev/moduleServer');
+		const { getDevVendorPaths, getAngularVendorPaths } = await import(
+			'./devVendorPaths'
+		);
+
+		const allVendorPaths: Record<string, string> = {
+			...(getDevVendorPaths() ?? {}),
+			...(getAngularVendorPaths() ?? {})
+		};
+
+		const moduleHandler = createModuleServer({
+			projectRoot: process.cwd(),
+			vendorPaths: allVendorPaths
+		});
+
+		const hmrPlugin = hmr(
+			result.hmrState,
+			result.manifest,
+			moduleHandler
+		);
 
 		return {
 			manifest: result.manifest,

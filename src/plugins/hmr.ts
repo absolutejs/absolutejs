@@ -37,7 +37,12 @@ const restoreStore = (app: Elysia) => {
    and injected into HTML/HTMX files at build time.
    Also preserves Elysia store state across hot reloads. */
 export const hmr =
-	(hmrState: HMRState, manifest: Record<string, string>) => (app: Elysia) => {
+	(
+		hmrState: HMRState,
+		manifest: Record<string, string>,
+		moduleServerHandler?: (pathname: string) => Promise<Response | undefined> | Response | undefined
+	) =>
+	(app: Elysia) => {
 		restoreStore(app);
 
 		return app
@@ -57,6 +62,12 @@ export const hmr =
 				/* URL is absolute (http://host/path), find the path portion */
 				const pathStart = rawUrl.indexOf('/', rawUrl.indexOf('//') + 2);
 				const pathname = rawUrl.slice(pathStart, pathEnd);
+
+				// Unbundled ESM module server — serves transpiled source files
+				if (moduleServerHandler) {
+					const moduleResponse = await moduleServerHandler(pathname);
+					if (moduleResponse) return moduleResponse;
+				}
 
 				const bytes = lookupAsset(hmrState.assetStore, pathname);
 				if (!bytes) {

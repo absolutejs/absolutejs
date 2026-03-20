@@ -28,6 +28,8 @@ export type HMRState = {
 	assetStore: Map<string, Uint8Array>; // In-memory client asset store for dev mode
 	manifest: Record<string, string>; // Current build manifest (for Angular fast-path HMR)
 	rebuildCount: number; // Incremented after each successful rebuild
+	lastHmrPath?: string;
+	lastHmrFramework?: string;
 };
 
 /* Initialize HMR state */

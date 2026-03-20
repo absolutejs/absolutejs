@@ -3,6 +3,7 @@ import { serializeModuleVersions } from './moduleVersionTracker';
 import { type HMRWebSocket, WS_READY_STATE_OPEN } from '../../types/websocket';
 import type { HMRClientMessage } from '../../types/messages';
 import { isValidHMRClientMessage } from '../../types/typeGuards';
+import { logHmrUpdate } from '../utils/logger';
 
 const trySendMessage = (client: HMRWebSocket, messageStr: string) => {
 	try {
@@ -127,6 +128,25 @@ const handleParsedMessage = (
 				state.activeFrameworks.add(data.framework);
 			}
 			break;
+
+		case 'hmr-timing': {
+			const timing = data as { duration?: number; serverMs?: number; fetchMs?: number; refreshMs?: number };
+			if (timing.duration !== undefined) {
+				const lastPath = state.lastHmrPath ?? '';
+				const breakdown = timing.serverMs !== undefined
+					? ` (server ${timing.serverMs}ms + fetch ${timing.fetchMs ?? 0}ms + refresh ${timing.refreshMs ?? 0}ms)`
+					: '';
+				logHmrUpdate(
+					lastPath,
+					state.lastHmrFramework,
+					timing.duration
+				);
+				if (breakdown) {
+					console.log(`         ${breakdown}`);
+				}
+			}
+			break;
+		}
 	}
 };
 
