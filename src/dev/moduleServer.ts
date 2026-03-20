@@ -545,4 +545,23 @@ export const createModuleServer = (config: ModuleServerConfig) => {
 
 export const invalidateModule = invalidate;
 
+// Pre-transpile a /@src/ URL and cache the result so the browser
+// fetch is instant. Called before sending the WebSocket HMR message.
+export const warmCache = (pathname: string) => {
+	if (!pathname.startsWith(SRC_PREFIX)) return;
+	if (!globalModuleServer) return;
+	// Trigger the handler — the result is cached by setTransformed
+	globalModuleServer(pathname);
+};
+
+// Store the module server handler globally so warmCache can access it
+let globalModuleServer: ((pathname: string) => Promise<Response | undefined> | Response | undefined) | null =
+	null;
+
+export const setGlobalModuleServer = (
+	handler: typeof globalModuleServer
+) => {
+	globalModuleServer = handler;
+};
+
 export const SRC_URL_PREFIX = SRC_PREFIX;

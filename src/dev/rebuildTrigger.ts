@@ -786,16 +786,22 @@ const bundleReactClient = async (
 	await populateAssetStore(state.assetStore, clientManifest, buildDir);
 };
 
-// O(1) React HMR: invalidate the module server cache and return the
-// /@src/ URL for the changed file. No Bun.build() needed — the browser
-// re-imports the single module and React Fast Refresh swaps it in.
+// O(1) React HMR: invalidate the cache, pre-transpile the changed file
+// (so the browser fetch hits warm cache), and return the /@src/ URL.
+// Pre-warming eliminates spikes from bun --hot restarts — the cached
+// result persists on globalThis and is served instantly.
 const getReactModuleUrl = async (pageFile: string) => {
-	const { invalidateModule, SRC_URL_PREFIX } = await import(
+	const { invalidateModule, warmCache, SRC_URL_PREFIX } = await import(
 		'../dev/moduleServer'
 	);
 	invalidateModule(pageFile);
 	const rel = relative(process.cwd(), pageFile).replace(/\\/g, '/');
-	return `${SRC_URL_PREFIX}${rel}`;
+	const url = `${SRC_URL_PREFIX}${rel}`;
+
+	// Pre-transpile so the browser fetch is instant (cache hit)
+	warmCache(url);
+
+	return url;
 };
 
 const handleReactFastPath = async (

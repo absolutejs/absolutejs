@@ -33,10 +33,12 @@ export const prepare = async (configOrPath?: string) => {
 			...depVendorPaths
 		};
 
+		const { setGlobalModuleServer } = await import('../dev/moduleServer');
 		const moduleHandler = createModuleServer({
 			projectRoot: process.cwd(),
 			vendorPaths: allVendorPaths
 		});
+		setGlobalModuleServer(moduleHandler);
 
 		const hmrPlugin = hmr(
 			result.hmrState,
