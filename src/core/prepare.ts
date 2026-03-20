@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { relative, resolve } from 'node:path';
 import { loadConfig } from '../utils/loadConfig';
 
 export const prepare = async (configOrPath?: string) => {
@@ -25,9 +25,12 @@ export const prepare = async (configOrPath?: string) => {
 			'./devVendorPaths'
 		);
 
+		// Combine all vendor paths: React + Angular + all npm dependencies
+		const depVendorPaths = globalThis.__depVendorPaths ?? {};
 		const allVendorPaths: Record<string, string> = {
 			...(getDevVendorPaths() ?? {}),
-			...(getAngularVendorPaths() ?? {})
+			...(getAngularVendorPaths() ?? {}),
+			...depVendorPaths
 		};
 
 		const moduleHandler = createModuleServer({
@@ -40,6 +43,29 @@ export const prepare = async (configOrPath?: string) => {
 			result.manifest,
 			moduleHandler
 		);
+
+		// Override React index manifest entries to /@src/ URLs so the initial
+		// page load uses the module server (same module system as HMR)
+		const { SRC_URL_PREFIX } = await import('../dev/moduleServer');
+		const reactDir = config.reactDirectory;
+		if (reactDir) {
+			const indexesDir = resolve(reactDir, 'indexes');
+			for (const key of Object.keys(result.manifest)) {
+				if (
+					key.endsWith('Index') &&
+					typeof result.manifest[key] === 'string' &&
+					result.manifest[key].includes('/indexes/')
+				) {
+					const fileName = key.replace(/Index$/, '') + '.tsx';
+					const srcPath = resolve(indexesDir, fileName);
+					const rel = relative(process.cwd(), srcPath).replace(
+						/\\/g,
+						'/'
+					);
+					result.manifest[key] = `${SRC_URL_PREFIX}${rel}`;
+				}
+			}
+		}
 
 		return {
 			manifest: result.manifest,

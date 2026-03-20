@@ -906,7 +906,9 @@ export const build = async ({
 	if (!options?.preserveIntermediateFiles)
 		await cleanup({
 			angularDir,
-			reactIndexesPath,
+			// Keep React indexes in dev mode — the module server serves them
+			// as /@src/ URLs for the initial page load
+			reactIndexesPath: hmr ? undefined : reactIndexesPath,
 			svelteDir,
 			vueDir
 		});

@@ -9,6 +9,7 @@ declare global {
 	 *  duplicate React instances after bun install invalidates the module cache. */
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	var __reactModuleRef: any;
+	var __depVendorPaths: Record<string, string> | undefined;
 	var __hmrDevResult:
 		| {
 				hmrState: import('../src/dev/clientManager').HMRState;

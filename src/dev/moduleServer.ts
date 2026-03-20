@@ -47,25 +47,22 @@ const rewriteImports = (
 ) => {
 	let result = code;
 
-	if (rewriter) {
-		const replacer = (
-			_match: string,
-			prefix: string,
-			specifier: string,
-			suffix: string
-		) => {
-			const webPath = rewriter.lookup.get(specifier);
-			if (!webPath) return _match;
-			return `${prefix}${webPath}${suffix}`;
-		};
+	// Rewrite bare specifiers to vendor paths. Unknown bare specifiers
+	// (e.g., server-only packages leaking through shared imports) get
+	// rewritten to an empty stub so the browser doesn't fail.
+	const bareSpecifierRe =
+		/((?:from|import)\s*["'])([^"'./][^"']*)(["'])/g;
+	result = result.replace(
+		bareSpecifierRe,
+		(_match, prefix, specifier, suffix) => {
+			// Check vendor paths first
+			const webPath = rewriter?.lookup.get(specifier);
+			if (webPath) return `${prefix}${webPath}${suffix}`;
 
-		rewriter.fromRegex.lastIndex = 0;
-		rewriter.sideEffectRegex.lastIndex = 0;
-		rewriter.dynamicRegex.lastIndex = 0;
-		result = result.replace(rewriter.fromRegex, replacer);
-		result = result.replace(rewriter.sideEffectRegex, replacer);
-		result = result.replace(rewriter.dynamicRegex, replacer);
-	}
+			// Unknown bare specifier — serve empty stub
+			return `${prefix}/@stub/${encodeURIComponent(specifier)}${suffix}`;
+		}
+	);
 
 	// Rewrite relative imports to /@src/ absolute paths
 	const fileDir = dirname(filePath);
@@ -121,6 +118,28 @@ const rewriteImports = (
 				}
 			}
 			return `${prefix}${SRC_PREFIX}${srcPath.replace(/\\/g, '/')}${suffix}`;
+		}
+	);
+
+	// Rewrite absolute filesystem paths (from generated index files that
+	// import hmrClient, refreshSetup, etc. via absolute paths)
+	result = result.replace(
+		/((?:from|import)\s*["'])(\/[^"']+\.(tsx?|jsx?|ts))(["'])/g,
+		(_match, prefix, absPath, _ext, suffix) => {
+			if (absPath.startsWith(projectRoot)) {
+				const rel = relative(projectRoot, absPath).replace(
+					/\\/g,
+					'/'
+				);
+				return `${prefix}${SRC_PREFIX}${rel}${suffix}`;
+			}
+			// Path outside project root (e.g., node_modules package src)
+			// Try to make it relative to project root anyway
+			const rel = relative(projectRoot, absPath).replace(/\\/g, '/');
+			if (!rel.startsWith('..')) {
+				return `${prefix}${SRC_PREFIX}${rel}${suffix}`;
+			}
+			return _match;
 		}
 	);
 
@@ -372,7 +391,37 @@ export const createModuleServer = (config: ModuleServerConfig) => {
 	const { projectRoot, vendorPaths } = config;
 	const rewriter = buildImportRewriter(vendorPaths);
 
-	return (pathname: string) => {
+	return async (pathname: string) => {
+		// Serve module stubs for server-only packages that leak into the
+		// browser through shared imports. Introspects the real module to
+		// generate stubs with matching export names so destructured imports work.
+		if (pathname.startsWith('/@stub/')) {
+			const specifier = decodeURIComponent(
+				pathname.slice('/@stub/'.length)
+			);
+			let stubCode = 'export default {};\n';
+			try {
+				const mod = await import(specifier);
+				const names = Object.keys(mod).filter(
+					(k) => k !== 'default' && k !== '__esModule'
+				);
+				if (names.length > 0) {
+					const noops = names
+						.map((n) => `export const ${n} = () => {};`)
+						.join('\n');
+					stubCode = `${noops}\nexport default {};\n`;
+				}
+			} catch {
+				// Can't import — serve minimal stub
+			}
+			return new Response(stubCode, {
+				headers: {
+					'Cache-Control': 'public, max-age=31536000, immutable',
+					'Content-Type': 'application/javascript'
+				}
+			});
+		}
+
 		if (!pathname.startsWith(SRC_PREFIX)) return undefined;
 
 		const relPath = pathname.slice(SRC_PREFIX.length);

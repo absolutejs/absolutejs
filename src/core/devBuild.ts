@@ -346,7 +346,34 @@ export const devBuild = async (config: BuildConfig) => {
 			})
 		: undefined;
 
-	await Promise.all([buildReactVendorTask, buildAngularVendorTask]);
+	// Pre-bundle ALL npm dependencies so the module server can resolve them.
+	// Scans source files for bare import specifiers, bundles each into /vendor/.
+	const { buildDepVendor } = await import('../build/buildDepVendor');
+	const sourceDirs = [
+		config.reactDirectory,
+		config.svelteDirectory,
+		config.vueDirectory,
+		config.angularDirectory,
+		config.htmlDirectory,
+		config.htmxDirectory
+	].filter((dir): dir is string => Boolean(dir));
+
+	const buildDepVendorTask = buildDepVendor(
+		state.resolvedPaths.buildDir,
+		sourceDirs
+	).then(async (depPaths) => {
+		const vendorDir = resolve(state.resolvedPaths.buildDir, 'vendor');
+		await loadVendorFiles(state.assetStore, vendorDir, 'vendor');
+		// Store dep vendor paths for the module server
+		globalThis.__depVendorPaths = depPaths;
+		return true;
+	});
+
+	await Promise.all([
+		buildReactVendorTask,
+		buildAngularVendorTask,
+		buildDepVendorTask
+	]);
 
 	// Store initial manifest on HMR state for Angular fast-path HMR
 	state.manifest = manifest;
