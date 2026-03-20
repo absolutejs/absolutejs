@@ -71,3 +71,8 @@ docs/
 
 CLAUDE.md
 /.claude
+
+# Native addon build artifacts
+native/packages/*/*.so
+native/packages/*/*.dylib
+native/packages/*/*.dll

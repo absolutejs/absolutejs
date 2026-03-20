@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 /* Dependency graph for tracking file relationships
@@ -21,6 +21,72 @@ export const emptyDependencyGraph: DependencyGraph = {
 const tsTranspiler = new Bun.Transpiler({ loader: 'tsx' });
 const jsTranspiler = new Bun.Transpiler({ loader: 'js' });
 
+/* Path resolution cache: maps "fromFile\0importPath" → resolved absolute path or null.
+   Persists across HMR cycles to avoid redundant existsSync calls. */
+const resolutionCache = new Map<string, string | null>();
+
+/* Reverse index: resolved path → Set of cache keys that resolved to it.
+   Enables O(1) invalidation instead of scanning the entire cache. */
+const reverseIndex = new Map<string, Set<string>>();
+
+/* Index: fromFile → Set of cache keys originating from it. */
+const fromFileIndex = new Map<string, Set<string>>();
+
+/* Content cache: avoids re-reading unchanged files during dependency graph updates. */
+const contentCache = new Map<string, { mtime: number; content: string }>();
+
+const addToResolutionCache = (
+	cacheKey: string,
+	fromFile: string,
+	resolved: string | null
+) => {
+	resolutionCache.set(cacheKey, resolved);
+	if (resolved) {
+		let keys = reverseIndex.get(resolved);
+		if (!keys) {
+			keys = new Set();
+			reverseIndex.set(resolved, keys);
+		}
+		keys.add(cacheKey);
+	}
+	let fromKeys = fromFileIndex.get(fromFile);
+	if (!fromKeys) {
+		fromKeys = new Set();
+		fromFileIndex.set(fromFile, fromKeys);
+	}
+	fromKeys.add(cacheKey);
+};
+
+const deleteFromResolutionCache = (cacheKey: string) => {
+	const resolved = resolutionCache.get(cacheKey);
+	resolutionCache.delete(cacheKey);
+	if (resolved) {
+		const keys = reverseIndex.get(resolved);
+		if (keys) {
+			keys.delete(cacheKey);
+			if (keys.size === 0) reverseIndex.delete(resolved);
+		}
+	}
+};
+
+export const invalidateResolutionCache = (filePath: string) => {
+	const normalizedPath = resolve(filePath);
+
+	const resolvedKeys = reverseIndex.get(normalizedPath);
+	if (resolvedKeys) {
+		for (const key of resolvedKeys) resolutionCache.delete(key);
+		reverseIndex.delete(normalizedPath);
+	}
+
+	const fromKeys = fromFileIndex.get(normalizedPath);
+	if (fromKeys) {
+		for (const key of fromKeys) deleteFromResolutionCache(key);
+		fromFileIndex.delete(normalizedPath);
+	}
+
+	contentCache.delete(normalizedPath);
+};
+
 const loaderForFile = (filePath: string) => {
 	const lower = filePath.toLowerCase();
 	if (
@@ -37,11 +103,16 @@ const loaderForFile = (filePath: string) => {
 
 /* Resolve relative import paths to absolute paths using existsSync
    instead of readFileSync — avoids reading file content just to check
-   existence. */
+   existence. Results are cached to avoid repeated filesystem calls. */
 const resolveImportPath = (importPath: string, fromFile: string) => {
 	// Skip external packages
 	if (!importPath.startsWith('.') && !importPath.startsWith('/')) {
 		return null;
+	}
+
+	const cacheKey = fromFile + '\0' + importPath;
+	if (resolutionCache.has(cacheKey)) {
+		return resolutionCache.get(cacheKey) ?? null;
 	}
 
 	const fromDir = resolve(fromFile, '..');
@@ -61,12 +132,19 @@ const resolveImportPath = (importPath: string, fromFile: string) => {
 
 	for (const ext of extensions) {
 		const withExt = normalized + ext;
-		if (existsSync(withExt)) return withExt;
+		if (existsSync(withExt)) {
+			addToResolutionCache(cacheKey, fromFile, withExt);
+			return withExt;
+		}
 	}
 
 	// Try without extension (already has one, or is extensionless)
-	if (existsSync(normalized)) return normalized;
+	if (existsSync(normalized)) {
+		addToResolutionCache(cacheKey, fromFile, normalized);
+		return normalized;
+	}
 
+	addToResolutionCache(cacheKey, fromFile, null);
 	return null;
 };
 
@@ -91,6 +169,9 @@ export const addFileToGraph = (graph: DependencyGraph, filePath: string) => {
 	const normalizedPath = resolve(filePath);
 
 	if (!existsSync(normalizedPath)) return;
+
+	// Invalidate resolution cache for this file before re-scanning
+	invalidateResolutionCache(normalizedPath);
 
 	const dependencies = extractDependencies(normalizedPath);
 
@@ -331,6 +412,24 @@ const extractSvelteVueDependencies = (filePath: string, content: string) => {
 	return dependencies;
 };
 
+/* Read file content with mtime-based caching to avoid re-reading unchanged files. */
+const readFileCached = (filePath: string) => {
+	try {
+		const stat = statSync(filePath);
+		const mtime = stat.mtimeMs;
+		const cached = contentCache.get(filePath);
+		if (cached && cached.mtime === mtime) {
+			return cached.content;
+		}
+		const content = readFileSync(filePath, 'utf-8');
+		contentCache.set(filePath, { mtime, content });
+		return content;
+	} catch {
+		contentCache.delete(filePath);
+		return readFileSync(filePath, 'utf-8');
+	}
+};
+
 const extractDependenciesForFile = (filePath: string) => {
 	const loader = loaderForFile(filePath);
 	const lowerPath = filePath.toLowerCase();
@@ -338,19 +437,19 @@ const extractDependenciesForFile = (filePath: string) => {
 		lowerPath.endsWith('.svelte') || lowerPath.endsWith('.vue');
 
 	if (loader === 'html') {
-		const content = readFileSync(filePath, 'utf-8');
+		const content = readFileCached(filePath);
 
 		return extractHtmlDependencies(filePath, content);
 	}
 
 	if (loader === 'tsx' || loader === 'js') {
-		const content = readFileSync(filePath, 'utf-8');
+		const content = readFileCached(filePath);
 
 		return extractJsDependencies(filePath, content, loader);
 	}
 
 	if (isSvelteOrVue) {
-		const content = readFileSync(filePath, 'utf-8');
+		const content = readFileCached(filePath);
 
 		return extractSvelteVueDependencies(filePath, content);
 	}
@@ -426,6 +525,7 @@ export const removeFileFromGraph = (
 ) => {
 	const normalizedPath = resolve(filePath);
 
+	invalidateResolutionCache(normalizedPath);
 	removeDepsForFile(graph, normalizedPath);
 	removeDependentsForFile(graph, normalizedPath);
 };

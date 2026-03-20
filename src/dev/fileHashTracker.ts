@@ -1,36 +1,73 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { UNFOUND_INDEX } from '../constants';
 import { normalizePath } from '../utils/normalizePath';
 
-/* Bun.hash (Wyhash) returns a number — comparing numbers is faster
-   than comparing strings and avoids the .toString() allocation. We
-   use -1 as the "file unreadable" sentinel (impossible hash value). */
-export const computeFileHash = (filePath: string) => {
-	try {
-		const fileContent = readFileSync(filePath);
+const statCache = new Map<string, { mtime: number; size: number }>();
+const hashCache = new Map<string, number>();
 
-		return Number(Bun.hash(fileContent));
+const isStatUnchanged = (
+	normalizedPath: string,
+	mtime: number,
+	size: number
+) => {
+	const cached = statCache.get(normalizedPath);
+	if (!cached) return false;
+	return cached.mtime === mtime && cached.size === size;
+};
+
+export const computeFileHash = (filePath: string) => {
+	const normalizedPath = normalizePath(filePath);
+
+	try {
+		const stat = statSync(filePath);
+		const mtime = stat.mtimeMs;
+		const size = stat.size;
+
+		if (isStatUnchanged(normalizedPath, mtime, size)) {
+			const cachedHash = hashCache.get(normalizedPath);
+			if (cachedHash !== undefined) return cachedHash;
+		}
+
+		const fileContent = readFileSync(filePath);
+		const hash = Number(Bun.hash(fileContent));
+
+		statCache.set(normalizedPath, { mtime, size });
+		hashCache.set(normalizedPath, hash);
+
+		return hash;
 	} catch {
 		return UNFOUND_INDEX;
 	}
 };
 
-/* This function checks if the file has changed by comparing its
-   current hash to the previous hash
-   this handles the detection of actual changes */
+export const hasFileChangedFast = (filePath: string) => {
+	const normalizedPath = normalizePath(filePath);
+
+	try {
+		const stat = statSync(filePath);
+		if (isStatUnchanged(normalizedPath, stat.mtimeMs, stat.size)) {
+			return false;
+		}
+
+		statCache.set(normalizedPath, {
+			mtime: stat.mtimeMs,
+			size: stat.size
+		});
+		return true;
+	} catch {
+		return true;
+	}
+};
+
 export const hasFileChanged = (
 	filePath: string,
 	currentHash: number,
 	previousHashes: Map<string, number>
 ) => {
-	// Normalize path for consistent Map key lookup across platforms
 	const normalizedPath = normalizePath(filePath);
 	const previousHash = previousHashes.get(normalizedPath);
 
-	if (previousHash === undefined) {
-		// First time seeing this file, definitely changed
-		return true;
-	}
+	if (previousHash === undefined) return true;
 
 	return previousHash !== currentHash;
 };

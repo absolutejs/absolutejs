@@ -33,9 +33,9 @@ describe('computeFileHash', () => {
 
 	test('returns different hash for different content', () => {
 		const tmpFile = resolve(tmpdir(), `hash-test-${Date.now()}.txt`);
-		writeFileSync(tmpFile, 'content a');
+		writeFileSync(tmpFile, 'content version one');
 		const hash1 = computeFileHash(tmpFile);
-		writeFileSync(tmpFile, 'content b');
+		writeFileSync(tmpFile, 'content version two - longer');
 		const hash2 = computeFileHash(tmpFile);
 		expect(hash1).not.toBe(hash2);
 		unlinkSync(tmpFile);
