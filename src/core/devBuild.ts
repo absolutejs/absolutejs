@@ -432,12 +432,13 @@ export const devBuild = async (config: BuildConfig) => {
 	]);
 
 	// Pre-warm framework compilers so the first HMR edit is fast.
-	// Await ensures they're cached before the server starts listening.
-	// Adds ~30ms to startup but eliminates the first-edit cold start.
-	await Promise.all([
-		config.svelteDirectory ? import('svelte/compiler') : undefined,
-		config.vueDirectory ? import('@vue/compiler-sfc') : undefined
-	]);
+	// Sets the module-level compiler references in moduleServer.ts
+	// so transformSvelteFile/transformVueFile skip the dynamic import.
+	const { warmCompilers } = await import('../dev/moduleServer');
+	await warmCompilers({
+		svelte: Boolean(config.svelteDirectory),
+		vue: Boolean(config.vueDirectory)
+	});
 
 	// Store initial manifest on HMR state for Angular fast-path HMR
 	state.manifest = manifest;

@@ -497,11 +497,24 @@ const transformPlainFile = (
 };
 
 // ─── Framework-specific transforms (Svelte, Vue) ────────────
-// Cached compiler references — avoid re-importing on every request
+// Cached compiler references — avoid re-importing on every request.
+// Pre-set via warmCompilers() at startup to eliminate first-edit spike.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let svelteCompiler: any = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let vueCompiler: any = null;
+
+export const warmCompilers = async (frameworks: {
+	svelte?: boolean;
+	vue?: boolean;
+}) => {
+	const [sc, vc] = await Promise.all([
+		frameworks.svelte ? import('svelte/compiler') : undefined,
+		frameworks.vue ? import('@vue/compiler-sfc') : undefined
+	]);
+	if (sc) svelteCompiler = sc;
+	if (vc) vueCompiler = vc;
+};
 
 // Compile .svelte files to client JS using svelte/compiler.
 // Keeps .svelte extensions in imports so the module server handles children.
