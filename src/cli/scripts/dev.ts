@@ -59,7 +59,7 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 
 	const spawnServer = () => {
 		const proc = Bun.spawn(
-			['bun', '--hot', '--no-clear-screen', serverEntry],
+			['bun', '--no-clear-screen', serverEntry],
 			{
 				cwd: process.cwd(),
 				env: {
@@ -106,6 +106,7 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 	const sessionStart = Date.now();
 
 	let frameworks: string[] = [];
+	let frameworkDirs: string[] = [];
 	try {
 		const cfg = await loadConfig(configPath);
 		frameworks = [
@@ -116,9 +117,43 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 			cfg.vueDirectory && 'vue',
 			cfg.angularDirectory && 'angular'
 		].filter((val): val is string => Boolean(val));
+		frameworkDirs = [
+			cfg.reactDirectory,
+			cfg.htmlDirectory,
+			cfg.htmxDirectory,
+			cfg.svelteDirectory,
+			cfg.vueDirectory,
+			cfg.angularDirectory
+		]
+			.filter((val): val is string => Boolean(val))
+			.map((dir) => resolve(dir));
 	} catch {
 		/* config may not be loadable — frameworks stays empty */
 	}
+
+	// Watch server files (everything OUTSIDE framework directories).
+	// Restart the server only for server code changes — frontend
+	// changes are handled by the HMR file watcher inside the server.
+	const { watch } = await import('fs');
+	const serverDir = resolve(serverEntry, '..');
+	const isFrameworkFile = (filePath: string) =>
+		frameworkDirs.some((dir) => resolve(filePath).startsWith(dir));
+
+	let restartTimeout: NodeJS.Timeout | null = null;
+	watch(serverDir, { recursive: true }, (_event, filename) => {
+		if (!filename) return;
+		const fullPath = resolve(serverDir, filename);
+		if (isFrameworkFile(fullPath)) return;
+		if (!filename.endsWith('.ts') && !filename.endsWith('.tsx')) return;
+
+		if (restartTimeout) clearTimeout(restartTimeout);
+		restartTimeout = setTimeout(() => {
+			console.log(
+				`\x1b[2m${formatTimestamp()}\x1b[0m \x1b[36m[cli]\x1b[0m \x1b[36mServer file changed, restarting...\x1b[0m`
+			);
+			restartServer();
+		}, 100);
+	});
 
 	sendTelemetryEvent('dev:start', { entry: serverEntry, frameworks });
 

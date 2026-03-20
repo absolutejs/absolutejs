@@ -8,6 +8,7 @@ import { detectCurrentFramework } from '../frameworkDetect';
 
 export const handleReactUpdate = (message: {
 	data: {
+		code?: string;
 		hasCSSChanges?: boolean;
 		hasComponentChanges?: boolean;
 		manifest?: Record<string, string>;
@@ -32,10 +33,17 @@ export const handleReactUpdate = (message: {
 	}
 
 	const refreshRuntime = window.$RefreshRuntime$;
-
 	const serverDuration = message.data.serverDuration;
 
-	// ESM fast path: import the page module directly (no index re-import)
+	// Inline code path: transpiled code sent via WebSocket.
+	// Import from blob URL — no HTTP fetch, immune to bun --hot restarts.
+	if (message.data.code && refreshRuntime) {
+		applyInlineCode(message.data.code, refreshRuntime, serverDuration);
+
+		return;
+	}
+
+	// ESM fast path: import the page module directly
 	const pageModuleUrl = message.data.pageModuleUrl;
 
 	if (pageModuleUrl && refreshRuntime) {
@@ -56,6 +64,67 @@ export const handleReactUpdate = (message: {
 
 	// Fallback: full page reload
 	window.location.reload();
+};
+
+// Import transpiled code from a blob URL — no HTTP fetch needed.
+// Blob URLs resolve absolute imports (like /react/vendor/react.js)
+// against the page's origin, so vendor imports work correctly.
+const applyInlineCode = (
+	code: string,
+	refreshRuntime: { performReactRefresh: () => void },
+	serverDuration?: number
+) => {
+	const clientStart = performance.now();
+
+	// Convert absolute paths to full URLs so blob can resolve them
+	const origin = window.location.origin;
+	const fullCode = code.replace(
+		/(from\s*["'])(\/[^"']+)(["'])/g,
+		`$1${origin}$2$3`
+	);
+
+	const blob = new Blob([fullCode], { type: 'text/javascript' });
+	const blobUrl = URL.createObjectURL(blob);
+
+	import(blobUrl)
+		.then(() => {
+			URL.revokeObjectURL(blobUrl);
+			refreshRuntime.performReactRefresh();
+
+			if (window.__HMR_WS__) {
+				const fetchMs = Math.round(performance.now() - clientStart);
+				const total = (serverDuration ?? 0) + fetchMs;
+				window.__HMR_WS__.send(
+					JSON.stringify({
+						duration: total,
+						fetchMs,
+						refreshMs: 0,
+						serverMs: serverDuration ?? 0,
+						type: 'hmr-timing'
+					})
+				);
+			}
+
+			if (window.__ERROR_BOUNDARY__) {
+				window.__ERROR_BOUNDARY__.reset();
+			} else {
+				hideErrorOverlay();
+			}
+
+			return undefined;
+		})
+		.catch((err) => {
+			URL.revokeObjectURL(blobUrl);
+			console.warn(
+				'[HMR] Inline code failed, falling back to fetch:',
+				err
+			);
+			applyRefreshImport(
+				'',
+				refreshRuntime,
+				serverDuration
+			);
+		});
 };
 
 const applyRefreshImport = (
