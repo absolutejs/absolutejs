@@ -40,10 +40,7 @@ import {
 	getDevVendorPaths,
 	getAngularVendorPaths
 } from '../core/devVendorPaths';
-import {
-	patchRefreshGlobals,
-	rewriteReactImports
-} from '../build/rewriteReactImports';
+import { rewriteReactImports } from '../build/rewriteReactImports';
 
 type BuildLog = {
 	level?: string;
@@ -782,8 +779,6 @@ const bundleReactClient = async (
 		await rewriteReactImports(clientOutputPaths, vendorPaths);
 	}
 
-	await patchRefreshGlobals(clientOutputPaths);
-
 	const clientManifest = generateManifest(clientResult.outputs, buildDir);
 	Object.assign(state.manifest, clientManifest);
 	void populateAssetStore(state.assetStore, clientManifest, buildDir);
@@ -829,8 +824,6 @@ const buildReactPageModule = async (
 	if (vendorPaths) {
 		await rewriteReactImports(pageOutputPaths, vendorPaths);
 	}
-
-	await patchRefreshGlobals(pageOutputPaths);
 
 	const pageManifest = generateManifest(result.outputs, buildDir);
 	Object.assign(state.manifest, pageManifest);
