@@ -2307,8 +2307,8 @@ const performFullRebuild = async (
 		);
 	}
 
-	// HTML fast path: just read source and broadcast — no build needed.
-	// The client does DOM patching, so raw HTML is fine for HMR.
+	// HTML fast path: copy source to build dir, rewrite asset paths
+	// using manifest, then read and broadcast. Skips full build().
 	if (
 		isFrameworkOnlyChange(
 			affectedFrameworks,
@@ -2321,28 +2321,39 @@ const performFullRebuild = async (
 		const htmlFiles = (filesToRebuild ?? []).filter((file) =>
 			file.endsWith('.html')
 		);
-		for (const htmlFile of htmlFiles) {
-			try {
-				const { handleHTMLUpdate } = await import('./simpleHTMLHMR');
-				const newHTML = await handleHTMLUpdate(htmlFile);
-				if (newHTML) {
-					const dur = Date.now() - startTime;
-					logHmrUpdate(htmlFile, 'html', dur);
-					broadcastToClients(state, {
-						data: {
-							framework: 'html',
-							html: newHTML,
-							manifest: state.manifest,
-							sourceFile: htmlFile
-						},
-						type: 'html-update'
-					});
-				}
-			} catch {
-				// fall through to full rebuild
-			}
-		}
 		if (htmlFiles.length > 0) {
+			const outputDir = computeOutputPagesDir(state, config, 'html');
+			const { copyFileSync } = await import('node:fs');
+			const { updateAssetPaths } = await import(
+				'../build/updateAssetPaths'
+			);
+			const { handleHTMLUpdate } = await import('./simpleHTMLHMR');
+
+			for (const htmlFile of htmlFiles) {
+				try {
+					// Copy source → build dir, then rewrite asset paths
+					const destPath = resolve(outputDir, basename(htmlFile));
+					copyFileSync(htmlFile, destPath);
+					await updateAssetPaths(state.manifest, outputDir);
+
+					const newHTML = await handleHTMLUpdate(destPath);
+					if (newHTML) {
+						const dur = Date.now() - startTime;
+						logHmrUpdate(htmlFile, 'html', dur);
+						broadcastToClients(state, {
+							data: {
+								framework: 'html',
+								html: newHTML,
+								manifest: state.manifest,
+								sourceFile: htmlFile
+							},
+							type: 'html-update'
+						});
+					}
+				} catch {
+					// fall through to full rebuild
+				}
+			}
 			onRebuildComplete({
 				hmrState: state,
 				manifest: state.manifest
