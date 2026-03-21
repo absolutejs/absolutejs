@@ -1467,13 +1467,13 @@ const handleHTMLPageHMR = async (
 	const outputHtmlPages = computeOutputPagesDir(state, config, 'html');
 
 	for (const pageFile of htmlPageFiles) {
-		const htmlPageName = basename(pageFile);
-		const builtHtmlPagePath = resolve(outputHtmlPages, htmlPageName);
+		// Read source directly — no build step needed for HTML HMR.
+		// The client does DOM patching, so raw source HTML is fine.
 		// eslint-disable-next-line no-await-in-loop
 		await processHtmlPageUpdate(
 			state,
 			pageFile,
-			builtHtmlPagePath,
+			pageFile,
 			manifest,
 			duration
 		);
@@ -2305,6 +2305,51 @@ const performFullRebuild = async (
 			startTime,
 			onRebuildComplete
 		);
+	}
+
+	// HTML fast path: just read source and broadcast — no build needed.
+	// The client does DOM patching, so raw HTML is fine for HMR.
+	if (
+		isFrameworkOnlyChange(
+			affectedFrameworks,
+			'html',
+			config.htmlDirectory,
+			state,
+			filesToRebuild
+		)
+	) {
+		const htmlFiles = (filesToRebuild ?? []).filter((file) =>
+			file.endsWith('.html')
+		);
+		for (const htmlFile of htmlFiles) {
+			try {
+				const { handleHTMLUpdate } = await import('./simpleHTMLHMR');
+				const newHTML = await handleHTMLUpdate(htmlFile);
+				if (newHTML) {
+					const dur = Date.now() - startTime;
+					logHmrUpdate(htmlFile, 'html', dur);
+					broadcastToClients(state, {
+						data: {
+							framework: 'html',
+							html: newHTML,
+							manifest: state.manifest,
+							sourceFile: htmlFile
+						},
+						type: 'html-update'
+					});
+				}
+			} catch {
+				// fall through to full rebuild
+			}
+		}
+		if (htmlFiles.length > 0) {
+			onRebuildComplete({
+				hmrState: state,
+				manifest: state.manifest
+			});
+
+			return state.manifest;
+		}
 	}
 
 	const manifest = await build({
