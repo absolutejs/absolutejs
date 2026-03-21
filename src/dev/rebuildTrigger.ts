@@ -1169,6 +1169,7 @@ const handleVueFastPath = async (
 
 			broadcastToClients(state, {
 				data: {
+					changeType: 'full',
 					framework: 'vue',
 					manifest: state.manifest,
 					pageModuleUrl,

@@ -6,7 +6,7 @@ const { count, increment } = useCount(props.initialCount);
 </script>
 
 <template>
-	<button @click="increment">count is cccc{{ count }}</button>
+	<button @click="increment">count is {{ count }}</button>
 </template>
 
 <style scoped>
