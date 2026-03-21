@@ -48,13 +48,32 @@ export const prepare = async (configOrPath?: string) => {
 		});
 		setGlobalModuleServer(moduleHandler);
 
+		// Pre-compile all Svelte/Vue source files into the transform cache
+		// so the first HMR edit hits a warm cache (eliminates ~15ms cold compile).
+		const { warmCache, SRC_URL_PREFIX } = await import(
+			'../dev/moduleServer'
+		);
+		const { Glob } = await import('bun');
+		const prewarmDirs = [config.svelteDirectory, config.vueDirectory].filter(
+			(dir): dir is string => Boolean(dir)
+		);
+		for (const dir of prewarmDirs) {
+			const glob = new Glob('**/*.{svelte,svelte.ts,svelte.js,vue}');
+			for (const file of glob.scanSync({
+				cwd: resolve(dir),
+				absolute: true
+			})) {
+				const rel = relative(process.cwd(), file).replace(/\\/g, '/');
+				warmCache(`${SRC_URL_PREFIX}${rel}`);
+			}
+		}
+
 		const hmrPlugin = hmr(result.hmrState, result.manifest, moduleHandler);
 
 		// Override React index manifest entries to /@src/ URLs so the initial
 		// page load uses the module server (same module system as HMR).
 		// Only applies to React — Svelte/Vue indexes are .js (not .tsx)
 		// and use their own bundled index files for initial load.
-		const { SRC_URL_PREFIX } = await import('../dev/moduleServer');
 		const devIndexDir = resolve(buildDir, '_src_indexes');
 		for (const key of Object.keys(result.manifest)) {
 			if (
