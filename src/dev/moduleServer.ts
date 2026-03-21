@@ -516,8 +516,34 @@ export const warmCompilers = async (frameworks: {
 		frameworks.svelte ? import('svelte/compiler') : undefined,
 		frameworks.vue ? import('@vue/compiler-sfc') : undefined
 	]);
-	if (sc) svelteCompiler = sc;
-	if (vc) vueCompiler = vc;
+	if (sc) {
+		svelteCompiler = sc;
+		// JIT-warm the compile function with a trivial component so
+		// the first real HMR compile doesn't pay the JIT cost (~60ms).
+		sc.compile('<script>let x=$state(0)</script>{x}', {
+			css: 'external',
+			dev: true,
+			filename: '_warm.svelte',
+			generate: 'client',
+			hmr: true
+		});
+	}
+	if (vc) {
+		vueCompiler = vc;
+		// Same for Vue — warm compileScript + compileTemplate
+		const { descriptor } = vc.parse(
+			'<script setup>const x=1</script><template>{{x}}</template>',
+			{ filename: '_warm.vue' }
+		);
+		vc.compileScript(descriptor, { id: 'w', inlineTemplate: false });
+		if (descriptor.template) {
+			vc.compileTemplate({
+				filename: '_warm.vue',
+				id: 'w',
+				source: descriptor.template.content
+			});
+		}
+	}
 };
 
 // Compile .svelte files to client JS using svelte/compiler.
