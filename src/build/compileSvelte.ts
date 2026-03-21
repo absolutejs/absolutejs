@@ -155,20 +155,27 @@ export const compileSvelte = async (
 				/\.svelte(?:\.(?:ts|js))?(['"])/g,
 				'.js$1'
 			);
-			// For client dev builds: replace `if (import.meta.hot)` with
-			// `if (true)` so Svelte's $.hmr() wrapper is always applied.
-			// This enables component-level HMR swaps on the first edit.
-			// The import.meta.hot.accept() call is harmless when there's
-			// no HMR system — it just won't be called.
+			// For client dev builds: replace import.meta.hot with our
+			// accept registry so $.hmr() wrapper + accept callback are
+			// both active. This enables component-level HMR swaps.
 			if (mode === 'client' && isDev) {
-				code = code.replace(
-					/if\s*\(import\.meta\.hot\)/,
-					'if (true)'
+				const relSrc = relative(svelteRoot, src).replace(
+					/\\/g,
+					'/'
 				);
-				// Remove the accept call since there's no import.meta.hot
+				const moduleKey = `/@src/${relative(
+					process.cwd(),
+					src
+				).replace(/\\/g, '/')}`;
 				code = code.replace(
-					/import\.meta\.hot\.accept\([^)]*\{[\s\S]*?\}\);/,
-					''
+					/if\s*\(import\.meta\.hot\)\s*\{/,
+					`if (typeof window !== "undefined") {\n` +
+						`  if (!window.__SVELTE_HMR_ACCEPT__) window.__SVELTE_HMR_ACCEPT__ = {};\n` +
+						`  var __hmr_accept = function(cb) { window.__SVELTE_HMR_ACCEPT__[${JSON.stringify(moduleKey)}] = cb; };`
+				);
+				code = code.replace(
+					/import\.meta\.hot\.accept\(/g,
+					'__hmr_accept('
 				);
 			}
 
