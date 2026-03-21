@@ -569,7 +569,6 @@ const compileAndBundleAngular = async (
 		angularDir,
 		true
 	);
-
 	serverPaths.forEach((serverPath) => {
 		const fileBase = basename(serverPath, '.js');
 		state.manifest[toPascal(fileBase)] = resolve(serverPath);
