@@ -138,8 +138,8 @@ export const compileSvelte = async (
 		);
 		await Promise.all(childSources.map((child) => build(child)));
 
-		const generate = (mode: 'server' | 'client') =>
-			(isModule
+		const generate = (mode: 'server' | 'client') => {
+			const raw = isModule
 				? compileModule(transpiled, {
 						dev: mode === 'client' && dev,
 						filename: src
@@ -147,10 +147,33 @@ export const compileSvelte = async (
 				: compile(transpiled, {
 						css: 'injected',
 						dev: mode === 'client' && dev,
+						hmr: mode === 'client' && isDev,
 						filename: src,
 						generate: mode
-					}).js.code
-			).replace(/\.svelte(?:\.(?:ts|js))?(['"])/g, '.js$1');
+					}).js.code;
+			let code = raw.replace(
+				/\.svelte(?:\.(?:ts|js))?(['"])/g,
+				'.js$1'
+			);
+			// For client dev builds: replace `if (import.meta.hot)` with
+			// `if (true)` so Svelte's $.hmr() wrapper is always applied.
+			// This enables component-level HMR swaps on the first edit.
+			// The import.meta.hot.accept() call is harmless when there's
+			// no HMR system — it just won't be called.
+			if (mode === 'client' && isDev) {
+				code = code.replace(
+					/if\s*\(import\.meta\.hot\)/,
+					'if (true)'
+				);
+				// Remove the accept call since there's no import.meta.hot
+				code = code.replace(
+					/import\.meta\.hot\.accept\([^)]*\{[\s\S]*?\}\);/,
+					''
+				);
+			}
+
+			return code;
+		};
 
 		const ssrPath = join(serverDir, relDir, `${baseName}.js`);
 		const clientPath = join(clientDir, relDir, `${baseName}.js`);

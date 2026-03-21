@@ -25,9 +25,11 @@ import { sendTelemetryEvent } from '../cli/telemetryEvent';
 import {
 	getAngularVendorPaths,
 	getDevVendorPaths,
+	getSvelteVendorPaths,
 	getVueVendorPaths,
 	setAngularVendorPaths,
 	setDevVendorPaths,
+	setSvelteVendorPaths,
 	setVueVendorPaths
 } from './devVendorPaths';
 import type { BuildConfig } from '../../types/build';
@@ -521,6 +523,14 @@ export const build = async ({
 		vueVendorPaths = computeVueVendorPaths();
 		setVueVendorPaths(vueVendorPaths);
 	}
+	let svelteVendorPaths = getSvelteVendorPaths();
+	if (!svelteVendorPaths && hmr && svelteDir) {
+		const { computeSvelteVendorPaths } = await import(
+			'../build/buildSvelteVendor'
+		);
+		svelteVendorPaths = computeSvelteVendorPaths();
+		setSvelteVendorPaths(svelteVendorPaths);
+	}
 
 	const htmlScriptPlugin = hmr
 		? createHTMLScriptHMRPlugin(htmlDir, htmxDir)
@@ -605,7 +615,8 @@ export const build = async ({
 					entrypoints: nonReactClientEntryPoints,
 					external: [
 						...Object.keys(angularVendorPaths ?? {}),
-						...Object.keys(vueVendorPaths ?? {})
+						...Object.keys(vueVendorPaths ?? {}),
+						...Object.keys(svelteVendorPaths ?? {})
 					],
 					format: 'esm',
 					minify: !isDev,
@@ -714,7 +725,8 @@ export const build = async ({
 	if (nonReactClientOutputs.length > 0) {
 		const allNonReactVendorPaths = {
 			...(angularVendorPaths ?? {}),
-			...(vueVendorPaths ?? {})
+			...(vueVendorPaths ?? {}),
+			...(svelteVendorPaths ?? {})
 		};
 		if (Object.keys(allNonReactVendorPaths).length > 0) {
 			const { rewriteImports } = await import(

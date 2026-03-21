@@ -541,14 +541,32 @@ const transformSvelteFile = async (
 			filename: filePath
 		}).js.code;
 	} else {
-		// Svelte 5 compiler handles <script lang="ts"> natively — no
-		// pre-transpilation needed. Pass raw source directly.
+		// Compile with hmr: true — Svelte 5 injects $.hmr() wrapper and
+		// import.meta.hot.accept() for component-level swaps with state
+		// preservation (same pattern as React Fast Refresh).
 		code = svelteCompiler.compile(raw, {
 			css: 'injected',
 			dev: true,
+			hmr: true,
 			filename: filePath,
 			generate: 'client'
 		}).js.code;
+
+		// Replace import.meta.hot with our WebSocket-based accept registry.
+		// Svelte's compiled HMR code checks `if (import.meta.hot)` and calls
+		// `import.meta.hot.accept(callback)`. We replace these with our own
+		// registry that stores the callback per module URL.
+		const moduleUrl = `${SRC_PREFIX}${relative(projectRoot, filePath).replace(/\\/g, '/')}`;
+		code = code.replace(
+			/if\s*\(import\.meta\.hot\)\s*\{/,
+			`if (typeof window !== "undefined") {\n` +
+				`  if (!window.__SVELTE_HMR_ACCEPT__) window.__SVELTE_HMR_ACCEPT__ = {};\n` +
+				`  var __hmr_accept = function(cb) { window.__SVELTE_HMR_ACCEPT__[${JSON.stringify(moduleUrl)}] = cb; };`
+		);
+		code = code.replace(
+			/import\.meta\.hot\.accept\(/g,
+			'__hmr_accept('
+		);
 	}
 
 	return rewriteImports(code, filePath, projectRoot, rewriter);

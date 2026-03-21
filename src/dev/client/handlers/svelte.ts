@@ -257,16 +257,28 @@ export const handleSvelteUpdate = (message: {
 		);
 	}
 
-	// O(1) unbundled ESM fast path: import the single changed module directly
+	// O(1) Svelte 5 HMR: import the changed module, then call its
+	// accept callback. Svelte's $.hmr() reactive wrapper swaps the
+	// component in place — parent state and DOM survive untouched.
 	const pageModuleUrl = message.data.pageModuleUrl;
 	if (pageModuleUrl) {
 		const clientStart = performance.now();
-		preserveAllStylesheets();
-
 		const modulePath = `${pageModuleUrl}?t=${Date.now()}`;
+
+		// eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-explicit-any
+		const acceptRegistry = (window as any).__SVELTE_HMR_ACCEPT__ as
+			| Record<string, (mod: unknown) => void>
+			| undefined;
+
 		import(modulePath)
-			.then(() => {
-				waitForStylesAndCleanup(domState, scrollState);
+			.then((newModule) => {
+				// Call the stored accept callback — this triggers
+				// $.set(source, newComponent) which makes $.hmr()'s
+				// reactive block re-run and swap the component in place.
+				const acceptFn = acceptRegistry?.[pageModuleUrl];
+				if (acceptFn) {
+					acceptFn(newModule);
+				}
 
 				if (window.__HMR_WS__ && message.data.serverDuration != null) {
 					const clientMs = Math.round(
@@ -282,7 +294,7 @@ export const handleSvelteUpdate = (message: {
 			})
 			.catch((err: unknown) => {
 				console.warn(
-					'[HMR] Svelte unbundled import failed, reloading:',
+					'[HMR] Svelte HMR failed, reloading:',
 					err
 				);
 				window.location.reload();

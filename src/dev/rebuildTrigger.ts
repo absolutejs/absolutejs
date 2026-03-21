@@ -999,51 +999,41 @@ const handleSvelteFastPath = async (
 			detectFramework(file, state.resolvedPaths) === 'svelte'
 	);
 
-	// O(1) fast path via /@hmr/ bootstrap (full page remount)
-	const sveltePageUrl =
-		svelteFiles.length > 0
-			? await getFrameworkPageUrl(
-					svelteFiles,
-					resolve(svelteDir, 'pages'),
-					'svelte',
-					state.dependencyGraph
-				)
-			: null;
+	// O(1) fast path: Svelte 5's built-in $.hmr() swaps components in
+	// place via reactive signals — same pattern as React Fast Refresh.
+	// Just re-import the changed file; the accept callback handles the swap.
+	if (svelteFiles.length > 0) {
+		const changedFile = svelteFiles[0];
+		if (changedFile) {
+			const pageModuleUrl = await getModuleUrl(changedFile);
 
-	if (sveltePageUrl) {
-		for (const file of svelteFiles) {
-			state.fileHashes.set(resolve(file), computeFileHash(file));
+			for (const file of svelteFiles) {
+				state.fileHashes.set(resolve(file), computeFileHash(file));
+			}
+
+			const serverDuration = Date.now() - startTime;
+			state.lastHmrPath = changedFile;
+			state.lastHmrFramework = 'svelte';
+
+			broadcastToClients(state, {
+				data: {
+					framework: 'svelte',
+					manifest: state.manifest,
+					pageModuleUrl,
+					serverDuration,
+					sourceFile: changedFile,
+					sourceFiles: svelteFiles,
+					updateType: 'full'
+				},
+				type: 'svelte-update'
+			});
+			onRebuildComplete({
+				hmrState: state,
+				manifest: state.manifest
+			});
+
+			return state.manifest;
 		}
-
-		const serverDuration = Date.now() - startTime;
-		const primaryFile = svelteFiles[0] ?? '';
-		state.lastHmrPath = primaryFile;
-		state.lastHmrFramework = 'svelte';
-
-		broadcastToClients(state, {
-			data: {
-				cssBaseName: basename(primaryFile).replace(
-					/\.svelte(?:\.\w+)?$/,
-					''
-				),
-				cssUrl: null,
-				framework: 'svelte',
-				html: null,
-				manifest: state.manifest,
-				pageModuleUrl: sveltePageUrl,
-				serverDuration,
-				sourceFile: primaryFile,
-				sourceFiles: svelteFiles,
-				updateType: 'full'
-			},
-			type: 'svelte-update'
-		});
-		onRebuildComplete({
-			hmrState: state,
-			manifest: state.manifest
-		});
-
-		return state.manifest;
 	}
 
 	// Bundled fallback
