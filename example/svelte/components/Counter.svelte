@@ -8,7 +8,7 @@
 	const { getCount, increment } = counter(initialCount);
 </script>
 
-<button onclick={increment}>count is {getCount()}</button>
+<button onclick={increment}>count is xxx{getCount()}</button>
 
 <style>
 	@media (prefers-color-scheme: light) {

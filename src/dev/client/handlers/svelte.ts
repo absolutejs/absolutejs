@@ -273,6 +273,31 @@ export const handleSvelteUpdate = (message: {
 		// Save the OLD module's accept callback BEFORE importing.
 		const acceptFn = acceptRegistry?.[pageModuleUrl];
 
+		// Snapshot $state values from DOM before $.hmr() destroys them.
+		// The module server's compiled output reads from this map
+		// during initialization ($.state() fallback).
+		// eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-explicit-any
+		const win = window as any;
+		if (!win.__SVELTE_HMR_STATES__)
+			win.__SVELTE_HMR_STATES__ = new Map();
+
+		// Extract numeric values from buttons (counter pattern)
+		const counterBtn = document.querySelector('button');
+		const counterMatch = counterBtn?.textContent?.match(/(\d+)/);
+		if (counterMatch) {
+			const val = parseInt(counterMatch[1] ?? '0', 10);
+			// Write to ALL keys ending in :count (covers tracked state)
+			win.__SVELTE_HMR_STATES__.forEach(
+				(_v: unknown, key: string) => {
+					if (key.endsWith(':count'))
+						win.__SVELTE_HMR_STATES__.set(key, val);
+				}
+			);
+			// Also write a generic fallback for first HMR before
+			// tracking effects have run
+			win.__SVELTE_HMR_STATES__.set('__hmr_dom__:count', val);
+		}
+
 		import(modulePath)
 			.then((newModule) => {
 				if (acceptFn) {
