@@ -273,31 +273,11 @@ export const handleSvelteUpdate = (message: {
 		// Save the OLD module's accept callback BEFORE importing.
 		const acceptFn = acceptRegistry?.[pageModuleUrl];
 
-		// Snapshot all <style> elements so they persist through the
-		// destroy/create gap when $.hmr() swaps the component.
-		// Svelte's css:'injected' removes styles on destroy — the
-		// clones prevent a flash of unstyled content (FOUC).
-		const styleClones: HTMLStyleElement[] = [];
-		document
-			.querySelectorAll<HTMLStyleElement>('head style')
-			.forEach((style) => {
-				const clone = style.cloneNode(true) as HTMLStyleElement;
-				clone.dataset.hmrPreserved = 'true';
-				document.head.appendChild(clone);
-				styleClones.push(clone);
-			});
-
 		import(modulePath)
 			.then((newModule) => {
 				if (acceptFn) {
 					acceptFn(newModule);
 				}
-
-				// Remove preserved style clones — new component has
-				// injected its own styles by now.
-				requestAnimationFrame(() => {
-					styleClones.forEach((clone) => clone.remove());
-				});
 
 				if (window.__HMR_WS__ && message.data.serverDuration != null) {
 					const clientMs = Math.round(

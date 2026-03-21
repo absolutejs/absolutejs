@@ -496,6 +496,10 @@ const transformPlainFile = (
 	return rewriteImports(transpiled, filePath, projectRoot, rewriter);
 };
 
+// Virtual CSS modules for Svelte's css:'external' mode.
+// Keyed by fake path (e.g., /path/to/Counter.svelte.css).
+const svelteExternalCss = new Map<string, string>();
+
 // ─── Framework-specific transforms (Svelte, Vue) ────────────
 // Cached compiler references — avoid re-importing on every request.
 // Pre-set via warmCompilers() at startup to eliminate first-edit spike.
@@ -544,13 +548,29 @@ const transformSvelteFile = async (
 		// Compile with hmr: true — Svelte 5 injects $.hmr() wrapper and
 		// import.meta.hot.accept() for component-level swaps with state
 		// preservation (same pattern as React Fast Refresh).
-		code = svelteCompiler.compile(raw, {
-			css: 'injected',
+		// Use css: 'external' so styles are a separate virtual module
+		// that persists across component swaps (no FOUC).
+		const compiled = svelteCompiler.compile(raw, {
+			css: 'external',
 			dev: true,
 			hmr: true,
 			filename: filePath,
 			generate: 'client'
-		}).js.code;
+		});
+		code = compiled.js.code;
+
+		// If the component has styles, inject them as a virtual CSS
+		// import. The handleCssRequest handler serves it as a <style>.
+		if (compiled.css?.code) {
+			const cssPath = `${filePath}.css`;
+			// Cache the CSS content for serving via /@src/ requests
+			svelteExternalCss.set(cssPath, compiled.css.code);
+			const cssUrl = srcUrl(
+				relative(projectRoot, cssPath),
+				projectRoot
+			);
+			code = `import "${cssUrl}";\n${code}`;
+		}
 
 		// Replace import.meta.hot with our WebSocket-based accept registry.
 		// Svelte's compiled HMR code checks `if (import.meta.hot)` and calls
@@ -870,6 +890,25 @@ export const createModuleServer = (config: ModuleServerConfig) => {
 		if (!pathname.startsWith(SRC_PREFIX)) return undefined;
 
 		const relPath = pathname.slice(SRC_PREFIX.length);
+
+		// Serve virtual Svelte CSS modules (css:'external' output).
+		// These don't exist on disk — they're cached during compilation.
+		const cssCheckPath = resolve(projectRoot, relPath);
+		const virtualCss = svelteExternalCss.get(cssCheckPath);
+		if (virtualCss) {
+			const escaped = virtualCss
+				.replace(/\\/g, '\\\\')
+				.replace(/`/g, '\\`')
+				.replace(/\$/g, '\\$');
+			return jsResponse(
+				`var s=document.createElement('style');` +
+					`s.textContent=\`${escaped}\`;` +
+					`s.dataset.svelteHmr=${JSON.stringify(cssCheckPath)};` +
+					`var p=document.querySelector('style[data-svelte-hmr="${cssCheckPath}"]');` +
+					`if(p)p.remove();` +
+					`document.head.appendChild(s);`
+			);
+		}
 		let filePath = resolve(projectRoot, relPath);
 		let ext = extname(filePath);
 
