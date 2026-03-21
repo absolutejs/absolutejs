@@ -580,9 +580,8 @@ const transformSvelteFile = async (
 			/(let\s+(\w+)\s*=\s*)\$\.tag\(\$\.state\(([\s\S]*?)\),\s*(['"])([\w$]+)\4\)/g,
 			(_match, letPrefix, varName, initExpr, _q, label) => {
 				const key = JSON.stringify(`${stateKey}:${label}`);
-				const fallbackKey = JSON.stringify(`__hmr_dom__:${label}`);
 				const map = `(typeof window!=="undefined"&&window.__SVELTE_HMR_STATES__)`;
-				const preserved = `(${map}?.get?.(${key}) ?? ${map}?.get?.(${fallbackKey}))`;
+				const preserved = `${map}?.get?.(${key})`;
 				const init = `${letPrefix}$.tag($.state(${preserved} !== undefined ? ${preserved} : (${initExpr})), ${_q}${label}${_q})`;
 				const track =
 					`;\nif(typeof window!=="undefined"){` +
@@ -638,9 +637,7 @@ const transformSvelteFile = async (
 			(_match, initExpr, _q, label) => {
 				stateLabels.push(label);
 				const key = JSON.stringify(`${stateKey}:${label}`);
-				const fallbackKey = JSON.stringify(`__hmr_dom__:${label}`);
-				const map = `window.__SVELTE_HMR_STATES__`;
-				const preserved = `(${map}?.get?.(${key}) ?? ${map}?.get?.(${fallbackKey}))`;
+				const preserved = `window.__SVELTE_HMR_STATES__?.get?.(${key})`;
 
 				return `$.tag($.state(${preserved} !== undefined ? ${preserved} : (${initExpr})), ${_q}${label}${_q})`;
 			}
