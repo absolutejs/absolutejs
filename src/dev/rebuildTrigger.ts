@@ -368,7 +368,28 @@ export const queueFileChange = (
 	}
 
 	const DEBOUNCE_MS = config.options?.hmr?.debounceMs ?? DEFAULT_DEBOUNCE_MS;
-	state.rebuildTimeout = setTimeout(() => {
+	state.rebuildTimeout = setTimeout(async () => {
+		// Wait for file writes to stabilize. The watcher can fire
+		// before the OS flushes the write, causing reads to return
+		// stale content. Re-hash queued files and wait until at
+		// least one has different content than what's stored.
+		for (let i = 0; i < 5; i++) {
+			let anyChanged = false;
+			for (const files of state.fileChangeQueue.values()) {
+				for (const file of files) {
+					const fresh = computeFileHash(file);
+					const stored = state.fileHashes.get(
+						file.replace(/\\/g, '/')
+					);
+					if (stored === undefined || fresh !== stored) {
+						anyChanged = true;
+					}
+				}
+			}
+			if (anyChanged) break;
+			await Bun.sleep(10);
+		}
+
 		const filesToProcess = buildFilesToProcess(state);
 		state.fileChangeQueue.clear();
 
@@ -1466,13 +1487,13 @@ const handleHTMLPageHMR = async (
 	const outputHtmlPages = computeOutputPagesDir(state, config, 'html');
 
 	for (const pageFile of htmlPageFiles) {
-		// Read source directly — no build step needed for HTML HMR.
-		// The client does DOM patching, so raw source HTML is fine.
+		const htmlPageName = basename(pageFile);
+		const builtHtmlPagePath = resolve(outputHtmlPages, htmlPageName);
 		// eslint-disable-next-line no-await-in-loop
 		await processHtmlPageUpdate(
 			state,
 			pageFile,
-			pageFile,
+			builtHtmlPagePath,
 			manifest,
 			duration
 		);
