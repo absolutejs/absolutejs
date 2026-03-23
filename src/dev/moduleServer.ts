@@ -580,25 +580,7 @@ const transformSvelteFile = async (
 			filename: filePath
 		}).js.code;
 
-		// State preservation for composable modules (.svelte.ts).
-		// Replace initial values with preserved values from the global map.
-		// Checks exact key first, then generic DOM-extracted fallback.
-		code = code.replace(
-			/(let\s+(\w+)\s*=\s*)\$\.tag\(\$\.state\(([\s\S]*?)\),\s*(['"])([\w$]+)\4\)/g,
-			(_match, letPrefix, varName, initExpr, _q, label) => {
-				const key = JSON.stringify(`${stateKey}:${label}`);
-				const map = `(typeof window!=="undefined"&&window.__SVELTE_HMR_STATES__)`;
-				const preserved = `${map}?.get?.(${key})`;
-				const init = `${letPrefix}$.tag($.state(${preserved} !== undefined ? ${preserved} : (${initExpr})), ${_q}${label}${_q})`;
-				const track =
-					`;\nif(typeof window!=="undefined"){` +
-					`if(!window.__SVELTE_HMR_STATES__)window.__SVELTE_HMR_STATES__=new Map();` +
-					`$.render_effect(()=>{window.__SVELTE_HMR_STATES__.set(${key},$.get(${varName}))})` +
-					`}`;
-
-				return `${init}${track}`;
-			}
-		);
+		// State preservation is handled at runtime by the patched $.hmr().
 	} else {
 		// Compile with hmr: true — Svelte 5 injects $.hmr() wrapper and
 		// import.meta.hot.accept() for component-level swaps with state
@@ -627,46 +609,10 @@ const transformSvelteFile = async (
 			code = `import "${cssUrl}";\n${code}`;
 		}
 
-		// ── State preservation across HMR ──
-		// Transform `$.tag($.state(INIT), 'LABEL')` so the initial value
-		// reads from a global state map (populated by tracking effects).
-		// This preserves $state values across component swaps — matching
-		// React Fast Refresh and Vue rerender() behavior.
-		const stateKey = relative(projectRoot, filePath).replace(
-			/\\/g,
-			'/'
-		);
-		const stateLabels: string[] = [];
-
-		// Match $.tag($.state(...), 'label') — handles nested parens
-		code = code.replace(
-			/\$\.tag\(\$\.state\(([\s\S]*?)\),\s*(['"])([\w$]+)\2\)/g,
-			(_match, initExpr, _q, label) => {
-				stateLabels.push(label);
-				const key = JSON.stringify(`${stateKey}:${label}`);
-				const preserved = `window.__SVELTE_HMR_STATES__?.get?.(${key})`;
-
-				return `$.tag($.state(${preserved} !== undefined ? ${preserved} : (${initExpr})), ${_q}${label}${_q})`;
-			}
-		);
-
-		// Add tracking effects that write state values to the global map
-		// so they're available on the next HMR cycle.
-		if (stateLabels.length > 0) {
-			const trackingCode = stateLabels
-				.map((label) => {
-					const key = JSON.stringify(`${stateKey}:${label}`);
-
-					return `  $.template_effect(() => { if(!window.__SVELTE_HMR_STATES__)window.__SVELTE_HMR_STATES__=new Map(); window.__SVELTE_HMR_STATES__.set(${key}, $.get(${label})); });`;
-				})
-				.join('\n');
-
-			// Inject before the `return $.pop(` at the end of the component
-			code = code.replace(
-				/return \$\.pop\(/,
-				`${trackingCode}\n\treturn $.pop(`
-			);
-		}
+		// State preservation is handled at runtime by the patched
+		// $.hmr() in svelte/internal/client/dev/hmr.js. It walks
+		// the effect tree to collect/restore labeled $state signals.
+		// No compile-time tracking effects needed.
 
 		// ── import.meta.hot → accept registry ──
 		const moduleUrl = `${SRC_PREFIX}${relative(projectRoot, filePath).replace(/\\/g, '/')}`;

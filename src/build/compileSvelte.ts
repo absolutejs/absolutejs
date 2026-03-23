@@ -174,33 +174,9 @@ export const compileSvelte = async (
 					'__hmr_accept('
 				);
 
-				// State preservation: add tracking effects for all $state
-				// signals so the global map is populated from first render.
-				// This eliminates the need for DOM scraping on first HMR.
-				const fileKey = relative(process.cwd(), src).replace(
-					/\\/g,
-					'/'
-				);
-				code = code.replace(
-					/(let\s+(\w+)\s*=\s*)\$\d*\.tag\(\$\d*\.state\(([\s\S]*?)\),\s*(['"])([\w$]+)\4\)/g,
-					(m, letPrefix, varName, initExpr, q, label) => {
-						const key = JSON.stringify(`${fileKey}:${label}`);
-						const ns =
-							m.match(/\$(\d*)\./)?.[0]?.slice(0, -1) || '$';
-						// Use a safe getter that works on both server (no window) and client
-						const safeGet =
-							`(typeof window!=="undefined"&&window.__SVELTE_HMR_STATES__` +
-							`?window.__SVELTE_HMR_STATES__.get(${key}):undefined)`;
-
-						return (
-							`${letPrefix}${ns}.tag(${ns}.state(` +
-							`${safeGet} !== undefined ? ${safeGet} : (${initExpr})), ${q}${label}${q});` +
-							`\nif(typeof window!=="undefined"){` +
-							`if(!window.__SVELTE_HMR_STATES__)window.__SVELTE_HMR_STATES__=new Map();` +
-							`${ns}.render_effect(()=>{window.__SVELTE_HMR_STATES__.set(${key},${ns}.get(${varName}))})}`
-						);
-					}
-				);
+				// State preservation is handled at runtime by the patched
+				// $.hmr() function (collect_state/restore_state). No
+				// compile-time tracking effects needed.
 			}
 
 			return code;
