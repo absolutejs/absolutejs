@@ -1,5 +1,3 @@
-import { statSync } from 'node:fs';
-
 type CacheEntry = {
 	content: string;
 	mtime: number;
@@ -14,19 +12,11 @@ const cache: Map<string, CacheEntry> =
 	globalStore.__transformCache ?? new Map<string, CacheEntry>();
 globalStore.__transformCache = cache;
 
-export const getTransformed = (filePath: string) => {
-	const entry = cache.get(filePath);
-	if (!entry) return undefined;
-
-	try {
-		const stat = statSync(filePath);
-		if (stat.mtimeMs === entry.mtime) return entry.content;
-	} catch {
-		cache.delete(filePath);
-	}
-
-	return undefined;
-};
+// Cache entries are invalidated by invalidateModule() when files
+// change — no need to re-stat on every read. If it's in the cache,
+// it's valid.
+export const getTransformed = (filePath: string) =>
+	cache.get(filePath)?.content;
 
 export const setTransformed = (
 	filePath: string,

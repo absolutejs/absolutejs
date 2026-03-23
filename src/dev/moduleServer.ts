@@ -81,19 +81,26 @@ const buildImportRewriter = (vendorPaths: Record<string, string>) => {
 	return { dynamicRegex, fromRegex, lookup, sideEffectRegex };
 };
 
+// Mtime cache — avoids statSync on every import rewrite.
+// Invalidated by the file watcher via invalidateModule().
+const mtimeCache = new Map<string, number>();
+
 // Build a /@src/ URL with the file's mtime as a cache buster.
-// The browser caches ESM static imports by URL — appending mtime
-// ensures a fresh fetch only when that specific file actually changed.
 const srcUrl = (relPath: string, projectRoot: string) => {
 	const base = `${SRC_PREFIX}${relPath.replace(/\\/g, '/')}`;
+	const absPath = resolve(projectRoot, relPath);
 
-	try {
-		const stat = statSync(resolve(projectRoot, relPath));
-
-		return `${base}?v=${Math.round(stat.mtimeMs)}`;
-	} catch {
-		return base;
+	let mtime = mtimeCache.get(absPath);
+	if (mtime === undefined) {
+		try {
+			mtime = Math.round(statSync(absPath).mtimeMs);
+			mtimeCache.set(absPath, mtime);
+		} catch {
+			return base;
+		}
 	}
+
+	return `${base}?v=${mtime}`;
 };
 
 const rewriteImports = (
@@ -1088,7 +1095,11 @@ export const createModuleServer = (config: ModuleServerConfig) => {
 	};
 };
 
-export const invalidateModule = invalidate;
+export const invalidateModule = (filePath: string) => {
+	invalidate(filePath);
+	mtimeCache.delete(filePath);
+	mtimeCache.delete(resolve(filePath));
+};
 
 // Pre-transpile a /@src/ URL and cache the result so the browser
 // fetch is instant. Called before sending the WebSocket HMR message.
