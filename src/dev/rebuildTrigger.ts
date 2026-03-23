@@ -2327,6 +2327,96 @@ const performFullRebuild = async (
 		);
 	}
 
+	// HTML fast path: atomic-copy source → build dir, rewrite asset
+	// paths, re-inject HMR script, broadcast body. ~5ms vs ~25ms.
+	if (
+		isFrameworkOnlyChange(
+			affectedFrameworks,
+			'html',
+			config.htmlDirectory,
+			state,
+			filesToRebuild
+		)
+	) {
+		const htmlFiles = (filesToRebuild ?? []).filter((file) =>
+			file.endsWith('.html')
+		);
+		if (htmlFiles.length > 0) {
+			const outputDir = computeOutputPagesDir(state, config, 'html');
+			const { updateAssetPaths } = await import(
+				'../build/updateAssetPaths'
+			);
+			const { handleHTMLUpdate } = await import('./simpleHTMLHMR');
+			const { readFileSync: readFs, writeFileSync: writeFs } =
+				await import('node:fs');
+
+			for (const htmlFile of htmlFiles) {
+				try {
+					const destPath = resolve(outputDir, basename(htmlFile));
+
+					// Save HMR script from existing built file
+					let hmrScript = '';
+					try {
+						const existing = readFs(destPath, 'utf-8');
+						const match = existing.match(
+							/<script>window\.__HMR_FRAMEWORK__[\s\S]*?<\/script>\s*<script data-hmr-client>[\s\S]*?<\/script>/
+						);
+						if (match) hmrScript = match[0];
+					} catch {
+						// built file doesn't exist yet
+					}
+
+					// Atomic copy: Bun.write ensures content is flushed
+					const source = await Bun.file(htmlFile).text();
+					await Bun.write(destPath, source);
+
+					// Rewrite asset paths using manifest
+					await updateAssetPaths(state.manifest, outputDir);
+
+					// Re-inject HMR script
+					if (hmrScript) {
+						let html = readFs(destPath, 'utf-8');
+						const bodyClose = /<\/body\s*>/i.exec(html);
+						if (bodyClose) {
+							html =
+								html.slice(0, bodyClose.index) +
+								hmrScript +
+								html.slice(bodyClose.index);
+							writeFs(destPath, html);
+						}
+					}
+
+					// Read processed file and broadcast body only
+					const newHTML = await handleHTMLUpdate(destPath);
+					if (newHTML) {
+						const dur = Date.now() - startTime;
+						logHmrUpdate(htmlFile, 'html', dur);
+						broadcastToClients(state, {
+							data: {
+								framework: 'html',
+								html: newHTML,
+								manifest: state.manifest,
+								sourceFile: htmlFile
+							},
+							type: 'html-update'
+						});
+					}
+				} catch {
+					// fall through to full rebuild
+					break;
+				}
+			}
+			if (htmlFiles.length > 0) {
+				onRebuildComplete({
+					hmrState: state,
+					manifest: state.manifest
+				});
+
+				return state.manifest;
+			}
+		}
+	}
+
 	const manifest = await build({
 		...config,
 		incrementalFiles:

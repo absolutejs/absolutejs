@@ -68,17 +68,14 @@ const buildImportRewriter = (vendorPaths: Record<string, string>) => {
 	const alt = entries.map(([spec]) => escapeRegex(spec)).join('|');
 	const lookup = new Map(entries);
 
-	const fromRegex = new RegExp(`(from\\s*["'])(${alt})(["'])`, 'g');
-	const sideEffectRegex = new RegExp(
-		`(import\\s*["'])(${alt})(["']\\s*;?)`,
-		'g'
-	);
-	const dynamicRegex = new RegExp(
-		`(import\\s*\\(\\s*["'])(${alt})(["']\\s*\\))`,
+	// Single combined regex for all vendor import patterns:
+	// from 'pkg', import 'pkg', import('pkg')
+	const vendorRegex = new RegExp(
+		`((?:from|import)\\s*["']|import\\s*\\(\\s*["'])(${alt})(["'](?:\\s*[;)]?)?)`,
 		'g'
 	);
 
-	return { dynamicRegex, fromRegex, lookup, sideEffectRegex };
+	return { lookup, vendorRegex };
 };
 
 // Mtime cache — avoids statSync on every import rewrite.
@@ -111,26 +108,17 @@ const rewriteImports = (
 ) => {
 	let result = code;
 
-	// Step 1: Rewrite KNOWN vendor specifiers (safe — no false matches
-	// because the alternation only matches exact package names).
+	// Step 1: Rewrite KNOWN vendor specifiers in a single pass.
 	if (rewriter) {
-		const replacer = (
-			_match: string,
-			prefix: string,
-			specifier: string,
-			suffix: string
-		) => {
-			const webPath = rewriter.lookup.get(specifier);
-			if (!webPath) return _match;
-			return `${prefix}${webPath}${suffix}`;
-		};
-
-		rewriter.fromRegex.lastIndex = 0;
-		rewriter.sideEffectRegex.lastIndex = 0;
-		rewriter.dynamicRegex.lastIndex = 0;
-		result = result.replace(rewriter.fromRegex, replacer);
-		result = result.replace(rewriter.sideEffectRegex, replacer);
-		result = result.replace(rewriter.dynamicRegex, replacer);
+		rewriter.vendorRegex.lastIndex = 0;
+		result = result.replace(
+			rewriter.vendorRegex,
+			(_match, prefix, specifier, suffix) => {
+				const webPath = rewriter.lookup.get(specifier);
+				if (!webPath) return _match;
+				return `${prefix}${webPath}${suffix}`;
+			}
+		);
 	}
 
 	// Step 2: Rewrite remaining bare specifiers (unknown packages) to stubs.
@@ -147,18 +135,12 @@ const rewriteImports = (
 		return `${prefix}/@stub/${encodeURIComponent(specifier)}${suffix}`;
 	};
 
+	// Combined: import/export from 'bare', import 'bare' (line-anchored)
 	result = result.replace(
-		/^(import\s+.+?\s+from\s*["'])([^"'./][^"']*)(["'])/gm,
+		/^((?:import\s+.+?\s+from|export\s+.+?\s+from|import)\s*["'])([^"'./][^"']*)(["'])/gm,
 		stubReplace
 	);
-	result = result.replace(
-		/^(import\s*["'])([^"'./][^"']*)(["'])/gm,
-		stubReplace
-	);
-	result = result.replace(
-		/^(export\s+.+?\s+from\s*["'])([^"'./][^"']*)(["'])/gm,
-		stubReplace
-	);
+	// Dynamic: import('bare')
 	result = result.replace(
 		/(import\s*\(\s*["'])([^"'./][^"']*)(["']\s*\))/g,
 		stubReplace
