@@ -891,36 +891,39 @@ const handleReactFastPath = async (
 		(file) => detectFramework(file, state.resolvedPaths) === 'react'
 	);
 
+	// O(1) fast path: handles ALL changed React files in the batch.
+	// Each file gets its own module invalidation + broadcast so the
+	// browser re-imports all changed modules for Fast Refresh.
 	if (reactFiles.length > 0) {
-		const [changedFile] = reactFiles;
-		if (changedFile) {
+		const serverDuration = Date.now() - startTime;
+
+		for (const changedFile of reactFiles) {
 			const pageModuleUrl = await getReactModuleUrl(changedFile);
+			if (!pageModuleUrl) continue;
 
-			if (pageModuleUrl) {
-				const serverDuration = Date.now() - startTime;
-				state.lastHmrPath = changedFile;
-				state.lastHmrFramework = 'react';
-				broadcastToClients(state, {
-					data: {
-						framework: 'react',
-						hasComponentChanges: true,
-						hasCSSChanges: false,
-						manifest: state.manifest,
-						pageModuleUrl,
-						primarySource: changedFile,
-						serverDuration,
-						sourceFiles: reactFiles
-					},
-					type: 'react-update'
-				});
-				onRebuildComplete({
-					hmrState: state,
-					manifest: state.manifest
-				});
-
-				return state.manifest;
-			}
+			state.lastHmrPath = changedFile;
+			state.lastHmrFramework = 'react';
+			broadcastToClients(state, {
+				data: {
+					framework: 'react',
+					hasComponentChanges: true,
+					hasCSSChanges: false,
+					manifest: state.manifest,
+					pageModuleUrl,
+					primarySource: changedFile,
+					serverDuration,
+					sourceFiles: reactFiles
+				},
+				type: 'react-update'
+			});
 		}
+
+		onRebuildComplete({
+			hmrState: state,
+			manifest: state.manifest
+		});
+
+		return state.manifest;
 	}
 
 	// Full rebuild path: component changes or fast path failed
@@ -1019,19 +1022,17 @@ const handleSvelteFastPath = async (
 			detectFramework(file, state.resolvedPaths) === 'svelte'
 	);
 
-	// O(1) fast path: Svelte 5's built-in $.hmr() swaps components in
-	// place via reactive signals — same pattern as React Fast Refresh.
-	// Just re-import the changed file; the accept callback handles the swap.
+	// O(1) fast path: Svelte 5's $.hmr() swaps components in place.
+	// Handles ALL changed files — invalidate each, broadcast each.
 	if (svelteFiles.length > 0) {
-		const changedFile = svelteFiles[0];
-		if (changedFile) {
+		for (const file of svelteFiles) {
+			state.fileHashes.set(resolve(file), computeFileHash(file));
+		}
+
+		const serverDuration = Date.now() - startTime;
+
+		for (const changedFile of svelteFiles) {
 			const pageModuleUrl = await getModuleUrl(changedFile);
-
-			for (const file of svelteFiles) {
-				state.fileHashes.set(resolve(file), computeFileHash(file));
-			}
-
-			const serverDuration = Date.now() - startTime;
 			state.lastHmrPath = changedFile;
 			state.lastHmrFramework = 'svelte';
 
@@ -1047,13 +1048,14 @@ const handleSvelteFastPath = async (
 				},
 				type: 'svelte-update'
 			});
-			onRebuildComplete({
-				hmrState: state,
-				manifest: state.manifest
-			});
-
-			return state.manifest;
 		}
+
+		onRebuildComplete({
+			hmrState: state,
+			manifest: state.manifest
+		});
+
+		return state.manifest;
 	}
 
 	// Bundled fallback
@@ -1172,18 +1174,16 @@ const handleVueFastPath = async (
 	);
 
 	// O(1) fast path: Vue HMR runtime swaps components in place.
-	// Vue is now externalized in the initial build (same vendor instance),
-	// so __VUE_HMR_RUNTIME__.reload() works like React Fast Refresh.
+	// Handles ALL changed files in the batch.
 	if (vueFiles.length > 0) {
-		const changedFile = vueFiles[0];
-		if (changedFile) {
+		for (const file of vueFiles) {
+			state.fileHashes.set(resolve(file), computeFileHash(file));
+		}
+
+		const serverDuration = Date.now() - startTime;
+
+		for (const changedFile of vueFiles) {
 			const pageModuleUrl = await getModuleUrl(changedFile);
-
-			for (const file of vueFiles) {
-				state.fileHashes.set(resolve(file), computeFileHash(file));
-			}
-
-			const serverDuration = Date.now() - startTime;
 			state.lastHmrPath = changedFile;
 			state.lastHmrFramework = 'vue';
 
@@ -1200,13 +1200,14 @@ const handleVueFastPath = async (
 				},
 				type: 'vue-update'
 			});
-			onRebuildComplete({
-				hmrState: state,
-				manifest: state.manifest
-			});
-
-			return state.manifest;
 		}
+
+		onRebuildComplete({
+			hmrState: state,
+			manifest: state.manifest
+		});
+
+		return state.manifest;
 	}
 
 	// Bundled fallback
