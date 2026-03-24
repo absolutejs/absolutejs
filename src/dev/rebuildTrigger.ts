@@ -2248,8 +2248,7 @@ const performFullRebuild = async (
 	// to the full build.
 	const hasManifest = Object.keys(state.manifest).length > 0;
 	const files = filesToRebuild ?? [];
-	const hasCss = files.some((file) => file.endsWith('.css'));
-	let allHandled = files.length > 0 && hasManifest && !hasCss;
+	let allHandled = files.length > 0 && hasManifest;
 
 	if (allHandled) {
 		const handled = new Set<string>();
@@ -2325,12 +2324,12 @@ const performFullRebuild = async (
 				.forEach((f) => handled.add(f));
 		}
 
-		// Check if any files weren't handled by a fast path
+		// Check if any files weren't handled by a fast path.
+		// CSS/styles need the full build for compilation + rehashing.
 		allHandled = files.every(
 			(f) =>
 				handled.has(f) ||
-				detectFramework(f, state.resolvedPaths) === 'assets' ||
-				detectFramework(f, state.resolvedPaths) === 'styles'
+				detectFramework(f, state.resolvedPaths) === 'assets'
 		);
 	}
 
