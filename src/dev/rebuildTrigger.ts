@@ -2417,6 +2417,88 @@ const performFullRebuild = async (
 		}
 	}
 
+	// HTMX fast path: same pattern as HTML
+	if (
+		isFrameworkOnlyChange(
+			affectedFrameworks,
+			'htmx',
+			config.htmxDirectory,
+			state,
+			filesToRebuild
+		)
+	) {
+		const htmxFiles = (filesToRebuild ?? []).filter((file) =>
+			file.endsWith('.html')
+		);
+		if (htmxFiles.length > 0) {
+			const outputDir = computeOutputPagesDir(state, config, 'htmx');
+			const { updateAssetPaths } = await import(
+				'../build/updateAssetPaths'
+			);
+			const { handleHTMXUpdate } = await import('./simpleHTMXHMR');
+			const { readFileSync: readFs, writeFileSync: writeFs } =
+				await import('node:fs');
+
+			for (const htmxFile of htmxFiles) {
+				try {
+					const destPath = resolve(outputDir, basename(htmxFile));
+
+					let hmrScript = '';
+					try {
+						const existing = readFs(destPath, 'utf-8');
+						const match = existing.match(
+							/<script>window\.__HMR_FRAMEWORK__[\s\S]*?<\/script>\s*<script data-hmr-client>[\s\S]*?<\/script>/
+						);
+						if (match) hmrScript = match[0];
+					} catch {
+						/* built file may not exist */
+					}
+
+					const source = await Bun.file(htmxFile).text();
+					await Bun.write(destPath, source);
+					await updateAssetPaths(state.manifest, outputDir);
+
+					if (hmrScript) {
+						let html = readFs(destPath, 'utf-8');
+						const bodyClose = /<\/body\s*>/i.exec(html);
+						if (bodyClose) {
+							html =
+								html.slice(0, bodyClose.index) +
+								hmrScript +
+								html.slice(bodyClose.index);
+							writeFs(destPath, html);
+						}
+					}
+
+					const newHTML = await handleHTMXUpdate(destPath);
+					if (newHTML) {
+						const dur = Date.now() - startTime;
+						logHmrUpdate(htmxFile, 'htmx', dur);
+						broadcastToClients(state, {
+							data: {
+								framework: 'htmx',
+								html: newHTML,
+								manifest: state.manifest,
+								sourceFile: htmxFile
+							},
+							type: 'htmx-update'
+						});
+					}
+				} catch {
+					break;
+				}
+			}
+			if (htmxFiles.length > 0) {
+				onRebuildComplete({
+					hmrState: state,
+					manifest: state.manifest
+				});
+
+				return state.manifest;
+			}
+		}
+	}
+
 	const manifest = await build({
 		...config,
 		incrementalFiles:

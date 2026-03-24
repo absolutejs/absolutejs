@@ -120,51 +120,6 @@ const IGNORED_SEGMENTS = [
 	'/client/'
 ];
 
-const SCANNABLE_EXTENSIONS = new Set([
-	'ts',
-	'tsx',
-	'js',
-	'jsx',
-	'vue',
-	'svelte',
-	'html',
-	'htm'
-]);
-
-const isIgnoredPath = (fullPath: string, entryName: string) =>
-	entryName.startsWith('.') ||
-	IGNORED_SEGMENTS.some((seg) => fullPath.includes(seg));
-
-const isScannableFile = (fileName: string) => {
-	const ext = fileName.split('.').pop()?.toLowerCase() ?? '';
-
-	return SCANNABLE_EXTENSIONS.has(ext);
-};
-
-const processEntry = (
-	graph: DependencyGraph,
-	processedFiles: Set<string>,
-	scanDir: (dir: string) => void,
-	normalizedDir: string,
-	entry: { name: string; isDirectory: () => boolean; isFile: () => boolean }
-) => {
-	const fullPath = resolve(normalizedDir, entry.name);
-
-	if (isIgnoredPath(fullPath, entry.name)) return;
-
-	if (entry.isDirectory()) {
-		scanDir(fullPath);
-
-		return;
-	}
-
-	if (!entry.isFile()) return;
-	if (!isScannableFile(entry.name)) return;
-	if (processedFiles.has(fullPath)) return;
-
-	addFileToGraph(graph, fullPath);
-	processedFiles.add(fullPath);
-};
 
 export const buildInitialDependencyGraph = (
 	graph: DependencyGraph,

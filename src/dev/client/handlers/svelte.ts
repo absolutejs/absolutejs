@@ -273,10 +273,6 @@ export const handleSvelteUpdate = (message: {
 		// Save the OLD module's accept callback BEFORE importing.
 		const acceptFn = acceptRegistry?.[pageModuleUrl];
 
-		// State map is populated by tracking effects injected into both
-		// the initial bundle and module server output. No DOM scraping
-		// needed — works for all $state types (numbers, strings, objects).
-
 		import(modulePath)
 			.then((newModule) => {
 				if (acceptFn) {

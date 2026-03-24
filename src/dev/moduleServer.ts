@@ -551,8 +551,6 @@ const transformSvelteFile = async (
 	const isModule =
 		filePath.endsWith('.svelte.ts') || filePath.endsWith('.svelte.js');
 
-	const stateKey = relative(projectRoot, filePath).replace(/\\/g, '/');
-
 	let code: string;
 	if (isModule) {
 		// Module files (.svelte.ts) — transpile TS first, then compileModule
