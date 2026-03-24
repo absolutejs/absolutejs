@@ -592,7 +592,7 @@ const transformSvelteFile = async (
 		// State preservation is handled at runtime by the patched
 		// $.hmr() in svelte/internal/client/dev/hmr.js. It walks
 		// the effect tree to collect/restore labeled $state signals.
-		// No compile-time tracking effects needed.
+		// State preservation is handled by Svelte's $.hmr() runtime.
 
 		// ── import.meta.hot → accept registry ──
 		const moduleUrl = `${SRC_PREFIX}${relative(projectRoot, filePath).replace(/\\/g, '/')}`;

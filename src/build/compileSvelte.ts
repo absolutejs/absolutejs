@@ -176,7 +176,7 @@ export const compileSvelte = async (
 
 				// State preservation is handled at runtime by the patched
 				// $.hmr() function (collect_state/restore_state). No
-				// compile-time tracking effects needed.
+				// State preservation handled by Svelte's $.hmr() runtime.
 			}
 
 			return code;
