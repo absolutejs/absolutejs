@@ -1216,20 +1216,6 @@ const handleVueFastPath = async (
 	return state.manifest;
 };
 
-const isFrameworkOnlyChange = (
-	affectedFrameworks: string[],
-	frameworkName: string,
-	frameworkDir: string | undefined,
-	state: HMRState,
-	filesToRebuild?: string[]
-) =>
-	affectedFrameworks.length === 1 &&
-	affectedFrameworks[0] === frameworkName &&
-	frameworkDir &&
-	Object.keys(state.manifest).length > 0 &&
-	filesToRebuild &&
-	filesToRebuild.length > 0 &&
-	!filesToRebuild.some((file) => file.endsWith('.css'));
 
 const collectModuleUpdatesForFramework = (
 	framework: string,
@@ -2256,88 +2242,103 @@ const performFullRebuild = async (
 		hmrState: HMRState;
 	}) => void
 ) => {
-	if (
-		isFrameworkOnlyChange(
-			affectedFrameworks,
-			'angular',
-			config.angularDirectory,
-			state,
-			filesToRebuild
-		)
-	) {
-		return handleAngularFastPath(
-			state,
-			config,
-			filesToRebuild ?? [],
-			startTime,
-			onRebuildComplete
+	// Run each framework's fast path for its files independently.
+	// This handles cross-framework batches (e.g., editing a React
+	// and Svelte file in the same save) without falling through
+	// to the full build.
+	const hasManifest = Object.keys(state.manifest).length > 0;
+	const files = filesToRebuild ?? [];
+	const hasCss = files.some((file) => file.endsWith('.css'));
+	let allHandled = files.length > 0 && hasManifest && !hasCss;
+
+	if (allHandled) {
+		const handled = new Set<string>();
+
+		// Angular
+		if (config.angularDirectory && affectedFrameworks.includes('angular')) {
+			await handleAngularFastPath(
+				state,
+				config,
+				files,
+				startTime,
+				onRebuildComplete
+			);
+			files
+				.filter(
+					(f) =>
+						detectFramework(f, state.resolvedPaths) === 'angular'
+				)
+				.forEach((f) => handled.add(f));
+		}
+
+		// React
+		if (config.reactDirectory && affectedFrameworks.includes('react')) {
+			await handleReactFastPath(
+				state,
+				config,
+				files,
+				startTime,
+				onRebuildComplete
+			);
+			files
+				.filter(
+					(f) =>
+						detectFramework(f, state.resolvedPaths) === 'react'
+				)
+				.forEach((f) => handled.add(f));
+		}
+
+		// Svelte
+		if (
+			config.svelteDirectory &&
+			affectedFrameworks.includes('svelte')
+		) {
+			await handleSvelteFastPath(
+				state,
+				config,
+				files,
+				startTime,
+				onRebuildComplete
+			);
+			files
+				.filter(
+					(f) =>
+						detectFramework(f, state.resolvedPaths) === 'svelte'
+				)
+				.forEach((f) => handled.add(f));
+		}
+
+		// Vue
+		if (config.vueDirectory && affectedFrameworks.includes('vue')) {
+			await handleVueFastPath(
+				state,
+				config,
+				files,
+				startTime,
+				onRebuildComplete
+			);
+			files
+				.filter(
+					(f) =>
+						detectFramework(f, state.resolvedPaths) === 'vue'
+				)
+				.forEach((f) => handled.add(f));
+		}
+
+		// Check if any files weren't handled by a fast path
+		allHandled = files.every(
+			(f) =>
+				handled.has(f) ||
+				detectFramework(f, state.resolvedPaths) === 'assets' ||
+				detectFramework(f, state.resolvedPaths) === 'styles'
 		);
 	}
 
+	// HTML fast path
 	if (
-		isFrameworkOnlyChange(
-			affectedFrameworks,
-			'react',
-			config.reactDirectory,
-			state,
-			filesToRebuild
-		)
-	) {
-		return handleReactFastPath(
-			state,
-			config,
-			filesToRebuild ?? [],
-			startTime,
-			onRebuildComplete
-		);
-	}
-
-	if (
-		isFrameworkOnlyChange(
-			affectedFrameworks,
-			'svelte',
-			config.svelteDirectory,
-			state,
-			filesToRebuild
-		)
-	) {
-		return handleSvelteFastPath(
-			state,
-			config,
-			filesToRebuild ?? [],
-			startTime,
-			onRebuildComplete
-		);
-	}
-
-	if (
-		isFrameworkOnlyChange(
-			affectedFrameworks,
-			'vue',
-			config.vueDirectory,
-			state,
-			filesToRebuild
-		)
-	) {
-		return handleVueFastPath(
-			state,
-			config,
-			filesToRebuild ?? [],
-			startTime,
-			onRebuildComplete
-		);
-	}
-
-	// HTML fast path: atomic-copy source → build dir, rewrite asset
-	// paths, re-inject HMR script, broadcast body. ~5ms vs ~25ms.
-	if (
-		isFrameworkOnlyChange(
-			affectedFrameworks,
-			'html',
-			config.htmlDirectory,
-			state,
-			filesToRebuild
-		)
+		allHandled &&
+		config.htmlDirectory &&
+		affectedFrameworks.includes('html')
 	) {
 		const htmlFiles = (filesToRebuild ?? []).filter((file) =>
 			file.endsWith('.html')
@@ -2407,26 +2408,14 @@ const performFullRebuild = async (
 					break;
 				}
 			}
-			if (htmlFiles.length > 0) {
-				onRebuildComplete({
-					hmrState: state,
-					manifest: state.manifest
-				});
-
-				return state.manifest;
-			}
 		}
 	}
 
-	// HTMX fast path: same pattern as HTML
+	// HTMX fast path
 	if (
-		isFrameworkOnlyChange(
-			affectedFrameworks,
-			'htmx',
-			config.htmxDirectory,
-			state,
-			filesToRebuild
-		)
+		allHandled &&
+		config.htmxDirectory &&
+		affectedFrameworks.includes('htmx')
 	) {
 		const htmxFiles = (filesToRebuild ?? []).filter((file) =>
 			file.endsWith('.html')
@@ -2489,15 +2478,17 @@ const performFullRebuild = async (
 					break;
 				}
 			}
-			if (htmxFiles.length > 0) {
-				onRebuildComplete({
-					hmrState: state,
-					manifest: state.manifest
-				});
-
-				return state.manifest;
-			}
 		}
+	}
+
+	// If all frameworks were handled by fast paths, skip the full build
+	if (allHandled) {
+		onRebuildComplete({
+			hmrState: state,
+			manifest: state.manifest
+		});
+
+		return state.manifest;
 	}
 
 	const manifest = await build({

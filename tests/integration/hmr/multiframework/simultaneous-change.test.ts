@@ -27,7 +27,7 @@ describe('Multi-framework simultaneous changes', () => {
 		client.drain();
 	}, 60_000);
 
-	test('simultaneous changes to two frameworks triggers rebuild', async () => {
+	test('simultaneous changes to two frameworks triggers fast paths', async () => {
 		const reactPage = resolve(
 			PROJECT_ROOT,
 			'example/react/pages/ReactExample.tsx'
@@ -44,11 +44,12 @@ describe('Multi-framework simultaneous changes', () => {
 			c.replace('AbsoluteJS + Svelte', 'AbsoluteJS + Svelte MULTI')
 		);
 
-		await client.waitFor('rebuild-start', 15_000);
+		// Each framework's fast path sends its own update message
+		const reactUpdate = await client.waitFor('react-update', 15_000);
+		expect(reactUpdate.type).toBe('react-update');
 
-		const response = await client.waitFor('rebuild-complete', 30_000);
-
-		expect(response.type).toBeDefined();
+		const svelteUpdate = await client.waitFor('svelte-update', 15_000);
+		expect(svelteUpdate.type).toBe('svelte-update');
 	}, 60_000);
 
 	test('server health after multi-framework change', async () => {
