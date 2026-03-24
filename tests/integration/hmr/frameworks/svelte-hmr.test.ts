@@ -56,4 +56,40 @@ describe('Svelte HMR', () => {
 		expect(data.manifest).toBeDefined();
 		expect(data.sourceFile).toBeDefined();
 	});
+
+	test('fast path provides pageModuleUrl for unbundled ESM', async () => {
+		client.drain();
+		await Bun.sleep(1000);
+
+		const sveltePage = resolve(
+			PROJECT_ROOT,
+			'example/svelte/pages/SvelteExample.svelte'
+		);
+		mutateFile(sveltePage, (c) =>
+			c.replace('AbsoluteJS + Svelte', 'AbsoluteJS + Svelte FAST')
+		);
+
+		const update = await client.waitFor('svelte-update', 15_000);
+		const data = update.data as Record<string, unknown>;
+		expect(data.pageModuleUrl).toBeDefined();
+		expect(typeof data.pageModuleUrl).toBe('string');
+		expect((data.pageModuleUrl as string).startsWith('/@src/')).toBe(
+			true
+		);
+	}, 30_000);
+
+	test('child component change triggers update', async () => {
+		client.drain();
+		await Bun.sleep(1000);
+
+		const counter = resolve(
+			PROJECT_ROOT,
+			'example/svelte/components/Counter.svelte'
+		);
+		mutateFile(counter, (c) => c.replace('count is', 'clicks:'));
+
+		const update = await client.waitFor('svelte-update', 15_000);
+		const data = update.data as Record<string, unknown>;
+		expect(data.pageModuleUrl).toBeDefined();
+	}, 30_000);
 });

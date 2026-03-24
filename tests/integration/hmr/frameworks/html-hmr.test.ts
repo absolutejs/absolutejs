@@ -54,4 +54,24 @@ describe('HTML HMR', () => {
 		expect(data.manifest).toBeDefined();
 		expect(data.html).toBeDefined();
 	});
+
+	test('html update contains body content with changes', async () => {
+		await Bun.sleep(2000);
+		client.drain();
+
+		const htmlPage = resolve(
+			PROJECT_ROOT,
+			'example/html/pages/HTMLExample.html'
+		);
+		mutateFile(htmlPage, (c) =>
+			c.replace('</body>', `<p>HMR_BODY_${Date.now()}</p></body>`)
+		);
+
+		const update = await client.waitFor('html-update', 15_000);
+		const data = update.data as Record<string, unknown>;
+		const html = data.html as string | { body?: string };
+		const body =
+			typeof html === 'string' ? html : html?.body ?? '';
+		expect(body).toContain('HMR_BODY_');
+	}, 30_000);
 });

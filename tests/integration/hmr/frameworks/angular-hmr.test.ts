@@ -56,4 +56,22 @@ describe('Angular HMR', () => {
 		expect(data.manifest).toBeDefined();
 		expect(data.sourceFile).toBeDefined();
 	});
+
+	test('child component change triggers update', async () => {
+		client.drain();
+		await Bun.sleep(1000);
+
+		const appComponent = resolve(
+			PROJECT_ROOT,
+			'example/angular/components/app.component.ts'
+		);
+		mutateFile(appComponent, (c) =>
+			c.replace('app-root', 'app-root')
+		);
+		// Force a real change
+		mutateFile(appComponent, (c) => `${c}\n// hmr-test`);
+
+		const update = await client.waitFor('angular-update', 30_000);
+		expect(update.type).toBe('angular-update');
+	}, 60_000);
 });

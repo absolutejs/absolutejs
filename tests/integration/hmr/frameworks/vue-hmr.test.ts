@@ -58,6 +58,7 @@ describe('Vue HMR', () => {
 	test('vue template-only change is detected', async () => {
 		restoreAllFiles();
 		client.drain();
+		await Bun.sleep(1000);
 
 		const vuePage = resolve(
 			PROJECT_ROOT,
@@ -75,4 +76,42 @@ describe('Vue HMR', () => {
 		const update = await client.waitFor('vue-update', 30_000);
 		expect(update.type).toBe('vue-update');
 	}, 60_000);
+
+	test('fast path provides pageModuleUrl for unbundled ESM', async () => {
+		client.drain();
+		await Bun.sleep(1000);
+
+		const vuePage = resolve(
+			PROJECT_ROOT,
+			'example/vue/pages/VueExample.vue'
+		);
+		mutateFile(vuePage, (c) =>
+			c.replace('AbsoluteJS + Vue', 'AbsoluteJS + Vue FAST')
+		);
+
+		const update = await client.waitFor('vue-update', 15_000);
+		const data = update.data as Record<string, unknown>;
+		expect(data.pageModuleUrl).toBeDefined();
+		expect(typeof data.pageModuleUrl).toBe('string');
+		expect((data.pageModuleUrl as string).startsWith('/@src/')).toBe(
+			true
+		);
+	}, 30_000);
+
+	test('child component change triggers update', async () => {
+		client.drain();
+		await Bun.sleep(1000);
+
+		const countButton = resolve(
+			PROJECT_ROOT,
+			'example/vue/components/CountButton.vue'
+		);
+		mutateFile(countButton, (c) =>
+			c.replace('count is', 'clicks:')
+		);
+
+		const update = await client.waitFor('vue-update', 15_000);
+		const data = update.data as Record<string, unknown>;
+		expect(data.pageModuleUrl).toBeDefined();
+	}, 30_000);
 });

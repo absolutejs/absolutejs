@@ -160,7 +160,7 @@
 		"release": "bun run test && bun run format && bun run build:native && bun run build && ./native/publish.sh && bun publish",
 		"release:beta": "bun run test && bun run format && bun run build:native && bun run build && ./native/publish.sh --tag beta && bun publish --tag beta",
 		"start": "TELEMETRY_OFF=1 bun run src/cli/index.ts start example/server.ts --outdir example/dist --config example/absolute.config.ts",
-		"test": "bun test",
+		"test": "bun test tests/unit && bun test --concurrency 1 tests/integration",
 		"typecheck": "bun run vue-tsc --noEmit"
 	},
 	"types": "./dist/src/index.d.ts",

@@ -1,5 +1,5 @@
-const DEFAULT_RETRY_DELAY_MS = 200;
-const DEFAULT_MAX_RETRIES = 30;
+const DEFAULT_RETRY_DELAY_MS = 500;
+const DEFAULT_MAX_RETRIES = 120;
 
 export const fetchPage = async (url: string) => {
 	const res = await fetch(url);

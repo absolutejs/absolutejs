@@ -56,4 +56,40 @@ describe('React HMR', () => {
 		expect(data.manifest).toBeDefined();
 		expect(data.sourceFiles).toBeDefined();
 	});
+
+	test('subsequent react change also triggers update', async () => {
+		// Wait for any pending rebuilds from previous test restores
+		await Bun.sleep(3000);
+		client.drain();
+
+		const reactPage = resolve(
+			PROJECT_ROOT,
+			'example/react/pages/ReactExample.tsx'
+		);
+		// Append a unique comment to guarantee the file content changes
+		mutateFile(reactPage, (c) =>
+			`${c}\n{/* hmr-fast-path-${Date.now()} */}`
+		);
+
+		const update = await client.waitFor('react-update', 15_000);
+		expect(update.type).toBe('react-update');
+		const data = update.data as Record<string, unknown>;
+		expect(data.framework).toBe('react');
+	}, 30_000);
+
+	test('child component change triggers update', async () => {
+		client.drain();
+		await Bun.sleep(1000);
+
+		const app = resolve(
+			PROJECT_ROOT,
+			'example/react/components/App.tsx'
+		);
+		mutateFile(app, (c) =>
+			c.replace('AbsoluteJS + React', 'React Child Change')
+		);
+
+		const update = await client.waitFor('react-update', 15_000);
+		expect(update.type).toBe('react-update');
+	}, 30_000);
 });
