@@ -1,25 +1,5 @@
 const std = @import("std");
 
-const Wyhash = std.hash.Wyhash;
-
-export fn hash_file(path_ptr: [*]const u8, path_len: usize) callconv(.c) u64 {
-    const path = path_ptr[0..path_len];
-    const file = std.fs.cwd().openFile(path, .{}) catch return 0;
-    defer file.close();
-    const stat = file.stat() catch return 0;
-    const file_size: usize = @intCast(stat.size);
-    if (file_size == 0) return Wyhash.hash(0, "");
-    return hashFileRead(file, file_size);
-}
-
-fn hashFileRead(file: std.fs.File, file_size: usize) u64 {
-    const allocator = std.heap.page_allocator;
-    const buf = allocator.alloc(u8, file_size) catch return 0;
-    defer allocator.free(buf);
-    const bytes_read = file.readAll(buf) catch return 0;
-    return Wyhash.hash(0, buf[0..bytes_read]);
-}
-
 const Replacement = struct {
     specifier: []const u8,
     web_path: []const u8,
