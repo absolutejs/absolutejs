@@ -289,21 +289,79 @@ const rewriteDataImports = (
 	code: string,
 	projectRoot: string
 ) => {
-	let counter = 0;
-	return code.replace(
-		NAMED_IMPORT_RE,
-		(_match, names, q1, srcUrl, q2) => {
-			// Extract the file path from /@src/path?v=123
-			const urlPath = srcUrl.replace(/^\/\@src\//, '').split('?')[0];
-			if (!urlPath) return _match;
-			const absPath = resolve(projectRoot, urlPath);
-			if (!isDataFile(absPath)) return _match;
+	// Pass 1: collect data file imports
+	const rewrites: Array<{
+		alias: string;
+		fullMatch: string;
+		importLine: string;
+		names: Array<{ local: string; orig: string }>;
+	}> = [];
 
-			const alias = `__hmr_${counter++}`;
-			const trimmedNames = (names as string).trim();
-			return `import ${alias} from ${q1}${srcUrl}${q2};\nconst { ${trimmedNames} } = ${alias}`;
+	let counter = 0;
+	let m;
+	NAMED_IMPORT_RE.lastIndex = 0;
+	while ((m = NAMED_IMPORT_RE.exec(code)) !== null) {
+		const [fullMatch, names, q1, srcUrl, q2] = m;
+		if (!names || !srcUrl) continue;
+
+		const urlPath = srcUrl.replace(/^\/@src\//, '').split('?')[0];
+		if (!urlPath || !urlPath.endsWith('.ts') || urlPath.endsWith('.d.ts'))
+			continue;
+
+		const absPath = resolve(projectRoot, urlPath);
+
+		if (!isDataFile(absPath)) {
+			if (!urlPath.endsWith('.tsx') && existsSync(absPath)) {
+				try {
+					const src = readFileSync(absPath, 'utf-8');
+					const exps = tsTranspiler.scan(src).exports;
+					if (isDataOnlyFile(exps, src, absPath)) markAsDataFile(absPath);
+				} catch {
+					// skip
+				}
+			}
+			if (!isDataFile(absPath)) continue;
 		}
-	);
+
+		const alias = `__hmr_${counter++}`;
+		const importedNames = (names as string)
+			.split(',')
+			.map((n) => n.trim().split(/\s+as\s+/))
+			.filter(([n]) => n)
+			.map(([orig, asName]) => ({
+				local: (asName ?? orig)!.trim(),
+				orig: orig!.trim()
+			}));
+
+		rewrites.push({
+			alias,
+			fullMatch: fullMatch!,
+			importLine: `import ${alias} from ${q1}${srcUrl}${q2}`,
+			names: importedNames
+		});
+	}
+
+	if (rewrites.length === 0) return code;
+
+	let result = code;
+
+	// Pass 2: replace import statements
+	for (const r of rewrites) {
+		result = result.replace(r.fullMatch, r.importLine);
+	}
+
+	// Pass 3: rewrite usage sites (foo → __hmr_0.foo)
+	// Only replace standalone identifiers, not property accesses (.foo)
+	for (const r of rewrites) {
+		for (const { orig, local } of r.names) {
+			result = result.replace(
+				new RegExp(`(?<![.\\w])${local}(?![\\w])`, 'g'),
+				`${r.alias}.${orig}`
+			);
+		}
+	}
+
+	return result;
 };
 
 // React hooks that React Fast Refresh tracks for signature changes
@@ -527,59 +585,70 @@ const transformReactFile = (
 // Detect if a .ts file is a "data file" — exports only constants,
 // no functions, no classes, no React components. These get the
 // mutable store wrapper for HMR.
-const isDataOnlyFile = (exports: string[], transpiled: string) => {
+const isDataOnlyFile = (
+	exports: string[],
+	_source: string,
+	filePath?: string
+) => {
 	if (exports.length === 0) return false;
-	// If ANY export looks like a component (PascalCase function/class), skip
-	if (exports.some((e) => /^[A-Z]/.test(e) && /^(use|[A-Z])/.test(e)))
-		return false;
-	// If the file exports functions or classes, it's not data-only
-	if (/export\s+(function|class|async\s+function)\s/.test(transpiled))
+	// Only treat files in data/ directories as data files.
+	// This avoids false positives on hooks, utils, etc.
+	if (filePath) {
+		const normalized = filePath.replace(/\\/g, '/');
+		if (!normalized.includes('/data/')) return false;
+	}
+	// Skip if any export is a React component (PascalCase) or hook (use*)
+	if (exports.some((e) => /^[A-Z]/.test(e) || /^use[A-Z]/.test(e)))
 		return false;
 
 	return true;
 };
 
 // Wrap data file exports in a mutable global store for HMR.
-// Components that import from this file get the store object,
-// so HMR re-import updates values in-place.
+// Each `export const foo = val` becomes:
+//   const foo = val; __hmr.foo = foo; export { foo };
+// This preserves variable ordering (no TDZ errors) while
+// writing values to the mutable store for HMR updates.
 const wrapDataExports = (
 	transpiled: string,
 	filePath: string,
 	exports: string[]
 ) => {
 	const storeKey = filePath.replace(/\\/g, '/');
-	// Replace `export const foo = value` with `__hmr.foo = value`
-	// and re-export from the store at the end.
 	let result = transpiled;
-	const preamble =
-		`const __hmr = ((globalThis.__HMR_DATA__ ??= {})[${JSON.stringify(storeKey)}] ??= {});\n`;
 
+	// Replace `export const/let/var foo =` with `const/let/var foo =`
+	// (strip the export keyword, we'll re-export at the end)
 	for (const name of exports) {
-		// Replace: export const name = ... → __hmr.name = ...
 		result = result.replace(
-			new RegExp(`export\\s+const\\s+${name}\\s*=`),
-			`__hmr.${name} =`
-		);
-		// Replace: export var name = ... → __hmr.name = ...
-		result = result.replace(
-			new RegExp(`export\\s+var\\s+${name}\\s*=`),
-			`__hmr.${name} =`
-		);
-		// Replace: export let name = ... → __hmr.name = ...
-		result = result.replace(
-			new RegExp(`export\\s+let\\s+${name}\\s*=`),
-			`__hmr.${name} =`
+			new RegExp(`export\\s+(const|let|var)\\s+${name}\\s*=`),
+			`$1 ${name} =`
 		);
 	}
 
-	// Default export: the store object itself
-	const defaultExport = `\nexport default __hmr;\n`;
-	// Named exports that read from the store (for backwards compat)
-	const namedExports = exports
-		.map((name) => `export const ${name} = __hmr.${name};`)
+	const preamble =
+		`const __hmr = ((globalThis.__HMR_DATA__ ??= {})[${JSON.stringify(storeKey)}] ??= {});\n`;
+
+	// After all assignments, copy values to the store
+	const storeWrites = exports
+		.map((name) => `__hmr.${name} = ${name};`)
 		.join('\n');
 
-	return preamble + result + '\n' + namedExports + defaultExport;
+	// Re-export named + default (the store object)
+	const namedExport =
+		exports.length > 0
+			? `export { ${exports.join(', ')} };\n`
+			: '';
+
+	return (
+		preamble +
+		result +
+		'\n' +
+		storeWrites +
+		'\n' +
+		namedExport +
+		'export default __hmr;\n'
+	);
 };
 
 // Use Bun.Transpiler for non-React files (no refresh injection needed)
@@ -602,7 +671,7 @@ const transformPlainFile = (
 	}
 
 	// Wrap data-only .ts files in mutable store for HMR
-	if (isTS && !isTSX && isDataOnlyFile(valueExports, transpiled)) {
+	if (isTS && !isTSX && isDataOnlyFile(valueExports, transpiled, filePath)) {
 		transpiled = wrapDataExports(transpiled, filePath, valueExports);
 		markAsDataFile(filePath);
 	}
