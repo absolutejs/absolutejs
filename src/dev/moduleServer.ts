@@ -1,6 +1,11 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, extname, resolve, relative } from 'node:path';
-import { getTransformed, setTransformed, invalidate } from './transformCache';
+import {
+	getInvalidationVersion,
+	getTransformed,
+	invalidate,
+	setTransformed
+} from './transformCache';
 
 const SRC_PREFIX = '/@src/';
 
@@ -110,7 +115,13 @@ const srcUrl = (relPath: string, projectRoot: string) => {
 		}
 	}
 
-	return `${base}?v=${mtime}`;
+	// Append invalidation version if the file's transform cache was
+	// cleared (e.g., a downstream import changed). This forces the
+	// browser to re-fetch even though the file's own mtime is the same.
+	const iv = getInvalidationVersion(absPath);
+	const version = iv > 0 ? `${mtime}.${iv}` : `${mtime}`;
+
+	return `${base}?v=${version}`;
 };
 
 const rewriteImports = (
@@ -976,7 +987,12 @@ export const createModuleServer = (config: ModuleServerConfig) => {
 					projectRoot,
 					rewriter
 				);
-				setTransformed(filePath, content, stat.mtimeMs);
+				setTransformed(
+					filePath,
+					content,
+					stat.mtimeMs,
+					extractImportedFiles(content, projectRoot)
+				);
 
 				return jsResponse(content);
 			}
@@ -993,7 +1009,12 @@ export const createModuleServer = (config: ModuleServerConfig) => {
 					rewriter,
 					frameworkDirs?.vue
 				);
-				setTransformed(filePath, content, stat.mtimeMs);
+				setTransformed(
+					filePath,
+					content,
+					stat.mtimeMs,
+					extractImportedFiles(content, projectRoot)
+				);
 
 				return jsResponse(content);
 			}
@@ -1009,7 +1030,12 @@ export const createModuleServer = (config: ModuleServerConfig) => {
 				? transformReactFile(filePath, projectRoot, rewriter)
 				: transformPlainFile(filePath, projectRoot, rewriter);
 
-			setTransformed(filePath, content, stat.mtimeMs);
+			setTransformed(
+				filePath,
+				content,
+				stat.mtimeMs,
+				extractImportedFiles(content, projectRoot)
+			);
 
 			return jsResponse(content);
 		} catch (err) {
@@ -1026,10 +1052,32 @@ export const createModuleServer = (config: ModuleServerConfig) => {
 	};
 };
 
+// Extract absolute file paths from /@src/ imports in transformed code.
+// Used to build the runtime module graph for chain invalidation.
+const SRC_IMPORT_RE = /\/@src\/([^"'?\s]+)/g;
+const extractImportedFiles = (content: string, projectRoot: string) => {
+	const files: string[] = [];
+	let match;
+	SRC_IMPORT_RE.lastIndex = 0;
+	while ((match = SRC_IMPORT_RE.exec(content)) !== null) {
+		if (match[1]) files.push(resolve(projectRoot, match[1]));
+	}
+
+	return files;
+};
+
 export const invalidateModule = (filePath: string) => {
+	// invalidate() cascades up the import chain — clearing transform
+	// caches for all transitive importers so they get re-transpiled
+	// with fresh ?v= params. Also clear mtime caches for the changed
+	// file so srcUrl() re-reads its mtime from disk.
 	invalidate(filePath);
 	mtimeCache.delete(filePath);
 	mtimeCache.delete(resolve(filePath));
+	// Note: we only clear mtime for the changed file. Importers'
+	// mtimes haven't changed — their transform caches are cleared
+	// by invalidate() so they get re-transpiled with new ?v= for
+	// the changed file's updated mtime.
 };
 
 // Pre-transpile a /@src/ URL and cache the result so the browser

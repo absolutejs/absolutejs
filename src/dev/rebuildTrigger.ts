@@ -936,18 +936,11 @@ const handleReactFastPath = async (
 			invalidateModule(file);
 		}
 
-		// React Fast Refresh only swaps component files (.tsx/.jsx).
-		// For data/utility files (.ts), send the data file URL and flag
-		// it so the client re-imports the page via __REACT_PAGE_MODULE__.
-		const isComponentFile =
-			primaryFile.endsWith('.tsx') || primaryFile.endsWith('.jsx');
-
+		// invalidateModule cascades up the import chain (Vite-style),
+		// so all intermediate modules get their transform caches cleared
+		// and ?v= params bumped. The client re-imports the changed file
+		// and the browser re-fetches the entire chain with fresh URLs.
 		const pageModuleUrl = await getReactModuleUrl(primaryFile);
-
-		// For non-component files, tell the client to also re-import
-		// the page module (stored in window.__REACT_PAGE_MODULE__) so
-		// the component tree re-renders with the updated data.
-		const dataModuleUrl = isComponentFile ? undefined : pageModuleUrl;
 
 		if (pageModuleUrl) {
 			const serverDuration = Date.now() - startTime;
@@ -959,7 +952,6 @@ const handleReactFastPath = async (
 
 			broadcastToClients(state, {
 				data: {
-					dataModuleUrl,
 					framework: 'react',
 					hasComponentChanges: true,
 					hasCSSChanges: false,

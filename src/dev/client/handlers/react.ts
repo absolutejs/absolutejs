@@ -8,7 +8,6 @@ import { detectCurrentFramework } from '../frameworkDetect';
 
 export const handleReactUpdate = (message: {
 	data: {
-		dataModuleUrl?: string;
 		hasCSSChanges?: boolean;
 		hasComponentChanges?: boolean;
 		manifest?: Record<string, string>;
@@ -33,24 +32,7 @@ export const handleReactUpdate = (message: {
 
 	const refreshRuntime = window.$RefreshRuntime$;
 	const serverDuration = message.data.serverDuration;
-	const dataModuleUrl = message.data.dataModuleUrl;
 	const pageModuleUrl = message.data.pageModuleUrl;
-
-	// Non-component file: import the data file first (cache bust),
-	// then re-import the page so the component re-renders with new data.
-	if (dataModuleUrl && refreshRuntime) {
-		const pageUrl = window.__REACT_PAGE_MODULE__;
-		if (pageUrl) {
-			applyDataThenPage(
-				dataModuleUrl,
-				pageUrl,
-				refreshRuntime,
-				serverDuration
-			);
-
-			return;
-		}
-	}
 
 	if (pageModuleUrl && refreshRuntime) {
 		applyRefreshImport(pageModuleUrl, refreshRuntime, serverDuration);
@@ -93,33 +75,26 @@ const applyRefreshImport = (
 	const clientStart = performance.now();
 	import(`${moduleUrl}?t=${Date.now()}`)
 		.then(() => {
-			refreshRuntime.performReactRefresh();
-			sendTiming(clientStart, serverDuration);
+			const result = refreshRuntime.performReactRefresh();
+
+			// If Fast Refresh was a no-op (data/utility file with no
+			// component exports), re-import the page entry so the
+			// component tree re-renders with the updated data.
+			// Chain invalidation ensures all intermediate modules have
+			// fresh ?v= params, so the browser re-fetches the whole chain.
+			if (!result && window.__REACT_PAGE_MODULE__) {
+				return import(
+					`${window.__REACT_PAGE_MODULE__}?t=${Date.now()}`
+				).then(() => {
+					refreshRuntime.performReactRefresh();
+
+					return undefined;
+				});
+			}
 
 			return undefined;
 		})
-		.catch((err) => {
-			console.warn(
-				'[HMR] React Fast Refresh failed, falling back to reload:',
-				err
-			);
-			window.location.reload();
-		});
-};
-
-const applyDataThenPage = (
-	dataUrl: string,
-	pageUrl: string,
-	refreshRuntime: { performReactRefresh: () => unknown },
-	serverDuration?: number
-) => {
-	const clientStart = performance.now();
-	// Import the changed data file first to bust the browser cache,
-	// then re-import the page so the component re-renders with new data.
-	import(`${dataUrl}?t=${Date.now()}`)
-		.then(() => import(`${pageUrl}?t=${Date.now()}`))
 		.then(() => {
-			refreshRuntime.performReactRefresh();
 			sendTiming(clientStart, serverDuration);
 
 			return undefined;
