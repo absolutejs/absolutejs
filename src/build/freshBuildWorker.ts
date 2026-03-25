@@ -72,7 +72,7 @@ const result = await bunBuild({
 	...(hmr ? { jsx: { development: true }, reactFastRefresh: true } : {}),
 	naming: '[dir]/[name].[hash].[ext]',
 	outdir: buildDir,
-	root: resolve(reactDir, '..'),
+	root: reactDir,
 	splitting: true,
 	target: 'browser',
 	throw: false

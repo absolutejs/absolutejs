@@ -2656,7 +2656,6 @@ const performFullRebuild = async (
 	broadcastToClients(state, {
 		data: {
 			affectedFrameworks,
-			fullReload: wasSubprocess,
 			manifest
 		},
 		message: 'Rebuild completed successfully',
@@ -2674,8 +2673,29 @@ const performFullRebuild = async (
 		);
 	}
 
-	// Skip per-framework broadcasts for subprocess builds — the
-	// fullReload flag on rebuild-complete handles the client update.
+	// For subprocess builds, send a react-update with the new manifest
+	// entry so the client imports the fresh bundle directly.
+	if (wasSubprocess) {
+		const pageKey = 'DocumentationIndex'; // TODO: determine dynamically
+		const reactFiles = (filesToRebuild ?? []).filter(
+			(f) => detectFramework(f, state.resolvedPaths) === 'react'
+		);
+		const primarySource = reactFiles.find(
+			(f) => f.endsWith('.ts') && !f.endsWith('.d.ts')
+		);
+		broadcastToClients(state, {
+			data: {
+				framework: 'react',
+				hasComponentChanges: true,
+				hasCSSChanges: false,
+				manifest,
+				primarySource,
+				sourceFiles: reactFiles
+			},
+			type: 'react-update'
+		});
+	}
+
 	if (!wasSubprocess) broadcastFrameworkUpdates(
 		state,
 		affectedFrameworks,
