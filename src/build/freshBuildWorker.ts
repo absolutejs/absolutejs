@@ -8,7 +8,9 @@ import { basename, join, resolve } from 'node:path';
 import { generateReactIndexFiles } from './generateReactIndexes';
 import { generateManifest } from './generateManifest';
 
-const config = JSON.parse(process.argv[1]!);
+// bun run script.ts CONFIG → argv = [bun, script.ts, CONFIG]
+const configArg = process.argv.find((a) => a.startsWith('{'));
+const config = JSON.parse(configArg!);
 const reactDir = config.reactDirectory
 	? resolve(config.reactDirectory)
 	: undefined;
