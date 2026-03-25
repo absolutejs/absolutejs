@@ -102,6 +102,7 @@ export const handleModuleUpdate = (message: {
 export const handleRebuildComplete = (message: {
 	data: {
 		affectedFrameworks?: string[];
+		fullReload?: boolean;
 		manifest?: Record<string, string>;
 	};
 }) => {
@@ -110,6 +111,16 @@ export const handleRebuildComplete = (message: {
 	}
 	if (window.__HMR_MANIFEST__) {
 		window.__HMR_MANIFEST__ = message.data.manifest;
+	}
+
+	// Subprocess builds need a full page reload to pick up fresh
+	// bundled JS (the in-process Bun.build cache was stale).
+	if (message.data.fullReload) {
+		setTimeout(() => {
+			window.location.reload();
+		}, REBUILD_RELOAD_DELAY_MS);
+
+		return;
 	}
 
 	if (

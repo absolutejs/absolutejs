@@ -2311,22 +2311,23 @@ const performFullRebuild = async (
 		}
 
 		// React — only component files (.tsx/.jsx) use the fast path.
-		// Non-component files (.ts data/utils) need the full build.
+		// Non-component files (.ts data/utils) go to subprocess build.
 		if (config.reactDirectory && affectedFrameworks.includes('react')) {
-			await handleReactFastPath(
-				state,
-				config,
-				files,
-				startTime,
-				onRebuildComplete
+			const reactComponentFiles = files.filter(
+				(f) =>
+					detectFramework(f, state.resolvedPaths) === 'react' &&
+					(f.endsWith('.tsx') || f.endsWith('.jsx'))
 			);
-			files
-				.filter(
-					(f) =>
-						detectFramework(f, state.resolvedPaths) === 'react' &&
-						(f.endsWith('.tsx') || f.endsWith('.jsx'))
-				)
-				.forEach((f) => handled.add(f));
+			if (reactComponentFiles.length > 0) {
+				await handleReactFastPath(
+					state,
+					config,
+					files,
+					startTime,
+					onRebuildComplete
+				);
+			}
+			reactComponentFiles.forEach((f) => handled.add(f));
 		}
 
 		// Svelte
@@ -2535,14 +2536,28 @@ const performFullRebuild = async (
 		(f) => f.endsWith('.ts') && !f.endsWith('.d.ts')
 	);
 
+	// For subprocess builds, only pass the affected framework dir
+	// and skip incrementalFiles so the subprocess does a full scan
+	// with fresh module cache. This avoids rebuilding ALL frameworks.
+	const subprocessConfig = hasNonComponentFiles
+		? {
+				buildDirectory: config.buildDirectory,
+				assetsDirectory: config.assetsDirectory,
+				reactDirectory: config.reactDirectory,
+				stylesConfig: config.stylesConfig,
+				options: {
+					...config.options,
+					baseManifest: state.manifest,
+					injectHMR: true,
+					throwOnError: true
+				}
+			}
+		: undefined;
+
 	const buildConfig = {
 		...config,
-		// For subprocess builds, skip incrementalFiles so the build
-		// scans all entry points. The subprocess has a fresh module
-		// cache so it reads from disk — no filtering needed.
-		incrementalFiles: hasNonComponentFiles
-			? undefined
-			: filesToRebuild && filesToRebuild.length > 0
+		incrementalFiles:
+			filesToRebuild && filesToRebuild.length > 0
 				? filesToRebuild
 				: undefined,
 		options: {
@@ -2554,15 +2569,18 @@ const performFullRebuild = async (
 	};
 
 	let manifest: Record<string, string> | undefined;
-	if (hasNonComponentFiles) {
+	if (hasNonComponentFiles && subprocessConfig) {
 		// Subprocess build — fresh module cache.
 		// Bun's process-level ESM cache means Bun.build() in the dev
 		// server uses stale modules. A fresh subprocess reads from disk.
-		const tmpConfig = resolve(process.cwd(), '.absolutejs', 'build-config.json');
-		const tmpScript = resolve(process.cwd(), '.absolutejs', 'fresh-build.ts');
+		// Only the affected framework dir is passed to avoid rebuilding
+		// ALL frameworks (Svelte, Vue, Angular, etc.).
+		const absDir = resolve(process.cwd(), '.absolutejs');
+		const tmpConfig = resolve(absDir, 'build-config.json');
+		const tmpScript = resolve(absDir, 'fresh-build.ts');
 		const { mkdirSync, writeFileSync } = await import('node:fs');
-		mkdirSync(resolve(process.cwd(), '.absolutejs'), { recursive: true });
-		writeFileSync(tmpConfig, JSON.stringify(buildConfig));
+		mkdirSync(absDir, { recursive: true });
+		writeFileSync(tmpConfig, JSON.stringify(subprocessConfig));
 		const escapedConfig = tmpConfig.replace(/\\/g, '\\\\');
 		writeFileSync(
 			tmpScript,
@@ -2582,17 +2600,19 @@ const performFullRebuild = async (
 		const stderr = await new Response(proc.stderr).text();
 		await proc.exited;
 		if (proc.exitCode !== 0) {
-			logWarn(`Fresh build stderr: ${stderr.slice(0, 500)}`);
-			// Fall back to in-process build
+			logWarn(`Fresh build failed: ${stderr.slice(0, 300)}`);
 			manifest = await build(buildConfig);
 		} else {
 			const manifestLine = stdout
 				.split('\n')
 				.find((l) => l.startsWith('__MANIFEST__'));
 			if (manifestLine) {
-				manifest = JSON.parse(
+				// Merge subprocess manifest into existing (preserves
+				// other frameworks' entries).
+				const freshManifest = JSON.parse(
 					manifestLine.slice('__MANIFEST__'.length)
-				);
+				) as Record<string, string>;
+				manifest = { ...state.manifest, ...freshManifest };
 			} else {
 				manifest = await build(buildConfig);
 			}
@@ -2606,6 +2626,22 @@ const performFullRebuild = async (
 	}
 
 	const duration = Date.now() - startTime;
+	const wasSubprocess = hasNonComponentFiles && subprocessConfig;
+
+	if (wasSubprocess) {
+		// Log the data file that triggered the subprocess build
+		const dataFile = (filesToRebuild ?? []).find(
+			(f) => f.endsWith('.ts') && !f.endsWith('.d.ts')
+		);
+		if (dataFile) {
+			state.lastHmrPath = relative(process.cwd(), dataFile).replace(
+				/\\/g,
+				'/'
+			);
+			state.lastHmrFramework = 'react';
+			logHmrUpdate(state.lastHmrPath, 'react', duration);
+		}
+	}
 
 	sendTelemetryEvent('hmr:rebuild-complete', {
 		durationMs: duration,
@@ -2628,13 +2664,14 @@ const performFullRebuild = async (
 	broadcastToClients(state, {
 		data: {
 			affectedFrameworks,
+			fullReload: wasSubprocess,
 			manifest
 		},
 		message: 'Rebuild completed successfully',
 		type: 'rebuild-complete'
 	});
 
-	if (filesToRebuild && filesToRebuild.length > 0) {
+	if (filesToRebuild && filesToRebuild.length > 0 && !wasSubprocess) {
 		await handleFullBuildHMR(
 			state,
 			config,
