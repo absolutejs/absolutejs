@@ -978,6 +978,13 @@ const handleReactFastPath = async (
 
 		const pageModuleUrl = await getReactModuleUrl(broadcastFile);
 
+		// For non-component files, also send the data file URL so the
+		// client can bust the browser cache before re-importing the page.
+		let dataModuleUrl: string | undefined;
+		if (!isComponentFile && broadcastFile !== primaryFile) {
+			dataModuleUrl = await getReactModuleUrl(primaryFile);
+		}
+
 		if (pageModuleUrl) {
 			const serverDuration = Date.now() - startTime;
 			state.lastHmrPath = relative(process.cwd(), primaryFile).replace(
@@ -988,6 +995,7 @@ const handleReactFastPath = async (
 
 			broadcastToClients(state, {
 				data: {
+					dataModuleUrl,
 					framework: 'react',
 					hasComponentChanges: true,
 					hasCSSChanges: false,

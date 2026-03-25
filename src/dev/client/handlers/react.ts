@@ -8,6 +8,7 @@ import { detectCurrentFramework } from '../frameworkDetect';
 
 export const handleReactUpdate = (message: {
 	data: {
+		dataModuleUrl?: string;
 		hasCSSChanges?: boolean;
 		hasComponentChanges?: boolean;
 		manifest?: Record<string, string>;
@@ -32,8 +33,21 @@ export const handleReactUpdate = (message: {
 
 	const refreshRuntime = window.$RefreshRuntime$;
 	const serverDuration = message.data.serverDuration;
-
+	const dataModuleUrl = message.data.dataModuleUrl;
 	const pageModuleUrl = message.data.pageModuleUrl;
+
+	// Non-component file: import the data file first (cache bust),
+	// then re-import the page so the component re-renders.
+	if (dataModuleUrl && pageModuleUrl && refreshRuntime) {
+		applyDataThenPage(
+			dataModuleUrl,
+			pageModuleUrl,
+			refreshRuntime,
+			serverDuration
+		);
+
+		return;
+	}
 
 	if (pageModuleUrl && refreshRuntime) {
 		applyRefreshImport(pageModuleUrl, refreshRuntime, serverDuration);
@@ -53,6 +67,21 @@ export const handleReactUpdate = (message: {
 	window.location.reload();
 };
 
+const sendTiming = (clientStart: number, serverDuration?: number) => {
+	if (window.__HMR_WS__) {
+		const clientMs = Math.round(performance.now() - clientStart);
+		const total = (serverDuration ?? 0) + clientMs;
+		window.__HMR_WS__.send(
+			JSON.stringify({ duration: total, type: 'hmr-timing' })
+		);
+	}
+	if (window.__ERROR_BOUNDARY__) {
+		window.__ERROR_BOUNDARY__.reset();
+	} else {
+		hideErrorOverlay();
+	}
+};
+
 const applyRefreshImport = (
 	moduleUrl: string,
 	refreshRuntime: { performReactRefresh: () => unknown },
@@ -61,37 +90,34 @@ const applyRefreshImport = (
 	const clientStart = performance.now();
 	import(`${moduleUrl}?t=${Date.now()}`)
 		.then(() => {
-			const didRefresh = refreshRuntime.performReactRefresh();
-
-			// If Fast Refresh was a no-op (data/utility file with no
-			// component exports), re-import the page entry so the
-			// component tree re-renders with the updated data.
-			if (!didRefresh && window.__REACT_PAGE_MODULE__) {
-				return import(
-					`${window.__REACT_PAGE_MODULE__}?t=${Date.now()}`
-				).then(() => {
-					refreshRuntime.performReactRefresh();
-
-					return undefined;
-				});
-			}
+			refreshRuntime.performReactRefresh();
+			sendTiming(clientStart, serverDuration);
 
 			return undefined;
 		})
-		.then(() => {
-			if (window.__HMR_WS__) {
-				const clientMs = Math.round(performance.now() - clientStart);
-				const total = (serverDuration ?? 0) + clientMs;
-				window.__HMR_WS__.send(
-					JSON.stringify({ duration: total, type: 'hmr-timing' })
-				);
-			}
+		.catch((err) => {
+			console.warn(
+				'[HMR] React Fast Refresh failed, falling back to reload:',
+				err
+			);
+			window.location.reload();
+		});
+};
 
-			if (window.__ERROR_BOUNDARY__) {
-				window.__ERROR_BOUNDARY__.reset();
-			} else {
-				hideErrorOverlay();
-			}
+const applyDataThenPage = (
+	dataUrl: string,
+	pageUrl: string,
+	refreshRuntime: { performReactRefresh: () => unknown },
+	serverDuration?: number
+) => {
+	const clientStart = performance.now();
+	// Import the changed data file first to bust the browser cache,
+	// then re-import the page so the component re-renders with new data.
+	import(`${dataUrl}?t=${Date.now()}`)
+		.then(() => import(`${pageUrl}?t=${Date.now()}`))
+		.then(() => {
+			refreshRuntime.performReactRefresh();
+			sendTiming(clientStart, serverDuration);
 
 			return undefined;
 		})
