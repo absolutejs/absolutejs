@@ -55,32 +55,22 @@ globalStore.__transformInvalidationVersions = invalidationVersions;
 export const getInvalidationVersion = (filePath: string) =>
 	invalidationVersions.get(filePath) ?? 0;
 
-// Invalidate a file and all modules that transitively import it.
-// This ensures the entire import chain gets re-transpiled with
-// fresh ?v= params — like Vite's module graph invalidation.
+// Invalidate a file and its direct importers (one level up).
+// The direct importers need re-transpilation so their import of
+// the changed file gets a fresh ?v= param. We DON'T cascade
+// further — only the module being re-imported needs updating.
 export const invalidate = (filePath: string) => {
-	const queue = [filePath];
-	const visited = new Set<string>();
+	cache.delete(filePath);
 
-	while (queue.length > 0) {
-		const current = queue.pop()!;
-		if (visited.has(current)) continue;
-		visited.add(current);
-		cache.delete(current);
-
-		// Bump version for importers so srcUrl() generates new ?v=
-		if (current !== filePath) {
+	// Invalidate + bump version for direct importers only
+	const parents = importers.get(filePath);
+	if (parents) {
+		for (const parent of parents) {
+			cache.delete(parent);
 			invalidationVersions.set(
-				current,
-				(invalidationVersions.get(current) ?? 0) + 1
+				parent,
+				(invalidationVersions.get(parent) ?? 0) + 1
 			);
-		}
-
-		const parents = importers.get(current);
-		if (parents) {
-			for (const parent of parents) {
-				queue.push(parent);
-			}
 		}
 	}
 };
