@@ -1071,9 +1071,11 @@ export const invalidateModule = (filePath: string) => {
 	// caches for all transitive importers so they get re-transpiled
 	// with fresh ?v= params. Also clear mtime caches for the changed
 	// file so srcUrl() re-reads its mtime from disk.
+	const resolved = resolve(filePath);
 	invalidate(filePath);
+	if (resolved !== filePath) invalidate(resolved);
 	mtimeCache.delete(filePath);
-	mtimeCache.delete(resolve(filePath));
+	mtimeCache.delete(resolved);
 	// Note: we only clear mtime for the changed file. Importers'
 	// mtimes haven't changed — their transform caches are cleared
 	// by invalidate() so they get re-transpiled with new ?v= for

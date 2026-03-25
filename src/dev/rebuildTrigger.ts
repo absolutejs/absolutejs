@@ -903,21 +903,23 @@ const handleReactFastPath = async (
 
 	// O(1) fast path: invalidate all changed React files and send a
 	// single broadcast. The browser re-imports the primary module and
-	// React Fast Refresh cascades to dependents automatically.
-	if (reactFiles.length > 0) {
+	// O(1) fast path: only for component files (.tsx/.jsx).
+	// Non-component files (.ts data/utility) fall through to the
+	// full build — ESM re-import cascades too deep for fast path.
+	const componentFiles = reactFiles.filter(
+		(f) => f.endsWith('.tsx') || f.endsWith('.jsx')
+	);
+
+	if (componentFiles.length > 0 && componentFiles.length === reactFiles.length) {
 		// Update hashes so duplicate watcher events are filtered
 		for (const file of reactFiles) {
 			state.fileHashes.set(resolve(file), computeFileHash(file));
 		}
 
-		// Pick the first non-page file as the primary source (the file
-		// the user actually edited). The dep graph adds page files as
-		// dependents, but we only need to broadcast the changed file —
-		// React Fast Refresh handles cascading.
 		const primaryFile =
-			reactFiles.find(
+			componentFiles.find(
 				(f) => !f.replace(/\\/g, '/').includes('/pages/')
-			) ?? reactFiles[0];
+			) ?? componentFiles[0];
 
 		if (!primaryFile) {
 			onRebuildComplete({
@@ -928,35 +930,12 @@ const handleReactFastPath = async (
 			return state.manifest;
 		}
 
-		// Invalidate all affected files so re-imports get fresh content.
-		// getReactModuleUrl also invalidates primaryFile, but we need
-		// to invalidate dependents too so their ?v= params update.
 		const { invalidateModule } = await getModuleServer();
 		for (const file of reactFiles) {
 			invalidateModule(file);
 		}
 
-		// invalidateModule cascades up the import chain (Vite-style),
-		// so all intermediate modules get their transform caches cleared
-		// and ?v= params bumped.
-		//
-		// For component files (.tsx/.jsx), re-import that file directly.
-		// For data files (.ts), find the nearest component boundary via
-		// the runtime import graph — only re-import that one component,
-		// not the entire page tree.
-		const isComponentFile =
-			primaryFile.endsWith('.tsx') || primaryFile.endsWith('.jsx');
-
-		let broadcastTarget = primaryFile;
-		if (!isComponentFile) {
-			const { findNearestComponent } = await import(
-				'./transformCache'
-			);
-			const nearest = findNearestComponent(resolve(primaryFile));
-			if (nearest) broadcastTarget = nearest;
-		}
-
-		const pageModuleUrl = await getReactModuleUrl(broadcastTarget);
+		const pageModuleUrl = await getReactModuleUrl(primaryFile);
 
 		if (pageModuleUrl) {
 			const serverDuration = Date.now() - startTime;
