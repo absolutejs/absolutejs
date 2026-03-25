@@ -42,11 +42,16 @@ const shouldSkipFilename = (filename: string, isStylesDir: boolean) =>
 			filename === 'indexes' ||
 			filename === 'server' ||
 			filename === 'client' ||
-			filename.includes('/compiled') ||
-			filename.includes('/build') ||
-			filename.includes('/indexes') ||
-			filename.includes('/server') ||
-			filename.includes('/client'))) ||
+			filename.includes('/compiled/') ||
+			filename.includes('/build/') ||
+			filename.includes('/indexes/') ||
+			filename.includes('/server/') ||
+			filename.includes('/client/') ||
+			filename.startsWith('compiled/') ||
+			filename.startsWith('build/') ||
+			filename.startsWith('indexes/') ||
+			filename.startsWith('server/') ||
+			filename.startsWith('client/'))) ||
 	filename.endsWith('/') ||
 	filename.includes('.tmp.') ||
 	filename.endsWith('.tmp') ||
