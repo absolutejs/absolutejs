@@ -4,6 +4,8 @@ import {
 	getInvalidationVersion,
 	getTransformed,
 	invalidate,
+	isDataFile,
+	markAsDataFile,
 	setTransformed
 } from './transformCache';
 
@@ -273,6 +275,37 @@ const rewriteImports = (
 	return result;
 };
 
+// Rewrite named imports from data files to destructured reads from
+// the store object. This ensures components read fresh values after
+// HMR instead of stale ESM bindings.
+//
+// import { foo, bar } from '/@src/.../dataFile.ts?v=123';
+// → import __hmr_0 from '/@src/.../dataFile.ts?v=123';
+//   const { foo, bar } = __hmr_0;
+const NAMED_IMPORT_RE =
+	/import\s*\{([^}]+)\}\s*from\s*(["'])(\/\@src\/[^"']+)(["']);?/g;
+
+const rewriteDataImports = (
+	code: string,
+	projectRoot: string
+) => {
+	let counter = 0;
+	return code.replace(
+		NAMED_IMPORT_RE,
+		(_match, names, q1, srcUrl, q2) => {
+			// Extract the file path from /@src/path?v=123
+			const urlPath = srcUrl.replace(/^\/\@src\//, '').split('?')[0];
+			if (!urlPath) return _match;
+			const absPath = resolve(projectRoot, urlPath);
+			if (!isDataFile(absPath)) return _match;
+
+			const alias = `__hmr_${counter++}`;
+			const trimmedNames = (names as string).trim();
+			return `import ${alias} from ${q1}${srcUrl}${q2};\nconst { ${trimmedNames} } = ${alias}`;
+		}
+	);
+};
+
 // React hooks that React Fast Refresh tracks for signature changes
 const HOOK_NAMES = new Set([
 	'useState',
@@ -485,7 +518,68 @@ const transformReactFile = (
 	const relPath = relative(projectRoot, filePath).replace(/\\/g, '/');
 	transpiled = transpiled.replace(/\binput\.tsx:/g, `${relPath}:`);
 
-	return rewriteImports(transpiled, filePath, projectRoot, rewriter);
+	let result = rewriteImports(transpiled, filePath, projectRoot, rewriter);
+	result = rewriteDataImports(result, projectRoot);
+
+	return result;
+};
+
+// Detect if a .ts file is a "data file" — exports only constants,
+// no functions, no classes, no React components. These get the
+// mutable store wrapper for HMR.
+const isDataOnlyFile = (exports: string[], transpiled: string) => {
+	if (exports.length === 0) return false;
+	// If ANY export looks like a component (PascalCase function/class), skip
+	if (exports.some((e) => /^[A-Z]/.test(e) && /^(use|[A-Z])/.test(e)))
+		return false;
+	// If the file exports functions or classes, it's not data-only
+	if (/export\s+(function|class|async\s+function)\s/.test(transpiled))
+		return false;
+
+	return true;
+};
+
+// Wrap data file exports in a mutable global store for HMR.
+// Components that import from this file get the store object,
+// so HMR re-import updates values in-place.
+const wrapDataExports = (
+	transpiled: string,
+	filePath: string,
+	exports: string[]
+) => {
+	const storeKey = filePath.replace(/\\/g, '/');
+	// Replace `export const foo = value` with `__hmr.foo = value`
+	// and re-export from the store at the end.
+	let result = transpiled;
+	const preamble =
+		`const __hmr = ((globalThis.__HMR_DATA__ ??= {})[${JSON.stringify(storeKey)}] ??= {});\n`;
+
+	for (const name of exports) {
+		// Replace: export const name = ... → __hmr.name = ...
+		result = result.replace(
+			new RegExp(`export\\s+const\\s+${name}\\s*=`),
+			`__hmr.${name} =`
+		);
+		// Replace: export var name = ... → __hmr.name = ...
+		result = result.replace(
+			new RegExp(`export\\s+var\\s+${name}\\s*=`),
+			`__hmr.${name} =`
+		);
+		// Replace: export let name = ... → __hmr.name = ...
+		result = result.replace(
+			new RegExp(`export\\s+let\\s+${name}\\s*=`),
+			`__hmr.${name} =`
+		);
+	}
+
+	// Default export: the store object itself
+	const defaultExport = `\nexport default __hmr;\n`;
+	// Named exports that read from the store (for backwards compat)
+	const namedExports = exports
+		.map((name) => `export const ${name} = __hmr.${name};`)
+		.join('\n');
+
+	return preamble + result + '\n' + namedExports + defaultExport;
 };
 
 // Use Bun.Transpiler for non-React files (no refresh injection needed)
@@ -507,7 +601,16 @@ const transformPlainFile = (
 		transpiled = preserveTypeExports(raw, transpiled, valueExports);
 	}
 
-	return rewriteImports(transpiled, filePath, projectRoot, rewriter);
+	// Wrap data-only .ts files in mutable store for HMR
+	if (isTS && !isTSX && isDataOnlyFile(valueExports, transpiled)) {
+		transpiled = wrapDataExports(transpiled, filePath, valueExports);
+		markAsDataFile(filePath);
+	}
+
+	let result = rewriteImports(transpiled, filePath, projectRoot, rewriter);
+	result = rewriteDataImports(result, projectRoot);
+
+	return result;
 };
 
 // Virtual CSS modules for Svelte's css:'external' mode.

@@ -40,25 +40,7 @@ export const handleReactUpdate = (message: {
 		return;
 	}
 
-	const componentKey = window.__REACT_COMPONENT_KEY__;
-	const newUrl = componentKey && message.data.manifest?.[componentKey];
-
-	if (newUrl && refreshRuntime) {
-		// Bundled files have bare specifiers (react-dom/client) that
-		// the browser can't resolve via import(). Only use import()
-		// for module server URLs (/@src/). Bundled files need a reload.
-		if (newUrl.startsWith('/@src/')) {
-			applyRefreshImport(newUrl, refreshRuntime, serverDuration);
-
-			return;
-		}
-
-		// Bundled file — reload to load the new script tag
-		window.location.reload();
-
-		return;
-	}
-
+	// No module URL — shouldn't happen, but reload as safety fallback
 	window.location.reload();
 };
 
@@ -87,24 +69,14 @@ const applyRefreshImport = (
 		.then(() => {
 			const result = refreshRuntime.performReactRefresh();
 
-			// If Fast Refresh was a no-op (data/utility file with no
-			// component exports), re-import the page entry so the
-			// component tree re-renders with the updated data.
-			// Chain invalidation ensures all intermediate modules have
-			// fresh ?v= params, so the browser re-fetches the whole chain.
-			if (!result && window.__REACT_PAGE_MODULE__) {
-				return import(
-					`${window.__REACT_PAGE_MODULE__}?t=${Date.now()}`
-				).then(() => {
-					refreshRuntime.performReactRefresh();
-
-					return undefined;
-				});
+			// If no components were refreshed (data file HMR), force a
+			// re-render. The mutable store (globalThis.__HMR_DATA__) has
+			// fresh values — components just need to re-execute their
+			// render functions to read them.
+			if (!result) {
+				forceReactRerender();
 			}
 
-			return undefined;
-		})
-		.then(() => {
 			sendTiming(clientStart, serverDuration);
 
 			return undefined;
@@ -116,6 +88,18 @@ const applyRefreshImport = (
 			);
 			window.location.reload();
 		});
+};
+
+// Force React to re-render the entire tree. Components read from
+// the mutable HMR data store (destructured at render time via
+// rewriteDataImports), so re-rendering picks up fresh values.
+const forceReactRerender = () => {
+	const boundary = window.__ERROR_BOUNDARY__ as
+		| { hmrUpdate?: () => void }
+		| undefined;
+	if (boundary?.hmrUpdate) {
+		boundary.hmrUpdate();
+	}
 };
 
 const reloadReactCSS = (cssPath: string) => {

@@ -218,7 +218,11 @@ export const start = async (
 			bld.onLoad({ filter: /\.ts$/ }, async (args) => {
 				if (args.path.includes('node_modules')) return undefined;
 				const text = await Bun.file(args.path).text();
-				if (text.includes('@Component')) {
+				const stripped = text
+					.replace(/`(?:[^`\\]|\\.)*`/gs, '')
+					.replace(/'(?:[^'\\]|\\.)*'/g, '')
+					.replace(/"(?:[^"\\]|\\.)*"/g, '');
+				if (stripped.includes('@Component')) {
 					return {
 						contents: 'export default {}',
 						loader: 'js'
