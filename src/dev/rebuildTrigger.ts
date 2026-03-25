@@ -937,53 +937,17 @@ const handleReactFastPath = async (
 		}
 
 		// React Fast Refresh only swaps component files (.tsx/.jsx).
-		// For data/utility files (.ts), we need to re-import a page
-		// so the updated data propagates through the import chain.
+		// For data/utility files (.ts), send the data file URL and flag
+		// it so the client re-imports the page via __REACT_PAGE_MODULE__.
 		const isComponentFile =
 			primaryFile.endsWith('.tsx') || primaryFile.endsWith('.jsx');
 
-		let broadcastFile = primaryFile;
-		if (!isComponentFile) {
-			// Try to find a page from the dep graph expansion
-			const pageFile = reactFiles.find(
-				(f) =>
-					f.replace(/\\/g, '/').includes('/pages/') &&
-					(f.endsWith('.tsx') || f.endsWith('.jsx'))
-			);
-			if (pageFile) {
-				broadcastFile = pageFile;
-			} else {
-				// Dep graph didn't reach the page — walk up manually
-				const visited = new Set<string>();
-				const queue = [resolve(primaryFile)];
-				while (queue.length > 0) {
-					const current = queue.shift()!;
-					if (visited.has(current)) continue;
-					visited.add(current);
-					if (
-						current.replace(/\\/g, '/').includes('/pages/') &&
-						(current.endsWith('.tsx') || current.endsWith('.jsx'))
-					) {
-						broadcastFile = current;
-						break;
-					}
-					const deps =
-						state.dependencyGraph.dependents.get(current);
-					if (deps) {
-						for (const dep of deps) queue.push(dep);
-					}
-				}
-			}
-		}
+		const pageModuleUrl = await getReactModuleUrl(primaryFile);
 
-		const pageModuleUrl = await getReactModuleUrl(broadcastFile);
-
-		// For non-component files, also send the data file URL so the
-		// client can bust the browser cache before re-importing the page.
-		let dataModuleUrl: string | undefined;
-		if (!isComponentFile && broadcastFile !== primaryFile) {
-			dataModuleUrl = await getReactModuleUrl(primaryFile);
-		}
+		// For non-component files, tell the client to also re-import
+		// the page module (stored in window.__REACT_PAGE_MODULE__) so
+		// the component tree re-renders with the updated data.
+		const dataModuleUrl = isComponentFile ? undefined : pageModuleUrl;
 
 		if (pageModuleUrl) {
 			const serverDuration = Date.now() - startTime;

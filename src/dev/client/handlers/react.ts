@@ -37,16 +37,19 @@ export const handleReactUpdate = (message: {
 	const pageModuleUrl = message.data.pageModuleUrl;
 
 	// Non-component file: import the data file first (cache bust),
-	// then re-import the page so the component re-renders.
-	if (dataModuleUrl && pageModuleUrl && refreshRuntime) {
-		applyDataThenPage(
-			dataModuleUrl,
-			pageModuleUrl,
-			refreshRuntime,
-			serverDuration
-		);
+	// then re-import the page so the component re-renders with new data.
+	if (dataModuleUrl && refreshRuntime) {
+		const pageUrl = window.__REACT_PAGE_MODULE__;
+		if (pageUrl) {
+			applyDataThenPage(
+				dataModuleUrl,
+				pageUrl,
+				refreshRuntime,
+				serverDuration
+			);
 
-		return;
+			return;
+		}
 	}
 
 	if (pageModuleUrl && refreshRuntime) {
