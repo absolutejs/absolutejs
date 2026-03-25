@@ -2563,7 +2563,7 @@ const performFullRebuild = async (
 		writeFileSync(
 			tmpScript,
 			[
-				'import { build } from "@absolutejs/absolute";',
+				'import { build } from "@absolutejs/absolute/build";',
 				`const config = JSON.parse(await Bun.file("${escapedConfig}").text());`,
 				'const manifest = await build(config);',
 				'console.log("__MANIFEST__" + JSON.stringify(manifest));'
