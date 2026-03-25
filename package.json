@@ -138,12 +138,12 @@
 		}
 	},
 	"optionalDependencies": {
-		"@absolutejs/native-darwin-arm64": "0.19.0-beta.50",
-		"@absolutejs/native-darwin-x64": "0.19.0-beta.50",
-		"@absolutejs/native-linux-arm64": "0.19.0-beta.50",
-		"@absolutejs/native-linux-x64": "0.19.0-beta.50",
-		"@absolutejs/native-windows-arm64": "0.19.0-beta.50",
-		"@absolutejs/native-windows-x64": "0.19.0-beta.50"
+		"@absolutejs/native-darwin-arm64": "0.19.0-beta.51",
+		"@absolutejs/native-darwin-x64": "0.19.0-beta.51",
+		"@absolutejs/native-linux-arm64": "0.19.0-beta.51",
+		"@absolutejs/native-linux-x64": "0.19.0-beta.51",
+		"@absolutejs/native-windows-arm64": "0.19.0-beta.51",
+		"@absolutejs/native-windows-x64": "0.19.0-beta.51"
 	},
 	"repository": {
 		"type": "git",
@@ -164,5 +164,5 @@
 		"typecheck": "bun run vue-tsc --noEmit"
 	},
 	"types": "./dist/src/index.d.ts",
-	"version": "0.19.0-beta.50"
+	"version": "0.19.0-beta.51"
 }
