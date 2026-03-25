@@ -9,6 +9,7 @@ import {
 import { basename, join, relative, resolve } from 'node:path';
 import { cwd, env, exit } from 'node:process';
 import { build as bunBuild, BuildArtifact, Glob } from 'bun';
+import { createFreshReadPlugin } from '../build/freshReadPlugin';
 import { generateManifest } from '../build/generateManifest';
 import { generateReactIndexFiles } from '../build/generateReactIndexes';
 import { createHTMLScriptHMRPlugin } from '../build/htmlScriptHMRPlugin';
@@ -141,6 +142,12 @@ export const build = async ({
 
 	// Normalize incrementalFiles for consistent cross-platform path checking
 	const normalizedIncrementalFiles = incrementalFiles?.map(normalizePath);
+
+	// Force Bun.build to read changed files from disk instead of using
+	// the stale ESM module cache. Only active during incremental rebuilds.
+	const freshReadPlugins = isIncremental
+		? [createFreshReadPlugin(incrementalFiles!)]
+		: [];
 
 	const throwOnError = options?.throwOnError === true;
 	const hmr = options?.injectHMR === true;
@@ -550,6 +557,7 @@ export const build = async ({
 					...(hmr
 						? { jsx: { development: true }, reactFastRefresh: true }
 						: {}),
+					plugins: [...freshReadPlugins],
 					root: clientRoot,
 					splitting: true,
 					target: 'browser',
@@ -603,6 +611,7 @@ export const build = async ({
 					format: 'esm',
 					naming: `[dir]/[name].[hash].[ext]`,
 					outdir: serverOutDir,
+					plugins: [...freshReadPlugins],
 					root: serverRoot,
 					target: 'bun',
 					throw: false
@@ -623,6 +632,7 @@ export const build = async ({
 					naming: `[dir]/[name].[hash].[ext]`,
 					outdir: buildPath,
 					plugins: [
+						...freshReadPlugins,
 						...(angularDir && !isDev ? [angularLinkerPlugin] : []),
 						...(htmlScriptPlugin ? [htmlScriptPlugin] : [])
 					],
