@@ -2573,10 +2573,9 @@ const performFullRebuild = async (
 		// Subprocess build — lean React-only build with fresh module
 		// cache. Uses freshBuildWorker which only imports React build
 		// deps (~500KB), not Angular/Svelte/Vue (~10MB).
-		const pkgDir = dirname(
-			dirname(new URL(import.meta.url).pathname)
-		);
-		const workerPath = resolve(pkgDir, 'freshBuildWorker.js');
+		// import.meta.url → dist/index.js, worker is at dist/freshBuildWorker.js
+		const distDir = dirname(new URL(import.meta.url).pathname);
+		const workerPath = resolve(distDir, 'freshBuildWorker.js');
 		const configJson = JSON.stringify(subprocessConfig);
 		const proc = Bun.spawn(
 			['bun', 'run', workerPath, configJson],
