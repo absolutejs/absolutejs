@@ -2310,7 +2310,8 @@ const performFullRebuild = async (
 				.forEach((f) => handled.add(f));
 		}
 
-		// React
+		// React — only component files (.tsx/.jsx) use the fast path.
+		// Non-component files (.ts data/utils) need the full build.
 		if (config.reactDirectory && affectedFrameworks.includes('react')) {
 			await handleReactFastPath(
 				state,
@@ -2321,7 +2322,9 @@ const performFullRebuild = async (
 			);
 			files
 				.filter(
-					(f) => detectFramework(f, state.resolvedPaths) === 'react'
+					(f) =>
+						detectFramework(f, state.resolvedPaths) === 'react' &&
+						(f.endsWith('.tsx') || f.endsWith('.jsx'))
 				)
 				.forEach((f) => handled.add(f));
 		}

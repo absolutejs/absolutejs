@@ -149,6 +149,12 @@ export const build = async ({
 		? [createFreshReadPlugin(incrementalFiles!)]
 		: [];
 
+	if (isIncremental) {
+		console.log(
+			`[build] incremental with ${incrementalFiles!.length} changed files, fresh-read plugin active`
+		);
+	}
+
 	const throwOnError = options?.throwOnError === true;
 	const hmr = options?.injectHMR === true;
 	const buildPath = validateSafePath(buildDirectory, projectRoot);
