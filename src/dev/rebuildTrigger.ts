@@ -2601,7 +2601,12 @@ const performFullRebuild = async (
 				const freshManifest = JSON.parse(
 					manifestLine.slice('__MANIFEST__'.length)
 				) as Record<string, string>;
-				manifest = { ...state.manifest, ...freshManifest };
+				// Mutate existing manifest (not replace) so the HMR
+				// plugin's closure reference stays valid.
+				for (const [key, value] of Object.entries(freshManifest)) {
+					state.manifest[key] = value;
+				}
+				manifest = state.manifest;
 			} else {
 				manifest = await build(buildConfig);
 			}
