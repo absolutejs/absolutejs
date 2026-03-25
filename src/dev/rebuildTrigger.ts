@@ -369,25 +369,23 @@ export const queueFileChange = (
 
 	const DEBOUNCE_MS = config.options?.hmr?.debounceMs ?? DEFAULT_DEBOUNCE_MS;
 	state.rebuildTimeout = setTimeout(async () => {
-		// Wait for file writes to stabilize. The watcher can fire
-		// before the OS flushes the write, causing reads to return
-		// stale content. Re-hash queued files and wait until at
-		// least one has different content than what's stored.
+		// Wait for file writes to stabilize. Editors using atomic writes
+		// (write .tmp → rename) can trigger the watcher before the rename
+		// completes. Read the file twice with a gap — if hashes match,
+		// the write is stable.
 		for (let i = 0; i < 5; i++) {
-			let anyChanged = false;
+			let stable = true;
 			for (const files of state.fileChangeQueue.values()) {
 				for (const file of files) {
-					const fresh = computeFileHash(file);
-					const stored = state.fileHashes.get(
-						file.replace(/\\/g, '/')
-					);
-					if (stored === undefined || fresh !== stored) {
-						anyChanged = true;
+					const hash1 = computeFileHash(file);
+					await Bun.sleep(10);
+					const hash2 = computeFileHash(file);
+					if (hash1 !== hash2) {
+						stable = false;
 					}
 				}
 			}
-			if (anyChanged) break;
-			await Bun.sleep(10);
+			if (stable) break;
 		}
 
 		const filesToProcess = buildFilesToProcess(state);
