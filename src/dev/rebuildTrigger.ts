@@ -2551,26 +2551,44 @@ const performFullRebuild = async (
 
 	let manifest: Record<string, string> | undefined;
 	if (hasNonComponentFiles) {
-		// Subprocess build — fresh module cache
-		const workerPath = resolve(
-			dirname(new URL(import.meta.url).pathname),
-			'../build/freshBuildWorker.ts'
+		// Subprocess build — fresh module cache.
+		// Bun's process-level ESM cache means Bun.build() in the dev
+		// server uses stale modules. A fresh subprocess reads from disk.
+		const tmpConfig = resolve(process.cwd(), '.absolutejs', 'build-config.json');
+		const tmpScript = resolve(process.cwd(), '.absolutejs', 'fresh-build.ts');
+		const { mkdirSync, writeFileSync } = await import('node:fs');
+		mkdirSync(resolve(process.cwd(), '.absolutejs'), { recursive: true });
+		writeFileSync(tmpConfig, JSON.stringify(buildConfig));
+		writeFileSync(
+			tmpScript,
+			`import { build } from "@absolutejs/absolute";\n` +
+				`const config = JSON.parse(await Bun.file(${JSON.stringify(tmpConfig)}).text());\n` +
+				`const manifest = await build(config);\n` +
+				`console.log("__MANIFEST__" + JSON.stringify(manifest));\n`
 		);
-		const proc = Bun.spawn(
-			['bun', 'run', workerPath, JSON.stringify(buildConfig)],
-			{ stdout: 'pipe', stderr: 'pipe' }
-		);
+		const proc = Bun.spawn(['bun', 'run', tmpScript], {
+			cwd: process.cwd(),
+			stderr: 'pipe',
+			stdout: 'pipe'
+		});
 		const stdout = await new Response(proc.stdout).text();
 		const stderr = await new Response(proc.stderr).text();
 		await proc.exited;
 		if (proc.exitCode !== 0) {
-			throw new Error(`Fresh build failed: ${stderr}`);
-		}
-		const manifestLine = stdout
-			.split('\n')
-			.find((l) => l.startsWith('__MANIFEST__'));
-		if (manifestLine) {
-			manifest = JSON.parse(manifestLine.slice('__MANIFEST__'.length));
+			logWarn(`Fresh build stderr: ${stderr.slice(0, 500)}`);
+			// Fall back to in-process build
+			manifest = await build(buildConfig);
+		} else {
+			const manifestLine = stdout
+				.split('\n')
+				.find((l) => l.startsWith('__MANIFEST__'));
+			if (manifestLine) {
+				manifest = JSON.parse(
+					manifestLine.slice('__MANIFEST__'.length)
+				);
+			} else {
+				manifest = await build(buildConfig);
+			}
 		}
 	} else {
 		manifest = await build(buildConfig);
