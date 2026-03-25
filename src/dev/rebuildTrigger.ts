@@ -2571,31 +2571,23 @@ const performFullRebuild = async (
 	let manifest: Record<string, string> | undefined;
 	if (hasNonComponentFiles && subprocessConfig) {
 		// Subprocess build — fresh module cache.
-		// Bun's process-level ESM cache means Bun.build() in the dev
-		// server uses stale modules. A fresh subprocess reads from disk.
-		// Only the affected framework dir is passed to avoid rebuilding
-		// ALL frameworks (Svelte, Vue, Angular, etc.).
-		const absDir = resolve(process.cwd(), '.absolutejs');
-		const tmpConfig = resolve(absDir, 'build-config.json');
-		const tmpScript = resolve(absDir, 'fresh-build.ts');
-		const { mkdirSync, writeFileSync } = await import('node:fs');
-		mkdirSync(absDir, { recursive: true });
-		writeFileSync(tmpConfig, JSON.stringify(subprocessConfig));
-		const escapedConfig = tmpConfig.replace(/\\/g, '\\\\');
-		writeFileSync(
-			tmpScript,
+		// Pass config as argv to avoid file I/O on each rebuild.
+		const configJson = JSON.stringify(subprocessConfig);
+		const proc = Bun.spawn(
 			[
-				'import { build } from "@absolutejs/absolute/build";',
-				`const config = JSON.parse(await Bun.file("${escapedConfig}").text());`,
-				'const manifest = await build(config);',
-				'console.log("__MANIFEST__" + JSON.stringify(manifest));'
-			].join('\n')
+				'bun',
+				'-e',
+				'import{build}from"@absolutejs/absolute/build";' +
+					'const m=await build(JSON.parse(process.argv[1]));' +
+					'console.log("__MANIFEST__"+JSON.stringify(m))',
+				configJson
+			],
+			{
+				cwd: process.cwd(),
+				stderr: 'pipe',
+				stdout: 'pipe'
+			}
 		);
-		const proc = Bun.spawn(['bun', 'run', tmpScript], {
-			cwd: process.cwd(),
-			stderr: 'pipe',
-			stdout: 'pipe'
-		});
 		const stdout = await new Response(proc.stdout).text();
 		const stderr = await new Response(proc.stderr).text();
 		await proc.exited;
@@ -2682,7 +2674,9 @@ const performFullRebuild = async (
 		);
 	}
 
-	broadcastFrameworkUpdates(
+	// Skip per-framework broadcasts for subprocess builds — the
+	// fullReload flag on rebuild-complete handles the client update.
+	if (!wasSubprocess) broadcastFrameworkUpdates(
 		state,
 		affectedFrameworks,
 		filesToRebuild,
