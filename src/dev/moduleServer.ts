@@ -29,6 +29,11 @@ const TRANSPILABLE = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs']);
 const ALL_EXPORTS_RE =
 	/export\s+(?:type|interface|const|let|var|function|class|enum|abstract\s+class)\s+(\w+)/g;
 
+// Strip string/template literal contents so regex doesn't match
+// export declarations inside code examples embedded as strings.
+const STRING_CONTENTS_RE =
+	/`(?:[^`\\]|\\.)*`|'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"/gs;
+
 // After transpilation, type exports are stripped. Inject stubs so
 // importing modules can resolve the names (as undefined).
 const preserveTypeExports = (
@@ -36,10 +41,11 @@ const preserveTypeExports = (
 	transpiled: string,
 	valueExports: string[]
 ) => {
+	const codeOnly = originalSource.replace(STRING_CONTENTS_RE, '""');
 	const allExports: string[] = [];
 	let match;
 	ALL_EXPORTS_RE.lastIndex = 0;
-	while ((match = ALL_EXPORTS_RE.exec(originalSource)) !== null) {
+	while ((match = ALL_EXPORTS_RE.exec(codeOnly)) !== null) {
 		if (match[1]) allExports.push(match[1]);
 	}
 
