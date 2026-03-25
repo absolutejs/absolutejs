@@ -619,6 +619,11 @@ const handleAngularFastPath = async (
 		(file) => detectFramework(file, state.resolvedPaths) === 'angular'
 	);
 
+	// Update hashes so duplicate watcher events are filtered
+	for (const file of angularFiles) {
+		state.fileHashes.set(resolve(file), computeFileHash(file));
+	}
+
 	const angularPagesPath = resolve(angularDir, 'pages');
 	const pageEntries = resolveAngularPageEntries(
 		state,
@@ -895,6 +900,11 @@ const handleReactFastPath = async (
 	// Each file gets its own module invalidation + broadcast so the
 	// browser re-imports all changed modules for Fast Refresh.
 	if (reactFiles.length > 0) {
+		// Update hashes so duplicate watcher events are filtered
+		for (const file of reactFiles) {
+			state.fileHashes.set(resolve(file), computeFileHash(file));
+		}
+
 		const serverDuration = Date.now() - startTime;
 
 		for (const changedFile of reactFiles) {
