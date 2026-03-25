@@ -14,19 +14,12 @@ import { getAffectedFiles } from './dependencyGraph';
 import { DEFAULT_DEBOUNCE_MS, REBUILD_BATCH_DELAY_MS } from '../constants';
 import { computeFileHash, hasFileChanged } from './fileHashTracker';
 
-// Cache the moduleServer dynamic import — it's on the hot path for
-// every HMR update. First call resolves the module; subsequent calls
-// return the cached promise instantly.
-let moduleServerPromise: Promise<
-	typeof import('../dev/moduleServer')
-> | null = null;
-const getModuleServer = () => {
-	if (!moduleServerPromise) {
-		moduleServerPromise = import('../dev/moduleServer');
-	}
-
-	return moduleServerPromise;
-};
+// Eagerly resolve the moduleServer import at load time so the first
+// HMR update doesn't pay the dynamic-import cost. By the time this
+// module is imported, prepare.ts has already loaded moduleServer, so
+// this resolves from Bun's module cache instantly.
+const moduleServerPromise = import('../dev/moduleServer');
+const getModuleServer = () => moduleServerPromise;
 import {
 	createModuleUpdates,
 	groupModuleUpdatesByFramework,
