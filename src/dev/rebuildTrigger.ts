@@ -2570,18 +2570,16 @@ const performFullRebuild = async (
 
 	let manifest: Record<string, string> | undefined;
 	if (hasNonComponentFiles && subprocessConfig) {
-		// Subprocess build — fresh module cache.
-		// Pass config as argv to avoid file I/O on each rebuild.
+		// Subprocess build — lean React-only build with fresh module
+		// cache. Uses freshBuildWorker which only imports React build
+		// deps (~500KB), not Angular/Svelte/Vue (~10MB).
+		const pkgDir = dirname(
+			dirname(new URL(import.meta.url).pathname)
+		);
+		const workerPath = resolve(pkgDir, 'freshBuildWorker.js');
 		const configJson = JSON.stringify(subprocessConfig);
 		const proc = Bun.spawn(
-			[
-				'bun',
-				'-e',
-				'import{build}from"@absolutejs/absolute/build";' +
-					'const m=await build(JSON.parse(process.argv[1]));' +
-					'console.log("__MANIFEST__"+JSON.stringify(m))',
-				configJson
-			],
+			['bun', 'run', workerPath, configJson],
 			{
 				cwd: process.cwd(),
 				stderr: 'pipe',
