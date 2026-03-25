@@ -582,10 +582,7 @@ const transformSvelteFile = async (
 			const cssPath = `${filePath}.css`;
 			// Cache the CSS content for serving via /@src/ requests
 			svelteExternalCss.set(cssPath, compiled.css.code);
-			const cssUrl = srcUrl(
-				relative(projectRoot, cssPath),
-				projectRoot
-			);
+			const cssUrl = srcUrl(relative(projectRoot, cssPath), projectRoot);
 			code = `import "${cssUrl}";\n${code}`;
 		}
 
@@ -602,10 +599,7 @@ const transformSvelteFile = async (
 				`  if (!window.__SVELTE_HMR_ACCEPT__) window.__SVELTE_HMR_ACCEPT__ = {};\n` +
 				`  var __hmr_accept = function(cb) { window.__SVELTE_HMR_ACCEPT__[${JSON.stringify(moduleUrl)}] = cb; };`
 		);
-		code = code.replace(
-			/import\.meta\.hot\.accept\(/g,
-			'__hmr_accept('
-		);
+		code = code.replace(/import\.meta\.hot\.accept\(/g, '__hmr_accept(');
 	}
 
 	return rewriteImports(code, filePath, projectRoot, rewriter);
@@ -704,10 +698,7 @@ const transformVueFile = async (
 	const hmrId = relative(hmrBase, filePath)
 		.replace(/\\/g, '/')
 		.replace(/\.vue$/, '');
-	code = code.replace(
-		/export\s+default\s+/,
-		'var __hmr_comp__ = '
-	);
+	code = code.replace(/export\s+default\s+/, 'var __hmr_comp__ = ');
 	code += [
 		'',
 		`__hmr_comp__.__hmrId = ${JSON.stringify(hmrId)};`,

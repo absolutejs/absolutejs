@@ -1,20 +1,20 @@
 {
-	"name": "@absolutejs/native-linux-arm64",
+	"name": "@absolutejs/native-windows-arm64",
 	"version": "0.19.0-beta.50",
-	"description": "Native optimizations for AbsoluteJS (linux arm64)",
+	"description": "Native optimizations for AbsoluteJS (windows arm64)",
 	"license": "BSL-1.1",
 	"os": [
-		"linux"
+		"win32"
 	],
 	"cpu": [
 		"arm64"
 	],
 	"files": [
-		"fast_ops.so"
+		"fast_ops.dll"
 	],
 	"repository": {
 		"type": "git",
 		"url": "https://github.com/absolutejs/absolutejs.git",
-		"directory": "native/packages/linux-arm64"
+		"directory": "native/packages/windows-arm64"
 	}
 }

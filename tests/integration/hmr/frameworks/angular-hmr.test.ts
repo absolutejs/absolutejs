@@ -65,9 +65,7 @@ describe('Angular HMR', () => {
 			PROJECT_ROOT,
 			'example/angular/components/app.component.ts'
 		);
-		mutateFile(appComponent, (c) =>
-			c.replace('app-root', 'app-root')
-		);
+		mutateFile(appComponent, (c) => c.replace('app-root', 'app-root'));
 		// Force a real change
 		mutateFile(appComponent, (c) => `${c}\n// hmr-test`);
 

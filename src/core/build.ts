@@ -729,9 +729,7 @@ export const build = async ({
 			...(svelteVendorPaths ?? {})
 		};
 		if (Object.keys(allNonReactVendorPaths).length > 0) {
-			const { rewriteImports } = await import(
-				'../build/rewriteImports'
-			);
+			const { rewriteImports } = await import('../build/rewriteImports');
 			await rewriteImports(
 				nonReactClientOutputs.map((artifact) => artifact.path),
 				allNonReactVendorPaths

@@ -73,9 +73,7 @@ describe('Svelte HMR', () => {
 		const data = update.data as Record<string, unknown>;
 		expect(data.pageModuleUrl).toBeDefined();
 		expect(typeof data.pageModuleUrl).toBe('string');
-		expect((data.pageModuleUrl as string).startsWith('/@src/')).toBe(
-			true
-		);
+		expect((data.pageModuleUrl as string).startsWith('/@src/')).toBe(true);
 	}, 30_000);
 
 	test('child component change triggers update', async () => {

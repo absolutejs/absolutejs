@@ -120,7 +120,6 @@ const IGNORED_SEGMENTS = [
 	'/client/'
 ];
 
-
 export const buildInitialDependencyGraph = (
 	graph: DependencyGraph,
 	directories: string[]
@@ -128,9 +127,7 @@ export const buildInitialDependencyGraph = (
 	// Use Bun.Glob for fast recursive file scanning, then process
 	// files in parallel batches. ~50-100ms faster than sync readdirSync.
 	const processedFiles = new Set<string>();
-	const glob = new Glob(
-		'**/*.{ts,tsx,js,jsx,vue,svelte,html,htm}'
-	);
+	const glob = new Glob('**/*.{ts,tsx,js,jsx,vue,svelte,html,htm}');
 
 	for (const dir of directories) {
 		const resolvedDir = resolve(dir);
@@ -141,9 +138,7 @@ export const buildInitialDependencyGraph = (
 			absolute: true
 		})) {
 			const fullPath = resolve(file);
-			if (
-				IGNORED_SEGMENTS.some((seg) => fullPath.includes(seg))
-			)
+			if (IGNORED_SEGMENTS.some((seg) => fullPath.includes(seg)))
 				continue;
 			if (processedFiles.has(fullPath)) continue;
 

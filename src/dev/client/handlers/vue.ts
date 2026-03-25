@@ -222,7 +222,6 @@ export const handleVueUpdate = (message: {
 		return;
 	}
 
-
 	/* CSS pre-update: swap stylesheet BEFORE unmounting to prevent FOUC */
 	if (message.data.cssUrl) {
 		swapStylesheet(message.data.cssUrl, message.data.cssBaseName || '');

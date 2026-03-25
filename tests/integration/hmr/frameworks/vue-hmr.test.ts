@@ -93,9 +93,7 @@ describe('Vue HMR', () => {
 		const data = update.data as Record<string, unknown>;
 		expect(data.pageModuleUrl).toBeDefined();
 		expect(typeof data.pageModuleUrl).toBe('string');
-		expect((data.pageModuleUrl as string).startsWith('/@src/')).toBe(
-			true
-		);
+		expect((data.pageModuleUrl as string).startsWith('/@src/')).toBe(true);
 	}, 30_000);
 
 	test('child component change triggers update', async () => {
@@ -106,9 +104,7 @@ describe('Vue HMR', () => {
 			PROJECT_ROOT,
 			'example/vue/components/CountButton.vue'
 		);
-		mutateFile(countButton, (c) =>
-			c.replace('count is', 'clicks:')
-		);
+		mutateFile(countButton, (c) => c.replace('count is', 'clicks:'));
 
 		const update = await client.waitFor('vue-update', 15_000);
 		const data = update.data as Record<string, unknown>;

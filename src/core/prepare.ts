@@ -54,9 +54,10 @@ export const prepare = async (configOrPath?: string) => {
 			'../dev/moduleServer'
 		);
 		const { Glob } = await import('bun');
-		const prewarmDirs = [config.svelteDirectory, config.vueDirectory].filter(
-			(dir): dir is string => Boolean(dir)
-		);
+		const prewarmDirs = [
+			config.svelteDirectory,
+			config.vueDirectory
+		].filter((dir): dir is string => Boolean(dir));
 		for (const dir of prewarmDirs) {
 			const glob = new Glob('**/*.{svelte,svelte.ts,svelte.js,vue}');
 			for (const file of glob.scanSync({

@@ -70,8 +70,7 @@ describe('HTML HMR', () => {
 		const update = await client.waitFor('html-update', 15_000);
 		const data = update.data as Record<string, unknown>;
 		const html = data.html as string | { body?: string };
-		const body =
-			typeof html === 'string' ? html : html?.body ?? '';
+		const body = typeof html === 'string' ? html : (html?.body ?? '');
 		expect(body).toContain('HMR_BODY_');
 	}, 30_000);
 });

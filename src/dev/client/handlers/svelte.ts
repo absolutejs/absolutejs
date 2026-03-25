@@ -292,10 +292,7 @@ export const handleSvelteUpdate = (message: {
 				return undefined;
 			})
 			.catch((err: unknown) => {
-				console.warn(
-					'[HMR] Svelte HMR failed, reloading:',
-					err
-				);
+				console.warn('[HMR] Svelte HMR failed, reloading:', err);
 				window.location.reload();
 			});
 

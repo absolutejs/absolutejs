@@ -1216,7 +1216,6 @@ const handleVueFastPath = async (
 	return state.manifest;
 };
 
-
 const collectModuleUpdatesForFramework = (
 	framework: string,
 	filesToRebuild: string[],
@@ -2264,8 +2263,7 @@ const performFullRebuild = async (
 			);
 			files
 				.filter(
-					(f) =>
-						detectFramework(f, state.resolvedPaths) === 'angular'
+					(f) => detectFramework(f, state.resolvedPaths) === 'angular'
 				)
 				.forEach((f) => handled.add(f));
 		}
@@ -2281,17 +2279,13 @@ const performFullRebuild = async (
 			);
 			files
 				.filter(
-					(f) =>
-						detectFramework(f, state.resolvedPaths) === 'react'
+					(f) => detectFramework(f, state.resolvedPaths) === 'react'
 				)
 				.forEach((f) => handled.add(f));
 		}
 
 		// Svelte
-		if (
-			config.svelteDirectory &&
-			affectedFrameworks.includes('svelte')
-		) {
+		if (config.svelteDirectory && affectedFrameworks.includes('svelte')) {
 			await handleSvelteFastPath(
 				state,
 				config,
@@ -2301,8 +2295,7 @@ const performFullRebuild = async (
 			);
 			files
 				.filter(
-					(f) =>
-						detectFramework(f, state.resolvedPaths) === 'svelte'
+					(f) => detectFramework(f, state.resolvedPaths) === 'svelte'
 				)
 				.forEach((f) => handled.add(f));
 		}
@@ -2318,8 +2311,7 @@ const performFullRebuild = async (
 			);
 			files
 				.filter(
-					(f) =>
-						detectFramework(f, state.resolvedPaths) === 'vue'
+					(f) => detectFramework(f, state.resolvedPaths) === 'vue'
 				)
 				.forEach((f) => handled.add(f));
 		}
