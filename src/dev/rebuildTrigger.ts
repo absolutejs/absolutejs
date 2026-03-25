@@ -894,23 +894,49 @@ const handleReactFastPath = async (
 		(file) => detectFramework(file, state.resolvedPaths) === 'react'
 	);
 
-	// O(1) fast path: handles ALL changed React files in the batch.
-	// Each file gets its own module invalidation + broadcast so the
-	// browser re-imports all changed modules for Fast Refresh.
+	// O(1) fast path: invalidate all changed React files and send a
+	// single broadcast. The browser re-imports the primary module and
+	// React Fast Refresh cascades to dependents automatically.
 	if (reactFiles.length > 0) {
 		// Update hashes so duplicate watcher events are filtered
 		for (const file of reactFiles) {
 			state.fileHashes.set(resolve(file), computeFileHash(file));
 		}
 
-		const serverDuration = Date.now() - startTime;
+		// Pick the first non-page file as the primary source (the file
+		// the user actually edited). The dep graph adds page files as
+		// dependents, but we only need to broadcast the changed file —
+		// React Fast Refresh handles cascading.
+		const primaryFile =
+			reactFiles.find(
+				(f) => !f.replace(/\\/g, '/').includes('/pages/')
+			) ?? reactFiles[0];
 
-		for (const changedFile of reactFiles) {
-			const pageModuleUrl = await getReactModuleUrl(changedFile);
-			if (!pageModuleUrl) continue;
+		if (!primaryFile) {
+			onRebuildComplete({
+				hmrState: state,
+				manifest: state.manifest
+			});
 
-			state.lastHmrPath = changedFile;
+			return state.manifest;
+		}
+
+		// Invalidate all affected files so re-imports get fresh content
+		for (const file of reactFiles) {
+			const { invalidateModule } = await import('../dev/moduleServer');
+			invalidateModule(file);
+		}
+
+		const pageModuleUrl = await getReactModuleUrl(primaryFile);
+
+		if (pageModuleUrl) {
+			const serverDuration = Date.now() - startTime;
+			state.lastHmrPath = relative(process.cwd(), primaryFile).replace(
+				/\\/g,
+				'/'
+			);
 			state.lastHmrFramework = 'react';
+
 			broadcastToClients(state, {
 				data: {
 					framework: 'react',
@@ -918,7 +944,7 @@ const handleReactFastPath = async (
 					hasCSSChanges: false,
 					manifest: state.manifest,
 					pageModuleUrl,
-					primarySource: changedFile,
+					primarySource: primaryFile,
 					serverDuration,
 					sourceFiles: reactFiles
 				},
