@@ -107,20 +107,11 @@ export const getWatchPaths = (
 		vueDir: config.vueDirectory
 	};
 
-	// Watch source directories (pages/components/styles etc.)
-	push(cfg.reactDir, 'components');
-	push(cfg.reactDir, 'pages');
-	push(cfg.reactDir, 'styles');
-
-	push(cfg.svelteDir, 'components');
-	push(cfg.svelteDir, 'pages');
-	push(cfg.svelteDir, 'composables');
-	push(cfg.svelteDir, 'styles');
-
-	push(cfg.vueDir, 'components');
-	push(cfg.vueDir, 'pages');
-	push(cfg.vueDir, 'composables');
-	push(cfg.vueDir, 'styles');
+	// Watch entire framework directories. The shouldSkipFilename filter
+	// already excludes compiled/, build/, indexes/, server/, client/.
+	push(cfg.reactDir);
+	push(cfg.svelteDir);
+	push(cfg.vueDir);
 
 	push(cfg.angularDir);
 

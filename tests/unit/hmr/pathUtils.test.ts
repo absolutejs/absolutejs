@@ -162,11 +162,9 @@ describe('getWatchPaths', () => {
 		expect(joined).toContain('svelte');
 	});
 
-	test('includes component, page, and style subdirs for react', () => {
+	test('watches entire react directory', () => {
 		const paths = getWatchPaths({ reactDirectory: 'example/react' });
-		expect(paths.some((p) => p.includes('components'))).toBe(true);
-		expect(paths.some((p) => p.includes('pages'))).toBe(true);
-		expect(paths.some((p) => p.includes('styles'))).toBe(true);
+		expect(paths.some((p) => p.includes('react'))).toBe(true);
 	});
 
 	test('skips unconfigured frameworks', () => {
