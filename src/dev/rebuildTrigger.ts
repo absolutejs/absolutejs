@@ -2626,13 +2626,16 @@ const performFullRebuild = async (
 			(f) => f.endsWith('.ts') && !f.endsWith('.d.ts')
 		);
 		if (dataFile) {
-			state.lastHmrPath = relative(process.cwd(), dataFile).replace(
+			const path = relative(process.cwd(), dataFile).replace(
 				/\\/g,
 				'/'
 			);
-			state.lastHmrFramework = 'react';
-			logHmrUpdate(state.lastHmrPath, 'react', duration);
+			logHmrUpdate(path, 'react', duration);
 		}
+		// Clear lastHmrPath so the WebSocket reconnection after
+		// fullReload doesn't log a duplicate hmr-timing entry.
+		state.lastHmrPath = undefined;
+		state.lastHmrFramework = undefined;
 	}
 
 	sendTelemetryEvent('hmr:rebuild-complete', {
