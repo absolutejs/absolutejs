@@ -89,3 +89,29 @@ export const invalidateAll = () => {
 	cache.clear();
 	importers.clear();
 };
+
+// Walk up the runtime import graph to find the nearest component
+// (.tsx/.jsx) that imports this file. Returns the component path,
+// or undefined if none found. Used so HMR can re-import just the
+// nearest boundary instead of the entire page tree.
+export const findNearestComponent = (filePath: string) => {
+	const visited = new Set<string>();
+	const queue = [filePath];
+
+	while (queue.length > 0) {
+		const current = queue.shift()!;
+		if (visited.has(current)) continue;
+		visited.add(current);
+
+		const parents = importers.get(current);
+		if (!parents) continue;
+		for (const parent of parents) {
+			if (parent.endsWith('.tsx') || parent.endsWith('.jsx')) {
+				return parent;
+			}
+			queue.push(parent);
+		}
+	}
+
+	return undefined;
+};

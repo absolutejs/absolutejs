@@ -938,9 +938,25 @@ const handleReactFastPath = async (
 
 		// invalidateModule cascades up the import chain (Vite-style),
 		// so all intermediate modules get their transform caches cleared
-		// and ?v= params bumped. The client re-imports the changed file
-		// and the browser re-fetches the entire chain with fresh URLs.
-		const pageModuleUrl = await getReactModuleUrl(primaryFile);
+		// and ?v= params bumped.
+		//
+		// For component files (.tsx/.jsx), re-import that file directly.
+		// For data files (.ts), find the nearest component boundary via
+		// the runtime import graph — only re-import that one component,
+		// not the entire page tree.
+		const isComponentFile =
+			primaryFile.endsWith('.tsx') || primaryFile.endsWith('.jsx');
+
+		let broadcastTarget = primaryFile;
+		if (!isComponentFile) {
+			const { findNearestComponent } = await import(
+				'./transformCache'
+			);
+			const nearest = findNearestComponent(resolve(primaryFile));
+			if (nearest) broadcastTarget = nearest;
+		}
+
+		const pageModuleUrl = await getReactModuleUrl(broadcastTarget);
 
 		if (pageModuleUrl) {
 			const serverDuration = Date.now() - startTime;
