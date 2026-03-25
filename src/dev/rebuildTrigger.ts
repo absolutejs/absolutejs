@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
-import { basename, relative, resolve } from 'node:path';
+import { basename, dirname, relative, resolve } from 'node:path';
 import { build } from '../core/build';
 import type { BuildConfig } from '../../types/build';
 import {
@@ -2527,7 +2527,15 @@ const performFullRebuild = async (
 		return state.manifest;
 	}
 
-	const manifest = await build({
+	// If any changed files are non-component (.ts data/utils), run
+	// the build in a subprocess. Bun's process-level ESM cache means
+	// Bun.build() in the same process uses stale modules. A fresh
+	// subprocess has a clean cache and reads from disk.
+	const hasNonComponentFiles = (filesToRebuild ?? []).some(
+		(f) => f.endsWith('.ts') && !f.endsWith('.d.ts')
+	);
+
+	const buildConfig = {
 		...config,
 		incrementalFiles:
 			filesToRebuild && filesToRebuild.length > 0
@@ -2539,7 +2547,34 @@ const performFullRebuild = async (
 			injectHMR: true,
 			throwOnError: true
 		}
-	});
+	};
+
+	let manifest: Record<string, string> | undefined;
+	if (hasNonComponentFiles) {
+		// Subprocess build — fresh module cache
+		const workerPath = resolve(
+			dirname(new URL(import.meta.url).pathname),
+			'../build/freshBuildWorker.ts'
+		);
+		const proc = Bun.spawn(
+			['bun', 'run', workerPath, JSON.stringify(buildConfig)],
+			{ stdout: 'pipe', stderr: 'pipe' }
+		);
+		const stdout = await new Response(proc.stdout).text();
+		const stderr = await new Response(proc.stderr).text();
+		await proc.exited;
+		if (proc.exitCode !== 0) {
+			throw new Error(`Fresh build failed: ${stderr}`);
+		}
+		const manifestLine = stdout
+			.split('\n')
+			.find((l) => l.startsWith('__MANIFEST__'));
+		if (manifestLine) {
+			manifest = JSON.parse(manifestLine.slice('__MANIFEST__'.length));
+		}
+	} else {
+		manifest = await build(buildConfig);
+	}
 
 	if (!manifest) {
 		throw new Error('Build failed - no manifest generated');
