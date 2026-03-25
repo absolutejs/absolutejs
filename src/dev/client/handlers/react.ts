@@ -55,14 +55,30 @@ export const handleReactUpdate = (message: {
 
 const applyRefreshImport = (
 	moduleUrl: string,
-	refreshRuntime: { performReactRefresh: () => void },
+	refreshRuntime: { performReactRefresh: () => unknown },
 	serverDuration?: number
 ) => {
 	const clientStart = performance.now();
 	import(`${moduleUrl}?t=${Date.now()}`)
 		.then(() => {
-			refreshRuntime.performReactRefresh();
+			const didRefresh = refreshRuntime.performReactRefresh();
 
+			// If Fast Refresh was a no-op (data/utility file with no
+			// component exports), re-import the page entry so the
+			// component tree re-renders with the updated data.
+			if (!didRefresh && window.__REACT_PAGE_MODULE__) {
+				return import(
+					`${window.__REACT_PAGE_MODULE__}?t=${Date.now()}`
+				).then(() => {
+					refreshRuntime.performReactRefresh();
+
+					return undefined;
+				});
+			}
+
+			return undefined;
+		})
+		.then(() => {
 			if (window.__HMR_WS__) {
 				const clientMs = Math.round(performance.now() - clientStart);
 				const total = (serverDuration ?? 0) + clientMs;

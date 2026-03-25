@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync } from 'fs';
 import { readdir, rm, writeFile } from 'fs/promises';
-import { basename, join, resolve } from 'path';
+import { basename, join, relative, resolve } from 'path';
 import { Glob } from 'bun';
 
 const indexContentCache = new Map<string, string>();
@@ -80,6 +80,7 @@ export const generateReactIndexFiles = async (
 			? [
 					`window.__HMR_FRAMEWORK__ = "react";`,
 					`window.__REACT_COMPONENT_KEY__ = "${componentName}Index";`,
+					`window.__REACT_PAGE_MODULE__ = "/@src/${relative(process.cwd(), resolve(reactPagesDirectory, componentName + '.tsx')).replace(/\\\\/g, '/')}";`,
 					`import '${refreshSetupPath}';`,
 					`import '${hmrClientPath}';`,
 					`import { showErrorOverlay, hideErrorOverlay } from '${errorOverlayPath}';\n`

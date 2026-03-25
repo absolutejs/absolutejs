@@ -41,6 +41,7 @@ declare global {
 		__ERROR_BOUNDARY__?: { reset: () => void };
 		__INITIAL_PROPS__?: Record<string, unknown>;
 		__REACT_COMPONENT_KEY__?: string;
+		__REACT_PAGE_MODULE__?: string;
 		__REACT_ROOT__?: { render: (element: unknown) => void };
 		__SVELTE_COMPONENT__?: Record<string, unknown>;
 		__SVELTE_UNMOUNT__?: () => void;
