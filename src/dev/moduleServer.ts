@@ -4,8 +4,6 @@ import {
 	getInvalidationVersion,
 	getTransformed,
 	invalidate,
-	isDataFile,
-	markAsDataFile,
 	setTransformed
 } from './transformCache';
 
@@ -275,94 +273,6 @@ const rewriteImports = (
 	return result;
 };
 
-// Rewrite named imports from data files to destructured reads from
-// the store object. This ensures components read fresh values after
-// HMR instead of stale ESM bindings.
-//
-// import { foo, bar } from '/@src/.../dataFile.ts?v=123';
-// → import __hmr_0 from '/@src/.../dataFile.ts?v=123';
-//   const { foo, bar } = __hmr_0;
-const NAMED_IMPORT_RE =
-	/import\s*\{([^}]+)\}\s*from\s*(["'])(\/\@src\/[^"']+)(["']);?/g;
-
-const rewriteDataImports = (
-	code: string,
-	projectRoot: string
-) => {
-	// Pass 1: collect data file imports
-	const rewrites: Array<{
-		alias: string;
-		fullMatch: string;
-		importLine: string;
-		names: Array<{ local: string; orig: string }>;
-	}> = [];
-
-	let counter = 0;
-	let m;
-	NAMED_IMPORT_RE.lastIndex = 0;
-	while ((m = NAMED_IMPORT_RE.exec(code)) !== null) {
-		const [fullMatch, names, q1, srcUrl, q2] = m;
-		if (!names || !srcUrl) continue;
-
-		const urlPath = srcUrl.replace(/^\/@src\//, '').split('?')[0];
-		if (!urlPath || !urlPath.endsWith('.ts') || urlPath.endsWith('.d.ts'))
-			continue;
-
-		const absPath = resolve(projectRoot, urlPath);
-
-		if (!isDataFile(absPath)) {
-			if (!urlPath.endsWith('.tsx') && existsSync(absPath)) {
-				try {
-					const src = readFileSync(absPath, 'utf-8');
-					const exps = tsTranspiler.scan(src).exports;
-					if (isDataOnlyFile(exps, src, absPath)) markAsDataFile(absPath);
-				} catch {
-					// skip
-				}
-			}
-			if (!isDataFile(absPath)) continue;
-		}
-
-		const alias = `__hmr_${counter++}`;
-		const importedNames = (names as string)
-			.split(',')
-			.map((n) => n.trim().split(/\s+as\s+/))
-			.filter(([n]) => n)
-			.map(([orig, asName]) => ({
-				local: (asName ?? orig)!.trim(),
-				orig: orig!.trim()
-			}));
-
-		rewrites.push({
-			alias,
-			fullMatch: fullMatch!,
-			importLine: `import ${alias} from ${q1}${srcUrl}${q2}`,
-			names: importedNames
-		});
-	}
-
-	if (rewrites.length === 0) return code;
-
-	let result = code;
-
-	// Pass 2: replace import statements
-	for (const r of rewrites) {
-		result = result.replace(r.fullMatch, r.importLine);
-	}
-
-	// Pass 3: rewrite usage sites (foo → __hmr_0.foo)
-	// Only replace standalone identifiers, not property accesses (.foo)
-	for (const r of rewrites) {
-		for (const { orig, local } of r.names) {
-			result = result.replace(
-				new RegExp(`(?<![.\\w])${local}(?![\\w])`, 'g'),
-				`${r.alias}.${orig}`
-			);
-		}
-	}
-
-	return result;
-};
 
 // React hooks that React Fast Refresh tracks for signature changes
 const HOOK_NAMES = new Set([
@@ -576,79 +486,7 @@ const transformReactFile = (
 	const relPath = relative(projectRoot, filePath).replace(/\\/g, '/');
 	transpiled = transpiled.replace(/\binput\.tsx:/g, `${relPath}:`);
 
-	let result = rewriteImports(transpiled, filePath, projectRoot, rewriter);
-	result = rewriteDataImports(result, projectRoot);
-
-	return result;
-};
-
-// Detect if a .ts file is a "data file" — exports only constants,
-// no functions, no classes, no React components. These get the
-// mutable store wrapper for HMR.
-const isDataOnlyFile = (
-	exports: string[],
-	_source: string,
-	filePath?: string
-) => {
-	if (exports.length === 0) return false;
-	// Only treat files in data/ directories as data files.
-	// This avoids false positives on hooks, utils, etc.
-	if (filePath) {
-		const normalized = filePath.replace(/\\/g, '/');
-		if (!normalized.includes('/data/')) return false;
-	}
-	// Skip if any export is a React component (PascalCase) or hook (use*)
-	if (exports.some((e) => /^[A-Z]/.test(e) || /^use[A-Z]/.test(e)))
-		return false;
-
-	return true;
-};
-
-// Wrap data file exports in a mutable global store for HMR.
-// Each `export const foo = val` becomes:
-//   const foo = val; __hmr.foo = foo; export { foo };
-// This preserves variable ordering (no TDZ errors) while
-// writing values to the mutable store for HMR updates.
-const wrapDataExports = (
-	transpiled: string,
-	filePath: string,
-	exports: string[]
-) => {
-	const storeKey = filePath.replace(/\\/g, '/');
-	let result = transpiled;
-
-	// Replace `export const/let/var foo =` with `const/let/var foo =`
-	// (strip the export keyword, we'll re-export at the end)
-	for (const name of exports) {
-		result = result.replace(
-			new RegExp(`export\\s+(const|let|var)\\s+${name}\\s*=`),
-			`$1 ${name} =`
-		);
-	}
-
-	const preamble =
-		`const __hmr = ((globalThis.__HMR_DATA__ ??= {})[${JSON.stringify(storeKey)}] ??= {});\n`;
-
-	// After all assignments, copy values to the store
-	const storeWrites = exports
-		.map((name) => `__hmr.${name} = ${name};`)
-		.join('\n');
-
-	// Re-export named + default (the store object)
-	const namedExport =
-		exports.length > 0
-			? `export { ${exports.join(', ')} };\n`
-			: '';
-
-	return (
-		preamble +
-		result +
-		'\n' +
-		storeWrites +
-		'\n' +
-		namedExport +
-		'export default __hmr;\n'
-	);
+	return rewriteImports(transpiled, filePath, projectRoot, rewriter);
 };
 
 // Use Bun.Transpiler for non-React files (no refresh injection needed)
@@ -670,16 +508,7 @@ const transformPlainFile = (
 		transpiled = preserveTypeExports(raw, transpiled, valueExports);
 	}
 
-	// Wrap data-only .ts files in mutable store for HMR
-	if (isTS && !isTSX && isDataOnlyFile(valueExports, transpiled, filePath)) {
-		transpiled = wrapDataExports(transpiled, filePath, valueExports);
-		markAsDataFile(filePath);
-	}
-
-	let result = rewriteImports(transpiled, filePath, projectRoot, rewriter);
-	result = rewriteDataImports(result, projectRoot);
-
-	return result;
+	return rewriteImports(transpiled, filePath, projectRoot, rewriter);
 };
 
 // Virtual CSS modules for Svelte's css:'external' mode.
@@ -920,13 +749,17 @@ const resolveSvelteModulePath = (path: string) => {
 };
 
 // Shared response builder for transformed modules
-const jsResponse = (body: string) =>
-	new Response(body, {
+const jsResponse = (body: string) => {
+	const etag = `"${Bun.hash(body).toString(36)}"`;
+
+	return new Response(body, {
 		headers: {
 			'Cache-Control': 'no-cache',
-			'Content-Type': 'application/javascript'
+			'Content-Type': 'application/javascript',
+			ETag: etag
 		}
 	});
+};
 
 const handleCssRequest = (filePath: string) => {
 	const raw = readFileSync(filePath, 'utf-8');

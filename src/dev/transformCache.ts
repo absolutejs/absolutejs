@@ -83,20 +83,6 @@ export const invalidateAll = () => {
 	importers.clear();
 };
 
-// Track which files use the mutable HMR data store wrapper.
-// Used by the module server to rewrite named imports from these
-// files into destructured reads from the store object.
-const dataFiles =
-	(globalStore.__transformDataFiles as Set<string> | undefined) ??
-	new Set<string>();
-globalStore.__transformDataFiles = dataFiles;
-
-export const markAsDataFile = (filePath: string) => {
-	dataFiles.add(filePath);
-};
-
-export const isDataFile = (filePath: string) => dataFiles.has(filePath);
-
 // Walk up the runtime import graph to find the nearest component
 // (.tsx/.jsx) that imports this file. Returns the component path,
 // or undefined if none found. Used so HMR can re-import just the

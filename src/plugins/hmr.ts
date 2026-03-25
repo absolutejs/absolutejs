@@ -66,9 +66,25 @@ export const hmr =
 				const pathname = rawUrl.slice(pathStart, pathEnd);
 
 				// Unbundled ESM module server — serves transpiled source files
+				// with ETag-based conditional requests for fast 304 responses
 				if (moduleServerHandler) {
 					const moduleResponse = await moduleServerHandler(pathname);
-					if (moduleResponse) return moduleResponse;
+					if (moduleResponse) {
+						const etag = moduleResponse.headers.get('ETag');
+						if (etag) {
+							const ifNoneMatch = request.headers.get(
+								'If-None-Match'
+							);
+							if (ifNoneMatch === etag) {
+								return new Response(null, {
+									headers: { ETag: etag },
+									status: 304
+								});
+							}
+						}
+
+						return moduleResponse;
+					}
 				}
 
 				const bytes = lookupAsset(hmrState.assetStore, pathname);

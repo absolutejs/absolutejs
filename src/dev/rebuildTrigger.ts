@@ -933,10 +933,23 @@ const handleReactFastPath = async (
 			invalidateModule(file);
 		}
 
-		// For ALL files (components AND data), send the changed file's
-		// module URL. Components get Fast Refresh. Data files get
-		// re-imported (updating the mutable store) + forceUpdate.
-		const pageModuleUrl = await getReactModuleUrl(primaryFile);
+		// For component files, re-import directly for Fast Refresh.
+		// For data files, find the nearest component boundary and
+		// re-import that — like Vite. The component re-evaluates
+		// with fresh imports. HTTP 304s keep unchanged deps fast.
+		const isComponentFile =
+			primaryFile.endsWith('.tsx') || primaryFile.endsWith('.jsx');
+
+		let broadcastTarget = primaryFile;
+		if (!isComponentFile) {
+			const { findNearestComponent } = await import(
+				'./transformCache'
+			);
+			const nearest = findNearestComponent(resolve(primaryFile));
+			if (nearest) broadcastTarget = nearest;
+		}
+
+		const pageModuleUrl = await getReactModuleUrl(broadcastTarget);
 
 		if (pageModuleUrl) {
 			const serverDuration = Date.now() - startTime;

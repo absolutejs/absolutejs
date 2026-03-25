@@ -67,16 +67,7 @@ const applyRefreshImport = (
 	const clientStart = performance.now();
 	import(`${moduleUrl}?t=${Date.now()}`)
 		.then(() => {
-			const result = refreshRuntime.performReactRefresh();
-
-			// If no components were refreshed (data file HMR), force a
-			// re-render. The mutable store (globalThis.__HMR_DATA__) has
-			// fresh values — components just need to re-execute their
-			// render functions to read them.
-			if (!result) {
-				forceReactRerender();
-			}
-
+			refreshRuntime.performReactRefresh();
 			sendTiming(clientStart, serverDuration);
 
 			return undefined;
@@ -88,18 +79,6 @@ const applyRefreshImport = (
 			);
 			window.location.reload();
 		});
-};
-
-// Force React to re-render the entire tree. Components read from
-// the mutable HMR data store (destructured at render time via
-// rewriteDataImports), so re-rendering picks up fresh values.
-const forceReactRerender = () => {
-	const boundary = window.__ERROR_BOUNDARY__ as
-		| { hmrUpdate?: () => void }
-		| undefined;
-	if (boundary?.hmrUpdate) {
-		boundary.hmrUpdate();
-	}
 };
 
 const reloadReactCSS = (cssPath: string) => {
