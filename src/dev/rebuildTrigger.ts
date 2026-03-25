@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
-import { basename, dirname, relative, resolve } from 'node:path';
+import { basename, relative, resolve } from 'node:path';
 import { build } from '../core/build';
 import type { BuildConfig } from '../../types/build';
 import {
@@ -901,25 +901,22 @@ const handleReactFastPath = async (
 		(file) => detectFramework(file, state.resolvedPaths) === 'react'
 	);
 
-	// O(1) fast path: invalidate all changed React files and send a
-	// single broadcast. The browser re-imports the primary module and
-	// O(1) fast path: only for component files (.tsx/.jsx).
-	// Non-component files (.ts data/utility) fall through to the
-	// full build — ESM re-import cascades too deep for fast path.
-	const componentFiles = reactFiles.filter(
-		(f) => f.endsWith('.tsx') || f.endsWith('.jsx')
-	);
-
-	if (componentFiles.length > 0 && componentFiles.length === reactFiles.length) {
+	// O(1) fast path for ALL React files via the module server.
+	// Component files → re-import directly via Fast Refresh.
+	// Data/utility files → find nearest component boundary and
+	// re-import that. Chain invalidation ensures the data file's
+	// ?v= is bumped, so the browser fetches only 2 modules
+	// (component + changed data file). State is preserved.
+	if (reactFiles.length > 0) {
 		// Update hashes so duplicate watcher events are filtered
 		for (const file of reactFiles) {
 			state.fileHashes.set(resolve(file), computeFileHash(file));
 		}
 
 		const primaryFile =
-			componentFiles.find(
+			reactFiles.find(
 				(f) => !f.replace(/\\/g, '/').includes('/pages/')
-			) ?? componentFiles[0];
+			) ?? reactFiles[0];
 
 		if (!primaryFile) {
 			onRebuildComplete({
@@ -930,12 +927,27 @@ const handleReactFastPath = async (
 			return state.manifest;
 		}
 
+		// Invalidate changed files + direct importers in transform cache
 		const { invalidateModule } = await getModuleServer();
 		for (const file of reactFiles) {
 			invalidateModule(file);
 		}
 
-		const pageModuleUrl = await getReactModuleUrl(primaryFile);
+		// For component files, import directly.
+		// For data files, find the nearest component boundary.
+		const isComponentFile =
+			primaryFile.endsWith('.tsx') || primaryFile.endsWith('.jsx');
+
+		let broadcastTarget = primaryFile;
+		if (!isComponentFile) {
+			const { findNearestComponent } = await import(
+				'./transformCache'
+			);
+			const nearest = findNearestComponent(resolve(primaryFile));
+			if (nearest) broadcastTarget = nearest;
+		}
+
+		const pageModuleUrl = await getReactModuleUrl(broadcastTarget);
 
 		if (pageModuleUrl) {
 			const serverDuration = Date.now() - startTime;
@@ -2310,24 +2322,21 @@ const performFullRebuild = async (
 				.forEach((f) => handled.add(f));
 		}
 
-		// React — only component files (.tsx/.jsx) use the fast path.
-		// Non-component files (.ts data/utils) go to subprocess build.
+		// React — ALL files use the module server fast path.
+		// Components re-import directly, data files find nearest boundary.
 		if (config.reactDirectory && affectedFrameworks.includes('react')) {
-			const reactComponentFiles = files.filter(
-				(f) =>
-					detectFramework(f, state.resolvedPaths) === 'react' &&
-					(f.endsWith('.tsx') || f.endsWith('.jsx'))
+			await handleReactFastPath(
+				state,
+				config,
+				files,
+				startTime,
+				onRebuildComplete
 			);
-			if (reactComponentFiles.length > 0) {
-				await handleReactFastPath(
-					state,
-					config,
-					files,
-					startTime,
-					onRebuildComplete
-				);
-			}
-			reactComponentFiles.forEach((f) => handled.add(f));
+			files
+				.filter(
+					(f) => detectFramework(f, state.resolvedPaths) === 'react'
+				)
+				.forEach((f) => handled.add(f));
 		}
 
 		// Svelte
@@ -2528,32 +2537,6 @@ const performFullRebuild = async (
 		return state.manifest;
 	}
 
-	// If any changed files are non-component (.ts data/utils), run
-	// the build in a subprocess. Bun's process-level ESM cache means
-	// Bun.build() in the same process uses stale modules. A fresh
-	// subprocess has a clean cache and reads from disk.
-	const hasNonComponentFiles = (filesToRebuild ?? []).some(
-		(f) => f.endsWith('.ts') && !f.endsWith('.d.ts')
-	);
-
-	// For subprocess builds, only pass the affected framework dir
-	// and skip incrementalFiles so the subprocess does a full scan
-	// with fresh module cache. This avoids rebuilding ALL frameworks.
-	const subprocessConfig = hasNonComponentFiles
-		? {
-				buildDirectory: config.buildDirectory,
-				assetsDirectory: config.assetsDirectory,
-				reactDirectory: config.reactDirectory,
-				stylesConfig: config.stylesConfig,
-				options: {
-					...config.options,
-					baseManifest: state.manifest,
-					injectHMR: true,
-					throwOnError: true
-				}
-			}
-		: undefined;
-
 	const buildConfig = {
 		...config,
 		incrementalFiles:
@@ -2568,77 +2551,13 @@ const performFullRebuild = async (
 		}
 	};
 
-	let manifest: Record<string, string> | undefined;
-	if (hasNonComponentFiles && subprocessConfig) {
-		// Subprocess build — lean React-only build with fresh module
-		// cache. Uses freshBuildWorker which only imports React build
-		// deps (~500KB), not Angular/Svelte/Vue (~10MB).
-		// import.meta.url → dist/index.js, worker is at dist/freshBuildWorker.js
-		const distDir = dirname(new URL(import.meta.url).pathname);
-		const workerPath = resolve(distDir, 'freshBuildWorker.js');
-		const configJson = JSON.stringify(subprocessConfig);
-		const proc = Bun.spawn(
-			['bun', 'run', workerPath, configJson],
-			{
-				cwd: process.cwd(),
-				stderr: 'pipe',
-				stdout: 'pipe'
-			}
-		);
-		const stdout = await new Response(proc.stdout).text();
-		const stderr = await new Response(proc.stderr).text();
-		await proc.exited;
-		if (proc.exitCode !== 0) {
-			logWarn(`Fresh build failed: ${stderr.slice(0, 300)}`);
-			manifest = await build(buildConfig);
-		} else {
-			const manifestLine = stdout
-				.split('\n')
-				.find((l) => l.startsWith('__MANIFEST__'));
-			if (manifestLine) {
-				// Merge subprocess manifest into existing (preserves
-				// other frameworks' entries).
-				const freshManifest = JSON.parse(
-					manifestLine.slice('__MANIFEST__'.length)
-				) as Record<string, string>;
-				// Mutate existing manifest (not replace) so the HMR
-				// plugin's closure reference stays valid.
-				for (const [key, value] of Object.entries(freshManifest)) {
-					state.manifest[key] = value;
-				}
-				manifest = state.manifest;
-			} else {
-				manifest = await build(buildConfig);
-			}
-		}
-	} else {
-		manifest = await build(buildConfig);
-	}
+	const manifest = await build(buildConfig);
 
 	if (!manifest) {
 		throw new Error('Build failed - no manifest generated');
 	}
 
 	const duration = Date.now() - startTime;
-	const wasSubprocess = hasNonComponentFiles && subprocessConfig;
-
-	if (wasSubprocess) {
-		// Log the data file that triggered the subprocess build
-		const dataFile = (filesToRebuild ?? []).find(
-			(f) => f.endsWith('.ts') && !f.endsWith('.d.ts')
-		);
-		if (dataFile) {
-			const path = relative(process.cwd(), dataFile).replace(
-				/\\/g,
-				'/'
-			);
-			logHmrUpdate(path, 'react', duration);
-		}
-		// Clear lastHmrPath so the WebSocket reconnection after
-		// fullReload doesn't log a duplicate hmr-timing entry.
-		state.lastHmrPath = undefined;
-		state.lastHmrFramework = undefined;
-	}
 
 	sendTelemetryEvent('hmr:rebuild-complete', {
 		durationMs: duration,
@@ -2661,14 +2580,13 @@ const performFullRebuild = async (
 	broadcastToClients(state, {
 		data: {
 			affectedFrameworks,
-			fullReload: wasSubprocess,
 			manifest
 		},
 		message: 'Rebuild completed successfully',
 		type: 'rebuild-complete'
 	});
 
-	if (filesToRebuild && filesToRebuild.length > 0 && !wasSubprocess) {
+	if (filesToRebuild && filesToRebuild.length > 0) {
 		await handleFullBuildHMR(
 			state,
 			config,
@@ -2679,7 +2597,7 @@ const performFullRebuild = async (
 		);
 	}
 
-	if (!wasSubprocess) broadcastFrameworkUpdates(
+	broadcastFrameworkUpdates(
 		state,
 		affectedFrameworks,
 		filesToRebuild,

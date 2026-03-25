@@ -102,7 +102,6 @@ export const handleModuleUpdate = (message: {
 export const handleRebuildComplete = (message: {
 	data: {
 		affectedFrameworks?: string[];
-		fullReload?: boolean;
 		manifest?: Record<string, string>;
 	};
 }) => {
@@ -111,15 +110,6 @@ export const handleRebuildComplete = (message: {
 	}
 	if (window.__HMR_MANIFEST__) {
 		window.__HMR_MANIFEST__ = message.data.manifest;
-	}
-
-	// Subprocess build: the server's manifest now points to fresh
-	// bundles. Reload to get the new HTML (with updated script tag)
-	// and let React hydrate with the fresh bundled JS.
-	if (message.data.fullReload) {
-		window.location.reload();
-
-		return;
 	}
 
 	if (
