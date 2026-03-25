@@ -2537,8 +2537,12 @@ const performFullRebuild = async (
 
 	const buildConfig = {
 		...config,
-		incrementalFiles:
-			filesToRebuild && filesToRebuild.length > 0
+		// For subprocess builds, skip incrementalFiles so the build
+		// scans all entry points. The subprocess has a fresh module
+		// cache so it reads from disk — no filtering needed.
+		incrementalFiles: hasNonComponentFiles
+			? undefined
+			: filesToRebuild && filesToRebuild.length > 0
 				? filesToRebuild
 				: undefined,
 		options: {
