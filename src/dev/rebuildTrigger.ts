@@ -937,17 +937,44 @@ const handleReactFastPath = async (
 		}
 
 		// React Fast Refresh only swaps component files (.tsx/.jsx).
-		// For data/utility files (.ts), import the consuming page
-		// instead so the page re-imports the updated data module.
+		// For data/utility files (.ts), we need to re-import a page
+		// so the updated data propagates through the import chain.
 		const isComponentFile =
 			primaryFile.endsWith('.tsx') || primaryFile.endsWith('.jsx');
-		const broadcastFile = isComponentFile
-			? primaryFile
-			: reactFiles.find(
-					(f) =>
-						f.replace(/\\/g, '/').includes('/pages/') &&
-						(f.endsWith('.tsx') || f.endsWith('.jsx'))
-				) ?? primaryFile;
+
+		let broadcastFile = primaryFile;
+		if (!isComponentFile) {
+			// Try to find a page from the dep graph expansion
+			const pageFile = reactFiles.find(
+				(f) =>
+					f.replace(/\\/g, '/').includes('/pages/') &&
+					(f.endsWith('.tsx') || f.endsWith('.jsx'))
+			);
+			if (pageFile) {
+				broadcastFile = pageFile;
+			} else {
+				// Dep graph didn't reach the page — walk up manually
+				const visited = new Set<string>();
+				const queue = [resolve(primaryFile)];
+				while (queue.length > 0) {
+					const current = queue.shift()!;
+					if (visited.has(current)) continue;
+					visited.add(current);
+					if (
+						current.replace(/\\/g, '/').includes('/pages/') &&
+						(current.endsWith('.tsx') || current.endsWith('.jsx'))
+					) {
+						broadcastFile = current;
+						break;
+					}
+					const deps =
+						state.dependencyGraph.dependents.get(current);
+					if (deps) {
+						for (const dep of deps) queue.push(dep);
+					}
+				}
+			}
+		}
 
 		const pageModuleUrl = await getReactModuleUrl(broadcastFile);
 
