@@ -11,7 +11,14 @@ const jsTranspiler = new Bun.Transpiler({
 
 // Shared transpiler for TypeScript files — trimUnusedImports strips
 // type-only imports so the browser doesn't request unnecessary modules
+// Separate transpilers for .ts and .tsx — using 'tsx' for .ts files
+// causes parse errors on TypeScript generics like <T> (interpreted as JSX).
 const tsTranspiler = new Bun.Transpiler({
+	loader: 'ts',
+	trimUnusedImports: true
+});
+
+const tsxTranspiler = new Bun.Transpiler({
 	loader: 'tsx',
 	trimUnusedImports: true
 });
@@ -424,7 +431,7 @@ const transformReactFile = (
 	rewriter: ReturnType<typeof buildImportRewriter>
 ) => {
 	const raw = readFileSync(filePath, 'utf-8');
-	const valueExports = tsTranspiler.scan(raw).exports;
+	const valueExports = tsxTranspiler.scan(raw).exports;
 	let transpiled = reactTranspiler.transformSync(raw);
 	transpiled = preserveTypeExports(raw, transpiled, valueExports);
 
@@ -473,8 +480,9 @@ const transformPlainFile = (
 	const raw = readFileSync(filePath, 'utf-8');
 	const ext = extname(filePath);
 	const isTS = ext === '.ts' || ext === '.tsx';
+	const isTSX = ext === '.tsx' || ext === '.jsx';
 
-	const transpiler = isTS ? tsTranspiler : jsTranspiler;
+	const transpiler = isTSX ? tsxTranspiler : isTS ? tsTranspiler : jsTranspiler;
 	const valueExports = isTS ? transpiler.scan(raw).exports : [];
 	let transpiled = transpiler.transformSync(raw);
 
