@@ -2559,12 +2559,15 @@ const performFullRebuild = async (
 		const { mkdirSync, writeFileSync } = await import('node:fs');
 		mkdirSync(resolve(process.cwd(), '.absolutejs'), { recursive: true });
 		writeFileSync(tmpConfig, JSON.stringify(buildConfig));
+		const escapedConfig = tmpConfig.replace(/\\/g, '\\\\');
 		writeFileSync(
 			tmpScript,
-			`import { build } from "@absolutejs/absolute";\n` +
-				`const config = JSON.parse(await Bun.file(${JSON.stringify(tmpConfig)}).text());\n` +
-				`const manifest = await build(config);\n` +
-				`console.log("__MANIFEST__" + JSON.stringify(manifest));\n`
+			[
+				'import { build } from "@absolutejs/absolute";',
+				`const config = JSON.parse(await Bun.file("${escapedConfig}").text());`,
+				'const manifest = await build(config);',
+				'console.log("__MANIFEST__" + JSON.stringify(manifest));'
+			].join('\n')
 		);
 		const proc = Bun.spawn(['bun', 'run', tmpScript], {
 			cwd: process.cwd(),
