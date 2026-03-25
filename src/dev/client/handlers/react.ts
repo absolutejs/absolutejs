@@ -44,7 +44,17 @@ export const handleReactUpdate = (message: {
 	const newUrl = componentKey && message.data.manifest?.[componentKey];
 
 	if (newUrl && refreshRuntime) {
-		applyRefreshImport(newUrl, refreshRuntime, serverDuration);
+		// Bundled files have bare specifiers (react-dom/client) that
+		// the browser can't resolve via import(). Only use import()
+		// for module server URLs (/@src/). Bundled files need a reload.
+		if (newUrl.startsWith('/@src/')) {
+			applyRefreshImport(newUrl, refreshRuntime, serverDuration);
+
+			return;
+		}
+
+		// Bundled file — reload to load the new script tag
+		window.location.reload();
 
 		return;
 	}
