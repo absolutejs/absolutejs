@@ -936,7 +936,20 @@ const handleReactFastPath = async (
 			invalidateModule(file);
 		}
 
-		const pageModuleUrl = await getReactModuleUrl(primaryFile);
+		// React Fast Refresh only swaps component files (.tsx/.jsx).
+		// For data/utility files (.ts), import the consuming page
+		// instead so the page re-imports the updated data module.
+		const isComponentFile =
+			primaryFile.endsWith('.tsx') || primaryFile.endsWith('.jsx');
+		const broadcastFile = isComponentFile
+			? primaryFile
+			: reactFiles.find(
+					(f) =>
+						f.replace(/\\/g, '/').includes('/pages/') &&
+						(f.endsWith('.tsx') || f.endsWith('.jsx'))
+				) ?? primaryFile;
+
+		const pageModuleUrl = await getReactModuleUrl(broadcastFile);
 
 		if (pageModuleUrl) {
 			const serverDuration = Date.now() - startTime;
