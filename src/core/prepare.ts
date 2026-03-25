@@ -48,22 +48,39 @@ export const prepare = async (configOrPath?: string) => {
 		});
 		setGlobalModuleServer(moduleHandler);
 
-		// Pre-compile all Svelte/Vue source files into the transform cache
-		// so the first HMR edit hits a warm cache (eliminates ~15ms cold compile).
+		// Pre-compile all framework source files into the transform cache
+		// so the first HMR edit hits a warm cache and the runtime import
+		// graph is populated (needed for findNearestComponent).
 		const { warmCache, SRC_URL_PREFIX } = await import(
 			'../dev/moduleServer'
 		);
 		const { Glob } = await import('bun');
-		const prewarmDirs = [
-			config.svelteDirectory,
-			config.vueDirectory
-		].filter((dir): dir is string => Boolean(dir));
-		for (const dir of prewarmDirs) {
-			const glob = new Glob('**/*.{svelte,svelte.ts,svelte.js,vue}');
+		const prewarmDirs: Array<{ dir: string; pattern: string }> = [];
+		if (config.svelteDirectory) {
+			prewarmDirs.push({
+				dir: config.svelteDirectory,
+				pattern: '**/*.{svelte,svelte.ts,svelte.js}'
+			});
+		}
+		if (config.vueDirectory) {
+			prewarmDirs.push({
+				dir: config.vueDirectory,
+				pattern: '**/*.{vue}'
+			});
+		}
+		if (config.reactDirectory) {
+			prewarmDirs.push({
+				dir: config.reactDirectory,
+				pattern: '**/*.{ts,tsx,js,jsx}'
+			});
+		}
+		for (const { dir, pattern } of prewarmDirs) {
+			const glob = new Glob(pattern);
 			for (const file of glob.scanSync({
 				cwd: resolve(dir),
 				absolute: true
 			})) {
+				if (file.includes('/node_modules/')) continue;
 				const rel = relative(process.cwd(), file).replace(/\\/g, '/');
 				warmCache(`${SRC_URL_PREFIX}${rel}`);
 			}

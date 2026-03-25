@@ -23,6 +23,7 @@ fi
 
 if [ $# -gt 0 ]; then
     # Run command with patched bun
+    echo "Using patched Bun: $("$PATCHED_BUN" --version) (reactFastRefresh enabled)"
     PATH="$(dirname "$PATCHED_BUN"):$PATH" exec "$@"
 else
     # Source mode: update PATH for current shell
