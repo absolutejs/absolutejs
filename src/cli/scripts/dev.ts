@@ -154,6 +154,7 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 		if (isFrameworkFile(fullPath)) return;
 		if (isBuildFile(fullPath)) return;
 		if (!filename.endsWith('.ts') && !filename.endsWith('.tsx')) return;
+		if (filename.includes('.tmp.') || filename.endsWith('.tmp')) return;
 
 		if (restartTimeout) clearTimeout(restartTimeout);
 		restartTimeout = setTimeout(() => {

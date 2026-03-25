@@ -47,7 +47,11 @@ const shouldSkipFilename = (filename: string, isStylesDir: boolean) =>
 			filename.includes('/indexes') ||
 			filename.includes('/server') ||
 			filename.includes('/client'))) ||
-	filename.endsWith('/');
+	filename.endsWith('/') ||
+	filename.includes('.tmp.') ||
+	filename.endsWith('.tmp') ||
+	filename.endsWith('~') ||
+	filename.startsWith('.#');
 
 const setupWatcher = (
 	absolutePath: string,
