@@ -13,6 +13,20 @@ import { incrementSourceFileVersions, type HMRState } from './clientManager';
 import { getAffectedFiles } from './dependencyGraph';
 import { DEFAULT_DEBOUNCE_MS, REBUILD_BATCH_DELAY_MS } from '../constants';
 import { computeFileHash, hasFileChanged } from './fileHashTracker';
+
+// Cache the moduleServer dynamic import — it's on the hot path for
+// every HMR update. First call resolves the module; subsequent calls
+// return the cached promise instantly.
+let moduleServerPromise: Promise<
+	typeof import('../dev/moduleServer')
+> | null = null;
+const getModuleServer = () => {
+	if (!moduleServerPromise) {
+		moduleServerPromise = import('../dev/moduleServer');
+	}
+
+	return moduleServerPromise;
+};
 import {
 	createModuleUpdates,
 	groupModuleUpdatesByFramework,
@@ -835,7 +849,7 @@ const getFrameworkPageUrl = async (
 	framework: string,
 	dependencyGraph: Parameters<typeof getAffectedFiles>[0]
 ) => {
-	const { invalidateModule } = await import('../dev/moduleServer');
+	const { invalidateModule } = await getModuleServer();
 
 	for (const file of changedFiles) {
 		invalidateModule(file);
@@ -921,9 +935,11 @@ const handleReactFastPath = async (
 			return state.manifest;
 		}
 
-		// Invalidate all affected files so re-imports get fresh content
+		// Invalidate all affected files so re-imports get fresh content.
+		// getReactModuleUrl also invalidates primaryFile, but we need
+		// to invalidate dependents too so their ?v= params update.
+		const { invalidateModule } = await getModuleServer();
 		for (const file of reactFiles) {
-			const { invalidateModule } = await import('../dev/moduleServer');
 			invalidateModule(file);
 		}
 
