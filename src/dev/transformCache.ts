@@ -57,20 +57,23 @@ export const getInvalidationVersion = (filePath: string) =>
 
 // Invalidate a file and its direct importers (one level up).
 // The direct importers need re-transpilation so their import of
-// the changed file gets a fresh ?v= param. We DON'T cascade
-// further — only the module being re-imported needs updating.
+// the changed file gets a fresh ?v= param.
 export const invalidate = (filePath: string) => {
 	cache.delete(filePath);
 
-	// Invalidate + bump version for direct importers only
+	// Bump the CHANGED file's version so when importers are
+	// re-transpiled, srcUrl() generates a new ?v= for it.
+	invalidationVersions.set(
+		filePath,
+		(invalidationVersions.get(filePath) ?? 0) + 1
+	);
+
+	// Clear transform cache for direct importers so they get
+	// re-transpiled with the changed file's new ?v= param.
 	const parents = importers.get(filePath);
 	if (parents) {
 		for (const parent of parents) {
 			cache.delete(parent);
-			invalidationVersions.set(
-				parent,
-				(invalidationVersions.get(parent) ?? 0) + 1
-			);
 		}
 	}
 };
