@@ -676,6 +676,33 @@ export const build = async ({
 	const reactClientLogs = reactClientResult?.logs ?? [];
 	const reactClientOutputs = reactClientResult?.outputs ?? [];
 
+	// Strip Bun's $RefreshReg$ no-op fallback from React build outputs.
+	// Bun.build injects `window.$RefreshReg$||(window.$RefreshReg$=function(){})`
+	// at the top of each entry point. This runs BEFORE chunk imports, so
+	// chunks register with the no-op instead of the real React Refresh
+	// runtime. The real runtime is set up by reactRefreshSetup.ts (imported
+	// in the index preamble), but ESM import hoisting means chunks evaluate
+	// before the preamble body runs. Stripping the fallback lets the
+	// chunks use the real runtime that was already set on window by the
+	// setup module (which is a dependency, evaluated first).
+	if (hmr && reactClientOutputs.length > 0) {
+		const REFRESH_NOOP_RE =
+			/window\.\$RefreshReg\$\|\|\(window\.\$RefreshReg\$=function\(\)\{\}\);window\.\$RefreshSig\$\|\|\(window\.\$RefreshSig\$=function\(\)\{return function\(t\)\{return t\}\}\);?\n?/g;
+		for (const output of reactClientOutputs) {
+			if (output.kind !== 'entry-point') continue;
+			try {
+				const content = await Bun.file(output.path).text();
+				if (REFRESH_NOOP_RE.test(content)) {
+					REFRESH_NOOP_RE.lastIndex = 0;
+					const stripped = content.replace(REFRESH_NOOP_RE, '');
+					writeFileSync(output.path, stripped);
+				}
+			} catch {
+				// skip if file can't be read
+			}
+		}
+	}
+
 	if (
 		reactClientResult &&
 		!reactClientResult.success &&
