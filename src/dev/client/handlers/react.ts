@@ -34,18 +34,6 @@ export const handleReactUpdate = (message: {
 	const serverDuration = message.data.serverDuration;
 	const pageModuleUrl = message.data.pageModuleUrl;
 
-	// For non-component files (.ts data), the root accept handler
-	// re-imports the page and calls root.render(). Skip Fast Refresh.
-	// For component files (.tsx/.jsx), use Fast Refresh directly.
-	const src = message.data.primarySource ?? '';
-	const isComponent = src.endsWith('.tsx') || src.endsWith('.jsx');
-	if (
-		!isComponent &&
-		(window as unknown as Record<string, unknown>).__HMR_ROOT_ACCEPT__
-	) {
-		return;
-	}
-
 	if (pageModuleUrl && refreshRuntime) {
 		applyRefreshImport(pageModuleUrl, refreshRuntime, serverDuration);
 

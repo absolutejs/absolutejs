@@ -933,11 +933,23 @@ const handleReactFastPath = async (
 			invalidateModule(file);
 		}
 
-		// The root accept handler re-imports its own page module
-		// (hardcoded at build time). We just need to send any
-		// react-update message to trigger it. Also invalidate
-		// the changed file so the module server serves fresh content.
-		const pageModuleUrl = await getReactModuleUrl(primaryFile);
+		// Component files: import directly for Fast Refresh.
+		// Data files: find nearest component boundary and import
+		// that. Chain invalidation bumps the data file's ?v= so
+		// the browser fetches fresh content (only 2 requests).
+		const isComponentFile =
+			primaryFile.endsWith('.tsx') || primaryFile.endsWith('.jsx');
+
+		let broadcastTarget = primaryFile;
+		if (!isComponentFile) {
+			const { findNearestComponent } = await import(
+				'./transformCache'
+			);
+			const nearest = findNearestComponent(resolve(primaryFile));
+			if (nearest) broadcastTarget = nearest;
+		}
+
+		const pageModuleUrl = await getReactModuleUrl(broadcastTarget);
 
 		if (pageModuleUrl) {
 			const serverDuration = Date.now() - startTime;
