@@ -335,7 +335,7 @@ export const generateReactIndexFiles = async (
 						`\t\tif (origOnMessage) origOnMessage.call(this, event);`,
 						`\t\ttry {`,
 						`\t\t\tconst msg = JSON.parse(event.data);`,
-						`\t\t\tif (msg.type === 'react-update') {`,
+						`\t\t\tif (msg.type === 'react-update' && msg.data?.primarySource && !msg.data.primarySource.endsWith('.tsx') && !msg.data.primarySource.endsWith('.jsx')) {`,
 						`\t\t\t\tconst url = "/@src/${relative(process.cwd(), resolve(reactPagesDirectory, componentName + '.tsx')).replace(/\\/g, '/')}";`,
 						`\t\t\t\tconst start = performance.now();`,
 						`\t\t\t\timport(url + '?t=' + Date.now()).then(mod => {`,
