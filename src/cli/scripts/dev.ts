@@ -37,9 +37,33 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 		const config = await loadConfig(configPath);
 		httpsEnabled = config?.dev?.https === true;
 		if (httpsEnabled) {
-			// Pre-generate cert before server starts
-			const { ensureDevCert } = await import('../../dev/devCert');
-			ensureDevCert();
+			const { hasMkcert, ensureDevCert, setupMkcert } = await import(
+				'../../dev/devCert'
+			);
+			if (!hasMkcert()) {
+				// Prompt: install mkcert for trusted HTTPS?
+				const readline = await import('node:readline');
+				const rl = readline.createInterface({
+					input: process.stdin,
+					output: process.stdout
+				});
+				const answer = await new Promise<string>((res) => {
+					rl.question(
+						'\x1b[36m[dev]\x1b[0m Install mkcert for trusted HTTPS (no browser warning)? [Y/n] ',
+						(a) => {
+							rl.close();
+							res(a.trim().toLowerCase());
+						}
+					);
+				});
+				if (answer === '' || answer === 'y' || answer === 'yes') {
+					setupMkcert();
+				} else {
+					ensureDevCert();
+				}
+			} else {
+				ensureDevCert();
+			}
 		}
 	} catch {
 		// config load failed, skip https

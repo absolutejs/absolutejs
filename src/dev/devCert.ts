@@ -107,15 +107,11 @@ const generateSelfSigned = () => {
 
 	devLog('HTTPS enabled with self-signed certificate');
 	devLog(
-		'For a trusted certificate (no browser warning), install mkcert:'
+		'Browser will show a one-time security warning — click Advanced → Proceed'
 	);
 	devLog(
-		'  brew install mkcert && mkcert -install  (macOS)'
+		'Run "absolute mkcert" anytime to switch to a trusted certificate'
 	);
-	devLog(
-		'  sudo apt install mkcert && mkcert -install  (Linux)'
-	);
-	devLog('Then restart the dev server.');
 };
 
 export const ensureDevCert = () => {
