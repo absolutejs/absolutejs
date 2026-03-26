@@ -46,10 +46,12 @@
         "vue-tsc": "^3.2.5",
       },
       "optionalDependencies": {
-        "@absolutejs/native-darwin-arm64": "0.19.0-beta.48",
-        "@absolutejs/native-darwin-x64": "0.19.0-beta.48",
-        "@absolutejs/native-linux-arm64": "0.19.0-beta.48",
-        "@absolutejs/native-linux-x64": "0.19.0-beta.48",
+        "@absolutejs/native-darwin-arm64": "0.19.0-beta.52",
+        "@absolutejs/native-darwin-x64": "0.19.0-beta.52",
+        "@absolutejs/native-linux-arm64": "0.19.0-beta.52",
+        "@absolutejs/native-linux-x64": "0.19.0-beta.52",
+        "@absolutejs/native-windows-arm64": "0.19.0-beta.52",
+        "@absolutejs/native-windows-x64": "0.19.0-beta.52",
       },
       "peerDependencies": {
         "@angular/common": "^21.0.0",
@@ -86,6 +88,18 @@
     "@typescript-eslint/utils": "8.56.1",
   },
   "packages": {
+    "@absolutejs/native-darwin-arm64": ["@absolutejs/native-darwin-arm64@0.19.0-beta.52", "", { "os": "darwin", "cpu": "arm64" }, "sha512-Rn+4M1CKB+bxEUomn3pcQp1ctao1MOTr0yAgfsoa3nGQLhHKRzT5YIc8z1S0LoUkhf1RmL11ALmB6AptHMZcCw=="],
+
+    "@absolutejs/native-darwin-x64": ["@absolutejs/native-darwin-x64@0.19.0-beta.52", "", { "os": "darwin", "cpu": "x64" }, "sha512-GnjlmWxa/jKiOMqbzcOZXbm3TUVCRwWSH/9VP3GulsNrJ3s1RL1YPtyTSkODyNn2MKZDu4i+NNdR4vTiuLZ+IQ=="],
+
+    "@absolutejs/native-linux-arm64": ["@absolutejs/native-linux-arm64@0.19.0-beta.52", "", { "os": "linux", "cpu": "arm64" }, "sha512-oC7SF66IXw0OiT6Km65+mNT6FB5W5ZBxlqsTRTex1tL4MAqiOlCP7ilvE7xZdcsfygo1RfN/PKh3QkqQGUEoZA=="],
+
+    "@absolutejs/native-linux-x64": ["@absolutejs/native-linux-x64@0.19.0-beta.52", "", { "os": "linux", "cpu": "x64" }, "sha512-YaZsWZ6NKb7bzgLBNmhWhRELBiF7YopS95LCwu9KvOt7VFUgKaKNg7DKMeaWcO55PE/G8qalHsyLrJngnUoBkg=="],
+
+    "@absolutejs/native-windows-arm64": ["@absolutejs/native-windows-arm64@0.19.0-beta.52", "", { "os": "win32", "cpu": "arm64" }, "sha512-7XICmDSWX1/42POHNwsUn7Nc2OxcdjQG3E96f0v1M1aQKCHtPbAqECKAXSK87B07zaRoCXJ0jFEqQBtRN3ak/g=="],
+
+    "@absolutejs/native-windows-x64": ["@absolutejs/native-windows-x64@0.19.0-beta.52", "", { "os": "win32", "cpu": "x64" }, "sha512-BoQ4pxoGaezogevwaiDTvqXoe6feur6woNdAjY5rv8NSZn+7AHeE9Sy+wfoC9Pu6B6eDhLLik6e98h7BluXL+A=="],
+
     "@ampproject/remapping": ["@ampproject/remapping@2.3.0", "", { "dependencies": { "@jridgewell/gen-mapping": "^0.3.5", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-30iZtAPgz+LTIYoeivqYo853f02jBYSd5uGnGpkFV0M3xOt9aN73erkgYAmZU43x4VfqcnLxW9Kpg3R5LC4YYw=="],
 
     "@angular/common": ["@angular/common@21.2.1", "", { "dependencies": { "tslib": "^2.3.0" }, "peerDependencies": { "@angular/core": "21.2.1", "rxjs": "^6.5.3 || ^7.4.0" } }, "sha512-xhv2i1Q9s1kpGbGsfj+o36+XUC/TQLcZyRuRxn3GwaN7Rv34FabC88ycpvoE+sW/txj4JRx9yPA0dRSZjwZ+Gg=="],

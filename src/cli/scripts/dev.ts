@@ -26,6 +26,55 @@ import {
 const cliTag = (color: string, message: string) =>
 	`\x1b[2m${formatTimestamp()}\x1b[0m ${color}[cli]\x1b[0m ${color}${message}\x1b[0m`;
 
+// Lightweight interactive yes/no prompt with arrow key support.
+// ◆ message
+//   ● Yes  ○ No    (use ←/→ arrow keys, enter to confirm)
+const confirmPrompt = (message: string, defaultYes = true) =>
+	new Promise<boolean>((res) => {
+		let selected = defaultYes;
+
+		const render = () => {
+			const yes = selected
+				? '\x1b[36m● Yes\x1b[0m'
+				: '\x1b[2m○ Yes\x1b[0m';
+			const no = !selected
+				? '\x1b[36m● No\x1b[0m'
+				: '\x1b[2m○ No\x1b[0m';
+			process.stdout.write(
+				`\r\x1b[K  \x1b[36m◆\x1b[0m ${message}\n\r\x1b[K    ${yes}  ${no}\x1b[A\r`
+			);
+		};
+
+		process.stdin.setRawMode(true);
+		process.stdin.resume();
+		render();
+
+		const onData = (data: Buffer) => {
+			const key = data.toString();
+			if (key === '\x1b[D' || key === '\x1b[C' || key === '\t') {
+				// Left/Right arrow or Tab — toggle
+				selected = !selected;
+				render();
+			} else if (key === '\r' || key === '\n') {
+				// Enter — confirm
+				process.stdin.setRawMode(false);
+				process.stdin.pause();
+				process.stdin.removeListener('data', onData);
+				const label = selected ? 'Yes' : 'No';
+				process.stdout.write(
+					`\r\x1b[K  \x1b[32m◇\x1b[0m ${message}\n\r\x1b[K    \x1b[2m${label}\x1b[0m\n`
+				);
+				res(selected);
+			} else if (key === '\x03') {
+				// Ctrl+C
+				process.stdin.setRawMode(false);
+				process.exit(0);
+			}
+		};
+
+		process.stdin.on('data', onData);
+	});
+
 export const dev = async (serverEntry: string, configPath?: string) => {
 	const port = Number(env.PORT) || DEFAULT_PORT;
 	killStaleProcesses(port);
@@ -41,22 +90,10 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 				'../../dev/devCert'
 			);
 			if (!hasMkcert()) {
-				// Prompt: install mkcert for trusted HTTPS?
-				const readline = await import('node:readline');
-				const rl = readline.createInterface({
-					input: process.stdin,
-					output: process.stdout
-				});
-				const answer = await new Promise<string>((res) => {
-					rl.question(
-						'\x1b[36m[dev]\x1b[0m Install mkcert for trusted HTTPS (no browser warning)? [Y/n] ',
-						(a) => {
-							rl.close();
-							res(a.trim().toLowerCase());
-						}
-					);
-				});
-				if (answer === '' || answer === 'y' || answer === 'yes') {
+				const install = await confirmPrompt(
+					'Install mkcert for trusted HTTPS? (no browser warning)'
+				);
+				if (install) {
 					setupMkcert();
 				} else {
 					ensureDevCert();
