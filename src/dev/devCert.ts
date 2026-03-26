@@ -50,7 +50,6 @@ export const hasMkcert = () => {
 };
 
 const generateWithMkcert = () => {
-	devLog('Generating locally-trusted certificate with mkcert...');
 	const result = Bun.spawnSync(
 		[
 			'mkcert',
@@ -70,11 +69,9 @@ const generateWithMkcert = () => {
 		throw new Error(`mkcert failed: ${err}`);
 	}
 
-	devLog('HTTPS enabled with locally-trusted certificate (mkcert)');
 };
 
 const generateSelfSigned = () => {
-	devLog('Generating self-signed certificate...');
 
 	const proc = Bun.spawnSync(
 		[
@@ -105,12 +102,8 @@ const generateSelfSigned = () => {
 		throw new Error(`openssl failed: ${err}`);
 	}
 
-	devLog('HTTPS enabled with self-signed certificate');
 	devLog(
-		'Browser will show a one-time security warning — click Advanced → Proceed'
-	);
-	devLog(
-		'Run "bun absolute mkcert" anytime to switch to a trusted certificate'
+		'Using self-signed certificate — browser will show a one-time warning'
 	);
 };
 
@@ -195,19 +188,33 @@ const installMkcert = () => {
 	}
 
 	if (os === 'linux') {
-		// Let sudo inherit the terminal so the user can enter their password
-		const sudoOpts = { stdin: 'inherit' as const, stderr: 'inherit' as const, stdout: 'inherit' as const };
+		// stdin inherits for password prompt, stdout piped to hide package logs
+		const sudoOpts = {
+			stdin: 'inherit' as const,
+			stderr: 'pipe' as const,
+			stdout: 'pipe' as const
+		};
 
 		if (commandExists('apt-get')) {
-			devLog('Installing mkcert with apt (may prompt for password)...');
+			devLog('Installing mkcert (may prompt for password)...');
 			const r = Bun.spawnSync(
 				['sudo', 'apt-get', 'install', '-y', 'mkcert'],
 				sudoOpts
 			);
-			if (r.exitCode === 0) return true;
+			if (r.exitCode === 0) {
+				// Also install certutil for Firefox/Chrome trust
+				if (!commandExists('certutil')) {
+					Bun.spawnSync(
+						['sudo', 'apt-get', 'install', '-y', 'libnss3-tools'],
+						sudoOpts
+					);
+				}
+
+				return true;
+			}
 		}
 		if (commandExists('dnf')) {
-			devLog('Installing mkcert with dnf (may prompt for password)...');
+			devLog('Installing mkcert (may prompt for password)...');
 			const r = Bun.spawnSync(
 				['sudo', 'dnf', 'install', '-y', 'mkcert'],
 				sudoOpts
@@ -215,7 +222,7 @@ const installMkcert = () => {
 			if (r.exitCode === 0) return true;
 		}
 		if (commandExists('pacman')) {
-			devLog('Installing mkcert with pacman (may prompt for password)...');
+			devLog('Installing mkcert (may prompt for password)...');
 			const r = Bun.spawnSync(
 				['sudo', 'pacman', '-S', '--noconfirm', 'mkcert'],
 				sudoOpts
@@ -258,10 +265,7 @@ const installMkcert = () => {
 
 // CLI command: install mkcert, set up CA, regenerate cert
 export const setupMkcert = () => {
-	devLog('Setting up mkcert for locally-trusted HTTPS...');
-
 	if (!hasMkcert()) {
-		devLog('mkcert not found — installing...');
 		if (!installMkcert()) return false;
 
 		// Verify it installed
@@ -275,11 +279,10 @@ export const setupMkcert = () => {
 	}
 
 	// Install the local CA (adds to system trust store)
-	devLog('Installing local certificate authority...');
 	const installResult = Bun.spawnSync(['mkcert', '-install'], {
 		stdin: 'inherit',
-		stderr: 'inherit',
-		stdout: 'inherit'
+		stderr: 'pipe',
+		stdout: 'pipe'
 	});
 
 	if (installResult.exitCode !== 0) {
@@ -296,7 +299,7 @@ export const setupMkcert = () => {
 	mkdirSync(CERT_DIR, { recursive: true });
 	generateWithMkcert();
 	console.log('');
-	devLog('Done! Restart your dev server — no more browser warnings.');
+	devLog('mkcert installed — HTTPS certificates are now locally trusted');
 
 	return true;
 };
