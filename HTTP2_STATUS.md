@@ -1,7 +1,7 @@
 # HTTP/2 Dev Server — Status & Roadmap
 
 ## Goal
-Serve dev module fetches over HTTP/2 multiplexed connections to eliminate the
+Serve dev module fetches over HTTP/2 multiplexed connections when configured to eliminate the
 HTTP/1.1 6-connection bottleneck on import-heavy pages.
 
 ## What's Built & Ready
