@@ -114,21 +114,19 @@ const generateSelfSigned = () => {
 	);
 };
 
+export const hasCert = () => certFilesExist() && !isCertExpired();
+
 export const ensureDevCert = () => {
 	mkdirSync(CERT_DIR, { recursive: true });
 
-	if (certFilesExist() && !isCertExpired()) {
-		if (hasMkcert()) {
-			devLog('HTTPS enabled with locally-trusted certificate (mkcert)');
-		} else {
-			devLog('HTTPS enabled with self-signed certificate');
-		}
-
+	// Cert exists and valid — reuse silently
+	if (hasCert()) {
 		return { cert: CERT_PATH, key: KEY_PATH };
 	}
 
+	// Expired — regenerate silently
 	if (certFilesExist()) {
-		devWarn('Dev certificate expired, regenerating...');
+		devLog('Certificate expired, regenerating...');
 	}
 
 	try {

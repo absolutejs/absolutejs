@@ -40,8 +40,9 @@ const confirmPrompt = (message: string, defaultYes = true) =>
 			const no = !selected
 				? '\x1b[36m● No\x1b[0m'
 				: '\x1b[2m○ No\x1b[0m';
+			// Move to start, clear line, print question + options
 			process.stdout.write(
-				`\r\x1b[K  \x1b[36m◆\x1b[0m ${message}\n\r\x1b[K    ${yes}  ${no}\x1b[A\r`
+				`\x1b[2K\x1b[36m◆\x1b[0m ${message}\n\x1b[2K  ${yes}  ${no}\x1b[A\r`
 			);
 		};
 
@@ -62,7 +63,7 @@ const confirmPrompt = (message: string, defaultYes = true) =>
 				process.stdin.removeListener('data', onData);
 				const label = selected ? 'Yes' : 'No';
 				process.stdout.write(
-					`\r\x1b[K  \x1b[32m◇\x1b[0m ${message}\n\r\x1b[K    \x1b[2m${label}\x1b[0m\n`
+					`\x1b[2K\x1b[32m◇\x1b[0m ${message}\n\x1b[2K  \x1b[2m${label}\x1b[0m\n`
 				);
 				res(selected);
 			} else if (key === '\x03') {
@@ -86,19 +87,25 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 		const config = await loadConfig(configPath);
 		httpsEnabled = config?.dev?.https === true;
 		if (httpsEnabled) {
-			const { hasMkcert, ensureDevCert, setupMkcert } = await import(
-				'../../dev/devCert'
-			);
-			if (!hasMkcert()) {
-				const install = await confirmPrompt(
-					'Install mkcert for trusted HTTPS? (no browser warning)'
-				);
-				if (install) {
-					setupMkcert();
+			const { hasCert, hasMkcert, ensureDevCert, setupMkcert } =
+				await import('../../dev/devCert');
+			if (!hasCert()) {
+				// First time — no cert exists. Ask about mkcert.
+				if (!hasMkcert()) {
+					const install = await confirmPrompt(
+						'Install mkcert for trusted HTTPS? (no browser warning)'
+					);
+					if (install) {
+						setupMkcert();
+					} else {
+						ensureDevCert();
+					}
 				} else {
+					// Has mkcert but no cert — generate silently
 					ensureDevCert();
 				}
 			} else {
+				// Cert exists — just use it, no prompt, no log
 				ensureDevCert();
 			}
 		}
