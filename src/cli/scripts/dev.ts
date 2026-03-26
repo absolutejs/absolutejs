@@ -46,6 +46,7 @@ const confirmPrompt = (message: string, defaultYes = true) =>
 			);
 		};
 
+		process.stdout.write('\x1b[?25l'); // hide cursor
 		process.stdin.setRawMode(true);
 		process.stdin.resume();
 		render();
@@ -63,11 +64,12 @@ const confirmPrompt = (message: string, defaultYes = true) =>
 				process.stdin.removeListener('data', onData);
 				const label = selected ? 'Yes' : 'No';
 				process.stdout.write(
-					`\x1b[2K\x1b[32m◇\x1b[0m ${message}\n\x1b[2K  \x1b[2m${label}\x1b[0m\n`
+					`\x1b[2K\x1b[32m◇\x1b[0m ${message}\n\x1b[2K  \x1b[2m${label}\x1b[0m\n\x1b[?25h`
 				);
 				res(selected);
 			} else if (key === '\x03') {
-				// Ctrl+C
+				// Ctrl+C — restore cursor and exit
+				process.stdout.write('\x1b[?25h');
 				process.stdin.setRawMode(false);
 				process.exit(0);
 			}
