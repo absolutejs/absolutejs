@@ -110,7 +110,7 @@ const generateSelfSigned = () => {
 		'Browser will show a one-time security warning — click Advanced → Proceed'
 	);
 	devLog(
-		'Run "absolute mkcert" anytime to switch to a trusted certificate'
+		'Run "bun absolute mkcert" anytime to switch to a trusted certificate'
 	);
 };
 
@@ -193,41 +193,30 @@ const installMkcert = () => {
 	}
 
 	if (os === 'linux') {
+		// Let sudo inherit the terminal so the user can enter their password
+		const sudoOpts = { stdin: 'inherit' as const, stderr: 'inherit' as const, stdout: 'inherit' as const };
+
 		if (commandExists('apt-get')) {
-			devLog('Installing mkcert with apt...');
+			devLog('Installing mkcert with apt (may prompt for password)...');
 			const r = Bun.spawnSync(
 				['sudo', 'apt-get', 'install', '-y', 'mkcert'],
-				{ stderr: 'pipe', stdout: 'pipe' }
+				sudoOpts
 			);
 			if (r.exitCode === 0) return true;
 		}
 		if (commandExists('dnf')) {
-			devLog('Installing mkcert with dnf...');
+			devLog('Installing mkcert with dnf (may prompt for password)...');
 			const r = Bun.spawnSync(
 				['sudo', 'dnf', 'install', '-y', 'mkcert'],
-				{ stderr: 'pipe', stdout: 'pipe' }
+				sudoOpts
 			);
 			if (r.exitCode === 0) return true;
 		}
 		if (commandExists('pacman')) {
-			devLog('Installing mkcert with pacman...');
+			devLog('Installing mkcert with pacman (may prompt for password)...');
 			const r = Bun.spawnSync(
 				['sudo', 'pacman', '-S', '--noconfirm', 'mkcert'],
-				{ stderr: 'pipe', stdout: 'pipe' }
-			);
-			if (r.exitCode === 0) return true;
-		}
-
-		// Fallback: try go install
-		if (commandExists('go')) {
-			devLog('Installing mkcert with go install...');
-			const r = Bun.spawnSync(
-				[
-					'go',
-					'install',
-					'filippo.io/mkcert@latest'
-				],
-				{ stderr: 'pipe', stdout: 'pipe' }
+				sudoOpts
 			);
 			if (r.exitCode === 0) return true;
 		}
@@ -286,15 +275,13 @@ export const setupMkcert = () => {
 	// Install the local CA (adds to system trust store)
 	devLog('Installing local certificate authority...');
 	const installResult = Bun.spawnSync(['mkcert', '-install'], {
-		stderr: 'pipe',
-		stdout: 'pipe'
+		stdin: 'inherit',
+		stderr: 'inherit',
+		stdout: 'inherit'
 	});
 
 	if (installResult.exitCode !== 0) {
-		devWarn(
-			'Failed to install CA: ' +
-				new TextDecoder().decode(installResult.stderr)
-		);
+		devWarn('Failed to install local CA');
 
 		return false;
 	}
