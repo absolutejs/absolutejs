@@ -46,16 +46,8 @@ build/
 dist/
 **/dist/
 
-example/react/indexes/
-
-example/angular/compiled/
-example/vue/compiled/
-example/vue/client/
-example/vue/indexes/
-example/vue/server/
-example/svelte/client/
-example/svelte/indexes/
-example/svelte/server/
+# Generated intermediate build files
+**/.generated/
 
 /DOCS
 

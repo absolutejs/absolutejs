@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync } from 'fs';
 import { readdir, rm, writeFile } from 'fs/promises';
-import { basename, join, relative, resolve } from 'path';
+import { basename, join, relative, resolve, sep } from 'path';
 import { Glob } from 'bun';
 
 const indexContentCache = new Map<string, string>();
@@ -72,6 +72,12 @@ export const generateReactIndexFiles = async (
 		);
 	}
 
+	// Compute relative path from indexes dir to pages dir for imports
+	const pagesRelPath = relative(
+		resolve(reactIndexesDirectory),
+		resolve(reactPagesDirectory)
+	).split(sep).join('/');
+
 	const promises = files.map(async (file) => {
 		const fileName = basename(file);
 		const [componentName] = fileName.split('.');
@@ -136,7 +142,7 @@ export const generateReactIndexFiles = async (
 			...hmrPreamble,
 			...reactImports,
 			`import type { ComponentType } from 'react'`,
-			`import { ${componentName} } from '../pages/${componentName}';\n`,
+			`import { ${componentName} } from '${pagesRelPath}/${componentName}';\n`,
 			`type PropsOf<C> = C extends ComponentType<infer P> ? P : never;\n`,
 			`declare global {`,
 			`\tinterface Window {`,
@@ -148,7 +154,7 @@ export const generateReactIndexFiles = async (
 			...errorBoundaryDef,
 			`// Hydration with error handling and fallback`,
 			`const isDev = ${isDev};`,
-			`const componentPath = '../pages/${componentName}';\n`,
+			`const componentPath = '${pagesRelPath}/${componentName}';\n`,
 			`function isHydrationError(error) {`,
 			`\tif (!error) return false;`,
 			`\tconst errorMessage = error instanceof Error ? error.message : String(error);`,

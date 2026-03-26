@@ -107,8 +107,8 @@ export const getWatchPaths = (
 		vueDir: config.vueDirectory
 	};
 
-	// Watch entire framework directories. The shouldSkipFilename filter
-	// already excludes compiled/, build/, indexes/, server/, client/.
+	// Watch entire framework directories. Intermediate build files live
+	// under .absolutejs/generated/ which is already excluded from watching.
 	push(cfg.reactDir);
 	push(cfg.svelteDir);
 	push(cfg.vueDir);
@@ -156,10 +156,7 @@ export const getWatchPaths = (
 				for (const entry of readdirSync(root, {
 					withFileTypes: true
 				})) {
-					if (
-						entry.isDirectory() &&
-						!knownNames.has(entry.name)
-					) {
+					if (entry.isDirectory() && !knownNames.has(entry.name)) {
 						push(`${root}/${entry.name}`);
 					}
 				}
@@ -182,20 +179,15 @@ export const shouldIgnorePath = (
 		return false;
 	}
 
-	// Be more aggressive with ignoring compiled directories
+	// Ignore build output and framework-managed directories
 	return (
 		normalizedPath.includes('/build/') ||
-		normalizedPath.includes('/compiled/') ||
-		normalizedPath.includes('/indexes/') ||
-		normalizedPath.includes('/server/') ||
-		normalizedPath.includes('/client/') ||
+		normalizedPath.includes('/.generated/') ||
+		normalizedPath.includes('/.absolutejs/') ||
 		normalizedPath.includes('/node_modules/') ||
 		normalizedPath.includes('/.git/') ||
 		normalizedPath.endsWith('.log') ||
 		normalizedPath.endsWith('.tmp') ||
-		normalizedPath.startsWith('.') ||
-		normalizedPath === 'compiled' ||
-		normalizedPath.endsWith('/compiled') ||
-		normalizedPath.endsWith('/compiled/')
+		normalizedPath.startsWith('.')
 	);
 };

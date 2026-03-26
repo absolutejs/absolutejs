@@ -539,7 +539,11 @@ const transformPlainFile = (
 	if (vueDir && filePath.startsWith(vueDir) && isTS) {
 		const useExports = valueExports.filter((e) => e.startsWith('use'));
 		if (useExports.length > 0) {
-			transpiled = injectComposableTracking(transpiled, filePath, useExports);
+			transpiled = injectComposableTracking(
+				transpiled,
+				filePath,
+				useExports
+			);
 		}
 	}
 

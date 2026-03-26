@@ -113,7 +113,12 @@ const resolveAbsoluteVersion = async () => {
 };
 
 /** Scan source directories for files referenced by new URL('./path', import.meta.url) */
-const SKIP_DIRS = new Set(['server', 'client', 'compiled', 'indexes', 'build', 'node_modules']);
+const SKIP_DIRS = new Set([
+	'build',
+	'node_modules',
+	'.absolutejs',
+	'.generated'
+]);
 const scanWorkerReferences = async (dirs: string[]): Promise<string[]> => {
 	const urlPattern =
 		/new\s+URL\(\s*["'](\.\.?\/[^"']+)["']\s*,\s*import\.meta\.url\s*\)/g;
@@ -204,7 +209,8 @@ export const build = async ({
 		typeof stylesConfig === 'object' ? stylesConfig.ignore : undefined;
 	const stylesDir = stylesPath && validateSafePath(stylesPath, projectRoot);
 
-	const reactIndexesPath = reactDir && join(reactDir, 'indexes');
+	const reactIndexesPath =
+		reactDir && join(reactDir, '.generated', 'indexes');
 	const reactPagesPath = reactDir && join(reactDir, 'pages');
 	const htmlPagesPath = htmlDir && join(htmlDir, 'pages');
 	const htmlScriptsPath = htmlDir && join(htmlDir, 'scripts');
@@ -238,9 +244,10 @@ export const build = async ({
 		tailwind: Boolean(tailwind)
 	});
 
-	// Shared root for all client builds so output paths preserve framework directory names.
-	// generateManifest detects frameworks by checking for "react"/"svelte"/"vue" path segments.
-	const clientRoots: string[] = [
+	// Compute client root from source framework dirs. Generated intermediate files
+	// are placed under {frameworkDir}/.generated/ so Bun.build's root stripping
+	// produces correct output paths (react/.generated/indexes/, svelte/.generated/client/, etc.).
+	const sourceClientRoots: string[] = [
 		reactDir,
 		svelteDir,
 		htmlDir,
@@ -248,13 +255,22 @@ export const build = async ({
 		angularDir
 	].filter((dir): dir is string => Boolean(dir));
 	const clientRoot = isSingle
-		? (clientRoots[0] ?? projectRoot)
-		: commonAncestor(clientRoots, projectRoot);
+		? (sourceClientRoots[0] ?? projectRoot)
+		: commonAncestor(sourceClientRoots, projectRoot);
 
 	const serverDirMap: { dir: string; subdir: string }[] = [];
-	if (svelteDir) serverDirMap.push({ dir: svelteDir, subdir: 'server' });
-	if (vueDir) serverDirMap.push({ dir: vueDir, subdir: 'server' });
-	if (angularDir) serverDirMap.push({ dir: angularDir, subdir: 'compiled' });
+	if (svelteDir)
+		serverDirMap.push({
+			dir: svelteDir,
+			subdir: join('.generated', 'server')
+		});
+	if (vueDir)
+		serverDirMap.push({
+			dir: vueDir,
+			subdir: join('.generated', 'server')
+		});
+	if (angularDir)
+		serverDirMap.push({ dir: angularDir, subdir: '.generated' });
 
 	let serverOutDir: string | undefined;
 	let serverRoot: string | undefined;
@@ -266,9 +282,8 @@ export const build = async ({
 		serverRoot = join(firstEntry.dir, firstEntry.subdir);
 		serverOutDir = join(buildPath, basename(firstEntry.dir));
 	} else if (serverDirMap.length > 1) {
-		// Use framework dirs (not server/compiled subdirs) as input to
-		// commonAncestor — the subdirectory suffix would cause a false
-		// match at the trailing segment due to how filter works.
+		// Use framework dirs (not .generated subdirs) as input to commonAncestor
+		// so the root directory actually exists on disk.
 		serverRoot = commonAncestor(
 			serverDirMap.map((entry) => entry.dir),
 			projectRoot
@@ -860,7 +875,8 @@ export const build = async ({
 				if (output) {
 					urlFileMap.set(
 						basename(srcPath),
-						'/' + relative(buildPath, output.path).replace(/\\/g, '/')
+						'/' +
+							relative(buildPath, output.path).replace(/\\/g, '/')
 					);
 				}
 			}
@@ -910,9 +926,7 @@ export const build = async ({
 					// Find all // src/...js comments before the var declaration
 					const before = content.slice(0, varIdx);
 					const allComments = [
-						...before.matchAll(
-							/\/\/\s*(src\/[^\n]*\.js)\s*\n/g
-						)
+						...before.matchAll(/\/\/\s*(src\/[^\n]*\.js)\s*\n/g)
 					];
 					// Use the last one (closest to the var declaration)
 					const last = allComments[allComments.length - 1];
@@ -1175,22 +1189,23 @@ export const build = async ({
 
 		for (const file of indexFiles) {
 			let content = readFileSync(join(reactIndexesPath, file), 'utf-8');
-			// Rewrite '../pages/ComponentName' to '/@src/src/frontend/pages/ComponentName'
+			// Rewrite relative page imports to absolute /@src/ paths since
+			// the indexes are moved from .absolutejs/generated/ to build/_src_indexes/
 			content = content.replace(
-				/from\s*['"]\.\.\/pages\/([^'"]+)['"]/g,
-				`from '/@src/${pagesRel}/$1'`
+				/from\s*['"]([^'"]*\/pages\/([^'"]+))['"]/g,
+				(_match, _fullPath, componentName) =>
+					`from '/@src/${pagesRel}/${componentName}'`
 			);
 			writeFileSync(join(devIndexDir, file), content);
 		}
 	}
 
-	if (!options?.preserveIntermediateFiles)
-		await cleanup({
-			angularDir,
-			reactIndexesPath,
-			svelteDir,
-			vueDir
-		});
+	await cleanup({
+		angularDir,
+		reactDir,
+		svelteDir,
+		vueDir
+	});
 
 	if (!isIncremental) {
 		globalThis.__hmrBuildDuration = performance.now() - buildStart;

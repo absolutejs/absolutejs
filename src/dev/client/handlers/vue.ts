@@ -203,9 +203,13 @@ export const handleVueUpdate = (message: {
 				// When a composable/utility file changed (not the .vue file itself),
 				// force reload via __VUE_HMR_RUNTIME__ so setup() re-runs.
 				// Vue's rerender only swaps the template, not the setup closure.
-				if (message.data.forceReload && (window as any).__VUE_HMR_RUNTIME__) {
+				if (
+					message.data.forceReload &&
+					(window as any).__VUE_HMR_RUNTIME__
+				) {
 					const hmrRuntime = (window as any).__VUE_HMR_RUNTIME__;
-					const component = mod?.default ?? Object.values(mod ?? {})[0];
+					const component =
+						mod?.default ?? Object.values(mod ?? {})[0];
 					if (component?.__hmrId) {
 						hmrRuntime.reload(component.__hmrId, component);
 					}

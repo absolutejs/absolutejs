@@ -404,10 +404,11 @@ export const compileVue = async (
 ) => {
 	const compiler: VueCompiler = await import('@vue/compiler-sfc');
 
-	const clientOutputDir = join(vueRootDir, 'client');
-	const indexOutputDir = join(vueRootDir, 'indexes');
-	const serverOutputDir = join(vueRootDir, 'server');
-	const cssOutputDir = join(vueRootDir, 'compiled');
+	const generatedDir = join(vueRootDir, '.generated');
+	const clientOutputDir = join(generatedDir, 'client');
+	const indexOutputDir = join(generatedDir, 'indexes');
+	const serverOutputDir = join(generatedDir, 'server');
+	const cssOutputDir = join(generatedDir, 'compiled');
 
 	await Promise.all([
 		mkdir(clientOutputDir, { recursive: true }),

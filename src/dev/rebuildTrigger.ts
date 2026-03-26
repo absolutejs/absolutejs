@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
-import { basename, relative, resolve } from 'node:path';
+import { basename, join, relative, resolve } from 'node:path';
 import { build } from '../core/build';
 import type { BuildConfig } from '../../types/build';
 import {
@@ -651,8 +651,8 @@ const handleAngularFastPath = async (
 		invalidateAngularSsrCache();
 	}
 
-	if (pageEntries.length > 0 && !config.options?.preserveIntermediateFiles) {
-		await rm(resolve(angularDir, 'compiled'), {
+	if (pageEntries.length > 0) {
+		await rm(resolve(angularDir, '.generated'), {
 			force: true,
 			recursive: true
 		});
@@ -901,7 +901,7 @@ const handleReactFastPath = async (
 ) => {
 	const reactDir = config.reactDirectory ?? '';
 	const reactPagesPath = resolve(reactDir, 'pages');
-	const reactIndexesPath = resolve(reactDir, 'indexes');
+	const reactIndexesPath = resolve(reactDir, '.generated', 'indexes');
 	const { buildDir } = state.resolvedPaths;
 
 	// O(1) fast path: serve the changed file via the module server.
@@ -1012,7 +1012,7 @@ const handleReactFastPath = async (
 		);
 	}
 
-	await rm(reactIndexesPath, { force: true, recursive: true });
+	await rm(resolve(reactDir, '.generated'), { force: true, recursive: true });
 
 	const { manifest } = state;
 	const duration = Date.now() - startTime;
@@ -1141,7 +1141,7 @@ const handleSvelteFastPath = async (
 		const serverEntries = [...svelteServerPaths];
 		const clientEntries = [...svelteIndexPaths, ...svelteClientPaths];
 
-		const serverRoot = resolve(svelteDir, 'server');
+		const serverRoot = resolve(svelteDir, '.generated', 'server');
 		const serverOutDir = resolve(buildDir, basename(svelteDir));
 
 		const [serverResult, clientResult] = await Promise.all([
@@ -1174,20 +1174,10 @@ const handleSvelteFastPath = async (
 		await handleClientManifestUpdate(state, clientResult, buildDir);
 	}
 
-	await Promise.all([
-		rm(resolve(svelteDir, 'client'), {
-			force: true,
-			recursive: true
-		}),
-		rm(resolve(svelteDir, 'indexes'), {
-			force: true,
-			recursive: true
-		}),
-		rm(resolve(svelteDir, 'server'), {
-			force: true,
-			recursive: true
-		})
-	]);
+	await rm(resolve(svelteDir, '.generated'), {
+		force: true,
+		recursive: true
+	});
 
 	const { manifest } = state;
 	const duration = Date.now() - startTime;
@@ -1245,10 +1235,7 @@ const handleVueFastPath = async (
 			detectFramework(file, state.resolvedPaths) === 'vue'
 	);
 	for (const tsFile of nonVueFiles) {
-		const affected = getAffectedFiles(
-			state.dependencyGraph,
-			tsFile
-		);
+		const affected = getAffectedFiles(state.dependencyGraph, tsFile);
 		for (const dep of affected) {
 			if (dep.endsWith('.vue') && !vueFiles.includes(dep)) {
 				vueFiles.push(dep);
@@ -1280,9 +1267,8 @@ const handleVueFastPath = async (
 		for (const changedFile of vueFiles) {
 			const pageModuleUrl = await getModuleUrl(changedFile);
 			// Log the actual changed file — the composable, not the page
-			state.lastHmrPath = nonVueFiles.length > 0
-				? nonVueFiles[0]!
-				: changedFile;
+			state.lastHmrPath =
+				nonVueFiles.length > 0 ? nonVueFiles[0]! : changedFile;
 			state.lastHmrFramework = 'vue';
 
 			broadcastToClients(state, {

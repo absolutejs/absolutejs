@@ -2,7 +2,6 @@ import { build } from '../src/core/build';
 import { devBuild } from '../src/core/devBuild';
 
 export type BuildOptions = {
-	preserveIntermediateFiles?: boolean;
 	/** When true, build() throws on error instead of exit(1) - used by HMR rebuilds */
 	throwOnError?: boolean;
 	/** When true, HMR client code is injected into built assets. Set by devBuild(). */

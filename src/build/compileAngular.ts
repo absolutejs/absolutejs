@@ -453,7 +453,7 @@ export const compileAngular = async (
 	outRoot: string,
 	hmr = false
 ) => {
-	const compiledParent = join(outRoot, 'compiled');
+	const compiledParent = join(outRoot, '.generated');
 
 	if (entryPoints.length === 0) {
 		const emptyPaths: string[] = [];
@@ -461,16 +461,13 @@ export const compileAngular = async (
 		return { clientPaths: [...emptyPaths], serverPaths: [...emptyPaths] };
 	}
 
-	// Compile to a fixed compiled/ directory. Server files are bundled by
-	// Bun's server pass (same as Svelte/Vue) and cleanup() removes compiled/
+	// Compile to .absolutejs/generated/angular/. Server files are bundled by
+	// Bun's server pass (same as Svelte/Vue) and cleanup() removes generated/
 	// after bundling. In dev/HMR, a fixed path avoids duplicate Angular
 	// module instances (different file paths → different ESM cache entries),
 	// preventing NG0201/NG0203 token identity mismatches.
 	const compiledRoot = compiledParent;
-	// In production, place index files directly at outRoot/indexes so Bun's
-	// bundler output lands at dist/angular/indexes/ (not dist/angular/compiled/indexes/).
-	// In dev, keep them under compiledRoot so each HMR build has unique paths.
-	const indexesDir = hmr ? join(compiledRoot, 'indexes') : join(outRoot, 'indexes');
+	const indexesDir = join(compiledParent, 'indexes');
 
 	await fs.mkdir(indexesDir, { recursive: true });
 

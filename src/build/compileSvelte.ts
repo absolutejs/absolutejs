@@ -83,9 +83,10 @@ export const compileSvelte = async (
 		'svelte/compiler'
 	);
 
-	const clientDir = join(svelteRoot, 'client');
-	const indexDir = join(svelteRoot, 'indexes');
-	const serverDir = join(svelteRoot, 'server');
+	const generatedDir = join(svelteRoot, '.generated');
+	const clientDir = join(generatedDir, 'client');
+	const indexDir = join(generatedDir, 'indexes');
+	const serverDir = join(generatedDir, 'server');
 
 	await Promise.all(
 		[clientDir, indexDir, serverDir].map((dir) =>

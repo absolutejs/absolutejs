@@ -60,7 +60,6 @@ const manifest = await build({
 	htmxDirectory: 'example/htmx',
 	reactDirectory: 'example/react',
 	svelteDirectory: 'example/svelte',
-	options: { preserveIntermediateFiles: true }
 });
 
 if (!manifest) throw new Error('Manifest generation failed');
@@ -129,8 +128,7 @@ await build({
 	svelteDirectory: 'src/svelte',
 	htmlDirectory: 'src/html',
 	htmxDirectory: 'src/htmx',
-	assetsDirectory: 'public/assets',
-	options: { preserveIntermediateFiles: false }
+	assetsDirectory: 'public/assets'
 });
 ```
 
