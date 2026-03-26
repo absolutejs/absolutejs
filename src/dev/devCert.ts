@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { platform } from 'node:os';
 import { join } from 'node:path';
 
 const CERT_DIR = join(process.cwd(), '.absolutejs');
@@ -165,24 +166,130 @@ export const loadDevCert = () => {
 	}
 };
 
-// CLI command: install mkcert and regenerate cert
-export const setupMkcert = () => {
-	devLog('Setting up mkcert for locally-trusted HTTPS...');
+const commandExists = (cmd: string) => {
+	try {
+		const check =
+			platform() === 'win32' ? ['where', cmd] : ['command', '-v', cmd];
+		const result = Bun.spawnSync(check, {
+			stderr: 'pipe',
+			stdout: 'pipe'
+		});
 
-	if (!hasMkcert()) {
-		devWarn('mkcert is not installed.');
-		console.log('');
-		console.log('  Install it first:');
-		console.log('    macOS:  brew install mkcert');
-		console.log('    Linux:  sudo apt install mkcert');
-		console.log('    Windows: choco install mkcert');
-		console.log('');
-		console.log('  Then run: absolute mkcert');
+		return result.exitCode === 0;
+	} catch {
+		return false;
+	}
+};
+
+const installMkcert = () => {
+	const os = platform();
+
+	if (os === 'darwin') {
+		if (commandExists('brew')) {
+			devLog('Installing mkcert with Homebrew...');
+			const r = Bun.spawnSync(['brew', 'install', 'mkcert'], {
+				stderr: 'pipe',
+				stdout: 'pipe'
+			});
+			if (r.exitCode === 0) return true;
+		}
+		devWarn('Install Homebrew first: https://brew.sh');
 
 		return false;
 	}
 
-	// Install the local CA
+	if (os === 'linux') {
+		if (commandExists('apt-get')) {
+			devLog('Installing mkcert with apt...');
+			const r = Bun.spawnSync(
+				['sudo', 'apt-get', 'install', '-y', 'mkcert'],
+				{ stderr: 'pipe', stdout: 'pipe' }
+			);
+			if (r.exitCode === 0) return true;
+		}
+		if (commandExists('dnf')) {
+			devLog('Installing mkcert with dnf...');
+			const r = Bun.spawnSync(
+				['sudo', 'dnf', 'install', '-y', 'mkcert'],
+				{ stderr: 'pipe', stdout: 'pipe' }
+			);
+			if (r.exitCode === 0) return true;
+		}
+		if (commandExists('pacman')) {
+			devLog('Installing mkcert with pacman...');
+			const r = Bun.spawnSync(
+				['sudo', 'pacman', '-S', '--noconfirm', 'mkcert'],
+				{ stderr: 'pipe', stdout: 'pipe' }
+			);
+			if (r.exitCode === 0) return true;
+		}
+
+		// Fallback: try go install
+		if (commandExists('go')) {
+			devLog('Installing mkcert with go install...');
+			const r = Bun.spawnSync(
+				[
+					'go',
+					'install',
+					'filippo.io/mkcert@latest'
+				],
+				{ stderr: 'pipe', stdout: 'pipe' }
+			);
+			if (r.exitCode === 0) return true;
+		}
+
+		devWarn('Could not install mkcert automatically.');
+		console.log('  See: https://github.com/FiloSottile/mkcert#installation');
+
+		return false;
+	}
+
+	if (os === 'win32') {
+		if (commandExists('choco')) {
+			devLog('Installing mkcert with Chocolatey...');
+			const r = Bun.spawnSync(['choco', 'install', '-y', 'mkcert'], {
+				stderr: 'pipe',
+				stdout: 'pipe'
+			});
+			if (r.exitCode === 0) return true;
+		}
+		if (commandExists('winget')) {
+			devLog('Installing mkcert with winget...');
+			const r = Bun.spawnSync(
+				['winget', 'install', '--id', 'FiloSottile.mkcert', '-e'],
+				{ stderr: 'pipe', stdout: 'pipe' }
+			);
+			if (r.exitCode === 0) return true;
+		}
+
+		devWarn('Could not install mkcert automatically.');
+		console.log('  See: https://github.com/FiloSottile/mkcert#installation');
+
+		return false;
+	}
+
+	return false;
+};
+
+// CLI command: install mkcert, set up CA, regenerate cert
+export const setupMkcert = () => {
+	devLog('Setting up mkcert for locally-trusted HTTPS...');
+
+	if (!hasMkcert()) {
+		devLog('mkcert not found — installing...');
+		if (!installMkcert()) return false;
+
+		// Verify it installed
+		if (!hasMkcert()) {
+			devWarn(
+				'mkcert installed but not found in PATH. Restart your terminal and try again.'
+			);
+
+			return false;
+		}
+	}
+
+	// Install the local CA (adds to system trust store)
 	devLog('Installing local certificate authority...');
 	const installResult = Bun.spawnSync(['mkcert', '-install'], {
 		stderr: 'pipe',
@@ -198,16 +305,11 @@ export const setupMkcert = () => {
 		return false;
 	}
 
-	// Remove old cert to force regeneration
-	try {
-		const { rmSync } = require('node:fs');
-		rmSync(CERT_PATH, { force: true });
-		rmSync(KEY_PATH, { force: true });
-	} catch {
-		// ignore
-	}
+	// Remove old cert to force regeneration with mkcert
+	rmSync(CERT_PATH, { force: true });
+	rmSync(KEY_PATH, { force: true });
 
-	// Generate new cert with mkcert
+	// Generate new trusted cert
 	mkdirSync(CERT_DIR, { recursive: true });
 	generateWithMkcert();
 	console.log('');
