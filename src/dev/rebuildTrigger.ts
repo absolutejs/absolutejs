@@ -811,27 +811,6 @@ const bundleReactClient = async (
 		);
 	}
 
-	// Strip Bun's $RefreshReg$ no-op fallback (same fix as build.ts)
-	const { readFileSync: readFs, writeFileSync: writeFs } = await import(
-		'node:fs'
-	);
-	const REFRESH_NOOP =
-		'window.$RefreshReg$||(window.$RefreshReg$=function(){});' +
-		'window.$RefreshSig$||(window.$RefreshSig$=function(){return function(t){return t}});';
-	for (const output of clientResult.outputs) {
-		if (output.kind !== 'entry-point') continue;
-		try {
-			const content = readFs(output.path, 'utf-8');
-			if (content.includes(REFRESH_NOOP)) {
-				writeFs(
-					output.path,
-					content.replace(REFRESH_NOOP, '').replace(/^\n/, '')
-				);
-			}
-		} catch {
-			// skip
-		}
-	}
 
 	const clientManifest = generateManifest(clientResult.outputs, buildDir);
 	Object.assign(state.manifest, clientManifest);
