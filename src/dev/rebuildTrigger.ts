@@ -933,17 +933,11 @@ const handleReactFastPath = async (
 			invalidateModule(file);
 		}
 
-		// Send the page file URL so the root accept handler can
-		// re-import the entire page module and call root.render().
-		// For component-only changes without the root handler,
-		// the changed file URL is sent for Fast Refresh.
-		const reactPagesDir = resolve(config.reactDirectory ?? '', 'pages');
-		const pageFile = reactFiles.find((f) =>
-			f.replace(/\\/g, '/').includes('/pages/')
-		);
-		const broadcastTarget = pageFile ?? primaryFile;
-
-		const pageModuleUrl = await getReactModuleUrl(broadcastTarget);
+		// The root accept handler re-imports its own page module
+		// (hardcoded at build time). We just need to send any
+		// react-update message to trigger it. Also invalidate
+		// the changed file so the module server serves fresh content.
+		const pageModuleUrl = await getReactModuleUrl(primaryFile);
 
 		if (pageModuleUrl) {
 			const serverDuration = Date.now() - startTime;

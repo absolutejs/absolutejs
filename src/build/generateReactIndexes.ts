@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync } from 'fs';
 import { readdir, rm, writeFile } from 'fs/promises';
-import { basename, join, resolve } from 'path';
+import { basename, join, relative, resolve } from 'path';
 import { Glob } from 'bun';
 
 const indexContentCache = new Map<string, string>();
@@ -335,8 +335,8 @@ export const generateReactIndexFiles = async (
 						`\t\tif (origOnMessage) origOnMessage.call(this, event);`,
 						`\t\ttry {`,
 						`\t\t\tconst msg = JSON.parse(event.data);`,
-						`\t\t\tif (msg.type === 'react-update' && msg.data?.pageModuleUrl) {`,
-						`\t\t\t\tconst url = msg.data.pageModuleUrl;`,
+						`\t\t\tif (msg.type === 'react-update') {`,
+						`\t\t\t\tconst url = "/@src/${relative(process.cwd(), resolve(reactPagesDirectory, componentName + '.tsx')).replace(/\\/g, '/')}";`,
 						`\t\t\t\tconst start = performance.now();`,
 						`\t\t\t\timport(url + '?t=' + Date.now()).then(mod => {`,
 						`\t\t\t\t\tconst Comp = mod.${componentName} || mod.default;`,
