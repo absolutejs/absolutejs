@@ -163,7 +163,9 @@ export const loadDevCert = () => {
 const commandExists = (cmd: string) => {
 	try {
 		const check =
-			platform() === 'win32' ? ['where', cmd] : ['command', '-v', cmd];
+			platform() === 'win32'
+				? ['where', cmd]
+				: ['which', cmd];
 		const result = Bun.spawnSync(check, {
 			stderr: 'pipe',
 			stdout: 'pipe'
