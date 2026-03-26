@@ -43,8 +43,10 @@ export const startupBanner = (options: {
 	port: string | number;
 	host: string;
 	networkUrl?: string;
+	protocol?: string;
 }) => {
-	const { version, duration, port, host, networkUrl } = options;
+	const { version, duration, port, host, networkUrl, protocol = 'http' } =
+		options;
 	const name = `${colors.cyan}${colors.bold}ABSOLUTEJS${colors.reset}`;
 	const ver = `${colors.dim}v${version}${colors.reset}`;
 	const time = `${colors.dim}ready in${colors.reset} ${colors.bold}${getDurationString(duration)}${colors.reset}`;
@@ -52,7 +54,7 @@ export const startupBanner = (options: {
 	console.log(`  ${name} ${ver}  ${time}`);
 	console.log('');
 	console.log(
-		`  ${colors.green}➜${colors.reset}  ${colors.bold}Local:${colors.reset}   http://${host === '0.0.0.0' ? 'localhost' : host}:${port}/`
+		`  ${colors.green}➜${colors.reset}  ${colors.bold}Local:${colors.reset}   ${protocol}://${host === '0.0.0.0' ? 'localhost' : host}:${port}/`
 	);
 	if (networkUrl) {
 		console.log(

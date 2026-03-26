@@ -30,6 +30,21 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 	const port = Number(env.PORT) || DEFAULT_PORT;
 	killStaleProcesses(port);
 
+	// Check if HTTPS is enabled in config
+	let httpsEnabled = false;
+	try {
+		const { loadConfig } = await import('../../utils/loadConfig');
+		const config = await loadConfig(configPath);
+		httpsEnabled = config?.dev?.https === true;
+		if (httpsEnabled) {
+			// Pre-generate cert before server starts
+			const { ensureDevCert } = await import('../../dev/devCert');
+			ensureDevCert();
+		}
+	} catch {
+		// config load failed, skip https
+	}
+
 	const usesDocker = existsSync(resolve(COMPOSE_PATH));
 	const scripts: DbScripts | null = usesDocker ? await readDbScripts() : null;
 
@@ -64,7 +79,8 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 				...process.env,
 				FORCE_COLOR: '1',
 				NODE_ENV: 'development',
-				...(configPath ? { ABSOLUTE_CONFIG: configPath } : {})
+				...(configPath ? { ABSOLUTE_CONFIG: configPath } : {}),
+				...(httpsEnabled ? { ABSOLUTE_HTTPS: 'true' } : {})
 			},
 			stderr: 'pipe',
 			stdin: 'ignore',

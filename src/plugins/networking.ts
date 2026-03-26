@@ -17,11 +17,34 @@ if (hostFlag) {
 	host = '0.0.0.0';
 }
 
+// TLS is enabled via ABSOLUTE_HTTPS env var set by the config loader
+const tls = (() => {
+	if (env.NODE_ENV !== 'development') return undefined;
+	if (env.ABSOLUTE_HTTPS !== 'true') return undefined;
+
+	try {
+		const { loadDevCert } = require('../dev/devCert');
+
+		return loadDevCert();
+	} catch {
+		return undefined;
+	}
+})();
+const protocol = tls ? 'https' : 'http';
+
 export const networking = (app: Elysia) =>
 	app.listen(
 		{
 			hostname: host,
-			port: port
+			port: port,
+			...(tls
+				? {
+						tls: {
+							cert: tls.cert,
+							key: tls.key
+						}
+					}
+				: {})
 		},
 		() => {
 			// Skip logging on Bun --hot reloads (HMR handles its own output)
@@ -41,8 +64,11 @@ export const networking = (app: Elysia) =>
 			startupBanner({
 				duration: buildDuration,
 				host,
-				networkUrl: hostFlag ? `http://${localIP}:${port}/` : undefined,
+				networkUrl: hostFlag
+					? `${protocol}://${localIP}:${port}/`
+					: undefined,
 				port,
+				protocol,
 				version
 			});
 		}

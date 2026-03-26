@@ -41,6 +41,11 @@ export type BuildConfig = {
 	incrementalFiles?: string[];
 	// Tracks which command triggered the build for telemetry
 	mode?: 'production' | 'development';
+	// Dev server options (only used in development)
+	dev?: {
+		// Enable HTTPS for HTTP/2 multiplexing (faster HMR on import-heavy components)
+		https?: boolean;
+	};
 };
 
 export type BuildResult = ReturnType<typeof build>;
