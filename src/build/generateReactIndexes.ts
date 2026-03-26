@@ -324,19 +324,9 @@ export const generateReactIndexFiles = async (
 			`}`,
 			...(isDev
 				? [
-						`\n// Pre-warm the module server cache after hydration.`,
-						`// Silently imports the page module so the browser caches`,
-						`// all /@src/ URLs. First HMR edit hits warm cache (~20ms)`,
-						`// instead of cold fetches (~500ms).`,
-						`if (typeof requestIdleCallback !== 'undefined') {`,
-						`\trequestIdleCallback(() => {`,
-						`\t\timport('/@src/${relative(process.cwd(), resolve(reactPagesDirectory, componentName + '.tsx')).replace(/\\/g, '/')}').catch(() => {});`,
-						`\t});`,
-						`} else {`,
-						`\tsetTimeout(() => {`,
-						`\t\timport('/@src/${relative(process.cwd(), resolve(reactPagesDirectory, componentName + '.tsx')).replace(/\\/g, '/')}').catch(() => {});`,
-						`\t}, 1000);`,
-						`}`
+						`\n// Pre-warm: import the page module from the module server`,
+						`// immediately so the browser caches all /@src/ URLs.`,
+						`import('/@src/${relative(process.cwd(), resolve(reactPagesDirectory, componentName + '.tsx')).replace(/\\/g, '/')}').catch(() => {});`
 					]
 				: [])
 		].join('\n');
