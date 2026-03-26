@@ -811,7 +811,6 @@ const bundleReactClient = async (
 		);
 	}
 
-
 	const clientManifest = generateManifest(clientResult.outputs, buildDir);
 	Object.assign(state.manifest, clientManifest);
 	await populateAssetStore(state.assetStore, clientManifest, buildDir);
@@ -943,9 +942,7 @@ const handleReactFastPath = async (
 
 		let broadcastTarget = primaryFile;
 		if (!isComponentFile) {
-			const { findNearestComponent } = await import(
-				'./transformCache'
-			);
+			const { findNearestComponent } = await import('./transformCache');
 			const nearest = findNearestComponent(resolve(primaryFile));
 			if (nearest) broadcastTarget = nearest;
 		}

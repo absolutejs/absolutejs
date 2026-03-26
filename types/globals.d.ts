@@ -10,6 +10,12 @@ declare global {
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	var __reactModuleRef: any;
 	var __depVendorPaths: Record<string, string> | undefined;
+	var __http2Config:
+		| {
+				hmrState: import('../src/dev/clientManager').HMRState;
+				manifest: Record<string, string>;
+		  }
+		| undefined;
 	var __hmrDevResult:
 		| {
 				hmrState: import('../src/dev/clientManager').HMRState;

@@ -16,8 +16,9 @@ globalStore.__transformCache = cache;
 // Reverse map: importedFile → Set<files that import it>
 // Used to cascade invalidation up the import chain.
 const importers =
-	(globalStore.__transformImporters as Map<string, Set<string>> | undefined) ??
-	new Map<string, Set<string>>();
+	(globalStore.__transformImporters as
+		| Map<string, Set<string>>
+		| undefined) ?? new Map<string, Set<string>>();
 globalStore.__transformImporters = importers;
 
 // Cache entries are invalidated by invalidateModule() when files
@@ -48,8 +49,9 @@ export const setTransformed = (
 // cache is cleared due to a downstream import changing. Used by
 // srcUrl() to force browser re-fetch even if the file's mtime is same.
 const invalidationVersions =
-	(globalStore.__transformInvalidationVersions as Map<string, number> | undefined) ??
-	new Map<string, number>();
+	(globalStore.__transformInvalidationVersions as
+		| Map<string, number>
+		| undefined) ?? new Map<string, number>();
 globalStore.__transformInvalidationVersions = invalidationVersions;
 
 export const getInvalidationVersion = (filePath: string) =>

@@ -273,7 +273,6 @@ const rewriteImports = (
 	return result;
 };
 
-
 // React hooks that React Fast Refresh tracks for signature changes
 const HOOK_NAMES = new Set([
 	'useState',
@@ -500,7 +499,11 @@ const transformPlainFile = (
 	const isTS = ext === '.ts' || ext === '.tsx';
 	const isTSX = ext === '.tsx' || ext === '.jsx';
 
-	const transpiler = isTSX ? tsxTranspiler : isTS ? tsTranspiler : jsTranspiler;
+	const transpiler = isTSX
+		? tsxTranspiler
+		: isTS
+			? tsTranspiler
+			: jsTranspiler;
 	const valueExports = isTS ? transpiler.scan(raw).exports : [];
 	let transpiled = transpiler.transformSync(raw);
 

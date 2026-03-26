@@ -45,8 +45,14 @@ export const startupBanner = (options: {
 	networkUrl?: string;
 	protocol?: string;
 }) => {
-	const { version, duration, port, host, networkUrl, protocol = 'http' } =
-		options;
+	const {
+		version,
+		duration,
+		port,
+		host,
+		networkUrl,
+		protocol = 'http'
+	} = options;
 	const name = `${colors.cyan}${colors.bold}ABSOLUTEJS${colors.reset}`;
 	const ver = `${colors.dim}v${version}${colors.reset}`;
 	const time = `${colors.dim}ready in${colors.reset} ${colors.bold}${getDurationString(duration)}${colors.reset}`;

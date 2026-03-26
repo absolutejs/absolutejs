@@ -37,9 +37,7 @@ const confirmPrompt = (message: string, defaultYes = true) =>
 			const yes = selected
 				? '\x1b[36m●\x1b[0m Yes'
 				: '\x1b[2m○ Yes\x1b[0m';
-			const no = !selected
-				? '\x1b[36m●\x1b[0m No'
-				: '\x1b[2m○ No\x1b[0m';
+			const no = !selected ? '\x1b[36m●\x1b[0m No' : '\x1b[2m○ No\x1b[0m';
 			// Move to start, clear line, print question + options
 			process.stdout.write(
 				`\x1b[2K\x1b[36m◆\x1b[0m ${message}\n\x1b[2K  ${yes}  ${no}\x1b[A\r`

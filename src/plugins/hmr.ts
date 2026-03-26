@@ -47,69 +47,75 @@ export const hmr =
 	(app: Elysia) => {
 		restoreStore(app);
 
-		return app
-			.onBeforeHandle(async ({ request }) => {
-				// Bridge React internals if bun install created a duplicate instance.
-				// Runs before any route handler so page handlers stay clean.
-				if (globalThis.__reactModuleRef) {
-					await bridgeReactInternals();
-				}
+		// In HTTP/2 mode, WebSocket is handled by the http2Bridge
+		// so we skip Elysia's .ws() registration
+		const http2Mode = Boolean(globalThis.__http2Config);
 
-				/* Fast path: only parse URL for requests that could be assets.
+		app.onBeforeHandle(async ({ request }) => {
+			// Bridge React internals if bun install created a duplicate instance.
+			// Runs before any route handler so page handlers stay clean.
+			if (globalThis.__reactModuleRef) {
+				await bridgeReactInternals();
+			}
+
+			/* Fast path: only parse URL for requests that could be assets.
 				   Asset paths always start with / and contain a dot (extension).
 				   Skip API routes, WebSocket upgrades, and page navigations. */
-				const rawUrl = request.url;
-				const qIdx = rawUrl.indexOf('?');
-				const pathEnd = qIdx === UNFOUND_INDEX ? rawUrl.length : qIdx;
-				/* URL is absolute (http://host/path), find the path portion */
-				const pathStart = rawUrl.indexOf('/', rawUrl.indexOf('//') + 2);
-				const pathname = rawUrl.slice(pathStart, pathEnd);
+			const rawUrl = request.url;
+			const qIdx = rawUrl.indexOf('?');
+			const pathEnd = qIdx === UNFOUND_INDEX ? rawUrl.length : qIdx;
+			/* URL is absolute (http://host/path), find the path portion */
+			const pathStart = rawUrl.indexOf('/', rawUrl.indexOf('//') + 2);
+			const pathname = rawUrl.slice(pathStart, pathEnd);
 
-				// Unbundled ESM module server — serves transpiled source files
-				// with ETag-based conditional requests for fast 304 responses
-				if (moduleServerHandler) {
-					const moduleResponse = await moduleServerHandler(pathname);
-					if (moduleResponse) {
-						const etag = moduleResponse.headers.get('ETag');
-						if (etag) {
-							const ifNoneMatch = request.headers.get(
-								'If-None-Match'
-							);
-							if (ifNoneMatch === etag) {
-								return new Response(null, {
-									headers: { ETag: etag },
-									status: 304
-								});
-							}
+			// Unbundled ESM module server — serves transpiled source files
+			// with ETag-based conditional requests for fast 304 responses
+			if (moduleServerHandler) {
+				const moduleResponse = await moduleServerHandler(pathname);
+				if (moduleResponse) {
+					const etag = moduleResponse.headers.get('ETag');
+					if (etag) {
+						const ifNoneMatch =
+							request.headers.get('If-None-Match');
+						if (ifNoneMatch === etag) {
+							return new Response(null, {
+								headers: { ETag: etag },
+								status: 304
+							});
 						}
-
-						return moduleResponse;
 					}
-				}
 
-				const bytes = lookupAsset(hmrState.assetStore, pathname);
-				if (!bytes) {
-					return undefined;
+					return moduleResponse;
 				}
+			}
 
-				return new Response(new Uint8Array(bytes).buffer, {
-					headers: {
-						'Cache-Control': 'public, max-age=31536000, immutable',
-						'Content-Type': getMimeType(pathname)
-					}
-				});
-			})
-			.ws('/hmr', {
+			const bytes = lookupAsset(hmrState.assetStore, pathname);
+			if (!bytes) {
+				return undefined;
+			}
+
+			return new Response(new Uint8Array(bytes).buffer, {
+				headers: {
+					'Cache-Control': 'public, max-age=31536000, immutable',
+					'Content-Type': getMimeType(pathname)
+				}
+			});
+		});
+
+		if (!http2Mode) {
+			app.ws('/hmr', {
 				close: (ws) => handleClientDisconnect(hmrState, ws),
 				message: (ws, msg) => handleHMRMessage(hmrState, ws, msg),
 				open: (ws) => handleClientConnect(hmrState, ws, manifest)
-			})
-			.get('/hmr-status', () => ({
-				connectedClients: hmrState.connectedClients.size,
-				isRebuilding: hmrState.isRebuilding,
-				manifestKeys: Object.keys(manifest),
-				rebuildCount: hmrState.rebuildCount,
-				rebuildQueue: Array.from(hmrState.rebuildQueue),
-				timestamp: Date.now()
-			}));
+			});
+		}
+
+		return app.get('/hmr-status', () => ({
+			connectedClients: hmrState.connectedClients.size,
+			isRebuilding: hmrState.isRebuilding,
+			manifestKeys: Object.keys(manifest),
+			rebuildCount: hmrState.rebuildCount,
+			rebuildQueue: Array.from(hmrState.rebuildQueue),
+			timestamp: Date.now()
+		}));
 	};

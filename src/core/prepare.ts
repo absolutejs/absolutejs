@@ -86,6 +86,13 @@ export const prepare = async (configOrPath?: string) => {
 			}
 		}
 
+		// Expose HMR state for the HTTP/2 bridge (networking.ts reads this
+		// to attach WebSocket handling on the HTTP/2 server)
+		globalThis.__http2Config = {
+			hmrState: result.hmrState,
+			manifest: result.manifest
+		};
+
 		const hmrPlugin = hmr(result.hmrState, result.manifest, moduleHandler);
 
 		// Override React index manifest entries to /@src/ URLs so the initial

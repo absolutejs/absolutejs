@@ -68,11 +68,9 @@ const generateWithMkcert = () => {
 		const err = new TextDecoder().decode(result.stderr);
 		throw new Error(`mkcert failed: ${err}`);
 	}
-
 };
 
 const generateSelfSigned = () => {
-
 	const proc = Bun.spawnSync(
 		[
 			'openssl',
@@ -155,10 +153,7 @@ export const loadDevCert = () => {
 
 const commandExists = (cmd: string) => {
 	try {
-		const check =
-			platform() === 'win32'
-				? ['where', cmd]
-				: ['which', cmd];
+		const check = platform() === 'win32' ? ['where', cmd] : ['which', cmd];
 		const result = Bun.spawnSync(check, {
 			stderr: 'pipe',
 			stdout: 'pipe'
@@ -223,7 +218,9 @@ const installMkcert = () => {
 		}
 
 		devWarn('Could not install mkcert automatically.');
-		console.log('  See: https://github.com/FiloSottile/mkcert#installation');
+		console.log(
+			'  See: https://github.com/FiloSottile/mkcert#installation'
+		);
 
 		return false;
 	}
@@ -247,7 +244,9 @@ const installMkcert = () => {
 		}
 
 		devWarn('Could not install mkcert automatically.');
-		console.log('  See: https://github.com/FiloSottile/mkcert#installation');
+		console.log(
+			'  See: https://github.com/FiloSottile/mkcert#installation'
+		);
 
 		return false;
 	}

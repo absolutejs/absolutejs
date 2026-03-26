@@ -676,7 +676,6 @@ export const build = async ({
 	const reactClientLogs = reactClientResult?.logs ?? [];
 	const reactClientOutputs = reactClientResult?.outputs ?? [];
 
-
 	if (
 		reactClientResult &&
 		!reactClientResult.success &&
