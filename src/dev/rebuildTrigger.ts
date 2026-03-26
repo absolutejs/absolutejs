@@ -933,21 +933,15 @@ const handleReactFastPath = async (
 			invalidateModule(file);
 		}
 
-		// For component files, re-import directly for Fast Refresh.
-		// For data files, find the nearest component boundary and
-		// re-import that — like Vite. The component re-evaluates
-		// with fresh imports. HTTP 304s keep unchanged deps fast.
-		const isComponentFile =
-			primaryFile.endsWith('.tsx') || primaryFile.endsWith('.jsx');
-
-		let broadcastTarget = primaryFile;
-		if (!isComponentFile) {
-			const { findNearestComponent } = await import(
-				'./transformCache'
-			);
-			const nearest = findNearestComponent(resolve(primaryFile));
-			if (nearest) broadcastTarget = nearest;
-		}
+		// Send the page file URL so the root accept handler can
+		// re-import the entire page module and call root.render().
+		// For component-only changes without the root handler,
+		// the changed file URL is sent for Fast Refresh.
+		const reactPagesDir = resolve(config.reactDirectory ?? '', 'pages');
+		const pageFile = reactFiles.find((f) =>
+			f.replace(/\\/g, '/').includes('/pages/')
+		);
+		const broadcastTarget = pageFile ?? primaryFile;
 
 		const pageModuleUrl = await getReactModuleUrl(broadcastTarget);
 

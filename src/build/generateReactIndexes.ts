@@ -321,7 +321,43 @@ export const generateReactIndexFiles = async (
 			`\t\t\toriginalError.apply(console, args);`,
 			`\t\t};`,
 			`\t}`,
-			`}`
+			`}`,
+			...(isDev
+				? [
+						`\n// HMR: re-import the page component and re-render the root.`,
+						`// This is the Vite-style approach — the index file is the`,
+						`// HMR boundary. Works for all patterns: dynamic imports,`,
+						`// lazy loading, portals, data files.`,
+						`if (window.__HMR_WS__ && window.__REACT_ROOT__ && !window.__HMR_ROOT_ACCEPT__) {`,
+						`\twindow.__HMR_ROOT_ACCEPT__ = true;`,
+						`\tconst origOnMessage = window.__HMR_WS__.onmessage;`,
+						`\twindow.__HMR_WS__.onmessage = function(event) {`,
+						`\t\tif (origOnMessage) origOnMessage.call(this, event);`,
+						`\t\ttry {`,
+						`\t\t\tconst msg = JSON.parse(event.data);`,
+						`\t\t\tif (msg.type === 'react-update' && msg.data?.pageModuleUrl) {`,
+						`\t\t\t\tconst url = msg.data.pageModuleUrl;`,
+						`\t\t\t\tconst start = performance.now();`,
+						`\t\t\t\timport(url + '?t=' + Date.now()).then(mod => {`,
+						`\t\t\t\t\tconst Comp = mod.${componentName} || mod.default;`,
+						`\t\t\t\t\tif (Comp && window.__REACT_ROOT__) {`,
+						`\t\t\t\t\t\tconst props = window.__INITIAL_PROPS__ || {};`,
+						`\t\t\t\t\t\twindow.__REACT_ROOT__.render(`,
+						`\t\t\t\t\t\t\t${isDev ? `createElement(ErrorBoundary, null, createElement(Comp, props))` : `createElement(Comp, props)`}`,
+						`\t\t\t\t\t\t);`,
+						`\t\t\t\t\t\tif (window.__HMR_WS__) {`,
+						`\t\t\t\t\t\t\tconst ms = Math.round(performance.now() - start);`,
+						`\t\t\t\t\t\t\tconst total = (msg.data.serverDuration || 0) + ms;`,
+						`\t\t\t\t\t\t\twindow.__HMR_WS__.send(JSON.stringify({ type: 'hmr-timing', duration: total }));`,
+						`\t\t\t\t\t\t}`,
+						`\t\t\t\t\t}`,
+						`\t\t\t\t}).catch(() => {});`,
+						`\t\t\t}`,
+						`\t\t} catch {}`,
+						`\t};`,
+						`}`
+					]
+				: [])
 		].join('\n');
 
 		const indexPath = join(reactIndexesDirectory, `${componentName}.tsx`);

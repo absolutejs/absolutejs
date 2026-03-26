@@ -34,6 +34,12 @@ export const handleReactUpdate = (message: {
 	const serverDuration = message.data.serverDuration;
 	const pageModuleUrl = message.data.pageModuleUrl;
 
+	// If the root accept handler is active (index file re-renders
+	// the root), skip the Fast Refresh import — root.render() handles it.
+	if ((window as unknown as Record<string, unknown>).__HMR_ROOT_ACCEPT__) {
+		return;
+	}
+
 	if (pageModuleUrl && refreshRuntime) {
 		applyRefreshImport(pageModuleUrl, refreshRuntime, serverDuration);
 
