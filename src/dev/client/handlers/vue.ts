@@ -139,6 +139,7 @@ export const handleVueUpdate = (message: {
 	data: {
 		cssBaseName?: string;
 		cssUrl?: string;
+		forceReload?: boolean;
 		html?: string;
 		manifest?: Record<string, string>;
 		pageModuleUrl?: string;
@@ -192,13 +193,23 @@ export const handleVueUpdate = (message: {
 	// O(1) Vue HMR: import the changed module directly.
 	// __VUE_HMR_RUNTIME__.reload() inside the module hot-swaps the
 	// component in place — same pattern as React Fast Refresh.
-	// No unmount/remount, state preserved by Vue runtime.
 	const pageModuleUrl = message.data.pageModuleUrl;
 	if (pageModuleUrl) {
 		const clientStart = performance.now();
 		const modulePath = `${pageModuleUrl}?t=${Date.now()}`;
+
 		import(modulePath)
-			.then(() => {
+			.then((mod) => {
+				// When a composable/utility file changed (not the .vue file itself),
+				// force reload via __VUE_HMR_RUNTIME__ so setup() re-runs.
+				// Vue's rerender only swaps the template, not the setup closure.
+				if (message.data.forceReload && (window as any).__VUE_HMR_RUNTIME__) {
+					const hmrRuntime = (window as any).__VUE_HMR_RUNTIME__;
+					const component = mod?.default ?? Object.values(mod ?? {})[0];
+					if (component?.__hmrId) {
+						hmrRuntime.reload(component.__hmrId, component);
+					}
+				}
 				sessionStorage.removeItem('__HMR_ACTIVE__');
 
 				if (window.__HMR_WS__ && message.data.serverDuration != null) {

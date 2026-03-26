@@ -357,6 +357,16 @@ export const queueFileChange = (
 		return;
 	}
 
+	// Shared files (workers, utils, etc.) that don't belong to any
+	// framework just need their transform cache invalidated — no rebuild.
+	if (framework === 'unknown') {
+		const { invalidate } = require('../dev/transformCache');
+		invalidate(resolve(filePath));
+		const relPath = relative(process.cwd(), filePath);
+		logHmrUpdate(relPath);
+		return;
+	}
+
 	if (!state.fileChangeQueue.has(framework)) {
 		state.fileChangeQueue.set(framework, []);
 	}
@@ -1227,23 +1237,58 @@ const handleVueFastPath = async (
 			detectFramework(file, state.resolvedPaths) === 'vue'
 	);
 
+	// For non-.vue files (composables, utilities) in the Vue directory,
+	// find importing .vue files via the dependency graph and reload those.
+	const nonVueFiles = filesToRebuild.filter(
+		(file) =>
+			!file.endsWith('.vue') &&
+			detectFramework(file, state.resolvedPaths) === 'vue'
+	);
+	for (const tsFile of nonVueFiles) {
+		const affected = getAffectedFiles(
+			state.dependencyGraph,
+			tsFile
+		);
+		for (const dep of affected) {
+			if (dep.endsWith('.vue') && !vueFiles.includes(dep)) {
+				vueFiles.push(dep);
+			}
+		}
+	}
+
 	// O(1) fast path: Vue HMR runtime swaps components in place.
 	// Handles ALL changed files in the batch.
 	if (vueFiles.length > 0) {
-		for (const file of vueFiles) {
+		for (const file of [...vueFiles, ...nonVueFiles]) {
 			state.fileHashes.set(resolve(file), computeFileHash(file));
+		}
+
+		// Also invalidate non-Vue files (composables) so the module
+		// server serves the fresh version when the component re-imports.
+		if (nonVueFiles.length > 0) {
+			const { invalidateModule } = await getModuleServer();
+			for (const file of nonVueFiles) {
+				invalidateModule(file);
+			}
 		}
 
 		const serverDuration = Date.now() - startTime;
 
+		// If triggered by a composable change, force reload so setup re-runs
+		const forceReload = nonVueFiles.length > 0;
+
 		for (const changedFile of vueFiles) {
 			const pageModuleUrl = await getModuleUrl(changedFile);
-			state.lastHmrPath = changedFile;
+			// Log the actual changed file — the composable, not the page
+			state.lastHmrPath = nonVueFiles.length > 0
+				? nonVueFiles[0]!
+				: changedFile;
 			state.lastHmrFramework = 'vue';
 
 			broadcastToClients(state, {
 				data: {
 					changeType: 'full',
+					forceReload,
 					framework: 'vue',
 					manifest: state.manifest,
 					pageModuleUrl,

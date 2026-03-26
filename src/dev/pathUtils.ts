@@ -1,4 +1,5 @@
 import { BuildConfig } from '../../types/build';
+import { commonAncestor } from '../utils/commonAncestor';
 import { normalizePath } from '../utils/normalizePath';
 import type { ResolvedBuildPaths } from './configResolver';
 
@@ -86,7 +87,6 @@ export const getWatchPaths = (
 ) => {
 	const paths: string[] = [];
 
-	// helper to push only when base exists, normalizing for cross-platform compatibility
 	const push = (base?: string, sub?: string) => {
 		if (!base) return;
 		const normalizedBase = normalizePath(base);
@@ -120,10 +120,54 @@ export const getWatchPaths = (
 	push(cfg.htmlDir, 'styles');
 
 	push(cfg.htmxDir, 'pages');
+	push(cfg.htmxDir, 'scripts');
 	push(cfg.htmxDir, 'styles');
 
 	push(cfg.assetsDir);
 	push(cfg.stylesDir);
+
+	// Also watch sibling directories under the common parent of all
+	// configured dirs — these contain shared files (workers, utils, etc.)
+	// that may be referenced by multiple frameworks.
+	const allDirs = [
+		cfg.reactDir,
+		cfg.svelteDir,
+		cfg.vueDir,
+		cfg.angularDir,
+		cfg.htmlDir,
+		cfg.htmxDir
+	]
+		.filter((d): d is string => Boolean(d))
+		.map(normalizePath);
+
+	if (allDirs.length > 0) {
+		const root = commonAncestor(allDirs);
+		if (root) {
+			const knownNames = new Set(
+				[...allDirs, cfg.assetsDir, cfg.stylesDir]
+					.filter(Boolean)
+					.map((d) => normalizePath(d!).split('/').pop())
+			);
+			knownNames.add('build');
+			knownNames.add('node_modules');
+			knownNames.add('.absolutejs');
+			try {
+				const { readdirSync } = require('node:fs');
+				for (const entry of readdirSync(root, {
+					withFileTypes: true
+				})) {
+					if (
+						entry.isDirectory() &&
+						!knownNames.has(entry.name)
+					) {
+						push(`${root}/${entry.name}`);
+					}
+				}
+			} catch {
+				// root may not exist yet
+			}
+		}
+	}
 
 	return paths;
 };

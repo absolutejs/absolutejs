@@ -4,9 +4,10 @@ import {
 	mkdirSync,
 	readFileSync,
 	rmSync,
+	statSync,
 	writeFileSync
 } from 'node:fs';
-import { basename, join, relative, resolve } from 'node:path';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 import { cwd, env, exit } from 'node:process';
 import { build as bunBuild, BuildArtifact, Glob } from 'bun';
 import { generateManifest } from '../build/generateManifest';
@@ -109,6 +110,45 @@ const resolveAbsoluteVersion = async () => {
 
 		return;
 	}
+};
+
+/** Scan source directories for files referenced by new URL('./path', import.meta.url) */
+const SKIP_DIRS = new Set(['server', 'client', 'compiled', 'indexes', 'build', 'node_modules']);
+const scanWorkerReferences = async (dirs: string[]): Promise<string[]> => {
+	const urlPattern =
+		/new\s+URL\(\s*["'](\.\.?\/[^"']+)["']\s*,\s*import\.meta\.url\s*\)/g;
+	const resolvePattern =
+		/import\.meta\.resolve\(\s*["'](\.\.?\/[^"']+)["']\s*\)/g;
+	const workerPaths = new Set<string>();
+
+	for (const dir of dirs) {
+		const glob = new Glob('**/*.{ts,tsx,js,jsx,svelte,vue}');
+		for await (const file of glob.scan({ absolute: true, cwd: dir })) {
+			// Skip build-generated directories
+			const relToDir = file.slice(dir.length + 1);
+			const firstSegment = relToDir.split('/')[0];
+			if (firstSegment && SKIP_DIRS.has(firstSegment)) continue;
+
+			const content = readFileSync(file, 'utf-8');
+			for (const pattern of [urlPattern, resolvePattern]) {
+				pattern.lastIndex = 0;
+				let match;
+				while ((match = pattern.exec(content)) !== null) {
+					const relPath = match[1];
+					if (!relPath) continue;
+					const absPath = resolve(file, '..', relPath);
+					try {
+						statSync(absPath);
+						workerPaths.add(absPath);
+					} catch {
+						// Referenced file doesn't exist, skip
+					}
+				}
+			}
+		}
+	}
+
+	return [...workerPaths];
 };
 
 const vueFeatureFlags: Record<string, string> = {
@@ -437,13 +477,26 @@ export const build = async ({
 		...angularServerPaths
 	];
 	const reactClientEntryPoints = [...reactEntries];
+	// Scan for files referenced by new URL('./path', import.meta.url) — these
+	// are regular files (e.g. workers) that Bun.build won't follow automatically.
+	const allFrameworkDirs = [
+		reactDir,
+		svelteDir,
+		vueDir,
+		angularDir,
+		htmlDir,
+		htmxDir
+	].filter((d): d is string => Boolean(d));
+	const urlReferencedFiles = await scanWorkerReferences(allFrameworkDirs);
+
 	const nonReactClientEntryPoints = [
 		...svelteIndexPaths,
 		...svelteClientPaths,
 		...htmlEntries,
 		...vueIndexPaths,
 		...vueClientPaths,
-		...angularClientPaths
+		...angularClientPaths,
+		...urlReferencedFiles
 	];
 
 	if (
@@ -770,6 +823,178 @@ export const build = async ({
 			isIncremental,
 			throwOnError
 		);
+	}
+
+	// In dev mode, rewrite new URL('./path', import.meta.url) in all bundled
+	// client outputs to /@src/ URLs so workers resolve through the module server.
+	// In prod mode, rewrite to the hashed output path from the build.
+	if (urlReferencedFiles.length > 0) {
+		const urlPattern =
+			/new\s+URL\(\s*["'](\.\.?\/[^"']+)["']\s*,\s*import\.meta\.url\s*\)/g;
+		const allClientOutputPaths = [
+			...reactClientOutputPaths,
+			...nonReactClientOutputs.map((a) => a.path)
+		];
+
+		// Build a map from filename → source path or hashed output path.
+		// Bun may rewrite .ts → .js in bundled output, so store both variants.
+		const urlFileMap = new Map<string, string>();
+		if (hmr) {
+			// Dev: map to /@src/ URLs with mtime cache busting
+			for (const srcPath of urlReferencedFiles) {
+				const rel = relative(projectRoot, srcPath).replace(/\\/g, '/');
+				const name = basename(srcPath);
+				const mtime = Math.round(statSync(srcPath).mtimeMs);
+				const url = `/@src/${rel}?v=${mtime}`;
+				urlFileMap.set(name, url);
+				// Also map .js variant for when Bun rewrites .ts → .js
+				urlFileMap.set(name.replace(/\.tsx?$/, '.js'), url);
+			}
+		} else {
+			// Prod: map to hashed output paths from the build
+			for (const srcPath of urlReferencedFiles) {
+				const srcBase = basename(srcPath).replace(/\.[^.]+$/, '');
+				const output = nonReactClientOutputs.find((a) =>
+					basename(a.path).startsWith(srcBase + '.')
+				);
+				if (output) {
+					urlFileMap.set(
+						basename(srcPath),
+						'/' + relative(buildPath, output.path).replace(/\\/g, '/')
+					);
+				}
+			}
+		}
+
+		for (const outputPath of allClientOutputPaths) {
+			let content = readFileSync(outputPath, 'utf-8');
+			let changed = false;
+			content = content.replace(urlPattern, (_match, relPath) => {
+				const targetName = basename(relPath);
+				const resolvedPath = urlFileMap.get(targetName);
+				if (resolvedPath) {
+					changed = true;
+					return `new URL('${resolvedPath}', import.meta.url)`;
+				}
+				return _match;
+			});
+			if (changed) writeFileSync(outputPath, content);
+		}
+	}
+
+	// In dev mode, inject composable state tracking into Vue bundled output
+	// so the first HMR cycle can preserve ref values.
+	if (hmr && vueDirectory) {
+		const vueOutputs = nonReactClientOutputs
+			.map((a) => a.path)
+			.filter((p) => p.includes('/vue/'));
+		for (const outputPath of vueOutputs) {
+			let content = readFileSync(outputPath, 'utf-8');
+			// Find `var useXxx = (` patterns and the source file comment above them
+			const usePattern = /^var\s+(use[A-Z]\w*)\s*=/gm;
+			const useNames: string[] = [];
+			let m;
+			while ((m = usePattern.exec(content)) !== null) {
+				if (m[1]) useNames.push(m[1]);
+			}
+			if (useNames.length === 0) continue;
+
+			// Find the composable's source path from Bun's comment directly
+			// above the first use* function. Bun emits "// path/file.js" comments.
+			// Strip "client/" and change .js→.ts to match /@src/ module ID.
+			let runtimeId = JSON.stringify(outputPath);
+			const firstUseName = useNames[0];
+			if (firstUseName) {
+				const varIdx = content.indexOf(`var ${firstUseName} =`);
+				if (varIdx > 0) {
+					// Find all // src/...js comments before the var declaration
+					const before = content.slice(0, varIdx);
+					const allComments = [
+						...before.matchAll(
+							/\/\/\s*(src\/[^\n]*\.js)\s*\n/g
+						)
+					];
+					// Use the last one (closest to the var declaration)
+					const last = allComments[allComments.length - 1];
+					if (last?.[1]) {
+						const srcPath = resolve(
+							projectRoot,
+							last[1]
+								.replace('/client/', '/')
+								.replace(/\.js$/, '.ts')
+						);
+						runtimeId = JSON.stringify(srcPath);
+					}
+				}
+			}
+			const runtime = [
+				`var __hmr_cs=(globalThis.__HMR_COMPOSABLE_STATE__??={});`,
+				`var __hmr_mid=${runtimeId};`,
+				`var __hmr_prev_refs=__hmr_cs[__hmr_mid];`,
+				`var __hmr_idx={};`,
+				`__hmr_cs[__hmr_mid]={};`,
+				`function __hmr_wrap(n,fn){return function(){`,
+				`var i=(__hmr_idx[n]=(__hmr_idx[n]??-1)+1);`,
+				`var r=fn.apply(this,arguments);`,
+				`if(r&&typeof r==="object"){`,
+				`var refs={};for(var k in r){var v=r[k];`,
+				`if(v&&typeof v==="object"&&"value"in v&&!v.effect&&typeof v.value!=="function")refs[k]=v;}`,
+				`(__hmr_cs[__hmr_mid][n]??=[])[i]=refs;`,
+				`if(__hmr_prev_refs&&__hmr_prev_refs[n]&&__hmr_prev_refs[n][i]){`,
+				`var old=__hmr_prev_refs[n][i];`,
+				`for(var k in old){var nv=r[k],ov=old[k];`,
+				`if(nv&&ov&&typeof nv==="object"&&"value"in nv&&!nv.effect&&typeof nv.value===typeof ov.value)nv.value=ov.value;}`,
+				`}}return r;};}`
+			].join('');
+
+			// Insert runtime before the first use* function
+			const firstUseIdx = content.indexOf(`var ${useNames[0]} =`);
+			if (firstUseIdx === -1) continue;
+			content =
+				content.slice(0, firstUseIdx) +
+				runtime +
+				'\n' +
+				content.slice(firstUseIdx);
+
+			// Wrap each use* function
+			for (const name of useNames) {
+				const marker = `var ${name} = `;
+				const pos = content.indexOf(marker);
+				if (pos === -1) continue;
+				const afterMarker = pos + marker.length;
+
+				// Find end of function expression using brace counting
+				let depth = 0;
+				let inStr: string | false = false;
+				let endPos = afterMarker;
+				for (let i = afterMarker; i < content.length; i++) {
+					const ch = content[i]!;
+					if (inStr) {
+						if (ch === inStr && content[i - 1] !== '\\')
+							inStr = false;
+						continue;
+					}
+					if (ch === '"' || ch === "'" || ch === '`') {
+						inStr = ch;
+						continue;
+					}
+					if (ch === '{' || ch === '(') depth++;
+					if (ch === '}' || ch === ')') depth--;
+					if (depth === 0 && ch === ';') {
+						endPos = i;
+						break;
+					}
+				}
+
+				const funcBody = content.slice(afterMarker, endPos);
+				content =
+					content.slice(0, afterMarker) +
+					`__hmr_wrap(${JSON.stringify(name)}, ${funcBody})` +
+					content.slice(endPos);
+			}
+
+			writeFileSync(outputPath, content);
+		}
 	}
 
 	const allLogs = [

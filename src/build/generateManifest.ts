@@ -1,6 +1,7 @@
 import { extname } from 'node:path';
 import { BuildArtifact } from 'bun';
 import { UNFOUND_INDEX } from '../constants';
+import { logWarn } from '../utils/logger';
 import { normalizePath } from '../utils/normalizePath';
 import { toPascal } from '../utils/stringModifiers';
 
@@ -48,7 +49,13 @@ export const generateManifest = (outputs: BuildArtifact[], buildPath: string) =>
 		const ext = extname(fileWithHash);
 
 		if (ext === '.css') {
-			manifest[`${pascalName}CSS`] = `/${relative}`;
+			const cssKey = `${pascalName}CSS`;
+			if (manifest[cssKey] && manifest[cssKey] !== `/${relative}`) {
+				logWarn(
+					`Duplicate manifest key "${cssKey}" — "${manifest[cssKey]}" will be overwritten by "/${relative}". Use unique page names across frameworks.`
+				);
+			}
+			manifest[cssKey] = `/${relative}`;
 
 			return manifest;
 		}
@@ -76,6 +83,11 @@ export const generateManifest = (outputs: BuildArtifact[], buildPath: string) =>
 			isSvelte,
 			isAngular
 		);
+		if (manifest[manifestKey] && manifest[manifestKey] !== `/${relative}`) {
+			logWarn(
+				`Duplicate manifest key "${manifestKey}" — "${manifest[manifestKey]}" will be overwritten by "/${relative}". Use unique page names across frameworks.`
+			);
+		}
 		manifest[manifestKey] = `/${relative}`;
 
 		return manifest;

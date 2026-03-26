@@ -142,6 +142,9 @@ export type VueUpdateMessage = {
 		componentPath?: string;
 		cssUrl?: string;
 		cssBaseName?: string;
+		forceReload?: boolean;
+		pageModuleUrl?: string;
+		serverDuration?: number;
 		updateType?: 'css-only' | 'full';
 	};
 	timestamp: number;

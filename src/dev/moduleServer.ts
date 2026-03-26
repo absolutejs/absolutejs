@@ -270,6 +270,26 @@ const rewriteImports = (
 		}
 	);
 
+	// Rewrite new URL('./relative', import.meta.url) for web workers / assets
+	result = result.replace(
+		/new\s+URL\(\s*["'](\.\.?\/[^"']+)["']\s*,\s*import\.meta\.url\s*\)/g,
+		(_match, relPath) => {
+			const absPath = resolve(fileDir, relPath);
+			const rel = relative(projectRoot, absPath);
+			return `new URL('${srcUrl(rel, projectRoot)}', import.meta.url)`;
+		}
+	);
+
+	// Rewrite import.meta.resolve('./relative') for asset/worker references
+	result = result.replace(
+		/import\.meta\.resolve\(\s*["'](\.\.?\/[^"']+)["']\s*\)/g,
+		(_match, relPath) => {
+			const absPath = resolve(fileDir, relPath);
+			const rel = relative(projectRoot, absPath);
+			return `'${srcUrl(rel, projectRoot)}'`;
+		}
+	);
+
 	return result;
 };
 
@@ -492,7 +512,8 @@ const transformReactFile = (
 const transformPlainFile = (
 	filePath: string,
 	projectRoot: string,
-	rewriter: ReturnType<typeof buildImportRewriter>
+	rewriter: ReturnType<typeof buildImportRewriter>,
+	vueDir?: string
 ) => {
 	const raw = readFileSync(filePath, 'utf-8');
 	const ext = extname(filePath);
@@ -511,7 +532,108 @@ const transformPlainFile = (
 		transpiled = preserveTypeExports(raw, transpiled, valueExports);
 	}
 
-	return rewriteImports(transpiled, filePath, projectRoot, rewriter);
+	transpiled = rewriteImports(transpiled, filePath, projectRoot, rewriter);
+
+	// Vue composable HMR state tracking: wrap exported use* functions
+	// so ref values are captured and restored across HMR reloads.
+	if (vueDir && filePath.startsWith(vueDir) && isTS) {
+		const useExports = valueExports.filter((e) => e.startsWith('use'));
+		if (useExports.length > 0) {
+			transpiled = injectComposableTracking(transpiled, filePath, useExports);
+		}
+	}
+
+	return transpiled;
+};
+
+/** Inject HMR state tracking into Vue composable exports.
+ *  Wraps each use* export to capture/restore ref values across reloads. */
+const injectComposableTracking = (
+	code: string,
+	filePath: string,
+	useExports: string[]
+) => {
+	const moduleId = JSON.stringify(filePath);
+
+	// Inject the tracking runtime at the top
+	const runtime = [
+		`var __hmr_cs = (globalThis.__HMR_COMPOSABLE_STATE__ ??= {});`,
+		`var __hmr_mid = ${moduleId};`,
+		`var __hmr_prev_refs = __hmr_cs[__hmr_mid];`,
+		`var __hmr_idx = {};`,
+		`__hmr_cs[__hmr_mid] = {};`,
+		`function __hmr_wrap(name, fn) {`,
+		`  return function() {`,
+		`    var idx = (__hmr_idx[name] = (__hmr_idx[name] ?? -1) + 1);`,
+		`    var result = fn.apply(this, arguments);`,
+		`    if (result && typeof result === "object") {`,
+		`      var refs = {};`,
+		`      for (var k in result) {`,
+		`        var v = result[k];`,
+		`        if (v && typeof v === "object" && "value" in v && !v.effect && typeof v.value !== "function") {`,
+		`          refs[k] = v;`,
+		`        }`,
+		`      }`,
+		`      (__hmr_cs[__hmr_mid][name] ??= [])[idx] = refs;`,
+		`      if (__hmr_prev_refs && __hmr_prev_refs[name] && __hmr_prev_refs[name][idx]) {`,
+		`        var old = __hmr_prev_refs[name][idx];`,
+		`        for (var k in old) {`,
+		`          var nv = result[k];`,
+		`          var ov = old[k];`,
+		`          if (nv && ov && typeof nv === "object" && "value" in nv && !nv.effect && typeof nv.value === typeof ov.value) {`,
+		`            nv.value = ov.value;`,
+		`          }`,
+		`        }`,
+		`      }`,
+		`    }`,
+		`    return result;`,
+		`  };`,
+		`}`
+	].join('\n');
+
+	let result = runtime + '\n' + code;
+
+	// Wrap each use* export with __hmr_wrap.
+	// Find the export assignment, then use brace/paren counting to locate
+	// the end of the function expression (handles nested braces in the body).
+	for (const name of useExports) {
+		const marker = new RegExp(
+			`export\\s+(?:const|var|let)\\s+${name}\\s*=\\s*`
+		);
+		const match = marker.exec(result);
+		if (!match) continue;
+
+		const insertPos = match.index + match[0].length;
+		// Find the end of the function expression by counting braces
+		let depth = 0;
+		let inString: string | false = false;
+		let endPos = insertPos;
+		for (let i = insertPos; i < result.length; i++) {
+			const ch = result[i];
+			if (inString) {
+				if (ch === inString && result[i - 1] !== '\\') inString = false;
+				continue;
+			}
+			if (ch === '"' || ch === "'" || ch === '`') {
+				inString = ch;
+				continue;
+			}
+			if (ch === '{' || ch === '(') depth++;
+			if (ch === '}' || ch === ')') depth--;
+			if (depth === 0 && ch === ';') {
+				endPos = i;
+				break;
+			}
+		}
+
+		const funcBody = result.slice(insertPos, endPos);
+		result =
+			result.slice(0, insertPos) +
+			`__hmr_wrap(${JSON.stringify(name)}, ${funcBody})` +
+			result.slice(endPos);
+	}
+
+	return result;
 };
 
 // Virtual CSS modules for Svelte's css:'external' mode.
@@ -1034,9 +1156,12 @@ export const createModuleServer = (config: ModuleServerConfig) => {
 			if (cached) return jsResponse(cached);
 
 			const stat = statSync(filePath);
+			const vueDir = frameworkDirs?.vue
+				? resolve(frameworkDirs.vue)
+				: undefined;
 			const content = REACT_EXTENSIONS.has(ext)
 				? transformReactFile(filePath, projectRoot, rewriter)
-				: transformPlainFile(filePath, projectRoot, rewriter);
+				: transformPlainFile(filePath, projectRoot, rewriter, vueDir);
 
 			setTransformed(
 				filePath,

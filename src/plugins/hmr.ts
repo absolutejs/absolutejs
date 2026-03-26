@@ -102,13 +102,14 @@ export const hmr =
 			});
 		});
 
-		if (!http2Mode) {
-			app.ws('/hmr', {
-				close: (ws) => handleClientDisconnect(hmrState, ws),
-				message: (ws, msg) => handleHMRMessage(hmrState, ws, msg),
-				open: (ws) => handleClientConnect(hmrState, ws, manifest)
-			});
-		}
+		// Always register WebSocket for HMR. When HTTP/2 bridge is
+		// fully implemented it can take over, but Elysia's native
+		// WebSocket works fine over both HTTP and HTTPS.
+		app.ws('/hmr', {
+			close: (ws) => handleClientDisconnect(hmrState, ws),
+			message: (ws, msg) => handleHMRMessage(hmrState, ws, msg),
+			open: (ws) => handleClientConnect(hmrState, ws, manifest)
+		});
 
 		return app.get('/hmr-status', () => ({
 			connectedClients: hmrState.connectedClients.size,
