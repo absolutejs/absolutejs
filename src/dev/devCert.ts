@@ -188,30 +188,22 @@ const installMkcert = () => {
 	}
 
 	if (os === 'linux') {
-		// stdin inherits for password prompt, stdout piped to hide package logs
+		// stdin + stderr inherit for password prompt, stdout piped to hide package logs
 		const sudoOpts = {
 			stdin: 'inherit' as const,
-			stderr: 'pipe' as const,
+			stderr: 'inherit' as const,
 			stdout: 'pipe' as const
 		};
 
 		if (commandExists('apt-get')) {
 			devLog('Installing mkcert (may prompt for password)...');
+			// Install mkcert + libnss3-tools (certutil) together
+			// so mkcert -install can add the CA to browser trust stores
 			const r = Bun.spawnSync(
-				['sudo', 'apt-get', 'install', '-y', 'mkcert'],
+				['sudo', 'apt-get', 'install', '-y', 'mkcert', 'libnss3-tools'],
 				sudoOpts
 			);
-			if (r.exitCode === 0) {
-				// Also install certutil for Firefox/Chrome trust
-				if (!commandExists('certutil')) {
-					Bun.spawnSync(
-						['sudo', 'apt-get', 'install', '-y', 'libnss3-tools'],
-						sudoOpts
-					);
-				}
-
-				return true;
-			}
+			if (r.exitCode === 0) return true;
 		}
 		if (commandExists('dnf')) {
 			devLog('Installing mkcert (may prompt for password)...');
