@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync } from 'fs';
 import { readdir, rm, writeFile } from 'fs/promises';
-import { basename, join, resolve } from 'path';
+import { basename, join, relative, resolve } from 'path';
 import { Glob } from 'bun';
 
 const indexContentCache = new Map<string, string>();
@@ -321,7 +321,24 @@ export const generateReactIndexFiles = async (
 			`\t\t\toriginalError.apply(console, args);`,
 			`\t\t};`,
 			`\t}`,
-			`}`
+			`}`,
+			...(isDev
+				? [
+						`\n// Pre-warm the module server cache after hydration.`,
+						`// Silently imports the page module so the browser caches`,
+						`// all /@src/ URLs. First HMR edit hits warm cache (~20ms)`,
+						`// instead of cold fetches (~500ms).`,
+						`if (typeof requestIdleCallback !== 'undefined') {`,
+						`\trequestIdleCallback(() => {`,
+						`\t\timport('/@src/${relative(process.cwd(), resolve(reactPagesDirectory, componentName + '.tsx')).replace(/\\/g, '/')}').catch(() => {});`,
+						`\t});`,
+						`} else {`,
+						`\tsetTimeout(() => {`,
+						`\t\timport('/@src/${relative(process.cwd(), resolve(reactPagesDirectory, componentName + '.tsx')).replace(/\\/g, '/')}').catch(() => {});`,
+						`\t}, 1000);`,
+						`}`
+					]
+				: [])
 		].join('\n');
 
 		const indexPath = join(reactIndexesDirectory, `${componentName}.tsx`);
