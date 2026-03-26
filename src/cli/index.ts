@@ -55,6 +55,10 @@ if (command === 'dev') {
 } else if (command === 'telemetry') {
 	sendTelemetryEvent('cli:command', { command });
 	telemetry(args);
+} else if (command === 'mkcert') {
+	sendTelemetryEvent('cli:command', { command });
+	const { setupMkcert } = await import('../dev/devCert');
+	setupMkcert();
 } else {
 	const message = command
 		? `Unknown command: ${command}`
