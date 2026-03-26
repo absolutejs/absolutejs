@@ -815,15 +815,18 @@ const bundleReactClient = async (
 	const { readFileSync: readFs, writeFileSync: writeFs } = await import(
 		'node:fs'
 	);
-	const NOOP_RE =
-		/window\.\$RefreshReg\$\|\|\(window\.\$RefreshReg\$=function\(\)\{\}\);window\.\$RefreshSig\$\|\|\(window\.\$RefreshSig\$=function\(\)\{return function\(t\)\{return t\}\}\);?\n?/g;
+	const REFRESH_NOOP =
+		'window.$RefreshReg$||(window.$RefreshReg$=function(){});' +
+		'window.$RefreshSig$||(window.$RefreshSig$=function(){return function(t){return t}});';
 	for (const output of clientResult.outputs) {
 		if (output.kind !== 'entry-point') continue;
 		try {
 			const content = readFs(output.path, 'utf-8');
-			if (NOOP_RE.test(content)) {
-				NOOP_RE.lastIndex = 0;
-				writeFs(output.path, content.replace(NOOP_RE, ''));
+			if (content.includes(REFRESH_NOOP)) {
+				writeFs(
+					output.path,
+					content.replace(REFRESH_NOOP, '').replace(/^\n/, '')
+				);
 			}
 		} catch {
 			// skip

@@ -686,19 +686,21 @@ export const build = async ({
 	// chunks use the real runtime that was already set on window by the
 	// setup module (which is a dependency, evaluated first).
 	if (hmr && reactClientOutputs.length > 0) {
-		const REFRESH_NOOP_RE =
-			/window\.\$RefreshReg\$\|\|\(window\.\$RefreshReg\$=function\(\)\{\}\);window\.\$RefreshSig\$\|\|\(window\.\$RefreshSig\$=function\(\)\{return function\(t\)\{return t\}\}\);?\n?/g;
+		const REFRESH_NOOP =
+			'window.$RefreshReg$||(window.$RefreshReg$=function(){});' +
+			'window.$RefreshSig$||(window.$RefreshSig$=function(){return function(t){return t}});';
 		for (const output of reactClientOutputs) {
 			if (output.kind !== 'entry-point') continue;
 			try {
 				const content = await Bun.file(output.path).text();
-				if (REFRESH_NOOP_RE.test(content)) {
-					REFRESH_NOOP_RE.lastIndex = 0;
-					const stripped = content.replace(REFRESH_NOOP_RE, '');
-					writeFileSync(output.path, stripped);
+				if (content.includes(REFRESH_NOOP)) {
+					writeFileSync(
+						output.path,
+						content.replace(REFRESH_NOOP, '').replace(/^\n/, '')
+					);
 				}
 			} catch {
-				// skip if file can't be read
+				// skip
 			}
 		}
 	}
