@@ -87,11 +87,14 @@ export const prepare = async (configOrPath?: string) => {
 		}
 
 		// Expose HMR state for the HTTP/2 bridge (networking.ts reads this
-		// to attach WebSocket handling on the HTTP/2 server)
-		globalThis.__http2Config = {
-			hmrState: result.hmrState,
-			manifest: result.manifest
-		};
+		// to attach WebSocket handling on the HTTP/2 server).
+		// Only set when HTTPS is enabled — otherwise Elysia's native .ws() is used.
+		if (config.dev?.https) {
+			globalThis.__http2Config = {
+				hmrState: result.hmrState,
+				manifest: result.manifest
+			};
+		}
 
 		const hmrPlugin = hmr(result.hmrState, result.manifest, moduleHandler);
 
