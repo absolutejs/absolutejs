@@ -1,6 +1,34 @@
 import type { ComponentType as ReactComponent } from 'react';
 import { ssrErrorPage } from '../utils/ssrErrorPage';
 
+let ssrDirty = false;
+
+const buildDirtyResponse = (
+	index: string,
+	maybeProps: Record<string, unknown> | undefined
+) => {
+	const propsScript = maybeProps
+		? `window.__INITIAL_PROPS__=${JSON.stringify(maybeProps)};`
+		: '';
+	const dirtyFlag = 'window.__SSR_DIRTY__=true;';
+	const refreshSetup =
+		process.env.NODE_ENV !== 'production'
+			? 'window.__REFRESH_BUFFER__=[];' +
+				'window.$RefreshReg$=function(t,i){window.__REFRESH_BUFFER__.push([t,i])};' +
+				'window.$RefreshSig$=function(){return function(t){return t}};'
+			: '';
+	const inlineScript = `${propsScript}${dirtyFlag}${refreshSetup}`;
+	const html =
+		`<!DOCTYPE html><html><head></head><body>` +
+		`<script>${inlineScript}</script>` +
+		`<script type="module" src="${index}"></script>` +
+		`</body></html>`;
+
+	return new Response(html, {
+		headers: { 'Content-Type': 'text/html' }
+	});
+};
+
 export const handleReactPageRequest = async <
 	Props extends Record<string, unknown> = Record<never, never>
 >(
@@ -8,8 +36,13 @@ export const handleReactPageRequest = async <
 	index: string,
 	...props: keyof Props extends never ? [] : [props: NoInfer<Props>]
 ) => {
+	const [maybeProps] = props;
+
+	if (ssrDirty) {
+		return buildDirtyResponse(index, maybeProps);
+	}
+
 	try {
-		const [maybeProps] = props;
 		const { createElement } = await import('react');
 		const { renderToReadableStream } = await import('react-dom/server');
 
@@ -52,4 +85,8 @@ export const handleReactPageRequest = async <
 			status: 500
 		});
 	}
+};
+
+export const invalidateReactSsrCache = () => {
+	ssrDirty = true;
 };

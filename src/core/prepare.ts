@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { relative, resolve } from 'node:path';
 import { loadConfig } from '../utils/loadConfig';
 
@@ -98,26 +98,37 @@ export const prepare = async (configOrPath?: string) => {
 
 		const hmrPlugin = hmr(result.hmrState, result.manifest, moduleHandler);
 
-		// Override React index manifest entries to /@src/ URLs so the initial
+		// Override index manifest entries to /@src/ URLs so the initial
 		// page load uses the module server (same module system as HMR).
-		// Only applies to React — Svelte/Vue indexes are .js (not .tsx)
-		// and use their own bundled index files for initial load.
+		// This ensures page refreshes after HMR load fresh code.
 		const devIndexDir = resolve(buildDir, '_src_indexes');
 		for (const key of Object.keys(result.manifest)) {
 			if (
-				key.endsWith('Index') &&
-				typeof result.manifest[key] === 'string' &&
-				result.manifest[key].includes('/react/') &&
-				result.manifest[key].includes('/indexes/')
+				!key.endsWith('Index') ||
+				typeof result.manifest[key] !== 'string' ||
+				!result.manifest[key].includes('/indexes/')
 			) {
-				const fileName = `${key.replace(/Index$/, '')}.tsx`;
-				const srcPath = resolve(devIndexDir, fileName);
-				const rel = relative(process.cwd(), srcPath).replace(
-					/\\/g,
-					'/'
-				);
-				result.manifest[key] = `${SRC_URL_PREFIX}${rel}`;
+				continue;
 			}
+
+			const baseName = key.replace(/Index$/, '');
+			let fileName: string | null = null;
+
+			if (result.manifest[key].includes('/react/')) {
+				fileName = `${baseName}.tsx`;
+			} else if (result.manifest[key].includes('/svelte/')) {
+				fileName = `${baseName}.svelte.js`;
+			} else if (result.manifest[key].includes('/vue/')) {
+				fileName = `${baseName}.vue.js`;
+			}
+
+			if (!fileName) continue;
+
+			const srcPath = resolve(devIndexDir, fileName);
+			if (!existsSync(srcPath)) continue;
+
+			const rel = relative(process.cwd(), srcPath).replace(/\\/g, '/');
+			result.manifest[key] = `${SRC_URL_PREFIX}${rel}`;
 		}
 
 		return {

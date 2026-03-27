@@ -1,6 +1,21 @@
 import type { Component as SvelteComponent } from 'svelte';
 import { ssrErrorPage } from '../utils/ssrErrorPage';
 
+let ssrDirty = false;
+
+const buildDirtyResponse = (indexPath: string, props?: unknown) => {
+	const propsScript = `window.__INITIAL_PROPS__=${JSON.stringify(props)};`;
+	const dirtyFlag = 'window.__SSR_DIRTY__=true;';
+	const scriptTag = indexPath
+		? `<script type="module" src="${indexPath}"></script>`
+		: '';
+	const html = `<!DOCTYPE html><html><head></head><body><script>${propsScript}${dirtyFlag}</script>${scriptTag}</body></html>`;
+
+	return new Response(html, {
+		headers: { 'Content-Type': 'text/html' }
+	});
+};
+
 export type HandleSveltePageRequest = {
 	(
 		PageComponent: SvelteComponent<Record<string, never>>,
@@ -23,6 +38,10 @@ export const handleSveltePageRequest: HandleSveltePageRequest = async <
 	indexPath: string,
 	props?: P
 ) => {
+	if (ssrDirty) {
+		return buildDirtyResponse(indexPath, props);
+	}
+
 	try {
 		const { default: ImportedPageComponent } = await import(pagePath);
 		const { renderToReadableStream } = await import(
@@ -51,4 +70,8 @@ export const handleSveltePageRequest: HandleSveltePageRequest = async <
 			status: 500
 		});
 	}
+};
+
+export const invalidateSvelteSsrCache = () => {
+	ssrDirty = true;
 };

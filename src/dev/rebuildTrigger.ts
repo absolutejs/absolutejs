@@ -36,6 +36,9 @@ import { toPascal } from '../utils/stringModifiers';
 import type { ResolvedBuildPaths } from './configResolver';
 import { broadcastToClients } from './webSocket';
 import { invalidateAngularSsrCache } from '../angular/pageHandler';
+import { invalidateReactSsrCache } from '../react/pageHandler';
+import { invalidateSvelteSsrCache } from '../svelte/pageHandler';
+import { invalidateVueSsrCache } from '../vue/pageHandler';
 
 type BuildLog = {
 	level?: string;
@@ -923,6 +926,8 @@ const handleReactFastPath = async (
 			state.fileHashes.set(resolve(file), computeFileHash(file));
 		}
 
+		invalidateReactSsrCache();
+
 		const primaryFile =
 			reactFiles.find(
 				(f) => !f.replace(/\\/g, '/').includes('/pages/')
@@ -1093,6 +1098,8 @@ const handleSvelteFastPath = async (
 			state.fileHashes.set(resolve(file), computeFileHash(file));
 		}
 
+		invalidateSvelteSsrCache();
+
 		const serverDuration = Date.now() - startTime;
 
 		for (const changedFile of svelteFiles) {
@@ -1249,6 +1256,8 @@ const handleVueFastPath = async (
 		for (const file of [...vueFiles, ...nonVueFiles]) {
 			state.fileHashes.set(resolve(file), computeFileHash(file));
 		}
+
+		invalidateVueSsrCache();
 
 		// Also invalidate non-Vue files (composables) so the module
 		// server serves the fresh version when the component re-imports.
@@ -2638,6 +2647,15 @@ const performFullRebuild = async (
 
 	if (affectedFrameworks.includes('angular')) {
 		invalidateAngularSsrCache();
+	}
+	if (affectedFrameworks.includes('react')) {
+		invalidateReactSsrCache();
+	}
+	if (affectedFrameworks.includes('svelte')) {
+		invalidateSvelteSsrCache();
+	}
+	if (affectedFrameworks.includes('vue')) {
+		invalidateVueSsrCache();
 	}
 
 	onRebuildComplete({ hmrState: state, manifest });

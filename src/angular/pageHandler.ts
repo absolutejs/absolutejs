@@ -51,7 +51,7 @@ export const handleAngularPageRequest = async <
 			const script = indexPath
 				? `<script type="module" src="${indexPath}"></script>`
 				: '';
-			const html = `<!DOCTYPE html><html>${headTag}<body><div id="root"><${lastSelector}></${lastSelector}></div>${script}</body></html>`;
+			const html = `<!DOCTYPE html><html>${headTag}<body><${lastSelector}></${lastSelector}>${script}</body></html>`;
 
 			return new Response(html, {
 				headers: { 'Content-Type': 'text/html' }

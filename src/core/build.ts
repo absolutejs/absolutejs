@@ -1,6 +1,7 @@
 import {
 	copyFileSync,
 	cpSync,
+	existsSync,
 	mkdirSync,
 	readFileSync,
 	rmSync,
@@ -1174,29 +1175,82 @@ export const build = async ({
 	// In dev mode, copy source indexes to build dir before cleanup.
 	// Rewrite relative page imports to absolute /@src/ paths since
 	// the indexes are moved from src/frontend/indexes/ to build/_src_indexes/
-	if (hmr && reactIndexesPath && reactPagesPath) {
+	if (hmr) {
 		const { readdirSync: readDir } = await import('node:fs');
 		const devIndexDir = join(buildPath, '_src_indexes');
 		mkdirSync(devIndexDir, { recursive: true });
 
-		const indexFiles = readDir(reactIndexesPath).filter((f: string) =>
-			f.endsWith('.tsx')
-		);
-		const pagesRel = relative(
-			process.cwd(),
-			resolve(reactPagesPath)
-		).replace(/\\/g, '/');
-
-		for (const file of indexFiles) {
-			let content = readFileSync(join(reactIndexesPath, file), 'utf-8');
-			// Rewrite relative page imports to absolute /@src/ paths since
-			// the indexes are moved from .absolutejs/generated/ to build/_src_indexes/
-			content = content.replace(
-				/from\s*['"]([^'"]*\/pages\/([^'"]+))['"]/g,
-				(_match, _fullPath, componentName) =>
-					`from '/@src/${pagesRel}/${componentName}'`
+		// React: rewrite relative page imports to /@src/ paths
+		if (reactIndexesPath && reactPagesPath) {
+			const indexFiles = readDir(reactIndexesPath).filter((f: string) =>
+				f.endsWith('.tsx')
 			);
-			writeFileSync(join(devIndexDir, file), content);
+			const pagesRel = relative(
+				process.cwd(),
+				resolve(reactPagesPath)
+			).replace(/\\/g, '/');
+
+			for (const file of indexFiles) {
+				let content = readFileSync(
+					join(reactIndexesPath, file),
+					'utf-8'
+				);
+				content = content.replace(
+					/from\s*['"]([^'"]*\/pages\/([^'"]+))['"]/g,
+					(_match, _fullPath, componentName) =>
+						`from '/@src/${pagesRel}/${componentName}'`
+				);
+				writeFileSync(join(devIndexDir, file), content);
+			}
+		}
+
+		// Svelte: rewrite compiled client imports to /@src/ source paths
+		if (svelteDir && sveltePagesPath) {
+			const svelteIndexDir = join(svelteDir, '.generated', 'indexes');
+			const sveltePageEntries = svelteEntries.filter((file) =>
+				resolve(file).startsWith(resolve(sveltePagesPath))
+			);
+			for (const entry of sveltePageEntries) {
+				const name = basename(entry).replace(
+					/\.svelte(\.(ts|js))?$/,
+					''
+				);
+				const indexFile = join(svelteIndexDir, 'pages', `${name}.js`);
+				if (!existsSync(indexFile)) continue;
+				let content = readFileSync(indexFile, 'utf-8');
+				const srcRel = relative(process.cwd(), resolve(entry)).replace(
+					/\\/g,
+					'/'
+				);
+				content = content.replace(
+					/import\s+Component\s+from\s+['"]([^'"]+)['"]/,
+					`import Component from "/@src/${srcRel}"`
+				);
+				writeFileSync(join(devIndexDir, `${name}.svelte.js`), content);
+			}
+		}
+
+		// Vue: rewrite compiled client imports to /@src/ source paths
+		if (vueDir && vuePagesPath) {
+			const vueIndexDir = join(vueDir, '.generated', 'indexes');
+			const vuePageEntries = vueEntries.filter((file) =>
+				resolve(file).startsWith(resolve(vuePagesPath))
+			);
+			for (const entry of vuePageEntries) {
+				const name = basename(entry, '.vue');
+				const indexFile = join(vueIndexDir, `${name}.js`);
+				if (!existsSync(indexFile)) continue;
+				let content = readFileSync(indexFile, 'utf-8');
+				const srcRel = relative(process.cwd(), resolve(entry)).replace(
+					/\\/g,
+					'/'
+				);
+				content = content.replace(
+					/import\s+Comp\s+from\s+['"]([^'"]+)['"]/,
+					`import Comp from "/@src/${srcRel}"`
+				);
+				writeFileSync(join(devIndexDir, `${name}.vue.js`), content);
+			}
 		}
 	}
 

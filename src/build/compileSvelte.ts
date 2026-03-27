@@ -235,6 +235,7 @@ import { hydrate, mount, unmount } from "svelte";
 
 var initialProps = (typeof window !== "undefined" && window.__INITIAL_PROPS__) ? window.__INITIAL_PROPS__ : {};
 var isHMR = typeof window !== "undefined" && window.__SVELTE_COMPONENT__ !== undefined;
+var isSsrDirty = typeof window !== "undefined" && window.__SSR_DIRTY__;
 var component;
 
 if (isHMR) {
@@ -251,6 +252,8 @@ if (isHMR) {
   }
   component = mount(Component, { target: document.body, props: mergedProps });
   window.__HMR_PRESERVED_STATE__ = undefined;
+} else if (isSsrDirty) {
+  component = mount(Component, { target: document.body, props: initialProps });
 } else {
   component = hydrate(Component, { target: document.body, props: initialProps });
 }
