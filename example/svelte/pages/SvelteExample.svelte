@@ -11,7 +11,7 @@
 
 <svelte:head>
 	<meta charset="utf-8" />
-	<title>S-HMR 14</title>
+	<title>AbsoluteJS + Svelte</title>
 	<meta name="description" content="AbsoluteJS Svelte Example" />
 	<meta name="viewport" content="width=device-width, initial-scale=1" />
 	<link rel="icon" href="/assets/ico/favicon.ico" />
