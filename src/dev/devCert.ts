@@ -105,8 +105,6 @@ const generateSelfSigned = () => {
 	);
 };
 
-export const hasCert = () => certFilesExist() && !isCertExpired();
-
 export const ensureDevCert = () => {
 	mkdirSync(CERT_DIR, { recursive: true });
 
@@ -136,7 +134,7 @@ export const ensureDevCert = () => {
 
 	return { cert: CERT_PATH, key: KEY_PATH };
 };
-
+export const hasCert = () => certFilesExist() && !isCertExpired();
 export const loadDevCert = () => {
 	const paths = ensureDevCert();
 	if (!paths) return null;
@@ -185,8 +183,8 @@ const installMkcert = () => {
 	if (os === 'linux') {
 		// stdin + stderr inherit for password prompt, stdout piped to hide package logs
 		const sudoOpts = {
-			stdin: 'inherit' as const,
 			stderr: 'inherit' as const,
+			stdin: 'inherit' as const,
 			stdout: 'pipe' as const
 		};
 
@@ -271,8 +269,8 @@ export const setupMkcert = () => {
 
 	// Install the local CA (adds to system trust store)
 	const installResult = Bun.spawnSync(['mkcert', '-install'], {
-		stdin: 'inherit',
 		stderr: 'pipe',
+		stdin: 'inherit',
 		stdout: 'pipe'
 	});
 

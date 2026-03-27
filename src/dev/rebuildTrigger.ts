@@ -367,6 +367,7 @@ export const queueFileChange = (
 		invalidate(resolve(filePath));
 		const relPath = relative(process.cwd(), filePath);
 		logHmrUpdate(relPath);
+
 		return;
 	}
 

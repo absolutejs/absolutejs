@@ -140,6 +140,7 @@ const rewriteImports = (
 			(_match, prefix, specifier, suffix) => {
 				const webPath = rewriter.lookup.get(specifier);
 				if (!webPath) return _match;
+
 				return `${prefix}${webPath}${suffix}`;
 			}
 		);
@@ -156,6 +157,7 @@ const rewriteImports = (
 		// Skip if already rewritten to a path
 		if (specifier.startsWith('/') || specifier.startsWith('.'))
 			return _match;
+
 		return `${prefix}/@stub/${encodeURIComponent(specifier)}${suffix}`;
 	};
 
@@ -206,6 +208,7 @@ const rewriteImports = (
 
 				srcPath = resolvedRel;
 			}
+
 			return `${prefix}${srcUrl(srcPath, projectRoot)}${suffix}`;
 		}
 	);
@@ -216,6 +219,7 @@ const rewriteImports = (
 		(_match, prefix, relPath, suffix) => {
 			const absPath = resolve(fileDir, relPath);
 			const rel = relative(projectRoot, absPath);
+
 			return `${prefix}${srcUrl(rel, projectRoot)}${suffix}`;
 		}
 	);
@@ -247,6 +251,7 @@ const rewriteImports = (
 					}
 				}
 			}
+
 			return `${prefix}${srcUrl(srcPath, projectRoot)}${suffix}`;
 		}
 	);
@@ -258,6 +263,7 @@ const rewriteImports = (
 		(_match, prefix, absPath, _ext, suffix) => {
 			if (absPath.startsWith(projectRoot)) {
 				const rel = relative(projectRoot, absPath).replace(/\\/g, '/');
+
 				return `${prefix}${srcUrl(rel, projectRoot)}${suffix}`;
 			}
 			// Path outside project root (e.g., node_modules package src)
@@ -266,6 +272,7 @@ const rewriteImports = (
 			if (!rel.startsWith('..')) {
 				return `${prefix}${srcUrl(rel, projectRoot)}${suffix}`;
 			}
+
 			return _match;
 		}
 	);
@@ -276,6 +283,7 @@ const rewriteImports = (
 		(_match, relPath) => {
 			const absPath = resolve(fileDir, relPath);
 			const rel = relative(projectRoot, absPath);
+
 			return `new URL('${srcUrl(rel, projectRoot)}', import.meta.url)`;
 		}
 	);
@@ -286,6 +294,7 @@ const rewriteImports = (
 		(_match, relPath) => {
 			const absPath = resolve(fileDir, relPath);
 			const rel = relative(projectRoot, absPath);
+
 			return `'${srcUrl(rel, projectRoot)}'`;
 		}
 	);
@@ -331,7 +340,7 @@ const findComponents = (code: string) => {
 		const startIdx = match.index;
 		const bodySlice = code.slice(startIdx, startIdx + 2000);
 		const hasHooks = Array.from(HOOK_NAMES).some((hook) =>
-			bodySlice.includes(hook + '(')
+			bodySlice.includes(`${hook}(`)
 		);
 
 		components.push({ hasHooks, name });
@@ -347,8 +356,9 @@ const computeHookSignature = (code: string, componentName: string) => {
 	const bodySlice = code.slice(startIdx, startIdx + 2000);
 	const hooks: string[] = [];
 	for (const hook of HOOK_NAMES) {
-		if (bodySlice.includes(hook + '(')) hooks.push(hook);
+		if (bodySlice.includes(`${hook}(`)) hooks.push(hook);
 	}
+
 	return Buffer.from(hooks.join(',')).toString('base64').slice(0, 12);
 };
 
@@ -450,7 +460,8 @@ const addJsxImport = (code: string) => {
 	}
 
 	if (imports.length === 0) return code;
-	return imports.join('\n') + '\n' + code;
+
+	return `${imports.join('\n')}\n${code}`;
 };
 
 // With the patched Bun.Transpiler (PR #28312), reactFastRefresh: true
@@ -495,9 +506,10 @@ const transformReactFile = (
 	);
 	// Prepend window global stubs for ESM scope
 	transpiled =
-		'var $RefreshReg$ = window.$RefreshReg$ || function(){};\n' +
-		'var $RefreshSig$ = window.$RefreshSig$ || function(){ return function(t){ return t; }; };\n' +
-		transpiled;
+		`var $RefreshReg$ = window.$RefreshReg$ || function(){};\n` +
+		`var $RefreshSig$ = window.$RefreshSig$ || function(){ return function(t){ return t; }; };\n${
+			transpiled
+		}`;
 
 	// Bun.Transpiler uses "input.tsx" as the default filename in
 	// $RefreshReg$ IDs. Replace with the real relative path so IDs
@@ -595,7 +607,7 @@ const injectComposableTracking = (
 		`}`
 	].join('\n');
 
-	let result = runtime + '\n' + code;
+	let result = `${runtime}\n${code}`;
 
 	// Wrap each use* export with __hmr_wrap.
 	// Find the export assignment, then use brace/paren counting to locate
@@ -631,10 +643,12 @@ const injectComposableTracking = (
 		}
 
 		const funcBody = result.slice(insertPos, endPos);
-		result =
-			result.slice(0, insertPos) +
-			`__hmr_wrap(${JSON.stringify(name)}, ${funcBody})` +
-			result.slice(endPos);
+		result = `${result.slice(
+			0,
+			insertPos
+		)}__hmr_wrap(${JSON.stringify(name)}, ${funcBody})${result.slice(
+			endPos
+		)}`;
 	}
 
 	return result;
@@ -725,9 +739,9 @@ const transformSvelteFile = async (
 		const compiled = svelteCompiler.compile(raw, {
 			css: 'external',
 			dev: true,
-			hmr: true,
 			filename: filePath,
-			generate: 'client'
+			generate: 'client',
+			hmr: true
 		});
 		code = compiled.js.code;
 
@@ -896,6 +910,7 @@ const handleCssRequest = (filePath: string) => {
 		.replace(/\\/g, '\\\\')
 		.replace(/`/g, '\\`')
 		.replace(/\$/g, '\\$');
+
 	return [
 		`const style = document.createElement('style');`,
 		`style.textContent = \`${escaped}\`;`,
@@ -1016,6 +1031,7 @@ export const createModuleServer = (config: ModuleServerConfig) => {
 			} catch {
 				// Can't import — serve minimal stub
 			}
+
 			return new Response(stubCode, {
 				headers: {
 					'Cache-Control': 'public, max-age=31536000, immutable',
@@ -1069,6 +1085,7 @@ export const createModuleServer = (config: ModuleServerConfig) => {
 				.replace(/\\/g, '\\\\')
 				.replace(/`/g, '\\`')
 				.replace(/\$/g, '\\$');
+
 			return jsResponse(
 				`var s=document.createElement('style');` +
 					`s.textContent=\`${escaped}\`;` +

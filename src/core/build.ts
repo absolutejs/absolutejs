@@ -368,7 +368,7 @@ export const build = async ({
 							'-o',
 							join(buildPath, tailwind.output)
 						],
-						{ stdout: 'pipe', stderr: 'pipe' }
+						{ stderr: 'pipe', stdout: 'pipe' }
 					);
 					await proc.exited;
 				})()
@@ -871,13 +871,15 @@ export const build = async ({
 			for (const srcPath of urlReferencedFiles) {
 				const srcBase = basename(srcPath).replace(/\.[^.]+$/, '');
 				const output = nonReactClientOutputs.find((a) =>
-					basename(a.path).startsWith(srcBase + '.')
+					basename(a.path).startsWith(`${srcBase}.`)
 				);
 				if (output) {
 					urlFileMap.set(
 						basename(srcPath),
-						'/' +
-							relative(buildPath, output.path).replace(/\\/g, '/')
+						`/${relative(buildPath, output.path).replace(
+							/\\/g,
+							'/'
+						)}`
 					);
 				}
 			}
@@ -891,8 +893,10 @@ export const build = async ({
 				const resolvedPath = urlFileMap.get(targetName);
 				if (resolvedPath) {
 					changed = true;
+
 					return `new URL('${resolvedPath}', import.meta.url)`;
 				}
+
 				return _match;
 			});
 			if (changed) writeFileSync(outputPath, content);
@@ -965,11 +969,9 @@ export const build = async ({
 			// Insert runtime before the first use* function
 			const firstUseIdx = content.indexOf(`var ${useNames[0]} =`);
 			if (firstUseIdx === -1) continue;
-			content =
-				content.slice(0, firstUseIdx) +
-				runtime +
-				'\n' +
-				content.slice(firstUseIdx);
+			content = `${
+				content.slice(0, firstUseIdx) + runtime
+			}\n${content.slice(firstUseIdx)}`;
 
 			// Wrap each use* function
 			for (const name of useNames) {
@@ -1002,10 +1004,12 @@ export const build = async ({
 				}
 
 				const funcBody = content.slice(afterMarker, endPos);
-				content =
-					content.slice(0, afterMarker) +
-					`__hmr_wrap(${JSON.stringify(name)}, ${funcBody})` +
-					content.slice(endPos);
+				content = `${content.slice(
+					0,
+					afterMarker
+				)}__hmr_wrap(${JSON.stringify(name)}, ${funcBody})${content.slice(
+					endPos
+				)}`;
 			}
 
 			writeFileSync(outputPath, content);

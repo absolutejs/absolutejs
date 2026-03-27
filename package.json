@@ -81,6 +81,14 @@
 	"license": "BSL-1.1",
 	"main": "./dist/index.js",
 	"name": "@absolutejs/absolute",
+	"optionalDependencies": {
+		"@absolutejs/native-darwin-arm64": "0.19.0-beta.52",
+		"@absolutejs/native-darwin-x64": "0.19.0-beta.52",
+		"@absolutejs/native-linux-arm64": "0.19.0-beta.52",
+		"@absolutejs/native-linux-x64": "0.19.0-beta.52",
+		"@absolutejs/native-windows-arm64": "0.19.0-beta.52",
+		"@absolutejs/native-windows-x64": "0.19.0-beta.52"
+	},
 	"overrides": {
 		"@typescript-eslint/utils": "8.56.1"
 	},
@@ -136,14 +144,6 @@
 		"zone.js": {
 			"optional": true
 		}
-	},
-	"optionalDependencies": {
-		"@absolutejs/native-darwin-arm64": "0.19.0-beta.52",
-		"@absolutejs/native-darwin-x64": "0.19.0-beta.52",
-		"@absolutejs/native-linux-arm64": "0.19.0-beta.52",
-		"@absolutejs/native-linux-x64": "0.19.0-beta.52",
-		"@absolutejs/native-windows-arm64": "0.19.0-beta.52",
-		"@absolutejs/native-windows-x64": "0.19.0-beta.52"
 	},
 	"repository": {
 		"type": "git",

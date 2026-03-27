@@ -80,7 +80,7 @@ describe('patchRefreshGlobals', () => {
 
 		const result = await readFile(file, 'utf8');
 		expect(result).toBe(STUB_PREFIX + original);
-		await rm(dir, { recursive: true, force: true });
+		await rm(dir, { force: true, recursive: true });
 	});
 
 	test('prepends stubs to chunk with bare $RefreshSig$ call', async () => {
@@ -93,7 +93,7 @@ describe('patchRefreshGlobals', () => {
 
 		const result = await readFile(file, 'utf8');
 		expect(result).toBe(STUB_PREFIX + original);
-		await rm(dir, { recursive: true, force: true });
+		await rm(dir, { force: true, recursive: true });
 	});
 
 	test('skips files without $RefreshReg$ or $RefreshSig$', async () => {
@@ -106,22 +106,22 @@ describe('patchRefreshGlobals', () => {
 
 		const result = await readFile(file, 'utf8');
 		expect(result).toBe(original);
-		await rm(dir, { recursive: true, force: true });
+		await rm(dir, { force: true, recursive: true });
 	});
 
 	test('skips files already patched', async () => {
 		const dir = await makeTemp();
 		const file = join(dir, 'chunk-already.js');
 		const original =
-			STUB_PREFIX +
-			'var Bar = function() {};\n$RefreshReg$(Bar, "Bar.tsx:Bar");\n';
+			`${STUB_PREFIX 
+			}var Bar = function() {};\n$RefreshReg$(Bar, "Bar.tsx:Bar");\n`;
 		await writeFile(file, original);
 
 		await patchRefreshGlobals([file]);
 
 		const result = await readFile(file, 'utf8');
 		expect(result).toBe(original);
-		await rm(dir, { recursive: true, force: true });
+		await rm(dir, { force: true, recursive: true });
 	});
 
 	test('skips non-js files', async () => {
@@ -134,7 +134,7 @@ describe('patchRefreshGlobals', () => {
 
 		const result = await readFile(file, 'utf8');
 		expect(result).toBe(original);
-		await rm(dir, { recursive: true, force: true });
+		await rm(dir, { force: true, recursive: true });
 	});
 
 	test('patches multiple files in parallel', async () => {
@@ -154,7 +154,7 @@ describe('patchRefreshGlobals', () => {
 		expect(await readFile(fileA, 'utf8')).toBe(STUB_PREFIX + withRefresh);
 		expect(await readFile(fileB, 'utf8')).toBe(withoutRefresh);
 		expect(await readFile(fileC, 'utf8')).toBe(STUB_PREFIX + withRefresh);
-		await rm(dir, { recursive: true, force: true });
+		await rm(dir, { force: true, recursive: true });
 	});
 });
 
@@ -193,7 +193,7 @@ describe('reactFastRefresh build output', () => {
 				}
 			}
 
-			await rm(dir, { recursive: true, force: true });
+			await rm(dir, { force: true, recursive: true });
 		},
 		15_000
 	);

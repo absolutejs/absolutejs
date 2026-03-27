@@ -420,6 +420,7 @@ export const devBuild = async (config: BuildConfig) => {
 		await loadVendorFiles(state.assetStore, vendorDir, 'vendor');
 		// Store dep vendor paths for the module server
 		globalThis.__depVendorPaths = depPaths;
+
 		return true;
 	});
 

@@ -77,8 +77,8 @@ export const prepare = async (configOrPath?: string) => {
 		for (const { dir, pattern } of prewarmDirs) {
 			const glob = new Glob(pattern);
 			for (const file of glob.scanSync({
-				cwd: resolve(dir),
-				absolute: true
+				absolute: true,
+				cwd: resolve(dir)
 			})) {
 				if (file.includes('/node_modules/')) continue;
 				const rel = relative(process.cwd(), file).replace(/\\/g, '/');

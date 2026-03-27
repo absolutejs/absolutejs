@@ -15,6 +15,7 @@ const reactSpecifiers = [
 const isResolvable = (specifier: string) => {
 	try {
 		require.resolve(specifier);
+
 		return true;
 	} catch {
 		return false;

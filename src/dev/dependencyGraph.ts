@@ -134,8 +134,8 @@ export const buildInitialDependencyGraph = (
 		if (!existsSync(resolvedDir)) continue;
 
 		for (const file of glob.scanSync({
-			cwd: resolvedDir,
-			absolute: true
+			absolute: true,
+			cwd: resolvedDir
 		})) {
 			const fullPath = resolve(file);
 			if (IGNORED_SEGMENTS.some((seg) => fullPath.includes(seg)))

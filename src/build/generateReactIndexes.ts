@@ -339,7 +339,7 @@ export const generateReactIndexFiles = async (
 				? [
 						`\n// Pre-warm: import the page module from the module server`,
 						`// immediately so the browser caches all /@src/ URLs.`,
-						`import('/@src/${relative(process.cwd(), resolve(reactPagesDirectory, componentName + '.tsx')).replace(/\\/g, '/')}').catch(() => {});`
+						`import('/@src/${relative(process.cwd(), resolve(reactPagesDirectory, `${componentName  }.tsx`)).replace(/\\/g, '/')}').catch(() => {});`
 					]
 				: [])
 		].join('\n');

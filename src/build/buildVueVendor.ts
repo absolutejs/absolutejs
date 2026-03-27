@@ -52,6 +52,7 @@ export const buildVueVendor = async (buildDir: string) => {
 
 	if (!result.success) {
 		console.warn('⚠️ Vue vendor build had errors:', result.logs);
+
 		return;
 	}
 

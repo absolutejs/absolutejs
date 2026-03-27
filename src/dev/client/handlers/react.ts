@@ -31,8 +31,8 @@ export const handleReactUpdate = (message: {
 	}
 
 	const refreshRuntime = window.$RefreshRuntime$;
-	const serverDuration = message.data.serverDuration;
-	const pageModuleUrl = message.data.pageModuleUrl;
+	const { serverDuration } = message.data;
+	const { pageModuleUrl } = message.data;
 
 	if (pageModuleUrl && refreshRuntime) {
 		applyRefreshImport(pageModuleUrl, refreshRuntime, serverDuration);

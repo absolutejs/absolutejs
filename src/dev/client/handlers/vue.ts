@@ -193,7 +193,7 @@ export const handleVueUpdate = (message: {
 	// O(1) Vue HMR: import the changed module directly.
 	// __VUE_HMR_RUNTIME__.reload() inside the module hot-swaps the
 	// component in place — same pattern as React Fast Refresh.
-	const pageModuleUrl = message.data.pageModuleUrl;
+	const { pageModuleUrl } = message.data;
 	if (pageModuleUrl) {
 		const clientStart = performance.now();
 		const modulePath = `${pageModuleUrl}?t=${Date.now()}`;

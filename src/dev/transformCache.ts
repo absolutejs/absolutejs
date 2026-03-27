@@ -54,41 +54,6 @@ const invalidationVersions =
 		| undefined) ?? new Map<string, number>();
 globalStore.__transformInvalidationVersions = invalidationVersions;
 
-export const getInvalidationVersion = (filePath: string) =>
-	invalidationVersions.get(filePath) ?? 0;
-
-// Invalidate a file and its direct importers (one level up).
-// The direct importers need re-transpilation so their import of
-// the changed file gets a fresh ?v= param.
-export const invalidate = (filePath: string) => {
-	cache.delete(filePath);
-
-	// Bump the CHANGED file's version so when importers are
-	// re-transpiled, srcUrl() generates a new ?v= for it.
-	invalidationVersions.set(
-		filePath,
-		(invalidationVersions.get(filePath) ?? 0) + 1
-	);
-
-	// Clear transform cache for direct importers so they get
-	// re-transpiled with the changed file's new ?v= param.
-	const parents = importers.get(filePath);
-	if (parents) {
-		for (const parent of parents) {
-			cache.delete(parent);
-		}
-	}
-};
-
-export const invalidateAll = () => {
-	cache.clear();
-	importers.clear();
-};
-
-// Walk up the runtime import graph to find the nearest component
-// (.tsx/.jsx) that imports this file. Returns the component path,
-// or undefined if none found. Used so HMR can re-import just the
-// nearest boundary instead of the entire page tree.
 export const findNearestComponent = (filePath: string) => {
 	const visited = new Set<string>();
 	const queue = [filePath];
@@ -109,4 +74,29 @@ export const findNearestComponent = (filePath: string) => {
 	}
 
 	return undefined;
+};
+export const getInvalidationVersion = (filePath: string) =>
+	invalidationVersions.get(filePath) ?? 0;
+export const invalidate = (filePath: string) => {
+	cache.delete(filePath);
+
+	// Bump the CHANGED file's version so when importers are
+	// re-transpiled, srcUrl() generates a new ?v= for it.
+	invalidationVersions.set(
+		filePath,
+		(invalidationVersions.get(filePath) ?? 0) + 1
+	);
+
+	// Clear transform cache for direct importers so they get
+	// re-transpiled with the changed file's new ?v= param.
+	const parents = importers.get(filePath);
+	if (parents) {
+		for (const parent of parents) {
+			cache.delete(parent);
+		}
+	}
+};
+export const invalidateAll = () => {
+	cache.clear();
+	importers.clear();
 };

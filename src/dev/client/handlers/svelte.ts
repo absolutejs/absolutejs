@@ -260,7 +260,7 @@ export const handleSvelteUpdate = (message: {
 	// O(1) Svelte 5 HMR: import the changed module, then call its
 	// accept callback. Svelte's $.hmr() reactive wrapper swaps the
 	// component in place — parent state and DOM survive untouched.
-	const pageModuleUrl = message.data.pageModuleUrl;
+	const { pageModuleUrl } = message.data;
 	if (pageModuleUrl) {
 		const clientStart = performance.now();
 		const modulePath = `${pageModuleUrl}?t=${Date.now()}`;

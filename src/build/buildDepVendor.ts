@@ -9,6 +9,7 @@ const toSafeFileName = (specifier: string) =>
 const isResolvable = (specifier: string) => {
 	try {
 		require.resolve(specifier);
+
 		return true;
 	} catch {
 		return false;
@@ -90,17 +91,6 @@ const scanBareImports = async (directories: string[]) => {
 const generateEntrySource = (specifier: string) =>
 	`export * from '${specifier}';\n`;
 
-export const computeDepVendorPaths = async (directories: string[]) => {
-	const specifiers = await scanBareImports(directories);
-	const paths: Record<string, string> = {};
-
-	for (const specifier of specifiers) {
-		paths[specifier] = `/vendor/${toSafeFileName(specifier)}.js`;
-	}
-
-	return paths;
-};
-
 export const buildDepVendor = async (
 	buildDir: string,
 	directories: string[]
@@ -120,6 +110,7 @@ export const buildDepVendor = async (
 			const entryPath = join(tmpDir, `${safeName}.ts`);
 			const source = await generateEntrySource(specifier);
 			await Bun.write(entryPath, source);
+
 			return entryPath;
 		})
 	);
@@ -184,6 +175,16 @@ export const buildDepVendor = async (
 	}
 
 	const paths: Record<string, string> = {};
+	for (const specifier of specifiers) {
+		paths[specifier] = `/vendor/${toSafeFileName(specifier)}.js`;
+	}
+
+	return paths;
+};
+export const computeDepVendorPaths = async (directories: string[]) => {
+	const specifiers = await scanBareImports(directories);
+	const paths: Record<string, string> = {};
+
 	for (const specifier of specifiers) {
 		paths[specifier] = `/vendor/${toSafeFileName(specifier)}.js`;
 	}

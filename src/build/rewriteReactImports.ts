@@ -26,6 +26,7 @@ const cacheKey = (vendorPaths: Record<string, string>) => {
 	for (const [k, v] of entries) {
 		key += `${k}\0${v}\0`;
 	}
+
 	return key;
 };
 
@@ -58,6 +59,7 @@ const getOrCompileRewriter = (vendorPaths: Record<string, string>) => {
 		sideEffectRegex
 	};
 	rewriterCache.set(key, rewriter);
+
 	return rewriter;
 };
 
@@ -73,6 +75,7 @@ const applyAllReplacements = (
 	) => {
 		const webPath = rewriter.lookup.get(specifier);
 		if (!webPath) return _match;
+
 		return `${prefix}${webPath}${suffix}`;
 	};
 
@@ -84,6 +87,7 @@ const applyAllReplacements = (
 	result = result.replace(rewriter.fromRegex, replacer);
 	result = result.replace(rewriter.sideEffectRegex, replacer);
 	result = result.replace(rewriter.dynamicRegex, replacer);
+
 	return result;
 };
 

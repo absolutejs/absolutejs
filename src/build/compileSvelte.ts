@@ -148,9 +148,9 @@ export const compileSvelte = async (
 				: compile(transpiled, {
 						css: 'injected',
 						dev: mode === 'client' && dev,
-						hmr: mode === 'client' && isDev,
 						filename: src,
-						generate: mode
+						generate: mode,
+						hmr: mode === 'client' && isDev
 					}).js.code;
 			let code = raw.replace(
 				/\.svelte(?:\.(?:ts|js))?(['"])/g,
