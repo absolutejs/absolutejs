@@ -49,7 +49,28 @@ export const generateManifest = (outputs: BuildArtifact[], buildPath: string) =>
 		const ext = extname(fileWithHash);
 
 		if (ext === '.css') {
-			const cssKey = `${pascalName}CSS`;
+			// Distinguish CSS from different sources to avoid key collisions.
+			// CSS co-emitted from a JS bundle (e.g. CSS Modules) lives under a
+			// framework path like react/generated/indexes/, while global
+			// stylesheets from the styles directory land directly in indexes/.
+			// Vue compiled SFC styles live in assets/css/.
+			const isFromReact = segments.some((seg) => seg === 'react');
+			const isFromVue = segments.some((seg) => seg === 'vue');
+			const isFromSvelte = segments.some((seg) => seg === 'svelte');
+			const isFromAngular = segments.some((seg) => seg === 'angular');
+			const isFromFramework = isFromReact || isFromVue || isFromSvelte || isFromAngular;
+
+			let cssKey: string;
+			if (isFromVue && segments.includes('css')) {
+				cssKey = `${pascalName}CompiledCSS`;
+			} else if (isFromFramework) {
+				// CSS co-emitted with a framework bundle (CSS Modules, etc.)
+				cssKey = `${pascalName}BundledCSS`;
+			} else {
+				// Global stylesheets from the styles directory (existing behavior)
+				cssKey = `${pascalName}CSS`;
+			}
+
 			if (manifest[cssKey] && manifest[cssKey] !== `/${relative}`)
 				logWarn(
 					`Duplicate manifest key "${cssKey}" — "${manifest[cssKey]}" will be overwritten by "/${relative}". Use unique page names across frameworks.`
