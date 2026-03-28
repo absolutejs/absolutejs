@@ -4,7 +4,7 @@ Features missing from AbsoluteJS that Next.js provides, ordered by priority. Eac
 
 ---
 
-## P1 — Image Optimization
+## 1. P1 — Image Optimization
 
 **What Next.js does:**
 `<Image>` component that automatically converts images to WebP/AVIF, generates responsive `srcset` attributes, lazy loads with blur placeholders, and serves optimized images through an on-demand image optimization API route. Prevents layout shift with required width/height.
@@ -26,7 +26,7 @@ Nothing. Images are served as-is from the public/assets directory.
 
 ---
 
-## P1 — Loading / Error / Not-Found States
+## 2. P1 — Loading / Error / Not-Found States
 
 **What Next.js does:**
 Per-route-segment `loading.tsx` (shows during async data fetch), `error.tsx` (catches runtime errors with React error boundary), and `not-found.tsx` (404 page). These are automatic — drop the file in and it works.
@@ -51,7 +51,7 @@ Per-route-segment `loading.tsx` (shows during async data fetch), `error.tsx` (ca
 
 ---
 
-## P1 — Client-Side Navigation / SPA Mode with `<Link>`
+## 3. P1 — Client-Side Navigation / SPA Mode with `<Link>`
 
 **What Next.js does:**
 `<Link>` component that intercepts clicks and does client-side navigation — fetches only the new page's data/RSC payload, swaps the content, and preserves layout state (scroll position, open menus, form inputs). Prefetches linked pages on hover or when they enter the viewport. This is what makes Next.js apps feel like SPAs even though they're server-rendered.
@@ -123,7 +123,7 @@ React Router and similar client-side routers can't help here — they swap clien
 
 ---
 
-## P1 — Islands Architecture (Multi-Framework Pages)
+## 4. P1 — Islands Architecture (Multi-Framework Pages)
 
 **What Astro does:**
 Pages are rendered as static HTML with interactive "islands" — individual components that hydrate independently. Each island can be a different framework (React, Svelte, Vue, etc.) on the same page. Hydration is controlled with directives: `client:load` (immediate), `client:idle` (requestIdleCallback), `client:visible` (IntersectionObserver). Non-interactive content ships zero JS.
@@ -412,112 +412,7 @@ The key insight: `defineIslandRegistry` accepts actual imported components at ru
 
 ---
 
-## P2 — Sass/SCSS/Less Preprocessing
-
-**What Next.js does:**
-Built-in Sass support. Import `.scss` or `.sass` files directly. Also supports `.module.scss` for scoped Sass modules.
-
-**What AbsoluteJS has today:**
-Only `.css` files. Tailwind handles utility classes. No preprocessor support.
-
-**What needs to be built:**
-- A Bun build plugin that compiles `.scss`/`.sass`/`.less` files to CSS before bundling
-- Bun has a plugin API for custom loaders — register `.scss` extension with a loader that calls the sass compiler
-- Support `.module.scss` for scoped Sass modules (Bun's CSS Module handling + Sass compilation)
-- Add `sass` as an optional peer dependency
-
-**Files likely involved:**
-- New: `src/build/sassPlugin.ts` — Bun plugin that compiles Sass
-- `src/core/build.ts` — register the plugin in the Bun.build() calls
-- `src/build/scanCssEntryPoints.ts` — extend glob to include `**/*.scss`, `**/*.sass`, `**/*.less`
-
----
-
-## P2 — Middleware
-
-**What Next.js does:**
-A single `middleware.ts` at the project root that runs before every request. Can rewrite URLs, redirect, set headers, check auth, do A/B testing, geolocation-based routing. Runs on the edge (lightweight V8 isolate).
-
-**What AbsoluteJS has today:**
-Elysia's full middleware system — `onBeforeHandle`, `onAfterHandle`, `.use()` plugin chain, `derive`, `guard`. This is actually more powerful than Next.js middleware but less conventionalized.
-
-**What needs to be built:**
-- Honestly, this might just need documentation. Elysia's `onBeforeHandle` IS middleware. A `guard()` block with auth checks IS the auth middleware pattern.
-- Consider a thin `middleware()` helper that wraps the common pattern: check auth, redirect if not authenticated, rewrite URLs, set CORS headers
-- Examples showing: auth guard, redirect, URL rewrite, rate limiting, CORS
-- The key gap isn't functionality — it's discoverability. New users don't know that Elysia's `onBeforeHandle` is the middleware they're looking for.
-
-**Files likely involved:**
-- Mostly documentation/examples
-- Optional: `src/utils/middleware.ts` — convenience wrappers for common patterns
-
----
-
-## P3 — Internationalization (i18n)
-
-**What Next.js does:**
-Built-in locale routing (`/en/about`, `/fr/about`), locale detection from Accept-Language header, and domain-based routing. Integrates with i18n libraries like next-intl.
-
-**What AbsoluteJS has today:**
-Nothing.
-
-**What needs to be built:**
-- Locale detection middleware (Accept-Language header parsing, cookie-based locale persistence)
-- URL prefix routing pattern (`/:locale/page`)
-- A helper to load translation files and inject them as props
-- Per-framework translation access patterns (React context, Vue provide/inject, Svelte stores)
-- This is mostly a pattern/plugin, not core framework work
-
-**Files likely involved:**
-- New: `src/plugins/i18n.ts` — Elysia plugin for locale detection and routing
-- Documentation showing integration with popular i18n libraries
-
----
-
-## P3 — Font Optimization
-
-**What Next.js does:**
-`next/font` automatically downloads Google Fonts at build time (no external requests), subsets them, adds `font-display: swap`, and inlines the CSS. Self-hosted fonts get the same optimizations. Zero layout shift from font loading.
-
-**What AbsoluteJS has today:**
-`generateHeadElement()` adds a Google Fonts `<link>` with `display=swap`. Fonts are loaded at runtime from Google's CDN.
-
-**What needs to be built:**
-- A build-time step that downloads declared Google Fonts, subsets them (woff2), and writes them to the assets directory
-- Inline the `@font-face` CSS directly in the `<head>` instead of linking to Google
-- This eliminates the external request to Google, improves privacy, and prevents FOUT
-- Consider a `defineFont()` helper that takes a font config and returns the CSS + paths
-
-**Files likely involved:**
-- New: `src/build/downloadFonts.ts` — fetches and subsets Google Fonts at build time
-- `src/utils/generateHeadElement.ts` — inline font CSS instead of external link
-- `src/core/build.ts` — add font download step to build pipeline
-
----
-
-## P3 — Edge Runtime / Serverless Deployment
-
-**What Next.js does:**
-Routes can opt into the Edge Runtime (lightweight V8) for lower latency at the edge. Serverless function deployment on Vercel, AWS Lambda, Cloudflare Workers. Middleware always runs on edge.
-
-**What AbsoluteJS has today:**
-Bun-only. Requires a long-running Bun server process. No serverless or edge adapter.
-
-**What needs to be built:**
-- Deployment adapters for common platforms (Fly.io, Railway, Render are easy since they support Bun directly)
-- Docker template with a minimal Bun image
-- For serverless: an adapter that wraps the Elysia server as a Lambda/Cloud Function handler
-- Edge runtime is unlikely to be worth pursuing — Bun doesn't run on Cloudflare Workers, and the Bun server is already fast enough that edge latency gains are marginal
-- Focus on making traditional deployment dead simple rather than chasing edge
-
-**Files likely involved:**
-- New: `src/adapters/docker/Dockerfile`
-- New: `src/adapters/lambda.ts` — AWS Lambda adapter
-- Documentation for common deployment targets
-
----
-
-## P1 — Out-of-Order Streaming
+## 5. P1 — Out-of-Order Streaming
 
 **What SolidStart does:**
 Components stream to the client as they resolve, not in DOM order. If your sidebar data query finishes before your main content query, the sidebar HTML ships first. The browser renders each chunk into the correct DOM position regardless of arrival order. This means the fastest data always appears first — no waterfall where a slow hero section blocks the entire page.
@@ -573,7 +468,7 @@ With in-order streaming, the activity feed waits for the stats section even thou
 
 ---
 
-## P1 — Form Actions with Progressive Enhancement
+## 6. P1 — Form Actions with Progressive Enhancement
 
 **What SvelteKit and Remix do:**
 Forms submit to the server as plain HTML `<form action="/submit" method="POST">` — this works with zero JavaScript. The server processes the form, validates input, and returns a result (redirect, error, or updated page). When JavaScript IS available, the framework intercepts the submission, sends it via `fetch()` instead, and updates the page without a full reload. The developer writes one handler that works both ways.
@@ -664,77 +559,7 @@ Elysia POST handlers work for form processing, but there's no convention for pro
 
 ---
 
-## P2 — Partial Prerendering (requires SSG)
-
-**What Next.js 16 does:**
-A page is split into a static shell (navbar, footer, layout — cached at CDN) and dynamic "holes" that stream in at request time (user-specific content, real-time data). The static parts load instantly from cache while the dynamic parts stream in via SSR. From the user's perspective, the page appears instantly with personalized content filling in smoothly.
-
-Next.js implements this by combining static generation with Suspense boundaries — everything outside a `<Suspense>` boundary is pre-rendered at build time, and the Suspense fallbacks are replaced with streamed server-rendered content at request time.
-
-**What AbsoluteJS has today:**
-Every page is fully server-rendered at request time. No static caching of any page content. The entire page waits for all data before any HTML is sent (unless using streaming SSR, which streams in-order but still requires the server to render everything on each request).
-
-**Why this matters:**
-Most pages are 80% static content (nav, sidebar, footer, headings, layout) and 20% dynamic (user name, notifications, personalized feed). Rendering that 80% on every request is wasted work. Partial prerendering means:
-- The static shell loads from CDN in ~50ms (no server round-trip)
-- The dynamic holes stream from the server in ~200-500ms
-- Combined: users see a near-instant page with dynamic content appearing smoothly
-- Server load drops dramatically — most of the HTML is served from cache
-
-**What needs to be built (depends on SSG being implemented first):**
-
-*Build-time static shell generation:*
-- During the build, render each page but stop at dynamic boundaries (Suspense, `{#await}`, `<Suspense>`, `@defer`)
-- Write the static HTML (everything outside dynamic boundaries) to disk with placeholder slots for the dynamic parts
-- The static shell includes all CSS, the page layout, and fallback content (loading skeletons) for each dynamic slot
-
-*Request-time dynamic streaming:*
-- When a request comes in, serve the static shell immediately from disk/cache
-- Simultaneously, render the dynamic parts on the server and stream them into the placeholder slots
-- Reuse the out-of-order streaming infrastructure — the `$RC` swap script handles inserting dynamic content into the static shell
-
-*Per-framework dynamic boundaries:*
-- **React**: `<Suspense>` boundaries — everything inside is dynamic, everything outside is static
-- **Svelte**: `{#await}` blocks or a new `<Dynamic>` component
-- **Vue**: `<Suspense>` component — same pattern as React
-- **Angular**: `@defer` blocks — natural fit, Angular already distinguishes static vs deferred content
-
-*Caching strategy:*
-- Static shells cached in memory and/or on disk with content-hash keys
-- Cache invalidation: rebuild the shell when the page's static parts change (detected via file watcher or manual invalidation)
-- Dynamic parts are never cached (they're user-specific/time-specific)
-- CDN integration: set `Cache-Control` headers so the static shell is edge-cached while the dynamic stream bypasses cache
-
-*Configuration:*
-- Per-page opt-in via a config option or export:
-  ```ts
-  // In the route handler
-  app.get('/dashboard', () =>
-    handleReactPageRequest(Dashboard, manifest['DashboardIndex'], {
-      prerender: 'partial',  // static shell + dynamic streaming
-      props: { userId: getCurrentUser() }
-    })
-  )
-  ```
-- Or via the build config for pages that should always be partially prerendered
-
-**Design considerations:**
-- The static shell must be a valid HTML document on its own — if dynamic streaming fails, the user sees the shell with fallback content (loading skeletons), not a broken page.
-- Dynamic boundaries should be explicit — the developer marks what's dynamic, everything else is assumed static. No guessing.
-- This compounds with islands — an island with `hydrate="visible"` inside a dynamic boundary gets: static shell → streamed SSR HTML → hydrated on scroll. Three layers of progressive loading.
-- Hot reloading in dev: skip the static cache and render everything server-side (same as today). Partial prerendering is a production optimization only.
-
-**Files likely involved:**
-- Builds on top of SSG implementation and out-of-order streaming
-- New: `src/core/partialPrerender.ts` — orchestrates static shell serving + dynamic streaming
-- New: `src/build/generateStaticShells.ts` — renders pages at build time, extracts static content, writes shells to disk
-- `src/utils/streamingSlots.ts` — reused from out-of-order streaming for dynamic slot insertion
-- Each framework's `pageHandler.ts` — add `prerender: 'partial'` mode that serves cached shell + streams dynamic parts
-- `src/plugins/hmr.ts` — static shell cache invalidation when source files change
-
----
-
-## P1 — AI/LLM Streaming Helpers
+## 7. P1 — AI/LLM Streaming Helpers
 
 **What exists today in the ecosystem:**
 Vercel's `ai` SDK (`npm install ai`) provides React hooks and server utilities for streaming LLM responses. It works with Next.js, SvelteKit, and Nuxt. But it uses Server-Sent Events (SSE) because Next.js has no native WebSocket support. SSE is one-directional (server → client only) — the client can't send messages mid-stream (cancel, follow-up, branch conversation) without opening a new HTTP request.
@@ -967,7 +792,7 @@ type AIServerMessage =
 
 ---
 
-## P1 — Type-Safe Environment Variables (`defineEnv`)
+## 8. P1 — Type-Safe Environment Variables (`defineEnv`)
 
 **The problem:**
 `process.env.DATABASE_URL` is always `string | undefined` in TypeScript. Typos are silent (`process.env.DATABSE_URL` → `undefined`, no error). Missing vars cause runtime crashes in production. Numeric vars like `PORT` come back as strings and need manual parsing. There's no single place to see what env vars an app requires.
@@ -1034,7 +859,7 @@ if (env.NODE_ENV === 'development') { ... }  // narrowed union
 
 ---
 
-## P1 — Security Headers + CSP Nonce Injection
+## 9. P1 — Security Headers + CSP Nonce Injection
 
 **The problem:**
 Most web apps ship with zero security headers. Without a Content-Security-Policy, any XSS vulnerability lets attackers inject arbitrary `<script>` tags that execute freely. AbsoluteJS injects inline scripts on every page (`window.__INITIAL_PROPS__=...`, `$RefreshReg$` buffer, HMR client) — all of these are blocked by a strict CSP unless they have a per-request nonce.
@@ -1133,7 +958,118 @@ app.use(secureHeaders({
 
 ---
 
-## P2 — Web Vitals Reporting
+## 10. P2 — Sass/SCSS/Less Preprocessing
+
+**What Next.js does:**
+Built-in Sass support. Import `.scss` or `.sass` files directly. Also supports `.module.scss` for scoped Sass modules.
+
+**What AbsoluteJS has today:**
+Only `.css` files. Tailwind handles utility classes. No preprocessor support.
+
+**What needs to be built:**
+- A Bun build plugin that compiles `.scss`/`.sass`/`.less` files to CSS before bundling
+- Bun has a plugin API for custom loaders — register `.scss` extension with a loader that calls the sass compiler
+- Support `.module.scss` for scoped Sass modules (Bun's CSS Module handling + Sass compilation)
+- Add `sass` as an optional peer dependency
+
+**Files likely involved:**
+- New: `src/build/sassPlugin.ts` — Bun plugin that compiles Sass
+- `src/core/build.ts` — register the plugin in the Bun.build() calls
+- `src/build/scanCssEntryPoints.ts` — extend glob to include `**/*.scss`, `**/*.sass`, `**/*.less`
+
+---
+
+## 11. P2 — Middleware
+
+**What Next.js does:**
+A single `middleware.ts` at the project root that runs before every request. Can rewrite URLs, redirect, set headers, check auth, do A/B testing, geolocation-based routing. Runs on the edge (lightweight V8 isolate).
+
+**What AbsoluteJS has today:**
+Elysia's full middleware system — `onBeforeHandle`, `onAfterHandle`, `.use()` plugin chain, `derive`, `guard`. This is actually more powerful than Next.js middleware but less conventionalized.
+
+**What needs to be built:**
+- Honestly, this might just need documentation. Elysia's `onBeforeHandle` IS middleware. A `guard()` block with auth checks IS the auth middleware pattern.
+- Consider a thin `middleware()` helper that wraps the common pattern: check auth, redirect if not authenticated, rewrite URLs, set CORS headers
+- Examples showing: auth guard, redirect, URL rewrite, rate limiting, CORS
+- The key gap isn't functionality — it's discoverability. New users don't know that Elysia's `onBeforeHandle` is the middleware they're looking for.
+
+**Files likely involved:**
+- Mostly documentation/examples
+- Optional: `src/utils/middleware.ts` — convenience wrappers for common patterns
+
+---
+
+## 12. P2 — Partial Prerendering (requires SSG)
+
+**What Next.js 16 does:**
+A page is split into a static shell (navbar, footer, layout — cached at CDN) and dynamic "holes" that stream in at request time (user-specific content, real-time data). The static parts load instantly from cache while the dynamic parts stream in via SSR. From the user's perspective, the page appears instantly with personalized content filling in smoothly.
+
+Next.js implements this by combining static generation with Suspense boundaries — everything outside a `<Suspense>` boundary is pre-rendered at build time, and the Suspense fallbacks are replaced with streamed server-rendered content at request time.
+
+**What AbsoluteJS has today:**
+Every page is fully server-rendered at request time. No static caching of any page content. The entire page waits for all data before any HTML is sent (unless using streaming SSR, which streams in-order but still requires the server to render everything on each request).
+
+**Why this matters:**
+Most pages are 80% static content (nav, sidebar, footer, headings, layout) and 20% dynamic (user name, notifications, personalized feed). Rendering that 80% on every request is wasted work. Partial prerendering means:
+- The static shell loads from CDN in ~50ms (no server round-trip)
+- The dynamic holes stream from the server in ~200-500ms
+- Combined: users see a near-instant page with dynamic content appearing smoothly
+- Server load drops dramatically — most of the HTML is served from cache
+
+**What needs to be built (depends on SSG being implemented first):**
+
+*Build-time static shell generation:*
+- During the build, render each page but stop at dynamic boundaries (Suspense, `{#await}`, `<Suspense>`, `@defer`)
+- Write the static HTML (everything outside dynamic boundaries) to disk with placeholder slots for the dynamic parts
+- The static shell includes all CSS, the page layout, and fallback content (loading skeletons) for each dynamic slot
+
+*Request-time dynamic streaming:*
+- When a request comes in, serve the static shell immediately from disk/cache
+- Simultaneously, render the dynamic parts on the server and stream them into the placeholder slots
+- Reuse the out-of-order streaming infrastructure — the `$RC` swap script handles inserting dynamic content into the static shell
+
+*Per-framework dynamic boundaries:*
+- **React**: `<Suspense>` boundaries — everything inside is dynamic, everything outside is static
+- **Svelte**: `{#await}` blocks or a new `<Dynamic>` component
+- **Vue**: `<Suspense>` component — same pattern as React
+- **Angular**: `@defer` blocks — natural fit, Angular already distinguishes static vs deferred content
+
+*Caching strategy:*
+- Static shells cached in memory and/or on disk with content-hash keys
+- Cache invalidation: rebuild the shell when the page's static parts change (detected via file watcher or manual invalidation)
+- Dynamic parts are never cached (they're user-specific/time-specific)
+- CDN integration: set `Cache-Control` headers so the static shell is edge-cached while the dynamic stream bypasses cache
+
+*Configuration:*
+- Per-page opt-in via a config option or export:
+  ```ts
+  // In the route handler
+  app.get('/dashboard', () =>
+    handleReactPageRequest(Dashboard, manifest['DashboardIndex'], {
+      prerender: 'partial',  // static shell + dynamic streaming
+      props: { userId: getCurrentUser() }
+    })
+  )
+  ```
+- Or via the build config for pages that should always be partially prerendered
+
+**Design considerations:**
+- The static shell must be a valid HTML document on its own — if dynamic streaming fails, the user sees the shell with fallback content (loading skeletons), not a broken page.
+- Dynamic boundaries should be explicit — the developer marks what's dynamic, everything else is assumed static. No guessing.
+- This compounds with islands — an island with `hydrate="visible"` inside a dynamic boundary gets: static shell → streamed SSR HTML → hydrated on scroll. Three layers of progressive loading.
+- Hot reloading in dev: skip the static cache and render everything server-side (same as today). Partial prerendering is a production optimization only.
+
+**Files likely involved:**
+- Builds on top of SSG implementation and out-of-order streaming
+- New: `src/core/partialPrerender.ts` — orchestrates static shell serving + dynamic streaming
+- New: `src/build/generateStaticShells.ts` — renders pages at build time, extracts static content, writes shells to disk
+- `src/utils/streamingSlots.ts` — reused from out-of-order streaming for dynamic slot insertion
+- Each framework's `pageHandler.ts` — add `prerender: 'partial'` mode that serves cached shell + streams dynamic parts
+- `src/plugins/hmr.ts` — static shell cache invalidation when source files change
+
+---
+
+## 13. P2 — Web Vitals Reporting
 
 **The problem:**
 43% of sites fail the INP (Interaction to Next Paint) threshold. Most developers don't measure real user performance until complaints come in. Adding analytics requires third-party scripts that themselves hurt performance. Vercel has `reportWebVitals()` for Next.js but no other meta-framework has this built in.
@@ -1208,7 +1144,7 @@ app.use(vitals({
 
 ---
 
-## P2 — Background Jobs + Cron
+## 14. P2 — Background Jobs + Cron
 
 **The problem:**
 Web frameworks only handle request/response. Anything async — email sending, image processing, scheduled cleanups, webhook retries, report generation — requires separate infrastructure (Redis + Bull, separate worker process, cron service). This is the #1 reason apps "outgrow" their framework. Laravel and Rails have built-in queues and schedulers. No JS meta-framework has this.
@@ -1324,7 +1260,7 @@ app.use(jobs({
 
 ---
 
-## P2 — Health Check Endpoints
+## 15. P2 — Health Check Endpoints
 
 **The problem:**
 Every Kubernetes, Docker, ECS, or Fly.io deployment needs health check endpoints. Without them, the orchestrator can't tell if your app is alive, ready to accept traffic, or stuck. Every team implements these ad-hoc with slightly different patterns.
@@ -1403,7 +1339,7 @@ app.use(healthChecks({
 
 ---
 
-## P2 — Structured Logging with Request Context
+## 16. P2 — Structured Logging with Request Context
 
 **The problem:**
 `console.log` in production is useless — no request context, no correlation, no structured format. When something breaks, developers grep through unstructured text logs trying to match a request to its errors. Every log line should know which request it belongs to without the developer passing a logger through every function.
@@ -1484,7 +1420,7 @@ app.use(logging({
 
 ---
 
-## P2 — Parallel Data Loading
+## 17. P2 — Parallel Data Loading
 
 **The problem:**
 Request waterfalls are the #1 hidden performance killer. A parent component fetches data, renders a child, which fetches its own data, creating sequential roundtrips. On a page with 3 data sources each taking 100ms, a waterfall takes 300ms while parallel loading takes 100ms.
@@ -1589,7 +1525,7 @@ app.get('/dashboard', async (ctx) => {
 
 ---
 
-## P2 — CLI Scaffolding / Page Generator
+## 18. P2 — CLI Scaffolding / Page Generator
 
 **The problem:**
 Adding a new page to an AbsoluteJS app requires: creating the page component file with the right structure, creating a CSS file, adding the route to `server.ts` with the correct page handler import and manifest keys, and updating the build config if needed. This is 3-5 files and getting the imports/manifest keys wrong is a common mistake.
@@ -1688,7 +1624,7 @@ bun abs generate component Button --framework react
 
 ---
 
-## P2 — CLI Framework Adder
+## 19. P2 — CLI Framework Adder
 
 **The problem:**
 A project starts with React only. Six months later the team wants to add a Svelte page for a performance-critical widget, or a Vue page because a new hire knows Vue. Today this requires manually creating the framework directory, installing dependencies, updating `absolute.config.ts`, adding the page handler import to `server.ts`, and knowing the correct handler API for that framework. It's error-prone and undocumented.
@@ -1807,3 +1743,67 @@ bun abs remove svelte
 - New: `src/cli/generators/addFramework.ts` — shared logic for directory creation, config updates, server.ts modification
 - Reuse generators from `create-absolutejs/src/generators/` — `scaffoldReact`, `scaffoldSvelte`, `scaffoldVue`, `scaffoldAngular`, `scaffoldHTML`, `scaffoldHTMX`
 - Reuse `generateImportsBlock` and `generateRoutesBlock` from `create-absolutejs/src/generators/project/`
+
+---
+
+## 20. P3 — Internationalization (i18n)
+
+**What Next.js does:**
+Built-in locale routing (`/en/about`, `/fr/about`), locale detection from Accept-Language header, and domain-based routing. Integrates with i18n libraries like next-intl.
+
+**What AbsoluteJS has today:**
+Nothing.
+
+**What needs to be built:**
+- Locale detection middleware (Accept-Language header parsing, cookie-based locale persistence)
+- URL prefix routing pattern (`/:locale/page`)
+- A helper to load translation files and inject them as props
+- Per-framework translation access patterns (React context, Vue provide/inject, Svelte stores)
+- This is mostly a pattern/plugin, not core framework work
+
+**Files likely involved:**
+- New: `src/plugins/i18n.ts` — Elysia plugin for locale detection and routing
+- Documentation showing integration with popular i18n libraries
+
+---
+
+## 21. P3 — Font Optimization
+
+**What Next.js does:**
+`next/font` automatically downloads Google Fonts at build time (no external requests), subsets them, adds `font-display: swap`, and inlines the CSS. Self-hosted fonts get the same optimizations. Zero layout shift from font loading.
+
+**What AbsoluteJS has today:**
+`generateHeadElement()` adds a Google Fonts `<link>` with `display=swap`. Fonts are loaded at runtime from Google's CDN.
+
+**What needs to be built:**
+- A build-time step that downloads declared Google Fonts, subsets them (woff2), and writes them to the assets directory
+- Inline the `@font-face` CSS directly in the `<head>` instead of linking to Google
+- This eliminates the external request to Google, improves privacy, and prevents FOUT
+- Consider a `defineFont()` helper that takes a font config and returns the CSS + paths
+
+**Files likely involved:**
+- New: `src/build/downloadFonts.ts` — fetches and subsets Google Fonts at build time
+- `src/utils/generateHeadElement.ts` — inline font CSS instead of external link
+- `src/core/build.ts` — add font download step to build pipeline
+
+---
+
+## 22. P3 — Edge Runtime / Serverless Deployment
+
+**What Next.js does:**
+Routes can opt into the Edge Runtime (lightweight V8) for lower latency at the edge. Serverless function deployment on Vercel, AWS Lambda, Cloudflare Workers. Middleware always runs on edge.
+
+**What AbsoluteJS has today:**
+Bun-only. Requires a long-running Bun server process. No serverless or edge adapter.
+
+**What needs to be built:**
+- Deployment adapters for common platforms (Fly.io, Railway, Render are easy since they support Bun directly)
+- Docker template with a minimal Bun image
+- For serverless: an adapter that wraps the Elysia server as a Lambda/Cloud Function handler
+- Edge runtime is unlikely to be worth pursuing — Bun doesn't run on Cloudflare Workers, and the Bun server is already fast enough that edge latency gains are marginal
+- Focus on making traditional deployment dead simple rather than chasing edge
+
+**Files likely involved:**
+- New: `src/adapters/docker/Dockerfile`
+- New: `src/adapters/lambda.ts` — AWS Lambda adapter
+- Documentation for common deployment targets
