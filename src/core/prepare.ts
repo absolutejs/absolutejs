@@ -177,12 +177,10 @@ const loadPrerenderMap = (prerenderDir: string): Map<string, string> => {
 const addSitemapHook = (
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Elysia generics vary per plugin chain
 	app: any,
-	publicDir: string | undefined,
+	buildDir: string,
 	sitemapConfig?: SitemapConfig
-) => {
-	if (!publicDir) return app;
-
-	return app.onStart((started: import('elysia').Elysia) => {
+) =>
+	app.onStart((started: import('elysia').Elysia) => {
 		const { server } = started;
 		if (!server) return;
 
@@ -191,13 +189,12 @@ const addSitemapHook = (
 				generateSitemap(
 					started.routes,
 					server.url.origin,
-					publicDir,
+					buildDir,
 					sitemapConfig
 				)
 			)
 			.catch((err) => console.error('[sitemap] Generation failed:', err));
 	});
-};
 
 export const prepare = async (configOrPath?: string) => {
 	const config = await loadConfig(configOrPath);
