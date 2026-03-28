@@ -1,7 +1,7 @@
 {
 	"author": "Alex Kahn",
 	"bin": {
-		"absolute": "./dist/cli/index.js"
+		"absolute": "dist/cli/index.js"
 	},
 	"dependencies": {
 		"@angular/compiler": "^21.0.0"
@@ -147,7 +147,7 @@
 	},
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/absolutejs/absolutejs.git"
+		"url": "git+https://github.com/absolutejs/absolutejs.git"
 	},
 	"scripts": {
 		"build": "rm -rf dist && bun build src/index.ts src/build.ts src/angular/index.ts src/react/index.ts src/react/hooks/index.ts src/svelte/index.ts src/vue/index.ts --outdir dist --sourcemap --target=bun --external react --external react-dom --external vue --external @vue/compiler-sfc --external vue/server-renderer --external svelte --external svelte/compiler --external svelte/server --external elysia --external @elysiajs/static --external @angular/compiler-cli --external @angular/core --external @angular/common --external @angular/platform-browser --external @angular/platform-server --external @angular/ssr --external zone.js --external debug --external @absolutejs/native-linux-x64 --external @absolutejs/native-linux-arm64 --external @absolutejs/native-darwin-x64 --external @absolutejs/native-darwin-arm64 && bun build src/cli/index.ts --outfile dist/cli/index.js --target=bun && tsc --emitDeclarationOnly --project tsconfig.build.json && mkdir -p dist/dev && cp -r src/dev/client dist/dev/client",
@@ -164,5 +164,5 @@
 		"typecheck": "bun run vue-tsc --noEmit"
 	},
 	"types": "./dist/src/index.d.ts",
-	"version": "0.19.0-beta.167"
+	"version": "0.19.0-beta.168"
 }

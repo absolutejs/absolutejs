@@ -4,7 +4,6 @@ import { resolve } from 'node:path';
 import type { DbScripts, InteractiveHandler } from '../../../types/cli';
 import {
 	DEFAULT_PORT,
-	DEV_SERVER_RESTART_DEBOUNCE_MS,
 	MILLISECONDS_IN_A_SECOND,
 	SIGINT_EXIT_CODE,
 	SIGTERM_EXIT_CODE
@@ -157,7 +156,7 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 	};
 
 	const spawnServer = () => {
-		const proc = Bun.spawn(['bun', '--no-clear-screen', serverEntry], {
+		const proc = Bun.spawn(['bun', '--hot', '--no-clear-screen', serverEntry], {
 			cwd: process.cwd(),
 			env: {
 				...process.env,
@@ -203,7 +202,6 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 	const sessionStart = Date.now();
 
 	let frameworks: string[] = [];
-	let frameworkDirs: string[] = [];
 	try {
 		const cfg = await loadConfig(configPath);
 		frameworks = [
@@ -214,56 +212,12 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 			cfg.vueDirectory && 'vue',
 			cfg.angularDirectory && 'angular'
 		].filter((val): val is string => Boolean(val));
-		frameworkDirs = [
-			cfg.reactDirectory,
-			cfg.htmlDirectory,
-			cfg.htmxDirectory,
-			cfg.svelteDirectory,
-			cfg.vueDirectory,
-			cfg.angularDirectory
-		]
-			.filter((val): val is string => Boolean(val))
-			.map((dir) => resolve(dir));
 	} catch {
 		/* config may not be loadable — frameworks stays empty */
 	}
 
-	// Watch server files (everything OUTSIDE framework directories).
-	// Restart the server only for server code changes — frontend
-	// changes are handled by the HMR file watcher inside the server.
-	const { watch } = await import('fs');
-	const serverDir = resolve(serverEntry, '..');
-	let resolvedBuildDir = '';
-	try {
-		const cfg = await loadConfig(configPath);
-		resolvedBuildDir = resolve(cfg.buildDirectory ?? 'build');
-	} catch {
-		/* use empty string — no build dir to exclude */
-	}
-
-	const isFrameworkFile = (filePath: string) =>
-		frameworkDirs.some((dir) => resolve(filePath).startsWith(dir));
-	const isBuildFile = (filePath: string) =>
-		resolvedBuildDir !== '' &&
-		resolve(filePath).startsWith(resolvedBuildDir);
-
-	let restartTimeout: NodeJS.Timeout | null = null;
-	watch(serverDir, { recursive: true }, (_event, filename) => {
-		if (!filename) return;
-		const fullPath = resolve(serverDir, filename);
-		if (isFrameworkFile(fullPath)) return;
-		if (isBuildFile(fullPath)) return;
-		if (!filename.endsWith('.ts') && !filename.endsWith('.tsx')) return;
-		if (filename.includes('.tmp.') || filename.endsWith('.tmp')) return;
-
-		if (restartTimeout) clearTimeout(restartTimeout);
-		restartTimeout = setTimeout(() => {
-			console.log(
-				`\x1b[2m${formatTimestamp()}\x1b[0m \x1b[36m[cli]\x1b[0m \x1b[36mServer file changed, restarting...\x1b[0m`
-			);
-			restartServer();
-		}, DEV_SERVER_RESTART_DEBOUNCE_MS);
-	});
+	// Server files are handled by Bun --hot (module re-evaluation without process restart).
+	// Frontend files are handled by the HMR file watcher inside the server process.
 
 	sendTelemetryEvent('dev:start', { entry: serverEntry, frameworks });
 
