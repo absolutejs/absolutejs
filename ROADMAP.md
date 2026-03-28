@@ -1124,6 +1124,13 @@ app.use(secureHeaders({
 - `Cross-Origin-Opener-Policy: same-origin` — isolate browsing context
 - `Cross-Origin-Resource-Policy: same-origin` — prevent cross-origin resource loading
 
+*CSRF protection (built into the plugin):*
+- On every mutating request (POST, PUT, PATCH, DELETE), compare the `Origin` header to the `Host` header. If they don't match, reject with `403 Forbidden`. This prevents a malicious site from making a user's browser submit forms to your server using their cookies.
+- This is the OWASP-recommended "Fetch Metadata" approach — no tokens needed, no client-side changes, works automatically.
+- Enabled by default. Configurable with `csrf: { allowedOrigins: ['https://trusted.example.com'] }` for cases where cross-origin requests are intentional (e.g., a mobile app hitting your API).
+- Safe requests (GET, HEAD, OPTIONS) are not checked — they should never mutate state anyway.
+- Requests without an `Origin` header (curl, Postman, server-to-server) can be optionally allowed via `csrf: { allowNoOrigin: true }` for API-only routes.
+
 *Dev mode behavior:*
 - CSP is relaxed in dev to allow HMR WebSocket connections (`connect-src: 'self' ws:`) and hot-reloaded scripts
 - Other security headers still set in dev so developers see the same behavior as production
