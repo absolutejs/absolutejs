@@ -18,6 +18,13 @@ export type StylesConfig = {
 	ignore?: string[];
 };
 
+export type StaticConfig = {
+	/** Routes to pre-render at build time. Use "all" to crawl from / and discover all linked pages. */
+	routes: string[] | 'all';
+	/** Revalidation interval in seconds. When set, stale pages are re-rendered in the background (ISR). */
+	revalidate?: number;
+};
+
 export type BuildConfig = {
 	buildDirectory?: string;
 	assetsDirectory?: string;
@@ -45,6 +52,8 @@ export type BuildConfig = {
 		// Enable HTTPS for HTTP/2 multiplexing (faster HMR on import-heavy components)
 		https?: boolean;
 	};
+	// Static site generation — pre-render routes at build time
+	static?: StaticConfig;
 };
 
 export type BuildResult = ReturnType<typeof build>;

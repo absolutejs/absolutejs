@@ -77,7 +77,9 @@ if (command === 'dev') {
 	console.error('Commands:');
 	console.error('  dev [entry]   Start development server');
 	console.error('  start [entry] [--outdir dir] Start production server');
-	console.error('  compile [entry] [--outdir dir] [--outfile path] Compile standalone executable');
+	console.error(
+		'  compile [entry] [--outdir dir] [--outfile path] Compile standalone executable'
+	);
 	console.error('  eslint        Run ESLint (cached)');
 	console.error('  info          Print system info for bug reports');
 	console.error('  prettier      Run Prettier check (cached)');

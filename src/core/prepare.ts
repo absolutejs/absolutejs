@@ -1,5 +1,5 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { relative, resolve } from 'node:path';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { basename, join, relative, resolve } from 'node:path';
 import { loadConfig } from '../utils/loadConfig';
 
 type PrewarmEntry = { dir: string; pattern: string };
@@ -148,6 +148,25 @@ const prepareDev = async (
 	};
 };
 
+/** Load pre-rendered HTML files from disk into a route → filepath map */
+const loadPrerenderMap = (prerenderDir: string): Map<string, string> => {
+	const map = new Map<string, string>();
+	if (!existsSync(prerenderDir)) return map;
+
+	try {
+		for (const entry of readdirSync(prerenderDir)) {
+			if (!entry.endsWith('.html')) continue;
+			const name = basename(entry, '.html');
+			const route = name === 'index' ? '/' : `/${name}`;
+			map.set(route, join(prerenderDir, entry));
+		}
+	} catch {
+		/* directory doesn't exist or can't be read */
+	}
+
+	return map;
+};
+
 export const prepare = async (configOrPath?: string) => {
 	const config = await loadConfig(configOrPath);
 
@@ -168,7 +187,59 @@ export const prepare = async (configOrPath?: string) => {
 	);
 
 	const { staticPlugin } = await import('@elysiajs/static');
-	const absolutejs = staticPlugin({ assets: buildDir, prefix: '' });
+	const staticFiles = staticPlugin({ assets: buildDir, prefix: '' });
 
-	return { absolutejs, manifest };
+	// Check for pre-rendered pages (from SSG or compile)
+	const prerenderDir = join(buildDir, '_prerendered');
+	const prerenderMap = loadPrerenderMap(prerenderDir);
+
+	if (prerenderMap.size > 0) {
+		const { Elysia } = await import('elysia');
+		const { PRERENDER_BYPASS_HEADER, readTimestamp, rerenderRoute } =
+			await import('./prerender');
+
+		const revalidateMs = config.static?.revalidate
+			? config.static.revalidate * 1000
+			: 0;
+		const port = Number(process.env.PORT) || 3000;
+
+		// Track routes currently being re-rendered to avoid duplicate work
+		const rerendering = new Set<string>();
+
+		const prerenderPlugin = new Elysia({
+			name: 'prerendered-pages'
+		}).onRequest(({ request }) => {
+			const url = new URL(request.url);
+
+			// Allow bypass for ISR re-render requests
+			if (request.headers.get(PRERENDER_BYPASS_HEADER)) return;
+
+			const filePath = prerenderMap.get(url.pathname);
+			if (!filePath) return;
+
+			// ISR: check if page is stale and trigger background re-render
+			if (revalidateMs > 0 && !rerendering.has(url.pathname)) {
+				const renderedAt = readTimestamp(filePath);
+				const age = Date.now() - renderedAt;
+				if (age > revalidateMs) {
+					rerendering.add(url.pathname);
+					rerenderRoute(url.pathname, port, prerenderDir).finally(
+						() => rerendering.delete(url.pathname)
+					);
+				}
+			}
+
+			// Serve the cached page immediately (even if stale)
+			return new Response(Bun.file(filePath), {
+				headers: { 'content-type': 'text/html; charset=utf-8' }
+			});
+		});
+
+		const absolutejs = (app: import('elysia').Elysia) =>
+			app.use(prerenderPlugin).use(staticFiles);
+
+		return { absolutejs, manifest };
+	}
+
+	return { absolutejs: staticFiles, manifest };
 };

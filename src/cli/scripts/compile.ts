@@ -1,13 +1,8 @@
 import { env } from 'bun';
-import {
-	existsSync,
-	mkdirSync,
-	readdirSync,
-	readFileSync,
-	unlinkSync
-} from 'node:fs';
+import { existsSync, readdirSync, readFileSync, unlinkSync } from 'node:fs';
 import { basename, join, relative, resolve } from 'node:path';
-import { DEFAULT_PORT, MAX_ERROR_LENGTH } from '../../constants';
+import { DEFAULT_PORT } from '../../constants';
+import { prerenderWithServer } from '../../core/prerender';
 import { getDurationString } from '../../utils/getDurationString';
 import { loadConfig } from '../../utils/loadConfig';
 import { formatTimestamp } from '../../utils/startupBanner';
@@ -36,7 +31,8 @@ const resolvePackageVersion = (candidates: string[]) => {
 	for (const candidate of candidates) {
 		try {
 			const pkg = JSON.parse(readFileSync(candidate, 'utf-8'));
-			if (pkg.name === '@absolutejs/absolute') return pkg.version as string;
+			if (pkg.name === '@absolutejs/absolute')
+				return pkg.version as string;
 		} catch {
 			/* try next */
 		}
@@ -54,69 +50,6 @@ const resolveBuildModule = async (candidates: string[]) => {
 		}
 	}
 	return undefined;
-};
-
-// ── Pre-render: crawl the running server and capture all pages ──
-const prerender = async (
-	port: number,
-	outDir: string
-): Promise<string[]> => {
-	const prerenderDir = join(outDir, '_prerendered');
-	mkdirSync(prerenderDir, { recursive: true });
-
-	const baseUrl = `http://localhost:${port}`;
-	const visited = new Set<string>();
-	const queue: string[] = ['/'];
-	const savedFiles: string[] = [];
-
-	while (queue.length > 0) {
-		const path = queue.shift()!;
-		if (visited.has(path)) continue;
-		visited.add(path);
-
-		try {
-			const res = await fetch(`${baseUrl}${path}`);
-			if (!res.ok) continue;
-
-			const contentType = res.headers.get('content-type') ?? '';
-			if (!contentType.includes('text/html')) continue;
-
-			const html = await res.text();
-			// Save with a filename derived from the path
-			const fileName =
-				path === '/' ? 'index.html' : `${path.slice(1).replace(/\//g, '-')}.html`;
-			const filePath = join(prerenderDir, fileName);
-			await Bun.write(filePath, html);
-			savedFiles.push(filePath);
-
-			console.log(
-				cliTag(
-					'\x1b[36m',
-					`  Pre-rendered ${path} → ${fileName} (${html.length} bytes)`
-				)
-			);
-
-			// Extract internal links to crawl
-			const linkRegex = /href=["'](\/[^"']*?)["']/g;
-			let match;
-			while ((match = linkRegex.exec(html)) !== null) {
-				const href = match[1] ?? '';
-				// Skip asset paths, anchors, and external URLs
-				if (
-					!href ||
-					href.includes('.') ||
-					href.includes('#') ||
-					visited.has(href)
-				)
-					continue;
-				queue.push(href);
-			}
-		} catch {
-			/* skip failed routes */
-		}
-	}
-
-	return savedFiles;
 };
 
 // ── Generate the compile entrypoint ─────────────────────────────
@@ -421,64 +354,29 @@ export const compile = async (
 
 	// ── Step 3: Pre-render all pages ────────────────────────────
 	const prerenderStart = performance.now();
-	console.log(cliTag('\x1b[36m', 'Pre-rendering pages...'));
+	process.stdout.write(cliTag('\x1b[36m', 'Pre-rendering pages'));
 
-	const serverProcess = Bun.spawn(['bun', 'run', outputPath], {
-		cwd: process.cwd(),
-		env: {
-			...process.env,
+	// Compile always pre-renders all routes
+	const staticConfig = buildConfig.static ?? { routes: 'all' as const };
+
+	const prerenderResult = await prerenderWithServer(
+		outputPath,
+		prerenderPort,
+		resolvedOutdir,
+		staticConfig,
+		{
 			ABSOLUTE_BUILD_DIR: resolvedOutdir,
 			ABSOLUTE_VERSION: absoluteVersion,
 			FORCE_COLOR: '0',
 			NODE_ENV: 'production',
-			PORT: String(prerenderPort),
 			...(configPath ? { ABSOLUTE_CONFIG: configPath } : {})
-		},
-		stdout: 'pipe',
-		stderr: 'pipe'
-	});
-
-	// Wait for server to be ready
-	let ready = false;
-	for (let i = 0; i < 50; i++) {
-		try {
-			const res = await fetch(`http://localhost:${prerenderPort}/`);
-			if (res.ok) {
-				ready = true;
-				break;
-			}
-		} catch {
-			/* not ready yet */
 		}
-		await Bun.sleep(100);
-	}
+	);
 
-	if (!ready) {
-		serverProcess.kill();
-		console.error(
-			cliTag('\x1b[31m', 'Server failed to start for pre-rendering.')
-		);
-		process.exit(1);
-	}
-
-	const prerenderFiles = await prerender(prerenderPort, resolvedOutdir);
-
-	serverProcess.kill();
-	await serverProcess.exited;
-
-	// Build route → file map from the crawled pages
-	const prerenderMap = new Map<string, string>();
-	for (const filePath of prerenderFiles) {
-		const fileName = basename(filePath, '.html');
-		const route = fileName === 'index' ? '/' : `/${fileName}`;
-		prerenderMap.set(route, filePath);
-	}
+	const prerenderMap = prerenderResult.routes;
 
 	console.log(
-		cliTag(
-			'\x1b[36m',
-			`Pre-rendered ${prerenderMap.size} pages (${getDurationString(performance.now() - prerenderStart)})`
-		)
+		` \x1b[2m(${prerenderMap.size} pages, ${getDurationString(performance.now() - prerenderStart)})\x1b[0m`
 	);
 
 	// ── Step 4: Generate compile entrypoint ─────────────────────
@@ -521,10 +419,7 @@ export const compile = async (
 	}
 
 	// ── Done ────────────────────────────────────────────────────
-	const size = (
-		Bun.file(resolvedOutfile).size /
-		(1024 * 1024)
-	).toFixed(0);
+	const size = (Bun.file(resolvedOutfile).size / (1024 * 1024)).toFixed(0);
 	const totalDuration = getDurationString(performance.now() - totalStart);
 
 	console.log(
@@ -533,9 +428,7 @@ export const compile = async (
 			`Compiled to ${resolvedOutfile} (${size}MB) in ${totalDuration}`
 		)
 	);
-	console.log(
-		cliTag('\x1b[2m', `Run with: ./${basename(resolvedOutfile)}`)
-	);
+	console.log(cliTag('\x1b[2m', `Run with: ./${basename(resolvedOutfile)}`));
 
 	sendTelemetryEvent('compile:complete', {
 		durationMs: Math.round(performance.now() - totalStart),

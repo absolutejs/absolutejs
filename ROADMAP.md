@@ -4,29 +4,6 @@ Features missing from AbsoluteJS that Next.js provides, ordered by priority. Eac
 
 ---
 
-## P0 — Static Site Generation (SSG)
-
-**What Next.js does:**
-Pages can be pre-rendered at build time into static HTML. `generateStaticParams()` tells the framework which dynamic routes to pre-render. The output is plain HTML + JS that can be served from a CDN with zero server runtime. Next.js also supports a full `output: 'export'` mode that produces a completely static site.
-
-**What AbsoluteJS has today:**
-Nothing. Every page is rendered at request time via streaming SSR. The `handleHTMLPageRequest` serves pre-written HTML files, but there's no mechanism to run a React/Svelte/Vue component through SSR at build time and save the output.
-
-**What needs to be built:**
-- A `static` option per-route or per-page that tells the build to render the component and write the HTML to disk
-- For dynamic routes, a way to declare the set of params to pre-render (equivalent to `generateStaticParams`)
-- A static export mode that produces a directory of HTML/CSS/JS with no server dependency
-- The build pipeline already has streaming SSR for all frameworks — the core work is calling those renderers during `build()` instead of at request time, and writing the output to files
-- Static pages should still hydrate on the client (same as today, just the initial HTML comes from disk instead of runtime SSR)
-
-**Files likely involved:**
-- `src/core/build.ts` — add a static rendering pass after bundling
-- Each framework's `pageHandler.ts` — extract the rendering logic so it can be called at build time without an HTTP request
-- `src/build/generateManifest.ts` — static pages need manifest entries pointing to `.html` files
-- New: a config option or per-page export to opt into static rendering
-
----
-
 ## P0 — Metadata API / SEO
 
 **What Next.js does:**
@@ -454,27 +431,6 @@ The key insight: `defineIslandRegistry` accepts actual imported components at ru
 - `src/build/generateManifest.ts` — track island components in the manifest
 - Each framework's `pageHandler.ts` — support rendering island components inline during page SSR
 - `src/plugins/hmr.ts` — per-island HMR updates
-
----
-
-## P2 — Incremental Static Regeneration (ISR)
-
-**What Next.js does:**
-Static pages can declare a `revalidate` interval (e.g., 60 seconds). After the interval, the next request triggers a background re-render. The stale page is served immediately while the new one generates. `revalidatePath()` and `revalidateTag()` allow on-demand revalidation from API routes or server actions.
-
-**What AbsoluteJS has today:**
-Nothing. No static generation means no revalidation.
-
-**What needs to be built (requires SSG first):**
-- A `revalidate` option per static page that sets a TTL
-- Background re-rendering: when a request comes in for a stale page, serve the cached version and trigger a rebuild in the background
-- On-demand revalidation: an API to invalidate specific pages programmatically
-- A cache store for rendered pages (filesystem or in-memory)
-
-**Files likely involved:**
-- Builds on top of SSG implementation
-- New: `src/core/staticCache.ts` — manages cached HTML with TTLs
-- New: `src/plugins/revalidation.ts` — Elysia plugin for on-demand revalidation endpoints
 
 ---
 
@@ -1030,3 +986,839 @@ type AIServerMessage =
 - New: `src/angular/ai-stream.service.ts` — Angular service
 - New: `types/ai.ts` — message protocol types, provider interface, hook return types
 - Package exports: `absolutejs/ai` for server utilities, per-framework exports for client hooks
+
+---
+
+## P1 — Type-Safe Environment Variables (`defineEnv`)
+
+**The problem:**
+`process.env.DATABASE_URL` is always `string | undefined` in TypeScript. Typos are silent (`process.env.DATABSE_URL` → `undefined`, no error). Missing vars cause runtime crashes in production. Numeric vars like `PORT` come back as strings and need manual parsing. There's no single place to see what env vars an app requires.
+
+**What AbsoluteJS has today:**
+`getEnv(key)` — a runtime helper that throws if the variable is missing. But it's one-variable-at-a-time, returns `string` always, and provides no type narrowing or compile-time safety.
+
+**What needs to be built:**
+
+```ts
+// env.ts — the single source of truth for all environment variables
+import { defineEnv } from 'absolutejs'
+import { t } from 'elysia'
+
+export const env = defineEnv({
+  DATABASE_URL: t.String({ format: 'url' }),
+  PORT: t.Number({ default: 3000 }),
+  NODE_ENV: t.Union([t.Literal('development'), t.Literal('production')]),
+  STRIPE_SECRET: t.String(),
+  ENABLE_LOGGING: t.Boolean({ default: true }),
+  MAX_UPLOAD_MB: t.Number({ default: 10 }),
+})
+```
+
+**How `defineEnv` works:**
+- Called once at app startup (in `server.ts` or imported by `prepare()`)
+- Reads all declared vars from `process.env` / `Bun.env`
+- Validates each var against its schema using Elysia's `t` (TypeBox) — same type system used everywhere else in AbsoluteJS
+- Parses types: `"3000"` → `3000` for numbers, `"true"` → `true` for booleans
+- Applies defaults for missing optional vars
+- **Fails fast** on startup if any required var is missing or fails validation — clear error message listing every problem:
+  ```
+  Environment validation failed:
+    ✗ DATABASE_URL — required but not set
+    ✗ PORT — expected number, got "not-a-number"
+    ✓ NODE_ENV — "production"
+    ✓ STRIPE_SECRET — set
+  ```
+- Returns a fully typed, frozen object — `env.PORT` is `number`, `env.NODE_ENV` is `'development' | 'production'`, `env.TYPO` is a TypeScript error
+
+**Usage throughout the app:**
+```ts
+// server.ts
+import { env } from './env'
+
+app.listen(env.PORT)  // number, not string
+
+// any file
+import { env } from './env'
+if (env.NODE_ENV === 'development') { ... }  // narrowed union
+```
+
+**Design considerations:**
+- Uses Elysia's `t` (TypeBox) for schemas — same system developers already use for route validation. No new schema library to learn.
+- The returned `env` object is `Object.freeze()`'d — env vars don't change at runtime.
+- Sensitive vars (containing `SECRET`, `KEY`, `TOKEN`, `PASSWORD` in the name) are redacted in error messages and logs — `"STRIPE_SECRET — set"` not `"STRIPE_SECRET — sk_live_..."`.
+- `.env` file support via Bun's built-in dotenv — `defineEnv` validates after Bun loads the `.env` file.
+- Warn if a `.env` file contains vars with `SECRET`/`KEY` in the name and the file isn't in `.gitignore`.
+
+**Files likely involved:**
+- New: `src/utils/defineEnv.ts` — the `defineEnv` function with TypeBox validation, parsing, and error formatting
+- New: `types/env.ts` — type utilities for extracting the typed env object from a schema
+- `src/utils/getEnv.ts` — deprecate in favor of `defineEnv`, or keep as a lightweight alternative for simple cases
+
+---
+
+## P1 — Security Headers + CSP Nonce Injection
+
+**The problem:**
+Most web apps ship with zero security headers. Without a Content-Security-Policy, any XSS vulnerability lets attackers inject arbitrary `<script>` tags that execute freely. AbsoluteJS injects inline scripts on every page (`window.__INITIAL_PROPS__=...`, `$RefreshReg$` buffer, HMR client) — all of these are blocked by a strict CSP unless they have a per-request nonce.
+
+Setting up CSP with nonces manually is painful because every inline script needs the same nonce, the nonce must be cryptographically random per-request, and the CSP header must match. Most developers skip it entirely.
+
+**What AbsoluteJS has today:**
+No security headers. No CSP. Inline scripts are injected without nonces.
+
+**What needs to be built:**
+
+*An Elysia plugin — `secureHeaders()`:*
+```ts
+import { security } from 'absolutejs'
+
+app.use(secureHeaders())
+// or with custom config:
+app.use(secureHeaders({
+  csp: {
+    directives: {
+      'script-src': ['self'],      // default: 'self' + nonce
+      'style-src': ['self', 'unsafe-inline'], // for inline styles
+      'img-src': ['self', 'data:'],
+      'connect-src': ['self'],     // for fetch/WebSocket
+      'font-src': ['self', 'https://fonts.gstatic.com'],
+    },
+    reportUri: '/api/__csp-report', // optional: log violations
+  },
+  headers: {
+    hsts: true,                     // Strict-Transport-Security
+    frameOptions: 'DENY',          // X-Frame-Options
+    contentTypeOptions: true,       // X-Content-Type-Options: nosniff
+    referrerPolicy: 'strict-origin-when-cross-origin',
+    permissionsPolicy: {            // Permissions-Policy
+      camera: [],
+      microphone: [],
+      geolocation: [],
+    },
+  },
+}))
+```
+
+*How CSP nonces work under the hood:*
+1. The `secureHeaders()` plugin runs in `onBeforeHandle` — generates a random nonce per request using `crypto.getRandomValues()` and stores it in the request context via Elysia's `derive`
+2. Each framework's page handler reads the nonce from the request context and adds `nonce="..."` to every inline `<script>` tag it generates:
+   - `<script nonce="${nonce}">window.__INITIAL_PROPS__=...</script>`
+   - `<script nonce="${nonce}">window.$RefreshReg$=...</script>`
+   - `<script nonce="${nonce}" type="module" src="..."></script>`
+3. The plugin sets the `Content-Security-Policy` header with `'nonce-${nonce}'` in the `script-src` directive
+4. The browser allows scripts with the matching nonce and blocks everything else — XSS injections can't guess the nonce
+
+*Subresource Integrity (SRI) in production:*
+- During `build()`, compute SHA-384 hashes of all JS and CSS output files
+- Store hashes in the manifest alongside file paths
+- Page handlers add `integrity="sha384-..."` to `<script>` and `<link>` tags
+- If a CDN or proxy tampers with the file, the browser refuses to load it
+
+*Default security headers (all configurable, all on by default):*
+- `Content-Security-Policy` — with per-request nonces for inline scripts
+- `Strict-Transport-Security: max-age=31536000; includeSubDomains` — force HTTPS
+- `X-Content-Type-Options: nosniff` — prevent MIME sniffing
+- `X-Frame-Options: DENY` — prevent clickjacking via iframes
+- `Referrer-Policy: strict-origin-when-cross-origin` — limit referrer leakage
+- `Permissions-Policy: camera=(), microphone=(), geolocation=()` — disable unused browser APIs
+- `Cross-Origin-Opener-Policy: same-origin` — isolate browsing context
+- `Cross-Origin-Resource-Policy: same-origin` — prevent cross-origin resource loading
+
+*Dev mode behavior:*
+- CSP is relaxed in dev to allow HMR WebSocket connections (`connect-src: 'self' ws:`) and hot-reloaded scripts
+- Other security headers still set in dev so developers see the same behavior as production
+- A warning in the dev console if CSP would block something that's only allowed because of dev mode relaxation
+
+**Design considerations:**
+- Enabled by default when `app.use(secureHeaders())` is called — secure-by-default, opt-out for specific directives
+- The nonce is available in the request context for users who render their own inline scripts: `const nonce = ctx.nonce`
+- Google Fonts requires `font-src: 'self' https://fonts.gstatic.com` and `style-src: 'self' https://fonts.googleapis.com` — the default config includes these if `generateHeadElement()` is used with a font
+- WebSocket connections for HMR and AI streaming need `connect-src: 'self' ws: wss:` — auto-detected based on which plugins are registered
+- CSP violation reporting endpoint (`/api/__csp-report`) is optional — logs violations as structured JSON when enabled
+
+**Files likely involved:**
+- New: `src/plugins/secureHeaders.ts` — the Elysia plugin with nonce generation, header setting, and CSP construction
+- New: `types/secureHeaders.ts` — configuration types for CSP directives, header options
+- `src/react/pageHandler.ts` — read nonce from context, add to all `<script>` tags
+- `src/svelte/pageHandler.ts` — same
+- `src/vue/pageHandler.ts` — same
+- `src/angular/pageHandler.ts` — same
+- `src/core/build.ts` — compute SRI hashes for production builds, store in manifest
+- `src/build/generateManifest.ts` — include integrity hashes alongside file paths
+
+---
+
+## P2 — Web Vitals Reporting
+
+**The problem:**
+43% of sites fail the INP (Interaction to Next Paint) threshold. Most developers don't measure real user performance until complaints come in. Adding analytics requires third-party scripts that themselves hurt performance. Vercel has `reportWebVitals()` for Next.js but no other meta-framework has this built in.
+
+**What AbsoluteJS has today:**
+HMR timing is reported via WebSocket (`hmr-timing` message type). No production performance measurement.
+
+**What needs to be built:**
+
+*Auto-injected web vitals script:*
+- A small inline script (~1KB, not the full `web-vitals` library) that measures Core Web Vitals using the native `PerformanceObserver` API:
+  - **LCP** (Largest Contentful Paint) — how fast the main content loads
+  - **INP** (Interaction to Next Paint) — how responsive the page is to user input
+  - **CLS** (Cumulative Layout Shift) — how much the layout shifts during load
+  - **FCP** (First Contentful Paint) — when the first content appears
+  - **TTFB** (Time to First Byte) — server response time
+- Injected automatically by the page handlers in production (opt-out via config)
+- Batches measurements and sends them to a configurable endpoint
+
+*Built-in vitals endpoint:*
+```ts
+import { vitals } from 'absolutejs'
+
+app.use(vitals())
+// or with config:
+app.use(vitals({
+  endpoint: '/api/__vitals',  // default
+  sampleRate: 0.1,            // report 10% of page loads (default: 1.0)
+  onReport: (metric) => {
+    // Optional: forward to external service (Datadog, Grafana, etc.)
+    console.log(metric)
+  },
+}))
+```
+
+- The endpoint receives batched vitals and stores/forwards them
+- In-memory aggregation with percentile calculation (P50, P75, P95)
+- Exposes `GET /api/__vitals/summary` with aggregated stats (useful for dashboards)
+
+*Dev mode performance overlay:*
+- A small floating panel (similar to the error overlay) showing real-time vitals:
+  ```
+  ┌─────────────────────────┐
+  │ LCP  320ms  ✓           │
+  │ INP   45ms  ✓           │
+  │ CLS  0.02   ✓           │
+  │ FCP  180ms  ✓           │
+  │ TTFB  12ms  ✓           │
+  └─────────────────────────┘
+  ```
+- Color-coded: green (good), yellow (needs improvement), red (poor) based on Google's thresholds
+- Toggle with a keyboard shortcut or `dev: { vitals: true }` in config
+- Shows per-navigation metrics when using client-side navigation (`<Link>`)
+
+*Integration with OpenTelemetry:*
+- If the OpenTelemetry Elysia plugin is also registered, vitals are exported as OTel metrics
+- Trace ID correlation: the vitals report includes the server trace ID from the page request, enabling end-to-end performance analysis (server render time → network → client paint)
+
+**Design considerations:**
+- The injected script must not affect the metrics it measures — load it async, measure before injecting any other framework JS
+- Sample rate prevents overwhelming the endpoint on high-traffic sites
+- Client-side only — vitals are measured in the browser, not during SSR
+- The vitals script should work regardless of framework — it's plain JS injected into the HTML, not a React/Svelte/Vue component
+- Privacy: no PII collected. Report includes: URL path (not query params), metric name, metric value, user agent, connection type. No cookies, no user IDs.
+
+**Files likely involved:**
+- New: `src/plugins/vitals.ts` — Elysia plugin with the reporting endpoint and aggregation
+- New: `src/client/vitals.ts` — lightweight client script that measures and reports Core Web Vitals
+- New: `src/dev/client/vitalsOverlay.ts` — dev-mode performance overlay
+- Each framework's `pageHandler.ts` — inject the vitals script in production builds
+- New: `types/vitals.ts` — metric types, config types, report payload types
+
+---
+
+## P2 — Background Jobs + Cron
+
+**The problem:**
+Web frameworks only handle request/response. Anything async — email sending, image processing, scheduled cleanups, webhook retries, report generation — requires separate infrastructure (Redis + Bull, separate worker process, cron service). This is the #1 reason apps "outgrow" their framework. Laravel and Rails have built-in queues and schedulers. No JS meta-framework has this.
+
+**What AbsoluteJS has today:**
+Nothing. Background work requires external tools.
+
+**Why AbsoluteJS is positioned for this:**
+You run a long-lived Bun process. Unlike serverless frameworks (Next.js on Vercel), your server stays alive between requests. A background job runner can live in the same process — no separate worker needed for most use cases. Bun also has native SQLite which can serve as a lightweight job store without Redis.
+
+**What needs to be built:**
+
+*Job definition:*
+```ts
+import { defineJob, defineCron } from 'absolutejs'
+
+// One-off background job — dispatched from route handlers
+export const sendWelcomeEmail = defineJob({
+  name: 'send-welcome-email',
+  handler: async ({ userId, email }: { userId: string; email: string }) => {
+    await emailService.send({
+      to: email,
+      template: 'welcome',
+    })
+  },
+  retry: {
+    maxAttempts: 3,
+    backoff: 'exponential', // 1s, 2s, 4s
+  },
+})
+
+// Scheduled job — runs on a cron schedule
+export const dailyCleanup = defineCron({
+  name: 'daily-cleanup',
+  schedule: '0 3 * * *', // 3 AM daily
+  handler: async () => {
+    await db.delete(sessions).where(lt(sessions.expiresAt, new Date()))
+  },
+})
+```
+
+*Dispatching jobs from route handlers:*
+```ts
+app.post('/users', async ({ body }) => {
+  const user = await db.insert(users).values(body).returning()
+
+  // Dispatch background job — returns immediately, runs async
+  await sendWelcomeEmail.dispatch({
+    userId: user.id,
+    email: user.email,
+  })
+
+  return user
+})
+```
+
+*Job runner architecture:*
+- Jobs stored in Bun's built-in SQLite (`absolutejs_jobs` table) — no Redis required for small-medium apps
+- Optional Redis adapter for high-throughput / multi-instance deployments
+- Job runner polls the store on a configurable interval (default: 1s)
+- Runs in the same Bun process as the server — no separate worker process needed
+- Configurable concurrency limit (default: 5 concurrent jobs)
+- Dead letter queue — jobs that exhaust retries are moved to a failed table for inspection
+
+*Job lifecycle:*
+1. `dispatch()` inserts a row into the job store with status `pending`
+2. The runner picks up `pending` jobs, sets status to `running`
+3. On success: status → `completed`, row deleted (or archived)
+4. On failure: status → `failed`, retry count incremented, next attempt scheduled with backoff
+5. On max retries exhausted: status → `dead`, moved to dead letter queue
+
+*Cron scheduler:*
+- Parses cron expressions and schedules next execution
+- Uses `setTimeout` chains (not `setInterval`) for accuracy
+- Prevents overlapping executions — if a cron job is still running when the next tick fires, skip that tick
+- Stores last execution time in the job store for crash recovery — if the server restarts, it checks if a scheduled job was missed and runs it
+
+*Elysia plugin:*
+```ts
+import { jobs } from 'absolutejs'
+import { sendWelcomeEmail } from './jobs/sendWelcomeEmail'
+import { dailyCleanup } from './jobs/dailyCleanup'
+
+app.use(jobs({
+  store: 'sqlite',             // default, or 'redis'
+  concurrency: 5,              // max concurrent jobs
+  pollInterval: 1000,          // ms between polls
+  jobs: [sendWelcomeEmail],    // register one-off jobs
+  crons: [dailyCleanup],      // register scheduled jobs
+}))
+```
+
+*Dev mode:*
+- Jobs run immediately in the same process (no polling delay)
+- A `/api/__jobs` endpoint that lists pending, running, failed, and dead jobs
+- Log output for job start/complete/fail with timing
+
+**Design considerations:**
+- Type safety: `dispatch()` is typed to match the job's handler input — `sendWelcomeEmail.dispatch({ userId: 123 })` errors if `email` is missing
+- Jobs must be idempotent — the framework can't guarantee exactly-once execution (crashes between "job completed" and "status updated" can cause re-execution)
+- SQLite store is single-writer — fine for a single server instance. Multi-instance deployments need Redis.
+- Job handlers run in the same process as the server — a CPU-heavy job can block request handling. Consider a warning in docs and an option to spawn jobs in a Bun Worker.
+- Graceful shutdown: on `SIGTERM`, stop accepting new jobs, wait for running jobs to complete (with a timeout), then exit.
+
+**Files likely involved:**
+- New: `src/jobs/defineJob.ts` — job definition factory with typed handler and retry config
+- New: `src/jobs/defineCron.ts` — cron definition factory with schedule parsing
+- New: `src/jobs/runner.ts` — job runner that polls the store, executes handlers, manages retries
+- New: `src/jobs/store/sqlite.ts` — SQLite-backed job store using Bun's native SQLite
+- New: `src/jobs/store/redis.ts` — optional Redis-backed store for multi-instance
+- New: `src/plugins/jobs.ts` — Elysia plugin that registers the runner and dev endpoints
+- New: `types/jobs.ts` — types for job definitions, store interface, runner config
+
+---
+
+## P2 — Health Check Endpoints
+
+**The problem:**
+Every Kubernetes, Docker, ECS, or Fly.io deployment needs health check endpoints. Without them, the orchestrator can't tell if your app is alive, ready to accept traffic, or stuck. Every team implements these ad-hoc with slightly different patterns.
+
+**What AbsoluteJS has today:**
+The HMR plugin has a `/hmr-status` endpoint in dev, but nothing for production health checks.
+
+**What needs to be built:**
+
+*An Elysia plugin — `healthChecks()`:*
+```ts
+import { healthChecks, defineHealthCheck } from 'absolutejs'
+
+// Optional: custom readiness checks
+const dbCheck = defineHealthCheck('database', async () => {
+  await db.execute(sql`SELECT 1`)
+})
+
+const redisCheck = defineHealthCheck('redis', async () => {
+  await redis.ping()
+})
+
+app.use(healthChecks({
+  checks: [dbCheck, redisCheck],
+  // Endpoints auto-registered:
+  // GET /_health   — liveness (is the process alive?)
+  // GET /_ready    — readiness (are dependencies connected?)
+  // GET /_startup  — startup (has initialization completed?)
+}))
+```
+
+*How each endpoint works:*
+- **`/_health` (liveness)**: Always returns `200 OK` if the Bun process is running. No external checks. If this fails, the orchestrator restarts the container.
+  ```json
+  { "status": "ok", "uptime": 84321 }
+  ```
+
+- **`/_ready` (readiness)**: Runs all registered health checks in parallel. Returns `200` if all pass, `503` if any fail. If this fails, the orchestrator stops sending traffic until it passes.
+  ```json
+  {
+    "status": "ready",
+    "checks": {
+      "database": { "status": "ok", "latency": 2 },
+      "redis": { "status": "ok", "latency": 1 }
+    }
+  }
+  ```
+  Or on failure:
+  ```json
+  {
+    "status": "not_ready",
+    "checks": {
+      "database": { "status": "ok", "latency": 2 },
+      "redis": { "status": "fail", "error": "Connection refused" }
+    }
+  }
+  ```
+
+- **`/_startup` (startup)**: Returns `503` until `prepare()` completes (build done, manifest loaded, compilers warmed). Then returns `200` forever. Prevents the orchestrator from sending traffic before the app is ready.
+
+*Configuration:*
+- `timeout: 5000` — max time per health check before it's considered failed
+- `cacheDuration: 5000` — cache health check results to avoid hammering dependencies on every probe
+- `path: { health: '/_health', ready: '/_ready', startup: '/_startup' }` — customizable paths
+
+**Design considerations:**
+- Health check endpoints should NOT be behind auth middleware — the orchestrator needs to reach them unauthenticated
+- Error details in `/_ready` should be hidden in production by default (just `"status": "fail"`) to avoid leaking infrastructure info. Configurable with `verbose: true` for internal deployments.
+- The startup check should integrate with `prepare()` — set a flag when build + manifest load is complete
+
+**Files likely involved:**
+- New: `src/plugins/healthChecks.ts` — Elysia plugin with the three endpoints
+- New: `src/utils/defineHealthCheck.ts` — health check factory
+- New: `types/health.ts` — types for health check definitions and responses
+- `src/core/prepare.ts` — set startup readiness flag when initialization completes
+
+---
+
+## P2 — Structured Logging with Request Context
+
+**The problem:**
+`console.log` in production is useless — no request context, no correlation, no structured format. When something breaks, developers grep through unstructured text logs trying to match a request to its errors. Every log line should know which request it belongs to without the developer passing a logger through every function.
+
+**What AbsoluteJS has today:**
+`logWarn`, `logError` utilities in `src/utils/logger.ts` for build-time logs. No request-scoped logging. Angular SSR uses `AsyncLocalStorage` for request context but this isn't available to other frameworks.
+
+**What needs to be built:**
+
+*An Elysia plugin — `logging()`:*
+```ts
+import { logging } from 'absolutejs'
+
+app.use(logging())
+// or with config:
+app.use(logging({
+  level: 'info',              // 'debug' | 'info' | 'warn' | 'error'
+  format: 'json',             // 'json' (production) | 'pretty' (dev) | 'auto'
+  redact: ['authorization', 'cookie', 'x-api-key'], // headers to redact
+}))
+```
+
+*How it works:*
+- The plugin wraps every request in an `AsyncLocalStorage` context with a unique request ID
+- Anywhere in the app, `import { log } from 'absolutejs'` gives a logger that auto-attaches the current request's context:
+  ```ts
+  import { log } from 'absolutejs'
+
+  // In any function called during request handling — no logger param needed
+  log.info('User created', { userId: user.id })
+  ```
+- Output in production (JSON):
+  ```json
+  {
+    "level": "info",
+    "msg": "User created",
+    "userId": "abc123",
+    "requestId": "req_7f2a3b",
+    "method": "POST",
+    "path": "/api/users",
+    "duration": 45,
+    "timestamp": "2026-03-27T22:30:00.000Z"
+  }
+  ```
+- Output in dev (pretty):
+  ```
+  22:30:00 INFO [POST /api/users] User created userId=abc123 (45ms)
+  ```
+
+*Auto-logged events (no user code needed):*
+- Request start: method, path, query params, user agent
+- Request end: status code, duration, response size
+- SSR render: framework, component, render time
+- Errors: full stack trace with request context
+- Slow requests: warning if request exceeds a configurable threshold (default: 1s)
+
+*Request ID propagation:*
+- Generates a unique `requestId` per request (UUID or nanoid)
+- Sets `X-Request-Id` response header so clients can reference it in bug reports
+- If an incoming request has `X-Request-Id` header (from a load balancer or upstream service), uses that instead — enables distributed tracing
+
+*Integration with existing systems:*
+- The logger's JSON output is compatible with any log aggregation tool (Datadog, Loki, CloudWatch, ELK)
+- If OpenTelemetry plugin is registered, the request ID correlates with OTel trace/span IDs
+
+**Design considerations:**
+- `AsyncLocalStorage` has negligible overhead in Bun — safe to use on every request
+- The `log` import is a singleton that reads from `AsyncLocalStorage` — no need to thread a logger through every function call
+- Outside of request context (startup, cron jobs, background jobs), `log` still works but without request-specific fields
+- Log level is configurable per-environment: `debug` in dev, `info` in production
+- Sensitive headers (`authorization`, `cookie`) are redacted by default in log output
+
+**Files likely involved:**
+- New: `src/plugins/logging.ts` — Elysia plugin that wraps requests in AsyncLocalStorage with request context
+- New: `src/utils/log.ts` — the `log` singleton that reads from AsyncLocalStorage and formats output
+- New: `types/logging.ts` — types for log levels, config, and structured log entries
+- `src/angular/pageHandler.ts` — can reuse the same AsyncLocalStorage context (currently has its own)
+
+---
+
+## P2 — Parallel Data Loading
+
+**The problem:**
+Request waterfalls are the #1 hidden performance killer. A parent component fetches data, renders a child, which fetches its own data, creating sequential roundtrips. On a page with 3 data sources each taking 100ms, a waterfall takes 300ms while parallel loading takes 100ms.
+
+**What AbsoluteJS has today:**
+Data is fetched in the route handler and passed as props:
+```ts
+app.get('/dashboard', async () => {
+  const user = await getUser()         // 50ms
+  const stats = await getStats()       // 200ms
+  const activity = await getActivity() // 100ms
+  // Total: 350ms (sequential)
+
+  return handleReactPageRequest(Dashboard, manifest['DashboardIndex'], {
+    user, stats, activity
+  })
+})
+```
+
+Developers can manually `Promise.all` these, but it's easy to forget and there's no framework-level pattern for it.
+
+**What needs to be built:**
+
+*A `defineLoader` utility:*
+```ts
+import { defineLoader } from 'absolutejs'
+
+const userLoader = defineLoader('user', async (ctx) => {
+  return await getUser(ctx.headers.authorization)
+})
+
+const statsLoader = defineLoader('stats', async () => {
+  return await getStats()
+})
+
+const activityLoader = defineLoader('activity', async () => {
+  return await getActivity()
+})
+```
+
+*A `loadAll` utility that runs loaders in parallel:*
+```ts
+import { loadAll } from 'absolutejs'
+
+app.get('/dashboard', async (ctx) => {
+  // All three loaders run in parallel — total time = max(50, 200, 100) = 200ms
+  const { user, stats, activity } = await loadAll(ctx, [
+    userLoader,
+    statsLoader,
+    activityLoader,
+  ])
+
+  return handleReactPageRequest(Dashboard, manifest['DashboardIndex'], {
+    user, stats, activity
+  })
+})
+```
+
+*How `loadAll` works:*
+- Takes the Elysia request context and an array of loaders
+- Runs all loaders with `Promise.all` — true parallel execution
+- Returns a typed object where each key matches the loader name and the value matches the loader's return type
+- If any loader throws, the error includes which loader failed and the partial results from loaders that succeeded (useful for partial rendering with out-of-order streaming)
+
+*Type safety:*
+- `defineLoader` is generic over its return type — `defineLoader('user', async () => getUser())` infers the return as the user type
+- `loadAll` returns an object typed as `{ user: User, stats: Stats, activity: Activity[] }` — no manual type annotations needed
+- If you pass a loader that doesn't exist, TypeScript errors
+
+*Integration with out-of-order streaming:*
+- `loadAll` can return a special object that integrates with streaming — each loader's result streams independently:
+  ```ts
+  const data = await loadAll(ctx, [userLoader, statsLoader, activityLoader], {
+    streaming: true,
+  })
+  // data.user resolves first (50ms) — streams immediately
+  // data.activity resolves next (100ms) — streams into its slot
+  // data.stats resolves last (200ms) — streams into its slot
+  ```
+- This turns sequential data fetching into parallel fetching with progressive rendering — the best of both worlds
+
+*Error handling:*
+- Individual loader errors don't crash the whole page — `loadAll` can be configured to return partial results:
+  ```ts
+  const data = await loadAll(ctx, [userLoader, statsLoader], {
+    partial: true, // don't throw if one loader fails
+  })
+  // data.user — User
+  // data.stats — Stats | LoaderError (if it failed)
+  ```
+
+**Design considerations:**
+- Loaders are just async functions — no magic. `loadAll` is just `Promise.all` with type inference and error handling. The value is the convention, not the implementation.
+- Loaders receive the Elysia request context so they can read headers, cookies, query params for auth-gated data
+- Loaders can depend on each other — `statsLoader` might need the user ID from `userLoader`. For dependent loaders, use a sequential chain inside the loader itself, or split into two `loadAll` calls.
+- Caching: loaders can opt into per-request deduplication — if two components request the same loader, it runs once. Uses a `Map` scoped to the request via `AsyncLocalStorage`.
+
+**Files likely involved:**
+- New: `src/utils/defineLoader.ts` — loader factory with typed handler
+- New: `src/utils/loadAll.ts` — parallel execution with typed results
+- New: `types/loader.ts` — types for loader definitions, results, and error shapes
+
+---
+
+## P2 — CLI Scaffolding / Page Generator
+
+**The problem:**
+Adding a new page to an AbsoluteJS app requires: creating the page component file with the right structure, creating a CSS file, adding the route to `server.ts` with the correct page handler import and manifest keys, and updating the build config if needed. This is 3-5 files and getting the imports/manifest keys wrong is a common mistake.
+
+**What AbsoluteJS has today:**
+`create-absolutejs` scaffolds entire projects with the correct structure. But there's no command to add a single page to an existing project.
+
+**What needs to be built:**
+
+*A new CLI command — `bun abs generate page`:*
+```bash
+# Generate a React page
+bun abs generate page dashboard --framework react
+
+# Generate a Svelte page
+bun abs generate page settings --framework svelte
+
+# Generate a Vue page
+bun abs generate page profile --framework vue
+
+# Generate an Angular page
+bun abs generate page analytics --framework angular
+
+# Generate an HTML page
+bun abs generate page landing --framework html
+
+# Generate an HTMX page
+bun abs generate page contact --framework htmx
+```
+
+*What it does:*
+1. **Reads `absolute.config.ts`** to find the framework directories (`reactDirectory`, `svelteDirectory`, etc.)
+2. **Generates the page component** using the same templates and generators from `create-absolutejs`:
+   - React: `pages/Dashboard.tsx` with `Head`, `App` wrapper, typed props
+   - Svelte: `pages/Dashboard.svelte` with `$props()`, `<svelte:head>`, scoped styles
+   - Vue: `pages/Dashboard.vue` with `<script setup>`, `defineProps`, `<style scoped>`
+   - Angular: `pages/dashboard.ts` component + template
+   - HTML: `pages/Dashboard.html` with boilerplate
+   - HTMX: `pages/Dashboard.html` with HTMX attributes
+3. **Generates the CSS file** in the styles directory (e.g., `styles/indexes/dashboard.css`)
+4. **Updates `server.ts`** — adds the import and route:
+   ```ts
+   // Added automatically:
+   import { Dashboard } from './react/pages/Dashboard'
+
+   // Added to the route chain:
+   .get('/dashboard', () =>
+     handleReactPageRequest(
+       Dashboard,
+       asset(manifest, 'DashboardIndex'),
+       { cssPath: asset(manifest, 'DashboardCSS') }
+     )
+   )
+   ```
+5. **Prints a summary** of what was created and what manifest keys to expect after the next build
+
+*How it modifies `server.ts`:*
+- Parses the file using a simple AST or regex to find:
+  - The import block — inserts the new import
+  - The route chain — inserts the new `.get()` call before `.use(networking)` or `.on('error')`
+- Uses the same `generateImportsBlock` and `generateRoutesBlock` patterns from `create-absolutejs`
+- If the file structure is too different from the expected pattern (user heavily customized it), falls back to printing the code snippet for manual insertion
+
+*Template source:*
+- Reuse the generators from `create-absolutejs` directly — import `generateReactComponents`, `generateSveltePage`, `generateVuePage`, etc.
+- The templates produce the same quality output as a freshly scaffolded project
+- Respects the project's existing patterns (Tailwind vs plain CSS, auth vs no auth) by reading the config and installed dependencies
+
+*Additional generators:*
+```bash
+# Generate an API route
+bun abs generate api users
+# → Creates src/backend/routes/users.ts with GET/POST handlers
+# → Adds .use(usersRoutes) to server.ts
+
+# Generate a component (not a page — no route)
+bun abs generate component Button --framework react
+# → Creates src/frontend/react/components/Button.tsx
+```
+
+**Design considerations:**
+- The generator must be idempotent-safe — running it twice for the same page should warn "Dashboard page already exists" instead of overwriting
+- Page names are PascalCased automatically — `bun abs generate page user-settings` creates `UserSettings.tsx`
+- The route path is kebab-cased from the page name — `UserSettings` → `/user-settings`
+- If multiple frameworks are configured, `--framework` is required. If only one framework is configured, it's the default.
+- The generator should work even if `create-absolutejs` isn't installed — the templates should be bundled with the `absolutejs` CLI
+
+**Files likely involved:**
+- `src/cli/index.ts` — add `generate` command with `page`, `api`, `component` subcommands
+- New: `src/cli/scripts/generate.ts` — orchestrates the generation
+- New: `src/cli/generators/generatePage.ts` — page generation logic (reuses create-absolutejs templates)
+- New: `src/cli/generators/generateRoute.ts` — parses server.ts and inserts import + route
+- New: `src/cli/generators/generateComponent.ts` — component-only generation (no route)
+- New: `src/cli/generators/generateApi.ts` — API route generation
+- Import/adapt generators from `create-absolutejs/src/generators/` — the page and component templates
+
+---
+
+## P2 — CLI Framework Adder
+
+**The problem:**
+A project starts with React only. Six months later the team wants to add a Svelte page for a performance-critical widget, or a Vue page because a new hire knows Vue. Today this requires manually creating the framework directory, installing dependencies, updating `absolute.config.ts`, adding the page handler import to `server.ts`, and knowing the correct handler API for that framework. It's error-prone and undocumented.
+
+**What AbsoluteJS has today:**
+`create-absolutejs` scaffolds projects with multiple frameworks from the start, but there's no way to add a framework to an existing project.
+
+**What needs to be built:**
+
+*A new CLI command — `bun abs add`:*
+```bash
+bun abs add react
+bun abs add svelte
+bun abs add vue
+bun abs add angular
+bun abs add html
+bun abs add htmx
+```
+
+*What it does — step by step:*
+
+1. **Checks if the framework is already configured** — reads `absolute.config.ts`, warns and exits if the framework directory is already set.
+
+2. **Installs framework dependencies** — runs `bun add` with the correct packages:
+   - React: `react`, `react-dom`, `@types/react`, `@types/react-dom`
+   - Svelte: `svelte`
+   - Vue: `vue`, `@vue/compiler-sfc`, `vue-tsc`
+   - Angular: `@angular/core`, `@angular/common`, `@angular/platform-browser`, `@angular/platform-server`, `@angular/compiler-cli`, `@angular/ssr`, `zone.js`
+   - HTML: no deps
+   - HTMX: no deps (copies `htmx.min.js` to the directory)
+
+3. **Creates the framework directory** with the correct structure using the same layout as `create-absolutejs`:
+   - `src/frontend/{framework}/pages/`
+   - `src/frontend/{framework}/components/`
+   - `src/frontend/{framework}/composables/` (Svelte, Vue)
+   - `src/frontend/{framework}/templates/` (Angular)
+
+4. **Generates a starter page** using the same templates from `create-absolutejs`:
+   - React: `ReactExample.tsx` with `Head`, `App`, `Dropdown` components
+   - Svelte: `SvelteExample.svelte` with counter using `$props()` and `$state()`
+   - Vue: `VueExample.vue` with `<script setup>`, `defineProps`, composition API counter
+   - Angular: `angular-example.ts` with counter component + template
+   - HTML: `HTMLExample.html` with boilerplate
+   - HTMX: `HTMXExample.html` with counter endpoints and `hx-` attributes
+
+5. **Generates a CSS file** in the styles directory (`styles/indexes/{framework}-example.css`)
+
+6. **Updates `absolute.config.ts`** — inserts the framework directory config:
+   ```ts
+   // Added:
+   svelteDirectory: 'src/frontend/svelte',
+   ```
+
+7. **Updates `server.ts`** — adds the import and a route for the starter page:
+   ```ts
+   // Added import:
+   import { handleSveltePageRequest } from 'absolutejs/svelte'
+
+   // Added route:
+   .get('/svelte', async () => {
+     const SvelteExample = (await import('./svelte/pages/SvelteExample.svelte')).default
+     return handleSveltePageRequest(
+       SvelteExample,
+       asset(manifest, 'SvelteExample'),
+       asset(manifest, 'SvelteExampleIndex'),
+       { cssPath: asset(manifest, 'SvelteExampleCSS'), initialCount: 0 }
+     )
+   })
+   ```
+
+8. **Updates navigation** — if a `Dropdown` component exists (the framework switcher), adds the new framework link
+
+9. **Prints a summary:**
+   ```
+   ✓ Added Svelte to your project
+
+   Created:
+     src/frontend/svelte/pages/SvelteExample.svelte
+     src/frontend/svelte/components/Counter.svelte
+     src/frontend/svelte/composables/counter.svelte.ts
+     src/frontend/styles/indexes/svelte-example.css
+
+   Updated:
+     absolute.config.ts — added svelteDirectory
+     src/backend/server.ts — added /svelte route
+
+   Run `bun run dev` to see your new Svelte page at /svelte
+   ```
+
+*How it modifies files:*
+- `absolute.config.ts`: parses the `defineConfig({...})` object and inserts the new property. Regex/AST to find the config object, insert the key before the closing brace.
+- `server.ts`: same approach as the page generator — find the import block, find the route chain (before `.use(networking)` or `.on('error')`), insert in the right spots.
+- If files are too heavily customized to safely modify, falls back to printing the code snippets for manual insertion.
+
+*Removing a framework:*
+```bash
+bun abs remove svelte
+```
+- Removes the directory config from `absolute.config.ts`
+- Does NOT delete the framework directory or source files — too destructive, user does this manually
+- Warns which routes in `server.ts` reference the removed framework so the user can clean up
+- Removes framework dependencies via `bun remove` (only if no other framework needs them)
+
+**Design considerations:**
+- Detect the project structure automatically — if the project uses `src/frontend/` (create-absolutejs default) vs `example/` (the absolutejs repo), adapt paths by reading existing `absolute.config.ts` directory patterns and following the same convention.
+- Version alignment: install the same dependency versions that the current AbsoluteJS version is tested with. Bundle a version manifest with the CLI.
+- If HTMX is added, also install `elysia-scoped-state` and add the HTMX counter endpoints as a starter.
+- If Angular is added, handle the extra complexity — it has the most dependencies and setup of any framework.
+- The scaffolding should work offline (templates are bundled with the CLI) — only `bun add` needs network.
+- Idempotent — running `bun abs add react` when React is already configured prints a message and exits, doesn't break anything.
+
+**Files likely involved:**
+- `src/cli/index.ts` — add `add` and `remove` commands
+- New: `src/cli/scripts/add.ts` — orchestrates the framework addition
+- New: `src/cli/scripts/remove.ts` — orchestrates framework removal (config + deps only, not file deletion)
+- New: `src/cli/generators/addFramework.ts` — shared logic for directory creation, config updates, server.ts modification
+- Reuse generators from `create-absolutejs/src/generators/` — `scaffoldReact`, `scaffoldSvelte`, `scaffoldVue`, `scaffoldAngular`, `scaffoldHTML`, `scaffoldHTMX`
+- Reuse `generateImportsBlock` and `generateRoutesBlock` from `create-absolutejs/src/generators/project/`
