@@ -129,17 +129,13 @@ const handleParsedMessage = (
 			}
 			break;
 
-		case 'hmr-timing': {
-			const timing = data as { duration?: number };
-			if (timing.duration !== undefined) {
-				logHmrUpdate(
-					state.lastHmrPath ?? '',
-					state.lastHmrFramework,
-					timing.duration
-				);
-			}
+		case 'hmr-timing':
+			logHmrUpdate(
+				state.lastHmrPath ?? '',
+				state.lastHmrFramework,
+				data.duration
+			);
 			break;
-		}
 	}
 };
 

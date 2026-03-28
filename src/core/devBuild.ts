@@ -1,6 +1,6 @@
 import { readdir } from 'node:fs/promises';
 import { statSync } from 'node:fs';
-import { relative, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import { build } from './build';
 import {
 	setDevVendorPaths,

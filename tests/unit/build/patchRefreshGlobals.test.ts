@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { build as bunBuild } from 'bun';
-import { mkdtemp, rm, readFile, writeFile, readdir, mkdir } from 'fs/promises';
+import { mkdtemp, rm, readFile, writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { patchRefreshGlobals } from '../../../src/build/rewriteReactImports';

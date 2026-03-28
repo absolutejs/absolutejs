@@ -1,3 +1,4 @@
+import { readdirSync } from 'node:fs';
 import { BuildConfig } from '../../types/build';
 import { commonAncestor } from '../utils/commonAncestor';
 import { normalizePath } from '../utils/normalizePath';
@@ -81,6 +82,36 @@ export const detectFramework = (
 
 	return 'unknown';
 };
+const getSiblingDirs = (
+	frameworkDirs: string[],
+	cfg: { assetsDir?: string; stylesDir?: string }
+) => {
+	if (frameworkDirs.length === 0) return [];
+
+	const root = commonAncestor(frameworkDirs);
+	if (!root) return [];
+
+	const knownNames = new Set(
+		[...frameworkDirs, cfg.assetsDir, cfg.stylesDir]
+			.filter((dir): dir is string => Boolean(dir))
+			.map((dir) => normalizePath(dir).split('/').pop())
+	);
+	knownNames.add('build');
+	knownNames.add('node_modules');
+	knownNames.add('.absolutejs');
+
+	try {
+		return readdirSync(root, { withFileTypes: true })
+			.filter(
+				(entry) => entry.isDirectory() && !knownNames.has(entry.name)
+			)
+			.map((entry) => `${root}/${entry.name}`);
+	} catch {
+		// root may not exist yet
+		return [];
+	}
+};
+
 export const getWatchPaths = (
 	config: BuildConfig,
 	resolved?: ResolvedBuildPaths
@@ -129,7 +160,7 @@ export const getWatchPaths = (
 	// Also watch sibling directories under the common parent of all
 	// configured dirs — these contain shared files (workers, utils, etc.)
 	// that may be referenced by multiple frameworks.
-	const allDirs = [
+	const frameworkDirs = [
 		cfg.reactDir,
 		cfg.svelteDir,
 		cfg.vueDir,
@@ -137,33 +168,11 @@ export const getWatchPaths = (
 		cfg.htmlDir,
 		cfg.htmxDir
 	]
-		.filter((d): d is string => Boolean(d))
+		.filter((dir): dir is string => Boolean(dir))
 		.map(normalizePath);
 
-	if (allDirs.length > 0) {
-		const root = commonAncestor(allDirs);
-		if (root) {
-			const knownNames = new Set(
-				[...allDirs, cfg.assetsDir, cfg.stylesDir]
-					.filter(Boolean)
-					.map((d) => normalizePath(d!).split('/').pop())
-			);
-			knownNames.add('build');
-			knownNames.add('node_modules');
-			knownNames.add('.absolutejs');
-			try {
-				const { readdirSync } = require('node:fs');
-				for (const entry of readdirSync(root, {
-					withFileTypes: true
-				})) {
-					if (entry.isDirectory() && !knownNames.has(entry.name)) {
-						push(`${root}/${entry.name}`);
-					}
-				}
-			} catch {
-				// root may not exist yet
-			}
-		}
+	for (const siblingPath of getSiblingDirs(frameworkDirs, cfg)) {
+		push(siblingPath);
 	}
 
 	return paths;

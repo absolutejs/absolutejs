@@ -22,13 +22,11 @@ if (!window.$RefreshRuntime$) {
 	// Replay buffered registrations from the bootstrap script.
 	// The SSR HTML injects a buffering $RefreshReg$ that captures
 	// registrations before the runtime is ready.
-	const buffer = (window as unknown as Record<string, unknown>)
-		.__REFRESH_BUFFER__ as Array<[unknown, string]> | undefined;
+	const buffer = window.__REFRESH_BUFFER__;
 	if (buffer) {
 		for (const [type, id] of buffer) {
 			RefreshRuntime.register(type, id);
 		}
-		(window as unknown as Record<string, unknown>).__REFRESH_BUFFER__ =
-			undefined;
+		window.__REFRESH_BUFFER__ = undefined;
 	}
 }

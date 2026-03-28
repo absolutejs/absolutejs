@@ -135,6 +135,21 @@ const handleVueImportSuccess = (
 	sessionStorage.removeItem('__HMR_ACTIVE__');
 };
 
+/* Force-reload a Vue component via HMR runtime when setup() must re-run */
+const forceReloadVueComponent = (mod: Record<string, unknown>) => {
+	const hmrRuntime = window.__VUE_HMR_RUNTIME__;
+	if (!hmrRuntime) return;
+
+	const component = mod?.default ?? Object.values(mod ?? {})[0];
+	if (!component || typeof component !== 'object') return;
+	if (!('__hmrId' in component)) return;
+
+	const { __hmrId: hmrId } = component;
+	if (typeof hmrId === 'string') {
+		hmrRuntime.reload(hmrId, component);
+	}
+};
+
 export const handleVueUpdate = (message: {
 	data: {
 		cssBaseName?: string;
@@ -203,20 +218,15 @@ export const handleVueUpdate = (message: {
 				// When a composable/utility file changed (not the .vue file itself),
 				// force reload via __VUE_HMR_RUNTIME__ so setup() re-runs.
 				// Vue's rerender only swaps the template, not the setup closure.
-				if (
-					message.data.forceReload &&
-					(window as any).__VUE_HMR_RUNTIME__
-				) {
-					const hmrRuntime = (window as any).__VUE_HMR_RUNTIME__;
-					const component =
-						mod?.default ?? Object.values(mod ?? {})[0];
-					if (component?.__hmrId) {
-						hmrRuntime.reload(component.__hmrId, component);
-					}
+				if (message.data.forceReload) {
+					forceReloadVueComponent(mod);
 				}
 				sessionStorage.removeItem('__HMR_ACTIVE__');
 
-				if (window.__HMR_WS__ && message.data.serverDuration != null) {
+				if (
+					window.__HMR_WS__ &&
+					message.data.serverDuration !== undefined
+				) {
 					const clientMs = Math.round(
 						performance.now() - clientStart
 					);

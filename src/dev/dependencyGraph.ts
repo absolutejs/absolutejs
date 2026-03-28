@@ -129,22 +129,21 @@ export const buildInitialDependencyGraph = (
 	const processedFiles = new Set<string>();
 	const glob = new Glob('**/*.{ts,tsx,js,jsx,vue,svelte,html,htm}');
 
-	for (const dir of directories) {
-		const resolvedDir = resolve(dir);
-		if (!existsSync(resolvedDir)) continue;
+	const resolvedDirs = directories
+		.map((dir) => resolve(dir))
+		.filter((dir) => existsSync(dir));
 
-		for (const file of glob.scanSync({
-			absolute: true,
-			cwd: resolvedDir
-		})) {
-			const fullPath = resolve(file);
-			if (IGNORED_SEGMENTS.some((seg) => fullPath.includes(seg)))
-				continue;
-			if (processedFiles.has(fullPath)) continue;
+	const allFiles = resolvedDirs.flatMap((dir) =>
+		Array.from(glob.scanSync({ absolute: true, cwd: dir }))
+	);
 
-			addFileToGraph(graph, fullPath);
-			processedFiles.add(fullPath);
-		}
+	for (const file of allFiles) {
+		const fullPath = resolve(file);
+		if (IGNORED_SEGMENTS.some((seg) => fullPath.includes(seg))) continue;
+		if (processedFiles.has(fullPath)) continue;
+
+		addFileToGraph(graph, fullPath);
+		processedFiles.add(fullPath);
 	}
 };
 

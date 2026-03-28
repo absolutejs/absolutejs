@@ -10,6 +10,11 @@ declare global {
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	var __reactModuleRef: any;
 	var __depVendorPaths: Record<string, string> | undefined;
+	var __transformCache:
+		| Map<string, { content: string; imports: string[]; mtime: number }>
+		| undefined;
+	var __transformImporters: Map<string, Set<string>> | undefined;
+	var __transformInvalidationVersions: Map<string, number> | undefined;
 	var __http2Config:
 		| {
 				hmrState: import('../src/dev/clientManager').HMRState;
@@ -76,6 +81,12 @@ declare global {
 			  } & Record<string, unknown>)
 			| null;
 		__VUE_HMR_COMPONENTS__?: Record<string, unknown>;
+		__VUE_HMR_RUNTIME__?: {
+			createRecord: (id: string, component: unknown) => void;
+			reload: (id: string, component: unknown) => void;
+			rerender: (id: string, render: unknown) => void;
+		};
+		__REFRESH_BUFFER__?: Array<[unknown, string]>;
 		htmx?: { process: (element: HTMLElement | Document) => void };
 	}
 }

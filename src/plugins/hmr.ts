@@ -31,6 +31,19 @@ const restoreStore = (app: Elysia) => {
 	Reflect.set(globalThis, STORE_KEY, app.store);
 };
 
+const resolveModuleResponse = (
+	moduleResponse: Response,
+	ifNoneMatch: string | null
+) => {
+	const etag = moduleResponse.headers.get('ETag');
+
+	if (etag && ifNoneMatch === etag) {
+		return new Response(null, { headers: { ETag: etag }, status: 304 });
+	}
+
+	return moduleResponse;
+};
+
 /* HMR plugin for Elysia
    Adds WebSocket endpoint and status endpoint.
    HMR client code is baked into framework index files (React/Svelte/Vue)
@@ -49,8 +62,6 @@ export const hmr =
 
 		// In HTTP/2 mode, WebSocket is handled by the http2Bridge
 		// so we skip Elysia's .ws() registration
-		const http2Mode = Boolean(globalThis.__http2Config);
-
 		app.onBeforeHandle(async ({ request }) => {
 			// Bridge React internals if bun install created a duplicate instance.
 			// Runs before any route handler so page handlers stay clean.
@@ -72,21 +83,13 @@ export const hmr =
 			// with ETag-based conditional requests for fast 304 responses
 			if (moduleServerHandler) {
 				const moduleResponse = await moduleServerHandler(pathname);
-				if (moduleResponse) {
-					const etag = moduleResponse.headers.get('ETag');
-					if (etag) {
-						const ifNoneMatch =
-							request.headers.get('If-None-Match');
-						if (ifNoneMatch === etag) {
-							return new Response(null, {
-								headers: { ETag: etag },
-								status: 304
-							});
-						}
-					}
 
-					return moduleResponse;
-				}
+				if (!moduleResponse) return undefined;
+
+				return resolveModuleResponse(
+					moduleResponse,
+					request.headers.get('If-None-Match')
+				);
 			}
 
 			const bytes = lookupAsset(hmrState.assetStore, pathname);

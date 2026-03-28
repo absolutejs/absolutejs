@@ -1,3 +1,4 @@
+import { BASE_36_RADIX } from '../constants';
 import { existsSync } from 'node:fs';
 import { mkdir, stat } from 'node:fs/promises';
 import {
@@ -103,7 +104,7 @@ export const compileSvelte = async (
 		const raw = await file(src).text();
 
 		// Check if source is unchanged since last compilation
-		const contentHash = Bun.hash(raw).toString(36);
+		const contentHash = Bun.hash(raw).toString(BASE_36_RADIX);
 		const prevHash = sourceHashCache.get(src);
 		const persistent = persistentCache.get(src);
 
@@ -140,7 +141,7 @@ export const compileSvelte = async (
 		await Promise.all(childSources.map((child) => build(child)));
 
 		const generate = (mode: 'server' | 'client') => {
-			const raw = isModule
+			const compiled = isModule
 				? compileModule(transpiled, {
 						dev: mode === 'client' && dev,
 						filename: src
@@ -152,7 +153,7 @@ export const compileSvelte = async (
 						generate: mode,
 						hmr: mode === 'client' && isDev
 					}).js.code;
-			let code = raw.replace(
+			let code = compiled.replace(
 				/\.svelte(?:\.(?:ts|js))?(['"])/g,
 				'.js$1'
 			);

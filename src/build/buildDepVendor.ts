@@ -48,48 +48,96 @@ const FRAMEWORK_SPECIFIERS = new Set([
 	'@angular/ssr'
 ]);
 
+const isSkippedFile = (file: string) =>
+	file.includes('node_modules') ||
+	file.includes('/build/') ||
+	file.includes('/dist/') ||
+	file.includes('/indexes/');
+
+const isDepSpecifier = (path: string) =>
+	isBareSpecifier(path) && !FRAMEWORK_SPECIFIERS.has(path);
+
+const readFileSpecifiers = async (
+	file: string,
+	transpiler: Bun.Transpiler
+) => {
+	const empty: string[] = [];
+	try {
+		const content = await Bun.file(file).text();
+
+		return transpiler.scanImports(content).map((imp) => imp.path).filter(isDepSpecifier);
+	} catch {
+		return empty;
+	}
+};
+
+const scanDirFiles = async (dir: string) => {
+	const empty: string[] = [];
+	const glob = new Glob('**/*.{ts,tsx,js,jsx}');
+	try {
+		const all = await Array.fromAsync(
+			glob.scan({ absolute: true, cwd: dir })
+		);
+
+		return all.filter((file) => !isSkippedFile(file));
+	} catch {
+		return empty;
+	}
+};
+
+const collectDirSpecifiers = async (
+	dir: string,
+	transpiler: Bun.Transpiler,
+	specifiers: Set<string>
+) => {
+	const files = await scanDirFiles(dir);
+	const results = await Promise.all(
+		files.map((file) => readFileSpecifiers(file, transpiler))
+	);
+	for (const spec of results.flat()) {
+		specifiers.add(spec);
+	}
+};
+
 // Scan source files to find all bare import specifiers
 const scanBareImports = async (directories: string[]) => {
 	const specifiers = new Set<string>();
 	const transpiler = new Bun.Transpiler({ loader: 'tsx' });
 
-	for (const dir of directories) {
-		const glob = new Glob('**/*.{ts,tsx,js,jsx}');
-		try {
-			for await (const file of glob.scan({
-				absolute: true,
-				cwd: dir
-			})) {
-				if (file.includes('node_modules')) continue;
-				if (file.includes('/build/')) continue;
-				if (file.includes('/dist/')) continue;
-				if (file.includes('/indexes/')) continue;
-
-				try {
-					const content = await Bun.file(file).text();
-					const imports = transpiler.scanImports(content);
-					for (const imp of imports) {
-						if (
-							isBareSpecifier(imp.path) &&
-							!FRAMEWORK_SPECIFIERS.has(imp.path)
-						) {
-							specifiers.add(imp.path);
-						}
-					}
-				} catch {
-					// skip files that can't be parsed
-				}
-			}
-		} catch {
-			// skip directories that don't exist
-		}
-	}
+	await Promise.all(
+		directories.map((dir) =>
+			collectDirSpecifiers(dir, transpiler, specifiers)
+		)
+	);
 
 	return Array.from(specifiers).filter(isResolvable);
 };
 
 const generateEntrySource = (specifier: string) =>
 	`export * from '${specifier}';\n`;
+
+const rewriteVendorFiles = async (vendorDir: string) => {
+	const { readdirSync, readFileSync, writeFileSync } = await import('node:fs');
+	const { computeVendorPaths } = await import('./buildReactVendor');
+	const reactPaths = Object.entries(computeVendorPaths());
+
+	const rewriteContent = (content: string) =>
+		reactPaths.reduce((acc, [specifier, webPath]) => {
+			const escaped = specifier.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+			const re = new RegExp(`(from\\s*["'])${escaped}(["'])`, 'g');
+
+			return acc.replace(re, `$1${webPath}$2`);
+		}, content);
+
+	const files = readdirSync(vendorDir).filter((f) => f.endsWith('.js'));
+	for (const file of files) {
+		const filePath = join(vendorDir, file);
+		const original = readFileSync(filePath, 'utf-8');
+		const rewritten = rewriteContent(original);
+
+		if (rewritten !== original) writeFileSync(filePath, rewritten);
+	}
+};
 
 export const buildDepVendor = async (
 	buildDir: string,
@@ -133,46 +181,11 @@ export const buildDepVendor = async (
 
 	// Post-process: rewrite framework bare specifiers in vendor output
 	// to their vendor paths so the browser can resolve them
-	if (result.success) {
-		const { readdirSync, readFileSync, writeFileSync } = await import(
-			'node:fs'
-		);
-		const { computeVendorPaths } = await import('./buildReactVendor');
-		const reactPaths = computeVendorPaths();
-
-		const files = readdirSync(vendorDir).filter((f) =>
-			f.endsWith('.js')
-		);
-		for (const file of files) {
-			const filePath = join(vendorDir, file);
-			let content = readFileSync(filePath, 'utf-8');
-			let changed = false;
-
-			for (const [specifier, webPath] of Object.entries(reactPaths)) {
-				const escaped = specifier.replace(
-					/[.*+?^${}()|[\]\\]/g,
-					'\\$&'
-				);
-				const re = new RegExp(
-					`(from\\s*["'])${escaped}(["'])`,
-					'g'
-				);
-				const newContent = content.replace(re, `$1${webPath}$2`);
-				if (newContent !== content) {
-					content = newContent;
-					changed = true;
-				}
-			}
-
-			if (changed) {
-				writeFileSync(filePath, content);
-			}
-		}
-	}
-
 	if (!result.success) {
 		console.warn('⚠️ Dependency vendor build had errors:', result.logs);
 	}
+
+	if (result.success) await rewriteVendorFiles(vendorDir);
 
 	const paths: Record<string, string> = {};
 	for (const specifier of specifiers) {
@@ -181,6 +194,7 @@ export const buildDepVendor = async (
 
 	return paths;
 };
+
 export const computeDepVendorPaths = async (directories: string[]) => {
 	const specifiers = await scanBareImports(directories);
 	const paths: Record<string, string> = {};

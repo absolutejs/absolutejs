@@ -279,7 +279,10 @@ export const handleSvelteUpdate = (message: {
 					acceptFn(newModule);
 				}
 
-				if (window.__HMR_WS__ && message.data.serverDuration != null) {
+				if (
+					window.__HMR_WS__ &&
+					message.data.serverDuration !== undefined
+				) {
 					const clientMs = Math.round(
 						performance.now() - clientStart
 					);

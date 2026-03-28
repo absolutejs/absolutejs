@@ -73,9 +73,9 @@ export const buildVueVendor = async (buildDir: string) => {
 			/getGlobalThis\(\)\.__VUE_HMR_RUNTIME__\s*=\s*\{/,
 			'getGlobalThis().__VUE_HMR_RUNTIME__ = getGlobalThis().__VUE_HMR_RUNTIME__ || {'
 		);
-		if (patched !== content) {
-			writeFileSync(filePath, patched);
-		}
+		if (patched === content) continue;
+
+		writeFileSync(filePath, patched);
 	}
 };
 

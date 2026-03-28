@@ -27,7 +27,8 @@ export default defineConfig([
 			'.test-builds/**',
 			'example/build/**',
 			'example/dist/**',
-			'example/react/indexes/*'
+			'example/react/indexes/*',
+			'speed-test.ts'
 		]
 	},
 
@@ -245,7 +246,8 @@ export default defineConfig([
 			'tsconfig.json',
 			'tsconfig.build.json',
 			'package.json',
-			'.prettierrc.json'
+			'.prettierrc.json',
+			'native/packages/*/package.json'
 		],
 		rules: {
 			'@typescript-eslint/no-unused-expressions': 'off'

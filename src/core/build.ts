@@ -1,3 +1,4 @@
+import { FILE_PROTOCOL_PREFIX_LENGTH, UNFOUND_INDEX } from '../constants';
 import {
 	copyFileSync,
 	cpSync,
@@ -8,7 +9,7 @@ import {
 	statSync,
 	writeFileSync
 } from 'node:fs';
-import { basename, dirname, join, relative, resolve } from 'node:path';
+import { basename, join, relative, resolve } from 'node:path';
 import { cwd, env, exit } from 'node:process';
 import { build as bunBuild, BuildArtifact, Glob } from 'bun';
 import { generateManifest } from '../build/generateManifest';
@@ -120,7 +121,63 @@ const SKIP_DIRS = new Set([
 	'.absolutejs',
 	'.generated'
 ]);
-const scanWorkerReferences = async (dirs: string[]): Promise<string[]> => {
+const addWorkerPathIfExists = (
+	file: string,
+	relPath: string,
+	workerPaths: Set<string>
+) => {
+	const absPath = resolve(file, '..', relPath);
+	try {
+		statSync(absPath);
+		workerPaths.add(absPath);
+	} catch {
+		// Referenced file doesn't exist, skip
+	}
+};
+
+const collectWorkerPathsFromContent = (
+	content: string,
+	pattern: RegExp,
+	file: string,
+	workerPaths: Set<string>
+) => {
+	pattern.lastIndex = 0;
+	let match;
+	while ((match = pattern.exec(content)) !== null) {
+		const [, relPath] = match;
+		if (!relPath) continue;
+		addWorkerPathIfExists(file, relPath, workerPaths);
+	}
+};
+
+const collectWorkerPathsFromFile = (
+	file: string,
+	patterns: RegExp[],
+	workerPaths: Set<string>
+) => {
+	const content = readFileSync(file, 'utf-8');
+	for (const pattern of patterns) {
+		collectWorkerPathsFromContent(content, pattern, file, workerPaths);
+	}
+};
+
+const scanWorkerReferencesInDir = async (
+	dir: string,
+	patterns: RegExp[],
+	workerPaths: Set<string>
+) => {
+	const glob = new Glob('**/*.{ts,tsx,js,jsx,svelte,vue}');
+	for await (const file of glob.scan({ absolute: true, cwd: dir })) {
+		// Skip build-generated directories
+		const relToDir = file.slice(dir.length + 1);
+		const [firstSegment] = relToDir.split('/');
+		if (firstSegment && SKIP_DIRS.has(firstSegment)) continue;
+
+		collectWorkerPathsFromFile(file, patterns, workerPaths);
+	}
+};
+
+const scanWorkerReferences = async (dirs: string[]) => {
 	const urlPattern =
 		/new\s+URL\(\s*["'](\.\.?\/[^"']+)["']\s*,\s*import\.meta\.url\s*\)/g;
 	const resolvePattern =
@@ -128,33 +185,330 @@ const scanWorkerReferences = async (dirs: string[]): Promise<string[]> => {
 	const workerPaths = new Set<string>();
 
 	for (const dir of dirs) {
-		const glob = new Glob('**/*.{ts,tsx,js,jsx,svelte,vue}');
-		for await (const file of glob.scan({ absolute: true, cwd: dir })) {
-			// Skip build-generated directories
-			const relToDir = file.slice(dir.length + 1);
-			const firstSegment = relToDir.split('/')[0];
-			if (firstSegment && SKIP_DIRS.has(firstSegment)) continue;
-
-			const content = readFileSync(file, 'utf-8');
-			for (const pattern of [urlPattern, resolvePattern]) {
-				pattern.lastIndex = 0;
-				let match;
-				while ((match = pattern.exec(content)) !== null) {
-					const relPath = match[1];
-					if (!relPath) continue;
-					const absPath = resolve(file, '..', relPath);
-					try {
-						statSync(absPath);
-						workerPaths.add(absPath);
-					} catch {
-						// Referenced file doesn't exist, skip
-					}
-				}
-			}
-		}
+		// eslint-disable-next-line no-await-in-loop -- iterations depend on each other (shared workerPaths set)
+		await scanWorkerReferencesInDir(
+			dir,
+			[urlPattern, resolvePattern],
+			workerPaths
+		);
 	}
 
 	return [...workerPaths];
+};
+
+const copyDevIndexes = async ({
+	buildPath,
+	reactIndexesPath,
+	reactPagesPath,
+	svelteDir,
+	svelteEntries,
+	sveltePagesPath,
+	vueDir,
+	vueEntries,
+	vuePagesPath
+}: {
+	buildPath: string;
+	reactIndexesPath: string | false | undefined;
+	reactPagesPath: string | false | undefined;
+	svelteDir: string | false | undefined;
+	svelteEntries: string[];
+	sveltePagesPath: string | false | undefined;
+	vueDir: string | false | undefined;
+	vueEntries: string[];
+	vuePagesPath: string | false | undefined;
+}) => {
+	const { readdirSync: readDir } = await import('node:fs');
+	const devIndexDir = join(buildPath, '_src_indexes');
+	mkdirSync(devIndexDir, { recursive: true });
+
+	if (reactIndexesPath && reactPagesPath) {
+		copyReactDevIndexes(
+			reactIndexesPath,
+			reactPagesPath,
+			devIndexDir,
+			readDir
+		);
+	}
+
+	if (svelteDir && sveltePagesPath) {
+		copySvelteDevIndexes(
+			svelteDir,
+			sveltePagesPath,
+			svelteEntries,
+			devIndexDir
+		);
+	}
+
+	if (vueDir && vuePagesPath) {
+		copyVueDevIndexes(vueDir, vuePagesPath, vueEntries, devIndexDir);
+	}
+};
+
+const copyReactDevIndexes = (
+	reactIndexesPath: string,
+	reactPagesPath: string,
+	devIndexDir: string,
+	readDir: (path: string) => string[]
+) => {
+	const indexFiles = readDir(reactIndexesPath).filter((file: string) =>
+		file.endsWith('.tsx')
+	);
+	const pagesRel = relative(process.cwd(), resolve(reactPagesPath)).replace(
+		/\\/g,
+		'/'
+	);
+
+	for (const file of indexFiles) {
+		let content = readFileSync(join(reactIndexesPath, file), 'utf-8');
+		content = content.replace(
+			/from\s*['"]([^'"]*\/pages\/([^'"]+))['"]/g,
+			(_match, _fullPath, componentName) =>
+				`from '/@src/${pagesRel}/${componentName}'`
+		);
+		writeFileSync(join(devIndexDir, file), content);
+	}
+};
+
+const copySvelteDevIndexes = (
+	svelteDir: string,
+	sveltePagesPath: string,
+	svelteEntries: string[],
+	devIndexDir: string
+) => {
+	const svelteIndexDir = join(svelteDir, '.generated', 'indexes');
+	const sveltePageEntries = svelteEntries.filter((file) =>
+		resolve(file).startsWith(resolve(sveltePagesPath))
+	);
+	for (const entry of sveltePageEntries) {
+		const name = basename(entry).replace(/\.svelte(\.(ts|js))?$/, '');
+		const indexFile = join(svelteIndexDir, 'pages', `${name}.js`);
+		if (!existsSync(indexFile)) continue;
+		let content = readFileSync(indexFile, 'utf-8');
+		const srcRel = relative(process.cwd(), resolve(entry)).replace(
+			/\\/g,
+			'/'
+		);
+		content = content.replace(
+			/import\s+Component\s+from\s+['"]([^'"]+)['"]/,
+			`import Component from "/@src/${srcRel}"`
+		);
+		writeFileSync(join(devIndexDir, `${name}.svelte.js`), content);
+	}
+};
+
+const copyVueDevIndexes = (
+	vueDir: string,
+	vuePagesPath: string,
+	vueEntries: string[],
+	devIndexDir: string
+) => {
+	const vueIndexDir = join(vueDir, '.generated', 'indexes');
+	const vuePageEntries = vueEntries.filter((file) =>
+		resolve(file).startsWith(resolve(vuePagesPath))
+	);
+	for (const entry of vuePageEntries) {
+		const name = basename(entry, '.vue');
+		const indexFile = join(vueIndexDir, `${name}.js`);
+		if (!existsSync(indexFile)) continue;
+		let content = readFileSync(indexFile, 'utf-8');
+		const srcRel = relative(process.cwd(), resolve(entry)).replace(
+			/\\/g,
+			'/'
+		);
+		content = content.replace(
+			/import\s+Comp\s+from\s+['"]([^'"]+)['"]/,
+			`import Comp from "/@src/${srcRel}"`
+		);
+		writeFileSync(join(devIndexDir, `${name}.vue.js`), content);
+	}
+};
+
+const resolveVueRuntimeId = (
+	content: string,
+	firstUseName: string,
+	outputPath: string,
+	projectRoot: string
+) => {
+	const varIdx = content.indexOf(`var ${firstUseName} =`);
+	if (varIdx <= 0) return JSON.stringify(outputPath);
+	// Find all // src/...js comments before the var declaration
+	const before = content.slice(0, varIdx);
+	const allComments = [...before.matchAll(/\/\/\s*(src\/[^\n]*\.js)\s*\n/g)];
+	// Use the last one (closest to the var declaration)
+	const last = allComments[allComments.length - 1];
+	if (!last?.[1]) return JSON.stringify(outputPath);
+	const srcPath = resolve(
+		projectRoot,
+		last[1].replace('/client/', '/').replace(/\.js$/, '.ts')
+	);
+
+	return JSON.stringify(srcPath);
+};
+
+const QUOTE_CHARS = new Set(['"', "'", '`']);
+const OPEN_BRACES = new Set(['{', '(']);
+const CLOSE_BRACES = new Set(['}', ')']);
+
+const findFunctionExpressionEnd = (content: string, startPos: number) => {
+	let depth = 0;
+	let inStr: string | false = false;
+	for (let i = startPos; i < content.length; i++) {
+		const char = content[i] ?? '';
+		if (inStr && char === inStr && content[i - 1] !== '\\') inStr = false;
+		if (inStr) continue;
+		if (QUOTE_CHARS.has(char)) inStr = char;
+		if (QUOTE_CHARS.has(char)) continue;
+		if (OPEN_BRACES.has(char)) depth++;
+		if (CLOSE_BRACES.has(char)) depth--;
+		if (depth === 0 && char === ';') return i;
+	}
+
+	return startPos;
+};
+
+const wrapUseFunctions = (content: string, useNames: string[]) => {
+	let result = content;
+	for (const name of useNames) {
+		const marker = `var ${name} = `;
+		const pos = result.indexOf(marker);
+		if (pos === UNFOUND_INDEX) continue;
+		const afterMarker = pos + marker.length;
+		const endPos = findFunctionExpressionEnd(result, afterMarker);
+		const funcBody = result.slice(afterMarker, endPos);
+		result = `${result.slice(0, afterMarker)}__hmr_wrap(${JSON.stringify(name)}, ${funcBody})${result.slice(endPos)}`;
+	}
+
+	return result;
+};
+
+const VUE_HMR_RUNTIME = [
+	`var __hmr_cs=(globalThis.__HMR_COMPOSABLE_STATE__??={});`,
+	`var __hmr_mid=__HMR_MID__;`,
+	`var __hmr_prev_refs=__hmr_cs[__hmr_mid];`,
+	`var __hmr_idx={};`,
+	`__hmr_cs[__hmr_mid]={};`,
+	`function __hmr_wrap(n,fn){return function(){`,
+	`var i=(__hmr_idx[n]=(__hmr_idx[n]??-1)+1);`,
+	`var r=fn.apply(this,arguments);`,
+	`if(r&&typeof r==="object"){`,
+	`var refs={};for(var k in r){var v=r[k];`,
+	`if(v&&typeof v==="object"&&"value"in v&&!v.effect&&typeof v.value!=="function")refs[k]=v;}`,
+	`(__hmr_cs[__hmr_mid][n]??=[])[i]=refs;`,
+	`if(__hmr_prev_refs&&__hmr_prev_refs[n]&&__hmr_prev_refs[n][i]){`,
+	`var old=__hmr_prev_refs[n][i];`,
+	`for(var k in old){var nv=r[k],ov=old[k];`,
+	`if(nv&&ov&&typeof nv==="object"&&"value"in nv&&!nv.effect&&typeof nv.value===typeof ov.value)nv.value=ov.value;}`,
+	`}}return r;};}`
+].join('');
+
+const injectVueComposableTracking = (
+	outputPath: string,
+	projectRoot: string
+) => {
+	let content = readFileSync(outputPath, 'utf-8');
+	// Find `var useXxx = (` patterns and the source file comment above them
+	const usePattern = /^var\s+(use[A-Z]\w*)\s*=/gm;
+	const useNames: string[] = [];
+	let match;
+	while ((match = usePattern.exec(content)) !== null) {
+		if (match[1]) useNames.push(match[1]);
+	}
+	if (useNames.length === 0) return;
+
+	const [firstUseName] = useNames;
+	if (!firstUseName) return;
+
+	const runtimeId = resolveVueRuntimeId(
+		content,
+		firstUseName,
+		outputPath,
+		projectRoot
+	);
+	const runtime = VUE_HMR_RUNTIME.replace('__HMR_MID__', runtimeId);
+
+	// Insert runtime before the first use* function
+	const firstUseIdx = content.indexOf(`var ${firstUseName} =`);
+	if (firstUseIdx === UNFOUND_INDEX) return;
+	content = `${content.slice(0, firstUseIdx) + runtime}\n${content.slice(firstUseIdx)}`;
+
+	content = wrapUseFunctions(content, useNames);
+	writeFileSync(outputPath, content);
+};
+
+const buildDevUrlFileMap = (
+	urlReferencedFiles: string[],
+	projectRoot: string
+) => {
+	const urlFileMap = new Map<string, string>();
+	for (const srcPath of urlReferencedFiles) {
+		const rel = relative(projectRoot, srcPath).replace(/\\/g, '/');
+		const name = basename(srcPath);
+		const mtime = Math.round(statSync(srcPath).mtimeMs);
+		const url = `/@src/${rel}?v=${mtime}`;
+		urlFileMap.set(name, url);
+		// Also map .js variant for when Bun rewrites .ts → .js
+		urlFileMap.set(name.replace(/\.tsx?$/, '.js'), url);
+	}
+
+	return urlFileMap;
+};
+
+const buildProdUrlFileMap = (
+	urlReferencedFiles: string[],
+	buildPath: string,
+	nonReactClientOutputs: BuildArtifact[]
+) => {
+	const urlFileMap = new Map<string, string>();
+	for (const srcPath of urlReferencedFiles) {
+		const srcBase = basename(srcPath).replace(/\.[^.]+$/, '');
+		const output = nonReactClientOutputs.find((artifact) =>
+			basename(artifact.path).startsWith(`${srcBase}.`)
+		);
+		if (!output) continue;
+		urlFileMap.set(
+			basename(srcPath),
+			`/${relative(buildPath, output.path).replace(/\\/g, '/')}`
+		);
+	}
+
+	return urlFileMap;
+};
+
+const buildUrlFileMap = (
+	urlReferencedFiles: string[],
+	hmr: boolean,
+	projectRoot: string,
+	buildPath: string,
+	nonReactClientOutputs: BuildArtifact[]
+) => {
+	if (hmr) return buildDevUrlFileMap(urlReferencedFiles, projectRoot);
+
+	return buildProdUrlFileMap(
+		urlReferencedFiles,
+		buildPath,
+		nonReactClientOutputs
+	);
+};
+
+const rewriteUrlReferences = (
+	outputPaths: string[],
+	urlFileMap: Map<string, string>
+) => {
+	const urlPattern =
+		/new\s+URL\(\s*["'](\.\.?\/[^"']+)["']\s*,\s*import\.meta\.url\s*\)/g;
+	for (const outputPath of outputPaths) {
+		let content = readFileSync(outputPath, 'utf-8');
+		let changed = false;
+		content = content.replace(urlPattern, (_match, relPath) => {
+			const targetName = basename(relPath);
+			const resolvedPath = urlFileMap.get(targetName);
+			if (!resolvedPath) return _match;
+			changed = true;
+
+			return `new URL('${resolvedPath}', import.meta.url)`;
+		});
+		if (changed) writeFileSync(outputPath, content);
+	}
 };
 
 const vueFeatureFlags: Record<string, string> = {
@@ -343,35 +697,28 @@ export const build = async ({
 		});
 	}
 
+	const compileTailwind = async (input: string, output: string) => {
+		let binPath: string;
+		try {
+			binPath = import.meta.resolve('@tailwindcss/cli/dist/index.mjs');
+			if (binPath.startsWith('file://'))
+				binPath = binPath.slice(FILE_PROTOCOL_PREFIX_LENGTH);
+		} catch {
+			binPath = 'tailwindcss';
+		}
+		const proc = Bun.spawn(
+			['bun', binPath, '-i', input, '-o', join(buildPath, output)],
+			{ stderr: 'pipe', stdout: 'pipe' }
+		);
+		await proc.exited;
+	};
+
 	// Tailwind + entry point scanning run in parallel (they're independent)
 	const tailwindPromise =
 		tailwind &&
 		(!isIncremental ||
-			normalizedIncrementalFiles?.some((f) => f.endsWith('.css')))
-			? (async () => {
-					let binPath: string;
-					try {
-						binPath = import.meta.resolve(
-							'@tailwindcss/cli/dist/index.mjs'
-						);
-						if (binPath.startsWith('file://'))
-							binPath = binPath.slice(7);
-					} catch {
-						binPath = 'tailwindcss';
-					}
-					const proc = Bun.spawn(
-						[
-							'bun',
-							binPath,
-							'-i',
-							tailwind.input,
-							'-o',
-							join(buildPath, tailwind.output)
-						],
-						{ stderr: 'pipe', stdout: 'pipe' }
-					);
-					await proc.exited;
-				})()
+			normalizedIncrementalFiles?.some((file) => file.endsWith('.css')))
+			? compileTailwind(tailwind.input, tailwind.output)
 			: undefined;
 
 	const [
@@ -502,7 +849,7 @@ export const build = async ({
 		angularDir,
 		htmlDir,
 		htmxDir
-	].filter((d): d is string => Boolean(d));
+	].filter((dir): dir is string => Boolean(dir));
 	const urlReferencedFiles = await scanWorkerReferences(allFrameworkDirs);
 
 	const nonReactClientEntryPoints = [
@@ -791,19 +1138,20 @@ export const build = async ({
 	}
 
 	// Post-process: rewrite bare Angular/Vue specifiers to vendor paths.
-	if (nonReactClientOutputs.length > 0) {
-		const allNonReactVendorPaths = {
-			...(angularVendorPaths ?? {}),
-			...(vueVendorPaths ?? {}),
-			...(svelteVendorPaths ?? {})
-		};
-		if (Object.keys(allNonReactVendorPaths).length > 0) {
-			const { rewriteImports } = await import('../build/rewriteImports');
-			await rewriteImports(
-				nonReactClientOutputs.map((artifact) => artifact.path),
-				allNonReactVendorPaths
-			);
-		}
+	const allNonReactVendorPaths: Record<string, string> = {
+		...(angularVendorPaths ?? {}),
+		...(vueVendorPaths ?? {}),
+		...(svelteVendorPaths ?? {})
+	};
+	if (
+		nonReactClientOutputs.length > 0 &&
+		Object.keys(allNonReactVendorPaths).length > 0
+	) {
+		const { rewriteImports } = await import('../build/rewriteImports');
+		await rewriteImports(
+			nonReactClientOutputs.map((artifact) => artifact.path),
+			allNonReactVendorPaths
+		);
 	}
 
 	const cssLogs: (BuildMessage | ResolveMessage)[] = [
@@ -844,176 +1192,30 @@ export const build = async ({
 	// In dev mode, rewrite new URL('./path', import.meta.url) in all bundled
 	// client outputs to /@src/ URLs so workers resolve through the module server.
 	// In prod mode, rewrite to the hashed output path from the build.
+	const allClientOutputPaths = [
+		...reactClientOutputPaths,
+		...nonReactClientOutputs.map((artifact) => artifact.path)
+	];
 	if (urlReferencedFiles.length > 0) {
-		const urlPattern =
-			/new\s+URL\(\s*["'](\.\.?\/[^"']+)["']\s*,\s*import\.meta\.url\s*\)/g;
-		const allClientOutputPaths = [
-			...reactClientOutputPaths,
-			...nonReactClientOutputs.map((a) => a.path)
-		];
-
-		// Build a map from filename → source path or hashed output path.
-		// Bun may rewrite .ts → .js in bundled output, so store both variants.
-		const urlFileMap = new Map<string, string>();
-		if (hmr) {
-			// Dev: map to /@src/ URLs with mtime cache busting
-			for (const srcPath of urlReferencedFiles) {
-				const rel = relative(projectRoot, srcPath).replace(/\\/g, '/');
-				const name = basename(srcPath);
-				const mtime = Math.round(statSync(srcPath).mtimeMs);
-				const url = `/@src/${rel}?v=${mtime}`;
-				urlFileMap.set(name, url);
-				// Also map .js variant for when Bun rewrites .ts → .js
-				urlFileMap.set(name.replace(/\.tsx?$/, '.js'), url);
-			}
-		} else {
-			// Prod: map to hashed output paths from the build
-			for (const srcPath of urlReferencedFiles) {
-				const srcBase = basename(srcPath).replace(/\.[^.]+$/, '');
-				const output = nonReactClientOutputs.find((a) =>
-					basename(a.path).startsWith(`${srcBase}.`)
-				);
-				if (output) {
-					urlFileMap.set(
-						basename(srcPath),
-						`/${relative(buildPath, output.path).replace(
-							/\\/g,
-							'/'
-						)}`
-					);
-				}
-			}
-		}
-
-		for (const outputPath of allClientOutputPaths) {
-			let content = readFileSync(outputPath, 'utf-8');
-			let changed = false;
-			content = content.replace(urlPattern, (_match, relPath) => {
-				const targetName = basename(relPath);
-				const resolvedPath = urlFileMap.get(targetName);
-				if (resolvedPath) {
-					changed = true;
-
-					return `new URL('${resolvedPath}', import.meta.url)`;
-				}
-
-				return _match;
-			});
-			if (changed) writeFileSync(outputPath, content);
-		}
+		const urlFileMap = buildUrlFileMap(
+			urlReferencedFiles,
+			hmr,
+			projectRoot,
+			buildPath,
+			nonReactClientOutputs
+		);
+		rewriteUrlReferences(allClientOutputPaths, urlFileMap);
 	}
 
 	// In dev mode, inject composable state tracking into Vue bundled output
 	// so the first HMR cycle can preserve ref values.
+	const vueOutputPaths = nonReactClientOutputs
+		.map((artifact) => artifact.path)
+		.filter((path) => path.includes('/vue/'));
 	if (hmr && vueDirectory) {
-		const vueOutputs = nonReactClientOutputs
-			.map((a) => a.path)
-			.filter((p) => p.includes('/vue/'));
-		for (const outputPath of vueOutputs) {
-			let content = readFileSync(outputPath, 'utf-8');
-			// Find `var useXxx = (` patterns and the source file comment above them
-			const usePattern = /^var\s+(use[A-Z]\w*)\s*=/gm;
-			const useNames: string[] = [];
-			let m;
-			while ((m = usePattern.exec(content)) !== null) {
-				if (m[1]) useNames.push(m[1]);
-			}
-			if (useNames.length === 0) continue;
-
-			// Find the composable's source path from Bun's comment directly
-			// above the first use* function. Bun emits "// path/file.js" comments.
-			// Strip "client/" and change .js→.ts to match /@src/ module ID.
-			let runtimeId = JSON.stringify(outputPath);
-			const firstUseName = useNames[0];
-			if (firstUseName) {
-				const varIdx = content.indexOf(`var ${firstUseName} =`);
-				if (varIdx > 0) {
-					// Find all // src/...js comments before the var declaration
-					const before = content.slice(0, varIdx);
-					const allComments = [
-						...before.matchAll(/\/\/\s*(src\/[^\n]*\.js)\s*\n/g)
-					];
-					// Use the last one (closest to the var declaration)
-					const last = allComments[allComments.length - 1];
-					if (last?.[1]) {
-						const srcPath = resolve(
-							projectRoot,
-							last[1]
-								.replace('/client/', '/')
-								.replace(/\.js$/, '.ts')
-						);
-						runtimeId = JSON.stringify(srcPath);
-					}
-				}
-			}
-			const runtime = [
-				`var __hmr_cs=(globalThis.__HMR_COMPOSABLE_STATE__??={});`,
-				`var __hmr_mid=${runtimeId};`,
-				`var __hmr_prev_refs=__hmr_cs[__hmr_mid];`,
-				`var __hmr_idx={};`,
-				`__hmr_cs[__hmr_mid]={};`,
-				`function __hmr_wrap(n,fn){return function(){`,
-				`var i=(__hmr_idx[n]=(__hmr_idx[n]??-1)+1);`,
-				`var r=fn.apply(this,arguments);`,
-				`if(r&&typeof r==="object"){`,
-				`var refs={};for(var k in r){var v=r[k];`,
-				`if(v&&typeof v==="object"&&"value"in v&&!v.effect&&typeof v.value!=="function")refs[k]=v;}`,
-				`(__hmr_cs[__hmr_mid][n]??=[])[i]=refs;`,
-				`if(__hmr_prev_refs&&__hmr_prev_refs[n]&&__hmr_prev_refs[n][i]){`,
-				`var old=__hmr_prev_refs[n][i];`,
-				`for(var k in old){var nv=r[k],ov=old[k];`,
-				`if(nv&&ov&&typeof nv==="object"&&"value"in nv&&!nv.effect&&typeof nv.value===typeof ov.value)nv.value=ov.value;}`,
-				`}}return r;};}`
-			].join('');
-
-			// Insert runtime before the first use* function
-			const firstUseIdx = content.indexOf(`var ${useNames[0]} =`);
-			if (firstUseIdx === -1) continue;
-			content = `${
-				content.slice(0, firstUseIdx) + runtime
-			}\n${content.slice(firstUseIdx)}`;
-
-			// Wrap each use* function
-			for (const name of useNames) {
-				const marker = `var ${name} = `;
-				const pos = content.indexOf(marker);
-				if (pos === -1) continue;
-				const afterMarker = pos + marker.length;
-
-				// Find end of function expression using brace counting
-				let depth = 0;
-				let inStr: string | false = false;
-				let endPos = afterMarker;
-				for (let i = afterMarker; i < content.length; i++) {
-					const ch = content[i]!;
-					if (inStr) {
-						if (ch === inStr && content[i - 1] !== '\\')
-							inStr = false;
-						continue;
-					}
-					if (ch === '"' || ch === "'" || ch === '`') {
-						inStr = ch;
-						continue;
-					}
-					if (ch === '{' || ch === '(') depth++;
-					if (ch === '}' || ch === ')') depth--;
-					if (depth === 0 && ch === ';') {
-						endPos = i;
-						break;
-					}
-				}
-
-				const funcBody = content.slice(afterMarker, endPos);
-				content = `${content.slice(
-					0,
-					afterMarker
-				)}__hmr_wrap(${JSON.stringify(name)}, ${funcBody})${content.slice(
-					endPos
-				)}`;
-			}
-
-			writeFileSync(outputPath, content);
-		}
+		vueOutputPaths.forEach((outputPath) =>
+			injectVueComposableTracking(outputPath, projectRoot)
+		);
 	}
 
 	const allLogs = [
@@ -1180,82 +1382,17 @@ export const build = async ({
 	// Rewrite relative page imports to absolute /@src/ paths since
 	// the indexes are moved from src/frontend/indexes/ to build/_src_indexes/
 	if (hmr) {
-		const { readdirSync: readDir } = await import('node:fs');
-		const devIndexDir = join(buildPath, '_src_indexes');
-		mkdirSync(devIndexDir, { recursive: true });
-
-		// React: rewrite relative page imports to /@src/ paths
-		if (reactIndexesPath && reactPagesPath) {
-			const indexFiles = readDir(reactIndexesPath).filter((f: string) =>
-				f.endsWith('.tsx')
-			);
-			const pagesRel = relative(
-				process.cwd(),
-				resolve(reactPagesPath)
-			).replace(/\\/g, '/');
-
-			for (const file of indexFiles) {
-				let content = readFileSync(
-					join(reactIndexesPath, file),
-					'utf-8'
-				);
-				content = content.replace(
-					/from\s*['"]([^'"]*\/pages\/([^'"]+))['"]/g,
-					(_match, _fullPath, componentName) =>
-						`from '/@src/${pagesRel}/${componentName}'`
-				);
-				writeFileSync(join(devIndexDir, file), content);
-			}
-		}
-
-		// Svelte: rewrite compiled client imports to /@src/ source paths
-		if (svelteDir && sveltePagesPath) {
-			const svelteIndexDir = join(svelteDir, '.generated', 'indexes');
-			const sveltePageEntries = svelteEntries.filter((file) =>
-				resolve(file).startsWith(resolve(sveltePagesPath))
-			);
-			for (const entry of sveltePageEntries) {
-				const name = basename(entry).replace(
-					/\.svelte(\.(ts|js))?$/,
-					''
-				);
-				const indexFile = join(svelteIndexDir, 'pages', `${name}.js`);
-				if (!existsSync(indexFile)) continue;
-				let content = readFileSync(indexFile, 'utf-8');
-				const srcRel = relative(process.cwd(), resolve(entry)).replace(
-					/\\/g,
-					'/'
-				);
-				content = content.replace(
-					/import\s+Component\s+from\s+['"]([^'"]+)['"]/,
-					`import Component from "/@src/${srcRel}"`
-				);
-				writeFileSync(join(devIndexDir, `${name}.svelte.js`), content);
-			}
-		}
-
-		// Vue: rewrite compiled client imports to /@src/ source paths
-		if (vueDir && vuePagesPath) {
-			const vueIndexDir = join(vueDir, '.generated', 'indexes');
-			const vuePageEntries = vueEntries.filter((file) =>
-				resolve(file).startsWith(resolve(vuePagesPath))
-			);
-			for (const entry of vuePageEntries) {
-				const name = basename(entry, '.vue');
-				const indexFile = join(vueIndexDir, `${name}.js`);
-				if (!existsSync(indexFile)) continue;
-				let content = readFileSync(indexFile, 'utf-8');
-				const srcRel = relative(process.cwd(), resolve(entry)).replace(
-					/\\/g,
-					'/'
-				);
-				content = content.replace(
-					/import\s+Comp\s+from\s+['"]([^'"]+)['"]/,
-					`import Comp from "/@src/${srcRel}"`
-				);
-				writeFileSync(join(devIndexDir, `${name}.vue.js`), content);
-			}
-		}
+		await copyDevIndexes({
+			buildPath,
+			reactIndexesPath,
+			reactPagesPath,
+			svelteDir,
+			svelteEntries,
+			sveltePagesPath,
+			vueDir,
+			vueEntries,
+			vuePagesPath
+		});
 	}
 
 	await cleanup({

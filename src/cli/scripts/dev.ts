@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import type { DbScripts, InteractiveHandler } from '../../../types/cli';
 import {
 	DEFAULT_PORT,
+	DEV_SERVER_RESTART_DEBOUNCE_MS,
 	MILLISECONDS_IN_A_SECOND,
 	SIGINT_EXIT_CODE,
 	SIGTERM_EXIT_CODE
@@ -30,17 +31,20 @@ const cliTag = (color: string, message: string) =>
 // ◆ message
 //   ● Yes  ○ No    (use ←/→ arrow keys, enter to confirm)
 const confirmPrompt = (message: string, defaultYes = true) =>
-	new Promise<boolean>((res) => {
+	// eslint-disable-next-line promise/avoid-new -- callback-based stdin API requires Promise wrapper
+	new Promise<boolean>((_resolve) => {
 		let selected = defaultYes;
 
 		const render = () => {
 			const yes = selected
 				? '\x1b[36m●\x1b[0m Yes'
 				: '\x1b[2m○ Yes\x1b[0m';
-			const no = !selected ? '\x1b[36m●\x1b[0m No' : '\x1b[2m○ No\x1b[0m';
+			const noLabel = !selected
+				? '\x1b[36m●\x1b[0m No'
+				: '\x1b[2m○ No\x1b[0m';
 			// Move to start, clear line, print question + options
 			process.stdout.write(
-				`\x1b[2K\x1b[36m◆\x1b[0m ${message}\n\x1b[2K  ${yes}  ${no}\x1b[A\r`
+				`\x1b[2K\x1b[36m◆\x1b[0m ${message}\n\x1b[2K  ${yes}  ${noLabel}\x1b[A\r`
 			);
 		};
 
@@ -64,7 +68,7 @@ const confirmPrompt = (message: string, defaultYes = true) =>
 				process.stdout.write(
 					`\x1b[2K\x1b[32m◇\x1b[0m ${message}\n\x1b[2K  \x1b[2m${label}\x1b[0m\n\x1b[?25h`
 				);
-				res(selected);
+				_resolve(selected);
 			} else if (key === '\x03') {
 				// Ctrl+C — restore cursor and exit
 				process.stdout.write('\x1b[?25h');
@@ -76,6 +80,41 @@ const confirmPrompt = (message: string, defaultYes = true) =>
 		process.stdin.on('data', onData);
 	});
 
+const setupCertWithPrompt = async (
+	ensureDevCert: () => void,
+	setupMkcert: () => void
+) => {
+	const install = await confirmPrompt(
+		'Install mkcert for trusted HTTPS? (no browser warning)'
+	);
+
+	if (install) {
+		setupMkcert();
+	} else {
+		ensureDevCert();
+	}
+};
+
+const setupHttpsCert = async () => {
+	const { hasCert, hasMkcert, ensureDevCert, setupMkcert } = await import(
+		'../../dev/devCert'
+	);
+
+	if (hasCert()) {
+		ensureDevCert();
+
+		return;
+	}
+
+	if (hasMkcert()) {
+		ensureDevCert();
+
+		return;
+	}
+
+	await setupCertWithPrompt(ensureDevCert, setupMkcert);
+};
+
 export const dev = async (serverEntry: string, configPath?: string) => {
 	const port = Number(env.PORT) || DEFAULT_PORT;
 	killStaleProcesses(port);
@@ -83,32 +122,9 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 	// Check if HTTPS is enabled in config
 	let httpsEnabled = false;
 	try {
-		const { loadConfig } = await import('../../utils/loadConfig');
 		const config = await loadConfig(configPath);
 		httpsEnabled = config?.dev?.https === true;
-		if (httpsEnabled) {
-			const { hasCert, hasMkcert, ensureDevCert, setupMkcert } =
-				await import('../../dev/devCert');
-			if (!hasCert()) {
-				// First time — no cert exists. Ask about mkcert.
-				if (!hasMkcert()) {
-					const install = await confirmPrompt(
-						'Install mkcert for trusted HTTPS? (no browser warning)'
-					);
-					if (install) {
-						setupMkcert();
-					} else {
-						ensureDevCert();
-					}
-				} else {
-					// Has mkcert but no cert — generate silently
-					ensureDevCert();
-				}
-			} else {
-				// Cert exists — just use it, no prompt, no log
-				ensureDevCert();
-			}
-		}
+		if (httpsEnabled) await setupHttpsCert();
 	} catch {
 		// config load failed, skip https
 	}
@@ -246,7 +262,7 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 				`\x1b[2m${formatTimestamp()}\x1b[0m \x1b[36m[cli]\x1b[0m \x1b[36mServer file changed, restarting...\x1b[0m`
 			);
 			restartServer();
-		}, 100);
+		}, DEV_SERVER_RESTART_DEBOUNCE_MS);
 	});
 
 	sendTelemetryEvent('dev:start', { entry: serverEntry, frameworks });

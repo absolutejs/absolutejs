@@ -85,8 +85,9 @@ describe('HMR config change detection', () => {
 		}
 
 		expect(res?.ok).toBe(true);
+		if (!res) throw new Error('Expected response');
 
-		const html = await res!.text();
+		const html = await res.text();
 		expect(html).toContain('Svelte');
 	}, 30_000);
 });

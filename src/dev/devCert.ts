@@ -105,6 +105,14 @@ const generateSelfSigned = () => {
 	);
 };
 
+const generateCert = () => {
+	if (hasMkcert()) {
+		generateWithMkcert();
+	} else {
+		generateSelfSigned();
+	}
+};
+
 export const ensureDevCert = () => {
 	mkdirSync(CERT_DIR, { recursive: true });
 
@@ -119,11 +127,7 @@ export const ensureDevCert = () => {
 	}
 
 	try {
-		if (hasMkcert()) {
-			generateWithMkcert();
-		} else {
-			generateSelfSigned();
-		}
+		generateCert();
 	} catch (err) {
 		devWarn(
 			`Failed to generate certificate: ${err instanceof Error ? err.message : err}`
@@ -163,109 +167,119 @@ const commandExists = (cmd: string) => {
 	}
 };
 
-const installMkcert = () => {
-	const os = platform();
-
-	if (os === 'darwin') {
-		if (commandExists('brew')) {
-			devLog('Installing mkcert with Homebrew...');
-			const r = Bun.spawnSync(['brew', 'install', 'mkcert'], {
-				stderr: 'pipe',
-				stdout: 'pipe'
-			});
-			if (r.exitCode === 0) return true;
-		}
+const installMkcertDarwin = () => {
+	if (!commandExists('brew')) {
 		devWarn('Install Homebrew first: https://brew.sh');
 
 		return false;
 	}
 
-	if (os === 'linux') {
-		// stdin + stderr inherit for password prompt, stdout piped to hide package logs
-		const sudoOpts = {
-			stderr: 'inherit' as const,
-			stdin: 'inherit' as const,
-			stdout: 'pipe' as const
-		};
+	devLog('Installing mkcert with Homebrew...');
+	const result = Bun.spawnSync(['brew', 'install', 'mkcert'], {
+		stderr: 'pipe',
+		stdout: 'pipe'
+	});
 
-		if (commandExists('apt-get')) {
-			devLog('Installing mkcert (may prompt for password)...');
-			// Install mkcert + libnss3-tools (certutil) together
-			// so mkcert -install can add the CA to browser trust stores
-			const r = Bun.spawnSync(
-				['sudo', 'apt-get', 'install', '-y', 'mkcert', 'libnss3-tools'],
-				sudoOpts
-			);
-			if (r.exitCode === 0) return true;
-		}
-		if (commandExists('dnf')) {
-			devLog('Installing mkcert (may prompt for password)...');
-			const r = Bun.spawnSync(
-				['sudo', 'dnf', 'install', '-y', 'mkcert'],
-				sudoOpts
-			);
-			if (r.exitCode === 0) return true;
-		}
-		if (commandExists('pacman')) {
-			devLog('Installing mkcert (may prompt for password)...');
-			const r = Bun.spawnSync(
-				['sudo', 'pacman', '-S', '--noconfirm', 'mkcert'],
-				sudoOpts
-			);
-			if (r.exitCode === 0) return true;
-		}
+	return result.exitCode === 0;
+};
 
-		devWarn('Could not install mkcert automatically.');
-		console.log(
-			'  See: https://github.com/FiloSottile/mkcert#installation'
+const installMkcertLinux = () => {
+	// stdin + stderr inherit for password prompt, stdout piped to hide package logs
+	const sudoOpts: { stderr: 'inherit'; stdin: 'inherit'; stdout: 'pipe' } = {
+		stderr: 'inherit',
+		stdin: 'inherit',
+		stdout: 'pipe'
+	};
+
+	if (commandExists('apt-get')) {
+		devLog('Installing mkcert (may prompt for password)...');
+		// Install mkcert + libnss3-tools (certutil) together
+		// so mkcert -install can add the CA to browser trust stores
+		const result = Bun.spawnSync(
+			['sudo', 'apt-get', 'install', '-y', 'mkcert', 'libnss3-tools'],
+			sudoOpts
 		);
-
-		return false;
+		if (result.exitCode === 0) return true;
 	}
 
-	if (os === 'win32') {
-		if (commandExists('choco')) {
-			devLog('Installing mkcert with Chocolatey...');
-			const r = Bun.spawnSync(['choco', 'install', '-y', 'mkcert'], {
-				stderr: 'pipe',
-				stdout: 'pipe'
-			});
-			if (r.exitCode === 0) return true;
-		}
-		if (commandExists('winget')) {
-			devLog('Installing mkcert with winget...');
-			const r = Bun.spawnSync(
-				['winget', 'install', '--id', 'FiloSottile.mkcert', '-e'],
-				{ stderr: 'pipe', stdout: 'pipe' }
-			);
-			if (r.exitCode === 0) return true;
-		}
-
-		devWarn('Could not install mkcert automatically.');
-		console.log(
-			'  See: https://github.com/FiloSottile/mkcert#installation'
+	if (commandExists('dnf')) {
+		devLog('Installing mkcert (may prompt for password)...');
+		const result = Bun.spawnSync(
+			['sudo', 'dnf', 'install', '-y', 'mkcert'],
+			sudoOpts
 		);
-
-		return false;
+		if (result.exitCode === 0) return true;
 	}
+
+	if (commandExists('pacman')) {
+		devLog('Installing mkcert (may prompt for password)...');
+		const result = Bun.spawnSync(
+			['sudo', 'pacman', '-S', '--noconfirm', 'mkcert'],
+			sudoOpts
+		);
+		if (result.exitCode === 0) return true;
+	}
+
+	devWarn('Could not install mkcert automatically.');
+	console.log('  See: https://github.com/FiloSottile/mkcert#installation');
 
 	return false;
 };
 
+const installMkcertWin32 = () => {
+	if (commandExists('choco')) {
+		devLog('Installing mkcert with Chocolatey...');
+		const result = Bun.spawnSync(['choco', 'install', '-y', 'mkcert'], {
+			stderr: 'pipe',
+			stdout: 'pipe'
+		});
+		if (result.exitCode === 0) return true;
+	}
+
+	if (commandExists('winget')) {
+		devLog('Installing mkcert with winget...');
+		const result = Bun.spawnSync(
+			['winget', 'install', '--id', 'FiloSottile.mkcert', '-e'],
+			{ stderr: 'pipe', stdout: 'pipe' }
+		);
+		if (result.exitCode === 0) return true;
+	}
+
+	devWarn('Could not install mkcert automatically.');
+	console.log('  See: https://github.com/FiloSottile/mkcert#installation');
+
+	return false;
+};
+
+const installMkcert = () => {
+	const osPlatform = platform();
+
+	if (osPlatform === 'darwin') return installMkcertDarwin();
+	if (osPlatform === 'linux') return installMkcertLinux();
+	if (osPlatform === 'win32') return installMkcertWin32();
+
+	return false;
+};
+
+const ensureMkcert = () => {
+	if (hasMkcert()) return true;
+	if (!installMkcert()) return false;
+
+	// Verify it installed
+	if (!hasMkcert()) {
+		devWarn(
+			'mkcert installed but not found in PATH. Restart your terminal and try again.'
+		);
+
+		return false;
+	}
+
+	return true;
+};
+
 // CLI command: install mkcert, set up CA, regenerate cert
 export const setupMkcert = () => {
-	if (!hasMkcert()) {
-		if (!installMkcert()) return false;
-
-		// Verify it installed
-		if (!hasMkcert()) {
-			devWarn(
-				'mkcert installed but not found in PATH. Restart your terminal and try again.'
-			);
-
-			return false;
-		}
-	}
+	if (!ensureMkcert()) return false;
 
 	// Install the local CA (adds to system trust store)
 	const installResult = Bun.spawnSync(['mkcert', '-install'], {

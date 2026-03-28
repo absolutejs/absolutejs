@@ -50,11 +50,11 @@ export const generateManifest = (outputs: BuildArtifact[], buildPath: string) =>
 
 		if (ext === '.css') {
 			const cssKey = `${pascalName}CSS`;
-			if (manifest[cssKey] && manifest[cssKey] !== `/${relative}`) {
+			if (manifest[cssKey] && manifest[cssKey] !== `/${relative}`)
 				logWarn(
 					`Duplicate manifest key "${cssKey}" — "${manifest[cssKey]}" will be overwritten by "/${relative}". Use unique page names across frameworks.`
 				);
-			}
+
 			manifest[cssKey] = `/${relative}`;
 
 			return manifest;

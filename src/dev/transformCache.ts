@@ -1,5 +1,3 @@
-import { resolve } from 'node:path';
-
 type CacheEntry = {
 	content: string;
 	imports: string[];
@@ -7,19 +5,14 @@ type CacheEntry = {
 };
 
 // Persist across bun --hot reloads so HMR doesn't refetch everything
-const globalStore = globalThis as unknown as Record<string, unknown>;
-const cache =
-	(globalStore.__transformCache as Map<string, CacheEntry> | undefined) ??
-	new Map<string, CacheEntry>();
-globalStore.__transformCache = cache;
+const cache = globalThis.__transformCache ?? new Map<string, CacheEntry>();
+globalThis.__transformCache = cache;
 
 // Reverse map: importedFile → Set<files that import it>
 // Used to cascade invalidation up the import chain.
 const importers =
-	(globalStore.__transformImporters as
-		| Map<string, Set<string>>
-		| undefined) ?? new Map<string, Set<string>>();
-globalStore.__transformImporters = importers;
+	globalThis.__transformImporters ?? new Map<string, Set<string>>();
+globalThis.__transformImporters = importers;
 
 // Cache entries are invalidated by invalidateModule() when files
 // change — no need to re-stat on every read. If it's in the cache,
@@ -38,10 +31,9 @@ export const setTransformed = (
 
 	// Update reverse dependency map
 	for (const imp of resolvedImports) {
-		if (!importers.has(imp)) {
-			importers.set(imp, new Set());
-		}
-		importers.get(imp)!.add(filePath);
+		const set = importers.get(imp) ?? new Set<string>();
+		importers.set(imp, set);
+		set.add(filePath);
 	}
 };
 
@@ -49,28 +41,36 @@ export const setTransformed = (
 // cache is cleared due to a downstream import changing. Used by
 // srcUrl() to force browser re-fetch even if the file's mtime is same.
 const invalidationVersions =
-	(globalStore.__transformInvalidationVersions as
-		| Map<string, number>
-		| undefined) ?? new Map<string, number>();
-globalStore.__transformInvalidationVersions = invalidationVersions;
+	globalThis.__transformInvalidationVersions ?? new Map<string, number>();
+globalThis.__transformInvalidationVersions = invalidationVersions;
+
+const isComponentFile = (filePath: string) =>
+	filePath.endsWith('.tsx') || filePath.endsWith('.jsx');
+
+const processParents = (parents: Set<string>, queue: string[]) => {
+	const component = [...parents].find(isComponentFile);
+	if (component !== undefined) return component;
+
+	for (const parent of parents) queue.push(parent);
+
+	return undefined;
+};
 
 export const findNearestComponent = (filePath: string) => {
 	const visited = new Set<string>();
 	const queue = [filePath];
 
 	while (queue.length > 0) {
-		const current = queue.shift()!;
+		const current = queue.shift();
+		if (!current) break;
 		if (visited.has(current)) continue;
 		visited.add(current);
 
 		const parents = importers.get(current);
 		if (!parents) continue;
-		for (const parent of parents) {
-			if (parent.endsWith('.tsx') || parent.endsWith('.jsx')) {
-				return parent;
-			}
-			queue.push(parent);
-		}
+
+		const found = processParents(parents, queue);
+		if (found !== undefined) return found;
 	}
 
 	return undefined;
@@ -89,11 +89,8 @@ export const invalidate = (filePath: string) => {
 
 	// Clear transform cache for direct importers so they get
 	// re-transpiled with the changed file's new ?v= param.
-	const parents = importers.get(filePath);
-	if (parents) {
-		for (const parent of parents) {
-			cache.delete(parent);
-		}
+	for (const parent of importers.get(filePath) ?? []) {
+		cache.delete(parent);
 	}
 };
 export const invalidateAll = () => {

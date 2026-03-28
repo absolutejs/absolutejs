@@ -19,8 +19,8 @@ type CompiledRewriter = {
 const rewriterCache = new Map<string, CompiledRewriter>();
 
 const cacheKey = (vendorPaths: Record<string, string>) => {
-	const entries = Object.entries(vendorPaths).sort(([a], [b]) =>
-		a.localeCompare(b)
+	const entries = Object.entries(vendorPaths).sort(
+		([left], [right]) => left.localeCompare(right)
 	);
 	let key = '';
 	for (const [k, v] of entries) {

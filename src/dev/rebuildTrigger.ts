@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
-import { basename, join, relative, resolve } from 'node:path';
+import { basename, relative, resolve } from 'node:path';
 import { build } from '../core/build';
 import type { BuildConfig } from '../../types/build';
 import {
@@ -339,6 +339,47 @@ const buildFilesToProcess = (state: HMRState) => {
 	return filesToProcess;
 };
 
+const STABILITY_CHECK_ROUNDS = 5;
+const STABILITY_CHECK_DELAY_MS = 10;
+
+const isFileStable = async (file: string) => {
+	const hash1 = computeFileHash(file);
+	await Bun.sleep(STABILITY_CHECK_DELAY_MS);
+	const hash2 = computeFileHash(file);
+
+	return hash1 === hash2;
+};
+
+const collectAllQueuedFiles = (fileChangeQueue: Map<string, string[]>) => {
+	const allFiles: string[] = [];
+	for (const files of fileChangeQueue.values()) {
+		allFiles.push(...files);
+	}
+
+	return allFiles;
+};
+
+const areAllQueuedFilesStable = async (
+	fileChangeQueue: Map<string, string[]>
+) => {
+	const allFiles = collectAllQueuedFiles(fileChangeQueue);
+	for (const file of allFiles) {
+		// eslint-disable-next-line no-await-in-loop
+		const stable = await isFileStable(file);
+		if (!stable) return false;
+	}
+
+	return true;
+};
+
+const waitForStableWrites = async (state: HMRState) => {
+	for (let round = 0; round < STABILITY_CHECK_ROUNDS; round++) {
+		// eslint-disable-next-line no-await-in-loop
+		const stable = await areAllQueuedFilesStable(state.fileChangeQueue);
+		if (stable) break;
+	}
+};
+
 export const queueFileChange = (
 	state: HMRState,
 	filePath: string,
@@ -363,6 +404,7 @@ export const queueFileChange = (
 	// Shared files (workers, utils, etc.) that don't belong to any
 	// framework just need their transform cache invalidated — no rebuild.
 	if (framework === 'unknown') {
+		// eslint-disable-next-line @typescript-eslint/no-require-imports -- sync call in non-async function
 		const { invalidate } = require('../dev/transformCache');
 		invalidate(resolve(filePath));
 		const relPath = relative(process.cwd(), filePath);
@@ -394,20 +436,7 @@ export const queueFileChange = (
 		// (write .tmp → rename) can trigger the watcher before the rename
 		// completes. Read the file twice with a gap — if hashes match,
 		// the write is stable.
-		for (let i = 0; i < 5; i++) {
-			let stable = true;
-			for (const files of state.fileChangeQueue.values()) {
-				for (const file of files) {
-					const hash1 = computeFileHash(file);
-					await Bun.sleep(10);
-					const hash2 = computeFileHash(file);
-					if (hash1 !== hash2) {
-						stable = false;
-					}
-				}
-			}
-			if (stable) break;
-		}
+		await waitForStableWrites(state);
 
 		const filesToProcess = buildFilesToProcess(state);
 		state.fileChangeQueue.clear();
@@ -850,47 +879,87 @@ const getReactModuleUrl = getModuleUrl;
 // Svelte: invalidate changed files, resolve the PAGE component,
 // and return an /@hmr/ URL that bootstraps the full page remount.
 // (Svelte lacks a component-level HMR runtime like React/Vue.)
-const getFrameworkPageUrl = async (
-	changedFiles: string[],
-	pagesDir: string,
-	framework: string,
-	dependencyGraph: Parameters<typeof getAffectedFiles>[0]
-) => {
-	const { invalidateModule } = await getModuleServer();
 
-	for (const file of changedFiles) {
+const resolveBroadcastTarget = async (primaryFile: string) => {
+	const isComponentFile =
+		primaryFile.endsWith('.tsx') || primaryFile.endsWith('.jsx');
+
+	if (isComponentFile) return primaryFile;
+
+	const { findNearestComponent } = await import('./transformCache');
+	const nearest = findNearestComponent(resolve(primaryFile));
+
+	return nearest ?? primaryFile;
+};
+
+const handleReactModuleServerPath = async (
+	state: HMRState,
+	reactFiles: string[],
+	startTime: number,
+	onRebuildComplete: (result: {
+		manifest: Record<string, string>;
+		hmrState: HMRState;
+	}) => void
+) => {
+	// Update hashes so duplicate watcher events are filtered
+	for (const file of reactFiles) {
+		state.fileHashes.set(resolve(file), computeFileHash(file));
+	}
+
+	invalidateReactSsrCache();
+
+	const primaryFile =
+		reactFiles.find(
+			(file) => !file.replace(/\\/g, '/').includes('/pages/')
+		) ?? reactFiles[0];
+
+	if (!primaryFile) {
+		onRebuildComplete({
+			hmrState: state,
+			manifest: state.manifest
+		});
+
+		return state.manifest;
+	}
+
+	// Invalidate changed files + direct importers in transform cache
+	const { invalidateModule } = await getModuleServer();
+	for (const file of reactFiles) {
 		invalidateModule(file);
 	}
 
-	const pagesResolved = resolve(pagesDir);
-	let pageFile: string | null = null;
+	const broadcastTarget = await resolveBroadcastTarget(primaryFile);
+	const pageModuleUrl = await getReactModuleUrl(broadcastTarget);
 
-	for (const file of changedFiles) {
-		if (resolve(file).startsWith(pagesResolved)) {
-			pageFile = file;
-			break;
-		}
+	if (pageModuleUrl) {
+		const serverDuration = Date.now() - startTime;
+		state.lastHmrPath = relative(process.cwd(), primaryFile).replace(
+			/\\/g,
+			'/'
+		);
+		state.lastHmrFramework = 'react';
+
+		broadcastToClients(state, {
+			data: {
+				framework: 'react',
+				hasComponentChanges: true,
+				hasCSSChanges: false,
+				manifest: state.manifest,
+				pageModuleUrl,
+				primarySource: primaryFile,
+				serverDuration,
+				sourceFiles: reactFiles
+			},
+			type: 'react-update'
+		});
 	}
 
-	if (!pageFile) {
-		for (const file of changedFiles) {
-			const affected = getAffectedFiles(dependencyGraph, file);
-			const page = affected.find((dep) =>
-				resolve(dep).startsWith(pagesResolved)
-			);
-			if (page) {
-				pageFile = page;
-				invalidateModule(page);
-				break;
-			}
-		}
-	}
+	onRebuildComplete({
+		hmrState: state,
+		manifest: state.manifest
+	});
 
-	if (!pageFile) return null;
-
-	const pageRel = relative(process.cwd(), pageFile).replace(/\\/g, '/');
-
-	return `/@hmr/${framework}/${pageRel}`;
+	return state.manifest;
 };
 
 const handleReactFastPath = async (
@@ -922,78 +991,12 @@ const handleReactFastPath = async (
 	// ?v= is bumped, so the browser fetches only 2 modules
 	// (component + changed data file). State is preserved.
 	if (reactFiles.length > 0) {
-		// Update hashes so duplicate watcher events are filtered
-		for (const file of reactFiles) {
-			state.fileHashes.set(resolve(file), computeFileHash(file));
-		}
-
-		invalidateReactSsrCache();
-
-		const primaryFile =
-			reactFiles.find(
-				(f) => !f.replace(/\\/g, '/').includes('/pages/')
-			) ?? reactFiles[0];
-
-		if (!primaryFile) {
-			onRebuildComplete({
-				hmrState: state,
-				manifest: state.manifest
-			});
-
-			return state.manifest;
-		}
-
-		// Invalidate changed files + direct importers in transform cache
-		const { invalidateModule } = await getModuleServer();
-		for (const file of reactFiles) {
-			invalidateModule(file);
-		}
-
-		// Component files: import directly for Fast Refresh.
-		// Data files: find nearest component boundary and import
-		// that. Chain invalidation bumps the data file's ?v= so
-		// the browser fetches fresh content (only 2 requests).
-		const isComponentFile =
-			primaryFile.endsWith('.tsx') || primaryFile.endsWith('.jsx');
-
-		let broadcastTarget = primaryFile;
-		if (!isComponentFile) {
-			const { findNearestComponent } = await import('./transformCache');
-			const nearest = findNearestComponent(resolve(primaryFile));
-			if (nearest) broadcastTarget = nearest;
-		}
-
-		const pageModuleUrl = await getReactModuleUrl(broadcastTarget);
-
-		if (pageModuleUrl) {
-			const serverDuration = Date.now() - startTime;
-			state.lastHmrPath = relative(process.cwd(), primaryFile).replace(
-				/\\/g,
-				'/'
-			);
-			state.lastHmrFramework = 'react';
-
-			broadcastToClients(state, {
-				data: {
-					framework: 'react',
-					hasComponentChanges: true,
-					hasCSSChanges: false,
-					manifest: state.manifest,
-					pageModuleUrl,
-					primarySource: primaryFile,
-					serverDuration,
-					sourceFiles: reactFiles
-				},
-				type: 'react-update'
-			});
-		}
-
-		onRebuildComplete({
-			hmrState: state,
-			manifest: state.manifest
-		});
-
-		return state.manifest;
+		return handleReactModuleServerPath(
+			state,
+			reactFiles,
+			startTime,
+			onRebuildComplete
+		);
 	}
 
 	// Full rebuild path: component changes or fast path failed
@@ -1074,6 +1077,65 @@ const handleClientManifestUpdate = async (
 	await populateAssetStore(state.assetStore, clientManifest, buildDir);
 };
 
+const broadcastSvelteModuleUpdate = async (
+	state: HMRState,
+	changedFile: string,
+	svelteFiles: string[],
+	serverDuration: number
+) => {
+	const pageModuleUrl = await getModuleUrl(changedFile);
+	state.lastHmrPath = changedFile;
+	state.lastHmrFramework = 'svelte';
+
+	broadcastToClients(state, {
+		data: {
+			framework: 'svelte',
+			manifest: state.manifest,
+			pageModuleUrl,
+			serverDuration,
+			sourceFile: changedFile,
+			sourceFiles: svelteFiles,
+			updateType: 'full'
+		},
+		type: 'svelte-update'
+	});
+};
+
+const handleSvelteModuleServerPath = async (
+	state: HMRState,
+	svelteFiles: string[],
+	startTime: number,
+	onRebuildComplete: (result: {
+		manifest: Record<string, string>;
+		hmrState: HMRState;
+	}) => void
+) => {
+	for (const file of svelteFiles) {
+		state.fileHashes.set(resolve(file), computeFileHash(file));
+	}
+
+	invalidateSvelteSsrCache();
+
+	const serverDuration = Date.now() - startTime;
+
+	for (const changedFile of svelteFiles) {
+		// eslint-disable-next-line no-await-in-loop
+		await broadcastSvelteModuleUpdate(
+			state,
+			changedFile,
+			svelteFiles,
+			serverDuration
+		);
+	}
+
+	onRebuildComplete({
+		hmrState: state,
+		manifest: state.manifest
+	});
+
+	return state.manifest;
+};
+
 const handleSvelteFastPath = async (
 	state: HMRState,
 	config: BuildConfig,
@@ -1095,48 +1157,16 @@ const handleSvelteFastPath = async (
 	// O(1) fast path: Svelte 5's $.hmr() swaps components in place.
 	// Handles ALL changed files — invalidate each, broadcast each.
 	if (svelteFiles.length > 0) {
-		for (const file of svelteFiles) {
-			state.fileHashes.set(resolve(file), computeFileHash(file));
-		}
-
-		invalidateSvelteSsrCache();
-
-		const serverDuration = Date.now() - startTime;
-
-		for (const changedFile of svelteFiles) {
-			const pageModuleUrl = await getModuleUrl(changedFile);
-			state.lastHmrPath = changedFile;
-			state.lastHmrFramework = 'svelte';
-
-			broadcastToClients(state, {
-				data: {
-					framework: 'svelte',
-					manifest: state.manifest,
-					pageModuleUrl,
-					serverDuration,
-					sourceFile: changedFile,
-					sourceFiles: svelteFiles,
-					updateType: 'full'
-				},
-				type: 'svelte-update'
-			});
-		}
-
-		onRebuildComplete({
-			hmrState: state,
-			manifest: state.manifest
-		});
-
-		return state.manifest;
+		return handleSvelteModuleServerPath(
+			state,
+			svelteFiles,
+			startTime,
+			onRebuildComplete
+		);
 	}
 
 	// Bundled fallback
 	const { buildDir } = state.resolvedPaths;
-	const sveltePageFiles = svelteFiles.filter(
-		(file) =>
-			file.endsWith('.svelte') &&
-			resolve(file).startsWith(resolve(svelteDir, 'pages'))
-	);
 
 	if (svelteFiles.length > 0) {
 		const { compileSvelte } = await import('../build/compileSvelte');
@@ -1219,6 +1249,105 @@ const handleSvelteFastPath = async (
 	return manifest;
 };
 
+const collectAffectedVueFiles = (
+	state: HMRState,
+	nonVueFiles: string[],
+	vueFiles: string[]
+) => {
+	for (const tsFile of nonVueFiles) {
+		const affected = getAffectedFiles(state.dependencyGraph, tsFile);
+		const newVueDeps = affected.filter(
+			(dep) => dep.endsWith('.vue') && !vueFiles.includes(dep)
+		);
+		vueFiles.push(...newVueDeps);
+	}
+};
+
+const invalidateNonVueModules = async (nonVueFiles: string[]) => {
+	if (nonVueFiles.length === 0) return;
+
+	const { invalidateModule } = await getModuleServer();
+	for (const file of nonVueFiles) {
+		invalidateModule(file);
+	}
+};
+
+const broadcastVueModuleUpdate = async (
+	state: HMRState,
+	changedFile: string,
+	vueFiles: string[],
+	nonVueFiles: string[],
+	forceReload: boolean,
+	serverDuration: number
+) => {
+	const pageModuleUrl = await getModuleUrl(changedFile);
+	// Log the actual changed file — the composable, not the page
+	const [firstNonVue] = nonVueFiles;
+	state.lastHmrPath =
+		nonVueFiles.length > 0 && firstNonVue ? firstNonVue : changedFile;
+	state.lastHmrFramework = 'vue';
+
+	broadcastToClients(state, {
+		data: {
+			changeType: 'full',
+			forceReload,
+			framework: 'vue',
+			manifest: state.manifest,
+			pageModuleUrl,
+			serverDuration,
+			sourceFile: changedFile,
+			sourceFiles: vueFiles,
+			updateType: 'full'
+		},
+		type: 'vue-update'
+	});
+};
+
+const handleVueModuleServerPath = async (
+	state: HMRState,
+	vueFiles: string[],
+	nonVueFiles: string[],
+	startTime: number,
+	onRebuildComplete: (result: {
+		manifest: Record<string, string>;
+		hmrState: HMRState;
+	}) => void
+) => {
+	for (const file of [...vueFiles, ...nonVueFiles]) {
+		state.fileHashes.set(resolve(file), computeFileHash(file));
+	}
+
+	invalidateVueSsrCache();
+
+	// Also invalidate non-Vue files (composables) so the module
+	// server serves the fresh version when the component re-imports.
+	await invalidateNonVueModules(nonVueFiles);
+
+	const serverDuration = Date.now() - startTime;
+
+	// If triggered by a composable change, force reload so setup re-runs
+	const forceReload = nonVueFiles.length > 0;
+
+	for (const changedFile of vueFiles) {
+		// eslint-disable-next-line no-await-in-loop
+		await broadcastVueModuleUpdate(
+			state,
+			changedFile,
+			vueFiles,
+			nonVueFiles,
+			forceReload,
+			serverDuration
+		);
+	}
+
+	onRebuildComplete({
+		hmrState: state,
+		manifest: state.manifest
+	});
+
+	return state.manifest;
+};
+
 const handleVueFastPath = async (
 	state: HMRState,
 	config: BuildConfig,
@@ -1242,67 +1371,18 @@ const handleVueFastPath = async (
 			!file.endsWith('.vue') &&
 			detectFramework(file, state.resolvedPaths) === 'vue'
 	);
-	for (const tsFile of nonVueFiles) {
-		const affected = getAffectedFiles(state.dependencyGraph, tsFile);
-		for (const dep of affected) {
-			if (dep.endsWith('.vue') && !vueFiles.includes(dep)) {
-				vueFiles.push(dep);
-			}
-		}
-	}
+	collectAffectedVueFiles(state, nonVueFiles, vueFiles);
 
 	// O(1) fast path: Vue HMR runtime swaps components in place.
 	// Handles ALL changed files in the batch.
 	if (vueFiles.length > 0) {
-		for (const file of [...vueFiles, ...nonVueFiles]) {
-			state.fileHashes.set(resolve(file), computeFileHash(file));
-		}
-
-		invalidateVueSsrCache();
-
-		// Also invalidate non-Vue files (composables) so the module
-		// server serves the fresh version when the component re-imports.
-		if (nonVueFiles.length > 0) {
-			const { invalidateModule } = await getModuleServer();
-			for (const file of nonVueFiles) {
-				invalidateModule(file);
-			}
-		}
-
-		const serverDuration = Date.now() - startTime;
-
-		// If triggered by a composable change, force reload so setup re-runs
-		const forceReload = nonVueFiles.length > 0;
-
-		for (const changedFile of vueFiles) {
-			const pageModuleUrl = await getModuleUrl(changedFile);
-			// Log the actual changed file — the composable, not the page
-			state.lastHmrPath =
-				nonVueFiles.length > 0 ? nonVueFiles[0]! : changedFile;
-			state.lastHmrFramework = 'vue';
-
-			broadcastToClients(state, {
-				data: {
-					changeType: 'full',
-					forceReload,
-					framework: 'vue',
-					manifest: state.manifest,
-					pageModuleUrl,
-					serverDuration,
-					sourceFile: changedFile,
-					sourceFiles: vueFiles,
-					updateType: 'full'
-				},
-				type: 'vue-update'
-			});
-		}
-
-		onRebuildComplete({
-			hmrState: state,
-			manifest: state.manifest
-		});
-
-		return state.manifest;
+		return handleVueModuleServerPath(
+			state,
+			vueFiles,
+			nonVueFiles,
+			startTime,
+			onRebuildComplete
+		);
 	}
 
 	// Bundled fallback
@@ -2325,6 +2405,271 @@ const broadcastFrameworkUpdates = (
 	});
 };
 
+const HMR_SCRIPT_PATTERN =
+	/<script>window\.__HMR_FRAMEWORK__[\s\S]*?<\/script>\s*<script data-hmr-client>[\s\S]*?<\/script>/;
+
+const extractHmrScript = (
+	destPath: string,
+	readFs: (path: string, encoding: 'utf-8') => string
+) => {
+	try {
+		const existing = readFs(destPath, 'utf-8');
+		const [matched] = existing.match(HMR_SCRIPT_PATTERN) ?? [];
+
+		return matched ?? '';
+	} catch {
+		// built file doesn't exist yet
+		return '';
+	}
+};
+
+const injectHmrScript = (
+	destPath: string,
+	hmrScript: string,
+	readFs: (path: string, encoding: 'utf-8') => string,
+	writeFs: (path: string, data: string) => void
+) => {
+	if (!hmrScript) return;
+
+	let html = readFs(destPath, 'utf-8');
+	const bodyClose = /<\/body\s*>/i.exec(html);
+	if (!bodyClose) return;
+
+	html =
+		html.slice(0, bodyClose.index) +
+		hmrScript +
+		html.slice(bodyClose.index);
+	writeFs(destPath, html);
+};
+
+const processMarkupFileFastPath = async (
+	state: HMRState,
+	sourceFile: string,
+	outputDir: string,
+	framework: 'html' | 'htmx',
+	startTime: number,
+	updateAssetPaths: (
+		manifest: Record<string, string>,
+		dir: string
+	) => Promise<void>,
+	handleUpdate: (path: string) => Promise<unknown>,
+	readFs: (path: string, encoding: 'utf-8') => string,
+	writeFs: (path: string, data: string) => void
+) => {
+	const destPath = resolve(outputDir, basename(sourceFile));
+
+	// Save HMR script from existing built file
+	const hmrScript = extractHmrScript(destPath, readFs);
+
+	// Atomic copy: Bun.write ensures content is flushed
+	const source = await Bun.file(sourceFile).text();
+	await Bun.write(destPath, source);
+
+	// Rewrite asset paths using manifest
+	await updateAssetPaths(state.manifest, outputDir);
+
+	// Re-inject HMR script
+	injectHmrScript(destPath, hmrScript, readFs, writeFs);
+
+	// Read processed file and broadcast body only
+	const newHTML = await handleUpdate(destPath);
+	if (!newHTML) return;
+
+	const dur = Date.now() - startTime;
+	logHmrUpdate(sourceFile, framework, dur);
+	broadcastToClients(state, {
+		data: {
+			framework,
+			html: newHTML,
+			manifest: state.manifest,
+			sourceFile
+		},
+		type: `${framework}-update`
+	});
+};
+
+const tryProcessMarkupFile = async (
+	state: HMRState,
+	sourceFile: string,
+	outputDir: string,
+	framework: 'html' | 'htmx',
+	startTime: number,
+	updateAssetPaths: (
+		manifest: Record<string, string>,
+		dir: string
+	) => Promise<void>,
+	handleUpdate: (path: string) => Promise<unknown>,
+	readFs: (path: string, encoding: 'utf-8') => string,
+	writeFs: (path: string, data: string) => void
+) => {
+	try {
+		await processMarkupFileFastPath(
+			state,
+			sourceFile,
+			outputDir,
+			framework,
+			startTime,
+			updateAssetPaths,
+			handleUpdate,
+			readFs,
+			writeFs
+		);
+
+		return true;
+	} catch {
+		// fall through to full rebuild
+		return false;
+	}
+};
+
+const runMarkupFastPath = async (
+	state: HMRState,
+	config: BuildConfig,
+	filesToRebuild: string[] | undefined,
+	startTime: number,
+	framework: 'html' | 'htmx'
+) => {
+	const markupFiles = (filesToRebuild ?? []).filter((file) =>
+		file.endsWith('.html')
+	);
+
+	if (markupFiles.length === 0) return;
+
+	const outputDir = computeOutputPagesDir(state, config, framework);
+	const { updateAssetPaths } = await import('../build/updateAssetPaths');
+	const handleUpdate =
+		framework === 'html'
+			? (await import('./simpleHTMLHMR')).handleHTMLUpdate
+			: (await import('./simpleHTMXHMR')).handleHTMXUpdate;
+	const { readFileSync: readFs, writeFileSync: writeFs } = await import(
+		'node:fs'
+	);
+
+	for (const markupFile of markupFiles) {
+		// eslint-disable-next-line no-await-in-loop
+		const success = await tryProcessMarkupFile(
+			state,
+			markupFile,
+			outputDir,
+			framework,
+			startTime,
+			updateAssetPaths,
+			handleUpdate,
+			readFs,
+			writeFs
+		);
+		if (!success) break;
+	}
+};
+
+const runHtmlFastPath = async (
+	state: HMRState,
+	config: BuildConfig,
+	filesToRebuild: string[] | undefined,
+	startTime: number
+) => runMarkupFastPath(state, config, filesToRebuild, startTime, 'html');
+
+const runHtmxFastPath = async (
+	state: HMRState,
+	config: BuildConfig,
+	filesToRebuild: string[] | undefined,
+	startTime: number
+) => runMarkupFastPath(state, config, filesToRebuild, startTime, 'htmx');
+
+type FrameworkFastPathConfig = {
+	directory: string | undefined;
+	framework: string;
+	handler: (
+		state: HMRState,
+		config: BuildConfig,
+		files: string[],
+		startTime: number,
+		onRebuildComplete: (result: {
+			manifest: Record<string, string>;
+			hmrState: HMRState;
+		}) => void
+	) => Promise<Record<string, string> | undefined>;
+};
+
+const markHandledFiles = (
+	files: string[],
+	framework: string,
+	resolvedPaths: ResolvedBuildPaths,
+	handled: Set<string>
+) => {
+	files
+		.filter((f) => detectFramework(f, resolvedPaths) === framework)
+		.forEach((f) => handled.add(f));
+};
+
+const runFrameworkFastPaths = async (
+	state: HMRState,
+	config: BuildConfig,
+	affectedFrameworks: string[],
+	files: string[],
+	startTime: number,
+	onRebuildComplete: (result: {
+		manifest: Record<string, string>;
+		hmrState: HMRState;
+	}) => void
+) => {
+	const handled = new Set<string>();
+
+	const fastPaths: FrameworkFastPathConfig[] = [
+		{
+			directory: config.angularDirectory,
+			framework: 'angular',
+			handler: handleAngularFastPath
+		},
+		{
+			directory: config.reactDirectory,
+			framework: 'react',
+			handler: handleReactFastPath
+		},
+		{
+			directory: config.svelteDirectory,
+			framework: 'svelte',
+			handler: handleSvelteFastPath
+		},
+		{
+			directory: config.vueDirectory,
+			framework: 'vue',
+			handler: handleVueFastPath
+		}
+	];
+
+	for (const fastPath of fastPaths) {
+		if (
+			!fastPath.directory ||
+			!affectedFrameworks.includes(fastPath.framework)
+		)
+			continue;
+
+		// eslint-disable-next-line no-await-in-loop
+		await fastPath.handler(
+			state,
+			config,
+			files,
+			startTime,
+			onRebuildComplete
+		);
+		markHandledFiles(
+			files,
+			fastPath.framework,
+			state.resolvedPaths,
+			handled
+		);
+	}
+
+	// Check if any files weren't handled by a fast path.
+	// CSS/styles need the full build for compilation + rehashing.
+	return files.every(
+		(f) =>
+			handled.has(f) ||
+			detectFramework(f, state.resolvedPaths) === 'assets'
+	);
+};
+
 const performFullRebuild = async (
 	state: HMRState,
 	config: BuildConfig,
@@ -2345,79 +2690,13 @@ const performFullRebuild = async (
 	let allHandled = files.length > 0 && hasManifest;
 
 	if (allHandled) {
-		const handled = new Set<string>();
-
-		// Angular
-		if (config.angularDirectory && affectedFrameworks.includes('angular')) {
-			await handleAngularFastPath(
-				state,
-				config,
-				files,
-				startTime,
-				onRebuildComplete
-			);
-			files
-				.filter(
-					(f) => detectFramework(f, state.resolvedPaths) === 'angular'
-				)
-				.forEach((f) => handled.add(f));
-		}
-
-		// React — ALL files use the module server fast path.
-		// Components re-import directly, data files find nearest boundary.
-		if (config.reactDirectory && affectedFrameworks.includes('react')) {
-			await handleReactFastPath(
-				state,
-				config,
-				files,
-				startTime,
-				onRebuildComplete
-			);
-			files
-				.filter(
-					(f) => detectFramework(f, state.resolvedPaths) === 'react'
-				)
-				.forEach((f) => handled.add(f));
-		}
-
-		// Svelte
-		if (config.svelteDirectory && affectedFrameworks.includes('svelte')) {
-			await handleSvelteFastPath(
-				state,
-				config,
-				files,
-				startTime,
-				onRebuildComplete
-			);
-			files
-				.filter(
-					(f) => detectFramework(f, state.resolvedPaths) === 'svelte'
-				)
-				.forEach((f) => handled.add(f));
-		}
-
-		// Vue
-		if (config.vueDirectory && affectedFrameworks.includes('vue')) {
-			await handleVueFastPath(
-				state,
-				config,
-				files,
-				startTime,
-				onRebuildComplete
-			);
-			files
-				.filter(
-					(f) => detectFramework(f, state.resolvedPaths) === 'vue'
-				)
-				.forEach((f) => handled.add(f));
-		}
-
-		// Check if any files weren't handled by a fast path.
-		// CSS/styles need the full build for compilation + rehashing.
-		allHandled = files.every(
-			(f) =>
-				handled.has(f) ||
-				detectFramework(f, state.resolvedPaths) === 'assets'
+		allHandled = await runFrameworkFastPaths(
+			state,
+			config,
+			affectedFrameworks,
+			files,
+			startTime,
+			onRebuildComplete
 		);
 	}
 
@@ -2427,75 +2706,7 @@ const performFullRebuild = async (
 		config.htmlDirectory &&
 		affectedFrameworks.includes('html')
 	) {
-		const htmlFiles = (filesToRebuild ?? []).filter((file) =>
-			file.endsWith('.html')
-		);
-		if (htmlFiles.length > 0) {
-			const outputDir = computeOutputPagesDir(state, config, 'html');
-			const { updateAssetPaths } = await import(
-				'../build/updateAssetPaths'
-			);
-			const { handleHTMLUpdate } = await import('./simpleHTMLHMR');
-			const { readFileSync: readFs, writeFileSync: writeFs } =
-				await import('node:fs');
-
-			for (const htmlFile of htmlFiles) {
-				try {
-					const destPath = resolve(outputDir, basename(htmlFile));
-
-					// Save HMR script from existing built file
-					let hmrScript = '';
-					try {
-						const existing = readFs(destPath, 'utf-8');
-						const match = existing.match(
-							/<script>window\.__HMR_FRAMEWORK__[\s\S]*?<\/script>\s*<script data-hmr-client>[\s\S]*?<\/script>/
-						);
-						if (match) hmrScript = match[0];
-					} catch {
-						// built file doesn't exist yet
-					}
-
-					// Atomic copy: Bun.write ensures content is flushed
-					const source = await Bun.file(htmlFile).text();
-					await Bun.write(destPath, source);
-
-					// Rewrite asset paths using manifest
-					await updateAssetPaths(state.manifest, outputDir);
-
-					// Re-inject HMR script
-					if (hmrScript) {
-						let html = readFs(destPath, 'utf-8');
-						const bodyClose = /<\/body\s*>/i.exec(html);
-						if (bodyClose) {
-							html =
-								html.slice(0, bodyClose.index) +
-								hmrScript +
-								html.slice(bodyClose.index);
-							writeFs(destPath, html);
-						}
-					}
-
-					// Read processed file and broadcast body only
-					const newHTML = await handleHTMLUpdate(destPath);
-					if (newHTML) {
-						const dur = Date.now() - startTime;
-						logHmrUpdate(htmlFile, 'html', dur);
-						broadcastToClients(state, {
-							data: {
-								framework: 'html',
-								html: newHTML,
-								manifest: state.manifest,
-								sourceFile: htmlFile
-							},
-							type: 'html-update'
-						});
-					}
-				} catch {
-					// fall through to full rebuild
-					break;
-				}
-			}
-		}
+		await runHtmlFastPath(state, config, filesToRebuild, startTime);
 	}
 
 	// HTMX fast path
@@ -2504,68 +2715,7 @@ const performFullRebuild = async (
 		config.htmxDirectory &&
 		affectedFrameworks.includes('htmx')
 	) {
-		const htmxFiles = (filesToRebuild ?? []).filter((file) =>
-			file.endsWith('.html')
-		);
-		if (htmxFiles.length > 0) {
-			const outputDir = computeOutputPagesDir(state, config, 'htmx');
-			const { updateAssetPaths } = await import(
-				'../build/updateAssetPaths'
-			);
-			const { handleHTMXUpdate } = await import('./simpleHTMXHMR');
-			const { readFileSync: readFs, writeFileSync: writeFs } =
-				await import('node:fs');
-
-			for (const htmxFile of htmxFiles) {
-				try {
-					const destPath = resolve(outputDir, basename(htmxFile));
-
-					let hmrScript = '';
-					try {
-						const existing = readFs(destPath, 'utf-8');
-						const match = existing.match(
-							/<script>window\.__HMR_FRAMEWORK__[\s\S]*?<\/script>\s*<script data-hmr-client>[\s\S]*?<\/script>/
-						);
-						if (match) hmrScript = match[0];
-					} catch {
-						/* built file may not exist */
-					}
-
-					const source = await Bun.file(htmxFile).text();
-					await Bun.write(destPath, source);
-					await updateAssetPaths(state.manifest, outputDir);
-
-					if (hmrScript) {
-						let html = readFs(destPath, 'utf-8');
-						const bodyClose = /<\/body\s*>/i.exec(html);
-						if (bodyClose) {
-							html =
-								html.slice(0, bodyClose.index) +
-								hmrScript +
-								html.slice(bodyClose.index);
-							writeFs(destPath, html);
-						}
-					}
-
-					const newHTML = await handleHTMXUpdate(destPath);
-					if (newHTML) {
-						const dur = Date.now() - startTime;
-						logHmrUpdate(htmxFile, 'htmx', dur);
-						broadcastToClients(state, {
-							data: {
-								framework: 'htmx',
-								html: newHTML,
-								manifest: state.manifest,
-								sourceFile: htmxFile
-							},
-							type: 'htmx-update'
-						});
-					}
-				} catch {
-					break;
-				}
-			}
-		}
+		await runHtmxFastPath(state, config, filesToRebuild, startTime);
 	}
 
 	// If all frameworks were handled by fast paths, skip the full build
@@ -2578,7 +2728,7 @@ const performFullRebuild = async (
 		return state.manifest;
 	}
 
-	const buildConfig = {
+	const buildConfig: BuildConfig = {
 		...config,
 		incrementalFiles:
 			filesToRebuild && filesToRebuild.length > 0

@@ -18,18 +18,20 @@ if (hostFlag) {
 }
 
 // TLS is enabled via ABSOLUTE_HTTPS env var set by the config loader
-const tls = (() => {
+const loadTls = () => {
 	if (env.NODE_ENV !== 'development') return undefined;
 	if (env.ABSOLUTE_HTTPS !== 'true') return undefined;
 
 	try {
+		// eslint-disable-next-line @typescript-eslint/no-require-imports -- sync top-level load, dynamic import would be async
 		const { loadDevCert } = require('../dev/devCert');
 
 		return loadDevCert();
 	} catch {
 		return undefined;
 	}
-})();
+};
+const tls = loadTls();
 const protocol = tls ? 'https' : 'http';
 
 export const networking = (app: Elysia) =>

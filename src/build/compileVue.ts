@@ -1,3 +1,4 @@
+import { BASE_36_RADIX } from '../constants';
 import { existsSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { basename, dirname, join, relative, resolve } from 'node:path';
@@ -198,7 +199,7 @@ const compileVueFile = async (
 	const sourceContent = await file(sourceFilePath).text();
 
 	// Check persistent cache — skip recompilation if source unchanged
-	const contentHash = Bun.hash(sourceContent).toString(36);
+	const contentHash = Bun.hash(sourceContent).toString(BASE_36_RADIX);
 	const prevHash = vueSourceHashCache.get(sourceFilePath);
 	const persistent = persistentBuildCache.get(sourceFilePath);
 

@@ -5,23 +5,28 @@ import { dlopen, FFIType, ptr } from 'bun:ffi';
 import { platform, arch } from 'node:os';
 import { resolve } from 'node:path';
 
-type NativeLib = {
-	rewrite_imports: (
-		contentPtr: number,
-		contentLen: number,
-		replacementsPtr: number,
-		replacementsLen: number,
-		outPtr: number,
-		outLenPtr: number
-	) => number;
-};
+const ffiDefinition = {
+	rewrite_imports: {
+		args: [
+			FFIType.ptr,
+			FFIType.u64,
+			FFIType.ptr,
+			FFIType.u64,
+			FFIType.ptr,
+			FFIType.ptr
+		],
+		returns: FFIType.i32
+	}
+} as const;
+
+type NativeLib = ReturnType<typeof dlopen<typeof ffiDefinition>>['symbols'];
 
 let nativeLib: NativeLib | null = null;
 
 const loadNative = () => {
 	if (nativeLib !== null) return nativeLib;
 
-	const os = platform();
+	const osPlatform = platform();
 	const cpu = arch();
 
 	const platformMap: Record<string, string> = {
@@ -33,7 +38,7 @@ const loadNative = () => {
 		'win32-x64': 'windows-x64/fast_ops.dll'
 	};
 
-	const libPath = platformMap[`${os}-${cpu}`];
+	const libPath = platformMap[`${osPlatform}-${cpu}`];
 	if (!libPath) return null;
 
 	try {
@@ -42,20 +47,8 @@ const loadNative = () => {
 			'../../native/packages',
 			libPath
 		);
-		const lib = dlopen(fullPath, {
-			rewrite_imports: {
-				args: [
-					FFIType.ptr,
-					FFIType.u64,
-					FFIType.ptr,
-					FFIType.u64,
-					FFIType.ptr,
-					FFIType.ptr
-				],
-				returns: FFIType.i32
-			}
-		});
-		nativeLib = lib.symbols as unknown as NativeLib;
+		const lib = dlopen(fullPath, ffiDefinition);
+		nativeLib = lib.symbols;
 
 		return nativeLib;
 	} catch {
@@ -82,12 +75,12 @@ export const nativeRewriteImports = (
 	const outLenBuf = new BigUint64Array([BigInt(outBuf.length)]);
 
 	const result = lib.rewrite_imports(
-		ptr(contentBuf) as unknown as number,
+		ptr(contentBuf),
 		contentBuf.length,
-		ptr(jsonBuf) as unknown as number,
+		ptr(jsonBuf),
 		jsonBuf.length,
-		ptr(outBuf) as unknown as number,
-		ptr(new Uint8Array(outLenBuf.buffer)) as unknown as number
+		ptr(outBuf),
+		ptr(new Uint8Array(outLenBuf.buffer))
 	);
 
 	if (result < 0) return null;
