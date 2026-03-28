@@ -245,10 +245,13 @@ const compileVueFile = async (
 		)
 	);
 
-	const compiledScript = compiler.compileScript(descriptor, {
-		id: componentId,
-		inlineTemplate: false
-	});
+	const hasScript = descriptor.script || descriptor.scriptSetup;
+	const compiledScript = hasScript
+		? compiler.compileScript(descriptor, {
+				id: componentId,
+				inlineTemplate: false
+			})
+		: { content: 'export default {};', bindings: {} };
 	const strippedScript = stripExports(compiledScript.content);
 	const transpiledScript = transpiler
 		.transformSync(strippedScript)

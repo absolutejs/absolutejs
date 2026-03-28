@@ -156,19 +156,22 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 	};
 
 	const spawnServer = () => {
-		const proc = Bun.spawn(['bun', '--hot', '--no-clear-screen', serverEntry], {
-			cwd: process.cwd(),
-			env: {
-				...process.env,
-				FORCE_COLOR: '1',
-				NODE_ENV: 'development',
-				...(configPath ? { ABSOLUTE_CONFIG: configPath } : {}),
-				...(httpsEnabled ? { ABSOLUTE_HTTPS: 'true' } : {})
-			},
-			stderr: 'pipe',
-			stdin: 'ignore',
-			stdout: 'pipe'
-		});
+		const proc = Bun.spawn(
+			['bun', '--hot', '--no-clear-screen', serverEntry],
+			{
+				cwd: process.cwd(),
+				env: {
+					...process.env,
+					FORCE_COLOR: '1',
+					NODE_ENV: 'development',
+					...(configPath ? { ABSOLUTE_CONFIG: configPath } : {}),
+					...(httpsEnabled ? { ABSOLUTE_HTTPS: 'true' } : {})
+				},
+				stderr: 'pipe',
+				stdin: 'ignore',
+				stdout: 'pipe'
+			}
+		);
 		const forward = (
 			stream: ReadableStream<Uint8Array>,
 			dest: NodeJS.WriteStream
