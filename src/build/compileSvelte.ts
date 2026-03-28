@@ -184,6 +184,23 @@ export const compileSvelte = async (
 			return code;
 		};
 
+		// Rewrite relative imports that escape the framework root.
+		// Source file is at svelteRoot/<relDir>/file.svelte, but compiled
+		// output is at svelteRoot/.generated/{mode}/<relDir>/file.js —
+		// 2 extra directory levels. Imports going above svelteRoot need
+		// ../../ prepended so they resolve to the same target.
+		const relDepth = relDir === '.' ? 0 : relDir.split('/').length;
+		const adjustImports = (code: string) =>
+			code.replace(
+				/(from\s+['"])(\.\.\/(?:\.\.\/)*)/g,
+				(_, prefix, dots) => {
+					const upCount = dots.split('/').length - 1;
+					if (upCount <= relDepth) return `${prefix}${dots}`;
+
+					return `${prefix}../../${dots}`;
+				}
+			);
+
 		const ssrPath = join(serverDir, relDir, `${baseName}.js`);
 		const clientPath = join(clientDir, relDir, `${baseName}.js`);
 
@@ -193,14 +210,14 @@ export const compileSvelte = async (
 		]);
 
 		if (isModule) {
-			const bundle = generate('client');
+			const bundle = adjustImports(generate('client'));
 			await Promise.all([
 				write(ssrPath, bundle),
 				write(clientPath, bundle)
 			]);
 		} else {
-			const serverBundle = generate('server');
-			const clientBundle = generate('client');
+			const serverBundle = adjustImports(generate('server'));
+			const clientBundle = adjustImports(generate('client'));
 			await Promise.all([
 				write(ssrPath, serverBundle),
 				write(clientPath, clientBundle)

@@ -426,6 +426,20 @@ export const compileAngularFileJIT = async (inputPath: string, outDir: string, r
 				}
 			);
 
+			// Rewrite relative imports that escape the framework root.
+			// Source is at angularRoot/<relDir>/file.ts, output is at
+			// angularRoot/.generated/<relDir>/file.js — 1 extra level.
+			const relDepth = relativeDir === '' || relativeDir === '.' ? 0 : relativeDir.split('/').length;
+			processedContent = processedContent.replace(
+				/(from\s+['"])(\.\.\/(?:\.\.\/)*)/g,
+				(_, prefix, dots) => {
+					const upCount = dots.split('/').length - 1;
+					if (upCount <= relDepth) return `${prefix}${dots}`;
+
+					return `${prefix}../${dots}`;
+				}
+			);
+
 			await fs.mkdir(targetDir, { recursive: true });
 			await fs.writeFile(targetPath, processedContent, 'utf-8');
 			allOutputs.push(targetPath);

@@ -670,20 +670,27 @@ const transformSvelteFile = async (
 	return rewriteImports(code, filePath, projectRoot, rewriter);
 };
 
+type VueSFCDescriptor = {
+	styles: Array<{ content: string; scoped: boolean }>;
+	template?: { content: string } | null;
+};
+
+type VueSFCCompiledScript = {
+	bindings: Record<string, string>;
+	content: string;
+};
+
 // Compile a Vue SFC template and attach the render function to the script.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const compileVueTemplate = (
-	descriptor: any,
-	compiledScript: any,
+	descriptor: VueSFCDescriptor,
+	compiledScript: VueSFCCompiledScript,
 	filePath: string,
 	componentId: string
 ) => {
-	const scriptContent: string = compiledScript.content;
+	const scriptContent = compiledScript.content;
 	if (!descriptor.template) return scriptContent;
 
-	const isScoped = descriptor.styles.some(
-		(style: { scoped: boolean }) => style.scoped
-	);
+	const isScoped = descriptor.styles.some((style) => style.scoped);
 	const templateResult = vueCompiler.compileTemplate({
 		compilerOptions: {
 			bindingMetadata: compiledScript.bindings,
@@ -704,9 +711,8 @@ const compileVueTemplate = (
 };
 
 // Compile and inject scoped CSS as inline <style> for a Vue SFC.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const compileVueStyles = (
-	descriptor: any,
+	descriptor: VueSFCDescriptor,
 	filePath: string,
 	componentId: string,
 	code: string
@@ -715,7 +721,7 @@ const compileVueStyles = (
 
 	const cssCode = descriptor.styles
 		.map(
-			(style: { scoped: boolean; content: string }) =>
+			(style) =>
 				vueCompiler.compileStyle({
 					filename: filePath,
 					id: `data-v-${componentId}`,

@@ -370,10 +370,28 @@ if (typeof __VUE_HMR_RUNTIME__ !== 'undefined') {
 		`${relativeWithoutExtension}.js`
 	);
 
+	// Rewrite relative imports that escape the framework root.
+	// Source file is at vueRoot/<relDir>/file.vue, but compiled
+	// output is at vueRoot/.generated/{mode}/<relDir>/file.js —
+	// 2 extra directory levels. Imports going above vueRoot need
+	// ../../ prepended so they resolve to the same target.
+	const relDir = dirname(relativeFilePath);
+	const relDepth = relDir === '.' ? 0 : relDir.split('/').length;
+	const adjustImports = (code: string) =>
+		code.replace(
+			/(from\s+['"])(\.\.\/(?:\.\.\/)*)/g,
+			(_, prefix, dots) => {
+				const upCount = dots.split('/').length - 1;
+				if (upCount <= relDepth) return `${prefix}${dots}`;
+
+				return `${prefix}../../${dots}`;
+			}
+		);
+
 	await mkdir(dirname(clientOutputPath), { recursive: true });
 	await mkdir(dirname(serverOutputPath), { recursive: true });
-	await write(clientOutputPath, clientCode);
-	await write(serverOutputPath, serverCode);
+	await write(clientOutputPath, adjustImports(clientCode));
+	await write(serverOutputPath, adjustImports(serverCode));
 
 	const result: BuildResult = {
 		clientPath: clientOutputPath,
