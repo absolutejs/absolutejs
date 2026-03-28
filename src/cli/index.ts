@@ -55,6 +55,15 @@ if (command === 'dev') {
 } else if (command === 'telemetry') {
 	sendTelemetryEvent('cli:command', { command });
 	telemetry(args);
+} else if (command === 'compile') {
+	sendTelemetryEvent('cli:command', { command });
+	const outdir = parseNamedArg('--outdir');
+	const outfile = parseNamedArg('--outfile');
+	const configPath = parseNamedArg('--config');
+	const positionalArgs = stripNamedArgs('--outdir', '--outfile', '--config');
+	const serverEntry = positionalArgs[0] ?? DEFAULT_SERVER_ENTRY;
+	const { compile } = await import('./scripts/compile');
+	await compile(serverEntry, outdir, outfile, configPath);
 } else if (command === 'mkcert') {
 	sendTelemetryEvent('cli:command', { command });
 	const { setupMkcert } = await import('../dev/devCert');
@@ -68,6 +77,7 @@ if (command === 'dev') {
 	console.error('Commands:');
 	console.error('  dev [entry]   Start development server');
 	console.error('  start [entry] [--outdir dir] Start production server');
+	console.error('  compile [entry] [--outdir dir] [--outfile path] Compile standalone executable');
 	console.error('  eslint        Run ESLint (cached)');
 	console.error('  info          Print system info for bug reports');
 	console.error('  prettier      Run Prettier check (cached)');

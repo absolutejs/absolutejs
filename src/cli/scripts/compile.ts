@@ -1,0 +1,545 @@
+import { env } from 'bun';
+import {
+	existsSync,
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	unlinkSync
+} from 'node:fs';
+import { basename, join, relative, resolve } from 'node:path';
+import { DEFAULT_PORT, MAX_ERROR_LENGTH } from '../../constants';
+import { getDurationString } from '../../utils/getDurationString';
+import { loadConfig } from '../../utils/loadConfig';
+import { formatTimestamp } from '../../utils/startupBanner';
+import { sendTelemetryEvent } from '../telemetryEvent';
+import { killStaleProcesses } from '../utils';
+
+// ── Logging ─────────────────────────────────────────────────────
+const cliTag = (color: string, message: string) =>
+	`\x1b[2m${formatTimestamp()}\x1b[0m ${color}[cli]\x1b[0m ${color}${message}\x1b[0m`;
+
+// ── File utilities ──────────────────────────────────────────────
+const collectFiles = (dir: string): string[] => {
+	const results: string[] = [];
+	for (const entry of readdirSync(dir, { withFileTypes: true })) {
+		const fullPath = join(dir, entry.name);
+		if (entry.isDirectory()) {
+			results.push(...collectFiles(fullPath));
+		} else {
+			results.push(fullPath);
+		}
+	}
+	return results;
+};
+
+const resolvePackageVersion = (candidates: string[]) => {
+	for (const candidate of candidates) {
+		try {
+			const pkg = JSON.parse(readFileSync(candidate, 'utf-8'));
+			if (pkg.name === '@absolutejs/absolute') return pkg.version as string;
+		} catch {
+			/* try next */
+		}
+	}
+	return '';
+};
+
+const resolveBuildModule = async (candidates: string[]) => {
+	for (const candidate of candidates) {
+		try {
+			const mod = await import(candidate);
+			return mod.build as typeof import('../../core/build').build;
+		} catch {
+			/* try next */
+		}
+	}
+	return undefined;
+};
+
+// ── Pre-render: crawl the running server and capture all pages ──
+const prerender = async (
+	port: number,
+	outDir: string
+): Promise<string[]> => {
+	const prerenderDir = join(outDir, '_prerendered');
+	mkdirSync(prerenderDir, { recursive: true });
+
+	const baseUrl = `http://localhost:${port}`;
+	const visited = new Set<string>();
+	const queue: string[] = ['/'];
+	const savedFiles: string[] = [];
+
+	while (queue.length > 0) {
+		const path = queue.shift()!;
+		if (visited.has(path)) continue;
+		visited.add(path);
+
+		try {
+			const res = await fetch(`${baseUrl}${path}`);
+			if (!res.ok) continue;
+
+			const contentType = res.headers.get('content-type') ?? '';
+			if (!contentType.includes('text/html')) continue;
+
+			const html = await res.text();
+			// Save with a filename derived from the path
+			const fileName =
+				path === '/' ? 'index.html' : `${path.slice(1).replace(/\//g, '-')}.html`;
+			const filePath = join(prerenderDir, fileName);
+			await Bun.write(filePath, html);
+			savedFiles.push(filePath);
+
+			console.log(
+				cliTag(
+					'\x1b[36m',
+					`  Pre-rendered ${path} → ${fileName} (${html.length} bytes)`
+				)
+			);
+
+			// Extract internal links to crawl
+			const linkRegex = /href=["'](\/[^"']*?)["']/g;
+			let match;
+			while ((match = linkRegex.exec(html)) !== null) {
+				const href = match[1] ?? '';
+				// Skip asset paths, anchors, and external URLs
+				if (
+					!href ||
+					href.includes('.') ||
+					href.includes('#') ||
+					visited.has(href)
+				)
+					continue;
+				queue.push(href);
+			}
+		} catch {
+			/* skip failed routes */
+		}
+	}
+
+	return savedFiles;
+};
+
+// ── Generate the compile entrypoint ─────────────────────────────
+const generateEntrypoint = (
+	distDir: string,
+	serverEntry: string,
+	prerenderMap: Map<string, string>, // route -> prerendered file path
+	version: string
+) => {
+	const allFiles = collectFiles(distDir);
+	const serverBundleName =
+		basename(serverEntry).replace(/\.[^.]+$/, '') + '.js';
+	const skip = new Set([
+		serverBundleName,
+		'manifest.json',
+		'_compile_entrypoint.ts'
+	]);
+
+	const clientFiles = allFiles.filter((f) => {
+		const rel = relative(distDir, f);
+		if (skip.has(rel)) return false;
+		if (rel.includes('.generated')) return false;
+		if (rel.includes('/server/')) return false;
+		return true;
+	});
+
+	const imports: string[] = [];
+	const mappings: string[] = [];
+
+	clientFiles.forEach((filePath, idx) => {
+		const rel = relative(distDir, filePath).replace(/\\/g, '/');
+		const varName = `__a${idx}`;
+		const urlPath = '/' + rel;
+
+		imports.push(
+			`import ${varName} from "./${rel}" with { type: "file" };`
+		);
+		mappings.push(`\t"${urlPath}": ${varName},`);
+
+		// Add unhashed alias for worker files
+		if (rel.startsWith('workers/') && rel.endsWith('.js')) {
+			const parts = rel.match(
+				/^(workers\/[^.]+\.worker)\.[a-z0-9]+\.js$/
+			);
+			if (parts) {
+				mappings.push(`\t"/${parts[1]}.js": ${varName},`);
+			}
+		}
+	});
+
+	// Build route → embedded page mapping
+	const pageVarMap = new Map<string, string>();
+	for (const [route, filePath] of prerenderMap) {
+		const rel = relative(distDir, filePath).replace(/\\/g, '/');
+		const idx = clientFiles.findIndex(
+			(f) => relative(distDir, f).replace(/\\/g, '/') === rel
+		);
+		if (idx >= 0) {
+			pageVarMap.set(route, `__a${idx}`);
+		}
+	}
+
+	const routeEntries = Array.from(pageVarMap.entries())
+		.map(([route, varName]) => `\t"${route}": ${varName},`)
+		.join('\n');
+
+	return `// Auto-generated compile entrypoint
+import { Elysia } from "elysia";
+
+// ── Embedded asset imports ──────────────────────────────────────
+${imports.join('\n')}
+
+// ── Asset URL → embedded path map ───────────────────────────────
+const ASSETS: Record<string, string> = {
+${mappings.join('\n')}
+};
+
+// ── Pre-rendered page routes ────────────────────────────────────
+const PAGES: Record<string, string> = {
+${routeEntries}
+};
+
+// ── MIME types ──────────────────────────────────────────────────
+const MIME: Record<string, string> = {
+	".js": "application/javascript; charset=utf-8",
+	".css": "text/css; charset=utf-8",
+	".html": "text/html; charset=utf-8",
+	".json": "application/json",
+	".png": "image/png",
+	".jpg": "image/jpeg",
+	".svg": "image/svg+xml",
+	".ico": "image/x-icon",
+	".woff": "font/woff",
+	".woff2": "font/woff2",
+	".ttf": "font/ttf",
+	".webp": "image/webp",
+	".avif": "image/avif",
+};
+
+const getMime = (p: string) =>
+	MIME[p.substring(p.lastIndexOf("."))] ?? "application/octet-stream";
+
+// ── Server ──────────────────────────────────────────────────────
+const port = Number(process.env.PORT) || ${DEFAULT_PORT};
+
+const servePage = (path: string) =>
+	new Response(Bun.file(path), {
+		headers: { "content-type": "text/html; charset=utf-8" },
+	});
+
+const app = new Elysia()
+	// Static assets from embedded filesystem
+	.onRequest(({ request, set }) => {
+		const url = new URL(request.url);
+
+		// Check for pre-rendered page
+		const page = PAGES[url.pathname];
+		if (page) return servePage(page);
+
+		// Check for embedded asset
+		const embedded = ASSETS[url.pathname];
+		if (!embedded) return;
+		set.headers["content-type"] = getMime(url.pathname);
+		set.headers["cache-control"] = "public, max-age=31536000, immutable";
+		return new Response(Bun.file(embedded));
+	})
+	.listen(port);
+
+const assetCount = Object.keys(ASSETS).length;
+const pageCount = Object.keys(PAGES).length;
+console.log(\`
+  \\x1b[36m\\x1b[1mABSOLUTEJS\\x1b[0m \\x1b[2mv${version}\\x1b[0m  \\x1b[2mcompiled executable\\x1b[0m
+
+  \\x1b[32m➜\\x1b[0m  \\x1b[1mLocal:\\x1b[0m   http://localhost:\${port}/
+
+  \\x1b[2m\${pageCount} pre-rendered pages, \${assetCount} embedded assets\\x1b[0m
+\`);
+`;
+};
+
+// ── Stub plugin (shared with start.ts) ──────────────────────────
+const createStubPlugin = (): import('bun').BunPlugin => ({
+	name: 'stub-framework-sources',
+	setup(bld) {
+		bld.onLoad({ filter: /\.(svelte|vue)$/ }, () => ({
+			contents: 'export default {}',
+			loader: 'js'
+		}));
+		bld.onLoad({ filter: /devBuild\.ts$/ }, () => ({
+			contents: 'export const devBuild = () => {}',
+			loader: 'js'
+		}));
+		bld.onLoad({ filter: /core\/build\.ts$/ }, () => ({
+			contents: 'export const build = () => ({})',
+			loader: 'js'
+		}));
+		bld.onLoad({ filter: /src\/build\.ts$/ }, () => ({
+			contents:
+				'export const build = () => ({}); export const devBuild = () => {};',
+			loader: 'js'
+		}));
+		bld.onLoad({ filter: /plugins\/hmr\.ts$/ }, () => ({
+			contents: 'export const hmr = () => (app) => app;',
+			loader: 'js'
+		}));
+		bld.onLoad(
+			{
+				filter: /dev\/(assetStore|clientManager|webSocket|moduleVersionTracker|buildHMRClient)\.ts$/
+			},
+			() => ({ contents: 'export {};', loader: 'js' })
+		);
+		bld.onLoad(
+			{ filter: /cli\/(telemetryEvent|scripts\/telemetry)\.ts$/ },
+			() => ({
+				contents:
+					'export const sendTelemetryEvent = () => {}; export const getTelemetryConfig = () => null; export const telemetry = () => {};',
+				loader: 'js'
+			})
+		);
+		bld.onLoad(
+			{
+				filter: /react-dom-server-legacy\.browser\.(production|development)\.js$/
+			},
+			() => ({
+				contents:
+					'exports.renderToString = undefined; exports.renderToStaticMarkup = undefined;',
+				loader: 'js'
+			})
+		);
+		bld.onLoad({ filter: /node_modules\/debug/ }, () => ({
+			contents:
+				'module.exports = () => { const noop = () => {}; noop.enabled = false; return noop; }; module.exports.enable = () => {}; module.exports.disable = () => {}; module.exports.enabled = () => false;',
+			loader: 'js'
+		}));
+		bld.onLoad({ filter: /\.ts$/ }, async (args) => {
+			if (args.path.includes('node_modules')) return undefined;
+			const text = await Bun.file(args.path).text();
+			const stripped = text
+				.replace(/`(?:[^`\\]|\\.)*`/gs, '')
+				.replace(/'(?:[^'\\]|\\.)*'/g, '')
+				.replace(/"(?:[^"\\]|\\.)*"/g, '');
+			if (stripped.includes('@Component')) {
+				return { contents: 'export default {}', loader: 'js' };
+			}
+			return undefined;
+		});
+	}
+});
+
+const FRAMEWORK_EXTERNALS = [
+	'vue',
+	'vue/*',
+	'@vue/compiler-sfc',
+	'@vue/server-renderer',
+	'svelte',
+	'svelte/*',
+	'@angular/compiler',
+	'@angular/compiler-cli',
+	'@angular/core',
+	'@angular/common',
+	'@angular/platform-browser',
+	'@angular/platform-server'
+];
+
+// ── Main compile command ────────────────────────────────────────
+export const compile = async (
+	serverEntry: string,
+	outdir?: string,
+	outfile?: string,
+	configPath?: string
+) => {
+	const prerenderPort =
+		Number(env.COMPILE_PORT) || Number(env.PORT) || DEFAULT_PORT + 1;
+	killStaleProcesses(prerenderPort);
+
+	const entryName = basename(serverEntry).replace(/\.[^.]+$/, '');
+	const resolvedOutdir = resolve(outdir ?? 'dist');
+	const resolvedOutfile = resolve(outfile ?? 'compiled-server');
+
+	const absoluteVersion = resolvePackageVersion([
+		resolve(import.meta.dir, '..', '..', '..', 'package.json'),
+		resolve(import.meta.dir, '..', '..', 'package.json')
+	]);
+
+	const totalStart = performance.now();
+
+	// ── Step 1: Build assets ────────────────────────────────────
+	const buildStart = performance.now();
+	process.stdout.write(cliTag('\x1b[36m', 'Building assets'));
+
+	const buildConfig = await loadConfig(configPath);
+	buildConfig.buildDirectory = resolvedOutdir;
+	buildConfig.mode = 'production';
+
+	try {
+		const build = await resolveBuildModule([
+			resolve(import.meta.dir, '..', '..', 'core', 'build'),
+			resolve(import.meta.dir, '..', 'build')
+		]);
+		if (!build) throw new Error('Could not locate build module');
+		await build(buildConfig);
+	} catch (err) {
+		console.error(cliTag('\x1b[31m', 'Build step failed.'));
+		console.error(err);
+		process.exit(1);
+	}
+
+	console.log(
+		` \x1b[2m(${getDurationString(performance.now() - buildStart)})\x1b[0m`
+	);
+
+	// ── Step 2: Bundle production server ────────────────────────
+	const bundleStart = performance.now();
+	process.stdout.write(cliTag('\x1b[36m', 'Bundling production server'));
+
+	const serverBundle = await Bun.build({
+		define: { 'process.env.NODE_ENV': '"production"' },
+		entrypoints: [resolve(serverEntry)],
+		external: FRAMEWORK_EXTERNALS,
+		outdir: resolvedOutdir,
+		plugins: [createStubPlugin()],
+		target: 'bun'
+	});
+
+	if (!serverBundle.success) {
+		serverBundle.logs.forEach((log) => console.error(log));
+		console.error(cliTag('\x1b[31m', 'Server bundle failed.'));
+		process.exit(1);
+	}
+
+	const outputPath = resolve(resolvedOutdir, `${entryName}.js`);
+	if (!existsSync(outputPath)) {
+		console.error(
+			cliTag('\x1b[31m', `Expected output not found: ${outputPath}`)
+		);
+		process.exit(1);
+	}
+
+	console.log(
+		` \x1b[2m(${getDurationString(performance.now() - bundleStart)})\x1b[0m`
+	);
+
+	// ── Step 3: Pre-render all pages ────────────────────────────
+	const prerenderStart = performance.now();
+	console.log(cliTag('\x1b[36m', 'Pre-rendering pages...'));
+
+	const serverProcess = Bun.spawn(['bun', 'run', outputPath], {
+		cwd: process.cwd(),
+		env: {
+			...process.env,
+			ABSOLUTE_BUILD_DIR: resolvedOutdir,
+			ABSOLUTE_VERSION: absoluteVersion,
+			FORCE_COLOR: '0',
+			NODE_ENV: 'production',
+			PORT: String(prerenderPort),
+			...(configPath ? { ABSOLUTE_CONFIG: configPath } : {})
+		},
+		stdout: 'pipe',
+		stderr: 'pipe'
+	});
+
+	// Wait for server to be ready
+	let ready = false;
+	for (let i = 0; i < 50; i++) {
+		try {
+			const res = await fetch(`http://localhost:${prerenderPort}/`);
+			if (res.ok) {
+				ready = true;
+				break;
+			}
+		} catch {
+			/* not ready yet */
+		}
+		await Bun.sleep(100);
+	}
+
+	if (!ready) {
+		serverProcess.kill();
+		console.error(
+			cliTag('\x1b[31m', 'Server failed to start for pre-rendering.')
+		);
+		process.exit(1);
+	}
+
+	const prerenderFiles = await prerender(prerenderPort, resolvedOutdir);
+
+	serverProcess.kill();
+	await serverProcess.exited;
+
+	// Build route → file map from the crawled pages
+	const prerenderMap = new Map<string, string>();
+	for (const filePath of prerenderFiles) {
+		const fileName = basename(filePath, '.html');
+		const route = fileName === 'index' ? '/' : `/${fileName}`;
+		prerenderMap.set(route, filePath);
+	}
+
+	console.log(
+		cliTag(
+			'\x1b[36m',
+			`Pre-rendered ${prerenderMap.size} pages (${getDurationString(performance.now() - prerenderStart)})`
+		)
+	);
+
+	// ── Step 4: Generate compile entrypoint ─────────────────────
+	const compileStart = performance.now();
+	process.stdout.write(cliTag('\x1b[36m', 'Compiling standalone executable'));
+
+	const entrypointCode = generateEntrypoint(
+		resolvedOutdir,
+		serverEntry,
+		prerenderMap,
+		absoluteVersion
+	);
+
+	const entrypointPath = join(resolvedOutdir, '_compile_entrypoint.ts');
+	await Bun.write(entrypointPath, entrypointCode);
+
+	// ── Step 5: Compile binary ──────────────────────────────────
+	const result = await Bun.build({
+		entrypoints: [entrypointPath],
+		compile: { outfile: resolvedOutfile },
+		define: { 'process.env.NODE_ENV': '"production"' },
+		target: 'bun'
+	});
+
+	if (!result.success) {
+		result.logs.forEach((log) => console.error(log));
+		console.error(cliTag('\x1b[31m', 'Compilation failed.'));
+		process.exit(1);
+	}
+
+	console.log(
+		` \x1b[2m(${getDurationString(performance.now() - compileStart)})\x1b[0m`
+	);
+
+	// Clean up generated files
+	try {
+		unlinkSync(entrypointPath);
+	} catch {
+		/* best-effort */
+	}
+
+	// ── Done ────────────────────────────────────────────────────
+	const size = (
+		Bun.file(resolvedOutfile).size /
+		(1024 * 1024)
+	).toFixed(0);
+	const totalDuration = getDurationString(performance.now() - totalStart);
+
+	console.log(
+		cliTag(
+			'\x1b[32m',
+			`Compiled to ${resolvedOutfile} (${size}MB) in ${totalDuration}`
+		)
+	);
+	console.log(
+		cliTag('\x1b[2m', `Run with: ./${basename(resolvedOutfile)}`)
+	);
+
+	sendTelemetryEvent('compile:complete', {
+		durationMs: Math.round(performance.now() - totalStart),
+		entry: serverEntry,
+		pages: prerenderMap.size
+	});
+};
