@@ -84,7 +84,7 @@ export const compileSvelte = async (
 		'svelte/compiler'
 	);
 
-	const generatedDir = join(svelteRoot, '.generated');
+	const generatedDir = join(svelteRoot, 'generated');
 	const clientDir = join(generatedDir, 'client');
 	const indexDir = join(generatedDir, 'indexes');
 	const serverDir = join(generatedDir, 'server');
@@ -186,7 +186,7 @@ export const compileSvelte = async (
 
 		// Rewrite relative imports that escape the framework root.
 		// Source file is at svelteRoot/<relDir>/file.svelte, but compiled
-		// output is at svelteRoot/.generated/{mode}/<relDir>/file.js —
+		// output is at svelteRoot/generated/{mode}/<relDir>/file.js —
 		// 2 extra directory levels. Imports going above svelteRoot need
 		// ../../ prepended so they resolve to the same target.
 		const relDepth = relDir === '.' ? 0 : relDir.split('/').length;

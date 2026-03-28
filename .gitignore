@@ -47,7 +47,7 @@ dist/
 **/dist/
 
 # Generated intermediate build files
-**/.generated/
+**/generated/
 
 /DOCS
 

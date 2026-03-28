@@ -372,7 +372,7 @@ if (typeof __VUE_HMR_RUNTIME__ !== 'undefined') {
 
 	// Rewrite relative imports that escape the framework root.
 	// Source file is at vueRoot/<relDir>/file.vue, but compiled
-	// output is at vueRoot/.generated/{mode}/<relDir>/file.js —
+	// output is at vueRoot/generated/{mode}/<relDir>/file.js —
 	// 2 extra directory levels. Imports going above vueRoot need
 	// ../../ prepended so they resolve to the same target.
 	const relDir = dirname(relativeFilePath);
@@ -423,7 +423,7 @@ export const compileVue = async (
 ) => {
 	const compiler: VueCompiler = await import('@vue/compiler-sfc');
 
-	const generatedDir = join(vueRootDir, '.generated');
+	const generatedDir = join(vueRootDir, 'generated');
 	const clientOutputDir = join(generatedDir, 'client');
 	const indexOutputDir = join(generatedDir, 'indexes');
 	const serverOutputDir = join(generatedDir, 'server');

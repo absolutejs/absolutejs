@@ -191,7 +191,7 @@ export const shouldIgnorePath = (
 	// Ignore build output and framework-managed directories
 	return (
 		normalizedPath.includes('/build/') ||
-		normalizedPath.includes('/.generated/') ||
+		normalizedPath.includes('/generated/') ||
 		normalizedPath.includes('/.absolutejs/') ||
 		normalizedPath.includes('/node_modules/') ||
 		normalizedPath.includes('/.git/') ||

@@ -685,7 +685,7 @@ const handleAngularFastPath = async (
 	}
 
 	if (pageEntries.length > 0) {
-		await rm(resolve(angularDir, '.generated'), {
+		await rm(resolve(angularDir, 'generated'), {
 			force: true,
 			recursive: true
 		});
@@ -974,7 +974,7 @@ const handleReactFastPath = async (
 ) => {
 	const reactDir = config.reactDirectory ?? '';
 	const reactPagesPath = resolve(reactDir, 'pages');
-	const reactIndexesPath = resolve(reactDir, '.generated', 'indexes');
+	const reactIndexesPath = resolve(reactDir, 'generated', 'indexes');
 	const { buildDir } = state.resolvedPaths;
 
 	// O(1) fast path: serve the changed file via the module server.
@@ -1021,7 +1021,7 @@ const handleReactFastPath = async (
 		);
 	}
 
-	await rm(resolve(reactDir, '.generated'), { force: true, recursive: true });
+	await rm(resolve(reactDir, 'generated'), { force: true, recursive: true });
 
 	const { manifest } = state;
 	const duration = Date.now() - startTime;
@@ -1179,7 +1179,7 @@ const handleSvelteFastPath = async (
 		const serverEntries = [...svelteServerPaths];
 		const clientEntries = [...svelteIndexPaths, ...svelteClientPaths];
 
-		const serverRoot = resolve(svelteDir, '.generated', 'server');
+		const serverRoot = resolve(svelteDir, 'generated', 'server');
 		const serverOutDir = resolve(buildDir, basename(svelteDir));
 
 		const [serverResult, clientResult] = await Promise.all([
@@ -1212,7 +1212,7 @@ const handleSvelteFastPath = async (
 		await handleClientManifestUpdate(state, clientResult, buildDir);
 	}
 
-	await rm(resolve(svelteDir, '.generated'), {
+	await rm(resolve(svelteDir, 'generated'), {
 		force: true,
 		recursive: true
 	});

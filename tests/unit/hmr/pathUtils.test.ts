@@ -95,13 +95,13 @@ describe('detectFramework', () => {
 		expect(detectFramework('/app/vue/pages/Page.vue')).toBe('vue');
 	});
 
-	test('returns ignored for build and .generated paths', () => {
+	test('returns ignored for build and generated paths', () => {
 		expect(
 			detectFramework('/project/example/react/build/out.js', makePaths())
 		).toBe('ignored');
 		expect(
 			detectFramework(
-				'/project/example/react/.generated/indexes/out.js',
+				'/project/example/react/generated/indexes/out.js',
 				makePaths()
 			)
 		).toBe('ignored');
@@ -117,9 +117,9 @@ describe('shouldIgnorePath', () => {
 		expect(shouldIgnorePath('/project/build/output.js')).toBe(true);
 	});
 
-	test('ignores .generated directories', () => {
+	test('ignores generated directories', () => {
 		expect(
-			shouldIgnorePath('/project/svelte/.generated/server/out.js')
+			shouldIgnorePath('/project/svelte/generated/server/out.js')
 		).toBe(true);
 	});
 

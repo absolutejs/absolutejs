@@ -428,7 +428,7 @@ export const compileAngularFileJIT = async (inputPath: string, outDir: string, r
 
 			// Rewrite relative imports that escape the framework root.
 			// Source is at angularRoot/<relDir>/file.ts, output is at
-			// angularRoot/.generated/<relDir>/file.js — 1 extra level.
+			// angularRoot/generated/<relDir>/file.js — 1 extra level.
 			const relDepth = relativeDir === '' || relativeDir === '.' ? 0 : relativeDir.split('/').length;
 			processedContent = processedContent.replace(
 				/(from\s+['"])(\.\.\/(?:\.\.\/)*)/g,
@@ -467,7 +467,7 @@ export const compileAngular = async (
 	outRoot: string,
 	hmr = false
 ) => {
-	const compiledParent = join(outRoot, '.generated');
+	const compiledParent = join(outRoot, 'generated');
 
 	if (entryPoints.length === 0) {
 		const emptyPaths: string[] = [];

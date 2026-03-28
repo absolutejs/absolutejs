@@ -16,25 +16,25 @@ export const cleanup = async ({
 }: CleanupProps) => {
 	await Promise.all([
 		angularDir
-			? rm(join(angularDir, '.generated'), {
+			? rm(join(angularDir, 'generated'), {
 					force: true,
 					recursive: true
 				})
 			: undefined,
 		reactDir
-			? rm(join(reactDir, '.generated'), {
+			? rm(join(reactDir, 'generated'), {
 					force: true,
 					recursive: true
 				})
 			: undefined,
 		svelteDir
-			? rm(join(svelteDir, '.generated'), {
+			? rm(join(svelteDir, 'generated'), {
 					force: true,
 					recursive: true
 				})
 			: undefined,
 		vueDir
-			? rm(join(vueDir, '.generated'), {
+			? rm(join(vueDir, 'generated'), {
 					force: true,
 					recursive: true
 				})

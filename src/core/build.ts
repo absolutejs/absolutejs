@@ -119,7 +119,7 @@ const SKIP_DIRS = new Set([
 	'build',
 	'node_modules',
 	'.absolutejs',
-	'.generated'
+	'generated'
 ]);
 const addWorkerPathIfExists = (
 	file: string,
@@ -275,7 +275,7 @@ const copySvelteDevIndexes = (
 	svelteEntries: string[],
 	devIndexDir: string
 ) => {
-	const svelteIndexDir = join(svelteDir, '.generated', 'indexes');
+	const svelteIndexDir = join(svelteDir, 'generated', 'indexes');
 	const sveltePageEntries = svelteEntries.filter((file) =>
 		resolve(file).startsWith(resolve(sveltePagesPath))
 	);
@@ -302,7 +302,7 @@ const copyVueDevIndexes = (
 	vueEntries: string[],
 	devIndexDir: string
 ) => {
-	const vueIndexDir = join(vueDir, '.generated', 'indexes');
+	const vueIndexDir = join(vueDir, 'generated', 'indexes');
 	const vuePageEntries = vueEntries.filter((file) =>
 		resolve(file).startsWith(resolve(vuePagesPath))
 	);
@@ -564,8 +564,7 @@ export const build = async ({
 		typeof stylesConfig === 'object' ? stylesConfig.ignore : undefined;
 	const stylesDir = stylesPath && validateSafePath(stylesPath, projectRoot);
 
-	const reactIndexesPath =
-		reactDir && join(reactDir, '.generated', 'indexes');
+	const reactIndexesPath = reactDir && join(reactDir, 'generated', 'indexes');
 	const reactPagesPath = reactDir && join(reactDir, 'pages');
 	const htmlPagesPath = htmlDir && join(htmlDir, 'pages');
 	const htmlScriptsPath = htmlDir && join(htmlDir, 'scripts');
@@ -600,8 +599,8 @@ export const build = async ({
 	});
 
 	// Compute client root from source framework dirs. Generated intermediate files
-	// are placed under {frameworkDir}/.generated/ so Bun.build's root stripping
-	// produces correct output paths (react/.generated/indexes/, svelte/.generated/client/, etc.).
+	// are placed under {frameworkDir}/generated/ so Bun.build's root stripping
+	// produces correct output paths (react/generated/indexes/, svelte/generated/client/, etc.).
 	const sourceClientRoots: string[] = [
 		reactDir,
 		svelteDir,
@@ -617,15 +616,14 @@ export const build = async ({
 	if (svelteDir)
 		serverDirMap.push({
 			dir: svelteDir,
-			subdir: join('.generated', 'server')
+			subdir: join('generated', 'server')
 		});
 	if (vueDir)
 		serverDirMap.push({
 			dir: vueDir,
-			subdir: join('.generated', 'server')
+			subdir: join('generated', 'server')
 		});
-	if (angularDir)
-		serverDirMap.push({ dir: angularDir, subdir: '.generated' });
+	if (angularDir) serverDirMap.push({ dir: angularDir, subdir: 'generated' });
 
 	let serverOutDir: string | undefined;
 	let serverRoot: string | undefined;
@@ -637,7 +635,7 @@ export const build = async ({
 		serverRoot = join(firstEntry.dir, firstEntry.subdir);
 		serverOutDir = join(buildPath, basename(firstEntry.dir));
 	} else if (serverDirMap.length > 1) {
-		// Use framework dirs (not .generated subdirs) as input to commonAncestor
+		// Use framework dirs (not generated subdirs) as input to commonAncestor
 		// so the root directory actually exists on disk.
 		serverRoot = commonAncestor(
 			serverDirMap.map((entry) => entry.dir),
