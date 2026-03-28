@@ -4,31 +4,18 @@
 		cssPath?: string;
 	};
 	import Counter from '../components/Counter.svelte';
+	import Head from '../../../src/svelte/components/Head.svelte';
 
 	let { initialCount, cssPath }: SvelteExampleProps = $props();
 	let isOpen = $state(false);
 </script>
 
-<svelte:head>
-	<meta charset="utf-8" />
-	<title>AbsoluteJS + Svelte</title>
-	<meta name="description" content="AbsoluteJS Svelte Example" />
-	<meta name="viewport" content="width=device-width, initial-scale=1" />
-	<link rel="icon" href="/assets/ico/favicon.ico" />
-	<link rel="preconnect" href="https://fonts.googleapis.com" />
-	<link
-		rel="preconnect"
-		href="https://fonts.gstatic.com"
-		crossOrigin="anonymous"
-	/>
-	<link
-		href={`https://fonts.googleapis.com/css2?family=Poppins:wght@100..900&display=swap`}
-		rel="stylesheet"
-	/>
-	{#if cssPath}
-		<link rel="stylesheet" href={cssPath} type="text/css" />
-	{/if}
-</svelte:head>
+<Head
+	title="AbsoluteJS + Svelte"
+	description="AbsoluteJS Svelte Example"
+	font="Poppins"
+	{cssPath}
+/>
 
 <header>
 	<a href="/">AbsoluteJS</a>

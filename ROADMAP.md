@@ -4,28 +4,6 @@ Features missing from AbsoluteJS that Next.js provides, ordered by priority. Eac
 
 ---
 
-## P0 — Metadata API / SEO
-
-**What Next.js does:**
-Pages export a `metadata` object or `generateMetadata()` async function that defines title, description, Open Graph tags, Twitter cards, canonical URLs, etc. Next.js also supports file-based conventions: `sitemap.ts`, `robots.ts`, `opengraph-image.tsx` that auto-generate SEO assets. The metadata merges and deduplicates across layouts.
-
-**What AbsoluteJS has today:**
-`generateHeadElement()` utility that produces a `<head>` string with title, description, favicon, Google Fonts, and CSS paths. Vue and Angular page handlers accept a `headTag` parameter. React pages build their own `<Head>` component manually.
-
-**What needs to be built:**
-- A richer metadata type that covers Open Graph (`og:title`, `og:image`, `og:description`, `og:url`), Twitter cards (`twitter:card`, `twitter:title`, `twitter:image`), canonical URL, robots directives, and arbitrary meta tags
-- Update `generateHeadElement()` to accept and render all of these
-- A `sitemap.ts` convention or helper that generates `/sitemap.xml` from the route list
-- A `robots.ts` convention or helper that generates `/robots.txt`
-- JSON-LD / structured data helper for rich search results
-
-**Files likely involved:**
-- `src/utils/generateHeadElement.ts` — expand the metadata type and rendering
-- `types/build.ts` or new `types/metadata.ts` — define the metadata type
-- New: `src/utils/generateSitemap.ts`, `src/utils/generateRobots.ts`
-
----
-
 ## P1 — Image Optimization
 
 **What Next.js does:**

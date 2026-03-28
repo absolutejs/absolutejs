@@ -123,7 +123,13 @@ export const compileSvelte = async (
 				? transpiler.transformSync(preprocessed)
 				: preprocessed;
 
-		const relDir = dirname(relative(svelteRoot, src)).replace(/\\/g, '/');
+		const rawRel = dirname(relative(svelteRoot, src)).replace(/\\/g, '/');
+		// When a source file lives outside svelteRoot (e.g. src/svelte/components/Head.svelte
+		// imported from example/svelte/pages/), the relative path starts with "../".
+		// Use cwd-relative path so compiled output stays inside generated/.
+		const relDir = rawRel.startsWith('..')
+			? `_ext/${relative(process.cwd(), dirname(src)).replace(/\\/g, '/')}`
+			: rawRel;
 		const baseName = basename(src).replace(/\.svelte(\.(ts|js))?$/, '');
 
 		const importPaths = Array.from(
@@ -139,6 +145,50 @@ export const compileSvelte = async (
 			(path): path is string => path !== null
 		);
 		await Promise.all(childSources.map((child) => build(child)));
+
+		// Build a map of original import specifiers (with .svelte→.js applied) to
+		// the correct relative path from this file's compiled output to the child's
+		// compiled output. Only needed for children outside svelteRoot whose output
+		// lands in _ext/.
+		const externalRewrites = new Map<string, { server: string; client: string }>();
+
+		for (let idx = 0; idx < importPaths.length; idx++) {
+			const resolved = resolvedImports[idx];
+			if (!resolved) continue;
+
+			const childRel = relative(svelteRoot, resolved).replace(/\\/g, '/');
+			if (!childRel.startsWith('..')) continue;
+
+			const childBuilt = cache.get(resolved);
+			if (!childBuilt) continue;
+
+			const rawSpec = importPaths[idx];
+			if (!rawSpec) continue;
+
+			const origSpec = rawSpec.replace(/\.svelte(?:\.(?:ts|js))?$/, '.js');
+
+			const ssrOutputDir = dirname(join(serverDir, relDir, `${baseName}.js`));
+			const clientOutputDir = dirname(join(clientDir, relDir, `${baseName}.js`));
+
+			const toServer = relative(ssrOutputDir, childBuilt.ssr).replace(/\\/g, '/');
+			const toClient = relative(clientOutputDir, childBuilt.client).replace(/\\/g, '/');
+
+			externalRewrites.set(origSpec, {
+				client: toClient.startsWith('.') ? toClient : `./${toClient}`,
+				server: toServer.startsWith('.') ? toServer : `./${toServer}`
+			});
+		}
+
+		const rewriteExternalImports = (code: string, mode: 'server' | 'client') => {
+			let result = code;
+
+			for (const [origSpec, paths] of externalRewrites) {
+				const target = mode === 'server' ? paths.server : paths.client;
+				result = result.replace(origSpec, target);
+			}
+
+			return result;
+		};
 
 		const generate = (mode: 'server' | 'client') => {
 			const compiled = isModule
@@ -210,14 +260,14 @@ export const compileSvelte = async (
 		]);
 
 		if (isModule) {
-			const bundle = adjustImports(generate('client'));
+			const bundle = adjustImports(rewriteExternalImports(generate('client'), 'client'));
 			await Promise.all([
 				write(ssrPath, bundle),
 				write(clientPath, bundle)
 			]);
 		} else {
-			const serverBundle = adjustImports(generate('server'));
-			const clientBundle = adjustImports(generate('client'));
+			const serverBundle = adjustImports(rewriteExternalImports(generate('server'), 'server'));
+			const clientBundle = adjustImports(rewriteExternalImports(generate('client'), 'client'));
 			await Promise.all([
 				write(ssrPath, serverBundle),
 				write(clientPath, clientBundle)

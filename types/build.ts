@@ -1,5 +1,6 @@
 import { build } from '../src/core/build';
 import { devBuild } from '../src/core/devBuild';
+import type { SitemapConfig } from './sitemap';
 
 export type BuildOptions = {
 	/** When true, build() throws on error instead of exit(1) - used by HMR rebuilds */
@@ -54,6 +55,8 @@ export type BuildConfig = {
 	};
 	// Static site generation — pre-render routes at build time
 	static?: StaticConfig;
+	// Sitemap generation — auto-discovers page routes on server start
+	sitemap?: SitemapConfig;
 };
 
 export type BuildResult = ReturnType<typeof build>;

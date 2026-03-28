@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { basename, join, relative, resolve } from 'node:path';
+import type { SitemapConfig } from '../../types/sitemap';
 import { loadConfig } from '../utils/loadConfig';
 
 type PrewarmEntry = { dir: string; pattern: string };
@@ -144,7 +145,13 @@ const prepareDev = async (
 	return {
 		manifest: result.manifest,
 		absolutejs: (app: import('elysia').Elysia) =>
-			hmrPlugin(app.use(staticPlugin({ assets: buildDir, prefix: '' })))
+			addSitemapHook(
+				hmrPlugin(
+					app.use(staticPlugin({ assets: buildDir, prefix: '' }))
+				),
+				buildDir,
+				config.sitemap
+			)
 	};
 };
 
@@ -165,6 +172,31 @@ const loadPrerenderMap = (prerenderDir: string): Map<string, string> => {
 	}
 
 	return map;
+};
+
+const addSitemapHook = (
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Elysia generics vary per plugin chain
+	app: any,
+	publicDir: string | undefined,
+	sitemapConfig?: SitemapConfig
+) => {
+	if (!publicDir) return app;
+
+	return app.onStart((started: import('elysia').Elysia) => {
+		const { server } = started;
+		if (!server) return;
+
+		import('../utils/generateSitemap')
+			.then(({ generateSitemap }) =>
+				generateSitemap(
+					started.routes,
+					server.url.origin,
+					publicDir,
+					sitemapConfig
+				)
+			)
+			.catch((err) => console.error('[sitemap] Generation failed:', err));
+	});
 };
 
 export const prepare = async (configOrPath?: string) => {
@@ -236,10 +268,17 @@ export const prepare = async (configOrPath?: string) => {
 		});
 
 		const absolutejs = (app: import('elysia').Elysia) =>
-			app.use(prerenderPlugin).use(staticFiles);
+			addSitemapHook(
+				app.use(prerenderPlugin).use(staticFiles),
+				buildDir,
+				config.sitemap
+			);
 
 		return { absolutejs, manifest };
 	}
 
-	return { absolutejs: staticFiles, manifest };
+	const absolutejs = (app: import('elysia').Elysia) =>
+		addSitemapHook(app.use(staticFiles), buildDir, config.sitemap);
+
+	return { absolutejs, manifest };
 };

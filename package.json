@@ -65,6 +65,10 @@
 			"import": "./dist/react/index.js",
 			"types": "./dist/src/react/index.d.ts"
 		},
+		"./react/components": {
+			"import": "./dist/react/components/index.js",
+			"types": "./dist/src/react/components/index.d.ts"
+		},
 		"./react/hooks": {
 			"import": "./dist/react/hooks/index.js",
 			"types": "./dist/src/react/hooks/index.d.ts"
@@ -72,6 +76,12 @@
 		"./svelte": {
 			"import": "./dist/svelte/index.js",
 			"types": "./dist/src/svelte/index.d.ts"
+		},
+		"./svelte/components/Head.svelte": {
+			"import": "./src/svelte/components/Head.svelte"
+		},
+		"./svelte/components/JsonLd.svelte": {
+			"import": "./src/svelte/components/JsonLd.svelte"
 		},
 		"./vue": {
 			"import": "./dist/vue/index.js",
@@ -164,5 +174,5 @@
 		"typecheck": "bun run vue-tsc --noEmit"
 	},
 	"types": "./dist/src/index.d.ts",
-	"version": "0.19.0-beta.174"
+	"version": "0.19.0-beta.175"
 }
