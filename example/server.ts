@@ -90,5 +90,3 @@ export const server = new Elysia()
 		);
 	})
 	.use(networking);
-
-// server.use(absolutejs);
