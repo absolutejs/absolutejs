@@ -5,6 +5,7 @@ import ts from 'typescript';
 import { BASE_36_RADIX } from '../constants';
 import { toPascal } from '../utils/stringModifiers';
 import { createHash } from 'crypto';
+// import { resolvePackageImport } from './resolvePackageImport';
 
 // Angular HMR Optimization — Compiler cache interface
 // Persists compiler host and options across incremental rebuilds to avoid
@@ -406,6 +407,8 @@ export const compileAngularFileJIT = async (inputPath: string, outDir: string, r
 		while ((importMatch = importRegex.exec(sourceCode)) !== null) {
 			if (importMatch[1]) localImports.push(importMatch[1]);
 		}
+
+		const packageImportRewrites = new Map<string, string>();
 
 		// Skip transpilation if source content hasn't changed — the
 		// compiled output on disk is already up-to-date. This avoids

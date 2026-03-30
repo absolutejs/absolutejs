@@ -11,10 +11,21 @@ export type DevServer = {
 	kill: () => Promise<void>;
 };
 
-export const startDevServer = async (port?: number) => {
-	const resolvedPort = port ?? (await getAvailablePort());
-	const serverEntry = resolve(PROJECT_ROOT, 'example/server.ts');
-	const configPath = resolve(PROJECT_ROOT, 'example/absolute.config.ts');
+type DevServerOptions = {
+	port?: number;
+	serverEntry?: string;
+	configPath?: string;
+};
+
+export const startDevServer = async (options?: DevServerOptions | number) => {
+	// Backwards compat: accept bare port number
+	const opts =
+		typeof options === 'number' ? { port: options } : (options ?? {});
+	const resolvedPort = opts.port ?? (await getAvailablePort());
+	const serverEntry =
+		opts.serverEntry ?? resolve(PROJECT_ROOT, 'example/server.ts');
+	const configPath =
+		opts.configPath ?? resolve(PROJECT_ROOT, 'example/absolute.config.ts');
 
 	const proc = Bun.spawn(['bun', '--hot', '--no-clear-screen', serverEntry], {
 		cwd: PROJECT_ROOT,

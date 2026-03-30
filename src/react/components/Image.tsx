@@ -66,7 +66,14 @@ export const Image = ({
 	width
 }: ImageProps) => {
 	// ── Resolve src ─────────────────────────────────────────────
-	const resolvedSrc = resolveSource(src, overrideSrc, unoptimized, loader, width, quality);
+	const resolvedSrc = resolveSource(
+		src,
+		overrideSrc,
+		unoptimized,
+		loader,
+		width,
+		quality
+	);
 
 	// ── srcSet ──────────────────────────────────────────────────
 	const srcSet = unoptimized
@@ -87,7 +94,11 @@ export const Image = ({
 			placeholder !== 'empty' &&
 			placeholder.startsWith('data:'));
 
-	const blurBackground = resolveBlurBackground(hasBlur, placeholder, blurDataURL);
+	const blurBackground = resolveBlurBackground(
+		hasBlur,
+		placeholder,
+		blurDataURL
+	);
 
 	// ── Styles ──────────────────────────────────────────────────
 	const imgStyle: Record<string, string | number> = {
@@ -134,7 +145,9 @@ export const Image = ({
 			fetchPriority={resolvedFetchPriority}
 			height={fill ? undefined : height}
 			loading={resolvedLoading}
-			onError={onError ? (event) => onError(event.nativeEvent) : undefined}
+			onError={
+				onError ? (event) => onError(event.nativeEvent) : undefined
+			}
 			onLoad={(event) => {
 				const { target } = event;
 

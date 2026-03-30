@@ -35,7 +35,13 @@ export type RobotsDirective = {
 export type MetaTag = {
 	name?: string;
 	property?: string;
-	httpEquiv?: string;
+	httpEquiv?:
+		| 'accept-ch'
+		| 'content-security-policy'
+		| 'content-type'
+		| 'default-style'
+		| 'refresh'
+		| 'x-ua-compatible';
 	content: string;
 };
 

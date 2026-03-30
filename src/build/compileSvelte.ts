@@ -12,6 +12,7 @@ import {
 } from 'node:path';
 import { env } from 'node:process';
 import { write, file, Transpiler } from 'bun';
+import { resolvePackageImport } from './resolvePackageImport';
 const resolveDevClientDir = () => {
 	const projectRoot = process.cwd();
 	const fromSource = resolve(import.meta.dir, '../dev/client');
@@ -60,6 +61,15 @@ const exists = async (path: string) => {
 };
 
 const resolveSvelte = async (spec: string, from: string) => {
+	// Try bare module imports (e.g. "@absolutejs/absolute/svelte/components/Image.svelte")
+	if (!spec.startsWith('.') && !spec.startsWith('/')) {
+		const resolved = resolvePackageImport(spec);
+
+		return resolved && /\.svelte(\.(?:ts|js))?$/.test(resolved)
+			? resolved
+			: null;
+	}
+
 	const basePath = resolve(dirname(from), spec);
 	const explicit = /\.(svelte|svelte\.(?:ts|js))$/.test(basePath);
 

@@ -11,6 +11,7 @@ import type {
 } from '@vue/compiler-sfc';
 import { file, write, Transpiler } from 'bun';
 import { toKebab } from '../utils/stringModifiers';
+import { resolvePackageImport } from './resolvePackageImport';
 
 const resolveDevClientDir = () => {
 	const projectRoot = process.cwd();
@@ -235,15 +236,28 @@ const compileVueFile = async (
 		descriptor.scriptSetup?.content ?? descriptor.script?.content ?? '';
 
 	const importPaths = extractImports(scriptSource);
+
+	// Resolve bare module imports that point to .vue files
+	const resolvedPackageVueImports = new Map<string, string>();
+	for (const importPath of importPaths) {
+		if (!importPath.startsWith('.') && !importPath.startsWith('/')) {
+			const resolved = resolvePackageImport(importPath);
+			if (resolved?.endsWith('.vue')) {
+				resolvedPackageVueImports.set(importPath, resolved);
+			}
+		}
+	}
+
 	const childComponentPaths = importPaths.filter(
 		(path) => path.startsWith('.') && path.endsWith('.vue')
 	);
+	const packageComponentPaths = Array.from(resolvedPackageVueImports.entries());
 	const helperModulePaths = importPaths.filter(
 		(path) => path.startsWith('.') && !path.endsWith('.vue')
 	);
 
-	const childBuildResults: BuildResult[] = await Promise.all(
-		childComponentPaths.map((relativeChildPath) =>
+	const childBuildResults: BuildResult[] = await Promise.all([
+		...childComponentPaths.map((relativeChildPath) =>
 			compileVueFile(
 				resolve(dirname(sourceFilePath), relativeChildPath),
 				outputDirs,
@@ -252,8 +266,18 @@ const compileVueFile = async (
 				vueRootDir,
 				compiler
 			)
+		),
+		...packageComponentPaths.map(([, absolutePath]) =>
+			compileVueFile(
+				absolutePath,
+				outputDirs,
+				cacheMap,
+				false,
+				vueRootDir,
+				compiler
+			)
 		)
-	);
+	]);
 
 	const hasScript = descriptor.script || descriptor.scriptSetup;
 	const compiledScript = hasScript
@@ -270,6 +294,18 @@ const compileVueFile = async (
 			(_, quoteStart, relativeImport, quoteEnd) =>
 				`${quoteStart}${toJs(relativeImport)}${quoteEnd}`
 		);
+
+	// Build rewrite map for bare module .vue imports → compiled output paths
+	const packageImportRewrites = new Map<string, { client: string; server: string }>();
+	for (const [bareImport, absolutePath] of packageComponentPaths) {
+		const childResult = cacheMap.get(absolutePath);
+		if (childResult) {
+			packageImportRewrites.set(bareImport, {
+				client: childResult.clientPath,
+				server: childResult.serverPath
+			});
+		}
+	}
 
 	const generateRenderFunction = (ssr: boolean) =>
 		compiler
@@ -401,10 +437,22 @@ if (typeof __VUE_HMR_RUNTIME__ !== 'undefined') {
 			}
 		);
 
+	// Rewrite bare module imports to relative paths pointing at compiled output
+	const rewritePackageImports = (code: string, outputPath: string, mode: 'client' | 'server') => {
+		let result = code;
+		for (const [bareImport, paths] of packageImportRewrites) {
+			const targetPath = mode === 'server' ? paths.server : paths.client;
+			let rel = relative(dirname(outputPath), targetPath).replace(/\\/g, '/');
+			if (!rel.startsWith('.')) rel = `./${rel}`;
+			result = result.replaceAll(bareImport, rel);
+		}
+		return result;
+	};
+
 	await mkdir(dirname(clientOutputPath), { recursive: true });
 	await mkdir(dirname(serverOutputPath), { recursive: true });
-	await write(clientOutputPath, adjustImports(clientCode));
-	await write(serverOutputPath, adjustImports(serverCode));
+	await write(clientOutputPath, rewritePackageImports(adjustImports(clientCode), clientOutputPath, 'client'));
+	await write(serverOutputPath, rewritePackageImports(adjustImports(serverCode), serverOutputPath, 'server'));
 
 	const result: BuildResult = {
 		clientPath: clientOutputPath,

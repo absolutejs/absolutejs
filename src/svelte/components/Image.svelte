@@ -1,11 +1,11 @@
 <script lang="ts">
-	import type { ImageProps } from '../../../types/image';
+	import type { ImageProps } from '@absolutejs/absolute/image';
 	import {
 		DEFAULT_QUALITY,
 		buildOptimizedUrl,
 		generateBlurSvg,
 		generateSrcSet
-	} from '../../utils/imageProcessing';
+	} from '@absolutejs/absolute/image';
 
 	let {
 		src,
@@ -40,9 +40,7 @@
 	});
 
 	const srcSet = $derived(
-		unoptimized
-			? undefined
-			: generateSrcSet(src, width, sizes, undefined, loader ?? undefined)
+		unoptimized ? undefined : generateSrcSet(src, width, sizes)
 	);
 
 	const resolvedSizes = $derived(sizes ?? (fill ? '100vw' : undefined));
@@ -90,7 +88,10 @@
 			base.objectFit = 'cover';
 		}
 		return Object.entries(base)
-			.map(([k, v]) => `${k.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`)}:${v}`)
+			.map(
+				([k, v]) =>
+					`${k.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`)}:${v}`
+			)
 			.join(';');
 	});
 
@@ -106,8 +107,8 @@
 	};
 </script>
 
-{#if priority}
-	<svelte:head>
+<svelte:head>
+	{#if priority}
 		<link
 			rel="preload"
 			as="image"
@@ -116,11 +117,13 @@
 			imagesizes={resolvedSizes}
 			crossorigin={crossOrigin}
 		/>
-	</svelte:head>
-{/if}
+	{/if}
+</svelte:head>
 
 {#if fill}
-	<span style="position:relative;overflow:hidden;display:block;width:100%;height:100%">
+	<span
+		style="position:relative;overflow:hidden;display:block;width:100%;height:100%"
+	>
 		<img
 			{alt}
 			src={resolvedSrc}

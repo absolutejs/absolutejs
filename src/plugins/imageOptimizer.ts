@@ -185,10 +185,7 @@ const scheduleAvifPregen = (
 	minimumCacheTTL: number,
 	upstreamEtag: string | undefined
 ) => {
-	if (
-		!configuredFormats.includes('avif') ||
-		format === 'avif'
-	) {
+	if (!configuredFormats.includes('avif') || format === 'avif') {
 		return;
 	}
 
@@ -238,7 +235,8 @@ export const imageOptimizer =
 		]);
 		const defaultQuality = config?.quality ?? DEFAULT_QUALITY;
 		const minimumCacheTTL =
-			(config?.minimumCacheTTL ?? DEFAULT_CACHE_TTL_SECONDS) * MS_PER_SECOND;
+			(config?.minimumCacheTTL ?? DEFAULT_CACHE_TTL_SECONDS) *
+			MS_PER_SECOND;
 		const configuredFormats: ImageFormat[] = config?.formats ?? ['webp'];
 		const remotePatterns = config?.remotePatterns ?? [];
 		const cacheDir = getCacheDir(buildDir);
@@ -247,12 +245,20 @@ export const imageOptimizer =
 			endpointPath,
 			async ({ query, request }) => {
 				// ── Parse & Validate ────────────────────────────────
-				const parsed = parseQueryParams(query, allowedSizes, defaultQuality);
+				const parsed = parseQueryParams(
+					query,
+					allowedSizes,
+					defaultQuality
+				);
 				if ('error' in parsed) return parsed.error;
 				const { quality, url, width } = parsed.params;
 
 				// ── Security ────────────────────────────────────────
-				const security = validateImageSecurity(url, remotePatterns, buildDir);
+				const security = validateImageSecurity(
+					url,
+					remotePatterns,
+					buildDir
+				);
 				if ('error' in security) return security.error;
 				const { isRemote, resolvedPath } = security;
 
@@ -293,7 +299,11 @@ export const imageOptimizer =
 				let upstreamEtag: string | undefined;
 
 				try {
-					const source = await fetchSourceImage(url, isRemote, resolvedPath ?? null);
+					const source = await fetchSourceImage(
+						url,
+						isRemote,
+						resolvedPath ?? null
+					);
 					if ('error' in source) return source.error;
 					sourceBuffer = source.buffer;
 					({ upstreamEtag } = source);

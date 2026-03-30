@@ -216,6 +216,28 @@ const rewriteImports = (
 		if (specifier.startsWith('/') || specifier.startsWith('.'))
 			return _match;
 
+		// Serve @absolutejs/absolute client-safe exports as real modules
+		// instead of stubbing them — they contain Image/Head/JsonLd components
+		// needed for client-side hydration.
+		if (specifier.startsWith('@absolutejs/absolute/')) {
+			try {
+				const resolved = Bun.resolveSync(specifier, projectRoot);
+
+				// Prefer browser-targeted build if available (server builds
+				// import node:fs which can't run in browsers)
+				const browserPath = resolved.replace(
+					/\/index\.js$/,
+					'/browser/index.js'
+				);
+				const target = existsSync(browserPath) ? browserPath : resolved;
+				const rel = relative(projectRoot, target);
+
+				return `${prefix}/@src/${rel}${suffix}`;
+			} catch {
+				// Fall through to stub if resolution fails
+			}
+		}
+
 		return `${prefix}/@stub/${encodeURIComponent(specifier)}${suffix}`;
 	};
 

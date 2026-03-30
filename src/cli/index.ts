@@ -64,6 +64,11 @@ if (command === 'dev') {
 	const serverEntry = positionalArgs[0] ?? DEFAULT_SERVER_ENTRY;
 	const { compile } = await import('./scripts/compile');
 	await compile(serverEntry, outdir, outfile, configPath);
+} else if (command === 'typecheck') {
+	sendTelemetryEvent('cli:command', { command });
+	const configPath = parseNamedArg('--config');
+	const { typecheck } = await import('./scripts/typecheck');
+	await typecheck(configPath);
 } else if (command === 'mkcert') {
 	sendTelemetryEvent('cli:command', { command });
 	const { setupMkcert } = await import('../dev/devCert');
@@ -83,6 +88,7 @@ if (command === 'dev') {
 	console.error('  eslint        Run ESLint (cached)');
 	console.error('  info          Print system info for bug reports');
 	console.error('  prettier      Run Prettier check (cached)');
+	console.error('  typecheck     Run type checkers for all frameworks');
 	console.error('  telemetry     Manage anonymous telemetry');
 	process.exit(1);
 }

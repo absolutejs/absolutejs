@@ -20,12 +20,18 @@
 		"noImplicitAny": true,
 		"noUncheckedIndexedAccess": true,
 		"outDir": "dist",
+		"rootDir": ".",
 		"skipLibCheck": true,
 		"strict": true,
 		"target": "ESNext",
 		"tsBuildInfoFile": ".absolutejs/tsconfig.tsbuildinfo",
 		"useDefineForClassFields": false
 	},
-	"exclude": ["node_modules", "example/build", "example/dist"],
+	"exclude": [
+		"node_modules",
+		"example/build",
+		"example/dist",
+		"**/generated/**"
+	],
 	"include": ["src/**/*", "types/**/*", "example/**/*", "tests/**/*"]
 }

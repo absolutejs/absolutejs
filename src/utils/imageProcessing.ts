@@ -1,6 +1,10 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import type { ImageConfig, ImageFormat, RemotePattern } from '../../types/image';
+import type {
+	ImageConfig,
+	ImageFormat,
+	RemotePattern
+} from '../../types/image';
 
 // ── Constants ──────────────────────────────────────────────────────
 
@@ -9,9 +13,7 @@ export const DEFAULT_DEVICE_SIZES = [
 	640, 750, 828, 1080, 1200, 1920, 2048, 3840
 ];
 
-export const DEFAULT_IMAGE_SIZES = [
-	16, 32, 48, 64, 96, 128, 256, 384
-];
+export const DEFAULT_IMAGE_SIZES = [16, 32, 48, 64, 96, 128, 256, 384];
 
 export const DEFAULT_QUALITY = 75;
 /* eslint-enable no-magic-numbers */
@@ -93,8 +95,7 @@ export const buildOptimizedUrl = (
 	width: number,
 	quality: number,
 	basePath = OPTIMIZATION_ENDPOINT
-) =>
-	`${basePath}?url=${encodeURIComponent(src)}&w=${width}&q=${quality}`;
+) => `${basePath}?url=${encodeURIComponent(src)}&w=${width}&q=${quality}`;
 
 export type CacheMeta = {
 	contentType: string;
@@ -138,15 +139,25 @@ export const generateSrcSet = (
 
 	const basePath = config?.path ?? OPTIMIZATION_ENDPOINT;
 
-	const buildUrl = loader ?? ((params: { quality: number; src: string; width: number }) =>
-		buildOptimizedUrl(params.src, params.width, params.quality, basePath));
+	const buildUrl =
+		loader ??
+		((params: { quality: number; src: string; width: number }) =>
+			buildOptimizedUrl(
+				params.src,
+				params.width,
+				params.quality,
+				basePath
+			));
 
 	if (sizes) {
 		// With sizes: use all breakpoints with w descriptors
 		const allSizes = getAllSizes(config);
 
 		return allSizes
-			.map((sizeWidth) => `${buildUrl({ quality, src, width: sizeWidth })} ${sizeWidth}w`)
+			.map(
+				(sizeWidth) =>
+					`${buildUrl({ quality, src, width: sizeWidth })} ${sizeWidth}w`
+			)
 			.join(', ');
 	}
 
@@ -165,7 +176,10 @@ export const generateSrcSet = (
 	const deviceSizes = config?.deviceSizes ?? DEFAULT_DEVICE_SIZES;
 
 	return deviceSizes
-		.map((sizeWidth) => `${buildUrl({ quality, src, width: sizeWidth })} ${sizeWidth}w`)
+		.map(
+			(sizeWidth) =>
+				`${buildUrl({ quality, src, width: sizeWidth })} ${sizeWidth}w`
+		)
 		.join(', ');
 };
 
@@ -213,13 +227,18 @@ export const matchRemotePattern = (
 	}
 
 	return patterns.some((pattern) => {
-		if (pattern.protocol && parsed.protocol !== `${pattern.protocol}:`) return false;
+		if (pattern.protocol && parsed.protocol !== `${pattern.protocol}:`)
+			return false;
 
 		if (!matchHostname(parsed.hostname, pattern.hostname)) return false;
 
 		if (pattern.port && parsed.port !== pattern.port) return false;
 
-		if (pattern.pathname && !matchPathname(parsed.pathname, pattern.pathname)) return false;
+		if (
+			pattern.pathname &&
+			!matchPathname(parsed.pathname, pattern.pathname)
+		)
+			return false;
 
 		return true;
 	});
@@ -237,7 +256,10 @@ export const negotiateFormat = (
 	}
 
 	// Fallback: if webp is configured and accepted, use it
-	if (configuredFormats.includes('webp') && acceptHeader.includes('image/webp')) {
+	if (
+		configuredFormats.includes('webp') &&
+		acceptHeader.includes('image/webp')
+	) {
 		return 'webp';
 	}
 
@@ -265,12 +287,13 @@ export const optimizeImage = async (
 	switch (format) {
 		case 'avif':
 			return pipeline
-				.avif({ effort: AVIF_EFFORT, quality: Math.max(1, quality - AVIF_QUALITY_OFFSET) })
+				.avif({
+					effort: AVIF_EFFORT,
+					quality: Math.max(1, quality - AVIF_QUALITY_OFFSET)
+				})
 				.toBuffer();
 		case 'jpeg':
-			return pipeline
-				.jpeg({ mozjpeg: true, quality })
-				.toBuffer();
+			return pipeline.jpeg({ mozjpeg: true, quality }).toBuffer();
 		case 'png':
 			return pipeline.png({ quality }).toBuffer();
 		case 'webp':

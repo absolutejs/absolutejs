@@ -3,14 +3,14 @@
  * These can be imported in both server and client (browser) contexts.
  */
 
+export type { ImageProps } from '../../types/image';
+
 /* eslint-disable no-magic-numbers */
 export const DEFAULT_DEVICE_SIZES = [
 	640, 750, 828, 1080, 1200, 1920, 2048, 3840
 ];
 
-export const DEFAULT_IMAGE_SIZES = [
-	16, 32, 48, 64, 96, 128, 256, 384
-];
+export const DEFAULT_IMAGE_SIZES = [16, 32, 48, 64, 96, 128, 256, 384];
 
 export const DEFAULT_QUALITY = 75;
 /* eslint-enable no-magic-numbers */
@@ -22,8 +22,7 @@ export const buildOptimizedUrl = (
 	width: number,
 	quality: number,
 	basePath = OPTIMIZATION_ENDPOINT
-) =>
-	`${basePath}?url=${encodeURIComponent(src)}&w=${width}&q=${quality}`;
+) => `${basePath}?url=${encodeURIComponent(src)}&w=${width}&q=${quality}`;
 
 export const getAllSizes = (deviceSizes?: number[], imageSizes?: number[]) => {
 	const device = deviceSizes ?? DEFAULT_DEVICE_SIZES;
@@ -55,7 +54,10 @@ export const generateSrcSet = (
 		const allSizes = getAllSizes(deviceSizes, imageSizes);
 
 		return allSizes
-			.map((sizeWidth) => `${buildOptimizedUrl(src, sizeWidth, quality)} ${sizeWidth}w`)
+			.map(
+				(sizeWidth) =>
+					`${buildOptimizedUrl(src, sizeWidth, quality)} ${sizeWidth}w`
+			)
 			.join(', ');
 	}
 
@@ -72,7 +74,10 @@ export const generateSrcSet = (
 	const devSizes = deviceSizes ?? DEFAULT_DEVICE_SIZES;
 
 	return devSizes
-		.map((sizeWidth) => `${buildOptimizedUrl(src, sizeWidth, quality)} ${sizeWidth}w`)
+		.map(
+			(sizeWidth) =>
+				`${buildOptimizedUrl(src, sizeWidth, quality)} ${sizeWidth}w`
+		)
 		.join(', ');
 };
 

@@ -1,5 +1,5 @@
 import { Component, computed, input, signal } from '@angular/core';
-import type { ImageLoader } from '../../../types/image';
+import { NgStyle } from '@angular/common';
 import {
 	DEFAULT_QUALITY,
 	buildOptimizedUrl,
@@ -26,6 +26,7 @@ const resolveBlurBg = (
 };
 
 @Component({
+	imports: [NgStyle],
 	selector: 'abs-image',
 	standalone: true,
 	template: `
@@ -40,7 +41,9 @@ const resolveBlurBg = (
 			/>
 		}
 		@if (fill()) {
-			<span style="position:relative;overflow:hidden;display:block;width:100%;height:100%">
+			<span
+				style="position:relative;overflow:hidden;display:block;width:100%;height:100%"
+			>
 				<img
 					[alt]="alt()"
 					[src]="resolvedSrc()"
@@ -87,10 +90,13 @@ export class ImageComponent {
 	readonly fetchPriority = input<'high' | 'low' | 'auto'>();
 	readonly fill = input(false);
 	readonly height = input<number>();
-	readonly loader = input<ImageLoader>();
+	readonly loader =
+		input<
+			(params: { src: string; width: number; quality: number }) => string
+		>();
 	readonly loading = input<'lazy' | 'eager'>('lazy');
-	readonly onError = input<((event: Event) => void)>();
-	readonly onLoad = input<((event: Event) => void)>();
+	readonly onError = input<(event: Event) => void>();
+	readonly onLoad = input<(event: Event) => void>();
 	readonly overrideSrc = input<string>();
 	readonly placeholder = input<'blur' | 'empty' | string>('empty');
 	readonly priority = input(false);
@@ -115,11 +121,17 @@ export class ImageComponent {
 
 		const loaderFn = this.loader();
 
-		if (loaderFn) return loaderFn({ quality: this.quality(), src: this.src(), width: this.width() ?? 0 });
+		if (loaderFn)
+			return loaderFn({
+				quality: this.quality(),
+				src: this.src(),
+				width: this.width() ?? 0
+			});
 
 		const currentWidth = this.width();
 
-		if (!currentWidth) return buildOptimizedUrl(this.src(), 0, this.quality());
+		if (!currentWidth)
+			return buildOptimizedUrl(this.src(), 0, this.quality());
 
 		return buildOptimizedUrl(this.src(), currentWidth, this.quality());
 	});
@@ -127,15 +139,21 @@ export class ImageComponent {
 	readonly srcSet = computed(() =>
 		this.unoptimized()
 			? undefined
-			: generateSrcSet(this.src(), this.width(), this.sizes(), undefined, this.loader() ?? undefined)
+			: generateSrcSet(
+					this.src(),
+					this.width(),
+					this.sizes(),
+					undefined,
+					this.loader() ?? undefined
+				)
 	);
 
-	readonly resolvedSizes = computed(() =>
-		this.sizes() ?? (this.fill() ? '100vw' : undefined)
+	readonly resolvedSizes = computed(
+		() => this.sizes() ?? (this.fill() ? '100vw' : undefined)
 	);
 
 	readonly resolvedLoading = computed(() =>
-		this.priority() ? 'eager' as const : this.loading()
+		this.priority() ? ('eager' as const) : this.loading()
 	);
 
 	readonly resolvedFetchPriority = computed(() =>

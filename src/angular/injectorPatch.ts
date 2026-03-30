@@ -49,10 +49,7 @@ const applyInjectorPatch = (chunkPath: string, content: string) => {
 };
 
 const resolveAngularCoreDir = () => {
-	const fromProject = resolve(
-		process.cwd(),
-		'node_modules/@angular/core'
-	);
+	const fromProject = resolve(process.cwd(), 'node_modules/@angular/core');
 
 	if (existsSync(join(fromProject, 'package.json'))) {
 		return fromProject;

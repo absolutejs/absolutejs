@@ -1,24 +1,68 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import type { ImageProps } from '../../../types/image';
 import {
 	DEFAULT_QUALITY,
 	buildOptimizedUrl,
 	generateBlurSvg,
 	generateSrcSet
-} from '../../utils/imageProcessing';
+} from '@absolutejs/absolute/image';
 
-const props = withDefaults(defineProps<ImageProps>(), {
-	quality: DEFAULT_QUALITY,
-	loading: 'lazy'
-});
+type ImageLoader = (params: {
+	src: string;
+	width: number;
+	quality: number;
+}) => string;
+
+const props = withDefaults(
+	defineProps<{
+		src: string;
+		alt: string;
+		width?: number;
+		height?: number;
+		fill?: boolean;
+		quality?: number;
+		sizes?: string;
+		loader?: ImageLoader;
+		unoptimized?: boolean;
+		loading?: 'lazy' | 'eager';
+		priority?: boolean;
+		placeholder?: 'blur' | 'empty' | string;
+		blurDataURL?: string;
+		className?: string;
+		style?: Record<string, string | number>;
+		onLoad?: (() => void) | ((event: Event) => void);
+		onError?: (() => void) | ((event: Event) => void);
+		crossOrigin?: 'anonymous' | 'use-credentials' | '';
+		referrerPolicy?:
+			| ''
+			| 'no-referrer'
+			| 'no-referrer-when-downgrade'
+			| 'origin'
+			| 'origin-when-cross-origin'
+			| 'same-origin'
+			| 'strict-origin'
+			| 'strict-origin-when-cross-origin'
+			| 'unsafe-url';
+		fetchPriority?: 'high' | 'low' | 'auto';
+		overrideSrc?: string;
+	}>(),
+	{
+		quality: DEFAULT_QUALITY,
+		loading: 'lazy'
+	}
+);
 
 const blurRemoved = ref(false);
 
 const resolvedSrc = computed(() => {
 	if (props.overrideSrc) return props.overrideSrc;
 	if (props.unoptimized) return props.src;
-	if (props.loader) return props.loader({ src: props.src, width: props.width ?? 0, quality: props.quality });
+	if (props.loader)
+		return props.loader({
+			src: props.src,
+			width: props.width ?? 0,
+			quality: props.quality
+		});
 	if (!props.width) return buildOptimizedUrl(props.src, 0, props.quality);
 	return buildOptimizedUrl(props.src, props.width, props.quality);
 });
@@ -26,20 +70,27 @@ const resolvedSrc = computed(() => {
 const srcSet = computed(() =>
 	props.unoptimized
 		? undefined
-		: generateSrcSet(props.src, props.width, props.sizes, undefined, props.loader ?? undefined)
+		: generateSrcSet(props.src, props.width, props.sizes)
 );
 
-const resolvedSizes = computed(() => props.sizes ?? (props.fill ? '100vw' : undefined));
+const resolvedSizes = computed(
+	() => props.sizes ?? (props.fill ? '100vw' : undefined)
+);
 
-const resolvedLoading = computed(() => (props.priority ? 'eager' : props.loading));
+const resolvedLoading = computed(() =>
+	props.priority ? 'eager' : props.loading
+);
 
-const resolvedFetchPriority = computed(() => (props.priority ? 'high' : props.fetchPriority));
+const resolvedFetchPriority = computed(() =>
+	props.priority ? 'high' : props.fetchPriority
+);
 
-const hasBlur = computed(() =>
-	props.placeholder === 'blur' ||
-	(typeof props.placeholder === 'string' &&
-		props.placeholder !== 'empty' &&
-		props.placeholder.startsWith('data:'))
+const hasBlur = computed(
+	() =>
+		props.placeholder === 'blur' ||
+		(typeof props.placeholder === 'string' &&
+			props.placeholder !== 'empty' &&
+			props.placeholder.startsWith('data:'))
 );
 
 const blurBackground = computed(() => {
@@ -100,7 +151,13 @@ const handleError = (e: Event) => {
 
 	<span
 		v-if="fill"
-		style="position: relative; overflow: hidden; display: block; width: 100%; height: 100%"
+		style="
+			position: relative;
+			overflow: hidden;
+			display: block;
+			width: 100%;
+			height: 100%;
+		"
 	>
 		<img
 			:alt="alt"
