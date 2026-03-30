@@ -1,3 +1,5 @@
+import { resolveAngularPackage } from './resolveAngularPackage';
+
 // Patches Angular SSR's DominoAdapter to guard against null doc.head
 
 const ensureHead = (doc: Document) => {
@@ -10,7 +12,9 @@ const ensureHead = (doc: Document) => {
 };
 
 export const applyPatches = async () => {
-	const { ɵDominoAdapter } = await import('@angular/platform-server');
+	const { ɵDominoAdapter } = await import(
+		resolveAngularPackage('@angular/platform-server')
+	);
 	if (!ɵDominoAdapter?.prototype) {
 		console.warn(
 			'[Angular Patch] ɵDominoAdapter not found, skipping patches'

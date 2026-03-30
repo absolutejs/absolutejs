@@ -18,6 +18,7 @@ import { createHTMLScriptHMRPlugin } from '../build/htmlScriptHMRPlugin';
 import { outputLogs } from '../build/outputLogs';
 import { scanEntryPoints } from '../build/scanEntryPoints';
 import { scanCssEntryPoints } from '../build/scanCssEntryPoints';
+import { optimizeHtmlImages } from '../build/optimizeHtmlImages';
 import { updateAssetPaths } from '../build/updateAssetPaths';
 import { buildHMRClient } from '../dev/buildHMRClient';
 import {
@@ -1319,6 +1320,7 @@ export const build = async ({
 		// Update asset paths if HTML files changed OR CSS changed
 		if (shouldUpdateHtmlAssetPaths) {
 			await updateAssetPaths(manifest, outputHtmlPages);
+			await optimizeHtmlImages(outputHtmlPages);
 		}
 
 		// Add HTML pages to manifest (absolute paths for Bun.file())
@@ -1354,6 +1356,7 @@ export const build = async ({
 		// Update asset paths if HTMX files changed OR CSS changed
 		if (shouldUpdateHtmxAssetPaths) {
 			await updateAssetPaths(manifest, outputHtmxPages);
+			await optimizeHtmlImages(outputHtmxPages);
 		}
 
 		// Add HTMX pages to manifest (absolute paths for Bun.file())

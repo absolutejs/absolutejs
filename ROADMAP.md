@@ -4,28 +4,6 @@ Features missing from AbsoluteJS that Next.js provides, ordered by priority. Eac
 
 ---
 
-## 1. P1 — Image Optimization
-
-**What Next.js does:**
-`<Image>` component that automatically converts images to WebP/AVIF, generates responsive `srcset` attributes, lazy loads with blur placeholders, and serves optimized images through an on-demand image optimization API route. Prevents layout shift with required width/height.
-
-**What AbsoluteJS has today:**
-Nothing. Images are served as-is from the public/assets directory.
-
-**What needs to be built:**
-- An `<Image>` component (React version at minimum, ideally per-framework) that renders responsive `<img>` tags with `srcset`, `sizes`, `loading="lazy"`, and `width`/`height` for CLS prevention
-- An image optimization endpoint or build-time processor that converts to WebP/AVIF and generates multiple sizes
-- Sharp or libvips integration for the actual image processing (Sharp works with Bun)
-- Caching layer for optimized images so they're only processed once
-- Optional blur placeholder generation (tiny base64 inline preview)
-
-**Files likely involved:**
-- New: `src/react/components/Image.tsx`, and equivalents for other frameworks
-- New: `src/plugins/imageOptimizer.ts` — Elysia plugin that handles `/image?url=...&w=...&q=...` requests
-- New: `src/build/optimizeImages.ts` — optional build-time optimization pass
-
----
-
 ## 2. P1 — Loading / Error / Not-Found States
 
 **What Next.js does:**

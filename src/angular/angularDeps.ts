@@ -1,5 +1,6 @@
 import type { AngularDeps, SsrDepsResult } from '../../types/angular';
 import { patchAngularInjectorSingleton } from './injectorPatch';
+import { resolveAngularPackage } from './resolveAngularPackage';
 
 const initDominoAdapter = (platformServer: SsrDepsResult['platformServer']) => {
 	try {
@@ -21,7 +22,7 @@ const loadAngularDeps = async () => {
 	// Angular packages like @angular/common contain partially compiled
 	// injectables (e.g. PlatformLocation) that need the JIT compiler
 	// facade to be registered first.
-	await import('@angular/compiler');
+	await import(resolveAngularPackage('@angular/compiler'));
 
 	// angularPatch imports @angular/platform-server internally, so it
 	// must also run after the compiler is available.
@@ -30,10 +31,10 @@ const loadAngularDeps = async () => {
 
 	// Now safe to load all Angular packages in parallel
 	const [platformBrowser, platformServer, common, core] = await Promise.all([
-		import('@angular/platform-browser'),
-		import('@angular/platform-server'),
-		import('@angular/common'),
-		import('@angular/core')
+		import(resolveAngularPackage('@angular/platform-browser')),
+		import(resolveAngularPackage('@angular/platform-server')),
+		import(resolveAngularPackage('@angular/common')),
+		import(resolveAngularPackage('@angular/core'))
 	]);
 
 	if (process.env.NODE_ENV !== 'development') {

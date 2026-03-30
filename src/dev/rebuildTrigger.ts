@@ -2468,6 +2468,10 @@ const processMarkupFileFastPath = async (
 	// Rewrite asset paths using manifest
 	await updateAssetPaths(state.manifest, outputDir);
 
+	// Rewrite <img data-optimized> tags to use the optimization endpoint
+	const { optimizeHtmlImages } = await import('../build/optimizeHtmlImages');
+	await optimizeHtmlImages(outputDir);
+
 	// Re-inject HMR script
 	injectHmrScript(destPath, hmrScript, readFs, writeFs);
 

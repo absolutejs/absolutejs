@@ -6,8 +6,21 @@ import { Glob } from 'bun';
 const indexContentCache = new Map<string, string>();
 
 const resolveDevClientDir = () => {
+	const projectRoot = process.cwd();
 	const fromSource = resolve(import.meta.dir, '../dev/client');
-	if (existsSync(fromSource)) return fromSource;
+
+	// Only use the source path if it exists AND is within the project root
+	// (i.e., we're developing absolutejs itself, not using it as a dependency)
+	if (existsSync(fromSource) && fromSource.startsWith(projectRoot)) {
+		return fromSource;
+	}
+
+	// When running from a published npm package, use the installed copy
+	const fromNodeModules = resolve(
+		projectRoot,
+		'node_modules/@absolutejs/absolute/dist/dev/client'
+	);
+	if (existsSync(fromNodeModules)) return fromNodeModules;
 
 	return resolve(import.meta.dir, './dev/client');
 };

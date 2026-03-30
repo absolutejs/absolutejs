@@ -1,5 +1,5 @@
-import { readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 
 // --- Patch Angular injector singleton for HMR compatibility ---
 // Bun's --hot mode can create duplicate Angular module instances during
@@ -48,9 +48,22 @@ const applyInjectorPatch = (chunkPath: string, content: string) => {
 	writeFileSync(chunkPath, patched, 'utf-8');
 };
 
+const resolveAngularCoreDir = () => {
+	const fromProject = resolve(
+		process.cwd(),
+		'node_modules/@angular/core'
+	);
+
+	if (existsSync(join(fromProject, 'package.json'))) {
+		return fromProject;
+	}
+
+	return dirname(require.resolve('@angular/core/package.json'));
+};
+
 export const patchAngularInjectorSingleton = () => {
 	try {
-		const coreDir = dirname(require.resolve('@angular/core/package.json'));
+		const coreDir = resolveAngularCoreDir();
 		const chunkPath = join(coreDir, 'fesm2022', '_not_found-chunk.mjs');
 		const content = readFileSync(chunkPath, 'utf-8');
 		applyInjectorPatch(chunkPath, content);

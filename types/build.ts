@@ -1,5 +1,6 @@
 import { build } from '../src/core/build';
 import { devBuild } from '../src/core/devBuild';
+import type { ImageConfig } from './image';
 import type { SitemapConfig } from './sitemap';
 
 export type BuildOptions = {
@@ -55,6 +56,8 @@ export type BuildConfig = {
 	};
 	// Static site generation — pre-render routes at build time
 	static?: StaticConfig;
+	// Image optimization — on-demand resizing, format conversion, caching
+	images?: ImageConfig;
 	// Sitemap generation — auto-discovers page routes on server start
 	sitemap?: SitemapConfig;
 };

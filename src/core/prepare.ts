@@ -142,12 +142,16 @@ const prepareDev = async (
 	const devIndexDir = resolve(buildDir, '_src_indexes');
 	patchManifestIndexes(result.manifest, devIndexDir, SRC_URL_PREFIX);
 
+	const { imageOptimizer } = await import('../plugins/imageOptimizer');
+
 	return {
 		manifest: result.manifest,
 		absolutejs: (app: import('elysia').Elysia) =>
 			addSitemapHook(
 				hmrPlugin(
-					app.use(staticPlugin({ assets: buildDir, prefix: '' }))
+					app
+						.use(imageOptimizer(config.images, buildDir))
+						.use(staticPlugin({ assets: buildDir, prefix: '' }))
 				),
 				buildDir,
 				config.sitemap
@@ -264,9 +268,14 @@ export const prepare = async (configOrPath?: string) => {
 			});
 		});
 
+		const { imageOptimizer } = await import('../plugins/imageOptimizer');
+
 		const absolutejs = (app: import('elysia').Elysia) =>
 			addSitemapHook(
-				app.use(prerenderPlugin).use(staticFiles),
+				app
+					.use(imageOptimizer(config.images, buildDir))
+					.use(prerenderPlugin)
+					.use(staticFiles),
 				buildDir,
 				config.sitemap
 			);
@@ -274,8 +283,14 @@ export const prepare = async (configOrPath?: string) => {
 		return { absolutejs, manifest };
 	}
 
+	const { imageOptimizer } = await import('../plugins/imageOptimizer');
+
 	const absolutejs = (app: import('elysia').Elysia) =>
-		addSitemapHook(app.use(staticFiles), buildDir, config.sitemap);
+		addSitemapHook(
+			app.use(imageOptimizer(config.images, buildDir)).use(staticFiles),
+			buildDir,
+			config.sitemap
+		);
 
 	return { absolutejs, manifest };
 };

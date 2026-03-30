@@ -4,8 +4,18 @@ import { build as bunBuild } from 'bun';
 import { sendTelemetryEvent } from '../cli/telemetryEvent';
 
 const resolveHmrClientPath = () => {
+	const projectRoot = process.cwd();
 	const fromSource = resolve(import.meta.dir, 'client/hmrClient.ts');
-	if (existsSync(fromSource)) return fromSource;
+
+	if (existsSync(fromSource) && fromSource.startsWith(projectRoot)) {
+		return fromSource;
+	}
+
+	const fromNodeModules = resolve(
+		projectRoot,
+		'node_modules/@absolutejs/absolute/dist/dev/client/hmrClient.ts'
+	);
+	if (existsSync(fromNodeModules)) return fromNodeModules;
 
 	return resolve(import.meta.dir, 'dev/client/hmrClient.ts');
 };

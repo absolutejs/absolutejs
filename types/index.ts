@@ -2,6 +2,7 @@ export * from './angular';
 export * from './build';
 export * from './cli';
 export * from './client';
+export * from './image';
 export * from './messages';
 export * from './telemetry';
 export * from './tool';

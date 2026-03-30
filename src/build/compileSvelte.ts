@@ -13,8 +13,18 @@ import {
 import { env } from 'node:process';
 import { write, file, Transpiler } from 'bun';
 const resolveDevClientDir = () => {
+	const projectRoot = process.cwd();
 	const fromSource = resolve(import.meta.dir, '../dev/client');
-	if (existsSync(fromSource)) return fromSource;
+
+	if (existsSync(fromSource) && fromSource.startsWith(projectRoot)) {
+		return fromSource;
+	}
+
+	const fromNodeModules = resolve(
+		projectRoot,
+		'node_modules/@absolutejs/absolute/dist/dev/client'
+	);
+	if (existsSync(fromNodeModules)) return fromNodeModules;
 
 	return resolve(import.meta.dir, './dev/client');
 };
