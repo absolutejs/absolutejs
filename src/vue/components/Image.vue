@@ -1,11 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import {
-	DEFAULT_QUALITY,
-	buildOptimizedUrl,
-	generateBlurSvg,
-	generateSrcSet
-} from '@absolutejs/absolute/image';
+import { DEFAULT_QUALITY, buildOptimizedUrl, generateBlurSvg, generateSrcSet } from '@absolutejs/absolute/image';
 
 type ImageLoader = (params: {
 	src: string;
@@ -138,17 +133,6 @@ const handleError = (e: Event) => {
 </script>
 
 <template>
-	<Teleport to="head" v-if="priority">
-		<link
-			rel="preload"
-			as="image"
-			:href="resolvedSrc"
-			:imagesrcset="srcSet"
-			:imagesizes="resolvedSizes"
-			:crossorigin="crossOrigin"
-		/>
-	</Teleport>
-
 	<span
 		v-if="fill"
 		style="

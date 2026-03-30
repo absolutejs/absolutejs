@@ -242,8 +242,9 @@ const rewriteImports = (
 	};
 
 	// Combined: import/export from 'bare', import 'bare' (line-anchored)
+	// Uses [\s\S]+? to match multi-line imports (e.g., import {\n  foo\n} from 'pkg')
 	result = result.replace(
-		/^((?:import\s+.+?\s+from|export\s+.+?\s+from|import)\s*["'])([^"'./][^"']*)(["'])/gm,
+		/^((?:import\s+[\s\S]+?\s+from|export\s+[\s\S]+?\s+from|import)\s*["'])([^"'./][^"']*)(["'])/gm,
 		stubReplace
 	);
 	// Dynamic: import('bare')

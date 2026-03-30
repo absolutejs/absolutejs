@@ -30,16 +30,6 @@ const resolveBlurBg = (
 	selector: 'abs-image',
 	standalone: true,
 	template: `
-		@if (priority()) {
-			<link
-				rel="preload"
-				as="image"
-				[attr.href]="resolvedSrc()"
-				[attr.imagesrcset]="srcSet()"
-				[attr.imagesizes]="resolvedSizes()"
-				[attr.crossorigin]="crossOrigin()"
-			/>
-		}
 		@if (fill()) {
 			<span
 				style="position:relative;overflow:hidden;display:block;width:100%;height:100%"
@@ -47,13 +37,13 @@ const resolveBlurBg = (
 				<img
 					[alt]="alt()"
 					[src]="resolvedSrc()"
-					[srcset]="srcSet()"
-					[sizes]="resolvedSizes()"
+					[attr.srcset]="resolvedSrcSet()"
+					[attr.sizes]="resolvedSizes()"
 					[loading]="resolvedLoading()"
 					[class]="className()"
 					[ngStyle]="imgStyle()"
-					[crossOrigin]="crossOrigin()"
-					[referrerPolicy]="referrerPolicy()"
+					[attr.crossorigin]="resolvedCrossOrigin()"
+					[attr.referrerpolicy]="resolvedReferrerPolicy()"
 					[attr.fetchpriority]="resolvedFetchPriority()"
 					decoding="async"
 					(load)="handleLoad($event)"
@@ -64,15 +54,15 @@ const resolveBlurBg = (
 			<img
 				[alt]="alt()"
 				[src]="resolvedSrc()"
-				[srcset]="srcSet()"
-				[sizes]="resolvedSizes()"
+				[attr.srcset]="resolvedSrcSet()"
+				[attr.sizes]="resolvedSizes()"
 				[width]="width()"
 				[height]="height()"
 				[loading]="resolvedLoading()"
 				[class]="className()"
 				[ngStyle]="imgStyle()"
-				[crossOrigin]="crossOrigin()"
-				[referrerPolicy]="referrerPolicy()"
+				[attr.crossorigin]="resolvedCrossOrigin()"
+				[attr.referrerpolicy]="resolvedReferrerPolicy()"
 				[attr.fetchpriority]="resolvedFetchPriority()"
 				decoding="async"
 				(load)="handleLoad($event)"
@@ -138,18 +128,28 @@ export class ImageComponent {
 
 	readonly srcSet = computed(() =>
 		this.unoptimized()
-			? undefined
+			? null
 			: generateSrcSet(
 					this.src(),
 					this.width(),
 					this.sizes(),
 					undefined,
 					this.loader() ?? undefined
-				)
+				) ?? null
 	);
 
+	readonly resolvedSrcSet = computed(() => this.srcSet() ?? null);
+
 	readonly resolvedSizes = computed(
-		() => this.sizes() ?? (this.fill() ? '100vw' : undefined)
+		() => this.sizes() ?? (this.fill() ? '100vw' : null)
+	);
+
+	readonly resolvedCrossOrigin = computed(
+		() => this.crossOrigin() ?? null
+	);
+
+	readonly resolvedReferrerPolicy = computed(
+		() => this.referrerPolicy() ?? null
 	);
 
 	readonly resolvedLoading = computed(() =>
@@ -157,7 +157,7 @@ export class ImageComponent {
 	);
 
 	readonly resolvedFetchPriority = computed(() =>
-		this.priority() ? 'high' : this.fetchPriority()
+		this.priority() ? 'high' : (this.fetchPriority() ?? null)
 	);
 
 	readonly imgStyle = computed(() => {

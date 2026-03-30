@@ -1,11 +1,6 @@
 <script lang="ts">
 	import type { ImageProps } from '@absolutejs/absolute/image';
-	import {
-		DEFAULT_QUALITY,
-		buildOptimizedUrl,
-		generateBlurSvg,
-		generateSrcSet
-	} from '@absolutejs/absolute/image';
+	import { DEFAULT_QUALITY, buildOptimizedUrl, generateBlurSvg, generateSrcSet } from '@absolutejs/absolute/image';
 
 	let {
 		src,
