@@ -1,7 +1,15 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { basename, join, relative, resolve } from 'node:path';
 import type { SitemapConfig } from '../../types/sitemap';
+import type { ConventionsMap } from '../../types/conventions';
 import { loadConfig } from '../utils/loadConfig';
+import {
+	setConventions,
+	renderFirstNotFound
+} from '../utils/resolveConvention';
+
+const MS_PER_SECOND = 1000;
+const DEFAULT_PORT = 3000;
 
 type PrewarmEntry = { dir: string; pattern: string };
 
@@ -142,37 +150,49 @@ const prepareDev = async (
 	const devIndexDir = resolve(buildDir, '_src_indexes');
 	patchManifestIndexes(result.manifest, devIndexDir, SRC_URL_PREFIX);
 
+	// Load convention files (error/loading/not-found) into the runtime registry
+	if (result.conventions) setConventions(result.conventions);
+
 	const { imageOptimizer } = await import('../plugins/imageOptimizer');
 
 	return {
 		manifest: result.manifest,
 		absolutejs: (app: import('elysia').Elysia) =>
-			addSitemapHook(
-				hmrPlugin(
-					app
-						.use(imageOptimizer(config.images, buildDir))
-						.use(staticPlugin({ assets: buildDir, prefix: '' }))
-				),
-				buildDir,
-				config.sitemap
+			addNotFoundHook(
+				addSitemapHook(
+					hmrPlugin(
+						app.use(imageOptimizer(config.images, buildDir)).use(
+							staticPlugin({
+								assets: buildDir,
+								prefix: ''
+							})
+						)
+					),
+					buildDir,
+					config.sitemap
+				)
 			)
 	};
 };
 
 /** Load pre-rendered HTML files from disk into a route → filepath map */
-const loadPrerenderMap = (prerenderDir: string): Map<string, string> => {
+const loadPrerenderMap = (prerenderDir: string) => {
 	const map = new Map<string, string>();
 	if (!existsSync(prerenderDir)) return map;
 
+	let entries: string[];
 	try {
-		for (const entry of readdirSync(prerenderDir)) {
-			if (!entry.endsWith('.html')) continue;
-			const name = basename(entry, '.html');
-			const route = name === 'index' ? '/' : `/${name}`;
-			map.set(route, join(prerenderDir, entry));
-		}
+		entries = readdirSync(prerenderDir);
 	} catch {
 		/* directory doesn't exist or can't be read */
+		return map;
+	}
+
+	for (const entry of entries) {
+		if (!entry.endsWith('.html')) continue;
+		const name = basename(entry, '.html');
+		const route = name === 'index' ? '/' : `/${name}`;
+		map.set(route, join(prerenderDir, entry));
 	}
 
 	return map;
@@ -200,6 +220,18 @@ const addSitemapHook = (
 			.catch((err) => console.error('[sitemap] Generation failed:', err));
 	});
 
+const addNotFoundHook = (
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Elysia generics vary per plugin chain
+	app: any
+) =>
+	app.onError(async ({ code }: { code: string }) => {
+		if (code !== 'NOT_FOUND') return undefined;
+		const response = await renderFirstNotFound();
+		if (response) return response;
+
+		return undefined;
+	});
+
 export const prepare = async (configOrPath?: string) => {
 	const config = await loadConfig(configOrPath);
 
@@ -219,6 +251,15 @@ export const prepare = async (configOrPath?: string) => {
 		readFileSync(`${buildDir}/manifest.json`, 'utf-8')
 	);
 
+	// Load convention files (error/loading/not-found) for production
+	const conventionsPath = join(buildDir, 'conventions.json');
+	if (existsSync(conventionsPath)) {
+		const conventions: ConventionsMap = JSON.parse(
+			readFileSync(conventionsPath, 'utf-8')
+		);
+		setConventions(conventions);
+	}
+
 	const { staticPlugin } = await import('@elysiajs/static');
 	const staticFiles = staticPlugin({ assets: buildDir, prefix: '' });
 
@@ -232,9 +273,9 @@ export const prepare = async (configOrPath?: string) => {
 			await import('./prerender');
 
 		const revalidateMs = config.static?.revalidate
-			? config.static.revalidate * 1000
+			? config.static.revalidate * MS_PER_SECOND
 			: 0;
-		const port = Number(process.env.PORT) || 3000;
+		const port = Number(process.env.PORT) || DEFAULT_PORT;
 
 		// Track routes currently being re-rendered to avoid duplicate work
 		const rerendering = new Set<string>();
@@ -245,21 +286,25 @@ export const prepare = async (configOrPath?: string) => {
 			const url = new URL(request.url);
 
 			// Allow bypass for ISR re-render requests
-			if (request.headers.get(PRERENDER_BYPASS_HEADER)) return;
+			if (request.headers.get(PRERENDER_BYPASS_HEADER)) return undefined;
 
 			const filePath = prerenderMap.get(url.pathname);
-			if (!filePath) return;
+			if (!filePath) return undefined;
 
 			// ISR: check if page is stale and trigger background re-render
-			if (revalidateMs > 0 && !rerendering.has(url.pathname)) {
-				const renderedAt = readTimestamp(filePath);
-				const age = Date.now() - renderedAt;
-				if (age > revalidateMs) {
-					rerendering.add(url.pathname);
-					rerenderRoute(url.pathname, port, prerenderDir).finally(
-						() => rerendering.delete(url.pathname)
-					);
-				}
+			const renderedAt =
+				revalidateMs > 0 && !rerendering.has(url.pathname)
+					? readTimestamp(filePath)
+					: 0;
+			const age = Date.now() - renderedAt;
+			if (revalidateMs > 0 && renderedAt > 0 && age > revalidateMs) {
+				rerendering.add(url.pathname);
+				// eslint-disable-next-line promise/catch-or-return -- fire-and-forget background re-render
+				rerenderRoute(url.pathname, port, prerenderDir)
+					.catch(() => {
+						/* background re-render failed, stale page still served */
+					})
+					.finally(() => rerendering.delete(url.pathname));
 			}
 
 			// Serve the cached page immediately (even if stale)
@@ -271,13 +316,15 @@ export const prepare = async (configOrPath?: string) => {
 		const { imageOptimizer } = await import('../plugins/imageOptimizer');
 
 		const absolutejs = (app: import('elysia').Elysia) =>
-			addSitemapHook(
-				app
-					.use(imageOptimizer(config.images, buildDir))
-					.use(prerenderPlugin)
-					.use(staticFiles),
-				buildDir,
-				config.sitemap
+			addNotFoundHook(
+				addSitemapHook(
+					app
+						.use(imageOptimizer(config.images, buildDir))
+						.use(prerenderPlugin)
+						.use(staticFiles),
+					buildDir,
+					config.sitemap
+				)
 			);
 
 		return { absolutejs, manifest };
@@ -286,10 +333,14 @@ export const prepare = async (configOrPath?: string) => {
 	const { imageOptimizer } = await import('../plugins/imageOptimizer');
 
 	const absolutejs = (app: import('elysia').Elysia) =>
-		addSitemapHook(
-			app.use(imageOptimizer(config.images, buildDir)).use(staticFiles),
-			buildDir,
-			config.sitemap
+		addNotFoundHook(
+			addSitemapHook(
+				app
+					.use(imageOptimizer(config.images, buildDir))
+					.use(staticFiles),
+				buildDir,
+				config.sitemap
+			)
 		);
 
 	return { absolutejs, manifest };

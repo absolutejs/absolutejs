@@ -7,7 +7,7 @@ import { existsSync, readFileSync } from 'node:fs';
  *
  * Returns the resolved absolute path, or null if the import can't be resolved.
  */
-export const resolvePackageImport = (specifier: string): string | null => {
+export const resolvePackageImport = (specifier: string) => {
 	// Only handle bare module imports (not relative or absolute paths)
 	if (specifier.startsWith('.') || specifier.startsWith('/')) return null;
 
@@ -26,7 +26,7 @@ export const resolvePackageImport = (specifier: string): string | null => {
 
 	try {
 		const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf-8'));
-		const exports = packageJson.exports;
+		const {exports} = packageJson;
 
 		if (!exports) return null;
 
@@ -35,12 +35,9 @@ export const resolvePackageImport = (specifier: string): string | null => {
 
 		if (!entry) return null;
 
-		const importPath =
-			typeof entry === 'string'
-				? entry
-				: typeof entry === 'object' && entry.import
-					? entry.import
-					: null;
+		let importPath: string | null = null;
+		if (typeof entry === 'string') importPath = entry;
+		else if (typeof entry === 'object' && entry.import) importPath = entry.import;
 
 		if (!importPath) return null;
 

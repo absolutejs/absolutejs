@@ -17,6 +17,11 @@ import { generateReactIndexFiles } from '../build/generateReactIndexes';
 import { createHTMLScriptHMRPlugin } from '../build/htmlScriptHMRPlugin';
 import { outputLogs } from '../build/outputLogs';
 import { scanEntryPoints } from '../build/scanEntryPoints';
+import { scanConventions } from '../build/scanConventions';
+import type {
+	ConventionsMap,
+	FrameworkConventionEntry
+} from '../../types/conventions';
 import { scanCssEntryPoints } from '../build/scanCssEntryPoints';
 import { optimizeHtmlImages } from '../build/optimizeHtmlImages';
 import { updateAssetPaths } from '../build/updateAssetPaths';
@@ -47,6 +52,64 @@ import { toPascal } from '../utils/stringModifiers';
 import { validateSafePath } from '../utils/validateSafePath';
 
 const isDev = env.NODE_ENV === 'development';
+
+const collectConventionSourceFiles = (
+	entry: FrameworkConventionEntry | undefined
+) => {
+	if (!entry) return [];
+	const files: string[] = [];
+	if (entry.defaults?.error) files.push(entry.defaults.error);
+	if (entry.defaults?.loading) files.push(entry.defaults.loading);
+	if (entry.defaults?.notFound) files.push(entry.defaults.notFound);
+	if (!entry.pages) return files;
+	for (const page of Object.values(entry.pages)) {
+		if (page.error) files.push(page.error);
+		if (page.loading) files.push(page.loading);
+	}
+
+	return files;
+};
+
+const updateConventionCompiledPaths = (
+	entry: FrameworkConventionEntry | undefined,
+	sourcePaths: string[],
+	compiledPaths: string[]
+) => {
+	if (!entry || sourcePaths.length !== compiledPaths.length) return;
+	const pathMap = new Map<string, string>();
+	for (let idx = 0; idx < sourcePaths.length; idx++) {
+		const src = sourcePaths[idx];
+		const compiled = compiledPaths[idx];
+		if (src && compiled) pathMap.set(src, compiled);
+	}
+
+	if (entry.defaults) {
+		const errorPath = entry.defaults.error
+			? pathMap.get(entry.defaults.error)
+			: undefined;
+		if (errorPath) entry.defaults.error = errorPath;
+
+		const loadingPath = entry.defaults.loading
+			? pathMap.get(entry.defaults.loading)
+			: undefined;
+		if (loadingPath) entry.defaults.loading = loadingPath;
+
+		const notFoundPath = entry.defaults.notFound
+			? pathMap.get(entry.defaults.notFound)
+			: undefined;
+		if (notFoundPath) entry.defaults.notFound = notFoundPath;
+	}
+	if (!entry.pages) return;
+	for (const page of Object.values(entry.pages)) {
+		const errorPath = page.error ? pathMap.get(page.error) : undefined;
+		if (errorPath) page.error = errorPath;
+
+		const loadingPath = page.loading
+			? pathMap.get(page.loading)
+			: undefined;
+		if (loadingPath) page.loading = loadingPath;
+	}
+};
 
 const extractBuildError = (
 	logs: (BuildMessage | ResolveMessage)[],
@@ -720,23 +783,67 @@ export const build = async ({
 			? compileTailwind(tailwind.input, tailwind.output)
 			: undefined;
 
+	const emptyConventionResult: {
+		conventions: undefined;
+		pageFiles: string[];
+	} = {
+		conventions: undefined,
+		pageFiles: []
+	};
 	const [
 		,
 		allReactEntries,
 		allHtmlEntries,
-		allSvelteEntries,
-		allVueEntries,
-		allAngularEntries,
+		reactConventionResult,
+		svelteConventionResult,
+		vueConventionResult,
+		angularConventionResult,
 		allGlobalCssEntries
 	] = await Promise.all([
 		tailwindPromise,
 		reactIndexesPath ? scanEntryPoints(reactIndexesPath, '*.tsx') : [],
 		htmlScriptsPath ? scanEntryPoints(htmlScriptsPath, '*.{js,ts}') : [],
-		sveltePagesPath ? scanEntryPoints(sveltePagesPath, '*.svelte') : [],
-		vuePagesPath ? scanEntryPoints(vuePagesPath, '*.vue') : [],
-		angularPagesPath ? scanEntryPoints(angularPagesPath, '*.ts') : [],
+		reactPagesPath
+			? scanConventions(reactPagesPath, '*.tsx')
+			: emptyConventionResult,
+		sveltePagesPath
+			? scanConventions(sveltePagesPath, '*.svelte')
+			: emptyConventionResult,
+		vuePagesPath
+			? scanConventions(vuePagesPath, '*.vue')
+			: emptyConventionResult,
+		angularPagesPath
+			? scanConventions(angularPagesPath, '*.ts')
+			: emptyConventionResult,
 		stylesDir ? scanCssEntryPoints(stylesDir, stylesIgnore) : []
 	]);
+
+	// Convention files (colocated with pages) for error/loading/not-found
+	const allSvelteEntries = svelteConventionResult.pageFiles;
+	const allVueEntries = vueConventionResult.pageFiles;
+	const allAngularEntries = angularConventionResult.pageFiles;
+
+	const conventionsMap: ConventionsMap = {};
+	if (reactConventionResult.conventions)
+		conventionsMap.react = reactConventionResult.conventions;
+	if (svelteConventionResult.conventions)
+		conventionsMap.svelte = svelteConventionResult.conventions;
+	if (vueConventionResult.conventions)
+		conventionsMap.vue = vueConventionResult.conventions;
+	if (angularConventionResult.conventions)
+		conventionsMap.angular = angularConventionResult.conventions;
+
+	// Warn if multiple frameworks define not-found convention files
+	const notFoundFrameworks = (
+		['react', 'svelte', 'vue', 'angular'] as const
+	).filter((framework) => conventionsMap[framework]?.defaults?.notFound);
+	if (notFoundFrameworks.length > 1) {
+		logWarn(
+			`Multiple frameworks define not-found convention files: ${notFoundFrameworks.join(', ')}. ` +
+				`Only one will be used (priority: ${notFoundFrameworks[0]}). ` +
+				`Remove not-found files from other frameworks to avoid ambiguity.`
+		);
+	}
 	// When HTML/HTMX pages change, we must include their CSS and scripts in the build
 	// so the manifest has those entries for updateAssetPaths. Otherwise incremental
 	// builds drop them and updateAssetPaths fails with "no manifest entry".
@@ -832,6 +939,77 @@ export const build = async ({
 					serverPaths: [...emptyStringArray]
 				}
 	]);
+
+	// Compile convention files (error/loading/not-found) for Svelte and Vue.
+	// React and Angular convention files are plain .tsx/.ts — Bun imports them natively.
+	const svelteConventionSources = collectConventionSourceFiles(
+		conventionsMap.svelte
+	);
+	const vueConventionSources = collectConventionSourceFiles(
+		conventionsMap.vue
+	);
+
+	if (svelteConventionSources.length > 0 || vueConventionSources.length > 0) {
+		const [svelteConvResult, vueConvResult] = await Promise.all([
+			svelteConventionSources.length > 0 && svelteDir
+				? import('../build/compileSvelte').then((mod) =>
+						mod.compileSvelte(
+							svelteConventionSources,
+							svelteDir,
+							new Map(),
+							false
+						)
+					)
+				: { svelteServerPaths: emptyStringArray },
+			vueConventionSources.length > 0 && vueDir
+				? import('../build/compileVue').then((mod) =>
+						mod.compileVue(vueConventionSources, vueDir, false)
+					)
+				: { vueServerPaths: emptyStringArray }
+		]);
+
+		// Copy compiled convention files to build/conventions/{framework}/
+		// so they survive the cleanup step that removes generated/ directories.
+		// Each framework gets its own subdirectory to avoid name collisions.
+		const copyConventionFiles = (
+			framework: string,
+			sources: string[],
+			compiledPaths: string[]
+		) => {
+			const destDir = join(buildPath, 'conventions', framework);
+			mkdirSync(destDir, { recursive: true });
+			const destPaths: string[] = [];
+			for (const compiledPath of compiledPaths) {
+				const dest = join(destDir, basename(compiledPath));
+				copyFileSync(compiledPath, dest);
+				destPaths.push(dest);
+			}
+
+			return destPaths;
+		};
+
+		const svelteDests = copyConventionFiles(
+			'svelte',
+			svelteConventionSources,
+			svelteConvResult.svelteServerPaths
+		);
+		const vueDests = copyConventionFiles(
+			'vue',
+			vueConventionSources,
+			vueConvResult.vueServerPaths
+		);
+
+		updateConventionCompiledPaths(
+			conventionsMap.svelte,
+			svelteConventionSources,
+			svelteDests
+		);
+		updateConventionCompiledPaths(
+			conventionsMap.vue,
+			vueConventionSources,
+			vueDests
+		);
+	}
 
 	const serverEntryPoints = [
 		...svelteServerPaths,
@@ -1416,12 +1594,20 @@ export const build = async ({
 	// Skip manifest.json disk write during incremental (HMR) builds —
 	// the in-memory manifest is authoritative and writing to disk on
 	// every keystroke adds unnecessary I/O latency.
-	if (!isIncremental) {
+	if (isIncremental) return { conventions: conventionsMap, manifest };
+
+	writeFileSync(
+		join(buildPath, 'manifest.json'),
+		JSON.stringify(manifest, null, '\t')
+	);
+
+	// Write convention files map (error/loading/not-found) if any exist
+	if (Object.keys(conventionsMap).length > 0) {
 		writeFileSync(
-			join(buildPath, 'manifest.json'),
-			JSON.stringify(manifest, null, '\t')
+			join(buildPath, 'conventions.json'),
+			JSON.stringify(conventionsMap, null, '\t')
 		);
 	}
 
-	return manifest;
+	return { conventions: conventionsMap, manifest };
 };

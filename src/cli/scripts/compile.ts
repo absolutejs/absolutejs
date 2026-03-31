@@ -14,41 +14,52 @@ const cliTag = (color: string, message: string) =>
 	`\x1b[2m${formatTimestamp()}\x1b[0m ${color}[cli]\x1b[0m ${color}${message}\x1b[0m`;
 
 // ── File utilities ──────────────────────────────────────────────
-const collectFiles = (dir: string): string[] => {
-	const results: string[] = [];
-	for (const entry of readdirSync(dir, { withFileTypes: true })) {
+const collectFiles = (dir: string): string[] =>
+	readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
 		const fullPath = join(dir, entry.name);
-		if (entry.isDirectory()) {
-			results.push(...collectFiles(fullPath));
-		} else {
-			results.push(fullPath);
-		}
+
+		return entry.isDirectory() ? collectFiles(fullPath) : [fullPath];
+	});
+
+const readPackageVersion = (candidate: string) => {
+	try {
+		const pkg = JSON.parse(readFileSync(candidate, 'utf-8'));
+		if (pkg.name !== '@absolutejs/absolute') return null;
+		const ver: string = pkg.version;
+
+		return ver;
+	} catch {
+		return null;
 	}
-	return results;
 };
 
 const resolvePackageVersion = (candidates: string[]) => {
 	for (const candidate of candidates) {
-		try {
-			const pkg = JSON.parse(readFileSync(candidate, 'utf-8'));
-			if (pkg.name === '@absolutejs/absolute')
-				return pkg.version as string;
-		} catch {
-			/* try next */
-		}
+		const version = readPackageVersion(candidate);
+		if (version) return version;
 	}
+
 	return '';
+};
+
+const tryImportBuild = async (candidate: string) => {
+	try {
+		const mod = await import(candidate);
+		const buildFn: typeof import('../../core/build').build = mod.build;
+
+		return buildFn;
+	} catch {
+		return null;
+	}
 };
 
 const resolveBuildModule = async (candidates: string[]) => {
 	for (const candidate of candidates) {
-		try {
-			const mod = await import(candidate);
-			return mod.build as typeof import('../../core/build').build;
-		} catch {
-			/* try next */
-		}
+		// eslint-disable-next-line no-await-in-loop -- each import depends on the previous failing
+		const mod = await tryImportBuild(candidate);
+		if (mod) return mod;
 	}
+
 	return undefined;
 };
 
@@ -60,19 +71,19 @@ const generateEntrypoint = (
 	version: string
 ) => {
 	const allFiles = collectFiles(distDir);
-	const serverBundleName =
-		basename(serverEntry).replace(/\.[^.]+$/, '') + '.js';
+	const serverBundleName = `${basename(serverEntry).replace(/\.[^.]+$/, '')}.js`;
 	const skip = new Set([
 		serverBundleName,
 		'manifest.json',
 		'_compile_entrypoint.ts'
 	]);
 
-	const clientFiles = allFiles.filter((f) => {
-		const rel = relative(distDir, f);
+	const clientFiles = allFiles.filter((file) => {
+		const rel = relative(distDir, file);
 		if (skip.has(rel)) return false;
 		if (rel.includes('.generated')) return false;
 		if (rel.includes('/server/')) return false;
+
 		return true;
 	});
 
@@ -82,7 +93,7 @@ const generateEntrypoint = (
 	clientFiles.forEach((filePath, idx) => {
 		const rel = relative(distDir, filePath).replace(/\\/g, '/');
 		const varName = `__a${idx}`;
-		const urlPath = '/' + rel;
+		const urlPath = `/${rel}`;
 
 		imports.push(
 			`import ${varName} from "./${rel}" with { type: "file" };`
@@ -90,27 +101,25 @@ const generateEntrypoint = (
 		mappings.push(`\t"${urlPath}": ${varName},`);
 
 		// Add unhashed alias for worker files
-		if (rel.startsWith('workers/') && rel.endsWith('.js')) {
-			const parts = rel.match(
-				/^(workers\/[^.]+\.worker)\.[a-z0-9]+\.js$/
-			);
-			if (parts) {
-				mappings.push(`\t"/${parts[1]}.js": ${varName},`);
-			}
+		const workerParts =
+			rel.startsWith('workers/') && rel.endsWith('.js')
+				? rel.match(/^(workers\/[^.]+\.worker)\.[a-z0-9]+\.js$/)
+				: null;
+		if (workerParts) {
+			mappings.push(`\t"/${workerParts[1]}.js": ${varName},`);
 		}
 	});
 
 	// Build route → embedded page mapping
 	const pageVarMap = new Map<string, string>();
-	for (const [route, filePath] of prerenderMap) {
+	const prerenderEntries = Array.from(prerenderMap.entries());
+	prerenderEntries.forEach(([route, filePath]) => {
 		const rel = relative(distDir, filePath).replace(/\\/g, '/');
 		const idx = clientFiles.findIndex(
-			(f) => relative(distDir, f).replace(/\\/g, '/') === rel
+			(file) => relative(distDir, file).replace(/\\/g, '/') === rel
 		);
-		if (idx >= 0) {
-			pageVarMap.set(route, `__a${idx}`);
-		}
-	}
+		if (idx >= 0) pageVarMap.set(route, `__a${idx}`);
+	});
 
 	const routeEntries = Array.from(pageVarMap.entries())
 		.map(([route, varName]) => `\t"${route}": ${varName},`)
@@ -191,7 +200,7 @@ console.log(\`
 };
 
 // ── Stub plugin (shared with start.ts) ──────────────────────────
-const createStubPlugin = (): import('bun').BunPlugin => ({
+const stubPlugin: import('bun').BunPlugin = {
 	name: 'stub-framework-sources',
 	setup(bld) {
 		bld.onLoad({ filter: /\.(svelte|vue)$/ }, () => ({
@@ -254,10 +263,11 @@ const createStubPlugin = (): import('bun').BunPlugin => ({
 			if (stripped.includes('@Component')) {
 				return { contents: 'export default {}', loader: 'js' };
 			}
+
 			return undefined;
 		});
 	}
-});
+};
 
 const FRAMEWORK_EXTERNALS = [
 	'vue',
@@ -330,7 +340,7 @@ export const compile = async (
 		entrypoints: [resolve(serverEntry)],
 		external: FRAMEWORK_EXTERNALS,
 		outdir: resolvedOutdir,
-		plugins: [createStubPlugin()],
+		plugins: [stubPlugin],
 		target: 'bun'
 	});
 
@@ -395,9 +405,9 @@ export const compile = async (
 
 	// ── Step 5: Compile binary ──────────────────────────────────
 	const result = await Bun.build({
-		entrypoints: [entrypointPath],
 		compile: { outfile: resolvedOutfile },
 		define: { 'process.env.NODE_ENV': '"production"' },
+		entrypoints: [entrypointPath],
 		target: 'bun'
 	});
 
@@ -419,7 +429,8 @@ export const compile = async (
 	}
 
 	// ── Done ────────────────────────────────────────────────────
-	const size = (Bun.file(resolvedOutfile).size / (1024 * 1024)).toFixed(0);
+	const BYTES_PER_MB = 1_048_576;
+	const size = (Bun.file(resolvedOutfile).size / BYTES_PER_MB).toFixed(0);
 	const totalDuration = getDurationString(performance.now() - totalStart);
 
 	console.log(

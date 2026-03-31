@@ -1,4 +1,6 @@
+export * from './ai';
 export * from './angular';
+export * from './conventions';
 export * from './build';
 export * from './cli';
 export * from './client';

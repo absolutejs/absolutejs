@@ -1,5 +1,6 @@
 import type { ComponentType as ReactComponent } from 'react';
 import { ssrErrorPage } from '../utils/ssrErrorPage';
+import { renderConventionError } from '../utils/resolveConvention';
 
 let ssrDirty = false;
 
@@ -79,6 +80,14 @@ export const handleReactPageRequest = async <
 		});
 	} catch (error) {
 		console.error('[SSR] React render error:', error);
+
+		const pageName = PageComponent.name || PageComponent.displayName || '';
+		const conventionResponse = await renderConventionError(
+			'react',
+			pageName,
+			error
+		);
+		if (conventionResponse) return conventionResponse;
 
 		return new Response(ssrErrorPage('react', error), {
 			headers: { 'Content-Type': 'text/html' },

@@ -159,7 +159,7 @@ const rebuildManifest = async (
 	state.isRebuilding = true;
 
 	try {
-		const newManifest = await build({
+		const buildResult = await build({
 			...state.config,
 			mode: 'development',
 			options: {
@@ -168,7 +168,8 @@ const rebuildManifest = async (
 				throwOnError: true
 			}
 		});
-		if (!newManifest) return;
+		if (!buildResult?.manifest) return;
+		const newManifest = buildResult.manifest;
 
 		// Replace manifest contents instead of just merging.
 		// Object.assign only adds/updates keys — it never removes them,
@@ -316,7 +317,7 @@ export const devBuild = async (config: BuildConfig) => {
 	const buildStart = performance.now();
 
 	// Initial build (HMR client is baked into index files and HTML/HTMX pages)
-	const manifest = await build({
+	const buildResult = await build({
 		...config,
 		mode: 'development',
 		options: {
@@ -324,8 +325,10 @@ export const devBuild = async (config: BuildConfig) => {
 			injectHMR: true
 		}
 	});
+	const manifest = buildResult.manifest ?? {};
+	const conventions = buildResult.conventions ?? {};
 
-	if (!manifest || Object.keys(manifest).length === 0) {
+	if (Object.keys(manifest).length === 0) {
 		console.log(
 			'⚠️ Manifest is empty - this is OK for HTML/HTMX-only projects'
 		);
@@ -334,12 +337,12 @@ export const devBuild = async (config: BuildConfig) => {
 	// Populate in-memory asset store so client assets are served from memory
 	await populateAssetStore(
 		state.assetStore,
-		manifest ?? {},
+		manifest,
 		state.resolvedPaths.buildDir
 	);
 	void cleanStaleAssets(
 		state.assetStore,
-		manifest ?? {},
+		manifest,
 		state.resolvedPaths.buildDir
 	);
 
@@ -455,6 +458,7 @@ export const devBuild = async (config: BuildConfig) => {
 	globalThis.__hmrBuildDuration = performance.now() - buildStart;
 
 	const result: NonNullable<typeof globalThis.__hmrDevResult> = {
+		conventions,
 		hmrState: state,
 		manifest
 	};

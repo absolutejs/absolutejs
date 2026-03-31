@@ -48,9 +48,11 @@ export const generateReactIndexFiles = async (
 		mkdirSync(reactIndexesDirectory, { recursive: true });
 	}
 
+	const CONVENTION_RE = /^(?:(.+)\.)?(error|loading|not-found)\.[^.]+$/;
 	const pagesGlob = new Glob('*.*');
 	const files: string[] = [];
 	for await (const file of pagesGlob.scan({ cwd: reactPagesDirectory })) {
+		if (CONVENTION_RE.test(file)) continue;
 		files.push(file);
 	}
 

@@ -1,6 +1,6 @@
 import { $ } from 'bun';
 import { rm, cp, mkdir, readdir, writeFile } from 'node:fs/promises';
-import { join, dirname, basename, resolve, relative } from 'node:path';
+import { join, resolve, relative } from 'node:path';
 import ts from 'typescript';
 
 const DIST = 'dist';
@@ -8,12 +8,23 @@ const DIST = 'dist';
 const SERVER_ENTRY_POINTS = [
 	'src/index.ts',
 	'src/build.ts',
+	'src/ai/index.ts',
+	'src/ai/providers/anthropic.ts',
+	'src/ai/providers/openai.ts',
+	'src/ai/providers/ollama.ts',
+	'src/ai/providers/openaiCompatible.ts',
+	'src/ai/providers/openaiResponses.ts',
+	'src/ai/providers/gemini.ts',
 	'src/angular/index.ts',
+	'src/angular/ai/index.ts',
 	'src/react/index.ts',
+	'src/react/ai/index.ts',
 	'src/react/components/index.ts',
 	'src/react/hooks/index.ts',
 	'src/svelte/index.ts',
+	'src/svelte/ai/index.ts',
 	'src/vue/index.ts',
+	'src/vue/ai/index.ts',
 	'src/vue/components/index.ts'
 ];
 
@@ -43,18 +54,18 @@ const EXTERNALS = [
 	'@absolutejs/native-darwin-arm64'
 ];
 
-async function build() {
+const build = async () => {
 	console.log('Cleaning dist/...');
-	await rm(DIST, { recursive: true, force: true });
+	await rm(DIST, { force: true, recursive: true });
 
 	console.log('Building server entry points...');
 	const serverBuild = await Bun.build({
 		entrypoints: SERVER_ENTRY_POINTS,
-		outdir: DIST,
-		sourcemap: 'linked',
-		target: 'bun',
 		external: EXTERNALS,
-		root: 'src'
+		outdir: DIST,
+		root: 'src',
+		sourcemap: 'linked',
+		target: 'bun'
 	});
 
 	if (!serverBuild.success) {
@@ -79,20 +90,45 @@ async function build() {
 	console.log('Building React components (browser target)...');
 	const reactBrowserBuild = await Bun.build({
 		entrypoints: ['src/react/components/index.ts'],
-		outdir: join(DIST, 'react', 'components', 'browser'),
-		target: 'browser',
-		root: 'src/react/components',
 		external: [
 			'react',
 			'react-dom',
 			'react/jsx-runtime',
 			'react/jsx-dev-runtime'
-		]
+		],
+		outdir: join(DIST, 'react', 'components', 'browser'),
+		root: 'src/react/components',
+		target: 'browser'
 	});
 
 	if (!reactBrowserBuild.success) {
 		console.error('React browser build failed:');
 		for (const log of reactBrowserBuild.logs) console.error(log);
+		process.exit(1);
+	}
+
+	console.log('Building AI client hooks (browser target)...');
+	const aiBrowserBuild = await Bun.build({
+		entrypoints: [
+			'src/react/ai/index.ts',
+			'src/vue/ai/index.ts',
+			'src/angular/ai/index.ts'
+		],
+		external: [
+			'react',
+			'react-dom',
+			'react/jsx-runtime',
+			'react/jsx-dev-runtime',
+			'vue',
+			'@angular/core'
+		],
+		outdir: join(DIST, 'ai-client'),
+		target: 'browser'
+	});
+
+	if (!aiBrowserBuild.success) {
+		console.error('AI client build failed:');
+		for (const log of aiBrowserBuild.logs) console.error(log);
 		process.exit(1);
 	}
 
@@ -121,7 +157,10 @@ async function build() {
 
 	await mkdir(join(DIST, 'svelte', 'components'), { recursive: true });
 	const svelteFiles = await readdir('src/svelte/components');
-	for (const file of svelteFiles.filter((f) => f.endsWith('.svelte'))) {
+	for (const file of svelteFiles.filter((entry) =>
+		entry.endsWith('.svelte')
+	)) {
+		// eslint-disable-next-line no-await-in-loop
 		await cp(
 			join('src', 'svelte', 'components', file),
 			join(DIST, 'svelte', 'components', file)
@@ -130,7 +169,8 @@ async function build() {
 
 	await mkdir(join(DIST, 'vue', 'components'), { recursive: true });
 	const vueFiles = await readdir('src/vue/components');
-	for (const file of vueFiles.filter((f) => f.endsWith('.vue'))) {
+	for (const file of vueFiles.filter((entry) => entry.endsWith('.vue'))) {
+		// eslint-disable-next-line no-await-in-loop
 		await cp(
 			join('src', 'vue', 'components', file),
 			join(DIST, 'vue', 'components', file)
@@ -150,50 +190,82 @@ async function build() {
 	await verifyExports();
 
 	console.log('Build complete.');
-}
+};
 
-async function generateSfcDeclarations() {
+const buildSvelteDts = (name: string, propsType: string | undefined) => {
+	if (propsType === 'ImageProps') {
+		return `import type { ImageProps } from '../../types/image';\nimport { SvelteComponent } from 'svelte';\ndeclare const __propDef: { props: ImageProps };\ntype Props = typeof __propDef.props;\nexport default class ${name} extends SvelteComponent<Props> {}\n`;
+	}
+	if (propsType) {
+		return `import type { ${propsType} } from '../../types/metadata';\nimport { SvelteComponent } from 'svelte';\ndeclare const __propDef: { props: ${propsType} };\ntype Props = typeof __propDef.props;\nexport default class ${name} extends SvelteComponent<Props> {}\n`;
+	}
+
+	return `import { SvelteComponent } from 'svelte';\nexport default class ${name} extends SvelteComponent {}\n`;
+};
+
+const buildVueDts = (name: string, hasImageProps: boolean) => {
+	if (name === 'Image' || hasImageProps) {
+		return `import type { ImageProps } from '../../types/image';\nimport { DefineComponent } from 'vue';\ndeclare const _default: DefineComponent<ImageProps>;\nexport default _default;\n`;
+	}
+
+	return `import { DefineComponent } from 'vue';\ndeclare const _default: DefineComponent;\nexport default _default;\n`;
+};
+
+const generateSfcDeclarations = async () => {
 	// Svelte component declarations
 	const svelteComponentDir = join(DIST, 'svelte', 'components');
 	const svelteFiles = await readdir(svelteComponentDir);
-	for (const file of svelteFiles.filter((f) => f.endsWith('.svelte'))) {
+	for (const file of svelteFiles.filter((entry) =>
+		entry.endsWith('.svelte')
+	)) {
+		// eslint-disable-next-line no-await-in-loop
 		const content = await Bun.file(join(svelteComponentDir, file)).text();
 		const propsMatch = content.match(/\}:\s*(\w+)\s*=\s*\$props\(\)/);
 		const propsType = propsMatch?.[1];
 		const name = file.replace(/\.svelte$/, '');
 
-		let dts: string;
-		if (propsType === 'ImageProps') {
-			dts = `import type { ImageProps } from '../../types/image';\nimport { SvelteComponent } from 'svelte';\ndeclare const __propDef: { props: ImageProps };\ntype Props = typeof __propDef.props;\nexport default class ${name} extends SvelteComponent<Props> {}\n`;
-		} else if (propsType) {
-			dts = `import type { ${propsType} } from '../../types/metadata';\nimport { SvelteComponent } from 'svelte';\ndeclare const __propDef: { props: ${propsType} };\ntype Props = typeof __propDef.props;\nexport default class ${name} extends SvelteComponent<Props> {}\n`;
-		} else {
-			dts = `import { SvelteComponent } from 'svelte';\nexport default class ${name} extends SvelteComponent {}\n`;
-		}
+		const dts = buildSvelteDts(name, propsType);
+		// eslint-disable-next-line no-await-in-loop
 		await writeFile(join(svelteComponentDir, `${file}.d.ts`), dts);
 	}
 
 	// Vue component declarations
 	const vueComponentDir = join(DIST, 'vue', 'components');
 	const vueFiles = await readdir(vueComponentDir);
-	for (const file of vueFiles.filter((f) => f.endsWith('.vue'))) {
+	for (const file of vueFiles.filter((entry) => entry.endsWith('.vue'))) {
+		// eslint-disable-next-line no-await-in-loop
 		const content = await Bun.file(join(vueComponentDir, file)).text();
 		const name = file.replace(/\.vue$/, '');
 
 		// Check if it uses defineProps<ImageProps> or inline props
 		const hasImageProps =
 			content.includes('ImageProps') || content.includes('defineProps<{');
-		let dts: string;
-		if (name === 'Image' || hasImageProps) {
-			dts = `import type { ImageProps } from '../../types/image';\nimport { DefineComponent } from 'vue';\ndeclare const _default: DefineComponent<ImageProps>;\nexport default _default;\n`;
-		} else {
-			dts = `import { DefineComponent } from 'vue';\ndeclare const _default: DefineComponent;\nexport default _default;\n`;
-		}
+		const dts = buildVueDts(name, hasImageProps);
+		// eslint-disable-next-line no-await-in-loop
 		await writeFile(join(vueComponentDir, `${file}.d.ts`), dts);
 	}
-}
+};
 
-async function compileAngularComponentsPartial() {
+const addJsExtensions = (content: string) =>
+	content.replace(
+		/from\s+(['"])(\.\.?\/[^'"]+)(\1)/g,
+		(match, quote, path) => {
+			if (!path.match(/\.(js|ts|mjs|cjs)$/)) {
+				return `from ${quote}${path}.js${quote}`;
+			}
+
+			return match;
+		}
+	);
+
+const logAngularErrorsAndExit = (errors: ts.Diagnostic[]) => {
+	console.error('Angular partial compilation errors:');
+	for (const diag of errors)
+		console.error(ts.flattenDiagnosticMessageText(diag.messageText, '\n'));
+	process.exit(1);
+};
+
+const compileAngularComponentsPartial = async () => {
 	const { readConfiguration, performCompilation, EmitFlags } = await import(
 		'@angular/compiler-cli'
 	);
@@ -209,7 +281,8 @@ async function compileAngularComponentsPartial() {
 	await mkdir(srcDir, { recursive: true });
 
 	const srcFiles = await readdir('src/angular/components');
-	for (const file of srcFiles.filter((f) => f.endsWith('.ts'))) {
+	for (const file of srcFiles.filter((entry) => entry.endsWith('.ts'))) {
+		// eslint-disable-next-line no-await-in-loop
 		let content = await Bun.file(
 			join('src', 'angular', 'components', file)
 		).text();
@@ -217,13 +290,12 @@ async function compileAngularComponentsPartial() {
 			/from\s+(['"])\.\.\/\.\.\/utils\/imageProcessing['"]/g,
 			'from $1@absolutejs/absolute/image$1'
 		);
+		// eslint-disable-next-line no-await-in-loop
 		await Bun.write(join(srcDir, file), content);
 	}
 
 	const config = readConfiguration('./tsconfig.json');
-	const options = {
-		...config.options,
-		compilationMode: 'partial' as const,
+	const tsOptions: ts.CompilerOptions = {
 		declaration: false,
 		emitDecoratorMetadata: true,
 		experimentalDecorators: true,
@@ -237,7 +309,13 @@ async function compileAngularComponentsPartial() {
 		target: ts.ScriptTarget.ES2022
 	};
 
-	const host = ts.createCompilerHost(options);
+	const options = {
+		...config.options,
+		...tsOptions,
+		compilationMode: 'partial' as const
+	};
+
+	const host = ts.createCompilerHost(tsOptions);
 
 	// Capture only files emitted from our source dir (not external deps like imageClient)
 	const emitted: Record<string, string> = {};
@@ -253,8 +331,8 @@ async function compileAngularComponentsPartial() {
 	};
 
 	const rootNames = srcFiles
-		.filter((f) => f.endsWith('.ts'))
-		.map((f) => resolve(srcDir, f));
+		.filter((entry) => entry.endsWith('.ts'))
+		.map((entry) => resolve(srcDir, entry));
 
 	const { diagnostics } = performCompilation({
 		emitFlags: EmitFlags.Default,
@@ -264,66 +342,48 @@ async function compileAngularComponentsPartial() {
 	});
 
 	const errors = diagnostics.filter(
-		(d: ts.Diagnostic) => d.category === ts.DiagnosticCategory.Error
+		(diag: ts.Diagnostic) => diag.category === ts.DiagnosticCategory.Error
 	);
-	if (errors.length > 0) {
-		console.error('Angular partial compilation errors:');
-		for (const d of errors) {
-			console.error(ts.flattenDiagnosticMessageText(d.messageText, '\n'));
-		}
-		process.exit(1);
-	}
+	if (errors.length > 0) logAngularErrorsAndExit(errors);
 
 	// Copy emitted JS files to final dir, adding .js extensions to relative imports
 	for (const [fileName, content] of Object.entries(emitted)) {
 		if (!fileName.endsWith('.js')) continue;
-		const processed = content.replace(
-			/from\s+(['"])(\.\.?\/[^'"]+)(\1)/g,
-			(match, quote, path) => {
-				if (!path.match(/\.(js|ts|mjs|cjs)$/)) {
-					return `from ${quote}${path}.js${quote}`;
-				}
-				return match;
-			}
-		);
+		const processed = addJsExtensions(content);
+		// eslint-disable-next-line no-await-in-loop
 		await writeFile(join(finalDir, fileName), processed);
 	}
 
 	// Clean up temp dir
-	await rm(tmpDir, { recursive: true, force: true });
-}
+	await rm(tmpDir, { force: true, recursive: true });
+};
 
-async function verifyExports() {
+const verifyExports = async () => {
 	const pkg = await Bun.file('package.json').json();
-	const exports = pkg.exports as Record<
-		string,
-		{ import?: string; types?: string }
-	>;
+	const exports: Record<string, { import?: string; types?: string }> =
+		pkg.exports ?? {};
 	const missing: string[] = [];
 
 	for (const [key, value] of Object.entries(exports)) {
-		if (value.import) {
-			const path = value.import.replace('./', '');
-			const file = Bun.file(path);
-			if (!(await file.exists())) {
-				missing.push(`${key} → ${value.import}`);
-			}
-		}
+		if (!value.import) continue;
+		const importPath = value.import.replace('./', '');
+		const importFile = Bun.file(importPath);
+		// eslint-disable-next-line no-await-in-loop
+		if (!(await importFile.exists()))
+			missing.push(`${key} → ${value.import}`);
 	}
 
 	if (pkg.main) {
 		const mainPath = pkg.main.replace('./', '');
-		const file = Bun.file(mainPath);
-		if (!(await file.exists())) {
-			missing.push(`main → ${pkg.main}`);
-		}
+		const mainFile = Bun.file(mainPath);
+		if (!(await mainFile.exists())) missing.push(`main → ${pkg.main}`);
 	}
 
 	if (missing.length > 0) {
 		console.error('\nExport verification failed! Missing files:');
-		for (const m of missing) console.error(`  ${m}`);
+		for (const msg of missing) console.error(`  ${msg}`);
 		process.exit(1);
 	}
-}
+};
 
 build();

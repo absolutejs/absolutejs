@@ -20,43 +20,41 @@ const isExcluded = (path: string, patterns: (string | RegExp)[]) => {
 	return false;
 };
 
-const isPageRoute = async (serverUrl: string, path: string) => {
-	try {
-		const res = await fetch(`${serverUrl}${path}`, {
-			method: 'HEAD',
-			redirect: 'manual'
-		});
-		const contentType = res.headers.get('content-type') ?? '';
+const PAGE_HANDLER_NAMES = [
+	'handleReactPageRequest',
+	'handleSveltePageRequest',
+	'handleVuePageRequest',
+	'handleAngularPageRequest',
+	'handleHTMLPageRequest',
+	'handleHTMXPageRequest'
+];
 
-		return contentType.includes('text/html');
-	} catch {
-		return false;
-	}
+const isPageHandler = (handler: unknown) => {
+	if (typeof handler !== 'function') return false;
+	const source = handler.toString();
+
+	return PAGE_HANDLER_NAMES.some((name) => source.includes(name));
 };
 
-const discoverPageRoutes = async (
-	routes: { method: string; path: string }[],
-	serverUrl: string,
+const discoverPageRoutes = (
+	routes: { method: string; path: string; handler?: unknown }[],
 	exclude: (string | RegExp)[]
 ) => {
 	const seen = new Set<string>();
-	const candidates = routes.filter((route) => {
-		if (route.method !== 'GET') return false;
-		if (route.path.includes('*') || route.path.includes(':')) return false;
-		if (seen.has(route.path)) return false;
-		if (isExcluded(route.path, exclude)) return false;
 
-		seen.add(route.path);
+	return routes
+		.filter((route) => {
+			if (route.method !== 'GET') return false;
+			if (route.path.includes('*') || route.path.includes(':'))
+				return false;
+			if (seen.has(route.path)) return false;
+			if (isExcluded(route.path, exclude)) return false;
+			if (!isPageHandler(route.handler)) return false;
 
-		return true;
-	});
+			seen.add(route.path);
 
-	const results = await Promise.all(
-		candidates.map((route) => isPageRoute(serverUrl, route.path))
-	);
-
-	return candidates
-		.filter((_, index) => results[index])
+			return true;
+		})
 		.map((route) => route.path);
 };
 
@@ -97,17 +95,13 @@ const buildSitemapXml = (
 };
 
 export const generateSitemap = async (
-	routes: { method: string; path: string }[],
+	routes: { method: string; path: string; handler?: unknown }[],
 	serverUrl: string,
 	outDir: string,
 	config: SitemapConfig = {}
 ) => {
 	const exclude = config.exclude ?? [];
-	const discoveredRoutes = await discoverPageRoutes(
-		routes,
-		serverUrl,
-		exclude
-	);
+	const discoveredRoutes = discoverPageRoutes(routes, exclude);
 
 	const dynamicRoutes = config.routes ? await config.routes() : [];
 	const filteredDynamic = dynamicRoutes.filter(

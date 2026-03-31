@@ -25,10 +25,11 @@ const findBin = (name: string) => {
 	return existsSync(local) ? local : null;
 };
 
+// eslint-disable-next-line no-control-regex
 const stripAnsi = (str: string) => str.replace(/\x1b\[[0-9;]*m/g, '');
 
 const formatSvelteOutput = (output: string) => {
-	const cwd = process.cwd() + '/';
+	const cwd = `${process.cwd()}/`;
 
 	// Extract error count for summary
 	const summaryMatch = stripAnsi(output).match(
@@ -52,7 +53,7 @@ const formatSvelteOutput = (output: string) => {
 		})
 		.flatMap((line) => {
 			// Strip cwd prefix
-			let result = line.replaceAll(cwd, '');
+			const result = line.replaceAll(cwd, '');
 
 			// Recolor file paths to match tsc/vue-tsc style (cyan file, yellow line:col)
 			const plain = stripAnsi(result);
@@ -70,25 +71,25 @@ const formatSvelteOutput = (output: string) => {
 				const before = stripAnsi(result.split('\x1b[35m')[0] ?? '');
 				const token = stripAnsi(
 					(result.split('\x1b[35m')[1] ?? '').split(
-						/\x1b\[3[69]m/
+						/\x1b\[3[69]m/ // eslint-disable-line no-control-regex
 					)[0] ?? ''
 				);
-				if (token) {
-					// Expand tabs to match terminal display
-					const expanded = before.replace(/\t/g, '        ');
-					const expandedLine = plainLine.replace(/\t/g, '        ');
-					const underline = '~'.repeat(token.length);
+				if (!token) return [result];
 
-					return [
-						`\x1b[0m${expandedLine}`,
-						`${' '.repeat(expanded.length)}\x1b[91m${underline}\x1b[0m`
-					];
-				}
+				// Expand tabs to match terminal display
+				const expanded = before.replace(/\t/g, '        ');
+				const expandedLine = plainLine.replace(/\t/g, '        ');
+				const underline = '~'.repeat(token.length);
+
+				return [
+					`\x1b[0m${expandedLine}`,
+					`${' '.repeat(expanded.length)}\x1b[91m${underline}\x1b[0m`
+				];
 			}
 
 			// Skip context lines (cyan code blocks surrounding the error line)
 			if (
-				/^\x1b\[36m|\t/.test(result) &&
+				/^\x1b\[36m|\t/.test(result) && // eslint-disable-line no-control-regex
 				!result.includes('Error') &&
 				!result.includes('\x1b[35m')
 			) {
@@ -100,12 +101,86 @@ const formatSvelteOutput = (output: string) => {
 		.join('\n');
 
 	if (errorCount > 0) {
-		const s = errorCount === 1 ? '' : 's';
+		const suffix = errorCount === 1 ? '' : 's';
 
-		return `${formatted}\n\nFound ${errorCount} error${s}.`;
+		return `${formatted}\n\nFound ${errorCount} error${suffix}.`;
 	}
 
 	return formatted;
+};
+
+const buildVueTscCheck = (cacheDir: string) => {
+	const vueTscBin = findBin('vue-tsc');
+	if (!vueTscBin) {
+		console.error(
+			'\x1b[31m✗\x1b[0m vue-tsc is required for Vue type checking. Install it: bun add -d vue-tsc'
+		);
+		process.exit(1);
+	}
+
+	return run('vue-tsc', [
+		vueTscBin,
+		'--noEmit',
+		'--incremental',
+		'--tsBuildInfoFile',
+		join(cacheDir, 'vue-tsc.tsbuildinfo'),
+		'--pretty'
+	]);
+};
+
+const buildTscCheck = (cacheDir: string) => {
+	const tscBin = findBin('tsc');
+	if (!tscBin) {
+		console.error(
+			'\x1b[31m✗\x1b[0m typescript is required for type checking. Install it: bun add -d typescript'
+		);
+		process.exit(1);
+	}
+
+	return run('tsc', [
+		tscBin,
+		'--noEmit',
+		'--incremental',
+		'--tsBuildInfoFile',
+		join(cacheDir, 'tsc.tsbuildinfo'),
+		'--pretty'
+	]);
+};
+
+const buildSvelteCheck = async (cacheDir: string, svelteDir: string) => {
+	const svelteBin = findBin('svelte-check');
+	if (!svelteBin) {
+		console.error(
+			'\x1b[31m✗\x1b[0m svelte-check is required for Svelte type checking. Install it: bun add -d svelte-check'
+		);
+		process.exit(1);
+	}
+
+	const svelteTsconfigPath = join(cacheDir, 'tsconfig.svelte-check.json');
+	await writeFile(
+		svelteTsconfigPath,
+		JSON.stringify(
+			{
+				extends: resolve('tsconfig.json'),
+				include: [`../${svelteDir}/**/*`]
+			},
+			null,
+			'\t'
+		)
+	);
+
+	return run('svelte-check', [
+		svelteBin,
+		'--tsconfig',
+		resolve(svelteTsconfigPath),
+		'--threshold',
+		'error',
+		'--compiler-warnings',
+		'css-unused-selector:ignore',
+		'--output',
+		'human-verbose',
+		'--color'
+	]);
 };
 
 export const typecheck = async (configPath?: string) => {
@@ -120,100 +195,32 @@ export const typecheck = async (configPath?: string) => {
 	// vue-tsc is a superset of tsc — it checks .ts, .tsx, AND .vue files.
 	// Any .ts file can import from .vue, so vue-tsc must check everything
 	// when Vue is present. When Vue is absent, plain tsc suffices.
-	if (hasVue) {
-		const vueTscBin = findBin('vue-tsc');
-		if (!vueTscBin) {
-			console.error(
-				'\x1b[31m✗\x1b[0m vue-tsc is required for Vue type checking. Install it: bun add -d vue-tsc'
-			);
-			process.exit(1);
-		}
-		checks.push(
-			run('vue-tsc', [
-				vueTscBin,
-				'--noEmit',
-				'--incremental',
-				'--tsBuildInfoFile',
-				join(cacheDir, 'vue-tsc.tsbuildinfo'),
-				'--pretty'
-			])
-		);
-	} else {
-		const tscBin = findBin('tsc');
-		if (!tscBin) {
-			console.error(
-				'\x1b[31m✗\x1b[0m typescript is required for type checking. Install it: bun add -d typescript'
-			);
-			process.exit(1);
-		}
-		checks.push(
-			run('tsc', [
-				tscBin,
-				'--noEmit',
-				'--incremental',
-				'--tsBuildInfoFile',
-				join(cacheDir, 'tsc.tsbuildinfo'),
-				'--pretty'
-			])
-		);
-	}
+	checks.push(hasVue ? buildVueTscCheck(cacheDir) : buildTscCheck(cacheDir));
 
 	// svelte-check scoped to the Svelte directory only
 	if (hasSvelte) {
-		const svelteBin = findBin('svelte-check');
-		if (!svelteBin) {
-			console.error(
-				'\x1b[31m✗\x1b[0m svelte-check is required for Svelte type checking. Install it: bun add -d svelte-check'
-			);
-			process.exit(1);
-		}
-
-		const svelteTsconfigPath = join(cacheDir, 'tsconfig.svelte-check.json');
-		await writeFile(
-			svelteTsconfigPath,
-			JSON.stringify(
-				{
-					extends: resolve('tsconfig.json'),
-					include: [`../${config.svelteDirectory}/**/*`]
-				},
-				null,
-				'\t'
-			)
-		);
-
-		checks.push(
-			run('svelte-check', [
-				svelteBin,
-				'--tsconfig',
-				resolve(svelteTsconfigPath),
-				'--threshold',
-				'error',
-				'--compiler-warnings',
-				'css-unused-selector:ignore',
-				'--output',
-				'human-verbose',
-				'--color'
-			])
-		);
+		checks.push(buildSvelteCheck(cacheDir, config.svelteDirectory ?? ''));
 	}
 
 	const results = await Promise.all(checks);
-	const failed = results.filter((r) => r.exitCode !== 0);
+	const failed = results.filter((res) => res.exitCode !== 0);
 
-	if (failed.length > 0) {
-		for (const result of failed) {
-			console.error(`\n\x1b[31m[${result.name}]\x1b[0m`);
-			if (result.name === 'svelte-check') {
-				console.error(formatSvelteOutput(result.output));
-			} else {
-				console.error(result.output);
-			}
-		}
-		console.error(
-			`\n\x1b[31m✗\x1b[0m Typecheck failed: ${failed.map((r) => r.name).join(', ')}`
-		);
-		process.exit(1);
+	if (failed.length === 0) {
+		console.log('\x1b[32m✓\x1b[0m Typecheck passed');
+
+		return;
 	}
 
-	console.log('\x1b[32m✓\x1b[0m Typecheck passed');
+	for (const result of failed) {
+		console.error(`\n\x1b[31m[${result.name}]\x1b[0m`);
+		const output =
+			result.name === 'svelte-check'
+				? formatSvelteOutput(result.output)
+				: result.output;
+		console.error(output);
+	}
+	console.error(
+		`\n\x1b[31m✗\x1b[0m Typecheck failed: ${failed.map((res) => res.name).join(', ')}`
+	);
+	process.exit(1);
 };

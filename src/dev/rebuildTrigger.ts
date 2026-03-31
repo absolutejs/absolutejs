@@ -2746,11 +2746,12 @@ const performFullRebuild = async (
 		}
 	};
 
-	const manifest = await build(buildConfig);
+	const buildResult = await build(buildConfig);
 
-	if (!manifest) {
+	if (!buildResult?.manifest) {
 		throw new Error('Build failed - no manifest generated');
 	}
+	const { manifest } = buildResult;
 
 	const duration = Date.now() - startTime;
 

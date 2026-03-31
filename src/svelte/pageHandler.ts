@@ -1,5 +1,9 @@
 import type { Component as SvelteComponent } from 'svelte';
 import { ssrErrorPage } from '../utils/ssrErrorPage';
+import {
+	derivePageName,
+	renderConventionError
+} from '../utils/resolveConvention';
 
 let ssrDirty = false;
 
@@ -64,6 +68,14 @@ export const handleSveltePageRequest: HandleSveltePageRequest = async <
 		});
 	} catch (error) {
 		console.error('[SSR] Svelte render error:', error);
+
+		const pageName = derivePageName(pagePath);
+		const conventionResponse = await renderConventionError(
+			'svelte',
+			pageName,
+			error
+		);
+		if (conventionResponse) return conventionResponse;
 
 		return new Response(ssrErrorPage('svelte', error), {
 			headers: { 'Content-Type': 'text/html' },

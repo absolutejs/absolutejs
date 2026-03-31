@@ -129,13 +129,13 @@ export class ImageComponent {
 	readonly srcSet = computed(() =>
 		this.unoptimized()
 			? null
-			: generateSrcSet(
+			: (generateSrcSet(
 					this.src(),
 					this.width(),
 					this.sizes(),
 					undefined,
 					this.loader() ?? undefined
-				) ?? null
+				) ?? null)
 	);
 
 	readonly resolvedSrcSet = computed(() => this.srcSet() ?? null);
@@ -144,9 +144,7 @@ export class ImageComponent {
 		() => this.sizes() ?? (this.fill() ? '100vw' : null)
 	);
 
-	readonly resolvedCrossOrigin = computed(
-		() => this.crossOrigin() ?? null
-	);
+	readonly resolvedCrossOrigin = computed(() => this.crossOrigin() ?? null);
 
 	readonly resolvedReferrerPolicy = computed(
 		() => this.referrerPolicy() ?? null

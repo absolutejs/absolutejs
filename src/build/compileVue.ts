@@ -239,13 +239,13 @@ const compileVueFile = async (
 
 	// Resolve bare module imports that point to .vue files
 	const resolvedPackageVueImports = new Map<string, string>();
-	for (const importPath of importPaths) {
-		if (!importPath.startsWith('.') && !importPath.startsWith('/')) {
-			const resolved = resolvePackageImport(importPath);
-			if (resolved?.endsWith('.vue')) {
-				resolvedPackageVueImports.set(importPath, resolved);
-			}
-		}
+	const bareImports = importPaths.filter(
+		(p) => !p.startsWith('.') && !p.startsWith('/')
+	);
+	for (const importPath of bareImports) {
+		const resolved = resolvePackageImport(importPath);
+		if (!resolved?.endsWith('.vue')) continue;
+		resolvedPackageVueImports.set(importPath, resolved);
 	}
 
 	const childComponentPaths = importPaths.filter(
@@ -285,7 +285,7 @@ const compileVueFile = async (
 				id: componentId,
 				inlineTemplate: false
 			})
-		: { content: 'export default {};', bindings: {} };
+		: { bindings: {}, content: 'export default {};' };
 	const strippedScript = stripExports(compiledScript.content);
 	const transpiledScript = transpiler
 		.transformSync(strippedScript)
@@ -299,12 +299,12 @@ const compileVueFile = async (
 	const packageImportRewrites = new Map<string, { client: string; server: string }>();
 	for (const [bareImport, absolutePath] of packageComponentPaths) {
 		const childResult = cacheMap.get(absolutePath);
-		if (childResult) {
-			packageImportRewrites.set(bareImport, {
-				client: childResult.clientPath,
-				server: childResult.serverPath
-			});
-		}
+		if (!childResult) continue;
+
+		packageImportRewrites.set(bareImport, {
+			client: childResult.clientPath,
+			server: childResult.serverPath
+		});
 	}
 
 	const generateRenderFunction = (ssr: boolean) =>
@@ -446,6 +446,7 @@ if (typeof __VUE_HMR_RUNTIME__ !== 'undefined') {
 			if (!rel.startsWith('.')) rel = `./${rel}`;
 			result = result.replaceAll(bareImport, rel);
 		}
+
 		return result;
 	};
 

@@ -1,4 +1,4 @@
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { StaticConfig } from '../../types/build';
 
@@ -10,6 +10,12 @@ export type PrerenderResult = {
 };
 
 type LogFn = (message: string) => void;
+
+/** Maximum number of attempts to poll the server during startup */
+const MAX_STARTUP_ATTEMPTS = 50;
+
+/** Milliseconds between each startup readiness poll */
+const STARTUP_POLL_INTERVAL_MS = 100;
 
 /** Header used to bypass the prerender cache during ISR re-renders */
 export const PRERENDER_BYPASS_HEADER = 'X-Absolute-Prerender-Bypass';
@@ -25,55 +31,67 @@ const writeTimestamp = async (htmlPath: string) => {
 };
 
 /** Read the render timestamp for a pre-rendered page. Returns 0 if not found. */
-export const readTimestamp = (htmlPath: string): number => {
+export const readTimestamp = (htmlPath: string) => {
 	const metaPath = htmlPath.replace(/\.html$/, '.meta');
 	try {
-		const content = require('node:fs').readFileSync(metaPath, 'utf-8');
+		const content = readFileSync(metaPath, 'utf-8');
+
 		return Number(content) || 0;
 	} catch {
 		return 0;
 	}
 };
 
+/** Extract internal <a href> links from an HTML string */
+const extractLinks = (html: string, visited: Set<string>) => {
+	const links: string[] = [];
+	const linkRegex = /href=["'](\/[^"']*?)["']/g;
+	let match;
+	while ((match = linkRegex.exec(html)) !== null) {
+		const href = match[1] ?? '';
+		if (
+			!href ||
+			href.includes('.') ||
+			href.includes('#') ||
+			visited.has(href)
+		)
+			continue;
+		links.push(href);
+	}
+
+	return links;
+};
+
+/** Fetch a single route and return its HTML if it's a valid HTML page */
+const fetchRoute = async (baseUrl: string, path: string) => {
+	const res = await fetch(`${baseUrl}${path}`);
+	if (!res.ok) return null;
+
+	const contentType = res.headers.get('content-type') ?? '';
+	if (!contentType.includes('text/html')) return null;
+
+	return res.text();
+};
+
 /**
  * Crawl from "/" and discover all linked pages by following internal <a href> links.
  */
-const crawlRoutes = async (baseUrl: string): Promise<string[]> => {
+const crawlRoutes = async (baseUrl: string) => {
 	const visited = new Set<string>();
 	const queue: string[] = ['/'];
 	const routes: string[] = [];
 
 	while (queue.length > 0) {
-		const path = queue.shift()!;
-		if (visited.has(path)) continue;
+		const path = queue.shift();
+		if (!path || visited.has(path)) continue;
 		visited.add(path);
 
-		try {
-			const res = await fetch(`${baseUrl}${path}`);
-			if (!res.ok) continue;
+		// eslint-disable-next-line no-await-in-loop -- sequential crawl: each page discovers new links for the queue
+		const html = await fetchRoute(baseUrl, path).catch(() => null);
+		if (!html) continue;
 
-			const contentType = res.headers.get('content-type') ?? '';
-			if (!contentType.includes('text/html')) continue;
-
-			const html = await res.text();
-			routes.push(path);
-
-			const linkRegex = /href=["'](\/[^"']*?)["']/g;
-			let match;
-			while ((match = linkRegex.exec(html)) !== null) {
-				const href = match[1] ?? '';
-				if (
-					!href ||
-					href.includes('.') ||
-					href.includes('#') ||
-					visited.has(href)
-				)
-					continue;
-				queue.push(href);
-			}
-		} catch {
-			/* skip failed routes */
-		}
+		routes.push(path);
+		queue.push(...extractLinks(html, visited));
 	}
 
 	return routes;
@@ -87,7 +105,7 @@ export const rerenderRoute = async (
 	route: string,
 	port: number,
 	prerenderDir: string
-): Promise<boolean> => {
+) => {
 	try {
 		const res = await fetch(`http://localhost:${port}${route}`, {
 			headers: { [PRERENDER_BYPASS_HEADER]: '1' }
@@ -99,10 +117,41 @@ export const rerenderRoute = async (
 		const filePath = join(prerenderDir, fileName);
 		await Bun.write(filePath, html);
 		await writeTimestamp(filePath);
+
 		return true;
 	} catch {
 		return false;
 	}
+};
+
+/** Fetch, render, and save a single route during pre-rendering */
+const prerenderRoute = async (
+	baseUrl: string,
+	route: string,
+	prerenderDir: string,
+	result: PrerenderResult,
+	log?: LogFn
+) => {
+	const res = await fetch(`${baseUrl}${route}`).catch(() => null);
+	if (!res) {
+		log?.(`  Failed to pre-render ${route}`);
+
+		return;
+	}
+	if (!res.ok) {
+		log?.(`  Skipped ${route} (HTTP ${res.status})`);
+
+		return;
+	}
+
+	const html = await res.text();
+	const fileName = routeToFilename(route);
+	const filePath = join(prerenderDir, fileName);
+	await Bun.write(filePath, html);
+	await writeTimestamp(filePath);
+	result.routes.set(route, filePath);
+
+	log?.(`  Pre-rendered ${route} → ${fileName} (${html.length} bytes)`);
 };
 
 /**
@@ -115,7 +164,7 @@ export const prerender = async (
 	outDir: string,
 	staticConfig: StaticConfig,
 	log?: LogFn
-): Promise<PrerenderResult> => {
+) => {
 	const prerenderDir = join(outDir, '_prerendered');
 	mkdirSync(prerenderDir, { recursive: true });
 
@@ -126,38 +175,33 @@ export const prerender = async (
 		log?.('Crawling routes...');
 		routes = await crawlRoutes(baseUrl);
 	} else {
-		routes = staticConfig.routes;
+		({ routes } = staticConfig);
 	}
 
 	const result: PrerenderResult = {
-		routes: new Map(),
-		dir: prerenderDir
+		dir: prerenderDir,
+		routes: new Map()
 	};
 
 	for (const route of routes) {
-		try {
-			const res = await fetch(`${baseUrl}${route}`);
-			if (!res.ok) {
-				log?.(`  Skipped ${route} (HTTP ${res.status})`);
-				continue;
-			}
-
-			const html = await res.text();
-			const fileName = routeToFilename(route);
-			const filePath = join(prerenderDir, fileName);
-			await Bun.write(filePath, html);
-			await writeTimestamp(filePath);
-			result.routes.set(route, filePath);
-
-			log?.(
-				`  Pre-rendered ${route} → ${fileName} (${html.length} bytes)`
-			);
-		} catch {
-			log?.(`  Failed to pre-render ${route}`);
-		}
+		// eslint-disable-next-line no-await-in-loop -- sequential pre-rendering to avoid overwhelming the server
+		await prerenderRoute(baseUrl, route, prerenderDir, result, log);
 	}
 
 	return result;
+};
+
+/** Poll the server until it responds with HTTP 200 or we exhaust attempts */
+const waitForServerReady = async (port: number) => {
+	for (let attempt = 0; attempt < MAX_STARTUP_ATTEMPTS; attempt++) {
+		// eslint-disable-next-line no-await-in-loop -- sequential polling: must wait for server readiness
+		const res = await fetch(`http://localhost:${port}/`).catch(() => null);
+		if (res?.ok) return true;
+		// eslint-disable-next-line no-await-in-loop -- sequential polling: must wait between attempts
+		await Bun.sleep(STARTUP_POLL_INTERVAL_MS);
+	}
+
+	return false;
 };
 
 /**
@@ -171,27 +215,15 @@ export const prerenderWithServer = async (
 	staticConfig: StaticConfig,
 	env: Record<string, string>,
 	log?: LogFn
-): Promise<PrerenderResult> => {
+) => {
 	const serverProcess = Bun.spawn(['bun', 'run', serverBundlePath], {
 		cwd: process.cwd(),
 		env: { ...process.env, ...env, PORT: String(port) },
-		stdout: 'pipe',
-		stderr: 'pipe'
+		stderr: 'pipe',
+		stdout: 'pipe'
 	});
 
-	let ready = false;
-	for (let i = 0; i < 50; i++) {
-		try {
-			const res = await fetch(`http://localhost:${port}/`);
-			if (res.ok) {
-				ready = true;
-				break;
-			}
-		} catch {
-			/* not ready yet */
-		}
-		await Bun.sleep(100);
-	}
+	const ready = await waitForServerReady(port);
 
 	if (!ready) {
 		serverProcess.kill();

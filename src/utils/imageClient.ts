@@ -41,6 +41,13 @@ const snapToSize = (target: number, sizes: number[]) => {
 	return sizes[sizes.length - 1] ?? target;
 };
 
+export const generateBlurSvg = (base64Thumbnail: string) => {
+	const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320"><filter id="b" color-interpolation-filters="sRGB"><feGaussianBlur stdDeviation="20"/><feColorMatrix values="1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 100 -1"/></filter><image filter="url(#b)" x="0" y="0" width="100%" height="100%" href="${base64Thumbnail}"/></svg>`;
+
+	const encoded = encodeURIComponent(svg);
+
+	return `url("data:image/svg+xml,${encoded}")`;
+};
 export const generateSrcSet = (
 	src: string,
 	width: number | undefined,
@@ -66,7 +73,7 @@ export const generateSrcSet = (
 
 		const w1x = snapToSize(width, allSizes);
 
-		const w2x = snapToSize(width * 2, allSizes); // eslint-disable-line no-magic-numbers
+		const w2x = snapToSize(width * 2, allSizes);
 
 		return `${buildOptimizedUrl(src, w1x, quality)} 1x, ${buildOptimizedUrl(src, w2x, quality)} 2x`;
 	}
@@ -79,12 +86,4 @@ export const generateSrcSet = (
 				`${buildOptimizedUrl(src, sizeWidth, quality)} ${sizeWidth}w`
 		)
 		.join(', ');
-};
-
-export const generateBlurSvg = (base64Thumbnail: string) => {
-	const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320"><filter id="b" color-interpolation-filters="sRGB"><feGaussianBlur stdDeviation="20"/><feColorMatrix values="1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 100 -1"/></filter><image filter="url(#b)" x="0" y="0" width="100%" height="100%" href="${base64Thumbnail}"/></svg>`;
-
-	const encoded = encodeURIComponent(svg);
-
-	return `url("data:image/svg+xml,${encoded}")`;
 };

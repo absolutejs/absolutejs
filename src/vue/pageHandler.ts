@@ -1,5 +1,9 @@
 import type { Component as VueComponent } from 'vue';
 import { ssrErrorPage } from '../utils/ssrErrorPage';
+import {
+	derivePageName,
+	renderConventionError
+} from '../utils/resolveConvention';
 
 let ssrDirty = false;
 
@@ -75,6 +79,14 @@ export const handleVuePageRequest = async <
 		});
 	} catch (error) {
 		console.error('[SSR] Vue render error:', error);
+
+		const pageName = derivePageName(pagePath);
+		const conventionResponse = await renderConventionError(
+			'vue',
+			pageName,
+			error
+		);
+		if (conventionResponse) return conventionResponse;
 
 		return new Response(ssrErrorPage('vue', error), {
 			headers: { 'Content-Type': 'text/html' },

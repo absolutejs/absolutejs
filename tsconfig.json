@@ -33,5 +33,12 @@
 		"example/dist",
 		"**/generated/**"
 	],
-	"include": ["src/**/*", "types/**/*", "example/**/*", "tests/**/*"]
+	"include": [
+		"src/**/*",
+		"types/**/*",
+		"example/**/*",
+		"tests/**/*",
+		"test/**/*",
+		"scripts/**/*"
+	]
 }

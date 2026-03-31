@@ -25,6 +25,7 @@ declare global {
 		| {
 				hmrState: import('../src/dev/clientManager').HMRState;
 				manifest: Record<string, string>;
+				conventions?: import('./conventions').ConventionsMap;
 		  }
 		| undefined;
 

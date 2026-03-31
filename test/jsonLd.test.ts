@@ -1,3 +1,4 @@
+/* eslint-disable no-magic-numbers */
 import { describe, expect, it } from 'bun:test';
 import { jsonLd } from '../src/utils/jsonLd';
 import type {
@@ -23,6 +24,8 @@ const extractJson = (html: string) => {
 		/<script type="application\/ld\+json">([\s\S]*?)<\/script>/
 	);
 	if (!match) throw new Error('No JSON-LD script tag found');
+
+	if (!match[1]) throw new Error('No JSON-LD content found');
 
 	return JSON.parse(match[1]);
 };
@@ -57,24 +60,24 @@ describe('jsonLd', () => {
 	it('Article with full properties', () => {
 		const schema: ArticleSchema = {
 			'@type': 'Article',
-			headline: 'How to Build a Framework',
 			author: {
 				'@type': 'Person',
 				name: 'Alex Kahn',
 				url: 'https://alexkahn.dev'
 			},
-			datePublished: '2026-03-28T00:00:00Z',
 			dateModified: '2026-03-28T12:00:00Z',
+			datePublished: '2026-03-28T00:00:00Z',
+			description: 'A guide to building web frameworks',
+			headline: 'How to Build a Framework',
 			image: [
 				'https://example.com/image-1x1.jpg',
 				'https://example.com/image-4x3.jpg',
 				'https://example.com/image-16x9.jpg'
 			],
-			description: 'A guide to building web frameworks',
 			publisher: {
 				'@type': 'Organization',
-				name: 'AbsoluteJS',
-				logo: 'https://example.com/logo.png'
+				logo: 'https://example.com/logo.png',
+				name: 'AbsoluteJS'
 			}
 		};
 		const data = extractJson(jsonLd(schema));
@@ -91,8 +94,8 @@ describe('jsonLd', () => {
 	it('BlogPosting subtype', () => {
 		const schema: ArticleSchema = {
 			'@type': 'BlogPosting',
-			headline: 'My Blog Post',
-			datePublished: '2026-03-28'
+			datePublished: '2026-03-28',
+			headline: 'My Blog Post'
 		};
 		const data = extractJson(jsonLd(schema));
 
@@ -102,30 +105,30 @@ describe('jsonLd', () => {
 	it('Product with offers and rating', () => {
 		const schema: ProductSchema = {
 			'@type': 'Product',
-			name: 'AbsoluteJS Pro',
-			image: 'https://example.com/product.jpg',
-			description: 'The ultimate framework',
-			sku: 'AJS-PRO-001',
-			brand: { '@type': 'Brand', name: 'AbsoluteJS' },
-			offers: {
-				'@type': 'Offer',
-				price: '99.99',
-				priceCurrency: 'USD',
-				availability: 'https://schema.org/InStock',
-				url: 'https://example.com/buy'
-			},
 			aggregateRating: {
 				'@type': 'AggregateRating',
-				ratingValue: 4.8,
 				bestRating: 5,
+				ratingValue: 4.8,
 				reviewCount: 142
+			},
+			brand: { '@type': 'Brand', name: 'AbsoluteJS' },
+			description: 'The ultimate framework',
+			image: 'https://example.com/product.jpg',
+			name: 'AbsoluteJS Pro',
+			offers: {
+				'@type': 'Offer',
+				availability: 'https://schema.org/InStock',
+				price: '99.99',
+				priceCurrency: 'USD',
+				url: 'https://example.com/buy'
 			},
 			review: {
 				'@type': 'Review',
 				author: { '@type': 'Person', name: 'Jane' },
-				reviewRating: { '@type': 'Rating', ratingValue: 5 },
-				reviewBody: 'Best framework ever'
-			}
+				reviewBody: 'Best framework ever',
+				reviewRating: { '@type': 'Rating', ratingValue: 5 }
+			},
+			sku: 'AJS-PRO-001'
 		};
 		const data = extractJson(jsonLd(schema));
 
@@ -159,17 +162,17 @@ describe('jsonLd', () => {
 			itemListElement: [
 				{
 					'@type': 'ListItem',
-					position: 1,
+					item: 'https://example.com/',
 					name: 'Home',
-					item: 'https://example.com/'
+					position: 1
 				},
 				{
 					'@type': 'ListItem',
-					position: 2,
+					item: 'https://example.com/blog',
 					name: 'Blog',
-					item: 'https://example.com/blog'
+					position: 2
 				},
-				{ '@type': 'ListItem', position: 3, name: 'My Post' }
+				{ '@type': 'ListItem', name: 'My Post', position: 3 }
 			]
 		};
 		const data = extractJson(jsonLd(schema));
@@ -186,19 +189,19 @@ describe('jsonLd', () => {
 			mainEntity: [
 				{
 					'@type': 'Question',
-					name: 'What is AbsoluteJS?',
 					acceptedAnswer: {
 						'@type': 'Answer',
 						text: 'A full-stack meta-framework for TypeScript.'
-					}
+					},
+					name: 'What is AbsoluteJS?'
 				},
 				{
 					'@type': 'Question',
-					name: 'Which frameworks does it support?',
 					acceptedAnswer: {
 						'@type': 'Answer',
 						text: 'React, Svelte, Vue, Angular, HTML, and HTMX.'
-					}
+					},
+					name: 'Which frameworks does it support?'
 				}
 			]
 		};
@@ -214,30 +217,30 @@ describe('jsonLd', () => {
 	it('Event', () => {
 		const schema: EventSchema = {
 			'@type': 'Event',
-			name: 'AbsoluteJS Conf 2026',
-			startDate: '2026-09-15T09:00:00-07:00',
-			endDate: '2026-09-16T17:00:00-07:00',
 			description: 'The first AbsoluteJS conference',
+			endDate: '2026-09-16T17:00:00-07:00',
 			location: {
 				'@type': 'Place',
-				name: 'Convention Center',
 				address: {
 					'@type': 'PostalAddress',
-					streetAddress: '123 Main St',
+					addressCountry: 'US',
 					addressLocality: 'San Francisco',
 					addressRegion: 'CA',
 					postalCode: '94105',
-					addressCountry: 'US'
-				}
+					streetAddress: '123 Main St'
+				},
+				name: 'Convention Center'
 			},
-			organizer: { '@type': 'Organization', name: 'AbsoluteJS Team' },
+			name: 'AbsoluteJS Conf 2026',
 			offers: {
 				'@type': 'Offer',
+				availability: 'https://schema.org/InStock',
 				price: '299',
 				priceCurrency: 'USD',
-				availability: 'https://schema.org/InStock',
 				url: 'https://example.com/tickets'
-			}
+			},
+			organizer: { '@type': 'Organization', name: 'AbsoluteJS Team' },
+			startDate: '2026-09-15T09:00:00-07:00'
 		};
 		const data = extractJson(jsonLd(schema));
 
@@ -251,13 +254,20 @@ describe('jsonLd', () => {
 	it('Recipe', () => {
 		const schema: RecipeSchema = {
 			'@type': 'Recipe',
-			name: 'Chocolate Chip Cookies',
-			image: 'https://example.com/cookies.jpg',
+			aggregateRating: {
+				'@type': 'AggregateRating',
+				ratingCount: 312,
+				ratingValue: 4.9
+			},
 			author: { '@type': 'Person', name: 'Chef Bob' },
-			prepTime: 'PT15M',
 			cookTime: 'PT12M',
-			totalTime: 'PT27M',
-			recipeYield: '24 cookies',
+			image: 'https://example.com/cookies.jpg',
+			name: 'Chocolate Chip Cookies',
+			nutrition: {
+				'@type': 'NutritionInformation',
+				calories: '210 calories'
+			},
+			prepTime: 'PT15M',
 			recipeIngredient: [
 				'2 cups flour',
 				'1 cup sugar',
@@ -268,15 +278,8 @@ describe('jsonLd', () => {
 				{ '@type': 'HowToStep', text: 'Add wet ingredients' },
 				{ '@type': 'HowToStep', text: 'Bake at 350F for 12 minutes' }
 			],
-			aggregateRating: {
-				'@type': 'AggregateRating',
-				ratingValue: 4.9,
-				ratingCount: 312
-			},
-			nutrition: {
-				'@type': 'NutritionInformation',
-				calories: '210 calories'
-			}
+			recipeYield: '24 cookies',
+			totalTime: 'PT27M'
 		};
 		const data = extractJson(jsonLd(schema));
 
@@ -291,11 +294,11 @@ describe('jsonLd', () => {
 	it('VideoObject', () => {
 		const schema: VideoObjectSchema = {
 			'@type': 'VideoObject',
-			name: 'AbsoluteJS Tutorial',
 			description: 'Learn AbsoluteJS in 10 minutes',
-			thumbnailUrl: 'https://example.com/thumb.jpg',
-			embedUrl: 'https://youtube.com/embed/abc123',
 			duration: 'PT10M30S',
+			embedUrl: 'https://youtube.com/embed/abc123',
+			name: 'AbsoluteJS Tutorial',
+			thumbnailUrl: 'https://example.com/thumb.jpg',
 			uploadDate: '2026-03-28'
 		};
 		const data = extractJson(jsonLd(schema));
@@ -338,25 +341,24 @@ describe('jsonLd', () => {
 	it('LocalBusiness', () => {
 		const schema: LocalBusinessSchema = {
 			'@type': 'LocalBusiness',
-			name: "Joe's Coffee Shop",
 			address: {
 				'@type': 'PostalAddress',
-				streetAddress: '456 Oak Ave',
+				addressCountry: 'US',
 				addressLocality: 'Portland',
 				addressRegion: 'OR',
 				postalCode: '97201',
-				addressCountry: 'US'
+				streetAddress: '456 Oak Ave'
 			},
-			telephone: '+1-503-555-0100',
-			priceRange: '$$',
 			geo: {
 				'@type': 'GeoCoordinates',
 				latitude: 45.5231,
 				longitude: -122.6765
 			},
+			name: "Joe's Coffee Shop",
 			openingHoursSpecification: [
 				{
 					'@type': 'OpeningHoursSpecification',
+					closes: '18:00',
 					dayOfWeek: [
 						'Monday',
 						'Tuesday',
@@ -364,16 +366,17 @@ describe('jsonLd', () => {
 						'Thursday',
 						'Friday'
 					],
-					opens: '06:00',
-					closes: '18:00'
+					opens: '06:00'
 				},
 				{
 					'@type': 'OpeningHoursSpecification',
+					closes: '15:00',
 					dayOfWeek: ['Saturday', 'Sunday'],
-					opens: '07:00',
-					closes: '15:00'
+					opens: '07:00'
 				}
-			]
+			],
+			priceRange: '$$',
+			telephone: '+1-503-555-0100'
 		};
 		const data = extractJson(jsonLd(schema));
 
@@ -387,20 +390,20 @@ describe('jsonLd', () => {
 	it('SoftwareApplication', () => {
 		const schema: SoftwareApplicationSchema = {
 			'@type': 'SoftwareApplication',
-			name: 'AbsoluteJS',
-			description: 'A full-stack meta-framework',
-			operatingSystem: 'WINDOWS, MAC, LINUX',
+			aggregateRating: {
+				'@type': 'AggregateRating',
+				ratingCount: 500,
+				ratingValue: 4.9
+			},
 			applicationCategory: 'DeveloperApplication',
+			description: 'A full-stack meta-framework',
+			name: 'AbsoluteJS',
 			offers: {
 				'@type': 'Offer',
 				price: '0',
 				priceCurrency: 'USD'
 			},
-			aggregateRating: {
-				'@type': 'AggregateRating',
-				ratingValue: 4.9,
-				ratingCount: 500
-			}
+			operatingSystem: 'WINDOWS, MAC, LINUX'
 		};
 		const data = extractJson(jsonLd(schema));
 
@@ -412,8 +415,18 @@ describe('jsonLd', () => {
 	it('JobPosting', () => {
 		const schema: JobPostingSchema = {
 			'@type': 'JobPosting',
-			title: 'Senior TypeScript Engineer',
+			baseSalary: {
+				'@type': 'MonetaryAmount',
+				currency: 'USD',
+				value: {
+					'@type': 'QuantitativeValue',
+					unitText: 'YEAR',
+					value: 180000
+				}
+			},
+			datePosted: '2026-03-28',
 			description: 'Build the next generation of web frameworks',
+			employmentType: 'FULL_TIME',
 			hiringOrganization: {
 				'@type': 'Organization',
 				name: 'AbsoluteJS Inc',
@@ -423,21 +436,11 @@ describe('jsonLd', () => {
 				'@type': 'Place',
 				address: {
 					'@type': 'PostalAddress',
-					addressLocality: 'Remote',
-					addressCountry: 'US'
+					addressCountry: 'US',
+					addressLocality: 'Remote'
 				}
 			},
-			employmentType: 'FULL_TIME',
-			baseSalary: {
-				'@type': 'MonetaryAmount',
-				currency: 'USD',
-				value: {
-					'@type': 'QuantitativeValue',
-					value: 180000,
-					unitText: 'YEAR'
-				}
-			},
-			datePosted: '2026-03-28',
+			title: 'Senior TypeScript Engineer',
 			validThrough: '2026-06-28'
 		};
 		const data = extractJson(jsonLd(schema));
@@ -452,14 +455,14 @@ describe('jsonLd', () => {
 	it('Person', () => {
 		const schema: PersonSchema = {
 			'@type': 'Person',
-			name: 'Alex Kahn',
-			jobTitle: 'Software Engineer',
-			url: 'https://alexkahn.dev',
 			image: 'https://example.com/alex.jpg',
+			jobTitle: 'Software Engineer',
+			name: 'Alex Kahn',
 			sameAs: [
 				'https://github.com/alexkahndev',
 				'https://twitter.com/alexkahn'
-			]
+			],
+			url: 'https://alexkahn.dev'
 		};
 		const data = extractJson(jsonLd(schema));
 
@@ -471,12 +474,12 @@ describe('jsonLd', () => {
 		const schema: WebSiteSchema = {
 			'@type': 'WebSite',
 			name: 'AbsoluteJS',
-			url: 'https://absolutejs.com',
 			potentialAction: {
 				'@type': 'SearchAction',
-				target: 'https://absolutejs.com/search?q={search_term_string}',
-				'query-input': 'required name=search_term_string'
-			}
+				'query-input': 'required name=search_term_string',
+				target: 'https://absolutejs.com/search?q={search_term_string}'
+			},
+			url: 'https://absolutejs.com'
 		};
 		const data = extractJson(jsonLd(schema));
 
@@ -492,10 +495,13 @@ describe('jsonLd', () => {
 			'@type': 'Review',
 			author: { '@type': 'Person', name: 'Bob' },
 			datePublished: '2026-03-15',
+			itemReviewed: {
+				'@type': 'SoftwareApplication',
+				name: 'AbsoluteJS'
+			},
 			name: 'Great product',
 			reviewBody: 'I love this framework. 10/10 would recommend.',
-			reviewRating: { '@type': 'Rating', ratingValue: 5, bestRating: 5 },
-			itemReviewed: { '@type': 'SoftwareApplication', name: 'AbsoluteJS' }
+			reviewRating: { '@type': 'Rating', bestRating: 5, ratingValue: 5 }
 		};
 		const data = extractJson(jsonLd(schema));
 
@@ -507,24 +513,24 @@ describe('jsonLd', () => {
 	it('Organization with full details', () => {
 		const schema: OrganizationSchema = {
 			'@type': 'Organization',
-			name: 'AbsoluteJS',
-			url: 'https://absolutejs.com',
-			logo: {
-				'@type': 'ImageObject',
-				url: 'https://absolutejs.com/logo.png',
-				width: 512,
-				height: 512
+			contactPoint: {
+				'@type': 'ContactPoint',
+				contactType: 'technical support',
+				telephone: '+1-555-0123'
 			},
 			foundingDate: '2025-01-01',
+			logo: {
+				'@type': 'ImageObject',
+				height: 512,
+				url: 'https://absolutejs.com/logo.png',
+				width: 512
+			},
+			name: 'AbsoluteJS',
 			sameAs: [
 				'https://github.com/absolutejs',
 				'https://twitter.com/absolutejs'
 			],
-			contactPoint: {
-				'@type': 'ContactPoint',
-				telephone: '+1-555-0123',
-				contactType: 'technical support'
-			}
+			url: 'https://absolutejs.com'
 		};
 		const data = extractJson(jsonLd(schema));
 
@@ -535,36 +541,40 @@ describe('jsonLd', () => {
 	});
 
 	it('multiple schemas on one page (Article + BreadcrumbList + Organization)', () => {
-		const schemas = [
+		const schemas: (
+			| ArticleSchema
+			| BreadcrumbListSchema
+			| OrganizationSchema
+		)[] = [
 			{
-				'@type': 'Article' as const,
-				headline: 'My Post',
-				datePublished: '2026-03-28'
+				'@type': 'Article',
+				datePublished: '2026-03-28',
+				headline: 'My Post'
 			},
 			{
-				'@type': 'BreadcrumbList' as const,
+				'@type': 'BreadcrumbList',
 				itemListElement: [
 					{
-						'@type': 'ListItem' as const,
-						position: 1,
+						'@type': 'ListItem',
+						item: '/',
 						name: 'Home',
-						item: '/'
+						position: 1
 					},
 					{
-						'@type': 'ListItem' as const,
-						position: 2,
+						'@type': 'ListItem',
+						item: '/blog',
 						name: 'Blog',
-						item: '/blog'
+						position: 2
 					},
 					{
-						'@type': 'ListItem' as const,
-						position: 3,
-						name: 'My Post'
+						'@type': 'ListItem',
+						name: 'My Post',
+						position: 3
 					}
 				]
 			},
 			{
-				'@type': 'Organization' as const,
+				'@type': 'Organization',
 				name: 'AbsoluteJS'
 			}
 		];
@@ -584,8 +594,8 @@ describe('jsonLd', () => {
 	it('produces valid JSON that can be parsed', () => {
 		const schema: ProductSchema = {
 			'@type': 'Product',
-			name: 'Widget with "quotes" & <special> chars',
-			description: 'A product with tricky characters: \\ / \n \t'
+			description: 'A product with tricky characters: \\ / \n \t',
+			name: 'Widget with "quotes" & <special> chars'
 		};
 		const html = jsonLd(schema);
 		const data = extractJson(html);

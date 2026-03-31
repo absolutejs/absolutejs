@@ -408,8 +408,6 @@ export const compileAngularFileJIT = async (inputPath: string, outDir: string, r
 			if (importMatch[1]) localImports.push(importMatch[1]);
 		}
 
-		const packageImportRewrites = new Map<string, string>();
-
 		// Skip transpilation if source content hasn't changed — the
 		// compiled output on disk is already up-to-date. This avoids
 		// unnecessary disk writes that trigger bun --hot re-evaluation

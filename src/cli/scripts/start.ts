@@ -94,6 +94,48 @@ const handleBundleFailure = (
 	process.exit(1);
 };
 
+const prerenderStaticPages = async (
+	outputPath: string,
+	prerenderPort: number,
+	resolvedOutdir: string,
+	staticConfig: import('../../../types/build').StaticConfig,
+	absoluteVersion: string,
+	configPath?: string
+) => {
+	const prerenderStart = performance.now();
+	process.stdout.write(cliTag('\x1b[36m', 'Pre-rendering static pages'));
+
+	const { prerenderWithServer } = await import('../../core/prerender');
+
+	try {
+		killStaleProcesses(prerenderPort);
+		const result = await prerenderWithServer(
+			outputPath,
+			prerenderPort,
+			resolvedOutdir,
+			staticConfig,
+			{
+				ABSOLUTE_BUILD_DIR: resolvedOutdir,
+				ABSOLUTE_VERSION: absoluteVersion,
+				FORCE_COLOR: '0',
+				NODE_ENV: 'production',
+				...(configPath ? { ABSOLUTE_CONFIG: configPath } : {})
+			}
+		);
+		const prerenderDuration = getDurationString(
+			performance.now() - prerenderStart
+		);
+		console.log(
+			` \x1b[2m(${result.routes.size} pages, ${prerenderDuration})\x1b[0m`
+		);
+	} catch (err) {
+		console.error(
+			cliTag('\x1b[33m', 'Pre-rendering failed, pages will use SSR.')
+		);
+		console.error(err);
+	}
+};
+
 export const start = async (
 	serverEntry: string,
 	outdir?: string,
@@ -279,39 +321,14 @@ export const start = async (
 
 	// ── Pre-render static pages (if configured) ─────────────────────
 	if (buildConfig.static) {
-		const prerenderStart = performance.now();
-		process.stdout.write(cliTag('\x1b[36m', 'Pre-rendering static pages'));
-
-		const { prerenderWithServer } = await import('../../core/prerender');
-		const prerenderPort = port + 1;
-
-		try {
-			killStaleProcesses(prerenderPort);
-			const result = await prerenderWithServer(
-				outputPath,
-				prerenderPort,
-				resolvedOutdir,
-				buildConfig.static,
-				{
-					ABSOLUTE_BUILD_DIR: resolvedOutdir,
-					ABSOLUTE_VERSION: absoluteVersion,
-					FORCE_COLOR: '0',
-					NODE_ENV: 'production',
-					...(configPath ? { ABSOLUTE_CONFIG: configPath } : {})
-				}
-			);
-			const prerenderDuration = getDurationString(
-				performance.now() - prerenderStart
-			);
-			console.log(
-				` \x1b[2m(${result.routes.size} pages, ${prerenderDuration})\x1b[0m`
-			);
-		} catch (err) {
-			console.error(
-				cliTag('\x1b[33m', 'Pre-rendering failed, pages will use SSR.')
-			);
-			console.error(err);
-		}
+		await prerenderStaticPages(
+			outputPath,
+			port + 1,
+			resolvedOutdir,
+			buildConfig.static,
+			absoluteVersion,
+			configPath
+		);
 	}
 
 	// ── Run production server ────────────────────────────────────────

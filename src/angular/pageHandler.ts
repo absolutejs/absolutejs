@@ -3,6 +3,10 @@ import type { Type } from '@angular/core';
 import type { AngularPageImporter } from '../../types/angular';
 import { BASE_36_RADIX, RANDOM_ID_END_INDEX } from '../constants';
 import { ssrErrorPage } from '../utils/ssrErrorPage';
+import {
+	derivePageName,
+	renderConventionError
+} from '../utils/resolveConvention';
 import { setSsrContextGetter } from '../utils/registerClientScript';
 import { getAngularDeps } from './angularDeps';
 import { getSsrSanitizer, resetSsrSanitizer } from './ssrSanitizer';
@@ -95,6 +99,14 @@ export const handleAngularPageRequest = async <
 			});
 		} catch (error) {
 			console.error('[SSR] Angular render error:', error);
+
+			const pageName = derivePageName(pagePath);
+			const conventionResponse = await renderConventionError(
+				'angular',
+				pageName,
+				error
+			);
+			if (conventionResponse) return conventionResponse;
 
 			return new Response(ssrErrorPage('angular', error), {
 				headers: { 'Content-Type': 'text/html' },

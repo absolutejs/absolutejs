@@ -27,6 +27,18 @@ const getManifestKey = (
 	return `${pascalName}Page`;
 };
 
+const getCssKey = (pascalName: string, segments: string[]) => {
+	const isFromVue = segments.some((seg) => seg === 'vue');
+	if (isFromVue && segments.includes('css')) return `${pascalName}CompiledCSS`;
+
+	const isFromReact = segments.some((seg) => seg === 'react');
+	const isFromSvelte = segments.some((seg) => seg === 'svelte');
+	const isFromAngular = segments.some((seg) => seg === 'angular');
+	if (isFromReact || isFromVue || isFromSvelte || isFromAngular) return `${pascalName}BundledCSS`;
+
+	return `${pascalName}CSS`;
+};
+
 export const generateManifest = (outputs: BuildArtifact[], buildPath: string) =>
 	outputs.reduce<Record<string, string>>((manifest, artifact) => {
 		// Normalize both paths for consistent comparison across platforms
@@ -54,22 +66,7 @@ export const generateManifest = (outputs: BuildArtifact[], buildPath: string) =>
 			// framework path like react/generated/indexes/, while global
 			// stylesheets from the styles directory land directly in indexes/.
 			// Vue compiled SFC styles live in assets/css/.
-			const isFromReact = segments.some((seg) => seg === 'react');
-			const isFromVue = segments.some((seg) => seg === 'vue');
-			const isFromSvelte = segments.some((seg) => seg === 'svelte');
-			const isFromAngular = segments.some((seg) => seg === 'angular');
-			const isFromFramework = isFromReact || isFromVue || isFromSvelte || isFromAngular;
-
-			let cssKey: string;
-			if (isFromVue && segments.includes('css')) {
-				cssKey = `${pascalName}CompiledCSS`;
-			} else if (isFromFramework) {
-				// CSS co-emitted with a framework bundle (CSS Modules, etc.)
-				cssKey = `${pascalName}BundledCSS`;
-			} else {
-				// Global stylesheets from the styles directory (existing behavior)
-				cssKey = `${pascalName}CSS`;
-			}
+			const cssKey = getCssKey(pascalName, segments);
 
 			if (manifest[cssKey] && manifest[cssKey] !== `/${relative}`)
 				logWarn(

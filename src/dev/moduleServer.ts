@@ -182,6 +182,27 @@ const resolveRelativeImport = (
 	return srcUrl(srcPath, projectRoot);
 };
 
+// Resolve @absolutejs/absolute/* specifiers to project-relative paths.
+// Returns the relative path string on success, or undefined if resolution fails.
+const resolveAbsoluteSpecifier = (specifier: string, projectRoot: string) => {
+	try {
+		const resolved = Bun.resolveSync(specifier, projectRoot);
+
+		// Prefer browser-targeted build if available (server builds
+		// import node:fs which can't run in browsers)
+		const browserPath = resolved.replace(
+			/\/index\.js$/,
+			'/browser/index.js'
+		);
+		const target = existsSync(browserPath) ? browserPath : resolved;
+
+		return relative(projectRoot, target);
+	} catch {
+		// Resolution failed — caller falls through to stub
+		return undefined;
+	}
+};
+
 const rewriteImports = (
 	code: string,
 	filePath: string,
@@ -191,17 +212,20 @@ const rewriteImports = (
 	let result = code;
 
 	// Step 1: Rewrite KNOWN vendor specifiers in a single pass.
+	const vendorReplace = (
+		_match: string,
+		prefix: string,
+		specifier: string,
+		suffix: string
+	) => {
+		const webPath = rewriter?.lookup.get(specifier);
+
+		return webPath ? `${prefix}${webPath}${suffix}` : _match;
+	};
+
 	if (rewriter) {
 		rewriter.vendorRegex.lastIndex = 0;
-		result = result.replace(
-			rewriter.vendorRegex,
-			(_match, prefix, specifier, suffix) => {
-				const webPath = rewriter.lookup.get(specifier);
-				if (!webPath) return _match;
-
-				return `${prefix}${webPath}${suffix}`;
-			}
-		);
+		result = result.replace(rewriter.vendorRegex, vendorReplace);
 	}
 
 	// Step 2: Rewrite remaining bare specifiers (unknown packages) to stubs.
@@ -219,24 +243,11 @@ const rewriteImports = (
 		// Serve @absolutejs/absolute client-safe exports as real modules
 		// instead of stubbing them — they contain Image/Head/JsonLd components
 		// needed for client-side hydration.
-		if (specifier.startsWith('@absolutejs/absolute/')) {
-			try {
-				const resolved = Bun.resolveSync(specifier, projectRoot);
+		if (!specifier.startsWith('@absolutejs/absolute/'))
+			return `${prefix}/@stub/${encodeURIComponent(specifier)}${suffix}`;
 
-				// Prefer browser-targeted build if available (server builds
-				// import node:fs which can't run in browsers)
-				const browserPath = resolved.replace(
-					/\/index\.js$/,
-					'/browser/index.js'
-				);
-				const target = existsSync(browserPath) ? browserPath : resolved;
-				const rel = relative(projectRoot, target);
-
-				return `${prefix}/@src/${rel}${suffix}`;
-			} catch {
-				// Fall through to stub if resolution fails
-			}
-		}
+		const resolved = resolveAbsoluteSpecifier(specifier, projectRoot);
+		if (resolved) return `${prefix}/@src/${resolved}${suffix}`;
 
 		return `${prefix}/@stub/${encodeURIComponent(specifier)}${suffix}`;
 	};

@@ -4,31 +4,6 @@ Features missing from AbsoluteJS that Next.js provides, ordered by priority. Eac
 
 ---
 
-## 2. P1 — Loading / Error / Not-Found States
-
-**What Next.js does:**
-Per-route-segment `loading.tsx` (shows during async data fetch), `error.tsx` (catches runtime errors with React error boundary), and `not-found.tsx` (404 page). These are automatic — drop the file in and it works.
-
-**What AbsoluteJS has today:**
-- Dev error overlay (`src/dev/client/errorOverlay.ts`) for compilation/runtime errors in development
-- SSR error page (`src/utils/ssrErrorPage.ts`) that returns a styled error page when server rendering fails
-- No production error boundaries, no loading states, no 404 handling
-
-**What needs to be built:**
-- A documented pattern for error boundaries per framework (React has `ErrorBoundary`, Vue has `onErrorCaptured`, Svelte has `<svelte:boundary>`, Angular has `ErrorHandler`)
-- A helper or wrapper that each page handler can use to catch SSR errors and render a user-defined error page instead of the generic one
-- A loading state pattern — for React this means Suspense boundaries with fallback UI; for streaming SSR, sending the shell immediately and streaming content as it resolves
-- A 404 handler — an Elysia catch-all route that renders a user-defined not-found page
-- Framework-specific examples showing how to wire each of these up
-
-**Files likely involved:**
-- `src/utils/ssrErrorPage.ts` — make it accept a user-defined error component
-- Each framework's `pageHandler.ts` — add error/loading handling to the streaming pipeline
-- New: `src/utils/notFoundPage.ts` or a convention for 404 pages
-- Example directory — add error/loading/not-found examples
-
----
-
 ## 3. P1 — Client-Side Navigation / SPA Mode with `<Link>`
 
 **What Next.js does:**
