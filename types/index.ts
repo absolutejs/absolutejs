@@ -3,6 +3,7 @@ export * from './angular';
 export * from './conventions';
 export * from './build';
 export * from './cli';
+export * from './env';
 export * from './client';
 export * from './image';
 export * from './messages';

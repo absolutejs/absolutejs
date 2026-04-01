@@ -390,13 +390,12 @@ const processSSEEvent = function* (
 	switch (eventType) {
 		case 'response.reasoning_summary_text.delta': {
 			const delta = typeof parsed.delta === 'string' ? parsed.delta : '';
+			if (!delta) break;
 
-			if (delta) {
-				yield {
-					content: delta,
-					type: 'thinking' as const
-				};
-			}
+			yield {
+				content: delta,
+				type: 'thinking' as const
+			};
 
 			break;
 		}

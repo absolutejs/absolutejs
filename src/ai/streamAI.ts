@@ -148,27 +148,6 @@ const executeTool = async (
 	}
 };
 
-const buildToolUseBlock = (
-	toolUseId: string,
-	toolName: string,
-	toolInput: unknown
-) => [
-	{
-		id: toolUseId,
-		input: toolInput,
-		name: toolName,
-		type: 'tool_use' as const
-	}
-];
-
-const buildToolResultBlock = (toolUseId: string, result: string) => [
-	{
-		content: result,
-		tool_use_id: toolUseId,
-		type: 'tool_result' as const
-	}
-];
-
 const serializeToolCall = (name: string, input: unknown) =>
 	`${name}:${JSON.stringify(input)}`;
 
@@ -342,37 +321,43 @@ const processToolTurn = async (
 		type: 'tool_result';
 	}> = [];
 
-	for (const tc of toolCalls) {
+	for (const toolCall of toolCalls) {
 		// eslint-disable-next-line no-await-in-loop
 		await sendToolRunning(
 			socket,
-			tc.name,
-			tc.input,
+			toolCall.name,
+			toolCall.input,
 			messageId,
 			conversationId
 		);
 
 		// eslint-disable-next-line no-await-in-loop
-		const result = await executeTool(options, tc.name, tc.input);
+		const result = await executeTool(
+			options,
+			toolCall.name,
+			toolCall.input
+		);
 
 		// eslint-disable-next-line no-await-in-loop
 		await sendToolComplete(
 			socket,
-			tc.name,
+			toolCall.name,
 			result,
 			messageId,
 			conversationId
 		);
 
-		options.onToolUse?.(tc.name, tc.input, result);
+		options.onToolUse?.(toolCall.name, toolCall.input, result);
 
 		toolResultBlocks.push({
 			content: result,
-			tool_use_id: tc.id,
+			tool_use_id: toolCall.id,
 			type: 'tool_result' as const
 		});
 
-		state.executedToolKeys.add(serializeToolCall(tc.name, tc.input));
+		state.executedToolKeys.add(
+			serializeToolCall(toolCall.name, toolCall.input)
+		);
 	}
 
 	state.currentMessages.push({
@@ -456,8 +441,10 @@ const shouldContinueToolLoop = (
 	!signal.aborted;
 
 const areAllRepeatedToolCalls = (state: ToolLoopState) =>
-	state.pendingToolCalls.every((tc) =>
-		state.executedToolKeys.has(serializeToolCall(tc.name, tc.input))
+	state.pendingToolCalls.every((toolCall) =>
+		state.executedToolKeys.has(
+			serializeToolCall(toolCall.name, toolCall.input)
+		)
 	);
 
 const buildToolLoopResult = (state: ToolLoopState) => ({
@@ -653,8 +640,7 @@ const processStream = async (
 		messages,
 		messageId,
 		conversationId,
-		signal,
-		startTime
+		signal
 	);
 
 	if (result.pendingToolCalls.length > 0) {
@@ -784,8 +770,7 @@ const consumeStream = async (
 	messages: AIProviderMessage[],
 	messageId: string,
 	conversationId: string,
-	signal: AbortSignal,
-	startTime: number
+	signal: AbortSignal
 ) => {
 	const state: ConsumeStreamState = {
 		contentBlocks: [],
@@ -798,7 +783,6 @@ const consumeStream = async (
 	for await (const chunk of stream) {
 		if (signal.aborted) break;
 
-		// eslint-disable-next-line no-await-in-loop
 		await consumeStreamChunk(
 			chunk,
 			options,
