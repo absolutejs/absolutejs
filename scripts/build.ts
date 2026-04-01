@@ -1,6 +1,7 @@
 import { $ } from 'bun';
 import { rm, cp, mkdir, readdir, writeFile } from 'node:fs/promises';
 import { join, resolve, relative } from 'node:path';
+import type { AngularCompilerOptions } from '@angular/compiler-cli';
 import ts from 'typescript';
 
 const DIST = 'dist';
@@ -309,7 +310,7 @@ const compileAngularComponentsPartial = async () => {
 		target: ts.ScriptTarget.ES2022
 	};
 
-	const options = {
+	const options: AngularCompilerOptions & { compilationMode: 'partial' } = {
 		...config.options,
 		...tsOptions,
 		compilationMode: 'partial' as const

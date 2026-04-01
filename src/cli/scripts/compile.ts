@@ -14,12 +14,24 @@ const cliTag = (color: string, message: string) =>
 	`\x1b[2m${formatTimestamp()}\x1b[0m ${color}[cli]\x1b[0m ${color}${message}\x1b[0m`;
 
 // ── File utilities ──────────────────────────────────────────────
-const collectFiles = (dir: string): string[] =>
-	readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
-		const fullPath = join(dir, entry.name);
+const collectFiles = (dir: string) => {
+	const result: string[] = [];
+	let pending = readdirSync(dir, { withFileTypes: true });
 
-		return entry.isDirectory() ? collectFiles(fullPath) : [fullPath];
-	});
+	while (pending.length > 0) {
+		const entry = pending.pop();
+		if (!entry) continue;
+
+		const fullPath = join(entry.parentPath, entry.name);
+		if (entry.isDirectory())
+			pending = pending.concat(
+				readdirSync(fullPath, { withFileTypes: true })
+			);
+		else result.push(fullPath);
+	}
+
+	return result;
+};
 
 const readPackageVersion = (candidate: string) => {
 	try {
