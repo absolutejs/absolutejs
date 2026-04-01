@@ -1,5 +1,5 @@
 import { computed, Injectable, OnDestroy, signal } from '@angular/core';
-import type { AIMessage, AIServerMessage } from '../../../types/ai';
+import type { AIAttachment, AIMessage, AIServerMessage } from '../../../types/ai';
 import { serverMessageToAction } from '../../ai/client/actions';
 import { createAIConnection } from '../../ai/client/connection';
 import { createAIMessageStore } from '../../ai/client/messageStore';
@@ -72,11 +72,12 @@ export class AIStreamService implements OnDestroy {
 		};
 		this.connections.set(path, entry);
 
-		const send = (content: string) => {
+		const send = (content: string, attachments?: AIAttachment[]) => {
 			const convId = activeConversationIdSignal() ?? generateId();
 			const msgId = generateId();
 
 			store.dispatch({
+				attachments,
 				content,
 				conversationId: convId,
 				messageId: msgId,
@@ -84,6 +85,7 @@ export class AIStreamService implements OnDestroy {
 			});
 
 			connection.send({
+				attachments,
 				content,
 				conversationId: convId,
 				type: 'message'
@@ -151,11 +153,12 @@ export class AIStreamService implements OnDestroy {
 			}
 		});
 
-		const send = (content: string) => {
+		const send = (content: string, attachments?: AIAttachment[]) => {
 			const convId = activeConversationIdSignal() ?? generateId();
 			const msgId = generateId();
 
 			store.dispatch({
+				attachments,
 				content,
 				conversationId: convId,
 				messageId: msgId,
@@ -163,6 +166,7 @@ export class AIStreamService implements OnDestroy {
 			});
 
 			connection.send({
+				attachments,
 				content,
 				conversationId: convId,
 				type: 'message'

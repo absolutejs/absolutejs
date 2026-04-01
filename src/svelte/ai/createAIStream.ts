@@ -1,4 +1,4 @@
-import type { AIMessage, AIServerMessage } from '../../../types/ai';
+import type { AIAttachment, AIMessage, AIServerMessage } from '../../../types/ai';
 import { serverMessageToAction } from '../../ai/client/actions';
 import { createAIConnection } from '../../ai/client/connection';
 import { createAIMessageStore } from '../../ai/client/messageStore';
@@ -25,14 +25,16 @@ export const createAIStream = (path: string, conversationId?: string) => {
 		currentMessages = conversation?.messages ?? [];
 	};
 
-	store.subscribe(syncState);
+	const unsubscribeStore = store.subscribe(syncState);
 
-	connection.subscribe((msg: AIServerMessage) => {
-		const action = serverMessageToAction(msg);
-		if (action) {
-			store.dispatch(action);
+	const unsubscribeConnection = connection.subscribe(
+		(msg: AIServerMessage) => {
+			const action = serverMessageToAction(msg);
+			if (action) {
+				store.dispatch(action);
+			}
 		}
-	});
+	);
 
 	const branch = (messageId: string, content: string) => {
 		if (activeConversationId) {
@@ -56,14 +58,17 @@ export const createAIStream = (path: string, conversationId?: string) => {
 	};
 
 	const destroy = () => {
+		unsubscribeStore();
+		unsubscribeConnection();
 		connection.close();
 	};
 
-	const send = (content: string) => {
+	const send = (content: string, attachments?: AIAttachment[]) => {
 		const convId = activeConversationId ?? generateId();
 		const msgId = generateId();
 
 		store.dispatch({
+			attachments,
 			content,
 			conversationId: convId,
 			messageId: msgId,
@@ -71,6 +76,7 @@ export const createAIStream = (path: string, conversationId?: string) => {
 		});
 
 		connection.send({
+			attachments,
 			content,
 			conversationId: convId,
 			type: 'message'

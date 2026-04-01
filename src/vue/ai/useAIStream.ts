@@ -1,5 +1,5 @@
 import { onUnmounted, ref, shallowRef, type InjectionKey, type Ref } from 'vue';
-import type { AIMessage, AIServerMessage } from '../../../types/ai';
+import type { AIAttachment, AIMessage, AIServerMessage } from '../../../types/ai';
 import { serverMessageToAction } from '../../ai/client/actions';
 import { createAIConnection } from '../../ai/client/connection';
 import { createAIMessageStore } from '../../ai/client/messageStore';
@@ -12,7 +12,7 @@ type AIStreamReturn = {
 	error: Ref<string | null>;
 	isStreaming: Ref<boolean>;
 	messages: Ref<AIMessage[]>;
-	send: (content: string) => void;
+	send: (content: string, attachments?: AIAttachment[]) => void;
 };
 
 export const AIStreamKey: InjectionKey<AIStreamReturn> = Symbol('ai-stream');
@@ -53,11 +53,12 @@ export const useAIStream = (path: string, conversationId?: string) => {
 		}
 	});
 
-	const send = (content: string) => {
+	const send = (content: string, attachments?: AIAttachment[]) => {
 		const convId = activeConversationId.value ?? generateId();
 		const msgId = generateId();
 
 		store.dispatch({
+			attachments,
 			content,
 			conversationId: convId,
 			messageId: msgId,
@@ -65,6 +66,7 @@ export const useAIStream = (path: string, conversationId?: string) => {
 		});
 
 		connection.send({
+			attachments,
 			content,
 			conversationId: convId,
 			type: 'message'

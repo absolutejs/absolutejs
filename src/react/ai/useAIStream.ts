@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
+import type { AIAttachment } from '../../../types/ai';
 import { serverMessageToAction } from '../../ai/client/actions';
 import { createAIConnection } from '../../ai/client/connection';
 import { createAIMessageStore } from '../../ai/client/messageStore';
@@ -60,18 +61,7 @@ export const useAIStream = (path?: string, conversationId?: string) => {
 	const messages = conversation?.messages ?? [];
 
 	const send = useCallback(
-		(
-			content: string,
-			attachments?: Array<{
-				data: string;
-				media_type:
-					| 'image/png'
-					| 'image/jpeg'
-					| 'image/gif'
-					| 'image/webp';
-				name?: string;
-			}>
-		) => {
+		(content: string, attachments?: AIAttachment[]) => {
 			const convId = activeConvId ?? generateId();
 			const msgId = generateId();
 
