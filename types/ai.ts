@@ -27,6 +27,7 @@ export type AIDoneChunk = {
 export type AIThinkingChunk = {
 	type: 'thinking';
 	content: string;
+	signature?: string;
 };
 
 export type AIImageChunk = {
@@ -73,6 +74,7 @@ export type AIDocumentSource = {
 
 export type AIProviderContentBlock =
 	| { type: 'text'; content: string }
+	| { type: 'thinking'; thinking: string; signature?: string }
 	| { type: 'image'; source: AIImageSource }
 	| { type: 'document'; source: AIDocumentSource; name?: string }
 	| { type: 'tool_use'; id: string; name: string; input: unknown }

@@ -25,6 +25,14 @@ const isRecord = (val: unknown): val is Record<string, unknown> =>
 	typeof val === 'object' && val !== null;
 
 const mapContentBlock = (block: AIProviderContentBlock) => {
+	if (block.type === 'thinking') {
+		return {
+			signature: block.signature,
+			thinking: block.thinking,
+			type: 'thinking'
+		};
+	}
+
 	if (block.type === 'image') {
 		return {
 			source: block.source,
@@ -206,6 +214,12 @@ const handleContentBlockStart = (
 		state.currentToolId = getString(block, 'id');
 		state.currentToolName = getString(block, 'name');
 		state.toolInputJson = '';
+		state.isThinkingBlock = false;
+	} else if (block && block.type === 'thinking') {
+		state.isThinkingBlock = true;
+		state.thinkingSignature = '';
+	} else {
+		state.isThinkingBlock = false;
 	}
 };
 
@@ -237,10 +251,27 @@ const handleContentBlockDelta = (
 		state.toolInputJson += getString(delta, 'partial_json');
 	}
 
+	if (delta.type === 'signature_delta') {
+		state.thinkingSignature += getString(delta, 'signature');
+	}
+
 	return undefined;
 };
 
 const handleContentBlockStop = (state: AnthropicSSEState) => {
+	// Emit thinking signature when thinking block completes
+	if (state.isThinkingBlock && state.thinkingSignature) {
+		state.isThinkingBlock = false;
+		const signature = state.thinkingSignature;
+		state.thinkingSignature = '';
+
+		return {
+			content: '',
+			signature,
+			type: 'thinking'
+		} satisfies AIChunk;
+	}
+
 	if (!state.currentToolId) {
 		return undefined;
 	}
@@ -469,6 +500,8 @@ async function* parseSSEStream(
 		buffer: '',
 		currentToolId: '',
 		currentToolName: '',
+		isThinkingBlock: false,
+		thinkingSignature: '',
 		toolInputJson: '',
 		usage: undefined
 	};

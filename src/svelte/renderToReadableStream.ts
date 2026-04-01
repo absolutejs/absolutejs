@@ -33,11 +33,20 @@ export const renderToReadableStream = async <
 ) => {
 	try {
 		const { render } = await import('svelte/server');
-		const { head, body } =
+		const { head: rawHead, body } =
 			typeof props === 'undefined'
 				? // @ts-expect-error Svelte's render function can't determine which overload to choose when the component is generic
 					render(component)
 				: render(component, { props });
+		// Svelte SSR extracts <title> from <svelte:head> and appends it
+		// after the component end marker (<!---->). The client renderer
+		// places it at its template position, causing a hydration mismatch.
+		// Fix: move <title> back inside the first component marker so both
+		// SSR and client agree on its position.
+		const head = rawHead.replace(
+			/(<!--[a-z0-9]+-->)([\s\S]*?)(<!---->)\s*(<title>[\s\S]*?<\/title>)/,
+			'$1$4$2$3'
+		);
 		const nonceAttr = nonce ? ` nonce="${nonce}"` : '';
 		const scripts =
 			(bootstrapScriptContent

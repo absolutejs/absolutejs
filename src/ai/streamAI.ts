@@ -1,6 +1,7 @@
 import type {
 	AIChunk,
 	AIImageChunk,
+	AIProviderContentBlock,
 	AIProviderMessage,
 	AIServerMessage,
 	AITextChunk,
@@ -171,15 +172,28 @@ const buildToolResultBlock = (toolUseId: string, result: string) => [
 const serializeToolCall = (name: string, input: unknown) =>
 	`${name}:${JSON.stringify(input)}`;
 
+type PendingToolCall = {
+	id: string;
+	input: unknown;
+	name: string;
+};
+
+type ContentBlock = AIProviderContentBlock;
+
+type ThinkingAccumulator = {
+	signature: string;
+	text: string;
+};
+
 type ToolLoopState = {
+	contentBlocks: ContentBlock[];
 	currentFullResponse: string;
+	currentThinking: ThinkingAccumulator | null;
 	currentMessages: AIProviderMessage[];
-	currentToolInput: unknown;
-	currentToolName: string;
-	currentToolUseId: string;
 	currentTurn: number;
 	currentUsage: AIUsage | undefined;
-	previousToolCallKey: string;
+	executedToolKeys: Set<string>;
+	pendingToolCalls: PendingToolCall[];
 };
 
 const handleToolChunkText = (
@@ -204,9 +218,22 @@ const handleToolChunkToolUse = (
 	chunk: AIChunk & { type: 'tool_use' },
 	state: ToolLoopState
 ) => {
-	state.currentToolUseId = chunk.id;
-	state.currentToolName = chunk.name;
-	state.currentToolInput = chunk.input;
+	state.pendingToolCalls.push({
+		id: chunk.id,
+		input: chunk.input,
+		name: chunk.name
+	});
+};
+
+const flushThinking = (state: ToolLoopState) => {
+	if (state.currentThinking) {
+		state.contentBlocks.push({
+			signature: state.currentThinking.signature || undefined,
+			thinking: state.currentThinking.text,
+			type: 'thinking'
+		});
+		state.currentThinking = null;
+	}
 };
 
 const processToolChunk = (
@@ -220,7 +247,26 @@ const processToolChunk = (
 	let hitAnotherTool = false;
 
 	switch (chunk.type) {
+		case 'thinking':
+			if (chunk.content) {
+				sendMessage(socket, {
+					content: chunk.content,
+					conversationId,
+					messageId,
+					type: 'thinking'
+				});
+			}
+			if (!state.currentThinking) {
+				state.currentThinking = { signature: '', text: '' };
+			}
+			state.currentThinking.text += chunk.content;
+			if (chunk.signature) {
+				state.currentThinking.signature = chunk.signature;
+			}
+			break;
+
 		case 'text':
+			flushThinking(state);
 			handleToolChunkText(
 				chunk,
 				state,
@@ -229,6 +275,10 @@ const processToolChunk = (
 				messageId,
 				conversationId
 			);
+			state.contentBlocks.push({
+				content: chunk.content,
+				type: 'text'
+			});
 			break;
 
 		case 'image':
@@ -243,11 +293,22 @@ const processToolChunk = (
 			break;
 
 		case 'tool_use':
+			flushThinking(state);
 			handleToolChunkToolUse(chunk, state);
+			state.contentBlocks.push({
+				id: chunk.id,
+				input:
+					typeof chunk.input === 'object' && chunk.input !== null
+						? chunk.input
+						: {},
+				name: chunk.name,
+				type: 'tool_use'
+			});
 			hitAnotherTool = true;
 			break;
 
 		case 'done':
+			flushThinking(state);
 			state.currentUsage = chunk.usage;
 			break;
 	}
@@ -263,41 +324,59 @@ const processToolTurn = async (
 	conversationId: string,
 	signal: AbortSignal
 ) => {
-	await sendToolRunning(
-		socket,
-		state.currentToolName,
-		state.currentToolInput,
-		messageId,
-		conversationId
-	);
+	const toolCalls = [...state.pendingToolCalls];
+	state.pendingToolCalls = [];
 
-	const result = await executeTool(
-		options,
-		state.currentToolName,
-		state.currentToolInput
-	);
-
-	await sendToolComplete(
-		socket,
-		state.currentToolName,
-		result,
-		messageId,
-		conversationId
-	);
-
-	options.onToolUse?.(state.currentToolName, state.currentToolInput, result);
-
+	// Build assistant message with all content blocks (thinking + text + tool_use)
+	// Anthropic requires the complete assistant response when extended thinking is enabled
 	state.currentMessages.push({
-		content: buildToolUseBlock(
-			state.currentToolUseId,
-			state.currentToolName,
-			state.currentToolInput
-		),
+		content: state.contentBlocks,
 		role: 'assistant'
 	});
+	state.contentBlocks = [];
+
+	// Execute all tool calls and collect results
+	const toolResultBlocks: Array<{
+		content: string;
+		tool_use_id: string;
+		type: 'tool_result';
+	}> = [];
+
+	for (const tc of toolCalls) {
+		// eslint-disable-next-line no-await-in-loop
+		await sendToolRunning(
+			socket,
+			tc.name,
+			tc.input,
+			messageId,
+			conversationId
+		);
+
+		// eslint-disable-next-line no-await-in-loop
+		const result = await executeTool(options, tc.name, tc.input);
+
+		// eslint-disable-next-line no-await-in-loop
+		await sendToolComplete(
+			socket,
+			tc.name,
+			result,
+			messageId,
+			conversationId
+		);
+
+		options.onToolUse?.(tc.name, tc.input, result);
+
+		toolResultBlocks.push({
+			content: result,
+			tool_use_id: tc.id,
+			type: 'tool_result' as const
+		});
+
+		state.executedToolKeys.add(serializeToolCall(tc.name, tc.input));
+	}
 
 	state.currentMessages.push({
-		content: buildToolResultBlock(state.currentToolUseId, result),
+		content: toolResultBlocks,
 		role: 'user'
 	});
 
@@ -324,7 +403,7 @@ const processToolTurn = async (
 		tools: toolDefs
 	});
 
-	return consumeToolStream(
+	await consumeToolStream(
 		stream,
 		state,
 		options,
@@ -344,6 +423,8 @@ const consumeToolStream = async (
 	conversationId: string,
 	signal: AbortSignal
 ) => {
+	let hitAnotherTool = false;
+
 	for await (const chunk of stream) {
 		if (signal.aborted) break;
 
@@ -356,32 +437,28 @@ const consumeToolStream = async (
 			conversationId
 		);
 
-		if (isToolHit) return true;
+		if (isToolHit) hitAnotherTool = true;
+
+		// Don't return early on tool_use — continue consuming
+		// the stream to capture usage from the done chunk
 	}
 
-	return false;
+	return hitAnotherTool;
 };
 
 const shouldContinueToolLoop = (
 	state: ToolLoopState,
 	maxTurns: number,
 	signal: AbortSignal
-) => state.currentTurn < maxTurns && !signal.aborted;
+) =>
+	state.pendingToolCalls.length > 0 &&
+	state.currentTurn < maxTurns &&
+	!signal.aborted;
 
-const isRepeatedToolCall = (state: ToolLoopState) => {
-	const currentKey = serializeToolCall(
-		state.currentToolName,
-		state.currentToolInput
+const areAllRepeatedToolCalls = (state: ToolLoopState) =>
+	state.pendingToolCalls.every((tc) =>
+		state.executedToolKeys.has(serializeToolCall(tc.name, tc.input))
 	);
-
-	if (currentKey === state.previousToolCallKey) {
-		return true;
-	}
-
-	state.previousToolCallKey = currentKey;
-
-	return false;
-};
 
 const buildToolLoopResult = (state: ToolLoopState) => ({
 	fullResponse: state.currentFullResponse,
@@ -392,9 +469,8 @@ const executeToolLoop = async (
 	socket: AIWebSocket,
 	options: StreamAIOptions,
 	messages: AIProviderMessage[],
-	toolUseId: string,
-	toolName: string,
-	toolInput: unknown,
+	initialToolCalls: PendingToolCall[],
+	initialContentBlocks: ContentBlock[],
 	messageId: string,
 	conversationId: string,
 	signal: AbortSignal,
@@ -404,21 +480,21 @@ const executeToolLoop = async (
 	const maxTurns = options.maxTurns ?? DEFAULT_MAX_TURNS;
 
 	const state: ToolLoopState = {
+		contentBlocks: initialContentBlocks,
 		currentFullResponse: fullResponse,
 		currentMessages: [...messages],
-		currentToolInput: toolInput,
-		currentToolName: toolName,
-		currentToolUseId: toolUseId,
+		currentThinking: null,
 		currentTurn: turn,
 		currentUsage: undefined,
-		previousToolCallKey: ''
+		executedToolKeys: new Set<string>(),
+		pendingToolCalls: initialToolCalls
 	};
 
 	while (shouldContinueToolLoop(state, maxTurns, signal)) {
-		if (isRepeatedToolCall(state)) break;
+		if (areAllRepeatedToolCalls(state)) break;
 
 		// eslint-disable-next-line no-await-in-loop
-		const hitAnotherTool = await processToolTurn(
+		await processToolTurn(
 			socket,
 			options,
 			state,
@@ -426,8 +502,6 @@ const executeToolLoop = async (
 			conversationId,
 			signal
 		);
-
-		if (!hitAnotherTool) return buildToolLoopResult(state);
 
 		state.currentTurn++;
 	}
@@ -484,13 +558,12 @@ const handleTextChunk = async (
 	return textContent;
 };
 
-const handleToolUseChunk = async (
+const handleToolCalls = async (
 	socket: AIWebSocket,
 	options: StreamAIOptions,
 	messages: AIProviderMessage[],
-	chunkId: string,
-	chunkName: string,
-	chunkInput: unknown,
+	toolCalls: PendingToolCall[],
+	contentBlocks: ContentBlock[],
 	messageId: string,
 	conversationId: string,
 	signal: AbortSignal,
@@ -501,9 +574,8 @@ const handleToolUseChunk = async (
 		socket,
 		options,
 		messages,
-		chunkId,
-		chunkName,
-		chunkInput,
+		toolCalls,
+		contentBlocks,
 		messageId,
 		conversationId,
 		signal,
@@ -540,32 +612,6 @@ const processStreamTextChunk = async (
 	);
 
 	return textContent;
-};
-
-const processStreamToolUseChunk = async (
-	chunk: AIChunk & { type: 'tool_use' },
-	socket: AIWebSocket,
-	options: StreamAIOptions,
-	messages: AIProviderMessage[],
-	messageId: string,
-	conversationId: string,
-	signal: AbortSignal,
-	fullResponse: string,
-	startTime: number
-) => {
-	await handleToolUseChunk(
-		socket,
-		options,
-		messages,
-		chunk.id,
-		chunk.name,
-		chunk.input,
-		messageId,
-		conversationId,
-		signal,
-		fullResponse,
-		startTime
-	);
 };
 
 const processStream = async (
@@ -611,7 +657,20 @@ const processStream = async (
 		startTime
 	);
 
-	if (!result.earlyReturn) {
+	if (result.pendingToolCalls.length > 0) {
+		await handleToolCalls(
+			socket,
+			options,
+			messages,
+			result.pendingToolCalls,
+			result.contentBlocks,
+			messageId,
+			conversationId,
+			signal,
+			result.fullResponse,
+			startTime
+		);
+	} else {
 		await sendComplete(
 			socket,
 			messageId,
@@ -624,42 +683,63 @@ const processStream = async (
 	}
 };
 
-type ConsumeStreamResult = {
-	earlyReturn: boolean;
+type ConsumeStreamState = {
+	contentBlocks: ContentBlock[];
+	currentThinking: ThinkingAccumulator | null;
 	fullResponse: string;
+	pendingToolCalls: PendingToolCall[];
 	usage: AIUsage | undefined;
+};
+
+const flushStreamThinking = (state: ConsumeStreamState) => {
+	if (state.currentThinking) {
+		state.contentBlocks.push({
+			signature: state.currentThinking.signature || undefined,
+			thinking: state.currentThinking.text,
+			type: 'thinking'
+		});
+		state.currentThinking = null;
+	}
 };
 
 const consumeStreamChunk = async (
 	chunk: AIChunk,
 	options: StreamAIOptions,
 	socket: AIWebSocket,
-	messages: AIProviderMessage[],
+	state: ConsumeStreamState,
 	messageId: string,
-	conversationId: string,
-	signal: AbortSignal,
-	fullResponse: string,
-	startTime: number
+	conversationId: string
 ) => {
 	switch (chunk.type) {
 		case 'thinking':
-			await sendMessage(socket, {
-				content: chunk.content,
-				conversationId,
-				messageId,
-				type: 'thinking'
-			});
-
-			return '';
+			if (chunk.content) {
+				await sendMessage(socket, {
+					content: chunk.content,
+					conversationId,
+					messageId,
+					type: 'thinking'
+				});
+			}
+			if (!state.currentThinking) {
+				state.currentThinking = { signature: '', text: '' };
+			}
+			state.currentThinking.text += chunk.content;
+			if (chunk.signature) {
+				state.currentThinking.signature = chunk.signature;
+			}
+			break;
 
 		case 'text':
-			return processStreamTextChunk(
+			flushStreamThinking(state);
+			state.fullResponse += await processStreamTextChunk(
 				chunk,
 				options,
 				socket,
 				messageId,
 				conversationId
 			);
+			state.contentBlocks.push({ content: chunk.content, type: 'text' });
+			break;
 
 		case 'image':
 			await sendImageMessage(socket, chunk, messageId, conversationId);
@@ -670,51 +750,31 @@ const consumeStreamChunk = async (
 				isPartial: chunk.isPartial,
 				revisedPrompt: chunk.revisedPrompt
 			});
-
-			return '';
+			break;
 
 		case 'tool_use':
-			await processStreamToolUseChunk(
-				chunk,
-				socket,
-				options,
-				messages,
-				messageId,
-				conversationId,
-				signal,
-				fullResponse,
-				startTime
-			);
-
-			return { earlyReturn: true, fullResponse, usage: undefined };
+			flushStreamThinking(state);
+			state.pendingToolCalls.push({
+				id: chunk.id,
+				input: chunk.input,
+				name: chunk.name
+			});
+			state.contentBlocks.push({
+				id: chunk.id,
+				input:
+					typeof chunk.input === 'object' && chunk.input !== null
+						? chunk.input
+						: {},
+				name: chunk.name,
+				type: 'tool_use'
+			});
+			break;
 
 		case 'done':
-			return { earlyReturn: false, fullResponse, usage: chunk.usage };
+			flushStreamThinking(state);
+			state.usage = chunk.usage;
+			break;
 	}
-
-	return '';
-};
-
-type ConsumeStreamState = {
-	fullResponse: string;
-	usage: AIUsage | undefined;
-};
-
-const applyStreamChunkResult = (
-	result: ConsumeStreamResult | string,
-	state: ConsumeStreamState
-) => {
-	if (typeof result === 'string') {
-		state.fullResponse += result;
-
-		return undefined;
-	}
-
-	if (result.earlyReturn) return result;
-
-	state.usage = result.usage;
-
-	return undefined;
 };
 
 const consumeStream = async (
@@ -727,34 +787,29 @@ const consumeStream = async (
 	signal: AbortSignal,
 	startTime: number
 ) => {
-	const state: ConsumeStreamState = { fullResponse: '', usage: undefined };
+	const state: ConsumeStreamState = {
+		contentBlocks: [],
+		currentThinking: null,
+		fullResponse: '',
+		pendingToolCalls: [],
+		usage: undefined
+	};
 
 	for await (const chunk of stream) {
 		if (signal.aborted) break;
 
-		const result = await consumeStreamChunk(
+		// eslint-disable-next-line no-await-in-loop
+		await consumeStreamChunk(
 			chunk,
 			options,
 			socket,
-			messages,
+			state,
 			messageId,
-			conversationId,
-			signal,
-			state.fullResponse,
-			startTime
+			conversationId
 		);
-		const earlyExit = applyStreamChunkResult(result, state);
-
-		if (earlyExit) return earlyExit;
 	}
 
-	const finalResult: ConsumeStreamResult = {
-		earlyReturn: false,
-		fullResponse: state.fullResponse,
-		usage: state.usage
-	};
-
-	return finalResult;
+	return state;
 };
 
 export const streamAI = async (

@@ -184,6 +184,14 @@ const buildRequestBody = (
 		body.tools = tools;
 	}
 
+	// Enable reasoning summary for models that support thinking/reasoning
+	if (params.thinking) {
+		body.reasoning = {
+			effort: 'high',
+			summary: 'auto'
+		};
+	}
+
 	return body;
 };
 
@@ -296,7 +304,7 @@ const processFunctionCallArgumentsDone = function* (
 	pendingCalls.delete(itemId);
 
 	yield {
-		id: callId,
+		id: callId || pending?.callId || itemId,
 		input: parseToolInput(args),
 		name,
 		type: 'tool_use' as const
@@ -380,6 +388,19 @@ const processSSEEvent = function* (
 	pendingCalls: Map<string, PendingFunctionCall>
 ) {
 	switch (eventType) {
+		case 'response.reasoning_summary_text.delta': {
+			const delta = typeof parsed.delta === 'string' ? parsed.delta : '';
+
+			if (delta) {
+				yield {
+					content: delta,
+					type: 'thinking' as const
+				};
+			}
+
+			break;
+		}
+
 		case 'response.output_text.delta':
 			yield* processTextDelta(parsed);
 			break;
@@ -403,6 +424,19 @@ const processSSEEvent = function* (
 		case 'response.completed':
 			yield* processCompleted(parsed);
 			break;
+
+		case 'response.failed':
+		case 'response.incomplete': {
+			const respObj = isRecord(parsed.response)
+				? parsed.response
+				: parsed;
+			const errMsg =
+				isRecord(respObj.error) &&
+				typeof respObj.error.message === 'string'
+					? respObj.error.message
+					: `OpenAI Responses API: ${eventType}`;
+			throw new Error(errMsg);
+		}
 	}
 };
 
