@@ -1198,7 +1198,8 @@ export const build = async ({
 					outdir: serverOutDir,
 					root: serverRoot,
 					target: 'bun',
-					throw: false
+					throw: false,
+					tsconfig: './tsconfig.json'
 				})
 			: undefined,
 		reactBuildConfig ? bunBuild(reactBuildConfig) : undefined,
@@ -1222,7 +1223,8 @@ export const build = async ({
 					root: clientRoot,
 					splitting: !isDev,
 					target: 'browser',
-					throw: false
+					throw: false,
+					tsconfig: './tsconfig.json'
 				})
 			: undefined,
 		globalCssEntries.length > 0

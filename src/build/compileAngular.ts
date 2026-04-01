@@ -400,11 +400,17 @@ export const compileAngularFileJIT = async (inputPath: string, outDir: string, r
 		const targetPath = join(targetDir, fileBase);
 
 		// Find all relative imports to process recursively (needed
-		// even when skipping transpilation for cache-hit files)
-		const importRegex = /from\s+['"](\.\.?\/[^'"]+)['"]/g;
+		// even when skipping transpilation for cache-hit files).
+		// Catches: import/export ... from './x', export * from './x',
+		// import './x' (side-effect), and dynamic import('./x').
 		const localImports: string[] = [];
+		const fromRegex = /(?:from|import)\s+['"](\.\.?\/[^'"]+)['"]/g;
+		const dynamicImportRegex = /import\(\s*['"](\.\.?\/[^'"]+)['"]\s*\)/g;
 		let importMatch;
-		while ((importMatch = importRegex.exec(sourceCode)) !== null) {
+		while ((importMatch = fromRegex.exec(sourceCode)) !== null) {
+			if (importMatch[1]) localImports.push(importMatch[1]);
+		}
+		while ((importMatch = dynamicImportRegex.exec(sourceCode)) !== null) {
 			if (importMatch[1]) localImports.push(importMatch[1]);
 		}
 
