@@ -1,4 +1,8 @@
-import type { AIAttachment, AIMessage, AIServerMessage } from '../../../types/ai';
+import type {
+	AIAttachment,
+	AIMessage,
+	AIServerMessage
+} from '../../../types/ai';
 import { serverMessageToAction } from '../../ai/client/actions';
 import { createAIConnection } from '../../ai/client/connection';
 import { createAIMessageStore } from '../../ai/client/messageStore';
