@@ -102,11 +102,6 @@ const prepareDev = async (
 	config: Awaited<ReturnType<typeof loadConfig>>,
 	buildDir: string
 ) => {
-	const { generateIslandBindings } = await import(
-		'../build/generateIslandBindings'
-	);
-	generateIslandBindings(process.cwd(), config);
-
 	const { devBuild } = await import('./devBuild');
 	const result = await devBuild(config);
 	const { hmr } = await import('../plugins/hmr');
@@ -188,6 +183,8 @@ const prepareDev = async (
 						app.use(imageOptimizer(config.images, buildDir)).use(
 							staticPlugin({
 								assets: buildDir,
+								directive: 'no-cache',
+								maxAge: null,
 								prefix: ''
 							})
 						)

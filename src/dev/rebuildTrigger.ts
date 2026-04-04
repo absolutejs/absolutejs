@@ -1,5 +1,4 @@
 import { existsSync } from 'node:fs';
-import { rm } from 'node:fs/promises';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { build } from '../core/build';
 import type { BuildConfig } from '../../types/build';
@@ -561,20 +560,9 @@ const bundleAngularClient = async (
 	buildDir: string
 ) => {
 	const { build: bunBuild } = await import('bun');
-	const { createIslandBindingPlugin } = await import(
-		'../build/islandBindingPlugin'
-	);
 	const { generateManifest } = await import('../build/generateManifest');
 	const { getAngularVendorPaths } = await import('../core/devVendorPaths');
 	const clientRoot = await computeClientRoot(state.resolvedPaths);
-	const islandBindingPlugin = state.config.islands?.registry
-		? createIslandBindingPlugin({
-				angular: state.config.angularDirectory,
-				react: state.config.reactDirectory,
-				svelte: state.config.svelteDirectory,
-				vue: state.config.vueDirectory
-			})
-		: undefined;
 
 	let angVendorPaths = getAngularVendorPaths();
 	if (!angVendorPaths) {
@@ -594,7 +582,7 @@ const bundleAngularClient = async (
 		format: 'esm',
 		naming: '[dir]/[name].[hash].[ext]',
 		outdir: buildDir,
-		plugins: islandBindingPlugin ? [islandBindingPlugin] : [],
+		plugins: [],
 		root: clientRoot,
 		target: 'browser',
 		throw: false
@@ -701,13 +689,6 @@ const handleAngularFastPath = async (
 	if (pageEntries.length > 0) {
 		await compileAndBundleAngular(state, pageEntries, angularDir);
 		invalidateAngularSsrCache();
-	}
-
-	if (pageEntries.length > 0) {
-		await rm(resolve(angularDir, 'generated'), {
-			force: true,
-			recursive: true
-		});
 	}
 
 	const { manifest } = state;
@@ -820,9 +801,6 @@ const bundleReactClient = async (
 	buildDir: string
 ) => {
 	const { build: bunBuild } = await import('bun');
-	const { createIslandBindingPlugin } = await import(
-		'../build/islandBindingPlugin'
-	);
 	const { generateManifest } = await import('../build/generateManifest');
 	const { getDevVendorPaths } = await import('../core/devVendorPaths');
 	const { rewriteReactImports } = await import(
@@ -836,14 +814,6 @@ const bundleReactClient = async (
 	}
 
 	let vendorPaths = getDevVendorPaths();
-	const islandBindingPlugin = state.config.islands?.registry
-		? createIslandBindingPlugin({
-				angular: state.config.angularDirectory,
-				react: state.config.reactDirectory,
-				svelte: state.config.svelteDirectory,
-				vue: state.config.vueDirectory
-			})
-		: undefined;
 	if (!vendorPaths) {
 		const { computeVendorPaths } = await import(
 			'../build/buildReactVendor'
@@ -865,7 +835,7 @@ const bundleReactClient = async (
 		jsx: { development: true },
 		naming: '[dir]/[name].[hash].[ext]',
 		outdir: buildDir,
-		plugins: islandBindingPlugin ? [islandBindingPlugin] : [],
+		plugins: [],
 		reactFastRefresh: true,
 		root: clientRoot,
 		splitting: true,
@@ -1051,8 +1021,6 @@ const handleReactFastPath = async (
 			buildDir
 		);
 	}
-
-	await rm(resolve(reactDir, 'generated'), { force: true, recursive: true });
 
 	const { manifest } = state;
 	const duration = Date.now() - startTime;
@@ -1249,11 +1217,6 @@ const handleSvelteFastPath = async (
 		handleServerManifestUpdate(state, serverResult);
 		await handleClientManifestUpdate(state, clientResult, buildDir);
 	}
-
-	await rm(resolve(svelteDir, 'generated'), {
-		force: true,
-		recursive: true
-	});
 
 	const { manifest } = state;
 	const duration = Date.now() - startTime;
@@ -2801,12 +2764,8 @@ const runFrameworkFastPaths = async (
 	}
 
 	// Check if any files weren't handled by a fast path.
-	// CSS/styles need the full build for compilation + rehashing.
-	return files.every(
-		(f) =>
-			handled.has(f) ||
-			detectFramework(f, state.resolvedPaths) === 'assets'
-	);
+	// CSS/styles and copied assets need the full build so outputs stay in sync.
+	return files.every((f) => handled.has(f));
 };
 
 const performFullRebuild = async (

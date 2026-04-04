@@ -237,6 +237,10 @@ export const imageOptimizer =
 		const minimumCacheTTL =
 			(config?.minimumCacheTTL ?? DEFAULT_CACHE_TTL_SECONDS) *
 			MS_PER_SECOND;
+		const cacheControlHeader =
+			process.env['NODE_ENV'] === 'development'
+				? 'no-cache'
+				: `public, max-age=${Math.ceil(minimumCacheTTL / MS_PER_SECOND)}, must-revalidate`;
 		const configuredFormats: ImageFormat[] = config?.formats ?? ['webp'];
 		const remotePatterns = config?.remotePatterns ?? [];
 		const cacheDir = getCacheDir(buildDir);
@@ -276,7 +280,7 @@ export const imageOptimizer =
 					if (ifNoneMatch && ifNoneMatch === cached.meta.etag) {
 						return new Response(null, {
 							headers: {
-								'Cache-Control': `public, max-age=${Math.ceil(minimumCacheTTL / MS_PER_SECOND)}, must-revalidate`,
+								'Cache-Control': cacheControlHeader,
 								ETag: cached.meta.etag,
 								Vary: 'Accept'
 							},
@@ -286,7 +290,7 @@ export const imageOptimizer =
 
 					return new Response(new Uint8Array(cached.buffer), {
 						headers: {
-							'Cache-Control': `public, max-age=${Math.ceil(minimumCacheTTL / MS_PER_SECOND)}, must-revalidate`,
+							'Cache-Control': cacheControlHeader,
 							'Content-Type': cached.meta.contentType,
 							ETag: cached.meta.etag,
 							Vary: 'Accept'
@@ -359,7 +363,7 @@ export const imageOptimizer =
 				// ── Response ────────────────────────────────────────
 				return new Response(new Uint8Array(optimizedBuffer), {
 					headers: {
-						'Cache-Control': `public, max-age=${Math.ceil(minimumCacheTTL / MS_PER_SECOND)}, must-revalidate`,
+						'Cache-Control': cacheControlHeader,
 						'Content-Type': mime,
 						ETag: etag,
 						Vary: 'Accept'

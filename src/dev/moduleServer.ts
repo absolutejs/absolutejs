@@ -2,7 +2,6 @@ import { BASE_36_RADIX, UNFOUND_INDEX } from '../constants';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, extname, resolve, relative } from 'node:path';
 import { resolvePackageImport } from '../build/resolvePackageImport';
-import { resolveIslandCompatModule } from '../build/islandBindingCompat';
 import { buildIslandMetadataExports } from '../islands/sourceMetadata';
 import { lowerSvelteIslandSyntax } from '../svelte/lowerIslandSyntax';
 import {
@@ -198,23 +197,7 @@ const resolveRelativeImport = (
 
 // Resolve @absolutejs/absolute/* specifiers to project-relative paths.
 // Returns the relative path string on success, or undefined if resolution fails.
-const resolveAbsoluteSpecifier = (
-	specifier: string,
-	projectRoot: string,
-	importer?: string,
-	frameworkDirs?: ModuleServerConfig['frameworkDirs']
-) => {
-	if (importer && frameworkDirs) {
-		const compatModule = resolveIslandCompatModule(
-			specifier,
-			importer,
-			frameworkDirs
-		);
-		if (compatModule) {
-			return relative(projectRoot, compatModule);
-		}
-	}
-
+const resolveAbsoluteSpecifier = (specifier: string, projectRoot: string) => {
 	try {
 		const target =
 			resolvePackageImport(specifier, ['browser', 'import']) ??
@@ -231,8 +214,7 @@ const rewriteImports = (
 	code: string,
 	filePath: string,
 	projectRoot: string,
-	rewriter: ReturnType<typeof buildImportRewriter>,
-	frameworkDirs?: ModuleServerConfig['frameworkDirs']
+	rewriter: ReturnType<typeof buildImportRewriter>
 ) => {
 	let result = code;
 
@@ -271,12 +253,7 @@ const rewriteImports = (
 		if (!specifier.startsWith('@absolutejs/absolute/'))
 			return `${prefix}/@stub/${encodeURIComponent(specifier)}${suffix}`;
 
-		const resolved = resolveAbsoluteSpecifier(
-			specifier,
-			projectRoot,
-			filePath,
-			frameworkDirs
-		);
+		const resolved = resolveAbsoluteSpecifier(specifier, projectRoot);
 		if (resolved) {
 			return `${prefix}${srcUrl(resolved, projectRoot)}${suffix}`;
 		}
@@ -430,8 +407,7 @@ const reactTranspiler = new Bun.Transpiler(reactTranspilerOptions);
 const transformReactFile = (
 	filePath: string,
 	projectRoot: string,
-	rewriter: ReturnType<typeof buildImportRewriter>,
-	frameworkDirs?: ModuleServerConfig['frameworkDirs']
+	rewriter: ReturnType<typeof buildImportRewriter>
 ) => {
 	const raw = readFileSync(filePath, 'utf-8');
 	const valueExports = tsxTranspiler.scan(raw).exports;
@@ -473,13 +449,7 @@ const transformReactFile = (
 	transpiled = transpiled.replace(/\binput\.tsx:/g, `${relPath}:`);
 	transpiled += buildIslandMetadataExports(raw);
 
-	return rewriteImports(
-		transpiled,
-		filePath,
-		projectRoot,
-		rewriter,
-		frameworkDirs
-	);
+	return rewriteImports(transpiled, filePath, projectRoot, rewriter);
 };
 
 // Use Bun.Transpiler for non-React files (no refresh injection needed)
@@ -487,8 +457,7 @@ const transformPlainFile = (
 	filePath: string,
 	projectRoot: string,
 	rewriter: ReturnType<typeof buildImportRewriter>,
-	vueDir?: string,
-	frameworkDirs?: ModuleServerConfig['frameworkDirs']
+	vueDir?: string
 ) => {
 	const raw = readFileSync(filePath, 'utf-8');
 	const ext = extname(filePath);
@@ -505,13 +474,7 @@ const transformPlainFile = (
 		transpiled = preserveTypeExports(raw, transpiled, valueExports);
 	}
 
-	transpiled = rewriteImports(
-		transpiled,
-		filePath,
-		projectRoot,
-		rewriter,
-		frameworkDirs
-	);
+	transpiled = rewriteImports(transpiled, filePath, projectRoot, rewriter);
 
 	// Vue composable HMR state tracking: wrap exported use* functions
 	// so ref values are captured and restored across HMR reloads.
@@ -737,8 +700,7 @@ const compileSvelteComponent = (
 const transformSvelteFile = async (
 	filePath: string,
 	projectRoot: string,
-	rewriter: ReturnType<typeof buildImportRewriter>,
-	frameworkDirs?: ModuleServerConfig['frameworkDirs']
+	rewriter: ReturnType<typeof buildImportRewriter>
 ) => {
 	const raw = readFileSync(filePath, 'utf-8');
 
@@ -762,7 +724,7 @@ const transformSvelteFile = async (
 				loweredSource.transformed
 			);
 
-	return rewriteImports(code, filePath, projectRoot, rewriter, frameworkDirs);
+	return rewriteImports(code, filePath, projectRoot, rewriter);
 };
 
 type VueSFCDescriptor = {
@@ -849,8 +811,7 @@ const transformVueFile = async (
 	filePath: string,
 	projectRoot: string,
 	rewriter: ReturnType<typeof buildImportRewriter>,
-	vueDir?: string,
-	frameworkDirs?: ModuleServerConfig['frameworkDirs']
+	vueDir?: string
 ) => {
 	const raw = readFileSync(filePath, 'utf-8');
 
@@ -885,7 +846,7 @@ const transformVueFile = async (
 	// reload() would reset state by re-running setup().
 	code = injectVueHmr(code, filePath, projectRoot, vueDir);
 
-	return rewriteImports(code, filePath, projectRoot, rewriter, frameworkDirs);
+	return rewriteImports(code, filePath, projectRoot, rewriter);
 };
 
 // Inject Vue HMR runtime registration and rerender call.
@@ -1042,7 +1003,7 @@ const handleStubRequest = async (pathname: string) => {
 
 	return new Response(stubCode, {
 		headers: {
-			'Cache-Control': 'public, max-age=31536000, immutable',
+			'Cache-Control': 'no-cache',
 			'Content-Type': 'application/javascript'
 		}
 	});
@@ -1140,8 +1101,7 @@ const transformAndCache = async (
 	ext: string,
 	projectRoot: string,
 	rewriter: ReturnType<typeof buildImportRewriter>,
-	vueDir?: string,
-	frameworkDirs?: ModuleServerConfig['frameworkDirs']
+	vueDir?: string
 ) => {
 	if (ext === '.css') return jsResponse(handleCssRequest(filePath));
 
@@ -1154,33 +1114,16 @@ const transformAndCache = async (
 	if (cached) return jsResponse(cached);
 
 	if (isSvelte)
-		return transformAndCacheSvelte(
-			filePath,
-			projectRoot,
-			rewriter,
-			frameworkDirs
-		);
+		return transformAndCacheSvelte(filePath, projectRoot, rewriter);
 	if (ext === '.vue')
-		return transformAndCacheVue(
-			filePath,
-			projectRoot,
-			rewriter,
-			vueDir,
-			frameworkDirs
-		);
+		return transformAndCacheVue(filePath, projectRoot, rewriter, vueDir);
 	if (!TRANSPILABLE.has(ext)) return undefined;
 
 	const stat = statSync(filePath);
 	const resolvedVueDir = vueDir ? resolve(vueDir) : undefined;
 	const content = REACT_EXTENSIONS.has(ext)
-		? transformReactFile(filePath, projectRoot, rewriter, frameworkDirs)
-		: transformPlainFile(
-				filePath,
-				projectRoot,
-				rewriter,
-				resolvedVueDir,
-				frameworkDirs
-			);
+		? transformReactFile(filePath, projectRoot, rewriter)
+		: transformPlainFile(filePath, projectRoot, rewriter, resolvedVueDir);
 
 	setTransformed(
 		filePath,
@@ -1195,16 +1138,10 @@ const transformAndCache = async (
 const transformAndCacheSvelte = async (
 	filePath: string,
 	projectRoot: string,
-	rewriter: ReturnType<typeof buildImportRewriter>,
-	frameworkDirs?: ModuleServerConfig['frameworkDirs']
+	rewriter: ReturnType<typeof buildImportRewriter>
 ) => {
 	const stat = statSync(filePath);
-	const content = await transformSvelteFile(
-		filePath,
-		projectRoot,
-		rewriter,
-		frameworkDirs
-	);
+	const content = await transformSvelteFile(filePath, projectRoot, rewriter);
 	setTransformed(
 		filePath,
 		content,
@@ -1219,16 +1156,14 @@ const transformAndCacheVue = async (
 	filePath: string,
 	projectRoot: string,
 	rewriter: ReturnType<typeof buildImportRewriter>,
-	vueDir?: string,
-	frameworkDirs?: ModuleServerConfig['frameworkDirs']
+	vueDir?: string
 ) => {
 	const stat = statSync(filePath);
 	const content = await transformVueFile(
 		filePath,
 		projectRoot,
 		rewriter,
-		vueDir,
-		frameworkDirs
+		vueDir
 	);
 	setTransformed(
 		filePath,

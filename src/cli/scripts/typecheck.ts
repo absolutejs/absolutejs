@@ -229,10 +229,6 @@ const buildSvelteCheck = async (cacheDir: string, svelteDir: string) => {
 
 export const typecheck = async (configPath?: string) => {
 	const config = await loadConfig(configPath);
-	const { generateIslandBindings } = await import(
-		'../../build/generateIslandBindings'
-	);
-	generateIslandBindings(process.cwd(), config);
 
 	const hasSvelte = Boolean(config.svelteDirectory);
 	const hasVue = Boolean(config.vueDirectory);

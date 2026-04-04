@@ -18,9 +18,7 @@ import {
 	generateIslandEntryPoints,
 	loadIslandRegistryBuildInfo
 } from '../build/islandEntries';
-import { generateIslandBindings } from '../build/generateIslandBindings';
 import { generateReactIndexFiles } from '../build/generateReactIndexes';
-import { createIslandBindingPlugin } from '../build/islandBindingPlugin';
 import { createHTMLScriptHMRPlugin } from '../build/htmlScriptHMRPlugin';
 import { transformStaticPagesWithIslands } from '../build/staticIslandPages';
 import { outputLogs } from '../build/outputLogs';
@@ -641,21 +639,6 @@ export const build = async ({
 		typeof stylesConfig === 'object' ? stylesConfig.ignore : undefined;
 	const stylesDir = stylesPath && validateSafePath(stylesPath, projectRoot);
 
-	generateIslandBindings(projectRoot, {
-		angularDirectory: angularDir,
-		htmlDirectory: htmlDir,
-		htmxDirectory: htmxDir,
-		islands: islandRegistryPath
-			? {
-					bootstrap: islandBootstrapPath,
-					registry: islandRegistryPath
-				}
-			: undefined,
-		reactDirectory: reactDir,
-		svelteDirectory: svelteDir,
-		vueDirectory: vueDir
-	});
-
 	const reactIndexesPath = reactDir && join(reactDir, 'generated', 'indexes');
 	const reactPagesPath = reactDir && join(reactDir, 'pages');
 	const htmlPagesPath = htmlDir && join(htmlDir, 'pages');
@@ -1244,15 +1227,6 @@ export const build = async ({
 	const htmlScriptPlugin = hmr
 		? createHTMLScriptHMRPlugin(htmlDir, htmxDir)
 		: undefined;
-	const islandBindingPlugin = islandRegistryPath
-		? createIslandBindingPlugin({
-				angular: angularDir,
-				react: reactDir,
-				svelte: svelteDir,
-				vue: vueDir
-			})
-		: undefined;
-
 	const reactBuildConfig: Parameters<typeof bunBuild>[0] | undefined =
 		reactClientEntryPoints.length > 0
 			? {
@@ -1267,7 +1241,7 @@ export const build = async ({
 					...(hmr
 						? { jsx: { development: true }, reactFastRefresh: true }
 						: {}),
-					plugins: islandBindingPlugin ? [islandBindingPlugin] : [],
+					plugins: [],
 					root: clientRoot,
 					splitting: true,
 					target: 'browser',
@@ -1332,7 +1306,7 @@ export const build = async ({
 					format: 'esm',
 					naming: `[dir]/[name].[hash].[ext]`,
 					outdir: serverOutDir,
-					plugins: islandBindingPlugin ? [islandBindingPlugin] : [],
+					plugins: [],
 					root: serverRoot,
 					target: 'bun',
 					throw: false,
@@ -1355,7 +1329,6 @@ export const build = async ({
 					naming: `[dir]/[name].[hash].[ext]`,
 					outdir: buildPath,
 					plugins: [
-						...(islandBindingPlugin ? [islandBindingPlugin] : []),
 						...(angularDir && !isDev ? [angularLinkerPlugin] : []),
 						...(htmlScriptPlugin ? [htmlScriptPlugin] : [])
 					],
@@ -1381,7 +1354,6 @@ export const build = async ({
 					naming: `[dir]/[name].[hash].[ext]`,
 					outdir: buildPath,
 					plugins: [
-						...(islandBindingPlugin ? [islandBindingPlugin] : []),
 						...(angularDir && !isDev ? [angularLinkerPlugin] : [])
 					],
 					root: islandEntryResult.generatedRoot,

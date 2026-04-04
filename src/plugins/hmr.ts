@@ -99,7 +99,7 @@ export const hmr =
 
 			return new Response(new Uint8Array(bytes).buffer, {
 				headers: {
-					'Cache-Control': 'public, max-age=31536000, immutable',
+					'Cache-Control': 'no-cache',
 					'Content-Type': getMimeType(pathname)
 				}
 			});

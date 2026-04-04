@@ -4,7 +4,7 @@ Features missing from AbsoluteJS that Next.js provides, ordered by priority. Eac
 
 ---
 
-## 3. P1 — Client-Side Navigation / SPA Mode with `<Link>`
+## 1. P1 — Client-Side Navigation / SPA Mode with `<Link>`
 
 **What Next.js does:**
 `<Link>` component that intercepts clicks and does client-side navigation — fetches only the new page's data/RSC payload, swaps the content, and preserves layout state (scroll position, open menus, form inputs). Prefetches linked pages on hover or when they enter the viewport. This is what makes Next.js apps feel like SPAs even though they're server-rendered.
@@ -76,7 +76,7 @@ React Router and similar client-side routers can't help here — they swap clien
 
 ---
 
-## 5. P1 — Out-of-Order Streaming
+## 2. P1 — Out-of-Order Streaming
 
 **What SolidStart does:**
 Components stream to the client as they resolve, not in DOM order. If your sidebar data query finishes before your main content query, the sidebar HTML ships first. The browser renders each chunk into the correct DOM position regardless of arrival order. This means the fastest data always appears first — no waterfall where a slow hero section blocks the entire page.
@@ -132,7 +132,7 @@ With in-order streaming, the activity feed waits for the stats section even thou
 
 ---
 
-## 6. P1 — Form Actions with Progressive Enhancement
+## 3. P1 — Form Actions with Progressive Enhancement
 
 **What SvelteKit and Remix do:**
 Forms submit to the server as plain HTML `<form action="/submit" method="POST">` — this works with zero JavaScript. The server processes the form, validates input, and returns a result (redirect, error, or updated page). When JavaScript IS available, the framework intercepts the submission, sends it via `fetch()` instead, and updates the page without a full reload. The developer writes one handler that works both ways.
@@ -223,7 +223,7 @@ Elysia POST handlers work for form processing, but there's no convention for pro
 
 ---
 
-## 9. P1 — Security Headers + CSP Nonce Injection
+## 4. P1 — Security Headers + CSP Nonce Injection
 
 **The problem:**
 Most web apps ship with zero security headers. Without a Content-Security-Policy, any XSS vulnerability lets attackers inject arbitrary `<script>` tags that execute freely. AbsoluteJS injects inline scripts on every page (`window.__INITIAL_PROPS__=...`, `$RefreshReg$` buffer, HMR client) — all of these are blocked by a strict CSP unless they have a per-request nonce.
@@ -322,7 +322,7 @@ app.use(secureHeaders({
 
 ---
 
-## 10. P2 — Sass/SCSS/Less Preprocessing
+## 5. P2 — Sass/SCSS/Less Preprocessing
 
 **What Next.js does:**
 Built-in Sass support. Import `.scss` or `.sass` files directly. Also supports `.module.scss` for scoped Sass modules.
@@ -343,7 +343,7 @@ Only `.css` files. Tailwind handles utility classes. No preprocessor support.
 
 ---
 
-## 11. P2 — Middleware
+## 6. P2 — Middleware
 
 **What Next.js does:**
 A single `middleware.ts` at the project root that runs before every request. Can rewrite URLs, redirect, set headers, check auth, do A/B testing, geolocation-based routing. Runs on the edge (lightweight V8 isolate).
@@ -363,7 +363,7 @@ Elysia's full middleware system — `onBeforeHandle`, `onAfterHandle`, `.use()` 
 
 ---
 
-## 12. P2 — Partial Prerendering (requires SSG)
+## 7. P2 — Partial Prerendering (requires SSG)
 
 **What Next.js 16 does:**
 A page is split into a static shell (navbar, footer, layout — cached at CDN) and dynamic "holes" that stream in at request time (user-specific content, real-time data). The static parts load instantly from cache while the dynamic parts stream in via SSR. From the user's perspective, the page appears instantly with personalized content filling in smoothly.
@@ -433,7 +433,7 @@ Most pages are 80% static content (nav, sidebar, footer, headings, layout) and 2
 
 ---
 
-## 13. P2 — Web Vitals Reporting
+## 8. P2 — Web Vitals Reporting
 
 **The problem:**
 43% of sites fail the INP (Interaction to Next Paint) threshold. Most developers don't measure real user performance until complaints come in. Adding analytics requires third-party scripts that themselves hurt performance. Vercel has `reportWebVitals()` for Next.js but no other meta-framework has this built in.
@@ -508,7 +508,7 @@ app.use(vitals({
 
 ---
 
-## 14. P2 — Background Jobs + Cron
+## 9. P2 — Background Jobs + Cron
 
 **The problem:**
 Web frameworks only handle request/response. Anything async — email sending, image processing, scheduled cleanups, webhook retries, report generation — requires separate infrastructure (Redis + Bull, separate worker process, cron service). This is the #1 reason apps "outgrow" their framework. Laravel and Rails have built-in queues and schedulers. No JS meta-framework has this.
@@ -624,7 +624,7 @@ app.use(jobs({
 
 ---
 
-## 15. P2 — Health Check Endpoints
+## 10. P2 — Health Check Endpoints
 
 **The problem:**
 Every Kubernetes, Docker, ECS, or Fly.io deployment needs health check endpoints. Without them, the orchestrator can't tell if your app is alive, ready to accept traffic, or stuck. Every team implements these ad-hoc with slightly different patterns.
@@ -703,7 +703,7 @@ app.use(healthChecks({
 
 ---
 
-## 16. P2 — Structured Logging with Request Context
+## 11. P2 — Structured Logging with Request Context
 
 **The problem:**
 `console.log` in production is useless — no request context, no correlation, no structured format. When something breaks, developers grep through unstructured text logs trying to match a request to its errors. Every log line should know which request it belongs to without the developer passing a logger through every function.
@@ -784,7 +784,7 @@ app.use(logging({
 
 ---
 
-## 17. P2 — Parallel Data Loading
+## 12. P2 — Parallel Data Loading
 
 **The problem:**
 Request waterfalls are the #1 hidden performance killer. A parent component fetches data, renders a child, which fetches its own data, creating sequential roundtrips. On a page with 3 data sources each taking 100ms, a waterfall takes 300ms while parallel loading takes 100ms.
@@ -889,7 +889,7 @@ app.get('/dashboard', async (ctx) => {
 
 ---
 
-## 18. P2 — CLI Scaffolding / Page Generator
+## 13. P2 — CLI Scaffolding / Page Generator
 
 **The problem:**
 Adding a new page to an AbsoluteJS app requires: creating the page component file with the right structure, creating a CSS file, adding the route to `server.ts` with the correct page handler import and manifest keys, and updating the build config if needed. This is 3-5 files and getting the imports/manifest keys wrong is a common mistake.
@@ -988,7 +988,7 @@ bun abs generate component Button --framework react
 
 ---
 
-## 19. P2 — CLI Framework Adder
+## 14. P2 — CLI Framework Adder
 
 **The problem:**
 A project starts with React only. Six months later the team wants to add a Svelte page for a performance-critical widget, or a Vue page because a new hire knows Vue. Today this requires manually creating the framework directory, installing dependencies, updating `absolute.config.ts`, adding the page handler import to `server.ts`, and knowing the correct handler API for that framework. It's error-prone and undocumented.
@@ -1110,7 +1110,7 @@ bun abs remove svelte
 
 ---
 
-## 20. P3 — Internationalization (i18n)
+## 15. P3 — Internationalization (i18n)
 
 **What Next.js does:**
 Built-in locale routing (`/en/about`, `/fr/about`), locale detection from Accept-Language header, and domain-based routing. Integrates with i18n libraries like next-intl.
@@ -1131,7 +1131,7 @@ Nothing.
 
 ---
 
-## 21. P3 — Font Optimization
+## 16. P3 — Font Optimization
 
 **What Next.js does:**
 `next/font` automatically downloads Google Fonts at build time (no external requests), subsets them, adds `font-display: swap`, and inlines the CSS. Self-hosted fonts get the same optimizations. Zero layout shift from font loading.
@@ -1152,7 +1152,7 @@ Nothing.
 
 ---
 
-## 22. P3 — Edge Runtime / Serverless Deployment
+## 17. P3 — Edge Runtime / Serverless Deployment
 
 **What Next.js does:**
 Routes can opt into the Edge Runtime (lightweight V8) for lower latency at the edge. Serverless function deployment on Vercel, AWS Lambda, Cloudflare Workers. Middleware always runs on edge.
