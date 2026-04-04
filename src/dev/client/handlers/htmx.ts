@@ -13,11 +13,8 @@ import {
 import { processCSSLinks, waitForCSSAndUpdate } from '../cssUtils';
 import { patchHeadInPlace } from '../headPatch';
 import { detectCurrentFramework } from '../frameworkDetect';
-import {
-	type HTMXSavedState,
-	type ScriptInfo,
-	hmrState
-} from '../../../../types/client';
+import { type HTMXSavedState, type ScriptInfo } from '../../../../types/client';
+import { hmrState } from '../hmrState';
 
 const parseHTMXMessage = (
 	html: string | { body?: string; head?: string } | null | undefined

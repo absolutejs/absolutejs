@@ -1,0 +1,1 @@
+export { handleSveltePageRequest } from './pageHandler';

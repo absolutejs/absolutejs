@@ -5,6 +5,7 @@ import ts from 'typescript';
 import { BASE_36_RADIX } from '../constants';
 import { toPascal } from '../utils/stringModifiers';
 import { createHash } from 'crypto';
+import { buildIslandMetadataExports } from '../islands/sourceMetadata';
 // import { resolvePackageImport } from './resolvePackageImport';
 
 // Angular HMR Optimization — Compiler cache interface
@@ -110,6 +111,9 @@ const resolveRelativePath = (fileName: string, resolvedOutDir: string, outDir: s
 };
 
 export const compileAngularFile = async (inputPath: string, outDir: string) => {
+	const islandMetadataExports = buildIslandMetadataExports(
+		readFileSync(inputPath, 'utf-8')
+	);
 	const {
 		readConfiguration,
 		performCompilation,
@@ -264,6 +268,7 @@ export const compileAngularFile = async (inputPath: string, outDir: string) => {
 			);
 			// Replace usage of InjectFlags
 			processedContent = processedContent.replace(/\b(?<!Internal)InjectFlags\b/g, 'InternalInjectFlags');
+			processedContent += islandMetadataExports;
 
 			return { content: processedContent, target };
 		});
@@ -358,6 +363,7 @@ const inlineResources = async (source: string, fileDir: string) => {
  *  Recursively transpiles all local imports so Bun's bundler can resolve them.
  *  ~50-100ms for a tree of ~10 files vs ~500-700ms for AOT. */
 export const compileAngularFileJIT = async (inputPath: string, outDir: string, rootDir?: string) => {
+	const entryPath = resolve(inputPath);
 	const allOutputs: string[] = [];
 	const visited = new Set<string>();
 	const baseDir = resolve(rootDir ?? process.cwd());
@@ -371,6 +377,42 @@ export const compileAngularFileJIT = async (inputPath: string, outDir: string, r
 			}
 		})
 	});
+
+	const transpileAndRewrite = (
+		sourceCode: string, relativeDir: string, actualPath: string
+	) => {
+		let processedContent = angularTranspiler.transformSync(sourceCode);
+
+		processedContent = processedContent.replace(
+			/from\s+(['"])(\.\.?\/[^'"]+)(\1)/g,
+			(match, quote, path) => {
+				if (!path.match(/\.(js|ts|mjs|cjs)$/)) {
+					return `from ${quote}${path}.js${quote}`;
+				}
+				if (path.endsWith('.ts')) {
+					return `from ${quote}${path.replace(/\.ts$/, '.js')}${quote}`;
+				}
+
+				return match;
+			}
+		);
+
+		const relDepth = relativeDir === '' || relativeDir === '.' ? 0 : relativeDir.split('/').length;
+		processedContent = processedContent.replace(
+			/(from\s+['"])(\.\.\/(?:\.\.\/)*)/g,
+			(_, prefix, dots) => {
+				const upCount = dots.split('/').length - 1;
+				if (upCount <= relDepth) return `${prefix}${dots}`;
+
+				return `${prefix}../${dots}`;
+			}
+		);
+		if (resolve(actualPath) === entryPath) {
+			processedContent += buildIslandMetadataExports(sourceCode);
+		}
+
+		return processedContent;
+	};
 
 	/** Transpile a single .ts file and recursively process its local imports */
 	const transpileFile = async (filePath: string) => {
@@ -423,38 +465,8 @@ export const compileAngularFileJIT = async (inputPath: string, outDir: string, r
 		if (jitContentCache.get(cacheKey) === contentHash && existsSync(targetPath)) {
 			allOutputs.push(targetPath);
 		} else {
-			// Transpile with Bun.Transpiler (233x faster than ts.transpileModule).
-			// Legacy decorators emit bun:wrap imports, resolved by Bun.build.
-			let processedContent = angularTranspiler.transformSync(sourceCode);
-
-			// Add .js extensions to relative imports
-			processedContent = processedContent.replace(
-				/from\s+(['"])(\.\.?\/[^'"]+)(\1)/g,
-				(match, quote, path) => {
-					if (!path.match(/\.(js|ts|mjs|cjs)$/)) {
-						return `from ${quote}${path}.js${quote}`;
-					}
-					// Replace .ts extension with .js
-					if (path.endsWith('.ts')) {
-						return `from ${quote}${path.replace(/\.ts$/, '.js')}${quote}`;
-					}
-
-					return match;
-				}
-			);
-
-			// Rewrite relative imports that escape the framework root.
-			// Source is at angularRoot/<relDir>/file.ts, output is at
-			// angularRoot/generated/<relDir>/file.js — 1 extra level.
-			const relDepth = relativeDir === '' || relativeDir === '.' ? 0 : relativeDir.split('/').length;
-			processedContent = processedContent.replace(
-				/(from\s+['"])(\.\.\/(?:\.\.\/)*)/g,
-				(_, prefix, dots) => {
-					const upCount = dots.split('/').length - 1;
-					if (upCount <= relDepth) return `${prefix}${dots}`;
-
-					return `${prefix}../${dots}`;
-				}
+			const processedContent = transpileAndRewrite(
+				sourceCode, relativeDir, actualPath
 			);
 
 			await fs.mkdir(targetDir, { recursive: true });
@@ -591,7 +603,23 @@ import '@angular/compiler';
 import { bootstrapApplication } from '@angular/platform-browser';
 import { provideClientHydration } from '@angular/platform-browser';
 import { provideZonelessChangeDetection } from '@angular/core';
-import ${componentClassName} from '${normalizedImportPath}';
+import * as pageModule from '${normalizedImportPath}';
+
+var ${componentClassName} = pageModule.default;
+var toScreamingSnake = function(str) {
+    return str.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toUpperCase();
+};
+var isInjectionToken = function(value) {
+    return Boolean(value) && typeof value === 'object' && value.ngMetadataName === 'InjectionToken';
+};
+var pageProps = window.__ABS_ANGULAR_PAGE_PROPS__ || {};
+var pageHasIslands = Boolean(pageModule.__ABSOLUTE_PAGE_HAS_ISLANDS__) || Boolean(document.querySelector('[data-island="true"]'));
+var propProviders = Object.entries(pageProps).map(function(entry) {
+    var propName = entry[0];
+    var propValue = entry[1];
+    var token = pageModule[toScreamingSnake(propName)];
+    return isInjectionToken(token) ? { provide: token, useValue: propValue } : null;
+}).filter(Boolean);
 
 // Re-Bootstrap HMR with View Transitions API
 if (window.__ANGULAR_APP__) {
@@ -606,10 +634,11 @@ if (!document.querySelector(_sel)) {
 }
 
 var providers = [provideZonelessChangeDetection()];
-if (!window.__HMR_SKIP_HYDRATION__) {
+if (!window.__HMR_SKIP_HYDRATION__ && !pageHasIslands) {
     providers.push(provideClientHydration());
 }
 delete window.__HMR_SKIP_HYDRATION__;
+providers.push.apply(providers, propProviders);
 
 bootstrapApplication(${componentClassName}, {
     providers: providers
@@ -620,12 +649,33 @@ bootstrapApplication(${componentClassName}, {
 import { bootstrapApplication } from '@angular/platform-browser';
 import { provideClientHydration } from '@angular/platform-browser';
 import { enableProdMode, provideZonelessChangeDetection } from '@angular/core';
-import ${componentClassName} from '${normalizedImportPath}';
+import * as pageModule from '${normalizedImportPath}';
+
+var ${componentClassName} = pageModule.default;
+var toScreamingSnake = function(str) {
+    return str.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toUpperCase();
+};
+var isInjectionToken = function(value) {
+    return Boolean(value) && typeof value === 'object' && value.ngMetadataName === 'InjectionToken';
+};
+var pageProps = window.__ABS_ANGULAR_PAGE_PROPS__ || {};
+var pageHasIslands = Boolean(pageModule.__ABSOLUTE_PAGE_HAS_ISLANDS__) || Boolean(document.querySelector('[data-island="true"]'));
+var propProviders = Object.entries(pageProps).map(function(entry) {
+    var propName = entry[0];
+    var propValue = entry[1];
+    var token = pageModule[toScreamingSnake(propName)];
+    return isInjectionToken(token) ? { provide: token, useValue: propValue } : null;
+}).filter(Boolean);
 
 enableProdMode();
 
+var providers = [provideZonelessChangeDetection()].concat(propProviders);
+if (!pageHasIslands) {
+    providers.unshift(provideClientHydration());
+}
+
 bootstrapApplication(${componentClassName}, {
-    providers: [provideClientHydration(), provideZonelessChangeDetection()]
+    providers: providers
 }).then(function (appRef) {
     window.__ANGULAR_APP__ = appRef;
 });

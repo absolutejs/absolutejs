@@ -13,6 +13,8 @@ import {
 import { env } from 'node:process';
 import { write, file, Transpiler } from 'bun';
 import { resolvePackageImport } from './resolvePackageImport';
+import { buildIslandMetadataExports } from '../islands/sourceMetadata';
+import { lowerSvelteIslandSyntax } from '../svelte/lowerIslandSyntax';
 const resolveDevClientDir = () => {
 	const projectRoot = process.cwd();
 	const fromSource = resolve(import.meta.dir, '../dev/client');
@@ -60,6 +62,35 @@ const exists = async (path: string) => {
 	}
 };
 
+const resolveRelativeModule = async (spec: string, from: string) => {
+	if (!spec.startsWith('.')) return null;
+
+	const basePath = resolve(dirname(from), spec);
+	const candidates = [
+		basePath,
+		`${basePath}.ts`,
+		`${basePath}.js`,
+		`${basePath}.mjs`,
+		`${basePath}.cjs`,
+		`${basePath}.json`,
+		`${basePath}.svelte`,
+		`${basePath}.svelte.ts`,
+		`${basePath}.svelte.js`,
+		join(basePath, 'index.ts'),
+		join(basePath, 'index.js'),
+		join(basePath, 'index.mjs'),
+		join(basePath, 'index.cjs'),
+		join(basePath, 'index.json'),
+		join(basePath, 'index.svelte'),
+		join(basePath, 'index.svelte.ts'),
+		join(basePath, 'index.svelte.js')
+	];
+
+	const checks = await Promise.all(candidates.map(exists));
+
+	return candidates.find((_, index) => checks[index]) ?? null;
+};
+
 const resolveSvelte = async (spec: string, from: string) => {
 	// Try bare module imports (e.g. "@absolutejs/absolute/svelte/components/Image.svelte")
 	if (!spec.startsWith('.') && !spec.startsWith('/')) {
@@ -94,6 +125,30 @@ const resolveSvelte = async (spec: string, from: string) => {
 	return null;
 };
 
+const addModuleRewrite = (
+	rewrites: Map<string, { server: string; client: string }>,
+	rawSpec: string,
+	resolvedModule: string,
+	ssrOutputDir: string,
+	clientOutputDir: string
+) => {
+	const toServer = relative(ssrOutputDir, resolvedModule).replace(
+		/\\/g,
+		'/'
+	);
+	const toClient = relative(clientOutputDir, resolvedModule).replace(
+		/\\/g,
+		'/'
+	);
+
+	rewrites.set(rawSpec, {
+		client: toClient.startsWith('.') || toClient.startsWith('/')
+			? toClient
+			: `./${toClient}`,
+		server: toServer.startsWith('.') ? toServer : `./${toServer}`
+	});
+};
+
 export const compileSvelte = async (
 	entryPoints: string[],
 	svelteRoot: string,
@@ -122,6 +177,7 @@ export const compileSvelte = async (
 		if (memoized) return memoized;
 
 		const raw = await file(src).text();
+		const islandMetadataExports = buildIslandMetadataExports(raw);
 
 		// Check if source is unchanged since last compilation
 		const contentHash = Bun.hash(raw).toString(BASE_36_RADIX);
@@ -137,11 +193,26 @@ export const compileSvelte = async (
 		sourceHashCache.set(src, contentHash);
 		const isModule =
 			src.endsWith('.svelte.ts') || src.endsWith('.svelte.js');
-		const preprocessed = isModule ? raw : (await preprocess(raw, {})).code;
-		const transpiled =
+		const loweredServerSource = isModule
+			? { code: raw, transformed: false }
+			: lowerSvelteIslandSyntax(raw, 'server');
+		const loweredClientSource = isModule
+			? loweredServerSource
+			: lowerSvelteIslandSyntax(raw, 'client');
+		const preprocessedServer = isModule
+			? loweredServerSource.code
+			: (await preprocess(loweredServerSource.code, {})).code;
+		const preprocessedClient = isModule
+			? loweredClientSource.code
+			: (await preprocess(loweredClientSource.code, {})).code;
+		const transpiledServer =
 			src.endsWith('.ts') || src.endsWith('.svelte.ts')
-				? transpiler.transformSync(preprocessed)
-				: preprocessed;
+				? transpiler.transformSync(preprocessedServer)
+				: preprocessedServer;
+		const transpiledClient =
+			src.endsWith('.ts') || src.endsWith('.svelte.ts')
+				? transpiler.transformSync(preprocessedClient)
+				: preprocessedClient;
 
 		const rawRel = dirname(relative(svelteRoot, src)).replace(/\\/g, '/');
 		// When a source file lives outside svelteRoot (e.g. src/svelte/components/Head.svelte
@@ -153,11 +224,16 @@ export const compileSvelte = async (
 		const baseName = basename(src).replace(/\.svelte(\.(ts|js))?$/, '');
 
 		const importPaths = Array.from(
-			transpiled.matchAll(/from\s+['"]([^'"]+)['"]/g)
+			transpiledServer.matchAll(/from\s+['"]([^'"]+)['"]/g)
 		)
 			.map((match) => match[1])
 			.filter((path): path is string => path !== undefined);
 
+		const resolvedModuleImports = await Promise.all(
+			importPaths.map((importPath) =>
+				resolveRelativeModule(importPath, src)
+			)
+		);
 		const resolvedImports = await Promise.all(
 			importPaths.map((importPath) => resolveSvelte(importPath, src))
 		);
@@ -166,32 +242,44 @@ export const compileSvelte = async (
 		);
 		await Promise.all(childSources.map((child) => build(child)));
 
-		// Build a map of original import specifiers (with .svelte→.js applied) to
-		// the correct relative path from this file's compiled output to the child's
-		// compiled output. Only needed for children outside svelteRoot whose output
-		// lands in _ext/.
+		// Build a map of original import specifiers to the correct path from the
+		// generated output file. Svelte child components may point to compiled
+		// siblings; plain TS/JS helpers should resolve back to their original
+		// source modules because they are not separately compiled here.
 		const externalRewrites = new Map<string, { server: string; client: string }>();
+		const ssrOutputDir = dirname(join(serverDir, relDir, `${baseName}.js`));
+		const clientOutputDir = dirname(join(clientDir, relDir, `${baseName}.js`));
 
 		for (let idx = 0; idx < importPaths.length; idx++) {
+			const rawSpec = importPaths[idx];
+			if (!rawSpec) continue;
 			const resolved = resolvedImports[idx];
+			const resolvedModule = resolvedModuleImports[idx];
+
+			if (!resolved && resolvedModule) addModuleRewrite(externalRewrites, rawSpec, resolvedModule, ssrOutputDir, clientOutputDir);
 			if (!resolved) continue;
 
-			const childRel = relative(svelteRoot, resolved).replace(/\\/g, '/');
+			const childRel = relative(svelteRoot, resolved).replace(
+				/\\/g,
+				'/'
+			);
 			if (!childRel.startsWith('..')) continue;
 
 			const childBuilt = cache.get(resolved);
 			if (!childBuilt) continue;
 
-			const rawSpec = importPaths[idx];
-			if (!rawSpec) continue;
-
-			const origSpec = rawSpec.replace(/\.svelte(?:\.(?:ts|js))?$/, '.js');
-
-			const ssrOutputDir = dirname(join(serverDir, relDir, `${baseName}.js`));
-			const clientOutputDir = dirname(join(clientDir, relDir, `${baseName}.js`));
-
-			const toServer = relative(ssrOutputDir, childBuilt.ssr).replace(/\\/g, '/');
-			const toClient = relative(clientOutputDir, childBuilt.client).replace(/\\/g, '/');
+			const origSpec = rawSpec.replace(
+				/\.svelte(?:\.(?:ts|js))?$/,
+				'.js'
+			);
+			const toServer = relative(ssrOutputDir, childBuilt.ssr).replace(
+				/\\/g,
+				'/'
+			);
+			const toClient = relative(clientOutputDir, childBuilt.client).replace(
+				/\\/g,
+				'/'
+			);
 
 			externalRewrites.set(origSpec, {
 				client: toClient.startsWith('.') ? toClient : `./${toClient}`,
@@ -211,14 +299,23 @@ export const compileSvelte = async (
 		};
 
 		const generate = (mode: 'server' | 'client') => {
+			const transpiled = mode === 'server' ? transpiledServer : transpiledClient;
+			const loweredSource =
+				mode === 'server' ? loweredServerSource : loweredClientSource;
 			const compiled = isModule
 				? compileModule(transpiled, {
 						dev: mode === 'client' && dev,
+						experimental: {
+							async: loweredSource.transformed
+						},
 						filename: src
 					}).js.code
 				: compile(transpiled, {
 						css: 'injected',
 						dev: mode === 'client' && dev,
+						experimental: {
+							async: loweredSource.transformed
+						},
 						filename: src,
 						generate: mode,
 						hmr: mode === 'client' && isDev
@@ -251,25 +348,10 @@ export const compileSvelte = async (
 				// State preservation handled by Svelte's $.hmr() runtime.
 			}
 
+			code += islandMetadataExports;
+
 			return code;
 		};
-
-		// Rewrite relative imports that escape the framework root.
-		// Source file is at svelteRoot/<relDir>/file.svelte, but compiled
-		// output is at svelteRoot/generated/{mode}/<relDir>/file.js —
-		// 2 extra directory levels. Imports going above svelteRoot need
-		// ../../ prepended so they resolve to the same target.
-		const relDepth = relDir === '.' ? 0 : relDir.split('/').length;
-		const adjustImports = (code: string) =>
-			code.replace(
-				/(from\s+['"])(\.\.\/(?:\.\.\/)*)/g,
-				(_, prefix, dots) => {
-					const upCount = dots.split('/').length - 1;
-					if (upCount <= relDepth) return `${prefix}${dots}`;
-
-					return `${prefix}../../${dots}`;
-				}
-			);
 
 		const ssrPath = join(serverDir, relDir, `${baseName}.js`);
 		const clientPath = join(clientDir, relDir, `${baseName}.js`);
@@ -280,14 +362,20 @@ export const compileSvelte = async (
 		]);
 
 		if (isModule) {
-			const bundle = adjustImports(rewriteExternalImports(generate('client'), 'client'));
+			const bundle = rewriteExternalImports(generate('client'), 'client');
 			await Promise.all([
 				write(ssrPath, bundle),
 				write(clientPath, bundle)
 			]);
 		} else {
-			const serverBundle = adjustImports(rewriteExternalImports(generate('server'), 'server'));
-			const clientBundle = adjustImports(rewriteExternalImports(generate('client'), 'client'));
+			const serverBundle = rewriteExternalImports(
+				generate('server'),
+				'server'
+			);
+			const clientBundle = rewriteExternalImports(
+				generate('client'),
+				'client'
+			);
 			await Promise.all([
 				write(ssrPath, serverBundle),
 				write(clientPath, clientBundle)
@@ -324,7 +412,21 @@ import { hydrate, mount, unmount } from "svelte";
 var initialProps = (typeof window !== "undefined" && window.__INITIAL_PROPS__) ? window.__INITIAL_PROPS__ : {};
 var isHMR = typeof window !== "undefined" && window.__SVELTE_COMPONENT__ !== undefined;
 var isSsrDirty = typeof window !== "undefined" && window.__SSR_DIRTY__;
+var hasIslandHtml = false;
 var component;
+
+if (typeof window !== "undefined") {
+  var islandSlots = document.querySelectorAll("[data-absolute-island-slot]");
+  var islandHtml = {};
+  for (var index = 0; index < islandSlots.length; index += 1) {
+    var slot = islandSlots[index];
+    var slotId = slot.getAttribute("data-absolute-island-slot");
+    if (!slotId) continue;
+    islandHtml[slotId] = slot.innerHTML;
+  }
+  window.__ABS_SVELTE_ISLAND_HTML__ = islandHtml;
+  hasIslandHtml = Object.keys(islandHtml).length > 0;
+}
 
 if (isHMR) {
   var preservedState = window.__HMR_PRESERVED_STATE__;
@@ -340,7 +442,7 @@ if (isHMR) {
   }
   component = mount(Component, { target: document.body, props: mergedProps });
   window.__HMR_PRESERVED_STATE__ = undefined;
-} else if (isSsrDirty) {
+} else if (isSsrDirty || hasIslandHtml) {
   component = mount(Component, { target: document.body, props: initialProps });
 } else {
   component = hydrate(Component, { target: document.body, props: initialProps });

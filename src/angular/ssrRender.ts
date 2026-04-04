@@ -164,7 +164,8 @@ const injectBeforeClose = (html: string, snippet: string) => {
 export const injectSsrScripts = (
 	html: string,
 	requestId: string,
-	indexPath: string
+	indexPath: string,
+	props?: Record<string, unknown>
 ) => {
 	let result = html;
 
@@ -173,6 +174,13 @@ export const injectSsrScripts = (
 		result = injectBeforeClose(
 			result,
 			generateClientScriptCode(registeredScripts)
+		);
+	}
+
+	if (props) {
+		result = injectBeforeClose(
+			result,
+			`<script>window.__ABS_ANGULAR_PAGE_PROPS__ = ${JSON.stringify(props)};</script>`
 		);
 	}
 
@@ -185,14 +193,25 @@ export const injectSsrScripts = (
 
 	return result;
 };
-
-// --- Render with suppressed dev logs ---
-
 export const renderAngularApp = async (
 	deps: AngularDeps,
 	PageComponent: Type<unknown>,
 	providers: (Provider | EnvironmentProviders)[],
 	document: string | Document
+) => {
+	const bootstrap = (context: BootstrapContext) =>
+		deps.bootstrapApplication(PageComponent, { providers }, context);
+
+	return withSuppressedAngularDevLogs(() =>
+		deps.renderApplication(bootstrap, {
+			document,
+			platformProviders: [],
+			url: '/'
+		})
+	);
+};
+export const withSuppressedAngularDevLogs = async <T>(
+	render: () => Promise<T>
 ) => {
 	const origLog = console.log;
 	console.log = (...args: unknown[]) => {
@@ -205,15 +224,8 @@ export const renderAngularApp = async (
 		origLog.apply(console, args);
 	};
 
-	const bootstrap = (context: BootstrapContext) =>
-		deps.bootstrapApplication(PageComponent, { providers }, context);
-
 	try {
-		return await deps.renderApplication(bootstrap, {
-			document,
-			platformProviders: [],
-			url: '/'
-		});
+		return await render();
 	} finally {
 		console.log = origLog;
 	}

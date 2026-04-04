@@ -1,8 +1,15 @@
 import { existsSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
-import { basename, relative, resolve } from 'node:path';
+import { basename, dirname, relative, resolve } from 'node:path';
 import { build } from '../core/build';
 import type { BuildConfig } from '../../types/build';
+import { scanEntryPoints } from '../build/scanEntryPoints';
+import { loadIslandRegistryBuildInfo } from '../build/islandEntries';
+import {
+	getPagesUsingIslandSource,
+	loadPageIslandMetadata,
+	setCurrentPageIslandMetadata
+} from '../islands/pageMetadata';
 import {
 	logCssUpdate,
 	logHmrUpdate,
@@ -554,9 +561,20 @@ const bundleAngularClient = async (
 	buildDir: string
 ) => {
 	const { build: bunBuild } = await import('bun');
+	const { createIslandBindingPlugin } = await import(
+		'../build/islandBindingPlugin'
+	);
 	const { generateManifest } = await import('../build/generateManifest');
 	const { getAngularVendorPaths } = await import('../core/devVendorPaths');
 	const clientRoot = await computeClientRoot(state.resolvedPaths);
+	const islandBindingPlugin = state.config.islands?.registry
+		? createIslandBindingPlugin({
+				angular: state.config.angularDirectory,
+				react: state.config.reactDirectory,
+				svelte: state.config.svelteDirectory,
+				vue: state.config.vueDirectory
+			})
+		: undefined;
 
 	let angVendorPaths = getAngularVendorPaths();
 	if (!angVendorPaths) {
@@ -576,6 +594,7 @@ const bundleAngularClient = async (
 		format: 'esm',
 		naming: '[dir]/[name].[hash].[ext]',
 		outdir: buildDir,
+		plugins: islandBindingPlugin ? [islandBindingPlugin] : [],
 		root: clientRoot,
 		target: 'browser',
 		throw: false
@@ -801,6 +820,9 @@ const bundleReactClient = async (
 	buildDir: string
 ) => {
 	const { build: bunBuild } = await import('bun');
+	const { createIslandBindingPlugin } = await import(
+		'../build/islandBindingPlugin'
+	);
 	const { generateManifest } = await import('../build/generateManifest');
 	const { getDevVendorPaths } = await import('../core/devVendorPaths');
 	const { rewriteReactImports } = await import(
@@ -814,6 +836,14 @@ const bundleReactClient = async (
 	}
 
 	let vendorPaths = getDevVendorPaths();
+	const islandBindingPlugin = state.config.islands?.registry
+		? createIslandBindingPlugin({
+				angular: state.config.angularDirectory,
+				react: state.config.reactDirectory,
+				svelte: state.config.svelteDirectory,
+				vue: state.config.vueDirectory
+			})
+		: undefined;
 	if (!vendorPaths) {
 		const { computeVendorPaths } = await import(
 			'../build/buildReactVendor'
@@ -835,6 +865,7 @@ const bundleReactClient = async (
 		jsx: { development: true },
 		naming: '[dir]/[name].[hash].[ext]',
 		outdir: buildDir,
+		plugins: islandBindingPlugin ? [islandBindingPlugin] : [],
 		reactFastRefresh: true,
 		root: clientRoot,
 		splitting: true,
@@ -1186,7 +1217,14 @@ const handleSvelteFastPath = async (
 			serverEntries.length > 0
 				? bunBuild({
 						entrypoints: serverEntries,
-						external: ['svelte', 'svelte/*'],
+						external: [
+							'react',
+							'react/*',
+							'react-dom',
+							'react-dom/*',
+							'svelte',
+							'svelte/*'
+						],
 						format: 'esm',
 						naming: '[dir]/[name].[hash].[ext]',
 						outdir: serverOutDir,
@@ -1535,6 +1573,85 @@ const isScriptFile = (file: string) =>
 		file.endsWith('.jsx')) &&
 	file.replace(/\\/g, '/').includes('/scripts/');
 
+const resolveIslandDefinitionSource = (
+	definition: { buildReference: { source: string } | null },
+	buildInfo: { resolvedRegistryPath: string },
+	islandFiles: Set<string>
+) => {
+	const { buildReference } = definition;
+	if (!buildReference?.source) {
+		return;
+	}
+
+	const sourcePath = buildReference.source.startsWith('file://')
+		? new URL(buildReference.source).pathname
+		: resolve(
+				dirname(buildInfo.resolvedRegistryPath),
+				buildReference.source
+			);
+	islandFiles.add(resolve(sourcePath));
+};
+
+const resolveIslandSourceFiles = async (config: BuildConfig) => {
+	const registryPath = config.islands?.registry;
+	if (!registryPath) {
+		return new Set<string>();
+	}
+
+	const buildInfo = await loadIslandRegistryBuildInfo(registryPath);
+	const islandFiles = new Set<string>([
+		resolve(buildInfo.resolvedRegistryPath)
+	]);
+
+	for (const definition of buildInfo.definitions) {
+		resolveIslandDefinitionSource(definition, buildInfo, islandFiles);
+	}
+
+	return islandFiles;
+};
+
+const didStaticPagesNeedIslandRefresh = async (
+	config: BuildConfig,
+	filesToRebuild: string[]
+) => {
+	const islandFiles = await resolveIslandSourceFiles(config);
+	if (islandFiles.size === 0) {
+		return false;
+	}
+
+	return filesToRebuild.some((file) => islandFiles.has(resolve(file)));
+};
+
+const handleIslandSourceReload = async (
+	state: HMRState,
+	config: BuildConfig,
+	filesToRebuild: string[],
+	manifest: Record<string, string>
+) => {
+	const shouldReload = await didStaticPagesNeedIslandRefresh(
+		config,
+		filesToRebuild
+	);
+	if (!shouldReload) {
+		return false;
+	}
+
+	setCurrentPageIslandMetadata(await loadPageIslandMetadata(config));
+	const affectedPages = filesToRebuild.flatMap((file) =>
+		getPagesUsingIslandSource(file)
+	);
+
+	broadcastToClients(state, {
+		data: {
+			affectedPages,
+			manifest
+		},
+		type: 'full-reload'
+	});
+
+	return true;
+};
+
 const handleHTMLScriptHMR = (
 	state: HMRState,
 	filesToRebuild: string[],
@@ -1634,11 +1751,15 @@ const handleHTMLPageHMR = async (
 		return;
 	}
 
+	const shouldRefreshFromIslandChange = await didStaticPagesNeedIslandRefresh(
+		config,
+		filesToRebuild
+	);
 	const htmlFrameworkFiles = filesToRebuild.filter(
 		(file) => detectFramework(file, state.resolvedPaths) === 'html'
 	);
 
-	if (htmlFrameworkFiles.length === 0) {
+	if (htmlFrameworkFiles.length === 0 && !shouldRefreshFromIslandChange) {
 		return;
 	}
 
@@ -1646,8 +1767,13 @@ const handleHTMLPageHMR = async (
 		file.endsWith('.html')
 	);
 	const outputHtmlPages = computeOutputPagesDir(state, config, 'html');
+	const shouldRefreshAllPages =
+		htmlPageFiles.length === 0 && shouldRefreshFromIslandChange;
+	const pageFilesToUpdate = shouldRefreshAllPages
+		? await scanEntryPoints(outputHtmlPages, '*.html')
+		: htmlPageFiles;
 
-	for (const pageFile of htmlPageFiles) {
+	for (const pageFile of pageFilesToUpdate) {
 		const htmlPageName = basename(pageFile);
 		const builtHtmlPagePath = resolve(outputHtmlPages, htmlPageName);
 		// eslint-disable-next-line no-await-in-loop
@@ -2194,11 +2320,15 @@ const handleHTMXPageHMR = async (
 		return;
 	}
 
+	const shouldRefreshFromIslandChange = await didStaticPagesNeedIslandRefresh(
+		config,
+		filesToRebuild
+	);
 	const htmxFrameworkFiles = filesToRebuild.filter(
 		(file) => detectFramework(file, state.resolvedPaths) === 'htmx'
 	);
 
-	if (htmxFrameworkFiles.length === 0) {
+	if (htmxFrameworkFiles.length === 0 && !shouldRefreshFromIslandChange) {
 		return;
 	}
 
@@ -2206,8 +2336,13 @@ const handleHTMXPageHMR = async (
 		file.endsWith('.html')
 	);
 	const outputHtmxPages = computeOutputPagesDir(state, config, 'htmx');
+	const shouldRefreshAllPages =
+		htmxPageFiles.length === 0 && shouldRefreshFromIslandChange;
+	const pageFilesToUpdate = shouldRefreshAllPages
+		? await scanEntryPoints(outputHtmxPages, '*.html')
+		: htmxPageFiles;
 
-	for (const htmxPageFile of htmxPageFiles) {
+	for (const htmxPageFile of pageFilesToUpdate) {
 		const htmxPageName = basename(htmxPageFile);
 		const builtHtmxPagePath = resolve(outputHtmxPages, htmxPageName);
 		// eslint-disable-next-line no-await-in-loop
@@ -2692,8 +2827,12 @@ const performFullRebuild = async (
 	const hasManifest = Object.keys(state.manifest).length > 0;
 	const files = filesToRebuild ?? [];
 	let allHandled = files.length > 0 && hasManifest;
+	const hasIslandSourceChanges =
+		files.length > 0
+			? await didStaticPagesNeedIslandRefresh(config, files)
+			: false;
 
-	if (allHandled) {
+	if (allHandled && !hasIslandSourceChanges) {
 		allHandled = await runFrameworkFastPaths(
 			state,
 			config,
@@ -2782,7 +2921,23 @@ const performFullRebuild = async (
 		type: 'rebuild-complete'
 	});
 
-	if (filesToRebuild && filesToRebuild.length > 0) {
+	const hasFilesToRebuild = filesToRebuild && filesToRebuild.length > 0;
+	const didReloadForIslandChange = hasFilesToRebuild
+		? await handleIslandSourceReload(
+				state,
+				config,
+				filesToRebuild,
+				manifest
+			)
+		: false;
+
+	if (didReloadForIslandChange) {
+		onRebuildComplete({ hmrState: state, manifest });
+
+		return manifest;
+	}
+
+	if (hasFilesToRebuild) {
 		await handleFullBuildHMR(
 			state,
 			config,

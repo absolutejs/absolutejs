@@ -1,7 +1,7 @@
 /* AbsoluteJS HMR Client - Entry point
    Initializes WebSocket connection, dispatches messages to framework handlers */
 
-import { hmrState } from '../../../types/client';
+import { hmrState } from './hmrState';
 import {
 	HMR_UPDATE_TIMEOUT_MS,
 	MAX_RECONNECT_ATTEMPTS,

@@ -32,17 +32,16 @@ const getRequestId = () => `req_${Date.now()}_${++requestCounter}`;
 
 // Allow SSR frameworks to inject a request context getter (e.g. AsyncLocalStorage)
 let ssrContextGetter: (() => string | undefined) | null = null;
+export const getSsrContextId = () =>
+	ssrContextGetter?.() ||
+	Object.getOwnPropertyDescriptor(globalThis, '__absolutejs_requestId')
+		?.value;
 export const registerClientScript = (
 	script: () => void,
 	requestId?: string
 ) => {
 	// Try to get requestId from explicit arg, then Async Context, then global fallback
-	const id =
-		requestId ||
-		ssrContextGetter?.() ||
-		Object.getOwnPropertyDescriptor(globalThis, '__absolutejs_requestId')
-			?.value ||
-		getRequestId();
+	const id = requestId || getSsrContextId() || getRequestId();
 
 	if (!scriptRegistry.has(id)) {
 		scriptRegistry.set(id, new Set());

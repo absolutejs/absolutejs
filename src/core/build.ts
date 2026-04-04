@@ -9,12 +9,20 @@ import {
 	statSync,
 	writeFileSync
 } from 'node:fs';
-import { basename, join, relative, resolve } from 'node:path';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 import { cwd, env, exit } from 'node:process';
 import { build as bunBuild, BuildArtifact, Glob } from 'bun';
 import { generateManifest } from '../build/generateManifest';
+import {
+	collectIslandFrameworkSources,
+	generateIslandEntryPoints,
+	loadIslandRegistryBuildInfo
+} from '../build/islandEntries';
+import { generateIslandBindings } from '../build/generateIslandBindings';
 import { generateReactIndexFiles } from '../build/generateReactIndexes';
+import { createIslandBindingPlugin } from '../build/islandBindingPlugin';
 import { createHTMLScriptHMRPlugin } from '../build/htmlScriptHMRPlugin';
+import { transformStaticPagesWithIslands } from '../build/staticIslandPages';
 import { outputLogs } from '../build/outputLogs';
 import { scanEntryPoints } from '../build/scanEntryPoints';
 import { scanConventions } from '../build/scanConventions';
@@ -585,6 +593,7 @@ export const build = async ({
 	buildDirectory = 'build',
 	assetsDirectory,
 	publicDirectory,
+	islands,
 	reactDirectory,
 	htmlDirectory,
 	htmxDirectory,
@@ -622,11 +631,30 @@ export const build = async ({
 	const vueDir = vueDirectory && validateSafePath(vueDirectory, projectRoot);
 	const angularDir =
 		angularDirectory && validateSafePath(angularDirectory, projectRoot);
+	const islandBootstrapPath =
+		islands?.bootstrap && validateSafePath(islands.bootstrap, projectRoot);
+	const islandRegistryPath =
+		islands?.registry && validateSafePath(islands.registry, projectRoot);
 	const stylesPath =
 		typeof stylesConfig === 'string' ? stylesConfig : stylesConfig?.path;
 	const stylesIgnore =
 		typeof stylesConfig === 'object' ? stylesConfig.ignore : undefined;
 	const stylesDir = stylesPath && validateSafePath(stylesPath, projectRoot);
+
+	generateIslandBindings(projectRoot, {
+		angularDirectory: angularDir,
+		htmlDirectory: htmlDir,
+		htmxDirectory: htmxDir,
+		islands: islandRegistryPath
+			? {
+					bootstrap: islandBootstrapPath,
+					registry: islandRegistryPath
+				}
+			: undefined,
+		reactDirectory: reactDir,
+		svelteDirectory: svelteDir,
+		vueDirectory: vueDir
+	});
 
 	const reactIndexesPath = reactDir && join(reactDir, 'generated', 'indexes');
 	const reactPagesPath = reactDir && join(reactDir, 'pages');
@@ -670,7 +698,8 @@ export const build = async ({
 		svelteDir,
 		htmlDir,
 		vueDir,
-		angularDir
+		angularDir,
+		islandBootstrapPath && dirname(islandBootstrapPath)
 	].filter((dir): dir is string => Boolean(dir));
 	const clientRoot = isSingle
 		? (sourceClientRoots[0] ?? projectRoot)
@@ -710,7 +739,6 @@ export const build = async ({
 
 	const publicPath =
 		publicDirectory && validateSafePath(publicDirectory, projectRoot);
-
 	mkdirSync(buildPath, { recursive: true });
 
 	if (publicPath)
@@ -905,11 +933,30 @@ export const build = async ({
 	const shouldCompileAngular = angularDir && angularEntries.length > 0;
 
 	const emptyStringArray: string[] = [];
+	const islandBuildInfo = islandRegistryPath
+		? await loadIslandRegistryBuildInfo(islandRegistryPath)
+		: null;
+	const islandFrameworkSources = islandBuildInfo
+		? collectIslandFrameworkSources(islandBuildInfo)
+		: {};
+	const islandSvelteSources =
+		islandFrameworkSources.svelte ?? emptyStringArray;
+	const islandVueSources = islandFrameworkSources.vue ?? emptyStringArray;
+	const islandAngularSources =
+		islandFrameworkSources.angular ?? emptyStringArray;
+	const shouldCompileIslandSvelte =
+		svelteDir && islandSvelteSources.length > 0;
+	const shouldCompileIslandVue = vueDir && islandVueSources.length > 0;
+	const shouldCompileIslandAngular =
+		angularDir && islandAngularSources.length > 0;
 
 	const [
 		{ svelteServerPaths, svelteIndexPaths, svelteClientPaths },
 		{ vueServerPaths, vueIndexPaths, vueClientPaths, vueCssPaths },
-		{ clientPaths: angularClientPaths, serverPaths: angularServerPaths }
+		{ clientPaths: angularClientPaths, serverPaths: angularServerPaths },
+		{ svelteClientPaths: islandSvelteClientPaths },
+		{ vueClientPaths: islandVueClientPaths },
+		{ clientPaths: islandAngularClientPaths }
 	] = await Promise.all([
 		shouldCompileSvelte
 			? import('../build/compileSvelte').then((mod) =>
@@ -937,8 +984,58 @@ export const build = async ({
 			: {
 					clientPaths: [...emptyStringArray],
 					serverPaths: [...emptyStringArray]
+				},
+		shouldCompileIslandSvelte
+			? import('../build/compileSvelte').then((mod) =>
+					mod.compileSvelte(
+						islandSvelteSources,
+						svelteDir,
+						new Map(),
+						hmr
+					)
+				)
+			: {
+					svelteClientPaths: [...emptyStringArray]
+				},
+		shouldCompileIslandVue
+			? import('../build/compileVue').then((mod) =>
+					mod.compileVue(islandVueSources, vueDir, hmr)
+				)
+			: {
+					vueClientPaths: [...emptyStringArray]
+				},
+		shouldCompileIslandAngular
+			? import('../build/compileAngular').then((mod) =>
+					mod.compileAngular(islandAngularSources, angularDir, hmr)
+				)
+			: {
+					clientPaths: [...emptyStringArray]
 				}
 	]);
+
+	const islandSvelteClientPathMap = new Map<string, string>();
+	for (let idx = 0; idx < islandSvelteSources.length; idx++) {
+		const sourcePath = islandSvelteSources[idx];
+		const clientPath = islandSvelteClientPaths[idx];
+		if (!sourcePath || !clientPath) continue;
+		islandSvelteClientPathMap.set(resolve(sourcePath), clientPath);
+	}
+
+	const islandVueClientPathMap = new Map<string, string>();
+	for (let idx = 0; idx < islandVueSources.length; idx++) {
+		const sourcePath = islandVueSources[idx];
+		const clientPath = islandVueClientPaths[idx];
+		if (!sourcePath || !clientPath) continue;
+		islandVueClientPathMap.set(resolve(sourcePath), clientPath);
+	}
+
+	const islandAngularClientPathMap = new Map<string, string>();
+	for (let idx = 0; idx < islandAngularSources.length; idx++) {
+		const sourcePath = islandAngularSources[idx];
+		const clientPath = islandAngularClientPaths[idx];
+		if (!sourcePath || !clientPath) continue;
+		islandAngularClientPathMap.set(resolve(sourcePath), clientPath);
+	}
 
 	// Compile convention files (error/loading/not-found) for Svelte and Vue.
 	// React and Angular convention files are plain .tsx/.ts — Bun imports them natively.
@@ -1036,13 +1133,32 @@ export const build = async ({
 		...vueIndexPaths,
 		...vueClientPaths,
 		...angularClientPaths,
+		...(islandBootstrapPath ? [islandBootstrapPath] : []),
 		...urlReferencedFiles
 	];
+	const islandEntryResult = islandBuildInfo
+		? await generateIslandEntryPoints({
+				buildInfo: islandBuildInfo,
+				buildPath,
+				clientPathMaps: {
+					angular: islandAngularClientPathMap,
+					svelte: islandSvelteClientPathMap,
+					vue: islandVueClientPathMap
+				}
+			})
+		: {
+				entries: [],
+				generatedRoot: join(buildPath, '_island_entries')
+			};
+	const islandClientEntryPoints = islandEntryResult.entries.map(
+		(entry) => entry.entryPath
+	);
 
 	if (
 		serverEntryPoints.length === 0 &&
 		reactClientEntryPoints.length === 0 &&
 		nonReactClientEntryPoints.length === 0 &&
+		islandClientEntryPoints.length === 0 &&
 		htmxDir === undefined &&
 		htmlDir === undefined
 	) {
@@ -1128,6 +1244,14 @@ export const build = async ({
 	const htmlScriptPlugin = hmr
 		? createHTMLScriptHMRPlugin(htmlDir, htmxDir)
 		: undefined;
+	const islandBindingPlugin = islandRegistryPath
+		? createIslandBindingPlugin({
+				angular: angularDir,
+				react: reactDir,
+				svelte: svelteDir,
+				vue: vueDir
+			})
+		: undefined;
 
 	const reactBuildConfig: Parameters<typeof bunBuild>[0] | undefined =
 		reactClientEntryPoints.length > 0
@@ -1143,6 +1267,7 @@ export const build = async ({
 					...(hmr
 						? { jsx: { development: true }, reactFastRefresh: true }
 						: {}),
+					plugins: islandBindingPlugin ? [islandBindingPlugin] : [],
 					root: clientRoot,
 					splitting: true,
 					target: 'browser',
@@ -1164,6 +1289,12 @@ export const build = async ({
 			recursive: true
 		});
 	}
+	if (islandClientEntryPoints.length > 0) {
+		rmSync(join(buildPath, 'islands'), {
+			force: true,
+			recursive: true
+		});
+	}
 
 	// Run all 4 Bun.build passes in parallel — they write to different
 	// directories and have independent entry points.
@@ -1171,6 +1302,7 @@ export const build = async ({
 		serverResult,
 		reactClientResult,
 		nonReactClientResult,
+		islandClientResult,
 		globalCssResult,
 		vueCssResult
 	] = await Promise.all([
@@ -1178,6 +1310,10 @@ export const build = async ({
 			? bunBuild({
 					entrypoints: serverEntryPoints,
 					external: [
+						'react',
+						'react/*',
+						'react-dom',
+						'react-dom/*',
 						'svelte',
 						'svelte/*',
 						'vue',
@@ -1196,6 +1332,7 @@ export const build = async ({
 					format: 'esm',
 					naming: `[dir]/[name].[hash].[ext]`,
 					outdir: serverOutDir,
+					plugins: islandBindingPlugin ? [islandBindingPlugin] : [],
 					root: serverRoot,
 					target: 'bun',
 					throw: false,
@@ -1208,6 +1345,7 @@ export const build = async ({
 					define: vueDirectory ? vueFeatureFlags : undefined,
 					entrypoints: nonReactClientEntryPoints,
 					external: [
+						...Object.keys(vendorPaths ?? {}),
 						...Object.keys(angularVendorPaths ?? {}),
 						...Object.keys(vueVendorPaths ?? {}),
 						...Object.keys(svelteVendorPaths ?? {})
@@ -1217,10 +1355,36 @@ export const build = async ({
 					naming: `[dir]/[name].[hash].[ext]`,
 					outdir: buildPath,
 					plugins: [
+						...(islandBindingPlugin ? [islandBindingPlugin] : []),
 						...(angularDir && !isDev ? [angularLinkerPlugin] : []),
 						...(htmlScriptPlugin ? [htmlScriptPlugin] : [])
 					],
 					root: clientRoot,
+					splitting: !isDev,
+					target: 'browser',
+					throw: false,
+					tsconfig: './tsconfig.json'
+				})
+			: undefined,
+		islandClientEntryPoints.length > 0
+			? bunBuild({
+					define: vueDirectory ? vueFeatureFlags : undefined,
+					entrypoints: islandClientEntryPoints,
+					external: [
+						...Object.keys(vendorPaths ?? {}),
+						...Object.keys(angularVendorPaths ?? {}),
+						...Object.keys(vueVendorPaths ?? {}),
+						...Object.keys(svelteVendorPaths ?? {})
+					],
+					format: 'esm',
+					minify: !isDev,
+					naming: `[dir]/[name].[hash].[ext]`,
+					outdir: buildPath,
+					plugins: [
+						...(islandBindingPlugin ? [islandBindingPlugin] : []),
+						...(angularDir && !isDev ? [angularLinkerPlugin] : [])
+					],
+					root: islandEntryResult.generatedRoot,
 					splitting: !isDev,
 					target: 'browser',
 					throw: false,
@@ -1300,6 +1464,28 @@ export const build = async ({
 
 	const nonReactClientLogs = nonReactClientResult?.logs ?? [];
 	const nonReactClientOutputs = nonReactClientResult?.outputs ?? [];
+	const nonReactClientOutputPaths = nonReactClientOutputs.map(
+		(artifact) => artifact.path
+	);
+	const islandClientLogs = islandClientResult?.logs ?? [];
+	const islandClientOutputs = islandClientResult?.outputs ?? [];
+	const islandClientOutputPaths = islandClientOutputs.map(
+		(artifact) => artifact.path
+	);
+
+	if (vendorPaths && nonReactClientOutputPaths.length > 0) {
+		await rewriteReactImports(nonReactClientOutputPaths, vendorPaths);
+	}
+	if (hmr && nonReactClientOutputPaths.length > 0) {
+		await patchRefreshGlobals(nonReactClientOutputPaths);
+	}
+
+	if (vendorPaths && islandClientOutputPaths.length > 0) {
+		await rewriteReactImports(islandClientOutputPaths, vendorPaths);
+	}
+	if (hmr && islandClientOutputPaths.length > 0) {
+		await patchRefreshGlobals(islandClientOutputPaths);
+	}
 
 	if (
 		nonReactClientResult &&
@@ -1315,12 +1501,30 @@ export const build = async ({
 			throwOnError
 		);
 	}
+	if (
+		islandClientResult &&
+		!islandClientResult.success &&
+		islandClientLogs.length > 0
+	) {
+		extractBuildError(
+			islandClientLogs,
+			'island-client',
+			'Island client',
+			frameworkNames,
+			isIncremental,
+			throwOnError
+		);
+	}
 
 	// Post-process: rewrite bare Angular/Vue specifiers to vendor paths.
 	const allNonReactVendorPaths: Record<string, string> = {
 		...(angularVendorPaths ?? {}),
 		...(vueVendorPaths ?? {}),
 		...(svelteVendorPaths ?? {})
+	};
+	const allIslandVendorPaths: Record<string, string> = {
+		...(vendorPaths ?? {}),
+		...allNonReactVendorPaths
 	};
 	if (
 		nonReactClientOutputs.length > 0 &&
@@ -1330,6 +1534,16 @@ export const build = async ({
 		await rewriteImports(
 			nonReactClientOutputs.map((artifact) => artifact.path),
 			allNonReactVendorPaths
+		);
+	}
+	if (
+		islandClientOutputs.length > 0 &&
+		Object.keys(allIslandVendorPaths).length > 0
+	) {
+		const { rewriteImports } = await import('../build/rewriteImports');
+		await rewriteImports(
+			islandClientOutputs.map((artifact) => artifact.path),
+			allIslandVendorPaths
 		);
 	}
 
@@ -1401,6 +1615,7 @@ export const build = async ({
 		...serverLogs,
 		...reactClientLogs,
 		...nonReactClientLogs,
+		...islandClientLogs,
 		...cssLogs
 	];
 	outputLogs(allLogs);
@@ -1412,6 +1627,7 @@ export const build = async ({
 				...serverOutputs,
 				...reactClientOutputs,
 				...nonReactClientOutputs,
+				...islandClientOutputs,
 				...cssOutputs
 			],
 			buildPath
@@ -1427,25 +1643,11 @@ export const build = async ({
 		manifest[toPascal(baseName)] = artifact.path;
 	}
 
-	// For HTML/HTMX, copy pages on full builds or if HTML/HTMX files changed
-	// Also update asset paths if CSS changed (to update CSS links in HTML files)
-	const htmlOrHtmlCssChanged =
+	const shouldCopyHtmx =
 		!isIncremental ||
 		normalizedIncrementalFiles?.some(
-			(f) =>
-				f.includes('/html/') &&
-				(f.endsWith('.html') || f.endsWith('.css'))
+			(f) => f.includes('/htmx/') && f.endsWith('.html')
 		);
-	const htmxOrHtmxCssChanged =
-		!isIncremental ||
-		normalizedIncrementalFiles?.some(
-			(f) =>
-				f.includes('/htmx/') &&
-				(f.endsWith('.html') || f.endsWith('.css'))
-		);
-
-	const shouldCopyHtml = htmlOrHtmlCssChanged;
-	const shouldCopyHtmx = htmxOrHtmxCssChanged;
 
 	// Update asset paths if CSS changed (even if HTML files didn't change)
 	const shouldUpdateHtmlAssetPaths =
@@ -1489,13 +1691,11 @@ export const build = async ({
 			? join(buildPath, 'pages')
 			: join(buildPath, basename(htmlDir), 'pages');
 
-		if (shouldCopyHtml) {
-			mkdirSync(outputHtmlPages, { recursive: true });
-			cpSync(htmlPagesPath, outputHtmlPages, {
-				force: true,
-				recursive: true
-			});
-		}
+		mkdirSync(outputHtmlPages, { recursive: true });
+		cpSync(htmlPagesPath, outputHtmlPages, {
+			force: true,
+			recursive: true
+		});
 
 		// Update asset paths if HTML files changed OR CSS changed
 		if (shouldUpdateHtmlAssetPaths) {
@@ -1505,6 +1705,10 @@ export const build = async ({
 
 		// Add HTML pages to manifest (absolute paths for Bun.file())
 		const htmlPageFiles = await scanEntryPoints(outputHtmlPages, '*.html');
+		await transformStaticPagesWithIslands(
+			islandRegistryPath,
+			htmlPageFiles
+		);
 		for (const htmlFile of htmlPageFiles) {
 			if (hmr) injectHMRIntoHTMLFile(htmlFile, 'html');
 			const fileName = basename(htmlFile, '.html');
@@ -1518,13 +1722,11 @@ export const build = async ({
 			? join(buildPath, 'pages')
 			: join(buildPath, basename(htmxDir), 'pages');
 
-		if (shouldCopyHtmx) {
-			mkdirSync(outputHtmxPages, { recursive: true });
-			cpSync(htmxPagesPath, outputHtmxPages, {
-				force: true,
-				recursive: true
-			});
-		}
+		mkdirSync(outputHtmxPages, { recursive: true });
+		cpSync(htmxPagesPath, outputHtmxPages, {
+			force: true,
+			recursive: true
+		});
 
 		if (shouldCopyHtmx) {
 			const htmxDestDir = isSingle
@@ -1541,6 +1743,10 @@ export const build = async ({
 
 		// Add HTMX pages to manifest (absolute paths for Bun.file())
 		const htmxPageFiles = await scanEntryPoints(outputHtmxPages, '*.html');
+		await transformStaticPagesWithIslands(
+			islandRegistryPath,
+			htmxPageFiles
+		);
 		for (const htmxFile of htmxPageFiles) {
 			if (hmr) injectHMRIntoHTMLFile(htmxFile, 'htmx');
 			const fileName = basename(htmxFile, '.html');
@@ -1555,6 +1761,7 @@ export const build = async ({
 			...serverOutputs.map((a) => a.path),
 			...reactClientOutputs.map((a) => a.path),
 			...nonReactClientOutputs.map((a) => a.path),
+			...islandClientOutputs.map((a) => a.path),
 			...cssOutputs.map((a) => a.path)
 		]);
 	}

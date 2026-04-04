@@ -2,6 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { rm } from 'node:fs/promises';
 import { build as bunBuild } from 'bun';
+import { angularLinkerPlugin } from './angularLinkerPlugin';
 
 /** Bare specifiers that need stable vendor builds for Angular.
  *  These are the packages imported by Angular client-side code
@@ -47,6 +48,7 @@ export const buildAngularVendor = async (buildDir: string) => {
 		minify: false,
 		naming: '[name].[ext]',
 		outdir: vendorDir,
+		plugins: [angularLinkerPlugin],
 		splitting: true,
 		target: 'browser',
 		throw: false

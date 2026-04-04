@@ -1,6 +1,6 @@
 import { resolve, join } from 'node:path';
 import { existsSync } from 'node:fs';
-import { writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { loadConfig } from '../../utils/loadConfig';
 
 type CheckerResult = { name: string; exitCode: number; output: string };
@@ -118,14 +118,36 @@ const buildVueTscCheck = (cacheDir: string) => {
 		process.exit(1);
 	}
 
-	return run('vue-tsc', [
-		vueTscBin,
-		'--noEmit',
-		'--incremental',
-		'--tsBuildInfoFile',
-		join(cacheDir, 'vue-tsc.tsbuildinfo'),
-		'--pretty'
-	]);
+	const vueTsconfigPath = join(cacheDir, 'tsconfig.vue-check.json');
+	const exclude = [
+		'../**/.absolutejs/**/*',
+		'../**/build/**/*',
+		'../**/dist/**/*',
+		'../**/generated/**/*'
+	];
+
+	return writeFile(
+		vueTsconfigPath,
+		JSON.stringify(
+			{
+				exclude,
+				extends: resolve('tsconfig.json')
+			},
+			null,
+			'\t'
+		)
+	).then(() =>
+		run('vue-tsc', [
+			vueTscBin,
+			'--noEmit',
+			'--project',
+			resolve(vueTsconfigPath),
+			'--incremental',
+			'--tsBuildInfoFile',
+			join(cacheDir, 'vue-tsc.tsbuildinfo'),
+			'--pretty'
+		])
+	);
 };
 
 const buildTscCheck = (cacheDir: string) => {
@@ -137,14 +159,36 @@ const buildTscCheck = (cacheDir: string) => {
 		process.exit(1);
 	}
 
-	return run('tsc', [
-		tscBin,
-		'--noEmit',
-		'--incremental',
-		'--tsBuildInfoFile',
-		join(cacheDir, 'tsc.tsbuildinfo'),
-		'--pretty'
-	]);
+	const tscConfigPath = join(cacheDir, 'tsconfig.typecheck.json');
+	const exclude = [
+		'../**/.absolutejs/**/*',
+		'../**/build/**/*',
+		'../**/dist/**/*',
+		'../**/generated/**/*'
+	];
+
+	return writeFile(
+		tscConfigPath,
+		JSON.stringify(
+			{
+				exclude,
+				extends: resolve('tsconfig.json')
+			},
+			null,
+			'\t'
+		)
+	).then(() =>
+		run('tsc', [
+			tscBin,
+			'--noEmit',
+			'--project',
+			resolve(tscConfigPath),
+			'--incremental',
+			'--tsBuildInfoFile',
+			join(cacheDir, 'tsc.tsbuildinfo'),
+			'--pretty'
+		])
+	);
 };
 
 const buildSvelteCheck = async (cacheDir: string, svelteDir: string) => {
@@ -185,11 +229,16 @@ const buildSvelteCheck = async (cacheDir: string, svelteDir: string) => {
 
 export const typecheck = async (configPath?: string) => {
 	const config = await loadConfig(configPath);
+	const { generateIslandBindings } = await import(
+		'../../build/generateIslandBindings'
+	);
+	generateIslandBindings(process.cwd(), config);
 
 	const hasSvelte = Boolean(config.svelteDirectory);
 	const hasVue = Boolean(config.vueDirectory);
 
 	const cacheDir = '.absolutejs';
+	await mkdir(cacheDir, { recursive: true });
 	const checks: Promise<CheckerResult>[] = [];
 
 	// vue-tsc is a superset of tsc — it checks .ts, .tsx, AND .vue files.

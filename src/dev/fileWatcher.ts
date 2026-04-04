@@ -38,16 +38,19 @@ const safeAddToGraph = (
 const shouldSkipFilename = (filename: string, isStylesDir: boolean) =>
 	(!isStylesDir &&
 		(filename === 'compiled' ||
+			filename === 'generated' ||
 			filename === 'build' ||
 			filename === 'indexes' ||
 			filename === 'server' ||
 			filename === 'client' ||
 			filename.includes('/compiled/') ||
+			filename.includes('/generated/') ||
 			filename.includes('/build/') ||
 			filename.includes('/indexes/') ||
 			filename.includes('/server/') ||
 			filename.includes('/client/') ||
 			filename.startsWith('compiled/') ||
+			filename.startsWith('generated/') ||
 			filename.startsWith('build/') ||
 			filename.startsWith('indexes/') ||
 			filename.startsWith('server/') ||

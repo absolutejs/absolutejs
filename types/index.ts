@@ -1,3 +1,5 @@
+import './globals.d.ts';
+
 export * from './ai';
 export * from './angular';
 export * from './conventions';
@@ -6,6 +8,7 @@ export * from './cli';
 export * from './env';
 export * from './client';
 export * from './image';
+export * from './island';
 export * from './messages';
 export * from './telemetry';
 export * from './tool';

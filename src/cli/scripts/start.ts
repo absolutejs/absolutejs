@@ -280,6 +280,10 @@ export const start = async (
 		define: { 'process.env.NODE_ENV': '"production"' },
 		entrypoints: [resolve(serverEntry)],
 		external: [
+			'react',
+			'react/*',
+			'react-dom',
+			'react-dom/*',
 			'vue',
 			'vue/*',
 			'@vue/compiler-sfc',

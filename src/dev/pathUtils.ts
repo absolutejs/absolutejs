@@ -188,15 +188,14 @@ export const shouldIgnorePath = (
 		return false;
 	}
 
-	// Ignore build output and framework-managed directories
+	// Ignore build output and framework-managed directories, including
+	// directory-level watcher events like ".../generated" (no trailing slash).
+	const managedDirPattern =
+		/(^|\/)(build|generated|\.absolutejs|node_modules|\.git)(\/|$)/;
+
 	return (
-		normalizedPath.includes('/build/') ||
-		normalizedPath.includes('/generated/') ||
-		normalizedPath.includes('/.absolutejs/') ||
-		normalizedPath.includes('/node_modules/') ||
-		normalizedPath.includes('/.git/') ||
+		managedDirPattern.test(normalizedPath) ||
 		normalizedPath.endsWith('.log') ||
-		normalizedPath.endsWith('.tmp') ||
-		normalizedPath.startsWith('.')
+		normalizedPath.endsWith('.tmp')
 	);
 };

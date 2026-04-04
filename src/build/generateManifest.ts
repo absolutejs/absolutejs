@@ -1,6 +1,7 @@
 import { extname } from 'node:path';
 import { BuildArtifact } from 'bun';
 import { UNFOUND_INDEX } from '../constants';
+import { getIslandManifestKey } from '../core/islandManifest';
 import { logWarn } from '../utils/logger';
 import { normalizePath } from '../utils/normalizePath';
 import { toPascal } from '../utils/stringModifiers';
@@ -59,6 +60,7 @@ export const generateManifest = (outputs: BuildArtifact[], buildPath: string) =>
 
 		const pascalName = toPascal(baseName);
 		const ext = extname(fileWithHash);
+		const islandIndex = segments.findIndex((seg) => seg === 'islands');
 
 		if (ext === '.css') {
 			// Distinguish CSS from different sources to avoid key collisions.
@@ -74,6 +76,24 @@ export const generateManifest = (outputs: BuildArtifact[], buildPath: string) =>
 				);
 
 			manifest[cssKey] = `/${relative}`;
+
+			return manifest;
+		}
+
+		const frameworkSegment = islandIndex > UNFOUND_INDEX
+			? segments[islandIndex + 1]
+			: undefined;
+		if (
+			frameworkSegment === 'react' ||
+			frameworkSegment === 'svelte' ||
+			frameworkSegment === 'vue' ||
+			frameworkSegment === 'angular'
+		) {
+			const manifestKey = getIslandManifestKey(
+				frameworkSegment,
+				pascalName
+			);
+			manifest[manifestKey] = `/${relative}`;
 
 			return manifest;
 		}

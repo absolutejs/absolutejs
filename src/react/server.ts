@@ -1,0 +1,1 @@
+export { handleReactPageRequest } from './pageHandler';

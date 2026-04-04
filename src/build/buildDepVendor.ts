@@ -32,6 +32,7 @@ const FRAMEWORK_SPECIFIERS = new Set([
 	'react-refresh/runtime',
 	'svelte',
 	'svelte/internal',
+	'svelte/internal/flags/async',
 	'svelte/internal/client',
 	'svelte/internal/disclose-version',
 	'svelte/server',

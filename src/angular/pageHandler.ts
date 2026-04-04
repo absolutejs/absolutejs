@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import type { Type } from '@angular/core';
 import type { AngularPageImporter } from '../../types/angular';
 import { BASE_36_RADIX, RANDOM_ID_END_INDEX } from '../constants';
+import { injectIslandPageContext } from '../core/islandPageContext';
 import { ssrErrorPage } from '../utils/ssrErrorPage';
 import {
 	derivePageName,
@@ -9,6 +10,7 @@ import {
 } from '../utils/resolveConvention';
 import { setSsrContextGetter } from '../utils/registerClientScript';
 import { getAngularDeps } from './angularDeps';
+import { lowerAngularServerIslands } from './lowerServerIslands';
 import { getSsrSanitizer, resetSsrSanitizer } from './ssrSanitizer';
 import {
 	buildDeps,
@@ -24,6 +26,14 @@ import {
 
 let ssrDirty = false;
 let lastSelector = 'angular-page';
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+	typeof value === 'object' && value !== null;
+
+const isAngularComponent = (value: unknown): value is Type<unknown> =>
+	typeof value === 'function';
+
+const readAngularPageModule = (value: unknown) =>
+	isRecord(value) ? value : null;
 
 export const invalidateAngularSsrCache = () => {
 	ssrDirty = true;
@@ -64,8 +74,21 @@ export const handleAngularPageRequest = async <
 
 		try {
 			const baseDeps = await getAngularDeps();
-			const pageModule = await import(pagePath);
-			const PageComponent: Type<unknown> = pageModule.default;
+			const importedPageModule: unknown = await import(pagePath);
+			const pageModule = readAngularPageModule(importedPageModule);
+			if (!pageModule) {
+				throw new Error(`Invalid Angular page module: ${pagePath}`);
+			}
+			const PageComponent = pageModule.default;
+			if (!isAngularComponent(PageComponent)) {
+				throw new Error(
+					`Angular page module must export a component by default: ${pagePath}`
+				);
+			}
+			const hasIslands =
+				typeof pageModule.__ABSOLUTE_PAGE_HAS_ISLANDS__ === 'boolean'
+					? pageModule.__ABSOLUTE_PAGE_HAS_ISLANDS__
+					: false;
 
 			const ssrResult = await loadSsrDeps(pagePath);
 			const deps = buildDeps(ssrResult, baseDeps);
@@ -91,8 +114,21 @@ export const handleAngularPageRequest = async <
 				providers,
 				htmlString
 			);
+			const shouldProcessIslands =
+				hasIslands || rawHtml.includes('<absolute-island');
+			const htmlWithLoweredIslands = shouldProcessIslands
+				? await lowerAngularServerIslands(rawHtml)
+				: rawHtml;
 
-			const html = injectSsrScripts(rawHtml, requestId, indexPath);
+			const html = injectIslandPageContext(
+				injectSsrScripts(
+					htmlWithLoweredIslands,
+					requestId,
+					indexPath,
+					maybeProps
+				),
+				{ hasIslands: shouldProcessIslands }
+			);
 
 			return new Response(html, {
 				headers: { 'Content-Type': 'text/html' }

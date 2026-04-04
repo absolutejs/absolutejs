@@ -1,13 +1,14 @@
 import type { JsonLdSchema, WithContext } from '../../types/jsonLd';
 
 export const jsonLd = (schema: JsonLdSchema | JsonLdSchema[]) => {
+	const schemaOrgContext = 'https://schema.org';
 	const data: WithContext<JsonLdSchema> | WithContext<JsonLdSchema>[] =
 		Array.isArray(schema)
 			? schema.map((s) => ({
-					'@context': 'https://schema.org' as const,
+					'@context': schemaOrgContext,
 					...s
 				}))
-			: { '@context': 'https://schema.org' as const, ...schema };
+			: { '@context': schemaOrgContext, ...schema };
 
 	return `<script type="application/ld+json">${JSON.stringify(data)}</script>`;
 };

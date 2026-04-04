@@ -22,6 +22,7 @@ export const FOCUS_IDX_PREFIX_LENGTH = 4;
 export const FOCUS_NAME_PREFIX_LENGTH = 5;
 export const HMR_UPDATE_TIMEOUT_MS = 2000;
 export const HOOK_SIGNATURE_LENGTH = 12;
+export const EXCLUDE_LAST_OFFSET = -1;
 export const HOURS_IN_DAY = 24;
 export const HOURS_IN_HALF_DAY = 12;
 export const MAX_ERROR_LENGTH = 200;

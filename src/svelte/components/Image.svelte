@@ -96,14 +96,17 @@
 	});
 
 	const handleLoad = (e: Event) => {
+		const target = e.currentTarget;
 		if (blurBackground) {
-			(e.target as HTMLImageElement).style.backgroundImage = 'none';
+			if (target instanceof HTMLImageElement) {
+				target.style.backgroundImage = 'none';
+			}
 		}
-		if (onLoad) (onLoad as (event: Event) => void)(e);
+		onLoad?.(e);
 	};
 
 	const handleError = (e: Event) => {
-		if (onError) (onError as (event: Event) => void)(e);
+		onError?.(e);
 	};
 </script>
 

@@ -97,6 +97,7 @@ export type OrganizationSchema = {
 	description?: string;
 	foundingDate?: string;
 	address?: PostalAddress;
+	email?: string;
 	telephone?: string;
 	sameAs?: string[];
 	contactPoint?: ContactPoint;
@@ -221,9 +222,12 @@ export type RecipeSchema = {
 	prepTime?: string;
 	cookTime?: string;
 	totalTime?: string;
+	recipeCategory?: string;
+	recipeCuisine?: string;
 	recipeYield?: string;
 	recipeIngredient?: string[];
-	recipeInstructions?: HowToStep[];
+	recipeInstructions?: (string | HowToStep)[];
+	datePublished?: string;
 	aggregateRating?: AggregateRating;
 	nutrition?: NutritionInformation;
 };
@@ -247,8 +251,10 @@ export type VideoObjectSchema = {
 export type HowToSchema = {
 	'@type': 'HowTo';
 	name: string;
+	description?: string;
 	step: HowToStep[];
 	image?: string;
+	totalTime?: string;
 	supply?: { '@type': 'HowToSupply'; name: string }[];
 	tool?: { '@type': 'HowToTool'; name: string }[];
 };
@@ -265,6 +271,7 @@ export type LocalBusinessSchema = {
 	priceRange?: string;
 	geo?: GeoCoordinates;
 	aggregateRating?: AggregateRating;
+	openingHours?: string[];
 	openingHoursSpecification?: {
 		'@type': 'OpeningHoursSpecification';
 		dayOfWeek: string | string[];

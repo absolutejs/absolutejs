@@ -1,6 +1,14 @@
 import { $ } from 'bun';
-import { rm, cp, mkdir, readdir, writeFile } from 'node:fs/promises';
-import { join, resolve, relative } from 'node:path';
+import {
+	rm,
+	cp,
+	mkdir,
+	readdir,
+	readFile,
+	stat,
+	writeFile
+} from 'node:fs/promises';
+import { dirname, join, resolve, relative } from 'node:path';
 import type { AngularCompilerOptions } from '@angular/compiler-cli';
 import ts from 'typescript';
 
@@ -16,15 +24,27 @@ const SERVER_ENTRY_POINTS = [
 	'src/ai/providers/openaiCompatible.ts',
 	'src/ai/providers/openaiResponses.ts',
 	'src/ai/providers/gemini.ts',
+	'src/ai/client/index.ts',
 	'src/angular/index.ts',
+	'src/angular/browser.ts',
+	'src/angular/server.ts',
 	'src/angular/ai/index.ts',
+	'src/client/index.ts',
+	'src/islands/browser.ts',
+	'src/islands/index.ts',
 	'src/react/index.ts',
+	'src/react/browser.ts',
+	'src/react/server.ts',
 	'src/react/ai/index.ts',
 	'src/react/components/index.ts',
 	'src/react/hooks/index.ts',
 	'src/svelte/index.ts',
+	'src/svelte/browser.ts',
+	'src/svelte/server.ts',
 	'src/svelte/ai/index.ts',
 	'src/vue/index.ts',
+	'src/vue/browser.ts',
+	'src/vue/server.ts',
 	'src/vue/ai/index.ts',
 	'src/vue/components/index.ts'
 ];
@@ -151,10 +171,7 @@ const build = async () => {
 
 	console.log('Copying static assets...');
 
-	await mkdir(join(DIST, 'dev'), { recursive: true });
-	await cp('src/dev/client', join(DIST, 'dev', 'client'), {
-		recursive: true
-	});
+	await copyPublishedDevClientSources();
 
 	await mkdir(join(DIST, 'svelte', 'components'), { recursive: true });
 	const svelteFiles = await readdir('src/svelte/components');
@@ -182,6 +199,9 @@ const build = async () => {
 	console.log('Generating SFC type declarations...');
 	await generateSfcDeclarations();
 
+	console.log('Fixing Svelte browser entry...');
+	await fixSvelteBrowserEntry();
+
 	// Compile Angular components with partial compilation (ɵɵngDeclareComponent)
 	// so they work in both AOT (via linker) and JIT (via runtime fallback)
 	console.log('Compiling Angular components (partial)...');
@@ -191,6 +211,113 @@ const build = async () => {
 	await verifyExports();
 
 	console.log('Build complete.');
+};
+
+const rewritePublishedDevClientSource = (
+	content: string,
+	relativePath: string
+) => {
+	const normalized = content
+		.replaceAll('../.././../../types/', '../../../../types/')
+		.replace(
+			/((?:\.\.\/)+)types\/(client|globals|vue)/g,
+			(_match, parents: string, target: string) => {
+				const trimmed = parents.replace(/^\.\.\//, '');
+
+				return `${trimmed}types/${target}`;
+			}
+		);
+
+	const dir =
+		dirname(relativePath) === '.'
+			? ''
+			: dirname(relativePath).replaceAll('\\', '/');
+	const nestedDepth = dir ? dir.split('/').length : 0;
+	const globalsPath = `${'../'.repeat(nestedDepth + 2)}types/globals`;
+	const header = `import type {} from '${globalsPath}';\n`;
+
+	return normalized.startsWith(header)
+		? normalized
+		: `${header}${normalized}`;
+};
+
+const copyPublishedDevClientEntry = async (
+	entry: string,
+	sourcePath: string,
+	targetPath: string,
+	relativePath: string
+) => {
+	const entryStat = await stat(sourcePath);
+	if (entryStat.isDirectory()) {
+		await copyPublishedDevClientDirectory(
+			sourcePath,
+			targetPath,
+			relativePath
+		);
+
+		return;
+	}
+
+	if (!entry.endsWith('.ts')) {
+		await cp(sourcePath, targetPath);
+
+		return;
+	}
+
+	const sourceText = await readFile(sourcePath, 'utf8');
+	const rewritten = rewritePublishedDevClientSource(sourceText, relativePath);
+	await writeFile(targetPath, rewritten);
+};
+
+const copyPublishedDevClientDirectory = async (
+	sourceDir: string,
+	targetDir: string,
+	relativeDir = ''
+) => {
+	await mkdir(targetDir, { recursive: true });
+	const entries = await readdir(sourceDir);
+	for (const entry of entries) {
+		const sourcePath = join(sourceDir, entry);
+		const targetPath = join(targetDir, entry);
+		const relativePath = relativeDir ? join(relativeDir, entry) : entry;
+		// eslint-disable-next-line no-await-in-loop
+		await copyPublishedDevClientEntry(
+			entry,
+			sourcePath,
+			targetPath,
+			relativePath
+		);
+	}
+};
+
+const fixSvelteBrowserEntry = async () => {
+	const browserPath = join(DIST, 'svelte', 'browser.js');
+	const source = await readFile(browserPath, 'utf8');
+	const assetPattern = /^var Island_default = ['"][^'"]+\.svelte['"];$/m;
+
+	if (!assetPattern.test(source)) {
+		return;
+	}
+
+	const nextSource = source.replace(
+		assetPattern,
+		'import Island_default from "./components/Island.svelte";'
+	);
+
+	await writeFile(browserPath, nextSource);
+};
+
+const copyPublishedDevClientSources = async () => {
+	await mkdir(join(DIST, 'dev'), { recursive: true });
+	await copyPublishedDevClientDirectory(
+		join('src', 'dev', 'client'),
+		join(DIST, 'dev', 'client')
+	);
+	await mkdir(join(DIST, 'types'), { recursive: true });
+	await cp(
+		join('types', 'globals.d.ts'),
+		join(DIST, 'types', 'globals.d.ts')
+	);
 };
 
 const buildSvelteDts = (name: string, propsType: string | undefined) => {

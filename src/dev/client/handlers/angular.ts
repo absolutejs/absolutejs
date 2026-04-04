@@ -366,7 +366,6 @@ const attemptFastPatch = async (
 };
 
 // handleFastUpdate is kept for future use when the fast path is re-enabled.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const _handleFastUpdate = async (message: HMRMessage) => {
 	const hmr = window.__ANGULAR_HMR__;
 	if (!hmr || !hmr.getRegistry) return false;

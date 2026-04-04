@@ -1,6 +1,6 @@
 /* CSS reload/preload utilities for HMR */
 
-import { type CSSUpdateResult, hmrState } from '../../../types/client';
+import type { CSSUpdateResult } from '../../../types/client';
 import {
 	CSS_ERROR_RESOLVE_DELAY_MS,
 	CSS_MAX_CHECK_ATTEMPTS,
@@ -9,6 +9,7 @@ import {
 	DOM_UPDATE_DELAY_MS,
 	RAF_BATCH_COUNT
 } from './constants';
+import { hmrState } from './hmrState';
 
 export const getCSSBaseName = (href: string) => {
 	const fileName = href.split('?')[0]?.split('/').pop() || '';

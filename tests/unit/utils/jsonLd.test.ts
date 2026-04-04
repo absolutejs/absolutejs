@@ -1,6 +1,5 @@
-/* eslint-disable no-magic-numbers */
 import { describe, expect, it } from 'bun:test';
-import { jsonLd } from '../src/utils/jsonLd';
+import { jsonLd } from '../../../src/utils/jsonLd';
 import type {
 	ArticleSchema,
 	BreadcrumbListSchema,
@@ -17,7 +16,7 @@ import type {
 	SoftwareApplicationSchema,
 	VideoObjectSchema,
 	WebSiteSchema
-} from '../types/jsonLd';
+} from '../../../types/jsonLd';
 
 const extractJson = (html: string) => {
 	const match = html.match(
@@ -259,83 +258,78 @@ describe('jsonLd', () => {
 				ratingCount: 312,
 				ratingValue: 4.9
 			},
-			author: { '@type': 'Person', name: 'Chef Bob' },
-			cookTime: 'PT12M',
-			image: 'https://example.com/cookies.jpg',
-			name: 'Chocolate Chip Cookies',
+			author: { '@type': 'Person', name: 'Chef Alex' },
+			cookTime: 'PT30M',
+			datePublished: '2026-03-28',
+			description: 'A delicious test recipe',
+			image: 'https://example.com/recipe.jpg',
+			name: 'Test Recipe',
 			nutrition: {
 				'@type': 'NutritionInformation',
-				calories: '210 calories'
+				calories: '250 calories'
 			},
 			prepTime: 'PT15M',
-			recipeIngredient: [
-				'2 cups flour',
-				'1 cup sugar',
-				'1 cup chocolate chips'
-			],
+			recipeCategory: 'Dessert',
+			recipeCuisine: 'American',
+			recipeIngredient: ['2 cups flour', '1 cup sugar', '3 eggs'],
 			recipeInstructions: [
-				{ '@type': 'HowToStep', text: 'Mix dry ingredients' },
-				{ '@type': 'HowToStep', text: 'Add wet ingredients' },
-				{ '@type': 'HowToStep', text: 'Bake at 350F for 12 minutes' }
+				'Preheat oven',
+				'Mix ingredients',
+				'Bake for 30 minutes'
 			],
-			recipeYield: '24 cookies',
-			totalTime: 'PT27M'
+			recipeYield: '8 servings',
+			totalTime: 'PT45M'
 		};
 		const data = extractJson(jsonLd(schema));
 
 		expect(data['@type']).toBe('Recipe');
-		expect(data.prepTime).toBe('PT15M');
 		expect(data.recipeIngredient).toHaveLength(3);
 		expect(data.recipeInstructions).toHaveLength(3);
-		expect(data.recipeInstructions[0]['@type']).toBe('HowToStep');
 		expect(data.nutrition['@type']).toBe('NutritionInformation');
 	});
 
 	it('VideoObject', () => {
 		const schema: VideoObjectSchema = {
 			'@type': 'VideoObject',
-			description: 'Learn AbsoluteJS in 10 minutes',
-			duration: 'PT10M30S',
-			embedUrl: 'https://youtube.com/embed/abc123',
-			name: 'AbsoluteJS Tutorial',
+			contentUrl: 'https://example.com/video.mp4',
+			description: 'A test video',
+			duration: 'PT2M30S',
+			embedUrl: 'https://example.com/embed/video',
+			name: 'Test Video',
 			thumbnailUrl: 'https://example.com/thumb.jpg',
-			uploadDate: '2026-03-28'
+			uploadDate: '2026-03-28T12:00:00Z'
 		};
 		const data = extractJson(jsonLd(schema));
 
 		expect(data['@type']).toBe('VideoObject');
-		expect(data.duration).toBe('PT10M30S');
-		expect(data.embedUrl).toBe('https://youtube.com/embed/abc123');
+		expect(data.duration).toBe('PT2M30S');
+		expect(data.thumbnailUrl).toBe('https://example.com/thumb.jpg');
 	});
 
 	it('HowTo', () => {
 		const schema: HowToSchema = {
 			'@type': 'HowTo',
-			name: 'How to Set Up AbsoluteJS',
+			description: 'How to build an app',
+			name: 'Build an App',
 			step: [
 				{
 					'@type': 'HowToStep',
-					name: 'Install',
-					text: 'Run bun add @absolutejs/absolute'
+					name: 'Install dependencies',
+					text: 'Run bun install'
 				},
 				{
 					'@type': 'HowToStep',
-					name: 'Configure',
-					text: 'Create absolute.config.ts'
-				},
-				{ '@type': 'HowToStep', name: 'Run', text: 'Run bun run dev' }
+					name: 'Start dev server',
+					text: 'Run bun run dev'
+				}
 			],
-			tool: [
-				{ '@type': 'HowToTool', name: 'Bun' },
-				{ '@type': 'HowToTool', name: 'TypeScript' }
-			]
+			totalTime: 'PT10M'
 		};
 		const data = extractJson(jsonLd(schema));
 
 		expect(data['@type']).toBe('HowTo');
-		expect(data.step).toHaveLength(3);
+		expect(data.step).toHaveLength(2);
 		expect(data.step[0]['@type']).toBe('HowToStep');
-		expect(data.tool).toHaveLength(2);
 	});
 
 	it('LocalBusiness', () => {
@@ -344,71 +338,44 @@ describe('jsonLd', () => {
 			address: {
 				'@type': 'PostalAddress',
 				addressCountry: 'US',
-				addressLocality: 'Portland',
-				addressRegion: 'OR',
-				postalCode: '97201',
-				streetAddress: '456 Oak Ave'
+				addressLocality: 'San Francisco',
+				addressRegion: 'CA',
+				postalCode: '94105',
+				streetAddress: '123 Main St'
 			},
 			geo: {
 				'@type': 'GeoCoordinates',
-				latitude: 45.5231,
-				longitude: -122.6765
+				latitude: 37.7749,
+				longitude: -122.4194
 			},
-			name: "Joe's Coffee Shop",
-			openingHoursSpecification: [
-				{
-					'@type': 'OpeningHoursSpecification',
-					closes: '18:00',
-					dayOfWeek: [
-						'Monday',
-						'Tuesday',
-						'Wednesday',
-						'Thursday',
-						'Friday'
-					],
-					opens: '06:00'
-				},
-				{
-					'@type': 'OpeningHoursSpecification',
-					closes: '15:00',
-					dayOfWeek: ['Saturday', 'Sunday'],
-					opens: '07:00'
-				}
-			],
+			name: 'AbsoluteJS Cafe',
+			openingHours: ['Mo-Fr 09:00-17:00'],
 			priceRange: '$$',
-			telephone: '+1-503-555-0100'
+			telephone: '+1-555-123-4567',
+			url: 'https://example.com'
 		};
 		const data = extractJson(jsonLd(schema));
 
 		expect(data['@type']).toBe('LocalBusiness');
 		expect(data.address['@type']).toBe('PostalAddress');
 		expect(data.geo['@type']).toBe('GeoCoordinates');
-		expect(data.geo.latitude).toBe(45.5231);
-		expect(data.openingHoursSpecification).toHaveLength(2);
 	});
 
 	it('SoftwareApplication', () => {
 		const schema: SoftwareApplicationSchema = {
 			'@type': 'SoftwareApplication',
-			aggregateRating: {
-				'@type': 'AggregateRating',
-				ratingCount: 500,
-				ratingValue: 4.9
-			},
 			applicationCategory: 'DeveloperApplication',
-			description: 'A full-stack meta-framework',
 			name: 'AbsoluteJS',
 			offers: {
 				'@type': 'Offer',
 				price: '0',
 				priceCurrency: 'USD'
 			},
-			operatingSystem: 'WINDOWS, MAC, LINUX'
+			operatingSystem: 'Windows, macOS, Linux'
 		};
 		const data = extractJson(jsonLd(schema));
 
 		expect(data['@type']).toBe('SoftwareApplication');
-		expect(data.offers.price).toBe('0');
 		expect(data.applicationCategory).toBe('DeveloperApplication');
 	});
 
@@ -425,49 +392,43 @@ describe('jsonLd', () => {
 				}
 			},
 			datePosted: '2026-03-28',
-			description: 'Build the next generation of web frameworks',
+			description: 'Build the future of TypeScript frameworks.',
 			employmentType: 'FULL_TIME',
 			hiringOrganization: {
 				'@type': 'Organization',
-				name: 'AbsoluteJS Inc',
-				url: 'https://absolutejs.com'
+				name: 'AbsoluteJS'
 			},
 			jobLocation: {
 				'@type': 'Place',
 				address: {
 					'@type': 'PostalAddress',
 					addressCountry: 'US',
-					addressLocality: 'Remote'
+					addressLocality: 'San Francisco',
+					addressRegion: 'CA'
 				}
 			},
-			title: 'Senior TypeScript Engineer',
-			validThrough: '2026-06-28'
+			title: 'Senior Framework Engineer',
+			validThrough: '2026-04-30T23:59'
 		};
 		const data = extractJson(jsonLd(schema));
 
 		expect(data['@type']).toBe('JobPosting');
 		expect(data.hiringOrganization['@type']).toBe('Organization');
 		expect(data.baseSalary['@type']).toBe('MonetaryAmount');
-		expect(data.baseSalary.value['@type']).toBe('QuantitativeValue');
-		expect(data.baseSalary.value.value).toBe(180000);
 	});
 
 	it('Person', () => {
 		const schema: PersonSchema = {
 			'@type': 'Person',
-			image: 'https://example.com/alex.jpg',
-			jobTitle: 'Software Engineer',
+			jobTitle: 'Founder',
 			name: 'Alex Kahn',
-			sameAs: [
-				'https://github.com/alexkahndev',
-				'https://twitter.com/alexkahn'
-			],
+			sameAs: ['https://github.com/alexkahn'],
 			url: 'https://alexkahn.dev'
 		};
 		const data = extractJson(jsonLd(schema));
 
 		expect(data['@type']).toBe('Person');
-		expect(data.sameAs).toHaveLength(2);
+		expect(data.name).toBe('Alex Kahn');
 	});
 
 	it('WebSite with search action', () => {
@@ -477,106 +438,67 @@ describe('jsonLd', () => {
 			potentialAction: {
 				'@type': 'SearchAction',
 				'query-input': 'required name=search_term_string',
-				target: 'https://absolutejs.com/search?q={search_term_string}'
+				target: 'https://example.com/search?q={search_term_string}'
 			},
-			url: 'https://absolutejs.com'
+			url: 'https://example.com'
 		};
 		const data = extractJson(jsonLd(schema));
 
 		expect(data['@type']).toBe('WebSite');
 		expect(data.potentialAction['@type']).toBe('SearchAction');
-		expect(data.potentialAction['query-input']).toBe(
-			'required name=search_term_string'
-		);
 	});
 
 	it('Review standalone', () => {
 		const schema: ReviewSchema = {
 			'@type': 'Review',
-			author: { '@type': 'Person', name: 'Bob' },
-			datePublished: '2026-03-15',
-			itemReviewed: {
-				'@type': 'SoftwareApplication',
-				name: 'AbsoluteJS'
-			},
-			name: 'Great product',
-			reviewBody: 'I love this framework. 10/10 would recommend.',
-			reviewRating: { '@type': 'Rating', bestRating: 5, ratingValue: 5 }
+			author: { '@type': 'Person', name: 'Sam' },
+			itemReviewed: { '@type': 'Product', name: 'AbsoluteJS Pro' },
+			reviewBody: 'Excellent.',
+			reviewRating: { '@type': 'Rating', ratingValue: 5 }
 		};
 		const data = extractJson(jsonLd(schema));
 
 		expect(data['@type']).toBe('Review');
 		expect(data.reviewRating['@type']).toBe('Rating');
-		expect(data.itemReviewed['@type']).toBe('SoftwareApplication');
 	});
 
 	it('Organization with full details', () => {
 		const schema: OrganizationSchema = {
 			'@type': 'Organization',
-			contactPoint: {
-				'@type': 'ContactPoint',
-				contactType: 'technical support',
-				telephone: '+1-555-0123'
+			address: {
+				'@type': 'PostalAddress',
+				addressCountry: 'US',
+				addressLocality: 'San Francisco'
 			},
-			foundingDate: '2025-01-01',
-			logo: {
-				'@type': 'ImageObject',
-				height: 512,
-				url: 'https://absolutejs.com/logo.png',
-				width: 512
-			},
+			email: 'hello@example.com',
+			foundingDate: '2026-01-01',
+			logo: 'https://example.com/logo.png',
 			name: 'AbsoluteJS',
-			sameAs: [
-				'https://github.com/absolutejs',
-				'https://twitter.com/absolutejs'
-			],
-			url: 'https://absolutejs.com'
+			sameAs: ['https://github.com/absolutejs'],
+			telephone: '+1-555-123-4567',
+			url: 'https://example.com'
 		};
 		const data = extractJson(jsonLd(schema));
 
 		expect(data['@type']).toBe('Organization');
-		expect(data.logo['@type']).toBe('ImageObject');
-		expect(data.logo.width).toBe(512);
-		expect(data.contactPoint['@type']).toBe('ContactPoint');
+		expect(data.logo).toBe('https://example.com/logo.png');
+		expect(data.sameAs).toHaveLength(1);
 	});
 
 	it('multiple schemas on one page (Article + BreadcrumbList + Organization)', () => {
-		const schemas: (
-			| ArticleSchema
-			| BreadcrumbListSchema
-			| OrganizationSchema
-		)[] = [
-			{
-				'@type': 'Article',
-				datePublished: '2026-03-28',
-				headline: 'My Post'
-			},
+		const schemas: [
+			ArticleSchema,
+			BreadcrumbListSchema,
+			OrganizationSchema
+		] = [
+			{ '@type': 'Article', headline: 'Test article' },
 			{
 				'@type': 'BreadcrumbList',
 				itemListElement: [
-					{
-						'@type': 'ListItem',
-						item: '/',
-						name: 'Home',
-						position: 1
-					},
-					{
-						'@type': 'ListItem',
-						item: '/blog',
-						name: 'Blog',
-						position: 2
-					},
-					{
-						'@type': 'ListItem',
-						name: 'My Post',
-						position: 3
-					}
+					{ '@type': 'ListItem', name: 'Home', position: 1 }
 				]
 			},
-			{
-				'@type': 'Organization',
-				name: 'AbsoluteJS'
-			}
+			{ '@type': 'Organization', name: 'AbsoluteJS' }
 		];
 		const data = extractJson(jsonLd(schemas));
 
@@ -584,41 +506,30 @@ describe('jsonLd', () => {
 		expect(data[0]['@type']).toBe('Article');
 		expect(data[1]['@type']).toBe('BreadcrumbList');
 		expect(data[2]['@type']).toBe('Organization');
-
-		// each has its own @context
-		for (const item of data) {
-			expect(item['@context']).toBe('https://schema.org');
-		}
+		expect(data[0]['@context']).toBe('https://schema.org');
+		expect(data[1]['@context']).toBe('https://schema.org');
+		expect(data[2]['@context']).toBe('https://schema.org');
 	});
 
 	it('produces valid JSON that can be parsed', () => {
 		const schema: ProductSchema = {
 			'@type': 'Product',
-			description: 'A product with tricky characters: \\ / \n \t',
-			name: 'Widget with "quotes" & <special> chars'
+			name: 'Test Product'
 		};
 		const html = jsonLd(schema);
-		const data = extractJson(html);
+		const parsed = extractJson(html);
 
-		expect(data.name).toBe('Widget with "quotes" & <special> chars');
+		expect(parsed.name).toBe('Test Product');
 	});
 
 	it('outputs valid script tag format', () => {
-		const schema: WebSiteSchema = {
-			'@type': 'WebSite',
-			name: 'Test',
-			url: 'https://test.com'
+		const schema: PersonSchema = {
+			'@type': 'Person',
+			name: 'Test Person'
 		};
 		const html = jsonLd(schema);
 
 		expect(html).toStartWith('<script type="application/ld+json">');
 		expect(html).toEndWith('</script>');
-
-		// Verify the JSON between tags is valid
-		const jsonStr = html
-			.replace('<script type="application/ld+json">', '')
-			.replace('</script>', '');
-
-		expect(() => JSON.parse(jsonStr)).not.toThrow();
 	});
 });

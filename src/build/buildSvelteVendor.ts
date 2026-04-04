@@ -9,6 +9,7 @@ import { build as bunBuild } from 'bun';
 const svelteSpecifiers = [
 	'svelte',
 	'svelte/internal',
+	'svelte/internal/flags/async',
 	'svelte/internal/client',
 	'svelte/internal/disclose-version',
 	'svelte/store'

@@ -31,6 +31,10 @@ export type BuildConfig = {
 	buildDirectory?: string;
 	assetsDirectory?: string;
 	publicDirectory?: string;
+	islands?: {
+		registry: string;
+		bootstrap?: string;
+	};
 	reactDirectory?: string;
 	vueDirectory?: string;
 	angularDirectory?: string;

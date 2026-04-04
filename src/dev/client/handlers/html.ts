@@ -13,8 +13,9 @@ import {
 import { processCSSLinks, waitForCSSAndUpdate } from '../cssUtils';
 import { patchHeadInPlace } from '../headPatch';
 import { detectCurrentFramework } from '../frameworkDetect';
-import { type ScriptInfo, hmrState } from '../.././../../types/client';
+import type { ScriptInfo } from '../../../../types/client';
 import { restoreDOMChanges, snapshotDOMChanges } from '../domTracker';
+import { hmrState } from '../hmrState';
 
 const parseHTMLMessage = (
 	html: string | { body?: string; head?: string } | null | undefined

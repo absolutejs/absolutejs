@@ -129,11 +129,11 @@ const imgStyle = computed(() => {
 
 const handleLoad = (e: Event) => {
 	blurRemoved.value = true;
-	if (props.onLoad) (props.onLoad as (event: Event) => void)(e);
+	props.onLoad?.(e);
 };
 
 const handleError = (e: Event) => {
-	if (props.onError) (props.onError as (event: Event) => void)(e);
+	props.onError?.(e);
 };
 </script>
 

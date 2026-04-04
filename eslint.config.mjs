@@ -68,7 +68,17 @@ export default defineConfig([
 			],
 			'@typescript-eslint/consistent-type-definitions': ['error', 'type'],
 			'@typescript-eslint/no-non-null-assertion': 'error',
-			'@typescript-eslint/no-unnecessary-type-assertion': 'error'
+			'@typescript-eslint/no-unnecessary-type-assertion': 'error',
+			'@typescript-eslint/no-unused-vars': [
+				'error',
+				{ argsIgnorePattern: '^_', varsIgnorePattern: '^_' }
+			]
+		}
+	},
+	{
+		files: ['**/*.d.ts'],
+		rules: {
+			'@typescript-eslint/consistent-type-definitions': 'off'
 		}
 	},
 	{
@@ -126,7 +136,7 @@ export default defineConfig([
 			'no-duplicate-case': 'error',
 			'no-duplicate-imports': 'error',
 			'no-else-return': 'error',
-			'no-empty-function': 'error',
+			'no-empty-function': ['error', { allow: ['methods'] }],
 			'no-empty-pattern': 'error',
 			'no-empty-static-block': 'error',
 			'no-fallthrough': 'error',
@@ -223,7 +233,8 @@ export default defineConfig([
 		files: [
 			'eslint.config.mjs',
 			'**/absolute.config.ts',
-			'types/vue-shim.d.ts'
+			'types/vue-shim.d.ts',
+			'types/svelte-shim.d.ts'
 		],
 		rules: {
 			'no-restricted-exports': 'off'

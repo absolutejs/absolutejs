@@ -1,6 +1,7 @@
 export { aiChat } from '../plugins/aiChat';
 export { streamAI } from './streamAI';
 export { createConversationManager } from './conversationManager';
+export { createMemoryStore } from './memoryStore';
 export { generateId, parseAIMessage, serializeAIMessage } from './protocol';
 export {
 	openaiCompatible,

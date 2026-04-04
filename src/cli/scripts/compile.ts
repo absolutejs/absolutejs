@@ -282,6 +282,10 @@ const stubPlugin: import('bun').BunPlugin = {
 };
 
 const FRAMEWORK_EXTERNALS = [
+	'react',
+	'react/*',
+	'react-dom',
+	'react-dom/*',
 	'vue',
 	'vue/*',
 	'@vue/compiler-sfc',

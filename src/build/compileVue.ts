@@ -12,6 +12,7 @@ import type {
 import { file, write, Transpiler } from 'bun';
 import { toKebab } from '../utils/stringModifiers';
 import { resolvePackageImport } from './resolvePackageImport';
+import { buildIslandMetadataExports } from '../islands/sourceMetadata';
 
 const resolveDevClientDir = () => {
 	const projectRoot = process.cwd();
@@ -208,6 +209,7 @@ const compileVueFile = async (
 	const componentId = toKebab(fileBaseName);
 
 	const sourceContent = await file(sourceFilePath).text();
+	const islandMetadataExports = buildIslandMetadataExports(sourceContent);
 
 	// Check persistent cache — skip recompilation if source unchanged
 	const contentHash = Bun.hash(sourceContent).toString(BASE_36_RADIX);
@@ -403,12 +405,12 @@ if (typeof __VUE_HMR_RUNTIME__ !== 'undefined') {
 		generateRenderFunction(false),
 		'render',
 		true
-	);
+	) + islandMetadataExports;
 	const serverCode = assembleModule(
 		generateRenderFunction(true),
 		'ssrRender',
 		false
-	);
+	) + islandMetadataExports;
 
 	const clientOutputPath = join(
 		outputDirs.client,

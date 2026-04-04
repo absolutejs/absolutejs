@@ -4,7 +4,9 @@
 		"absolute": "dist/cli/index.js"
 	},
 	"dependencies": {
-		"@angular/compiler": "^21.0.0"
+		"@absolutejs/absolute": "0.19.0-beta.345",
+		"@angular/compiler": "^21.0.0",
+		"zustand": "^5.0.12"
 	},
 	"description": "A fullstack meta-framework for building web applications with TypeScript",
 	"devDependencies": {
@@ -62,6 +64,11 @@
 			"import": "./dist/ai/providers/anthropic.js",
 			"types": "./dist/src/ai/providers/anthropic.d.ts"
 		},
+		"./ai/client": {
+			"browser": "./dist/ai-client/ai/client/index.js",
+			"import": "./dist/ai/client/index.js",
+			"types": "./dist/src/ai/client/index.d.ts"
+		},
 		"./ai/gemini": {
 			"import": "./dist/ai/providers/gemini.js",
 			"types": "./dist/src/ai/providers/gemini.d.ts"
@@ -83,6 +90,7 @@
 			"types": "./dist/src/ai/providers/openaiCompatible.d.ts"
 		},
 		"./angular": {
+			"browser": "./dist/angular/browser.js",
 			"import": "./dist/angular/index.js",
 			"types": "./dist/src/angular/index.d.ts"
 		},
@@ -95,15 +103,29 @@
 			"import": "./dist/angular/components/index.js",
 			"types": "./dist/src/angular/components/index.d.ts"
 		},
+		"./angular/server": {
+			"import": "./dist/angular/server.js",
+			"types": "./dist/src/angular/server.d.ts"
+		},
 		"./build": {
 			"import": "./dist/build.js",
 			"types": "./dist/src/build.d.ts"
+		},
+		"./client": {
+			"import": "./dist/client/index.js",
+			"types": "./dist/src/client/index.d.ts"
 		},
 		"./image": {
 			"import": "./dist/image-client/imageClient.js",
 			"types": "./dist/src/utils/imageClient.d.ts"
 		},
+		"./islands": {
+			"browser": "./dist/islands/browser.js",
+			"import": "./dist/islands/index.js",
+			"types": "./dist/src/islands/index.d.ts"
+		},
 		"./react": {
+			"browser": "./dist/react/browser.js",
 			"import": "./dist/react/index.js",
 			"types": "./dist/src/react/index.d.ts"
 		},
@@ -121,7 +143,12 @@
 			"import": "./dist/react/hooks/index.js",
 			"types": "./dist/src/react/hooks/index.d.ts"
 		},
+		"./react/server": {
+			"import": "./dist/react/server.js",
+			"types": "./dist/src/react/server.d.ts"
+		},
 		"./svelte": {
+			"browser": "./dist/svelte/browser.js",
 			"import": "./dist/svelte/index.js",
 			"types": "./dist/src/svelte/index.d.ts"
 		},
@@ -153,7 +180,12 @@
 			"import": "./dist/svelte/components/JsonLd.svelte",
 			"types": "./dist/svelte/components/JsonLd.svelte.d.ts"
 		},
+		"./svelte/server": {
+			"import": "./dist/svelte/server.js",
+			"types": "./dist/src/svelte/server.d.ts"
+		},
 		"./vue": {
+			"browser": "./dist/vue/browser.js",
 			"import": "./dist/vue/index.js",
 			"types": "./dist/src/vue/index.d.ts"
 		},
@@ -173,8 +205,18 @@
 		"./vue/components/Image.vue": {
 			"import": "./dist/vue/components/Image.vue",
 			"types": "./dist/vue/components/Image.vue.d.ts"
+		},
+		"./vue/server": {
+			"import": "./dist/vue/server.js",
+			"types": "./dist/src/vue/server.d.ts"
 		}
 	},
+	"files": [
+		"dist",
+		"LICENSE",
+		"README.md",
+		"THIRD_PARTY_NOTICES.md"
+	],
 	"license": "BSL-1.1",
 	"main": "./dist/index.js",
 	"name": "@absolutejs/absolute",
@@ -265,5 +307,5 @@
 		"typecheck": "bun run src/cli/index.ts typecheck --config example/absolute.config.ts"
 	},
 	"types": "./dist/src/index.d.ts",
-	"version": "0.19.0-beta.266"
+	"version": "0.19.0-beta.348"
 }

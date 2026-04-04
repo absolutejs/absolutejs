@@ -5,13 +5,14 @@ export const JsonLd = ({
 }: {
 	schema: JsonLdSchema | JsonLdSchema[];
 }) => {
+	const schemaOrgContext = 'https://schema.org';
 	const data: WithContext<JsonLdSchema> | WithContext<JsonLdSchema>[] =
 		Array.isArray(schema)
 			? schema.map((s) => ({
-					'@context': 'https://schema.org' as const,
+					'@context': schemaOrgContext,
 					...s
 				}))
-			: { '@context': 'https://schema.org' as const, ...schema };
+			: { '@context': schemaOrgContext, ...schema };
 
 	return (
 		<script

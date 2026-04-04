@@ -30,7 +30,6 @@ declare global {
 		| undefined;
 
 	/* Client-side globals (Window extensions for HMR) */
-	// eslint-disable-next-line @typescript-eslint/consistent-type-definitions -- declaration merging requires interface
 	interface Window {
 		$RefreshReg$?: (type: unknown, id: string) => void;
 		$RefreshRuntime$?: {
@@ -55,6 +54,7 @@ declare global {
 		__REACT_COMPONENT_KEY__?: string;
 		__REACT_ROOT__?: { render: (element: unknown) => void };
 		__SVELTE_COMPONENT__?: Record<string, unknown>;
+		__ABS_SVELTE_ISLAND_HTML__?: Record<string, string>;
 		__SVELTE_UNMOUNT__?: () => void;
 		__ANGULAR_APP__?: { destroy: () => void; tick: () => void } | null;
 		__HMR_SKIP_HYDRATION__?: boolean;
@@ -89,6 +89,32 @@ declare global {
 		};
 		__REFRESH_BUFFER__?: Array<[unknown, string]>;
 		htmx?: { process: (element: HTMLElement | Document) => void };
+		__ABS_ANGULAR_ISLAND_APPS__?: unknown[];
+		__ABS_CLAIMED_ISLAND_MARKUP__?: Map<string, number>;
+		__ABS_SERVER_ISLAND_HTML__?: Map<
+			string,
+			Array<{ attributes: Record<string, string>; innerHTML: string }>
+		>;
+	}
+
+	/**
+	 * Platform-native island element for HTML and HTMX host pages.
+	 *
+	 * Attributes:
+	 * - `framework`: one of `react`, `svelte`, `vue`, or `angular`
+	 * - `component`: the registry component name to render
+	 * - `hydrate`: one of `load`, `idle`, `visible`, or `none`
+	 * - `props`: JSON-serialized props payload
+	 */
+	interface AbsoluteIslandElement extends HTMLElement {
+		component: string;
+		framework: 'react' | 'svelte' | 'vue' | 'angular';
+		hydrate?: 'load' | 'idle' | 'visible' | 'none';
+		props: string;
+	}
+
+	interface HTMLElementTagNameMap {
+		'absolute-island': AbsoluteIslandElement;
 	}
 }
 

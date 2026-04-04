@@ -1,0 +1,1 @@
+export { handleAngularPageRequest } from './pageHandler';

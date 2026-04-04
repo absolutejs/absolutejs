@@ -341,6 +341,28 @@ export type AIWebSocket = {
 	readyState: number;
 };
 
+/* ─── Conversation store ─── */
+
+export type AIConversationStore = {
+	get: (id: string) => Promise<AIConversation | undefined>;
+	getOrCreate: (id: string) => Promise<AIConversation>;
+	set: (id: string, conversation: AIConversation) => Promise<void>;
+	list: () => Promise<AIConversationSummary[]>;
+	remove: (id: string) => Promise<void>;
+};
+
+/* ─── HTMX render config ─── */
+
+export type AIHTMXRenderConfig = {
+	chunk?: (text: string, fullContent: string) => string;
+	thinking?: (text: string) => string;
+	toolRunning?: (name: string, input: unknown) => string;
+	toolComplete?: (name: string, result: string) => string;
+	image?: (data: string, format: string, revisedPrompt?: string) => string;
+	complete?: (usage?: AIUsage, durationMs?: number, model?: string) => string;
+	error?: (message: string) => string;
+};
+
 /* ─── Plugin config ─── */
 
 export type AIChatPluginConfig = {
@@ -369,6 +391,12 @@ export type AIChatPluginConfig = {
 		fullResponse: string,
 		usage?: AIUsage
 	) => void;
+	store?: AIConversationStore;
+	htmx?:
+		| boolean
+		| {
+				render?: AIHTMXRenderConfig;
+		  };
 };
 
 /* ─── Connection options ─── */

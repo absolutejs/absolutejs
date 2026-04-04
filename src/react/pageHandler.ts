@@ -1,4 +1,5 @@
 import type { ComponentType as ReactComponent } from 'react';
+import { injectIslandPageContext } from '../core/islandPageContext';
 import { ssrErrorPage } from '../utils/ssrErrorPage';
 import { renderConventionError } from '../utils/resolveConvention';
 
@@ -74,8 +75,9 @@ export const handleReactPageRequest = async <
 				console.error('[SSR] React streaming error:', error);
 			}
 		});
+		const html = injectIslandPageContext(await new Response(stream).text());
 
-		return new Response(stream, {
+		return new Response(html, {
 			headers: { 'Content-Type': 'text/html' }
 		});
 	} catch (error) {

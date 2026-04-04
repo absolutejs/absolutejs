@@ -25,6 +25,7 @@ export const getSsrSanitizer = (deps: AngularDeps) => {
 		sanitize(ctx: SecurityContext, value: SafeValue | string | null) {
 			if (value === null) return null;
 			let strValue: string;
+			let isTrustedHtml = false;
 			if (typeof value === 'string') {
 				strValue = value;
 			} else if (
@@ -32,18 +33,23 @@ export const getSsrSanitizer = (deps: AngularDeps) => {
 				'changingThisBreaksApplicationSecurity' in value
 			) {
 				strValue = String(value.changingThisBreaksApplicationSecurity);
+				isTrustedHtml = true;
 			} else {
 				strValue = String(value);
 			}
 
 			if (ctx === deps.SecurityContext.HTML) {
+				if (isTrustedHtml) {
+					return strValue;
+				}
+
 				return escapeHtml(strValue);
 			}
 
 			return strValue;
 		}
 		bypassSecurityTrustHtml(value: string) {
-			return bypassValue(escapeHtml(value));
+			return bypassValue(value);
 		}
 		bypassSecurityTrustStyle(value: string) {
 			return bypassValue(value);

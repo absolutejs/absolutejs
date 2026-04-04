@@ -3,6 +3,13 @@ import { basename, join, relative, resolve } from 'node:path';
 import type { SitemapConfig } from '../../types/sitemap';
 import type { ConventionsMap } from '../../types/conventions';
 import { loadConfig } from '../utils/loadConfig';
+import { setCurrentIslandManifest } from './islandPageContext';
+import { loadIslandRegistry } from './loadIslandRegistry';
+import { setCurrentIslandRegistry } from './currentIslandRegistry';
+import {
+	loadPageIslandMetadata,
+	setCurrentPageIslandMetadata
+} from '../islands/pageMetadata';
 import {
 	setConventions,
 	renderFirstNotFound
@@ -95,6 +102,11 @@ const prepareDev = async (
 	config: Awaited<ReturnType<typeof loadConfig>>,
 	buildDir: string
 ) => {
+	const { generateIslandBindings } = await import(
+		'../build/generateIslandBindings'
+	);
+	generateIslandBindings(process.cwd(), config);
+
 	const { devBuild } = await import('./devBuild');
 	const result = await devBuild(config);
 	const { hmr } = await import('../plugins/hmr');
@@ -119,7 +131,12 @@ const prepareDev = async (
 
 	const { setGlobalModuleServer } = await import('../dev/moduleServer');
 	const moduleHandler = createModuleServer({
-		frameworkDirs: { vue: config.vueDirectory },
+		frameworkDirs: {
+			angular: config.angularDirectory,
+			react: config.reactDirectory,
+			svelte: config.svelteDirectory,
+			vue: config.vueDirectory
+		},
 		projectRoot: process.cwd(),
 		vendorPaths: allVendorPaths
 	});
@@ -152,6 +169,13 @@ const prepareDev = async (
 
 	// Load convention files (error/loading/not-found) into the runtime registry
 	if (result.conventions) setConventions(result.conventions);
+	setCurrentIslandManifest(result.manifest);
+	if (config.islands?.registry) {
+		setCurrentIslandRegistry(
+			await loadIslandRegistry(config.islands.registry)
+		);
+	}
+	setCurrentPageIslandMetadata(await loadPageIslandMetadata(config));
 
 	const { imageOptimizer } = await import('../plugins/imageOptimizer');
 
@@ -250,6 +274,13 @@ export const prepare = async (configOrPath?: string) => {
 	const manifest: Record<string, string> = JSON.parse(
 		readFileSync(`${buildDir}/manifest.json`, 'utf-8')
 	);
+	setCurrentIslandManifest(manifest);
+	if (config.islands?.registry) {
+		setCurrentIslandRegistry(
+			await loadIslandRegistry(config.islands.registry)
+		);
+	}
+	setCurrentPageIslandMetadata(await loadPageIslandMetadata(config));
 
 	// Load convention files (error/loading/not-found) for production
 	const conventionsPath = join(buildDir, 'conventions.json');

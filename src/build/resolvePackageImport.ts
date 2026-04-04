@@ -7,7 +7,29 @@ import { existsSync, readFileSync } from 'node:fs';
  *
  * Returns the resolved absolute path, or null if the import can't be resolved.
  */
-export const resolvePackageImport = (specifier: string) => {
+type ExportConditions = 'browser' | 'import';
+
+const resolveExportPath = (
+	entry: unknown,
+	conditions: ExportConditions[]
+) => {
+	if (typeof entry === 'string') return entry;
+	if (!entry || typeof entry !== 'object') return null;
+
+	for (const condition of conditions) {
+		const target = Reflect.get(entry, condition);
+		if (typeof target === 'string') {
+			return target;
+		}
+	}
+
+	return null;
+};
+
+export const resolvePackageImport = (
+	specifier: string,
+	conditions: ExportConditions[] = ['import']
+) => {
 	// Only handle bare module imports (not relative or absolute paths)
 	if (specifier.startsWith('.') || specifier.startsWith('/')) return null;
 
@@ -35,9 +57,7 @@ export const resolvePackageImport = (specifier: string) => {
 
 		if (!entry) return null;
 
-		let importPath: string | null = null;
-		if (typeof entry === 'string') importPath = entry;
-		else if (typeof entry === 'object' && entry.import) importPath = entry.import;
+		const importPath = resolveExportPath(entry, conditions);
 
 		if (!importPath) return null;
 
