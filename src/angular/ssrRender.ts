@@ -185,9 +185,10 @@ export const injectSsrScripts = (
 	}
 
 	if (indexPath) {
+		const escapedIndexPath = JSON.stringify(indexPath);
 		result = injectBeforeClose(
 			result,
-			`<script type="module" src="${indexPath}"></script>`
+			`<script>import(${escapedIndexPath});</script>`
 		);
 	}
 

@@ -19,6 +19,14 @@ export type AngularPageImporter<
 	Props extends Record<string, unknown> = Record<string, unknown>
 > = () => Promise<{ factory: AngularPageFactory<Props> }>;
 
+export type AngularPagePropsOf<Page> = Page extends {
+	factory: AngularPageFactory<infer Props>;
+}
+	? Props
+	: Page extends AngularPageImporter<infer Props>
+		? Props
+		: Record<never, never>;
+
 export type CachedRouteData = {
 	props: Record<string, unknown> | undefined;
 	headTag: `<head>${string}</head>`;

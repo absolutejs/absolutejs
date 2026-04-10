@@ -4,7 +4,6 @@
 		"absolute": "dist/cli/index.js"
 	},
 	"dependencies": {
-		"@absolutejs/absolute": "0.19.0-beta.345",
 		"@angular/compiler": "^21.0.0",
 		"zustand": "^5.0.12"
 	},
@@ -29,7 +28,7 @@
 		"elysia": "1.4.18",
 		"elysia-scoped-state": "0.1.1",
 		"eslint": "10.0.3",
-		"eslint-plugin-absolute": "0.2.1",
+		"eslint-plugin-absolute": "0.2.6",
 		"eslint-plugin-promise": "7.2.1",
 		"eslint-plugin-security": "4.0.0",
 		"globals": "^17.4.0",
@@ -65,7 +64,7 @@
 			"types": "./dist/src/ai/providers/anthropic.d.ts"
 		},
 		"./ai/client": {
-			"browser": "./dist/ai-client/ai/client/index.js",
+			"browser": "./dist/ai/client/index.js",
 			"import": "./dist/ai/client/index.js",
 			"types": "./dist/src/ai/client/index.d.ts"
 		},
@@ -156,6 +155,10 @@
 			"import": "./dist/svelte/ai/index.js",
 			"types": "./dist/src/svelte/ai/index.d.ts"
 		},
+		"./svelte/components/AwaitSlot.svelte": {
+			"import": "./dist/svelte/components/AwaitSlot.svelte",
+			"types": "./dist/svelte/components/AwaitSlot.svelte.d.ts"
+		},
 		"./svelte/components/Head.js": {
 			"import": "./dist/svelte/components/Head.svelte",
 			"types": "./dist/svelte/components/Head.svelte.d.ts"
@@ -179,6 +182,10 @@
 		"./svelte/components/JsonLd.svelte": {
 			"import": "./dist/svelte/components/JsonLd.svelte",
 			"types": "./dist/svelte/components/JsonLd.svelte.d.ts"
+		},
+		"./svelte/components/StreamSlot.svelte": {
+			"import": "./dist/svelte/components/StreamSlot.svelte",
+			"types": "./dist/svelte/components/StreamSlot.svelte.d.ts"
 		},
 		"./svelte/server": {
 			"import": "./dist/svelte/server.js",
@@ -221,12 +228,12 @@
 	"main": "./dist/index.js",
 	"name": "@absolutejs/absolute",
 	"optionalDependencies": {
-		"@absolutejs/native-darwin-arm64": "0.19.0-beta.247",
-		"@absolutejs/native-darwin-x64": "0.19.0-beta.247",
-		"@absolutejs/native-linux-arm64": "0.19.0-beta.247",
-		"@absolutejs/native-linux-x64": "0.19.0-beta.247",
-		"@absolutejs/native-windows-arm64": "0.19.0-beta.247",
-		"@absolutejs/native-windows-x64": "0.19.0-beta.247"
+		"@absolutejs/native-darwin-arm64": "0.19.0-beta.528",
+		"@absolutejs/native-darwin-x64": "0.19.0-beta.528",
+		"@absolutejs/native-linux-arm64": "0.19.0-beta.528",
+		"@absolutejs/native-linux-x64": "0.19.0-beta.528",
+		"@absolutejs/native-windows-arm64": "0.19.0-beta.528",
+		"@absolutejs/native-windows-x64": "0.19.0-beta.528"
 	},
 	"overrides": {
 		"@typescript-eslint/utils": "8.56.1"
@@ -307,5 +314,5 @@
 		"typecheck": "bun run src/cli/index.ts typecheck --config example/absolute.config.ts"
 	},
 	"types": "./dist/src/index.d.ts",
-	"version": "0.19.0-beta.349"
+	"version": "0.19.0-beta.528"
 }

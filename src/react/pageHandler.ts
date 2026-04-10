@@ -1,9 +1,68 @@
 import type { ComponentType as ReactComponent } from 'react';
-import { injectIslandPageContext } from '../core/islandPageContext';
+import { injectIslandPageContextStream } from '../core/islandPageContext';
+import { getCurrentRouteRegistrationCallsite } from '../core/devRouteRegistrationCallsite';
+import {
+	type StreamingSlotEnhancerOptions,
+	withRegisteredStreamingSlots
+} from '../core/responseEnhancers';
+import {
+	captureStreamingSlotWarningCallsite,
+	runWithStreamingSlotWarningScope
+} from '../core/streamingSlotWarningScope';
 import { ssrErrorPage } from '../utils/ssrErrorPage';
 import { renderConventionError } from '../utils/resolveConvention';
 
+type ReactPageRenderOptions = StreamingSlotEnhancerOptions & {
+	collectStreamingSlots?: boolean;
+};
+export type ReactPageRequestInput<
+	Props extends Record<string, unknown> = Record<never, never>
+> = ReactPageRenderOptions & {
+	Page: ReactComponent<Props>;
+	index: string;
+} & (keyof Props extends never
+		? { props?: NoInfer<Props> }
+		: { props: NoInfer<Props> });
+export type HandleReactPageRequest = {
+	<Props extends Record<string, unknown> = Record<never, never>>(
+		input: ReactPageRequestInput<Props>
+	): Promise<Response>;
+	<Props extends Record<string, unknown> = Record<never, never>>(
+		PageComponent: ReactComponent<Props>,
+		index: string,
+		...args: ReactPageHandlerArgs<Props>
+	): Promise<Response>;
+};
+type ReactPageHandlerArgs<Props extends Record<string, unknown>> =
+	keyof Props extends never
+		? [props?: NoInfer<Props>, options?: ReactPageRenderOptions]
+		: [props: NoInfer<Props>, options?: ReactPageRenderOptions];
+
 let ssrDirty = false;
+
+const buildRefreshSetup = () => {
+	if (process.env.NODE_ENV === 'production') {
+		return '';
+	}
+
+	return (
+		'window.__REFRESH_BUFFER__=[];' +
+		'window.$RefreshReg$=function(t,i){window.__REFRESH_BUFFER__.push([t,i])};' +
+		'window.$RefreshSig$=function(){return function(t){return t}};'
+	);
+};
+
+const waitForAllReady = async (stream: ReadableStream) => {
+	if (!('allReady' in stream)) {
+		return;
+	}
+
+	if (!(stream.allReady instanceof Promise)) {
+		return;
+	}
+
+	await stream.allReady;
+};
 
 const buildDirtyResponse = (
 	index: string,
@@ -13,12 +72,7 @@ const buildDirtyResponse = (
 		? `window.__INITIAL_PROPS__=${JSON.stringify(maybeProps)};`
 		: '';
 	const dirtyFlag = 'window.__SSR_DIRTY__=true;';
-	const refreshSetup =
-		process.env.NODE_ENV !== 'production'
-			? 'window.__REFRESH_BUFFER__=[];' +
-				'window.$RefreshReg$=function(t,i){window.__REFRESH_BUFFER__.push([t,i])};' +
-				'window.$RefreshSig$=function(){return function(t){return t}};'
-			: '';
+	const refreshSetup = buildRefreshSetup();
 	const inlineScript = `${propsScript}${dirtyFlag}${refreshSetup}`;
 	const html =
 		`<!DOCTYPE html><html><head></head><body>` +
@@ -31,59 +85,89 @@ const buildDirtyResponse = (
 	});
 };
 
-export const handleReactPageRequest = async <
+export const handleReactPageRequest = (async <
 	Props extends Record<string, unknown> = Record<never, never>
 >(
-	PageComponent: ReactComponent<Props>,
-	index: string,
-	...props: keyof Props extends never ? [] : [props: NoInfer<Props>]
+	PageComponentOrInput: ReactComponent<Props> | ReactPageRequestInput<Props>,
+	index?: string,
+	...args: ReactPageHandlerArgs<Props>
 ) => {
-	const [maybeProps] = props;
+	const {
+		Page,
+		index: resolvedIndex,
+		options,
+		props: maybeProps
+	} = typeof PageComponentOrInput === 'object' &&
+	PageComponentOrInput !== null &&
+	'Page' in PageComponentOrInput
+		? {
+				index: PageComponentOrInput.index,
+				options: PageComponentOrInput,
+				Page: PageComponentOrInput.Page,
+				props: PageComponentOrInput.props
+			}
+		: {
+				index: index ?? '',
+				options: args[1],
+				Page: PageComponentOrInput,
+				props: args[0]
+			};
 
 	if (ssrDirty) {
-		return buildDirtyResponse(index, maybeProps);
+		return buildDirtyResponse(resolvedIndex, maybeProps);
 	}
 
 	try {
-		const { createElement } = await import('react');
-		const { renderToReadableStream } = await import('react-dom/server');
+		const handlerCallsite =
+			options?.collectStreamingSlots === true
+				? undefined
+				: (getCurrentRouteRegistrationCallsite() ??
+					captureStreamingSlotWarningCallsite());
+		const renderPageResponse = async () => {
+			const { createElement } = await import('react');
+			const { renderToReadableStream } = await import('react-dom/server');
 
-		const element =
-			maybeProps !== undefined
-				? createElement(PageComponent, maybeProps)
-				: createElement(PageComponent);
+			const element =
+				maybeProps !== undefined
+					? createElement(Page, maybeProps)
+					: createElement(Page);
 
-		const propsScript = maybeProps
-			? `window.__INITIAL_PROPS__=${JSON.stringify(maybeProps)};`
-			: '';
-
-		// Buffer React Refresh registrations until the runtime loads.
-		// Bun.build injects $RefreshReg$ calls in the bundle, but the
-		// real runtime isn't ready yet. This buffering function captures
-		// all registrations, then replays them when the runtime is set up.
-		const refreshSetup =
-			process.env.NODE_ENV !== 'production'
-				? 'window.__REFRESH_BUFFER__=[];' +
-					'window.$RefreshReg$=function(t,i){window.__REFRESH_BUFFER__.push([t,i])};' +
-					'window.$RefreshSig$=function(){return function(t){return t}};'
+			const propsScript = maybeProps
+				? `window.__INITIAL_PROPS__=${JSON.stringify(maybeProps)};`
 				: '';
 
-		const stream = await renderToReadableStream(element, {
-			bootstrapModules: [index],
-			bootstrapScriptContent: propsScript + refreshSetup || undefined,
-			onError(error: unknown) {
-				console.error('[SSR] React streaming error:', error);
-			}
-		});
-		const html = injectIslandPageContext(await new Response(stream).text());
+			// Buffer React Refresh registrations until the runtime loads.
+			// Bun.build injects $RefreshReg$ calls in the bundle, but the
+			// real runtime isn't ready yet. This buffering function captures
+			// all registrations, then replays them when the runtime is set up.
+			const refreshSetup = buildRefreshSetup();
 
-		return new Response(html, {
-			headers: { 'Content-Type': 'text/html' }
-		});
+			const stream = await renderToReadableStream(element, {
+				bootstrapModules: [resolvedIndex],
+				bootstrapScriptContent: propsScript + refreshSetup || undefined,
+				onError(error: unknown) {
+					console.error('[SSR] React streaming error:', error);
+				}
+			});
+			await waitForAllReady(stream);
+			const htmlStream = injectIslandPageContextStream(stream);
+
+			return new Response(htmlStream, {
+				headers: { 'Content-Type': 'text/html' }
+			});
+		};
+
+		return runWithStreamingSlotWarningScope(
+			() =>
+				options?.collectStreamingSlots === true
+					? withRegisteredStreamingSlots(renderPageResponse, options)
+					: renderPageResponse(),
+			{ handlerCallsite }
+		);
 	} catch (error) {
 		console.error('[SSR] React render error:', error);
 
-		const pageName = PageComponent.name || PageComponent.displayName || '';
+		const pageName = Page.name || Page.displayName || '';
 		const conventionResponse = await renderConventionError(
 			'react',
 			pageName,
@@ -96,7 +180,7 @@ export const handleReactPageRequest = async <
 			status: 500
 		});
 	}
-};
+}) as HandleReactPageRequest;
 
 export const invalidateReactSsrCache = () => {
 	ssrDirty = true;

@@ -10,6 +10,7 @@ const svelteSpecifiers = [
 	'svelte',
 	'svelte/internal',
 	'svelte/internal/flags/async',
+	'svelte/internal/flags/legacy',
 	'svelte/internal/client',
 	'svelte/internal/disclose-version',
 	'svelte/store'

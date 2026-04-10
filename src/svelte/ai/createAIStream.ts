@@ -11,6 +11,7 @@ import { generateId } from '../../ai/protocol';
 export const createAIStream = (path: string, conversationId?: string) => {
 	const connection = createAIConnection(path);
 	const store = createAIMessageStore();
+	const subscribers = new Set<() => void>();
 
 	let currentError: string | null = null;
 	let currentIsStreaming = false;
@@ -27,6 +28,7 @@ export const createAIStream = (path: string, conversationId?: string) => {
 		currentError = snapshot.error;
 		currentIsStreaming = snapshot.isStreaming;
 		currentMessages = conversation?.messages ?? [];
+		subscribers.forEach((callback) => callback());
 	};
 
 	const unsubscribeStore = store.subscribe(syncState);
@@ -100,6 +102,13 @@ export const createAIStream = (path: string, conversationId?: string) => {
 		},
 		get messages() {
 			return currentMessages;
+		},
+		subscribe(callback: () => void) {
+			subscribers.add(callback);
+
+			return () => {
+				subscribers.delete(callback);
+			};
 		}
 	};
 };

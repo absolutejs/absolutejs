@@ -20,11 +20,15 @@ const FRAMEWORKS = [
 	'html',
 	'htmx'
 ] as const;
+type Framework = (typeof FRAMEWORKS)[number];
 
-const HMR_TARGETS: Record<
-	string,
-	{ path: string; marker: string; replacement: (i: number) => string }
-> = {
+type HmrTarget = {
+	path: string;
+	marker: string;
+	replacement: (i: number) => string;
+};
+
+const HMR_TARGETS: Record<Framework, HmrTarget> = {
 	react: {
 		path: 'example/react/pages/ReactExample.tsx',
 		marker: '<App initialCount={initialCount} />',
@@ -74,9 +78,9 @@ const sleep = (t: number) => new Promise<void>((r) => setTimeout(r, t));
 
 const avg = (arr: number[]) => arr.reduce((a, b) => a + b, 0) / arr.length;
 const p50 = (arr: number[]) =>
-	[...arr].sort((a, b) => a - b)[Math.floor(arr.length / 2)];
+	[...arr].sort((a, b) => a - b)[Math.floor(arr.length / 2)] ?? 0;
 const p95 = (arr: number[]) =>
-	[...arr].sort((a, b) => a - b)[Math.floor(arr.length * 0.95)];
+	[...arr].sort((a, b) => a - b)[Math.floor(arr.length * 0.95)] ?? 0;
 const minVal = (arr: number[]) => Math.min(...arr);
 const maxVal = (arr: number[]) => Math.max(...arr);
 
@@ -105,7 +109,8 @@ const UPDATE_TYPES = new Set([
 // ── Detect HMR markers from actual files ──
 
 const initHmrTargets = () => {
-	for (const [fw, target] of Object.entries(HMR_TARGETS)) {
+	for (const fw of FRAMEWORKS) {
+		const target = HMR_TARGETS[fw];
 		if (target.marker) continue;
 		const content = readFileSync(resolve(target.path), 'utf-8');
 		const lines = content.split('\n');
@@ -122,12 +127,14 @@ const initHmrTargets = () => {
 		if (!terms) continue;
 		const idx = lines.findIndex((l) => terms.some((t) => l.includes(t)));
 		if (idx === -1) continue;
+		const line = lines[idx];
+		if (line === undefined) continue;
 
-		target.marker = lines[idx];
+		target.marker = line;
 		target.replacement =
 			fw === 'angular'
-				? (i) => `${lines[idx]} // speed-test-${i}`
-				: (i) => `${lines[idx]}<!-- speed-test-${i} -->`;
+				? (i) => `${line} // speed-test-${i}`
+				: (i) => `${line}<!-- speed-test-${i} -->`;
 	}
 };
 
@@ -242,7 +249,7 @@ const measureDevStart = async () => {
 			if (m)
 				reportedBuildMs = m[1]
 					? parseFloat(m[1]) * 1000
-					: parseInt(m[2], 10);
+					: parseInt(m[2] ?? '0', 10);
 			if (chunk.includes('Local:')) ready = true;
 		}
 		const total = performance.now() - start;
@@ -441,8 +448,13 @@ const measureHmr = async () => {
 		results[fw] = { cold: coldTimings, warm: warmTimings };
 
 		if (coldTimings.length > 0 && warmTimings.length > 0) {
+			const cold = coldTimings[0];
+			if (!cold) {
+				continue;
+			}
+
 			log(
-				`  ${fw} cold: ${fmtMs(coldTimings[0].total)} ${dim(`(detect ${fmtMs(coldTimings[0].detection)} + build ${fmtMs(coldTimings[0].build)})`)}`
+				`  ${fw} cold: ${fmtMs(cold.total)} ${dim(`(detect ${fmtMs(cold.detection)} + build ${fmtMs(cold.build)})`)}`
 			);
 			log(
 				`  ${fw} warm avg: ${fmtMs(avg(warmTimings.map((t) => t.total)))} ${dim(`(detect ${fmtMs(avg(warmTimings.map((t) => t.detection)))} + build ${fmtMs(avg(warmTimings.map((t) => t.build)))})`)}`

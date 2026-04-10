@@ -76,59 +76,40 @@ React Router and similar client-side routers can't help here — they swap clien
 
 ---
 
-## 2. P1 — Out-of-Order Streaming
+## 2. P2 — Detached Slot Transport / Early-Closing Streaming
 
-**What SolidStart does:**
-Components stream to the client as they resolve, not in DOM order. If your sidebar data query finishes before your main content query, the sidebar HTML ships first. The browser renders each chunk into the correct DOM position regardless of arrival order. This means the fastest data always appears first — no waterfall where a slow hero section blocks the entire page.
+**What this would add:**
+The current implementation keeps one HTML document response open and streams slot patches through that same response. This is the simplest and most SSR-native model, but it means the browser can continue showing a page-load spinner until the final slot patch arrives.
 
-**What AbsoluteJS has today:**
-Full streaming SSR via `renderToReadableStream` for all frameworks. But streaming is in-order — the HTML is sent top-to-bottom as React/Svelte/Vue render the component tree. If a component high in the tree is slow (data fetch, heavy computation), everything below it waits.
+This follow-up would add an optional detached transport mode where:
+- The initial HTML document can close earlier
+- Slot fallbacks are still rendered in the initial HTML
+- Late slot resolutions arrive over a secondary channel such as streaming `fetch()` or SSE
+- The same raw-slot and framework-primitive APIs continue to work on top of a different delivery transport
 
 **Why this matters:**
-In a typical dashboard page, you might have:
-- A navbar (instant, no data)
-- A stats section (slow — aggregation query)
-- A recent activity feed (fast — simple query)
-- A footer (instant, no data)
+- Lets the browser load state settle earlier
+- Better fit for teams that want a more app-like loading model
+- Cleaner analytics/perf semantics for initial document load
+- Keeps the current out-of-order slot API while improving transport polish
 
-With in-order streaming, the activity feed waits for the stats section even though its data is ready. With out-of-order streaming, the navbar, activity feed, and footer arrive immediately while the stats section streams in when its query finishes. The user sees a useful page faster.
+**Why this is separate from the core feature:**
+- The current single-response HTML streaming model is already correct and production-worthy
+- Detached transport is a transport enhancement, not a missing piece of out-of-order streaming correctness
+- It adds client/runtime complexity and should be evaluated as an optional mode, not as an automatic replacement for the default model
 
-**What needs to be built:**
+**What would need to be built:**
+- A second slot delivery backend for post-document updates
+- A way to associate the initial response with a detached slot stream
+- Retry/reconnect/error semantics for the detached channel
+- A transport selection API at config, handler, or per-page level
+- Shared runtime support so the same slot APIs can consume either in-document or detached updates
 
-*Server side:*
-- Placeholder slots in the HTML — when a component is async/suspended, send a lightweight placeholder `<div id="slot-{id}">` with a loading skeleton or empty space
-- As each async component resolves, send an `<template>` or `<script>` block that contains the real HTML and swaps it into the placeholder
-- This is how React 18's Suspense streaming works under the hood — `renderToReadableStream` already supports this for React via `<Suspense>` boundaries. The work is extending this pattern to Svelte, Vue, and Angular.
-
-*Per-framework implementation:*
-- **React**: Already supports this via `<Suspense>` boundaries with `renderToReadableStream`. Each `<Suspense>` boundary becomes an independent streaming slot. The main work is documenting the pattern and ensuring it works with AbsoluteJS's page handler.
-- **Svelte**: Svelte 5 has `{#await}` blocks. The custom `renderToReadableStream` in `src/svelte/renderToReadableStream.ts` needs to support async resolution — when an `{#await}` block is pending, send a placeholder and stream the resolved content later.
-- **Vue**: Vue's `<Suspense>` component with `renderToWebStream` can be extended similarly. Each `<Suspense>` boundary becomes a streaming slot.
-- **Angular**: Angular's `@defer` blocks are the equivalent. The SSR renderer can send placeholders for `@defer` blocks and stream them in when resolved.
-
-*Client side:*
-- A small inline script (sent at the start of the stream) that listens for arriving chunks and swaps them into their placeholder slots
-- Pattern: `<script>function $RC(id,html){document.getElementById('slot-'+id).outerHTML=html}</script>`
-- Each resolved chunk arrives as: `<script>$RC("stats-section","<div>...real content...</div>")</script>`
-- This script is ~200 bytes and makes out-of-order streaming work without any framework JS loaded yet
-
-*Integration with islands:*
-- Islands with `hydrate="idle"` or `hydrate="visible"` are natural candidates for out-of-order streaming — send the placeholder, stream the SSR'd HTML when ready, hydrate later based on the directive
-- This creates a smooth pipeline: placeholder → streamed HTML (visible but not interactive) → hydrated (interactive)
-
-**Design considerations:**
-- Fallback content for each slot (loading skeleton, spinner, or empty space) should be configurable per-component
-- If streaming takes too long (>5s), the placeholder should remain visible with its fallback content — don't leave empty holes
-- The out-of-order script must be sent before any slot content so the browser knows how to handle arriving chunks
-- CSS for streamed-in content must already be loaded (sent in the initial `<head>` or preloaded) to avoid layout shift when content swaps in
-
-**Files likely involved:**
-- `src/react/pageHandler.ts` — document and test `<Suspense>` boundary streaming (may already work)
-- `src/svelte/renderToReadableStream.ts` — add out-of-order support for `{#await}` blocks
-- `src/vue/pageHandler.ts` — add `<Suspense>` boundary support to the streaming pipeline
-- `src/angular/pageHandler.ts` — add `@defer` block support to SSR streaming
-- New: `src/utils/streamingSlots.ts` — shared utilities for generating placeholder HTML and the `$RC` swap script
-- New: `src/client/streamSwap.ts` — the inline client script that handles out-of-order chunk insertion
+**Likely files:**
+- `src/utils/streamingSlots.ts`
+- `src/client/streamSwap.ts`
+- New: `src/core/detachedStreamingTransport.ts`
+- New: `src/plugins/detachedStreaming.ts`
 
 ---
 
@@ -505,122 +486,6 @@ app.use(vitals({
 - New: `src/dev/client/vitalsOverlay.ts` — dev-mode performance overlay
 - Each framework's `pageHandler.ts` — inject the vitals script in production builds
 - New: `types/vitals.ts` — metric types, config types, report payload types
-
----
-
-## 9. P2 — Background Jobs + Cron
-
-**The problem:**
-Web frameworks only handle request/response. Anything async — email sending, image processing, scheduled cleanups, webhook retries, report generation — requires separate infrastructure (Redis + Bull, separate worker process, cron service). This is the #1 reason apps "outgrow" their framework. Laravel and Rails have built-in queues and schedulers. No JS meta-framework has this.
-
-**What AbsoluteJS has today:**
-Nothing. Background work requires external tools.
-
-**Why AbsoluteJS is positioned for this:**
-You run a long-lived Bun process. Unlike serverless frameworks (Next.js on Vercel), your server stays alive between requests. A background job runner can live in the same process — no separate worker needed for most use cases. Bun also has native SQLite which can serve as a lightweight job store without Redis.
-
-**What needs to be built:**
-
-*Job definition:*
-```ts
-import { defineJob, defineCron } from 'absolutejs'
-
-// One-off background job — dispatched from route handlers
-export const sendWelcomeEmail = defineJob({
-  name: 'send-welcome-email',
-  handler: async ({ userId, email }: { userId: string; email: string }) => {
-    await emailService.send({
-      to: email,
-      template: 'welcome',
-    })
-  },
-  retry: {
-    maxAttempts: 3,
-    backoff: 'exponential', // 1s, 2s, 4s
-  },
-})
-
-// Scheduled job — runs on a cron schedule
-export const dailyCleanup = defineCron({
-  name: 'daily-cleanup',
-  schedule: '0 3 * * *', // 3 AM daily
-  handler: async () => {
-    await db.delete(sessions).where(lt(sessions.expiresAt, new Date()))
-  },
-})
-```
-
-*Dispatching jobs from route handlers:*
-```ts
-app.post('/users', async ({ body }) => {
-  const user = await db.insert(users).values(body).returning()
-
-  // Dispatch background job — returns immediately, runs async
-  await sendWelcomeEmail.dispatch({
-    userId: user.id,
-    email: user.email,
-  })
-
-  return user
-})
-```
-
-*Job runner architecture:*
-- Jobs stored in Bun's built-in SQLite (`absolutejs_jobs` table) — no Redis required for small-medium apps
-- Optional Redis adapter for high-throughput / multi-instance deployments
-- Job runner polls the store on a configurable interval (default: 1s)
-- Runs in the same Bun process as the server — no separate worker process needed
-- Configurable concurrency limit (default: 5 concurrent jobs)
-- Dead letter queue — jobs that exhaust retries are moved to a failed table for inspection
-
-*Job lifecycle:*
-1. `dispatch()` inserts a row into the job store with status `pending`
-2. The runner picks up `pending` jobs, sets status to `running`
-3. On success: status → `completed`, row deleted (or archived)
-4. On failure: status → `failed`, retry count incremented, next attempt scheduled with backoff
-5. On max retries exhausted: status → `dead`, moved to dead letter queue
-
-*Cron scheduler:*
-- Parses cron expressions and schedules next execution
-- Uses `setTimeout` chains (not `setInterval`) for accuracy
-- Prevents overlapping executions — if a cron job is still running when the next tick fires, skip that tick
-- Stores last execution time in the job store for crash recovery — if the server restarts, it checks if a scheduled job was missed and runs it
-
-*Elysia plugin:*
-```ts
-import { jobs } from 'absolutejs'
-import { sendWelcomeEmail } from './jobs/sendWelcomeEmail'
-import { dailyCleanup } from './jobs/dailyCleanup'
-
-app.use(jobs({
-  store: 'sqlite',             // default, or 'redis'
-  concurrency: 5,              // max concurrent jobs
-  pollInterval: 1000,          // ms between polls
-  jobs: [sendWelcomeEmail],    // register one-off jobs
-  crons: [dailyCleanup],      // register scheduled jobs
-}))
-```
-
-*Dev mode:*
-- Jobs run immediately in the same process (no polling delay)
-- A `/api/__jobs` endpoint that lists pending, running, failed, and dead jobs
-- Log output for job start/complete/fail with timing
-
-**Design considerations:**
-- Type safety: `dispatch()` is typed to match the job's handler input — `sendWelcomeEmail.dispatch({ userId: 123 })` errors if `email` is missing
-- Jobs must be idempotent — the framework can't guarantee exactly-once execution (crashes between "job completed" and "status updated" can cause re-execution)
-- SQLite store is single-writer — fine for a single server instance. Multi-instance deployments need Redis.
-- Job handlers run in the same process as the server — a CPU-heavy job can block request handling. Consider a warning in docs and an option to spawn jobs in a Bun Worker.
-- Graceful shutdown: on `SIGTERM`, stop accepting new jobs, wait for running jobs to complete (with a timeout), then exit.
-
-**Files likely involved:**
-- New: `src/jobs/defineJob.ts` — job definition factory with typed handler and retry config
-- New: `src/jobs/defineCron.ts` — cron definition factory with schedule parsing
-- New: `src/jobs/runner.ts` — job runner that polls the store, executes handlers, manages retries
-- New: `src/jobs/store/sqlite.ts` — SQLite-backed job store using Bun's native SQLite
-- New: `src/jobs/store/redis.ts` — optional Redis-backed store for multi-instance
-- New: `src/plugins/jobs.ts` — Elysia plugin that registers the runner and dev endpoints
-- New: `types/jobs.ts` — types for job definitions, store interface, runner config
 
 ---
 

@@ -43,8 +43,26 @@ export const serverMessageToAction = (msg: AIServerMessage) => {
 				durationMs: msg.durationMs,
 				messageId: msg.messageId,
 				model: msg.model,
+				sources: msg.sources,
 				type: 'complete' as const,
 				usage: msg.usage
+			};
+		case 'rag_retrieving':
+			return {
+				conversationId: msg.conversationId,
+				messageId: msg.messageId,
+				retrievalStartedAt: msg.retrievalStartedAt,
+				type: 'rag_retrieving' as const
+			};
+		case 'rag_retrieved':
+			return {
+				conversationId: msg.conversationId,
+				messageId: msg.messageId,
+				retrievalDurationMs: msg.retrievalDurationMs,
+				retrievalStartedAt: msg.retrievalStartedAt,
+				retrievedAt: msg.retrievedAt,
+				sources: msg.sources,
+				type: 'rag_retrieved' as const
 			};
 		case 'error':
 			return { message: msg.message, type: 'error' as const };

@@ -177,7 +177,7 @@ export const logServerReload = () => {
 export const logWarn = (message: string) => {
 	const timestamp = `${colors.dim}${formatTimestamp()}${colors.reset}`;
 	const tag = `${colors.yellow}[hmr]${colors.reset}`;
-	console.warn(
-		`${timestamp} ${tag} ${colors.yellow}warning${colors.reset} ${message}`
+	console.log(
+		`${timestamp} ${tag} ${colors.yellow}warning ${message}${colors.reset}`
 	);
 };

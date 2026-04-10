@@ -1,13 +1,11 @@
 <script lang="ts">
-	type SvelteExampleProps = {
-		initialCount: number;
-		cssPath?: string;
-	};
+	export let initialCount: number;
+	export let cssPath: string | undefined = undefined;
+
 	import Counter from '../components/Counter.svelte';
 	import Head from '../../../src/svelte/components/Head.svelte';
 
-	let { initialCount, cssPath }: SvelteExampleProps = $props();
-	let isOpen = $state(false);
+	let isOpen = false;
 </script>
 
 <Head

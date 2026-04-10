@@ -2,6 +2,7 @@ import { argv } from 'node:process';
 import { env } from 'bun';
 import { Elysia } from 'elysia';
 import { DEFAULT_PORT } from '../constants';
+import { loadDevCert } from '../dev/devCert';
 import { getLocalIPAddress } from '../utils/networking';
 import { startupBanner } from '../utils/startupBanner';
 
@@ -23,9 +24,6 @@ const loadTls = () => {
 	if (env.ABSOLUTE_HTTPS !== 'true') return undefined;
 
 	try {
-		// eslint-disable-next-line @typescript-eslint/no-require-imports -- sync top-level load, dynamic import would be async
-		const { loadDevCert } = require('../dev/devCert');
-
 		return loadDevCert();
 	} catch {
 		return undefined;
@@ -34,7 +32,7 @@ const loadTls = () => {
 const tls = loadTls();
 const protocol = tls ? 'https' : 'http';
 
-export const networking = (app: Elysia) =>
+export const networking = <A extends Elysia>(app: A) =>
 	app.listen(
 		{
 			hostname: host,

@@ -6,7 +6,11 @@ import { BASE_36_RADIX } from '../constants';
 import { toPascal } from '../utils/stringModifiers';
 import { createHash } from 'crypto';
 import { buildIslandMetadataExports } from '../islands/sourceMetadata';
-// import { resolvePackageImport } from './resolvePackageImport';
+import {
+	lowerAngularDeferSyntax,
+	type LoweredAngularDeferSlot
+} from '../angular/lowerDeferSyntax';
+import { resolvePackageImport } from './resolvePackageImport';
 
 // Angular HMR Optimization — Compiler cache interface
 // Persists compiler host and options across incremental rebuilds to avoid
@@ -220,13 +224,56 @@ export const compileAngularFile = async (inputPath: string, outDir: string) => {
 		const relativePath = resolveRelativePath(fileName, resolvedOutDir, outDir);
 		emitted[relativePath] = text;
 	};
+	const originalReadFile = host.readFile;
+	const aotTransformCache = new Map<string, string>();
+	host.readFile = (fileName: string) => {
+		const source = originalReadFile ? originalReadFile.call(host, fileName) : undefined;
+		if (typeof source !== 'string') return source;
+		if (!fileName.endsWith('.ts') || fileName.endsWith('.d.ts')) {
+			return source;
+		}
+		const resolvedPath = resolve(fileName);
+		const cached = aotTransformCache.get(resolvedPath);
+		if (cached !== undefined) return cached;
+		const transformed = inlineTemplateAndLowerDeferSync(
+			source,
+			dirname(resolvedPath)
+		).source;
+		aotTransformCache.set(resolvedPath, transformed);
 
-	const { diagnostics } = performCompilation({
-		emitFlags: EmitFlags.Default,
-		host,
-		options,
-		rootNames: [inputPath]
-	});
+		return transformed;
+	};
+	const originalGetSourceFileForCompile = host.getSourceFile;
+	host.getSourceFile = (
+		fileName: string,
+		languageVersion: ts.ScriptTarget,
+		onError?: (message: string) => void
+	) => {
+		const source = host.readFile(fileName);
+		if (typeof source === 'string') {
+			return ts.createSourceFile(fileName, source, languageVersion, true);
+		}
+
+		return originalGetSourceFileForCompile?.call(
+			host,
+			fileName,
+			languageVersion,
+			onError
+		);
+	};
+
+	let diagnostics: readonly ts.Diagnostic[] | undefined;
+	try {
+		({ diagnostics } = performCompilation({
+			emitFlags: EmitFlags.Default,
+			host,
+			options,
+			rootNames: [inputPath]
+		}));
+	} finally {
+		host.readFile = originalReadFile;
+		host.getSourceFile = originalGetSourceFileForCompile;
+	}
 
 	throwOnCompilationErrors(diagnostics);
 
@@ -302,6 +349,199 @@ const escapeTemplateContent = (content: string) => content
 	.replace(/`/g, '\\`')
 	.replace(/\$\{/g, '\\${');
 
+const resolveAngularDeferImportSpecifier = () => {
+	const sourceEntry = resolve(import.meta.dir, '../angular/components/index.ts');
+	if (existsSync(sourceEntry)) {
+		return sourceEntry.replace(/\\/g, '/');
+	}
+
+	return '@absolutejs/absolute/angular/components';
+};
+
+const ensureDeferSlotImport = (
+	source: string,
+	importSpecifier = '@absolutejs/absolute/angular/components'
+) => {
+	if (source.includes('DeferSlotComponent')) return source;
+	const resolvedImportSpecifier = JSON.stringify(importSpecifier);
+	const importLine =
+		`import { DeferErrorTemplateDirective, DeferFallbackTemplateDirective, DeferResolvedTemplateDirective, DeferSlotComponent } from ${resolvedImportSpecifier};\n`;
+	const lastImportMatch = [...source.matchAll(/^import[\s\S]*?;$/gm)].pop();
+	if (!lastImportMatch || lastImportMatch.index === undefined) {
+		return importLine + source;
+	}
+	const insertAt = lastImportMatch.index + lastImportMatch[0].length;
+
+	return `${source.slice(0, insertAt)}\n${importLine}${source.slice(insertAt)}`;
+};
+
+const ensureComponentImportsHasDeferSlot = (source: string) => {
+	const importListMatch = source.match(/imports\s*:\s*\[([\s\S]*?)\]/);
+	if (importListMatch) {
+		if (
+			/\bDeferSlotComponent\b/.test(importListMatch[1] ?? '') &&
+			/\bDeferResolvedTemplateDirective\b/.test(importListMatch[1] ?? '') &&
+			/\bDeferFallbackTemplateDirective\b/.test(importListMatch[1] ?? '') &&
+			/\bDeferErrorTemplateDirective\b/.test(importListMatch[1] ?? '')
+		) {
+			return source;
+		}
+
+		return source.replace(
+			/imports\s*:\s*\[([\s\S]*?)\]/,
+			(match, importsContent: string) => {
+				const trimmed = importsContent.trim();
+				const entries = trimmed
+					.split(',')
+					.map((entry) => entry.trim())
+					.filter(Boolean);
+				for (const requiredImport of [
+					'DeferSlotComponent',
+					'DeferResolvedTemplateDirective',
+					'DeferFallbackTemplateDirective',
+					'DeferErrorTemplateDirective'
+				]) {
+					if (!entries.includes(requiredImport)) {
+						entries.push(requiredImport);
+					}
+				}
+				const nextContent = entries.join(', ');
+
+				return `imports: [${nextContent}]`;
+			}
+		);
+	}
+
+	return source.replace(
+		/@Component\(\s*{/,
+		'@Component({\n\timports: [DeferSlotComponent, DeferResolvedTemplateDirective, DeferFallbackTemplateDirective, DeferErrorTemplateDirective],'
+	);
+};
+
+const escapeTemplateLiteralValue = (value: string) =>
+	value
+		.replace(/\\/g, '\\\\')
+		.replace(/`/g, '\\`')
+		.replace(/\$\{/g, '\\${');
+
+const skipInterpolatedExpression = (value: string, start: number) => {
+	const cursor = start + 2;
+	while (cursor < value.length - 1) {
+		const end = value.indexOf('}}', cursor);
+		if (end < 0) {
+			return value.length;
+		}
+
+		return end + 2;
+	}
+
+	return value.length;
+};
+
+const buildResolverTemplateLiteral = (value: string) => {
+	const parts: string[] = [];
+	let cursor = 0;
+
+	while (cursor < value.length) {
+		const interpolationStart = value.indexOf('{{', cursor);
+		if (interpolationStart < 0) {
+			parts.push(escapeTemplateLiteralValue(value.slice(cursor)));
+
+			break;
+		}
+
+		parts.push(escapeTemplateLiteralValue(value.slice(cursor, interpolationStart)));
+
+		const nextCursor = skipInterpolatedExpression(value, interpolationStart);
+		if (nextCursor >= value.length) {
+			parts.push(escapeTemplateLiteralValue(value.slice(interpolationStart)));
+
+			break;
+		}
+
+		const rawExpression = value
+			.slice(interpolationStart + 2, nextCursor - 2)
+			.trim();
+		const expression = rawExpression.length === 0 ? "''" : rawExpression;
+		const expressionLiteral = JSON.stringify(expression);
+
+		parts.push(`\${this.__absoluteDeferResolveTemplateExpression(${expressionLiteral})}`);
+		cursor = nextCursor;
+	}
+
+	return parts.join('');
+};
+
+const buildDeferSlotTemplateResolver = () =>
+	'\t__absoluteDeferTemplateExpressionCache = new Map<string, string>();\n' +
+	'\t__absoluteDeferResolveTemplateExpression(expression: string) {\n' +
+	'\t\tconst cached = this.__absoluteDeferTemplateExpressionCache.get(expression);\n' +
+	'\t\tif (cached !== undefined) return cached;\n' +
+	'\n' +
+	'\t\tconst scope = new Proxy(this, {\n' +
+	'\t\t\tget: (_target, property) => {\n' +
+	'\t\t\t\tconst value = (this as Record<PropertyKey, unknown>)[property];\n' +
+	'\t\t\t\treturn typeof value === "function" ? value.bind(this) : value;\n' +
+	'\t\t\t}\n' +
+	'\t\t});\n' +
+	'\t\tlet value = \'\';\n' +
+	'\t\ttry {\n' +
+	'\t\t\tconst evaluate = new Function(\n' +
+	'\t\t\t\t\'scope\',\n' +
+		'\t\t\t\t"with (scope) { return (" + expression + "); }"\n' +
+	'\t\t\t);\n' +
+	'\n' +
+	'\t\t\tconst resolvedValue = evaluate(scope);\n' +
+	'\t\t\tvalue = resolvedValue == null ? \'\' : String(resolvedValue);\n' +
+	'\t\t} catch (_error) {\n' +
+	'\t\t\tvalue = \'\';\n' +
+	'\t\t}\n' +
+	'\t\tthis.__absoluteDeferTemplateExpressionCache.set(expression, value);\n' +
+	'\t\treturn value;\n' +
+	'\t}\n\n';
+
+const buildDeferSlotFields = (slots: LoweredAngularDeferSlot[]) =>
+	[
+		buildDeferSlotTemplateResolver(),
+		...slots.map((slot, index) => {
+			const htmlField =
+				`\t__absoluteDeferHtml${index} = () => \`${buildResolverTemplateLiteral(slot.resolvedHtml)}\`;\n`;
+			const dataField =
+				slot.resolvedBindings.length > 0
+					? `\t__absoluteDeferData${index} = () => ({\n${slot.resolvedBindings
+							.map(
+								(binding) =>
+									`\t\t"${binding.key}": this.__absoluteDeferResolveTemplateExpression(${JSON.stringify(binding.expression)})`
+							)
+							.join(',\n')}\n\t});\n`
+					: `\t__absoluteDeferData${index} = () => ({});\n`;
+
+			return (
+				`${htmlField +
+					dataField 
+					}\t__absoluteDeferResolvePayload${index} = () => new Promise<any>((resolve) => {\n` +
+					`\t\tsetTimeout(() => resolve({ kind: 'angular-defer', state: 'resolved', html: this.__absoluteDeferHtml${index}(), data: this.__absoluteDeferData${index}() }), ${slot.delayMs});\n` +
+					`\t});\n`
+			);
+		})
+	].join('\n');
+
+const injectDeferSlotFields = (
+	source: string,
+	slots: LoweredAngularDeferSlot[],
+	importSpecifier = '@absolutejs/absolute/angular'
+) => {
+	if (slots.length === 0) return source;
+	let rewritten = ensureDeferSlotImport(source, importSpecifier);
+	rewritten = ensureComponentImportsHasDeferSlot(rewritten);
+	const fields = buildDeferSlotFields(slots);
+
+	return rewritten.replace(
+		/export(?:\s+default)?\s+class\s+([A-Za-z_$][\w$]*)\s*{/,
+		(match) => `${match}\n${fields}\n`
+	);
+};
+
 const readAndEscapeFile = async (filePath: string) => {
 	if (!existsSync(filePath)) return null;
 	const content = await fs.readFile(filePath, 'utf-8');
@@ -309,14 +549,116 @@ const readAndEscapeFile = async (filePath: string) => {
 	return escapeTemplateContent(content);
 };
 
-const inlineTemplateUrl = async (source: string, fileDir: string) => {
+const inlineTemplateAndLowerDefer = async (source: string, fileDir: string) => {
 	const templateUrlMatch = source.match(/templateUrl\s*:\s*['"]([^'"]+)['"]/);
-	if (!templateUrlMatch?.[1]) return source;
+	if (templateUrlMatch?.[1]) {
+		const templatePath = join(fileDir, templateUrlMatch[1]);
+		if (!existsSync(templatePath)) {
+			return { deferSlots: [] as LoweredAngularDeferSlot[], source };
+		}
+		const templateRaw = await fs.readFile(templatePath, 'utf-8');
+		const lowered = lowerAngularDeferSyntax(templateRaw);
+		const escaped = escapeTemplateContent(lowered.template);
+		const replacedSource = source.replace(
+			/templateUrl\s*:\s*['"][^'"]+['"]/,
+			`template: \`${escaped}\``
+		);
 
-	const escaped = await readAndEscapeFile(join(fileDir, templateUrlMatch[1]));
-	if (!escaped) return source;
+		return {
+			deferSlots: lowered.slots,
+			source: injectDeferSlotFields(
+				replacedSource,
+				lowered.slots,
+				resolveAngularDeferImportSpecifier()
+			)
+		};
+	}
 
-	return source.replace(/templateUrl\s*:\s*['"][^'"]+['"]/, `template: \`${escaped}\``);
+	const inlineTemplateMatch = source.match(
+		/template\s*:\s*(`([\s\S]*?)`|'([^']*)'|"([^"]*)")/
+	);
+	if (!inlineTemplateMatch) {
+		return { deferSlots: [] as LoweredAngularDeferSlot[], source };
+	}
+	const templateRaw =
+		inlineTemplateMatch[2] ??
+		inlineTemplateMatch[3] ??
+		inlineTemplateMatch[4] ??
+		'';
+	const lowered = lowerAngularDeferSyntax(templateRaw);
+	if (lowered.slots.length === 0 && lowered.template === templateRaw) {
+		return { deferSlots: lowered.slots, source };
+	}
+	const escaped = escapeTemplateContent(lowered.template);
+	const replacedSource = source.replace(
+		/template\s*:\s*(`([\s\S]*?)`|'([^']*)'|"([^"]*)")/,
+		`template: \`${escaped}\``
+	);
+
+	return {
+		deferSlots: lowered.slots,
+		source: injectDeferSlotFields(
+			replacedSource,
+			lowered.slots,
+			resolveAngularDeferImportSpecifier()
+		)
+	};
+};
+
+const inlineTemplateAndLowerDeferSync = (source: string, fileDir: string) => {
+	const templateUrlMatch = source.match(/templateUrl\s*:\s*['"]([^'"]+)['"]/);
+	if (templateUrlMatch?.[1]) {
+		const templatePath = join(fileDir, templateUrlMatch[1]);
+		if (!existsSync(templatePath)) {
+			return { deferSlots: [] as LoweredAngularDeferSlot[], source };
+		}
+		const templateRaw = readFileSync(templatePath, 'utf-8');
+		const lowered = lowerAngularDeferSyntax(templateRaw);
+		const escaped = escapeTemplateContent(lowered.template);
+		const replacedSource = source.replace(
+			/templateUrl\s*:\s*['"][^'"]+['"]/,
+			`template: \`${escaped}\``
+		);
+
+		return {
+			deferSlots: lowered.slots,
+			source: injectDeferSlotFields(
+				replacedSource,
+				lowered.slots,
+				resolveAngularDeferImportSpecifier()
+			)
+		};
+	}
+
+	const inlineTemplateMatch = source.match(
+		/template\s*:\s*(`([\s\S]*?)`|'([^']*)'|"([^"]*)")/
+	);
+	if (!inlineTemplateMatch) {
+		return { deferSlots: [] as LoweredAngularDeferSlot[], source };
+	}
+	const templateRaw =
+		inlineTemplateMatch[2] ??
+		inlineTemplateMatch[3] ??
+		inlineTemplateMatch[4] ??
+		'';
+	const lowered = lowerAngularDeferSyntax(templateRaw);
+	if (lowered.slots.length === 0 && lowered.template === templateRaw) {
+		return { deferSlots: lowered.slots, source };
+	}
+	const escaped = escapeTemplateContent(lowered.template);
+	const replacedSource = source.replace(
+		/template\s*:\s*(`([\s\S]*?)`|'([^']*)'|"([^"]*)")/,
+		`template: \`${escaped}\``
+	);
+
+	return {
+		deferSlots: lowered.slots,
+		source: injectDeferSlotFields(
+			replacedSource,
+			lowered.slots,
+			resolveAngularDeferImportSpecifier()
+		)
+	};
 };
 
 const inlineStyleUrls = async (source: string, fileDir: string) => {
@@ -350,11 +692,15 @@ const inlineSingleStyleUrl = async (source: string, fileDir: string) => {
 
 /** Inline templateUrl and styleUrls/styleUrl from external files */
 const inlineResources = async (source: string, fileDir: string) => {
-	let result = await inlineTemplateUrl(source, fileDir);
+	const inlinedTemplate = await inlineTemplateAndLowerDefer(source, fileDir);
+	let result = inlinedTemplate.source;
 	result = await inlineStyleUrls(result, fileDir);
 	result = await inlineSingleStyleUrl(result, fileDir);
 
-	return result;
+	return {
+		deferSlots: inlinedTemplate.deferSlots,
+		source: result
+	};
 };
 
 /** Angular HMR Runtime Layer (Level 3) — JIT-mode compilation for dev/HMR builds.
@@ -382,6 +728,34 @@ export const compileAngularFileJIT = async (inputPath: string, outDir: string, r
 		sourceCode: string, relativeDir: string, actualPath: string
 	) => {
 		let processedContent = angularTranspiler.transformSync(sourceCode);
+		const rewriteBareImport = (prefix: string, specifier: string, suffix: string) => {
+			if (specifier.startsWith('.') || specifier.startsWith('/')) {
+				return `${prefix}${specifier}${suffix}`;
+			}
+
+			const resolved = resolvePackageImport(specifier);
+			if (!resolved) {
+				return `${prefix}${specifier}${suffix}`;
+			}
+
+			return `${prefix}${resolved.replace(/\\/g, '/')}${suffix}`;
+		};
+
+		processedContent = processedContent.replace(
+			/(from\s+['"])([^'"]+)(['"])/g,
+			(_, prefix, specifier, suffix) =>
+				rewriteBareImport(prefix, specifier, suffix)
+		);
+		processedContent = processedContent.replace(
+			/(import\s+['"])([^'"]+)(['"])/g,
+			(_, prefix, specifier, suffix) =>
+				rewriteBareImport(prefix, specifier, suffix)
+		);
+		processedContent = processedContent.replace(
+			/(import\(\s*['"])([^'"]+)(['"]\s*\))/g,
+			(_, prefix, specifier, suffix) =>
+				rewriteBareImport(prefix, specifier, suffix)
+		);
 
 		processedContent = processedContent.replace(
 			/from\s+(['"])(\.\.?\/[^'"]+)(\1)/g,
@@ -430,7 +804,11 @@ export const compileAngularFileJIT = async (inputPath: string, outDir: string, r
 		// Angular HMR Runtime Layer (Level 3) — Inline templateUrl and styleUrls
 		// This resolves external resources at transpile time so Angular JIT
 		// doesn't try to fetch them via HTTP (which fails on the server)
-		sourceCode = await inlineResources(sourceCode, dirname(actualPath));
+		const inlined = await inlineResources(sourceCode, dirname(actualPath));
+		sourceCode = inlineTemplateAndLowerDeferSync(
+			inlined.source,
+			dirname(actualPath)
+		).source;
 
 		// Compute output path preserving directory structure
 		const inputDir = dirname(actualPath);
@@ -515,13 +893,14 @@ export const compileAngular = async (
 	await fs.mkdir(indexesDir, { recursive: true });
 
 	const compileTasks = entryPoints.map(async (entry) => {
+		const resolvedEntry = resolve(entry);
 		// Angular HMR Runtime Layer (Level 3) — Use JIT compilation for dev/HMR builds.
 		// JIT uses ts.transpileModule() with template/style inlining (~50-100ms)
 		// instead of AOT performCompilation() (~500-700ms).
 		const outputs = hmr
-			? await compileAngularFileJIT(entry, compiledRoot, outRoot)
-			: await compileAngularFile(entry, compiledRoot);
-		const fileBase = basename(entry).replace(/\.[tj]s$/, '');
+			? await compileAngularFileJIT(resolvedEntry, compiledRoot, outRoot)
+			: await compileAngularFile(resolvedEntry, compiledRoot);
+		const fileBase = basename(resolvedEntry).replace(/\.[tj]s$/, '');
 		const jsName = `${fileBase}.js`;
 
 		// Try to find the file in pages/ subdirectory first, then at root
@@ -546,14 +925,22 @@ export const compileAngular = async (
 		// HMR registration injection, SSR deps writing, and index regeneration.
 		// This eliminates ~100-500ms of wrapper overhead on cache hits.
 		const serverContentHash = Bun.hash(original).toString(BASE_36_RADIX);
-		const cachedWrapper = wrapperOutputCache.get(entry);
+		const cachedWrapper = wrapperOutputCache.get(resolvedEntry);
 		const clientFile = join(indexesDir, jsName);
 		if (hmr && cachedWrapper && cachedWrapper.serverHash === serverContentHash && existsSync(clientFile)) {
 			return { clientPath: clientFile, indexUnchanged: true, serverPath: rawServerFile };
 		}
 
+		// Ensure the JIT compiler side effect runs before any Angular package
+		// imports in generated page modules. Consumer pages usually import
+		// @angular/common first, which otherwise trips partial-compile JIT mode.
+		let rewritten = original;
+		if (!rewritten.includes(`import '@angular/compiler';`)) {
+			rewritten = `import '@angular/compiler';\n${rewritten}`;
+		}
+
 		// Replace templateUrl if it exists
-		let rewritten = original.replace(
+		rewritten = rewritten.replace(
 			new RegExp(`templateUrl:\\s*['"]\\.\\/${fileBase}\\.html['"]`),
 			`templateUrl: '../../pages/${fileBase}.html'`
 		);
@@ -565,7 +952,7 @@ export const compileAngular = async (
 
 		// Angular HMR Runtime Layer (Level 3) — Inject HMR registration in dev mode
 		if (hmr) {
-			rewritten = injectHMRRegistration(rewritten, entry);
+			rewritten = injectHMRRegistration(rewritten, resolvedEntry);
 
 			// Write Angular dependency re-exports to a SEPARATE file so
 			// they don't leak into the client bundle (require() doesn't
@@ -614,6 +1001,8 @@ var isInjectionToken = function(value) {
 };
 var pageProps = window.__ABS_ANGULAR_PAGE_PROPS__ || {};
 var pageHasIslands = Boolean(pageModule.__ABSOLUTE_PAGE_HAS_ISLANDS__) || Boolean(document.querySelector('[data-island="true"]'));
+var pageHasRawStreamingSlots = Boolean(document.querySelector('[data-absolute-raw-slot="true"]'));
+var pageHasStreamingSlots = Boolean(document.querySelector('[data-absolute-slot="true"]'));
 var propProviders = Object.entries(pageProps).map(function(entry) {
     var propName = entry[0];
     var propValue = entry[1];
@@ -639,13 +1028,30 @@ if (!window.__HMR_SKIP_HYDRATION__ && !pageHasIslands) {
 }
 delete window.__HMR_SKIP_HYDRATION__;
 providers.push.apply(providers, propProviders);
+window.__ABS_SLOT_HYDRATION_PENDING__ = pageHasRawStreamingSlots;
 
-bootstrapApplication(${componentClassName}, {
-    providers: providers
-}).then(function (appRef) {
-    window.__ANGULAR_APP__ = appRef;
-});
+if (pageHasRawStreamingSlots) {
+    window.__ABS_SLOT_HYDRATION_PENDING__ = false;
+    if (typeof window.__ABS_SLOT_FLUSH__ === 'function') {
+        requestAnimationFrame(function() {
+            window.__ABS_SLOT_FLUSH__();
+        });
+    }
+} else {
+    bootstrapApplication(${componentClassName}, {
+        providers: providers
+    }).then(function (appRef) {
+        window.__ANGULAR_APP__ = appRef;
+        window.__ABS_SLOT_HYDRATION_PENDING__ = false;
+        if (typeof window.__ABS_SLOT_FLUSH__ === 'function') {
+            requestAnimationFrame(function() {
+                window.__ABS_SLOT_FLUSH__();
+            });
+        }
+    });
+}
 `.trim() : `
+import '@angular/compiler';
 import { bootstrapApplication } from '@angular/platform-browser';
 import { provideClientHydration } from '@angular/platform-browser';
 import { enableProdMode, provideZonelessChangeDetection } from '@angular/core';
@@ -660,6 +1066,8 @@ var isInjectionToken = function(value) {
 };
 var pageProps = window.__ABS_ANGULAR_PAGE_PROPS__ || {};
 var pageHasIslands = Boolean(pageModule.__ABSOLUTE_PAGE_HAS_ISLANDS__) || Boolean(document.querySelector('[data-island="true"]'));
+var pageHasRawStreamingSlots = Boolean(document.querySelector('[data-absolute-raw-slot="true"]'));
+var pageHasStreamingSlots = Boolean(document.querySelector('[data-absolute-slot="true"]'));
 var propProviders = Object.entries(pageProps).map(function(entry) {
     var propName = entry[0];
     var propValue = entry[1];
@@ -673,12 +1081,28 @@ var providers = [provideZonelessChangeDetection()].concat(propProviders);
 if (!pageHasIslands) {
     providers.unshift(provideClientHydration());
 }
+window.__ABS_SLOT_HYDRATION_PENDING__ = pageHasRawStreamingSlots;
 
-bootstrapApplication(${componentClassName}, {
-    providers: providers
-}).then(function (appRef) {
-    window.__ANGULAR_APP__ = appRef;
-});
+if (pageHasRawStreamingSlots) {
+    window.__ABS_SLOT_HYDRATION_PENDING__ = false;
+    if (typeof window.__ABS_SLOT_FLUSH__ === 'function') {
+        requestAnimationFrame(function() {
+            window.__ABS_SLOT_FLUSH__();
+        });
+    }
+} else {
+    bootstrapApplication(${componentClassName}, {
+        providers: providers
+    }).then(function (appRef) {
+        window.__ANGULAR_APP__ = appRef;
+        window.__ABS_SLOT_HYDRATION_PENDING__ = false;
+        if (typeof window.__ABS_SLOT_FLUSH__ === 'function') {
+            requestAnimationFrame(function() {
+                window.__ABS_SLOT_FLUSH__();
+            });
+        }
+    });
+}
 `.trim();
 
 		// Angular HMR Optimization — Hash index content to detect if bundling
@@ -689,7 +1113,7 @@ bootstrapApplication(${componentClassName}, {
 		await fs.writeFile(clientFile, hydration, 'utf-8');
 
 		// Update wrapper cache
-		wrapperOutputCache.set(entry, { indexHash, serverHash: serverContentHash });
+		wrapperOutputCache.set(resolvedEntry, { indexHash, serverHash: serverContentHash });
 
 		return { clientPath: clientFile, indexUnchanged, serverPath: rawServerFile };
 	});

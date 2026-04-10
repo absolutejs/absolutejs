@@ -1,9 +1,6 @@
 <script lang="ts">
-	type CounterProps = {
-		initialCount: number;
-	};
+	export let initialCount: number;
 
-	let { initialCount }: CounterProps = $props();
 	import { counter } from '../composables/counter.svelte';
 	const { getCount, increment } = counter(initialCount);
 </script>

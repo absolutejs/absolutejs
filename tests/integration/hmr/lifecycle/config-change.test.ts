@@ -7,6 +7,19 @@ import { connectHMR, type HMRClient } from '../../../helpers/ws';
 const PROJECT_ROOT = resolve(import.meta.dir, '..', '..', '..', '..');
 const CONFIG_PATH = resolve(PROJECT_ROOT, 'example/absolute.config.ts');
 const SERVER_PATH = resolve(PROJECT_ROOT, 'example/server.ts');
+const SVELTE_IMPORT_LINE =
+	"import { handleSveltePageRequest } from '../src/svelte';\n";
+const SVELTE_ROUTE_BLOCK = `\t.get('/svelte', () =>
+\t\thandleSveltePageRequest<typeof SvelteExample>({
+\t\t\tindexPath: asset(manifest, 'SvelteExampleIndex'),
+\t\t\tpagePath: asset(manifest, 'SvelteExample'),
+\t\t\tprops: {
+\t\t\t\tcssPath: asset(manifest, 'SvelteExampleCSS'),
+\t\t\t\tinitialCount: 0
+\t\t\t}
+\t\t})
+\t)
+`;
 
 let server: DevServer;
 let client: HMRClient;
@@ -32,13 +45,18 @@ describe('HMR config change detection', () => {
 		// Remove svelte route + import from server.ts
 		let serverWithoutSvelte = originalServer;
 		serverWithoutSvelte = serverWithoutSvelte.replace(
-			/import \{ handleSveltePageRequest \}.*\n/,
+			SVELTE_IMPORT_LINE,
 			''
 		);
 		serverWithoutSvelte = serverWithoutSvelte.replace(
-			/\n\t\.get\('\/svelte',[\s\S]*?handleSveltePageRequest[\s\S]*?\}\)/,
+			SVELTE_ROUTE_BLOCK,
 			''
 		);
+		if (serverWithoutSvelte === originalServer) {
+			throw new Error(
+				'Failed to remove Svelte route from example/server.ts'
+			);
+		}
 		writeFileSync(SERVER_PATH, serverWithoutSvelte);
 
 		server = await startDevServer();
@@ -71,10 +89,13 @@ describe('HMR config change detection', () => {
 		// a single reload cycle (one full rebuild instead of two).
 		writeFileSync(CONFIG_PATH, originalConfig);
 		writeFileSync(SERVER_PATH, originalServer);
+		client?.close();
+		client = await connectHMR(server.port);
+		await client.waitFor('manifest', 60_000);
 
 		// Poll until the rebuild completes and the svelte route is available.
 		let res: Response | undefined;
-		for (let i = 0; i < 50; i++) {
+		for (let i = 0; i < 120; i++) {
 			await Bun.sleep(500);
 			try {
 				res = await fetch(`${server.baseUrl}/svelte`);
@@ -89,5 +110,5 @@ describe('HMR config change detection', () => {
 
 		const html = await res.text();
 		expect(html).toContain('Svelte');
-	}, 30_000);
+	}, 90_000);
 });

@@ -82,6 +82,13 @@ export const isValidAIServerMessage = (
 			);
 		case 'complete':
 			return 'messageId' in data && 'conversationId' in data;
+		case 'rag_retrieved':
+			return (
+				'conversationId' in data &&
+				'messageId' in data &&
+				'sources' in data &&
+				Array.isArray(data.sources)
+			);
 		case 'error':
 			return 'message' in data && typeof data.message === 'string';
 		default:

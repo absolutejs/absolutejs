@@ -1,30 +1,44 @@
-import { type ComponentType, createElement } from 'react';
-import { renderToStaticMarkup } from 'react-dom/server';
-import { render as renderSvelte } from 'svelte/server';
-import { createSSRApp, h } from 'vue';
-import { renderToString as renderVueToString } from 'vue/server-renderer';
-import { renderAngularIslandToHtml } from '../angular/islands';
+type ReactComponentType<Props extends Record<string, unknown>> =
+	import('react').ComponentType<Props>;
 
-export { renderAngularIslandToHtml };
+const renderAngularIslandToHtmlInternal = async (
+	component: import('@angular/core').Type<object>,
+	props: Record<string, unknown>,
+	islandId: string
+) => {
+	const { renderAngularIslandToHtml } = await import('../angular/islands');
+
+	return renderAngularIslandToHtml(component, props, islandId);
+};
+export const renderAngularIslandToHtml = renderAngularIslandToHtmlInternal;
 export const renderReactIslandToHtml = <Props extends Record<string, unknown>>(
-	component: ComponentType<Props>,
+	component: ReactComponentType<Props>,
 	props: Props
-) => renderToStaticMarkup(createElement(component, props));
+) =>
+	import('react').then(({ createElement }) =>
+		import('react-dom/server').then(({ renderToStaticMarkup }) =>
+			renderToStaticMarkup(createElement(component, props))
+		)
+	);
 export const renderSvelteIslandToHtml = <Props extends Record<string, unknown>>(
 	component: import('svelte').Component<Props>,
 	props: Props
-) => {
-	const { body } = renderSvelte(component, { props });
+) =>
+	import('svelte/server').then(({ render }) => {
+		const { body } = render(component, { props });
 
-	return body;
-};
+		return body;
+	});
 export const renderVueIslandToHtml = <Props extends Record<string, unknown>>(
 	component: import('vue').Component<Props>,
 	props: Props
-) => {
-	const app = createSSRApp({
-		render: () => h(component, props)
-	});
+) =>
+	import('vue').then(({ createSSRApp, h }) => {
+		const app = createSSRApp({
+			render: () => h(component, props)
+		});
 
-	return renderVueToString(app);
-};
+		return import('vue/server-renderer').then(({ renderToString }) =>
+			renderToString(app)
+		);
+	});

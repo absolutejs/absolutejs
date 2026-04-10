@@ -4,7 +4,7 @@ import {
 	buildOptimizedUrl,
 	generateBlurSvg,
 	generateSrcSet
-} from '../../utils/imageProcessing';
+} from '../../utils/imageClient';
 
 const resolveSource = (
 	src: string,
@@ -76,9 +76,7 @@ export const Image = ({
 	);
 
 	// ── srcSet ──────────────────────────────────────────────────
-	const srcSet = unoptimized
-		? undefined
-		: generateSrcSet(src, width, sizes, undefined, loader ?? undefined);
+	const srcSet = unoptimized ? undefined : generateSrcSet(src, width, sizes);
 
 	// ── Sizes ───────────────────────────────────────────────────
 	const resolvedSizes = sizes ?? (fill ? '100vw' : undefined);

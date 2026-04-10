@@ -19,6 +19,13 @@ const run = async (name: string, command: string[]): Promise<CheckerResult> => {
 	return { exitCode, name, output: (stdout + stderr).trim() };
 };
 
+const shellEscape = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+
+const runShell = async (
+	name: string,
+	command: string
+): Promise<CheckerResult> => run(name, ['/bin/bash', '-lc', command]);
+
 const findBin = (name: string) => {
 	const local = resolve('node_modules', '.bin', name);
 
@@ -109,6 +116,16 @@ const formatSvelteOutput = (output: string) => {
 	return formatted;
 };
 
+const TYPECHECK_EXCLUDE = [
+	'../node_modules/**/*',
+	'../**/.absolutejs/**/*',
+	'../**/build/**/*',
+	'../**/dist/**/*',
+	'../**/generated/**/*'
+];
+
+const TYPECHECK_INCLUDE = ['../**/*'];
+
 const buildVueTscCheck = (cacheDir: string) => {
 	const vueTscBin = findBin('vue-tsc');
 	if (!vueTscBin) {
@@ -119,19 +136,17 @@ const buildVueTscCheck = (cacheDir: string) => {
 	}
 
 	const vueTsconfigPath = join(cacheDir, 'tsconfig.vue-check.json');
-	const exclude = [
-		'../**/.absolutejs/**/*',
-		'../**/build/**/*',
-		'../**/dist/**/*',
-		'../**/generated/**/*'
-	];
 
 	return writeFile(
 		vueTsconfigPath,
 		JSON.stringify(
 			{
-				exclude,
-				extends: resolve('tsconfig.json')
+				compilerOptions: {
+					rootDir: '..'
+				},
+				exclude: TYPECHECK_EXCLUDE,
+				extends: resolve('tsconfig.json'),
+				include: TYPECHECK_INCLUDE
 			},
 			null,
 			'\t'
@@ -150,6 +165,42 @@ const buildVueTscCheck = (cacheDir: string) => {
 	);
 };
 
+const buildAngularCheck = async (cacheDir: string, angularDir: string) => {
+	const ngcBin = findBin('ngc');
+	if (!ngcBin) {
+		console.error(
+			'\x1b[31m✗\x1b[0m @angular/compiler-cli is required for Angular type checking. Install it: bun add -d @angular/compiler-cli'
+		);
+		process.exit(1);
+	}
+
+	const angularTsconfigPath = join(cacheDir, 'tsconfig.angular-check.json');
+	await writeFile(
+		angularTsconfigPath,
+		JSON.stringify(
+			{
+				angularCompilerOptions: {
+					strictTemplates: true
+				},
+				compilerOptions: {
+					noEmit: true,
+					rootDir: '..'
+				},
+				exclude: TYPECHECK_EXCLUDE,
+				extends: resolve('tsconfig.json'),
+				include: [`../${angularDir}/**/*`]
+			},
+			null,
+			'\t'
+		)
+	);
+
+	return runShell(
+		'ngc',
+		`${shellEscape(ngcBin)} -p ${shellEscape(resolve(angularTsconfigPath))}`
+	);
+};
+
 const buildTscCheck = (cacheDir: string) => {
 	const tscBin = findBin('tsc');
 	if (!tscBin) {
@@ -160,19 +211,17 @@ const buildTscCheck = (cacheDir: string) => {
 	}
 
 	const tscConfigPath = join(cacheDir, 'tsconfig.typecheck.json');
-	const exclude = [
-		'../**/.absolutejs/**/*',
-		'../**/build/**/*',
-		'../**/dist/**/*',
-		'../**/generated/**/*'
-	];
 
 	return writeFile(
 		tscConfigPath,
 		JSON.stringify(
 			{
-				exclude,
-				extends: resolve('tsconfig.json')
+				compilerOptions: {
+					rootDir: '..'
+				},
+				exclude: TYPECHECK_EXCLUDE,
+				extends: resolve('tsconfig.json'),
+				include: TYPECHECK_INCLUDE
 			},
 			null,
 			'\t'
@@ -230,6 +279,7 @@ const buildSvelteCheck = async (cacheDir: string, svelteDir: string) => {
 export const typecheck = async (configPath?: string) => {
 	const config = await loadConfig(configPath);
 
+	const hasAngular = Boolean(config.angularDirectory);
 	const hasSvelte = Boolean(config.svelteDirectory);
 	const hasVue = Boolean(config.vueDirectory);
 
@@ -245,6 +295,10 @@ export const typecheck = async (configPath?: string) => {
 	// svelte-check scoped to the Svelte directory only
 	if (hasSvelte) {
 		checks.push(buildSvelteCheck(cacheDir, config.svelteDirectory ?? ''));
+	}
+
+	if (hasAngular) {
+		checks.push(buildAngularCheck(cacheDir, config.angularDirectory ?? ''));
 	}
 
 	const results = await Promise.all(checks);

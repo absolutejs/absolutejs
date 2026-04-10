@@ -29,11 +29,14 @@
 	},
 	"exclude": [
 		"node_modules",
+		"build",
+		"**/build/**",
 		"example/build",
 		"example/dist",
 		"**/generated/**"
 	],
 	"include": [
+		"rag-smoke.ts",
 		"src/**/*",
 		"types/**/*",
 		"example/**/*",

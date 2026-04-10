@@ -3,7 +3,16 @@ import { readdir } from 'node:fs/promises';
 import { basename, dirname } from 'node:path';
 import type { VuePropsOf } from '../../types/vue';
 import { EXCLUDE_LAST_OFFSET } from '../constants';
-import { injectIslandPageContext } from '../core/islandPageContext';
+import { injectIslandPageContextStream } from '../core/islandPageContext';
+import { getCurrentRouteRegistrationCallsite } from '../core/devRouteRegistrationCallsite';
+import {
+	type StreamingSlotEnhancerOptions,
+	withRegisteredStreamingSlots
+} from '../core/responseEnhancers';
+import {
+	captureStreamingSlotWarningCallsite,
+	runWithStreamingSlotWarningScope
+} from '../core/streamingSlotWarningScope';
 import { ssrErrorPage } from '../utils/ssrErrorPage';
 import {
 	derivePageName,
@@ -11,6 +20,39 @@ import {
 } from '../utils/resolveConvention';
 
 let ssrDirty = false;
+type VuePageRenderOptions = StreamingSlotEnhancerOptions & {
+	collectStreamingSlots?: boolean;
+};
+export type VuePageRequestInput<Component extends VueComponent> =
+	VuePageRenderOptions & {
+		headTag?: `<head>${string}</head>`;
+		indexPath: string;
+		pagePath: string;
+	} & (keyof VuePropsOf<Component> extends never
+			? { props?: NoInfer<VuePropsOf<Component>> }
+			: { props: NoInfer<VuePropsOf<Component>> });
+export type HandleVuePageRequest = {
+	<Component extends VueComponent>(
+		input: VuePageRequestInput<Component>
+	): Promise<Response>;
+	<Component extends VueComponent>(
+		PageComponent: Component,
+		pagePath: string,
+		indexPath: string,
+		headTag: `<head>${string}</head>` | undefined,
+		...args: VuePageHandlerArgs<Component>
+	): Promise<Response>;
+};
+type VuePageHandlerArgs<Component extends VueComponent> =
+	keyof VuePropsOf<Component> extends never
+		? [
+				props?: NoInfer<VuePropsOf<Component>>,
+				options?: VuePageRenderOptions
+			]
+		: [
+				props: NoInfer<VuePropsOf<Component>>,
+				options?: VuePageRenderOptions
+			];
 type GenericVueComponent = VueComponent;
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === 'object' && value !== null;
@@ -72,95 +114,158 @@ const buildDirtyResponse = (
 	});
 };
 
-export const handleVuePageRequest = async <Component extends VueComponent>(
-	_PageComponent: Component,
-	pagePath: string,
-	indexPath: string,
+const primeVueStream = async (stream: ReadableStream) => {
+	const reader = stream.getReader();
+	const firstChunk = await reader.read();
+
+	return { firstChunk, reader };
+};
+
+export const handleVuePageRequest = (async <Component extends VueComponent>(
+	PageComponentOrInput: Component | VuePageRequestInput<Component>,
+	pagePath?: string,
+	indexPath?: string,
 	headTag: `<head>${string}</head>` = '<head></head>',
-	...props: keyof VuePropsOf<Component> extends never
-		? [props?: Record<string, never>]
-		: [props: NoInfer<VuePropsOf<Component>>]
+	...args: VuePageHandlerArgs<Component>
 ) => {
-	const [maybeProps] = props;
+	const {
+		PageComponent: _PageComponent,
+		headTag: resolvedHeadTag,
+		indexPath: resolvedIndexPath,
+		options: resolvedOptions,
+		pagePath: resolvedPagePath,
+		props: maybeProps
+	} = typeof PageComponentOrInput === 'object' &&
+	PageComponentOrInput !== null &&
+	'pagePath' in PageComponentOrInput &&
+	'indexPath' in PageComponentOrInput
+		? {
+				PageComponent: undefined,
+				headTag: PageComponentOrInput.headTag ?? '<head></head>',
+				indexPath: PageComponentOrInput.indexPath,
+				options: PageComponentOrInput as VuePageRenderOptions,
+				pagePath: PageComponentOrInput.pagePath,
+				props: PageComponentOrInput.props
+			}
+		: {
+				headTag,
+				indexPath: indexPath ?? '',
+				options: args[1],
+				PageComponent: PageComponentOrInput,
+				pagePath: pagePath ?? '',
+				props: args[0]
+			};
 
 	if (ssrDirty) {
-		return buildDirtyResponse(headTag, indexPath, maybeProps);
+		return buildDirtyResponse(
+			resolvedHeadTag,
+			resolvedIndexPath,
+			maybeProps
+		);
 	}
 
 	try {
-		const resolvePageComponent = async () => {
-			const passedPageComponent: unknown = _PageComponent;
-			if (isGenericVueComponent(passedPageComponent)) {
-				return {
-					component: passedPageComponent,
-					hasIslands: readHasIslands(passedPageComponent)
-				};
-			}
+		const handlerCallsite =
+			resolvedOptions?.collectStreamingSlots === true
+				? undefined
+				: (getCurrentRouteRegistrationCallsite() ??
+					captureStreamingSlotWarningCallsite());
+		const renderPageResponse = async () => {
+			const resolvePageComponent = async () => {
+				const passedPageComponent: unknown = _PageComponent;
+				if (isGenericVueComponent(passedPageComponent)) {
+					return {
+						component: passedPageComponent,
+						hasIslands: readHasIslands(passedPageComponent)
+					};
+				}
 
-			const generatedPagePath =
-				await resolveCurrentGeneratedVueModulePath(pagePath);
-			const importedPageModule: unknown = await import(generatedPagePath);
-			const importedPageComponent =
-				readDefaultExport(importedPageModule) ?? importedPageModule;
-			if (!isGenericVueComponent(importedPageComponent)) {
-				throw new Error(
-					`Invalid Vue page module: ${generatedPagePath}`
+				const generatedPagePath =
+					await resolveCurrentGeneratedVueModulePath(
+						resolvedPagePath
+					);
+				const importedPageModule: unknown = await import(
+					generatedPagePath
 				);
-			}
+				const importedPageComponent =
+					readDefaultExport(importedPageModule) ?? importedPageModule;
+				if (!isGenericVueComponent(importedPageComponent)) {
+					throw new Error(
+						`Invalid Vue page module: ${generatedPagePath}`
+					);
+				}
 
-			return {
-				component: importedPageComponent,
-				hasIslands: readHasIslands(importedPageModule)
+				return {
+					component: importedPageComponent,
+					hasIslands: readHasIslands(importedPageModule)
+				};
 			};
+
+			const resolvedPage = await resolvePageComponent();
+			const { createSSRApp, h } = await import('vue');
+			const { renderToWebStream } = await import('vue/server-renderer');
+
+			const app = createSSRApp({
+				render: () => h(resolvedPage.component, maybeProps ?? null)
+			});
+
+			const bodyStream = renderToWebStream(app);
+			const { firstChunk, reader } = await primeVueStream(bodyStream);
+
+			const head = `<!DOCTYPE html><html>${resolvedHeadTag}<body><div id="root">`;
+			const tail = `</div><script>window.__INITIAL_PROPS__=${JSON.stringify(
+				maybeProps ?? {}
+			)}</script><script type="module" src="${resolvedIndexPath}"></script></body></html>`;
+
+			const stream = new ReadableStream({
+				start(controller) {
+					controller.enqueue(head);
+					if (!firstChunk.done) {
+						controller.enqueue(firstChunk.value);
+					}
+					if (firstChunk.done) {
+						controller.enqueue(tail);
+						controller.close();
+
+						return;
+					}
+					const pumpLoop = () => {
+						reader
+							.read()
+							.then(({ done, value }) =>
+								done
+									? (controller.enqueue(tail),
+										controller.close())
+									: (controller.enqueue(value), pumpLoop())
+							)
+							.catch((err) => controller.error(err));
+					};
+					pumpLoop();
+				}
+			});
+			const htmlStream = injectIslandPageContextStream(stream, {
+				hasIslands: resolvedPage.hasIslands
+			});
+
+			return new Response(htmlStream, {
+				headers: { 'Content-Type': 'text/html' }
+			});
 		};
 
-		const resolvedPage = await resolvePageComponent();
-		const { createSSRApp, h } = await import('vue');
-		const { renderToWebStream } = await import('vue/server-renderer');
-
-		const app = createSSRApp({
-			render: () => h(resolvedPage.component, maybeProps ?? null)
-		});
-
-		const bodyStream = renderToWebStream(app);
-
-		const head = `<!DOCTYPE html><html>${headTag}<body><div id="root">`;
-		const tail = `</div><script>window.__INITIAL_PROPS__=${JSON.stringify(
-			maybeProps ?? {}
-		)}</script><script type="module" src="${indexPath}"></script></body></html>`;
-
-		const stream = new ReadableStream({
-			start(controller) {
-				controller.enqueue(head);
-				const reader = bodyStream.getReader();
-				const pumpLoop = () => {
-					reader
-						.read()
-						.then(({ done, value }) =>
-							done
-								? (controller.enqueue(tail), controller.close())
-								: (controller.enqueue(value), pumpLoop())
+		return runWithStreamingSlotWarningScope(
+			() =>
+				resolvedOptions?.collectStreamingSlots === true
+					? withRegisteredStreamingSlots(
+							renderPageResponse,
+							resolvedOptions
 						)
-						.catch((err) => controller.error(err));
-				};
-				pumpLoop();
-			}
-		});
-
-		const html = injectIslandPageContext(
-			await new Response(stream).text(),
-			{
-				hasIslands: resolvedPage.hasIslands
-			}
+					: renderPageResponse(),
+			{ handlerCallsite }
 		);
-
-		return new Response(html, {
-			headers: { 'Content-Type': 'text/html' }
-		});
 	} catch (error) {
 		console.error('[SSR] Vue render error:', error);
 
-		const pageName = derivePageName(pagePath);
+		const pageName = derivePageName(resolvedPagePath);
 		const conventionResponse = await renderConventionError(
 			'vue',
 			pageName,
@@ -173,7 +278,7 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 			status: 500
 		});
 	}
-};
+}) as HandleVuePageRequest;
 
 export const invalidateVueSsrCache = () => {
 	ssrDirty = true;

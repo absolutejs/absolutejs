@@ -1,9 +1,11 @@
 import { describe, expect, test, afterAll } from 'bun:test';
+import { mkdtempSync, unlinkSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { unlinkSync } from 'node:fs';
 import { loadConfig } from '../../../src/utils/loadConfig';
 
 const PROJECT_ROOT = resolve(import.meta.dir, '..', '..', '..');
+const TEMP_ROOT = mkdtempSync(resolve(tmpdir(), 'absolutejs-load-config-'));
 const tempFiles: string[] = [];
 
 afterAll(() => {
@@ -13,6 +15,11 @@ afterAll(() => {
 		} catch {
 			// already cleaned up
 		}
+	}
+	try {
+		rmSync(TEMP_ROOT, { force: true, recursive: true });
+	} catch {
+		// already cleaned up
 	}
 	delete process.env.ABSOLUTE_CONFIG;
 });
@@ -46,7 +53,7 @@ describe('loadConfig edge cases', () => {
 	});
 
 	test('throws for config file that exports nothing', async () => {
-		const tempPath = resolve(PROJECT_ROOT, '__test-empty-config.ts');
+		const tempPath = resolve(TEMP_ROOT, '__test-empty-config.ts');
 		await Bun.write(tempPath, 'export default undefined;\n');
 		tempFiles.push(tempPath);
 

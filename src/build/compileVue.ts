@@ -573,7 +573,8 @@ export const compileVue = async (
 					'// During HMR or after SSR dirty, use createApp (fresh mount) to avoid hydration mismatch with stale DOM',
 					'const isHMR = typeof window !== "undefined" && sessionStorage.getItem("__HMR_ACTIVE__");',
 					'const isSsrDirty = typeof window !== "undefined" && window.__SSR_DIRTY__;',
-					'const app = (isHMR || isSsrDirty) ? createApp(Comp, mergedProps) : createSSRApp(Comp, mergedProps);',
+					'const shouldHydrate = typeof window === "undefined" ? false : !(isHMR || isSsrDirty);',
+					'const app = shouldHydrate ? createSSRApp(Comp, mergedProps) : createApp(Comp, mergedProps);',
 					'app.mount("#root");',
 					'',
 					'// Store app instance for HMR - used for manual component updates',
@@ -627,10 +628,28 @@ export const compileVue = async (
 					'',
 					'// Clear preserved state after applying',
 					'if (typeof window !== "undefined") {',
+					'  window.__ABS_SLOT_HYDRATION_PENDING__ = shouldHydrate;',
+					'  var releaseStreamingSlots = function() {',
+					'    window.__ABS_SLOT_HYDRATION_PENDING__ = false;',
+					'    if (typeof window.__ABS_SLOT_FLUSH__ === "function") {',
+					'      window.__ABS_SLOT_FLUSH__();',
+					'    }',
+					'  };',
+					'  if (shouldHydrate && typeof requestAnimationFrame === "function") {',
+					'    requestAnimationFrame(function() {',
+					'      requestAnimationFrame(releaseStreamingSlots);',
+					'    });',
+					'  } else if (typeof window.__ABS_SLOT_FLUSH__ === "function") {',
+					'    window.__ABS_SLOT_FLUSH__();',
+					'  } else if (typeof setTimeout === "function") {',
+					'    setTimeout(releaseStreamingSlots, 0);',
+					'  }',
+					'}',
+					'if (typeof window !== "undefined") {',
 					'  window.__HMR_PRESERVED_STATE__ = undefined;',
 					'}'
-				].join('\n')
-			);
+					].join('\n')
+				);
 
 			return {
 				clientPath: clientOutputFile,

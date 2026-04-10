@@ -44,8 +44,8 @@ describe('build output validation', () => {
 						PORT: '0',
 						TELEMETRY_OFF: '1'
 					},
-					stderr: 'pipe',
-					stdout: 'pipe'
+					stderr: 'ignore',
+					stdout: 'ignore'
 				}
 			);
 

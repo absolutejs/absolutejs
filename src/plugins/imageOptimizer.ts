@@ -220,157 +220,142 @@ const scheduleAvifPregen = (
 	});
 };
 
-export const imageOptimizer =
-	(config: ImageConfig | undefined, buildDir: string) =>
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Elysia generics vary per plugin chain
-	(app: any) => {
-		// No-op if disabled or no config
-		if (!config && config !== undefined) return app;
-		if (config?.unoptimized) return app;
+export const imageOptimizer = (
+	config: ImageConfig | undefined,
+	buildDir: string
+) => {
+	const plugin = new Elysia({ name: 'image-optimizer' });
 
-		const endpointPath = config?.path ?? OPTIMIZATION_ENDPOINT;
-		const allowedSizes = new Set([
-			...(config?.deviceSizes ?? DEFAULT_DEVICE_SIZES),
-			...(config?.imageSizes ?? DEFAULT_IMAGE_SIZES)
-		]);
-		const defaultQuality = config?.quality ?? DEFAULT_QUALITY;
-		const minimumCacheTTL =
-			(config?.minimumCacheTTL ?? DEFAULT_CACHE_TTL_SECONDS) *
-			MS_PER_SECOND;
-		const cacheControlHeader =
-			process.env['NODE_ENV'] === 'development'
-				? 'no-cache'
-				: `public, max-age=${Math.ceil(minimumCacheTTL / MS_PER_SECOND)}, must-revalidate`;
-		const configuredFormats: ImageFormat[] = config?.formats ?? ['webp'];
-		const remotePatterns = config?.remotePatterns ?? [];
-		const cacheDir = getCacheDir(buildDir);
+	// No-op if disabled or no config
+	if (!config && config !== undefined) return plugin;
+	if (config?.unoptimized) return plugin;
 
-		const plugin = new Elysia({ name: 'image-optimizer' }).get(
-			endpointPath,
-			async ({ query, request }) => {
-				// ── Parse & Validate ────────────────────────────────
-				const parsed = parseQueryParams(
-					query,
-					allowedSizes,
-					defaultQuality
-				);
-				if ('error' in parsed) return parsed.error;
-				const { quality, url, width } = parsed.params;
+	const endpointPath = config?.path ?? OPTIMIZATION_ENDPOINT;
+	const allowedSizes = new Set([
+		...(config?.deviceSizes ?? DEFAULT_DEVICE_SIZES),
+		...(config?.imageSizes ?? DEFAULT_IMAGE_SIZES)
+	]);
+	const defaultQuality = config?.quality ?? DEFAULT_QUALITY;
+	const minimumCacheTTL =
+		(config?.minimumCacheTTL ?? DEFAULT_CACHE_TTL_SECONDS) * MS_PER_SECOND;
+	const cacheControlHeader = `public, max-age=${Math.ceil(minimumCacheTTL / MS_PER_SECOND)}, must-revalidate`;
+	const configuredFormats: ImageFormat[] = config?.formats ?? ['webp'];
+	const remotePatterns = config?.remotePatterns ?? [];
+	const cacheDir = getCacheDir(buildDir);
 
-				// ── Security ────────────────────────────────────────
-				const security = validateImageSecurity(
-					url,
-					remotePatterns,
-					buildDir
-				);
-				if ('error' in security) return security.error;
-				const { isRemote, resolvedPath } = security;
+	return plugin.get(endpointPath, async ({ query, request }) => {
+		// ── Parse & Validate ────────────────────────────────
+		const parsed = parseQueryParams(query, allowedSizes, defaultQuality);
+		if ('error' in parsed) return parsed.error;
+		const { quality, url, width } = parsed.params;
 
-				// ── Content Negotiation ─────────────────────────────
-				const acceptHeader = request.headers.get('Accept') ?? '';
-				const format = negotiateFormat(acceptHeader, configuredFormats);
-				const mime = formatToMime(format);
+		// ── Security ────────────────────────────────────────
+		const security = validateImageSecurity(url, remotePatterns, buildDir);
+		if ('error' in security) return security.error;
+		const { isRemote, resolvedPath } = security;
 
-				// ── Cache Lookup ────────────────────────────────────
-				const cacheKey = getCacheKey(url, width, quality, format);
-				const cached = readFromCache(cacheDir, cacheKey);
+		// ── Content Negotiation ─────────────────────────────
+		const acceptHeader = request.headers.get('Accept') ?? '';
+		const format = negotiateFormat(acceptHeader, configuredFormats);
+		const mime = formatToMime(format);
 
-				if (cached && !isCacheStale(cached.meta)) {
-					const ifNoneMatch = request.headers.get('If-None-Match');
-					if (ifNoneMatch && ifNoneMatch === cached.meta.etag) {
-						return new Response(null, {
-							headers: {
-								'Cache-Control': cacheControlHeader,
-								ETag: cached.meta.etag,
-								Vary: 'Accept'
-							},
-							status: 304
-						});
-					}
+		// ── Cache Lookup ────────────────────────────────────
+		const cacheKey = getCacheKey(url, width, quality, format);
+		const cached = readFromCache(cacheDir, cacheKey);
 
-					return new Response(new Uint8Array(cached.buffer), {
-						headers: {
-							'Cache-Control': cacheControlHeader,
-							'Content-Type': cached.meta.contentType,
-							ETag: cached.meta.etag,
-							Vary: 'Accept'
-						}
-					});
-				}
-
-				// ── Fetch Source ────────────────────────────────────
-				let sourceBuffer: Buffer;
-				let upstreamEtag: string | undefined;
-
-				try {
-					const source = await fetchSourceImage(
-						url,
-						isRemote,
-						resolvedPath ?? null
-					);
-					if ('error' in source) return source.error;
-					sourceBuffer = source.buffer;
-					({ upstreamEtag } = source);
-				} catch (err) {
-					return new Response(
-						`Failed to load image: ${err instanceof Error ? err.message : 'unknown error'}`,
-						{ status: 500 }
-					);
-				}
-
-				// ── Optimize ────────────────────────────────────────
-				let optimizedBuffer: Buffer;
-				try {
-					optimizedBuffer = await optimizeImage(
-						sourceBuffer,
-						width,
-						quality,
-						format
-					);
-				} catch {
-					// Graceful degradation: serve original
-					optimizedBuffer = sourceBuffer;
-				}
-
-				// ── Cache Write ─────────────────────────────────────
-				const etag = `"${cacheKey}"`;
-				const meta: CacheMeta = {
-					contentType: mime,
-					etag,
-					expireAt: Date.now() + minimumCacheTTL,
-					upstreamEtag
-				};
-
-				try {
-					writeToCache(cacheDir, cacheKey, optimizedBuffer, meta);
-				} catch {
-					// Cache write failure is non-fatal
-				}
-
-				// ── AVIF Async Pre-generation ───────────────────────
-				scheduleAvifPregen(
-					url,
-					width,
-					quality,
-					sourceBuffer,
-					configuredFormats,
-					format,
-					cacheDir,
-					minimumCacheTTL,
-					upstreamEtag
-				);
-
-				// ── Response ────────────────────────────────────────
-				return new Response(new Uint8Array(optimizedBuffer), {
+		if (cached && !isCacheStale(cached.meta)) {
+			const ifNoneMatch = request.headers.get('If-None-Match');
+			if (ifNoneMatch && ifNoneMatch === cached.meta.etag) {
+				return new Response(null, {
 					headers: {
 						'Cache-Control': cacheControlHeader,
-						'Content-Type': mime,
-						ETag: etag,
+						ETag: cached.meta.etag,
 						Vary: 'Accept'
-					}
+					},
+					status: 304
 				});
 			}
+
+			return new Response(new Uint8Array(cached.buffer), {
+				headers: {
+					'Cache-Control': cacheControlHeader,
+					'Content-Type': cached.meta.contentType,
+					ETag: cached.meta.etag,
+					Vary: 'Accept'
+				}
+			});
+		}
+
+		// ── Fetch Source ────────────────────────────────────
+		let sourceBuffer: Buffer;
+		let upstreamEtag: string | undefined;
+
+		try {
+			const source = await fetchSourceImage(
+				url,
+				isRemote,
+				resolvedPath ?? null
+			);
+			if ('error' in source) return source.error;
+			sourceBuffer = source.buffer;
+			({ upstreamEtag } = source);
+		} catch (err) {
+			return new Response(
+				`Failed to load image: ${err instanceof Error ? err.message : 'unknown error'}`,
+				{ status: 500 }
+			);
+		}
+
+		// ── Optimize ────────────────────────────────────────
+		let optimizedBuffer: Buffer;
+		try {
+			optimizedBuffer = await optimizeImage(
+				sourceBuffer,
+				width,
+				quality,
+				format
+			);
+		} catch {
+			// Graceful degradation: serve original
+			optimizedBuffer = sourceBuffer;
+		}
+
+		// ── Cache Write ─────────────────────────────────────
+		const etag = `"${cacheKey}"`;
+		const meta: CacheMeta = {
+			contentType: mime,
+			etag,
+			expireAt: Date.now() + minimumCacheTTL,
+			upstreamEtag
+		};
+
+		try {
+			writeToCache(cacheDir, cacheKey, optimizedBuffer, meta);
+		} catch {
+			// Cache write failure is non-fatal
+		}
+
+		// ── AVIF Async Pre-generation ───────────────────────
+		scheduleAvifPregen(
+			url,
+			width,
+			quality,
+			sourceBuffer,
+			configuredFormats,
+			format,
+			cacheDir,
+			minimumCacheTTL,
+			upstreamEtag
 		);
 
-		return app.use(plugin);
-	};
+		// ── Response ────────────────────────────────────────
+		return new Response(new Uint8Array(optimizedBuffer), {
+			headers: {
+				'Cache-Control': cacheControlHeader,
+				'Content-Type': mime,
+				ETag: etag,
+				Vary: 'Accept'
+			}
+		});
+	});
+};

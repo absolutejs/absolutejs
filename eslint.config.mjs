@@ -19,6 +19,7 @@ export default defineConfig([
 			'node_modules/**',
 			'dist/**',
 			'build/**',
+			'**/build/**',
 			'**/compiled/**',
 			'**/*/htmx.*.min.js',
 			'.absolutejs/**',
@@ -28,6 +29,7 @@ export default defineConfig([
 			'example/build/**',
 			'example/dist/**',
 			'example/react/indexes/*',
+			'rag-smoke.ts',
 			'speed-test.ts'
 		]
 	},

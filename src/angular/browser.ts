@@ -7,3 +7,11 @@ export const renderIsland = async () => {
 	);
 };
 export { IslandStore } from './islandStore';
+export { DeferSlotComponent } from './components/defer-slot.component';
+export {
+	DeferErrorTemplateDirective,
+	DeferFallbackTemplateDirective,
+	DeferResolvedTemplateDirective
+} from './components/defer-slot-templates.directive';
+export { ImageComponent } from './components/image.component';
+export { StreamSlotComponent } from './components/stream-slot.component';

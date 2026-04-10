@@ -3,6 +3,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, extname, resolve, relative } from 'node:path';
 import { resolvePackageImport } from '../build/resolvePackageImport';
 import { buildIslandMetadataExports } from '../islands/sourceMetadata';
+import { lowerSvelteAwaitSlotSyntax } from '../svelte/lowerAwaitSlotSyntax';
 import { lowerSvelteIslandSyntax } from '../svelte/lowerIslandSyntax';
 import {
 	getInvalidationVersion,
@@ -710,19 +711,19 @@ const transformSvelteFile = async (
 
 	const isModule =
 		filePath.endsWith('.svelte.ts') || filePath.endsWith('.svelte.js');
-	const loweredSource = isModule
+	const loweredAwaitSource = isModule
 		? { code: raw, transformed: false }
-		: lowerSvelteIslandSyntax(raw, 'client');
+		: lowerSvelteAwaitSlotSyntax(raw);
+	const loweredSource = isModule
+		? loweredAwaitSource
+		: lowerSvelteIslandSyntax(loweredAwaitSource.code, 'client');
 	const source = loweredSource.code;
+	const enableAsync =
+		loweredAwaitSource.transformed || loweredSource.transformed;
 
 	const code = isModule
 		? compileSvelteModule(source, filePath)
-		: compileSvelteComponent(
-				source,
-				filePath,
-				projectRoot,
-				loweredSource.transformed
-			);
+		: compileSvelteComponent(source, filePath, projectRoot, enableAsync);
 
 	return rewriteImports(code, filePath, projectRoot, rewriter);
 };
@@ -946,7 +947,8 @@ const generateSvelteHmrBootstrap = (
 		`  try { window.__SVELTE_UNMOUNT__(); } catch (err) { /* ignore */ }`,
 		`}`,
 		``,
-		`var component = mount(Component, { target: document.body, props: mergedProps });`,
+		`var target = document.getElementById("__absolute_svelte_root__") || document.body;`,
+		`var component = mount(Component, { target, props: mergedProps });`,
 		`window.__SVELTE_COMPONENT__ = component;`,
 		`window.__SVELTE_UNMOUNT__ = function() { unmount(component); };`,
 		`window.__HMR_PRESERVED_STATE__ = undefined;`

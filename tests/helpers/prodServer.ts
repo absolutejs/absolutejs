@@ -14,69 +14,77 @@ export type ProdServer = {
 };
 
 export const startProdServer = async (port?: number) => {
-	const resolvedPort = port ?? (await getAvailablePort());
 	const serverEntry = resolve(PROJECT_ROOT, 'example/server.ts');
 	const configPath = resolve(PROJECT_ROOT, 'example/absolute.config.ts');
-	// outdir must be inside the project root (validateSafePath rejects external paths)
 	const testBuildDir = resolve(PROJECT_ROOT, '.test-builds');
 	await mkdir(testBuildDir, { recursive: true });
-	const outdir = await mkdtemp(resolve(testBuildDir, 'prod-'));
 
-	// Run the start command which builds + bundles + runs
-	const buildProc = Bun.spawn(
-		[
-			'bun',
-			'run',
-			resolve(PROJECT_ROOT, 'src/cli/index.ts'),
-			'start',
-			serverEntry,
-			'--outdir',
-			outdir,
-			'--config',
-			configPath
-		],
-		{
-			cwd: PROJECT_ROOT,
-			env: {
-				...process.env,
-				FORCE_COLOR: '0',
-				NODE_ENV: 'production',
-				PORT: String(resolvedPort),
-				TELEMETRY_OFF: '1'
-			},
-			stderr: 'pipe',
-			stdout: 'pipe'
-		}
-	);
-
-	const baseUrl = `http://localhost:${resolvedPort}`;
-
-	try {
-		await waitForServer(baseUrl, 60, 500);
-	} catch (err) {
-		buildProc.kill();
-		await rm(outdir, { force: true, recursive: true }).catch(() => {});
-		throw new Error(
-			`Prod server failed to start on port ${resolvedPort}: ${err}`,
-			{ cause: err }
+	let lastError: unknown;
+	for (let attempt = 0; attempt < 2; attempt += 1) {
+		const resolvedPort = port ?? (await getAvailablePort());
+		const outdir = await mkdtemp(resolve(testBuildDir, 'prod-'));
+		const buildProc = Bun.spawn(
+			[
+				'bun',
+				'run',
+				resolve(PROJECT_ROOT, 'src/cli/index.ts'),
+				'start',
+				serverEntry,
+				'--outdir',
+				outdir,
+				'--config',
+				configPath
+			],
+			{
+				cwd: PROJECT_ROOT,
+				env: {
+					...process.env,
+					FORCE_COLOR: '0',
+					NODE_ENV: 'production',
+					PORT: String(resolvedPort),
+					TELEMETRY_OFF: '1'
+				},
+				stderr: 'ignore',
+				stdout: 'ignore'
+			}
 		);
+
+		const baseUrl = `http://localhost:${resolvedPort}`;
+
+		try {
+			await waitForServer(baseUrl, 60, 500);
+
+			const kill = async () => {
+				try {
+					buildProc.kill();
+				} catch {
+					// already exited
+				}
+				await buildProc.exited;
+				await rm(outdir, { force: true, recursive: true }).catch(
+					() => {}
+				);
+			};
+
+			return {
+				baseUrl,
+				kill,
+				outdir,
+				port: resolvedPort,
+				proc: buildProc
+			} satisfies ProdServer;
+		} catch (err) {
+			lastError = err;
+			buildProc.kill();
+			await rm(outdir, { force: true, recursive: true }).catch(() => {});
+			if (port || attempt === 1) {
+				throw new Error(
+					`Prod server failed to start on port ${resolvedPort}: ${err}`,
+					{ cause: err }
+				);
+			}
+		}
 	}
 
-	const kill = async () => {
-		try {
-			buildProc.kill();
-		} catch {
-			// already exited
-		}
-		await buildProc.exited;
-		await rm(outdir, { force: true, recursive: true }).catch(() => {});
-	};
-
-	return {
-		baseUrl,
-		kill,
-		outdir,
-		port: resolvedPort,
-		proc: buildProc
-	} satisfies ProdServer;
+	throw new Error(`Prod server failed to start: ${lastError}`);
 };

@@ -38,6 +38,8 @@ const SERVER_ENTRY_POINTS = [
 	'src/react/ai/index.ts',
 	'src/react/components/index.ts',
 	'src/react/hooks/index.ts',
+	'src/core/streamingSlotRegistrar.ts',
+	'src/core/streamingSlotRegistry.ts',
 	'src/svelte/index.ts',
 	'src/svelte/browser.ts',
 	'src/svelte/server.ts',
@@ -61,6 +63,7 @@ const EXTERNALS = [
 	'elysia',
 	'@elysiajs/static',
 	'@angular/compiler-cli',
+	'@angular/compiler',
 	'@angular/core',
 	'@angular/common',
 	'@angular/platform-browser',
@@ -110,7 +113,7 @@ const build = async () => {
 
 	console.log('Building React components (browser target)...');
 	const reactBrowserBuild = await Bun.build({
-		entrypoints: ['src/react/components/index.ts'],
+		entrypoints: ['src/react/components/browser/index.ts'],
 		external: [
 			'react',
 			'react-dom',
@@ -118,7 +121,7 @@ const build = async () => {
 			'react/jsx-dev-runtime'
 		],
 		outdir: join(DIST, 'react', 'components', 'browser'),
-		root: 'src/react/components',
+		root: 'src/react/components/browser',
 		target: 'browser'
 	});
 
@@ -199,8 +202,8 @@ const build = async () => {
 	console.log('Generating SFC type declarations...');
 	await generateSfcDeclarations();
 
-	console.log('Fixing Svelte browser entry...');
-	await fixSvelteBrowserEntry();
+	console.log('Fixing Svelte entry points...');
+	await fixSvelteEntryPoints();
 
 	// Compile Angular components with partial compilation (ɵɵngDeclareComponent)
 	// so they work in both AOT (via linker) and JIT (via runtime fallback)
@@ -290,21 +293,39 @@ const copyPublishedDevClientDirectory = async (
 	}
 };
 
-const fixSvelteBrowserEntry = async () => {
-	const browserPath = join(DIST, 'svelte', 'browser.js');
-	const source = await readFile(browserPath, 'utf8');
-	const assetPattern = /^var Island_default = ['"][^'"]+\.svelte['"];$/m;
+const fixSvelteEntryPoint = async (entryPath: string) => {
+	const source = await readFile(entryPath, 'utf8');
+	const replacements: Array<[RegExp, string]> = [
+		[
+			/^var Island_default = ['"][^'"]+\.svelte['"];$/m,
+			'import Island_default from "./components/Island.svelte";'
+		],
+		[
+			/^var AwaitSlot_default = ['"][^'"]+\.svelte['"];$/m,
+			'import AwaitSlot_default from "./components/AwaitSlot.svelte";'
+		],
+		[
+			/^var StreamSlot_default = ['"][^'"]+\.svelte['"];$/m,
+			'import StreamSlot_default from "./components/StreamSlot.svelte";'
+		]
+	];
 
-	if (!assetPattern.test(source)) {
-		return;
+	let nextSource = source;
+	let changed = false;
+	for (const [pattern, replacement] of replacements) {
+		if (!pattern.test(nextSource)) continue;
+		nextSource = nextSource.replace(pattern, replacement);
+		changed = true;
 	}
 
-	const nextSource = source.replace(
-		assetPattern,
-		'import Island_default from "./components/Island.svelte";'
-	);
+	if (!changed) return;
 
-	await writeFile(browserPath, nextSource);
+	await writeFile(entryPath, nextSource);
+};
+
+const fixSvelteEntryPoints = async () => {
+	await fixSvelteEntryPoint(join(DIST, 'svelte', 'index.js'));
+	await fixSvelteEntryPoint(join(DIST, 'svelte', 'browser.js'));
 };
 
 const copyPublishedDevClientSources = async () => {
@@ -399,7 +420,9 @@ const compileAngularComponentsPartial = async () => {
 	);
 
 	const finalDir = join(DIST, 'angular', 'components');
+	const finalTypesDir = join(DIST, 'src', 'angular', 'components');
 	await mkdir(finalDir, { recursive: true });
+	await mkdir(finalTypesDir, { recursive: true });
 
 	// Use a temp output dir outside dist/ to avoid conflicts with existing compiled files
 	const tmpDir = '.angular-partial-tmp';
@@ -418,13 +441,46 @@ const compileAngularComponentsPartial = async () => {
 			/from\s+(['"])\.\.\/\.\.\/utils\/imageProcessing['"]/g,
 			'from $1@absolutejs/absolute/image$1'
 		);
+		content = content.replace(
+			/from\s+(['"])\.\.\/\.\.\/core\/streamingSlotRegistry['"]/g,
+			'from $1./core/streamingSlotRegistry$1'
+		);
+		content = content.replace(
+			/from\s+(['"])\.\.\/\.\.\/core\/streamingSlotRegistrar['"]/g,
+			'from $1./core/streamingSlotRegistrar$1'
+		);
 		// eslint-disable-next-line no-await-in-loop
 		await Bun.write(join(srcDir, file), content);
 	}
 
+	await mkdir(join(srcDir, 'core'), { recursive: true });
+	await mkdir(join(srcDir, 'utils'), { recursive: true });
+	await mkdir(join(srcDir, 'client'), { recursive: true });
+	await cp(join('src', 'constants.ts'), join(srcDir, 'constants.ts'));
+	await cp(
+		join('src', 'core', 'streamingSlotRegistry.ts'),
+		join(srcDir, 'core', 'streamingSlotRegistry.ts')
+	);
+	await cp(
+		join('src', 'core', 'streamingSlotRegistrar.ts'),
+		join(srcDir, 'core', 'streamingSlotRegistrar.ts')
+	);
+	await cp(
+		join('src', 'utils', 'streamingSlots.ts'),
+		join(srcDir, 'utils', 'streamingSlots.ts')
+	);
+	await cp(
+		join('src', 'utils', 'escapeScriptContent.ts'),
+		join(srcDir, 'utils', 'escapeScriptContent.ts')
+	);
+	await cp(
+		join('src', 'client', 'streamSwap.ts'),
+		join(srcDir, 'client', 'streamSwap.ts')
+	);
+
 	const config = readConfiguration('./tsconfig.json');
 	const tsOptions: ts.CompilerOptions = {
-		declaration: false,
+		declaration: true,
 		emitDecoratorMetadata: true,
 		experimentalDecorators: true,
 		module: ts.ModuleKind.ESNext,
@@ -475,12 +531,45 @@ const compileAngularComponentsPartial = async () => {
 	if (errors.length > 0) logAngularErrorsAndExit(errors);
 
 	// Copy emitted JS files to final dir, adding .js extensions to relative imports
-	for (const [fileName, content] of Object.entries(emitted)) {
-		if (!fileName.endsWith('.js')) continue;
+	const resolveOutputDir = (fileName: string) => {
+		if (fileName.endsWith('.js')) {
+			return finalDir;
+		}
+
+		if (fileName.endsWith('.d.ts')) {
+			return finalTypesDir;
+		}
+
+		return null;
+	};
+	const writeEmittedArtifact = async (fileName: string, content: string) => {
+		const outputDir = resolveOutputDir(fileName);
+		if (!outputDir) {
+			return;
+		}
+
 		const processed = addJsExtensions(content);
+		await writeFile(join(outputDir, fileName), processed);
+	};
+
+	for (const [fileName, content] of Object.entries(emitted)) {
+		if (fileName.includes('/')) continue;
 		// eslint-disable-next-line no-await-in-loop
-		await writeFile(join(finalDir, fileName), processed);
+		await writeEmittedArtifact(fileName, content);
 	}
+
+	await Bun.build({
+		entrypoints: [
+			join(srcDir, 'core', 'streamingSlotRegistry.ts'),
+			join(srcDir, 'core', 'streamingSlotRegistrar.ts')
+		],
+		external: ['node:async_hooks'],
+		format: 'esm',
+		minify: false,
+		outdir: join(finalDir, 'core'),
+		sourcemap: false,
+		target: 'bun'
+	});
 
 	// Clean up temp dir
 	await rm(tmpDir, { force: true, recursive: true });

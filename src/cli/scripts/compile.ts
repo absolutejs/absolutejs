@@ -267,6 +267,8 @@ const stubPlugin: import('bun').BunPlugin = {
 		}));
 		bld.onLoad({ filter: /\.ts$/ }, async (args) => {
 			if (args.path.includes('node_modules')) return undefined;
+			const normalizedPath = args.path.replace(/\\/g, '/');
+			if (normalizedPath.includes('/src/angular/')) return undefined;
 			const text = await Bun.file(args.path).text();
 			const stripped = text
 				.replace(/`(?:[^`\\]|\\.)*`/gs, '')

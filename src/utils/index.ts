@@ -5,3 +5,5 @@ export * from './defineEnv';
 export * from './getEnv';
 export * from './networking';
 export * from './registerClientScript';
+export * from './streamingSlotMetricSink';
+export * from './streamingSlots';

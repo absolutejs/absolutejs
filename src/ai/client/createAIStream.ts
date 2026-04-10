@@ -115,3 +115,5 @@ export const createAIStream = (path: string, conversationId?: string) => {
 		}
 	};
 };
+
+export type CreateAIStream = typeof createAIStream;

@@ -15,6 +15,8 @@ import { write, file, Transpiler } from 'bun';
 import { resolvePackageImport } from './resolvePackageImport';
 import { buildIslandMetadataExports } from '../islands/sourceMetadata';
 import { lowerSvelteIslandSyntax } from '../svelte/lowerIslandSyntax';
+import { lowerSvelteAwaitSlotSyntax } from '../svelte/lowerAwaitSlotSyntax';
+import { SVELTE_PAGE_ROOT_ID } from '../svelte/renderToReadableStream';
 const resolveDevClientDir = () => {
 	const projectRoot = process.cwd();
 	const fromSource = resolve(import.meta.dir, '../dev/client');
@@ -36,7 +38,7 @@ const devClientDir = resolveDevClientDir();
 
 const hmrClientPath = join(devClientDir, 'hmrClient.ts').replace(/\\/g, '/');
 
-type Built = { ssr: string; client: string };
+type Built = { ssr: string; client: string; hasAwaitSlot: boolean };
 type Cache = Map<string, Built>;
 
 // Persistent cache across HMR cycles — avoids recompiling unchanged Svelte components
@@ -51,6 +53,28 @@ export const clearSvelteCompilerCache = () => {
 };
 
 const transpiler = new Transpiler({ loader: 'ts', target: 'browser' });
+
+const removeUnusedRequireHelper = (code: string) => {
+	const helperStart = code.indexOf('var __require = /* @__PURE__ */');
+	if (helperStart === -1) {
+		return code;
+	}
+
+	const helperEndMarker = "throw Error('Dynamic require of \"' + x + '\" is not supported');";
+	const helperEnd = code.indexOf(helperEndMarker, helperStart);
+	if (helperEnd === -1) {
+		return code;
+	}
+
+	const statementEnd = code.indexOf('});', helperEnd);
+	if (statementEnd === -1) {
+		return code;
+	}
+
+	const stripped = `${code.slice(0, helperStart)}${code.slice(statementEnd + 3)}`;
+
+	return /\b__require\b/.test(stripped) ? code : stripped;
+};
 
 const exists = async (path: string) => {
 	try {
@@ -193,12 +217,23 @@ export const compileSvelte = async (
 		sourceHashCache.set(src, contentHash);
 		const isModule =
 			src.endsWith('.svelte.ts') || src.endsWith('.svelte.js');
-		const loweredServerSource = isModule
+		const loweredAwaitServerSource = isModule
 			? { code: raw, transformed: false }
-			: lowerSvelteIslandSyntax(raw, 'server');
+			: lowerSvelteAwaitSlotSyntax(raw);
+		const loweredAwaitClientSource = isModule
+			? loweredAwaitServerSource
+			: lowerSvelteAwaitSlotSyntax(raw);
+		const loweredServerSource = isModule
+			? loweredAwaitServerSource
+			: lowerSvelteIslandSyntax(loweredAwaitServerSource.code, 'server');
 		const loweredClientSource = isModule
-			? loweredServerSource
-			: lowerSvelteIslandSyntax(raw, 'client');
+			? loweredAwaitClientSource
+			: lowerSvelteIslandSyntax(loweredAwaitClientSource.code, 'client');
+		const transformedByLowering =
+			loweredAwaitServerSource.transformed ||
+			loweredAwaitClientSource.transformed ||
+			loweredServerSource.transformed ||
+			loweredClientSource.transformed;
 		const preprocessedServer = isModule
 			? loweredServerSource.code
 			: (await preprocess(loweredServerSource.code, {})).code;
@@ -240,8 +275,10 @@ export const compileSvelte = async (
 		const childSources = resolvedImports.filter(
 			(path): path is string => path !== null
 		);
-		await Promise.all(childSources.map((child) => build(child)));
-
+		const childBuilt = await Promise.all(childSources.map((child) => build(child)));
+		const hasAwaitSlotFromChildren = childBuilt.some(
+			(child) => child.hasAwaitSlot
+		);
 		// Build a map of original import specifiers to the correct path from the
 		// generated output file. Svelte child components may point to compiled
 		// siblings; plain TS/JS helpers should resolve back to their original
@@ -300,13 +337,11 @@ export const compileSvelte = async (
 
 		const generate = (mode: 'server' | 'client') => {
 			const transpiled = mode === 'server' ? transpiledServer : transpiledClient;
-			const loweredSource =
-				mode === 'server' ? loweredServerSource : loweredClientSource;
 			const compiled = isModule
 				? compileModule(transpiled, {
 						dev: mode === 'client' && dev,
 						experimental: {
-							async: loweredSource.transformed
+							async: transformedByLowering
 						},
 						filename: src
 					}).js.code
@@ -314,11 +349,12 @@ export const compileSvelte = async (
 						css: 'injected',
 						dev: mode === 'client' && dev,
 						experimental: {
-							async: loweredSource.transformed
+							async: transformedByLowering
 						},
 						filename: src,
 						generate: mode,
-						hmr: mode === 'client' && isDev
+						hmr: mode === 'client' && isDev,
+						runes: false
 					}).js.code;
 			let code = compiled.replace(
 				/\.svelte(?:\.(?:ts|js))?(['"])/g,
@@ -346,6 +382,10 @@ export const compileSvelte = async (
 				// State preservation is handled at runtime by the patched
 				// $.hmr() function (collect_state/restore_state). No
 				// State preservation handled by Svelte's $.hmr() runtime.
+			}
+
+			if (mode === 'client') {
+				code = removeUnusedRequireHelper(code);
 			}
 
 			code += islandMetadataExports;
@@ -382,7 +422,16 @@ export const compileSvelte = async (
 			]);
 		}
 
-		const built: Built = { client: clientPath, ssr: ssrPath };
+		const built: Built = {
+			client: clientPath,
+			hasAwaitSlot:
+				(loweredAwaitServerSource.transformed ||
+					loweredAwaitClientSource.transformed ||
+					loweredServerSource.transformed ||
+					loweredClientSource.transformed) ||
+				hasAwaitSlotFromChildren,
+			ssr: ssrPath
+		};
 		cache.set(src, built);
 		persistentCache.set(src, built);
 
@@ -392,7 +441,7 @@ export const compileSvelte = async (
 	const roots = await Promise.all(entryPoints.map(build));
 
 	await Promise.all(
-		roots.map(async ({ client }) => {
+		roots.map(async ({ client, hasAwaitSlot }) => {
 			const relClientDir = dirname(relative(clientDir, client));
 			const name = basename(client, extname(client));
 			const indexPath = join(indexDir, relClientDir, `${name}.js`);
@@ -413,7 +462,11 @@ var initialProps = (typeof window !== "undefined" && window.__INITIAL_PROPS__) ?
 var isHMR = typeof window !== "undefined" && window.__SVELTE_COMPONENT__ !== undefined;
 var isSsrDirty = typeof window !== "undefined" && window.__SSR_DIRTY__;
 var hasIslandHtml = false;
+var shouldHydrate = typeof window === "undefined" ? false : ${(
+			hasAwaitSlot ? 'false' : 'true'
+		)};
 var component;
+var target = document.getElementById(${JSON.stringify(SVELTE_PAGE_ROOT_ID)}) || document.body;
 
 if (typeof window !== "undefined") {
   var islandSlots = document.querySelectorAll("[data-absolute-island-slot]");
@@ -440,17 +493,35 @@ if (isHMR) {
   if (typeof window.__SVELTE_UNMOUNT__ === "function") {
     try { window.__SVELTE_UNMOUNT__(); } catch (err) { /* ignore */ }
   }
-  component = mount(Component, { target: document.body, props: mergedProps });
+  component = mount(Component, { target, props: mergedProps });
   window.__HMR_PRESERVED_STATE__ = undefined;
+} else if (!shouldHydrate) {
+  component = undefined;
 } else if (isSsrDirty || hasIslandHtml) {
-  component = mount(Component, { target: document.body, props: initialProps });
+  component = mount(Component, { target, props: initialProps });
 } else {
-  component = hydrate(Component, { target: document.body, props: initialProps });
+  component = hydrate(Component, { target, props: initialProps });
 }
 
 if (typeof window !== "undefined") {
   window.__SVELTE_COMPONENT__ = component;
-  window.__SVELTE_UNMOUNT__ = function() { unmount(component); };
+  window.__SVELTE_UNMOUNT__ = function() { if (component) { unmount(component); } };
+  window.__ABS_SLOT_HYDRATION_PENDING__ = shouldHydrate;
+  var releaseStreamingSlots = function() {
+    window.__ABS_SLOT_HYDRATION_PENDING__ = false;
+    if (typeof window.__ABS_SLOT_FLUSH__ === "function") {
+      window.__ABS_SLOT_FLUSH__();
+    }
+  };
+  if (shouldHydrate && typeof requestAnimationFrame === "function") {
+    requestAnimationFrame(function() {
+      requestAnimationFrame(releaseStreamingSlots);
+    });
+  } else if (typeof window.__ABS_SLOT_FLUSH__ === "function") {
+    window.__ABS_SLOT_FLUSH__();
+  } else if (typeof setTimeout === "function") {
+    setTimeout(releaseStreamingSlots, 0);
+  }
 }`;
 
 			await mkdir(dirname(indexPath), { recursive: true });

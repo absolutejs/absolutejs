@@ -30,15 +30,11 @@ export const renderToPipeableStream = <
 	}: RenderPipeableOptions = {}
 ) => {
 	try {
-		const { head: rawHead, body } =
+		const { head, body } =
 			typeof props === 'undefined'
 				? // @ts-expect-error Svelte's render function can't determine which overload to choose when the component is generic
 					render(component)
 				: render(component, { props });
-		const head = rawHead.replace(
-			/(<!--[a-z0-9]+-->)([\s\S]*?)(<!---->)\s*(<title>[\s\S]*?<\/title>)/,
-			'$1$4$2$3'
-		);
 		const nonceAttr = nonce ? ` nonce="${nonce}"` : '';
 		const scripts = [
 			bootstrapScriptContent &&

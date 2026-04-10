@@ -57,6 +57,16 @@ export type BuildConfig = {
 	dev?: {
 		// Enable HTTPS for HTTP/2 multiplexing (faster HMR on import-heavy components)
 		https?: boolean;
+		devtools?: {
+			// Override the workspace root reported to Chrome DevTools.
+			projectRoot?: string;
+			// Use a fixed workspace UUID instead of a generated one.
+			uuid?: string;
+			// Persist the generated UUID outside the default build cache location.
+			uuidCachePath?: string;
+			// Rewrite Linux paths to UNC form for Chrome running on Windows via WSL/Docker.
+			normalizeForWindowsContainer?: boolean;
+		};
 	};
 	// Static site generation — pre-render routes at build time
 	static?: StaticConfig;

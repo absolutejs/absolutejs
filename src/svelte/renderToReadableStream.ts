@@ -2,6 +2,8 @@ import type { Component } from 'svelte';
 import { DEFAULT_CHUNK_SIZE } from '../constants';
 import { escapeScriptContent } from '../utils/escapeScriptContent';
 
+export const SVELTE_PAGE_ROOT_ID = '__absolute_svelte_root__';
+
 export type RenderStreamOptions = {
 	bootstrapScriptContent?: string;
 	bootstrapScripts?: string[];
@@ -38,16 +40,7 @@ export const renderToReadableStream = async <
 				? // @ts-expect-error Svelte's render function can't determine which overload to choose when the component is generic
 					await render(component)
 				: await render(component, { props });
-		const { head: rawHead, body } = rendered;
-		// Svelte SSR extracts <title> from <svelte:head> and appends it
-		// after the component end marker (<!---->). The client renderer
-		// places it at its template position, causing a hydration mismatch.
-		// Fix: move <title> back inside the first component marker so both
-		// SSR and client agree on its position.
-		const head = rawHead.replace(
-			/(<!--[a-z0-9]+-->)([\s\S]*?)(<!---->)\s*(<title>[\s\S]*?<\/title>)/,
-			'$1$4$2$3'
-		);
+		const { head, body } = rendered;
 		const nonceAttr = nonce ? ` nonce="${nonce}"` : '';
 		const scripts =
 			(bootstrapScriptContent
@@ -65,7 +58,7 @@ export const renderToReadableStream = async <
 		const encoder = new TextEncoder();
 		// Warning: this encodes the entire document into memory in one buffer
 		const full = encoder.encode(
-			`<!DOCTYPE html><html lang="en"><head>${head}${headContent ?? ''}</head><body>${body}${scripts}${bodyContent ?? ''}</body></html>`
+			`<!DOCTYPE html><html lang="en"><head>${head}${headContent ?? ''}</head><body><div id="${SVELTE_PAGE_ROOT_ID}">${body}</div>${scripts}${bodyContent ?? ''}</body></html>`
 		);
 
 		let offset = 0;

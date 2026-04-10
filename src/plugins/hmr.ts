@@ -16,19 +16,21 @@ const STORE_KEY = '__elysiaStore';
    before each reload and restore values into the fresh instance. */
 const getGlobalValue = (key: string) => Reflect.get(globalThis, key);
 
-const restoreStore = (app: Elysia) => {
+const restoreStore = (store: unknown) => {
 	const saved = getGlobalValue(STORE_KEY);
 
 	if (saved && typeof saved === 'object') {
 		const savedRecord: Record<string, unknown> = saved;
-		const { store } = app;
-		const storeRecord: Record<string, unknown> = store;
-		Object.keys(savedRecord).forEach((key) => {
-			storeRecord[key] = savedRecord[key];
-		});
+		if (store && typeof store === 'object') {
+			Object.keys(savedRecord).forEach((key) => {
+				Reflect.set(store, key, savedRecord[key]);
+			});
+		}
 	}
 
-	Reflect.set(globalThis, STORE_KEY, app.store);
+	if (store && typeof store === 'object') {
+		Reflect.set(globalThis, STORE_KEY, store);
+	}
 };
 
 const resolveModuleResponse = (
@@ -44,25 +46,67 @@ const resolveModuleResponse = (
 	return moduleResponse;
 };
 
+const resolveRequestPathname = (request: Request) => {
+	const rawUrl = request.url;
+	const qIdx = rawUrl.indexOf('?');
+	const pathEnd = qIdx === UNFOUND_INDEX ? rawUrl.length : qIdx;
+	const pathStart = rawUrl.indexOf('/', rawUrl.indexOf('//') + 2);
+
+	return rawUrl.slice(pathStart, pathEnd);
+};
+
+const resolveDevAssetResponse = async (
+	request: Request,
+	hmrState: HMRState,
+	moduleServerHandler?: (
+		pathname: string
+	) => Promise<Response | undefined> | Response | undefined
+) => {
+	const pathname = resolveRequestPathname(request);
+
+	if (moduleServerHandler) {
+		const moduleResponse = await moduleServerHandler(pathname);
+
+		if (!moduleResponse) return undefined;
+
+		return resolveModuleResponse(
+			moduleResponse,
+			request.headers.get('If-None-Match')
+		);
+	}
+
+	const bytes = lookupAsset(hmrState.assetStore, pathname);
+	if (!bytes) {
+		return undefined;
+	}
+
+	return new Response(new Uint8Array(bytes).buffer, {
+		headers: {
+			'Cache-Control': 'no-cache',
+			'Content-Type': getMimeType(pathname)
+		}
+	});
+};
+
 /* HMR plugin for Elysia
    Adds WebSocket endpoint and status endpoint.
    HMR client code is baked into framework index files (React/Svelte/Vue)
    and injected into HTML/HTMX files at build time.
    Also preserves Elysia store state across hot reloads. */
-export const hmr =
-	(
-		hmrState: HMRState,
-		manifest: Record<string, string>,
-		moduleServerHandler?: (
-			pathname: string
-		) => Promise<Response | undefined> | Response | undefined
-	) =>
-	(app: Elysia) => {
-		restoreStore(app);
-
+export const hmr = (
+	hmrState: HMRState,
+	manifest: Record<string, string>,
+	moduleServerHandler?: (
+		pathname: string
+	) => Promise<Response | undefined> | Response | undefined
+) =>
+	new Elysia({ name: 'absolutejs-hmr' })
+		.onStart(({ store }) => {
+			restoreStore(store);
+		})
 		// In HTTP/2 mode, WebSocket is handled by the http2Bridge
 		// so we skip Elysia's .ws() registration
-		app.onBeforeHandle(async ({ request }) => {
+		.onBeforeHandle(async ({ request }) => {
 			// Bridge React internals if bun install created a duplicate instance.
 			// Runs before any route handler so page handlers stay clean.
 			if (globalThis.__reactModuleRef) {
@@ -72,49 +116,30 @@ export const hmr =
 			/* Fast path: only parse URL for requests that could be assets.
 				   Asset paths always start with / and contain a dot (extension).
 				   Skip API routes, WebSocket upgrades, and page navigations. */
-			const rawUrl = request.url;
-			const qIdx = rawUrl.indexOf('?');
-			const pathEnd = qIdx === UNFOUND_INDEX ? rawUrl.length : qIdx;
-			/* URL is absolute (http://host/path), find the path portion */
-			const pathStart = rawUrl.indexOf('/', rawUrl.indexOf('//') + 2);
-			const pathname = rawUrl.slice(pathStart, pathEnd);
-
-			// Unbundled ESM module server — serves transpiled source files
-			// with ETag-based conditional requests for fast 304 responses
-			if (moduleServerHandler) {
-				const moduleResponse = await moduleServerHandler(pathname);
-
-				if (!moduleResponse) return undefined;
-
-				return resolveModuleResponse(
-					moduleResponse,
-					request.headers.get('If-None-Match')
-				);
-			}
-
-			const bytes = lookupAsset(hmrState.assetStore, pathname);
-			if (!bytes) {
-				return undefined;
-			}
-
-			return new Response(new Uint8Array(bytes).buffer, {
-				headers: {
-					'Cache-Control': 'no-cache',
-					'Content-Type': getMimeType(pathname)
-				}
-			});
-		});
-
+			return resolveDevAssetResponse(
+				request,
+				hmrState,
+				moduleServerHandler
+			);
+		})
+		.get('/@src/*', ({ request }) =>
+			resolveDevAssetResponse(request, hmrState, moduleServerHandler)
+		)
+		.get('/@stub/*', ({ request }) =>
+			resolveDevAssetResponse(request, hmrState, moduleServerHandler)
+		)
+		.get('/@hmr/*', ({ request }) =>
+			resolveDevAssetResponse(request, hmrState, moduleServerHandler)
+		)
 		// Always register WebSocket for HMR. When HTTP/2 bridge is
 		// fully implemented it can take over, but Elysia's native
 		// WebSocket works fine over both HTTP and HTTPS.
-		app.ws('/hmr', {
+		.ws('/hmr', {
 			close: (ws) => handleClientDisconnect(hmrState, ws),
 			message: (ws, msg) => handleHMRMessage(hmrState, ws, msg),
 			open: (ws) => handleClientConnect(hmrState, ws, manifest)
-		});
-
-		return app.get('/hmr-status', () => ({
+		})
+		.get('/hmr-status', () => ({
 			connectedClients: hmrState.connectedClients.size,
 			isRebuilding: hmrState.isRebuilding,
 			manifestKeys: Object.keys(manifest),
@@ -122,4 +147,3 @@ export const hmr =
 			rebuildQueue: Array.from(hmrState.rebuildQueue),
 			timestamp: Date.now()
 		}));
-	};

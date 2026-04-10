@@ -1,5 +1,6 @@
 import type {
 	AIConversation,
+	RAGSource,
 	AIImageData,
 	AIMessage,
 	AIStreamState,
@@ -175,6 +176,40 @@ const getOrCreateAssistantMessage = (
 	return message;
 };
 
+const handleRAGRetrieved = (
+	state: AIStreamState,
+	action: AIStoreAction & { type: 'rag_retrieved' }
+) => {
+	const conversation = getOrCreate(state, action.conversationId);
+	const message = getOrCreateAssistantMessage(
+		conversation,
+		action.messageId,
+		action.conversationId
+	);
+
+	message.sources = action.sources;
+	message.retrievalStartedAt =
+		action.retrievalStartedAt ?? message.retrievalStartedAt;
+	message.retrievedAt = action.retrievedAt;
+	message.retrievalDurationMs = action.retrievalDurationMs;
+	conversation.messages = [...conversation.messages];
+};
+
+const handleRAGRetrieving = (
+	state: AIStreamState,
+	action: AIStoreAction & { type: 'rag_retrieving' }
+) => {
+	const conversation = getOrCreate(state, action.conversationId);
+	const message = getOrCreateAssistantMessage(
+		conversation,
+		action.messageId,
+		action.conversationId
+	);
+
+	message.retrievalStartedAt = action.retrievalStartedAt;
+	conversation.messages = [...conversation.messages];
+};
+
 const handleToolStatus = (
 	state: AIStreamState,
 	action: AIStoreAction & { type: 'tool_status' }
@@ -202,11 +237,19 @@ const markMessageComplete = (
 	messageId: string,
 	usage?: { inputTokens: number; outputTokens: number },
 	durationMs?: number,
-	model?: string
+	model?: string,
+	sources?: RAGSource[]
 ) => {
 	conversation.messages = conversation.messages.map((msg) =>
 		msg.id === messageId && msg.role === 'assistant'
-			? { ...msg, durationMs, isStreaming: false, model, usage }
+			? {
+					...msg,
+					durationMs,
+					isStreaming: false,
+					model,
+					sources: sources ?? msg.sources,
+					usage
+				}
 			: msg
 	);
 };
@@ -295,7 +338,8 @@ const handleComplete = (
 			action.messageId,
 			action.usage,
 			action.durationMs,
-			action.model
+			action.model,
+			action.sources
 		);
 	}
 
@@ -379,6 +423,12 @@ const applyAction = (state: AIStreamState, action: AIStoreAction) => {
 		case 'error':
 			state.error = action.message;
 			state.isStreaming = false;
+			break;
+		case 'rag_retrieving':
+			handleRAGRetrieving(state, action);
+			break;
+		case 'rag_retrieved':
+			handleRAGRetrieved(state, action);
 			break;
 		case 'cancel':
 			state.isStreaming = false;

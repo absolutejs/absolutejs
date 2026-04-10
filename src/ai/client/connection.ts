@@ -15,6 +15,7 @@ const DEFAULT_MAX_RECONNECT_ATTEMPTS = 60;
 
 type AIConnectionState = {
 	isConnected: boolean;
+	pendingMessages: string[];
 	pingInterval: ReturnType<typeof setInterval> | null;
 	reconnectAttempts: number;
 	reconnectTimeout: ReturnType<typeof setTimeout> | null;
@@ -89,10 +90,24 @@ export const createAIConnection = (
 
 	const connState: AIConnectionState = {
 		isConnected: false,
+		pendingMessages: [],
 		pingInterval: null,
 		reconnectAttempts: 0,
 		reconnectTimeout: null,
 		ws: null
+	};
+
+	const flushPendingMessages = () => {
+		if (connState.ws?.readyState !== WS_OPEN) {
+			return;
+		}
+
+		while (connState.pendingMessages.length > 0) {
+			const next = connState.pendingMessages.shift();
+			if (typeof next === 'string') {
+				connState.ws.send(next);
+			}
+		}
 	};
 
 	const clearTimers = () => {
@@ -130,6 +145,7 @@ export const createAIConnection = (
 		wsInstance.onopen = () => {
 			connState.isConnected = true;
 			connState.reconnectAttempts = 0;
+			flushPendingMessages();
 
 			connState.pingInterval = setInterval(() => {
 				if (
@@ -173,9 +189,15 @@ export const createAIConnection = (
 	};
 
 	const send = (msg: AIClientMessage) => {
+		const serialized = JSON.stringify(msg);
+
 		if (connState.ws?.readyState === WS_OPEN) {
-			connState.ws.send(JSON.stringify(msg));
+			connState.ws.send(serialized);
+
+			return;
 		}
+
+		connState.pendingMessages.push(serialized);
 	};
 
 	const subscribe = (callback: (msg: AIServerMessage) => void) => {

@@ -40,14 +40,23 @@ export const resolvePackageImport = (
 	const subpath = isScoped ? parts.slice(2).join('/') : parts.slice(1).join('/');
 	const exportKey = subpath ? `./${subpath}` : '.';
 
-	// Find package.json
-	const packageDir = resolve(process.cwd(), 'node_modules', packageName ?? '');
+	const currentPackageJsonPath = resolve(process.cwd(), 'package.json');
+	const currentPackageJson = existsSync(currentPackageJsonPath)
+		? JSON.parse(readFileSync(currentPackageJsonPath, 'utf-8'))
+		: null;
+	const currentPackageDir =
+		currentPackageJson?.name === packageName ? process.cwd() : null;
+	const packageDir =
+		currentPackageDir ?? resolve(process.cwd(), 'node_modules', packageName ?? '');
 	const packageJsonPath = join(packageDir, 'package.json');
 
 	if (!existsSync(packageJsonPath)) return null;
 
 	try {
-		const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf-8'));
+		const packageJson =
+			currentPackageDir && currentPackageJson
+				? currentPackageJson
+				: JSON.parse(readFileSync(packageJsonPath, 'utf-8'));
 		const {exports} = packageJson;
 
 		if (!exports) return null;
@@ -60,6 +69,16 @@ export const resolvePackageImport = (
 		const importPath = resolveExportPath(entry, conditions);
 
 		if (!importPath) return null;
+
+		if (currentPackageDir && importPath.startsWith('./dist/')) {
+			const sourceCandidate = resolve(
+				packageDir,
+				importPath.replace(/^\.\/dist\//, './src/')
+			);
+			if (existsSync(sourceCandidate)) {
+				return sourceCandidate;
+			}
+		}
 
 		const resolved = resolve(packageDir, importPath);
 

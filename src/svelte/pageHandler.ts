@@ -1,9 +1,16 @@
 import type { Component as SvelteComponent } from 'svelte';
+import type { SveltePropsOf } from '../../types/svelte';
 import { compileSvelteServerModule } from '../core/svelteServerModule';
+import { injectIslandPageContextStream } from '../core/islandPageContext';
+import { getCurrentRouteRegistrationCallsite } from '../core/devRouteRegistrationCallsite';
 import {
-	htmlContainsIslands,
-	injectIslandPageContext
-} from '../core/islandPageContext';
+	type StreamingSlotEnhancerOptions,
+	withRegisteredStreamingSlots
+} from '../core/responseEnhancers';
+import {
+	captureStreamingSlotWarningCallsite,
+	runWithStreamingSlotWarningScope
+} from '../core/streamingSlotWarningScope';
 import { ssrErrorPage } from '../utils/ssrErrorPage';
 import {
 	derivePageName,
@@ -36,12 +43,9 @@ const readDefaultExport = (value: unknown) =>
 	isRecord(value) ? value.default : undefined;
 
 const buildDirtyResponse = (indexPath: string, props?: unknown) => {
-	const propsScript = `window.__INITIAL_PROPS__=${JSON.stringify(props)};`;
+	const propsScript = `window.__ABS_SLOT_HYDRATION_PENDING__=true;window.__INITIAL_PROPS__=${JSON.stringify(props)};${indexPath ? `import(${JSON.stringify(indexPath)});` : ''}`;
 	const dirtyFlag = 'window.__SSR_DIRTY__=true;';
-	const scriptTag = indexPath
-		? `<script type="module" src="${indexPath}"></script>`
-		: '';
-	const html = `<!DOCTYPE html><html><head></head><body><script>${propsScript}${dirtyFlag}</script>${scriptTag}</body></html>`;
+	const html = `<!DOCTYPE html><html><head></head><body><script>${propsScript}${dirtyFlag}</script></body></html>`;
 
 	return new Response(html, {
 		headers: { 'Content-Type': 'text/html' }
@@ -49,11 +53,25 @@ const buildDirtyResponse = (indexPath: string, props?: unknown) => {
 };
 
 export type SveltePageRenderOptions = {
+	collectStreamingSlots?: boolean;
 	bodyContent?: string;
 	headContent?: string;
-};
+} & StreamingSlotEnhancerOptions;
+export type SveltePageRequestInput<
+	Component extends SvelteComponent<any> = SvelteComponent<
+		Record<never, never>
+	>
+> = SveltePageRenderOptions & {
+	indexPath: string;
+	pagePath: string;
+} & (keyof SveltePropsOf<Component> extends never
+		? { props?: NoInfer<SveltePropsOf<Component>> }
+		: { props: NoInfer<SveltePropsOf<Component>> });
 
 export type HandleSveltePageRequest = {
+	<Component extends SvelteComponent<any>>(
+		input: SveltePageRequestInput<Component>
+	): Promise<Response>;
 	(
 		PageComponent: SvelteComponent<Record<string, never>>,
 		pagePath: string,
@@ -71,105 +89,155 @@ export type HandleSveltePageRequest = {
 export const handleSveltePageRequest: HandleSveltePageRequest = async <
 	P extends Record<string, unknown>
 >(
-	PageComponent: SvelteComponent<P>,
-	pagePath: string,
-	indexPath: string,
+	PageComponentOrInput:
+		| SvelteComponent<P>
+		| SveltePageRequestInput<SvelteComponent<P>>,
+	pagePath?: string,
+	indexPath?: string,
 	props?: P,
 	options?: SveltePageRenderOptions
 ) => {
+	const {
+		PageComponent,
+		indexPath: resolvedIndexPath,
+		options: resolvedOptions,
+		pagePath: resolvedPagePath,
+		props: resolvedProps
+	} = typeof PageComponentOrInput === 'object' &&
+	PageComponentOrInput !== null &&
+	'pagePath' in PageComponentOrInput &&
+	'indexPath' in PageComponentOrInput
+		? {
+				PageComponent: undefined,
+				indexPath: PageComponentOrInput.indexPath,
+				options: PageComponentOrInput,
+				pagePath: PageComponentOrInput.pagePath,
+				props: PageComponentOrInput.props
+			}
+		: {
+				indexPath: indexPath ?? '',
+				options,
+				PageComponent: PageComponentOrInput,
+				pagePath: pagePath ?? '',
+				props
+			};
 	if (ssrDirty) {
-		return buildDirtyResponse(indexPath, props);
+		return buildDirtyResponse(resolvedIndexPath, resolvedProps);
 	}
 
 	try {
-		const resolvePageComponent = async (): Promise<ResolvedSveltePage> => {
-			const passedPageComponent: unknown = PageComponent;
-			if (isGenericSvelteComponent(passedPageComponent)) {
-				return {
-					component: passedPageComponent,
-					hasIslands: readHasIslands(passedPageComponent)
-				};
-			}
+		const handlerCallsite =
+			resolvedOptions?.collectStreamingSlots === true
+				? undefined
+				: (getCurrentRouteRegistrationCallsite() ??
+					captureStreamingSlotWarningCallsite());
+		const renderPageResponse = async () => {
+			const resolvePageComponent =
+				async (): Promise<ResolvedSveltePage> => {
+					const passedPageComponent: unknown = PageComponent;
+					if (isGenericSvelteComponent(passedPageComponent)) {
+						return {
+							component: passedPageComponent,
+							hasIslands: readHasIslands(passedPageComponent)
+						};
+					}
 
-			const loadCompiledSourcePath = async (
-				sourcePath: string
-			): Promise<ResolvedSveltePage> => {
-				const compiledModulePath =
-					await compileSvelteServerModule(sourcePath);
-				const loadedModule: unknown = await import(compiledModulePath);
-				const loadedComponent =
-					readDefaultExport(loadedModule) ?? loadedModule;
-				if (!isGenericSvelteComponent(loadedComponent)) {
-					throw new Error(
-						`Invalid compiled Svelte page module: ${sourcePath}`
+					const loadCompiledSourcePath = async (
+						sourcePath: string
+					): Promise<ResolvedSveltePage> => {
+						const compiledModulePath =
+							await compileSvelteServerModule(sourcePath);
+						const loadedModule: unknown = await import(
+							compiledModulePath
+						);
+						const loadedComponent =
+							readDefaultExport(loadedModule) ?? loadedModule;
+						if (!isGenericSvelteComponent(loadedComponent)) {
+							throw new Error(
+								`Invalid compiled Svelte page module: ${sourcePath}`
+							);
+						}
+
+						return {
+							component: loadedComponent,
+							hasIslands: readHasIslands(loadedModule)
+						};
+					};
+
+					if (
+						typeof passedPageComponent === 'string' &&
+						passedPageComponent.endsWith('.svelte')
+					) {
+						return loadCompiledSourcePath(passedPageComponent);
+					}
+
+					const importedPageModule: unknown = await import(
+						resolvedPagePath
 					);
-				}
+					const importedPageComponent =
+						readDefaultExport(importedPageModule) ??
+						importedPageModule;
 
-				return {
-					component: loadedComponent,
-					hasIslands: readHasIslands(loadedModule)
+					if (
+						typeof importedPageComponent === 'string' &&
+						importedPageComponent.endsWith('.svelte')
+					) {
+						return loadCompiledSourcePath(importedPageComponent);
+					}
+
+					if (!isGenericSvelteComponent(importedPageComponent)) {
+						throw new Error(
+							`Invalid Svelte page module: ${resolvedPagePath}`
+						);
+					}
+
+					return {
+						component: importedPageComponent,
+						hasIslands: readHasIslands(importedPageModule)
+					};
 				};
-			};
 
-			if (
-				typeof passedPageComponent === 'string' &&
-				passedPageComponent.endsWith('.svelte')
-			) {
-				return loadCompiledSourcePath(passedPageComponent);
-			}
+			const { renderToReadableStream } = await import(
+				'./renderToReadableStream'
+			);
+			const resolvedPage = await resolvePageComponent();
 
-			const importedPageModule: unknown = await import(pagePath);
-			const importedPageComponent =
-				readDefaultExport(importedPageModule) ?? importedPageModule;
+			const stream = await renderToReadableStream(
+				resolvedPage.component,
+				resolvedProps,
+				{
+					bodyContent: resolvedOptions?.bodyContent,
+					bootstrapScriptContent: `window.__ABS_SLOT_HYDRATION_PENDING__=true;window.__INITIAL_PROPS__=${JSON.stringify(
+						resolvedProps
+					)};${resolvedIndexPath ? `import(${JSON.stringify(resolvedIndexPath)});` : ''}`,
+					headContent: resolvedOptions?.headContent
+				}
+			);
 
-			if (
-				typeof importedPageComponent === 'string' &&
-				importedPageComponent.endsWith('.svelte')
-			) {
-				return loadCompiledSourcePath(importedPageComponent);
-			}
+			const htmlStream = injectIslandPageContextStream(stream, {
+				hasIslands: resolvedPage.hasIslands ? true : undefined
+			});
 
-			if (!isGenericSvelteComponent(importedPageComponent)) {
-				throw new Error(`Invalid Svelte page module: ${pagePath}`);
-			}
-
-			return {
-				component: importedPageComponent,
-				hasIslands: readHasIslands(importedPageModule)
-			};
+			return new Response(htmlStream, {
+				headers: { 'Content-Type': 'text/html' }
+			});
 		};
 
-		const { renderToReadableStream } = await import(
-			'./renderToReadableStream'
+		return runWithStreamingSlotWarningScope(
+			() =>
+				resolvedOptions?.collectStreamingSlots === true
+					? withRegisteredStreamingSlots(renderPageResponse, {
+							...resolvedOptions,
+							runtimePlacement:
+								resolvedOptions.runtimePlacement ?? 'body'
+						})
+					: renderPageResponse(),
+			{ handlerCallsite }
 		);
-		const resolvedPage = await resolvePageComponent();
-
-		const stream = await renderToReadableStream(
-			resolvedPage.component,
-			props,
-			{
-				bodyContent: options?.bodyContent,
-				bootstrapModules: indexPath ? [indexPath] : [],
-				bootstrapScriptContent: `window.__INITIAL_PROPS__=${JSON.stringify(
-					props
-				)}`,
-				headContent: options?.headContent
-			}
-		);
-
-		const renderedHtml = await new Response(stream).text();
-		const html = injectIslandPageContext(renderedHtml, {
-			hasIslands:
-				resolvedPage.hasIslands || htmlContainsIslands(renderedHtml)
-		});
-
-		return new Response(html, {
-			headers: { 'Content-Type': 'text/html' }
-		});
 	} catch (error) {
 		console.error('[SSR] Svelte render error:', error);
 
-		const pageName = derivePageName(pagePath);
+		const pageName = derivePageName(resolvedPagePath);
 		const conventionResponse = await renderConventionError(
 			'svelte',
 			pageName,

@@ -8,7 +8,8 @@ import type {
 	AIToolMap,
 	AIUsage,
 	AIWebSocket,
-	StreamAIOptions
+	StreamAIOptions,
+	StreamAICompleteMetadata
 } from '../../types/ai';
 import { serializeAIMessage } from './protocol';
 
@@ -502,13 +503,15 @@ const sendComplete = async (
 	conversationId: string,
 	usage?: AIUsage,
 	durationMs?: number,
-	model?: string
+	model?: string,
+	completeMeta?: StreamAICompleteMetadata
 ) =>
 	sendMessage(socket, {
 		conversationId,
 		durationMs,
 		messageId,
 		model,
+		sources: completeMeta?.sources,
 		type: 'complete',
 		usage
 	});
@@ -576,9 +579,14 @@ const handleToolCalls = async (
 		conversationId,
 		toolResult.usage,
 		Date.now() - startTime,
-		options.model
+		options.model,
+		options.completeMeta
 	);
-	options.onComplete?.(toolResult.fullResponse, toolResult.usage);
+	options.onComplete?.(
+		toolResult.fullResponse,
+		toolResult.usage,
+		options.completeMeta
+	);
 
 	return toolResult;
 };
@@ -663,9 +671,14 @@ const processStream = async (
 			conversationId,
 			result.usage,
 			Date.now() - startTime,
-			options.model
+			options.model,
+			options.completeMeta
 		);
-		options.onComplete?.(result.fullResponse, result.usage);
+		options.onComplete?.(
+			result.fullResponse,
+			result.usage,
+			options.completeMeta
+		);
 	}
 };
 

@@ -1,18 +1,17 @@
 <script lang="ts">
 	import type { Metadata, RobotsDirective } from '../../../types/metadata';
 
-	let {
-		title = 'AbsoluteJS',
-		description = 'A page created using AbsoluteJS',
-		icon = '/assets/ico/favicon.ico',
-		font,
-		cssPath,
-		canonical,
-		openGraph,
-		twitter,
-		robots,
-		meta
-	}: Metadata = $props();
+	export let title: Metadata['title'] = 'AbsoluteJS';
+	export let description: Metadata['description'] =
+		'A page created using AbsoluteJS';
+	export let icon: Metadata['icon'] = '/assets/ico/favicon.ico';
+	export let font: Metadata['font'] = undefined;
+	export let cssPath: Metadata['cssPath'] = undefined;
+	export let canonical: Metadata['canonical'] = undefined;
+	export let openGraph: Metadata['openGraph'] = undefined;
+	export let twitter: Metadata['twitter'] = undefined;
+	export let robots: Metadata['robots'] = undefined;
+	export let meta: Metadata['meta'] = undefined;
 
 	const robotsContent = (r: RobotsDirective) => {
 		const directives: string[] = [];
@@ -32,9 +31,7 @@
 		return directives.join(', ');
 	};
 
-	const cssPaths = $derived(
-		cssPath ? (Array.isArray(cssPath) ? cssPath : [cssPath]) : []
-	);
+	$: cssPaths = cssPath ? (Array.isArray(cssPath) ? cssPath : [cssPath]) : [];
 </script>
 
 <svelte:head>
@@ -133,7 +130,7 @@
 		<link
 			rel="preconnect"
 			href="https://fonts.gstatic.com"
-			crossOrigin="anonymous"
+			crossorigin="anonymous"
 		/>
 		<link
 			href={`https://fonts.googleapis.com/css2?family=${font}:wght@100..900&display=swap`}

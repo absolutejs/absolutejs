@@ -193,7 +193,7 @@ export const renderIslandResult = async <T extends IslandRegistryInput>(
 			);
 		}
 		const component = await resolveReactServerIslandComponent(entry);
-		const html = renderReactIslandToHtml(component, props.props);
+		const html = await renderReactIslandToHtml(component, props.props);
 
 		return { attributes, html };
 	}
@@ -206,7 +206,7 @@ export const renderIslandResult = async <T extends IslandRegistryInput>(
 			);
 		}
 		const component = await resolveSvelteServerIslandComponent(entry);
-		const html = renderSvelteIslandToHtml(component, props.props);
+		const html = await renderSvelteIslandToHtml(component, props.props);
 
 		return { attributes, html };
 	}

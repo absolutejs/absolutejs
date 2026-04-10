@@ -1,7 +1,9 @@
 import type { Dirent } from 'node:fs';
 import { mkdir, readdir } from 'node:fs/promises';
 import { basename, dirname, extname, join, relative, resolve } from 'node:path';
+import { resolvePackageImport } from '../build/resolvePackageImport';
 import { lowerSvelteIslandSyntax } from '../svelte/lowerIslandSyntax';
+import { lowerSvelteAwaitSlotSyntax } from '../svelte/lowerAwaitSlotSyntax';
 
 const serverCacheRoot = join(process.cwd(), '.absolutejs', 'islands', 'svelte');
 
@@ -140,6 +142,12 @@ const getCachedModulePath = (sourcePath: string) => {
 };
 
 const resolveSvelteImport = async (spec: string, from: string) => {
+	if (!spec.startsWith('.') && !spec.startsWith('/')) {
+		const resolved = resolvePackageImport(spec);
+
+		return resolved && resolved.endsWith('.svelte') ? resolved : null;
+	}
+
 	if (spec.startsWith('/')) {
 		return spec;
 	}
@@ -183,7 +191,11 @@ export const compileSvelteServerModule = async (sourcePath: string) => {
 	const resolutionSourcePath = await resolveOriginalSourcePath(sourcePath);
 	const source = await Bun.file(sourcePath).text();
 	const { compile, preprocess } = await import('svelte/compiler');
-	const loweredSource = lowerSvelteIslandSyntax(source, 'server');
+	const loweredAwaitSource = lowerSvelteAwaitSlotSyntax(source);
+	const loweredSource = lowerSvelteIslandSyntax(
+		loweredAwaitSource.code,
+		'server'
+	);
 	const preprocessed = await preprocess(loweredSource.code, {});
 	let transpiled =
 		sourcePath.endsWith('.ts') || sourcePath.endsWith('.svelte.ts')
@@ -214,13 +226,16 @@ export const compileSvelteServerModule = async (sourcePath: string) => {
 
 			return {
 				compiledPath: await compileSvelteServerModule(resolvedChild),
+				resolvedChild,
 				spec
 			};
 		})
 	);
 
 	for (const result of compiledChildren) {
-		if (result) childModulePaths.set(result.spec, result.compiledPath);
+		if (!result) continue;
+		childModulePaths.set(result.spec, result.compiledPath);
+		childModulePaths.set(result.resolvedChild, result.compiledPath);
 	}
 
 	for (let index = 0; index < childImportSpecs.length; index += 1) {
@@ -245,7 +260,7 @@ export const compileSvelteServerModule = async (sourcePath: string) => {
 	let compiledCode = compile(transpiled, {
 		css: 'injected',
 		experimental: {
-			async: loweredSource.transformed
+			async: loweredAwaitSource.transformed || loweredSource.transformed
 		},
 		filename: resolutionSourcePath,
 		generate: 'server'

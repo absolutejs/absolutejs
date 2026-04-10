@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { basename, join, relative, resolve } from 'node:path';
+import { Elysia } from 'elysia';
 import type { SitemapConfig } from '../../types/sitemap';
 import type { ConventionsMap } from '../../types/conventions';
 import { loadConfig } from '../utils/loadConfig';
@@ -102,6 +103,11 @@ const prepareDev = async (
 	config: Awaited<ReturnType<typeof loadConfig>>,
 	buildDir: string
 ) => {
+	const { patchElysiaRouteRegistrationCallsites } = await import(
+		'./devRouteRegistrationCallsite'
+	);
+	patchElysiaRouteRegistrationCallsites();
+
 	const { devBuild } = await import('./devBuild');
 	const result = await devBuild(config);
 	const { hmr } = await import('../plugins/hmr');
@@ -155,6 +161,7 @@ const prepareDev = async (
 	}
 
 	const hmrPlugin = hmr(result.hmrState, result.manifest, moduleHandler);
+	const { devtoolsJson } = await import('../plugins/devtoolsJson');
 
 	// Override index manifest entries to /@src/ URLs so the initial
 	// page load uses the module server (same module system as HMR).
@@ -173,26 +180,32 @@ const prepareDev = async (
 	setCurrentPageIslandMetadata(await loadPageIslandMetadata(config));
 
 	const { imageOptimizer } = await import('../plugins/imageOptimizer');
+	const absolutejs = new Elysia({ name: 'absolutejs-runtime' })
+		.use(
+			devtoolsJson(buildDir, {
+				normalizeForWindowsContainer:
+					config.dev?.devtools?.normalizeForWindowsContainer,
+				projectRoot: config.dev?.devtools?.projectRoot,
+				uuid: config.dev?.devtools?.uuid,
+				uuidCachePath: config.dev?.devtools?.uuidCachePath
+			})
+		)
+		.use(imageOptimizer(config.images, buildDir))
+		.use(
+			staticPlugin({
+				assets: buildDir,
+				directive: 'no-cache',
+				maxAge: null,
+				prefix: ''
+			})
+		)
+		.use(hmrPlugin)
+		.use(createSitemapPlugin(buildDir, config.sitemap))
+		.use(createNotFoundPlugin());
 
 	return {
-		manifest: result.manifest,
-		absolutejs: (app: import('elysia').Elysia) =>
-			addNotFoundHook(
-				addSitemapHook(
-					hmrPlugin(
-						app.use(imageOptimizer(config.images, buildDir)).use(
-							staticPlugin({
-								assets: buildDir,
-								directive: 'no-cache',
-								maxAge: null,
-								prefix: ''
-							})
-						)
-					),
-					buildDir,
-					config.sitemap
-				)
-			)
+		absolutejs,
+		manifest: result.manifest
 	};
 };
 
@@ -219,13 +232,8 @@ const loadPrerenderMap = (prerenderDir: string) => {
 	return map;
 };
 
-const addSitemapHook = (
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Elysia generics vary per plugin chain
-	app: any,
-	buildDir: string,
-	sitemapConfig?: SitemapConfig
-) =>
-	app.onStart((started: import('elysia').Elysia) => {
+const createSitemapPlugin = (buildDir: string, sitemapConfig?: SitemapConfig) =>
+	new Elysia({ name: 'absolutejs-sitemap' }).onStart((started) => {
 		const { server } = started;
 		if (!server) return;
 
@@ -241,11 +249,8 @@ const addSitemapHook = (
 			.catch((err) => console.error('[sitemap] Generation failed:', err));
 	});
 
-const addNotFoundHook = (
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Elysia generics vary per plugin chain
-	app: any
-) =>
-	app.onError(async ({ code }: { code: string }) => {
+const createNotFoundPlugin = () =>
+	new Elysia({ name: 'absolutejs-not-found' }).onError(async ({ code }) => {
 		if (code !== 'NOT_FOUND') return undefined;
 		const response = await renderFirstNotFound();
 		if (response) return response;
@@ -296,7 +301,6 @@ export const prepare = async (configOrPath?: string) => {
 	const prerenderMap = loadPrerenderMap(prerenderDir);
 
 	if (prerenderMap.size > 0) {
-		const { Elysia } = await import('elysia');
 		const { PRERENDER_BYPASS_HEADER, readTimestamp, rerenderRoute } =
 			await import('./prerender');
 
@@ -342,34 +346,22 @@ export const prepare = async (configOrPath?: string) => {
 		});
 
 		const { imageOptimizer } = await import('../plugins/imageOptimizer');
-
-		const absolutejs = (app: import('elysia').Elysia) =>
-			addNotFoundHook(
-				addSitemapHook(
-					app
-						.use(imageOptimizer(config.images, buildDir))
-						.use(prerenderPlugin)
-						.use(staticFiles),
-					buildDir,
-					config.sitemap
-				)
-			);
+		const absolutejs = new Elysia({ name: 'absolutejs-runtime' })
+			.use(imageOptimizer(config.images, buildDir))
+			.use(prerenderPlugin)
+			.use(staticFiles)
+			.use(createSitemapPlugin(buildDir, config.sitemap))
+			.use(createNotFoundPlugin());
 
 		return { absolutejs, manifest };
 	}
 
 	const { imageOptimizer } = await import('../plugins/imageOptimizer');
-
-	const absolutejs = (app: import('elysia').Elysia) =>
-		addNotFoundHook(
-			addSitemapHook(
-				app
-					.use(imageOptimizer(config.images, buildDir))
-					.use(staticFiles),
-				buildDir,
-				config.sitemap
-			)
-		);
+	const absolutejs = new Elysia({ name: 'absolutejs-runtime' })
+		.use(imageOptimizer(config.images, buildDir))
+		.use(staticFiles)
+		.use(createSitemapPlugin(buildDir, config.sitemap))
+		.use(createNotFoundPlugin());
 
 	return { absolutejs, manifest };
 };
