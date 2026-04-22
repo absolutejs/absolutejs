@@ -113,7 +113,7 @@ fn isIdentChar(c: u8) bool {
 }
 
 fn parseReplacements(allocator: std.mem.Allocator, json_str: []const u8) ![]Replacement {
-    var replacements = std.ArrayListUnmanaged(Replacement){};
+    var replacements = std.ArrayListUnmanaged(Replacement).empty;
     errdefer replacements.deinit(allocator);
     var i: usize = 0;
     while (i < json_str.len and json_str[i] != '[') : (i += 1) {}

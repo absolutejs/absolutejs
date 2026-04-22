@@ -78,6 +78,17 @@ export const useRAGIndexAdmin = (path: string) => {
 			return response;
 		});
 
+	const analyzeBackend = async () =>
+		run(async () => {
+			const response = await client.analyzeBackend();
+			lastMutation.value = response;
+			if (!response.ok) {
+				throw new Error(response.error ?? 'Failed to analyze backend');
+			}
+
+			return response;
+		});
+
 	const reindexDocument = async (id: string) =>
 		run(async () => {
 			const response = await client.reindexDocument(id);
@@ -95,6 +106,19 @@ export const useRAGIndexAdmin = (path: string) => {
 			lastMutation.value = response;
 			if (!response.ok) {
 				throw new Error(response.error ?? 'Failed to reindex source');
+			}
+
+			return response;
+		});
+
+	const rebuildNativeIndex = async () =>
+		run(async () => {
+			const response = await client.rebuildNativeIndex();
+			lastMutation.value = response;
+			if (!response.ok) {
+				throw new Error(
+					response.error ?? 'Failed to rebuild native index'
+				);
 			}
 
 			return response;
@@ -168,6 +192,7 @@ export const useRAGIndexAdmin = (path: string) => {
 
 	return {
 		backends,
+		analyzeBackend,
 		clearIndex,
 		createDocument,
 		deleteDocument,
@@ -176,6 +201,7 @@ export const useRAGIndexAdmin = (path: string) => {
 		lastMutation,
 		loadBackends,
 		loadSyncSources,
+		rebuildNativeIndex,
 		reindexDocument,
 		reindexSource,
 		reseed,

@@ -1,4 +1,9 @@
-import type { AIHTMXRenderConfig, AIUsage, RAGSource } from '../../types/ai';
+import type {
+	AIHTMXRenderConfig,
+	AIUsage,
+	RAGRetrievalTrace,
+	RAGSource
+} from '../../types/ai';
 import { MILLISECONDS_IN_A_SECOND } from '../constants';
 
 export type ResolvedRenderers = Required<AIHTMXRenderConfig>;
@@ -93,11 +98,27 @@ const defaultCanceled = () => `<div class="ai-canceled">Canceled.</div>`;
 const defaultRAGRetrieving = () =>
 	`<div class="ai-retrieving">Retrieving sources...</div>`;
 
-const defaultRAGRetrieved = (sources: RAGSource[]) =>
+const renderTraceSummary = (trace?: RAGRetrievalTrace) => {
+	if (!trace) {
+		return '';
+	}
+
+	return (
+		`<div class="ai-trace-summary">` +
+		`Mode: ${escapeHtml(trace.mode)} · Final: ${trace.resultCounts.final} · Vector: ${trace.resultCounts.vector} · Lexical: ${trace.resultCounts.lexical}` +
+		`</div>`
+	);
+};
+
+const defaultRAGRetrieved = (
+	sources: RAGSource[],
+	input?: { trace?: RAGRetrievalTrace }
+) =>
 	sources.length === 0
 		? ''
 		: `<div class="ai-sources">` +
 			`<h4>Citations</h4>` +
+			renderTraceSummary(input?.trace) +
 			`<ul>` +
 			`${sources
 				.map(

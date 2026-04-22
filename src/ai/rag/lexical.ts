@@ -754,13 +754,29 @@ export const fuseRAGQueryResults = ({
 
 export const resolveRAGHybridSearchOptions = (
 	retrieval: RAGHybridSearchOptions | RAGHybridRetrievalMode | undefined
-) => {
+): Required<
+	Pick<
+		RAGHybridSearchOptions,
+		| 'fusion'
+		| 'fusionConstant'
+		| 'lexicalWeight'
+		| 'mode'
+		| 'diversityStrategy'
+		| 'mmrLambda'
+		| 'sourceBalanceStrategy'
+		| 'vectorWeight'
+	>
+> &
+	Pick<RAGHybridSearchOptions, 'lexicalTopK' | 'maxResultsPerSource'> => {
 	if (!retrieval) {
 		return {
 			fusion: 'rrf' as const,
 			fusionConstant: DEFAULT_FUSION_CONSTANT,
 			lexicalTopK: undefined,
 			lexicalWeight: 2,
+			mmrLambda: 0.7,
+			sourceBalanceStrategy: 'cap' as const,
+			diversityStrategy: 'none' as const,
 			mode: 'vector' as const,
 			vectorWeight: 1
 		};
@@ -772,6 +788,9 @@ export const resolveRAGHybridSearchOptions = (
 			fusionConstant: DEFAULT_FUSION_CONSTANT,
 			lexicalTopK: undefined,
 			lexicalWeight: 2,
+			mmrLambda: 0.7,
+			sourceBalanceStrategy: 'cap' as const,
+			diversityStrategy: 'none' as const,
 			mode: retrieval,
 			vectorWeight: 1
 		};
@@ -784,8 +803,19 @@ export const resolveRAGHybridSearchOptions = (
 			Math.floor(retrieval.fusionConstant ?? DEFAULT_FUSION_CONSTANT)
 		),
 		lexicalTopK: retrieval.lexicalTopK,
+		maxResultsPerSource:
+			typeof retrieval.maxResultsPerSource === 'number'
+				? Math.max(1, Math.floor(retrieval.maxResultsPerSource))
+				: undefined,
 		lexicalWeight: Math.max(0, retrieval.lexicalWeight ?? 2),
+		mmrLambda: Math.min(1, Math.max(0, retrieval.mmrLambda ?? 0.7)),
 		mode: retrieval.mode ?? 'vector',
+		diversityStrategy:
+			retrieval.diversityStrategy === 'mmr' ? 'mmr' : 'none',
+		sourceBalanceStrategy:
+			retrieval.sourceBalanceStrategy === 'round_robin'
+				? 'round_robin'
+				: 'cap',
 		vectorWeight: Math.max(0, retrieval.vectorWeight ?? 1)
 	};
 };

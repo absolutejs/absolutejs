@@ -13,6 +13,10 @@ const replaceAssetRef = (
 	manifest: Record<string, string>,
 	filePath: string
 ) => {
+	if (/data-external(?:\s*=\s*["'][^"']*["'])?/i.test(match)) {
+		return match;
+	}
+
 	const pascal = toPascal(name);
 
 	let key;

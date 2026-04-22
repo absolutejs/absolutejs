@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { RAGShowcase } from './RAGShowcase';
 
 type AppProps = { initialCount: number };
 
@@ -44,6 +45,7 @@ export const App = ({ initialCount }: AppProps) => {
 			>
 				Click on the AbsoluteJS and React logos to learn more.
 			</p>
+			<RAGShowcase />
 		</main>
 	);
 };

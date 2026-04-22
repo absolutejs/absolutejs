@@ -1,0 +1,1866 @@
+<w:document>
+	<w:body>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Title"/></w:pPr>
+			<w:t>Release Scope Slice Workbook</w:t>
+		</w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading1"/></w:pPr>
+			<w:t>Stable Lane</w:t>
+		</w:p>
+		<w:p><w:t>Keep stable evidence isolated to the stable lane.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading2"/></w:pPr>
+			<w:t>Checklist</w:t>
+		</w:p>
+		<w:p><w:t>Use this checklist to verify stable ownership before rollout.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr></w:pPr>
+			<w:t>Confirm stable owner</w:t>
+		</w:p>
+		<w:p>
+			<w:pPr><w:numPr><w:ilvl w:val="1"/><w:numId w:val="1"/></w:numPr></w:pPr>
+			<w:t>Attach stable evidence</w:t>
+		</w:p>
+		<w:p><w:t>Only promote stable evidence that already matches the blocked rollout state.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading2"/></w:pPr>
+			<w:t>Evidence Table</w:t>
+		</w:p>
+		<w:p><w:t>Use this table to track stable evidence by artifact.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Artifact</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Approval trace</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Blocked</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Rollback trace</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Attached</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Owner notes</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Ready</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Mitigation log</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Open</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading2"/></w:pPr>
+			<w:t>Owner Table</w:t>
+		</w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Owner</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Stable lead</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Blocked</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading2"/></w:pPr>
+			<w:t>Validation Pack</w:t>
+		</w:p>
+		<w:p><w:t>Keep validation evidence nested under the stable lane.</w:t></w:p>
+		<w:p><w:t>Review stable validation ownership before signoff.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading3"/></w:pPr>
+			<w:t>Checklist</w:t>
+		</w:p>
+		<w:p><w:t>Use this checklist to verify stable validation before release signoff.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="3"/></w:numPr></w:pPr>
+			<w:t>Confirm stable validation owner</w:t>
+		</w:p>
+		<w:p>
+			<w:pPr><w:numPr><w:ilvl w:val="1"/><w:numId w:val="3"/></w:numPr></w:pPr>
+			<w:t>Attach stable validation evidence</w:t>
+		</w:p>
+		<w:p><w:t>Only escalate stable validation evidence that already passed blocked-lane review.</w:t></w:p>
+		<w:p><w:t>Escalate stable validation blockers through the nested evidence path.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading3"/></w:pPr>
+			<w:t>Evidence Table</w:t>
+		</w:p>
+		<w:p><w:t>Use this table to track stable validation evidence by artifact.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Artifact</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Stable validation trace</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Blocked</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Stable validation owner note</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Attached</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Stable validation rollback trace</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Ready</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Stable validation mitigation log</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Watch</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Route unresolved stable validation owners through this table.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading3"/></w:pPr>
+			<w:t>Owner Table</w:t>
+		</w:p>
+		<w:p><w:t>Use this table to track stable validation owners by state.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Owner</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Stable validation lead</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Blocked</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading3"/></w:pPr>
+			<w:t>Evidence Review</w:t>
+		</w:p>
+		<w:p><w:t>Keep stable evidence review isolated to the nested validation scope.</w:t></w:p>
+		<w:p><w:t>Record stable review notes before routing ownership updates.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading4"/></w:pPr>
+			<w:t>Checklist</w:t>
+		</w:p>
+		<w:p><w:t>Use this checklist to verify stable evidence review before routing blockers.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="5"/></w:numPr></w:pPr>
+			<w:t>Confirm stable review owner</w:t>
+		</w:p>
+		<w:p>
+			<w:pPr><w:numPr><w:ilvl w:val="1"/><w:numId w:val="5"/></w:numPr></w:pPr>
+			<w:t>Attach stable review evidence</w:t>
+		</w:p>
+		<w:p><w:t>Only route stable review evidence that already matches the blocked validation state.</w:t></w:p>
+		<w:p><w:t>Escalate stable review blockers through the nested review evidence table.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading4"/></w:pPr>
+			<w:t>Evidence Table</w:t>
+		</w:p>
+		<w:p><w:t>Use this table to track stable review evidence by artifact.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Artifact</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Stable review trace</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Blocked</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Stable review owner note</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Attached</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Stable review rollback note</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Ready</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Stable review mitigation log</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Watch</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Route unresolved stable review owners through this table.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading4"/></w:pPr>
+			<w:t>Owner Table</w:t>
+		</w:p>
+		<w:p><w:t>Use this table to track stable review owners by state.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Owner</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Stable review lead</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Blocked</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading3"/></w:pPr>
+			<w:t>Evidence Review</w:t>
+		</w:p>
+		<w:p><w:t>Keep stable follow-up evidence review isolated to the nested validation scope.</w:t></w:p>
+		<w:p><w:t>Record stable follow-up review notes before final route confirmation.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading4"/></w:pPr>
+			<w:t>Checklist</w:t>
+		</w:p>
+		<w:p><w:t>Use this checklist to verify stable follow-up review before final route confirmation.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="7"/></w:numPr></w:pPr>
+			<w:t>Confirm stable follow-up review owner</w:t>
+		</w:p>
+		<w:p>
+			<w:pPr><w:numPr><w:ilvl w:val="1"/><w:numId w:val="7"/></w:numPr></w:pPr>
+			<w:t>Attach stable follow-up review evidence</w:t>
+		</w:p>
+		<w:p><w:t>Only route stable follow-up review evidence after the first nested review table is complete.</w:t></w:p>
+		<w:p><w:t>Escalate stable follow-up review blockers through the second nested review evidence table.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading4"/></w:pPr>
+			<w:t>Evidence Table</w:t>
+		</w:p>
+		<w:p><w:t>Keep stable follow-up review artifacts grouped under the second nested evidence table.</w:t></w:p>
+		<w:p><w:t>Use this table to track stable follow-up review evidence by artifact.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Artifact</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Stable follow-up review trace</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Blocked</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Stable follow-up owner note</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Attached</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Stable follow-up rollback note</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Ready</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Stable follow-up mitigation log</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Watch</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Route unresolved stable follow-up review owners through this table.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading4"/></w:pPr>
+			<w:t>Owner Table</w:t>
+		</w:p>
+		<w:p><w:t>Use this table to track stable follow-up review owners by state.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Owner</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Stable follow-up review lead</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Blocked</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Archive stable follow-up owner notes with this owner table before the duplicate evidence family begins.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading4"/></w:pPr>
+			<w:t>Evidence Table</w:t>
+		</w:p>
+		<w:p><w:t>Keep stable sibling follow-up evidence isolated from the first follow-up evidence table.</w:t></w:p>
+		<w:p><w:t>Use this table to track stable sibling follow-up evidence by artifact.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Artifact</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Stable sibling review trace</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Watch</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Stable sibling owner note</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Attached</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Stable sibling rollback note</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Ready</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Stable sibling mitigation log</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Escalated</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Record stable sibling follow-up evidence notes after this table before owner routing.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading4"/></w:pPr>
+			<w:t>Owner Table</w:t>
+		</w:p>
+		<w:p><w:t>Use this table to track stable sibling follow-up owners by state.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Owner</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Stable sibling follow-up lead</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Watch</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Archive stable sibling follow-up owner notes with this table.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading4"/></w:pPr>
+			<w:t>Review Notes</w:t>
+		</w:p>
+		<w:p><w:t>Keep stable duplicate note packets scoped to the first repeated review notes branch.</w:t></w:p>
+		<w:p><w:t>Record stable duplicate note evidence separately from the final note branch.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="11"/></w:numPr></w:pPr>
+			<w:t>Confirm stable duplicate note owner</w:t>
+		</w:p>
+		<w:p>
+			<w:pPr><w:numPr><w:ilvl w:val="1"/><w:numId w:val="11"/></w:numPr></w:pPr>
+			<w:t>Attach stable duplicate note evidence</w:t>
+		</w:p>
+		<w:p><w:t>Archive stable duplicate note blockers before the second repeated review notes branch begins.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading5"/></w:pPr>
+			<w:t>Evidence Table</w:t>
+		</w:p>
+		<w:p><w:t>Use this table to track stable duplicate note evidence by artifact.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Artifact</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Stable duplicate note trace</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Watch</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Stable duplicate note attachment</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Attached</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Route stable duplicate note owners through this table before the next repeated review notes branch begins.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading5"/></w:pPr>
+			<w:t>Owner Table</w:t>
+		</w:p>
+		<w:p><w:t>Use this table to track stable duplicate note owners by state.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Owner</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Stable duplicate note lead</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Watch</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Archive stable duplicate owner follow-up notes with this repeated review notes branch.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading4"/></w:pPr>
+			<w:t>Review Notes</w:t>
+		</w:p>
+		<w:p><w:t>Keep stable final note packets scoped to the second repeated review notes branch.</w:t></w:p>
+		<w:p><w:t>Record stable final note evidence separately from the duplicate note branch.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="12"/></w:numPr></w:pPr>
+			<w:t>Confirm stable final note owner</w:t>
+		</w:p>
+		<w:p>
+			<w:pPr><w:numPr><w:ilvl w:val="1"/><w:numId w:val="12"/></w:numPr></w:pPr>
+			<w:t>Attach stable final note evidence</w:t>
+		</w:p>
+		<w:p><w:t>Archive stable final note blockers after the second repeated review notes branch closes.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading5"/></w:pPr>
+			<w:t>Evidence Table</w:t>
+		</w:p>
+		<w:p><w:t>Use this table to track stable final note evidence by artifact.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Artifact</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Stable final note trace</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Blocked</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Stable final note attachment</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Attached</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Route stable final note owners through this table after the second repeated review notes branch closes.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading5"/></w:pPr>
+			<w:t>Owner Table</w:t>
+		</w:p>
+		<w:p><w:t>Use this table to track stable final note owners by state.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Owner</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Stable final note lead</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Blocked</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Archive stable final owner follow-up notes with this repeated review notes branch.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading5"/></w:pPr>
+			<w:t>Closure Notes</w:t>
+		</w:p>
+		<w:p><w:t>Keep stable first closure packets scoped to the first closure notes branch under repeated review notes.</w:t></w:p>
+		<w:p><w:t>Record stable first closure evidence separately from the later closure branch.</w:t></w:p>
+		<w:p><w:t>Keep stable first closure narrative scoped before the first checklist handoff.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading6"/></w:pPr>
+			<w:t>Checklist</w:t>
+		</w:p>
+		<w:p><w:t>Use this checklist to verify stable first closure before owner confirmation.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="12"/></w:numPr></w:pPr>
+			<w:t>Confirm stable first closure owner</w:t>
+		</w:p>
+		<w:p>
+			<w:pPr><w:numPr><w:ilvl w:val="1"/><w:numId w:val="12"/></w:numPr></w:pPr>
+			<w:t>Attach stable first closure evidence</w:t>
+		</w:p>
+		<w:p><w:t>Carry stable first closure evidence only after the first checklist clears.</w:t></w:p>
+		<w:p><w:t>Route stable first closure evidence through the first closure table before owner confirmation.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading6"/></w:pPr>
+			<w:t>Evidence Table</w:t>
+		</w:p>
+		<w:p><w:t>Use this table to track stable first closure evidence by artifact.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Artifact</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Stable first closure trace</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Watch</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Route stable first closure owners through this table before the sibling closure branch begins.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading6"/></w:pPr>
+			<w:t>Owner Table</w:t>
+		</w:p>
+		<w:p><w:t>Use this table to track stable first closure owners by state.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Owner</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Stable first closure lead</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Watch</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Archive stable first closure owner notes with this closure branch.</w:t></w:p>
+		<w:p><w:t>Keep stable sibling closure checklist scoped to this branch before sibling evidence routing.</w:t></w:p>
+		<w:p><w:t>Keep stable sibling closure narrative scoped before the sibling checklist handoff.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading6"/></w:pPr>
+			<w:t>Checklist</w:t>
+		</w:p>
+		<w:p><w:t>Use this checklist to verify stable sibling closure before sibling evidence routing.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="12"/></w:numPr></w:pPr>
+			<w:t>Confirm stable sibling closure owner</w:t>
+		</w:p>
+		<w:p>
+			<w:pPr><w:numPr><w:ilvl w:val="1"/><w:numId w:val="12"/></w:numPr></w:pPr>
+			<w:t>Attach stable sibling closure evidence</w:t>
+		</w:p>
+		<w:p><w:t>Carry stable sibling closure evidence only after the sibling checklist clears.</w:t></w:p>
+		<w:p><w:t>Queue stable sibling closure artifact review before the sibling evidence table opens.</w:t></w:p>
+		<w:p><w:t>Keep stable sibling closure artifact packet scoped to the sibling evidence table family.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading6"/></w:pPr>
+			<w:t>Evidence Table</w:t>
+		</w:p>
+		<w:p><w:t>Keep stable sibling closure evidence isolated from the first closure evidence table.</w:t></w:p>
+		<w:p><w:t>Use this table to track stable sibling closure evidence by artifact.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Artifact</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Stable sibling closure trace</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Attached</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Record stable sibling closure notes after this table before sibling owner routing.</w:t></w:p>
+		<w:p><w:t>Queue stable sibling closure owner review before the sibling owner table opens.</w:t></w:p>
+		<w:p><w:t>Keep stable sibling closure owner packet scoped to the sibling owner table family.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading6"/></w:pPr>
+			<w:t>Owner Table</w:t>
+		</w:p>
+		<w:p><w:t>Use this table to track stable sibling closure owners by state.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Owner</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Stable sibling closure lead</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Attached</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Record stable sibling closure owner closing notes after the sibling owner table closes.</w:t></w:p>
+		<w:p><w:t>Keep stable sibling owner branch notes scoped after the sibling owner table closes.</w:t></w:p>
+		<w:p><w:t>Archive stable sibling closure owner notes with this closure branch.</w:t></w:p>
+		<w:p><w:t>Keep stable sibling closure summary scoped to this branch after sibling owner routing.</w:t></w:p>
+		<w:p><w:t>Queue stable sibling closure archive review before the tertiary sibling evidence table opens.</w:t></w:p>
+		<w:p><w:t>Keep stable sibling closure archive packet scoped to the tertiary sibling evidence table family.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading6"/></w:pPr>
+			<w:t>Evidence Table</w:t>
+		</w:p>
+		<w:p><w:t>Keep stable tertiary sibling closure evidence isolated from the earlier sibling closure tables.</w:t></w:p>
+		<w:p><w:t>Use this table to track stable tertiary sibling closure evidence by artifact.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Artifact</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Stable tertiary sibling closure trace</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Archived</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Record stable tertiary sibling closure notes after this table before tertiary owner routing.</w:t></w:p>
+		<w:p><w:t>Queue stable tertiary sibling closure owner review before the tertiary sibling owner table opens.</w:t></w:p>
+		<w:p><w:t>Keep stable tertiary sibling closure owner packet scoped to the tertiary sibling owner table family.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading6"/></w:pPr>
+			<w:t>Owner Table</w:t>
+		</w:p>
+		<w:p><w:t>Use this table to track stable tertiary sibling closure owners by state.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Owner</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Stable tertiary sibling closure lead</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Archived</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Record stable tertiary sibling closure owner closing notes after the tertiary sibling owner table closes.</w:t></w:p>
+		<w:p><w:t>Keep stable tertiary sibling owner branch notes scoped after the tertiary sibling owner table closes.</w:t></w:p>
+		<w:p><w:t>Archive stable tertiary sibling closure owner notes with this closure branch.</w:t></w:p>
+		<w:p><w:t>Keep stable tertiary sibling closure summary scoped to this branch after tertiary owner routing.</w:t></w:p>
+		<w:p><w:t>Queue stable sibling closure audit review before the quaternary sibling evidence table opens.</w:t></w:p>
+		<w:p><w:t>Keep stable sibling closure audit packet scoped to the quaternary sibling evidence table family.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading6"/></w:pPr>
+			<w:t>Evidence Table</w:t>
+		</w:p>
+		<w:p><w:t>Keep stable quaternary sibling closure evidence isolated from the tertiary sibling closure tables.</w:t></w:p>
+		<w:p><w:t>Use this table to track stable quaternary sibling closure evidence by artifact.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Artifact</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Stable quaternary sibling closure trace</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Complete</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Record stable quaternary sibling closure notes after this table before quaternary owner routing.</w:t></w:p>
+		<w:p><w:t>Queue stable quaternary sibling closure owner review before the quaternary sibling owner table opens.</w:t></w:p>
+		<w:p><w:t>Keep stable quaternary sibling closure owner packet scoped to the quaternary sibling owner table family.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading6"/></w:pPr>
+			<w:t>Owner Table</w:t>
+		</w:p>
+		<w:p><w:t>Use this table to track stable quaternary sibling closure owners by state.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Owner</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Stable quaternary sibling closure lead</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Complete</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Record stable quaternary sibling closure owner closing notes after the quaternary sibling owner table closes.</w:t></w:p>
+		<w:p><w:t>Keep stable quaternary sibling owner branch notes scoped after the quaternary sibling owner table closes.</w:t></w:p>
+		<w:p><w:t>Archive stable quaternary sibling closure owner notes with this closure branch.</w:t></w:p>
+		<w:p><w:t>Keep stable quaternary sibling closure summary scoped to this branch after quaternary owner routing.</w:t></w:p>
+		<w:p><w:t>Queue stable sibling closure final audit before the fifth sibling evidence table opens.</w:t></w:p>
+		<w:p><w:t>Keep stable sibling closure final audit packet scoped to the fifth sibling evidence table family.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading6"/></w:pPr>
+			<w:t>Evidence Table</w:t>
+		</w:p>
+		<w:p><w:t>Keep stable fifth sibling closure evidence isolated from the quaternary sibling closure tables.</w:t></w:p>
+		<w:p><w:t>Use this table to track stable fifth sibling closure evidence by artifact.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Artifact</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Stable fifth sibling closure trace</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Settled</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Record stable fifth sibling closure notes after this table before fifth owner routing.</w:t></w:p>
+		<w:p><w:t>Queue stable fifth sibling closure owner review before the fifth sibling owner table opens.</w:t></w:p>
+		<w:p><w:t>Keep stable fifth sibling closure owner packet scoped to the fifth sibling owner table family.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading6"/></w:pPr>
+			<w:t>Owner Table</w:t>
+		</w:p>
+		<w:p><w:t>Use this table to track stable fifth sibling closure owners by state.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Owner</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Stable fifth sibling closure lead</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Settled</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Record stable fifth sibling closure owner closing notes after the fifth sibling owner table closes.</w:t></w:p>
+		<w:p><w:t>Keep stable fifth sibling owner branch notes scoped after the fifth sibling owner table closes.</w:t></w:p>
+		<w:p><w:t>Archive stable fifth sibling closure owner notes with this closure branch.</w:t></w:p>
+		<w:p><w:t>Keep stable fifth sibling closure summary scoped to this branch after fifth owner routing.</w:t></w:p>
+		<w:p><w:t>Queue stable sibling closure terminal audit before the sixth sibling evidence table opens.</w:t></w:p>
+		<w:p><w:t>Keep stable sibling closure terminal audit packet scoped to the sixth sibling evidence table family.</w:t></w:p>
+		<w:p><w:pPr><w:pStyle w:val="Heading6"/></w:pPr><w:t>Evidence Table</w:t></w:p>
+		<w:p><w:t>Keep stable sixth sibling closure evidence isolated from the fifth sibling closure tables.</w:t></w:p>
+		<w:p><w:t>Use this table to track stable sixth sibling closure evidence by artifact.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Artifact</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Stable sixth sibling closure trace</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Archived</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Record stable sixth sibling closure notes after this table before sixth owner routing.</w:t></w:p>
+		<w:p><w:t>Queue stable sixth sibling closure owner review before the sixth sibling owner table opens.</w:t></w:p>
+		<w:p><w:t>Keep stable sixth sibling closure owner packet scoped to the sixth sibling owner table family.</w:t></w:p>
+		<w:p><w:pPr><w:pStyle w:val="Heading6"/></w:pPr><w:t>Owner Table</w:t></w:p>
+		<w:p><w:t>Use this table to track stable sixth sibling closure owners by state.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Owner</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Stable sixth sibling closure lead</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Archived</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Record stable sixth sibling closure owner closing notes after the sixth sibling owner table closes.</w:t></w:p>
+		<w:p><w:t>Keep stable sixth sibling owner branch notes scoped after the sixth sibling owner table closes.</w:t></w:p>
+		<w:p><w:t>Archive stable sixth sibling closure owner notes with this closure branch.</w:t></w:p>
+		<w:p><w:t>Keep stable sixth sibling closure summary scoped to this branch after sixth owner routing.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading5"/></w:pPr>
+			<w:t>Closure Notes</w:t>
+		</w:p>
+		<w:p><w:t>Keep stable second closure packets scoped to the second closure notes branch under repeated review notes.</w:t></w:p>
+		<w:p><w:t>Record stable second closure evidence separately from the first closure branch.</w:t></w:p>
+		<w:p><w:t>Keep stable second closure narrative scoped before the second checklist handoff.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading6"/></w:pPr>
+			<w:t>Checklist</w:t>
+		</w:p>
+		<w:p><w:t>Use this checklist to verify stable second closure before owner confirmation.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="12"/></w:numPr></w:pPr>
+			<w:t>Confirm stable second closure owner</w:t>
+		</w:p>
+		<w:p>
+			<w:pPr><w:numPr><w:ilvl w:val="1"/><w:numId w:val="12"/></w:numPr></w:pPr>
+			<w:t>Attach stable second closure evidence</w:t>
+		</w:p>
+		<w:p><w:t>Carry stable second closure evidence only after the second checklist clears.</w:t></w:p>
+		<w:p><w:t>Route stable second closure evidence through the second closure table after the sibling closure branch.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading6"/></w:pPr>
+			<w:t>Evidence Table</w:t>
+		</w:p>
+		<w:p><w:t>Use this table to track stable second closure evidence by artifact.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Artifact</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Stable second closure trace</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Blocked</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Route stable second closure owners through this table after the sibling closure branch closes.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading6"/></w:pPr>
+			<w:t>Owner Table</w:t>
+		</w:p>
+		<w:p><w:t>Use this table to track stable second closure owners by state.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Owner</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Stable second closure lead</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Blocked</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Archive stable second closure owner notes with this closure branch.</w:t></w:p>
+		<w:p><w:t>Keep stable second sibling closure checklist scoped to this branch before sibling evidence routing.</w:t></w:p>
+		<w:p><w:t>Keep stable second sibling closure narrative scoped before the sibling checklist handoff.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading6"/></w:pPr>
+			<w:t>Checklist</w:t>
+		</w:p>
+		<w:p><w:t>Use this checklist to verify stable second sibling closure before sibling evidence routing.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="12"/></w:numPr></w:pPr>
+			<w:t>Confirm stable second sibling closure owner</w:t>
+		</w:p>
+		<w:p>
+			<w:pPr><w:numPr><w:ilvl w:val="1"/><w:numId w:val="12"/></w:numPr></w:pPr>
+			<w:t>Attach stable second sibling closure evidence</w:t>
+		</w:p>
+		<w:p><w:t>Carry stable second sibling closure evidence only after the sibling checklist clears.</w:t></w:p>
+		<w:p><w:t>Queue stable second sibling closure artifact review before the sibling evidence table opens.</w:t></w:p>
+		<w:p><w:t>Keep stable second sibling closure artifact packet scoped to the sibling evidence table family.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading6"/></w:pPr>
+			<w:t>Evidence Table</w:t>
+		</w:p>
+		<w:p><w:t>Keep stable second sibling closure evidence isolated from the first second-closure evidence table.</w:t></w:p>
+		<w:p><w:t>Use this table to track stable second sibling closure evidence by artifact.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Artifact</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Stable second sibling closure trace</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Ready</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Record stable second sibling closure notes after this table before sibling owner routing.</w:t></w:p>
+		<w:p><w:t>Queue stable second sibling closure owner review before the sibling owner table opens.</w:t></w:p>
+		<w:p><w:t>Keep stable second sibling closure owner packet scoped to the sibling owner table family.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading6"/></w:pPr>
+			<w:t>Owner Table</w:t>
+		</w:p>
+		<w:p><w:t>Use this table to track stable second sibling closure owners by state.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Owner</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Stable second sibling closure lead</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Ready</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Record stable second sibling closure owner closing notes after the sibling owner table closes.</w:t></w:p>
+		<w:p><w:t>Keep stable second sibling owner branch notes scoped after the sibling owner table closes.</w:t></w:p>
+		<w:p><w:t>Archive stable second sibling closure owner notes with this closure branch.</w:t></w:p>
+		<w:p><w:t>Keep stable second sibling closure summary scoped to this branch after sibling owner routing.</w:t></w:p>
+		<w:p><w:t>Queue stable second sibling closure archive review before the tertiary sibling evidence table opens.</w:t></w:p>
+		<w:p><w:t>Keep stable second sibling closure archive packet scoped to the tertiary sibling evidence table family.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading6"/></w:pPr>
+			<w:t>Evidence Table</w:t>
+		</w:p>
+		<w:p><w:t>Keep stable tertiary second-sibling closure evidence isolated from the earlier second-sibling closure tables.</w:t></w:p>
+		<w:p><w:t>Use this table to track stable tertiary second-sibling closure evidence by artifact.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Artifact</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Stable tertiary second-sibling closure trace</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Archived</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Record stable tertiary second-sibling closure notes after this table before tertiary owner routing.</w:t></w:p>
+		<w:p><w:t>Queue stable tertiary second-sibling closure owner review before the tertiary sibling owner table opens.</w:t></w:p>
+		<w:p><w:t>Keep stable tertiary second-sibling closure owner packet scoped to the tertiary sibling owner table family.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading6"/></w:pPr>
+			<w:t>Owner Table</w:t>
+		</w:p>
+		<w:p><w:t>Use this table to track stable tertiary second-sibling closure owners by state.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Owner</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Stable tertiary second-sibling closure lead</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Archived</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Record stable tertiary second-sibling closure owner closing notes after the tertiary sibling owner table closes.</w:t></w:p>
+		<w:p><w:t>Keep stable tertiary second-sibling owner branch notes scoped after the tertiary sibling owner table closes.</w:t></w:p>
+		<w:p><w:t>Archive stable tertiary second-sibling closure owner notes with this closure branch.</w:t></w:p>
+		<w:p><w:t>Keep stable tertiary second-sibling closure summary scoped to this branch after tertiary owner routing.</w:t></w:p>
+		<w:p><w:t>Queue stable second sibling closure audit review before the quaternary sibling evidence table opens.</w:t></w:p>
+		<w:p><w:t>Keep stable second sibling closure audit packet scoped to the quaternary sibling evidence table family.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading6"/></w:pPr>
+			<w:t>Evidence Table</w:t>
+		</w:p>
+		<w:p><w:t>Keep stable quaternary second-sibling closure evidence isolated from the tertiary second-sibling closure tables.</w:t></w:p>
+		<w:p><w:t>Use this table to track stable quaternary second-sibling closure evidence by artifact.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Artifact</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Stable quaternary second-sibling closure trace</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Complete</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Record stable quaternary second-sibling closure notes after this table before quaternary owner routing.</w:t></w:p>
+		<w:p><w:t>Queue stable quaternary second-sibling closure owner review before the quaternary sibling owner table opens.</w:t></w:p>
+		<w:p><w:t>Keep stable quaternary second-sibling closure owner packet scoped to the quaternary sibling owner table family.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading6"/></w:pPr>
+			<w:t>Owner Table</w:t>
+		</w:p>
+		<w:p><w:t>Use this table to track stable quaternary second-sibling closure owners by state.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Owner</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Stable quaternary second-sibling closure lead</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Complete</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Record stable quaternary second-sibling closure owner closing notes after the quaternary sibling owner table closes.</w:t></w:p>
+		<w:p><w:t>Keep stable quaternary second-sibling owner branch notes scoped after the quaternary sibling owner table closes.</w:t></w:p>
+		<w:p><w:t>Archive stable quaternary second-sibling closure owner notes with this closure branch.</w:t></w:p>
+		<w:p><w:t>Keep stable quaternary second-sibling closure summary scoped to this branch after quaternary owner routing.</w:t></w:p>
+		<w:p><w:t>Queue stable second sibling closure final audit before the fifth sibling evidence table opens.</w:t></w:p>
+		<w:p><w:t>Keep stable second sibling closure final audit packet scoped to the fifth sibling evidence table family.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading6"/></w:pPr>
+			<w:t>Evidence Table</w:t>
+		</w:p>
+		<w:p><w:t>Keep stable fifth second-sibling closure evidence isolated from the quaternary second-sibling closure tables.</w:t></w:p>
+		<w:p><w:t>Use this table to track stable fifth second-sibling closure evidence by artifact.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Artifact</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Stable fifth second-sibling closure trace</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Settled</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Record stable fifth second-sibling closure notes after this table before fifth owner routing.</w:t></w:p>
+		<w:p><w:t>Queue stable fifth second-sibling closure owner review before the fifth sibling owner table opens.</w:t></w:p>
+		<w:p><w:t>Keep stable fifth second-sibling closure owner packet scoped to the fifth sibling owner table family.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading6"/></w:pPr>
+			<w:t>Owner Table</w:t>
+		</w:p>
+		<w:p><w:t>Use this table to track stable fifth second-sibling closure owners by state.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Owner</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Stable fifth second-sibling closure lead</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Settled</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Record stable fifth second-sibling closure owner closing notes after the fifth sibling owner table closes.</w:t></w:p>
+		<w:p><w:t>Keep stable fifth second-sibling owner branch notes scoped after the fifth sibling owner table closes.</w:t></w:p>
+		<w:p><w:t>Archive stable fifth second-sibling closure owner notes with this closure branch.</w:t></w:p>
+		<w:p><w:t>Keep stable fifth second-sibling closure summary scoped to this branch after fifth owner routing.</w:t></w:p>
+		<w:p><w:t>Queue stable second sibling closure terminal audit before the sixth sibling evidence table opens.</w:t></w:p>
+		<w:p><w:t>Keep stable second sibling closure terminal audit packet scoped to the sixth sibling evidence table family.</w:t></w:p>
+		<w:p><w:pPr><w:pStyle w:val="Heading6"/></w:pPr><w:t>Evidence Table</w:t></w:p>
+		<w:p><w:t>Keep stable sixth second-sibling closure evidence isolated from the fifth second-sibling closure tables.</w:t></w:p>
+		<w:p><w:t>Use this table to track stable sixth second-sibling closure evidence by artifact.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Artifact</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Stable sixth second-sibling closure trace</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Archived</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Record stable sixth second-sibling closure notes after this table before sixth owner routing.</w:t></w:p>
+		<w:p><w:t>Queue stable sixth second-sibling closure owner review before the sixth sibling owner table opens.</w:t></w:p>
+		<w:p><w:t>Keep stable sixth second-sibling closure owner packet scoped to the sixth sibling owner table family.</w:t></w:p>
+		<w:p><w:pPr><w:pStyle w:val="Heading6"/></w:pPr><w:t>Owner Table</w:t></w:p>
+		<w:p><w:t>Use this table to track stable sixth second-sibling closure owners by state.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Owner</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Stable sixth second-sibling closure lead</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Archived</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Record stable sixth second-sibling closure owner closing notes after the sixth sibling owner table closes.</w:t></w:p>
+		<w:p><w:t>Keep stable sixth second-sibling owner branch notes scoped after the sixth sibling owner table closes.</w:t></w:p>
+		<w:p><w:t>Archive stable sixth second-sibling closure owner notes with this closure branch.</w:t></w:p>
+		<w:p><w:t>Keep stable sixth second-sibling closure summary scoped to this branch after sixth owner routing.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading1"/></w:pPr>
+			<w:t>Ready Lane</w:t>
+		</w:p>
+		<w:p><w:t>Keep ready evidence isolated to the ready lane.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading2"/></w:pPr>
+			<w:t>Checklist</w:t>
+		</w:p>
+		<w:p><w:t>Use this checklist to verify ready ownership before handoff.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="2"/></w:numPr></w:pPr>
+			<w:t>Confirm ready owner</w:t>
+		</w:p>
+		<w:p>
+			<w:pPr><w:numPr><w:ilvl w:val="1"/><w:numId w:val="2"/></w:numPr></w:pPr>
+			<w:t>Attach ready evidence</w:t>
+		</w:p>
+		<w:p><w:t>Only promote ready evidence that already matches the handoff state.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading2"/></w:pPr>
+			<w:t>Evidence Table</w:t>
+		</w:p>
+		<w:p><w:t>Use this table to track ready evidence by artifact.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Artifact</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Handoff trace</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Ready</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Approval memo</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Attached</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Owner confirmation</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Ready</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Rollback note</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Watch</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading2"/></w:pPr>
+			<w:t>Owner Table</w:t>
+		</w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Owner</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Ready lead</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Ready</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading2"/></w:pPr>
+			<w:t>Validation Pack</w:t>
+		</w:p>
+		<w:p><w:t>Keep validation evidence nested under the ready lane.</w:t></w:p>
+		<w:p><w:t>Review ready validation ownership before handoff signoff.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading3"/></w:pPr>
+			<w:t>Checklist</w:t>
+		</w:p>
+		<w:p><w:t>Use this checklist to verify ready validation before handoff signoff.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="4"/></w:numPr></w:pPr>
+			<w:t>Confirm ready validation owner</w:t>
+		</w:p>
+		<w:p>
+			<w:pPr><w:numPr><w:ilvl w:val="1"/><w:numId w:val="4"/></w:numPr></w:pPr>
+			<w:t>Attach ready validation evidence</w:t>
+		</w:p>
+		<w:p><w:t>Only escalate ready validation evidence that already passed handoff review.</w:t></w:p>
+		<w:p><w:t>Escalate ready validation blockers through the nested evidence path.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading3"/></w:pPr>
+			<w:t>Evidence Table</w:t>
+		</w:p>
+		<w:p><w:t>Use this table to track ready validation evidence by artifact.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Artifact</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Ready validation trace</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Ready</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Ready validation owner note</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Attached</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Ready validation rollback trace</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Ready</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Ready validation mitigation log</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Watch</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Route unresolved ready validation owners through this table.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading3"/></w:pPr>
+			<w:t>Owner Table</w:t>
+		</w:p>
+		<w:p><w:t>Use this table to track ready validation owners by state.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Owner</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Ready validation lead</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Ready</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading3"/></w:pPr>
+			<w:t>Evidence Review</w:t>
+		</w:p>
+		<w:p><w:t>Keep ready evidence review isolated to the nested validation scope.</w:t></w:p>
+		<w:p><w:t>Record ready review notes before routing ownership updates.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading4"/></w:pPr>
+			<w:t>Checklist</w:t>
+		</w:p>
+		<w:p><w:t>Use this checklist to verify ready evidence review before routing blockers.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="6"/></w:numPr></w:pPr>
+			<w:t>Confirm ready review owner</w:t>
+		</w:p>
+		<w:p>
+			<w:pPr><w:numPr><w:ilvl w:val="1"/><w:numId w:val="6"/></w:numPr></w:pPr>
+			<w:t>Attach ready review evidence</w:t>
+		</w:p>
+		<w:p><w:t>Only route ready review evidence that already matches the handoff validation state.</w:t></w:p>
+		<w:p><w:t>Escalate ready review blockers through the nested review evidence table.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading4"/></w:pPr>
+			<w:t>Evidence Table</w:t>
+		</w:p>
+		<w:p><w:t>Use this table to track ready review evidence by artifact.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Artifact</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Ready review trace</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Ready</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Ready review owner note</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Attached</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Ready review rollback note</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Ready</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Ready review mitigation log</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Watch</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Route unresolved ready review owners through this table.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading4"/></w:pPr>
+			<w:t>Owner Table</w:t>
+		</w:p>
+		<w:p><w:t>Use this table to track ready review owners by state.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Owner</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Ready review lead</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Ready</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading3"/></w:pPr>
+			<w:t>Evidence Review</w:t>
+		</w:p>
+		<w:p><w:t>Keep ready follow-up evidence review isolated to the nested validation scope.</w:t></w:p>
+		<w:p><w:t>Record ready follow-up review notes before final route confirmation.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading4"/></w:pPr>
+			<w:t>Checklist</w:t>
+		</w:p>
+		<w:p><w:t>Use this checklist to verify ready follow-up review before final route confirmation.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="8"/></w:numPr></w:pPr>
+			<w:t>Confirm ready follow-up review owner</w:t>
+		</w:p>
+		<w:p>
+			<w:pPr><w:numPr><w:ilvl w:val="1"/><w:numId w:val="8"/></w:numPr></w:pPr>
+			<w:t>Attach ready follow-up review evidence</w:t>
+		</w:p>
+		<w:p><w:t>Only route ready follow-up review evidence after the first nested review table is complete.</w:t></w:p>
+		<w:p><w:t>Escalate ready follow-up review blockers through the second nested review evidence table.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading4"/></w:pPr>
+			<w:t>Evidence Table</w:t>
+		</w:p>
+		<w:p><w:t>Keep ready follow-up review artifacts grouped under the second nested evidence table.</w:t></w:p>
+		<w:p><w:t>Use this table to track ready follow-up review evidence by artifact.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Artifact</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Ready follow-up review trace</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Ready</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Ready follow-up owner note</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Attached</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Ready follow-up rollback note</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Ready</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Ready follow-up mitigation log</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Watch</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Route unresolved ready follow-up review owners through this table.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading4"/></w:pPr>
+			<w:t>Owner Table</w:t>
+		</w:p>
+		<w:p><w:t>Use this table to track ready follow-up review owners by state.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Owner</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Ready follow-up review lead</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Ready</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Archive ready follow-up owner notes with this owner table before the duplicate evidence family begins.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading4"/></w:pPr>
+			<w:t>Evidence Table</w:t>
+		</w:p>
+		<w:p><w:t>Keep ready sibling follow-up evidence isolated from the first follow-up evidence table.</w:t></w:p>
+		<w:p><w:t>Use this table to track ready sibling follow-up evidence by artifact.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Artifact</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Ready sibling review trace</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Watch</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Ready sibling owner note</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Attached</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Ready sibling rollback note</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Ready</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Ready sibling mitigation log</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Escalated</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Record ready sibling follow-up evidence notes after this table before owner routing.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading4"/></w:pPr>
+			<w:t>Owner Table</w:t>
+		</w:p>
+		<w:p><w:t>Use this table to track ready sibling follow-up owners by state.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Owner</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Ready sibling follow-up lead</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Watch</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Archive ready sibling follow-up owner notes with this table.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading4"/></w:pPr>
+			<w:t>Review Notes</w:t>
+		</w:p>
+		<w:p><w:t>Keep ready duplicate note packets scoped to the first repeated review notes branch.</w:t></w:p>
+		<w:p><w:t>Record ready duplicate note evidence separately from the final note branch.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="13"/></w:numPr></w:pPr>
+			<w:t>Confirm ready duplicate note owner</w:t>
+		</w:p>
+		<w:p>
+			<w:pPr><w:numPr><w:ilvl w:val="1"/><w:numId w:val="13"/></w:numPr></w:pPr>
+			<w:t>Attach ready duplicate note evidence</w:t>
+		</w:p>
+		<w:p><w:t>Archive ready duplicate note blockers before the second repeated review notes branch begins.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading5"/></w:pPr>
+			<w:t>Evidence Table</w:t>
+		</w:p>
+		<w:p><w:t>Use this table to track ready duplicate note evidence by artifact.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Artifact</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Ready duplicate note trace</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Watch</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Ready duplicate note attachment</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Attached</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Route ready duplicate note owners through this table before the next repeated review notes branch begins.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading5"/></w:pPr>
+			<w:t>Owner Table</w:t>
+		</w:p>
+		<w:p><w:t>Use this table to track ready duplicate note owners by state.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Owner</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Ready duplicate note lead</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Watch</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Archive ready duplicate owner follow-up notes with this repeated review notes branch.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading4"/></w:pPr>
+			<w:t>Review Notes</w:t>
+		</w:p>
+		<w:p><w:t>Keep ready final note packets scoped to the second repeated review notes branch.</w:t></w:p>
+		<w:p><w:t>Record ready final note evidence separately from the duplicate note branch.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="14"/></w:numPr></w:pPr>
+			<w:t>Confirm ready final note owner</w:t>
+		</w:p>
+		<w:p>
+			<w:pPr><w:numPr><w:ilvl w:val="1"/><w:numId w:val="14"/></w:numPr></w:pPr>
+			<w:t>Attach ready final note evidence</w:t>
+		</w:p>
+		<w:p><w:t>Archive ready final note blockers after the second repeated review notes branch closes.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading5"/></w:pPr>
+			<w:t>Evidence Table</w:t>
+		</w:p>
+		<w:p><w:t>Use this table to track ready final note evidence by artifact.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Artifact</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Ready final note trace</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Ready</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Ready final note attachment</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Attached</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Route ready final note owners through this table after the second repeated review notes branch closes.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading5"/></w:pPr>
+			<w:t>Owner Table</w:t>
+		</w:p>
+		<w:p><w:t>Use this table to track ready final note owners by state.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Owner</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Ready final note lead</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Blocked</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Archive ready final owner follow-up notes with this repeated review notes branch.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading5"/></w:pPr>
+			<w:t>Closure Notes</w:t>
+		</w:p>
+		<w:p><w:t>Keep ready first closure packets scoped to the first closure notes branch under repeated review notes.</w:t></w:p>
+		<w:p><w:t>Record ready first closure evidence separately from the later closure branch.</w:t></w:p>
+		<w:p><w:t>Keep ready first closure narrative scoped before the first checklist handoff.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading6"/></w:pPr>
+			<w:t>Checklist</w:t>
+		</w:p>
+		<w:p><w:t>Use this checklist to verify ready first closure before owner confirmation.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="14"/></w:numPr></w:pPr>
+			<w:t>Confirm ready first closure owner</w:t>
+		</w:p>
+		<w:p>
+			<w:pPr><w:numPr><w:ilvl w:val="1"/><w:numId w:val="14"/></w:numPr></w:pPr>
+			<w:t>Attach ready first closure evidence</w:t>
+		</w:p>
+		<w:p><w:t>Carry ready first closure evidence only after the first checklist clears.</w:t></w:p>
+		<w:p><w:t>Route ready first closure evidence through the first closure table before owner confirmation.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading6"/></w:pPr>
+			<w:t>Evidence Table</w:t>
+		</w:p>
+		<w:p><w:t>Use this table to track ready first closure evidence by artifact.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Artifact</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Ready first closure trace</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Watch</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Route ready first closure owners through this table before the sibling closure branch begins.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading6"/></w:pPr>
+			<w:t>Owner Table</w:t>
+		</w:p>
+		<w:p><w:t>Use this table to track ready first closure owners by state.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Owner</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Ready first closure lead</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Watch</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Archive ready first closure owner notes with this closure branch.</w:t></w:p>
+		<w:p><w:t>Keep ready sibling closure checklist scoped to this branch before sibling evidence routing.</w:t></w:p>
+		<w:p><w:t>Keep ready sibling closure narrative scoped before the sibling checklist handoff.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading6"/></w:pPr>
+			<w:t>Checklist</w:t>
+		</w:p>
+		<w:p><w:t>Use this checklist to verify ready sibling closure before sibling evidence routing.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="14"/></w:numPr></w:pPr>
+			<w:t>Confirm ready sibling closure owner</w:t>
+		</w:p>
+		<w:p>
+			<w:pPr><w:numPr><w:ilvl w:val="1"/><w:numId w:val="14"/></w:numPr></w:pPr>
+			<w:t>Attach ready sibling closure evidence</w:t>
+		</w:p>
+		<w:p><w:t>Carry ready sibling closure evidence only after the sibling checklist clears.</w:t></w:p>
+		<w:p><w:t>Queue ready sibling closure artifact review before the sibling evidence table opens.</w:t></w:p>
+		<w:p><w:t>Keep ready sibling closure artifact packet scoped to the sibling evidence table family.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading6"/></w:pPr>
+			<w:t>Evidence Table</w:t>
+		</w:p>
+		<w:p><w:t>Keep ready sibling closure evidence isolated from the first closure evidence table.</w:t></w:p>
+		<w:p><w:t>Use this table to track ready sibling closure evidence by artifact.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Artifact</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Ready sibling closure trace</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Attached</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Record ready sibling closure notes after this table before sibling owner routing.</w:t></w:p>
+		<w:p><w:t>Queue ready sibling closure owner review before the sibling owner table opens.</w:t></w:p>
+		<w:p><w:t>Keep ready sibling closure owner packet scoped to the sibling owner table family.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading6"/></w:pPr>
+			<w:t>Owner Table</w:t>
+		</w:p>
+		<w:p><w:t>Use this table to track ready sibling closure owners by state.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Owner</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Ready sibling closure lead</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Attached</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Record ready sibling closure owner closing notes after the sibling owner table closes.</w:t></w:p>
+		<w:p><w:t>Keep ready sibling owner branch notes scoped after the sibling owner table closes.</w:t></w:p>
+		<w:p><w:t>Archive ready sibling closure owner notes with this closure branch.</w:t></w:p>
+		<w:p><w:t>Keep ready sibling closure summary scoped to this branch after sibling owner routing.</w:t></w:p>
+		<w:p><w:t>Queue ready sibling closure archive review before the tertiary sibling evidence table opens.</w:t></w:p>
+		<w:p><w:t>Keep ready sibling closure archive packet scoped to the tertiary sibling evidence table family.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading6"/></w:pPr>
+			<w:t>Evidence Table</w:t>
+		</w:p>
+		<w:p><w:t>Keep ready tertiary sibling closure evidence isolated from the earlier sibling closure tables.</w:t></w:p>
+		<w:p><w:t>Use this table to track ready tertiary sibling closure evidence by artifact.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Artifact</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Ready tertiary sibling closure trace</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Archived</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Record ready tertiary sibling closure notes after this table before tertiary owner routing.</w:t></w:p>
+		<w:p><w:t>Queue ready tertiary sibling closure owner review before the tertiary sibling owner table opens.</w:t></w:p>
+		<w:p><w:t>Keep ready tertiary sibling closure owner packet scoped to the tertiary sibling owner table family.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading6"/></w:pPr>
+			<w:t>Owner Table</w:t>
+		</w:p>
+		<w:p><w:t>Use this table to track ready tertiary sibling closure owners by state.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Owner</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Ready tertiary sibling closure lead</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Archived</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Record ready tertiary sibling closure owner closing notes after the tertiary sibling owner table closes.</w:t></w:p>
+		<w:p><w:t>Keep ready tertiary sibling owner branch notes scoped after the tertiary sibling owner table closes.</w:t></w:p>
+		<w:p><w:t>Archive ready tertiary sibling closure owner notes with this closure branch.</w:t></w:p>
+		<w:p><w:t>Keep ready tertiary sibling closure summary scoped to this branch after tertiary owner routing.</w:t></w:p>
+		<w:p><w:t>Queue ready sibling closure audit review before the quaternary sibling evidence table opens.</w:t></w:p>
+		<w:p><w:t>Keep ready sibling closure audit packet scoped to the quaternary sibling evidence table family.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading6"/></w:pPr>
+			<w:t>Evidence Table</w:t>
+		</w:p>
+		<w:p><w:t>Keep ready quaternary sibling closure evidence isolated from the tertiary sibling closure tables.</w:t></w:p>
+		<w:p><w:t>Use this table to track ready quaternary sibling closure evidence by artifact.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Artifact</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Ready quaternary sibling closure trace</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Complete</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Record ready quaternary sibling closure notes after this table before quaternary owner routing.</w:t></w:p>
+		<w:p><w:t>Queue ready quaternary sibling closure owner review before the quaternary sibling owner table opens.</w:t></w:p>
+		<w:p><w:t>Keep ready quaternary sibling closure owner packet scoped to the quaternary sibling owner table family.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading6"/></w:pPr>
+			<w:t>Owner Table</w:t>
+		</w:p>
+		<w:p><w:t>Use this table to track ready quaternary sibling closure owners by state.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Owner</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Ready quaternary sibling closure lead</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Complete</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Record ready quaternary sibling closure owner closing notes after the quaternary sibling owner table closes.</w:t></w:p>
+		<w:p><w:t>Keep ready quaternary sibling owner branch notes scoped after the quaternary sibling owner table closes.</w:t></w:p>
+		<w:p><w:t>Archive ready quaternary sibling closure owner notes with this closure branch.</w:t></w:p>
+		<w:p><w:t>Keep ready quaternary sibling closure summary scoped to this branch after quaternary owner routing.</w:t></w:p>
+		<w:p><w:t>Queue ready sibling closure final audit before the fifth sibling evidence table opens.</w:t></w:p>
+		<w:p><w:t>Keep ready sibling closure final audit packet scoped to the fifth sibling evidence table family.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading6"/></w:pPr>
+			<w:t>Evidence Table</w:t>
+		</w:p>
+		<w:p><w:t>Keep ready fifth sibling closure evidence isolated from the quaternary sibling closure tables.</w:t></w:p>
+		<w:p><w:t>Use this table to track ready fifth sibling closure evidence by artifact.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Artifact</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Ready fifth sibling closure trace</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Settled</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Record ready fifth sibling closure notes after this table before fifth owner routing.</w:t></w:p>
+		<w:p><w:t>Queue ready fifth sibling closure owner review before the fifth sibling owner table opens.</w:t></w:p>
+		<w:p><w:t>Keep ready fifth sibling closure owner packet scoped to the fifth sibling owner table family.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading6"/></w:pPr>
+			<w:t>Owner Table</w:t>
+		</w:p>
+		<w:p><w:t>Use this table to track ready fifth sibling closure owners by state.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Owner</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Ready fifth sibling closure lead</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Settled</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Record ready fifth sibling closure owner closing notes after the fifth sibling owner table closes.</w:t></w:p>
+		<w:p><w:t>Keep ready fifth sibling owner branch notes scoped after the fifth sibling owner table closes.</w:t></w:p>
+		<w:p><w:t>Archive ready fifth sibling closure owner notes with this closure branch.</w:t></w:p>
+		<w:p><w:t>Keep ready fifth sibling closure summary scoped to this branch after fifth owner routing.</w:t></w:p>
+		<w:p><w:t>Queue ready sibling closure terminal audit before the sixth sibling evidence table opens.</w:t></w:p>
+		<w:p><w:t>Keep ready sibling closure terminal audit packet scoped to the sixth sibling evidence table family.</w:t></w:p>
+		<w:p><w:pPr><w:pStyle w:val="Heading6"/></w:pPr><w:t>Evidence Table</w:t></w:p>
+		<w:p><w:t>Keep ready sixth sibling closure evidence isolated from the fifth sibling closure tables.</w:t></w:p>
+		<w:p><w:t>Use this table to track ready sixth sibling closure evidence by artifact.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Artifact</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Ready sixth sibling closure trace</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Archived</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Record ready sixth sibling closure notes after this table before sixth owner routing.</w:t></w:p>
+		<w:p><w:t>Queue ready sixth sibling closure owner review before the sixth sibling owner table opens.</w:t></w:p>
+		<w:p><w:t>Keep ready sixth sibling closure owner packet scoped to the sixth sibling owner table family.</w:t></w:p>
+		<w:p><w:pPr><w:pStyle w:val="Heading6"/></w:pPr><w:t>Owner Table</w:t></w:p>
+		<w:p><w:t>Use this table to track ready sixth sibling closure owners by state.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Owner</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Ready sixth sibling closure lead</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Archived</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Record ready sixth sibling closure owner closing notes after the sixth sibling owner table closes.</w:t></w:p>
+		<w:p><w:t>Keep ready sixth sibling owner branch notes scoped after the sixth sibling owner table closes.</w:t></w:p>
+		<w:p><w:t>Archive ready sixth sibling closure owner notes with this closure branch.</w:t></w:p>
+		<w:p><w:t>Keep ready sixth sibling closure summary scoped to this branch after sixth owner routing.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading5"/></w:pPr>
+			<w:t>Closure Notes</w:t>
+		</w:p>
+		<w:p><w:t>Keep ready second closure packets scoped to the second closure notes branch under repeated review notes.</w:t></w:p>
+		<w:p><w:t>Record ready second closure evidence separately from the first closure branch.</w:t></w:p>
+		<w:p><w:t>Keep ready second closure narrative scoped before the second checklist handoff.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading6"/></w:pPr>
+			<w:t>Checklist</w:t>
+		</w:p>
+		<w:p><w:t>Use this checklist to verify ready second closure before owner confirmation.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="14"/></w:numPr></w:pPr>
+			<w:t>Confirm ready second closure owner</w:t>
+		</w:p>
+		<w:p>
+			<w:pPr><w:numPr><w:ilvl w:val="1"/><w:numId w:val="14"/></w:numPr></w:pPr>
+			<w:t>Attach ready second closure evidence</w:t>
+		</w:p>
+		<w:p><w:t>Carry ready second closure evidence only after the second checklist clears.</w:t></w:p>
+		<w:p><w:t>Route ready second closure evidence through the second closure table after the sibling closure branch.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading6"/></w:pPr>
+			<w:t>Evidence Table</w:t>
+		</w:p>
+		<w:p><w:t>Use this table to track ready second closure evidence by artifact.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Artifact</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Ready second closure trace</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Blocked</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Route ready second closure owners through this table after the sibling closure branch closes.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading6"/></w:pPr>
+			<w:t>Owner Table</w:t>
+		</w:p>
+		<w:p><w:t>Use this table to track ready second closure owners by state.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Owner</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Ready second closure lead</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Blocked</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Archive ready second closure owner notes with this closure branch.</w:t></w:p>
+		<w:p><w:t>Keep ready second sibling closure checklist scoped to this branch before sibling evidence routing.</w:t></w:p>
+		<w:p><w:t>Keep ready second sibling closure narrative scoped before the sibling checklist handoff.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading6"/></w:pPr>
+			<w:t>Checklist</w:t>
+		</w:p>
+		<w:p><w:t>Use this checklist to verify ready second sibling closure before sibling evidence routing.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="14"/></w:numPr></w:pPr>
+			<w:t>Confirm ready second sibling closure owner</w:t>
+		</w:p>
+		<w:p>
+			<w:pPr><w:numPr><w:ilvl w:val="1"/><w:numId w:val="14"/></w:numPr></w:pPr>
+			<w:t>Attach ready second sibling closure evidence</w:t>
+		</w:p>
+		<w:p><w:t>Carry ready second sibling closure evidence only after the sibling checklist clears.</w:t></w:p>
+		<w:p><w:t>Queue ready second sibling closure artifact review before the sibling evidence table opens.</w:t></w:p>
+		<w:p><w:t>Keep ready second sibling closure artifact packet scoped to the sibling evidence table family.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading6"/></w:pPr>
+			<w:t>Evidence Table</w:t>
+		</w:p>
+		<w:p><w:t>Keep ready second sibling closure evidence isolated from the first second-closure evidence table.</w:t></w:p>
+		<w:p><w:t>Use this table to track ready second sibling closure evidence by artifact.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Artifact</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Ready second sibling closure trace</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Ready</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Record ready second sibling closure notes after this table before sibling owner routing.</w:t></w:p>
+		<w:p><w:t>Queue ready second sibling closure owner review before the sibling owner table opens.</w:t></w:p>
+		<w:p><w:t>Keep ready second sibling closure owner packet scoped to the sibling owner table family.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading6"/></w:pPr>
+			<w:t>Owner Table</w:t>
+		</w:p>
+		<w:p><w:t>Use this table to track ready second sibling closure owners by state.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Owner</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Ready second sibling closure lead</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Ready</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Record ready second sibling closure owner closing notes after the sibling owner table closes.</w:t></w:p>
+		<w:p><w:t>Keep ready second sibling owner branch notes scoped after the sibling owner table closes.</w:t></w:p>
+		<w:p><w:t>Archive ready second sibling closure owner notes with this closure branch.</w:t></w:p>
+		<w:p><w:t>Keep ready second sibling closure summary scoped to this branch after sibling owner routing.</w:t></w:p>
+		<w:p><w:t>Queue ready second sibling closure archive review before the tertiary sibling evidence table opens.</w:t></w:p>
+		<w:p><w:t>Keep ready second sibling closure archive packet scoped to the tertiary sibling evidence table family.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading6"/></w:pPr>
+			<w:t>Evidence Table</w:t>
+		</w:p>
+		<w:p><w:t>Keep ready tertiary second-sibling closure evidence isolated from the earlier second-sibling closure tables.</w:t></w:p>
+		<w:p><w:t>Use this table to track ready tertiary second-sibling closure evidence by artifact.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Artifact</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Ready tertiary second-sibling closure trace</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Archived</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Record ready tertiary second-sibling closure notes after this table before tertiary owner routing.</w:t></w:p>
+		<w:p><w:t>Queue ready tertiary second-sibling closure owner review before the tertiary sibling owner table opens.</w:t></w:p>
+		<w:p><w:t>Keep ready tertiary second-sibling closure owner packet scoped to the tertiary sibling owner table family.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading6"/></w:pPr>
+			<w:t>Owner Table</w:t>
+		</w:p>
+		<w:p><w:t>Use this table to track ready tertiary second-sibling closure owners by state.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Owner</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Ready tertiary second-sibling closure lead</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Archived</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Record ready tertiary second-sibling closure owner closing notes after the tertiary sibling owner table closes.</w:t></w:p>
+		<w:p><w:t>Keep ready tertiary second-sibling owner branch notes scoped after the tertiary sibling owner table closes.</w:t></w:p>
+		<w:p><w:t>Archive ready tertiary second-sibling closure owner notes with this closure branch.</w:t></w:p>
+		<w:p><w:t>Keep ready tertiary second-sibling closure summary scoped to this branch after tertiary owner routing.</w:t></w:p>
+		<w:p><w:t>Queue ready second sibling closure audit review before the quaternary sibling evidence table opens.</w:t></w:p>
+		<w:p><w:t>Keep ready second sibling closure audit packet scoped to the quaternary sibling evidence table family.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading6"/></w:pPr>
+			<w:t>Evidence Table</w:t>
+		</w:p>
+		<w:p><w:t>Keep ready quaternary second-sibling closure evidence isolated from the tertiary second-sibling closure tables.</w:t></w:p>
+		<w:p><w:t>Use this table to track ready quaternary second-sibling closure evidence by artifact.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Artifact</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Ready quaternary second-sibling closure trace</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Complete</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Record ready quaternary second-sibling closure notes after this table before quaternary owner routing.</w:t></w:p>
+		<w:p><w:t>Queue ready quaternary second-sibling closure owner review before the quaternary sibling owner table opens.</w:t></w:p>
+		<w:p><w:t>Keep ready quaternary second-sibling closure owner packet scoped to the quaternary sibling owner table family.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading6"/></w:pPr>
+			<w:t>Owner Table</w:t>
+		</w:p>
+		<w:p><w:t>Use this table to track ready quaternary second-sibling closure owners by state.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Owner</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Ready quaternary second-sibling closure lead</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Complete</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Record ready quaternary second-sibling closure owner closing notes after the quaternary sibling owner table closes.</w:t></w:p>
+		<w:p><w:t>Keep ready quaternary second-sibling owner branch notes scoped after the quaternary sibling owner table closes.</w:t></w:p>
+		<w:p><w:t>Archive ready quaternary second-sibling closure owner notes with this closure branch.</w:t></w:p>
+		<w:p><w:t>Keep ready quaternary second-sibling closure summary scoped to this branch after quaternary owner routing.</w:t></w:p>
+		<w:p><w:t>Queue ready second sibling closure final audit before the fifth sibling evidence table opens.</w:t></w:p>
+		<w:p><w:t>Keep ready second sibling closure final audit packet scoped to the fifth sibling evidence table family.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading6"/></w:pPr>
+			<w:t>Evidence Table</w:t>
+		</w:p>
+		<w:p><w:t>Keep ready fifth second-sibling closure evidence isolated from the quaternary second-sibling closure tables.</w:t></w:p>
+		<w:p><w:t>Use this table to track ready fifth second-sibling closure evidence by artifact.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Artifact</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Ready fifth second-sibling closure trace</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Settled</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Record ready fifth second-sibling closure notes after this table before fifth owner routing.</w:t></w:p>
+		<w:p><w:t>Queue ready fifth second-sibling closure owner review before the fifth sibling owner table opens.</w:t></w:p>
+		<w:p><w:t>Keep ready fifth second-sibling closure owner packet scoped to the fifth sibling owner table family.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading6"/></w:pPr>
+			<w:t>Owner Table</w:t>
+		</w:p>
+		<w:p><w:t>Use this table to track ready fifth second-sibling closure owners by state.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Owner</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Ready fifth second-sibling closure lead</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Settled</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Record ready fifth second-sibling closure owner closing notes after the fifth sibling owner table closes.</w:t></w:p>
+		<w:p><w:t>Keep ready fifth second-sibling owner branch notes scoped after the fifth sibling owner table closes.</w:t></w:p>
+		<w:p><w:t>Archive ready fifth second-sibling closure owner notes with this closure branch.</w:t></w:p>
+		<w:p><w:t>Keep ready fifth second-sibling closure summary scoped to this branch after fifth owner routing.</w:t></w:p>
+		<w:p><w:t>Queue ready second sibling closure terminal audit before the sixth sibling evidence table opens.</w:t></w:p>
+		<w:p><w:t>Keep ready second sibling closure terminal audit packet scoped to the sixth sibling evidence table family.</w:t></w:p>
+		<w:p><w:pPr><w:pStyle w:val="Heading6"/></w:pPr><w:t>Evidence Table</w:t></w:p>
+		<w:p><w:t>Keep ready sixth second-sibling closure evidence isolated from the fifth second-sibling closure tables.</w:t></w:p>
+		<w:p><w:t>Use this table to track ready sixth second-sibling closure evidence by artifact.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Artifact</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Ready sixth second-sibling closure trace</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Archived</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Record ready sixth second-sibling closure notes after this table before sixth owner routing.</w:t></w:p>
+		<w:p><w:t>Queue ready sixth second-sibling closure owner review before the sixth sibling owner table opens.</w:t></w:p>
+		<w:p><w:t>Keep ready sixth second-sibling closure owner packet scoped to the sixth sibling owner table family.</w:t></w:p>
+		<w:p><w:pPr><w:pStyle w:val="Heading6"/></w:pPr><w:t>Owner Table</w:t></w:p>
+		<w:p><w:t>Use this table to track ready sixth second-sibling closure owners by state.</w:t></w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Owner</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Ready sixth second-sibling closure lead</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Archived</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p><w:t>Record ready sixth second-sibling closure owner closing notes after the sixth sibling owner table closes.</w:t></w:p>
+		<w:p><w:t>Keep ready sixth second-sibling owner branch notes scoped after the sixth sibling owner table closes.</w:t></w:p>
+		<w:p><w:t>Archive ready sixth second-sibling closure owner notes with this closure branch.</w:t></w:p>
+		<w:p><w:t>Keep ready sixth second-sibling closure summary scoped to this branch after sixth owner routing.</w:t></w:p>
+	</w:body>
+</w:document>

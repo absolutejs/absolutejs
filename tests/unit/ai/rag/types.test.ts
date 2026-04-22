@@ -26,6 +26,19 @@ describe('RAG context prompt builder', () => {
 				}
 			}),
 			buildHit({
+				chunkId: 'pdf-region',
+				source: 'docs/guide.pdf',
+				title: 'Guide page 7 region 2',
+				chunkText: 'Region-level PDF evidence for the workflow.',
+				metadata: {
+					pageNumber: 7,
+					regionNumber: 2,
+					pdfTextMode: 'ocr',
+					ocrEngine: 'demo_pdf_ocr',
+					ocrRegionConfidence: 0.91
+				}
+			}),
+			buildHit({
 				chunkId: 'sheet-chunk',
 				source: 'docs/report.xlsx',
 				title: 'Regional Growth',
@@ -64,6 +77,10 @@ describe('RAG context prompt builder', () => {
 		expect(context).toContain('Location: Page 7');
 		expect(context).toContain(
 			'Provenance: PDF native_text · OCR demo_pdf_ocr'
+		);
+		expect(context).toContain('Location: Page 7 · Region 2');
+		expect(context).toContain(
+			'Provenance: PDF ocr · OCR demo_pdf_ocr · Confidence 0.91'
 		);
 		expect(context).toContain('Location: Sheet Regional Growth');
 		expect(context).toContain('Location: Timestamp 00:12.000 - 00:34.500');

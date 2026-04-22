@@ -1,0 +1,97 @@
+<w:document>
+	<w:body>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Title"/></w:pPr>
+			<w:t>Release Operations Deep Dive</w:t>
+		</w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading1"/></w:pPr>
+			<w:t>Stable Lane</w:t>
+		</w:p>
+		<w:p><w:t>Keep rollback and evidence sections attached to their owning lane.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading2"/></w:pPr>
+			<w:t>Checklist</w:t>
+		</w:p>
+		<w:p>
+			<w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr></w:pPr>
+			<w:t>Confirm approval state</w:t>
+		</w:p>
+		<w:p>
+			<w:pPr><w:numPr><w:ilvl w:val="1"/><w:numId w:val="1"/></w:numPr></w:pPr>
+			<w:t>Attach remediation evidence</w:t>
+		</w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading2"/></w:pPr>
+			<w:t>Metrics Table</w:t>
+		</w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Metric</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Status</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Approval</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Blocked</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading2"/></w:pPr>
+			<w:t>Rollback Plan</w:t>
+		</w:p>
+		<w:p>
+			<w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="2"/></w:numPr></w:pPr>
+			<w:t>Confirm rollback owner</w:t>
+		</w:p>
+		<w:p>
+			<w:pPr><w:numPr><w:ilvl w:val="1"/><w:numId w:val="2"/></w:numPr></w:pPr>
+			<w:t>Attach rollback trace</w:t>
+		</w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading2"/></w:pPr>
+			<w:t>Evidence Table</w:t>
+		</w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Artifact</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Rollback trace</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Attached</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading1"/></w:pPr>
+			<w:t>Ready Lane</w:t>
+		</w:p>
+		<w:p><w:t>Keep handoff owners and evidence attached to the ready lane.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading2"/></w:pPr>
+			<w:t>Checklist</w:t>
+		</w:p>
+		<w:p>
+			<w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="3"/></w:numPr></w:pPr>
+			<w:t>Confirm handoff owner</w:t>
+		</w:p>
+		<w:p>
+			<w:pPr><w:numPr><w:ilvl w:val="1"/><w:numId w:val="3"/></w:numPr></w:pPr>
+			<w:t>Attach handoff evidence</w:t>
+		</w:p>
+		<w:p><w:t>Use this table to track handoff owners by state.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading2"/></w:pPr>
+			<w:t>Handoff Table</w:t>
+		</w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Owner</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>State</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Release manager</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Ready</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+	</w:body>
+</w:document>

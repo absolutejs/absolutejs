@@ -824,7 +824,7 @@ const bundleReactClient = async (
 	}
 
 	const { rmSync } = await import('node:fs');
-	rmSync(resolve(buildDir, 'react', 'indexes'), {
+	rmSync(resolve(buildDir, 'react', 'generated', 'indexes'), {
 		force: true,
 		recursive: true
 	});

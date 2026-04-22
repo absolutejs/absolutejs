@@ -25,6 +25,9 @@ const SERVER_ENTRY_POINTS = [
 	'src/ai/providers/openaiResponses.ts',
 	'src/ai/providers/gemini.ts',
 	'src/ai/client/index.ts',
+	'src/ai/client/ui.ts',
+	'src/ai/rag/ui.ts',
+	'src/ai/rag/quality.ts',
 	'src/angular/index.ts',
 	'src/angular/browser.ts',
 	'src/angular/server.ts',
@@ -48,7 +51,8 @@ const SERVER_ENTRY_POINTS = [
 	'src/vue/browser.ts',
 	'src/vue/server.ts',
 	'src/vue/ai/index.ts',
-	'src/vue/components/index.ts'
+	'src/vue/components/index.ts',
+	'src/vue/components/Image.ts'
 ];
 
 const EXTERNALS = [
@@ -560,13 +564,13 @@ const compileAngularComponentsPartial = async () => {
 
 	await Bun.build({
 		entrypoints: [
-			join(srcDir, 'core', 'streamingSlotRegistry.ts'),
-			join(srcDir, 'core', 'streamingSlotRegistrar.ts')
+			resolve(srcDir, 'core', 'streamingSlotRegistry.ts'),
+			resolve(srcDir, 'core', 'streamingSlotRegistrar.ts')
 		],
 		external: ['node:async_hooks'],
 		format: 'esm',
 		minify: false,
-		outdir: join(finalDir, 'core'),
+		outdir: resolve(finalDir, 'core'),
 		sourcemap: false,
 		target: 'bun'
 	});

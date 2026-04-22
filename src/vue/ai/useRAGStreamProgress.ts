@@ -1,6 +1,6 @@
 import { computed, type Ref } from 'vue';
 import type { AIMessage } from '../../../types/ai';
-import { buildRAGStreamProgress } from '../../ai/rag/presentation';
+import { buildRAGStreamProgress } from '../../ai/rag/workflowState';
 
 export const useRAGStreamProgress = (params: {
 	error: Ref<string | null>;

@@ -1,8 +1,8 @@
 window.__HMR_FRAMEWORK__ = "react";
 window.__REACT_COMPONENT_KEY__ = "StreamingPageIndex";
-import '/home/alexkahn/abs/absolutejs/node_modules/@absolutejs/absolute/dist/dev/client/reactRefreshSetup.ts';
-import '/home/alexkahn/abs/absolutejs/node_modules/@absolutejs/absolute/dist/dev/client/hmrClient.ts';
-import { showErrorOverlay, hideErrorOverlay } from '/home/alexkahn/abs/absolutejs/node_modules/@absolutejs/absolute/dist/dev/client/errorOverlay.ts';
+import '/home/alexkahn/abs/absolutejs/src/dev/client/reactRefreshSetup.ts';
+import '/home/alexkahn/abs/absolutejs/src/dev/client/hmrClient.ts';
+import { showErrorOverlay, hideErrorOverlay } from '/home/alexkahn/abs/absolutejs/src/dev/client/errorOverlay.ts';
 
 import { hydrateRoot, createRoot } from 'react-dom/client';
 import { createElement, Component } from 'react';

@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, test } from 'bun:test';
 import { defineComponent, h } from 'vue';
+import { ensureDistBuild } from '../../helpers/ensureDistBuild';
 
 const PROJECT_ROOT = resolve(import.meta.dir, '..', '..', '..');
 const SVELTE_FIXTURE = resolve(
@@ -22,6 +23,10 @@ const ANGULAR_FIXTURE = resolve(
 const delay = (ms: number) => new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
 
 describe('streaming across built non-react framework entrypoints', () => {
+	test('setup: build package dist once for built-entrypoint tests', async () => {
+		await ensureDistBuild();
+	}, 240_000);
+
 	test('svelte publishes explicit component entrypoints for streaming primitives', async () => {
 		expect(
 			existsSync(

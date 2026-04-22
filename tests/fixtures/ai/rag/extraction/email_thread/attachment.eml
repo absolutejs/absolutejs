@@ -1,0 +1,19 @@
+Subject: Incident thread
+From: attachment@example.com
+To: ops@example.com
+Message-ID: <attachment-thread@example.com>
+In-Reply-To: <reply-thread@example.com>
+References: <root-thread@example.com> <reply-thread@example.com> <attachment-thread@example.com>
+Content-Type: multipart/mixed; boundary="thread-attachments"
+
+--thread-attachments
+Content-Type: text/plain; charset=utf-8
+
+Attachment reply body.
+--thread-attachments
+Content-Type: text/plain; name="owner.txt"
+Content-Disposition: attachment; filename="owner.txt"
+Content-Transfer-Encoding: base64
+
+T3duZXIgYXR0YWNobWVudA==
+--thread-attachments--

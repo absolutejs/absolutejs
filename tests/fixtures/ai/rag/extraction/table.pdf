@@ -1,0 +1,15 @@
+%PDF-1.4
+1 0 obj
+<<>>
+stream
+BT
+[(Metric) 180 (Status)] TJ
+T*
+[(Latency) 200 (Ready)] TJ
+T*
+[(Escalation) 160 (Blocked)] TJ
+ET
+endstream
+endobj
+/Type /Page
+%%EOF

@@ -894,27 +894,40 @@ export const compileAngular = async (
 
 	const compileTasks = entryPoints.map(async (entry) => {
 		const resolvedEntry = resolve(entry);
+		const compileEntry = () =>
+			hmr
+				? compileAngularFileJIT(resolvedEntry, compiledRoot, outRoot)
+				: compileAngularFile(resolvedEntry, compiledRoot);
+
 		// Angular HMR Runtime Layer (Level 3) — Use JIT compilation for dev/HMR builds.
 		// JIT uses ts.transpileModule() with template/style inlining (~50-100ms)
 		// instead of AOT performCompilation() (~500-700ms).
-		const outputs = hmr
-			? await compileAngularFileJIT(resolvedEntry, compiledRoot, outRoot)
-			: await compileAngularFile(resolvedEntry, compiledRoot);
+		let outputs = await compileEntry();
 		const fileBase = basename(resolvedEntry).replace(/\.[tj]s$/, '');
 		const jsName = `${fileBase}.js`;
+		const resolveRawServerFile = (candidatePaths: string[]) => {
+			let candidate = candidatePaths.find((file) =>
+				file.endsWith(`${sep}pages${sep}${jsName}`)
+			);
+			if (!candidate) {
+				candidate = candidatePaths.find((file) =>
+					file.endsWith(`${sep}${jsName}`)
+				);
+			}
 
-		// Try to find the file in pages/ subdirectory first, then at root
-		let rawServerFile = outputs.find((file) =>
-			file.endsWith(`${sep}pages${sep}${jsName}`)
-		);
+			return candidate;
+		};
 
-		// If not found in pages/, try root level
-		if (!rawServerFile) {
-			rawServerFile = outputs.find((file) => file.endsWith(`${sep}${jsName}`));
+		let rawServerFile = resolveRawServerFile(outputs);
+		if (rawServerFile && !existsSync(rawServerFile)) {
+			outputs = await compileEntry();
+			rawServerFile = resolveRawServerFile(outputs);
 		}
 
-		if (!rawServerFile) {
-			throw new Error(`Compiled output not found for ${entry}. Looking for: ${jsName}. Available: ${outputs.join(', ')}`);
+		if (!rawServerFile || !existsSync(rawServerFile)) {
+			throw new Error(
+				`Compiled output not found for ${entry}. Looking for: ${jsName}. Available: ${outputs.join(', ')}`
+			);
 		}
 
 		const original = await fs.readFile(rawServerFile, 'utf-8');

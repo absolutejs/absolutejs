@@ -1,5 +1,6 @@
 import type {
 	RAGDocumentChunk,
+	RAGDocumentChunkEmbeddingVariant,
 	RAGQueryInput,
 	RAGQueryResult,
 	RAGUpsertInput
@@ -24,6 +25,7 @@ export type {
 	RAGHybridRetrievalMode,
 	RAGHybridSearchOptions,
 	RAGDocumentChunk,
+	RAGDocumentChunkEmbeddingVariant,
 	RAGDocumentChunkPreview,
 	RAGArchiveEntry,
 	RAGArchiveExpander,
@@ -58,6 +60,14 @@ export type {
 	RAGEmailSyncListResult,
 	RAGEmailSyncMessage,
 	RAGEmailSyncSourceOptions,
+	RAGFeedSyncInput,
+	RAGFeedSyncSourceOptions,
+	RAGGitHubRepoSyncInput,
+	RAGGitHubSyncSourceOptions,
+	RAGSitemapSyncInput,
+	RAGSitemapSyncSourceOptions,
+	RAGSiteDiscoveryInput,
+	RAGSiteDiscoverySyncSourceOptions,
 	RAGStorageSyncClient,
 	RAGStorageSyncFile,
 	RAGStorageSyncListInput,
@@ -197,6 +207,14 @@ const buildRAGContextLocatorLabel = (
 		(typeof metadata.pageIndex === 'number'
 			? metadata.pageIndex + 1
 			: undefined);
+	const region =
+		getContextNumber(metadata.regionNumber) ??
+		(typeof metadata.regionIndex === 'number'
+			? metadata.regionIndex + 1
+			: undefined);
+	if (page && region) {
+		return `Page ${page} · Region ${region}`;
+	}
 	if (page) {
 		return `Page ${page}`;
 	}
@@ -261,14 +279,34 @@ const buildRAGContextProvenanceLabel = (metadata?: Record<string, unknown>) => {
 	const threadTopic = getContextString(metadata.threadTopic);
 	const from = getContextString(metadata.from);
 	const speaker = getContextString(metadata.speaker);
+	const mediaChannel = getContextString(metadata.mediaChannel);
+	const mediaSegmentGroupDurationMs = getContextNumber(
+		metadata.mediaSegmentGroupDurationMs
+	);
+	const mediaSegmentGapFromPreviousMs = getContextNumber(
+		metadata.mediaSegmentGapFromPreviousMs
+	);
+	const ocrConfidence =
+		getContextNumber(metadata.ocrRegionConfidence) ??
+		getContextNumber(metadata.ocrConfidence);
 
 	const labels = [
 		pdfTextMode ? `PDF ${pdfTextMode}` : '',
 		ocrEngine ? `OCR ${ocrEngine}` : '',
+		typeof ocrConfidence === 'number'
+			? `Confidence ${ocrConfidence.toFixed(2)}`
+			: '',
 		mediaKind ? `Media ${mediaKind}` : '',
 		transcriptSource ? `Transcript ${transcriptSource}` : '',
 		threadTopic ? `Thread ${threadTopic}` : '',
 		speaker ? `Speaker ${speaker}` : '',
+		mediaChannel ? `Channel ${mediaChannel}` : '',
+		typeof mediaSegmentGroupDurationMs === 'number'
+			? `Segment window ${String(Math.floor(mediaSegmentGroupDurationMs / 1000))}s`
+			: '',
+		typeof mediaSegmentGapFromPreviousMs === 'number'
+			? `Segment gap ${String(Math.floor(mediaSegmentGapFromPreviousMs / 1000))}s`
+			: '',
 		from ? `Sender ${from}` : ''
 	].filter((value) => value.length > 0);
 

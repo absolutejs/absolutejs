@@ -1,12 +1,17 @@
-import { derived, type Readable } from 'svelte/store';
+import { derived, get, type Readable } from 'svelte/store';
 import type { AIMessage } from '../../../types/ai';
 import {
-	buildRAGCitationReferenceMap,
-	buildRAGSourceGroups,
-	buildRAGSourceSummaries,
 	getLatestAssistantMessage,
 	getLatestRAGSources
-} from '../../ai/rag/presentation';
+} from '../../ai/rag/workflowState';
+import {
+	buildRAGCitationReferenceMap,
+	buildRAGChunkGraph,
+	buildRAGChunkGraphNavigation,
+	buildRAGSectionRetrievalDiagnostics,
+	buildRAGSourceGroups,
+	buildRAGSourceSummaries
+} from '../../ai/rag/ui';
 
 export const createRAGSources = (messages: Readable<AIMessage[]>) => {
 	const latestAssistantMessage = derived(messages, ($messages) =>
@@ -21,17 +26,33 @@ export const createRAGSources = (messages: Readable<AIMessage[]>) => {
 	const sourceSummaries = derived(sources, ($sources) =>
 		buildRAGSourceSummaries($sources)
 	);
+	const sectionDiagnostics = derived(
+		[sources, latestAssistantMessage],
+		([$sources, $latestAssistantMessage]) =>
+			buildRAGSectionRetrievalDiagnostics(
+				$sources,
+				$latestAssistantMessage?.retrievalTrace
+			)
+	);
+	const chunkGraph = derived(sources, ($sources) =>
+		buildRAGChunkGraph($sources)
+	);
 	const citationReferenceMap = derived(sourceSummaries, ($sourceSummaries) =>
 		buildRAGCitationReferenceMap(
 			$sourceSummaries.flatMap((summary) => summary.citations)
 		)
 	);
 	const hasSources = derived(sources, ($sources) => $sources.length > 0);
+	const navigationForChunk = (chunkId?: string | null) =>
+		buildRAGChunkGraphNavigation(get(chunkGraph), chunkId ?? undefined);
 
 	return {
 		citationReferenceMap,
+		chunkGraph,
 		hasSources,
 		latestAssistantMessage,
+		navigationForChunk,
+		sectionDiagnostics,
 		sourceGroups,
 		sources,
 		sourceSummaries

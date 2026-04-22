@@ -1,12 +1,17 @@
 import { resolve } from 'node:path';
 import { describe, expect, test } from 'bun:test';
 import { createElement } from 'react';
+import { ensureDistBuild } from '../../helpers/ensureDistBuild';
 
 const PROJECT_ROOT = resolve(import.meta.dir, '..', '..', '..');
 
 const delay = (ms: number) => new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
 
 describe('react streaming across built package entrypoints', () => {
+	test('setup: build package dist once for built-entrypoint tests', async () => {
+		await ensureDistBuild();
+	}, 240_000);
+
 	test('top-level handler and react/components StreamSlot share slot registration state', async () => {
 		const { handleReactPageRequest } = await import(
 			resolve(PROJECT_ROOT, 'dist/index.js')

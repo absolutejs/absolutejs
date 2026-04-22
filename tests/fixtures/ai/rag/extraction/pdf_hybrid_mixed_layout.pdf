@@ -1,0 +1,25 @@
+%PDF-1.4
+1 0 obj
+<<>>
+stream
+BT
+(Release Readiness) Tj
+T*
+(Stable release approval remains blocked.) Tj
+ET
+endstream
+endobj
+2 0 obj
+<<>>
+stream
+BT
+(Lane | Status) Tj
+T*
+(Stable | Blocked) Tj
+T*
+(Canary | Ready) Tj
+ET
+endstream
+endobj
+/Type /Page
+%%EOF

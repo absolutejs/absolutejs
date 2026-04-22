@@ -1,0 +1,98 @@
+%PDF-1.4
+1 0 obj
+<<>>
+stream
+BT
+(Example Report Header) Tj
+ET
+endstream
+endobj
+2 0 obj
+<<>>
+stream
+BT
+(Related links) Tj
+T*
+(/docs/release-gates) Tj
+T*
+(/docs/approval-lanes) Tj
+ET
+endstream
+endobj
+3 0 obj
+<<>>
+stream
+BT
+(Figure 4) Tj
+T*
+(Stable rollout dependencies.) Tj
+0 -18 Td
+(Figure body explains the stable rollout path.) Tj
+ET
+endstream
+endobj
+4 0 obj
+<<>>
+stream
+BT
+(Lane | Status) Tj
+T*
+(Stable | Blocked) Tj
+T*
+(Canary | Ready) Tj
+ET
+endstream
+endobj
+/Type /Page
+5 0 obj
+<<>>
+stream
+BT
+(Example Report Header) Tj
+ET
+endstream
+endobj
+6 0 obj
+<<>>
+stream
+BT
+(Figure 5) Tj
+T*
+(Remediation owner by environment.) Tj
+0 -18 Td
+(Environment escalation stays local until the stable gate clears.) Tj
+ET
+endstream
+endobj
+7 0 obj
+<<>>
+stream
+BT
+(Escalation Matrix) Tj
+ET
+endstream
+endobj
+8 0 obj
+<<>>
+stream
+BT
+(Environment | Owner) Tj
+T*
+(Stable | Release lead) Tj
+T*
+(Canary | On-call) Tj
+ET
+endstream
+endobj
+9 0 obj
+<<>>
+stream
+BT
+(Start free trial) Tj
+T*
+(Learn more at /pricing) Tj
+ET
+endstream
+endobj
+/Type /Page
+%%EOF

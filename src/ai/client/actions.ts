@@ -1,71 +1,72 @@
 import type { AIServerMessage } from '../../../types/ai';
 
-export const serverMessageToAction = (msg: AIServerMessage) => {
-	switch (msg.type) {
+export const serverMessageToAction = (message: AIServerMessage) => {
+	switch (message.type) {
 		case 'chunk':
 			return {
-				content: msg.content,
-				conversationId: msg.conversationId,
-				messageId: msg.messageId,
+				content: message.content,
+				conversationId: message.conversationId,
+				messageId: message.messageId,
 				type: 'chunk' as const
 			};
 		case 'thinking':
 			return {
-				content: msg.content,
-				conversationId: msg.conversationId,
-				messageId: msg.messageId,
+				content: message.content,
+				conversationId: message.conversationId,
+				messageId: message.messageId,
 				type: 'thinking' as const
 			};
 		case 'tool_status':
 			return {
-				conversationId: msg.conversationId,
-				input: msg.input,
-				messageId: msg.messageId,
-				name: msg.name,
-				result: msg.result,
-				status: msg.status,
+				conversationId: message.conversationId,
+				input: message.input,
+				messageId: message.messageId,
+				name: message.name,
+				result: message.result,
+				status: message.status,
 				type: 'tool_status' as const
 			};
 		case 'image':
 			return {
-				conversationId: msg.conversationId,
-				data: msg.data,
-				format: msg.format,
-				imageId: msg.imageId,
-				isPartial: msg.isPartial,
-				messageId: msg.messageId,
-				revisedPrompt: msg.revisedPrompt,
+				conversationId: message.conversationId,
+				data: message.data,
+				format: message.format,
+				imageId: message.imageId,
+				isPartial: message.isPartial,
+				messageId: message.messageId,
+				revisedPrompt: message.revisedPrompt,
 				type: 'image' as const
 			};
 		case 'complete':
 			return {
-				conversationId: msg.conversationId,
-				durationMs: msg.durationMs,
-				messageId: msg.messageId,
-				model: msg.model,
-				sources: msg.sources,
+				conversationId: message.conversationId,
+				durationMs: message.durationMs,
+				messageId: message.messageId,
+				model: message.model,
+				sources: message.sources,
 				type: 'complete' as const,
-				usage: msg.usage
+				usage: message.usage
 			};
 		case 'rag_retrieving':
 			return {
-				conversationId: msg.conversationId,
-				messageId: msg.messageId,
-				retrievalStartedAt: msg.retrievalStartedAt,
+				conversationId: message.conversationId,
+				messageId: message.messageId,
+				retrievalStartedAt: message.retrievalStartedAt,
 				type: 'rag_retrieving' as const
 			};
 		case 'rag_retrieved':
 			return {
-				conversationId: msg.conversationId,
-				messageId: msg.messageId,
-				retrievalDurationMs: msg.retrievalDurationMs,
-				retrievalStartedAt: msg.retrievalStartedAt,
-				retrievedAt: msg.retrievedAt,
-				sources: msg.sources,
+				conversationId: message.conversationId,
+				messageId: message.messageId,
+				retrievalDurationMs: message.retrievalDurationMs,
+				retrievalStartedAt: message.retrievalStartedAt,
+				retrievedAt: message.retrievedAt,
+				sources: message.sources,
+				trace: message.trace,
 				type: 'rag_retrieved' as const
 			};
 		case 'error':
-			return { message: msg.message, type: 'error' as const };
+			return { message: message.message, type: 'error' as const };
 		default:
 			return null;
 	}

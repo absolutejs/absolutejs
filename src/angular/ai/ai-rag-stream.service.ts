@@ -2,7 +2,7 @@ import { computed, Injectable } from '@angular/core';
 import {
 	buildRAGAnswerWorkflowState,
 	buildRAGStreamProgress
-} from '../../ai/rag/presentation';
+} from '../../ai/rag/workflowState';
 import { AIStreamService } from './ai-stream.service';
 
 @Injectable({ providedIn: 'root' })

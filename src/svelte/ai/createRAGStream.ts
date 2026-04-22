@@ -1,6 +1,6 @@
 import { derived, readable } from 'svelte/store';
 import type { AIAttachment } from '../../../types/ai';
-import { buildRAGAnswerWorkflowState } from '../../ai/rag/presentation';
+import { buildRAGAnswerWorkflowState } from '../../ai/rag/workflowState';
 import { createAIStream } from './createAIStream';
 import { createRAGStreamProgress } from './createRAGStreamProgress';
 

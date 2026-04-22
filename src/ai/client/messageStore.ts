@@ -192,6 +192,7 @@ const handleRAGRetrieved = (
 		action.retrievalStartedAt ?? message.retrievalStartedAt;
 	message.retrievedAt = action.retrievedAt;
 	message.retrievalDurationMs = action.retrievalDurationMs;
+	message.retrievalTrace = action.trace;
 	conversation.messages = [...conversation.messages];
 };
 

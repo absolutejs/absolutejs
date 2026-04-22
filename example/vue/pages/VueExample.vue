@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { onMounted, ref } from 'vue';
 import CountButton from '../components/CountButton.vue';
+import { mountRAGAPIShowcase } from '../../shared/ragApiShowcase';
 
 const props = defineProps<{
 	initialCount: number;
@@ -8,6 +9,13 @@ const props = defineProps<{
 
 const count = ref(props.initialCount);
 const isOpen = ref(false);
+const ragShowcaseHost = ref<HTMLElement | null>(null);
+
+onMounted(() => {
+	if (ragShowcaseHost.value) {
+		mountRAGAPIShowcase(ragShowcaseHost.value);
+	}
+});
 </script>
 
 <template>
@@ -60,5 +68,6 @@ const isOpen = ref(false);
 		<p style="color: #777; font-size: 1rem; margin-top: 2rem">
 			Click on the AbsoluteJS and Vue logos to learn more.
 		</p>
+		<div ref="ragShowcaseHost"></div>
 	</main>
 </template>

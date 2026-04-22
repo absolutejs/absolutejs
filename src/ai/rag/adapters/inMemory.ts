@@ -2,11 +2,14 @@ import type { RAGQueryInput, RAGUpsertInput } from '../types';
 import { createRAGVector, normalizeVector, querySimilarity } from './utils';
 import type {
 	RAGBackendCapabilities,
+	RAGVectorCountInput,
+	RAGVectorDeleteInput,
 	RAGLexicalQueryInput,
 	RAGVectorStore,
 	RAGVectorStoreStatus
 } from '../../../../types/ai';
 import { RAG_VECTOR_DIMENSIONS_DEFAULT } from '../../../constants';
+import { matchesMetadataFilterRecord } from './filtering';
 import { rankRAGLexicalMatches } from '../lexical';
 
 export type InMemoryRAGStoreOptions = {
@@ -31,50 +34,20 @@ export const createInMemoryRAGStore = (
 		source?: string;
 		metadata?: Record<string, unknown>;
 	};
-	const valuesMatch = (expected: unknown, actual: unknown) => {
-		if (actual === expected) {
-			return true;
-		}
-
-		if (
-			typeof actual === 'object' &&
-			actual !== null &&
-			typeof expected === 'object' &&
-			expected !== null
-		) {
-			return JSON.stringify(actual) === JSON.stringify(expected);
-		}
-
-		return false;
-	};
 	const matchesFilter = (
 		chunk: InternalChunk,
 		filter?: Record<string, unknown>
-	) => {
-		if (!filter) {
-			return true;
-		}
-
-		return Object.entries(filter).every(([key, value]) => {
-			if (key === 'chunkId') {
-				return valuesMatch(value, chunk.chunkId);
-			}
-
-			if (key === 'source') {
-				return valuesMatch(value, chunk.source);
-			}
-
-			if (key === 'title') {
-				return valuesMatch(value, chunk.title);
-			}
-
-			if (!chunk.metadata) {
-				return false;
-			}
-
-			return valuesMatch(value, chunk.metadata[key]);
-		});
-	};
+	) =>
+		matchesMetadataFilterRecord(
+			{
+				chunkId: chunk.chunkId,
+				metadata: chunk.metadata,
+				source: chunk.source,
+				title: chunk.title,
+				...(chunk.metadata ?? {})
+			},
+			filter
+		);
 
 	const storeChunk = (chunk: InternalChunk) => {
 		const existingIndex = chunks.findIndex(
@@ -119,6 +92,10 @@ export const createInMemoryRAGStore = (
 		const results: Array<{ chunk: InternalChunk; score: number }> = [];
 
 		for (const chunk of chunks) {
+			if (!matchesFilter(chunk, input.filter)) {
+				continue;
+			}
+
 			const score = querySimilarity(
 				queryVector,
 				normalizeVector(chunk.vector)
@@ -132,6 +109,7 @@ export const createInMemoryRAGStore = (
 		return results.slice(0, input.topK).map((entry) => ({
 			chunkId: entry.chunk.chunkId,
 			chunkText: entry.chunk.text,
+			embedding: entry.chunk.vector,
 			metadata: entry.chunk.metadata,
 			score: entry.score,
 			source: entry.chunk.source,
@@ -174,11 +152,82 @@ export const createInMemoryRAGStore = (
 		chunks.splice(0, chunks.length);
 	};
 
+	const count = async (input: RAGVectorCountInput = {}) => {
+		const filter = input.filter;
+		const chunkIds = input.chunkIds;
+		const hasChunkFilter = Boolean(
+			filter && Object.keys(filter).length > 0
+		);
+		const chunkIdSet = new Set(chunkIds ?? []);
+		const hasChunkIds = chunkIdSet.size > 0;
+
+		if (!hasChunkIds && !hasChunkFilter) {
+			return chunks.length;
+		}
+
+		return chunks.filter((chunk) => {
+			const matchesChunkIds = hasChunkIds
+				? chunkIdSet.has(chunk.chunkId)
+				: true;
+			const matchesChunkFilter = hasChunkFilter
+				? matchesFilter(chunk, filter)
+				: true;
+			return hasChunkIds && hasChunkFilter
+				? matchesChunkIds || matchesChunkFilter
+				: hasChunkIds
+					? matchesChunkIds
+					: matchesChunkFilter;
+		}).length;
+	};
+
+	const remove = async (input: RAGVectorDeleteInput = {}) => {
+		const filter = input.filter;
+		const chunkIds = input.chunkIds;
+		const hasChunkFilter = Boolean(
+			filter && Object.keys(filter).length > 0
+		);
+		const chunkIdSet = new Set(chunkIds ?? []);
+		const hasChunkIds = chunkIdSet.size > 0;
+
+		if (!hasChunkIds && !hasChunkFilter) {
+			return 0;
+		}
+
+		const removeByFilter = (chunk: InternalChunk) => {
+			const matchesChunkIds = hasChunkIds
+				? chunkIdSet.has(chunk.chunkId)
+				: false;
+			const matchesChunkFilter = hasChunkFilter
+				? matchesFilter(chunk, filter)
+				: false;
+
+			return hasChunkIds && hasChunkFilter
+				? matchesChunkIds || matchesChunkFilter
+				: hasChunkIds
+					? matchesChunkIds
+					: matchesChunkFilter;
+		};
+
+		let removed = 0;
+		for (let index = chunks.length - 1; index >= 0; index -= 1) {
+			if (!removeByFilter(chunks[index]!)) {
+				continue;
+			}
+
+			chunks.splice(index, 1);
+			removed += 1;
+		}
+
+		return removed;
+	};
+
 	return {
 		clear,
 		embed,
 		query,
 		queryLexical,
+		count,
+		delete: remove,
 		upsert,
 		getCapabilities: () => capabilities,
 		getStatus: () => createInMemoryStatus(dimensions)

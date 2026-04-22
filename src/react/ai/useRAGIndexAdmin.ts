@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import type {
 	RAGBackendsResponse,
+	RAGContentFormat,
 	RAGMutationResponse,
 	RAGSyncResponse,
 	RAGSyncRunOptions
@@ -58,7 +59,7 @@ export const useRAGIndexAdmin = (path: string) => {
 			title?: string;
 			source?: string;
 			text: string;
-			format?: 'text' | 'markdown' | 'html';
+			format?: RAGContentFormat;
 			metadata?: Record<string, unknown>;
 			chunking?: {
 				maxChunkLength?: number;
@@ -99,6 +100,22 @@ export const useRAGIndexAdmin = (path: string) => {
 		[client, run]
 	);
 
+	const analyzeBackend = useCallback(
+		async () =>
+			run(async () => {
+				const response = await client.analyzeBackend();
+				setLastMutation(response);
+				if (!response.ok) {
+					throw new Error(
+						response.error ?? 'Failed to analyze backend'
+					);
+				}
+
+				return response;
+			}),
+		[client, run]
+	);
+
 	const reindexDocument = useCallback(
 		async (id: string) =>
 			run(async () => {
@@ -123,6 +140,22 @@ export const useRAGIndexAdmin = (path: string) => {
 				if (!response.ok) {
 					throw new Error(
 						response.error ?? 'Failed to reindex source'
+					);
+				}
+
+				return response;
+			}),
+		[client, run]
+	);
+
+	const rebuildNativeIndex = useCallback(
+		async () =>
+			run(async () => {
+				const response = await client.rebuildNativeIndex();
+				setLastMutation(response);
+				if (!response.ok) {
+					throw new Error(
+						response.error ?? 'Failed to rebuild native index'
 					);
 				}
 
@@ -219,6 +252,7 @@ export const useRAGIndexAdmin = (path: string) => {
 
 	return {
 		backends,
+		analyzeBackend,
 		clearIndex,
 		createDocument,
 		deleteDocument,
@@ -226,12 +260,13 @@ export const useRAGIndexAdmin = (path: string) => {
 		isLoading,
 		lastMutation,
 		loadBackends,
+		loadSyncSources,
+		rebuildNativeIndex,
 		reindexDocument,
 		reindexSource,
 		reseed,
 		reset,
 		resetState,
-		loadSyncSources,
 		syncAllSources,
 		syncSource,
 		syncSources

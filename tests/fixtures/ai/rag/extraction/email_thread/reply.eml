@@ -1,0 +1,8 @@
+Subject: Incident thread
+From: reply@example.com
+To: ops@example.com
+Message-ID: <reply-thread@example.com>
+In-Reply-To: <root-thread@example.com>
+References: <root-thread@example.com> <reply-thread@example.com>
+
+Reply thread body.

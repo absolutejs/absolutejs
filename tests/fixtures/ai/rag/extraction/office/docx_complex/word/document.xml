@@ -1,0 +1,39 @@
+<w:document>
+	<w:body>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Title"/></w:pPr>
+			<w:t>Release Operations Workbook</w:t>
+		</w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading1"/></w:pPr>
+			<w:t>Stable Lane</w:t>
+		</w:p>
+		<w:p><w:t>Keep the blocking gate and owner together.</w:t></w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading2"/></w:pPr>
+			<w:t>Checklist</w:t>
+		</w:p>
+		<w:p>
+			<w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr></w:pPr>
+			<w:t>Confirm approval state</w:t>
+		</w:p>
+		<w:p>
+			<w:pPr><w:numPr><w:ilvl w:val="1"/><w:numId w:val="1"/></w:numPr></w:pPr>
+			<w:t>Attach remediation evidence</w:t>
+		</w:p>
+		<w:p>
+			<w:pPr><w:pStyle w:val="Heading2"/></w:pPr>
+			<w:t>Metrics Table</w:t>
+		</w:p>
+		<w:tbl>
+			<w:tr>
+				<w:tc><w:p><w:t>Metric</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Status</w:t></w:p></w:tc>
+			</w:tr>
+			<w:tr>
+				<w:tc><w:p><w:t>Approval</w:t></w:p></w:tc>
+				<w:tc><w:p><w:t>Blocked</w:t></w:p></w:tc>
+			</w:tr>
+		</w:tbl>
+	</w:body>
+</w:document>

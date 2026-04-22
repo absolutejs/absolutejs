@@ -1,0 +1,24 @@
+%PDF-1.4
+1 0 obj
+<<>>
+stream
+BT
+(Page One Summary) Tj
+T*
+(Stable rollout remains blocked.) Tj
+ET
+endstream
+endobj
+/Type /Page
+2 0 obj
+<<>>
+stream
+BT
+[(Metric) 180 (Status)] TJ
+T*
+[(Approval) 170 (Blocked)] TJ
+ET
+endstream
+endobj
+/Type /Page
+%%EOF

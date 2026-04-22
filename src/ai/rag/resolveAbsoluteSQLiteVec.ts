@@ -1,10 +1,11 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { arch, platform } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { SQLiteVecResolution } from '../../../types/ai';
 
-const require = createRequire(import.meta.url);
+type ImportMetaWithResolve = ImportMeta & {
+	resolve?: (specifier: string) => string;
+};
 
 type AbsoluteSQLiteVecPackage = {
 	packageName: string;
@@ -75,9 +76,16 @@ export const resolveAbsoluteSQLiteVec: () => SQLiteVecResolution = () => {
 	}
 
 	try {
-		const packageJsonPath = require.resolve(
-			`${packageInfo.packageName}/package.json`
-		);
+		const resolve = (import.meta as ImportMetaWithResolve).resolve;
+		if (typeof resolve !== 'function') {
+			throw new Error(
+				'AbsoluteJS sqlite-vec package resolution requires import.meta.resolve support.'
+			);
+		}
+
+		const packageJsonPath = new URL(
+			resolve(`${packageInfo.packageName}/package.json`)
+		).pathname;
 		const packageRoot = dirname(packageJsonPath);
 		const libraryPath = join(packageRoot, packageInfo.libraryFile);
 		const packageVersion = readPackageVersion(packageJsonPath);

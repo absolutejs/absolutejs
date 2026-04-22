@@ -1,0 +1,38 @@
+%PDF-1.4
+1 0 obj
+<<>>
+stream
+BT
+(Approval Matrix) Tj
+ET
+endstream
+endobj
+2 0 obj
+<<>>
+stream
+BT
+(Lane | Status) Tj
+T*
+(Stable | Blocked pending remediation review) Tj
+T*
+(Canary | Ready after approval verification) Tj
+T*
+(Rollback | Review after runbook confirmation) Tj
+T*
+(Hotfix | Ready once release signoff lands) Tj
+ET
+endstream
+endobj
+/Type /Page
+3 0 obj
+<<>>
+stream
+BT
+(Escalation Notes) Tj
+T*
+(Follow-up ownership remains local.) Tj
+ET
+endstream
+endobj
+/Type /Page
+%%EOF

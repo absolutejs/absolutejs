@@ -1,0 +1,112 @@
+%PDF-1.4
+1 0 obj
+<<>>
+stream
+BT
+(Example Report Header) Tj
+ET
+endstream
+endobj
+2 0 obj
+<<>>
+stream
+BT
+(Related links) Tj
+T*
+(/docs/release-gates) Tj
+T*
+(/docs/approval-lanes) Tj
+ET
+endstream
+endobj
+3 0 obj
+<<>>
+stream
+BT
+(Figure 3) Tj
+T*
+(Canary approval topology by lane.) Tj
+T*
+(Canary remediation stays local until the stable gate clears.) Tj
+ET
+endstream
+endobj
+4 0 obj
+<<>>
+stream
+BT
+(Page 1) Tj
+ET
+endstream
+endobj
+/Type /Page
+5 0 obj
+<<>>
+stream
+BT
+(Example Report Header) Tj
+ET
+endstream
+endobj
+6 0 obj
+<<>>
+stream
+BT
+(Approval Matrix) Tj
+ET
+endstream
+endobj
+7 0 obj
+<<>>
+stream
+BT
+(Stable release approval remains blocked until remediation closes.) Tj
+ET
+endstream
+endobj
+8 0 obj
+<<>>
+stream
+BT
+(Figure 4) Tj
+T*
+(Remediation owner by environment.) Tj
+T*
+(Environment escalation stays local until the stable gate clears.) Tj
+ET
+endstream
+endobj
+9 0 obj
+<<>>
+stream
+BT
+(Lane | Status) Tj
+T*
+(Stable | Blocked) Tj
+T*
+(Canary | Ready) Tj
+ET
+endstream
+endobj
+10 0 obj
+<<>>
+stream
+BT
+(Start free trial) Tj
+T*
+(Book demo with enterprise support) Tj
+T*
+(Learn more at /pricing) Tj
+ET
+endstream
+endobj
+11 0 obj
+<<>>
+stream
+BT
+(Page 2) Tj
+ET
+endstream
+endobj
+/Type /Page
+%%EOF

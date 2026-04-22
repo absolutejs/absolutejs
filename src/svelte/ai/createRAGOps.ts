@@ -4,6 +4,7 @@ import type {
 	RAGAdminJobRecord,
 	RAGAdminCapabilities,
 	RAGBackendCapabilities,
+	RAGBackendMaintenanceSummary,
 	RAGCorpusHealth,
 	RAGDocumentSummary,
 	RAGExtractorReadiness,
@@ -22,6 +23,9 @@ export const createRAGOps = (path: string, autoLoad = true) => {
 	const adminJobs = writable<RAGAdminJobRecord[]>([]);
 	const status = writable<RAGVectorStoreStatus | undefined>(undefined);
 	const capabilities = writable<RAGBackendCapabilities | undefined>(
+		undefined
+	);
+	const maintenance = writable<RAGBackendMaintenanceSummary | undefined>(
 		undefined
 	);
 	const health = writable<RAGCorpusHealth | undefined>(undefined);
@@ -44,6 +48,7 @@ export const createRAGOps = (path: string, autoLoad = true) => {
 			adminJobs.set(response.adminJobs ?? []);
 			status.set(response.status);
 			capabilities.set(response.capabilities);
+			maintenance.set(response.maintenance);
 			health.set(response.health);
 			readiness.set(response.readiness);
 			documents.set(response.documents);
@@ -72,6 +77,7 @@ export const createRAGOps = (path: string, autoLoad = true) => {
 		health.set(undefined);
 		ingestJobs.set([]);
 		isLoading.set(false);
+		maintenance.set(undefined);
 		readiness.set(undefined);
 		syncSources.set([]);
 		status.set(undefined);
@@ -93,6 +99,7 @@ export const createRAGOps = (path: string, autoLoad = true) => {
 		health,
 		ingestJobs,
 		isLoading,
+		maintenance,
 		operations,
 		readiness,
 		refresh,

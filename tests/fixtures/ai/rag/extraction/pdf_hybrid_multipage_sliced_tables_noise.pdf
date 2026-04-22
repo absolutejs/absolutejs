@@ -1,0 +1,191 @@
+%PDF-1.4
+1 0 obj
+<<>>
+stream
+BT
+(Example Report Header) Tj
+ET
+endstream
+endobj
+2 0 obj
+<<>>
+stream
+BT
+(Related links) Tj
+T*
+(/docs/release-gates) Tj
+ET
+endstream
+endobj
+3 0 obj
+<<>>
+stream
+BT
+(Start free trial) Tj
+ET
+endstream
+endobj
+4 0 obj
+<<>>
+stream
+BT
+(Figure 8) Tj
+T*
+(Approval flow by rollout lane.) Tj
+0 -18 Td
+(Figure body explains baseline approval sequencing.) Tj
+ET
+endstream
+endobj
+5 0 obj
+<<>>
+stream
+BT
+(Approval Matrix) Tj
+ET
+endstream
+endobj
+6 0 obj
+<<>>
+stream
+BT
+(Lane | Status) Tj
+T*
+(Stable | Blocked pending remediation review) Tj
+T*
+(Canary | Ready after approval verification) Tj
+T*
+(Rollback | Review after runbook confirmation) Tj
+T*
+(Hotfix | Ready once release signoff lands) Tj
+ET
+endstream
+endobj
+/Type /Page
+7 0 obj
+<<>>
+stream
+BT
+(Example Report Header) Tj
+ET
+endstream
+endobj
+8 0 obj
+<<>>
+stream
+BT
+(Related links) Tj
+T*
+(/docs/runtime-planner) Tj
+ET
+endstream
+endobj
+9 0 obj
+<<>>
+stream
+BT
+(Contact sales) Tj
+ET
+endstream
+endobj
+10 0 obj
+<<>>
+stream
+BT
+(Figure 9) Tj
+T*
+(Remediation owner by environment.) Tj
+0 -18 Td
+(Figure body explains late-page ownership and rollback flow.) Tj
+ET
+endstream
+endobj
+11 0 obj
+<<>>
+stream
+BT
+(Escalation Matrix) Tj
+ET
+endstream
+endobj
+12 0 obj
+<<>>
+stream
+BT
+(Environment | Owner) Tj
+T*
+(Stable | Release lead coordinating remediation verification and rollback signoff) Tj
+T*
+(Canary | On-call coordinating benchmark review and rollback acknowledgement) Tj
+T*
+(Rollback | Operations coordinating runtime planner approval and artifact review) Tj
+T*
+(Hotfix | Incident commander coordinating final mitigation and escalation closure) Tj
+ET
+endstream
+endobj
+/Type /Page
+13 0 obj
+<<>>
+stream
+BT
+(Example Report Header) Tj
+ET
+endstream
+endobj
+14 0 obj
+<<>>
+stream
+BT
+(Related links) Tj
+T*
+(/docs/handoff-runtime) Tj
+ET
+endstream
+endobj
+15 0 obj
+<<>>
+stream
+BT
+(Upgrade now) Tj
+ET
+endstream
+endobj
+16 0 obj
+<<>>
+stream
+BT
+(Figure 10) Tj
+T*
+(Handoff verification by environment.) Tj
+0 -18 Td
+(Figure body explains final handoff ownership.) Tj
+ET
+endstream
+endobj
+17 0 obj
+<<>>
+stream
+BT
+(Handoff Matrix) Tj
+ET
+endstream
+endobj
+18 0 obj
+<<>>
+stream
+BT
+(Environment | Gate) Tj
+T*
+(Stable | Awaiting release manager approval after remediation evidence and runtime review) Tj
+T*
+(Canary | Awaiting rollback acknowledgement after benchmark and handoff verification) Tj
+T*
+(Preview | Awaiting benchmark signoff after evidence reconcile confirmation) Tj
+T*
+(Hotfix | Awaiting incident review after mitigation and release note confirmation) Tj
+ET
+endstream
+endobj
+/Type /Page
+%%EOF

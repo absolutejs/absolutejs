@@ -1,26 +1,60 @@
 import { writable } from 'svelte/store';
 import type { RAGSearchRequest, RAGSource } from '../../../types/ai';
-import { createRAGClient } from '../../ai/client/ragClient';
+import {
+	createRAGClient,
+	type RAGDetailedSearchResponse
+} from '../../ai/client/ragClient';
+
+type SearchRequest = Omit<RAGSearchRequest, 'includeTrace'>;
 
 export const createRAGSearch = (path: string) => {
 	const client = createRAGClient({ path });
 	const results = writable<RAGSource[]>([]);
+	const trace = writable<RAGDetailedSearchResponse['trace'] | undefined>(
+		undefined
+	);
 	const error = writable<string | null>(null);
 	const isSearching = writable(false);
 	const hasSearched = writable(false);
 	const lastRequest = writable<RAGSearchRequest | null>(null);
 
-	const search = async (input: RAGSearchRequest) => {
+	const search = async (input: SearchRequest) => {
 		isSearching.set(true);
 		error.set(null);
 		lastRequest.set(input);
 
 		try {
-			const nextResults = await client.search(input);
+			const nextResults = await client.search<false>({
+				...input,
+				includeTrace: false
+			});
 			results.set(nextResults);
+			trace.set(undefined);
 			hasSearched.set(true);
 
 			return nextResults;
+		} catch (caught) {
+			error.set(
+				caught instanceof Error ? caught.message : String(caught)
+			);
+			throw caught;
+		} finally {
+			isSearching.set(false);
+		}
+	};
+
+	const searchWithTrace = async (input: SearchRequest) => {
+		isSearching.set(true);
+		error.set(null);
+		lastRequest.set(input);
+
+		try {
+			const response = await client.searchWithTrace(input);
+			results.set(response.results);
+			trace.set(response.trace);
+			hasSearched.set(true);
+
+			return response;
 		} catch (caught) {
 			error.set(
 				caught instanceof Error ? caught.message : String(caught)
@@ -37,6 +71,7 @@ export const createRAGSearch = (path: string) => {
 		isSearching.set(false);
 		lastRequest.set(null);
 		results.set([]);
+		trace.set(undefined);
 	};
 
 	return {
@@ -46,6 +81,8 @@ export const createRAGSearch = (path: string) => {
 		lastRequest,
 		reset,
 		results,
-		search
+		search,
+		searchWithTrace,
+		trace
 	};
 };

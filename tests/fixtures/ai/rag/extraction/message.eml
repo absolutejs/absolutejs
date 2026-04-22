@@ -1,0 +1,8 @@
+Subject: Release incident recap
+From: ops@example.com
+To: team@example.com
+Message-ID: <release-recap@example.com>
+In-Reply-To: <incident-root@example.com>
+References: <incident-root@example.com> <release-recap@example.com>
+
+Stable incident acknowledged and resolved after the remediation drill.

@@ -3,7 +3,7 @@ import type { RAGSource } from '../../../types/ai';
 import {
 	buildRAGGroundedAnswer,
 	buildRAGGroundingReferences
-} from '../../ai/rag/presentation';
+} from '../../ai/rag/ui';
 
 export const useRAGGrounding = (content: string, sources: RAGSource[]) => {
 	const groundedAnswer = useMemo(

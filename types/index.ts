@@ -15,5 +15,6 @@ export * from './tool';
 export * from './typeGuards';
 export * from './jsonLd';
 export * from './metadata';
+export * from './session';
 export * from './sitemap';
 export * from './websocket';

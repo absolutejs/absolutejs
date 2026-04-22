@@ -1,12 +1,17 @@
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import type { AIMessage } from '../../../types/ai';
 import {
-	buildRAGCitationReferenceMap,
-	buildRAGSourceGroups,
-	buildRAGSourceSummaries,
 	getLatestAssistantMessage,
 	getLatestRAGSources
-} from '../../ai/rag/presentation';
+} from '../../ai/rag/workflowState';
+import {
+	buildRAGCitationReferenceMap,
+	buildRAGChunkGraph,
+	buildRAGChunkGraphNavigation,
+	buildRAGSectionRetrievalDiagnostics,
+	buildRAGSourceGroups,
+	buildRAGSourceSummaries
+} from '../../ai/rag/ui';
 
 export const useRAGSources = (messages: AIMessage[]) => {
 	const latestAssistantMessage = useMemo(
@@ -22,6 +27,15 @@ export const useRAGSources = (messages: AIMessage[]) => {
 		() => buildRAGSourceSummaries(sources),
 		[sources]
 	);
+	const sectionDiagnostics = useMemo(
+		() =>
+			buildRAGSectionRetrievalDiagnostics(
+				sources,
+				latestAssistantMessage?.retrievalTrace
+			),
+		[sources, latestAssistantMessage]
+	);
+	const chunkGraph = useMemo(() => buildRAGChunkGraph(sources), [sources]);
 	const citationReferenceMap = useMemo(
 		() =>
 			buildRAGCitationReferenceMap(
@@ -29,11 +43,19 @@ export const useRAGSources = (messages: AIMessage[]) => {
 			),
 		[sourceSummaries]
 	);
+	const navigationForChunk = useCallback(
+		(chunkId?: string | null) =>
+			buildRAGChunkGraphNavigation(chunkGraph, chunkId ?? undefined),
+		[chunkGraph]
+	);
 
 	return {
 		citationReferenceMap,
+		chunkGraph,
 		hasSources: sources.length > 0,
 		latestAssistantMessage,
+		navigationForChunk,
+		sectionDiagnostics,
 		sourceGroups,
 		sources,
 		sourceSummaries

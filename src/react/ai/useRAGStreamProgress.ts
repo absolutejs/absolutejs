@@ -3,7 +3,7 @@ import type { AIMessage } from '../../../types/ai';
 import {
 	buildRAGStreamProgress,
 	type RAGStreamProgress
-} from '../../ai/rag/presentation';
+} from '../../ai/rag/workflowState';
 
 export const useRAGStreamProgress = (params: {
 	error: string | null;

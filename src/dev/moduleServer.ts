@@ -248,10 +248,12 @@ const rewriteImports = (
 		if (specifier.startsWith('/') || specifier.startsWith('.'))
 			return _match;
 
-		// Serve @absolutejs/absolute client-safe exports as real modules
-		// instead of stubbing them — they contain Image/Head/JsonLd components
-		// needed for client-side hydration.
-		if (!specifier.startsWith('@absolutejs/absolute/'))
+		// Serve client-safe AbsoluteJS package exports as real modules instead
+		// of stubbing them so framework/browser entrypoints hydrate correctly.
+		if (
+			!specifier.startsWith('@absolutejs/absolute/') &&
+			!specifier.startsWith('@absolutejs/voice/')
+		)
 			return `${prefix}/@stub/${encodeURIComponent(specifier)}${suffix}`;
 
 		const resolved = resolveAbsoluteSpecifier(specifier, projectRoot);

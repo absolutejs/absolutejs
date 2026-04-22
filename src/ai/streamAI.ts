@@ -42,14 +42,14 @@ const checkBackpressure = async (socket: AIWebSocket) => {
 	}
 };
 
-const sendMessage = async (socket: AIWebSocket, msg: AIServerMessage) => {
+const sendMessage = async (socket: AIWebSocket, message: AIServerMessage) => {
 	if (socket.readyState !== WS_OPEN) {
 		return false;
 	}
 
 	await checkBackpressure(socket);
 
-	socket.send(serializeAIMessage(msg));
+	socket.send(serializeAIMessage(message));
 
 	return true;
 };

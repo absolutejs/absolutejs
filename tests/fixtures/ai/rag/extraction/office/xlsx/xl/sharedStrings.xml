@@ -1,0 +1,36 @@
+<sst>
+	<si><t>Metric</t></si>
+	<si><t>Status</t></si>
+	<si><t>Overview heading</t></si>
+	<si><t>Ready</t></si>
+	<si><t>Owner</t></si>
+	<si><t>Due date</t></si>
+	<si><t>Ready ops lead</t></si>
+	<si><t>2026-04-21</t></si>
+	<si><t>Escalation checklist</t></si>
+	<si><t>Blocked</t></si>
+	<si><t>Checklist gate</t></si>
+	<si><t>Watch</t></si>
+	<si><t>Overview rollback proof</t></si>
+	<si><t>Incident commander</t></si>
+	<si><t>2026-04-22</t></si>
+	<si><t>Checklist owner audit</t></si>
+	<si><t>Escalation review</t></si>
+	<si><t>Rollback checkpoint</t></si>
+	<si><t>Approved</t></si>
+	<si><t>Audit owner</t></si>
+	<si><t>2026-04-23</t></si>
+	<si><t>Closure packet</t></si>
+	<si><t>Archive</t></si>
+	<si><t>Gate</t></si>
+	<si><t>Severity</t></si>
+	<si><t>Stable</t></si>
+	<si><t>High</t></si>
+	<si><t>Ops lead</t></si>
+	<si><t>Closure</t></si>
+	<si><t>Medium</t></si>
+	<si><t>Audit lead</t></si>
+	<si><t>Release lead</t></si>
+	<si><t>Pager</t></si>
+	<si><t>Incident lead</t></si>
+</sst>

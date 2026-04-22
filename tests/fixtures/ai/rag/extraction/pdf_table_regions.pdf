@@ -1,0 +1,21 @@
+%PDF-1.4
+1 0 obj
+<<>>
+stream
+BT
+(Release Readiness) Tj
+T*
+(Stable lane remains blocked until approval is recorded.) Tj
+T*
+[(Metric) 180 (Status)] TJ
+T*
+[(Approval) 170 (Blocked)] TJ
+T*
+[(Latency) 200 (Ready)] TJ
+T*
+(Next action: inspect release status.) Tj
+ET
+endstream
+endobj
+/Type /Page
+%%EOF

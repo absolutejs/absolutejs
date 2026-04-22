@@ -1,0 +1,124 @@
+%PDF-1.4
+1 0 obj
+<<>>
+stream
+BT
+(Example Report Header) Tj
+ET
+endstream
+endobj
+2 0 obj
+<<>>
+stream
+BT
+(Related links) Tj
+T*
+(/docs/release-gates) Tj
+ET
+endstream
+endobj
+3 0 obj
+<<>>
+stream
+BT
+(Start free trial) Tj
+ET
+endstream
+endobj
+4 0 obj
+<<>>
+stream
+BT
+(Figure 6) Tj
+T*
+(Approval topology by rollout lane.) Tj
+0 -18 Td
+(Figure body explains the stable rollout dependency path.) Tj
+ET
+endstream
+endobj
+5 0 obj
+<<>>
+stream
+BT
+(Approval Matrix) Tj
+ET
+endstream
+endobj
+6 0 obj
+<<>>
+stream
+BT
+(Lane | Status) Tj
+T*
+(Stable | Blocked pending remediation review) Tj
+T*
+(Canary | Ready after approval verification) Tj
+T*
+(Rollback | Review after runbook confirmation) Tj
+T*
+(Hotfix | Ready once release signoff lands) Tj
+ET
+endstream
+endobj
+/Type /Page
+7 0 obj
+<<>>
+stream
+BT
+(Example Report Header) Tj
+ET
+endstream
+endobj
+8 0 obj
+<<>>
+stream
+BT
+(Related links) Tj
+T*
+(/docs/runtime-planner) Tj
+ET
+endstream
+endobj
+9 0 obj
+<<>>
+stream
+BT
+(Contact sales) Tj
+ET
+endstream
+endobj
+10 0 obj
+<<>>
+stream
+BT
+(Figure 7) Tj
+T*
+(Remediation owner by environment.) Tj
+0 -18 Td
+(Figure body explains late-page ownership and rollback flow.) Tj
+ET
+endstream
+endobj
+11 0 obj
+<<>>
+stream
+BT
+(Escalation Matrix) Tj
+ET
+endstream
+endobj
+12 0 obj
+<<>>
+stream
+BT
+(Environment | Owner) Tj
+T*
+(Stable | Release lead) Tj
+T*
+(Canary | On-call) Tj
+ET
+endstream
+endobj
+/Type /Page
+%%EOF

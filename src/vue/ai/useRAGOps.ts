@@ -4,6 +4,7 @@ import type {
 	RAGAdminJobRecord,
 	RAGAdminCapabilities,
 	RAGBackendCapabilities,
+	RAGBackendMaintenanceSummary,
 	RAGCorpusHealth,
 	RAGDocumentSummary,
 	RAGExtractorReadiness,
@@ -22,6 +23,7 @@ export const useRAGOps = (path: string, autoLoad = true) => {
 	const adminJobs = ref<RAGAdminJobRecord[]>([]);
 	const status = ref<RAGVectorStoreStatus | undefined>();
 	const capabilities = ref<RAGBackendCapabilities | undefined>();
+	const maintenance = ref<RAGBackendMaintenanceSummary | undefined>();
 	const health = ref<RAGCorpusHealth | undefined>();
 	const readiness = ref<RAGExtractorReadiness | undefined>();
 	const documents = ref<RAGDocumentSummary | undefined>();
@@ -42,6 +44,7 @@ export const useRAGOps = (path: string, autoLoad = true) => {
 			adminJobs.value = response.adminJobs ?? [];
 			status.value = response.status;
 			capabilities.value = response.capabilities;
+			maintenance.value = response.maintenance;
 			health.value = response.health;
 			readiness.value = response.readiness;
 			documents.value = response.documents;
@@ -69,6 +72,7 @@ export const useRAGOps = (path: string, autoLoad = true) => {
 		health.value = undefined;
 		ingestJobs.value = [];
 		isLoading.value = false;
+		maintenance.value = undefined;
 		readiness.value = undefined;
 		syncSources.value = [];
 		status.value = undefined;
@@ -94,6 +98,7 @@ export const useRAGOps = (path: string, autoLoad = true) => {
 		health,
 		ingestJobs,
 		isLoading,
+		maintenance,
 		operations,
 		readiness,
 		refresh,

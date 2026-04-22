@@ -1,11 +1,20 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	export let initialCount: number;
 	export let cssPath: string | undefined = undefined;
 
 	import Counter from '../components/Counter.svelte';
 	import Head from '../../../src/svelte/components/Head.svelte';
+	import { mountRAGAPIShowcase } from '../../shared/ragApiShowcase';
 
 	let isOpen = false;
+	let ragShowcaseHost: HTMLDivElement | undefined = undefined;
+
+	onMount(() => {
+		if (ragShowcaseHost) {
+			mountRAGAPIShowcase(ragShowcaseHost);
+		}
+	});
 </script>
 
 <Head
@@ -64,4 +73,5 @@
 	<p style="color: #777; font-size: 1rem; margin-top: 2rem;">
 		Click on the AbsoluteJS and Svelte logos to learn more.
 	</p>
+	<div bind:this={ragShowcaseHost}></div>
 </main>

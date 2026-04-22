@@ -50,8 +50,8 @@ export const useAIStream = (path: string, conversationId?: string) => {
 
 	unsubscribeStore = store.subscribe(syncState);
 
-	unsubscribeConnection = connection.subscribe((msg: AIServerMessage) => {
-		const action = serverMessageToAction(msg);
+	unsubscribeConnection = connection.subscribe((message: AIServerMessage) => {
+		const action = serverMessageToAction(message);
 		if (action) {
 			store.dispatch(action);
 		}

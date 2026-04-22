@@ -5,6 +5,7 @@
     "": {
       "name": "@absolutejs/absolute",
       "dependencies": {
+        "@absolutejs/linked-providers": "0.0.1",
         "@angular/compiler": "^21.0.0",
         "zustand": "^5.0.12",
       },
@@ -48,12 +49,12 @@
         "vue-tsc": "^3.2.5",
       },
       "optionalDependencies": {
-        "@absolutejs/native-darwin-arm64": "0.19.0-beta.487",
-        "@absolutejs/native-darwin-x64": "0.19.0-beta.487",
-        "@absolutejs/native-linux-arm64": "0.19.0-beta.487",
-        "@absolutejs/native-linux-x64": "0.19.0-beta.487",
-        "@absolutejs/native-windows-arm64": "0.19.0-beta.487",
-        "@absolutejs/native-windows-x64": "0.19.0-beta.487",
+        "@absolutejs/native-darwin-arm64": "0.19.0-beta.648",
+        "@absolutejs/native-darwin-x64": "0.19.0-beta.648",
+        "@absolutejs/native-linux-arm64": "0.19.0-beta.648",
+        "@absolutejs/native-linux-x64": "0.19.0-beta.648",
+        "@absolutejs/native-windows-arm64": "0.19.0-beta.648",
+        "@absolutejs/native-windows-x64": "0.19.0-beta.648",
       },
       "peerDependencies": {
         "@angular/common": "^21.0.0",
@@ -92,17 +93,19 @@
     "@typescript-eslint/utils": "8.56.1",
   },
   "packages": {
-    "@absolutejs/native-darwin-arm64": ["@absolutejs/native-darwin-arm64@0.19.0-beta.487", "", { "os": "darwin", "cpu": "arm64" }, "sha512-zTiGxAj0hYZpcoO+NQ1+OtDm3dqMFmh9IEBjdcHrffxo0PxPSULhs7r5R9pRliBQzrGeAhkZ5nigYc22RJTuNg=="],
+    "@absolutejs/linked-providers": ["@absolutejs/linked-providers@0.0.1", "", {}, "sha512-ljHq5Ws18qcFWAkWHB08DWMjK61y4VD0U/XhrODuo82P2nfsZFN2n0SDmiVtWRuzn4Ce43T4WElxNSKOYBEESg=="],
 
-    "@absolutejs/native-darwin-x64": ["@absolutejs/native-darwin-x64@0.19.0-beta.487", "", { "os": "darwin", "cpu": "x64" }, "sha512-Rwz+oDrM8NQaFCVeU015VpbFUyZvBVAYZu801fDvVtSmOhIri4d7wRcypSz9vDjXMXhR8DVTHLIK2p04CWAN+A=="],
+    "@absolutejs/native-darwin-arm64": ["@absolutejs/native-darwin-arm64@0.19.0-beta.648", "", { "os": "darwin", "cpu": "arm64" }, "sha512-8Wb1uew2lBj1pho6j9aOI/PUHLoBIG6x+VTNzo6ven7Z7454+eTu7tiTOjAPmiDy8uGCRwDzY2y1Z6DV/3oTbA=="],
 
-    "@absolutejs/native-linux-arm64": ["@absolutejs/native-linux-arm64@0.19.0-beta.487", "", { "os": "linux", "cpu": "arm64" }, "sha512-bttxUr60g6dGn1BMVlOzff4D4I8YiB7X/u2L+KO6jQQjKtbY0/UQCzbiZHIFYxnuSVk5vQ6CUB9otmF+PuNnbw=="],
+    "@absolutejs/native-darwin-x64": ["@absolutejs/native-darwin-x64@0.19.0-beta.648", "", { "os": "darwin", "cpu": "x64" }, "sha512-onYS7yHAGhYx53KRbwqJ/hgUfSkwO4RVuIM4NxfL43vkRKc8TxWkTiO42yc7bvVf8RiamOdrtV3UkTKPv3rWqw=="],
 
-    "@absolutejs/native-linux-x64": ["@absolutejs/native-linux-x64@0.19.0-beta.487", "", { "os": "linux", "cpu": "x64" }, "sha512-uZSguNi3r/olKPxvfhuAkYWM3/X9mIjucvaoXkYDaZVNIMeu47W8vMa2oH52YsDgOj8PCRGed6btKU8QSLf1dg=="],
+    "@absolutejs/native-linux-arm64": ["@absolutejs/native-linux-arm64@0.19.0-beta.648", "", { "os": "linux", "cpu": "arm64" }, "sha512-bW3EMOFnyL+oZUcv/aRRW8G5j9hy173rbopxwngGIJ1pz4AoKLBBU9RAn5r8s8cLFxdL0wEw641G1jcahjZg+Q=="],
 
-    "@absolutejs/native-windows-arm64": ["@absolutejs/native-windows-arm64@0.19.0-beta.487", "", { "os": "win32", "cpu": "arm64" }, "sha512-eEWoMVhKrst6lLdah8MFJTfYOmVtYJpoTgdZfe1bsMMHKqYcTaljW3S91JkkyzRaGey5BjXVOJS0nvox0jkjUw=="],
+    "@absolutejs/native-linux-x64": ["@absolutejs/native-linux-x64@0.19.0-beta.648", "", { "os": "linux", "cpu": "x64" }, "sha512-+sgNYIfFMcDiCmBYmMFPH4pJN6MMon+PqmU3QiJvADyfvaRrw3ykm3W7EZt5i4xS5vpMB93gNREafhYjlB6S3Q=="],
 
-    "@absolutejs/native-windows-x64": ["@absolutejs/native-windows-x64@0.19.0-beta.487", "", { "os": "win32", "cpu": "x64" }, "sha512-6hzFY1dnDpHSEqIkfzVsKQdlPk5Jw/g6H7p3hl8qfvpvsonxxXE9JLEGq62NYQ/qV/QfD8FqtZwd2eAjesT7EA=="],
+    "@absolutejs/native-windows-arm64": ["@absolutejs/native-windows-arm64@0.19.0-beta.648", "", { "os": "win32", "cpu": "arm64" }, "sha512-oeIveTpSemAGKHN8H03ihvBKUhpIshKLFbV6/Kh8mBis3We0AempI9rA2kmpteu6hMcY/icjeBUk96pFC9XmJA=="],
+
+    "@absolutejs/native-windows-x64": ["@absolutejs/native-windows-x64@0.19.0-beta.648", "", { "os": "win32", "cpu": "x64" }, "sha512-cYVJhSSTWavwlfor0DSUd2Xz/dW5BReom8MmdxN4QA6PncU/9yTMWcCtLZehlQld8kpDncryWtOURwJZ+g4Y+A=="],
 
     "@ampproject/remapping": ["@ampproject/remapping@2.3.0", "", { "dependencies": { "@jridgewell/gen-mapping": "^0.3.5", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-30iZtAPgz+LTIYoeivqYo853f02jBYSd5uGnGpkFV0M3xOt9aN73erkgYAmZU43x4VfqcnLxW9Kpg3R5LC4YYw=="],
 

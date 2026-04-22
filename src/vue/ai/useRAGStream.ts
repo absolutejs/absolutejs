@@ -1,6 +1,6 @@
 import { computed } from 'vue';
 import type { AIAttachment } from '../../../types/ai';
-import { buildRAGAnswerWorkflowState } from '../../ai/rag/presentation';
+import { buildRAGAnswerWorkflowState } from '../../ai/rag/workflowState';
 import { useAIStream } from './useAIStream';
 import { useRAGStreamProgress } from './useRAGStreamProgress';
 

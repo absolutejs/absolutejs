@@ -1,0 +1,55 @@
+%PDF-1.4
+1 0 obj
+<<>>
+stream
+BT
+(Related links) Tj
+T*
+(/docs/release-gates) Tj
+T*
+(/docs/approval-lanes) Tj
+ET
+endstream
+endobj
+2 0 obj
+<<>>
+stream
+BT
+(Figure 3) Tj
+T*
+(Canary approval topology by lane.) Tj
+T*
+(Canary remediation stays local until the stable gate clears.) Tj
+ET
+endstream
+endobj
+3 0 obj
+<<>>
+stream
+BT
+(Rollback Controls) Tj
+ET
+endstream
+endobj
+4 0 obj
+<<>>
+stream
+BT
+(Stable rollback requires incident acknowledgement before promotion.) Tj
+ET
+endstream
+endobj
+5 0 obj
+<<>>
+stream
+BT
+(Start free trial) Tj
+T*
+(Book demo with enterprise support) Tj
+T*
+(Learn more at /pricing) Tj
+ET
+endstream
+endobj
+/Type /Page
+%%EOF

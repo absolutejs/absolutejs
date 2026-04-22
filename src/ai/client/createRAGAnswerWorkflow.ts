@@ -1,5 +1,5 @@
 import type { AIAttachment, RAGAnswerWorkflowState } from '../../../types/ai';
-import { buildRAGAnswerWorkflowState } from '../rag/presentation';
+import { buildRAGAnswerWorkflowState } from '../rag/workflowState';
 import { createAIStream } from './createAIStream';
 
 export const createRAGAnswerWorkflow = (

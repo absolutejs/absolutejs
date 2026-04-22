@@ -1,4 +1,4 @@
-import { StreamSlot } from '@absolutejs/absolute/react/components';
+import { StreamSlot } from '../../../../../src/react/components';
 import {
 	REACT_STREAM_SLOT_FAST_DELAY_MS,
 	REACT_STREAM_SLOT_SLOW_DELAY_MS

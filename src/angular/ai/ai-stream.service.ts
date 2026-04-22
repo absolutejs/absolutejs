@@ -55,8 +55,8 @@ export class AIStreamService implements OnDestroy {
 		const unsubscribeStore = store.subscribe(syncState);
 
 		const unsubscribeConnection = connection.subscribe(
-			(msg: AIServerMessage) => {
-				const action = serverMessageToAction(msg);
+			(message: AIServerMessage) => {
+				const action = serverMessageToAction(message);
 				if (action) {
 					store.dispatch(action);
 				}

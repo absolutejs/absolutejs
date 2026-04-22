@@ -39,8 +39,8 @@ export const AIStreamProvider = ({
 
 		const { connection, store } = current;
 
-		const unsubscribe = connection.subscribe((msg) => {
-			const action = serverMessageToAction(msg);
+		const unsubscribe = connection.subscribe((message) => {
+			const action = serverMessageToAction(message);
 			if (action) {
 				store.dispatch(action);
 			}

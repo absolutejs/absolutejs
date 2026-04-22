@@ -4,7 +4,8 @@ import type {
 	RAGEmailSyncClient,
 	RAGEmailSyncListInput,
 	RAGEmailSyncListResult,
-	RAGEmailSyncMessage
+	RAGEmailSyncMessage,
+	RAGGmailLinkedEmailSyncClientOptions
 } from '../../../types/ai';
 
 export type GmailEmailSyncConfig = {
@@ -200,6 +201,29 @@ const parseRawEmail = (raw: string): RAGEmailSyncMessage => {
 	};
 };
 
+const DEFAULT_GMAIL_READONLY_SCOPES = [
+	'https://www.googleapis.com/auth/gmail.readonly'
+];
+
+const inferLinkedProviderFailureCode = (
+	error: unknown
+): 'unauthorized' | 'insufficient_scope' | 'provider_error' => {
+	const message =
+		error instanceof Error
+			? error.message
+			: String(error ?? 'Unknown error');
+
+	if (/\b401\b/.test(message)) {
+		return 'unauthorized';
+	}
+
+	if (/\b403\b/.test(message)) {
+		return 'insufficient_scope';
+	}
+
+	return 'provider_error';
+};
+
 export const createRAGGmailEmailSyncClient = (
 	config: GmailEmailSyncConfig
 ): RAGEmailSyncClient => ({
@@ -343,6 +367,55 @@ export const createRAGGmailEmailSyncClient = (
 			messages,
 			nextCursor: listJson.nextPageToken
 		};
+	}
+});
+
+export const createRAGLinkedGmailEmailSyncClient = (
+	config: RAGGmailLinkedEmailSyncClientOptions
+): RAGEmailSyncClient => ({
+	listMessages: async (
+		input?: RAGEmailSyncListInput
+	): Promise<RAGEmailSyncListResult> => {
+		const credential = await config.resolver.resolveCredential({
+			bindingId: config.bindingId,
+			connectorProvider: 'gmail',
+			externalAccountId: config.externalAccountId,
+			ownerRef: config.ownerRef,
+			purpose: config.purpose ?? 'background_sync',
+			requiredScopes:
+				config.requiredScopes ?? DEFAULT_GMAIL_READONLY_SCOPES
+		});
+
+		if (!credential) {
+			throw new Error('No linked Gmail credential could be resolved');
+		}
+
+		try {
+			const lease = await config.resolver.getAccessToken(credential, {
+				minValidityMs: config.minValidityMs,
+				requiredScopes:
+					config.requiredScopes ?? DEFAULT_GMAIL_READONLY_SCOPES
+			});
+
+			return await createRAGGmailEmailSyncClient({
+				accessToken: lease.accessToken,
+				fetch: config.fetch,
+				includeSpamTrash: config.includeSpamTrash,
+				labelIds: config.labelIds,
+				maxResults: config.maxResults,
+				query: config.query,
+				userId: config.userId
+			}).listMessages(input);
+		} catch (error) {
+			await config.resolver.reportFailure(credential, {
+				code: inferLinkedProviderFailureCode(error),
+				message:
+					error instanceof Error
+						? error.message
+						: String(error ?? 'Unknown error')
+			});
+			throw error;
+		}
 	}
 });
 

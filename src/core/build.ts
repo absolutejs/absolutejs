@@ -320,6 +320,10 @@ const copyReactDevIndexes = (
 	devIndexDir: string,
 	readDir: (path: string) => string[]
 ) => {
+	if (!existsSync(reactIndexesPath)) {
+		return;
+	}
+
 	const indexFiles = readDir(reactIndexesPath).filter((file: string) =>
 		file.endsWith('.tsx')
 	);
@@ -1252,7 +1256,7 @@ export const build = async ({
 	// Remove old hashed indexes before bundling so stale files
 	// from previous builds don't accumulate in dist/.
 	if (reactDir && reactClientEntryPoints.length > 0) {
-		rmSync(join(buildPath, 'react', 'indexes'), {
+		rmSync(join(buildPath, 'react', 'generated', 'indexes'), {
 			force: true,
 			recursive: true
 		});

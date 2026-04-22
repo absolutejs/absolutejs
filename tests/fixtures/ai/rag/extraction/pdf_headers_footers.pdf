@@ -1,0 +1,34 @@
+%PDF-1.4
+1 0 obj
+<<>>
+stream
+BT
+(Example Report Header) Tj
+T*
+(Page 1) Tj
+T*
+(Release Summary) Tj
+T*
+(Stable release remains blocked pending approval.) Tj
+ET
+endstream
+endobj
+/Type /Page
+2 0 obj
+<<>>
+stream
+BT
+(Example Report Header) Tj
+T*
+(Page 2) Tj
+T*
+[(Metric) 180 (Status)] TJ
+T*
+[(Approval) 170 (Blocked)] TJ
+T*
+(Example Report Footer) Tj
+ET
+endstream
+endobj
+/Type /Page
+%%EOF

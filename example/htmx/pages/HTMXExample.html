@@ -86,6 +86,153 @@
 			<p style="margin-top: 2rem; font-size: 1rem; color: #777">
 				Click on the AbsoluteJS and HTML logos to learn more.
 			</p>
+			<section
+				style="
+					margin-top: 2rem;
+					padding: 1.25rem;
+					border: 1px solid #d6d6d6;
+					border-radius: 0.75rem;
+					background: #fafafa;
+				"
+			>
+				<h2 style="margin-top: 0">RAG API via HTMX</h2>
+				<p style="margin-bottom: 1rem">
+					This page stays server-driven. Search and governance views
+					render through HTMX against the core
+					<code>/rag</code> routes.
+				</p>
+				<form
+					hx-post="/rag/search"
+					hx-target="#htmx-rag-search-results"
+					hx-swap="innerHTML"
+					style="
+						display: grid;
+						grid-template-columns: minmax(0, 1fr) auto;
+						gap: 0.75rem;
+						align-items: end;
+						margin-bottom: 1rem;
+					"
+				>
+					<label style="display: grid; gap: 0.35rem">
+						<span>Query</span>
+						<input
+							type="text"
+							name="query"
+							value="launch checklist exact wording for aurora promotion"
+							style="
+								padding: 0.7rem 0.8rem;
+								border: 1px solid #c8c8c8;
+								border-radius: 0.5rem;
+							"
+						/>
+					</label>
+					<button type="submit">Search</button>
+				</form>
+				<div
+					id="htmx-rag-search-results"
+					hx-post="/rag/search"
+					hx-trigger="load"
+					hx-vals='{"query":"launch checklist exact wording for aurora promotion"}'
+					hx-swap="innerHTML"
+					style="margin-bottom: 1rem"
+				>
+					Loading search results...
+				</div>
+				<div
+					id="htmx-rag-status"
+					hx-get="/rag/status"
+					hx-trigger="load"
+					hx-swap="innerHTML"
+				>
+					Loading RAG status...
+				</div>
+				<section style="margin-top: 1rem">
+					<h3>Benchmarks</h3>
+					<div
+						style="
+							display: flex;
+							flex-wrap: wrap;
+							gap: 0.5rem;
+							margin-bottom: 0.75rem;
+						"
+					>
+						<button
+							type="button"
+							hx-get="/rag/compare/retrieval/benchmarks/adaptive-native-planner"
+							hx-target="#htmx-adaptive-native-benchmark"
+							hx-swap="innerHTML"
+						>
+							Load adaptive benchmark
+						</button>
+						<button
+							type="button"
+							hx-post="/rag/compare/retrieval/benchmarks/adaptive-native-planner/run"
+							hx-target="#htmx-adaptive-native-benchmark"
+							hx-swap="innerHTML"
+						>
+							Run adaptive benchmark
+						</button>
+						<button
+							type="button"
+							hx-post="/rag/compare/retrieval/benchmarks/adaptive-native-planner/snapshots"
+							hx-target="#htmx-adaptive-native-benchmark"
+							hx-swap="innerHTML"
+						>
+							Save adaptive snapshot
+						</button>
+					</div>
+					<div
+						id="htmx-adaptive-native-benchmark"
+						hx-get="/rag/compare/retrieval/benchmarks/adaptive-native-planner"
+						hx-trigger="load"
+						hx-swap="innerHTML"
+						style="margin-bottom: 1rem"
+					>
+						Loading adaptive benchmark...
+					</div>
+					<div
+						style="
+							display: flex;
+							flex-wrap: wrap;
+							gap: 0.5rem;
+							margin-bottom: 0.75rem;
+						"
+					>
+						<button
+							type="button"
+							hx-get="/rag/compare/retrieval/benchmarks/native-backend-comparison"
+							hx-target="#htmx-native-backend-benchmark"
+							hx-swap="innerHTML"
+						>
+							Load backend benchmark
+						</button>
+						<button
+							type="button"
+							hx-post="/rag/compare/retrieval/benchmarks/native-backend-comparison/run"
+							hx-target="#htmx-native-backend-benchmark"
+							hx-swap="innerHTML"
+						>
+							Run backend benchmark
+						</button>
+						<button
+							type="button"
+							hx-post="/rag/compare/retrieval/benchmarks/native-backend-comparison/snapshots"
+							hx-target="#htmx-native-backend-benchmark"
+							hx-swap="innerHTML"
+						>
+							Save backend snapshot
+						</button>
+					</div>
+					<div
+						id="htmx-native-backend-benchmark"
+						hx-get="/rag/compare/retrieval/benchmarks/native-backend-comparison"
+						hx-trigger="load"
+						hx-swap="innerHTML"
+					>
+						Loading backend benchmark...
+					</div>
+				</section>
+			</section>
 		</main>
 		<p>HMR_TEST_HTMX</p>
 	</body>

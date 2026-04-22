@@ -39,4 +39,5 @@ export const parseAIMessage = (raw: unknown) => {
 	}
 };
 
-export const serializeAIMessage = (msg: AIServerMessage) => JSON.stringify(msg);
+export const serializeAIMessage = (message: AIServerMessage) =>
+	JSON.stringify(message);

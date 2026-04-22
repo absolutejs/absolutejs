@@ -4,6 +4,7 @@
 		"absolute": "dist/cli/index.js"
 	},
 	"dependencies": {
+		"@absolutejs/linked-providers": "0.0.1",
 		"@angular/compiler": "^21.0.0",
 		"zustand": "^5.0.12"
 	},
@@ -50,6 +51,52 @@
 	"engines": {
 		"bun": ">=1.3.6"
 	},
+	"typesVersions": {
+		"*": {
+			"ai": [
+				"dist/src/ai/index.d.ts"
+			],
+			"ai/*": [
+				"dist/src/ai/*"
+			],
+			"angular": [
+				"dist/src/angular/index.d.ts"
+			],
+			"angular/*": [
+				"dist/src/angular/*"
+			],
+			"build": [
+				"dist/src/build.d.ts"
+			],
+			"client": [
+				"dist/src/client/index.d.ts"
+			],
+			"image": [
+				"dist/src/utils/imageClient.d.ts"
+			],
+			"islands": [
+				"dist/src/islands/index.d.ts"
+			],
+			"react": [
+				"dist/src/react/index.d.ts"
+			],
+			"react/*": [
+				"dist/src/react/*"
+			],
+			"svelte": [
+				"dist/src/svelte/index.d.ts"
+			],
+			"svelte/*": [
+				"dist/src/svelte/*"
+			],
+			"vue": [
+				"dist/src/vue/index.d.ts"
+			],
+			"vue/*": [
+				"dist/src/vue/*"
+			]
+		}
+	},
 	"exports": {
 		".": {
 			"import": "./dist/index.js",
@@ -67,6 +114,18 @@
 			"browser": "./dist/ai/client/index.js",
 			"import": "./dist/ai/client/index.js",
 			"types": "./dist/src/ai/client/index.d.ts"
+		},
+		"./ai/client/ui": {
+			"import": "./dist/ai/client/ui.js",
+			"types": "./dist/src/ai/client/ui.d.ts"
+		},
+		"./ai/rag/ui": {
+			"import": "./dist/ai/rag/ui.js",
+			"types": "./dist/src/ai/rag/ui.d.ts"
+		},
+		"./ai/rag/quality": {
+			"import": "./dist/ai/rag/quality.js",
+			"types": "./dist/src/ai/rag/quality.d.ts"
 		},
 		"./ai/gemini": {
 			"import": "./dist/ai/providers/gemini.js",
@@ -206,12 +265,12 @@
 			"types": "./dist/src/vue/components/index.d.ts"
 		},
 		"./vue/components/Image.js": {
-			"import": "./dist/vue/components/Image.vue",
-			"types": "./dist/vue/components/Image.vue.d.ts"
+			"import": "./dist/vue/components/Image.js",
+			"types": "./dist/src/vue/components/Image.d.ts"
 		},
 		"./vue/components/Image.vue": {
-			"import": "./dist/vue/components/Image.vue",
-			"types": "./dist/vue/components/Image.vue.d.ts"
+			"import": "./dist/vue/components/Image.js",
+			"types": "./dist/src/vue/components/Image.d.ts"
 		},
 		"./vue/server": {
 			"import": "./dist/vue/server.js",
@@ -228,12 +287,12 @@
 	"main": "./dist/index.js",
 	"name": "@absolutejs/absolute",
 	"optionalDependencies": {
-		"@absolutejs/native-darwin-arm64": "0.19.0-beta.528",
-		"@absolutejs/native-darwin-x64": "0.19.0-beta.528",
-		"@absolutejs/native-linux-arm64": "0.19.0-beta.528",
-		"@absolutejs/native-linux-x64": "0.19.0-beta.528",
-		"@absolutejs/native-windows-arm64": "0.19.0-beta.528",
-		"@absolutejs/native-windows-x64": "0.19.0-beta.528"
+		"@absolutejs/native-darwin-arm64": "0.19.0-beta.648",
+		"@absolutejs/native-darwin-x64": "0.19.0-beta.648",
+		"@absolutejs/native-linux-arm64": "0.19.0-beta.648",
+		"@absolutejs/native-linux-x64": "0.19.0-beta.648",
+		"@absolutejs/native-windows-arm64": "0.19.0-beta.648",
+		"@absolutejs/native-windows-x64": "0.19.0-beta.648"
 	},
 	"overrides": {
 		"@typescript-eslint/utils": "8.56.1"
@@ -300,6 +359,7 @@
 		"url": "git+https://github.com/absolutejs/absolutejs.git"
 	},
 	"scripts": {
+		"benchmark:rag": "bun run scripts/rag-native-backend-benchmark.ts",
 		"build": "bun run scripts/build.ts",
 		"build:native": "./native/build.sh",
 		"db:push": "drizzle-kit push",
@@ -314,5 +374,5 @@
 		"typecheck": "bun run src/cli/index.ts typecheck --config example/absolute.config.ts"
 	},
 	"types": "./dist/src/index.d.ts",
-	"version": "0.19.0-beta.528"
+	"version": "0.19.0-beta.648"
 }

@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, mock } from 'bun:test';
 import { computed, signal } from '@angular/core';
 import { get, readable, type Readable } from 'svelte/store';
 
+const originalFetch = globalThis.fetch;
+
 const aiIndexPath = new URL('../../../../src/ai/index.ts', import.meta.url)
 	.href;
 const aiClientIndexPath = new URL(
@@ -12,6 +14,10 @@ const reactWorkflowPath = new URL(
 	'../../../../src/react/ai/useRAGWorkflow.ts',
 	import.meta.url
 ).href;
+const reactSearchPath = new URL(
+	'../../../../src/react/ai/useRAGSearch.ts',
+	import.meta.url
+).href;
 const reactStreamPath = new URL(
 	'../../../../src/react/ai/useRAGStream.ts',
 	import.meta.url
@@ -20,8 +26,16 @@ const vueWorkflowPath = new URL(
 	'../../../../src/vue/ai/useRAGWorkflow.ts',
 	import.meta.url
 ).href;
+const vueSearchPath = new URL(
+	'../../../../src/vue/ai/useRAGSearch.ts',
+	import.meta.url
+).href;
 const vueStreamPath = new URL(
 	'../../../../src/vue/ai/useRAGStream.ts',
+	import.meta.url
+).href;
+const svelteSearchPath = new URL(
+	'../../../../src/svelte/ai/createRAGSearch.ts',
 	import.meta.url
 ).href;
 const svelteWorkflowPath = new URL(
@@ -35,6 +49,7 @@ const svelteStreamPath = new URL(
 
 afterEach(() => {
 	mock.restore();
+	globalThis.fetch = originalFetch;
 });
 
 describe('RAG public export contract', () => {
@@ -184,5 +199,292 @@ describe('RAG workflow wrapper parity', () => {
 		} finally {
 			AIStreamService.prototype.connect = originalConnect;
 		}
+	});
+
+	it('react search wrapper exposes trace-aware search', async () => {
+		const fetchMock = mock(
+			async () =>
+				new Response(
+					JSON.stringify({
+						ok: true,
+						results: [
+							{ chunkId: 'chunk-1', score: 0.9, text: 'alpha' }
+						],
+						trace: {
+							candidateTopK: 4,
+							lexicalTopK: 4,
+							mode: 'hybrid',
+							query: 'alpha',
+							resultCounts: {
+								final: 1,
+								fused: 1,
+								lexical: 1,
+								reranked: 1,
+								vector: 1
+							},
+							runLexical: true,
+							runVector: true,
+							sourceBalanceStrategy: 'cap',
+							steps: [],
+							topK: 1,
+							transformedQuery: 'alpha',
+							variantQueries: []
+						}
+					}),
+					{ status: 200 }
+				)
+		);
+		globalThis.fetch = fetchMock as unknown as typeof fetch;
+		const traceResponse = {
+			results: [{ chunkId: 'chunk-1', score: 0.9, text: 'alpha' }],
+			trace: {
+				candidateTopK: 4,
+				lexicalTopK: 4,
+				mode: 'hybrid' as const,
+				query: 'alpha',
+				resultCounts: {
+					final: 1,
+					fused: 1,
+					lexical: 1,
+					reranked: 1,
+					vector: 1
+				},
+				runLexical: true,
+				runVector: true,
+				sourceBalanceStrategy: 'cap' as const,
+				steps: [],
+				topK: 1,
+				transformedQuery: 'alpha',
+				variantQueries: []
+			}
+		};
+		const React = await import('react');
+		const { renderToStaticMarkup } = await import('react-dom/server');
+		const { useRAGSearch } = await import(reactSearchPath);
+
+		let result: ReturnType<typeof useRAGSearch> | undefined;
+
+		const TestComponent = () => {
+			result = useRAGSearch('/rag');
+			return React.createElement('div');
+		};
+
+		renderToStaticMarkup(React.createElement(TestComponent));
+
+		expect(result?.searchWithTrace).toBeFunction();
+		expect(
+			await result?.searchWithTrace({ query: 'alpha', topK: 1 })
+		).toEqual(traceResponse);
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+
+	it('vue search wrapper exposes trace-aware search', async () => {
+		const fetchMock = mock(
+			async () =>
+				new Response(
+					JSON.stringify({
+						ok: true,
+						results: [
+							{ chunkId: 'chunk-1', score: 0.9, text: 'alpha' }
+						],
+						trace: {
+							candidateTopK: 4,
+							lexicalTopK: 4,
+							mode: 'hybrid',
+							query: 'alpha',
+							resultCounts: {
+								final: 1,
+								fused: 1,
+								lexical: 1,
+								reranked: 1,
+								vector: 1
+							},
+							runLexical: true,
+							runVector: true,
+							sourceBalanceStrategy: 'cap',
+							steps: [],
+							topK: 1,
+							transformedQuery: 'alpha',
+							variantQueries: []
+						}
+					}),
+					{ status: 200 }
+				)
+		);
+		globalThis.fetch = fetchMock as unknown as typeof fetch;
+		const traceResponse = {
+			results: [{ chunkId: 'chunk-1', score: 0.9, text: 'alpha' }],
+			trace: {
+				candidateTopK: 4,
+				lexicalTopK: 4,
+				mode: 'hybrid' as const,
+				query: 'alpha',
+				resultCounts: {
+					final: 1,
+					fused: 1,
+					lexical: 1,
+					reranked: 1,
+					vector: 1
+				},
+				runLexical: true,
+				runVector: true,
+				sourceBalanceStrategy: 'cap' as const,
+				steps: [],
+				topK: 1,
+				transformedQuery: 'alpha',
+				variantQueries: []
+			}
+		};
+		const { useRAGSearch } = await import(vueSearchPath);
+		const result = useRAGSearch('/rag');
+		const response = await result.searchWithTrace({
+			query: 'alpha',
+			topK: 1
+		});
+
+		expect(response).toEqual(traceResponse);
+		expect(result.trace.value).toEqual(traceResponse.trace);
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+
+	it('svelte search wrapper exposes trace-aware search', async () => {
+		const fetchMock = mock(
+			async () =>
+				new Response(
+					JSON.stringify({
+						ok: true,
+						results: [
+							{ chunkId: 'chunk-1', score: 0.9, text: 'alpha' }
+						],
+						trace: {
+							candidateTopK: 4,
+							lexicalTopK: 4,
+							mode: 'hybrid',
+							query: 'alpha',
+							resultCounts: {
+								final: 1,
+								fused: 1,
+								lexical: 1,
+								reranked: 1,
+								vector: 1
+							},
+							runLexical: true,
+							runVector: true,
+							sourceBalanceStrategy: 'cap',
+							steps: [],
+							topK: 1,
+							transformedQuery: 'alpha',
+							variantQueries: []
+						}
+					}),
+					{ status: 200 }
+				)
+		);
+		globalThis.fetch = fetchMock as unknown as typeof fetch;
+		const traceResponse = {
+			results: [{ chunkId: 'chunk-1', score: 0.9, text: 'alpha' }],
+			trace: {
+				candidateTopK: 4,
+				lexicalTopK: 4,
+				mode: 'hybrid' as const,
+				query: 'alpha',
+				resultCounts: {
+					final: 1,
+					fused: 1,
+					lexical: 1,
+					reranked: 1,
+					vector: 1
+				},
+				runLexical: true,
+				runVector: true,
+				sourceBalanceStrategy: 'cap' as const,
+				steps: [],
+				topK: 1,
+				transformedQuery: 'alpha',
+				variantQueries: []
+			}
+		};
+		const { createRAGSearch } = await import(svelteSearchPath);
+		const result = createRAGSearch('/rag');
+		const response = await result.searchWithTrace({
+			query: 'alpha',
+			topK: 1
+		});
+
+		expect(response).toEqual(traceResponse);
+		expect(get(result.trace as Readable<unknown>)).toEqual(
+			traceResponse.trace
+		);
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+
+	it('angular rag client service exposes trace-aware search', async () => {
+		const fetchMock = mock(
+			async () =>
+				new Response(
+					JSON.stringify({
+						ok: true,
+						results: [
+							{ chunkId: 'chunk-1', score: 0.9, text: 'alpha' }
+						],
+						trace: {
+							candidateTopK: 4,
+							lexicalTopK: 4,
+							mode: 'hybrid',
+							query: 'alpha',
+							resultCounts: {
+								final: 1,
+								fused: 1,
+								lexical: 1,
+								reranked: 1,
+								vector: 1
+							},
+							runLexical: true,
+							runVector: true,
+							sourceBalanceStrategy: 'cap',
+							steps: [],
+							topK: 1,
+							transformedQuery: 'alpha',
+							variantQueries: []
+						}
+					}),
+					{ status: 200 }
+				)
+		);
+		globalThis.fetch = fetchMock as unknown as typeof fetch;
+		const traceResponse = {
+			results: [{ chunkId: 'chunk-1', score: 0.9, text: 'alpha' }],
+			trace: {
+				candidateTopK: 4,
+				lexicalTopK: 4,
+				mode: 'hybrid' as const,
+				query: 'alpha',
+				resultCounts: {
+					final: 1,
+					fused: 1,
+					lexical: 1,
+					reranked: 1,
+					vector: 1
+				},
+				runLexical: true,
+				runVector: true,
+				sourceBalanceStrategy: 'cap' as const,
+				steps: [],
+				topK: 1,
+				transformedQuery: 'alpha',
+				variantQueries: []
+			}
+		};
+		const { RAGClientService } = await import(
+			'../../../../src/angular/ai/rag-client.service'
+		);
+		const service = new RAGClientService();
+		const response = await service.searchWithTrace('/rag', {
+			query: 'alpha',
+			topK: 1
+		});
+
+		expect(response).toEqual(traceResponse);
+		expect(fetchMock).toHaveBeenCalledTimes(1);
 	});
 });

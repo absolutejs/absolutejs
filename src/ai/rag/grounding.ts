@@ -86,8 +86,9 @@ const buildContextLabel = (metadata?: Record<string, unknown>) => {
 		(typeof metadata.slideIndex === 'number'
 			? metadata.slideIndex + 1
 			: undefined);
+	const slideTitle = getContextString(metadata.slideTitle);
 	if (slide) {
-		return `Slide ${slide}`;
+		return slideTitle ? `Slide ${slide} · ${slideTitle}` : `Slide ${slide}`;
 	}
 
 	const archiveEntry =
@@ -240,35 +241,112 @@ const getOfficeTableCitationScope = (
 
 	return {
 		blockKind: officeBlockKind,
-		familyPath:
-			Array.isArray(metadata.officeFamilyPath) &&
-			metadata.officeFamilyPath.length > 0
+		familyPath: (() => {
+			const explicitGenericFamilyPath = Array.isArray(
+				metadata.sectionFamilyPath
+			)
+				? metadata.sectionFamilyPath
+						.map((value) => getContextString(value))
+						.filter(
+							(value): value is string =>
+								typeof value === 'string'
+						)
+				: [];
+			const explicitGenericOrdinalPath = Array.isArray(
+				metadata.sectionOrdinalPath
+			)
+				? metadata.sectionOrdinalPath
+						.map((value) => getContextNumber(value))
+						.filter(
+							(value): value is number =>
+								typeof value === 'number'
+						)
+				: [];
+			if (
+				explicitGenericFamilyPath.length > 0 &&
+				explicitGenericFamilyPath.length ===
+					explicitGenericOrdinalPath.length
+			) {
+				return explicitGenericFamilyPath;
+			}
+
+			const explicitOfficeFamilyPath = Array.isArray(
+				metadata.officeFamilyPath
+			)
 				? metadata.officeFamilyPath
 						.map((value) => getContextString(value))
-						.filter((value): value is string => typeof value === 'string')
+						.filter(
+							(value): value is string =>
+								typeof value === 'string'
+						)
+				: [];
+			return explicitOfficeFamilyPath.length > 0
+				? explicitOfficeFamilyPath
 				: sectionPath.map((value) =>
 						value.replace(/\s+\((\d+)\)$/, '').trim()
-					),
+					);
+		})(),
 		pathDepth: sectionPath.length,
-		ordinalPath:
-			Array.isArray(metadata.officeOrdinalPath) &&
-			metadata.officeOrdinalPath.length > 0
+		ordinalPath: (() => {
+			const explicitGenericFamilyPath = Array.isArray(
+				metadata.sectionFamilyPath
+			)
+				? metadata.sectionFamilyPath
+						.map((value) => getContextString(value))
+						.filter(
+							(value): value is string =>
+								typeof value === 'string'
+						)
+				: [];
+			const explicitGenericOrdinalPath = Array.isArray(
+				metadata.sectionOrdinalPath
+			)
+				? metadata.sectionOrdinalPath
+						.map((value) => getContextNumber(value))
+						.filter(
+							(value): value is number =>
+								typeof value === 'number'
+						)
+				: [];
+			if (
+				explicitGenericFamilyPath.length > 0 &&
+				explicitGenericFamilyPath.length ===
+					explicitGenericOrdinalPath.length
+			) {
+				return explicitGenericOrdinalPath;
+			}
+
+			const explicitOfficeOrdinalPath = Array.isArray(
+				metadata.officeOrdinalPath
+			)
 				? metadata.officeOrdinalPath
 						.map((value) =>
 							typeof value === 'number' && Number.isFinite(value)
 								? value
 								: undefined
 						)
-						.filter((value): value is number => typeof value === 'number')
+						.filter(
+							(value): value is number =>
+								typeof value === 'number'
+						)
+				: [];
+			return explicitOfficeOrdinalPath.length > 0
+				? explicitOfficeOrdinalPath
 				: sectionPath.map((value) => {
 						const match = value.match(/\((\d+)\)$/);
 						return match ? Number.parseInt(match[1] ?? '1', 10) : 1;
-					}),
+					});
+		})(),
 		sectionFamilyKey:
+			getContextString(metadata.sectionSiblingFamilyKey) ??
 			getContextString(metadata.officeSiblingFamilyKey) ??
-			sectionPath.at(-1)?.replace(/\s+\((\d+)\)$/, '').trim() ??
+			sectionPath
+				.at(-1)
+				?.replace(/\s+\((\d+)\)$/, '')
+				.trim() ??
 			sectionTitle,
 		sectionOrdinal:
+			getContextNumber(metadata.sectionSiblingOrdinal) ??
 			getContextNumber(metadata.officeSiblingOrdinal) ??
 			(() => {
 				const match = sectionTitle.match(/\((\d+)\)$/);
@@ -374,14 +452,18 @@ const getGenericStructuredCitationScope = (
 	if (familyPath.length === 0) {
 		if (kind === 'spreadsheet_rows') {
 			const sheetName = getContextString(metadata.sheetName) ?? 'Sheet';
-			const tableIndex = getContextNumber(metadata.spreadsheetTableIndex) ?? 1;
+			const tableIndex =
+				getContextNumber(metadata.spreadsheetTableIndex) ?? 1;
 			familyPath = [sheetName, 'Spreadsheet Table'];
 			ordinalPath = [1, tableIndex];
 		} else {
-			const slideFamily = getContextString(metadata.slideTitle) ?? 'Slide';
+			const slideFamily =
+				getContextString(metadata.slideTitle) ?? 'Slide';
 			const slideOrdinal =
 				getContextNumber(metadata.slideNumber) ??
-				(typeof metadata.slideIndex === 'number' ? metadata.slideIndex + 1 : 1);
+				(typeof metadata.slideIndex === 'number'
+					? metadata.slideIndex + 1
+					: 1);
 			familyPath = [slideFamily];
 			ordinalPath = [slideOrdinal];
 		}
@@ -524,8 +606,9 @@ const buildLocatorLabel = (
 		(typeof metadata.slideIndex === 'number'
 			? metadata.slideIndex + 1
 			: undefined);
+	const slideTitle = getContextString(metadata.slideTitle);
 	if (slide) {
-		return `Slide ${slide}`;
+		return slideTitle ? `Slide ${slide} · ${slideTitle}` : `Slide ${slide}`;
 	}
 
 	const archiveEntry =
@@ -1018,8 +1101,12 @@ export const buildRAGCitations = (sources: RAGSource[]) => {
 				return rightOfficePreference - leftOfficePreference;
 			}
 		}
-		const leftGenericScope = getGenericStructuredCitationScope(left.metadata);
-		const rightGenericScope = getGenericStructuredCitationScope(right.metadata);
+		const leftGenericScope = getGenericStructuredCitationScope(
+			left.metadata
+		);
+		const rightGenericScope = getGenericStructuredCitationScope(
+			right.metadata
+		);
 		if (
 			left.source === right.source &&
 			areGenericStructuredCitationScopesComparable(
@@ -1027,9 +1114,8 @@ export const buildRAGCitations = (sources: RAGSource[]) => {
 				rightGenericScope
 			)
 		) {
-			const leftGenericPreference = getGenericStructuredCitationPreference(
-				left.metadata
-			);
+			const leftGenericPreference =
+				getGenericStructuredCitationPreference(left.metadata);
 			const rightGenericPreference =
 				getGenericStructuredCitationPreference(right.metadata);
 			if (rightGenericPreference !== leftGenericPreference) {

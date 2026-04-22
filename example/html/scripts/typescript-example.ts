@@ -1,21 +1,30 @@
+import { mountRAGAPIShowcase } from '../../shared/ragApiShowcase';
+
 const button = document.querySelector<HTMLButtonElement>('#counter-button');
 const counter = document.querySelector<HTMLSpanElement>('#counter');
 const details = document.querySelector<HTMLDetailsElement>('header details');
+const ragShowcaseHost = document.querySelector<HTMLDivElement>(
+	'[data-rag-api-showcase]'
+);
 
-if (!button || !counter || !details) {
-	throw new Error('Required elements not found');
+if (button && counter) {
+	let count = parseInt(counter.textContent || '0');
+
+	button.addEventListener('click', () => {
+		counter.textContent = (++count).toString();
+	});
 }
 
-let count = parseInt(counter.textContent || '0');
+if (details) {
+	details.addEventListener('pointerenter', () => {
+		details.open = true;
+	});
 
-button.addEventListener('click', () => {
-	counter.textContent = (++count).toString();
-});
+	details.addEventListener('pointerleave', () => {
+		details.open = false;
+	});
+}
 
-details.addEventListener('pointerenter', () => {
-	details.open = true;
-});
-
-details.addEventListener('pointerleave', () => {
-	details.open = false;
-});
+if (ragShowcaseHost) {
+	mountRAGAPIShowcase(ragShowcaseHost);
+}

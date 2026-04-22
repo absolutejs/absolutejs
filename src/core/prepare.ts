@@ -264,11 +264,7 @@ export const prepare = async (configOrPath?: string) => {
 	const nodeEnv = process.env['NODE_ENV'];
 	const isDev = nodeEnv === 'development';
 	const buildDir = resolve(
-		isDev
-			? (config.buildDirectory ?? 'build')
-			: (process.env.ABSOLUTE_BUILD_DIR ??
-					config.buildDirectory ??
-					'build')
+		process.env.ABSOLUTE_BUILD_DIR ?? config.buildDirectory ?? 'build'
 	);
 
 	if (isDev) return prepareDev(config, buildDir);

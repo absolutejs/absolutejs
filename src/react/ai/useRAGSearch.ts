@@ -1,10 +1,18 @@
 import { useCallback, useMemo, useState } from 'react';
 import type { RAGSearchRequest, RAGSource } from '../../../types/ai';
-import { createRAGClient } from '../../ai/client/ragClient';
+import {
+	createRAGClient,
+	type RAGDetailedSearchResponse
+} from '../../ai/client/ragClient';
+
+type SearchRequest = Omit<RAGSearchRequest, 'includeTrace'>;
 
 export const useRAGSearch = (path: string) => {
 	const client = useMemo(() => createRAGClient({ path }), [path]);
 	const [results, setResults] = useState<RAGSource[]>([]);
+	const [trace, setTrace] = useState<
+		RAGDetailedSearchResponse['trace'] | undefined
+	>();
 	const [error, setError] = useState<string | null>(null);
 	const [isSearching, setIsSearching] = useState(false);
 	const [hasSearched, setHasSearched] = useState(false);
@@ -13,17 +21,46 @@ export const useRAGSearch = (path: string) => {
 	);
 
 	const search = useCallback(
-		async (input: RAGSearchRequest) => {
+		async (input: SearchRequest) => {
 			setIsSearching(true);
 			setError(null);
 			setLastRequest(input);
 
 			try {
-				const nextResults = await client.search(input);
+				const nextResults = await client.search<false>({
+					...input,
+					includeTrace: false
+				});
 				setResults(nextResults);
+				setTrace(undefined);
 				setHasSearched(true);
 
 				return nextResults;
+			} catch (caught) {
+				const message =
+					caught instanceof Error ? caught.message : String(caught);
+				setError(message);
+				throw caught;
+			} finally {
+				setIsSearching(false);
+			}
+		},
+		[client]
+	);
+
+	const searchWithTrace = useCallback(
+		async (input: SearchRequest) => {
+			setIsSearching(true);
+			setError(null);
+			setLastRequest(input);
+
+			try {
+				const response = await client.searchWithTrace(input);
+				setResults(response.results);
+				setTrace(response.trace);
+				setHasSearched(true);
+
+				return response;
 			} catch (caught) {
 				const message =
 					caught instanceof Error ? caught.message : String(caught);
@@ -41,6 +78,7 @@ export const useRAGSearch = (path: string) => {
 		setHasSearched(false);
 		setLastRequest(null);
 		setResults([]);
+		setTrace(undefined);
 	}, []);
 
 	return {
@@ -51,7 +89,9 @@ export const useRAGSearch = (path: string) => {
 		reset,
 		results,
 		search,
-		setResults
+		searchWithTrace,
+		setResults,
+		trace
 	};
 };
 

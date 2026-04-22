@@ -15,6 +15,7 @@ type DevServerOptions = {
 	port?: number;
 	serverEntry?: string;
 	configPath?: string;
+	env?: Record<string, string>;
 };
 
 export const startDevServer = async (options?: DevServerOptions | number) => {
@@ -35,7 +36,8 @@ export const startDevServer = async (options?: DevServerOptions | number) => {
 			FORCE_COLOR: '0',
 			NODE_ENV: 'development',
 			PORT: String(resolvedPort),
-			TELEMETRY_OFF: '1'
+			TELEMETRY_OFF: '1',
+			...opts.env
 		},
 		stderr: 'pipe',
 		stdout: 'pipe'
@@ -47,8 +49,11 @@ export const startDevServer = async (options?: DevServerOptions | number) => {
 		await waitForServer(`${baseUrl}/hmr-status`);
 	} catch (err) {
 		proc.kill();
+		const stderr = proc.stderr
+			? (await new Response(proc.stderr).text()).trim()
+			: '';
 		throw new Error(
-			`Dev server failed to start on port ${resolvedPort}: ${err}`,
+			`Dev server failed to start on port ${resolvedPort}: ${err}${stderr ? `\n\nstderr:\n${stderr}` : ''}`,
 			{ cause: err }
 		);
 	}

@@ -1,0 +1,40 @@
+%PDF-1.4
+1 0 obj
+<<>>
+stream
+BT
+(Release Readiness) Tj
+T*
+(Stable release approval remains blocked.) Tj
+ET
+endstream
+endobj
+2 0 obj
+<<>>
+stream
+BT
+(Lane | Status) Tj
+T*
+(Stable | Blocked) Tj
+T*
+(Canary | Ready) Tj
+ET
+endstream
+endobj
+/Type /Page
+3 0 obj
+<<>>
+stream
+BT
+(Escalation Matrix) Tj
+T*
+(Environment | Owner) Tj
+T*
+(Stable | Release lead) Tj
+T*
+(Canary | On-call) Tj
+ET
+endstream
+endobj
+/Type /Page
+%%EOF

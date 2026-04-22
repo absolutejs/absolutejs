@@ -1,6 +1,6 @@
 import { derived, type Readable } from 'svelte/store';
 import type { AIMessage } from '../../../types/ai';
-import { buildRAGStreamProgress } from '../../ai/rag/presentation';
+import { buildRAGStreamProgress } from '../../ai/rag/workflowState';
 
 export const createRAGStreamProgress = (params: {
 	error: Readable<string | null>;

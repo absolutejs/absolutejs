@@ -1,0 +1,47 @@
+%PDF-1.4
+1 0 obj
+<<>>
+stream
+BT
+(Related links) Tj
+T*
+(/docs/release-gates) Tj
+T*
+(/docs/approval-lanes) Tj
+ET
+endstream
+endobj
+2 0 obj
+<<>>
+stream
+BT
+(Overview Column) Tj
+T*
+(Stable blockers stay explicit in the rollout record.) Tj
+ET
+endstream
+endobj
+3 0 obj
+<<>>
+stream
+BT
+(Start free trial) Tj
+T*
+(Book demo with enterprise support) Tj
+T*
+(Learn more at /pricing) Tj
+ET
+endstream
+endobj
+4 0 obj
+<<>>
+stream
+BT
+(Details Column) Tj
+T*
+(Approval state belongs beside the blocking gate.) Tj
+ET
+endstream
+endobj
+/Type /Page
+%%EOF
