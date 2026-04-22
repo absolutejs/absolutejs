@@ -4,7 +4,6 @@
 		"absolute": "dist/cli/index.js"
 	},
 	"dependencies": {
-		"@absolutejs/linked-providers": "0.0.1",
 		"@angular/compiler": "^21.0.0",
 		"zustand": "^5.0.12"
 	},
@@ -53,12 +52,6 @@
 	},
 	"typesVersions": {
 		"*": {
-			"ai": [
-				"dist/src/ai/index.d.ts"
-			],
-			"ai/*": [
-				"dist/src/ai/*"
-			],
 			"angular": [
 				"dist/src/angular/index.d.ts"
 			],
@@ -102,60 +95,10 @@
 			"import": "./dist/index.js",
 			"types": "./dist/src/index.d.ts"
 		},
-		"./ai": {
-			"import": "./dist/ai/index.js",
-			"types": "./dist/src/ai/index.d.ts"
-		},
-		"./ai/anthropic": {
-			"import": "./dist/ai/providers/anthropic.js",
-			"types": "./dist/src/ai/providers/anthropic.d.ts"
-		},
-		"./ai/client": {
-			"browser": "./dist/ai/client/index.js",
-			"import": "./dist/ai/client/index.js",
-			"types": "./dist/src/ai/client/index.d.ts"
-		},
-		"./ai/client/ui": {
-			"import": "./dist/ai/client/ui.js",
-			"types": "./dist/src/ai/client/ui.d.ts"
-		},
-		"./ai/rag/ui": {
-			"import": "./dist/ai/rag/ui.js",
-			"types": "./dist/src/ai/rag/ui.d.ts"
-		},
-		"./ai/rag/quality": {
-			"import": "./dist/ai/rag/quality.js",
-			"types": "./dist/src/ai/rag/quality.d.ts"
-		},
-		"./ai/gemini": {
-			"import": "./dist/ai/providers/gemini.js",
-			"types": "./dist/src/ai/providers/gemini.d.ts"
-		},
-		"./ai/ollama": {
-			"import": "./dist/ai/providers/ollama.js",
-			"types": "./dist/src/ai/providers/ollama.d.ts"
-		},
-		"./ai/openai": {
-			"import": "./dist/ai/providers/openai.js",
-			"types": "./dist/src/ai/providers/openai.d.ts"
-		},
-		"./ai/openai-responses": {
-			"import": "./dist/ai/providers/openaiResponses.js",
-			"types": "./dist/src/ai/providers/openaiResponses.d.ts"
-		},
-		"./ai/providers": {
-			"import": "./dist/ai/providers/openaiCompatible.js",
-			"types": "./dist/src/ai/providers/openaiCompatible.d.ts"
-		},
 		"./angular": {
 			"browser": "./dist/angular/browser.js",
 			"import": "./dist/angular/index.js",
 			"types": "./dist/src/angular/index.d.ts"
-		},
-		"./angular/ai": {
-			"browser": "./dist/ai-client/angular/ai/index.js",
-			"import": "./dist/angular/ai/index.js",
-			"types": "./dist/src/angular/ai/index.d.ts"
 		},
 		"./angular/components": {
 			"import": "./dist/angular/components/index.js",
@@ -187,11 +130,6 @@
 			"import": "./dist/react/index.js",
 			"types": "./dist/src/react/index.d.ts"
 		},
-		"./react/ai": {
-			"browser": "./dist/ai-client/react/ai/index.js",
-			"import": "./dist/react/ai/index.js",
-			"types": "./dist/src/react/ai/index.d.ts"
-		},
 		"./react/components": {
 			"browser": "./dist/react/components/browser/index.js",
 			"import": "./dist/react/components/index.js",
@@ -209,10 +147,6 @@
 			"browser": "./dist/svelte/browser.js",
 			"import": "./dist/svelte/index.js",
 			"types": "./dist/src/svelte/index.d.ts"
-		},
-		"./svelte/ai": {
-			"import": "./dist/svelte/ai/index.js",
-			"types": "./dist/src/svelte/ai/index.d.ts"
 		},
 		"./svelte/components/AwaitSlot.svelte": {
 			"import": "./dist/svelte/components/AwaitSlot.svelte",
@@ -254,11 +188,6 @@
 			"browser": "./dist/vue/browser.js",
 			"import": "./dist/vue/index.js",
 			"types": "./dist/src/vue/index.d.ts"
-		},
-		"./vue/ai": {
-			"browser": "./dist/ai-client/vue/ai/index.js",
-			"import": "./dist/vue/ai/index.js",
-			"types": "./dist/src/vue/ai/index.d.ts"
 		},
 		"./vue/components": {
 			"import": "./dist/vue/components/index.js",
@@ -359,7 +288,6 @@
 		"url": "git+https://github.com/absolutejs/absolutejs.git"
 	},
 	"scripts": {
-		"benchmark:rag": "bun run scripts/rag-native-backend-benchmark.ts",
 		"build": "bun run scripts/build.ts",
 		"build:native": "./native/build.sh",
 		"db:push": "drizzle-kit push",
@@ -374,5 +302,5 @@
 		"typecheck": "bun run src/cli/index.ts typecheck --config example/absolute.config.ts"
 	},
 	"types": "./dist/src/index.d.ts",
-	"version": "0.19.0-beta.648"
+	"version": "0.19.0-beta.649"
 }

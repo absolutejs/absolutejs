@@ -1,11 +1,10 @@
 import { Component, Input, ViewEncapsulation } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { CounterComponent } from './counter.component';
-import { RAGShowcaseComponent } from './rag-showcase.component';
 
 @Component({
 	encapsulation: ViewEncapsulation.None,
-	imports: [CommonModule, CounterComponent, RAGShowcaseComponent],
+	imports: [CommonModule, CounterComponent],
 	selector: 'app-root',
 	standalone: true,
 	styleUrl: '../../styles/app.component.css',

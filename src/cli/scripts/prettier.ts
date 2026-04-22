@@ -19,6 +19,8 @@ export const prettierAdapter: ToolAdapter = {
 		'**/dist/**',
 		'**/build/**',
 		'**/.absolutejs/**',
+		'**/generated/**',
+		'**/compiled/**',
 		'**/*.min.js'
 	],
 	name: 'prettier',

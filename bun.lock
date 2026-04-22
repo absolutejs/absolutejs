@@ -5,7 +5,6 @@
     "": {
       "name": "@absolutejs/absolute",
       "dependencies": {
-        "@absolutejs/linked-providers": "0.0.1",
         "@angular/compiler": "^21.0.0",
         "zustand": "^5.0.12",
       },
@@ -93,8 +92,6 @@
     "@typescript-eslint/utils": "8.56.1",
   },
   "packages": {
-    "@absolutejs/linked-providers": ["@absolutejs/linked-providers@0.0.1", "", {}, "sha512-ljHq5Ws18qcFWAkWHB08DWMjK61y4VD0U/XhrODuo82P2nfsZFN2n0SDmiVtWRuzn4Ce43T4WElxNSKOYBEESg=="],
-
     "@absolutejs/native-darwin-arm64": ["@absolutejs/native-darwin-arm64@0.19.0-beta.648", "", { "os": "darwin", "cpu": "arm64" }, "sha512-8Wb1uew2lBj1pho6j9aOI/PUHLoBIG6x+VTNzo6ven7Z7454+eTu7tiTOjAPmiDy8uGCRwDzY2y1Z6DV/3oTbA=="],
 
     "@absolutejs/native-darwin-x64": ["@absolutejs/native-darwin-x64@0.19.0-beta.648", "", { "os": "darwin", "cpu": "x64" }, "sha512-onYS7yHAGhYx53KRbwqJ/hgUfSkwO4RVuIM4NxfL43vkRKc8TxWkTiO42yc7bvVf8RiamOdrtV3UkTKPv3rWqw=="],

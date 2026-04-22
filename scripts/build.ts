@@ -17,28 +17,15 @@ const DIST = 'dist';
 const SERVER_ENTRY_POINTS = [
 	'src/index.ts',
 	'src/build.ts',
-	'src/ai/index.ts',
-	'src/ai/providers/anthropic.ts',
-	'src/ai/providers/openai.ts',
-	'src/ai/providers/ollama.ts',
-	'src/ai/providers/openaiCompatible.ts',
-	'src/ai/providers/openaiResponses.ts',
-	'src/ai/providers/gemini.ts',
-	'src/ai/client/index.ts',
-	'src/ai/client/ui.ts',
-	'src/ai/rag/ui.ts',
-	'src/ai/rag/quality.ts',
 	'src/angular/index.ts',
 	'src/angular/browser.ts',
 	'src/angular/server.ts',
-	'src/angular/ai/index.ts',
 	'src/client/index.ts',
 	'src/islands/browser.ts',
 	'src/islands/index.ts',
 	'src/react/index.ts',
 	'src/react/browser.ts',
 	'src/react/server.ts',
-	'src/react/ai/index.ts',
 	'src/react/components/index.ts',
 	'src/react/hooks/index.ts',
 	'src/core/streamingSlotRegistrar.ts',
@@ -46,11 +33,9 @@ const SERVER_ENTRY_POINTS = [
 	'src/svelte/index.ts',
 	'src/svelte/browser.ts',
 	'src/svelte/server.ts',
-	'src/svelte/ai/index.ts',
 	'src/vue/index.ts',
 	'src/vue/browser.ts',
 	'src/vue/server.ts',
-	'src/vue/ai/index.ts',
 	'src/vue/components/index.ts',
 	'src/vue/components/Image.ts'
 ];
@@ -132,31 +117,6 @@ const build = async () => {
 	if (!reactBrowserBuild.success) {
 		console.error('React browser build failed:');
 		for (const log of reactBrowserBuild.logs) console.error(log);
-		process.exit(1);
-	}
-
-	console.log('Building AI client hooks (browser target)...');
-	const aiBrowserBuild = await Bun.build({
-		entrypoints: [
-			'src/react/ai/index.ts',
-			'src/vue/ai/index.ts',
-			'src/angular/ai/index.ts'
-		],
-		external: [
-			'react',
-			'react-dom',
-			'react/jsx-runtime',
-			'react/jsx-dev-runtime',
-			'vue',
-			'@angular/core'
-		],
-		outdir: join(DIST, 'ai-client'),
-		target: 'browser'
-	});
-
-	if (!aiBrowserBuild.success) {
-		console.error('AI client build failed:');
-		for (const log of aiBrowserBuild.logs) console.error(log);
 		process.exit(1);
 	}
 
