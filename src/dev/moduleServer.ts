@@ -196,7 +196,7 @@ const resolveRelativeImport = (
 	return srcUrl(srcPath, projectRoot);
 };
 
-// Resolve @absolutejs/absolute/* specifiers to project-relative paths.
+// Resolve @absolutejs/* specifiers to project-relative paths.
 // Returns the relative path string on success, or undefined if resolution fails.
 const resolveAbsoluteSpecifier = (specifier: string, projectRoot: string) => {
 	try {
@@ -248,12 +248,9 @@ const rewriteImports = (
 		if (specifier.startsWith('/') || specifier.startsWith('.'))
 			return _match;
 
-		// Serve client-safe AbsoluteJS package exports as real modules instead
-		// of stubbing them so framework/browser entrypoints hydrate correctly.
-		if (
-			!specifier.startsWith('@absolutejs/absolute/') &&
-			!specifier.startsWith('@absolutejs/voice/')
-		)
+		// Serve client-safe split AbsoluteJS package exports as real modules
+		// instead of stubbing them so package entrypoints hydrate correctly.
+		if (!specifier.startsWith('@absolutejs/'))
 			return `${prefix}/@stub/${encodeURIComponent(specifier)}${suffix}`;
 
 		const resolved = resolveAbsoluteSpecifier(specifier, projectRoot);
