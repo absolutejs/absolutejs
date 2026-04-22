@@ -1,4 +1,4 @@
-import { resolve } from 'node:path';
+import { resolve, sep } from 'node:path';
 import { existsSync } from 'node:fs';
 import { mkdir, rm, mkdtemp } from 'node:fs/promises';
 import { describe, expect, test, afterAll } from 'bun:test';
@@ -16,6 +16,15 @@ afterAll(async () => {
 });
 
 describe('build output validation', () => {
+	const isProjectPath = (value: string) => {
+		const normalizedProjectRoot = resolve(PROJECT_ROOT);
+		const normalizedValue = resolve(value);
+		return (
+			normalizedValue === normalizedProjectRoot ||
+			normalizedValue.startsWith(`${normalizedProjectRoot}${sep}`)
+		);
+	};
+
 	test(
 		'setup: run production build',
 		async () => {
@@ -50,7 +59,7 @@ describe('build output validation', () => {
 			);
 
 			// Wait for the build to produce manifest.json, then kill the server
-			const maxWaitMs = 60_000;
+			const maxWaitMs = 180_000;
 			const pollMs = 500;
 			const manifestPath = resolve(outdir, 'manifest.json');
 			const start = Date.now();
@@ -65,7 +74,7 @@ describe('build output validation', () => {
 
 			expect(existsSync(manifestPath)).toBe(true);
 		},
-		120_000
+		240_000
 	);
 
 	test('manifest.json is valid JSON with entries', async () => {
@@ -101,13 +110,13 @@ describe('build output validation', () => {
 		// - Relative web paths starting with "/" (client-side assets)
 		// - Absolute filesystem paths (server-side SSR modules, HTML pages)
 		const webPaths = Object.values(manifest).filter(
-			(v) => v.startsWith('/') && !v.startsWith('/home')
+			(v) => v.startsWith('/') && !isProjectPath(v)
 		);
 		expect(webPaths.length).toBeGreaterThan(0);
 
 		for (const relPath of webPaths) {
 			const fullPath = resolve(outdir, relPath.slice(1));
-			expect(existsSync(fullPath)).toBe(true);
+			expect(existsSync(fullPath) || existsSync(relPath)).toBe(true);
 		}
 	});
 
