@@ -178,61 +178,65 @@ export const reloadCSSStylesheets = (manifest: Record<string, string>) => {
 	});
 };
 
-const createCSSLoadPromise = (linkElement: HTMLLinkElement, newHref: string) =>
-	// eslint-disable-next-line promise/avoid-new
-	new Promise<void>((resolve) => {
-		let resolved = false;
-		const doResolve = function () {
-			if (resolved) return;
-			resolved = true;
-			resolve();
-		};
+const createCSSLoadPromise = (
+	linkElement: HTMLLinkElement,
+	newHref: string
+) => {
+	const { promise, resolve } = Promise.withResolvers<void>();
+	let resolved = false;
+	const doResolve = function () {
+		if (resolved) return;
+		resolved = true;
+		resolve();
+	};
 
-		const verifyCSSOM = function () {
-			try {
-				const sheets = Array.from(document.styleSheets);
+	const verifyCSSOM = function () {
+		try {
+			const sheets = Array.from(document.styleSheets);
 
-				return sheets.some(
-					(sheet) =>
-						sheet.href &&
-						sheet.href.includes(newHref.split('?')[0] ?? '')
-				);
-			} catch {
-				return false;
+			return sheets.some(
+				(sheet) =>
+					sheet.href &&
+					sheet.href.includes(newHref.split('?')[0] ?? '')
+			);
+		} catch {
+			return false;
+		}
+	};
+
+	linkElement.onload = function () {
+		let checkCount = 0;
+		const checkCSSOM = function () {
+			checkCount++;
+			if (verifyCSSOM() || checkCount > CSS_MAX_CHECK_ATTEMPTS) {
+				doResolve();
+			} else {
+				requestAnimationFrame(checkCSSOM);
 			}
 		};
+		requestAnimationFrame(checkCSSOM);
+	};
 
-		linkElement.onload = function () {
-			let checkCount = 0;
-			const checkCSSOM = function () {
-				checkCount++;
-				if (verifyCSSOM() || checkCount > CSS_MAX_CHECK_ATTEMPTS) {
-					doResolve();
-				} else {
-					requestAnimationFrame(checkCSSOM);
-				}
-			};
-			requestAnimationFrame(checkCSSOM);
-		};
-
-		linkElement.onerror = function () {
-			setTimeout(() => {
-				doResolve();
-			}, CSS_ERROR_RESOLVE_DELAY_MS);
-		};
-
+	linkElement.onerror = function () {
 		setTimeout(() => {
-			if (linkElement.sheet && !resolved) {
-				doResolve();
-			}
-		}, CSS_SHEET_READY_TIMEOUT_MS);
+			doResolve();
+		}, CSS_ERROR_RESOLVE_DELAY_MS);
+	};
 
-		setTimeout(() => {
-			if (!resolved) {
-				doResolve();
-			}
-		}, CSS_MAX_PARSE_TIMEOUT_MS);
-	});
+	setTimeout(() => {
+		if (linkElement.sheet && !resolved) {
+			doResolve();
+		}
+	}, CSS_SHEET_READY_TIMEOUT_MS);
+
+	setTimeout(() => {
+		if (!resolved) {
+			doResolve();
+		}
+	}, CSS_MAX_PARSE_TIMEOUT_MS);
+
+	return promise;
+};
 
 const removeLinks = (linksToRemove: HTMLLinkElement[]) => {
 	linksToRemove.forEach((link) => {

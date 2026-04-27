@@ -7,7 +7,7 @@ declare global {
 	var __hmrSkipServerRestart: boolean | undefined;
 	/** Pinned React module from initial devBuild — used to detect and bridge
 	 *  duplicate React instances after bun install invalidates the module cache. */
-	var __reactModuleRef: any;
+	var __reactModuleRef: unknown;
 	var __depVendorPaths: Record<string, string> | undefined;
 	var __angularVendorSpecifiers: string[] | undefined;
 	var __transformCache:
@@ -89,6 +89,15 @@ declare global {
 		};
 		__REFRESH_BUFFER__?: Array<[unknown, string]>;
 		htmx?: { process: (element: HTMLElement | Document) => void };
+		__ABS_SLOT_CONSUMERS__?: Record<
+			string,
+			((payload: unknown) => boolean | void) | undefined
+		>;
+		__ABS_SLOT_ENQUEUE__?: (id: string, payload: unknown) => void;
+		__ABS_SLOT_FLUSH__?: () => void;
+		__ABS_SLOT_HYDRATION_PENDING__?: boolean;
+		__ABS_SLOT_PENDING__?: Record<string, unknown>;
+		__ABS_SLOT_RUNTIME__?: boolean;
 		__ABS_ANGULAR_ISLAND_APPS__?: unknown[];
 		__ABS_CLAIMED_ISLAND_MARKUP__?: Map<string, number>;
 		__ABS_SERVER_ISLAND_HTML__?: Map<

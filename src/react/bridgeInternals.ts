@@ -30,14 +30,13 @@ const findInternals = (mod: Record<string, unknown>) => {
 };
 
 export const bridgeReactInternals = async () => {
-	const pinned: Record<string, unknown> | undefined =
-		globalThis.__reactModuleRef;
-	if (!pinned) return;
+	const pinnedRef = globalThis.__reactModuleRef;
+	if (!isRecord(pinnedRef)) return;
 
 	const react: Record<string, unknown> = await import('react');
-	if (pinned === react) return;
+	if (pinnedRef === react) return;
 
-	const pinnedInternals = findInternals(pinned);
+	const pinnedInternals = findInternals(pinnedRef);
 	const currentInternals = findInternals(react);
 
 	if (

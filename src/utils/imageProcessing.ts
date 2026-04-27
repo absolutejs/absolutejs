@@ -5,18 +5,18 @@ import type {
 	ImageFormat,
 	RemotePattern
 } from '../../types/image';
+import {
+	IMAGE_DEFAULT_DEVICE_SIZES,
+	IMAGE_DEFAULT_IMAGE_SIZES,
+	IMAGE_DEFAULT_QUALITY,
+	IMAGE_GLOB_SUFFIX_LENGTH
+} from '../constants';
 
 // ── Constants ──────────────────────────────────────────────────────
 
-/* eslint-disable no-magic-numbers */
-export const DEFAULT_DEVICE_SIZES = [
-	640, 750, 828, 1080, 1200, 1920, 2048, 3840
-];
-
-export const DEFAULT_IMAGE_SIZES = [16, 32, 48, 64, 96, 128, 256, 384];
-
-export const DEFAULT_QUALITY = 75;
-/* eslint-enable no-magic-numbers */
+export const DEFAULT_DEVICE_SIZES = IMAGE_DEFAULT_DEVICE_SIZES;
+export const DEFAULT_IMAGE_SIZES = IMAGE_DEFAULT_IMAGE_SIZES;
+export const DEFAULT_QUALITY = IMAGE_DEFAULT_QUALITY;
 
 export const OPTIMIZATION_ENDPOINT = '/_absolute/image';
 
@@ -59,7 +59,7 @@ const matchHostname = (actual: string, pattern: string) => {
 /** Match pathname with glob prefix: "/images/**" matches "/images/photo.jpg" */
 const matchPathname = (actual: string, pattern: string) => {
 	if (pattern.endsWith('/**')) {
-		const prefix = pattern.slice(0, -2); // eslint-disable-line no-magic-numbers
+		const prefix = pattern.slice(0, -IMAGE_GLOB_SUFFIX_LENGTH);
 
 		return actual.startsWith(prefix);
 	}
@@ -74,12 +74,32 @@ const MIME_MAP: Record<ImageFormat, string> = {
 	webp: 'image/webp'
 };
 
+type SharpPipeline = {
+	avif: (options: { effort: number; quality: number }) => SharpPipeline;
+	jpeg: (options: { mozjpeg?: boolean; quality: number }) => SharpPipeline;
+	png: (options: { quality: number }) => SharpPipeline;
+	resize: (
+		width: number,
+		height?: number,
+		options?: { fit?: string; withoutEnlargement?: boolean }
+	) => SharpPipeline;
+	rotate: () => SharpPipeline;
+	toBuffer: () => Promise<Buffer>;
+	webp: (options: { quality: number }) => SharpPipeline;
+};
+
+type SharpFactory = (input: Buffer) => SharpPipeline;
+
+const isSharpFactory = (value: unknown): value is SharpFactory =>
+	typeof value === 'function';
+
 /** Convert sharp dynamic import result to a callable factory */
 const callSharp = (sharpRef: unknown, input: Buffer) => {
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/consistent-type-assertions -- sharp is dynamically imported
-	const factory = sharpRef as any;
+	if (!isSharpFactory(sharpRef)) {
+		throw new Error('Loaded sharp module is not callable.');
+	}
 
-	return factory(input);
+	return sharpRef(input);
 };
 
 const toBuffer = (input: Buffer | ArrayBuffer) => {

@@ -1,26 +1,26 @@
-declare global {
-	/* eslint-disable-next-line @typescript-eslint/consistent-type-definitions */
-	interface Window {
-		__ABS_SLOT_ENQUEUE__?: (id: string, payload: unknown) => void;
-		__ABS_SLOT_FLUSH__?: () => void;
-		__ABS_SLOT_CONSUMERS__?: Record<
-			string,
-			((payload: unknown) => boolean | void) | undefined
-		>;
-		__ABS_SLOT_HYDRATION_PENDING__?: boolean;
-		__ABS_SLOT_PENDING__?: Record<string, unknown>;
-		__ABS_SLOT_RUNTIME__?: boolean;
-	}
-}
+type AbsoluteSlotWindow = Window & {
+	__ABS_SLOT_ENQUEUE__?: (id: string, payload: unknown) => void;
+	__ABS_SLOT_FLUSH__?: () => void;
+	__ABS_SLOT_CONSUMERS__?: Record<
+		string,
+		((payload: unknown) => boolean | void) | undefined
+	>;
+	__ABS_SLOT_HYDRATION_PENDING__?: boolean;
+	__ABS_SLOT_PENDING__?: Record<string, unknown>;
+	__ABS_SLOT_RUNTIME__?: boolean;
+};
 
 const streamSwapRuntime = () => {
+	const absoluteWindow: AbsoluteSlotWindow = window;
 	const SLOT_PATCH_EVENT = 'absolutejs:slot-patch';
-	if (window.__ABS_SLOT_RUNTIME__ === true) return;
-	window.__ABS_SLOT_RUNTIME__ = true;
-	window.__ABS_SLOT_CONSUMERS__ = window.__ABS_SLOT_CONSUMERS__ ?? {};
-	window.__ABS_SLOT_PENDING__ = window.__ABS_SLOT_PENDING__ ?? {};
-	const consumers = window.__ABS_SLOT_CONSUMERS__;
-	const pending = window.__ABS_SLOT_PENDING__;
+	if (absoluteWindow.__ABS_SLOT_RUNTIME__ === true) return;
+	absoluteWindow.__ABS_SLOT_RUNTIME__ = true;
+	absoluteWindow.__ABS_SLOT_CONSUMERS__ =
+		absoluteWindow.__ABS_SLOT_CONSUMERS__ ?? {};
+	absoluteWindow.__ABS_SLOT_PENDING__ =
+		absoluteWindow.__ABS_SLOT_PENDING__ ?? {};
+	const consumers = absoluteWindow.__ABS_SLOT_CONSUMERS__;
+	const pending = absoluteWindow.__ABS_SLOT_PENDING__;
 	const isObjectRecord = (value: unknown): value is Record<string, unknown> =>
 		Boolean(value) && typeof value === 'object';
 	const isPatchedPendingEntry = (
@@ -36,7 +36,7 @@ const streamSwapRuntime = () => {
 	const unwrapPendingPayload = (value: unknown) =>
 		isPatchedPendingEntry(value) ? value.payload : value;
 	const canApplyImmediately = () =>
-		window.__ABS_SLOT_HYDRATION_PENDING__ !== true;
+		absoluteWindow.__ABS_SLOT_HYDRATION_PENDING__ !== true;
 	const isAngularDeferPayload = (payload: unknown) => {
 		if (!isObjectRecord(payload)) return false;
 
@@ -126,8 +126,8 @@ const streamSwapRuntime = () => {
 		}
 	};
 
-	window.__ABS_SLOT_FLUSH__ = flush;
-	window.__ABS_SLOT_ENQUEUE__ = (id: string, payload: unknown) => {
+	absoluteWindow.__ABS_SLOT_FLUSH__ = flush;
+	absoluteWindow.__ABS_SLOT_ENQUEUE__ = (id: string, payload: unknown) => {
 		apply(id, payload);
 	};
 

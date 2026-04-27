@@ -7,6 +7,7 @@ import {
 } from '../utils/imageProcessing';
 import { scanEntryPoints } from './scanEntryPoints';
 import type { ImageConfig } from '../../types/image';
+import { IMAGE_DEFAULT_DEVICE_SIZES } from '../constants';
 
 /**
  * Build-time transform for HTML files: finds `<img data-optimized ...>` tags
@@ -76,7 +77,7 @@ const transformImgTag = (fullMatch: string, before: string, after: string, confi
 
 		srcset = `${buildOptimizedUrl(src, w1x, quality, basePath)} 1x, ${buildOptimizedUrl(src, w2x, quality, basePath)} 2x`;
 	} else {
-		const deviceSizes = config?.deviceSizes ?? [640, 750, 828, 1080, 1200, 1920, 2048, 3840]; // eslint-disable-line no-magic-numbers
+		const deviceSizes = config?.deviceSizes ?? IMAGE_DEFAULT_DEVICE_SIZES;
 
 		srcset = deviceSizes
 			.map((sizeWidth) => `${buildOptimizedUrl(src, sizeWidth, quality, basePath)} ${sizeWidth}w`)

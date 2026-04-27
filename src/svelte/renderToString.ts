@@ -1,7 +1,19 @@
-import type { Component } from 'svelte';
+import type { Component, ComponentProps } from 'svelte';
 import { render } from 'svelte/server';
 import { escapeScriptContent } from '../utils/escapeScriptContent';
 import { SVELTE_PAGE_ROOT_ID } from './renderToReadableStream';
+
+type SvelteRenderOutput = {
+	body: string;
+	head: string;
+};
+
+type SvelteServerRender = (
+	component: Component<Record<string, unknown>>,
+	options?: { props?: Record<string, unknown> }
+) => SvelteRenderOutput;
+
+const renderComponent: SvelteServerRender = render;
 
 export type RenderStringOptions = {
 	bootstrapScriptContent?: string;
@@ -11,11 +23,9 @@ export type RenderStringOptions = {
 	onError?: (error: unknown) => void;
 };
 
-export const renderToString = <
-	Props extends Record<string, unknown> = Record<string, never>
->(
-	component: Component<Props>,
-	props?: Props,
+export const renderToString = <Comp extends Component<Record<string, unknown>>>(
+	component: Comp,
+	props?: ComponentProps<Comp>,
 	{
 		bootstrapScriptContent,
 		bootstrapScripts = [],
@@ -25,11 +35,11 @@ export const renderToString = <
 	}: RenderStringOptions = {}
 ) => {
 	try {
-		const { head, body } =
+		const rendered =
 			typeof props === 'undefined'
-				? // @ts-expect-error Svelte's render function can't determine which overload to choose when the component is generic
-					render(component)
-				: render(component, { props });
+				? renderComponent(component)
+				: renderComponent(component, { props });
+		const { head, body } = rendered;
 		const nonceAttr = nonce ? ` nonce="${nonce}"` : '';
 		const scripts = [
 			bootstrapScriptContent &&

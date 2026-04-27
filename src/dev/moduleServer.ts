@@ -10,6 +10,7 @@ import {
 import { lowerSvelteAwaitSlotSyntax } from '../svelte/lowerAwaitSlotSyntax';
 import { lowerSvelteIslandSyntax } from '../svelte/lowerIslandSyntax';
 import type { StylePreprocessorConfig } from '../../types/build';
+import type { BindingMetadata, SFCDescriptor } from '@vue/compiler-sfc';
 import {
 	getInvalidationVersion,
 	getTransformed,
@@ -606,10 +607,20 @@ const svelteExternalCss = new Map<string, string>();
 // ─── Framework-specific transforms (Svelte, Vue) ────────────
 // Cached compiler references — avoid re-importing on every request.
 // Pre-set via warmCompilers() at startup to eliminate first-edit spike.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let svelteCompiler: any = null;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let vueCompiler: any = null;
+let svelteCompiler: typeof import('svelte/compiler') | null = null;
+let vueCompiler: typeof import('@vue/compiler-sfc') | null = null;
+
+const getLoadedSvelteCompiler = () => {
+	if (!svelteCompiler) throw new Error('Svelte compiler is not loaded.');
+
+	return svelteCompiler;
+};
+
+const getLoadedVueCompiler = () => {
+	if (!vueCompiler) throw new Error('Vue compiler is not loaded.');
+
+	return vueCompiler;
+};
 
 export const warmCompilers = async (frameworks: {
 	svelte?: boolean;
@@ -651,9 +662,10 @@ export const warmCompilers = async (frameworks: {
 
 // Compile a .svelte.ts module file — transpile TS, then compileModule.
 const compileSvelteModule = (raw: string, filePath: string) => {
+	const compiler = getLoadedSvelteCompiler();
 	const source = tsTranspiler.transformSync(raw);
 
-	return svelteCompiler.compileModule(source, {
+	return compiler.compileModule(source, {
 		dev: true,
 		filename: filePath
 	}).js.code;
@@ -666,7 +678,8 @@ const compileSvelteComponent = (
 	projectRoot: string,
 	enableAsync = false
 ) => {
-	const compiled = svelteCompiler.compile(raw, {
+	const compiler = getLoadedSvelteCompiler();
+	const compiled = compiler.compile(raw, {
 		css: 'external',
 		dev: true,
 		experimental: {
@@ -739,13 +752,10 @@ const transformSvelteFile = async (
 	return rewriteImports(code, filePath, projectRoot, rewriter);
 };
 
-type VueSFCDescriptor = {
-	styles: Array<{ content: string; lang?: string; scoped: boolean }>;
-	template?: { content: string } | null;
-};
+type VueSFCDescriptor = SFCDescriptor;
 
 type VueSFCCompiledScript = {
-	bindings: Record<string, string>;
+	bindings: BindingMetadata;
 	content: string;
 };
 
@@ -756,11 +766,12 @@ const compileVueTemplate = (
 	filePath: string,
 	componentId: string
 ) => {
+	const compiler = getLoadedVueCompiler();
 	const scriptContent = compiledScript.content;
 	if (!descriptor.template) return scriptContent;
 
 	const isScoped = descriptor.styles.some((style) => style.scoped);
-	const templateResult = vueCompiler.compileTemplate({
+	const templateResult = compiler.compileTemplate({
 		compilerOptions: {
 			bindingMetadata: compiledScript.bindings,
 			prefixIdentifiers: true
@@ -789,14 +800,15 @@ const compileVueStyles = async (
 ) => {
 	if (descriptor.styles.length === 0) return code;
 
+	const compiler = getLoadedVueCompiler();
 	const cssCode = (
 		await Promise.all(
 			descriptor.styles.map(
 				async (style) =>
-					vueCompiler.compileStyle({
+					compiler.compileStyle({
 						filename: filePath,
 						id: `data-v-${componentId}`,
-						scoped: style.scoped,
+						scoped: Boolean(style.scoped),
 						source: style.lang
 							? await compileStyleSource(
 									filePath,
@@ -850,10 +862,14 @@ const transformVueFile = async (
 		id: componentId,
 		inlineTemplate: false
 	});
+	const compiledSfcScript: VueSFCCompiledScript = {
+		bindings: compiledScript.bindings ?? {},
+		content: compiledScript.content
+	};
 
 	let code = compileVueTemplate(
 		descriptor,
-		compiledScript,
+		compiledSfcScript,
 		filePath,
 		componentId
 	);

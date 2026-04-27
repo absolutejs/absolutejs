@@ -107,9 +107,11 @@ const prepareDev = async (
 ) => {
 	const startupSteps: Array<{ label: string; durationMs: number }> = [];
 	const recordStep = (label: string, startedAt: number) => {
+		const durationMs = performance.now() - startedAt;
+
 		startupSteps.push({
-			label,
-			durationMs: performance.now() - startedAt
+			durationMs,
+			label
 		});
 	};
 
@@ -301,9 +303,11 @@ const createNotFoundPlugin = () =>
 export const prepare = async (configOrPath?: string) => {
 	const startupSteps: Array<{ label: string; durationMs: number }> = [];
 	const recordStep = (label: string, startedAt: number) => {
+		const durationMs = performance.now() - startedAt;
+
 		startupSteps.push({
-			label,
-			durationMs: performance.now() - startedAt
+			durationMs,
+			label
 		});
 	};
 
@@ -397,11 +401,13 @@ export const prepare = async (configOrPath?: string) => {
 			const age = Date.now() - renderedAt;
 			if (revalidateMs > 0 && renderedAt > 0 && age > revalidateMs) {
 				rerendering.add(url.pathname);
-				// eslint-disable-next-line promise/catch-or-return -- fire-and-forget background re-render
-				rerenderRoute(url.pathname, port, prerenderDir)
-					.catch(() => {
-						/* background re-render failed, stale page still served */
-					})
+				void rerenderRoute(url.pathname, port, prerenderDir)
+					.catch(
+						() =>
+							/* background re-render failed, stale page still served */
+
+							undefined
+					)
 					.finally(() => rerendering.delete(url.pathname));
 			}
 

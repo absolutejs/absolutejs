@@ -9,6 +9,10 @@ import {
 } from '../domState';
 import { detectCurrentFramework, findIndexPath } from '../frameworkDetect';
 
+type SvelteHmrWindow = Window & {
+	__SVELTE_HMR_ACCEPT__?: Record<string, (mod: unknown) => void>;
+};
+
 /* Swap a stylesheet link by matching cssBaseName or framework name */
 const swapStylesheet = (
 	cssUrl: string,
@@ -155,16 +159,16 @@ const buildLinkLoadPromise = (link: HTMLLinkElement) => {
 		return null;
 	}
 
-	// eslint-disable-next-line promise/avoid-new -- wrapping DOM event callbacks requires a new Promise
-	return new Promise<void>((resolve) => {
-		link.onload = () => {
-			resolve();
-		};
-		link.onerror = () => {
-			resolve();
-		};
-		setTimeout(resolve, SVELTE_CSS_LOAD_TIMEOUT_MS);
-	});
+	const { promise, resolve } = Promise.withResolvers<void>();
+	link.onload = () => {
+		resolve();
+	};
+	link.onerror = () => {
+		resolve();
+	};
+	setTimeout(resolve, SVELTE_CSS_LOAD_TIMEOUT_MS);
+
+	return promise;
 };
 
 const cleanupAfterImport = (
@@ -265,10 +269,8 @@ export const handleSvelteUpdate = (message: {
 		const clientStart = performance.now();
 		const modulePath = `${pageModuleUrl}?t=${Date.now()}`;
 
-		// eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-explicit-any
-		const acceptRegistry = (window as any).__SVELTE_HMR_ACCEPT__ as
-			| Record<string, (mod: unknown) => void>
-			| undefined;
+		const svelteWindow: SvelteHmrWindow = window;
+		const acceptRegistry = svelteWindow.__SVELTE_HMR_ACCEPT__;
 
 		// Save the OLD module's accept callback BEFORE importing.
 		const acceptFn = acceptRegistry?.[pageModuleUrl];

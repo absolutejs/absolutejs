@@ -109,7 +109,9 @@ const formatSvelteOutput = (output: string) => {
 			// Only show the error line (with highlight) + underline, skip context lines.
 			if (result.includes(ANSI_PURPLE_REGEX)) {
 				const plainLine = stripAnsi(result);
-				const before = stripAnsi(result.split(ANSI_PURPLE_REGEX)[0] ?? '');
+				const before = stripAnsi(
+					result.split(ANSI_PURPLE_REGEX)[0] ?? ''
+				);
 				const token = stripAnsi(
 					(result.split(ANSI_PURPLE_REGEX)[1] ?? '').split(
 						ANSI_TOKEN_END_REGEX

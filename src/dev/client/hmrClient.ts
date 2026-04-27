@@ -80,8 +80,30 @@ const hmrUpdateTypes = new Set([
 	'rebuild-start'
 ]);
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const handleHMRMessage = (message: any) => {
+type HMRMessage = {
+	data: {
+		affectedFrameworks?: string[];
+		column?: number;
+		error?: string;
+		file?: string;
+		framework?: string;
+		hasCSSChanges?: boolean;
+		hasComponentChanges?: boolean;
+		html?: string;
+		line?: number;
+		lineText?: string;
+		manifest?: Record<string, string>;
+		moduleVersions?: Record<string, number>;
+		pageModuleUrl?: string;
+		primarySource?: string;
+		scriptUrl?: string;
+		serverDuration?: number;
+		serverVersions?: Record<string, number>;
+	};
+	type: string;
+};
+
+const handleHMRMessage = (message: HMRMessage) => {
 	if (hmrUpdateTypes.has(message.type)) {
 		hmrState.isHMRUpdating = true;
 		setTimeout(() => {
@@ -140,7 +162,7 @@ const handleHMRMessage = (message: any) => {
 		case 'pong':
 			break;
 		case 'style-update':
-			reloadCSSStylesheets(message.data.manifest);
+			reloadCSSStylesheets(message.data.manifest ?? {});
 			break;
 		default:
 			break;

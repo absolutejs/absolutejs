@@ -19,6 +19,7 @@ import { incrementSourceFileVersions, type HMRState } from './clientManager';
 import { getAffectedFiles } from './dependencyGraph';
 import { DEFAULT_DEBOUNCE_MS, REBUILD_BATCH_DELAY_MS } from '../constants';
 import { computeFileHash, hasFileChanged } from './fileHashTracker';
+import { invalidate as invalidateTransformCache } from './transformCache';
 
 // Eagerly resolve the moduleServer import at load time so the first
 // HMR update doesn't pay the dynamic-import cost. By the time this
@@ -48,6 +49,15 @@ import {
 	isStylePath
 } from '../build/stylePreprocessor';
 import { markSsrCacheDirty } from '../core/ssrCache';
+
+const runSequentially = <Item>(
+	items: Item[],
+	action: (item: Item) => Promise<void>
+) =>
+	items.reduce(
+		(chain, item) => chain.then(() => action(item)),
+		Promise.resolve()
+	);
 
 const getStyleTransformConfig = (config: BuildConfig) =>
 	createStyleTransformConfig(config.stylePreprocessors, config.postcss);
@@ -375,22 +385,41 @@ const areAllQueuedFilesStable = async (
 	fileChangeQueue: Map<string, string[]>
 ) => {
 	const allFiles = collectAllQueuedFiles(fileChangeQueue);
-	for (const file of allFiles) {
-		const stable = await isFileStable(file);
-		if (!stable) return false;
-	}
+	const checkFile = async (files: string[]) => {
+		const [file, ...remaining] = files;
+		if (!file) {
+			return true;
+		}
 
-	return true;
+		const stable = await isFileStable(file);
+		if (!stable) {
+			return false;
+		}
+
+		return checkFile(remaining);
+	};
+
+	return checkFile(allFiles);
 };
 
 const waitForStableWrites = async (state: HMRState) => {
-	for (let round = 0; round < STABILITY_CHECK_ROUNDS; round++) {
+	const waitRound = async (round: number) => {
+		if (round >= STABILITY_CHECK_ROUNDS) {
+			return;
+		}
+
 		const stable = await areAllQueuedFilesStable(state.fileChangeQueue);
-		if (stable) break;
-	}
+		if (stable) {
+			return;
+		}
+
+		await waitRound(round + 1);
+	};
+
+	await waitRound(0);
 };
 
-export const queueFileChange = (
+export const queueFileChange = async (
 	state: HMRState,
 	filePath: string,
 	config: BuildConfig,
@@ -414,8 +443,7 @@ export const queueFileChange = (
 	// Shared files (workers, utils, etc.) that don't belong to any
 	// framework just need their transform cache invalidated — no rebuild.
 	if (framework === 'unknown') {
-		const { invalidate } = require('../dev/transformCache');
-		invalidate(resolve(filePath));
+		invalidateTransformCache(resolve(filePath));
 		const relPath = relative(process.cwd(), filePath);
 		logHmrUpdate(relPath);
 
@@ -1155,14 +1183,14 @@ const handleSvelteModuleServerPath = async (
 
 	const serverDuration = Date.now() - startTime;
 
-	for (const changedFile of svelteFiles) {
-		await broadcastSvelteModuleUpdate(
+	await runSequentially(svelteFiles, (changedFile) =>
+		broadcastSvelteModuleUpdate(
 			state,
 			changedFile,
 			svelteFiles,
 			serverDuration
-		);
-	}
+		)
+	);
 
 	onRebuildComplete({
 		hmrState: state,
@@ -1382,16 +1410,16 @@ const handleVueModuleServerPath = async (
 	// If triggered by a composable change, force reload so setup re-runs
 	const forceReload = nonVueFiles.length > 0;
 
-	for (const changedFile of vueFiles) {
-		await broadcastVueModuleUpdate(
+	await runSequentially(vueFiles, (changedFile) =>
+		broadcastVueModuleUpdate(
 			state,
 			changedFile,
 			vueFiles,
 			nonVueFiles,
 			forceReload,
 			serverDuration
-		);
-	}
+		)
+	);
 
 	onRebuildComplete({
 		hmrState: state,
@@ -1788,7 +1816,7 @@ const handleHTMLPageHMR = async (
 		? await scanEntryPoints(outputHtmlPages, '*.html')
 		: htmlPageFiles;
 
-	for (const pageFile of pageFilesToUpdate) {
+	await runSequentially(pageFilesToUpdate, async (pageFile) => {
 		const htmlPageName = basename(pageFile);
 		const builtHtmlPagePath = resolve(outputHtmlPages, htmlPageName);
 		await processHtmlPageUpdate(
@@ -1798,7 +1826,7 @@ const handleHTMLPageHMR = async (
 			manifest,
 			duration
 		);
-	}
+	});
 };
 
 const handleVueCssOnlyUpdate = (
@@ -1993,15 +2021,9 @@ const handleVueHMR = async (
 		handleVueCssOnlyUpdate(state, vueCssFiles, manifest, duration);
 	}
 
-	for (const vuePagePath of pagesToUpdate) {
-		await processVuePageUpdate(
-			state,
-			config,
-			vuePagePath,
-			manifest,
-			duration
-		);
-	}
+	await runSequentially(pagesToUpdate, (vuePagePath) =>
+		processVuePageUpdate(state, config, vuePagePath, manifest, duration)
+	);
 };
 
 const handleSvelteCssOnlyUpdate = (
@@ -2352,7 +2374,7 @@ const handleHTMXPageHMR = async (
 		? await scanEntryPoints(outputHtmxPages, '*.html')
 		: htmxPageFiles;
 
-	for (const htmxPageFile of pageFilesToUpdate) {
+	await runSequentially(pageFilesToUpdate, async (htmxPageFile) => {
 		const htmxPageName = basename(htmxPageFile);
 		const builtHtmxPagePath = resolve(outputHtmxPages, htmxPageName);
 		await processHtmxPageUpdate(
@@ -2362,7 +2384,7 @@ const handleHTMXPageHMR = async (
 			manifest,
 			duration
 		);
-	}
+	});
 };
 
 const collectUpdatedModulePaths = (
@@ -2693,7 +2715,12 @@ const runMarkupFastPath = async (
 		'node:fs'
 	);
 
-	for (const markupFile of markupFiles) {
+	const processMarkupFiles = async (files: string[]) => {
+		const [markupFile, ...remaining] = files;
+		if (!markupFile) {
+			return;
+		}
+
 		const success = await tryProcessMarkupFile(
 			state,
 			markupFile,
@@ -2705,8 +2732,14 @@ const runMarkupFastPath = async (
 			readFs,
 			writeFs
 		);
-		if (!success) break;
-	}
+		if (!success) {
+			return;
+		}
+
+		await processMarkupFiles(remaining);
+	};
+
+	await processMarkupFiles(markupFiles);
 };
 
 const runHtmlFastPath = async (
@@ -2785,12 +2818,12 @@ const runFrameworkFastPaths = async (
 		}
 	];
 
-	for (const fastPath of fastPaths) {
+	await runSequentially(fastPaths, async (fastPath) => {
 		if (
 			!fastPath.directory ||
 			!affectedFrameworks.includes(fastPath.framework)
 		)
-			continue;
+			return;
 
 		await fastPath.handler(
 			state,
@@ -2805,7 +2838,7 @@ const runFrameworkFastPaths = async (
 			state.resolvedPaths,
 			handled
 		);
-	}
+	});
 
 	// Check if any files weren't handled by a fast path.
 	// CSS/styles and copied assets need the full build so outputs stay in sync.

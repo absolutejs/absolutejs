@@ -83,18 +83,31 @@ const crawlRoutes = async (baseUrl: string) => {
 	const queue: string[] = ['/'];
 	const routes: string[] = [];
 
-	while (queue.length > 0) {
+	const crawlNextRoute = async () => {
 		const path = queue.shift();
-		if (!path || visited.has(path)) continue;
+		if (!path) {
+			return;
+		}
+		if (visited.has(path)) {
+			await crawlNextRoute();
+
+			return;
+		}
 		visited.add(path);
 
-		// eslint-disable-next-line no-await-in-loop -- sequential crawl: each page discovers new links for the queue
 		const html = await fetchRoute(baseUrl, path).catch(() => null);
-		if (!html) continue;
+		if (!html) {
+			await crawlNextRoute();
+
+			return;
+		}
 
 		routes.push(path);
 		queue.push(...extractLinks(html, visited));
-	}
+		await crawlNextRoute();
+	};
+
+	await crawlNextRoute();
 
 	return routes;
 };
@@ -185,10 +198,13 @@ export const prerender = async (
 		routes: new Map()
 	};
 
-	for (const route of routes) {
-		// eslint-disable-next-line no-await-in-loop -- sequential pre-rendering to avoid overwhelming the server
-		await prerenderRoute(baseUrl, route, prerenderDir, result, log);
-	}
+	await routes.reduce(
+		(chain, route) =>
+			chain.then(() =>
+				prerenderRoute(baseUrl, route, prerenderDir, result, log)
+			),
+		Promise.resolve()
+	);
 
 	return result;
 };
@@ -205,16 +221,19 @@ const getStartupTimeoutMs = () => {
 /** Poll the server until it responds or startup timeout elapses */
 const waitForServerReady = async (port: number) => {
 	const deadline = performance.now() + getStartupTimeoutMs();
-	while (performance.now() < deadline) {
-		// eslint-disable-next-line no-await-in-loop -- sequential polling: must wait for server readiness
+	const pollServer = async () => {
+		if (performance.now() >= deadline) {
+			return false;
+		}
 		if (await probePrerenderServer(port)) {
 			return true;
 		}
-		// eslint-disable-next-line no-await-in-loop -- sequential polling: must wait between attempts
 		await Bun.sleep(STARTUP_POLL_INTERVAL_MS);
-	}
 
-	return false;
+		return pollServer();
+	};
+
+	return pollServer();
 };
 
 const probePrerenderServer = async (port: number) => {
@@ -240,9 +259,12 @@ const captureStreamOutput = (
 		reader
 			.read()
 			.then(({ done, value }) => {
-				if (done) return;
+				if (done) {
+					return undefined;
+				}
 				output.push(decoder.decode(value, { stream: true }));
-				read();
+
+				return read();
 			})
 			.catch(() => {
 				/* best-effort diagnostics */

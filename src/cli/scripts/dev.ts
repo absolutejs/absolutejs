@@ -29,54 +29,55 @@ const cliTag = (color: string, message: string) =>
 // Lightweight interactive yes/no prompt with arrow key support.
 // ◆ message
 //   ● Yes  ○ No    (use ←/→ arrow keys, enter to confirm)
-const confirmPrompt = (message: string, defaultYes = true) =>
-	new Promise<boolean>((_resolve) => {
-		let selected = defaultYes;
+const confirmPrompt = (message: string, defaultYes = true) => {
+	const { promise, resolve: resolvePrompt } =
+		Promise.withResolvers<boolean>();
+	let selected = defaultYes;
 
-		const render = () => {
-			const yes = selected
-				? '\x1b[36m●\x1b[0m Yes'
-				: '\x1b[2m○ Yes\x1b[0m';
-			const noLabel = !selected
-				? '\x1b[36m●\x1b[0m No'
-				: '\x1b[2m○ No\x1b[0m';
-			// Move to start, clear line, print question + options
+	const render = () => {
+		const yes = selected ? '\x1b[36m●\x1b[0m Yes' : '\x1b[2m○ Yes\x1b[0m';
+		const noLabel = !selected
+			? '\x1b[36m●\x1b[0m No'
+			: '\x1b[2m○ No\x1b[0m';
+		// Move to start, clear line, print question + options
+		process.stdout.write(
+			`\x1b[2K\x1b[36m◆\x1b[0m ${message}\n\x1b[2K  ${yes}  ${noLabel}\x1b[A\r`
+		);
+	};
+
+	process.stdout.write('\x1b[?25l'); // hide cursor
+	process.stdin.setRawMode(true);
+	process.stdin.resume();
+	render();
+
+	const onData = (data: Buffer) => {
+		const key = data.toString();
+		if (key === '\x1b[D' || key === '\x1b[C' || key === '\t') {
+			// Left/Right arrow or Tab — toggle
+			selected = !selected;
+			render();
+		} else if (key === '\r' || key === '\n') {
+			// Enter — confirm
+			process.stdin.setRawMode(false);
+			process.stdin.pause();
+			process.stdin.removeListener('data', onData);
+			const label = selected ? 'Yes' : 'No';
 			process.stdout.write(
-				`\x1b[2K\x1b[36m◆\x1b[0m ${message}\n\x1b[2K  ${yes}  ${noLabel}\x1b[A\r`
+				`\x1b[2K\x1b[32m◇\x1b[0m ${message}\n\x1b[2K  \x1b[2m${label}\x1b[0m\n\x1b[?25h`
 			);
-		};
+			resolvePrompt(selected);
+		} else if (key === '\x03') {
+			// Ctrl+C — restore cursor and exit
+			process.stdout.write('\x1b[?25h');
+			process.stdin.setRawMode(false);
+			process.exit(0);
+		}
+	};
 
-		process.stdout.write('\x1b[?25l'); // hide cursor
-		process.stdin.setRawMode(true);
-		process.stdin.resume();
-		render();
+	process.stdin.on('data', onData);
 
-		const onData = (data: Buffer) => {
-			const key = data.toString();
-			if (key === '\x1b[D' || key === '\x1b[C' || key === '\t') {
-				// Left/Right arrow or Tab — toggle
-				selected = !selected;
-				render();
-			} else if (key === '\r' || key === '\n') {
-				// Enter — confirm
-				process.stdin.setRawMode(false);
-				process.stdin.pause();
-				process.stdin.removeListener('data', onData);
-				const label = selected ? 'Yes' : 'No';
-				process.stdout.write(
-					`\x1b[2K\x1b[32m◇\x1b[0m ${message}\n\x1b[2K  \x1b[2m${label}\x1b[0m\n\x1b[?25h`
-				);
-				_resolve(selected);
-			} else if (key === '\x03') {
-				// Ctrl+C — restore cursor and exit
-				process.stdout.write('\x1b[?25h');
-				process.stdin.setRawMode(false);
-				process.exit(0);
-			}
-		};
-
-		process.stdin.on('data', onData);
-	});
+	return promise;
+};
 
 const setupCertWithPrompt = async (
 	ensureDevCert: () => void,
@@ -375,13 +376,22 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 	};
 
 	const monitorServer = async () => {
-		while (!cleaning) {
-			const current = serverProcess;
-			const exitCode = await current.exited;
-			if (cleaning || serverProcess !== current) continue;
-			const shouldContinue = await handleServerExit(exitCode);
-			if (!shouldContinue) return;
+		if (cleaning) {
+			return;
 		}
+		const current = serverProcess;
+		const exitCode = await current.exited;
+		if (cleaning || serverProcess !== current) {
+			await monitorServer();
+
+			return;
+		}
+		const shouldContinue = await handleServerExit(exitCode);
+		if (!shouldContinue) {
+			return;
+		}
+
+		await monitorServer();
 	};
 
 	await monitorServer();

@@ -21,14 +21,30 @@
      Vue instances, or Svelte components. The registry is keyed by
      source file path, so name collisions across frameworks are impossible. */
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type ComponentCtor = any;
+type AngularComponentDefinition = {
+	providers?: unknown;
+	providersResolver?: unknown;
+};
+
+type ComponentCtor = (abstract new (...args: never[]) => unknown) & {
+	ɵcmp?: AngularComponentDefinition;
+	ɵfac?: unknown;
+	ɵinj?: AngularComponentDefinition;
+};
+
+const isComponentCtor = (value: unknown): value is ComponentCtor =>
+	typeof value === 'function';
 
 type RegistryEntry = {
 	liveCtor: ComponentCtor;
 	id: string;
 	registeredAt: number;
 	updateCount: number;
+};
+
+type AngularHmrStats = {
+	readonly componentCount: number;
+	readonly updateCount: number;
 };
 
 const componentRegistry = new Map<string, RegistryEntry>();
@@ -64,8 +80,8 @@ const hasProviderChanges = (oldCtor: ComponentCtor, newCtor: ComponentCtor) => {
 	return false;
 };
 
-const register = (id: string, ctor: ComponentCtor) => {
-	if (!id || typeof ctor !== 'function') return;
+const register = (id: string, ctor: unknown) => {
+	if (!id || !isComponentCtor(ctor)) return;
 	if (!componentRegistry.has(id)) {
 		componentRegistry.set(id, {
 			id,
@@ -137,7 +153,9 @@ const patchConstructor = (entry: RegistryEntry, newCtor: ComponentCtor) => {
 	entry.registeredAt = Date.now();
 };
 
-const applyUpdate = (id: string, newCtor: ComponentCtor) => {
+const applyUpdate = (id: string, newCtor: unknown) => {
+	if (!isComponentCtor(newCtor)) return false;
+
 	const entry = componentRegistry.get(id);
 	if (!entry) {
 		register(id, newCtor);
@@ -187,18 +205,25 @@ const refresh = () => {
 	}
 };
 
+const angularHmrStats: AngularHmrStats = {
+	get componentCount() {
+		return componentRegistry.size;
+	},
+	get updateCount() {
+		return globalUpdateCount;
+	}
+};
+
+const getAngularHmrStats = () => angularHmrStats;
+
 export const installAngularHMRRuntime = () => {
 	if (typeof window === 'undefined') return;
 	window.__ANGULAR_HMR__ = {
 		applyUpdate,
+		getStats: getAngularHmrStats,
 		refresh,
 		register,
-		getRegistry: () => componentRegistry,
-		// eslint-disable-next-line absolute/no-useless-function -- must be a callable method on the HMR API
-		getStats: () => ({
-			componentCount: componentRegistry.size,
-			updateCount: globalUpdateCount
-		})
+		getRegistry: () => componentRegistry
 	};
 };
 

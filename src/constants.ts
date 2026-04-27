@@ -29,6 +29,12 @@ export const HTTP_STATUS_BAD_REQUEST = 400;
 export const HTTP_STATUS_NOT_FOUND = 404;
 export const HOURS_IN_DAY = 24;
 export const HOURS_IN_HALF_DAY = 12;
+export const IMAGE_DEFAULT_DEVICE_SIZES = [
+	640, 750, 828, 1080, 1200, 1920, 2048, 3840
+];
+export const IMAGE_DEFAULT_IMAGE_SIZES = [16, 32, 48, 64, 96, 128, 256, 384];
+export const IMAGE_DEFAULT_QUALITY = 75;
+export const IMAGE_GLOB_SUFFIX_LENGTH = 2;
 export const MAX_ERROR_LENGTH = 200;
 export const MAX_RECONNECT_ATTEMPTS = 60;
 export const MILLISECONDS_IN_A_SECOND = 1000;

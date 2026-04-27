@@ -190,15 +190,19 @@ const resolveSidecarCandidates = (pagePath: string) => {
 const fileExists = async (path: string) => Bun.file(path).exists();
 
 const loadStaticStreamingModule = async (pagePath: string) => {
-	for (const candidate of resolveSidecarCandidates(pagePath)) {
-		// eslint-disable-next-line no-await-in-loop
-		if (!(await fileExists(candidate))) continue;
+	const loadCandidate = async (candidates: string[]) => {
+		const [candidate, ...remaining] = candidates;
+		if (!candidate) {
+			return null;
+		}
+		if (!(await fileExists(candidate))) {
+			return loadCandidate(remaining);
+		}
 
 		const version = statSync(candidate).mtimeMs;
 		const moduleUrl = new URL(pathToFileURL(candidate).href);
 		moduleUrl.searchParams.set('t', String(version));
 
-		// eslint-disable-next-line no-await-in-loop
 		const moduleExports: StaticStreamingModuleExports = await import(
 			moduleUrl.href
 		);
@@ -210,9 +214,9 @@ const loadStaticStreamingModule = async (pagePath: string) => {
 		}
 
 		return definitions;
-	}
+	};
 
-	return null;
+	return loadCandidate(resolveSidecarCandidates(pagePath));
 };
 
 export const loadStaticStreamingSlots = async (

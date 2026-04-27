@@ -426,20 +426,23 @@ export const devBuild = async (config: BuildConfig) => {
 		: undefined;
 
 	const buildAngularVendorTask = config.angularDirectory
-		? buildAngularVendor(
-				state.resolvedPaths.buildDir,
-				sourceDirs
-			).then(async (specs) => {
-				const vendorDir = resolve(
-					state.resolvedPaths.buildDir,
-					'angular',
-					'vendor'
-				);
-				await loadVendorFiles(state.assetStore, vendorDir, 'angular');
-				globalThis.__angularVendorSpecifiers = specs;
+		? buildAngularVendor(state.resolvedPaths.buildDir, sourceDirs).then(
+				async (specs) => {
+					const vendorDir = resolve(
+						state.resolvedPaths.buildDir,
+						'angular',
+						'vendor'
+					);
+					await loadVendorFiles(
+						state.assetStore,
+						vendorDir,
+						'angular'
+					);
+					globalThis.__angularVendorSpecifiers = specs;
 
-				return true;
-			})
+					return true;
+				}
+			)
 		: undefined;
 
 	const buildSvelteVendorTask = config.svelteDirectory

@@ -3,17 +3,17 @@
  * These can be imported in both server and client (browser) contexts.
  */
 
+import {
+	IMAGE_DEFAULT_DEVICE_SIZES,
+	IMAGE_DEFAULT_IMAGE_SIZES,
+	IMAGE_DEFAULT_QUALITY
+} from '../constants';
+
 export type { ImageProps } from '../../types/image';
 
-/* eslint-disable no-magic-numbers */
-export const DEFAULT_DEVICE_SIZES = [
-	640, 750, 828, 1080, 1200, 1920, 2048, 3840
-];
-
-export const DEFAULT_IMAGE_SIZES = [16, 32, 48, 64, 96, 128, 256, 384];
-
-export const DEFAULT_QUALITY = 75;
-/* eslint-enable no-magic-numbers */
+export const DEFAULT_DEVICE_SIZES = IMAGE_DEFAULT_DEVICE_SIZES;
+export const DEFAULT_IMAGE_SIZES = IMAGE_DEFAULT_IMAGE_SIZES;
+export const DEFAULT_QUALITY = IMAGE_DEFAULT_QUALITY;
 
 export const OPTIMIZATION_ENDPOINT = '/_absolute/image';
 

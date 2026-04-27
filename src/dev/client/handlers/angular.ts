@@ -36,8 +36,43 @@ type HMRMessage = {
 	};
 };
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type NgApi = any;
+type NgApi = {
+	applyChanges?: (component: unknown) => void;
+	getComponent?: (element: Element) => unknown;
+};
+
+type AngularClientWindow = Window & {
+	ng?: NgApi;
+};
+
+type AngularHmrApi = {
+	applyUpdate: (id: string, newCtor: unknown) => boolean;
+	getRegistry?: () => Map<string, unknown>;
+	refresh: () => void;
+};
+
+type ViewTransitionDocument = Document & {
+	startViewTransition?: (updateCallback: () => Promise<void>) => {
+		finished: Promise<void>;
+	};
+};
+
+type AngularComponentExport = ((...args: unknown[]) => unknown) & {
+	ɵcmp?: unknown;
+};
+
+const isAngularComponentExport = (
+	value: unknown
+): value is AngularComponentExport => {
+	if (typeof value !== 'function') {
+		return false;
+	}
+
+	return 'ɵcmp' in value && Boolean(value.ɵcmp);
+};
+
+const isObjectRecord = (value: unknown): value is Record<string, unknown> =>
+	Boolean(value) && typeof value === 'object';
 
 const swapStylesheet = (
 	cssUrl: string,
@@ -99,7 +134,7 @@ const copyInstanceProperty = (
 };
 
 const captureInstanceProperties = (
-	ngApi: NgApi,
+	ngApi: NgApi | undefined,
 	element: Element,
 	properties: Record<string, unknown>
 ) => {
@@ -107,11 +142,10 @@ const captureInstanceProperties = (
 
 	try {
 		const instance = ngApi.getComponent(element);
-		if (!instance) return;
+		if (!isObjectRecord(instance)) return;
 
-		const record: Record<string, unknown> = instance;
-		Object.keys(record).forEach((key) => {
-			copyInstanceProperty(record, key, properties);
+		Object.keys(instance).forEach((key) => {
+			copyInstanceProperty(instance, key, properties);
 		});
 	} catch {
 		/* ignored */
@@ -121,8 +155,8 @@ const captureInstanceProperties = (
 const captureComponentState = () => {
 	const snapshots: StateSnapshot[] = [];
 	const selectorCounts = new Map<string, number>();
-	// eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-explicit-any
-	const ngApi: NgApi = (window as any).ng;
+	const angularWindow: AngularClientWindow = window;
+	const ngApi = angularWindow.ng;
 
 	document.querySelectorAll('*').forEach((elem) => {
 		const tagName = elem.tagName.toLowerCase();
@@ -174,7 +208,7 @@ const restoreInstanceProperties = (
 };
 
 const restoreViaInstance = (
-	ngApi: NgApi,
+	ngApi: NgApi | undefined,
 	element: Element,
 	snap: StateSnapshot
 ) => {
@@ -182,10 +216,9 @@ const restoreViaInstance = (
 
 	try {
 		const instance = ngApi.getComponent(element);
-		if (!instance) return false;
+		if (!isObjectRecord(instance)) return false;
 
-		const record: Record<string, unknown> = instance;
-		restoreInstanceProperties(record, snap);
+		restoreInstanceProperties(instance, snap);
 		if (typeof ngApi.applyChanges === 'function')
 			ngApi.applyChanges(element);
 
@@ -207,8 +240,8 @@ const restoreDomFallback = (element: Element, snap: StateSnapshot) => {
 };
 
 const restoreComponentState = (snapshots: StateSnapshot[]) => {
-	// eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-explicit-any
-	const ngApi: NgApi = (window as any).ng;
+	const angularWindow: AngularClientWindow = window;
+	const ngApi = angularWindow.ng;
 	if (snapshots.length === 0) return;
 
 	const bySelector = new Map<string, StateSnapshot[]>();
@@ -238,31 +271,31 @@ const restoreComponentState = (snapshots: StateSnapshot[]) => {
 const waitForAngularApp = () => {
 	if (window.__ANGULAR_APP__) return Promise.resolve();
 
-	// eslint-disable-next-line promise/avoid-new
-	return new Promise<void>((resolve) => {
-		const timeout = setTimeout(resolve, ANGULAR_INIT_TIMEOUT_MS);
+	const { promise, resolve } = Promise.withResolvers<void>();
+	const timeout = setTimeout(resolve, ANGULAR_INIT_TIMEOUT_MS);
 
-		let stored = window.__ANGULAR_APP__;
+	let stored = window.__ANGULAR_APP__;
 
-		Object.defineProperty(window, '__ANGULAR_APP__', {
-			configurable: true,
-			enumerable: true,
-			get() {
-				return stored;
-			},
-			set(val) {
-				stored = val;
-				Object.defineProperty(window, '__ANGULAR_APP__', {
-					configurable: true,
-					enumerable: true,
-					value: val,
-					writable: true
-				});
-				clearTimeout(timeout);
-				resolve();
-			}
-		});
+	Object.defineProperty(window, '__ANGULAR_APP__', {
+		configurable: true,
+		enumerable: true,
+		get() {
+			return stored;
+		},
+		set(val) {
+			stored = val;
+			Object.defineProperty(window, '__ANGULAR_APP__', {
+				configurable: true,
+				enumerable: true,
+				value: val,
+				writable: true
+			});
+			clearTimeout(timeout);
+			resolve();
+		}
 	});
+
+	return promise;
 };
 
 // ============================================================
@@ -281,15 +314,13 @@ const suppressNg0912 = () => {
 
 const tryPatchExport = (
 	exportName: string,
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	newModule: Record<string, any>,
+	newModule: Record<string, unknown>,
 	registry: Map<string, unknown>,
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	hmr: any,
+	hmr: AngularHmrApi,
 	sourceFile: string
 ) => {
 	const exported = newModule[exportName];
-	if (typeof exported !== 'function' || !exported.ɵcmp) return 'skip';
+	if (!isAngularComponentExport(exported)) return 'skip';
 
 	const registryId = `${sourceFile}#${exportName}`;
 	if (!registry.has(registryId)) return 'skip';
@@ -301,11 +332,9 @@ const tryPatchExport = (
 };
 
 const patchRegisteredComponents = (
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	newModule: Record<string, any>,
+	newModule: Record<string, unknown>,
 	registry: Map<string, unknown>,
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	hmr: any,
+	hmr: AngularHmrApi,
 	sourceFile: string
 ) => {
 	let patchedAny = false;
@@ -334,8 +363,7 @@ const patchRegisteredComponents = (
 const attemptFastPatch = async (
 	indexPath: string,
 	registry: Map<string, unknown>,
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	hmr: any,
+	hmr: AngularHmrApi,
 	sourceFile: string,
 	origWarn: typeof console.warn
 ) => {
@@ -483,8 +511,7 @@ const tickAngularApp = () => {
 };
 
 const runWithViewTransition = (updateFn: () => Promise<void>) => {
-	// eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-explicit-any
-	const doc = document as any;
+	const doc: ViewTransitionDocument = document;
 	if (typeof doc.startViewTransition !== 'function') {
 		updateFn().catch((err: unknown) => {
 			console.warn('[HMR] Angular update failed (non-fatal):', err);

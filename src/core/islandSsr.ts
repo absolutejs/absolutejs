@@ -33,9 +33,9 @@ export const renderVueIslandToHtml = <Props extends Record<string, unknown>>(
 	component: import('vue').Component<Props>,
 	props: Props
 ) =>
-	import('vue').then(({ createSSRApp, h }) => {
+	import('vue').then(({ createSSRApp, h: createVueVNode }) => {
 		const app = createSSRApp({
-			render: () => h(component, props)
+			render: () => createVueVNode(component, props)
 		});
 
 		return import('vue/server-renderer').then(({ renderToString }) =>

@@ -1,8 +1,18 @@
-import type { Component } from 'svelte';
+import type { Component, ComponentProps } from 'svelte';
 import { DEFAULT_CHUNK_SIZE } from '../constants';
 import { escapeScriptContent } from '../utils/escapeScriptContent';
 
 export const SVELTE_PAGE_ROOT_ID = '__absolute_svelte_root__';
+
+type SvelteRenderOutput = {
+	body: string;
+	head: string;
+};
+
+type SvelteServerRender = (
+	component: Component<Record<string, unknown>>,
+	options?: { props?: Record<string, unknown> }
+) => SvelteRenderOutput | PromiseLike<SvelteRenderOutput>;
 
 export type RenderStreamOptions = {
 	bootstrapScriptContent?: string;
@@ -17,10 +27,10 @@ export type RenderStreamOptions = {
 };
 
 export const renderToReadableStream = async <
-	Props extends Record<string, unknown> = Record<string, never>
+	Comp extends Component<Record<string, unknown>>
 >(
-	component: Component<Props>,
-	props?: Props,
+	component: Comp,
+	props?: ComponentProps<Comp>,
 	{
 		bootstrapScriptContent,
 		bootstrapScripts = [],
@@ -35,11 +45,11 @@ export const renderToReadableStream = async <
 ) => {
 	try {
 		const { render } = await import('svelte/server');
+		const renderComponent: SvelteServerRender = render;
 		const rendered =
 			typeof props === 'undefined'
-				? // @ts-expect-error Svelte's render function can't determine which overload to choose when the component is generic
-					await render(component)
-				: await render(component, { props });
+				? await renderComponent(component)
+				: await renderComponent(component, { props });
 		const { head, body } = rendered;
 		const nonceAttr = nonce ? ` nonce="${nonce}"` : '';
 		const scripts =
