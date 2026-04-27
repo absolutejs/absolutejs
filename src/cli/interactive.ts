@@ -22,6 +22,14 @@ const WORD_COMMANDS: Record<string, keyof Omit<Actions, 'shell'>> = {
 	resume: 'pause'
 };
 
+type InteractiveInput = {
+	destroyOnDispose: boolean;
+	stream: NodeJS.ReadStream & {
+		destroy?: () => void;
+		setRawMode?: (enabled: boolean) => void;
+	};
+};
+
 const trySetRawMode = () => {
 	if (typeof process.stdin.setRawMode !== 'function') {
 		return null;
@@ -33,8 +41,10 @@ const trySetRawMode = () => {
 		return null;
 	}
 
-	// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- stdin with rawMode is compatible with ReadStream
-	return process.stdin as unknown as ReadStream;
+	return {
+		destroyOnDispose: false,
+		stream: process.stdin
+	} satisfies InteractiveInput;
 };
 
 const openTtyStream = () => {
@@ -47,7 +57,10 @@ const openTtyStream = () => {
 		const ttyStream = new ReadStream(openSync('/dev/tty', 'r'));
 		ttyStream.setRawMode(true);
 
-		return ttyStream;
+		return {
+			destroyOnDispose: true,
+			stream: ttyStream
+		} satisfies InteractiveInput;
 	} catch {
 		return null;
 	}
@@ -296,25 +309,24 @@ export const createInteractiveHandler = (
 		}
 	};
 
-	const ttyStream = openTtyStream();
-	const input = ttyStream ?? process.stdin;
+	const ttyInput = openTtyStream();
+	const input = ttyInput?.stream ?? process.stdin;
 
 	input.resume();
 	input.on('data', onData);
 
 	const disposeTtyStream = () => {
-		if (!ttyStream) {
+		if (!ttyInput) {
 			return;
 		}
 
 		try {
-			ttyStream.setRawMode(false);
+			ttyInput.stream.setRawMode?.(false);
 		} catch {
 			/* already closed */
 		}
-		// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- comparing ttyStream identity to stdin
-		if (ttyStream !== (process.stdin as unknown)) {
-			ttyStream.destroy();
+		if (ttyInput.destroyOnDispose) {
+			ttyInput.stream.destroy?.();
 		}
 	};
 

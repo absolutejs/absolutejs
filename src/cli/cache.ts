@@ -125,10 +125,11 @@ export const runTool = async (adapter: ToolAdapter, args: string[]) => {
 
 	const failedFiles = new Set<string>();
 
-	for (const batch of batches) {
-		// eslint-disable-next-line no-await-in-loop -- batches run sequentially to avoid overwhelming the system
-		await runBatch(adapter, batch, args, failedFiles);
-	}
+	await batches.reduce(
+		(chain, batch) =>
+			chain.then(() => runBatch(adapter, batch, args, failedFiles)),
+		Promise.resolve()
+	);
 
 	for (const file of failedFiles) {
 		delete cache.files[file];

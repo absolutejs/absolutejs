@@ -7,9 +7,9 @@ declare global {
 	var __hmrSkipServerRestart: boolean | undefined;
 	/** Pinned React module from initial devBuild — used to detect and bridge
 	 *  duplicate React instances after bun install invalidates the module cache. */
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	var __reactModuleRef: any;
 	var __depVendorPaths: Record<string, string> | undefined;
+	var __angularVendorSpecifiers: string[] | undefined;
 	var __transformCache:
 		| Map<string, { content: string; imports: string[]; mtime: number }>
 		| undefined;

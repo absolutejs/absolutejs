@@ -153,10 +153,12 @@ const REBUILD_POLL_MS = 10;
 
 /** Wait for any in-flight file-watcher build to finish */
 const waitForRebuild = async (state: { isRebuilding: boolean }) => {
-	while (state.isRebuilding) {
-		// eslint-disable-next-line no-await-in-loop -- intentional polling for concurrent build lock
-		await Bun.sleep(REBUILD_POLL_MS);
+	if (!state.isRebuilding) {
+		return;
 	}
+
+	await Bun.sleep(REBUILD_POLL_MS);
+	await waitForRebuild(state);
 };
 
 /** Rebuild manifest and update asset store — called on every server.ts HMR reload.
@@ -270,13 +272,31 @@ const resolveAbsoluteVersion = async () => {
 		resolve(import.meta.dir, '..', '..', 'package.json'),
 		resolve(import.meta.dir, '..', 'package.json')
 	];
-	for (const candidate of candidates) {
-		// eslint-disable-next-line no-await-in-loop -- iterations depend on each other (short-circuits on first match)
-		const found = await tryReadPackageVersion(candidate);
-		if (found) {
-			return;
-		}
+	const [candidate, ...remaining] = candidates;
+	if (!candidate) {
+		return;
 	}
+
+	const found = await tryReadPackageVersion(candidate);
+	if (found) {
+		return;
+	}
+
+	await resolveAbsoluteVersionFromCandidates(remaining);
+};
+
+const resolveAbsoluteVersionFromCandidates = async (candidates: string[]) => {
+	const [candidate, ...remaining] = candidates;
+	if (!candidate) {
+		return;
+	}
+
+	const found = await tryReadPackageVersion(candidate);
+	if (found) {
+		return;
+	}
+
+	await resolveAbsoluteVersionFromCandidates(remaining);
 };
 
 const loadVendorFiles = async (
@@ -308,9 +328,11 @@ export const devBuild = async (config: BuildConfig) => {
 
 	const startupSteps: Array<{ label: string; durationMs: number }> = [];
 	const recordStep = (label: string, startedAt: number) => {
+		const durationMs = performance.now() - startedAt;
+
 		startupSteps.push({
-			label,
-			durationMs: performance.now() - startedAt
+			durationMs,
+			label
 		});
 	};
 
@@ -404,13 +426,17 @@ export const devBuild = async (config: BuildConfig) => {
 		: undefined;
 
 	const buildAngularVendorTask = config.angularDirectory
-		? buildAngularVendor(state.resolvedPaths.buildDir).then(async () => {
+		? buildAngularVendor(
+				state.resolvedPaths.buildDir,
+				sourceDirs
+			).then(async (specs) => {
 				const vendorDir = resolve(
 					state.resolvedPaths.buildDir,
 					'angular',
 					'vendor'
 				);
 				await loadVendorFiles(state.assetStore, vendorDir, 'angular');
+				globalThis.__angularVendorSpecifiers = specs;
 
 				return true;
 			})

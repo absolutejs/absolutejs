@@ -48,15 +48,17 @@ const readPackageVersion = (candidate: string) => {
 };
 
 const resolveBuildModule = async (candidates: string[]) => {
-	for (const candidate of candidates) {
-		// eslint-disable-next-line no-await-in-loop -- each import depends on the previous failing
-		const mod = await tryImportBuild(candidate);
-		if (mod) {
-			return mod;
-		}
+	const [candidate, ...remaining] = candidates;
+	if (!candidate) {
+		return undefined;
 	}
 
-	return undefined;
+	const mod = await tryImportBuild(candidate);
+	if (mod) {
+		return mod;
+	}
+
+	return resolveBuildModule(remaining);
 };
 
 const tryImportBuild = async (candidate: string) => {

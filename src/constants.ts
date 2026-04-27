@@ -1,4 +1,5 @@
 export const ANGULAR_INIT_TIMEOUT_MS = 500;
+export const ANSI_ESCAPE_CODE = 27;
 export const ANSI_ESCAPE_LENGTH = 3;
 export const ASCII_SPACE = 32;
 export const BASE_36_RADIX = 36;

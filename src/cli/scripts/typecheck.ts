@@ -7,6 +7,7 @@ import {
 	loadConfig,
 	loadRawConfig
 } from '../../utils/loadConfig';
+import { ANSI_ESCAPE_CODE } from '../../constants';
 import type {
 	AbsoluteServiceConfig,
 	ServiceConfig
@@ -54,8 +55,19 @@ const findBin = (name: string) => {
 	return existsSync(local) ? local : null;
 };
 
-// eslint-disable-next-line no-control-regex
-const stripAnsi = (str: string) => str.replace(/\x1b\[[0-9;]*m/g, '');
+const ANSI_COLOR_REGEX = new RegExp(
+	`${String.fromCharCode(ANSI_ESCAPE_CODE)}\\[[0-9;]*m`,
+	'g'
+);
+const ANSI_PURPLE_REGEX = `${String.fromCharCode(ANSI_ESCAPE_CODE)}[35m`;
+const ANSI_CYAN_REGEX = new RegExp(
+	`^${String.fromCharCode(ANSI_ESCAPE_CODE)}\\[36m|\\t`
+);
+const ANSI_TOKEN_END_REGEX = new RegExp(
+	`${String.fromCharCode(ANSI_ESCAPE_CODE)}\\[3[69]m`
+);
+
+const stripAnsi = (str: string) => str.replace(ANSI_COLOR_REGEX, '');
 
 const formatSvelteOutput = (output: string) => {
 	const cwd = `${process.cwd()}/`;
@@ -95,12 +107,12 @@ const formatSvelteOutput = (output: string) => {
 
 			// Convert purple-highlighted tokens to red underlines like tsc.
 			// Only show the error line (with highlight) + underline, skip context lines.
-			if (result.includes('\x1b[35m')) {
+			if (result.includes(ANSI_PURPLE_REGEX)) {
 				const plainLine = stripAnsi(result);
-				const before = stripAnsi(result.split('\x1b[35m')[0] ?? '');
+				const before = stripAnsi(result.split(ANSI_PURPLE_REGEX)[0] ?? '');
 				const token = stripAnsi(
-					(result.split('\x1b[35m')[1] ?? '').split(
-						/\x1b\[3[69]m/ // eslint-disable-line no-control-regex
+					(result.split(ANSI_PURPLE_REGEX)[1] ?? '').split(
+						ANSI_TOKEN_END_REGEX
 					)[0] ?? ''
 				);
 				if (!token) return [result];
@@ -118,9 +130,9 @@ const formatSvelteOutput = (output: string) => {
 
 			// Skip context lines (cyan code blocks surrounding the error line)
 			if (
-				/^\x1b\[36m|\t/.test(result) && // eslint-disable-line no-control-regex
+				ANSI_CYAN_REGEX.test(result) &&
 				!result.includes('Error') &&
-				!result.includes('\x1b[35m')
+				!result.includes(ANSI_PURPLE_REGEX)
 			) {
 				return [];
 			}

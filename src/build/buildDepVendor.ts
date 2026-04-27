@@ -25,7 +25,12 @@ const isAbsolutePackageSpecifier = (spec: string) =>
 	spec === '@absolutejs/absolute' ||
 	spec.startsWith('@absolutejs/absolute/');
 
-// Known specifiers that are already handled by framework-specific vendors
+// Known specifiers that are already handled by framework-specific vendors.
+// React/Svelte/Vue have finite, well-known entrypoints so they're listed
+// exactly. Angular publishes an open-ended ecosystem under @angular/* (router,
+// forms, common/http, animations, material, cdk, …); we externalize the whole
+// namespace via FRAMEWORK_NAMESPACE_PREFIXES so users can adopt new @angular/*
+// packages without DI identity-mismatch bugs.
 const FRAMEWORK_SPECIFIERS = new Set([
 	'react',
 	'react-dom',
@@ -45,14 +50,19 @@ const FRAMEWORK_SPECIFIERS = new Set([
 	'svelte/compiler',
 	'vue',
 	'vue/server-renderer',
-	'@vue/compiler-sfc',
-	'@angular/core',
-	'@angular/common',
-	'@angular/compiler',
-	'@angular/platform-browser',
-	'@angular/platform-server',
-	'@angular/ssr'
+	'@vue/compiler-sfc'
 ]);
+
+const FRAMEWORK_NAMESPACE_PREFIXES = ['@angular/'];
+
+const isFrameworkSpecifier = (spec: string) =>
+	FRAMEWORK_SPECIFIERS.has(spec) ||
+	FRAMEWORK_NAMESPACE_PREFIXES.some((prefix) => spec.startsWith(prefix));
+
+const FRAMEWORK_EXTERNALS = [
+	...FRAMEWORK_SPECIFIERS,
+	...FRAMEWORK_NAMESPACE_PREFIXES.map((prefix) => `${prefix}*`)
+];
 
 const isSkippedFile = (file: string) =>
 	file.includes('node_modules') ||
@@ -62,7 +72,7 @@ const isSkippedFile = (file: string) =>
 
 const isDepSpecifier = (path: string) =>
 	isBareSpecifier(path) &&
-	!FRAMEWORK_SPECIFIERS.has(path) &&
+	!isFrameworkSpecifier(path) &&
 	!isAbsolutePackageSpecifier(path);
 
 const readFileSpecifiers = async (
@@ -175,7 +185,7 @@ export const buildDepVendor = async (
 	// same vendor instances — prevents duplicate React/Svelte/Vue/Angular
 	const result = await bunBuild({
 		entrypoints,
-		external: [...FRAMEWORK_SPECIFIERS],
+		external: FRAMEWORK_EXTERNALS,
 		format: 'esm',
 		minify: false,
 		naming: '[name].[ext]',
