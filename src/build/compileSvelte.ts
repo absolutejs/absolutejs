@@ -14,9 +14,11 @@ import { env } from 'node:process';
 import { write, file, Transpiler } from 'bun';
 import { resolvePackageImport } from './resolvePackageImport';
 import { buildIslandMetadataExports } from '../islands/sourceMetadata';
+import { createSvelteStylePreprocessor } from './stylePreprocessor';
 import { lowerSvelteIslandSyntax } from '../svelte/lowerIslandSyntax';
 import { lowerSvelteAwaitSlotSyntax } from '../svelte/lowerAwaitSlotSyntax';
 import { SVELTE_PAGE_ROOT_ID } from '../svelte/renderToReadableStream';
+import type { StylePreprocessorConfig } from '../../types/build';
 const resolveDevClientDir = () => {
 	const projectRoot = process.cwd();
 	const fromSource = resolve(import.meta.dir, '../dev/client');
@@ -60,7 +62,8 @@ const removeUnusedRequireHelper = (code: string) => {
 		return code;
 	}
 
-	const helperEndMarker = "throw Error('Dynamic require of \"' + x + '\" is not supported');";
+	const helperEndMarker =
+		"throw Error('Dynamic require of \"' + x + '\" is not supported');";
 	const helperEnd = code.indexOf(helperEndMarker, helperStart);
 	if (helperEnd === -1) {
 		return code;
@@ -156,19 +159,17 @@ const addModuleRewrite = (
 	ssrOutputDir: string,
 	clientOutputDir: string
 ) => {
-	const toServer = relative(ssrOutputDir, resolvedModule).replace(
-		/\\/g,
-		'/'
-	);
+	const toServer = relative(ssrOutputDir, resolvedModule).replace(/\\/g, '/');
 	const toClient = relative(clientOutputDir, resolvedModule).replace(
 		/\\/g,
 		'/'
 	);
 
 	rewrites.set(rawSpec, {
-		client: toClient.startsWith('.') || toClient.startsWith('/')
-			? toClient
-			: `./${toClient}`,
+		client:
+			toClient.startsWith('.') || toClient.startsWith('/')
+				? toClient
+				: `./${toClient}`,
 		server: toServer.startsWith('.') ? toServer : `./${toServer}`
 	});
 };
@@ -177,7 +178,8 @@ export const compileSvelte = async (
 	entryPoints: string[],
 	svelteRoot: string,
 	cache: Cache = new Map(),
-	isDev = false
+	isDev = false,
+	stylePreprocessors?: StylePreprocessorConfig
 ) => {
 	const { compile, compileModule, preprocess } = await import(
 		'svelte/compiler'
@@ -234,12 +236,24 @@ export const compileSvelte = async (
 			loweredAwaitClientSource.transformed ||
 			loweredServerSource.transformed ||
 			loweredClientSource.transformed;
+		const svelteStylePreprocessor =
+			createSvelteStylePreprocessor(stylePreprocessors);
 		const preprocessedServer = isModule
 			? loweredServerSource.code
-			: (await preprocess(loweredServerSource.code, {})).code;
+			: (
+					await preprocess(
+						loweredServerSource.code,
+						svelteStylePreprocessor
+					)
+				).code;
 		const preprocessedClient = isModule
 			? loweredClientSource.code
-			: (await preprocess(loweredClientSource.code, {})).code;
+			: (
+					await preprocess(
+						loweredClientSource.code,
+						svelteStylePreprocessor
+					)
+				).code;
 		const transpiledServer =
 			src.endsWith('.ts') || src.endsWith('.svelte.ts')
 				? transpiler.transformSync(preprocessedServer)
@@ -275,7 +289,9 @@ export const compileSvelte = async (
 		const childSources = resolvedImports.filter(
 			(path): path is string => path !== null
 		);
-		const childBuilt = await Promise.all(childSources.map((child) => build(child)));
+		const childBuilt = await Promise.all(
+			childSources.map((child) => build(child))
+		);
 		const hasAwaitSlotFromChildren = childBuilt.some(
 			(child) => child.hasAwaitSlot
 		);
@@ -283,9 +299,14 @@ export const compileSvelte = async (
 		// generated output file. Svelte child components may point to compiled
 		// siblings; plain TS/JS helpers should resolve back to their original
 		// source modules because they are not separately compiled here.
-		const externalRewrites = new Map<string, { server: string; client: string }>();
+		const externalRewrites = new Map<
+			string,
+			{ server: string; client: string }
+		>();
 		const ssrOutputDir = dirname(join(serverDir, relDir, `${baseName}.js`));
-		const clientOutputDir = dirname(join(clientDir, relDir, `${baseName}.js`));
+		const clientOutputDir = dirname(
+			join(clientDir, relDir, `${baseName}.js`)
+		);
 
 		for (let idx = 0; idx < importPaths.length; idx++) {
 			const rawSpec = importPaths[idx];
@@ -293,13 +314,17 @@ export const compileSvelte = async (
 			const resolved = resolvedImports[idx];
 			const resolvedModule = resolvedModuleImports[idx];
 
-			if (!resolved && resolvedModule) addModuleRewrite(externalRewrites, rawSpec, resolvedModule, ssrOutputDir, clientOutputDir);
+			if (!resolved && resolvedModule)
+				addModuleRewrite(
+					externalRewrites,
+					rawSpec,
+					resolvedModule,
+					ssrOutputDir,
+					clientOutputDir
+				);
 			if (!resolved) continue;
 
-			const childRel = relative(svelteRoot, resolved).replace(
-				/\\/g,
-				'/'
-			);
+			const childRel = relative(svelteRoot, resolved).replace(/\\/g, '/');
 			if (!childRel.startsWith('..')) continue;
 
 			const childBuilt = cache.get(resolved);
@@ -313,10 +338,10 @@ export const compileSvelte = async (
 				/\\/g,
 				'/'
 			);
-			const toClient = relative(clientOutputDir, childBuilt.client).replace(
-				/\\/g,
-				'/'
-			);
+			const toClient = relative(
+				clientOutputDir,
+				childBuilt.client
+			).replace(/\\/g, '/');
 
 			externalRewrites.set(origSpec, {
 				client: toClient.startsWith('.') ? toClient : `./${toClient}`,
@@ -324,7 +349,10 @@ export const compileSvelte = async (
 			});
 		}
 
-		const rewriteExternalImports = (code: string, mode: 'server' | 'client') => {
+		const rewriteExternalImports = (
+			code: string,
+			mode: 'server' | 'client'
+		) => {
 			let result = code;
 
 			for (const [origSpec, paths] of externalRewrites) {
@@ -336,7 +364,8 @@ export const compileSvelte = async (
 		};
 
 		const generate = (mode: 'server' | 'client') => {
-			const transpiled = mode === 'server' ? transpiledServer : transpiledClient;
+			const transpiled =
+				mode === 'server' ? transpiledServer : transpiledClient;
 			const compiled = isModule
 				? compileModule(transpiled, {
 						dev: mode === 'client' && dev,
@@ -364,10 +393,10 @@ export const compileSvelte = async (
 			// accept registry so $.hmr() wrapper + accept callback are
 			// both active. This enables component-level HMR swaps.
 			if (mode === 'client' && isDev) {
-				const moduleKey = `/@src/${relative(
-					process.cwd(),
-					src
-				).replace(/\\/g, '/')}`;
+				const moduleKey = `/@src/${relative(process.cwd(), src).replace(
+					/\\/g,
+					'/'
+				)}`;
 				code = code.replace(
 					/if\s*\(import\.meta\.hot\)\s*\{/,
 					`if (typeof window !== "undefined") {\n` +
@@ -425,10 +454,10 @@ export const compileSvelte = async (
 		const built: Built = {
 			client: clientPath,
 			hasAwaitSlot:
-				(loweredAwaitServerSource.transformed ||
-					loweredAwaitClientSource.transformed ||
-					loweredServerSource.transformed ||
-					loweredClientSource.transformed) ||
+				loweredAwaitServerSource.transformed ||
+				loweredAwaitClientSource.transformed ||
+				loweredServerSource.transformed ||
+				loweredClientSource.transformed ||
 				hasAwaitSlotFromChildren,
 			ssr: ssrPath
 		};
@@ -462,9 +491,9 @@ var initialProps = (typeof window !== "undefined" && window.__INITIAL_PROPS__) ?
 var isHMR = typeof window !== "undefined" && window.__SVELTE_COMPONENT__ !== undefined;
 var isSsrDirty = typeof window !== "undefined" && window.__SSR_DIRTY__;
 var hasIslandHtml = false;
-var shouldHydrate = typeof window === "undefined" ? false : ${(
-			hasAwaitSlot ? 'false' : 'true'
-		)};
+var shouldHydrate = typeof window === "undefined" ? false : ${
+				hasAwaitSlot ? 'false' : 'true'
+			};
 var component;
 var target = document.getElementById(${JSON.stringify(SVELTE_PAGE_ROOT_ID)}) || document.body;
 

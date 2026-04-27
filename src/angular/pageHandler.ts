@@ -27,6 +27,7 @@ import {
 	captureStreamingSlotWarningCallsite,
 	runWithStreamingSlotWarningScope
 } from '../core/streamingSlotWarningScope';
+import { isSsrCacheDirty, markSsrCacheDirty } from '../core/ssrCache';
 import {
 	buildDeps,
 	buildProviders,
@@ -39,7 +40,6 @@ import {
 	resolveSelector
 } from './ssrRender';
 
-let ssrDirty = false;
 let lastSelector = 'angular-page';
 type AngularPageRenderOptions = StreamingSlotEnhancerOptions & {
 	collectStreamingSlots?: boolean;
@@ -146,7 +146,7 @@ const resolveRuntimeAngularModulePath = async (pagePath: string) => {
 };
 
 export const invalidateAngularSsrCache = () => {
-	ssrDirty = true;
+	markSsrCacheDirty('angular');
 	clearSelectorCache();
 };
 
@@ -198,7 +198,8 @@ export const handleAngularPageRequest = (async <
 			props: maybeProps
 		});
 
-		if (ssrDirty) {
+		if (isSsrCacheDirty('angular')) {
+			clearSelectorCache();
 			const script = resolvedIndexPath
 				? `<script>import(${JSON.stringify(resolvedIndexPath)});</script>`
 				: '';

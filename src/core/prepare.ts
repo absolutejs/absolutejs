@@ -15,9 +15,11 @@ import {
 	setConventions,
 	renderFirstNotFound
 } from '../utils/resolveConvention';
+import { logStartupTimingBlock } from '../utils/startupTimings';
 
 const MS_PER_SECOND = 1000;
 const DEFAULT_PORT = 3000;
+const MAX_STATIC_ROUTE_COUNT = Number.MAX_SAFE_INTEGER;
 
 type PrewarmEntry = { dir: string; pattern: string };
 
@@ -103,13 +105,27 @@ const prepareDev = async (
 	config: Awaited<ReturnType<typeof loadConfig>>,
 	buildDir: string
 ) => {
+	const startupSteps: Array<{ label: string; durationMs: number }> = [];
+	const recordStep = (label: string, startedAt: number) => {
+		startupSteps.push({
+			label,
+			durationMs: performance.now() - startedAt
+		});
+	};
+
+	let stepStartedAt = performance.now();
 	const { patchElysiaRouteRegistrationCallsites } = await import(
 		'./devRouteRegistrationCallsite'
 	);
 	patchElysiaRouteRegistrationCallsites();
+	recordStep('patch route registration', stepStartedAt);
 
+	stepStartedAt = performance.now();
 	const { devBuild } = await import('./devBuild');
 	const result = await devBuild(config);
+	recordStep('devBuild', stepStartedAt);
+
+	stepStartedAt = performance.now();
 	const { hmr } = await import('../plugins/hmr');
 	const { staticPlugin } = await import('@elysiajs/static');
 	const { createModuleServer } = await import('../dev/moduleServer');
@@ -119,8 +135,10 @@ const prepareDev = async (
 		getSvelteVendorPaths,
 		getVueVendorPaths
 	} = await import('./devVendorPaths');
+	recordStep('load dev runtime modules', stepStartedAt);
 
 	// Combine all vendor paths: React + Angular + Svelte + Vue + npm deps
+	stepStartedAt = performance.now();
 	const depVendorPaths = globalThis.__depVendorPaths ?? {};
 	const allVendorPaths: Record<string, string> = {
 		...(getDevVendorPaths() ?? {}),
@@ -131,6 +149,9 @@ const prepareDev = async (
 	};
 
 	const { setGlobalModuleServer } = await import('../dev/moduleServer');
+	const { createStyleTransformConfig } = await import(
+		'../build/stylePreprocessor'
+	);
 	const moduleHandler = createModuleServer({
 		frameworkDirs: {
 			angular: config.angularDirectory,
@@ -139,16 +160,23 @@ const prepareDev = async (
 			vue: config.vueDirectory
 		},
 		projectRoot: process.cwd(),
+		stylePreprocessors: createStyleTransformConfig(
+			config.stylePreprocessors,
+			config.postcss
+		),
 		vendorPaths: allVendorPaths
 	});
 	setGlobalModuleServer(moduleHandler);
+	recordStep('create module server', stepStartedAt);
 
 	// Pre-compile all framework source files into the transform cache
 	// so the first HMR edit hits a warm cache and the runtime import
 	// graph is populated (needed for findNearestComponent).
 	const { warmCache, SRC_URL_PREFIX } = await import('../dev/moduleServer');
 	const prewarmDirs = buildPrewarmDirs(config);
+	stepStartedAt = performance.now();
 	await warmPrewarmDirs(prewarmDirs, warmCache, SRC_URL_PREFIX);
+	recordStep('prewarm source modules', stepStartedAt);
 
 	// Expose HMR state for the HTTP/2 bridge (networking.ts reads this
 	// to attach WebSocket handling on the HTTP/2 server).
@@ -160,6 +188,7 @@ const prepareDev = async (
 		};
 	}
 
+	stepStartedAt = performance.now();
 	const hmrPlugin = hmr(result.hmrState, result.manifest, moduleHandler);
 	const { devtoolsJson } = await import('../plugins/devtoolsJson');
 
@@ -168,8 +197,10 @@ const prepareDev = async (
 	// This ensures page refreshes after HMR load fresh code.
 	const devIndexDir = resolve(buildDir, '_src_indexes');
 	patchManifestIndexes(result.manifest, devIndexDir, SRC_URL_PREFIX);
+	recordStep('configure dev plugins', stepStartedAt);
 
 	// Load convention files (error/loading/not-found) into the runtime registry
+	stepStartedAt = performance.now();
 	if (result.conventions) setConventions(result.conventions);
 	setCurrentIslandManifest(result.manifest);
 	if (config.islands?.registry) {
@@ -178,7 +209,9 @@ const prepareDev = async (
 		);
 	}
 	setCurrentPageIslandMetadata(await loadPageIslandMetadata(config));
+	recordStep('load runtime metadata', stepStartedAt);
 
+	stepStartedAt = performance.now();
 	const { imageOptimizer } = await import('../plugins/imageOptimizer');
 	const absolutejs = new Elysia({ name: 'absolutejs-runtime' })
 		.use(
@@ -194,14 +227,18 @@ const prepareDev = async (
 		.use(
 			staticPlugin({
 				assets: buildDir,
+				alwaysStatic: true,
 				directive: 'no-cache',
 				maxAge: null,
-				prefix: ''
+				prefix: '',
+				staticLimit: MAX_STATIC_ROUTE_COUNT
 			})
 		)
 		.use(hmrPlugin)
 		.use(createSitemapPlugin(buildDir, config.sitemap))
 		.use(createNotFoundPlugin());
+	recordStep('assemble dev runtime', stepStartedAt);
+	logStartupTimingBlock('AbsoluteJS prepareDev timing', startupSteps);
 
 	return {
 		absolutejs,
@@ -250,16 +287,29 @@ const createSitemapPlugin = (buildDir: string, sitemapConfig?: SitemapConfig) =>
 	});
 
 const createNotFoundPlugin = () =>
-	new Elysia({ name: 'absolutejs-not-found' }).onError(async ({ code }) => {
-		if (code !== 'NOT_FOUND') return undefined;
-		const response = await renderFirstNotFound();
-		if (response) return response;
+	new Elysia({ name: 'absolutejs-not-found' }).onError(
+		{ as: 'global' },
+		async ({ code }) => {
+			if (code !== 'NOT_FOUND') return undefined;
+			const response = await renderFirstNotFound();
+			if (response) return response;
 
-		return undefined;
-	});
+			return undefined;
+		}
+	);
 
 export const prepare = async (configOrPath?: string) => {
+	const startupSteps: Array<{ label: string; durationMs: number }> = [];
+	const recordStep = (label: string, startedAt: number) => {
+		startupSteps.push({
+			label,
+			durationMs: performance.now() - startedAt
+		});
+	};
+
+	let stepStartedAt = performance.now();
 	const config = await loadConfig(configOrPath);
+	recordStep('load config', stepStartedAt);
 
 	const nodeEnv = process.env['NODE_ENV'];
 	const isDev = nodeEnv === 'development';
@@ -267,8 +317,16 @@ export const prepare = async (configOrPath?: string) => {
 		process.env.ABSOLUTE_BUILD_DIR ?? config.buildDirectory ?? 'build'
 	);
 
-	if (isDev) return prepareDev(config, buildDir);
+	if (isDev) {
+		stepStartedAt = performance.now();
+		const result = await prepareDev(config, buildDir);
+		recordStep('prepare dev runtime', stepStartedAt);
+		logStartupTimingBlock('AbsoluteJS prepare timing', startupSteps);
 
+		return result;
+	}
+
+	stepStartedAt = performance.now();
 	const manifest: Record<string, string> = JSON.parse(
 		readFileSync(`${buildDir}/manifest.json`, 'utf-8')
 	);
@@ -279,8 +337,10 @@ export const prepare = async (configOrPath?: string) => {
 		);
 	}
 	setCurrentPageIslandMetadata(await loadPageIslandMetadata(config));
+	recordStep('load production manifest and island metadata', stepStartedAt);
 
 	// Load convention files (error/loading/not-found) for production
+	stepStartedAt = performance.now();
 	const conventionsPath = join(buildDir, 'conventions.json');
 	if (existsSync(conventionsPath)) {
 		const conventions: ConventionsMap = JSON.parse(
@@ -288,13 +348,23 @@ export const prepare = async (configOrPath?: string) => {
 		);
 		setConventions(conventions);
 	}
+	recordStep('load production conventions', stepStartedAt);
 
+	stepStartedAt = performance.now();
 	const { staticPlugin } = await import('@elysiajs/static');
-	const staticFiles = staticPlugin({ assets: buildDir, prefix: '' });
+	const staticFiles = staticPlugin({
+		assets: buildDir,
+		alwaysStatic: true,
+		prefix: '',
+		staticLimit: MAX_STATIC_ROUTE_COUNT
+	});
+	recordStep('create static plugin', stepStartedAt);
 
 	// Check for pre-rendered pages (from SSG or compile)
+	stepStartedAt = performance.now();
 	const prerenderDir = join(buildDir, '_prerendered');
 	const prerenderMap = loadPrerenderMap(prerenderDir);
+	recordStep('load prerender map', stepStartedAt);
 
 	if (prerenderMap.size > 0) {
 		const { PRERENDER_BYPASS_HEADER, readTimestamp, rerenderRoute } =
@@ -341,6 +411,7 @@ export const prepare = async (configOrPath?: string) => {
 			});
 		});
 
+		stepStartedAt = performance.now();
 		const { imageOptimizer } = await import('../plugins/imageOptimizer');
 		const absolutejs = new Elysia({ name: 'absolutejs-runtime' })
 			.use(imageOptimizer(config.images, buildDir))
@@ -348,16 +419,21 @@ export const prepare = async (configOrPath?: string) => {
 			.use(staticFiles)
 			.use(createSitemapPlugin(buildDir, config.sitemap))
 			.use(createNotFoundPlugin());
+		recordStep('assemble production runtime', stepStartedAt);
+		logStartupTimingBlock('AbsoluteJS prepare timing', startupSteps);
 
 		return { absolutejs, manifest };
 	}
 
+	stepStartedAt = performance.now();
 	const { imageOptimizer } = await import('../plugins/imageOptimizer');
 	const absolutejs = new Elysia({ name: 'absolutejs-runtime' })
 		.use(imageOptimizer(config.images, buildDir))
 		.use(staticFiles)
 		.use(createSitemapPlugin(buildDir, config.sitemap))
 		.use(createNotFoundPlugin());
+	recordStep('assemble production runtime', stepStartedAt);
+	logStartupTimingBlock('AbsoluteJS prepare timing', startupSteps);
 
 	return { absolutejs, manifest };
 };

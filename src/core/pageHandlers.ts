@@ -6,7 +6,6 @@ import {
 	type StreamingSlotEnhancerOptions,
 	withStreamingSlots
 } from './responseEnhancers';
-export { handleReactPageRequest } from '../react';
 
 export type StaticPageRequestOptions = StreamingSlotEnhancerOptions;
 

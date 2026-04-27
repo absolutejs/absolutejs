@@ -1,4 +1,5 @@
 import { basename, resolve } from 'node:path';
+import { isStylePath } from '../build/stylePreprocessor';
 import { toPascal } from '../utils/stringModifiers';
 import {
 	classifyComponent,
@@ -206,8 +207,8 @@ export const mapSourceFileToManifestKeys = (
 			break;
 
 		case 'assets':
-			// CSS files use CSS suffix
-			if (normalizedFile.endsWith('.css')) {
+			// Style files use CSS suffix after preprocessing.
+			if (isStylePath(normalizedFile)) {
 				keys.push(`${pascalName}CSS`);
 			}
 			break;

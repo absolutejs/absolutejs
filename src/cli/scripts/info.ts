@@ -40,14 +40,23 @@ const getPackageVersion = (packageName: string) => {
 
 const getAbsoluteVersion = () => {
 	try {
-		const pkgPath = resolve(__dirname, '../../../package.json');
-		const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
-		const ver: string = pkg.version;
+		const candidates = [
+			resolve(import.meta.dir, '..', '..', 'package.json'),
+			resolve(import.meta.dir, '..', '..', '..', 'package.json')
+		];
 
-		return ver;
+		for (const pkgPath of candidates) {
+			if (!existsSync(pkgPath)) continue;
+			const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+			const ver: string = pkg.version;
+
+			return ver;
+		}
 	} catch {
 		return getPackageVersion('@absolutejs/absolute');
 	}
+
+	return getPackageVersion('@absolutejs/absolute');
 };
 
 const detectCI = () => {
@@ -146,7 +155,7 @@ export const info = () => {
 	field('vue', getPackageVersion('vue'));
 	field('typescript', getPackageVersion('typescript'));
 	field('tailwindcss', getPackageVersion('tailwindcss'));
-	field('@tailwindcss/cli', getPackageVersion('@tailwindcss/cli'));
+	field('bun-plugin-tailwind', getPackageVersion('bun-plugin-tailwind'));
 
 	lines.push('');
 

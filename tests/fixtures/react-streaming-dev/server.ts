@@ -1,5 +1,6 @@
 import { Elysia } from 'elysia';
-import { asset, handleReactPageRequest, prepare } from '../../../src/index';
+import { asset, prepare } from '../../../src/index';
+import { handleReactPageRequest } from '../../../src/react';
 import { StreamingPage } from './react/pages/StreamingPage';
 
 const { absolutejs, manifest } = await prepare();

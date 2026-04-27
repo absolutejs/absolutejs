@@ -4,6 +4,8 @@ import { commonAncestor } from '../utils/commonAncestor';
 import { normalizePath } from '../utils/normalizePath';
 import type { ResolvedBuildPaths } from './configResolver';
 
+const STYLE_EXTENSION_PATTERN = /\.(css|s[ac]ss|less|styl(?:us)?)$/i;
+
 /* Get the directories we should watch based on our config
    This handles the "where to watch" problem */
 export const detectFramework = (
@@ -49,17 +51,17 @@ export const detectFramework = (
 	if (normalized.endsWith('.ts') && normalized.includes('angular'))
 		return 'angular';
 
-	// Generic assets (CSS in root /assets/, images, etc.)
-	// IMPORTANT: Only return 'assets' for CSS files that are NOT in framework directories
-	// CSS files in framework directories (like /vue/styles/ or /svelte/styles/) should have
+	// Generic assets (styles in root /assets/, images, etc.)
+	// IMPORTANT: Only return 'assets' for style files that are NOT in framework directories.
+	// Style files in framework directories (like /vue/styles/ or /svelte/styles/) should have
 	// been caught by the framework checks above. If we reach here with a .css file, it means
 	// the file wasn't in a framework directory, so it's a true asset.
 	if (normalized.includes('/assets/')) return 'assets';
 
-	// For CSS files not caught by framework directory checks, check one more time
+	// For style files not caught by framework directory checks, check one more time
 	// using path segment matching (handles cases where resolved paths might not match exactly)
-	if (normalized.endsWith('.css')) {
-		// Check if this CSS is in a framework styles directory by looking for common patterns
+	if (STYLE_EXTENSION_PATTERN.test(normalized)) {
+		// Check if this style is in a framework styles directory by looking for common patterns
 		if (normalized.includes('/vue/') || normalized.includes('/vue-'))
 			return 'vue';
 		if (normalized.includes('/svelte/') || normalized.includes('/svelte-'))

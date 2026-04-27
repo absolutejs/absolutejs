@@ -13,6 +13,8 @@ import { file, write, Transpiler } from 'bun';
 import { toKebab } from '../utils/stringModifiers';
 import { resolvePackageImport } from './resolvePackageImport';
 import { buildIslandMetadataExports } from '../islands/sourceMetadata';
+import { compileStyleSource } from './stylePreprocessor';
+import type { StylePreprocessorConfig } from '../../types/build';
 
 const resolveDevClientDir = () => {
 	const projectRoot = process.cwd();
@@ -133,10 +135,8 @@ export const detectVueChangeType = (
 	// No changes detected (shouldn't happen in practice)
 	return 'full';
 };
-export const generateVueHmrId = (
-	sourceFilePath: string,
-	vueRootDir: string
-) => relative(vueRootDir, sourceFilePath)
+export const generateVueHmrId = (sourceFilePath: string, vueRootDir: string) =>
+	relative(vueRootDir, sourceFilePath)
 		.replace(/\\/g, '/')
 		.replace(/\.vue$/, '');
 
@@ -195,7 +195,8 @@ const compileVueFile = async (
 	cacheMap: Map<string, BuildResult>,
 	isEntryPoint: boolean,
 	vueRootDir: string,
-	compiler: VueCompiler
+	compiler: VueCompiler,
+	stylePreprocessors?: StylePreprocessorConfig
 ) => {
 	const cachedResult = cacheMap.get(sourceFilePath);
 	if (cachedResult) return cachedResult;
@@ -253,7 +254,9 @@ const compileVueFile = async (
 	const childComponentPaths = importPaths.filter(
 		(path) => path.startsWith('.') && path.endsWith('.vue')
 	);
-	const packageComponentPaths = Array.from(resolvedPackageVueImports.entries());
+	const packageComponentPaths = Array.from(
+		resolvedPackageVueImports.entries()
+	);
 	const helperModulePaths = importPaths.filter(
 		(path) => path.startsWith('.') && !path.endsWith('.vue')
 	);
@@ -266,7 +269,8 @@ const compileVueFile = async (
 				cacheMap,
 				false,
 				vueRootDir,
-				compiler
+				compiler,
+				stylePreprocessors
 			)
 		),
 		...packageComponentPaths.map(([, absolutePath]) =>
@@ -276,7 +280,8 @@ const compileVueFile = async (
 				cacheMap,
 				false,
 				vueRootDir,
-				compiler
+				compiler,
+				stylePreprocessors
 			)
 		)
 	]);
@@ -298,7 +303,10 @@ const compileVueFile = async (
 		);
 
 	// Build rewrite map for bare module .vue imports → compiled output paths
-	const packageImportRewrites = new Map<string, { client: string; server: string }>();
+	const packageImportRewrites = new Map<
+		string,
+		{ client: string; server: string }
+	>();
 	for (const [bareImport, absolutePath] of packageComponentPaths) {
 		const childResult = cacheMap.get(absolutePath);
 		if (!childResult) continue;
@@ -331,15 +339,24 @@ const compileVueFile = async (
 					`${quoteStart}${toJs(relativeImport)}${quoteEnd}`
 			);
 
-	const localCss = descriptor.styles.map(
-		(styleBlock) =>
-			compiler.compileStyle({
-				filename: sourceFilePath,
-				id: componentId,
-				scoped: styleBlock.scoped,
-				source: styleBlock.content,
-				trim: true
-			}).code
+	const localCss = await Promise.all(
+		descriptor.styles.map(
+			async (styleBlock) =>
+				compiler.compileStyle({
+					filename: sourceFilePath,
+					id: componentId,
+					scoped: styleBlock.scoped,
+					source: styleBlock.lang
+						? await compileStyleSource(
+								sourceFilePath,
+								styleBlock.content,
+								styleBlock.lang,
+								stylePreprocessors
+							)
+						: styleBlock.content,
+					trim: true
+				}).code
+		)
 	);
 	const allCss = [
 		...localCss,
@@ -401,16 +418,12 @@ if (typeof __VUE_HMR_RUNTIME__ !== 'undefined') {
 	};
 
 	// Client bundles include HMR registration code; server bundles do not
-	const clientCode = assembleModule(
-		generateRenderFunction(false),
-		'render',
-		true
-	) + islandMetadataExports;
-	const serverCode = assembleModule(
-		generateRenderFunction(true),
-		'ssrRender',
-		false
-	) + islandMetadataExports;
+	const clientCode =
+		assembleModule(generateRenderFunction(false), 'render', true) +
+		islandMetadataExports;
+	const serverCode =
+		assembleModule(generateRenderFunction(true), 'ssrRender', false) +
+		islandMetadataExports;
 
 	const clientOutputPath = join(
 		outputDirs.client,
@@ -429,22 +442,26 @@ if (typeof __VUE_HMR_RUNTIME__ !== 'undefined') {
 	const relDir = dirname(relativeFilePath);
 	const relDepth = relDir === '.' ? 0 : relDir.split('/').length;
 	const adjustImports = (code: string) =>
-		code.replace(
-			/(from\s+['"])(\.\.\/(?:\.\.\/)*)/g,
-			(_, prefix, dots) => {
-				const upCount = dots.split('/').length - 1;
-				if (upCount <= relDepth) return `${prefix}${dots}`;
+		code.replace(/(from\s+['"])(\.\.\/(?:\.\.\/)*)/g, (_, prefix, dots) => {
+			const upCount = dots.split('/').length - 1;
+			if (upCount <= relDepth) return `${prefix}${dots}`;
 
-				return `${prefix}../../${dots}`;
-			}
-		);
+			return `${prefix}../../${dots}`;
+		});
 
 	// Rewrite bare module imports to relative paths pointing at compiled output
-	const rewritePackageImports = (code: string, outputPath: string, mode: 'client' | 'server') => {
+	const rewritePackageImports = (
+		code: string,
+		outputPath: string,
+		mode: 'client' | 'server'
+	) => {
 		let result = code;
 		for (const [bareImport, paths] of packageImportRewrites) {
 			const targetPath = mode === 'server' ? paths.server : paths.client;
-			let rel = relative(dirname(outputPath), targetPath).replace(/\\/g, '/');
+			let rel = relative(dirname(outputPath), targetPath).replace(
+				/\\/g,
+				'/'
+			);
 			if (!rel.startsWith('.')) rel = `./${rel}`;
 			result = result.replaceAll(bareImport, rel);
 		}
@@ -454,8 +471,22 @@ if (typeof __VUE_HMR_RUNTIME__ !== 'undefined') {
 
 	await mkdir(dirname(clientOutputPath), { recursive: true });
 	await mkdir(dirname(serverOutputPath), { recursive: true });
-	await write(clientOutputPath, rewritePackageImports(adjustImports(clientCode), clientOutputPath, 'client'));
-	await write(serverOutputPath, rewritePackageImports(adjustImports(serverCode), serverOutputPath, 'server'));
+	await write(
+		clientOutputPath,
+		rewritePackageImports(
+			adjustImports(clientCode),
+			clientOutputPath,
+			'client'
+		)
+	);
+	await write(
+		serverOutputPath,
+		rewritePackageImports(
+			adjustImports(serverCode),
+			serverOutputPath,
+			'server'
+		)
+	);
 
 	const result: BuildResult = {
 		clientPath: clientOutputPath,
@@ -483,7 +514,8 @@ if (typeof __VUE_HMR_RUNTIME__ !== 'undefined') {
 export const compileVue = async (
 	entryPoints: string[],
 	vueRootDir: string,
-	isDev = false
+	isDev = false,
+	stylePreprocessors?: StylePreprocessorConfig
 ) => {
 	const compiler: VueCompiler = await import('@vue/compiler-sfc');
 
@@ -515,7 +547,8 @@ export const compileVue = async (
 				buildCache,
 				true,
 				vueRootDir,
-				compiler
+				compiler,
+				stylePreprocessors
 			);
 
 			result.tsHelperPaths.forEach((path) => allTsHelperPaths.add(path));
@@ -648,8 +681,8 @@ export const compileVue = async (
 					'if (typeof window !== "undefined") {',
 					'  window.__HMR_PRESERVED_STATE__ = undefined;',
 					'}'
-					].join('\n')
-				);
+				].join('\n')
+			);
 
 			return {
 				clientPath: clientOutputFile,

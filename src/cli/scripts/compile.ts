@@ -13,6 +13,15 @@ import { killStaleProcesses } from '../utils';
 const cliTag = (color: string, message: string) =>
 	`\x1b[2m${formatTimestamp()}\x1b[0m ${color}[cli]\x1b[0m ${color}${message}\x1b[0m`;
 
+const compileBanner = (version: string) => {
+	const resolvedVersion = version || 'unknown';
+	console.log('');
+	console.log(
+		`  \x1b[36m\x1b[1mABSOLUTEJS\x1b[0m \x1b[2mv${resolvedVersion}\x1b[0m  \x1b[2mcompile\x1b[0m`
+	);
+	console.log('');
+};
+
 // ── File utilities ──────────────────────────────────────────────
 const collectFiles = (dir: string) => {
 	const result: string[] = [];
@@ -74,6 +83,60 @@ const resolveBuildModule = async (candidates: string[]) => {
 
 	return undefined;
 };
+
+const resolveJsxDevRuntimeCompatPath = () => {
+	const candidates = [
+		resolve(
+			import.meta.dir,
+			'..',
+			'..',
+			'dist',
+			'react',
+			'jsxDevRuntimeCompat.js'
+		),
+		resolve(import.meta.dir, '..', '..', 'react', 'jsxDevRuntimeCompat.js'),
+		resolve(import.meta.dir, '..', '..', 'react', 'jsxDevRuntimeCompat.ts'),
+		resolve(
+			import.meta.dir,
+			'..',
+			'..',
+			'..',
+			'dist',
+			'react',
+			'jsxDevRuntimeCompat.js'
+		),
+		resolve(
+			import.meta.dir,
+			'..',
+			'..',
+			'..',
+			'react',
+			'jsxDevRuntimeCompat.js'
+		),
+		resolve(
+			import.meta.dir,
+			'..',
+			'..',
+			'..',
+			'src',
+			'react',
+			'jsxDevRuntimeCompat.ts'
+		)
+	];
+	for (const candidate of candidates) {
+		if (existsSync(candidate)) return candidate;
+	}
+
+	return resolve(
+		import.meta.dir,
+		'..',
+		'..',
+		'react',
+		'jsxDevRuntimeCompat.js'
+	);
+};
+
+const jsxDevRuntimeCompatPath = resolveJsxDevRuntimeCompatPath();
 
 // ── Generate the compile entrypoint ─────────────────────────────
 const generateEntrypoint = (
@@ -138,8 +201,6 @@ const generateEntrypoint = (
 		.join('\n');
 
 	return `// Auto-generated compile entrypoint
-import { Elysia } from "elysia";
-
 // ── Embedded asset imports ──────────────────────────────────────
 ${imports.join('\n')}
 
@@ -181,9 +242,9 @@ const servePage = (path: string) =>
 		headers: { "content-type": "text/html; charset=utf-8" },
 	});
 
-const app = new Elysia()
-	// Static assets from embedded filesystem
-	.onRequest(({ request, set }) => {
+const server = Bun.serve({
+	port,
+	fetch(request) {
 		const url = new URL(request.url);
 
 		// Check for pre-rendered page
@@ -192,19 +253,25 @@ const app = new Elysia()
 
 		// Check for embedded asset
 		const embedded = ASSETS[url.pathname];
-		if (!embedded) return;
-		set.headers["content-type"] = getMime(url.pathname);
-		set.headers["cache-control"] = "public, max-age=31536000, immutable";
-		return new Response(Bun.file(embedded));
-	})
-	.listen(port);
+		if (embedded) {
+			return new Response(Bun.file(embedded), {
+				headers: {
+					"cache-control": "public, max-age=31536000, immutable",
+					"content-type": getMime(url.pathname),
+				},
+			});
+		}
+
+		return new Response("Not found", { status: 404 });
+	},
+});
 
 const assetCount = Object.keys(ASSETS).length;
 const pageCount = Object.keys(PAGES).length;
 console.log(\`
   \\x1b[36m\\x1b[1mABSOLUTEJS\\x1b[0m \\x1b[2mv${version}\\x1b[0m  \\x1b[2mcompiled executable\\x1b[0m
 
-  \\x1b[32m➜\\x1b[0m  \\x1b[1mLocal:\\x1b[0m   http://localhost:\${port}/
+  \\x1b[32m➜\\x1b[0m  \\x1b[1mLocal:\\x1b[0m   http://localhost:\${server.port}/
 
   \\x1b[2m\${pageCount} pre-rendered pages, \${assetCount} embedded assets\\x1b[0m
 \`);
@@ -260,6 +327,9 @@ const stubPlugin: import('bun').BunPlugin = {
 				loader: 'js'
 			})
 		);
+		bld.onResolve({ filter: /^react\/jsx-dev-runtime$/ }, () => ({
+			path: jsxDevRuntimeCompatPath
+		}));
 		bld.onLoad({ filter: /node_modules\/debug/ }, () => ({
 			contents:
 				'module.exports = () => { const noop = () => {}; noop.enabled = false; return noop; }; module.exports.enable = () => {}; module.exports.disable = () => {}; module.exports.enabled = () => false;',
@@ -285,7 +355,7 @@ const stubPlugin: import('bun').BunPlugin = {
 
 const FRAMEWORK_EXTERNALS = [
 	'react',
-	'react/*',
+	'react/jsx-runtime',
 	'react-dom',
 	'react-dom/*',
 	'vue',
@@ -299,7 +369,8 @@ const FRAMEWORK_EXTERNALS = [
 	'@angular/core',
 	'@angular/common',
 	'@angular/platform-browser',
-	'@angular/platform-server'
+	'@angular/platform-server',
+	'typescript'
 ];
 
 // ── Main compile command ────────────────────────────────────────
@@ -321,6 +392,8 @@ export const compile = async (
 		resolve(import.meta.dir, '..', '..', '..', 'package.json'),
 		resolve(import.meta.dir, '..', '..', 'package.json')
 	]);
+
+	compileBanner(absoluteVersion);
 
 	const totalStart = performance.now();
 

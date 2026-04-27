@@ -1,4 +1,4 @@
-import { FILE_PROTOCOL_PREFIX_LENGTH, UNFOUND_INDEX } from '../constants';
+import { UNFOUND_INDEX } from '../constants';
 import {
 	copyFileSync,
 	cpSync,
@@ -29,6 +29,12 @@ import type {
 	FrameworkConventionEntry
 } from '../../types/conventions';
 import { scanCssEntryPoints } from '../build/scanCssEntryPoints';
+import {
+	createStyleTransformConfig,
+	createStylePreprocessorPlugin,
+	isStylePath
+} from '../build/stylePreprocessor';
+import { compileTailwindConfig } from '../build/compileTailwind';
 import { optimizeHtmlImages } from '../build/optimizeHtmlImages';
 import { updateAssetPaths } from '../build/updateAssetPaths';
 import { buildHMRClient } from '../dev/buildHMRClient';
@@ -603,6 +609,8 @@ export const build = async ({
 	svelteDirectory,
 	vueDirectory,
 	stylesConfig,
+	stylePreprocessors,
+	postcss,
 	tailwind,
 	options,
 	incrementalFiles,
@@ -613,6 +621,12 @@ export const build = async ({
 
 	await resolveAbsoluteVersion();
 	const isIncremental = incrementalFiles && incrementalFiles.length > 0;
+	const styleTransformConfig = createStyleTransformConfig(
+		stylePreprocessors,
+		postcss
+	);
+	const stylePreprocessorPlugin =
+		createStylePreprocessorPlugin(styleTransformConfig);
 
 	// Normalize incrementalFiles for consistent cross-platform path checking
 	const normalizedIncrementalFiles = incrementalFiles?.map(normalizePath);
@@ -774,28 +788,11 @@ export const build = async ({
 		});
 	}
 
-	const compileTailwind = async (input: string, output: string) => {
-		let binPath: string;
-		try {
-			binPath = import.meta.resolve('@tailwindcss/cli/dist/index.mjs');
-			if (binPath.startsWith('file://'))
-				binPath = binPath.slice(FILE_PROTOCOL_PREFIX_LENGTH);
-		} catch {
-			binPath = 'tailwindcss';
-		}
-		const proc = Bun.spawn(
-			['bun', binPath, '-i', input, '-o', join(buildPath, output)],
-			{ stderr: 'pipe', stdout: 'pipe' }
-		);
-		await proc.exited;
-	};
-
 	// Tailwind + entry point scanning run in parallel (they're independent)
 	const tailwindPromise =
 		tailwind &&
-		(!isIncremental ||
-			normalizedIncrementalFiles?.some((file) => file.endsWith('.css')))
-			? compileTailwind(tailwind.input, tailwind.output)
+		(!isIncremental || normalizedIncrementalFiles?.some(isStylePath))
+			? compileTailwindConfig(tailwind, buildPath, styleTransformConfig)
 			: undefined;
 
 	const emptyConventionResult: {
@@ -866,8 +863,7 @@ export const build = async ({
 		!isIncremental ||
 		normalizedIncrementalFiles?.some(
 			(f) =>
-				f.includes('/html/') &&
-				(f.endsWith('.html') || f.endsWith('.css'))
+				f.includes('/html/') && (f.endsWith('.html') || isStylePath(f))
 		);
 	// Filter entries for incremental builds
 	// For React: map index entries back to their source pages
@@ -903,7 +899,7 @@ export const build = async ({
 		? filterToIncrementalEntries(allAngularEntries, (entry) => entry)
 		: allAngularEntries;
 
-	// CSS entries - entries are the CSS files themselves
+	// CSS entries - entries are the style files themselves
 	const globalCssEntries = isIncremental
 		? filterToIncrementalEntries(allGlobalCssEntries, (entry) => entry)
 		: allGlobalCssEntries;
@@ -947,7 +943,13 @@ export const build = async ({
 	] = await Promise.all([
 		shouldCompileSvelte
 			? import('../build/compileSvelte').then((mod) =>
-					mod.compileSvelte(svelteEntries, svelteDir, new Map(), hmr)
+					mod.compileSvelte(
+						svelteEntries,
+						svelteDir,
+						new Map(),
+						hmr,
+						styleTransformConfig
+					)
 				)
 			: {
 					svelteClientPaths: [...emptyStringArray],
@@ -956,7 +958,12 @@ export const build = async ({
 				},
 		shouldCompileVue
 			? import('../build/compileVue').then((mod) =>
-					mod.compileVue(vueEntries, vueDir, hmr)
+					mod.compileVue(
+						vueEntries,
+						vueDir,
+						hmr,
+						styleTransformConfig
+					)
 				)
 			: {
 					vueClientPaths: [...emptyStringArray],
@@ -966,7 +973,12 @@ export const build = async ({
 				},
 		shouldCompileAngular
 			? import('../build/compileAngular').then((mod) =>
-					mod.compileAngular(angularEntries, angularDir, hmr)
+					mod.compileAngular(
+						angularEntries,
+						angularDir,
+						hmr,
+						styleTransformConfig
+					)
 				)
 			: {
 					clientPaths: [...emptyStringArray],
@@ -978,7 +990,8 @@ export const build = async ({
 						islandSvelteSources,
 						svelteDir,
 						new Map(),
-						hmr
+						hmr,
+						styleTransformConfig
 					)
 				)
 			: {
@@ -986,14 +999,24 @@ export const build = async ({
 				},
 		shouldCompileIslandVue
 			? import('../build/compileVue').then((mod) =>
-					mod.compileVue(islandVueSources, vueDir, hmr)
+					mod.compileVue(
+						islandVueSources,
+						vueDir,
+						hmr,
+						styleTransformConfig
+					)
 				)
 			: {
 					vueClientPaths: [...emptyStringArray]
 				},
 		shouldCompileIslandAngular
 			? import('../build/compileAngular').then((mod) =>
-					mod.compileAngular(islandAngularSources, angularDir, hmr)
+					mod.compileAngular(
+						islandAngularSources,
+						angularDir,
+						hmr,
+						styleTransformConfig
+					)
 				)
 			: {
 					clientPaths: [...emptyStringArray]
@@ -1041,13 +1064,19 @@ export const build = async ({
 							svelteConventionSources,
 							svelteDir,
 							new Map(),
-							false
+							false,
+							styleTransformConfig
 						)
 					)
 				: { svelteServerPaths: emptyStringArray },
 			vueConventionSources.length > 0 && vueDir
 				? import('../build/compileVue').then((mod) =>
-						mod.compileVue(vueConventionSources, vueDir, false)
+						mod.compileVue(
+							vueConventionSources,
+							vueDir,
+							false,
+							styleTransformConfig
+						)
 					)
 				: { vueServerPaths: emptyStringArray }
 		]);
@@ -1227,6 +1256,18 @@ export const build = async ({
 		svelteVendorPaths = computeSvelteVendorPaths();
 		setSvelteVendorPaths(svelteVendorPaths);
 	}
+	const depVendorPaths =
+		hmr && globalThis.__depVendorPaths ? globalThis.__depVendorPaths : {};
+	const reactExternalPaths: Record<string, string> = {
+		...(vendorPaths ?? {}),
+		...depVendorPaths
+	};
+	const nonReactExternalPaths: Record<string, string> = {
+		...reactExternalPaths,
+		...(angularVendorPaths ?? {}),
+		...(vueVendorPaths ?? {}),
+		...(svelteVendorPaths ?? {})
+	};
 
 	const htmlScriptPlugin = hmr
 		? createHTMLScriptHMRPlugin(htmlDir, htmxDir)
@@ -1235,8 +1276,8 @@ export const build = async ({
 		reactClientEntryPoints.length > 0
 			? {
 					entrypoints: reactClientEntryPoints,
-					...(vendorPaths
-						? { external: Object.keys(vendorPaths) }
+					...(Object.keys(reactExternalPaths).length > 0
+						? { external: Object.keys(reactExternalPaths) }
 						: {}),
 					format: 'esm',
 					minify: !isDev,
@@ -1245,7 +1286,7 @@ export const build = async ({
 					...(hmr
 						? { jsx: { development: true }, reactFastRefresh: true }
 						: {}),
-					plugins: [],
+					plugins: [stylePreprocessorPlugin],
 					root: clientRoot,
 					splitting: true,
 					target: 'browser',
@@ -1305,12 +1346,13 @@ export const build = async ({
 						'@angular/platform-browser',
 						'@angular/platform-browser/*',
 						'@angular/platform-server',
-						'@angular/platform-server/*'
+						'@angular/platform-server/*',
+						'typescript'
 					],
 					format: 'esm',
 					naming: `[dir]/[name].[hash].[ext]`,
 					outdir: serverOutDir,
-					plugins: [],
+					plugins: [stylePreprocessorPlugin],
 					root: serverRoot,
 					target: 'bun',
 					throw: false,
@@ -1322,17 +1364,13 @@ export const build = async ({
 			? bunBuild({
 					define: vueDirectory ? vueFeatureFlags : undefined,
 					entrypoints: nonReactClientEntryPoints,
-					external: [
-						...Object.keys(vendorPaths ?? {}),
-						...Object.keys(angularVendorPaths ?? {}),
-						...Object.keys(vueVendorPaths ?? {}),
-						...Object.keys(svelteVendorPaths ?? {})
-					],
+					external: Object.keys(nonReactExternalPaths),
 					format: 'esm',
 					minify: !isDev,
 					naming: `[dir]/[name].[hash].[ext]`,
 					outdir: buildPath,
 					plugins: [
+						stylePreprocessorPlugin,
 						...(angularDir && !isDev ? [angularLinkerPlugin] : []),
 						...(htmlScriptPlugin ? [htmlScriptPlugin] : [])
 					],
@@ -1347,17 +1385,13 @@ export const build = async ({
 			? bunBuild({
 					define: vueDirectory ? vueFeatureFlags : undefined,
 					entrypoints: islandClientEntryPoints,
-					external: [
-						...Object.keys(vendorPaths ?? {}),
-						...Object.keys(angularVendorPaths ?? {}),
-						...Object.keys(vueVendorPaths ?? {}),
-						...Object.keys(svelteVendorPaths ?? {})
-					],
+					external: Object.keys(nonReactExternalPaths),
 					format: 'esm',
 					minify: !isDev,
 					naming: `[dir]/[name].[hash].[ext]`,
 					outdir: buildPath,
 					plugins: [
+						stylePreprocessorPlugin,
 						...(angularDir && !isDev ? [angularLinkerPlugin] : [])
 					],
 					root: islandEntryResult.generatedRoot,
@@ -1376,6 +1410,7 @@ export const build = async ({
 						: buildPath,
 					root: stylesDir || clientRoot,
 					target: 'browser',
+					plugins: [stylePreprocessorPlugin],
 					throw: false
 				})
 			: undefined,
@@ -1494,12 +1529,13 @@ export const build = async ({
 
 	// Post-process: rewrite bare Angular/Vue specifiers to vendor paths.
 	const allNonReactVendorPaths: Record<string, string> = {
+		...depVendorPaths,
 		...(angularVendorPaths ?? {}),
 		...(vueVendorPaths ?? {}),
 		...(svelteVendorPaths ?? {})
 	};
 	const allIslandVendorPaths: Record<string, string> = {
-		...(vendorPaths ?? {}),
+		...reactExternalPaths,
 		...allNonReactVendorPaths
 	};
 	if (
@@ -1630,15 +1666,13 @@ export const build = async ({
 		!isIncremental ||
 		normalizedIncrementalFiles?.some(
 			(f) =>
-				f.includes('/html/') &&
-				(f.endsWith('.html') || f.endsWith('.css'))
+				f.includes('/html/') && (f.endsWith('.html') || isStylePath(f))
 		);
 	const shouldUpdateHtmxAssetPaths =
 		!isIncremental ||
 		normalizedIncrementalFiles?.some(
 			(f) =>
-				f.includes('/htmx/') &&
-				(f.endsWith('.html') || f.endsWith('.css'))
+				f.includes('/htmx/') && (f.endsWith('.html') || isStylePath(f))
 		);
 
 	// Await the HMR client bundle that was started before the compile phase

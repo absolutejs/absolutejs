@@ -11,13 +11,13 @@ import {
 	captureStreamingSlotWarningCallsite,
 	runWithStreamingSlotWarningScope
 } from '../core/streamingSlotWarningScope';
+import { isSsrCacheDirty, markSsrCacheDirty } from '../core/ssrCache';
 import { ssrErrorPage } from '../utils/ssrErrorPage';
 import {
 	derivePageName,
 	renderConventionError
 } from '../utils/resolveConvention';
 
-let ssrDirty = false;
 type GenericSvelteComponent = SvelteComponent<Record<string, unknown>>;
 type ResolvedSveltePage = {
 	component: GenericSvelteComponent;
@@ -121,7 +121,7 @@ export const handleSveltePageRequest: HandleSveltePageRequest = async <
 				pagePath: pagePath ?? '',
 				props
 			};
-	if (ssrDirty) {
+	if (isSsrCacheDirty('svelte')) {
 		return buildDirtyResponse(resolvedIndexPath, resolvedProps);
 	}
 
@@ -253,5 +253,5 @@ export const handleSveltePageRequest: HandleSveltePageRequest = async <
 };
 
 export const invalidateSvelteSsrCache = () => {
-	ssrDirty = true;
+	markSsrCacheDirty('svelte');
 };

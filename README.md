@@ -45,9 +45,9 @@ import { file } from 'bun';
 import { build } from 'absolutejs/core/build';
 import {
 	handleHTMLPageRequest,
-	handleReactPageRequest,
 	handleSveltePageRequest
 } from 'absolutejs/core/pageHandlers';
+import { handleReactPageRequest } from 'absolutejs/react';
 
 import { ReactExample } from './react/pages/ReactExample';
 import SvelteExample from './svelte/pages/SvelteExample.svelte';
@@ -133,6 +133,14 @@ await build({
 ```
 
 No separate config files or environment variables—just explicit arguments with sensible defaults.
+
+## Workspace Dev Logs
+
+`absolute workspace dev` keeps the TUI focused on service status and live service output. Full logs are also written to `.absolutejs/workspace/logs/`, including `all.log` and one file per service, so long output can be copied or searched outside the TUI:
+
+```bash
+tail -n 200 .absolutejs/workspace/logs/all.log
+```
 
 ---
 

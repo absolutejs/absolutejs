@@ -1,9 +1,34 @@
 import { resolve, join } from 'node:path';
 import { existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
-import { loadConfig } from '../../utils/loadConfig';
+import {
+	getWorkspaceServices,
+	isWorkspaceConfig,
+	loadConfig,
+	loadRawConfig
+} from '../../utils/loadConfig';
+import type {
+	AbsoluteServiceConfig,
+	ServiceConfig
+} from '../../../types/build';
 
 type CheckerResult = { name: string; exitCode: number; output: string };
+
+const isCommandService = (service: ServiceConfig) =>
+	service.kind === 'command' ||
+	Array.isArray((service as { command?: unknown }).command);
+
+const getTypecheckTargets = async (configPath?: string) => {
+	const rawConfig = await loadRawConfig(configPath);
+	if (!isWorkspaceConfig(rawConfig)) {
+		return [await loadConfig(configPath)];
+	}
+
+	return Object.values(getWorkspaceServices(rawConfig)).filter(
+		(service): service is AbsoluteServiceConfig =>
+			!isCommandService(service)
+	);
+};
 
 const run = async (name: string, command: string[]): Promise<CheckerResult> => {
 	const proc = Bun.spawn(command, {
@@ -124,7 +149,14 @@ const TYPECHECK_EXCLUDE = [
 	'../**/generated/**/*'
 ];
 
-const TYPECHECK_INCLUDE = ['../**/*'];
+const TYPECHECK_INCLUDE = [
+	'../src/**/*',
+	'../types/**/*',
+	'../example/**/*',
+	'../tests/**/*',
+	'../test/**/*',
+	'../scripts/**/*'
+];
 
 const buildVueTscCheck = (cacheDir: string) => {
 	const vueTscBin = findBin('vue-tsc');
@@ -277,11 +309,33 @@ const buildSvelteCheck = async (cacheDir: string, svelteDir: string) => {
 };
 
 export const typecheck = async (configPath?: string) => {
-	const config = await loadConfig(configPath);
+	const targets = await getTypecheckTargets(configPath);
 
-	const hasAngular = Boolean(config.angularDirectory);
-	const hasSvelte = Boolean(config.svelteDirectory);
-	const hasVue = Boolean(config.vueDirectory);
+	const hasAngular = targets.some((config) =>
+		Boolean(config.angularDirectory)
+	);
+	const hasSvelte = targets.some((config) => Boolean(config.svelteDirectory));
+	const hasVue = targets.some((config) => Boolean(config.vueDirectory));
+	const svelteDirs = [
+		...new Set(
+			targets
+				.map((config) => config.svelteDirectory)
+				.filter(
+					(dir): dir is string =>
+						typeof dir === 'string' && dir.length > 0
+				)
+		)
+	];
+	const angularDirs = [
+		...new Set(
+			targets
+				.map((config) => config.angularDirectory)
+				.filter(
+					(dir): dir is string =>
+						typeof dir === 'string' && dir.length > 0
+				)
+		)
+	];
 
 	const cacheDir = '.absolutejs';
 	await mkdir(cacheDir, { recursive: true });
@@ -294,11 +348,15 @@ export const typecheck = async (configPath?: string) => {
 
 	// svelte-check scoped to the Svelte directory only
 	if (hasSvelte) {
-		checks.push(buildSvelteCheck(cacheDir, config.svelteDirectory ?? ''));
+		for (const svelteDir of svelteDirs) {
+			checks.push(buildSvelteCheck(cacheDir, svelteDir));
+		}
 	}
 
 	if (hasAngular) {
-		checks.push(buildAngularCheck(cacheDir, config.angularDirectory ?? ''));
+		for (const angularDir of angularDirs) {
+			checks.push(buildAngularCheck(cacheDir, angularDir));
+		}
 	}
 
 	const results = await Promise.all(checks);

@@ -303,27 +303,6 @@ app.use(secureHeaders({
 
 ---
 
-## 5. P2 — Sass/SCSS/Less Preprocessing
-
-**What Next.js does:**
-Built-in Sass support. Import `.scss` or `.sass` files directly. Also supports `.module.scss` for scoped Sass modules.
-
-**What AbsoluteJS has today:**
-Only `.css` files. Tailwind handles utility classes. No preprocessor support.
-
-**What needs to be built:**
-- A Bun build plugin that compiles `.scss`/`.sass`/`.less` files to CSS before bundling
-- Bun has a plugin API for custom loaders — register `.scss` extension with a loader that calls the sass compiler
-- Support `.module.scss` for scoped Sass modules (Bun's CSS Module handling + Sass compilation)
-- Add `sass` as an optional peer dependency
-
-**Files likely involved:**
-- New: `src/build/sassPlugin.ts` — Bun plugin that compiles Sass
-- `src/core/build.ts` — register the plugin in the Bun.build() calls
-- `src/build/scanCssEntryPoints.ts` — extend glob to include `**/*.scss`, `**/*.sass`, `**/*.less`
-
----
-
 ## 6. P2 — Middleware
 
 **What Next.js does:**

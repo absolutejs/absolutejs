@@ -5,7 +5,7 @@ import {
 	UNFOUND_INDEX
 } from '../../../src/constants';
 import { StreamSlot, SuspenseSlot } from '../../../src/react/components';
-import { handleReactPageRequest } from '../../../src/core/pageHandlers';
+import { handleReactPageRequest } from '../../../src/react';
 
 const delay = async (milliseconds: number) => Bun.sleep(milliseconds);
 const resolveReactSuspenseValue = async () => {

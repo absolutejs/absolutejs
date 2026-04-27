@@ -1,5 +1,6 @@
 import { resolve } from 'node:path';
 import type { IslandRegistryInput } from '../../types/island';
+import { loadIslandRegistryBuildInfo } from '../build/islandEntries';
 
 type RegistryModuleExport = {
 	default?: unknown;
@@ -27,6 +28,11 @@ const isIslandRegistryInput = (value: unknown): value is IslandRegistryInput =>
 
 export const loadIslandRegistry = async (registryPath: string) => {
 	const resolvedRegistryPath = resolve(registryPath);
+	const buildInfo = await loadIslandRegistryBuildInfo(resolvedRegistryPath);
+	if (buildInfo.definitions.length > 0) {
+		return buildInfo.registry;
+	}
+
 	const importedModule: unknown = await import(resolvedRegistryPath);
 	if (!isRegistryModuleExport(importedModule)) {
 		throw new Error(

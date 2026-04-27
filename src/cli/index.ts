@@ -5,12 +5,14 @@ import { eslint } from './scripts/eslint';
 import { info } from './scripts/info';
 import { prettier } from './scripts/prettier';
 import { start } from './scripts/start';
+import { workspace } from './scripts/workspace';
 import { telemetry } from './scripts/telemetry';
 import { sendTelemetryEvent } from './telemetryEvent';
 import { CLI_ARGS_OFFSET, UNFOUND_INDEX } from '../constants';
 import { DEFAULT_SERVER_ENTRY } from './utils';
 
 const [command] = process.argv.slice(2);
+const [workspaceCommand] = process.argv.slice(3);
 const args = process.argv.slice(CLI_ARGS_OFFSET);
 
 const parseNamedArg = (flag: string) => {
@@ -43,6 +45,12 @@ if (command === 'dev') {
 	const positionalArgs = stripNamedArgs('--outdir', '--config');
 	const serverEntry = positionalArgs[0] ?? DEFAULT_SERVER_ENTRY;
 	await start(serverEntry, outdir, configPath);
+} else if (command === 'workspace') {
+	sendTelemetryEvent('cli:command', {
+		command: `workspace:${workspaceCommand ?? 'unknown'}`
+	});
+	const configPath = parseNamedArg('--config');
+	await workspace(workspaceCommand, { configPath });
 } else if (command === 'eslint') {
 	sendTelemetryEvent('cli:command', { command });
 	await eslint(args);
@@ -81,6 +89,7 @@ if (command === 'dev') {
 	console.error('Usage: absolute <command>');
 	console.error('Commands:');
 	console.error('  dev [entry]   Start development server');
+	console.error('  workspace dev Start multi-service workspace dev');
 	console.error('  start [entry] [--outdir dir] Start production server');
 	console.error(
 		'  compile [entry] [--outdir dir] [--outfile path] Compile standalone executable'

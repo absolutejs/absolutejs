@@ -1,17 +1,8 @@
-import type {
-	InputSignalWithTransform as AngularInputSignalWithTransform,
-	Type as AngularComponent,
-	ɵUnwrapDirectiveSignalInputs as UnwrapAngularSignalInputs
-} from '@angular/core';
-import type { ReactPropsOf } from './react';
-import type { SveltePropsOf } from './svelte';
-import type { VuePropsOf } from './vue';
-
 export type IslandFramework = 'react' | 'svelte' | 'vue' | 'angular';
 
 export type IslandHydrate = 'load' | 'idle' | 'visible' | 'none';
 
-export type AngularIslandComponent = AngularComponent<object>;
+export type AngularIslandComponent = abstract new (...args: never[]) => object;
 
 export type IslandComponentDefinition<Component> = {
 	component: Component;
@@ -28,43 +19,76 @@ type UnwrapIslandComponent<Component> =
 		? InnerComponent
 		: Component;
 
-type AngularSignalInputKeys<Instance> = Extract<
-	{
-		[K in keyof Instance]: Instance[K] extends AngularInputSignalWithTransform<
-			unknown,
-			unknown
-		>
-			? K
-			: never;
-	}[keyof Instance],
-	keyof Instance
->;
+type ExtractCallableProps<Component> = Component extends (
+	props: infer Props,
+	...args: never[]
+) => unknown
+	? NormalizeProps<Props>
+	: Record<string, never>;
+
+type ExtractConstructedProps<Component> = Component extends abstract new (
+	props: infer Props,
+	...args: never[]
+) => unknown
+	? NormalizeProps<Props>
+	: Record<string, never>;
+
+type ExtractReactProps<Component> =
+	ExtractCallableProps<Component> extends infer Props
+		? Props extends Record<string, never>
+			? ExtractConstructedProps<Component>
+			: Props
+		: Record<string, never>;
+
+type ExtractSvelteProps<Component> = Component extends (
+	internals: unknown,
+	props: infer Props,
+	...args: never[]
+) => unknown
+	? NormalizeProps<Props>
+	: Component extends abstract new (
+				options: { props?: infer Props },
+				...args: never[]
+		  ) => unknown
+		? NormalizeProps<Props>
+		: Record<string, never>;
+
+type ReservedVueProps =
+	| 'key'
+	| 'ref'
+	| 'ref_for'
+	| 'ref_key'
+	| 'class'
+	| 'style'
+	| 'onVnodeBeforeMount'
+	| 'onVnodeMounted'
+	| 'onVnodeBeforeUpdate'
+	| 'onVnodeUpdated'
+	| 'onVnodeBeforeUnmount'
+	| 'onVnodeUnmounted';
+
+type ExtractVueProps<Component> = Component extends abstract new () => {
+	$props: infer Props;
+}
+	? NormalizeProps<Omit<Props, ReservedVueProps>>
+	: ExtractCallableProps<Component>;
 
 type ExtractAngularProps<Component> =
-	UnwrapIslandComponent<Component> extends AngularComponent<infer Instance>
-		? AngularSignalInputKeys<Instance> extends never
-			? UnwrapIslandComponent<Component> extends {
-					__absoluteProps?: infer Props;
-				}
-				? NormalizeProps<Props>
-				: Record<string, never>
-			: NormalizeProps<
-					UnwrapAngularSignalInputs<
-						Instance,
-						AngularSignalInputKeys<Instance>
-					>
-				>
+	UnwrapIslandComponent<Component> extends {
+		__absoluteProps?: infer Props;
+	}
+		? NormalizeProps<Props>
 		: Record<string, never>;
 
 type ExtractFrameworkProps<
 	Framework extends IslandFramework,
 	Component
 > = Framework extends 'react'
-	? ReactPropsOf<UnwrapIslandComponent<Component>>
+	? ExtractReactProps<UnwrapIslandComponent<Component>>
 	: Framework extends 'svelte'
-		? SveltePropsOf<UnwrapIslandComponent<Component>>
+		? ExtractSvelteProps<UnwrapIslandComponent<Component>>
 		: Framework extends 'vue'
-			? VuePropsOf<UnwrapIslandComponent<Component>>
+			? ExtractVueProps<UnwrapIslandComponent<Component>>
 			: Framework extends 'angular'
 				? ExtractAngularProps<Component>
 				: never;

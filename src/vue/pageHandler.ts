@@ -13,13 +13,13 @@ import {
 	captureStreamingSlotWarningCallsite,
 	runWithStreamingSlotWarningScope
 } from '../core/streamingSlotWarningScope';
+import { isSsrCacheDirty, markSsrCacheDirty } from '../core/ssrCache';
 import { ssrErrorPage } from '../utils/ssrErrorPage';
 import {
 	derivePageName,
 	renderConventionError
 } from '../utils/resolveConvention';
 
-let ssrDirty = false;
 type VuePageRenderOptions = StreamingSlotEnhancerOptions & {
 	collectStreamingSlots?: boolean;
 };
@@ -156,7 +156,7 @@ export const handleVuePageRequest = (async <Component extends VueComponent>(
 				props: args[0]
 			};
 
-	if (ssrDirty) {
+	if (isSsrCacheDirty('vue')) {
 		return buildDirtyResponse(
 			resolvedHeadTag,
 			resolvedIndexPath,
@@ -281,5 +281,5 @@ export const handleVuePageRequest = (async <Component extends VueComponent>(
 }) as HandleVuePageRequest;
 
 export const invalidateVueSsrCache = () => {
-	ssrDirty = true;
+	markSsrCacheDirty('vue');
 };

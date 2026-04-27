@@ -49,7 +49,7 @@ export const generateReactIndexFiles = async (
 	}
 
 	const CONVENTION_RE = /^(?:(.+)\.)?(error|loading|not-found)\.[^.]+$/;
-	const pagesGlob = new Glob('*.*');
+	const pagesGlob = new Glob('*.{jsx,tsx}');
 	const files: string[] = [];
 	for await (const file of pagesGlob.scan({ cwd: reactPagesDirectory })) {
 		if (CONVENTION_RE.test(file)) continue;
@@ -91,7 +91,9 @@ export const generateReactIndexFiles = async (
 	const pagesRelPath = relative(
 		resolve(reactIndexesDirectory),
 		resolve(reactPagesDirectory)
-	).split(sep).join('/');
+	)
+		.split(sep)
+		.join('/');
 
 	const promises = files.map(async (file) => {
 		const fileName = basename(file);
@@ -345,7 +347,7 @@ export const generateReactIndexFiles = async (
 				? [
 						`\n// Pre-warm: import the page module from the module server`,
 						`// immediately so the browser caches all /@src/ URLs.`,
-						`import('/@src/${relative(process.cwd(), resolve(reactPagesDirectory, `${componentName  }.tsx`)).replace(/\\/g, '/')}').catch(() => {});`
+						`import('/@src/${relative(process.cwd(), resolve(reactPagesDirectory, `${componentName}.tsx`)).replace(/\\/g, '/')}').catch(() => {});`
 					]
 				: [])
 		].join('\n');

@@ -8,7 +8,7 @@ const toSafeFileName = (specifier: string) =>
 
 const isResolvable = (specifier: string) => {
 	try {
-		require.resolve(specifier);
+		Bun.resolveSync(specifier, process.cwd());
 
 		return true;
 	} catch {
@@ -20,6 +20,10 @@ const isBareSpecifier = (spec: string) =>
 	!spec.startsWith('.') &&
 	!spec.startsWith('/') &&
 	!spec.startsWith('@src/');
+
+const isAbsolutePackageSpecifier = (spec: string) =>
+	spec === '@absolutejs/absolute' ||
+	spec.startsWith('@absolutejs/absolute/');
 
 // Known specifiers that are already handled by framework-specific vendors
 const FRAMEWORK_SPECIFIERS = new Set([
@@ -57,7 +61,9 @@ const isSkippedFile = (file: string) =>
 	file.includes('/indexes/');
 
 const isDepSpecifier = (path: string) =>
-	isBareSpecifier(path) && !FRAMEWORK_SPECIFIERS.has(path);
+	isBareSpecifier(path) &&
+	!FRAMEWORK_SPECIFIERS.has(path) &&
+	!isAbsolutePackageSpecifier(path);
 
 const readFileSpecifiers = async (
 	file: string,

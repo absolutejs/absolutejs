@@ -19,7 +19,7 @@ describe('react streaming across cross-framework entrypoints', () => {
 		await import(resolve(PROJECT_ROOT, 'dist/vue/index.js'));
 
 		const { handleReactPageRequest } = await import(
-			resolve(PROJECT_ROOT, 'dist/index.js')
+			resolve(PROJECT_ROOT, 'dist/react/index.js')
 		);
 		const { StreamSlot } = await import(
 			resolve(PROJECT_ROOT, 'dist/react/components/index.js')

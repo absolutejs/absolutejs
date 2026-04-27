@@ -25,7 +25,10 @@ const safeKill = (pid: number) => {
 	}
 };
 
-export const killStaleProcesses = (port: number) => {
+export const killStaleProcesses = (
+	port: number,
+	logMessage?: (message: string) => void
+) => {
 	let output: string;
 	try {
 		output = execSync(`lsof -ti tcp:${port} -sTCP:LISTEN 2>/dev/null`, {
@@ -47,15 +50,22 @@ export const killStaleProcesses = (port: number) => {
 	}
 
 	pids.forEach(safeKill);
+	const message = `Killed ${pids.length} stale ${pids.length === 1 ? 'process' : 'processes'} on port ${port}.`;
+	if (logMessage) {
+		logMessage(message);
+
+		return;
+	}
 	console.log(
-		`\x1b[2m${formatTimestamp()}\x1b[0m \x1b[33m[cli]\x1b[0m \x1b[33mKilled ${pids.length} stale ${pids.length === 1 ? 'process' : 'processes'} on port ${port}.\x1b[0m`
+		`\x1b[2m${formatTimestamp()}\x1b[0m \x1b[33m[cli]\x1b[0m \x1b[33m${message}\x1b[0m`
 	);
 };
-export const printHelp = () => {
+export const printHelp = (subject = 'server') => {
+	const title = subject === 'workspace' ? 'workspace' : subject;
 	console.log('');
 	console.log('\x1b[1mShortcuts:\x1b[0m');
-	console.log('  \x1b[36mr\x1b[0m / restart  — Restart server');
-	console.log('  \x1b[36mp\x1b[0m / pause    — Pause/resume server');
+	console.log(`  \x1b[36mr\x1b[0m / restart  — Restart ${title}`);
+	console.log(`  \x1b[36mp\x1b[0m / pause    — Pause/resume ${title}`);
 	console.log('  \x1b[36mo\x1b[0m / open     — Open in browser');
 	console.log('  \x1b[36mc\x1b[0m / clear    — Clear terminal');
 	console.log('  \x1b[36mq\x1b[0m / quit     — Graceful shutdown');

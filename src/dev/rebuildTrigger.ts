@@ -41,10 +41,16 @@ import { detectFramework } from './pathUtils';
 import { toPascal } from '../utils/stringModifiers';
 import type { ResolvedBuildPaths } from './configResolver';
 import { broadcastToClients } from './webSocket';
-import { invalidateAngularSsrCache } from '../angular/pageHandler';
-import { invalidateReactSsrCache } from '../react/pageHandler';
-import { invalidateSvelteSsrCache } from '../svelte/pageHandler';
-import { invalidateVueSsrCache } from '../vue/pageHandler';
+import {
+	createStyleTransformConfig,
+	createStylePreprocessorPlugin,
+	getStyleBaseName,
+	isStylePath
+} from '../build/stylePreprocessor';
+import { markSsrCacheDirty } from '../core/ssrCache';
+
+const getStyleTransformConfig = (config: BuildConfig) =>
+	createStyleTransformConfig(config.stylePreprocessors, config.postcss);
 
 type BuildLog = {
 	level?: string;
@@ -563,6 +569,7 @@ const bundleAngularClient = async (
 	const { generateManifest } = await import('../build/generateManifest');
 	const { getAngularVendorPaths } = await import('../core/devVendorPaths');
 	const clientRoot = await computeClientRoot(state.resolvedPaths);
+	const depVendorPaths = globalThis.__depVendorPaths ?? {};
 
 	let angVendorPaths = getAngularVendorPaths();
 	if (!angVendorPaths) {
@@ -578,11 +585,23 @@ const bundleAngularClient = async (
 
 	const clientResult = await bunBuild({
 		entrypoints: clientPaths,
-		...(angVendorPaths ? { external: Object.keys(angVendorPaths) } : {}),
+		...(Object.keys({
+			...(angVendorPaths ?? {}),
+			...depVendorPaths
+		}).length > 0
+			? {
+					external: Object.keys({
+						...(angVendorPaths ?? {}),
+						...depVendorPaths
+					})
+				}
+			: {}),
 		format: 'esm',
 		naming: '[dir]/[name].[hash].[ext]',
 		outdir: buildDir,
-		plugins: [],
+		plugins: [
+			createStylePreprocessorPlugin(getStyleTransformConfig(state.config))
+		],
 		root: clientRoot,
 		target: 'browser',
 		throw: false
@@ -592,11 +611,14 @@ const bundleAngularClient = async (
 		return;
 	}
 
-	if (angVendorPaths) {
+	if (angVendorPaths || Object.keys(depVendorPaths).length > 0) {
 		const { rewriteImports } = await import('../build/rewriteImports');
 		await rewriteImports(
 			clientResult.outputs.map((artifact) => artifact.path),
-			angVendorPaths
+			{
+				...(angVendorPaths ?? {}),
+				...depVendorPaths
+			}
 		);
 	}
 
@@ -643,7 +665,8 @@ const compileAndBundleAngular = async (
 	const { clientPaths, serverPaths } = await compileAngular(
 		pageEntries,
 		angularDir,
-		true
+		true,
+		getStyleTransformConfig(state.config)
 	);
 	serverPaths.forEach((serverPath) => {
 		const fileBase = basename(serverPath, '.js');
@@ -688,7 +711,7 @@ const handleAngularFastPath = async (
 
 	if (pageEntries.length > 0) {
 		await compileAndBundleAngular(state, pageEntries, angularDir);
-		invalidateAngularSsrCache();
+		markSsrCacheDirty('angular');
 	}
 
 	const { manifest } = state;
@@ -807,6 +830,7 @@ const bundleReactClient = async (
 		'../build/rewriteReactImports'
 	);
 	const clientRoot = await computeClientRoot(state.resolvedPaths);
+	const depVendorPaths = globalThis.__depVendorPaths ?? {};
 
 	const refreshEntry = resolve(reactIndexesPath, '_refresh.tsx');
 	if (!reactEntries.includes(refreshEntry)) {
@@ -835,23 +859,38 @@ const bundleReactClient = async (
 		jsx: { development: true },
 		naming: '[dir]/[name].[hash].[ext]',
 		outdir: buildDir,
-		plugins: [],
+		plugins: [
+			createStylePreprocessorPlugin(getStyleTransformConfig(state.config))
+		],
 		reactFastRefresh: true,
 		root: clientRoot,
 		splitting: true,
 		target: 'browser',
 		throw: false,
-		...(vendorPaths ? { external: Object.keys(vendorPaths) } : {})
+		...(Object.keys({
+			...(vendorPaths ?? {}),
+			...depVendorPaths
+		}).length > 0
+			? {
+					external: Object.keys({
+						...(vendorPaths ?? {}),
+						...depVendorPaths
+					})
+				}
+			: {})
 	});
 
 	if (!clientResult.success) {
 		return;
 	}
 
-	if (vendorPaths) {
+	if (vendorPaths || Object.keys(depVendorPaths).length > 0) {
 		await rewriteReactImports(
 			clientResult.outputs.map((art) => art.path),
-			vendorPaths
+			{
+				...(vendorPaths ?? {}),
+				...depVendorPaths
+			}
 		);
 	}
 
@@ -907,7 +946,7 @@ const handleReactModuleServerPath = async (
 		state.fileHashes.set(resolve(file), computeFileHash(file));
 	}
 
-	invalidateReactSsrCache();
+	markSsrCacheDirty('react');
 
 	const primaryFile =
 		reactFiles.find(
@@ -1113,7 +1152,7 @@ const handleSvelteModuleServerPath = async (
 		state.fileHashes.set(resolve(file), computeFileHash(file));
 	}
 
-	invalidateSvelteSsrCache();
+	markSsrCacheDirty('svelte');
 
 	const serverDuration = Date.now() - startTime;
 
@@ -1173,7 +1212,13 @@ const handleSvelteFastPath = async (
 		const clientRoot = await computeClientRoot(state.resolvedPaths);
 
 		const { svelteServerPaths, svelteIndexPaths, svelteClientPaths } =
-			await compileSvelte(svelteFiles, svelteDir, new Map(), true);
+			await compileSvelte(
+				svelteFiles,
+				svelteDir,
+				new Map(),
+				true,
+				getStyleTransformConfig(state.config)
+			);
 
 		const serverEntries = [...svelteServerPaths];
 		const clientEntries = [...svelteIndexPaths, ...svelteClientPaths];
@@ -1196,6 +1241,11 @@ const handleSvelteFastPath = async (
 						format: 'esm',
 						naming: '[dir]/[name].[hash].[ext]',
 						outdir: serverOutDir,
+						plugins: [
+							createStylePreprocessorPlugin(
+								getStyleTransformConfig(state.config)
+							)
+						],
 						root: serverRoot,
 						target: 'bun',
 						throw: false
@@ -1207,6 +1257,11 @@ const handleSvelteFastPath = async (
 						format: 'esm',
 						naming: '[dir]/[name].[hash].[ext]',
 						outdir: buildDir,
+						plugins: [
+							createStylePreprocessorPlugin(
+								getStyleTransformConfig(state.config)
+							)
+						],
 						root: clientRoot,
 						target: 'browser',
 						throw: false
@@ -1318,7 +1373,7 @@ const handleVueModuleServerPath = async (
 		state.fileHashes.set(resolve(file), computeFileHash(file));
 	}
 
-	invalidateVueSsrCache();
+	markSsrCacheDirty('vue');
 
 	// Also invalidate non-Vue files (composables) so the module
 	// server serves the fresh version when the component re-imports.
@@ -1474,7 +1529,7 @@ const handleReactHMR = (
 				file.endsWith('.ts') ||
 				file.endsWith('.jsx')
 		);
-		const hasCSSChanges = reactFiles.some((file) => file.endsWith('.css'));
+		const hasCSSChanges = reactFiles.some(isStylePath);
 
 		logHmrUpdate(primarySource ?? reactFiles[0] ?? '', 'react', duration);
 
@@ -1761,7 +1816,7 @@ const handleVueCssOnlyUpdate = (
 		return;
 	}
 
-	const cssBaseName = basename(cssFile, '.css');
+	const cssBaseName = basename(getStyleBaseName(cssFile));
 	const cssPascalName = toPascal(cssBaseName);
 	const cssKey = `${cssPascalName}CSS`;
 	const cssUrl = manifest[cssKey] || null;
@@ -1928,7 +1983,7 @@ const handleVueHMR = async (
 	}
 
 	const vueComponentFiles = vueFiles.filter((file) => file.endsWith('.vue'));
-	const vueCssFiles = vueFiles.filter((file) => file.endsWith('.css'));
+	const vueCssFiles = vueFiles.filter(isStylePath);
 	const isCssOnlyChange =
 		vueComponentFiles.length === 0 && vueCssFiles.length > 0;
 
@@ -1965,7 +2020,7 @@ const handleSvelteCssOnlyUpdate = (
 		return;
 	}
 
-	const cssBaseName = basename(cssFile, '.css');
+	const cssBaseName = basename(getStyleBaseName(cssFile));
 	const cssPascalName = toPascal(cssBaseName);
 	const cssKey = `${cssPascalName}CSS`;
 	const cssUrl = manifest[cssKey] || null;
@@ -2040,7 +2095,7 @@ const handleSvelteHMR = (
 	const svelteComponentFiles = svelteFiles.filter((file) =>
 		file.endsWith('.svelte')
 	);
-	const svelteCssFiles = svelteFiles.filter((file) => file.endsWith('.css'));
+	const svelteCssFiles = svelteFiles.filter(isStylePath);
 	const isCssOnlyChange =
 		svelteComponentFiles.length === 0 && svelteCssFiles.length > 0;
 
@@ -2101,7 +2156,7 @@ const handleAngularCssOnlyUpdate = (
 		return;
 	}
 
-	const cssBaseName = basename(cssFile, '.css');
+	const cssBaseName = basename(getStyleBaseName(cssFile));
 	const cssPascalName = toPascal(cssBaseName);
 	const cssKey = `${cssPascalName}CSS`;
 	const cssUrl = manifest[cssKey] || null;
@@ -2172,12 +2227,9 @@ const handleAngularHMR = (
 		return;
 	}
 
-	const angularCssFiles = angularFiles.filter((file) =>
-		file.endsWith('.css')
-	);
+	const angularCssFiles = angularFiles.filter(isStylePath);
 	const isCssOnlyChange =
-		angularFiles.every((file) => file.endsWith('.css')) &&
-		angularCssFiles.length > 0;
+		angularFiles.every(isStylePath) && angularCssFiles.length > 0;
 
 	const angularPageFiles = angularFiles.filter((file) =>
 		file.replace(/\\/g, '/').includes('/pages/')
@@ -2916,16 +2968,16 @@ const performFullRebuild = async (
 	);
 
 	if (affectedFrameworks.includes('angular')) {
-		invalidateAngularSsrCache();
+		markSsrCacheDirty('angular');
 	}
 	if (affectedFrameworks.includes('react')) {
-		invalidateReactSsrCache();
+		markSsrCacheDirty('react');
 	}
 	if (affectedFrameworks.includes('svelte')) {
-		invalidateSvelteSsrCache();
+		markSsrCacheDirty('svelte');
 	}
 	if (affectedFrameworks.includes('vue')) {
-		invalidateVueSsrCache();
+		markSsrCacheDirty('vue');
 	}
 
 	onRebuildComplete({ hmrState: state, manifest });

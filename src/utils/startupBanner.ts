@@ -39,7 +39,8 @@ export const formatTimestamp = () => {
 
 export const startupBanner = (options: {
 	version: string;
-	duration: number;
+	readyDuration: number;
+	buildDuration?: number;
 	port: string | number;
 	host: string;
 	networkUrl?: string;
@@ -47,7 +48,8 @@ export const startupBanner = (options: {
 }) => {
 	const {
 		version,
-		duration,
+		readyDuration,
+		buildDuration,
 		port,
 		host,
 		networkUrl,
@@ -55,9 +57,13 @@ export const startupBanner = (options: {
 	} = options;
 	const name = `${colors.cyan}${colors.bold}ABSOLUTEJS${colors.reset}`;
 	const ver = `${colors.dim}v${version}${colors.reset}`;
-	const time = `${colors.dim}ready in${colors.reset} ${colors.bold}${getDurationString(duration)}${colors.reset}`;
+	const time = `${colors.dim}ready in${colors.reset} ${colors.bold}${getDurationString(readyDuration)}${colors.reset}`;
+	const build =
+		typeof buildDuration === 'number' && Number.isFinite(buildDuration)
+			? ` ${colors.dim}(build ${getDurationString(buildDuration)})${colors.reset}`
+			: '';
 	console.log('');
-	console.log(`  ${name} ${ver}  ${time}`);
+	console.log(`  ${name} ${ver}  ${time}${build}`);
 	console.log('');
 	console.log(
 		`  ${colors.green}➜${colors.reset}  ${colors.bold}Local:${colors.reset}   ${protocol}://${host === '0.0.0.0' ? 'localhost' : host}:${port}/`

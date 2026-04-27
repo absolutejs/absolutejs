@@ -20,11 +20,11 @@
 		"@eslint/js": "^10.0.1",
 		"@happy-dom/global-registrator": "^20.8.3",
 		"@stylistic/eslint-plugin": "^5.10.0",
-		"@tailwindcss/cli": "4.1.7",
 		"@types/bun": "1.3.9",
 		"@types/react": "19.2.0",
 		"@types/react-dom": "19.2.0",
 		"autoprefixer": "10.4.21",
+		"bun-plugin-tailwind": "^0.1.2",
 		"elysia": "1.4.18",
 		"elysia-scoped-state": "0.1.1",
 		"eslint": "10.0.3",
@@ -33,12 +33,15 @@
 		"eslint-plugin-security": "4.0.0",
 		"globals": "^17.4.0",
 		"happy-dom": "^20.8.3",
+		"less": "^4.6.4",
 		"postcss": "8.5.3",
 		"prettier": "3.5.3",
 		"prettier-plugin-svelte": "3.4.0",
 		"react": "19.2.1",
 		"react-dom": "19.2.1",
 		"react-refresh": "0.18.0",
+		"sass": "^1.99.0",
+		"stylus": "^0.64.0",
 		"svelte": "5.55.0",
 		"svelte-check": "^4.4.5",
 		"tailwindcss": "4.1.7",
@@ -216,12 +219,12 @@
 	"main": "./dist/index.js",
 	"name": "@absolutejs/absolute",
 	"optionalDependencies": {
-		"@absolutejs/native-darwin-arm64": "0.19.0-beta.648",
-		"@absolutejs/native-darwin-x64": "0.19.0-beta.648",
-		"@absolutejs/native-linux-arm64": "0.19.0-beta.648",
-		"@absolutejs/native-linux-x64": "0.19.0-beta.648",
-		"@absolutejs/native-windows-arm64": "0.19.0-beta.648",
-		"@absolutejs/native-windows-x64": "0.19.0-beta.648"
+		"@absolutejs/native-darwin-arm64": "0.19.0-beta.704",
+		"@absolutejs/native-darwin-x64": "0.19.0-beta.704",
+		"@absolutejs/native-linux-arm64": "0.19.0-beta.704",
+		"@absolutejs/native-linux-x64": "0.19.0-beta.704",
+		"@absolutejs/native-windows-arm64": "0.19.0-beta.704",
+		"@absolutejs/native-windows-x64": "0.19.0-beta.704"
 	},
 	"overrides": {
 		"@typescript-eslint/utils": "8.56.1"
@@ -233,12 +236,19 @@
 		"@angular/platform-browser": "^21.0.0",
 		"@angular/platform-server": "^21.0.0",
 		"@angular/ssr": "^21.0.0",
+		"bun-plugin-tailwind": "^0.1.2",
 		"elysia": "^1.4.0",
+		"less": "^4.6.0",
+		"postcss": "^8.5.0",
 		"react": "^19.2.0",
 		"react-dom": "^19.2.0",
 		"react-refresh": "^0.18.0",
+		"sass": "^1.99.0",
 		"sharp": ">=0.33.0",
+		"stylus": "^0.64.0",
 		"svelte": "^5.35.2",
+		"tailwindcss": "^4.1.0",
+		"typescript": "^5.9.3",
 		"vue": "^3.5.27",
 		"zone.js": "^0.15.0"
 	},
@@ -261,6 +271,15 @@
 		"@angular/ssr": {
 			"optional": true
 		},
+		"bun-plugin-tailwind": {
+			"optional": true
+		},
+		"less": {
+			"optional": true
+		},
+		"postcss": {
+			"optional": true
+		},
 		"react": {
 			"optional": true
 		},
@@ -270,10 +289,22 @@
 		"react-refresh": {
 			"optional": true
 		},
+		"sass": {
+			"optional": true
+		},
 		"sharp": {
 			"optional": true
 		},
+		"stylus": {
+			"optional": true
+		},
 		"svelte": {
+			"optional": true
+		},
+		"tailwindcss": {
+			"optional": true
+		},
+		"typescript": {
 			"optional": true
 		},
 		"vue": {
@@ -302,5 +333,5 @@
 		"typecheck": "bun run src/cli/index.ts typecheck --config example/absolute.config.ts"
 	},
 	"types": "./dist/src/index.d.ts",
-	"version": "0.19.0-beta.650"
+	"version": "0.19.0-beta.704"
 }

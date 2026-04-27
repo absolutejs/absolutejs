@@ -9,6 +9,7 @@ import {
 	captureStreamingSlotWarningCallsite,
 	runWithStreamingSlotWarningScope
 } from '../core/streamingSlotWarningScope';
+import { isSsrCacheDirty, markSsrCacheDirty } from '../core/ssrCache';
 import { ssrErrorPage } from '../utils/ssrErrorPage';
 import { renderConventionError } from '../utils/resolveConvention';
 
@@ -38,8 +39,6 @@ type ReactPageHandlerArgs<Props extends Record<string, unknown>> =
 		? [props?: NoInfer<Props>, options?: ReactPageRenderOptions]
 		: [props: NoInfer<Props>, options?: ReactPageRenderOptions];
 
-let ssrDirty = false;
-
 const buildRefreshSetup = () => {
 	if (process.env.NODE_ENV === 'production') {
 		return '';
@@ -50,18 +49,6 @@ const buildRefreshSetup = () => {
 		'window.$RefreshReg$=function(t,i){window.__REFRESH_BUFFER__.push([t,i])};' +
 		'window.$RefreshSig$=function(){return function(t){return t}};'
 	);
-};
-
-const waitForAllReady = async (stream: ReadableStream) => {
-	if (!('allReady' in stream)) {
-		return;
-	}
-
-	if (!(stream.allReady instanceof Promise)) {
-		return;
-	}
-
-	await stream.allReady;
 };
 
 const buildDirtyResponse = (
@@ -113,7 +100,7 @@ export const handleReactPageRequest = (async <
 				props: args[0]
 			};
 
-	if (ssrDirty) {
+	if (isSsrCacheDirty('react')) {
 		return buildDirtyResponse(resolvedIndex, maybeProps);
 	}
 
@@ -149,7 +136,6 @@ export const handleReactPageRequest = (async <
 					console.error('[SSR] React streaming error:', error);
 				}
 			});
-			await waitForAllReady(stream);
 			const htmlStream = injectIslandPageContextStream(stream);
 
 			return new Response(htmlStream, {
@@ -183,5 +169,5 @@ export const handleReactPageRequest = (async <
 }) as HandleReactPageRequest;
 
 export const invalidateReactSsrCache = () => {
-	ssrDirty = true;
+	markSsrCacheDirty('react');
 };

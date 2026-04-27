@@ -14,9 +14,7 @@ describe('handleReactPageRequest across source framework imports', () => {
 		await import('../../../src/svelte');
 		await import('../../../src/vue');
 
-		const { handleReactPageRequest } = await import(
-			'../../../src/core/pageHandlers'
-		);
+		const { handleReactPageRequest } = await import('../../../src/react');
 		const { StreamSlot } = await import('../../../src/react/components');
 
 		const Page = () =>

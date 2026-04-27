@@ -9,11 +9,11 @@ import {
 	asset,
 	handleHTMLPageRequest,
 	handleHTMXPageRequest,
-	handleReactPageRequest,
 	prepare
 } from '../src';
 import { handleAngularPageRequest } from '../src/angular';
 import { networking } from '../src/plugins/networking';
+import { handleReactPageRequest } from '../src/react';
 import { handleSveltePageRequest } from '../src/svelte';
 import { handleVuePageRequest } from '../src/vue';
 

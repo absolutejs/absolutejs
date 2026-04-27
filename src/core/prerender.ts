@@ -11,11 +11,13 @@ export type PrerenderResult = {
 
 type LogFn = (message: string) => void;
 
-/** Maximum number of attempts to poll the server during startup */
-const MAX_STARTUP_ATTEMPTS = 50;
+const SERVER_OUTPUT_LIMIT = 4000;
 
 /** Milliseconds between each startup readiness poll */
 const STARTUP_POLL_INTERVAL_MS = 100;
+
+/** Default maximum time to wait for the prerender server to become ready. */
+const DEFAULT_STARTUP_TIMEOUT_MS = 30_000;
 
 /** Header used to bypass the prerender cache during ISR re-renders */
 export const PRERENDER_BYPASS_HEADER = 'X-Absolute-Prerender-Bypass';
@@ -191,17 +193,72 @@ export const prerender = async (
 	return result;
 };
 
-/** Poll the server until it responds with HTTP 200 or we exhaust attempts */
+const getStartupTimeoutMs = () => {
+	const rawTimeout = Bun.env.ABSOLUTE_PRERENDER_STARTUP_TIMEOUT_MS;
+	const parsedTimeout = rawTimeout ? Number(rawTimeout) : NaN;
+
+	return Number.isFinite(parsedTimeout) && parsedTimeout > 0
+		? parsedTimeout
+		: DEFAULT_STARTUP_TIMEOUT_MS;
+};
+
+/** Poll the server until it responds or startup timeout elapses */
 const waitForServerReady = async (port: number) => {
-	for (let attempt = 0; attempt < MAX_STARTUP_ATTEMPTS; attempt++) {
+	const deadline = performance.now() + getStartupTimeoutMs();
+	while (performance.now() < deadline) {
 		// eslint-disable-next-line no-await-in-loop -- sequential polling: must wait for server readiness
 		const res = await fetch(`http://localhost:${port}/`).catch(() => null);
-		if (res?.ok) return true;
+		if (res) {
+			await res.body?.cancel().catch(() => undefined);
+
+			return true;
+		}
 		// eslint-disable-next-line no-await-in-loop -- sequential polling: must wait between attempts
 		await Bun.sleep(STARTUP_POLL_INTERVAL_MS);
 	}
 
 	return false;
+};
+
+const captureStreamOutput = (
+	stream: ReadableStream<Uint8Array> | null,
+	output: string[]
+) => {
+	if (!stream) return;
+
+	const reader = stream.getReader();
+	const decoder = new TextDecoder();
+	const read = () => {
+		reader
+			.read()
+			.then(({ done, value }) => {
+				if (done) return;
+				output.push(decoder.decode(value, { stream: true }));
+				read();
+			})
+			.catch(() => {
+				/* best-effort diagnostics */
+			});
+	};
+	read();
+};
+
+const formatServerOutput = (output: string[]) => {
+	const text = output.join('').trim();
+	if (!text) return '';
+
+	return text.length > SERVER_OUTPUT_LIMIT
+		? text.slice(-SERVER_OUTPUT_LIMIT)
+		: text;
+};
+
+const createServerStartupError = (output: string[]) => {
+	const serverOutput = formatServerOutput(output);
+	const message = serverOutput
+		? `Server failed to start for pre-rendering.\n\nServer output:\n${serverOutput}`
+		: 'Server failed to start for pre-rendering';
+
+	return new Error(message);
 };
 
 /**
@@ -216,18 +273,22 @@ export const prerenderWithServer = async (
 	env: Record<string, string>,
 	log?: LogFn
 ) => {
+	const serverOutput: string[] = [];
 	const serverProcess = Bun.spawn(['bun', 'run', serverBundlePath], {
 		cwd: process.cwd(),
 		env: { ...process.env, ...env, PORT: String(port) },
 		stderr: 'pipe',
 		stdout: 'pipe'
 	});
+	captureStreamOutput(serverProcess.stdout, serverOutput);
+	captureStreamOutput(serverProcess.stderr, serverOutput);
 
 	const ready = await waitForServerReady(port);
 
 	if (!ready) {
 		serverProcess.kill();
-		throw new Error('Server failed to start for pre-rendering');
+		await serverProcess.exited.catch(() => undefined);
+		throw createServerStartupError(serverOutput);
 	}
 
 	const result = await prerender(port, outDir, staticConfig, log);

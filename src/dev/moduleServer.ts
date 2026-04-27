@@ -3,8 +3,13 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, extname, resolve, relative } from 'node:path';
 import { resolvePackageImport } from '../build/resolvePackageImport';
 import { buildIslandMetadataExports } from '../islands/sourceMetadata';
+import {
+	compileStyleSource,
+	createSvelteStylePreprocessor
+} from '../build/stylePreprocessor';
 import { lowerSvelteAwaitSlotSyntax } from '../svelte/lowerAwaitSlotSyntax';
 import { lowerSvelteIslandSyntax } from '../svelte/lowerIslandSyntax';
+import type { StylePreprocessorConfig } from '../../types/build';
 import {
 	getInvalidationVersion,
 	getTransformed,
@@ -113,6 +118,7 @@ type ModuleServerConfig = {
 		svelte?: string;
 		vue?: string;
 	};
+	stylePreprocessors?: StylePreprocessorConfig;
 };
 
 const escapeRegex = (str: string) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -305,14 +311,12 @@ const rewriteImports = (
 
 				return `${prefix}${srcUrl(rel, projectRoot)}${suffix}`;
 			}
-			// Path outside project root (e.g., node_modules package src)
-			// Try to make it relative to project root anyway
+			// Path outside project root (for example, Bun-linked package files
+			// whose realpath points at a sibling workspace). We still rewrite it
+			// through /@src/ so the module server can serve it consistently.
 			const rel = relative(projectRoot, absPath).replace(/\\/g, '/');
-			if (!rel.startsWith('..')) {
-				return `${prefix}${srcUrl(rel, projectRoot)}${suffix}`;
-			}
 
-			return _match;
+			return `${prefix}${srcUrl(rel, projectRoot)}${suffix}`;
 		}
 	);
 
@@ -700,7 +704,8 @@ const compileSvelteComponent = (
 const transformSvelteFile = async (
 	filePath: string,
 	projectRoot: string,
-	rewriter: ReturnType<typeof buildImportRewriter>
+	rewriter: ReturnType<typeof buildImportRewriter>,
+	stylePreprocessors?: StylePreprocessorConfig
 ) => {
 	const raw = readFileSync(filePath, 'utf-8');
 
@@ -716,7 +721,14 @@ const transformSvelteFile = async (
 	const loweredSource = isModule
 		? loweredAwaitSource
 		: lowerSvelteIslandSyntax(loweredAwaitSource.code, 'client');
-	const source = loweredSource.code;
+	const source = isModule
+		? loweredSource.code
+		: (
+				await svelteCompiler.preprocess(
+					loweredSource.code,
+					createSvelteStylePreprocessor(stylePreprocessors)
+				)
+			).code;
 	const enableAsync =
 		loweredAwaitSource.transformed || loweredSource.transformed;
 
@@ -728,7 +740,7 @@ const transformSvelteFile = async (
 };
 
 type VueSFCDescriptor = {
-	styles: Array<{ content: string; scoped: boolean }>;
+	styles: Array<{ content: string; lang?: string; scoped: boolean }>;
 	template?: { content: string } | null;
 };
 
@@ -768,26 +780,36 @@ const compileVueTemplate = (
 };
 
 // Compile and inject scoped CSS as inline <style> for a Vue SFC.
-const compileVueStyles = (
+const compileVueStyles = async (
 	descriptor: VueSFCDescriptor,
 	filePath: string,
 	componentId: string,
-	code: string
+	code: string,
+	stylePreprocessors?: StylePreprocessorConfig
 ) => {
 	if (descriptor.styles.length === 0) return code;
 
-	const cssCode = descriptor.styles
-		.map(
-			(style) =>
-				vueCompiler.compileStyle({
-					filename: filePath,
-					id: `data-v-${componentId}`,
-					scoped: style.scoped,
-					source: style.content,
-					trim: true
-				}).code
+	const cssCode = (
+		await Promise.all(
+			descriptor.styles.map(
+				async (style) =>
+					vueCompiler.compileStyle({
+						filename: filePath,
+						id: `data-v-${componentId}`,
+						scoped: style.scoped,
+						source: style.lang
+							? await compileStyleSource(
+									filePath,
+									style.content,
+									style.lang,
+									stylePreprocessors
+								)
+							: style.content,
+						trim: true
+					}).code
+			)
 		)
-		.join('\n');
+	).join('\n');
 
 	const escaped = cssCode
 		.replace(/\\/g, '\\\\')
@@ -811,7 +833,8 @@ const transformVueFile = async (
 	filePath: string,
 	projectRoot: string,
 	rewriter: ReturnType<typeof buildImportRewriter>,
-	vueDir?: string
+	vueDir?: string,
+	stylePreprocessors?: StylePreprocessorConfig
 ) => {
 	const raw = readFileSync(filePath, 'utf-8');
 
@@ -834,7 +857,13 @@ const transformVueFile = async (
 		filePath,
 		componentId
 	);
-	code = compileVueStyles(descriptor, filePath, componentId, code);
+	code = await compileVueStyles(
+		descriptor,
+		filePath,
+		componentId,
+		code,
+		stylePreprocessors
+	);
 
 	// Vue's compileScript strips user TypeScript but the generated
 	// wrapper code still has `: any` annotations (e.g. __props: any,
@@ -1102,7 +1131,8 @@ const transformAndCache = async (
 	ext: string,
 	projectRoot: string,
 	rewriter: ReturnType<typeof buildImportRewriter>,
-	vueDir?: string
+	vueDir?: string,
+	stylePreprocessors?: StylePreprocessorConfig
 ) => {
 	if (ext === '.css') return jsResponse(handleCssRequest(filePath));
 
@@ -1115,9 +1145,20 @@ const transformAndCache = async (
 	if (cached) return jsResponse(cached);
 
 	if (isSvelte)
-		return transformAndCacheSvelte(filePath, projectRoot, rewriter);
+		return transformAndCacheSvelte(
+			filePath,
+			projectRoot,
+			rewriter,
+			stylePreprocessors
+		);
 	if (ext === '.vue')
-		return transformAndCacheVue(filePath, projectRoot, rewriter, vueDir);
+		return transformAndCacheVue(
+			filePath,
+			projectRoot,
+			rewriter,
+			vueDir,
+			stylePreprocessors
+		);
 	if (!TRANSPILABLE.has(ext)) return undefined;
 
 	const stat = statSync(filePath);
@@ -1139,10 +1180,16 @@ const transformAndCache = async (
 const transformAndCacheSvelte = async (
 	filePath: string,
 	projectRoot: string,
-	rewriter: ReturnType<typeof buildImportRewriter>
+	rewriter: ReturnType<typeof buildImportRewriter>,
+	stylePreprocessors?: StylePreprocessorConfig
 ) => {
 	const stat = statSync(filePath);
-	const content = await transformSvelteFile(filePath, projectRoot, rewriter);
+	const content = await transformSvelteFile(
+		filePath,
+		projectRoot,
+		rewriter,
+		stylePreprocessors
+	);
 	setTransformed(
 		filePath,
 		content,
@@ -1157,14 +1204,16 @@ const transformAndCacheVue = async (
 	filePath: string,
 	projectRoot: string,
 	rewriter: ReturnType<typeof buildImportRewriter>,
-	vueDir?: string
+	vueDir?: string,
+	stylePreprocessors?: StylePreprocessorConfig
 ) => {
 	const stat = statSync(filePath);
 	const content = await transformVueFile(
 		filePath,
 		projectRoot,
 		rewriter,
-		vueDir
+		vueDir,
+		stylePreprocessors
 	);
 	setTransformed(
 		filePath,
@@ -1190,7 +1239,8 @@ const transformErrorResponse = (err: unknown) => {
 };
 
 export const createModuleServer = (config: ModuleServerConfig) => {
-	const { projectRoot, vendorPaths, frameworkDirs } = config;
+	const { projectRoot, vendorPaths, frameworkDirs, stylePreprocessors } =
+		config;
 	const rewriter = buildImportRewriter(vendorPaths);
 
 	return async (pathname: string) => {
@@ -1214,7 +1264,8 @@ export const createModuleServer = (config: ModuleServerConfig) => {
 				ext,
 				projectRoot,
 				rewriter,
-				frameworkDirs?.vue
+				frameworkDirs?.vue,
+				stylePreprocessors
 			);
 		} catch (err) {
 			return transformErrorResponse(err);

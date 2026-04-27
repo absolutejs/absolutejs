@@ -1,7 +1,7 @@
 import {
 	ChangeDetectionStrategy,
 	ChangeDetectorRef,
-	AfterViewInit,
+	type AfterViewInit,
 	Component,
 	ContentChild,
 	Input,

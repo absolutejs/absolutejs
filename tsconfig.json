@@ -36,7 +36,6 @@
 		"**/generated/**"
 	],
 	"include": [
-		"rag-smoke.ts",
 		"src/**/*",
 		"types/**/*",
 		"example/**/*",

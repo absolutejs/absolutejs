@@ -1,7 +1,30 @@
-import { mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { rm } from 'node:fs/promises';
 import { build as bunBuild } from 'bun';
+
+const resolveJsxDevRuntimeCompatPath = () => {
+	const candidates = [
+		resolve(import.meta.dir, 'react', 'jsxDevRuntimeCompat.js'),
+		resolve(import.meta.dir, 'src', 'react', 'jsxDevRuntimeCompat.ts'),
+		resolve(import.meta.dir, '..', 'react', 'jsxDevRuntimeCompat.js'),
+		resolve(import.meta.dir, '..', 'src', 'react', 'jsxDevRuntimeCompat.ts'),
+		resolve(import.meta.dir, '..', '..', 'dist', 'react', 'jsxDevRuntimeCompat.js'),
+		resolve(import.meta.dir, '..', '..', 'src', 'react', 'jsxDevRuntimeCompat.ts')
+	];
+	for (const candidate of candidates) {
+		if (existsSync(candidate)) {
+			return candidate.replace(/\\/g, '/');
+		}
+	}
+
+	return (candidates[0] ?? resolve(import.meta.dir, 'react', 'jsxDevRuntimeCompat.js')).replace(
+		/\\/g,
+		'/'
+	);
+};
+
+const jsxDevRuntimeCompatPath = resolveJsxDevRuntimeCompatPath();
 
 /** Bare specifiers that need stable vendor builds */
 const reactSpecifiers = [
@@ -14,7 +37,7 @@ const reactSpecifiers = [
 
 const isResolvable = (specifier: string) => {
 	try {
-		require.resolve(specifier);
+		Bun.resolveSync(specifier, process.cwd());
 
 		return true;
 	} catch {
@@ -51,6 +74,10 @@ export const computeVendorPaths = () => {
  *  CJS module — `export * from 'react'` can't statically determine the
  *  export names, so Bun produces an empty re-export. */
 const generateEntrySource = async (specifier: string) => {
+	if (specifier === 'react/jsx-dev-runtime') {
+		return `export { Fragment, jsxDEV, default } from '${jsxDevRuntimeCompatPath}';\n`;
+	}
+
 	const mod = await import(specifier);
 	const exportNames = Object.keys(mod).filter(
 		(key) => key !== 'default' && key !== '__esModule'

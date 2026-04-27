@@ -94,6 +94,60 @@ const handleBundleFailure = (
 	process.exit(1);
 };
 
+const resolveJsxDevRuntimeCompatPath = () => {
+	const candidates = [
+		resolve(
+			import.meta.dir,
+			'..',
+			'..',
+			'dist',
+			'react',
+			'jsxDevRuntimeCompat.js'
+		),
+		resolve(import.meta.dir, '..', '..', 'react', 'jsxDevRuntimeCompat.js'),
+		resolve(import.meta.dir, '..', '..', 'react', 'jsxDevRuntimeCompat.ts'),
+		resolve(
+			import.meta.dir,
+			'..',
+			'..',
+			'..',
+			'dist',
+			'react',
+			'jsxDevRuntimeCompat.js'
+		),
+		resolve(
+			import.meta.dir,
+			'..',
+			'..',
+			'..',
+			'react',
+			'jsxDevRuntimeCompat.js'
+		),
+		resolve(
+			import.meta.dir,
+			'..',
+			'..',
+			'..',
+			'src',
+			'react',
+			'jsxDevRuntimeCompat.ts'
+		)
+	];
+	for (const candidate of candidates) {
+		if (existsSync(candidate)) return candidate;
+	}
+
+	return resolve(
+		import.meta.dir,
+		'..',
+		'..',
+		'react',
+		'jsxDevRuntimeCompat.js'
+	);
+};
+
+const jsxDevRuntimeCompatPath = resolveJsxDevRuntimeCompatPath();
+
 const prerenderStaticPages = async (
 	outputPath: string,
 	prerenderPort: number,
@@ -249,6 +303,9 @@ export const start = async (
 					loader: 'js'
 				})
 			);
+			bld.onResolve({ filter: /^react\/jsx-dev-runtime$/ }, () => ({
+				path: jsxDevRuntimeCompatPath
+			}));
 			// Stub debug — it's a transitive dep of node-cache (via @elysiajs/static)
 			// and is a no-op in production anyway. Stubbing it also eliminates ms,
 			// has-flag, and supports-color from the bundle.
@@ -283,7 +340,7 @@ export const start = async (
 		entrypoints: [resolve(serverEntry)],
 		external: [
 			'react',
-			'react/*',
+			'react/jsx-runtime',
 			'react-dom',
 			'react-dom/*',
 			'vue',
@@ -297,7 +354,8 @@ export const start = async (
 			'@angular/core',
 			'@angular/common',
 			'@angular/platform-browser',
-			'@angular/platform-server'
+			'@angular/platform-server',
+			'typescript'
 		],
 		outdir: resolvedOutdir,
 		plugins: [stubPlugin],

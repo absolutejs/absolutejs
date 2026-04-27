@@ -26,6 +26,7 @@ const SERVER_ENTRY_POINTS = [
 	'src/react/index.ts',
 	'src/react/browser.ts',
 	'src/react/server.ts',
+	'src/react/jsxDevRuntimeCompat.ts',
 	'src/react/components/index.ts',
 	'src/react/hooks/index.ts',
 	'src/core/streamingSlotRegistrar.ts',
@@ -59,6 +60,7 @@ const EXTERNALS = [
 	'@angular/platform-server',
 	'@angular/ssr',
 	'zone.js',
+	'typescript',
 	'debug',
 	'sharp',
 	'@absolutejs/native-linux-x64',
@@ -75,6 +77,7 @@ const build = async () => {
 	const serverBuild = await Bun.build({
 		entrypoints: SERVER_ENTRY_POINTS,
 		external: EXTERNALS,
+		jsx: { development: false },
 		outdir: DIST,
 		root: 'src',
 		sourcemap: 'linked',
@@ -109,6 +112,7 @@ const build = async () => {
 			'react/jsx-runtime',
 			'react/jsx-dev-runtime'
 		],
+		jsx: { development: false },
 		outdir: join(DIST, 'react', 'components', 'browser'),
 		root: 'src/react/components/browser',
 		target: 'browser'

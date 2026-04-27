@@ -86,7 +86,10 @@ const loadServerBuildComponent = async (buildReferencePath: string) => {
 	return loadPromise;
 };
 
-const loadServerImportComponent = async (resolvedComponent: string) => {
+const loadServerImportComponent = async (
+	resolvedComponent: string,
+	exportName?: string
+) => {
 	const resolvedModulePath = resolvedComponent.startsWith('.')
 		? new URL(resolvedComponent, import.meta.url).pathname
 		: resolvedComponent;
@@ -94,6 +97,10 @@ const loadServerImportComponent = async (resolvedComponent: string) => {
 		? await compileSvelteServerModule(resolvedModulePath)
 		: resolvedModulePath;
 	const loadedModule = await import(importTarget);
+
+	if (exportName && exportName !== 'default' && exportName in loadedModule) {
+		return loadedModule[exportName];
+	}
 
 	return 'default' in loadedModule ? loadedModule.default : loadedModule;
 };
@@ -105,6 +112,12 @@ const resolveIslandComponent = async (component: unknown) => {
 		: null;
 	if (buildReferencePath?.endsWith('.svelte')) {
 		return loadServerBuildComponent(buildReferencePath);
+	}
+	if (buildReferencePath) {
+		return loadServerImportComponent(
+			buildReferencePath,
+			buildReference?.export
+		);
 	}
 
 	const resolvedComponent = getIslandComponent(component);

@@ -14,7 +14,7 @@ describe('react streaming across built package entrypoints', () => {
 
 	test('top-level handler and react/components StreamSlot share slot registration state', async () => {
 		const { handleReactPageRequest } = await import(
-			resolve(PROJECT_ROOT, 'dist/index.js')
+			resolve(PROJECT_ROOT, 'dist/react/index.js')
 		);
 		const { StreamSlot } = await import(
 			resolve(PROJECT_ROOT, 'dist/react/components/index.js')

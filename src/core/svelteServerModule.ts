@@ -4,6 +4,7 @@ import { basename, dirname, extname, join, relative, resolve } from 'node:path';
 import { resolvePackageImport } from '../build/resolvePackageImport';
 import { lowerSvelteIslandSyntax } from '../svelte/lowerIslandSyntax';
 import { lowerSvelteAwaitSlotSyntax } from '../svelte/lowerAwaitSlotSyntax';
+import { createSvelteStylePreprocessor } from '../build/stylePreprocessor';
 
 const serverCacheRoot = join(process.cwd(), '.absolutejs', 'islands', 'svelte');
 
@@ -196,7 +197,10 @@ export const compileSvelteServerModule = async (sourcePath: string) => {
 		loweredAwaitSource.code,
 		'server'
 	);
-	const preprocessed = await preprocess(loweredSource.code, {});
+	const preprocessed = await preprocess(
+		loweredSource.code,
+		createSvelteStylePreprocessor()
+	);
 	let transpiled =
 		sourcePath.endsWith('.ts') || sourcePath.endsWith('.svelte.ts')
 			? transpiler.transformSync(preprocessed.code)

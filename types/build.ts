@@ -20,6 +20,74 @@ export type StylesConfig = {
 	ignore?: string[];
 };
 
+export type SassPreprocessorOptions = {
+	/**
+	 * Additional directories used when resolving Sass/SCSS @use, @forward, and @import.
+	 * The current file directory and project root are always included.
+	 */
+	loadPaths?: string[];
+	/** Source prepended to every Sass/SCSS file before compilation. */
+	additionalData?: string;
+	/** Select the Sass implementation package. Defaults to "sass". */
+	implementation?: 'sass' | 'sass-embedded';
+};
+
+export type LessPreprocessorOptions = {
+	/**
+	 * Additional directories used when resolving Less @import.
+	 * The current file directory and project root are always included.
+	 */
+	paths?: string[];
+	/** Source prepended to every Less file before compilation. */
+	additionalData?: string;
+	/** Extra Less render options forwarded to less.render(). */
+	options?: Record<string, unknown>;
+};
+
+export type StylusPreprocessorOptions = {
+	/**
+	 * Additional directories used when resolving Stylus @import.
+	 * The current file directory and project root are always included.
+	 */
+	paths?: string[];
+	/** Source prepended to every Stylus file before compilation. */
+	additionalData?: string;
+	/** Extra Stylus renderer options forwarded to stylus.set(). */
+	options?: Record<string, unknown>;
+};
+
+export type PostCSSConfig =
+	| false
+	| {
+			/**
+			 * Inline PostCSS plugins. Import plugins in absolute.config.ts and pass
+			 * initialized plugin instances here.
+			 */
+			plugins?: unknown[] | Record<string, unknown>;
+			/** Extra options forwarded to postcss.process(). */
+			options?: Record<string, unknown>;
+			/** Explicit PostCSS config file, such as ./postcss.config.cjs. */
+			config?: string;
+	  };
+
+export type StylePreprocessorConfig = {
+	/**
+	 * Import aliases for preprocessor imports, e.g. { "@styles/*": "src/styles/*" }.
+	 * tsconfig compilerOptions.paths are also loaded automatically when available.
+	 */
+	aliases?: Record<string, string | string[]>;
+	sass?: SassPreprocessorOptions;
+	scss?: SassPreprocessorOptions;
+	less?: LessPreprocessorOptions;
+	postcss?: PostCSSConfig;
+	stylus?: StylusPreprocessorOptions;
+};
+
+export type TailwindConfig = {
+	input: string;
+	output: string;
+};
+
 export type StaticConfig = {
 	/** Routes to pre-render at build time. Use "all" to crawl from / and discover all linked pages. */
 	routes: string[] | 'all';
@@ -27,7 +95,56 @@ export type StaticConfig = {
 	revalidate?: number;
 };
 
-export type BuildConfig = {
+export type HttpReadyConfig = {
+	type?: 'http';
+	path?: string;
+	url?: string;
+	method?: 'GET' | 'HEAD';
+	expectStatus?: number | number[];
+	headers?: Record<string, string>;
+	intervalMs?: number;
+	timeoutMs?: number;
+};
+
+export type TcpReadyConfig = {
+	type: 'tcp';
+	host?: string;
+	port: number;
+	intervalMs?: number;
+	timeoutMs?: number;
+};
+
+export type CommandReadyConfig = {
+	type: 'command';
+	command: string[];
+	intervalMs?: number;
+	timeoutMs?: number;
+};
+
+export type DelayReadyConfig = {
+	type: 'delay';
+	ms: number;
+};
+
+export type ServiceReadyConfig =
+	| false
+	| string
+	| HttpReadyConfig
+	| TcpReadyConfig
+	| CommandReadyConfig
+	| DelayReadyConfig;
+
+export type ServiceShutdownConfig =
+	| false
+	| string[]
+	| {
+			command: string[];
+			timeoutMs?: number;
+	  };
+
+export type ServiceVisibility = 'public' | 'internal';
+
+export type BaseBuildConfig = {
 	buildDirectory?: string;
 	assetsDirectory?: string;
 	publicDirectory?: string;
@@ -43,10 +160,9 @@ export type BuildConfig = {
 	htmlDirectory?: string;
 	htmxDirectory?: string;
 	stylesConfig?: string | StylesConfig;
-	tailwind?: {
-		input: string;
-		output: string;
-	};
+	stylePreprocessors?: StylePreprocessorConfig;
+	postcss?: PostCSSConfig;
+	tailwind?: TailwindConfig;
 	options?: BuildOptions;
 	// Optional: List of files to rebuild incrementally (absolute paths)
 	// When provided, only these files and their dependencies will be rebuilt
@@ -75,6 +191,40 @@ export type BuildConfig = {
 	// Sitemap generation — auto-discovers page routes on server start
 	sitemap?: SitemapConfig;
 };
+
+export type AbsoluteServiceConfig = BaseBuildConfig & {
+	kind?: 'absolute';
+	cwd?: string;
+	config?: string;
+	dependsOn?: string[];
+	entry?: string;
+	env?: Record<string, string>;
+	ready?: ServiceReadyConfig;
+	shutdown?: ServiceShutdownConfig;
+	port?: number;
+	visibility?: ServiceVisibility;
+	command?: never;
+};
+
+export type CommandServiceConfig = {
+	kind: 'command';
+	command: string[];
+	cwd?: string;
+	dependsOn?: string[];
+	env?: Record<string, string>;
+	ready?: ServiceReadyConfig;
+	shutdown?: ServiceShutdownConfig;
+	port?: number;
+	visibility?: ServiceVisibility;
+	entry?: never;
+	config?: never;
+};
+
+export type ServiceConfig = AbsoluteServiceConfig | CommandServiceConfig;
+export type WorkspaceConfig = Record<string, ServiceConfig>;
+export type BuildConfig = AbsoluteServiceConfig;
+export type ConfigInput = BuildConfig | WorkspaceConfig;
+export type ReservedConfigKey = keyof BuildConfig;
 
 export type BuildResult = ReturnType<typeof build>;
 export type DevBuildResult = ReturnType<typeof devBuild>;

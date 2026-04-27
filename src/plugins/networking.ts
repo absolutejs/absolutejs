@@ -8,6 +8,8 @@ import { startupBanner } from '../utils/startupBanner';
 
 let host = env.HOST ?? 'localhost';
 const port = env.PORT ?? DEFAULT_PORT;
+const visibility = env.ABSOLUTE_WORKSPACE_SERVICE_VISIBILITY ?? 'public';
+const managedByWorkspace = env.ABSOLUTE_WORKSPACE_MANAGED === '1';
 let localIP: string | undefined;
 
 const args = argv;
@@ -47,6 +49,10 @@ export const networking = <A extends Elysia>(app: A) =>
 				: {})
 		},
 		() => {
+			if (visibility === 'internal' || managedByWorkspace) {
+				return;
+			}
+
 			// Skip logging on Bun --hot reloads (HMR handles its own output)
 			const isHotReload = Boolean(globalThis.__hmrServerStartup);
 			globalThis.__hmrServerStartup = true;
@@ -57,18 +63,20 @@ export const networking = <A extends Elysia>(app: A) =>
 			const buildDuration =
 				globalThis.__hmrBuildDuration ??
 				Number(env.ABSOLUTE_BUILD_DURATION || 0);
+			const readyDuration = process.uptime() * 1000;
 
 			const version =
 				globalThis.__absoluteVersion || env.ABSOLUTE_VERSION || '';
 
 			startupBanner({
-				duration: buildDuration,
+				buildDuration,
 				host,
 				networkUrl: hostFlag
 					? `${protocol}://${localIP}:${port}/`
 					: undefined,
 				port,
 				protocol,
+				readyDuration,
 				version
 			});
 		}

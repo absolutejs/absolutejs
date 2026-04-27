@@ -1,6 +1,6 @@
 import { readdir } from 'node:fs/promises';
 import { statSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { build } from './build';
 import {
 	setDevVendorPaths,
@@ -30,6 +30,7 @@ import { getWatchPaths } from '../dev/pathUtils';
 import { cleanStaleAssets, populateAssetStore } from '../dev/assetStore';
 import { queueFileChange } from '../dev/rebuildTrigger';
 import { logServerReload } from '../utils/logger';
+import { logStartupTimingBlock } from '../utils/startupTimings';
 
 const FRAMEWORK_DIR_KEYS = [
 	'reactDirectory',
@@ -39,6 +40,21 @@ const FRAMEWORK_DIR_KEYS = [
 	'htmxDirectory',
 	'angularDirectory'
 ] as const;
+
+const collectDepVendorSourceDirs = (config: BuildConfig) => {
+	const configuredDirs = [
+		config.reactDirectory,
+		config.svelteDirectory,
+		config.vueDirectory,
+		config.angularDirectory,
+		config.htmlDirectory,
+		config.htmxDirectory
+	].filter((dir): dir is string => Boolean(dir));
+
+	return Array.from(
+		new Set(configuredDirs.flatMap((dir) => [dir, dirname(dir)]))
+	);
+};
 
 /** Parse directory keys from config source text */
 const parseDirectoryConfig = (source: string) => {
@@ -290,15 +306,28 @@ export const devBuild = async (config: BuildConfig) => {
 		return cached;
 	}
 
+	const startupSteps: Array<{ label: string; durationMs: number }> = [];
+	const recordStep = (label: string, startedAt: number) => {
+		startupSteps.push({
+			label,
+			durationMs: performance.now() - startedAt
+		});
+	};
+
 	// Create initial HMR state with config
+	let stepStartedAt = performance.now();
 	const state = createHMRState(config);
+	recordStep('create HMR state', stepStartedAt);
 
 	// Initialize dependency graph by scanning all source files
+	stepStartedAt = performance.now();
 	const watchPaths = getWatchPaths(config, state.resolvedPaths);
 	buildInitialDependencyGraph(state.dependencyGraph, watchPaths);
+	recordStep('initialize dependency graph', stepStartedAt);
 
 	// Pre-compute vendor paths so build() can externalize frameworks.
 	// The actual vendor files are built after build() creates the output dir.
+	stepStartedAt = performance.now();
 	if (config.reactDirectory) {
 		setDevVendorPaths(computeVendorPaths());
 	}
@@ -311,8 +340,14 @@ export const devBuild = async (config: BuildConfig) => {
 	if (config.vueDirectory) {
 		setVueVendorPaths(computeVueVendorPaths());
 	}
+	const sourceDirs = collectDepVendorSourceDirs(config);
+	const { computeDepVendorPaths } = await import('../build/buildDepVendor');
+	globalThis.__depVendorPaths = await computeDepVendorPaths(sourceDirs);
+	recordStep('prepare vendor paths', stepStartedAt);
 
+	stepStartedAt = performance.now();
 	await resolveAbsoluteVersion();
+	recordStep('resolve version', stepStartedAt);
 
 	const buildStart = performance.now();
 
@@ -327,6 +362,7 @@ export const devBuild = async (config: BuildConfig) => {
 	});
 	const manifest = buildResult.manifest ?? {};
 	const conventions = buildResult.conventions ?? {};
+	recordStep('initial build', buildStart);
 
 	if (Object.keys(manifest).length === 0) {
 		console.log(
@@ -335,6 +371,7 @@ export const devBuild = async (config: BuildConfig) => {
 	}
 
 	// Populate in-memory asset store so client assets are served from memory
+	stepStartedAt = performance.now();
 	await populateAssetStore(
 		state.assetStore,
 		manifest,
@@ -345,8 +382,10 @@ export const devBuild = async (config: BuildConfig) => {
 		manifest,
 		state.resolvedPaths.buildDir
 	);
+	recordStep('populate asset store', stepStartedAt);
 
 	// Build React and Angular vendor files in parallel now that the build directory exists.
+	stepStartedAt = performance.now();
 	const buildReactVendorTask = config.reactDirectory
 		? buildReactVendor(state.resolvedPaths.buildDir).then(async () => {
 				const vendorDir = resolve(
@@ -406,14 +445,6 @@ export const devBuild = async (config: BuildConfig) => {
 	// Pre-bundle ALL npm dependencies so the module server can resolve them.
 	// Scans source files for bare import specifiers, bundles each into /vendor/.
 	const { buildDepVendor } = await import('../build/buildDepVendor');
-	const sourceDirs = [
-		config.reactDirectory,
-		config.svelteDirectory,
-		config.vueDirectory,
-		config.angularDirectory,
-		config.htmlDirectory,
-		config.htmxDirectory
-	].filter((dir): dir is string => Boolean(dir));
 
 	const buildDepVendorTask = buildDepVendor(
 		state.resolvedPaths.buildDir,
@@ -434,28 +465,34 @@ export const devBuild = async (config: BuildConfig) => {
 		buildVueVendorTask,
 		buildDepVendorTask
 	]);
+	recordStep('build vendor bundles', stepStartedAt);
 
 	// Pre-warm framework compilers so the first HMR edit is fast.
 	// Sets the module-level compiler references in moduleServer.ts
 	// so transformSvelteFile/transformVueFile skip the dynamic import.
+	stepStartedAt = performance.now();
 	const { warmCompilers } = await import('../dev/moduleServer');
 	await warmCompilers({
 		svelte: Boolean(config.svelteDirectory),
 		vue: Boolean(config.vueDirectory)
 	});
+	recordStep('warm compilers', stepStartedAt);
 
 	// Store initial manifest on HMR state for Angular fast-path HMR
 	state.manifest = manifest;
 
+	stepStartedAt = performance.now();
 	startFileWatching(state, config, (filePath: string) => {
 		queueFileChange(state, filePath, config, (newBuildResult) => {
 			Object.assign(manifest, newBuildResult.manifest);
 			state.manifest = manifest;
 		});
 	});
+	recordStep('start file watching', stepStartedAt);
 
 	// Store build duration for the startup banner (printed by networking plugin)
 	globalThis.__hmrBuildDuration = performance.now() - buildStart;
+	logStartupTimingBlock('AbsoluteJS devBuild timing', startupSteps);
 
 	const result: NonNullable<typeof globalThis.__hmrDevResult> = {
 		conventions,
