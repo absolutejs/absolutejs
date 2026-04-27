@@ -226,8 +226,8 @@ const prepareDev = async (
 		.use(imageOptimizer(config.images, buildDir))
 		.use(
 			staticPlugin({
-				assets: buildDir,
 				alwaysStatic: true,
+				assets: buildDir,
 				directive: 'no-cache',
 				maxAge: null,
 				prefix: '',
@@ -353,8 +353,8 @@ export const prepare = async (configOrPath?: string) => {
 	stepStartedAt = performance.now();
 	const { staticPlugin } = await import('@elysiajs/static');
 	const staticFiles = staticPlugin({
-		assets: buildDir,
 		alwaysStatic: true,
+		assets: buildDir,
 		prefix: '',
 		staticLimit: MAX_STATIC_ROUTE_COUNT
 	});

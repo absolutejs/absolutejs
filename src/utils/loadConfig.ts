@@ -110,11 +110,26 @@ const projectServiceConfig = (
 		ready: _ready,
 		visibility: _visibility,
 		...serviceConfig
-	} = service as AbsoluteServiceConfig;
+	} = service;
 
 	return serviceConfig;
 };
 
+export const loadConfig = async (configPath?: string): Promise<BuildConfig> => {
+	const config = await loadRawConfig(configPath);
+	const serviceName = process.env.ABSOLUTE_WORKSPACE_SERVICE_NAME;
+	if (typeof serviceName === 'string' && serviceName.length > 0) {
+		return projectServiceConfig(config, serviceName);
+	}
+
+	if (isWorkspaceConfig(config)) {
+		throw new Error(
+			'absolute.config.ts defines multiple services. Use `absolute workspace dev` or set ABSOLUTE_WORKSPACE_SERVICE_NAME before loading a specific service config.'
+		);
+	}
+
+	return config;
+};
 export const loadRawConfig = async (
 	configPath?: string
 ): Promise<ConfigInput> => {
@@ -138,22 +153,6 @@ export const loadRawConfig = async (
 	}
 
 	return config as ConfigInput;
-};
-
-export const loadConfig = async (configPath?: string): Promise<BuildConfig> => {
-	const config = await loadRawConfig(configPath);
-	const serviceName = process.env.ABSOLUTE_WORKSPACE_SERVICE_NAME;
-	if (typeof serviceName === 'string' && serviceName.length > 0) {
-		return projectServiceConfig(config, serviceName);
-	}
-
-	if (isWorkspaceConfig(config)) {
-		throw new Error(
-			'absolute.config.ts defines multiple services. Use `absolute workspace dev` or set ABSOLUTE_WORKSPACE_SERVICE_NAME before loading a specific service config.'
-		);
-	}
-
-	return config as BuildConfig;
 };
 
 export { getWorkspaceServices, isWorkspaceConfig };

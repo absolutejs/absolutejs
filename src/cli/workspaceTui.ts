@@ -441,6 +441,7 @@ export const createWorkspaceTui = ({
 						if (index === 0) {
 							return `${prefixColor}${getLogColor(entry.level)}${line}${colors.reset}`;
 						}
+
 						return `${' '.repeat(prefixPlain.length)}${getLogColor(entry.level)}${line}${colors.reset}`;
 					});
 				});
@@ -462,6 +463,7 @@ export const createWorkspaceTui = ({
 						contentLines.length - logScrollOffset
 					);
 					const start = Math.max(0, end - logHeight);
+
 					return contentLines.slice(start, end);
 				})();
 		const maxLogScrollOffset = !helpVisible
@@ -496,6 +498,7 @@ export const createWorkspaceTui = ({
 			const inThumb =
 				index >= scrollbarTop &&
 				index < scrollbarTop + scrollbarThumbHeight;
+
 			return inThumb
 				? `${colors.cyan}█${colors.reset}`
 				: `${colors.dim}│${colors.reset}`;
@@ -553,6 +556,7 @@ export const createWorkspaceTui = ({
 			const promptColumn = Math.min(promptBuffer.length + 3, width);
 			const promptRow = Math.min(rows.length, height);
 			process.stdout.write(`\x1b[${promptRow};${promptColumn}H\x1b[?25h`);
+
 			return;
 		}
 		process.stdout.write('\x1b[?25l');
@@ -632,6 +636,7 @@ export const createWorkspaceTui = ({
 			shellHistoryIndex = UNFOUND_INDEX;
 			promptBuffer = '';
 			scheduleRender();
+
 			return;
 		} else {
 			shellHistoryIndex--;
@@ -677,11 +682,13 @@ export const createWorkspaceTui = ({
 	) => {
 		if (action === 'clear') {
 			clearLogs();
+
 			return;
 		}
 		if (action === 'help') {
 			helpVisible = !helpVisible;
 			scheduleRender();
+
 			return;
 		}
 
@@ -692,6 +699,7 @@ export const createWorkspaceTui = ({
 		const command = promptBuffer.trim();
 		if (!command) {
 			resetPrompt();
+
 			return;
 		}
 
@@ -708,6 +716,7 @@ export const createWorkspaceTui = ({
 		escapeBuffer += char;
 		if (escapeBuffer === `${ESCAPE}[`) {
 			armEscapeTimer();
+
 			return;
 		}
 		if (escapeBuffer === `${ESCAPE}[A`) {
@@ -718,6 +727,7 @@ export const createWorkspaceTui = ({
 			} else {
 				scrollLogs('up');
 			}
+
 			return;
 		}
 		if (escapeBuffer === `${ESCAPE}[B`) {
@@ -728,34 +738,40 @@ export const createWorkspaceTui = ({
 			} else {
 				scrollLogs('down');
 			}
+
 			return;
 		}
 		if (escapeBuffer === `${ESCAPE}[5~`) {
 			clearPendingEscape();
 			escapeBuffer = '';
 			scrollLogs('pageUp');
+
 			return;
 		}
 		if (escapeBuffer === `${ESCAPE}[6~`) {
 			clearPendingEscape();
 			escapeBuffer = '';
 			scrollLogs('pageDown');
+
 			return;
 		}
 		if (escapeBuffer === `${ESCAPE}[H` || escapeBuffer === `${ESCAPE}[1~`) {
 			clearPendingEscape();
 			escapeBuffer = '';
 			scrollLogs('home');
+
 			return;
 		}
 		if (escapeBuffer === `${ESCAPE}[F` || escapeBuffer === `${ESCAPE}[4~`) {
 			clearPendingEscape();
 			escapeBuffer = '';
 			scrollLogs('end');
+
 			return;
 		}
 		if (/^\x1b\[[0-9]*$/.test(escapeBuffer)) {
 			armEscapeTimer();
+
 			return;
 		}
 		exitEscapeMode();
@@ -764,17 +780,20 @@ export const createWorkspaceTui = ({
 	const handleChar = async (char: string) => {
 		if (char === '\x03') {
 			await actions.quit();
+
 			return;
 		}
 
 		if (char === ESCAPE) {
 			escapeBuffer = ESCAPE;
 			armEscapeTimer();
+
 			return;
 		}
 
 		if (escapeBuffer) {
 			handleEscapeSequence(char);
+
 			return;
 		}
 
@@ -785,9 +804,11 @@ export const createWorkspaceTui = ({
 			if (promptBuffer.length > 0) {
 				promptBuffer = promptBuffer.slice(0, UNFOUND_INDEX);
 				scheduleRender();
+
 				return;
 			}
 			resetPrompt();
+
 			return;
 		}
 
@@ -795,6 +816,7 @@ export const createWorkspaceTui = ({
 			if (shellMode) {
 				await submitShellCommand();
 			}
+
 			return;
 		}
 
@@ -807,6 +829,7 @@ export const createWorkspaceTui = ({
 				shellMode = true;
 				promptBuffer = '';
 				scheduleRender();
+
 				return;
 			}
 
@@ -814,6 +837,7 @@ export const createWorkspaceTui = ({
 			if (shortcut) {
 				await runShortcut(shortcut);
 			}
+
 			return;
 		}
 

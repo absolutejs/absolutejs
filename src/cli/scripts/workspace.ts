@@ -128,7 +128,8 @@ const readPackageVersion = (candidate: string) => {
 			return null;
 		}
 
-		const version: string = pkg.version;
+		const { version } = pkg;
+
 		return version;
 	} catch {
 		return null;
@@ -254,13 +255,13 @@ const resolveHttpReadyProbe = (
 		}
 
 		return {
-			type: 'http',
-			url: ready,
-			method: 'GET',
 			expectStatus: [200],
 			headers: {},
 			intervalMs: 250,
-			timeoutMs: 30_000
+			method: 'GET',
+			timeoutMs: 30_000,
+			type: 'http',
+			url: ready
 		} satisfies ResolvedHttpReadyProbe;
 	}
 
@@ -316,17 +317,17 @@ const resolveReadyProbe = (
 
 	if (ready.type === 'command') {
 		return {
-			type: 'command',
 			command: ready.command,
 			intervalMs: ready.intervalMs ?? 250,
-			timeoutMs: ready.timeoutMs ?? 30_000
+			timeoutMs: ready.timeoutMs ?? 30_000,
+			type: 'command'
 		} satisfies ResolvedCommandReadyProbe;
 	}
 
 	if (ready.type === 'delay') {
 		return {
-			type: 'delay',
-			ms: ready.ms
+			ms: ready.ms,
+			type: 'delay'
 		} satisfies ResolvedDelayReadyProbe;
 	}
 
@@ -339,6 +340,7 @@ const probeHttpReady = async (ready: ResolvedHttpReadyProbe) => {
 		headers: ready.headers,
 		signal: AbortSignal.timeout(Math.min(ready.timeoutMs, 5_000))
 	});
+
 	return ready.expectStatus.includes(response.status);
 };
 
@@ -393,6 +395,7 @@ const probeCommandReady = async (
 
 	try {
 		const exitCode = await processHandle.exited;
+
 		return exitCode === 0;
 	} finally {
 		clearTimeout(timeout);
@@ -407,6 +410,7 @@ const waitForReady = async (service: ResolvedWorkspaceService) => {
 
 	if (resolved.type === 'delay') {
 		await sleep(resolved.ms);
+
 		return;
 	}
 
@@ -498,6 +502,7 @@ const runShutdownHook = async (
 				`${service.name} shutdown hook finished.`,
 				'success'
 			);
+
 			return;
 		}
 		onLog(
@@ -704,7 +709,7 @@ export const workspace = async (
 	}
 
 	const config = await loadRawConfig(options.configPath);
-	const services = getWorkspaceServices(config) as WorkspaceConfig;
+	const services = getWorkspaceServices(config);
 	const workspaceEnv = createWorkspaceServiceEnv(services);
 	const orderedNames = topologicallySortServices(services);
 	const running: RunningService[] = [];
@@ -729,6 +734,7 @@ export const workspace = async (
 		},
 		services: orderedNames.map((name) => {
 			const service = services[name];
+
 			return {
 				name,
 				port: service?.port,
@@ -791,6 +797,7 @@ export const workspace = async (
 			'Services:',
 			...servicesSnapshot.map((service) => {
 				const detail = service.detail ? ` · ${service.detail}` : '';
+
 				return `  - ${service.name}: ${service.status} · ${service.target}${detail}`;
 			})
 		];
@@ -814,6 +821,7 @@ export const workspace = async (
 	) => {
 		try {
 			process.kill(-processHandle.pid, signal);
+
 			return;
 		} catch {
 			/* fall back to direct pid */
@@ -988,6 +996,7 @@ export const workspace = async (
 				`Shell command finished: ${command}`,
 				'success'
 			);
+
 			return;
 		}
 		addLog(
@@ -1011,6 +1020,7 @@ export const workspace = async (
 			: null;
 		if (!url) {
 			addLog('workspace', 'No ready public service to open yet.', 'warn');
+
 			return;
 		}
 

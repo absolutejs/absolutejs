@@ -100,6 +100,7 @@ export default defineComponent({
 					props.quality ?? DEFAULT_QUALITY
 				);
 			}
+
 			return buildOptimizedUrl(
 				props.src,
 				props.width,
@@ -143,6 +144,7 @@ export default defineComponent({
 				return generateBlurSvg(props.placeholder);
 			}
 			if (props.blurDataURL) return generateBlurSvg(props.blurDataURL);
+
 			return undefined;
 		});
 
@@ -164,6 +166,7 @@ export default defineComponent({
 				base.position = 'absolute';
 				base.width = '100%';
 			}
+
 			return base;
 		});
 
