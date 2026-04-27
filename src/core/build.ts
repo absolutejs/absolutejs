@@ -179,15 +179,23 @@ const resolveAbsoluteVersion = async () => {
 		resolve(import.meta.dir, '..', '..', 'package.json'),
 		resolve(import.meta.dir, '..', 'package.json')
 	];
-	for (const candidate of candidates) {
-		// eslint-disable-next-line no-await-in-loop -- iterations depend on each other (short-circuits on first match)
-		const pkg = await tryReadPackageJson(candidate);
-		if (!pkg) continue;
-		if (pkg.name !== '@absolutejs/absolute') continue;
-		globalThis.__absoluteVersion = pkg.version;
+	const resolveCandidate = async (remaining: string[]) => {
+		const [candidate, ...rest] = remaining;
+		if (!candidate) {
+			return;
+		}
 
-		return;
-	}
+		const pkg = await tryReadPackageJson(candidate);
+		if (!pkg || pkg.name !== '@absolutejs/absolute') {
+			await resolveCandidate(rest);
+
+			return;
+		}
+
+		globalThis.__absoluteVersion = pkg.version;
+	};
+
+	await resolveCandidate(candidates);
 };
 
 /** Scan source directories for files referenced by new URL('./path', import.meta.url) */
@@ -260,14 +268,17 @@ const scanWorkerReferences = async (dirs: string[]) => {
 		/import\.meta\.resolve\(\s*["'](\.\.?\/[^"']+)["']\s*\)/g;
 	const workerPaths = new Set<string>();
 
-	for (const dir of dirs) {
-		// eslint-disable-next-line no-await-in-loop -- iterations depend on each other (shared workerPaths set)
-		await scanWorkerReferencesInDir(
-			dir,
-			[urlPattern, resolvePattern],
-			workerPaths
-		);
-	}
+	await dirs.reduce(
+		(chain, dir) =>
+			chain.then(() =>
+				scanWorkerReferencesInDir(
+					dir,
+					[urlPattern, resolvePattern],
+					workerPaths
+				)
+			),
+		Promise.resolve()
+	);
 
 	return [...workerPaths];
 };
@@ -1237,7 +1248,9 @@ export const build = async ({
 		const { computeAngularVendorPaths } = await import(
 			'../build/buildAngularVendor'
 		);
-		angularVendorPaths = computeAngularVendorPaths();
+		angularVendorPaths = computeAngularVendorPaths(
+			globalThis.__angularVendorSpecifiers
+		);
 		setAngularVendorPaths(angularVendorPaths);
 	}
 	let vueVendorPaths = getVueVendorPaths();
@@ -1337,16 +1350,7 @@ export const build = async ({
 						'svelte/*',
 						'vue',
 						'vue/*',
-						'@angular/core',
-						'@angular/core/*',
-						'@angular/common',
-						'@angular/common/*',
-						'@angular/compiler',
-						'@angular/compiler/*',
-						'@angular/platform-browser',
-						'@angular/platform-browser/*',
-						'@angular/platform-server',
-						'@angular/platform-server/*',
+						'@angular/*',
 						'typescript'
 					],
 					format: 'esm',
@@ -1408,9 +1412,9 @@ export const build = async ({
 					outdir: stylesDir
 						? join(buildPath, basename(stylesDir))
 						: buildPath,
+					plugins: [stylePreprocessorPlugin],
 					root: stylesDir || clientRoot,
 					target: 'browser',
-					plugins: [stylePreprocessorPlugin],
 					throw: false
 				})
 			: undefined,

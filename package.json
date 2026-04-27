@@ -4,6 +4,7 @@
 		"absolute": "dist/cli/index.js"
 	},
 	"dependencies": {
+		"@absolutejs/absolute": "^0.19.0-beta.705",
 		"@angular/compiler": "^21.0.0",
 		"zustand": "^5.0.12"
 	},
@@ -333,5 +334,5 @@
 			]
 		}
 	},
-	"version": "0.19.0-beta.704"
+	"version": "0.19.0-beta.705"
 }

@@ -5,7 +5,6 @@
 
 export type { ImageProps } from '../../types/image';
 
-/* eslint-disable no-magic-numbers */
 export const DEFAULT_DEVICE_SIZES = [
 	640, 750, 828, 1080, 1200, 1920, 2048, 3840
 ];

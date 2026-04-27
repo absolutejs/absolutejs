@@ -7,7 +7,6 @@
    is preserved so new component registrations feed into the SAME RefreshRuntime
    instance that owns the current React tree. */
 
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore — react-refresh has no type declarations
 import RefreshRuntime from 'react-refresh/runtime';
 

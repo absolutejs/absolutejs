@@ -8,7 +8,6 @@ import type {
 
 // ── Constants ──────────────────────────────────────────────────────
 
-/* eslint-disable no-magic-numbers */
 export const DEFAULT_DEVICE_SIZES = [
 	640, 750, 828, 1080, 1200, 1920, 2048, 3840
 ];
@@ -59,7 +58,7 @@ const matchHostname = (actual: string, pattern: string) => {
 /** Match pathname with glob prefix: "/images/**" matches "/images/photo.jpg" */
 const matchPathname = (actual: string, pattern: string) => {
 	if (pattern.endsWith('/**')) {
-		const prefix = pattern.slice(0, -2); // eslint-disable-line no-magic-numbers
+		const prefix = pattern.slice(0, -2);
 
 		return actual.startsWith(prefix);
 	}
@@ -76,7 +75,6 @@ const MIME_MAP: Record<ImageFormat, string> = {
 
 /** Convert sharp dynamic import result to a callable factory */
 const callSharp = (sharpRef: unknown, input: Buffer) => {
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/consistent-type-assertions -- sharp is dynamically imported
 	const factory = sharpRef as any;
 
 	return factory(input);

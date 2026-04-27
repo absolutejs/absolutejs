@@ -80,7 +80,6 @@ const hmrUpdateTypes = new Set([
 	'rebuild-start'
 ]);
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const handleHMRMessage = (message: any) => {
 	if (hmrUpdateTypes.has(message.type)) {
 		hmrState.isHMRUpdating = true;

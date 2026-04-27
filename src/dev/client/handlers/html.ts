@@ -149,7 +149,6 @@ export const handleScriptUpdate = (message: {
 		});
 };
 
-// eslint-disable-next-line absolute/no-useless-function -- must be called each time to capture current state
 const saveHTMLState = () => ({
 	forms: saveFormState(),
 	scroll: saveScrollState()

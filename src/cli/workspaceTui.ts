@@ -2,6 +2,7 @@ import { openSync } from 'node:fs';
 import { ReadStream } from 'node:tty';
 import type { ServiceVisibility } from '../../types/build';
 import {
+	ANSI_ESCAPE_CODE,
 	ASCII_SPACE,
 	UNFOUND_INDEX,
 	WORKSPACE_TUI_DEFAULT_HEIGHT,
@@ -54,6 +55,16 @@ type WorkspaceLogEntry = {
 	timestamp: string;
 };
 
+type WorkspaceTuiColors = {
+	bold: string;
+	cyan: string;
+	dim: string;
+	green: string;
+	red: string;
+	reset: string;
+	yellow: string;
+};
+
 type ServiceState = WorkspaceTuiService & {
 	detail?: string;
 	status: WorkspaceTuiStatus;
@@ -69,7 +80,11 @@ type WorkspaceInput = {
 
 const MAX_LOG_ENTRIES = 400;
 const ESCAPE = '\x1b';
-const ANSI_REGEX = /\x1B\[[0-?]*[ -/]*[@-~]/g;
+const ANSI_REGEX = new RegExp(
+	`${String.fromCharCode(ANSI_ESCAPE_CODE)}\\[[0-?]*[ -/]*[@-~]`,
+	'g'
+);
+const ANSI_ESCAPE_PREFIX = `${ESCAPE}[`;
 
 const SHORTCUTS = new Map<
 	string,
@@ -83,7 +98,7 @@ const SHORTCUTS = new Map<
 	['r', 'restart']
 ]);
 
-const colors = {
+const colors: WorkspaceTuiColors = {
 	bold: '\x1b[1m',
 	cyan: '\x1b[36m',
 	dim: '\x1b[2m',
@@ -305,6 +320,27 @@ const getWorkspaceStatus = (services: ServiceState[]) => {
 	return 'ready';
 };
 
+const getVisibleLogContent = (
+	contentLines: string[],
+	logHeight: number,
+	logScrollOffset: number
+) => {
+	const end = Math.max(0, contentLines.length - logScrollOffset);
+	const start = Math.max(0, end - logHeight);
+
+	return contentLines.slice(start, end);
+};
+
+const isPartialEscapeSequence = (value: string) => {
+	if (!value.startsWith(ANSI_ESCAPE_PREFIX)) {
+		return false;
+	}
+
+	return Array.from(value.slice(ANSI_ESCAPE_PREFIX.length)).every(
+		(char) => char >= '0' && char <= '9'
+	);
+};
+
 export const createWorkspaceTui = ({
 	actions,
 	services,
@@ -494,15 +530,7 @@ export const createWorkspaceTui = ({
 
 		const visibleContent = helpVisible
 			? contentLines.slice(0, logHeight)
-			: (() => {
-					const end = Math.max(
-						0,
-						contentLines.length - logScrollOffset
-					);
-					const start = Math.max(0, end - logHeight);
-
-					return contentLines.slice(start, end);
-				})();
+			: getVisibleLogContent(contentLines, logHeight, logScrollOffset);
 		const maxLogScrollOffset = !helpVisible
 			? Math.max(0, contentLines.length - logHeight)
 			: 0;
@@ -809,7 +837,7 @@ export const createWorkspaceTui = ({
 
 			return;
 		}
-		if (/^\x1b\[[0-9]*$/.test(escapeBuffer)) {
+		if (isPartialEscapeSequence(escapeBuffer)) {
 			armEscapeTimer();
 
 			return;
@@ -898,18 +926,20 @@ export const createWorkspaceTui = ({
 		await handlePrintableChar(char);
 	};
 
+	const processInputChars = async (chars: string) => {
+		await Array.from(chars).reduce(
+			(chain, char) => chain.then(() => handleChar(char)),
+			Promise.resolve()
+		);
+	};
+
 	const onResize = () => {
 		scheduleRender();
 	};
 
 	const onData = (chunk: Buffer) => {
 		const chars = chunk.toString();
-		void (async () => {
-			for (const char of chars) {
-				// eslint-disable-next-line no-await-in-loop -- input order must be preserved
-				await handleChar(char);
-			}
-		})();
+		void processInputChars(chars);
 	};
 
 	const start = () => {

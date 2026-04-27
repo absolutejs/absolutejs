@@ -30,7 +30,6 @@ const cliTag = (color: string, message: string) =>
 // ◆ message
 //   ● Yes  ○ No    (use ←/→ arrow keys, enter to confirm)
 const confirmPrompt = (message: string, defaultYes = true) =>
-	// eslint-disable-next-line promise/avoid-new -- callback-based stdin API requires Promise wrapper
 	new Promise<boolean>((_resolve) => {
 		let selected = defaultYes;
 
@@ -378,10 +377,8 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 	const monitorServer = async () => {
 		while (!cleaning) {
 			const current = serverProcess;
-			// eslint-disable-next-line no-await-in-loop -- must wait for each server process sequentially
 			const exitCode = await current.exited;
 			if (cleaning || serverProcess !== current) continue;
-			// eslint-disable-next-line no-await-in-loop -- cleanup depends on previous iteration
 			const shouldContinue = await handleServerExit(exitCode);
 			if (!shouldContinue) return;
 		}

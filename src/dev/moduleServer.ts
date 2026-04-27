@@ -606,9 +606,7 @@ const svelteExternalCss = new Map<string, string>();
 // ─── Framework-specific transforms (Svelte, Vue) ────────────
 // Cached compiler references — avoid re-importing on every request.
 // Pre-set via warmCompilers() at startup to eliminate first-edit spike.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let svelteCompiler: any = null;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let vueCompiler: any = null;
 
 export const warmCompilers = async (frameworks: {

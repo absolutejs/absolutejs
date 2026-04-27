@@ -155,7 +155,6 @@ const buildLinkLoadPromise = (link: HTMLLinkElement) => {
 		return null;
 	}
 
-	// eslint-disable-next-line promise/avoid-new -- wrapping DOM event callbacks requires a new Promise
 	return new Promise<void>((resolve) => {
 		link.onload = () => {
 			resolve();
@@ -265,7 +264,6 @@ export const handleSvelteUpdate = (message: {
 		const clientStart = performance.now();
 		const modulePath = `${pageModuleUrl}?t=${Date.now()}`;
 
-		// eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-explicit-any
 		const acceptRegistry = (window as any).__SVELTE_HMR_ACCEPT__ as
 			| Record<string, (mod: unknown) => void>
 			| undefined;

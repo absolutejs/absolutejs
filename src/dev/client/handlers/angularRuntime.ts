@@ -21,7 +21,6 @@
      Vue instances, or Svelte components. The registry is keyed by
      source file path, so name collisions across frameworks are impossible. */
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type ComponentCtor = any;
 
 type RegistryEntry = {
@@ -194,7 +193,6 @@ export const installAngularHMRRuntime = () => {
 		refresh,
 		register,
 		getRegistry: () => componentRegistry,
-		// eslint-disable-next-line absolute/no-useless-function -- must be a callable method on the HMR API
 		getStats: () => ({
 			componentCount: componentRegistry.size,
 			updateCount: globalUpdateCount

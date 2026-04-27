@@ -10,6 +10,7 @@ import {
 import { createConnection } from 'node:net';
 import { resolve } from 'node:path';
 import {
+	ANSI_ESCAPE_CODE,
 	DEFAULT_PORT,
 	HTTP_STATUS_OK,
 	WORKSPACE_FAILURE_LOG_PRINT_LIMIT,
@@ -28,16 +29,11 @@ import {
 	killStaleProcesses
 } from '../utils';
 import type {
-	AbsoluteServiceConfig,
-	CommandReadyConfig,
 	CommandServiceConfig,
-	DelayReadyConfig,
 	HttpReadyConfig,
 	ServiceConfig,
-	ServiceReadyConfig,
 	ServiceShutdownConfig,
 	ServiceVisibility,
-	TcpReadyConfig,
 	WorkspaceConfig
 } from '../../../types/build';
 
@@ -74,10 +70,12 @@ type WorkspaceLogSink = (
 	level?: WorkspaceLogLevel
 ) => void;
 
-const ANSI_REGEX = /\x1B\[[0-?]*[ -/]*[@-~]/g;
+const ANSI_REGEX = new RegExp(
+	`${String.fromCharCode(ANSI_ESCAPE_CODE)}\\[[0-?]*[ -/]*[@-~]`,
+	'g'
+);
 
-const sleep = (ms: number) =>
-	new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
+const sleep = (durationMs: number) => Bun.sleep(durationMs);
 
 const stripAnsi = (value: string) => value.replace(ANSI_REGEX, '');
 
@@ -120,11 +118,11 @@ const createWorkspaceLogSink = (appendLog: WorkspaceLogSink) => {
 	};
 
 	return {
-		logDirectory,
 		appendLog: ((source, message, level = 'info') => {
 			writeLog(source, message, level);
 			appendLog(source, message, level);
-		}) satisfies WorkspaceLogSink
+		}) satisfies WorkspaceLogSink,
+		logDirectory
 	};
 };
 
@@ -227,6 +225,15 @@ type ResolvedReadyProbe =
 const normalizeExpectedStatuses = (value?: number | number[]) =>
 	Array.isArray(value) ? value : [value ?? HTTP_STATUS_OK];
 
+const runSequentially = <Item>(
+	items: Item[],
+	action: (item: Item) => Promise<void>
+) =>
+	items.reduce(
+		(chain, item) => chain.then(() => action(item)),
+		Promise.resolve()
+	);
+
 const resolveServiceHttpUrl = (service: ServiceConfig, path: string) => {
 	if (!path.startsWith('/')) {
 		throw new Error(
@@ -247,17 +254,19 @@ const resolveHttpReadyProbe = (
 	ready: string | HttpReadyConfig
 ) => {
 	if (typeof ready === 'string') {
-		if (isAbsoluteService(service)) {
+		if (!isAbsoluteService(service)) {
 			return {
-				type: 'http',
-				url: resolveServiceHttpUrl(service, ready),
-				method: 'GET',
 				expectStatus: [HTTP_STATUS_OK],
 				headers: {},
 				intervalMs: WORKSPACE_READY_PROBE_INTERVAL_MS,
-				timeoutMs: WORKSPACE_READY_TIMEOUT_MS
+				method: 'GET',
+				timeoutMs: WORKSPACE_READY_TIMEOUT_MS,
+				type: 'http',
+				url: ready
 			} satisfies ResolvedHttpReadyProbe;
 		}
+
+		const url = resolveServiceHttpUrl(service, ready);
 
 		return {
 			expectStatus: [HTTP_STATUS_OK],
@@ -266,7 +275,7 @@ const resolveHttpReadyProbe = (
 			method: 'GET',
 			timeoutMs: WORKSPACE_READY_TIMEOUT_MS,
 			type: 'http',
-			url: ready
+			url
 		} satisfies ResolvedHttpReadyProbe;
 	}
 
@@ -276,26 +285,37 @@ const resolveHttpReadyProbe = (
 		);
 	}
 
-	const url = ready.path
-		? resolveServiceHttpUrl(service, ready.path)
-		: ready.url
-			? ready.url
-			: isAbsoluteService(service)
-				? resolveServiceHttpUrl(service, '/hmr-status')
-				: null;
+	const url = resolveHttpReadyProbeUrl(service, ready);
 	if (!url) {
 		throw new Error('ready HTTP probe requires either "url" or "path".');
 	}
 
 	return {
-		type: 'http',
-		url,
-		method: ready.method ?? 'GET',
 		expectStatus: normalizeExpectedStatuses(ready.expectStatus),
 		headers: ready.headers ?? {},
 		intervalMs: ready.intervalMs ?? WORKSPACE_READY_PROBE_INTERVAL_MS,
-		timeoutMs: ready.timeoutMs ?? WORKSPACE_READY_TIMEOUT_MS
+		method: ready.method ?? 'GET',
+		timeoutMs: ready.timeoutMs ?? WORKSPACE_READY_TIMEOUT_MS,
+		type: 'http',
+		url
 	} satisfies ResolvedHttpReadyProbe;
+};
+
+const resolveHttpReadyProbeUrl = (
+	service: ServiceConfig,
+	ready: HttpReadyConfig
+) => {
+	if (ready.path) {
+		return resolveServiceHttpUrl(service, ready.path);
+	}
+	if (ready.url) {
+		return ready.url;
+	}
+	if (isAbsoluteService(service)) {
+		return resolveServiceHttpUrl(service, '/hmr-status');
+	}
+
+	return null;
 };
 
 const resolveReadyProbe = (
@@ -312,11 +332,11 @@ const resolveReadyProbe = (
 
 	if (ready.type === 'tcp') {
 		return {
-			type: 'tcp',
 			host: ready.host ?? getServicePublicHost(service),
-			port: ready.port,
 			intervalMs: ready.intervalMs ?? WORKSPACE_READY_PROBE_INTERVAL_MS,
-			timeoutMs: ready.timeoutMs ?? WORKSPACE_READY_TIMEOUT_MS
+			port: ready.port,
+			timeoutMs: ready.timeoutMs ?? WORKSPACE_READY_TIMEOUT_MS,
+			type: 'tcp'
 		} satisfies ResolvedTcpReadyProbe;
 	}
 
@@ -340,43 +360,46 @@ const resolveReadyProbe = (
 };
 
 const probeHttpReady = async (ready: ResolvedHttpReadyProbe) => {
+	const signal = AbortSignal.timeout(
+		Math.min(ready.timeoutMs, WORKSPACE_READY_ATTEMPT_TIMEOUT_MS)
+	);
 	const response = await fetch(ready.url, {
-		method: ready.method,
 		headers: ready.headers,
-		signal: AbortSignal.timeout(
-			Math.min(ready.timeoutMs, WORKSPACE_READY_ATTEMPT_TIMEOUT_MS)
-		)
+		method: ready.method,
+		signal
 	});
 
 	return ready.expectStatus.includes(response.status);
 };
 
-const probeTcpReady = async (ready: ResolvedTcpReadyProbe) =>
-	new Promise<boolean>((resolveProbe) => {
-		const socket = createConnection({
-			host: ready.host,
-			port: ready.port
-		});
+const probeTcpReady = async (ready: ResolvedTcpReadyProbe) => {
+	const { promise, resolve: resolveProbe } = Promise.withResolvers<boolean>();
+	const socket = createConnection({
+		host: ready.host,
+		port: ready.port
+	});
 
-		const timeout = setTimeout(
-			() => {
-				socket.destroy();
-				resolveProbe(false);
-			},
-			Math.min(ready.timeoutMs, WORKSPACE_READY_ATTEMPT_TIMEOUT_MS)
-		);
-
-		socket.once('connect', () => {
-			clearTimeout(timeout);
-			socket.end();
-			resolveProbe(true);
-		});
-		socket.once('error', () => {
-			clearTimeout(timeout);
+	const timeout = setTimeout(
+		() => {
 			socket.destroy();
 			resolveProbe(false);
-		});
+		},
+		Math.min(ready.timeoutMs, WORKSPACE_READY_ATTEMPT_TIMEOUT_MS)
+	);
+
+	socket.once('connect', () => {
+		clearTimeout(timeout);
+		socket.end();
+		resolveProbe(true);
 	});
+	socket.once('error', () => {
+		clearTimeout(timeout);
+		socket.destroy();
+		resolveProbe(false);
+	});
+
+	return promise;
+};
 
 const probeCommandReady = async (
 	ready: ResolvedCommandReadyProbe,
@@ -421,23 +444,42 @@ const waitForReady = async (service: ResolvedWorkspaceService) => {
 		return;
 	}
 
-	const startedAt = Date.now();
-	while (Date.now() - startedAt < resolved.timeoutMs) {
-		if (await probeReady(resolved, service)) {
-			return;
-		}
-
-		// eslint-disable-next-line no-await-in-loop -- readiness probes must poll sequentially
-		await sleep(resolved.intervalMs);
+	const isReady = await pollReady(resolved, service, Date.now());
+	if (isReady) {
+		return;
 	}
 
-	throw new Error(
-		resolved.type === 'http'
-			? `service did not become ready within ${resolved.timeoutMs}ms (${resolved.url})`
-			: resolved.type === 'tcp'
-				? `service did not become ready within ${resolved.timeoutMs}ms (tcp://${resolved.host}:${resolved.port})`
-				: `service did not become ready within ${resolved.timeoutMs}ms (${resolved.command.join(' ')})`
-	);
+	throw new Error(formatReadyTimeoutMessage(resolved));
+};
+
+const pollReady = async (
+	resolved: Exclude<ResolvedReadyProbe, ResolvedDelayReadyProbe | null>,
+	service: ResolvedWorkspaceService,
+	startedAt: number
+) => {
+	if (Date.now() - startedAt >= resolved.timeoutMs) {
+		return false;
+	}
+	if (await probeReady(resolved, service)) {
+		return true;
+	}
+
+	await sleep(resolved.intervalMs);
+
+	return pollReady(resolved, service, startedAt);
+};
+
+const formatReadyTimeoutMessage = (
+	resolved: Exclude<ResolvedReadyProbe, ResolvedDelayReadyProbe | null>
+) => {
+	if (resolved.type === 'http') {
+		return `service did not become ready within ${resolved.timeoutMs}ms (${resolved.url})`;
+	}
+	if (resolved.type === 'tcp') {
+		return `service did not become ready within ${resolved.timeoutMs}ms (tcp://${resolved.host}:${resolved.port})`;
+	}
+
+	return `service did not become ready within ${resolved.timeoutMs}ms (${resolved.command.join(' ')})`;
 };
 
 const probeReady = async (
@@ -571,14 +613,20 @@ const pipeProcessLogs = (
 	) => {
 		let buffer = '';
 		const reader = stream.getReader();
-		let chunk = await readLogChunk(reader);
-		while (chunk !== null) {
+		const forwardNextChunk = async () => {
+			const chunk = await readLogChunk(reader);
+			if (chunk === null) {
+				appendRemainingLogBuffer(buffer, name, level, appendLog);
+				reader.releaseLock();
+
+				return;
+			}
+
 			buffer = appendLogChunk(buffer, chunk, name, level, appendLog);
-			// eslint-disable-next-line no-await-in-loop -- log chunks must preserve order
-			chunk = await readLogChunk(reader);
-		}
-		appendRemainingLogBuffer(buffer, name, level, appendLog);
-		reader.releaseLock();
+			await forwardNextChunk();
+		};
+
+		await forwardNextChunk();
 	};
 
 	void forward(processHandle.stdout, 'info');
@@ -643,7 +691,7 @@ const createWorkspaceServiceEnv = (services: WorkspaceConfig) => {
 	const workspaceEnv: Record<string, string> = {};
 
 	for (const [name, service] of Object.entries(services).filter(
-		([, service]) => Boolean(service.port)
+		([, filteredService]) => Boolean(filteredService.port)
 	)) {
 		const envKey = `ABSOLUTE_SERVICE_${name
 			.toUpperCase()
@@ -817,10 +865,7 @@ export const workspace = async (
 		running.length = 0;
 		snapshot.forEach((service) => killProcess(service));
 		await Promise.all(snapshot.map((service) => service.process.exited));
-		for (const service of snapshot.reverse()) {
-			// eslint-disable-next-line no-await-in-loop -- shutdown hooks should run in reverse service order
-			await runShutdownHookSafely(service);
-		}
+		await runSequentially(snapshot.reverse(), runShutdownHookSafely);
 	};
 
 	const appendRecentLogs = (
@@ -944,85 +989,91 @@ export const workspace = async (
 		process.exit(exitCode);
 	};
 
+	const handleServiceExit = (
+		runningService: RunningService,
+		exitCode: number
+	) => {
+		if (shuttingDown || restarting) {
+			return;
+		}
+		if (!running.includes(runningService)) {
+			return;
+		}
+
+		const serviceName = runningService.name;
+		const normalizedExitCode = exitCode || 1;
+		tui.setServiceStatus(
+			serviceName,
+			'error',
+			`exit code ${normalizedExitCode}`
+		);
+		readyServiceNames.delete(serviceName);
+		addLog(
+			'workspace',
+			`${serviceName} exited with code ${normalizedExitCode}. Shutting down workspace.`,
+			'error'
+		);
+		void shutdown(normalizedExitCode);
+	};
+
+	const startService = async (name: string) => {
+		const service = services[name];
+		if (!service) {
+			throw new Error(`services is missing "${name}"`);
+		}
+		const resolved = resolveService(name, service, workspaceEnv, options);
+		const port =
+			(resolved.service.port ?? Number(resolved.env.PORT ?? '')) ||
+			DEFAULT_PORT;
+		killStaleServicePort(port);
+
+		if (
+			isAbsoluteService(resolved.service) &&
+			resolved.configPath &&
+			!existsSync(resolved.configPath)
+		) {
+			throw new Error(
+				`${name} references missing config "${resolved.configPath}"`
+			);
+		}
+
+		serviceBootStartedAt.set(name, performance.now());
+		readyServiceNames.delete(name);
+		tui.setServiceStatus(name, restarting ? 'restarting' : 'starting');
+
+		const processHandle = Bun.spawn(resolved.command, {
+			cwd: resolved.cwd,
+			env: resolved.env,
+			stderr: 'pipe',
+			stdin: 'ignore',
+			stdout: 'pipe'
+		});
+
+		pipeProcessLogs(name, processHandle, addLog);
+		const runningService: RunningService = {
+			name,
+			process: processHandle,
+			resolved
+		};
+		running.push(runningService);
+
+		void processHandle.exited.then(
+			handleServiceExit.bind(null, runningService)
+		);
+
+		await waitForReady(resolved);
+		const startedAt = serviceBootStartedAt.get(name);
+		const readyDuration =
+			typeof startedAt === 'number'
+				? `ready in ${getDurationString(performance.now() - startedAt)}`
+				: undefined;
+		readyServiceNames.add(name);
+		tui.setServiceStatus(name, 'ready', readyDuration);
+	};
+
 	const startServices = async () => {
 		tui.setReadyDuration(null);
-		for (const name of orderedNames) {
-			const service = services[name];
-			if (!service) {
-				throw new Error(`services is missing "${name}"`);
-			}
-			const resolved = resolveService(
-				name,
-				service,
-				workspaceEnv,
-				options
-			);
-			const port =
-				(resolved.service.port ?? Number(resolved.env.PORT ?? '')) ||
-				DEFAULT_PORT;
-			killStaleServicePort(port);
-
-			if (
-				isAbsoluteService(resolved.service) &&
-				resolved.configPath &&
-				!existsSync(resolved.configPath)
-			) {
-				throw new Error(
-					`${name} references missing config "${resolved.configPath}"`
-				);
-			}
-
-			serviceBootStartedAt.set(name, performance.now());
-			readyServiceNames.delete(name);
-			tui.setServiceStatus(name, restarting ? 'restarting' : 'starting');
-
-			const processHandle = Bun.spawn(resolved.command, {
-				cwd: resolved.cwd,
-				env: resolved.env,
-				stderr: 'pipe',
-				stdin: 'ignore',
-				stdout: 'pipe'
-			});
-
-			pipeProcessLogs(name, processHandle, addLog);
-			const runningService: RunningService = {
-				name,
-				process: processHandle,
-				resolved
-			};
-			running.push(runningService);
-
-			void processHandle.exited.then((exitCode) => {
-				if (shuttingDown || restarting) {
-					return;
-				}
-				if (!running.includes(runningService)) {
-					return;
-				}
-				tui.setServiceStatus(
-					name,
-					'error',
-					`exit code ${exitCode || 1}`
-				);
-				readyServiceNames.delete(name);
-				addLog(
-					'workspace',
-					`${name} exited with code ${exitCode || 1}. Shutting down workspace.`,
-					'error'
-				);
-				void shutdown(exitCode || 1);
-			});
-
-			// eslint-disable-next-line no-await-in-loop -- dependent services must start in a stable order
-			await waitForReady(resolved);
-			const startedAt = serviceBootStartedAt.get(name);
-			const readyDuration =
-				typeof startedAt === 'number'
-					? `ready in ${getDurationString(performance.now() - startedAt)}`
-					: undefined;
-			readyServiceNames.add(name);
-			tui.setServiceStatus(name, 'ready', readyDuration);
-		}
+		await runSequentially(orderedNames, startService);
 	};
 
 	const restartWorkspace = async () => {
@@ -1137,7 +1188,5 @@ export const workspace = async (
 	tui.start();
 	await startServices();
 	tui.setReadyDuration(performance.now() - workspaceBootStartedAt);
-	await new Promise<void>(() => {
-		/* keep process alive until shutdown */
-	});
+	await Promise.withResolvers<void>().promise;
 };

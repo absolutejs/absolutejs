@@ -191,14 +191,12 @@ const fileExists = async (path: string) => Bun.file(path).exists();
 
 const loadStaticStreamingModule = async (pagePath: string) => {
 	for (const candidate of resolveSidecarCandidates(pagePath)) {
-		// eslint-disable-next-line no-await-in-loop
 		if (!(await fileExists(candidate))) continue;
 
 		const version = statSync(candidate).mtimeMs;
 		const moduleUrl = new URL(pathToFileURL(candidate).href);
 		moduleUrl.searchParams.set('t', String(version));
 
-		// eslint-disable-next-line no-await-in-loop
 		const moduleExports: StaticStreamingModuleExports = await import(
 			moduleUrl.href
 		);

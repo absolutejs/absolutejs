@@ -376,7 +376,6 @@ const areAllQueuedFilesStable = async (
 ) => {
 	const allFiles = collectAllQueuedFiles(fileChangeQueue);
 	for (const file of allFiles) {
-		// eslint-disable-next-line no-await-in-loop
 		const stable = await isFileStable(file);
 		if (!stable) return false;
 	}
@@ -386,7 +385,6 @@ const areAllQueuedFilesStable = async (
 
 const waitForStableWrites = async (state: HMRState) => {
 	for (let round = 0; round < STABILITY_CHECK_ROUNDS; round++) {
-		// eslint-disable-next-line no-await-in-loop
 		const stable = await areAllQueuedFilesStable(state.fileChangeQueue);
 		if (stable) break;
 	}
@@ -416,7 +414,6 @@ export const queueFileChange = (
 	// Shared files (workers, utils, etc.) that don't belong to any
 	// framework just need their transform cache invalidated — no rebuild.
 	if (framework === 'unknown') {
-		// eslint-disable-next-line @typescript-eslint/no-require-imports -- sync call in non-async function
 		const { invalidate } = require('../dev/transformCache');
 		invalidate(resolve(filePath));
 		const relPath = relative(process.cwd(), filePath);
@@ -579,7 +576,9 @@ const bundleAngularClient = async (
 		const { setAngularVendorPaths } = await import(
 			'../core/devVendorPaths'
 		);
-		angVendorPaths = computeAngularVendorPaths();
+		angVendorPaths = computeAngularVendorPaths(
+			globalThis.__angularVendorSpecifiers
+		);
 		setAngularVendorPaths(angVendorPaths);
 	}
 
@@ -1157,7 +1156,6 @@ const handleSvelteModuleServerPath = async (
 	const serverDuration = Date.now() - startTime;
 
 	for (const changedFile of svelteFiles) {
-		// eslint-disable-next-line no-await-in-loop
 		await broadcastSvelteModuleUpdate(
 			state,
 			changedFile,
@@ -1385,7 +1383,6 @@ const handleVueModuleServerPath = async (
 	const forceReload = nonVueFiles.length > 0;
 
 	for (const changedFile of vueFiles) {
-		// eslint-disable-next-line no-await-in-loop
 		await broadcastVueModuleUpdate(
 			state,
 			changedFile,
@@ -1794,7 +1791,6 @@ const handleHTMLPageHMR = async (
 	for (const pageFile of pageFilesToUpdate) {
 		const htmlPageName = basename(pageFile);
 		const builtHtmlPagePath = resolve(outputHtmlPages, htmlPageName);
-		// eslint-disable-next-line no-await-in-loop
 		await processHtmlPageUpdate(
 			state,
 			pageFile,
@@ -1998,7 +1994,6 @@ const handleVueHMR = async (
 	}
 
 	for (const vuePagePath of pagesToUpdate) {
-		// eslint-disable-next-line no-await-in-loop
 		await processVuePageUpdate(
 			state,
 			config,
@@ -2360,7 +2355,6 @@ const handleHTMXPageHMR = async (
 	for (const htmxPageFile of pageFilesToUpdate) {
 		const htmxPageName = basename(htmxPageFile);
 		const builtHtmxPagePath = resolve(outputHtmxPages, htmxPageName);
-		// eslint-disable-next-line no-await-in-loop
 		await processHtmxPageUpdate(
 			state,
 			htmxPageFile,
@@ -2700,7 +2694,6 @@ const runMarkupFastPath = async (
 	);
 
 	for (const markupFile of markupFiles) {
-		// eslint-disable-next-line no-await-in-loop
 		const success = await tryProcessMarkupFile(
 			state,
 			markupFile,
@@ -2799,7 +2792,6 @@ const runFrameworkFastPaths = async (
 		)
 			continue;
 
-		// eslint-disable-next-line no-await-in-loop
 		await fastPath.handler(
 			state,
 			config,

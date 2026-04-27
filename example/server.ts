@@ -28,16 +28,19 @@ export const server = new Elysia()
 	)
 	.get('/', () => handleHTMLPageRequest(asset(manifest, 'HTMLExample')))
 	.get('/html', () => handleHTMLPageRequest(asset(manifest, 'HTMLExample')))
-	.get('/react', () =>
-		handleReactPageRequest({
+	.get('/react', () => {
+		const index = asset(manifest, 'ReactExampleIndex');
+		const cssPath = asset(manifest, 'ReactExampleCSS');
+
+		return handleReactPageRequest({
+			index,
 			Page: ReactExample,
-			index: asset(manifest, 'ReactExampleIndex'),
 			props: {
-				cssPath: asset(manifest, 'ReactExampleCSS'),
+				cssPath,
 				initialCount: 0
 			}
-		})
-	)
+		});
+	})
 	.get('/svelte', () =>
 		handleSveltePageRequest<typeof SvelteExample>({
 			indexPath: asset(manifest, 'SvelteExampleIndex'),

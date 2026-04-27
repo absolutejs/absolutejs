@@ -5,6 +5,7 @@
     "": {
       "name": "@absolutejs/absolute",
       "dependencies": {
+        "@absolutejs/absolute": "^0.19.0-beta.705",
         "@angular/compiler": "^21.0.0",
         "zustand": "^5.0.12",
       },
@@ -109,6 +110,8 @@
     "@typescript-eslint/utils": "8.56.1",
   },
   "packages": {
+    "@absolutejs/absolute": ["@absolutejs/absolute@0.19.0-beta.705", "", { "dependencies": { "@angular/compiler": "^21.0.0", "zustand": "^5.0.12" }, "optionalDependencies": { "@absolutejs/native-darwin-arm64": "0.19.0-beta.704", "@absolutejs/native-darwin-x64": "0.19.0-beta.704", "@absolutejs/native-linux-arm64": "0.19.0-beta.704", "@absolutejs/native-linux-x64": "0.19.0-beta.704", "@absolutejs/native-windows-arm64": "0.19.0-beta.704", "@absolutejs/native-windows-x64": "0.19.0-beta.704" }, "peerDependencies": { "@angular/common": "^21.0.0", "@angular/compiler-cli": "^21.0.0", "@angular/core": "^21.0.0", "@angular/platform-browser": "^21.0.0", "@angular/platform-server": "^21.0.0", "@angular/ssr": "^21.0.0", "bun-plugin-tailwind": "^0.1.2", "elysia": "^1.4.0", "less": "^4.6.0", "postcss": "^8.5.0", "react": "^19.2.0", "react-dom": "^19.2.0", "react-refresh": "^0.18.0", "sass": "^1.99.0", "sharp": ">=0.33.0", "stylus": "^0.64.0", "svelte": "^5.35.2", "tailwindcss": "^4.1.0", "typescript": "^5.9.3", "vue": "^3.5.27", "zone.js": "^0.15.0" }, "optionalPeers": ["@angular/common", "@angular/compiler-cli", "@angular/core", "@angular/platform-browser", "@angular/platform-server", "@angular/ssr", "bun-plugin-tailwind", "less", "postcss", "react", "react-dom", "react-refresh", "sass", "sharp", "stylus", "svelte", "tailwindcss", "typescript", "vue", "zone.js"], "bin": { "absolute": "dist/cli/index.js" } }, "sha512-4Xu4nKSS35TW0PbfJNNIyss0bpSBC/xtL6eL3+EdbF9duz2gyAGvnJUjmnUtbxq1OMatukPMiyBfHIhw4ZjE4g=="],
+
     "@absolutejs/native-darwin-arm64": ["@absolutejs/native-darwin-arm64@0.19.0-beta.704", "", { "os": "darwin", "cpu": "arm64" }, "sha512-jd+jimSY7xvCXv1r93250bns8GdIUfcpl8zkOgsCXYuWkZN+o0VMeFsNbvWD+CLp05y4dxT8yWje0m1FGS5Xpg=="],
 
     "@absolutejs/native-darwin-x64": ["@absolutejs/native-darwin-x64@0.19.0-beta.704", "", { "os": "darwin", "cpu": "x64" }, "sha512-e5oxCS+1/VO7xKifsqQoAAmuIHNnDb6+P/OBiXHjPW+5RnfU0ydCcbu/9mTk/6JsxATOZmRA+qolVyVGRUClUg=="],

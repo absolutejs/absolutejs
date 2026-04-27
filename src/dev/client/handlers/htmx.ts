@@ -96,7 +96,7 @@ const cloneHmrListenerElements = (container: HTMLElement) => {
 	container
 		.querySelectorAll('[data-hmr-listeners-attached]')
 		.forEach((elem) => {
-			const cloned = elem.cloneNode(true) as Element; // eslint-disable-line @typescript-eslint/consistent-type-assertions
+			const cloned = elem.cloneNode(true) as Element;
 			if (elem.parentNode) {
 				elem.parentNode.replaceChild(cloned, elem);
 			}
@@ -248,7 +248,7 @@ const didScriptsChange = (oldScripts: ScriptInfo[], newScripts: ScriptInfo[]) =>
 	});
 
 const normalizeHTMLForComparison = (element: HTMLElement) => {
-	const clone = element.cloneNode(true) as HTMLElement; // eslint-disable-line @typescript-eslint/consistent-type-assertions
+	const clone = element.cloneNode(true) as HTMLElement;
 	const scripts = clone.querySelectorAll('script');
 	scripts.forEach((script) => {
 		if (script.parentNode) {

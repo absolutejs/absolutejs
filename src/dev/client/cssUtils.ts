@@ -179,7 +179,6 @@ export const reloadCSSStylesheets = (manifest: Record<string, string>) => {
 };
 
 const createCSSLoadPromise = (linkElement: HTMLLinkElement, newHref: string) =>
-	// eslint-disable-next-line promise/avoid-new
 	new Promise<void>((resolve) => {
 		let resolved = false;
 		const doResolve = function () {

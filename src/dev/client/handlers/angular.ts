@@ -36,7 +36,6 @@ type HMRMessage = {
 	};
 };
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type NgApi = any;
 
 const swapStylesheet = (
@@ -121,7 +120,6 @@ const captureInstanceProperties = (
 const captureComponentState = () => {
 	const snapshots: StateSnapshot[] = [];
 	const selectorCounts = new Map<string, number>();
-	// eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-explicit-any
 	const ngApi: NgApi = (window as any).ng;
 
 	document.querySelectorAll('*').forEach((elem) => {
@@ -207,7 +205,6 @@ const restoreDomFallback = (element: Element, snap: StateSnapshot) => {
 };
 
 const restoreComponentState = (snapshots: StateSnapshot[]) => {
-	// eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-explicit-any
 	const ngApi: NgApi = (window as any).ng;
 	if (snapshots.length === 0) return;
 
@@ -238,7 +235,6 @@ const restoreComponentState = (snapshots: StateSnapshot[]) => {
 const waitForAngularApp = () => {
 	if (window.__ANGULAR_APP__) return Promise.resolve();
 
-	// eslint-disable-next-line promise/avoid-new
 	return new Promise<void>((resolve) => {
 		const timeout = setTimeout(resolve, ANGULAR_INIT_TIMEOUT_MS);
 
@@ -281,10 +277,8 @@ const suppressNg0912 = () => {
 
 const tryPatchExport = (
 	exportName: string,
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	newModule: Record<string, any>,
 	registry: Map<string, unknown>,
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	hmr: any,
 	sourceFile: string
 ) => {
@@ -301,10 +295,8 @@ const tryPatchExport = (
 };
 
 const patchRegisteredComponents = (
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	newModule: Record<string, any>,
 	registry: Map<string, unknown>,
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	hmr: any,
 	sourceFile: string
 ) => {
@@ -334,7 +326,6 @@ const patchRegisteredComponents = (
 const attemptFastPatch = async (
 	indexPath: string,
 	registry: Map<string, unknown>,
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	hmr: any,
 	sourceFile: string,
 	origWarn: typeof console.warn
@@ -483,7 +474,6 @@ const tickAngularApp = () => {
 };
 
 const runWithViewTransition = (updateFn: () => Promise<void>) => {
-	// eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-explicit-any
 	const doc = document as any;
 	if (typeof doc.startViewTransition !== 'function') {
 		updateFn().catch((err: unknown) => {

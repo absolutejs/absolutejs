@@ -307,7 +307,6 @@ const NOT_FOUND_PRIORITY: (keyof ConventionsMap)[] = [
 export const renderFirstNotFound = async () => {
 	for (const framework of NOT_FOUND_PRIORITY) {
 		if (!getMap()[framework]?.defaults?.notFound) continue;
-		// eslint-disable-next-line no-await-in-loop -- frameworks must be tried sequentially; first match wins
 		const response = await renderConventionNotFound(framework);
 		if (response) return response;
 	}

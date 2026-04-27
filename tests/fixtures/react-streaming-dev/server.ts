@@ -8,13 +8,15 @@ const { absolutejs, manifest } = await prepare();
 const app = new Elysia()
 	.use(absolutejs)
 	.get('/hmr-status', () => ({ ok: true }))
-	.get('/', async () =>
-		handleReactPageRequest({
-			Page: StreamingPage,
+	.get('/', async () => {
+		const index = asset(manifest, 'StreamingPageIndex');
+
+		return handleReactPageRequest({
 			collectStreamingSlots: true,
-			index: asset(manifest, 'StreamingPageIndex')
-		})
-	);
+			index,
+			Page: StreamingPage
+		});
+	});
 
 const port = Number(process.env.PORT ?? 3010);
 
