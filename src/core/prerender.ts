@@ -207,10 +207,7 @@ const waitForServerReady = async (port: number) => {
 	const deadline = performance.now() + getStartupTimeoutMs();
 	while (performance.now() < deadline) {
 		// eslint-disable-next-line no-await-in-loop -- sequential polling: must wait for server readiness
-		const res = await fetch(`http://localhost:${port}/`).catch(() => null);
-		if (res) {
-			await res.body?.cancel().catch(() => undefined);
-
+		if (await probePrerenderServer(port)) {
 			return true;
 		}
 		// eslint-disable-next-line no-await-in-loop -- sequential polling: must wait between attempts
@@ -218,6 +215,17 @@ const waitForServerReady = async (port: number) => {
 	}
 
 	return false;
+};
+
+const probePrerenderServer = async (port: number) => {
+	const res = await fetch(`http://localhost:${port}/`).catch(() => null);
+	if (!res) {
+		return false;
+	}
+
+	await res.body?.cancel().catch(() => undefined);
+
+	return true;
 };
 
 const captureStreamOutput = (

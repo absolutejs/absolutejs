@@ -15,11 +15,9 @@ const DIST_MARKERS = [
 	resolve(PROJECT_ROOT, 'dist/angular/index.js')
 ];
 
-function hasBuiltDist(): boolean {
-	return DIST_MARKERS.every((path) => existsSync(path));
-}
+const hasBuiltDist = () => DIST_MARKERS.every((path) => existsSync(path));
 
-async function runBuild(): Promise<void> {
+const runBuild = async () => {
 	const proc = Bun.spawn(['bun', 'run', 'build'], {
 		cwd: PROJECT_ROOT,
 		env: {
@@ -34,9 +32,9 @@ async function runBuild(): Promise<void> {
 	if (exitCode !== 0) {
 		throw new Error(`bun run build exited with code ${exitCode}`);
 	}
-}
+};
 
-export async function ensureDistBuild(): Promise<void> {
+export const ensureDistBuild = async () => {
 	await mkdir(TEST_BUILD_BASE, { recursive: true });
 
 	while (true) {
@@ -64,4 +62,4 @@ export async function ensureDistBuild(): Promise<void> {
 			() => {}
 		);
 	}
-}
+};

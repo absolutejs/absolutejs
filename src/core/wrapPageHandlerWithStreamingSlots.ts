@@ -5,6 +5,9 @@ export const wrapPageHandlerWithStreamingSlots = <
 >(
 	handler: T,
 	options?: Parameters<typeof withRegisteredStreamingSlots>[1]
-) =>
-	((...args: Parameters<T>) =>
-		withRegisteredStreamingSlots(() => handler(...args), options)) as T;
+) => {
+	const wrapped = (...args: Parameters<T>) =>
+		withRegisteredStreamingSlots(() => handler(...args), options);
+
+	return wrapped;
+};

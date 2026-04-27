@@ -1,7 +1,6 @@
 import type {
 	AbsoluteServiceConfig,
 	CommandServiceConfig,
-	ConfigInput,
 	ReservedConfigKey
 } from '../../types/build';
 
@@ -46,4 +45,4 @@ type ValidateConfig<TConfig extends Record<string, unknown>> =
 
 export const defineConfig = <const TConfig extends Record<string, unknown>>(
 	config: TConfig & ValidateConfig<TConfig>
-): TConfig & ConfigInput => config as TConfig & ConfigInput;
+) => config;

@@ -57,8 +57,9 @@ export type SveltePageRenderOptions = {
 	bodyContent?: string;
 	headContent?: string;
 } & StreamingSlotEnhancerOptions;
+
 export type SveltePageRequestInput<
-	Component extends SvelteComponent<any> = SvelteComponent<
+	Component extends SvelteComponent<never> = SvelteComponent<
 		Record<never, never>
 	>
 > = SveltePageRenderOptions & {
@@ -69,7 +70,7 @@ export type SveltePageRequestInput<
 		: { props: NoInfer<SveltePropsOf<Component>> });
 
 export type HandleSveltePageRequest = {
-	<Component extends SvelteComponent<any>>(
+	<Component extends SvelteComponent<never>>(
 		input: SveltePageRequestInput<Component>
 	): Promise<Response>;
 	(
@@ -108,9 +109,9 @@ export const handleSveltePageRequest: HandleSveltePageRequest = async <
 	'pagePath' in PageComponentOrInput &&
 	'indexPath' in PageComponentOrInput
 		? {
-				PageComponent: undefined,
 				indexPath: PageComponentOrInput.indexPath,
 				options: PageComponentOrInput,
+				PageComponent: undefined,
 				pagePath: PageComponentOrInput.pagePath,
 				props: PageComponentOrInput.props
 			}

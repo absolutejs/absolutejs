@@ -39,6 +39,21 @@ type ReactPageHandlerArgs<Props extends Record<string, unknown>> =
 		? [props?: NoInfer<Props>, options?: ReactPageRenderOptions]
 		: [props: NoInfer<Props>, options?: ReactPageRenderOptions];
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+	typeof value === 'object' && value !== null;
+
+const isReactComponent = (
+	value: unknown
+): value is ReactComponent<Record<string, unknown>> =>
+	typeof value === 'function';
+
+const isReactPageRequestInput = (
+	value: unknown
+): value is ReactPageRequestInput<Record<string, unknown>> =>
+	isRecord(value) &&
+	isReactComponent(value.Page) &&
+	typeof value.index === 'string';
+
 const buildRefreshSetup = () => {
 	if (process.env.NODE_ENV === 'production') {
 		return '';
@@ -72,33 +87,29 @@ const buildDirtyResponse = (
 	});
 };
 
-export const handleReactPageRequest = (async <
+export function handleReactPageRequest<
+	Props extends Record<string, unknown> = Record<never, never>
+>(input: ReactPageRequestInput<Props>): Promise<Response>;
+export function handleReactPageRequest<
 	Props extends Record<string, unknown> = Record<never, never>
 >(
-	PageComponentOrInput: ReactComponent<Props> | ReactPageRequestInput<Props>,
-	index?: string,
+	PageComponent: ReactComponent<Props>,
+	index: string,
 	...args: ReactPageHandlerArgs<Props>
-) => {
-	const {
-		Page,
-		index: resolvedIndex,
-		options,
-		props: maybeProps
-	} = typeof PageComponentOrInput === 'object' &&
-	PageComponentOrInput !== null &&
-	'Page' in PageComponentOrInput
-		? {
-				index: PageComponentOrInput.index,
-				options: PageComponentOrInput,
-				Page: PageComponentOrInput.Page,
-				props: PageComponentOrInput.props
-			}
-		: {
-				index: index ?? '',
-				options: args[1],
-				Page: PageComponentOrInput,
-				props: args[0]
-			};
+): Promise<Response>;
+export async function handleReactPageRequest(
+	PageComponentOrInput: unknown,
+	index?: string,
+	...args: [props?: Record<string, unknown>, options?: ReactPageRenderOptions]
+) {
+	const isInput = isReactPageRequestInput(PageComponentOrInput);
+	const Page = isInput ? PageComponentOrInput.Page : PageComponentOrInput;
+	const resolvedIndex = isInput ? PageComponentOrInput.index : (index ?? '');
+	const options = isInput ? PageComponentOrInput : args[1];
+	const maybeProps = isInput ? PageComponentOrInput.props : args[0];
+	if (!isReactComponent(Page)) {
+		throw new Error('React page handler requires a React component.');
+	}
 
 	if (isSsrCacheDirty('react')) {
 		return buildDirtyResponse(resolvedIndex, maybeProps);
@@ -166,7 +177,7 @@ export const handleReactPageRequest = (async <
 			status: 500
 		});
 	}
-}) as HandleReactPageRequest;
+}
 
 export const invalidateReactSsrCache = () => {
 	markSsrCacheDirty('react');

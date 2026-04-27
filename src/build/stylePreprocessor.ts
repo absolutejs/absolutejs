@@ -609,10 +609,10 @@ export const compileStyleSource = async (
 
 	if (language === 'less') {
 		const options = getLessOptions(config);
-		type LessRenderer = typeof import('less').default;
+		type LessRender = typeof import('less').render;
 		let lessModule: {
-			default?: LessRenderer;
-			render?: LessRenderer['render'];
+			default?: { render: LessRender };
+			render?: LessRender;
 		};
 		try {
 			lessModule = await importOptionalPeer<typeof lessModule>('less');

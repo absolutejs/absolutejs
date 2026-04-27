@@ -59,33 +59,29 @@ const formatWarningCallsite = (callsite: string) => {
 	return `\x1b[36m${match[1]}\x1b[33m${match[2]}\x1b[0m`;
 };
 
+const shouldIgnoreWarningFrame = (frame: string) =>
+	frame.includes('/node_modules/') ||
+	frame.includes('/dist/') ||
+	frame.includes('/src/react/pageHandler.') ||
+	frame.includes('/src/vue/pageHandler.') ||
+	frame.includes('/src/svelte/pageHandler.') ||
+	frame.includes('/src/angular/pageHandler.') ||
+	frame.includes('/src/core/streamingSlotWarningScope.');
+
+const getWarningLocation = (frame: string) =>
+	frame.match(/\((\/[^)]+:\d+:\d+)\)$/)?.[1] ??
+	frame.match(/at (\/[^ ]+:\d+:\d+)$/)?.[1];
+
 const extractCallsiteFromStack = (stack: string) => {
-	const frames = stack
+	const location = stack
 		.split('\n')
 		.slice(1)
-		.map((line) => line.trim());
-	for (const frame of frames) {
-		if (
-			frame.includes('/node_modules/') ||
-			frame.includes('/dist/') ||
-			frame.includes('/src/react/pageHandler.') ||
-			frame.includes('/src/vue/pageHandler.') ||
-			frame.includes('/src/svelte/pageHandler.') ||
-			frame.includes('/src/angular/pageHandler.') ||
-			frame.includes('/src/core/streamingSlotWarningScope.')
-		) {
-			continue;
-		}
+		.map((line) => line.trim())
+		.filter((frame) => !shouldIgnoreWarningFrame(frame))
+		.map((frame) => getWarningLocation(frame))
+		.find((frameLocation) => frameLocation !== undefined);
 
-		const locationMatch =
-			frame.match(/\((\/[^)]+:\d+:\d+)\)$/) ??
-			frame.match(/at (\/[^ ]+:\d+:\d+)$/);
-		if (locationMatch?.[1]) {
-			return normalizeCallsitePath(locationMatch[1]);
-		}
-	}
-
-	return undefined;
+	return location ? normalizeCallsitePath(location) : undefined;
 };
 
 const buildMissingCollectorWarning = (

@@ -75,7 +75,7 @@ export const computeVendorPaths = () => {
  *  export names, so Bun produces an empty re-export. */
 const generateEntrySource = async (specifier: string) => {
 	if (specifier === 'react/jsx-dev-runtime') {
-		return `export { Fragment, jsxDEV, default } from '${jsxDevRuntimeCompatPath}';\n`;
+		return `export { Fragment, jsxDEV } from '${jsxDevRuntimeCompatPath}';\n`;
 	}
 
 	const mod = await import(specifier);

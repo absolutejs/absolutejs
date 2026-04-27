@@ -1,7 +1,24 @@
 import { openSync } from 'node:fs';
 import { ReadStream } from 'node:tty';
 import type { ServiceVisibility } from '../../types/build';
-import { ASCII_SPACE, UNFOUND_INDEX } from '../constants';
+import {
+	ASCII_SPACE,
+	UNFOUND_INDEX,
+	WORKSPACE_TUI_DEFAULT_HEIGHT,
+	WORKSPACE_TUI_DEFAULT_WIDTH,
+	WORKSPACE_TUI_ESCAPE_SEQUENCE_TIMEOUT_MS,
+	WORKSPACE_TUI_FOOTER_LINE_COUNT,
+	WORKSPACE_TUI_MIN_LOG_HEIGHT,
+	WORKSPACE_TUI_MIN_SERVICE_NAME_WIDTH,
+	WORKSPACE_TUI_MIN_TARGET_WIDTH,
+	WORKSPACE_TUI_MIN_WRAP_WIDTH,
+	WORKSPACE_TUI_PROMPT_CURSOR_OFFSET,
+	WORKSPACE_TUI_RECENT_LOG_LIMIT,
+	WORKSPACE_TUI_RENDER_DEBOUNCE_MS,
+	WORKSPACE_TUI_STATUS_WIDTH,
+	WORKSPACE_TUI_TARGET_PADDING_WIDTH,
+	WORKSPACE_TUI_VISIBILITY_WIDTH
+} from '../constants';
 import { getDurationString } from '../utils/getDurationString';
 
 type WorkspaceTuiStatus =
@@ -40,6 +57,14 @@ type WorkspaceLogEntry = {
 type ServiceState = WorkspaceTuiService & {
 	detail?: string;
 	status: WorkspaceTuiStatus;
+};
+
+type WorkspaceInput = {
+	destroy: () => void;
+	off: (event: 'data', listener: (chunk: Buffer) => void) => void;
+	on: (event: 'data', listener: (chunk: Buffer) => void) => void;
+	resume: () => void;
+	setRawMode?: (enabled: boolean) => void;
 };
 
 const MAX_LOG_ENTRIES = 400;
@@ -98,7 +123,7 @@ const trySetRawMode = () => {
 		return null;
 	}
 
-	return process.stdin as unknown as ReadStream;
+	return process.stdin;
 };
 
 const openTtyStream = () => {
@@ -152,58 +177,60 @@ const appendRightEdge = (value: string, width: number, marker: string) => {
 	return `${padLine(value, Math.max(0, width - 1))}${marker}`;
 };
 
+const splitLongWord = (word: string, width: number) => {
+	const parts: string[] = [];
+	for (let index = 0; index < word.length; index += width) {
+		parts.push(word.slice(index, index + width));
+	}
+
+	return parts;
+};
+
+const appendWrappedWord = (
+	lines: string[],
+	current: string,
+	word: string,
+	width: number
+) => {
+	if (current.length === 0) {
+		if (word.length <= width) return word;
+		lines.push(...splitLongWord(word, width));
+
+		return '';
+	}
+
+	const next = `${current} ${word}`;
+	if (next.length <= width) return next;
+
+	lines.push(current);
+	if (word.length <= width) return word;
+	lines.push(...splitLongWord(word, width));
+
+	return '';
+};
+
+const wrapLine = (line: string, width: number) => {
+	if (line.length === 0) return [''];
+	if (line.length <= width) return [line];
+
+	const lines: string[] = [];
+	let current = '';
+	for (const word of line.split(/\s+/)) {
+		current = appendWrappedWord(lines, current, word, width);
+	}
+	if (current.length > 0) lines.push(current);
+
+	return lines;
+};
+
 const wrapText = (value: string, width: number) => {
 	if (width <= 0) {
 		return [''];
 	}
 
-	const lines: string[] = [];
-	for (const rawLine of value.split('\n')) {
-		const line = rawLine.trimEnd();
-		if (line.length === 0) {
-			lines.push('');
-			continue;
-		}
-		if (line.length <= width) {
-			lines.push(line);
-			continue;
-		}
-
-		const words = line.split(/\s+/);
-		let current = '';
-		for (const word of words) {
-			if (current.length === 0) {
-				if (word.length <= width) {
-					current = word;
-					continue;
-				}
-				for (let index = 0; index < word.length; index += width) {
-					lines.push(word.slice(index, index + width));
-				}
-				continue;
-			}
-
-			const next = `${current} ${word}`;
-			if (next.length <= width) {
-				current = next;
-				continue;
-			}
-
-			lines.push(current);
-			if (word.length <= width) {
-				current = word;
-				continue;
-			}
-			for (let index = 0; index < word.length; index += width) {
-				lines.push(word.slice(index, index + width));
-			}
-			current = '';
-		}
-
-		if (current.length > 0) {
-			lines.push(current);
-		}
-	}
+	const lines = value
+		.split('\n')
+		.flatMap((rawLine) => wrapLine(rawLine.trimEnd(), width));
 
 	return lines.length > 0 ? lines : [''];
 };
@@ -287,15 +314,15 @@ export const createWorkspaceTui = ({
 	services: WorkspaceTuiService[];
 	version: string;
 }) => {
-	let input = null as ReadStream | null;
+	let input: WorkspaceInput | null = null;
 	let disposed = false;
-	let renderTimer = null as NodeJS.Timeout | null;
+	let renderTimer: NodeJS.Timeout | null = null;
 	let shellMode = false;
 	let helpVisible = false;
 	let promptBuffer = '';
-	let escapeTimer = null as NodeJS.Timeout | null;
+	let escapeTimer: NodeJS.Timeout | null = null;
 	let escapeBuffer = '';
-	let readyDurationMs = null as number | null;
+	let readyDurationMs: number | null = null;
 	let logScrollOffset = 0;
 	let lastLogLineCount = 0;
 	let lastLogViewportHeight = 0;
@@ -330,7 +357,7 @@ export const createWorkspaceTui = ({
 		renderTimer = setTimeout(() => {
 			renderTimer = null;
 			render();
-		}, 16);
+		}, WORKSPACE_TUI_RENDER_DEBOUNCE_MS);
 	};
 
 	const clearPendingEscape = () => {
@@ -347,7 +374,7 @@ export const createWorkspaceTui = ({
 			escapeTimer = null;
 			escapeBuffer = '';
 			exitEscapeMode();
-		}, 30);
+		}, WORKSPACE_TUI_ESCAPE_SEQUENCE_TIMEOUT_MS);
 	};
 
 	const resetPrompt = () => {
@@ -373,8 +400,8 @@ export const createWorkspaceTui = ({
 			return;
 		}
 
-		const width = process.stdout.columns ?? 100;
-		const height = process.stdout.rows ?? 28;
+		const width = process.stdout.columns ?? WORKSPACE_TUI_DEFAULT_WIDTH;
+		const height = process.stdout.rows ?? WORKSPACE_TUI_DEFAULT_HEIGHT;
 		const servicesSnapshot = [...serviceStates.values()];
 		const workspaceStatus = getWorkspaceStatus(servicesSnapshot);
 		const statusLabel =
@@ -385,11 +412,11 @@ export const createWorkspaceTui = ({
 		const divider = `${colors.dim}${'─'.repeat(Math.max(width, 1))}${colors.reset}`;
 
 		const serviceNameWidth = Math.max(
-			7,
+			WORKSPACE_TUI_MIN_SERVICE_NAME_WIDTH,
 			...servicesSnapshot.map((service) => service.name.length)
 		);
-		const visibilityWidth = 8;
-		const statusWidth = 10;
+		const visibilityWidth = WORKSPACE_TUI_VISIBILITY_WIDTH;
+		const statusWidth = WORKSPACE_TUI_STATUS_WIDTH;
 
 		const rows: string[] = [];
 		rows.push(padLine(title, width));
@@ -400,8 +427,12 @@ export const createWorkspaceTui = ({
 			const stateColor = getStatusColor(service.status);
 			const detail = service.detail ? ` · ${service.detail}` : '';
 			const targetWidth = Math.max(
-				width - serviceNameWidth - visibilityWidth - statusWidth - 6,
-				8
+				width -
+					serviceNameWidth -
+					visibilityWidth -
+					statusWidth -
+					WORKSPACE_TUI_TARGET_PADDING_WIDTH,
+				WORKSPACE_TUI_MIN_TARGET_WIDTH
 			);
 			const target = truncateText(
 				`${getTargetLabel(service)}${detail}`,
@@ -421,9 +452,12 @@ export const createWorkspaceTui = ({
 
 		rows.push(divider);
 
-		const footerLines = 3;
+		const footerLines = WORKSPACE_TUI_FOOTER_LINE_COUNT;
 		const fixedHeight = rows.length + footerLines;
-		const logHeight = Math.max(height - fixedHeight, 3);
+		const logHeight = Math.max(
+			height - fixedHeight,
+			WORKSPACE_TUI_MIN_LOG_HEIGHT
+		);
 		const logWidth = Math.max(width - 1, 1);
 		const contentLines = helpVisible
 			? helpLines
@@ -434,7 +468,10 @@ export const createWorkspaceTui = ({
 					)}[${entry.source}]${colors.reset} `;
 					const wrapped = wrapText(
 						entry.message,
-						Math.max(logWidth - prefixPlain.length, 12)
+						Math.max(
+							logWidth - prefixPlain.length,
+							WORKSPACE_TUI_MIN_WRAP_WIDTH
+						)
 					);
 
 					return wrapped.map((line, index) => {
@@ -553,7 +590,10 @@ export const createWorkspaceTui = ({
 
 		process.stdout.write(`\x1b[H${screen}`);
 		if (shellMode) {
-			const promptColumn = Math.min(promptBuffer.length + 3, width);
+			const promptColumn = Math.min(
+				promptBuffer.length + WORKSPACE_TUI_PROMPT_CURSOR_OFFSET,
+				width
+			);
 			const promptRow = Math.min(rows.length, height);
 			process.stdout.write(`\x1b[${promptRow};${promptColumn}H\x1b[?25h`);
 
@@ -611,7 +651,7 @@ export const createWorkspaceTui = ({
 		scheduleRender();
 	};
 
-	const getRecentLogs = (limit = 40) =>
+	const getRecentLogs = (limit = WORKSPACE_TUI_RECENT_LOG_LIMIT) =>
 		logEntries.slice(Math.max(0, logEntries.length - limit));
 
 	const getServiceSnapshot = () =>
@@ -628,17 +668,17 @@ export const createWorkspaceTui = ({
 			return;
 		}
 
-		if (direction === 'up') {
-			if (shellHistoryIndex < shellHistory.length - 1) {
-				shellHistoryIndex++;
-			}
-		} else if (shellHistoryIndex <= 0) {
+		if (direction === 'up' && shellHistoryIndex < shellHistory.length - 1) {
+			shellHistoryIndex++;
+		}
+		if (direction === 'down' && shellHistoryIndex <= 0) {
 			shellHistoryIndex = UNFOUND_INDEX;
 			promptBuffer = '';
 			scheduleRender();
 
 			return;
-		} else {
+		}
+		if (direction === 'down') {
 			shellHistoryIndex--;
 		}
 
@@ -648,6 +688,26 @@ export const createWorkspaceTui = ({
 				: (shellHistory[shellHistory.length - 1 - shellHistoryIndex] ??
 					'');
 		scheduleRender();
+	};
+
+	const handleArrowEscape = (direction: 'up' | 'down') => {
+		clearPendingEscape();
+		escapeBuffer = '';
+		if (shellMode) {
+			navigateShellHistory(direction);
+
+			return;
+		}
+
+		scrollLogs(direction);
+	};
+
+	const handleScrollEscape = (
+		mode: 'pageUp' | 'pageDown' | 'home' | 'end'
+	) => {
+		clearPendingEscape();
+		escapeBuffer = '';
+		scrollLogs(mode);
 	};
 
 	const scrollLogs = (
@@ -720,52 +780,32 @@ export const createWorkspaceTui = ({
 			return;
 		}
 		if (escapeBuffer === `${ESCAPE}[A`) {
-			clearPendingEscape();
-			escapeBuffer = '';
-			if (shellMode) {
-				navigateShellHistory('up');
-			} else {
-				scrollLogs('up');
-			}
+			handleArrowEscape('up');
 
 			return;
 		}
 		if (escapeBuffer === `${ESCAPE}[B`) {
-			clearPendingEscape();
-			escapeBuffer = '';
-			if (shellMode) {
-				navigateShellHistory('down');
-			} else {
-				scrollLogs('down');
-			}
+			handleArrowEscape('down');
 
 			return;
 		}
 		if (escapeBuffer === `${ESCAPE}[5~`) {
-			clearPendingEscape();
-			escapeBuffer = '';
-			scrollLogs('pageUp');
+			handleScrollEscape('pageUp');
 
 			return;
 		}
 		if (escapeBuffer === `${ESCAPE}[6~`) {
-			clearPendingEscape();
-			escapeBuffer = '';
-			scrollLogs('pageDown');
+			handleScrollEscape('pageDown');
 
 			return;
 		}
 		if (escapeBuffer === `${ESCAPE}[H` || escapeBuffer === `${ESCAPE}[1~`) {
-			clearPendingEscape();
-			escapeBuffer = '';
-			scrollLogs('home');
+			handleScrollEscape('home');
 
 			return;
 		}
 		if (escapeBuffer === `${ESCAPE}[F` || escapeBuffer === `${ESCAPE}[4~`) {
-			clearPendingEscape();
-			escapeBuffer = '';
-			scrollLogs('end');
+			handleScrollEscape('end');
 
 			return;
 		}
@@ -775,6 +815,48 @@ export const createWorkspaceTui = ({
 			return;
 		}
 		exitEscapeMode();
+	};
+
+	const handleBackspace = () => {
+		if (!shellMode) {
+			return;
+		}
+		if (promptBuffer.length > 0) {
+			promptBuffer = promptBuffer.slice(0, UNFOUND_INDEX);
+			scheduleRender();
+
+			return;
+		}
+		resetPrompt();
+	};
+
+	const handleEnter = async () => {
+		if (!shellMode) {
+			return;
+		}
+
+		await submitShellCommand();
+	};
+
+	const handlePrintableChar = async (char: string) => {
+		if (shellMode) {
+			promptBuffer += char;
+			scheduleRender();
+
+			return;
+		}
+		if (char === '$') {
+			shellMode = true;
+			promptBuffer = '';
+			scheduleRender();
+
+			return;
+		}
+
+		const shortcut = SHORTCUTS.get(char.toLowerCase());
+		if (shortcut) {
+			await runShortcut(shortcut);
+		}
 	};
 
 	const handleChar = async (char: string) => {
@@ -798,24 +880,13 @@ export const createWorkspaceTui = ({
 		}
 
 		if (char === '\x7f' || char === '\b') {
-			if (!shellMode) {
-				return;
-			}
-			if (promptBuffer.length > 0) {
-				promptBuffer = promptBuffer.slice(0, UNFOUND_INDEX);
-				scheduleRender();
-
-				return;
-			}
-			resetPrompt();
+			handleBackspace();
 
 			return;
 		}
 
 		if (char === '\r' || char === '\n') {
-			if (shellMode) {
-				await submitShellCommand();
-			}
+			await handleEnter();
 
 			return;
 		}
@@ -824,25 +895,7 @@ export const createWorkspaceTui = ({
 			return;
 		}
 
-		if (!shellMode) {
-			if (char === '$') {
-				shellMode = true;
-				promptBuffer = '';
-				scheduleRender();
-
-				return;
-			}
-
-			const shortcut = SHORTCUTS.get(char.toLowerCase());
-			if (shortcut) {
-				await runShortcut(shortcut);
-			}
-
-			return;
-		}
-
-		promptBuffer += char;
-		scheduleRender();
+		await handlePrintableChar(char);
 	};
 
 	const onResize = () => {
@@ -876,6 +929,18 @@ export const createWorkspaceTui = ({
 		render();
 	};
 
+	const disposeInput = () => {
+		if (!input) {
+			return;
+		}
+
+		input.off('data', onData);
+		setRawMode(false);
+		if (input !== process.stdin) {
+			input.destroy();
+		}
+	};
+
 	const dispose = () => {
 		if (disposed) {
 			return;
@@ -887,13 +952,7 @@ export const createWorkspaceTui = ({
 			renderTimer = null;
 		}
 		process.stdout.off('resize', onResize);
-		if (input) {
-			input.off('data', onData);
-			setRawMode(false);
-			if (input !== process.stdin) {
-				input.destroy();
-			}
-		}
+		disposeInput();
 		process.stdout.write('\x1b[?25h\x1b[?1049l');
 	};
 

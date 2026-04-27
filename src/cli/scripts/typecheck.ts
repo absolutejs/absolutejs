@@ -15,8 +15,7 @@ import type {
 type CheckerResult = { name: string; exitCode: number; output: string };
 
 const isCommandService = (service: ServiceConfig) =>
-	service.kind === 'command' ||
-	Array.isArray((service as { command?: unknown }).command);
+	service.kind === 'command' || Array.isArray(service.command);
 
 const getTypecheckTargets = async (configPath?: string) => {
 	const rawConfig = await loadRawConfig(configPath);
@@ -46,10 +45,8 @@ const run = async (name: string, command: string[]): Promise<CheckerResult> => {
 
 const shellEscape = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 
-const runShell = async (
-	name: string,
-	command: string
-): Promise<CheckerResult> => run(name, ['/bin/bash', '-lc', command]);
+const runShell = async (name: string, command: string) =>
+	run(name, ['/bin/bash', '-lc', command]);
 
 const findBin = (name: string) => {
 	const local = resolve('node_modules', '.bin', name);
@@ -347,16 +344,12 @@ export const typecheck = async (configPath?: string) => {
 	checks.push(hasVue ? buildVueTscCheck(cacheDir) : buildTscCheck(cacheDir));
 
 	// svelte-check scoped to the Svelte directory only
-	if (hasSvelte) {
-		for (const svelteDir of svelteDirs) {
-			checks.push(buildSvelteCheck(cacheDir, svelteDir));
-		}
+	for (const svelteDir of hasSvelte ? svelteDirs : []) {
+		checks.push(buildSvelteCheck(cacheDir, svelteDir));
 	}
 
-	if (hasAngular) {
-		for (const angularDir of angularDirs) {
-			checks.push(buildAngularCheck(cacheDir, angularDir));
-		}
+	for (const angularDir of hasAngular ? angularDirs : []) {
+		checks.push(buildAngularCheck(cacheDir, angularDir));
 	}
 
 	const results = await Promise.all(checks);

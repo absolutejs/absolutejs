@@ -20,5 +20,3 @@ import { Component } from '@angular/core';
 	`
 })
 export class AngularDeferStreamingTestPage {}
-
-export default AngularDeferStreamingTestPage;

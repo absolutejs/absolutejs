@@ -9,7 +9,16 @@ import {
 } from 'node:fs';
 import { createConnection } from 'node:net';
 import { resolve } from 'node:path';
-import { DEFAULT_PORT } from '../../constants';
+import {
+	DEFAULT_PORT,
+	HTTP_STATUS_OK,
+	WORKSPACE_FAILURE_LOG_PRINT_LIMIT,
+	WORKSPACE_FAILURE_RECENT_LOG_LIMIT,
+	WORKSPACE_READY_ATTEMPT_TIMEOUT_MS,
+	WORKSPACE_READY_PROBE_INTERVAL_MS,
+	WORKSPACE_READY_TIMEOUT_MS,
+	WORKSPACE_SHUTDOWN_TIMEOUT_MS
+} from '../../constants';
 import { getWorkspaceServices, loadRawConfig } from '../../utils/loadConfig';
 import { getDurationString } from '../../utils/getDurationString';
 import { createWorkspaceTui } from '../workspaceTui';
@@ -79,11 +88,9 @@ const createWorkspaceLogSink = (appendLog: WorkspaceLogSink) => {
 	const logDirectory = resolve('.absolutejs', 'workspace', 'logs');
 	mkdirSync(logDirectory, { recursive: true });
 
-	for (const file of readdirSync(logDirectory)) {
-		if (file.endsWith('.log')) {
-			unlinkSync(resolve(logDirectory, file));
-		}
-	}
+	readdirSync(logDirectory)
+		.filter((file) => file.endsWith('.log'))
+		.forEach((file) => unlinkSync(resolve(logDirectory, file)));
 	writeFileSync(resolve(logDirectory, 'all.log'), '');
 	writeFileSync(resolve(logDirectory, 'workspace.log'), '');
 
@@ -156,14 +163,12 @@ const resolvePackageVersion = () => {
 const isCommandService = (
 	service: ServiceConfig
 ): service is CommandServiceConfig =>
-	service.kind === 'command' ||
-	Array.isArray((service as { command?: unknown }).command);
+	service.kind === 'command' || Array.isArray(service.command);
 
-const isAbsoluteService = (
-	service: ServiceConfig
-): service is AbsoluteServiceConfig => !isCommandService(service);
+const isAbsoluteService = (service: ServiceConfig) =>
+	!isCommandService(service);
 
-const getVisibility = (service: ServiceConfig): ServiceVisibility =>
+const getVisibility = (service: ServiceConfig) =>
 	service.visibility ?? 'public';
 
 const getServiceUrl = (service: ServiceConfig) => {
@@ -220,7 +225,7 @@ type ResolvedReadyProbe =
 	| null;
 
 const normalizeExpectedStatuses = (value?: number | number[]) =>
-	Array.isArray(value) ? value : [value ?? 200];
+	Array.isArray(value) ? value : [value ?? HTTP_STATUS_OK];
 
 const resolveServiceHttpUrl = (service: ServiceConfig, path: string) => {
 	if (!path.startsWith('/')) {
@@ -247,19 +252,19 @@ const resolveHttpReadyProbe = (
 				type: 'http',
 				url: resolveServiceHttpUrl(service, ready),
 				method: 'GET',
-				expectStatus: [200],
+				expectStatus: [HTTP_STATUS_OK],
 				headers: {},
-				intervalMs: 250,
-				timeoutMs: 30_000
+				intervalMs: WORKSPACE_READY_PROBE_INTERVAL_MS,
+				timeoutMs: WORKSPACE_READY_TIMEOUT_MS
 			} satisfies ResolvedHttpReadyProbe;
 		}
 
 		return {
-			expectStatus: [200],
+			expectStatus: [HTTP_STATUS_OK],
 			headers: {},
-			intervalMs: 250,
+			intervalMs: WORKSPACE_READY_PROBE_INTERVAL_MS,
 			method: 'GET',
-			timeoutMs: 30_000,
+			timeoutMs: WORKSPACE_READY_TIMEOUT_MS,
 			type: 'http',
 			url: ready
 		} satisfies ResolvedHttpReadyProbe;
@@ -288,8 +293,8 @@ const resolveHttpReadyProbe = (
 		method: ready.method ?? 'GET',
 		expectStatus: normalizeExpectedStatuses(ready.expectStatus),
 		headers: ready.headers ?? {},
-		intervalMs: ready.intervalMs ?? 250,
-		timeoutMs: ready.timeoutMs ?? 30_000
+		intervalMs: ready.intervalMs ?? WORKSPACE_READY_PROBE_INTERVAL_MS,
+		timeoutMs: ready.timeoutMs ?? WORKSPACE_READY_TIMEOUT_MS
 	} satisfies ResolvedHttpReadyProbe;
 };
 
@@ -310,16 +315,16 @@ const resolveReadyProbe = (
 			type: 'tcp',
 			host: ready.host ?? getServicePublicHost(service),
 			port: ready.port,
-			intervalMs: ready.intervalMs ?? 250,
-			timeoutMs: ready.timeoutMs ?? 30_000
+			intervalMs: ready.intervalMs ?? WORKSPACE_READY_PROBE_INTERVAL_MS,
+			timeoutMs: ready.timeoutMs ?? WORKSPACE_READY_TIMEOUT_MS
 		} satisfies ResolvedTcpReadyProbe;
 	}
 
 	if (ready.type === 'command') {
 		return {
 			command: ready.command,
-			intervalMs: ready.intervalMs ?? 250,
-			timeoutMs: ready.timeoutMs ?? 30_000,
+			intervalMs: ready.intervalMs ?? WORKSPACE_READY_PROBE_INTERVAL_MS,
+			timeoutMs: ready.timeoutMs ?? WORKSPACE_READY_TIMEOUT_MS,
 			type: 'command'
 		} satisfies ResolvedCommandReadyProbe;
 	}
@@ -338,7 +343,9 @@ const probeHttpReady = async (ready: ResolvedHttpReadyProbe) => {
 	const response = await fetch(ready.url, {
 		method: ready.method,
 		headers: ready.headers,
-		signal: AbortSignal.timeout(Math.min(ready.timeoutMs, 5_000))
+		signal: AbortSignal.timeout(
+			Math.min(ready.timeoutMs, WORKSPACE_READY_ATTEMPT_TIMEOUT_MS)
+		)
 	});
 
 	return ready.expectStatus.includes(response.status);
@@ -356,7 +363,7 @@ const probeTcpReady = async (ready: ResolvedTcpReadyProbe) =>
 				socket.destroy();
 				resolveProbe(false);
 			},
-			Math.min(ready.timeoutMs, 5_000)
+			Math.min(ready.timeoutMs, WORKSPACE_READY_ATTEMPT_TIMEOUT_MS)
 		);
 
 		socket.once('connect', () => {
@@ -390,7 +397,7 @@ const probeCommandReady = async (
 				/* process already exited */
 			}
 		},
-		Math.min(ready.timeoutMs, 5_000)
+		Math.min(ready.timeoutMs, WORKSPACE_READY_ATTEMPT_TIMEOUT_MS)
 	);
 
 	try {
@@ -416,18 +423,8 @@ const waitForReady = async (service: ResolvedWorkspaceService) => {
 
 	const startedAt = Date.now();
 	while (Date.now() - startedAt < resolved.timeoutMs) {
-		try {
-			const isReady =
-				resolved.type === 'http'
-					? await probeHttpReady(resolved)
-					: resolved.type === 'tcp'
-						? await probeTcpReady(resolved)
-						: await probeCommandReady(resolved, service);
-			if (isReady) {
-				return;
-			}
-		} catch {
-			/* service not ready yet */
+		if (await probeReady(resolved, service)) {
+			return;
 		}
 
 		// eslint-disable-next-line no-await-in-loop -- readiness probes must poll sequentially
@@ -443,6 +440,20 @@ const waitForReady = async (service: ResolvedWorkspaceService) => {
 	);
 };
 
+const probeReady = async (
+	resolved: Exclude<ResolvedReadyProbe, ResolvedDelayReadyProbe | null>,
+	service: ResolvedWorkspaceService
+) => {
+	try {
+		if (resolved.type === 'http') return probeHttpReady(resolved);
+		if (resolved.type === 'tcp') return probeTcpReady(resolved);
+
+		return probeCommandReady(resolved, service);
+	} catch {
+		return false;
+	}
+};
+
 const resolveShutdownHook = (
 	shutdown: ServiceShutdownConfig | undefined
 ): ResolvedShutdownHook | null => {
@@ -453,13 +464,13 @@ const resolveShutdownHook = (
 	if (Array.isArray(shutdown)) {
 		return {
 			command: shutdown,
-			timeoutMs: 10_000
+			timeoutMs: WORKSPACE_SHUTDOWN_TIMEOUT_MS
 		};
 	}
 
 	return {
 		command: shutdown.command,
-		timeoutMs: shutdown.timeoutMs ?? 10_000
+		timeoutMs: shutdown.timeoutMs ?? WORKSPACE_SHUTDOWN_TIMEOUT_MS
 	};
 };
 
@@ -496,19 +507,12 @@ const runShutdownHook = async (
 
 	try {
 		const exitCode = await processHandle.exited;
-		if (exitCode === 0) {
-			onLog(
-				'workspace',
-				`${service.name} shutdown hook finished.`,
-				'success'
-			);
-
-			return;
-		}
 		onLog(
 			'workspace',
-			`${service.name} shutdown hook exited with code ${exitCode || 1}.`,
-			'warn'
+			exitCode === 0
+				? `${service.name} shutdown hook finished.`
+				: `${service.name} shutdown hook exited with code ${exitCode || 1}.`,
+			exitCode === 0 ? 'success' : 'warn'
 		);
 	} finally {
 		clearTimeout(timeout);
@@ -567,37 +571,57 @@ const pipeProcessLogs = (
 	) => {
 		let buffer = '';
 		const reader = stream.getReader();
-		try {
-			while (true) {
-				// eslint-disable-next-line no-await-in-loop -- log chunks must preserve order
-				const { done, value } = await reader.read();
-				if (done) {
-					break;
-				}
-				if (!value) {
-					continue;
-				}
-
-				buffer += Buffer.from(value).toString();
-				const lines = buffer.split('\n');
-				buffer = lines.pop() ?? '';
-				for (const line of lines) {
-					if (line.trim().length === 0) {
-						continue;
-					}
-					appendLog(name, line, level);
-				}
-			}
-		} finally {
-			if (buffer.trim().length > 0) {
-				appendLog(name, buffer, level);
-			}
-			reader.releaseLock();
+		let chunk = await readLogChunk(reader);
+		while (chunk !== null) {
+			buffer = appendLogChunk(buffer, chunk, name, level, appendLog);
+			// eslint-disable-next-line no-await-in-loop -- log chunks must preserve order
+			chunk = await readLogChunk(reader);
 		}
+		appendRemainingLogBuffer(buffer, name, level, appendLog);
+		reader.releaseLock();
 	};
 
 	void forward(processHandle.stdout, 'info');
 	void forward(processHandle.stderr, 'error');
+};
+
+const readLogChunk = async (
+	reader: ReadableStreamDefaultReader<Uint8Array>
+) => {
+	const { done, value } = await reader.read();
+	if (done) return null;
+	if (!value) return '';
+
+	return Buffer.from(value).toString();
+};
+
+const appendLogChunk = (
+	buffer: string,
+	chunk: string,
+	name: string,
+	level: 'info' | 'error',
+	appendLog: WorkspaceLogSink
+) => {
+	const lines = `${buffer}${chunk}`.split('\n');
+	const nextBuffer = lines.pop() ?? '';
+	lines
+		.filter((line) => line.trim().length > 0)
+		.forEach((line) => appendLog(name, line, level));
+
+	return nextBuffer;
+};
+
+const appendRemainingLogBuffer = (
+	buffer: string,
+	name: string,
+	level: 'info' | 'error',
+	appendLog: WorkspaceLogSink
+) => {
+	if (buffer.trim().length === 0) {
+		return;
+	}
+
+	appendLog(name, buffer, level);
 };
 
 const getServicePublicHost = (service: ServiceConfig) => {
@@ -618,11 +642,9 @@ const getServiceProtocol = (service: ServiceConfig) =>
 const createWorkspaceServiceEnv = (services: WorkspaceConfig) => {
 	const workspaceEnv: Record<string, string> = {};
 
-	for (const [name, service] of Object.entries(services)) {
-		if (!service.port) {
-			continue;
-		}
-
+	for (const [name, service] of Object.entries(services).filter(
+		([, service]) => Boolean(service.port)
+	)) {
 		const envKey = `ABSOLUTE_SERVICE_${name
 			.toUpperCase()
 			.replace(/[^A-Z0-9]+/g, '_')}_URL`;
@@ -633,6 +655,26 @@ const createWorkspaceServiceEnv = (services: WorkspaceConfig) => {
 	return workspaceEnv;
 };
 
+const getDefinedProcessEnv = () =>
+	Object.fromEntries(
+		Object.entries(process.env).filter(
+			(entry): entry is [string, string] => typeof entry[1] === 'string'
+		)
+	);
+
+const resolveAbsoluteServiceConfigPath = (
+	service: ServiceConfig,
+	cwd: string,
+	options: WorkspaceDevOptions
+) => {
+	if (service.config) return resolve(cwd, service.config);
+	if (options.configPath) return resolve(options.configPath);
+	if (process.env.ABSOLUTE_CONFIG)
+		return resolve(process.env.ABSOLUTE_CONFIG);
+
+	return undefined;
+};
+
 const resolveService = (
 	name: string,
 	service: ServiceConfig,
@@ -640,33 +682,34 @@ const resolveService = (
 	options: WorkspaceDevOptions
 ): ResolvedWorkspaceService => {
 	const cwd = resolve(service.cwd ?? '.');
-	const envVars = {
-		...process.env,
-		...workspaceEnv,
-		...service.env,
-		ABSOLUTE_WORKSPACE_MANAGED: '1',
-		ABSOLUTE_WORKSPACE_SERVICE_NAME: name,
-		ABSOLUTE_WORKSPACE_SERVICE_VISIBILITY: getVisibility(service),
-		FORCE_COLOR: '1',
-		NODE_ENV: 'development'
-	} as Record<string, string>;
+	const envVars = Object.assign(
+		getDefinedProcessEnv(),
+		workspaceEnv,
+		service.env,
+		{
+			ABSOLUTE_WORKSPACE_MANAGED: '1',
+			ABSOLUTE_WORKSPACE_SERVICE_NAME: name,
+			ABSOLUTE_WORKSPACE_SERVICE_VISIBILITY: getVisibility(service),
+			FORCE_COLOR: '1',
+			NODE_ENV: 'development'
+		}
+	);
 
 	if (service.port && !envVars.PORT) {
 		envVars.PORT = String(service.port);
 	}
 
 	if (isAbsoluteService(service)) {
-		const configPath = service.config
-			? resolve(cwd, service.config)
-			: options.configPath
-				? resolve(options.configPath)
-				: process.env.ABSOLUTE_CONFIG
-					? resolve(process.env.ABSOLUTE_CONFIG)
-					: undefined;
+		const configPath = resolveAbsoluteServiceConfigPath(
+			service,
+			cwd,
+			options
+		);
 
-		if (configPath) {
-			envVars.ABSOLUTE_CONFIG = configPath;
-		}
+		Object.assign(
+			envVars,
+			configPath ? { ABSOLUTE_CONFIG: configPath } : {}
+		);
 
 		const command = [
 			process.execPath,
@@ -747,36 +790,60 @@ export const workspace = async (
 	const workspaceLogs = createWorkspaceLogSink(tui.addLog);
 	const addLog = workspaceLogs.appendLog;
 
+	const killProcess = (service: RunningService) => {
+		try {
+			service.process.kill();
+		} catch {
+			/* process already exited */
+		}
+	};
+
+	const runShutdownHookSafely = async (service: RunningService) => {
+		try {
+			await runShutdownHook(service.resolved, addLog);
+		} catch (error) {
+			const message =
+				error instanceof Error ? error.message : String(error);
+			addLog(
+				'workspace',
+				`${service.name} shutdown hook failed: ${message}`,
+				'warn'
+			);
+		}
+	};
+
 	const killProcesses = async () => {
 		const snapshot = [...running];
 		running.length = 0;
-		for (const service of snapshot) {
-			try {
-				service.process.kill();
-			} catch {
-				/* process already exited */
-			}
-		}
+		snapshot.forEach((service) => killProcess(service));
 		await Promise.all(snapshot.map((service) => service.process.exited));
 		for (const service of snapshot.reverse()) {
-			try {
-				// eslint-disable-next-line no-await-in-loop -- shutdown hooks should run in reverse service order
-				await runShutdownHook(service.resolved, addLog);
-			} catch (error) {
-				const message =
-					error instanceof Error ? error.message : String(error);
-				addLog(
-					'workspace',
-					`${service.name} shutdown hook failed: ${message}`,
-					'warn'
-				);
-			}
+			// eslint-disable-next-line no-await-in-loop -- shutdown hooks should run in reverse service order
+			await runShutdownHookSafely(service);
 		}
+	};
+
+	const appendRecentLogs = (
+		lines: string[],
+		logsToPrint: ReturnType<typeof tui.getRecentLogs>
+	) => {
+		if (logsToPrint.length === 0) {
+			return;
+		}
+
+		lines.push('', 'Recent logs:');
+		logsToPrint.forEach((entry) => {
+			lines.push(
+				`  ${entry.timestamp} [${entry.source}] ${entry.message}`
+			);
+		});
 	};
 
 	const printFailureSummary = (exitCode: number) => {
 		const servicesSnapshot = tui.getServiceSnapshot();
-		const recentLogs = tui.getRecentLogs(60);
+		const recentLogs = tui.getRecentLogs(
+			WORKSPACE_FAILURE_RECENT_LOG_LIMIT
+		);
 		const failedServices = servicesSnapshot.filter(
 			(service) => service.status === 'error'
 		);
@@ -789,7 +856,7 @@ export const workspace = async (
 		);
 		const logsToPrint = (
 			relevantLogs.length > 0 ? relevantLogs : recentLogs
-		).slice(-30);
+		).slice(-WORKSPACE_FAILURE_LOG_PRINT_LIMIT);
 		const lines = [
 			'',
 			`\x1b[31mABSOLUTEJS WORKSPACE exited with code ${exitCode}\x1b[0m`,
@@ -802,14 +869,7 @@ export const workspace = async (
 			})
 		];
 
-		if (logsToPrint.length > 0) {
-			lines.push('', 'Recent logs:');
-			for (const entry of logsToPrint) {
-				lines.push(
-					`  ${entry.timestamp} [${entry.source}] ${entry.message}`
-				);
-			}
-		}
+		appendRecentLogs(lines, logsToPrint);
 
 		lines.push('');
 		process.stderr.write(`${lines.join('\n')}\n`);
@@ -834,6 +894,39 @@ export const workspace = async (
 		}
 	};
 
+	const resumeRunningServices = () => {
+		running.forEach((service) => {
+			sendSignalToService(service.process, 'SIGCONT');
+		});
+		paused = false;
+	};
+
+	const markRunningServicesReady = () => {
+		running.forEach((service) => {
+			readyServiceNames.add(service.name);
+			tui.setServiceStatus(service.name, 'ready');
+		});
+	};
+
+	const pauseRunningServices = () => {
+		running.forEach((service) => {
+			sendSignalToService(service.process, 'SIGSTOP');
+			readyServiceNames.delete(service.name);
+			tui.setServiceStatus(service.name, 'paused');
+		});
+		paused = true;
+	};
+
+	const killStaleServicePort = (port: number) => {
+		if (port <= 0) {
+			return;
+		}
+
+		killStaleProcesses(port, (message) => {
+			addLog('workspace', message, 'warn');
+		});
+	};
+
 	const shutdown = async (exitCode = 0) => {
 		if (shuttingDown) {
 			return;
@@ -845,10 +938,7 @@ export const workspace = async (
 			printFailureSummary(exitCode);
 		}
 		if (paused) {
-			for (const service of running) {
-				sendSignalToService(service.process, 'SIGCONT');
-			}
-			paused = false;
+			resumeRunningServices();
 		}
 		await killProcesses();
 		process.exit(exitCode);
@@ -870,11 +960,7 @@ export const workspace = async (
 			const port =
 				(resolved.service.port ?? Number(resolved.env.PORT ?? '')) ||
 				DEFAULT_PORT;
-			if (port > 0) {
-				killStaleProcesses(port, (message) => {
-					addLog('workspace', message, 'warn');
-				});
-			}
+			killStaleServicePort(port);
 
 			if (
 				isAbsoluteService(resolved.service) &&
@@ -945,10 +1031,7 @@ export const workspace = async (
 		}
 		restarting = true;
 		if (paused) {
-			for (const service of running) {
-				sendSignalToService(service.process, 'SIGCONT');
-			}
-			paused = false;
+			resumeRunningServices();
 		}
 		addLog('workspace', 'Restarting workspace...', 'info');
 		readyServiceNames.clear();
@@ -964,20 +1047,12 @@ export const workspace = async (
 
 	const togglePause = () => {
 		if (paused) {
-			for (const service of running) {
-				sendSignalToService(service.process, 'SIGCONT');
-				readyServiceNames.add(service.name);
-				tui.setServiceStatus(service.name, 'ready');
-			}
+			resumeRunningServices();
+			markRunningServicesReady();
 			paused = false;
 			addLog('workspace', 'Workspace resumed.', 'success');
 		} else {
-			for (const service of running) {
-				sendSignalToService(service.process, 'SIGSTOP');
-				readyServiceNames.delete(service.name);
-				tui.setServiceStatus(service.name, 'paused');
-			}
-			paused = true;
+			pauseRunningServices();
 			addLog('workspace', 'Workspace paused.', 'warn');
 		}
 	};

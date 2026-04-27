@@ -28,7 +28,7 @@
 		"elysia": "1.4.18",
 		"elysia-scoped-state": "0.1.1",
 		"eslint": "10.0.3",
-		"eslint-plugin-absolute": "0.2.6",
+		"eslint-plugin-absolute": "0.2.8",
 		"eslint-plugin-promise": "7.2.1",
 		"eslint-plugin-security": "4.0.0",
 		"globals": "^17.4.0",

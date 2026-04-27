@@ -62,7 +62,8 @@ export const buildProviders = (
 	deps: AngularDeps,
 	sanitizer: InstanceType<AngularDeps['DomSanitizer']>,
 	maybeProps: Record<string, unknown> | undefined,
-	tokenMap: Map<string, unknown>
+	tokenMap: Map<string, unknown>,
+	userProviders: ReadonlyArray<Provider | EnvironmentProviders> = []
 ) => {
 	const providers: (Provider | EnvironmentProviders)[] = [
 		deps.provideServerRendering(),
@@ -73,7 +74,8 @@ export const buildProviders = (
 			provide: deps.DomSanitizer,
 			useValue: sanitizer
 		},
-		{ provide: deps.Sanitizer, useValue: sanitizer }
+		{ provide: deps.Sanitizer, useValue: sanitizer },
+		...userProviders
 	];
 
 	if (!maybeProps) {

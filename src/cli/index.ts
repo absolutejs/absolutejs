@@ -8,11 +8,15 @@ import { start } from './scripts/start';
 import { workspace } from './scripts/workspace';
 import { telemetry } from './scripts/telemetry';
 import { sendTelemetryEvent } from './telemetryEvent';
-import { CLI_ARGS_OFFSET, UNFOUND_INDEX } from '../constants';
+import {
+	CLI_ARGS_OFFSET,
+	UNFOUND_INDEX,
+	WORKSPACE_COMMAND_ARGS_OFFSET
+} from '../constants';
 import { DEFAULT_SERVER_ENTRY } from './utils';
 
 const [command] = process.argv.slice(2);
-const [workspaceCommand] = process.argv.slice(3);
+const [workspaceCommand] = process.argv.slice(WORKSPACE_COMMAND_ARGS_OFFSET);
 const args = process.argv.slice(CLI_ARGS_OFFSET);
 
 const parseNamedArg = (flag: string) => {

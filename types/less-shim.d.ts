@@ -18,7 +18,7 @@ declare module 'less' {
 		render: typeof render;
 	};
 
-	export default less;
+	export = less;
 }
 
 declare module 'stylus' {

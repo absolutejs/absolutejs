@@ -35,5 +35,3 @@ export class AngularStreamingTestPage {
 		return '<section>angular slow resolved</section>';
 	};
 }
-
-export default AngularStreamingTestPage;

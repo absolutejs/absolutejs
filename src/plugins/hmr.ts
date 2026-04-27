@@ -20,17 +20,22 @@ const restoreStore = (store: unknown) => {
 	const saved = getGlobalValue(STORE_KEY);
 
 	if (saved && typeof saved === 'object') {
-		const savedRecord: Record<string, unknown> = saved;
-		if (store && typeof store === 'object') {
-			Object.keys(savedRecord).forEach((key) => {
-				Reflect.set(store, key, savedRecord[key]);
-			});
-		}
+		restoreSavedStoreValues(store, saved);
 	}
 
 	if (store && typeof store === 'object') {
 		Reflect.set(globalThis, STORE_KEY, store);
 	}
+};
+
+const restoreSavedStoreValues = (store: unknown, saved: object) => {
+	if (!store || typeof store !== 'object') {
+		return;
+	}
+
+	Object.entries(saved).forEach(([key, value]) => {
+		Reflect.set(store, key, value);
+	});
 };
 
 const resolveModuleResponse = (

@@ -29,17 +29,7 @@ export const StreamSlot = defineComponent({
 	},
 	setup(props: StreamSlotProps) {
 		if (useSSRContext() !== undefined) {
-			if (isStreamingSlotCollectionActive()) {
-				registerStreamingSlot({
-					errorHtml: props.errorHtml,
-					fallbackHtml: props.fallbackHtml,
-					id: props.id,
-					resolve: props.resolve,
-					timeoutMs: props.timeoutMs
-				});
-			} else {
-				warnMissingStreamingSlotCollector('StreamSlot');
-			}
+			registerStreamSlotForSsr(props);
 		}
 
 		return () =>
@@ -51,3 +41,19 @@ export const StreamSlot = defineComponent({
 			});
 	}
 });
+
+const registerStreamSlotForSsr = (props: StreamSlotProps) => {
+	if (!isStreamingSlotCollectionActive()) {
+		warnMissingStreamingSlotCollector('StreamSlot');
+
+		return;
+	}
+
+	registerStreamingSlot({
+		errorHtml: props.errorHtml,
+		fallbackHtml: props.fallbackHtml,
+		id: props.id,
+		resolve: props.resolve,
+		timeoutMs: props.timeoutMs
+	});
+};

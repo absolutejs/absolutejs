@@ -1,7 +1,5 @@
 import { resolve } from 'node:path';
 import type {
-	AbsoluteServiceConfig,
-	BuildConfig,
 	CommandServiceConfig,
 	ConfigInput,
 	ServiceConfig,
@@ -47,8 +45,7 @@ const isObject = (value: unknown): value is Record<string, unknown> =>
 const isCommandService = (
 	service: ServiceConfig
 ): service is CommandServiceConfig =>
-	service.kind === 'command' ||
-	Array.isArray((service as { command?: unknown }).command);
+	service.kind === 'command' || Array.isArray(service.command);
 
 const isServiceCandidate = (value: unknown): value is ServiceConfig =>
 	isObject(value) &&
@@ -71,7 +68,9 @@ const isWorkspaceConfig = (config: ConfigInput): config is WorkspaceConfig => {
 	return entries.every(([, value]) => isServiceCandidate(value));
 };
 
-const getWorkspaceServices = (config: ConfigInput): WorkspaceConfig => {
+const isConfigInput = (value: unknown): value is ConfigInput => isObject(value);
+
+const getWorkspaceServices = (config: ConfigInput) => {
 	if (!isWorkspaceConfig(config)) {
 		throw new Error(
 			'absolute.config.ts is not a multi-service config. Define top-level named services with `entry` or `command` before using `absolute workspace dev`.'
@@ -81,10 +80,7 @@ const getWorkspaceServices = (config: ConfigInput): WorkspaceConfig => {
 	return config;
 };
 
-const projectServiceConfig = (
-	config: ConfigInput,
-	serviceName: string
-): BuildConfig => {
+const projectServiceConfig = (config: ConfigInput, serviceName: string) => {
 	const services = getWorkspaceServices(config);
 	const service = services[serviceName];
 	if (!service) {
@@ -115,7 +111,7 @@ const projectServiceConfig = (
 	return serviceConfig;
 };
 
-export const loadConfig = async (configPath?: string): Promise<BuildConfig> => {
+export const loadConfig = async (configPath?: string) => {
 	const config = await loadRawConfig(configPath);
 	const serviceName = process.env.ABSOLUTE_WORKSPACE_SERVICE_NAME;
 	if (typeof serviceName === 'string' && serviceName.length > 0) {
@@ -130,9 +126,7 @@ export const loadConfig = async (configPath?: string): Promise<BuildConfig> => {
 
 	return config;
 };
-export const loadRawConfig = async (
-	configPath?: string
-): Promise<ConfigInput> => {
+export const loadRawConfig = async (configPath?: string) => {
 	const resolved = resolve(
 		configPath ?? process.env.ABSOLUTE_CONFIG ?? 'absolute.config.ts'
 	);
@@ -146,13 +140,13 @@ export const loadRawConfig = async (
 		);
 	}
 
-	if (!isObject(config)) {
+	if (!isConfigInput(config)) {
 		throw new Error(
 			`Config file "${resolved}" must export an object configuration.`
 		);
 	}
 
-	return config as ConfigInput;
+	return config;
 };
 
 export { getWorkspaceServices, isWorkspaceConfig };

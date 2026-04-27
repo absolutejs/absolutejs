@@ -3,6 +3,7 @@ import { Elysia } from 'elysia';
 
 type RouteCallsiteStore = { callsite?: string };
 type RouteCallsiteStorage = AsyncLocalStorage<RouteCallsiteStore>;
+type RouteMethod = (this: unknown, ...args: unknown[]) => unknown;
 
 const ROUTE_CALLSITE_STORAGE_KEY = Symbol.for(
 	'absolutejs.devRouteRegistrationCallsiteStorage'
@@ -32,6 +33,9 @@ const isAsyncLocalStorage = (value: unknown): value is RouteCallsiteStorage =>
 	'run' in value &&
 	typeof value.run === 'function';
 
+const isRouteMethod = (value: unknown): value is RouteMethod =>
+	typeof value === 'function';
+
 const getRouteCallsiteStorage = () => {
 	const value = Reflect.get(globalThis, ROUTE_CALLSITE_STORAGE_KEY);
 	if (value === null || typeof value === 'undefined') {
@@ -59,29 +63,25 @@ const normalizeCallsitePath = (value: string) =>
 		.replace(process.cwd(), '')
 		.replace(/^\.\/+/, '');
 
+const shouldIgnoreRouteCallsiteFrame = (frame: string) =>
+	frame.includes('/node_modules/') ||
+	frame.includes('/dist/') ||
+	frame.includes('/src/core/devRouteRegistrationCallsite.');
+
+const getRouteCallsiteLocation = (frame: string) =>
+	frame.match(/\((\/[^)]+:\d+:\d+)\)$/)?.[1] ??
+	frame.match(/at (\/[^ ]+:\d+:\d+)$/)?.[1];
+
 const extractRouteRegistrationCallsite = (stack: string) => {
-	const frames = stack
+	const location = stack
 		.split('\n')
 		.slice(1)
-		.map((line) => line.trim());
-	for (const frame of frames) {
-		if (
-			frame.includes('/node_modules/') ||
-			frame.includes('/dist/') ||
-			frame.includes('/src/core/devRouteRegistrationCallsite.')
-		) {
-			continue;
-		}
+		.map((line) => line.trim())
+		.filter((frame) => !shouldIgnoreRouteCallsiteFrame(frame))
+		.map((frame) => getRouteCallsiteLocation(frame))
+		.find((frameLocation) => frameLocation !== undefined);
 
-		const locationMatch =
-			frame.match(/\((\/[^)]+:\d+:\d+)\)$/) ??
-			frame.match(/at (\/[^ ]+:\d+:\d+)$/);
-		if (locationMatch?.[1]) {
-			return normalizeCallsitePath(locationMatch[1]);
-		}
-	}
-
-	return undefined;
+	return location ? normalizeCallsitePath(location) : undefined;
 };
 
 const captureRouteRegistrationCallsite = () => {
@@ -99,17 +99,30 @@ const wrapRouteHandlerWithCallsite = (handler: unknown, callsite?: string) => {
 	}
 
 	const storage = ensureRouteCallsiteStorage();
+	const routeHandler = handler;
 
 	return function wrappedRouteHandler(this: unknown, ...args: unknown[]) {
 		return storage.run({ callsite }, () =>
-			Reflect.apply(
-				handler as (...handlerArgs: unknown[]) => unknown,
-				this,
-				args
-			)
+			Reflect.apply(routeHandler, this, args)
 		);
 	};
 };
+
+const createPatchedRouteMethod = (originalMethod: RouteMethod) =>
+	function patchedRouteMethod(
+		this: unknown,
+		path: unknown,
+		handler: unknown,
+		...rest: unknown[]
+	) {
+		const callsite = captureRouteRegistrationCallsite();
+
+		return Reflect.apply(originalMethod, this, [
+			path,
+			wrapRouteHandlerWithCallsite(handler, callsite),
+			...rest
+		]);
+	};
 
 export const getCurrentRouteRegistrationCallsite = () =>
 	getRouteCallsiteStorage()?.getStore()?.callsite;
@@ -122,28 +135,16 @@ export const patchElysiaRouteRegistrationCallsites = () => {
 		return;
 	}
 
-	const prototype = Elysia.prototype as unknown as Record<string, unknown>;
-	for (const methodName of ROUTE_METHOD_NAMES) {
-		const originalMethod = prototype[methodName];
-		if (typeof originalMethod !== 'function') {
-			continue;
-		}
-
-		prototype[methodName] = function patchedRouteMethod(
-			this: unknown,
-			path: unknown,
-			handler: unknown,
-			...rest: unknown[]
-		) {
-			const callsite = captureRouteRegistrationCallsite();
-
-			return Reflect.apply(originalMethod, this, [
-				path,
-				wrapRouteHandlerWithCallsite(handler, callsite),
-				...rest
-			]);
-		};
-	}
+	const { prototype } = Elysia;
+	ROUTE_METHOD_NAMES.forEach((methodName) => {
+		const originalMethod = Reflect.get(prototype, methodName);
+		if (!isRouteMethod(originalMethod)) return;
+		Reflect.set(
+			prototype,
+			methodName,
+			createPatchedRouteMethod(originalMethod)
+		);
+	});
 
 	Reflect.set(globalThis, ROUTE_CALLSITE_PATCHED_KEY, true);
 };

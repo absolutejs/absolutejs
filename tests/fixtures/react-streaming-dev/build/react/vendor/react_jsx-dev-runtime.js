@@ -9,14 +9,9 @@ import {
 // dist/react/jsxDevRuntimeCompat.js
 var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
 var jsxDEV = (type, props, key, _isStaticChildren, _source, _self) => Array.isArray(props?.children) ? import_jsx_runtime.jsxs(type, props, key) : import_jsx_runtime.jsx(type, props, key);
-var jsxDevRuntimeCompat_default = {
-  Fragment: import_jsx_runtime.Fragment,
-  jsxDEV
-};
 var export_Fragment = import_jsx_runtime.Fragment;
 
 export {
   jsxDEV,
-  jsxDevRuntimeCompat_default as default,
   export_Fragment as Fragment
 };

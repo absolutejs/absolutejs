@@ -45,18 +45,20 @@ const getAbsoluteVersion = () => {
 			resolve(import.meta.dir, '..', '..', '..', 'package.json')
 		];
 
-		for (const pkgPath of candidates) {
-			if (!existsSync(pkgPath)) continue;
-			const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
-			const ver: string = pkg.version;
-
-			return ver;
-		}
+		const pkgPath = candidates.find((candidate) => existsSync(candidate));
+		if (pkgPath) return readPackageVersion(pkgPath);
 	} catch {
 		return getPackageVersion('@absolutejs/absolute');
 	}
 
 	return getPackageVersion('@absolutejs/absolute');
+};
+
+const readPackageVersion = (pkgPath: string) => {
+	const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+	const ver: string = pkg.version;
+
+	return ver;
 };
 
 const detectCI = () => {

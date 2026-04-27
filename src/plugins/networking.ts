@@ -1,7 +1,7 @@
 import { argv } from 'node:process';
 import { env } from 'bun';
 import { Elysia } from 'elysia';
-import { DEFAULT_PORT } from '../constants';
+import { DEFAULT_PORT, MILLISECONDS_IN_A_SECOND } from '../constants';
 import { loadDevCert } from '../dev/devCert';
 import { getLocalIPAddress } from '../utils/networking';
 import { startupBanner } from '../utils/startupBanner';
@@ -63,7 +63,7 @@ export const networking = <A extends Elysia>(app: A) =>
 			const buildDuration =
 				globalThis.__hmrBuildDuration ??
 				Number(env.ABSOLUTE_BUILD_DURATION || 0);
-			const readyDuration = process.uptime() * 1000;
+			const readyDuration = process.uptime() * MILLISECONDS_IN_A_SECOND;
 
 			const version =
 				globalThis.__absoluteVersion || env.ABSOLUTE_VERSION || '';

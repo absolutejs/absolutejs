@@ -147,6 +147,67 @@ const registerLegacySuspenseSlot = (props: LegacySuspenseSlotRegistration) => {
 	});
 };
 
+const resolveStreamingSuspenseSlot = async (
+	props: SuspenseSlotProps,
+	slots: Record<string, Slot | undefined>
+) => {
+	try {
+		const value = await resolveSuspenseValue(props.resolve, props.promise);
+		const nodes = allowMismatchOnSlotNodes(
+			slots.default?.({ value }) ?? []
+		);
+		const html = await renderVueNodesToHtml(nodes);
+
+		return {
+			html,
+			kind: 'vue-suspense',
+			value
+		};
+	} catch (error) {
+		const errorNodes = slots.error?.({ error });
+		if (errorNodes !== undefined)
+			return renderVueNodesToHtml(allowMismatchOnSlotNodes(errorNodes));
+		if (typeof props.errorHtml === 'string') return props.errorHtml;
+
+		throw error;
+	}
+};
+
+const registerSuspenseSlotForSsr = (
+	props: SuspenseSlotProps,
+	slots: Record<string, Slot | undefined>,
+	usesFrameworkSlots: boolean
+) => {
+	if (!isStreamingSlotCollectionActive()) {
+		warnMissingStreamingSlotCollector('SuspenseSlot');
+	}
+	const legacyRegistration = toLegacySuspenseSlotRegistration(props);
+	if (!usesFrameworkSlots && legacyRegistration) {
+		registerLegacySuspenseSlot(legacyRegistration);
+
+		return;
+	}
+
+	registerStreamingSlot({
+		id: props.id,
+		timeoutMs: props.timeoutMs,
+		resolve: () => resolveStreamingSuspenseSlot(props, slots)
+	});
+};
+
+const applySuspensePayload = (
+	payload: VueSuspensePayload,
+	state: {
+		hasError: { value: boolean };
+		isResolved: { value: boolean };
+		resolvedValue: { value: unknown };
+	}
+) => {
+	state.hasError.value = payload.state === 'error';
+	state.resolvedValue.value = payload.value;
+	state.isResolved.value = payload.state !== 'error';
+};
+
 export const SuspenseSlot = defineComponent({
 	name: 'AbsoluteSuspenseSlot',
 	props: {
@@ -187,47 +248,7 @@ export const SuspenseSlot = defineComponent({
 		const isSsrRender = useSSRContext() !== undefined;
 
 		if (isSsrRender) {
-			if (!isStreamingSlotCollectionActive()) {
-				warnMissingStreamingSlotCollector('SuspenseSlot');
-			}
-			const legacyRegistration = toLegacySuspenseSlotRegistration(props);
-			if (!usesFrameworkSlots && legacyRegistration) {
-				return registerLegacySuspenseSlot(legacyRegistration);
-			}
-
-			registerStreamingSlot({
-				id: props.id,
-				timeoutMs: props.timeoutMs,
-				resolve: async () => {
-					try {
-						const value = await resolveSuspenseValue(
-							props.resolve,
-							props.promise
-						);
-
-						const nodes = allowMismatchOnSlotNodes(
-							slots.default?.({ value }) ?? []
-						);
-						const html = await renderVueNodesToHtml(nodes);
-
-						return {
-							html,
-							kind: 'vue-suspense',
-							value
-						};
-					} catch (error) {
-						const errorNodes = slots.error?.({ error });
-						if (errorNodes !== undefined)
-							return renderVueNodesToHtml(
-								allowMismatchOnSlotNodes(errorNodes)
-							);
-						if (typeof props.errorHtml === 'string')
-							return props.errorHtml;
-
-						throw error;
-					}
-				}
-			});
+			registerSuspenseSlotForSsr(props, slots, usesFrameworkSlots);
 		}
 
 		if (typeof window !== 'undefined' && usesFrameworkSlots) {
@@ -239,9 +260,11 @@ export const SuspenseSlot = defineComponent({
 				if (!isVueSuspensePayload(payload)) {
 					return false;
 				}
-				hasError.value = payload.state === 'error';
-				resolvedValue.value = payload.value;
-				isResolved.value = payload.state !== 'error';
+				applySuspensePayload(payload, {
+					hasError,
+					isResolved,
+					resolvedValue
+				});
 
 				return true;
 			};

@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { mkdir, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
-import type { Type } from '@angular/core';
+import type { EnvironmentProviders, Provider, Type } from '@angular/core';
 import type {
 	AngularPageImporter,
 	AngularPagePropsOf
@@ -50,6 +50,7 @@ export type AngularPageRequestInput<
 	headTag?: `<head>${string}</head>`;
 	indexPath: string;
 	pagePath: string;
+	providers?: ReadonlyArray<Provider | EnvironmentProviders>;
 } & (keyof AngularPagePropsOf<Page> extends never
 		? { props?: NoInfer<AngularPagePropsOf<Page>> }
 		: { props: NoInfer<AngularPagePropsOf<Page>> });
@@ -74,6 +75,22 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 const isAngularComponent = (value: unknown): value is Type<unknown> =>
 	typeof value === 'function';
+
+const resolvePageComponent = (pageModule: Record<string, unknown>) => {
+	if (isAngularComponent(pageModule.default)) {
+		return pageModule.default;
+	}
+
+	return Object.values(pageModule).find((value) => isAngularComponent(value));
+};
+
+const isAngularPageRequestInput = (
+	value: unknown
+): value is AngularPageRequestInput<Record<string, unknown>> =>
+	typeof value === 'object' &&
+	value !== null &&
+	'pagePath' in value &&
+	'indexPath' in value;
 
 let compilerImportPromise: Promise<unknown> | null = null;
 const ensureAngularCompiler = () => {
@@ -153,43 +170,45 @@ export const invalidateAngularSsrCache = () => {
 const angularSsrContext = new AsyncLocalStorage<string>();
 setSsrContextGetter(() => angularSsrContext.getStore());
 
-export const handleAngularPageRequest = (async <
+export function handleAngularPageRequest<
+	Page = { factory: (props: Record<never, never>) => unknown }
+>(input: AngularPageRequestInput<Page>): Promise<Response>;
+export function handleAngularPageRequest<
 	Props extends Record<string, unknown> = Record<never, never>
 >(
-	PageOrInput: AngularPageImporter<Props> | AngularPageRequestInput<Props>,
+	Page: AngularPageImporter<Props>,
+	pagePath: string,
+	indexPath: string,
+	headTag: `<head>${string}</head>` | undefined,
+	...args: AngularPageHandlerArgs<Props>
+): Promise<Response>;
+export async function handleAngularPageRequest(
+	PageOrInput: unknown,
 	pagePath?: string,
 	indexPath?: string,
 	headTag: `<head>${string}</head>` = '<head></head>',
-	...args: AngularPageHandlerArgs<Props>
-) => {
+	...args: [
+		props?: Record<string, unknown>,
+		options?: AngularPageRenderOptions
+	]
+) {
 	const requestId = `angular_${Date.now()}_${Math.random().toString(BASE_36_RADIX).substring(2, RANDOM_ID_END_INDEX)}`;
 
 	return angularSsrContext.run(requestId, async () => {
 		await ensureAngularCompiler();
-		const {
-			headTag: resolvedHeadTag,
-			indexPath: resolvedIndexPath,
-			options,
-			pagePath: resolvedPagePath,
-			props: maybeProps
-		} = typeof PageOrInput === 'object' &&
-		PageOrInput !== null &&
-		'pagePath' in PageOrInput &&
-		'indexPath' in PageOrInput
-			? {
-					headTag: PageOrInput.headTag ?? '<head></head>',
-					indexPath: PageOrInput.indexPath,
-					options: PageOrInput as AngularPageRenderOptions,
-					pagePath: PageOrInput.pagePath,
-					props: PageOrInput.props
-				}
-			: {
-					headTag,
-					indexPath: indexPath ?? '',
-					options: args[1],
-					pagePath: pagePath ?? '',
-					props: args[0]
-				};
+		const isInput = isAngularPageRequestInput(PageOrInput);
+		const resolvedHeadTag = isInput
+			? (PageOrInput.headTag ?? '<head></head>')
+			: headTag;
+		const resolvedIndexPath = isInput
+			? PageOrInput.indexPath
+			: (indexPath ?? '');
+		const options = isInput ? PageOrInput : args[1];
+		const resolvedPagePath = isInput
+			? PageOrInput.pagePath
+			: (pagePath ?? '');
+		const maybeProps = isInput ? PageOrInput.props : args[0];
+		const userProviders = isInput ? PageOrInput.providers : undefined;
 
 		// Cache props + headTag for HMR replay — strip query strings
 		// so cache-busted HMR paths match the original manifest path.
@@ -229,10 +248,10 @@ export const handleAngularPageRequest = (async <
 						`Invalid Angular page module: ${resolvedPagePath}`
 					);
 				}
-				const PageComponent = pageModule.default;
+				const PageComponent = resolvePageComponent(pageModule);
 				if (!isAngularComponent(PageComponent)) {
 					throw new Error(
-						`Angular page module must export a component by default: ${resolvedPagePath}`
+						`Angular page module must export an Angular component: ${resolvedPagePath}`
 					);
 				}
 				const hasIslands =
@@ -260,7 +279,8 @@ export const handleAngularPageRequest = (async <
 					deps,
 					sanitizer,
 					maybeProps,
-					tokenMap
+					tokenMap,
+					userProviders
 				);
 
 				const rawHtml: string = await renderAngularApp(
@@ -317,4 +337,4 @@ export const handleAngularPageRequest = (async <
 			});
 		}
 	});
-}) as HandleAngularPageRequest;
+}

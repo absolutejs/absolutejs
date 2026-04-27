@@ -60,6 +60,11 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const isGenericVueComponent = (value: unknown): value is GenericVueComponent =>
 	typeof value === 'function' || isRecord(value);
 
+const isVuePageRequestInput = <Component extends VueComponent>(
+	value: Component | VuePageRequestInput<Component>
+): value is VuePageRequestInput<Component> =>
+	isRecord(value) && 'pagePath' in value && 'indexPath' in value;
+
 const readHasIslands = (value: unknown) => {
 	if (!isRecord(value)) return false;
 	const hasIslands = value['__ABSOLUTE_PAGE_HAS_ISLANDS__'];
@@ -121,40 +126,36 @@ const primeVueStream = async (stream: ReadableStream) => {
 	return { firstChunk, reader };
 };
 
-export const handleVuePageRequest = (async <Component extends VueComponent>(
+export function handleVuePageRequest<Component extends VueComponent>(
+	input: VuePageRequestInput<Component>
+): Promise<Response>;
+export function handleVuePageRequest<Component extends VueComponent>(
+	PageComponent: Component,
+	pagePath: string,
+	indexPath: string,
+	headTag: `<head>${string}</head>` | undefined,
+	...args: VuePageHandlerArgs<Component>
+): Promise<Response>;
+export async function handleVuePageRequest<Component extends VueComponent>(
 	PageComponentOrInput: Component | VuePageRequestInput<Component>,
 	pagePath?: string,
 	indexPath?: string,
 	headTag: `<head>${string}</head>` = '<head></head>',
 	...args: VuePageHandlerArgs<Component>
-) => {
-	const {
-		PageComponent: _PageComponent,
-		headTag: resolvedHeadTag,
-		indexPath: resolvedIndexPath,
-		options: resolvedOptions,
-		pagePath: resolvedPagePath,
-		props: maybeProps
-	} = typeof PageComponentOrInput === 'object' &&
-	PageComponentOrInput !== null &&
-	'pagePath' in PageComponentOrInput &&
-	'indexPath' in PageComponentOrInput
-		? {
-				PageComponent: undefined,
-				headTag: PageComponentOrInput.headTag ?? '<head></head>',
-				indexPath: PageComponentOrInput.indexPath,
-				options: PageComponentOrInput as VuePageRenderOptions,
-				pagePath: PageComponentOrInput.pagePath,
-				props: PageComponentOrInput.props
-			}
-		: {
-				headTag,
-				indexPath: indexPath ?? '',
-				options: args[1],
-				PageComponent: PageComponentOrInput,
-				pagePath: pagePath ?? '',
-				props: args[0]
-			};
+) {
+	const isInput = isVuePageRequestInput(PageComponentOrInput);
+	const _PageComponent = isInput ? undefined : PageComponentOrInput;
+	const resolvedHeadTag = isInput
+		? (PageComponentOrInput.headTag ?? '<head></head>')
+		: headTag;
+	const resolvedIndexPath = isInput
+		? PageComponentOrInput.indexPath
+		: (indexPath ?? '');
+	const resolvedOptions = isInput ? PageComponentOrInput : args[1];
+	const resolvedPagePath = isInput
+		? PageComponentOrInput.pagePath
+		: (pagePath ?? '');
+	const maybeProps = isInput ? PageComponentOrInput.props : args[0];
 
 	if (isSsrCacheDirty('vue')) {
 		return buildDirtyResponse(
@@ -278,7 +279,7 @@ export const handleVuePageRequest = (async <Component extends VueComponent>(
 			status: 500
 		});
 	}
-}) as HandleVuePageRequest;
+}
 
 export const invalidateVueSsrCache = () => {
 	markSsrCacheDirty('vue');
