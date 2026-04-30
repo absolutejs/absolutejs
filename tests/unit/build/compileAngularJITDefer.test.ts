@@ -291,6 +291,39 @@ export class AliasImportPageComponent {}
 		}
 	});
 
+	test('ignores commented-out templateUrl when an inline template is present', async () => {
+		const dir = await makeTemp();
+		const outDir = join(dir, 'out');
+		await mkdir(outDir, { recursive: true });
+
+		const inputPath = await writeComponentFile(
+			dir,
+			'commented-template-url-page',
+			`import { Component } from '@angular/core';
+@Component({
+	selector: 'app-commented',
+	standalone: true,
+	// templateUrl: './does-not-exist.html',
+	template: '<p>inline ok</p>'
+})
+export class CommentedPageComponent {}
+`
+		);
+
+		const outputs = await compileAngularFileJIT(inputPath, outDir, dir);
+		const outputPath = outputs.find(path =>
+			path.endsWith('commented-template-url-page.js')
+		);
+		expect(outputPath).toBeDefined();
+		const output = await readFile(outputPath as string, 'utf-8');
+
+		expect(output).toMatch(/template:\s*['"`]<p>inline ok<\/p>['"`]/);
+		expect(output).not.toContain('does-not-exist.html');
+		expect(output).not.toContain('templateUrl');
+
+		await rm(dir, { force: true, recursive: true });
+	});
+
 	test('reports missing styleUrl resources before Angular SSR fetches them', async () => {
 		const dir = await makeTemp();
 		const outDir = join(dir, 'out');

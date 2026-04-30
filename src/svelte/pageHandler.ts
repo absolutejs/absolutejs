@@ -58,6 +58,12 @@ export type SveltePageRenderOptions = {
 	headContent?: string;
 } & StreamingSlotEnhancerOptions;
 
+type HasNoSvelteProps<Props> = [Props] extends [never]
+	? true
+	: keyof Props extends never
+		? true
+		: false;
+
 export type SveltePageRequestInput<
 	Component extends SvelteComponent<never> = SvelteComponent<
 		Record<never, never>
@@ -65,63 +71,20 @@ export type SveltePageRequestInput<
 > = SveltePageRenderOptions & {
 	indexPath: string;
 	pagePath: string;
-} & (keyof SveltePropsOf<Component> extends never
+} & (HasNoSvelteProps<SveltePropsOf<Component>> extends true
 		? { props?: NoInfer<SveltePropsOf<Component>> }
 		: { props: NoInfer<SveltePropsOf<Component>> });
 
-export type HandleSveltePageRequest = {
-	<Component extends SvelteComponent<never>>(
-		input: SveltePageRequestInput<Component>
-	): Promise<Response>;
-	(
-		PageComponent: SvelteComponent<Record<string, never>>,
-		pagePath: string,
-		indexPath: string
-	): Promise<Response>;
-	<P extends Record<string, unknown>>(
-		PageComponent: SvelteComponent<P>,
-		pagePath: string,
-		indexPath: string,
-		props: NoInfer<P>,
-		options?: SveltePageRenderOptions
-	): Promise<Response>;
-};
-
-export const handleSveltePageRequest: HandleSveltePageRequest = async <
-	P extends Record<string, unknown>
+export const handleSveltePageRequest = async <
+	Component extends SvelteComponent<never>
 >(
-	PageComponentOrInput:
-		| SvelteComponent<P>
-		| SveltePageRequestInput<SvelteComponent<P>>,
-	pagePath?: string,
-	indexPath?: string,
-	props?: P,
-	options?: SveltePageRenderOptions
+	input: SveltePageRequestInput<Component>
 ) => {
-	const {
-		PageComponent,
-		indexPath: resolvedIndexPath,
-		options: resolvedOptions,
-		pagePath: resolvedPagePath,
-		props: resolvedProps
-	} = typeof PageComponentOrInput === 'object' &&
-	PageComponentOrInput !== null &&
-	'pagePath' in PageComponentOrInput &&
-	'indexPath' in PageComponentOrInput
-		? {
-				indexPath: PageComponentOrInput.indexPath,
-				options: PageComponentOrInput,
-				PageComponent: undefined,
-				pagePath: PageComponentOrInput.pagePath,
-				props: PageComponentOrInput.props
-			}
-		: {
-				indexPath: indexPath ?? '',
-				options,
-				PageComponent: PageComponentOrInput,
-				pagePath: pagePath ?? '',
-				props
-			};
+	const resolvedIndexPath = input.indexPath;
+	const resolvedOptions = input;
+	const resolvedPagePath = input.pagePath;
+	const resolvedProps = input.props;
+
 	if (isSsrCacheDirty('svelte')) {
 		return buildDirtyResponse(resolvedIndexPath, resolvedProps);
 	}
@@ -135,14 +98,6 @@ export const handleSveltePageRequest: HandleSveltePageRequest = async <
 		const renderPageResponse = async () => {
 			const resolvePageComponent =
 				async (): Promise<ResolvedSveltePage> => {
-					const passedPageComponent: unknown = PageComponent;
-					if (isGenericSvelteComponent(passedPageComponent)) {
-						return {
-							component: passedPageComponent,
-							hasIslands: readHasIslands(passedPageComponent)
-						};
-					}
-
 					const loadCompiledSourcePath = async (
 						sourcePath: string
 					): Promise<ResolvedSveltePage> => {
@@ -164,13 +119,6 @@ export const handleSveltePageRequest: HandleSveltePageRequest = async <
 							hasIslands: readHasIslands(loadedModule)
 						};
 					};
-
-					if (
-						typeof passedPageComponent === 'string' &&
-						passedPageComponent.endsWith('.svelte')
-					) {
-						return loadCompiledSourcePath(passedPageComponent);
-					}
 
 					const importedPageModule: unknown = await import(
 						resolvedPagePath

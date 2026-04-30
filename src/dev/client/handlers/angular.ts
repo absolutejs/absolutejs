@@ -2,18 +2,27 @@
    DEV MODE ONLY — never active in production.
 
    Strategy:
-   1. Capture component state (ng.getComponent) + DOM state
+   1. Capture component/service state via `preserveAcrossHmr` opt-ins
    2. Use document.startViewTransition() — browser captures a screenshot
    3. Destroy old app, recreate root element, import new module
    4. bootstrapApplication() renders new content (behind the screenshot)
-   5. After bootstrap: restore state via ng.getComponent + ng.applyChanges
-   6. View transition resolves — browser smoothly crossfades to new content
+   5. New instances restore from cache via `preserveAcrossHmr` in their
+      constructors / ngOnInit (gated on rebootInProgress flag)
+   6. Wait for `applicationRef.whenStable()` so lazy-route components
+      have a chance to construct, then close the restoration window
+   7. View transition resolves — browser smoothly crossfades to new
+      content
 
    document.startViewTransition() is the native browser API for page
-   transitions. It captures a screenshot before the callback, runs the
-   callback (which can be async), and crossfades when the callback finishes.
-   The user never sees empty/default state — only the before and after. */
+   transitions. It captures a screenshot before the callback, runs
+   the callback (which can be async), and crossfades when the callback
+   finishes. The user never sees empty/default state — only the
+   before and after. */
 
+import {
+	captureTrackedInstanceStates,
+	endHmrReboot
+} from '../../../angular/hmrPreserveCore';
 import { ANGULAR_INIT_TIMEOUT_MS } from '../constants';
 import {
 	saveFormState,
@@ -36,19 +45,11 @@ type HMRMessage = {
 	};
 };
 
-type NgApi = {
-	applyChanges?: (component: unknown) => void;
-	getComponent?: (element: Element) => unknown;
-};
-
-type AngularClientWindow = Window & {
-	ng?: NgApi;
-};
-
 type AngularHmrApi = {
 	applyUpdate: (id: string, newCtor: unknown) => boolean;
 	getRegistry?: () => Map<string, unknown>;
 	refresh: () => void;
+	hasPageExportsChanged?: (sourceId: string) => boolean;
 };
 
 type ViewTransitionDocument = Document & {
@@ -70,9 +71,6 @@ const isAngularComponentExport = (
 
 	return 'ɵcmp' in value && Boolean(value.ɵcmp);
 };
-
-const isObjectRecord = (value: unknown): value is Record<string, unknown> =>
-	Boolean(value) && typeof value === 'object';
 
 const swapStylesheet = (
 	cssUrl: string,
@@ -98,169 +96,6 @@ const swapStylesheet = (
 			capturedExisting.remove();
 	};
 	document.head.appendChild(newLink);
-};
-
-// ─── State Capture/Restore via ng.getComponent ──────────────
-
-type StateSnapshot = {
-	selector: string;
-	index: number;
-	properties: Record<string, unknown>;
-};
-
-const readDomCounter = (
-	element: Element,
-	properties: Record<string, unknown>
-) => {
-	element
-		.querySelectorAll('[class*="value"], [class*="count"]')
-		.forEach((stateEl) => {
-			const text = stateEl.textContent;
-			if (text === null || text.trim() === '') return;
-			const num = parseInt(text.trim(), 10);
-			if (!isNaN(num)) properties['__dom_counter'] = num;
-		});
-};
-
-const copyInstanceProperty = (
-	instance: Record<string, unknown>,
-	key: string,
-	properties: Record<string, unknown>
-) => {
-	if (key.startsWith('ɵ') || key.startsWith('__')) return;
-	const val = instance[key];
-	if (typeof val === 'function') return;
-	properties[key] = val;
-};
-
-const captureInstanceProperties = (
-	ngApi: NgApi | undefined,
-	element: Element,
-	properties: Record<string, unknown>
-) => {
-	if (!ngApi || typeof ngApi.getComponent !== 'function') return;
-
-	try {
-		const instance = ngApi.getComponent(element);
-		if (!isObjectRecord(instance)) return;
-
-		Object.keys(instance).forEach((key) => {
-			copyInstanceProperty(instance, key, properties);
-		});
-	} catch {
-		/* ignored */
-	}
-};
-
-const captureComponentState = () => {
-	const snapshots: StateSnapshot[] = [];
-	const selectorCounts = new Map<string, number>();
-	const angularWindow: AngularClientWindow = window;
-	const ngApi = angularWindow.ng;
-
-	document.querySelectorAll('*').forEach((elem) => {
-		const tagName = elem.tagName.toLowerCase();
-		if (!tagName.includes('-')) return;
-
-		const count = selectorCounts.get(tagName) || 0;
-		selectorCounts.set(tagName, count + 1);
-
-		const properties: Record<string, unknown> = {};
-		readDomCounter(elem, properties);
-		captureInstanceProperties(ngApi, elem, properties);
-
-		if (Object.keys(properties).length > 0) {
-			snapshots.push({ index: count, properties, selector: tagName });
-		}
-	});
-
-	return snapshots;
-};
-
-const safeSetProperty = (
-	instance: Record<string, unknown>,
-	key: string,
-	value: unknown
-) => {
-	try {
-		instance[key] = value;
-	} catch {
-		/* ignored */
-	}
-};
-
-const restoreInstanceProperties = (
-	instance: Record<string, unknown>,
-	snap: StateSnapshot
-) => {
-	const domCounter = snap.properties['__dom_counter'];
-	Object.entries(snap.properties).forEach(([key, value]) => {
-		if (key === '__dom_counter') return;
-		safeSetProperty(instance, key, value);
-	});
-	if (
-		domCounter !== undefined &&
-		typeof domCounter === 'number' &&
-		'count' in instance
-	) {
-		instance['count'] = domCounter;
-	}
-};
-
-const restoreViaInstance = (
-	ngApi: NgApi | undefined,
-	element: Element,
-	snap: StateSnapshot
-) => {
-	if (!ngApi || typeof ngApi.getComponent !== 'function') return false;
-
-	try {
-		const instance = ngApi.getComponent(element);
-		if (!isObjectRecord(instance)) return false;
-
-		restoreInstanceProperties(instance, snap);
-		if (typeof ngApi.applyChanges === 'function')
-			ngApi.applyChanges(element);
-
-		return true;
-	} catch {
-		return false;
-	}
-};
-
-const restoreDomFallback = (element: Element, snap: StateSnapshot) => {
-	const domCounter = snap.properties['__dom_counter'];
-	if (domCounter === undefined) return;
-
-	element
-		.querySelectorAll('[class*="value"], [class*="count"]')
-		.forEach((counterEl) => {
-			counterEl.textContent = String(domCounter);
-		});
-};
-
-const restoreComponentState = (snapshots: StateSnapshot[]) => {
-	const angularWindow: AngularClientWindow = window;
-	const ngApi = angularWindow.ng;
-	if (snapshots.length === 0) return;
-
-	const bySelector = new Map<string, StateSnapshot[]>();
-	for (const snap of snapshots) {
-		const list = bySelector.get(snap.selector) || [];
-		list.push(snap);
-		bySelector.set(snap.selector, list);
-	}
-
-	bySelector.forEach((snaps, selector) => {
-		const elements = document.querySelectorAll(selector);
-		snaps.forEach((snap) => {
-			const element = elements[snap.index];
-			if (!element) return;
-
-			const restored = restoreViaInstance(ngApi, element, snap);
-			if (!restored) restoreDomFallback(element, snap);
-		});
-	});
 };
 
 // ─── Wait for Angular bootstrap (event-based, no polling) ───
@@ -360,6 +195,10 @@ const patchRegisteredComponents = (
 	return { allPatched, patchedAny };
 };
 
+type FastPatchWindow = Window & {
+	__ANGULAR_HMR_FAST_PATCH__?: boolean;
+};
+
 const attemptFastPatch = async (
 	indexPath: string,
 	registry: Map<string, unknown>,
@@ -367,17 +206,42 @@ const attemptFastPatch = async (
 	sourceFile: string,
 	origWarn: typeof console.warn
 ) => {
+	// The bundled page chunk's top-level code re-bootstraps the Angular app
+	// (destroy + bootstrapApplication). For fast-patch we just need to read
+	// the freshly-built component classes — not re-bootstrap. Setting this
+	// flag tells the chunk to skip its bootstrap section and only run the
+	// `export * from '<page-module>'` line. Paired with the guard added in
+	// `src/build/compileAngular.ts` HMR template.
+	const w = window as FastPatchWindow;
+	w.__ANGULAR_HMR_FAST_PATCH__ = true;
 	try {
 		const newModule = await import(`${indexPath}?t=${Date.now()}`);
 
-		console.warn = origWarn;
+		// Page-level `routes` / `providers` changed? Those values are read
+		// once during `bootstrapApplication`; an in-place component patch
+		// won't re-wire the running router or root injector. The chunk
+		// records its current fingerprint each time it evaluates (initial
+		// bootstrap + every fast-patch import), so a change between the
+		// previous and current evaluation means we need to fall back to a
+		// full re-bootstrap.
+		if (hmr.hasPageExportsChanged?.(sourceFile)) {
+			console.warn = origWarn;
 
+			return false;
+		}
+
+		// NG0912 warnings fire during `applyUpdate` (Angular re-registers
+		// the new component class while the old one is still live). Keep
+		// the suppression active through the patch, restore right before
+		// `refresh()` so any non-NG0912 warnings during `tick()` surface.
 		const { allPatched, patchedAny } = patchRegisteredComponents(
 			newModule,
 			registry,
 			hmr,
 			sourceFile
 		);
+
+		console.warn = origWarn;
 
 		if (!patchedAny) return false;
 		if (!allPatched) return false;
@@ -390,11 +254,21 @@ const attemptFastPatch = async (
 		console.warn('[HMR] Angular fast update failed, falling back:', err);
 
 		return false;
+	} finally {
+		delete w.__ANGULAR_HMR_FAST_PATCH__;
 	}
 };
 
-// handleFastUpdate is kept for future use when the fast path is re-enabled.
-const _handleFastUpdate = async (message: HMRMessage) => {
+/* Fast update — patch live component prototypes without destroying the app.
+   Returns true when at least one registered component was successfully
+   patched (and no patch failed); false means we couldn't fast-patch and
+   the caller should fall back to a full re-bootstrap.
+   Failures we explicitly fall back on:
+     - file's source isn't tracked in the component registry yet
+     - changed file has no Angular components (e.g. a service or routes file)
+     - any component's `applyUpdate` returned false (provider change, etc.)
+     - dynamic import failed */
+const handleFastUpdate = async (message: HMRMessage) => {
 	const hmr = window.__ANGULAR_HMR__;
 	if (!hmr || !hmr.getRegistry) return false;
 
@@ -433,6 +307,47 @@ const _handleFastUpdate = async (message: HMRMessage) => {
 // MAIN ENTRY POINT
 // ============================================================
 
+/* HMR updates are serialized through a single in-flight slot. While one
+   update is running (fast or full), additional incoming updates collapse
+   into one pending slot — only the latest matters because each rebuild
+   produces a chunk that supersedes prior ones for the same source file.
+   Without this, two rapid edits could:
+     - run two `startViewTransition`s and have the browser abort the first
+       mid-callback (the original "Transition was skipped" symptom), or
+     - run two `attemptFastPatch`s that both call `applyUpdate` on the same
+       registry entries, racing on prototype swaps. */
+let activeMessage: Promise<void> | null = null;
+let pendingMessage: HMRMessage | null = null;
+
+const processMessage = async (message: HMRMessage) => {
+	const updateType = message.data.updateType || 'logic';
+
+	if (updateType === 'full') {
+		// Server signalled this requires a full reload — skip fast path.
+		await handleFullUpdate(message);
+
+		return;
+	}
+
+	// Default 'logic' path: try fast-patch, fall back to full reload.
+	try {
+		const patched = await handleFastUpdate(message);
+		if (patched) return;
+	} catch (err) {
+		console.warn(
+			'[HMR] Angular fast update threw, falling back to full reload:',
+			err
+		);
+	}
+
+	// Fast path didn't apply — full re-bootstrap. Components and services
+	// that opted into `preserveAcrossHmr(this)` keep their state; anything
+	// that didn't opt in is reset to its class-field defaults. The summary
+	// log emitted by `endHmrReboot` after the reboot tells the developer
+	// which classes were preserved.
+	await handleFullUpdate(message);
+};
+
 export const handleAngularUpdate = (message: HMRMessage) => {
 	if (detectCurrentFramework() !== 'angular') return;
 
@@ -442,6 +357,7 @@ export const handleAngularUpdate = (message: HMRMessage) => {
 		(updateType === 'style' || updateType === 'css-only') &&
 		message.data.cssUrl
 	) {
+		// CSS-only updates can run in parallel without breaking anything.
 		swapStylesheet(
 			message.data.cssUrl,
 			message.data.cssBaseName || '',
@@ -451,7 +367,22 @@ export const handleAngularUpdate = (message: HMRMessage) => {
 		return;
 	}
 
-	handleFullUpdate(message);
+	if (activeMessage) {
+		// Coalesce: an update is in flight, queue this one (replacing any
+		// earlier queued update, which is now stale).
+		pendingMessage = message;
+
+		return;
+	}
+
+	activeMessage = processMessage(message).finally(() => {
+		activeMessage = null;
+		if (pendingMessage) {
+			const next = pendingMessage;
+			pendingMessage = null;
+			handleAngularUpdate(next);
+		}
+	});
 };
 
 // ============================================================
@@ -510,12 +441,49 @@ const tickAngularApp = () => {
 	}
 };
 
-const runWithViewTransition = (updateFn: () => Promise<void>) => {
+/* Resolve when Angular reports the application is stable: no pending
+   microtasks, scheduled CD, or in-flight lazy chunk loads. Used to gate
+   the close of the HMR restoration window so lazy-route components get
+   a chance to construct (and call `preserveAcrossHmr`) before
+   `rebootInProgress` flips back to false. Falls back after a generous
+   ceiling in the unlikely case `whenStable` never resolves (e.g. an
+   infinite retry on a service the new app never finishes initializing) —
+   we'd rather close the window than leave HMR wedged forever. */
+const APP_STABLE_FALLBACK_MS = 10_000;
+
+const waitForAppStable = async () => {
+	const app = window.__ANGULAR_APP__;
+	if (!app || typeof app.whenStable !== 'function') return;
+
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const fallback = new Promise<void>((resolve) => {
+		timer = setTimeout(resolve, APP_STABLE_FALLBACK_MS);
+	});
+
+	try {
+		await Promise.race([app.whenStable(), fallback]);
+	} catch {
+		/* ignored — fallback timer still resolves */
+	} finally {
+		if (timer !== undefined) clearTimeout(timer);
+	}
+};
+
+/* `runWithViewTransition` wraps a callback in `document.startViewTransition`
+   for a smooth crossfade across full re-bootstraps. Queueing is NOT needed
+   here because `handleAngularUpdate` already serializes incoming messages
+   through the outer `activeMessage`/`pendingMessage` slots — only one
+   update runs at a time, so a new `startViewTransition` never aborts an
+   in-flight one mid-callback. */
+const runWithViewTransition = async (updateFn: () => Promise<void>) => {
 	const doc: ViewTransitionDocument = document;
+
 	if (typeof doc.startViewTransition !== 'function') {
-		updateFn().catch((err: unknown) => {
+		try {
+			await updateFn();
+		} catch (err) {
 			console.warn('[HMR] Angular update failed (non-fatal):', err);
-		});
+		}
 
 		return;
 	}
@@ -530,19 +498,45 @@ const runWithViewTransition = (updateFn: () => Promise<void>) => {
 		/* ignored */
 	}
 
-	const removeStyle = () => {
-		if (styleEl && styleEl.parentNode) styleEl.remove();
-	};
+	let updatePromise: Promise<void> = Promise.resolve();
+	try {
+		const transition = doc.startViewTransition(() => {
+			updatePromise = updateFn();
 
-	doc.startViewTransition(async () => {
-		await updateFn();
-	})
-		.finished.then(removeStyle)
-		.catch(removeStyle);
+			return updatePromise;
+		});
+		// Wait for both the visual transition and the update callback.
+		// `transition.finished` rejects with AbortError when a new transition
+		// supersedes this one — swallow that since we serialize updates so
+		// it shouldn't happen, and even if it does we still want to wait
+		// for `updateFn` to complete before releasing the next update.
+		await Promise.all([
+			transition.finished.catch(() => {
+				/* skipped */
+			}),
+			updatePromise.catch((err) => {
+				console.warn('[HMR] Angular update failed (non-fatal):', err);
+			})
+		]);
+	} catch (err) {
+		console.warn('[HMR] Angular update failed (non-fatal):', err);
+		// If startViewTransition itself threw, run the update directly so
+		// HMR still applies (loses the crossfade but preserves correctness).
+		try {
+			await updateFn();
+		} catch (innerErr) {
+			console.warn('[HMR] Angular update failed (non-fatal):', innerErr);
+		}
+	} finally {
+		if (styleEl && styleEl.parentNode) styleEl.remove();
+	}
 };
 
-const handleFullUpdate = (message: HMRMessage) => {
-	const componentState = captureComponentState();
+const handleFullUpdate = async (message: HMRMessage) => {
+	// DOM-level state — preserved separately from instance state because
+	// it lives in the document, not in component fields. Form values and
+	// scroll position survive a full re-bootstrap regardless of whether
+	// any component opted into `preserveAcrossHmr`.
 	const scrollState = saveScrollState();
 	const formState = saveFormState();
 
@@ -565,13 +559,38 @@ const handleFullUpdate = (message: HMRMessage) => {
 	if (!indexPath) return;
 
 	const doUpdate = async () => {
-		destroyAngularApp();
-		await bootstrapAngularModule(indexPath, rootSelector, rootContainer);
-		restoreComponentState(componentState);
-		tickAngularApp();
-		restoreFormState(formState);
-		restoreScrollState(scrollState);
+		// Snapshot every instance that opted into `preserveAcrossHmr(this)`
+		// before destroying the app, and flip the reboot-in-progress flag
+		// on. The new instances created during bootstrap will read cached
+		// state back via the same helper while the flag is on. Both this
+		// capture call and the user-facing `preserveAcrossHmr` helper
+		// share the same `globalThis`-anchored cache via `hmrPreserveCore`.
+		captureTrackedInstanceStates();
+		try {
+			destroyAngularApp();
+			await bootstrapAngularModule(
+				indexPath,
+				rootSelector,
+				rootContainer
+			);
+			tickAngularApp();
+			restoreFormState(formState);
+			restoreScrollState(scrollState);
+		} finally {
+			// Lazy-loaded child route components construct AFTER
+			// `bootstrapAngularModule` returns — the route activation
+			// chain (loadComponent → dynamic import → instantiate) runs
+			// asynchronously after the root app reports bootstrapped.
+			// Wait for the application to become stable so those lazy
+			// components have constructed and called `preserveAcrossHmr`
+			// before we close the restoration window. `whenStable`
+			// resolves when there are no pending tasks (lazy chunk
+			// loads, microtasks, scheduled CD) — strictly event-based,
+			// no fixed timer needed.
+			await waitForAppStable();
+			endHmrReboot();
+		}
 	};
 
-	runWithViewTransition(doUpdate);
+	await runWithViewTransition(doUpdate);
 };

@@ -66,12 +66,11 @@ describe('react streaming across cross-framework entrypoints', () => {
 				)
 			);
 
-		const response = await handleReactPageRequest(
-			Page,
-			'/react-cross-framework-test-index.js',
-			undefined,
-			{ collectStreamingSlots: true }
-		);
+		const response = await handleReactPageRequest({
+			collectStreamingSlots: true,
+			index: '/react-cross-framework-test-index.js',
+			Page
+		});
 		const html = await response.text();
 		const fastPatchIndex = html.indexOf('"cross-fast"');
 		const slowPatchIndex = html.indexOf('"cross-slow"');

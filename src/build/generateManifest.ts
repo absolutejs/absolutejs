@@ -1,5 +1,5 @@
 import { extname } from 'node:path';
-import { BuildArtifact } from 'bun';
+import type { BuildArtifact } from 'bun';
 import { UNFOUND_INDEX } from '../constants';
 import { getIslandManifestKey } from '../core/islandManifest';
 import { logWarn } from '../utils/logger';
@@ -30,14 +30,27 @@ const getManifestKey = (
 
 const getCssKey = (pascalName: string, segments: string[]) => {
 	const isFromVue = segments.some((seg) => seg === 'vue');
-	if (isFromVue && segments.includes('css')) return `${pascalName}CompiledCSS`;
+	if (isFromVue && segments.includes('css'))
+		return `${pascalName}CompiledCSS`;
 
 	const isFromReact = segments.some((seg) => seg === 'react');
 	const isFromSvelte = segments.some((seg) => seg === 'svelte');
 	const isFromAngular = segments.some((seg) => seg === 'angular');
-	if (isFromReact || isFromVue || isFromSvelte || isFromAngular) return `${pascalName}BundledCSS`;
+	if (isFromReact || isFromVue || isFromSvelte || isFromAngular)
+		return `${pascalName}BundledCSS`;
 
 	return `${pascalName}CSS`;
+};
+
+const getArtifactBaseName = (fileName: string, hash: string | null) => {
+	const ext = extname(fileName);
+	const stem = ext ? fileName.slice(0, -ext.length) : fileName;
+	if (!hash) return stem;
+
+	const hashSuffix = `.${hash}`;
+	if (stem.endsWith(hashSuffix)) return stem.slice(0, -hashSuffix.length);
+
+	return stem;
 };
 
 export const generateManifest = (outputs: BuildArtifact[], buildPath: string) =>
@@ -55,7 +68,7 @@ export const generateManifest = (outputs: BuildArtifact[], buildPath: string) =>
 		const fileWithHash = segments.pop();
 		if (!fileWithHash) return manifest;
 
-		const [baseName] = fileWithHash.split(`.${artifact.hash}.`);
+		const baseName = getArtifactBaseName(fileWithHash, artifact.hash);
 		if (!baseName) return manifest;
 
 		const pascalName = toPascal(baseName);
@@ -80,9 +93,8 @@ export const generateManifest = (outputs: BuildArtifact[], buildPath: string) =>
 			return manifest;
 		}
 
-		const frameworkSegment = islandIndex > UNFOUND_INDEX
-			? segments[islandIndex + 1]
-			: undefined;
+		const frameworkSegment =
+			islandIndex > UNFOUND_INDEX ? segments[islandIndex + 1] : undefined;
 		if (
 			frameworkSegment === 'react' ||
 			frameworkSegment === 'svelte' ||

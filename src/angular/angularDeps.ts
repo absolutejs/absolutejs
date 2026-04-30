@@ -47,13 +47,20 @@ const loadAngularDeps = async () => {
 		APP_BASE_HREF: common.APP_BASE_HREF,
 		bootstrapApplication: platformBrowser.bootstrapApplication,
 		DomSanitizer: platformBrowser.DomSanitizer,
+		ENVIRONMENT_INITIALIZER: core.ENVIRONMENT_INITIALIZER,
+		inject: core.inject,
 		provideClientHydration: platformBrowser.provideClientHydration,
 		provideServerRendering: platformServer.provideServerRendering,
 		provideZonelessChangeDetection: core.provideZonelessChangeDetection,
 		reflectComponentType: core.reflectComponentType,
 		renderApplication: platformServer.renderApplication,
+		REQUEST: core.REQUEST,
+		REQUEST_CONTEXT: core.REQUEST_CONTEXT,
+		RESPONSE_INIT: core.RESPONSE_INIT,
 		Sanitizer: core.Sanitizer,
-		SecurityContext: core.SecurityContext
+		SecurityContext: core.SecurityContext,
+		withHttpTransferCacheOptions:
+			platformBrowser.withHttpTransferCacheOptions
 	};
 };
 

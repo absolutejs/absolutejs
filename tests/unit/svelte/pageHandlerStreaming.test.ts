@@ -21,13 +21,11 @@ const AWAIT_FIXTURE = resolve(
 
 describe('handleSveltePageRequest streaming', () => {
 	test('injects runtime and appends patches for registered StreamSlot components', async () => {
-		const response = await handleSveltePageRequest(
-			FIXTURE as never,
-			FIXTURE,
-			'/svelte-test-index.js',
-			{},
-			{ collectStreamingSlots: true }
-		);
+		const response = await handleSveltePageRequest({
+			pagePath: FIXTURE,
+			indexPath: '/svelte-test-index.js',
+			collectStreamingSlots: true
+		});
 		const html = await response.text();
 		const fastPatchIndex = html.indexOf('"svelte-fast"');
 		const slowPatchIndex = html.indexOf('"svelte-slow"');
@@ -47,13 +45,11 @@ describe('handleSveltePageRequest streaming', () => {
 	});
 
 	test('injects runtime and appends patches for lowered #await blocks', async () => {
-		const response = await handleSveltePageRequest(
-			AWAIT_FIXTURE as never,
-			AWAIT_FIXTURE,
-			'/svelte-await-test-index.js',
-			{},
-			{ collectStreamingSlots: true }
-		);
+		const response = await handleSveltePageRequest({
+			pagePath: AWAIT_FIXTURE,
+			indexPath: '/svelte-await-test-index.js',
+			collectStreamingSlots: true
+		});
 		const html = await response.text();
 		const fastPatchIndex = html.indexOf('svelte await fast resolved');
 		const slowPatchIndex = html.indexOf('svelte await slow resolved');

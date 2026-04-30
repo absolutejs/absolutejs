@@ -2,7 +2,8 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { rm } from 'node:fs/promises';
 import { build as bunBuild, Glob } from 'bun';
-import { angularLinkerPlugin } from './angularLinkerPlugin';
+import { createAngularLinkerPlugin } from './angularLinkerPlugin';
+import { generateVendorEntrySource } from './vendorEntrySource';
 
 /** Always-vendored Angular packages.
  *  Required for any Angular page even if not imported in user code: the runtime
@@ -41,13 +42,19 @@ const isResolvable = (specifier: string) => {
 	}
 };
 
+const isBareSpecifier = (spec: string) =>
+	!spec.startsWith('.') && !spec.startsWith('/') && !spec.startsWith('@src/');
+
 const isAngularBrowserSpecifier = (spec: string) =>
 	spec.startsWith('@angular/') && !SERVER_ONLY_ANGULAR_SPECIFIERS.has(spec);
 
-/** Scan user source for any @angular/* imports so adding e.g. @angular/router,
- *  @angular/animations, @angular/material works without changes here. */
-const scanAngularSpecifiers = async (directories: string[]) => {
-	const found = new Set<string>();
+/** Scan user source for any imports — both @angular/* (kept) and other bare
+ *  specs (returned as transitive scan seeds). Finding angular subpaths only
+ *  reachable through deps (e.g. `@angular/core/rxjs-interop` from
+ *  `@angular/fire/compat/auth`) requires walking through non-angular roots. */
+const scanSourceImports = async (directories: string[]) => {
+	const angular = new Set<string>();
+	const transitiveRoots = new Set<string>();
 	const transpiler = new Bun.Transpiler({ loader: 'tsx' });
 	const glob = new Glob('**/*.{ts,tsx,js,jsx}');
 
@@ -61,7 +68,9 @@ const scanAngularSpecifiers = async (directories: string[]) => {
 					const content = await Bun.file(file).text();
 					for (const imp of transpiler.scanImports(content)) {
 						if (isAngularBrowserSpecifier(imp.path)) {
-							found.add(imp.path);
+							angular.add(imp.path);
+						} else if (isBareSpecifier(imp.path)) {
+							transitiveRoots.add(imp.path);
 						}
 					}
 				} catch {
@@ -73,7 +82,60 @@ const scanAngularSpecifiers = async (directories: string[]) => {
 		}
 	}
 
-	return found;
+	return { angular, transitiveRoots };
+};
+
+/** Walk through transitive deps and harvest any @angular/* subpaths reachable
+ *  via non-angular packages (e.g. firebase imports `@angular/core/rxjs-interop`
+ *  through @angular/fire). Mirrors buildDepVendor's framework-root traversal. */
+const collectTransitiveAngularSpecs = async (
+	roots: Iterable<string>,
+	angularFound: Set<string>
+) => {
+	const { readFileSync } = await import('node:fs');
+	const transpiler = new Bun.Transpiler({ loader: 'js' });
+	const visited = new Set<string>();
+	const frontier: string[] = [];
+	for (const r of roots) frontier.push(r);
+
+	const MAX_PASSES = 5;
+	for (let pass = 0; pass < MAX_PASSES; pass++) {
+		const next: string[] = [];
+		for (const spec of frontier) {
+			if (visited.has(spec)) continue;
+			visited.add(spec);
+			let resolved: string;
+			try {
+				resolved = Bun.resolveSync(spec, process.cwd());
+			} catch {
+				continue;
+			}
+			let content: string;
+			try {
+				content = readFileSync(resolved, 'utf-8');
+			} catch {
+				continue;
+			}
+			let imports;
+			try {
+				imports = transpiler.scanImports(content);
+			} catch {
+				continue;
+			}
+			for (const imp of imports) {
+				const child = imp.path;
+				if (!isBareSpecifier(child)) continue;
+				if (visited.has(child)) continue;
+				if (isAngularBrowserSpecifier(child)) {
+					angularFound.add(child);
+				}
+				next.push(child);
+			}
+		}
+		if (next.length === 0) break;
+		frontier.length = 0;
+		for (const s of next) frontier.push(s);
+	}
 };
 
 /** Convert a bare specifier to a safe filename:
@@ -82,16 +144,35 @@ const toSafeFileName = (specifier: string) =>
 	specifier.replace(/^@/, '').replace(/\//g, '_');
 
 const resolveAngularSpecifiers = async (directories: string[]) => {
-	const discovered = await scanAngularSpecifiers(directories);
-	for (const spec of REQUIRED_ANGULAR_SPECIFIERS) discovered.add(spec);
+	const { angular, transitiveRoots } = await scanSourceImports(directories);
+	for (const spec of REQUIRED_ANGULAR_SPECIFIERS) angular.add(spec);
+	await collectTransitiveAngularSpecs(
+		[...angular, ...transitiveRoots],
+		angular
+	);
 
-	return Array.from(discovered).filter(isResolvable);
+	return Array.from(angular).filter(isResolvable);
 };
 
-/** Build vendor bundles for every @angular/* package the project imports. */
+/** Build vendor bundles for every @angular/* package the project imports.
+ *  `linkerJitMode` controls whether NgModule definitions retain their
+ *  declarations/exports — required when consumer (user) components are
+ *  runtime-compiled by `@angular/compiler` (dev/HMR via compileAngularFileJIT).
+ *  Production AOT builds set this to false to match AOT'd user components.
+ *
+ *  `depVendorSpecifiers` are non-framework packages that are also vendored
+ *  separately (by `buildDepVendor`). They MUST be externalized here too —
+ *  otherwise transitive imports like `@angular/fire/compat/auth` →
+ *  `firebase/compat/auth` get bundled twice, creating duplicate
+ *  @firebase/app-compat instances. The angular-vendor copy registers
+ *  `firebase.auth.*` on its own firebase singleton, leaving the user's
+ *  `import firebase from 'firebase/compat/app'` with `firebase.auth` undefined.
+ *  Externalizing forces both pipelines to share the same /vendor chunks. */
 export const buildAngularVendor = async (
 	buildDir: string,
-	directories: string[] = []
+	directories: string[] = [],
+	linkerJitMode = false,
+	depVendorSpecifiers: string[] = []
 ) => {
 	const vendorDir = join(buildDir, 'angular', 'vendor');
 	mkdirSync(vendorDir, { recursive: true });
@@ -101,13 +182,14 @@ export const buildAngularVendor = async (
 
 	const specifiers = await resolveAngularSpecifiers(directories);
 
-	// Angular packages are proper ESM — use `export * from` directly.
-	// (Unlike React which is CJS and needs runtime introspection.)
+	// Angular packages are proper ESM. `export *` re-exports only NAMED exports
+	// per ECMA spec, so we use the namespace-default-fallback pattern that's
+	// safe regardless of whether the package has a default export.
 	const entrypoints = await Promise.all(
 		specifiers.map(async (specifier) => {
 			const safeName = toSafeFileName(specifier);
 			const entryPath = join(tmpDir, `${safeName}.ts`);
-			await Bun.write(entryPath, `export * from '${specifier}';\n`);
+			await Bun.write(entryPath, generateVendorEntrySource(specifier));
 
 			return entryPath;
 		})
@@ -115,11 +197,12 @@ export const buildAngularVendor = async (
 
 	const result = await bunBuild({
 		entrypoints,
+		external: depVendorSpecifiers,
 		format: 'esm',
 		minify: false,
 		naming: '[name].[ext]',
 		outdir: vendorDir,
-		plugins: [angularLinkerPlugin],
+		plugins: [createAngularLinkerPlugin(linkerJitMode)],
 		splitting: true,
 		target: 'browser',
 		throw: false
@@ -142,4 +225,16 @@ export const computeAngularVendorPaths = (
 	}
 
 	return paths;
+};
+
+/** Async variant that scans source + transitive deps before producing the
+ *  vendor path map. Use this when the page-bundle build needs the full set of
+ *  angular specs in its rewrite map (otherwise transitively-discovered subpaths
+ *  like `@angular/core/rxjs-interop` end up as bare specifiers in the output). */
+export const computeAngularVendorPathsAsync = async (
+	directories: string[] = []
+) => {
+	const specifiers = await resolveAngularSpecifiers(directories);
+
+	return computeAngularVendorPaths(specifiers);
 };

@@ -49,6 +49,12 @@ if (command === 'dev') {
 	const positionalArgs = stripNamedArgs('--outdir', '--config');
 	const serverEntry = positionalArgs[0] ?? DEFAULT_SERVER_ENTRY;
 	await start(serverEntry, outdir, configPath);
+} else if (command === 'build') {
+	sendTelemetryEvent('cli:command', { command });
+	const outdir = parseNamedArg('--outdir');
+	const configPath = parseNamedArg('--config');
+	const { build } = await import('./scripts/build');
+	await build(outdir, configPath);
 } else if (command === 'workspace') {
 	sendTelemetryEvent('cli:command', {
 		command: `workspace:${workspaceCommand ?? 'unknown'}`
@@ -94,6 +100,7 @@ if (command === 'dev') {
 	console.error('Commands:');
 	console.error('  dev [entry]   Start development server');
 	console.error('  workspace dev Start multi-service workspace dev');
+	console.error('  build [--outdir dir] Build production assets');
 	console.error('  start [entry] [--outdir dir] Start production server');
 	console.error(
 		'  compile [entry] [--outdir dir] [--outfile path] Compile standalone executable'

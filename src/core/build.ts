@@ -11,7 +11,7 @@ import {
 } from 'node:fs';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import { cwd, env, exit } from 'node:process';
-import { build as bunBuild, BuildArtifact, Glob } from 'bun';
+import { build as bunBuild, type BuildArtifact, Glob } from 'bun';
 import { generateManifest } from '../build/generateManifest';
 import {
 	collectIslandFrameworkSources,
@@ -53,8 +53,13 @@ import {
 	setSvelteVendorPaths,
 	setVueVendorPaths
 } from './devVendorPaths';
-import type { BuildConfig } from '../../types/build';
-import { angularLinkerPlugin } from '../build/angularLinkerPlugin';
+import type {
+	BuildConfig,
+	BunBuildConfigOverride,
+	BunBuildPassConfig,
+	BunBuildPassKey
+} from '../../types/build';
+import { createAngularLinkerPlugin } from '../build/angularLinkerPlugin';
 import { cleanStaleOutputs } from '../utils/cleanStaleOutputs';
 import { cleanup } from '../utils/cleanup';
 import { commonAncestor } from '../utils/commonAncestor';
@@ -64,6 +69,26 @@ import { toPascal } from '../utils/stringModifiers';
 import { validateSafePath } from '../utils/validateSafePath';
 
 const isDev = env.NODE_ENV === 'development';
+
+type BuildTraceEvent = {
+	durationMs: number;
+	metadata?: Record<string, unknown>;
+	name: string;
+	ok: boolean;
+	startMs: number;
+};
+
+type BuildTracePhase = <T>(
+	name: string,
+	fn: () => Promise<T> | T,
+	metadata?: Record<string, unknown>
+) => Promise<T>;
+
+const isBuildTraceEnabled = () => {
+	const value = env.ABSOLUTE_BUILD_TRACE?.toLowerCase();
+
+	return value === '1' || value === 'true' || value === 'yes';
+};
 
 const collectConventionSourceFiles = (
 	entry: FrameworkConventionEntry | undefined
@@ -268,16 +293,14 @@ const scanWorkerReferences = async (dirs: string[]) => {
 		/import\.meta\.resolve\(\s*["'](\.\.?\/[^"']+)["']\s*\)/g;
 	const workerPaths = new Set<string>();
 
-	await dirs.reduce(
-		(chain, dir) =>
-			chain.then(() =>
-				scanWorkerReferencesInDir(
-					dir,
-					[urlPattern, resolvePattern],
-					workerPaths
-				)
-			),
-		Promise.resolve()
+	await Promise.all(
+		dirs.map((dir) =>
+			scanWorkerReferencesInDir(
+				dir,
+				[urlPattern, resolvePattern],
+				workerPaths
+			)
+		)
 	);
 
 	return [...workerPaths];
@@ -608,6 +631,93 @@ const vueFeatureFlags: Record<string, string> = {
 	__VUE_PROD_HYDRATION_MISMATCH_DETAILS__: isDev ? 'true' : 'false'
 };
 
+const bunBuildPassKeys: BunBuildPassKey[] = [
+	'server',
+	'reactClient',
+	'nonReactClient',
+	'islandClient',
+	'globalCss',
+	'vueCss'
+];
+const bunBuildPassKeySet = new Set<string>(['default', ...bunBuildPassKeys]);
+const reservedBunBuildConfigKeys = new Set<string>([
+	'entrypoints',
+	'outdir',
+	'outfile',
+	'root',
+	'target',
+	'format',
+	'throw',
+	'compile'
+]);
+
+type BunBuildOptions = Parameters<typeof bunBuild>[0];
+
+const isObject = (value: unknown): value is Record<string, unknown> =>
+	typeof value === 'object' && value !== null;
+
+const isBunBuildPassConfig = (
+	config: BuildConfig['bunBuild']
+): config is BunBuildPassConfig =>
+	isObject(config) &&
+	Object.keys(config).some((key) => bunBuildPassKeySet.has(key));
+
+const sanitizeBunBuildOverride = (
+	override: BunBuildConfigOverride | undefined
+): BunBuildConfigOverride => {
+	if (!override) return {};
+	const sanitized: Record<string, unknown> = { ...override };
+	for (const key of reservedBunBuildConfigKeys) {
+		delete sanitized[key];
+	}
+
+	return sanitized as BunBuildConfigOverride;
+};
+
+export const resolveBunBuildOverride = (
+	config: BuildConfig['bunBuild'],
+	pass: BunBuildPassKey
+): BunBuildConfigOverride => {
+	if (!config) return {};
+	if (!isBunBuildPassConfig(config)) {
+		return sanitizeBunBuildOverride(config);
+	}
+
+	return sanitizeBunBuildOverride({
+		...(config.default ?? {}),
+		...(config[pass] ?? {})
+	});
+};
+
+const dedupe = <T>(values: T[]) => [...new Set(values)];
+
+export const mergeBunBuildConfig = (
+	base: BunBuildOptions,
+	override: BunBuildConfigOverride
+): BunBuildOptions => {
+	const sanitized = sanitizeBunBuildOverride(override);
+	const merged = {
+		...base,
+		...sanitized
+	} as BunBuildOptions;
+
+	return {
+		...merged,
+		define:
+			base.define || sanitized.define
+				? {
+						...(sanitized.define ?? {}),
+						...(base.define ?? {})
+					}
+				: undefined,
+		external: dedupe([
+			...(base.external ?? []),
+			...(sanitized.external ?? [])
+		]),
+		plugins: [...(base.plugins ?? []), ...(sanitized.plugins ?? [])]
+	} as BunBuildOptions;
+};
+
 export const build = async ({
 	buildDirectory = 'build',
 	assetsDirectory,
@@ -623,14 +733,91 @@ export const build = async ({
 	stylePreprocessors,
 	postcss,
 	tailwind,
+	bunBuild: bunBuildConfig,
 	options,
 	incrementalFiles,
 	mode
 }: BuildConfig) => {
 	const buildStart = performance.now();
 	const projectRoot = cwd();
+	const traceEnabled = isBuildTraceEnabled();
+	const traceEvents: BuildTraceEvent[] = [];
+	let traceFrameworkNames: string[] = [];
+	const traceGlobal = globalThis as typeof globalThis & {
+		__absoluteBuildTracePhase?: BuildTracePhase;
+	};
+	const previousTracePhase = traceGlobal.__absoluteBuildTracePhase;
+	const restoreTracePhase = () => {
+		if (previousTracePhase) {
+			traceGlobal.__absoluteBuildTracePhase = previousTracePhase;
+		} else {
+			delete traceGlobal.__absoluteBuildTracePhase;
+		}
+	};
+	const tracePhase: BuildTracePhase = async <T>(
+		name: string,
+		fn: () => Promise<T> | T,
+		metadata?: Record<string, unknown>
+	): Promise<T> => {
+		if (!traceEnabled) return await fn();
+		const phaseStart = performance.now();
+		try {
+			const result = await fn();
+			traceEvents.push({
+				durationMs: performance.now() - phaseStart,
+				metadata,
+				name,
+				ok: true,
+				startMs: phaseStart - buildStart
+			});
 
-	await resolveAbsoluteVersion();
+			return result;
+		} catch (error) {
+			traceEvents.push({
+				durationMs: performance.now() - phaseStart,
+				metadata: {
+					...metadata,
+					error:
+						error instanceof Error ? error.message : String(error)
+				},
+				name,
+				ok: false,
+				startMs: phaseStart - buildStart
+			});
+			throw error;
+		}
+	};
+	if (traceEnabled) {
+		traceGlobal.__absoluteBuildTracePhase = tracePhase;
+	}
+	const writeBuildTrace = (buildPath: string) => {
+		if (!traceEnabled) {
+			restoreTracePhase();
+
+			return;
+		}
+		const traceDir = join(buildPath, '.absolute-trace');
+		const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+		mkdirSync(traceDir, { recursive: true });
+		writeFileSync(
+			join(traceDir, `build-trace-${timestamp}.json`),
+			JSON.stringify(
+				{
+					events: traceEvents,
+					frameworks: traceFrameworkNames,
+					generatedAt: new Date().toISOString(),
+					mode: mode ?? (isDev ? 'development' : 'production'),
+					totalDurationMs: performance.now() - buildStart,
+					version: 1
+				},
+				null,
+				2
+			)
+		);
+		restoreTracePhase();
+	};
+
+	await tracePhase('absolute/version', () => resolveAbsoluteVersion());
 	const isIncremental = incrementalFiles && incrementalFiles.length > 0;
 	const styleTransformConfig = createStyleTransformConfig(
 		stylePreprocessors,
@@ -695,6 +882,7 @@ export const build = async ({
 		vueDir && 'vue',
 		angularDir && 'angular'
 	].filter((name): name is string => Boolean(name));
+	traceFrameworkNames = frameworkNames;
 	sendTelemetryEvent('build:start', {
 		framework: frameworkNames[0],
 		frameworks: frameworkNames,
@@ -751,10 +939,14 @@ export const build = async ({
 
 	const publicPath =
 		publicDirectory && validateSafePath(publicDirectory, projectRoot);
-	mkdirSync(buildPath, { recursive: true });
+	await tracePhase('build-dir/create', () =>
+		mkdirSync(buildPath, { recursive: true })
+	);
 
 	if (publicPath)
-		cpSync(publicPath, buildPath, { force: true, recursive: true });
+		await tracePhase('public/copy', () =>
+			cpSync(publicPath, buildPath, { force: true, recursive: true })
+		);
 
 	// Helper to find matching entry points for incremental files
 	// The dependency graph already includes all dependent files in incrementalFiles
@@ -784,7 +976,9 @@ export const build = async ({
 	if (reactIndexesPath && reactPagesPath) {
 		// Always regenerate React index files to ensure latest error handling is included
 		// This is safe because index files are small and generation is fast
-		await generateReactIndexFiles(reactPagesPath, reactIndexesPath, hmr);
+		await tracePhase('react/index-generation', () =>
+			generateReactIndexFiles(reactPagesPath, reactIndexesPath, hmr)
+		);
 	}
 
 	// Copy assets on full builds or if assets changed
@@ -793,17 +987,25 @@ export const build = async ({
 		(!isIncremental ||
 			normalizedIncrementalFiles?.some((f) => f.includes('/assets/')))
 	) {
-		cpSync(assetsPath, join(buildPath, 'assets'), {
-			force: true,
-			recursive: true
-		});
+		await tracePhase('assets/copy', () =>
+			cpSync(assetsPath, join(buildPath, 'assets'), {
+				force: true,
+				recursive: true
+			})
+		);
 	}
 
 	// Tailwind + entry point scanning run in parallel (they're independent)
 	const tailwindPromise =
 		tailwind &&
 		(!isIncremental || normalizedIncrementalFiles?.some(isStylePath))
-			? compileTailwindConfig(tailwind, buildPath, styleTransformConfig)
+			? tracePhase('tailwind/build', () =>
+					compileTailwindConfig(
+						tailwind,
+						buildPath,
+						styleTransformConfig
+					)
+				)
 			: undefined;
 
 	const emptyConventionResult: {
@@ -824,21 +1026,41 @@ export const build = async ({
 		allGlobalCssEntries
 	] = await Promise.all([
 		tailwindPromise,
-		reactIndexesPath ? scanEntryPoints(reactIndexesPath, '*.tsx') : [],
-		htmlScriptsPath ? scanEntryPoints(htmlScriptsPath, '*.{js,ts}') : [],
+		reactIndexesPath
+			? tracePhase('scan/react-indexes', () =>
+					scanEntryPoints(reactIndexesPath, '*.tsx')
+				)
+			: [],
+		htmlScriptsPath
+			? tracePhase('scan/html-scripts', () =>
+					scanEntryPoints(htmlScriptsPath, '*.{js,ts}')
+				)
+			: [],
 		reactPagesPath
-			? scanConventions(reactPagesPath, '*.tsx')
+			? tracePhase('scan/react-conventions', () =>
+					scanConventions(reactPagesPath, '*.tsx')
+				)
 			: emptyConventionResult,
 		sveltePagesPath
-			? scanConventions(sveltePagesPath, '*.svelte')
+			? tracePhase('scan/svelte-conventions', () =>
+					scanConventions(sveltePagesPath, '*.svelte')
+				)
 			: emptyConventionResult,
 		vuePagesPath
-			? scanConventions(vuePagesPath, '*.vue')
+			? tracePhase('scan/vue-conventions', () =>
+					scanConventions(vuePagesPath, '*.vue')
+				)
 			: emptyConventionResult,
 		angularPagesPath
-			? scanConventions(angularPagesPath, '*.ts')
+			? tracePhase('scan/angular-conventions', () =>
+					scanConventions(angularPagesPath, '*.ts')
+				)
 			: emptyConventionResult,
-		stylesDir ? scanCssEntryPoints(stylesDir, stylesIgnore) : []
+		stylesDir
+			? tracePhase('scan/css', () =>
+					scanCssEntryPoints(stylesDir, stylesIgnore)
+				)
+			: []
 	]);
 
 	// Convention files (colocated with pages) for error/loading/not-found
@@ -919,6 +1141,17 @@ export const build = async ({
 	// results and will resolve during the compile phase for free.
 	const hmrClientBundlePromise =
 		hmr && (htmlDir || htmxDir) ? buildHMRClient() : undefined;
+	const allFrameworkDirs = [
+		reactDir,
+		svelteDir,
+		vueDir,
+		angularDir,
+		htmlDir,
+		htmxDir
+	].filter((dir): dir is string => Boolean(dir));
+	const urlReferencedFilesPromise = tracePhase('scan/worker-references', () =>
+		scanWorkerReferences(allFrameworkDirs)
+	);
 
 	// Angular HMR Optimization — Skip Svelte/Vue compilation when their entries are
 	// empty during incremental builds (avoids importing/initializing unused compilers)
@@ -928,7 +1161,9 @@ export const build = async ({
 
 	const emptyStringArray: string[] = [];
 	const islandBuildInfo = islandRegistryPath
-		? await loadIslandRegistryBuildInfo(islandRegistryPath)
+		? await tracePhase('islands/registry', () =>
+				loadIslandRegistryBuildInfo(islandRegistryPath)
+			)
 		: null;
 	const islandFrameworkSources = islandBuildInfo
 		? collectIslandFrameworkSources(islandBuildInfo)
@@ -953,13 +1188,15 @@ export const build = async ({
 		{ clientPaths: islandAngularClientPaths }
 	] = await Promise.all([
 		shouldCompileSvelte
-			? import('../build/compileSvelte').then((mod) =>
-					mod.compileSvelte(
-						svelteEntries,
-						svelteDir,
-						new Map(),
-						hmr,
-						styleTransformConfig
+			? tracePhase('compile/svelte', () =>
+					import('../build/compileSvelte').then((mod) =>
+						mod.compileSvelte(
+							svelteEntries,
+							svelteDir,
+							new Map(),
+							hmr,
+							styleTransformConfig
+						)
 					)
 				)
 			: {
@@ -968,12 +1205,14 @@ export const build = async ({
 					svelteServerPaths: [...emptyStringArray]
 				},
 		shouldCompileVue
-			? import('../build/compileVue').then((mod) =>
-					mod.compileVue(
-						vueEntries,
-						vueDir,
-						hmr,
-						styleTransformConfig
+			? tracePhase('compile/vue', () =>
+					import('../build/compileVue').then((mod) =>
+						mod.compileVue(
+							vueEntries,
+							vueDir,
+							hmr,
+							styleTransformConfig
+						)
 					)
 				)
 			: {
@@ -983,12 +1222,14 @@ export const build = async ({
 					vueServerPaths: [...emptyStringArray]
 				},
 		shouldCompileAngular
-			? import('../build/compileAngular').then((mod) =>
-					mod.compileAngular(
-						angularEntries,
-						angularDir,
-						hmr,
-						styleTransformConfig
+			? tracePhase('compile/angular', () =>
+					import('../build/compileAngular').then((mod) =>
+						mod.compileAngular(
+							angularEntries,
+							angularDir,
+							hmr,
+							styleTransformConfig
+						)
 					)
 				)
 			: {
@@ -996,37 +1237,43 @@ export const build = async ({
 					serverPaths: [...emptyStringArray]
 				},
 		shouldCompileIslandSvelte
-			? import('../build/compileSvelte').then((mod) =>
-					mod.compileSvelte(
-						islandSvelteSources,
-						svelteDir,
-						new Map(),
-						hmr,
-						styleTransformConfig
+			? tracePhase('compile/island-svelte', () =>
+					import('../build/compileSvelte').then((mod) =>
+						mod.compileSvelte(
+							islandSvelteSources,
+							svelteDir,
+							new Map(),
+							hmr,
+							styleTransformConfig
+						)
 					)
 				)
 			: {
 					svelteClientPaths: [...emptyStringArray]
 				},
 		shouldCompileIslandVue
-			? import('../build/compileVue').then((mod) =>
-					mod.compileVue(
-						islandVueSources,
-						vueDir,
-						hmr,
-						styleTransformConfig
+			? tracePhase('compile/island-vue', () =>
+					import('../build/compileVue').then((mod) =>
+						mod.compileVue(
+							islandVueSources,
+							vueDir,
+							hmr,
+							styleTransformConfig
+						)
 					)
 				)
 			: {
 					vueClientPaths: [...emptyStringArray]
 				},
 		shouldCompileIslandAngular
-			? import('../build/compileAngular').then((mod) =>
-					mod.compileAngular(
-						islandAngularSources,
-						angularDir,
-						hmr,
-						styleTransformConfig
+			? tracePhase('compile/island-angular', () =>
+					import('../build/compileAngular').then((mod) =>
+						mod.compileAngular(
+							islandAngularSources,
+							angularDir,
+							hmr,
+							styleTransformConfig
+						)
 					)
 				)
 			: {
@@ -1070,23 +1317,27 @@ export const build = async ({
 	if (svelteConventionSources.length > 0 || vueConventionSources.length > 0) {
 		const [svelteConvResult, vueConvResult] = await Promise.all([
 			svelteConventionSources.length > 0 && svelteDir
-				? import('../build/compileSvelte').then((mod) =>
-						mod.compileSvelte(
-							svelteConventionSources,
-							svelteDir,
-							new Map(),
-							false,
-							styleTransformConfig
+				? tracePhase('compile/convention-svelte', () =>
+						import('../build/compileSvelte').then((mod) =>
+							mod.compileSvelte(
+								svelteConventionSources,
+								svelteDir,
+								new Map(),
+								false,
+								styleTransformConfig
+							)
 						)
 					)
 				: { svelteServerPaths: emptyStringArray },
 			vueConventionSources.length > 0 && vueDir
-				? import('../build/compileVue').then((mod) =>
-						mod.compileVue(
-							vueConventionSources,
-							vueDir,
-							false,
-							styleTransformConfig
+				? tracePhase('compile/convention-vue', () =>
+						import('../build/compileVue').then((mod) =>
+							mod.compileVue(
+								vueConventionSources,
+								vueDir,
+								false,
+								styleTransformConfig
+							)
 						)
 					)
 				: { vueServerPaths: emptyStringArray }
@@ -1143,15 +1394,7 @@ export const build = async ({
 	const reactClientEntryPoints = [...reactEntries];
 	// Scan for files referenced by new URL('./path', import.meta.url) — these
 	// are regular files (e.g. workers) that Bun.build won't follow automatically.
-	const allFrameworkDirs = [
-		reactDir,
-		svelteDir,
-		vueDir,
-		angularDir,
-		htmlDir,
-		htmxDir
-	].filter((dir): dir is string => Boolean(dir));
-	const urlReferencedFiles = await scanWorkerReferences(allFrameworkDirs);
+	const urlReferencedFiles = await urlReferencedFilesPromise;
 
 	const nonReactClientEntryPoints = [
 		...svelteIndexPaths,
@@ -1164,15 +1407,17 @@ export const build = async ({
 		...urlReferencedFiles
 	];
 	const islandEntryResult = islandBuildInfo
-		? await generateIslandEntryPoints({
-				buildInfo: islandBuildInfo,
-				buildPath,
-				clientPathMaps: {
-					angular: islandAngularClientPathMap,
-					svelte: islandSvelteClientPathMap,
-					vue: islandVueClientPathMap
-				}
-			})
+		? await tracePhase('islands/client-entry-generation', () =>
+				generateIslandEntryPoints({
+					buildInfo: islandBuildInfo,
+					buildPath,
+					clientPathMaps: {
+						angular: islandAngularClientPathMap,
+						svelte: islandSvelteClientPathMap,
+						vue: islandVueClientPathMap
+					}
+				})
+			)
 		: {
 				entries: [],
 				generatedRoot: join(buildPath, '_island_entries')
@@ -1217,6 +1462,7 @@ export const build = async ({
 				vue: allVueEntries.length
 			}
 		});
+		writeBuildTrace(buildPath);
 
 		return {};
 	}
@@ -1287,24 +1533,30 @@ export const build = async ({
 		: undefined;
 	const reactBuildConfig: Parameters<typeof bunBuild>[0] | undefined =
 		reactClientEntryPoints.length > 0
-			? {
-					entrypoints: reactClientEntryPoints,
-					...(Object.keys(reactExternalPaths).length > 0
-						? { external: Object.keys(reactExternalPaths) }
-						: {}),
-					format: 'esm',
-					minify: !isDev,
-					naming: `[dir]/[name].[hash].[ext]`,
-					outdir: buildPath,
-					...(hmr
-						? { jsx: { development: true }, reactFastRefresh: true }
-						: {}),
-					plugins: [stylePreprocessorPlugin],
-					root: clientRoot,
-					splitting: true,
-					target: 'browser',
-					throw: false
-				}
+			? mergeBunBuildConfig(
+					{
+						entrypoints: reactClientEntryPoints,
+						...(Object.keys(reactExternalPaths).length > 0
+							? { external: Object.keys(reactExternalPaths) }
+							: {}),
+						format: 'esm',
+						minify: !isDev,
+						naming: `[dir]/[name].[hash].[ext]`,
+						outdir: buildPath,
+						...(hmr
+							? {
+									jsx: { development: true },
+									reactFastRefresh: true
+								}
+							: {}),
+						plugins: [stylePreprocessorPlugin],
+						root: clientRoot,
+						splitting: true,
+						target: 'browser',
+						throw: false
+					},
+					resolveBunBuildOverride(bunBuildConfig, 'reactClient')
+				)
 			: undefined;
 
 	// Remove old hashed indexes before bundling so stale files
@@ -1339,97 +1591,152 @@ export const build = async ({
 		vueCssResult
 	] = await Promise.all([
 		serverEntryPoints.length > 0
-			? bunBuild({
-					entrypoints: serverEntryPoints,
-					external: [
-						'react',
-						'react/*',
-						'react-dom',
-						'react-dom/*',
-						'svelte',
-						'svelte/*',
-						'vue',
-						'vue/*',
-						'@angular/*',
-						'typescript'
-					],
-					format: 'esm',
-					naming: `[dir]/[name].[hash].[ext]`,
-					outdir: serverOutDir,
-					plugins: [stylePreprocessorPlugin],
-					root: serverRoot,
-					target: 'bun',
-					throw: false,
-					tsconfig: './tsconfig.json'
-				})
+			? tracePhase('bun/server', () =>
+					bunBuild(
+						mergeBunBuildConfig(
+							{
+								entrypoints: serverEntryPoints,
+								external: [
+									'react',
+									'react/*',
+									'react-dom',
+									'react-dom/*',
+									'svelte',
+									'svelte/*',
+									'vue',
+									'vue/*',
+									'@angular/*',
+									'typescript'
+								],
+								format: 'esm',
+								naming: `[dir]/[name].[hash].[ext]`,
+								outdir: serverOutDir,
+								plugins: [stylePreprocessorPlugin],
+								root: serverRoot,
+								target: 'bun',
+								throw: false,
+								tsconfig: './tsconfig.json'
+							},
+							resolveBunBuildOverride(bunBuildConfig, 'server')
+						)
+					)
+				)
 			: undefined,
-		reactBuildConfig ? bunBuild(reactBuildConfig) : undefined,
+		reactBuildConfig
+			? tracePhase('bun/react-client', () => bunBuild(reactBuildConfig))
+			: undefined,
 		nonReactClientEntryPoints.length > 0
-			? bunBuild({
-					define: vueDirectory ? vueFeatureFlags : undefined,
-					entrypoints: nonReactClientEntryPoints,
-					external: Object.keys(nonReactExternalPaths),
-					format: 'esm',
-					minify: !isDev,
-					naming: `[dir]/[name].[hash].[ext]`,
-					outdir: buildPath,
-					plugins: [
-						stylePreprocessorPlugin,
-						...(angularDir && !isDev ? [angularLinkerPlugin] : []),
-						...(htmlScriptPlugin ? [htmlScriptPlugin] : [])
-					],
-					root: clientRoot,
-					splitting: !isDev,
-					target: 'browser',
-					throw: false,
-					tsconfig: './tsconfig.json'
-				})
+			? tracePhase('bun/non-react-client', () =>
+					bunBuild(
+						mergeBunBuildConfig(
+							{
+								define: vueDirectory
+									? vueFeatureFlags
+									: undefined,
+								entrypoints: nonReactClientEntryPoints,
+								external: Object.keys(nonReactExternalPaths),
+								format: 'esm',
+								minify: !isDev,
+								naming: `[dir]/[name].[hash].[ext]`,
+								outdir: buildPath,
+								plugins: [
+									stylePreprocessorPlugin,
+									...(angularDir
+										? [createAngularLinkerPlugin(hmr)]
+										: []),
+									...(htmlScriptPlugin
+										? [htmlScriptPlugin]
+										: [])
+								],
+								root: clientRoot,
+								splitting: !isDev,
+								target: 'browser',
+								throw: false,
+								tsconfig: './tsconfig.json'
+							},
+							resolveBunBuildOverride(
+								bunBuildConfig,
+								'nonReactClient'
+							)
+						)
+					)
+				)
 			: undefined,
 		islandClientEntryPoints.length > 0
-			? bunBuild({
-					define: vueDirectory ? vueFeatureFlags : undefined,
-					entrypoints: islandClientEntryPoints,
-					external: Object.keys(nonReactExternalPaths),
-					format: 'esm',
-					minify: !isDev,
-					naming: `[dir]/[name].[hash].[ext]`,
-					outdir: buildPath,
-					plugins: [
-						stylePreprocessorPlugin,
-						...(angularDir && !isDev ? [angularLinkerPlugin] : [])
-					],
-					root: islandEntryResult.generatedRoot,
-					splitting: !isDev,
-					target: 'browser',
-					throw: false,
-					tsconfig: './tsconfig.json'
-				})
+			? tracePhase('bun/island-client', () =>
+					bunBuild(
+						mergeBunBuildConfig(
+							{
+								define: vueDirectory
+									? vueFeatureFlags
+									: undefined,
+								entrypoints: islandClientEntryPoints,
+								external: Object.keys(nonReactExternalPaths),
+								format: 'esm',
+								minify: !isDev,
+								naming: `[dir]/[name].[hash].[ext]`,
+								outdir: buildPath,
+								plugins: [
+									stylePreprocessorPlugin,
+									...(angularDir
+										? [createAngularLinkerPlugin(hmr)]
+										: [])
+								],
+								root: islandEntryResult.generatedRoot,
+								splitting: !isDev,
+								target: 'browser',
+								throw: false,
+								tsconfig: './tsconfig.json'
+							},
+							resolveBunBuildOverride(
+								bunBuildConfig,
+								'islandClient'
+							)
+						)
+					)
+				)
 			: undefined,
 		globalCssEntries.length > 0
-			? bunBuild({
-					entrypoints: globalCssEntries,
-					naming: `[dir]/[name].[hash].[ext]`,
-					outdir: stylesDir
-						? join(buildPath, basename(stylesDir))
-						: buildPath,
-					plugins: [stylePreprocessorPlugin],
-					root: stylesDir || clientRoot,
-					target: 'browser',
-					throw: false
-				})
+			? tracePhase('bun/global-css', () =>
+					bunBuild(
+						mergeBunBuildConfig(
+							{
+								entrypoints: globalCssEntries,
+								naming: `[dir]/[name].[hash].[ext]`,
+								outdir: stylesDir
+									? join(buildPath, basename(stylesDir))
+									: buildPath,
+								plugins: [stylePreprocessorPlugin],
+								root: stylesDir || clientRoot,
+								target: 'browser',
+								throw: false
+							},
+							resolveBunBuildOverride(bunBuildConfig, 'globalCss')
+						)
+					)
+				)
 			: undefined,
 		vueCssPaths.length > 0
-			? bunBuild({
-					entrypoints: vueCssPaths,
-					naming: `[name].[hash].[ext]`,
-					outdir: join(
-						buildPath,
-						assetsPath ? basename(assetsPath) : 'assets',
-						'css'
-					),
-					target: 'browser',
-					throw: false
-				})
+			? tracePhase('bun/vue-css', () =>
+					bunBuild(
+						mergeBunBuildConfig(
+							{
+								entrypoints: vueCssPaths,
+								naming: `[name].[hash].[ext]`,
+								outdir: join(
+									buildPath,
+									assetsPath
+										? basename(assetsPath)
+										: 'assets',
+									'css'
+								),
+								target: 'browser',
+								throw: false
+							},
+							resolveBunBuildOverride(bunBuildConfig, 'vueCss')
+						)
+					)
+				)
 			: undefined
 	]);
 
@@ -1470,11 +1777,15 @@ export const build = async ({
 	);
 
 	if (vendorPaths && reactClientOutputPaths.length > 0) {
-		await rewriteReactImports(reactClientOutputPaths, vendorPaths);
+		await tracePhase('postprocess/react-imports', () =>
+			rewriteReactImports(reactClientOutputPaths, vendorPaths)
+		);
 	}
 
 	if (hmr && reactClientOutputPaths.length > 0) {
-		await patchRefreshGlobals(reactClientOutputPaths);
+		await tracePhase('postprocess/react-refresh-globals', () =>
+			patchRefreshGlobals(reactClientOutputPaths)
+		);
 	}
 
 	const nonReactClientLogs = nonReactClientResult?.logs ?? [];
@@ -1489,17 +1800,25 @@ export const build = async ({
 	);
 
 	if (vendorPaths && nonReactClientOutputPaths.length > 0) {
-		await rewriteReactImports(nonReactClientOutputPaths, vendorPaths);
+		await tracePhase('postprocess/non-react-react-imports', () =>
+			rewriteReactImports(nonReactClientOutputPaths, vendorPaths)
+		);
 	}
 	if (hmr && nonReactClientOutputPaths.length > 0) {
-		await patchRefreshGlobals(nonReactClientOutputPaths);
+		await tracePhase('postprocess/non-react-refresh-globals', () =>
+			patchRefreshGlobals(nonReactClientOutputPaths)
+		);
 	}
 
 	if (vendorPaths && islandClientOutputPaths.length > 0) {
-		await rewriteReactImports(islandClientOutputPaths, vendorPaths);
+		await tracePhase('postprocess/island-react-imports', () =>
+			rewriteReactImports(islandClientOutputPaths, vendorPaths)
+		);
 	}
 	if (hmr && islandClientOutputPaths.length > 0) {
-		await patchRefreshGlobals(islandClientOutputPaths);
+		await tracePhase('postprocess/island-refresh-globals', () =>
+			patchRefreshGlobals(islandClientOutputPaths)
+		);
 	}
 
 	if (
@@ -1547,9 +1866,11 @@ export const build = async ({
 		Object.keys(allNonReactVendorPaths).length > 0
 	) {
 		const { rewriteImports } = await import('../build/rewriteImports');
-		await rewriteImports(
-			nonReactClientOutputs.map((artifact) => artifact.path),
-			allNonReactVendorPaths
+		await tracePhase('postprocess/non-react-vendor-imports', () =>
+			rewriteImports(
+				nonReactClientOutputs.map((artifact) => artifact.path),
+				allNonReactVendorPaths
+			)
 		);
 	}
 	if (
@@ -1557,9 +1878,11 @@ export const build = async ({
 		Object.keys(allIslandVendorPaths).length > 0
 	) {
 		const { rewriteImports } = await import('../build/rewriteImports');
-		await rewriteImports(
-			islandClientOutputs.map((artifact) => artifact.path),
-			allIslandVendorPaths
+		await tracePhase('postprocess/island-vendor-imports', () =>
+			rewriteImports(
+				islandClientOutputs.map((artifact) => artifact.path),
+				allIslandVendorPaths
+			)
 		);
 	}
 
@@ -1613,7 +1936,9 @@ export const build = async ({
 			buildPath,
 			nonReactClientOutputs
 		);
-		rewriteUrlReferences(allClientOutputPaths, urlFileMap);
+		await tracePhase('postprocess/url-references', () =>
+			rewriteUrlReferences(allClientOutputPaths, urlFileMap)
+		);
 	}
 
 	// In dev mode, inject composable state tracking into Vue bundled output
@@ -1622,8 +1947,10 @@ export const build = async ({
 		.map((artifact) => artifact.path)
 		.filter((path) => path.includes('/vue/'));
 	if (hmr && vueDirectory) {
-		vueOutputPaths.forEach((outputPath) =>
-			injectVueComposableTracking(outputPath, projectRoot)
+		await tracePhase('postprocess/vue-hmr', () =>
+			vueOutputPaths.forEach((outputPath) =>
+				injectVueComposableTracking(outputPath, projectRoot)
+			)
 		);
 	}
 
@@ -1768,41 +2095,50 @@ export const build = async ({
 		}
 	};
 
-	await Promise.all([processHtmlPages(), processHtmxPages()]);
+	await Promise.all([
+		tracePhase('postprocess/html-pages', processHtmlPages),
+		tracePhase('postprocess/htmx-pages', processHtmxPages)
+	]);
 
 	if (!isIncremental) {
-		await cleanStaleOutputs(buildPath, [
-			...serverOutputs.map((a) => a.path),
-			...reactClientOutputs.map((a) => a.path),
-			...nonReactClientOutputs.map((a) => a.path),
-			...islandClientOutputs.map((a) => a.path),
-			...cssOutputs.map((a) => a.path)
-		]);
+		await tracePhase('cleanup/stale-outputs', () =>
+			cleanStaleOutputs(buildPath, [
+				...serverOutputs.map((a) => a.path),
+				...reactClientOutputs.map((a) => a.path),
+				...nonReactClientOutputs.map((a) => a.path),
+				...islandClientOutputs.map((a) => a.path),
+				...cssOutputs.map((a) => a.path)
+			])
+		);
 	}
 
 	// In dev mode, copy source indexes to build dir before cleanup.
 	// Rewrite relative page imports to absolute /@src/ paths since
 	// the indexes are moved from src/frontend/indexes/ to build/_src_indexes/
 	if (hmr) {
-		await copyDevIndexes({
-			buildPath,
-			reactIndexesPath,
-			reactPagesPath,
-			svelteDir,
-			svelteEntries,
-			sveltePagesPath,
-			vueDir,
-			vueEntries,
-			vuePagesPath
-		});
+		await tracePhase('dev/copy-indexes', () =>
+			copyDevIndexes({
+				buildPath,
+				reactIndexesPath,
+				reactPagesPath,
+				svelteDir,
+				svelteEntries,
+				sveltePagesPath,
+				vueDir,
+				vueEntries,
+				vuePagesPath
+			})
+		);
 	}
 
-	await cleanup({
-		angularDir,
-		reactDir,
-		svelteDir,
-		vueDir
-	});
+	await tracePhase('cleanup/generated', () =>
+		cleanup({
+			angularDir,
+			reactDir,
+			svelteDir,
+			vueDir
+		})
+	);
 
 	if (!isIncremental) {
 		globalThis.__hmrBuildDuration = performance.now() - buildStart;
@@ -1817,7 +2153,11 @@ export const build = async ({
 	// Skip manifest.json disk write during incremental (HMR) builds —
 	// the in-memory manifest is authoritative and writing to disk on
 	// every keystroke adds unnecessary I/O latency.
-	if (isIncremental) return { conventions: conventionsMap, manifest };
+	if (isIncremental) {
+		writeBuildTrace(buildPath);
+
+		return { conventions: conventionsMap, manifest };
+	}
 
 	writeFileSync(
 		join(buildPath, 'manifest.json'),
@@ -1831,6 +2171,8 @@ export const build = async ({
 			JSON.stringify(conventionsMap, null, '\t')
 		);
 	}
+
+	writeBuildTrace(buildPath);
 
 	return { conventions: conventionsMap, manifest };
 };

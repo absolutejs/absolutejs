@@ -3,23 +3,40 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import type { BunPlugin } from 'bun';
 
-const CACHE_DIR = resolve('.absolutejs', 'cache', 'angular-linker');
+const CACHE_ROOT = resolve('.absolutejs', 'cache', 'angular-linker');
 
 /**
  * Bun bundler plugin that runs the Angular Linker on partially compiled
  * Angular libraries at build time. Converts ɵɵngDeclare* declarations
- * into fully AOT-compiled code so @angular/compiler is not shipped to
- * the browser.
+ * into fully linked code.
  *
- * Uses a disk cache keyed by file content hash — Babel only runs once
- * per Angular package version. Subsequent builds are pure file reads.
+ * The `linkerJitMode` flag controls whether NgModule definitions retain
+ * `declarations`/`exports` (JIT-mode, required when consumer code is
+ * runtime-compiled) or strip them (AOT-mode, smaller output but only
+ * correct when consumer components have ɵcmp.dependencies baked in by
+ * the Angular compiler-cli).
+ *
+ * In AbsoluteJS dev/HMR, user components are TypeScript-transpiled via
+ * `compileAngularFileJIT` and rely on @angular/compiler at runtime —
+ * that runtime JIT path reads `NgModule.ɵmod.declarations` to find
+ * directives like FormGroupDirective. Linking vendor code in AOT mode
+ * (the default) silently breaks dev because declarations get stripped
+ * and runtime JIT then can't resolve `[formGroup]`, `[ngIf]`, etc. So
+ * dev/HMR builds must use `linkerJitMode: true`. Production AOT builds
+ * use `linkerJitMode: false` (matches AOT'd user components).
+ *
+ * Cache key includes mode so dev and prod artifacts don't collide.
  */
-export const angularLinkerPlugin: BunPlugin = {
+export const createAngularLinkerPlugin = (
+	linkerJitMode: boolean
+): BunPlugin => ({
 	name: 'angular-linker',
 	setup(bld) {
 		let needsLinking: ((path: string, source: string) => boolean) | undefined;
 		let babelTransform: ((source: string, options: Record<string, unknown>) => { code?: string } | null) | undefined;
 		let linkerPlugin: unknown;
+
+		const cacheDir = join(CACHE_ROOT, linkerJitMode ? 'jit' : 'aot');
 
 		bld.onLoad(
 			{ filter: /[\\/]@angular[\\/].*\.m?js$/ },
@@ -40,7 +57,7 @@ export const angularLinkerPlugin: BunPlugin = {
 				const hash = createHash('md5')
 					.update(source)
 					.digest('hex');
-				const cachePath = join(CACHE_DIR, `${hash}.js`);
+				const cachePath = join(cacheDir, `${hash}.js`);
 
 				if (existsSync(cachePath)) {
 					return {
@@ -65,7 +82,7 @@ export const angularLinkerPlugin: BunPlugin = {
 							relative,
 							resolve
 						},
-						linkerJitMode: false,
+						linkerJitMode,
 						logger: {
 							error: console.error,
 							level: 1,
@@ -91,11 +108,16 @@ export const angularLinkerPlugin: BunPlugin = {
 
 				const linked = result?.code ?? source;
 
-				mkdirSync(CACHE_DIR, { recursive: true });
+				mkdirSync(cacheDir, { recursive: true });
 				writeFileSync(cachePath, linked, 'utf-8');
 
 				return { contents: linked, loader: 'js' };
 			}
 		);
 	}
-};
+});
+
+/** Default AOT-mode plugin instance — keep for callers that don't need
+ *  to choose. Production AOT builds and any callsite that AOT-compiles
+ *  user components alongside vendor should use this. */
+export const angularLinkerPlugin: BunPlugin = createAngularLinkerPlugin(false);

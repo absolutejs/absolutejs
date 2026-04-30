@@ -382,8 +382,7 @@ export const compileSvelte = async (
 						},
 						filename: src,
 						generate: mode,
-						hmr: mode === 'client' && isDev,
-						runes: false
+						hmr: mode === 'client' && isDev
 					}).js.code;
 			let code = compiled.replace(
 				/\.svelte(?:\.(?:ts|js))?(['"])/g,

@@ -57,12 +57,11 @@ describe('react streaming across built package entrypoints', () => {
 				)
 			);
 
-		const response = await handleReactPageRequest(
-			Page,
-			'/react-built-test-index.js',
-			undefined,
-			{ collectStreamingSlots: true }
-		);
+		const response = await handleReactPageRequest({
+			collectStreamingSlots: true,
+			index: '/react-built-test-index.js',
+			Page
+		});
 		const html = await response.text();
 		const fastPatchIndex = html.indexOf('"built-fast"');
 		const slowPatchIndex = html.indexOf('"built-slow"');

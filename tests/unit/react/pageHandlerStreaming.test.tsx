@@ -48,12 +48,11 @@ const ReactStreamingTestPage = () => (
 
 describe('handleReactPageRequest streaming', () => {
 	test('injects runtime and appends patches for registered StreamSlot components', async () => {
-		const response = await handleReactPageRequest(
-			ReactStreamingTestPage,
-			'/react-test-index.js',
-			undefined,
-			{ collectStreamingSlots: true }
-		);
+		const response = await handleReactPageRequest({
+			Page: ReactStreamingTestPage,
+			index: '/react-test-index.js',
+			collectStreamingSlots: true
+		});
 		const html = await response.text();
 		const fastPatchIndex = html.indexOf('"react-fast"');
 		const slowPatchIndex = html.indexOf('"react-slow"');
@@ -97,12 +96,11 @@ describe('handleReactPageRequest streaming', () => {
 				</body>
 			</html>
 		);
-		const response = await handleReactPageRequest(
-			ReactSuspenseTestPage,
-			'/react-suspense-test-index.js',
-			undefined,
-			{ collectStreamingSlots: true }
-		);
+		const response = await handleReactPageRequest({
+			Page: ReactSuspenseTestPage,
+			index: '/react-suspense-test-index.js',
+			collectStreamingSlots: true
+		});
 		const html = await response.text();
 
 		expect(html).toContain('react suspense fallback');

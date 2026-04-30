@@ -72,12 +72,18 @@ const resolveDevAssetResponse = async (
 	if (moduleServerHandler) {
 		const moduleResponse = await moduleServerHandler(pathname);
 
-		if (!moduleResponse) return undefined;
-
-		return resolveModuleResponse(
-			moduleResponse,
-			request.headers.get('If-None-Match')
-		);
+		if (moduleResponse) {
+			return resolveModuleResponse(
+				moduleResponse,
+				request.headers.get('If-None-Match')
+			);
+		}
+		// Fall through: moduleServerHandler only handles /@src/, /@stub/,
+		// /@hmr/ prefixes. Other paths (like /generated/indexes/<hash>.js
+		// emitted by HMR rebuilds) need to be served from the asset store —
+		// the upstream `staticPlugin({ alwaysStatic: true })` only registers
+		// files that existed at server start, so HMR-emitted chunks aren't
+		// in those routes.
 	}
 
 	const bytes = lookupAsset(hmrState.assetStore, pathname);
@@ -111,7 +117,14 @@ export const hmr = (
 		})
 		// In HTTP/2 mode, WebSocket is handled by the http2Bridge
 		// so we skip Elysia's .ws() registration
-		.onBeforeHandle(async ({ request }) => {
+		// `onRequest` (not `onBeforeHandle`) is required: HMR-emitted chunks
+		// like /generated/indexes/<hash>.js have no matching Elysia route
+		// (the upstream `staticPlugin({ alwaysStatic })` only registers
+		// files that existed at server start, so anything emitted by HMR
+		// later is unrouted). `onBeforeHandle` only fires when a route
+		// matches, so it would never see those requests; `onRequest` fires
+		// before routing and lets us serve them from the asset store.
+		.onRequest(async ({ request }) => {
 			// Bridge React internals if bun install created a duplicate instance.
 			// Runs before any route handler so page handlers stay clean.
 			if (globalThis.__reactModuleRef) {

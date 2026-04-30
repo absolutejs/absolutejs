@@ -56,7 +56,11 @@ declare global {
 		__SVELTE_COMPONENT__?: Record<string, unknown>;
 		__ABS_SVELTE_ISLAND_HTML__?: Record<string, string>;
 		__SVELTE_UNMOUNT__?: () => void;
-		__ANGULAR_APP__?: { destroy: () => void; tick: () => void } | null;
+		__ANGULAR_APP__?: {
+			destroy: () => void;
+			tick: () => void;
+			whenStable: () => Promise<void>;
+		} | null;
 		__HMR_SKIP_HYDRATION__?: boolean;
 		__HMR_NEW_PAGE_CLASS__?: unknown;
 		__NG_REPLACE_METADATA__?: (...args: unknown[]) => void;
@@ -74,6 +78,12 @@ declare global {
 					updateCount: number;
 				}
 			>;
+			recordPageExports: (
+				sourceId: string,
+				routes: unknown,
+				providers: unknown
+			) => void;
+			hasPageExportsChanged: (sourceId: string) => boolean;
 		};
 		__VUE_APP__?:
 			| ({

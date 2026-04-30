@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import type { EnvironmentProviders, Provider, Type } from '@angular/core';
 import type {
-	AngularPageImporter,
+	AngularPageDefinition,
 	AngularPagePropsOf
 } from '../../types/angular';
 import { BASE_36_RADIX, RANDOM_ID_END_INDEX } from '../constants';
@@ -16,6 +16,8 @@ import {
 } from '../utils/resolveConvention';
 import { setSsrContextGetter } from '../utils/registerClientScript';
 import { getAngularDeps } from './angularDeps';
+import { buildServerAnimationProviders } from './animationProviders';
+import { buildRouterRedirectProviders } from './routerRedirectProviders';
 import { lowerAngularServerIslands } from './lowerServerIslands';
 import { getCurrentRouteRegistrationCallsite } from '../core/devRouteRegistrationCallsite';
 import { getSsrSanitizer, resetSsrSanitizer } from './ssrSanitizer';
@@ -44,53 +46,62 @@ let lastSelector = 'angular-page';
 type AngularPageRenderOptions = StreamingSlotEnhancerOptions & {
 	collectStreamingSlots?: boolean;
 };
+type IsAny<T> = 0 extends 1 & T ? true : false;
+type HasNoRequiredAngularProps<Props> =
+	IsAny<Props> extends true ? true : keyof Props extends never ? true : false;
+type AngularPageHasOptionalProps<Page> = Page extends {
+	page: AngularPageDefinition<infer Props>;
+}
+	? HasNoRequiredAngularProps<Props>
+	: Page extends { default: AngularPageDefinition<infer Props> }
+		? HasNoRequiredAngularProps<Props>
+		: HasNoRequiredAngularProps<AngularPagePropsOf<Page>>;
 export type AngularPageRequestInput<
-	Page = { factory: (props: Record<never, never>) => unknown }
+	Page = { page: AngularPageDefinition<Record<never, never>> }
 > = AngularPageRenderOptions & {
 	headTag?: `<head>${string}</head>`;
 	indexPath: string;
 	pagePath: string;
-	providers?: ReadonlyArray<Provider | EnvironmentProviders>;
-} & (keyof AngularPagePropsOf<Page> extends never
+	/** The incoming request. When provided, its URL is forwarded to
+	 *  Angular's `renderApplication`, so `LocationStrategy.path()` and
+	 *  Angular Router both see the real URL instead of `/`. Without it,
+	 *  Router-based pages can't match anything but the root route. */
+	request?: Request;
+	/** Per-request context made available through Angular's REQUEST_CONTEXT token. */
+	requestContext?: unknown;
+	/** Mutable response init made available through Angular's RESPONSE_INIT token. */
+	responseInit?: ResponseInit;
+} & (AngularPageHasOptionalProps<Page> extends true
 		? { props?: NoInfer<AngularPagePropsOf<Page>> }
 		: { props: NoInfer<AngularPagePropsOf<Page>> });
-export type HandleAngularPageRequest = {
-	<Page = { factory: (props: Record<never, never>) => unknown }>(
-		input: AngularPageRequestInput<Page>
-	): Promise<Response>;
-	<Props extends Record<string, unknown> = Record<never, never>>(
-		Page: AngularPageImporter<Props>,
-		pagePath: string,
-		indexPath: string,
-		headTag: `<head>${string}</head>` | undefined,
-		...args: AngularPageHandlerArgs<Props>
-	): Promise<Response>;
-};
-type AngularPageHandlerArgs<Props extends Record<string, unknown>> =
-	keyof Props extends never
-		? [props?: NoInfer<Props>, options?: AngularPageRenderOptions]
-		: [props: NoInfer<Props>, options?: AngularPageRenderOptions];
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === 'object' && value !== null;
 
 const isAngularComponent = (value: unknown): value is Type<unknown> =>
 	typeof value === 'function';
 
+const isAngularPageDefinition = (
+	value: unknown
+): value is AngularPageDefinition<Record<string, unknown>> =>
+	isRecord(value) && isAngularComponent(value.component);
+
 const resolvePageComponent = (pageModule: Record<string, unknown>) => {
-	if (isAngularComponent(pageModule.default)) {
-		return pageModule.default;
+	const page = Reflect.get(pageModule, 'page');
+	if (isAngularPageDefinition(page)) {
+		return page.component;
+	}
+
+	const defaultExport = pageModule.default;
+	if (isAngularPageDefinition(defaultExport)) {
+		return defaultExport.component;
+	}
+
+	if (isAngularComponent(defaultExport)) {
+		return defaultExport;
 	}
 
 	return Object.values(pageModule).find((value) => isAngularComponent(value));
 };
-
-const isAngularPageRequestInput = (
-	value: unknown
-): value is AngularPageRequestInput<Record<string, unknown>> =>
-	typeof value === 'object' &&
-	value !== null &&
-	'pagePath' in value &&
-	'indexPath' in value;
 
 let compilerImportPromise: Promise<unknown> | null = null;
 const ensureAngularCompiler = () => {
@@ -162,6 +173,35 @@ const resolveRuntimeAngularModulePath = async (pagePath: string) => {
 	);
 };
 
+const withHtmlContentType = (responseInit: ResponseInit = {}) => {
+	const headers = new Headers(responseInit.headers);
+	if (!headers.has('Content-Type')) {
+		headers.set('Content-Type', 'text/html');
+	}
+
+	return { ...responseInit, headers };
+};
+
+const resolveRequestRenderUrl = (request: Request | undefined) => {
+	if (!request) return '/';
+
+	try {
+		const parsed = new URL(request.url);
+
+		return `${parsed.pathname}${parsed.search}`;
+	} catch {
+		return '/';
+	}
+};
+
+const assertNoHandlerProviders = (input: Record<string, unknown>) => {
+	if (!('providers' in input)) return;
+
+	throw new Error(
+		'Angular handler providers are not supported. Export `providers` from the Angular page module, or inject REQUEST / REQUEST_CONTEXT for request-scoped data.'
+	);
+};
+
 export const invalidateAngularSsrCache = () => {
 	markSsrCacheDirty('angular');
 	clearSelectorCache();
@@ -170,45 +210,23 @@ export const invalidateAngularSsrCache = () => {
 const angularSsrContext = new AsyncLocalStorage<string>();
 setSsrContextGetter(() => angularSsrContext.getStore());
 
-export function handleAngularPageRequest<
-	Page = { factory: (props: Record<never, never>) => unknown }
->(input: AngularPageRequestInput<Page>): Promise<Response>;
-export function handleAngularPageRequest<
-	Props extends Record<string, unknown> = Record<never, never>
+export const handleAngularPageRequest = async <
+	Page = { page: AngularPageDefinition<Record<never, never>> }
 >(
-	Page: AngularPageImporter<Props>,
-	pagePath: string,
-	indexPath: string,
-	headTag: `<head>${string}</head>` | undefined,
-	...args: AngularPageHandlerArgs<Props>
-): Promise<Response>;
-export async function handleAngularPageRequest(
-	PageOrInput: unknown,
-	pagePath?: string,
-	indexPath?: string,
-	headTag: `<head>${string}</head>` = '<head></head>',
-	...args: [
-		props?: Record<string, unknown>,
-		options?: AngularPageRenderOptions
-	]
-) {
+	input: AngularPageRequestInput<Page>
+) => {
 	const requestId = `angular_${Date.now()}_${Math.random().toString(BASE_36_RADIX).substring(2, RANDOM_ID_END_INDEX)}`;
 
 	return angularSsrContext.run(requestId, async () => {
 		await ensureAngularCompiler();
-		const isInput = isAngularPageRequestInput(PageOrInput);
-		const resolvedHeadTag = isInput
-			? (PageOrInput.headTag ?? '<head></head>')
-			: headTag;
-		const resolvedIndexPath = isInput
-			? PageOrInput.indexPath
-			: (indexPath ?? '');
-		const options = isInput ? PageOrInput : args[1];
-		const resolvedPagePath = isInput
-			? PageOrInput.pagePath
-			: (pagePath ?? '');
-		const maybeProps = isInput ? PageOrInput.props : args[0];
-		const userProviders = isInput ? PageOrInput.providers : undefined;
+
+		const resolvedHeadTag = input.headTag ?? '<head></head>';
+		const resolvedIndexPath = input.indexPath;
+		const options = input;
+		const resolvedPagePath = input.pagePath;
+		const maybeProps = input.props;
+		const responseInit = input.responseInit ?? {};
+		const resolvedUrl = resolveRequestRenderUrl(input.request);
 
 		// Cache props + headTag for HMR replay — strip query strings
 		// so cache-busted HMR paths match the original manifest path.
@@ -230,6 +248,8 @@ export async function handleAngularPageRequest(
 		}
 
 		try {
+			assertNoHandlerProviders(input);
+
 			const handlerCallsite =
 				options?.collectStreamingSlots === true
 					? undefined
@@ -259,6 +279,9 @@ export async function handleAngularPageRequest(
 					'boolean'
 						? pageModule.__ABSOLUTE_PAGE_HAS_ISLANDS__
 						: false;
+				const usesLegacyAnimations =
+					pageModule.__ABSOLUTE_PAGE_USES_LEGACY_ANIMATIONS__ ===
+					true;
 
 				const ssrResult = await loadSsrDeps(runtimePagePath);
 				const deps = buildDeps(ssrResult, baseDeps);
@@ -275,19 +298,44 @@ export async function handleAngularPageRequest(
 
 				if (ssrResult?.core) resetSsrSanitizer();
 				const sanitizer = getSsrSanitizer(deps);
+				// The page module's `providers` export is the source of truth
+				// for page-level DI — `bootstrapApplication` reads it on the
+				// client (see compileAngular.ts client bootstrap). Mirror that
+				// on the server so anything that requires `provideRouter`,
+				// `provideAnimations`, etc. resolves the same way during SSR.
+				const pageProvidersExport = Reflect.get(
+					pageModule,
+					'providers'
+				);
+				const pageProviders: ReadonlyArray<
+					Provider | EnvironmentProviders
+				> = Array.isArray(pageProvidersExport)
+					? pageProvidersExport
+					: [];
+				const combinedProviders = [
+					...(await buildRouterRedirectProviders(deps, responseInit)),
+					...pageProviders,
+					...(await buildServerAnimationProviders(
+						usesLegacyAnimations
+					))
+				];
 				const providers = buildProviders(
 					deps,
 					sanitizer,
 					maybeProps,
 					tokenMap,
-					userProviders
+					input.request,
+					input.requestContext,
+					responseInit,
+					combinedProviders
 				);
 
 				const rawHtml: string = await renderAngularApp(
 					deps,
 					PageComponent,
 					providers,
-					htmlString
+					htmlString,
+					resolvedUrl
 				);
 				const shouldProcessIslands =
 					hasIslands || rawHtml.includes('<absolute-island');
@@ -305,9 +353,7 @@ export async function handleAngularPageRequest(
 					{ hasIslands: shouldProcessIslands }
 				);
 
-				return new Response(html, {
-					headers: { 'Content-Type': 'text/html' }
-				});
+				return new Response(html, withHtmlContentType(responseInit));
 			};
 
 			return runWithStreamingSlotWarningScope(
@@ -337,4 +383,4 @@ export async function handleAngularPageRequest(
 			});
 		}
 	});
-}
+};

@@ -235,6 +235,7 @@ export default defineConfig([
 		files: [
 			'eslint.config.mjs',
 			'**/absolute.config.ts',
+			'types/style-module-shim.d.ts',
 			'types/vue-shim.d.ts',
 			'types/svelte-shim.d.ts'
 		],

@@ -28,42 +28,16 @@ export type VuePageRequestInput<Component extends VueComponent> =
 		headTag?: `<head>${string}</head>`;
 		indexPath: string;
 		pagePath: string;
+		Page?: Component;
 	} & (keyof VuePropsOf<Component> extends never
 			? { props?: NoInfer<VuePropsOf<Component>> }
 			: { props: NoInfer<VuePropsOf<Component>> });
-export type HandleVuePageRequest = {
-	<Component extends VueComponent>(
-		input: VuePageRequestInput<Component>
-	): Promise<Response>;
-	<Component extends VueComponent>(
-		PageComponent: Component,
-		pagePath: string,
-		indexPath: string,
-		headTag: `<head>${string}</head>` | undefined,
-		...args: VuePageHandlerArgs<Component>
-	): Promise<Response>;
-};
-type VuePageHandlerArgs<Component extends VueComponent> =
-	keyof VuePropsOf<Component> extends never
-		? [
-				props?: NoInfer<VuePropsOf<Component>>,
-				options?: VuePageRenderOptions
-			]
-		: [
-				props: NoInfer<VuePropsOf<Component>>,
-				options?: VuePageRenderOptions
-			];
 type GenericVueComponent = VueComponent;
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === 'object' && value !== null;
 
 const isGenericVueComponent = (value: unknown): value is GenericVueComponent =>
 	typeof value === 'function' || isRecord(value);
-
-const isVuePageRequestInput = <Component extends VueComponent>(
-	value: Component | VuePageRequestInput<Component>
-): value is VuePageRequestInput<Component> =>
-	isRecord(value) && 'pagePath' in value && 'indexPath' in value;
 
 const readHasIslands = (value: unknown) => {
 	if (!isRecord(value)) return false;
@@ -126,36 +100,15 @@ const primeVueStream = async (stream: ReadableStream) => {
 	return { firstChunk, reader };
 };
 
-export function handleVuePageRequest<Component extends VueComponent>(
+export const handleVuePageRequest = async <Component extends VueComponent>(
 	input: VuePageRequestInput<Component>
-): Promise<Response>;
-export function handleVuePageRequest<Component extends VueComponent>(
-	PageComponent: Component,
-	pagePath: string,
-	indexPath: string,
-	headTag: `<head>${string}</head>` | undefined,
-	...args: VuePageHandlerArgs<Component>
-): Promise<Response>;
-export async function handleVuePageRequest<Component extends VueComponent>(
-	PageComponentOrInput: Component | VuePageRequestInput<Component>,
-	pagePath?: string,
-	indexPath?: string,
-	headTag: `<head>${string}</head>` = '<head></head>',
-	...args: VuePageHandlerArgs<Component>
-) {
-	const isInput = isVuePageRequestInput(PageComponentOrInput);
-	const _PageComponent = isInput ? undefined : PageComponentOrInput;
-	const resolvedHeadTag = isInput
-		? (PageComponentOrInput.headTag ?? '<head></head>')
-		: headTag;
-	const resolvedIndexPath = isInput
-		? PageComponentOrInput.indexPath
-		: (indexPath ?? '');
-	const resolvedOptions = isInput ? PageComponentOrInput : args[1];
-	const resolvedPagePath = isInput
-		? PageComponentOrInput.pagePath
-		: (pagePath ?? '');
-	const maybeProps = isInput ? PageComponentOrInput.props : args[0];
+) => {
+	const passedPageComponent = input.Page;
+	const resolvedHeadTag = input.headTag ?? '<head></head>';
+	const resolvedIndexPath = input.indexPath;
+	const resolvedOptions = input;
+	const resolvedPagePath = input.pagePath;
+	const maybeProps = input.props;
 
 	if (isSsrCacheDirty('vue')) {
 		return buildDirtyResponse(
@@ -173,7 +126,6 @@ export async function handleVuePageRequest<Component extends VueComponent>(
 					captureStreamingSlotWarningCallsite());
 		const renderPageResponse = async () => {
 			const resolvePageComponent = async () => {
-				const passedPageComponent: unknown = _PageComponent;
 				if (isGenericVueComponent(passedPageComponent)) {
 					return {
 						component: passedPageComponent,
@@ -279,7 +231,7 @@ export async function handleVuePageRequest<Component extends VueComponent>(
 			status: 500
 		});
 	}
-}
+};
 
 export const invalidateVueSsrCache = () => {
 	markSsrCacheDirty('vue');

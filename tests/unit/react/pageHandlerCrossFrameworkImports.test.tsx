@@ -58,12 +58,11 @@ describe('handleReactPageRequest across source framework imports', () => {
 				)
 			);
 
-		const response = await handleReactPageRequest(
+		const response = await handleReactPageRequest({
 			Page,
-			'/react-source-cross-framework-test-index.js',
-			undefined,
-			{ collectStreamingSlots: true }
-		);
+			index: '/react-source-cross-framework-test-index.js',
+			collectStreamingSlots: true
+		});
 		const html = await response.text();
 		const fastPatchIndex = html.indexOf('"source-cross-fast"');
 		const slowPatchIndex = html.indexOf('"source-cross-slow"');

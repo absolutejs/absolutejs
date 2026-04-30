@@ -1,7 +1,39 @@
 import { build } from '../src/core/build';
 import { devBuild } from '../src/core/devBuild';
+import type { BuildConfig as BunBuildConfig } from 'bun';
 import type { ImageConfig } from './image';
 import type { SitemapConfig } from './sitemap';
+
+export type BunBuildPassKey =
+	| 'server'
+	| 'reactClient'
+	| 'nonReactClient'
+	| 'islandClient'
+	| 'globalCss'
+	| 'vueCss';
+
+export type ReservedBunBuildConfigKey =
+	| 'entrypoints'
+	| 'outdir'
+	| 'outfile'
+	| 'root'
+	| 'target'
+	| 'format'
+	| 'throw'
+	| 'compile';
+
+type DistributivePartialOmit<T, K extends PropertyKey> = T extends unknown
+	? Partial<Omit<T, Extract<keyof T, K>>>
+	: never;
+
+export type BunBuildConfigOverride = DistributivePartialOmit<
+	BunBuildConfig,
+	ReservedBunBuildConfigKey
+>;
+
+export type BunBuildPassConfig = {
+	default?: BunBuildConfigOverride;
+} & Partial<Record<BunBuildPassKey, BunBuildConfigOverride>>;
 
 export type BuildOptions = {
 	/** When true, build() throws on error instead of exit(1) - used by HMR rebuilds */
@@ -163,6 +195,12 @@ export type BaseBuildConfig = {
 	stylePreprocessors?: StylePreprocessorConfig;
 	postcss?: PostCSSConfig;
 	tailwind?: TailwindConfig;
+	/**
+	 * Bun build options applied to Absolute's app output build passes.
+	 * Framework-owned fields such as entrypoints, outdir, root, target,
+	 * format, throw, and compile are intentionally not user-configurable.
+	 */
+	bunBuild?: BunBuildConfigOverride | BunBuildPassConfig;
 	options?: BuildOptions;
 	// Optional: List of files to rebuild incrementally (absolute paths)
 	// When provided, only these files and their dependencies will be rebuilt

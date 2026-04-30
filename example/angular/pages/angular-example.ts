@@ -1,5 +1,6 @@
 import { Component, inject, InjectionToken } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { defineAngularPage } from '../../../src/angular/page';
 import { DropdownComponent } from '../components/dropdown.component';
 import { AppComponent } from '../components/app.component';
 
@@ -25,9 +26,6 @@ export class AngularExampleComponent {
 	}
 }
 
-export const factory = (props: AngularPageProps) => {
-	const component = new AngularExampleComponent();
-	component.initialCount = props.initialCount;
-
-	return component;
-};
+export const page = defineAngularPage<AngularPageProps>({
+	component: AngularExampleComponent
+});

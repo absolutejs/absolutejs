@@ -51,13 +51,11 @@ describe('streaming across built non-react framework entrypoints', () => {
 			resolve(PROJECT_ROOT, 'dist/svelte/index.js')
 		);
 
-		const response = await handleSveltePageRequest(
-			SVELTE_FIXTURE,
-			SVELTE_FIXTURE,
-			'/svelte-built-test-index.js',
-			undefined,
-			{ collectStreamingSlots: true }
-		);
+		const response = await handleSveltePageRequest({
+			collectStreamingSlots: true,
+			indexPath: '/svelte-built-test-index.js',
+			pagePath: SVELTE_FIXTURE
+		});
 		const html = await response.text();
 		const fastPatchIndex = html.indexOf('"svelte-fast"');
 		const slowPatchIndex = html.indexOf('"svelte-slow"');
@@ -112,14 +110,13 @@ describe('streaming across built non-react framework entrypoints', () => {
 			}
 		});
 
-		const response = await handleVuePageRequest(
+		const response = await handleVuePageRequest({
+			collectStreamingSlots: true,
+			headTag: '<head><title>Built Vue Streaming Test</title></head>',
+			indexPath: '/vue-built-test-index.js',
 			Page,
-			'/tests/built-inline.vue',
-			'/vue-built-test-index.js',
-			'<head><title>Built Vue Streaming Test</title></head>',
-			undefined,
-			{ collectStreamingSlots: true }
-		);
+			pagePath: '/tests/built-inline.vue'
+		});
 		const html = await response.text();
 		const fastPatchIndex = html.indexOf('"built-vue-fast"');
 		const slowPatchIndex = html.indexOf('"built-vue-slow"');
@@ -139,14 +136,12 @@ describe('streaming across built non-react framework entrypoints', () => {
 			resolve(PROJECT_ROOT, 'dist/angular/index.js')
 		);
 
-		const response = await handleAngularPageRequest(
-			(() => import(ANGULAR_FIXTURE)) as never,
-			ANGULAR_FIXTURE,
-			'/angular-built-test-index.js',
-			'<head><title>Built Angular Streaming Test</title></head>',
-			undefined,
-			{ collectStreamingSlots: true }
-		);
+		const response = await handleAngularPageRequest({
+			collectStreamingSlots: true,
+			headTag: '<head><title>Built Angular Streaming Test</title></head>',
+			indexPath: '/angular-built-test-index.js',
+			pagePath: ANGULAR_FIXTURE
+		});
 		const html = await response.text();
 		const fastPatchIndex = html.indexOf('"angular-fast"');
 		const slowPatchIndex = html.indexOf('"angular-slow"');

@@ -144,18 +144,19 @@ export const populateAssetStore = async (
 		newIdentities.set(stripHash(webPath), webPath);
 	}
 
-	// Evict old store entries that are either:
-	// (a) being replaced by a new hash (same identity, different path), or
-	// (b) no longer in the manifest at all (page was deleted).
-	// Chunk files (chunk-XXXX.js) are kept — they're not tracked in the manifest.
-	const liveWebPaths = new Set(newIdentities.values());
+	// Evict old store entries that are being replaced by a new hash (same
+	// identity, different path). The manifest passed in may be PARTIAL — it
+	// only covers the entries from the current build (e.g. one page during
+	// HMR fast-paths). Entries whose identity isn't mentioned must be left
+	// alone: they may belong to other pages that weren't rebuilt, and their
+	// SSR-rendered HTML still references those hashes.
+	// Disk-level cleanup of pages that were truly deleted is handled by
+	// `cleanStaleAssets`. Chunk files (chunk-XXXX.js) are tracked separately
+	// and are not part of the manifest.
 	const staleKeys = [...store.keys()].filter((existingPath) => {
 		if (existingPath.includes('/chunk-')) return false;
 		const replacement = newIdentities.get(stripHash(existingPath));
-		// Delete if replaced by a different hash OR if no identity exists at all
-		if (replacement !== undefined) return replacement !== existingPath;
-
-		return !liveWebPaths.has(existingPath);
+		return replacement !== undefined && replacement !== existingPath;
 	});
 	staleKeys.forEach((key) => store.delete(key));
 

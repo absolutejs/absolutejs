@@ -29,6 +29,13 @@ type DeferSlotResolver = () => Promise<AngularDeferSlotPayload>;
 
 type DeferSlotState = 'error' | 'fallback' | 'resolved';
 
+type SlotConsumer = (payload: unknown) => boolean | void;
+
+type AbsoluteSlotWindow = Window & {
+	__ABS_SLOT_CONSUMERS__?: Record<string, SlotConsumer | undefined>;
+	__ABS_SLOT_FLUSH__?: () => void;
+};
+
 @Component({
 	changeDetection: ChangeDetectionStrategy.OnPush,
 	imports: [
@@ -102,8 +109,9 @@ export class DeferSlotComponent implements AfterViewInit {
 			return;
 		}
 
-		const consumers = (window.__ABS_SLOT_CONSUMERS__ =
-			window.__ABS_SLOT_CONSUMERS__ ?? {});
+		const absoluteWindow: AbsoluteSlotWindow = window;
+		const consumers = (absoluteWindow.__ABS_SLOT_CONSUMERS__ =
+			absoluteWindow.__ABS_SLOT_CONSUMERS__ ?? {});
 		consumers[id] = (payload) => {
 			if (!this.runtimeReady()) return false;
 			this.applyPatchPayload(payload);
@@ -119,7 +127,8 @@ export class DeferSlotComponent implements AfterViewInit {
 		requestAnimationFrame(() => {
 			this.runtimeReady.set(true);
 			this.cdr.markForCheck();
-			window.__ABS_SLOT_FLUSH__?.();
+			const absoluteWindow: AbsoluteSlotWindow = window;
+			absoluteWindow.__ABS_SLOT_FLUSH__?.();
 		});
 	}
 
@@ -127,7 +136,8 @@ export class DeferSlotComponent implements AfterViewInit {
 		if (typeof window === 'undefined') return;
 		const { id } = this;
 		if (!id) return;
-		delete window.__ABS_SLOT_CONSUMERS__?.[id];
+		const absoluteWindow: AbsoluteSlotWindow = window;
+		delete absoluteWindow.__ABS_SLOT_CONSUMERS__?.[id];
 	}
 
 	private registerServerSlot() {

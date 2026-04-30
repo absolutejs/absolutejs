@@ -10,6 +10,8 @@ import {
 	getAndClearClientScripts,
 	generateClientScriptCode
 } from '../utils/registerClientScript';
+import { buildAbsoluteHttpTransferCacheOptions } from './httpTransferCache';
+import { buildRequestProviders } from './requestProviders';
 
 // --- Last-used props cache for HMR ---
 // Stores { props, headTag } from the most recent real request per route
@@ -44,6 +46,9 @@ export const buildDeps = (
 			platformBrowser?.bootstrapApplication ??
 			baseDeps.bootstrapApplication,
 		DomSanitizer: platformBrowser?.DomSanitizer ?? baseDeps.DomSanitizer,
+		ENVIRONMENT_INITIALIZER:
+			core.ENVIRONMENT_INITIALIZER ?? baseDeps.ENVIRONMENT_INITIALIZER,
+		inject: core.inject ?? baseDeps.inject,
 		provideClientHydration:
 			platformBrowser?.provideClientHydration ??
 			baseDeps.provideClientHydration,
@@ -54,8 +59,14 @@ export const buildDeps = (
 		reflectComponentType: core.reflectComponentType,
 		renderApplication:
 			platformServer?.renderApplication ?? baseDeps.renderApplication,
+		REQUEST: core.REQUEST ?? baseDeps.REQUEST,
+		REQUEST_CONTEXT: core.REQUEST_CONTEXT ?? baseDeps.REQUEST_CONTEXT,
+		RESPONSE_INIT: core.RESPONSE_INIT ?? baseDeps.RESPONSE_INIT,
 		Sanitizer: core.Sanitizer,
-		SecurityContext: core.SecurityContext
+		SecurityContext: core.SecurityContext,
+		withHttpTransferCacheOptions:
+			platformBrowser?.withHttpTransferCacheOptions ??
+			baseDeps.withHttpTransferCacheOptions
 	} satisfies AngularDeps;
 };
 export const buildProviders = (
@@ -63,11 +74,18 @@ export const buildProviders = (
 	sanitizer: InstanceType<AngularDeps['DomSanitizer']>,
 	maybeProps: Record<string, unknown> | undefined,
 	tokenMap: Map<string, unknown>,
+	request: Request | undefined,
+	requestContext: unknown,
+	responseInit: ResponseInit | undefined,
 	userProviders: ReadonlyArray<Provider | EnvironmentProviders> = []
 ) => {
 	const providers: (Provider | EnvironmentProviders)[] = [
 		deps.provideServerRendering(),
-		deps.provideClientHydration(),
+		deps.provideClientHydration(
+			deps.withHttpTransferCacheOptions(
+				buildAbsoluteHttpTransferCacheOptions()
+			)
+		),
 		deps.provideZonelessChangeDetection(),
 		{ provide: deps.APP_BASE_HREF, useValue: '/' },
 		{
@@ -75,6 +93,7 @@ export const buildProviders = (
 			useValue: sanitizer
 		},
 		{ provide: deps.Sanitizer, useValue: sanitizer },
+		...buildRequestProviders(deps, request, requestContext, responseInit),
 		...userProviders
 	];
 
@@ -200,7 +219,8 @@ export const renderAngularApp = async (
 	deps: AngularDeps,
 	PageComponent: Type<unknown>,
 	providers: (Provider | EnvironmentProviders)[],
-	document: string | Document
+	document: string | Document,
+	url: string = '/'
 ) => {
 	const bootstrap = (context: BootstrapContext) =>
 		deps.bootstrapApplication(PageComponent, { providers }, context);
@@ -209,7 +229,7 @@ export const renderAngularApp = async (
 		deps.renderApplication(bootstrap, {
 			document,
 			platformProviders: [],
-			url: '/'
+			url
 		})
 	);
 };

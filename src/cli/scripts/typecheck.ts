@@ -1,5 +1,5 @@
 import { resolve, join } from 'node:path';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import {
 	getWorkspaceServices,
@@ -169,6 +169,67 @@ const TYPECHECK_INCLUDE = [
 	'../scripts/**/*'
 ];
 
+const resolveAbsoluteTypeFile = (fileName: string) => {
+	const candidates = [
+		resolve('node_modules/@absolutejs/absolute/dist/types', fileName),
+		resolve(import.meta.dir, '../types', fileName),
+		resolve(import.meta.dir, '../../types', fileName),
+		resolve(import.meta.dir, '../../../types', fileName)
+	];
+
+	return (
+		candidates.find((candidate) => existsSync(candidate)) ?? candidates[0]
+	);
+};
+
+const ABSOLUTE_TYPECHECK_FILES = [
+	resolveAbsoluteTypeFile('style-module-shim.d.ts')
+];
+
+type TsconfigJson = {
+	exclude?: string[];
+	files?: string[];
+	include?: string[];
+};
+
+const readProjectTsconfig = (): TsconfigJson => {
+	try {
+		return JSON.parse(readFileSync(resolve('tsconfig.json'), 'utf-8'));
+	} catch {
+		return {};
+	}
+};
+
+const toGeneratedConfigPath = (path: string) =>
+	path.startsWith('/') ? path : `../${path}`;
+
+const getProjectTypecheckIncludes = () => {
+	const config = readProjectTsconfig();
+	const includes =
+		Array.isArray(config.include) && config.include.length > 0
+			? config.include
+			: TYPECHECK_INCLUDE;
+	const files = Array.isArray(config.files) ? config.files : [];
+
+	return [
+		...includes.map(toGeneratedConfigPath),
+		...files.map(toGeneratedConfigPath),
+		...ABSOLUTE_TYPECHECK_FILES
+	];
+};
+
+const getProjectTypecheckExcludes = () => {
+	const config = readProjectTsconfig();
+	const excludes = Array.isArray(config.exclude) ? config.exclude : [];
+
+	return [
+		...new Set([
+			...TYPECHECK_EXCLUDE,
+			...excludes.map(toGeneratedConfigPath)
+		])
+	];
+};
+
 const buildVueTscCheck = (cacheDir: string) => {
 	const vueTscBin = findBin('vue-tsc');
 	if (!vueTscBin) {
@@ -187,9 +248,9 @@ const buildVueTscCheck = (cacheDir: string) => {
 				compilerOptions: {
 					rootDir: '..'
 				},
-				exclude: TYPECHECK_EXCLUDE,
+				exclude: getProjectTypecheckExcludes(),
 				extends: resolve('tsconfig.json'),
-				include: TYPECHECK_INCLUDE
+				include: getProjectTypecheckIncludes()
 			},
 			null,
 			'\t'
@@ -262,9 +323,9 @@ const buildTscCheck = (cacheDir: string) => {
 				compilerOptions: {
 					rootDir: '..'
 				},
-				exclude: TYPECHECK_EXCLUDE,
+				exclude: getProjectTypecheckExcludes(),
 				extends: resolve('tsconfig.json'),
-				include: TYPECHECK_INCLUDE
+				include: getProjectTypecheckIncludes()
 			},
 			null,
 			'\t'
@@ -298,6 +359,7 @@ const buildSvelteCheck = async (cacheDir: string, svelteDir: string) => {
 		JSON.stringify(
 			{
 				extends: resolve('tsconfig.json'),
+				files: ABSOLUTE_TYPECHECK_FILES,
 				include: [`../${svelteDir}/**/*`]
 			},
 			null,

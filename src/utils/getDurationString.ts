@@ -12,7 +12,11 @@ export const getDurationString = (duration: number) => {
 	} else if (duration < MILLISECONDS_IN_A_MINUTE) {
 		durationString = `${(duration / MILLISECONDS_IN_A_SECOND).toFixed(TIME_PRECISION)}s`;
 	} else {
-		durationString = `${(duration / MILLISECONDS_IN_A_MINUTE).toFixed(TIME_PRECISION)}m`;
+		const totalSeconds = Math.round(duration / MILLISECONDS_IN_A_SECOND);
+		const minutes = Math.floor(totalSeconds / 60);
+		const seconds = totalSeconds % 60;
+		durationString =
+			seconds === 0 ? `${minutes}m` : `${minutes}m ${seconds}s`;
 	}
 
 	return durationString;

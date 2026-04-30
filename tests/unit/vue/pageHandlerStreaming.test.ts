@@ -46,14 +46,13 @@ const VueStreamingTestPage = defineComponent({
 
 describe('handleVuePageRequest streaming', () => {
 	test('injects runtime and appends patches for registered StreamSlot components', async () => {
-		const response = await handleVuePageRequest(
-			VueStreamingTestPage,
-			'/tests/inline.vue',
-			'/vue-test-index.js',
-			'<head><title>Vue Streaming Test</title></head>',
-			undefined,
-			{ collectStreamingSlots: true }
-		);
+		const response = await handleVuePageRequest({
+			Page: VueStreamingTestPage,
+			pagePath: '/tests/inline.vue',
+			indexPath: '/vue-test-index.js',
+			headTag: '<head><title>Vue Streaming Test</title></head>',
+			collectStreamingSlots: true
+		});
 		const html = await response.text();
 		const fastPatchIndex = html.indexOf('"vue-fast"');
 		const slowPatchIndex = html.indexOf('"vue-slow"');
@@ -107,14 +106,13 @@ describe('handleVuePageRequest streaming', () => {
 					]);
 			}
 		});
-		const response = await handleVuePageRequest(
-			VueSuspenseTestPage,
-			'/tests/inline-suspense.vue',
-			'/vue-suspense-test-index.js',
-			'<head><title>Vue Suspense Slot Test</title></head>',
-			undefined,
-			{ collectStreamingSlots: true }
-		);
+		const response = await handleVuePageRequest({
+			Page: VueSuspenseTestPage,
+			pagePath: '/tests/inline-suspense.vue',
+			indexPath: '/vue-suspense-test-index.js',
+			headTag: '<head><title>Vue Suspense Slot Test</title></head>',
+			collectStreamingSlots: true
+		});
 		const html = await response.text();
 
 		expect(html).toContain('vue suspense fallback');

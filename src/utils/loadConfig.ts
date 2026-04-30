@@ -10,6 +10,7 @@ const RESERVED_TOP_LEVEL_KEYS = new Set([
 	'assetsDirectory',
 	'astroDirectory',
 	'buildDirectory',
+	'bunBuild',
 	'command',
 	'config',
 	'cwd',

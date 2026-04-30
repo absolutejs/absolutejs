@@ -16,6 +16,13 @@ import {
 
 type SlotResolver = () => Promise<string> | string;
 
+type SlotConsumer = (payload: unknown) => boolean | void;
+
+type AbsoluteSlotWindow = Window & {
+	__ABS_SLOT_CONSUMERS__?: Record<string, SlotConsumer | undefined>;
+	__ABS_SLOT_PENDING__?: Record<string, unknown>;
+};
+
 const isObjectRecord = (value: unknown): value is Record<string, unknown> =>
 	Boolean(value) && typeof value === 'object';
 
@@ -94,24 +101,26 @@ export class StreamSlotComponent {
 			return;
 		}
 
-		const consumers = (window.__ABS_SLOT_CONSUMERS__ =
-			window.__ABS_SLOT_CONSUMERS__ ?? {});
+		const absoluteWindow: AbsoluteSlotWindow = window;
+		const consumers = (absoluteWindow.__ABS_SLOT_CONSUMERS__ =
+			absoluteWindow.__ABS_SLOT_CONSUMERS__ ?? {});
 		consumers[this.id] = this.slotConsumer;
 		this.currentHtml.set(
 			this.sanitizer.bypassSecurityTrustHtml(this.fallbackHtml)
 		);
-		const pendingPayload = window.__ABS_SLOT_PENDING__?.[this.id];
+		const pendingPayload = absoluteWindow.__ABS_SLOT_PENDING__?.[this.id];
 		if (pendingPayload !== undefined) {
 			this.slotConsumer(pendingPayload);
-			delete window.__ABS_SLOT_PENDING__?.[this.id];
+			delete absoluteWindow.__ABS_SLOT_PENDING__?.[this.id];
 		}
 	}
 
 	ngOnDestroy() {
 		if (typeof window === 'undefined') return;
 
-		if (window.__ABS_SLOT_CONSUMERS__) {
-			delete window.__ABS_SLOT_CONSUMERS__[this.id];
+		const absoluteWindow: AbsoluteSlotWindow = window;
+		if (absoluteWindow.__ABS_SLOT_CONSUMERS__) {
+			delete absoluteWindow.__ABS_SLOT_CONSUMERS__[this.id];
 		}
 	}
 }

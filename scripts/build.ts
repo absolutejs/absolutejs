@@ -312,6 +312,8 @@ const fixSvelteEntryPoints = async () => {
 	await fixSvelteEntryPoint(join(DIST, 'svelte', 'browser.js'));
 };
 
+const PUBLISHED_AMBIENT_TYPE_FILES = ['globals.d.ts', 'style-module-shim.d.ts'];
+
 const copyPublishedDevClientSources = async () => {
 	await mkdir(join(DIST, 'dev'), { recursive: true });
 	await copyPublishedDevClientDirectory(
@@ -319,9 +321,22 @@ const copyPublishedDevClientSources = async () => {
 		join(DIST, 'dev', 'client')
 	);
 	await mkdir(join(DIST, 'types'), { recursive: true });
+	await runSequentially(PUBLISHED_AMBIENT_TYPE_FILES, (file) =>
+		cp(join('types', file), join(DIST, 'types', file))
+	);
+	// Ship `src/angular/hmrPreserveCore.ts` as raw TS so the dev client
+	// (which is also shipped raw and resolved at user-app build time) can
+	// import it via `../../../angular/hmrPreserveCore`. The angular
+	// submodule's *bundled* output (`dist/angular/index.js`) inlines the
+	// same source, so user code that imports `@absolutejs/absolute/angular`
+	// gets the bundled version. The two consumers share state via
+	// `globalThis`, so the duplication on disk doesn't cause divergence.
+	// Plain `cp` without rewriting because this file references no
+	// ambient globals or rewrite-targeted paths.
+	await mkdir(join(DIST, 'angular'), { recursive: true });
 	await cp(
-		join('types', 'globals.d.ts'),
-		join(DIST, 'types', 'globals.d.ts')
+		join('src', 'angular', 'hmrPreserveCore.ts'),
+		join(DIST, 'angular', 'hmrPreserveCore.ts')
 	);
 };
 

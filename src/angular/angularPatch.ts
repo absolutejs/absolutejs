@@ -31,7 +31,9 @@ const SSR_LAYOUT_RECT = Object.freeze({
 let layoutPatchApplied = false;
 const collectPrototypeChain = (instance: object | null) => {
 	const protos: object[] = [];
-	let current: object | null = instance ? Object.getPrototypeOf(instance) : null;
+	let current: object | null = instance
+		? Object.getPrototypeOf(instance)
+		: null;
 	while (current && current !== Object.prototype) {
 		protos.push(current);
 		current = Object.getPrototypeOf(current);
@@ -135,6 +137,14 @@ export const applyPatches = async () => {
 					: null;
 		if (seedDoc) {
 			patchElementLayout(seedDoc);
+			const probe = seedDoc.createElement('div') as Element & {
+				getBoundingClientRect?: () => DOMRect;
+			};
+			if (typeof probe.getBoundingClientRect !== 'function') {
+				console.warn(
+					'[Angular Patch] Layout shim did not stick on probe element prototype chain'
+				);
+			}
 		}
 	} catch (error) {
 		console.warn(
