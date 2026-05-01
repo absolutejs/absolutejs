@@ -4,7 +4,7 @@
 		"absolute": "dist/cli/index.js"
 	},
 	"dependencies": {
-		"@angular/compiler": "^21.0.0",
+		"@elysiajs/static": "^1.4.0",
 		"zustand": "^5.0.12"
 	},
 	"description": "A fullstack meta-framework for building web applications with TypeScript",
@@ -21,7 +21,6 @@
 		"@angular/router": "^21.0.0",
 		"@angular/ssr": "^21.0.0",
 		"@babel/preset-typescript": "^7.28.5",
-		"@elysiajs/static": "1.4.0",
 		"@eslint/js": "^10.0.1",
 		"@happy-dom/global-registrator": "^20.8.3",
 		"@stylistic/eslint-plugin": "^5.10.0",
@@ -29,7 +28,6 @@
 		"@types/react": "19.2.0",
 		"@types/react-dom": "19.2.0",
 		"autoprefixer": "10.4.21",
-		"bun-plugin-tailwind": "^0.1.2",
 		"elysia": "1.4.18",
 		"elysia-scoped-state": "0.1.1",
 		"eslint": "10.0.3",
@@ -187,12 +185,12 @@
 	"main": "./dist/index.js",
 	"name": "@absolutejs/absolute",
 	"optionalDependencies": {
-		"@absolutejs/native-darwin-arm64": "0.19.0-beta.765",
-		"@absolutejs/native-darwin-x64": "0.19.0-beta.765",
-		"@absolutejs/native-linux-arm64": "0.19.0-beta.765",
-		"@absolutejs/native-linux-x64": "0.19.0-beta.765",
-		"@absolutejs/native-windows-arm64": "0.19.0-beta.765",
-		"@absolutejs/native-windows-x64": "0.19.0-beta.765"
+		"@absolutejs/native-darwin-arm64": "0.19.0-beta.811",
+		"@absolutejs/native-darwin-x64": "0.19.0-beta.811",
+		"@absolutejs/native-linux-arm64": "0.19.0-beta.811",
+		"@absolutejs/native-linux-x64": "0.19.0-beta.811",
+		"@absolutejs/native-windows-arm64": "0.19.0-beta.811",
+		"@absolutejs/native-windows-x64": "0.19.0-beta.811"
 	},
 	"overrides": {
 		"@typescript-eslint/utils": "8.56.1"
@@ -200,13 +198,13 @@
 	"peerDependencies": {
 		"@angular/animations": "^21.0.0",
 		"@angular/common": "^21.0.0",
+		"@angular/compiler": "^21.0.0",
 		"@angular/compiler-cli": "^21.0.0",
 		"@angular/core": "^21.0.0",
 		"@angular/platform-browser": "^21.0.0",
 		"@angular/platform-server": "^21.0.0",
 		"@angular/router": "^21.0.0",
 		"@angular/ssr": "^21.0.0",
-		"bun-plugin-tailwind": "^0.1.2",
 		"elysia": "^1.4.0",
 		"less": "^4.6.0",
 		"postcss": "^8.5.0",
@@ -229,6 +227,9 @@
 		"@angular/common": {
 			"optional": true
 		},
+		"@angular/compiler": {
+			"optional": true
+		},
 		"@angular/compiler-cli": {
 			"optional": true
 		},
@@ -245,9 +246,6 @@
 			"optional": true
 		},
 		"@angular/ssr": {
-			"optional": true
-		},
-		"bun-plugin-tailwind": {
 			"optional": true
 		},
 		"less": {
@@ -349,5 +347,5 @@
 			]
 		}
 	},
-	"version": "0.19.0-beta.765"
+	"version": "0.19.0-beta.816"
 }
