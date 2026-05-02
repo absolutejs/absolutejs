@@ -65,8 +65,12 @@ const toSafeVendorName = (specifier: string) =>
  *  when no vendor file is available — e.g. running tests outside an
  *  absolutejs build, or before the vendor pass completes. */
 export const resolveAngularRuntimePath = (specifier: string) => {
-	const buildDir = process.env.ABSOLUTE_BUILD_DIR;
-	if (buildDir) {
+	const buildDirs = [
+		process.env.ABSOLUTE_BUILD_DIR,
+		resolve(process.cwd(), 'build')
+	].filter((value): value is string => Boolean(value));
+
+	for (const buildDir of buildDirs) {
 		const vendorPath = join(
 			buildDir,
 			'angular',

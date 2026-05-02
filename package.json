@@ -21,15 +21,23 @@
 		"@angular/router": "^21.0.0",
 		"@angular/ssr": "^21.0.0",
 		"@babel/preset-typescript": "^7.28.5",
+		"@embroider/macros": "^1.20.2",
 		"@eslint/js": "^10.0.1",
+		"@glimmer/component": "^2.1.1",
+		"@glimmer/tracking": "^1.1.2",
 		"@happy-dom/global-registrator": "^20.8.3",
+		"@simple-dom/document": "^1.4.0",
+		"@simple-dom/serializer": "^1.4.0",
+		"@simple-dom/void-map": "^1.4.0",
 		"@stylistic/eslint-plugin": "^5.10.0",
 		"@types/bun": "1.3.9",
 		"@types/react": "19.2.0",
 		"@types/react-dom": "19.2.0",
 		"autoprefixer": "10.4.21",
+		"content-tag": "^4.1.1",
 		"elysia": "1.4.18",
 		"elysia-scoped-state": "0.1.1",
+		"ember-source": "^6.12.0",
 		"eslint": "10.0.3",
 		"eslint-plugin-absolute": "0.2.8",
 		"eslint-plugin-promise": "7.2.1",
@@ -116,6 +124,35 @@
 			"browser": "./dist/svelte/browser.js",
 			"import": "./dist/svelte/index.js",
 			"types": "./dist/src/svelte/index.d.ts"
+		},
+		"./svelte/router": {
+			"browser": "./dist/svelte/router/browser.ts",
+			"import": "./dist/svelte/router/index.ts",
+			"types": "./dist/src/svelte/router/index.d.ts"
+		},
+		"./svelte/router/Link.js": {
+			"import": "./dist/svelte/router/Link.svelte",
+			"types": "./dist/svelte/router/Link.svelte.d.ts"
+		},
+		"./svelte/router/Link.svelte": {
+			"import": "./dist/svelte/router/Link.svelte",
+			"types": "./dist/svelte/router/Link.svelte.d.ts"
+		},
+		"./svelte/router/Route.js": {
+			"import": "./dist/svelte/router/Route.svelte",
+			"types": "./dist/svelte/router/Route.svelte.d.ts"
+		},
+		"./svelte/router/Route.svelte": {
+			"import": "./dist/svelte/router/Route.svelte",
+			"types": "./dist/svelte/router/Route.svelte.d.ts"
+		},
+		"./svelte/router/Router.js": {
+			"import": "./dist/svelte/router/Router.svelte",
+			"types": "./dist/svelte/router/Router.svelte.d.ts"
+		},
+		"./svelte/router/Router.svelte": {
+			"import": "./dist/svelte/router/Router.svelte",
+			"types": "./dist/svelte/router/Router.svelte.d.ts"
 		},
 		"./svelte/components/AwaitSlot.svelte": {
 			"import": "./dist/svelte/components/AwaitSlot.svelte",
@@ -347,5 +384,5 @@
 			]
 		}
 	},
-	"version": "0.19.0-beta.816"
+	"version": "0.19.0-beta.828"
 }
