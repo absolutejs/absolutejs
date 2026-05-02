@@ -55,7 +55,7 @@ dist/
 .hmr-temp/
 
 # Test build artifacts
-.test-builds/
+/.test-*/
 docs/
 
 .absolutejs
