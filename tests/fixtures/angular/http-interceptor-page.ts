@@ -13,10 +13,10 @@ import {
 	Component,
 	inject,
 	PendingTasks,
+	REQUEST,
 	signal,
 	type EnvironmentProviders
 } from '@angular/core';
-import { REQUEST } from '../../../src/angular/requestProviders';
 
 const absoluteSsrInterceptor: HttpInterceptorFn = (
 	request: HttpRequest<unknown>,

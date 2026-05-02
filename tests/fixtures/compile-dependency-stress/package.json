@@ -1,0 +1,8 @@
+{
+	"name": "absolute-compile-dependency-stress",
+	"private": true,
+	"type": "module",
+	"imports": {
+		"#runtime/*": "./runtime/*.ts"
+	}
+}

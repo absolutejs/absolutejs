@@ -1,10 +1,6 @@
 import type { EnvironmentProviders, Provider, Type } from '@angular/core';
 import type { BootstrapContext } from '@angular/platform-browser';
-import type {
-	AngularDeps,
-	CachedRouteData,
-	SsrDepsResult
-} from '../../types/angular';
+import type { AngularDeps, CachedRouteData } from '../../types/angular';
 import { toScreamingSnake } from '../utils/stringModifiers';
 import {
 	getAndClearClientScripts,
@@ -29,46 +25,6 @@ export const getCachedRouteData = (pagePath: string) =>
 // --- Selector cache ---
 
 const selectorCache = new Map<string, string>();
-
-export const buildDeps = (
-	ssrResult: SsrDepsResult | null,
-	baseDeps: AngularDeps
-) => {
-	if (!ssrResult?.core) {
-		return baseDeps;
-	}
-
-	const { common, core, platformBrowser, platformServer } = ssrResult;
-
-	return {
-		APP_BASE_HREF: common?.APP_BASE_HREF ?? baseDeps.APP_BASE_HREF,
-		bootstrapApplication:
-			platformBrowser?.bootstrapApplication ??
-			baseDeps.bootstrapApplication,
-		DomSanitizer: platformBrowser?.DomSanitizer ?? baseDeps.DomSanitizer,
-		ENVIRONMENT_INITIALIZER:
-			core.ENVIRONMENT_INITIALIZER ?? baseDeps.ENVIRONMENT_INITIALIZER,
-		inject: core.inject ?? baseDeps.inject,
-		provideClientHydration:
-			platformBrowser?.provideClientHydration ??
-			baseDeps.provideClientHydration,
-		provideServerRendering:
-			platformServer?.provideServerRendering ??
-			baseDeps.provideServerRendering,
-		provideZonelessChangeDetection: core.provideZonelessChangeDetection,
-		reflectComponentType: core.reflectComponentType,
-		renderApplication:
-			platformServer?.renderApplication ?? baseDeps.renderApplication,
-		REQUEST: core.REQUEST ?? baseDeps.REQUEST,
-		REQUEST_CONTEXT: core.REQUEST_CONTEXT ?? baseDeps.REQUEST_CONTEXT,
-		RESPONSE_INIT: core.RESPONSE_INIT ?? baseDeps.RESPONSE_INIT,
-		Sanitizer: core.Sanitizer,
-		SecurityContext: core.SecurityContext,
-		withHttpTransferCacheOptions:
-			platformBrowser?.withHttpTransferCacheOptions ??
-			baseDeps.withHttpTransferCacheOptions
-	} satisfies AngularDeps;
-};
 export const buildProviders = (
 	deps: AngularDeps,
 	sanitizer: InstanceType<AngularDeps['DomSanitizer']>,
@@ -129,27 +85,6 @@ export const discoverTokens = (pageModule: Record<string, unknown>) =>
 			isInjectionToken(value)
 		)
 	);
-export const loadSsrDeps = async (pagePath: string) => {
-	const ssrDepsPath = (pagePath.split('?')[0] ?? pagePath).replace(
-		/\.js$/,
-		'.ssr-deps.js'
-	);
-
-	try {
-		const ssrDeps = await import(ssrDepsPath);
-
-		const result: SsrDepsResult = {
-			common: ssrDeps.__angularCommon,
-			core: ssrDeps.__angularCore,
-			platformBrowser: ssrDeps.__angularPlatformBrowser,
-			platformServer: ssrDeps.__angularPlatformServer
-		};
-
-		return result;
-	} catch {
-		return null;
-	}
-};
 export const resolveSelector = (
 	deps: AngularDeps,
 	pagePath: string,

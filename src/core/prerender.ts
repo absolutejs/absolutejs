@@ -66,7 +66,7 @@ const extractLinks = (html: string, visited: Set<string>) => {
 
 /** Fetch a single route and return its HTML if it's a valid HTML page */
 const fetchRoute = async (baseUrl: string, path: string) => {
-	const res = await fetch(`${baseUrl}${path}`);
+	const res = await fetch(`${baseUrl}${path}`, { redirect: 'manual' });
 	if (!res.ok) return null;
 
 	const contentType = res.headers.get('content-type') ?? '';
@@ -123,7 +123,8 @@ export const rerenderRoute = async (
 ) => {
 	try {
 		const res = await fetch(`http://localhost:${port}${route}`, {
-			headers: { [PRERENDER_BYPASS_HEADER]: '1' }
+			headers: { [PRERENDER_BYPASS_HEADER]: '1' },
+			redirect: 'manual'
 		});
 		if (!res.ok) return false;
 
@@ -147,7 +148,9 @@ const prerenderRoute = async (
 	result: PrerenderResult,
 	log?: LogFn
 ) => {
-	const res = await fetch(`${baseUrl}${route}`).catch(() => null);
+	const res = await fetch(`${baseUrl}${route}`, {
+		redirect: 'manual'
+	}).catch(() => null);
 	if (!res) {
 		log?.(`  Failed to pre-render ${route}`);
 
@@ -155,6 +158,13 @@ const prerenderRoute = async (
 	}
 	if (!res.ok) {
 		log?.(`  Skipped ${route} (HTTP ${res.status})`);
+
+		return;
+	}
+
+	const contentType = res.headers.get('content-type') ?? '';
+	if (!contentType.includes('text/html')) {
+		log?.(`  Skipped ${route} (non-HTML response)`);
 
 		return;
 	}

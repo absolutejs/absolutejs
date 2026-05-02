@@ -4,6 +4,10 @@ import { getSsrContextId } from '../utils/registerClientScript';
 
 const angularIslandSelector = 'abs-angular-island';
 
+export const isAngularComponent = (
+	value: unknown
+): value is import('@angular/core').Type<object> => typeof value === 'function';
+
 export const getAngularIslandSelector = (_islandId: string) =>
 	angularIslandSelector;
 

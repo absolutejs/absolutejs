@@ -28,6 +28,10 @@ export const derivePageName = (pagePath: string) => {
 	return toPascal(name);
 };
 export const getConventions = () => getMap();
+
+const normalizeConventionPageName = (name: string) =>
+	toPascal(name).replace(/\d+$/, '');
+
 export const resolveErrorConventionPath = (
 	framework: keyof ConventionsMap,
 	pageName: string
@@ -35,11 +39,32 @@ export const resolveErrorConventionPath = (
 	const conventions = getMap()[framework];
 	if (!conventions) return undefined;
 
-	return conventions.pages?.[pageName]?.error ?? conventions.defaults?.error;
+	const exact = conventions.pages?.[pageName]?.error;
+	if (exact) return exact;
+
+	const normalizedPageName = normalizeConventionPageName(pageName);
+	for (const [candidate, page] of Object.entries(conventions.pages ?? {})) {
+		if (normalizeConventionPageName(candidate) === normalizedPageName) {
+			return page.error ?? conventions.defaults?.error;
+		}
+	}
+
+	return conventions.defaults?.error;
 };
 export const resolveNotFoundConventionPath = (
 	framework: keyof ConventionsMap
 ) => getMap()[framework]?.defaults?.notFound;
+
+export const hasErrorConvention = (framework: keyof ConventionsMap) => {
+	const conventions = getMap()[framework];
+	if (!conventions) return false;
+	if (conventions.defaults?.error) return true;
+
+	return Object.values(conventions.pages ?? {}).some((page) =>
+		Boolean(page.error)
+	);
+};
+
 export const setConventions = (map: ConventionsMap) => {
 	Reflect.set(globalThis, CONVENTIONS_KEY, map);
 };
@@ -193,7 +218,18 @@ export const renderConventionError = async (
 	pageName: string,
 	error: unknown
 ) => {
-	const conventionPath = resolveErrorConventionPath(framework, pageName);
+	let conventionPath = resolveErrorConventionPath(framework, pageName);
+	if (!conventionPath && error instanceof Error && error.stack) {
+		for (const match of error.stack.matchAll(
+			/^\s*at\s+([A-Za-z_$][\w$]*)/gm
+		)) {
+			const candidate = match[1];
+			if (!candidate) continue;
+
+			conventionPath = resolveErrorConventionPath(framework, candidate);
+			if (conventionPath) break;
+		}
+	}
 	if (!conventionPath) return null;
 
 	const errorProps = buildErrorProps(error);

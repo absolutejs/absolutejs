@@ -376,6 +376,55 @@ export const start = async (
 		process.exit(1);
 	}
 
+	// Rewrite the user server bundle's bare `@angular/*` imports to the same
+	// vendor file paths every other bundle uses. Without this, the user's
+	// server bundle resolves `@angular/core` from node_modules at startup
+	// (via the static `import "@angular/compiler"` baked into the dist) while
+	// the SSR page bundles import from the vendor — two module instances,
+	// NG0201 on the first request. Read the vendor path map by scanning the
+	// build output directly.
+	if (existsSync(resolve(resolvedOutdir, 'angular', 'vendor', 'server'))) {
+		const { readdirSync } = await import('node:fs');
+		const vendorDir = resolve(
+			resolvedOutdir,
+			'angular',
+			'vendor',
+			'server'
+		);
+		const vendorEntries = readdirSync(vendorDir).filter((f) =>
+			f.endsWith('.js')
+		);
+		const angularServerVendorPaths: Record<string, string> = {};
+		const { relative: pathRelative, dirname: pathDirname } = await import(
+			'node:path'
+		);
+		for (const file of vendorEntries) {
+			// angular_core.js → @angular/core, angular_common_http.js →
+			// @angular/common/http. The first underscore separates the scope
+			// from the package name; subsequent underscores become slashes.
+			const stem = file.replace(/\.js$/, '');
+			const [scope, ...rest] = stem.split('_');
+			if (scope !== 'angular' || rest.length === 0) continue;
+			const specifier = `@angular/${rest.join('/')}`;
+			// Use a relative path so the rewritten import survives the bundle
+			// being copied to a different runtime location (e.g. the
+			// standalone executable extracting itself into a temp dir).
+			const relPath = pathRelative(
+				pathDirname(outputPath),
+				resolve(vendorDir, file)
+			);
+			angularServerVendorPaths[specifier] = relPath.startsWith('.')
+				? relPath
+				: `./${relPath}`;
+		}
+		if (Object.keys(angularServerVendorPaths).length > 0) {
+			const { rewriteImports } = await import(
+				'../../build/rewriteImports'
+			);
+			await rewriteImports([outputPath], angularServerVendorPaths);
+		}
+	}
+
 	const bundleDurationMs = Math.round(performance.now() - bundleStart);
 	const bundleDuration = getDurationString(performance.now() - bundleStart);
 	console.log(` \x1b[2m(${bundleDuration})\x1b[0m`);

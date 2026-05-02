@@ -8,6 +8,7 @@ import {
 	getSvelteVendorPaths,
 	getVueVendorPaths,
 	setDevVendorPaths,
+	setAngularServerVendorPaths,
 	setAngularVendorPaths,
 	setSvelteVendorPaths,
 	setVueVendorPaths
@@ -18,7 +19,10 @@ import {
 	computeVendorPaths
 } from '../build/buildReactVendor';
 import {
+	buildAngularServerVendor,
 	buildAngularVendor,
+	computeAngularServerVendorPaths,
+	computeAngularServerVendorPathsAsync,
 	computeAngularVendorPaths,
 	computeAngularVendorPathsAsync
 } from '../build/buildAngularVendor';
@@ -320,11 +324,13 @@ const loadVendorFiles = async (
 	const emptyStringArray: string[] = [];
 	const entries = await readdir(vendorDir).catch(() => emptyStringArray);
 	await Promise.all(
-		entries.map(async (entry) => {
-			const webPath = `/${framework}/vendor/${entry}`;
-			const bytes = await Bun.file(resolve(vendorDir, entry)).bytes();
-			assetStore.set(webPath, bytes);
-		})
+		entries
+			.filter((entry) => entry.endsWith('.js'))
+			.map(async (entry) => {
+				const webPath = `/${framework}/vendor/${entry}`;
+				const bytes = await Bun.file(resolve(vendorDir, entry)).bytes();
+				assetStore.set(webPath, bytes);
+			})
 	);
 };
 
@@ -352,6 +358,11 @@ export const devBuild = async (config: BuildConfig) => {
 	// Create initial HMR state with config
 	let stepStartedAt = performance.now();
 	const state = createHMRState(config);
+	// Make the build dir discoverable to the runtime (e.g. getAngularDeps
+	// looks for `<buildDir>/angular/vendor/server/*.js`). The CLI's start
+	// script sets this for prod; dev runs in the same process as build, so
+	// set it here.
+	process.env.ABSOLUTE_BUILD_DIR ??= state.resolvedPaths.buildDir;
 	recordStep('create HMR state', stepStartedAt);
 
 	// Initialize dependency graph by scanning all source files
@@ -375,6 +386,12 @@ export const devBuild = async (config: BuildConfig) => {
 	const sourceDirs = collectDepVendorSourceDirs(config);
 	if (config.angularDirectory) {
 		setAngularVendorPaths(await computeAngularVendorPathsAsync(sourceDirs));
+		setAngularServerVendorPaths(
+			await computeAngularServerVendorPathsAsync(
+				state.resolvedPaths.buildDir,
+				sourceDirs
+			)
+		);
 	}
 	const { computeDepVendorPaths } = await import('../build/buildDepVendor');
 	globalThis.__depVendorPaths = await computeDepVendorPaths(sourceDirs);
@@ -444,29 +461,45 @@ export const devBuild = async (config: BuildConfig) => {
 
 	const { buildDepVendor } = await import('../build/buildDepVendor');
 
-	const [, angularSpecs, , , depPaths] = await Promise.all([
-		config.reactDirectory
-			? buildReactVendor(state.resolvedPaths.buildDir)
-			: Promise.resolve(undefined),
-		config.angularDirectory
-			? buildAngularVendor(
-					state.resolvedPaths.buildDir,
-					sourceDirs,
-					/* linkerJitMode */ true,
-					/* depVendorSpecifiers */ Object.keys(
-						globalThis.__depVendorPaths ?? {}
+	const [, angularSpecs, angularServerSpecs, , , depPaths] =
+		await Promise.all([
+			config.reactDirectory
+				? buildReactVendor(state.resolvedPaths.buildDir)
+				: Promise.resolve(undefined),
+			config.angularDirectory
+				? buildAngularVendor(
+						state.resolvedPaths.buildDir,
+						sourceDirs,
+						/* linkerJitMode */ true,
+						/* depVendorSpecifiers */ Object.keys(
+							globalThis.__depVendorPaths ?? {}
+						)
 					)
-				)
-			: Promise.resolve(undefined),
-		config.svelteDirectory
-			? buildSvelteVendor(state.resolvedPaths.buildDir)
-			: Promise.resolve(undefined),
-		config.vueDirectory
-			? buildVueVendor(state.resolvedPaths.buildDir)
-			: Promise.resolve(undefined),
-		buildDepVendor(state.resolvedPaths.buildDir, sourceDirs)
-	]);
+				: Promise.resolve(undefined),
+			config.angularDirectory
+				? buildAngularServerVendor(
+						state.resolvedPaths.buildDir,
+						sourceDirs,
+						/* linkerJitMode */ true
+					)
+				: Promise.resolve(undefined),
+			config.svelteDirectory
+				? buildSvelteVendor(state.resolvedPaths.buildDir)
+				: Promise.resolve(undefined),
+			config.vueDirectory
+				? buildVueVendor(state.resolvedPaths.buildDir)
+				: Promise.resolve(undefined),
+			buildDepVendor(state.resolvedPaths.buildDir, sourceDirs)
+		]);
 	if (angularSpecs) globalThis.__angularVendorSpecifiers = angularSpecs;
+	if (angularServerSpecs) {
+		setAngularServerVendorPaths(
+			computeAngularServerVendorPaths(
+				state.resolvedPaths.buildDir,
+				angularServerSpecs
+			)
+		);
+	}
 	globalThis.__depVendorPaths = depPaths;
 	recordStep('build vendor bundles', stepStartedAt);
 
@@ -529,6 +562,17 @@ export const devBuild = async (config: BuildConfig) => {
 		vue: Boolean(config.vueDirectory)
 	});
 	recordStep('warm compilers', stepStartedAt);
+
+	// Pre-build the persistent Tailwind compiler so the first HMR tick
+	// after server start doesn't pay the parse + initial-scan cost.
+	if (config.tailwind) {
+		stepStartedAt = performance.now();
+		const { warmTailwindCompiler } = await import(
+			'../build/tailwindCompiler'
+		);
+		await warmTailwindCompiler(config.tailwind);
+		recordStep('warm tailwind compiler', stepStartedAt);
+	}
 
 	// Store initial manifest on HMR state for Angular fast-path HMR
 	state.manifest = manifest;

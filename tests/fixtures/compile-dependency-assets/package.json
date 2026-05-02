@@ -1,0 +1,5 @@
+{
+	"name": "absolute-compile-dependency-assets",
+	"private": true,
+	"type": "module"
+}

@@ -617,6 +617,18 @@ export const compileAngularFiles = async (
 			),
 		{ entries: inputPaths.length }
 	);
+	// Load `@angular/compiler` BEFORE anything that transitively pulls in
+	// `@angular/common` (which `@angular/compiler-cli` does). The compiler's
+	// top-level `publishFacade(globalThis)` registers the JIT compiler facade
+	// on `globalThis.ng` — without that, partial-AOT chunks like
+	// `_platform_location-chunk.mjs` crash on import with
+	// "JIT compilation failed for [class PlatformLocation]" because they
+	// call `ɵɵngDeclareFactory` at module load time, which requires the
+	// facade to be present.
+	await traceAngularPhase(
+		'aot/preload-compiler',
+		() => import('@angular/compiler')
+	);
 	const { readConfiguration, performCompilation, EmitFlags } =
 		await traceAngularPhase(
 			'aot/import-compiler-cli',
@@ -1964,25 +1976,14 @@ export const compileAngular = async (
 				'\nexport const __ABSOLUTE_PAGE_USES_LEGACY_ANIMATIONS__ = true;\n';
 		}
 
-		// Angular HMR Runtime Layer (Level 3) — Inject HMR registration in dev mode
+		// Angular HMR Runtime Layer (Level 3) — Inject HMR registration in dev mode.
+		// Identity-safe SSR is provided by the angular vendor pipeline:
+		// every @angular/* import (in this file, in handleAngularPageRequest
+		// → getAngularDeps, in the bundled server pages) is rewritten to the
+		// same vendor file path, so Node's ESM cache hands back one module
+		// instance per package across the whole runtime.
 		if (hmr) {
 			rewritten = injectHMRRegistration(rewritten, resolvedEntry);
-
-			// Write Angular dependency re-exports to a SEPARATE file so
-			// they don't leak into the client bundle (require() doesn't
-			// work in browsers). handleAngularPageRequest imports this
-			// sibling file for identity-safe SSR rendering.
-			const ssrDepsFile = rawServerFile.replace(/\.js$/, '.ssr-deps.js');
-			const ssrDepsContent = [
-				'// HMR SSR: re-export Angular deps for identity-safe SSR rendering.',
-				'// Separate file to avoid bundling require() calls into client code.',
-				'export const __angularCore = require("@angular/core");',
-				'export const __angularPlatformServer = require("@angular/platform-server");',
-				'export const __angularPlatformBrowser = require("@angular/platform-browser");',
-				'export const __angularCommon = require("@angular/common");',
-				''
-			].join('\n');
-			await fs.writeFile(ssrDepsFile, ssrDepsContent, 'utf-8');
 		}
 
 		await traceAngularPhase(

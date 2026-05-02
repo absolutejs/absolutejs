@@ -1,7 +1,14 @@
 import { BASE_36_RADIX } from '../constants';
 import { existsSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
-import { basename, dirname, join, relative, resolve } from 'node:path';
+import {
+	basename,
+	dirname,
+	isAbsolute,
+	join,
+	relative,
+	resolve
+} from 'node:path';
 import type {
 	SFCDescriptor,
 	compileScript as CompileScriptFn,
@@ -13,7 +20,11 @@ import { file, write, Transpiler } from 'bun';
 import { toKebab } from '../utils/stringModifiers';
 import { resolvePackageImport } from './resolvePackageImport';
 import { buildIslandMetadataExports } from '../islands/sourceMetadata';
-import { compileStyleSource } from './stylePreprocessor';
+import {
+	addStyleImporter,
+	compileStyleSource,
+	isStylePath
+} from './stylePreprocessor';
 import type { StylePreprocessorConfig } from '../../types/build';
 
 const resolveDevClientDir = () => {
@@ -145,9 +156,28 @@ const extractImports = (sourceCode: string) =>
 		.map((match) => match[1])
 		.filter((importPath): importPath is string => importPath !== undefined);
 
-const toJs = (filePath: string) => {
+const toJs = (filePath: string, sourceDir?: string) => {
 	if (filePath.endsWith('.vue')) return filePath.replace(/\.vue$/, '.js');
 	if (filePath.endsWith('.ts')) return filePath.replace(/\.ts$/, '.js');
+	// Style imports (.css / .module.scss / .less / .styl / etc.) keep their
+	// original extension — the bun-side style preprocessor plugin loads them
+	// directly. Appending `.js` would break the resolver and the build.
+	//
+	// We also rewrite relative style imports to absolute paths so they
+	// resolve correctly: the compiled .js lives in `generated/{mode}/...`
+	// (a different directory tree than the source), and a bare `./foo.scss`
+	// would point to the wrong location once the bundler runs from the
+	// output directory.
+	if (isStylePath(filePath)) {
+		if (
+			sourceDir &&
+			(filePath.startsWith('./') || filePath.startsWith('../'))
+		) {
+			return resolve(sourceDir, filePath);
+		}
+
+		return filePath;
+	}
 
 	return `${filePath}.js`;
 };
@@ -257,9 +287,32 @@ const compileVueFile = async (
 	const packageComponentPaths = Array.from(
 		resolvedPackageVueImports.entries()
 	);
+	// Helper modules are TS/JS imports that need to be transpiled and copied
+	// alongside the component (e.g. shared utilities). Style imports including
+	// CSS modules (.module.scss / .module.less / .module.styl / .module.css)
+	// are handled by the bun-side style preprocessor plugin and must not be
+	// treated as TS helpers — otherwise we'd try to read the source as a `.ts`
+	// file and crash at build time.
 	const helperModulePaths = importPaths.filter(
-		(path) => path.startsWith('.') && !path.endsWith('.vue')
+		(path) =>
+			path.startsWith('.') && !path.endsWith('.vue') && !isStylePath(path)
 	);
+
+	// Record JS → CSS-module imports for HMR dep tracking. When a Vue
+	// component imports a `.module.scss`, an edit to that style file
+	// has to invalidate the importing component's bundle so the new
+	// hashed class names land in the served output.
+	const stylePathsImported = importPaths
+		.filter(
+			(path) =>
+				(path.startsWith('.') || isAbsolute(path)) && isStylePath(path)
+		)
+		.map((path) =>
+			isAbsolute(path) ? path : resolve(dirname(sourceFilePath), path)
+		);
+	for (const stylePath of stylePathsImported) {
+		addStyleImporter(sourceFilePath, stylePath);
+	}
 
 	const childBuildResults: BuildResult[] = await Promise.all([
 		...childComponentPaths.map((relativeChildPath) =>
@@ -294,12 +347,13 @@ const compileVueFile = async (
 			})
 		: { bindings: {}, content: 'export default {};' };
 	const strippedScript = stripExports(compiledScript.content);
+	const sourceDir = dirname(sourceFilePath);
 	const transpiledScript = transpiler
 		.transformSync(strippedScript)
 		.replace(
 			/(['"])(\.{1,2}\/[^'"]+)(['"])/g,
 			(_, quoteStart, relativeImport, quoteEnd) =>
-				`${quoteStart}${toJs(relativeImport)}${quoteEnd}`
+				`${quoteStart}${toJs(relativeImport, sourceDir)}${quoteEnd}`
 		);
 
 	// Build rewrite map for bare module .vue imports → compiled output paths
@@ -336,7 +390,7 @@ const compileVueFile = async (
 			.code.replace(
 				/(['"])(\.{1,2}\/[^'"]+)(['"])/g,
 				(_, quoteStart, relativeImport, quoteEnd) =>
-					`${quoteStart}${toJs(relativeImport)}${quoteEnd}`
+					`${quoteStart}${toJs(relativeImport, sourceDir)}${quoteEnd}`
 			);
 
 	const localCss = await Promise.all(

@@ -9,7 +9,7 @@ import {
 	statSync,
 	writeFileSync
 } from 'node:fs';
-import { basename, dirname, join, relative, resolve } from 'node:path';
+import { basename, dirname, extname, join, relative, resolve } from 'node:path';
 import { cwd, env, exit } from 'node:process';
 import { build as bunBuild, type BuildArtifact, Glob } from 'bun';
 import { generateManifest } from '../build/generateManifest';
@@ -34,7 +34,11 @@ import {
 	createStylePreprocessorPlugin,
 	isStylePath
 } from '../build/stylePreprocessor';
-import { compileTailwindConfig } from '../build/compileTailwind';
+import {
+	compileTailwindConfig,
+	isTailwindCandidate
+} from '../build/compileTailwind';
+import { disposeTailwindCompiler } from '../build/tailwindCompiler';
 import { optimizeHtmlImages } from '../build/optimizeHtmlImages';
 import { updateAssetPaths } from '../build/updateAssetPaths';
 import { buildHMRClient } from '../dev/buildHMRClient';
@@ -44,10 +48,12 @@ import {
 } from '../build/rewriteReactImports';
 import { sendTelemetryEvent } from '../cli/telemetryEvent';
 import {
+	getAngularServerVendorPaths,
 	getAngularVendorPaths,
 	getDevVendorPaths,
 	getSvelteVendorPaths,
 	getVueVendorPaths,
+	setAngularServerVendorPaths,
 	setAngularVendorPaths,
 	setDevVendorPaths,
 	setSvelteVendorPaths,
@@ -63,6 +69,7 @@ import { createAngularLinkerPlugin } from '../build/angularLinkerPlugin';
 import { cleanStaleOutputs } from '../utils/cleanStaleOutputs';
 import { cleanup } from '../utils/cleanup';
 import { commonAncestor } from '../utils/commonAncestor';
+import { withBuildDirectoryLock } from '../utils/buildDirectoryLock';
 import { logError, logWarn } from '../utils/logger';
 import { normalizePath } from '../utils/normalizePath';
 import { toPascal } from '../utils/stringModifiers';
@@ -651,6 +658,17 @@ const reservedBunBuildConfigKeys = new Set<string>([
 	'compile'
 ]);
 
+/** Keys whose values are structurally required per pass and must not be
+ *  overridable by user `bunBuildConfig`. `splitting` on the React-client
+ *  pass is the canonical example: turning it off would inline React into
+ *  every page bundle and break the React vendor pipeline that other code
+ *  paths depend on. (Vendor passes — `buildAngularVendor`, `buildReactVendor`,
+ *  etc. — don't go through `mergeBunBuildConfig` at all, so they're inherently
+ *  locked.) */
+const passLockedKeys: Partial<Record<BunBuildPassKey, Set<string>>> = {
+	reactClient: new Set(['splitting'])
+};
+
 type BunBuildOptions = Parameters<typeof bunBuild>[0];
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
@@ -663,11 +681,15 @@ const isBunBuildPassConfig = (
 	Object.keys(config).some((key) => bunBuildPassKeySet.has(key));
 
 const sanitizeBunBuildOverride = (
-	override: BunBuildConfigOverride | undefined
+	override: BunBuildConfigOverride | undefined,
+	extraReservedKeys: Set<string> = new Set()
 ): BunBuildConfigOverride => {
 	if (!override) return {};
 	const sanitized: Record<string, unknown> = { ...override };
 	for (const key of reservedBunBuildConfigKeys) {
+		delete sanitized[key];
+	}
+	for (const key of extraReservedKeys) {
 		delete sanitized[key];
 	}
 
@@ -678,15 +700,19 @@ export const resolveBunBuildOverride = (
 	config: BuildConfig['bunBuild'],
 	pass: BunBuildPassKey
 ): BunBuildConfigOverride => {
+	const locked = passLockedKeys[pass] ?? new Set<string>();
 	if (!config) return {};
 	if (!isBunBuildPassConfig(config)) {
-		return sanitizeBunBuildOverride(config);
+		return sanitizeBunBuildOverride(config, locked);
 	}
 
-	return sanitizeBunBuildOverride({
-		...(config.default ?? {}),
-		...(config[pass] ?? {})
-	});
+	return sanitizeBunBuildOverride(
+		{
+			...(config.default ?? {}),
+			...(config[pass] ?? {})
+		},
+		locked
+	);
 };
 
 const dedupe = <T>(values: T[]) => [...new Set(values)];
@@ -718,7 +744,7 @@ export const mergeBunBuildConfig = (
 	} as BunBuildOptions;
 };
 
-export const build = async ({
+const buildUnlocked = async ({
 	buildDirectory = 'build',
 	assetsDirectory,
 	publicDirectory,
@@ -995,10 +1021,15 @@ export const build = async ({
 		);
 	}
 
-	// Tailwind + entry point scanning run in parallel (they're independent)
+	// Tailwind + entry point scanning run in parallel (they're independent).
+	// Tailwind also has to rerun whenever any file it scans for utility-class
+	// candidates changes — that includes JS/TS/JSX/TSX/Vue/Svelte/HTML and the
+	// other source extensions referenced via `@source`, not only stylesheets.
+	// Without this, classes added to markup never show up in the emitted CSS.
 	const tailwindPromise =
 		tailwind &&
-		(!isIncremental || normalizedIncrementalFiles?.some(isStylePath))
+		(!isIncremental ||
+			normalizedIncrementalFiles?.some(isTailwindCandidate))
 			? tracePhase('tailwind/build', () =>
 					compileTailwindConfig(
 						tailwind,
@@ -1305,17 +1336,81 @@ export const build = async ({
 		islandAngularClientPathMap.set(resolve(sourcePath), clientPath);
 	}
 
-	// Compile convention files (error/loading/not-found) for Svelte and Vue.
-	// React and Angular convention files are plain .tsx/.ts — Bun imports them natively.
+	// Compile convention files (error/loading/not-found) into build/conventions/
+	// so runtime SSR can import them from the build output instead of source.
+	const reactConventionSources = collectConventionSourceFiles(
+		conventionsMap.react
+	);
 	const svelteConventionSources = collectConventionSourceFiles(
 		conventionsMap.svelte
 	);
 	const vueConventionSources = collectConventionSourceFiles(
 		conventionsMap.vue
 	);
+	const angularConventionSources = collectConventionSourceFiles(
+		conventionsMap.angular
+	);
+	let conventionOutputPaths: string[] = [];
 
-	if (svelteConventionSources.length > 0 || vueConventionSources.length > 0) {
-		const [svelteConvResult, vueConvResult] = await Promise.all([
+	if (
+		reactConventionSources.length > 0 ||
+		svelteConventionSources.length > 0 ||
+		vueConventionSources.length > 0 ||
+		angularConventionSources.length > 0
+	) {
+		const compileReactConventions = async () => {
+			if (reactConventionSources.length === 0) return emptyStringArray;
+
+			const destDir = join(buildPath, 'conventions', 'react');
+			rmSync(destDir, { force: true, recursive: true });
+			mkdirSync(destDir, { recursive: true });
+
+			const destPaths: string[] = [];
+			for (let idx = 0; idx < reactConventionSources.length; idx++) {
+				const source = reactConventionSources[idx];
+				if (!source) continue;
+
+				const result = await bunBuild({
+					entrypoints: [source],
+					format: 'esm',
+					jsx: { development: false },
+					minify: !isDev,
+					naming: `${idx}-[name].[ext]`,
+					outdir: destDir,
+					plugins: [stylePreprocessorPlugin],
+					root: dirname(source),
+					target: 'bun',
+					throw: false,
+					tsconfig: './tsconfig.json'
+				});
+				if (!result.success) {
+					outputLogs(result.logs);
+					throw new Error(
+						`Failed to compile React convention: ${source}`
+					);
+				}
+
+				const output = result.outputs.find((artifact) =>
+					artifact.path.endsWith('.js')
+				);
+				if (!output)
+					throw new Error(
+						`React convention did not emit JavaScript: ${source}`
+					);
+
+				destPaths.push(output.path);
+			}
+
+			return destPaths;
+		};
+
+		const [
+			reactConvPaths,
+			svelteConvResult,
+			vueConvResult,
+			angularConvResult
+		] = await Promise.all([
+			tracePhase('compile/convention-react', compileReactConventions),
 			svelteConventionSources.length > 0 && svelteDir
 				? tracePhase('compile/convention-svelte', () =>
 						import('../build/compileSvelte').then((mod) =>
@@ -1340,40 +1435,92 @@ export const build = async ({
 							)
 						)
 					)
-				: { vueServerPaths: emptyStringArray }
+				: { vueServerPaths: emptyStringArray },
+			angularConventionSources.length > 0 && angularDir
+				? tracePhase('compile/convention-angular', () =>
+						import('../build/compileAngular').then((mod) =>
+							mod.compileAngular(
+								angularConventionSources,
+								angularDir,
+								hmr,
+								styleTransformConfig
+							)
+						)
+					)
+				: { serverPaths: emptyStringArray }
 		]);
 
-		// Copy compiled convention files to build/conventions/{framework}/
-		// so they survive the cleanup step that removes generated/ directories.
-		// Each framework gets its own subdirectory to avoid name collisions.
-		const copyConventionFiles = (
+		// Bundle compiled convention files to build/conventions/{framework}/
+		// so compiled executables can import them from the materialized runtime
+		// directory without relying on the app's node_modules tree.
+		const bundleConventionFiles = async (
 			framework: string,
-			sources: string[],
 			compiledPaths: string[]
 		) => {
 			const destDir = join(buildPath, 'conventions', framework);
+			rmSync(destDir, { force: true, recursive: true });
 			mkdirSync(destDir, { recursive: true });
 			const destPaths: string[] = [];
-			for (const compiledPath of compiledPaths) {
-				const dest = join(destDir, basename(compiledPath));
-				copyFileSync(compiledPath, dest);
-				destPaths.push(dest);
+			for (let idx = 0; idx < compiledPaths.length; idx++) {
+				const compiledPath = compiledPaths[idx];
+				if (!compiledPath) continue;
+				const name = basename(compiledPath).replace(/\.[^.]+$/, '');
+				const result = await bunBuild({
+					entrypoints: [compiledPath],
+					format: 'esm',
+					minify: !isDev,
+					naming: `${idx}-${name}.[ext]`,
+					outdir: destDir,
+					splitting: false,
+					target: 'bun',
+					throw: false
+				});
+				if (!result.success) {
+					outputLogs(result.logs);
+					throw new Error(
+						`Failed to bundle ${framework} convention: ${compiledPath}`
+					);
+				}
+				const output = result.outputs.find((artifact) =>
+					artifact.path.endsWith('.js')
+				);
+				if (!output)
+					throw new Error(
+						`${framework} convention did not emit JavaScript: ${compiledPath}`
+					);
+
+				destPaths.push(output.path);
 			}
 
 			return destPaths;
 		};
 
-		const svelteDests = copyConventionFiles(
-			'svelte',
-			svelteConventionSources,
-			svelteConvResult.svelteServerPaths
-		);
-		const vueDests = copyConventionFiles(
-			'vue',
-			vueConventionSources,
-			vueConvResult.vueServerPaths
-		);
+		const [svelteDests, vueDests, angularDests] = await Promise.all([
+			tracePhase('bundle/convention-svelte', () =>
+				bundleConventionFiles(
+					'svelte',
+					svelteConvResult.svelteServerPaths
+				)
+			),
+			tracePhase('bundle/convention-vue', () =>
+				bundleConventionFiles('vue', vueConvResult.vueServerPaths)
+			),
+			tracePhase('bundle/convention-angular', () =>
+				bundleConventionFiles('angular', angularConvResult.serverPaths)
+			)
+		]);
+		conventionOutputPaths = [
+			...reactConvPaths,
+			...svelteDests,
+			...vueDests,
+			...angularDests
+		];
 
+		updateConventionCompiledPaths(
+			conventionsMap.react,
+			reactConventionSources,
+			reactConvPaths
+		);
 		updateConventionCompiledPaths(
 			conventionsMap.svelte,
 			svelteConventionSources,
@@ -1383,6 +1530,11 @@ export const build = async ({
 			conventionsMap.vue,
 			vueConventionSources,
 			vueDests
+		);
+		updateConventionCompiledPaths(
+			conventionsMap.angular,
+			angularConventionSources,
+			angularDests
 		);
 	}
 
@@ -1499,6 +1651,74 @@ export const build = async ({
 		);
 		setAngularVendorPaths(angularVendorPaths);
 	}
+	let angularServerVendorPaths = getAngularServerVendorPaths();
+	if (!angularServerVendorPaths && hmr && angularDir) {
+		const { computeAngularServerVendorPaths } = await import(
+			'../build/buildAngularVendor'
+		);
+		angularServerVendorPaths = computeAngularServerVendorPaths(
+			buildPath,
+			globalThis.__angularVendorSpecifiers ?? []
+		);
+		setAngularServerVendorPaths(angularServerVendorPaths);
+	}
+	// Production: dev pre-builds vendor in devBuild.ts; prod has no
+	// equivalent step, so do it here. Build the linked Angular vendor
+	// (browser + server targets) ahead of the main bundle pass so
+	// `rewriteImports` has a populated path map. linkerJitMode=false
+	// because user pages are AOT-compiled in prod and have
+	// `ɵcmp.dependencies` baked in — keeping NgModule.declarations
+	// would just be dead bytes.
+	if (!hmr && angularDir) {
+		const angularSourceDirs = [
+			angularDir,
+			reactDir,
+			svelteDir,
+			vueDir,
+			htmlDir,
+			htmxDir
+		].filter((dir): dir is string => Boolean(dir));
+		const {
+			buildAngularVendor,
+			buildAngularServerVendor,
+			computeAngularVendorPathsAsync,
+			computeAngularServerVendorPathsAsync
+		} = await import('../build/buildAngularVendor');
+
+		[angularVendorPaths, angularServerVendorPaths] = await Promise.all([
+			computeAngularVendorPathsAsync(
+				angularSourceDirs,
+				/* linkerJitMode */ false
+			),
+			computeAngularServerVendorPathsAsync(
+				buildPath,
+				angularSourceDirs,
+				/* linkerJitMode */ false
+			)
+		]);
+		setAngularVendorPaths(angularVendorPaths);
+		setAngularServerVendorPaths(angularServerVendorPaths);
+
+		await Promise.all([
+			buildAngularVendor(
+				buildPath,
+				angularSourceDirs,
+				/* linkerJitMode */ false,
+				[]
+			),
+			buildAngularServerVendor(
+				buildPath,
+				angularSourceDirs,
+				/* linkerJitMode */ false
+			)
+		]);
+
+		// `getAngularDeps` reads ABSOLUTE_BUILD_DIR to find the server
+		// vendor at runtime. The CLI's `start` script sets this for the
+		// production server, but if `build()` is invoked directly without
+		// going through `start`, we still want the runtime to find vendor.
+		process.env.ABSOLUTE_BUILD_DIR ??= buildPath;
+	}
 	let vueVendorPaths = getVueVendorPaths();
 	if (!vueVendorPaths && hmr && vueDir) {
 		const { computeVueVendorPaths } = await import(
@@ -1527,6 +1747,23 @@ export const build = async ({
 		...(vueVendorPaths ?? {}),
 		...(svelteVendorPaths ?? {})
 	};
+	const serverBuildExternals = [
+		'react',
+		'react/*',
+		'react-dom',
+		'react-dom/*',
+		'svelte',
+		'svelte/*',
+		'vue',
+		'vue/*',
+		// Externalize @angular/* in the server bundle — partial declarations
+		// are linked once at vendor build time, and `rewriteImports` then
+		// rewrites every bare `@angular/*` specifier in this bundle's outputs
+		// to the absolute vendor file path, so the runtime ends up with one
+		// linked module instance per package.
+		'@angular/*',
+		'typescript'
+	];
 
 	const htmlScriptPlugin = hmr
 		? createHTMLScriptHMRPlugin(htmlDir, htmxDir)
@@ -1596,18 +1833,7 @@ export const build = async ({
 						mergeBunBuildConfig(
 							{
 								entrypoints: serverEntryPoints,
-								external: [
-									'react',
-									'react/*',
-									'react-dom',
-									'react-dom/*',
-									'svelte',
-									'svelte/*',
-									'vue',
-									'vue/*',
-									'@angular/*',
-									'typescript'
-								],
+								external: serverBuildExternals,
 								format: 'esm',
 								naming: `[dir]/[name].[hash].[ext]`,
 								outdir: serverOutDir,
@@ -1776,9 +2002,17 @@ export const build = async ({
 		(artifact) => artifact.path
 	);
 
-	if (vendorPaths && reactClientOutputPaths.length > 0) {
+	// Use reactExternalPaths (vendorPaths + depVendorPaths) so dep
+	// specifiers that were externalized at bundle time get rewritten to
+	// their /vendor/*.js paths. Using just `vendorPaths` here leaks bare
+	// specifiers like `@react-spring/web` into page bundles, which the
+	// browser cannot resolve and which crashes hydration.
+	if (
+		Object.keys(reactExternalPaths).length > 0 &&
+		reactClientOutputPaths.length > 0
+	) {
 		await tracePhase('postprocess/react-imports', () =>
-			rewriteReactImports(reactClientOutputPaths, vendorPaths)
+			rewriteReactImports(reactClientOutputPaths, reactExternalPaths)
 		);
 	}
 
@@ -1799,9 +2033,15 @@ export const build = async ({
 		(artifact) => artifact.path
 	);
 
-	if (vendorPaths && nonReactClientOutputPaths.length > 0) {
+	if (
+		Object.keys(nonReactExternalPaths).length > 0 &&
+		nonReactClientOutputPaths.length > 0
+	) {
 		await tracePhase('postprocess/non-react-react-imports', () =>
-			rewriteReactImports(nonReactClientOutputPaths, vendorPaths)
+			rewriteReactImports(
+				nonReactClientOutputPaths,
+				nonReactExternalPaths
+			)
 		);
 	}
 	if (hmr && nonReactClientOutputPaths.length > 0) {
@@ -1810,9 +2050,12 @@ export const build = async ({
 		);
 	}
 
-	if (vendorPaths && islandClientOutputPaths.length > 0) {
+	if (
+		Object.keys(nonReactExternalPaths).length > 0 &&
+		islandClientOutputPaths.length > 0
+	) {
 		await tracePhase('postprocess/island-react-imports', () =>
-			rewriteReactImports(islandClientOutputPaths, vendorPaths)
+			rewriteReactImports(islandClientOutputPaths, nonReactExternalPaths)
 		);
 	}
 	if (hmr && islandClientOutputPaths.length > 0) {
@@ -1882,6 +2125,46 @@ export const build = async ({
 			rewriteImports(
 				islandClientOutputs.map((artifact) => artifact.path),
 				allIslandVendorPaths
+			)
+		);
+	}
+
+	// Server-side: rewrite bare @angular/* specifiers in SSR outputs to
+	// absolute paths under build/angular/vendor/server/. This ensures every
+	// page bundle (and the absolutejs runtime, via getAngularDeps) imports
+	// the same fully-linked Angular files — single instance, no NG0201,
+	// no @angular/compiler at runtime in AOT mode.
+	if (
+		serverOutputs.length > 0 &&
+		angularServerVendorPaths &&
+		Object.keys(angularServerVendorPaths).length > 0
+	) {
+		const { rewriteImports } = await import('../build/rewriteImports');
+		// Each server output sits at a different depth in the build tree
+		// (e.g. `angular/generated/pages/X.js` vs `vue/generated/server/.../X.js`).
+		// Compute the relative path from each artifact to the vendor file so
+		// the rewritten import survives the build dir being relocated at
+		// runtime — required by the `compile` standalone executable, which
+		// extracts all assets into a fresh runtimeDir on first launch.
+		const jsArtifacts = serverOutputs.filter((artifact) =>
+			artifact.path.endsWith('.js')
+		);
+		await tracePhase('postprocess/server-angular-vendor-imports', () =>
+			Promise.all(
+				jsArtifacts.map(async (artifact) => {
+					const fileDir = dirname(artifact.path);
+					const relativePaths: Record<string, string> = {};
+					for (const [specifier, absolute] of Object.entries(
+						angularServerVendorPaths!
+					)) {
+						const rel = relative(fileDir, absolute);
+						relativePaths[specifier] = rel.startsWith('.')
+							? rel
+							: `./${rel}`;
+					}
+
+					return rewriteImports([artifact.path], relativePaths);
+				})
 			)
 		);
 	}
@@ -1979,7 +2262,10 @@ export const build = async ({
 
 	// Server pages (Svelte, Vue, Angular) need absolute file paths for SSR
 	// import(), not web-relative paths. Overwrite with absolute paths.
+	// Skip co-emitted CSS — it already has its own `${Page}BundledCSS` key
+	// from generateManifest and would otherwise clobber the JS entry.
 	for (const artifact of serverOutputs) {
+		if (extname(artifact.path) !== '.js') continue;
 		const fileWithHash = basename(artifact.path);
 		const [baseName] = fileWithHash.split(`.${artifact.hash}.`);
 		if (!baseName) continue;
@@ -2107,7 +2393,8 @@ export const build = async ({
 				...reactClientOutputs.map((a) => a.path),
 				...nonReactClientOutputs.map((a) => a.path),
 				...islandClientOutputs.map((a) => a.path),
-				...cssOutputs.map((a) => a.path)
+				...cssOutputs.map((a) => a.path),
+				...conventionOutputPaths
 			])
 		);
 	}
@@ -2174,5 +2461,22 @@ export const build = async ({
 
 	writeBuildTrace(buildPath);
 
+	// Production builds don't need the persistent Tailwind compiler in
+	// memory after the final write — release it. Dev / HMR builds keep
+	// the compiler alive so subsequent rebuilds reuse its candidate cache.
+	if (tailwind && mode === 'production') {
+		disposeTailwindCompiler(tailwind.input);
+	}
+
 	return { conventions: conventionsMap, manifest };
+};
+
+export const build = async (config: BuildConfig) => {
+	const projectRoot = cwd();
+	const buildPath = validateSafePath(
+		config.buildDirectory ?? 'build',
+		projectRoot
+	);
+
+	return await withBuildDirectoryLock(buildPath, () => buildUnlocked(config));
 };

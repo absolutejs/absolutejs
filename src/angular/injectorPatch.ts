@@ -1,74 +1,103 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join } from 'node:path';
+import { resolveAngularPackageDir } from './resolveAngularPackage';
 
-// --- Patch Angular injector singleton for HMR compatibility ---
-// Bun's --hot mode can create duplicate Angular module instances during
-// HMR rebuilds. Angular's _currentInjector is a module-level variable in
-// _not_found-chunk.mjs — when duplicated, R3Injector.get() sets it in
-// instance A while the factory's inject() reads from instance B (undefined),
-// causing NG0203. This patch stores _currentInjector on globalThis so all
-// instances share the same value.
+/* When `@angular/common` (or any other partial-AOT package) is loaded
+   into a runtime that hasn't pre-loaded `@angular/compiler`, its
+   top-level `ɵɵngDeclareFactory(...)` calls hit
+   `_debug_node-chunk.mjs::getCompilerFacade`, which throws
+   "JIT compilation failed" because `globalThis.ng.ɵcompilerFacade`
+   isn't set yet.
 
-const applyInjectorPatch = (chunkPath: string, content: string) => {
-	if (content.includes('Symbol.for("angular.currentInjector")')) {
-		return;
-	}
+   The vendor pipeline normally avoids this entirely: every partial
+   declaration is fully linked at vendor build time and the runtime
+   never needs the compiler. But there are two paths that still load
+   raw `@angular/*` from `node_modules` at runtime — direct unit-test
+   imports of `dist/angular/*` and the `dist/` chunk graph itself,
+   which has static imports through `@angular/platform-browser` that
+   transitively pull in `@angular/common` *before* its sibling
+   `import "@angular/compiler"` has finished evaluating.
+
+   This patch rewrites `getCompilerFacade` in
+   `node_modules/@angular/core/fesm2022/_debug_node-chunk.mjs` to
+   self-bootstrap via `require('@angular/compiler')` when the facade
+   isn't yet registered, and only falls back to the original
+   "compilation failed" error if the require itself fails.
+
+   Idempotent (skips when the marker is already present), and a no-op
+   when `@angular/core` isn't installed. Anchored on Angular's source
+   so it silently skips if the function shape changes in a future
+   minor release. */
+const applyCompilerFacadePatch = (chunkPath: string, content: string) => {
+	const marker = 'absolutejs.compilerFacadeAutoload';
+	if (content.includes(marker)) return;
 
 	const original = [
-		'let _currentInjector = undefined;',
-		'function getCurrentInjector() {',
-		'  return _currentInjector;',
-		'}',
-		'function setCurrentInjector(injector) {',
-		'  const former = _currentInjector;',
-		'  _currentInjector = injector;',
-		'  return former;',
-		'}'
+		'function getCompilerFacade(request) {',
+		"  const globalNg = _global['ng'];",
+		'  if (globalNg && globalNg.ɵcompilerFacade) {',
+		'    return globalNg.ɵcompilerFacade;',
+		'  }'
 	].join('\n');
 
 	const replacement = [
-		'const _injSym = Symbol.for("angular.currentInjector");',
-		'if (!globalThis[_injSym]) globalThis[_injSym] = { v: undefined };',
-		'function getCurrentInjector() {',
-		'  return globalThis[_injSym].v;',
-		'}',
-		'function setCurrentInjector(injector) {',
-		'  const former = globalThis[_injSym].v;',
-		'  globalThis[_injSym].v = injector;',
-		'  return former;',
-		'}'
+		'function getCompilerFacade(request) {',
+		"  let globalNg = _global['ng'];",
+		'  if (globalNg && globalNg.ɵcompilerFacade) {',
+		'    return globalNg.ɵcompilerFacade;',
+		'  }',
+		`  /* ${marker} */`,
+		'  try {',
+		'    const { createRequire } = globalThis.process?.getBuiltinModule?.("module") ?? require("module");',
+		'    const projectRequire = createRequire(globalThis.process.cwd() + "/package.json");',
+		'    projectRequire("@angular/compiler");',
+		"    globalNg = _global['ng'];",
+		'    if (globalNg && globalNg.ɵcompilerFacade) {',
+		'      return globalNg.ɵcompilerFacade;',
+		'    }',
+		'  } catch {',
+		'    /* fall through to original error */',
+		'  }'
 	].join('\n');
 
 	const patched = content.replace(original, replacement);
-
-	if (patched === content) {
-		return;
-	}
-
+	if (patched === content) return;
 	writeFileSync(chunkPath, patched, 'utf-8');
 };
 
 const resolveAngularCoreDir = () => {
-	const fromProject = resolve(process.cwd(), 'node_modules/@angular/core');
+	const resolved = resolveAngularPackageDir('@angular/core');
 
-	if (existsSync(join(fromProject, 'package.json'))) {
-		return fromProject;
+	if (resolved && existsSync(join(resolved, 'package.json'))) {
+		return resolved;
 	}
 
-	return dirname(require.resolve('@angular/core/package.json'));
+	try {
+		return dirname(require.resolve('@angular/core/package.json'));
+	} catch {
+		return null;
+	}
 };
 
-export const patchAngularInjectorSingleton = () => {
+const tryApplyChunkPatch = (
+	chunkPath: string,
+	apply: (path: string, content: string) => void
+) => {
+	if (!existsSync(chunkPath)) return;
+	apply(chunkPath, readFileSync(chunkPath, 'utf-8'));
+};
+
+export const patchAngularCompilerFacade = () => {
 	try {
 		const coreDir = resolveAngularCoreDir();
-		const chunkPath = join(coreDir, 'fesm2022', '_not_found-chunk.mjs');
-		const content = readFileSync(chunkPath, 'utf-8');
-		applyInjectorPatch(chunkPath, content);
+		if (!coreDir) return;
+		tryApplyChunkPatch(
+			join(coreDir, 'fesm2022', '_debug_node-chunk.mjs'),
+			applyCompilerFacadePatch
+		);
 	} catch {
-		// Non-fatal — HMR may see NG0203 on second+ edits
+		// Non-fatal — runtime fallback still throws the original error.
 	}
 };
 
-// Apply immediately at module load so the file is patched before any
-// Angular module is first evaluated by Bun's --hot mode or linker plugin.
-patchAngularInjectorSingleton();
+patchAngularCompilerFacade();

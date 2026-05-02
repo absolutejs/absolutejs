@@ -87,16 +87,48 @@ const resolveDevAssetResponse = async (
 	}
 
 	const bytes = lookupAsset(hmrState.assetStore, pathname);
-	if (!bytes) {
-		return undefined;
+	if (bytes) {
+		return new Response(new Uint8Array(bytes).buffer, {
+			headers: {
+				'Cache-Control': 'no-cache',
+				'Content-Type': getMimeType(pathname)
+			}
+		});
 	}
 
-	return new Response(new Uint8Array(bytes).buffer, {
-		headers: {
-			'Cache-Control': 'no-cache',
-			'Content-Type': getMimeType(pathname)
-		}
-	});
+	// Fallback for hashless asset URLs like `/indexes/less-page` (no `.css`,
+	// no hash). These can show up briefly when an HMR client tracks a
+	// stylesheet by base name and the hash rotated between when the link
+	// was rendered and when the request was issued. Redirect to the current
+	// hashed path so the browser still gets the right CSS instead of a 404.
+	const aliasedTarget = resolveHashlessAlias(hmrState, pathname);
+	if (aliasedTarget) {
+		return new Response(null, {
+			headers: {
+				'Cache-Control': 'no-cache',
+				Location: aliasedTarget
+			},
+			status: 302
+		});
+	}
+
+	return undefined;
+};
+
+const HASHLESS_INDEX_PATH_PATTERN = /^(\/[^/]+)?\/indexes\/([^/.]+)\/?$/;
+
+/* If the pathname looks like `/indexes/<base>` (or `/<framework>/indexes/<base>`)
+   with no extension, look for an asset whose path prefix matches and return
+   that path. Returns null if there's no match — caller falls back to 404. */
+const resolveHashlessAlias = (hmrState: HMRState, pathname: string) => {
+	const match = pathname.match(HASHLESS_INDEX_PATH_PATTERN);
+	if (!match) return null;
+	const prefix = `${match[1] ?? ''}/indexes/${match[2]}.`;
+	for (const candidate of hmrState.assetStore.keys()) {
+		if (candidate.startsWith(prefix)) return candidate;
+	}
+
+	return null;
 };
 
 /* HMR plugin for Elysia

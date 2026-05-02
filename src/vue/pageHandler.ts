@@ -205,7 +205,7 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 			});
 		};
 
-		return runWithStreamingSlotWarningScope(
+		return await runWithStreamingSlotWarningScope(
 			() =>
 				resolvedOptions?.collectStreamingSlots === true
 					? withRegisteredStreamingSlots(

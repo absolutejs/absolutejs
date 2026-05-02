@@ -787,6 +787,53 @@ const resolveService = (
 	};
 };
 
+const resolveServiceBuildDirectory = (service: ServiceConfig) => {
+	if (!isAbsoluteService(service)) return null;
+
+	const cwd = resolve(service.cwd ?? '.');
+
+	return resolve(cwd, service.buildDirectory ?? 'build');
+};
+
+export const findSharedWorkspaceBuildDirectories = (
+	services: WorkspaceConfig
+) => {
+	const byBuildDirectory = new Map<string, string[]>();
+
+	for (const [name, service] of Object.entries(services)) {
+		const buildDirectory = resolveServiceBuildDirectory(service);
+		if (!buildDirectory) continue;
+
+		const names = byBuildDirectory.get(buildDirectory) ?? [];
+		names.push(name);
+		byBuildDirectory.set(buildDirectory, names);
+	}
+
+	return Array.from(byBuildDirectory)
+		.filter(([, names]) => names.length > 1)
+		.map(([buildDirectory, names]) => ({ buildDirectory, names }));
+};
+
+const warnForSharedBuildDirectories = (
+	services: WorkspaceConfig,
+	addLog: WorkspaceLogSink
+) => {
+	const sharedBuildDirectories =
+		findSharedWorkspaceBuildDirectories(services);
+
+	for (const { buildDirectory, names } of sharedBuildDirectories) {
+		addLog(
+			'workspace',
+			`Services ${names
+				.map((name) => `"${name}"`)
+				.join(
+					' and '
+				)} resolve to the same buildDirectory: ${buildDirectory}. Builds will be serialized and the last completed build will own that directory.`,
+			'warn'
+		);
+	}
+};
+
 export const workspace = async (
 	subcommand: string | undefined,
 	options: WorkspaceDevOptions
@@ -837,6 +884,7 @@ export const workspace = async (
 	});
 	const workspaceLogs = createWorkspaceLogSink(tui.addLog);
 	const addLog = workspaceLogs.appendLog;
+	warnForSharedBuildDirectories(services, addLog);
 
 	const killProcess = (service: RunningService) => {
 		try {

@@ -31,16 +31,15 @@ import {
 } from '../core/streamingSlotWarningScope';
 import { isSsrCacheDirty, markSsrCacheDirty } from '../core/ssrCache';
 import {
-	buildDeps,
 	buildProviders,
 	cacheRouteData,
 	clearSelectorCache,
 	discoverTokens,
 	injectSsrScripts,
-	loadSsrDeps,
 	renderAngularApp,
 	resolveSelector
 } from './ssrRender';
+import { resolveAngularRuntimePath } from './resolveAngularPackage';
 
 let lastSelector = 'angular-page';
 type AngularPageRenderOptions = StreamingSlotEnhancerOptions & {
@@ -103,10 +102,18 @@ const resolvePageComponent = (pageModule: Record<string, unknown>) => {
 	return Object.values(pageModule).find((value) => isAngularComponent(value));
 };
 
+// `@angular/compiler` is required at request time only in dev, where
+// `compileAngularFileJIT` produces partial declarations that need the
+// compiler facade to link. In production every partial has already been
+// linked at build time by the linker plugin, so the compiler isn't loaded
+// or shipped.
 let compilerImportPromise: Promise<unknown> | null = null;
 const ensureAngularCompiler = () => {
+	if (process.env.NODE_ENV === 'production') return Promise.resolve();
 	if (!compilerImportPromise) {
-		compilerImportPromise = import('@angular/compiler');
+		compilerImportPromise = import(
+			resolveAngularRuntimePath('@angular/compiler')
+		);
 	}
 
 	return compilerImportPromise;
@@ -283,8 +290,7 @@ export const handleAngularPageRequest = async <
 					pageModule.__ABSOLUTE_PAGE_USES_LEGACY_ANIMATIONS__ ===
 					true;
 
-				const ssrResult = await loadSsrDeps(runtimePagePath);
-				const deps = buildDeps(ssrResult, baseDeps);
+				const deps = baseDeps;
 
 				const tokenMap = discoverTokens(pageModule);
 				const selector = resolveSelector(
@@ -296,7 +302,7 @@ export const handleAngularPageRequest = async <
 
 				const htmlString = `<!DOCTYPE html><html>${resolvedHeadTag}<body><${selector}></${selector}></body></html>`;
 
-				if (ssrResult?.core) resetSsrSanitizer();
+				resetSsrSanitizer();
 				const sanitizer = getSsrSanitizer(deps);
 				// The page module's `providers` export is the source of truth
 				// for page-level DI — `bootstrapApplication` reads it on the
@@ -356,7 +362,7 @@ export const handleAngularPageRequest = async <
 				return new Response(html, withHtmlContentType(responseInit));
 			};
 
-			return runWithStreamingSlotWarningScope(
+			return await runWithStreamingSlotWarningScope(
 				() =>
 					options?.collectStreamingSlots === true
 						? withRegisteredStreamingSlots(

@@ -1,0 +1,9 @@
+body {
+	background: rgb(246, 248, 252);
+	color: rgb(21, 34, 51);
+	font-family: ui-sans-serif, system-ui, sans-serif;
+}
+
+.status {
+	color: rgb(12, 119, 92);
+}

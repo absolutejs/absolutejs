@@ -236,7 +236,24 @@ const buildDepVendorPass = async (
 		minify: false,
 		naming: '[name].[ext]',
 		outdir: vendorDir,
-		splitting: true,
+		// TODO(splitting): re-enable when Bun's code-splitter no longer
+		// crashes on multiple vendor entries whose tree-shake output is
+		// byte-identical (e.g. trivial re-export modules like
+		// `@uploadthing/mime-types/{image,text,video}/index.js`). With
+		// splitting on, all three get assigned to the same content-hashed
+		// chunk filename and Bun errors with "Multiple files share the
+		// same output path". Workarounds tried and rejected:
+		//   - chunk: '[name]-[hash]' — Bun resolves [name] from the FIRST
+		//     entry that referenced the chunk, so colliding entries still
+		//     map to one filename.
+		//   - per-entry marker exports — top-level exports get DCE'd
+		//     before reaching chunk formation when no consumer imports
+		//     them.
+		// Cost of disabling: each vendor entry inlines its non-framework
+		// transitive deps. Framework deps (React et al.) are still
+		// externalized via FRAMEWORK_EXTERNALS so the de-duplication that
+		// matters most is preserved.
+		splitting: false,
 		target: 'browser',
 		throw: false
 	});

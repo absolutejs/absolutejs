@@ -2,6 +2,7 @@ import { existsSync, mkdirSync } from 'fs';
 import { readdir, rm, writeFile } from 'fs/promises';
 import { basename, join, relative, resolve, sep } from 'path';
 import { Glob } from 'bun';
+import { toPascal } from '../utils/stringModifiers';
 
 const indexContentCache = new Map<string, string>();
 
@@ -97,7 +98,8 @@ export const generateReactIndexFiles = async (
 
 	const promises = files.map(async (file) => {
 		const fileName = basename(file);
-		const [componentName] = fileName.split('.');
+		const componentName = fileName.split('.')[0]!;
+		const pascalComponentName = toPascal(componentName);
 
 		const hmrPreamble = isDev
 			? [
@@ -158,11 +160,23 @@ export const generateReactIndexFiles = async (
 		const content = [
 			...hmrPreamble,
 			...reactImports,
-			`import { ${componentName} } from '${pagesRelPath}/${componentName}';\n`,
+			`import * as PageModule from '${pagesRelPath}/${componentName}';\n`,
 			...errorBoundaryDef,
 			`// Hydration with error handling and fallback`,
 			`const isDev = ${isDev};`,
 			`const componentPath = '${pagesRelPath}/${componentName}';\n`,
+			`function resolvePageComponent(module, candidateNames) {`,
+			`\tfor (const name of candidateNames) {`,
+			`\t\tconst value = module[name];`,
+			`\t\tif (typeof value === 'function' || (value && typeof value === 'object')) return value;`,
+			`\t}`,
+			`\tfor (const [name, value] of Object.entries(module)) {`,
+			`\t\tif (!/^[A-Z]/.test(name)) continue;`,
+			`\t\tif (typeof value === 'function' || (value && typeof value === 'object')) return value;`,
+			`\t}`,
+			`\tthrow new Error('React page module ' + componentPath + ' does not export a component. Expected default, ${pascalComponentName}, ${componentName}, or any PascalCase export.');`,
+			`}`,
+			`const PageComponent = resolvePageComponent(PageModule, ['default', '${pascalComponentName}', '${componentName}']);\n`,
 			`function isHydrationError(error) {`,
 			`\tif (!error) return false;`,
 			`\tconst errorMessage = error instanceof Error ? error.message : String(error);`,
@@ -227,7 +241,7 @@ export const generateReactIndexFiles = async (
 			`\t\t}\n`,
 			`\t\t// Render into the same root container when falling back to client-only`,
 			`\t\tconst root = createRoot(container);`,
-			`\t\troot.render(${isDev ? `createElement(ErrorBoundary, null, createElement(${componentName}, mergedProps))` : `createElement(${componentName}, mergedProps)`});`,
+			`\t\troot.render(${isDev ? `createElement(ErrorBoundary, null, createElement(PageComponent, mergedProps))` : `createElement(PageComponent, mergedProps)`});`,
 			`\t\twindow.__REACT_ROOT__ = root;`,
 			`\t\twindow.__HMR_CLIENT_ONLY_MODE__ = true;`,
 			`\t} catch (fallbackError) {`,
@@ -267,14 +281,14 @@ export const generateReactIndexFiles = async (
 			`\t// After HMR, SSR is skipped to avoid stale content flash — render client-only`,
 			`\tif (window.__SSR_DIRTY__) {`,
 			`\t\troot = createRoot(container);`,
-			`\t\troot.render(${isDev ? `createElement(ErrorBoundary, null, createElement(${componentName}, mergedProps))` : `createElement(${componentName}, mergedProps)`});`,
+			`\t\troot.render(${isDev ? `createElement(ErrorBoundary, null, createElement(PageComponent, mergedProps))` : `createElement(PageComponent, mergedProps)`});`,
 			`\t\twindow.__REACT_ROOT__ = root;`,
 			`\t} else {`,
 			`\ttry {`,
 			`\t\t// Use onRecoverableError to catch hydration errors (React 19)`,
 			`\t\troot = hydrateRoot(`,
 			`\t\t\tcontainer,`,
-			`\t\t\t${isDev ? `createElement(ErrorBoundary, null, createElement(${componentName}, mergedProps))` : `createElement(${componentName}, mergedProps)`},`,
+			`\t\t\t${isDev ? `createElement(ErrorBoundary, null, createElement(PageComponent, mergedProps))` : `createElement(PageComponent, mergedProps)`},`,
 			`\t\t\t{`,
 			`\t\t\t\tonRecoverableError: (error) => {`,
 			`\t\t\t\t\t// Check if this is a hydration error (isHydrationError filters out whitespace-only head mismatches)`,

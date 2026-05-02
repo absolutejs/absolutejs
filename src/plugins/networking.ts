@@ -35,49 +35,54 @@ const tls = loadTls();
 const protocol = tls ? 'https' : 'http';
 
 export const networking = <A extends Elysia>(app: A) =>
-	app.listen(
-		{
-			hostname: host,
-			port: port,
-			...(tls
-				? {
-						tls: {
-							cert: tls.cert,
-							key: tls.key
-						}
+	env.ABSOLUTE_COMPILED_RUNTIME === '1'
+		? app
+		: app.listen(
+				{
+					hostname: host,
+					port: port,
+					...(tls
+						? {
+								tls: {
+									cert: tls.cert,
+									key: tls.key
+								}
+							}
+						: {})
+				},
+				() => {
+					if (visibility === 'internal' || managedByWorkspace) {
+						return;
 					}
-				: {})
-		},
-		() => {
-			if (visibility === 'internal' || managedByWorkspace) {
-				return;
-			}
 
-			// Skip logging on Bun --hot reloads (HMR handles its own output)
-			const isHotReload = Boolean(globalThis.__hmrServerStartup);
-			globalThis.__hmrServerStartup = true;
-			if (isHotReload) {
-				return;
-			}
+					// Skip logging on Bun --hot reloads (HMR handles its own output)
+					const isHotReload = Boolean(globalThis.__hmrServerStartup);
+					globalThis.__hmrServerStartup = true;
+					if (isHotReload) {
+						return;
+					}
 
-			const buildDuration =
-				globalThis.__hmrBuildDuration ??
-				Number(env.ABSOLUTE_BUILD_DURATION || 0);
-			const readyDuration = process.uptime() * MILLISECONDS_IN_A_SECOND;
+					const buildDuration =
+						globalThis.__hmrBuildDuration ??
+						Number(env.ABSOLUTE_BUILD_DURATION || 0);
+					const readyDuration =
+						process.uptime() * MILLISECONDS_IN_A_SECOND;
 
-			const version =
-				globalThis.__absoluteVersion || env.ABSOLUTE_VERSION || '';
+					const version =
+						globalThis.__absoluteVersion ||
+						env.ABSOLUTE_VERSION ||
+						'';
 
-			startupBanner({
-				buildDuration,
-				host,
-				networkUrl: hostFlag
-					? `${protocol}://${localIP}:${port}/`
-					: undefined,
-				port,
-				protocol,
-				readyDuration,
-				version
-			});
-		}
-	);
+					startupBanner({
+						buildDuration,
+						host,
+						networkUrl: hostFlag
+							? `${protocol}://${localIP}:${port}/`
+							: undefined,
+						port,
+						protocol,
+						readyDuration,
+						version
+					});
+				}
+			);

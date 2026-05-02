@@ -43,6 +43,33 @@ const validWorkspaceConfig = defineConfig({
 	}
 });
 
+const validWorkspaceSharedBuildNames = defineConfig({
+	api: {
+		buildDirectory: '../api-build',
+		entry: 'src/backend/server.ts',
+		reactDirectory: 'src/react'
+	},
+	web: {
+		buildDirectory: '../web-build',
+		entry: 'src/web/server.ts',
+		reactDirectory: 'src/web/react'
+	}
+});
+
+// @ts-expect-error duplicate workspace buildDirectory literal.
+const invalidWorkspaceDuplicateBuildDirectory = defineConfig({
+	api: {
+		buildDirectory: '../shared-build',
+		entry: 'src/backend/server.ts',
+		reactDirectory: 'src/react'
+	},
+	web: {
+		buildDirectory: '../shared-build',
+		entry: 'src/web/server.ts',
+		reactDirectory: 'src/web/react'
+	}
+});
+
 const invalidTargetOverride: BunBuildConfigOverride = {
 	// @ts-expect-error target is owned by Absolute build passes.
 	target: 'browser'
@@ -61,5 +88,7 @@ const invalidOutdirConfig = defineConfig({
 
 void validSingleServiceConfig;
 void validWorkspaceConfig;
+void validWorkspaceSharedBuildNames;
+void invalidWorkspaceDuplicateBuildDirectory;
 void invalidTargetOverride;
 void invalidOutdirConfig;

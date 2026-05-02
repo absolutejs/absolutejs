@@ -1,28 +1,26 @@
-import type { AngularDeps, SsrDepsResult } from '../../types/angular';
-import { patchAngularInjectorSingleton } from './injectorPatch';
-import { resolveAngularPackage } from './resolveAngularPackage';
+import type { AngularDeps } from '../../types/angular';
+import { resolveAngularRuntimePath } from './resolveAngularPackage';
 
-const initDominoAdapter = (platformServer: SsrDepsResult['platformServer']) => {
+const initDominoAdapter = (platformServer: {
+	ɵDominoAdapter?: { makeCurrent?: () => void };
+}) => {
 	try {
-		const DominoAdapter: { makeCurrent?: () => void } | undefined =
-			platformServer.ɵDominoAdapter;
-		DominoAdapter?.makeCurrent?.();
+		platformServer.ɵDominoAdapter?.makeCurrent?.();
 	} catch (err) {
 		console.error('Failed to initialize DominoAdapter:', err);
 	}
 };
 
 const loadAngularDeps = async () => {
-	// Patch Angular's _currentInjector to use globalThis BEFORE any
-	// Angular module is loaded — this prevents NG0203 when Bun's --hot
-	// mode creates duplicate module instances during HMR rebuilds.
-	patchAngularInjectorSingleton();
-
-	// JIT compiler MUST be fully loaded before any other Angular import.
-	// Angular packages like @angular/common contain partially compiled
-	// injectables (e.g. PlatformLocation) that need the JIT compiler
-	// facade to be registered first.
-	await import(resolveAngularPackage('@angular/compiler'));
+	// JIT compiler is only needed in development, where user pages are
+	// runtime-compiled by `compileAngularFileJIT` and emit partial
+	// declarations that need the compiler facade to link. In production
+	// the linker has already processed every partial declaration into
+	// final ɵdir/ɵcmp/ɵfac at vendor build time, so the compiler isn't
+	// imported and isn't part of the prod vendor bundle.
+	if (process.env.NODE_ENV !== 'production') {
+		await import(resolveAngularRuntimePath('@angular/compiler'));
+	}
 
 	// angularPatch imports @angular/platform-server internally, so it
 	// must also run after the compiler is available.
@@ -31,10 +29,10 @@ const loadAngularDeps = async () => {
 
 	// Now safe to load all Angular packages in parallel
 	const [platformBrowser, platformServer, common, core] = await Promise.all([
-		import(resolveAngularPackage('@angular/platform-browser')),
-		import(resolveAngularPackage('@angular/platform-server')),
-		import(resolveAngularPackage('@angular/common')),
-		import(resolveAngularPackage('@angular/core'))
+		import(resolveAngularRuntimePath('@angular/platform-browser')),
+		import(resolveAngularRuntimePath('@angular/platform-server')),
+		import(resolveAngularRuntimePath('@angular/common')),
+		import(resolveAngularRuntimePath('@angular/core'))
 	]);
 
 	if (process.env.NODE_ENV !== 'development') {

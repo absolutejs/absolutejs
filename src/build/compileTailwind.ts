@@ -1,21 +1,35 @@
-import { mkdir, rm } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { build as bunBuild } from 'bun';
 import type {
 	StylePreprocessorConfig,
 	TailwindConfig
 } from '../../types/build';
-import { compileStyleSource } from './stylePreprocessor';
+import { incrementalTailwindBuild } from './tailwindCompiler';
 
-const TAILWIND_NATIVE_TEMP_DIR = '.absolute-tailwind-native';
+/* Files Tailwind v4 may scan for candidate utility classes via the `@source`
+   directive. When any of these change in dev, the Tailwind output must be
+   regenerated so newly referenced utilities show up in the CSS — otherwise
+   classes appear in markup with no rules behind them. */
+const TAILWIND_CANDIDATE_EXTENSION_PATTERN =
+	/\.(html?|m?[jt]sx?|cjs|vue|svelte|astro|mdx?|css|s[ac]ss|less|styl(?:us)?)$/i;
 
-const postprocessTailwindCss = async (
-	css: string,
-	outputPath: string,
-	styleTransformConfig?: StylePreprocessorConfig
-) =>
-	compileStyleSource(outputPath, css, 'css', styleTransformConfig);
+export const isTailwindCandidate = (filePath: string) =>
+	TAILWIND_CANDIDATE_EXTENSION_PATTERN.test(filePath);
 
+/* Production / cold-start build of the Tailwind output CSS.
+
+   Uses the same persistent-compiler path as HMR — calling
+   `incrementalTailwindBuild` with no changed-file hint forces a fresh
+   compile + full source scan. The compiler instance is then cached for
+   the remainder of the process, so subsequent rebuilds (HMR ticks during
+   `absolute dev`) get the per-candidate cache for free.
+
+   This replaces the old `bun.build` + `bun-plugin-tailwind` pipeline:
+   the bundler was being spun up just to drive Tailwind, which made every
+   call pay bundler-init cost and discarded Tailwind's internal caches
+   between calls. Going directly through `tailwindcss`'s own `compile()`
+   API drops both costs and brings the production build into the same
+   fast path as dev. */
 export const compileTailwind = async (
 	input: string,
 	output: string,
@@ -23,47 +37,13 @@ export const compileTailwind = async (
 	styleTransformConfig?: StylePreprocessorConfig
 ) => {
 	const outputPath = join(buildPath, output);
-	const tempDir = join(buildPath, TAILWIND_NATIVE_TEMP_DIR);
-
 	await mkdir(dirname(outputPath), { recursive: true });
-	await rm(tempDir, { force: true, recursive: true });
-
-	let tailwindPlugin: typeof import('bun-plugin-tailwind').default;
-	try {
-		tailwindPlugin = (await import('bun-plugin-tailwind')).default;
-	} catch {
-		throw new Error(
-			'Tailwind support requires bun-plugin-tailwind. Install it with `bun add -d bun-plugin-tailwind`.'
-		);
-	}
-
-	const result = await bunBuild({
-		entrypoints: [input],
-		outdir: tempDir,
-		plugins: [tailwindPlugin],
-		target: 'browser',
-		throw: false,
-		write: false
-	} as Parameters<typeof bunBuild>[0] & { write: false });
-
-	if (!result.success) {
-		const details = result.logs.map(String).join('\n').trim();
-		throw new Error(
-			`Tailwind native build failed${details ? `:\n${details}` : ''}`
-		);
-	}
-
-	const cssOutput = result.outputs.find((artifact) =>
-		artifact.path.endsWith('.css')
+	await incrementalTailwindBuild(
+		{ input, output },
+		buildPath,
+		[],
+		styleTransformConfig
 	);
-	if (!cssOutput) throw new Error('Tailwind native build emitted no CSS.');
-
-	const css = await cssOutput.text();
-	await Bun.write(
-		outputPath,
-		await postprocessTailwindCss(css, outputPath, styleTransformConfig)
-	);
-	await rm(tempDir, { force: true, recursive: true });
 };
 
 export const compileTailwindConfig = async (

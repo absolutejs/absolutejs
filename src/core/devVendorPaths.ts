@@ -19,6 +19,16 @@ export const setAngularVendorPaths = (paths: Record<string, string>) => {
 	angularVendorPaths = paths;
 };
 
+/** Angular *server* vendor paths — absolute filesystem paths to the
+ *  Bun-target linked vendor files. Used by `rewriteImports` on server
+ *  bundles and by `getAngularDeps` for runtime resolution. */
+let angularServerVendorPaths: Record<string, string> | null = null;
+
+export const getAngularServerVendorPaths = () => angularServerVendorPaths;
+export const setAngularServerVendorPaths = (paths: Record<string, string>) => {
+	angularServerVendorPaths = paths;
+};
+
 /** Svelte vendor paths — same pattern as React. */
 let svelteVendorPaths: Record<string, string> | null = null;
 

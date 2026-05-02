@@ -52,6 +52,41 @@ const buildDirtyResponse = (indexPath: string, props?: unknown) => {
 	});
 };
 
+const primeSvelteStream = async <T>(stream: ReadableStream<T>) => {
+	const reader = stream.getReader();
+	const firstChunk = await reader.read();
+
+	return { firstChunk, reader };
+};
+
+const restorePrimedStream = <T>(
+	firstChunk: { done: boolean; value?: T },
+	reader: ReadableStreamDefaultReader<T>
+) =>
+	new ReadableStream<T>({
+		start(controller) {
+			if (!firstChunk.done) {
+				controller.enqueue(firstChunk.value as T);
+			}
+			if (firstChunk.done) {
+				controller.close();
+
+				return;
+			}
+			const pumpLoop = () => {
+				reader
+					.read()
+					.then(({ done, value }) =>
+						done
+							? controller.close()
+							: (controller.enqueue(value), pumpLoop())
+					)
+					.catch((err) => controller.error(err));
+			};
+			pumpLoop();
+		}
+	});
+
 export type SveltePageRenderOptions = {
 	collectStreamingSlots?: boolean;
 	bodyContent?: string;
@@ -166,13 +201,14 @@ export const handleSveltePageRequest = async <
 			const htmlStream = injectIslandPageContextStream(stream, {
 				hasIslands: resolvedPage.hasIslands ? true : undefined
 			});
+			const { firstChunk, reader } = await primeSvelteStream(htmlStream);
 
-			return new Response(htmlStream, {
+			return new Response(restorePrimedStream(firstChunk, reader), {
 				headers: { 'Content-Type': 'text/html' }
 			});
 		};
 
-		return runWithStreamingSlotWarningScope(
+		return await runWithStreamingSlotWarningScope(
 			() =>
 				resolvedOptions?.collectStreamingSlots === true
 					? withRegisteredStreamingSlots(renderPageResponse, {

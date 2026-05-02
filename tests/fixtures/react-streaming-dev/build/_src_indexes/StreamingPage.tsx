@@ -6,7 +6,7 @@ import { showErrorOverlay, hideErrorOverlay } from '/home/alexkahn/abs/absolutej
 
 import { hydrateRoot, createRoot } from 'react-dom/client';
 import { createElement, Component } from 'react';
-import { StreamingPage } from '/@src/tests/fixtures/react-streaming-dev/react/pages/StreamingPage';
+import * as PageModule from '/@src/tests/fixtures/react-streaming-dev/react/pages/StreamingPage';
 
 
 // Dev-only Error Boundary to catch React render errors
@@ -44,6 +44,19 @@ class ErrorBoundary extends Component {
 // Hydration with error handling and fallback
 const isDev = true;
 const componentPath = '../../pages/StreamingPage';
+
+function resolvePageComponent(module, candidateNames) {
+	for (const name of candidateNames) {
+		const value = module[name];
+		if (typeof value === 'function' || (value && typeof value === 'object')) return value;
+	}
+	for (const [name, value] of Object.entries(module)) {
+		if (!/^[A-Z]/.test(name)) continue;
+		if (typeof value === 'function' || (value && typeof value === 'object')) return value;
+	}
+	throw new Error('React page module ' + componentPath + ' does not export a component. Expected default, StreamingPage, StreamingPage, or any PascalCase export.');
+}
+const PageComponent = resolvePageComponent(PageModule, ['default', 'StreamingPage', 'StreamingPage']);
 
 function isHydrationError(error) {
 	if (!error) return false;
@@ -115,7 +128,7 @@ function handleHydrationFallback(error) {
 
 		// Render into the same root container when falling back to client-only
 		const root = createRoot(container);
-		root.render(createElement(ErrorBoundary, null, createElement(StreamingPage, mergedProps)));
+		root.render(createElement(ErrorBoundary, null, createElement(PageComponent, mergedProps)));
 		window.__REACT_ROOT__ = root;
 		window.__HMR_CLIENT_ONLY_MODE__ = true;
 	} catch (fallbackError) {
@@ -160,14 +173,14 @@ if (!window.__REACT_ROOT__) {
 	// After HMR, SSR is skipped to avoid stale content flash — render client-only
 	if (window.__SSR_DIRTY__) {
 		root = createRoot(container);
-		root.render(createElement(ErrorBoundary, null, createElement(StreamingPage, mergedProps)));
+		root.render(createElement(ErrorBoundary, null, createElement(PageComponent, mergedProps)));
 		window.__REACT_ROOT__ = root;
 	} else {
 	try {
 		// Use onRecoverableError to catch hydration errors (React 19)
 		root = hydrateRoot(
 			container,
-			createElement(ErrorBoundary, null, createElement(StreamingPage, mergedProps)),
+			createElement(ErrorBoundary, null, createElement(PageComponent, mergedProps)),
 			{
 				onRecoverableError: (error) => {
 					// Check if this is a hydration error (isHydrationError filters out whitespace-only head mismatches)

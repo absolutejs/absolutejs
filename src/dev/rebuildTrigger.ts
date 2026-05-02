@@ -45,9 +45,12 @@ import { broadcastToClients } from './webSocket';
 import {
 	createStyleTransformConfig,
 	createStylePreprocessorPlugin,
+	findStyleEntriesImporting,
 	getStyleBaseName,
 	isStylePath
 } from '../build/stylePreprocessor';
+import { isTailwindCandidate } from '../build/compileTailwind';
+import { incrementalTailwindBuild } from '../build/tailwindCompiler';
 import { markSsrCacheDirty } from '../core/ssrCache';
 
 const runSequentially = <Item>(
@@ -61,6 +64,50 @@ const runSequentially = <Item>(
 
 const getStyleTransformConfig = (config: BuildConfig) =>
 	createStyleTransformConfig(config.stylePreprocessors, config.postcss);
+
+/* When a fast path handles a file change, the full build doesn't run, so
+   Tailwind never gets a chance to rescan source files. If the changed file
+   is something Tailwind would scan (.tsx/.svelte/.vue/.html/etc.), we rerun
+   Tailwind here and broadcast a CSS reload so newly-referenced utility
+   classes actually appear in the emitted CSS. Without this the markup ends
+   up referencing classes that have no rules behind them until the next
+   full restart.
+
+   Uses the persistent in-memory Tailwind compiler — instantiated once and
+   reused — so HMR ticks pay only the candidate-scan + serialize cost, not
+   the bundler-init + compiler-init cost of a fresh `bun.build`. The result
+   is content-hashed so we suppress the CSS-reload broadcast when the
+   emitted output didn't actually change (an edit that doesn't add or
+   remove any utility classes shouldn't refetch every stylesheet). */
+const recompileTailwindForFastPath = async (
+	state: HMRState,
+	config: BuildConfig,
+	files: string[]
+) => {
+	if (!config.tailwind) return;
+	if (!files.some(isTailwindCandidate)) return;
+
+	try {
+		const { cssChanged } = await incrementalTailwindBuild(
+			config.tailwind,
+			state.resolvedPaths.buildDir,
+			files,
+			getStyleTransformConfig(config)
+		);
+		if (!cssChanged) return;
+
+		broadcastToClients(state, {
+			data: { framework: 'tailwind', manifest: state.manifest },
+			message: 'Tailwind utilities recompiled',
+			type: 'style-update'
+		});
+	} catch (err) {
+		sendTelemetryEvent('hmr:error', {
+			framework: 'tailwind',
+			message: err instanceof Error ? err.message : String(err)
+		});
+	}
+};
 
 type BuildLog = {
 	level?: string;
@@ -419,6 +466,24 @@ const waitForStableWrites = async (state: HMRState) => {
 	await waitRound(0);
 };
 
+const enqueueImporter = (state: HMRState, importer: string) => {
+	const importerFramework = detectFramework(importer, state.resolvedPaths);
+	if (importerFramework === 'ignored') return;
+	if (!state.fileChangeQueue.has(importerFramework)) {
+		state.fileChangeQueue.set(importerFramework, []);
+	}
+	const importerQueue = state.fileChangeQueue.get(importerFramework);
+	if (importerQueue && !importerQueue.includes(importer)) {
+		importerQueue.push(importer);
+	}
+};
+
+const enqueueStyleImporters = (state: HMRState, changedStylePath: string) => {
+	for (const importer of findStyleEntriesImporting(changedStylePath)) {
+		enqueueImporter(state, importer);
+	}
+};
+
 export const queueFileChange = async (
 	state: HMRState,
 	filePath: string,
@@ -457,6 +522,14 @@ export const queueFileChange = async (
 	const queue = state.fileChangeQueue.get(framework);
 	if (queue && !queue.includes(filePath)) {
 		queue.push(filePath);
+	}
+
+	// If a stylesheet partial (e.g. _tokens.scss) changed, also enqueue
+	// every entry stylesheet that imported it during its last compile.
+	// Without this the importer would silently keep the stale CSS until
+	// the next full restart.
+	if (isStylePath(filePath)) {
+		enqueueStyleImporters(state, filePath);
 	}
 
 	if (state.isRebuilding) {
@@ -695,6 +768,22 @@ const compileAndBundleAngular = async (
 		true,
 		getStyleTransformConfig(state.config)
 	);
+
+	// Rewrite bare `@angular/*` specifiers in the SSR page outputs to
+	// absolute vendor file paths. The full server bundle pass does this
+	// for outputs of `bun.build`; the HMR fast path skips the bundle and
+	// loads compileAngular's raw output directly, so it must rewrite here
+	// too. Without this, SSR re-imports `@angular/core` from node_modules
+	// (unlinked, partial-AOT) and produces NG0201 from class-identity drift.
+	const { getAngularServerVendorPaths } = await import(
+		'../core/devVendorPaths'
+	);
+	const angServerVendorPaths = getAngularServerVendorPaths();
+	if (serverPaths.length > 0 && angServerVendorPaths) {
+		const { rewriteImports } = await import('../build/rewriteImports');
+		await rewriteImports(serverPaths, angServerVendorPaths);
+	}
+
 	serverPaths.forEach((serverPath) => {
 		const fileBase = basename(serverPath, '.js');
 		state.manifest[toPascal(fileBase)] = resolve(serverPath);
@@ -2897,8 +2986,12 @@ const performFullRebuild = async (
 		await runHtmxFastPath(state, config, filesToRebuild, startTime);
 	}
 
-	// If all frameworks were handled by fast paths, skip the full build
+	// If all frameworks were handled by fast paths, skip the full build —
+	// but Tailwind still needs to rescan source files when a candidate
+	// changed (the fast path skips the build, which is where Tailwind runs).
 	if (allHandled) {
+		await recompileTailwindForFastPath(state, config, files);
+
 		onRebuildComplete({
 			hmrState: state,
 			manifest: state.manifest
@@ -2956,6 +3049,20 @@ const performFullRebuild = async (
 		message: 'Rebuild completed successfully',
 		type: 'rebuild-complete'
 	});
+
+	// `build()` already rebuilt the Tailwind output if a candidate changed;
+	// trigger a CSS reload so the browser picks up the new utilities.
+	if (
+		config.tailwind &&
+		filesToRebuild &&
+		filesToRebuild.some(isTailwindCandidate)
+	) {
+		broadcastToClients(state, {
+			data: { framework: 'tailwind', manifest },
+			message: 'Tailwind utilities recompiled',
+			type: 'style-update'
+		});
+	}
 
 	const hasFilesToRebuild = filesToRebuild && filesToRebuild.length > 0;
 	const didReloadForIslandChange = hasFilesToRebuild

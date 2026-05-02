@@ -1,5 +1,5 @@
 import type { EnvironmentProviders, Provider } from '@angular/core';
-import { resolveAngularPackage } from './resolveAngularPackage';
+import { resolveAngularRuntimePath } from './resolveAngularPackage';
 
 let noopAnimationProvidersPromise: Promise<
 	(Provider | EnvironmentProviders)[]
@@ -7,7 +7,7 @@ let noopAnimationProvidersPromise: Promise<
 
 const loadNoopAnimationProviders = async () => {
 	const animations = await import(
-		resolveAngularPackage('@angular/platform-browser/animations')
+		resolveAngularRuntimePath('@angular/platform-browser/animations')
 	);
 
 	return animations.provideNoopAnimations();

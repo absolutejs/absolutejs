@@ -11,7 +11,11 @@ import {
 } from '../core/streamingSlotWarningScope';
 import { isSsrCacheDirty, markSsrCacheDirty } from '../core/ssrCache';
 import { ssrErrorPage } from '../utils/ssrErrorPage';
-import { renderConventionError } from '../utils/resolveConvention';
+import {
+	hasErrorConvention,
+	renderConventionError,
+	resolveErrorConventionPath
+} from '../utils/resolveConvention';
 
 type ReactPageRenderOptions = StreamingSlotEnhancerOptions & {
 	collectStreamingSlots?: boolean;
@@ -67,6 +71,7 @@ export const handleReactPageRequest = async <
 	const resolvedIndex = input.index;
 	const options = input;
 	const maybeProps = input.props;
+	const pageName = Page.name || Page.displayName || '';
 
 	if (isSsrCacheDirty('react')) {
 		return buildDirtyResponse(resolvedIndex, maybeProps);
@@ -105,13 +110,23 @@ export const handleReactPageRequest = async <
 				}
 			});
 			const htmlStream = injectIslandPageContextStream(stream);
+			if (
+				resolveErrorConventionPath('react', pageName) ||
+				hasErrorConvention('react')
+			) {
+				const html = await new Response(htmlStream).text();
+
+				return new Response(html, {
+					headers: { 'Content-Type': 'text/html' }
+				});
+			}
 
 			return new Response(htmlStream, {
 				headers: { 'Content-Type': 'text/html' }
 			});
 		};
 
-		return runWithStreamingSlotWarningScope(
+		return await runWithStreamingSlotWarningScope(
 			() =>
 				options?.collectStreamingSlots === true
 					? withRegisteredStreamingSlots(renderPageResponse, options)
@@ -121,7 +136,6 @@ export const handleReactPageRequest = async <
 	} catch (error) {
 		console.error('[SSR] React render error:', error);
 
-		const pageName = Page.name || Page.displayName || '';
 		const conventionResponse = await renderConventionError(
 			'react',
 			pageName,

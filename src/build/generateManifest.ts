@@ -76,6 +76,12 @@ export const generateManifest = (outputs: BuildArtifact[], buildPath: string) =>
 		const islandIndex = segments.findIndex((seg) => seg === 'islands');
 
 		if (ext === '.css') {
+			// Server bundles auto-emit a sibling .css for any CSS imported by
+			// the SSR entry (Vue scoped styles, etc.). It's never linked from
+			// HTML — the indexes-pass CSS is — so skip it to avoid clobbering
+			// the same `${Page}BundledCSS` key.
+			if (segments.includes('server')) return manifest;
+
 			// Distinguish CSS from different sources to avoid key collisions.
 			// CSS co-emitted from a JS bundle (e.g. CSS Modules) lives under a
 			// framework path like react/generated/indexes/, while global

@@ -1,6 +1,6 @@
 import type { EnvironmentProviders, Provider } from '@angular/core';
 import type { AngularDeps } from '../../types/angular';
-import { resolveAngularPackage } from './resolveAngularPackage';
+import { resolveAngularRuntimePath } from './resolveAngularPackage';
 
 type AngularRouterModule = typeof import('@angular/router');
 
@@ -71,7 +71,9 @@ export const buildRouterRedirectProviders = async (
 	let routerModule: AngularRouterModule;
 
 	try {
-		routerModule = await import(resolveAngularPackage('@angular/router'));
+		routerModule = await import(
+			resolveAngularRuntimePath('@angular/router')
+		);
 	} catch {
 		return [];
 	}

@@ -157,7 +157,6 @@ export const info = () => {
 	field('vue', getPackageVersion('vue'));
 	field('typescript', getPackageVersion('typescript'));
 	field('tailwindcss', getPackageVersion('tailwindcss'));
-	field('bun-plugin-tailwind', getPackageVersion('bun-plugin-tailwind'));
 
 	lines.push('');
 

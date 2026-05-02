@@ -3,6 +3,7 @@ import {
 	rm,
 	cp,
 	mkdir,
+	mkdtemp,
 	readdir,
 	readFile,
 	stat,
@@ -13,6 +14,9 @@ import type { AngularCompilerOptions } from '@angular/compiler-cli';
 import ts from 'typescript';
 
 const DIST = 'dist';
+const BUILD_LOCK_DIR = '.absolute-build.lock';
+const BUILD_LOCK_TIMEOUT_MS = 120_000;
+const BUILD_LOCK_STALE_MS = 10 * 60_000;
 
 const runSequentially = <Item>(
 	items: Item[],
@@ -22,6 +26,61 @@ const runSequentially = <Item>(
 		(chain, item) => chain.then(() => action(item)),
 		Promise.resolve()
 	);
+
+const isAlreadyExistsError = (error: unknown) =>
+	error instanceof Error &&
+	'code' in error &&
+	(error as NodeJS.ErrnoException).code === 'EEXIST';
+
+const acquireBuildLock = async () => {
+	const start = Date.now();
+
+	while (true) {
+		try {
+			await mkdir(BUILD_LOCK_DIR);
+			await writeFile(
+				join(BUILD_LOCK_DIR, 'owner'),
+				`${process.pid}\n${new Date().toISOString()}\n`
+			);
+
+			return;
+		} catch (error) {
+			if (!isAlreadyExistsError(error)) throw error;
+
+			try {
+				const lockStat = await stat(BUILD_LOCK_DIR);
+				if (Date.now() - lockStat.mtimeMs > BUILD_LOCK_STALE_MS) {
+					await rm(BUILD_LOCK_DIR, {
+						force: true,
+						recursive: true
+					});
+					continue;
+				}
+			} catch {
+				// The lock was removed between attempts.
+			}
+
+			if (Date.now() - start > BUILD_LOCK_TIMEOUT_MS) {
+				throw new Error(
+					`Timed out waiting for build lock: ${BUILD_LOCK_DIR}`
+				);
+			}
+
+			await Bun.sleep(250);
+		}
+	}
+};
+
+const withBuildLock = async (action: () => Promise<void>) => {
+	await acquireBuildLock();
+	try {
+		await action();
+	} finally {
+		await rm(BUILD_LOCK_DIR, { force: true, recursive: true }).catch(
+			() => {}
+		);
+	}
+};
 
 const SERVER_ENTRY_POINTS = [
 	'src/index.ts',
@@ -426,171 +485,177 @@ const compileAngularComponentsPartial = async () => {
 	await mkdir(finalDir, { recursive: true });
 	await mkdir(finalTypesDir, { recursive: true });
 
-	// Use a temp output dir outside dist/ to avoid conflicts with existing compiled files
-	const tmpDir = '.angular-partial-tmp';
+	// Use a unique temp output dir outside dist/ so parallel build calls cannot
+	// remove each other's Angular partial compilation workspace.
+	const tmpDir = await mkdtemp('.angular-partial-tmp-');
 	const outDir = join(tmpDir, 'out');
 	const srcDir = join(tmpDir, 'src');
-	await mkdir(outDir, { recursive: true });
-	await mkdir(srcDir, { recursive: true });
+	try {
+		await mkdir(outDir, { recursive: true });
+		await mkdir(srcDir, { recursive: true });
 
-	const srcFiles = await readdir('src/angular/components');
-	await runSequentially(
-		srcFiles.filter((entry) => entry.endsWith('.ts')),
-		async (file) => {
-			let content = await Bun.file(
-				join('src', 'angular', 'components', file)
-			).text();
-			content = content.replace(
-				/from\s+(['"])\.\.\/\.\.\/utils\/imageProcessing['"]/g,
-				'from $1@absolutejs/absolute/image$1'
-			);
-			content = content.replace(
-				/from\s+(['"])\.\.\/\.\.\/core\/streamingSlotRegistry['"]/g,
-				'from $1./core/streamingSlotRegistry$1'
-			);
-			content = content.replace(
-				/from\s+(['"])\.\.\/\.\.\/core\/streamingSlotRegistrar['"]/g,
-				'from $1./core/streamingSlotRegistrar$1'
-			);
-			await Bun.write(join(srcDir, file), content);
-		}
-	);
+		const srcFiles = await readdir('src/angular/components');
+		await runSequentially(
+			srcFiles.filter((entry) => entry.endsWith('.ts')),
+			async (file) => {
+				let content = await Bun.file(
+					join('src', 'angular', 'components', file)
+				).text();
+				content = content.replace(
+					/from\s+(['"])\.\.\/\.\.\/utils\/imageProcessing['"]/g,
+					'from $1@absolutejs/absolute/image$1'
+				);
+				content = content.replace(
+					/from\s+(['"])\.\.\/\.\.\/core\/streamingSlotRegistry['"]/g,
+					'from $1./core/streamingSlotRegistry$1'
+				);
+				content = content.replace(
+					/from\s+(['"])\.\.\/\.\.\/core\/streamingSlotRegistrar['"]/g,
+					'from $1./core/streamingSlotRegistrar$1'
+				);
+				await Bun.write(join(srcDir, file), content);
+			}
+		);
 
-	await mkdir(join(srcDir, 'core'), { recursive: true });
-	await mkdir(join(srcDir, 'utils'), { recursive: true });
-	await mkdir(join(srcDir, 'client'), { recursive: true });
-	await cp(join('src', 'constants.ts'), join(srcDir, 'constants.ts'));
-	await cp(
-		join('src', 'core', 'streamingSlotRegistry.ts'),
-		join(srcDir, 'core', 'streamingSlotRegistry.ts')
-	);
-	await cp(
-		join('src', 'core', 'streamingSlotRegistrar.ts'),
-		join(srcDir, 'core', 'streamingSlotRegistrar.ts')
-	);
-	await cp(
-		join('src', 'utils', 'streamingSlots.ts'),
-		join(srcDir, 'utils', 'streamingSlots.ts')
-	);
-	await cp(
-		join('src', 'utils', 'escapeScriptContent.ts'),
-		join(srcDir, 'utils', 'escapeScriptContent.ts')
-	);
-	await cp(
-		join('src', 'client', 'streamSwap.ts'),
-		join(srcDir, 'client', 'streamSwap.ts')
-	);
+		await mkdir(join(srcDir, 'core'), { recursive: true });
+		await mkdir(join(srcDir, 'utils'), { recursive: true });
+		await mkdir(join(srcDir, 'client'), { recursive: true });
+		await cp(join('src', 'constants.ts'), join(srcDir, 'constants.ts'));
+		await cp(
+			join('src', 'core', 'streamingSlotRegistry.ts'),
+			join(srcDir, 'core', 'streamingSlotRegistry.ts')
+		);
+		await cp(
+			join('src', 'core', 'streamingSlotRegistrar.ts'),
+			join(srcDir, 'core', 'streamingSlotRegistrar.ts')
+		);
+		await cp(
+			join('src', 'utils', 'streamingSlots.ts'),
+			join(srcDir, 'utils', 'streamingSlots.ts')
+		);
+		await cp(
+			join('src', 'utils', 'escapeScriptContent.ts'),
+			join(srcDir, 'utils', 'escapeScriptContent.ts')
+		);
+		await cp(
+			join('src', 'client', 'streamSwap.ts'),
+			join(srcDir, 'client', 'streamSwap.ts')
+		);
 
-	const config = readConfiguration('./tsconfig.json');
-	const tsOptions: ts.CompilerOptions = {
-		declaration: true,
-		emitDecoratorMetadata: true,
-		experimentalDecorators: true,
-		module: ts.ModuleKind.ESNext,
-		moduleResolution: ts.ModuleResolutionKind.Bundler,
-		newLine: ts.NewLineKind.LineFeed,
-		outDir,
-		rootDir: resolve('.'),
-		skipLibCheck: true,
-		suppressOutputPathCheck: true,
-		target: ts.ScriptTarget.ES2022
-	};
+		const config = readConfiguration('./tsconfig.json');
+		const tsOptions: ts.CompilerOptions = {
+			declaration: true,
+			emitDecoratorMetadata: true,
+			experimentalDecorators: true,
+			module: ts.ModuleKind.ESNext,
+			moduleResolution: ts.ModuleResolutionKind.Bundler,
+			newLine: ts.NewLineKind.LineFeed,
+			outDir,
+			rootDir: resolve('.'),
+			skipLibCheck: true,
+			suppressOutputPathCheck: true,
+			target: ts.ScriptTarget.ES2022
+		};
 
-	const options: AngularCompilerOptions & { compilationMode: 'partial' } = {
-		...config.options,
-		...tsOptions,
-		compilationMode: 'partial' as const
-	};
+		const options: AngularCompilerOptions & { compilationMode: 'partial' } =
+			{
+				...config.options,
+				...tsOptions,
+				compilationMode: 'partial' as const
+			};
 
-	const host = ts.createCompilerHost(tsOptions);
+		const host = ts.createCompilerHost(tsOptions);
 
-	// Capture only files emitted from our source dir (not external deps like imageClient)
-	const emitted: Record<string, string> = {};
-	const resolvedSrcInOut = resolve(
-		outDir,
-		relative(resolve('.'), resolve(srcDir))
-	);
-	host.writeFile = (fileName, text) => {
-		const absFileName = resolve(fileName);
-		if (!absFileName.startsWith(resolvedSrcInOut)) return;
-		const rel = absFileName.substring(resolvedSrcInOut.length + 1);
-		emitted[rel] = text;
-	};
+		// Capture only files emitted from our source dir (not external deps like imageClient)
+		const emitted: Record<string, string> = {};
+		const resolvedSrcInOut = resolve(
+			outDir,
+			relative(resolve('.'), resolve(srcDir))
+		);
+		host.writeFile = (fileName, text) => {
+			const absFileName = resolve(fileName);
+			if (!absFileName.startsWith(resolvedSrcInOut)) return;
+			const rel = absFileName.substring(resolvedSrcInOut.length + 1);
+			emitted[rel] = text;
+		};
 
-	// Copy ambient global types into the temp tree so .ts files referencing
-	// window.__ABS_* (and other globals declared in types/globals.d.ts) compile.
-	const tmpTypesDir = join(tmpDir, 'types');
-	await mkdir(tmpTypesDir, { recursive: true });
-	await cp('types/globals.d.ts', join(tmpTypesDir, 'globals.d.ts'));
+		// Copy ambient global types into the temp tree so .ts files referencing
+		// window.__ABS_* (and other globals declared in types/globals.d.ts) compile.
+		const tmpTypesDir = join(tmpDir, 'types');
+		await mkdir(tmpTypesDir, { recursive: true });
+		await cp('types/globals.d.ts', join(tmpTypesDir, 'globals.d.ts'));
 
-	const rootNames = srcFiles
-		.filter((entry) => entry.endsWith('.ts'))
-		.map((entry) => resolve(srcDir, entry));
-	rootNames.push(resolve(tmpTypesDir, 'globals.d.ts'));
+		const rootNames = srcFiles
+			.filter((entry) => entry.endsWith('.ts'))
+			.map((entry) => resolve(srcDir, entry));
+		rootNames.push(resolve(tmpTypesDir, 'globals.d.ts'));
 
-	const { diagnostics } = performCompilation({
-		emitFlags: EmitFlags.Default,
-		host,
-		options,
-		rootNames
-	});
+		const { diagnostics } = performCompilation({
+			emitFlags: EmitFlags.Default,
+			host,
+			options,
+			rootNames
+		});
 
-	// Only fail the build on errors that originate from the angular component
-	// sources we copied into the temp dir. Errors in transitively imported
-	// files (svelte/vue type defs, etc.) are pre-existing and tolerated.
-	const resolvedSrcDir = resolve(srcDir);
-	const errors = diagnostics.filter(
-		(diag: ts.Diagnostic) =>
-			diag.category === ts.DiagnosticCategory.Error &&
-			diag.file?.fileName?.startsWith(resolvedSrcDir)
-	);
-	if (errors.length > 0) logAngularErrorsAndExit(errors);
+		// Only fail the build on errors that originate from the angular component
+		// sources we copied into the temp dir. Errors in transitively imported
+		// files (svelte/vue type defs, etc.) are pre-existing and tolerated.
+		const resolvedSrcDir = resolve(srcDir);
+		const errors = diagnostics.filter(
+			(diag: ts.Diagnostic) =>
+				diag.category === ts.DiagnosticCategory.Error &&
+				diag.file?.fileName?.startsWith(resolvedSrcDir)
+		);
+		if (errors.length > 0) logAngularErrorsAndExit(errors);
 
-	// Copy emitted JS files to final dir, adding .js extensions to relative imports
-	const resolveOutputDir = (fileName: string) => {
-		if (fileName.endsWith('.js')) {
-			return finalDir;
-		}
+		// Copy emitted JS files to final dir, adding .js extensions to relative imports
+		const resolveOutputDir = (fileName: string) => {
+			if (fileName.endsWith('.js')) {
+				return finalDir;
+			}
 
-		if (fileName.endsWith('.d.ts')) {
-			return finalTypesDir;
-		}
+			if (fileName.endsWith('.d.ts')) {
+				return finalTypesDir;
+			}
 
-		return null;
-	};
-	const writeEmittedArtifact = async (fileName: string, content: string) => {
-		const outputDir = resolveOutputDir(fileName);
-		if (!outputDir) {
-			return;
-		}
+			return null;
+		};
+		const writeEmittedArtifact = async (
+			fileName: string,
+			content: string
+		) => {
+			const outputDir = resolveOutputDir(fileName);
+			if (!outputDir) {
+				return;
+			}
 
-		const processed = addJsExtensions(content);
-		await writeFile(join(outputDir, fileName), processed);
-	};
+			const processed = addJsExtensions(content);
+			await writeFile(join(outputDir, fileName), processed);
+		};
 
-	await runSequentially(
-		Object.entries(emitted),
-		async ([fileName, content]) => {
-			if (fileName.includes('/')) return;
-			await writeEmittedArtifact(fileName, content);
-		}
-	);
+		await runSequentially(
+			Object.entries(emitted),
+			async ([fileName, content]) => {
+				if (fileName.includes('/')) return;
+				await writeEmittedArtifact(fileName, content);
+			}
+		);
 
-	await Bun.build({
-		entrypoints: [
-			resolve(srcDir, 'core', 'streamingSlotRegistry.ts'),
-			resolve(srcDir, 'core', 'streamingSlotRegistrar.ts')
-		],
-		external: ['node:async_hooks'],
-		format: 'esm',
-		minify: false,
-		outdir: resolve(finalDir, 'core'),
-		sourcemap: false,
-		target: 'bun'
-	});
-
-	// Clean up temp dir
-	await rm(tmpDir, { force: true, recursive: true });
+		await Bun.build({
+			entrypoints: [
+				resolve(srcDir, 'core', 'streamingSlotRegistry.ts'),
+				resolve(srcDir, 'core', 'streamingSlotRegistrar.ts')
+			],
+			external: ['node:async_hooks'],
+			format: 'esm',
+			minify: false,
+			outdir: resolve(finalDir, 'core'),
+			sourcemap: false,
+			target: 'bun'
+		});
+	} finally {
+		await rm(tmpDir, { force: true, recursive: true }).catch(() => {});
+	}
 };
 
 const verifyExports = async () => {
@@ -620,4 +685,4 @@ const verifyExports = async () => {
 	}
 };
 
-build();
+withBuildLock(build);

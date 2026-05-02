@@ -37,10 +37,3 @@ export type CachedRouteData = {
 	props: Record<string, unknown> | undefined;
 	headTag: `<head>${string}</head>`;
 };
-
-export type SsrDepsResult = {
-	common: typeof import('@angular/common');
-	core: typeof import('@angular/core');
-	platformBrowser: typeof import('@angular/platform-browser');
-	platformServer: typeof import('@angular/platform-server');
-};

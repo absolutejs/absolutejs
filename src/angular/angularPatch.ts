@@ -1,4 +1,4 @@
-import { resolveAngularPackage } from './resolveAngularPackage';
+import { resolveAngularRuntimePath } from './resolveAngularPackage';
 
 // Patches Angular SSR's DominoAdapter to guard against null doc.head
 
@@ -113,7 +113,7 @@ const patchElementLayout = (doc: Document) => {
 
 export const applyPatches = async () => {
 	const { ɵDominoAdapter } = await import(
-		resolveAngularPackage('@angular/platform-server')
+		resolveAngularRuntimePath('@angular/platform-server')
 	);
 	if (!ɵDominoAdapter?.prototype) {
 		console.warn(

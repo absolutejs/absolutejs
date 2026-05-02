@@ -152,21 +152,14 @@ const formatSvelteOutput = (output: string) => {
 	return formatted;
 };
 
-const TYPECHECK_EXCLUDE = [
-	'../node_modules/**/*',
-	'../**/.absolutejs/**/*',
-	'../**/build/**/*',
-	'../**/dist/**/*',
-	'../**/generated/**/*'
-];
-
-const TYPECHECK_INCLUDE = [
-	'../src/**/*',
-	'../types/**/*',
-	'../example/**/*',
-	'../tests/**/*',
-	'../test/**/*',
-	'../scripts/**/*'
+// Dirs AbsoluteJS itself writes to. Tsc would crash typechecking them
+// (codegen with non-resolvable paths, .ts-extension imports, etc.). These
+// excludes are not opinions about project layout — they're about not
+// type-checking AbsoluteJS's own generated output.
+const ABSOLUTE_INTERNAL_EXCLUDES = [
+	'.absolutejs/**/*',
+	'**/build/**/*',
+	'**/generated/**/*'
 ];
 
 const resolveAbsoluteTypeFile = (fileName: string) => {
@@ -205,10 +198,12 @@ const toGeneratedConfigPath = (path: string) =>
 
 const getProjectTypecheckIncludes = () => {
 	const config = readProjectTsconfig();
+	// If the user's tsconfig specifies `include`, respect it. Otherwise fall
+	// back to tsc's default behavior (everything reachable from rootDir).
 	const includes =
 		Array.isArray(config.include) && config.include.length > 0
 			? config.include
-			: TYPECHECK_INCLUDE;
+			: ['**/*'];
 	const files = Array.isArray(config.files) ? config.files : [];
 
 	return [
@@ -224,7 +219,7 @@ const getProjectTypecheckExcludes = () => {
 
 	return [
 		...new Set([
-			...TYPECHECK_EXCLUDE,
+			...ABSOLUTE_INTERNAL_EXCLUDES.map(toGeneratedConfigPath),
 			...excludes.map(toGeneratedConfigPath)
 		])
 	];
@@ -290,7 +285,7 @@ const buildAngularCheck = async (cacheDir: string, angularDir: string) => {
 					noEmit: true,
 					rootDir: '..'
 				},
-				exclude: TYPECHECK_EXCLUDE,
+				exclude: ABSOLUTE_INTERNAL_EXCLUDES.map(toGeneratedConfigPath),
 				extends: resolve('tsconfig.json'),
 				include: [`../${angularDir}/**/*`]
 			},
