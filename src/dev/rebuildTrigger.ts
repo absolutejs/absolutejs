@@ -769,24 +769,47 @@ const compileAndBundleAngular = async (
 		getStyleTransformConfig(state.config)
 	);
 
-	// Rewrite bare `@angular/*` specifiers in the SSR page outputs to
-	// absolute vendor file paths. The full server bundle pass does this
-	// for outputs of `bun.build`; the HMR fast path skips the bundle and
-	// loads compileAngular's raw output directly, so it must rewrite here
-	// too. Without this, SSR re-imports `@angular/core` from node_modules
-	// (unlinked, partial-AOT) and produces NG0201 from class-identity drift.
+	// SSR loads compileAngular's raw output directly because the HMR fast
+	// path skips the bun.build server pass that would normally rewrite
+	// `@angular/*` specifiers (without rewriting, SSR resolves the unlinked
+	// node_modules copy and trips NG0201 from partial-AOT class drift). But
+	// the same raw file is also the input to bundleAngularClient via the
+	// hydration wrapper's relative `import * as pageModule` — and Bun's
+	// `external: ['@angular/*']` only matches bare specifiers, so rewriting
+	// the original in place would let Bun follow the resulting relative
+	// path to the server-target Angular vendor and inline the whole thing
+	// into the client bundle. The page would then ship its own copy of
+	// @angular/core's DI primitives while vendor's R3Injector wrote to a
+	// different copy, producing NG0203 on hydration. So write SSR-rewritten
+	// content to a sibling `.ssr.js` and point the manifest at it; the
+	// original file stays bare-specifier for the client bundle.
 	const { getAngularServerVendorPaths } = await import(
 		'../core/devVendorPaths'
 	);
 	const angServerVendorPaths = getAngularServerVendorPaths();
+	const ssrPaths = angServerVendorPaths
+		? serverPaths.map((serverPath) =>
+				serverPath.replace(/\.js$/, '.ssr.js')
+			)
+		: serverPaths;
 	if (serverPaths.length > 0 && angServerVendorPaths) {
+		const { copyFile } = await import('node:fs/promises');
 		const { rewriteImports } = await import('../build/rewriteImports');
-		await rewriteImports(serverPaths, angServerVendorPaths);
+		await Promise.all(
+			serverPaths.map((serverPath, idx) => {
+				const ssrPath = ssrPaths[idx];
+				if (!ssrPath) return Promise.resolve();
+
+				return copyFile(serverPath, ssrPath);
+			})
+		);
+		await rewriteImports(ssrPaths, angServerVendorPaths);
 	}
 
-	serverPaths.forEach((serverPath) => {
+	serverPaths.forEach((serverPath, idx) => {
 		const fileBase = basename(serverPath, '.js');
-		state.manifest[toPascal(fileBase)] = resolve(serverPath);
+		const ssrPath = ssrPaths[idx] ?? serverPath;
+		state.manifest[toPascal(fileBase)] = resolve(ssrPath);
 	});
 
 	if (clientPaths.length > 0) {
@@ -977,6 +1000,13 @@ const handleReactFastPath = async (
 
 		return state.manifest;
 	}
+
+	// Lazy import — keep static imports out of this file (HMR rule) and
+	// avoid paying for the lookup on non-React HMR cycles.
+	const { warnIfReactFastRefreshUnsupported } = await import(
+		'./moduleServer'
+	);
+	warnIfReactFastRefreshUnsupported();
 
 	return handleReactModuleServerPath(
 		state,

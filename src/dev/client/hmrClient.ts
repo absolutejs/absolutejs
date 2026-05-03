@@ -46,25 +46,23 @@ if (typeof window !== 'undefined') {
 // Catch uncaught runtime errors and show the error overlay
 window.addEventListener('error', (evt) => {
 	if (!evt.error) return;
+	const isErr = evt.error instanceof Error;
 	showErrorOverlay({
 		framework: detectCurrentFramework() || undefined,
 		kind: 'runtime',
-		message:
-			evt.error instanceof Error
-				? evt.error.stack || evt.error.message
-				: String(evt.error)
+		message: isErr ? evt.error.message : String(evt.error),
+		stack: isErr ? evt.error.stack : undefined
 	});
 });
 
 window.addEventListener('unhandledrejection', (evt) => {
 	if (!evt.reason) return;
+	const isErr = evt.reason instanceof Error;
 	showErrorOverlay({
 		framework: detectCurrentFramework() || undefined,
 		kind: 'runtime',
-		message:
-			evt.reason instanceof Error
-				? evt.reason.stack || evt.reason.message
-				: String(evt.reason)
+		message: isErr ? evt.reason.message : String(evt.reason),
+		stack: isErr ? evt.reason.stack : undefined
 	});
 });
 

@@ -481,7 +481,11 @@ const probeReactFastRefresh = () => {
 const reactFastRefreshSupported = probeReactFastRefresh();
 
 let reactFastRefreshWarningEmitted = false;
-const warnIfReactFastRefreshUnsupported = () => {
+// Exported so the HMR pipeline can fire this on the FIRST real React edit
+// rather than during dev-startup cache pre-warming. Without that gate, a
+// project that only ever edits non-React files still sees the warning,
+// because prepare.ts pre-transpiles every framework's source up front.
+export const warnIfReactFastRefreshUnsupported = () => {
 	if (reactFastRefreshSupported || reactFastRefreshWarningEmitted) return;
 	reactFastRefreshWarningEmitted = true;
 	logWarn(
@@ -500,7 +504,6 @@ const transformReactFile = (
 	projectRoot: string,
 	rewriter: ReturnType<typeof buildImportRewriter>
 ) => {
-	warnIfReactFastRefreshUnsupported();
 	const raw = readFileSync(filePath, 'utf-8');
 	const valueExports = tsxTranspiler.scan(raw).exports;
 	let transpiled = reactTranspiler.transformSync(raw);

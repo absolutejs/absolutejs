@@ -6,6 +6,11 @@ export type ErrorOverlayOptions = {
 	line?: number;
 	lineText?: string;
 	message?: string;
+	/** Full Error.stack (or pre-formatted multi-line trace). Optional —
+	 *  if `message` already starts with the error name + first line of
+	 *  the stack (e.g. `${err.name}: ${err.message}\n${err.stack}`), the
+	 *  overlay deduplicates internally. */
+	stack?: string;
 };
 
 export type DOMStateEntry = {

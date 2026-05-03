@@ -90,7 +90,7 @@ const resolveDevAssetResponse = async (
 	if (bytes) {
 		return new Response(new Uint8Array(bytes).buffer, {
 			headers: {
-				'Cache-Control': 'no-cache',
+				'Cache-Control': 'no-store',
 				'Content-Type': getMimeType(pathname)
 			}
 		});
@@ -105,7 +105,7 @@ const resolveDevAssetResponse = async (
 	if (aliasedTarget) {
 		return new Response(null, {
 			headers: {
-				'Cache-Control': 'no-cache',
+				'Cache-Control': 'no-store',
 				Location: aliasedTarget
 			},
 			status: 302
