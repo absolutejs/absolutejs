@@ -1917,9 +1917,8 @@ export const compileAngular = async (
 		// Bun main in PR oven-sh/bun#29393, awaiting 1.3.14. Tracked as
 		// oven-sh/bun#29791; see UPSTREAM_ISSUES.md.
 		const detectExportedComponentClass = (
-			source: string,
-			fallback: string
-		): string => {
+			source: string
+		): string | null => {
 			const defaultMatch = source.match(
 				/export\s+default\s+([A-Za-z_$][\w$]*)\s*;/
 			);
@@ -1928,17 +1927,25 @@ export const compileAngular = async (
 				/export\s+(?:default\s+)?class\s+([A-Za-z_$][\w$]*)/
 			);
 			if (exportClassMatch) return exportClassMatch[1]!;
-			return fallback;
+			return null;
 		};
-		const componentClassName = await traceAngularPhase(
+		const detectedClassName = await traceAngularPhase(
 			'wrapper/detect-component-class',
-			() =>
-				detectExportedComponentClass(
-					original,
-					`${toPascal(fileBase)}Component`
-				),
+			() => detectExportedComponentClass(original),
 			{ entry: resolvedEntry }
 		);
+		// `not-found.ts` and similar convention pages export a render
+		// function (`renderNotFound`/`renderError`/etc.) instead of a
+		// component class. Falling back to a guessed `<Pascal>Component`
+		// name when nothing is detected emits a dangling
+		// `export default NotFoundComponent;` and the bundle throws
+		// `ReferenceError: NotFoundComponent is not defined` at module
+		// evaluation. Use the fallback ONLY for the bundle-internal
+		// references that need *some* placeholder symbol — and skip the
+		// trailing default-export append entirely when nothing real was
+		// found.
+		const componentClassName =
+			detectedClassName ?? `${toPascal(fileBase)}Component`;
 		const usesLegacyAnimations = await traceAngularPhase(
 			'wrapper/detect-legacy-animations',
 			() => usesLegacyAngularAnimations(resolvedEntry),
@@ -1989,8 +1996,11 @@ export const compileAngular = async (
 			`templateUrl: '../../pages/${fileBase}.html'`
 		);
 
-		// Only add default export if one doesn't already exist
-		if (!rewritten.includes('export default')) {
+		// Only add default export if one doesn't already exist AND we
+		// actually detected a real class to point it at — convention
+		// pages that export a render function (e.g. not-found.ts's
+		// `renderNotFound`) intentionally have no default class export.
+		if (detectedClassName && !rewritten.includes('export default')) {
 			rewritten += `\nexport default ${componentClassName};\n`;
 		}
 		if (usesLegacyAnimations) {
