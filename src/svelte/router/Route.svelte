@@ -25,26 +25,30 @@
 	const registrationOrder = Number(id.slice(1));
 
 	// Register synchronously at script-body time so SSR (which doesn't
-	// run $effect) sees the registration. The Router itself owns
-	// rendering of the winning route's content — Route emits no DOM and
-	// no hydration markers, so a page with N <Route>s produces ONE
-	// `{#if}` block in the rendered HTML, not N.
-	const initialCompiled = compilePattern(
-		joinBasepath(registry.basepath, path)
-	);
+	// run $effect) sees the registration before the template runs.
 	registry.register(id, {
-		content: content as Snippet<[Record<string, string | undefined>]>,
-		pattern: initialCompiled,
+		pattern: compilePattern(joinBasepath(registry.basepath, path)),
 		registrationOrder
 	});
 
 	$effect(() => {
 		registry.register(id, {
-			content: content as Snippet<[Record<string, string | undefined>]>,
 			pattern: compilePattern(joinBasepath(registry.basepath, path)),
 			registrationOrder
 		});
 	});
 
 	onDestroy(() => registry.deregister(id));
+
+	// The Router computes the active match across all registered Routes
+	// (specificity-ranked). Each Route checks if it's the winner and
+	// renders its own content at its own location in the markup. That
+	// way `<Route>` nested inside a layout `<section>` renders inside
+	// that section instead of getting hoisted to the Router's root.
+	const match = $derived(registry.getActiveMatch());
+	const isActive = $derived(match?.id === id);
 </script>
+
+{#if isActive && match}
+	{@render content(match.params as ExtractRouteParams<Path>)}
+{/if}

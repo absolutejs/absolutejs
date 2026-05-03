@@ -1,15 +1,14 @@
 <script lang="ts" module>
-	import type { Snippet } from 'svelte';
-
 	type RouteEntry = {
 		// reactive — read by the winner-resolver
 		pattern: ReturnType<typeof import('./matchPath').compilePattern>;
 		// stable — assigned at registration time, used as tiebreaker
 		registrationOrder: number;
-		// the snippet the winning Route should render — extraction lives
-		// on the Router so the active branch renders inside ONE if-block
-		// instead of one per Route (one set of hydration markers, not N)
-		content: Snippet<[Record<string, string | undefined>]>;
+	};
+
+	type ActiveMatch = {
+		id: string;
+		params: Record<string, string | undefined>;
 	};
 
 	export type RouterRegistry = {
@@ -18,11 +17,16 @@
 		register: (id: string, entry: RouteEntry) => void;
 		deregister: (id: string) => void;
 		nextRouteId: () => string;
+		// Returns the currently-winning Route's id and matched params, or null
+		// if no Route matches. Routes call this to decide whether to render.
+		// Reads $state internally, so callers using it inside $derived/$effect
+		// auto-subscribe to URL + registration changes.
+		getActiveMatch: () => ActiveMatch | null;
 	};
 </script>
 
 <script lang="ts">
-	import { getContext, onMount, setContext } from 'svelte';
+	import { getContext, onMount, setContext, type Snippet } from 'svelte';
 	import type { RouterMode } from '../../../types/svelteRouter';
 	import { setRouterMode } from './goto';
 	import { hashPathnameOf } from './hashMode';
@@ -64,15 +68,17 @@
 	const isOutermost = parent === undefined;
 
 	// Specificity ranking across siblings: each <Route> registers with
-	// its compiled pattern + content snippet + a stable mount-order
-	// index. The winner is computed lazily from the current URL — highest
-	// score wins; ties break by earlier registration order.
+	// its compiled pattern + a stable mount-order index. The winner is
+	// computed lazily from the current URL — highest score wins; ties
+	// break by earlier registration order. The winning Route then renders
+	// its own content at ITS location in the markup (so a Route nested
+	// inside a layout `<section>` renders inside that section, not at the
+	// Router's root).
 	const routes = $state(new Map<string, RouteEntry>());
 	let routeCounter = 0;
 
-	const computeWinner = () => {
+	const computeWinner = (): ActiveMatch | null => {
 		let bestId: string | null = null;
-		let bestEntry: RouteEntry | null = null;
 		let bestParams: Record<string, string | undefined> | null = null;
 		let bestScore = -Infinity;
 		let bestOrder = Infinity;
@@ -89,21 +95,32 @@
 				bestScore = entry.pattern.score;
 				bestOrder = entry.registrationOrder;
 				bestId = id;
-				bestEntry = entry;
 				bestParams = match.params as Record<string, string | undefined>;
 			}
 		}
 
-		return bestId && bestEntry && bestParams
-			? { content: bestEntry.content, params: bestParams }
+		return bestId && bestParams
+			? { id: bestId, params: bestParams }
 			: null;
 	};
 
+	// Recompute on every call rather than caching via $derived. SSR
+	// renders Routes in declaration order; each Route's template invokes
+	// `getActiveMatch()` immediately after registering itself, before its
+	// siblings have registered. A cached value would freeze on whichever
+	// Route triggered the computation first, so later-registered (more
+	// specific) Routes would lose. Calling `computeWinner()` afresh on
+	// every read sees the full registry by the time all Routes have
+	// rendered. Each call is O(N) over N routes; for typical pages
+	// (N < 20) the recomputation is negligible. Reactivity still works:
+	// each Route wraps the call in its own `$derived`, which tracks the
+	// `$state(routes)` and `page.url` reads inside `computeWinner`.
 	const registry: RouterRegistry = {
 		basepath: stackedBasepath,
 		deregister: (id) => {
 			routes.delete(id);
 		},
+		getActiveMatch: () => computeWinner(),
 		mode: stackedMode,
 		nextRouteId: () => `r${routeCounter++}`,
 		register: (id, entry) => {
@@ -112,10 +129,6 @@
 	};
 
 	setContext<RouterRegistry>(ROUTER_CONTEXT_KEY, registry);
-
-	// Recompute on every page.url change OR routes registry mutation.
-	// Reading $state during $derived auto-tracks both dependencies.
-	const winner = $derived(computeWinner());
 
 	if (isOutermost) {
 		setRouterMode(stackedMode);
@@ -176,6 +189,3 @@
 </script>
 
 {@render children?.()}
-{#if winner}
-	{@render winner.content(winner.params)}
-{/if}
