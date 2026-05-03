@@ -106,9 +106,26 @@ export type SveltePageRequestInput<
 > = SveltePageRenderOptions & {
 	indexPath: string;
 	pagePath: string;
+	/** The incoming Elysia request. When provided, the request's pathname
+	 *  is auto-injected into props as `url` so the page can pass it into
+	 *  `<Router url={url}>` without the caller threading it by hand.
+	 *  User-supplied `props.url` (if present) takes precedence. */
+	request?: Request;
 } & (HasNoSvelteProps<SveltePropsOf<Component>> extends true
 		? { props?: NoInfer<SveltePropsOf<Component>> }
 		: { props: NoInfer<SveltePropsOf<Component>> });
+
+const resolveRequestPathname = (request: Request | undefined) => {
+	if (!request) return undefined;
+
+	try {
+		const parsed = new URL(request.url);
+
+		return `${parsed.pathname}${parsed.search}`;
+	} catch {
+		return undefined;
+	}
+};
 
 export const handleSveltePageRequest = async <
 	Component extends SvelteComponent<never>
@@ -118,7 +135,19 @@ export const handleSveltePageRequest = async <
 	const resolvedIndexPath = input.indexPath;
 	const resolvedOptions = input;
 	const resolvedPagePath = input.pagePath;
-	const resolvedProps = input.props;
+	const userProps = input.props;
+	const requestPathname = resolveRequestPathname(input.request);
+	// Auto-inject `url` from the request when the caller didn't already
+	// pass one in props. Lets users wire `<Router url={url}>` just by
+	// forwarding `request` instead of unwrapping it themselves.
+	const resolvedProps =
+		requestPathname !== undefined &&
+		(!userProps || !('url' in (userProps as Record<string, unknown>)))
+			? ({
+					...((userProps as Record<string, unknown>) ?? {}),
+					url: requestPathname
+				} as unknown as SveltePropsOf<Component>)
+			: userProps;
 
 	if (isSsrCacheDirty('svelte')) {
 		return buildDirtyResponse(resolvedIndexPath, resolvedProps);

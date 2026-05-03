@@ -4,84 +4,20 @@ Features missing from AbsoluteJS that Next.js provides, ordered by priority. Eac
 
 ---
 
-## 1. P1 — Native Router Cooperation (intra-framework SPA)
-
-**What this is:**
-Make sure each framework's *own* router (`react-router-dom`, `vue-router`, `svelte-routing`, `@angular/router`, etc.) can drive client-side sub-route navigation inside a page that AbsoluteJS server-renders. The user installs the router themselves; AbsoluteJS just makes sure the SSR pass cooperates so SEO, deep-link load, and refresh-mid-route all work.
-
-This is the "Angular portal" pattern: every page in the app is full-MPA except `/portal/*`, which is one Angular page whose router handles client-side navigation between portal sub-routes. AbsoluteJS already does this for Angular — extend the pattern to React, Svelte, and Vue.
-
-**What AbsoluteJS has today:**
-- **Angular**: ✅ done. `pageHandler.ts` accepts `request?: Request`, forwards `request.url` to `renderApplication`, and a `routerRedirectProviders` bridge translates router redirect events into HTTP `Location` responses.
-- **React, Svelte, Vue**: nothing. Users can technically wire `react-router-dom` / `svelte-routing` / `vue-router` today, but there's no documented seam for passing the request URL into the router on the server, and Vue specifically can't work because vue-router needs `app.use(router); router.push(url); await router.isReady();` *before* `renderToWebStream`.
-
-**Why this matters:**
-This is the SPA story for ~90% of users — pages are MPA-default, with selective sub-route SPA inside individual pages. It does not require a new AbsoluteJS API surface, a new client-side runtime, or a `<Link>` component. It's framework-native idioms cooperating with our SSR.
-
-**What needs to be built:**
-
-*React adapter (`src/react/pageHandler.ts`):*
-- Add optional `request?: Request` to `ReactPageRequestInput`. When present, surface `request.url` to the user's Page either via props (documented convention: `props.url`) or via a context the user can consume.
-- Document the canonical pattern: user wraps their root in `<StaticRouter location={url}>` on the server and `<BrowserRouter>` on the client.
-- For redirects, document that react-router throws a `Response` from loaders/actions which the user catches in their Elysia handler.
-
-*Vue adapter (`src/vue/pageHandler.ts`):*
-- Add optional `request?: Request` and an optional `prepareApp?: (app, url) => void | Promise<void>` callback. If `prepareApp` is provided, await it after `createSSRApp` and before `renderToWebStream`.
-- Document the canonical pattern: user creates a vue-router instance inside `prepareApp`, calls `app.use(router)`, then `await router.push(url)` + `await router.isReady()`.
-- Mirror Angular's redirect bridge: a small helper that watches `router.afterEach` for navigation cancellations and converts them into `responseInit.status = 302` + `Location` header.
-
-*Svelte adapter (`src/svelte/pageHandler.ts`):*
-- Add optional `request?: Request`. Document `svelte-routing` as the canonical choice (history-based, SSR-aware, ~5KB), and document the pattern: page wraps content in `<Router url={url}>` on the server, `<Router>` (no url) on the client.
-- Note that svelte-routing's `<Route>` elements are declarative inside the page tree, so no adapter-level setup is needed beyond URL passthrough.
-
-*Angular adapter:*
-- ✅ already done. No changes.
-
-**What does NOT change:**
-- No new AbsoluteJS-owned `<Link>` component.
-- No `navigate.ts` shared client runtime.
-- No partial-rendering response mode.
-- No prefetch infrastructure.
-- No cross-framework navigation handling.
-
-All of those belong to item #1.5 (below) — they're the *cross-framework* SPA story, not the *intra-framework* SPA story.
-
-**Design considerations:**
-- AbsoluteJS does not bundle the routers. Users `bun add react-router-dom` / `vue-router` / `svelte-routing` themselves. Same posture as `zustand`, `tailwindcss`, etc.
-- `request?: Request` is optional everywhere. Pages without sub-routing don't need to plumb it.
-- For Elysia route patterns, users register a wildcard route per framework page — e.g. `app.get('/dashboard', ...)` and `app.get('/dashboard/:rest*', ...)` — so the same handler responds for every sub-URL and the framework's router does the dispatch.
-- Refresh / deep-link on a sub-route hits the server with the actual URL. The router (now URL-aware via our passthrough) renders the correct view.
-- All routers' SSR modes are battle-tested. We're adding the smallest possible bridge to plug them into our pageHandlers.
-
-**Files likely involved:**
-- `src/react/pageHandler.ts` — accept optional `request?: Request`, surface URL to props
-- `src/vue/pageHandler.ts` — accept optional `request?: Request` + `prepareApp?` callback
-- `src/svelte/pageHandler.ts` — accept optional `request?: Request`, surface URL to props
-- New: `src/vue/routerRedirectProviders.ts` (mirror of Angular's, optional helper for vue-router)
-- Documentation showing the canonical SPA pattern per framework
-
----
-
-## 1.5. P2 — Cross-Framework Navigation with `<Link>`
+## 1. P2 — Cross-Framework Navigation with `<Link>`
 
 **What this is:**
 The original "Next.js-style smooth navigation" story — a shared client-side navigation module that lets a React page link to a Svelte page (or Vue → Angular) without a full page load, with persistent layouts spanning framework boundaries.
 
-This is **strictly opt-in infrastructure**. Most users only need item #1 (intra-framework SPA via native routers); item #1.5 is for multi-team monorepos, gradual framework migrations, and mixed-stack design systems where layouts need to persist across framework switches.
+This is **strictly opt-in infrastructure**. Intra-framework SPA (each framework's own router driving sub-route navigation inside one page) is already shipped via native router cooperation in every adapter — see `applyVueRouterRedirect`, the Svelte router under `@absolutejs/absolute/svelte/router`, and the `request?: Request` field on every page handler. This roadmap item is for the *cross-framework* case: multi-team monorepos, gradual framework migrations, and mixed-stack design systems where layouts need to persist across framework switches.
 
 **What AbsoluteJS has today:**
-Same baseline as item #1 — plain `<a>` tags trigger full page loads on cross-framework navigation.
+Plain `<a>` tags trigger full page loads on cross-framework navigation. Within a single framework, the framework's native router handles client-side SPA already.
 
 **Why this matters:**
 - Persistent layouts across framework boundaries: a React navbar stays mounted while the page area swaps to a Svelte route.
 - Better than the native-router story for teams where pages span multiple frameworks.
 - Astro-like in posture — HTML-first, JS-to-enhance.
-
-**Why it's separate from item #1:**
-- Item #1 covers the *common* case (one page = one framework, sub-routes within it). Item #1.5 covers the *rare-but-valuable* case (cross-framework smoothness).
-- Item #1.5 adds a ~5KB client runtime weight that users without cross-framework needs shouldn't pay.
-- Item #1.5 requires partial-render response modes in every page handler — meaningful complexity.
-- Building #1.5 first would put weight on every user; building #1 first delivers SPA value to most of them with zero new runtime weight.
 
 **What needs to be built:**
 
@@ -94,7 +30,7 @@ Same baseline as item #1 — plain `<a>` tags trigger full page loads on cross-f
 - `history.pushState()` on navigate, handle `popstate` for back/forward
 - Hydrate the new content after swap (call the framework's hydration entry point)
 - View Transitions API for smooth animated swaps (already used in Angular HMR)
-- Cooperates with native routers: a `data-link="external"` attribute or a same-framework-detection heuristic decides whether item #1 (native router) or item #1.5 (cross-framework swap) handles the click.
+- Cooperates with native routers: a `data-link="external"` attribute or a same-framework-detection heuristic decides whether the framework's own router or the cross-framework swap handles the click.
 
 *Prefetching:*
 - On `mouseenter` (default) — prefetch the page so it's ready on click
@@ -114,13 +50,13 @@ Same baseline as item #1 — plain `<a>` tags trigger full page loads on cross-f
 - All wrappers accept `prefetch` prop (`"hover"` | `"viewport"` | `"none"`)
 
 *Cross-framework navigation:*
-- Same-framework destination: defer to the page's native router (item #1), or swap `<main>` if no native router is set up.
+- Same-framework destination: defer to the page's native router, or swap `<main>` if no native router is set up.
 - Cross-framework destination: tear down old framework's hydration, bootstrap the new one. May need `<body>` swap rather than `<main>` for runtime isolation.
 - Fallback: if cross-framework swap fails, fall back to full page load with a View Transition for visual continuity.
 
 **Design considerations:**
 - Progressive enhancement — `<Link>` renders a real `<a>` tag. If JS fails, plain navigation works.
-- Module loads on every page as part of the AbsoluteJS client runtime — opt out via config for users who only need item #1.
+- Module loads on every page as part of the AbsoluteJS client runtime — opt out via config for users who only need intra-framework SPA via the native routers.
 - CSS handling: partial response includes new page's stylesheet list; navigation module loads them before swap to prevent FOUC.
 - Scroll behavior: scroll to top on navigate; `scrollRestoration: 'manual'` for back/forward.
 

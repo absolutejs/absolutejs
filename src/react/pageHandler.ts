@@ -25,9 +25,27 @@ export type ReactPageRequestInput<
 > = ReactPageRenderOptions & {
 	Page: ReactComponent<Props>;
 	index: string;
+	/** The incoming Elysia request. When provided, the request's pathname
+	 *  is auto-injected into props as `url` so the Page can wire
+	 *  `<StaticRouter location={url}>` on the server without the caller
+	 *  threading the URL by hand. User-supplied `props.url` (if present)
+	 *  takes precedence — the auto-injection only fills in when missing. */
+	request?: Request;
 } & (keyof Props extends never
 		? { props?: NoInfer<Props> }
 		: { props: NoInfer<Props> });
+
+const resolveRequestPathname = (request: Request | undefined) => {
+	if (!request) return undefined;
+
+	try {
+		const parsed = new URL(request.url);
+
+		return `${parsed.pathname}${parsed.search}`;
+	} catch {
+		return undefined;
+	}
+};
 
 const buildRefreshSetup = () => {
 	if (process.env.NODE_ENV === 'production') {
@@ -70,7 +88,19 @@ export const handleReactPageRequest = async <
 	const Page = input.Page;
 	const resolvedIndex = input.index;
 	const options = input;
-	const maybeProps = input.props;
+	const userProps = input.props;
+	const requestPathname = resolveRequestPathname(input.request);
+	// Auto-inject `url` from the request when the caller didn't already
+	// pass one in props. Lets users wire <StaticRouter location={url}>
+	// just by forwarding `request` instead of unwrapping it themselves.
+	const maybeProps =
+		requestPathname !== undefined &&
+		(!userProps || !('url' in userProps))
+			? ({
+					...(userProps ?? {}),
+					url: requestPathname
+				} as unknown as Props)
+			: userProps;
 	const pageName = Page.name || Page.displayName || '';
 
 	if (isSsrCacheDirty('react')) {

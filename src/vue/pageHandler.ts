@@ -51,7 +51,18 @@ const readHasIslands = (value: unknown) => {
 	return typeof hasIslands === 'boolean' ? hasIslands : false;
 };
 
-type VueSetupAppContext = { url: string; isServer: boolean };
+type VueSetupAppContext = {
+	url: string;
+	isServer: boolean;
+	/** Server-only. Call from inside `setupApp` after vue-router has
+	 *  resolved (e.g. after `await router.isReady()`) to short-circuit
+	 *  the SSR render and emit an HTTP redirect instead. The caller
+	 *  passes the destination URL; the page handler returns a 302 with
+	 *  `Location: <url>`. The `applyVueRouterRedirect` helper in
+	 *  `@absolutejs/absolute/vue` wraps the common pattern of comparing
+	 *  the requested URL against `router.currentRoute.value.fullPath`. */
+	setRedirect: (location: string, status?: number) => void;
+};
 type VueSetupAppHook = (
 	app: VueApp,
 	ctx: VueSetupAppContext
@@ -196,9 +207,30 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 				render: () => h(resolvedPage.component, maybeProps ?? null)
 			});
 
+			let pendingRedirect: { location: string; status: number } | null =
+				null;
 			if (resolvedPage.setupApp) {
 				const url = resolveRequestRenderUrl(input.request);
-				await resolvedPage.setupApp(app, { url, isServer: true });
+				await resolvedPage.setupApp(app, {
+					isServer: true,
+					setRedirect: (location, status) => {
+						pendingRedirect = {
+							location,
+							status: status ?? 302
+						};
+					},
+					url
+				});
+			}
+
+			if (pendingRedirect !== null) {
+				const redirect: { location: string; status: number } =
+					pendingRedirect;
+
+				return new Response(null, {
+					headers: { Location: redirect.location },
+					status: redirect.status
+				});
 			}
 
 			const bodyStream = renderToWebStream(app);
