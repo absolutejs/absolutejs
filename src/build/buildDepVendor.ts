@@ -347,11 +347,44 @@ const buildDepVendorPass = async (
 	const otherSpecsFor = (current: string) =>
 		specifiers.filter((spec) => !isPrefixOrEqual(spec, current));
 
-	const results = await Promise.all(
-		entries.map(({ entryPath, specifier }) =>
-			bunBuild({
+	// CJS-style packages (e.g. @vapi-ai/web, @stripe/stripe-js's UMD path)
+	// frequently call `require('X')` at runtime against a transitive
+	// dependency. Bun preserves those calls when X is externalized, wrapped
+	// in a `__require()` shim that throws "Dynamic require of 'X' is not
+	// supported" in the browser — there's no synchronous module loader on
+	// the platform. The only robust fix is to inline X into THIS vendor
+	// (not the externalized URL form), so the require call resolves
+	// against the package's own bundled scope rather than the shim.
+	//
+	// Detection is post-build: scan the output text for
+	// `__require("…")`/`__require('…')` calls, extract the specifiers,
+	// drop any that are currently externalized, and re-bundle. Iterate up
+	// to 4 times so a chain of CJS packages each requiring the next one
+	// resolves transitively. ESM packages never produce __require calls,
+	// so they cost nothing.
+	//
+	// Inline scope is per-vendor: we only relax externals for the entry
+	// that needs them. Other vendors that import the same dep via static
+	// `import` continue to get the shared /vendor/<dep>.js URL after the
+	// post-build rewrite, so nothing duplicates unnecessarily.
+	const REQUIRE_CALL_RE = /__require\(\s*["']([^"']+)["']\s*\)/g;
+	const MAX_INLINE_PASSES = 4;
+
+	const buildEntryWithCjsRequireResolution = async (
+		entryPath: string,
+		specifier: string
+	) => {
+		const baseExternals = [
+			...FRAMEWORK_EXTERNALS,
+			...otherSpecsFor(specifier)
+		];
+		const externalsSet = new Set(baseExternals);
+		let lastResult: Awaited<ReturnType<typeof bunBuild>> | null = null;
+
+		for (let pass = 0; pass < MAX_INLINE_PASSES; pass++) {
+			lastResult = await bunBuild({
 				entrypoints: [entryPath],
-				external: [...FRAMEWORK_EXTERNALS, ...otherSpecsFor(specifier)],
+				external: [...externalsSet],
 				format: 'esm',
 				minify: false,
 				naming: '[name].[ext]',
@@ -360,7 +393,35 @@ const buildDepVendorPass = async (
 				splitting: false,
 				target: 'browser',
 				throw: false
-			})
+			});
+
+			if (!lastResult.success) return lastResult;
+
+			const output = lastResult.outputs[0];
+			if (!output) return lastResult;
+
+			const text = await output.text();
+			REQUIRE_CALL_RE.lastIndex = 0;
+			const requiredSpecs = new Set<string>();
+			let match;
+			while ((match = REQUIRE_CALL_RE.exec(text)) !== null) {
+				const requiredSpec = match[1];
+				if (requiredSpec && externalsSet.has(requiredSpec)) {
+					requiredSpecs.add(requiredSpec);
+				}
+			}
+
+			if (requiredSpecs.size === 0) return lastResult;
+
+			for (const spec of requiredSpecs) externalsSet.delete(spec);
+		}
+
+		return lastResult!;
+	};
+
+	const results = await Promise.all(
+		entries.map(({ entryPath, specifier }) =>
+			buildEntryWithCjsRequireResolution(entryPath, specifier)
 		)
 	);
 
