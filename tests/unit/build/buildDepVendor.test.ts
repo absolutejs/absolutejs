@@ -34,4 +34,26 @@ describe('computeDepVendorPaths', () => {
 		expect(paths['@absolutejs/absolute/angular']).toBeUndefined();
 		expect(paths['zustand/vanilla']).toBe('/vendor/zustand_vanilla.js');
 	});
+
+	test('@-scoped specs get an underscore prefix to avoid collision', async () => {
+		const dir = mkdtempSync(join(tmpdir(), 'absolute-dep-vendor-'));
+		tempDirs.push(dir);
+		// Without the underscore prefix on scoped names, `@elysiajs/static`
+		// would map to `elysiajs_static.js` — same path Bun's resolver would
+		// produce for an unscoped `elysiajs/static` if such a package
+		// existed. The collision is observable for Firebase, where
+		// `firebase/app` re-exports `@firebase/app` and both need their own
+		// vendor file so the implementation can stay a singleton.
+		writeFileSync(
+			join(dir, 'entry.ts'),
+			[
+				`import { staticPlugin } from '@elysiajs/static';`,
+				'void staticPlugin;'
+			].join('\n')
+		);
+
+		const paths = await computeDepVendorPaths([dir]);
+
+		expect(paths['@elysiajs/static']).toBe('/vendor/_elysiajs_static.js');
+	});
 });

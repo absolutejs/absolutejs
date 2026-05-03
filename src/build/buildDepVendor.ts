@@ -1,11 +1,24 @@
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { rm } from 'node:fs/promises';
-import { build as bunBuild, Glob } from 'bun';
+import { build as bunBuild, Glob, type BunPlugin } from 'bun';
 import { generateVendorEntrySource } from './vendorEntrySource';
 
-const toSafeFileName = (specifier: string) =>
-	specifier.replace(/\//g, '_').replace(/@/g, '').replace(/-/g, '_');
+// `@`-scoped packages get an underscore prefix so `@foo/bar` and `foo/bar`
+// produce distinct vendor filenames (both would otherwise collapse to
+// `foo_bar` and overwrite each other on disk). This matters in practice for
+// Firebase, which exposes a public surface (`firebase/app`) that re-exports
+// from the implementation package (`@firebase/app`) — both need their own
+// vendor file so the implementation file can be the single shared singleton
+// and the public file can re-export through it.
+const toSafeFileName = (specifier: string) => {
+	const prefix = specifier.startsWith('@') ? '_' : '';
+
+	return (
+		prefix +
+		specifier.replace(/\//g, '_').replace(/@/g, '').replace(/-/g, '_')
+	);
+};
 
 const isResolvable = (specifier: string) => {
 	try {
@@ -212,51 +225,159 @@ const collectTransitiveImports = async (
 	return newSpecs;
 };
 
+/** Per-entry externalization plugin.
+ *
+ *  Each vendor build pass receives N entries (one per discovered bare
+ *  specifier) and runs them through a single `Bun.build` call. By default
+ *  Bun would inline every non-`external` transitive dependency into each
+ *  entry's output — meaning `firebase_auth.js` ends up with its own copy of
+ *  `@firebase/component`, `firebase_firestore.js` ends up with another copy,
+ *  and so on. Each inlined copy carries its own module-scoped state (the
+ *  classic example: `@firebase/component`'s `_components` Map). When code
+ *  registered in one bundle's copy is looked up via another bundle's copy,
+ *  it appears unregistered — surfaces as `Component auth has not been
+ *  registered yet` for Firebase. The same hazard applies to any package
+ *  with module-scoped registries (cross-bundle event buses, plugin
+ *  registries, etc.).
+ *
+ *  This plugin externalizes any import target that is one of the *other*
+ *  known vendor specs, leaving only the entry's own spec to be inlined.
+ *  After build, the post-build `rewriteVendorDirectories` step replaces the
+ *  bare specifiers with `/vendor/<name>.js` URLs, so every vendor file
+ *  references the same shared vendor file for any given dep. Result: every
+ *  page bundle agrees on exactly one instance of every vendored dep, and
+ *  module-scoped state is naturally singleton.
+ *
+ *  Importer disambiguation: the plugin distinguishes "this is the entry
+ *  file for spec X importing X" (inline) from "any other file importing X"
+ *  (externalize). The mapping from absolute entry-file path to spec is
+ *  built when the entry files are written. */
+// Note: a previous version of this file used a single Bun.build call for
+// all vendor entries with a `dedupe` onResolve plugin that externalized
+// cross-entry deps and let self-imports fall through. That hits a Bun
+// bug where an onResolve plugin that matches a path and returns `null`
+// (to fall through to default resolution) corrupts the bundle — Bun
+// emits an exports list with no backing declarations. The fix is to
+// build each entry separately with `external: [...other specs]`, so
+// the self-import case never goes through any plugin.
+
+/**
+ * Strip `/* @__PURE__ * /` annotations from vendor sources before bundling.
+ *
+ * Why: Bun's tree-shaker drops a top-level declaration when it's annotated
+ * as pure and only referenced via aliased re-exports
+ * (`export { X as Y } from '...'`). The bundle ends up with `Y` listed in
+ * its export clause but no `var X = ...` declaration, producing a hard
+ * `SyntaxError: Export 'X' is not defined in module` at load time.
+ *
+ * Reproduced with `react-router`'s `Action` enum (re-exported as
+ * `NavigationType`). The package's source has `var Action = / * @__PURE__ * /
+ * ((Action2) => { ... })()` — Bun sees the pure annotation, considers the
+ * IIFE droppable, and drops the declaration even though `Action` is the
+ * only thing keeping `NavigationType` valid.
+ *
+ * Stripping the annotation forces Bun to retain the IIFE evaluation and
+ * the resulting binding. The cost is a (very) small bundle-size increase
+ * for genuinely-unused pure values, which is acceptable for a vendor
+ * pipeline whose entire purpose is to ship every export of the package.
+ */
+const PURE_ANNOTATION = /\/\*\s*@__PURE__\s*\*\//g;
+
+const createStripPureAnnotationsPlugin = (): BunPlugin => ({
+	name: 'absolute-dep-vendor-strip-pure',
+	setup(bld) {
+		bld.onLoad({ filter: /\.(?:m?js|cjs)$/ }, async (args) => {
+			const source = await Bun.file(args.path).text();
+			if (!source.includes('@__PURE__')) return null;
+
+			return {
+				contents: source.replace(PURE_ANNOTATION, ''),
+				loader: args.path.endsWith('.cjs') ? 'js' : 'js'
+			};
+		});
+	}
+});
+
 const buildDepVendorPass = async (
 	specifiers: string[],
 	vendorDir: string,
 	tmpDir: string
 ) => {
-	const entrypoints = await Promise.all(
+	const entries = await Promise.all(
 		specifiers.map(async (specifier) => {
 			const safeName = toSafeFileName(specifier);
 			const entryPath = join(tmpDir, `${safeName}.ts`);
-			await Bun.write(entryPath, generateVendorEntrySource(specifier));
+			await Bun.write(
+				entryPath,
+				await generateVendorEntrySource(specifier)
+			);
 
-			return entryPath;
+			return { entryPath, specifier };
 		})
 	);
 
-	// Externalize framework packages so vendor files import from the
-	// same vendor instances — prevents duplicate React/Svelte/Vue/Angular
-	return bunBuild({
-		entrypoints,
-		external: FRAMEWORK_EXTERNALS,
-		format: 'esm',
-		minify: false,
-		naming: '[name].[ext]',
-		outdir: vendorDir,
-		// TODO(splitting): re-enable when Bun's code-splitter no longer
-		// crashes on multiple vendor entries whose tree-shake output is
-		// byte-identical (e.g. trivial re-export modules like
-		// `@uploadthing/mime-types/{image,text,video}/index.js`). With
-		// splitting on, all three get assigned to the same content-hashed
-		// chunk filename and Bun errors with "Multiple files share the
-		// same output path". Workarounds tried and rejected:
-		//   - chunk: '[name]-[hash]' — Bun resolves [name] from the FIRST
-		//     entry that referenced the chunk, so colliding entries still
-		//     map to one filename.
-		//   - per-entry marker exports — top-level exports get DCE'd
-		//     before reaching chunk formation when no consumer imports
-		//     them.
-		// Cost of disabling: each vendor entry inlines its non-framework
-		// transitive deps. Framework deps (React et al.) are still
-		// externalized via FRAMEWORK_EXTERNALS so the de-duplication that
-		// matters most is preserved.
-		splitting: false,
-		target: 'browser',
-		throw: false
-	});
+	// One Bun.build per entry. Earlier passes used a single Bun.build for
+	// all entries with a dedupe plugin that externalized cross-entry deps,
+	// but Bun has a bug: when an `onResolve` plugin matches a path and
+	// returns `null` to fall through to default resolution, Bun emits an
+	// empty re-export shell — exports list survives but every backing
+	// declaration is dropped. Reproduced any time the plugin's filter
+	// matches an entry file's own bare-specifier import (the self-import
+	// case, where the dedupe plugin needs to NOT externalize). Returning
+	// an explicit resolved path instead of null forces Bun to resolve via
+	// CJS rules, dropping the package's ESM exports map (and named
+	// exports). The only correct fix is to never let the plugin match
+	// self-imports: build each entry separately with `external` listing
+	// the OTHER specs instead of using a plugin.
+	const otherSpecsFor = (current: string) =>
+		specifiers.filter((spec) => spec !== current);
+
+	const results = await Promise.all(
+		entries.map(({ entryPath, specifier }) =>
+			bunBuild({
+				entrypoints: [entryPath],
+				external: [...FRAMEWORK_EXTERNALS, ...otherSpecsFor(specifier)],
+				format: 'esm',
+				minify: false,
+				naming: '[name].[ext]',
+				outdir: vendorDir,
+				plugins: [createStripPureAnnotationsPlugin()],
+				splitting: false,
+				target: 'browser',
+				throw: false
+			})
+		)
+	);
+
+	const aggregated = {
+		success: results.every((result) => result.success),
+		logs: results.flatMap((result) => result.logs),
+		outputs: results.flatMap((result) => result.outputs)
+	};
+
+	return aggregated;
+
+	// Legacy single-call build kept for reference; see comment above for
+	// why it can't be used. Original options:
+	//
+	// bunBuild({
+	//   entrypoints,
+	//   external: FRAMEWORK_EXTERNALS,
+	//   format: 'esm',
+	//   minify: false,
+	//   naming: '[name].[ext]',
+	//   outdir: vendorDir,
+	//   plugins: [
+	//     createDedupeOtherSpecsPlugin(allSpecs, entryToSpec),
+	//     createStripPureAnnotationsPlugin()
+	//   ],
+	//   splitting: false,
+	//   target: 'browser',
+	//   throw: false
+	// });
+	//
+	// (createDedupeOtherSpecsPlugin removed because per-Bun-build-call
+	//  externals cleanly handle cross-entry dedupe without the plugin.)
 };
 
 const MAX_VENDOR_DISCOVERY_PASSES = 5;

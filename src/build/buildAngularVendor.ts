@@ -256,7 +256,7 @@ export const buildAngularVendor = async (
 		specifiers.map(async (specifier) => {
 			const safeName = toSafeFileName(specifier);
 			const entryPath = join(tmpDir, `${safeName}.ts`);
-			await Bun.write(entryPath, generateVendorEntrySource(specifier));
+			await Bun.write(entryPath, await generateVendorEntrySource(specifier));
 
 			return entryPath;
 		})
@@ -345,7 +345,7 @@ export const buildAngularServerVendor = async (
 		specifiers.map(async (specifier) => {
 			const safeName = toSafeFileName(specifier);
 			const entryPath = join(tmpDir, `${safeName}.ts`);
-			await Bun.write(entryPath, generateVendorEntrySource(specifier));
+			await Bun.write(entryPath, await generateVendorEntrySource(specifier));
 
 			return entryPath;
 		})
