@@ -64,10 +64,109 @@ What **may** change in 7.0 and would force adapter edits:
 - **content-tag preprocessor.** If the gjs/gts extraction story moves
   upstream into ember-source itself (plausible post-monorepo), we may be
   able to drop a dependency.
+- **Stage-3 decorator migration.** [Confirmed during Phase 1 dryrun:
+  `@tracked`, `@service`, `@action` and the rest of the Glimmer/Ember
+  decorator surface are still authored against the
+  legacy/TypeScript-style decorator semantics — they crash with
+  `TypeError: Properties can only be defined on Objects` under modern
+  TC39 stage-3 decorator runtimes. Bun.Transpiler defaults to stage-3,
+  so `compileEmber.ts` sets `experimentalDecorators: true` to stay
+  compatible with current Glimmer.] What to watch for: a release note
+  in 7.x or any 6.x patch that mentions "stage-3 decorators" or
+  "TC39 decorators" landing in `@glimmer/tracking`, `@ember/object`,
+  or `@glimmer/component`. The Embroider/Glimmer build-system
+  changelog (`embroider-build/embroider`) is the leading indicator —
+  decorator-runtime changes ship there before any Ember release.
+  When it lands: drop `experimentalDecorators` and
+  `useDefineForClassFields: false` from the `Bun.Transpiler` config in
+  `compileEmber.ts`, run the dryrun `Hello.gts` page through the
+  pipeline, confirm `@tracked` still initializes class fields. If
+  Ember NEVER migrates: we can author the migration ourselves —
+  `@tracked` is ~50 lines in `@glimmer/tracking`, and adding a
+  stage-3-shaped decorator alongside the legacy one is a clean PR.
+  Worst-case the AbsoluteJS adapter ships its own
+  `@absolutejs/glimmer-tracked` shim that users import instead. The
+  migration is mechanical; the blocker is upstream willpower, not
+  technical complexity.
 
 Audit trigger: 7.0 release announcement on blog.emberjs.com. Audit cost
 estimate: ~½ day. Net expected effect on the plan below: small — most
 likely a vendor specifier rename and zero or one symbol replacement.
+
+## 0.2 RFC #1178 watch — `isInteractive` / `hasDOM` / non-`Document` deprecation
+
+**Tracking**: [emberjs/rfcs#1178](https://github.com/emberjs/rfcs/pull/1178)
+**Implementation PR**: [emberjs/ember.js#21348](https://github.com/emberjs/ember.js/pull/21348)
+**Stage**: accepted (proposed for v8). Discovered during Phase 1 dryrun
+when [emberjs/ember.js#21364](https://github.com/emberjs/ember.js/pull/21364)
+review surfaced the broader direction.
+
+The RFC removes three things our Phase 1 adapter currently uses:
+
+- `env.isInteractive` on `renderComponent` (we pass `isInteractive: false`)
+- `env.hasDOM` on `renderComponent` (we pass `hasDOM: true`)
+- non-`Document` values for the `document` field — i.e. simple-dom as the
+  renderer's document goes away (we pass a `@simple-dom/document` Document)
+
+After the RFC ships in v8, the renderer always assumes interactive mode +
+real DOM. Component lifecycle hooks always run during SSR. Modifiers
+always run during SSR. simple-dom is no longer a supported document type
+because the renderer will call `addEventListener`, `createDocumentFragment`,
+etc. that simple-dom doesn't expose.
+
+**Recommended replacement** (per the RFC text and per @NullVoxPopuli's
+review on #21364): match the [`vite-ember-ssr`](https://github.com/evoactivity/vite-ember-ssr)
+pattern — install happy-dom (or jsdom) on `globalThis`, render against it,
+serialize via the Window's native `innerHTML`. happy-dom is what Bun's
+own SSR docs recommend, what `vite-ember-ssr` uses, and what makes the
+SSR environment indistinguishable from a browser. That last property is
+the architectural goal — addons and library code stop needing
+`if (typeof window !== 'undefined')` guards because every environment
+the renderer runs in is browser-shaped.
+
+**Direct effect on the adapter** (consolidated migration target for
+Phase 1.5 or 1.6):
+
+- Drop `hasDOM` and `isInteractive` from the `env` object passed to
+  `renderComponent` in `src/build/compileEmber.ts`'s server harness.
+- Switch `@simple-dom/document` to `happy-dom` for the SSR document.
+- Drop `@simple-dom/document` and `@simple-dom/serializer` peer
+  dependencies. happy-dom serializes via `documentElement.innerHTML`.
+- Drop `installSimpleDomGlobals()` polyfill — happy-dom installs
+  `Element`, `Node`, `Document`, etc. on its own `Window`; we promote
+  those to `globalThis` for the duration of one render and restore
+  afterwards (per-request isolation, per `vite-ember-ssr`).
+- Both `EMBER_BANDAID #3` (Element polyfill) and `EMBER_BANDAID #4`
+  (simple-dom serializer split) dissolve in this single migration.
+- Document the new SSR semantics for users — lifecycle hooks and
+  modifiers run during SSR; write SSR-safe hooks.
+
+**What to watch for**:
+
+- Implementation PR #21348 merging — that's when 7.x starts emitting
+  deprecation warnings.
+- Any 6.x patch that pre-emits the deprecation warnings (rare but
+  Ember sometimes does this for advance notice).
+- v8 release announcement — the actual removal point.
+
+**Timeline**: v8 is ~12-18 months out at Ember's 18-month major cadence
+from v7 (mid-2026). Our Phase 1 adapter ships against 6.12 LTS and
+works fine on v7 with deprecation warnings. The migration is required
+before v8.
+
+**Why the change is right architecturally** (for our own posture, not
+just Ember's): every other major UI framework already keeps the
+"this is SSR" runtime question out of user code, just via different
+mechanisms. React/Vue split it on lifecycle phases (effects don't run
+on server). Svelte splits at compile time (component compiles twice;
+runtime sees no difference). Angular wraps Domino internally so
+`Element`/`Document` exist on the server the same as in the browser —
+user code is environment-agnostic. Ember today is the only adapter in
+our set that asks user code to know whether it's in SSR via the
+`isInteractive` flag. The RFC's outcome puts Ember on Angular's branch
+of that tree — there's a DOM, it just happens to be simulated, the
+framework code doesn't care. From a meta-framework vantage, the RFC
+takes Ember from outlier to consensus-aligned.
 
 ## 1. Reference adapters
 
@@ -93,14 +192,15 @@ DI / partial-compile story forces it.
 
 ### 2.1 Types (`types/`)
 
-- [ ] `types/ember.ts` — `EmberPageDefinition`, `EmberPagePropsOf<Page>`,
+- [x] `types/ember.ts` — `EmberPageDefinition`, `EmberPagePropsOf<Page>`,
   `EmberPageHasOptionalProps<Page>`. Mirror `types/angular.ts` for shape, since
-  both compile components separately from props.
-- [ ] `types/island.ts` — extend the union: `IslandFramework = 'react' |
+  both compile components separately from props. (Phase 1)
+- [x] `types/island.ts` — extend the union: `IslandFramework = 'react' |
   'svelte' | 'vue' | 'angular' | 'ember'`. Add an `ExtractEmberProps<C>` arm.
   Glimmer components carry their args through the `Args` type parameter, so
   this is closer to Svelte's `ComponentProps` than React's prop inference.
-- [ ] `types/conventions.ts` — add `ember?: FrameworkConventionEntry`.
+  (Phase 1)
+- [x] `types/conventions.ts` — add `ember?: FrameworkConventionEntry`. (Phase 1)
 - [ ] `types/ember-shim.d.ts` — **probably not needed.** The shim's only
   job (see `vue-shim.d.ts` / `svelte-shim.d.ts`) is to teach TS that
   non-`.ts` extensions are importable. For Ember that would mean `*.gjs`
@@ -111,11 +211,17 @@ DI / partial-compile story forces it.
 
 ### 2.2 Config (`src/utils/loadConfig.ts`, `defineConfig.ts`)
 
-- [ ] Add `emberDirectory` to the allow-list in `loadConfig.ts`.
+- [x] Add `emberDirectory` to the allow-list in `loadConfig.ts`. (Phase 1)
 - [ ] No changes needed in `defineConfig.ts` — it's keyed off arbitrary
   service names; only the typed config sample in docs needs an example.
 
 ### 2.3 Build pipeline integration (`src/core/build.ts`)
+
+**Status**: deferred to Phase 1.5. Phase 1 proved the pipeline by manually
+calling `compileEmber()` and `buildEmberVendor()` from the example server.
+The items below are the integration work — wiring the manual calls into
+the central `build()` orchestrator so users get the standard
+`defineConfig({ emberDirectory: '...' })` ergonomics.
 
 This file is the biggest single touchpoint. Walk it framework-by-framework
 and add the Ember equivalents alongside Svelte/Vue/Angular. Specifically:
@@ -143,80 +249,119 @@ and add the Ember equivalents alongside Svelte/Vue/Angular. Specifically:
 
 ### 2.4 Compile (`src/build/compileEmber.ts`)
 
-Net new file modelled on `compileSvelte.ts` (size ballpark: 400–800 lines).
+**Status**: shipped in Phase 1 (~270 lines, simpler than the original
+estimate because content-tag's `process()` does most of the heavy
+lifting in WASM and the SSR-side bundle pass through `Bun.build` handles
+transitive resolution via the resolver plugin).
+
 Responsibilities:
 
-- [ ] Accept entries (gjs/gts/ts) and a target framework directory.
-- [ ] Run Glimmer template compilation by calling `@glimmer/compiler`
-  directly inside the Bun pipeline — no Vite, no Embroider runtime. gjs/gts
-  source files are first split into JS + template via `content-tag`'s WASM
-  extractor, then the JS half is fed through `Bun.Transpiler` like every
-  other adapter and the template half is compiled by `@glimmer/compiler` and
-  re-stitched via `setComponentTemplate`. Bundle the resulting modules with
-  `Bun.build` in the existing parallel passes.
-- [ ] Produce **two** outputs per page: SSR module (`generated/server/...`)
-  and client module (`generated/client/...`), matching Svelte's split.
+- [x] Accept entries (gjs/gts/ts) and a target framework directory.
+  (Phase 1)
+- [x] Run Glimmer template compilation by calling `content-tag`
+  directly inside the Bun pipeline — no Vite, no Embroider runtime.
+  gjs/gts source files are split into JS + `template(...)` calls via
+  `content-tag`'s WASM `Preprocessor.process()`, then the JS half is
+  fed through `Bun.Transpiler` (with `experimentalDecorators: true` —
+  see §0.1's stage-3 decorator note) and the SSR-side gets a full
+  `Bun.build` pass with a resolver plugin that handles all
+  `@ember/*`/`@glimmer/*`/`@simple-dom/*` transitive imports. We
+  ended up not needing a direct `@glimmer/compiler` call — the
+  template-compile happens at module-evaluation time via the
+  vendored `@ember/template-compiler`. (Phase 1)
+- [x] Produce **two** outputs per page: SSR module
+  (`generated/server/<name>.js`, fully bundled) and client module
+  (`generated/client/<name>.js`, transpiled-only — the framework's
+  own client bundle pass picks it up later). (Phase 1)
 - [ ] Mark pages that contain islands by setting
-  `__ABSOLUTE_PAGE_HAS_ISLANDS__` on the compiled module (this is how the
-  Svelte/Vue/Angular pageHandlers detect islands without a separate scan).
-- [ ] Emit deterministic relative paths so `generateManifest.ts` produces a
-  hashed asset path the rest of the pipeline can pick up.
-- [ ] Tailwind interop: emitted templates must be visible to the Tailwind
-  scanner. Check `compileTailwindConfig` source list — `gjs/gts/hbs` should
-  be added so utility class candidates inside `<template>` blocks survive.
+  `__ABSOLUTE_PAGE_HAS_ISLANDS__` on the compiled module. **Deferred
+  to Phase 2** (islands aren't in Phase 1 scope).
+- [ ] Emit deterministic relative paths so `generateManifest.ts`
+  produces a hashed asset path. **Deferred to Phase 1.5** — Phase 1
+  outputs to `<emberDir>/generated/{server,client}/<name>.js` with
+  no hash; manifest integration happens with the build.ts wiring.
+- [ ] Tailwind interop: emitted templates must be visible to the
+  Tailwind scanner. Check `compileTailwindConfig` source list —
+  `gjs/gts/hbs` should be added so utility class candidates inside
+  `<template>` blocks survive. **Deferred to Phase 1.5**.
 
 ### 2.5 Vendor (`src/build/buildEmberVendor.ts`)
 
-Modelled on `buildVueVendor.ts`. Responsibilities:
+**Status**: shipped in Phase 1. Final specifier list ended up different
+from the original guess because (a) `ember-source` doesn't expose a
+`runtime` subpath in its `exports` map, and (b) Bun's @-prefix wildcard
+resolver bug ([oven-sh/bun#30187](https://github.com/oven-sh/bun/issues/30187),
+see EMBER_BANDAID #1) meant we couldn't import internal subpaths via
+the bare specifier. The vendor build now uses a Bun.build resolver
+plugin to route every `@ember/*`/`@glimmer/*`/`@simple-dom/*` resolution
+to the absolute path inside `node_modules/ember-source/dist/packages/`.
 
-- [ ] Externalize the Ember runtime as stable vendor files at
-  `{buildDir}/ember/vendor/`. Initial specifier list (verify against installed
-  packages):
-  - `ember-source/runtime` (or whatever the post-monorepo-merger runtime
-    entry is — confirm against 6.12; the Glimmer VM packages now live inside
-    `emberjs/ember.js`).
-  - `@glimmer/component`
-  - `@glimmer/tracking`
-  - `@ember/runloop` (if used by the page modules)
-  - `@warp-drive/*` if user opts into data layer
+Specifier list as actually shipped:
+- `@ember/template-compiler` (vendored from inside ember-source — what
+  content-tag's `process()` output imports)
+- `@ember/renderer` (vendored from inside ember-source)
+- `@glimmer/component` (standalone npm package)
+- `@glimmer/tracking` (standalone npm package)
+- `@embroider/macros` (virtualized via a Bun.build `onResolve`/`onLoad`
+  plugin that serves a small shim — `@embroider/macros`'s real index
+  throws by design because it expects compile-time replacement, see
+  EMBER_BANDAID #2)
+
+What changed vs the original plan:
+- No `ember-source/runtime` (doesn't exist in 6.12's exports map).
+- No `@ember/runloop` in the vendor set yet — Phase 1 pages don't use
+  it. Add when a real example calls for it.
+- No `@warp-drive/*` — Phase 1 doesn't ship a data layer.
+
+- [x] Externalize the Ember runtime as stable vendor files at
+  `{buildDir}/ember/vendor/`. (Phase 1)
+- [x] Export `computeEmberVendorPaths()` for the dev module server.
+  (Phase 1)
 - [ ] Patch Glimmer's HMR runtime registration the same way we patch
-  `__VUE_HMR_RUNTIME__` — re-importing the vendor on HMR must not nuke the
-  component registry. Concrete fix landing point: whichever symbol Glimmer
-  uses to register `setComponentTemplate` results. Needs investigation
-  (§3.3).
-- [ ] Export `computeEmberVendorPaths()` so the dev module server can rewrite
-  bare `ember`/`@glimmer/*` imports to the vendor path the same way
-  `rewriteImports.ts` does for Vue/Svelte.
+  `__VUE_HMR_RUNTIME__`. **Deferred to Phase 3** (HMR scope).
 
 ### 2.6 SSR adapter (`src/ember/`)
 
-Net new directory. File-for-file map against `src/vue/`:
+**Status**: Phase 1 shipped a minimal `pageHandler.ts` + `index.ts` +
+`server.ts` + `browser.ts`. Phase 2/3 features (streaming, slots,
+islands, HMR-cache-dirty handling, convention rendering) are deferred.
 
-- [ ] `pageHandler.ts` (~250 lines, follow `vue/pageHandler.ts` line by line):
-  - Resolve page module → Glimmer component class.
-  - Read `__ABSOLUTE_PAGE_HAS_ISLANDS__` flag.
-  - Build `<head>` + `<body>` shell with `<div id="ember-root">`.
-  - Render via `renderComponent(PageComponent, { args: maybeProps })`.
-  - Wrap the render output in a primed-stream pattern (head chunk → first
-    body chunk → tail chunk) like Vue does, so Elysia can stream as soon as
-    the first chunk is ready. Out-of-order slot resolution is layered on top
-    via `withRegisteredStreamingSlots`.
-  - Hook `injectIslandPageContextStream` into the stream.
-  - Honor `isSsrCacheDirty('ember')` / `markSsrCacheDirty('ember')` and
-    return a degraded boot script on dirty (mirrors React/Vue/Svelte).
-  - Convention error handling via `renderConventionError('ember', …)`.
-- [ ] `renderToReadableStream.ts` — a thin wrapper around `renderComponent`
-  that returns a true `ReadableStream<Uint8Array>`. If `renderComponent` is
-  string-only, model the wrapper on Svelte's `renderToReadableStream.ts`
-  (chunked encoder-driven pull). If a streaming render lands in 7.0 (worth
-  asking on Ember Discord), upgrade later.
-- [ ] `renderToString.ts` — synchronous wrapper for use in tests / prerender.
-- [ ] `server.ts` — `export { handleEmberPageRequest } from './pageHandler';`
-- [ ] `browser.ts` — client entry: import vendor Glimmer, mount the page
-  component into `#ember-root`, read `window.__INITIAL_PROPS__`. Mirror
-  `src/vue/browser.ts`.
-- [ ] `index.ts` — re-export browser-safe surface (`Island`,
-  `createTypedIsland`, `useIslandStore`).
+Files shipped in Phase 1:
+- `pageHandler.ts` (~120 lines) — `handleEmberPageRequest` dynamically
+  imports the server bundle (compiled by `compileEmber`), calls its
+  exported `renderToHTML(props)`, wraps the result in the standard
+  `<head>` + `<body>` shell with the `__INITIAL_PROPS__` script.
+  Auto-injects `request.url` pathname into props as `url` (matches the
+  React/Svelte/Vue convention from the SPA work).
+- `index.ts` / `server.ts` — re-exports.
+- `browser.ts` — client mount via dynamic-import of `@ember/renderer`.
+
+What changed vs the original plan:
+- The handler is much simpler than the planned ~250 lines because the
+  Phase 1 server bundle is self-contained (it embeds the renderer +
+  simple-dom + serializer + page component into one file via
+  Bun.build), so the handler doesn't have to dynamically import the
+  renderer or set up a Document — it just calls the bundle's
+  `renderToHTML`.
+- No `renderToReadableStream.ts` yet. Phase 1 returns a complete
+  HTML string, not a stream. Streaming is Phase 2.
+- No `__ABSOLUTE_PAGE_HAS_ISLANDS__` detection. No island scaffolding.
+  Phase 2.
+- No streaming slot registrar wiring. Phase 2.
+- No `isSsrCacheDirty('ember')` integration. Phase 1.5 with the
+  build.ts wiring.
+- No `renderConventionError('ember', …)` rendering — convention
+  scaffolding stubs exist in `src/utils/resolveConvention.ts` returning
+  null. Phase 1.5.
+
+- [x] `pageHandler.ts` (Phase 1, minimal scope)
+- [x] `server.ts` / `index.ts` (Phase 1)
+- [x] `browser.ts` (Phase 1, minimal mount)
+- [ ] `renderToReadableStream.ts` — Phase 2.
+- [ ] `renderToString.ts` — sync wrapper for prerender. Phase 2 / SSG.
+- [ ] Streaming primed-stream pattern. Phase 2.
+- [ ] Island scaffolding + flag detection. Phase 2.
+- [ ] Convention error rendering. Phase 1.5.
 
 ### 2.7 Streaming features
 
