@@ -329,8 +329,23 @@ const buildDepVendorPass = async (
 	// exports). The only correct fix is to never let the plugin match
 	// self-imports: build each entry separately with `external` listing
 	// the OTHER specs instead of using a plugin.
+	//
+	// Bun's `external` matches subpaths as prefixes, so listing `rxjs`
+	// externalizes `rxjs/operators` too. When building the entry for
+	// `rxjs/operators` we must drop `rxjs` from the externals — otherwise
+	// the own-entry's `import * from 'rxjs/operators'` gets externalized,
+	// the bundle ends up empty (just an `export * from 'rxjs/operators'`
+	// shell), and the rewrite step turns that into `from
+	// "/vendor/rxjs_operators.js"` — which IS the file itself, producing
+	// a runtime self-cycle. Same hazard with any package/subpath pair
+	// (`firebase` / `firebase/auth`, `@sentry/core` /
+	// `@sentry/core/scope`, etc.). Drop any spec that's a prefix of, or
+	// equal to, the current spec.
+	const isPrefixOrEqual = (candidate: string, current: string) =>
+		current === candidate || current.startsWith(`${candidate}/`);
+
 	const otherSpecsFor = (current: string) =>
-		specifiers.filter((spec) => spec !== current);
+		specifiers.filter((spec) => !isPrefixOrEqual(spec, current));
 
 	const results = await Promise.all(
 		entries.map(({ entryPath, specifier }) =>

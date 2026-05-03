@@ -135,11 +135,18 @@ const fixMissingReExportNamespaces = async (files: string[]) => {
 				);
 				if (namedImportRe.test(content)) continue;
 				// Find the source path: heuristic — look for a sibling
-				// `import { ... } from "<path>"` whose basename, with separators
-				// turned into underscores, ends with the ident.
+				// import whose basename, with separators turned into
+				// underscores, ends with the ident. Match both `import { ... }
+				// from "<path>"` and bare side-effect imports `import "<path>"`
+				// (Bun emits the latter for nested vendor entries that share a
+				// transitive dep — e.g. `firebase_auth.js` only references
+				// `_firebase_auth.js` via `import "/vendor/_firebase_auth.js"`,
+				// no `from`).
 				// e.g. `firebase_app.js` matches `app`; `rxjs_operators.js`
-				// matches `operators`; `angular_core.js` matches `core`.
-				const importPathRe = /from\s+["']([^"']+)["']/g;
+				// matches `operators`; `angular_core.js` matches `core`;
+				// `_firebase_auth.js` matches `auth`.
+				const importPathRe =
+					/(?:from\s+|import\s*)["']([^"']+)["']/g;
 				let pathMatch;
 				let sourcePath: string | undefined;
 				while ((pathMatch = importPathRe.exec(content)) !== null) {
@@ -147,7 +154,16 @@ const fixMissingReExportNamespaces = async (files: string[]) => {
 					if (!p) continue;
 					const base = p.split('/').pop()?.replace(/\.[mc]?js$/, '');
 					if (!base) continue;
-					if (base === ident || base.endsWith(`_${ident}`)) {
+					// Strip leading underscore on safe-named scoped specs
+					// (`_firebase_auth` → `firebase_auth`) so the suffix
+					// match against the ident still works.
+					const normalized = base.startsWith('_')
+						? base.slice(1)
+						: base;
+					if (
+						normalized === ident ||
+						normalized.endsWith(`_${ident}`)
+					) {
 						sourcePath = p;
 						break;
 					}
