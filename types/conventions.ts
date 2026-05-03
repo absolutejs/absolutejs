@@ -21,4 +21,5 @@ export type ConventionsMap = {
 	svelte?: FrameworkConventionEntry;
 	vue?: FrameworkConventionEntry;
 	angular?: FrameworkConventionEntry;
+	ember?: FrameworkConventionEntry;
 };

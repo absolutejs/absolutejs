@@ -189,6 +189,7 @@ export type BaseBuildConfig = {
 	angularDirectory?: string;
 	astroDirectory?: string;
 	svelteDirectory?: string;
+	emberDirectory?: string;
 	htmlDirectory?: string;
 	htmxDirectory?: string;
 	stylesConfig?: string | StylesConfig;

@@ -16,6 +16,7 @@ const RESERVED_TOP_LEVEL_KEYS = new Set([
 	'cwd',
 	'dependsOn',
 	'dev',
+	'emberDirectory',
 	'entry',
 	'env',
 	'htmlDirectory',

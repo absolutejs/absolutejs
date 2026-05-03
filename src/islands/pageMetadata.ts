@@ -23,6 +23,7 @@ declare global {
 const pagePatterns: Partial<Record<IslandFramework | 'html' | 'htmx', string>> =
 	{
 		angular: 'pages/**/*.{ts,js}',
+		ember: 'pages/**/*.{gjs,gts,ts,js}',
 		html: 'pages/**/*.html',
 		htmx: 'pages/**/*.html',
 		react: 'pages/**/*.{ts,tsx,js,jsx}',
@@ -39,6 +40,7 @@ const getPageDirs = (config: BuildConfig) =>
 	(
 		[
 			{ dir: config.angularDirectory, framework: 'angular' },
+			{ dir: config.emberDirectory, framework: 'ember' },
 			{ dir: config.reactDirectory, framework: 'react' },
 			{ dir: config.svelteDirectory, framework: 'svelte' },
 			{ dir: config.vueDirectory, framework: 'vue' },

@@ -200,6 +200,13 @@ const logConventionRenderError = (
 	);
 };
 
+// Phase 1 Ember adapter: convention pages aren't wired yet (no
+// renderEmberError analog ships in v1). Returning null falls through to
+// the generic ssrErrorPage. Phase 1.5 replaces this stub with a real
+// renderer once the convention scanner knows about .gjs/.gts files.
+const renderEmberError = async () => null;
+const renderEmberNotFound = async () => null;
+
 const ERROR_RENDERERS: Record<
 	keyof ConventionsMap,
 	(
@@ -208,6 +215,7 @@ const ERROR_RENDERERS: Record<
 	) => Promise<Response | null>
 > = {
 	angular: renderAngularError,
+	ember: renderEmberError,
 	react: renderReactError,
 	svelte: renderSvelteError,
 	vue: renderVueError
@@ -310,6 +318,7 @@ const NOT_FOUND_RENDERERS: Record<
 	(conventionPath: string) => Promise<Response | null>
 > = {
 	angular: renderAngularNotFound,
+	ember: renderEmberNotFound,
 	react: renderReactNotFound,
 	svelte: renderSvelteNotFound,
 	vue: renderVueNotFound
