@@ -1,7 +1,7 @@
-import type { App as VueApp, Component as VueComponent } from 'vue';
+import type { Component as VueComponent } from 'vue';
 import { readdir } from 'node:fs/promises';
 import { basename, dirname } from 'node:path';
-import type { VuePropsOf } from '../../types/vue';
+import type { VuePropsOf, VueSetupApp } from '../../types/vue';
 import { EXCLUDE_LAST_OFFSET } from '../constants';
 import { injectIslandPageContextStream } from '../core/islandPageContext';
 import { getCurrentRouteRegistrationCallsite } from '../core/devRouteRegistrationCallsite';
@@ -51,31 +51,13 @@ const readHasIslands = (value: unknown) => {
 	return typeof hasIslands === 'boolean' ? hasIslands : false;
 };
 
-type VueSetupAppContext = {
-	url: string;
-	isServer: boolean;
-	/** Server-only. Call from inside `setupApp` after vue-router has
-	 *  resolved (e.g. after `await router.isReady()`) to short-circuit
-	 *  the SSR render and emit an HTTP redirect instead. The caller
-	 *  passes the destination URL; the page handler returns a 302 with
-	 *  `Location: <url>`. The `applyVueRouterRedirect` helper in
-	 *  `@absolutejs/absolute/vue` wraps the common pattern of comparing
-	 *  the requested URL against `router.currentRoute.value.fullPath`. */
-	setRedirect: (location: string, status?: number) => void;
-};
-type VueSetupAppHook = (
-	app: VueApp,
-	ctx: VueSetupAppContext
-) => void | Promise<void>;
-
-const readSetupAppHook = (value: unknown): VueSetupAppHook | null => {
+const readSetupAppHook = (value: unknown): VueSetupApp | null => {
 	if (!isRecord(value)) return null;
 	const setupApp = value['setupApp'];
 
-	return typeof setupApp === 'function'
-		? (setupApp as VueSetupAppHook)
-		: null;
+	return typeof setupApp === 'function' ? (setupApp as VueSetupApp) : null;
 };
+
 
 const readDefaultExport = (value: unknown) =>
 	isRecord(value) ? value.default : undefined;
@@ -173,7 +155,8 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 					return {
 						component: passedPageComponent,
 						hasIslands: readHasIslands(passedPageComponent),
-						setupApp: null as VueSetupAppHook | null
+						routes: null as unknown[] | null,
+						setupApp: null as VueSetupApp | null
 					};
 				}
 
@@ -211,8 +194,16 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 				null;
 			if (resolvedPage.setupApp) {
 				const url = resolveRequestRenderUrl(input.request);
+				// `router` is null here — when the page exports `routes`, the
+				// auto-wrapper compileVue injects creates the router using the
+				// page's bundled vue-router and rebinds ctx.router before
+				// calling the user's setupApp. The runtime never sees its own
+				// vue-router instance; that's by design — vue-router is
+				// inlined in the page bundle, so a separate runtime instance
+				// would carry mismatched provide/inject symbols.
 				await resolvedPage.setupApp(app, {
 					isServer: true,
+					router: null,
 					setRedirect: (location, status) => {
 						pendingRedirect = {
 							location,

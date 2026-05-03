@@ -2,6 +2,7 @@ import { BASE_36_RADIX, UNFOUND_INDEX } from '../constants';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, extname, join, resolve, relative } from 'node:path';
 import { resolvePackageImport } from '../build/resolvePackageImport';
+import { addAutoRouterSetupApp } from '../build/vueAutoRouterTransform';
 import { buildIslandMetadataExports } from '../islands/sourceMetadata';
 import {
 	compileStyleSource,
@@ -938,7 +939,13 @@ const transformVueFile = async (
 	vueDir?: string,
 	stylePreprocessors?: StylePreprocessorConfig
 ) => {
-	const raw = readFileSync(filePath, 'utf-8');
+	const rawSource = readFileSync(filePath, 'utf-8');
+	// Apply the same auto-router transform the build-time compiler runs
+	// so page modules served via /@src/ have a synthesized `setupApp`
+	// when they export `routes`. Without this, the dev-served page lacks
+	// the setupApp the bootstrap index calls — vue-router never gets
+	// installed on the client and `useRoute()` returns undefined.
+	const raw = addAutoRouterSetupApp(rawSource);
 
 	if (!vueCompiler) {
 		vueCompiler = await import('@vue/compiler-sfc');
@@ -948,10 +955,17 @@ const transformVueFile = async (
 	const componentId = fileName.toLowerCase();
 	const { descriptor } = vueCompiler.parse(raw, { filename: filePath });
 
-	const compiledScript = vueCompiler.compileScript(descriptor, {
-		id: componentId,
-		inlineTemplate: false
-	});
+	// Template-only components (no `<script>` or `<script setup>`) are
+	// valid Vue SFCs. compileScript throws on them, so synthesize a
+	// minimal default-export when there's no script block — the same
+	// fallback the build-time compiler uses (compileVue.ts).
+	const hasScript = descriptor.script || descriptor.scriptSetup;
+	const compiledScript = hasScript
+		? vueCompiler.compileScript(descriptor, {
+				id: componentId,
+				inlineTemplate: false
+			})
+		: { bindings: {}, content: 'export default {};' };
 	const compiledSfcScript: VueSFCCompiledScript = {
 		bindings: compiledScript.bindings ?? {},
 		content: compiledScript.content

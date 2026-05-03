@@ -20,6 +20,7 @@ import { file, write, Transpiler } from 'bun';
 import { toKebab } from '../utils/stringModifiers';
 import { resolvePackageImport } from './resolvePackageImport';
 import { buildIslandMetadataExports } from '../islands/sourceMetadata';
+import { addAutoRouterSetupApp } from './vueAutoRouterTransform';
 import {
 	addStyleImporter,
 	compileStyleSource,
@@ -222,6 +223,10 @@ type VueCompiler = {
 	compileStyle: typeof CompileStyleFn;
 };
 
+// addAutoRouterSetupApp moved to ./vueAutoRouterTransform — shared
+// with the dev module server (src/dev/moduleServer.ts) so the auto
+// router is present in every served version of a page module.
+
 const compileVueFile = async (
 	sourceFilePath: string,
 	outputDirs: { client: string; server: string; css: string },
@@ -242,7 +247,13 @@ const compileVueFile = async (
 	const fileBaseName = basename(sourceFilePath, '.vue');
 	const componentId = toKebab(fileBaseName);
 
-	const sourceContent = await file(sourceFilePath).text();
+	const rawSourceContent = await file(sourceFilePath).text();
+	// Pages exporting `routes` get an auto-synthesized setupApp that owns
+	// the vue-router lifecycle, using the page bundle's own vue-router
+	// instance (avoids dual-instance provide/inject mismatches).
+	const sourceContent = isEntryPoint
+		? addAutoRouterSetupApp(rawSourceContent)
+		: rawSourceContent;
 	const islandMetadataExports = buildIslandMetadataExports(sourceContent);
 
 	// Check persistent cache — skip recompilation if source unchanged
@@ -271,7 +282,19 @@ const compileVueFile = async (
 	const scriptSource =
 		descriptor.scriptSetup?.content ?? descriptor.script?.content ?? '';
 
-	const importPaths = extractImports(scriptSource);
+	// SFCs may declare BOTH `<script>` (module-level — exports like `routes`
+	// or `setupApp`) and `<script setup>` (component-scoped). Both can pull
+	// in further .vue components or helpers that need to be in the build
+	// graph, so collect imports from both blocks even though only setupApp
+	// is what runs at component creation time.
+	const moduleScriptSource =
+		descriptor.script?.content && descriptor.scriptSetup
+			? descriptor.script.content
+			: '';
+	const importPaths = [
+		...extractImports(scriptSource),
+		...extractImports(moduleScriptSource)
+	];
 
 	// Resolve bare module imports that point to .vue files
 	const resolvedPackageVueImports = new Map<string, string>();
@@ -666,16 +689,26 @@ export const compileVue = async (
 					'const shouldHydrate = typeof window === "undefined" ? false : !(isHMR || isSsrDirty);',
 					'const app = shouldHydrate ? createSSRApp(Comp, mergedProps) : createApp(Comp, mergedProps);',
 					'',
-					'// Optional setupApp hook — page modules can export `setupApp(app, { url, isServer })`',
-					'// to attach plugins like vue-router that require app.use() before mount.',
-					'// On the client we pass the current location.pathname + search as `url` and',
-					'// `isServer: false` so the same hook works in both environments.',
+					'// `setupApp` hook. Reflect.get hides the lookup from Bun\'s',
+					'// static analyzer so non-SPA pages without it don\'t trigger',
+					'// "always undefined" warnings. Pages that export `routes`',
+					'// have their setupApp auto-synthesized at compile time by',
+					'// compileVue (see addAutoRouterSetupApp below) — that wrapper',
+					'// uses the page-bundle\'s own vue-router instance so',
+					'// provide/inject symbols match between the router and the',
+					'// page\'s `useRoute()` calls.',
+					'const setupAppHook = Reflect.get(PageModule, "setupApp");',
 					'async function bootstrapApp() {',
-					'  if (typeof PageModule.setupApp === "function") {',
+					'  if (typeof setupAppHook === "function") {',
 					'    const clientUrl = typeof window !== "undefined"',
 					'      ? window.location.pathname + window.location.search',
 					'      : "/";',
-					'    await PageModule.setupApp(app, { url: clientUrl, isServer: false });',
+					'    await setupAppHook(app, {',
+					'      isServer: false,',
+					'      router: null,',
+					'      setRedirect: () => {},',
+					'      url: clientUrl',
+					'    });',
 					'  }',
 					'  app.mount("#root");',
 					'}',
