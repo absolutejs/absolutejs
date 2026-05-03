@@ -12,6 +12,7 @@ import {
 	prepare
 } from '../src';
 import { handleAngularPageRequest } from '../src/angular';
+import { handleEmberPageRequest } from '../src/ember';
 import { networking } from '../src/plugins/networking';
 import { handleReactPageRequest } from '../src/react';
 import { handleSveltePageRequest } from '../src/svelte';
@@ -73,6 +74,16 @@ export const server = new Elysia()
 			}),
 			indexPath: asset(manifest, 'AngularExampleIndex'),
 			pagePath: asset(manifest, 'AngularExample'),
+			props: { initialCount: 0 }
+		})
+	)
+	.get('/ember', () =>
+		handleEmberPageRequest({
+			headTag: generateHeadElement({
+				title: 'AbsoluteJS + Ember'
+			}),
+			indexPath: '',
+			pagePath: asset(manifest, 'EmberExample'),
 			props: { initialCount: 0 }
 		})
 	)

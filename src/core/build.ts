@@ -754,6 +754,7 @@ const buildUnlocked = async ({
 	htmlDirectory,
 	htmxDirectory,
 	angularDirectory,
+	emberDirectory,
 	svelteDirectory,
 	vueDirectory,
 	stylesConfig,
@@ -872,6 +873,8 @@ const buildUnlocked = async ({
 	const vueDir = vueDirectory && validateSafePath(vueDirectory, projectRoot);
 	const angularDir =
 		angularDirectory && validateSafePath(angularDirectory, projectRoot);
+	const emberDir =
+		emberDirectory && validateSafePath(emberDirectory, projectRoot);
 	const islandBootstrapPath =
 		islands?.bootstrap && validateSafePath(islands.bootstrap, projectRoot);
 	const islandRegistryPath =
@@ -890,6 +893,7 @@ const buildUnlocked = async ({
 	const vuePagesPath = vueDir && join(vueDir, 'pages');
 	const htmxPagesPath = htmxDir && join(htmxDir, 'pages');
 	const angularPagesPath = angularDir && join(angularDir, 'pages');
+	const emberPagesPath = emberDir && join(emberDir, 'pages');
 
 	const frontends = [
 		reactDir,
@@ -897,7 +901,8 @@ const buildUnlocked = async ({
 		htmxDir,
 		svelteDir,
 		vueDir,
-		angularDir
+		angularDir,
+		emberDir
 	].filter(Boolean);
 	const isSingle = frontends.length === 1;
 
@@ -907,7 +912,8 @@ const buildUnlocked = async ({
 		htmxDir && 'htmx',
 		svelteDir && 'svelte',
 		vueDir && 'vue',
-		angularDir && 'angular'
+		angularDir && 'angular',
+		emberDir && 'ember'
 	].filter((name): name is string => Boolean(name));
 	traceFrameworkNames = frameworkNames;
 	sendTelemetryEvent('build:start', {
@@ -1055,6 +1061,7 @@ const buildUnlocked = async ({
 		svelteConventionResult,
 		vueConventionResult,
 		angularConventionResult,
+		emberConventionResult,
 		allGlobalCssEntries
 	] = await Promise.all([
 		tailwindPromise,
@@ -1088,6 +1095,11 @@ const buildUnlocked = async ({
 					scanConventions(angularPagesPath, '*.ts')
 				)
 			: emptyConventionResult,
+		emberPagesPath
+			? tracePhase('scan/ember-conventions', () =>
+					scanConventions(emberPagesPath, '*.{gjs,gts,ts}')
+				)
+			: emptyConventionResult,
 		stylesDir
 			? tracePhase('scan/css', () =>
 					scanCssEntryPoints(stylesDir, stylesIgnore)
@@ -1099,6 +1111,7 @@ const buildUnlocked = async ({
 	const allSvelteEntries = svelteConventionResult.pageFiles;
 	const allVueEntries = vueConventionResult.pageFiles;
 	const allAngularEntries = angularConventionResult.pageFiles;
+	const allEmberEntries = emberConventionResult.pageFiles;
 
 	const conventionsMap: ConventionsMap = {};
 	if (reactConventionResult.conventions)
@@ -1109,10 +1122,12 @@ const buildUnlocked = async ({
 		conventionsMap.vue = vueConventionResult.conventions;
 	if (angularConventionResult.conventions)
 		conventionsMap.angular = angularConventionResult.conventions;
+	if (emberConventionResult.conventions)
+		conventionsMap.ember = emberConventionResult.conventions;
 
 	// Warn if multiple frameworks define not-found convention files
 	const notFoundFrameworks = (
-		['react', 'svelte', 'vue', 'angular'] as const
+		['react', 'svelte', 'vue', 'angular', 'ember'] as const
 	).filter((framework) => conventionsMap[framework]?.defaults?.notFound);
 	if (notFoundFrameworks.length > 1) {
 		logWarn(
@@ -1164,6 +1179,10 @@ const buildUnlocked = async ({
 		? filterToIncrementalEntries(allAngularEntries, (entry) => entry)
 		: allAngularEntries;
 
+	const emberEntries = isIncremental
+		? filterToIncrementalEntries(allEmberEntries, (entry) => entry)
+		: allEmberEntries;
+
 	// CSS entries - entries are the style files themselves
 	const globalCssEntries = isIncremental
 		? filterToIncrementalEntries(allGlobalCssEntries, (entry) => entry)
@@ -1190,6 +1209,7 @@ const buildUnlocked = async ({
 	const shouldCompileSvelte = svelteDir && svelteEntries.length > 0;
 	const shouldCompileVue = vueDir && vueEntries.length > 0;
 	const shouldCompileAngular = angularDir && angularEntries.length > 0;
+	const shouldCompileEmber = emberDir && emberEntries.length > 0;
 
 	const emptyStringArray: string[] = [];
 	const islandBuildInfo = islandRegistryPath
@@ -1215,6 +1235,7 @@ const buildUnlocked = async ({
 		{ svelteServerPaths, svelteIndexPaths, svelteClientPaths },
 		{ vueServerPaths, vueIndexPaths, vueClientPaths, vueCssPaths },
 		{ clientPaths: angularClientPaths, serverPaths: angularServerPaths },
+		{ clientPaths: emberClientPaths, serverPaths: emberServerPaths },
 		{ svelteClientPaths: islandSvelteClientPaths },
 		{ vueClientPaths: islandVueClientPaths },
 		{ clientPaths: islandAngularClientPaths }
@@ -1261,6 +1282,21 @@ const buildUnlocked = async ({
 							angularDir,
 							hmr,
 							styleTransformConfig
+						)
+					)
+				)
+			: {
+					clientPaths: [...emptyStringArray],
+					serverPaths: [...emptyStringArray]
+				},
+		shouldCompileEmber
+			? tracePhase('compile/ember', () =>
+					import('../build/compileEmber').then((mod) =>
+						mod.compileEmber(
+							emberEntries,
+							emberDir,
+							projectRoot,
+							hmr
 						)
 					)
 				)
@@ -2285,6 +2321,17 @@ const buildUnlocked = async ({
 		const [baseName] = fileWithHash.split(`.${artifact.hash}.`);
 		if (!baseName) continue;
 		manifest[toPascal(baseName)] = artifact.path;
+	}
+
+	// Ember server bundles bypass the central serverOutputs pass — they're
+	// already self-contained Bun.build outputs from compileEmber (which uses
+	// its own resolver plugin to handle @ember/*/@glimmer/* transitive
+	// imports — see EMBER_BANDAID #1). Register them in the manifest by
+	// hand so `asset(manifest, 'EmberExample')` resolves to the absolute
+	// path of the compiled server bundle.
+	for (const serverPath of emberServerPaths) {
+		const fileBase = basename(serverPath, '.js');
+		manifest[toPascal(fileBase)] = serverPath;
 	}
 
 	const shouldCopyHtmx =

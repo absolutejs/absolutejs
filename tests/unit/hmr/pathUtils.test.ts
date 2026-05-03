@@ -12,6 +12,7 @@ const makePaths = (
 	angularDir: '/project/example/angular',
 	assetsDir: '/project/example/assets',
 	buildDir: '/project/build',
+	emberDir: '/project/example/ember',
 	htmlDir: '/project/example/html',
 	htmxDir: '/project/example/htmx',
 	reactDir: '/project/example/react',

@@ -1,2 +1,5 @@
-export { handleEmberPageRequest } from './pageHandler';
+export {
+	handleEmberPageRequest,
+	invalidateEmberSsrCache
+} from './pageHandler';
 export type { EmberPageRequestInput } from './pageHandler';

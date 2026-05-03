@@ -15,6 +15,7 @@ export const resolveBuildPaths = (config: BuildConfig) => {
 		angularDir: optional(config.angularDirectory),
 		assetsDir: optional(config.assetsDirectory),
 		buildDir: withDefault(config.buildDirectory, 'build'),
+		emberDir: optional(config.emberDirectory),
 		htmlDir: optional(config.htmlDirectory),
 		htmxDir: optional(config.htmxDirectory),
 		reactDir: optional(config.reactDirectory),

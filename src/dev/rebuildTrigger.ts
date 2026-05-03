@@ -1374,6 +1374,122 @@ const handleVueFastPath = async (
 	return state.manifest;
 };
 
+const EMBER_PAGE_EXTENSIONS = ['.gts', '.gjs', '.ts', '.js'] as const;
+
+const collectAllEmberPages = async (emberPagesPath: string) => {
+	const { readdir } = await import('node:fs/promises');
+	try {
+		const entries = await readdir(emberPagesPath, {
+			recursive: true,
+			withFileTypes: true
+		});
+
+		return entries
+			.filter(
+				(entry) =>
+					entry.isFile() &&
+					EMBER_PAGE_EXTENSIONS.some((ext) =>
+						entry.name.endsWith(ext)
+					)
+			)
+			.map((entry) => resolve(emberPagesPath, entry.name));
+	} catch {
+		return [];
+	}
+};
+
+const handleEmberFastPath = async (
+	state: HMRState,
+	config: BuildConfig,
+	filesToRebuild: string[],
+	startTime: number,
+	onRebuildComplete: (result: {
+		manifest: Record<string, string>;
+		hmrState: HMRState;
+	}) => void
+) => {
+	const emberDir = config.emberDirectory ?? '';
+	const emberFiles = filesToRebuild.filter(
+		(file) => detectFramework(file, state.resolvedPaths) === 'ember'
+	);
+
+	if (emberFiles.length === 0 || !emberDir) {
+		onRebuildComplete({ hmrState: state, manifest: state.manifest });
+
+		return state.manifest;
+	}
+
+	// Update hashes so duplicate watcher events filter cleanly.
+	for (const file of emberFiles) {
+		state.fileHashes.set(resolve(file), computeFileHash(file));
+	}
+
+	// Recompile pages whose bundle includes the edited file. compileEmber
+	// re-emits self-contained server bundles into
+	// <emberDir>/generated/server/<Name>.js (a stable path the manifest
+	// already points to from the initial build), so we just need to mark
+	// SSR dirty + bust the page handler's import cache. The browser then
+	// does a full reload and gets the fresh HTML.
+	//
+	// Page-level granularity: edits to a non-page file (e.g. a shared
+	// component) currently rebuild every page, since Phase 1.5 doesn't
+	// track which page imports which component. Phase 3 will narrow this
+	// via dependency-graph lookup.
+	const emberPagesPath = resolve(emberDir, 'pages');
+	const directPageEntries = emberFiles.filter((file) =>
+		resolve(file).startsWith(emberPagesPath)
+	);
+	const allPageEntries =
+		directPageEntries.length > 0
+			? directPageEntries
+			: await collectAllEmberPages(emberPagesPath);
+
+	if (allPageEntries.length === 0) {
+		onRebuildComplete({ hmrState: state, manifest: state.manifest });
+
+		return state.manifest;
+	}
+
+	const { compileEmber } = await import('../build/compileEmber');
+	const { serverPaths } = await compileEmber(
+		allPageEntries,
+		emberDir,
+		process.cwd(),
+		true
+	);
+
+	for (const serverPath of serverPaths) {
+		const fileBase = basename(serverPath, '.js');
+		state.manifest[toPascal(fileBase)] = resolve(serverPath);
+	}
+
+	const { invalidateEmberSsrCache } = await import('../ember');
+	invalidateEmberSsrCache();
+
+	const duration = Date.now() - startTime;
+	const [primary] = emberFiles;
+	if (primary) {
+		state.lastHmrPath = relative(process.cwd(), primary).replace(/\\/g, '/');
+		state.lastHmrFramework = 'ember';
+		logHmrUpdate(primary, 'ember', duration);
+	}
+
+	// Phase 1.5 ships full-reload HMR only — Glimmer state is lost on
+	// reload, but the edit-save-see-it-update loop works. Phase 3 will
+	// add component-level swap with @tracked state preservation.
+	broadcastToClients(state, {
+		data: {
+			affectedPages: allPageEntries,
+			manifest: state.manifest
+		},
+		type: 'full-reload'
+	});
+
+	onRebuildComplete({ hmrState: state, manifest: state.manifest });
+
+	return state.manifest;
+};
+
 const collectModuleUpdatesForFramework = (
 	framework: string,
 	filesToRebuild: string[],
@@ -2702,6 +2818,11 @@ const runFrameworkFastPaths = async (
 			directory: config.angularDirectory,
 			framework: 'angular',
 			handler: handleAngularFastPath
+		},
+		{
+			directory: config.emberDirectory,
+			framework: 'ember',
+			handler: handleEmberFastPath
 		},
 		{
 			directory: config.reactDirectory,

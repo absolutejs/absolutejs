@@ -99,6 +99,69 @@ const isTemplateTagFile = (entry: string) => {
 };
 
 /**
+ * Replace content-tag's `eval(arguments[0])` scope shim with an explicit
+ * `scope()` function exposing the page module's top-level imports.
+ *
+ * Why: content-tag emits `eval()` so the template compiler can resolve
+ * lexical identifiers via the host module's JS scope. That works great
+ * for unbundled ES modules, but Bun.build flattens every imported file
+ * into one shared scope — meaning the bundled `function main` (renderer
+ * stdlib), `function tracked2` (Glimmer), and many other helpers leak
+ * into the eval scope. The template compiler then sees `typeof main !==
+ * "undefined"` succeed and decides `<main>` is a lexical-scoped
+ * component instead of an HTML element, causing
+ * "Attempted to load a component, but there wasn't a component manager
+ * associated with the definition. The definition was: main".
+ *
+ * Switching to an explicit `scope()` constrains the lexical-scope check
+ * to identifiers the user actually imported — HTML tag names like
+ * `<main>` correctly fall through to the HTML branch.
+ */
+const rewriteTemplateEvalToScope = (source: string) => {
+	const importedNames = new Set<string>();
+
+	const importRegex =
+		/^\s*import\s+(?:type\s+)?(?:(\*\s+as\s+\w+)|(\w+)(?:\s*,\s*\{([^}]+)\})?|\{([^}]+)\})\s+from\s+['"][^'"]+['"]/gm;
+	let match;
+	while ((match = importRegex.exec(source)) !== null) {
+		const [, namespaceImport, defaultImport, namedAfterDefault, named] =
+			match;
+
+		if (namespaceImport) {
+			const aliasMatch = /\*\s+as\s+(\w+)/.exec(namespaceImport);
+			if (aliasMatch?.[1]) importedNames.add(aliasMatch[1]);
+		}
+		if (defaultImport) importedNames.add(defaultImport);
+		const namedList = named ?? namedAfterDefault;
+		if (namedList) {
+			for (const part of namedList.split(',')) {
+				const trimmed = part.trim();
+				if (!trimmed) continue;
+				// Handle `foo as bar` — bar is the local binding
+				const asMatch = /\bas\s+(\w+)$/.exec(trimmed);
+				const localName = asMatch
+					? asMatch[1]
+					: trimmed.replace(/^type\s+/, '');
+				if (localName && /^\w+$/.test(localName)) {
+					importedNames.add(localName);
+				}
+			}
+		}
+	}
+
+	const scopeObject =
+		importedNames.size === 0
+			? '{}'
+			: `{ ${Array.from(importedNames).join(', ')} }`;
+
+	// content-tag emits the eval shim with a stable shape — replace each
+	// occurrence with an equivalent `scope()` returning the explicit map.
+	const evalShim = /eval\s*\(\)\s*\{\s*return\s+eval\(arguments\[0\]\);\s*\}/g;
+
+	return source.replace(evalShim, `scope() { return ${scopeObject}; }`);
+};
+
+/**
  * Inline source for the `@embroider/macros` shim. ember-source 6.12
  * imports `isDevelopingApp` (and may add more macros in future patch
  * releases); the package's root `index.js` deliberately throws because
@@ -154,7 +217,17 @@ export const importSync = (specifier) => {
  * the two pipelines can evolve independently if/when one needs a
  * different resolver policy.
  */
-const createEmberServerResolverPlugin = (cwd: string): BunPlugin => ({
+type EmberResolverOptions = {
+	/** Map from staged tmp file path -> original source file path. Lets the
+	 *  resolver translate relative imports made by the staged module back to
+	 *  the original directory tree, which is what the source actually meant. */
+	stagedSourceMap?: Map<string, string>;
+};
+
+const createEmberServerResolverPlugin = (
+	cwd: string,
+	options: EmberResolverOptions = {}
+): BunPlugin => ({
 	name: 'absolutejs-ember-server-resolver',
 	setup(build) {
 		const standalonePackages = new Set([
@@ -185,6 +258,48 @@ const createEmberServerResolverPlugin = (cwd: string): BunPlugin => ({
 				loader: 'js'
 			})
 		);
+
+		// Translate relative imports from staged tmp modules back to the
+		// original source directory before letting Bun resolve them. The
+		// staged module sits in `<emberDir>/generated/_tmp/` so a `../foo`
+		// import would otherwise miss the real source file entirely.
+		const stagedSourceMap = options.stagedSourceMap;
+		if (stagedSourceMap && stagedSourceMap.size > 0) {
+			build.onResolve({ filter: /^\.{1,2}\// }, (args) => {
+				const originalImporter = stagedSourceMap.get(args.importer);
+				if (!originalImporter) return undefined;
+
+				const candidateBase = resolve(
+					dirname(originalImporter),
+					args.path
+				);
+
+				const extensionsToTry = ['', '.gts', '.gjs', '.ts', '.js'];
+				for (const ext of extensionsToTry) {
+					const candidate = candidateBase + ext;
+					if (existsSync(candidate)) return { path: candidate };
+				}
+
+				return undefined;
+			});
+		}
+
+		// `.gts`/`.gjs` Glimmer template-tag modules need the same
+		// content-tag preprocessing the page module gets. Without this,
+		// any imported component file with a `<template>` block fails to
+		// parse during the server bundle pass. Run the same eval->scope
+		// rewrite so bundled identifiers don't leak into template scope.
+		build.onLoad({ filter: /\.(gts|gjs)$/ }, async (args) => {
+			const source = await file(args.path).text();
+			const preprocessor = await getPreprocessor();
+			const result = preprocessor.process(source, {
+				filename: args.path
+			});
+			const rewritten = rewriteTemplateEvalToScope(result.code);
+			const transpiled = transpiler.transformSync(rewritten);
+
+			return { contents: transpiled, loader: 'js' };
+		});
 
 		build.onResolve(
 			{ filter: /^@(?:ember|glimmer|simple-dom)\// },
@@ -280,7 +395,7 @@ export const compileEmberFile = async (
 		const result = preprocessor.process(source, {
 			filename: resolvedEntry
 		});
-		preprocessed = result.code;
+		preprocessed = rewriteTemplateEvalToScope(result.code);
 	}
 
 	const transpiled = transpiler.transformSync(preprocessed);
@@ -296,13 +411,22 @@ export const compileEmberFile = async (
 	]);
 
 	// Stage the transpiled page module as a tmp file the harness can
-	// import by path. We don't need this on disk past the bundle — the
-	// bundle inlines its content.
-	const tmpPagePath = join(tmpDir, `${baseName}.module.js`);
-	const tmpHarnessPath = join(tmpDir, `${baseName}.harness.js`);
+	// import by path. Absolute path so `import "<...>"` from the harness
+	// resolves regardless of where Bun.build sets its CWD. The bundle
+	// inlines its content, so it doesn't need to live past the build.
+	const tmpPagePath = resolve(join(tmpDir, `${baseName}.module.js`));
+	const tmpHarnessPath = resolve(join(tmpDir, `${baseName}.harness.js`));
 	await Promise.all([
 		write(tmpPagePath, transpiled),
 		write(tmpHarnessPath, generateServerHarness(tmpPagePath))
+	]);
+
+	// Map every staged tmp module back to its original source so the
+	// resolver plugin can translate relative imports correctly. Currently
+	// only the page module gets staged, but the map lets future
+	// preprocessor outputs (e.g. inlined component sources) participate.
+	const stagedSourceMap = new Map<string, string>([
+		[tmpPagePath, resolvedEntry]
 	]);
 
 	const serverPath = join(serverDir, `${baseName}.js`);
@@ -312,7 +436,9 @@ export const compileEmberFile = async (
 		minify: false,
 		naming: `${baseName}.js`,
 		outdir: serverDir,
-		plugins: [createEmberServerResolverPlugin(cwd)],
+		plugins: [
+			createEmberServerResolverPlugin(cwd, { stagedSourceMap })
+		],
 		// `target=bun` so Bun.build emits something Node-runnable; the
 		// page handler uses `await import(serverPath)` to load it.
 		target: 'bun',
@@ -381,7 +507,7 @@ export const compileEmberFileSource = async (entry: string) => {
 		const result = preprocessor.process(source, {
 			filename: resolvedEntry
 		});
-		preprocessed = result.code;
+		preprocessed = rewriteTemplateEvalToScope(result.code);
 	}
 
 	return transpiler.transformSync(preprocessed);

@@ -1,3 +1,5 @@
+import { pathToFileURL } from 'node:url';
+import { isSsrCacheDirty, markSsrCacheDirty } from '../core/ssrCache';
 import { ssrErrorPage } from '../utils/ssrErrorPage';
 
 /**
@@ -64,6 +66,26 @@ type EmberServerBundle = {
 	renderToHTML: (props?: Record<string, unknown>) => string;
 };
 
+// Bust Bun's ESM module cache between rebuilds so HMR-recompiled
+// bundles get re-evaluated instead of returning the previously
+// imported module instance. Mirrors the Angular and Vue handlers'
+// cache-busting strategy. The suffix is bumped by `markEmberSsrDirty`
+// from rebuildTrigger; the page handler reads it on each request.
+let emberCacheBuster = 0;
+
+const buildRuntimeModuleSpecifier = (modulePath: string) => {
+	if (emberCacheBuster === 0) return modulePath;
+	const moduleUrl = new URL(pathToFileURL(modulePath).href);
+	moduleUrl.searchParams.set('t', String(emberCacheBuster));
+
+	return moduleUrl.href;
+};
+
+export const invalidateEmberSsrCache = () => {
+	markSsrCacheDirty('ember');
+	emberCacheBuster = Date.now();
+};
+
 const buildHtmlShell = (
 	headTag: string,
 	bodyContent: string,
@@ -100,7 +122,13 @@ export const handleEmberPageRequest = async (input: EmberPageRequestInput) => {
 
 	try {
 		installSimpleDomGlobals();
-		const bundle = (await import(pagePath)) as EmberServerBundle;
+		// Reading isSsrCacheDirty here lets future phases short-circuit to a
+		// dirty placeholder response (mirrors Vue/Angular). Phase 1.5 just
+		// uses the cache-buster to force re-evaluation of the bundle.
+		void isSsrCacheDirty('ember');
+		const bundle = (await import(
+			buildRuntimeModuleSpecifier(pagePath)
+		)) as EmberServerBundle;
 		if (typeof bundle.renderToHTML !== 'function') {
 			throw new Error(
 				`Ember page bundle at ${pagePath} does not export renderToHTML(). ` +

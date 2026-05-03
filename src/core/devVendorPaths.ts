@@ -44,3 +44,13 @@ export const getVueVendorPaths = () => vueVendorPaths;
 export const setVueVendorPaths = (paths: Record<string, string>) => {
 	vueVendorPaths = paths;
 };
+
+/** Ember vendor paths — same pattern as React. Populated by devBuild
+ *  after the initial vendor build; read by build() during HMR rebuilds
+ *  to externalize bare `@ember/*` / `@glimmer/*` imports to stable URLs. */
+let emberVendorPaths: Record<string, string> | null = null;
+
+export const getEmberVendorPaths = () => emberVendorPaths;
+export const setEmberVendorPaths = (paths: Record<string, string>) => {
+	emberVendorPaths = paths;
+};

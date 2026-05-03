@@ -4,6 +4,7 @@ export default defineConfig({
 	angularDirectory: 'example/angular',
 	assetsDirectory: 'example/assets',
 	buildDirectory: 'example/build',
+	emberDirectory: 'example/ember',
 	htmlDirectory: 'example/html',
 	htmxDirectory: 'example/htmx',
 	publicDirectory: 'example/public',

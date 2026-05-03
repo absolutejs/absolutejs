@@ -5,11 +5,13 @@ import { build } from './build';
 import {
 	getAngularVendorPaths,
 	getDevVendorPaths,
+	getEmberVendorPaths,
 	getSvelteVendorPaths,
 	getVueVendorPaths,
 	setDevVendorPaths,
 	setAngularServerVendorPaths,
 	setAngularVendorPaths,
+	setEmberVendorPaths,
 	setSvelteVendorPaths,
 	setVueVendorPaths
 } from './devVendorPaths';
@@ -31,6 +33,10 @@ import {
 	computeSvelteVendorPaths
 } from '../build/buildSvelteVendor';
 import { buildVueVendor, computeVueVendorPaths } from '../build/buildVueVendor';
+import {
+	buildEmberVendor,
+	computeEmberVendorPaths
+} from '../build/buildEmberVendor';
 import { createHMRState } from '../dev/clientManager';
 import { resolveBuildPaths } from '../dev/configResolver';
 import { buildInitialDependencyGraph } from '../dev/dependencyGraph';
@@ -134,6 +140,9 @@ const detectConfigChanges = async (
 	}
 	if (!oldConfig.vueDirectory && Boolean(newConfig.vueDirectory)) {
 		setVueVendorPaths(computeVueVendorPaths());
+	}
+	if (!oldConfig.emberDirectory && Boolean(newConfig.emberDirectory)) {
+		setEmberVendorPaths(computeEmberVendorPaths());
 	}
 
 	// Compute new watch paths and start watchers for additions
@@ -254,6 +263,9 @@ const handleCachedReload = async () => {
 	}
 	if (cached?.hmrState.config.vueDirectory) {
 		setVueVendorPaths(computeVueVendorPaths());
+	}
+	if (cached?.hmrState.config.emberDirectory) {
+		setEmberVendorPaths(computeEmberVendorPaths());
 	}
 
 	if (serverMtime === lastMtime) {
@@ -383,6 +395,9 @@ export const devBuild = async (config: BuildConfig) => {
 	if (config.vueDirectory) {
 		setVueVendorPaths(computeVueVendorPaths());
 	}
+	if (config.emberDirectory) {
+		setEmberVendorPaths(computeEmberVendorPaths());
+	}
 	const sourceDirs = collectDepVendorSourceDirs(config);
 	if (config.angularDirectory) {
 		setAngularVendorPaths(await computeAngularVendorPathsAsync(sourceDirs));
@@ -461,7 +476,7 @@ export const devBuild = async (config: BuildConfig) => {
 
 	const { buildDepVendor } = await import('../build/buildDepVendor');
 
-	const [, angularSpecs, angularServerSpecs, , , depPaths] =
+	const [, angularSpecs, angularServerSpecs, , , , depPaths] =
 		await Promise.all([
 			config.reactDirectory
 				? buildReactVendor(state.resolvedPaths.buildDir)
@@ -489,6 +504,9 @@ export const devBuild = async (config: BuildConfig) => {
 			config.vueDirectory
 				? buildVueVendor(state.resolvedPaths.buildDir)
 				: Promise.resolve(undefined),
+			config.emberDirectory
+				? buildEmberVendor(state.resolvedPaths.buildDir)
+				: Promise.resolve(undefined),
 			buildDepVendor(state.resolvedPaths.buildDir, sourceDirs)
 		]);
 	if (angularSpecs) globalThis.__angularVendorSpecifiers = angularSpecs;
@@ -499,6 +517,9 @@ export const devBuild = async (config: BuildConfig) => {
 				angularServerSpecs
 			)
 		);
+	}
+	if (config.emberDirectory) {
+		setEmberVendorPaths(computeEmberVendorPaths());
 	}
 	globalThis.__depVendorPaths = depPaths;
 	recordStep('build vendor bundles', stepStartedAt);

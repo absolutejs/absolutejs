@@ -30,6 +30,7 @@ export const detectFramework = (
 		if (startsWithDir(resolved.svelteDir)) return 'svelte';
 		if (startsWithDir(resolved.vueDir)) return 'vue';
 		if (startsWithDir(resolved.angularDir)) return 'angular';
+		if (startsWithDir(resolved.emberDir)) return 'ember';
 		if (startsWithDir(resolved.htmlDir)) return 'html';
 		if (startsWithDir(resolved.assetsDir)) return 'assets';
 	} else {
@@ -39,6 +40,7 @@ export const detectFramework = (
 		if (normalized.includes('/svelte/')) return 'svelte';
 		if (normalized.includes('/vue/')) return 'vue';
 		if (normalized.includes('/angular/')) return 'angular';
+		if (normalized.includes('/ember/')) return 'ember';
 		if (normalized.includes('/html/')) return 'html';
 	}
 
@@ -47,9 +49,13 @@ export const detectFramework = (
 		return 'react';
 	if (normalized.endsWith('.svelte')) return 'svelte';
 	if (normalized.endsWith('.vue')) return 'vue';
+	if (normalized.endsWith('.gjs') || normalized.endsWith('.gts'))
+		return 'ember';
 	if (normalized.endsWith('.html')) return 'html';
 	if (normalized.endsWith('.ts') && normalized.includes('angular'))
 		return 'angular';
+	if (normalized.endsWith('.ts') && normalized.includes('ember'))
+		return 'ember';
 
 	// Generic assets (styles in root /assets/, images, etc.)
 	// IMPORTANT: Only return 'assets' for style files that are NOT in framework directories.
@@ -129,6 +135,7 @@ export const getWatchPaths = (
 	const cfg = resolved ?? {
 		angularDir: config.angularDirectory,
 		assetsDir: config.assetsDirectory,
+		emberDir: config.emberDirectory,
 		htmlDir: config.htmlDirectory,
 		htmxDir: config.htmxDirectory,
 		reactDir: config.reactDirectory,
@@ -145,6 +152,7 @@ export const getWatchPaths = (
 	push(cfg.reactDir);
 	push(cfg.svelteDir);
 	push(cfg.vueDir);
+	push(cfg.emberDir);
 
 	push(cfg.angularDir);
 
@@ -167,6 +175,7 @@ export const getWatchPaths = (
 		cfg.svelteDir,
 		cfg.vueDir,
 		cfg.angularDir,
+		cfg.emberDir,
 		cfg.htmlDir,
 		cfg.htmxDir
 	]
