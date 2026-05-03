@@ -1,6 +1,6 @@
 import { BASE_36_RADIX, UNFOUND_INDEX } from '../constants';
 import { existsSync, readFileSync, statSync } from 'node:fs';
-import { basename, dirname, extname, resolve, relative } from 'node:path';
+import { basename, dirname, extname, join, resolve, relative } from 'node:path';
 import { resolvePackageImport } from '../build/resolvePackageImport';
 import { buildIslandMetadataExports } from '../islands/sourceMetadata';
 import {
@@ -11,6 +11,7 @@ import { lowerSvelteAwaitSlotSyntax } from '../svelte/lowerAwaitSlotSyntax';
 import { lowerSvelteIslandSyntax } from '../svelte/lowerIslandSyntax';
 import type { StylePreprocessorConfig } from '../../types/build';
 import type { BindingMetadata, SFCDescriptor } from '@vue/compiler-sfc';
+import { logWarn } from '../utils/logger';
 import {
 	getInvalidationVersion,
 	getTransformed,
@@ -203,15 +204,55 @@ const resolveRelativeImport = (
 	return srcUrl(srcPath, projectRoot);
 };
 
-// Resolve @absolutejs/* specifiers to project-relative paths.
-// Returns the relative path string on success, or undefined if resolution fails.
+// Resolve a bare specifier to a project-relative path. Tries (in order):
+//   1. resolvePackageImport — honours `exports` with browser/import conditions
+//   2. package.json `module` / `browser` fields — for older deps without
+//      `exports` whose ESM entry isn't `main` (e.g. @vue/devtools-api)
+//   3. Bun.resolveSync — final fallback (uses `main`, often CJS)
+// Returns the relative path on success, or undefined if resolution fails.
 const resolveAbsoluteSpecifier = (specifier: string, projectRoot: string) => {
 	try {
-		const target =
-			resolvePackageImport(specifier, ['browser', 'import']) ??
-			Bun.resolveSync(specifier, projectRoot);
+		const fromExports = resolvePackageImport(specifier, [
+			'browser',
+			'import'
+		]);
+		if (fromExports) return relative(projectRoot, fromExports);
 
-		return relative(projectRoot, target);
+		// Manual ESM-preferring lookup for packages with no `exports` field.
+		// `module` and `browser` win over `main` for browser dev contexts —
+		// without this, vue-router's `@vue/devtools-api` resolves to the CJS
+		// entry which has no ESM named exports and breaks at module load.
+		try {
+			const isScoped = specifier.startsWith('@');
+			const parts = specifier.split('/');
+			const packageName = isScoped ? `${parts[0]}/${parts[1]}` : parts[0];
+			const subpath = isScoped
+				? parts.slice(2).join('/')
+				: parts.slice(1).join('/');
+			if (!subpath) {
+				const pkgDir = resolve(
+					projectRoot,
+					'node_modules',
+					packageName ?? ''
+				);
+				const pkgJsonPath = join(pkgDir, 'package.json');
+				if (existsSync(pkgJsonPath)) {
+					const pkg = JSON.parse(readFileSync(pkgJsonPath, 'utf-8'));
+					const esmEntry =
+						(typeof pkg.module === 'string' && pkg.module) ||
+						(typeof pkg.browser === 'string' && pkg.browser);
+					if (esmEntry) {
+						const resolved = resolve(pkgDir, esmEntry);
+						if (existsSync(resolved))
+							return relative(projectRoot, resolved);
+					}
+				}
+			}
+		} catch {
+			// Fall through to Bun's resolver.
+		}
+
+		return relative(projectRoot, Bun.resolveSync(specifier, projectRoot));
 	} catch {
 		// Resolution failed — caller falls through to stub
 		return undefined;
@@ -255,11 +296,12 @@ const rewriteImports = (
 		if (specifier.startsWith('/') || specifier.startsWith('.'))
 			return _match;
 
-		// Serve client-safe split AbsoluteJS package exports as real modules
-		// instead of stubbing them so package entrypoints hydrate correctly.
-		if (!specifier.startsWith('@absolutejs/'))
-			return `${prefix}/@stub/${encodeURIComponent(specifier)}${suffix}`;
-
+		// Try to resolve every bare specifier to a real node_modules path
+		// before falling back to a no-op stub. The stub fallback is for
+		// genuinely server-only / unresolvable packages; real deps that
+		// the user actually installed (vue-router, react-router,
+		// svelte-routing, axios, etc.) should hydrate as real modules so
+		// they share a Vue/React/etc. instance with the rest of the page.
 		const resolved = resolveAbsoluteSpecifier(specifier, projectRoot);
 		if (resolved) {
 			return `${prefix}${srcUrl(resolved, projectRoot)}${suffix}`;
@@ -393,27 +435,72 @@ const addJsxImport = (code: string) => {
 	return `${imports.join('\n')}\n${code}`;
 };
 
-// With the patched Bun.Transpiler (PR #28312), reactFastRefresh: true
-// injects $RefreshReg$/$RefreshSig$ natively — no manual injection needed.
-// Falls back to plain transpilation if reactFastRefresh isn't available.
-// reactFastRefresh is available via patched Bun (PR #28312) but not
-// yet in the upstream type definitions, so we extend the options type.
-const reactTranspilerOptions: ConstructorParameters<
+// reactFastRefresh on Bun.Transpiler is provided by oven-sh/bun#28312
+// (still open as of this writing). On stock Bun the option is silently
+// ignored — the transpiler runs but emits no $RefreshReg$/$RefreshSig$
+// calls, so the react-refresh runtime has no per-component registrations
+// and HMR cannot perform a state-preserving update. See
+// UPSTREAM_ISSUES.md for the full picture.
+//
+// reactFastRefresh isn't in the upstream Bun.Transpiler typings yet, so
+// we intersect the option type locally.
+type ReactTranspilerOptions = ConstructorParameters<
 	typeof Bun.Transpiler
 >[0] & {
 	reactFastRefresh?: boolean;
-} = {
+};
+
+const reactTranspilerOptions: ReactTranspilerOptions = {
 	loader: 'tsx',
 	reactFastRefresh: true,
 	trimUnusedImports: true
 };
 const reactTranspiler = new Bun.Transpiler(reactTranspilerOptions);
 
+// Probe at load time whether the running Bun honors reactFastRefresh on
+// Bun.Transpiler. We transpile a tiny component and look for the
+// register call that the transform must emit. If absent, the option is
+// a no-op (stock Bun) and React HMR can't preserve state.
+const probeReactFastRefresh = () => {
+	try {
+		const probeOptions: ReactTranspilerOptions = {
+			loader: 'tsx',
+			reactFastRefresh: true
+		};
+		const probe = new Bun.Transpiler(probeOptions);
+		const out = probe.transformSync(
+			'export function __AbsoluteRefreshProbe(){return null;}'
+		);
+
+		return out.includes('$RefreshReg$');
+	} catch {
+		return false;
+	}
+};
+
+const reactFastRefreshSupported = probeReactFastRefresh();
+
+let reactFastRefreshWarningEmitted = false;
+const warnIfReactFastRefreshUnsupported = () => {
+	if (reactFastRefreshSupported || reactFastRefreshWarningEmitted) return;
+	reactFastRefreshWarningEmitted = true;
+	logWarn(
+		'React HMR is blocked: this Bun build ignores ' +
+			'`reactFastRefresh` on Bun.Transpiler, so component state ' +
+			'cannot be preserved across edits. Tracking ' +
+			'https://github.com/oven-sh/bun/pull/28312 — if it still has ' +
+			'not merged, leave a 👍 on the PR so the Bun team knows it ' +
+			'is blocking you. Until then, React edits trigger a full ' +
+			'reload instead of a fast refresh.'
+	);
+};
+
 const transformReactFile = (
 	filePath: string,
 	projectRoot: string,
 	rewriter: ReturnType<typeof buildImportRewriter>
 ) => {
+	warnIfReactFastRefreshUnsupported();
 	const raw = readFileSync(filePath, 'utf-8');
 	const valueExports = tsxTranspiler.scan(raw).exports;
 	let transpiled = reactTranspiler.transformSync(raw);

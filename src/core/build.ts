@@ -437,8 +437,9 @@ const copyVueDevIndexes = (
 			'/'
 		);
 		content = content.replace(
-			/import\s+Comp\s+from\s+['"]([^'"]+)['"]/,
-			`import Comp from "/@src/${srcRel}"`
+			/import\s+Comp(?:\s*,\s*\*\s+as\s+\w+)?\s+from\s+['"]([^'"]+)['"]/,
+			(match) =>
+				match.replace(/from\s+['"][^'"]+['"]/, `from "/@src/${srcRel}"`)
 		);
 		writeFileSync(join(devIndexDir, `${name}.vue.js`), content);
 	}
@@ -1765,6 +1766,17 @@ const buildUnlocked = async ({
 		'typescript'
 	];
 
+	// Svelte-aware libraries (svelte-routing, svelte-spa-router, etc.)
+	// publish their entry only under custom export conditions like
+	// `"svelte"` and `"main"`. Without honoring those, Bun's resolver
+	// fails outright with "Could not resolve" because none of the
+	// standard import/require/default conditions match. Vite's official
+	// Svelte plugin sets these for the same reason — it's the convention
+	// the Svelte ecosystem expects.
+	const svelteResolveConditions: string[] | undefined = svelteDir
+		? ['svelte', 'main']
+		: undefined;
+
 	const htmlScriptPlugin = hmr
 		? createHTMLScriptHMRPlugin(htmlDir, htmxDir)
 		: undefined;
@@ -1832,6 +1844,7 @@ const buildUnlocked = async ({
 					bunBuild(
 						mergeBunBuildConfig(
 							{
+								conditions: svelteResolveConditions,
 								entrypoints: serverEntryPoints,
 								external: serverBuildExternals,
 								format: 'esm',
@@ -1856,6 +1869,7 @@ const buildUnlocked = async ({
 					bunBuild(
 						mergeBunBuildConfig(
 							{
+								conditions: svelteResolveConditions,
 								define: vueDirectory
 									? vueFeatureFlags
 									: undefined,
@@ -1893,6 +1907,7 @@ const buildUnlocked = async ({
 					bunBuild(
 						mergeBunBuildConfig(
 							{
+								conditions: svelteResolveConditions,
 								define: vueDirectory
 									? vueFeatureFlags
 									: undefined,

@@ -231,6 +231,7 @@ const build = async () => {
 				join(DIST, 'svelte', 'components', file)
 			)
 	);
+	await copyPublishedSvelteRouterSources();
 	await mkdir(join(DIST, 'vue', 'components'), { recursive: true });
 	const vueFiles = await readdir('src/vue/components');
 	await runSequentially(
@@ -372,6 +373,119 @@ const fixSvelteEntryPoints = async () => {
 };
 
 const PUBLISHED_AMBIENT_TYPE_FILES = ['globals.d.ts', 'style-module-shim.d.ts'];
+
+const SVELTE_ROUTER_PUBLIC_TYPE_FILES = ['svelteRouter.ts'];
+
+const rewriteSvelteRouterSource = (content: string) =>
+	// Two mechanical rewrites:
+	// 1. types/ path depth differs between src layout (3 ups) and dist
+	//    layout (2 ups, since dist/types/ sits closer to dist/svelte/).
+	// 2. The source `page.svelte.ts` rune module is compiled and shipped
+	//    as `page.js` in dist. compileSvelte's resolver matches anything
+	//    ending in `.svelte`, `.svelte.ts`, or `.svelte.js`, which would
+	//    cause my pre-compiled JS to be re-fed through Svelte. Renaming
+	//    the output to plain `.js` and rewriting the import path keeps
+	//    user-side compileSvelte from re-touching it.
+	content
+		.replaceAll('../../../types/', '../../types/')
+		.replaceAll("from './page.svelte'", "from './page.js'")
+		.replaceAll('from "./page.svelte"', 'from "./page.js"');
+
+const copyPublishedSvelteRouterSources = async () => {
+	const sourceDir = join('src', 'svelte', 'router');
+	const targetDir = join(DIST, 'svelte', 'router');
+	await mkdir(targetDir, { recursive: true });
+
+	// Svelte 5 rune modules (`*.svelte.ts`) need preprocessing by Svelte's
+	// compiler — Bun's native TS handler doesn't recognise $state /
+	// $derived. Pre-compile them here so consumers see plain JS that
+	// boots the rune runtime correctly.
+	const { compileModule } = await import('svelte/compiler');
+
+	const entries = await readdir(sourceDir);
+	await runSequentially(entries, async (entry) => {
+		const sourcePath = join(sourceDir, entry);
+		const targetPath = join(targetDir, entry);
+
+		if (entry.endsWith('.svelte')) {
+			// Same rewrite the .ts files get: `./page.svelte` →
+			// `./page.js` so the component's compiled-by-user output
+			// imports the pre-compiled rune module instead of looking
+			// for a non-existent `.svelte` file in dist.
+			const sourceText = await readFile(sourcePath, 'utf8');
+			await writeFile(targetPath, rewriteSvelteRouterSource(sourceText));
+
+			return;
+		}
+
+		if (entry.endsWith('.svelte.d.ts')) {
+			const sourceText = await readFile(sourcePath, 'utf8');
+			await writeFile(targetPath, rewriteSvelteRouterSource(sourceText));
+
+			return;
+		}
+
+		if (entry.endsWith('.svelte.ts')) {
+			// Compile the rune module to plain JS. Svelte's compileModule
+			// runs an Acorn parse that doesn't understand TS — strip types
+			// with Bun.Transpiler first, then hand the JS to Svelte for
+			// rune lowering. Output as `.svelte.js` so Bun's resolver
+			// picks the compiled file when source code imports
+			// `./page.svelte`.
+			const sourceText = await readFile(sourcePath, 'utf8');
+			const rewritten = rewriteSvelteRouterSource(sourceText);
+			const transpiler = new Bun.Transpiler({ loader: 'ts' });
+			const stripped = transpiler.transformSync(rewritten);
+			const compiled = compileModule(stripped, {
+				dev: false,
+				filename: entry,
+				generate: 'client'
+			});
+			const compiledPath = targetPath.replace(/\.svelte\.ts$/, '.js');
+			await writeFile(compiledPath, compiled.js.code);
+
+			// Mirror the tsc-emitted `.d.ts` next to the compiled JS so
+			// TypeScript can resolve types from `./page.js` imports.
+			const tscDtsPath = join(
+				DIST,
+				'src',
+				'svelte',
+				'router',
+				entry.replace(/\.svelte\.ts$/, '.svelte.d.ts')
+			);
+			const dtsTargetPath = compiledPath.replace(/\.js$/, '.d.ts');
+			try {
+				const dtsText = await readFile(tscDtsPath, 'utf8');
+				await writeFile(
+					dtsTargetPath,
+					rewriteSvelteRouterSource(dtsText)
+				);
+			} catch {
+				// tsc didn't emit one (likely a previous failure) — skip
+				// rather than break the whole build. Consumers without
+				// TypeScript still work; svelte-check will surface the
+				// missing-types error to anyone who needs it.
+			}
+
+			return;
+		}
+
+		if (entry.endsWith('.ts')) {
+			const sourceText = await readFile(sourcePath, 'utf8');
+			await writeFile(targetPath, rewriteSvelteRouterSource(sourceText));
+
+			return;
+		}
+	});
+
+	// Public router types live in types/ at the source layout but need to
+	// be available alongside the other ambient types under dist/types/ so
+	// the rewritten relative imports inside dist/svelte/router/ resolve.
+	await mkdir(join(DIST, 'types'), { recursive: true });
+	await runSequentially(SVELTE_ROUTER_PUBLIC_TYPE_FILES, (file) =>
+		cp(join('types', file), join(DIST, 'types', file))
+	);
+};
 
 const copyPublishedDevClientSources = async () => {
 	await mkdir(join(DIST, 'dev'), { recursive: true });

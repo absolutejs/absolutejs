@@ -311,26 +311,42 @@ const resolveRelativePath = (
 
 const hasJsLikeExtension = (path: string) => /\.(js|ts|mjs|cjs)$/.test(path);
 
+const splitSpecifierAndQuery = (specifier: string) => {
+	const separator = specifier.indexOf('?');
+	if (separator === -1) {
+		return {
+			path: specifier,
+			query: ''
+		};
+	}
+
+	return {
+		path: specifier.substring(0, separator),
+		query: specifier.substring(separator)
+	};
+};
+
 const rewriteRelativeJsSpecifier = (
 	importerOutputPath: string,
 	specifier: string,
 	outputFiles?: Set<string>
 ) => {
-	if (specifier.endsWith('.ts')) return specifier.replace(/\.ts$/, '.js');
-	if (hasJsLikeExtension(specifier)) return specifier;
+	const { path, query } = splitSpecifierAndQuery(specifier);
+	if (path.endsWith('.ts')) return `${path.replace(/\.ts$/, '.js')}${query}`;
+	if (hasJsLikeExtension(path)) return `${path}${query}`;
 
 	const importerDir = dirname(importerOutputPath);
-	const fileCandidate = resolve(importerDir, `${specifier}.js`);
+	const fileCandidate = resolve(importerDir, `${path}.js`);
 	if (outputFiles?.has(fileCandidate) || existsSync(fileCandidate)) {
-		return `${specifier}.js`;
+		return `${path}.js${query}`;
 	}
 
-	const indexCandidate = resolve(importerDir, specifier, 'index.js');
+	const indexCandidate = resolve(importerDir, path, 'index.js');
 	if (outputFiles?.has(indexCandidate) || existsSync(indexCandidate)) {
-		return `${specifier}/index.js`;
+		return `${path}/index.js${query}`;
 	}
 
-	return `${specifier}.js`;
+	return `${path}.js${query}`;
 };
 
 const isRelativeModuleSpecifier = (specifier: string) =>
@@ -1477,7 +1493,8 @@ export const compileAngularFileJIT = async (
 	inputPath: string,
 	outDir: string,
 	rootDir?: string,
-	stylePreprocessors?: StylePreprocessorConfig
+	stylePreprocessors?: StylePreprocessorConfig,
+	cacheBuster?: string
 ) => {
 	const entryPath = resolve(inputPath);
 	const allOutputs: string[] = [];
@@ -1548,6 +1565,13 @@ export const compileAngularFileJIT = async (
 		return join(outDir, relativeDir, fileBase);
 	};
 
+	const withCacheBuster = (specifier: string) => {
+		if (!cacheBuster) return specifier;
+		return specifier.includes('?')
+			? `${specifier}&t=${cacheBuster}`
+			: `${specifier}?t=${cacheBuster}`;
+	};
+
 	const transpileAndRewrite = (
 		sourceCode: string,
 		relativeDir: string,
@@ -1560,10 +1584,10 @@ export const compileAngularFileJIT = async (
 			prefix: string,
 			specifier: string,
 			suffix: string
-		) => {
+	) => {
 			const rewritten = importRewrites.get(specifier);
 			if (rewritten) {
-				return `${prefix}${rewritten}${suffix}`;
+				return `${prefix}${withCacheBuster(rewritten)}${suffix}`;
 			}
 			if (specifier.startsWith('.') || specifier.startsWith('/')) {
 				return `${prefix}${specifier}${suffix}`;
@@ -1685,12 +1709,10 @@ export const compileAngularFileJIT = async (
 				)
 					.replace(/\\/g, '/')
 					.replace(/\.js$/, '');
-				importRewrites.set(
-					specifier,
-					relativeImport.startsWith('.')
-						? relativeImport
-						: `./${relativeImport}`
-				);
+				const relativeRewrite = relativeImport.startsWith('.')
+					? relativeImport
+					: `./${relativeImport}`;
+				importRewrites.set(specifier, relativeRewrite);
 
 				return resolved;
 			})
@@ -1702,12 +1724,11 @@ export const compileAngularFileJIT = async (
 		// and cause progressively slower compile times.
 		const contentHash = Bun.hash(sourceCode).toString(BASE_36_RADIX);
 		const cacheKey = actualPath;
-		if (
-			jitContentCache.get(cacheKey) === contentHash &&
-			existsSync(targetPath)
-		) {
-			allOutputs.push(targetPath);
-		} else {
+		const shouldWriteFile = cacheBuster
+			? true
+			: jitContentCache.get(cacheKey) !== contentHash ||
+				!existsSync(targetPath);
+		if (shouldWriteFile) {
 			const processedContent = transpileAndRewrite(
 				sourceCode,
 				relativeDir,
@@ -1717,9 +1738,10 @@ export const compileAngularFileJIT = async (
 
 			await fs.mkdir(targetDir, { recursive: true });
 			await fs.writeFile(targetPath, processedContent, 'utf-8');
-			allOutputs.push(targetPath);
 			jitContentCache.set(cacheKey, contentHash);
 		}
+
+		allOutputs.push(targetPath);
 
 		// Recursively transpile local imports
 		await Promise.all(

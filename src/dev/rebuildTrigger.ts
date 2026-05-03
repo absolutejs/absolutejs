@@ -847,174 +847,6 @@ const handleAngularFastPath = async (
 	return manifest;
 };
 
-const resolveReactEntryForPageFile = (
-	normalized: string,
-	pagesPathResolved: string,
-	reactIndexesPath: string
-) => {
-	const pageName = basename(normalized, '.tsx');
-	const indexPath = resolve(reactIndexesPath, `${pageName}.tsx`);
-	if (!existsSync(indexPath)) {
-		return undefined;
-	}
-
-	return indexPath;
-};
-
-const resolveReactEntriesFromDeps = (
-	state: HMRState,
-	normalized: string,
-	pagesPathResolved: string,
-	reactIndexesPath: string,
-	reactEntries: string[]
-) => {
-	const affected = getAffectedFiles(state.dependencyGraph, normalized);
-	affected.forEach((dep) => {
-		if (!dep.startsWith(pagesPathResolved)) {
-			return;
-		}
-		const pageName = basename(dep, '.tsx');
-		const indexPath = resolve(reactIndexesPath, `${pageName}.tsx`);
-		if (existsSync(indexPath) && !reactEntries.includes(indexPath)) {
-			reactEntries.push(indexPath);
-		}
-	});
-};
-
-const resolveReactEntryForFile = (
-	state: HMRState,
-	file: string,
-	pagesPathResolved: string,
-	reactIndexesPath: string,
-	reactEntries: string[]
-) => {
-	const normalized = resolve(file);
-	if (!normalized.startsWith(pagesPathResolved)) {
-		resolveReactEntriesFromDeps(
-			state,
-			normalized,
-			pagesPathResolved,
-			reactIndexesPath,
-			reactEntries
-		);
-
-		return;
-	}
-
-	const entry = resolveReactEntryForPageFile(
-		normalized,
-		pagesPathResolved,
-		reactIndexesPath
-	);
-	if (entry) {
-		reactEntries.push(entry);
-	}
-};
-
-const collectReactEntries = (
-	state: HMRState,
-	filesToRebuild: string[],
-	reactPagesPath: string,
-	reactIndexesPath: string
-) => {
-	const reactEntries: string[] = [];
-	const pagesPathResolved = resolve(reactPagesPath);
-
-	filesToRebuild.forEach((file) => {
-		resolveReactEntryForFile(
-			state,
-			file,
-			pagesPathResolved,
-			reactIndexesPath,
-			reactEntries
-		);
-	});
-
-	return reactEntries;
-};
-
-const bundleReactClient = async (
-	state: HMRState,
-	reactEntries: string[],
-	reactIndexesPath: string,
-	buildDir: string
-) => {
-	const { build: bunBuild } = await import('bun');
-	const { generateManifest } = await import('../build/generateManifest');
-	const { getDevVendorPaths } = await import('../core/devVendorPaths');
-	const { rewriteReactImports } = await import(
-		'../build/rewriteReactImports'
-	);
-	const clientRoot = await computeClientRoot(state.resolvedPaths);
-	const depVendorPaths = globalThis.__depVendorPaths ?? {};
-
-	const refreshEntry = resolve(reactIndexesPath, '_refresh.tsx');
-	if (!reactEntries.includes(refreshEntry)) {
-		reactEntries.push(refreshEntry);
-	}
-
-	let vendorPaths = getDevVendorPaths();
-	if (!vendorPaths) {
-		const { computeVendorPaths } = await import(
-			'../build/buildReactVendor'
-		);
-		const { setDevVendorPaths } = await import('../core/devVendorPaths');
-		vendorPaths = computeVendorPaths();
-		setDevVendorPaths(vendorPaths);
-	}
-
-	const { rmSync } = await import('node:fs');
-	rmSync(resolve(buildDir, 'react', 'generated', 'indexes'), {
-		force: true,
-		recursive: true
-	});
-
-	const clientResult = await bunBuild({
-		entrypoints: reactEntries,
-		format: 'esm',
-		jsx: { development: true },
-		naming: '[dir]/[name].[hash].[ext]',
-		outdir: buildDir,
-		plugins: [
-			createStylePreprocessorPlugin(getStyleTransformConfig(state.config))
-		],
-		reactFastRefresh: true,
-		root: clientRoot,
-		splitting: true,
-		target: 'browser',
-		throw: false,
-		...(Object.keys({
-			...(vendorPaths ?? {}),
-			...depVendorPaths
-		}).length > 0
-			? {
-					external: Object.keys({
-						...(vendorPaths ?? {}),
-						...depVendorPaths
-					})
-				}
-			: {})
-	});
-
-	if (!clientResult.success) {
-		return;
-	}
-
-	if (vendorPaths || Object.keys(depVendorPaths).length > 0) {
-		await rewriteReactImports(
-			clientResult.outputs.map((art) => art.path),
-			{
-				...(vendorPaths ?? {}),
-				...depVendorPaths
-			}
-		);
-	}
-
-	const clientManifest = generateManifest(clientResult.outputs, buildDir);
-	Object.assign(state.manifest, clientManifest);
-	await populateAssetStore(state.assetStore, clientManifest, buildDir);
-};
-
 // O(1) HMR: invalidate cache, pre-transpile the changed file,
 // and return the /@src/ URL. Pre-warming ensures the browser fetch
 // hits a warm cache. Used by React and Vue (component-level swap).
@@ -1120,7 +952,7 @@ const handleReactModuleServerPath = async (
 
 const handleReactFastPath = async (
 	state: HMRState,
-	config: BuildConfig,
+	_config: BuildConfig,
 	filesToRebuild: string[],
 	startTime: number,
 	onRebuildComplete: (result: {
@@ -1128,79 +960,30 @@ const handleReactFastPath = async (
 		hmrState: HMRState;
 	}) => void
 ) => {
-	const reactDir = config.reactDirectory ?? '';
-	const reactPagesPath = resolve(reactDir, 'pages');
-	const reactIndexesPath = resolve(reactDir, 'generated', 'indexes');
-	const { buildDir } = state.resolvedPaths;
-
-	// O(1) fast path: serve the changed file via the module server.
-	// No Bun.build() at all — the browser re-imports the single module
-	// and React Fast Refresh swaps the component in place.
+	// O(1) HMR: serve the changed file via the module server. The
+	// browser re-imports the single module and React Fast Refresh
+	// swaps the component in place. There is no Bun.build() fallback
+	// here — a full re-bundle on each edit is far too slow for HMR,
+	// and the per-file path is correct on patched Bun (PR #28312).
+	// On stock Bun, reactFastRefresh is silently ignored and the
+	// browser falls back to a full reload; moduleServer logs a
+	// one-shot warning in that case.
 	const reactFiles = filesToRebuild.filter(
 		(file) => detectFramework(file, state.resolvedPaths) === 'react'
 	);
 
-	// O(1) fast path for ALL React files via the module server.
-	// Component files → re-import directly via Fast Refresh.
-	// Data/utility files → find nearest component boundary and
-	// re-import that. Chain invalidation ensures the data file's
-	// ?v= is bumped, so the browser fetches only 2 modules
-	// (component + changed data file). State is preserved.
-	if (reactFiles.length > 0) {
-		return handleReactModuleServerPath(
-			state,
-			reactFiles,
-			startTime,
-			onRebuildComplete
-		);
+	if (reactFiles.length === 0) {
+		onRebuildComplete({ hmrState: state, manifest: state.manifest });
+
+		return state.manifest;
 	}
 
-	// Full rebuild path: component changes or fast path failed
-	const { generateReactIndexFiles } = await import(
-		'../build/generateReactIndexes'
-	);
-	await generateReactIndexFiles(reactPagesPath, reactIndexesPath, true);
-
-	const reactEntries = collectReactEntries(
+	return handleReactModuleServerPath(
 		state,
-		filesToRebuild,
-		reactPagesPath,
-		reactIndexesPath
+		reactFiles,
+		startTime,
+		onRebuildComplete
 	);
-
-	if (reactEntries.length > 0) {
-		await bundleReactClient(
-			state,
-			reactEntries,
-			reactIndexesPath,
-			buildDir
-		);
-	}
-
-	const { manifest } = state;
-	const duration = Date.now() - startTime;
-
-	const reactPageFiles = reactFiles.filter((file) =>
-		file.replace(/\\/g, '/').includes('/pages/')
-	);
-	const sourceFiles = reactPageFiles.length > 0 ? reactPageFiles : reactFiles;
-
-	logHmrUpdate(sourceFiles[0] ?? reactFiles[0] ?? '', 'react', duration);
-	broadcastToClients(state, {
-		data: {
-			framework: 'react',
-			hasComponentChanges: true,
-			hasCSSChanges: false,
-			manifest,
-			primarySource: sourceFiles[0],
-			sourceFiles
-		},
-		type: 'react-update'
-	});
-
-	onRebuildComplete({ hmrState: state, manifest });
-
-	return manifest;
 };
 
 const handleServerManifestUpdate = (

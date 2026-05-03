@@ -65,3 +65,9 @@ CLAUDE.md
 /.claude
 
 .codex
+
+# Playwright MCP browser snapshots and console dumps
+.playwright-mcp/
+
+# Local scratch
+.tmp/

@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { mkdir, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import type { EnvironmentProviders, Provider, Type } from '@angular/core';
 import type {
 	AngularPageDefinition,
@@ -126,6 +127,11 @@ const resolveAngularSsrOutDir = () =>
 	process.env.ABSOLUTE_ANGULAR_SSR_OUTDIR ??
 	join(tmpdir(), 'absolutejs', 'generated', 'angular-ssr');
 
+const createAngularRuntimeCacheBuster = () =>
+	`${Date.now().toString(BASE_36_RADIX)}.${Math.random()
+		.toString(BASE_36_RADIX)
+		.substring(2, RANDOM_ID_END_INDEX)}`;
+
 const ensureAngularSsrNodeModules = async (outDir: string) => {
 	const outRoot = resolve(dirname(dirname(outDir)));
 	const nodeModulesLink = join(outRoot, 'node_modules');
@@ -159,25 +165,49 @@ const ensureAngularSsrNodeModules = async (outDir: string) => {
 
 const resolveRuntimeAngularModulePath = async (pagePath: string) => {
 	if (!pagePath.endsWith('.ts')) {
-		return pagePath;
+		return {
+			path: pagePath,
+			cacheBuster: undefined
+		};
 	}
 
 	const outDir = resolveAngularSsrOutDir();
 	await ensureAngularSsrNodeModules(outDir);
 	const { compileAngularFileJIT } = await import('../build/compileAngular');
+	const cacheBuster = createAngularRuntimeCacheBuster();
 	const outputs = await compileAngularFileJIT(
 		pagePath,
 		outDir,
-		process.cwd()
+		process.cwd(),
+		undefined,
+		cacheBuster
 	);
 	const expectedFileName = basename(pagePath).replace(/\.ts$/, '.js');
 
-	return (
+	const runtimePagePath =
 		outputs.find((output) => output.endsWith(`/${expectedFileName}`)) ??
 		outputs.find((output) => output.endsWith(`\\${expectedFileName}`)) ??
 		outputs[0] ??
-		pagePath
-	);
+		pagePath;
+
+	return {
+		path: runtimePagePath,
+		cacheBuster
+	};
+};
+
+const buildRuntimeModuleSpecifier = (
+	modulePath: string,
+	cacheBuster?: string
+) => {
+	if (!cacheBuster) {
+		return modulePath;
+	}
+
+	const moduleUrl = new URL(pathToFileURL(modulePath).href);
+	moduleUrl.searchParams.set('t', cacheBuster);
+
+	return moduleUrl.href;
 };
 
 const withHtmlContentType = (responseInit: ResponseInit = {}) => {
@@ -267,7 +297,10 @@ export const handleAngularPageRequest = async <
 				const runtimePagePath =
 					await resolveRuntimeAngularModulePath(resolvedPagePath);
 				const importedPageModule: unknown = await import(
-					runtimePagePath
+					buildRuntimeModuleSpecifier(
+						runtimePagePath.path,
+						runtimePagePath.cacheBuster
+					)
 				);
 				const pageModule = readAngularPageModule(importedPageModule);
 				if (!pageModule) {

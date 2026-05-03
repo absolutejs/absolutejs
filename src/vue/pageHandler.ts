@@ -1,4 +1,4 @@
-import type { Component as VueComponent } from 'vue';
+import type { App as VueApp, Component as VueComponent } from 'vue';
 import { readdir } from 'node:fs/promises';
 import { basename, dirname } from 'node:path';
 import type { VuePropsOf } from '../../types/vue';
@@ -29,6 +29,11 @@ export type VuePageRequestInput<Component extends VueComponent> =
 		indexPath: string;
 		pagePath: string;
 		Page?: Component;
+		/** The incoming Elysia request. Forwarded into the page
+		 *  module's exported `setupApp(app, { url, isServer })` hook
+		 *  (see compileVue's index generation) so plugins like
+		 *  vue-router can navigate to the correct route before SSR. */
+		request?: Request;
 	} & (keyof VuePropsOf<Component> extends never
 			? { props?: NoInfer<VuePropsOf<Component>> }
 			: { props: NoInfer<VuePropsOf<Component>> });
@@ -44,6 +49,21 @@ const readHasIslands = (value: unknown) => {
 	const hasIslands = value['__ABSOLUTE_PAGE_HAS_ISLANDS__'];
 
 	return typeof hasIslands === 'boolean' ? hasIslands : false;
+};
+
+type VueSetupAppContext = { url: string; isServer: boolean };
+type VueSetupAppHook = (
+	app: VueApp,
+	ctx: VueSetupAppContext
+) => void | Promise<void>;
+
+const readSetupAppHook = (value: unknown): VueSetupAppHook | null => {
+	if (!isRecord(value)) return null;
+	const setupApp = value['setupApp'];
+
+	return typeof setupApp === 'function'
+		? (setupApp as VueSetupAppHook)
+		: null;
 };
 
 const readDefaultExport = (value: unknown) =>
@@ -93,6 +113,18 @@ const buildDirtyResponse = (
 	});
 };
 
+const resolveRequestRenderUrl = (request: Request | undefined) => {
+	if (!request) return '/';
+
+	try {
+		const parsed = new URL(request.url);
+
+		return `${parsed.pathname}${parsed.search}`;
+	} catch {
+		return '/';
+	}
+};
+
 const primeVueStream = async (stream: ReadableStream) => {
 	const reader = stream.getReader();
 	const firstChunk = await reader.read();
@@ -129,7 +161,8 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 				if (isGenericVueComponent(passedPageComponent)) {
 					return {
 						component: passedPageComponent,
-						hasIslands: readHasIslands(passedPageComponent)
+						hasIslands: readHasIslands(passedPageComponent),
+						setupApp: null as VueSetupAppHook | null
 					};
 				}
 
@@ -150,7 +183,8 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 
 				return {
 					component: importedPageComponent,
-					hasIslands: readHasIslands(importedPageModule)
+					hasIslands: readHasIslands(importedPageModule),
+					setupApp: readSetupAppHook(importedPageModule)
 				};
 			};
 
@@ -161,6 +195,11 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 			const app = createSSRApp({
 				render: () => h(resolvedPage.component, maybeProps ?? null)
 			});
+
+			if (resolvedPage.setupApp) {
+				const url = resolveRequestRenderUrl(input.request);
+				await resolvedPage.setupApp(app, { url, isServer: true });
+			}
 
 			const bodyStream = renderToWebStream(app);
 			const { firstChunk, reader } = await primeVueStream(bodyStream);

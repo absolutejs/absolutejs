@@ -183,9 +183,12 @@ const toJs = (filePath: string, sourceDir?: string) => {
 };
 
 const stripExports = (code: string) =>
-	code
-		.replace(/export\s+default/, 'const script =')
-		.replace(/^export\s+/gm, '');
+	// Only strip `export default ...` (the SFC script object) — `assembleModule`
+	// re-emits `export default script` at the end. User-defined named exports
+	// from a plain `<script>` block (e.g. `export const setupApp = ...` for
+	// vue-router cooperation) MUST be preserved so the auto-generated client
+	// index can import them via `import * as PageModule`.
+	code.replace(/export\s+default/, 'const script =');
 
 const mergeVueImports = (code: string) => {
 	const lines = code.split('\n');
@@ -627,7 +630,7 @@ export const compileVue = async (
 				indexOutputFile,
 				[
 					...vueHmrImports,
-					`import Comp from "${relative(dirname(indexOutputFile), clientOutputFile).replace(/\\/g, '/')}";`,
+					`import Comp, * as PageModule from "${relative(dirname(indexOutputFile), clientOutputFile).replace(/\\/g, '/')}";`,
 					'import { createSSRApp, createApp } from "vue";',
 					'',
 					'// HMR State Preservation: Check for preserved state from HMR',
@@ -662,7 +665,21 @@ export const compileVue = async (
 					'const isSsrDirty = typeof window !== "undefined" && window.__SSR_DIRTY__;',
 					'const shouldHydrate = typeof window === "undefined" ? false : !(isHMR || isSsrDirty);',
 					'const app = shouldHydrate ? createSSRApp(Comp, mergedProps) : createApp(Comp, mergedProps);',
-					'app.mount("#root");',
+					'',
+					'// Optional setupApp hook — page modules can export `setupApp(app, { url, isServer })`',
+					'// to attach plugins like vue-router that require app.use() before mount.',
+					'// On the client we pass the current location.pathname + search as `url` and',
+					'// `isServer: false` so the same hook works in both environments.',
+					'async function bootstrapApp() {',
+					'  if (typeof PageModule.setupApp === "function") {',
+					'    const clientUrl = typeof window !== "undefined"',
+					'      ? window.location.pathname + window.location.search',
+					'      : "/";',
+					'    await PageModule.setupApp(app, { url: clientUrl, isServer: false });',
+					'  }',
+					'  app.mount("#root");',
+					'}',
+					'bootstrapApp();',
 					'',
 					'// Store app instance for HMR - used for manual component updates',
 					'if (typeof window !== "undefined") {',
