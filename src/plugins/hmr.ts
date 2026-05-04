@@ -181,6 +181,94 @@ export const hmr = (
 		.get('/@hmr/*', ({ request }) =>
 			resolveDevAssetResponse(request, hmrState, moduleServerHandler)
 		)
+		// SURGICAL_HMR §3.2 — Angular component metadata HMR endpoint.
+		// Angular's `_HmrLoad` listener (baked into compiled component
+		// .js by the AOT pipeline with `enableHmr: true`) calls
+		// `import(ɵɵgetReplaceMetadataURL(id, t, import.meta.url))` to
+		// fetch this. The default export is the
+		// `${ClassName}_UpdateMetadata` callback that
+		// `ɵɵreplaceMetadata` runs against the LIVE class — see
+		// SURGICAL_HMR.md §9 for the contract.
+		// SURGICAL_HMR §3.2 — Angular component metadata HMR endpoint.
+		// Wildcard `/@ng/*` (rather than exact `/@ng/component`)
+		// because Elysia's tree router doesn't match exact paths
+		// reliably when the leading segment starts with `@` —
+		// the working `/@src/*`, `/@hmr/*`, `/@stub/*` neighbours
+		// are all wildcards too. We parse the sub-path here.
+		.get('/@ng/*', async ({ request, query }) => {
+			const url = new URL(request.url);
+			const subPath = url.pathname.slice('/@ng/'.length);
+
+			if (subPath === 'debug') {
+				const { getCachedHmrProgram } = await import(
+					'../dev/angular/hmrCompiler'
+				);
+				const program = getCachedHmrProgram();
+				if (!program) {
+					return new Response(
+						JSON.stringify({ error: 'No cached program' }),
+						{
+							headers: { 'Content-Type': 'application/json' },
+							status: 404
+						}
+					);
+				}
+				const tsProgram = program.compiler.getCurrentProgram();
+				const sourceFiles = tsProgram
+					.getSourceFiles()
+					.map((sf) => sf.fileName)
+					.filter(
+						(fn) =>
+							!fn.includes('node_modules') &&
+							!fn.endsWith('.d.ts')
+					)
+					.slice(0, 50);
+
+				return new Response(
+					JSON.stringify(
+						{
+							hasProgram: true,
+							sampleSourceFiles: sourceFiles,
+							totalSourceFiles:
+								tsProgram.getSourceFiles().length
+						},
+						null,
+						2
+					),
+					{
+						headers: {
+							'Content-Type': 'application/json'
+						}
+					}
+				);
+			}
+
+			if (subPath === 'component') {
+				const id = typeof query.c === 'string' ? query.c : null;
+				if (!id) {
+					return new Response('Missing ?c=<id>', { status: 400 });
+				}
+				const { getApplyMetadataModule } = await import(
+					'../dev/angular/hmrCompiler'
+				);
+				const module = getApplyMetadataModule(id);
+				if (module === null) {
+					return new Response(
+						`No HMR module for id=${id}. The component may not be in the current program, or the program isn't built yet (rebuild on first save).`,
+						{ status: 404 }
+					);
+				}
+
+				return new Response(module, {
+					headers: {
+						'Cache-Control': 'no-store',
+						'Content-Type': 'text/javascript; charset=utf-8'
+					}
+				});
+			}
+
+			return new Response('Unknown @ng route', { status: 404 });
+		})
 		// Always register WebSocket for HMR. When HTTP/2 bridge is
 		// fully implemented it can take over, but Elysia's native
 		// WebSocket works fine over both HTTP and HTTPS.

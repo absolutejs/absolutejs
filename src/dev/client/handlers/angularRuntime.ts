@@ -266,7 +266,6 @@ const markPatchedDirty = (ctor: ComponentCtor) => {
 	}
 };
 
-
 const applyUpdate = (id: string, newCtor: unknown) => {
 	if (!isComponentCtor(newCtor)) return false;
 

@@ -362,7 +362,6 @@ const handleServiceMethodSwap = async (
 	_message: HMRMessage
 ): Promise<boolean> => false;
 
-
 const logRebootReason = (message: HMRMessage) => {
 	const reason = message.data.reason;
 	const updateType = message.data.updateType;
