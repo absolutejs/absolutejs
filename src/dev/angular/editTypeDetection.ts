@@ -61,6 +61,12 @@ const TEMPLATE_RE = /\.html$/i;
 const COMPONENT_CLASS_RE = /\.component\.ts$/i;
 const SERVICE_RE = /\.service\.ts$/i;
 const ROUTES_RE = /(?:^|[\\/])(?:app\.)?routes\.ts$/i;
+/* Page entries in `<angularDir>/pages/` are component classes whose
+ * filename convention drops the `.component` suffix
+ * (e.g. `pages/profile.ts` exports `ProfileComponent`). They behave
+ * identically to component classes for HMR purposes — fast-patch via
+ * prototype swap is the right default. */
+const PAGE_TS_RE = /(?:^|[\\/])pages[\\/][^\\/]+\.ts$/i;
 
 /* Names whose invocation in a constructor (transitively) means we can
  * not safely swap a method without leaking the prior subscription /
@@ -299,6 +305,14 @@ export const classifyAngularEdit = (
 		return {
 			type: 'class-component',
 			reason: `${base} — component class edit`,
+			sourceFile: file
+		};
+	}
+
+	if (PAGE_TS_RE.test(file)) {
+		return {
+			type: 'class-component',
+			reason: `${base} — page component edit`,
 			sourceFile: file
 		};
 	}

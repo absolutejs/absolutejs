@@ -553,6 +553,20 @@ export const queueFileChange = async (
 		// the write is stable.
 		await waitForStableWrites(state);
 
+		// Capture the user's actual edits — the file paths in
+		// `fileChangeQueue` BEFORE the dependency graph expands them with
+		// transitive dependents. The Angular HMR classifier needs the
+		// pristine set so it can pick the right fast path (a CSS edit
+		// shouldn't classify as a class-component reboot just because
+		// the graph also flagged the sibling .component.ts as affected).
+		const userEditedFiles = new Set<string>();
+		state.fileChangeQueue.forEach((filePaths) => {
+			for (const filePath of filePaths) {
+				userEditedFiles.add(resolve(filePath));
+			}
+		});
+		state.lastUserEditedFiles = userEditedFiles;
+
 		const filesToProcess = buildFilesToProcess(state);
 		state.fileChangeQueue.clear();
 
@@ -741,6 +755,26 @@ const bundleAngularClient = async (
 	await populateAssetStore(state.assetStore, clientManifest, buildDir);
 };
 
+/* Narrow a framework's `filesToRebuild` slice down to the user's actual
+ * edits. The dependency graph adds transitive dependents to the rebuild
+ * set so they get recompiled, but the HMR classifier should only see
+ * the file the user actually saved — otherwise a CSS edit collapses
+ * to a class-component or reboot verdict because of dragged-in
+ * sibling .ts and page bundles. Falls through to the full set when the
+ * pristine edit list isn't available (first rebuild, or a code path
+ * that doesn't capture it). */
+const filterToUserEdits = (
+	candidates: string[],
+	userEditedFiles: Set<string> | undefined
+): string[] => {
+	if (!userEditedFiles || userEditedFiles.size === 0) return candidates;
+	const filtered = candidates.filter((file) =>
+		userEditedFiles.has(resolve(file))
+	);
+
+	return filtered.length > 0 ? filtered : candidates;
+};
+
 const broadcastAngularPageUpdates = (
 	state: HMRState,
 	pagesToUpdate: string[],
@@ -880,8 +914,19 @@ const handleAngularFastPath = async (
 	const pagesToUpdate =
 		angularPageFiles.length > 0 ? angularPageFiles : pageEntries;
 
+	// Classify only the user's actual edits — strip out files the
+	// dependency graph dragged in as transitive dependents. Without this,
+	// editing `foo.component.css` causes the graph to also add
+	// `foo.component.ts` (sibling that styleUrls the css) and the page
+	// bundles that import it, and the collapsed verdict ends up at
+	// `class-component` (or `reboot` for unrecognized pages) — drowning
+	// out the actual `style-component` classification.
+	const filesToClassify = filterToUserEdits(
+		angularFiles,
+		state.lastUserEditedFiles
+	);
 	const classification = collapseClassifications(
-		angularFiles.map(classifyAngularEdit)
+		filesToClassify.map(classifyAngularEdit)
 	);
 
 	broadcastAngularPageUpdates(
@@ -2323,8 +2368,13 @@ const handleAngularHMR = (
 		return;
 	}
 
+	// Same user-edit filter as the fast path — see comment there.
+	const filesToClassifySlow = filterToUserEdits(
+		angularFiles,
+		state.lastUserEditedFiles
+	);
 	const classification = collapseClassifications(
-		angularFiles.map(classifyAngularEdit)
+		filesToClassifySlow.map(classifyAngularEdit)
 	);
 
 	pagesToUpdate.forEach((angularPagePath) => {

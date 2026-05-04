@@ -30,6 +30,12 @@ export type HMRState = {
 	rebuildCount: number; // Incremented after each successful rebuild
 	lastHmrPath?: string;
 	lastHmrFramework?: string;
+	// Set captured at the start of each rebuild cycle: the user's actual
+	// edited files BEFORE the dependency graph adds transitive dependents
+	// to `filesToRebuild`. Consumed by Angular's HMR classifier so it
+	// classifies the real edit (e.g. a `.component.css` file) instead of
+	// a page bundle that the graph dragged in.
+	lastUserEditedFiles?: Set<string>;
 };
 
 /* Initialize HMR state */
