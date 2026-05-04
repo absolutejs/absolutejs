@@ -1,4 +1,5 @@
 import { resolveAngularRuntimePath } from './resolveAngularPackage';
+import { isProductionRuntime } from '../utils/runtimeMode';
 
 // Patches Angular SSR's DominoAdapter to guard against null doc.head
 
@@ -113,11 +114,13 @@ const patchElementLayout = (doc: Document) => {
 
 export const applyPatches = async () => {
 	// §1.1 — bare specifier in dev shares Bun's module cache with bundled
-	// server pages. Production stays on the resolved vendor path.
-	const spec =
-		process.env.NODE_ENV === 'production'
-			? resolveAngularRuntimePath('@angular/platform-server')
-			: '@angular/platform-server';
+	// server pages. Production stays on the resolved vendor path. Use
+	// `isProductionRuntime()` instead of a direct `process.env.NODE_ENV`
+	// read so Bun's bundler doesn't constant-fold this branch out of
+	// dist/ at absolutejs build time.
+	const spec = isProductionRuntime()
+		? resolveAngularRuntimePath('@angular/platform-server')
+		: '@angular/platform-server';
 	const { ɵDominoAdapter } = await import(spec);
 	if (!ɵDominoAdapter?.prototype) {
 		console.warn(

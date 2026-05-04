@@ -1,6 +1,7 @@
 import type { EnvironmentProviders, Provider } from '@angular/core';
 import type { AngularDeps } from '../../types/angular';
 import { resolveAngularRuntimePath } from './resolveAngularPackage';
+import { isProductionRuntime } from '../utils/runtimeMode';
 
 type AngularRouterModule = typeof import('@angular/router');
 
@@ -72,10 +73,9 @@ export const buildRouterRedirectProviders = async (
 
 	try {
 		// §1.1 — bare specifier in dev shares Bun's module cache.
-		const spec =
-			process.env.NODE_ENV === 'production'
-				? resolveAngularRuntimePath('@angular/router')
-				: '@angular/router';
+		const spec = isProductionRuntime()
+			? resolveAngularRuntimePath('@angular/router')
+			: '@angular/router';
 		routerModule = await import(spec);
 	} catch {
 		return [];

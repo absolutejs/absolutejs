@@ -1,5 +1,9 @@
 import type { AngularDeps } from '../../types/angular';
 import { resolveAngularRuntimePath } from './resolveAngularPackage';
+import {
+	isDevelopmentRuntime,
+	isProductionRuntime
+} from '../utils/runtimeMode';
 
 const initDominoAdapter = (platformServer: {
 	ɵDominoAdapter?: { makeCurrent?: () => void };
@@ -18,7 +22,7 @@ const loadAngularDeps = async () => {
 	// the linker has already processed every partial declaration into
 	// final ɵdir/ɵcmp/ɵfac at vendor build time, so the compiler isn't
 	// imported and isn't part of the prod vendor bundle.
-	if (process.env.NODE_ENV !== 'production') {
+	if (!isProductionRuntime()) {
 		// Bare specifier in dev — Bun's module cache dedupes on
 		// normalized specifier, so this is the same instance as the
 		// `import "@angular/compiler"` baked into bundled server pages.
@@ -36,7 +40,7 @@ const loadAngularDeps = async () => {
 	// also have bare `@angular/*` imports in dev. Production keeps the
 	// resolved-path import because the vendor bundle is what every
 	// server-side import points at, and the resolved path is stable.
-	const useBareSpecifiers = process.env.NODE_ENV !== 'production';
+	const useBareSpecifiers = !isProductionRuntime();
 	const [platformBrowser, platformServer, common, core] = await Promise.all([
 		import(
 			useBareSpecifiers
@@ -60,7 +64,7 @@ const loadAngularDeps = async () => {
 		)
 	]);
 
-	if (process.env.NODE_ENV !== 'development') {
+	if (!isDevelopmentRuntime()) {
 		core.enableProdMode();
 	}
 

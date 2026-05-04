@@ -41,6 +41,7 @@ import {
 	resolveSelector
 } from './ssrRender';
 import { resolveAngularRuntimePath } from './resolveAngularPackage';
+import { isProductionRuntime } from '../utils/runtimeMode';
 
 let lastSelector = 'angular-page';
 type AngularPageRenderOptions = StreamingSlotEnhancerOptions & {
@@ -110,7 +111,7 @@ const resolvePageComponent = (pageModule: Record<string, unknown>) => {
 // or shipped.
 let compilerImportPromise: Promise<unknown> | null = null;
 const ensureAngularCompiler = () => {
-	if (process.env.NODE_ENV === 'production') return Promise.resolve();
+	if (isProductionRuntime()) return Promise.resolve();
 	if (!compilerImportPromise) {
 		// §1.1 — bare specifier in dev so Bun shares one cached module
 		// with bundled server pages (which also import bare `@angular/*`
