@@ -60,10 +60,9 @@ const loadReactRouter = (): ReactRouterModule => {
 	// `require` is available in Bun's CJS-interop context (server)
 	// and in any bundle output that emitted a CJS-compatible runtime.
 	try {
-		const dynamicRequire = new Function(
-			'spec',
-			'return require(spec)'
-		) as (spec: string) => ReactRouterModule;
+		const dynamicRequire = new Function('spec', 'return require(spec)') as (
+			spec: string
+		) => ReactRouterModule;
 		cachedReactRouter = dynamicRequire('react-router');
 
 		return cachedReactRouter;
@@ -85,11 +84,7 @@ const loadReactRouter = (): ReactRouterModule => {
 export const UniversalRouter = ({ url, children }: UniversalRouterProps) => {
 	const { BrowserRouter, StaticRouter } = loadReactRouter();
 	if (typeof window === 'undefined') {
-		return createElement(
-			StaticRouter,
-			{ location: url ?? '/' },
-			children
-		);
+		return createElement(StaticRouter, { location: url ?? '/' }, children);
 	}
 
 	return createElement(BrowserRouter, null, children);

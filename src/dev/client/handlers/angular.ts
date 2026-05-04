@@ -401,7 +401,13 @@ const handleTemplateUpdate = async (message: HMRMessage): Promise<boolean> => {
 		}
 
 		const results = hmr.endTemplateUpdateBatch();
-		if (results.length === 0) return false;
+		// Empty batch = the chunk's components weren't already in the
+		// registry (off-page broadcast). No-op success — see the
+		// matching comment in `handleComponentStyleUpdate`.
+		if (results.length === 0) {
+			console.warn = origWarn;
+			return true;
+		}
 		if (!results.every((r) => r.ok)) return false;
 
 		console.warn = origWarn;
@@ -480,12 +486,18 @@ const handleComponentStyleUpdate = async (
 		}
 
 		const results = hmr.endStyleUpdateBatch();
-		if (results.length === 0) {
-			// Chunk re-evaluated but no component re-registered — likely
-			// the edited file isn't actually used by this page, or the
-			// chunk skipped its registration block. Fall back to reboot.
-			return false;
-		}
+		// Empty batch is a no-op success: the chunk re-evaluated but
+		// none of its components were already in the registry, so they
+		// couldn't be live on the page right now. Common when a CSS
+		// edit affects multiple page bundles (the server broadcasts
+		// once per page) and the user is only looking at one of them —
+		// the off-page broadcasts add fresh entries to the registry but
+		// produce no batch updates. Treating that as a failure forced
+		// fallthrough to reboot for every off-page broadcast, which
+		// fired `startViewTransition` repeatedly and produced the
+		// "Transition was skipped" abort when the second reboot
+		// superseded the first mid-flight.
+		if (results.length === 0) return true;
 		return results.every((r) => r.ok);
 	} catch (err) {
 		console.warn('[HMR] Angular style update failed, falling back:', err);
@@ -546,7 +558,9 @@ const handleServiceMethodSwap = async (
 		}
 
 		const results = hmr.endServiceUpdateBatch();
-		if (results.length === 0) return false;
+		// Empty batch = off-page broadcast, see comment in
+		// `handleComponentStyleUpdate`.
+		if (results.length === 0) return true;
 		if (!results.every((r) => r.ok)) return false;
 
 		// New method bodies might compute new values for observable-fed

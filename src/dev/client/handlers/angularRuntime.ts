@@ -452,9 +452,23 @@ const applyStyleUpdate = (id: string, newCtor: unknown) => {
 		return true;
 	}
 
+	// Always update `ɵcmp.styles` first so future mounts of this
+	// component pick up the new content. The DOM `<style>` swap below
+	// handles currently-mounted instances; any component that isn't on
+	// the page right now (an unopened modal, a route view that hasn't
+	// been visited yet) simply has no `<style>` tag to find — and
+	// that's fine. The next time it mounts, Angular reads from
+	// `ɵcmp.styles` and injects the new content. Treating that case
+	// as a failure was the source of the "Transition was skipped"
+	// bug: the SPA at /portal/dashboard registered dozens of
+	// components whose styles weren't injected (modals, sibling tabs,
+	// etc.), and each missing live `<style>` tag forced fallthrough
+	// to the reboot path, firing `startViewTransition` while the
+	// previous one was still finishing.
+	liveCmp.styles = nextStyles;
+
 	const hosts = collectStyleHosts();
 	const consumed = new Set<HTMLStyleElement>();
-	const matches: { tag: HTMLStyleElement; nextContent: string }[] = [];
 
 	for (let i = 0; i < oldStyles.length; i++) {
 		const oldContent = oldStyles[i] ?? '';
@@ -462,20 +476,14 @@ const applyStyleUpdate = (id: string, newCtor: unknown) => {
 		if (oldContent === nextContent) continue;
 		const tag = findStyleTagByContent(hosts, oldContent, consumed);
 		if (!tag) {
-			// Couldn't locate one of the live <style> tags — fall through
-			// to reboot rather than leaving the page in a half-updated
-			// state.
-			return false;
+			// Component not currently mounted (or already-swapped style).
+			// Skip the DOM swap; `ɵcmp.styles` is already updated above
+			// so the next mount picks up the new content.
+			continue;
 		}
 		consumed.add(tag);
-		matches.push({ tag, nextContent });
-	}
-
-	// Only mutate after we've verified we can update every diffed style.
-	for (const { tag, nextContent } of matches) {
 		tag.textContent = nextContent;
 	}
-	liveCmp.styles = nextStyles;
 
 	updateCounter.value++;
 	entry.updateCount++;

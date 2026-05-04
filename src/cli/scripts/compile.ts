@@ -1094,7 +1094,7 @@ const resolveServerBundleExternals = (buildConfig: BuildConfig) =>
 				specifier.startsWith('react-dom'))
 		)
 			return false;
-if (
+		if (
 			buildConfig.vueDirectory &&
 			(specifier === 'vue' ||
 				specifier.startsWith('vue/') ||
