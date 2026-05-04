@@ -250,18 +250,23 @@ const hmrRuntimePath = join(
  *  Detects exported Angular component classes and appends register() calls.
  *  Only active when hmr=true (dev mode). */
 const injectHMRRegistration = (content: string, sourceId: string) => {
-	// Find exported component classes: `export class XxxComponent` or `class XxxComponent`
-	const componentClassRegex = /(?:export\s+)?class\s+(\w+Component)\s/g;
-	const componentNames: string[] = [];
+	// Find Angular entity classes: components AND services (and other DI
+	// singletons by convention: directives, pipes). Services are needed
+	// here so the HMR runtime can fast-path method-swap them — without
+	// this registration the page chunk re-evaluates on a service edit
+	// but the runtime never learns about the new ctor, and the live
+	// singleton keeps its old prototype.
+	const entityClassRegex =
+		/(?:export\s+)?class\s+(\w+(?:Component|Service|Directive|Pipe))\s/g;
+	const entityNames: string[] = [];
 	let match;
-	while ((match = componentClassRegex.exec(content)) !== null) {
-		if (match[1]) componentNames.push(match[1]);
+	while ((match = entityClassRegex.exec(content)) !== null) {
+		if (match[1]) entityNames.push(match[1]);
 	}
 
-	if (componentNames.length === 0) return content;
+	if (entityNames.length === 0) return content;
 
-	// Build registration code block
-	const registrations = componentNames
+	const registrations = entityNames
 		.map(
 			(name) =>
 				`  if (typeof ${name} === 'function') window.__ANGULAR_HMR__.register('${sourceId}#${name}', ${name});`

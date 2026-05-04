@@ -31,22 +31,50 @@ import {
 	restoreScrollState
 } from '../domState';
 import { detectCurrentFramework, findIndexPath } from '../frameworkDetect';
+import { showHmrToast } from '../hmrToast';
+
+type AngularUpdateType =
+	| 'template'
+	| 'style-component'
+	| 'class-component'
+	| 'service-method-only'
+	| 'service-with-side-effects'
+	| 'route'
+	| 'reboot'
+	// Legacy types kept for back-compat with global CSS edits and pre-2.1
+	// builds. Treated as fast-path triggers (style → swap stylesheet,
+	// logic → fast-patch + reboot fallback).
+	| 'style'
+	| 'css-only'
+	| 'logic'
+	| 'full';
 
 type HMRMessage = {
 	data: {
 		cssBaseName?: string;
 		cssUrl?: string;
+		editSourceFile?: string;
 		html?: string;
 		manifest?: Record<string, string>;
 		pageModuleUrl?: string;
+		reason?: string;
 		serverDuration?: number;
 		sourceFile?: string;
-		updateType?: string;
+		updateType?: AngularUpdateType;
 	};
 };
 
 type AngularHmrApi = {
 	applyUpdate: (id: string, newCtor: unknown) => boolean;
+	applyStyleUpdate?: (id: string, newCtor: unknown) => boolean;
+	applyTemplateUpdate?: (id: string, newCtor: unknown) => boolean;
+	applyServiceUpdate?: (id: string, newCtor: unknown) => boolean;
+	beginStyleUpdateBatch?: () => void;
+	endStyleUpdateBatch?: () => Array<{ id: string; ok: boolean }>;
+	beginTemplateUpdateBatch?: () => void;
+	endTemplateUpdateBatch?: () => Array<{ id: string; ok: boolean }>;
+	beginServiceUpdateBatch?: () => void;
+	endServiceUpdateBatch?: () => Array<{ id: string; ok: boolean }>;
 	getRegistry?: () => Map<string, unknown>;
 	refresh: () => void;
 	hasPageExportsChanged?: (sourceId: string) => boolean;
@@ -319,45 +347,306 @@ const handleFastUpdate = async (message: HMRMessage) => {
 let activeMessage: Promise<void> | null = null;
 let pendingMessage: HMRMessage | null = null;
 
-const processMessage = async (message: HMRMessage) => {
-	const updateType = message.data.updateType || 'logic';
+/* Stub handlers for fast paths that aren't implemented yet. Each one
+ * returns false to signal "couldn't handle, fall through to reboot",
+ * letting Phase 2 ship piecewise — we land §2.1 (this dispatch table)
+ * first, then §2.4 / §2.3 / §2.2 fill in the stubs one at a time
+ * without further plumbing changes. */
+/* Template HMR — re-imports the rebuilt page chunk under FAST_PATCH +
+ * TEMPLATE_UPDATE_MODE, then asks the runtime to swap the template
+ * subgraph of `ɵcmp` (template factory, slot counts, queries,
+ * dependencies, host bindings) on every re-registered component.
+ *
+ * Live instances keep their state, services, queries, and DI tokens —
+ * only the rendered output changes. After all components are patched,
+ * a single `refresh()` call walks the subtree, marks each patched
+ * component dirty, and ticks the app to repaint.
+ *
+ * Returns false on any partial failure so the orchestrator falls
+ * through to a coherent reboot. */
+type TemplateUpdateWindow = FastPatchWindow & {
+	__ANGULAR_HMR_TEMPLATE_UPDATE_MODE__?: boolean;
+};
 
-	if (updateType === 'full') {
-		// Server signalled this requires a full reload — skip fast path.
-		await handleFullUpdate(message);
-
-		return;
+const handleTemplateUpdate = async (
+	message: HMRMessage
+): Promise<boolean> => {
+	const hmr = window.__ANGULAR_HMR__;
+	if (
+		!hmr ||
+		!hmr.applyTemplateUpdate ||
+		!hmr.beginTemplateUpdateBatch ||
+		!hmr.endTemplateUpdateBatch
+	) {
+		return false;
 	}
 
-	// Default 'logic' path: try fast-patch, fall back to full reload.
+	const indexPath = findIndexPath(
+		message.data.manifest,
+		message.data.sourceFile,
+		'angular'
+	);
+	if (!indexPath) return false;
+
+	const w = window as TemplateUpdateWindow;
+	w.__ANGULAR_HMR_FAST_PATCH__ = true;
+	w.__ANGULAR_HMR_TEMPLATE_UPDATE_MODE__ = true;
+	hmr.beginTemplateUpdateBatch();
+
+	const origWarn = suppressNg0912();
 	try {
-		const patched = await handleFastUpdate(message);
-		if (patched) return;
+		await import(`${indexPath}?t=${Date.now()}`);
+
+		// Page-level routes/providers cannot ride a template update.
+		if (hmr.hasPageExportsChanged?.(message.data.sourceFile || '')) {
+			return false;
+		}
+
+		const results = hmr.endTemplateUpdateBatch();
+		if (results.length === 0) return false;
+		if (!results.every((r) => r.ok)) return false;
+
+		console.warn = origWarn;
+		hmr.refresh();
+
+		return true;
 	} catch (err) {
-		console.warn(
-			'[HMR] Angular fast update threw, falling back to full reload:',
-			err
-		);
+		console.warn = origWarn;
+		console.warn('[HMR] Angular template update failed, falling back:', err);
+		return false;
+	} finally {
+		delete w.__ANGULAR_HMR_FAST_PATCH__;
+		delete w.__ANGULAR_HMR_TEMPLATE_UPDATE_MODE__;
+		console.warn = origWarn;
+	}
+};
+
+/* Component-style HMR — re-imports the rebuilt page chunk under the
+ * combined `FAST_PATCH` and `STYLE_UPDATE_MODE` flags so:
+ *   - the chunk's bootstrap section is skipped (FAST_PATCH)
+ *   - every per-file auto-registration block routes its new ctor
+ *     through `applyStyleUpdate` instead of a no-op (STYLE_UPDATE_MODE)
+ *
+ * The registration-block path is the only way to reach CHILD
+ * components — the page chunk's `export *` only re-exports the page's
+ * own module, so a top-level export walk would miss imported
+ * components like `LayoutComponent`. Each compiled .ts file emits a
+ * registration block for its own component classes, so the chunk
+ * covers the whole tree on re-evaluation.
+ *
+ * Returns true iff every component the chunk re-registered swapped
+ * its styles cleanly. Any failure (Shadow DOM, length change, missing
+ * live <style> tag) → reboot. The transactional check inside
+ * `applyStyleUpdate` means we never apply a partial update — either
+ * the page restyles coherently or we reboot. */
+type StyleUpdateWindow = FastPatchWindow & {
+	__ANGULAR_HMR_STYLE_UPDATE_MODE__?: boolean;
+};
+
+const handleComponentStyleUpdate = async (
+	message: HMRMessage
+): Promise<boolean> => {
+	const hmr = window.__ANGULAR_HMR__;
+	if (
+		!hmr ||
+		!hmr.applyStyleUpdate ||
+		!hmr.beginStyleUpdateBatch ||
+		!hmr.endStyleUpdateBatch
+	) {
+		return false;
 	}
 
-	// Fast path didn't apply — full re-bootstrap. Components and services
-	// that opted into `preserveAcrossHmr(this)` keep their state; anything
-	// that didn't opt in is reset to its class-field defaults. The summary
-	// log emitted by `endHmrReboot` after the reboot tells the developer
-	// which classes were preserved.
+	const indexPath = findIndexPath(
+		message.data.manifest,
+		message.data.sourceFile,
+		'angular'
+	);
+	if (!indexPath) return false;
+
+	const w = window as StyleUpdateWindow;
+	w.__ANGULAR_HMR_FAST_PATCH__ = true;
+	w.__ANGULAR_HMR_STYLE_UPDATE_MODE__ = true;
+	hmr.beginStyleUpdateBatch();
+
+	try {
+		await import(`${indexPath}?t=${Date.now()}`);
+
+		// Page-level routes/providers cannot ride a style update — they
+		// are read once during bootstrap. If they changed in this
+		// rebuild, reboot rather than risk a stale router/injector.
+		if (hmr.hasPageExportsChanged?.(message.data.sourceFile || '')) {
+			return false;
+		}
+
+		const results = hmr.endStyleUpdateBatch();
+		if (results.length === 0) {
+			// Chunk re-evaluated but no component re-registered — likely
+			// the edited file isn't actually used by this page, or the
+			// chunk skipped its registration block. Fall back to reboot.
+			return false;
+		}
+		return results.every((r) => r.ok);
+	} catch (err) {
+		console.warn('[HMR] Angular style update failed, falling back:', err);
+		return false;
+	} finally {
+		delete w.__ANGULAR_HMR_FAST_PATCH__;
+		delete w.__ANGULAR_HMR_STYLE_UPDATE_MODE__;
+	}
+};
+
+/* Service HMR — re-imports the rebuilt page chunk under FAST_PATCH +
+ * SERVICE_UPDATE_MODE so the page's auto-registration block routes
+ * each new service ctor through `applyServiceUpdate`. The runtime
+ * does prototype method-swap (always) and best-effort field merge on
+ * the live singleton (when reachable via the root injector and
+ * donor-instantiable). Live components keep their references — they
+ * just call into the new method bodies on next invocation.
+ *
+ * This path only runs when the server-side classifier returned
+ * `service-method-only` — services with side-effecting constructors
+ * never get here, so the live singleton's existing subscriptions /
+ * timers / listeners stay intact and we don't double-register them. */
+type ServiceUpdateWindow = FastPatchWindow & {
+	__ANGULAR_HMR_SERVICE_UPDATE_MODE__?: boolean;
+};
+
+const handleServiceMethodSwap = async (
+	message: HMRMessage
+): Promise<boolean> => {
+	const hmr = window.__ANGULAR_HMR__;
+	if (
+		!hmr ||
+		!hmr.applyServiceUpdate ||
+		!hmr.beginServiceUpdateBatch ||
+		!hmr.endServiceUpdateBatch
+	) {
+		return false;
+	}
+
+	const indexPath = findIndexPath(
+		message.data.manifest,
+		message.data.sourceFile,
+		'angular'
+	);
+	if (!indexPath) return false;
+
+	const w = window as ServiceUpdateWindow;
+	w.__ANGULAR_HMR_FAST_PATCH__ = true;
+	w.__ANGULAR_HMR_SERVICE_UPDATE_MODE__ = true;
+	hmr.beginServiceUpdateBatch();
+
+	try {
+		await import(`${indexPath}?t=${Date.now()}`);
+
+		// Page-level routes/providers cannot ride a service update.
+		if (hmr.hasPageExportsChanged?.(message.data.sourceFile || '')) {
+			return false;
+		}
+
+		const results = hmr.endServiceUpdateBatch();
+		if (results.length === 0) return false;
+		if (!results.every((r) => r.ok)) return false;
+
+		// New method bodies might compute new values for observable-fed
+		// fields, so the existing component subtree should re-render.
+		// `refresh()` ticks the app + marks any pending fast-patch
+		// components dirty.
+		hmr.refresh();
+
+		return true;
+	} catch (err) {
+		console.warn('[HMR] Angular service update failed, falling back:', err);
+		return false;
+	} finally {
+		delete w.__ANGULAR_HMR_FAST_PATCH__;
+		delete w.__ANGULAR_HMR_SERVICE_UPDATE_MODE__;
+	}
+};
+
+const logRebootReason = (message: HMRMessage) => {
+	const reason = message.data.reason;
+	const updateType = message.data.updateType;
+	if (!reason && !updateType) return;
+	console.info(
+		`[HMR] Angular reboot — ${updateType ?? 'unknown'}: ${reason ?? '(no reason given)'}`
+	);
+	// Surface the same info as a brief on-page toast so the developer
+	// sees it without opening devtools. Toasts auto-dismiss after a
+	// few seconds.
+	showHmrToast({
+		editSourceFile: message.data.editSourceFile,
+		reason,
+		updateType
+	});
+};
+
+const processMessage = async (message: HMRMessage) => {
+	const updateType = message.data.updateType ?? 'logic';
+
+	switch (updateType) {
+		case 'template': {
+			const ok = await handleTemplateUpdate(message);
+			if (ok) return;
+			break;
+		}
+		case 'style-component': {
+			const ok = await handleComponentStyleUpdate(message);
+			if (ok) return;
+			break;
+		}
+		case 'service-method-only': {
+			const ok = await handleServiceMethodSwap(message);
+			if (ok) return;
+			break;
+		}
+		case 'class-component':
+		case 'logic': {
+			// Existing prototype-swap fast-patch. Falls through to reboot
+			// on any failure (provider change, page-export change, etc.).
+			try {
+				const patched = await handleFastUpdate(message);
+				if (patched) return;
+			} catch (err) {
+				console.warn(
+					'[HMR] Angular fast update threw, falling back to reboot:',
+					err
+				);
+			}
+			break;
+		}
+		case 'service-with-side-effects':
+		case 'route':
+		case 'reboot':
+		case 'full':
+			// Explicit reboot signals — skip the fast path entirely and
+			// log why so the developer can see the classification.
+			break;
+		default:
+			// Unknown update type — be conservative and reboot.
+			break;
+	}
+
+	// Falling through: full re-bootstrap. Components and services that
+	// opted into `preserveAcrossHmr(this)` keep their state; anything
+	// that didn't opt in is reset to its class-field defaults. The
+	// summary log emitted by `endHmrReboot` lists what was preserved.
+	logRebootReason(message);
 	await handleFullUpdate(message);
 };
 
 export const handleAngularUpdate = (message: HMRMessage) => {
 	if (detectCurrentFramework() !== 'angular') return;
 
-	const updateType = message.data.updateType || 'logic';
+	const updateType = message.data.updateType ?? 'logic';
 
 	if (
 		(updateType === 'style' || updateType === 'css-only') &&
 		message.data.cssUrl
 	) {
-		// CSS-only updates can run in parallel without breaking anything.
+		// Global CSS-only updates: swap the stylesheet in place. These
+		// run outside the activeMessage queue because they can't conflict
+		// with an in-flight component update.
 		swapStylesheet(
 			message.data.cssUrl,
 			message.data.cssBaseName || '',

@@ -52,6 +52,11 @@ import {
 import { isTailwindCandidate } from '../build/compileTailwind';
 import { incrementalTailwindBuild } from '../build/tailwindCompiler';
 import { markSsrCacheDirty } from '../core/ssrCache';
+import {
+	classifyAngularEdit,
+	collapseClassifications,
+	type AngularEditClassification
+} from './angular/editTypeDetection';
 
 const runSequentially = <Item>(
 	items: Item[],
@@ -731,7 +736,8 @@ const broadcastAngularPageUpdates = (
 	state: HMRState,
 	pagesToUpdate: string[],
 	manifest: Record<string, string>,
-	startTime: number
+	startTime: number,
+	classification: AngularEditClassification
 ) => {
 	pagesToUpdate.forEach((angularPagePath) => {
 		const fileName = basename(angularPagePath);
@@ -746,10 +752,12 @@ const broadcastAngularPageUpdates = (
 			data: {
 				cssBaseName: baseName,
 				cssUrl,
+				editSourceFile: classification.sourceFile,
 				framework: 'angular',
 				manifest,
+				reason: classification.reason,
 				sourceFile: angularPagePath,
-				updateType: 'logic' as const
+				updateType: classification.type
 			},
 			type: 'angular-update'
 		});
@@ -863,7 +871,17 @@ const handleAngularFastPath = async (
 	const pagesToUpdate =
 		angularPageFiles.length > 0 ? angularPageFiles : pageEntries;
 
-	broadcastAngularPageUpdates(state, pagesToUpdate, manifest, startTime);
+	const classification = collapseClassifications(
+		angularFiles.map(classifyAngularEdit)
+	);
+
+	broadcastAngularPageUpdates(
+		state,
+		pagesToUpdate,
+		manifest,
+		startTime,
+		classification
+	);
 
 	onRebuildComplete({ hmrState: state, manifest });
 
@@ -2217,7 +2235,8 @@ const broadcastAngularPageHmrUpdate = (
 	state: HMRState,
 	angularPagePath: string,
 	manifest: Record<string, string>,
-	duration: number
+	duration: number,
+	classification: AngularEditClassification
 ) => {
 	try {
 		const fileName = basename(angularPagePath);
@@ -2231,10 +2250,12 @@ const broadcastAngularPageHmrUpdate = (
 			data: {
 				cssBaseName: baseName,
 				cssUrl,
+				editSourceFile: classification.sourceFile,
 				framework: 'angular',
 				manifest,
+				reason: classification.reason,
 				sourceFile: angularPagePath,
-				updateType: 'logic' as const
+				updateType: classification.type
 			},
 			type: 'angular-update'
 		});
@@ -2287,12 +2308,17 @@ const handleAngularHMR = (
 		return;
 	}
 
+	const classification = collapseClassifications(
+		angularFiles.map(classifyAngularEdit)
+	);
+
 	pagesToUpdate.forEach((angularPagePath) => {
 		broadcastAngularPageHmrUpdate(
 			state,
 			angularPagePath,
 			manifest,
-			duration
+			duration,
+			classification
 		);
 	});
 };
