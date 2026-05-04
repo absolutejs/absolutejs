@@ -46,6 +46,19 @@ const buildHmrTail = (
 
 // absolutejs HMR — auto-generated; mirrors compileHmrInitializer from
 // @angular/compiler with import.meta.hot adapted to globalThis.__angularHmr.
+//
+// We invoke \`ɵɵreplaceMetadata\` rather than calling the surgical
+// update directly. Both end up applying the new \`ɵcmp\` to the class,
+// but \`ɵɵreplaceMetadata\` ALSO walks the LView tree and runs
+// \`recreateLView\` on each affected instance — that's what triggers
+// the actual template re-render, style swap, and lifecycle hook
+// re-fire. Calling the update fn directly mutates the def but
+// Angular's runtime never observes it, so views don't update.
+//
+// Pipes / directives / services don't have a \`ɵcmp\` and aren't
+// tracked in the LView tree the same way; for those we still fall
+// back to a direct call (the surgical module's job is just to
+// patch the prototype, no view recreation needed).
 {
   const __ng_hmr_id = ${encodedIdLiteral};
   const __ng_hmr_load = async (t) => {
@@ -53,7 +66,21 @@ const buildHmrTail = (
       import('/@ng/component?c=' + encodeURIComponent(__ng_hmr_id) + '&t=' + t),
       import('@angular/core')
     ]);
-    if (u && typeof u.default === 'function') u.default(${className}, [core]);
+    if (!u || typeof u.default !== 'function') return;
+    if (${className}.ɵcmp && typeof core.ɵɵreplaceMetadata === 'function') {
+      core.ɵɵreplaceMetadata(
+        ${className},
+        u.default,
+        [core],
+        [],
+        import.meta,
+        __ng_hmr_id
+      );
+    } else {
+      // Non-component entity (pipe / directive / service) — no
+      // LView tree to walk, just apply the prototype patch.
+      u.default(${className}, [core]);
+    }
   };
   if (typeof globalThis !== 'undefined' &&
       globalThis.__angularHmr &&
