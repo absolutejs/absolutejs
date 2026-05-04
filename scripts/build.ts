@@ -112,6 +112,7 @@ const SERVER_ENTRY_POINTS = [
 const EXTERNALS = [
 	'react',
 	'react-dom',
+	'react-router',
 	'vue',
 	'@vue/compiler-sfc',
 	'vue/server-renderer',
