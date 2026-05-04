@@ -493,6 +493,27 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 		}
 	});
 
+	/** §1.3 (continued) — Detect parent-process death.
+	 *
+	 *  SIGKILL on the outer `bun dev` package-script wrapper can't run a
+	 *  handler. The wrapper dies instantly, this `absolute dev` process
+	 *  gets reparented to init (PID 1), and the `bun --hot` grandchild
+	 *  it spawned keeps running — bound to the dev port, untouched by
+	 *  any cleanup code. Polling `process.ppid` is the only portable
+	 *  way to notice (nodemon, PM2 do the same). When the parent
+	 *  changes — either it died (we get reparented to init = ppid 1)
+	 *  or some other process inherited us — kill the child tree and
+	 *  exit ourselves so the orphan doesn't survive. */
+	const initialPpid = process.ppid;
+	const ppidWatcher = setInterval(() => {
+		if (process.ppid !== initialPpid) {
+			clearInterval(ppidWatcher);
+			cleanup(0);
+		}
+	}, 1000);
+	// Don't keep the event loop alive just for the watcher.
+	if (typeof ppidWatcher.unref === 'function') ppidWatcher.unref();
+
 	printHint();
 
 	const handleServerExit = async (exitCode: number | null) => {
