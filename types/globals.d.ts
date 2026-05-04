@@ -67,15 +67,6 @@ declare global {
 		__ANGULAR_HMR__?: {
 			register: (id: string, ctor: unknown) => void;
 			applyUpdate: (id: string, newCtor: unknown) => boolean;
-			applyStyleUpdate: (id: string, newCtor: unknown) => boolean;
-			applyTemplateUpdate: (id: string, newCtor: unknown) => boolean;
-			applyServiceUpdate: (id: string, newCtor: unknown) => boolean;
-			beginStyleUpdateBatch: () => void;
-			endStyleUpdateBatch: () => Array<{ id: string; ok: boolean }>;
-			beginTemplateUpdateBatch: () => void;
-			endTemplateUpdateBatch: () => Array<{ id: string; ok: boolean }>;
-			beginServiceUpdateBatch: () => void;
-			endServiceUpdateBatch: () => Array<{ id: string; ok: boolean }>;
 			refresh: () => void;
 			getStats: () => { componentCount: number; updateCount: number };
 			getRegistry: () => Map<
@@ -94,9 +85,6 @@ declare global {
 			) => void;
 			hasPageExportsChanged: (sourceId: string) => boolean;
 		};
-		__ANGULAR_HMR_STYLE_UPDATE_MODE__?: boolean;
-		__ANGULAR_HMR_TEMPLATE_UPDATE_MODE__?: boolean;
-		__ANGULAR_HMR_SERVICE_UPDATE_MODE__?: boolean;
 		__VUE_APP__?:
 			| ({
 					unmount: () => void;

@@ -1,4 +1,4 @@
-import { createElement, type ReactNode } from 'react';
+import { createElement, type ComponentType, type ReactNode } from 'react';
 
 export type UniversalRouterProps = {
 	/** The request URL to seed `<StaticRouter>` with on the server. Pages
@@ -43,8 +43,8 @@ export type UniversalRouterProps = {
  *  loaded in both environments. */
 
 type ReactRouterModule = {
-	BrowserRouter: (...args: unknown[]) => unknown;
-	StaticRouter: (...args: unknown[]) => unknown;
+	BrowserRouter: ComponentType<{ children?: ReactNode }>;
+	StaticRouter: ComponentType<{ location: string; children?: ReactNode }>;
 };
 
 let cachedReactRouter: ReactRouterModule | null = null;
