@@ -16,7 +16,7 @@
  * inheritance chains, and a handful of exotic cases bail to the
  * ngtsc fallback in `getApplyMetadataModule`. */
 
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, relative, resolve } from 'node:path';
 import type {
 	DeclareFunctionStmt,
@@ -54,15 +54,28 @@ export type FastHmrFallbackReason =
  *     reference, in order. Constructor changes are the most common
  *     source of DI-token-mismatch surprises.
  *   - `selector` / `standalone`: trivial identity changes.
- *   - `importsArity`: length of the `imports: [...]` array. Shape-of
- *     scope. We don't compare array contents because identifier
- *     renames inside the array are usually harmless and the entries
- *     are passed through to the runtime anyway.
+ *   - `providerImportSig`: sorted "P:<name>" markers for every
+ *     `imports: [...]` entry whose source is an `@NgModule` with
+ *     `providers: [...]`. Adding/removing a provider-bearing
+ *     module changes the component's DI tree shape; surgical
+ *     swap can't propagate that to existing instances.
+ *     Directive / pipe additions to `imports` (no providers) are
+ *     deliberately NOT in the fingerprint — they're rendering
+ *     concerns and `ɵɵreplaceMetadata` handles them via the
+ *     `dependencies: [...]` list.
  *   - `hasProviders` / `hasViewProviders`: presence flips, which
  *     change DI tree shape.
  *   - `inputs` / `outputs`: sorted name lists. Renames or
  *     additions/removals of inputs change the parent template's
  *     binding contract.
+ *   - `arrowFieldSig`: sorted "name:hash" entries for every class
+ *     property whose initializer is an arrow function or function
+ *     expression. These live per-instance (not on the prototype)
+ *     so the surgical prototype-patch can't propagate body changes
+ *     to existing instances. Catching the body change here forces
+ *     Tier 1 instead of a silent no-op. Non-function field
+ *     initializers (`count = 0`) are NOT in the signature — those
+ *     edits stay no-op so existing instance state is preserved.
  *
  * We deliberately do NOT include template / styleUrl / styleUrls
  * content — those are exactly the cheap surgical-handleable
@@ -72,11 +85,12 @@ export type ComponentFingerprint = {
 	selector: string | null;
 	standalone: boolean;
 	ctorParamTypes: string[];
-	importsArity: number;
+	providerImportSig: string[];
 	hasProviders: boolean;
 	hasViewProviders: boolean;
 	inputs: string[];
 	outputs: string[];
+	arrowFieldSig: string[];
 };
 
 export type FastHmrSuccess = {
@@ -108,6 +122,15 @@ const fail = (
  * baseline). */
 const fingerprintCache = new Map<string, ComponentFingerprint>();
 
+const arraysEqual = (a: string[], b: string[]): boolean => {
+	if (a.length !== b.length) return false;
+	for (let i = 0; i < a.length; i++) {
+		if (a[i] !== b[i]) return false;
+	}
+
+	return true;
+};
+
 const fingerprintsEqual = (
 	a: ComponentFingerprint,
 	b: ComponentFingerprint
@@ -115,21 +138,13 @@ const fingerprintsEqual = (
 	if (a.className !== b.className) return false;
 	if (a.selector !== b.selector) return false;
 	if (a.standalone !== b.standalone) return false;
-	if (a.importsArity !== b.importsArity) return false;
 	if (a.hasProviders !== b.hasProviders) return false;
 	if (a.hasViewProviders !== b.hasViewProviders) return false;
-	if (a.ctorParamTypes.length !== b.ctorParamTypes.length) return false;
-	for (let i = 0; i < a.ctorParamTypes.length; i++) {
-		if (a.ctorParamTypes[i] !== b.ctorParamTypes[i]) return false;
-	}
-	if (a.inputs.length !== b.inputs.length) return false;
-	for (let i = 0; i < a.inputs.length; i++) {
-		if (a.inputs[i] !== b.inputs[i]) return false;
-	}
-	if (a.outputs.length !== b.outputs.length) return false;
-	for (let i = 0; i < a.outputs.length; i++) {
-		if (a.outputs[i] !== b.outputs[i]) return false;
-	}
+	if (!arraysEqual(a.ctorParamTypes, b.ctorParamTypes)) return false;
+	if (!arraysEqual(a.inputs, b.inputs)) return false;
+	if (!arraysEqual(a.outputs, b.outputs)) return false;
+	if (!arraysEqual(a.providerImportSig, b.providerImportSig)) return false;
+	if (!arraysEqual(a.arrowFieldSig, b.arrowFieldSig)) return false;
 
 	return true;
 };
@@ -518,15 +533,249 @@ const extractInputsAndOutputs = (
 	return { inputs, outputs };
 };
 
+/* Tiny non-crypto string hash used for arrow-field body
+ * fingerprints. We just need stable identity across whitespace-
+ * insignificant edits and collision rates low enough that two
+ * different bodies don't share a hash. djb2 is fine. */
+const djb2Hash = (s: string): string => {
+	let h = 5381;
+	for (let i = 0; i < s.length; i++) {
+		h = (h * 33) ^ s.charCodeAt(i);
+	}
+
+	return (h >>> 0).toString(36);
+};
+
+/* Walk the class members once, return a sorted `name:hash` list
+ * for every property whose initializer is an arrow function or
+ * function expression. Editing such an initializer's body is a
+ * silent-no-op for surgical (lives per-instance, not on the
+ * prototype) so we use the body hash to flag those edits as
+ * structural changes that escalate to Tier 1.
+ *
+ * Non-function field initializers (`count = 0`, `data = {}`) are
+ * NOT included — those edits should stay no-op so existing
+ * instance state is preserved. The user wouldn't expect
+ * `count = 0` → `count = 5` to reset their live counter. */
+const extractArrowFieldSig = (cls: ts.ClassDeclaration): string[] => {
+	const entries: string[] = [];
+	for (const member of cls.members) {
+		if (!ts.isPropertyDeclaration(member)) continue;
+		const init = member.initializer;
+		if (!init) continue;
+		if (
+			!ts.isArrowFunction(init) &&
+			!ts.isFunctionExpression(init)
+		) {
+			continue;
+		}
+		const name = member.name.getText();
+		// `init.getText()` includes parameters + body; whitespace is
+		// part of the canonical text since we pull from the user's
+		// source verbatim. Hash for compactness.
+		const bodyHash = djb2Hash(init.getText());
+		entries.push(`${name}:${bodyHash}`);
+	}
+
+	return entries.sort();
+};
+
+/* Per-file cache for "does this module/class declaration include
+ * `providers: [...]`?". Keyed by absolute file path; invalidated
+ * by mtime. Avoids re-parsing the same `CommonModule` /
+ * `MaterialModule` source on every HMR cycle.
+ *
+ * The check is heuristic: we look for any decorator call (typically
+ * `@NgModule`, but also covers `@Component` re-exporting modules,
+ * standalone modules, etc.) whose argument has a `providers: [...]`
+ * property. Coverage is "anything that introduces DI tokens at this
+ * file level"; false positives are acceptable because they just
+ * downgrade Tier 0 → Tier 1. False negatives are not — a module
+ * whose providers we miss would still get Tier 0'd and cause stale
+ * DI, so we err toward conservative. */
+type ProviderProbeCacheEntry = {
+	mtimeMs: number;
+	hasProviders: boolean;
+};
+const providerProbeCache = new Map<string, ProviderProbeCacheEntry>();
+
+const fileHasModuleProviders = (filePath: string): boolean => {
+	let stat: ReturnType<typeof statSync>;
+	try {
+		stat = statSync(filePath);
+	} catch {
+		// File can't be stat'd → conservative: assume providers.
+		return true;
+	}
+	const cached = providerProbeCache.get(filePath);
+	if (cached && cached.mtimeMs === stat.mtimeMs) return cached.hasProviders;
+
+	let source: string;
+	try {
+		source = readFileSync(filePath, 'utf8');
+	} catch {
+		return true;
+	}
+
+	const sf = ts.createSourceFile(
+		filePath,
+		source,
+		ts.ScriptTarget.ES2022,
+		true,
+		ts.ScriptKind.TS
+	);
+
+	let hasProviders = false;
+	const visit = (node: ts.Node): void => {
+		if (hasProviders) return;
+		if (ts.isClassDeclaration(node)) {
+			for (const decorator of ts.getDecorators(node) ?? []) {
+				const expr = decorator.expression;
+				if (!ts.isCallExpression(expr)) continue;
+				const arg = expr.arguments[0];
+				if (!arg || !ts.isObjectLiteralExpression(arg)) continue;
+				if (getProperty(arg, 'providers') !== null) {
+					hasProviders = true;
+					return;
+				}
+			}
+		}
+		ts.forEachChild(node, visit);
+	};
+	visit(sf);
+
+	providerProbeCache.set(filePath, {
+		hasProviders,
+		mtimeMs: stat.mtimeMs
+	});
+
+	return hasProviders;
+};
+
+const TS_EXTENSIONS = ['.ts', '.tsx', '.d.ts'] as const;
+
+/* Resolve the source file an Identifier import was loaded from.
+ * Walks the source's `import { Identifier } from '<spec>'` and
+ * `import { Identifier as Alias } from '<spec>'` declarations,
+ * resolves the specifier relative to the source file, returns the
+ * resolved absolute path or null. Bare-specifier imports (e.g.
+ * `'@angular/common'`) return null — we conservatively assume node
+ * package imports introduce providers. */
+const resolveImportSource = (
+	identifierName: string,
+	sourceFile: ts.SourceFile,
+	componentDir: string
+): string | null => {
+	for (const stmt of sourceFile.statements) {
+		if (!ts.isImportDeclaration(stmt)) continue;
+		const moduleSpec = stmt.moduleSpecifier;
+		if (!ts.isStringLiteral(moduleSpec)) continue;
+		const spec = moduleSpec.text;
+		if (!spec.startsWith('.') && !spec.startsWith('/')) continue;
+		const importClause = stmt.importClause;
+		if (!importClause) continue;
+
+		let matches = false;
+		if (
+			importClause.name &&
+			importClause.name.text === identifierName
+		) {
+			matches = true;
+		}
+		if (importClause.namedBindings) {
+			const nb = importClause.namedBindings;
+			if (ts.isNamespaceImport(nb)) {
+				if (nb.name.text === identifierName) matches = true;
+			} else {
+				for (const element of nb.elements) {
+					if (element.name.text === identifierName) {
+						matches = true;
+						break;
+					}
+				}
+			}
+		}
+		if (!matches) continue;
+
+		const resolved = resolve(componentDir, spec);
+		for (const ext of TS_EXTENSIONS) {
+			const candidate = resolved + ext;
+			if (existsSync(candidate)) return candidate;
+		}
+		const indexCandidate = resolve(resolved, 'index.ts');
+		if (existsSync(indexCandidate)) return indexCandidate;
+	}
+
+	return null;
+};
+
+/* Per-entry classification of `imports: [...]`. For each entry,
+ * decide whether the entry pulls in DI tokens that need a
+ * re-bootstrap when added/removed. Returns a stable signature
+ * (sorted list of `P:<name>` markers for provider-bearing entries,
+ * directives/pipes are deliberately excluded). */
+const extractProviderImportSig = (
+	importsExpr: ts.ArrayLiteralExpression | null,
+	sourceFile: ts.SourceFile,
+	componentDir: string
+): string[] => {
+	if (!importsExpr) return [];
+	const sig: string[] = [];
+	for (const entry of importsExpr.elements) {
+		if (ts.isIdentifier(entry)) {
+			const importPath = resolveImportSource(
+				entry.text,
+				sourceFile,
+				componentDir
+			);
+			// Local relative import → inspect the file directly
+			// (mtime-cached). Catches user-defined modules with
+			// providers regardless of their name.
+			if (importPath) {
+				if (fileHasModuleProviders(importPath)) {
+					sig.push(`P:${entry.text}`);
+				}
+				continue;
+			}
+			// Bare-specifier import (3rd-party / Angular package) —
+			// we don't walk node_modules to keep the cost bounded.
+			// Apply the name heuristic instead: names ending in
+			// `Module` are virtually always provider-bearing in
+			// Angular's ecosystem (HttpClientModule, RouterModule,
+			// FormsModule, BrowserAnimationsModule, ...). Names that
+			// don't end in `Module` are virtually always directives /
+			// pipes / components (NgIf, NgFor, NgClass, MatButton,
+			// RouterLink, ...). The heuristic is wrong for
+			// rare custom names, but a false negative just means
+			// the user gets a silent stale provider after adding a
+			// non-`*Module` import — extremely uncommon in practice.
+			if (/Module$/.test(entry.text)) {
+				sig.push(`P:${entry.text}`);
+			}
+			// else: directive/pipe heuristic — not in signature
+		} else {
+			// Non-Identifier (CallExpression like `RouterModule.forRoot()`,
+			// SpreadElement, etc.) — almost always provider-bearing.
+			sig.push(`P:${entry.getText()}`);
+		}
+	}
+
+	return sig.sort();
+};
+
 /* Extract a `ComponentFingerprint` directly from a parsed class
  * declaration. Cheap enough to run on every `tryFastHmr` call —
- * one TS AST walk over the class body. */
+ * one TS AST walk over the class body, plus per-import file
+ * lookups (mtime-cached, ~5ms cold for the typical 2-5 import
+ * entries, ~0ms warm). */
 const extractFingerprint = (
 	cls: ts.ClassDeclaration,
 	className: string,
 	decoratorMeta: ComponentDecoratorMeta,
 	inputs: Record<string, R3InputMetadata>,
-	outputs: Record<string, string>
+	outputs: Record<string, string>,
+	sourceFile: ts.SourceFile,
+	componentDir: string
 ): ComponentFingerprint => {
 	const ctorParamTypes: string[] = [];
 	for (const member of cls.members) {
@@ -539,22 +788,22 @@ const extractFingerprint = (
 
 	const inputNames = Object.keys(inputs).sort();
 	const outputNames = Object.keys(outputs).sort();
-
-	const importsArity = decoratorMeta.importsExpr
-		? decoratorMeta.importsExpr.elements.length
-		: 0;
-
-	const hasProviders = decoratorMeta.hasProviders;
-	const hasViewProviders = decoratorMeta.hasViewProviders;
+	const arrowFieldSig = extractArrowFieldSig(cls);
+	const providerImportSig = extractProviderImportSig(
+		decoratorMeta.importsExpr,
+		sourceFile,
+		componentDir
+	);
 
 	return {
+		arrowFieldSig,
 		className,
 		ctorParamTypes,
-		hasProviders,
-		hasViewProviders,
-		importsArity,
+		hasProviders: decoratorMeta.hasProviders,
+		hasViewProviders: decoratorMeta.hasViewProviders,
 		inputs: inputNames,
 		outputs: outputNames,
+		providerImportSig,
 		selector: decoratorMeta.selector,
 		standalone: decoratorMeta.standalone
 	};
@@ -794,7 +1043,9 @@ export const tryFastHmr = async (
 		className,
 		decoratorMeta,
 		inputs,
-		outputs
+		outputs,
+		sourceFile,
+		componentDir
 	);
 	const cachedFingerprint = fingerprintCache.get(fingerprintId);
 	if (
