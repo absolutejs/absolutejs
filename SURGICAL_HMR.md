@@ -54,11 +54,17 @@ captures the structural surface of each entity. Mismatch → Tier 1:
 - **`standalone` flag** flips
 - **Input / output name lists** change
 - **`@Component({ providers, viewProviders })`** presence flips
-- **Arrow-function class field initializer bodies** change
-  (per-instance state that prototype patching can't touch)
+- **Arrow-function (or function-expression) class field initializer
+  bodies** change (per-instance state that prototype patching can't
+  touch)
 - **`imports: [...]`** gains/loses a provider-bearing entry
   (NgModule with `providers`, or any bare-specifier import named
   `*Module` per heuristic)
+- **Member decorators** other than `@Input`/`@Output` are
+  added/removed/arg-changed (`@HostBinding`, `@HostListener`,
+  `@ViewChild`, `@ContentChild`, `@ViewChildren`, `@ContentChildren`,
+  etc.). Body edits inside an existing handler stay Tier 0 via
+  prototype patch.
 
 ## What still silently no-ops (known limitations)
 
@@ -66,17 +72,16 @@ These edits don't fingerprint-trigger and the prototype patch
 doesn't apply → user's edit doesn't take effect until a manual
 reload or unrelated Tier 1 event:
 
-- **Non-arrow function-expression class field bodies**
-  (`x = function() { … }`): rare in Angular code, not flagged.
 - **Property initializer expressions** (`count = computeInitial()`):
   changing the right-hand side doesn't apply to existing instances.
   This is by design — we don't want `count = 0` → `count = 5` to
   reset live counter state.
-- **Decorators on class members beyond `@Input/@Output`**: e.g.
-  `@HostBinding`, `@HostListener`, `@ViewChild`. Body changes work
-  via prototype patch, but adding a new such decorator should
-  be flagged as structural and currently isn't. Future fingerprint
-  expansion.
+- **`@Input` / `@Output` alias-only changes**: the fingerprint
+  captures input/output *names* but not the alias values inside
+  `@Input({ alias: 'foo' })`. Renaming the alias without renaming
+  the property silently no-ops. Minor and rarely hit; a future
+  fingerprint expansion can capture the binding-name list rather
+  than just the class-property-name list.
 
 ## Per-component remount in Tier 1 — investigated, deferred
 

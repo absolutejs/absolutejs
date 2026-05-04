@@ -77,6 +77,16 @@ export type FastHmrFallbackReason =
  *     Tier 1 instead of a silent no-op. Non-function field
  *     initializers (`count = 0`) are NOT in the signature — those
  *     edits stay no-op so existing instance state is preserved.
+ *   - `memberDecoratorSig`: sorted "Decorator:member:argHash"
+ *     entries for every member-level Angular decorator other than
+ *     `@Input` / `@Output` (those are already covered by
+ *     `inputs` / `outputs`). Catches `@HostBinding`,
+ *     `@HostListener`, `@ViewChild`, `@ContentChild`,
+ *     `@ViewChildren`, `@ContentChildren` adds/removes/arg-changes
+ *     — all of which alter the component's metadata in ways
+ *     `ɵɵreplaceMetadata` doesn't observe via the IR alone (host
+ *     bindings + queries are template-binding artifacts that need
+ *     a full re-render at minimum).
  *
  * We deliberately do NOT include template / styleUrl / styleUrls
  * content — those are exactly the cheap surgical-handleable
@@ -92,6 +102,7 @@ export type ComponentFingerprint = {
 	inputs: string[];
 	outputs: string[];
 	arrowFieldSig: string[];
+	memberDecoratorSig: string[];
 };
 
 export type FastHmrSuccess = {
@@ -146,6 +157,7 @@ const fingerprintsEqual = (
 	if (!arraysEqual(a.outputs, b.outputs)) return false;
 	if (!arraysEqual(a.providerImportSig, b.providerImportSig)) return false;
 	if (!arraysEqual(a.arrowFieldSig, b.arrowFieldSig)) return false;
+	if (!arraysEqual(a.memberDecoratorSig, b.memberDecoratorSig)) return false;
 
 	return true;
 };
@@ -581,6 +593,52 @@ const extractArrowFieldSig = (cls: ts.ClassDeclaration): string[] => {
 	return entries.sort();
 };
 
+/* Walk class members for non-`@Input` / `@Output` decorators and
+ * return a sorted "Decorator:member:argHash" signature. Catches
+ * `@HostBinding('class.foo')`, `@HostListener('click', ['$event'])`,
+ * `@ViewChild('ref')`, `@ContentChild(SomeToken, { static: true })`,
+ * etc. Adding / removing / changing the decorator argument flags
+ * the fingerprint as structurally changed → Tier 1.
+ *
+ * `@Input` / `@Output` are excluded because the existing
+ * `inputs` / `outputs` fields in the fingerprint already capture
+ * additions and removals via the binding-name list. (Alias-only
+ * changes within a stable name list aren't caught — minor known
+ * gap, see SURGICAL_HMR.md.) */
+const INPUT_OUTPUT_DECORATORS = new Set(['Input', 'Output']);
+
+const extractMemberDecoratorSig = (cls: ts.ClassDeclaration): string[] => {
+	const entries: string[] = [];
+	for (const member of cls.members) {
+		const decorators = ts.getDecorators(member) ?? [];
+		if (decorators.length === 0) continue;
+		const memberName = member.name?.getText() ?? '<anon>';
+		for (const decorator of decorators) {
+			const expr = decorator.expression;
+			let decName = '<unknown>';
+			let argText = '';
+			if (ts.isCallExpression(expr)) {
+				if (ts.isIdentifier(expr.expression)) {
+					decName = expr.expression.text;
+				}
+				if (expr.arguments.length > 0) {
+					argText = expr.arguments
+						.map((a) => a.getText())
+						.join(',');
+				}
+			} else if (ts.isIdentifier(expr)) {
+				decName = expr.text;
+			}
+			if (INPUT_OUTPUT_DECORATORS.has(decName)) continue;
+			entries.push(
+				`${decName}:${memberName}:${djb2Hash(argText)}`
+			);
+		}
+	}
+
+	return entries.sort();
+};
+
 /* Per-file cache for "does this module/class declaration include
  * `providers: [...]`?". Keyed by absolute file path; invalidated
  * by mtime. Avoids re-parsing the same `CommonModule` /
@@ -790,6 +848,7 @@ const extractFingerprint = (
 	const inputNames = Object.keys(inputs).sort();
 	const outputNames = Object.keys(outputs).sort();
 	const arrowFieldSig = extractArrowFieldSig(cls);
+	const memberDecoratorSig = extractMemberDecoratorSig(cls);
 	const providerImportSig = extractProviderImportSig(
 		decoratorMeta.importsExpr,
 		sourceFile,
@@ -803,6 +862,7 @@ const extractFingerprint = (
 		hasProviders: decoratorMeta.hasProviders,
 		hasViewProviders: decoratorMeta.hasViewProviders,
 		inputs: inputNames,
+		memberDecoratorSig,
 		outputs: outputNames,
 		providerImportSig,
 		selector: decoratorMeta.selector,
