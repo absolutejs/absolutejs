@@ -827,17 +827,27 @@ const decideAngularTier = async (
 			changedFilePath: editedFile,
 			userAngularRoot: angularDir
 		});
-		if (owners.length === 0 && editedFile.endsWith('.component.ts')) {
+		if (
+			owners.length === 0 &&
+			(editedFile.endsWith('.component.ts') ||
+				editedFile.endsWith('.directive.ts') ||
+				editedFile.endsWith('.pipe.ts') ||
+				editedFile.endsWith('.service.ts'))
+		) {
 			return {
-				reason: `no @Component class found in ${editedFile}`,
+				reason: `no Angular-decorated class found in ${editedFile}`,
 				tier: 1
 			};
 		}
-		for (const { componentFilePath, className } of owners) {
+		for (const { componentFilePath, className, kind } of owners) {
 			const id = encodeHmrComponentId(componentFilePath, className);
 			if (queueIds.has(id)) continue;
 
-			const result = await tryFastHmr({ className, componentFilePath });
+			const result = await tryFastHmr({
+				className,
+				componentFilePath,
+				kind
+			});
 			if (!result.ok) {
 				return {
 					reason: `${className}: ${result.reason}${

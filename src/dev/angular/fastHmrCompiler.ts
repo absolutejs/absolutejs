@@ -26,6 +26,7 @@ import type {
 } from '@angular/compiler';
 import ts from 'typescript';
 import { createHmrImportGenerator } from './hmrImportGenerator';
+import type { AngularEntityKind } from './resolveOwningComponents';
 import { translateStatement } from './vendor/translator/typescript_translator';
 
 export type FastHmrFallbackReason =
@@ -843,22 +844,22 @@ const buildFreshClassMethodsBlock = (
 	className: string
 ): string | null => {
 	const methodSources: string[] = [];
+	let hasStatic = false;
 	for (const member of classNode.members) {
 		if (
 			ts.isMethodDeclaration(member) ||
 			ts.isGetAccessorDeclaration(member) ||
 			ts.isSetAccessorDeclaration(member)
 		) {
-			// Skip static methods — they live on the class itself,
-			// not the prototype, and the patching block below uses
-			// `prototype` only.
-			const modifiers = ts.getModifiers(member) ?? [];
-			const isStatic = modifiers.some(
-				(m) => m.kind === ts.SyntaxKind.StaticKeyword
-			);
-			if (isStatic) continue;
-
 			methodSources.push(member.getText());
+			const modifiers = ts.getModifiers(member) ?? [];
+			if (
+				modifiers.some(
+					(m) => m.kind === ts.SyntaxKind.StaticKeyword
+				)
+			) {
+				hasStatic = true;
+			}
 		}
 	}
 	if (methodSources.length === 0) return null;
@@ -877,9 +878,25 @@ const buildFreshClassMethodsBlock = (
 		return null;
 	}
 
-	return `// SURGICAL_HMR — patch prototype methods so existing instances
-// pick up new method bodies (\`compileComponentFromMetadata\` only
-// updates \`ɵcmp\`, never the prototype).
+	// Static-method patch is conditional — most components don't
+	// have any. The skip-list (`length`, `name`, `prototype`) is the
+	// set of class own-properties JS adds automatically; if we
+	// copied those onto the live class we'd break its identity.
+	const staticPatch = hasStatic
+		? `
+{
+    for (const __name of Object.getOwnPropertyNames(_Fresh)) {
+        if (__name === 'length' || __name === 'name' || __name === 'prototype') continue;
+        const __desc = Object.getOwnPropertyDescriptor(_Fresh, __name);
+        if (__desc) Object.defineProperty(${className}, __name, __desc);
+    }
+}`
+		: '';
+
+	return `// SURGICAL_HMR — patch prototype + static methods so existing
+// instances and direct \`Class.staticMethod()\` calls pick up new
+// method bodies (\`compileComponentFromMetadata\` only updates
+// \`ɵcmp\`, never the prototype or the class itself).
 ${transpiled}
 {
     const __fresh_proto = _Fresh.prototype;
@@ -888,7 +905,7 @@ ${transpiled}
         const __desc = Object.getOwnPropertyDescriptor(__fresh_proto, __name);
         if (__desc) Object.defineProperty(${className}.prototype, __name, __desc);
     }
-}`;
+}${staticPatch}`;
 };
 
 /* ─── Resource resolution (template + styles) ─────────────────── */
@@ -922,12 +939,48 @@ const collectStyles = (
 	return { styles, missing: null };
 };
 
+/* ─── Non-component surgical (services / pipes / directives) ──── */
+
+/* Pipes / directives / services don't need Angular's IR pipeline
+ * for body-only edits — their templates (none) and metadata
+ * (selector, pipe name, providedIn) are part of the bundle's
+ * initial compile. Only their methods need re-binding on the live
+ * class.
+ *
+ * The emitted module mirrors the component path (named function
+ * keyed on `${className}_UpdateMetadata` so the `__ng_hmr_load`
+ * listener can dispatch uniformly), but the body is just the
+ * prototype-patch block. No `ɵcmp` / `ɵpipe` / `ɵdir` / `ɵprov`
+ * mutation. Structural changes (constructor, decorator metadata
+ * shape) escalate to Tier 1 via the same fingerprint check the
+ * component path uses. */
+const buildSimpleEntityModule = (
+	classNode: ts.ClassDeclaration,
+	className: string
+): string | null => {
+	const block = buildFreshClassMethodsBlock(classNode, className);
+	if (!block) {
+		// No methods to patch — nothing surgical to do. The user's
+		// edit was either to a property initializer (silent no-op,
+		// expected for state preservation) or pure typing changes
+		// (also no-op). Return a no-op module so the broadcast
+		// doesn't 404 on the client.
+		return `export default function ${className}_UpdateMetadata(${className}, ɵɵnamespaces) { /* no method-body changes detected */ }\n`;
+	}
+
+	return `export default function ${className}_UpdateMetadata(${className}, ɵɵnamespaces) {
+${block}
+}
+`;
+};
+
 /* ─── Main entry ─────────────────────────────────────────────── */
 
 export type TryFastHmrParams = {
 	componentFilePath: string;
 	className: string;
 	projectRoot?: string;
+	kind?: AngularEntityKind;
 };
 
 export const tryFastHmr = async (
@@ -960,6 +1013,32 @@ export const tryFastHmr = async (
 	if (!classNode) {
 		return fail('class-not-found', `${className} in ${componentFilePath}`);
 	}
+
+	// Kind-based fast paths for non-component entities (services,
+	// pipes, directives). They share the prototype-patch mechanism
+	// with components but skip Angular's IR pipeline because their
+	// metadata (selector / pipe name / providedIn) doesn't change
+	// per-edit; only method bodies do.
+	//
+	// For pipes/directives, structural metadata changes (renaming
+	// the selector, flipping `pure`, etc.) need to escalate to
+	// Tier 1 — but the fingerprint already catches those via
+	// `selector` / `standalone` / `inputs` / `outputs` field
+	// comparisons. So pipe/directive method-body edits land here
+	// safely; pipe metadata edits force Tier 1 elsewhere.
+	const kind: AngularEntityKind = params.kind ?? 'component';
+	if (kind !== 'component') {
+		const moduleText = buildSimpleEntityModule(classNode, className);
+		if (!moduleText) {
+			return fail(
+				'unexpected-error',
+				`buildSimpleEntityModule returned null for ${className}`
+			);
+		}
+
+		return { componentSource: sourceFile, moduleText, ok: true };
+	}
+
 	if (inheritsDecoratedClass(classNode)) {
 		return fail('inherits-decorated-class');
 	}

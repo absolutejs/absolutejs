@@ -24,17 +24,20 @@ import { readFile } from 'node:fs/promises';
 import { relative, resolve } from 'node:path';
 import type { BunPlugin } from 'bun';
 
-/* Match `<ClassName> = __legacyDecorateClassTS<maybe-suffix>([... Component(...)`.
+/* Match `<ClassName> = __legacyDecorateClassTS<maybe-suffix>([... <Decorator>(`
+ * for any of the four Angular entity decorators
+ * (`@Component`, `@Directive`, `@Pipe`, `@Injectable`).
+ *
  * The JIT pipeline emits class decorators via TypeScript's legacy
  * decorator helper. Bun's transpiler uniquifies the helper name in
  * pre-bundled output as `__legacyDecorateClassTS_<hash>` to avoid
  * collisions when multiple modules import it from `bun:wrap`.
- * `Component` may also be aliased (`Component2`, `Component3`, ...)
+ * Decorator names may also be aliased (`Component2`, `Pipe3`, ...)
  * when multiple imports collide. The pattern is robust to whitespace
  * + multi-line decorator objects because we use `[\s\S]*?` (lazy
  * any-char) inside the decorator array. */
-const COMPONENT_DECORATOR_RE =
-	/([A-Z][A-Za-z0-9_$]*)\s*=\s*__legacyDecorateClassTS[A-Za-z0-9_$]*\s*\(\s*\[[\s\S]*?\bComponent[A-Za-z0-9_$]*\s*\(/g;
+const ENTITY_DECORATOR_RE =
+	/([A-Z][A-Za-z0-9_$]*)\s*=\s*__legacyDecorateClassTS[A-Za-z0-9_$]*\s*\(\s*\[[\s\S]*?\b(?:Component|Directive|Pipe|Injectable)[A-Za-z0-9_$]*\s*\(/g;
 
 const buildHmrTail = (
 	className: string,
@@ -98,8 +101,8 @@ export const createAngularHmrInjectionPlugin = (
 				const classNames: string[] = [];
 				let match: RegExpExecArray | null;
 				const re = new RegExp(
-					COMPONENT_DECORATOR_RE.source,
-					COMPONENT_DECORATOR_RE.flags
+					ENTITY_DECORATOR_RE.source,
+					ENTITY_DECORATOR_RE.flags
 				);
 				while ((match = re.exec(text)) !== null) {
 					const className = match[1];

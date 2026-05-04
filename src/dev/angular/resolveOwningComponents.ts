@@ -1,34 +1,54 @@
-/* Resolve a changed file → list of `(componentFilePath, className)`
- * tuples that should receive a fresh `applyMetadata` module.
+/* Resolve a changed file → list of `(filePath, className, kind)`
+ * tuples that should receive a fresh surgical update.
  *
  * Cases:
- *   1. The changed file itself is a `*.component.ts` — parse it and
- *      return every `@Component`-decorated class declaration.
+ *   1. The changed file is a `*.component.ts` / `*.directive.ts` /
+ *      `*.pipe.ts` / `*.service.ts` (or any `.ts` file whose top-level
+ *      classes carry the matching Angular decorators) — parse it and
+ *      return every decorated class.
  *   2. The changed file is a `*.component.html` / `*.component.css`
- *      — scan every `*.component.ts` under the user's Angular root,
- *      find ones whose `templateUrl` / `styleUrl` / `styleUrls`
- *      resolves to the changed path, and return their classes.
+ *      / `*.scss` / `*.sass` — scan every `*.component.ts` under the
+ *      user's Angular root, find ones whose `templateUrl` /
+ *      `styleUrl` / `styleUrls` resolves to the changed path, and
+ *      return their classes.
  *
  * v1 does the scan on every call. The scan is bounded by the user's
  * Angular dir (typically <100 files) and each file parse is ~1ms,
  * so the whole resolution lands well under 100ms even for medium
- * codebases. Add a caching layer if we ever see this become a
- * bottleneck — `componentFilePath → { templateUrlAbs, styleUrlAbs[],
- * classNames[] }` keyed by mtime is the obvious shape. */
+ * codebases. */
 
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, extname, join, resolve } from 'node:path';
 import ts from 'typescript';
 
-export type OwningComponent = {
+export type AngularEntityKind =
+	| 'component'
+	| 'directive'
+	| 'pipe'
+	| 'service';
+
+export type AffectedEntity = {
 	componentFilePath: string;
 	className: string;
+	kind: AngularEntityKind;
 };
 
-const isComponentTsFile = (file: string): boolean =>
-	file.endsWith('.component.ts') || file.endsWith('.component.tsx');
+/* Backward-compat alias — older callers used `OwningComponent` and
+ * accessed `.componentFilePath` + `.className`. New shape is a
+ * superset. */
+export type OwningComponent = AffectedEntity;
 
-const walkComponentTsFiles = (root: string): string[] => {
+const ENTITY_DECORATORS: Record<string, AngularEntityKind> = {
+	Component: 'component',
+	Directive: 'directive',
+	Pipe: 'pipe',
+	Injectable: 'service'
+};
+
+const isAngularSourceFile = (file: string): boolean =>
+	file.endsWith('.ts') || file.endsWith('.tsx');
+
+const walkAngularSourceFiles = (root: string): string[] => {
 	const out: string[] = [];
 	const visit = (dir: string) => {
 		let entries: ReturnType<typeof readdirSync>;
@@ -44,7 +64,7 @@ const walkComponentTsFiles = (root: string): string[] => {
 			const full = join(dir, entry.name);
 			if (entry.isDirectory()) {
 				visit(full);
-			} else if (entry.isFile() && isComponentTsFile(entry.name)) {
+			} else if (entry.isFile() && isAngularSourceFile(entry.name)) {
 				out.push(full);
 			}
 		}
@@ -54,8 +74,9 @@ const walkComponentTsFiles = (root: string): string[] => {
 	return out;
 };
 
-type ComponentDecoratorRefs = {
-	classNames: string[];
+type DecoratedClass = {
+	className: string;
+	kind: AngularEntityKind;
 	templateUrls: string[];
 	styleUrls: string[];
 };
@@ -112,18 +133,16 @@ const getStringArrayProperty = (
 	return out;
 };
 
-const parseComponentRefs = (filePath: string): ComponentDecoratorRefs => {
-	const refs: ComponentDecoratorRefs = {
-		classNames: [],
-		templateUrls: [],
-		styleUrls: []
-	};
-
+/* Walk a single source file, return every class with one of the
+ * tracked Angular decorators. A class can technically have more than
+ * one Angular decorator (rare), but the decorator type-checker
+ * rejects that — picking the first matching one is correct. */
+const parseDecoratedClasses = (filePath: string): DecoratedClass[] => {
 	let source: string;
 	try {
 		source = readFileSync(filePath, 'utf8');
 	} catch {
-		return refs;
+		return [];
 	}
 
 	const sourceFile = ts.createSourceFile(
@@ -134,33 +153,44 @@ const parseComponentRefs = (filePath: string): ComponentDecoratorRefs => {
 		ts.ScriptKind.TS
 	);
 
+	const out: DecoratedClass[] = [];
 	const visit = (node: ts.Node) => {
 		if (ts.isClassDeclaration(node) && node.name) {
-			const decorators = ts.getDecorators(node) ?? [];
-			for (const decorator of decorators) {
+			for (const decorator of ts.getDecorators(node) ?? []) {
 				const expr = decorator.expression;
 				if (!ts.isCallExpression(expr)) continue;
 				const fn = expr.expression;
-				if (!ts.isIdentifier(fn) || fn.text !== 'Component') continue;
+				if (!ts.isIdentifier(fn)) continue;
+				const kind = ENTITY_DECORATORS[fn.text];
+				if (!kind) continue;
 
-				refs.classNames.push(node.name.text);
+				const entry: DecoratedClass = {
+					className: node.name.text,
+					kind,
+					styleUrls: [],
+					templateUrls: []
+				};
 				const arg = expr.arguments[0];
-				if (!arg || !ts.isObjectLiteralExpression(arg)) continue;
-
-				const tplUrl = getStringPropertyValue(arg, 'templateUrl');
-				if (tplUrl) refs.templateUrls.push(tplUrl);
-
-				const styleUrl = getStringPropertyValue(arg, 'styleUrl');
-				if (styleUrl) refs.styleUrls.push(styleUrl);
-
-				refs.styleUrls.push(...getStringArrayProperty(arg, 'styleUrls'));
+				if (
+					arg &&
+					ts.isObjectLiteralExpression(arg) &&
+					kind === 'component'
+				) {
+					const tplUrl = getStringPropertyValue(arg, 'templateUrl');
+					if (tplUrl) entry.templateUrls.push(tplUrl);
+					const styleUrl = getStringPropertyValue(arg, 'styleUrl');
+					if (styleUrl) entry.styleUrls.push(styleUrl);
+					entry.styleUrls.push(...getStringArrayProperty(arg, 'styleUrls'));
+				}
+				out.push(entry);
+				break;
 			}
 		}
 		ts.forEachChild(node, visit);
 	};
 	visit(sourceFile);
 
-	return refs;
+	return out;
 };
 
 const safeNormalize = (path: string): string =>
@@ -169,21 +199,30 @@ const safeNormalize = (path: string): string =>
 export const resolveOwningComponents = (params: {
 	changedFilePath: string;
 	userAngularRoot: string;
-}): OwningComponent[] => {
+}): AffectedEntity[] => {
 	const { changedFilePath, userAngularRoot } = params;
 	const changedAbs = safeNormalize(changedFilePath);
-	const out: OwningComponent[] = [];
+	const out: AffectedEntity[] = [];
 
-	if (changedAbs.endsWith('.component.ts')) {
-		const refs = parseComponentRefs(changedAbs);
-		for (const className of refs.classNames) {
-			out.push({ componentFilePath: changedAbs, className });
+	const ext = extname(changedAbs).toLowerCase();
+
+	// Direct edit to a TS file: every decorated class in that file
+	// gets a surgical update. Decorator kind drives which surgical
+	// path runs (`tryFastHmr` branches on it).
+	if (ext === '.ts' || ext === '.tsx') {
+		const classes = parseDecoratedClasses(changedAbs);
+		for (const cls of classes) {
+			out.push({
+				className: cls.className,
+				componentFilePath: changedAbs,
+				kind: cls.kind
+			});
 		}
 
 		return out;
 	}
 
-	const ext = extname(changedAbs).toLowerCase();
+	// Resource edit: only components have templateUrl / styleUrl.
 	if (ext !== '.html' && ext !== '.css' && ext !== '.scss' && ext !== '.sass') {
 		return out;
 	}
@@ -196,9 +235,9 @@ export const resolveOwningComponents = (params: {
 	}
 	if (!rootStat.isDirectory()) return out;
 
-	for (const componentTsPath of walkComponentTsFiles(userAngularRoot)) {
-		const refs = parseComponentRefs(componentTsPath);
-		const componentDir = dirname(componentTsPath);
+	for (const tsPath of walkAngularSourceFiles(userAngularRoot)) {
+		const classes = parseDecoratedClasses(tsPath);
+		const componentDir = dirname(tsPath);
 
 		const matchesResource = (relativeUrl: string): boolean => {
 			const abs = safeNormalize(resolve(componentDir, relativeUrl));
@@ -206,15 +245,16 @@ export const resolveOwningComponents = (params: {
 			return abs === changedAbs;
 		};
 
-		const referencesChanged =
-			refs.templateUrls.some(matchesResource) ||
-			refs.styleUrls.some(matchesResource);
-		if (!referencesChanged) continue;
-
-		for (const className of refs.classNames) {
+		for (const cls of classes) {
+			if (cls.kind !== 'component') continue;
+			const referencesChanged =
+				cls.templateUrls.some(matchesResource) ||
+				cls.styleUrls.some(matchesResource);
+			if (!referencesChanged) continue;
 			out.push({
-				componentFilePath: componentTsPath,
-				className
+				className: cls.className,
+				componentFilePath: tsPath,
+				kind: 'component'
 			});
 		}
 	}

@@ -354,11 +354,28 @@ export const getApplyMetadataModule = async (
 	const className = decoded.slice(at + 1);
 	const componentFilePath = resolve(process.cwd(), filePathRel);
 
+	// Detect entity kind from the file content so the surgical path
+	// branches correctly (component → IR + prototype patch; pipe /
+	// directive / service → prototype patch only). The dispatcher
+	// in rebuildTrigger.ts also passes kind, but the
+	// `/@ng/component` endpoint is hit directly by the browser too
+	// (via the injected `__ng_hmr_load` listener) and that path has
+	// only the encoded id — so we re-detect here.
+	const { resolveOwningComponents } = await import(
+		'./resolveOwningComponents'
+	);
+	const owners = resolveOwningComponents({
+		changedFilePath: componentFilePath,
+		userAngularRoot: dirname(componentFilePath)
+	});
+	const owner = owners.find((o) => o.className === className);
+	const kind = owner?.kind ?? 'component';
+
 	const fastStart = performance.now();
-	const fast = await tryFastHmr({ componentFilePath, className });
+	const fast = await tryFastHmr({ className, componentFilePath, kind });
 	if (fast.ok) {
 		logInfo(
-			`[ng-hmr fast] ${className} ${(performance.now() - fastStart).toFixed(1)}ms`
+			`[ng-hmr fast/${kind}] ${className} ${(performance.now() - fastStart).toFixed(1)}ms`
 		);
 
 		return fast.moduleText;
