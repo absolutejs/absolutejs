@@ -979,6 +979,49 @@ export const compileStyleFileIfNeeded = async (
 	return compileStyleSource(filePath, undefined, undefined, config);
 };
 
+/* Resolve top-level CSS `@import "<path>";` statements by reading the
+ * imported file and inlining its content recursively. Necessary for
+ * the sync styleUrls path because Angular component styles get
+ * baked into `ɵcmp.styles[]` as plain strings — any unresolved
+ * `@import` survives to the rendered `<style>` tag, where the browser
+ * tries to fetch the bare path. The dev server has no static file at
+ * that path (component CSS is bundled as JS in dev), so the request
+ * falls through to the SSR catch-all and Angular's router throws
+ * NG04002.
+ *
+ * Sass / SCSS files don't need this — Sass compiles its own
+ * `@import / @use` graph in `sass.compileString`. This helper only
+ * applies to plain `.css` content (and the post-Sass output, which
+ * may itself contain plain CSS `@import "x.css"` statements that
+ * Sass leaves as-is when the path ends in `.css`).
+ *
+ * Tracks visited paths to break cycles. Skips `@import url(...)`,
+ * `@import "..." screen`, and other forms that need media-query
+ * preservation — those fall through unchanged for now (Phase 3
+ * follow-up). */
+
+const CSS_IMPORT_PATTERN = /@import\s+["']([^"']+)["']\s*;?/g;
+
+const resolveCssImportsSync = (
+	content: string,
+	baseDir: string,
+	visited: Set<string>
+): string => {
+	return content.replace(CSS_IMPORT_PATTERN, (match, importPath) => {
+		const fullPath = isAbsolute(importPath)
+			? importPath
+			: resolve(baseDir, importPath);
+		if (visited.has(fullPath)) return '';
+		if (!existsSync(fullPath)) return match;
+
+		const nextVisited = new Set(visited);
+		nextVisited.add(fullPath);
+		const imported = readFileSync(fullPath, 'utf-8');
+
+		return resolveCssImportsSync(imported, dirname(fullPath), nextVisited);
+	});
+};
+
 export const compileStyleFileIfNeededSync = (
 	filePath: string,
 	config?: StylePreprocessorConfig
@@ -1005,7 +1048,7 @@ export const compileStyleFileIfNeededSync = (
 			options.additionalData
 		);
 		const loadPaths = normalizeLoadPaths(filePath, options.loadPaths);
-		return sass.compileString(contents, {
+		const compiled = sass.compileString(contents, {
 			importers: [
 				createSassImporter(filePath, loadPaths, language, config)
 			],
@@ -1014,6 +1057,14 @@ export const compileStyleFileIfNeededSync = (
 			syntax: language === 'sass' ? 'indented' : 'scss',
 			url: new URL(`file://${filePath}`)
 		}).css;
+		// Sass leaves plain `.css` `@import` statements alone (per CSS
+		// spec, those are runtime-resolved). Resolve them here so the
+		// inlined `ɵcmp.styles` content is self-contained.
+		return resolveCssImportsSync(
+			compiled,
+			dirname(filePath),
+			new Set([filePath])
+		);
 	}
 	if (language === 'less') {
 		throw new Error(
@@ -1026,7 +1077,11 @@ export const compileStyleFileIfNeededSync = (
 		);
 	}
 
-	return rawContents;
+	return resolveCssImportsSync(
+		rawContents,
+		dirname(filePath),
+		new Set([filePath])
+	);
 };
 
 export const getCssOutputExtension = (filePath: string) =>
