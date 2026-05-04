@@ -845,8 +845,17 @@ const extractFingerprint = (
 		break;
 	}
 
-	const inputNames = Object.keys(inputs).sort();
-	const outputNames = Object.keys(outputs).sort();
+	// Capture both class-property name AND binding name (the
+	// public template name, which the alias overrides). Catches
+	// `@Input({ alias: 'x' })` → `@Input({ alias: 'y' })` —
+	// previously a silent no-op since only the class-property name
+	// was in the fingerprint.
+	const inputNames = Object.entries(inputs)
+		.map(([k, m]) => `${k}:${m.bindingPropertyName}`)
+		.sort();
+	const outputNames = Object.entries(outputs)
+		.map(([k, v]) => `${k}:${v}`)
+		.sort();
 	const arrowFieldSig = extractArrowFieldSig(cls);
 	const memberDecoratorSig = extractMemberDecoratorSig(cls);
 	const providerImportSig = extractProviderImportSig(

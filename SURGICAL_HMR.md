@@ -83,29 +83,26 @@ reload or unrelated Tier 1 event:
   fingerprint expansion can capture the binding-name list rather
   than just the class-property-name list.
 
-## Per-component remount in Tier 1 — investigated, deferred
+## Per-component remount in Tier 1 — researched, deferred
 
 Tier 1 destroys the entire `ApplicationRef` and re-bootstraps. The
 React-style alternative would be: find live instances of the changed
 class, surgically remount only those instances, leave siblings
 untouched.
 
-**Why we didn't ship it (yet)**: the only path to "find live
-instances" goes through `__ngContext__` on host elements →
-LView slot indices — all private to Angular's runtime and
-liable to shift between minor versions. Angular's own CLI doesn't
-do this either (they fall back to whole-app rebootstrap on
-structural changes).
+Full investigation in `ANGULAR_PER_COMPONENT_REMOUNT_RESEARCH.md`.
+Short version: Angular's public API surface (`getComponent`,
+`createComponent`, `applicationRef.attachView`, `viewContainerRef.createComponent`,
+`runInInjectionContext`) supports root-component recreation but
+not in-place destroy + recreate of a child component within its
+parent's view tree. The blocker is access to the parent's
+`ViewContainerRef` for the child slot, which Angular doesn't
+expose. Angular CLI's HMR doesn't do per-component remount
+either, for the same reason.
 
-**What it would take**:
-- Stable mapping of host element → LView via `__ngContext__`
-- Walk LView parent chain to find owning ViewContainer
-- Use private `removeLViewFromLContainer` + manual re-creation
-- Or: hook every component's `ɵfac` factory to maintain an
-  instance registry, then drive remount via that registry
-
-Not a small change. Tracked as a future spike; current Tier 1 is
-correct, just unnecessarily wide-blast-radius.
+Tracked as deferred until either Angular ships a public hook
+or dealroom usage shows Tier 1 firing too often. Current Tier 1
+is correct, just wider blast radius than ideal.
 
 ## Where the bits live
 
