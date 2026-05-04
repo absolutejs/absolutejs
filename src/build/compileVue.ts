@@ -18,6 +18,7 @@ import type {
 } from '@vue/compiler-sfc';
 import { file, write, Transpiler } from 'bun';
 import { toKebab } from '../utils/stringModifiers';
+import { getFrameworkGeneratedDir } from '../utils/generatedDir';
 import { resolvePackageImport } from './resolvePackageImport';
 import { buildIslandMetadataExports } from '../islands/sourceMetadata';
 import { addAutoRouterSetupApp } from './vueAutoRouterTransform';
@@ -599,7 +600,9 @@ export const compileVue = async (
 ) => {
 	const compiler: VueCompiler = await import('@vue/compiler-sfc');
 
-	const generatedDir = join(vueRootDir, 'generated');
+	// Generated output lives at <projectRoot>/.absolutejs/generated/vue/.
+	// See `src/utils/generatedDir.ts` for rationale (keeps `src/` clean).
+	const generatedDir = getFrameworkGeneratedDir('vue');
 	const clientOutputDir = join(generatedDir, 'client');
 	const indexOutputDir = join(generatedDir, 'indexes');
 	const serverOutputDir = join(generatedDir, 'server');

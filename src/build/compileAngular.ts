@@ -13,6 +13,7 @@ import {
 	compileStyleFileIfNeeded,
 	compileStyleFileIfNeededSync
 } from './stylePreprocessor';
+import { getFrameworkGeneratedDir } from '../utils/generatedDir';
 import type { StylePreprocessorConfig } from '../../types/build';
 
 type SyncReadFile = (fileName: string) => string | undefined;
@@ -1780,7 +1781,12 @@ export const compileAngular = async (
 	hmr = false,
 	stylePreprocessors?: StylePreprocessorConfig
 ) => {
-	const compiledParent = join(outRoot, 'generated');
+	// Compile to <projectRoot>/.absolutejs/generated/angular/. The
+	// previous layout wrote into <angularDir>/generated/, leaking into
+	// the user's source tree. Path math inside this function keeps
+	// using `outRoot` (the user's angular source dir) for relative
+	// computations — only the *destination root* moves.
+	const compiledParent = getFrameworkGeneratedDir('angular');
 
 	if (entryPoints.length === 0) {
 		const emptyPaths: string[] = [];
@@ -1788,11 +1794,11 @@ export const compileAngular = async (
 		return { clientPaths: [...emptyPaths], serverPaths: [...emptyPaths] };
 	}
 
-	// Compile to .absolutejs/generated/angular/. Server files are bundled by
-	// Bun's server pass (same as Svelte/Vue) and cleanup() removes generated/
-	// after bundling. In dev/HMR, a fixed path avoids duplicate Angular
-	// module instances (different file paths → different ESM cache entries),
-	// preventing NG0201/NG0203 token identity mismatches.
+	// In dev/HMR a fixed path is required: different file paths produce
+	// different ESM cache entries in Bun, which would split Angular into
+	// duplicate module instances and trip NG0201/NG0203 token-identity
+	// mismatches. Pinning to the gitignored `.absolutejs/generated/`
+	// satisfies the constraint while keeping `src/` clean.
 	const compiledRoot = compiledParent;
 	const indexesDir = join(compiledParent, 'indexes');
 

@@ -13,6 +13,7 @@ import {
 import { env } from 'node:process';
 import { write, file, Transpiler } from 'bun';
 import { resolvePackageImport } from './resolvePackageImport';
+import { getFrameworkGeneratedDir } from '../utils/generatedDir';
 import { buildIslandMetadataExports } from '../islands/sourceMetadata';
 import { createSvelteStylePreprocessor } from './stylePreprocessor';
 import { lowerSvelteIslandSyntax } from '../svelte/lowerIslandSyntax';
@@ -185,7 +186,9 @@ export const compileSvelte = async (
 		'svelte/compiler'
 	);
 
-	const generatedDir = join(svelteRoot, 'generated');
+	// Generated output lives at <projectRoot>/.absolutejs/generated/svelte/.
+	// See `src/utils/generatedDir.ts` for rationale (keeps `src/` clean).
+	const generatedDir = getFrameworkGeneratedDir('svelte');
 	const clientDir = join(generatedDir, 'client');
 	const indexDir = join(generatedDir, 'indexes');
 	const serverDir = join(generatedDir, 'server');

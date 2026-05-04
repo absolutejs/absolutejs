@@ -69,6 +69,10 @@ import { createAngularLinkerPlugin } from '../build/angularLinkerPlugin';
 import { cleanStaleOutputs } from '../utils/cleanStaleOutputs';
 import { cleanup } from '../utils/cleanup';
 import { commonAncestor } from '../utils/commonAncestor';
+import {
+	getFrameworkGeneratedDir,
+	getGeneratedRoot
+} from '../utils/generatedDir';
 import { withBuildDirectoryLock } from '../utils/buildDirectoryLock';
 import { logError, logWarn } from '../utils/logger';
 import { normalizePath } from '../utils/normalizePath';
@@ -396,7 +400,7 @@ const copySvelteDevIndexes = (
 	svelteEntries: string[],
 	devIndexDir: string
 ) => {
-	const svelteIndexDir = join(svelteDir, 'generated', 'indexes');
+	const svelteIndexDir = join(getFrameworkGeneratedDir('svelte'), 'indexes');
 	const sveltePageEntries = svelteEntries.filter((file) =>
 		resolve(file).startsWith(resolve(sveltePagesPath))
 	);
@@ -423,7 +427,7 @@ const copyVueDevIndexes = (
 	vueEntries: string[],
 	devIndexDir: string
 ) => {
-	const vueIndexDir = join(vueDir, 'generated', 'indexes');
+	const vueIndexDir = join(getFrameworkGeneratedDir('vue'), 'indexes');
 	const vuePageEntries = vueEntries.filter((file) =>
 		resolve(file).startsWith(resolve(vuePagesPath))
 	);
@@ -885,7 +889,8 @@ const buildUnlocked = async ({
 		typeof stylesConfig === 'object' ? stylesConfig.ignore : undefined;
 	const stylesDir = stylesPath && validateSafePath(stylesPath, projectRoot);
 
-	const reactIndexesPath = reactDir && join(reactDir, 'generated', 'indexes');
+	const reactIndexesPath =
+		reactDir && join(getFrameworkGeneratedDir('react'), 'indexes');
 	const reactPagesPath = reactDir && join(reactDir, 'pages');
 	const htmlPagesPath = htmlDir && join(htmlDir, 'pages');
 	const htmlScriptsPath = htmlDir && join(htmlDir, 'scripts');
@@ -923,33 +928,49 @@ const buildUnlocked = async ({
 		tailwind: Boolean(tailwind)
 	});
 
-	// Compute client root from source framework dirs. Generated intermediate files
-	// are placed under {frameworkDir}/generated/ so Bun.build's root stripping
-	// produces correct output paths (react/generated/indexes/, svelte/generated/client/, etc.).
+	// Generated intermediate files now live under
+	// `<projectRoot>/.absolutejs/generated/<framework>/`, so the Bun.build
+	// `root` for client bundling has to be the parent of those framework
+	// dirs — the project's `.absolutejs/generated/` cache root. Strip math:
+	//   entry: <projectRoot>/.absolutejs/generated/angular/pages/x.js
+	//   root:  <projectRoot>/.absolutejs/generated
+	//   → output: <buildPath>/angular/pages/x.<hash>.js
+	// HTML/HTMX entries don't go through framework compilers; we keep their
+	// source dir in the candidate list and fall back to a common ancestor
+	// when both kinds are present.
+	const generatedRoot = getGeneratedRoot(projectRoot);
 	const sourceClientRoots: string[] = [
-		reactDir,
-		svelteDir,
 		htmlDir,
-		vueDir,
-		angularDir,
+		htmxDir,
 		islandBootstrapPath && dirname(islandBootstrapPath)
 	].filter((dir): dir is string => Boolean(dir));
-	const clientRoot = isSingle
-		? (sourceClientRoots[0] ?? projectRoot)
-		: commonAncestor(sourceClientRoots, projectRoot);
+	const usesGenerated =
+		Boolean(reactDir) ||
+		Boolean(svelteDir) ||
+		Boolean(vueDir) ||
+		Boolean(angularDir);
+	if (usesGenerated) sourceClientRoots.push(generatedRoot);
+	const clientRoot =
+		sourceClientRoots.length === 1
+			? (sourceClientRoots[0] ?? projectRoot)
+			: commonAncestor(sourceClientRoots, projectRoot);
 
 	const serverDirMap: { dir: string; subdir: string }[] = [];
 	if (svelteDir)
 		serverDirMap.push({
-			dir: svelteDir,
-			subdir: join('generated', 'server')
+			dir: getFrameworkGeneratedDir('svelte', projectRoot),
+			subdir: 'server'
 		});
 	if (vueDir)
 		serverDirMap.push({
-			dir: vueDir,
-			subdir: join('generated', 'server')
+			dir: getFrameworkGeneratedDir('vue', projectRoot),
+			subdir: 'server'
 		});
-	if (angularDir) serverDirMap.push({ dir: angularDir, subdir: 'generated' });
+	if (angularDir)
+		serverDirMap.push({
+			dir: getFrameworkGeneratedDir('angular', projectRoot),
+			subdir: ''
+		});
 
 	let serverOutDir: string | undefined;
 	let serverRoot: string | undefined;

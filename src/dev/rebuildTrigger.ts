@@ -636,19 +636,28 @@ const resolveAngularPageEntries = (
 };
 
 const computeClientRoot = async (resolvedPaths: ResolvedBuildPaths) => {
-	const clientRoots = [
-		resolvedPaths.reactDir,
-		resolvedPaths.svelteDir,
+	// Mirror core/build.ts client-root math: framework compilers now emit
+	// to <projectRoot>/.absolutejs/generated/<framework>/, so the Bun.build
+	// root is the cache's `generated/` parent. HTML/HTMX entries live in
+	// the user's source dirs and merge into the common ancestor.
+	const { getGeneratedRoot } = await import('../utils/generatedDir');
+	const projectRoot = process.cwd();
+	const clientRoots: string[] = [
 		resolvedPaths.htmlDir,
-		resolvedPaths.vueDir,
-		resolvedPaths.angularDir
+		resolvedPaths.htmxDir
 	].filter((dir): dir is string => Boolean(dir));
+	const usesGenerated =
+		Boolean(resolvedPaths.reactDir) ||
+		Boolean(resolvedPaths.svelteDir) ||
+		Boolean(resolvedPaths.vueDir) ||
+		Boolean(resolvedPaths.angularDir);
+	if (usesGenerated) clientRoots.push(getGeneratedRoot(projectRoot));
 
 	const { commonAncestor } = await import('../utils/commonAncestor');
 
 	return clientRoots.length === 1
-		? (clientRoots[0] ?? process.cwd())
-		: commonAncestor(clientRoots, process.cwd());
+		? (clientRoots[0] ?? projectRoot)
+		: commonAncestor(clientRoots, projectRoot);
 };
 
 const updateServerManifestEntry = (
@@ -1169,7 +1178,13 @@ const handleSvelteFastPath = async (
 		const serverEntries = [...svelteServerPaths];
 		const clientEntries = [...svelteIndexPaths, ...svelteClientPaths];
 
-		const serverRoot = resolve(svelteDir, 'generated', 'server');
+		const { getFrameworkGeneratedDir } = await import(
+			'../utils/generatedDir'
+		);
+		const serverRoot = resolve(
+			getFrameworkGeneratedDir('svelte'),
+			'server'
+		);
 		const serverOutDir = resolve(buildDir, basename(svelteDir));
 
 		const [serverResult, clientResult] = await Promise.all([

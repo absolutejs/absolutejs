@@ -3,6 +3,7 @@ import { mkdir, rm } from 'node:fs/promises';
 import { basename, dirname, extname, join, resolve } from 'node:path';
 import { build as bunBuild, Transpiler, write, file } from 'bun';
 import type { BunPlugin } from 'bun';
+import { getFrameworkGeneratedDir } from '../utils/generatedDir';
 
 /**
  * Phase 1 Ember compile pipeline.
@@ -480,7 +481,7 @@ export const compileEmber = async (
 		};
 	}
 
-	const compiledRoot = join(emberDir, 'generated');
+	const compiledRoot = getFrameworkGeneratedDir('ember');
 
 	const outputs = await Promise.all(
 		entries.map((entry) => compileEmberFile(entry, compiledRoot, cwd))
@@ -523,9 +524,11 @@ export const clearEmberCompilerCache = () => {
 };
 
 // Expose dirname helper so consumers can predict where compiled outputs
-// land without re-deriving the path scheme.
-export const getEmberCompiledRoot = (emberDir: string) =>
-	join(emberDir, 'generated');
+// land without re-deriving the path scheme. The `emberDir` parameter is
+// retained for back-compat with callers but ignored — output now lives
+// at <projectRoot>/.absolutejs/generated/ember/ regardless.
+export const getEmberCompiledRoot = (_emberDir?: string) =>
+	getFrameworkGeneratedDir('ember');
 
 export const getEmberServerCompiledDir = (emberDir: string) =>
 	join(getEmberCompiledRoot(emberDir), 'server');
