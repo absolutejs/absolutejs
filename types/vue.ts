@@ -13,9 +13,7 @@ export type VueAutoRouter = {
 	currentRoute: { value: { fullPath: string } };
 	push: (to: string) => Promise<unknown>;
 	isReady: () => Promise<void>;
-	beforeEach: (
-		guard: (to: unknown, from: unknown) => unknown
-	) => () => void;
+	beforeEach: (guard: (to: unknown, from: unknown) => unknown) => () => void;
 };
 
 export type VueSetupAppContext = {

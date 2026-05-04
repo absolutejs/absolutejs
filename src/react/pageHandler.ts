@@ -94,8 +94,7 @@ export const handleReactPageRequest = async <
 	// pass one in props. Lets users wire <StaticRouter location={url}>
 	// just by forwarding `request` instead of unwrapping it themselves.
 	const maybeProps =
-		requestPathname !== undefined &&
-		(!userProps || !('url' in userProps))
+		requestPathname !== undefined && (!userProps || !('url' in userProps))
 			? ({
 					...(userProps ?? {}),
 					url: requestPathname

@@ -1469,7 +1469,10 @@ const handleEmberFastPath = async (
 	const duration = Date.now() - startTime;
 	const [primary] = emberFiles;
 	if (primary) {
-		state.lastHmrPath = relative(process.cwd(), primary).replace(/\\/g, '/');
+		state.lastHmrPath = relative(process.cwd(), primary).replace(
+			/\\/g,
+			'/'
+		);
 		state.lastHmrFramework = 'ember';
 		logHmrUpdate(primary, 'ember', duration);
 	}

@@ -6,8 +6,11 @@ import { loadDevCert } from '../dev/devCert';
 import { getLocalIPAddress } from '../utils/networking';
 import { startupBanner } from '../utils/startupBanner';
 
-let host = env.HOST ?? 'localhost';
-const port = env.PORT ?? DEFAULT_PORT;
+// Env-var precedence: ABSOLUTE_HOST/ABSOLUTE_PORT (set by `bun dev` after
+// resolving config-file values + Vite-style port fallback) → legacy
+// HOST/PORT → defaults.
+let host = env.ABSOLUTE_HOST ?? env.HOST ?? 'localhost';
+const port = env.ABSOLUTE_PORT ?? env.PORT ?? DEFAULT_PORT;
 const visibility = env.ABSOLUTE_WORKSPACE_SERVICE_VISIBILITY ?? 'public';
 const managedByWorkspace = env.ABSOLUTE_WORKSPACE_MANAGED === '1';
 let localIP: string | undefined;

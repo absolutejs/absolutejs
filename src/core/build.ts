@@ -1688,17 +1688,16 @@ const buildUnlocked = async ({
 		);
 		setAngularVendorPaths(angularVendorPaths);
 	}
-	let angularServerVendorPaths = getAngularServerVendorPaths();
-	if (!angularServerVendorPaths && hmr && angularDir) {
-		const { computeAngularServerVendorPaths } = await import(
-			'../build/buildAngularVendor'
-		);
-		angularServerVendorPaths = computeAngularServerVendorPaths(
-			buildPath,
-			globalThis.__angularVendorSpecifiers ?? []
-		);
-		setAngularServerVendorPaths(angularServerVendorPaths);
-	}
+	// §1.1 — in HMR mode, intentionally leave `angularServerVendorPaths`
+	// empty. `devBuild.ts` no longer builds the Angular server vendor
+	// (the build was the load-bearing source of two `@angular/core`
+	// instances co-existing in SSR after an HMR cycle). Without these
+	// paths, the page-bundle rewrite block below is a no-op, server
+	// bundles keep bare `@angular/*` specifiers, and Bun's node_modules
+	// resolution gives one canonical instance per process.
+	let angularServerVendorPaths = hmr
+		? undefined
+		: getAngularServerVendorPaths();
 	// Production: dev pre-builds vendor in devBuild.ts; prod has no
 	// equivalent step, so do it here. Build the linked Angular vendor
 	// (browser + server targets) ahead of the main bundle pass so
@@ -2159,24 +2158,22 @@ const buildUnlocked = async ({
 		nonReactClientOutputs.length > 0 &&
 		Object.keys(allNonReactVendorPaths).length > 0
 	) {
-		const { rewriteImports } = await import('../build/rewriteImports');
+		const { rewriteBuildOutputs } = await import(
+			'../build/rewriteImportsPlugin'
+		);
 		await tracePhase('postprocess/non-react-vendor-imports', () =>
-			rewriteImports(
-				nonReactClientOutputs.map((artifact) => artifact.path),
-				allNonReactVendorPaths
-			)
+			rewriteBuildOutputs(nonReactClientOutputs, allNonReactVendorPaths)
 		);
 	}
 	if (
 		islandClientOutputs.length > 0 &&
 		Object.keys(allIslandVendorPaths).length > 0
 	) {
-		const { rewriteImports } = await import('../build/rewriteImports');
+		const { rewriteBuildOutputs } = await import(
+			'../build/rewriteImportsPlugin'
+		);
 		await tracePhase('postprocess/island-vendor-imports', () =>
-			rewriteImports(
-				islandClientOutputs.map((artifact) => artifact.path),
-				allIslandVendorPaths
-			)
+			rewriteBuildOutputs(islandClientOutputs, allIslandVendorPaths)
 		);
 	}
 
@@ -2184,39 +2181,38 @@ const buildUnlocked = async ({
 	// absolute paths under build/angular/vendor/server/. This ensures every
 	// page bundle (and the absolutejs runtime, via getAngularDeps) imports
 	// the same fully-linked Angular files — single instance, no NG0201,
-	// no @angular/compiler at runtime in AOT mode.
+	// no @angular/compiler at runtime in AOT mode. Skipped in dev mode
+	// (§1.1) — `angularServerVendorPaths` is not set there, so the gate
+	// is false and this whole block is a no-op.
 	if (
 		serverOutputs.length > 0 &&
 		angularServerVendorPaths &&
 		Object.keys(angularServerVendorPaths).length > 0
 	) {
-		const { rewriteImports } = await import('../build/rewriteImports');
+		const { rewriteBuildOutputsWith } = await import(
+			'../build/rewriteImportsPlugin'
+		);
 		// Each server output sits at a different depth in the build tree
 		// (e.g. `angular/generated/pages/X.js` vs `vue/generated/server/.../X.js`).
 		// Compute the relative path from each artifact to the vendor file so
 		// the rewritten import survives the build dir being relocated at
 		// runtime — required by the `compile` standalone executable, which
 		// extracts all assets into a fresh runtimeDir on first launch.
-		const jsArtifacts = serverOutputs.filter((artifact) =>
-			artifact.path.endsWith('.js')
-		);
 		await tracePhase('postprocess/server-angular-vendor-imports', () =>
-			Promise.all(
-				jsArtifacts.map(async (artifact) => {
-					const fileDir = dirname(artifact.path);
-					const relativePaths: Record<string, string> = {};
-					for (const [specifier, absolute] of Object.entries(
-						angularServerVendorPaths!
-					)) {
-						const rel = relative(fileDir, absolute);
-						relativePaths[specifier] = rel.startsWith('.')
-							? rel
-							: `./${rel}`;
-					}
+			rewriteBuildOutputsWith(serverOutputs, (artifact) => {
+				const fileDir = dirname(artifact.path);
+				const relativePaths: Record<string, string> = {};
+				for (const [specifier, absolute] of Object.entries(
+					angularServerVendorPaths!
+				)) {
+					const rel = relative(fileDir, absolute);
+					relativePaths[specifier] = rel.startsWith('.')
+						? rel
+						: `./${rel}`;
+				}
 
-					return rewriteImports([artifact.path], relativePaths);
-				})
-			)
+				return relativePaths;
+			})
 		);
 	}
 

@@ -9,7 +9,6 @@ import {
 	getSvelteVendorPaths,
 	getVueVendorPaths,
 	setDevVendorPaths,
-	setAngularServerVendorPaths,
 	setAngularVendorPaths,
 	setEmberVendorPaths,
 	setSvelteVendorPaths,
@@ -21,10 +20,7 @@ import {
 	computeVendorPaths
 } from '../build/buildReactVendor';
 import {
-	buildAngularServerVendor,
 	buildAngularVendor,
-	computeAngularServerVendorPaths,
-	computeAngularServerVendorPathsAsync,
 	computeAngularVendorPaths,
 	computeAngularVendorPathsAsync
 } from '../build/buildAngularVendor';
@@ -401,12 +397,11 @@ export const devBuild = async (config: BuildConfig) => {
 	const sourceDirs = collectDepVendorSourceDirs(config);
 	if (config.angularDirectory) {
 		setAngularVendorPaths(await computeAngularVendorPathsAsync(sourceDirs));
-		setAngularServerVendorPaths(
-			await computeAngularServerVendorPathsAsync(
-				state.resolvedPaths.buildDir,
-				sourceDirs
-			)
-		);
+		// §1.1 — dev mode does not vendor the server-side Angular packages.
+		// `compileAngular`'s SSR rewrite is gated on these paths being set,
+		// so leaving it null preserves bare `@angular/*` specifiers in the
+		// server bundle, which Bun resolves through node_modules — one
+		// canonical instance per process across HMR cycles.
 	}
 	const { computeDepVendorPaths } = await import('../build/buildDepVendor');
 	globalThis.__depVendorPaths = await computeDepVendorPaths(sourceDirs);
@@ -476,48 +471,46 @@ export const devBuild = async (config: BuildConfig) => {
 
 	const { buildDepVendor } = await import('../build/buildDepVendor');
 
-	const [, angularSpecs, angularServerSpecs, , , , depPaths] =
-		await Promise.all([
-			config.reactDirectory
-				? buildReactVendor(state.resolvedPaths.buildDir)
-				: Promise.resolve(undefined),
-			config.angularDirectory
-				? buildAngularVendor(
-						state.resolvedPaths.buildDir,
-						sourceDirs,
-						/* linkerJitMode */ true,
-						/* depVendorSpecifiers */ Object.keys(
-							globalThis.__depVendorPaths ?? {}
-						)
+	// §1.1 — dev mode SKIPS `buildAngularServerVendor`. The build was the
+	// load-bearing source of two `@angular/core` instances co-existing in
+	// the SSR runtime after an HMR cycle (NG0203 / `currentInjector ===
+	// undefined`). Without the server vendor on disk, every Angular import
+	// — from page bundles, from `getAngularDeps()`, from
+	// `@angular/platform-server` — resolves through Bun's normal
+	// node_modules path, giving exactly one instance per process. The
+	// production path in `core/build.ts` still builds + uses the server
+	// vendor (linker pre-link perf win at prod start time).
+	const [, angularSpecs, , , , , depPaths] = await Promise.all([
+		config.reactDirectory
+			? buildReactVendor(state.resolvedPaths.buildDir)
+			: Promise.resolve(undefined),
+		config.angularDirectory
+			? buildAngularVendor(
+					state.resolvedPaths.buildDir,
+					sourceDirs,
+					/* linkerJitMode */ true,
+					/* depVendorSpecifiers */ Object.keys(
+						globalThis.__depVendorPaths ?? {}
 					)
-				: Promise.resolve(undefined),
-			config.angularDirectory
-				? buildAngularServerVendor(
-						state.resolvedPaths.buildDir,
-						sourceDirs,
-						/* linkerJitMode */ true
-					)
-				: Promise.resolve(undefined),
-			config.svelteDirectory
-				? buildSvelteVendor(state.resolvedPaths.buildDir)
-				: Promise.resolve(undefined),
-			config.vueDirectory
-				? buildVueVendor(state.resolvedPaths.buildDir)
-				: Promise.resolve(undefined),
-			config.emberDirectory
-				? buildEmberVendor(state.resolvedPaths.buildDir)
-				: Promise.resolve(undefined),
-			buildDepVendor(state.resolvedPaths.buildDir, sourceDirs)
-		]);
+				)
+			: Promise.resolve(undefined),
+		Promise.resolve(undefined),
+		config.svelteDirectory
+			? buildSvelteVendor(state.resolvedPaths.buildDir)
+			: Promise.resolve(undefined),
+		config.vueDirectory
+			? buildVueVendor(state.resolvedPaths.buildDir)
+			: Promise.resolve(undefined),
+		config.emberDirectory
+			? buildEmberVendor(state.resolvedPaths.buildDir)
+			: Promise.resolve(undefined),
+		buildDepVendor(state.resolvedPaths.buildDir, sourceDirs)
+	]);
 	if (angularSpecs) globalThis.__angularVendorSpecifiers = angularSpecs;
-	if (angularServerSpecs) {
-		setAngularServerVendorPaths(
-			computeAngularServerVendorPaths(
-				state.resolvedPaths.buildDir,
-				angularServerSpecs
-			)
-		);
-	}
+	// Intentionally NOT calling setAngularServerVendorPaths in dev — the
+	// absence of these paths is what makes `compileAngular`'s server-bundle
+	// rewrite step skip and leave bare `@angular/*` specifiers, and what
+	// makes `resolveAngularRuntimePath` fall through to node_modules.
 	if (config.emberDirectory) {
 		setEmberVendorPaths(computeEmberVendorPaths());
 	}
@@ -546,7 +539,7 @@ export const devBuild = async (config: BuildConfig) => {
 		depVendorDir
 	].filter((d): d is string => d !== null);
 	const { rewriteVendorDirectories } = await import(
-		'../build/rewriteImports'
+		'../build/rewriteImportsPlugin'
 	);
 	await rewriteVendorDirectories(activeVendorDirs, combinedVendorPaths);
 	recordStep('rewrite vendor cross-references', stepStartedAt);

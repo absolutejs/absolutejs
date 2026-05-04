@@ -1408,7 +1408,9 @@ export default defineConfig({
 		expect(existsSync(firstOutfile)).toBe(true);
 		expect(existsSync(secondOutfile)).toBe(true);
 		expect(existsSync(join(sharedOutdir, 'manifest.json'))).toBe(true);
-		expect(existsSync(join(fixtureRoot, '.shared-build.lock'))).toBe(false);
+		expect(existsSync(join(fixtureRoot, '.absolutejs', 'build.lock'))).toBe(
+			false
+		);
 	}, 480_000);
 
 	test('matches production start behavior for core runtime responses', async () => {

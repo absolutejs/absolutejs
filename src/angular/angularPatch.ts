@@ -112,9 +112,13 @@ const patchElementLayout = (doc: Document) => {
 };
 
 export const applyPatches = async () => {
-	const { ɵDominoAdapter } = await import(
-		resolveAngularRuntimePath('@angular/platform-server')
-	);
+	// §1.1 — bare specifier in dev shares Bun's module cache with bundled
+	// server pages. Production stays on the resolved vendor path.
+	const spec =
+		process.env.NODE_ENV === 'production'
+			? resolveAngularRuntimePath('@angular/platform-server')
+			: '@angular/platform-server';
+	const { ɵDominoAdapter } = await import(spec);
 	if (!ɵDominoAdapter?.prototype) {
 		console.warn(
 			'[Angular Patch] ɵDominoAdapter not found, skipping patches'

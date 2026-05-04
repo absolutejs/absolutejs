@@ -113,8 +113,7 @@ export const handleEmberPageRequest = async (input: EmberPageRequestInput) => {
 	// Auto-inject `url` from the request when the caller didn't already
 	// pass one in props. Same convention as the React/Svelte/Vue adapters.
 	const props =
-		requestPathname !== undefined &&
-		(!userProps || !('url' in userProps))
+		requestPathname !== undefined && (!userProps || !('url' in userProps))
 			? { ...(userProps ?? {}), url: requestPathname }
 			: userProps;
 

@@ -71,9 +71,12 @@ export const buildRouterRedirectProviders = async (
 	let routerModule: AngularRouterModule;
 
 	try {
-		routerModule = await import(
-			resolveAngularRuntimePath('@angular/router')
-		);
+		// §1.1 — bare specifier in dev shares Bun's module cache.
+		const spec =
+			process.env.NODE_ENV === 'production'
+				? resolveAngularRuntimePath('@angular/router')
+				: '@angular/router';
+		routerModule = await import(spec);
 	} catch {
 		return [];
 	}

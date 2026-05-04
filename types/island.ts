@@ -1,9 +1,4 @@
-export type IslandFramework =
-	| 'react'
-	| 'svelte'
-	| 'vue'
-	| 'angular'
-	| 'ember';
+export type IslandFramework = 'react' | 'svelte' | 'vue' | 'angular' | 'ember';
 
 export type IslandHydrate = 'load' | 'idle' | 'visible' | 'none';
 
@@ -87,10 +82,14 @@ type ExtractAngularProps<Component> =
 
 // Glimmer components carry their args through `Args` on the constructor
 // signature (`new (owner, args: Args) => object`). Pull from there.
-type ExtractEmberProps<Component> = UnwrapIslandComponent<Component> extends
-	abstract new (owner: never, args: infer Args, ...rest: never[]) => unknown
-	? NormalizeProps<Args>
-	: Record<string, never>;
+type ExtractEmberProps<Component> =
+	UnwrapIslandComponent<Component> extends abstract new (
+		owner: never,
+		args: infer Args,
+		...rest: never[]
+	) => unknown
+		? NormalizeProps<Args>
+		: Record<string, never>;
 
 type ExtractFrameworkProps<
 	Framework extends IslandFramework,

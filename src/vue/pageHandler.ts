@@ -58,7 +58,6 @@ const readSetupAppHook = (value: unknown): VueSetupApp | null => {
 	return typeof setupApp === 'function' ? (setupApp as VueSetupApp) : null;
 };
 
-
 const readDefaultExport = (value: unknown) =>
 	isRecord(value) ? value.default : undefined;
 

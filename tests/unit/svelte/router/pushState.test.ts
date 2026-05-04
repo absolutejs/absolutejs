@@ -87,9 +87,11 @@ describe('pushState — with window', () => {
 
 	test('pushState resolves a relative URL against window.location.href', () => {
 		installFakeWindow();
-		(globalThis as {
-			window?: { location: { href: string } };
-		}).window!.location.href = 'http://example.test/section/inner';
+		(
+			globalThis as {
+				window?: { location: { href: string } };
+			}
+		).window!.location.href = 'http://example.test/section/inner';
 		pushState('sibling', null);
 		expect(page.url.href).toBe('http://example.test/section/sibling');
 	});

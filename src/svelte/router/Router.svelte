@@ -99,9 +99,7 @@
 			}
 		}
 
-		return bestId && bestParams
-			? { id: bestId, params: bestParams }
-			: null;
+		return bestId && bestParams ? { id: bestId, params: bestParams } : null;
 	};
 
 	// Recompute on every call rather than caching via $derived. SSR

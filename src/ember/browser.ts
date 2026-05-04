@@ -36,9 +36,7 @@ export const mountEmberPage = async (
 ) => {
 	const root = document.querySelector(rootSelector);
 	if (!root) {
-		throw new Error(
-			`mountEmberPage: no element matched "${rootSelector}"`
-		);
+		throw new Error(`mountEmberPage: no element matched "${rootSelector}"`);
 	}
 
 	// String-variable import indirection so TypeScript doesn't try to

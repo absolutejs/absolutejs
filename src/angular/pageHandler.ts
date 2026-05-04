@@ -112,9 +112,10 @@ let compilerImportPromise: Promise<unknown> | null = null;
 const ensureAngularCompiler = () => {
 	if (process.env.NODE_ENV === 'production') return Promise.resolve();
 	if (!compilerImportPromise) {
-		compilerImportPromise = import(
-			resolveAngularRuntimePath('@angular/compiler')
-		);
+		// §1.1 — bare specifier in dev so Bun shares one cached module
+		// with bundled server pages (which also import bare `@angular/*`
+		// after the server-vendor rewrite was disabled).
+		compilerImportPromise = import('@angular/compiler');
 	}
 
 	return compilerImportPromise;

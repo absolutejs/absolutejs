@@ -61,9 +61,9 @@ describe('matchPattern — static paths', () => {
 	});
 
 	test('missing path segments fail', () => {
-		expect(
-			matchPattern(compilePattern('/a/b/c'), '/a/b').matched
-		).toBe(false);
+		expect(matchPattern(compilePattern('/a/b/c'), '/a/b').matched).toBe(
+			false
+		);
 	});
 
 	test('root path matches "/" and ""', () => {
@@ -121,10 +121,7 @@ describe('matchPattern — param paths', () => {
 
 describe('matchPattern — optional params', () => {
 	test('optional :param? present yields the value', () => {
-		const result = matchPattern(
-			compilePattern('/users/:id?'),
-			'/users/42'
-		);
+		const result = matchPattern(compilePattern('/users/:id?'), '/users/42');
 		expect(result.matched).toBe(true);
 		if (result.matched) expect(result.params).toEqual({ id: '42' });
 	});
@@ -136,10 +133,7 @@ describe('matchPattern — optional params', () => {
 	});
 
 	test('optional :param? at end allows shorter pathname to match', () => {
-		const result = matchPattern(
-			compilePattern('/a/:b/:c?'),
-			'/a/foo'
-		);
+		const result = matchPattern(compilePattern('/a/:b/:c?'), '/a/foo');
 		expect(result.matched).toBe(true);
 		if (result.matched) {
 			expect(result.params).toEqual({ b: 'foo', c: undefined });

@@ -210,8 +210,24 @@ export type BaseBuildConfig = {
 	mode?: 'production' | 'development';
 	// Dev server options (only used in development)
 	dev?: {
+		/** Dev server port (env: ABSOLUTE_PORT, default 3000). */
+		port?: number;
+		/** When `port` is busy, probe up to `portRange-1` neighboring ports
+		 *  before failing (env: ABSOLUTE_PORT_RANGE, default 10). */
+		portRange?: number;
+		/** When true, refuse to start if `port` is busy instead of falling
+		 *  through to the next free port (env: ABSOLUTE_STRICT_PORT, default false). */
+		strictPort?: boolean;
+		/** Bind host (env: ABSOLUTE_HOST, default "localhost"). */
+		host?: string;
 		// Enable HTTPS for HTTP/2 multiplexing (faster HMR on import-heavy components)
+		// (env: ABSOLUTE_HTTPS, default false).
 		https?: boolean;
+		/** Extra directories to add to the dev file watcher's positive
+		 *  include list. Anything outside the configured framework dirs,
+		 *  conventional source dirs (`src/`, `db/`, `assets/`, `styles/`),
+		 *  and these `watchDirs` is implicitly ignored. */
+		watchDirs?: string[];
 		devtools?: {
 			// Override the workspace root reported to Chrome DevTools.
 			projectRoot?: string;

@@ -19,7 +19,10 @@ const loadAngularDeps = async () => {
 	// final ɵdir/ɵcmp/ɵfac at vendor build time, so the compiler isn't
 	// imported and isn't part of the prod vendor bundle.
 	if (process.env.NODE_ENV !== 'production') {
-		await import(resolveAngularRuntimePath('@angular/compiler'));
+		// Bare specifier in dev — Bun's module cache dedupes on
+		// normalized specifier, so this is the same instance as the
+		// `import "@angular/compiler"` baked into bundled server pages.
+		await import('@angular/compiler');
 	}
 
 	// angularPatch imports @angular/platform-server internally, so it
@@ -27,12 +30,34 @@ const loadAngularDeps = async () => {
 	const { applyPatches } = await import('./angularPatch');
 	await applyPatches();
 
-	// Now safe to load all Angular packages in parallel
+	// In dev (no Angular server vendor on disk — see §1.1), use bare
+	// specifiers so Bun resolves them through node_modules and shares
+	// the same module records with the bundled server pages, which
+	// also have bare `@angular/*` imports in dev. Production keeps the
+	// resolved-path import because the vendor bundle is what every
+	// server-side import points at, and the resolved path is stable.
+	const useBareSpecifiers = process.env.NODE_ENV !== 'production';
 	const [platformBrowser, platformServer, common, core] = await Promise.all([
-		import(resolveAngularRuntimePath('@angular/platform-browser')),
-		import(resolveAngularRuntimePath('@angular/platform-server')),
-		import(resolveAngularRuntimePath('@angular/common')),
-		import(resolveAngularRuntimePath('@angular/core'))
+		import(
+			useBareSpecifiers
+				? '@angular/platform-browser'
+				: resolveAngularRuntimePath('@angular/platform-browser')
+		),
+		import(
+			useBareSpecifiers
+				? '@angular/platform-server'
+				: resolveAngularRuntimePath('@angular/platform-server')
+		),
+		import(
+			useBareSpecifiers
+				? '@angular/common'
+				: resolveAngularRuntimePath('@angular/common')
+		),
+		import(
+			useBareSpecifiers
+				? '@angular/core'
+				: resolveAngularRuntimePath('@angular/core')
+		)
 	]);
 
 	if (process.env.NODE_ENV !== 'development') {
@@ -71,3 +96,16 @@ export const getAngularDeps = () => {
 
 	return angularDeps;
 };
+
+// TODO(test): the unit-style coverage in
+// `tests/integration/angular/single-core.test.ts` checks that
+// `resolveAngularRuntimePath` is consistent across calls and that two
+// dynamic imports from the resolved path return the same module record
+// — necessary but not sufficient. A stronger test would spawn a dev
+// server, trigger an HMR cycle, and assert the SSR process never sees
+// two `@angular/core` evaluations (e.g. via a marker incremented at
+// module init in a vendor stub). The fixture in
+// `tests/fixtures/compile-angular` is wired for compile-time checks
+// only, so end-to-end verification of the §1.1 fix happens manually in
+// `~/onspark/absolutejs/dealroom` (see ANGULAR_HMR.md Phase 1
+// verification).

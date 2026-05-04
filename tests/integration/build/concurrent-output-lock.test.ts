@@ -118,9 +118,9 @@ describe('build directory locking', () => {
 			'EADDRINUSE'
 		);
 		expect(existsSync(join(sharedOutdir, 'manifest.json'))).toBe(true);
-		expect(existsSync(join(workspaceRoot, '.shared-build.lock'))).toBe(
-			false
-		);
+		expect(
+			existsSync(join(workspaceRoot, '.absolutejs', 'build.lock'))
+		).toBe(false);
 
 		const manifest = JSON.parse(
 			await readFile(join(sharedOutdir, 'manifest.json'), 'utf-8')

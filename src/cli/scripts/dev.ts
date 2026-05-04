@@ -1,4 +1,5 @@
 import { $, env } from 'bun';
+import { spawn as nodeSpawn, type ChildProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { DbScripts, InteractiveHandler } from '../../../types/cli';
@@ -11,11 +12,15 @@ import {
 import { formatTimestamp } from '../../utils/startupBanner';
 import { createInteractiveHandler } from '../interactive';
 import { sendTelemetryEvent } from '../telemetryEvent';
+import {
+	acquireBuildDirectoryLock,
+	updateLockMetadata
+} from '../../utils/buildDirectoryLock';
 import { loadConfig } from '../../utils/loadConfig';
+import { resolveDevPort } from '../../utils/resolveDevPort';
 import {
 	COMPOSE_PATH,
 	isWSLEnvironment,
-	killStaleProcesses,
 	printHelp,
 	printHint,
 	readDbScripts,
@@ -25,6 +30,8 @@ import {
 
 const cliTag = (color: string, message: string) =>
 	`\x1b[2m${formatTimestamp()}\x1b[0m ${color}[cli]\x1b[0m ${color}${message}\x1b[0m`;
+
+const DEFAULT_PORT_RANGE = 10;
 
 // Lightweight interactive yes/no prompt with arrow key support.
 // ◆ message
@@ -114,19 +121,108 @@ const setupHttpsCert = async () => {
 	await setupCertWithPrompt(ensureDevCert, setupMkcert);
 };
 
-export const dev = async (serverEntry: string, configPath?: string) => {
-	const port = Number(env.PORT) || DEFAULT_PORT;
-	killStaleProcesses(port);
+type ResolvedDevConfig = {
+	port: number;
+	portRange: number;
+	strictPort: boolean;
+	host: string;
+	https: boolean;
+};
 
-	// Check if HTTPS is enabled in config
+/** Resolve dev-server settings with env-var precedence over config file.
+ *  Env always wins so `ABSOLUTE_PORT=4000 bun dev` is unambiguous. */
+const resolveDevConfig = (
+	configDev: {
+		port?: number;
+		portRange?: number;
+		strictPort?: boolean;
+		host?: string;
+		https?: boolean;
+	} | undefined
+): ResolvedDevConfig => ({
+	port:
+		Number(env.ABSOLUTE_PORT) ||
+		Number(env.PORT) ||
+		configDev?.port ||
+		DEFAULT_PORT,
+	portRange:
+		Number(env.ABSOLUTE_PORT_RANGE) ||
+		configDev?.portRange ||
+		DEFAULT_PORT_RANGE,
+	strictPort:
+		env.ABSOLUTE_STRICT_PORT === 'true' || configDev?.strictPort === true,
+	host:
+		env.ABSOLUTE_HOST ?? configDev?.host ?? 'localhost',
+	https:
+		env.ABSOLUTE_HTTPS === 'true' || configDev?.https === true
+});
+
+export const dev = async (serverEntry: string, configPath?: string) => {
 	let httpsEnabled = false;
+	let resolvedDev: ResolvedDevConfig;
+	let buildDirectory = resolve(process.cwd(), 'build');
 	try {
 		const config = await loadConfig(configPath);
-		httpsEnabled = config?.dev?.https === true;
+		resolvedDev = resolveDevConfig(config?.dev);
+		httpsEnabled = resolvedDev.https;
+		if (config?.buildDirectory) {
+			buildDirectory = resolve(process.cwd(), config.buildDirectory);
+		}
 		if (httpsEnabled) await setupHttpsCert();
 	} catch {
-		// config load failed, skip https
+		// config load failed, fall back to env-only defaults
+		resolvedDev = resolveDevConfig(undefined);
+		httpsEnabled = resolvedDev.https;
 	}
+
+	// §1.2 — acquire the build-directory lock as early as possible, so an
+	// immediate Ctrl-C during boot still releases cleanly via the
+	// process.on('exit') / SIGINT handlers registered inside acquireBuildDirectoryLock.
+	// Lock metadata starts with port=null and gets filled in once the
+	// port is resolved below (resolveDevPort can fail before then, but
+	// the lock is already orphan-aware so a stale lock from a previous
+	// run is recovered transparently).
+	try {
+		await acquireBuildDirectoryLock(buildDirectory, {
+			port: null,
+			wait: false
+		});
+	} catch (err) {
+		console.error(
+			cliTag(
+				'\x1b[31m',
+				err instanceof Error ? err.message : String(err)
+			)
+		);
+		process.exit(1);
+	}
+
+	// §1.3 — Vite-style port resolution. Probe configured port first, then
+	// fall through up to portRange-1 neighbors. strictPort=true keeps the
+	// configured port and fails fast on conflict.
+	const { port, fellBack } = await resolveDevPort(resolvedDev.port, {
+		host: resolvedDev.host,
+		portRange: resolvedDev.portRange,
+		strictPort: resolvedDev.strictPort
+	}).catch((err) => {
+		console.error(cliTag('\x1b[31m', String(err.message ?? err)));
+		process.exit(1);
+	});
+	if (fellBack) {
+		const displayHost =
+			resolvedDev.host === '0.0.0.0' ? 'localhost' : resolvedDev.host;
+		console.log(
+			cliTag(
+				'\x1b[33m',
+				`Port ${resolvedDev.port} is in use, trying another one... → http://${displayHost}:${port}/`
+			)
+		);
+	}
+
+	// §1.2 + §1.3 — record the resolved port in the lock file so a second
+	// `bun dev` invocation that finds the lock held can include the port
+	// in its "PID X holds port Y" error message.
+	updateLockMetadata(buildDirectory, { port });
 
 	const usesDocker = existsSync(resolve(COMPOSE_PATH));
 	const scripts: DbScripts | null = usesDocker ? await readDbScripts() : null;
@@ -139,14 +235,14 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 
 	let serverReady = false;
 
-	const checkServerReady = (value: Uint8Array) => {
-		const chunk = Buffer.from(value).toString();
+	const checkServerReady = (value: Buffer) => {
+		const chunk = value.toString();
 		if (!chunk.includes('Local:')) return;
 		serverReady = true;
 		interactive?.showPrompt();
 	};
 
-	const handleChunk = (value: Uint8Array) => {
+	const handleChunk = (value: Buffer) => {
 		if (!serverReady) {
 			checkServerReady(value);
 
@@ -155,45 +251,41 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 		interactive?.showPrompt();
 	};
 
-	const spawnServer = () => {
-		const proc = Bun.spawn(
-			['bun', '--hot', '--no-clear-screen', serverEntry],
+	/** §1.3 — Spawn the bun --hot child in its own process group so that
+	 *  on parent exit we can `kill(-childPgid, SIGTERM)` and cascade to
+	 *  the entire subtree. Bun.spawn doesn't expose detached/process-group
+	 *  knobs, so this one spawn uses node:child_process for portability
+	 *  across Linux/macOS/Windows. */
+	const spawnServer = (): ChildProcess => {
+		const proc = nodeSpawn(
+			'bun',
+			['--hot', '--no-clear-screen', serverEntry],
 			{
 				cwd: process.cwd(),
+				detached: true, // new process group → kill cascades
 				env: {
 					...process.env,
 					FORCE_COLOR: '1',
 					NODE_ENV: 'development',
+					ABSOLUTE_PORT: String(port),
+					PORT: String(port),
 					...(configPath ? { ABSOLUTE_CONFIG: configPath } : {}),
 					...(httpsEnabled ? { ABSOLUTE_HTTPS: 'true' } : {})
 				},
-				stderr: 'pipe',
-				stdin: 'ignore',
-				stdout: 'pipe'
+				stdio: ['ignore', 'pipe', 'pipe']
 			}
 		);
+
 		const forward = (
-			stream: ReadableStream<Uint8Array>,
+			source: NodeJS.ReadableStream | null,
 			dest: NodeJS.WriteStream
 		) => {
-			const reader = stream.getReader();
-			const pump = () => {
-				reader
-					.read()
-					.then(({ done, value }) => {
-						if (done) return undefined;
-						if (serverReady) interactive?.clearPrompt();
-						dest.write(value);
-						handleChunk(value);
-						pump();
-
-						return undefined;
-					})
-					.catch(() => {
-						/* noop */
-					});
-			};
-			pump();
+			if (!source) return;
+			source.on('data', (chunk: Buffer) => {
+				if (serverReady) interactive?.clearPrompt();
+				dest.write(chunk);
+				handleChunk(chunk);
+			});
 		};
 		forward(proc.stdout, process.stdout);
 		forward(proc.stderr, process.stderr);
@@ -201,7 +293,7 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 		return proc;
 	};
 
-	let serverProcess = spawnServer();
+	let serverProcess: ChildProcess = spawnServer();
 	const sessionStart = Date.now();
 
 	let frameworks: string[] = [];
@@ -224,6 +316,26 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 
 	sendTelemetryEvent('dev:start', { entry: serverEntry, frameworks });
 
+	const killChildTree = (signal: NodeJS.Signals) => {
+		const childPid = serverProcess.pid;
+		if (typeof childPid !== 'number') return;
+		try {
+			// Negative PID → group target. With detached: true the child is
+			// the leader of its own group, so this cascades to bun --hot
+			// and any of its descendants.
+			process.kill(-childPid, signal);
+
+			return;
+		} catch {
+			/* fall through to single-process kill */
+		}
+		try {
+			process.kill(childPid, signal);
+		} catch {
+			/* already exited */
+		}
+	};
+
 	const cleanup = async (exitCode = 0) => {
 		if (cleaning) return;
 		cleaning = true;
@@ -235,12 +347,19 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 		});
 		if (interactive) interactive.dispose();
 		if (paused) sendSignal('SIGCONT');
-		try {
-			serverProcess.kill();
-		} catch {
-			/* process already exited */
-		}
-		await serverProcess.exited;
+		killChildTree('SIGTERM');
+		await new Promise<void>((res) => {
+			if (serverProcess.exitCode !== null) {
+				res();
+
+				return;
+			}
+			serverProcess.once('exit', () => res());
+			// Last-resort SIGKILL if the child didn't exit in 2s.
+			setTimeout(() => {
+				killChildTree('SIGKILL');
+			}, 2000).unref();
+		});
 		if (scripts) await stopDatabase(scripts);
 		process.exit(exitCode);
 	};
@@ -255,18 +374,27 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 			paused = false;
 		}
 		try {
-			old.kill();
+			old.kill('SIGTERM');
 		} catch {
 			/* already exited */
 		}
 		serverProcess = spawnServer();
-		await old.exited;
+		await new Promise<void>((res) => {
+			if (old.exitCode !== null) {
+				res();
+
+				return;
+			}
+			old.once('exit', () => res());
+		});
 		console.log(cliTag('\x1b[32m', 'Server restarted.'));
 	};
 
 	const sendSignalToGroup = (signal: 'SIGSTOP' | 'SIGCONT') => {
+		const childPid = serverProcess.pid;
+		if (typeof childPid !== 'number') return false;
 		try {
-			process.kill(-serverProcess.pid, signal);
+			process.kill(-childPid, signal);
 
 			return true;
 		} catch {
@@ -276,8 +404,10 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 
 	const sendSignal = (signal: 'SIGSTOP' | 'SIGCONT') => {
 		if (sendSignalToGroup(signal)) return;
+		const childPid = serverProcess.pid;
+		if (typeof childPid !== 'number') return;
 		try {
-			process.kill(serverProcess.pid, signal);
+			process.kill(childPid, signal);
 		} catch {
 			/* already exited */
 		}
@@ -304,7 +434,7 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 	};
 
 	const openInBrowser = async () => {
-		const url = `http://localhost:${port}`;
+		const url = `http://${resolvedDev.host === '0.0.0.0' ? 'localhost' : resolvedDev.host}:${port}`;
 		const { platform } = process;
 		const isWSL = platform === 'linux' && isWSLEnvironment();
 		let cmd: string;
@@ -351,11 +481,25 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 
 	process.on('SIGINT', () => cleanup(0));
 	process.on('SIGTERM', () => cleanup(0));
+	process.on('exit', () => {
+		// Best-effort sync cascade so SIGKILL on the parent process group
+		// doesn't strand the child. (process.on('exit') is sync-only.)
+		const childPid = serverProcess.pid;
+		if (typeof childPid !== 'number') return;
+		try {
+			process.kill(-childPid, 'SIGTERM');
+		} catch {
+			/* already exited */
+		}
+	});
 
 	printHint();
 
-	const handleServerExit = async (exitCode: number) => {
-		if (exitCode === SIGINT_EXIT_CODE || exitCode === SIGTERM_EXIT_CODE) {
+	const handleServerExit = async (exitCode: number | null) => {
+		if (
+			exitCode === SIGINT_EXIT_CODE ||
+			exitCode === SIGTERM_EXIT_CODE
+		) {
 			await cleanup(0);
 
 			return false;
@@ -368,7 +512,7 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 		);
 		sendTelemetryEvent('dev:server-crash', {
 			entry: serverEntry,
-			exitCode
+			exitCode: exitCode ?? -1
 		});
 		serverProcess = spawnServer();
 
@@ -380,7 +524,14 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 			return;
 		}
 		const current = serverProcess;
-		const exitCode = await current.exited;
+		const exitCode = await new Promise<number | null>((res) => {
+			if (current.exitCode !== null) {
+				res(current.exitCode);
+
+				return;
+			}
+			current.once('exit', (code) => res(code));
+		});
 		if (cleaning || serverProcess !== current) {
 			await monitorServer();
 

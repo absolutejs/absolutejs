@@ -189,9 +189,7 @@ const buildDiagnosticsSection = () => {
 		lines.push(`Loaded chunks (${scripts.length}):`);
 		for (const url of scripts) {
 			// Strip origin so the chunk hash is the focal point.
-			lines.push(
-				`  ${url.replace(window.location.origin, '') || url}`
-			);
+			lines.push(`  ${url.replace(window.location.origin, '') || url}`);
 		}
 	}
 
@@ -221,7 +219,9 @@ const buildErrorMessageSection = (message: string) => {
 
 const formatErrorForCopy = (opts: ErrorOverlayOptions) => {
 	const lines: string[] = [];
-	lines.push(`# ${opts.kind === 'runtime' ? 'Runtime' : 'Compilation'} error`);
+	lines.push(
+		`# ${opts.kind === 'runtime' ? 'Runtime' : 'Compilation'} error`
+	);
 	if (opts.framework) lines.push(`Framework: ${opts.framework}`);
 	lines.push('');
 	lines.push('## Message');
@@ -253,9 +253,7 @@ const formatErrorForCopy = (opts: ErrorOverlayOptions) => {
 		lines.push('');
 		lines.push(`Loaded chunks (${scripts.length}):`);
 		for (const url of scripts) {
-			lines.push(
-				`  ${url.replace(window.location.origin, '') || url}`
-			);
+			lines.push(`  ${url.replace(window.location.origin, '') || url}`);
 		}
 	}
 

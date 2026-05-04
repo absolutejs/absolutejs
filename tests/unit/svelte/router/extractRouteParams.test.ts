@@ -34,17 +34,14 @@ describe('ExtractRouteParams (compile-time type tests)', () => {
 
 	test('multiple :params → { id, postId }', () => {
 		type T = ExtractRouteParams<'/users/:id/posts/:postId'>;
-		const _check: AssertTrue<
-			Equal<T, { id: string; postId: string }>
-		> = true;
+		const _check: AssertTrue<Equal<T, { id: string; postId: string }>> =
+			true;
 		expect(_check).toBe(true);
 	});
 
 	test('optional :param? → { id: string | undefined }', () => {
 		type T = ExtractRouteParams<'/users/:id?'>;
-		const _check: AssertTrue<
-			Equal<T, { id: string | undefined }>
-		> = true;
+		const _check: AssertTrue<Equal<T, { id: string | undefined }>> = true;
 		expect(_check).toBe(true);
 	});
 
@@ -70,9 +67,8 @@ describe('ExtractRouteParams (compile-time type tests)', () => {
 
 	test('param + wildcard combo', () => {
 		type T = ExtractRouteParams<'/users/:id/files/*'>;
-		const _check: AssertTrue<
-			Equal<T, { id: string; wildcard: string }>
-		> = true;
+		const _check: AssertTrue<Equal<T, { id: string; wildcard: string }>> =
+			true;
 		expect(_check).toBe(true);
 	});
 

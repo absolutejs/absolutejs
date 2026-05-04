@@ -1,6 +1,6 @@
-import { readdirSync } from 'node:fs';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { BuildConfig } from '../../types/build';
-import { commonAncestor } from '../utils/commonAncestor';
 import { normalizePath } from '../utils/normalizePath';
 import type { ResolvedBuildPaths } from './configResolver';
 
@@ -58,16 +58,10 @@ export const detectFramework = (
 		return 'ember';
 
 	// Generic assets (styles in root /assets/, images, etc.)
-	// IMPORTANT: Only return 'assets' for style files that are NOT in framework directories.
-	// Style files in framework directories (like /vue/styles/ or /svelte/styles/) should have
-	// been caught by the framework checks above. If we reach here with a .css file, it means
-	// the file wasn't in a framework directory, so it's a true asset.
 	if (normalized.includes('/assets/')) return 'assets';
 
 	// For style files not caught by framework directory checks, check one more time
-	// using path segment matching (handles cases where resolved paths might not match exactly)
 	if (STYLE_EXTENSION_PATTERN.test(normalized)) {
-		// Check if this style is in a framework styles directory by looking for common patterns
 		if (normalized.includes('/vue/') || normalized.includes('/vue-'))
 			return 'vue';
 		if (normalized.includes('/svelte/') || normalized.includes('/svelte-'))
@@ -84,52 +78,29 @@ export const detectFramework = (
 		if (normalized.includes('/htmx/') || normalized.includes('/htmx-'))
 			return 'htmx';
 
-		// If no framework match, it's a generic asset
 		return 'assets';
 	}
 
 	return 'unknown';
 };
-const getSiblingDirs = (
-	frameworkDirs: string[],
-	cfg: { assetsDir?: string; stylesDir?: string }
-) => {
-	if (frameworkDirs.length === 0) return [];
 
-	const root = commonAncestor(frameworkDirs);
-	if (!root) return [];
-
-	const knownNames = new Set(
-		[...frameworkDirs, cfg.assetsDir, cfg.stylesDir]
-			.filter((dir): dir is string => Boolean(dir))
-			.map((dir) => normalizePath(dir).split('/').pop())
-	);
-	knownNames.add('build');
-	knownNames.add('node_modules');
-	knownNames.add('.absolutejs');
-
-	try {
-		return readdirSync(root, { withFileTypes: true })
-			.filter(
-				(entry) => entry.isDirectory() && !knownNames.has(entry.name)
-			)
-			.map((entry) => `${root}/${entry.name}`);
-	} catch {
-		// root may not exist yet
-		return [];
-	}
-};
-
-export const getWatchPaths = (
+/** Resolve every directory the watcher is allowed to walk into. The
+ *  returned set is an absolute, normalized include-list — anything
+ *  outside it is implicitly ignored. This replaces the old approach
+ *  of listing the *whole* project root and filtering with an exclude
+ *  pattern, which silently caught (and re-built on) files inside
+ *  framework-managed paths like `<frameworkDir>/generated/`,
+ *  `.absolutejs/`, and the build directory. */
+const collectPositiveWatchRoots = (
 	config: BuildConfig,
 	resolved?: ResolvedBuildPaths
 ) => {
-	const paths: string[] = [];
-
-	const push = (base?: string, sub?: string) => {
-		if (!base) return;
-		const normalizedBase = normalizePath(base);
-		paths.push(sub ? `${normalizedBase}/${sub}` : normalizedBase);
+	const cwd = process.cwd();
+	const roots: string[] = [];
+	const push = (path: string | undefined) => {
+		if (!path) return;
+		const abs = normalizePath(resolve(cwd, path));
+		if (!roots.includes(abs)) roots.push(abs);
 	};
 
 	const cfg = resolved ?? {
@@ -147,66 +118,101 @@ export const getWatchPaths = (
 		vueDir: config.vueDirectory
 	};
 
-	// Watch entire framework directories. Intermediate build files live
-	// under .absolutejs/generated/ which is already excluded from watching.
+	// Configured framework directories.
 	push(cfg.reactDir);
 	push(cfg.svelteDir);
 	push(cfg.vueDir);
 	push(cfg.emberDir);
-
 	push(cfg.angularDir);
-
-	push(cfg.htmlDir, 'pages');
-	push(cfg.htmlDir, 'scripts');
-	push(cfg.htmlDir, 'styles');
-
-	push(cfg.htmxDir, 'pages');
-	push(cfg.htmxDir, 'scripts');
-	push(cfg.htmxDir, 'styles');
-
+	push(cfg.htmlDir);
+	push(cfg.htmxDir);
 	push(cfg.assetsDir);
 	push(cfg.stylesDir);
 
-	// Also watch sibling directories under the common parent of all
-	// configured dirs — these contain shared files (workers, utils, etc.)
-	// that may be referenced by multiple frameworks.
-	const frameworkDirs = [
-		cfg.reactDir,
-		cfg.svelteDir,
-		cfg.vueDir,
-		cfg.angularDir,
-		cfg.emberDir,
-		cfg.htmlDir,
-		cfg.htmxDir
-	]
-		.filter((dir): dir is string => Boolean(dir))
-		.map(normalizePath);
+	// Common shared-source directories. We only include them when they
+	// actually exist on disk so missing dirs don't pollute the watcher
+	// or short-circuit shouldIgnorePath checks. These are the canonical
+	// places framework-agnostic source lives in real projects.
+	for (const candidate of ['src', 'db', 'assets', 'styles']) {
+		const abs = normalizePath(resolve(cwd, candidate));
+		if (existsSync(abs) && !roots.includes(abs)) roots.push(abs);
+	}
 
-	for (const siblingPath of getSiblingDirs(frameworkDirs, cfg)) {
-		push(siblingPath);
+	// User-supplied extra dirs from absolute.config.ts → dev.watchDirs.
+	const extraDirs = config.dev?.watchDirs ?? [];
+	for (const dir of extraDirs) push(dir);
+
+	return roots;
+};
+
+export const getWatchPaths = (
+	config: BuildConfig,
+	resolved?: ResolvedBuildPaths
+) => {
+	const roots = collectPositiveWatchRoots(config, resolved);
+	const paths: string[] = [];
+	const push = (base: string | undefined, sub?: string) => {
+		if (!base) return;
+		const normalizedBase = normalizePath(base);
+		paths.push(sub ? `${normalizedBase}/${sub}` : normalizedBase);
+	};
+
+	const cfg = resolved ?? {
+		htmlDir: config.htmlDirectory,
+		htmxDir: config.htmxDirectory
+	};
+
+	// HTML/HTMX dirs traditionally watch only specific subpaths to avoid
+	// noise from co-located fixtures. Preserve that behavior.
+	if (cfg.htmlDir) {
+		push(cfg.htmlDir, 'pages');
+		push(cfg.htmlDir, 'scripts');
+		push(cfg.htmlDir, 'styles');
+	}
+	if (cfg.htmxDir) {
+		push(cfg.htmxDir, 'pages');
+		push(cfg.htmxDir, 'scripts');
+		push(cfg.htmxDir, 'styles');
+	}
+
+	// Everything else: watch the directory itself. shouldIgnorePath
+	// guards against any framework-managed children (build/, generated/,
+	// .absolutejs/, etc).
+	for (const root of roots) {
+		if (root === normalizePath(cfg.htmlDir ?? '')) continue;
+		if (root === normalizePath(cfg.htmxDir ?? '')) continue;
+		paths.push(root);
 	}
 
 	return paths;
 };
+
+/** Hard-deny segments that ALWAYS get ignored, even inside a watched
+ *  positive root. These are the build/output paths that AbsoluteJS
+ *  itself writes into — feeding their events back into the watcher
+ *  causes the rebuild thrash. */
+const HARD_DENY_PATTERN =
+	/(^|\/)(build|generated|compiled|indexes|\.absolutejs|node_modules|\.git|\.test-builds|dist)(\/|$)/;
+
+/** A path is ignored when it is NOT inside any of the configured
+ *  positive watch roots, OR when it falls inside a hard-denied
+ *  build/output subtree. The styles directory is always allowed. */
 export const shouldIgnorePath = (
 	path: string,
 	resolved?: ResolvedBuildPaths
 ) => {
-	const normalizedPath = path.replace(/\\/g, '/');
+	const normalized = path.replace(/\\/g, '/');
 
-	// Allow files inside the configured styles directory through
-	if (resolved?.stylesDir && normalizedPath.startsWith(resolved.stylesDir)) {
-		return false;
+	if (resolved?.stylesDir) {
+		const styles = normalized
+			.startsWith(resolved.stylesDir.replace(/\\/g, '/'));
+		if (styles) return false;
 	}
 
-	// Ignore build output and framework-managed directories, including
-	// directory-level watcher events like ".../generated" (no trailing slash).
-	const managedDirPattern =
-		/(^|\/)(build|generated|\.absolutejs|node_modules|\.git)(\/|$)/;
+	if (HARD_DENY_PATTERN.test(normalized)) return true;
+	if (normalized.endsWith('.log')) return true;
+	if (normalized.endsWith('.tmp')) return true;
+	if (normalized.endsWith('~')) return true;
 
-	return (
-		managedDirPattern.test(normalizedPath) ||
-		normalizedPath.endsWith('.log') ||
-		normalizedPath.endsWith('.tmp')
-	);
+	return false;
 };
