@@ -251,7 +251,7 @@ export const hmr = (
 				const { getApplyMetadataModule } = await import(
 					'../dev/angular/hmrCompiler'
 				);
-				const module = getApplyMetadataModule(id);
+				const module = await getApplyMetadataModule(id);
 				if (module === null) {
 					return new Response(
 						`No HMR module for id=${id}. The component may not be in the current program, or the program isn't built yet (rebuild on first save).`,

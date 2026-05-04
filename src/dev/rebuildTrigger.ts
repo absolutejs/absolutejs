@@ -12,6 +12,7 @@ import {
 import {
 	logCssUpdate,
 	logHmrUpdate,
+	logInfo,
 	logScriptUpdate,
 	logWarn
 } from '../utils/logger';
@@ -52,11 +53,6 @@ import {
 import { isTailwindCandidate } from '../build/compileTailwind';
 import { incrementalTailwindBuild } from '../build/tailwindCompiler';
 import { markSsrCacheDirty } from '../core/ssrCache';
-import {
-	classifyAngularEdit,
-	collapseClassifications,
-	type AngularEditClassification
-} from './angular/editTypeDetection';
 
 const runSequentially = <Item>(
 	items: Item[],
@@ -689,13 +685,19 @@ const updateServerManifestEntry = (
 const bundleAngularClient = async (
 	state: HMRState,
 	clientPaths: string[],
-	buildDir: string
+	buildDir: string,
+	userAngularRoot: string
 ) => {
 	const { build: bunBuild } = await import('bun');
 	const { generateManifest } = await import('../build/generateManifest');
 	const { getAngularVendorPaths } = await import('../core/devVendorPaths');
+	const { getFrameworkGeneratedDir } = await import('../utils/generatedDir');
+	const { createAngularHmrInjectionPlugin } = await import(
+		'./angular/hmrInjectionPlugin'
+	);
 	const clientRoot = await computeClientRoot(state.resolvedPaths);
 	const depVendorPaths = globalThis.__depVendorPaths ?? {};
+	const generatedAngularRoot = getFrameworkGeneratedDir('angular');
 
 	let angVendorPaths = getAngularVendorPaths();
 	if (!angVendorPaths) {
@@ -728,7 +730,12 @@ const bundleAngularClient = async (
 		naming: '[dir]/[name].[hash].[ext]',
 		outdir: buildDir,
 		plugins: [
-			createStylePreprocessorPlugin(getStyleTransformConfig(state.config))
+			createStylePreprocessorPlugin(getStyleTransformConfig(state.config)),
+			createAngularHmrInjectionPlugin({
+				generatedAngularRoot,
+				userAngularRoot,
+				projectRoot: process.cwd()
+			})
 		],
 		root: clientRoot,
 		target: 'browser',
@@ -755,56 +762,129 @@ const bundleAngularClient = async (
 	await populateAssetStore(state.assetStore, clientManifest, buildDir);
 };
 
-/* Narrow a framework's `filesToRebuild` slice down to the user's actual
- * edits. The dependency graph adds transitive dependents to the rebuild
- * set so they get recompiled, but the HMR classifier should only see
- * the file the user actually saved — otherwise a CSS edit collapses
- * to a class-component or reboot verdict because of dragged-in
- * sibling .ts and page bundles. Falls through to the full set when the
- * pristine edit list isn't available (first rebuild, or a code path
- * that doesn't capture it). */
-const filterToUserEdits = (
-	candidates: string[],
-	userEditedFiles: Set<string> | undefined
-): string[] => {
-	if (!userEditedFiles || userEditedFiles.size === 0) return candidates;
-	const filtered = candidates.filter((file) =>
-		userEditedFiles.has(resolve(file))
-	);
+/* Tiered Angular HMR dispatch.
+ *
+ *   Tier 0 — surgical (`ɵɵreplaceMetadata`). User-visible state
+ *            preserved. Broadcasts `angular:component-update` per
+ *            affected component; the `__ng_hmr_load` listener
+ *            baked into the bundle by `hmrInjectionPlugin.ts`
+ *            re-fetches `/@ng/component` and swaps in place.
+ *
+ *   Tier 1 — Angular re-bootstrap. `tryFastHmr` returns
+ *            `structural-change` (or any non-`ok` reason
+ *            `resolveOwningComponents` produced); the bundle's
+ *            structure may not match the running app. The client
+ *            destroys `ApplicationRef`, dynamic-imports the
+ *            freshly-built page module with cache-bust, and
+ *            re-bootstraps. Loses Angular component state but
+ *            keeps the rest of the browser session. Broadcasts
+ *            `angular:rebootstrap`.
+ *
+ *   Tier 2 — Full reload. Reserved for cases re-bootstrap can't
+ *            handle (page-entry restructuring, SSR-shape changes,
+ *            new pages added). Broadcasts `full-reload`.
+ *
+ * Returns the resolved tier so the caller can gate bundle
+ * scheduling — Tier 0 lets the bundle rebuild run async because
+ * the running app already has the new behavior; Tier 1+ must wait
+ * for the bundle so the re-bootstrap fetches fresh code. */
 
-	return filtered.length > 0 ? filtered : candidates;
+export type AngularHmrTier = 0 | 1 | 2;
+
+type SurgicalEntry = { id: string; className: string };
+
+type AngularHmrVerdict =
+	| { tier: 0; queue: SurgicalEntry[] }
+	| { tier: 1; reason: string }
+	| { tier: 2; reason: string };
+
+/* Decide the dispatch tier without broadcasting. Pure decision —
+ * the caller chooses whether to broadcast immediately (Tier 0,
+ * bundle-async safe) or wait for the bundle rebuild first
+ * (Tier 1+, the client will dynamic-import a fresh URL).
+ *
+ * Cost: ~5–10ms per affected component for `tryFastHmr` (single-
+ * file parse + fingerprint check). Two orders of magnitude under
+ * the bundle rebuild cost so we always run this first. */
+const decideAngularTier = async (
+	state: HMRState,
+	angularDir: string
+): Promise<AngularHmrVerdict> => {
+	const userEdited = state.lastUserEditedFiles ?? new Set<string>();
+	if (userEdited.size === 0) return { queue: [], tier: 0 };
+
+	const { resolveOwningComponents } = await import(
+		'./angular/resolveOwningComponents'
+	);
+	const { encodeHmrComponentId } = await import('./angular/hmrCompiler');
+	const { tryFastHmr } = await import('./angular/fastHmrCompiler');
+
+	const queue: SurgicalEntry[] = [];
+	const queueIds = new Set<string>();
+
+	for (const editedFile of userEdited) {
+		const owners = resolveOwningComponents({
+			changedFilePath: editedFile,
+			userAngularRoot: angularDir
+		});
+		if (owners.length === 0 && editedFile.endsWith('.component.ts')) {
+			return {
+				reason: `no @Component class found in ${editedFile}`,
+				tier: 1
+			};
+		}
+		for (const { componentFilePath, className } of owners) {
+			const id = encodeHmrComponentId(componentFilePath, className);
+			if (queueIds.has(id)) continue;
+
+			const result = await tryFastHmr({ className, componentFilePath });
+			if (!result.ok) {
+				return {
+					reason: `${className}: ${result.reason}${
+						result.detail ? ` (${result.detail})` : ''
+					}`,
+					tier: 1
+				};
+			}
+			queueIds.add(id);
+			queue.push({ className, id });
+		}
+	}
+
+	return { queue, tier: 0 };
 };
 
-const broadcastAngularPageUpdates = (
-	state: HMRState,
-	pagesToUpdate: string[],
-	manifest: Record<string, string>,
-	startTime: number,
-	classification: AngularEditClassification
-) => {
-	pagesToUpdate.forEach((angularPagePath) => {
-		const fileName = basename(angularPagePath);
-		const baseName = fileName.replace(/\.[tj]s$/, '');
-		const pascalName = toPascal(baseName);
-		const cssKey = `${pascalName}CSS`;
-		const cssUrl = manifest[cssKey] || null;
-
-		const duration = Date.now() - startTime;
-		logHmrUpdate(angularPagePath, 'angular', duration);
+const broadcastSurgical = (state: HMRState, queue: SurgicalEntry[]): void => {
+	const timestamp = Date.now();
+	for (const { id, className } of queue) {
 		broadcastToClients(state, {
-			data: {
-				cssBaseName: baseName,
-				cssUrl,
-				editSourceFile: classification.sourceFile,
-				framework: 'angular',
-				manifest,
-				reason: classification.reason,
-				sourceFile: angularPagePath,
-				updateType: classification.type
-			},
-			type: 'angular-update'
+			data: { id, timestamp },
+			type: 'angular:component-update'
 		});
+		logInfo(`[ng-hmr broadcast] ${className}`);
+	}
+};
+
+const broadcastRebootstrap = async (
+	state: HMRState,
+	reason: string
+): Promise<void> => {
+	logInfo(`[ng-hmr tier-1 rebootstrap] ${reason}`);
+	broadcastToClients(state, {
+		data: {
+			manifest: state.manifest,
+			reason,
+			timestamp: Date.now()
+		},
+		type: 'angular:rebootstrap'
 	});
+	// Tier 1 fingerprint invalidation — the running app's structure
+	// is now whatever the rebuilt bundle has, so the next surgical
+	// attempt should re-baseline from the post-rebootstrap source.
+	const { invalidateFingerprintCache } = await import(
+		'./angular/fastHmrCompiler'
+	);
+	invalidateFingerprintCache();
 };
 
 const compileAndBundleAngular = async (
@@ -895,7 +975,8 @@ const compileAndBundleAngular = async (
 		await bundleAngularClient(
 			state,
 			clientPaths,
-			state.resolvedPaths.buildDir
+			state.resolvedPaths.buildDir,
+			angularDir
 		);
 	}
 };
@@ -927,43 +1008,44 @@ const handleAngularFastPath = async (
 		angularPagesPath
 	);
 
-	if (pageEntries.length > 0) {
+	// Decide tier BEFORE bundling. Tier 0 means we can broadcast
+	// the surgical update immediately and let the bundle rebuild
+	// run async — the running browser app already received the new
+	// component def via `ɵɵreplaceMetadata`, so the bundle is only
+	// needed for the next full reload (rare). Tier 1+ requires the
+	// fresh bundle URL in hand before broadcasting because the
+	// client dynamic-imports it.
+	const verdict = await decideAngularTier(state, angularDir);
+
+	const runBundle = async () => {
+		if (pageEntries.length === 0) return;
 		await compileAndBundleAngular(state, pageEntries, angularDir);
 		markSsrCacheDirty('angular');
+	};
+
+	if (verdict.tier === 0) {
+		broadcastSurgical(state, verdict.queue);
+		// Fire-and-forget — bundle rebuild happens in the background
+		// while the user continues editing. Errors are swallowed by
+		// the void; future Tier 1 escalations will surface them
+		// when they need the fresh bundle.
+		void runBundle().catch((err) => {
+			logWarn(
+				`[ng-hmr async bundle] rebuild failed: ${
+					err instanceof Error ? err.message : String(err)
+				}`
+			);
+		});
+	} else {
+		// Tier 1+ — must wait for bundle so the rebootstrap fetches
+		// fresh code. This is the slow path; it's the equivalent of
+		// what `compileAndBundleAngular` cost on every edit before
+		// the surgical fast path existed.
+		await runBundle();
+		await broadcastRebootstrap(state, verdict.reason);
 	}
 
 	const { manifest } = state;
-	const angularHmrFiles = angularFiles.filter(
-		(file) => file.endsWith('.ts') || file.endsWith('.html')
-	);
-	const angularPageFiles = angularHmrFiles.filter((file) =>
-		file.replace(/\\/g, '/').includes('/pages/')
-	);
-	const pagesToUpdate =
-		angularPageFiles.length > 0 ? angularPageFiles : pageEntries;
-
-	// Classify only the user's actual edits — strip out files the
-	// dependency graph dragged in as transitive dependents. Without this,
-	// editing `foo.component.css` causes the graph to also add
-	// `foo.component.ts` (sibling that styleUrls the css) and the page
-	// bundles that import it, and the collapsed verdict ends up at
-	// `class-component` (or `reboot` for unrecognized pages) — drowning
-	// out the actual `style-component` classification.
-	const filesToClassify = filterToUserEdits(
-		angularFiles,
-		state.lastUserEditedFiles
-	);
-	const classification = collapseClassifications(
-		filesToClassify.map(classifyAngularEdit)
-	);
-
-	broadcastAngularPageUpdates(
-		state,
-		pagesToUpdate,
-		manifest,
-		startTime,
-		classification
-	);
 
 	onRebuildComplete({ hmrState: state, manifest });
 
@@ -2319,42 +2401,12 @@ const handleAngularCssOnlyUpdate = (
 	});
 };
 
-const broadcastAngularPageHmrUpdate = (
-	state: HMRState,
-	angularPagePath: string,
-	manifest: Record<string, string>,
-	duration: number,
-	classification: AngularEditClassification
-) => {
-	try {
-		const fileName = basename(angularPagePath);
-		const baseName = fileName.replace(/\.[tj]s$/, '');
-		const pascalName = toPascal(baseName);
-		const cssKey = `${pascalName}CSS`;
-		const cssUrl = manifest[cssKey] || null;
-
-		logHmrUpdate(angularPagePath, 'angular', duration);
-		broadcastToClients(state, {
-			data: {
-				cssBaseName: baseName,
-				cssUrl,
-				editSourceFile: classification.sourceFile,
-				framework: 'angular',
-				manifest,
-				reason: classification.reason,
-				sourceFile: angularPagePath,
-				updateType: classification.type
-			},
-			type: 'angular-update'
-		});
-	} catch (err) {
-		sendTelemetryEvent('hmr:error', {
-			framework: 'angular',
-			message: err instanceof Error ? err.message : String(err)
-		});
-	}
-};
-
+/* Stripped-down post-bundle handler. The proto-swap branch is
+ * gone — all component HMR routes through the tiered dispatch in
+ * `handleAngularFastPath` (Tier 0 surgical / Tier 1 re-bootstrap).
+ * The only path that stays here is global-stylesheet hot-swap for
+ * non-component CSS files, which the dependency graph still routes
+ * through the angular handler when they're imported by a component. */
 const handleAngularHMR = (
 	state: HMRState,
 	config: BuildConfig,
@@ -2362,58 +2414,19 @@ const handleAngularHMR = (
 	manifest: Record<string, string>,
 	duration: number
 ) => {
-	if (!config.angularDirectory) {
-		return;
-	}
+	if (!config.angularDirectory) return;
 
 	const angularFiles = filesToRebuild.filter(
 		(file) => detectFramework(file, state.resolvedPaths) === 'angular'
 	);
-
-	if (angularFiles.length === 0) {
-		return;
-	}
+	if (angularFiles.length === 0) return;
 
 	const angularCssFiles = angularFiles.filter(isStylePath);
 	const isCssOnlyChange =
 		angularFiles.every(isStylePath) && angularCssFiles.length > 0;
-
-	const angularPageFiles = angularFiles.filter((file) =>
-		file.replace(/\\/g, '/').includes('/pages/')
-	);
-
-	let pagesToUpdate = angularPageFiles;
-	if (pagesToUpdate.length === 0 && state.dependencyGraph) {
-		pagesToUpdate = resolveAngularPagesFromDependencyGraph(
-			state,
-			angularFiles
-		);
-	}
-
-	if (isCssOnlyChange && angularCssFiles.length > 0) {
+	if (isCssOnlyChange) {
 		handleAngularCssOnlyUpdate(state, angularCssFiles, manifest, duration);
-
-		return;
 	}
-
-	// Same user-edit filter as the fast path — see comment there.
-	const filesToClassifySlow = filterToUserEdits(
-		angularFiles,
-		state.lastUserEditedFiles
-	);
-	const classification = collapseClassifications(
-		filesToClassifySlow.map(classifyAngularEdit)
-	);
-
-	pagesToUpdate.forEach((angularPagePath) => {
-		broadcastAngularPageHmrUpdate(
-			state,
-			angularPagePath,
-			manifest,
-			duration,
-			classification
-		);
-	});
 };
 
 const handleHTMXScriptHMR = (

@@ -1,5 +1,5 @@
-import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import { BuildConfig } from '../../types/build';
 import { normalizePath } from '../utils/normalizePath';
 import type { ResolvedBuildPaths } from './configResolver';
@@ -91,6 +91,97 @@ export const detectFramework = (
  *  pattern, which silently caught (and re-built on) files inside
  *  framework-managed paths like `<frameworkDir>/generated/`,
  *  `.absolutejs/`, and the build directory. */
+/* Walk `<angularDir>/**` for `*.component.ts` files and return the
+ * unique parent directories of any `templateUrl` / `styleUrl` /
+ * `styleUrls` reference that resolves OUTSIDE `angularDir`.
+ *
+ * Without this, components like
+ *   `@Component({ styleUrl: '../../styles/foo.css', ... })`
+ * never get re-bundled on CSS edits because the CSS file lives at
+ * `example/styles/` but the watcher's positive roots are
+ * `example/angular/` (recursive) + `<stylesConfig>` (scoped to
+ * global stylesheet indexes, NOT per-component CSS). The dep graph
+ * already records the styleUrl link, so the rebuild trigger does
+ * fire correctly once the watcher reports the event — the gap is
+ * purely "is this dir watched?".
+ *
+ * Cheap to do once at startup: a small angular project has <100
+ * `.component.ts` files, each ~1ms to read+regex-scan. */
+const collectAngularResourceDirs = (angularDir: string): string[] => {
+	const out = new Set<string>();
+	const angularRoot = resolve(angularDir);
+	const angularRootNormalized = normalizePath(angularRoot);
+
+	const walk = (dir: string) => {
+		let entries: ReturnType<typeof readdirSync>;
+		try {
+			entries = readdirSync(dir, { withFileTypes: true });
+		} catch {
+			return;
+		}
+		for (const entry of entries) {
+			if (entry.name.startsWith('.') || entry.name === 'node_modules') {
+				continue;
+			}
+			const full = resolve(dir, entry.name);
+			if (entry.isDirectory()) {
+				walk(full);
+				continue;
+			}
+			if (!entry.isFile() || !entry.name.endsWith('.component.ts')) {
+				continue;
+			}
+
+			let source: string;
+			try {
+				source = readFileSync(full, 'utf8');
+			} catch {
+				continue;
+			}
+
+			const refs: string[] = [];
+			const tplRe = /templateUrl\s*:\s*['"]([^'"]+)['"]/g;
+			const styleRe = /styleUrl\s*:\s*['"]([^'"]+)['"]/g;
+			const stylesArrRe = /styleUrls\s*:\s*\[([^\]]*)\]/g;
+			const literalRe = /['"]([^'"]+)['"]/g;
+			let match: RegExpExecArray | null;
+			while ((match = tplRe.exec(source)) !== null) {
+				if (match[1]) refs.push(match[1]);
+			}
+			while ((match = styleRe.exec(source)) !== null) {
+				if (match[1]) refs.push(match[1]);
+			}
+			while ((match = stylesArrRe.exec(source)) !== null) {
+				const inner = match[1];
+				if (!inner) continue;
+				let strMatch: RegExpExecArray | null;
+				const innerRe = new RegExp(literalRe.source, literalRe.flags);
+				while ((strMatch = innerRe.exec(inner)) !== null) {
+					if (strMatch[1]) refs.push(strMatch[1]);
+				}
+			}
+
+			const componentDir = dirname(full);
+			for (const ref of refs) {
+				const refAbs = normalizePath(resolve(componentDir, ref));
+				const refDir = normalizePath(dirname(refAbs));
+				// Skip if already under angularDir (recursive watch covers it).
+				if (
+					refDir === angularRootNormalized ||
+					refDir.startsWith(angularRootNormalized + '/')
+				) {
+					continue;
+				}
+				out.add(refDir);
+			}
+		}
+	};
+
+	walk(angularRoot);
+
+	return Array.from(out);
+};
+
 const collectPositiveWatchRoots = (
 	config: BuildConfig,
 	resolved?: ResolvedBuildPaths
@@ -141,6 +232,15 @@ const collectPositiveWatchRoots = (
 	// User-supplied extra dirs from absolute.config.ts → dev.watchDirs.
 	const extraDirs = config.dev?.watchDirs ?? [];
 	for (const dir of extraDirs) push(dir);
+
+	// Angular component resource dirs (templateUrl / styleUrl pointing
+	// outside angularDir). See `collectAngularResourceDirs` above.
+	if (cfg.angularDir) {
+		const resourceDirs = collectAngularResourceDirs(cfg.angularDir);
+		for (const dir of resourceDirs) {
+			if (!roots.includes(dir)) roots.push(dir);
+		}
+	}
 
 	return roots;
 };

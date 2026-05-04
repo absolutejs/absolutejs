@@ -66,6 +66,7 @@ import type {
 	BunBuildPassKey
 } from '../../types/build';
 import { createAngularLinkerPlugin } from '../build/angularLinkerPlugin';
+import { createAngularHmrInjectionPlugin } from '../dev/angular/hmrInjectionPlugin';
 import { cleanStaleOutputs } from '../utils/cleanStaleOutputs';
 import { cleanup } from '../utils/cleanup';
 import { commonAncestor } from '../utils/commonAncestor';
@@ -1937,6 +1938,19 @@ const buildUnlocked = async ({
 								outdir: buildPath,
 								plugins: [
 									stylePreprocessorPlugin,
+									...(angularDir && hmr
+										? [
+												createAngularHmrInjectionPlugin({
+													generatedAngularRoot:
+														getFrameworkGeneratedDir(
+															'angular',
+															projectRoot
+														),
+													projectRoot,
+													userAngularRoot: angularDir
+												})
+											]
+										: []),
 									...(angularDir
 										? [createAngularLinkerPlugin(hmr)]
 										: []),
@@ -1975,6 +1989,19 @@ const buildUnlocked = async ({
 								outdir: buildPath,
 								plugins: [
 									stylePreprocessorPlugin,
+									...(angularDir && hmr
+										? [
+												createAngularHmrInjectionPlugin({
+													generatedAngularRoot:
+														getFrameworkGeneratedDir(
+															'angular',
+															projectRoot
+														),
+													projectRoot,
+													userAngularRoot: angularDir
+												})
+											]
+										: []),
 									...(angularDir
 										? [createAngularLinkerPlugin(hmr)]
 										: [])

@@ -25,8 +25,11 @@
 
 import { existsSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve } from 'node:path';
+import { performance } from 'node:perf_hooks';
 import ts from 'typescript';
 import type { CompilerOptions } from '@angular/compiler-cli';
+import { logInfo, logWarn } from '../../utils/logger';
+import { tryFastHmr } from './fastHmrCompiler';
 
 type NgtscProgramLike = {
 	compiler: {
@@ -328,8 +331,43 @@ export const findClassNodeById = (
  * the JS module string or null (→ 404). The string is what
  * `NgCompiler.emitHmrUpdateModule` produces; default-export is the
  * `${ClassName}_UpdateMetadata` callback Angular's `_HmrLoad` listener
- * passes to `ɵɵreplaceMetadata`. */
-export const getApplyMetadataModule = (encodedId: string): string | null => {
+ * passes to `ɵɵreplaceMetadata`.
+ *
+ * Two paths:
+ *   1. Fast path (`fastHmrCompiler.tryFastHmr`): single-file metadata
+ *      extraction + `compileComponentFromMetadata`, ~4ms median. The
+ *      default for any standalone component without inheritance.
+ *   2. Slow fallback (ngtsc `emitHmrUpdateModule`): the original
+ *      surgical-HMR path, ~1-3s incremental. Only kicks in when the
+ *      fast path bails — e.g. NgModule-based components, decorated
+ *      inheritance chains, edge cases the metadata extractor can't
+ *      cover yet. See ANGULAR_HMR_ARCHITECTURE.md for the categorization.
+ *
+ * Falling back is safe: it's the path Angular CLI runs by default. */
+export const getApplyMetadataModule = async (
+	encodedId: string
+): Promise<string | null> => {
+	const decoded = decodeURIComponent(encodedId);
+	const at = decoded.lastIndexOf('@');
+	if (at === -1) return null;
+	const filePathRel = decoded.slice(0, at);
+	const className = decoded.slice(at + 1);
+	const componentFilePath = resolve(process.cwd(), filePathRel);
+
+	const fastStart = performance.now();
+	const fast = await tryFastHmr({ componentFilePath, className });
+	if (fast.ok) {
+		logInfo(
+			`[ng-hmr fast] ${className} ${(performance.now() - fastStart).toFixed(1)}ms`
+		);
+
+		return fast.moduleText;
+	}
+
+	logWarn(
+		`[ng-hmr slow] ${className} fast path bailed (${fast.reason}${fast.detail ? `: ${fast.detail}` : ''}), falling back to ngtsc`
+	);
+
 	const program = getCachedHmrProgram();
 	if (!program) return null;
 	const node = findClassNodeById(program, encodedId);

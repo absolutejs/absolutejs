@@ -779,3 +779,89 @@ is what users actually feel today.
    when our message arrives.
 4. After §3.3 lands, delete the `/@ng/debug` route — it's
    scaffolding only.
+
+---
+
+## 11. Fast path landed (replaces the original §3.4 estimate)
+
+After §3.2 was done we asked: why is incremental ngtsc 1-3s when
+React Refresh / Vue HMR / Svelte HMR all clock under 200ms? That
+question turned the §3.4 plan inside out. The answer is the
+architecture doc: `ANGULAR_HMR_ARCHITECTURE.md` (the file with the
+"why Angular bundles type-checking with template compilation"
+write-up). Short version: Angular's tools welded the TCB pass to
+template compilation, and we don't have to.
+
+Spike measurements on the counter component:
+
+| Path | Time | Reflects edits |
+|---|---|---|
+| ngtsc cold compile | 2010ms | — |
+| ngtsc incremental (CSS edit, oldProgram + modifiedResourceFiles) | 1282ms | yes |
+| **Standalone fast path — median of 5 runs** | **4.0ms** | yes |
+| Standalone fast path — template edit | 3.0ms | yes |
+
+~130-320× speedup. The standalone path lives in
+`src/dev/angular/fastHmrCompiler.ts`, prints via Angular's own
+`translateStatement` (vendored verbatim under
+`src/dev/angular/vendor/translator/` — see VENDORED.md there), and
+plugs into the translator with the HMR-specific
+`hmrImportGenerator.ts` (~30 lines). Pipeline:
+
+1. `ts.createSourceFile` parse the changed `.ts` (single-file, no
+   program)
+2. Find the `@Component` class declaration, walk the decorator
+   args + class members for inputs/outputs
+3. `parseTemplate` from `@angular/compiler` (public)
+4. Read `templateUrl` / `styleUrl` from disk; pass raw CSS in
+   `meta.styles[]` (the compiler scopes it with
+   `_ngcontent-%COMP%` itself)
+5. `compileComponentFromMetadata(meta, pool, bindingParser)`
+   produces the `ɵɵdefineComponent({...})` IR
+6. `compileHmrUpdateCallback(definitions, constantStatements,
+   hmrMeta)` wraps it as a `${ClassName}_UpdateMetadata`
+   `DeclareFunctionStmt`
+7. Vendored `translateStatement` converts output AST → TS AST,
+   our `HmrImportGenerator` resolves every `ExternalExpr` to a
+   property access on the corresponding `ɵhmr<i>` parameter
+8. `ts.createPrinter().printNode` + `ts.transpileModule` emit
+   the final ES2022 module string (same final step compiler-cli
+   uses in `NgCompiler.emitHmrUpdateModule`)
+
+Dispatch in `getApplyMetadataModule` (in `hmrCompiler.ts`):
+
+1. Try `tryFastHmr` first
+2. On success → return the fast-path module text
+3. On bail → fall back to ngtsc `emitHmrUpdateModule` (the §3.2
+   path), which still works for components the fast path can't
+   cover yet
+
+Bail conditions for v1: non-standalone components, classes that
+extend a parent (we conservatively assume the parent might be
+decorated), missing `@Component` decorator, missing template /
+style file. Coverage estimate for modern Angular (17+,
+standalone-first): ~85-95% of components on day one. See
+`ANGULAR_HMR_ARCHITECTURE.md` for the long-tail feature breakdown
+(Tier 1 / 2 / 3).
+
+What changed in §3.4's original premise: the old plan was
+"per-component change tracking caches the slow path so we don't
+re-emit every component on every edit." With the fast path
+running in single-digit ms per call, **per-component caching
+isn't load-bearing anymore** — calling `tryFastHmr(id)` from the
+endpoint is already fast enough that whether we call it once or
+ten times per cycle doesn't matter. §3.4's wire format
+(`componentUpdates: [{id, timestamp}]`) is still relevant as an
+optimization for §3.3 (the websocket broadcast), but the per-
+component caching layer is moot.
+
+What's still ahead:
+
+- **§3.3** (websocket broadcast + `import.meta.hot.on` polyfill)
+  — still required for the browser to *know* to fetch
+  `/@ng/component` on save. Endpoint serves correctly today; the
+  client just doesn't get told to re-pull.
+- **Tier 2 emitter coverage** — `@HostBinding` / `@HostListener` /
+  queries / input transforms — additive emitter cases as we hit
+  them.
+- **§3.5** (migrate `class-component` off proto-swap) — unchanged.

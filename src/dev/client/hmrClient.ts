@@ -12,7 +12,7 @@ import {
 } from './constants';
 import { detectCurrentFramework } from './frameworkDetect';
 import { hideErrorOverlay, showErrorOverlay } from './errorOverlay';
-import { handleAngularUpdate } from './handlers/angular';
+import { dispatchAngularComponentUpdate } from './handlers/angularHmrShim';
 import { handleReactUpdate } from './handlers/react';
 import { handleHTMLUpdate, handleScriptUpdate } from './handlers/html';
 import { handleHTMXUpdate } from './handlers/htmx';
@@ -67,7 +67,8 @@ window.addEventListener('unhandledrejection', (evt) => {
 });
 
 const hmrUpdateTypes = new Set([
-	'angular-update',
+	'angular:component-update',
+	'angular:rebootstrap',
 	'react-update',
 	'html-update',
 	'htmx-update',
@@ -147,10 +148,59 @@ const handleHMRMessage = (message: HMRMessage) => {
 			hideErrorOverlay();
 			handleVueUpdate(message);
 			break;
-		case 'angular-update':
-			hideErrorOverlay();
-			handleAngularUpdate(message);
+		case 'angular:component-update': {
+			// Surgical-HMR fast path. Server resolved the changed
+			// file → owning component classes and emitted one
+			// message per affected component. Our injected
+			// `__ng_hmr_load` blocks (see hmrInjectionPlugin.ts)
+			// listen here and re-fetch the applyMetadata module.
+			const data = message.data as
+				| { id?: string; timestamp?: number }
+				| undefined;
+			if (data && typeof data.id === 'string') {
+				dispatchAngularComponentUpdate({
+					id: data.id,
+					timestamp:
+						typeof data.timestamp === 'number'
+							? data.timestamp
+							: Date.now()
+				});
+			}
 			break;
+		}
+		case 'angular:rebootstrap': {
+			// Tier 1 fallback. The user's edit changed structure
+			// the surgical path can't safely apply
+			// (constructor/decorator/imports change, service edit,
+			// etc.). The bundle has already been rebuilt server-side
+			// and the manifest is updated. Call the chunk's baked-in
+			// hook (set by the hydration template in compileAngular.ts)
+			// to dynamic-import the fresh bundle URL — re-importing
+			// re-runs the destroy + bootstrapApplication block.
+			const data = message.data as
+				| { manifest?: Record<string, string>; reason?: string }
+				| undefined;
+			if (data?.manifest) {
+				window.__HMR_MANIFEST__ = data.manifest;
+			}
+			const w = window as Window & {
+				__ABS_ANGULAR_REBOOTSTRAP__?: () => Promise<void>;
+			};
+			if (typeof w.__ABS_ANGULAR_REBOOTSTRAP__ === 'function') {
+				w.__ABS_ANGULAR_REBOOTSTRAP__().catch((err) => {
+					console.error(
+						'[absolutejs] angular:rebootstrap failed',
+						err
+					);
+				});
+			} else {
+				// No hook = no Angular page loaded, or the hook
+				// hasn't run yet. Falling back to a full reload is
+				// safe and correct.
+				window.location.reload();
+			}
+			break;
+		}
 		case 'rebuild-error':
 			handleRebuildError(message);
 			break;

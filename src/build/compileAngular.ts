@@ -240,44 +240,18 @@ const devClientDir = resolveDevClientDir();
 
 const hmrClientPath = join(devClientDir, 'hmrClient.ts').replace(/\\/g, '/');
 
-// Angular HMR Runtime Layer (Level 3) — Path to runtime module
-const hmrRuntimePath = join(
-	devClientDir,
-	'handlers',
-	'angularRuntime.ts'
-).replace(/\\/g, '/');
-
-/** Angular HMR Runtime Layer (Level 3) — Inject HMR registration calls into compiled component JS.
- *  Detects exported Angular component classes and appends register() calls.
- *  Only active when hmr=true (dev mode). */
-const injectHMRRegistration = (content: string, sourceId: string) => {
-	// Find Angular entity classes: components AND services (and other DI
-	// singletons by convention: directives, pipes). Services are needed
-	// here so the HMR runtime can fast-path method-swap them — without
-	// this registration the page chunk re-evaluates on a service edit
-	// but the runtime never learns about the new ctor, and the live
-	// singleton keeps its old prototype.
-	const entityClassRegex =
-		/(?:export\s+)?class\s+(\w+(?:Component|Service|Directive|Pipe))\s/g;
-	const entityNames: string[] = [];
-	let match;
-	while ((match = entityClassRegex.exec(content)) !== null) {
-		if (match[1]) entityNames.push(match[1]);
-	}
-
-	if (entityNames.length === 0) return content;
-
-	const registrations = entityNames
-		.map(
-			(name) =>
-				`  if (typeof ${name} === 'function') window.__ANGULAR_HMR__.register('${sourceId}#${name}', ${name});`
-		)
-		.join('\n');
-
-	const hmrBlock = `\n// Angular HMR Runtime Layer (Level 3) — Auto-registration\nif (typeof window !== 'undefined' && window.__ANGULAR_HMR__) {\n${registrations}\n}\n`;
-
-	return content + hmrBlock;
-};
+/* Removed in favor of SURGICAL_HMR (§3.3 — Tier 0 / Tier 1
+ * dispatch). The old proto-swap pipeline registered every
+ * Component / Service / Directive / Pipe class on a global
+ * `window.__ANGULAR_HMR__` registry so the client could attempt
+ * an in-place prototype patch on edits. With surgical
+ * `ɵɵreplaceMetadata` covering component edits and re-bootstrap
+ * covering structural changes, neither code path consumes the
+ * registry anymore — keeping the injection just produces dead
+ * `if (window.__ANGULAR_HMR__) ...` blocks. The Bun loader plugin
+ * (`src/dev/angular/hmrInjectionPlugin.ts`) is the only place
+ * that still appends per-component HMR scaffolding, and it does
+ * so for the surgical `__ng_hmr_load` listener instead. */
 
 const formatDiagnosticMessage = (diagnostic: ts.Diagnostic) => {
 	try {
@@ -2019,15 +1993,9 @@ export const compileAngular = async (
 				'\nexport const __ABSOLUTE_PAGE_USES_LEGACY_ANIMATIONS__ = true;\n';
 		}
 
-		// Angular HMR Runtime Layer (Level 3) — Inject HMR registration in dev mode.
-		// Identity-safe SSR is provided by the angular vendor pipeline:
-		// every @angular/* import (in this file, in handleAngularPageRequest
-		// → getAngularDeps, in the bundled server pages) is rewritten to the
-		// same vendor file path, so Node's ESM cache hands back one module
-		// instance per package across the whole runtime.
-		if (hmr) {
-			rewritten = injectHMRRegistration(rewritten, resolvedEntry);
-		}
+		// Note: proto-swap registration was here. SURGICAL_HMR §3.3
+		// replaced it with `hmrInjectionPlugin.ts`, which appends a
+		// per-component `__ng_hmr_load` listener at bundle time.
 
 		await traceAngularPhase(
 			'wrapper/write-server-output',
@@ -2048,7 +2016,7 @@ export const compileAngular = async (
 
 		// Angular HMR Runtime Layer (Level 3) — Import runtime before HMR client
 		const hmrPreamble = hmr
-			? `window.__HMR_FRAMEWORK__ = "angular";\nimport "${hmrRuntimePath}";\nimport "${hmrClientPath}";\n`
+			? `window.__HMR_FRAMEWORK__ = "angular";\nimport "${hmrClientPath}";\n`
 			: '';
 		const hydration = hmr
 			? `${hmrPreamble}
@@ -2090,68 +2058,66 @@ var absoluteHttpTransferCacheOptions = {
     }
 };
 
-// Re-export the page module so HMR fast-patch (in handlers/angular.ts) can
-// dynamically import this chunk and discover the freshly-built component
-// classes without needing a separate build artifact.
-export * from '${normalizedImportPath}';
+// SURGICAL_HMR Tier 1 — Re-bootstrap hook. The dev client invokes
+// \`window.__ABS_ANGULAR_REBOOTSTRAP__()\` when it receives an
+// \`angular:rebootstrap\` WS message; the hook looks up this page's
+// freshly-built bundle URL (the rebuild already broadcast its
+// updated manifest, so window.__HMR_MANIFEST__ is current) and
+// dynamic-imports it. Re-importing the chunk re-runs the
+// destroy+bootstrap block below — no special path needed because
+// chunk eval is the bootstrap.
+window.__ABS_ANGULAR_PAGE_BUNDLE_ID__ = '${toPascal(fileBase)}Index';
+window.__ABS_ANGULAR_REBOOTSTRAP__ = async function() {
+    var id = window.__ABS_ANGULAR_PAGE_BUNDLE_ID__;
+    var manifest = window.__HMR_MANIFEST__ || {};
+    var newUrl = manifest[id];
+    if (!newUrl) {
+        console.warn('[absolutejs] no bundle URL in manifest for', id, '— full reload');
+        window.location.reload();
+        return;
+    }
+    await import(newUrl + '?t=' + Date.now());
+};
 
-// Record this evaluation's \`routes\` and \`providers\` exports for the
-// HMR fast-patch to compare against on the next reload. If they change
-// (a new route was added, a provider was edited), fast-patch falls back
-// to a full re-bootstrap because those values are consumed once at
-// bootstrap and won't propagate to the running router/injector via an
-// in-place component patch.
-if (typeof window !== 'undefined' && window.__ANGULAR_HMR__ && typeof window.__ANGULAR_HMR__.recordPageExports === 'function') {
-    var __abs_hmr_routes = Reflect.get(pageModule, 'routes');
-    window.__ANGULAR_HMR__.recordPageExports('${resolvedEntry}', __abs_hmr_routes, maybePageProviders);
+if (window.__ANGULAR_APP__) {
+    try { window.__ANGULAR_APP__.destroy(); } catch (_err) { /* ignore */ }
+    window.__ANGULAR_APP__ = null;
 }
 
-// Re-Bootstrap HMR with View Transitions API.
-// Skipped during fast-patch: the HMR client sets
-// window.__ANGULAR_HMR_FAST_PATCH__ = true before \`import()\`-ing this
-// chunk so it can read the new component classes via \`export *\` above
-// without destroying the running app.
-if (!window.__ANGULAR_HMR_FAST_PATCH__) {
-    if (window.__ANGULAR_APP__) {
-        try { window.__ANGULAR_APP__.destroy(); } catch (_err) { /* ignore */ }
-        window.__ANGULAR_APP__ = null;
-    }
+// Ensure root element exists after destroy (Angular removes it)
+var _sel = ${componentClassName}.ɵcmp?.selectors?.[0]?.[0] || 'ng-app';
+if (!document.querySelector(_sel)) {
+    (document.getElementById('root') || document.body).appendChild(document.createElement(_sel));
+}
 
-    // Ensure root element exists after destroy (Angular removes it)
-    var _sel = ${componentClassName}.ɵcmp?.selectors?.[0]?.[0] || 'ng-app';
-    if (!document.querySelector(_sel)) {
-        (document.getElementById('root') || document.body).appendChild(document.createElement(_sel));
-    }
+var providers = [provideZonelessChangeDetection()];
+if (!window.__HMR_SKIP_HYDRATION__ && !pageHasIslands) {
+    providers.push(provideClientHydration(withHttpTransferCacheOptions(absoluteHttpTransferCacheOptions)));
+}
+delete window.__HMR_SKIP_HYDRATION__;
+providers.push.apply(providers, pageProviders);
+providers.push.apply(providers, propProviders);
+window.__ABS_SLOT_HYDRATION_PENDING__ = pageHasRawStreamingSlots;
 
-    var providers = [provideZonelessChangeDetection()];
-    if (!window.__HMR_SKIP_HYDRATION__ && !pageHasIslands) {
-        providers.push(provideClientHydration(withHttpTransferCacheOptions(absoluteHttpTransferCacheOptions)));
+if (pageHasRawStreamingSlots) {
+    window.__ABS_SLOT_HYDRATION_PENDING__ = false;
+    if (typeof window.__ABS_SLOT_FLUSH__ === 'function') {
+        requestAnimationFrame(function() {
+            window.__ABS_SLOT_FLUSH__();
+        });
     }
-    delete window.__HMR_SKIP_HYDRATION__;
-    providers.push.apply(providers, pageProviders);
-    providers.push.apply(providers, propProviders);
-    window.__ABS_SLOT_HYDRATION_PENDING__ = pageHasRawStreamingSlots;
-
-    if (pageHasRawStreamingSlots) {
+} else {
+    bootstrapApplication(${componentClassName}, {
+        providers: providers
+    }).then(function (appRef) {
+        window.__ANGULAR_APP__ = appRef;
         window.__ABS_SLOT_HYDRATION_PENDING__ = false;
         if (typeof window.__ABS_SLOT_FLUSH__ === 'function') {
             requestAnimationFrame(function() {
                 window.__ABS_SLOT_FLUSH__();
             });
         }
-    } else {
-        bootstrapApplication(${componentClassName}, {
-            providers: providers
-        }).then(function (appRef) {
-            window.__ANGULAR_APP__ = appRef;
-            window.__ABS_SLOT_HYDRATION_PENDING__ = false;
-            if (typeof window.__ABS_SLOT_FLUSH__ === 'function') {
-                requestAnimationFrame(function() {
-                    window.__ABS_SLOT_FLUSH__();
-                });
-            }
-        });
-    }
+    });
 }
 `.trim()
 			: `
