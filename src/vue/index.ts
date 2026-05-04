@@ -1,8 +1,10 @@
 export { handleVuePageRequest } from './pageHandler';
 export { applyVueRouterRedirect } from './routerRedirectProviders';
-export { defineVueSetupApp } from './defineVuePage';
+export { defineRoutes, defineVueSetupApp } from './defineVuePage';
 export type {
 	VueAutoRouter,
+	VueRouteRecord,
+	VueRoutes,
 	VueSetupApp,
 	VueSetupAppContext
 } from '../../types/vue';

@@ -34,6 +34,21 @@ export type VueSetupApp = (
 	ctx: VueSetupAppContext
 ) => void | Promise<void>;
 
+/** Structural shape of a single vue-router route record. Kept loose
+ *  because absolutejs doesn't depend on `vue-router` types — users who
+ *  want stricter typing can annotate with `RouteRecordRaw[]` from
+ *  vue-router themselves. */
+export type VueRouteRecord = {
+	path: string;
+	component?: unknown;
+	children?: VueRouteRecord[];
+	name?: string;
+	redirect?: string | { name: string };
+	meta?: Record<string, unknown>;
+};
+
+export type VueRoutes = readonly VueRouteRecord[];
+
 type ReservedVueProps =
 	| keyof VNodeProps
 	| keyof AllowedComponentProps
