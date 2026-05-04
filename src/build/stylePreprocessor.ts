@@ -968,15 +968,92 @@ export const createSvelteStylePreprocessor = (
 	}
 });
 
+/* Pattern shared by `resolveCssImports{Sync,Async}` — top-level
+ * `@import "<path>";` only. `@import url(...)` and media-qualified
+ * imports pass through unchanged. */
+
+const CSS_IMPORT_PATTERN = /@import\s+["']([^"']+)["']\s*;?/g;
+
+/* Async counterpart to `resolveCssImportsSync`. Reads imported files
+ * via `node:fs/promises.readFile` so the call doesn't block the dev
+ * server's event loop on a deep `@import` chain. Same failure modes:
+ * `@import url(...)` and media-qualified imports pass through. */
+
+const resolveCssImportsAsync = async (
+	content: string,
+	baseDir: string,
+	visited: Set<string>
+): Promise<string> => {
+	const matches = Array.from(content.matchAll(CSS_IMPORT_PATTERN));
+	if (matches.length === 0) return content;
+
+	let cursor = 0;
+	const parts: string[] = [];
+	for (const match of matches) {
+		const importPath = match[1];
+		if (importPath === undefined) continue;
+		const start = match.index ?? 0;
+		const end = start + match[0].length;
+		parts.push(content.slice(cursor, start));
+
+		const fullPath = isAbsolute(importPath)
+			? importPath
+			: resolve(baseDir, importPath);
+		if (visited.has(fullPath) || !existsSync(fullPath)) {
+			parts.push(visited.has(fullPath) ? '' : match[0]);
+			cursor = end;
+			continue;
+		}
+
+		const nextVisited = new Set(visited);
+		nextVisited.add(fullPath);
+		const imported = await readFile(fullPath, 'utf-8');
+		parts.push(
+			await resolveCssImportsAsync(
+				imported,
+				dirname(fullPath),
+				nextVisited
+			)
+		);
+		cursor = end;
+	}
+	parts.push(content.slice(cursor));
+
+	return parts.join('');
+};
+
 export const compileStyleFileIfNeeded = async (
 	filePath: string,
 	config?: StylePreprocessorConfig
 ) => {
 	if (!isPreprocessableStylePath(filePath)) {
-		return runPostcss(await readFile(filePath, 'utf-8'), filePath, config);
+		const raw = await readFile(filePath, 'utf-8');
+		const processed = await runPostcss(raw, filePath, config);
+		// PostCSS only resolves `@import` when configured with
+		// `postcss-import`. We always resolve them here so the inlined
+		// `ɵcmp.styles` content is self-contained — no browser-side
+		// fetch of bare CSS paths that would hit the dev server's
+		// SPA wildcard route and trip Angular's router.
+		return resolveCssImportsAsync(
+			processed,
+			dirname(filePath),
+			new Set([filePath])
+		);
 	}
 
-	return compileStyleSource(filePath, undefined, undefined, config);
+	const compiled = await compileStyleSource(
+		filePath,
+		undefined,
+		undefined,
+		config
+	);
+	// Sass leaves plain `.css` `@import` statements as-is per CSS spec;
+	// post-Sass output may still contain them.
+	return resolveCssImportsAsync(
+		compiled,
+		dirname(filePath),
+		new Set([filePath])
+	);
 };
 
 /* Resolve top-level CSS `@import "<path>";` statements by reading the
@@ -999,8 +1076,6 @@ export const compileStyleFileIfNeeded = async (
  * `@import "..." screen`, and other forms that need media-query
  * preservation — those fall through unchanged for now (Phase 3
  * follow-up). */
-
-const CSS_IMPORT_PATTERN = /@import\s+["']([^"']+)["']\s*;?/g;
 
 const resolveCssImportsSync = (
 	content: string,
