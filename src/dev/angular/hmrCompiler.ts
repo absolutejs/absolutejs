@@ -216,30 +216,31 @@ export const compileAngularForHmr = async (
 
 	const oldProgram = getCachedHmrProgram();
 
-	// Tell ngtsc which template/style resource files changed since the
-	// last compile. Without this, the incremental analyzer trusts the
-	// resource cache from the previous program and re-emits stale
-	// metadata even when the CSS file on disk has changed. ngtsc reads
-	// this via `host.getModifiedResourceFiles()`.
-	if (modifiedResourceFiles && modifiedResourceFiles.size > 0) {
-		const modifiedSet = new Set(modifiedResourceFiles);
-		host.getModifiedResourceFiles = () => modifiedSet;
-	}
-
-	// Only pass `oldProgram` when we actually have one — ngtsc's
-	// internals access `oldProgram.incrementalStrategy` without a
-	// null-guard, so passing `null`/`undefined` explicitly throws.
-	// Discovered the hard way during §3.2 wiring: the first
-	// `performCompilation` call always errored with
-	// "null is not an object (evaluating 'oldProgram.incrementalStrategy')"
-	// because we passed the cached value before checking it.
+	// Pass `modifiedResourceFiles` as a direct `performCompilation`
+	// argument (the documented public API). performCompilation sets
+	// `host.getModifiedResourceFiles = () => modifiedResourceFiles`
+	// itself; the chain `updateWithChangedResources` →
+	// `getComponentsWithStyleFile` → `traitCompiler.updateResources`
+	// then invalidates and re-analyzes any component whose styleUrl /
+	// templateUrl appears in this set. `forceEmit: true` belt-and-
+	// suspenders past `safeToSkipEmit` — every source file gets
+	// re-emitted regardless of incremental optimization, so the
+	// `program.compiler.emitHmrUpdateModule(node)` call after this
+	// reads from up-to-date metadata.
 	const performArgs: Parameters<typeof performCompilation>[0] = {
 		emitFlags: EmitFlags.Default,
+		forceEmit: true,
 		host,
 		options,
 		rootNames: inputPaths
 	};
+	if (modifiedResourceFiles && modifiedResourceFiles.size > 0) {
+		performArgs.modifiedResourceFiles = new Set(modifiedResourceFiles);
+	}
 	if (oldProgram) {
+		// Only pass `oldProgram` when we actually have one — ngtsc's
+		// internals access `oldProgram.incrementalStrategy` without
+		// a null-guard, so a literal `null` throws.
 		performArgs.oldProgram = oldProgram as unknown as Parameters<
 			typeof performCompilation
 		>[0]['oldProgram'];

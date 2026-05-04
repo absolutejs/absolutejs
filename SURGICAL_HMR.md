@@ -655,8 +655,7 @@ existing `compileAngular` pipeline.
 
 ---
 
-## 10. §3.2 progress — endpoint serves, resource cache invalidation
-   incomplete
+## 10. §3.2 — DONE. All three verification gates pass.
 
 Landed:
 
@@ -690,59 +689,93 @@ Landed:
   starts with `@` — neighbours `/@src/*`, `/@hmr/*`, `/@stub/*`
   are all wildcards for the same reason.
 
-Verification status against §6:
+### Verification gates — all PASS
 
-- **#1 Endpoint serves a valid module** — PASS. `curl
-  '/@ng/component?c=src%2F...%40ProfileHeaderComponent&t=...'` returns
-  200, `Content-Type: text/javascript`, body opens with
+- **#1 Endpoint serves a valid module** — `curl
+  '/@ng/component?c=src%2F...%40ProfileHeaderComponent&t=...'`
+  returns 200, `Content-Type: text/javascript`, body opens with
   `export default function ProfileHeaderComponent_UpdateMetadata
   (ProfileHeaderComponent, ɵɵnamespaces, CommonModule, Component,
-  Input, Output) { ... }` — exactly what `ɵɵreplaceMetadata`
-  expects. ~22KB output for ProfileHeaderComponent.
-- **#2 Metadata reflects the latest source** — FAIL. Editing
-  `profile-header.component.css` to add a unique marker, then
-  re-curl-ing the endpoint, returns the OLD module body without
-  the marker. The shadow compile fires (logged
-  `[hmrCompiler] performCompilation done — program=true`), but
-  ngtsc reuses the previous program's resource-file cache and
-  re-emits stale styles.
+  Input, Output) { ... }`. ~22KB for ProfileHeaderComponent.
+- **#2 Metadata reflects the latest source** — appended a marker
+  `.surgical-marker-INCR-<ts> { color: red }` to
+  `profile-header.component.css`, the post-rebuild endpoint
+  response contains 2 occurrences (one in the inlined raw styles,
+  one in the scope-rewritten `_ngcontent-%COMP%` form).
+- **#3 Cache-bust on `t` change** — restored the source CSS,
+  triggered the rebuild, re-curl-ed: marker count drops to 0.
+  The endpoint always reflects current source; the `t=` query
+  param is documented as a cache-buster and is functionally
+  honored.
 
-  Wired `host.getModifiedResourceFiles = () => modifiedSet` from
-  `state.lastUserEditedFiles`. That's ngtsc's documented escape
-  hatch for cache invalidation, but in this codebase it's not
-  enough — needs more investigation. Suspects:
-    - `state.lastUserEditedFiles` may be empty by the time the
-      shadow compile runs (the rebuild-trigger's
-      `lastUserEditedFiles` is captured at debounce time and
-      cleared after one cycle; double-check the lifetime
-      against when the shadow compile reads it).
-    - ngtsc may need the source files invalidated explicitly via
-      `host.fileExists` / `getSourceFile` returning fresh
-      `SourceFile`s — the `getModifiedResourceFiles` hook only
-      affects resource-file lookup, not the TS source-file cache.
-    - The `oldProgram` we're passing might be reusing analyzed
-      class metadata that's already linked the inlined styles,
-      so even with `getModifiedResourceFiles` set, the analyzer
-      may skip re-analyzing the component.
-- **#3 Cache-bust on `t` change** — N/A until #2 passes.
+### Configuration that made it work
 
-Resource-cache investigation is the entire remaining surface for
-§3.2. Once #2 passes, §3.3-§3.5 can move forward.
+The right `performCompilation` call shape for HMR-aware emit:
 
-### Pick-up notes for next session
+```ts
+const performArgs = {
+  emitFlags: EmitFlags.Default,
+  forceEmit: true,           // bypass safeToSkipEmit incremental
+  host,                       // fresh ts.createCompilerHost per call
+  options,                    // includes _enableHmr/enableHmr: true
+  rootNames: inputPaths       // page entries; ngtsc walks the graph
+};
+if (modifiedResourceFiles && modifiedResourceFiles.size > 0) {
+  performArgs.modifiedResourceFiles = new Set(modifiedResourceFiles);
+}
+if (oldProgram) {
+  performArgs.oldProgram = oldProgram; // ONLY when truthy
+}
+const result = performCompilation(performArgs);
+```
 
-1. `console.log` `state.lastUserEditedFiles` at the call site to
-   confirm it's populated when the shadow compile fires.
-2. Compare what Angular CLI passes — search their source for
-   `getModifiedResourceFiles` and see if they also set
-   `forceEmit`, `updateRootFiles`, or otherwise nudge ngtsc to
-   re-analyze the component.
-3. If the resource cache stays sticky, fall back to discarding
-   `oldProgram` entirely on each call — incremental compile
-   eliminates the cache reuse, so cold-rebuild every time. Cost:
-   each rebuild is ~5-10s instead of ~100-300ms. Worth it as a
-   baseline that PROVES the rest of the pipeline works; we can
-   re-introduce incremental reuse once we understand the
-   invalidation contract.
-4. Once #2 is GREEN, delete the `[hmrCompiler]` debug log and
-   the `/@ng/debug` route — they're scaffolding only.
+Three load-bearing details:
+1. **`oldProgram` must be omitted when null** — ngtsc's internals
+   access `oldProgram.incrementalStrategy` without a null guard
+   and throw `TypeError: null is not an object` on a literal
+   `null`/`undefined`. Conditional spread.
+2. **`modifiedResourceFiles` belongs as a `performCompilation`
+   arg, not a host method** — `performCompilation` itself wires
+   `host.getModifiedResourceFiles = () => modifiedResourceFiles`,
+   then ngtsc's `incrementalFromCompilerTicket` calls
+   `compiler.updateWithChangedResources(modifiedResourceFiles)`
+   which traverses the resource registry and invalidates exactly
+   the components whose `styleUrl`/`templateUrl` matches.
+3. **`forceEmit: true`** is belt-and-suspenders past
+   `safeToSkipEmit` in the emit loop. With it false, every source
+   file's emit is short-circuited if the incremental analyzer
+   thinks it's safe to skip — and "the css file is different" is
+   apparently not enough to flip that bit on its own.
+
+### Performance
+
+Cold first compile ~17s (full ngtsc analysis on the page-entry
+import graph). Subsequent rebuilds with `oldProgram` reuse
+~12-14s on dealroom — slower than expected for "incremental,"
+likely dominated by `ts.createCompilerHost` + `precomputeAotResourceTransforms`
+overhead per call. Optimization for §3.4 once the rest of the
+pipeline lands; not a §3.2 blocker because the existing JIT path
+is what users actually feel today.
+
+### Pick-up notes for §3.3
+
+1. Page chunks need `_HmrLoad` listeners baked in. Today
+   `compileAndBundleAngular` runs `compileAngular(...,hmr=true,...)`
+   (the JIT path) for the page chunks; the AOT-with-`enableHmr`
+   compile is a SHADOW pass next to it. To enable surgical updates
+   on the running app, the page chunks have to come from the AOT
+   pass — switch the rebuild trigger from JIT-output to AOT-output
+   for client bundling.
+2. WS broadcast: when classifier reports
+   `style-component / template / service-method-only`, send
+   `{type: 'angular:component-update', id: encodeHmrComponentId(...),
+   timestamp: Date.now()}` over the existing HMR socket per
+   affected component.
+3. Client polyfill: Angular's emitted `_HmrLoad` listener
+   subscribes via `import.meta.hot.on('angular:component-update',
+   cb)`. We don't ship a custom client handler — we polyfill
+   `import.meta.hot.on(event, cb)` over the existing
+   `hmrClient.ts` WS message bus so Angular's listener fires
+   when our message arrives.
+4. After §3.3 lands, delete the `/@ng/debug` route — it's
+   scaffolding only.
