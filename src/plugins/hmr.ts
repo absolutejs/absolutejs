@@ -96,6 +96,27 @@ const resolveDevAssetResponse = async (
 		});
 	}
 
+	// In-memory miss: try disk fallback. The asset store evicts old
+	// hashed entries on rebuild (a new chunk replaces the old in
+	// memory), but the on-disk file usually still exists for a few
+	// rebuild cycles. Browsers often hold HTML referencing an
+	// intermediate hash — if that file is on disk, serve it instead
+	// of 404'ing.
+	const diskBytes = await tryReadFromBuildDir(hmrState, pathname);
+	if (diskBytes) {
+		// Repopulate the store so future requests for the same hash
+		// hit memory. This is bounded by the number of rebuilds in a
+		// session and is cleaned up by `cleanStaleAssets`.
+		hmrState.assetStore.set(pathname, diskBytes);
+
+		return new Response(new Uint8Array(diskBytes).buffer, {
+			headers: {
+				'Cache-Control': 'no-store',
+				'Content-Type': getMimeType(pathname)
+			}
+		});
+	}
+
 	// Fallback for hashless asset URLs like `/indexes/less-page` (no `.css`,
 	// no hash). These can show up briefly when an HMR client tracks a
 	// stylesheet by base name and the hash rotated between when the link
@@ -113,6 +134,28 @@ const resolveDevAssetResponse = async (
 	}
 
 	return undefined;
+};
+
+/* Attempt to read `<buildDir>/<pathname>` from disk for a hashed
+ * asset URL that's no longer in the in-memory store. Returns null
+ * on read error (file not found, outside buildDir, etc.). */
+const tryReadFromBuildDir = async (
+	hmrState: HMRState,
+	pathname: string
+): Promise<Uint8Array | null> => {
+	const buildDir = hmrState.resolvedPaths?.buildDir;
+	if (!buildDir) return null;
+	if (!pathname.startsWith('/')) return null;
+	const { resolve, normalize } = await import('node:path');
+	const candidate = resolve(buildDir, pathname.slice(1));
+	const normalizedBuild = normalize(buildDir);
+	// Path-traversal guard — the URL path is user-controlled.
+	if (!candidate.startsWith(normalizedBuild)) return null;
+	try {
+		return await Bun.file(candidate).bytes();
+	} catch {
+		return null;
+	}
 };
 
 const HASHLESS_INDEX_PATH_PATTERN = /^(\/[^/]+)?\/indexes\/([^/.]+)\/?$/;
