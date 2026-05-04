@@ -523,3 +523,132 @@ Things to figure out during §3.1's spike, NOT inside this doc:
 
 These belong in the spike, not the design — listed here so they
 don't get forgotten.
+
+---
+
+## 9. Spike findings (§3.1 — option (a) is viable, committing to it)
+
+Drove `@angular/compiler-cli`'s `NgCompiler.emitHmrUpdateModule(node)`
+against `dealroom/src/frontend/components/profile/profile-header/profile-header.component.ts`
+and inspected the output. The integration shape is cleaner than the
+design assumed.
+
+### What works
+
+**The full HMR contract is built into `compiler-cli` already**, gated
+behind `enableHmr: true` on the compiler options. Two things happen
+when that flag is set:
+
+1. **Caller-side emit** — every component's compiled `.js` automatically
+   gets a `${ClassName}_HmrLoad` initializer baked in by
+   `compileFull → compileHmrInitializer`. The initializer:
+   - Encodes a stable `id = encodeURIComponent('${filePath}@${className}')`
+   - Defines `function ${ClassName}_HmrLoad(timestamp) { import(/* @vite-ignore */ ɵɵgetReplaceMetadataURL(id, timestamp, import.meta.url)).then(m => m.default && ɵɵreplaceMetadata(${ClassName}, m.default, [<namespaces>], [<locals>], import.meta, id)); }`
+   - Calls it once at module load (`ClassName_HmrLoad(Date.now())`)
+   - Listens on `import.meta.hot.on('angular:component-update', d => d.id === id && ClassName_HmrLoad(d.timestamp))`
+2. **Callee-side emit** — `NgCompiler.emitHmrUpdateModule(classNode)`
+   returns a complete JS module string whose `default` export is the
+   `${ClassName}_UpdateMetadata` function. That function:
+   - Takes `(LiveClass, ɵɵnamespaces, ...locals)` — exactly what
+     `ɵɵreplaceMetadata.apply(null, [type, namespaces, ...locals])`
+     passes in
+   - Body assigns `LiveClass.ɵfac = ...` and
+     `LiveClass.ɵcmp = ɵhmr0.ɵɵdefineComponent({...new metadata...})`,
+     mutating the EXISTING class. No new class identity created.
+
+The emitted module's `styles:` array uses Angular's
+`_ngcontent-%COMP%` placeholder — `%COMP%` gets substituted with the
+LIVE class's existing scope ID at apply time. Scope-ID stability is
+automatic; we don't need to do anything to preserve it.
+
+### What that implies for §3.2-§3.4
+
+- **§3.2 endpoint** is straightforward: `/@ng/component?c=<id>&t=<ts>`
+  → look up the `ts.ClassDeclaration` node by id → call
+  `program.compiler.emitHmrUpdateModule(node)` → return the string
+  with `Content-Type: text/javascript`. Caching is keyed on
+  `(id, source-mtime)`; the `t=<ts>` query is just a cache-buster.
+- **§3.3 client wiring** mostly evaporates. Angular's emitted
+  `_HmrLoad` listener already calls `ɵɵreplaceMetadata` for us. We
+  just need to send the Vite-shape WS event:
+  `{type: 'angular:component-update', id: '<encodedId>', timestamp: <number>}`.
+  The runtime needs `import.meta.hot` to exist with an `on(event, cb)`
+  shape; we'll polyfill that in `installAngularHMRRuntime` (or
+  whatever loads first in the page chunk) so the listener wires
+  itself.
+- **§3.4 per-component tracking** is also simpler than designed: the
+  classifier already maps a CSS edit to its owning component(s). We
+  just emit one `angular:component-update` event per affected id with
+  a fresh timestamp.
+- **§3.5 proto-swap migration** stays as written — once the
+  `_HmrLoad` listener is in every component's compiled output, the
+  proto-swap path's only job (page-level component class edits)
+  is also handled automatically.
+
+### Trade-offs and open issues, refined
+
+- **AOT vs JIT.** `emitHmrUpdateModule` only exists on `NgCompiler`,
+  which is the AOT path (`performCompilation`). Today's HMR pipeline
+  uses `compileAngularFileJIT` (~50-100ms per component) with JIT
+  linking on the client. AOT cold-start is ~5-10s for the dealroom
+  tree; incremental rebuilds with `oldProgram` reuse are ~100-300ms
+  per touched component. **Decision: switch the dev/HMR path to
+  AOT-with-incremental-reuse.** The cold-start hit is the same order
+  of magnitude as today; the incremental hit is faster than the
+  current chunk-rebuild path. Production is unaffected (already AOT).
+- **Compiler-cli is not Vite-coupled.** The HMR emit lives on
+  `NgCompiler`, which is reachable via `program.compiler` after
+  `performCompilation` (public `readonly` field on `NgtscProgram`).
+  No Vite plugin shape required.
+- **Pipe / directive dependencies** are passed as the `locals[]`
+  args to `applyMetadata` (after `namespaces`). The compiler-cli
+  emits the local-dependency ARRAY in the caller's `_HmrLoad` body
+  by reference to the original imports — i.e., the page chunk's
+  `CommonModule, Component, Input, Output` are passed forward. Same
+  identities the running app has. No drift.
+- **`recreateMatchingLViews` and form/scroll state.** Walking
+  `ɵɵreplaceMetadata`'s implementation: it tears down and recreates
+  matching LViews. Form values bound via `ngModel` reconnect (the
+  `FormControl` is on the model object, not the LView). Scroll
+  position is window-level, untouched. The existing reboot path's
+  `saveFormState` / `saveScrollState` shouldn't be needed for
+  `replaceMetadata` cycles. Confirm in §3.3 verification.
+- **SSR cache.** `markSsrCacheDirty('angular')` is still the right
+  hook — call it on every component-update broadcast.
+
+### Scope of work for §3.2 onward
+
+Smaller than designed because the framework does most of it:
+
+- **§3.2** (server endpoint): ~100 lines — one route handler that
+  calls `NgCompiler.emitHmrUpdateModule(node)` keyed by id.
+- **§3.3** (client wiring): ~50 lines — polyfill `import.meta.hot.on`
+  with a thin shim over the existing WS, broadcast Vite-shape events
+  from the rebuild trigger. NO custom `replaceMetadata` call from
+  our code — the framework does that itself.
+- **§3.4** (per-component tracking): ~50 lines — for each changed
+  component the classifier identifies, emit one
+  `angular:component-update` event.
+- **§3.5** (proto-swap migration): can probably be a deletion-only
+  PR. Once `_HmrLoad` is universal, `attemptFastPatch` /
+  `applyUpdate` / `patchConstructor` have no callers.
+
+### One blocker we hit, fixed
+
+The first spike call returned `null` from `emitHmrUpdateModule`
+silently. Cause: `enableHmr: true` must be on the compiler options.
+Without it, the analyzer skips the HMR metadata extraction and the
+emit has nothing to produce. Documented here so the §3.2
+implementation doesn't trip on it.
+
+### Direction committed
+
+**Going with option (a).** Reuse Angular CLI's HMR emit via
+`NgCompiler.emitHmrUpdateModule`. Don't hand-roll. The
+hand-roll path (option b) is now off the table — there's no
+reason to reimplement what's already a public-ish API on
+`compiler-cli`.
+
+Next chunk to land: §3.2 — the `/@ng/component?c=<id>&t=<ts>`
+endpoint, with the AOT incremental-rebuild loop wired into the
+existing `compileAngular` pipeline.
