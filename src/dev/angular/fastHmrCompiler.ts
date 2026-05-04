@@ -560,6 +560,88 @@ const extractFingerprint = (
 	};
 };
 
+/* Re-emit the class's method bodies as a freshly-evaluated class
+ * wrapper so the surgical update can copy them onto the live class's
+ * prototype. Without this, edits like `count++` → `count += 2` inside
+ * an existing method silently no-op: `compileComponentFromMetadata`
+ * only updates `ɵcmp`, and the running view's `ctx.method()` calls
+ * resolve to the prototype, which still holds the old function.
+ *
+ * What we embed:
+ *   - Regular `MethodDeclaration` members (incl. async, generator,
+ *     getters, setters). These live on the prototype and can be
+ *     swapped via `Object.defineProperty` without recreating
+ *     instances.
+ *
+ * What we DON'T embed (yet):
+ *   - The constructor — already excluded by skipping
+ *     `ConstructorDeclaration`. Constructor changes are a Tier 1
+ *     trigger via the fingerprint check (ctor param types).
+ *   - Property declarations with initializers (`count = 0`,
+ *     `handleClick = () => {}`) — these set per-instance state
+ *     during construction. Patching the prototype doesn't touch
+ *     existing instances' fields. The fingerprint check should
+ *     escalate these to Tier 1 if their initializer changes; for
+ *     now, initializer-body edits silently no-op (a known
+ *     limitation, narrower than before).
+ *
+ * Implementation: synthesize a `class _Fresh { ${methodSource} }`
+ * wrapper, run `ts.transpileModule` to strip TS syntax, embed in
+ * the emitted module. The surgical update then copies prototype
+ * descriptors from `_Fresh.prototype` to the live class. */
+const buildFreshClassMethodsBlock = (
+	classNode: ts.ClassDeclaration,
+	className: string
+): string | null => {
+	const methodSources: string[] = [];
+	for (const member of classNode.members) {
+		if (
+			ts.isMethodDeclaration(member) ||
+			ts.isGetAccessorDeclaration(member) ||
+			ts.isSetAccessorDeclaration(member)
+		) {
+			// Skip static methods — they live on the class itself,
+			// not the prototype, and the patching block below uses
+			// `prototype` only.
+			const modifiers = ts.getModifiers(member) ?? [];
+			const isStatic = modifiers.some(
+				(m) => m.kind === ts.SyntaxKind.StaticKeyword
+			);
+			if (isStatic) continue;
+
+			methodSources.push(member.getText());
+		}
+	}
+	if (methodSources.length === 0) return null;
+
+	const wrappedSource = `class _Fresh {\n${methodSources.join('\n')}\n}`;
+	let transpiled: string;
+	try {
+		transpiled = ts.transpileModule(wrappedSource, {
+			compilerOptions: {
+				module: ts.ModuleKind.ES2022,
+				target: ts.ScriptTarget.ES2022
+			},
+			reportDiagnostics: false
+		}).outputText;
+	} catch {
+		return null;
+	}
+
+	return `// SURGICAL_HMR — patch prototype methods so existing instances
+// pick up new method bodies (\`compileComponentFromMetadata\` only
+// updates \`ɵcmp\`, never the prototype).
+${transpiled}
+{
+    const __fresh_proto = _Fresh.prototype;
+    for (const __name of Object.getOwnPropertyNames(__fresh_proto)) {
+        if (__name === 'constructor') continue;
+        const __desc = Object.getOwnPropertyDescriptor(__fresh_proto, __name);
+        if (__desc) Object.defineProperty(${className}.prototype, __name, __desc);
+    }
+}`;
+};
+
 /* ─── Resource resolution (template + styles) ─────────────────── */
 
 const resolveAndReadResource = (
@@ -892,7 +974,7 @@ export const tryFastHmr = async (
 		// syntax (type annotations, parameter property modifiers) and
 		// produce ES2022. Same pattern as compiler-cli's
 		// `NgCompiler.emitHmrUpdateModule`.
-		const moduleText = ts.transpileModule(tsSourceText, {
+		const transpiled = ts.transpileModule(tsSourceText, {
 			compilerOptions: {
 				module: ts.ModuleKind.ES2022,
 				target: ts.ScriptTarget.ES2022
@@ -900,6 +982,34 @@ export const tryFastHmr = async (
 			fileName: componentFilePath,
 			reportDiagnostics: false
 		}).outputText;
+
+		// Inject the prototype-patch block at the start of the
+		// function body so existing instances' methods are swapped
+		// before the `ɵcmp` update triggers view re-renders. Without
+		// this, edits to method bodies (e.g. `count++` → `count += 2`
+		// inside `increment()`) silently no-op — see
+		// `buildFreshClassMethodsBlock` for the why. We inject AFTER
+		// transpile because the printed TS source still has type
+		// annotations on parameters (`(Cls: any, ɵɵns: any)`) and we
+		// want a stable JS signature to anchor against.
+		const methodsBlock = buildFreshClassMethodsBlock(
+			classNode,
+			className
+		);
+		let moduleText = transpiled;
+		if (methodsBlock) {
+			const fnOpening = `function ${className}_UpdateMetadata(${className}, ɵɵnamespaces) {`;
+			const idx = moduleText.indexOf(fnOpening);
+			if (idx >= 0) {
+				const insertAt = idx + fnOpening.length;
+				moduleText =
+					moduleText.slice(0, insertAt) +
+					'\n' +
+					methodsBlock +
+					'\n' +
+					moduleText.slice(insertAt);
+			}
+		}
 
 		// Surgical succeeded — seed/refresh the fingerprint cache
 		// with the just-applied structure. Next surgical compares
