@@ -368,9 +368,7 @@ type TemplateUpdateWindow = FastPatchWindow & {
 	__ANGULAR_HMR_TEMPLATE_UPDATE_MODE__?: boolean;
 };
 
-const handleTemplateUpdate = async (
-	message: HMRMessage
-): Promise<boolean> => {
+const handleTemplateUpdate = async (message: HMRMessage): Promise<boolean> => {
 	const hmr = window.__ANGULAR_HMR__;
 	if (
 		!hmr ||
@@ -412,7 +410,10 @@ const handleTemplateUpdate = async (
 		return true;
 	} catch (err) {
 		console.warn = origWarn;
-		console.warn('[HMR] Angular template update failed, falling back:', err);
+		console.warn(
+			'[HMR] Angular template update failed, falling back:',
+			err
+		);
 		return false;
 	} finally {
 		delete w.__ANGULAR_HMR_FAST_PATCH__;

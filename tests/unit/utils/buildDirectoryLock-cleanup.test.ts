@@ -6,10 +6,7 @@ import { tmpdir } from 'node:os';
 import { lockPathForBuildDirectory } from '../../../src/utils/buildDirectoryLock';
 
 const PROJECT_ROOT = resolve(import.meta.dir, '..', '..', '..');
-const LOCK_MODULE = resolve(
-	PROJECT_ROOT,
-	'src/utils/buildDirectoryLock.ts'
-);
+const LOCK_MODULE = resolve(PROJECT_ROOT, 'src/utils/buildDirectoryLock.ts');
 
 const tempDirs = new Set<string>();
 
@@ -93,8 +90,11 @@ main();
 		}
 		void errDrainPromise;
 
-		expect({ buffer, errBuffer, found: buffer.includes('LOCK_HELD') })
-			.toEqual({ buffer, errBuffer, found: true });
+		expect({
+			buffer,
+			errBuffer,
+			found: buffer.includes('LOCK_HELD')
+		}).toEqual({ buffer, errBuffer, found: true });
 		expect({
 			buffer,
 			errBuffer,

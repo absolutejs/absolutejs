@@ -204,8 +204,9 @@ export const shouldIgnorePath = (
 	const normalized = path.replace(/\\/g, '/');
 
 	if (resolved?.stylesDir) {
-		const styles = normalized
-			.startsWith(resolved.stylesDir.replace(/\\/g, '/'));
+		const styles = normalized.startsWith(
+			resolved.stylesDir.replace(/\\/g, '/')
+		);
 		if (styles) return false;
 	}
 

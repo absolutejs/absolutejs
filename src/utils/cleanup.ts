@@ -26,7 +26,8 @@ const cleanFramework = (
 	// builds before the move to `<projectRoot>/.absolutejs/generated/`.
 	// Always clean these so users don't end up with stale intermediate
 	// trees in `src/` after upgrading.
-	if (frameworkDir) tasks.push(removeIfExists(join(frameworkDir, 'generated')));
+	if (frameworkDir)
+		tasks.push(removeIfExists(join(frameworkDir, 'generated')));
 
 	return Promise.all(tasks);
 };

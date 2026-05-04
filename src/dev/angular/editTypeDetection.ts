@@ -55,7 +55,8 @@ const TYPE_PRIORITY: Record<AngularEditType, number> = {
 };
 
 const STYLE_EXT_RE = /\.(css|scss|sass|less|styl|stylus|pcss|postcss)$/i;
-const COMPONENT_STYLE_RE = /\.component\.(css|scss|sass|less|styl|stylus|pcss|postcss)$/i;
+const COMPONENT_STYLE_RE =
+	/\.component\.(css|scss|sass|less|styl|stylus|pcss|postcss)$/i;
 const TEMPLATE_RE = /\.html$/i;
 const COMPONENT_CLASS_RE = /\.component\.ts$/i;
 const SERVICE_RE = /\.service\.ts$/i;
@@ -120,9 +121,7 @@ const collectMethodBodies = (cls: ts.ClassDeclaration): MethodTable => {
 	return methods;
 };
 
-type SideEffectResult =
-	| { found: true; reason: string }
-	| { found: false };
+type SideEffectResult = { found: true; reason: string } | { found: false };
 
 const findSideEffectInBody = (
 	body: ts.Node,
@@ -137,14 +136,21 @@ const findSideEffectInBody = (
 		if (ts.isCallExpression(node)) {
 			const name = getCalleeName(node);
 			if (name && SIDE_EFFECT_CALL_NAMES.has(name)) {
-				hit = { found: true, reason: `constructor invokes ${name}(...)` };
+				hit = {
+					found: true,
+					reason: `constructor invokes ${name}(...)`
+				};
 				return;
 			}
 			if (name && methods.has(name) && !visited.has(name)) {
 				visited.add(name);
 				const target = methods.get(name);
 				if (target) {
-					const inner = findSideEffectInBody(target, methods, visited);
+					const inner = findSideEffectInBody(
+						target,
+						methods,
+						visited
+					);
 					if (inner.found) {
 						hit = {
 							found: true,
@@ -187,12 +193,7 @@ const analyzeServiceFile = (
 		};
 	}
 
-	const sf = ts.createSourceFile(
-		file,
-		source,
-		ts.ScriptTarget.Latest,
-		true
-	);
+	const sf = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
 
 	let result: { hasSideEffectCtor: boolean; reason: string } = {
 		hasSideEffectCtor: false,

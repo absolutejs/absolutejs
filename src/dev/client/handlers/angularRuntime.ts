@@ -391,8 +391,10 @@ const collectStyleHosts = (): StyleHost[] => {
 	const bodyTags = Array.from(
 		document.body.querySelectorAll('style')
 	) as HTMLStyleElement[];
-	if (headTags.length > 0) hosts.push({ host: document.head, tags: headTags });
-	if (bodyTags.length > 0) hosts.push({ host: document.body, tags: bodyTags });
+	if (headTags.length > 0)
+		hosts.push({ host: document.head, tags: headTags });
+	if (bodyTags.length > 0)
+		hosts.push({ host: document.body, tags: bodyTags });
 
 	return hosts;
 };
@@ -597,9 +599,9 @@ type AppRefWithInjector = {
 	injector?: { get?: (token: unknown, notFoundValue?: unknown) => unknown };
 };
 
-const getRootInjector = ():
-	| { get: (token: unknown, notFoundValue?: unknown) => unknown }
-	| null => {
+const getRootInjector = (): {
+	get: (token: unknown, notFoundValue?: unknown) => unknown;
+} | null => {
 	const app = window.__ANGULAR_APP__ as AppRefWithInjector | null;
 	if (!app || !app.injector || typeof app.injector.get !== 'function') {
 		return null;
@@ -634,10 +636,7 @@ const tryInstantiateServiceDonor = (newCtor: ComponentCtor): unknown | null => {
 		// Anything more sophisticated (services that use `inject()`
 		// outside an injection context) throws here and we fall back to
 		// prototype-only swap.
-		return Reflect.construct(
-			newCtor as unknown as new () => unknown,
-			[]
-		);
+		return Reflect.construct(newCtor as unknown as new () => unknown, []);
 	} catch {
 		return null;
 	}

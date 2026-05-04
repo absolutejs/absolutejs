@@ -43,7 +43,7 @@ class ErrorBoundary extends Component {
 
 // Hydration with error handling and fallback
 const isDev = true;
-const componentPath = '../../pages/StreamingPage';
+const componentPath = '../../../../tests/fixtures/react-streaming-dev/react/pages/StreamingPage';
 
 function resolvePageComponent(module, candidateNames) {
 	for (const name of candidateNames) {

@@ -132,13 +132,15 @@ type ResolvedDevConfig = {
 /** Resolve dev-server settings with env-var precedence over config file.
  *  Env always wins so `ABSOLUTE_PORT=4000 bun dev` is unambiguous. */
 const resolveDevConfig = (
-	configDev: {
-		port?: number;
-		portRange?: number;
-		strictPort?: boolean;
-		host?: string;
-		https?: boolean;
-	} | undefined
+	configDev:
+		| {
+				port?: number;
+				portRange?: number;
+				strictPort?: boolean;
+				host?: string;
+				https?: boolean;
+		  }
+		| undefined
 ): ResolvedDevConfig => ({
 	port:
 		Number(env.ABSOLUTE_PORT) ||
@@ -151,10 +153,8 @@ const resolveDevConfig = (
 		DEFAULT_PORT_RANGE,
 	strictPort:
 		env.ABSOLUTE_STRICT_PORT === 'true' || configDev?.strictPort === true,
-	host:
-		env.ABSOLUTE_HOST ?? configDev?.host ?? 'localhost',
-	https:
-		env.ABSOLUTE_HTTPS === 'true' || configDev?.https === true
+	host: env.ABSOLUTE_HOST ?? configDev?.host ?? 'localhost',
+	https: env.ABSOLUTE_HTTPS === 'true' || configDev?.https === true
 });
 
 export const dev = async (serverEntry: string, configPath?: string) => {
@@ -189,10 +189,7 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 		});
 	} catch (err) {
 		console.error(
-			cliTag(
-				'\x1b[31m',
-				err instanceof Error ? err.message : String(err)
-			)
+			cliTag('\x1b[31m', err instanceof Error ? err.message : String(err))
 		);
 		process.exit(1);
 	}
@@ -517,10 +514,7 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 	printHint();
 
 	const handleServerExit = async (exitCode: number | null) => {
-		if (
-			exitCode === SIGINT_EXIT_CODE ||
-			exitCode === SIGTERM_EXIT_CODE
-		) {
+		if (exitCode === SIGINT_EXIT_CODE || exitCode === SIGTERM_EXIT_CODE) {
 			await cleanup(0);
 
 			return false;
