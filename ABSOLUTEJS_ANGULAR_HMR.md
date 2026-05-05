@@ -20,27 +20,73 @@ public IR builder (`compileComponentFromMetadata`) directly, and
 hands the result to the same surgical-update primitive
 (`ɵɵreplaceMetadata`) the Angular CLI uses.
 
-Same primitive, different driver. Result:
+Same primitive, different driver.
 
-| Edit type                        | AbsoluteJS  | Angular CLI HMR | ngc incremental (cold) |
-|----------------------------------|-------------|-----------------|------------------------|
-| Body edit (.ts method)           | 4–50 ms     | 200–800 ms      | 1–3 s                  |
-| Template edit (.html / inline)   | 4–50 ms     | 200–800 ms      | 1–3 s                  |
-| Style edit (.css / .scss)        | 4–50 ms     | 100–400 ms      | 1–3 s                  |
-| Structural change (Tier 1a)      | 300–800 ms  | 500–1500 ms     | 1–3 s                  |
-| Cold start of a slow path        | n/a (none)  | n/a             | 13–14 s                |
+### Measured results
 
-The "cold slow path" row is what we measured before the slow path
-was retired entirely; it's there as historical context for why
-the architecture matters. Every edit is now on the fast path or
-escalates to a tier-1a/1b that doesn't recompile.
+Benchmark project: 3 standalone Angular components (one root page,
+one inline-template `HeaderComponent`, one
+`templateUrl`/`styleUrl` `CounterComponent`) on
+`@absolutejs/absolute@0.19.0-beta.915`, `@angular/* 21.2.11`,
+Bun 1.3.13, Linux/WSL2.
 
-The architectural thesis: **template type-checking is an editor
-concern, not an HMR concern.** The TypeScript Language Server +
-optionally a `tsc --watch` daemon already type-check your code
-continuously. Doing it again every keystroke during HMR is the
-single biggest cost in ngc-based pipelines. AbsoluteJS chooses not
-to pay it.
+Methodology: a Bun script connects to the dev server's `/hmr`
+WebSocket, performs scripted text replacements on each file (then
+the inverse, alternating), and measures
+**(a)** end-to-end time from `fs.writeFile` resolving to the
+matching HMR broadcast arriving on the WS, and **(b)** server-side
+dispatch time parsed from the dev server's own `[ng-hmr]` /
+`[hmr] css update` log line.
+
+N = 30 samples per case, plus 3 warmup iterations not counted.
+
+| Case | tier | server p50 | server p95 | server max | e2e p50 | e2e p95 | e2e max |
+|---|---|---|---|---|---|---|---|
+| Body edit (`.ts` method body)             | 0  | 13 ms | 16 ms | 18 ms  | 43 ms | 48 ms | 79 ms |
+| Inline template (template literal in `@Component`) | 0  | 12 ms | 15 ms | 18 ms  | 43 ms | 53 ms | 108 ms |
+| External `templateUrl` `.html`            | 0  | 12 ms | 19 ms | 19 ms  | 43 ms | 51 ms | 59 ms |
+| External `styleUrl` `.css`                | css-update | 72 ms | 92 ms | 93 ms  | 105 ms | 125 ms | 126 ms |
+| Add `@Input` (structural change)          | 1a | 14 ms | 20 ms | 20 ms  | 45 ms | 56 ms | 68 ms |
+
+Reading the table: the server-side dispatch column is what
+AbsoluteJS's hot path costs in isolation (TS parse + AST walk +
+`compileComponentFromMetadata` + module emit). The end-to-end
+column adds file-watcher debounce, dev-server HTTP/WS frame
+handling, and the LAN-localhost roundtrip — all of it pipeline
+overhead unrelated to the HMR work itself. p50 server times for
+Angular component edits sit in the 12–14 ms band; structural
+changes (Tier 1a remount) are in the same band because the
+metadata extraction cost is identical and the additional remount
+work happens in the browser, not the server.
+
+The `.css` row is the AbsoluteJS framework-wide CSS HMR path
+(stylesheet swap, no Angular involvement). It's slower than the
+component paths because it goes through the styles-indexes
+manifest rebuild, not because of any Angular work — and even at
+72 ms server / 105 ms e2e, it's still a sub-150ms reload. The
+component-styled path is competitive: edits to the `.ts`
+component file that change the `styleUrls` array
+re-run through Tier 0 at the same 12–14 ms band.
+
+For comparison context: published numbers and project experience
+put Angular CLI's `ng serve --hmr` in the 200–800 ms range for
+the same edit shapes, with ngc incremental cold start at 1–3 s.
+We haven't run the Angular CLI side of the comparison ourselves —
+the AbsoluteJS column above is measured, the comparison context
+is from public reports and our prior work on this project. Take
+the comparison as directional, not benchmarked.
+
+### The architectural thesis
+
+**Template type-checking is an editor concern, not an HMR
+concern.** The TypeScript Language Server + optionally a
+`tsc --watch` daemon already type-check your code continuously.
+Doing it again every keystroke during HMR is the single biggest
+cost in ngc-based pipelines. AbsoluteJS chooses not to pay it.
+
+Reproducing the numbers: see `benchmarks/angular-hmr/` for the
+project + harness. `bun install && bun run dev` in one shell,
+`bun run bench.ts` in another.
 
 ---
 
@@ -62,11 +108,14 @@ Pipeline:
 4. The dev server broadcasts a payload that the in-page
    `ngHmrRuntime` decodes and feeds to `ɵɵreplaceMetadata`.
 
-Hot edits: 200–800 ms in the dealroom-equivalent project size,
-mostly spent in step 2. The TCB synthesis is the dominant cost —
-Angular's template-type-checking generates a synthetic TS
-expression for every binding in every affected template, and the
-TS program has to type-check it.
+Hot edits: typically reported at 200–800 ms on
+dealroom-equivalent project sizes, mostly spent in step 2 (TCB
+synthesis). The TCB synthesis is the dominant cost — Angular's
+template-type-checking generates a synthetic TS expression for
+every binding in every affected template, and the TS program has
+to type-check it. We haven't run an independent benchmark of the
+Angular CLI for this writeup; the number is from public reports
+and prior project experience.
 
 What's good: solid template type-safety at HMR time. New
 templates that wouldn't compile fail loud at save instead of
@@ -101,8 +150,10 @@ Three tools. All use `ɵɵreplaceMetadata` as the runtime primitive
 The bottleneck is ngtsc, not the runtime swap.
 
 If you can produce the metadata `ɵɵreplaceMetadata` needs without
-running ngtsc, you're spending 4–50 ms instead of 200–800 ms.
-That's the opening AbsoluteJS takes.
+running ngtsc, you're spending ~13 ms server-side per edit (per
+the table at the top) instead of the 200–800 ms range typical of
+ngtsc-driven incremental compiles. That's the opening AbsoluteJS
+takes.
 
 ---
 
@@ -113,12 +164,12 @@ Four tiers, picked per HMR cycle by `decideAngularTier` in
 decision driven by the structural fingerprint of each affected
 component.
 
-| Tier | Trigger | Mechanism | Cost | State preserved |
+| Tier | Trigger | Mechanism | Server p50 (measured) | State preserved |
 |---|---|---|---|---|
-| **0** surgical | `tryFastHmr` returns `ok: true`, fingerprint matches | `ɵɵreplaceMetadata` + prototype patch | 4–50 ms | yes |
-| **1a** remount | `tryFastHmr` returns `ok: true`, fingerprint mismatched (constructor params, providers, member decorators, etc.) | Vendored LView slot ops + public `createComponent`; destroys + recreates only the affected component subtree | 300–800 ms | per-component instance lost; siblings preserved |
-| **1b** rebootstrap | `tryFastHmr` returns `ok: false` for a structural reason (no `@Component` decorator, parse failure, decorated-parent inheritance, exotic decorator-arg shape) | `ApplicationRef.destroy()` + `bootstrapApplication` | 1–2 s | nothing in Angular's tree; browser session yes |
-| **2** reload | Server emits `'full-reload'` (bundle-shape changes) | `window.location.reload()` | depends on bundle | nothing |
+| **0** surgical | `tryFastHmr` returns `ok: true`, fingerprint matches | `ɵɵreplaceMetadata` + prototype patch | 12–14 ms (see TL;DR table) | yes |
+| **1a** remount | `tryFastHmr` returns `ok: true`, fingerprint mismatched (constructor params, providers, member decorators, etc.) | Vendored LView slot ops + public `createComponent`; destroys + recreates only the affected component subtree | 14 ms server (browser-side remount adds the user-perceptible delta) | per-component instance lost; siblings preserved |
+| **1b** rebootstrap | `tryFastHmr` returns `ok: false` for a structural reason (no `@Component` decorator, parse failure, decorated-parent inheritance, exotic decorator-arg shape) | `ApplicationRef.destroy()` + `bootstrapApplication` | not measured here; bound by initial bundle reboot | nothing in Angular's tree; browser session yes |
+| **2** reload | Server emits `'full-reload'` (bundle-shape changes) | `window.location.reload()` | full page load | nothing |
 
 Plus a vite/next-style error overlay that intercepts user-fixable
 failures (template parse error, missing `templateUrl`, missing
@@ -347,9 +398,12 @@ gone.
 
 Why we're better:
 
-- **Speed.** 4–50 ms vs 200–800 ms is the difference between
-  "instant" and "perceptible." On a 250-component project, that's
-  the difference between flow state and waiting.
+- **Speed.** Measured ~13 ms server-side (40–50 ms end-to-end
+  including watcher debounce + WS roundtrip) per Tier-0 edit on
+  the bench fixture. The Angular CLI HMR comparison is reported
+  at 200–800 ms (we haven't run the comparison ourselves; treat
+  as directional). On a 250-component project, that's the
+  difference between flow state and waiting.
 - **Predictable.** Tier model + fingerprint means the developer
   can reason about what an edit will do. A method body edit is
   always Tier 0. Adding a constructor parameter is always Tier

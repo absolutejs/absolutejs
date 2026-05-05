@@ -1,0 +1,12 @@
+.counter-value {
+	font-weight: 700;
+	color: #dc087d;
+}
+
+button {
+	padding: 0.5rem 1rem;
+	font-size: 1rem;
+	border-radius: 6px;
+	border: 1px solid #ccc;
+	cursor: pointer;
+}

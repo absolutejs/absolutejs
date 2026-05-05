@@ -1,0 +1,5 @@
+node_modules/
+build/
+.absolutejs/
+dev.log
+bun.lock
