@@ -116,6 +116,17 @@ export type ComponentFingerprint = {
 	arrowFieldSig: string[];
 	memberDecoratorSig: string[];
 	topLevelImports: string[];
+	/* `ViewEncapsulation` numeric value. Switching between
+	 * Emulated / None / ShadowDom changes how the component's
+	 * styles are scoped at the host level; existing instances'
+	 * applied styles can't be retroactively re-scoped, so a
+	 * change here forces Tier 1a remount. */
+	encapsulation: number;
+	/* `ChangeDetectionStrategy` numeric value or `null`. Switching
+	 * between OnPush and Default changes the LView flags that
+	 * govern dirty-checking; the existing LViews carry the old
+	 * flags, so a change forces Tier 1a remount. */
+	changeDetection: number | null;
 };
 
 export type FastHmrSuccess = {
@@ -228,6 +239,8 @@ const fingerprintsEqual = (
 	if (!arraysEqual(a.arrowFieldSig, b.arrowFieldSig)) return false;
 	if (!arraysEqual(a.memberDecoratorSig, b.memberDecoratorSig)) return false;
 	if (!arraysEqual(a.topLevelImports, b.topLevelImports)) return false;
+	if (a.encapsulation !== b.encapsulation) return false;
+	if (a.changeDetection !== b.changeDetection) return false;
 
 	return true;
 };
@@ -509,6 +522,45 @@ type ComponentDecoratorMeta = {
 	importsExpr: ts.ArrayLiteralExpression | null;
 	hasProviders: boolean;
 	hasViewProviders: boolean;
+	/* `ViewEncapsulation` numeric value (Emulated=0, None=2,
+	 * ShadowDom=3, ExperimentalIsolatedShadowDom=4). Defaults to
+	 * Emulated when the decorator doesn't specify or uses a form
+	 * the resolver doesn't recognize. */
+	encapsulation: number;
+	/* `ChangeDetectionStrategy` numeric value (OnPush=0,
+	 * Default=1). `null` when not specified, which Angular treats
+	 * as Default. */
+	changeDetection: number | null;
+};
+
+/* Resolve a `<EnumName>.<MemberName>` property access expression
+ * (the only form the @Component decorator accepts in practice for
+ * `encapsulation` and `changeDetection`) to the corresponding
+ * numeric enum value. Returns `null` for any other expression
+ * shape; the caller decides the fallback. */
+const resolveEnumPropertyAccess = (
+	expr: ts.Expression,
+	enumName: string,
+	values: Readonly<Record<string, number>>
+): number | null => {
+	if (!ts.isPropertyAccessExpression(expr)) return null;
+	if (!ts.isIdentifier(expr.expression)) return null;
+	if (expr.expression.text !== enumName) return null;
+	const v = values[expr.name.text];
+	return typeof v === 'number' ? v : null;
+};
+
+const VIEW_ENCAPSULATION_VALUES: Readonly<Record<string, number>> = {
+	Emulated: 0,
+	ExperimentalIsolatedShadowDom: 4,
+	None: 2,
+	ShadowDom: 3
+};
+
+const CHANGE_DETECTION_VALUES: Readonly<Record<string, number>> = {
+	Default: 1,
+	Eager: 1,
+	OnPush: 0
 };
 
 const readDecoratorMeta = (
@@ -545,7 +597,27 @@ const readDecoratorMeta = (
 		}
 	}
 
+	const encapsulationExpr = getProperty(args, 'encapsulation');
+	const encapsulation = encapsulationExpr
+		? (resolveEnumPropertyAccess(
+				encapsulationExpr,
+				'ViewEncapsulation',
+				VIEW_ENCAPSULATION_VALUES
+			) ?? 0)
+		: 0;
+
+	const changeDetectionExpr = getProperty(args, 'changeDetection');
+	const changeDetection = changeDetectionExpr
+		? resolveEnumPropertyAccess(
+				changeDetectionExpr,
+				'ChangeDetectionStrategy',
+				CHANGE_DETECTION_VALUES
+			)
+		: null;
+
 	return {
+		changeDetection,
+		encapsulation,
 		hasProviders: getProperty(args, 'providers') !== null,
 		hasViewProviders: getProperty(args, 'viewProviders') !== null,
 		importsExpr:
@@ -1978,8 +2050,10 @@ const extractFingerprint = (
 
 	return {
 		arrowFieldSig,
+		changeDetection: decoratorMeta.changeDetection,
 		className,
 		ctorParamTypes,
+		encapsulation: decoratorMeta.encapsulation,
 		hasProviders: decoratorMeta.hasProviders,
 		hasViewProviders: decoratorMeta.hasViewProviders,
 		inputs: inputNames,
@@ -2690,12 +2764,12 @@ export const tryFastHmr = async (
 		defer: { dependenciesFn: null, mode: 1 },
 		declarationListEmitMode: declarations.length > 0 ? 1 : 0,
 		styles,
-		encapsulation: 0,
+		encapsulation: decoratorMeta.encapsulation,
 		animations: advancedMetadata.animations,
 		viewProviders: advancedMetadata.viewProviders,
 		relativeContextFilePath: projectRelPath,
 		i18nUseExternalIds: projectDefaults.i18nUseExternalIds ?? false,
-		changeDetection: null,
+		changeDetection: decoratorMeta.changeDetection,
 		relativeTemplatePath: null,
 		hasDirectiveDependencies: declarations.length > 0
 	};

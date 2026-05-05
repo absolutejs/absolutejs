@@ -1,6 +1,12 @@
-import { Component } from '@angular/core';
+import {
+	ChangeDetectionStrategy,
+	Component,
+	ViewEncapsulation
+} from '@angular/core';
 
 @Component({
+	changeDetection: ChangeDetectionStrategy.OnPush,
+	encapsulation: ViewEncapsulation.None,
 	selector: 'app-header',
 	standalone: true,
 	template: `

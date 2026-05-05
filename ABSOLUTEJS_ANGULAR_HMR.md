@@ -5,7 +5,7 @@ replacement for Angular components, the techniques that produce
 sub-50 ms end-to-end edit latency, and the architectural
 difference from `@angular/build`-driven HMR.
 
-Available in `@absolutejs/absolute@0.19.0-beta.919` and later.
+Available in `@absolutejs/absolute@0.19.0-beta.920` and later.
 
 * Repository: <https://github.com/absolutejs/absolutejs>
 * Documentation: <https://absolutejs.com>
@@ -52,7 +52,7 @@ Project: 3 standalone Angular components (root page,
 inline-template `HeaderComponent`, `templateUrl` + `styleUrl`
 `CounterComponent`).
 
-Stack: `@absolutejs/absolute@0.19.0-beta.919`, `@angular/* 21.2.11`,
+Stack: `@absolutejs/absolute@0.19.0-beta.920`, `@angular/* 21.2.11`,
 Bun 1.3.13, Linux/WSL2.
 
 Methodology: a Bun client connects to the dev server's `/hmr`
@@ -77,7 +77,7 @@ N = 30 samples per case, plus 3 warmup iterations not counted.
 
 \* External `.css` edits go through the framework-wide CSS HMR
 path (stylesheet swap), not Angular's metadata-replacement path.
-See §6 for tier definitions and §10.5 for the rationale.
+See §6 for tier definitions and §10.6 for the rationale.
 
 The server-side column is the cost of producing and broadcasting
 the new metadata. The end-to-end column adds file-watcher
@@ -213,6 +213,15 @@ The structural fingerprint compared between cycles captures:
   `__abs_deps` registry (§7.3) is rebuilt to match current
   source, which is necessary for the HMR payload to resolve
   identifiers correctly.
+* `encapsulation` (`ViewEncapsulation` numeric value). Switching
+  between Emulated, None, and ShadowDom changes how the
+  component's styles are scoped at the host level; existing
+  instances' applied styles can't be retroactively re-scoped.
+  Tier 1a.
+* `changeDetection` (`ChangeDetectionStrategy` value or `null`).
+  Switching between OnPush and Default changes the LView flags
+  that govern dirty-checking; existing LViews carry the old
+  flags. Tier 1a.
 
 Body edits to methods and template/style edits leave the
 fingerprint unchanged and stay on Tier 0. Anything that affects
@@ -662,7 +671,33 @@ import in the source file shifts the structural fingerprint
 (§6) and escalates to Tier 1a remount, which reinitializes the
 component's directive scope.
 
-### 10.5 External `.css` edits
+### 10.5 `changeDetection` and `encapsulation`
+
+The `@Component` decorator's `changeDetection` and
+`encapsulation` properties are read from the decorator's object
+literal and propagated into `R3ComponentMetadata`:
+
+* `changeDetection: ChangeDetectionStrategy.OnPush` resolves to
+  `0`; `Default`/`Eager` to `1`. Anything else (or unspecified)
+  falls through as `null`, which Angular treats as Default.
+* `encapsulation: ViewEncapsulation.None` resolves to `2`;
+  `ShadowDom` to `3`; `ExperimentalIsolatedShadowDom` to `4`;
+  `Emulated` (or unspecified) to `0`.
+
+Both are extracted by matching the property-access shape
+`<EnumName>.<MemberName>` (the form the decorator accepts in
+practice). Other expression shapes (variable references,
+function calls) are not resolved and fall through to defaults.
+Production builds (`absolute build`) use the full ngtsc
+resolver and accept any expression shape.
+
+Both are also part of the structural fingerprint (§6). Changing
+either between cycles forces Tier 1a remount: the existing
+LViews carry the old `changeDetection` flags or have styles
+scoped under the old `encapsulation` strategy, neither of which
+can be retroactively rewritten on instances.
+
+### 10.6 External `.css` edits
 
 External `.css` files reachable via the `styleUrl` /
 `styleUrls` of a component currently dispatch through the
