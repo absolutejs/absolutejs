@@ -791,21 +791,7 @@ const bundleAngularClient = async (
 
 export type AngularHmrTier = 0 | 1 | 2;
 
-type SurgicalEntry = {
-	id: string;
-	className: string;
-	// True when this entry bailed `tryFastHmr` with
-	// `uses-advanced-feature` and needs the `/@ng/component` slow
-	// path (ngc shadow program) to serve the surgical update.
-	// `runAngularHmrIncremental` short-circuits the ~13s ngc
-	// compileAngularForHmr call when no entry needs it.
-	needsSlowPath?: boolean;
-	// Set when `needsSlowPath` is true — the component's source TS
-	// file. Used as ngc's `rootNames` so the analysis program only
-	// pulls in this component's transitive deps instead of every
-	// page in the app.
-	componentFilePath?: string;
-};
+type SurgicalEntry = { id: string; className: string };
 
 /* Verdict from the dispatcher.
  *
@@ -939,28 +925,6 @@ const decideAngularTier = async (
 			});
 			totalCompileMs += performance.now() - compileStart;
 			if (!result.ok) {
-				// `uses-advanced-feature` means the fast extractor can't
-				// build correct R3 metadata for this component (it has
-				// `host:` / `animations:` / `@HostBinding` / `@ViewChild`
-				// / signal queries / `@Input({ transform })` / etc.) —
-				// but the slow path (`emitHmrUpdateModule` via the
-				// `/@ng/component` endpoint) still produces a correct
-				// surgical-update module from ngc's full program. Stay
-				// Tier 0; the client fetch will land on the slow path
-				// automatically when its `/@ng/component?c=<id>` request
-				// arrives. Errors during apply auto-escalate via
-				// Angular's `executeWithInvalidateFallback` →
-				// `angular:invalidate` → rebootstrap.
-				if (result.reason === 'uses-advanced-feature') {
-					queueIds.add(id);
-					queue.push({
-						className,
-						componentFilePath,
-						id,
-						needsSlowPath: true
-					});
-					continue;
-				}
 				return {
 					kind: 'rebootstrap',
 					reason: `${className}: ${result.reason}${
@@ -1142,113 +1106,21 @@ const scheduleAngularBundleRebuild = (
 	};
 };
 
-/* HMR-only Angular compile. No Bun.build. Two parallel passes:
- *  1. ngc shadow program so the surgical `/@ng/component?c=...`
- *     endpoint can find the changed class for in-place patches.
- *  2. JIT re-transpile of edited Angular source files into
- *     `.absolutejs/generated/angular/...` so moduleServer serves
- *     fresh bytes on the next page refresh. Without this, the
- *     surgical patch updates the live app but a hard refresh
- *     boots from the stale on-disk module.
- *
- * The shadow program is always seeded with every page entry under
- * `<angularDir>/pages/`. Empty `rootNames` would make
- * `performCompilation` produce an empty program that overwrites the
- * cached one, breaking the next cycle's class lookup — so we don't
- * try to be clever with cached-vs-cold handoff. The page-entry list
- * is cached + invalidated on TS edits (a new page added or a
- * `templateUrl` rename matters; CSS/HTML edits don't). */
-let cachedAngularPageEntries: string[] | null = null;
-let cachedAngularPageEntriesDir: string | null = null;
-const invalidateAngularPageEntriesCache = () => {
-	cachedAngularPageEntries = null;
-	cachedAngularPageEntriesDir = null;
-};
-const getAllAngularPageEntries = async (
-	angularDir: string
-): Promise<string[]> => {
-	if (
-		cachedAngularPageEntries !== null &&
-		cachedAngularPageEntriesDir === angularDir
-	) {
-		return cachedAngularPageEntries;
-	}
-	const pagesDir = resolve(angularDir, 'pages');
-	if (!existsSync(pagesDir)) {
-		cachedAngularPageEntries = [];
-		cachedAngularPageEntriesDir = angularDir;
-		return cachedAngularPageEntries;
-	}
-	const tsEntries = await scanEntryPoints(pagesDir, '*.ts');
-	const tsxEntries = await scanEntryPoints(pagesDir, '*.tsx');
-	cachedAngularPageEntries = [...tsEntries, ...tsxEntries];
-	cachedAngularPageEntriesDir = angularDir;
-	return cachedAngularPageEntries;
-};
-
+/* HMR-only Angular work. No Bun.build, no ngc shadow program — the
+ * fast extractor in `fastHmrCompiler.ts` produces a complete
+ * `R3ComponentMetadata` for every standalone component, so
+ * `compileAngularForHmr` (the ~13s `performCompilation` call) is
+ * never on the surgical-update hot path anymore. This function is
+ * down to one job: keep the on-disk JIT output under
+ * `.absolutejs/generated/angular/...` in sync with the user's edits
+ * so a hard refresh boots from the freshly-emitted module instead
+ * of the stale pre-edit one. */
 const runAngularHmrIncremental = async (
 	state: HMRState,
 	angularDir: string,
-	pageEntries: string[],
-	needsSlowPath: boolean,
-	slowPathComponentFiles: string[]
+	_pageEntries: string[]
 ) => {
 	const editedFiles = state.lastUserEditedFiles ?? new Set<string>();
-	// A `.ts` edit might've added/removed a page — drop the page-list
-	// cache so the next compile rescans `<angularDir>/pages/`.
-	for (const f of editedFiles) {
-		if (f.endsWith('.ts') || f.endsWith('.tsx')) {
-			invalidateAngularPageEntriesCache();
-			break;
-		}
-	}
-	const refreshPromise = (async () => {
-		// The ngc shadow program (`compileAngularForHmr`) is ONLY
-		// consulted by the slow path inside `getApplyMetadataModule` —
-		// when a component bails `tryFastHmr` with
-		// `uses-advanced-feature` and the `/@ng/component` endpoint
-		// has to call `emitHmrUpdateModule(node)`. For a fast-path
-		// edit (the common case: template/method body change on a
-		// component without `host:` / `@HostListener` / `@ViewChild` /
-		// etc.) the ngc shadow is unused, and skipping it saves the
-		// full ~13s `performCompilation` cost on cold cycles + ~500ms
-		// on warm ones. ngc still gets seeded the first time a
-		// slow-path component is edited.
-		if (!needsSlowPath) return;
-		try {
-			const { compileAngularForHmr, getCachedHmrProgram } = await import(
-				'./angular/hmrCompiler'
-			);
-			// Prefer the affected component file paths as
-			// `rootNames` over the owning pages — ngc's analysis
-			// program is the transitive closure of the rootNames, so
-			// rooting at the leaf component minimizes how many files
-			// ngc has to walk. For an edit to a leaf component used
-			// once, that's ~one component's deps vs the entire page
-			// graph (~14s vs ~500ms on dealroom).
-			let inputs: string[];
-			if (slowPathComponentFiles.length > 0) {
-				inputs = slowPathComponentFiles;
-			} else if (pageEntries.length > 0) {
-				inputs = pageEntries;
-			} else if (!getCachedHmrProgram()) {
-				inputs = await getAllAngularPageEntries(angularDir);
-			} else {
-				inputs = [];
-			}
-			await compileAngularForHmr(
-				inputs,
-				state.resolvedPaths.buildDir,
-				editedFiles
-			);
-		} catch (err) {
-			logWarn(
-				`[hmr] surgical-HMR shadow compile skipped: ${
-					err instanceof Error ? err.message : String(err)
-				}`
-			);
-		}
-	})();
 
 	const diskRefreshPromise = (async () => {
 		if (!angularDir || editedFiles.size === 0) return;
@@ -1342,7 +1214,7 @@ const runAngularHmrIncremental = async (
 		}
 	})();
 
-	await Promise.all([refreshPromise, diskRefreshPromise]);
+	await diskRefreshPromise;
 };
 
 const compileAndBundleAngular = async (
@@ -1486,25 +1358,13 @@ const handleAngularFastPath = async (
 	const queueDescription = (queue: SurgicalEntry[]) =>
 		queue.map((e) => e.className).join(', ');
 
-	const slowPathFiles = verdict.queue
-		.filter((e): e is SurgicalEntry & { componentFilePath: string } =>
-			e.needsSlowPath === true && typeof e.componentFilePath === 'string'
-		)
-		.map((e) => e.componentFilePath);
-	const needsSlowPath = slowPathFiles.length > 0;
-
 	if (verdict.tier === 0) {
-		// Tier 0 surgical: keep the ngc shadow program fresh so the
-		// `/@ng/component` endpoint can serve the new class on the
-		// next fetch. No Bun.build — surgical HMR mutates the live
-		// app's `ɵcmp` directly, the bundle isn't in the loop.
-		await runAngularHmrIncremental(
-			state,
-			angularDir,
-			pageEntries,
-			needsSlowPath,
-			slowPathFiles
-		);
+		// Tier 0 surgical: keep the on-disk JIT output fresh so a
+		// page refresh during editing serves the latest module bytes.
+		// No Bun.build — surgical HMR mutates the live app's `ɵcmp`
+		// directly, and the fast extractor builds the surgical-update
+		// IR without touching ngc.
+		await runAngularHmrIncremental(state, angularDir, pageEntries);
 		broadcastSurgical(state, verdict.queue);
 		const b = verdict.breakdown;
 		logInfo(
@@ -1515,13 +1375,7 @@ const handleAngularFastPath = async (
 		// no bundle work. The browser's `__ng_hmr_remount` fetches
 		// `/@ng/component` and runs `createComponent` against the
 		// already-running app's class identities.
-		await runAngularHmrIncremental(
-			state,
-			angularDir,
-			pageEntries,
-			needsSlowPath,
-			slowPathFiles
-		);
+		await runAngularHmrIncremental(state, angularDir, pageEntries);
 		broadcastRemount(state, verdict.queue);
 		const b = verdict.breakdown;
 		logInfo(

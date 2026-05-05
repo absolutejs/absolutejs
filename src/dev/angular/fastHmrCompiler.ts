@@ -41,7 +41,6 @@ export type FastHmrFallbackReason =
 	| 'template-resource-not-found'
 	| 'style-resource-not-found'
 	| 'structural-change'
-	| 'uses-advanced-feature'
 	| 'unexpected-error';
 
 /* Identity-stable summary of a component's structural surface. Two
@@ -398,7 +397,8 @@ const readDecoratorMeta = (
 /* Decorator-form: `@Input() name: T = default;`,
  * `@Input({ alias, required, transform }) name: T;`. */
 const extractDecoratorInput = (
-	prop: ts.PropertyDeclaration
+	prop: ts.PropertyDeclaration,
+	compiler: typeof import('@angular/compiler') | null
 ): { classPropertyName: string; meta: R3InputMetadata } | null => {
 	const decorators = ts.getDecorators(prop) ?? [];
 	for (const decorator of decorators) {
@@ -410,6 +410,8 @@ const extractDecoratorInput = (
 		const classPropertyName = prop.name.getText();
 		let bindingPropertyName = classPropertyName;
 		let required = false;
+		let transformFunction: import('@angular/compiler').Expression | null =
+			null;
 
 		const arg = expr.arguments[0];
 		if (arg) {
@@ -420,6 +422,12 @@ const extractDecoratorInput = (
 				const aliasNode = getStringProperty(arg, 'alias');
 				if (aliasNode !== null) bindingPropertyName = aliasNode;
 				required = getBooleanProperty(arg, 'required') ?? false;
+				const transformNode = getProperty(arg, 'transform');
+				if (transformNode && compiler) {
+					transformFunction = new compiler.WrappedNodeExpr(
+						transformNode
+					);
+				}
 			}
 		}
 
@@ -430,11 +438,7 @@ const extractDecoratorInput = (
 				bindingPropertyName,
 				required,
 				isSignal: false,
-				// Transform extraction defers to v2. Inputs with a
-				// `transform:` argument compile fine without it
-				// at runtime — the binding just won't coerce until
-				// the next full reload.
-				transformFunction: null
+				transformFunction
 			}
 		};
 	}
@@ -459,7 +463,8 @@ const isInputSignalCall = (init: ts.Expression): boolean => {
 };
 
 const extractSignalInput = (
-	prop: ts.PropertyDeclaration
+	prop: ts.PropertyDeclaration,
+	compiler: typeof import('@angular/compiler') | null
 ): { classPropertyName: string; meta: R3InputMetadata } | null => {
 	if (!prop.initializer || !isInputSignalCall(prop.initializer)) return null;
 	const classPropertyName = prop.name.getText();
@@ -474,10 +479,15 @@ const extractSignalInput = (
 	}
 
 	let bindingPropertyName = classPropertyName;
+	let transformFunction: import('@angular/compiler').Expression | null = null;
 	const optsArg = call.arguments[required ? 0 : 1];
 	if (optsArg && ts.isObjectLiteralExpression(optsArg)) {
 		const aliasNode = getStringProperty(optsArg, 'alias');
 		if (aliasNode !== null) bindingPropertyName = aliasNode;
+		const transformNode = getProperty(optsArg, 'transform');
+		if (transformNode && compiler) {
+			transformFunction = new compiler.WrappedNodeExpr(transformNode);
+		}
 	}
 
 	return {
@@ -487,7 +497,7 @@ const extractSignalInput = (
 			bindingPropertyName,
 			required,
 			isSignal: true,
-			transformFunction: null
+			transformFunction
 		}
 	};
 };
@@ -547,7 +557,12 @@ const extractSignalOutput = (
 };
 
 const extractInputsAndOutputs = (
-	cls: ts.ClassDeclaration
+	cls: ts.ClassDeclaration,
+	// `compiler` is only needed for `WrappedNodeExpr` of `@Input({
+	// transform })` — child-component metadata extraction (used to
+	// build R3 declarations) doesn't care about transforms, so it
+	// can pass null and skip that work.
+	compiler: typeof import('@angular/compiler') | null
 ): {
 	inputs: Record<string, R3InputMetadata>;
 	outputs: Record<string, string>;
@@ -558,12 +573,12 @@ const extractInputsAndOutputs = (
 	for (const member of cls.members) {
 		if (!ts.isPropertyDeclaration(member)) continue;
 
-		const decoratorIn = extractDecoratorInput(member);
+		const decoratorIn = extractDecoratorInput(member, compiler);
 		if (decoratorIn) {
 			inputs[decoratorIn.classPropertyName] = decoratorIn.meta;
 			continue;
 		}
-		const signalIn = extractSignalInput(member);
+		const signalIn = extractSignalInput(member, compiler);
 		if (signalIn) {
 			inputs[signalIn.classPropertyName] = signalIn.meta;
 			continue;
@@ -580,6 +595,429 @@ const extractInputsAndOutputs = (
 	}
 
 	return { inputs, outputs };
+};
+
+/* ─── Advanced-feature metadata extraction ───────────────────
+ *
+ * `compileComponentFromMetadata` consumes a fully-shaped
+ * `R3ComponentMetadata`. The fast path used to hard-code empty
+ * placeholders for `animations` / `host` / `queries` /
+ * `viewQueries` / `exportAs` / `providers` / `viewProviders` /
+ * `hostDirectives` and bail to ngc's `emitHmrUpdateModule` when
+ * the user's component used any of them — paying ~13s per cycle
+ * for ngc's full program analysis.
+ *
+ * Each of those fields is either an opaque `Expression` (animations,
+ * providers — runtime-evaluated as-is, no AST awareness needed) or
+ * a structured shape we can parse from class-member decorators
+ * (`@HostBinding`, `@HostListener`, `@ViewChild` family) and
+ * field initializers (`viewChild()`/`contentChild()` signal
+ * queries). Everything is a mechanical TS AST walk on the
+ * already-parsed source file — no ngc, no transitive program. */
+
+const ATTR_BINDING_RE = /^\[([^\]]+)\]$/;
+const EVENT_BINDING_RE = /^\(([^)]+)\)$/;
+
+type ParsedHost = {
+	attributes: { [key: string]: import('@angular/compiler').Expression };
+	listeners: { [key: string]: string };
+	properties: { [key: string]: string };
+	specialAttributes: { styleAttr?: string; classAttr?: string };
+};
+
+const emptyHost = (): ParsedHost => ({
+	attributes: {},
+	listeners: {},
+	properties: {},
+	specialAttributes: {}
+});
+
+/* `@Component({ host: { '[class.foo]': 'flag', '(click)': 'onClick($event)',
+ * 'aria-label': 'Submit' } })` — keys ending in `[X]` go to properties,
+ * `(X)` to listeners, plain to attributes. Values for properties/listeners
+ * are unparsed expression strings (ngc parses them at compile time inside
+ * `compileComponentFromMetadata`). */
+const parseHostObjectInto = (
+	host: ParsedHost,
+	args: ts.ObjectLiteralExpression,
+	hostExprNode: ts.ObjectLiteralExpression | null,
+	compiler: typeof import('@angular/compiler')
+): void => {
+	const hostNode = getProperty(args, 'host');
+	if (!hostNode || !ts.isObjectLiteralExpression(hostNode)) {
+		// fall back to the `hostExprNode` arg if provided (callers
+		// sometimes have a parsed ref already)
+		if (!hostExprNode) return;
+	}
+	const obj = (hostNode && ts.isObjectLiteralExpression(hostNode)
+		? hostNode
+		: hostExprNode) as ts.ObjectLiteralExpression | null;
+	if (!obj) return;
+
+	for (const prop of obj.properties) {
+		if (!ts.isPropertyAssignment(prop)) continue;
+		const keyNode = prop.name;
+		let key: string;
+		if (ts.isStringLiteral(keyNode) || ts.isNoSubstitutionTemplateLiteral(keyNode)) {
+			key = keyNode.text;
+		} else if (ts.isIdentifier(keyNode)) {
+			key = keyNode.text;
+		} else {
+			continue;
+		}
+
+		const propMatch = ATTR_BINDING_RE.exec(key);
+		const evtMatch = EVENT_BINDING_RE.exec(key);
+		if (propMatch) {
+			host.properties[propMatch[1] ?? ''] = prop.initializer.getText().replace(/^['"]|['"]$/g, '');
+		} else if (evtMatch) {
+			host.listeners[evtMatch[1] ?? ''] = prop.initializer.getText().replace(/^['"]|['"]$/g, '');
+		} else {
+			// Plain attribute. Value is an Expression — wrap as
+			// WrappedNodeExpr so runtime evaluates it.
+			host.attributes[key] = new compiler.WrappedNodeExpr(prop.initializer);
+		}
+	}
+};
+
+/* Collect `@HostBinding`/`@HostListener` member decorators and merge
+ * into the host metadata. `@HostBinding('class.foo') prop` →
+ * `properties['class.foo'] = 'prop'`. `@HostListener('click', ['$event'])
+ * onClick(e) {}` → `listeners['click'] = 'onClick($event)'`. */
+const mergeMemberHostDecorators = (
+	host: ParsedHost,
+	cls: ts.ClassDeclaration
+): void => {
+	for (const member of cls.members) {
+		const decorators = ts.getDecorators(member) ?? [];
+		for (const dec of decorators) {
+			const expr = dec.expression;
+			if (!ts.isCallExpression(expr)) continue;
+			const fn = expr.expression;
+			if (!ts.isIdentifier(fn)) continue;
+			if (fn.text === 'HostBinding') {
+				if (!ts.isPropertyDeclaration(member) && !ts.isGetAccessor(member))
+					continue;
+				const propertyName = (member.name as ts.Identifier).text;
+				const target = expr.arguments[0];
+				const key =
+					target && ts.isStringLiteral(target)
+						? target.text
+						: propertyName;
+				host.properties[key] = propertyName;
+			} else if (fn.text === 'HostListener') {
+				if (!ts.isMethodDeclaration(member)) continue;
+				const methodName = (member.name as ts.Identifier).text;
+				const eventArg = expr.arguments[0];
+				if (!eventArg || !ts.isStringLiteral(eventArg)) continue;
+				const event = eventArg.text;
+				const argsArg = expr.arguments[1];
+				let argsList: string[] = [];
+				if (argsArg && ts.isArrayLiteralExpression(argsArg)) {
+					for (const el of argsArg.elements) {
+						if (ts.isStringLiteral(el)) argsList.push(el.text);
+					}
+				}
+				host.listeners[event] = `${methodName}(${argsList.join(', ')})`;
+			}
+		}
+	}
+};
+
+/* `@ViewChild('ref') prop: ElementRef`, `@ViewChild(SomeToken, { static: true })`,
+ * `@ViewChildren(SomeToken)`, etc. */
+const QUERY_DECORATORS = new Set([
+	'ViewChild',
+	'ViewChildren',
+	'ContentChild',
+	'ContentChildren'
+]);
+
+const parseQueryDecoratorOptions = (
+	args: ts.NodeArray<ts.Expression>
+): { static_: boolean; descendants: boolean; emitDistinctChangesOnly: boolean } => {
+	let static_ = false;
+	let descendants = true;
+	let emitDistinctChangesOnly = true;
+	const opts = args[1];
+	if (opts && ts.isObjectLiteralExpression(opts)) {
+		static_ = getBooleanProperty(opts, 'static') ?? false;
+		descendants = getBooleanProperty(opts, 'descendants') ?? true;
+		emitDistinctChangesOnly =
+			getBooleanProperty(opts, 'emitDistinctChangesOnly') ?? true;
+	}
+	return { static_, descendants, emitDistinctChangesOnly };
+};
+
+const queryPredicateFromArg = (
+	arg: ts.Expression,
+	compiler: typeof import('@angular/compiler')
+):
+	| string[]
+	| import('@angular/compiler').MaybeForwardRefExpression
+	| null => {
+	if (ts.isStringLiteral(arg)) {
+		// Template ref query: `@ViewChild('myRef')`. Predicate is the
+		// list of template ref names.
+		return arg.text.split(',').map((s) => s.trim()).filter(Boolean);
+	}
+	// Token query: `@ViewChild(SomeService)`. Wrap the identifier
+	// expression as `WrappedNodeExpr` for the runtime.
+	return {
+		expression: new compiler.WrappedNodeExpr(arg),
+		forwardRef: 0
+	};
+};
+
+const extractDecoratorQueries = (
+	cls: ts.ClassDeclaration,
+	compiler: typeof import('@angular/compiler')
+): {
+	contentQueries: import('@angular/compiler').R3QueryMetadata[];
+	viewQueries: import('@angular/compiler').R3QueryMetadata[];
+} => {
+	const contentQueries: import('@angular/compiler').R3QueryMetadata[] = [];
+	const viewQueries: import('@angular/compiler').R3QueryMetadata[] = [];
+	for (const member of cls.members) {
+		if (!ts.isPropertyDeclaration(member)) continue;
+		const decorators = ts.getDecorators(member) ?? [];
+		for (const dec of decorators) {
+			const expr = dec.expression;
+			if (!ts.isCallExpression(expr)) continue;
+			const fn = expr.expression;
+			if (!ts.isIdentifier(fn) || !QUERY_DECORATORS.has(fn.text)) continue;
+			const propertyName = (member.name as ts.Identifier).text;
+			const tokenArg = expr.arguments[0];
+			if (!tokenArg) continue;
+			const predicate = queryPredicateFromArg(tokenArg, compiler);
+			if (!predicate) continue;
+			const { static_, descendants, emitDistinctChangesOnly } =
+				parseQueryDecoratorOptions(expr.arguments);
+			const opts = expr.arguments[1];
+			let read: import('@angular/compiler').Expression | null = null;
+			if (opts && ts.isObjectLiteralExpression(opts)) {
+				const readNode = getProperty(opts, 'read');
+				if (readNode) {
+					read = new compiler.WrappedNodeExpr(readNode);
+				}
+			}
+			const meta: import('@angular/compiler').R3QueryMetadata = {
+				propertyName,
+				first: fn.text === 'ViewChild' || fn.text === 'ContentChild',
+				predicate,
+				descendants,
+				emitDistinctChangesOnly,
+				read,
+				static: static_,
+				isSignal: false
+			};
+			if (fn.text === 'ViewChild' || fn.text === 'ViewChildren') {
+				viewQueries.push(meta);
+			} else {
+				contentQueries.push(meta);
+			}
+		}
+	}
+	return { contentQueries, viewQueries };
+};
+
+/* `viewChild('ref')`, `viewChild.required(SomeToken)`,
+ * `contentChildren(SomeToken, { descendants: false })`, etc. */
+const SIGNAL_QUERY_TO_RUNTIME: Record<string, { isView: boolean; first: boolean }> = {
+	viewChild: { isView: true, first: true },
+	viewChildren: { isView: true, first: false },
+	contentChild: { isView: false, first: true },
+	contentChildren: { isView: false, first: false }
+};
+
+const extractSignalQueries = (
+	cls: ts.ClassDeclaration,
+	compiler: typeof import('@angular/compiler')
+): {
+	contentQueries: import('@angular/compiler').R3QueryMetadata[];
+	viewQueries: import('@angular/compiler').R3QueryMetadata[];
+} => {
+	const contentQueries: import('@angular/compiler').R3QueryMetadata[] = [];
+	const viewQueries: import('@angular/compiler').R3QueryMetadata[] = [];
+	for (const member of cls.members) {
+		if (!ts.isPropertyDeclaration(member) || !member.initializer) continue;
+		let init: ts.Expression = member.initializer;
+		if (!ts.isCallExpression(init)) continue;
+
+		// Disambiguate `viewChild(...)` vs `viewChild.required(...)`.
+		let queryName: string;
+		if (ts.isIdentifier(init.expression)) {
+			queryName = init.expression.text;
+		} else if (
+			ts.isPropertyAccessExpression(init.expression) &&
+			ts.isIdentifier(init.expression.expression) &&
+			init.expression.name.text === 'required'
+		) {
+			queryName = init.expression.expression.text;
+		} else {
+			continue;
+		}
+		const runtime = SIGNAL_QUERY_TO_RUNTIME[queryName];
+		if (!runtime) continue;
+
+		const propertyName = (member.name as ts.Identifier).text;
+		const tokenArg = init.arguments[0];
+		if (!tokenArg) continue;
+		const predicate = queryPredicateFromArg(tokenArg, compiler);
+		if (!predicate) continue;
+
+		let descendants = true;
+		let read: import('@angular/compiler').Expression | null = null;
+		const opts = init.arguments[1];
+		if (opts && ts.isObjectLiteralExpression(opts)) {
+			descendants = getBooleanProperty(opts, 'descendants') ?? true;
+			const readNode = getProperty(opts, 'read');
+			if (readNode) read = new compiler.WrappedNodeExpr(readNode);
+		}
+
+		const meta: import('@angular/compiler').R3QueryMetadata = {
+			propertyName,
+			first: runtime.first,
+			predicate,
+			descendants,
+			emitDistinctChangesOnly: true,
+			read,
+			static: false,
+			isSignal: true
+		};
+		if (runtime.isView) viewQueries.push(meta);
+		else contentQueries.push(meta);
+	}
+	return { contentQueries, viewQueries };
+};
+
+const extractExportAs = (
+	args: ts.ObjectLiteralExpression
+): string[] | null => {
+	const node = getProperty(args, 'exportAs');
+	if (!node) return null;
+	if (ts.isStringLiteral(node)) {
+		return node.text.split(',').map((s) => s.trim()).filter(Boolean);
+	}
+	if (ts.isArrayLiteralExpression(node)) {
+		const out: string[] = [];
+		for (const el of node.elements) {
+			if (ts.isStringLiteral(el)) out.push(el.text);
+		}
+		return out.length > 0 ? out : null;
+	}
+	return null;
+};
+
+const extractHostDirectives = (
+	args: ts.ObjectLiteralExpression,
+	compiler: typeof import('@angular/compiler')
+): import('@angular/compiler').R3HostDirectiveMetadata[] | null => {
+	const node = getProperty(args, 'hostDirectives');
+	if (!node || !ts.isArrayLiteralExpression(node)) return null;
+	const out: import('@angular/compiler').R3HostDirectiveMetadata[] = [];
+	for (const el of node.elements) {
+		if (ts.isIdentifier(el)) {
+			out.push({
+				directive: {
+					value: new compiler.WrappedNodeExpr(el),
+					type: new compiler.WrappedNodeExpr(el)
+				},
+				isForwardReference: false,
+				inputs: null,
+				outputs: null
+			});
+			continue;
+		}
+		if (!ts.isObjectLiteralExpression(el)) continue;
+		const directiveNode = getProperty(el, 'directive');
+		if (!directiveNode) continue;
+		const inputsNode = getProperty(el, 'inputs');
+		const outputsNode = getProperty(el, 'outputs');
+		const collectMap = (
+			n: ts.Expression | null
+		): { [k: string]: string } | null => {
+			if (!n || !ts.isArrayLiteralExpression(n)) return null;
+			const map: { [k: string]: string } = {};
+			for (const item of n.elements) {
+				if (!ts.isStringLiteral(item)) continue;
+				// Format: 'name' or 'name: alias'
+				const [name, alias] = item.text.split(':').map((s) => s.trim());
+				if (name) map[name] = alias ?? name;
+			}
+			return Object.keys(map).length > 0 ? map : null;
+		};
+		out.push({
+			directive: {
+				value: new compiler.WrappedNodeExpr(directiveNode),
+				type: new compiler.WrappedNodeExpr(directiveNode)
+			},
+			isForwardReference: false,
+			inputs: collectMap(inputsNode),
+			outputs: collectMap(outputsNode)
+		});
+	}
+	return out.length > 0 ? out : null;
+};
+
+type AdvancedMetadata = {
+	host: ParsedHost;
+	contentQueries: import('@angular/compiler').R3QueryMetadata[];
+	viewQueries: import('@angular/compiler').R3QueryMetadata[];
+	exportAs: string[] | null;
+	providers: import('@angular/compiler').Expression | null;
+	viewProviders: import('@angular/compiler').Expression | null;
+	animations: import('@angular/compiler').Expression | null;
+	hostDirectives:
+		| import('@angular/compiler').R3HostDirectiveMetadata[]
+		| null;
+};
+
+const extractAdvancedMetadata = (
+	cls: ts.ClassDeclaration,
+	decoratorArgs: ts.ObjectLiteralExpression,
+	compiler: typeof import('@angular/compiler')
+): AdvancedMetadata => {
+	const host = emptyHost();
+	parseHostObjectInto(host, decoratorArgs, null, compiler);
+	mergeMemberHostDecorators(host, cls);
+
+	const decoratorQueries = extractDecoratorQueries(cls, compiler);
+	const signalQueries = extractSignalQueries(cls, compiler);
+	const contentQueries = [
+		...decoratorQueries.contentQueries,
+		...signalQueries.contentQueries
+	];
+	const viewQueries = [
+		...decoratorQueries.viewQueries,
+		...signalQueries.viewQueries
+	];
+
+	const providersNode = getProperty(decoratorArgs, 'providers');
+	const providers = providersNode
+		? new compiler.WrappedNodeExpr(providersNode)
+		: null;
+
+	const viewProvidersNode = getProperty(decoratorArgs, 'viewProviders');
+	const viewProviders = viewProvidersNode
+		? new compiler.WrappedNodeExpr(viewProvidersNode)
+		: null;
+
+	const animationsNode = getProperty(decoratorArgs, 'animations');
+	const animations = animationsNode
+		? new compiler.WrappedNodeExpr(animationsNode)
+		: null;
+
+	return {
+		host,
+		contentQueries,
+		viewQueries,
+		exportAs: extractExportAs(decoratorArgs),
+		providers,
+		viewProviders,
+		animations,
+		hostDirectives: extractHostDirectives(decoratorArgs, compiler)
+	};
 };
 
 /* ─── Child-component metadata resolution ──────────────────────
@@ -667,7 +1105,7 @@ const getChildComponentInfoFromTsSource = (
 		if (!args) continue;
 		const meta = readDecoratorMeta(args);
 		if (!meta.selector) continue;
-		const { inputs, outputs } = extractInputsAndOutputs(stmt);
+		const { inputs, outputs } = extractInputsAndOutputs(stmt, null);
 		const inputNames = new Set<string>();
 		for (const value of Object.values(inputs)) {
 			inputNames.add(value.bindingPropertyName);
@@ -1653,180 +2091,6 @@ ${block}
 `;
 };
 
-/* ─── Advanced-feature detection ─────────────────────────────
- *
- * The fast path's `compileComponentFromMetadata` invocation builds a
- * minimal `R3ComponentMetadata` that hard-codes empty/null for several
- * fields the slow path (`emitHmrUpdateModule`) populates from the
- * full ngc program:
- *
- *   - `animations`   (`@Component({ animations: [trigger(...)] })`)
- *   - `host`         (`@Component({ host: { '[class.foo]': 'flag' } })`)
- *   - `providers`    (`@Component({ providers: [...] })`)
- *   - `viewProviders`
- *   - `exportAs`     (`@Component({ exportAs: 'foo' })`)
- *   - `hostDirectives`
- *   - `queries` / `viewQueries` (`@ViewChild`/`@ContentChild` and
- *     signal-based `viewChild()`/`contentChild()`)
- *   - `R3InputMetadata.transformFunction` (`@Input({ transform: ... })`)
- *   - `R3InputMetadata.required` for decorator-form (currently a hard
- *     `false` in `extractDecoratorInput`)
- *
- * Class-member decorators (`@HostBinding`, `@HostListener`, etc.)
- * also feed into `R3HostMetadata.properties`/`listeners` and
- * `R3QueryMetadata`, which we don't extract.
- *
- * Re-implementing each extractor is hundreds of lines of TS AST code
- * per feature. Cheaper and correct: bail to the slow path
- * (`compileAngularForHmr` shadow program → `emitHmrUpdateModule`)
- * which uses ngc's full program and produces the same IR shape ngc
- * would emit at production AOT compile time. Slow path is still
- * Tier 0 surgical from the client's perspective — same
- * `ɵɵreplaceMetadata` apply; just a slower compile (~50–150ms over
- * fast path's ~50ms). The frequency of edits to advanced-feature
- * components is low, and *correct slower* beats *fast and silently
- * wrong*. */
-
-const COMPONENT_DECORATOR_KEYS_THAT_BAIL = [
-	'animations',
-	'host',
-	'providers',
-	'viewProviders',
-	'exportAs',
-	'hostDirectives'
-] as const;
-
-const MEMBER_DECORATOR_NAMES_THAT_BAIL = new Set([
-	'HostBinding',
-	'HostListener',
-	'ViewChild',
-	'ViewChildren',
-	'ContentChild',
-	'ContentChildren'
-]);
-
-const SIGNAL_QUERY_FN_NAMES = new Set([
-	'viewChild',
-	'viewChildren',
-	'contentChild',
-	'contentChildren'
-]);
-
-type AdvancedFeatureBail = {
-	bail: true;
-	feature: string;
-};
-
-type NoBail = {
-	bail: false;
-};
-
-const detectAdvancedComponentFeatures = (
-	cls: ts.ClassDeclaration,
-	decoratorArgs: ts.ObjectLiteralExpression
-): AdvancedFeatureBail | NoBail => {
-	for (const key of COMPONENT_DECORATOR_KEYS_THAT_BAIL) {
-		if (getProperty(decoratorArgs, key) !== null) {
-			return { bail: true, feature: `@Component({ ${key}: ... })` };
-		}
-	}
-
-	for (const member of cls.members) {
-		const decorators = ts.getDecorators(member) ?? [];
-		for (const dec of decorators) {
-			const expr = dec.expression;
-			const calleeName = ts.isCallExpression(expr)
-				? ts.isIdentifier(expr.expression)
-					? expr.expression.text
-					: null
-				: ts.isIdentifier(expr)
-					? expr.text
-					: null;
-			if (calleeName && MEMBER_DECORATOR_NAMES_THAT_BAIL.has(calleeName)) {
-				return { bail: true, feature: `@${calleeName}` };
-			}
-		}
-
-		// Signal queries — `viewChild(...)` / `viewChildren(...)` /
-		// `contentChild(...)` / `contentChildren(...)` field initializers,
-		// including the `.required` chained form.
-		if (ts.isPropertyDeclaration(member) && member.initializer) {
-			let init: ts.Expression = member.initializer;
-			if (
-				ts.isCallExpression(init) &&
-				ts.isPropertyAccessExpression(init.expression) &&
-				init.expression.name.text === 'required' &&
-				ts.isIdentifier(init.expression.expression) &&
-				SIGNAL_QUERY_FN_NAMES.has(init.expression.expression.text)
-			) {
-				return {
-					bail: true,
-					feature: `${init.expression.expression.text}.required()`
-				};
-			}
-			if (ts.isCallExpression(init) && ts.isIdentifier(init.expression)) {
-				if (SIGNAL_QUERY_FN_NAMES.has(init.expression.text)) {
-					return {
-						bail: true,
-						feature: `${init.expression.text}()`
-					};
-				}
-			}
-		}
-
-		// `@Input({ transform: numberAttribute })` — fast path drops
-		// `transformFunction`. Detection: any `@Input(...)` whose
-		// argument object has a `transform` property.
-		if (ts.isPropertyDeclaration(member)) {
-			for (const dec of decorators) {
-				const expr = dec.expression;
-				if (!ts.isCallExpression(expr)) continue;
-				const callee = expr.expression;
-				if (!ts.isIdentifier(callee) || callee.text !== 'Input') continue;
-				const arg = expr.arguments[0];
-				if (
-					arg &&
-					ts.isObjectLiteralExpression(arg) &&
-					getProperty(arg, 'transform') !== null
-				) {
-					return {
-						bail: true,
-						feature: '@Input({ transform: ... })'
-					};
-				}
-			}
-
-			// `name = input(default, { transform: ... })` — signal-form.
-			const init = member.initializer;
-			if (init && ts.isCallExpression(init)) {
-				const callee = init.expression;
-				const isInputCall =
-					ts.isIdentifier(callee) && callee.text === 'input';
-				const isInputRequiredCall =
-					ts.isPropertyAccessExpression(callee) &&
-					ts.isIdentifier(callee.expression) &&
-					callee.expression.text === 'input' &&
-					callee.name.text === 'required';
-				if (isInputCall || isInputRequiredCall) {
-					for (const a of init.arguments) {
-						if (
-							ts.isObjectLiteralExpression(a) &&
-							getProperty(a, 'transform') !== null
-						) {
-							return {
-								bail: true,
-								feature: 'input({ transform: ... })'
-							};
-						}
-					}
-				}
-			}
-		}
-	}
-
-	return { bail: false };
-};
-
 /* ─── Main entry ─────────────────────────────────────────────── */
 
 export type TryFastHmrParams = {
@@ -1910,10 +2174,11 @@ export const tryFastHmr = async (
 	const decoratorMeta = readDecoratorMeta(decoratorArgs);
 	if (!decoratorMeta.standalone) return fail('not-standalone');
 
-	const advanced = detectAdvancedComponentFeatures(classNode, decoratorArgs);
-	if (advanced.bail) {
-		return fail('uses-advanced-feature', advanced.feature);
-	}
+	const advancedMetadata = extractAdvancedMetadata(
+		classNode,
+		decoratorArgs,
+		compiler
+	);
 
 	const componentDir = dirname(componentFilePath);
 	let templateText: string;
@@ -1974,7 +2239,7 @@ export const tryFastHmr = async (
 	if (!className_) return fail('class-not-found', 'anonymous class');
 	const wrappedClass = new compiler.WrappedNodeExpr(className_);
 
-	const { inputs, outputs } = extractInputsAndOutputs(classNode);
+	const { inputs, outputs } = extractInputsAndOutputs(classNode, compiler);
 
 	const projectRelPath = relative(projectRoot, componentFilePath).replace(
 		/\\/g,
@@ -2062,24 +2327,19 @@ export const tryFastHmr = async (
 		typeSourceSpan,
 		deps: null,
 		selector: decoratorMeta.selector,
-		queries: [],
-		viewQueries: [],
-		host: {
-			attributes: {},
-			listeners: {},
-			properties: {},
-			specialAttributes: {}
-		},
+		queries: advancedMetadata.contentQueries,
+		viewQueries: advancedMetadata.viewQueries,
+		host: advancedMetadata.host,
 		lifecycle: { usesOnChanges: false },
 		inputs,
 		outputs,
 		usesInheritance: false,
 		controlCreate: null,
-		exportAs: null,
-		providers: null,
+		exportAs: advancedMetadata.exportAs,
+		providers: advancedMetadata.providers,
 		isStandalone: true,
 		isSignal: false,
-		hostDirectives: null,
+		hostDirectives: advancedMetadata.hostDirectives,
 		template: {
 			nodes: parsed.nodes,
 			ngContentSelectors: parsed.ngContentSelectors ?? [],
@@ -2090,8 +2350,8 @@ export const tryFastHmr = async (
 		declarationListEmitMode: declarations.length > 0 ? 1 : 0,
 		styles,
 		encapsulation: 0,
-		animations: null,
-		viewProviders: null,
+		animations: advancedMetadata.animations,
+		viewProviders: advancedMetadata.viewProviders,
 		relativeContextFilePath: projectRelPath,
 		i18nUseExternalIds: false,
 		changeDetection: null,
