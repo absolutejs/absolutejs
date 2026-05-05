@@ -13,6 +13,7 @@ import { basename, dirname, extname, join, relative, resolve } from 'node:path';
 import { cwd, env, exit } from 'node:process';
 import { build as bunBuild, type BuildArtifact, Glob } from 'bun';
 import { generateManifest } from '../build/generateManifest';
+import { verifyAngularCoreUniqueness } from '../build/verifyAngularCoreUniqueness';
 import {
 	collectIslandFrameworkSources,
 	generateIslandEntryPoints,
@@ -2268,6 +2269,24 @@ const buildUnlocked = async ({
 
 				return relativePaths;
 			})
+		);
+	}
+
+	// §3.4 SSR Angular core multi-instance guardrail.
+	// `NG0203` — and all the "two `currentInjector` globals" weirdness
+	// it implies — happens when the SSR runtime ends up with more
+	// than one `@angular/core` module instance. The §1.1 fix pinned
+	// to a single resolution path; this check is the build-time
+	// guardrail so a future regression (a new vendor build, a config
+	// drift, mixed strategies) fails CI instead of producing
+	// `Failed to resolve injector` at request time.
+	if (serverOutputs.length > 0 && angularDir) {
+		await tracePhase('verify/angular-core-uniqueness', () =>
+			verifyAngularCoreUniqueness(
+				serverOutputs,
+				serverOutDir,
+				throwOnError
+			)
 		);
 	}
 

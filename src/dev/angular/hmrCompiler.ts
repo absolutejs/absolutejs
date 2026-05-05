@@ -409,8 +409,201 @@ export const getApplyMetadataModule = async (
 	if (!program) return null;
 	const node = findClassNodeById(program, encodedId);
 	if (!node) return null;
+	const raw = program.compiler.emitHmrUpdateModule(node);
+	if (!raw) return raw;
+	return rewriteSlowPathLocalsToAbsDeps(raw, className);
+};
 
-	return program.compiler.emitHmrUpdateModule(node);
+/* Rough symbol→package mapping for the most common Angular runtime
+ * packages ngc references when emitting an HMR update. Used to infer
+ * the source module of each `const ɵhmrN = ɵɵnamespaces[N];` slot in
+ * the slow-path output. Not exhaustive — only what dealroom-shaped
+ * apps need. Add more entries as they come up. `@angular/core` is
+ * the catch-all when no other package matches. */
+const ANGULAR_PACKAGE_SYMBOLS: ReadonlyArray<readonly [string, ReadonlySet<string>]> = [
+	[
+		'@angular/common',
+		new Set([
+			'NgClass',
+			'NgComponentOutlet',
+			'NgForOf',
+			'NgIf',
+			'NgTemplateOutlet',
+			'NgStyle',
+			'NgSwitch',
+			'NgSwitchCase',
+			'NgSwitchDefault',
+			'NgPlural',
+			'NgPluralCase',
+			'AsyncPipe',
+			'UpperCasePipe',
+			'LowerCasePipe',
+			'JsonPipe',
+			'SlicePipe',
+			'DecimalPipe',
+			'PercentPipe',
+			'TitleCasePipe',
+			'CurrencyPipe',
+			'DatePipe',
+			'I18nPluralPipe',
+			'I18nSelectPipe',
+			'KeyValuePipe',
+			'CommonModule'
+		])
+	],
+	[
+		'@angular/forms',
+		new Set([
+			'NgForm',
+			'NgModel',
+			'NgModelGroup',
+			'FormGroupDirective',
+			'FormControlDirective',
+			'FormControlName',
+			'FormArrayName',
+			'FormGroupName',
+			'NgSelectOption',
+			'NgSelectMultipleOption',
+			'DefaultValueAccessor',
+			'CheckboxControlValueAccessor',
+			'NumberValueAccessor',
+			'RadioControlValueAccessor',
+			'RangeValueAccessor',
+			'SelectControlValueAccessor',
+			'SelectMultipleControlValueAccessor',
+			'MaxValidator',
+			'MinValidator',
+			'PatternValidator',
+			'EmailValidator',
+			'RequiredValidator',
+			'CheckboxRequiredValidator',
+			'MinLengthValidator',
+			'MaxLengthValidator'
+		])
+	],
+	[
+		'@angular/router',
+		new Set([
+			'RouterOutlet',
+			'RouterLink',
+			'RouterLinkActive',
+			'RouterLinkWithHref'
+		])
+	],
+	[
+		'@angular/animations',
+		new Set(['trigger', 'state', 'style', 'transition', 'animate', 'keyframes', 'group', 'sequence', 'query', 'stagger', 'animateChild', 'useAnimation'])
+	]
+];
+
+const inferNamespaceModule = (
+	body: string,
+	hmrName: string
+): string => {
+	if (hmrName === 'ɵhmr0') return '@angular/core';
+	// `\b` in JS treats `ɵ` as a non-word char, so `\bɵhmr1\b`
+	// misses; use explicit lookarounds instead.
+	const re = new RegExp(
+		`(?<![\\w$])${hmrName}\\.([A-Za-z_$][\\w$]*)(?![\\w$])`,
+		'g'
+	);
+	const symbols = new Set<string>();
+	let m: RegExpExecArray | null;
+	while ((m = re.exec(body)) !== null) {
+		const sym = m[1];
+		if (sym) symbols.add(sym);
+	}
+	let bestPackage = '@angular/core';
+	let bestHits = 0;
+	for (const [pkg, exports] of ANGULAR_PACKAGE_SYMBOLS) {
+		let hits = 0;
+		for (const s of symbols) if (exports.has(s)) hits++;
+		if (hits > bestHits) {
+			bestHits = hits;
+			bestPackage = pkg;
+		}
+	}
+	return bestPackage;
+};
+
+/* `emitHmrUpdateModule` emits the surgical-update function with two
+ * client-incompatible patterns:
+ *
+ *   - **Free-variable parameters** for every imported identifier:
+ *     `function Foo_UpdateMetadata(Foo, ɵɵnamespaces, CommonModule,
+ *      ImageComponent, ...)`. Our `__ng_hmr_load` only passes
+ *     `[type, namespaces, ...locals]` with `locals = []`, so the
+ *     extras end up `undefined`.
+ *   - **Multi-namespace `ɵɵnamespaces[N]`** access. Inside the body:
+ *     `const ɵhmr0 = ɵɵnamespaces[0]; const ɵhmr1 = ɵɵnamespaces[1];`.
+ *     Each `ɵhmrN` is a distinct angular subpackage namespace
+ *     (core, common, forms, …). Our injected loader only passes
+ *     `[core]`, so anything past index 0 is `undefined`.
+ *
+ * Rewrite both:
+ *   - Drop the local parameters; destructure them from
+ *     `${className}.__abs_deps` (populated by `hmrInjectionPlugin`).
+ *   - Replace `const ɵhmrN = ɵɵnamespaces[N];` with a top-level
+ *     `import * as ɵhmrN from '<inferred-package>';`. The
+ *     `/@ng/component` route already runs `rewriteImportsInContent`
+ *     after this, which translates bare `@angular/*` specifiers to
+ *     dev-vendor URLs the browser can fetch. */
+const rewriteSlowPathLocalsToAbsDeps = (
+	moduleText: string,
+	className: string
+): string => {
+	let result = moduleText;
+
+	// Step 1 — strip the local parameters, add `__abs_deps` destructure.
+	const fnRe = new RegExp(
+		`(export\\s+default\\s+function\\s+${className}_UpdateMetadata\\s*\\()([^)]*)(\\)\\s*\\{)`
+	);
+	const fnMatch = fnRe.exec(result);
+	if (fnMatch) {
+		const paramsText = fnMatch[2] ?? '';
+		const params = paramsText
+			.split(',')
+			.map((p) => p.trim())
+			.filter((p) => p.length > 0);
+		const fixedParams = params.slice(0, 2);
+		const localParams = params.slice(2);
+		if (localParams.length > 0) {
+			const newSignature = `${fnMatch[1]}${fixedParams.join(', ')}${fnMatch[3]}`;
+			const destructure = `\n  const { ${localParams.join(', ')} } = ${className}.__abs_deps || {};\n`;
+			result = result.replace(fnRe, newSignature + destructure);
+		}
+	}
+
+	// Step 2 — replace each `const ɵhmrN = ɵɵnamespaces[N];` with a
+	// module-level static import of the inferred angular package.
+	const nsDeclRe = /\n?\s*const\s+(ɵhmr\d+)\s*=\s*ɵɵnamespaces\s*\[\s*\d+\s*\]\s*;\s*/g;
+	const namespaceImports: string[] = [];
+	const seenHmrNames = new Set<string>();
+	result = result.replace(nsDeclRe, (_match, hmrName: string) => {
+		if (!seenHmrNames.has(hmrName)) {
+			seenHmrNames.add(hmrName);
+			const pkg = inferNamespaceModule(result, hmrName);
+			namespaceImports.push(`import * as ${hmrName} from '${pkg}';`);
+		}
+		return '\n';
+	});
+	if (namespaceImports.length > 0) {
+		result = `${namespaceImports.join('\n')}\n${result}`;
+	}
+
+	// Step 3 — drop `${className}.ɵfac = ...` assignments. The live
+	// class's `ɵfac` is defined via a getter (Angular's compiler does
+	// this when class metadata is registered) and direct assignment
+	// throws `Cannot set property ɵfac of class … which has only a
+	// getter`. Tier 0 surgical updates don't need a new factory: the
+	// existing factory keeps working since the constructor signature
+	// is fingerprint-stable for a Tier 0 to fire in the first place.
+	const facAssignRe = new RegExp(
+		`\\s*${className}\\.ɵfac\\s*=\\s*function\\s+${className}_Factory\\s*\\([^)]*\\)\\s*\\{[^}]*\\}\\s*;`
+	);
+	result = result.replace(facAssignRe, '');
+
+	return result;
 };
 
 /* Build the raw HMR component id used for two purposes:

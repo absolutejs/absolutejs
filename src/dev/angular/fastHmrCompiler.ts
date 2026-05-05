@@ -41,6 +41,7 @@ export type FastHmrFallbackReason =
 	| 'template-resource-not-found'
 	| 'style-resource-not-found'
 	| 'structural-change'
+	| 'uses-advanced-feature'
 	| 'unexpected-error';
 
 /* Identity-stable summary of a component's structural surface. Two
@@ -1652,6 +1653,180 @@ ${block}
 `;
 };
 
+/* ─── Advanced-feature detection ─────────────────────────────
+ *
+ * The fast path's `compileComponentFromMetadata` invocation builds a
+ * minimal `R3ComponentMetadata` that hard-codes empty/null for several
+ * fields the slow path (`emitHmrUpdateModule`) populates from the
+ * full ngc program:
+ *
+ *   - `animations`   (`@Component({ animations: [trigger(...)] })`)
+ *   - `host`         (`@Component({ host: { '[class.foo]': 'flag' } })`)
+ *   - `providers`    (`@Component({ providers: [...] })`)
+ *   - `viewProviders`
+ *   - `exportAs`     (`@Component({ exportAs: 'foo' })`)
+ *   - `hostDirectives`
+ *   - `queries` / `viewQueries` (`@ViewChild`/`@ContentChild` and
+ *     signal-based `viewChild()`/`contentChild()`)
+ *   - `R3InputMetadata.transformFunction` (`@Input({ transform: ... })`)
+ *   - `R3InputMetadata.required` for decorator-form (currently a hard
+ *     `false` in `extractDecoratorInput`)
+ *
+ * Class-member decorators (`@HostBinding`, `@HostListener`, etc.)
+ * also feed into `R3HostMetadata.properties`/`listeners` and
+ * `R3QueryMetadata`, which we don't extract.
+ *
+ * Re-implementing each extractor is hundreds of lines of TS AST code
+ * per feature. Cheaper and correct: bail to the slow path
+ * (`compileAngularForHmr` shadow program → `emitHmrUpdateModule`)
+ * which uses ngc's full program and produces the same IR shape ngc
+ * would emit at production AOT compile time. Slow path is still
+ * Tier 0 surgical from the client's perspective — same
+ * `ɵɵreplaceMetadata` apply; just a slower compile (~50–150ms over
+ * fast path's ~50ms). The frequency of edits to advanced-feature
+ * components is low, and *correct slower* beats *fast and silently
+ * wrong*. */
+
+const COMPONENT_DECORATOR_KEYS_THAT_BAIL = [
+	'animations',
+	'host',
+	'providers',
+	'viewProviders',
+	'exportAs',
+	'hostDirectives'
+] as const;
+
+const MEMBER_DECORATOR_NAMES_THAT_BAIL = new Set([
+	'HostBinding',
+	'HostListener',
+	'ViewChild',
+	'ViewChildren',
+	'ContentChild',
+	'ContentChildren'
+]);
+
+const SIGNAL_QUERY_FN_NAMES = new Set([
+	'viewChild',
+	'viewChildren',
+	'contentChild',
+	'contentChildren'
+]);
+
+type AdvancedFeatureBail = {
+	bail: true;
+	feature: string;
+};
+
+type NoBail = {
+	bail: false;
+};
+
+const detectAdvancedComponentFeatures = (
+	cls: ts.ClassDeclaration,
+	decoratorArgs: ts.ObjectLiteralExpression
+): AdvancedFeatureBail | NoBail => {
+	for (const key of COMPONENT_DECORATOR_KEYS_THAT_BAIL) {
+		if (getProperty(decoratorArgs, key) !== null) {
+			return { bail: true, feature: `@Component({ ${key}: ... })` };
+		}
+	}
+
+	for (const member of cls.members) {
+		const decorators = ts.getDecorators(member) ?? [];
+		for (const dec of decorators) {
+			const expr = dec.expression;
+			const calleeName = ts.isCallExpression(expr)
+				? ts.isIdentifier(expr.expression)
+					? expr.expression.text
+					: null
+				: ts.isIdentifier(expr)
+					? expr.text
+					: null;
+			if (calleeName && MEMBER_DECORATOR_NAMES_THAT_BAIL.has(calleeName)) {
+				return { bail: true, feature: `@${calleeName}` };
+			}
+		}
+
+		// Signal queries — `viewChild(...)` / `viewChildren(...)` /
+		// `contentChild(...)` / `contentChildren(...)` field initializers,
+		// including the `.required` chained form.
+		if (ts.isPropertyDeclaration(member) && member.initializer) {
+			let init: ts.Expression = member.initializer;
+			if (
+				ts.isCallExpression(init) &&
+				ts.isPropertyAccessExpression(init.expression) &&
+				init.expression.name.text === 'required' &&
+				ts.isIdentifier(init.expression.expression) &&
+				SIGNAL_QUERY_FN_NAMES.has(init.expression.expression.text)
+			) {
+				return {
+					bail: true,
+					feature: `${init.expression.expression.text}.required()`
+				};
+			}
+			if (ts.isCallExpression(init) && ts.isIdentifier(init.expression)) {
+				if (SIGNAL_QUERY_FN_NAMES.has(init.expression.text)) {
+					return {
+						bail: true,
+						feature: `${init.expression.text}()`
+					};
+				}
+			}
+		}
+
+		// `@Input({ transform: numberAttribute })` — fast path drops
+		// `transformFunction`. Detection: any `@Input(...)` whose
+		// argument object has a `transform` property.
+		if (ts.isPropertyDeclaration(member)) {
+			for (const dec of decorators) {
+				const expr = dec.expression;
+				if (!ts.isCallExpression(expr)) continue;
+				const callee = expr.expression;
+				if (!ts.isIdentifier(callee) || callee.text !== 'Input') continue;
+				const arg = expr.arguments[0];
+				if (
+					arg &&
+					ts.isObjectLiteralExpression(arg) &&
+					getProperty(arg, 'transform') !== null
+				) {
+					return {
+						bail: true,
+						feature: '@Input({ transform: ... })'
+					};
+				}
+			}
+
+			// `name = input(default, { transform: ... })` — signal-form.
+			const init = member.initializer;
+			if (init && ts.isCallExpression(init)) {
+				const callee = init.expression;
+				const isInputCall =
+					ts.isIdentifier(callee) && callee.text === 'input';
+				const isInputRequiredCall =
+					ts.isPropertyAccessExpression(callee) &&
+					ts.isIdentifier(callee.expression) &&
+					callee.expression.text === 'input' &&
+					callee.name.text === 'required';
+				if (isInputCall || isInputRequiredCall) {
+					for (const a of init.arguments) {
+						if (
+							ts.isObjectLiteralExpression(a) &&
+							getProperty(a, 'transform') !== null
+						) {
+							return {
+								bail: true,
+								feature: 'input({ transform: ... })'
+							};
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return { bail: false };
+};
+
 /* ─── Main entry ─────────────────────────────────────────────── */
 
 export type TryFastHmrParams = {
@@ -1734,6 +1909,11 @@ export const tryFastHmr = async (
 
 	const decoratorMeta = readDecoratorMeta(decoratorArgs);
 	if (!decoratorMeta.standalone) return fail('not-standalone');
+
+	const advanced = detectAdvancedComponentFeatures(classNode, decoratorArgs);
+	if (advanced.bail) {
+		return fail('uses-advanced-feature', advanced.feature);
+	}
 
 	const componentDir = dirname(componentFilePath);
 	let templateText: string;

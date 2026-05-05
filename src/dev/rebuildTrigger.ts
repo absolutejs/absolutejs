@@ -925,6 +925,23 @@ const decideAngularTier = async (
 			});
 			totalCompileMs += performance.now() - compileStart;
 			if (!result.ok) {
+				// `uses-advanced-feature` means the fast extractor can't
+				// build correct R3 metadata for this component (it has
+				// `host:` / `animations:` / `@HostBinding` / `@ViewChild`
+				// / signal queries / `@Input({ transform })` / etc.) —
+				// but the slow path (`emitHmrUpdateModule` via the
+				// `/@ng/component` endpoint) still produces a correct
+				// surgical-update module from ngc's full program. Stay
+				// Tier 0; the client fetch will land on the slow path
+				// automatically when its `/@ng/component?c=<id>` request
+				// arrives. Errors during apply auto-escalate via
+				// Angular's `executeWithInvalidateFallback` →
+				// `angular:invalidate` → rebootstrap.
+				if (result.reason === 'uses-advanced-feature') {
+					queueIds.add(id);
+					queue.push({ className, id });
+					continue;
+				}
 				return {
 					kind: 'rebootstrap',
 					reason: `${className}: ${result.reason}${
@@ -1113,19 +1130,65 @@ const scheduleAngularBundleRebuild = (
  *     `.absolutejs/generated/angular/...` so moduleServer serves
  *     fresh bytes on the next page refresh. Without this, the
  *     surgical patch updates the live app but a hard refresh
- *     boots from the stale on-disk module. */
+ *     boots from the stale on-disk module.
+ *
+ * The shadow program is always seeded with every page entry under
+ * `<angularDir>/pages/`. Empty `rootNames` would make
+ * `performCompilation` produce an empty program that overwrites the
+ * cached one, breaking the next cycle's class lookup — so we don't
+ * try to be clever with cached-vs-cold handoff. The page-entry list
+ * is cached + invalidated on TS edits (a new page added or a
+ * `templateUrl` rename matters; CSS/HTML edits don't). */
+let cachedAngularPageEntries: string[] | null = null;
+let cachedAngularPageEntriesDir: string | null = null;
+const invalidateAngularPageEntriesCache = () => {
+	cachedAngularPageEntries = null;
+	cachedAngularPageEntriesDir = null;
+};
+const getAllAngularPageEntries = async (
+	angularDir: string
+): Promise<string[]> => {
+	if (
+		cachedAngularPageEntries !== null &&
+		cachedAngularPageEntriesDir === angularDir
+	) {
+		return cachedAngularPageEntries;
+	}
+	const pagesDir = resolve(angularDir, 'pages');
+	if (!existsSync(pagesDir)) {
+		cachedAngularPageEntries = [];
+		cachedAngularPageEntriesDir = angularDir;
+		return cachedAngularPageEntries;
+	}
+	const tsEntries = await scanEntryPoints(pagesDir, '*.ts');
+	const tsxEntries = await scanEntryPoints(pagesDir, '*.tsx');
+	cachedAngularPageEntries = [...tsEntries, ...tsxEntries];
+	cachedAngularPageEntriesDir = angularDir;
+	return cachedAngularPageEntries;
+};
+
 const runAngularHmrIncremental = async (
 	state: HMRState,
-	angularDir: string
+	angularDir: string,
+	_pageEntries: string[]
 ) => {
 	const editedFiles = state.lastUserEditedFiles ?? new Set<string>();
+	// A `.ts` edit might've added/removed a page — drop the page-list
+	// cache so the next compile rescans `<angularDir>/pages/`.
+	for (const f of editedFiles) {
+		if (f.endsWith('.ts') || f.endsWith('.tsx')) {
+			invalidateAngularPageEntriesCache();
+			break;
+		}
+	}
 	const refreshPromise = (async () => {
 		try {
 			const { compileAngularForHmr } = await import(
 				'./angular/hmrCompiler'
 			);
+			const inputs = await getAllAngularPageEntries(angularDir);
 			await compileAngularForHmr(
-				[],
+				inputs,
 				state.resolvedPaths.buildDir,
 				editedFiles
 			);
@@ -1379,7 +1442,7 @@ const handleAngularFastPath = async (
 		// `/@ng/component` endpoint can serve the new class on the
 		// next fetch. No Bun.build — surgical HMR mutates the live
 		// app's `ɵcmp` directly, the bundle isn't in the loop.
-		await runAngularHmrIncremental(state, angularDir);
+		await runAngularHmrIncremental(state, angularDir, pageEntries);
 		broadcastSurgical(state, verdict.queue);
 		const b = verdict.breakdown;
 		logInfo(
@@ -1390,7 +1453,7 @@ const handleAngularFastPath = async (
 		// no bundle work. The browser's `__ng_hmr_remount` fetches
 		// `/@ng/component` and runs `createComponent` against the
 		// already-running app's class identities.
-		await runAngularHmrIncremental(state, angularDir);
+		await runAngularHmrIncremental(state, angularDir, pageEntries);
 		broadcastRemount(state, verdict.queue);
 		const b = verdict.breakdown;
 		logInfo(
