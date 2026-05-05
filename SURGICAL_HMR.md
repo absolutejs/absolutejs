@@ -1,13 +1,11 @@
 # Surgical Angular HMR — current state
 
 This file documents the production architecture as of
-`@absolutejs/absolute@0.19.0-beta.913`.
+`@absolutejs/absolute@0.19.0-beta.915`.
 
-For the why-Angular-doesn't-already-do-this writeup, see
-`ANGULAR_HMR_ARCHITECTURE.md`. For the design history (spike +
-multi-phase rollout), see `git log` on this file and
-`ANGULAR_HMR.md` (the original Phase 1 / Phase 2 plan, all of which
-landed under the architecture below).
+For the design history (Phase 1 correctness fixes + Phase 2 state
+preservation, all of which landed under the architecture below), see
+`git log` on this file and `ANGULAR_HMR.md`.
 
 ## Tier model
 
@@ -134,25 +132,68 @@ Fingerprinted dimensions:
 
 ## What forces Tier 1b (full rebootstrap)
 
-`tryFastHmr` returning `ok: false` for a structural reason — i.e.,
-the file itself can't be parsed:
+`tryFastHmr` returning `ok: false` for a *structural* reason — i.e.,
+the file itself can't be parsed or its heritage isn't supported:
 
 - File not found, class not found, anonymous class
 - No `@Component` / `@Directive` / `@Pipe` / `@Injectable` decorator
 - Decorator args not an object literal
-- Component not standalone (NgModule-based — see
-  `ANGULAR_HMR_ARCHITECTURE.md` Tier 3 for why)
-- Component inherits from a decorated parent class (metadata
-  merging up the chain — punted)
 - Multiple decorators on one class
-- Template parse failure
-- Resource (`templateUrl` / `styleUrls`) file missing on disk
+- Component inherits from a parent class that itself carries an
+  Angular decorator (`@Component` / `@Directive` / `@Pipe` /
+  `@Injectable`) — ngc would merge metadata up the heritage chain;
+  reproducing that merge is meaningful work, so we fall back. Plain
+  `extends BaseUtility` (non-decorated) parents stay on Tier 0; the
+  check resolves the parent across files via the import graph
+  (`fastHmrCompiler.ts:inheritsDecoratedClass`).
+
+Non-standalone components are NOT on this list — they stay on Tier
+0. The fast extractor sets `isStandalone: decoratorMeta.standalone`
+and Angular's IR compiler emits `Full` template mode whenever
+`isStandalone` is `false`, regardless of `hasDirectiveDependencies`.
+Full mode uses `ɵɵelement` instructions, which consult the runtime
+component def's `directiveDefs` at instantiation. Since
+`mergeWithExistingDefinition` (inside `ɵɵreplaceMetadata`) preserves
+the original NgModule's `directiveDefs` from the initial bundle,
+body edits on non-standalone components flow through Tier 0 with
+the existing scope intact.
 
 Tier 1b broadcasts `'angular:rebootstrap'`. The page's hydration
 wrapper (built by `compileAngular.ts`) installs an
 `__ABS_ANGULAR_REBOOTSTRAP__` hook that calls
 `ApplicationRef.destroy()` and re-runs `bootstrapApplication` with
 the latest module bytes from disk.
+
+## Vite/Next-style error overlay for user-fixable HMR failures
+
+`tryFastHmr` failures that are the user's typo to fix (rather than
+structural changes the server can't apply) are routed to the
+existing `rebuild-error` overlay channel instead of escalating to
+Tier 1b. Reasons in this set:
+
+- `template-parse-error` — `parseTemplate` rejected the template
+  (unclosed tag, unparseable expression, etc.). Carries
+  `file/line/column/lineText` extracted from the first
+  `ParseError.span`.
+- `template-resource-not-found` — `templateUrl: './foo.html'`
+  points at a missing file.
+- `style-resource-not-found` — `styleUrls: [...]` references a
+  missing file.
+
+`decideAngularTier` returns a `{ tier: 1, kind: 'user-error' }`
+verdict for these (gated by an explicit
+`USER_FIXABLE_FAST_HMR_REASONS` set so we can't accidentally
+swallow structural failures). `broadcastAngularUserError` emits a
+framework-agnostic `rebuild-error` envelope with `framework:
+'angular'`; the existing client overlay path renders it unchanged.
+The dev server stays in this state — no rebootstrap, no bundle
+rebuild — until the user fixes the file. The next successful
+Tier 0 / 1a broadcast triggers the standard auto-dismiss
+(`hideErrorOverlay` is called eagerly by every `*-update` /
+`angular:component-update` / `:component-remount` / `:rebootstrap`
+client handler, matching the pattern svelte/vue/html/htmx use).
+Behavior matches vite/next: broken save → overlay up; fixed save →
+overlay gone.
 
 ## moduleServer-driven dev pipeline
 

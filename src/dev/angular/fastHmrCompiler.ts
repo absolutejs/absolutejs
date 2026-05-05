@@ -4,17 +4,16 @@
  * `compileComponentFromMetadata` IR pass. Median measured at ~4ms,
  * ~320× faster than the AOT incremental path.
  *
- * The architectural premise (see ANGULAR_HMR_ARCHITECTURE.md):
- * Angular's compile bundles template type-checking with template
- * compilation because templates aren't TypeScript and the TCB has
- * to live in the same TS program. For HMR specifically, the editor
- * + a separate `tsc` daemon already cover type-checking — paying
- * for it again at every keystroke is a tax we're choosing not to.
+ * Architectural premise: Angular's compile bundles template
+ * type-checking with template compilation because templates aren't
+ * TypeScript and the TCB has to live in the same TS program. For HMR
+ * specifically, the editor + a separate `tsc` daemon already cover
+ * type-checking — paying for it again at every keystroke is a tax
+ * we're choosing not to.
  *
- * We cover the modern standalone path (Tier 1 + Tier 2 from the
- * architecture doc). Legacy NgModule-based components, decorated
- * inheritance chains, and a handful of exotic cases bail to the
- * ngtsc fallback in `getApplyMetadataModule`. */
+ * Coverage and the small set of cases that escalate to Tier 1b
+ * rebootstrap (heritage from a decorated parent class, exotic
+ * decorator-arg shapes) are documented in `SURGICAL_HMR.md`. */
 
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, relative, resolve } from 'node:path';
