@@ -5,7 +5,7 @@ replacement for Angular components, the techniques that produce
 sub-50 ms end-to-end edit latency, and the architectural
 difference from `@angular/build`-driven HMR.
 
-Available in `@absolutejs/absolute@0.19.0-beta.924` and later.
+Available in `@absolutejs/absolute@0.19.0-beta.925` and later.
 
 * Repository: <https://github.com/absolutejs/absolutejs>
 * Documentation: <https://absolutejs.com>
@@ -60,7 +60,7 @@ shared base (root `BenchPage`, inline-template `HeaderComponent`,
 | medium | 30                | 32                    | 32           |
 | large  | 100               | 102                   | 102          |
 
-Stack: `@absolutejs/absolute@0.19.0-beta.924`, `@angular/* 21.2.11`,
+Stack: `@absolutejs/absolute@0.19.0-beta.925`, `@angular/* 21.2.11`,
 Bun 1.3.13, Linux/WSL2.
 
 ### 2.2 Methodology
@@ -898,23 +898,27 @@ items that remain.
   `pipeDefs` preservation that handles NgModule scope), so
   schemas survive Tier 0 cycles unchanged.
 
-**Remaining:**
-
 * **`controlCreate`** for the private `ɵngControlCreate` hook
-  used by signal-based form controls. Hardcoded `null` because
-  the hook is mostly Angular-internal (consumed by
-  `@angular/forms` infrastructure rather than user
-  components), and detecting it cleanly would require
-  recognizing both the method declaration and its passthrough
-  type-parameter shape. Components that rely on this private
-  hook (a niche feature even within Angular's own forms
-  module) won't see the hook engaged on Tier 0 cycles.
-  `mergeWithExistingDefinition`'s `Object.assign` overwrites
-  the live def's `controlCreate` with `null`, so existing
-  instances lose their control-creation context until the
-  next reload. We have not encountered a project that exercises
-  this path; if a real use case shows up, detection is one
-  scan-for-method-name plus a literal metadata field.
+  used by signal-based form controls. Now extracted by
+  porting the algorithm verbatim from
+  `@angular/compiler-cli`'s
+  `extractControlDirectiveDefinition`: scan class members for
+  a non-static method named `ɵngControlCreate`; if found,
+  inspect the first parameter's type for a single
+  string-literal type argument and use that as
+  `passThroughInput`, otherwise emit
+  `{ passThroughInput: null }`. Components that implement the
+  hook now keep their control-creation context engaged on Tier 0
+  cycles instead of having `controlCreate` overwritten with
+  `null` by `mergeWithExistingDefinition`'s `Object.assign`.
+
+**No remaining caveats from the comprehensive review pass.** The
+fast extractor's metadata coverage matches `@angular/compiler-cli`
+on every public field of `R3DirectiveMetadata` and
+`R3ComponentMetadata` consumed by the IR builder. New Angular
+minors may introduce additional fields; coverage is verified
+against `@angular/* 21.x` and updated alongside Angular major /
+minor bumps.
 
 ---
 

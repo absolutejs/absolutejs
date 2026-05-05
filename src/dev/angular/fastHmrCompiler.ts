@@ -554,6 +554,55 @@ type ComponentDecoratorMeta = {
 	changeDetection: number | null;
 };
 
+/* Extract `R3DirectiveMetadata.controlCreate` from a class. Mirrors
+ * `extractControlDirectiveDefinition` in `@angular/compiler-cli`:
+ * find a non-static method whose name is the unicode-prefixed
+ * `ɵngControlCreate` (used by `@angular/forms`-style signal-based
+ * form-control directives). If absent, return `null`. If present
+ * but the first parameter's type isn't a generic reference with a
+ * single string-literal type argument, return
+ * `{ passThroughInput: null }`. Otherwise the type-argument's
+ * string-literal value goes into `passThroughInput`, which the
+ * runtime uses to recognize matching pass-through input bindings
+ * on co-located directives. */
+const CONTROL_CREATE_METHOD_NAME = 'ɵngControlCreate';
+
+const extractControlCreate = (
+	cls: ts.ClassDeclaration
+): { passThroughInput: string | null } | null => {
+	for (const member of cls.members) {
+		if (!ts.isMethodDeclaration(member)) continue;
+		if (member.modifiers?.some((m) => m.kind === ts.SyntaxKind.StaticKeyword))
+			continue;
+		const name = member.name;
+		if (name === undefined) continue;
+		const nameText = ts.isIdentifier(name) ? name.text : name.getText();
+		if (nameText !== CONTROL_CREATE_METHOD_NAME) continue;
+		const firstParam = member.parameters[0];
+		if (
+			firstParam === undefined ||
+			firstParam.type === undefined ||
+			!ts.isTypeReferenceNode(firstParam.type)
+		) {
+			return { passThroughInput: null };
+		}
+		const typeArgs = firstParam.type.typeArguments;
+		if (typeArgs === undefined || typeArgs.length !== 1) {
+			return { passThroughInput: null };
+		}
+		const arg = typeArgs[0];
+		if (
+			arg === undefined ||
+			!ts.isLiteralTypeNode(arg) ||
+			!ts.isStringLiteral(arg.literal)
+		) {
+			return { passThroughInput: null };
+		}
+		return { passThroughInput: arg.literal.text };
+	}
+	return null;
+};
+
 /* Resolve a `<EnumName>.<MemberName>` property access expression
  * (the only form the @Component decorator accepts in practice for
  * `encapsulation` and `changeDetection`) to the corresponding
@@ -2846,7 +2895,7 @@ export const tryFastHmr = async (
 		inputs,
 		outputs,
 		usesInheritance: false,
-		controlCreate: null,
+		controlCreate: extractControlCreate(classNode),
 		exportAs: advancedMetadata.exportAs,
 		providers: advancedMetadata.providers,
 		isStandalone: decoratorMeta.standalone,
