@@ -5,7 +5,7 @@ replacement for Angular components, the techniques that produce
 sub-50 ms end-to-end edit latency, and the architectural
 difference from `@angular/build`-driven HMR.
 
-Available in `@absolutejs/absolute@0.19.0-beta.923` and later.
+Available in `@absolutejs/absolute@0.19.0-beta.924` and later.
 
 * Repository: <https://github.com/absolutejs/absolutejs>
 * Documentation: <https://absolutejs.com>
@@ -60,7 +60,7 @@ shared base (root `BenchPage`, inline-template `HeaderComponent`,
 | medium | 30                | 32                    | 32           |
 | large  | 100               | 102                   | 102          |
 
-Stack: `@absolutejs/absolute@0.19.0-beta.923`, `@angular/* 21.2.11`,
+Stack: `@absolutejs/absolute@0.19.0-beta.924`, `@angular/* 21.2.11`,
 Bun 1.3.13, Linux/WSL2.
 
 ### 2.2 Methodology
@@ -849,61 +849,72 @@ server; warm steady-state is server ~47 ms / e2e ~84 ms,
 slightly above the body-edit case because every CSS edit
 re-parses the template and re-builds the IR).
 
-### 10.8 Residual caveats
+### 10.8 Closed and remaining edge cases
 
-A handful of `@Component` and `R3DirectiveMetadata` fields are
-either hardcoded or skipped because the runtime impact is rare
-in application code. The fast path treats them as defaults; the
-production build through `absolute build` honors them
-correctly.
+The fast extractor and fingerprint were comprehensively reviewed
+against the public `@Component` / `@Directive` / IR surface; this
+section documents what was closed in the review and the small
+items that remain.
 
-* **`schemas: [CUSTOM_ELEMENTS_SCHEMA, NO_ERRORS_SCHEMA]`** on a
-  standalone `@Component` (Angular 14+). Used to allow
-  unknown elements (typically web components) inside the
-  component's template without runtime warnings. The fast
-  extractor does not propagate `schemas` into the new
-  metadata. After a Tier 0 cycle the schemas array gets
-  cleared on the live component def, and the runtime starts
-  emitting "unknown element" warnings until the page reloads.
-  Functionality is unaffected; only the diagnostic noise level
-  changes.
+**Closed in the review:**
 
-* **`interpolation: ['<%', '%>']`** custom interpolation
-  delimiters. Almost never used (the `{{ }}` default works for
-  ~all projects). Not extracted; templates with custom
-  delimiters would re-parse with `{{ }}` on Tier 0 and likely
-  fail. Production builds honor the option correctly.
-
-* **Directive-level `isSignal: true`** flag. This indicates a
-  fully signal-based component (no decorator-form
-  inputs/outputs/queries; no Zone-based change detection).
-  Hardcoded `false`. For components that ARE fully signal-based,
-  the runtime treats them as Zone-based on Tier 0 cycles, which
-  may produce extra change-detection passes until reload. The
-  signals themselves still work; the optimization is what's
-  lost.
-
-* **`controlCreate`** for the private `ɵngControlCreate` hook
-  used by signal-based form controls. Hardcoded `null`.
-  Components that rely on this private hook (a niche, mostly
-  Angular-internal feature) won't see the hook engaged on Tier 0
-  cycles.
+* **`isSignal: true` directive flag.** Now derived: the
+  component is flagged signal-based when it has at least one
+  signal-form input/output/query AND zero decorator-form
+  `@Input`, `@Output`, `@ViewChild`, `@ViewChildren`,
+  `@ContentChild`, or `@ContentChildren` members. The runtime
+  uses this flag to set `getInitialLViewFlagsFromDef`'s signal
+  bit (4096), which switches LViews to fine-grained reactivity
+  instead of Zone-driven dirty-checking. Mixed-form components
+  (decorator + signal in the same class) flip to `false`,
+  matching ngc's all-or-nothing shape. Switching forms in
+  source flips other fingerprint dimensions
+  (`memberDecoratorSig`, signal-call presence in
+  initializers), so transitions force Tier 1a remount.
 
 * **Constructor parameter decorators** (`@Optional`, `@Self`,
-  `@SkipSelf`, `@Host`, `@Inject(...)`). Captured by
-  `ctorParamTypes` only via the parameter's TYPE TEXT, not the
-  decorators themselves. Adding/removing these decorators
-  without changing the type leaves the fingerprint unchanged
-  and stays on Tier 0; the live class's preserved `ɵfac`
-  retains the pre-edit DI behavior. Adding a runtime DI
-  difference mid-session (e.g., switching `@Optional()` on or
-  off) won't take effect until the next Tier 1b rebootstrap.
+  `@SkipSelf`, `@Host`, `@Inject(...)`). Now captured in the
+  per-parameter fingerprint string alongside the type text.
+  Adding or removing any of these flips the fingerprint and
+  forces Tier 1a remount, which fetches a fresh class whose
+  `ɵfac` reflects the new DI behavior. Previously the
+  parameter's type alone determined the fingerprint, so a
+  decorator-only edit would have stayed on Tier 0 with the
+  pre-edit DI behavior surviving until the next page reload.
 
-These are small enough that no production project has flagged
-them in our work to date, but they're worth listing so a reader
-can verify: `git grep` for the fields on the IR side, compare
-to `readDecoratorMeta` in `src/dev/angular/fastHmrCompiler.ts`,
-and the gap is exactly this list.
+* **`interpolation: ['<%', '%>']`** custom delimiters. Removed
+  from the `@Component` interface in Angular itself
+  (no longer in `_discovery-chunk.d.ts`). Not a gap to close;
+  the option no longer exists in the public Angular API.
+
+* **`schemas: [CUSTOM_ELEMENTS_SCHEMA, NO_ERRORS_SCHEMA]`** on a
+  standalone `@Component`. Schemas are not on
+  `R3ComponentMetadata` directly. They're attached at the
+  scope-context level via Angular's internal synthetic
+  module-of-one mechanism, which is set up at initial bundle
+  time and is not on the per-cycle replacement path.
+  `mergeWithExistingDefinition` preserves the live def's
+  scope context (via the same `directiveDefs` /
+  `pipeDefs` preservation that handles NgModule scope), so
+  schemas survive Tier 0 cycles unchanged.
+
+**Remaining:**
+
+* **`controlCreate`** for the private `ɵngControlCreate` hook
+  used by signal-based form controls. Hardcoded `null` because
+  the hook is mostly Angular-internal (consumed by
+  `@angular/forms` infrastructure rather than user
+  components), and detecting it cleanly would require
+  recognizing both the method declaration and its passthrough
+  type-parameter shape. Components that rely on this private
+  hook (a niche feature even within Angular's own forms
+  module) won't see the hook engaged on Tier 0 cycles.
+  `mergeWithExistingDefinition`'s `Object.assign` overwrites
+  the live def's `controlCreate` with `null`, so existing
+  instances lose their control-creation context until the
+  next reload. We have not encountered a project that exercises
+  this path; if a real use case shows up, detection is one
+  scan-for-method-name plus a literal metadata field.
 
 ---
 

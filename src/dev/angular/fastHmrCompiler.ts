@@ -833,9 +833,13 @@ const extractInputsAndOutputs = (
 ): {
 	inputs: Record<string, R3InputMetadata>;
 	outputs: Record<string, string>;
+	hasDecoratorIO: boolean;
+	hasSignalIO: boolean;
 } => {
 	const inputs: Record<string, R3InputMetadata> = {};
 	const outputs: Record<string, string> = {};
+	let hasDecoratorIO = false;
+	let hasSignalIO = false;
 
 	for (const member of cls.members) {
 		if (!ts.isPropertyDeclaration(member)) continue;
@@ -843,25 +847,29 @@ const extractInputsAndOutputs = (
 		const decoratorIn = extractDecoratorInput(member, compiler);
 		if (decoratorIn) {
 			inputs[decoratorIn.classPropertyName] = decoratorIn.meta;
+			hasDecoratorIO = true;
 			continue;
 		}
 		const signalIn = extractSignalInput(member, compiler);
 		if (signalIn) {
 			inputs[signalIn.classPropertyName] = signalIn.meta;
+			hasSignalIO = true;
 			continue;
 		}
 		const decoratorOut = extractDecoratorOutput(member);
 		if (decoratorOut) {
 			outputs[decoratorOut.classPropertyName] = decoratorOut.bindingName;
+			hasDecoratorIO = true;
 			continue;
 		}
 		const signalOut = extractSignalOutput(member);
 		if (signalOut) {
 			outputs[signalOut.classPropertyName] = signalOut.bindingName;
+			hasSignalIO = true;
 		}
 	}
 
-	return { inputs, outputs };
+	return { inputs, outputs, hasDecoratorIO, hasSignalIO };
 };
 
 /* ─── Advanced-feature metadata extraction ───────────────────
@@ -2070,7 +2078,40 @@ const extractFingerprint = (
 	for (const member of cls.members) {
 		if (!ts.isConstructorDeclaration(member)) continue;
 		for (const param of member.parameters) {
-			ctorParamTypes.push(param.type ? param.type.getText() : '');
+			const typeText = param.type ? param.type.getText() : '';
+			/* Include the parameter's Angular DI decorators
+			 * (`@Optional`, `@Self`, `@SkipSelf`, `@Host`,
+			 * `@Inject(...)`) in the per-parameter fingerprint
+			 * string. Adding or removing one of these without
+			 * changing the type would otherwise leave the
+			 * fingerprint unchanged; the live class's preserved
+			 * `ɵfac` would keep its pre-edit DI behavior on
+			 * Tier 0 cycles. Capturing them forces Tier 1a
+			 * remount, which fetches a fresh class whose `ɵfac`
+			 * reflects the new constructor signature. */
+			const decorators = ts.getDecorators(param) ?? [];
+			const decoratorSig =
+				decorators.length === 0
+					? ''
+					: decorators
+							.map((d) => {
+								const expr = d.expression;
+								if (
+									ts.isCallExpression(expr) &&
+									ts.isIdentifier(expr.expression)
+								) {
+									const args = expr.arguments
+										.map((a) => a.getText())
+										.join(',');
+									return `@${expr.expression.text}(${args})`;
+								}
+								if (ts.isIdentifier(expr)) {
+									return `@${expr.text}`;
+								}
+								return '@<unknown>';
+							})
+							.join('');
+			ctorParamTypes.push(`${typeText}${decoratorSig}`);
 		}
 		break;
 	}
@@ -2691,7 +2732,12 @@ export const tryFastHmr = async (
 	if (!className_) return fail('class-not-found', 'anonymous class');
 	const wrappedClass = new compiler.WrappedNodeExpr(className_);
 
-	const { inputs, outputs } = extractInputsAndOutputs(classNode, compiler);
+	const {
+		inputs,
+		outputs,
+		hasDecoratorIO,
+		hasSignalIO
+	} = extractInputsAndOutputs(classNode, compiler);
 
 	const projectRelPath = relative(projectRoot, componentFilePath).replace(
 		/\\/g,
@@ -2804,7 +2850,23 @@ export const tryFastHmr = async (
 		exportAs: advancedMetadata.exportAs,
 		providers: advancedMetadata.providers,
 		isStandalone: decoratorMeta.standalone,
-		isSignal: false,
+		/* "Fully signal-based" detection: at least one signal-form
+		 * input/output/query, AND zero decorator-form @Input,
+		 * @Output, @ViewChild, @ViewChildren, @ContentChild, or
+		 * @ContentChildren members. The runtime uses this flag to
+		 * pick `getInitialLViewFlagsFromDef`'s signal flag (4096),
+		 * which switches LViews to fine-grained reactivity instead
+		 * of Zone-driven dirty-checking. Components that mix
+		 * decorator-form and signal-form members fall through to
+		 * `false`, matching ngc's conservative "all-or-nothing"
+		 * shape. */
+		isSignal:
+			(hasSignalIO ||
+				advancedMetadata.contentQueries.some((q) => q.isSignal) ||
+				advancedMetadata.viewQueries.some((q) => q.isSignal)) &&
+			!hasDecoratorIO &&
+			!advancedMetadata.contentQueries.some((q) => !q.isSignal) &&
+			!advancedMetadata.viewQueries.some((q) => !q.isSignal),
 		hostDirectives: advancedMetadata.hostDirectives,
 		template: {
 			nodes: parsed.nodes,
