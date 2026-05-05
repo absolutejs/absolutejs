@@ -7,6 +7,9 @@ difference from `@angular/build`-driven HMR.
 
 Available in `@absolutejs/absolute@0.19.0-beta.915` and later.
 
+* Repository: <https://github.com/absolutejs/absolutejs>
+* Documentation: <https://absolutejs.com>
+
 ---
 
 ## 1. Overview
@@ -14,8 +17,8 @@ Available in `@absolutejs/absolute@0.19.0-beta.915` and later.
 Angular ships an HMR runtime primitive, `ɵɵreplaceMetadata`,
 which atomically substitutes a component's compiled definition
 on the live class while the application keeps running. Every
-Angular HMR implementation — `@angular/build` (the official
-esbuild builder), `@analogjs/vite-plugin-angular`, AbsoluteJS —
+Angular HMR implementation (`@angular/build`, the official
+esbuild builder; `@analogjs/vite-plugin-angular`; AbsoluteJS)
 ultimately invokes the same primitive. The differences between
 implementations are upstream of the call: how the new
 `R3ComponentMetadata` is produced.
@@ -35,9 +38,11 @@ AbsoluteJS produces the metadata without invoking ngtsc:
    uses during AOT).
 4. Translate the resulting statements to module text and broadcast.
 
-Type-checking is delegated to the editor's TypeScript Language
-Server and to a separate `tsc --watch` process if the project
-runs one. The HMR pipeline does not duplicate that work.
+Type-checking is delegated to other tools (§9.1): the editor's
+TypeScript Language Server during authoring, and AbsoluteJS's
+own `absolute typecheck` CLI command (which invokes `ngc` with
+`strictTemplates: true`) in CI. The HMR pipeline does not
+duplicate that work on every keystroke.
 
 ---
 
@@ -55,9 +60,9 @@ WebSocket, performs scripted text replacements on each fixture
 file (apply / revert alternating), and records two values per
 iteration:
 
-- **Server-side dispatch**: parsed from the dev server's own
+* **Server-side dispatch**: parsed from the dev server's own
   `[ng-hmr]` (or `[hmr] css update`) log line.
-- **End-to-end**: time from `fs.writeFile` resolving until the
+* **End-to-end**: time from `fs.writeFile` resolving until the
   matching HMR broadcast arrives on the client WebSocket.
 
 N = 30 samples per case, plus 3 warmup iterations not counted.
@@ -77,8 +82,8 @@ See §6 for tier definitions and §10.4 for the rationale.
 The server-side column is the cost of producing and broadcasting
 the new metadata. The end-to-end column adds file-watcher
 debounce, dev-server WebSocket frame handling, and the
-localhost roundtrip — pipeline overhead that exists for any
-HMR system at any speed.
+localhost roundtrip; that pipeline overhead exists for any HMR
+system at any speed.
 
 The bench harness is committed at `benchmarks/angular-hmr/`. See
 §11 for instructions.
@@ -89,8 +94,8 @@ The bench harness is committed at `benchmarks/angular-hmr/`. See
 
 `ɵɵreplaceMetadata` is exported from `@angular/core`'s render3
 internals (typed `@private` but stable across recent minors).
-Its callers fetch a per-class update payload — typically as an
-ES module — and invoke it.
+Its callers fetch a per-class update payload (typically as an
+ES module) and invoke it.
 
 ```ts
 ɵɵreplaceMetadata(type, applyMetadata, namespaces, locals, importMeta, id);
@@ -103,7 +108,7 @@ Internally it:
    `compileComponentFromMetadata` on a fresh `R3ComponentMetadata`
    describing the new state of the component.
 2. Reads the resulting `ɵcmp` definition off the class.
-3. Calls `mergeWithExistingDefinition(currentDef, newDef)` —
+3. Calls `mergeWithExistingDefinition(currentDef, newDef)`,
    which copies most fields from `newDef` onto `currentDef`
    *but explicitly preserves* `directiveDefs`, `pipeDefs`,
    `setInput`, and `type`.
@@ -112,8 +117,8 @@ Internally it:
 
 The merge step in (3) is load-bearing for the AbsoluteJS
 implementation. It means the HMR payload doesn't need to
-reproduce the original component's directive/pipe scope;
-whatever scope was established at the initial bundle's
+reproduce the original component's directive/pipe scope.
+Whatever scope was established at the initial bundle's
 `bootstrapApplication` time survives subsequent metadata
 replacements.
 
@@ -151,8 +156,8 @@ The fast path in `src/dev/angular/fastHmrCompiler.ts` exposes
 1. **Parse** the source file with `ts.createSourceFile` (no
    program).
 2. **Find** the class declaration with the requested name.
-3. **Extract** `R3ComponentMetadata` via AST walks — see §7 for
-   the covered surface.
+3. **Extract** `R3ComponentMetadata` via AST walks (see §7 for
+   the covered surface).
 4. **Compile** by calling `compileComponentFromMetadata` against
    `@angular/compiler`'s built-in `ConstantPool` and binding
    parser.
@@ -162,8 +167,8 @@ The fast path in `src/dev/angular/fastHmrCompiler.ts` exposes
    (see §7.3) and a default-exported function matching the
    `applyMetadata` signature `ɵɵreplaceMetadata` expects.
 
-If any step fails — file not parseable, class not found, no
-recognized decorator, parent class with its own decorator — the
+If any step fails (file not parseable, class not found, no
+recognized decorator, parent class with its own decorator), the
 caller falls back to one of the higher tiers (§6).
 
 ---
@@ -191,15 +196,15 @@ auto-dismisses the overlay.
 
 The structural fingerprint compared between cycles captures:
 
-- Constructor parameter type list
-- Selector and `standalone` flag
-- Input / output binding-name lists (alias-aware)
-- Presence of `providers` / `viewProviders` on the decorator
-- Provider import signature (sorted markers for `imports: [...]`
+* Constructor parameter type list
+* Selector and `standalone` flag
+* Input / output binding-name lists (alias-aware)
+* Presence of `providers` / `viewProviders` on the decorator
+* Provider import signature (sorted markers for `imports: [...]`
   entries whose source is an `@NgModule` carrying `providers`)
-- Member decorator signatures (excluding `@Input`/`@Output`,
+* Member decorator signatures (excluding `@Input`/`@Output`,
   which are captured via the binding-name lists)
-- Per-instance arrow-function field initializer hashes (since
+* Per-instance arrow-function field initializer hashes (since
   prototype patching cannot propagate arrow-field bodies to
   existing instances)
 
@@ -239,29 +244,71 @@ at module-evaluation time in the browser.
 
 ### 7.3 The `__abs_deps` registry
 
-The HMR payload module references identifiers from the user
-component's source file. An import-resolution roundtrip on
-every HMR cycle would be wasted work — the imports almost never
-change between edits.
+`__abs_deps` is an AbsoluteJS-specific convention: a custom
+static property added to every Angular-decorated class at
+compile time, containing every top-level binding from the
+source file's import list.
 
-The `hmrInjectionPlugin` runs at initial bundle time on every
-Angular component file. Alongside the user's exports, it emits:
-
-```js
-ComponentName.__abs_deps = { TriggerFn, MyService, ... };
+```ts
+// hmrInjectionPlugin appends, alongside the user's exports:
+ComponentName.__abs_deps = { TriggerFn, MyService, CommonModule, ... };
 ```
 
-containing every top-level binding of the source file's import
-list. The HMR payload destructures from this static property at
-the top of its function body. Identity is stable across HMR
-cycles.
+It is not a standard cross-framework HMR pattern. It is also
+not a runtime hack in the sense of monkey-patching Angular: the
+property is a normal JavaScript class property that lives
+alongside Angular's own static metadata properties (`ɵfac`,
+`ɵcmp`, `ɵdir`, `ɵpipe`), follows the same shape, and carries
+no special meaning to Angular. AbsoluteJS owns the prefix and
+the contents.
+
+The reason it exists: identifiers in the HMR payload (per §7.2
+they are `WrappedNodeExpr` nodes referring to symbols from the
+user's source) need to resolve to the same JavaScript values
+the live class was bootstrapped against. Two alternatives were
+considered:
+
+* **Re-import on every HMR cycle.** The HMR payload would
+  declare its own `import { TriggerFn } from '...'` statements.
+  This works, but adds a per-edit module fetch per dependency
+  and makes the payload module's identity depend on the
+  module-graph version. With dozens of imports per typical
+  component, the cost is non-trivial and the per-broadcast
+  fetch latency dominates a 13 ms server-side dispatch.
+* **A registry on the class.** The bundle-time plugin captures
+  the imports once and stashes them where the live class can
+  find them. The HMR payload destructures from there. No
+  additional fetches; identity is stable across cycles.
+
+The second alternative is what `__abs_deps` implements.
+
+The pattern has one observable consequence. If a user edit adds
+a new top-level import that wasn't present at initial bundle
+time, the live class's `__abs_deps` does not contain it.
+Whether the HMR cycle copes depends on what changes alongside
+the new import:
+
+* If the new import is referenced by the component's metadata
+  in a way that affects the structural fingerprint (a new
+  provider-bearing entry in `imports: [...]`, a new
+  `@HostListener` with a new event handler, etc.), the
+  dispatcher escalates to Tier 1a and the class is remounted
+  from a freshly imported module whose `__abs_deps` reflects
+  the new import.
+* If the new import is referenced only inside a method body,
+  the body change is a Tier 0 `ɵɵreplaceMetadata` and the
+  destructured value is `undefined` until the next page
+  reload or Tier 1a cycle. This case is the documented edge.
+
+In practice, modern Angular component edits very rarely add a
+new top-level import without an accompanying structural change.
 
 ### 7.4 Directive scope preservation via `mergeWithExistingDefinition`
 
 Per §3, `ɵɵreplaceMetadata` preserves the original definition's
 `directiveDefs` and `pipeDefs` from the initial bundle. Those
 were populated by Angular's standard scope analysis at
-bootstrap — for standalone components from their `imports: [...]`
+bootstrap: for standalone components from their `imports: [...]`
 list, for non-standalone components from their containing
 NgModule's `declarations`.
 
@@ -292,19 +339,19 @@ does. For standalone components, the HMR pipeline therefore
 must populate `declarations` with at least one
 `R3DirectiveDependencyMetadata` so the compiler picks `Full`
 mode and the template's static-attribute-to-input encoding
-works correctly (e.g. `<my-comp src="literal">` → input
-binding rather than DOM attribute).
+works correctly (e.g. `<my-comp src="literal">` renders as an
+input binding rather than a DOM attribute).
 
 For each entry in the user's `imports: [...]` array, the
 pipeline resolves it to:
 
-- A project-local `.ts` source: parse the source file, locate
+* A project-local `.ts` source: parse the source file, locate
   the class, read decorator metadata directly.
-- A library `.d.ts` shipped declaration: walk the package's
+* A library `.d.ts` shipped declaration: walk the package's
   re-export barrels, locate the exported `ɵcmp` / `ɵdir` /
   `ɵpipe` static, read selector / inputs / outputs from there.
 
-For non-standalone components the dependency list stays empty;
+For non-standalone components the dependency list stays empty.
 `isStandalone: false` forces `Full` mode regardless, and the
 preserved `directiveDefs` from the initial bundle covers
 template resolution.
@@ -314,17 +361,17 @@ template resolution.
 Angular merges metadata up the heritage chain only when the
 parent class itself carries `@Component`, `@Directive`, `@Pipe`,
 or `@Injectable`. Plain `class Foo extends BaseUtility` (no
-parent decorator) requires no metadata merging — the prototype
+parent decorator) requires no metadata merging. The prototype
 chain handles method inheritance and the child's own
 `R3ComponentMetadata` is sufficient.
 
 The HMR pipeline resolves the parent class identifier through
 the source file's import list:
 
-- Same-file parent: scan the AST.
-- Cross-file project-local parent: walk the import declaration,
+* Same-file parent: scan the AST.
+* Cross-file project-local parent: walk the import declaration,
   resolve to a `.ts` source, parse, locate the class.
-- Bare-specifier (node_modules) parent: bail conservatively
+* Bare-specifier (node_modules) parent: bail conservatively
   (could be decorated; library metadata-merging not implemented).
 
 Only when the resolved parent has an Angular decorator does the
@@ -336,27 +383,27 @@ Tier 0.
 The AST walks cover both decorator and signal-based forms for
 inputs, outputs, queries, and host bindings:
 
-- `@Input` / `@Output` (decorator form, alias-aware via
+* `@Input` / `@Output` (decorator form, alias-aware via
   `@Input({ alias: 'foo' })`).
-- `input(default, { alias })`, `input.required(...)` /
-  `output(...)` / `model(...)` (signal form, detected by
+* `input(default, { alias })`, `input.required(...)`,
+  `output(...)`, `model(...)` (signal form, detected by
   initializer call to a known `@angular/core` symbol).
-- `@HostBinding('class.foo') prop` and `@HostListener('click', [...])
-  onClick(e)` — merged into `R3HostMetadata.properties` /
-  `listeners`.
-- `@ViewChild` / `@ViewChildren` / `@ContentChild` /
-  `@ContentChildren` — `R3QueryMetadata` with
+* `@HostBinding('class.foo') prop` and
+  `@HostListener('click', [...]) onClick(e)` merge into
+  `R3HostMetadata.properties` / `listeners`.
+* `@ViewChild` / `@ViewChildren` / `@ContentChild` /
+  `@ContentChildren` map to `R3QueryMetadata` with
   `static`/`descendants`/`read`/`emitDistinctChangesOnly`
   preserved. Token args wrapped as `WrappedNodeExpr`; string
   args become predicate string lists.
-- `viewChild()` / `viewChildren()` / `contentChild()` /
-  `contentChildren()` (plus `.required`) — `R3QueryMetadata`
-  with `isSignal: true`.
+* `viewChild()` / `viewChildren()` / `contentChild()` /
+  `contentChildren()` (plus `.required`) map to
+  `R3QueryMetadata` with `isSignal: true`.
 
 Inline `host: { ... }` decorator-arg entries are parsed by key
-shape (`'[prop]'` → property binding, `'(event)'` → listener,
-plain key → attribute). Plain attribute values are wrapped as
-`WrappedNodeExpr`.
+shape (`'[prop]'` for property binding, `'(event)'` for
+listener, plain key for attribute). Plain attribute values are
+wrapped as `WrappedNodeExpr`.
 
 ---
 
@@ -369,16 +416,16 @@ preconditions and are documented here for completeness.
 ### 8.1 Single Angular core instance per SSR runtime
 
 When two distinct `@angular/core` module instances load in the
-same SSR process — typically because the SSR bundle resolves
+same SSR process (typically because the SSR bundle resolves
 through a vendored copy while platform code resolves through
-the real package — each gets its own `currentInjector` global.
+the real package), each gets its own `currentInjector` global.
 `inject()` calls cross the boundary and read the wrong one. The
 runtime symptom is `NG0203: The <Token> token injection failed`
 on a token that demonstrably exists.
 
 The fix pins the SSR pipeline to a single resolution path for
-every `@angular/*` package — either bundled vendor (production)
-or Bun's runtime resolution of the bare specifier (development).
+every `@angular/*` package: bundled vendor in production, or
+Bun's runtime resolution of the bare specifier in development.
 A build-time check (`src/build/verifyAngularCoreUniqueness.ts`)
 walks every server bundle's import statements and fails the
 build if more than one distinct `@angular/core` resolution
@@ -400,55 +447,93 @@ and re-emit the affected file only.
 
 Two virtual-module concerns Bun's transpiler raises:
 
-- `bun:wrap` — Bun emits `import { __legacyDecorateClassTS,
-  __legacyMetadataTS } from "bun:wrap"` for every legacy-decorator
-  class, including every Angular component. moduleServer serves
-  this as a virtual ESM exporting the standard TypeScript
-  runtime helpers.
-- `node:*` builtins — code paths that import `node:fs` /
-  `node:path` etc. are routed to `/@stub/<name>` (a noop module).
-  Server-only code that transitively reaches a browser bundle
-  loads without 404-ing the import graph; the calls become
-  no-ops.
+* `bun:wrap`. Bun emits
+  `import { __legacyDecorateClassTS, __legacyMetadataTS } from "bun:wrap"`
+  for every legacy-decorator class, including every Angular
+  component. moduleServer serves this as a virtual ESM
+  exporting the standard TypeScript runtime helpers.
+* `node:*` builtins. Code paths that import `node:fs` /
+  `node:path` etc. are routed to `/@stub/<name>` (a noop
+  module). Server-only code that transitively reaches a
+  browser bundle loads without 404-ing the import graph; the
+  calls become no-ops.
 
 ---
 
 ## 9. Tradeoffs
 
-### 9.1 Template type-checking is delegated
+### 9.1 Template type-checking is delegated, not skipped
 
-The HMR pipeline does not run the template type-check block.
-Type errors in templates surface in the editor's TypeScript
-Language Server (and in the next production build), not at HMR
-save. Projects without an editor TS server lose this feedback
-on the hot path.
+The HMR pipeline does not run the template type-check block
+(TCB) on edit. Type-checking is delegated to other tools that
+already do it well:
 
-This is the principal architectural choice and the source of
-the ~13 ms server-side dispatch number.
+* The TypeScript Language Server in the editor surfaces
+  template errors during authoring (when `@angular/language-service`
+  is enabled, as it is by default in VS Code's Angular extension
+  and in the JetBrains Angular plugin).
+* `absolute typecheck` (`src/cli/scripts/typecheck.ts`) invokes
+  `ngc` from `@angular/compiler-cli` with `strictTemplates: true`
+  on the project's Angular sources. It produces command-line
+  output suitable for CI gates and pre-commit hooks.
 
-### 9.2 Default compilation flags only
+A typical project with a CI pipeline running `absolute typecheck`
+on every push, plus an editor TS server during authoring, sees
+template errors at the same moments it would in an `ng build`
+flow. The HMR pipeline simply does not duplicate that work on
+each keystroke.
 
-The HMR pipeline uses Angular's default IR compilation flags.
-Custom compiler flags (`strictTemplates`, custom JIT
-evaluators, etc.) are not honored on the fast path. Production
-builds run the full ngtsc pipeline and honor the project's
-tsconfig.
+This delegation is the principal architectural choice and the
+source of the ~13 ms server-side dispatch number.
+
+### 9.2 Default IR compilation flags only
+
+The HMR pipeline calls `compileComponentFromMetadata` with
+Angular's default IR compilation options. Project-level
+`angularCompilerOptions` (`strictTemplates`,
+`strictInjectionParameters`, etc.) and codegen-affecting flags
+are not propagated into the call.
+
+This is an implementation gap, not a requirement of the fast
+path. The flags are about static analysis and emit details, not
+about HMR latency. Reading the project's tsconfig at dev
+startup and passing the relevant subset into the IR call would
+close the gap with no measurable performance cost.
+
+Production builds run the full ngtsc pipeline through
+`absolute build` and honor every flag. The split between
+"production builds honor everything" and "dev HMR uses defaults"
+is therefore an honest item to track and to close, rather than
+something the architecture requires.
 
 ### 9.3 Coverage tracks Angular's IR
 
 When Angular adds a new field to `R3ComponentMetadata`, the
 extractor needs an update to populate it. The current
-implementation covers Angular 17–21. Future minors may require
-additive changes (typically ~30 lines per new field).
+implementation covers Angular 17 through 21. Future minors may
+require additive changes (typically ~30 lines per new field).
 
 ### 9.4 Vendored render3 internals are version-locked
 
-Tier 1a per-component remount uses non-public LView slot
-operations from `@angular/core/src/render3` (`destroyLView`,
-`replaceLViewInTree`, `cleanupLView`, etc.). A minimal slice
-of these is vendored into `src/dev/client/vendor/lview/`.
-Locked to a specific Angular minor; refresh on each Angular
-upgrade alongside the translator vendor.
+Tier 1a per-component remount uses LView slot operations from
+`@angular/core/src/render3` (`destroyLView`,
+`replaceLViewInTree`, `cleanupLView`, etc.) that are not part
+of Angular's public API surface. A minimal slice of the
+required source is vendored verbatim into
+`src/dev/client/vendor/lview/`. The vendor is a copy, not a
+fork: nothing in the vendored files is modified, and a refresh
+on each Angular minor is straightforward.
+
+If the Angular team chose to expose these operations as a
+public API (or a documented `@private`-but-stable surface like
+`ɵɵreplaceMetadata` itself), the vendor could be retired in
+favor of a direct import. The shape needed is small (a handful
+of functions plus the LView/LContainer slot constants), and the
+use case (per-component remount during HMR for state-shape
+changes) is general-purpose enough that this is plausibly a
+useful public surface for any HMR implementation, not only
+AbsoluteJS. Tracking that as a future possibility rather than a
+permanent constraint is the more accurate framing.
 
 ---
 
@@ -493,7 +578,7 @@ External `.css` files reachable via the `styleUrl` /
 `styleUrls` of a component currently dispatch through the
 framework-wide CSS HMR (stylesheet swap, manifest rebuild) and
 not through Angular's metadata-replacement path. The visible
-result is the same — the new styles apply to the running page —
+result is the same (the new styles apply to the running page),
 but the work flows through a different code path with
 different cost characteristics.
 
@@ -527,16 +612,17 @@ and on SIGINT.
 
 Configuration via environment variables:
 
-- `HMR_BENCH_N` — sample count per case (default: 30)
-- `HMR_BENCH_WARMUP` — warmup iterations (default: 3)
-- `HMR_BENCH_TIMEOUT_MS` — per-iteration timeout (default: 15000)
-- `HMR_BENCH_WS_URL` — dev server WS URL
-- `HMR_BENCH_DEV_LOG` — dev log path
+* `HMR_BENCH_N`: sample count per case (default: 30)
+* `HMR_BENCH_WARMUP`: warmup iterations (default: 3)
+* `HMR_BENCH_TIMEOUT_MS`: per-iteration timeout (default: 15000)
+* `HMR_BENCH_WS_URL`: dev server WS URL
+* `HMR_BENCH_DEV_LOG`: dev log path
 
 The fixture has three components and one page. Numbers will
-shift with project size (more imports = larger AST walk; more
-declarations to resolve for `imports: [...]`); the band the
-reference numbers occupy should reproduce on comparable hardware.
+shift with project size (more imports means a larger AST walk;
+more declarations to resolve for `imports: [...]`); the band
+the reference numbers occupy should reproduce on comparable
+hardware.
 
 ---
 
@@ -545,34 +631,37 @@ reference numbers occupy should reproduce on comparable hardware.
 Files referenced in this document, all under
 `src/` of `@absolutejs/absolute`:
 
-- `dev/angular/fastHmrCompiler.ts` — single-file metadata
-  extraction + `compileComponentFromMetadata` call +
-  module emit.
-- `dev/angular/resolveOwningComponents.ts` — inverted index
-  `templateUrl` / `styleUrls` → owning component class.
-- `dev/angular/hmrInjectionPlugin.ts` — emits per-class
-  `__ng_hmr_load` / `__ng_hmr_remount` listeners and the
+* `dev/angular/fastHmrCompiler.ts`: single-file metadata
+  extraction, `compileComponentFromMetadata` call, module
+  emit.
+* `dev/angular/resolveOwningComponents.ts`: inverted index
+  mapping `templateUrl` and `styleUrls` to owning component
+  classes.
+* `dev/angular/hmrInjectionPlugin.ts`: emits per-class
+  `__ng_hmr_load` and `__ng_hmr_remount` listeners and the
   `__abs_deps` registry into every Angular component file.
-- `dev/angular/hmrCompiler.ts` — `/@ng/component?c=<id>&t=<ts>`
+* `dev/angular/hmrCompiler.ts`: `/@ng/component?c=<id>&t=<ts>`
   endpoint dispatcher.
-- `dev/angular/hmrImportGenerator.ts` — `ImportGenerator`
+* `dev/angular/hmrImportGenerator.ts`: `ImportGenerator`
   implementation for the vendored translator.
-- `dev/angular/vendor/translator/` — vendored Angular
+* `dev/angular/vendor/translator/`: vendored Angular
   `translateStatement` from `@angular/compiler-cli`.
-- `dev/client/handlers/angularHmrShim.ts` — runtime shim
+* `dev/client/handlers/angularHmrShim.ts`: runtime shim
   registering the WebSocket message bus on
   `globalThis.__angularHmr`.
-- `dev/client/handlers/angularRemount.ts` — Tier 1a
+* `dev/client/handlers/angularRemount.ts`: Tier 1a
   per-component remount client implementation.
-- `dev/client/vendor/lview/` — vendored LView slot constants
+* `dev/client/vendor/lview/`: vendored LView slot constants
   and operations from `@angular/core`'s render3 internals.
-- `dev/rebuildTrigger.ts` — `decideAngularTier` and the
+* `dev/rebuildTrigger.ts`: `decideAngularTier` and the
   Tier 0 / 1a / 1b / user-error broadcast helpers.
-- `dev/moduleServer.ts` — on-demand TS transformer; serves
+* `dev/moduleServer.ts`: on-demand TS transformer; serves
   the `bun:wrap` virtual module and stubs `node:*` builtins.
-- `dev/client/hmrClient.ts` — WebSocket message router.
-- `build/compileAngular.ts` — JIT page transpile and
+* `dev/client/hmrClient.ts`: WebSocket message router.
+* `build/compileAngular.ts`: JIT page transpile and
   `__ABS_ANGULAR_REBOOTSTRAP__` hook generation.
-- `build/verifyAngularCoreUniqueness.ts` — build-time check
+* `build/verifyAngularCoreUniqueness.ts`: build-time check
   that the SSR runtime resolves a single `@angular/core`
   instance.
+* `cli/scripts/typecheck.ts`: `absolute typecheck` invocation
+  of `ngc` with `strictTemplates: true`.
