@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { basename, dirname, relative, resolve } from 'node:path';
+import { basename, dirname, relative, resolve, sep } from 'node:path';
 import { build } from '../core/build';
 import type { BuildConfig } from '../../types/build';
 import { scanEntryPoints } from '../build/scanEntryPoints';
@@ -807,9 +807,20 @@ type SurgicalEntry = { id: string; className: string };
  *            Used when we couldn't even compile the new metadata
  *            (file-not-found, no decorated class, ngtsc unavailable).
  *   tier 2 → full page reload.  */
+type TierBreakdown = {
+	importsMs: number;
+	resolveMs: number;
+	compileMs: number;
+};
+
 type AngularHmrVerdict =
-	| { tier: 0; queue: SurgicalEntry[] }
-	| { tier: 1; kind: 'remount'; queue: SurgicalEntry[] }
+	| { tier: 0; queue: SurgicalEntry[]; breakdown: TierBreakdown }
+	| {
+			tier: 1;
+			kind: 'remount';
+			queue: SurgicalEntry[];
+			breakdown: TierBreakdown;
+	  }
 	| { tier: 1; kind: 'rebootstrap'; reason: string }
 	| { tier: 2; reason: string };
 
@@ -821,6 +832,33 @@ type AngularHmrVerdict =
  * Cost: ~5–10ms per affected component for `tryFastHmr` (single-
  * file parse + fingerprint check). Two orders of magnitude under
  * the bundle rebuild cost so we always run this first. */
+/* Cached dynamic imports for the Angular HMR pipeline. Pulling these
+ * once on first call avoids a microtask hop on every edit — small but
+ * noticeable on the hot path since they're awaited sequentially. */
+type AngularDispatcherModules = {
+	resolveOwningComponents: typeof import('./angular/resolveOwningComponents').resolveOwningComponents;
+	invalidateResourceIndex: typeof import('./angular/resolveOwningComponents').invalidateResourceIndex;
+	encodeHmrComponentId: typeof import('./angular/hmrCompiler').encodeHmrComponentId;
+	tryFastHmr: typeof import('./angular/fastHmrCompiler').tryFastHmr;
+};
+let angularDispatcherModules: AngularDispatcherModules | null = null;
+const loadAngularDispatcherModules =
+	async (): Promise<AngularDispatcherModules> => {
+		if (angularDispatcherModules) return angularDispatcherModules;
+		const [resolveMod, hmrMod, fastMod] = await Promise.all([
+			import('./angular/resolveOwningComponents'),
+			import('./angular/hmrCompiler'),
+			import('./angular/fastHmrCompiler')
+		]);
+		angularDispatcherModules = {
+			encodeHmrComponentId: hmrMod.encodeHmrComponentId,
+			invalidateResourceIndex: resolveMod.invalidateResourceIndex,
+			resolveOwningComponents: resolveMod.resolveOwningComponents,
+			tryFastHmr: fastMod.tryFastHmr
+		};
+		return angularDispatcherModules;
+	};
+
 const decideAngularTier = async (
 	state: HMRState,
 	angularDir: string
@@ -828,21 +866,40 @@ const decideAngularTier = async (
 	const userEdited = state.lastUserEditedFiles ?? new Set<string>();
 	if (userEdited.size === 0) return { queue: [], tier: 0 };
 
-	const { resolveOwningComponents } = await import(
-		'./angular/resolveOwningComponents'
-	);
-	const { encodeHmrComponentId } = await import('./angular/hmrCompiler');
-	const { tryFastHmr } = await import('./angular/fastHmrCompiler');
+	const importsStart = performance.now();
+	const {
+		resolveOwningComponents,
+		invalidateResourceIndex,
+		encodeHmrComponentId,
+		tryFastHmr
+	} = await loadAngularDispatcherModules();
+	const importsMs = performance.now() - importsStart;
+
+	// A `.ts` edit might've changed a component's `templateUrl` /
+	// `styleUrls` mapping, which would invalidate the resource→owners
+	// inverted index. Drop it so the next resource edit rebuilds with
+	// fresh paths. (`.html` / `.css` edits don't change the mapping
+	// and don't need invalidation.)
+	for (const editedFile of userEdited) {
+		if (editedFile.endsWith('.ts') || editedFile.endsWith('.tsx')) {
+			invalidateResourceIndex();
+			break;
+		}
+	}
 
 	const queue: SurgicalEntry[] = [];
 	const queueIds = new Set<string>();
 	let anyFingerprintChanged = false;
+	let totalResolveMs = 0;
+	let totalCompileMs = 0;
 
 	for (const editedFile of userEdited) {
+		const resolveStart = performance.now();
 		const owners = resolveOwningComponents({
 			changedFilePath: editedFile,
 			userAngularRoot: angularDir
 		});
+		totalResolveMs += performance.now() - resolveStart;
 		if (
 			owners.length === 0 &&
 			(editedFile.endsWith('.component.ts') ||
@@ -860,11 +917,13 @@ const decideAngularTier = async (
 			const id = encodeHmrComponentId(componentFilePath, className);
 			if (queueIds.has(id)) continue;
 
+			const compileStart = performance.now();
 			const result = await tryFastHmr({
 				className,
 				componentFilePath,
 				kind
 			});
+			totalCompileMs += performance.now() - compileStart;
 			if (!result.ok) {
 				return {
 					kind: 'rebootstrap',
@@ -882,31 +941,34 @@ const decideAngularTier = async (
 		}
 	}
 
+	const breakdown = {
+		importsMs: Math.round(importsMs),
+		resolveMs: Math.round(totalResolveMs),
+		compileMs: Math.round(totalCompileMs)
+	};
 	if (anyFingerprintChanged) {
-		return { kind: 'remount', queue, tier: 1 };
+		return { breakdown, kind: 'remount', queue, tier: 1 };
 	}
-	return { queue, tier: 0 };
+	return { breakdown, queue, tier: 0 };
 };
 
 const broadcastSurgical = (state: HMRState, queue: SurgicalEntry[]): void => {
 	const timestamp = Date.now();
-	for (const { id, className } of queue) {
+	for (const { id } of queue) {
 		broadcastToClients(state, {
 			data: { id, timestamp },
 			type: 'angular:component-update'
 		});
-		logInfo(`[ng-hmr broadcast] ${className}`);
 	}
 };
 
 const broadcastRemount = (state: HMRState, queue: SurgicalEntry[]): void => {
 	const timestamp = Date.now();
-	for (const { id, className } of queue) {
+	for (const { id } of queue) {
 		broadcastToClients(state, {
 			data: { id, timestamp },
 			type: 'angular:component-remount'
 		});
-		logInfo(`[ng-hmr tier-1 remount] ${className}`);
 	}
 };
 
@@ -930,6 +992,245 @@ const broadcastRebootstrap = async (
 		'./angular/fastHmrCompiler'
 	);
 	invalidateFingerprintCache();
+};
+
+/* Schedule the Angular bundle rebuild — debounced + serialized.
+ *
+ * The Tier 0 / Tier 1a HMR paths don't NEED the bundle to rebuild
+ * for the running app to update — surgical updates apply directly to
+ * the live LView tree. The bundle is only needed for the next full
+ * page load (browser refresh, deep link navigation, Tier 1b
+ * rebootstrap). So we can defer the rebuild until the user pauses
+ * editing instead of running `Bun.build` on every keystroke.
+ *
+ * Why this matters: `compileAndBundleAngular` runs Bun.build over
+ * the entire page entrypoint (~5s on a real Angular app). Without
+ * debouncing, each edit kicked off a fresh Bun.build, and during
+ * its CPU-bound execution the dev server's `/@ng/component`
+ * endpoint had to compete for the event loop — manifesting as
+ * "subsequent edits get longer and longer" with the apply latency
+ * climbing across rapid edits.
+ *
+ * Pattern:
+ *   • Each call resets a 2-second timer. The bundle runs only after
+ *     the user has been quiet for 2s.
+ *   • Once the timer fires, only one bundle runs at a time
+ *     (serialized). New edits during an in-flight bundle re-arm the
+ *     timer for after the current one finishes, coalescing into a
+ *     single follow-up.
+ *   • Tier 1b's `await runBundle()` still works — it returns the
+ *     promise that resolves after the next bundle completes.
+ *     Tier 1b is rare and the user expects a hard reset there. */
+const ANGULAR_BUNDLE_DEBOUNCE_MS = 2000;
+
+type AngularBundleCtx = {
+	debounceTimer: ReturnType<typeof setTimeout> | null;
+	debouncedResolve: (() => void) | null;
+	debouncedPromise: Promise<void> | null;
+	inFlight: Promise<void> | null;
+	pending: boolean;
+};
+
+const angularBundleState = new WeakMap<HMRState, AngularBundleCtx>();
+
+const scheduleAngularBundleRebuild = (
+	state: HMRState,
+	pageEntries: string[],
+	angularDir: string
+): ((options?: { immediate?: boolean }) => Promise<void>) => {
+	let ctx = angularBundleState.get(state);
+	if (!ctx) {
+		ctx = {
+			debouncedPromise: null,
+			debouncedResolve: null,
+			debounceTimer: null,
+			inFlight: null,
+			pending: false
+		};
+		angularBundleState.set(state, ctx);
+	}
+
+	const doOne = async (): Promise<void> => {
+		if (pageEntries.length === 0) return;
+		await compileAndBundleAngular(state, pageEntries, angularDir);
+		markSsrCacheDirty('angular');
+	};
+
+	const drive = async (): Promise<void> => {
+		try {
+			while (true) {
+				ctx.pending = false;
+				await doOne();
+				if (!ctx.pending) break;
+			}
+		} finally {
+			ctx.inFlight = null;
+		}
+	};
+
+	const fire = () => {
+		ctx.debounceTimer = null;
+		const resolve = ctx.debouncedResolve;
+		ctx.debouncedResolve = null;
+		ctx.debouncedPromise = null;
+		if (ctx.inFlight) {
+			ctx.pending = true;
+			ctx.inFlight.finally(() => resolve?.());
+			return;
+		}
+		ctx.inFlight = drive();
+		ctx.inFlight.finally(() => resolve?.());
+	};
+
+	return ({ immediate = false } = {}) => {
+		if (!ctx.debouncedPromise) {
+			ctx.debouncedPromise = new Promise((res) => {
+				ctx.debouncedResolve = res;
+			});
+		}
+		if (immediate) {
+			// Tier 1b path — browser will dynamic-import the freshly-
+			// rebuilt bundle. Skip the debounce + fire now.
+			if (ctx.debounceTimer) {
+				clearTimeout(ctx.debounceTimer);
+				ctx.debounceTimer = null;
+			}
+			fire();
+		} else if (!ctx.debounceTimer) {
+			ctx.debounceTimer = setTimeout(fire, ANGULAR_BUNDLE_DEBOUNCE_MS);
+		} else {
+			clearTimeout(ctx.debounceTimer);
+			ctx.debounceTimer = setTimeout(fire, ANGULAR_BUNDLE_DEBOUNCE_MS);
+		}
+		return ctx.debouncedPromise;
+	};
+};
+
+/* HMR-only Angular compile. No Bun.build. Two parallel passes:
+ *  1. ngc shadow program so the surgical `/@ng/component?c=...`
+ *     endpoint can find the changed class for in-place patches.
+ *  2. JIT re-transpile of edited Angular source files into
+ *     `.absolutejs/generated/angular/...` so moduleServer serves
+ *     fresh bytes on the next page refresh. Without this, the
+ *     surgical patch updates the live app but a hard refresh
+ *     boots from the stale on-disk module. */
+const runAngularHmrIncremental = async (
+	state: HMRState,
+	angularDir: string
+) => {
+	const editedFiles = state.lastUserEditedFiles ?? new Set<string>();
+	const refreshPromise = (async () => {
+		try {
+			const { compileAngularForHmr } = await import(
+				'./angular/hmrCompiler'
+			);
+			await compileAngularForHmr(
+				[],
+				state.resolvedPaths.buildDir,
+				editedFiles
+			);
+		} catch (err) {
+			logWarn(
+				`[hmr] surgical-HMR shadow compile skipped: ${
+					err instanceof Error ? err.message : String(err)
+				}`
+			);
+		}
+	})();
+
+	const diskRefreshPromise = (async () => {
+		if (!angularDir || editedFiles.size === 0) return;
+		const angularDirAbs = resolve(angularDir);
+		const filesUnderAngular = Array.from(editedFiles).filter((file) => {
+			const abs = resolve(file);
+			return (
+				abs === angularDirAbs ||
+				abs.startsWith(angularDirAbs + sep)
+			);
+		});
+		if (filesUnderAngular.length === 0) return;
+
+		try {
+			const [
+				{ compileAngularFileJIT },
+				{ getFrameworkGeneratedDir },
+				{ resolveOwningComponents }
+			] = await Promise.all([
+				import('../build/compileAngular'),
+				import('../utils/generatedDir'),
+				import('./angular/resolveOwningComponents')
+			]);
+			const compiledRoot = getFrameworkGeneratedDir('angular');
+
+			// Resource edits (.html/.css) don't own a JIT entry of
+			// their own — the owning .component.ts file inlines them
+			// at transpile time. Map each edited file to the .ts files
+			// that need re-JIT to refresh on disk.
+			const tsFilesToRefresh = new Set<string>();
+			for (const file of filesUnderAngular) {
+				const ext = file.toLowerCase().match(/\.(ts|tsx|html|css|scss|sass)$/)?.[0];
+				if (!ext) continue;
+				if (ext === '.ts' || ext === '.tsx') {
+					tsFilesToRefresh.add(resolve(file));
+					continue;
+				}
+				const owners = resolveOwningComponents({
+					changedFilePath: file,
+					userAngularRoot: angularDirAbs
+				});
+				for (const owner of owners) {
+					tsFilesToRefresh.add(resolve(owner.componentFilePath));
+				}
+			}
+			if (tsFilesToRefresh.size === 0) return;
+
+			await Promise.all(
+				Array.from(tsFilesToRefresh).map((file) =>
+					compileAngularFileJIT(
+						file,
+						compiledRoot,
+						angularDirAbs,
+						getStyleTransformConfig(state.config),
+						String(Date.now())
+					).catch((err) => {
+						logWarn(
+							`[hmr] disk-refresh JIT failed for ${file}: ${
+								err instanceof Error ? err.message : String(err)
+							}`
+						);
+					})
+				)
+			);
+
+			// `compileAngularFileJIT` writes fresh .component.js files
+			// under `.absolutejs/generated/angular/`, which the file
+			// watcher hard-denies (HARD_DENY_PATTERN) — so moduleServer's
+			// transform cache for those paths never gets invalidated by
+			// the watcher. Invalidate them explicitly so the next page
+			// fetch reads the freshly-emitted disk content instead of
+			// the cached pre-edit transform.
+			try {
+				const { invalidateModule } = await import('./moduleServer');
+				for (const tsFile of tsFilesToRefresh) {
+					const rel = relative(angularDirAbs, tsFile)
+						.replace(/\\/g, '/')
+						.replace(/\.[tj]sx?$/, '.js');
+					const compiledFile = resolve(compiledRoot, rel);
+					invalidateModule(compiledFile);
+				}
+			} catch {
+				// Cache invalidation is best-effort.
+			}
+		} catch (err) {
+			logWarn(
+				`[hmr] disk-refresh skipped: ${
+					err instanceof Error ? err.message : String(err)
+				}`
+			);
+		}
+	})();
+
+	await Promise.all([refreshPromise, diskRefreshPromise]);
 };
 
 const compileAndBundleAngular = async (
@@ -1060,47 +1361,47 @@ const handleAngularFastPath = async (
 	// needed for the next full reload (rare). Tier 1+ requires the
 	// fresh bundle URL in hand before broadcasting because the
 	// client dynamic-imports it.
+	const tierStart = performance.now();
 	const verdict = await decideAngularTier(state, angularDir);
+	const tierMs = (performance.now() - tierStart).toFixed(0);
 
-	const runBundle = async () => {
-		if (pageEntries.length === 0) return;
-		await compileAndBundleAngular(state, pageEntries, angularDir);
-		markSsrCacheDirty('angular');
-	};
+	const runBundle = scheduleAngularBundleRebuild(
+		state,
+		pageEntries,
+		angularDir
+	);
+
+	const queueDescription = (queue: SurgicalEntry[]) =>
+		queue.map((e) => e.className).join(', ');
 
 	if (verdict.tier === 0) {
+		// Tier 0 surgical: keep the ngc shadow program fresh so the
+		// `/@ng/component` endpoint can serve the new class on the
+		// next fetch. No Bun.build — surgical HMR mutates the live
+		// app's `ɵcmp` directly, the bundle isn't in the loop.
+		await runAngularHmrIncremental(state, angularDir);
 		broadcastSurgical(state, verdict.queue);
-		// Fire-and-forget — bundle rebuild happens in the background
-		// while the user continues editing. Errors are swallowed by
-		// the void; future Tier 1 escalations will surface them
-		// when they need the fresh bundle.
-		void runBundle().catch((err) => {
-			logWarn(
-				`[ng-hmr async bundle] rebuild failed: ${
-					err instanceof Error ? err.message : String(err)
-				}`
-			);
-		});
+		const b = verdict.breakdown;
+		logInfo(
+			`[ng-hmr] tier-0 ${queueDescription(verdict.queue)} (server ${tierMs}ms: imports ${b.importsMs}/resolve ${b.resolveMs}/compile ${b.compileMs}; awaiting client apply)`
+		);
 	} else if (verdict.tier === 1 && verdict.kind === 'remount') {
-		// Tier 1a per-component remount. Same `/@ng/component` fetch
-		// path as surgical — the browser's `__ng_hmr_remount` listener
-		// re-imports the just-rebuilt module with cache-bust, so we
-		// can broadcast eagerly while the bundle finishes rebuilding
-		// in the background.
+		// Tier 1a per-component remount — same pattern as Tier 0,
+		// no bundle work. The browser's `__ng_hmr_remount` fetches
+		// `/@ng/component` and runs `createComponent` against the
+		// already-running app's class identities.
+		await runAngularHmrIncremental(state, angularDir);
 		broadcastRemount(state, verdict.queue);
-		void runBundle().catch((err) => {
-			logWarn(
-				`[ng-hmr async bundle] rebuild failed: ${
-					err instanceof Error ? err.message : String(err)
-				}`
-			);
-		});
+		const b = verdict.breakdown;
+		logInfo(
+			`[ng-hmr] tier-1a remount ${queueDescription(verdict.queue)} (server ${tierMs}ms: imports ${b.importsMs}/resolve ${b.resolveMs}/compile ${b.compileMs}; awaiting client apply)`
+		);
 	} else if (verdict.tier === 1 && verdict.kind === 'rebootstrap') {
 		// Tier 1b full app rebootstrap — fastHmr couldn't even
 		// compile (no decorated class, ngtsc unavailable). Bundle
 		// must be rebuilt first because the client dynamic-imports
 		// it during rebootstrap.
-		await runBundle();
+		await runBundle({ immediate: true });
 		await broadcastRebootstrap(state, verdict.reason);
 	}
 

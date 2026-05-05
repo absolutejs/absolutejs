@@ -18,6 +18,7 @@ export const isValidHMRClientMessage = (
 		case 'request-rebuild':
 		case 'hydration-error':
 		case 'hmr-timing':
+		case 'angular:hmr-ack':
 			return true;
 		default:
 			return false;

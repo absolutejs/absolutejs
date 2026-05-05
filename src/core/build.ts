@@ -1607,13 +1607,20 @@ const buildUnlocked = async ({
 	// are regular files (e.g. workers) that Bun.build won't follow automatically.
 	const urlReferencedFiles = await urlReferencedFilesPromise;
 
+	// In dev (hmr=true), serve Angular page modules via moduleServer
+	// instead of bundling them. The hydration TS files written by
+	// `compileAngular` are served at `/@src/<rel>` URLs and the
+	// browser fetches each Angular module on demand — matching how
+	// React/Svelte work in dev. Bundling in production / non-HMR
+	// builds is unchanged.
+	const skipAngularClientBundle = hmr && angularClientPaths.length > 0;
 	const nonReactClientEntryPoints = [
 		...svelteIndexPaths,
 		...svelteClientPaths,
 		...htmlEntries,
 		...vueIndexPaths,
 		...vueClientPaths,
-		...angularClientPaths,
+		...(skipAngularClientBundle ? [] : angularClientPaths),
 		...(islandBootstrapPath ? [islandBootstrapPath] : []),
 		...urlReferencedFiles
 	];
@@ -2378,6 +2385,22 @@ const buildUnlocked = async ({
 		manifest[toPascal(fileBase)] = serverPath;
 	}
 
+	// In dev with `skipAngularClientBundle`, no Bun.build artifact has
+	// produced `${PageName}Index` manifest entries for Angular pages.
+	// Populate them with `/@src/...` URLs to the on-disk hydration TS
+	// files so the SSR `<script>import(URL)</script>` injection points
+	// at moduleServer-served code that's always fresh.
+	if (skipAngularClientBundle) {
+		for (const clientPath of angularClientPaths) {
+			const fileBase = basename(clientPath, '.js');
+			const relFromCwd = relative(projectRoot, clientPath).replace(
+				/\\/g,
+				'/'
+			);
+			manifest[`${toPascal(fileBase)}Index`] = `/@src/${relFromCwd}`;
+		}
+	}
+
 	const shouldCopyHtmx =
 		!isIncremental ||
 		normalizedIncrementalFiles?.some(
@@ -2527,6 +2550,7 @@ const buildUnlocked = async ({
 	await tracePhase('cleanup/generated', () =>
 		cleanup({
 			angularDir,
+			preserveAngularGenerated: skipAngularClientBundle,
 			reactDir,
 			svelteDir,
 			vueDir

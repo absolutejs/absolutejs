@@ -3,7 +3,7 @@ import { serializeModuleVersions } from './moduleVersionTracker';
 import { type HMRWebSocket, WS_READY_STATE_OPEN } from '../../types/websocket';
 import type { HMRClientMessage } from '../../types/messages';
 import { isValidHMRClientMessage } from '../../types/typeGuards';
-import { logHmrUpdate } from '../utils/logger';
+import { logHmrUpdate, logInfo } from '../utils/logger';
 
 const trySendMessage = (client: HMRWebSocket, messageStr: string) => {
 	try {
@@ -136,6 +136,15 @@ const handleParsedMessage = (
 				data.duration
 			);
 			break;
+
+		case 'angular:hmr-ack': {
+			const tag = data.tier === 'tier-0' ? 'tier-0' : 'tier-1a';
+			const suffix = data.error
+				? ` FAILED — ${data.error}`
+				: ` applied in ${data.applyMs.toFixed(0)}ms`;
+			logInfo(`[ng-hmr] ${tag} ${data.className}${suffix}`);
+			break;
+		}
 	}
 };
 

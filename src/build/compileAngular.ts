@@ -1702,9 +1702,16 @@ export const compileAngularFileJIT = async (
 		// compiled output on disk is already up-to-date. This avoids
 		// unnecessary disk writes that trigger bun --hot re-evaluation
 		// and cause progressively slower compile times.
+		//
+		// `cacheBuster` only forces rewrite of the *entry* file, not
+		// recursively-traversed imports. The HMR disk-refresh path
+		// uses it when an HTML/CSS resource changed without a TS edit
+		// (so the TS hash is stale on the inlined-template view); we
+		// don't want it to invalidate the whole import graph too.
+		const isEntry = resolve(actualPath) === resolve(entryPath);
 		const contentHash = Bun.hash(sourceCode).toString(BASE_36_RADIX);
 		const cacheKey = actualPath;
-		const shouldWriteFile = cacheBuster
+		const shouldWriteFile = cacheBuster && isEntry
 			? true
 			: jitContentCache.get(cacheKey) !== contentHash ||
 				!existsSync(targetPath);

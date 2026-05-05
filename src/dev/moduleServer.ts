@@ -211,7 +211,20 @@ const resolveRelativeImport = (
 //      `exports` whose ESM entry isn't `main` (e.g. @vue/devtools-api)
 //   3. Bun.resolveSync — final fallback (uses `main`, often CJS)
 // Returns the relative path on success, or undefined if resolution fails.
+// Node.js built-in modules that have no browser equivalent. When server
+// code leaks into the dev module graph (e.g., `imageProcessing.ts`
+// transitively imported by an Angular browser-bundle helper), bare
+// imports like `from "fs"` or `from "node:path"` would otherwise be
+// "resolved" by Bun.resolveSync — Bun returns the bare spec back since
+// it knows the built-in — and we'd try to serve `/@src/node:path`
+// from disk, returning empty MIME and crashing the browser. Treat these
+// as unresolvable so the caller falls through to `/@stub/...` and the
+// stub generator produces a noop module.
+const NODE_BUILTIN_RE =
+	/^(?:node:|(?:assert|async_hooks|buffer|child_process|cluster|console|constants|crypto|dgram|dns|domain|events|fs|http|http2|https|inspector|module|net|os|path|perf_hooks|process|punycode|querystring|readline|repl|stream|string_decoder|sys|timers|tls|trace_events|tty|url|util|v8|vm|wasi|worker_threads|zlib)(?:\/|$))/;
+
 const resolveAbsoluteSpecifier = (specifier: string, projectRoot: string) => {
+	if (NODE_BUILTIN_RE.test(specifier)) return undefined;
 	try {
 		const fromExports = resolvePackageImport(specifier, [
 			'browser',
@@ -347,21 +360,37 @@ const rewriteImports = (
 
 	// Rewrite absolute filesystem paths (from generated index files that
 	// import hmrClient, refreshSetup, etc. via absolute paths)
-	result = result.replace(
-		/((?:from|import)\s*["'])(\/[^"']+\.(tsx?|jsx?|ts))(["'])/g,
-		(_match, prefix, absPath, _ext, suffix) => {
-			if (absPath.startsWith(projectRoot)) {
-				const rel = relative(projectRoot, absPath).replace(/\\/g, '/');
-
-				return `${prefix}${srcUrl(rel, projectRoot)}${suffix}`;
-			}
-			// Path outside project root (for example, Bun-linked package files
-			// whose realpath points at a sibling workspace). We still rewrite it
-			// through /@src/ so the module server can serve it consistently.
+	const rewriteAbsoluteToSrc = (
+		_match: string,
+		prefix: string,
+		absPath: string,
+		_ext: string,
+		suffix: string
+	) => {
+		if (absPath.startsWith(projectRoot)) {
 			const rel = relative(projectRoot, absPath).replace(/\\/g, '/');
 
 			return `${prefix}${srcUrl(rel, projectRoot)}${suffix}`;
 		}
+		// Path outside project root (for example, Bun-linked package files
+		// whose realpath points at a sibling workspace). We still rewrite it
+		// through /@src/ so the module server can serve it consistently.
+		const rel = relative(projectRoot, absPath).replace(/\\/g, '/');
+
+		return `${prefix}${srcUrl(rel, projectRoot)}${suffix}`;
+	};
+	result = result.replace(
+		/((?:from|import)\s*["'])(\/[^"']+\.(tsx?|jsx?|ts))(["'])/g,
+		rewriteAbsoluteToSrc
+	);
+	// Same rewrite for dynamic `import('/abs/path.js')` so HMR-injected
+	// vendor imports (e.g. `import('@angular/core')` after vendor pass)
+	// share the SAME module URL as the static top-level import. Without
+	// this, the dynamic and static imports resolve to two different
+	// module records and Angular trips NG0201 on token-identity checks.
+	result = result.replace(
+		/(import\s*\(\s*["'])(\/[^"']+\.(tsx?|jsx?|ts))(["']\s*\))/g,
+		rewriteAbsoluteToSrc
 	);
 
 	// Rewrite new URL('./relative', import.meta.url) for web workers / assets
@@ -1159,6 +1188,45 @@ const handleStubRequest = async (pathname: string) => {
 	});
 };
 
+/* Bun's TypeScript transpiler emits `import { __legacyDecorateClassTS,
+ * __legacyMetadataTS } from "bun:wrap"` for files using legacy
+ * decorators (Angular's `@Component`, `@Injectable`, etc.). At bundle
+ * time `Bun.build` inlines the helpers, but the dev moduleServer path
+ * serves transpiled output raw — so the import leaks through as
+ * `/@src/bun:wrap` and the browser sees an empty MIME response.
+ * Serve TS's standard runtime helpers as a virtual ESM module. */
+const BUN_WRAP_MODULE = `
+export function __legacyDecorateClassTS(decorators, target, key, desc) {
+	var c = arguments.length;
+	var r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc;
+	var d;
+	if (typeof Reflect === "object" && typeof Reflect.decorate === "function") {
+		r = Reflect.decorate(decorators, target, key, desc);
+	} else {
+		for (var i = decorators.length - 1; i >= 0; i--) {
+			if (d = decorators[i]) {
+				r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+			}
+		}
+	}
+	if (c > 3 && r) Object.defineProperty(target, key, r);
+	return r;
+}
+export function __legacyMetadataTS(k, v) {
+	if (typeof Reflect === "object" && typeof Reflect.metadata === "function") {
+		return Reflect.metadata(k, v);
+	}
+}
+`.trim();
+
+const handleBunWrapRequest = () =>
+	new Response(BUN_WRAP_MODULE, {
+		headers: {
+			'Cache-Control': 'no-cache',
+			'Content-Type': 'application/javascript'
+		}
+	});
+
 // Introspect a module's exports and generate noop stubs for each.
 const buildStubCode = async (specifier: string) => {
 	try {
@@ -1283,9 +1351,49 @@ const transformAndCache = async (
 
 	const stat = statSync(filePath);
 	const resolvedVueDir = vueDir ? resolve(vueDir) : undefined;
-	const content = REACT_EXTENSIONS.has(ext)
+	let content = REACT_EXTENSIONS.has(ext)
 		? transformReactFile(filePath, projectRoot, rewriter)
 		: transformPlainFile(filePath, projectRoot, rewriter, resolvedVueDir);
+
+	// Angular `*.component.js` files (under
+	// `.absolutejs/generated/angular`) need the per-class HMR
+	// listener block + Tier 1a `__abs_deps` registry appended. The
+	// bundle path used to do this via `createAngularHmrInjectionPlugin`
+	// at `Bun.build` time. With the moduleServer-only dev pipeline
+	// (no `Bun.build` for Angular pages), we apply the same transform
+	// per-file as part of normal module serving.
+	const isComponentJs =
+		ext === '.js' &&
+		filePath.endsWith('.component.js') &&
+		filePath.replace(/\\/g, '/').includes('/.absolutejs/generated/angular/');
+	if (isComponentJs) {
+		const userAngularRoot = await getAngularUserRoot(projectRoot);
+		if (userAngularRoot) {
+			const { applyAngularHmrInjection } = await import(
+				'./angular/hmrInjectionPlugin'
+			);
+			const { getFrameworkGeneratedDir } = await import(
+				'../utils/generatedDir'
+			);
+			const generatedAngularRoot = getFrameworkGeneratedDir('angular');
+			const transformed = applyAngularHmrInjection(content, filePath, {
+				generatedAngularRoot,
+				projectRoot,
+				userAngularRoot
+			});
+			if (transformed !== undefined) {
+				// The HMR injection emits literal `import('@angular/core')`
+				// (and similar bare specifiers) inside `__ng_hmr_load` /
+				// `__ng_hmr_remount`. Browsers can't resolve bare specs, so
+				// re-run the vendor rewrite on the appended block. Already-
+				// rewritten `/@src/...` URLs don't match the bare-specifier
+				// regex, so this pass is idempotent on the original code.
+				content = rewriter
+					? rewriteImports(transformed, filePath, projectRoot, rewriter)
+					: transformed;
+			}
+		}
+	}
 
 	setTransformed(
 		filePath,
@@ -1296,6 +1404,21 @@ const transformAndCache = async (
 
 	return jsResponse(content);
 };
+
+/* Resolve the user's Angular source dir from the resolved paths. The
+ * dev's `frameworkDirs.angular` carries this through `moduleServer`'s
+ * config, but the existing `transformAndCache` signature doesn't take
+ * that context — go through a module-level cached lookup so we don't
+ * thread the parameter through every call site. */
+let cachedAngularUserRoot: string | null | undefined;
+const getAngularUserRoot = async (
+	_projectRoot: string
+): Promise<string | null> => {
+	if (cachedAngularUserRoot !== undefined) return cachedAngularUserRoot;
+	cachedAngularUserRoot = configuredAngularUserRoot ?? null;
+	return cachedAngularUserRoot;
+};
+let configuredAngularUserRoot: string | undefined;
 
 const transformAndCacheSvelte = async (
 	filePath: string,
@@ -1362,6 +1485,10 @@ export const createModuleServer = (config: ModuleServerConfig) => {
 	const { projectRoot, vendorPaths, frameworkDirs, stylePreprocessors } =
 		config;
 	const rewriter = buildImportRewriter(vendorPaths);
+	if (frameworkDirs?.angular) {
+		configuredAngularUserRoot = frameworkDirs.angular;
+		cachedAngularUserRoot = undefined;
+	}
 
 	return async (pathname: string) => {
 		if (pathname.startsWith('/@stub/')) return handleStubRequest(pathname);
@@ -1370,6 +1497,8 @@ export const createModuleServer = (config: ModuleServerConfig) => {
 		if (!pathname.startsWith(SRC_PREFIX)) return undefined;
 
 		const relPath = pathname.slice(SRC_PREFIX.length);
+		if (relPath === 'bun:wrap' || relPath.startsWith('bun:wrap?'))
+			return handleBunWrapRequest();
 
 		const virtualCssResponse = handleVirtualSvelteCss(
 			resolve(projectRoot, relPath)

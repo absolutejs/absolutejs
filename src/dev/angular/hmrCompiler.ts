@@ -354,6 +354,26 @@ export const getApplyMetadataModule = async (
 	const className = decoded.slice(at + 1);
 	const componentFilePath = resolve(process.cwd(), filePathRel);
 
+	// Cache hit path: the dispatcher already compiled this exact
+	// edit's surgical module (in `decideAngularTier`'s `tryFastHmr`
+	// call) and stashed the text under the same key fastHmr uses
+	// internally. Serving from cache makes the typical edit's
+	// endpoint response near-instant (~0.1ms) instead of re-running
+	// the full ~50ms compile pipeline a second time.
+	//
+	// The cache key mirrors fastHmr's `fingerprintId`:
+	// `encodeURIComponent('<project-relative-path>@<className>')`.
+	const projectRelPath = relative(process.cwd(), componentFilePath).replace(
+		/\\/g,
+		'/'
+	);
+	const cacheKey = encodeURIComponent(`${projectRelPath}@${className}`);
+	const { takePendingModule } = await import('./fastHmrCompiler');
+	const cached = takePendingModule(cacheKey);
+	if (cached !== undefined) {
+		return cached;
+	}
+
 	// Detect entity kind from the file content so the surgical path
 	// branches correctly (component → IR + prototype patch; pipe /
 	// directive / service → prototype patch only). The dispatcher

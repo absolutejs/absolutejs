@@ -28,12 +28,22 @@ export type HMRTimingMessage = {
 	duration: number;
 };
 
+export type AngularHmrAckMessage = {
+	type: 'angular:hmr-ack';
+	id: string;
+	className: string;
+	tier: 'tier-0' | 'tier-1a';
+	applyMs: number;
+	error?: string;
+};
+
 export type HMRClientMessage =
 	| PingMessage
 	| ReadyMessage
 	| RequestRebuildMessage
 	| HydrationErrorMessage
-	| HMRTimingMessage;
+	| HMRTimingMessage
+	| AngularHmrAckMessage;
 
 /* Server-to-client message types */
 export type ManifestMessage = {

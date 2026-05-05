@@ -140,6 +140,35 @@ const fail = (
  * baseline). */
 const fingerprintCache = new Map<string, ComponentFingerprint>();
 
+/* Pending-module cache: keyed by encoded HMR id, holds the most
+ * recent successful surgical-module text. Populated by `tryFastHmr`
+ * on successful compile, drained by the `/@ng/component` endpoint
+ * the next time the browser fetches that id.
+ *
+ * Why: file-watch + dispatcher already calls `tryFastHmr` to decide
+ * the tier (Tier 0 vs 1a). That call produced the same `moduleText`
+ * the endpoint will need ~10–500ms later when the browser fetches.
+ * Without caching, the endpoint re-runs the full TS-parse → IR-build
+ * → translate → transpile pipeline a SECOND time, doubling perceived
+ * server latency on every edit. With caching, the endpoint is a near-
+ * instant lookup.
+ *
+ * Cache eviction: drained on read (single-use). If the file changes
+ * again before fetch, the dispatcher overwrites with the fresh
+ * compile. If the browser somehow fetches twice for the same id, the
+ * second fetch falls through to a fresh compile — correct, just slow. */
+const pendingModuleCache = new Map<string, string>();
+
+export const takePendingModule = (id: string): string | undefined => {
+	const cached = pendingModuleCache.get(id);
+	if (cached !== undefined) pendingModuleCache.delete(id);
+	return cached;
+};
+
+const setPendingModule = (id: string, moduleText: string): void => {
+	pendingModuleCache.set(id, moduleText);
+};
+
 const arraysEqual = (a: string[], b: string[]): boolean => {
 	if (a.length !== b.length) return false;
 	for (let i = 0; i < a.length; i++) {
@@ -552,6 +581,441 @@ const extractInputsAndOutputs = (
 	return { inputs, outputs };
 };
 
+/* ─── Child-component metadata resolution ──────────────────────
+ *
+ * The fast HMR path passes empty `declarations` to
+ * `compileComponentFromMetadata` (see the long comment at
+ * `declarations: []` for why — emitted dependency identifiers
+ * would be free variables in the surgical-update module's scope).
+ *
+ * Side effect: with no declarations, the template parser can't
+ * recognize child component tags as components, so static
+ * attributes like `<abs-image src="literal">` are encoded as
+ * plain DOM attrs (before AttributeMarker.Bindings) instead of
+ * input bindings. On initial render Angular's runtime input-from-
+ * attribute mapping wires them up; but `ɵɵreplaceMetadata` only
+ * re-runs the update path, never the initial-create input
+ * mapping — so the affected input signal stays unset after HMR
+ * and the re-rendered child component renders with `undefined`
+ * for that input (the user's logo `<img src="">` empty bug).
+ *
+ * Fix: pre-process the template HTML to bracket-syntaxify any
+ * static attr on a known child-component tag whose attribute
+ * name matches one of that component's inputs. The compiler then
+ * encodes them as proper bindings, and the HMR re-render binds
+ * them correctly.
+ *
+ * To know which tags are components and which attrs are inputs,
+ * we resolve the user's `@Component({ imports: [...] })` array:
+ *   - Local imports (`./...`): parse the .ts source, extract
+ *     selector + inputs the same way we do for the live class.
+ *   - Library imports (bare specifiers): parse the package's
+ *     shipped `.d.ts`, which has a `static ɵcmp:
+ *     ɵɵComponentDeclaration<Class, "selector", _, { inputs },
+ *     ...>` declaration that ngc generates for every component.
+ */
+
+type ChildComponentInfo = {
+	selector: string;
+	inputs: Set<string>;
+	outputs: Set<string>;
+	exportAs: string[] | null;
+	isComponent: boolean;
+};
+
+const childComponentInfoCache = new Map<
+	string,
+	{ mtimeMs: number; info: ChildComponentInfo | null }
+>();
+
+const getChildComponentInfoFromTsSource = (
+	filePath: string,
+	className: string
+): ChildComponentInfo | null => {
+	const cacheKey = `ts:${filePath}:${className}`;
+	let stat: ReturnType<typeof statSync>;
+	try {
+		stat = statSync(filePath);
+	} catch {
+		return null;
+	}
+	const cached = childComponentInfoCache.get(cacheKey);
+	if (cached && cached.mtimeMs === stat.mtimeMs) return cached.info;
+
+	let source: string;
+	try {
+		source = readFileSync(filePath, 'utf-8');
+	} catch {
+		childComponentInfoCache.set(cacheKey, { info: null, mtimeMs: stat.mtimeMs });
+		return null;
+	}
+	const sf = ts.createSourceFile(
+		filePath,
+		source,
+		ts.ScriptTarget.Latest,
+		true
+	);
+
+	let info: ChildComponentInfo | null = null;
+	for (const stmt of sf.statements) {
+		if (!ts.isClassDeclaration(stmt)) continue;
+		if (!stmt.name || stmt.name.text !== className) continue;
+		const decorator = findComponentDecorator(stmt);
+		if (!decorator) continue;
+		const args = getDecoratorArgsObject(decorator);
+		if (!args) continue;
+		const meta = readDecoratorMeta(args);
+		if (!meta.selector) continue;
+		const { inputs, outputs } = extractInputsAndOutputs(stmt);
+		const inputNames = new Set<string>();
+		for (const value of Object.values(inputs)) {
+			inputNames.add(value.bindingPropertyName);
+		}
+		const outputNames = new Set<string>(Object.values(outputs));
+		info = {
+			exportAs: null,
+			inputs: inputNames,
+			isComponent: true,
+			outputs: outputNames,
+			selector: meta.selector
+		};
+		break;
+	}
+
+	childComponentInfoCache.set(cacheKey, { info, mtimeMs: stat.mtimeMs });
+	return info;
+};
+
+const getChildComponentInfoFromDts = (
+	dtsPath: string,
+	className: string
+): ChildComponentInfo | null => {
+	const cacheKey = `dts:${dtsPath}:${className}`;
+	let stat: ReturnType<typeof statSync>;
+	try {
+		stat = statSync(dtsPath);
+	} catch {
+		return null;
+	}
+	const cached = childComponentInfoCache.get(cacheKey);
+	if (cached && cached.mtimeMs === stat.mtimeMs) return cached.info;
+
+	let content: string;
+	try {
+		content = readFileSync(dtsPath, 'utf-8');
+	} catch {
+		childComponentInfoCache.set(cacheKey, {
+			info: null,
+			mtimeMs: stat.mtimeMs
+		});
+		return null;
+	}
+
+	// Both components and directives have a similar shape:
+	//   `static ɵcmp: ɵɵComponentDeclaration<Class, "selector", refs,
+	//                                        { inputs }, { outputs },
+	//                                        ...>`
+	//   `static ɵdir: ɵɵDirectiveDeclaration<Class, "selector", refs,
+	//                                        { inputs }, { outputs },
+	//                                        ...>`
+	const isComponentDecl = new RegExp(
+		`static\\s+ɵcmp\\s*:[^<]+<\\s*${className}\\b`
+	).test(content);
+	const isDirectiveDecl =
+		!isComponentDecl &&
+		new RegExp(
+			`static\\s+ɵdir\\s*:[^<]+<\\s*${className}\\b`
+		).test(content);
+	if (!isComponentDecl && !isDirectiveDecl) {
+		childComponentInfoCache.set(cacheKey, {
+			info: null,
+			mtimeMs: stat.mtimeMs
+		});
+		return null;
+	}
+
+	const declToken = isComponentDecl ? 'ɵcmp' : 'ɵdir';
+	const headerRegex = new RegExp(
+		`static\\s+${declToken}\\s*:[^<]+<\\s*${className}\\s*,\\s*("[^"]+"|never)\\s*,[^,]+,\\s*\\{`
+	);
+	const headerMatch = headerRegex.exec(content);
+	if (!headerMatch) {
+		childComponentInfoCache.set(cacheKey, {
+			info: null,
+			mtimeMs: stat.mtimeMs
+		});
+		return null;
+	}
+	const selectorRaw = headerMatch[1] ?? '';
+	const selector =
+		selectorRaw.startsWith('"') && selectorRaw.endsWith('"')
+			? selectorRaw.slice(1, -1)
+			: '';
+	if (!selector) {
+		childComponentInfoCache.set(cacheKey, {
+			info: null,
+			mtimeMs: stat.mtimeMs
+		});
+		return null;
+	}
+
+	// Walk balanced braces to extract the inputs object, then the
+	// outputs object (the next `{...}` after the comma).
+	const sliceBalanced = (start: number): { end: number; text: string } | null => {
+		let depth = 0;
+		for (let i = start; i < content.length; i++) {
+			const ch = content[i];
+			if (ch === '{') depth++;
+			else if (ch === '}') {
+				depth--;
+				if (depth === 0) return { end: i, text: content.slice(start, i + 1) };
+			}
+		}
+		return null;
+	};
+
+	const inputsStart = (headerMatch.index ?? 0) + headerMatch[0].length - 1;
+	const inputsSlice = sliceBalanced(inputsStart);
+	if (!inputsSlice) {
+		childComponentInfoCache.set(cacheKey, {
+			info: null,
+			mtimeMs: stat.mtimeMs
+		});
+		return null;
+	}
+
+	const outputsHeaderRe = /\s*,\s*\{/y;
+	outputsHeaderRe.lastIndex = inputsSlice.end + 1;
+	let outputsBlock = '';
+	const outputsHeaderMatch = outputsHeaderRe.exec(content);
+	if (outputsHeaderMatch) {
+		const outputsStart = outputsHeaderRe.lastIndex - 1;
+		const outputsSlice = sliceBalanced(outputsStart);
+		if (outputsSlice) outputsBlock = outputsSlice.text;
+	}
+
+	const aliasNamesFrom = (block: string): Set<string> => {
+		const out = new Set<string>();
+		const re = /"([^"]+)"\s*:\s*\{[^}]*?"alias"\s*:\s*"([^"]*)"/g;
+		let m: RegExpExecArray | null;
+		while ((m = re.exec(block)) !== null) {
+			const propName = m[1] ?? '';
+			const alias = m[2] ?? '';
+			out.add(alias || propName);
+		}
+		return out;
+	};
+
+	const info: ChildComponentInfo = {
+		exportAs: null,
+		inputs: aliasNamesFrom(inputsSlice.text),
+		isComponent: isComponentDecl,
+		outputs: aliasNamesFrom(outputsBlock),
+		selector
+	};
+	childComponentInfoCache.set(cacheKey, { info, mtimeMs: stat.mtimeMs });
+	return info;
+};
+
+const buildClassToSpecMap = (sourceFile: ts.SourceFile): Map<string, string> => {
+	const result = new Map<string, string>();
+	for (const stmt of sourceFile.statements) {
+		if (!ts.isImportDeclaration(stmt)) continue;
+		if (!ts.isStringLiteral(stmt.moduleSpecifier)) continue;
+		const spec = stmt.moduleSpecifier.text;
+		const clause = stmt.importClause;
+		if (!clause || clause.isTypeOnly) continue;
+		if (clause.name) result.set(clause.name.text, spec);
+		const named = clause.namedBindings;
+		if (named && ts.isNamedImports(named)) {
+			for (const el of named.elements) {
+				if (el.isTypeOnly) continue;
+				result.set(el.name.text, spec);
+			}
+		}
+	}
+	return result;
+};
+
+/* Walk a package's `.d.ts` graph to find the file that contains the
+ * class's `static ɵcmp` declaration. Handles the common shapes:
+ *  - co-located `.d.ts` (`dist/foo.js` ↔ `dist/foo.d.ts`)
+ *  - mirrored `dist/src/` types (`dist/foo.js` ↔ `dist/src/foo.d.ts`,
+ *    used by @absolutejs/absolute)
+ *  - barrel re-exports (`index.d.ts` re-exports `ClassName` from
+ *    `./image.component` → follow that path).
+ *
+ * Returns the absolute path to a `.d.ts` containing `ClassName` or
+ * null if we can't find it. The actual selector/inputs extraction
+ * happens in `getChildComponentInfoFromDts`. */
+const findDtsContainingClass = (
+	startDtsPath: string,
+	className: string,
+	visited = new Set<string>()
+): string | null => {
+	if (visited.has(startDtsPath)) return null;
+	visited.add(startDtsPath);
+	if (!existsSync(startDtsPath)) return null;
+
+	let content: string;
+	try {
+		content = readFileSync(startDtsPath, 'utf-8');
+	} catch {
+		return null;
+	}
+
+	const declRe = new RegExp(
+		`(?:declare\\s+class|export\\s+(?:declare\\s+)?(?:class|abstract\\s+class))\\s+${className}\\b`
+	);
+	if (declRe.test(content)) return startDtsPath;
+
+	// Re-export: `export { ClassName } from "./path"` or
+	// `export { Foo, ClassName, Bar } from "./path"` or
+	// `export * from "./path"` (must scan all star re-exports).
+	const namedReExportRe = new RegExp(
+		`export\\s*(?:type)?\\s*\\{([^}]*)\\}\\s*from\\s*["']([^"']+)["']`,
+		'g'
+	);
+	let m: RegExpExecArray | null;
+	while ((m = namedReExportRe.exec(content)) !== null) {
+		const namedList = m[1] || '';
+		const fromPath = m[2] || '';
+		const names = namedList.split(',').map((n) => {
+			const trimmed = n.trim();
+			const asIdx = trimmed.lastIndexOf(' as ');
+			return asIdx >= 0 ? trimmed.slice(asIdx + 4).trim() : trimmed;
+		});
+		if (!names.includes(className)) continue;
+		const nextDts = resolveDtsFromSpec(fromPath, dirname(startDtsPath));
+		if (!nextDts) continue;
+		const found = findDtsContainingClass(nextDts, className, visited);
+		if (found) return found;
+	}
+
+	const starReExportRe = /export\s*\*\s*from\s*["']([^"']+)["']/g;
+	while ((m = starReExportRe.exec(content)) !== null) {
+		const fromPath = m[1] || '';
+		const nextDts = resolveDtsFromSpec(fromPath, dirname(startDtsPath));
+		if (!nextDts) continue;
+		const found = findDtsContainingClass(nextDts, className, visited);
+		if (found) return found;
+	}
+
+	return null;
+};
+
+const resolveDtsFromSpec = (
+	spec: string,
+	fromDir: string
+): string | null => {
+	// `.d.ts` re-exports often reference siblings with a `.js`
+	// extension (`from './image.component.js'`) for ESM compliance —
+	// the type information lives at the `.d.ts` next to that runtime
+	// file. Strip `.js` / `.mjs` / `.cjs` before appending `.d.ts`
+	// so we land on the right declaration file.
+	const stripped = spec.replace(/\.[mc]?js$/, '');
+	const base = resolve(fromDir, stripped);
+	const candidates = [
+		`${base}.d.ts`,
+		`${base}.d.mts`,
+		`${base}.d.cts`,
+		`${base}/index.d.ts`,
+		`${base}/index.d.mts`,
+		`${base}/index.d.cts`
+	];
+	for (const c of candidates) {
+		if (existsSync(c)) return c;
+	}
+	return null;
+};
+
+/* Read a package's exports/types entry to find the .d.ts path for a
+ * given subpath. Falls back to walking common patterns if the
+ * package.json lookup doesn't yield a usable path. */
+const findPackageDtsForJs = (jsPath: string): string | null => {
+	// Strategy 1: sibling .d.ts (co-located types).
+	const sibling = jsPath.replace(/\.[mc]?js$/, '.d.ts');
+	if (existsSync(sibling)) return sibling;
+
+	// Strategy 2: mirror under `dist/src/` (the @absolutejs/absolute
+	// shape — `dist/<path>.js` has its types at `dist/src/<path>.d.ts`).
+	const mirror = jsPath
+		.replace(/\/dist\//, '/dist/src/')
+		.replace(/\.[mc]?js$/, '.d.ts');
+	if (existsSync(mirror)) return mirror;
+
+	return null;
+};
+
+const resolveChildComponentInfo = (
+	className: string,
+	spec: string,
+	componentDir: string,
+	projectRoot: string
+): ChildComponentInfo | null => {
+	if (spec.startsWith('.') || spec.startsWith('/')) {
+		const base = resolve(componentDir, spec);
+		const candidates = [
+			`${base}.ts`,
+			`${base}.tsx`,
+			`${base}/index.ts`,
+			`${base}/index.tsx`
+		];
+		for (const candidate of candidates) {
+			if (!existsSync(candidate)) continue;
+			const info = getChildComponentInfoFromTsSource(candidate, className);
+			if (info) return info;
+		}
+		return null;
+	}
+	try {
+		const resolved = Bun.resolveSync(spec, projectRoot);
+		const initialDts = findPackageDtsForJs(resolved);
+		if (!initialDts) return null;
+		const finalDts = findDtsContainingClass(initialDts, className);
+		if (!finalDts) return null;
+		return getChildComponentInfoFromDts(finalDts, className);
+	} catch {
+		// Resolution failed — skip silently. Worst case the static-attr
+		// fix doesn't apply for this child component.
+	}
+	return null;
+};
+
+type ResolvedImport = {
+	identifier: ts.Identifier;
+	info: ChildComponentInfo;
+};
+
+const buildResolvedImports = (
+	sourceFile: ts.SourceFile,
+	importsExpr: ts.ArrayLiteralExpression | null,
+	componentDir: string,
+	projectRoot: string
+): ResolvedImport[] => {
+	const result: ResolvedImport[] = [];
+	if (!importsExpr) return result;
+
+	const classToSpec = buildClassToSpecMap(sourceFile);
+
+	for (const el of importsExpr.elements) {
+		if (!ts.isIdentifier(el)) continue;
+		const className = el.text;
+		const spec = classToSpec.get(className);
+		if (!spec) continue;
+		const info = resolveChildComponentInfo(
+			className,
+			spec,
+			componentDir,
+			projectRoot
+		);
+		if (!info) continue;
+		result.push({ identifier: el, info });
+	}
+
+	return result;
+};
+
 /* Tiny non-crypto string hash used for arrow-field body
  * fingerprints. We just need stable identity across whitespace-
  * insignificant edits and collision rates low enough that two
@@ -918,10 +1382,83 @@ const buildFreshClassMethodsBlock = (
 	classNode: ts.ClassDeclaration,
 	className: string
 ): string | null => {
-	const methodSources: string[] = [];
+	const memberSources: string[] = [];
 	let hasStatic = false;
 	const printer = ts.createPrinter({ removeComments: true });
 	for (const member of classNode.members) {
+		// Property declarations (`private foo = inject(Foo)` etc.) are
+		// the field initializers Tier 1a needs to refresh on the fresh
+		// instance — they're part of the constructor body in compiled
+		// output. Tier 0's prototype patch ignores these (they aren't
+		// on the prototype), so including them here is harmless for
+		// Tier 0 and required for Tier 1a's `new _Fresh()`.
+		if (ts.isPropertyDeclaration(member)) {
+			const modifiers = (ts.getModifiers(member) ?? []).filter(
+				(m) =>
+					m.kind !== ts.SyntaxKind.Decorator &&
+					m.kind !== ts.SyntaxKind.PrivateKeyword &&
+					m.kind !== ts.SyntaxKind.PublicKeyword &&
+					m.kind !== ts.SyntaxKind.ProtectedKeyword &&
+					m.kind !== ts.SyntaxKind.ReadonlyKeyword &&
+					m.kind !== ts.SyntaxKind.OverrideKeyword
+			);
+			const cleaned = ts.factory.createPropertyDeclaration(
+				modifiers,
+				member.name,
+				undefined,
+				undefined,
+				member.initializer
+			);
+			memberSources.push(
+				printer.printNode(
+					ts.EmitHint.Unspecified,
+					cleaned,
+					classNode.getSourceFile()
+				)
+			);
+			continue;
+		}
+
+		if (ts.isConstructorDeclaration(member)) {
+			// Strip TS-only param decorators (Inject, Optional, etc.)
+			// and parameter-property modifiers — the JS-level
+			// equivalent for parameter properties is constructor-body
+			// assignment (`this.foo = foo`), which TS's transpileModule
+			// emits. Keep the body verbatim.
+			const cleanedParams = member.parameters.map((param) =>
+				ts.factory.updateParameterDeclaration(
+					param,
+					(ts.getModifiers(param) ?? []).filter(
+						(m) =>
+							m.kind !== ts.SyntaxKind.Decorator &&
+							m.kind !== ts.SyntaxKind.PrivateKeyword &&
+							m.kind !== ts.SyntaxKind.PublicKeyword &&
+							m.kind !== ts.SyntaxKind.ProtectedKeyword &&
+							m.kind !== ts.SyntaxKind.ReadonlyKeyword &&
+							m.kind !== ts.SyntaxKind.OverrideKeyword
+					),
+					param.dotDotDotToken,
+					param.name,
+					param.questionToken,
+					param.type,
+					param.initializer
+				)
+			);
+			const cleaned = ts.factory.createConstructorDeclaration(
+				[],
+				cleanedParams,
+				member.body
+			);
+			memberSources.push(
+				printer.printNode(
+					ts.EmitHint.Unspecified,
+					cleaned,
+					classNode.getSourceFile()
+				)
+			);
+			continue;
+		}
+
 		if (
 			ts.isMethodDeclaration(member) ||
 			ts.isGetAccessorDeclaration(member) ||
@@ -1000,12 +1537,12 @@ const buildFreshClassMethodsBlock = (
 				cleaned,
 				classNode.getSourceFile()
 			);
-			methodSources.push(printed);
+			memberSources.push(printed);
 		}
 	}
-	if (methodSources.length === 0) return null;
+	if (memberSources.length === 0) return null;
 
-	const wrappedSource = `class _Fresh {\n${methodSources.join('\n')}\n}`;
+	const wrappedSource = `class _Fresh {\n${memberSources.join('\n')}\n}`;
 	let transpiled: string;
 	try {
 		transpiled = ts.transpileModule(wrappedSource, {
@@ -1223,6 +1760,21 @@ export const tryFastHmr = async (
 		return fail('style-resource-not-found', missingStyle);
 	}
 
+	// Resolve `@Component({ imports: [...] })` to ChildComponentInfo
+	// per import — selector + inputs + outputs + isComponent. ngc
+	// uses this metadata while parsing the template so static attrs
+	// on component tags (`<abs-image src="literal">`) get encoded as
+	// proper input bindings instead of plain DOM attributes; without
+	// it, the surgical-update IR has those attrs as static DOM attrs
+	// and `ɵɵreplaceMetadata`'s re-render leaves the child
+	// component's required input signals unset → empty `<img src="">`.
+	const resolvedImports = buildResolvedImports(
+		sourceFile,
+		decoratorMeta.importsExpr,
+		componentDir,
+		projectRoot
+	);
+
 	let parsed: ReturnType<typeof compiler.parseTemplate>;
 	try {
 		parsed = compiler.parseTemplate(templateText, templatePath, {
@@ -1287,36 +1839,41 @@ export const tryFastHmr = async (
 	const zeroLoc = new compiler.ParseLocation(sourceFileObj, 0, 0, 0);
 	const typeSourceSpan = new compiler.ParseSourceSpan(zeroLoc, zeroLoc);
 
-	/* `declarations` deliberately empty even when the user has
-	 * `imports: [CommonModule, MyDir]`. The reason:
+	/* Build `declarations` from the user's `@Component({ imports: [...] })`
+	 * — ngc needs the selector + input list of every imported
+	 * directive/component to produce a correct AOT IR. Without
+	 * declarations the parser can't recognize child component tags
+	 * as components, so static attributes (`<abs-image src="...">`)
+	 * get encoded as plain DOM attrs instead of input bindings; on
+	 * `ɵɵreplaceMetadata` the child component's required input
+	 * signals stay unset and the inner template renders empty.
 	 *
-	 *   `compileComponentFromMetadata` would emit those entries
-	 *   as `dependencies: [CommonModule, MyDir]` in the IR, with
-	 *   the identifiers as free variables in the surgical-update
-	 *   module's scope. Our update module is invoked via
-	 *   `core.ɵɵreplaceMetadata(class, u.default, [core], [], …)`
-	 *   — only `class` and the `[core]` namespace are passed; the
-	 *   user's local imports (`CommonModule`, `MyDir`) aren't.
-	 *   Result: `ReferenceError: CommonModule is not defined` at
-	 *   apply time.
+	 * The `type` field references the original AST identifier from
+	 * the user's source file (`ImageComponent`, etc.). Those names
+	 * are also injected into `${ClassName}.__abs_deps` by
+	 * `hmrInjectionPlugin`, and the surgical-update function
+	 * destructures them at the top — so when ngc emits the
+	 * `dependencies` closure with those identifiers, they resolve
+	 * correctly inside the surgical-update module's scope.
 	 *
-	 *   Angular's `ɵɵreplaceMetadata` solves this by *preserving*
-	 *   the existing `directiveDefs` / `pipeDefs` from the running
-	 *   def (see `mergeWithExistingDefinition` in
-	 *   `@angular/core/render3/hmr.ts`):
-	 *
-	 *       directiveDefs: clone.directiveDefs,
-	 *       pipeDefs: clone.pipeDefs,
-	 *
-	 *   so passing empty `declarations` here is safe — the live
-	 *   component's scope (already resolved at bundle time) stays
-	 *   intact through the metadata swap. We only need new
-	 *   `declarations` to introduce a NEW dependency that wasn't
-	 *   there before, and that case is a structural change that
-	 *   the fingerprint already escalates to Tier 1 (which will
-	 *   re-resolve from the rebuilt bundle).
-	 */
-	const declarations: unknown[] = [];
+	 * `declarationListEmitMode: Closure` (1) wraps the emitted
+	 * dependency list in a function. `ɵɵreplaceMetadata`'s
+	 * `mergeWithExistingDefinition` preserves the running
+	 * component's `directiveDefs`, so the closure is only invoked
+	 * if Angular's runtime needs to resolve a NEW dependency that
+	 * wasn't there before (which the fingerprint check already
+	 * escalates to Tier 1, retiring this code path). The lazy form
+	 * is what makes the `__abs_deps` destructure load-bearing
+	 * across the rare-but-possible call. */
+	const declarations: unknown[] = resolvedImports.map((entry) => ({
+		exportAs: entry.info.exportAs,
+		inputs: Array.from(entry.info.inputs),
+		isComponent: entry.info.isComponent,
+		kind: 0,
+		outputs: Array.from(entry.info.outputs),
+		selector: entry.info.selector,
+		type: new compiler.WrappedNodeExpr(entry.identifier)
+	}));
 
 	const meta = {
 		name: className,
@@ -1350,7 +1907,7 @@ export const tryFastHmr = async (
 		},
 		declarations,
 		defer: { mode: 0, blocks: new Map() },
-		declarationListEmitMode: 0,
+		declarationListEmitMode: declarations.length > 0 ? 1 : 0,
 		styles,
 		encapsulation: 0,
 		animations: null,
@@ -1359,7 +1916,7 @@ export const tryFastHmr = async (
 		i18nUseExternalIds: false,
 		changeDetection: null,
 		relativeTemplatePath: null,
-		hasDirectiveDependencies: false
+		hasDirectiveDependencies: declarations.length > 0
 	};
 
 	let compiled: R3CompiledExpression;
@@ -1444,29 +2001,30 @@ export const tryFastHmr = async (
 			sourceFile
 		);
 
-		// Prepend the source file's bare-specifier imports (e.g.
-		// `import { combineLatest, takeUntil } from 'rxjs'`) — but
-		// ONLY those imports whose named symbols are referenced by
-		// the prototype-patch `_Fresh` class block built below.
+		// Build the list of source-imported local names. The surgical
+		// module destructures these from `${className}.__abs_deps`
+		// (populated by `hmrInjectionPlugin`'s post-bundle registration
+		// block), routing all symbol resolution through the live
+		// bundle's references — vendor (rxjs, etc.) AND user-side
+		// relative imports (services, composables) alike.
 		//
-		// Why this matters: Tier 0 surgical hides the problem because
-		// `ɵɵreplaceMetadata`'s LView recreate doesn't re-fire
-		// `ngOnInit`. Tier 1a remount goes through public
-		// `createComponent` which DOES fire init hooks on the fresh
-		// instance, surfacing any bare identifier reference like
-		// `combineLatest` that's not in module scope.
+		// Why __abs_deps for everything (instead of real `import`
+		// statements):
+		//   1. Identity sharing — the bundle's `AccountService`
+		//      reference IS the same class Angular's injector tree was
+		//      wired against. Re-fetching from `/@src/...` would yield
+		//      a duplicate class with different identity, and DI would
+		//      fail.
+		//   2. No vendor-URL plumbing — bare specifiers in real
+		//      `import` statements would need rewriteImports + correct
+		//      vendor maps for every package the user imports. Routing
+		//      through `__abs_deps` skips the URL resolution entirely.
+		//   3. Tier 0 / Tier 1a unification — both paths use the same
+		//      `_Fresh` class body, so consistent symbol-resolution
+		//      mechanism keeps them in sync.
 		//
-		// Why this is filtered (not "include every import"): some
-		// imports have no dev-vendor URL mapping (e.g.
-		// `@angular/common`, `@absolutejs/absolute/angular/components`).
-		// Including them produces a `/vendor/X.js` URL that 404s and
-		// breaks module evaluation. Method bodies typically only
-		// reference vendor symbols (rxjs, lodash, etc.), so the
-		// filter trims to the minimum needed.
-		//
-		// We also skip relative imports — they'd require the dev
-		// server to resolve user-source paths from
-		// `/@ng/component`'s URL context, which it doesn't.
+		// We filter to symbols actually referenced in the `_Fresh`
+		// block to keep the destructure tight.
 		const provisionalMethodsBlock =
 			buildFreshClassMethodsBlock(classNode, className) ?? '';
 		const referencedNames = new Set<string>();
@@ -1476,41 +2034,82 @@ export const tryFastHmr = async (
 			referencedNames.add(idMatch[0]);
 		}
 
-		const importDecls: string[] = [];
+		// Source-defined names: imports AND top-level const/let/var/
+		// function/class declarations. The bundle plugin registers all
+		// of these on `${className}.__abs_deps` (see
+		// `extractAllTopLevelNames` in `hmrInjectionPlugin.ts`), so we
+		// can destructure any source-scope identifier that the
+		// `_Fresh` body references — not just imports.
+		//
+		// Critical for module-local helpers like
+		//   const square = (id) => `https://images.../${id}`;
+		//   class TestimonialAvatarsComponent {
+		//     avatars = [{ src: square('...'), ... }, ...];
+		//   }
+		// — `square` lives in module scope of the bundled file but
+		// isn't imported. Without including it here, the surgical
+		// module's `_Fresh.avatars` initializer crashes with
+		// `square is not defined`.
+		const sourceScopeNames = new Set<string>();
 		for (const stmt of sourceFile.statements) {
-			if (!ts.isImportDeclaration(stmt)) continue;
-			if (!ts.isStringLiteral(stmt.moduleSpecifier)) continue;
-			const spec = stmt.moduleSpecifier.text;
-			if (spec.startsWith('.') || spec.startsWith('/')) continue;
-			const importedNames: string[] = [];
-			const clause = stmt.importClause;
-			if (clause?.name) importedNames.push(clause.name.text);
-			if (
-				clause?.namedBindings &&
-				ts.isNamedImports(clause.namedBindings)
-			) {
-				for (const el of clause.namedBindings.elements) {
-					if (el.isTypeOnly) continue;
-					importedNames.push(el.name.text);
+			if (ts.isImportDeclaration(stmt)) {
+				if (!ts.isStringLiteral(stmt.moduleSpecifier)) continue;
+				const clause = stmt.importClause;
+				if (clause?.name) sourceScopeNames.add(clause.name.text);
+				if (
+					clause?.namedBindings &&
+					ts.isNamedImports(clause.namedBindings)
+				) {
+					for (const el of clause.namedBindings.elements) {
+						if (el.isTypeOnly) continue;
+						sourceScopeNames.add(el.name.text);
+					}
+				} else if (
+					clause?.namedBindings &&
+					ts.isNamespaceImport(clause.namedBindings)
+				) {
+					sourceScopeNames.add(clause.namedBindings.name.text);
 				}
-			} else if (
-				clause?.namedBindings &&
-				ts.isNamespaceImport(clause.namedBindings)
-			) {
-				importedNames.push(clause.namedBindings.name.text);
+				continue;
 			}
-			if (!importedNames.some((n) => referencedNames.has(n))) continue;
-			importDecls.push(
-				printer.printNode(
-					ts.EmitHint.Unspecified,
-					stmt,
-					sourceFile
-				)
-			);
+			if (
+				ts.isVariableStatement(stmt) ||
+				stmt.kind === ts.SyntaxKind.VariableStatement
+			) {
+				const varStmt = stmt as ts.VariableStatement;
+				for (const decl of varStmt.declarationList.declarations) {
+					if (ts.isIdentifier(decl.name)) {
+						sourceScopeNames.add(decl.name.text);
+					}
+				}
+				continue;
+			}
+			if (
+				ts.isFunctionDeclaration(stmt) ||
+				ts.isClassDeclaration(stmt)
+			) {
+				if (stmt.name) sourceScopeNames.add(stmt.name.text);
+			}
 		}
-		const tsSourceText =
-			(importDecls.length > 0 ? importDecls.join('\n') + '\n\n' : '') +
-			fnText;
+		// Don't destructure the class itself — it's already a
+		// parameter of the surgical update function.
+		sourceScopeNames.delete(className);
+
+		// Imported component/directive identifiers are emitted in the
+		// IR's `dependencies: () => [Foo, Bar]` closure. The scanner
+		// above only checks the prototype-patch block, so it misses
+		// those references. Add every resolved import to the
+		// referencedNames set so they get destructured from
+		// `__abs_deps` (where `hmrInjectionPlugin` already registers
+		// them) and are in scope when the closure runs.
+		for (const entry of resolvedImports) {
+			referencedNames.add(entry.identifier.text);
+		}
+
+		const depsToDestructure = [...sourceScopeNames].filter((n) =>
+			referencedNames.has(n)
+		);
+		const tsSourceText = fnText;
 
 		// Pass through `transpileModule` to strip any leftover TS
 		// syntax (type annotations, parameter property modifiers) and
@@ -1519,14 +2118,7 @@ export const tryFastHmr = async (
 		const transpiled = ts.transpileModule(tsSourceText, {
 			compilerOptions: {
 				module: ts.ModuleKind.ES2022,
-				target: ts.ScriptTarget.ES2022,
-				// Without this, transpile strips imports it sees as
-				// "unused" — the printed function body uses ɵhmr0.*
-				// proxies, not the real imports. The prototype-patch
-				// `_Fresh` class injected post-transpile DOES reference
-				// them (combineLatest, takeUntil, ...), and stripping
-				// the imports would leave those references dangling.
-				verbatimModuleSyntax: true
+				target: ts.ScriptTarget.ES2022
 			},
 			fileName: componentFilePath,
 			reportDiagnostics: false
@@ -1546,17 +2138,95 @@ export const tryFastHmr = async (
 			className
 		);
 		let moduleText = transpiled;
+		const fnOpening = `function ${className}_UpdateMetadata(${className}, ɵɵnamespaces) {`;
+		const fnOpeningIdx = moduleText.indexOf(fnOpening);
+
+		const depsDestructure =
+			depsToDestructure.length > 0
+				? `\n  const { ${depsToDestructure.join(', ')} } = ${className}.__abs_deps || {};\n`
+				: '';
+
+		if (fnOpeningIdx >= 0 && (methodsBlock || depsDestructure)) {
+			const insertAt = fnOpeningIdx + fnOpening.length;
+			moduleText =
+				moduleText.slice(0, insertAt) +
+				depsDestructure +
+				(methodsBlock ? '\n' + methodsBlock + '\n' : '') +
+				moduleText.slice(insertAt);
+		}
+
+		// Tier 1a tail. After the IR has set `${className}.ɵcmp` and
+		// `${className}.ɵfac`, mirror the `_Fresh` class onto those
+		// hooks too — sharing the def, but with a factory that
+		// instantiates `_Fresh` (whose constructor runs the new field
+		// initializers) rather than the live class. The function then
+		// returns `_Fresh` so the client-side remount path can pass
+		// it to `createComponent` for fresh-instance rendering.
+		//
+		// `_Fresh.ɵfac = () => new _Fresh()` is correct for
+		// standalone components without explicit constructor params
+		// (modern Angular pattern: `inject()` in field initializers).
+		// For components with constructor DI args, this needs to
+		// mirror the live factory's parameter passing — flagged as
+		// a known limitation.
 		if (methodsBlock) {
-			const fnOpening = `function ${className}_UpdateMetadata(${className}, ɵɵnamespaces) {`;
-			const idx = moduleText.indexOf(fnOpening);
-			if (idx >= 0) {
-				const insertAt = idx + fnOpening.length;
+			// Clone the live class's def so `_Fresh.ɵcmp.type` and
+			// `_Fresh.ɵcmp.factory` point at `_Fresh` — Angular's
+			// `createComponent` reads `def.type` to decide which class
+			// to instantiate, and `def.factory` is the actual factory
+			// it invokes. Without overriding both, sharing the def
+			// would route createComponent back to the live class's
+			// factory and we'd get a `new HeroComponent()` (no new
+			// fields) instead of `new _Fresh()`.
+			//
+			// The factory we install delegates to the LIVE class's
+			// factory with `_Fresh` as the type override. The Angular-
+			// generated factory looks like
+			// `function(t) { return new (t || Class)(inject(Dep1),
+			// inject(Dep2)); }` — passing `t = _Fresh` redirects the
+			// `new` to `_Fresh` while preserving the bundle's
+			// resolved DI args. This means components with explicit
+			// constructor parameters (`constructor(private foo:
+			// FooService)`) work end-to-end on Tier 1a — `foo` is
+			// inject()'d at the right Angular runtime layer, with the
+			// LIVE class identity Angular's injector tree was wired
+			// against.
+			//
+			// We share most of the def via spread (template fn,
+			// directiveDefs, pipeDefs, encapsulation, etc.) — those
+			// are identity-stable across the swap. We DO blow away
+			// `tView` (lazy cache) because the new factory means
+			// Angular will create a fresh tView for `_Fresh` anyway,
+			// and a stale tView with the wrong type embedded would
+			// confuse the LView walks.
+			const tail = `
+  if (typeof _Fresh !== 'undefined') {
+    var __abs_liveFac = ${className}.ɵfac;
+    var __abs_freshFac = typeof __abs_liveFac === 'function'
+      ? function(t) { return __abs_liveFac(t || _Fresh); }
+      : function() { return new _Fresh(); };
+    _Fresh.ɵcmp = Object.assign(
+      Object.create(Object.getPrototypeOf(${className}.ɵcmp)),
+      ${className}.ɵcmp,
+      {
+        type: _Fresh,
+        factory: __abs_freshFac,
+        tView: null
+      }
+    );
+    _Fresh.ɵfac = __abs_freshFac;
+    return _Fresh;
+  }
+`;
+			// Inject before the function's closing `}`. The function
+			// is the file's last expression, so its closing brace is
+			// the last `}` in the module text.
+			const lastBrace = moduleText.lastIndexOf('}');
+			if (lastBrace >= 0) {
 				moduleText =
-					moduleText.slice(0, insertAt) +
-					'\n' +
-					methodsBlock +
-					'\n' +
-					moduleText.slice(insertAt);
+					moduleText.slice(0, lastBrace) +
+					tail +
+					moduleText.slice(lastBrace);
 			}
 		}
 
@@ -1564,6 +2234,11 @@ export const tryFastHmr = async (
 		// the just-applied structure. Next call's fingerprint diff
 		// compares against this baseline.
 		fingerprintCache.set(fingerprintId, currentFingerprint);
+
+		// Stash the just-built module text so the `/@ng/component`
+		// endpoint can serve it without re-running the full pipeline.
+		// See `pendingModuleCache` rationale at module top.
+		setPendingModule(fingerprintId, moduleText);
 
 		return {
 			componentSource: sourceFile,

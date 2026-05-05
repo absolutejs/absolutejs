@@ -7,15 +7,16 @@
  *      classes carry the matching Angular decorators) — parse it and
  *      return every decorated class.
  *   2. The changed file is a `*.component.html` / `*.component.css`
- *      / `*.scss` / `*.sass` — scan every `*.component.ts` under the
- *      user's Angular root, find ones whose `templateUrl` /
- *      `styleUrl` / `styleUrls` resolves to the changed path, and
- *      return their classes.
+ *      / `*.scss` / `*.sass` — look up an inverted index built lazily
+ *      on first non-`.ts` edit. The index maps every resolved
+ *      `templateUrl` / `styleUrl` / `styleUrls` path to its owning
+ *      component class. Hits are O(1).
  *
- * v1 does the scan on every call. The scan is bounded by the user's
- * Angular dir (typically <100 files) and each file parse is ~1ms,
- * so the whole resolution lands well under 100ms even for medium
- * codebases. */
+ * Cache invalidation: a `.ts` edit clears the index because changing
+ * a component's `templateUrl` mapping is structural (the index would
+ * point at the wrong class otherwise). The next non-`.ts` edit
+ * rebuilds. The full rebuild costs ~300ms on a medium app, but it
+ * happens at most once per `.ts` save, not once per `.html` save. */
 
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, extname, join, resolve } from 'node:path';
@@ -235,29 +236,55 @@ export const resolveOwningComponents = (params: {
 	}
 	if (!rootStat.isDirectory()) return out;
 
-	for (const tsPath of walkAngularSourceFiles(userAngularRoot)) {
-		const classes = parseDecoratedClasses(tsPath);
-		const componentDir = dirname(tsPath);
-
-		const matchesResource = (relativeUrl: string): boolean => {
-			const abs = safeNormalize(resolve(componentDir, relativeUrl));
-
-			return abs === changedAbs;
-		};
-
-		for (const cls of classes) {
-			if (cls.kind !== 'component') continue;
-			const referencesChanged =
-				cls.templateUrls.some(matchesResource) ||
-				cls.styleUrls.some(matchesResource);
-			if (!referencesChanged) continue;
-			out.push({
-				className: cls.className,
-				componentFilePath: tsPath,
-				kind: 'component'
-			});
-		}
+	const index = getOrBuildResourceIndex(userAngularRoot);
+	const owners = index.get(changedAbs);
+	if (owners) {
+		out.push(...owners);
 	}
 
 	return out;
+};
+
+/* ───── Resource → owners inverted index ─────────────────────────
+ *
+ * One Map<absoluteResourcePath, AffectedEntity[]> per Angular root,
+ * built on demand. Persists for the lifetime of the dev server until
+ * `invalidateResourceIndex()` is called (on any `.ts` edit — the
+ * mapping might have changed). Subsequent non-`.ts` edits do an O(1)
+ * Map lookup instead of re-walking the entire user source tree. */
+type ResourceIndex = Map<string, AffectedEntity[]>;
+const resourceIndexByRoot = new Map<string, ResourceIndex>();
+
+const getOrBuildResourceIndex = (userAngularRoot: string): ResourceIndex => {
+	const cached = resourceIndexByRoot.get(userAngularRoot);
+	if (cached) return cached;
+
+	const index: ResourceIndex = new Map();
+	for (const tsPath of walkAngularSourceFiles(userAngularRoot)) {
+		const classes = parseDecoratedClasses(tsPath);
+		const componentDir = dirname(tsPath);
+		for (const cls of classes) {
+			if (cls.kind !== 'component') continue;
+			const owner: AffectedEntity = {
+				className: cls.className,
+				componentFilePath: tsPath,
+				kind: 'component'
+			};
+			for (const url of [...cls.templateUrls, ...cls.styleUrls]) {
+				const abs = safeNormalize(resolve(componentDir, url));
+				const existing = index.get(abs);
+				if (existing) existing.push(owner);
+				else index.set(abs, [owner]);
+			}
+		}
+	}
+	resourceIndexByRoot.set(userAngularRoot, index);
+	return index;
+};
+
+/* Drop the resource index. Called from the dispatcher when a `.ts`
+ * edit lands so the next `.html` / `.css` / etc. edit rebuilds with
+ * the latest `templateUrl` / `styleUrl` mappings. */
+export const invalidateResourceIndex = (): void => {
+	resourceIndexByRoot.clear();
 };

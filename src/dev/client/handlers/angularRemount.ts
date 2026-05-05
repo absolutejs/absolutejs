@@ -13,23 +13,24 @@
  * so it participates in the parent's view tree instead of being a
  * detached root.
  *
- * Caveats baked into this approach:
- *   • Old @Input bindings from the parent are NOT re-applied. The
- *     parent's template flow runs at parent-CD time and wires inputs
- *     then; until then the new instance sees default values. In
- *     practice this matches Tier 1 rebootstrap behavior — no worse.
- *   • Old projection content (ng-content) doesn't transfer. If the
- *     parent injected a child via ng-content, the new instance has an
- *     empty projection slot until parent re-renders.
- *   • Class field initializers (e.g. `private foo = inject(Bar)`) are
- *     baked into the original class's compiled constructor at bundle
- *     time. The surgical update patches `Class.ɵcmp` and prototype
- *     methods, but does NOT replace the class itself — so a NEW field
- *     added in source after the initial bundle won't appear on the
- *     fresh instance. Method-body / decorator / provider / template
- *     changes DO take effect (they live on the def, not the
- *     constructor). To pick up new field initializers requires a
- *     class-level rewrite or escalation to Tier 1b rebootstrap. */
+ * Lifecycle of one remount:
+ *   1. `applyMetadata` runs, returning `_Fresh` — a class with the
+ *      full new body (fields + ctor + methods) and a `ɵfac` that
+ *      delegates to the LIVE class's factory with `_Fresh` as the
+ *      type override. The delegation preserves the bundle's resolved
+ *      DI for explicit constructor params.
+ *   2. For each live instance: `createComponent(_Fresh, hostElement)`
+ *      builds a fresh `ComponentRef` at the same host. Angular runs
+ *      the new constructor (firing field initializers + lifecycle
+ *      hooks) and renders the new template.
+ *   3. Splice the new LView into the parent's slot via vendored slot
+ *      ops, replacing the old one in the parent's view tree.
+ *   4. Tear down the old LView (`executeOnDestroys` +
+ *      `processCleanups`) so RxJS subscriptions, DOM event listeners,
+ *      and `inject(DestroyRef).onDestroy(...)` callbacks all fire.
+ *   5. `ApplicationRef.tick()` so the parent's template re-runs
+ *      against the new slot — re-applies `@Input` bindings and
+ *      re-projects `<ng-content>` into the fresh child. */
 
 import {
 	CONTEXT,
@@ -152,15 +153,40 @@ const createFreshAt = (
 
 /* Splice `newLView` into `parentLView` at `slotIndex`, replacing
  * `oldLView`. After the splice, the new LView lives in the parent's
- * view tree; the old one is detached. */
+ * view tree; the old one is detached.
+ *
+ * ALSO rewires the directive-instance slots in `parentLView` for
+ * this node from the OLD instance to the NEW one. Angular stores
+ * each directive instance at `parentLView[i]` for `i` in
+ * `[tNode.directiveStart, tNode.directiveEnd)`. Parent template
+ * binding ops like `ɵɵproperty('priority', value)` walk that range
+ * and write to `parentLView[i].priority` — if those slots still
+ * point at the OLD instance, parent CD writes to a dead reference
+ * and `@Input` bindings never make it to the new instance. */
 const spliceLViewIntoParent = (
 	target: LiveInstance,
-	newLView: LView
+	newLView: LView,
+	newInstance: unknown
 ): void => {
 	const { parentLView, oldLView, slotIndex, tNode } = target;
 	replaceLViewInTree(parentLView, oldLView, newLView, slotIndex);
 	newLView[PARENT] = parentLView;
 	newLView[T_HOST] = tNode;
+
+	const oldInstance = oldLView[CONTEXT];
+	const tNodeWithDirectiveRange = tNode as TNode & {
+		directiveStart?: number;
+		directiveEnd?: number;
+	};
+	const start = tNodeWithDirectiveRange.directiveStart;
+	const end = tNodeWithDirectiveRange.directiveEnd;
+	if (typeof start === 'number' && typeof end === 'number') {
+		for (let i = start; i < end; i++) {
+			if (parentLView[i] === oldInstance) {
+				parentLView[i] = newInstance;
+			}
+		}
+	}
 };
 
 /* Fire onDestroy + cleanup on the OLD LView so subscriptions, event
@@ -174,6 +200,47 @@ const teardownOldLView = (oldLView: LView): void => {
 		processCleanups(oldTView, oldLView);
 	}
 	markLViewDestroyed(oldLView);
+};
+
+/* Copy `@Input` field values from the OLD instance to the NEW one.
+ *
+ * This is needed because Angular's parent template emits binding ops
+ * like `ɵɵproperty('priority', true)` that compare against a cached
+ * binding slot in the parent's LView before writing. After our
+ * splice the CACHED value is unchanged (the parent's LView wasn't
+ * re-rendered), so the next parent CD sees `true === true (cached)`
+ * and SKIPS the write. The new instance's `priority` would stay at
+ * its default until the parent's binding expression result changes.
+ *
+ * Pre-seeding the new instance with the old value sidesteps this:
+ * by the time the parent's binding op might run, the new instance
+ * already has the correct value, and any future change will fire
+ * normally because the binding-cache invariant is preserved.
+ *
+ * `def.inputs` metadata format (modern Angular):
+ *   - `{ propName: 'classFieldName' }` (simple alias)
+ *   - `{ propName: ['publicName', 'classFieldName', transformFn?] }` */
+const copyInputsFromOldToNew = (
+	oldInstance: unknown,
+	newInstance: unknown
+): void => {
+	if (!oldInstance || !newInstance) return;
+	const def = (newInstance as { constructor?: { ɵcmp?: unknown } }).constructor
+		?.ɵcmp as { inputs?: Record<string, unknown> } | undefined;
+	const inputs = def?.inputs;
+	if (!inputs) return;
+
+	// Modern Angular inputs format (since v17ish): the OBJECT KEY is
+	// the class property name; the value is either a string (binding
+	// name) or `[bindingName, flags, transformFn?]`. So the class
+	// field name is just `Object.keys(inputs)`.
+	for (const classField of Object.keys(inputs)) {
+		const oldRec = oldInstance as Record<string, unknown>;
+		const newRec = newInstance as Record<string, unknown>;
+		if (classField in oldRec) {
+			newRec[classField] = oldRec[classField];
+		}
+	}
 };
 
 export type RemountResult = {
@@ -201,14 +268,29 @@ export const remountComponentClass = async (
 		Class: unknown,
 		namespaces: unknown[],
 		...locals: unknown[]
-	) => void,
+	) => unknown,
 	namespaces: unknown[],
 	locals: unknown[],
 	core: AngularCoreNamespace,
 	className: string
 ): Promise<RemountResult> => {
+	let FreshClass: ComponentClass = Class;
 	try {
-		applyMetadata.apply(null, [Class, namespaces, ...locals]);
+		// `applyMetadata` from a recent fastHmr build returns a `_Fresh`
+		// class with the new constructor + field initializers + the
+		// live class's `ɵcmp` re-bound. Older builds (or non-component
+		// surgical paths) return undefined; in that case the live
+		// class is used and `createComponent` will call its existing
+		// factory — no field-initializer refresh, but template /
+		// method patches still apply.
+		const returned = applyMetadata.apply(null, [
+			Class,
+			namespaces,
+			...locals
+		]);
+		if (typeof returned === 'function') {
+			FreshClass = returned as ComponentClass;
+		}
 	} catch (err) {
 		return {
 			className,
@@ -228,13 +310,14 @@ export const remountComponentClass = async (
 
 	for (const target of targets) {
 		try {
-			const fresh = createFreshAt(Class, target.host, core);
+			const fresh = createFreshAt(FreshClass, target.host, core);
 			if (!fresh) {
 				skipped++;
 				continue;
 			}
 
-			spliceLViewIntoParent(target, fresh.newLView);
+			copyInputsFromOldToNew(target.oldLView[CONTEXT], fresh.instance);
+			spliceLViewIntoParent(target, fresh.newLView, fresh.instance);
 			teardownOldLView(target.oldLView);
 
 			fresh.componentRef.hostView.detectChanges?.();
@@ -246,6 +329,29 @@ export const remountComponentClass = async (
 				err
 			);
 			skipped++;
+		}
+	}
+
+	if (remounted > 0) {
+		// Trigger an app-wide CD pass so the parent's template re-runs
+		// against the new child LView's slot. This is what re-applies
+		// `@Input` bindings (`<app-hero [foo]="bar">`) and re-projects
+		// `<ng-content>` content into the new instance — both are
+		// PARENT-template artifacts that Angular only re-evaluates
+		// during the parent's update pass, not during the child's
+		// fresh creation. Without this tick, a remounted component
+		// shows default field values until the user interacts and
+		// triggers a stray CD elsewhere.
+		const w = window as unknown as {
+			__ANGULAR_APP__?: { tick?: () => void };
+		};
+		try {
+			w.__ANGULAR_APP__?.tick?.();
+		} catch (err) {
+			console.error(
+				'[absolutejs] post-remount tick threw — partial state',
+				err
+			);
 		}
 	}
 
