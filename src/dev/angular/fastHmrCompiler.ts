@@ -109,6 +109,12 @@ export type FastHmrSuccess = {
 	ok: true;
 	moduleText: string;
 	componentSource: ts.SourceFile;
+	/* True when the component's structural fingerprint changed since
+	 * the last successful compile — caller should pick the Tier 1a
+	 * remount path (per-component destroy + recreate) instead of the
+	 * Tier 0 surgical swap. The compiled module is still valid in
+	 * either case; the flag is purely a tier hint. */
+	fingerprintChanged: boolean;
 };
 
 export type FastHmrFailure = {
@@ -914,21 +920,87 @@ const buildFreshClassMethodsBlock = (
 ): string | null => {
 	const methodSources: string[] = [];
 	let hasStatic = false;
+	const printer = ts.createPrinter({ removeComments: true });
 	for (const member of classNode.members) {
 		if (
 			ts.isMethodDeclaration(member) ||
 			ts.isGetAccessorDeclaration(member) ||
 			ts.isSetAccessorDeclaration(member)
 		) {
-			methodSources.push(member.getText());
 			const modifiers = ts.getModifiers(member) ?? [];
-			if (
-				modifiers.some(
-					(m) => m.kind === ts.SyntaxKind.StaticKeyword
+			const isStatic = modifiers.some(
+				(m) => m.kind === ts.SyntaxKind.StaticKeyword
+			);
+			if (isStatic) hasStatic = true;
+
+			// Reconstruct the method without decorators or parameter
+			// decorators. Decorators reference symbols
+			// (`@HostListener`, `@Input`, `@ViewChild`, ...) that
+			// aren't imported into the surgical update module's
+			// scope, so leaving them in `_Fresh.prototype` produces
+			// `ReferenceError: HostListener is not defined` at apply
+			// time. The decorators were applied to the live class at
+			// its original construction; we don't re-apply them here
+			// because surgical only needs the method bodies on the
+			// prototype.
+			const cleanedParams = member.parameters.map((param) =>
+				ts.factory.updateParameterDeclaration(
+					param,
+					(ts.getModifiers(param) ?? []).filter(
+						(m) =>
+							// Strip parameter decorators (Inject, Optional,
+							// etc.) for the same reason — they reference
+							// runtime-imported symbols.
+							m.kind !== ts.SyntaxKind.Decorator
+					),
+					param.dotDotDotToken,
+					param.name,
+					param.questionToken,
+					param.type,
+					param.initializer
 				)
-			) {
-				hasStatic = true;
+			);
+			let cleaned: ts.Node;
+			if (ts.isMethodDeclaration(member)) {
+				cleaned = ts.factory.createMethodDeclaration(
+					modifiers.filter(
+						(m) => m.kind !== ts.SyntaxKind.Decorator
+					),
+					member.asteriskToken,
+					member.name,
+					member.questionToken,
+					member.typeParameters,
+					cleanedParams,
+					member.type,
+					member.body
+				);
+			} else if (ts.isGetAccessorDeclaration(member)) {
+				cleaned = ts.factory.createGetAccessorDeclaration(
+					modifiers.filter(
+						(m) => m.kind !== ts.SyntaxKind.Decorator
+					),
+					member.name,
+					cleanedParams,
+					member.type,
+					member.body
+				);
+			} else {
+				cleaned = ts.factory.createSetAccessorDeclaration(
+					modifiers.filter(
+						(m) => m.kind !== ts.SyntaxKind.Decorator
+					),
+					member.name,
+					cleanedParams,
+					member.body
+				);
 			}
+
+			const printed = printer.printNode(
+				ts.EmitHint.Unspecified,
+				cleaned,
+				classNode.getSourceFile()
+			);
+			methodSources.push(printed);
 		}
 	}
 	if (methodSources.length === 0) return null;
@@ -1105,7 +1177,12 @@ export const tryFastHmr = async (
 			);
 		}
 
-		return { componentSource: sourceFile, moduleText, ok: true };
+		return {
+			componentSource: sourceFile,
+			fingerprintChanged: false,
+			moduleText,
+			ok: true
+		};
 	}
 
 	if (inheritsDecoratedClass(classNode)) {
@@ -1196,15 +1273,9 @@ export const tryFastHmr = async (
 		componentDir
 	);
 	const cachedFingerprint = fingerprintCache.get(fingerprintId);
-	if (
-		cachedFingerprint &&
-		!fingerprintsEqual(cachedFingerprint, currentFingerprint)
-	) {
-		return fail(
-			'structural-change',
-			`fingerprint changed for ${className}; escalate to Tier 1`
-		);
-	}
+	const fingerprintChanged =
+		cachedFingerprint !== undefined &&
+		!fingerprintsEqual(cachedFingerprint, currentFingerprint);
 
 	// Source span — the compiler wants it but the values are only
 	// used for diagnostics we never surface, so a zero span pointing
@@ -1216,32 +1287,36 @@ export const tryFastHmr = async (
 	const zeroLoc = new compiler.ParseLocation(sourceFileObj, 0, 0, 0);
 	const typeSourceSpan = new compiler.ParseSourceSpan(zeroLoc, zeroLoc);
 
-	const importsArray: import('@angular/compiler').WrappedNodeExpr<ts.Expression>[] =
-		[];
-	if (decoratorMeta.importsExpr) {
-		for (const el of decoratorMeta.importsExpr.elements) {
-			importsArray.push(new compiler.WrappedNodeExpr(el));
-		}
-	}
-
-	/* `dependencies` accepts raw class refs at runtime: Angular's
-	 * scope resolver introspects each entry's `ɵdir` / `ɵcmp` /
-	 * `ɵpipe` / `ɵmod` static fields. AOT pre-resolves to the
-	 * specific declaration list for tree-shaking; we don't need
-	 * that in dev. So `imports: [CommonModule, MyDir]` →
-	 * `dependencies: [CommonModule, MyDir]` and runtime handles
-	 * the rest. */
-	const declarations: unknown[] = importsArray.map((expr) => ({
-		kind: 0, // R3TemplateDependencyKind.Directive — runtime ignores
-		// the kind and looks at the actual ɵdir/ɵcmp/ɵmod
-		// fields of the class.
-		type: expr,
-		selector: '',
-		inputs: [],
-		outputs: [],
-		exportAs: null,
-		isComponent: false
-	}));
+	/* `declarations` deliberately empty even when the user has
+	 * `imports: [CommonModule, MyDir]`. The reason:
+	 *
+	 *   `compileComponentFromMetadata` would emit those entries
+	 *   as `dependencies: [CommonModule, MyDir]` in the IR, with
+	 *   the identifiers as free variables in the surgical-update
+	 *   module's scope. Our update module is invoked via
+	 *   `core.ɵɵreplaceMetadata(class, u.default, [core], [], …)`
+	 *   — only `class` and the `[core]` namespace are passed; the
+	 *   user's local imports (`CommonModule`, `MyDir`) aren't.
+	 *   Result: `ReferenceError: CommonModule is not defined` at
+	 *   apply time.
+	 *
+	 *   Angular's `ɵɵreplaceMetadata` solves this by *preserving*
+	 *   the existing `directiveDefs` / `pipeDefs` from the running
+	 *   def (see `mergeWithExistingDefinition` in
+	 *   `@angular/core/render3/hmr.ts`):
+	 *
+	 *       directiveDefs: clone.directiveDefs,
+	 *       pipeDefs: clone.pipeDefs,
+	 *
+	 *   so passing empty `declarations` here is safe — the live
+	 *   component's scope (already resolved at bundle time) stays
+	 *   intact through the metadata swap. We only need new
+	 *   `declarations` to introduce a NEW dependency that wasn't
+	 *   there before, and that case is a structural change that
+	 *   the fingerprint already escalates to Tier 1 (which will
+	 *   re-resolve from the rebuilt bundle).
+	 */
+	const declarations: unknown[] = [];
 
 	const meta = {
 		name: className,
@@ -1284,7 +1359,7 @@ export const tryFastHmr = async (
 		i18nUseExternalIds: false,
 		changeDetection: null,
 		relativeTemplatePath: null,
-		hasDirectiveDependencies: importsArray.length > 0
+		hasDirectiveDependencies: false
 	};
 
 	let compiled: R3CompiledExpression;
@@ -1363,11 +1438,79 @@ export const tryFastHmr = async (
 			newLine: ts.NewLineKind.LineFeed,
 			removeComments: false
 		});
-		const tsSourceText = printer.printNode(
+		const fnText = printer.printNode(
 			ts.EmitHint.Unspecified,
 			exportedDecl,
 			sourceFile
 		);
+
+		// Prepend the source file's bare-specifier imports (e.g.
+		// `import { combineLatest, takeUntil } from 'rxjs'`) — but
+		// ONLY those imports whose named symbols are referenced by
+		// the prototype-patch `_Fresh` class block built below.
+		//
+		// Why this matters: Tier 0 surgical hides the problem because
+		// `ɵɵreplaceMetadata`'s LView recreate doesn't re-fire
+		// `ngOnInit`. Tier 1a remount goes through public
+		// `createComponent` which DOES fire init hooks on the fresh
+		// instance, surfacing any bare identifier reference like
+		// `combineLatest` that's not in module scope.
+		//
+		// Why this is filtered (not "include every import"): some
+		// imports have no dev-vendor URL mapping (e.g.
+		// `@angular/common`, `@absolutejs/absolute/angular/components`).
+		// Including them produces a `/vendor/X.js` URL that 404s and
+		// breaks module evaluation. Method bodies typically only
+		// reference vendor symbols (rxjs, lodash, etc.), so the
+		// filter trims to the minimum needed.
+		//
+		// We also skip relative imports — they'd require the dev
+		// server to resolve user-source paths from
+		// `/@ng/component`'s URL context, which it doesn't.
+		const provisionalMethodsBlock =
+			buildFreshClassMethodsBlock(classNode, className) ?? '';
+		const referencedNames = new Set<string>();
+		const identRe = /[A-Za-z_$][A-Za-z0-9_$]*/g;
+		let idMatch: RegExpExecArray | null;
+		while ((idMatch = identRe.exec(provisionalMethodsBlock)) !== null) {
+			referencedNames.add(idMatch[0]);
+		}
+
+		const importDecls: string[] = [];
+		for (const stmt of sourceFile.statements) {
+			if (!ts.isImportDeclaration(stmt)) continue;
+			if (!ts.isStringLiteral(stmt.moduleSpecifier)) continue;
+			const spec = stmt.moduleSpecifier.text;
+			if (spec.startsWith('.') || spec.startsWith('/')) continue;
+			const importedNames: string[] = [];
+			const clause = stmt.importClause;
+			if (clause?.name) importedNames.push(clause.name.text);
+			if (
+				clause?.namedBindings &&
+				ts.isNamedImports(clause.namedBindings)
+			) {
+				for (const el of clause.namedBindings.elements) {
+					if (el.isTypeOnly) continue;
+					importedNames.push(el.name.text);
+				}
+			} else if (
+				clause?.namedBindings &&
+				ts.isNamespaceImport(clause.namedBindings)
+			) {
+				importedNames.push(clause.namedBindings.name.text);
+			}
+			if (!importedNames.some((n) => referencedNames.has(n))) continue;
+			importDecls.push(
+				printer.printNode(
+					ts.EmitHint.Unspecified,
+					stmt,
+					sourceFile
+				)
+			);
+		}
+		const tsSourceText =
+			(importDecls.length > 0 ? importDecls.join('\n') + '\n\n' : '') +
+			fnText;
 
 		// Pass through `transpileModule` to strip any leftover TS
 		// syntax (type annotations, parameter property modifiers) and
@@ -1376,7 +1519,14 @@ export const tryFastHmr = async (
 		const transpiled = ts.transpileModule(tsSourceText, {
 			compilerOptions: {
 				module: ts.ModuleKind.ES2022,
-				target: ts.ScriptTarget.ES2022
+				target: ts.ScriptTarget.ES2022,
+				// Without this, transpile strips imports it sees as
+				// "unused" — the printed function body uses ɵhmr0.*
+				// proxies, not the real imports. The prototype-patch
+				// `_Fresh` class injected post-transpile DOES reference
+				// them (combineLatest, takeUntil, ...), and stripping
+				// the imports would leave those references dangling.
+				verbatimModuleSyntax: true
 			},
 			fileName: componentFilePath,
 			reportDiagnostics: false
@@ -1410,12 +1560,17 @@ export const tryFastHmr = async (
 			}
 		}
 
-		// Surgical succeeded — seed/refresh the fingerprint cache
-		// with the just-applied structure. Next surgical compares
-		// against this baseline.
+		// Compile succeeded — seed/refresh the fingerprint cache with
+		// the just-applied structure. Next call's fingerprint diff
+		// compares against this baseline.
 		fingerprintCache.set(fingerprintId, currentFingerprint);
 
-		return { ok: true, moduleText, componentSource: sourceFile };
+		return {
+			componentSource: sourceFile,
+			fingerprintChanged,
+			moduleText,
+			ok: true
+		};
 	} catch (err) {
 		return fail('unexpected-error', String(err));
 	}

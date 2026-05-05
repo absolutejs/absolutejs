@@ -451,17 +451,45 @@ export class ExpressionTranslatorVisitor<TFile, TStatement, TExpression, TType>
 
   visitLiteralMapExpr(ast: o.LiteralMapExpr, context: Context): TExpression {
     const properties: ObjectLiteralProperty<TExpression>[] = ast.entries.map((entry) => {
-      return entry instanceof o.LiteralMapPropertyAssignment
-        ? ({
-            kind: 'property',
-            propertyName: entry.key,
-            quoted: entry.quoted,
-            value: entry.value.visitExpression(this, context),
-          } satisfies ObjectLiteralAssignment<TExpression>)
-        : ({
-            kind: 'spread',
-            expression: entry.expression.visitExpression(this, context),
-          } satisfies ObjectLiteralSpread<TExpression>);
+      // Defensive duck-typing: an `entry` may come from a different
+      // `@angular/compiler` module instance than `o`, in which case
+      // `instanceof o.LiteralMapPropertyAssignment` returns false even
+      // for genuine LiteralMapPropertyAssignment instances. Falling
+      // through to the spread branch then crashes on `entry.expression`
+      // (undefined). Use shape-based detection: PropertyAssignment has
+      // a `.key` field and `.value` Expression; SpreadAssignment has
+      // `.expression` Expression and no `.key`.
+      const looksLikeProperty =
+        typeof (entry as { key?: unknown }).key === 'string' &&
+        (entry as { value?: unknown }).value !== undefined;
+      const isPropertyAssignment =
+        entry instanceof o.LiteralMapPropertyAssignment || looksLikeProperty;
+
+      if (isPropertyAssignment) {
+        const e = entry as unknown as o.LiteralMapPropertyAssignment;
+        return {
+          kind: 'property',
+          propertyName: e.key,
+          quoted: e.quoted,
+          value: e.value.visitExpression(this, context),
+        } satisfies ObjectLiteralAssignment<TExpression>;
+      }
+
+      const spreadEntry = entry as unknown as { expression?: o.Expression };
+      if (!spreadEntry.expression) {
+        const ctorName = (entry as { constructor?: { name?: string } })
+          ?.constructor?.name;
+        const keys = entry ? Object.keys(entry as object).join(',') : '';
+        throw new Error(
+          `[abs translator] LiteralMapExpr entry has neither key+value nor expression; ` +
+            `ctor=${ctorName}, keys=${keys}. Likely a duplicate @angular/compiler ` +
+            `module instance — investigate import resolution.`,
+        );
+      }
+      return {
+        kind: 'spread',
+        expression: spreadEntry.expression.visitExpression(this, context),
+      } satisfies ObjectLiteralSpread<TExpression>;
     });
     return this.setSourceMapRange(this.factory.createObjectLiteral(properties), ast.sourceSpan);
   }

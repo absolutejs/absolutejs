@@ -68,25 +68,67 @@ const buildHmrTail = (
     ]);
     if (!u || typeof u.default !== 'function') return;
     if (${className}.ɵcmp && typeof core.ɵɵreplaceMetadata === 'function') {
-      core.ɵɵreplaceMetadata(
-        ${className},
-        u.default,
-        [core],
-        [],
-        import.meta,
-        __ng_hmr_id
-      );
+      try {
+        core.ɵɵreplaceMetadata(
+          ${className},
+          u.default,
+          [core],
+          [],
+          import.meta,
+          __ng_hmr_id
+        );
+      } catch (err) {
+        console.error('[abs-hmr] ɵɵreplaceMetadata threw for ${className}:', err);
+      }
     } else {
       // Non-component entity (pipe / directive / service) — no
       // LView tree to walk, just apply the prototype patch.
       u.default(${className}, [core]);
     }
   };
+  // Tier 1 remount: structural changes (new ctor params / new field
+  // initializers / new providers) make a CONTEXT-preserving replace
+  // unsafe — the existing instance lacks the new fields. The remount
+  // path tears down the live LView and re-creates it via public
+  // \`createComponent\` against the same host, so the new constructor
+  // runs with fresh DI, new lifecycle hooks fire, and the splice
+  // logic puts the result back in the parent's view tree. The
+  // shared implementation is on \`globalThis.__absAngularRemount\` —
+  // installed by hmrClient.ts's import-time wiring.
+  const __ng_hmr_remount = async (t) => {
+    const [u, core] = await Promise.all([
+      import('/@ng/component?c=' + encodeURIComponent(__ng_hmr_id) + '&t=' + t),
+      import('@angular/core')
+    ]);
+    if (!u || typeof u.default !== 'function') return;
+    if (typeof globalThis.__absAngularRemount === 'function' && ${className}.ɵcmp) {
+      try {
+        await globalThis.__absAngularRemount(
+          ${className},
+          u.default,
+          [core],
+          [],
+          core,
+          ${JSON.stringify(className)}
+        );
+      } catch (err) {
+        console.error('[abs-hmr] remount threw for ${className}:', err);
+      }
+    } else {
+      // No remount helper installed (older absolutejs runtime, or
+      // non-component entity). Fall back to surgical replace.
+      u.default(${className}, [core]);
+    }
+  };
+
   if (typeof globalThis !== 'undefined' &&
       globalThis.__angularHmr &&
       typeof globalThis.__angularHmr.on === 'function') {
     globalThis.__angularHmr.on('angular:component-update', (d) => {
       if (d && d.id === __ng_hmr_id) __ng_hmr_load(d.timestamp);
+    });
+    globalThis.__angularHmr.on('angular:component-remount', (d) => {
+      if (d && d.id === __ng_hmr_id) __ng_hmr_remount(d.timestamp);
     });
   }
 }

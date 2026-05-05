@@ -12,7 +12,11 @@ import {
 } from './constants';
 import { detectCurrentFramework } from './frameworkDetect';
 import { hideErrorOverlay, showErrorOverlay } from './errorOverlay';
-import { dispatchAngularComponentUpdate } from './handlers/angularHmrShim';
+import {
+	dispatchAngularComponentRemount,
+	dispatchAngularComponentUpdate
+} from './handlers/angularHmrShim';
+import { installAngularRemountGlobal } from './handlers/angularRemountWiring';
 import { handleReactUpdate } from './handlers/react';
 import { handleHTMLUpdate, handleScriptUpdate } from './handlers/html';
 import { handleHTMXUpdate } from './handlers/htmx';
@@ -29,6 +33,7 @@ import {
 
 // Initialize HMR globals
 if (typeof window !== 'undefined') {
+	installAngularRemountGlobal();
 	if (!window.__HMR_MANIFEST__) {
 		window.__HMR_MANIFEST__ = {};
 	}
@@ -68,6 +73,7 @@ window.addEventListener('unhandledrejection', (evt) => {
 
 const hmrUpdateTypes = new Set([
 	'angular:component-update',
+	'angular:component-remount',
 	'angular:rebootstrap',
 	'react-update',
 	'html-update',
@@ -159,6 +165,28 @@ const handleHMRMessage = (message: HMRMessage) => {
 				| undefined;
 			if (data && typeof data.id === 'string') {
 				dispatchAngularComponentUpdate({
+					id: data.id,
+					timestamp:
+						typeof data.timestamp === 'number'
+							? data.timestamp
+							: Date.now()
+				});
+			}
+			break;
+		}
+		case 'angular:component-remount': {
+			// Tier 1a per-component remount. Structural change
+			// detected in fastHmr — the existing instance lacks new
+			// fields / DI / providers, so we destroy + recreate just
+			// this component (vs. full app rebootstrap). The injected
+			// `__ng_hmr_remount` listener handles the splice via the
+			// `__absAngularRemount` global wired in
+			// `installAngularRemountGlobal`.
+			const data = message.data as
+				| { id?: string; timestamp?: number }
+				| undefined;
+			if (data && typeof data.id === 'string') {
+				dispatchAngularComponentRemount({
 					id: data.id,
 					timestamp:
 						typeof data.timestamp === 'number'

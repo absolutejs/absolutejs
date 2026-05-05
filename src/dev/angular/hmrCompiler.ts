@@ -393,11 +393,21 @@ export const getApplyMetadataModule = async (
 	return program.compiler.emitHmrUpdateModule(node);
 };
 
-/* Encode form matching what `compileHmrInitializer` emits on the
- * caller side: `encodeURIComponent('${filePath}@${className}')`,
- * where `filePath` is RELATIVE to the project root in Angular CLI's
- * convention. We mirror that so the broadcast id matches what
- * Angular's listener expects. */
+/* Build the raw HMR component id used for two purposes:
+ *   1. Server-side `'angular:component-update'` WS broadcast
+ *      payload — compared by string-equality against the bundle's
+ *      `__ng_hmr_id` constant in the injected listener.
+ *   2. The `?c=<id>` query parameter in the surgical-update URL,
+ *      where it gets URL-encoded at request time
+ *      (`encodeURIComponent(__ng_hmr_id)`).
+ *
+ * Earlier this function URL-encoded eagerly to match Angular CLI's
+ * convention, but our `hmrInjectionPlugin` stores the id raw and
+ * encodes only at URL-construction time. The eager-encode caused
+ * a string-mismatch in the bundle's listener — the WS payload had
+ * `%2F` / `%40` while `__ng_hmr_id` had `/` / `@` — so the
+ * listener never matched and nothing fetched. Returning the raw
+ * form aligns server and client. */
 export const encodeHmrComponentId = (
 	absoluteFilePath: string,
 	className: string
@@ -407,5 +417,5 @@ export const encodeHmrComponentId = (
 		'/'
 	);
 
-	return encodeURIComponent(`${projectRel}@${className}`);
+	return `${projectRel}@${className}`;
 };

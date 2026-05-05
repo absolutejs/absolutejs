@@ -12,7 +12,9 @@
  * shim setup synchronous + at module scope so it's installed during
  * `hmrClient.ts`'s import-evaluation pass, before page chunks load. */
 
-export type AngularHmrEvent = 'angular:component-update';
+export type AngularHmrEvent =
+	| 'angular:component-update'
+	| 'angular:component-remount';
 export type AngularComponentUpdate = {
 	id: string;
 	timestamp: number;
@@ -73,4 +75,10 @@ export const dispatchAngularComponentUpdate = (
 	data: AngularComponentUpdate
 ) => {
 	globalThis.__angularHmr?.dispatch('angular:component-update', data);
+};
+
+export const dispatchAngularComponentRemount = (
+	data: AngularComponentUpdate
+) => {
+	globalThis.__angularHmr?.dispatch('angular:component-remount', data);
 };

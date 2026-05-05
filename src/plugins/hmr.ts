@@ -302,7 +302,42 @@ export const hmr = (
 					);
 				}
 
-				return new Response(module, {
+				// Rewrite bare module specifiers (e.g. `from 'rxjs'`)
+				// to dev-vendor URLs (`/vendor/rxjs.js`). The surgical
+				// module's `_Fresh` class methods rely on those imports
+				// for symbols like `combineLatest` to be in module
+				// scope when the prototype-patched method later runs
+				// (Tier 1a remount fires init hooks on a fresh
+				// instance, which surfaces these references).
+				// Merge all three vendor-path stores so the rewriter
+				// can resolve any bare specifier the surgical
+				// module's preserved imports might use:
+				//   • `getDevVendorPaths()` — React/general deps
+				//   • `getAngularVendorPaths()` — `@angular/*` paths
+				//   • `globalThis.__depVendorPaths` — non-Angular
+				//     transitive deps like `rxjs`, `lodash`, etc.
+				//     (built by `buildDepVendor.ts` and stashed on
+				//     globalThis for cross-plugin access)
+				const { getDevVendorPaths, getAngularVendorPaths } =
+					await import('../core/devVendorPaths');
+				const { rewriteImportsInContent } = await import(
+					'../build/rewriteImportsPlugin'
+				);
+				const depVendorPaths =
+					(globalThis as unknown as {
+						__depVendorPaths?: Record<string, string>;
+					}).__depVendorPaths ?? {};
+				const vendorPaths = {
+					...(getDevVendorPaths() ?? {}),
+					...(getAngularVendorPaths() ?? {}),
+					...depVendorPaths
+				};
+				const rewritten = rewriteImportsInContent(
+					module,
+					vendorPaths
+				);
+
+				return new Response(rewritten, {
 					headers: {
 						'Cache-Control': 'no-store',
 						'Content-Type': 'text/javascript; charset=utf-8'

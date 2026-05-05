@@ -793,9 +793,24 @@ export type AngularHmrTier = 0 | 1 | 2;
 
 type SurgicalEntry = { id: string; className: string };
 
+/* Verdict from the dispatcher.
+ *
+ *   tier 0 → surgical metadata swap (Tier 0). `queue` lists each
+ *            affected component; broadcast one `angular:component-update`
+ *            per entry.
+ *   tier 1 with `kind: 'remount'` → Tier 1a per-component remount.
+ *            Same per-component queue as Tier 0; broadcast one
+ *            `angular:component-remount` per entry. Used when fastHmr
+ *            compiled successfully but the structural fingerprint
+ *            changed (new ctor params / fields / providers / etc.).
+ *   tier 1 with `kind: 'rebootstrap'` → Tier 1b full app rebootstrap.
+ *            Used when we couldn't even compile the new metadata
+ *            (file-not-found, no decorated class, ngtsc unavailable).
+ *   tier 2 → full page reload.  */
 type AngularHmrVerdict =
 	| { tier: 0; queue: SurgicalEntry[] }
-	| { tier: 1; reason: string }
+	| { tier: 1; kind: 'remount'; queue: SurgicalEntry[] }
+	| { tier: 1; kind: 'rebootstrap'; reason: string }
 	| { tier: 2; reason: string };
 
 /* Decide the dispatch tier without broadcasting. Pure decision —
@@ -821,6 +836,7 @@ const decideAngularTier = async (
 
 	const queue: SurgicalEntry[] = [];
 	const queueIds = new Set<string>();
+	let anyFingerprintChanged = false;
 
 	for (const editedFile of userEdited) {
 		const owners = resolveOwningComponents({
@@ -835,6 +851,7 @@ const decideAngularTier = async (
 				editedFile.endsWith('.service.ts'))
 		) {
 			return {
+				kind: 'rebootstrap',
 				reason: `no Angular-decorated class found in ${editedFile}`,
 				tier: 1
 			};
@@ -850,17 +867,24 @@ const decideAngularTier = async (
 			});
 			if (!result.ok) {
 				return {
+					kind: 'rebootstrap',
 					reason: `${className}: ${result.reason}${
 						result.detail ? ` (${result.detail})` : ''
 					}`,
 					tier: 1
 				};
 			}
+			if (result.fingerprintChanged) {
+				anyFingerprintChanged = true;
+			}
 			queueIds.add(id);
 			queue.push({ className, id });
 		}
 	}
 
+	if (anyFingerprintChanged) {
+		return { kind: 'remount', queue, tier: 1 };
+	}
 	return { queue, tier: 0 };
 };
 
@@ -872,6 +896,17 @@ const broadcastSurgical = (state: HMRState, queue: SurgicalEntry[]): void => {
 			type: 'angular:component-update'
 		});
 		logInfo(`[ng-hmr broadcast] ${className}`);
+	}
+};
+
+const broadcastRemount = (state: HMRState, queue: SurgicalEntry[]): void => {
+	const timestamp = Date.now();
+	for (const { id, className } of queue) {
+		broadcastToClients(state, {
+			data: { id, timestamp },
+			type: 'angular:component-remount'
+		});
+		logInfo(`[ng-hmr tier-1 remount] ${className}`);
 	}
 };
 
@@ -1046,11 +1081,25 @@ const handleAngularFastPath = async (
 				}`
 			);
 		});
-	} else {
-		// Tier 1+ — must wait for bundle so the rebootstrap fetches
-		// fresh code. This is the slow path; it's the equivalent of
-		// what `compileAndBundleAngular` cost on every edit before
-		// the surgical fast path existed.
+	} else if (verdict.tier === 1 && verdict.kind === 'remount') {
+		// Tier 1a per-component remount. Same `/@ng/component` fetch
+		// path as surgical — the browser's `__ng_hmr_remount` listener
+		// re-imports the just-rebuilt module with cache-bust, so we
+		// can broadcast eagerly while the bundle finishes rebuilding
+		// in the background.
+		broadcastRemount(state, verdict.queue);
+		void runBundle().catch((err) => {
+			logWarn(
+				`[ng-hmr async bundle] rebuild failed: ${
+					err instanceof Error ? err.message : String(err)
+				}`
+			);
+		});
+	} else if (verdict.tier === 1 && verdict.kind === 'rebootstrap') {
+		// Tier 1b full app rebootstrap — fastHmr couldn't even
+		// compile (no decorated class, ngtsc unavailable). Bundle
+		// must be rebuilt first because the client dynamic-imports
+		// it during rebootstrap.
 		await runBundle();
 		await broadcastRebootstrap(state, verdict.reason);
 	}
