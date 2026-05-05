@@ -2674,7 +2674,20 @@ export const tryFastHmr = async (
 			preserveWhitespaces: decoratorMeta.preserveWhitespaces
 		},
 		declarations,
-		defer: { mode: 0, blocks: new Map() },
+		// `@defer` block handling for HMR. PerBlock mode (mode 0)
+		// requires every TmplAstDeferredBlock to have a per-block
+		// dependency function entry, or `compileComponentFromMetadata`
+		// throws "unable to find a dependency function for this
+		// deferred block". PerComponent mode (mode 1) with a
+		// `dependenciesFn: null` is supported by the runtime: the
+		// deferred-block resolver short-circuits to "loading
+		// complete" (no async deps) and renders the block's content
+		// against whatever directiveDefs the live component already
+		// has, which `mergeWithExistingDefinition` preserves from
+		// the initial bundle. Production builds emit per-block dep
+		// functions for code-splitting; in dev everything is already
+		// loaded, so the runtime no-op is correct.
+		defer: { dependenciesFn: null, mode: 1 },
 		declarationListEmitMode: declarations.length > 0 ? 1 : 0,
 		styles,
 		encapsulation: 0,

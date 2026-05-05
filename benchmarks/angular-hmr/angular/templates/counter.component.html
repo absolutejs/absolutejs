@@ -1,3 +1,6 @@
 <button (click)="increment()">
 	count is <span class="counter-value">{{ count }}</span>
 </button>
+@defer (on idle) {
+	<span class="deferred">deferred content</span>
+}

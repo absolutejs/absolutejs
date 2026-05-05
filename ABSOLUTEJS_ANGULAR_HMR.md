@@ -5,7 +5,7 @@ replacement for Angular components, the techniques that produce
 sub-50 ms end-to-end edit latency, and the architectural
 difference from `@angular/build`-driven HMR.
 
-Available in `@absolutejs/absolute@0.19.0-beta.918` and later.
+Available in `@absolutejs/absolute@0.19.0-beta.919` and later.
 
 * Repository: <https://github.com/absolutejs/absolutejs>
 * Documentation: <https://absolutejs.com>
@@ -52,7 +52,7 @@ Project: 3 standalone Angular components (root page,
 inline-template `HeaderComponent`, `templateUrl` + `styleUrl`
 `CounterComponent`).
 
-Stack: `@absolutejs/absolute@0.19.0-beta.918`, `@angular/* 21.2.11`,
+Stack: `@absolutejs/absolute@0.19.0-beta.919`, `@angular/* 21.2.11`,
 Bun 1.3.13, Linux/WSL2.
 
 Methodology: a Bun client connects to the dev server's `/hmr`
@@ -77,7 +77,7 @@ N = 30 samples per case, plus 3 warmup iterations not counted.
 
 \* External `.css` edits go through the framework-wide CSS HMR
 path (stylesheet swap), not Angular's metadata-replacement path.
-See §6 for tier definitions and §10.4 for the rationale.
+See §6 for tier definitions and §10.5 for the rationale.
 
 The server-side column is the cost of producing and broadcasting
 the new metadata. The end-to-end column adds file-watcher
@@ -494,6 +494,32 @@ This table covers every public option in
 `TypeCheckingOptions`, `DiagnosticOptions`, `BazelAndG3Options`,
 `I18nOptions`, `TargetOptions`, and `MiscOptions` interfaces.
 
+The "N/A" rows are options that exist for parts of Angular's
+toolchain that the HMR pipeline does not run. They group into
+six categories:
+
+* **Type-check block (TCB) flags.** Evaluated by ngtsc's TCB
+  synthesis, which the fast path doesn't run on the keystroke
+  path (§9.1). Editor language-service and `absolute typecheck`
+  enforce these.
+* **Library packaging.** Control the shape of `ng build` output
+  for npm-published libraries (flat module index, declaration-only
+  emit, etc). HMR runs on application code in a dev process; no
+  package is being shaped.
+* **xi18n message extraction.** Configure the separate xi18n tool
+  that produces translation source files. xi18n is invoked
+  manually, not on every edit.
+* **Build-config-time guards.** Run once when ngc starts (TS
+  version check) or installed at app bootstrap (orphan-component
+  guard). HMR doesn't re-bootstrap, so the guards remain active
+  without being re-installed.
+* **Bazel/G3-internal.** Specific to Google's monorepo build
+  environment. Not part of the Angular CLI / Vite / AbsoluteJS
+  application paths.
+* **Compiler-internal `_*` prefix.** Test infrastructure or
+  options for compiling `@angular/core` itself. Not a public
+  surface.
+
 | Option                                     | Status            | Notes |
 |--------------------------------------------|-------------------|-------|
 | `preserveWhitespaces`                      | Propagated        | Project-level default applied when an individual `@Component` decorator doesn't specify; decorator value wins when both are present. |
@@ -533,7 +559,7 @@ This table covers every public option in
 | `annotateForClosureCompiler`               | N/A               | Closure-compiler JSDoc annotations in output; not part of the HMR payload format. |
 | `generateExtraImportsInLocalMode`          | N/A               | G3-internal bundling concern. |
 | `_experimentalAllowEmitDeclarationOnly`    | N/A               | Declaration-only emit mode for g3 experiments. |
-| `onlyExplicitDeferDependencyImports`       | Pending           | Affects how `@defer` blocks resolve dependencies. The fast path's current `@defer` handling uses `R3ComponentMetadata.defer.mode = 0` (PerComponent, no per-block deps). Propagating this would land alongside per-block dep extraction; HMR for `@defer` blocks with explicit deps falls back to Tier 1b until then. |
+| `onlyExplicitDeferDependencyImports`       | N/A               | Bazel/G3-internal. Constrains which imports are dep candidates for per-block `@defer` dependency function emit. The fast path uses PerComponent mode with `dependenciesFn: null` (§10.4), which short-circuits the runtime's deferred-deps loader; no per-block dep functions are emitted, so this flag has nothing to constrain. |
 | `_enableTemplateTypeChecker` (test-only)   | N/A               | Compiler-internal test option. |
 | `_compilePoisonedComponents` (test-only)   | N/A               | Compiler-internal test option. |
 | `tracePerformance` (test-only)             | N/A               | ngtsc-internal performance trace; format is unstable. |
@@ -606,7 +632,37 @@ list with fresh DI.
 Server-side compilation cost is identical to Tier 0; the
 remount work happens entirely in the browser.
 
-### 10.4 External `.css` edits
+### 10.4 `@defer` blocks
+
+Templates containing `@defer` blocks compile cleanly through the
+fast path. `R3ComponentMetadata.defer` is set to
+`{ mode: PerComponent, dependenciesFn: null }`. This combination
+has a specific runtime contract: the dev-time defer-block
+resolver short-circuits to "loading complete" with no async
+deps to fetch, then renders the block's content against the
+component's existing `directiveDefs`, which
+`mergeWithExistingDefinition` (§3) preserves from the initial
+bundle. The defer block's children appear without an async
+roundtrip, which is the right behavior in dev where everything
+is already loaded into the process.
+
+Production builds emit per-block dependency functions for code
+splitting through `absolute build`, separately from the HMR
+path.
+
+The trigger semantics (`(on idle)`, `(on viewport)`, `(when ...)`)
+work as expected because the trigger code is generated by the
+template IR and runs on the live class.
+
+Adding or removing a `@defer` block is a template change, which
+the fast path handles as a Tier 0 surgical update. Adding a
+brand-new child component to a `@defer` block follows the same
+rules as adding a child component anywhere else: a new top-level
+import in the source file shifts the structural fingerprint
+(§6) and escalates to Tier 1a remount, which reinitializes the
+component's directive scope.
+
+### 10.5 External `.css` edits
 
 External `.css` files reachable via the `styleUrl` /
 `styleUrls` of a component currently dispatch through the
