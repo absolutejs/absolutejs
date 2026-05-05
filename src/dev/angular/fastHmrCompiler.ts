@@ -13,7 +13,8 @@
  *
  * Coverage and the small set of cases that escalate to Tier 1b
  * rebootstrap (heritage from a decorated parent class, exotic
- * decorator-arg shapes) are documented in `SURGICAL_HMR.md`. */
+ * decorator-arg shapes) are documented in
+ * `ABSOLUTEJS_ANGULAR_HMR.md`. */
 
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, relative, resolve } from 'node:path';
@@ -1668,7 +1669,7 @@ const extractArrowFieldSig = (cls: ts.ClassDeclaration): string[] => {
  * `inputs` / `outputs` fields in the fingerprint already capture
  * additions and removals via the binding-name list. (Alias-only
  * changes within a stable name list aren't caught — minor known
- * gap, see SURGICAL_HMR.md.) */
+ * gap, see ABSOLUTEJS_ANGULAR_HMR.md.) */
 const INPUT_OUTPUT_DECORATORS = new Set(['Input', 'Output']);
 
 const extractMemberDecoratorSig = (cls: ts.ClassDeclaration): string[] => {

@@ -1,13 +1,14 @@
-/* §3.4 — SSR Angular core multi-instance guardrail.
+/* SSR Angular core multi-instance guardrail.
  *
- * Background (see ANGULAR_HMR.md §1.1): when an SSR build ends up
- * loading two distinct `@angular/core` module instances at runtime,
- * each gets its own `currentInjector` global. `inject()` calls cross
- * the boundary and read the wrong one — symptom is `NG0203: The
- * <Token> token injection failed` for tokens that demonstrably exist.
+ * Background (see ABSOLUTEJS_ANGULAR_HMR.md §3.9): when an SSR
+ * build ends up loading two distinct `@angular/core` module
+ * instances at runtime, each gets its own `currentInjector`
+ * global. `inject()` calls cross the boundary and read the wrong
+ * one — symptom is `NG0203: The <Token> token injection failed`
+ * for tokens that demonstrably exist.
  *
- * The §1.1 fix pinned the SSR pipeline to a single resolution path
- * for every `@angular/*` package — either the bundled vendor file
+ * The fix pins the SSR pipeline to a single resolution path for
+ * every `@angular/*` package — either the bundled vendor file
  * (prod) or Bun's runtime resolution of the bare specifier (dev).
  * That fix is correctness-fragile: a future change that adds a
  * vendor build back, leaves a stale rewrite path, or mixes vendor +
