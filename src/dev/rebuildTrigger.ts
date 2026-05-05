@@ -1230,34 +1230,6 @@ const compileAndBundleAngular = async (
 		getStyleTransformConfig(state.config)
 	);
 
-	// SURGICAL_HMR §3.2 — shadow-run AOT-incremental compile alongside
-	// the JIT page-chunk emit so the `/@ng/component?c=<id>` endpoint
-	// has a program to query. The JIT path still produces the page
-	// chunks for now; once §3.3 lands (`_HmrLoad` listener + WS
-	// broadcast) the AOT pipeline supersedes JIT and we delete the
-	// shadow-run. Failures here are non-fatal — they break surgical
-	// HMR for the next edit but don't break the existing reboot path.
-	try {
-		const { compileAngularForHmr } = await import(
-			'./angular/hmrCompiler'
-		);
-		// Tell ngtsc which resource files (CSS / HTML) changed so the
-		// incremental analyzer re-reads them; without this it trusts
-		// the previous program's cached metadata and emits stale
-		// styles/templates.
-		await compileAngularForHmr(
-			pageEntries,
-			state.resolvedPaths.buildDir,
-			state.lastUserEditedFiles ?? null
-		);
-	} catch (err) {
-		logWarn(
-			`[hmr] surgical-HMR shadow compile skipped: ${
-				err instanceof Error ? err.message : String(err)
-			}`
-		);
-	}
-
 	// SSR loads compileAngular's raw output directly because the HMR fast
 	// path skips the bun.build server pass that would normally rewrite
 	// `@angular/*` specifiers (without rewriting, SSR resolves the unlinked

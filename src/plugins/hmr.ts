@@ -242,50 +242,6 @@ export const hmr = (
 			const url = new URL(request.url);
 			const subPath = url.pathname.slice('/@ng/'.length);
 
-			if (subPath === 'debug') {
-				const { getCachedHmrProgram } = await import(
-					'../dev/angular/hmrCompiler'
-				);
-				const program = getCachedHmrProgram();
-				if (!program) {
-					return new Response(
-						JSON.stringify({ error: 'No cached program' }),
-						{
-							headers: { 'Content-Type': 'application/json' },
-							status: 404
-						}
-					);
-				}
-				const tsProgram = program.compiler.getCurrentProgram();
-				const sourceFiles = tsProgram
-					.getSourceFiles()
-					.map((sf) => sf.fileName)
-					.filter(
-						(fn) =>
-							!fn.includes('node_modules') &&
-							!fn.endsWith('.d.ts')
-					)
-					.slice(0, 50);
-
-				return new Response(
-					JSON.stringify(
-						{
-							hasProgram: true,
-							sampleSourceFiles: sourceFiles,
-							totalSourceFiles:
-								tsProgram.getSourceFiles().length
-						},
-						null,
-						2
-					),
-					{
-						headers: {
-							'Content-Type': 'application/json'
-						}
-					}
-				);
-			}
-
 			if (subPath === 'component') {
 				const id = typeof query.c === 'string' ? query.c : null;
 				if (!id) {
