@@ -80,6 +80,12 @@ type DecoratedClass = {
 	kind: AngularEntityKind;
 	templateUrls: string[];
 	styleUrls: string[];
+	/* Name of the parent class in the heritage clause, if any.
+	 * Used to detect non-decorated parent classes whose edits
+	 * should propagate to Angular descendants. Decorated parents
+	 * are handled separately by `fastHmrCompiler`'s
+	 * `inheritsDecoratedClass` bail. */
+	extendsName: string | null;
 };
 
 const getStringPropertyValue = (
@@ -165,11 +171,27 @@ const parseDecoratedClasses = (filePath: string): DecoratedClass[] => {
 				const kind = ENTITY_DECORATORS[fn.text];
 				if (!kind) continue;
 
+				/* Capture the heritage clause's first-extends
+				 * identifier name, if any. Resolved to a parent
+				 * file path during resource-index build. */
+				let extendsName: string | null = null;
+				for (const heritage of node.heritageClauses ?? []) {
+					if (heritage.token !== ts.SyntaxKind.ExtendsKeyword) {
+						continue;
+					}
+					const first = heritage.types[0];
+					if (first && ts.isIdentifier(first.expression)) {
+						extendsName = first.expression.text;
+					}
+					break;
+				}
+
 				const entry: DecoratedClass = {
 					className: node.name.text,
 					kind,
 					styleUrls: [],
-					templateUrls: []
+					templateUrls: [],
+					extendsName
 				};
 				const arg = expr.arguments[0];
 				if (
@@ -253,38 +275,191 @@ export const resolveOwningComponents = (params: {
  * mapping might have changed). Subsequent non-`.ts` edits do an O(1)
  * Map lookup instead of re-walking the entire user source tree. */
 type ResourceIndex = Map<string, AffectedEntity[]>;
-const resourceIndexByRoot = new Map<string, ResourceIndex>();
 
-const getOrBuildResourceIndex = (userAngularRoot: string): ResourceIndex => {
-	const cached = resourceIndexByRoot.get(userAngularRoot);
+/* ───── Parent-file → descendant Angular entity index ────────────
+ *
+ * Tracks classes referenced in `extends` heritage clauses of every
+ * Angular-decorated class. Maps each parent file's absolute path
+ * to the list of descendant Angular entities that extend a class
+ * declared in that file.
+ *
+ * Use case: edits to a non-Angular-decorated parent class file
+ * (e.g., a utility base class with shared method bodies) need to
+ * trigger a Tier 1b rebootstrap so descendant Angular components
+ * pick up the new parent prototype. Without this index, those
+ * edits would not enter the Angular HMR pipeline at all and the
+ * descendants' inherited methods would stay frozen until reload.
+ *
+ * Decorated parents are NOT routed through this index. They reach
+ * Angular HMR via their own decorator-driven path; the descendant
+ * inherits the patched prototype through the JS chain. */
+type ParentFileIndex = Map<string, AffectedEntity[]>;
+
+type IndexBundle = {
+	resource: ResourceIndex;
+	parentFile: ParentFileIndex;
+};
+
+const indexByRoot = new Map<string, IndexBundle>();
+
+/* Resolve a class identifier referenced in a heritage clause to
+ * the absolute path of the file that declares it, by walking the
+ * source file's project-local imports. Bare-specifier (npm
+ * package) parents and unresolved imports return null; only
+ * project-local files are tracked, since edits to npm packages
+ * don't fire the watcher. */
+const resolveParentClassFile = (
+	parentName: string,
+	childFilePath: string,
+	angularRoot: string
+): string | null => {
+	let source: string;
+	try {
+		source = readFileSync(childFilePath, 'utf8');
+	} catch {
+		return null;
+	}
+	const sf = ts.createSourceFile(
+		childFilePath,
+		source,
+		ts.ScriptTarget.ES2022,
+		true,
+		ts.ScriptKind.TS
+	);
+	const childDir = dirname(childFilePath);
+	for (const stmt of sf.statements) {
+		if (!ts.isImportDeclaration(stmt)) continue;
+		if (!ts.isStringLiteral(stmt.moduleSpecifier)) continue;
+		const clause = stmt.importClause;
+		if (!clause || clause.isTypeOnly) continue;
+		let matchesName = false;
+		if (clause.name && clause.name.text === parentName) matchesName = true;
+		if (
+			!matchesName &&
+			clause.namedBindings &&
+			ts.isNamedImports(clause.namedBindings)
+		) {
+			for (const el of clause.namedBindings.elements) {
+				if (el.isTypeOnly) continue;
+				if (el.name.text === parentName) {
+					matchesName = true;
+					break;
+				}
+			}
+		}
+		if (!matchesName) continue;
+		const spec = stmt.moduleSpecifier.text;
+		if (!spec.startsWith('.') && !spec.startsWith('/')) {
+			// Bare specifier (npm package). The watcher never fires
+			// for files inside `node_modules`; leave unresolved.
+			return null;
+		}
+		const base = resolve(childDir, spec);
+		const candidates = [
+			`${base}.ts`,
+			`${base}.tsx`,
+			`${base}/index.ts`,
+			`${base}/index.tsx`
+		];
+		const angularRootNorm = safeNormalize(angularRoot);
+		for (const candidate of candidates) {
+			try {
+				if (statSync(candidate).isFile()) {
+					const norm = safeNormalize(candidate);
+					/* Only track project-local parents inside the
+					 * configured Angular root. Files outside the
+					 * root don't fire the watcher's Angular
+					 * framework path so the parent-file index
+					 * wouldn't be consulted for them anyway. */
+					if (!norm.startsWith(angularRootNorm)) return null;
+					return norm;
+				}
+			} catch {
+				/* candidate doesn't exist, try next */
+			}
+		}
+		return null;
+	}
+	return null;
+};
+
+const getOrBuildIndexes = (userAngularRoot: string): IndexBundle => {
+	const cached = indexByRoot.get(userAngularRoot);
 	if (cached) return cached;
 
-	const index: ResourceIndex = new Map();
+	const resource: ResourceIndex = new Map();
+	const parentFile: ParentFileIndex = new Map();
+
 	for (const tsPath of walkAngularSourceFiles(userAngularRoot)) {
 		const classes = parseDecoratedClasses(tsPath);
 		const componentDir = dirname(tsPath);
 		for (const cls of classes) {
-			if (cls.kind !== 'component') continue;
-			const owner: AffectedEntity = {
+			const entity: AffectedEntity = {
 				className: cls.className,
 				componentFilePath: tsPath,
-				kind: 'component'
+				kind: cls.kind
 			};
-			for (const url of [...cls.templateUrls, ...cls.styleUrls]) {
-				const abs = safeNormalize(resolve(componentDir, url));
-				const existing = index.get(abs);
-				if (existing) existing.push(owner);
-				else index.set(abs, [owner]);
+
+			if (cls.kind === 'component') {
+				for (const url of [...cls.templateUrls, ...cls.styleUrls]) {
+					const abs = safeNormalize(resolve(componentDir, url));
+					const existing = resource.get(abs);
+					if (existing) existing.push(entity);
+					else resource.set(abs, [entity]);
+				}
+			}
+
+			if (cls.extendsName !== null) {
+				const parentPath = resolveParentClassFile(
+					cls.extendsName,
+					tsPath,
+					userAngularRoot
+				);
+				if (parentPath !== null && parentPath !== safeNormalize(tsPath)) {
+					const existing = parentFile.get(parentPath);
+					if (existing) existing.push(entity);
+					else parentFile.set(parentPath, [entity]);
+				}
 			}
 		}
 	}
-	resourceIndexByRoot.set(userAngularRoot, index);
-	return index;
+
+	const bundle: IndexBundle = { parentFile, resource };
+	indexByRoot.set(userAngularRoot, bundle);
+	return bundle;
 };
 
-/* Drop the resource index. Called from the dispatcher when a `.ts`
- * edit lands so the next `.html` / `.css` / etc. edit rebuilds with
- * the latest `templateUrl` / `styleUrl` mappings. */
+const getOrBuildResourceIndex = (userAngularRoot: string): ResourceIndex =>
+	getOrBuildIndexes(userAngularRoot).resource;
+
+/* Returns the list of Angular entities (components, directives,
+ * etc.) whose declared class extends a class declared in
+ * `changedFilePath`. Empty if the changed file is not a parent of
+ * any tracked Angular entity, OR if the parent class is itself
+ * Angular-decorated (those route through their own HMR path).
+ * Used by the dispatcher to detect edits to plain utility base
+ * classes that should trigger a Tier 1b rebootstrap so the
+ * extending children see the new parent methods. */
+export const resolveDescendantsOfParent = (params: {
+	changedFilePath: string;
+	userAngularRoot: string;
+}): AffectedEntity[] => {
+	const norm = safeNormalize(params.changedFilePath);
+	let rootStat: ReturnType<typeof statSync>;
+	try {
+		rootStat = statSync(params.userAngularRoot);
+	} catch {
+		return [];
+	}
+	if (!rootStat.isDirectory()) return [];
+	const bundle = getOrBuildIndexes(params.userAngularRoot);
+	return bundle.parentFile.get(norm) ?? [];
+};
+
+/* Drop the resource and parent-file indexes. Called from the
+ * dispatcher when a `.ts` edit lands so the next `.html` /
+ * `.css` / etc. edit rebuilds with the latest `templateUrl` /
+ * `styleUrl` and heritage mappings. */
 export const invalidateResourceIndex = (): void => {
-	resourceIndexByRoot.clear();
+	indexByRoot.clear();
 };

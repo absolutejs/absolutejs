@@ -5,7 +5,7 @@ replacement for Angular components, the techniques that produce
 sub-50 ms end-to-end edit latency, and the architectural
 difference from `@angular/build`-driven HMR.
 
-Available in `@absolutejs/absolute@0.19.0-beta.925` and later.
+Available in `@absolutejs/absolute@0.19.0-beta.926` and later.
 
 * Repository: <https://github.com/absolutejs/absolutejs>
 * Documentation: <https://absolutejs.com>
@@ -60,7 +60,7 @@ shared base (root `BenchPage`, inline-template `HeaderComponent`,
 | medium | 30                | 32                    | 32           |
 | large  | 100               | 102                   | 102          |
 
-Stack: `@absolutejs/absolute@0.19.0-beta.925`, `@angular/* 21.2.11`,
+Stack: `@absolutejs/absolute@0.19.0-beta.926`, `@angular/* 21.2.11`,
 Bun 1.3.13, Linux/WSL2.
 
 ### 2.2 Methodology
@@ -919,6 +919,82 @@ on every public field of `R3DirectiveMetadata` and
 minors may introduce additional fields; coverage is verified
 against `@angular/* 21.x` and updated alongside Angular major /
 minor bumps.
+
+### 10.9 Non-component entity decorator-arg edits
+
+`@Pipe`, `@Directive`, and `@Injectable` classes go through a
+simpler HMR path than components. The fast extractor builds a
+method-body prototype patch (`buildSimpleEntityModule`) without
+running the IR pipeline, because most edits to these entities
+are method-body changes that propagate cleanly via prototype
+patching. Decorator-arg changes have runtime effects the
+prototype-patch alone can't reach:
+
+* Renaming `@Pipe({ name: 'old' })` to `'new'` breaks live
+  template binding lookups (templates resolve the pipe by name
+  at view-instantiation time).
+* Changing `@Directive({ selector: '[old]' })` to `'[new]'`
+  breaks template host-element matching (existing host elements
+  were matched under the old selector).
+* Switching `@Injectable({ providedIn: 'root' })` to `'platform'`
+  reshapes the DI tree; existing singletons hold the old
+  factory's instance.
+
+A per-entity fingerprint (`entityFingerprintCache`) records the
+decorator-args text, constructor parameter signature (with DI
+decorators), top-level imports, member decorators, field set,
+and arrow-field hashes for each non-component entity. On each
+edit, a mismatch returns
+`fail('structural-change', '<kind> <className> decorator-args
+or structural surface changed')`, which the dispatcher
+escalates to Tier 1b rebootstrap. First-call seeds the cache and
+proceeds through the normal method-body patch.
+
+Method-body edits leave the fingerprint unchanged and stay on
+Tier 0 (the same prototype-patch as before). The overhead is one
+TS AST walk per edit, much less than running the IR pipeline.
+
+### 10.10 Edits to non-decorated parent classes
+
+`class ChildComponent extends BaseUtility` where `BaseUtility`
+has no Angular decorator. Editing `BaseUtility`'s method bodies
+needs to propagate to `ChildComponent` instances via the JS
+prototype chain. Prior behavior: `BaseUtility`'s file edit
+didn't trigger any Angular HMR because the file's classes
+aren't Angular-decorated; the existing children kept their
+parent's pre-edit prototype until reload.
+
+A parent-file index in `resolveOwningComponents` tracks every
+Angular-decorated class's heritage clause, resolves the parent
+identifier through the source file's import declarations, and
+records the parent file's absolute path mapped to the list of
+descendant Angular entities. Resolution is project-local only
+(bare-specifier imports return null because npm package files
+don't fire the watcher). The dispatcher consults the index when
+an edited file has no direct Angular owner; if the file is a
+parent of one or more Angular descendants, the dispatcher
+returns a Tier 1b rebootstrap verdict with the list of affected
+descendant class names in the reason. The rebootstrap fetches
+fresh modules for the entire app, so the parent's new method
+bodies become live.
+
+Decorated parents (`@Component` / `@Directive` extended by
+another `@Component`) are NOT routed through this index. They
+reach Angular HMR via their own decorator-driven path, and the
+descendants' inherited methods get patched through the JS
+prototype chain at runtime. This is more efficient than
+rebootstrap and matches the existing
+`fastHmrCompiler.ts:inheritsDecoratedClass` bail behavior on
+the descendant side.
+
+Tier 1b rebootstrap on a parent edit is heavier than a Tier 0
+surgical update (~1 to 2 seconds vs ~12 to 14 ms server), but
+edits to shared utility base classes are rare in practice and
+the alternative (silent state) is strictly worse. A future
+optimization could patch the parent's prototype directly via a
+broadcast similar to `angular:component-update` keyed on the
+parent class instead of the descendant; the heritage-chain
+walk would handle the rest.
 
 ---
 

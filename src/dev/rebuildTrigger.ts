@@ -922,6 +922,10 @@ const decideAngularTier = async (
 	let totalResolveMs = 0;
 	let totalCompileMs = 0;
 
+	const { resolveDescendantsOfParent } = await import(
+		'./angular/resolveOwningComponents'
+	);
+
 	for (const editedFile of userEdited) {
 		const resolveStart = performance.now();
 		const owners = resolveOwningComponents({
@@ -929,6 +933,34 @@ const decideAngularTier = async (
 			userAngularRoot: angularDir
 		});
 		totalResolveMs += performance.now() - resolveStart;
+
+		/* Edits to a non-decorated parent class (e.g., a utility
+		 * base class that shared methods between Angular
+		 * components) would not register as an Angular file by
+		 * themselves. Check whether this file declares a class
+		 * extended by an Angular descendant; if so, force a Tier
+		 * 1b rebootstrap so the descendants pick up the new
+		 * parent prototype. (Decorated parents reach Angular HMR
+		 * via their own decorator path; the descendants' inherited
+		 * methods get patched through the JS prototype chain.) */
+		if (owners.length === 0) {
+			const descendants = resolveDescendantsOfParent({
+				changedFilePath: editedFile,
+				userAngularRoot: angularDir
+			});
+			if (descendants.length > 0) {
+				const names = descendants
+					.map((d) => d.className)
+					.slice(0, 3)
+					.join(', ');
+				return {
+					kind: 'rebootstrap',
+					reason: `parent class file edited; descendant Angular entities (${names}${descendants.length > 3 ? ', ...' : ''}) need to pick up new prototype`,
+					tier: 1
+				};
+			}
+		}
+
 		if (
 			owners.length === 0 &&
 			(editedFile.endsWith('.component.ts') ||

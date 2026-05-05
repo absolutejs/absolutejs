@@ -279,6 +279,120 @@ export const recordFingerprint = (
  * should establish fresh baselines from the new source. */
 export const invalidateFingerprintCache = (): void => {
 	fingerprintCache.clear();
+	entityFingerprintCache.clear();
+};
+
+/* Per-entity fingerprint cache for non-component Angular classes
+ * (`@Pipe`, `@Directive`, `@Injectable`). Captures decorator-arg
+ * text plus the same structural-surface dimensions the component
+ * fingerprint uses (constructor signature, top-level imports,
+ * member decorators, field set, arrow-field hashes). Mismatch
+ * between cycles forces Tier 1b rebootstrap because:
+ *   - `@Pipe.name` changes break template binding lookups (live
+ *     templates reference the pipe by old name)
+ *   - `@Directive.selector` changes break template binding
+ *     (live host elements were matched under the old selector)
+ *   - `@Injectable.providedIn` / `useFactory` / `useClass` changes
+ *     reshape the DI tree (existing singletons hold the old
+ *     factory's instance) */
+type EntityFingerprint = {
+	className: string;
+	decoratorArgsText: string;
+	ctorParamTypes: string[];
+	topLevelImports: string[];
+	memberDecoratorSig: string[];
+	arrowFieldSig: string[];
+	propertyFieldNames: string[];
+};
+
+const entityFingerprintCache = new Map<string, EntityFingerprint>();
+
+const entityFingerprintsEqual = (
+	a: EntityFingerprint,
+	b: EntityFingerprint
+): boolean => {
+	if (a.className !== b.className) return false;
+	if (a.decoratorArgsText !== b.decoratorArgsText) return false;
+	if (!arraysEqual(a.ctorParamTypes, b.ctorParamTypes)) return false;
+	if (!arraysEqual(a.topLevelImports, b.topLevelImports)) return false;
+	if (!arraysEqual(a.memberDecoratorSig, b.memberDecoratorSig)) return false;
+	if (!arraysEqual(a.arrowFieldSig, b.arrowFieldSig)) return false;
+	if (!arraysEqual(a.propertyFieldNames, b.propertyFieldNames)) return false;
+	return true;
+};
+
+const ENTITY_DECORATOR_NAMES = new Set([
+	'Pipe',
+	'Directive',
+	'Injectable'
+]);
+
+const findEntityDecorator = (
+	cls: ts.ClassDeclaration
+): ts.Decorator | null => {
+	for (const dec of ts.getDecorators(cls) ?? []) {
+		const expr = dec.expression;
+		if (!ts.isCallExpression(expr)) continue;
+		if (!ts.isIdentifier(expr.expression)) continue;
+		if (ENTITY_DECORATOR_NAMES.has(expr.expression.text)) return dec;
+	}
+	return null;
+};
+
+const extractEntityFingerprint = (
+	cls: ts.ClassDeclaration,
+	className: string,
+	sourceFile: ts.SourceFile
+): EntityFingerprint => {
+	const decorator = findEntityDecorator(cls);
+	let decoratorArgsText = '';
+	if (decorator !== null) {
+		const expr = decorator.expression as ts.CallExpression;
+		const arg = expr.arguments[0];
+		if (arg !== undefined) {
+			decoratorArgsText = arg.getText().replace(/\s+/g, ' ').trim();
+		}
+	}
+
+	const ctorParamTypes: string[] = [];
+	for (const member of cls.members) {
+		if (!ts.isConstructorDeclaration(member)) continue;
+		for (const param of member.parameters) {
+			const typeText = param.type ? param.type.getText() : '';
+			const decorators = ts.getDecorators(param) ?? [];
+			const decoratorSig =
+				decorators.length === 0
+					? ''
+					: decorators
+							.map((d) => {
+								const e = d.expression;
+								if (
+									ts.isCallExpression(e) &&
+									ts.isIdentifier(e.expression)
+								) {
+									const args = e.arguments
+										.map((a) => a.getText())
+										.join(',');
+									return `@${e.expression.text}(${args})`;
+								}
+								if (ts.isIdentifier(e)) return `@${e.text}`;
+								return '@<unknown>';
+							})
+							.join('');
+			ctorParamTypes.push(`${typeText}${decoratorSig}`);
+		}
+		break;
+	}
+
+	return {
+		className,
+		decoratorArgsText,
+		ctorParamTypes,
+		topLevelImports: extractTopLevelImports(sourceFile),
+		memberDecoratorSig: extractMemberDecoratorSig(cls),
+		arrowFieldSig: extractArrowFieldSig(cls),
+		propertyFieldNames: extractPropertyFieldNames(cls)
+	};
 };
 
 /* ─── TS AST helpers ─────────────────────────────────────────── */
@@ -2640,17 +2754,49 @@ export const tryFastHmr = async (
 	// Kind-based fast paths for non-component entities (services,
 	// pipes, directives). They share the prototype-patch mechanism
 	// with components but skip Angular's IR pipeline because their
-	// metadata (selector / pipe name / providedIn) doesn't change
-	// per-edit; only method bodies do.
+	// metadata (`@Pipe.name`, `@Directive.selector`,
+	// `@Injectable.providedIn`, etc.) doesn't normally change
+	// per-edit; only method bodies do, and those propagate via
+	// the prototype-patch.
 	//
-	// For pipes/directives, structural metadata changes (renaming
-	// the selector, flipping `pure`, etc.) need to escalate to
-	// Tier 1 — but the fingerprint already catches those via
-	// `selector` / `standalone` / `inputs` / `outputs` field
-	// comparisons. So pipe/directive method-body edits land here
-	// safely; pipe metadata edits force Tier 1 elsewhere.
+	// When the user DOES edit decorator arguments
+	// (`@Pipe({ name: 'old' })` → `@Pipe({ name: 'new' })`,
+	// `@Directive({ selector: '[old]' })` → `@Directive({ selector: '[new]' })`,
+	// `@Injectable({ providedIn: 'root' })` → `@Injectable({ providedIn: 'platform' })`),
+	// we need to escalate. Pipe/directive selectors and DI shape
+	// changes have runtime effects the prototype-patch can't
+	// reach: live template instructions match by old selector,
+	// existing service singletons hold the old factory, etc.
+	// `entityFingerprintCache` records each entity's structural
+	// surface (decorator-args text, ctor param signature, top-level
+	// imports, member decorators, field set, arrow-field hashes);
+	// mismatch returns `fail('structural-change', ...)` which the
+	// dispatcher escalates to Tier 1b rebootstrap. First-call seeds
+	// the cache and proceeds normally.
 	const kind: AngularEntityKind = params.kind ?? 'component';
 	if (kind !== 'component') {
+		const entityId = encodeURIComponent(
+			`${relative(projectRoot, componentFilePath).replace(/\\/g, '/')}@${className}`
+		);
+		const currentEntityFingerprint = extractEntityFingerprint(
+			classNode,
+			className,
+			sourceFile
+		);
+		const cachedEntityFingerprint = entityFingerprintCache.get(entityId);
+		if (
+			cachedEntityFingerprint !== undefined &&
+			!entityFingerprintsEqual(
+				cachedEntityFingerprint,
+				currentEntityFingerprint
+			)
+		) {
+			return fail(
+				'structural-change',
+				`${kind} ${className} decorator-args or structural surface changed`
+			);
+		}
+
 		const moduleText = buildSimpleEntityModule(classNode, className);
 		if (!moduleText) {
 			return fail(
@@ -2659,6 +2805,7 @@ export const tryFastHmr = async (
 			);
 		}
 
+		entityFingerprintCache.set(entityId, currentEntityFingerprint);
 		return {
 			componentSource: sourceFile,
 			fingerprintChanged: false,
