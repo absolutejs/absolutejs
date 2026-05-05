@@ -5,7 +5,7 @@ replacement for Angular components, the techniques that produce
 sub-50 ms end-to-end edit latency, and the architectural
 difference from `@angular/build`-driven HMR.
 
-Available in `@absolutejs/absolute@0.19.0-beta.916` and later.
+Available in `@absolutejs/absolute@0.19.0-beta.917` and later.
 
 * Repository: <https://github.com/absolutejs/absolutejs>
 * Documentation: <https://absolutejs.com>
@@ -52,7 +52,7 @@ Project: 3 standalone Angular components (root page,
 inline-template `HeaderComponent`, `templateUrl` + `styleUrl`
 `CounterComponent`).
 
-Stack: `@absolutejs/absolute@0.19.0-beta.916`, `@angular/* 21.2.11`,
+Stack: `@absolutejs/absolute@0.19.0-beta.917`, `@angular/* 21.2.11`,
 Bun 1.3.13, Linux/WSL2.
 
 Methodology: a Bun client connects to the dev server's `/hmr`
@@ -499,25 +499,45 @@ fact that HMR doesn't re-run TCB on each keystroke is the
 intended design (§9.1), not a divergence from those flags.
 
 **IR codegen flags** can affect what
-`compileComponentFromMetadata` emits. Of the keys
-`angularCompilerOptions` actually exposes, the one with
-practical impact on application code is `preserveWhitespaces`:
-projects often set it globally rather than on each component.
-The fast path reads the project's `tsconfig.json` once at dev
-startup, extracts `angularCompilerOptions.preserveWhitespaces`
-if present, and uses it as the default whenever an individual
-`@Component` decorator doesn't specify the flag. The decorator
-value still wins when both are present, matching ngc's
-precedence.
+`compileComponentFromMetadata` emits. The fast path reads the
+project's `tsconfig.json` once at dev startup, extracts the
+relevant subset of `angularCompilerOptions`, and propagates them
+into both the template parse and the IR call:
 
-i18n-related codegen options (`enableI18nLegacyMessageIdFormat`,
-`i18nUseExternalIds`) and `compilationMode` are not currently
-propagated. They're rare in application code and a one-line
-addition each when a real project demands them.
+* `preserveWhitespaces` is applied as the project-level default
+  whenever an individual `@Component` decorator doesn't specify
+  the flag. The decorator value still wins when both are
+  present, matching ngc's precedence.
+* `enableI18nLegacyMessageIdFormat` is passed to `parseTemplate`.
+  Controls `$localize` message ID format generation; needs to
+  match the project's translation files for HMR'd templates to
+  resolve translations correctly. Projects that haven't migrated
+  to the new `$localize` ID format would see runtime translation
+  misses without this propagation.
+* `i18nUseExternalIds` is written into `R3ComponentMetadata`.
+  Controls Closure-style external i18n IDs in generated message
+  variable names; must match production builds for translation
+  lookups to be consistent.
+
+`compilationMode` (`'full' | 'partial' | 'experimental-local'`)
+is intentionally not propagated. The HMR runtime contract
+requires runnable IR for `ɵɵreplaceMetadata` to apply.
+`'partial'` produces declarations intended for the linker step
+at consumer build time and isn't directly executable; `'full'`
+is what `compileComponentFromMetadata` emits and what the fast
+path always uses, regardless of the project setting. Production
+builds (`absolute build`) honor `compilationMode` independently
+for their own emit (e.g., libraries publish partial declarations).
+This is a divergence by design, not a propagation gap.
+
+Other rarely-used options
+(`i18nNormalizeLineEndingsInICUs`,
+`i18nPreserveWhitespaceForLegacyExtraction`) aren't currently
+propagated; they're one-line additions when a real project
+demands them.
 
 Production builds run through `absolute build` and the full
-ngtsc pipeline, which honors every option without any of the
-above caveats.
+ngtsc pipeline, which honors every option without caveats.
 
 ### 9.3 Coverage tracks Angular's IR
 
