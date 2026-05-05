@@ -5,7 +5,7 @@ replacement for Angular components, the techniques that produce
 sub-50 ms end-to-end edit latency, and the architectural
 difference from `@angular/build`-driven HMR.
 
-Available in `@absolutejs/absolute@0.19.0-beta.917` and later.
+Available in `@absolutejs/absolute@0.19.0-beta.918` and later.
 
 * Repository: <https://github.com/absolutejs/absolutejs>
 * Documentation: <https://absolutejs.com>
@@ -52,7 +52,7 @@ Project: 3 standalone Angular components (root page,
 inline-template `HeaderComponent`, `templateUrl` + `styleUrl`
 `CounterComponent`).
 
-Stack: `@absolutejs/absolute@0.19.0-beta.917`, `@angular/* 21.2.11`,
+Stack: `@absolutejs/absolute@0.19.0-beta.918`, `@angular/* 21.2.11`,
 Bun 1.3.13, Linux/WSL2.
 
 Methodology: a Bun client connects to the dev server's `/hmr`
@@ -481,63 +481,64 @@ each keystroke.
 This delegation is the principal architectural choice and the
 source of the ~13 ms server-side dispatch number.
 
-### 9.2 `angularCompilerOptions` and the fast path
+### 9.2 `angularCompilerOptions` coverage matrix
 
-`angularCompilerOptions` settings split into two camps based on
-which part of Angular's pipeline they affect.
+The fast path reads the project's `tsconfig.json` once at dev
+startup and propagates the subset of `angularCompilerOptions`
+that meaningfully affects IR codegen output. Production builds
+run through `absolute build` and the full ngtsc pipeline, which
+honors every option without caveats.
 
-**TCB / type-checking flags** (`strictTemplates`,
-`strictInjectionParameters`, `strictAttributeTypes`,
-`strictNullInputTypes`, `strictDomEventTypes`, etc.) are
-evaluated by Angular's type-check block synthesis, which the
-fast path does not run. These flags are still honored at the
-points where Angular projects normally rely on them: the
-editor's `@angular/language-service` while authoring, and
-`absolute typecheck` (which invokes `ngc` with
-`strictTemplates: true`) for command-line and CI gates. The
-fact that HMR doesn't re-run TCB on each keystroke is the
-intended design (§9.1), not a divergence from those flags.
+This table covers every public option in
+`@angular/compiler-cli`'s `LegacyNgcOptions`,
+`TypeCheckingOptions`, `DiagnosticOptions`, `BazelAndG3Options`,
+`I18nOptions`, `TargetOptions`, and `MiscOptions` interfaces.
 
-**IR codegen flags** can affect what
-`compileComponentFromMetadata` emits. The fast path reads the
-project's `tsconfig.json` once at dev startup, extracts the
-relevant subset of `angularCompilerOptions`, and propagates them
-into both the template parse and the IR call:
-
-* `preserveWhitespaces` is applied as the project-level default
-  whenever an individual `@Component` decorator doesn't specify
-  the flag. The decorator value still wins when both are
-  present, matching ngc's precedence.
-* `enableI18nLegacyMessageIdFormat` is passed to `parseTemplate`.
-  Controls `$localize` message ID format generation; needs to
-  match the project's translation files for HMR'd templates to
-  resolve translations correctly. Projects that haven't migrated
-  to the new `$localize` ID format would see runtime translation
-  misses without this propagation.
-* `i18nUseExternalIds` is written into `R3ComponentMetadata`.
-  Controls Closure-style external i18n IDs in generated message
-  variable names; must match production builds for translation
-  lookups to be consistent.
-
-`compilationMode` (`'full' | 'partial' | 'experimental-local'`)
-is intentionally not propagated. The HMR runtime contract
-requires runnable IR for `ɵɵreplaceMetadata` to apply.
-`'partial'` produces declarations intended for the linker step
-at consumer build time and isn't directly executable; `'full'`
-is what `compileComponentFromMetadata` emits and what the fast
-path always uses, regardless of the project setting. Production
-builds (`absolute build`) honor `compilationMode` independently
-for their own emit (e.g., libraries publish partial declarations).
-This is a divergence by design, not a propagation gap.
-
-Other rarely-used options
-(`i18nNormalizeLineEndingsInICUs`,
-`i18nPreserveWhitespaceForLegacyExtraction`) aren't currently
-propagated; they're one-line additions when a real project
-demands them.
-
-Production builds run through `absolute build` and the full
-ngtsc pipeline, which honors every option without caveats.
+| Option                                     | Status            | Notes |
+|--------------------------------------------|-------------------|-------|
+| `preserveWhitespaces`                      | Propagated        | Project-level default applied when an individual `@Component` decorator doesn't specify; decorator value wins when both are present. |
+| `enableI18nLegacyMessageIdFormat`          | Propagated        | Passed to `parseTemplate`. Required for projects on the legacy `$localize` ID format to avoid translation misses on HMR'd templates. |
+| `i18nUseExternalIds`                       | Propagated        | Written into `R3ComponentMetadata`. Closure-style external i18n IDs in message variable names must match production for translation lookups. |
+| `i18nNormalizeLineEndingsInICUs`           | Propagated        | Passed to `parseTemplate`. ICU expression line-ending normalization affects message hashes used for translation IDs. |
+| `compilationMode`                          | Divergence by design | The HMR runtime contract requires runnable IR for `ɵɵreplaceMetadata` to apply. `'partial'` produces declarations intended for the linker step at consumer build time and isn't directly executable. The fast path always uses `'full'` (what `compileComponentFromMetadata` emits) regardless of project setting. Production builds honor `compilationMode` independently for their own emit. |
+| `strictTemplates`                          | TCB-only          | Enforced by `@angular/language-service` (editor) and `absolute typecheck` (CLI/CI). The fast path doesn't synthesize a TCB. |
+| `strictInputTypes`                         | TCB-only          | Same as above. |
+| `strictInputAccessModifiers`               | TCB-only          | Same as above. |
+| `strictNullInputTypes`                     | TCB-only          | Same as above. |
+| `strictAttributeTypes`                     | TCB-only          | Same as above. |
+| `strictSafeNavigationTypes`                | TCB-only          | Same as above. |
+| `strictDomLocalRefTypes`                   | TCB-only          | Same as above. |
+| `strictOutputEventTypes`                   | TCB-only          | Same as above. |
+| `strictDomEventTypes`                      | TCB-only          | Same as above. |
+| `strictContextGenerics`                    | TCB-only          | Same as above. |
+| `strictLiteralTypes`                       | TCB-only          | Same as above. |
+| `strictInjectionParameters`                | TCB-only          | Same as above. |
+| `strictStandalone`                         | TCB-only          | Standalone-prohibition diagnostic; enforced at type-check time. |
+| `typeCheckHostBindings`                    | TCB-only          | Same as above. |
+| `extendedDiagnostics`                      | TCB-only          | Diagnostic categorization for TCB-emitted issues. |
+| `fullTemplateTypeCheck`                    | TCB-only          | Deprecated alias of the strict\* family; same delegation. |
+| `compileNonExportedClasses`                | N/A               | The fast path operates on classes resolved from the live registry by name, which are always exported. |
+| `disableTypeScriptVersionCheck`            | N/A               | TS version check runs at build configuration time, not in the HMR pipeline. |
+| `forbidOrphanComponents`                   | N/A               | Runtime guard installed at app bootstrap (not per-component). HMR payloads do not re-bootstrap, so the existing guard remains active without re-installation. |
+| `flatModuleOutFile`                        | N/A               | Library publishing format; not relevant to dev HMR. |
+| `flatModuleId`                             | N/A               | Same as above. |
+| `allowEmptyCodegenFiles`                   | N/A               | Deprecated; controls codegen file emit. |
+| `i18nInLocale`                             | N/A               | xi18n extraction tool config; not consumed during compile. |
+| `i18nOutLocale`                            | N/A               | Same as above. |
+| `i18nOutFormat`                            | N/A               | Same as above. |
+| `i18nOutFile`                              | N/A               | Same as above. |
+| `i18nPreserveWhitespaceForLegacyExtraction`| N/A               | View Engine extraction pipeline only. |
+| `generateDeepReexports`                    | N/A               | Bazel/G3 path-mapped library builds. |
+| `onlyPublishPublicTypingsForNgModules`     | N/A               | Library `.d.ts` emit. |
+| `annotateForClosureCompiler`               | N/A               | Closure-compiler JSDoc annotations in output; not part of the HMR payload format. |
+| `generateExtraImportsInLocalMode`          | N/A               | G3-internal bundling concern. |
+| `_experimentalAllowEmitDeclarationOnly`    | N/A               | Declaration-only emit mode for g3 experiments. |
+| `onlyExplicitDeferDependencyImports`       | Pending           | Affects how `@defer` blocks resolve dependencies. The fast path's current `@defer` handling uses `R3ComponentMetadata.defer.mode = 0` (PerComponent, no per-block deps). Propagating this would land alongside per-block dep extraction; HMR for `@defer` blocks with explicit deps falls back to Tier 1b until then. |
+| `_enableTemplateTypeChecker` (test-only)   | N/A               | Compiler-internal test option. |
+| `_compilePoisonedComponents` (test-only)   | N/A               | Compiler-internal test option. |
+| `tracePerformance` (test-only)             | N/A               | ngtsc-internal performance trace; format is unstable. |
+| `_checkTwoWayBoundEvents` (internal)       | N/A               | Compiler-internal. |
+| `_isAngularCoreCompilation` (internal)     | N/A               | Used only when compiling `@angular/core` itself. |
 
 ### 9.3 Coverage tracks Angular's IR
 

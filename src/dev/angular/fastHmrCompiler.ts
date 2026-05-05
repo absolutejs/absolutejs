@@ -2297,50 +2297,44 @@ ${block}
 
 /* ─── Project tsconfig: angularCompilerOptions ──────────────────
  *
- * Honors the subset of `angularCompilerOptions` that meaningfully
- * affects IR codegen output. Read once per project root and cached
- * for the lifetime of the dev server.
+ * Read once per project root and cached for the lifetime of the
+ * dev server. The full coverage matrix for every public option in
+ * `@angular/compiler-cli`'s `angularCompilerOptions` is documented
+ * in ABSOLUTEJS_ANGULAR_HMR.md §9.2; the short version:
  *
- * Honored:
- *   - `preserveWhitespaces`: project-level default applied when an
- *     individual `@Component` decorator doesn't specify the flag.
- *     Decorator value still wins (matches ngc precedence).
- *   - `enableI18nLegacyMessageIdFormat`: passed through to
- *     `parseTemplate`. Controls `$localize` message ID format
- *     generation; needs to match the project's translation files
- *     for HMR'd templates to resolve translations correctly.
- *   - `i18nUseExternalIds`: written into `R3ComponentMetadata`.
- *     Controls Closure-style external i18n IDs. Affects message
- *     variable names; must match production builds for translation
- *     lookups to be consistent.
+ * Propagated to IR / parseTemplate:
+ *   - preserveWhitespaces, enableI18nLegacyMessageIdFormat,
+ *     i18nUseExternalIds, i18nNormalizeLineEndingsInICUs
  *
- * Not propagated, intentional:
- *   - `compilationMode` (`'full' | 'partial' | 'experimental-local'`):
- *     the HMR runtime contract requires runnable IR for
- *     `ɵɵreplaceMetadata` to apply. `'partial'` produces declarations
- *     intended for the linker step at consumer build time and isn't
- *     directly executable; `'full'` is what `compileComponentFromMetadata`
- *     emits. The fast path always uses the full form regardless of
- *     project setting. Production builds (`absolute build`) honor the
- *     setting independently for their own emit (e.g., libraries
- *     publish partial declarations).
+ * Documented divergence (HMR runtime contract requires full IR):
+ *   - compilationMode
  *
- * Not propagated, mechanical to add:
- *   - `i18nNormalizeLineEndingsInICUs`,
- *     `i18nPreserveWhitespaceForLegacyExtraction`: rare in
- *     application code; one line each in the parseTemplate call when
- *     a project demands them.
+ * TCB-only (delegated to absolute typecheck and editor TS server):
+ *   - All strict* family, strictStandalone, typeCheckHostBindings,
+ *     extendedDiagnostics, fullTemplateTypeCheck
  *
- * TCB / type-checking flags (`strictTemplates`,
- * `strictInjectionParameters`, etc.) are not in the option set
- * the fast path consumes. They're enforced where Angular projects
- * normally rely on them: the editor's `@angular/language-service`
- * during authoring, and `absolute typecheck` for command-line
- * and CI gates. The fast extractor does not synthesize a TCB. */
+ * Build / library / extraction-only (not applicable to HMR):
+ *   - flatModuleOutFile, flatModuleId, allowEmptyCodegenFiles,
+ *     i18nIn{Locale,File,Format}, i18nOut{Locale,File,Format},
+ *     i18nPreserveWhitespaceForLegacyExtraction,
+ *     compileNonExportedClasses, disableTypeScriptVersionCheck,
+ *     forbidOrphanComponents
+ *
+ * Bazel/G3-internal:
+ *   - generateDeepReexports, onlyPublishPublicTypingsForNgModules,
+ *     annotateForClosureCompiler, generateExtraImportsInLocalMode,
+ *     _experimentalAllowEmitDeclarationOnly
+ *
+ * Conditional on future feature work:
+ *   - onlyExplicitDeferDependencyImports (would matter when fast
+ *     path gains @defer-block dependency extraction)
+ *
+ * Internal/test-only (`_*` prefix): not honored. */
 type ProjectAngularCompilerOptions = {
 	preserveWhitespaces?: boolean;
 	enableI18nLegacyMessageIdFormat?: boolean;
 	i18nUseExternalIds?: boolean;
+	i18nNormalizeLineEndingsInICUs?: boolean;
 };
 
 const projectOptionsCache = new Map<string, ProjectAngularCompilerOptions>();
@@ -2362,6 +2356,7 @@ const readProjectAngularCompilerOptions = (
 						preserveWhitespaces?: unknown;
 						enableI18nLegacyMessageIdFormat?: unknown;
 						i18nUseExternalIds?: unknown;
+						i18nNormalizeLineEndingsInICUs?: unknown;
 					};
 				};
 				const ang = cfg.angularCompilerOptions ?? {};
@@ -2374,6 +2369,10 @@ const readProjectAngularCompilerOptions = (
 				}
 				if (typeof ang.i18nUseExternalIds === 'boolean') {
 					opts.i18nUseExternalIds = ang.i18nUseExternalIds;
+				}
+				if (typeof ang.i18nNormalizeLineEndingsInICUs === 'boolean') {
+					opts.i18nNormalizeLineEndingsInICUs =
+						ang.i18nNormalizeLineEndingsInICUs;
 				}
 			}
 		} catch {
@@ -2533,6 +2532,8 @@ export const tryFastHmr = async (
 		parsed = compiler.parseTemplate(templateText, templatePath, {
 			enableI18nLegacyMessageIdFormat:
 				projectDefaults.enableI18nLegacyMessageIdFormat,
+			i18nNormalizeLineEndingsInICUs:
+				projectDefaults.i18nNormalizeLineEndingsInICUs,
 			preserveWhitespaces: decoratorMeta.preserveWhitespaces
 		});
 	} catch (err) {
