@@ -5,7 +5,7 @@ replacement for Angular components, the techniques that produce
 sub-50 ms end-to-end edit latency, and the architectural
 difference from `@angular/build`-driven HMR.
 
-Available in `@absolutejs/absolute@0.19.0-beta.915` and later.
+Available in `@absolutejs/absolute@0.19.0-beta.916` and later.
 
 * Repository: <https://github.com/absolutejs/absolutejs>
 * Documentation: <https://absolutejs.com>
@@ -52,7 +52,7 @@ Project: 3 standalone Angular components (root page,
 inline-template `HeaderComponent`, `templateUrl` + `styleUrl`
 `CounterComponent`).
 
-Stack: `@absolutejs/absolute@0.19.0-beta.915`, `@angular/* 21.2.11`,
+Stack: `@absolutejs/absolute@0.19.0-beta.916`, `@angular/* 21.2.11`,
 Bun 1.3.13, Linux/WSL2.
 
 Methodology: a Bun client connects to the dev server's `/hmr`
@@ -207,6 +207,12 @@ The structural fingerprint compared between cycles captures:
 * Per-instance arrow-function field initializer hashes (since
   prototype patching cannot propagate arrow-field bodies to
   existing instances)
+* Top-level import bindings of the source file (named, default,
+  namespace; type-only excluded). Adding or removing a
+  top-level import escalates to Tier 1a remount so the class's
+  `__abs_deps` registry (§7.3) is rebuilt to match current
+  source, which is necessary for the HMR payload to resolve
+  identifiers correctly.
 
 Body edits to methods and template/style edits leave the
 fingerprint unchanged and stay on Tier 0. Anything that affects
@@ -282,26 +288,15 @@ considered:
 
 The second alternative is what `__abs_deps` implements.
 
-The pattern has one observable consequence. If a user edit adds
-a new top-level import that wasn't present at initial bundle
-time, the live class's `__abs_deps` does not contain it.
-Whether the HMR cycle copes depends on what changes alongside
-the new import:
-
-* If the new import is referenced by the component's metadata
-  in a way that affects the structural fingerprint (a new
-  provider-bearing entry in `imports: [...]`, a new
-  `@HostListener` with a new event handler, etc.), the
-  dispatcher escalates to Tier 1a and the class is remounted
-  from a freshly imported module whose `__abs_deps` reflects
-  the new import.
-* If the new import is referenced only inside a method body,
-  the body change is a Tier 0 `ɵɵreplaceMetadata` and the
-  destructured value is `undefined` until the next page
-  reload or Tier 1a cycle. This case is the documented edge.
-
-In practice, modern Angular component edits very rarely add a
-new top-level import without an accompanying structural change.
+Any edit that adds or removes a top-level import in the
+component file shifts the structural fingerprint (§6) and
+escalates to Tier 1a remount, regardless of where the new
+binding is referenced. Tier 1a fetches a freshly evaluated
+module whose `__abs_deps` reflects current source, so the live
+class's deps are always in sync with what the HMR payload
+expects. The cost on edits that don't touch imports (the common
+case: method bodies, templates, styles) is unchanged, since
+those leave the fingerprint untouched and stay on Tier 0.
 
 ### 7.4 Directive scope preservation via `mergeWithExistingDefinition`
 
@@ -486,25 +481,43 @@ each keystroke.
 This delegation is the principal architectural choice and the
 source of the ~13 ms server-side dispatch number.
 
-### 9.2 Default IR compilation flags only
+### 9.2 `angularCompilerOptions` and the fast path
 
-The HMR pipeline calls `compileComponentFromMetadata` with
-Angular's default IR compilation options. Project-level
-`angularCompilerOptions` (`strictTemplates`,
-`strictInjectionParameters`, etc.) and codegen-affecting flags
-are not propagated into the call.
+`angularCompilerOptions` settings split into two camps based on
+which part of Angular's pipeline they affect.
 
-This is an implementation gap, not a requirement of the fast
-path. The flags are about static analysis and emit details, not
-about HMR latency. Reading the project's tsconfig at dev
-startup and passing the relevant subset into the IR call would
-close the gap with no measurable performance cost.
+**TCB / type-checking flags** (`strictTemplates`,
+`strictInjectionParameters`, `strictAttributeTypes`,
+`strictNullInputTypes`, `strictDomEventTypes`, etc.) are
+evaluated by Angular's type-check block synthesis, which the
+fast path does not run. These flags are still honored at the
+points where Angular projects normally rely on them: the
+editor's `@angular/language-service` while authoring, and
+`absolute typecheck` (which invokes `ngc` with
+`strictTemplates: true`) for command-line and CI gates. The
+fact that HMR doesn't re-run TCB on each keystroke is the
+intended design (§9.1), not a divergence from those flags.
 
-Production builds run the full ngtsc pipeline through
-`absolute build` and honor every flag. The split between
-"production builds honor everything" and "dev HMR uses defaults"
-is therefore an honest item to track and to close, rather than
-something the architecture requires.
+**IR codegen flags** can affect what
+`compileComponentFromMetadata` emits. Of the keys
+`angularCompilerOptions` actually exposes, the one with
+practical impact on application code is `preserveWhitespaces`:
+projects often set it globally rather than on each component.
+The fast path reads the project's `tsconfig.json` once at dev
+startup, extracts `angularCompilerOptions.preserveWhitespaces`
+if present, and uses it as the default whenever an individual
+`@Component` decorator doesn't specify the flag. The decorator
+value still wins when both are present, matching ngc's
+precedence.
+
+i18n-related codegen options (`enableI18nLegacyMessageIdFormat`,
+`i18nUseExternalIds`) and `compilationMode` are not currently
+propagated. They're rare in application code and a one-line
+addition each when a real project demands them.
+
+Production builds run through `absolute build` and the full
+ngtsc pipeline, which honors every option without any of the
+above caveats.
 
 ### 9.3 Coverage tracks Angular's IR
 

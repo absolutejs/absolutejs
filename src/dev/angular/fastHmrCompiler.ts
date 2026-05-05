@@ -86,6 +86,19 @@ export type FastHmrFallbackReason =
  *     `ɵɵreplaceMetadata` doesn't observe via the IR alone (host
  *     bindings + queries are template-binding artifacts that need
  *     a full re-render at minimum).
+ *   - `topLevelImports`: sorted list of every top-level binding the
+ *     source file imports (named, default, namespace). Tier 0
+ *     surgical updates resolve user-source identifiers via
+ *     `${ClassName}.__abs_deps`, which `hmrInjectionPlugin`
+ *     populates at initial-bundle / per-request-transform time.
+ *     The live class on the page carries whatever `__abs_deps` was
+ *     set when its module last loaded, which means a Tier 0 cycle
+ *     that adds a brand-new top-level import would reference a
+ *     binding that isn't on the live `__abs_deps`. Capturing the
+ *     import set in the fingerprint forces those edits to Tier 1a
+ *     remount, which fetches a freshly-evaluated class whose
+ *     `__abs_deps` reflects the new source. Without this, the new
+ *     import would be `undefined` until the next page reload.
  *
  * We deliberately do NOT include template / styleUrl / styleUrls
  * content — those are exactly the cheap surgical-handleable
@@ -102,6 +115,7 @@ export type ComponentFingerprint = {
 	outputs: string[];
 	arrowFieldSig: string[];
 	memberDecoratorSig: string[];
+	topLevelImports: string[];
 };
 
 export type FastHmrSuccess = {
@@ -213,6 +227,7 @@ const fingerprintsEqual = (
 	if (!arraysEqual(a.providerImportSig, b.providerImportSig)) return false;
 	if (!arraysEqual(a.arrowFieldSig, b.arrowFieldSig)) return false;
 	if (!arraysEqual(a.memberDecoratorSig, b.memberDecoratorSig)) return false;
+	if (!arraysEqual(a.topLevelImports, b.topLevelImports)) return false;
 
 	return true;
 };
@@ -497,7 +512,8 @@ type ComponentDecoratorMeta = {
 };
 
 const readDecoratorMeta = (
-	args: ts.ObjectLiteralExpression
+	args: ts.ObjectLiteralExpression,
+	projectDefaults: ProjectAngularCompilerOptions = {}
 ): ComponentDecoratorMeta => {
 	const styleUrlsExpr = getProperty(args, 'styleUrls');
 	const stylesExpr = getProperty(args, 'styles');
@@ -537,7 +553,9 @@ const readDecoratorMeta = (
 				? importsExpr
 				: null,
 		preserveWhitespaces:
-			getBooleanProperty(args, 'preserveWhitespaces') ?? false,
+			getBooleanProperty(args, 'preserveWhitespaces') ??
+			projectDefaults.preserveWhitespaces ??
+			false,
 		selector: getStringProperty(args, 'selector'),
 		standalone: getBooleanProperty(args, 'standalone') ?? true,
 		styleUrl: getStringProperty(args, 'styleUrl'),
@@ -1892,6 +1910,33 @@ const extractProviderImportSig = (
  * one TS AST walk over the class body, plus per-import file
  * lookups (mtime-cached, ~5ms cold for the typical 2-5 import
  * entries, ~0ms warm). */
+/* Extract the sorted set of top-level import bindings from a source
+ * file. Includes default imports, named imports (alias-aware: the
+ * local binding name, not the imported name), and namespace
+ * imports. Type-only imports are excluded since they have no runtime
+ * binding. */
+const extractTopLevelImports = (sourceFile: ts.SourceFile): string[] => {
+	const names = new Set<string>();
+	for (const stmt of sourceFile.statements) {
+		if (!ts.isImportDeclaration(stmt)) continue;
+		const clause = stmt.importClause;
+		if (!clause) continue;
+		if (clause.isTypeOnly) continue;
+		if (clause.name) names.add(clause.name.text);
+		const bindings = clause.namedBindings;
+		if (!bindings) continue;
+		if (ts.isNamespaceImport(bindings)) {
+			names.add(bindings.name.text);
+		} else if (ts.isNamedImports(bindings)) {
+			for (const el of bindings.elements) {
+				if (el.isTypeOnly) continue;
+				names.add(el.name.text);
+			}
+		}
+	}
+	return [...names].sort();
+};
+
 const extractFingerprint = (
 	cls: ts.ClassDeclaration,
 	className: string,
@@ -1929,6 +1974,8 @@ const extractFingerprint = (
 		componentDir
 	);
 
+	const topLevelImports = extractTopLevelImports(sourceFile);
+
 	return {
 		arrowFieldSig,
 		className,
@@ -1940,7 +1987,8 @@ const extractFingerprint = (
 		outputs: outputNames,
 		providerImportSig,
 		selector: decoratorMeta.selector,
-		standalone: decoratorMeta.standalone
+		standalone: decoratorMeta.standalone,
+		topLevelImports
 	};
 };
 
@@ -2247,6 +2295,63 @@ ${block}
 `;
 };
 
+/* ─── Project tsconfig: angularCompilerOptions ──────────────────
+ *
+ * Honors the subset of `angularCompilerOptions` that affects IR
+ * codegen output. Currently `preserveWhitespaces`. Read once per
+ * project root and cached for the lifetime of the dev server.
+ *
+ * Other `angularCompilerOptions` keys fall into two camps:
+ *
+ *   - TCB / type-check related (`strictTemplates`,
+ *     `strictInjectionParameters`, `strictAttributeTypes`, etc.):
+ *     not applicable to this pipeline. The fast extractor does not
+ *     synthesize a TCB. Those flags are honored at the same places
+ *     they're honored for any Angular project: the editor's
+ *     `@angular/language-service`, and `absolute typecheck` (which
+ *     invokes `ngc` with `strictTemplates: true`) for command-line
+ *     and CI gates.
+ *
+ *   - Library / i18n / paths-related (`compilationMode`,
+ *     `enableI18nLegacyMessageIdFormat`, `i18nUseExternalIds`,
+ *     etc.): rare in application code, not currently propagated.
+ *     Adding them is mechanical when a real project demands it. */
+type ProjectAngularCompilerOptions = {
+	preserveWhitespaces?: boolean;
+};
+
+const projectOptionsCache = new Map<string, ProjectAngularCompilerOptions>();
+
+const readProjectAngularCompilerOptions = (
+	projectRoot: string
+): ProjectAngularCompilerOptions => {
+	const cached = projectOptionsCache.get(projectRoot);
+	if (cached !== undefined) return cached;
+	const tsconfigPath = resolve(projectRoot, 'tsconfig.json');
+	let opts: ProjectAngularCompilerOptions = {};
+	if (existsSync(tsconfigPath)) {
+		try {
+			const text = readFileSync(tsconfigPath, 'utf8');
+			const parsed = ts.parseConfigFileTextToJson(tsconfigPath, text);
+			if (!parsed.error && parsed.config) {
+				const cfg = parsed.config as {
+					angularCompilerOptions?: {
+						preserveWhitespaces?: unknown;
+					};
+				};
+				const raw = cfg.angularCompilerOptions?.preserveWhitespaces;
+				if (typeof raw === 'boolean') {
+					opts = { preserveWhitespaces: raw };
+				}
+			}
+		} catch {
+			/* fall through with empty opts */
+		}
+	}
+	projectOptionsCache.set(projectRoot, opts);
+	return opts;
+};
+
 /* ─── Main entry ─────────────────────────────────────────────── */
 
 export type TryFastHmrParams = {
@@ -2334,7 +2439,8 @@ export const tryFastHmr = async (
 	const decoratorArgs = getDecoratorArgsObject(decorator);
 	if (!decoratorArgs) return fail('unsupported-decorator-args');
 
-	const decoratorMeta = readDecoratorMeta(decoratorArgs);
+	const projectDefaults = readProjectAngularCompilerOptions(projectRoot);
+	const decoratorMeta = readDecoratorMeta(decoratorArgs, projectDefaults);
 
 	const advancedMetadata = extractAdvancedMetadata(
 		classNode,
