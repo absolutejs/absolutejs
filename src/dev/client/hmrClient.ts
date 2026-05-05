@@ -160,6 +160,7 @@ const handleHMRMessage = (message: HMRMessage) => {
 			// message per affected component. Our injected
 			// `__ng_hmr_load` blocks (see hmrInjectionPlugin.ts)
 			// listen here and re-fetch the applyMetadata module.
+			hideErrorOverlay();
 			const data = message.data as
 				| { id?: string; timestamp?: number }
 				| undefined;
@@ -182,6 +183,7 @@ const handleHMRMessage = (message: HMRMessage) => {
 			// `__ng_hmr_remount` listener handles the splice via the
 			// `__absAngularRemount` global wired in
 			// `installAngularRemountGlobal`.
+			hideErrorOverlay();
 			const data = message.data as
 				| { id?: string; timestamp?: number }
 				| undefined;
@@ -205,6 +207,7 @@ const handleHMRMessage = (message: HMRMessage) => {
 			// hook (set by the hydration template in compileAngular.ts)
 			// to dynamic-import the fresh bundle URL — re-importing
 			// re-runs the destroy + bootstrapApplication block.
+			hideErrorOverlay();
 			const data = message.data as
 				| { manifest?: Record<string, string>; reason?: string }
 				| undefined;

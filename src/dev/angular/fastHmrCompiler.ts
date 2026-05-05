@@ -120,14 +120,35 @@ export type FastHmrFailure = {
 	ok: false;
 	reason: FastHmrFallbackReason;
 	detail?: string;
+	/* User-fixable failures (template-parse-error, template/style-resource-not-found,
+	 * unexpected parser errors) carry these so the dispatcher can render an
+	 * inline error overlay instead of silently rebootstrapping. Other failure
+	 * reasons (file-not-found, structural-change) leave them undefined. */
+	file?: string;
+	line?: number;
+	column?: number;
+	lineText?: string;
 };
 
 export type FastHmrResult = FastHmrSuccess | FastHmrFailure;
 
+type FailLocation = {
+	file?: string;
+	line?: number;
+	column?: number;
+	lineText?: string;
+};
+
 const fail = (
 	reason: FastHmrFallbackReason,
-	detail?: string
-): FastHmrFailure => ({ ok: false, reason, detail });
+	detail?: string,
+	location?: FailLocation
+): FastHmrFailure => ({
+	ok: false,
+	reason,
+	detail,
+	...(location ?? {})
+});
 
 /* ─── Fingerprint cache ──────────────────────────────────────── */
 
@@ -2330,7 +2351,11 @@ export const tryFastHmr = async (
 	} else if (decoratorMeta.templateUrl) {
 		const tplAbs = resolve(componentDir, decoratorMeta.templateUrl);
 		if (!existsSync(tplAbs)) {
-			return fail('template-resource-not-found', tplAbs);
+			return fail(
+				'template-resource-not-found',
+				`Template file not found: ${tplAbs}`,
+				{ file: componentFilePath }
+			);
 		}
 		templateText = readFileSync(tplAbs, 'utf8');
 		templatePath = tplAbs;
@@ -2343,7 +2368,11 @@ export const tryFastHmr = async (
 		componentDir
 	);
 	if (missingStyle) {
-		return fail('style-resource-not-found', missingStyle);
+		return fail(
+			'style-resource-not-found',
+			`Style file not found: ${missingStyle}`,
+			{ file: componentFilePath }
+		);
 	}
 
 	// Resolve `@Component({ imports: [...] })` to ChildComponentInfo
@@ -2367,12 +2396,29 @@ export const tryFastHmr = async (
 			preserveWhitespaces: decoratorMeta.preserveWhitespaces
 		});
 	} catch (err) {
-		return fail('template-parse-error', String(err));
+		return fail('template-parse-error', String(err), {
+			file: templatePath
+		});
 	}
 	if (parsed.errors && parsed.errors.length > 0) {
+		const first = parsed.errors[0];
+		const span = first?.span;
+		const start = span?.start;
+		const lineIndex = start?.line;
+		const colIndex = start?.col;
+		const lineTextValue =
+			typeof lineIndex === 'number' && lineIndex >= 0
+				? (templateText.split(/\r?\n/)[lineIndex] ?? undefined)
+				: undefined;
 		return fail(
 			'template-parse-error',
-			parsed.errors.map((e) => e.toString()).join('\n')
+			parsed.errors.map((e) => e.toString()).join('\n'),
+			{
+				file: templatePath,
+				line: typeof lineIndex === 'number' ? lineIndex + 1 : undefined,
+				column: typeof colIndex === 'number' ? colIndex + 1 : undefined,
+				lineText: lineTextValue
+			}
 		);
 	}
 

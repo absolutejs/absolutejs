@@ -813,6 +813,34 @@ type TierBreakdown = {
 	compileMs: number;
 };
 
+/* Fast-extractor failure reasons that the user can fix in the editor
+ * (typo in template, missing referenced file). Anything else is
+ * structural and warrants a rebootstrap. Kept narrow on purpose —
+ * adding to this set means we stop reloading and start rendering an
+ * overlay; mistakes here would silently swallow real failures. */
+const USER_FIXABLE_FAST_HMR_REASONS = new Set([
+	'template-parse-error',
+	'template-resource-not-found',
+	'style-resource-not-found'
+]);
+const isUserFixableFastHmrReason = (reason: string): boolean =>
+	USER_FIXABLE_FAST_HMR_REASONS.has(reason);
+
+/* User-fixable parse / resource errors caught by the fast extractor.
+ * Surfaced as a `rebuild-error` overlay (vite/next-style). The dev
+ * server stays in this state until the user fixes and saves; the
+ * next successful surgical update auto-hides the overlay. */
+type UserFixableHmrFailure = {
+	className: string;
+	componentFilePath: string;
+	reason: string;
+	detail?: string;
+	file?: string;
+	line?: number;
+	column?: number;
+	lineText?: string;
+};
+
 type AngularHmrVerdict =
 	| { tier: 0; queue: SurgicalEntry[]; breakdown: TierBreakdown }
 	| {
@@ -822,6 +850,7 @@ type AngularHmrVerdict =
 			breakdown: TierBreakdown;
 	  }
 	| { tier: 1; kind: 'rebootstrap'; reason: string }
+	| { tier: 1; kind: 'user-error'; failure: UserFixableHmrFailure }
 	| { tier: 2; reason: string };
 
 /* Decide the dispatch tier without broadcasting. Pure decision —
@@ -925,6 +954,22 @@ const decideAngularTier = async (
 			});
 			totalCompileMs += performance.now() - compileStart;
 			if (!result.ok) {
+				if (isUserFixableFastHmrReason(result.reason)) {
+					return {
+						failure: {
+							className,
+							column: result.column,
+							componentFilePath,
+							detail: result.detail,
+							file: result.file ?? componentFilePath,
+							line: result.line,
+							lineText: result.lineText,
+							reason: result.reason
+						},
+						kind: 'user-error',
+						tier: 1
+					};
+				}
 				return {
 					kind: 'rebootstrap',
 					reason: `${className}: ${result.reason}${
@@ -970,6 +1015,32 @@ const broadcastRemount = (state: HMRState, queue: SurgicalEntry[]): void => {
 			type: 'angular:component-remount'
 		});
 	}
+};
+
+/* User-fixable Angular fast-path failure → reuse the framework-agnostic
+ * `rebuild-error` envelope so the existing overlay path renders it.
+ * The client's standard auto-dismiss flow (any subsequent successful
+ * HMR update calls hideErrorOverlay) clears it on the next save. */
+const broadcastAngularUserError = (
+	state: HMRState,
+	failure: UserFixableHmrFailure
+): void => {
+	const message = failure.detail
+		? `${failure.reason}: ${failure.detail}`
+		: failure.reason;
+	broadcastToClients(state, {
+		data: {
+			affectedFrameworks: ['angular'],
+			column: failure.column,
+			error: message,
+			file: failure.file,
+			framework: 'angular',
+			line: failure.line,
+			lineText: failure.lineText
+		},
+		message: 'Angular HMR failed',
+		type: 'rebuild-error'
+	});
 };
 
 const broadcastRebootstrap = async (
@@ -1360,6 +1431,18 @@ const handleAngularFastPath = async (
 		// it during rebootstrap.
 		await runBundle({ immediate: true });
 		await broadcastRebootstrap(state, verdict.reason);
+	} else if (verdict.tier === 1 && verdict.kind === 'user-error') {
+		// User-fixable failure (typo in template, missing partial).
+		// Surface an in-page overlay vite/next-style and stay put —
+		// no rebootstrap, no bundle rebuild. The next successful save
+		// triggers a Tier 0/1a broadcast which the client handles by
+		// hiding the overlay.
+		broadcastAngularUserError(state, verdict.failure);
+		logInfo(
+			`[ng-hmr] user error in ${verdict.failure.className}: ${verdict.failure.reason}${
+				verdict.failure.detail ? ` (${verdict.failure.detail})` : ''
+			}`
+		);
 	}
 
 	const { manifest } = state;
