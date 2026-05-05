@@ -5,7 +5,7 @@ replacement for Angular components, the techniques that produce
 sub-50 ms end-to-end edit latency, and the architectural
 difference from `@angular/build`-driven HMR.
 
-Available in `@absolutejs/absolute@0.19.0-beta.922` and later.
+Available in `@absolutejs/absolute@0.19.0-beta.923` and later.
 
 * Repository: <https://github.com/absolutejs/absolutejs>
 * Documentation: <https://absolutejs.com>
@@ -60,7 +60,7 @@ shared base (root `BenchPage`, inline-template `HeaderComponent`,
 | medium | 30                | 32                    | 32           |
 | large  | 100               | 102                   | 102          |
 
-Stack: `@absolutejs/absolute@0.19.0-beta.922`, `@angular/* 21.2.11`,
+Stack: `@absolutejs/absolute@0.19.0-beta.923`, `@angular/* 21.2.11`,
 Bun 1.3.13, Linux/WSL2.
 
 ### 2.2 Methodology
@@ -288,6 +288,17 @@ The structural fingerprint compared between cycles captures:
   Switching between OnPush and Default changes the LView flags
   that govern dirty-checking; existing LViews carry the old
   flags. Tier 1a.
+* Class property field names (sorted, name-only). Tier 0
+  surgical updates only swap method bodies onto the prototype;
+  they don't re-run field initializers on existing instances.
+  Adding a non-decorated, non-arrow field that a method body
+  then references would leave existing instances with
+  `this.<newField>` as `undefined`. Capturing the field set
+  forces Tier 1a remount on additions and removals so the new
+  field set is initialized on the recreated instance.
+  Initializer VALUE changes (`count = 0` → `count = 5`) leave
+  the name set unchanged and stay on Tier 0, preserving the
+  running instance's field value.
 
 Body edits to methods and template/style edits leave the
 fingerprint unchanged and stay on Tier 0. Anything that affects
@@ -837,6 +848,62 @@ first edit included the resource-index initialization at 222 ms
 server; warm steady-state is server ~47 ms / e2e ~84 ms,
 slightly above the body-edit case because every CSS edit
 re-parses the template and re-builds the IR).
+
+### 10.8 Residual caveats
+
+A handful of `@Component` and `R3DirectiveMetadata` fields are
+either hardcoded or skipped because the runtime impact is rare
+in application code. The fast path treats them as defaults; the
+production build through `absolute build` honors them
+correctly.
+
+* **`schemas: [CUSTOM_ELEMENTS_SCHEMA, NO_ERRORS_SCHEMA]`** on a
+  standalone `@Component` (Angular 14+). Used to allow
+  unknown elements (typically web components) inside the
+  component's template without runtime warnings. The fast
+  extractor does not propagate `schemas` into the new
+  metadata. After a Tier 0 cycle the schemas array gets
+  cleared on the live component def, and the runtime starts
+  emitting "unknown element" warnings until the page reloads.
+  Functionality is unaffected; only the diagnostic noise level
+  changes.
+
+* **`interpolation: ['<%', '%>']`** custom interpolation
+  delimiters. Almost never used (the `{{ }}` default works for
+  ~all projects). Not extracted; templates with custom
+  delimiters would re-parse with `{{ }}` on Tier 0 and likely
+  fail. Production builds honor the option correctly.
+
+* **Directive-level `isSignal: true`** flag. This indicates a
+  fully signal-based component (no decorator-form
+  inputs/outputs/queries; no Zone-based change detection).
+  Hardcoded `false`. For components that ARE fully signal-based,
+  the runtime treats them as Zone-based on Tier 0 cycles, which
+  may produce extra change-detection passes until reload. The
+  signals themselves still work; the optimization is what's
+  lost.
+
+* **`controlCreate`** for the private `ɵngControlCreate` hook
+  used by signal-based form controls. Hardcoded `null`.
+  Components that rely on this private hook (a niche, mostly
+  Angular-internal feature) won't see the hook engaged on Tier 0
+  cycles.
+
+* **Constructor parameter decorators** (`@Optional`, `@Self`,
+  `@SkipSelf`, `@Host`, `@Inject(...)`). Captured by
+  `ctorParamTypes` only via the parameter's TYPE TEXT, not the
+  decorators themselves. Adding/removing these decorators
+  without changing the type leaves the fingerprint unchanged
+  and stays on Tier 0; the live class's preserved `ɵfac`
+  retains the pre-edit DI behavior. Adding a runtime DI
+  difference mid-session (e.g., switching `@Optional()` on or
+  off) won't take effect until the next Tier 1b rebootstrap.
+
+These are small enough that no production project has flagged
+them in our work to date, but they're worth listing so a reader
+can verify: `git grep` for the fields on the IR side, compare
+to `readDecoratorMeta` in `src/dev/angular/fastHmrCompiler.ts`,
+and the gap is exactly this list.
 
 ---
 

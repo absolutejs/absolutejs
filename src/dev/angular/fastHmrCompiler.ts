@@ -99,6 +99,21 @@ export type FastHmrFallbackReason =
  *     remount, which fetches a freshly-evaluated class whose
  *     `__abs_deps` reflects the new source. Without this, the new
  *     import would be `undefined` until the next page reload.
+ *   - `propertyFieldNames`: sorted list of class property
+ *     declaration names (regardless of decorator, type, or
+ *     initializer). Tier 0 surgical updates only swap method
+ *     bodies onto the prototype; they do NOT re-run field
+ *     initializers on existing instances. Adding a new
+ *     non-decorated field referenced by a method body would leave
+ *     existing instances missing the field, and the new method
+ *     emit would access `this.<newField>` as `undefined`.
+ *     Capturing the field set forces Tier 1a remount on additions
+ *     and removals so existing instances are recreated with the
+ *     new field set initialized. Initializer VALUE changes (e.g.,
+ *     `count = 0` → `count = 5`) leave the name set unchanged and
+ *     stay on Tier 0, preserving instance state — the user
+ *     wouldn't expect saving a typo fix in a field default to
+ *     reset their live counter.
  *
  * We deliberately do NOT include template / styleUrl / styleUrls
  * content — those are exactly the cheap surgical-handleable
@@ -116,6 +131,11 @@ export type ComponentFingerprint = {
 	arrowFieldSig: string[];
 	memberDecoratorSig: string[];
 	topLevelImports: string[];
+	/* Sorted list of class property declaration names. Catches
+	 * additions and removals of non-decorated, non-arrow fields
+	 * that the existing prototype-patch and other fingerprint
+	 * dimensions miss. */
+	propertyFieldNames: string[];
 	/* `ViewEncapsulation` numeric value. Switching between
 	 * Emulated / None / ShadowDom changes how the component's
 	 * styles are scoped at the host level; existing instances'
@@ -239,6 +259,7 @@ const fingerprintsEqual = (
 	if (!arraysEqual(a.arrowFieldSig, b.arrowFieldSig)) return false;
 	if (!arraysEqual(a.memberDecoratorSig, b.memberDecoratorSig)) return false;
 	if (!arraysEqual(a.topLevelImports, b.topLevelImports)) return false;
+	if (!arraysEqual(a.propertyFieldNames, b.propertyFieldNames)) return false;
 	if (a.encapsulation !== b.encapsulation) return false;
 	if (a.changeDetection !== b.changeDetection) return false;
 
@@ -1982,6 +2003,33 @@ const extractProviderImportSig = (
  * one TS AST walk over the class body, plus per-import file
  * lookups (mtime-cached, ~5ms cold for the typical 2-5 import
  * entries, ~0ms warm). */
+/* Extract the sorted set of class property declaration names. The
+ * set is intentionally name-only: changes to initializer values
+ * (e.g., `count = 0` → `count = 5`) leave the set unchanged and
+ * stay on Tier 0 surgical, which preserves the running instance's
+ * field value. Additions and removals of any property field
+ * (regardless of decorator, type annotation, or initializer kind)
+ * shift the set and force Tier 1a remount so the instance is
+ * recreated with the new field-initializer set. Constructor
+ * parameter properties (`constructor(private foo: T)`) are not
+ * iterated here; their addition / removal is captured by
+ * `ctorParamTypes`. */
+const extractPropertyFieldNames = (cls: ts.ClassDeclaration): string[] => {
+	const names: string[] = [];
+	for (const member of cls.members) {
+		if (!ts.isPropertyDeclaration(member)) continue;
+		const name = member.name;
+		if (name === undefined) continue;
+		const text = ts.isIdentifier(name)
+			? name.text
+			: ts.isStringLiteral(name) || ts.isNoSubstitutionTemplateLiteral(name)
+				? name.text
+				: name.getText();
+		if (text.length > 0) names.push(text);
+	}
+	return names.sort();
+};
+
 /* Extract the sorted set of top-level import bindings from a source
  * file. Includes default imports, named imports (alias-aware: the
  * local binding name, not the imported name), and namespace
@@ -2047,6 +2095,7 @@ const extractFingerprint = (
 	);
 
 	const topLevelImports = extractTopLevelImports(sourceFile);
+	const propertyFieldNames = extractPropertyFieldNames(cls);
 
 	return {
 		arrowFieldSig,
@@ -2059,6 +2108,7 @@ const extractFingerprint = (
 		inputs: inputNames,
 		memberDecoratorSig,
 		outputs: outputNames,
+		propertyFieldNames,
 		providerImportSig,
 		selector: decoratorMeta.selector,
 		standalone: decoratorMeta.standalone,
