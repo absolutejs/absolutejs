@@ -3616,6 +3616,38 @@ const drainPendingQueue = (
 	}, REBUILD_BATCH_DELAY_MS);
 };
 
+/* `.css` / `.scss` / `.sass` / `.less` / `.styl` / `.stylus`
+ * file extensions trigger this branch when the source CSS file
+ * is owned by an Angular component via its
+ * `@Component.styleUrl` / `styleUrls`. Detection is exact: we
+ * consult the same resource index Angular HMR uses for
+ * `templateUrl` mappings (`resolveOwningComponents`). */
+const STYLE_FILE_EXT_RE = /\.(?:css|scss|sass|less|styl|stylus)$/i;
+
+const hasAngularOwnedStyleEdit = async (
+	state: HMRState,
+	angularDir: string
+): Promise<boolean> => {
+	const edited = state.lastUserEditedFiles;
+	if (!edited || edited.size === 0) return false;
+	const styleEdits: string[] = [];
+	for (const file of edited) {
+		if (STYLE_FILE_EXT_RE.test(file)) styleEdits.push(file);
+	}
+	if (styleEdits.length === 0) return false;
+	const { resolveOwningComponents } = await import(
+		'./angular/resolveOwningComponents'
+	);
+	for (const file of styleEdits) {
+		const owners = resolveOwningComponents({
+			changedFilePath: file,
+			userAngularRoot: angularDir
+		});
+		if (owners.length > 0) return true;
+	}
+	return false;
+};
+
 export const triggerRebuild = async (
 	state: HMRState,
 	config: BuildConfig,
@@ -3632,6 +3664,27 @@ export const triggerRebuild = async (
 	state.isRebuilding = true;
 	const affectedFrameworks = Array.from(state.rebuildQueue);
 	state.rebuildQueue.clear();
+
+	/* Cross-framework CSS routing: if a stylesheet edit lands in
+	 * the styles/assets bucket but the file is referenced by an
+	 * Angular component's `styleUrl`/`styleUrls`, route it through
+	 * Angular HMR in addition. Without this branch, edits to
+	 * component CSS that lives outside `angularDirectory` (e.g.,
+	 * a project-level `styles/` tree referenced via
+	 * `styleUrl: '../../styles/foo.css'`) would only fire the
+	 * framework CSS HMR (a `<link rel="stylesheet">` href swap)
+	 * which doesn't reach component-scoped `<style>` tags inlined
+	 * by Angular's encapsulation. The component-co-located case
+	 * already worked because those files classify as `angular` by
+	 * directory; this branch closes the gap for separate-tree
+	 * stylesheets without affecting the co-located path. */
+	if (
+		config.angularDirectory !== undefined &&
+		!affectedFrameworks.includes('angular') &&
+		(await hasAngularOwnedStyleEdit(state, config.angularDirectory))
+	) {
+		affectedFrameworks.push('angular');
+	}
 
 	const startTime = Date.now();
 

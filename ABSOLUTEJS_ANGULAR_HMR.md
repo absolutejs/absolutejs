@@ -5,7 +5,7 @@ replacement for Angular components, the techniques that produce
 sub-50 ms end-to-end edit latency, and the architectural
 difference from `@angular/build`-driven HMR.
 
-Available in `@absolutejs/absolute@0.19.0-beta.921` and later.
+Available in `@absolutejs/absolute@0.19.0-beta.922` and later.
 
 * Repository: <https://github.com/absolutejs/absolutejs>
 * Documentation: <https://absolutejs.com>
@@ -60,7 +60,7 @@ shared base (root `BenchPage`, inline-template `HeaderComponent`,
 | medium | 30                | 32                    | 32           |
 | large  | 100               | 102                   | 102          |
 
-Stack: `@absolutejs/absolute@0.19.0-beta.921`, `@angular/* 21.2.11`,
+Stack: `@absolutejs/absolute@0.19.0-beta.922`, `@angular/* 21.2.11`,
 Bun 1.3.13, Linux/WSL2.
 
 ### 2.2 Methodology
@@ -87,10 +87,11 @@ Cold and warm are reported separately:
 
 The orchestrator at `benchmarks/angular-hmr/scripts/run.ts`
 restarts the dev server between sizes to keep cold samples
-honest. CSS edits are not in the multi-size run because the
-framework-wide CSS HMR path's file-watcher behavior is
-environment-sensitive in this fixture directory; CSS HMR
-numbers from prior single-size runs are documented in §10.7.
+honest. The CSS edit case is documented separately in §10.7
+(it routes through Tier 0 alongside the other Angular cases,
+but the bench harness's stability across the multi-size matrix
+proved finicky for stylesheet edits in particular, so we report
+the CSS numbers from a focused single-size run).
 
 ### 2.3 Cold samples (one per size)
 
@@ -788,20 +789,54 @@ those hooks mid-session works without any extractor change.
 
 ### 10.7 External `.css` edits
 
-External `.css` files reachable via the `styleUrl` /
-`styleUrls` of a component currently dispatch through the
-framework-wide CSS HMR (stylesheet swap, manifest rebuild) and
-not through Angular's metadata-replacement path. The visible
-result is the same (the new styles apply to the running page),
-but the work flows through a different code path with
-different cost characteristics.
+CSS files referenced by an Angular component via `styleUrl` /
+`styleUrls` route through the Angular surgical path regardless
+of which directory the file lives in. The dispatcher consults
+the resource index (`resolveOwningComponents`, the same one
+that maps `templateUrl` to its owner) before the framework
+classifier runs: if any edited stylesheet is owned by a
+component, `'angular'` is added to `affectedFrameworks` and
+the standard Tier 0 / 1a path applies.
 
-This routing is shared with React, Svelte, and Vue components,
-which lack an Angular-equivalent metadata-replacement primitive
-for styles. A future optimization could route component-bound
-CSS edits through the Angular fast path when a single
-unambiguous owning component exists, dropping the cost into
-the Tier 0 band.
+The path matters because Angular's component-scoped styles are
+inlined into `R3ComponentMetadata.styles: string[]` at compile
+time and rendered as `<style>` tags inside the component's host
+(Emulated `_ngcontent-*` selectors, native shadow root for
+ShadowDom, or global injection for None). They do not appear
+in any `<link rel="stylesheet">`, which means the framework-wide
+CSS HMR (stylesheet href swap) cannot reach them. Routing
+through the Angular fast path re-extracts the metadata, reads
+the new CSS contents from disk, builds a new
+`R3ComponentMetadata` with the updated `styles` array, and
+hands it to `ɵɵreplaceMetadata`. The runtime tears down and
+recreates the affected LViews, attaching new style elements
+with the correct encapsulation.
+
+Two practical layouts both work:
+
+* Co-located CSS (the Angular convention):
+  `foo/foo.component.css` next to `foo/foo.component.ts`,
+  inside `angularDirectory`. The framework classifier sees
+  `angular` directly; the Angular path picks up the file.
+* Separate-tree CSS:
+  `styles/foo.component.css`, referenced from
+  `<angularDir>/components/foo/foo.component.ts` via
+  `styleUrl: '../../styles/foo.component.css'`. The framework
+  classifier sees `styles` (or `assets`); the resource-index
+  consultation in `triggerRebuild` adds `angular` to the
+  affected frameworks so the surgical path also runs.
+
+When a CSS file is also referenced as a project-level
+stylesheet (rare but possible), both broadcasts fire (one
+`style-update` for the global stylesheet, one
+`angular:component-update` per owning component). Both paths
+are idempotent.
+
+Measured cost on the bench fixture's separate-tree case (cold
+first edit included the resource-index initialization at 222 ms
+server; warm steady-state is server ~47 ms / e2e ~84 ms,
+slightly above the body-edit case because every CSS edit
+re-parses the template and re-builds the IR).
 
 ---
 
