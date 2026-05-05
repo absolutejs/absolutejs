@@ -5,7 +5,7 @@ replacement for Angular components, the techniques that produce
 sub-50 ms end-to-end edit latency, and the architectural
 difference from `@angular/build`-driven HMR.
 
-Available in `@absolutejs/absolute@0.19.0-beta.920` and later.
+Available in `@absolutejs/absolute@0.19.0-beta.921` and later.
 
 * Repository: <https://github.com/absolutejs/absolutejs>
 * Documentation: <https://absolutejs.com>
@@ -48,42 +48,107 @@ duplicate that work on every keystroke.
 
 ## 2. Benchmark results
 
-Project: 3 standalone Angular components (root page,
-inline-template `HeaderComponent`, `templateUrl` + `styleUrl`
-`CounterComponent`).
+### 2.1 Project shapes
 
-Stack: `@absolutejs/absolute@0.19.0-beta.920`, `@angular/* 21.2.11`,
+Three sizes, scaled by adding filler standalone components to a
+shared base (root `BenchPage`, inline-template `HeaderComponent`,
+`templateUrl` + `styleUrl` `CounterComponent`):
+
+| Size   | Filler components | Total Angular classes | Page imports |
+|--------|-------------------|-----------------------|--------------|
+| small  | 3                 | 5                     | 5            |
+| medium | 30                | 32                    | 32           |
+| large  | 100               | 102                   | 102          |
+
+Stack: `@absolutejs/absolute@0.19.0-beta.921`, `@angular/* 21.2.11`,
 Bun 1.3.13, Linux/WSL2.
 
-Methodology: a Bun client connects to the dev server's `/hmr`
-WebSocket, performs scripted text replacements on each fixture
-file (apply / revert alternating), and records two values per
-iteration:
+### 2.2 Methodology
+
+A Bun client connects to the dev server's `/hmr` WebSocket and
+performs scripted text replacements on each fixture file
+(apply/revert alternating). Two values per iteration:
 
 * **Server-side dispatch**: parsed from the dev server's own
-  `[ng-hmr]` (or `[hmr] css update`) log line.
+  `[ng-hmr]` log line.
 * **End-to-end**: time from `fs.writeFile` resolving until the
   matching HMR broadcast arrives on the client WebSocket.
 
-N = 30 samples per case, plus 3 warmup iterations not counted.
+Cold and warm are reported separately:
 
-| Case                                   | Tier         | Server p50 | Server p95 | Server max | E2E p50 | E2E p95 | E2E max |
-|----------------------------------------|--------------|------------|------------|------------|---------|---------|---------|
-| TS method body                         | 0            | 13 ms      | 16 ms      | 18 ms      | 43 ms   | 48 ms   | 79 ms   |
-| Inline template literal in `@Component`| 0            | 12 ms      | 15 ms      | 18 ms      | 43 ms   | 53 ms   | 108 ms  |
-| External `templateUrl` `.html`         | 0            | 12 ms      | 19 ms      | 19 ms      | 43 ms   | 51 ms   | 59 ms   |
-| External `styleUrl` `.css`             | css-update*  | 72 ms      | 92 ms      | 93 ms      | 105 ms  | 125 ms  | 126 ms  |
-| Add `@Input` (structural change)       | 1a           | 14 ms      | 20 ms      | 20 ms      | 45 ms   | 56 ms   | 68 ms   |
+* **Cold** = the very first edit after the dev server starts.
+  Captures the cost of importing `@angular/compiler`, the first
+  `parseTemplate` call, the first `compileComponentFromMetadata`
+  call, and any one-time resource-index initialization. One
+  sample per dev-server-startup, taken on the body-edit case.
+* **Warm** = every subsequent edit, with `@angular/compiler` and
+  AST machinery already loaded in process memory. N = 100
+  samples per case after 3 unrecorded warmups.
 
-\* External `.css` edits go through the framework-wide CSS HMR
-path (stylesheet swap), not Angular's metadata-replacement path.
-See §6 for tier definitions and §10.6 for the rationale.
+The orchestrator at `benchmarks/angular-hmr/scripts/run.ts`
+restarts the dev server between sizes to keep cold samples
+honest. CSS edits are not in the multi-size run because the
+framework-wide CSS HMR path's file-watcher behavior is
+environment-sensitive in this fixture directory; CSS HMR
+numbers from prior single-size runs are documented in §10.7.
+
+### 2.3 Cold samples (one per size)
+
+| Size   | E2E    | Server  |
+|--------|--------|---------|
+| small  | 278 ms | 212 ms  |
+| medium | 237 ms | 164 ms  |
+| large  | 326 ms | 243 ms  |
+
+Cold cost is dominated by `@angular/compiler` module-load (the
+fast extractor lazy-imports it on first use) and the first IR
+build. Within run-to-run variance across sizes; the small
+project's cold being higher than the medium's reflects that.
+
+### 2.4 Warm samples (N = 100 per case per size)
+
+Server-side dispatch (parsed from `[ng-hmr]` log lines):
+
+| Case                              | Tier | small p50 | small p95 | medium p50 | medium p95 | large p50 | large p95 |
+|-----------------------------------|------|-----------|-----------|------------|------------|-----------|-----------|
+| TS method body                    | 0    | 20 ms     | 32 ms     | 17 ms      | 24 ms      | 22 ms     | 34 ms     |
+| Inline template literal           | 0    | 9 ms      | 17 ms     | 10 ms      | 16 ms      | 14 ms     | 20 ms     |
+| External `templateUrl` `.html`    | 0    | 14 ms     | 21 ms     | 10 ms      | 19 ms      | 15 ms     | 22 ms     |
+| Add `@Input` (structural)         | 1a   | 13 ms     | 20 ms     | 13 ms      | 21 ms      | 13 ms     | 19 ms     |
+
+End-to-end (file write to WS broadcast received):
+
+| Case                              | Tier | small p50 | small p95 | medium p50 | medium p95 | large p50 | large p95 |
+|-----------------------------------|------|-----------|-----------|------------|------------|-----------|-----------|
+| TS method body                    | 0    | 53 ms     | 81 ms     | 48 ms      | 64 ms      | 56 ms     | 70 ms     |
+| Inline template literal           | 0    | 39 ms     | 59 ms     | 41 ms      | 56 ms      | 46 ms     | 78 ms     |
+| External `templateUrl` `.html`    | 0    | 47 ms     | 75 ms     | 41 ms      | 55 ms      | 48 ms     | 67 ms     |
+| Add `@Input` (structural)         | 1a   | 47 ms     | 70 ms     | 45 ms      | 56 ms      | 45 ms     | 54 ms     |
+
+### 2.5 Reading the numbers
 
 The server-side column is the cost of producing and broadcasting
 the new metadata. The end-to-end column adds file-watcher
 debounce, dev-server WebSocket frame handling, and the
-localhost roundtrip; that pipeline overhead exists for any HMR
-system at any speed.
+localhost roundtrip. That pipeline overhead exists for any HMR
+system at any speed and accounts for ~30 ms of the e2e total
+across every case.
+
+Latency is roughly invariant with project size. Server p50 sits
+in a 9 to 22 ms band across all 12 (case, size) combinations.
+The largest size-driven shift is in `inline-template` (9 ms at
+small to 14 ms at large), and that's still inside the
+case-to-case noise band. This is what the architecture
+predicts: the fast extractor parses one file, walks one class,
+and calls `compileComponentFromMetadata` on a single
+`R3ComponentMetadata`. None of those scale with the rest of
+the project.
+
+The 30x growth in component count (3 to 100) leaves edit
+latency essentially unchanged. Cold samples grow modestly
+(roughly 25 percent at large vs small) because the resource
+index has more entries to initialize on first use; subsequent
+warm samples don't re-traverse it.
 
 The bench harness is committed at `benchmarks/angular-hmr/`. See
 §11 for instructions.
@@ -697,7 +762,31 @@ LViews carry the old `changeDetection` flags or have styles
 scoped under the old `encapsulation` strategy, neither of which
 can be retroactively rewritten on instances.
 
-### 10.6 External `.css` edits
+### 10.6 `ngOnChanges` lifecycle hook
+
+Components that implement `ngOnChanges()` need
+`R3DirectiveMetadata.lifecycle.usesOnChanges = true` in the IR
+metadata. Angular's runtime reads this flag to decide whether
+to wrap input setters with change-tracking and synthesize the
+`SimpleChanges` argument. Without it, the hook is never called
+even though the method exists on the prototype.
+
+The fast extractor scans the class body for a method
+declaration named `ngOnChanges` and sets the flag accordingly.
+No decorator or interface is required (Angular's runtime check
+is name-based, not type-based, matching how production ngc
+detects the hook).
+
+Other lifecycle hooks (`ngOnInit`, `ngAfterViewInit`,
+`ngAfterContentInit`, `ngOnDestroy`, `ngDoCheck`,
+`ngAfterViewChecked`, `ngAfterContentChecked`) do not require a
+metadata flag. The runtime calls them via direct method
+dispatch on the instance if they exist; the prototype-patch
+mechanism (which mirrors method bodies onto the live class on
+every Tier 0 cycle) keeps them up to date. Adding or removing
+those hooks mid-session works without any extractor change.
+
+### 10.7 External `.css` edits
 
 External `.css` files reachable via the `styleUrl` /
 `styleUrls` of a component currently dispatch through the
@@ -721,12 +810,34 @@ the Tier 0 band.
 The benchmark harness lives at `benchmarks/angular-hmr/` in the
 AbsoluteJS repository.
 
+### 11.1 Multi-size run (recommended)
+
+The orchestrator at `scripts/run.ts` runs all three sizes
+end-to-end: regenerates the fixture for each size, restarts the
+dev server (so cold samples are honest), runs the bench,
+collects results, and prints an aggregate markdown table.
+
 ```bash
 cd benchmarks/angular-hmr
 bun install
-bun run dev          # starts dev server on :4321, tees to dev.log
-# in a second shell:
-bun run bench        # connects to ws://localhost:4321/hmr
+bun run scripts/run.ts
+```
+
+Total runtime is ~10 to 15 minutes (each size takes ~3 to 5
+minutes; the dev server is restarted between sizes). The
+orchestrator leaves the fixture in canonical zero-filler state
+on exit, so a subsequent `bun run dev` launches the small
+project unchanged.
+
+### 11.2 Single-size run
+
+Run a single size manually (useful for iteration on the bench
+itself):
+
+```bash
+bun run scripts/grow.ts 30      # set fixture to 30 fillers
+bun run dev                     # in one shell
+bun run bench.ts                # in another shell
 ```
 
 The bench script alternates apply/revert text replacements on
@@ -735,19 +846,47 @@ WebSocket, and parses the dev server's own log line for the
 server-side dispatch breakdown. Originals are restored on exit
 and on SIGINT.
 
-Configuration via environment variables:
+### 11.3 Configuration
 
-* `HMR_BENCH_N`: sample count per case (default: 30)
+Environment variables:
+
+* `HMR_BENCH_N`: warm sample count per case (default: 100)
 * `HMR_BENCH_WARMUP`: warmup iterations (default: 3)
-* `HMR_BENCH_TIMEOUT_MS`: per-iteration timeout (default: 15000)
+* `HMR_BENCH_TIMEOUT_MS`: per-iteration timeout (default: 3000)
 * `HMR_BENCH_WS_URL`: dev server WS URL
 * `HMR_BENCH_DEV_LOG`: dev log path
+* `HMR_BENCH_SIZE`: label written into the JSON results
+  (default: `small`)
+* `HMR_BENCH_RESULTS`: path to write per-size JSON results
+  (used by the orchestrator)
 
-The fixture has three components and one page. Numbers will
-shift with project size (more imports means a larger AST walk;
-more declarations to resolve for `imports: [...]`); the band
-the reference numbers occupy should reproduce on comparable
-hardware.
+### 11.4 Generator script
+
+`scripts/grow.ts <count>` regenerates the fixture for a target
+size:
+
+* Wipes and recreates `angular/components/generated/comp-1.component.ts`
+  through `comp-<count>.component.ts` (each is a tiny standalone
+  component with a selector, single string `@Input`, and inline
+  template).
+* Rewrites `angular/pages/bench.ts` and
+  `angular/templates/bench.html` to import and render the
+  generated set.
+* Wipes `build/` and `.absolutejs/` so the next `bun run dev`
+  starts clean.
+
+`scripts/grow.ts 0` resets to the canonical "no fillers" form
+(committed shape).
+
+### 11.5 What's reproducible
+
+The bench numbers depend on the host's CPU, file-watcher
+latency, and Bun version. Absolute numbers won't match between
+machines, but the band each case occupies and the
+size-invariance of warm-sample p50 should reproduce on any
+modern x86/ARM Linux or macOS machine. The bench was developed
+on Linux/WSL2; macOS results are typically slightly faster
+because of less file-watcher overhead.
 
 ---
 

@@ -2732,7 +2732,21 @@ export const tryFastHmr = async (
 		queries: advancedMetadata.contentQueries,
 		viewQueries: advancedMetadata.viewQueries,
 		host: advancedMetadata.host,
-		lifecycle: { usesOnChanges: false },
+		lifecycle: {
+			/* `ngOnChanges` is special: the runtime needs this flag
+			 * to wrap input setters with change-tracking so the
+			 * hook is called when bindings update. Detected by
+			 * presence of a class member named `ngOnChanges` (any
+			 * method declaration; signature shape isn't relevant
+			 * for the flag). */
+			usesOnChanges: classNode.members.some(
+				(m) =>
+					ts.isMethodDeclaration(m) &&
+					m.name !== undefined &&
+					ts.isIdentifier(m.name) &&
+					m.name.text === 'ngOnChanges'
+			)
+		},
 		inputs,
 		outputs,
 		usesInheritance: false,

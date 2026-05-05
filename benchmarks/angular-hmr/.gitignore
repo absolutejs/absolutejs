@@ -2,4 +2,7 @@ node_modules/
 build/
 .absolutejs/
 dev.log
+dev-*.log
 bun.lock
+bench-*.json
+angular/components/generated/
