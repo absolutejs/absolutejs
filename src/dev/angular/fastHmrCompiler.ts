@@ -34,7 +34,6 @@ export type FastHmrFallbackReason =
 	| 'class-not-found'
 	| 'no-component-decorator'
 	| 'unsupported-decorator-args'
-	| 'not-standalone'
 	| 'inherits-decorated-class'
 	| 'multiple-decorators-on-class'
 	| 'template-parse-error'
@@ -311,16 +310,152 @@ const getBooleanProperty = (
 	return null;
 };
 
-const inheritsDecoratedClass = (cls: ts.ClassDeclaration): boolean => {
+/* Most `extends` clauses in modern Angular code are non-decorated
+ * utility base classes (`BaseFormComponent`, `Disposable`, etc.).
+ * Those merge into the child via JavaScript's prototype chain — no
+ * Angular metadata to combine, the child's own `R3ComponentMetadata`
+ * is sufficient.
+ *
+ * The case we DO need to bail on is `class Foo extends Bar` where
+ * `Bar` itself has `@Component` / `@Directive` / `@Pipe`. ngc walks
+ * the heritage chain and merges their template / inputs / outputs /
+ * host / queries up. Reproducing that merge is meaningful work
+ * (precedence rules vary per field) and uncommon enough to defer —
+ * `usesInheritance: true` + ngc-equivalent merge is a future
+ * extension if real codebases hit it.
+ *
+ * Resolves the parent class identifier across files: looks up the
+ * heritage clause's identifier in the source file's imports, resolves
+ * the import to a `.ts` source, parses it, checks whether the
+ * matching class declaration has a `@Component` / `@Directive` /
+ * `@Pipe` / `@Injectable` decorator. Same-file parents are also
+ * checked (no resolution needed). */
+const isAngularDecoratorIdentifier = (name: string): boolean =>
+	name === 'Component' ||
+	name === 'Directive' ||
+	name === 'Pipe' ||
+	name === 'Injectable';
+
+const classHasAngularDecorator = (cls: ts.ClassDeclaration): boolean => {
+	for (const dec of ts.getDecorators(cls) ?? []) {
+		const expr = dec.expression;
+		if (
+			ts.isCallExpression(expr) &&
+			ts.isIdentifier(expr.expression) &&
+			isAngularDecoratorIdentifier(expr.expression.text)
+		) {
+			return true;
+		}
+	}
+	return false;
+};
+
+const findClassInSourceFile = (
+	sf: ts.SourceFile,
+	className: string
+): ts.ClassDeclaration | null => {
+	for (const stmt of sf.statements) {
+		if (ts.isClassDeclaration(stmt) && stmt.name?.text === className) {
+			return stmt;
+		}
+	}
+	return null;
+};
+
+const parentHasAngularDecoratorAcrossFiles = (
+	parentClassName: string,
+	sourceFile: ts.SourceFile,
+	componentDir: string,
+	projectRoot: string
+): boolean => {
+	const sameFile = findClassInSourceFile(sourceFile, parentClassName);
+	if (sameFile) return classHasAngularDecorator(sameFile);
+
+	// Cross-file: walk imports to find where the parent comes from.
+	for (const stmt of sourceFile.statements) {
+		if (!ts.isImportDeclaration(stmt)) continue;
+		if (!ts.isStringLiteral(stmt.moduleSpecifier)) continue;
+		const clause = stmt.importClause;
+		if (!clause || clause.isTypeOnly) continue;
+		const named = clause.namedBindings;
+		if (!named || !ts.isNamedImports(named)) continue;
+		const found = named.elements.find((el) => el.name.text === parentClassName);
+		if (!found) continue;
+		const spec = stmt.moduleSpecifier.text;
+		// Only resolve project-local imports — node_modules parents
+		// (Angular CDK base classes, library mixins) are decorated
+		// or not by their own published code, but their metadata is
+		// in the shipped `.d.ts`'s `ɵdir`/`ɵcmp` declaration. We
+		// already know how to read those (see
+		// `getChildComponentInfoFromDts` for child-component metadata
+		// extraction). For inheritance, the conservative call is
+		// "library parent → bail" since we don't yet merge — same
+		// outcome as before this commit. Local parents we resolve.
+		if (!spec.startsWith('.') && !spec.startsWith('/')) {
+			// Bare specifier — assume it could be decorated, bail.
+			return true;
+		}
+		const base = resolve(componentDir, spec);
+		const candidates = [
+			`${base}.ts`,
+			`${base}.tsx`,
+			`${base}/index.ts`,
+			`${base}/index.tsx`
+		];
+		for (const candidate of candidates) {
+			if (!existsSync(candidate)) continue;
+			let content: string;
+			try {
+				content = readFileSync(candidate, 'utf-8');
+			} catch {
+				continue;
+			}
+			const parentSf = ts.createSourceFile(
+				candidate,
+				content,
+				ts.ScriptTarget.Latest,
+				true
+			);
+			const parentCls = findClassInSourceFile(parentSf, parentClassName);
+			if (!parentCls) continue;
+			return classHasAngularDecorator(parentCls);
+		}
+		// Import found but file unreadable — conservative bail.
+		return true;
+	}
+	// No matching import — parent is either local-but-undeclared or
+	// global. Conservative bail.
+	return true;
+};
+
+const inheritsDecoratedClass = (
+	cls: ts.ClassDeclaration,
+	sourceFile: ts.SourceFile,
+	componentDir: string,
+	projectRoot: string
+): boolean => {
 	const heritage = cls.heritageClauses ?? [];
 	for (const clause of heritage) {
 		if (clause.token !== ts.SyntaxKind.ExtendsKeyword) continue;
-		// We can't cheaply tell whether the base class has a decorator
-		// without crossing files. Conservative call: any extends clause
-		// → bail. Cheap to revisit if it bites us in practice.
-		if (clause.types.length > 0) return true;
+		for (const typeNode of clause.types) {
+			const expr = typeNode.expression;
+			if (!ts.isIdentifier(expr)) {
+				// Complex heritage (computed property access, etc.) —
+				// rare enough to bail on.
+				return true;
+			}
+			if (
+				parentHasAngularDecoratorAcrossFiles(
+					expr.text,
+					sourceFile,
+					componentDir,
+					projectRoot
+				)
+			) {
+				return true;
+			}
+		}
 	}
-
 	return false;
 };
 
@@ -2161,7 +2296,14 @@ export const tryFastHmr = async (
 		};
 	}
 
-	if (inheritsDecoratedClass(classNode)) {
+	if (
+		inheritsDecoratedClass(
+			classNode,
+			sourceFile,
+			dirname(componentFilePath),
+			projectRoot
+		)
+	) {
 		return fail('inherits-decorated-class');
 	}
 
@@ -2172,7 +2314,6 @@ export const tryFastHmr = async (
 	if (!decoratorArgs) return fail('unsupported-decorator-args');
 
 	const decoratorMeta = readDecoratorMeta(decoratorArgs);
-	if (!decoratorMeta.standalone) return fail('not-standalone');
 
 	const advancedMetadata = extractAdvancedMetadata(
 		classNode,
@@ -2337,7 +2478,7 @@ export const tryFastHmr = async (
 		controlCreate: null,
 		exportAs: advancedMetadata.exportAs,
 		providers: advancedMetadata.providers,
-		isStandalone: true,
+		isStandalone: decoratorMeta.standalone,
 		isSignal: false,
 		hostDirectives: advancedMetadata.hostDirectives,
 		template: {
