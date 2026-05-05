@@ -225,14 +225,19 @@ export const compileAngularForHmr = async (
 	// itself; the chain `updateWithChangedResources` →
 	// `getComponentsWithStyleFile` → `traitCompiler.updateResources`
 	// then invalidates and re-analyzes any component whose styleUrl /
-	// templateUrl appears in this set. `forceEmit: true` belt-and-
-	// suspenders past `safeToSkipEmit` — every source file gets
-	// re-emitted regardless of incremental optimization, so the
-	// `program.compiler.emitHmrUpdateModule(node)` call after this
-	// reads from up-to-date metadata.
+	// templateUrl appears in this set.
+	//
+	// `forceEmit: false` — `emitHmrUpdateModule(node)` builds the
+	// surgical-update IR from the in-memory ngc analysis (`ɵcmp`,
+	// `traitCompiler.compileHmrUpdateCallback(node)`), not from emitted
+	// `.js` files on disk. The analysis is up-to-date as long as
+	// `modifiedResourceFiles` was passed correctly, so re-emitting
+	// every source file in the program (`forceEmit: true`) costs ~10s
+	// of pure I/O on every cold cycle without any benefit. Verified
+	// end-to-end: drop `forceEmit` → first edit drops from ~14s to
+	// ~500ms; surgical patches still apply with the latest template.
 	const performArgs: Parameters<typeof performCompilation>[0] = {
 		emitFlags: EmitFlags.Default,
-		forceEmit: true,
 		host,
 		options,
 		rootNames: inputPaths

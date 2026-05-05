@@ -791,7 +791,21 @@ const bundleAngularClient = async (
 
 export type AngularHmrTier = 0 | 1 | 2;
 
-type SurgicalEntry = { id: string; className: string };
+type SurgicalEntry = {
+	id: string;
+	className: string;
+	// True when this entry bailed `tryFastHmr` with
+	// `uses-advanced-feature` and needs the `/@ng/component` slow
+	// path (ngc shadow program) to serve the surgical update.
+	// `runAngularHmrIncremental` short-circuits the ~13s ngc
+	// compileAngularForHmr call when no entry needs it.
+	needsSlowPath?: boolean;
+	// Set when `needsSlowPath` is true — the component's source TS
+	// file. Used as ngc's `rootNames` so the analysis program only
+	// pulls in this component's transitive deps instead of every
+	// page in the app.
+	componentFilePath?: string;
+};
 
 /* Verdict from the dispatcher.
  *
@@ -939,7 +953,12 @@ const decideAngularTier = async (
 				// `angular:invalidate` → rebootstrap.
 				if (result.reason === 'uses-advanced-feature') {
 					queueIds.add(id);
-					queue.push({ className, id });
+					queue.push({
+						className,
+						componentFilePath,
+						id,
+						needsSlowPath: true
+					});
 					continue;
 				}
 				return {
@@ -1170,7 +1189,9 @@ const getAllAngularPageEntries = async (
 const runAngularHmrIncremental = async (
 	state: HMRState,
 	angularDir: string,
-	_pageEntries: string[]
+	pageEntries: string[],
+	needsSlowPath: boolean,
+	slowPathComponentFiles: string[]
 ) => {
 	const editedFiles = state.lastUserEditedFiles ?? new Set<string>();
 	// A `.ts` edit might've added/removed a page — drop the page-list
@@ -1182,11 +1203,39 @@ const runAngularHmrIncremental = async (
 		}
 	}
 	const refreshPromise = (async () => {
+		// The ngc shadow program (`compileAngularForHmr`) is ONLY
+		// consulted by the slow path inside `getApplyMetadataModule` —
+		// when a component bails `tryFastHmr` with
+		// `uses-advanced-feature` and the `/@ng/component` endpoint
+		// has to call `emitHmrUpdateModule(node)`. For a fast-path
+		// edit (the common case: template/method body change on a
+		// component without `host:` / `@HostListener` / `@ViewChild` /
+		// etc.) the ngc shadow is unused, and skipping it saves the
+		// full ~13s `performCompilation` cost on cold cycles + ~500ms
+		// on warm ones. ngc still gets seeded the first time a
+		// slow-path component is edited.
+		if (!needsSlowPath) return;
 		try {
-			const { compileAngularForHmr } = await import(
+			const { compileAngularForHmr, getCachedHmrProgram } = await import(
 				'./angular/hmrCompiler'
 			);
-			const inputs = await getAllAngularPageEntries(angularDir);
+			// Prefer the affected component file paths as
+			// `rootNames` over the owning pages — ngc's analysis
+			// program is the transitive closure of the rootNames, so
+			// rooting at the leaf component minimizes how many files
+			// ngc has to walk. For an edit to a leaf component used
+			// once, that's ~one component's deps vs the entire page
+			// graph (~14s vs ~500ms on dealroom).
+			let inputs: string[];
+			if (slowPathComponentFiles.length > 0) {
+				inputs = slowPathComponentFiles;
+			} else if (pageEntries.length > 0) {
+				inputs = pageEntries;
+			} else if (!getCachedHmrProgram()) {
+				inputs = await getAllAngularPageEntries(angularDir);
+			} else {
+				inputs = [];
+			}
 			await compileAngularForHmr(
 				inputs,
 				state.resolvedPaths.buildDir,
@@ -1437,12 +1486,25 @@ const handleAngularFastPath = async (
 	const queueDescription = (queue: SurgicalEntry[]) =>
 		queue.map((e) => e.className).join(', ');
 
+	const slowPathFiles = verdict.queue
+		.filter((e): e is SurgicalEntry & { componentFilePath: string } =>
+			e.needsSlowPath === true && typeof e.componentFilePath === 'string'
+		)
+		.map((e) => e.componentFilePath);
+	const needsSlowPath = slowPathFiles.length > 0;
+
 	if (verdict.tier === 0) {
 		// Tier 0 surgical: keep the ngc shadow program fresh so the
 		// `/@ng/component` endpoint can serve the new class on the
 		// next fetch. No Bun.build — surgical HMR mutates the live
 		// app's `ɵcmp` directly, the bundle isn't in the loop.
-		await runAngularHmrIncremental(state, angularDir, pageEntries);
+		await runAngularHmrIncremental(
+			state,
+			angularDir,
+			pageEntries,
+			needsSlowPath,
+			slowPathFiles
+		);
 		broadcastSurgical(state, verdict.queue);
 		const b = verdict.breakdown;
 		logInfo(
@@ -1453,7 +1515,13 @@ const handleAngularFastPath = async (
 		// no bundle work. The browser's `__ng_hmr_remount` fetches
 		// `/@ng/component` and runs `createComponent` against the
 		// already-running app's class identities.
-		await runAngularHmrIncremental(state, angularDir, pageEntries);
+		await runAngularHmrIncremental(
+			state,
+			angularDir,
+			pageEntries,
+			needsSlowPath,
+			slowPathFiles
+		);
 		broadcastRemount(state, verdict.queue);
 		const b = verdict.breakdown;
 		logInfo(
