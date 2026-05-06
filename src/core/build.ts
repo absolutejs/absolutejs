@@ -27,7 +27,9 @@ import { scanEntryPoints } from '../build/scanEntryPoints';
 import { scanConventions } from '../build/scanConventions';
 import type {
 	ConventionsMap,
-	FrameworkConventionEntry
+	FrameworkConventionEntry,
+	FrameworkConventions,
+	PageConventions
 } from '../../types/conventions';
 import { scanCssEntryPoints } from '../build/scanCssEntryPoints';
 import {
@@ -1076,6 +1078,18 @@ const buildUnlocked = async ({
 		conventions: undefined,
 		pageFiles: []
 	};
+	// Universal HTML conventions can live in any framework's pages dir —
+	// `error.html` / `not-found.html` are framework-agnostic and aggregate
+	// into a single conventionsMap.html bucket.
+	const htmlConventionDirs = [
+		reactPagesPath,
+		sveltePagesPath,
+		vuePagesPath,
+		angularPagesPath,
+		emberPagesPath,
+		htmlPagesPath,
+		htmxPagesPath
+	].filter((path): path is string => Boolean(path));
 	const [
 		,
 		allReactEntries,
@@ -1085,7 +1099,7 @@ const buildUnlocked = async ({
 		vueConventionResult,
 		angularConventionResult,
 		emberConventionResult,
-		htmlConventionResult,
+		htmlConventionResults,
 		allGlobalCssEntries
 	] = await Promise.all([
 		tailwindPromise,
@@ -1124,11 +1138,11 @@ const buildUnlocked = async ({
 					scanConventions(emberPagesPath, '*.{gjs,gts,ts}')
 				)
 			: emptyConventionResult,
-		htmlPagesPath
-			? tracePhase('scan/html-conventions', () =>
-					scanConventions(htmlPagesPath, '*.html')
-				)
-			: emptyConventionResult,
+		tracePhase('scan/html-conventions', async () =>
+			Promise.all(
+				htmlConventionDirs.map((dir) => scanConventions(dir, '*.html'))
+			)
+		),
 		stylesDir
 			? tracePhase('scan/css', () =>
 					scanCssEntryPoints(stylesDir, stylesIgnore)
@@ -1153,35 +1167,103 @@ const buildUnlocked = async ({
 		conventionsMap.angular = angularConventionResult.conventions;
 	if (emberConventionResult.conventions)
 		conventionsMap.ember = emberConventionResult.conventions;
-	if (htmlConventionResult.conventions && htmlDir && htmlPagesPath) {
-		// Remap source paths in the html pages dir to the post-cpSync
-		// destination in the build output, since the runtime reads
-		// conventions.json from the build dir in production.
-		const outputHtmlPages = isSingle
-			? join(buildPath, 'pages')
-			: join(buildPath, basename(htmlDir), 'pages');
-		const remap = (sourcePath: string) =>
-			join(outputHtmlPages, relative(htmlPagesPath, sourcePath));
-		const htmlConventions = htmlConventionResult.conventions;
-		if (htmlConventions.defaults) {
-			if (htmlConventions.defaults.error)
-				htmlConventions.defaults.error = remap(
-					htmlConventions.defaults.error
+	// Merge html convention scans from every framework pages dir. error.html
+	// / not-found.html in any pages dir become the universal HTML fallback;
+	// later directories lose to earlier ones on collision (warn).
+	const htmlDefaults: FrameworkConventions = {};
+	const htmlPages: Record<string, PageConventions> = {};
+	const htmlConventionSources: string[] = [];
+	for (let idx = 0; idx < htmlConventionResults.length; idx++) {
+		const result = htmlConventionResults[idx];
+		if (!result?.conventions) continue;
+
+		const dirLabel = htmlConventionDirs[idx] ?? '<unknown>';
+		const { defaults: scannedDefaults, pages: scannedPages } =
+			result.conventions;
+		if (scannedDefaults?.error) {
+			if (htmlDefaults.error) {
+				logWarn(
+					`Multiple error.html files found; using ${htmlDefaults.error} and ignoring ${scannedDefaults.error} (${dirLabel}).`
 				);
-			if (htmlConventions.defaults.notFound)
-				htmlConventions.defaults.notFound = remap(
-					htmlConventions.defaults.notFound
-				);
-			if (htmlConventions.defaults.loading)
-				htmlConventions.defaults.loading = remap(
-					htmlConventions.defaults.loading
-				);
-		}
-		if (htmlConventions.pages) {
-			for (const page of Object.values(htmlConventions.pages)) {
-				if (page.error) page.error = remap(page.error);
-				if (page.loading) page.loading = remap(page.loading);
+			} else {
+				htmlDefaults.error = scannedDefaults.error;
+				htmlConventionSources.push(scannedDefaults.error);
 			}
+		}
+		if (scannedDefaults?.notFound) {
+			if (htmlDefaults.notFound) {
+				logWarn(
+					`Multiple not-found.html files found; using ${htmlDefaults.notFound} and ignoring ${scannedDefaults.notFound} (${dirLabel}).`
+				);
+			} else {
+				htmlDefaults.notFound = scannedDefaults.notFound;
+				htmlConventionSources.push(scannedDefaults.notFound);
+			}
+		}
+		if (scannedDefaults?.loading && !htmlDefaults.loading) {
+			htmlDefaults.loading = scannedDefaults.loading;
+			htmlConventionSources.push(scannedDefaults.loading);
+		}
+		if (scannedPages) {
+			for (const [pageName, page] of Object.entries(scannedPages)) {
+				if (!htmlPages[pageName]) htmlPages[pageName] = {};
+				if (page.error && !htmlPages[pageName].error) {
+					htmlPages[pageName].error = page.error;
+					htmlConventionSources.push(page.error);
+				}
+				if (page.loading && !htmlPages[pageName].loading) {
+					htmlPages[pageName].loading = page.loading;
+					htmlConventionSources.push(page.loading);
+				}
+			}
+		}
+	}
+	if (
+		htmlDefaults.error ||
+		htmlDefaults.notFound ||
+		htmlDefaults.loading ||
+		Object.keys(htmlPages).length > 0
+	) {
+		// Materialize html convention files into a stable build/conventions/html/
+		// location so production runtime can read them after the source tree is
+		// stripped. cpSync keeps the file as-is (no compile step needed for html).
+		const htmlConventionsOutDir = join(buildPath, 'conventions', 'html');
+		mkdirSync(htmlConventionsOutDir, { recursive: true });
+		const htmlPathRemap = new Map<string, string>();
+		for (const sourcePath of htmlConventionSources) {
+			const dest = join(htmlConventionsOutDir, basename(sourcePath));
+			cpSync(sourcePath, dest, { force: true });
+			htmlPathRemap.set(sourcePath, dest);
+		}
+		const remap = (path: string | undefined) =>
+			path ? (htmlPathRemap.get(path) ?? path) : undefined;
+
+		const htmlConventions: FrameworkConventionEntry = {};
+		const remappedDefaults: FrameworkConventions = {};
+		const errorRemap = remap(htmlDefaults.error);
+		if (errorRemap) remappedDefaults.error = errorRemap;
+		const notFoundRemap = remap(htmlDefaults.notFound);
+		if (notFoundRemap) remappedDefaults.notFound = notFoundRemap;
+		const loadingRemap = remap(htmlDefaults.loading);
+		if (loadingRemap) remappedDefaults.loading = loadingRemap;
+		if (
+			remappedDefaults.error ||
+			remappedDefaults.notFound ||
+			remappedDefaults.loading
+		) {
+			htmlConventions.defaults = remappedDefaults;
+		}
+		if (Object.keys(htmlPages).length > 0) {
+			const remappedPages: Record<string, PageConventions> = {};
+			for (const [pageName, page] of Object.entries(htmlPages)) {
+				const entry: PageConventions = {};
+				const errorPath = remap(page.error);
+				if (errorPath) entry.error = errorPath;
+				const loadingPath = remap(page.loading);
+				if (loadingPath) entry.loading = loadingPath;
+				remappedPages[pageName] = entry;
+			}
+			htmlConventions.pages = remappedPages;
 		}
 		conventionsMap.html = htmlConventions;
 	}
