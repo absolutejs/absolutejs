@@ -523,8 +523,21 @@ failures.
 rebootstrap) to JIT-transpile every page's recursive Angular
 import graph into `.absolutejs/generated/angular/`. The dev
 moduleServer (`src/dev/moduleServer.ts`) serves those files
-at `/@src/...` with per-request transforms. Edits invalidate
-and re-emit the affected file only.
+at `/@src/...` with per-request transforms.
+
+When a file changes, `invalidateModule()` walks the reverse
+import graph (`transformCache.ts`) and BFSes every transitive
+importer. For each visited file we drop its transform-cache
+entry and bump its `invalidationVersions` counter; the bump
+is what makes `srcUrl()` emit a fresh `?v=` token, which is
+what forces the browser to refetch even when the importer's
+mtime is unchanged. Bumping versions on transitive importers
+(not just the originally-changed file) is load-bearing: a
+page that imports a service via two intermediate components
+otherwise keeps resolving the page module under its old
+`?v=`, the page bundle's internal `/@src/` references stay
+pointed at stale URLs, and rapid HMR cycles wedge the browser
+bundle until the dev server restarts.
 
 Two virtual-module concerns Bun's transpiler raises:
 

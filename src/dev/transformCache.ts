@@ -77,23 +77,46 @@ export const findNearestComponent = (filePath: string) => {
 };
 export const getInvalidationVersion = (filePath: string) =>
 	invalidationVersions.get(filePath) ?? 0;
+/**
+ * Invalidate `filePath` and every transitive importer.
+ *
+ * BFS up the reverse-import graph; for each visited file we (1) drop
+ * its transform cache so the next request re-transpiles, and (2) bump
+ * its invalidation version so `srcUrl()` emits a fresh `?v=` token —
+ * forcing the browser to refetch even when the importer's mtime is
+ * unchanged. Bumping versions on transitive importers (not just the
+ * originally-changed file) is the load-bearing piece: without it, a
+ * page that imports a service via two intermediate components keeps
+ * resolving the page module under its old `?v=`, the page bundle's
+ * internal `/@src/` references stay pointed at stale URLs, and rapid
+ * HMR cycles wedge the browser bundle until the dev server restarts.
+ *
+ * Cycles are tolerated via the `visited` set.
+ */
 export const invalidate = (filePath: string) => {
-	cache.delete(filePath);
+	const visited = new Set<string>();
+	const queue: string[] = [filePath];
 
-	// Bump the CHANGED file's version so when importers are
-	// re-transpiled, srcUrl() generates a new ?v= for it.
-	invalidationVersions.set(
-		filePath,
-		(invalidationVersions.get(filePath) ?? 0) + 1
-	);
+	while (queue.length > 0) {
+		const current = queue.shift();
+		if (current === undefined || visited.has(current)) continue;
+		visited.add(current);
 
-	// Clear transform cache for direct importers so they get
-	// re-transpiled with the changed file's new ?v= param.
-	for (const parent of importers.get(filePath) ?? []) {
-		cache.delete(parent);
+		cache.delete(current);
+		invalidationVersions.set(
+			current,
+			(invalidationVersions.get(current) ?? 0) + 1
+		);
+
+		const parents = importers.get(current);
+		if (!parents) continue;
+		for (const parent of parents) {
+			if (!visited.has(parent)) queue.push(parent);
+		}
 	}
 };
 export const invalidateAll = () => {
 	cache.clear();
 	importers.clear();
+	invalidationVersions.clear();
 };

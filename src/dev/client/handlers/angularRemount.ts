@@ -225,8 +225,8 @@ const copyInputsFromOldToNew = (
 	newInstance: unknown
 ): void => {
 	if (!oldInstance || !newInstance) return;
-	const def = (newInstance as { constructor?: { ɵcmp?: unknown } }).constructor
-		?.ɵcmp as { inputs?: Record<string, unknown> } | undefined;
+	const def = (newInstance as { constructor?: { ɵcmp?: unknown } })
+		.constructor?.ɵcmp as { inputs?: Record<string, unknown> } | undefined;
 	const inputs = def?.inputs;
 	if (!inputs) return;
 

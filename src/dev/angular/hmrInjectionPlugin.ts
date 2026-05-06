@@ -82,7 +82,10 @@ const extractAllTopLevelNames = (jsSource: string): string[] => {
 				const asIdx = trimmed.search(/\s+as\s+/);
 				const local =
 					asIdx >= 0
-						? trimmed.slice(asIdx).replace(/^\s+as\s+/, '').trim()
+						? trimmed
+								.slice(asIdx)
+								.replace(/^\s+as\s+/, '')
+								.trim()
 						: trimmed;
 				if (/^[A-Za-z_$][\w$]*$/.test(local)) names.add(local);
 			}
@@ -99,10 +102,7 @@ const extractAllTopLevelNames = (jsSource: string): string[] => {
 	return [...names];
 };
 
-const buildHmrTail = (
-	className: string,
-	encodedIdLiteral: string
-): string => `
+const buildHmrTail = (className: string, encodedIdLiteral: string): string => `
 
 // absolutejs HMR — auto-generated; mirrors compileHmrInitializer from
 // @angular/compiler with import.meta.hot adapted to globalThis.__angularHmr.
@@ -349,7 +349,11 @@ export const createAngularHmrInjectionPlugin = (
 	setup(build) {
 		build.onLoad({ filter: /\.component\.js$/ }, async (args) => {
 			const text = await readFile(args.path, 'utf8');
-			const transformed = applyAngularHmrInjection(text, args.path, params);
+			const transformed = applyAngularHmrInjection(
+				text,
+				args.path,
+				params
+			);
 			if (transformed === undefined) return undefined;
 			return { contents: transformed, loader: 'js' };
 		});

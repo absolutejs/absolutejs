@@ -57,9 +57,9 @@ const main = async () => {
 		const findHero = () => {
 			const els = document.querySelectorAll('*');
 			for (const el of Array.from(els)) {
-				const inst = w.ng?.getComponent?.(el) as unknown as
-					| { constructor: { name: string } }
-					| null;
+				const inst = w.ng?.getComponent?.(el) as unknown as {
+					constructor: { name: string };
+				} | null;
 				if (
 					inst &&
 					inst.constructor &&
@@ -90,7 +90,9 @@ const main = async () => {
 		const initialTemplateText = initialTemplate
 			? initialTemplate.toString()
 			: '';
-		const initialMatch = initialTemplateText.match(/Turn Partnerships into/);
+		const initialMatch = initialTemplateText.match(
+			/Turn Partnerships into/
+		);
 
 		// Pull live LView reference
 		const heroEl = initialHero.el as HTMLElement & {
@@ -127,7 +129,9 @@ const main = async () => {
 					tViewSameAsInitial: cmp?.tView === initialTView,
 					tViewTruthy: !!cmp?.tView,
 					templateChanged: text !== initialTemplateText,
-					templateHasNew: text.includes('TURN PARTNERSHIPS INTO TEST!'),
+					templateHasNew: text.includes(
+						'TURN PARTNERSHIPS INTO TEST!'
+					),
 					templateHasOld: text.includes('Turn Partnerships into'),
 					heroElInDom: !!document.contains(heroEl2 as Node),
 					sameHeroEl: heroEl2 === heroEl,

@@ -1,6 +1,6 @@
 import { defineComponent, h } from 'vue';
-import type { RuntimeIslandRenderProps } from '../../types/island';
 import { preserveIslandMarkup } from '../client/preserveIslandMarkup';
+import { normalizeRuntimeIslandRenderProps } from '../core/normalizeIslandProps';
 
 export const Island = defineComponent({
 	name: 'AbsoluteIsland',
@@ -17,12 +17,16 @@ export const Island = defineComponent({
 			required: false,
 			type: String
 		},
+		/* Accept either an object or a JSON-serialized string — see
+		   the SSR `Island.ts` for the rationale. */
 		props: {
-			required: true,
-			type: Object
+			required: false,
+			type: [Object, String]
 		}
 	},
-	setup(props: RuntimeIslandRenderProps) {
+	setup(rawProps) {
+		const props = normalizeRuntimeIslandRenderProps(rawProps);
+
 		return () => {
 			const { attributes, innerHTML } = preserveIslandMarkup(props);
 

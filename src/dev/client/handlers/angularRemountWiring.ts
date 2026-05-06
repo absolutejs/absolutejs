@@ -5,10 +5,7 @@
  * else is generic, so the implementation is shared rather than baked
  * into every component bundle. */
 
-import {
-	remountComponentClass,
-	type RemountResult
-} from './angularRemount';
+import { remountComponentClass, type RemountResult } from './angularRemount';
 
 declare global {
 	// eslint-disable-next-line no-var

@@ -403,6 +403,8 @@ const compileVueFile = async (
 			.compileTemplate({
 				compilerOptions: {
 					bindingMetadata: compiledScript.bindings,
+					expressionPlugins: ['typescript'],
+					isCustomElement: (tag) => tag === 'absolute-island',
 					prefixIdentifiers: true
 				},
 				filename: sourceFilePath,

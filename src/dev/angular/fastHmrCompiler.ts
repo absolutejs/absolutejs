@@ -321,15 +321,9 @@ const entityFingerprintsEqual = (
 	return true;
 };
 
-const ENTITY_DECORATOR_NAMES = new Set([
-	'Pipe',
-	'Directive',
-	'Injectable'
-]);
+const ENTITY_DECORATOR_NAMES = new Set(['Pipe', 'Directive', 'Injectable']);
 
-const findEntityDecorator = (
-	cls: ts.ClassDeclaration
-): ts.Decorator | null => {
+const findEntityDecorator = (cls: ts.ClassDeclaration): ts.Decorator | null => {
 	for (const dec of ts.getDecorators(cls) ?? []) {
 		const expr = dec.expression;
 		if (!ts.isCallExpression(expr)) continue;
@@ -404,10 +398,7 @@ const findClassDeclaration = (
 	let found: ts.ClassDeclaration | null = null;
 	const walk = (node: ts.Node) => {
 		if (found) return;
-		if (
-			ts.isClassDeclaration(node) &&
-			node.name?.text === className
-		) {
+		if (ts.isClassDeclaration(node) && node.name?.text === className) {
 			found = node;
 
 			return;
@@ -563,7 +554,9 @@ const parentHasAngularDecoratorAcrossFiles = (
 		if (!clause || clause.isTypeOnly) continue;
 		const named = clause.namedBindings;
 		if (!named || !ts.isNamedImports(named)) continue;
-		const found = named.elements.find((el) => el.name.text === parentClassName);
+		const found = named.elements.find(
+			(el) => el.name.text === parentClassName
+		);
 		if (!found) continue;
 		const spec = stmt.moduleSpecifier.text;
 		// Only resolve project-local imports — node_modules parents
@@ -686,7 +679,11 @@ const extractControlCreate = (
 ): { passThroughInput: string | null } | null => {
 	for (const member of cls.members) {
 		if (!ts.isMethodDeclaration(member)) continue;
-		if (member.modifiers?.some((m) => m.kind === ts.SyntaxKind.StaticKeyword))
+		if (
+			member.modifiers?.some(
+				(m) => m.kind === ts.SyntaxKind.StaticKeyword
+			)
+		)
 			continue;
 		const name = member.name;
 		if (name === undefined) continue;
@@ -1087,16 +1084,21 @@ const parseHostObjectInto = (
 		// sometimes have a parsed ref already)
 		if (!hostExprNode) return;
 	}
-	const obj = (hostNode && ts.isObjectLiteralExpression(hostNode)
-		? hostNode
-		: hostExprNode) as ts.ObjectLiteralExpression | null;
+	const obj = (
+		hostNode && ts.isObjectLiteralExpression(hostNode)
+			? hostNode
+			: hostExprNode
+	) as ts.ObjectLiteralExpression | null;
 	if (!obj) return;
 
 	for (const prop of obj.properties) {
 		if (!ts.isPropertyAssignment(prop)) continue;
 		const keyNode = prop.name;
 		let key: string;
-		if (ts.isStringLiteral(keyNode) || ts.isNoSubstitutionTemplateLiteral(keyNode)) {
+		if (
+			ts.isStringLiteral(keyNode) ||
+			ts.isNoSubstitutionTemplateLiteral(keyNode)
+		) {
 			key = keyNode.text;
 		} else if (ts.isIdentifier(keyNode)) {
 			key = keyNode.text;
@@ -1107,13 +1109,19 @@ const parseHostObjectInto = (
 		const propMatch = ATTR_BINDING_RE.exec(key);
 		const evtMatch = EVENT_BINDING_RE.exec(key);
 		if (propMatch) {
-			host.properties[propMatch[1] ?? ''] = prop.initializer.getText().replace(/^['"]|['"]$/g, '');
+			host.properties[propMatch[1] ?? ''] = prop.initializer
+				.getText()
+				.replace(/^['"]|['"]$/g, '');
 		} else if (evtMatch) {
-			host.listeners[evtMatch[1] ?? ''] = prop.initializer.getText().replace(/^['"]|['"]$/g, '');
+			host.listeners[evtMatch[1] ?? ''] = prop.initializer
+				.getText()
+				.replace(/^['"]|['"]$/g, '');
 		} else {
 			// Plain attribute. Value is an Expression — wrap as
 			// WrappedNodeExpr so runtime evaluates it.
-			host.attributes[key] = new compiler.WrappedNodeExpr(prop.initializer);
+			host.attributes[key] = new compiler.WrappedNodeExpr(
+				prop.initializer
+			);
 		}
 	}
 };
@@ -1134,7 +1142,10 @@ const mergeMemberHostDecorators = (
 			const fn = expr.expression;
 			if (!ts.isIdentifier(fn)) continue;
 			if (fn.text === 'HostBinding') {
-				if (!ts.isPropertyDeclaration(member) && !ts.isGetAccessor(member))
+				if (
+					!ts.isPropertyDeclaration(member) &&
+					!ts.isGetAccessor(member)
+				)
 					continue;
 				const propertyName = (member.name as ts.Identifier).text;
 				const target = expr.arguments[0];
@@ -1173,7 +1184,11 @@ const QUERY_DECORATORS = new Set([
 
 const parseQueryDecoratorOptions = (
 	args: ts.NodeArray<ts.Expression>
-): { static_: boolean; descendants: boolean; emitDistinctChangesOnly: boolean } => {
+): {
+	static_: boolean;
+	descendants: boolean;
+	emitDistinctChangesOnly: boolean;
+} => {
 	let static_ = false;
 	let descendants = true;
 	let emitDistinctChangesOnly = true;
@@ -1190,14 +1205,14 @@ const parseQueryDecoratorOptions = (
 const queryPredicateFromArg = (
 	arg: ts.Expression,
 	compiler: typeof import('@angular/compiler')
-):
-	| string[]
-	| import('@angular/compiler').MaybeForwardRefExpression
-	| null => {
+): string[] | import('@angular/compiler').MaybeForwardRefExpression | null => {
 	if (ts.isStringLiteral(arg)) {
 		// Template ref query: `@ViewChild('myRef')`. Predicate is the
 		// list of template ref names.
-		return arg.text.split(',').map((s) => s.trim()).filter(Boolean);
+		return arg.text
+			.split(',')
+			.map((s) => s.trim())
+			.filter(Boolean);
 	}
 	// Token query: `@ViewChild(SomeService)`. Wrap the identifier
 	// expression as `WrappedNodeExpr` for the runtime.
@@ -1223,7 +1238,8 @@ const extractDecoratorQueries = (
 			const expr = dec.expression;
 			if (!ts.isCallExpression(expr)) continue;
 			const fn = expr.expression;
-			if (!ts.isIdentifier(fn) || !QUERY_DECORATORS.has(fn.text)) continue;
+			if (!ts.isIdentifier(fn) || !QUERY_DECORATORS.has(fn.text))
+				continue;
 			const propertyName = (member.name as ts.Identifier).text;
 			const tokenArg = expr.arguments[0];
 			if (!tokenArg) continue;
@@ -1261,7 +1277,10 @@ const extractDecoratorQueries = (
 
 /* `viewChild('ref')`, `viewChild.required(SomeToken)`,
  * `contentChildren(SomeToken, { descendants: false })`, etc. */
-const SIGNAL_QUERY_TO_RUNTIME: Record<string, { isView: boolean; first: boolean }> = {
+const SIGNAL_QUERY_TO_RUNTIME: Record<
+	string,
+	{ isView: boolean; first: boolean }
+> = {
 	viewChild: { isView: true, first: true },
 	viewChildren: { isView: true, first: false },
 	contentChild: { isView: false, first: true },
@@ -1329,13 +1348,14 @@ const extractSignalQueries = (
 	return { contentQueries, viewQueries };
 };
 
-const extractExportAs = (
-	args: ts.ObjectLiteralExpression
-): string[] | null => {
+const extractExportAs = (args: ts.ObjectLiteralExpression): string[] | null => {
 	const node = getProperty(args, 'exportAs');
 	if (!node) return null;
 	if (ts.isStringLiteral(node)) {
-		return node.text.split(',').map((s) => s.trim()).filter(Boolean);
+		return node.text
+			.split(',')
+			.map((s) => s.trim())
+			.filter(Boolean);
 	}
 	if (ts.isArrayLiteralExpression(node)) {
 		const out: string[] = [];
@@ -1523,7 +1543,10 @@ const getChildComponentInfoFromTsSource = (
 	try {
 		source = readFileSync(filePath, 'utf-8');
 	} catch {
-		childComponentInfoCache.set(cacheKey, { info: null, mtimeMs: stat.mtimeMs });
+		childComponentInfoCache.set(cacheKey, {
+			info: null,
+			mtimeMs: stat.mtimeMs
+		});
 		return null;
 	}
 	const sf = ts.createSourceFile(
@@ -1600,9 +1623,9 @@ const getChildComponentInfoFromDts = (
 	).test(content);
 	const isDirectiveDecl =
 		!isComponentDecl &&
-		new RegExp(
-			`static\\s+ɵdir\\s*:[^<]+<\\s*${className}\\b`
-		).test(content);
+		new RegExp(`static\\s+ɵdir\\s*:[^<]+<\\s*${className}\\b`).test(
+			content
+		);
 	if (!isComponentDecl && !isDirectiveDecl) {
 		childComponentInfoCache.set(cacheKey, {
 			info: null,
@@ -1638,14 +1661,17 @@ const getChildComponentInfoFromDts = (
 
 	// Walk balanced braces to extract the inputs object, then the
 	// outputs object (the next `{...}` after the comma).
-	const sliceBalanced = (start: number): { end: number; text: string } | null => {
+	const sliceBalanced = (
+		start: number
+	): { end: number; text: string } | null => {
 		let depth = 0;
 		for (let i = start; i < content.length; i++) {
 			const ch = content[i];
 			if (ch === '{') depth++;
 			else if (ch === '}') {
 				depth--;
-				if (depth === 0) return { end: i, text: content.slice(start, i + 1) };
+				if (depth === 0)
+					return { end: i, text: content.slice(start, i + 1) };
 			}
 		}
 		return null;
@@ -1694,7 +1720,9 @@ const getChildComponentInfoFromDts = (
 	return info;
 };
 
-const buildClassToSpecMap = (sourceFile: ts.SourceFile): Map<string, string> => {
+const buildClassToSpecMap = (
+	sourceFile: ts.SourceFile
+): Map<string, string> => {
 	const result = new Map<string, string>();
 	for (const stmt of sourceFile.statements) {
 		if (!ts.isImportDeclaration(stmt)) continue;
@@ -1781,10 +1809,7 @@ const findDtsContainingClass = (
 	return null;
 };
 
-const resolveDtsFromSpec = (
-	spec: string,
-	fromDir: string
-): string | null => {
+const resolveDtsFromSpec = (spec: string, fromDir: string): string | null => {
 	// `.d.ts` re-exports often reference siblings with a `.js`
 	// extension (`from './image.component.js'`) for ESM compliance —
 	// the type information lives at the `.d.ts` next to that runtime
@@ -1840,7 +1865,10 @@ const resolveChildComponentInfo = (
 		];
 		for (const candidate of candidates) {
 			if (!existsSync(candidate)) continue;
-			const info = getChildComponentInfoFromTsSource(candidate, className);
+			const info = getChildComponentInfoFromTsSource(
+				candidate,
+				className
+			);
 			if (info) return info;
 		}
 		return null;
@@ -1983,17 +2011,13 @@ const extractMemberDecoratorSig = (cls: ts.ClassDeclaration): string[] => {
 					decName = expr.expression.text;
 				}
 				if (expr.arguments.length > 0) {
-					argText = expr.arguments
-						.map((a) => a.getText())
-						.join(',');
+					argText = expr.arguments.map((a) => a.getText()).join(',');
 				}
 			} else if (ts.isIdentifier(expr)) {
 				decName = expr.text;
 			}
 			if (INPUT_OUTPUT_DECORATORS.has(decName)) continue;
-			entries.push(
-				`${decName}:${memberName}:${djb2Hash(argText)}`
-			);
+			entries.push(`${decName}:${memberName}:${djb2Hash(argText)}`);
 		}
 	}
 
@@ -2096,10 +2120,7 @@ const resolveImportSource = (
 		if (!importClause) continue;
 
 		let matches = false;
-		if (
-			importClause.name &&
-			importClause.name.text === identifierName
-		) {
+		if (importClause.name && importClause.name.text === identifierName) {
 			matches = true;
 		}
 		if (importClause.namedBindings) {
@@ -2207,7 +2228,8 @@ const extractPropertyFieldNames = (cls: ts.ClassDeclaration): string[] => {
 		if (name === undefined) continue;
 		const text = ts.isIdentifier(name)
 			? name.text
-			: ts.isStringLiteral(name) || ts.isNoSubstitutionTemplateLiteral(name)
+			: ts.isStringLiteral(name) ||
+				  ts.isNoSubstitutionTemplateLiteral(name)
 				? name.text
 				: name.getText();
 		if (text.length > 0) names.push(text);
@@ -2485,9 +2507,7 @@ const buildFreshClassMethodsBlock = (
 			let cleaned: ts.Node;
 			if (ts.isMethodDeclaration(member)) {
 				cleaned = ts.factory.createMethodDeclaration(
-					modifiers.filter(
-						(m) => m.kind !== ts.SyntaxKind.Decorator
-					),
+					modifiers.filter((m) => m.kind !== ts.SyntaxKind.Decorator),
 					member.asteriskToken,
 					member.name,
 					member.questionToken,
@@ -2498,9 +2518,7 @@ const buildFreshClassMethodsBlock = (
 				);
 			} else if (ts.isGetAccessorDeclaration(member)) {
 				cleaned = ts.factory.createGetAccessorDeclaration(
-					modifiers.filter(
-						(m) => m.kind !== ts.SyntaxKind.Decorator
-					),
+					modifiers.filter((m) => m.kind !== ts.SyntaxKind.Decorator),
 					member.name,
 					cleanedParams,
 					member.type,
@@ -2508,9 +2526,7 @@ const buildFreshClassMethodsBlock = (
 				);
 			} else {
 				cleaned = ts.factory.createSetAccessorDeclaration(
-					modifiers.filter(
-						(m) => m.kind !== ts.SyntaxKind.Decorator
-					),
+					modifiers.filter((m) => m.kind !== ts.SyntaxKind.Decorator),
 					member.name,
 					cleanedParams,
 					member.body
@@ -2613,9 +2629,8 @@ const resolveAndReadStyleResource = (
 		return readFileSync(abs, 'utf8');
 	}
 	try {
-		const { compileStyleFileIfNeededSync } = require(
-			'../../build/stylePreprocessor'
-		) as typeof import('../../build/stylePreprocessor');
+		const { compileStyleFileIfNeededSync } =
+			require('../../build/stylePreprocessor') as typeof import('../../build/stylePreprocessor');
 		return compileStyleFileIfNeededSync(abs);
 	} catch {
 		// Less / Stylus / missing-sass cases land here. Returning
@@ -2916,7 +2931,10 @@ export const tryFastHmr = async (
 		templateText = readFileSync(tplAbs, 'utf8');
 		templatePath = tplAbs;
 	} else {
-		return fail('unsupported-decorator-args', 'missing template/templateUrl');
+		return fail(
+			'unsupported-decorator-args',
+			'missing template/templateUrl'
+		);
 	}
 
 	const { styles, missing: missingStyle } = collectStyles(
@@ -2986,12 +3004,8 @@ export const tryFastHmr = async (
 	if (!className_) return fail('class-not-found', 'anonymous class');
 	const wrappedClass = new compiler.WrappedNodeExpr(className_);
 
-	const {
-		inputs,
-		outputs,
-		hasDecoratorIO,
-		hasSignalIO
-	} = extractInputsAndOutputs(classNode, compiler);
+	const { inputs, outputs, hasDecoratorIO, hasSignalIO } =
+		extractInputsAndOutputs(classNode, compiler);
 
 	const projectRelPath = relative(projectRoot, componentFilePath).replace(
 		/\\/g,
@@ -3009,9 +3023,7 @@ export const tryFastHmr = async (
 	// the cache with the just-parsed structure. The bundle that
 	// rebuilt last is the source of truth, so its current shape is
 	// what's running, so the seeded fingerprint matches reality.
-	const fingerprintId = encodeURIComponent(
-		`${projectRelPath}@${className}`
-	);
+	const fingerprintId = encodeURIComponent(`${projectRelPath}@${className}`);
 	const currentFingerprint = extractFingerprint(
 		classNode,
 		className,
@@ -3162,7 +3174,9 @@ export const tryFastHmr = async (
 		// recreating it from public exports trips the compiler — we
 		// know the runtime contract. Cast at the boundary.
 		compiled = compiler.compileComponentFromMetadata(
-			meta as unknown as Parameters<typeof compiler.compileComponentFromMetadata>[0],
+			meta as unknown as Parameters<
+				typeof compiler.compileComponentFromMetadata
+			>[0],
 			pool,
 			bindingParser
 		);
@@ -3319,10 +3333,7 @@ export const tryFastHmr = async (
 				}
 				continue;
 			}
-			if (
-				ts.isFunctionDeclaration(stmt) ||
-				ts.isClassDeclaration(stmt)
-			) {
+			if (ts.isFunctionDeclaration(stmt) || ts.isClassDeclaration(stmt)) {
 				if (stmt.name) sourceScopeNames.add(stmt.name.text);
 			}
 		}
@@ -3368,10 +3379,7 @@ export const tryFastHmr = async (
 		// transpile because the printed TS source still has type
 		// annotations on parameters (`(Cls: any, ɵɵns: any)`) and we
 		// want a stable JS signature to anchor against.
-		const methodsBlock = buildFreshClassMethodsBlock(
-			classNode,
-			className
-		);
+		const methodsBlock = buildFreshClassMethodsBlock(classNode, className);
 		let moduleText = transpiled;
 		const fnOpening = `function ${className}_UpdateMetadata(${className}, ɵɵnamespaces) {`;
 		const fnOpeningIdx = moduleText.indexOf(fnOpening);

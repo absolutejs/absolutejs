@@ -8,8 +8,7 @@ const wsUrl = process.env.HMR_BENCH_WS_URL ?? 'ws://localhost:4321/hmr';
 const N = Number(process.env.HMR_BENCH_N ?? 100);
 const WARMUP = Number(process.env.HMR_BENCH_WARMUP ?? 3);
 const TIMEOUT_MS = Number(process.env.HMR_BENCH_TIMEOUT_MS ?? 3000);
-const DEV_LOG =
-	process.env.HMR_BENCH_DEV_LOG ?? resolve(HERE, 'dev.log');
+const DEV_LOG = process.env.HMR_BENCH_DEV_LOG ?? resolve(HERE, 'dev.log');
 const SIZE_LABEL = process.env.HMR_BENCH_SIZE ?? 'small';
 const RESULTS_PATH = process.env.HMR_BENCH_RESULTS;
 
@@ -18,7 +17,10 @@ type WsMsg = { type: string; data?: Record<string, unknown> };
 type EditCase = {
 	name: string;
 	file: string;
-	expect: 'angular:component-update' | 'angular:component-remount' | 'style-update';
+	expect:
+		| 'angular:component-update'
+		| 'angular:component-remount'
+		| 'style-update';
 	logRegex: RegExp;
 	flips: Array<{ from: string; to: string }>;
 };
@@ -297,9 +299,7 @@ for (const c of cases) {
 			const f = c.flips[i];
 			if (content.includes(f.from)) return f;
 		}
-		throw new Error(
-			`no flip matches the current contents of ${c.file}`
-		);
+		throw new Error(`no flip matches the current contents of ${c.file}`);
 	};
 
 	for (let i = 0; i < WARMUP; i++) {
@@ -322,7 +322,8 @@ for (const c of cases) {
 				c.logRegex
 			);
 			e2eSamples.push(sample.e2eMs);
-			if (sample.serverMs !== undefined) serverSamples.push(sample.serverMs);
+			if (sample.serverMs !== undefined)
+				serverSamples.push(sample.serverMs);
 		} catch (err) {
 			console.error(`  error #${i}: ${(err as Error).message}`);
 		}

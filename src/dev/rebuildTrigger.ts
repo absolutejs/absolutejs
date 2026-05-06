@@ -730,7 +730,9 @@ const bundleAngularClient = async (
 		naming: '[dir]/[name].[hash].[ext]',
 		outdir: buildDir,
 		plugins: [
-			createStylePreprocessorPlugin(getStyleTransformConfig(state.config)),
+			createStylePreprocessorPlugin(
+				getStyleTransformConfig(state.config)
+			),
 			createAngularHmrInjectionPlugin({
 				generatedAngularRoot,
 				userAngularRoot,
@@ -1230,10 +1232,7 @@ const runAngularHmrIncremental = async (
 		const angularDirAbs = resolve(angularDir);
 		const filesUnderAngular = Array.from(editedFiles).filter((file) => {
 			const abs = resolve(file);
-			return (
-				abs === angularDirAbs ||
-				abs.startsWith(angularDirAbs + sep)
-			);
+			return abs === angularDirAbs || abs.startsWith(angularDirAbs + sep);
 		});
 		if (filesUnderAngular.length === 0) return;
 
@@ -1255,7 +1254,9 @@ const runAngularHmrIncremental = async (
 			// that need re-JIT to refresh on disk.
 			const tsFilesToRefresh = new Set<string>();
 			for (const file of filesUnderAngular) {
-				const ext = file.toLowerCase().match(/\.(ts|tsx|html|css|scss|sass)$/)?.[0];
+				const ext = file
+					.toLowerCase()
+					.match(/\.(ts|tsx|html|css|scss|sass)$/)?.[0];
 				if (!ext) continue;
 				if (ext === '.ts' || ext === '.tsx') {
 					tsFilesToRefresh.add(resolve(file));

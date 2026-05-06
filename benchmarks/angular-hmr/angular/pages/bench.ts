@@ -4,17 +4,12 @@ import { defineAngularPage } from '@absolutejs/absolute/angular';
 import { CounterComponent } from '../components/counter.component';
 import { HeaderComponent } from '../components/header.component';
 
-
 type BenchProps = {
 	initialCount: number;
 };
 
 @Component({
-	imports: [
-		CommonModule,
-		HeaderComponent,
-		CounterComponent
-	],
+	imports: [CommonModule, HeaderComponent, CounterComponent],
 	selector: 'bench-page',
 	standalone: true,
 	templateUrl: '../templates/bench.html'

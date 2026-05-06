@@ -53,6 +53,31 @@ the `ImportGenerator` interface in ~30 lines: it returns inline
 `ɵhmr<i>.<symbol>` property-access expressions for every external
 ref the translator asks about, so no import statements get emitted.
 
+## Bundle-time patch
+
+`scripts/build.ts` registers a `BunPlugin` (`lazyAngularCompilerPlugin`)
+that rewrites the top-level
+
+```ts
+import * as o from '@angular/compiler';
+```
+
+in `translator.ts` and `typescript_translator.ts` into a synchronous
+`require('@angular/compiler')` guarded by a deep-proxy stub fallback.
+
+**Why:** the bundler keeps `@angular/compiler` external (we don't want
+to inline Angular's compiler into `dist/index.js`), so a static ESM
+import of that bare specifier survives into the bundle. Any project
+that imports `@absolutejs/absolute` without `@angular/compiler`
+installed (Vue/Svelte/React-only scaffolds) fails at module-load with
+`Cannot find module '@angular/compiler'` — even though the translator
+is never invoked outside Angular HMR.
+
+The patch runs at bundle time only — the on-disk source stays vendored
+verbatim, and re-pulling from upstream Angular doesn't require manual
+patching unless the static import line itself changes shape (the plugin
+matches it with a regex and throws a clear error if the shape drifts).
+
 ## Refresh procedure
 
 When upgrading Angular (major or minor), re-pull from the matching

@@ -10,6 +10,7 @@ import {
 	renderVueIslandToHtml
 } from './islandSsr';
 import { compileSvelteServerModule } from './svelteServerModule';
+import { compileVueServerModule } from './vueServerModule';
 import {
 	getIslandMarkerAttributes,
 	serializeIslandAttributes
@@ -86,6 +87,17 @@ const loadServerBuildComponent = async (buildReferencePath: string) => {
 	return loadPromise;
 };
 
+const resolveRuntimeImportTarget = async (resolvedModulePath: string) => {
+	if (resolvedModulePath.endsWith('.svelte')) {
+		return compileSvelteServerModule(resolvedModulePath);
+	}
+	if (resolvedModulePath.endsWith('.vue')) {
+		return compileVueServerModule(resolvedModulePath);
+	}
+
+	return resolvedModulePath;
+};
+
 const loadServerImportComponent = async (
 	resolvedComponent: string,
 	exportName?: string
@@ -93,9 +105,7 @@ const loadServerImportComponent = async (
 	const resolvedModulePath = resolvedComponent.startsWith('.')
 		? new URL(resolvedComponent, import.meta.url).pathname
 		: resolvedComponent;
-	const importTarget = resolvedModulePath.endsWith('.svelte')
-		? await compileSvelteServerModule(resolvedModulePath)
-		: resolvedModulePath;
+	const importTarget = await resolveRuntimeImportTarget(resolvedModulePath);
 	const loadedModule = await import(importTarget);
 
 	if (exportName && exportName !== 'default' && exportName in loadedModule) {

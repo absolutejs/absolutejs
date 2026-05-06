@@ -1,4 +1,4 @@
-import { $ } from 'bun';
+import { $, type BunPlugin } from 'bun';
 import {
 	rm,
 	cp,
@@ -12,6 +12,49 @@ import {
 import { dirname, join, resolve, relative } from 'node:path';
 import type { AngularCompilerOptions } from '@angular/compiler-cli';
 import ts from 'typescript';
+
+/* The two vendored Angular translator files have a top-level static
+   `import * as o from '@angular/compiler';`. Because `@angular/compiler`
+   is in EXTERNALS, that bare specifier survives unchanged into
+   `dist/index.js`, so any project that imports `@absolutejs/absolute`
+   without `@angular/compiler` installed (Vue/Svelte/React-only) fails
+   at module load: `Cannot find module '@angular/compiler'`.
+
+   This plugin rewrites that single line at bundle time into a
+   `require('@angular/compiler')` guarded by a deep-proxy stub fallback.
+   The on-disk source stays vendored verbatim — re-pulling from upstream
+   does not require re-patching, as long as the static import shape
+   matches the regex below. The translator is only ever invoked from
+   Angular HMR code paths, which never execute in non-Angular projects,
+   so the stub branch is never exercised functionally. */
+const lazyAngularCompilerPlugin: BunPlugin = {
+	name: 'absolutejs-lazy-angular-compiler',
+	setup(build) {
+		const targetPattern =
+			/vendor[\\/]translator[\\/](?:translator|typescript_translator)\.ts$/;
+		const importPattern =
+			/^\s*import\s+\*\s+as\s+o\s+from\s+['"]@angular\/compiler['"];?\s*$/m;
+		const replacement =
+			"const o = (() => { try { return require('@angular/compiler'); } " +
+			'catch { const stub = new Proxy(function () {}, { ' +
+			'apply: () => stub, construct: () => stub, get: () => stub }); ' +
+			'return stub; } })();';
+
+		build.onLoad({ filter: targetPattern }, async (args) => {
+			const source = await readFile(args.path, 'utf8');
+			if (!importPattern.test(source)) {
+				throw new Error(
+					`absolutejs-lazy-angular-compiler: expected static \`import * as o from '@angular/compiler'\` in ${args.path}; vendor file may have changed shape — re-check the patch.`
+				);
+			}
+
+			return {
+				contents: source.replace(importPattern, replacement),
+				loader: 'ts'
+			};
+		});
+	}
+};
 
 const DIST = 'dist';
 const BUILD_LOCK_DIR = '.absolute-build.lock';
@@ -148,6 +191,7 @@ const build = async () => {
 		external: EXTERNALS,
 		jsx: { development: false },
 		outdir: DIST,
+		plugins: [lazyAngularCompilerPlugin],
 		root: 'src',
 		sourcemap: 'linked',
 		target: 'bun'

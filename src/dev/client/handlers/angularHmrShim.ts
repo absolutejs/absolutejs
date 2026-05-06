@@ -58,7 +58,10 @@ const installAngularHmrShim = (): AngularHmrBus => {
 				try {
 					cb(data);
 				} catch (err) {
-					console.error('[absolutejs] angular HMR listener threw', err);
+					console.error(
+						'[absolutejs] angular HMR listener threw',
+						err
+					);
 				}
 			}
 		}

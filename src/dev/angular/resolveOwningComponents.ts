@@ -22,11 +22,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, extname, join, resolve } from 'node:path';
 import ts from 'typescript';
 
-export type AngularEntityKind =
-	| 'component'
-	| 'directive'
-	| 'pipe'
-	| 'service';
+export type AngularEntityKind = 'component' | 'directive' | 'pipe' | 'service';
 
 export type AffectedEntity = {
 	componentFilePath: string;
@@ -203,7 +199,9 @@ const parseDecoratedClasses = (filePath: string): DecoratedClass[] => {
 					if (tplUrl) entry.templateUrls.push(tplUrl);
 					const styleUrl = getStringPropertyValue(arg, 'styleUrl');
 					if (styleUrl) entry.styleUrls.push(styleUrl);
-					entry.styleUrls.push(...getStringArrayProperty(arg, 'styleUrls'));
+					entry.styleUrls.push(
+						...getStringArrayProperty(arg, 'styleUrls')
+					);
 				}
 				out.push(entry);
 				break;
@@ -246,7 +244,12 @@ export const resolveOwningComponents = (params: {
 	}
 
 	// Resource edit: only components have templateUrl / styleUrl.
-	if (ext !== '.html' && ext !== '.css' && ext !== '.scss' && ext !== '.sass') {
+	if (
+		ext !== '.html' &&
+		ext !== '.css' &&
+		ext !== '.scss' &&
+		ext !== '.sass'
+	) {
 		return out;
 	}
 
@@ -415,7 +418,10 @@ const getOrBuildIndexes = (userAngularRoot: string): IndexBundle => {
 					tsPath,
 					userAngularRoot
 				);
-				if (parentPath !== null && parentPath !== safeNormalize(tsPath)) {
+				if (
+					parentPath !== null &&
+					parentPath !== safeNormalize(tsPath)
+				) {
 					const existing = parentFile.get(parentPath);
 					if (existing) existing.push(entity);
 					else parentFile.set(parentPath, [entity]);

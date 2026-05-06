@@ -48,7 +48,9 @@ const pageSrc = (count: number) => {
 	const importLines: string[] = [];
 	const componentNames: string[] = [];
 	for (let i = 1; i <= count; i++) {
-		importLines.push(`import { Comp${i} } from '../components/generated/comp-${i}.component';`);
+		importLines.push(
+			`import { Comp${i} } from '../components/generated/comp-${i}.component';`
+		);
 		componentNames.push(`Comp${i}`);
 	}
 
@@ -121,7 +123,10 @@ if (existsSync(resolve(PROJECT, 'build'))) {
 	await fs.rm(resolve(PROJECT, 'build'), { recursive: true, force: true });
 }
 if (existsSync(resolve(PROJECT, '.absolutejs'))) {
-	await fs.rm(resolve(PROJECT, '.absolutejs'), { recursive: true, force: true });
+	await fs.rm(resolve(PROJECT, '.absolutejs'), {
+		recursive: true,
+		force: true
+	});
 }
 
 console.log(`Grown fixture to ${N} filler components.`);

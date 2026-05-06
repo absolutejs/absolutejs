@@ -894,6 +894,8 @@ const compileVueTemplate = (
 	const templateResult = compiler.compileTemplate({
 		compilerOptions: {
 			bindingMetadata: compiledScript.bindings,
+			expressionPlugins: ['typescript'],
+			isCustomElement: (tag) => tag === 'absolute-island',
 			prefixIdentifiers: true
 		},
 		filename: filePath,
@@ -1365,7 +1367,9 @@ const transformAndCache = async (
 	const isComponentJs =
 		ext === '.js' &&
 		filePath.endsWith('.component.js') &&
-		filePath.replace(/\\/g, '/').includes('/.absolutejs/generated/angular/');
+		filePath
+			.replace(/\\/g, '/')
+			.includes('/.absolutejs/generated/angular/');
 	if (isComponentJs) {
 		const userAngularRoot = await getAngularUserRoot(projectRoot);
 		if (userAngularRoot) {
@@ -1389,7 +1393,12 @@ const transformAndCache = async (
 				// rewritten `/@src/...` URLs don't match the bare-specifier
 				// regex, so this pass is idempotent on the original code.
 				content = rewriter
-					? rewriteImports(transformed, filePath, projectRoot, rewriter)
+					? rewriteImports(
+							transformed,
+							filePath,
+							projectRoot,
+							rewriter
+						)
 					: transformed;
 			}
 		}

@@ -67,8 +67,10 @@ export const replaceLViewInTree = (
 			break;
 		}
 	}
-	if (parentLView[CHILD_HEAD] === oldLView) parentLView[CHILD_HEAD] = newLView;
-	if (parentLView[CHILD_TAIL] === oldLView) parentLView[CHILD_TAIL] = newLView;
+	if (parentLView[CHILD_HEAD] === oldLView)
+		parentLView[CHILD_HEAD] = newLView;
+	if (parentLView[CHILD_TAIL] === oldLView)
+		parentLView[CHILD_TAIL] = newLView;
 	newLView[NEXT] = oldLView[NEXT];
 	oldLView[NEXT] = null;
 	parentLView[index] = newLView;
@@ -104,7 +106,9 @@ export const executeOnDestroys = (tView: TView, lView: LView): void => {
 			for (let j = 0; j < toCall.length; j += 2) {
 				const propKey = toCall[j] as string;
 				const hook = toCall[j + 1] as () => void;
-				const callContext = (context as Record<string, unknown>)[propKey];
+				const callContext = (context as Record<string, unknown>)[
+					propKey
+				];
 				try {
 					hook.call(callContext);
 				} catch (err) {
@@ -169,9 +173,7 @@ export const processCleanups = (tView: TView, lView: LView): void => {
 		lView[CLEANUP] = null;
 	}
 
-	const onDestroyHooks = lView[ON_DESTROY_HOOKS] as
-		| Array<() => void>
-		| null;
+	const onDestroyHooks = lView[ON_DESTROY_HOOKS] as Array<() => void> | null;
 	if (onDestroyHooks !== null) {
 		lView[ON_DESTROY_HOOKS] = null;
 		for (const hook of onDestroyHooks) {

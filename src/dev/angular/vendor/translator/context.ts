@@ -12,13 +12,13 @@
  * It tracks whether we are in the process of outputting a statement or an expression.
  */
 export class Context {
-  constructor(readonly isStatement: boolean) {}
+	constructor(readonly isStatement: boolean) {}
 
-  get withExpressionMode(): Context {
-    return this.isStatement ? new Context(false) : this;
-  }
+	get withExpressionMode(): Context {
+		return this.isStatement ? new Context(false) : this;
+	}
 
-  get withStatementMode(): Context {
-    return !this.isStatement ? new Context(true) : this;
-  }
+	get withStatementMode(): Context {
+		return !this.isStatement ? new Context(true) : this;
+	}
 }

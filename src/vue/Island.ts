@@ -3,6 +3,7 @@ import type { RuntimeIslandRenderProps } from '../../types/island';
 import { preserveIslandMarkup } from '../client/preserveIslandMarkup';
 import { requireCurrentIslandRegistry } from '../core/currentIslandRegistry';
 import { getIslandMarkerAttributes } from '../core/islandMarkupAttributes';
+import { normalizeRuntimeIslandRenderProps } from '../core/normalizeIslandProps';
 import { renderIslandResult } from '../core/renderIslandMarkup';
 
 const defineRuntimeIslandComponent = (
@@ -23,12 +24,18 @@ const defineRuntimeIslandComponent = (
 				required: false,
 				type: String
 			},
+			/* Accept either an object (the Vue-idiomatic
+			   `:props="{ ... }"` form) or a JSON-serialized string
+			   (mirrors the HTML `<absolute-island>` surface, so the
+			   same template fragment is portable across hosts).
+			   `normalizeRuntimeIslandRenderProps` validates the
+			   shape at runtime. */
 			props: {
-				required: true,
-				type: Object
+				required: false,
+				type: [Object, String]
 			}
 		},
-		setup
+		setup: (rawProps) => setup(normalizeRuntimeIslandRenderProps(rawProps))
 	});
 
 export const Island = defineRuntimeIslandComponent((props) => {

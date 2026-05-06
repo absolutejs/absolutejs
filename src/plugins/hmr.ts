@@ -279,18 +279,17 @@ export const hmr = (
 					'../build/rewriteImportsPlugin'
 				);
 				const depVendorPaths =
-					(globalThis as unknown as {
-						__depVendorPaths?: Record<string, string>;
-					}).__depVendorPaths ?? {};
+					(
+						globalThis as unknown as {
+							__depVendorPaths?: Record<string, string>;
+						}
+					).__depVendorPaths ?? {};
 				const vendorPaths = {
 					...(getDevVendorPaths() ?? {}),
 					...(getAngularVendorPaths() ?? {}),
 					...depVendorPaths
 				};
-				const rewritten = rewriteImportsInContent(
-					module,
-					vendorPaths
-				);
+				const rewritten = rewriteImportsInContent(module, vendorPaths);
 
 				return new Response(rewritten, {
 					headers: {

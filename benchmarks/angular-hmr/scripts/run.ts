@@ -65,9 +65,13 @@ type DevHandle = {
  * doesn't cooperate with the parent group's SIGTERM). */
 const killPort = async (port: number): Promise<void> => {
 	await new Promise<void>((res) => {
-		const child = spawn('sh', ['-c', `lsof -ti:${port} | xargs -r kill -9`], {
-			stdio: 'ignore'
-		});
+		const child = spawn(
+			'sh',
+			['-c', `lsof -ti:${port} | xargs -r kill -9`],
+			{
+				stdio: 'ignore'
+			}
+		);
 		child.on('exit', () => res());
 		child.on('error', () => res());
 	});
@@ -80,16 +84,12 @@ const startDev = async (port: number, logPath: string): Promise<DevHandle> => {
 	if (existsSync(logPath)) await fs.rm(logPath);
 	writeFileSync(logPath, '');
 
-	const child = spawn(
-		'bun',
-		['run', '--', 'absolute', 'dev', 'server.ts'],
-		{
-			cwd: PROJECT,
-			detached: true,
-			env: { ...process.env, ABSOLUTE_PORT: String(port) },
-			stdio: ['ignore', 'pipe', 'pipe']
-		}
-	);
+	const child = spawn('bun', ['run', '--', 'absolute', 'dev', 'server.ts'], {
+		cwd: PROJECT,
+		detached: true,
+		env: { ...process.env, ABSOLUTE_PORT: String(port) },
+		stdio: ['ignore', 'pipe', 'pipe']
+	});
 
 	const tail = (chunk: Buffer) => {
 		writeFileSync(logPath, chunk, { flag: 'a' });
@@ -183,7 +183,9 @@ for (const size of SIZES) {
 	}
 
 	if (existsSync(resultsPath)) {
-		const parsed = JSON.parse(readFileSync(resultsPath, 'utf8')) as BenchResult;
+		const parsed = JSON.parse(
+			readFileSync(resultsPath, 'utf8')
+		) as BenchResult;
 		allResults.push(parsed);
 	}
 }

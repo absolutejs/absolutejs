@@ -25,6 +25,14 @@ type VuePageRenderOptions = StreamingSlotEnhancerOptions & {
 };
 export type VuePageRequestInput<Component extends VueComponent> =
 	VuePageRenderOptions & {
+		/** Hydration mode for the page bundle.
+		 *  - `'auto'` (default): emit `<script>window.__INITIAL_PROPS__=…</script>`
+		 *    plus the page's `<script type="module">` index, mounting Vue on the
+		 *    client.
+		 *  - `'none'`: SSR-only. Skip both scripts entirely so the page ships
+		 *    pure HTML — useful for marketing / docs pages that use Vue
+		 *    templating + Tailwind without paying the runtime cost. */
+		client?: 'auto' | 'none';
 		headTag?: `<head>${string}</head>`;
 		indexPath: string;
 		pagePath: string;
@@ -90,8 +98,19 @@ const resolveCurrentGeneratedVueModulePath = async (pagePath: string) => {
 const buildDirtyResponse = (
 	headTag: string,
 	indexPath: string,
-	maybeProps: Record<string, unknown> | undefined
+	maybeProps: Record<string, unknown> | undefined,
+	clientMode: 'auto' | 'none'
 ) => {
+	if (clientMode === 'none') {
+		const html =
+			`<!DOCTYPE html><html>${headTag}<body><div id="root"></div>` +
+			`</body></html>`;
+
+		return new Response(html, {
+			headers: { 'Content-Type': 'text/html' }
+		});
+	}
+
 	const propsScript = `window.__INITIAL_PROPS__=${JSON.stringify(maybeProps ?? {})};`;
 	const dirtyFlag = 'window.__SSR_DIRTY__=true;';
 	const html =
@@ -133,12 +152,14 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 	const resolvedOptions = input;
 	const resolvedPagePath = input.pagePath;
 	const maybeProps = input.props;
+	const clientMode: 'auto' | 'none' = input.client ?? 'auto';
 
 	if (isSsrCacheDirty('vue')) {
 		return buildDirtyResponse(
 			resolvedHeadTag,
 			resolvedIndexPath,
-			maybeProps
+			maybeProps,
+			clientMode
 		);
 	}
 
@@ -227,9 +248,12 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 			const { firstChunk, reader } = await primeVueStream(bodyStream);
 
 			const head = `<!DOCTYPE html><html>${resolvedHeadTag}<body><div id="root">`;
-			const tail = `</div><script>window.__INITIAL_PROPS__=${JSON.stringify(
-				maybeProps ?? {}
-			)}</script><script type="module" src="${resolvedIndexPath}"></script></body></html>`;
+			const tail =
+				clientMode === 'none'
+					? `</div></body></html>`
+					: `</div><script>window.__INITIAL_PROPS__=${JSON.stringify(
+							maybeProps ?? {}
+						)}</script><script type="module" src="${resolvedIndexPath}"></script></body></html>`;
 
 			const stream = new ReadableStream({
 				start(controller) {
