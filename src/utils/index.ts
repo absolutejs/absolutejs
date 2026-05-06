@@ -1,4 +1,5 @@
 export * from './defineConfig';
+export * from './defineConvention';
 export * from './generateHeadElement';
 export * from './jsonLd';
 export * from './defineEnv';

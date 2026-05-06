@@ -1,4 +1,4 @@
-export default function BoomError({ error }: { error: { message: string } }) {
+export default function BoomError({ message }: { message: string }) {
 	return (
 		<html>
 			<head>
@@ -6,7 +6,7 @@ export default function BoomError({ error }: { error: { message: string } }) {
 			</head>
 			<body>
 				<h1>REACT_ERROR_CONVENTION</h1>
-				<p>{error.message}</p>
+				<p>{message}</p>
 			</body>
 		</html>
 	);

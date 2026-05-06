@@ -1085,6 +1085,7 @@ const buildUnlocked = async ({
 		vueConventionResult,
 		angularConventionResult,
 		emberConventionResult,
+		htmlConventionResult,
 		allGlobalCssEntries
 	] = await Promise.all([
 		tailwindPromise,
@@ -1123,6 +1124,11 @@ const buildUnlocked = async ({
 					scanConventions(emberPagesPath, '*.{gjs,gts,ts}')
 				)
 			: emptyConventionResult,
+		htmlPagesPath
+			? tracePhase('scan/html-conventions', () =>
+					scanConventions(htmlPagesPath, '*.html')
+				)
+			: emptyConventionResult,
 		stylesDir
 			? tracePhase('scan/css', () =>
 					scanCssEntryPoints(stylesDir, stylesIgnore)
@@ -1147,10 +1153,42 @@ const buildUnlocked = async ({
 		conventionsMap.angular = angularConventionResult.conventions;
 	if (emberConventionResult.conventions)
 		conventionsMap.ember = emberConventionResult.conventions;
+	if (htmlConventionResult.conventions && htmlDir && htmlPagesPath) {
+		// Remap source paths in the html pages dir to the post-cpSync
+		// destination in the build output, since the runtime reads
+		// conventions.json from the build dir in production.
+		const outputHtmlPages = isSingle
+			? join(buildPath, 'pages')
+			: join(buildPath, basename(htmlDir), 'pages');
+		const remap = (sourcePath: string) =>
+			join(outputHtmlPages, relative(htmlPagesPath, sourcePath));
+		const htmlConventions = htmlConventionResult.conventions;
+		if (htmlConventions.defaults) {
+			if (htmlConventions.defaults.error)
+				htmlConventions.defaults.error = remap(
+					htmlConventions.defaults.error
+				);
+			if (htmlConventions.defaults.notFound)
+				htmlConventions.defaults.notFound = remap(
+					htmlConventions.defaults.notFound
+				);
+			if (htmlConventions.defaults.loading)
+				htmlConventions.defaults.loading = remap(
+					htmlConventions.defaults.loading
+				);
+		}
+		if (htmlConventions.pages) {
+			for (const page of Object.values(htmlConventions.pages)) {
+				if (page.error) page.error = remap(page.error);
+				if (page.loading) page.loading = remap(page.loading);
+			}
+		}
+		conventionsMap.html = htmlConventions;
+	}
 
 	// Warn if multiple frameworks define not-found convention files
 	const notFoundFrameworks = (
-		['react', 'svelte', 'vue', 'angular', 'ember'] as const
+		['react', 'svelte', 'vue', 'angular', 'ember', 'html'] as const
 	).filter((framework) => conventionsMap[framework]?.defaults?.notFound);
 	if (notFoundFrameworks.length > 1) {
 		logWarn(
@@ -1948,15 +1986,18 @@ const buildUnlocked = async ({
 									stylePreprocessorPlugin,
 									...(angularDir && hmr
 										? [
-												createAngularHmrInjectionPlugin({
-													generatedAngularRoot:
-														getFrameworkGeneratedDir(
-															'angular',
-															projectRoot
-														),
-													projectRoot,
-													userAngularRoot: angularDir
-												})
+												createAngularHmrInjectionPlugin(
+													{
+														generatedAngularRoot:
+															getFrameworkGeneratedDir(
+																'angular',
+																projectRoot
+															),
+														projectRoot,
+														userAngularRoot:
+															angularDir
+													}
+												)
 											]
 										: []),
 									...(angularDir
@@ -1999,15 +2040,18 @@ const buildUnlocked = async ({
 									stylePreprocessorPlugin,
 									...(angularDir && hmr
 										? [
-												createAngularHmrInjectionPlugin({
-													generatedAngularRoot:
-														getFrameworkGeneratedDir(
-															'angular',
-															projectRoot
-														),
-													projectRoot,
-													userAngularRoot: angularDir
-												})
+												createAngularHmrInjectionPlugin(
+													{
+														generatedAngularRoot:
+															getFrameworkGeneratedDir(
+																'angular',
+																projectRoot
+															),
+														projectRoot,
+														userAngularRoot:
+															angularDir
+													}
+												)
 											]
 										: []),
 									...(angularDir

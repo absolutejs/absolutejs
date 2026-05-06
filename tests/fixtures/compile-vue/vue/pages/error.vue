@@ -1,13 +1,13 @@
 <script setup>
 defineProps({
-	error: {
-		default: undefined,
-		type: Object
+	message: {
+		default: '',
+		type: String
 	}
 });
 </script>
 
 <template>
 	<h1>VUE_ERROR_CONVENTION</h1>
-	<p>{{ error?.message ?? '' }}</p>
+	<p>{{ message }}</p>
 </template>

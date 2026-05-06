@@ -1,5 +1,5 @@
 import { basename } from 'node:path';
-import type { ConventionsMap } from '../../types/conventions';
+import type { ConventionsMap, ErrorPageProps } from '../../types/conventions';
 import { toPascal } from './stringModifiers';
 
 // Use globalThis so the conventions map is shared across all bundles.
@@ -71,23 +71,28 @@ export const setConventions = (map: ConventionsMap) => {
 
 const isDev = () => process.env.NODE_ENV === 'development';
 
-const buildErrorProps = (error: unknown) => {
-	const message = error instanceof Error ? error.message : String(error);
-	const stack = isDev() && error instanceof Error ? error.stack : undefined;
+const buildErrorProps = (error: unknown): ErrorPageProps => {
+	if (error instanceof Error) {
+		return {
+			name: error.name,
+			message: error.message,
+			...(isDev() && error.stack ? { stack: error.stack } : {})
+		};
+	}
 
-	return { error: { message, stack } };
+	return { name: 'Error', message: String(error) };
 };
 
 const renderReactError = async (
 	conventionPath: string,
-	errorProps: ReturnType<typeof buildErrorProps>
+	errorProps: ErrorPageProps
 ) => {
 	const { createElement } = await import('react');
 	const { renderToReadableStream } = await import('react-dom/server');
 	const mod = await import(conventionPath);
-	const [firstKey] = Object.keys(mod);
-	const ErrorComponent =
-		mod.default ?? (firstKey ? mod[firstKey] : undefined);
+	const ErrorComponent = mod.default;
+	if (typeof ErrorComponent !== 'function') return null;
+
 	const element = createElement(ErrorComponent, errorProps);
 	const stream = await renderToReadableStream(element);
 
@@ -99,11 +104,13 @@ const renderReactError = async (
 
 const renderSvelteError = async (
 	conventionPath: string,
-	errorProps: ReturnType<typeof buildErrorProps>
+	errorProps: ErrorPageProps
 ) => {
 	const { render } = await import('svelte/server');
 	const mod = await import(conventionPath);
 	const ErrorComponent = mod.default;
+	if (!ErrorComponent) return null;
+
 	const { head, body } = render(ErrorComponent, {
 		props: errorProps
 	});
@@ -135,12 +142,14 @@ const unescapeVueStyles = (ssrBody: string) => {
 
 const renderVueError = async (
 	conventionPath: string,
-	errorProps: ReturnType<typeof buildErrorProps>
+	errorProps: ErrorPageProps
 ) => {
 	const { createSSRApp, h } = await import('vue');
 	const { renderToString } = await import('vue/server-renderer');
 	const mod = await import(conventionPath);
 	const ErrorComponent = mod.default;
+	if (!ErrorComponent) return null;
+
 	const app = createSSRApp({
 		render: () => h(ErrorComponent, errorProps)
 	});
@@ -159,15 +168,46 @@ const renderVueError = async (
 
 const renderAngularError = async (
 	conventionPath: string,
-	errorProps: ReturnType<typeof buildErrorProps>
+	errorProps: ErrorPageProps
 ) => {
-	// Angular error pages are rendered as plain HTML templates
-	// since the full Angular SSR pipeline is too heavy for error pages
+	// Angular convention error pages use the simple function-style renderer.
+	// Class-style components (templateUrl/styleUrl trio) routed through the
+	// full Angular SSR pipeline are tracked separately — see CLAUDE.md.
 	const mod = await import(conventionPath);
-	const renderError = mod.default ?? mod.renderError;
-	if (typeof renderError !== 'function') return null;
+	const renderFn = mod.default;
+	if (typeof renderFn !== 'function') return null;
 
-	const html = renderError(errorProps);
+	const html = renderFn(errorProps);
+
+	return new Response(html, {
+		headers: { 'Content-Type': 'text/html' },
+		status: 500
+	});
+};
+
+const escapeHtml = (value: string) =>
+	value
+		.replace(/&/g, '&amp;')
+		.replace(/</g, '&lt;')
+		.replace(/>/g, '&gt;')
+		.replace(/"/g, '&quot;')
+		.replace(/'/g, '&#39;');
+
+const replaceErrorTokens = (template: string, errorProps: ErrorPageProps) =>
+	template
+		.replace(/\{\{\s*name\s*\}\}/g, escapeHtml(errorProps.name))
+		.replace(/\{\{\s*message\s*\}\}/g, escapeHtml(errorProps.message))
+		.replace(
+			/\{\{\s*stack\s*\}\}/g,
+			errorProps.stack ? escapeHtml(errorProps.stack) : ''
+		);
+
+const renderHtmlError = async (
+	conventionPath: string,
+	errorProps: ErrorPageProps
+) => {
+	const template = await Bun.file(conventionPath).text();
+	const html = replaceErrorTokens(template, errorProps);
 
 	return new Response(html, {
 		headers: { 'Content-Type': 'text/html' },
@@ -211,19 +251,21 @@ const ERROR_RENDERERS: Record<
 	keyof ConventionsMap,
 	(
 		conventionPath: string,
-		errorProps: ReturnType<typeof buildErrorProps>
+		errorProps: ErrorPageProps
 	) => Promise<Response | null>
 > = {
 	angular: renderAngularError,
 	ember: renderEmberError,
+	html: renderHtmlError,
 	react: renderReactError,
 	svelte: renderSvelteError,
 	vue: renderVueError
 };
 
-export const renderConventionError = async (
+const tryFrameworkErrorConvention = async (
 	framework: keyof ConventionsMap,
 	pageName: string,
+	errorProps: ErrorPageProps,
 	error: unknown
 ) => {
 	let conventionPath = resolveErrorConventionPath(framework, pageName);
@@ -240,7 +282,6 @@ export const renderConventionError = async (
 	}
 	if (!conventionPath) return null;
 
-	const errorProps = buildErrorProps(error);
 	const renderer = ERROR_RENDERERS[framework];
 	if (!renderer) return null;
 
@@ -253,12 +294,44 @@ export const renderConventionError = async (
 	return null;
 };
 
+export const renderConventionError = async (
+	framework: keyof ConventionsMap,
+	pageName: string,
+	error: unknown
+) => {
+	const errorProps = buildErrorProps(error);
+
+	const frameworkResponse = await tryFrameworkErrorConvention(
+		framework,
+		pageName,
+		errorProps,
+		error
+	);
+	if (frameworkResponse) return frameworkResponse;
+
+	// Universal fallback: any project can ship a plain `error.html` in
+	// the html pages dir as the last-resort branded error page before
+	// the inline ssrErrorPage() takes over.
+	if (framework !== 'html') {
+		const htmlResponse = await tryFrameworkErrorConvention(
+			'html',
+			pageName,
+			errorProps,
+			error
+		);
+		if (htmlResponse) return htmlResponse;
+	}
+
+	return null;
+};
+
 const renderReactNotFound = async (conventionPath: string) => {
 	const { createElement } = await import('react');
 	const { renderToReadableStream } = await import('react-dom/server');
 	const mod = await import(conventionPath);
-	const [nfKey] = Object.keys(mod);
-	const NotFoundComponent = mod.default ?? (nfKey ? mod[nfKey] : undefined);
+	const NotFoundComponent = mod.default;
+	if (typeof NotFoundComponent !== 'function') return null;
+
 	const element = createElement(NotFoundComponent);
 	const stream = await renderToReadableStream(element);
 
@@ -272,6 +345,8 @@ const renderSvelteNotFound = async (conventionPath: string) => {
 	const { render } = await import('svelte/server');
 	const mod = await import(conventionPath);
 	const NotFoundComponent = mod.default;
+	if (!NotFoundComponent) return null;
+
 	const { head, body } = render(NotFoundComponent);
 	const html = `<!DOCTYPE html><html><head>${head}</head><body>${body}</body></html>`;
 
@@ -286,6 +361,8 @@ const renderVueNotFound = async (conventionPath: string) => {
 	const { renderToString } = await import('vue/server-renderer');
 	const mod = await import(conventionPath);
 	const NotFoundComponent = mod.default;
+	if (!NotFoundComponent) return null;
+
 	const app = createSSRApp({
 		render: () => h(NotFoundComponent)
 	});
@@ -302,10 +379,19 @@ const renderVueNotFound = async (conventionPath: string) => {
 
 const renderAngularNotFound = async (conventionPath: string) => {
 	const mod = await import(conventionPath);
-	const renderNotFound = mod.default ?? mod.renderNotFound;
-	if (typeof renderNotFound !== 'function') return null;
+	const renderFn = mod.default;
+	if (typeof renderFn !== 'function') return null;
 
-	const html = renderNotFound();
+	const html = renderFn();
+
+	return new Response(html, {
+		headers: { 'Content-Type': 'text/html' },
+		status: 404
+	});
+};
+
+const renderHtmlNotFound = async (conventionPath: string) => {
+	const html = await Bun.file(conventionPath).text();
 
 	return new Response(html, {
 		headers: { 'Content-Type': 'text/html' },
@@ -319,6 +405,7 @@ const NOT_FOUND_RENDERERS: Record<
 > = {
 	angular: renderAngularNotFound,
 	ember: renderEmberNotFound,
+	html: renderHtmlNotFound,
 	react: renderReactNotFound,
 	svelte: renderSvelteNotFound,
 	vue: renderVueNotFound
@@ -346,7 +433,8 @@ const NOT_FOUND_PRIORITY: (keyof ConventionsMap)[] = [
 	'react',
 	'svelte',
 	'vue',
-	'angular'
+	'angular',
+	'html'
 ];
 
 export const renderFirstNotFound = async () => {
