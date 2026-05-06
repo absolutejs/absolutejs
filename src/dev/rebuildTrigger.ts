@@ -921,6 +921,7 @@ const decideAngularTier = async (
 	const queue: SurgicalEntry[] = [];
 	const queueIds = new Set<string>();
 	let anyFingerprintChanged = false;
+	let rebootstrapClassName: string | null = null;
 	let totalResolveMs = 0;
 	let totalCompileMs = 0;
 
@@ -1015,6 +1016,9 @@ const decideAngularTier = async (
 			if (result.fingerprintChanged) {
 				anyFingerprintChanged = true;
 			}
+			if (result.rebootstrapRequired && rebootstrapClassName === null) {
+				rebootstrapClassName = className;
+			}
 			queueIds.add(id);
 			queue.push({ className, id });
 		}
@@ -1025,6 +1029,20 @@ const decideAngularTier = async (
 		resolveMs: Math.round(totalResolveMs),
 		compileMs: Math.round(totalCompileMs)
 	};
+	if (rebootstrapClassName !== null) {
+		// `imports: [...]` array changes and `hostDirectives: [...]`
+		// changes can't be safely applied via Tier 1a remount —
+		// directive matching runs at element-creation time and a
+		// remounted instance against the same hostElement won't
+		// re-match newly-listed directives on existing children.
+		// Escalate to Tier 1b full rebootstrap so the user sees the
+		// new directive wired up, at the cost of a full app restart.
+		return {
+			kind: 'rebootstrap',
+			reason: `${rebootstrapClassName}: imports/hostDirectives array changed — directive matching can't be re-run on existing host elements`,
+			tier: 1
+		};
+	}
 	if (anyFingerprintChanged) {
 		return { breakdown, kind: 'remount', queue, tier: 1 };
 	}

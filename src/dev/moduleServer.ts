@@ -1357,20 +1357,26 @@ const transformAndCache = async (
 		? transformReactFile(filePath, projectRoot, rewriter)
 		: transformPlainFile(filePath, projectRoot, rewriter, resolvedVueDir);
 
-	// Angular `*.component.js` files (under
+	// Angular-decorated `*.js` files (under
 	// `.absolutejs/generated/angular`) need the per-class HMR
 	// listener block + Tier 1a `__abs_deps` registry appended. The
 	// bundle path used to do this via `createAngularHmrInjectionPlugin`
 	// at `Bun.build` time. With the moduleServer-only dev pipeline
 	// (no `Bun.build` for Angular pages), we apply the same transform
-	// per-file as part of normal module serving.
-	const isComponentJs =
+	// per-file as part of normal module serving. We accept any `.js`
+	// under the generated angular root rather than a specific
+	// `.component.js` suffix because services (`.service.js`),
+	// directives (`.directive.js`), and pipes (`.pipe.js`) all need
+	// the same listener block to receive HMR updates. The shared
+	// `applyAngularHmrInjection` returns the source unchanged when
+	// no Angular-decorated class is detected, so non-decorated
+	// helper modules pass through untouched.
+	const isAngularGeneratedJs =
 		ext === '.js' &&
-		filePath.endsWith('.component.js') &&
 		filePath
 			.replace(/\\/g, '/')
 			.includes('/.absolutejs/generated/angular/');
-	if (isComponentJs) {
+	if (isAngularGeneratedJs) {
 		const userAngularRoot = await getAngularUserRoot(projectRoot);
 		if (userAngularRoot) {
 			const { applyAngularHmrInjection } = await import(

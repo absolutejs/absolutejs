@@ -147,6 +147,31 @@ export type ComponentFingerprint = {
 	 * govern dirty-checking; the existing LViews carry the old
 	 * flags, so a change forces Tier 1a remount. */
 	changeDetection: number | null;
+	/* Hash of the `@Component({ imports: [...] })` array text.
+	 * Adding/removing a directive or pipe to the imports list
+	 * changes the directiveDefs/pipeDefs the template can match;
+	 * the existing LView's directive matching ran against the
+	 * pre-edit list, so a change forces Tier 1b rebootstrap (a
+	 * Tier 1a remount can't re-run directive matching against
+	 * existing host elements). Empty/missing array → empty hash.
+	 * Order-sensitive (reordering changes runtime resolution
+	 * order). */
+	importsArraySig: string;
+	/* Hash of the `@Component({ hostDirectives: [...] })` array
+	 * text. Each entry there is wired into the host element at
+	 * `ɵɵdefineComponent` time and instantiated alongside the
+	 * component at element-creation time; modifying the list
+	 * post-creation cannot retroactively attach or remove host
+	 * directive instances. Forces Tier 1b rebootstrap. */
+	hostDirectivesSig: string;
+	/* Hash of the `@Component({ animations: [...] })` array text.
+	 * Animations triggers and their state/transition contents are
+	 * wired into the component's view at definition time. Editing
+	 * trigger bodies isn't covered by `topLevelImports` (the
+	 * trigger / state / style symbols are already imported), so
+	 * we fingerprint the array text directly. Forces Tier 1a
+	 * remount on change. */
+	animationsArraySig: string;
 };
 
 export type FastHmrSuccess = {
@@ -159,6 +184,19 @@ export type FastHmrSuccess = {
 	 * Tier 0 surgical swap. The compiled module is still valid in
 	 * either case; the flag is purely a tier hint. */
 	fingerprintChanged: boolean;
+	/* True when the fingerprint dimension that changed is one a
+	 * Tier 1a remount can't faithfully apply — the existing host
+	 * elements would still carry the pre-edit directive matches.
+	 * Forces the dispatcher to escalate to Tier 1b (full
+	 * rebootstrap). Currently flagged on:
+	 *   - `@Component({ imports: [...] })` array changes —
+	 *     directive matching runs at element-creation time and a
+	 *     remounted instance against the same hostElement won't
+	 *     re-match newly-listed directives on existing children.
+	 *   - `@Component({ hostDirectives: [...] })` changes — host
+	 *     directives are wired into the host TNode at definition
+	 *     time and can't be retroactively attached or removed.  */
+	rebootstrapRequired: boolean;
 };
 
 export type FastHmrFailure = {
@@ -262,6 +300,9 @@ const fingerprintsEqual = (
 	if (!arraysEqual(a.propertyFieldNames, b.propertyFieldNames)) return false;
 	if (a.encapsulation !== b.encapsulation) return false;
 	if (a.changeDetection !== b.changeDetection) return false;
+	if (a.importsArraySig !== b.importsArraySig) return false;
+	if (a.hostDirectivesSig !== b.hostDirectivesSig) return false;
+	if (a.animationsArraySig !== b.animationsArraySig) return false;
 
 	return true;
 };
@@ -648,6 +689,18 @@ type ComponentDecoratorMeta = {
 	standalone: boolean;
 	preserveWhitespaces: boolean;
 	importsExpr: ts.ArrayLiteralExpression | null;
+	/* The raw `hostDirectives: [...]` array node, kept for
+	 * fingerprint hashing. Each entry there is wired into the
+	 * host element at definition time and instantiated alongside
+	 * the component at element-creation time; modifying the list
+	 * post-creation cannot retroactively attach or remove host
+	 * directive instances, so `hostDirectivesSig` changes force
+	 * Tier 1b rebootstrap. */
+	hostDirectivesExpr: ts.ArrayLiteralExpression | null;
+	/* The raw `animations: [...]` array node. Animations triggers
+	 * are wired into the component's view at definition time, so
+	 * editing trigger contents needs Tier 1a remount. */
+	animationsExpr: ts.ArrayLiteralExpression | null;
 	hasProviders: boolean;
 	hasViewProviders: boolean;
 	/* `ViewEncapsulation` numeric value (Emulated=0, None=2,
@@ -751,6 +804,8 @@ const readDecoratorMeta = (
 	const styleUrlsExpr = getProperty(args, 'styleUrls');
 	const stylesExpr = getProperty(args, 'styles');
 	const importsExpr = getProperty(args, 'imports');
+	const hostDirectivesExpr = getProperty(args, 'hostDirectives');
+	const animationsExpr = getProperty(args, 'animations');
 
 	const styleUrls: string[] = [];
 	if (styleUrlsExpr && ts.isArrayLiteralExpression(styleUrlsExpr)) {
@@ -804,6 +859,15 @@ const readDecoratorMeta = (
 		importsExpr:
 			importsExpr && ts.isArrayLiteralExpression(importsExpr)
 				? importsExpr
+				: null,
+		hostDirectivesExpr:
+			hostDirectivesExpr &&
+			ts.isArrayLiteralExpression(hostDirectivesExpr)
+				? hostDirectivesExpr
+				: null,
+		animationsExpr:
+			animationsExpr && ts.isArrayLiteralExpression(animationsExpr)
+				? animationsExpr
 				: null,
 		preserveWhitespaces:
 			getBooleanProperty(args, 'preserveWhitespaces') ??
@@ -1953,24 +2017,77 @@ const djb2Hash = (s: string): string => {
  *     retroactively apply to existing instances.
  *   - new expressions: `private subject = new BehaviorSubject(0)`.
  *     The constructor argument changes wouldn't propagate.
+ *   - conditional expressions whose branches contain any of the
+ *     above structural forms (`cond ? inject(A) : inject(B)`,
+ *     `flag ? signal(0) : null`). Editing the branches swaps
+ *     which structural form runs at construction time; without
+ *     fingerprinting we'd silently keep the pre-edit branch.
+ *   - object / array literal expressions whose elements contain
+ *     any of the above (`{ subject: new BehaviorSubject(0) }`,
+ *     `[inject(Foo), inject(Bar)]`). Editing argument shapes
+ *     of the embedded calls/news has the same propagation issue.
  *
  * Plain literal initializers (`count = 0`, `data = {}`,
  * `name = 'foo'`) are still NOT included; those edits stay no-op
  * so existing instance state is preserved. */
+const initializerShapeIsStructural = (node: ts.Expression): boolean => {
+	if (
+		ts.isArrowFunction(node) ||
+		ts.isFunctionExpression(node) ||
+		ts.isCallExpression(node) ||
+		ts.isNewExpression(node)
+	) {
+		return true;
+	}
+	if (ts.isConditionalExpression(node)) {
+		return (
+			initializerShapeIsStructural(node.whenTrue) ||
+			initializerShapeIsStructural(node.whenFalse)
+		);
+	}
+	if (ts.isParenthesizedExpression(node)) {
+		return initializerShapeIsStructural(node.expression);
+	}
+	if (ts.isAsExpression(node) || ts.isTypeAssertionExpression(node)) {
+		return initializerShapeIsStructural(node.expression);
+	}
+	if (ts.isNonNullExpression(node)) {
+		return initializerShapeIsStructural(node.expression);
+	}
+	if (ts.isObjectLiteralExpression(node)) {
+		for (const prop of node.properties) {
+			if (
+				ts.isPropertyAssignment(prop) &&
+				initializerShapeIsStructural(prop.initializer)
+			) {
+				return true;
+			}
+			if (ts.isShorthandPropertyAssignment(prop)) continue;
+			if (
+				ts.isSpreadAssignment(prop) &&
+				initializerShapeIsStructural(prop.expression)
+			) {
+				return true;
+			}
+		}
+		return false;
+	}
+	if (ts.isArrayLiteralExpression(node)) {
+		for (const el of node.elements) {
+			if (initializerShapeIsStructural(el)) return true;
+		}
+		return false;
+	}
+	return false;
+};
+
 const extractArrowFieldSig = (cls: ts.ClassDeclaration): string[] => {
 	const entries: string[] = [];
 	for (const member of cls.members) {
 		if (!ts.isPropertyDeclaration(member)) continue;
 		const init = member.initializer;
 		if (!init) continue;
-		if (
-			!ts.isArrowFunction(init) &&
-			!ts.isFunctionExpression(init) &&
-			!ts.isCallExpression(init) &&
-			!ts.isNewExpression(init)
-		) {
-			continue;
-		}
+		if (!initializerShapeIsStructural(init)) continue;
 		const name = member.name.getText();
 		// `init.getText()` includes parameters + body; whitespace is
 		// part of the canonical text since we pull from the user's
@@ -2209,21 +2326,40 @@ const extractProviderImportSig = (
  * one TS AST walk over the class body, plus per-import file
  * lookups (mtime-cached, ~5ms cold for the typical 2-5 import
  * entries, ~0ms warm). */
-/* Extract the sorted set of class property declaration names. The
- * set is intentionally name-only: changes to initializer values
- * (e.g., `count = 0` → `count = 5`) leave the set unchanged and
- * stay on Tier 0 surgical, which preserves the running instance's
- * field value. Additions and removals of any property field
- * (regardless of decorator, type annotation, or initializer kind)
- * shift the set and force Tier 1a remount so the instance is
- * recreated with the new field-initializer set. Constructor
- * parameter properties (`constructor(private foo: T)`) are not
- * iterated here; their addition / removal is captured by
- * `ctorParamTypes`. */
+/* Extract the sorted set of class member names — both property
+ * declarations AND method/accessor declarations. The set is
+ * intentionally name-only: changes to a property's initializer
+ * value (e.g., `count = 0` → `count = 5`) or a method body leave
+ * the set unchanged and stay on Tier 0 surgical, preserving the
+ * running instance's state and patching method bodies onto the
+ * prototype. Additions and removals of any class member shift
+ * the set and force Tier 1a remount.
+ *
+ * Methods are captured because adding a NEW method with a
+ * lifecycle-significant name (`ngOnInit`, `ngOnDestroy`,
+ * `ngAfterViewInit`, etc.) needs Tier 1a to recreate the
+ * instance: Angular's lifecycle hook table is captured at
+ * `ɵɵdefineComponent` / `createView` time, so a prototype patch
+ * alone puts the method on the prototype but the existing LView's
+ * lifecycle table doesn't include it and the hook never fires.
+ * Capturing all method names (not just lifecycle ones) keeps the
+ * rule simple and also covers the case where a method is
+ * referenced by a parent component via template ref.
+ *
+ * Constructor parameter properties (`constructor(private foo:
+ * T)`) are not iterated here; their addition / removal is
+ * captured by `ctorParamTypes`. */
 const extractPropertyFieldNames = (cls: ts.ClassDeclaration): string[] => {
 	const names: string[] = [];
 	for (const member of cls.members) {
-		if (!ts.isPropertyDeclaration(member)) continue;
+		if (
+			!ts.isPropertyDeclaration(member) &&
+			!ts.isMethodDeclaration(member) &&
+			!ts.isGetAccessorDeclaration(member) &&
+			!ts.isSetAccessorDeclaration(member)
+		) {
+			continue;
+		}
 		const name = member.name;
 		if (name === undefined) continue;
 		const text = ts.isIdentifier(name)
@@ -2337,7 +2473,18 @@ const extractFingerprint = (
 	const topLevelImports = extractTopLevelImports(sourceFile);
 	const propertyFieldNames = extractPropertyFieldNames(cls);
 
+	const importsArraySig = decoratorMeta.importsExpr
+		? djb2Hash(decoratorMeta.importsExpr.getText())
+		: '';
+	const hostDirectivesSig = decoratorMeta.hostDirectivesExpr
+		? djb2Hash(decoratorMeta.hostDirectivesExpr.getText())
+		: '';
+	const animationsArraySig = decoratorMeta.animationsExpr
+		? djb2Hash(decoratorMeta.animationsExpr.getText())
+		: '';
+
 	return {
+		animationsArraySig,
 		arrowFieldSig,
 		changeDetection: decoratorMeta.changeDetection,
 		className,
@@ -2345,6 +2492,8 @@ const extractFingerprint = (
 		encapsulation: decoratorMeta.encapsulation,
 		hasProviders: decoratorMeta.hasProviders,
 		hasViewProviders: decoratorMeta.hasViewProviders,
+		hostDirectivesSig,
+		importsArraySig,
 		inputs: inputNames,
 		memberDecoratorSig,
 		outputs: outputNames,
@@ -2883,7 +3032,8 @@ export const tryFastHmr = async (
 			componentSource: sourceFile,
 			fingerprintChanged: false,
 			moduleText,
-			ok: true
+			ok: true,
+			rebootstrapRequired: false
 		};
 	}
 
@@ -3037,6 +3187,12 @@ export const tryFastHmr = async (
 	const fingerprintChanged =
 		cachedFingerprint !== undefined &&
 		!fingerprintsEqual(cachedFingerprint, currentFingerprint);
+	const rebootstrapRequired =
+		cachedFingerprint !== undefined &&
+		(cachedFingerprint.importsArraySig !==
+			currentFingerprint.importsArraySig ||
+			cachedFingerprint.hostDirectivesSig !==
+				currentFingerprint.hostDirectivesSig);
 
 	// Source span — the compiler wants it but the values are only
 	// used for diagnostics we never surface, so a zero span pointing
@@ -3487,7 +3643,8 @@ export const tryFastHmr = async (
 			componentSource: sourceFile,
 			fingerprintChanged,
 			moduleText,
-			ok: true
+			ok: true,
+			rebootstrapRequired
 		};
 	} catch (err) {
 		return fail('unexpected-error', String(err));

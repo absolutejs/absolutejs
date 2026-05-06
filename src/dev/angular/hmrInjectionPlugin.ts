@@ -347,7 +347,14 @@ export const createAngularHmrInjectionPlugin = (
 ): BunPlugin => ({
 	name: 'absolute-angular-hmr-injection',
 	setup(build) {
-		build.onLoad({ filter: /\.component\.js$/ }, async (args) => {
+		// Match every `.js` file — `applyAngularHmrInjection` already
+		// gates on the `.absolutejs/generated/angular/` prefix and
+		// returns the source unchanged when no Angular-decorated
+		// class is detected, so vendor and non-Angular files pass
+		// through. Including all `.js` (not just `.component.js`)
+		// covers `.service.js`, `.directive.js`, and `.pipe.js` so
+		// edits to those entities also broadcast HMR updates.
+		build.onLoad({ filter: /\.js$/ }, async (args) => {
 			const text = await readFile(args.path, 'utf8');
 			const transformed = applyAngularHmrInjection(
 				text,

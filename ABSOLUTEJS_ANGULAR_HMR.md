@@ -952,6 +952,81 @@ items that remain.
   their argument-count + arg-shape into the signature, so
   these edits force Tier 1a remount.
 
+* **Method declarations missing from the field-name
+  fingerprint.** `propertyFieldNames` only walked
+  `PropertyDeclaration`s, so adding a new method — including
+  lifecycle hooks like `ngOnInit`, `ngOnDestroy`,
+  `ngAfterViewInit` — stayed on Tier 0. The prototype patch
+  put the method body on the prototype but Angular's
+  lifecycle-hook table is captured at `ɵɵdefineComponent` /
+  `createView` time, so the new hook never fired on the
+  existing instance. The fingerprint now includes
+  `MethodDeclaration`, `GetAccessorDeclaration`, and
+  `SetAccessorDeclaration` names, so adding or removing any
+  member flips the fingerprint and forces Tier 1a remount.
+
+* **Service / pipe / directive HMR injection.** The dev
+  moduleServer's filter was scoped to `*.component.js`, so
+  `@Injectable`, `@Pipe`, and `@Directive` files (`*.service.js`,
+  `*.pipe.js`, `*.directive.js`) never received the `__ng_hmr_load`
+  listener block. Edits to them broadcast Tier 0 server-side but
+  no client listener was registered, so the prototype patch
+  never reached the live class — service body changes silently
+  no-op'd until a full reload. The filter is now any `.js` under
+  `.absolutejs/generated/angular/`; `applyAngularHmrInjection`
+  already gates internally on Angular-decorated classes, so
+  non-decorated helper modules pass through untouched.
+
+* **`@Component({ imports: [...] })` array edits.** Adding
+  or removing a directive/pipe in the imports array flipped no
+  fingerprint dimension that captured it directly. Even when the
+  import statement also moved (so `topLevelImports` flipped), a
+  Tier 1a remount can't faithfully apply imports changes —
+  Angular's directive matching runs at element-creation time
+  against the directiveDefs, and a remounted instance against
+  the same hostElement won't re-match newly-listed directives on
+  existing children. The fingerprint now hashes the imports
+  array text directly via `importsArraySig`; on change, the
+  dispatcher escalates to Tier 1b rebootstrap (full app
+  restart).
+
+* **`@Component({ hostDirectives: [...] })` array edits.**
+  Adding or removing a host directive entry didn't flip any
+  fingerprint dimension. Host directives are wired into the
+  host TNode at `ɵɵdefineComponent` time and instantiated
+  alongside the component at element-creation time; modifying
+  the list post-creation cannot retroactively attach or remove
+  host directive instances. The fingerprint now hashes
+  `hostDirectives` via `hostDirectivesSig`; changes escalate
+  to Tier 1b rebootstrap.
+
+* **`@Component({ animations: [...] })` array body edits.**
+  Adding `animations` to a component flipped `topLevelImports`
+  (you needed to import `trigger`/`state`/`style`/`transition`/
+  `animate`), so that case was already covered. But editing
+  the body of an existing animations array — changing a
+  `trigger('countState', [...])`'s state styles or transition
+  timings — left every other fingerprint dimension unchanged
+  and stayed on Tier 0. The fingerprint now hashes the
+  animations array text via `animationsArraySig`; changes
+  force Tier 1a remount.
+
+* **`ConditionalExpression` and `ObjectLiteral` /
+  `ArrayLiteral` initializers wrapping structural calls.**
+  `arrowFieldSig` walked `CallExpression`/`NewExpression`
+  initializers but missed cases where those structural forms
+  were wrapped in another expression: `private a = cond ?
+  inject(A) : inject(B)`, `private b = { val: signal(0) }`,
+  `private c = [inject(Foo), inject(Bar)]`. Editing the
+  argument shape of an embedded call — or swapping which
+  conditional branch evaluates — has the same propagation
+  issue as a top-level call edit, but the fingerprint walk
+  stopped at the wrapper. The walker is now recursive and
+  descends into `ConditionalExpression`, `ObjectLiteralExpression`,
+  `ArrayLiteralExpression`, `ParenthesizedExpression`,
+  `AsExpression`, `TypeAssertionExpression`, and
+  `NonNullExpression` to find embedded structural forms.
+
 **No remaining caveats from the comprehensive review pass.** The
 fast extractor's metadata coverage matches `@angular/compiler-cli`
 on every public field of `R3DirectiveMetadata` and
