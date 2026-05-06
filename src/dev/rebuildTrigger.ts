@@ -977,6 +977,38 @@ const decideAngularTier = async (
 				tier: 1
 			};
 		}
+		// Non-decorated `.ts` files inside the user's Angular
+		// directory — InjectionTokens, type-only modules, helper
+		// consts, factory functions — don't carry an Angular
+		// decorator, so neither the component nor entity
+		// fingerprint walks them. The dependency graph did surface
+		// them as edited (otherwise we wouldn't be here), and
+		// consumers reference them at module-evaluation or
+		// DI-resolution time, so the resolved values are already
+		// baked into existing instances. Force Tier 1b rebootstrap
+		// so the rebuilt bundle re-evaluates the file and consumers
+		// pick up the new values. Without this, edits to e.g.
+		// `new InjectionToken(name, { factory: () => 'a' })` →
+		// 'b' silently keep the pre-edit factory's resolved value.
+		if (
+			owners.length === 0 &&
+			editedFile.endsWith('.ts') &&
+			!editedFile.endsWith('.d.ts')
+		) {
+			// `editedFile` is an absolute path (resolved on entry to
+			// the dispatcher). `angularDir` from the config is often
+			// the user-supplied relative form ('angular'), so resolve
+			// to absolute before the prefix check.
+			const normalized = editedFile.replace(/\\/g, '/');
+			const angularDirAbs = resolve(angularDir).replace(/\\/g, '/');
+			if (normalized.startsWith(angularDirAbs + '/')) {
+				return {
+					kind: 'rebootstrap',
+					reason: `non-decorated angular file edited (${editedFile}) — consumers may hold stale resolved values`,
+					tier: 1
+				};
+			}
+		}
 		for (const { componentFilePath, className, kind } of owners) {
 			const id = encodeHmrComponentId(componentFilePath, className);
 			if (queueIds.has(id)) continue;

@@ -184,6 +184,18 @@ export type ComponentFingerprint = {
 	 * providers also reshape the element-injector tree at
 	 * creation time. Forces Tier 1b rebootstrap. */
 	viewProvidersArraySig: string;
+	/* Hash of the `@Component({ inputs: [...] })` decorator-array
+	 * form. The field-level `inputs` fingerprint dimension only
+	 * captures `@Input()` decorators on properties; the legacy
+	 * `inputs: ['name', 'other: alias']` array form on the
+	 * decorator itself is a separate metadata source. Renaming
+	 * an alias or adding/removing entries shifts the public
+	 * binding names but doesn't touch any field. Forces Tier 1a
+	 * remount on change. */
+	decoratorInputsArraySig: string;
+	/* Hash of the `@Component({ outputs: [...] })` decorator-array
+	 * form. Same rationale as `decoratorInputsArraySig`. */
+	decoratorOutputsArraySig: string;
 };
 
 export type FastHmrSuccess = {
@@ -317,6 +329,9 @@ const fingerprintsEqual = (
 	if (a.animationsArraySig !== b.animationsArraySig) return false;
 	if (a.providersArraySig !== b.providersArraySig) return false;
 	if (a.viewProvidersArraySig !== b.viewProvidersArraySig) return false;
+	if (a.decoratorInputsArraySig !== b.decoratorInputsArraySig) return false;
+	if (a.decoratorOutputsArraySig !== b.decoratorOutputsArraySig)
+		return false;
 
 	return true;
 };
@@ -809,6 +824,18 @@ type ComponentDecoratorMeta = {
 	 * as `providersExpr` — view-scoped providers also reshape the
 	 * element-injector tree at creation time. */
 	viewProvidersExpr: ts.ArrayLiteralExpression | null;
+	/* The raw `inputs: [...]` array node from the `@Component`
+	 * decorator. This is the legacy decorator-array form
+	 * (`inputs: ['flag', 'other: alias']`) — separate from
+	 * field-level `@Input()` decorators which the existing
+	 * `inputs` fingerprint covers. Renaming an alias or
+	 * adding/removing entries here changes the public binding
+	 * names, but the field-level extractor doesn't see this list,
+	 * so we hash the array text directly. */
+	inputsArrayExpr: ts.ArrayLiteralExpression | null;
+	/* The raw `outputs: [...]` array node — same rationale as
+	 * `inputsArrayExpr`. */
+	outputsArrayExpr: ts.ArrayLiteralExpression | null;
 	hasProviders: boolean;
 	hasViewProviders: boolean;
 	/* `ViewEncapsulation` numeric value (Emulated=0, None=2,
@@ -916,6 +943,8 @@ const readDecoratorMeta = (
 	const animationsExpr = getProperty(args, 'animations');
 	const providersExpr = getProperty(args, 'providers');
 	const viewProvidersExpr = getProperty(args, 'viewProviders');
+	const inputsArrayExpr = getProperty(args, 'inputs');
+	const outputsArrayExpr = getProperty(args, 'outputs');
 
 	const styleUrls: string[] = [];
 	if (styleUrlsExpr && ts.isArrayLiteralExpression(styleUrlsExpr)) {
@@ -987,6 +1016,16 @@ const readDecoratorMeta = (
 			viewProvidersExpr &&
 			ts.isArrayLiteralExpression(viewProvidersExpr)
 				? viewProvidersExpr
+				: null,
+		inputsArrayExpr:
+			inputsArrayExpr &&
+			ts.isArrayLiteralExpression(inputsArrayExpr)
+				? inputsArrayExpr
+				: null,
+		outputsArrayExpr:
+			outputsArrayExpr &&
+			ts.isArrayLiteralExpression(outputsArrayExpr)
+				? outputsArrayExpr
 				: null,
 		preserveWhitespaces:
 			getBooleanProperty(args, 'preserveWhitespaces') ??
@@ -2607,6 +2646,12 @@ const extractFingerprint = (
 	const viewProvidersArraySig = decoratorMeta.viewProvidersExpr
 		? djb2Hash(decoratorMeta.viewProvidersExpr.getText())
 		: '';
+	const decoratorInputsArraySig = decoratorMeta.inputsArrayExpr
+		? djb2Hash(decoratorMeta.inputsArrayExpr.getText())
+		: '';
+	const decoratorOutputsArraySig = decoratorMeta.outputsArrayExpr
+		? djb2Hash(decoratorMeta.outputsArrayExpr.getText())
+		: '';
 
 	return {
 		animationsArraySig,
@@ -2614,6 +2659,8 @@ const extractFingerprint = (
 		changeDetection: decoratorMeta.changeDetection,
 		className,
 		ctorParamTypes,
+		decoratorInputsArraySig,
+		decoratorOutputsArraySig,
 		encapsulation: decoratorMeta.encapsulation,
 		hasProviders: decoratorMeta.hasProviders,
 		hasViewProviders: decoratorMeta.hasViewProviders,
@@ -3332,6 +3379,16 @@ export const tryFastHmr = async (
 					currentFingerprint.providersArraySig ||
 				cachedFingerprint.viewProvidersArraySig !==
 					currentFingerprint.viewProvidersArraySig ||
+				// Renaming `selector: 'old'` to `'new'` breaks
+				// every parent template's tag match — existing
+				// hostElements rendered with the OLD tag don't
+				// re-match the NEW tag, and a Tier 1a remount
+				// against the same hostElement preserves the
+				// stale tag. Force Tier 1b so the parent
+				// template's bundle is rebuilt and re-rendered
+				// against the new selector.
+				cachedFingerprint.selector !==
+					currentFingerprint.selector ||
 				// Toggling `standalone: true` ↔
 				// `standalone: false` reshapes the entire DI /
 				// module-of-one wiring; existing LViews can't be
@@ -3655,8 +3712,41 @@ export const tryFastHmr = async (
 			referencedNames.add(entry.identifier.text);
 		}
 
-		const depsToDestructure = [...sourceScopeNames].filter((n) =>
-			referencedNames.has(n)
+		// IR-emitted metadata can reference imported helpers that
+		// don't appear in the prototype-patch block but DO appear
+		// in the surgical `ɵɵdefineComponent({ inputs: { foo: [2,
+		// 'foo', 'foo', booleanAttribute] } })` IR — most notably
+		// `booleanAttribute` / `numberAttribute` for `@Input({
+		// transform })`, `trigger` / `state` / `style` for
+		// animations, and host-binding helpers. The scanner above
+		// can't see those references because they live in the
+		// IR-generated `ɵcmp` block, not in `_Fresh`. Including
+		// every top-level imported name unconditionally adds ~1
+		// destructure entry per import (cheap) and guarantees the
+		// surgical scope has the symbols the IR may emit. Source-
+		// scope const/function/class names are still gated by the
+		// `_Fresh`-block scan above (those tend to be larger and
+		// don't need broad inclusion).
+		const allImportedNames = new Set<string>();
+		for (const stmt of sourceFile.statements) {
+			if (!ts.isImportDeclaration(stmt)) continue;
+			const clause = stmt.importClause;
+			if (!clause || clause.isTypeOnly) continue;
+			if (clause.name) allImportedNames.add(clause.name.text);
+			const bindings = clause.namedBindings;
+			if (!bindings) continue;
+			if (ts.isNamespaceImport(bindings)) {
+				allImportedNames.add(bindings.name.text);
+			} else {
+				for (const el of bindings.elements) {
+					if (el.isTypeOnly) continue;
+					allImportedNames.add(el.name.text);
+				}
+			}
+		}
+
+		const depsToDestructure = [...sourceScopeNames].filter(
+			(n) => referencedNames.has(n) || allImportedNames.has(n)
 		);
 		const tsSourceText = fnText;
 

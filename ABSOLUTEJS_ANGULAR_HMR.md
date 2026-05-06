@@ -1063,6 +1063,57 @@ items that remain.
   Tier 1b rebootstrap (the bundle's structure is the new
   baseline).
 
+* **Component `selector` rename.** `selector` was tracked in
+  `ComponentFingerprint` but its change only flipped
+  `fingerprintChanged` → Tier 1a remount. A Tier 1a remount
+  against the same hostElement preserves the OLD tag, so
+  `<app-counter>` parents still wouldn't re-match the renamed
+  `<app-counter-renamed>` definition. Now flips
+  `rebootstrapRequired` → Tier 1b so the parent template's
+  bundle is rebuilt against the new selector.
+
+* **Non-decorated `.ts` files inside the user's Angular
+  directory.** `InjectionToken` declarations, helper consts,
+  factory functions, and type-only modules don't carry an
+  Angular decorator, so neither the component nor entity
+  fingerprint walked them. Edits to e.g.
+  `new InjectionToken(name, { factory: () => 'a' })` → 'b'
+  silently kept the pre-edit factory's resolved value because
+  Angular's element-injector captures the result at instance-
+  creation time. The dispatcher now detects any non-decorated
+  `.ts` file under the user's Angular root with no owners and
+  no descendants, and forces Tier 1b rebootstrap so the rebuilt
+  bundle re-evaluates the file and consumers pick up the new
+  values.
+
+* **`@Input({ transform })` argument-shape changes that
+  reference IR-emitted helpers.** When a component edits
+  `@Input({ transform: booleanAttribute })` to
+  `numberAttribute`, the surgical-update module's
+  `ɵɵdefineComponent({ inputs: { foo: [2, 'foo', 'foo',
+  numberAttribute] } })` references `numberAttribute` from
+  module scope — but the `__abs_deps` destructure block was
+  built from a "names referenced in `_Fresh`" scan that didn't
+  see references inside the IR-emitted `ɵcmp` block. Result:
+  `numberAttribute is not defined` at apply time. The
+  destructure now also includes every top-level imported
+  binding unconditionally (cheap — ~1 entry per import) so the
+  surgical scope has whatever symbols the IR may emit
+  (transform helpers, animation `trigger` / `state` / `style`,
+  host-binding helpers).
+
+* **`@Component({ inputs: ['name'] })` and `outputs: [...]`
+  decorator-array forms.** The legacy decorator-array form
+  is separate from field-level `@Input()` / `@Output()`
+  decorators that the existing `inputs` / `outputs` fingerprint
+  dimensions cover. Renaming an alias
+  (`'flag' → 'flag: aliasFlag'`) or adding/removing entries
+  shifts the public binding names but the field-level
+  extractor doesn't see this list, so the fingerprint stayed
+  unchanged and the edit silently no-op'd. Now hashed via
+  `decoratorInputsArraySig` and `decoratorOutputsArraySig`;
+  changes force Tier 1a remount.
+
 **No remaining caveats from the comprehensive review pass.** The
 fast extractor's metadata coverage matches `@angular/compiler-cli`
 on every public field of `R3DirectiveMetadata` and
