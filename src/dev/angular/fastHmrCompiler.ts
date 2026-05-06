@@ -172,6 +172,18 @@ export type ComponentFingerprint = {
 	 * we fingerprint the array text directly. Forces Tier 1a
 	 * remount on change. */
 	animationsArraySig: string;
+	/* Hash of the `@Component({ providers: [...] })` array text.
+	 * Tracking just `hasProviders: boolean` misses edits inside
+	 * the array — swapping a `useFactory`, changing a `useValue`,
+	 * or reordering provider entries reshapes the DI tree, but
+	 * existing instances hold the OLD factory's resolved value.
+	 * Forces Tier 1b rebootstrap on change. */
+	providersArraySig: string;
+	/* Hash of the `@Component({ viewProviders: [...] })` array
+	 * text. Same rationale as `providersArraySig` — view-scoped
+	 * providers also reshape the element-injector tree at
+	 * creation time. Forces Tier 1b rebootstrap. */
+	viewProvidersArraySig: string;
 };
 
 export type FastHmrSuccess = {
@@ -303,6 +315,8 @@ const fingerprintsEqual = (
 	if (a.importsArraySig !== b.importsArraySig) return false;
 	if (a.hostDirectivesSig !== b.hostDirectivesSig) return false;
 	if (a.animationsArraySig !== b.animationsArraySig) return false;
+	if (a.providersArraySig !== b.providersArraySig) return false;
+	if (a.viewProvidersArraySig !== b.viewProvidersArraySig) return false;
 
 	return true;
 };
@@ -312,6 +326,88 @@ export const recordFingerprint = (
 	fp: ComponentFingerprint
 ): void => {
 	fingerprintCache.set(id, fp);
+};
+
+/* Prime the fingerprint cache for one component file using the
+ * pre-edit (initial-bundle) source. Called after the initial
+ * `compileAngular` finishes so that the FIRST user edit has a
+ * baseline to compare against — without priming, the first
+ * edit always reports `cachedFingerprint === undefined` and
+ * skips both `fingerprintChanged` and `rebootstrapRequired`
+ * detection, so a user's first imports/hostDirectives/providers
+ * edit silently runs through Tier 0 instead of escalating to
+ * Tier 1b.
+ *
+ * The function deliberately mirrors the early phases of
+ * `tryFastHmr`: parse the file, find the class node by name,
+ * read the decorator metadata, extract the fingerprint, store
+ * it. We DON'T run the IR compile (no `compileComponentFromMetadata`
+ * call) — fingerprint extraction alone is enough for the
+ * comparison path, and skipping the IR keeps priming cheap
+ * (~1-3 ms per file). On parse error / missing decorator we
+ * silently skip; the cache will populate naturally on the
+ * first successful HMR cycle. */
+export const primeComponentFingerprint = async (
+	componentFilePath: string
+): Promise<void> => {
+	let source: string;
+	try {
+		source = await (await import('node:fs/promises')).readFile(
+			componentFilePath,
+			'utf8'
+		);
+	} catch {
+		return;
+	}
+	let sourceFile: ts.SourceFile;
+	try {
+		sourceFile = ts.createSourceFile(
+			componentFilePath,
+			source,
+			ts.ScriptTarget.Latest,
+			true,
+			ts.ScriptKind.TS
+		);
+	} catch {
+		return;
+	}
+
+	for (const stmt of sourceFile.statements) {
+		if (!ts.isClassDeclaration(stmt)) continue;
+		const className = stmt.name?.text;
+		if (!className) continue;
+
+		const decorators = ts.getDecorators(stmt) ?? [];
+		const componentDecorator = decorators.find((d) => {
+			if (!ts.isCallExpression(d.expression)) return false;
+			const expr = d.expression.expression;
+			return ts.isIdentifier(expr) && expr.text === 'Component';
+		});
+		if (!componentDecorator) continue;
+
+		const decoratorCall = componentDecorator.expression as ts.CallExpression;
+		const args = decoratorCall.arguments[0];
+		if (!args || !ts.isObjectLiteralExpression(args)) continue;
+
+		const decoratorMeta = readDecoratorMeta(args);
+		const { inputs, outputs } = extractInputsAndOutputs(stmt, null);
+		const componentDir = dirname(componentFilePath);
+		const fingerprint = extractFingerprint(
+			stmt,
+			className,
+			decoratorMeta,
+			inputs,
+			outputs,
+			sourceFile,
+			componentDir
+		);
+		const projectRel = relative(process.cwd(), componentFilePath).replace(
+			/\\/g,
+			'/'
+		);
+		const id = encodeURIComponent(`${projectRel}@${className}`);
+		fingerprintCache.set(id, fingerprint);
+	}
 };
 
 /* Clear all cached fingerprints. Called after a Tier 1
@@ -701,6 +797,18 @@ type ComponentDecoratorMeta = {
 	 * are wired into the component's view at definition time, so
 	 * editing trigger contents needs Tier 1a remount. */
 	animationsExpr: ts.ArrayLiteralExpression | null;
+	/* The raw `providers: [...]` array node. Tracking just
+	 * `hasProviders: boolean` misses edits inside the array —
+	 * swapping a `useFactory`, changing a `useValue`, or
+	 * reordering provider entries reshapes the DI tree, but
+	 * existing instances hold the OLD factory's resolved value
+	 * (DI happens at instance-creation time). Forces Tier 1b
+	 * rebootstrap on change. */
+	providersExpr: ts.ArrayLiteralExpression | null;
+	/* The raw `viewProviders: [...]` array node. Same rationale
+	 * as `providersExpr` — view-scoped providers also reshape the
+	 * element-injector tree at creation time. */
+	viewProvidersExpr: ts.ArrayLiteralExpression | null;
 	hasProviders: boolean;
 	hasViewProviders: boolean;
 	/* `ViewEncapsulation` numeric value (Emulated=0, None=2,
@@ -806,6 +914,8 @@ const readDecoratorMeta = (
 	const importsExpr = getProperty(args, 'imports');
 	const hostDirectivesExpr = getProperty(args, 'hostDirectives');
 	const animationsExpr = getProperty(args, 'animations');
+	const providersExpr = getProperty(args, 'providers');
+	const viewProvidersExpr = getProperty(args, 'viewProviders');
 
 	const styleUrls: string[] = [];
 	if (styleUrlsExpr && ts.isArrayLiteralExpression(styleUrlsExpr)) {
@@ -868,6 +978,15 @@ const readDecoratorMeta = (
 		animationsExpr:
 			animationsExpr && ts.isArrayLiteralExpression(animationsExpr)
 				? animationsExpr
+				: null,
+		providersExpr:
+			providersExpr && ts.isArrayLiteralExpression(providersExpr)
+				? providersExpr
+				: null,
+		viewProvidersExpr:
+			viewProvidersExpr &&
+			ts.isArrayLiteralExpression(viewProvidersExpr)
+				? viewProvidersExpr
 				: null,
 		preserveWhitespaces:
 			getBooleanProperty(args, 'preserveWhitespaces') ??
@@ -2482,6 +2601,12 @@ const extractFingerprint = (
 	const animationsArraySig = decoratorMeta.animationsExpr
 		? djb2Hash(decoratorMeta.animationsExpr.getText())
 		: '';
+	const providersArraySig = decoratorMeta.providersExpr
+		? djb2Hash(decoratorMeta.providersExpr.getText())
+		: '';
+	const viewProvidersArraySig = decoratorMeta.viewProvidersExpr
+		? djb2Hash(decoratorMeta.viewProvidersExpr.getText())
+		: '';
 
 	return {
 		animationsArraySig,
@@ -2499,9 +2624,11 @@ const extractFingerprint = (
 		outputs: outputNames,
 		propertyFieldNames,
 		providerImportSig,
+		providersArraySig,
 		selector: decoratorMeta.selector,
 		standalone: decoratorMeta.standalone,
-		topLevelImports
+		topLevelImports,
+		viewProvidersArraySig
 	};
 };
 
@@ -3188,11 +3315,31 @@ export const tryFastHmr = async (
 		cachedFingerprint !== undefined &&
 		!fingerprintsEqual(cachedFingerprint, currentFingerprint);
 	const rebootstrapRequired =
-		cachedFingerprint !== undefined &&
-		(cachedFingerprint.importsArraySig !==
-			currentFingerprint.importsArraySig ||
-			cachedFingerprint.hostDirectivesSig !==
-				currentFingerprint.hostDirectivesSig);
+		// Non-standalone (`@NgModule`-declared) components don't
+		// surface a client-side LView via the standalone-bootstrap
+		// path Angular uses today, so `ɵɵreplaceMetadata` has
+		// nowhere to walk and Tier 0 / Tier 1a both silently
+		// no-op for them. Force Tier 1b on every edit so the
+		// rebuilt bundle re-renders the SSR + hydration tree
+		// from scratch with the new metadata.
+		!currentFingerprint.standalone ||
+		(cachedFingerprint !== undefined &&
+			(cachedFingerprint.importsArraySig !==
+				currentFingerprint.importsArraySig ||
+				cachedFingerprint.hostDirectivesSig !==
+					currentFingerprint.hostDirectivesSig ||
+				cachedFingerprint.providersArraySig !==
+					currentFingerprint.providersArraySig ||
+				cachedFingerprint.viewProvidersArraySig !==
+					currentFingerprint.viewProvidersArraySig ||
+				// Toggling `standalone: true` ↔
+				// `standalone: false` reshapes the entire DI /
+				// module-of-one wiring; existing LViews can't be
+				// re-parented from the standalone path to
+				// NgModule-declared and vice versa. Force Tier
+				// 1b.
+				cachedFingerprint.standalone !==
+					currentFingerprint.standalone));
 
 	// Source span — the compiler wants it but the values are only
 	// used for diagnostics we never surface, so a zero span pointing

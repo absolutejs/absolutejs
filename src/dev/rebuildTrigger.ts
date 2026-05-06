@@ -1030,16 +1030,18 @@ const decideAngularTier = async (
 		compileMs: Math.round(totalCompileMs)
 	};
 	if (rebootstrapClassName !== null) {
-		// `imports: [...]` array changes and `hostDirectives: [...]`
-		// changes can't be safely applied via Tier 1a remount —
-		// directive matching runs at element-creation time and a
-		// remounted instance against the same hostElement won't
-		// re-match newly-listed directives on existing children.
-		// Escalate to Tier 1b full rebootstrap so the user sees the
-		// new directive wired up, at the cost of a full app restart.
+		// Structural component changes that Tier 1a can't faithfully
+		// re-apply against an existing hostElement: imports / hostDirectives
+		// array (directive matching runs at element-creation time),
+		// providers / viewProviders array (DI tree captures at instance
+		// creation), `standalone: true ↔ false` toggle, or any non-standalone
+		// component edit (NgModule-declared components don't surface a
+		// client-side LView via the standalone-bootstrap path). Escalate
+		// to Tier 1b full rebootstrap so the user sees their change wired
+		// up correctly, at the cost of a full app restart.
 		return {
 			kind: 'rebootstrap',
-			reason: `${rebootstrapClassName}: imports/hostDirectives array changed — directive matching can't be re-run on existing host elements`,
+			reason: `${rebootstrapClassName}: structural-change — imports/hostDirectives/providers/standalone-toggle/non-standalone edit`,
 			tier: 1
 		};
 	}
@@ -1351,6 +1353,45 @@ const compileAndBundleAngular = async (
 		true,
 		getStyleTransformConfig(state.config)
 	);
+
+	// Prime the fast-HMR fingerprint cache for every component / page
+	// .ts file under the user's Angular root. Without this, the first
+	// edit after dev startup falls through with `cachedFingerprint
+	// === undefined`, so changes that should escalate to Tier 1b
+	// (`imports`, `hostDirectives`, `providers`, etc.) silently run
+	// through Tier 0 because there's no baseline to compare against.
+	void (async () => {
+		try {
+			const { primeComponentFingerprint } = await import(
+				'./angular/fastHmrCompiler'
+			);
+			const { readdir } = await import('node:fs/promises');
+			const { join } = await import('node:path');
+			const walk = async (dir: string): Promise<string[]> => {
+				const entries = await readdir(dir, { withFileTypes: true });
+				const files: string[] = [];
+				for (const entry of entries) {
+					const full = join(dir, entry.name);
+					if (entry.isDirectory()) {
+						files.push(...(await walk(full)));
+					} else if (
+						entry.isFile() &&
+						entry.name.endsWith('.ts') &&
+						!entry.name.endsWith('.d.ts')
+					) {
+						files.push(full);
+					}
+				}
+				return files;
+			};
+			const tsFiles = await walk(angularDir);
+			await Promise.all(tsFiles.map(primeComponentFingerprint));
+		} catch {
+			// Fingerprint priming is best-effort. If it fails, the
+			// only consequence is the first edit per component falls
+			// through to Tier 0 (the pre-fix behavior).
+		}
+	})();
 
 	// SSR loads compileAngular's raw output directly because the HMR fast
 	// path skips the bun.build server pass that would normally rewrite

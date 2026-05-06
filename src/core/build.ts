@@ -1418,16 +1418,61 @@ const buildUnlocked = async ({
 					vueServerPaths: [...emptyStringArray]
 				},
 		shouldCompileAngular
-			? tracePhase('compile/angular', () =>
-					import('../build/compileAngular').then((mod) =>
-						mod.compileAngular(
-							angularEntries,
-							angularDir,
-							hmr,
-							styleTransformConfig
-						)
-					)
-				)
+			? tracePhase('compile/angular', async () => {
+					const mod = await import('../build/compileAngular');
+					const result = await mod.compileAngular(
+						angularEntries,
+						angularDir,
+						hmr,
+						styleTransformConfig
+					);
+					// In dev mode, prime the fast-HMR fingerprint cache
+					// for every component .ts file so the first user
+					// edit has a baseline. Without this, the first
+					// edit always reports `cachedFingerprint ===
+					// undefined` and structural changes (`imports`,
+					// `hostDirectives`, `providers`, etc.) silently
+					// run through Tier 0 instead of escalating to
+					// Tier 1b.
+					if (hmr) {
+						try {
+							const { primeComponentFingerprint } = await import(
+								'../dev/angular/fastHmrCompiler'
+							);
+							const { readdir } = await import('node:fs/promises');
+							const { join } = await import('node:path');
+							const walk = async (
+								dir: string
+							): Promise<string[]> => {
+								const entries = await readdir(dir, {
+									withFileTypes: true
+								});
+								const out: string[] = [];
+								for (const entry of entries) {
+									const full = join(dir, entry.name);
+									if (entry.isDirectory()) {
+										out.push(...(await walk(full)));
+									} else if (
+										entry.isFile() &&
+										entry.name.endsWith('.ts') &&
+										!entry.name.endsWith('.d.ts')
+									) {
+										out.push(full);
+									}
+								}
+								return out;
+							};
+							const tsFiles = await walk(angularDir);
+							await Promise.all(tsFiles.map(primeComponentFingerprint));
+						} catch {
+							// Best-effort: if priming fails, the only
+							// consequence is the pre-fix behavior
+							// (first-edit-per-component falls through
+							// to Tier 0).
+						}
+					}
+					return result;
+				})
 			: {
 					clientPaths: [...emptyStringArray],
 					serverPaths: [...emptyStringArray]
@@ -1933,6 +1978,21 @@ const buildUnlocked = async ({
 		...(vueVendorPaths ?? {}),
 		...(svelteVendorPaths ?? {})
 	};
+	// Third-party Angular libraries (ngx-markdown, ngx-datatable, etc.)
+	// ship `ɵɵngDeclare*` partials and need linker processing — they're
+	// detected by `collectTransitiveAngularSpecs` and get a vendor/server
+	// bundle built for them. Without externalizing here, Bun INLINES them
+	// into every page bundle that imports `provideMarkdown` (or similar)
+	// transitively. The SSR runtime then loads two distinct copies — one
+	// inlined per page, one from node_modules (or the server vendor) —
+	// and the duplicate `MarkdownComponent` class definitions produce
+	// NG0912 component-id collisions on first SSR render. Externalizing
+	// keeps the bare specifier intact so dev resolves through
+	// node_modules (one canonical instance) and prod's `rewriteImports`
+	// retargets to the linked server-vendor file.
+	const angularPartialDeclSpecs = Object.keys(angularVendorPaths ?? {})
+		.filter((spec) => !spec.startsWith('@angular/'))
+		.flatMap((spec) => [spec, `${spec}/*`]);
 	const serverBuildExternals = [
 		'react',
 		'react/*',
@@ -1942,12 +2002,18 @@ const buildUnlocked = async ({
 		'svelte/*',
 		'vue',
 		'vue/*',
+		// `@vue/*` covers @vue/compiler-sfc and friends — pulled in via dynamic
+		// imports from server-side island compile helpers. Without externalizing
+		// them, Bun still follows `await import(...)` during bundling and an
+		// angular-only project (no @vue/* installed) fails server build.
+		'@vue/*',
 		// Externalize @angular/* in the server bundle — partial declarations
 		// are linked once at vendor build time, and `rewriteImports` then
 		// rewrites every bare `@angular/*` specifier in this bundle's outputs
 		// to the absolute vendor file path, so the runtime ends up with one
 		// linked module instance per package.
 		'@angular/*',
+		...angularPartialDeclSpecs,
 		'typescript'
 	];
 

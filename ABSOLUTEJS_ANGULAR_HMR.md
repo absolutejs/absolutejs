@@ -1027,6 +1027,42 @@ items that remain.
   `AsExpression`, `TypeAssertionExpression`, and
   `NonNullExpression` to find embedded structural forms.
 
+* **`@Component({ providers: [...] })` and `viewProviders:
+  [...]` array body edits.** Tracked only as
+  `hasProviders: boolean` / `hasViewProviders: boolean`
+  before. Swapping a `useFactory`, changing a `useValue`, or
+  reordering provider entries reshapes the DI tree, but
+  Angular's element-injector captures the resolved value at
+  instance-creation time — existing components hold the OLD
+  factory's instance. Now hashed via `providersArraySig` and
+  `viewProvidersArraySig`; changes escalate to Tier 1b
+  rebootstrap.
+
+* **Non-standalone (`@NgModule`-declared) component edits.**
+  Components declared via `@NgModule({ declarations: [...] })`
+  don't surface a client-side LView via the standalone-bootstrap
+  path Angular uses today, so `ɵɵreplaceMetadata` has nowhere
+  to walk and Tier 0 / Tier 1a both silently no-op. Any edit to
+  a `standalone: false` component now forces Tier 1b
+  rebootstrap so the rebuilt bundle re-renders the SSR +
+  hydration tree from scratch with the new metadata. Toggling
+  `standalone: true ↔ false` is also captured (it reshapes the
+  entire DI / module-of-one wiring).
+
+* **First-edit-after-startup escape hatch.** The fingerprint
+  cache was populated only on successful HMR cycles, so the
+  first edit-per-component after `bun run dev` always reported
+  `cachedFingerprint === undefined` and skipped both
+  `fingerprintChanged` and `rebootstrapRequired` detection.
+  Result: a user's first imports/hostDirectives/providers
+  edit silently ran through Tier 0 instead of escalating to
+  Tier 1b. The initial `compileAngular` pass now walks the
+  user's Angular root and primes the fingerprint cache via
+  `primeComponentFingerprint`, so the first edit has a
+  baseline to compare against. Same priming runs after every
+  Tier 1b rebootstrap (the bundle's structure is the new
+  baseline).
+
 **No remaining caveats from the comprehensive review pass.** The
 fast extractor's metadata coverage matches `@angular/compiler-cli`
 on every public field of `R3DirectiveMetadata` and
