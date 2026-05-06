@@ -912,6 +912,33 @@ items that remain.
   cycles instead of having `controlCreate` overwritten with
   `null` by `mergeWithExistingDefinition`'s `Object.assign`.
 
+* **SCSS / Sass `styleUrl` preprocessing on the fast path.**
+  `collectStyles` previously read external style files raw,
+  inlining unprocessed `$variables` and nested rules into
+  `R3ComponentMetadata.styles`; the browser dropped them as
+  invalid CSS, so a `.scss` edit landed as un-styled output
+  during a Tier 0 cycle. Now external styles route through
+  `compileStyleFileIfNeededSync` (the same Sass-sync path the
+  initial bundle uses) for `.scss` and `.sass`; `.css`
+  passes through raw, and other extensions (`.less`, `.styl`)
+  fall through unchanged because their preprocessors only
+  expose async APIs.
+
+* **Field-initializer call/new expressions in the fingerprint.**
+  `arrowFieldSig` previously captured only arrow-function and
+  function-expression initializers, so an edit that changed an
+  options-object on a `CallExpression` initializer
+  (`inject(X, { optional: true })`,
+  `viewChild('x', { read: ElementRef })`) or a `NewExpression`
+  initializer (`new BehaviorSubject(value)`) didn't flip any
+  fingerprint dimension and stayed on Tier 0. The constructor
+  re-execution Tier 1a provides was needed to honor the new
+  argument shape — DI flag flips, query-result type changes,
+  initial subject value swaps. The fingerprint now also walks
+  `CallExpression` and `NewExpression` initializers and folds
+  their argument-count + arg-shape into the signature, so
+  these edits force Tier 1a remount.
+
 **No remaining caveats from the comprehensive review pass.** The
 fast extractor's metadata coverage matches `@angular/compiler-cli`
 on every public field of `R3DirectiveMetadata` and

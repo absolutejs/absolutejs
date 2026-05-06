@@ -17,7 +17,7 @@
  * `ABSOLUTEJS_ANGULAR_HMR.md`. */
 
 import { existsSync, readFileSync, statSync } from 'node:fs';
-import { dirname, relative, resolve } from 'node:path';
+import { dirname, extname, relative, resolve } from 'node:path';
 import type {
 	DeclareFunctionStmt,
 	R3CompiledExpression,
@@ -1907,16 +1907,28 @@ const djb2Hash = (s: string): string => {
 };
 
 /* Walk the class members once, return a sorted `name:hash` list
- * for every property whose initializer is an arrow function or
- * function expression. Editing such an initializer's body is a
- * silent-no-op for surgical (lives per-instance, not on the
- * prototype) so we use the body hash to flag those edits as
- * structural changes that escalate to Tier 1.
+ * for every property whose initializer is one of the field-shape
+ * forms whose runtime behavior cannot be propagated through the
+ * Tier 0 prototype-patch alone:
  *
- * Non-function field initializers (`count = 0`, `data = {}`) are
- * NOT included — those edits should stay no-op so existing
- * instance state is preserved. The user wouldn't expect
- * `count = 0` → `count = 5` to reset their live counter. */
+ *   - arrow / function expressions: the function body lives
+ *     per-instance (not on the prototype), so editing the body
+ *     wouldn't reach existing instances without a remount.
+ *   - call expressions: covers `inject(Token, opts)`,
+ *     `viewChild('ref', { read })`, `contentChild('ref', opts)`,
+ *     `signal(initial)`, `computed(() => ...)`, `model(initial)`,
+ *     etc. These are Angular's signal-form member declarations
+ *     and DI lookups; their argument lists encode contract
+ *     details (DI options, query options, signal initial values)
+ *     that the runtime captures at construction time. Editing
+ *     args has runtime effects the prototype-patch can't
+ *     retroactively apply to existing instances.
+ *   - new expressions: `private subject = new BehaviorSubject(0)`.
+ *     The constructor argument changes wouldn't propagate.
+ *
+ * Plain literal initializers (`count = 0`, `data = {}`,
+ * `name = 'foo'`) are still NOT included; those edits stay no-op
+ * so existing instance state is preserved. */
 const extractArrowFieldSig = (cls: ts.ClassDeclaration): string[] => {
 	const entries: string[] = [];
 	for (const member of cls.members) {
@@ -1925,7 +1937,9 @@ const extractArrowFieldSig = (cls: ts.ClassDeclaration): string[] => {
 		if (!init) continue;
 		if (
 			!ts.isArrowFunction(init) &&
-			!ts.isFunctionExpression(init)
+			!ts.isFunctionExpression(init) &&
+			!ts.isCallExpression(init) &&
+			!ts.isNewExpression(init)
 		) {
 			continue;
 		}
@@ -2569,6 +2583,50 @@ const resolveAndReadResource = (
 	return readFileSync(abs, 'utf8');
 };
 
+/* Read a `.css` / `.scss` / `.sass` / `.less` / `.styl` file from
+ * disk and preprocess it to plain CSS so it can be inlined into
+ * `R3ComponentMetadata.styles` (Angular's runtime applies these
+ * strings as `<style>` tags directly). For `.scss` and `.sass`,
+ * `compileStyleFileIfNeededSync` invokes Sass's sync compileString.
+ * Any other extension falls through to the raw read; for `.css` the
+ * raw contents are already valid, and for `.less` / `.styl` the
+ * shared preprocessor helper throws (those need an async path that
+ * the fast extractor cannot await on). Returns `null` if the file
+ * is missing or preprocessing fails. */
+const STYLE_PREPROCESSED_EXT = new Set([
+	'.scss',
+	'.sass',
+	'.css',
+	'.less',
+	'.styl',
+	'.stylus'
+]);
+
+const resolveAndReadStyleResource = (
+	componentDir: string,
+	url: string
+): string | null => {
+	const abs = resolve(componentDir, url);
+	if (!existsSync(abs)) return null;
+	const ext = extname(abs).toLowerCase();
+	if (!STYLE_PREPROCESSED_EXT.has(ext) || ext === '.css') {
+		return readFileSync(abs, 'utf8');
+	}
+	try {
+		const { compileStyleFileIfNeededSync } = require(
+			'../../build/stylePreprocessor'
+		) as typeof import('../../build/stylePreprocessor');
+		return compileStyleFileIfNeededSync(abs);
+	} catch {
+		// Less / Stylus / missing-sass cases land here. Returning
+		// null causes the caller to surface as
+		// `style-resource-not-found`, which the dispatcher routes
+		// to the user-fixable error overlay. The user sees a clear
+		// message instead of silently-broken styles.
+		return null;
+	}
+};
+
 const collectStyles = (
 	decoratorMeta: ComponentDecoratorMeta,
 	componentDir: string
@@ -2580,7 +2638,7 @@ const collectStyles = (
 	urls.push(...decoratorMeta.styleUrls);
 
 	for (const url of urls) {
-		const css = resolveAndReadResource(componentDir, url);
+		const css = resolveAndReadStyleResource(componentDir, url);
 		if (css === null) return { styles, missing: url };
 		styles.push(css);
 	}
