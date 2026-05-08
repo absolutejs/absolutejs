@@ -40,6 +40,7 @@ import {
 import { sendTelemetryEvent } from '../cli/telemetryEvent';
 import { cleanStaleAssets, populateAssetStore } from './assetStore';
 import { detectFramework } from './pathUtils';
+import { resolveOwningComponents as resolveOwningComponentsSync } from './angular/resolveOwningComponents';
 import { toPascal } from '../utils/stringModifiers';
 import type { ResolvedBuildPaths } from './configResolver';
 import { broadcastToClients } from './webSocket';
@@ -482,6 +483,56 @@ const enqueueImporter = (state: HMRState, importer: string) => {
 const enqueueStyleImporters = (state: HMRState, changedStylePath: string) => {
 	for (const importer of findStyleEntriesImporting(changedStylePath)) {
 		enqueueImporter(state, importer);
+	}
+	// Walk the style-dependency chain to find every Angular
+	// component .ts whose `styleUrl` resource transitively `@use`s
+	// the changed partial. For each such component, also queue the
+	// owning `.component.ts` file so the angular dispatcher's
+	// `tryFastHmr` path picks it up and re-emits the inlined
+	// `ɵcmp.styles[]` content. Without this, a shared
+	// `_tokens.scss` / `_variables.scss` edit propagates the
+	// re-compiled CSS for the styles framework's `<link>` tag swap,
+	// but Angular component-scoped styles (rendered as inline
+	// `<style>` tags via encapsulation) keep the old SCSS-resolved
+	// values until full reload.
+	enqueueAngularOwningComponentForStyle(state, changedStylePath);
+};
+
+const enqueueAngularOwningComponentForStyle = (
+	state: HMRState,
+	changedStylePath: string
+): void => {
+	const angularDir = state.resolvedPaths.angularDir;
+	if (!angularDir) return;
+	const visited = new Set<string>();
+	const stack = [
+		changedStylePath,
+		...findStyleEntriesImporting(changedStylePath)
+	];
+	while (stack.length > 0) {
+		const stylePath = stack.pop();
+		if (!stylePath || visited.has(stylePath)) continue;
+		visited.add(stylePath);
+		// Add transitive importers — `_a.scss` → `_b.scss` →
+		// `c.component.scss` → `c.component.ts`.
+		for (const upstream of findStyleEntriesImporting(stylePath)) {
+			if (!visited.has(upstream)) stack.push(upstream);
+		}
+		// For each visited style file, see if it's a styleUrl of an
+		// Angular component — if so, queue the owning component .ts
+		// under the angular framework so handleAngularFastPath sees
+		// it.
+		try {
+			const owners = resolveOwningComponentsSync({
+				changedFilePath: stylePath,
+				userAngularRoot: angularDir
+			});
+			for (const owner of owners) {
+				enqueueImporter(state, owner.componentFilePath);
+			}
+		} catch {
+			// Best-effort; fall through to the regular styles path.
+		}
 	}
 };
 

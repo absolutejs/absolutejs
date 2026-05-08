@@ -771,6 +771,22 @@ export const compileStyleSource = async (
 			});
 
 			const css = await runPostcss(result.css, filePath, config);
+			// Augment `deps` with `result.loadedUrls`. Detail:
+			// resolves a relative `@use './partial'` via the
+			// built-in filesystem loader (which it does whenever
+			// the source has a `url:` set, which we always do),
+			// the custom importer's `canonicalize`/`load` callbacks
+			// don't fire — so `deps` would otherwise be empty.
+			// `loadedUrls` always reflects every file Sass actually
+			// touched, including the entry, so we filter the entry
+			// out and add the rest.
+			const loadedUrls = (result.loadedUrls ?? []) as URL[];
+			for (const url of loadedUrls) {
+				if (url.protocol !== 'file:') continue;
+				const dep = fileURLToPath(url);
+				if (resolve(dep) === resolve(filePath)) continue;
+				deps.add(dep);
+			}
 			recordStyleDeps(filePath, deps);
 
 			return css;
@@ -1123,7 +1139,7 @@ export const compileStyleFileIfNeededSync = (
 			options.additionalData
 		);
 		const loadPaths = normalizeLoadPaths(filePath, options.loadPaths);
-		const compiled = sass.compileString(contents, {
+		const result = sass.compileString(contents, {
 			importers: [
 				createSassImporter(filePath, loadPaths, language, config)
 			],
@@ -1131,12 +1147,26 @@ export const compileStyleFileIfNeededSync = (
 			style: 'expanded',
 			syntax: language === 'sass' ? 'indented' : 'scss',
 			url: new URL(`file://${filePath}`)
-		}).css;
+		});
+		// Track every `@use` / `@import` dependency Sass loaded so
+		// downstream HMR can find the entry stylesheet that needs to
+		// re-emit when a shared partial (`_shared.scss`,
+		// `_tokens.scss`) changes. `result.loadedUrls` includes the
+		// entry itself plus everything it pulled in. Without this,
+		// editing a shared partial silently keeps the entry's stale
+		// CSS until a full restart.
+		const loadedUrls = (result.loadedUrls ?? []) as URL[];
+		for (const url of loadedUrls) {
+			if (url.protocol !== 'file:') continue;
+			const dep = fileURLToPath(url);
+			if (resolve(dep) === resolve(filePath)) continue;
+			addStyleImporter(filePath, dep);
+		}
 		// Sass leaves plain `.css` `@import` statements alone (per CSS
 		// spec, those are runtime-resolved). Resolve them here so the
 		// inlined `ɵcmp.styles` content is self-contained.
 		return resolveCssImportsSync(
-			compiled,
+			result.css,
 			dirname(filePath),
 			new Set([filePath])
 		);

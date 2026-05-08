@@ -1114,6 +1114,58 @@ items that remain.
   `decoratorInputsArraySig` and `decoratorOutputsArraySig`;
   changes force Tier 1a remount.
 
+* **`@Component({ host: { '(click)': 'handler()' } })` host
+  binding edits.** Host bindings (event listeners and
+  property/attribute bindings on the host element) are wired
+  into the host element at LView-creation time. Tier 0 ɵcmp
+  updates rebuild the metadata but don't (de)attach listeners
+  against the existing host element, so swapping `(click)` for
+  `(mousedown)` silently leaves the OLD listener attached and
+  the NEW one never registered. Now hashed via
+  `hostBindingsSig`; changes force Tier 1a remount so the host
+  element gets a fresh listener wire-up.
+
+* **Shared SCSS partial propagation through to Angular
+  component-scoped styles.** A `_shared.scss` / `_tokens.scss`
+  partial `@use`'d transitively by an Angular component's
+  `styleUrl` resource: editing the partial would re-emit
+  document-level `<link>`-style CSS but the Angular component's
+  inlined `<style>` tags (rendered via encapsulation) kept the
+  pre-edit SCSS-resolved values. Two missing pieces: (1)
+  `compileStyleSource` relied on a custom Sass importer's
+  `load()` callback to populate the dep graph, but Sass uses
+  its built-in filesystem loader for `@use './x'` whenever a
+  source `url:` is set — so the callback never fired and the
+  graph was empty. Now augments `deps` from
+  `result.loadedUrls` directly. (2) When the partial edit
+  propagated to the styles framework, the importer chain
+  walked one hop only and stopped at `*.component.scss` —
+  whose `detectFramework` returns `'styles'`, never reaching
+  the angular dispatcher. Now walks transitive importers and
+  also queues each Angular component `.ts` whose `styleUrl`
+  matches, so the angular fast path picks it up and re-emits
+  `ɵcmp.styles[]`.
+
+* **Page-level `export const providers = [...]` /
+  `export const routes = [...]` in framework page files.** The
+  absolutejs bootstrap path passes these module-level exports
+  to `bootstrapApplication`, but the component fingerprint
+  only walks the `@Component` decorator. Editing the providers
+  array silently kept existing instances bound to the OLD
+  factory's resolved values. New `pageExportsSig` dimension
+  hashes recognized framework-special exports (`providers`,
+  `routes`); changes force Tier 1b rebootstrap.
+
+* **First-edit-after-startup escape hatch for Pipe / Directive
+  / Injectable entities.** `primeComponentFingerprint` only
+  primed the component-level cache, leaving the
+  entity-fingerprint cache empty for non-component entities.
+  First edit of a `@Directive({ selector: '[old]' })` rename
+  fell through Tier 0 with no comparison; only the SECOND
+  edit caught the structural change. The startup primer now
+  also seeds the entity cache for `@Directive`, `@Pipe`, and
+  `@Injectable` declarations.
+
 **No remaining caveats from the comprehensive review pass.** The
 fast extractor's metadata coverage matches `@angular/compiler-cli`
 on every public field of `R3DirectiveMetadata` and

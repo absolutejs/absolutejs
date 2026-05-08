@@ -196,6 +196,25 @@ export type ComponentFingerprint = {
 	/* Hash of the `@Component({ outputs: [...] })` decorator-array
 	 * form. Same rationale as `decoratorInputsArraySig`. */
 	decoratorOutputsArraySig: string;
+	/* Hash of the `@Component({ host: { ... } })` object text.
+	 * Host bindings (`(click)`, `[class.active]`, `[attr.role]`)
+	 * are wired into the host element at LView-creation time;
+	 * Tier 0 ɵcmp updates don't (de)attach listeners or re-bind
+	 * properties against the existing host element. Forces
+	 * Tier 1a remount on change so the host gets a fresh wire-
+	 * up. */
+	hostBindingsSig: string;
+	/* Hash of module-level framework-special exports the
+	 * component file may declare alongside its `@Component`
+	 * class — `export const providers = [...]` (bootstrap-level
+	 * providers consumed by `bootstrapApplication`),
+	 * `export const routes = [...]` (router config). Edits to
+	 * these reshape the DI / router tree at app-bootstrap level,
+	 * so existing instances hold the OLD provider tree's
+	 * resolved values. Captured separately from the decorator
+	 * fingerprint because they live outside the decorator. Forces
+	 * Tier 1b rebootstrap on change. */
+	pageExportsSig: string;
 };
 
 export type FastHmrSuccess = {
@@ -332,6 +351,8 @@ const fingerprintsEqual = (
 	if (a.decoratorInputsArraySig !== b.decoratorInputsArraySig) return false;
 	if (a.decoratorOutputsArraySig !== b.decoratorOutputsArraySig)
 		return false;
+	if (a.hostBindingsSig !== b.hostBindingsSig) return false;
+	if (a.pageExportsSig !== b.pageExportsSig) return false;
 
 	return true;
 };
@@ -393,35 +414,76 @@ export const primeComponentFingerprint = async (
 		if (!className) continue;
 
 		const decorators = ts.getDecorators(stmt) ?? [];
-		const componentDecorator = decorators.find((d) => {
-			if (!ts.isCallExpression(d.expression)) return false;
-			const expr = d.expression.expression;
-			return ts.isIdentifier(expr) && expr.text === 'Component';
-		});
-		if (!componentDecorator) continue;
+		const decoratorName = (() => {
+			for (const d of decorators) {
+				if (!ts.isCallExpression(d.expression)) continue;
+				const expr = d.expression.expression;
+				if (!ts.isIdentifier(expr)) continue;
+				if (
+					expr.text === 'Component' ||
+					expr.text === 'Directive' ||
+					expr.text === 'Pipe' ||
+					expr.text === 'Injectable'
+				) {
+					return expr.text;
+				}
+			}
+			return null;
+		})();
+		if (!decoratorName) continue;
 
-		const decoratorCall = componentDecorator.expression as ts.CallExpression;
-		const args = decoratorCall.arguments[0];
-		if (!args || !ts.isObjectLiteralExpression(args)) continue;
-
-		const decoratorMeta = readDecoratorMeta(args);
-		const { inputs, outputs } = extractInputsAndOutputs(stmt, null);
-		const componentDir = dirname(componentFilePath);
-		const fingerprint = extractFingerprint(
-			stmt,
-			className,
-			decoratorMeta,
-			inputs,
-			outputs,
-			sourceFile,
-			componentDir
-		);
 		const projectRel = relative(process.cwd(), componentFilePath).replace(
 			/\\/g,
 			'/'
 		);
 		const id = encodeURIComponent(`${projectRel}@${className}`);
-		fingerprintCache.set(id, fingerprint);
+
+		if (decoratorName === 'Component') {
+			const componentDecorator = decorators.find((d) => {
+				if (!ts.isCallExpression(d.expression)) return false;
+				const expr = d.expression.expression;
+				return ts.isIdentifier(expr) && expr.text === 'Component';
+			});
+			if (!componentDecorator) continue;
+			const decoratorCall =
+				componentDecorator.expression as ts.CallExpression;
+			const args = decoratorCall.arguments[0];
+			if (!args || !ts.isObjectLiteralExpression(args)) continue;
+
+			const decoratorMeta = readDecoratorMeta(args);
+			const { inputs, outputs } = extractInputsAndOutputs(stmt, null);
+			const componentDir = dirname(componentFilePath);
+			const fingerprint = extractFingerprint(
+				stmt,
+				className,
+				decoratorMeta,
+				inputs,
+				outputs,
+				sourceFile,
+				componentDir
+			);
+			fingerprintCache.set(id, fingerprint);
+		} else {
+			// `@Directive`, `@Pipe`, `@Injectable` — populate the
+			// entity-fingerprint cache so the FIRST edit detects
+			// decorator-arg / structural-surface changes (selector
+			// rename, pipe-name rename, providedIn switch, etc.).
+			// Without priming, the first edit's
+			// `cachedEntityFingerprint === undefined` check skips
+			// the comparison and runs Tier 0 against the renamed
+			// entity, leaving live templates pointing at the OLD
+			// selector/name.
+			try {
+				const entityFingerprint = extractEntityFingerprint(
+					stmt,
+					className,
+					sourceFile
+				);
+				entityFingerprintCache.set(id, entityFingerprint);
+			} catch {
+				// Best-effort priming.
+			}
+		}
 	}
 };
 
@@ -836,6 +898,17 @@ type ComponentDecoratorMeta = {
 	/* The raw `outputs: [...]` array node — same rationale as
 	 * `inputsArrayExpr`. */
 	outputsArrayExpr: ts.ArrayLiteralExpression | null;
+	/* The raw `host: { ... }` object node. Host bindings (event
+	 * listeners and property/attribute bindings on the host
+	 * element) are wired up at LView creation time. Tier 0
+	 * surgical updates rebuild `ɵcmp` but don't (de)attach
+	 * listeners against the existing host element, so
+	 * adding/removing/swapping a `(click)` listener silently
+	 * leaves the OLD listener attached and the NEW one never
+	 * registered. Hashed via `hostBindingsSig`; changes force
+	 * Tier 1a remount so the host element gets a fresh
+	 * listener wire-up. */
+	hostExpr: ts.ObjectLiteralExpression | null;
 	hasProviders: boolean;
 	hasViewProviders: boolean;
 	/* `ViewEncapsulation` numeric value (Emulated=0, None=2,
@@ -945,6 +1018,7 @@ const readDecoratorMeta = (
 	const viewProvidersExpr = getProperty(args, 'viewProviders');
 	const inputsArrayExpr = getProperty(args, 'inputs');
 	const outputsArrayExpr = getProperty(args, 'outputs');
+	const hostExpr = getProperty(args, 'host');
 
 	const styleUrls: string[] = [];
 	if (styleUrlsExpr && ts.isArrayLiteralExpression(styleUrlsExpr)) {
@@ -1026,6 +1100,10 @@ const readDecoratorMeta = (
 			outputsArrayExpr &&
 			ts.isArrayLiteralExpression(outputsArrayExpr)
 				? outputsArrayExpr
+				: null,
+		hostExpr:
+			hostExpr && ts.isObjectLiteralExpression(hostExpr)
+				? hostExpr
 				: null,
 		preserveWhitespaces:
 			getBooleanProperty(args, 'preserveWhitespaces') ??
@@ -2652,6 +2730,39 @@ const extractFingerprint = (
 	const decoratorOutputsArraySig = decoratorMeta.outputsArrayExpr
 		? djb2Hash(decoratorMeta.outputsArrayExpr.getText())
 		: '';
+	const hostBindingsSig = decoratorMeta.hostExpr
+		? djb2Hash(decoratorMeta.hostExpr.getText())
+		: '';
+
+	// Hash module-level `export const providers = [...]` and
+	// `export const routes = [...]` declarations. These live
+	// outside the `@Component` decorator but the absolutejs
+	// bootstrap path passes them to `bootstrapApplication`, so
+	// edits reshape the DI / router tree at bootstrap time.
+	// Existing component instances hold the OLD tree's resolved
+	// values, so a change forces Tier 1b rebootstrap. Other
+	// `export const ...` declarations (page metadata, types) are
+	// not hashed — only the names the framework consumes.
+	const PAGE_EXPORT_NAMES = new Set(['providers', 'routes']);
+	const pageExportEntries: string[] = [];
+	for (const stmt of sourceFile.statements) {
+		if (!ts.isVariableStatement(stmt)) continue;
+		const isExported = stmt.modifiers?.some(
+			(m) => m.kind === ts.SyntaxKind.ExportKeyword
+		);
+		if (!isExported) continue;
+		for (const decl of stmt.declarationList.declarations) {
+			if (!ts.isIdentifier(decl.name)) continue;
+			if (!PAGE_EXPORT_NAMES.has(decl.name.text)) continue;
+			if (!decl.initializer) continue;
+			pageExportEntries.push(
+				`${decl.name.text}=${djb2Hash(decl.initializer.getText())}`
+			);
+		}
+	}
+	pageExportEntries.sort();
+	const pageExportsSig =
+		pageExportEntries.length > 0 ? pageExportEntries.join('|') : '';
 
 	return {
 		animationsArraySig,
@@ -2664,11 +2775,13 @@ const extractFingerprint = (
 		encapsulation: decoratorMeta.encapsulation,
 		hasProviders: decoratorMeta.hasProviders,
 		hasViewProviders: decoratorMeta.hasViewProviders,
+		hostBindingsSig,
 		hostDirectivesSig,
 		importsArraySig,
 		inputs: inputNames,
 		memberDecoratorSig,
 		outputs: outputNames,
+		pageExportsSig,
 		propertyFieldNames,
 		providerImportSig,
 		providersArraySig,
@@ -3389,6 +3502,14 @@ export const tryFastHmr = async (
 				// against the new selector.
 				cachedFingerprint.selector !==
 					currentFingerprint.selector ||
+				// Module-level `export const providers = [...]` /
+				// `export const routes = [...]` reshape the DI /
+				// router tree at app-bootstrap; existing
+				// instances hold the OLD tree's resolved values.
+				// Force Tier 1b so the rebuilt bundle re-runs
+				// `bootstrapApplication` with the new providers.
+				cachedFingerprint.pageExportsSig !==
+					currentFingerprint.pageExportsSig ||
 				// Toggling `standalone: true` ↔
 				// `standalone: false` reshapes the entire DI /
 				// module-of-one wiring; existing LViews can't be
