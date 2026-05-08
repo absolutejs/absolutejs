@@ -98,6 +98,26 @@ const recompileTailwindForFastPath = async (
 		);
 		if (!cssChanged) return;
 
+		// `incrementalTailwindBuild` wrote the new CSS to disk, but the
+		// dev server's in-memory `assetStore` still has the OLD bytes
+		// keyed by the tailwind output URL. Without refreshing it, the
+		// browser's `<link>` reload (triggered by the `style-update`
+		// broadcast below) refetches the same URL and gets the stale
+		// bytes from the asset store — and the new utility classes
+		// silently never apply.
+		try {
+			const outputPath = resolve(
+				state.resolvedPaths.buildDir,
+				config.tailwind.output
+			);
+			const bytes = await Bun.file(outputPath).bytes();
+			const webPath = `/${config.tailwind.output.replace(/^\/+/, '')}`;
+			state.assetStore.set(webPath, bytes);
+		} catch {
+			// Best-effort. If the disk read fails the next full
+			// rebuild will repopulate via `populateAssetStore`.
+		}
+
 		broadcastToClients(state, {
 			data: { framework: 'tailwind', manifest: state.manifest },
 			message: 'Tailwind utilities recompiled',
