@@ -558,13 +558,111 @@ export const queueFileChange = async (
 	}
 
 	// Shared files (workers, utils, etc.) that don't belong to any
-	// framework just need their transform cache invalidated — no rebuild.
+	// framework just need their transform cache invalidated — no
+	// per-framework rebuild for the file itself. BUT we still need
+	// to propagate the change to any Angular component that
+	// imports it transitively, since the consuming component's
+	// compiled output references the helper's resolved value at
+	// module-evaluation time and existing instances hold the OLD
+	// value. Without this, a `src/utils/format.ts` edit silently
+	// keeps the pre-edit return value until full reload.
+	//
+	// `getAffectedFiles` walks the dependency graph from the edit
+	// outward to every dependent. We filter to angular files and
+	// queue each one under the angular framework so the angular
+	// fast path picks them up. If at least one angular dependent
+	// exists, fall through to the regular rebuild scheduling
+	// path; otherwise stop after invalidating the cache.
 	if (framework === 'unknown') {
 		invalidateTransformCache(resolve(filePath));
 		const relPath = relative(process.cwd(), filePath);
 		logHmrUpdate(relPath);
 
-		return;
+		// If any Angular component imports the helper transitively,
+		// we need a Tier 1b rebootstrap. Tier 0 surgical updates
+		// destructure helper symbols from `Class.__abs_deps`, which
+		// is registered by `hmrInjectionPlugin` against the bundle's
+		// import bindings — those bindings still point at the OLD
+		// helper closure even after the file edit, so a Tier 0 cycle
+		// would silently re-run with the pre-edit value. Only a full
+		// bundle rebuild gets fresh module references into
+		// `__abs_deps`.
+		const angularDir = state.resolvedPaths.angularDir;
+		let hasAngularDependent = false;
+		if (angularDir && state.dependencyGraph) {
+			try {
+				const { addFileToGraph } = await import('./dependencyGraph');
+				addFileToGraph(state.dependencyGraph, resolve(filePath));
+
+				const affected = getAffectedFiles(
+					state.dependencyGraph,
+					resolve(filePath)
+				);
+				for (const dependent of affected) {
+					if (dependent === resolve(filePath)) continue;
+					const dependentFramework = detectFramework(
+						dependent,
+						state.resolvedPaths
+					);
+					if (dependentFramework !== 'angular') continue;
+					hasAngularDependent = true;
+					if (!state.fileChangeQueue.has('angular')) {
+						state.fileChangeQueue.set('angular', []);
+					}
+					const angularQueue = state.fileChangeQueue.get('angular');
+					if (angularQueue && !angularQueue.includes(dependent)) {
+						angularQueue.push(dependent);
+					}
+				}
+			} catch {
+				// Best-effort.
+			}
+		}
+
+		if (!hasAngularDependent) {
+			return;
+		}
+
+		// Drop the dev module server's cached transform for the
+		// helper's generated-angular twin. `compileAngularFileJIT`
+		// emits a per-page copy under
+		// `.absolutejs/generated/angular/<absPathOfHelper>.js` so
+		// SSR + CSR can serve the helper from a single rooted URL.
+		// `invalidateTransformCache(resolve(filePath))` drops the
+		// source-side cache, but the dev module server keys its
+		// transform cache by the URL form
+		// (`/@src/.absolutejs/generated/angular/<absPathOfHelper>.js`),
+		// which is a different cache entry. Without this, the next
+		// `bootstrapApplication` re-imports the helper from the
+		// stale URL and gets the pre-edit body — defeating the
+		// rebootstrap.
+		try {
+			const { getFrameworkGeneratedDir } = await import(
+				'../utils/generatedDir'
+			);
+			const { invalidateModule: invalidateModuleServer } = await import(
+				'./moduleServer'
+			);
+			const generatedAngularRoot = getFrameworkGeneratedDir('angular');
+			const sourceAbs = resolve(filePath).replace(/\\/g, '/');
+			const generatedTwin = `${generatedAngularRoot.replace(/\\/g, '/')}${sourceAbs.replace(/\.ts$/, '.js')}`;
+			invalidateModuleServer(generatedTwin);
+		} catch {
+			// Best-effort.
+		}
+
+		// Mark the unknown helper file under the 'unknown' framework
+		// queue too, so `state.lastUserEditedFiles` includes it and
+		// the dispatcher's `decideAngularTier` path can recognize a
+		// non-decorated edit and force Tier 1b. Falls through to
+		// rebuild scheduling.
+		if (!state.fileChangeQueue.has('unknown')) {
+			state.fileChangeQueue.set('unknown', []);
+		}
+		const unknownQueue = state.fileChangeQueue.get('unknown');
+		if (unknownQueue && !unknownQueue.includes(filePath)) {
+			unknownQueue.push(filePath);
+		}
 	}
 
 	if (!state.fileChangeQueue.has(framework)) {
@@ -966,6 +1064,43 @@ const decideAngularTier = async (
 		if (editedFile.endsWith('.ts') || editedFile.endsWith('.tsx')) {
 			invalidateResourceIndex();
 			break;
+		}
+	}
+
+	// Non-Angular files (helpers, configs, types, tokens) outside
+	// `angularDir` that an Angular component imports transitively
+	// can't propagate via Tier 0: the surgical-update module
+	// destructures helper symbols from `Class.__abs_deps`, which is
+	// registered against the bundle's import bindings — those
+	// bindings still point at the OLD module's exports even after
+	// the helper edit, so a Tier 0 cycle silently re-runs with the
+	// pre-edit value. Force Tier 1b rebootstrap so the rebuilt
+	// bundle re-evaluates the helper and re-registers `__abs_deps`
+	// against the new exports.
+	for (const editedFile of userEdited) {
+		if (!editedFile.endsWith('.ts')) continue;
+		if (editedFile.endsWith('.d.ts')) continue;
+		const detected = detectFramework(editedFile, state.resolvedPaths);
+		if (detected !== 'unknown') continue;
+		try {
+			const affected = getAffectedFiles(
+				state.dependencyGraph,
+				resolve(editedFile)
+			);
+			const hasAngularConsumer = affected.some(
+				(dep) =>
+					dep !== resolve(editedFile) &&
+					detectFramework(dep, state.resolvedPaths) === 'angular'
+			);
+			if (hasAngularConsumer) {
+				return {
+					kind: 'rebootstrap',
+					reason: `non-angular helper edited (${editedFile}) — angular dependents need fresh bundle for __abs_deps to point at new exports`,
+					tier: 1
+				};
+			}
+		} catch {
+			// Best-effort.
 		}
 	}
 

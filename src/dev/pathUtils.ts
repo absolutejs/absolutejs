@@ -229,6 +229,29 @@ const collectPositiveWatchRoots = (
 		if (existsSync(abs) && !roots.includes(abs)) roots.push(abs);
 	}
 
+	// Cover the rest: any other directory at the project root that
+	// isn't ignored. This catches helpers under `utils/`, `lib/`,
+	// `shared/`, `config/`, `core/`, or any other non-canonical name
+	// the user picked, without hardcoding a list. `shouldIgnorePath`
+	// already gates against `node_modules`, `build`, `.absolutejs`,
+	// `.git`, etc.; we additionally skip dot-directories and the
+	// already-included framework roots.
+	try {
+		const { readdirSync } = require('node:fs') as typeof import('node:fs');
+		const entries = readdirSync(cwd, { withFileTypes: true });
+		for (const entry of entries) {
+			if (!entry.isDirectory()) continue;
+			if (entry.name.startsWith('.')) continue;
+			const abs = normalizePath(resolve(cwd, entry.name));
+			if (roots.includes(abs)) continue;
+			if (shouldIgnorePath(abs, resolved)) continue;
+			roots.push(abs);
+		}
+	} catch {
+		// Best-effort — fall back to the canonical list above if
+		// the project root isn't readable for some reason.
+	}
+
 	// User-supplied extra dirs from absolute.config.ts → dev.watchDirs.
 	const extraDirs = config.dev?.watchDirs ?? [];
 	for (const dir of extraDirs) push(dir);

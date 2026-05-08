@@ -1166,6 +1166,36 @@ items that remain.
   also seeds the entity cache for `@Directive`, `@Pipe`, and
   `@Injectable` declarations.
 
+* **Helper / utility / config `.ts` files outside the
+  configured `angularDirectory`.** Files like
+  `utils/format.ts`, `lib/format.ts`, `config/app.config.ts`,
+  or `core/tokens.ts` — whatever directory name the user
+  picked — sat outside both the framework-specific watch
+  roots (`angular/`, `react/`, etc.) and the canonical
+  shared-source list (`src/`, `db/`, `assets/`, `styles/`).
+  The watcher never observed their edits, so the dispatcher
+  never fired, and consuming Angular components silently kept
+  the pre-edit value. Two pieces: (1) `getWatchPaths` now
+  enumerates every non-dot, non-ignored top-level project
+  directory rather than relying on a hardcoded list — covers
+  any naming convention without requiring `utils` /
+  `utilities` / `lib` / `config` / etc. to be specially named.
+  (2) For non-decorated `.ts` edits whose dependency-graph
+  walk reveals an Angular consumer, the dispatcher escalates
+  to Tier 1b rebootstrap (Tier 0 surgical can't reach the
+  bundle's `__abs_deps` import bindings, which still resolve
+  to the OLD module exports). The dev module server's
+  transform cache for the helper's `.absolutejs/generated/
+  angular/<absPath>.js` twin is also dropped so the rebuilt
+  bundle's import lands on fresh content.
+
+* **`@Component({ schemas: [...] })` toggle.** Schemas
+  (`CUSTOM_ELEMENTS_SCHEMA`, `NO_ERRORS_SCHEMA`) affect which
+  unknown elements/attributes the template compiler accepts
+  at view-instantiation time. Toggling them silently kept the
+  OLD schema rules baked into existing LViews. Hashed via
+  `schemasSig`; changes force Tier 1a remount.
+
 **No remaining caveats from the comprehensive review pass.** The
 fast extractor's metadata coverage matches `@angular/compiler-cli`
 on every public field of `R3DirectiveMetadata` and

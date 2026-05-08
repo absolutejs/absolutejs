@@ -215,6 +215,15 @@ export type ComponentFingerprint = {
 	 * fingerprint because they live outside the decorator. Forces
 	 * Tier 1b rebootstrap on change. */
 	pageExportsSig: string;
+	/* Hash of the `@Component({ schemas: [...] })` array text.
+	 * Schemas (`CUSTOM_ELEMENTS_SCHEMA`, `NO_ERRORS_SCHEMA`)
+	 * affect which unknown elements / attributes the template
+	 * compiler accepts at view-instantiation time — they're
+	 * baked into the component's scope context, so toggling
+	 * them on/off changes which elements live templates
+	 * accept. Forces Tier 1a remount on change so the new
+	 * scope context is wired. */
+	schemasSig: string;
 };
 
 export type FastHmrSuccess = {
@@ -353,6 +362,7 @@ const fingerprintsEqual = (
 		return false;
 	if (a.hostBindingsSig !== b.hostBindingsSig) return false;
 	if (a.pageExportsSig !== b.pageExportsSig) return false;
+	if (a.schemasSig !== b.schemasSig) return false;
 
 	return true;
 };
@@ -909,6 +919,13 @@ type ComponentDecoratorMeta = {
 	 * Tier 1a remount so the host element gets a fresh
 	 * listener wire-up. */
 	hostExpr: ts.ObjectLiteralExpression | null;
+	/* The raw `schemas: [...]` array node. Schemas
+	 * (`CUSTOM_ELEMENTS_SCHEMA`, `NO_ERRORS_SCHEMA`) affect
+	 * which unknown elements/attributes the template compiler
+	 * accepts at view-instantiation time. Toggling them
+	 * silently keeps the OLD schema rules baked into existing
+	 * LViews. */
+	schemasExpr: ts.ArrayLiteralExpression | null;
 	hasProviders: boolean;
 	hasViewProviders: boolean;
 	/* `ViewEncapsulation` numeric value (Emulated=0, None=2,
@@ -1019,6 +1036,7 @@ const readDecoratorMeta = (
 	const inputsArrayExpr = getProperty(args, 'inputs');
 	const outputsArrayExpr = getProperty(args, 'outputs');
 	const hostExpr = getProperty(args, 'host');
+	const schemasExpr = getProperty(args, 'schemas');
 
 	const styleUrls: string[] = [];
 	if (styleUrlsExpr && ts.isArrayLiteralExpression(styleUrlsExpr)) {
@@ -1104,6 +1122,10 @@ const readDecoratorMeta = (
 		hostExpr:
 			hostExpr && ts.isObjectLiteralExpression(hostExpr)
 				? hostExpr
+				: null,
+		schemasExpr:
+			schemasExpr && ts.isArrayLiteralExpression(schemasExpr)
+				? schemasExpr
 				: null,
 		preserveWhitespaces:
 			getBooleanProperty(args, 'preserveWhitespaces') ??
@@ -2733,6 +2755,9 @@ const extractFingerprint = (
 	const hostBindingsSig = decoratorMeta.hostExpr
 		? djb2Hash(decoratorMeta.hostExpr.getText())
 		: '';
+	const schemasSig = decoratorMeta.schemasExpr
+		? djb2Hash(decoratorMeta.schemasExpr.getText())
+		: '';
 
 	// Hash module-level `export const providers = [...]` and
 	// `export const routes = [...]` declarations. These live
@@ -2785,6 +2810,7 @@ const extractFingerprint = (
 		propertyFieldNames,
 		providerImportSig,
 		providersArraySig,
+		schemasSig,
 		selector: decoratorMeta.selector,
 		standalone: decoratorMeta.standalone,
 		topLevelImports,
