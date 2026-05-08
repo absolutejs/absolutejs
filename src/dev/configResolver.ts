@@ -18,6 +18,7 @@ export const resolveBuildPaths = (config: BuildConfig) => {
 		emberDir: optional(config.emberDirectory),
 		htmlDir: optional(config.htmlDirectory),
 		htmxDir: optional(config.htmxDirectory),
+		publicDir: optional(config.publicDirectory),
 		reactDir: optional(config.reactDirectory),
 		stylesDir: optional(
 			typeof config.stylesConfig === 'string'

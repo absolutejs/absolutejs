@@ -293,6 +293,87 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 	let serverProcess: ChildProcess = spawnServer();
 	const sessionStart = Date.now();
 
+	// Watch the server entry file for edits and restart the bun child
+	// process when it changes. `bun --hot` re-evaluates the module but
+	// Elysia's `.listen()` doesn't have a hot-swap story — the OLD
+	// listener stays bound to the port and new routes/handlers added
+	// in the edit silently never take effect. A full child-process
+	// restart is the only reliable way for Elysia (and most other
+	// HTTP frameworks). Frontend file edits go through the in-process
+	// HMR pipeline so this restart only fires on backend / route /
+	// handler edits. Wired here at the CLI rather than inside the
+	// bun child because we can't ask the child to restart itself
+	// gracefully without dropping the parent's process-group + signal
+	// plumbing.
+	let serverRestartPending = false;
+	const scheduleServerRestart = (filePath: string) => {
+		if (serverRestartPending) return;
+		serverRestartPending = true;
+		const relPath = filePath.startsWith(process.cwd())
+			? filePath.slice(process.cwd().length + 1)
+			: filePath;
+		console.log(
+			cliTag('\x1b[36m', `Server file changed: ${relPath} — restarting...`)
+		);
+		setTimeout(() => {
+			serverRestartPending = false;
+			restartServer().catch((err) => {
+				console.error(cliTag('\x1b[31m', `Restart failed: ${err}`));
+			});
+		}, 80);
+	};
+	try {
+		const { watch, existsSync } = await import('node:fs');
+		const { dirname, basename } = await import('node:path');
+		const absServerEntry = resolve(serverEntry);
+		const serverEntryDir = dirname(absServerEntry);
+		const serverEntryBase = basename(absServerEntry);
+		// Watch the parent directory rather than the file itself —
+		// editors that use atomic-write (write to .tmp, rename over)
+		// invalidate inode-based file watches after the first save,
+		// while directory watches survive the rename and continue to
+		// observe future changes.
+		const fsWatcher = watch(
+			serverEntryDir,
+			{ persistent: false },
+			(eventType, filename) => {
+				if (eventType !== 'change' && eventType !== 'rename') return;
+				if (filename !== serverEntryBase) return;
+				scheduleServerRestart(absServerEntry);
+			}
+		);
+		fsWatcher.unref();
+
+		// Also watch the absolute.config.ts at the project root.
+		// `loadConfig` reads it once at startup; mid-session edits
+		// (toggling tailwind, changing a directory, adding HMR
+		// options) silently keep the pre-edit config until manual
+		// restart. Treating it the same as the server entry —
+		// triggering a child-process restart — ensures the new
+		// config takes effect.
+		const configCandidates = ['absolute.config.ts', 'absolute.config.js'];
+		const projectRoot = process.cwd();
+		for (const candidate of configCandidates) {
+			const absCandidate = resolve(projectRoot, candidate);
+			if (!existsSync(absCandidate)) continue;
+			const candidateBase = basename(absCandidate);
+			const configWatcher = watch(
+				dirname(absCandidate),
+				{ persistent: false },
+				(eventType, filename) => {
+					if (eventType !== 'change' && eventType !== 'rename') return;
+					if (filename !== candidateBase) return;
+					scheduleServerRestart(absCandidate);
+				}
+			);
+			configWatcher.unref();
+		}
+	} catch (err) {
+		console.error(
+			cliTag('\x1b[33m', `Failed to set up server entry watcher: ${err}`)
+		);
+	}
+
 	let frameworks: string[] = [];
 	try {
 		const cfg = await loadConfig(configPath);

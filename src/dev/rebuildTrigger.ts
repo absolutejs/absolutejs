@@ -577,6 +577,46 @@ export const queueFileChange = async (
 		return;
 	}
 
+	// `public/` directory edits: copy the file into `buildDir`,
+	// refresh the asset store with the new bytes, and broadcast a
+	// `style-update` so any `<link>` / `<img>` referencing it gets
+	// a `?t=now` URL bust. Without this, the watcher logged the
+	// edit but the dev server kept serving the stale copy from the
+	// asset store (populated only at startup) — same shape as the
+	// tailwind-asset-store caveat. Public assets aren't bundled or
+	// transformed, so we just mirror the file 1:1 to `buildDir`.
+	const publicDir = state.resolvedPaths.publicDir;
+	if (
+		publicDir &&
+		resolve(filePath).replace(/\\/g, '/').startsWith(publicDir + '/')
+	) {
+		try {
+			const absSource = resolve(filePath);
+			const relFromPublic = absSource
+				.replace(/\\/g, '/')
+				.slice(publicDir.length + 1);
+			const buildDir = state.resolvedPaths.buildDir;
+			const destPath = resolve(buildDir, relFromPublic);
+			const { mkdir, copyFile, readFile } = await import('node:fs/promises');
+			const { dirname } = await import('node:path');
+			await mkdir(dirname(destPath), { recursive: true });
+			await copyFile(absSource, destPath);
+			const bytes = await readFile(destPath);
+			state.assetStore.set(`/${relFromPublic}`, new Uint8Array(bytes));
+			state.fileHashes.set(absSource, currentHash);
+			logHmrUpdate(relative(process.cwd(), filePath));
+			broadcastToClients(state, {
+				data: { framework: 'public', manifest: state.manifest },
+				message: 'Public asset updated',
+				type: 'style-update'
+			});
+		} catch {
+			// Best-effort. If the copy fails the user can hit
+			// the URL again or restart.
+		}
+		return;
+	}
+
 	// Shared files (workers, utils, etc.) that don't belong to any
 	// framework just need their transform cache invalidated — no
 	// per-framework rebuild for the file itself. BUT we still need
