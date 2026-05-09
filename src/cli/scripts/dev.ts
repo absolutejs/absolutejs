@@ -1,6 +1,6 @@
 import { $, env } from 'bun';
 import { spawn as nodeSpawn, type ChildProcess } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { DbScripts, InteractiveHandler } from '../../../types/cli';
 import {
@@ -239,7 +239,39 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 		interactive?.showPrompt();
 	};
 
+	// Buffered scanner for the `[abs:restart] <path>` marker the dev
+	// server emits to stdout when its file watcher observes a change
+	// to a file that no HMR pipeline recognized — typically a config
+	// file the framework / Bun / TS / tooling reads once at startup
+	// (`.env`, `tsconfig.json`, `tailwind.config.ts`, etc.). The
+	// parent CLI doesn't try to enumerate those files itself: the dev
+	// server already classifies file paths via `detectFramework` and
+	// owns the dep graph, so it's the authoritative source for "this
+	// file isn't HMR-tracked, restart the process."
+	const RESTART_MARKER = '[abs:restart]';
+	let restartScanBuffer = '';
 	const handleChunk = (value: Buffer) => {
+		const text = value.toString('utf8');
+		restartScanBuffer += text;
+		// Scan and consume complete lines so partial chunks across
+		// stream boundaries don't drop or duplicate detections.
+		let newlineIdx: number;
+		while ((newlineIdx = restartScanBuffer.indexOf('\n')) !== -1) {
+			const line = restartScanBuffer.slice(0, newlineIdx);
+			restartScanBuffer = restartScanBuffer.slice(newlineIdx + 1);
+			const markerIdx = line.indexOf(RESTART_MARKER);
+			if (markerIdx === -1) continue;
+			const path = line
+				.slice(markerIdx + RESTART_MARKER.length)
+				.replace(/\x1b\[[0-9;]*m/g, '')
+				.trim();
+			scheduleServerRestart(path);
+		}
+		// Cap buffer so a stream of marker-less output never grows
+		// unbounded between newlines.
+		if (restartScanBuffer.length > 4096) {
+			restartScanBuffer = restartScanBuffer.slice(-2048);
+		}
 		if (!serverReady) {
 			checkServerReady(value);
 
@@ -253,6 +285,46 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 	 *  the entire subtree. Bun.spawn doesn't expose detached/process-group
 	 *  knobs, so this one spawn uses node:child_process for portability
 	 *  across Linux/macOS/Windows. */
+	// Re-read .env files on every spawn so a `.env` edit propagates
+	// to the child without manually restarting the dev CLI. The parent
+	// CLI's `process.env` was frozen at parent-startup time, so passing
+	// `...process.env` to the child carries stale values; bun's child
+	// then refuses to override (since the keys are already set in env).
+	// Re-parsing the dotenv files on each spawn and overlaying *on top of*
+	// `process.env` gives the latest values without losing inherited
+	// system env (PATH, HOME, etc.).
+	const readDotenvFiles = (): Record<string, string> => {
+		const merged: Record<string, string> = {};
+		// Load order matches Bun's: .env, .env.development, .env.local
+		// (later wins). Skip files that don't exist.
+		const candidates = ['.env', '.env.development', '.env.local'];
+		for (const name of candidates) {
+			let text: string;
+			try {
+				text = readFileSync(resolve(process.cwd(), name), 'utf8');
+			} catch {
+				continue;
+			}
+			for (const rawLine of text.split('\n')) {
+				const line = rawLine.trim();
+				if (!line || line.startsWith('#')) continue;
+				const eq = line.indexOf('=');
+				if (eq === -1) continue;
+				const key = line.slice(0, eq).trim();
+				let val = line.slice(eq + 1).trim();
+				// Strip surrounding quotes if present.
+				if (
+					(val.startsWith('"') && val.endsWith('"')) ||
+					(val.startsWith("'") && val.endsWith("'"))
+				) {
+					val = val.slice(1, -1);
+				}
+				merged[key] = val;
+			}
+		}
+		return merged;
+	};
+
 	const spawnServer = (): ChildProcess => {
 		const proc = nodeSpawn(
 			'bun',
@@ -262,6 +334,7 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 				detached: true, // new process group → kill cascades
 				env: {
 					...process.env,
+					...readDotenvFiles(),
 					FORCE_COLOR: '1',
 					NODE_ENV: 'development',
 					ABSOLUTE_PORT: String(port),
@@ -323,51 +396,76 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 		}, 80);
 	};
 	try {
-		const { watch, existsSync } = await import('node:fs');
-		const { dirname, basename } = await import('node:path');
+		const { watch } = await import('node:fs');
+		const { dirname, join } = await import('node:path');
 		const absServerEntry = resolve(serverEntry);
 		const serverEntryDir = dirname(absServerEntry);
-		const serverEntryBase = basename(absServerEntry);
-		// Watch the parent directory rather than the file itself —
-		// editors that use atomic-write (write to .tmp, rename over)
+		// Watch the project root non-recursively. Two things this covers
+		// that the bun child's internal watchers don't:
+		//
+		// 1. Project-root config files the framework / Bun / TS read once
+		//    at startup: `.env`, `tsconfig.json`, `tailwind.config.ts`,
+		//    `bun.lock`, `package.json`, custom shell scripts.
+		// 2. The server entry itself (`server.ts`). bun --hot's watcher
+		//    is unreliable for the entry under our dev runtime — see
+		//    BUN_HOT_WATCHER_BUG.md. Until the upstream bug is fixed,
+		//    a CLI-level dir watch + child restart is the reliable path.
+		//
+		// Atomic-write-aware: editors that write `.tmp` then rename
 		// invalidate inode-based file watches after the first save,
-		// while directory watches survive the rename and continue to
-		// observe future changes.
-		const fsWatcher = watch(
+		// while directory watches survive the rename and continue
+		// to observe future changes. We watch the directory and
+		// dispatch on the event's filename.
+		// Skip build/output directory entries that the dev server
+		// itself writes to, plus a few editor-ish suffixes.
+		const ROOT_RESTART_DENY = new Set([
+			'build',
+			'dist',
+			'node_modules',
+			'.absolutejs',
+			'.git',
+			'.test-builds',
+			'compiled',
+			'generated',
+			'indexes'
+		]);
+		const watcher = watch(
 			serverEntryDir,
-			{ persistent: false },
-			(eventType, filename) => {
-				if (eventType !== 'change' && eventType !== 'rename') return;
-				if (filename !== serverEntryBase) return;
-				scheduleServerRestart(absServerEntry);
+			{ recursive: false },
+			(_event, filename) => {
+				if (!filename) return;
+				if (
+					filename.endsWith('.log') ||
+					filename.endsWith('.tmp') ||
+					filename.endsWith('~') ||
+					filename.startsWith('.#')
+				) {
+					return;
+				}
+				if (filename.includes('/') || filename.includes('\\')) {
+					return;
+				}
+				if (ROOT_RESTART_DENY.has(filename)) return;
+				scheduleServerRestart(join(serverEntryDir, filename));
 			}
 		);
-		fsWatcher.unref();
+		// Stop watcher on parent exit so we don't leak the inotify fd.
+		const closeWatcher = () => {
+			try {
+				watcher.close();
+			} catch {
+				/* already closed */
+			}
+		};
+		process.once('exit', closeWatcher);
+		process.once('SIGINT', closeWatcher);
+		process.once('SIGTERM', closeWatcher);
 
-		// Also watch the absolute.config.ts at the project root.
-		// `loadConfig` reads it once at startup; mid-session edits
-		// (toggling tailwind, changing a directory, adding HMR
-		// options) silently keep the pre-edit config until manual
-		// restart. Treating it the same as the server entry —
-		// triggering a child-process restart — ensures the new
-		// config takes effect.
-		const configCandidates = ['absolute.config.ts', 'absolute.config.js'];
-		const projectRoot = process.cwd();
-		for (const candidate of configCandidates) {
-			const absCandidate = resolve(projectRoot, candidate);
-			if (!existsSync(absCandidate)) continue;
-			const candidateBase = basename(absCandidate);
-			const configWatcher = watch(
-				dirname(absCandidate),
-				{ persistent: false },
-				(eventType, filename) => {
-					if (eventType !== 'change' && eventType !== 'rename') return;
-					if (filename !== candidateBase) return;
-					scheduleServerRestart(absCandidate);
-				}
-			);
-			configWatcher.unref();
-		}
+		// (The `[abs:restart]` marker emitted from the bun child's
+		// stdout is consumed by `handleChunk` inline as stdout
+		// streams in — see definition above. Covers files inside
+		// framework / source directories that fall through every
+		// HMR pipeline.)
 	} catch (err) {
 		console.error(
 			cliTag('\x1b[33m', `Failed to set up server entry watcher: ${err}`)
