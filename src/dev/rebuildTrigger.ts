@@ -571,6 +571,20 @@ export const queueFileChange = async (
 		return;
 	}
 
+	// Test files (`*.spec.ts`, `*.test.ts`, `*.spec.tsx`,
+	// `*.test.tsx`, etc.) aren't part of the running app and
+	// shouldn't trigger HMR. Without this guard, editing a spec
+	// fires a full Tier 1b rebootstrap (caveat-K's non-decorated-
+	// angular-file path matches `.ts` under `angularDir`),
+	// destroying the running app's state for no reason. Skip
+	// outright — `bun test` watches these separately.
+	if (
+		/\.(spec|test)\.(?:m?[tj]sx?)$/i.test(filePath) ||
+		/[\\/]__tests__[\\/]/.test(filePath)
+	) {
+		return;
+	}
+
 	const currentHash = computeFileHash(filePath);
 
 	if (!hasFileChanged(filePath, currentHash, state.fileHashes)) {

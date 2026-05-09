@@ -2347,10 +2347,27 @@ const extractArrowFieldSig = (cls: ts.ClassDeclaration): string[] => {
 		if (!init) continue;
 		if (!initializerShapeIsStructural(init)) continue;
 		const name = member.name.getText();
-		// `init.getText()` includes parameters + body; whitespace is
-		// part of the canonical text since we pull from the user's
-		// source verbatim. Hash for compactness.
-		const bodyHash = djb2Hash(init.getText());
+		// Use the TS printer to produce a canonical text form so
+		// cosmetic edits (reformatting, comment churn) don't flip
+		// the fingerprint. Falls back to `getText()` if printing
+		// throws — comparison is still source-text-based then, just
+		// with whitespace sensitivity.
+		let bodyText: string;
+		try {
+			const printer = ts.createPrinter({
+				newLine: ts.NewLineKind.LineFeed,
+				omitTrailingSemicolon: true,
+				removeComments: true
+			});
+			bodyText = printer.printNode(
+				ts.EmitHint.Unspecified,
+				init,
+				cls.getSourceFile()
+			);
+		} catch {
+			bodyText = init.getText();
+		}
+		const bodyHash = djb2Hash(bodyText);
 		entries.push(`${name}:${bodyHash}`);
 	}
 
@@ -2731,32 +2748,45 @@ const extractFingerprint = (
 	const topLevelImports = extractTopLevelImports(sourceFile);
 	const propertyFieldNames = extractPropertyFieldNames(cls);
 
+	// Normalize whitespace + comments before hashing so cosmetic
+	// edits (reformatting, adding trailing commas, comment churn)
+	// don't flip a fingerprint and cause spurious Tier 1a / Tier 1b
+	// cycles. Uses the TS printer's `removeComments + omitTrailingSemicolon`
+	// emit to produce a canonical text form keyed on AST structure
+	// rather than source bytes.
+	const printer = ts.createPrinter({
+		newLine: ts.NewLineKind.LineFeed,
+		omitTrailingSemicolon: true,
+		removeComments: true
+	});
+	const canonicalText = (node: ts.Node) =>
+		printer.printNode(ts.EmitHint.Unspecified, node, sourceFile);
 	const importsArraySig = decoratorMeta.importsExpr
-		? djb2Hash(decoratorMeta.importsExpr.getText())
+		? djb2Hash(canonicalText(decoratorMeta.importsExpr))
 		: '';
 	const hostDirectivesSig = decoratorMeta.hostDirectivesExpr
-		? djb2Hash(decoratorMeta.hostDirectivesExpr.getText())
+		? djb2Hash(canonicalText(decoratorMeta.hostDirectivesExpr))
 		: '';
 	const animationsArraySig = decoratorMeta.animationsExpr
-		? djb2Hash(decoratorMeta.animationsExpr.getText())
+		? djb2Hash(canonicalText(decoratorMeta.animationsExpr))
 		: '';
 	const providersArraySig = decoratorMeta.providersExpr
-		? djb2Hash(decoratorMeta.providersExpr.getText())
+		? djb2Hash(canonicalText(decoratorMeta.providersExpr))
 		: '';
 	const viewProvidersArraySig = decoratorMeta.viewProvidersExpr
-		? djb2Hash(decoratorMeta.viewProvidersExpr.getText())
+		? djb2Hash(canonicalText(decoratorMeta.viewProvidersExpr))
 		: '';
 	const decoratorInputsArraySig = decoratorMeta.inputsArrayExpr
-		? djb2Hash(decoratorMeta.inputsArrayExpr.getText())
+		? djb2Hash(canonicalText(decoratorMeta.inputsArrayExpr))
 		: '';
 	const decoratorOutputsArraySig = decoratorMeta.outputsArrayExpr
-		? djb2Hash(decoratorMeta.outputsArrayExpr.getText())
+		? djb2Hash(canonicalText(decoratorMeta.outputsArrayExpr))
 		: '';
 	const hostBindingsSig = decoratorMeta.hostExpr
-		? djb2Hash(decoratorMeta.hostExpr.getText())
+		? djb2Hash(canonicalText(decoratorMeta.hostExpr))
 		: '';
 	const schemasSig = decoratorMeta.schemasExpr
-		? djb2Hash(decoratorMeta.schemasExpr.getText())
+		? djb2Hash(canonicalText(decoratorMeta.schemasExpr))
 		: '';
 
 	// Hash module-level `export const providers = [...]` and
@@ -2781,7 +2811,7 @@ const extractFingerprint = (
 			if (!PAGE_EXPORT_NAMES.has(decl.name.text)) continue;
 			if (!decl.initializer) continue;
 			pageExportEntries.push(
-				`${decl.name.text}=${djb2Hash(decl.initializer.getText())}`
+				`${decl.name.text}=${djb2Hash(canonicalText(decl.initializer))}`
 			);
 		}
 	}
