@@ -1326,6 +1326,98 @@ const transformAndCache = async (
 ) => {
 	if (ext === '.css') return jsResponse(handleCssRequest(filePath));
 
+	// JSON imports become ES modules with the parsed value as the
+	// default export. Without this, the dev module server falls
+	// through to the JS-transform path and chokes on the `{ ... }`
+	// syntax. Bun handles `import x from './x.json'` natively at
+	// runtime, but the dev pipeline serves modules over HTTP and
+	// needs to ship valid JS to the browser.
+	//
+	// For paths under `.absolutejs/generated/angular/`, the angular
+	// compile pipeline doesn't copy `.json` files to the generated
+	// tree (it only writes `.js` outputs from `.ts` sources), so the
+	// resolved generated path won't exist on disk. Fall back to the
+	// matching source path under the user's `angularDirectory` so
+	// the import resolves regardless.
+	if (ext === '.json') {
+		try {
+			const { readFile, stat } = await import('node:fs/promises');
+			const fileExists = async (p: string) => {
+				try {
+					await stat(p);
+					return true;
+				} catch {
+					return false;
+				}
+			};
+			let sourcePath = filePath;
+			if (!(await fileExists(sourcePath))) {
+				const { getFrameworkGeneratedDir } = await import(
+					'../utils/generatedDir'
+				);
+				const generatedAngularRoot = getFrameworkGeneratedDir(
+					'angular'
+				).replace(/\\/g, '/');
+				const normalized = filePath.replace(/\\/g, '/');
+				if (
+					normalized.startsWith(generatedAngularRoot + '/') ||
+					normalized.startsWith(generatedAngularRoot)
+				) {
+					const tail = normalized.slice(
+						generatedAngularRoot.length + 1
+					);
+					// Source files OUTSIDE the angular root land in
+					// the generated tree as the original absolute
+					// path appended to the generated root, so a
+					// leading `/`-prefixed tail IS already the source
+					// path.
+					const absoluteCandidate = '/' + tail.replace(/^\/+/, '');
+					// Source files INSIDE the angular root (most
+					// common — `angular/data/labels.json`) land as
+					// just the relative-from-angular-root path. To
+					// map back we'd need the user's `angularDir` —
+					// approximate by trying every framework dir on
+					// the resolved paths.
+					const candidates = [
+						absoluteCandidate,
+						resolve(projectRoot, tail)
+					];
+					try {
+						const { loadConfig } = await import(
+							'../utils/loadConfig'
+						);
+						const cfg = await loadConfig();
+						const angularDir =
+							cfg.angularDirectory &&
+							resolve(projectRoot, cfg.angularDirectory);
+						if (angularDir) candidates.push(resolve(angularDir, tail));
+					} catch {
+						/* fall back to the candidates we already have */
+					}
+					for (const candidate of candidates) {
+						if (await fileExists(candidate)) {
+							sourcePath = candidate;
+							break;
+						}
+					}
+				}
+			}
+			const text = await readFile(sourcePath, 'utf-8');
+			// Validate so a syntax error in the JSON surfaces as a
+			// useful 500 rather than silent garbage in the browser.
+			JSON.parse(text);
+			return jsResponse(`export default ${text};`);
+		} catch (err) {
+			return new Response(
+				`console.error('[ModuleServer] JSON load error in ${filePath}:', ${JSON.stringify(String(err))});`,
+				{
+					headers: { 'Content-Type': 'application/javascript' },
+					status: 500
+				}
+			);
+		}
+	}
+
 	const isSvelte =
 		ext === '.svelte' ||
 		filePath.endsWith('.svelte.ts') ||

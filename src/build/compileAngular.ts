@@ -289,7 +289,13 @@ const resolveRelativePath = (
 	return fileName;
 };
 
-const hasJsLikeExtension = (path: string) => /\.(js|ts|mjs|cjs)$/.test(path);
+/* Extensions that are valid module-import targets without rewriting.
+ * `.json` is included so `import data from './foo.json'` survives the
+ * angular compile pipeline's path rewriter — without it, the rewriter
+ * would append `.js` to make `./foo.json.js`, which doesn't exist on
+ * disk, and the dev module server returns 500 on the resulting URL. */
+const hasJsLikeExtension = (path: string) =>
+	/\.(js|ts|mjs|cjs|json)$/.test(path);
 
 const splitSpecifierAndQuery = (specifier: string) => {
 	const separator = specifier.indexOf('?');
@@ -1494,13 +1500,14 @@ export const compileAngularFileJIT = async (
 	const tsconfigAliases = readTsconfigPathAliases();
 
 	const resolveSourceFile = (candidate: string) => {
-		const candidates = candidate.match(/\.[cm]?[tj]sx?$/)
+		const candidates = candidate.match(/\.(?:[cm]?[tj]sx?|json)$/)
 			? [candidate]
 			: [
 					`${candidate}.ts`,
 					`${candidate}.tsx`,
 					`${candidate}.js`,
 					`${candidate}.jsx`,
+					`${candidate}.json`,
 					join(candidate, 'index.ts'),
 					join(candidate, 'index.tsx'),
 					join(candidate, 'index.js'),
@@ -1540,6 +1547,9 @@ export const compileAngularFileJIT = async (
 		const relativeDir = inputDir.startsWith(baseDir)
 			? inputDir.substring(baseDir.length + 1)
 			: inputDir;
+		// `.ts/.tsx/.js/.jsx` → `.js`. `.json` is preserved
+		// (the angular generated tree mirrors the source layout for
+		// JSON imports so `import x from './x.json'` resolves).
 		const fileBase = basename(sourcePath).replace(/\.[cm]?[tj]sx?$/, '.js');
 
 		return join(outDir, relativeDir, fileBase);
@@ -1629,6 +1639,23 @@ export const compileAngularFileJIT = async (
 		const resolved = resolve(filePath);
 		if (visited.has(resolved)) return;
 		visited.add(resolved);
+
+		// JSON files: copy to the generated tree unchanged so a
+		// consumer's `import x from './x.json'` can resolve relative
+		// to its compiled `.js` location at SSR / module-server time.
+		// No imports inside JSON, so no recursion.
+		if (resolved.endsWith('.json') && existsSync(resolved)) {
+			const inputDir = dirname(resolved);
+			const relativeDir = inputDir.startsWith(baseDir)
+				? inputDir.substring(baseDir.length + 1)
+				: inputDir;
+			const targetDir = join(outDir, relativeDir);
+			const targetPath = join(targetDir, basename(resolved));
+			await fs.mkdir(targetDir, { recursive: true });
+			await fs.copyFile(resolved, targetPath);
+			allOutputs.push(targetPath);
+			return;
+		}
 
 		// Only transpile .ts files that exist
 		let actualPath = resolved;

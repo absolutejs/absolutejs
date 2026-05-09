@@ -577,45 +577,66 @@ export const queueFileChange = async (
 		return;
 	}
 
-	// `public/` directory edits: copy the file into `buildDir`,
-	// refresh the asset store with the new bytes, and broadcast a
-	// `style-update` so any `<link>` / `<img>` referencing it gets
-	// a `?t=now` URL bust. Without this, the watcher logged the
-	// edit but the dev server kept serving the stale copy from the
-	// asset store (populated only at startup) — same shape as the
-	// tailwind-asset-store caveat. Public assets aren't bundled or
-	// transformed, so we just mirror the file 1:1 to `buildDir`.
+	// `public/` and `assets/` directory edits: copy the file into
+	// `buildDir`, refresh the asset store with the new bytes, and
+	// broadcast a `style-update` so any `<link>` / `<img>` referencing
+	// it gets a `?t=now` URL bust. Without this, the watcher logged
+	// the edit but the dev server kept serving the stale copy from
+	// the asset store (populated only at startup) — same shape as
+	// the tailwind-asset-store caveat. These assets aren't bundled
+	// or transformed, so we just mirror the file 1:1 to `buildDir`.
+	//
+	// `public/` mirrors to the build root (`build/<file>`).
+	// `assets/` mirrors to `build/assets/<file>` so URLs like
+	// `/assets/icons/foo.svg` keep resolving.
 	const publicDir = state.resolvedPaths.publicDir;
-	if (
-		publicDir &&
-		resolve(filePath).replace(/\\/g, '/').startsWith(publicDir + '/')
-	) {
+	const assetsDir = state.resolvedPaths.assetsDir;
+	const handleStaticMirror = async (
+		sourceDir: string,
+		urlPrefix: string
+	): Promise<boolean> => {
+		const absSource = resolve(filePath);
+		const normalizedSource = absSource.replace(/\\/g, '/');
+		const normalizedDir = sourceDir.replace(/\\/g, '/');
+		if (!normalizedSource.startsWith(normalizedDir + '/')) return false;
 		try {
-			const absSource = resolve(filePath);
-			const relFromPublic = absSource
-				.replace(/\\/g, '/')
-				.slice(publicDir.length + 1);
+			const relFromDir = normalizedSource.slice(
+				normalizedDir.length + 1
+			);
 			const buildDir = state.resolvedPaths.buildDir;
-			const destPath = resolve(buildDir, relFromPublic);
-			const { mkdir, copyFile, readFile } = await import('node:fs/promises');
+			const destPath = resolve(
+				buildDir,
+				urlPrefix ? `${urlPrefix}/${relFromDir}` : relFromDir
+			);
+			const { mkdir, copyFile, readFile } = await import(
+				'node:fs/promises'
+			);
 			const { dirname } = await import('node:path');
 			await mkdir(dirname(destPath), { recursive: true });
 			await copyFile(absSource, destPath);
 			const bytes = await readFile(destPath);
-			state.assetStore.set(`/${relFromPublic}`, new Uint8Array(bytes));
+			const webPath = urlPrefix
+				? `/${urlPrefix}/${relFromDir}`
+				: `/${relFromDir}`;
+			state.assetStore.set(webPath, new Uint8Array(bytes));
 			state.fileHashes.set(absSource, currentHash);
 			logHmrUpdate(relative(process.cwd(), filePath));
 			broadcastToClients(state, {
-				data: { framework: 'public', manifest: state.manifest },
-				message: 'Public asset updated',
+				data: {
+					framework: urlPrefix || 'public',
+					manifest: state.manifest
+				},
+				message: `${urlPrefix || 'Public'} asset updated`,
 				type: 'style-update'
 			});
 		} catch {
 			// Best-effort. If the copy fails the user can hit
 			// the URL again or restart.
 		}
-		return;
-	}
+		return true;
+	};
+	if (publicDir && (await handleStaticMirror(publicDir, ''))) return;
+	if (assetsDir && (await handleStaticMirror(assetsDir, 'assets'))) return;
 
 	// Shared files (workers, utils, etc.) that don't belong to any
 	// framework just need their transform cache invalidated — no
@@ -1238,7 +1259,7 @@ const decideAngularTier = async (
 		// 'b' silently keep the pre-edit factory's resolved value.
 		if (
 			owners.length === 0 &&
-			editedFile.endsWith('.ts') &&
+			(editedFile.endsWith('.ts') || editedFile.endsWith('.json')) &&
 			!editedFile.endsWith('.d.ts')
 		) {
 			// `editedFile` is an absolute path (resolved on entry to
