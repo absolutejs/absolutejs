@@ -17,6 +17,20 @@ const replaceAssetRef = (
 		return match;
 	}
 
+	// Absolute web paths (`/assets/...`, `/htmx/...`) and full URLs
+	// (`https://cdn/...`) are opaque references — they're served
+	// verbatim, not manifest-rewritten. Without this skip, a user who
+	// links directly to `/assets/css/tailwind.generated.css` triggers a
+	// spurious "no manifest entry for css 'tailwind'" build error
+	// because the regex extracts `tailwind` as the asset name and the
+	// rewriter looks for `manifest['TailwindCSS']` (which doesn't exist
+	// — `tailwind.generated.css` is a tailwind output, not a manifest
+	// entry). The intended manifest-rewrite pattern is for *relative*
+	// paths like `../../styles/indexes/foo.css`.
+	if (dir.startsWith('/') || /^[a-z][a-z0-9+.-]*:\/\//i.test(dir)) {
+		return match;
+	}
+
 	const pascal = toPascal(name);
 
 	let key;
