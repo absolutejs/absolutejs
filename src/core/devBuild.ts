@@ -97,21 +97,53 @@ const reloadConfig = async () => {
 	}
 };
 
-/** Detect config changes on HMR reload and update watchers for new framework directories */
+/** Result of `detectConfigChanges`: which framework dir keys were
+ *  added and which were removed in the new config. The additive case
+ *  is handled in-place by this function (vendor paths set, watchers
+ *  started); removals are reported but NOT torn down here — Elysia
+ *  has no clean route-removal API, so callers should fall back to a
+ *  child restart when `removed.length > 0`. */
+export type ConfigChangeDiff = {
+	added: Array<(typeof FRAMEWORK_DIR_KEYS)[number]>;
+	removed: Array<(typeof FRAMEWORK_DIR_KEYS)[number]>;
+};
+
+/** Detect framework-dir changes in absolute.config.ts and update
+ *  watchers / vendor paths for newly-added frameworks in place.
+ *  Returns the diff so the caller can decide whether to also restart
+ *  (for removal or non-framework key changes). */
 const detectConfigChanges = async (
 	cached: NonNullable<typeof globalThis.__hmrDevResult>
-) => {
+): Promise<ConfigChangeDiff> => {
 	const newConfig = await reloadConfig();
-	if (!newConfig) return;
+	if (!newConfig) return { added: [], removed: [] };
 
 	const state = cached.hmrState;
 	const oldConfig = state.config;
 
-	// Check if any framework directory changed
-	const hasChanges = FRAMEWORK_DIR_KEYS.some(
-		(key) => newConfig[key] !== oldConfig[key]
-	);
-	if (!hasChanges) return;
+	const added: typeof FRAMEWORK_DIR_KEYS[number][] = [];
+	const removed: typeof FRAMEWORK_DIR_KEYS[number][] = [];
+	for (const key of FRAMEWORK_DIR_KEYS) {
+		const oldVal = oldConfig[key];
+		const newVal = newConfig[key];
+		if (oldVal === newVal) continue;
+		// Pure add: previously unset, now set.
+		if (!oldVal && newVal) added.push(key);
+		// Pure remove: previously set, now unset.
+		else if (oldVal && !newVal) removed.push(key);
+		// Rename (both set, different value): treat as remove of the
+		// old dir AND add of the new. The caller will restart on
+		// removal, which is the right call for a rename anyway —
+		// stale watchers, generated artifacts, and cached vendor
+		// paths from the old dir don't get torn down here.
+		else if (oldVal && newVal) {
+			removed.push(key);
+			added.push(key);
+		}
+	}
+	if (added.length === 0 && removed.length === 0) {
+		return { added: [], removed: [] };
+	}
 
 	// Snapshot old watch paths before updating config
 	const oldWatchPaths = new Set(
@@ -154,6 +186,18 @@ const detectConfigChanges = async (
 			});
 		});
 	}
+
+	return { added, removed };
+};
+
+/** Public entry point for the in-place absolute.config.ts handler in
+ *  `serverEntryWatcher`. Returns null if there's no live dev runtime
+ *  (e.g. compiled production), or the diff that `detectConfigChanges`
+ *  applied. */
+export const applyConfigChanges = async (): Promise<ConfigChangeDiff | null> => {
+	const cached = globalThis.__hmrDevResult;
+	if (!cached) return null;
+	return detectConfigChanges(cached);
 };
 
 /** Remove keys from target that don't exist in source */

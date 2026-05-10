@@ -526,11 +526,17 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 			/^sed[A-Za-z0-9]{6,}$/.test(filename) ||
 			filename === '4913';
 		// The dev runtime's `serverEntryWatcher` handles the entry's
-		// basename in-place via Bun.serve.reload — skip it here so we
-		// don't double-fire the restart pipeline.
+		// basename AND `absolute.config.ts` in-place — skip both
+		// here so we don't double-fire the restart pipeline. If the
+		// dev runtime can't apply a config change in place
+		// (framework removal, port/buildDir change), it emits the
+		// `[abs:restart]` marker which lands here via handleChunk.
 		const serverEntryBasename = absServerEntry.slice(
 			absServerEntry.lastIndexOf('/') + 1
 		);
+		const configBasename = configPath
+			? configPath.slice(configPath.lastIndexOf('/') + 1)
+			: 'absolute.config.ts';
 		const watcher = watch(
 			serverEntryDir,
 			{ recursive: false },
@@ -541,6 +547,7 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 					return;
 				}
 				if (filename === serverEntryBasename) return;
+				if (filename === configBasename) return;
 				if (ROOT_RESTART_DENY.has(filename)) return;
 				scheduleServerRestart(join(serverEntryDir, filename));
 			}
