@@ -1,6 +1,6 @@
 import { watch } from 'fs';
-import { existsSync } from 'node:fs';
-import { join, resolve } from 'path';
+import { existsSync, readdirSync, statSync } from 'node:fs';
+import { dirname, join, resolve } from 'path';
 import type { BuildConfig } from '../../types/build';
 import { sendTelemetryEvent } from '../cli/telemetryEvent';
 import type { HMRState } from './clientManager';
@@ -35,6 +35,18 @@ const safeAddToGraph = (
 	}
 };
 
+// Atomic-write temp files created by editors mid-save. These exist for
+// milliseconds before being renamed over the real target — firing the HMR
+// pipeline on them either no-ops (if the temp has no dependents) or
+// emits a spurious `[abs:restart]` marker that triggers a full restart
+// when the actual edit could have been handled in-place.
+const ATOMIC_WRITE_TEMP_PATTERNS = [
+	// sed -i: `sed[A-Za-z0-9]+`, no extension
+	/(^|\/)sed[A-Za-z0-9]{6,}$/,
+	// vim's "4913" probe file used to test write permissions
+	/(^|\/)4913$/
+];
+
 const shouldSkipFilename = (filename: string, isStylesDir: boolean) =>
 	(!isStylesDir &&
 		(filename === 'compiled' ||
@@ -59,7 +71,8 @@ const shouldSkipFilename = (filename: string, isStylesDir: boolean) =>
 	filename.includes('.tmp.') ||
 	filename.endsWith('.tmp') ||
 	filename.endsWith('~') ||
-	filename.startsWith('.#');
+	filename.startsWith('.#') ||
+	ATOMIC_WRITE_TEMP_PATTERNS.some((re) => re.test(filename));
 
 const setupWatcher = (
 	absolutePath: string,
@@ -67,14 +80,60 @@ const setupWatcher = (
 	state: HMRState,
 	onFileChange: (filePath: string) => void
 ) => {
+	// Atomic-write recovery scan. Linux/Node `fs.watch(recursive: true)`
+	// reliably delivers IN_MOVED_FROM for the temp filename in an atomic
+	// rename (sed -i, vim default, prettier, etc.) but drops IN_MOVED_TO
+	// for the destination when the destination already existed in the
+	// watched dir. Without recovery, every editor save to an existing
+	// source file is invisible to the framework's HMR pipeline.
+	//
+	// When we observe a temp-file rename event we walk the same parent
+	// dir for files whose ctime is fresh (last 1s), and synthesize an
+	// onFileChange for each. The temp file itself is filtered upstream;
+	// dir entries we already track separately (recursive watch will
+	// surface them through their own events) get deduplicated.
+	const ATOMIC_RECOVERY_WINDOW_MS = 1000;
+	const recentlySynthesized = new Map<string, number>();
+	const atomicRecoveryScan = (eventDir: string) => {
+		let entries: string[];
+		try {
+			entries = readdirSync(eventDir);
+		} catch {
+			return;
+		}
+		const now = Date.now();
+		for (const name of entries) {
+			if (shouldSkipFilename(name, isStylesDir)) continue;
+			const child = join(eventDir, name).replace(/\\/g, '/');
+			let st: ReturnType<typeof statSync>;
+			try {
+				st = statSync(child);
+			} catch {
+				continue;
+			}
+			if (!st.isFile()) continue;
+			const age = now - st.ctimeMs;
+			if (age < 0 || age > ATOMIC_RECOVERY_WINDOW_MS) continue;
+			const last = recentlySynthesized.get(child) ?? 0;
+			if (now - last < 100) continue;
+			recentlySynthesized.set(child, now);
+			onFileChange(child);
+			safeAddToGraph(state.dependencyGraph, child);
+		}
+	};
+
 	const watcher = watch(
 		absolutePath,
 		{ recursive: true },
 		(event, filename) => {
-			if (!filename) {
-				return;
-			}
+			if (!filename) return;
 			if (shouldSkipFilename(filename, isStylesDir)) {
+				if (event === 'rename') {
+					const eventDir = dirname(
+						join(absolutePath, filename)
+					).replace(/\\/g, '/');
+					atomicRecoveryScan(eventDir);
+				}
 				return;
 			}
 

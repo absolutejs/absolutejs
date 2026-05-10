@@ -197,7 +197,7 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 	// §1.3 — Vite-style port resolution. Probe configured port first, then
 	// fall through up to portRange-1 neighbors. strictPort=true keeps the
 	// configured port and fails fast on conflict.
-	const { port, fellBack } = await resolveDevPort(resolvedDev.port, {
+	const initialPortProbe = await resolveDevPort(resolvedDev.port, {
 		host: resolvedDev.host,
 		portRange: resolvedDev.portRange,
 		strictPort: resolvedDev.strictPort
@@ -205,7 +205,8 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 		console.error(cliTag('\x1b[31m', String(err.message ?? err)));
 		process.exit(1);
 	});
-	if (fellBack) {
+	let port = initialPortProbe.port;
+	if (initialPortProbe.fellBack) {
 		const displayHost =
 			resolvedDev.host === '0.0.0.0' ? 'localhost' : resolvedDev.host;
 		console.log(
@@ -285,6 +286,81 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 	 *  the entire subtree. Bun.spawn doesn't expose detached/process-group
 	 *  knobs, so this one spawn uses node:child_process for portability
 	 *  across Linux/macOS/Windows. */
+	// Re-resolve dev-config keys that the spawned child consumes, so an
+	// `absolute.config.ts` edit propagates without manually restarting
+	// the dev CLI. Currently covers `dev.port` (and the host/portRange/
+	// strictPort knobs that feed it). `buildDirectory` is intentionally
+	// NOT swapped in-place — the parent CLI holds a directory lock at
+	// startup, and silently switching path mid-session leaves the old
+	// lock orphaned and old artifacts at the abandoned path. Detect and
+	// warn instead.
+	let lastBuildDirectoryWarned: string | undefined;
+	const refreshDevConfigForSpawn = async () => {
+		// Bust the module cache so subsequent spawns re-read the latest
+		// config from disk. `loadConfig` uses `import()` which Bun caches
+		// by resolved URL; without a cache-busting query param we'd see
+		// the same in-memory module on every spawn and silently ignore
+		// the user's edit.
+		const cfgPath = resolve(
+			configPath ?? process.env.ABSOLUTE_CONFIG ?? 'absolute.config.ts'
+		);
+		let cfg: Awaited<ReturnType<typeof loadConfig>>;
+		try {
+			const mod = await import(`${cfgPath}?t=${Date.now()}`);
+			const raw = mod.default ?? mod.config;
+			if (!raw || typeof raw !== 'object') return;
+			cfg = raw as typeof cfg;
+		} catch {
+			return;
+		}
+		const dev = resolveDevConfig(cfg?.dev);
+		const desiredBuildDir = cfg?.buildDirectory
+			? resolve(process.cwd(), cfg.buildDirectory)
+			: resolve(process.cwd(), 'build');
+		if (
+			desiredBuildDir !== buildDirectory &&
+			desiredBuildDir !== lastBuildDirectoryWarned
+		) {
+			lastBuildDirectoryWarned = desiredBuildDir;
+			console.log(
+				cliTag(
+					'\x1b[33m',
+					`buildDirectory changed in config (${buildDirectory} → ${desiredBuildDir}) — restart \`absolute dev\` to apply (the parent CLI holds a directory lock at the original path).`
+				)
+			);
+		}
+		if (
+			dev.port !== resolvedDev.port ||
+			dev.host !== resolvedDev.host ||
+			dev.portRange !== resolvedDev.portRange ||
+			dev.strictPort !== resolvedDev.strictPort
+		) {
+			const probe = await resolveDevPort(dev.port, {
+				host: dev.host,
+				portRange: dev.portRange,
+				strictPort: dev.strictPort
+			}).catch((err) => {
+				console.error(
+					cliTag('\x1b[31m', String(err.message ?? err))
+				);
+				return undefined;
+			});
+			if (probe && probe.port !== port) {
+				const displayHost =
+					dev.host === '0.0.0.0' ? 'localhost' : dev.host;
+				console.log(
+					cliTag(
+						'\x1b[36m',
+						`Port changed in config — switching to http://${displayHost}:${probe.port}/`
+					)
+				);
+				port = probe.port;
+				updateLockMetadata(buildDirectory, { port });
+			}
+			resolvedDev = dev;
+		}
+	};
+
 	// Re-read .env files on every spawn so a `.env` edit propagates
 	// to the child without manually restarting the dev CLI. The parent
 	// CLI's `process.env` was frozen at parent-startup time, so passing
@@ -325,7 +401,8 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 		return merged;
 	};
 
-	const spawnServer = (): ChildProcess => {
+	const spawnServer = async (): Promise<ChildProcess> => {
+		await refreshDevConfigForSpawn();
 		const proc = nodeSpawn(
 			'bun',
 			['--hot', '--no-clear-screen', serverEntry],
@@ -363,7 +440,7 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 		return proc;
 	};
 
-	let serverProcess: ChildProcess = spawnServer();
+	let serverProcess: ChildProcess = await spawnServer();
 	const sessionStart = Date.now();
 
 	// Watch the server entry file for edits and restart the bun child
@@ -429,19 +506,23 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 			'generated',
 			'indexes'
 		]);
+		// Atomic-write artifacts that exist for milliseconds before being
+		// renamed over the real target — firing a restart on them either
+		// races the real edit or wastes a cycle.
+		const isAtomicWriteTemp = (filename: string) =>
+			filename.endsWith('.log') ||
+			filename.endsWith('.tmp') ||
+			filename.includes('.tmp.') ||
+			filename.endsWith('~') ||
+			filename.startsWith('.#') ||
+			/^sed[A-Za-z0-9]{6,}$/.test(filename) ||
+			filename === '4913';
 		const watcher = watch(
 			serverEntryDir,
 			{ recursive: false },
 			(_event, filename) => {
 				if (!filename) return;
-				if (
-					filename.endsWith('.log') ||
-					filename.endsWith('.tmp') ||
-					filename.endsWith('~') ||
-					filename.startsWith('.#')
-				) {
-					return;
-				}
+				if (isAtomicWriteTemp(filename)) return;
 				if (filename.includes('/') || filename.includes('\\')) {
 					return;
 				}
@@ -554,7 +635,7 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 		} catch {
 			/* already exited */
 		}
-		serverProcess = spawnServer();
+		serverProcess = await spawnServer();
 		await new Promise<void>((res) => {
 			if (old.exitCode !== null) {
 				res();
@@ -708,7 +789,7 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 			entry: serverEntry,
 			exitCode: exitCode ?? -1
 		});
-		serverProcess = spawnServer();
+		serverProcess = await spawnServer();
 
 		return true;
 	};
