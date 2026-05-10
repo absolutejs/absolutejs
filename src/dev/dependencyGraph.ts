@@ -108,6 +108,23 @@ export const addFileToGraph = (graph: DependencyGraph, filePath: string) => {
 	};
 
 	dependencies.forEach(addDependent);
+
+	// Rebuild inverse links. When this file was previously deleted,
+	// `removeDependentsForFile` cleared the dependents cache for it
+	// but left other files' deps lists intact (they still reflect
+	// "I import this path"). On (re)create, walk those deps lists and
+	// re-register this path's dependents so subsequent edits propagate
+	// correctly. Without this, recreating a deleted file leaves
+	// importers stuck with stale `?t=` cache-bust queries.
+	for (const [otherFile, otherDeps] of graph.dependencies) {
+		if (otherFile === normalizedPath) continue;
+		if (otherDeps.has(normalizedPath)) {
+			if (!graph.dependents.has(normalizedPath)) {
+				graph.dependents.set(normalizedPath, new Set());
+			}
+			graph.dependents.get(normalizedPath)?.add(otherFile);
+		}
+	}
 };
 
 const IGNORED_SEGMENTS = [
@@ -353,14 +370,12 @@ const removeDependentsForFile = (
 	graph: DependencyGraph,
 	normalizedPath: string
 ) => {
-	const dependents = graph.dependents.get(normalizedPath);
-	if (!dependents) return;
-
-	for (const dependent of dependents) {
-		const depList = graph.dependencies.get(dependent);
-		if (!depList) continue;
-		depList.delete(normalizedPath);
-	}
+	// Drop the dependents-side cache entry. Do NOT mutate dependents'
+	// own deps lists — those reflect what their source code imports,
+	// which doesn't change when the imported file is deleted.
+	// Preserving them lets `addFileToGraph` re-link on recreate (see
+	// the inverse-rebuild loop there) so dependent pages auto-recover
+	// when a file goes missing then comes back.
 	graph.dependents.delete(normalizedPath);
 };
 
