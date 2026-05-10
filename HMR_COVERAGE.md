@@ -90,6 +90,23 @@ issue) · — n/a · ? not yet tested
   reappeared" as a no-op for the importer. Workaround: touch any
   importing file. Real fix: detect reappear-after-delete and
   schedule a rebuild of dependents.
-- F9 Vue composable: tests were flaky mid-session — could be a race
-  with my many rapid edits in the harness; couldn't reproduce
-  cleanly. Worth a focused re-test on a clean harness.
+- **#227 Vue composable HMR (.ts inside vueDir):** edits to a
+  `.ts` file imported by a `.vue` page don't propagate cleanly.
+  Investigated: the dep graph correctly traces the .ts → .vue
+  edge, `handleVueFastPath` routes the change through
+  `handleVueModuleServerPath`, my Vue bundle scheduler fires —
+  but only the FIRST edit propagates. Subsequent edits hit two
+  compounding issues:
+  1. Vue's `compileVueFile` caches by `.vue` source byte-hash,
+     short-circuiting recompile when the `.vue` content is
+     unchanged. (Tried invalidating per-edit; helped one cycle but
+     not subsequent ones.)
+  2. Vue's `pageHandler` does `await import(path)` without a
+     cache-buster, so even when the on-disk bundle gets a new
+     hash, Bun's module cache returns the previously-imported
+     module for that path. Angular's pageHandler uses a
+     per-request `?t=N` cache-bust query; Vue should too.
+  Proper fix needs both: (a) ensure `compileVue` re-emits when
+  any dep .ts changes (cache-bust by dep hash, not just .vue
+  source hash), AND (b) make `vue/pageHandler.ts`'s import
+  cache-busted per request. Out of scope for the F batch.
