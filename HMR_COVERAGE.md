@@ -38,7 +38,8 @@ issue) · — n/a · ? not yet tested
 | Tailwind class added in component → CSS regen | ✅ F6 | ✅ F6 | ✅ F6 | ✅ F6 + fix | ✅ F6 + fix |
 | JSON import edit propagates to consuming component | ✅ F7 | — | — | — | — |
 | Add new page file + register route in server.ts | ⚠ F8 (needs restart) | ⚠ F8 | ⚠ F8 | ⚠ F8 | ⚠ F8 |
-| Composable / shared util edit | ✅ E4 (utils/format.ts cross-fw) | ✅ E4 | ? F9 (flaky — couldn't reproduce cleanly mid-session) | — | — |
+| Composable / shared util edit (cross-framework, outside fw dir) | ✅ E4 | ✅ E4 | ✅ E4 | — | — |
+| Composable edit INSIDE framework dir (.ts imported by .svelte/.vue/component) | ✅ multi-edit | ⚠ #227 (first edit propagates, subsequent stall) | ⚠ #227 (same) | — | — |
 | Long-poll request survives entry reload | ✅ C1 | — | — | — | — |
 | Module-level state survives entry reload | ✅ C2 | — | — | — | — |
 | Tier-0 SSR catches up after edit | ✅ #196 | ✅ #200 | ✅ #200 | — | — |
@@ -90,23 +91,34 @@ issue) · — n/a · ? not yet tested
   reappeared" as a no-op for the importer. Workaround: touch any
   importing file. Real fix: detect reappear-after-delete and
   schedule a rebuild of dependents.
-- **#227 Vue composable HMR (.ts inside vueDir):** edits to a
-  `.ts` file imported by a `.vue` page don't propagate cleanly.
-  Investigated: the dep graph correctly traces the .ts → .vue
-  edge, `handleVueFastPath` routes the change through
-  `handleVueModuleServerPath`, my Vue bundle scheduler fires —
-  but only the FIRST edit propagates. Subsequent edits hit two
-  compounding issues:
-  1. Vue's `compileVueFile` caches by `.vue` source byte-hash,
-     short-circuiting recompile when the `.vue` content is
-     unchanged. (Tried invalidating per-edit; helped one cycle but
-     not subsequent ones.)
-  2. Vue's `pageHandler` does `await import(path)` without a
-     cache-buster, so even when the on-disk bundle gets a new
-     hash, Bun's module cache returns the previously-imported
-     module for that path. Angular's pageHandler uses a
-     per-request `?t=N` cache-bust query; Vue should too.
-  Proper fix needs both: (a) ensure `compileVue` re-emits when
-  any dep .ts changes (cache-bust by dep hash, not just .vue
-  source hash), AND (b) make `vue/pageHandler.ts`'s import
-  cache-busted per request. Out of scope for the F batch.
+- **#227 Composable HMR (.ts inside frameworkDir) — affects Svelte AND Vue:**
+  edits to a `.ts` file imported by a `.svelte` or `.vue` page propagate the
+  FIRST time only. Subsequent edits stall (SSR keeps serving the previous
+  composable value). Angular is robust to multi-edit composable changes.
+
+  Investigated for Vue: the dep graph correctly traces the .ts → .vue edge,
+  `handleVueFastPath` routes the change through `handleVueModuleServerPath`,
+  the Vue bundle scheduler fires. Two compounding root causes:
+  1. The framework-compile cache (`vueSourceHashCache` / equivalent for
+     Svelte) keys on `.vue`/`.svelte` source byte-hash and short-circuits when
+     the consumer file's content is unchanged — even though a transitive .ts
+     dep changed.
+  2. `vue/pageHandler.ts` does `await import(path)` without a cache-buster.
+     Even when the on-disk bundle gets a new hash, Bun's module cache returns
+     the previously-imported module for that path. Angular's pageHandler
+     uses a per-request `?t=N` cache-bust on the JIT output; Vue/Svelte
+     don't (or don't do it consistently).
+  3. In multi-framework projects, my newly-added `scheduleVueBundleRebuild`
+     writes the server bundle to `build/vue/pages/` but the initial build
+     puts it in `build/vue/server/pages/` (different `serverOutDir` math
+     when multiple frameworks share `commonAncestor` as `serverRoot`). The
+     SSR-resolver still reads from the initial-build path → never sees the
+     scheduler's output.
+
+  Proper fix needs:
+  - Compile-cache invalidation triggered by transitive .ts edits, not just
+    .vue/.svelte source byte changes.
+  - Pageref cache-bust in Vue + Svelte pageHandlers analogous to Angular's.
+  - Scheduler's serverOutDir alignment with the initial build path under
+    `commonAncestor` multi-framework cases.
+  Out of scope for the F batch — tracked under #227.
