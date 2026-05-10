@@ -1,9 +1,15 @@
-# Limitation: in-place framework toggle in `absolute.config.ts`
+# Backend HMR + framework-toggle: design notes & Bun caveats
 
-**Status:** Works via full child restart (the dev CLI's project-root file
-watcher catches the edit, kills the bun child, respawns it). True
-in-place handling is not implemented today, but **is implementable** —
-see "Path forward" below.
+**Status:**
+- **Server entry edits**: in-place HMR via `Bun.serve.reload` shipped
+  (Path B Step 2). PID stays constant, sockets persist, in-flight
+  requests handled by the new app. See `src/plugins/networking.ts` +
+  `src/dev/serverEntryWatcher.ts`.
+- **`absolute.config.ts` edits**: still go via full child restart
+  (CLI watcher → SIGTERM child → respawn). In-place handling for the
+  additive case is implementable (Path A below) but solves a niche.
+  Removal teardown remains restart-only because Elysia has no clean
+  route-removal API.
 
 ## What works today
 
@@ -91,7 +97,58 @@ Caveats — this path is real but its value is limited:
 
 So Path A is straightforward to ship but solves a niche.
 
-### Path B — framework-owned backend HMR (the real fix)
+### Path B — framework-owned backend HMR (SHIPPED)
+
+**Status:** done as of `d97c14b`. Edit `server.ts`, the live
+`Bun.serve` handler swaps in place via `app.server.reload({ fetch,
+routes: {} })`. PID stable across edits.
+
+#### Bun-specific behaviors discovered while building this
+
+These are *not* clean Bun bugs (no minimal repro outside the
+framework) but they're load-bearing constraints that shaped the
+implementation. Documenting here so future-us doesn't re-discover
+them on the next refactor.
+
+1. **`import()` ignores `?query` cache-busting.** Node treats query
+   strings as part of the URL key (different query → different
+   module). Bun ignores the query and returns the cached module. Not
+   a bug per Bun's design — but worth knowing.
+
+2. **`Bun.serve.reload({ fetch })` doesn't clear the static `routes`
+   map.** Elysia compiles routes into Bun.serve's `routes` option for
+   perf at `.listen()` time. Reload's default behavior preserves that
+   map. Pass `routes: {}` alongside `fetch` to fall through to the
+   new handler. Documented behavior, sharp edge.
+
+3. **`delete createRequire(...).cache[path] + await import(path)` —
+   inconsistent.** Bun maintainers in
+   [oven-sh/bun#14435](https://github.com/oven-sh/bun/issues/14435)
+   say this works for both ESM and CJS. Users in that thread report
+   it doesn't reach nested imports. Empirically, in an isolated test
+   (single Elysia app, no `prepare()`) the pattern works correctly:
+   top-level re-runs, exports update, `server.reload({ fetch,
+   routes: {} })` correctly swaps the handler. In our framework
+   (server.ts has `await prepare()` at top-level which calls back
+   into cached state), the top-level still re-runs (you see the
+   `[server.ts] eval` log) but external requests keep hitting the
+   original handler — somewhere in the new module's `app.fetch` or
+   the reload pathway, stale state is captured. Not minimally
+   reproducible without absolutejs, so not currently filed upstream.
+
+   **Workaround we shipped:** copy the entry to a unique sibling
+   path (`.absolutejs-hmr-<ts>-<rand>.ts`) on each reload and
+   `await import` the copy. Different paths bypass Bun's per-path
+   import cache entirely. Same-directory placement keeps relative
+   imports (`./angular/...`, `./absolute.config`) resolving to the
+   originals. Cleanup in `finally`. Both `fileWatcher.ts` and the
+   CLI watcher's atomic-write filter skip `.absolutejs-hmr-*` so
+   the temp's creation/deletion doesn't trigger spurious rebuilds.
+
+   When/if a minimal Bun-only repro emerges, comment on #14435 with
+   the specific failure mode rather than opening a fresh issue.
+
+#### Original Path B design (kept for context)
 
 Build our own backend hot-module pipeline using `Bun.serve.reload`,
 sidestepping Bun `--hot` entirely. This solves both `BUN_HOT_WATCHER_BUG.md`

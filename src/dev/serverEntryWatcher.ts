@@ -66,18 +66,30 @@ export const startServerEntryWatcher = () => {
 		}, RELOAD_DEBOUNCE_MS);
 	};
 
-	// Bun caches `import()` results AND module source code by resolved
-	// path. Neither query strings nor `delete require.cache[path]`
-	// followed by `await import(path)` actually re-reads the file from
-	// disk — the second-load module's top-level runs but with stale
-	// source. (Verified Bun 1.3.13.)
+	// Bun caches `import()` results by resolved path. Two related
+	// behaviors verified empirically on Bun 1.3.13:
 	//
-	// Workaround: copy the entry to a unique sibling path on each
-	// reload and import that copy. Different paths bypass Bun's
-	// content cache, and putting the copy in the same directory keeps
-	// the entry's relative imports (`./angular/...`,
-	// `./absolute.config`, etc.) resolving to the same files. Delete
-	// the copy in `finally` so the project tree stays clean.
+	// 1. `?t=Date.now()` query strings do not bust the cache (Node
+	//    treats them as unique URLs; Bun ignores them).
+	// 2. `delete createRequire(...).cache[path] + await import(path)`
+	//    DOES re-evaluate the module's top-level (you see the eval
+	//    logs) and produces fresh exports in isolated tests — but in
+	//    our framework's setup with `await prepare()` at top level,
+	//    something in the cache lifecycle prevents `Bun.serve.reload`
+	//    from picking up the new `app.fetch`. PID stays, "[server.ts]
+	//    eval" + "server module reloaded" both fire, but external
+	//    requests keep hitting the original handler.
+	//
+	// The reliable workaround is to copy the entry to a unique
+	// sibling path on each reload and import that copy. Different
+	// paths bypass Bun's per-path cache entirely; same-directory
+	// placement keeps the entry's relative imports
+	// (`./angular/...`, `./absolute.config`) resolving to their
+	// originals. Cleanup in `finally` so the project tree stays
+	// clean. The temp filename uses `.absolutejs-hmr-` prefix and
+	// both `fileWatcher.ts` and the CLI watcher's
+	// `isAtomicWriteTemp` filter skip that pattern so temp creation
+	// doesn't itself trigger a restart.
 
 	const triggerReload = async (cause: string) => {
 		const now = Date.now();
@@ -95,7 +107,7 @@ export const startServerEntryWatcher = () => {
 			await import(tmpPath);
 			// On success, the new module's `networking` plugin call
 			// has already swapped the running Bun.serve's fetch
-			// handler via `app.server.reload({ fetch })`.
+			// handler via `app.server.reload({ fetch, routes: {} })`.
 		} catch (err) {
 			console.error(
 				`[hmr] entry re-evaluation failed: ${
