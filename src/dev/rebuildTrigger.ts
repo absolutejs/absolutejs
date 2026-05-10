@@ -2144,6 +2144,7 @@ const broadcastSvelteModuleUpdate = async (
 const handleSvelteModuleServerPath = async (
 	state: HMRState,
 	svelteFiles: string[],
+	config: BuildConfig,
 	startTime: number,
 	onRebuildComplete: (result: {
 		manifest: Record<string, string>;
@@ -2167,12 +2168,190 @@ const handleSvelteModuleServerPath = async (
 		)
 	);
 
+	// Schedule a debounced server-bundle rebuild so a fresh page
+	// load (curl, new tab) sees the post-edit content. The
+	// in-process Svelte HMR path mutates the live browser session
+	// via `svelte-update`, but the on-disk
+	// `build/svelte/server/pages/<Page>.<hash>.js` bundle is frozen
+	// at startup-time bytes — `manifest['Hello']` keeps pointing at
+	// it, and Bun's import cache returns the V0 module forever.
+	// Rebuilding 2s after the user pauses updates the server bundle
+	// (new hash → new manifest entry → fresh import on next SSR).
+	// Same shape as the Angular tier-0 fix in this file.
+	void scheduleSvelteBundleRebuild(state, svelteFiles, config)();
+
 	onRebuildComplete({
 		hmrState: state,
 		manifest: state.manifest
 	});
 
 	return state.manifest;
+};
+
+/* Debounced server-bundle rebuild for Svelte. Same shape as
+   `scheduleAngularBundleRebuild`: collapses a burst of edits into a
+   single Bun.build pass after the user pauses, runs at most one
+   build at a time, and re-arms automatically if more edits arrive
+   mid-build. SSR catches up on the next request after the build
+   completes (manifest entries point at the fresh hashed bundle). */
+const SVELTE_BUNDLE_DEBOUNCE_MS = 2000;
+
+type FrameworkBundleCtx = {
+	debounceTimer: ReturnType<typeof setTimeout> | null;
+	debouncedResolve: (() => void) | null;
+	debouncedPromise: Promise<void> | null;
+	inFlight: Promise<void> | null;
+	pending: boolean;
+	pendingFiles: Set<string>;
+};
+
+const svelteBundleState = new WeakMap<HMRState, FrameworkBundleCtx>();
+const vueBundleState = new WeakMap<HMRState, FrameworkBundleCtx>();
+
+const getOrCreateBundleCtx = (
+	store: WeakMap<HMRState, FrameworkBundleCtx>,
+	state: HMRState
+): FrameworkBundleCtx => {
+	let ctx = store.get(state);
+	if (!ctx) {
+		ctx = {
+			debouncedPromise: null,
+			debouncedResolve: null,
+			debounceTimer: null,
+			inFlight: null,
+			pending: false,
+			pendingFiles: new Set()
+		};
+		store.set(state, ctx);
+	}
+	return ctx;
+};
+
+const runSvelteBundleRebuild = async (
+	state: HMRState,
+	svelteFiles: string[],
+	config: BuildConfig
+): Promise<void> => {
+	if (svelteFiles.length === 0) return;
+	const svelteDir = config.svelteDirectory ?? '';
+	if (!svelteDir) return;
+	const { buildDir } = state.resolvedPaths;
+	const { compileSvelte } = await import('../build/compileSvelte');
+	const { build: bunBuild } = await import('bun');
+	const clientRoot = await computeClientRoot(state.resolvedPaths);
+
+	const { svelteServerPaths, svelteIndexPaths, svelteClientPaths } =
+		await compileSvelte(
+			svelteFiles,
+			svelteDir,
+			new Map(),
+			true,
+			getStyleTransformConfig(state.config)
+		);
+
+	const serverEntries = [...svelteServerPaths];
+	const clientEntries = [...svelteIndexPaths, ...svelteClientPaths];
+
+	const { getFrameworkGeneratedDir } = await import(
+		'../utils/generatedDir'
+	);
+	const serverRoot = resolve(getFrameworkGeneratedDir('svelte'), 'server');
+	const serverOutDir = resolve(buildDir, basename(svelteDir));
+
+	const [serverResult, clientResult] = await Promise.all([
+		serverEntries.length > 0
+			? bunBuild({
+					entrypoints: serverEntries,
+					external: [
+						'react',
+						'react/*',
+						'react-dom',
+						'react-dom/*',
+						'svelte',
+						'svelte/*'
+					],
+					format: 'esm',
+					naming: '[dir]/[name].[hash].[ext]',
+					outdir: serverOutDir,
+					plugins: [
+						createStylePreprocessorPlugin(
+							getStyleTransformConfig(state.config)
+						)
+					],
+					root: serverRoot,
+					target: 'bun',
+					throw: false
+				})
+			: undefined,
+		clientEntries.length > 0
+			? bunBuild({
+					entrypoints: clientEntries,
+					format: 'esm',
+					naming: '[dir]/[name].[hash].[ext]',
+					outdir: buildDir,
+					plugins: [
+						createStylePreprocessorPlugin(
+							getStyleTransformConfig(state.config)
+						)
+					],
+					root: clientRoot,
+					target: 'browser',
+					throw: false
+				})
+			: undefined
+	]);
+
+	handleServerManifestUpdate(state, serverResult);
+	await handleClientManifestUpdate(state, clientResult, buildDir);
+};
+
+const scheduleSvelteBundleRebuild = (
+	state: HMRState,
+	svelteFiles: string[],
+	config: BuildConfig
+): (() => Promise<void>) => {
+	const ctx = getOrCreateBundleCtx(svelteBundleState, state);
+	for (const file of svelteFiles) ctx.pendingFiles.add(file);
+
+	const drive = async (): Promise<void> => {
+		try {
+			while (true) {
+				ctx.pending = false;
+				const filesSnapshot = Array.from(ctx.pendingFiles);
+				ctx.pendingFiles.clear();
+				if (filesSnapshot.length === 0) break;
+				await runSvelteBundleRebuild(state, filesSnapshot, config);
+				if (!ctx.pending) break;
+			}
+		} finally {
+			ctx.inFlight = null;
+		}
+	};
+
+	const fire = () => {
+		ctx.debounceTimer = null;
+		const resolveFn = ctx.debouncedResolve;
+		ctx.debouncedResolve = null;
+		ctx.debouncedPromise = null;
+		if (ctx.inFlight) {
+			ctx.pending = true;
+			ctx.inFlight.finally(() => resolveFn?.());
+			return;
+		}
+		ctx.inFlight = drive();
+		ctx.inFlight.finally(() => resolveFn?.());
+	};
+
+	return () => {
+		if (!ctx.debouncedPromise) {
+			ctx.debouncedPromise = new Promise((res) => {
+				ctx.debouncedResolve = res;
+			});
+		}
+		if (ctx.debounceTimer) clearTimeout(ctx.debounceTimer);
+		ctx.debounceTimer = setTimeout(fire, SVELTE_BUNDLE_DEBOUNCE_MS);
+		return ctx.debouncedPromise;
+	};
 };
 
 const handleSvelteFastPath = async (
@@ -2199,6 +2378,7 @@ const handleSvelteFastPath = async (
 		return handleSvelteModuleServerPath(
 			state,
 			svelteFiles,
+			config,
 			startTime,
 			onRebuildComplete
 		);
@@ -2370,6 +2550,7 @@ const handleVueModuleServerPath = async (
 	state: HMRState,
 	vueFiles: string[],
 	nonVueFiles: string[],
+	config: BuildConfig,
 	startTime: number,
 	onRebuildComplete: (result: {
 		manifest: Record<string, string>;
@@ -2402,12 +2583,143 @@ const handleVueModuleServerPath = async (
 		)
 	);
 
+	// Schedule a debounced server-bundle rebuild so curl/new-tab
+	// SSR sees the post-edit content. Same shape as the svelte and
+	// angular fixes above — the in-process HMR path updates the
+	// running browser session, but the on-disk
+	// `build/vue/server/pages/<Page>.<hash>.js` bundle stays at
+	// startup-time bytes until something rebuilds it.
+	void scheduleVueBundleRebuild(state, vueFiles, config)();
+
 	onRebuildComplete({
 		hmrState: state,
 		manifest: state.manifest
 	});
 
 	return state.manifest;
+};
+
+/* Debounced server-bundle rebuild for Vue. Same shape as
+   `scheduleSvelteBundleRebuild` — see that function's comment for
+   the rationale. Both frameworks have the identical issue: the
+   moduleServer/HMR path updates the live browser but never
+   regenerates the on-disk SSR bundle. */
+const VUE_BUNDLE_DEBOUNCE_MS = 2000;
+
+const runVueBundleRebuild = async (
+	state: HMRState,
+	vueFiles: string[],
+	config: BuildConfig
+): Promise<void> => {
+	if (vueFiles.length === 0) return;
+	const vueDir = config.vueDirectory ?? '';
+	if (!vueDir) return;
+	const { buildDir } = state.resolvedPaths;
+	const { compileVue } = await import('../build/compileVue');
+	const { build: bunBuild } = await import('bun');
+	const clientRoot = await computeClientRoot(state.resolvedPaths);
+
+	const { vueServerPaths, vueIndexPaths, vueClientPaths } = await compileVue(
+		vueFiles,
+		vueDir,
+		true,
+		getStyleTransformConfig(state.config)
+	);
+
+	const serverEntries = [...vueServerPaths];
+	const clientEntries = [...vueIndexPaths, ...vueClientPaths];
+
+	const { getFrameworkGeneratedDir } = await import('../utils/generatedDir');
+	const serverRoot = resolve(getFrameworkGeneratedDir('vue'), 'server');
+	const serverOutDir = resolve(buildDir, basename(vueDir));
+
+	const [serverResult, clientResult] = await Promise.all([
+		serverEntries.length > 0
+			? bunBuild({
+					entrypoints: serverEntries,
+					external: ['vue', 'vue/*', '@vue/*'],
+					format: 'esm',
+					naming: '[dir]/[name].[hash].[ext]',
+					outdir: serverOutDir,
+					plugins: [
+						createStylePreprocessorPlugin(
+							getStyleTransformConfig(state.config)
+						)
+					],
+					root: serverRoot,
+					target: 'bun',
+					throw: false
+				})
+			: undefined,
+		clientEntries.length > 0
+			? bunBuild({
+					entrypoints: clientEntries,
+					format: 'esm',
+					naming: '[dir]/[name].[hash].[ext]',
+					outdir: buildDir,
+					plugins: [
+						createStylePreprocessorPlugin(
+							getStyleTransformConfig(state.config)
+						)
+					],
+					root: clientRoot,
+					target: 'browser',
+					throw: false
+				})
+			: undefined
+	]);
+
+	handleServerManifestUpdate(state, serverResult);
+	await handleClientManifestUpdate(state, clientResult, buildDir);
+};
+
+const scheduleVueBundleRebuild = (
+	state: HMRState,
+	vueFiles: string[],
+	config: BuildConfig
+): (() => Promise<void>) => {
+	const ctx = getOrCreateBundleCtx(vueBundleState, state);
+	for (const file of vueFiles) ctx.pendingFiles.add(file);
+
+	const drive = async (): Promise<void> => {
+		try {
+			while (true) {
+				ctx.pending = false;
+				const filesSnapshot = Array.from(ctx.pendingFiles);
+				ctx.pendingFiles.clear();
+				if (filesSnapshot.length === 0) break;
+				await runVueBundleRebuild(state, filesSnapshot, config);
+				if (!ctx.pending) break;
+			}
+		} finally {
+			ctx.inFlight = null;
+		}
+	};
+
+	const fire = () => {
+		ctx.debounceTimer = null;
+		const resolveFn = ctx.debouncedResolve;
+		ctx.debouncedResolve = null;
+		ctx.debouncedPromise = null;
+		if (ctx.inFlight) {
+			ctx.pending = true;
+			ctx.inFlight.finally(() => resolveFn?.());
+			return;
+		}
+		ctx.inFlight = drive();
+		ctx.inFlight.finally(() => resolveFn?.());
+	};
+
+	return () => {
+		if (!ctx.debouncedPromise) {
+			ctx.debouncedPromise = new Promise((res) => {
+				ctx.debouncedResolve = res;
+			});
+		}
+		if (ctx.debounceTimer) clearTimeout(ctx.debounceTimer);
+		ctx.debounceTimer = setTimeout(fire, VUE_BUNDLE_DEBOUNCE_MS);
+		return ctx.debouncedPromise;
+	};
 };
 
 const handleVueFastPath = async (
@@ -2442,6 +2754,7 @@ const handleVueFastPath = async (
 			state,
 			vueFiles,
 			nonVueFiles,
+			config,
 			startTime,
 			onRebuildComplete
 		);
