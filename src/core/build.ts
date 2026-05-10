@@ -39,6 +39,7 @@ import {
 } from '../build/stylePreprocessor';
 import {
 	compileTailwindConfig,
+	computeFrameworkTailwindSources,
 	isTailwindCandidate
 } from '../build/compileTailwind';
 import { disposeTailwindCompiler } from '../build/tailwindCompiler';
@@ -1066,7 +1067,16 @@ const buildUnlocked = async ({
 					compileTailwindConfig(
 						tailwind,
 						buildPath,
-						styleTransformConfig
+						styleTransformConfig,
+						computeFrameworkTailwindSources({
+							angularDirectory,
+							emberDirectory,
+							htmlDirectory,
+							htmxDirectory,
+							reactDirectory,
+							svelteDirectory,
+							vueDirectory
+						} as BuildConfig)
 					)
 				)
 			: undefined;

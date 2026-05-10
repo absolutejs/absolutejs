@@ -94,11 +94,15 @@ const recompileTailwindForFastPath = async (
 	if (!files.some(isTailwindCandidate)) return;
 
 	try {
+		const { computeFrameworkTailwindSources } = await import(
+			'../build/compileTailwind'
+		);
 		const { cssChanged } = await incrementalTailwindBuild(
 			config.tailwind,
 			state.resolvedPaths.buildDir,
 			files,
-			getStyleTransformConfig(config)
+			getStyleTransformConfig(config),
+			computeFrameworkTailwindSources(config)
 		);
 		if (!cssChanged) return;
 

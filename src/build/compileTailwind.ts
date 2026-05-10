@@ -1,10 +1,38 @@
 import { mkdir } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import type {
+	BuildConfig,
 	StylePreprocessorConfig,
 	TailwindConfig
 } from '../../types/build';
 import { incrementalTailwindBuild } from './tailwindCompiler';
+
+/* Build absolute `@source` glob patterns for every framework directory
+   the user configured. Tailwind v4 only scans paths it's been told
+   about (its automatic detection covers the dir containing the entry
+   CSS), so without these the user has to manually add a `@source`
+   directive per framework. Auto-injecting them eliminates a class of
+   silent "my utility class doesn't show up" bugs. */
+export const computeFrameworkTailwindSources = (
+	config: BuildConfig
+): string[] => {
+	const cwd = process.cwd();
+	const dirs: Array<[string | undefined, string]> = [
+		[config.angularDirectory, '**/*.{ts,tsx,html,htm}'],
+		[config.svelteDirectory, '**/*.{ts,tsx,svelte,html,htm}'],
+		[config.vueDirectory, '**/*.{ts,tsx,vue,html,htm}'],
+		[config.reactDirectory, '**/*.{ts,tsx,js,jsx,html,htm}'],
+		[config.htmlDirectory, '**/*.{html,htm}'],
+		[config.htmxDirectory, '**/*.{html,htm,js,ts}'],
+		[config.emberDirectory, '**/*.{ts,tsx,gts,gjs,hbs,html,htm}']
+	];
+	const out: string[] = [];
+	for (const [dir, glob] of dirs) {
+		if (!dir) continue;
+		out.push(`${resolve(cwd, dir)}/${glob}`);
+	}
+	return out;
+};
 
 /* Files Tailwind v4 may scan for candidate utility classes via the `@source`
    directive. When any of these change in dev, the Tailwind output must be
@@ -34,7 +62,8 @@ export const compileTailwind = async (
 	input: string,
 	output: string,
 	buildPath: string,
-	styleTransformConfig?: StylePreprocessorConfig
+	styleTransformConfig?: StylePreprocessorConfig,
+	extraSources: string[] = []
 ) => {
 	const outputPath = join(buildPath, output);
 	await mkdir(dirname(outputPath), { recursive: true });
@@ -42,18 +71,21 @@ export const compileTailwind = async (
 		{ input, output },
 		buildPath,
 		[],
-		styleTransformConfig
+		styleTransformConfig,
+		extraSources
 	);
 };
 
 export const compileTailwindConfig = async (
 	tailwind: TailwindConfig,
 	buildPath: string,
-	styleTransformConfig?: StylePreprocessorConfig
+	styleTransformConfig?: StylePreprocessorConfig,
+	extraSources: string[] = []
 ) =>
 	compileTailwind(
 		tailwind.input,
 		tailwind.output,
 		buildPath,
-		styleTransformConfig
+		styleTransformConfig,
+		extraSources
 	);

@@ -173,13 +173,29 @@ const loadModule = async (
 	return { base: dirname(path), module, path };
 };
 
-const buildCompilerEntry = async (cssPath: string): Promise<CompilerEntry> => {
+const buildCompilerEntry = async (
+	cssPath: string,
+	extraSources: string[] = []
+): Promise<CompilerEntry> => {
 	const compile = await loadTailwindCompile();
 	const absPath = resolve(cssPath);
-	const css = await readFile(absPath, 'utf-8');
+	const userCss = await readFile(absPath, 'utf-8');
 	const cssMtimeMs = (await stat(absPath)).mtimeMs;
 	const cssDependencies = new Map<string, number>();
 	cssDependencies.set(absPath, cssMtimeMs);
+	// Prepend `@source` directives for each framework directory the
+	// user configured. Without this, users have to remember to add a
+	// `@source "../angular/**/*.{ts,html}"` line to their tailwind.css
+	// for every framework dir — easy to forget and breaks silently
+	// (utilities used in components don't show up in the emitted CSS,
+	// markup looks unstyled). The paths are absolute so the `base`
+	// dir of the user's tailwind.css doesn't matter.
+	const sourceDirectives = extraSources
+		.map((pattern) => `@source ${JSON.stringify(pattern)};`)
+		.join('\n');
+	const css = sourceDirectives
+		? `${sourceDirectives}\n${userCss}`
+		: userCss;
 	const compiler = await compile(css, {
 		base: dirname(absPath),
 		loadModule,
@@ -376,12 +392,15 @@ const isCompilerStale = async (entry: CompilerEntry) => {
 	return results.some(Boolean);
 };
 
-const getCompilerEntry = async (cssPath: string) => {
+const getCompilerEntry = async (
+	cssPath: string,
+	extraSources: string[] = []
+) => {
 	const key = resolve(cssPath);
 	const cached = compilerCache.get(key);
 	if (cached && !(await isCompilerStale(cached))) return cached;
 
-	const fresh = await buildCompilerEntry(cssPath);
+	const fresh = await buildCompilerEntry(cssPath, extraSources);
 	await populateCandidatesFromAllSources(fresh);
 	compilerCache.set(key, fresh);
 
@@ -405,10 +424,11 @@ export const incrementalTailwindBuild = async (
 	tailwind: TailwindConfig,
 	buildPath: string,
 	changedFiles: string[],
-	styleTransformConfig?: StylePreprocessorConfig
+	styleTransformConfig?: StylePreprocessorConfig,
+	extraSources: string[] = []
 ) => {
 	const startedAt = performance.now();
-	const entry = await getCompilerEntry(tailwind.input);
+	const entry = await getCompilerEntry(tailwind.input, extraSources);
 	const inputAbs = entry.cssPath;
 	const filesToRescan: string[] = [];
 
@@ -445,6 +465,9 @@ export const incrementalTailwindBuild = async (
 /* Pre-build the compiler at dev startup so the first HMR tick doesn't
    pay the parse-and-scan cost. Safe to call multiple times — it's a no-op
    once cached. */
-export const warmTailwindCompiler = async (tailwind: TailwindConfig) => {
-	await getCompilerEntry(tailwind.input);
+export const warmTailwindCompiler = async (
+	tailwind: TailwindConfig,
+	extraSources: string[] = []
+) => {
+	await getCompilerEntry(tailwind.input, extraSources);
 };

@@ -642,10 +642,15 @@ export const devBuild = async (config: BuildConfig) => {
 	// after server start doesn't pay the parse + initial-scan cost.
 	if (config.tailwind) {
 		stepStartedAt = performance.now();
-		const { warmTailwindCompiler } = await import(
-			'../build/tailwindCompiler'
+		const [{ warmTailwindCompiler }, { computeFrameworkTailwindSources }] =
+			await Promise.all([
+				import('../build/tailwindCompiler'),
+				import('../build/compileTailwind')
+			]);
+		await warmTailwindCompiler(
+			config.tailwind,
+			computeFrameworkTailwindSources(config)
 		);
-		await warmTailwindCompiler(config.tailwind);
 		recordStep('warm tailwind compiler', stepStartedAt);
 	}
 
