@@ -63,14 +63,15 @@ export const compileTailwind = async (
 	output: string,
 	buildPath: string,
 	styleTransformConfig?: StylePreprocessorConfig,
-	extraSources: string[] = []
+	extraSources: string[] = [],
+	changedFiles: string[] = []
 ) => {
 	const outputPath = join(buildPath, output);
 	await mkdir(dirname(outputPath), { recursive: true });
 	await incrementalTailwindBuild(
 		{ input, output },
 		buildPath,
-		[],
+		changedFiles,
 		styleTransformConfig,
 		extraSources
 	);
@@ -80,12 +81,14 @@ export const compileTailwindConfig = async (
 	tailwind: TailwindConfig,
 	buildPath: string,
 	styleTransformConfig?: StylePreprocessorConfig,
-	extraSources: string[] = []
+	extraSources: string[] = [],
+	changedFiles: string[] = []
 ) =>
 	compileTailwind(
 		tailwind.input,
 		tailwind.output,
 		buildPath,
 		styleTransformConfig,
-		extraSources
+		extraSources,
+		changedFiles
 	);

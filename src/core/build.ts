@@ -1076,7 +1076,8 @@ const buildUnlocked = async ({
 							reactDirectory,
 							svelteDirectory,
 							vueDirectory
-						} as BuildConfig)
+						} as BuildConfig),
+						normalizedIncrementalFiles ?? []
 					)
 				)
 			: undefined;
@@ -1140,7 +1141,7 @@ const buildUnlocked = async ({
 			: emptyConventionResult,
 		angularPagesPath
 			? tracePhase('scan/angular-conventions', () =>
-					scanConventions(angularPagesPath, '*.ts')
+					scanConventions(angularPagesPath, '**/*.ts')
 				)
 			: emptyConventionResult,
 		emberPagesPath
