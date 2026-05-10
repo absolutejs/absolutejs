@@ -773,9 +773,47 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 
 	printHint();
 
+	// Crash-loop rate limit. A persistently-crashing child (e.g. a
+	// syntax error in `server.ts` that doesn't get fixed) would
+	// otherwise respawn forever, spamming the terminal. Track recent
+	// crash timestamps in a rolling window; once `MAX` crashes happen
+	// within `WINDOW_MS`, give up with a clear message instead of
+	// respawning. The user sees the *real* error from the last crash
+	// at the bottom of their log instead of the same trace flickering
+	// past hundreds of times.
+	const CRASH_WINDOW_MS = 10_000;
+	const MAX_CRASHES_PER_WINDOW = 5;
+	const recentCrashes: number[] = [];
+
 	const handleServerExit = async (exitCode: number | null) => {
 		if (exitCode === SIGINT_EXIT_CODE || exitCode === SIGTERM_EXIT_CODE) {
 			await cleanup(0);
+
+			return false;
+		}
+		const now = Date.now();
+		while (
+			recentCrashes.length > 0 &&
+			now - recentCrashes[0]! > CRASH_WINDOW_MS
+		) {
+			recentCrashes.shift();
+		}
+		recentCrashes.push(now);
+		if (recentCrashes.length > MAX_CRASHES_PER_WINDOW) {
+			console.error(
+				cliTag(
+					'\x1b[31m',
+					`Server has crashed ${recentCrashes.length} times in the last ${Math.round(
+						CRASH_WINDOW_MS / 1000
+					)}s — refusing to restart. Fix the error above and run \`absolute dev\` again.`
+				)
+			);
+			sendTelemetryEvent('dev:server-crash-loop', {
+				crashes: recentCrashes.length,
+				entry: serverEntry,
+				windowMs: CRASH_WINDOW_MS
+			});
+			await cleanup(1);
 
 			return false;
 		}

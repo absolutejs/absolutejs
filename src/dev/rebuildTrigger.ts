@@ -1,5 +1,9 @@
-import { existsSync } from 'node:fs';
-import { basename, dirname, relative, resolve, sep } from 'node:path';
+import { existsSync, rmSync } from 'node:fs';
+import { basename, dirname, join, relative, resolve, sep } from 'node:path';
+import {
+	getFrameworkGeneratedDir,
+	type GeneratedFramework
+} from '../utils/generatedDir';
 import { build } from '../core/build';
 import type { BuildConfig } from '../../types/build';
 import { scanEntryPoints } from '../build/scanEntryPoints';
@@ -245,6 +249,62 @@ const isValidDeletedAffectedFile = (
 	!processedFiles.has(affectedFile) &&
 	existsSync(affectedFile);
 
+// Map a deleted framework source file to its compiled output under
+// `.absolutejs/generated/<framework>/` and remove the artifacts. Without
+// this, deleting an angular component (or react/vue/svelte source)
+// leaves an orphan compiled file forever — harmless at runtime but it
+// accumulates and can re-surface confusing behavior if a same-named
+// file is later created (the compiler may use the stale output before
+// the new compile finishes).
+const FRAMEWORK_DIR_KEYS_FOR_CLEANUP: Array<{
+	configKey: keyof Pick<
+		BuildConfig,
+		| 'reactDirectory'
+		| 'svelteDirectory'
+		| 'vueDirectory'
+		| 'emberDirectory'
+		| 'angularDirectory'
+	>;
+	framework: GeneratedFramework;
+}> = [
+	{ configKey: 'reactDirectory', framework: 'react' },
+	{ configKey: 'svelteDirectory', framework: 'svelte' },
+	{ configKey: 'vueDirectory', framework: 'vue' },
+	{ configKey: 'emberDirectory', framework: 'ember' },
+	{ configKey: 'angularDirectory', framework: 'angular' }
+];
+
+const removeStaleGenerated = (state: HMRState, deletedFile: string) => {
+	const config = state.config;
+	const cwd = process.cwd();
+	const absDeleted = resolve(deletedFile).replace(/\\/g, '/');
+	for (const { configKey, framework } of FRAMEWORK_DIR_KEYS_FOR_CLEANUP) {
+		const dir = config[configKey];
+		if (!dir) continue;
+		const absDir = resolve(cwd, dir).replace(/\\/g, '/');
+		if (!absDeleted.startsWith(`${absDir}/`)) continue;
+		const rel = absDeleted.slice(absDir.length + 1);
+		// Source extensions get rewritten to `.js` in the generated dir.
+		// Cover the common ones; non-source files (templates, css) we
+		// leave alone — those aren't compiled to a generated twin.
+		const ext = rel.match(/\.(ts|tsx|jsx|svelte|vue|mjs|cjs)$/);
+		if (!ext) return;
+		const relJs = `${rel.slice(0, -ext[0].length)}.js`;
+		const generatedDir = getFrameworkGeneratedDir(framework, cwd);
+		for (const candidate of [
+			join(generatedDir, relJs),
+			`${join(generatedDir, relJs)}.map`
+		]) {
+			try {
+				rmSync(candidate, { force: true });
+			} catch {
+				/* best effort */
+			}
+		}
+		return;
+	}
+};
+
 const collectDeletedFileAffected = (
 	state: HMRState,
 	filePathInSet: string,
@@ -252,6 +312,7 @@ const collectDeletedFileAffected = (
 	validFiles: string[]
 ) => {
 	state.fileHashes.delete(filePathInSet);
+	removeStaleGenerated(state, filePathInSet);
 	try {
 		const affectedFiles = getAffectedFiles(
 			state.dependencyGraph,
