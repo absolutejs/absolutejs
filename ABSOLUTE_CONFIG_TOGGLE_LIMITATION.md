@@ -121,39 +121,62 @@ them on the next refactor.
    map. Pass `routes: {}` alongside `fetch` to fall through to the
    new handler. Documented behavior, sharp edge.
 
-3. **`delete createRequire(...).cache[path] + await import(path)`
-   throws "Requested module is not instantiated yet" under
-   `bun --hot`** —
-   filed upstream as
-   [oven-sh/bun#30447](https://github.com/oven-sh/bun/issues/30447).
+3. **`delete createRequire(...).cache[entry] + await import(entry)`
+   under `bun --hot` re-runs the entry's top-level but the new
+   evaluation reads stale source bytes — partially fixed in 1.3.14,
+   not enough for our case.**
 
-   Bun maintainers in
-   [oven-sh/bun#14435](https://github.com/oven-sh/bun/issues/14435)
-   said this pattern works for both ESM and CJS. It does — under
-   plain `bun main.ts`. Under `bun --hot main.ts` (which is what
-   our dev CLI uses for the child) it throws on every reload after
-   the initial import. Minimal repro is in the upstream issue.
+   Filed upstream in two pieces:
 
-   The earlier round of users in #14435 was complaining about this
-   same failure mode but never attached a minimal repro, so the
-   issue was closed.
+   - [oven-sh/bun#30447](https://github.com/oven-sh/bun/issues/30447)
+     covered the original throw ("Requested module is not
+     instantiated yet"). Fixed in 1.3.14-canary by the WebKit
+     module-loader rewrite
+     ([oven-sh/bun#29393](https://github.com/oven-sh/bun/pull/29393),
+     "Upgrade WebKit to 87fd0daba19a", 2026-04-25) — but only for
+     non-entry modules.
+   - [oven-sh/bun#30449](https://github.com/oven-sh/bun/issues/30449)
+     covers the residual: when the entry path itself is rewritten
+     atomically (sed -i, vim default, prettier, VSCode, etc.),
+     `--hot`'s pinned module record stays in place and userland
+     cache invalidation re-runs the top-level *with stale source
+     bytes*. Verified on `1.3.14-canary.1+fe735f8f0` — the new
+     evaluation prints in-memory `VALUE=V1` while
+     `readFileSync(entry)` from the same eval shows `V2`.
 
-   **Workaround we shipped:** copy the entry to a unique sibling
-   path (`.absolutejs-hmr-<ts>-<rand>.ts`) on each reload and
-   `await import` the copy. Different paths bypass Bun's per-path
-   module record entirely so the `--hot` instantiation tracking
-   isn't tripped. Same-directory placement keeps relative imports
-   (`./angular/...`, `./absolute.config`) resolving to the
-   originals. Cleanup in `finally`. Both `fileWatcher.ts` and the
-   CLI watcher's atomic-write filter skip `.absolutejs-hmr-*` so
-   the temp's creation/deletion doesn't trigger spurious rebuilds.
+   Two minimal repros distinguish the cases:
 
-   **Action when fixed:** revert `serverEntryWatcher.ts`'s
-   `triggerReload` to the simpler `delete requireFn.cache[path] +
-   await import(path)` pattern (kept as a comment in the file).
-   Drop the `.absolutejs-hmr-*` allowlist in `fileWatcher.ts` and
-   `dev.ts`'s `isAtomicWriteTemp`. Keep `routes: {}` on reload —
-   that part isn't a bug, it's documented Bun.serve behavior.
+   - changing `mod.ts` while entry is `main.ts`: V1 → V2 → V3 → V4
+     correctly observed (post-#29393, the non-entry case works)
+   - changing `server.ts` *as the entry* via `sed -i`: top-level
+     re-runs but reads stale `V1` even after the file on disk
+     has been rewritten to `V2` (#30449)
+
+   So our framework hits the second case because `server.ts` is
+   the entry and editors do atomic-rename writes. The workaround
+   is to import from a *different path*: copy the entry to
+   `.absolutejs-hmr-<n>.<ext>` next to the original (so relative
+   imports resolve identically) and `await import()` that
+   sibling. Bun parses+transpiles the sibling fresh because it's
+   a new URL key; `--hot` doesn't own it; the new module's
+   `networking` plugin call hits the reload-aware branch and
+   swaps the live `Bun.serve` handler.
+
+   Supporting code (already in tree, unchanged):
+   - `fileWatcher.ts` and `dev.ts`'s `isAtomicWriteTemp` allowlist
+     `.absolutejs-hmr-*` so the sibling copy doesn't trigger a
+     spurious file-change pipeline
+   - `serverEntryWatcher.ts`'s `triggerEntryReload` deletes the
+     sibling in a `finally` block (best-effort; an orphan from a
+     crashed process is harmless because the allowlist hides it
+     from the watcher)
+
+   `package.json` engines stays at `>=1.3.6`. The sibling-copy
+   workaround makes the entry-stale-source bug irrelevant, so we
+   don't need to gate users on the canary fix. If
+   [oven-sh/bun#30449](https://github.com/oven-sh/bun/issues/30449)
+   ships a fix we can drop the sibling copy and the two allowlist
+   entries in one cleanup.
 
 #### Original Path B design (kept for context)
 

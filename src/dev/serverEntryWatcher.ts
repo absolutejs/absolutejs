@@ -78,25 +78,29 @@ export const startServerEntryWatcher = () => {
 	let entryReloadTimer: ReturnType<typeof setTimeout> | null = null;
 	let configReloadTimer: ReturnType<typeof setTimeout> | null = null;
 
-	// Bun cache invalidation under `bun --hot` (oven-sh/bun#30447):
+	// Bun cache invalidation under `bun --hot` for the entry path
+	// (oven-sh/bun#30447, oven-sh/bun#30449):
 	//
 	// The natural pattern is
 	//   delete createRequire(import.meta.url).cache[path];
 	//   await import(path);
-	// which works under plain `bun` but throws "Requested module is
-	// not instantiated yet" on every reload after the first under
-	// `bun --hot` — `--hot`'s internal module-record tracking
-	// doesn't tolerate userland invalidating the cache. When the
-	// upstream issue lands a fix, this whole block reverts to the
-	// natural pattern (and the `.absolutejs-hmr-*` filter in
-	// `fileWatcher.ts` and `dev.ts`'s isAtomicWriteTemp can drop —
-	// see ABSOLUTE_CONFIG_TOGGLE_LIMITATION.md).
+	// which works under plain `bun` but threw "Requested module is
+	// not instantiated yet" under `bun --hot` 1.3.13 and earlier
+	// (#30447). The throw was fixed in 1.3.14 by the WebKit
+	// module-loader rewrite (#29393), but only for non-entry
+	// modules. Atomic-rename writes (sed -i, vim default,
+	// prettier, VSCode, etc.) to the entry under `--hot` leave
+	// `--hot`'s pinned module record in place; userland cache
+	// invalidation re-runs the top-level but reads stale source
+	// bytes (#30449). Our framework always reloads the entry, so
+	// the natural pattern still doesn't work for us.
 	//
 	// Workaround: copy the entry to a unique sibling path and
-	// `await import` the copy. Different path → different module
-	// record → not tracked by `--hot`. Same-directory placement
-	// keeps relative imports (`./angular/...`, `./absolute.config`)
-	// resolving correctly. Delete the copy in `finally`.
+	// `await import` the copy. Different path → different URL key
+	// → Bun parses+transpiles fresh and `--hot` doesn't own the
+	// sibling. Same-directory placement keeps relative imports
+	// (`./angular/...`, `./absolute.config`) resolving correctly.
+	// Delete the copy in `finally`.
 	const triggerEntryReload = async (cause: string) => {
 		const now = Date.now();
 		const last = recentlyHandled.get(`entry:${cause}`) ?? 0;
