@@ -5,54 +5,68 @@ documents what's blocking us and what to do when the upstream fix lands.
 
 ---
 
-## 1. Bun resolver doesn't honor `@`-prefixed subpaths in wildcard `exports`
+## 1. `@ember/*` / `@glimmer/*` / `@simple-dom/*` translation to `ember-source/dist/packages/`
 
-**Issue**: [oven-sh/bun#30187](https://github.com/oven-sh/bun/issues/30187)
+**Original blocker**: [oven-sh/bun#30187](https://github.com/oven-sh/bun/issues/30187) —
+**FIXED in 1.3.14** ([oven-sh/bun#30188](https://github.com/oven-sh/bun/pull/30188),
+merged 2026-05-04). Verified locally on `1.3.14-canary.1+fe735f8f0`:
+`import 'ember-source/@ember/renderer/index.js'` resolves correctly.
 
-**What's broken**: `ember-source@6.12`'s `package.json` declares
-`"exports": { "./*": "./dist/packages/*" }`. The Node ESM spec says
-wildcards substitute literally, so `import "ember-source/@ember/renderer/index.js"`
-should map to `node_modules/ember-source/dist/packages/@ember/renderer/index.js`.
-Node.js handles this correctly; Bun returns
-`Cannot find module 'ember-source/@ember/renderer/index.js'` whenever the
-matched substring starts with `@`. Plain subpaths (e.g.
-`ember-source/ember/index.js`) work; only `@`-prefixed ones fail.
+**Status**: bandaid **stays**, despite the upstream fix. The fix made
+the underlying repro work, but the bandaid was solving a *bigger*
+problem than the @-prefix wildcard bug.
 
-This breaks every `@ember/*` and `@glimmer/*` import that ember-source
-emits internally — and the post-monorepo-merger world makes those the
-majority of Ember runtime imports.
+**What `ember-source@6.12` actually requires**: third-party packages
+we depend on (notably `@glimmer/component@2.1.1`) ship `dist/index.js`
+with bare imports like:
 
-**Bandaid**:
+```js
+import { capabilities, setComponentManager } from '@ember/component';
+import { destroy } from '@ember/destroyable';
+import { schedule } from '@ember/runloop';
+import { setOwner } from '@ember/owner';
+```
 
-- `src/build/buildEmberVendor.ts` — `createEmberResolverPlugin` is a
-  Bun.build plugin that intercepts every `@ember/*`, `@glimmer/*`, and
-  `@simple-dom/*` resolution and routes it to the absolute file path
-  inside `node_modules/ember-source/dist/packages/<spec>/index.js`.
-- `src/build/compileEmber.ts` — `createEmberServerResolverPlugin` is the
-  same shape, applied to the server-side Bun.build pass that bundles
-  user pages with their transitive Glimmer/Ember runtime deps.
+There's no top-level `@ember/component` (etc.) package in
+`node_modules/@ember/` — these names only exist as
+`node_modules/ember-source/dist/packages/@ember/<X>/index.js`. So
+*something* has to translate the bare `@ember/X` specifier to the
+`ember-source` internal path during bundling. That's what the
+resolver plugins do.
 
-**What to do when unblocked**:
+#30187's fix made `import 'ember-source/@ember/X/index.js'` work as
+a bare specifier — but `@glimmer/component`'s code doesn't use that
+form, and we can't rewrite third-party node_modules. So the
+translation work stays.
 
-1. Verify the fix lands by testing the `Bun.resolve` reproducer from
-   issue #30187 against the new Bun version.
-2. Delete `createEmberResolverPlugin` from `buildEmberVendor.ts` and
-   `createEmberServerResolverPlugin` from `compileEmber.ts`. Their
-   `onResolve` hooks for `@ember/*`, `@glimmer/*`, `@simple-dom/*`
-   become no-ops.
-3. Vendor entries can switch from `EmberSpecifierResolution`'s
-   `resolveTo` field (currently the absolute path) back to the bare
-   specifier — Bun's resolver handles it.
-4. The macros virtual-module half of the resolver plugin must STAY
-   regardless — that's a separate concern (see #2 below).
-5. Bump the minimum Bun version in `package.json` to whichever release
-   ships the fix, and add a one-line note in `EMBER_PLAN.md §0` so the
-   `@`-prefix workaround stops being a phase-1 implementation
-   constraint.
+**Bandaid (still active)**:
 
-**How to spot when it's been fixed**: GitHub closes #30187 with the fix
-release linked, AND the reproducer in the issue body returns the
-absolute path on the new Bun.
+- `src/build/buildEmberVendor.ts` — `createEmberResolverPlugin`
+  intercepts `@ember/*`, `@glimmer/*`, `@simple-dom/*` resolutions
+  inside the vendor build, routing each to the absolute file path
+  under `node_modules/ember-source/dist/packages/<spec>/index.js`.
+  Standalone packages (`@glimmer/component`, `@glimmer/tracking`,
+  `@glimmer/env`, `@simple-dom/serializer`) pass through to Bun's
+  normal resolver.
+- `src/build/compileEmber.ts` — `createEmberServerResolverPlugin`
+  applies the same translation to the server-side Bun.build pass
+  that bundles user pages.
+
+**What this bandaid would actually take to remove**: upstream Ember
+would need to ship `@glimmer/component` (and friends) bundled with
+`ember-source/@ember/X/index.js`-form imports, OR Bun would need a
+top-level alias config (it doesn't have one). Neither is realistic
+near-term, so this is the right shape.
+
+**What's still possible cleanup**: post-#30187 we *could* switch the
+plugin's `return { path: <absolute> }` to use the bare-with-subpath
+form `'ember-source/<spec>/index.js'`. That'd be cosmetic — the
+plugin still has to map `@ember/X` to *something*, and the absolute
+paths it currently returns are correct. Not worth the churn unless
+we touch the file for another reason.
+
+**Action when fixed**: nothing. The original wording of this entry
+overestimated what #30187's fix would unlock; corrected here.
 
 ---
 
