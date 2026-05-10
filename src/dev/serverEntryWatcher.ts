@@ -91,6 +91,31 @@ export const startServerEntryWatcher = () => {
 	// `isAtomicWriteTemp` filter skip that pattern so temp creation
 	// doesn't itself trigger a restart.
 
+	// Bun cache invalidation under `bun --hot`:
+	//
+	// The natural pattern is
+	//   delete createRequire(import.meta.url).cache[path];
+	//   await import(path);
+	// which works fine under plain `bun`. Under `bun --hot` (which is
+	// what our dev CLI spawns the child with) the second `await import`
+	// throws "Requested module is not instantiated yet" — `--hot`'s
+	// internal module-record tracking doesn't tolerate userland
+	// invalidating the cache out from under it. Tracked as
+	// oven-sh/bun#30447. When that's fixed, this whole block reverts
+	// to:
+	//   delete createRequire(import.meta.url).cache[entryPath];
+	//   await import(entryPath);
+	// (and the `.absolutejs-hmr-*` filter in fileWatcher.ts and
+	// dev.ts's isAtomicWriteTemp can be dropped — see
+	// ABSOLUTE_CONFIG_TOGGLE_LIMITATION.md).
+	//
+	// Workaround until then: copy the entry to a unique sibling path
+	// and `await import` the copy. Different path → different module
+	// record → not tracked by `--hot`. Same-directory placement keeps
+	// the entry's relative imports (`./angular/...`,
+	// `./absolute.config`) resolving correctly. Delete the copy in
+	// `finally` so the project tree stays clean.
+
 	const triggerReload = async (cause: string) => {
 		const now = Date.now();
 		const last = recentlyHandled.get(cause) ?? 0;

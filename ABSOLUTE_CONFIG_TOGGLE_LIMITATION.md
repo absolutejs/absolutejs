@@ -121,32 +121,39 @@ them on the next refactor.
    map. Pass `routes: {}` alongside `fetch` to fall through to the
    new handler. Documented behavior, sharp edge.
 
-3. **`delete createRequire(...).cache[path] + await import(path)` —
-   inconsistent.** Bun maintainers in
+3. **`delete createRequire(...).cache[path] + await import(path)`
+   throws "Requested module is not instantiated yet" under
+   `bun --hot`** —
+   filed upstream as
+   [oven-sh/bun#30447](https://github.com/oven-sh/bun/issues/30447).
+
+   Bun maintainers in
    [oven-sh/bun#14435](https://github.com/oven-sh/bun/issues/14435)
-   say this works for both ESM and CJS. Users in that thread report
-   it doesn't reach nested imports. Empirically, in an isolated test
-   (single Elysia app, no `prepare()`) the pattern works correctly:
-   top-level re-runs, exports update, `server.reload({ fetch,
-   routes: {} })` correctly swaps the handler. In our framework
-   (server.ts has `await prepare()` at top-level which calls back
-   into cached state), the top-level still re-runs (you see the
-   `[server.ts] eval` log) but external requests keep hitting the
-   original handler — somewhere in the new module's `app.fetch` or
-   the reload pathway, stale state is captured. Not minimally
-   reproducible without absolutejs, so not currently filed upstream.
+   said this pattern works for both ESM and CJS. It does — under
+   plain `bun main.ts`. Under `bun --hot main.ts` (which is what
+   our dev CLI uses for the child) it throws on every reload after
+   the initial import. Minimal repro is in the upstream issue.
+
+   The earlier round of users in #14435 was complaining about this
+   same failure mode but never attached a minimal repro, so the
+   issue was closed.
 
    **Workaround we shipped:** copy the entry to a unique sibling
    path (`.absolutejs-hmr-<ts>-<rand>.ts`) on each reload and
    `await import` the copy. Different paths bypass Bun's per-path
-   import cache entirely. Same-directory placement keeps relative
-   imports (`./angular/...`, `./absolute.config`) resolving to the
+   module record entirely so the `--hot` instantiation tracking
+   isn't tripped. Same-directory placement keeps relative imports
+   (`./angular/...`, `./absolute.config`) resolving to the
    originals. Cleanup in `finally`. Both `fileWatcher.ts` and the
    CLI watcher's atomic-write filter skip `.absolutejs-hmr-*` so
    the temp's creation/deletion doesn't trigger spurious rebuilds.
 
-   When/if a minimal Bun-only repro emerges, comment on #14435 with
-   the specific failure mode rather than opening a fresh issue.
+   **Action when fixed:** revert `serverEntryWatcher.ts`'s
+   `triggerReload` to the simpler `delete requireFn.cache[path] +
+   await import(path)` pattern (kept as a comment in the file).
+   Drop the `.absolutejs-hmr-*` allowlist in `fileWatcher.ts` and
+   `dev.ts`'s `isAtomicWriteTemp`. Keep `routes: {}` on reload —
+   that part isn't a bug, it's documented Bun.serve behavior.
 
 #### Original Path B design (kept for context)
 
