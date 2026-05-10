@@ -173,10 +173,20 @@ export const startServerEntryWatcher = () => {
 				console.log(`[abs:restart] ${configPath}`);
 				return;
 			}
-			// Pure addition. Already applied in place.
+			// Pure addition. `applyConfigChanges` set up vendor paths
+			// and watchers for the new dir, but the dev build's
+			// entry sets are pinned at boot — pages in the new
+			// framework's dir won't appear in the manifest until a
+			// full rebuild. The cleanest path is a restart so the
+			// fresh build picks them up; otherwise the user's next
+			// `server.ts` edit (registering a route for the new
+			// framework) would fail with `asset(manifest, X)`
+			// returning undefined, *then* fall back to restart
+			// anyway. Better to do it now.
 			console.log(
-				`[hmr] absolute.config.ts added framework(s) ${diff.added.join(', ')} (in-place, no restart)`
+				`[hmr] absolute.config.ts added framework(s) ${diff.added.join(', ')} — restarting (initial build needed)`
 			);
+			console.log(`[abs:restart] ${configPath}`);
 		} catch (err) {
 			console.error(
 				`[hmr] config change handling failed: ${

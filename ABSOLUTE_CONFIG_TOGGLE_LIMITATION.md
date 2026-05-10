@@ -5,9 +5,16 @@
   (Path B Step 2). PID stays constant, sockets persist, in-flight
   requests handled by the new app. See `src/plugins/networking.ts` +
   `src/dev/serverEntryWatcher.ts`.
-- **`absolute.config.ts` edits**: still go via full child restart
-  (CLI watcher → SIGTERM child → respawn). In-place handling for the
-  additive case is implementable (Path A below) but solves a niche.
+- **`absolute.config.ts` edits**: framework-dir add or remove falls
+  back to a child restart (the dev CLI watcher's `[abs:restart]`
+  pathway). `applyConfigChanges` runs in-place to update vendor
+  paths + watchers, but the dev build's entry sets are pinned at
+  boot — pages in a newly-added framework dir don't reach the
+  manifest without a fresh build. Issuing `[abs:restart]` from
+  `serverEntryWatcher` immediately is more honest than logging
+  "in-place, no restart" and leaving the user to hit a
+  `Cannot find module` error on their next `server.ts` edit. See
+  the "in-place add fall-through" note further down.
   Removal teardown remains restart-only because Elysia has no clean
   route-removal API.
 

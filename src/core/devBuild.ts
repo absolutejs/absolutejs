@@ -173,7 +173,7 @@ const detectConfigChanges = async (
 		setEmberVendorPaths(computeEmberVendorPaths());
 	}
 
-	// Compute new watch paths and start watchers for additions
+	// Compute new watch paths and start watchers for additions.
 	const newWatchPaths = getWatchPaths(state.config, state.resolvedPaths);
 	const addedPaths = newWatchPaths.filter((path) => !oldWatchPaths.has(path));
 
@@ -186,6 +186,23 @@ const detectConfigChanges = async (
 			});
 		});
 	}
+
+	// NOTE: this only sets up vendor paths + watchers. It does NOT
+	// build the new framework's pages — the dev pipeline's entry
+	// sets (`svelteEntries`, `vueEntries`, …) are computed at boot
+	// from the initial config, and the rebuild plumbing assumes
+	// they're stable. Adding a framework dir in-place leaves the
+	// manifest without entries for that framework. In practice the
+	// user will edit server.ts next to register a route, the entry
+	// watcher will fail to resolve `asset(manifest, NewPage)` (it'll
+	// be undefined), and the entry-reload error handler emits
+	// `[abs:restart]` which the parent CLI picks up — so a full
+	// restart kicks in. That restart's fresh build sees the new
+	// framework dir and compiles pages correctly.
+	//
+	// The "in-place, no restart" log message is misleading for the
+	// add case; in real use it almost always becomes a restart at
+	// the next server.ts edit. Tracked as #197.
 
 	return { added, removed };
 };
