@@ -537,19 +537,63 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 		const configBasename = configPath
 			? configPath.slice(configPath.lastIndexOf('/') + 1)
 			: 'absolute.config.ts';
+		// Atomic-rename recovery (Linux/Node): `fs.watch` reliably
+		// delivers IN_MOVED_FROM for the temp filename in an atomic
+		// rename (sed -i, vim default, prettier, VSCode, etc.) but
+		// drops IN_MOVED_TO for the destination when the destination
+		// already existed in the watched dir. Without recovery,
+		// editor saves to existing root-level files (`.env`,
+		// `tsconfig.json`, etc.) are invisible to this watcher and
+		// no restart fires. Same pattern as `fileWatcher.ts` /
+		// `serverEntryWatcher.ts`.
+		const ATOMIC_RECOVERY_WINDOW_MS = 1000;
+		const recentlyHandled = new Map<string, number>();
+		const handleCandidate = (filename: string) => {
+			if (filename.includes('/') || filename.includes('\\')) return;
+			if (filename === serverEntryBasename) return;
+			if (filename === configBasename) return;
+			if (ROOT_RESTART_DENY.has(filename)) return;
+			const now = Date.now();
+			const last = recentlyHandled.get(filename) ?? 0;
+			if (now - last < 100) return;
+			recentlyHandled.set(filename, now);
+			scheduleServerRestart(join(serverEntryDir, filename));
+		};
+		const recoveryScan = async () => {
+			let entries: import('node:fs').Dirent[];
+			try {
+				const { readdirSync } = await import('node:fs');
+				entries = readdirSync(serverEntryDir, { withFileTypes: true });
+			} catch {
+				return;
+			}
+			const { statSync } = await import('node:fs');
+			const now = Date.now();
+			for (const entry of entries) {
+				if (!entry.isFile()) continue;
+				if (isAtomicWriteTemp(entry.name)) continue;
+				let st: ReturnType<typeof statSync>;
+				try {
+					st = statSync(join(serverEntryDir, entry.name));
+				} catch {
+					continue;
+				}
+				if (now - st.ctimeMs > ATOMIC_RECOVERY_WINDOW_MS) continue;
+				handleCandidate(entry.name);
+			}
+		};
 		const watcher = watch(
 			serverEntryDir,
 			{ recursive: false },
-			(_event, filename) => {
+			(event, filename) => {
 				if (!filename) return;
-				if (isAtomicWriteTemp(filename)) return;
-				if (filename.includes('/') || filename.includes('\\')) {
+				if (isAtomicWriteTemp(filename)) {
+					if (event === 'rename') {
+						void recoveryScan();
+					}
 					return;
 				}
-				if (filename === serverEntryBasename) return;
-				if (filename === configBasename) return;
-				if (ROOT_RESTART_DENY.has(filename)) return;
-				scheduleServerRestart(join(serverEntryDir, filename));
+				handleCandidate(filename);
 			}
 		);
 		// Stop watcher on parent exit so we don't leak the inotify fd.
