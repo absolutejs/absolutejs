@@ -30,11 +30,9 @@ import {
 	captureStreamingSlotWarningCallsite,
 	runWithStreamingSlotWarningScope
 } from '../core/streamingSlotWarningScope';
-import { isSsrCacheDirty, markSsrCacheDirty } from '../core/ssrCache';
 import {
 	buildProviders,
 	cacheRouteData,
-	clearSelectorCache,
 	discoverTokens,
 	injectSsrScripts,
 	renderAngularApp,
@@ -241,11 +239,6 @@ const assertNoHandlerProviders = (input: Record<string, unknown>) => {
 	);
 };
 
-export const invalidateAngularSsrCache = () => {
-	markSsrCacheDirty('angular');
-	clearSelectorCache();
-};
-
 const angularSsrContext = new AsyncLocalStorage<string>();
 setSsrContextGetter(() => angularSsrContext.getStore());
 
@@ -273,18 +266,6 @@ export const handleAngularPageRequest = async <
 			headTag: resolvedHeadTag,
 			props: maybeProps
 		});
-
-		if (isSsrCacheDirty('angular')) {
-			clearSelectorCache();
-			const script = resolvedIndexPath
-				? `<script>import(${JSON.stringify(resolvedIndexPath)});</script>`
-				: '';
-			const html = `<!DOCTYPE html><html>${resolvedHeadTag}<body><${lastSelector}></${lastSelector}>${script}</body></html>`;
-
-			return new Response(html, {
-				headers: { 'Content-Type': 'text/html' }
-			});
-		}
 
 		try {
 			assertNoHandlerProviders(input);

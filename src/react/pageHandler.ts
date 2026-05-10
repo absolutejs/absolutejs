@@ -9,7 +9,6 @@ import {
 	captureStreamingSlotWarningCallsite,
 	runWithStreamingSlotWarningScope
 } from '../core/streamingSlotWarningScope';
-import { isSsrCacheDirty, markSsrCacheDirty } from '../core/ssrCache';
 import { ssrErrorPage } from '../utils/ssrErrorPage';
 import {
 	hasErrorConvention,
@@ -59,27 +58,6 @@ const buildRefreshSetup = () => {
 	);
 };
 
-const buildDirtyResponse = (
-	index: string,
-	maybeProps: Record<string, unknown> | undefined
-) => {
-	const propsScript = maybeProps
-		? `window.__INITIAL_PROPS__=${JSON.stringify(maybeProps)};`
-		: '';
-	const dirtyFlag = 'window.__SSR_DIRTY__=true;';
-	const refreshSetup = buildRefreshSetup();
-	const inlineScript = `${propsScript}${dirtyFlag}${refreshSetup}`;
-	const html =
-		`<!DOCTYPE html><html><head></head><body>` +
-		`<script>${inlineScript}</script>` +
-		`<script type="module" src="${index}"></script>` +
-		`</body></html>`;
-
-	return new Response(html, {
-		headers: { 'Content-Type': 'text/html' }
-	});
-};
-
 export const handleReactPageRequest = async <
 	Props extends Record<string, unknown> = Record<never, never>
 >(
@@ -101,10 +79,6 @@ export const handleReactPageRequest = async <
 				} as unknown as Props)
 			: userProps;
 	const pageName = Page.name || Page.displayName || '';
-
-	if (isSsrCacheDirty('react')) {
-		return buildDirtyResponse(resolvedIndex, maybeProps);
-	}
 
 	try {
 		const handlerCallsite =
@@ -177,8 +151,4 @@ export const handleReactPageRequest = async <
 			status: 500
 		});
 	}
-};
-
-export const invalidateReactSsrCache = () => {
-	markSsrCacheDirty('react');
 };

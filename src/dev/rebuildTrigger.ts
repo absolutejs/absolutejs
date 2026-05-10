@@ -57,7 +57,6 @@ import {
 } from '../build/stylePreprocessor';
 import { isTailwindCandidate } from '../build/compileTailwind';
 import { incrementalTailwindBuild } from '../build/tailwindCompiler';
-import { markSsrCacheDirty } from '../core/ssrCache';
 
 const runSequentially = <Item>(
 	items: Item[],
@@ -1569,7 +1568,6 @@ const scheduleAngularBundleRebuild = (
 	const doOne = async (): Promise<void> => {
 		if (pageEntries.length === 0) return;
 		await compileAndBundleAngular(state, pageEntries, angularDir);
-		markSsrCacheDirty('angular');
 	};
 
 	const drive = async (): Promise<void> => {
@@ -1990,8 +1988,6 @@ const handleReactModuleServerPath = async (
 		state.fileHashes.set(resolve(file), computeFileHash(file));
 	}
 
-	markSsrCacheDirty('react');
-
 	const primaryFile =
 		reactFiles.find(
 			(file) => !file.replace(/\\/g, '/').includes('/pages/')
@@ -2154,8 +2150,6 @@ const handleSvelteModuleServerPath = async (
 	for (const file of svelteFiles) {
 		state.fileHashes.set(resolve(file), computeFileHash(file));
 	}
-
-	markSsrCacheDirty('svelte');
 
 	const serverDuration = Date.now() - startTime;
 
@@ -2560,8 +2554,6 @@ const handleVueModuleServerPath = async (
 	for (const file of [...vueFiles, ...nonVueFiles]) {
 		state.fileHashes.set(resolve(file), computeFileHash(file));
 	}
-
-	markSsrCacheDirty('vue');
 
 	// Also invalidate non-Vue files (composables) so the module
 	// server serves the fresh version when the component re-imports.
@@ -4371,19 +4363,6 @@ const performFullRebuild = async (
 		manifest,
 		startTime
 	);
-
-	if (affectedFrameworks.includes('angular')) {
-		markSsrCacheDirty('angular');
-	}
-	if (affectedFrameworks.includes('react')) {
-		markSsrCacheDirty('react');
-	}
-	if (affectedFrameworks.includes('svelte')) {
-		markSsrCacheDirty('svelte');
-	}
-	if (affectedFrameworks.includes('vue')) {
-		markSsrCacheDirty('vue');
-	}
 
 	onRebuildComplete({ hmrState: state, manifest });
 

@@ -1,5 +1,4 @@
 import { pathToFileURL } from 'node:url';
-import { isSsrCacheDirty, markSsrCacheDirty } from '../core/ssrCache';
 import { ssrErrorPage } from '../utils/ssrErrorPage';
 
 /**
@@ -81,8 +80,14 @@ const buildRuntimeModuleSpecifier = (modulePath: string) => {
 	return moduleUrl.href;
 };
 
+/* Bumps `emberCacheBuster` so the next dynamic-import of the page
+   bundle bypasses Bun's ESM module cache and re-evaluates the
+   freshly-compiled bytes. Called from the dev rebuild trigger after
+   an ember edit; consumed by `buildRuntimeModuleSpecifier`. The call
+   crosses the bundle boundary cleanly because both writer and reader
+   live in the ember pageHandler module — same dist bundle, same
+   `emberCacheBuster` instance. */
 export const invalidateEmberSsrCache = () => {
-	markSsrCacheDirty('ember');
 	emberCacheBuster = Date.now();
 };
 
@@ -121,10 +126,6 @@ export const handleEmberPageRequest = async (input: EmberPageRequestInput) => {
 
 	try {
 		installSimpleDomGlobals();
-		// Reading isSsrCacheDirty here lets future phases short-circuit to a
-		// dirty placeholder response (mirrors Vue/Angular). Phase 1.5 just
-		// uses the cache-buster to force re-evaluation of the bundle.
-		void isSsrCacheDirty('ember');
 		const bundle = (await import(
 			buildRuntimeModuleSpecifier(pagePath)
 		)) as EmberServerBundle;

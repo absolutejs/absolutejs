@@ -13,7 +13,6 @@ import {
 	captureStreamingSlotWarningCallsite,
 	runWithStreamingSlotWarningScope
 } from '../core/streamingSlotWarningScope';
-import { isSsrCacheDirty, markSsrCacheDirty } from '../core/ssrCache';
 import { ssrErrorPage } from '../utils/ssrErrorPage';
 import {
 	derivePageName,
@@ -95,35 +94,6 @@ const resolveCurrentGeneratedVueModulePath = async (pagePath: string) => {
 	}
 };
 
-const buildDirtyResponse = (
-	headTag: string,
-	indexPath: string,
-	maybeProps: Record<string, unknown> | undefined,
-	clientMode: 'auto' | 'none'
-) => {
-	if (clientMode === 'none') {
-		const html =
-			`<!DOCTYPE html><html>${headTag}<body><div id="root"></div>` +
-			`</body></html>`;
-
-		return new Response(html, {
-			headers: { 'Content-Type': 'text/html' }
-		});
-	}
-
-	const propsScript = `window.__INITIAL_PROPS__=${JSON.stringify(maybeProps ?? {})};`;
-	const dirtyFlag = 'window.__SSR_DIRTY__=true;';
-	const html =
-		`<!DOCTYPE html><html>${headTag}<body><div id="root"></div>` +
-		`<script>${propsScript}${dirtyFlag}</script>` +
-		`<script type="module" src="${indexPath}"></script>` +
-		`</body></html>`;
-
-	return new Response(html, {
-		headers: { 'Content-Type': 'text/html' }
-	});
-};
-
 const resolveRequestRenderUrl = (request: Request | undefined) => {
 	if (!request) return '/';
 
@@ -153,15 +123,6 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 	const resolvedPagePath = input.pagePath;
 	const maybeProps = input.props;
 	const clientMode: 'auto' | 'none' = input.client ?? 'auto';
-
-	if (isSsrCacheDirty('vue')) {
-		return buildDirtyResponse(
-			resolvedHeadTag,
-			resolvedIndexPath,
-			maybeProps,
-			clientMode
-		);
-	}
 
 	try {
 		const handlerCallsite =
@@ -318,6 +279,3 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 	}
 };
 
-export const invalidateVueSsrCache = () => {
-	markSsrCacheDirty('vue');
-};

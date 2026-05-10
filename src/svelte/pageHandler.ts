@@ -11,7 +11,6 @@ import {
 	captureStreamingSlotWarningCallsite,
 	runWithStreamingSlotWarningScope
 } from '../core/streamingSlotWarningScope';
-import { isSsrCacheDirty, markSsrCacheDirty } from '../core/ssrCache';
 import { ssrErrorPage } from '../utils/ssrErrorPage';
 import {
 	derivePageName,
@@ -41,16 +40,6 @@ const readHasIslands = (value: unknown) => {
 
 const readDefaultExport = (value: unknown) =>
 	isRecord(value) ? value.default : undefined;
-
-const buildDirtyResponse = (indexPath: string, props?: unknown) => {
-	const propsScript = `window.__ABS_SLOT_HYDRATION_PENDING__=true;window.__INITIAL_PROPS__=${JSON.stringify(props)};${indexPath ? `import(${JSON.stringify(indexPath)});` : ''}`;
-	const dirtyFlag = 'window.__SSR_DIRTY__=true;';
-	const html = `<!DOCTYPE html><html><head></head><body><script>${propsScript}${dirtyFlag}</script></body></html>`;
-
-	return new Response(html, {
-		headers: { 'Content-Type': 'text/html' }
-	});
-};
 
 const primeSvelteStream = async <T>(stream: ReadableStream<T>) => {
 	const reader = stream.getReader();
@@ -148,10 +137,6 @@ export const handleSveltePageRequest = async <
 					url: requestPathname
 				} as unknown as SveltePropsOf<Component>)
 			: userProps;
-
-	if (isSsrCacheDirty('svelte')) {
-		return buildDirtyResponse(resolvedIndexPath, resolvedProps);
-	}
 
 	try {
 		const handlerCallsite =
@@ -264,8 +249,4 @@ export const handleSveltePageRequest = async <
 			status: 500
 		});
 	}
-};
-
-export const invalidateSvelteSsrCache = () => {
-	markSsrCacheDirty('svelte');
 };
