@@ -53,6 +53,38 @@ export const networking = <A extends Elysia>(app: A) => {
 	// Outside dev, this branch never runs (the global is unset).
 	const liveServer = globalThis.__absoluteBunServer;
 	if (liveServer && typeof liveServer.reload === 'function') {
+		// Backend state HMR: restore the previous Elysia instance's
+		// `app.store` values for keys the new app also declares.
+		// `app.store` holds anything the user (or a plugin like
+		// `elysia-scoped-state`) put there via `.state(...)` — which
+		// in dev was just `.state({scoped: {}})` initial values, so
+		// without this every entry edit reset all per-session data.
+		//
+		// Behavior, mirroring frontend HMR semantics:
+		// - Same key in both: restore previous live value (preserves
+		//   per-user state, request counters, etc. across edits).
+		// - Key only in the new app: keep its fresh initial (added
+		//   state plugins or new `.state(...)` calls).
+		// - Key only in the previous app: drop it (state the user
+		//   removed; new code shouldn't see it).
+		//
+		// Captured in the listen branch below as
+		// `globalThis.__absolutePreviousAppStore`. The first reload
+		// after server start finds the initial store there.
+		const prevStore = globalThis.__absolutePreviousAppStore;
+		if (prevStore && app.store && typeof app.store === 'object') {
+			const newStore = app.store as Record<string, unknown>;
+			const oldStore = prevStore as Record<string, unknown>;
+			for (const key of Object.keys(newStore)) {
+				if (key in oldStore) {
+					newStore[key] = oldStore[key];
+				}
+			}
+		}
+		globalThis.__absolutePreviousAppStore = app.store as Record<
+			string,
+			unknown
+		>;
 		try {
 			app.compile();
 		} catch {
@@ -128,6 +160,10 @@ export const networking = <A extends Elysia>(app: A) => {
 	// the reload-aware branch above and never reach this point.
 	if (app.server) {
 		globalThis.__absoluteBunServer = app.server;
+		globalThis.__absolutePreviousAppStore = app.store as Record<
+			string,
+			unknown
+		>;
 		// Path B: start the entry-file watcher now that the server is
 		// bound. The watcher triggers cache-busted dynamic re-imports
 		// on entry edits, which hit the reload-aware branch instead of

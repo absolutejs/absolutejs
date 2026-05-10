@@ -38,6 +38,16 @@ declare global {
 		| null
 		| undefined;
 
+	/** Snapshot of the previous Elysia instance's `app.store` reference,
+	 *  captured by the `networking` plugin at first listen and refreshed
+	 *  on each Path B reload. Used to carry user state (anything from
+	 *  `.state(...)`) across in-place server-entry reloads — without
+	 *  this, every edit reset all per-session data, scopedState records,
+	 *  request counters, etc. The reload-aware branch in `networking`
+	 *  copies values from this store back into the new app's store for
+	 *  every key the new app declares. Stays unset outside dev. */
+	var __absolutePreviousAppStore: Record<string, unknown> | undefined;
+
 	/* Client-side globals (Window extensions for HMR) */
 	interface Window {
 		$RefreshReg$?: (type: unknown, id: string) => void;
