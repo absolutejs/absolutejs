@@ -776,6 +776,19 @@ export const queueFileChange = async (
 		}
 
 		if (!hasAngularDependent) {
+			// Anything `detectFramework` couldn't classify is by
+			// definition not handled by any HMR pipeline (no
+			// framework dir, no recognized frontend extension). If
+			// it has no angular dependents either, it's a config /
+			// tooling file — `.env`, `tsconfig.json`,
+			// `tailwind.config.ts`, `package.json`, custom
+			// orchestration scripts, etc. — whose values were read
+			// once at process startup and frozen. Emit the
+			// `[abs:restart]` marker; the parent CLI consumes it
+			// and restarts the bun child so the new values take
+			// effect. Framework-agnostic — covers every project,
+			// no hardcoded filename list.
+			console.log(`[abs:restart] ${resolve(filePath)}`);
 			return;
 		}
 
@@ -1879,6 +1892,14 @@ const handleAngularFastPath = async (
 		logInfo(
 			`[ng-hmr] tier-0 ${queueDescription(verdict.queue)} (server ${tierMs}ms: imports ${b.importsMs}/resolve ${b.resolveMs}/compile ${b.compileMs}; awaiting client apply)`
 		);
+		// Tier 0 surgical updates patch the running browser app
+		// directly but don't rebuild the SSR bundle, so a fresh
+		// page load (curl, new tab) keeps showing the pre-edit
+		// component until the bundle is refreshed. Schedule the
+		// debounced bundle rebuild — fires 2s after the user pauses
+		// — so SSR catches up. The interactive session already has
+		// the surgical update applied so this is invisible there.
+		void runBundle();
 	} else if (verdict.tier === 1 && verdict.kind === 'remount') {
 		// Tier 1a per-component remount — same pattern as Tier 0,
 		// no bundle work. The browser's `__ng_hmr_remount` fetches
