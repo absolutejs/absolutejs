@@ -173,10 +173,23 @@ them on the next refactor.
 
    `package.json` engines stays at `>=1.3.6`. The sibling-copy
    workaround makes the entry-stale-source bug irrelevant, so we
-   don't need to gate users on the canary fix. If
-   [oven-sh/bun#30449](https://github.com/oven-sh/bun/issues/30449)
-   ships a fix we can drop the sibling copy and the two allowlist
-   entries in one cleanup.
+   don't need to gate users on the canary fix. Two paths to remove
+   the sibling-copy:
+
+   - **#30449 ships a fix** — drop the sibling copy and the two
+     `.absolutejs-hmr-*` allowlist entries; userland delete-cache
+     + await import on the entry now reads fresh.
+   - **[#30436](https://github.com/oven-sh/bun/issues/30436) ships
+     a fix** — `--hot`'s own watcher re-evaluates the entry on
+     change, so we don't need userland cache invalidation at all.
+     The entire entry-reload portion of `serverEntryWatcher.ts`
+     plus the allowlist entries go away. #30449 becomes moot
+     because we no longer trigger the buggy code path.
+     `BUN_HOT_WATCHER_BUG.md` carries the detailed cleanup
+     procedure for this case.
+
+   #30436 is the structural blocker; #30449 is downstream of it.
+   Either fix unblocks cleanup; #30436 is the bigger win.
 
 #### Original Path B design (kept for context)
 

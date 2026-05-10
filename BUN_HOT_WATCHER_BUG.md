@@ -69,58 +69,73 @@ Frontend HMR keeps working because it goes through the framework's
 own `fs.watch` + module server (not bun's `--hot`). Backend HMR is
 the one that depends on `--hot` and breaks.
 
-## Workaround
+## Workaround (Path B, shipped)
 
-`src/cli/scripts/dev.ts` registers a `node:fs.watch` on the project
-root (non-recursive) and calls `scheduleServerRestart` on any change
-that isn't an output dir / log / temp file. The bun child (`bun --hot
---no-clear-screen server.ts`) is killed and respawned. Heavyweight
-(full process restart + warm rebuild instead of in-place re-eval)
-but reliable across every editor.
+We stopped relying on `--hot` for backend reload and own the pipeline
+ourselves via `Bun.serve(...).reload({ fetch, routes: {} })`. See
+`ABSOLUTE_CONFIG_TOGGLE_LIMITATION.md` for the full design rationale.
+Concretely:
 
-The `[abs:restart]` stdout-marker pattern in `rebuildTrigger.ts` is
-**separate** from this workaround and stays in place: it covers files
-*inside* framework directories that the dev server's classifier can't
-match. Don't conflate the two.
+- `src/plugins/networking.ts` captures `app.server` to
+  `globalThis.__absoluteBunServer` after the first `app.listen()`,
+  and on subsequent `networking()` calls hits a reload-aware branch
+  that calls `__absoluteBunServer.reload({ fetch, routes: {} })`
+  instead of re-binding the port.
+- `src/dev/serverEntryWatcher.ts` runs a `node:fs.watch` on
+  `Bun.main` and `absolute.config.ts` from inside the bun child. On
+  entry edits it copies the entry to a sibling
+  `.absolutejs-hmr-<n>.ts` and `await import`s the sibling — the
+  fresh module's top-level calls `networking()`, which hits the
+  reload-aware branch and atomically swaps the `Bun.serve` handler.
+  The sibling indirection is a workaround for
+  [oven-sh/bun#30449](https://github.com/oven-sh/bun/issues/30449)
+  (entry-path cache invalidation reads stale source under `--hot`)
+  — it'd go away if either #30436 or #30449 ships a fix.
+- The `[abs:restart]` stdout-marker pattern in `rebuildTrigger.ts`
+  is **separate** and stays: it covers files *inside* framework
+  directories that the dev server's classifier can't match.
+- The CLI-level root watcher in `dev.ts` is also still around, but
+  for `absolute.config.ts` framework-removal and non-framework-key
+  changes only — the entry-edit path is now in-place.
+
+PID stays constant across edits; new app's routes serve immediately;
+in-flight requests, sockets, DB pools, module-level globals carry
+across.
 
 ## What to do when Bun fixes it
 
-When `Bun.build()` no longer disables `--hot`'s reload pipeline (or
-when AbsoluteJS moves the frontend build off the entry's evaluation
-path — see below), three steps:
+If `Bun.build()` no longer kills `--hot`'s reload pipeline (this
+issue), `--hot` itself re-evaluates the entry on file change — and
+**all of `serverEntryWatcher.ts`'s entry-reload machinery becomes
+unnecessary**, including the sibling-copy workaround for
+[#30449](https://github.com/oven-sh/bun/issues/30449). #30449 only
+matters because we can't rely on `--hot`; if `--hot` works, we
+don't do userland cache invalidation, so we don't hit #30449.
 
-1. **Delete the root watcher in `src/cli/scripts/dev.ts`** — the
-   `const watcher = watch(serverEntryDir, { recursive: false }, ...)`
-   block, the `ROOT_RESTART_DENY` Set, and the `closeWatcher`
-   `process.once` registrations. Keep the `[abs:restart]` marker and
-   `scheduleServerRestart` (still needed for the marker pathway).
-2. **Verify backend HMR works without restart.** In an example
-   project: `bun run dev`, edit `server.ts` from a real editor, hit
-   the route. The bun child PID should stay constant across edits;
-   the route should serve the new value. Re-eval should be ≪100 ms vs
-   the current ~1–4 s child respawn.
-3. **Bump the minimum Bun version** in `package.json`'s `engines`
-   field to whatever release contains the fix, so the workaround
-   removal isn't reachable on older Bun.
+Cleanup steps (when fix lands):
 
-## Alternative: own the backend reload pipeline
+1. Delete the entry-reload portion of
+   `src/dev/serverEntryWatcher.ts` — `triggerEntryReload`, the
+   sibling-copy code, the `entryWatcher` setup. Keep the config
+   watcher and `triggerConfigChange` (in-place framework-add still
+   useful).
+2. Drop the `.absolutejs-hmr-*` allowlist entries in
+   `fileWatcher.ts`'s `ATOMIC_WRITE_TEMP_PATTERNS` and `dev.ts`'s
+   `isAtomicWriteTemp`. The sibling files no longer exist.
+3. The networking plugin's reload-aware branch can stay (still
+   triggered by `--hot`'s own re-evaluation when it re-runs the
+   entry's top-level — `globalThis.__absoluteBunServer` is set on
+   first listen, present on re-eval, branch fires correctly). It's
+   the same code path either way; just the trigger source changes.
+4. Verify in an example project: `bun run dev`, edit `server.ts`
+   from a real editor (sed/vim/VSCode), curl the route. PID stable,
+   new value served.
+5. Bump `package.json` `engines.bun` to whatever release contains
+   the fix.
 
-If we don't want to wait for the upstream fix, the right framework
-fix is to stop relying on `--hot` for backend reload and instead use
-Bun's `Bun.serve(...).reload({ fetch })` API directly — which works
-regardless of `--hot` state. Concretely:
-
-- The `networking` plugin holds a reference to the underlying
-  `Bun.serve` instance (Elysia exposes it as `app.server` post-1.x).
-- The framework's existing `fileWatcher` is extended to watch the
-  server entry file (and its non-frontend imports).
-- On change, dynamically re-import the entry with cache-busted query
-  (`import('./server.ts?t=' + Date.now())`), grab the new app's
-  `.fetch`, and call `serveInstance.reload({ fetch: newFetch })`.
-
-This mirrors how frontend HMR works: framework-owned, in-place,
-process-preserving. If we ever ship this, the upstream `--hot` bug
-becomes irrelevant for our use case.
+After this we can also close [#30449](https://github.com/oven-sh/bun/issues/30449)
+on our side if upstream hasn't already — the bug remains real but
+it stops affecting us.
 
 ## Filed issue body (cached)
 
