@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, promises as fs } from 'fs';
 import { join, basename, sep, dirname, resolve, relative } from 'path';
 import type { CompilerOptions } from '@angular/compiler-cli';
+import { Glob } from 'bun';
 import ts from 'typescript';
 import { BASE_36_RADIX } from '../constants';
 import { toPascal } from '../utils/stringModifiers';
@@ -1826,6 +1827,31 @@ export const compileAngular = async (
 					),
 				{ entries: entryPoints.length }
 			);
+	// AOT mirrors the source tree under `compiledRoot/<rel-from-cwd>/`, so
+	// `import x from '../data/foo.json'` from a compiled component must
+	// resolve a copy of the JSON in the same relative location. The JIT
+	// path copies these inline (see `transpileFile` below); AOT skipped
+	// them and the prod server bundle then failed with
+	// `Could not resolve: "../data/labels.json"`. Walk the user's angular
+	// source dir and mirror every `.json` to the AOT tree.
+	if (!hmr) {
+		await traceAngularPhase('aot/copy-json-resources', async () => {
+			const cwd = process.cwd();
+			const angularSrcDir = resolve(outRoot);
+			if (!existsSync(angularSrcDir)) return;
+			const jsonGlob = new Glob('**/*.json');
+			for (const rel of jsonGlob.scanSync({
+				absolute: false,
+				cwd: angularSrcDir
+			})) {
+				const sourcePath = join(angularSrcDir, rel);
+				const cwdRel = relative(cwd, sourcePath);
+				const targetPath = join(compiledRoot, cwdRel);
+				await fs.mkdir(dirname(targetPath), { recursive: true });
+				await fs.copyFile(sourcePath, targetPath);
+			}
+		});
+	}
 	const usesLegacyAngularAnimations = await traceAngularPhase(
 		'setup/legacy-animation-resolver',
 		() => createLegacyAngularAnimationUsageResolver(outRoot)
