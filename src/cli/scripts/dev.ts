@@ -483,10 +483,17 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 		// 1. Project-root config files the framework / Bun / TS read once
 		//    at startup: `.env`, `tsconfig.json`, `tailwind.config.ts`,
 		//    `bun.lock`, `package.json`, custom shell scripts.
-		// 2. The server entry itself (`server.ts`). bun --hot's watcher
-		//    is unreliable for the entry under our dev runtime — see
-		//    BUN_HOT_WATCHER_BUG.md. Until the upstream bug is fixed,
-		//    a CLI-level dir watch + child restart is the reliable path.
+		// 2. Project-root config files this watcher is the *fallback*
+		//    for. The server entry itself (`server.ts`) is now handled
+		//    in-place by the dev runtime's `serverEntryWatcher` (Path
+		//    B — see ABSOLUTE_CONFIG_TOGGLE_LIMITATION.md): it dynamic-
+		//    imports the entry with a cache-bust query and the
+		//    `networking` plugin swaps the live Bun.serve handler via
+		//    `app.server.reload({ fetch })`. We skip the entry's
+		//    basename below so we don't race the in-place reload.
+		//    If the in-place re-eval fails, the entry watcher falls
+		//    back to emitting `[abs:restart]` which lands here via
+		//    handleChunk and triggers the full restart.
 		//
 		// Atomic-write-aware: editors that write `.tmp` then rename
 		// invalidate inode-based file watches after the first save,
@@ -515,8 +522,15 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 			filename.includes('.tmp.') ||
 			filename.endsWith('~') ||
 			filename.startsWith('.#') ||
+			filename.startsWith('.absolutejs-hmr-') ||
 			/^sed[A-Za-z0-9]{6,}$/.test(filename) ||
 			filename === '4913';
+		// The dev runtime's `serverEntryWatcher` handles the entry's
+		// basename in-place via Bun.serve.reload — skip it here so we
+		// don't double-fire the restart pipeline.
+		const serverEntryBasename = absServerEntry.slice(
+			absServerEntry.lastIndexOf('/') + 1
+		);
 		const watcher = watch(
 			serverEntryDir,
 			{ recursive: false },
@@ -526,6 +540,7 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 				if (filename.includes('/') || filename.includes('\\')) {
 					return;
 				}
+				if (filename === serverEntryBasename) return;
 				if (ROOT_RESTART_DENY.has(filename)) return;
 				scheduleServerRestart(join(serverEntryDir, filename));
 			}

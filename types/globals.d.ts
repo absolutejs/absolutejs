@@ -28,6 +28,15 @@ declare global {
 				conventions?: import('./conventions').ConventionsMap;
 		  }
 		| undefined;
+	/** Live `Bun.serve` instance captured by the `networking` plugin on
+	 *  first listen. Subsequent re-evaluations of the entry (Path B
+	 *  framework-owned backend HMR — see ABSOLUTE_CONFIG_TOGGLE_LIMITATION.md)
+	 *  detect this and call `.reload({ fetch })` on the existing server
+	 *  instead of re-binding the port. Stays unset outside dev. */
+	var __absoluteBunServer:
+		| import('bun').Server
+		| null
+		| undefined;
 
 	/* Client-side globals (Window extensions for HMR) */
 	interface Window {

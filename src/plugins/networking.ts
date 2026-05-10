@@ -37,55 +37,117 @@ const loadTls = () => {
 const tls = loadTls();
 const protocol = tls ? 'https' : 'http';
 
-export const networking = <A extends Elysia>(app: A) =>
-	env.ABSOLUTE_COMPILED_RUNTIME === '1'
-		? app
-		: app.listen(
-				{
-					hostname: host,
-					port: port,
-					...(tls
-						? {
-								tls: {
-									cert: tls.cert,
-									key: tls.key
-								}
-							}
-						: {})
-				},
-				() => {
-					if (visibility === 'internal' || managedByWorkspace) {
-						return;
+export const networking = <A extends Elysia>(app: A) => {
+	if (env.ABSOLUTE_COMPILED_RUNTIME === '1') return app;
+
+	// Path B (in-place backend HMR): if a previous evaluation of this
+	// entry already started a Bun.serve, swap its handler in place
+	// instead of re-binding the port. The new Elysia instance becomes
+	// the live handler atomically; the listening socket persists, so
+	// in-flight requests, WebSocket sessions, DB pools, and module-
+	// level globals carry across edits.
+	//
+	// Activation: the dev runtime sets `globalThis.__absoluteBunServer`
+	// after the first `app.listen(...)` call; it triggers re-evaluation
+	// of the entry via cache-busted dynamic import on file change.
+	// Outside dev, this branch never runs (the global is unset).
+	const liveServer = globalThis.__absoluteBunServer;
+	if (liveServer && typeof liveServer.reload === 'function') {
+		try {
+			app.compile();
+		} catch {
+			/* compile is best-effort; some Elysia configs skip it */
+		}
+		// Elysia compiles routes into Bun.serve's `routes` static map
+		// at .listen() time for performance. `Bun.serve.reload({fetch})`
+		// only swaps the fetch fallback — the OLD static `routes` map
+		// keeps serving original handlers. Clear it on reload so every
+		// request falls through to our new app's fetch.
+		liveServer.reload({
+			fetch: (request: Request) => app.fetch(request),
+			routes: {}
+		});
+
+		return app;
+	}
+
+	const listened = app.listen(
+		{
+			hostname: host,
+			port: port,
+			...(tls
+				? {
+						tls: {
+							cert: tls.cert,
+							key: tls.key
+						}
 					}
+				: {})
+		},
+		() => {
+			if (visibility === 'internal' || managedByWorkspace) {
+				return;
+			}
 
-					// Skip logging on Bun --hot reloads (HMR handles its own output)
-					const isHotReload = Boolean(globalThis.__hmrServerStartup);
-					globalThis.__hmrServerStartup = true;
-					if (isHotReload) {
-						return;
-					}
+			// Skip logging on Bun --hot reloads (HMR handles its own output)
+			const isHotReload = Boolean(globalThis.__hmrServerStartup);
+			globalThis.__hmrServerStartup = true;
+			if (isHotReload) {
+				return;
+			}
 
-					const buildDuration =
-						globalThis.__hmrBuildDuration ??
-						Number(env.ABSOLUTE_BUILD_DURATION || 0);
-					const readyDuration =
-						process.uptime() * MILLISECONDS_IN_A_SECOND;
+			const buildDuration =
+				globalThis.__hmrBuildDuration ??
+				Number(env.ABSOLUTE_BUILD_DURATION || 0);
+			const readyDuration =
+				process.uptime() * MILLISECONDS_IN_A_SECOND;
 
-					const version =
-						globalThis.__absoluteVersion ||
-						env.ABSOLUTE_VERSION ||
-						'';
+			const version =
+				globalThis.__absoluteVersion ||
+				env.ABSOLUTE_VERSION ||
+				'';
 
-					startupBanner({
-						buildDuration,
-						host,
-						networkUrl: hostFlag
-							? `${protocol}://${localIP}:${port}/`
-							: undefined,
-						port,
-						protocol,
-						readyDuration,
-						version
-					});
-				}
-			);
+			startupBanner({
+				buildDuration,
+				host,
+				networkUrl: hostFlag
+					? `${protocol}://${localIP}:${port}/`
+					: undefined,
+				port,
+				protocol,
+				readyDuration,
+				version
+			});
+		}
+	);
+
+	// Capture the underlying Bun.serve instance synchronously after
+	// `.listen()` returns. Elysia sets `app.server = Bun.serve(...)`
+	// inline, so the assignment is observable here without waiting for
+	// any lifecycle hook. Subsequent re-evaluations of the entry hit
+	// the reload-aware branch above and never reach this point.
+	if (app.server) {
+		globalThis.__absoluteBunServer = app.server;
+		// Path B: start the entry-file watcher now that the server is
+		// bound. The watcher triggers cache-busted dynamic re-imports
+		// on entry edits, which hit the reload-aware branch instead of
+		// re-binding. Only runs in dev mode (compiled runtime returned
+		// early at the top).
+		if (env.NODE_ENV === 'development') {
+			void import('../dev/serverEntryWatcher')
+				.then(({ startServerEntryWatcher }) => {
+					startServerEntryWatcher();
+				})
+				.catch((err) => {
+					/* dev-only feature; never break the server */
+					console.error(
+						`[hmr] entry watcher setup failed: ${
+							err instanceof Error ? err.message : String(err)
+						}`
+					);
+				});
+		}
+	}
+
+	return listened;
+};
