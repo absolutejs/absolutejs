@@ -11,5 +11,9 @@ export default defineConfig({
 	reactDirectory: 'example/react',
 	stylesConfig: 'example/styles/indexes',
 	svelteDirectory: 'example/svelte',
+	tailwind: {
+		input: 'example/styles/tailwind.css',
+		output: 'assets/css/tailwind.generated.css'
+	},
 	vueDirectory: 'example/vue'
 });

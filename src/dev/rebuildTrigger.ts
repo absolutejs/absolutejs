@@ -1750,7 +1750,7 @@ const runAngularHmrIncremental = async (
 
 		try {
 			const [
-				{ compileAngularFileJIT },
+				{ compileAngularFileJIT, invalidateAngularJitCache },
 				{ getFrameworkGeneratedDir },
 				{ resolveOwningComponents }
 			] = await Promise.all([
@@ -1785,21 +1785,26 @@ const runAngularHmrIncremental = async (
 			if (tsFilesToRefresh.size === 0) return;
 
 			await Promise.all(
-				Array.from(tsFilesToRefresh).map((file) =>
-					compileAngularFileJIT(
+				Array.from(tsFilesToRefresh).map((file) => {
+					// Force a fresh rewrite without baking `?t=…` into
+					// emitted imports (the cacheBuster route did both,
+					// which wedged Bun.build during the subsequent
+					// debounced bundle rebuild — see `invalidateAngularJitCache`'s
+					// comment in compileAngular.ts).
+					invalidateAngularJitCache(file);
+					return compileAngularFileJIT(
 						file,
 						compiledRoot,
 						angularDirAbs,
-						getStyleTransformConfig(state.config),
-						String(Date.now())
+						getStyleTransformConfig(state.config)
 					).catch((err) => {
 						logWarn(
 							`[hmr] disk-refresh JIT failed for ${file}: ${
 								err instanceof Error ? err.message : String(err)
 							}`
 						);
-					})
-				)
+					});
+				})
 			);
 
 			// `compileAngularFileJIT` writes fresh .component.js files
@@ -4467,6 +4472,23 @@ const performFullRebuild = async (
 		filesToRebuild &&
 		filesToRebuild.some(isTailwindCandidate)
 	) {
+		// `populateAssetStore` only refreshes manifest entries —
+		// the Tailwind output URL is a fixed path that isn't in
+		// the manifest, so the assetStore keeps serving stale
+		// bytes until the next dev restart. Explicitly re-read
+		// the fresh CSS off disk and overwrite the cached bytes,
+		// mirroring the fast-path branch's behaviour.
+		try {
+			const outputPath = resolve(
+				state.resolvedPaths.buildDir,
+				config.tailwind.output
+			);
+			const bytes = await Bun.file(outputPath).bytes();
+			const webPath = `/${config.tailwind.output.replace(/^\/+/, '')}`;
+			state.assetStore.set(webPath, bytes);
+		} catch {
+			/* file may not exist if Tailwind compile failed */
+		}
 		broadcastToClients(state, {
 			data: { framework: 'tailwind', manifest },
 			message: 'Tailwind utilities recompiled',

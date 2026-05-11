@@ -56,8 +56,8 @@ bun test tests/integration/hmr
 | Non-applicable `absolute.config.ts` change emits `[abs:restart]` marker for parent CLI to respawn | [`lifecycle/restart-fallback.test.ts`](tests/integration/hmr/lifecycle/restart-fallback.test.ts) |
 | `dev.watchDirs` extra paths fire HMR | _gap_ — verified manually; needs `tests/integration/hmr/lifecycle/watch-dirs.test.ts` |
 | `collectStreamingSlots: true` silences the DeferSlot warning | _gap_ — verified manually; needs `tests/integration/hmr/lifecycle/streaming-slots.test.ts` |
-| Tailwind auto-injects `@source` directives for every configured framework dir | _gap_ — needs Tailwind fixture; verified manually |
-| Tailwind incremental regen picks up new utility classes from HTML/HTMX page edits | _gap_ — needs Tailwind fixture; verified manually (fix shipped) |
+| Tailwind auto-injects `@source` directives for every configured framework dir | [`lifecycle/tailwind-class-discovery.test.ts`](tests/integration/hmr/lifecycle/tailwind-class-discovery.test.ts) (the per-framework subtests pass only if `@source` for each dir is auto-injected) |
+| Tailwind incremental regen picks up new utility classes from HTML/HTMX page edits | [`lifecycle/tailwind-class-discovery.test.ts`](tests/integration/hmr/lifecycle/tailwind-class-discovery.test.ts) (HTML / HTMX subtests) |
 | HTML/HTMX `<link rel="stylesheet" href="/assets/...">` (absolute path) passes through the rewriter unchanged | [`lifecycle/asset-href-passthrough.test.ts`](tests/integration/hmr/lifecycle/asset-href-passthrough.test.ts) |
 | Multi-tab WebSocket broadcast — independent manifests per client | covered as part of [`lifecycle/cold-start.test.ts`](tests/integration/hmr/lifecycle/cold-start.test.ts) ("second client receives independent manifest") |
 | Path A → restart fallback: in-place framework-dir change emits `[abs:restart]` | [`lifecycle/restart-fallback.test.ts`](tests/integration/hmr/lifecycle/restart-fallback.test.ts) ("framework-dir rename emits [abs:restart] with \"removed framework(s)\" log") |
@@ -74,7 +74,7 @@ bun test tests/integration/hmr
 | Child component change triggers update | [`frameworks/angular-hmr.test.ts`](tests/integration/hmr/frameworks/angular-hmr.test.ts) ("child component change triggers update") + [`components/component-hmr.test.ts`](tests/integration/hmr/components/component-hmr.test.ts) ("angular child component change triggers angular-update") |
 | Tier-0 surgical update → SSR catches up after debounce | [`lifecycle/tier-zero-ssr.test.ts`](tests/integration/hmr/lifecycle/tier-zero-ssr.test.ts) ("angular: SSR returns post-edit content after debounce") |
 | Service (`.ts` in `angular/`) edits propagate to consuming component on every edit | [`lifecycle/dep-graph-recreate.test.ts`](tests/integration/hmr/lifecycle/dep-graph-recreate.test.ts) (uses `services/cycle-a.ts`) |
-| Tailwind utility classes added to Angular templates land in `tailwind.generated.css` | _gap_ — needs Tailwind fixture; verified manually |
+| Tailwind utility classes added to Angular templates land in `tailwind.generated.css` | [`lifecycle/tailwind-class-discovery.test.ts`](tests/integration/hmr/lifecycle/tailwind-class-discovery.test.ts) — currently `test.todo` (the regen *does* fire on disk; the WebSocket `style-update` broadcast is racy when an unrelated framework's afterEach restore lands in the same watcher batch — tracked separately) |
 | Template (`.html`) edits propagate | covered indirectly via tier-0 SSR test (it edits `angular-example.html`) |
 
 ---
@@ -118,7 +118,7 @@ bun test tests/integration/hmr
 | Update message contains framework metadata | [`frameworks/html-hmr.test.ts`](tests/integration/hmr/frameworks/html-hmr.test.ts) |
 | Update payload contains body content with changes | [`frameworks/html-hmr.test.ts`](tests/integration/hmr/frameworks/html-hmr.test.ts) ("html update contains body content with changes") |
 | Absolute `<link rel="stylesheet" href="/assets/...">` passes through asset rewriter unchanged | [`lifecycle/asset-href-passthrough.test.ts`](tests/integration/hmr/lifecycle/asset-href-passthrough.test.ts) ("HTML page keeps `/assets/ico/favicon.ico` href unchanged") |
-| Tailwind class added to HTML markup lands in `tailwind.generated.css` | _gap_ — needs Tailwind fixture; verified manually (fix shipped) |
+| Tailwind class added to HTML markup lands in `tailwind.generated.css` | [`lifecycle/tailwind-class-discovery.test.ts`](tests/integration/hmr/lifecycle/tailwind-class-discovery.test.ts) ("HTML page edit lands a fresh utility…") |
 
 ---
 
@@ -130,7 +130,7 @@ bun test tests/integration/hmr
 | Update message contains framework metadata | [`frameworks/htmx-hmr.test.ts`](tests/integration/hmr/frameworks/htmx-hmr.test.ts) |
 | Fragment endpoint edit propagates via Path B reload | [`lifecycle/htmx-fragment-path-b.test.ts`](tests/integration/hmr/lifecycle/htmx-fragment-path-b.test.ts) |
 | `/htmx/htmx.min.js` is served from `htmxDirectory` | [`lifecycle/htmx-vendor-serving.test.ts`](tests/integration/hmr/lifecycle/htmx-vendor-serving.test.ts) |
-| Tailwind class added to HTMX markup lands in `tailwind.generated.css` | _gap_ — needs Tailwind fixture; verified manually (fix shipped) |
+| Tailwind class added to HTMX markup lands in `tailwind.generated.css` | [`lifecycle/tailwind-class-discovery.test.ts`](tests/integration/hmr/lifecycle/tailwind-class-discovery.test.ts) ("HTMX page edit lands a fresh utility…") |
 
 ---
 

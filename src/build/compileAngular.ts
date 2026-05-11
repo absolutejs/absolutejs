@@ -930,6 +930,23 @@ export const compileAngularFile = async (
 // bun --hot from re-evaluating the growing module graph on each change.
 const jitContentCache = new Map<string, string>();
 
+/* Drop the content-hash entry for a single file so the next
+ * `compileAngularFileJIT` call re-writes it even if the source
+ * .ts hasn't changed. Used by the HMR disk-refresh path when an
+ * inlined resource (template/style) changed underneath a stable
+ * component .ts — the cache would otherwise short-circuit the
+ * rewrite and leave a stale on-disk component.
+ *
+ * Preferred over passing a `cacheBuster` to compileAngularFileJIT
+ * for that case, because cacheBuster has a *second* effect —
+ * appending `?t=…` to every import specifier in the emitted
+ * file — that wedges any later bundle pass that doesn't know
+ * the cacheBuster value (Bun.build can't resolve
+ * `../components/Foo.js?t=…`). */
+export const invalidateAngularJitCache = (filePath: string) => {
+	jitContentCache.delete(resolve(filePath));
+};
+
 // Angular HMR Optimization — Cache the wrapper output (server file content
 // + index file content) so we can skip re-reading, rewriting, and index
 // generation when only transpilation changed but the wrapper output is identical.
