@@ -178,6 +178,26 @@ bun test tests/integration/hmr
 | `<style>` block edit lands a fresh rule in SSR-inlined `<style>` | [`lifecycle/svelte-deep-coverage.test.ts`](tests/integration/hmr/lifecycle/svelte-deep-coverage.test.ts) |
 | `on:click` handler edit round-trips through HMR + SSR | [`lifecycle/svelte-deep-coverage.test.ts`](tests/integration/hmr/lifecycle/svelte-deep-coverage.test.ts) |
 
+### Svelte 5 deeper coverage (advanced runes + directives + module context)
+
+| Scenario | Test |
+|---|---|
+| `$effect` declaration compiles + `$derived` updates reach SSR | [`lifecycle/svelte-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/svelte-deeper-coverage.test.ts) |
+| `$bindable()` prop declaration round-trips | [`lifecycle/svelte-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/svelte-deeper-coverage.test.ts) |
+| `{#snippet}` + `{@render}` renders snippet body | [`lifecycle/svelte-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/svelte-deeper-coverage.test.ts) |
+| `<script context="module">` exports compile cleanly | [`lifecycle/svelte-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/svelte-deeper-coverage.test.ts) |
+| `use:action` directive round-trips | [`lifecycle/svelte-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/svelte-deeper-coverage.test.ts) |
+| `createEventDispatcher` declaration round-trips | [`lifecycle/svelte-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/svelte-deeper-coverage.test.ts) |
+| `transition:` directive declaration compiles | [`lifecycle/svelte-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/svelte-deeper-coverage.test.ts) |
+| `:global()` selector edit lands non-scoped rule in served CSS | [`lifecycle/svelte-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/svelte-deeper-coverage.test.ts) |
+| Multi-style-block SFC edits both land in served CSS | [`lifecycle/svelte-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/svelte-deeper-coverage.test.ts) |
+| `bind:value` directive round-trips | [`lifecycle/svelte-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/svelte-deeper-coverage.test.ts) |
+| Edit re-emits a fresh hashed page bundle (index URL rotates) | [`lifecycle/svelte-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/svelte-deeper-coverage.test.ts) |
+| SSR HTML carries `svelte-<hash>` scope class | [`lifecycle/svelte-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/svelte-deeper-coverage.test.ts) |
+| SSR HTML preserves `id="__absolute_svelte_root__"` root marker | [`lifecycle/svelte-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/svelte-deeper-coverage.test.ts) |
+| Editing a non-page component re-emits a fresh server bundle | [`lifecycle/svelte-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/svelte-deeper-coverage.test.ts) |
+| Creating + importing a new `.svelte.ts` module mid-session propagates | [`lifecycle/svelte-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/svelte-deeper-coverage.test.ts) |
+
 ---
 
 ## Vue
@@ -212,6 +232,26 @@ bun test tests/integration/hmr
 | `defineExpose` member surfaces no SSR errors | [`lifecycle/vue-deep-coverage.test.ts`](tests/integration/hmr/lifecycle/vue-deep-coverage.test.ts) |
 | Scoped `<style>` edit hashes new `data-v-…` attribute into served CSS | [`lifecycle/vue-deep-coverage.test.ts`](tests/integration/hmr/lifecycle/vue-deep-coverage.test.ts) |
 
+### Vue deeper coverage (HMR change-type, lifecycle, advanced templates, SSR)
+
+| Scenario | Test |
+|---|---|
+| Template-only edit fires `vue-update` broadcast | [`lifecycle/vue-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/vue-deeper-coverage.test.ts) |
+| Script edit fires Vue HMR cycle with forceReload semantics | [`lifecycle/vue-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/vue-deeper-coverage.test.ts) |
+| `watch({ immediate: true })` callback runs server-side | [`lifecycle/vue-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/vue-deeper-coverage.test.ts) |
+| `watchEffect` runs synchronously in `setup()` server-side | [`lifecycle/vue-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/vue-deeper-coverage.test.ts) |
+| `defineEmits` round-trips through HMR + SSR | [`lifecycle/vue-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/vue-deeper-coverage.test.ts) |
+| `defineModel` SSR-renders initial value | [`lifecycle/vue-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/vue-deeper-coverage.test.ts) |
+| `v-show` toggles inline `display:none` based on predicate | [`lifecycle/vue-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/vue-deeper-coverage.test.ts) |
+| `@event.modifier` handlers compile and SSR-render | [`lifecycle/vue-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/vue-deeper-coverage.test.ts) |
+| Multi-style-block SFC (scoped + global) edits both land | [`lifecycle/vue-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/vue-deeper-coverage.test.ts) |
+| Custom directive with `getSSRProps` renders SSR attributes | [`lifecycle/vue-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/vue-deeper-coverage.test.ts) |
+| Teleport with `disabled` SSRs children at declared spot | [`lifecycle/vue-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/vue-deeper-coverage.test.ts) |
+| `Suspense` resolves default slot SSR-side | [`lifecycle/vue-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/vue-deeper-coverage.test.ts) |
+| `onServerPrefetch` is awaited and reaches SSR | [`lifecycle/vue-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/vue-deeper-coverage.test.ts) |
+| Edit re-emits a fresh hashed page bundle (index URL rotates) | [`lifecycle/vue-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/vue-deeper-coverage.test.ts) |
+| SSR HTML carries `data-v-…` scope ids for scoped style attribution | [`lifecycle/vue-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/vue-deeper-coverage.test.ts) |
+
 ---
 
 ## HTML
@@ -224,6 +264,23 @@ bun test tests/integration/hmr
 | Absolute `<link rel="stylesheet" href="/assets/...">` passes through asset rewriter unchanged | [`lifecycle/asset-href-passthrough.test.ts`](tests/integration/hmr/lifecycle/asset-href-passthrough.test.ts) ("HTML page keeps `/assets/ico/favicon.ico` href unchanged") |
 | Tailwind class added to HTML markup lands in `tailwind.generated.css` | [`lifecycle/tailwind-class-discovery.test.ts`](tests/integration/hmr/lifecycle/tailwind-class-discovery.test.ts) ("HTML page edit lands a fresh utility…") |
 
+### HTML deeper coverage (asset rewriting + HMR injection)
+
+| Scenario | Test |
+|---|---|
+| Relative `<link rel="stylesheet">` rewrites to manifest-hashed `/indexes/...` URL | [`lifecycle/html-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/html-deeper-coverage.test.ts) |
+| Absolute `/assets/...` href passes through unchanged | [`lifecycle/html-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/html-deeper-coverage.test.ts) |
+| HTML body edit propagates to SSR in one rebuild cycle | [`lifecycle/html-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/html-deeper-coverage.test.ts) |
+| Multiple `<link>` / `<script>` tags all rewrite correctly | [`lifecycle/html-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/html-deeper-coverage.test.ts) |
+| HMR client `<script data-hmr-client>` injected into served HTML | [`lifecycle/html-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/html-deeper-coverage.test.ts) |
+| `TypescriptExample` compiled-scripts artifact lands in build output | [`lifecycle/html-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/html-deeper-coverage.test.ts) |
+| Creating a new HTML page mid-session emits `[abs:restart]` | [`lifecycle/html-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/html-deeper-coverage.test.ts) |
+| HMR injection survives a subsequent page edit | [`lifecycle/html-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/html-deeper-coverage.test.ts) |
+| Manifest key for HTML page is the basename (no "Page" suffix) | [`lifecycle/html-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/html-deeper-coverage.test.ts) |
+| CSS path rewrite preserves resolvability across rebuilds | [`lifecycle/html-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/html-deeper-coverage.test.ts) |
+| `html-update` broadcast carries framework metadata + body content | [`lifecycle/html-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/html-deeper-coverage.test.ts) |
+| `public/*` files are served at `/<filename>` (mirror) | [`lifecycle/html-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/html-deeper-coverage.test.ts) |
+
 ---
 
 ## HTMX
@@ -235,6 +292,23 @@ bun test tests/integration/hmr
 | Fragment endpoint edit propagates via Path B reload | [`lifecycle/htmx-fragment-path-b.test.ts`](tests/integration/hmr/lifecycle/htmx-fragment-path-b.test.ts) |
 | `/htmx/htmx.min.js` is served from `htmxDirectory` | [`lifecycle/htmx-vendor-serving.test.ts`](tests/integration/hmr/lifecycle/htmx-vendor-serving.test.ts) |
 | Tailwind class added to HTMX markup lands in `tailwind.generated.css` | [`lifecycle/tailwind-class-discovery.test.ts`](tests/integration/hmr/lifecycle/tailwind-class-discovery.test.ts) ("HTMX page edit lands a fresh utility…") |
+
+### HTMX deeper coverage (hx-* attributes + fragment endpoints)
+
+| Scenario | Test |
+|---|---|
+| `hx-*` attributes round-trip through SSR unchanged | [`lifecycle/htmx-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/htmx-deeper-coverage.test.ts) |
+| HTMX page edit fires `htmx-update` broadcast | [`lifecycle/htmx-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/htmx-deeper-coverage.test.ts) |
+| HMR client injected with `__HMR_FRAMEWORK__="htmx"` | [`lifecycle/htmx-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/htmx-deeper-coverage.test.ts) |
+| Fragment endpoint `hx-get` returns plain text body after edit | [`lifecycle/htmx-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/htmx-deeper-coverage.test.ts) |
+| `hx-swap="outerHTML"` style payload round-trips | [`lifecycle/htmx-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/htmx-deeper-coverage.test.ts) |
+| `hx-swap-oob` (out-of-band) markup round-trips | [`lifecycle/htmx-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/htmx-deeper-coverage.test.ts) |
+| `/htmx/htmx.min.js` vendor served with non-empty JS payload | [`lifecycle/htmx-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/htmx-deeper-coverage.test.ts) |
+| Multi-route mutation in one save applies atomically (Path B) | [`lifecycle/htmx-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/htmx-deeper-coverage.test.ts) |
+| `htmx-update` broadcast contains edited body content | [`lifecycle/htmx-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/htmx-deeper-coverage.test.ts) |
+| Manifest key for HTMX page is the basename (no "Page" suffix) | [`lifecycle/htmx-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/htmx-deeper-coverage.test.ts) |
+| Absolute `/assets/...` and `/htmx/...` paths pass through unchanged | [`lifecycle/htmx-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/htmx-deeper-coverage.test.ts) |
+| JSON-returning fragment endpoint survives Path B reload | [`lifecycle/htmx-deeper-coverage.test.ts`](tests/integration/hmr/lifecycle/htmx-deeper-coverage.test.ts) |
 
 ---
 
