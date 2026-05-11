@@ -143,18 +143,31 @@ bun test tests/integration/hmr
 
 - **Task #227 — Svelte/Vue composable multi-edit stall.** Editing
   a `.ts` file imported by a `.svelte` or `.vue` page propagates
-  the first edit only; subsequent edits stall. Three compounding
-  root causes documented in `tasks/#227`: (1) framework-compile
-  cache short-circuits on `.svelte`/`.vue` source byte-hash and
-  misses transitive `.ts` dep changes; (2) Vue and Svelte
-  pageHandlers do `await import(path)` without cache-bust, so
-  Bun's import cache returns the cached module for that path —
-  Angular's pageHandler uses a per-request `?t=N` cache-bust on
-  the JIT output; (3) the new `scheduleVueBundleRebuild` writes
-  the server bundle to `build/vue/pages/` but the initial
-  multi-framework build puts it at `build/vue/server/pages/`
-  under `commonAncestor` `serverRoot` math, so the SSR resolver
-  never sees the scheduler's output.
+  the first edit only; subsequent edits stall.
+
+  Real root cause (deeper than first thought): the dev pipeline
+  never writes transitive `.ts` files to disk for Vue/Svelte.
+  Angular's `compileAngularFileJIT` walks every transitive
+  import via `transpileFile` and writes
+  `.absolutejs/generated/angular/...` for each `.ts`/`.json`.
+  Vue's `compileVue` translates `.vue` → `.ts` but does NOT
+  re-emit transitive `.ts` deps; `moduleServer.transformVueFile`
+  serves browser fetches on demand but doesn't write back to
+  disk. Same for Svelte.
+
+  So when a composable edit fires, the bundle rebuild runs
+  `Bun.build` against the JIT-emitted page; Bun.build resolves
+  the composable to `.absolutejs/generated/<fw>/server/composables/<x>.js`
+  which still has the STALE bytes from the initial build. The
+  bundle inlines stale content; SSR shows stale.
+
+  Full fix path documented in task #228. Requires mirroring
+  Angular's JIT-to-disk pipeline for Vue + Svelte transitive
+  `.ts` deps, plus aligning the scheduler's serverOutDir with
+  the initial multi-framework build's `commonAncestor`
+  serverRoot math (currently the scheduler writes to
+  `build/<fw>/pages/` but manifest expects
+  `build/<fw>/server/pages/` under multi-fw mode).
 - **Task #223 — Page basename collision across framework dirs.**
   `Page.html` in both `html/pages/` and `htmx/pages/` collide in
   the manifest under the same `Page` key. Whichever framework's
