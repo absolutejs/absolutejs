@@ -2623,6 +2623,24 @@ const buildUnlocked = async ({
 		}
 	}
 
+	/* Same-basename pages across `htmlDirectory` and `htmxDirectory`
+	 * (or two pages with the same name within one of those dirs)
+	 * collide in `manifest[<basename>]`. Whichever pipeline runs
+	 * last wins; the other page silently 404s when its route
+	 * looks the key up. Emit a clear build-time warning so the
+	 * user can rename one. Doesn't break the build — keeping the
+	 * last-writer-wins behaviour preserves existing setups that
+	 * intentionally rely on it. */
+	const warnManifestKeyCollision = (
+		key: string,
+		previousPath: string,
+		nextPath: string
+	) => {
+		logWarn(
+			`Manifest key collision: "${key}" was "${previousPath}" and will be overwritten by "${nextPath}". Rename one of the conflicting pages so each manifest key is unique across html/htmx (and other framework) directories.`
+		);
+	};
+
 	const shouldCopyHtmx =
 		!isIncremental ||
 		normalizedIncrementalFiles?.some(
@@ -2690,6 +2708,9 @@ const buildUnlocked = async ({
 		for (const htmlFile of htmlPageFiles) {
 			if (hmr) injectHMRIntoHTMLFile(htmlFile, 'html');
 			const fileName = basename(htmlFile, '.html');
+			if (manifest[fileName] && manifest[fileName] !== htmlFile) {
+				warnManifestKeyCollision(fileName, manifest[fileName], htmlFile);
+			}
 			manifest[fileName] = htmlFile;
 		}
 	};
@@ -2728,6 +2749,9 @@ const buildUnlocked = async ({
 		for (const htmxFile of htmxPageFiles) {
 			if (hmr) injectHMRIntoHTMLFile(htmxFile, 'htmx');
 			const fileName = basename(htmxFile, '.html');
+			if (manifest[fileName] && manifest[fileName] !== htmxFile) {
+				warnManifestKeyCollision(fileName, manifest[fileName], htmxFile);
+			}
 			manifest[fileName] = htmxFile;
 		}
 	};
