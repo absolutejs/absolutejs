@@ -55,7 +55,7 @@ bun test tests/integration/hmr
 | **Dep-graph reverse-link re-established after file delete + recreate** | [`lifecycle/dep-graph-recreate.test.ts`](tests/integration/hmr/lifecycle/dep-graph-recreate.test.ts) |
 | Non-applicable `absolute.config.ts` change emits `[abs:restart]` marker for parent CLI to respawn | [`lifecycle/restart-fallback.test.ts`](tests/integration/hmr/lifecycle/restart-fallback.test.ts) |
 | `dev.watchDirs` extra paths fire HMR | [`lifecycle/dev-watch-dirs.test.ts`](tests/integration/hmr/lifecycle/dev-watch-dirs.test.ts) |
-| `collectStreamingSlots: true` silences the DeferSlot warning | _gap_ — verified manually; needs `tests/integration/hmr/lifecycle/streaming-slots.test.ts` |
+| `collectStreamingSlots: true` silences the streaming-slot warning | [`lifecycle/streaming-slots-warning.test.ts`](tests/integration/hmr/lifecycle/streaming-slots-warning.test.ts) |
 | Tailwind auto-injects `@source` directives for every configured framework dir | [`lifecycle/tailwind-class-discovery.test.ts`](tests/integration/hmr/lifecycle/tailwind-class-discovery.test.ts) (the per-framework subtests pass only if `@source` for each dir is auto-injected) |
 | Tailwind incremental regen picks up new utility classes from HTML/HTMX page edits | [`lifecycle/tailwind-class-discovery.test.ts`](tests/integration/hmr/lifecycle/tailwind-class-discovery.test.ts) (HTML / HTMX subtests) |
 | HTML/HTMX `<link rel="stylesheet" href="/assets/...">` (absolute path) passes through the rewriter unchanged | [`lifecycle/asset-href-passthrough.test.ts`](tests/integration/hmr/lifecycle/asset-href-passthrough.test.ts) |
@@ -89,7 +89,7 @@ bun test tests/integration/hmr
 | Child component change triggers update | [`frameworks/svelte-hmr.test.ts`](tests/integration/hmr/frameworks/svelte-hmr.test.ts) + [`components/component-hmr.test.ts`](tests/integration/hmr/components/component-hmr.test.ts) |
 | Tier-0 surgical update → SSR catches up after debounce | [`lifecycle/tier-zero-ssr.test.ts`](tests/integration/hmr/lifecycle/tier-zero-ssr.test.ts) |
 | New component file + import in page → renders after rebuild | [`lifecycle/new-component-import.test.ts`](tests/integration/hmr/lifecycle/new-component-import.test.ts) |
-| Page rename + import update → page recovers | _gap_ — verified manually |
+| Page rename + import update → page recovers | [`lifecycle/page-component-rename.test.ts`](tests/integration/hmr/lifecycle/page-component-rename.test.ts) |
 | Scoped style block edits propagate | [`lifecycle/scoped-style-edits.test.ts`](tests/integration/hmr/lifecycle/scoped-style-edits.test.ts) ("svelte scoped style edit lands in SSR HTML") |
 | Composable (`.svelte.ts` / `.ts` inside `svelteDir/`) edit propagates to SSR | [`lifecycle/svelte-composable-ssr.test.ts`](tests/integration/hmr/lifecycle/svelte-composable-ssr.test.ts) |
 
@@ -174,20 +174,23 @@ bun test tests/integration/hmr
 
 ---
 
-## What "verified manually" rows leave open
+## Coverage notes
 
-For every _gap_ above, the user-visible behavior was confirmed
-in the temporary `abs-hmr-caveats` harness across the F batch of
-the 2026-05-10 caveat-verification session, with results
-documented per-row in the task notes (`#214`..`#222`). The
-behaviors are present in shipping `main`; what's missing is the
-locked-in integration test. Writing those tests requires either:
+Every row in the matrix above is backed by a real integration
+test. There is one `test.todo` (Angular template Tailwind regen)
+covering a known race between the WebSocket `style-update`
+broadcast and an unrelated framework's afterEach restore landing
+in the same watcher batch — the Tailwind regen itself fires on
+disk; the WebSocket signal is what's flaky in test conditions.
+The four other framework dirs (HTML / HTMX / Svelte / Vue) all
+exercise the same `@source` auto-injection and
+`isTailwindCandidate` plumbing, so any regression in those
+mechanisms would surface in at least one of those four subtests.
 
-- expanding `example/` with the relevant scaffolding (Tailwind
-  config, additional pages, an `.env`), or
-- adding a per-test fixture under `tests/fixtures/` and pointing
-  `startDevServer` at it via the `serverEntry` / `configPath`
-  options.
-
-The latter is the cleaner direction; until then this doc is the
-source of truth on which scenarios have been hand-verified.
+Tests run against the real `example/` app via
+`tests/helpers/devServer.ts`, which spawns `bun --hot example/server.ts`
+and exposes deterministic completion signals
+(`waitFor('<framework>-tier-zero-ssr-rebuild-complete')`,
+`waitForOutput(/\[abs:restart\]/)`, etc.) so the suite avoids
+sleep-based polling everywhere except where Bun's WebSocket
+implementation forces it.

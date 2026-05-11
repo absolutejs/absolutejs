@@ -29,6 +29,30 @@ export const createFile = (filePath: string, content: string) => {
 	writeFileSync(resolved, content, 'utf-8');
 	backups.push({ kind: 'created', path: resolved });
 };
+/* Rename a file in two steps so the existing backup tape can roll
+ * the change back: record a `mutated` backup for the source path
+ * (so restoreAllFiles writes the original content back), then
+ * `created` for the destination (so the new file gets unlinked on
+ * teardown). The new file's content is identical to the original
+ * — callers typically follow up with `mutateFile` on the new path
+ * if they need to alter it. */
+export const renameFile = (fromPath: string, toPath: string) => {
+	const fromResolved = resolve(fromPath);
+	const toResolved = resolve(toPath);
+	if (!existsSync(fromResolved)) {
+		throw new Error(`renameFile: source missing: ${fromResolved}`);
+	}
+	if (existsSync(toResolved)) {
+		throw new Error(
+			`renameFile: destination already exists: ${toResolved}`
+		);
+	}
+	const content = readFileSync(fromResolved, 'utf-8');
+	backups.push({ content, kind: 'mutated', path: fromResolved });
+	writeFileSync(toResolved, content, 'utf-8');
+	backups.push({ kind: 'created', path: toResolved });
+	unlinkSync(fromResolved);
+};
 export const restoreAllFiles = () => {
 	while (backups.length > 0) {
 		const entry = backups.pop();

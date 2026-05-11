@@ -17,6 +17,11 @@ export type DevServer = {
 		pattern: RegExp,
 		options?: { timeoutMs?: number }
 	) => Promise<string>;
+	/** Snapshot of every stdout/stderr line emitted so far. Useful
+	 *  for asserting *absence* of a pattern (where `waitForOutput`
+	 *  is the wrong tool — it'd just time out). Consumers should
+	 *  copy the array if they need a stable reference. */
+	readonly outputLines: readonly string[];
 };
 
 type DevServerOptions = {
@@ -150,6 +155,9 @@ export const startDevServer = async (options?: DevServerOptions | number) => {
 	return {
 		baseUrl,
 		kill,
+		get outputLines() {
+			return outputLines;
+		},
 		port: resolvedPort,
 		proc,
 		waitForOutput
