@@ -2719,22 +2719,30 @@ const runVueBundleRebuild = async (
 	const { build: bunBuild } = await import('bun');
 	const clientRoot = await computeClientRoot(state.resolvedPaths);
 
-	const { vueServerPaths, vueIndexPaths, vueClientPaths } = await compileVue(
-		vueFiles,
-		vueDir,
-		true,
-		getStyleTransformConfig(state.config)
-	);
+	const { vueServerPaths, vueIndexPaths, vueClientPaths, vueCssPaths } =
+		await compileVue(
+			vueFiles,
+			vueDir,
+			true,
+			getStyleTransformConfig(state.config)
+		);
 
 	const serverEntries = [...vueServerPaths];
 	const clientEntries = [...vueIndexPaths, ...vueClientPaths];
+	const cssOutDir = join(
+		buildDir,
+		state.resolvedPaths.assetsDir
+			? basename(state.resolvedPaths.assetsDir)
+			: 'assets',
+		'css'
+	);
 
 	const { serverRoot, serverOutDir } = await computeServerOutPaths(
 		state.resolvedPaths,
 		'vue'
 	);
 
-	const [serverResult, clientResult] = await Promise.all([
+	const [serverResult, clientResult, cssResult] = await Promise.all([
 		serverEntries.length > 0
 			? bunBuild({
 					entrypoints: serverEntries,
@@ -2767,12 +2775,35 @@ const runVueBundleRebuild = async (
 					target: 'browser',
 					throw: false
 				})
+			: undefined,
+		// Vue's scoped CSS is collected by compileVue into a per-page
+		// `vue-example-compiled.css` and the initial build hashes it
+		// via a separate `bun build` over `vueCssPaths`. Without the
+		// same step here, a `<style scoped>` edit produces a fresh
+		// intermediate file on disk but the manifest's
+		// `*CompiledCSS` entry still points at the original hashed
+		// bundle — the served stylesheet stays frozen.
+		vueCssPaths.length > 0
+			? bunBuild({
+					entrypoints: vueCssPaths,
+					naming: '[name].[hash].[ext]',
+					outdir: cssOutDir,
+					plugins: [
+						createStylePreprocessorPlugin(
+							getStyleTransformConfig(state.config)
+						)
+					],
+					target: 'browser',
+					throw: false
+				})
 			: undefined
 	]);
 
 	handleServerManifestUpdate(state, serverResult);
 	await handleClientManifestUpdate(state, clientResult, buildDir);
+	await handleClientManifestUpdate(state, cssResult, buildDir);
 	await pruneStaleHashedSiblings(serverResult?.outputs);
+	await pruneStaleHashedSiblings(cssResult?.outputs);
 	broadcastToClients(state, {
 		data: { manifest: state.manifest },
 		type: 'vue-tier-zero-ssr-rebuild-complete'

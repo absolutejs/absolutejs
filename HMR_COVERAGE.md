@@ -58,7 +58,7 @@ bun test tests/integration/hmr
 | `collectStreamingSlots: true` silences the DeferSlot warning | _gap_ — verified manually; needs `tests/integration/hmr/lifecycle/streaming-slots.test.ts` |
 | Tailwind auto-injects `@source` directives for every configured framework dir | _gap_ — needs Tailwind fixture; verified manually |
 | Tailwind incremental regen picks up new utility classes from HTML/HTMX page edits | _gap_ — needs Tailwind fixture; verified manually (fix shipped) |
-| HTML/HTMX `<link rel="stylesheet" href="/assets/...">` (absolute path) passes through the rewriter unchanged | _gap_ — needs a build-time assertion test; verified manually (fix shipped) |
+| HTML/HTMX `<link rel="stylesheet" href="/assets/...">` (absolute path) passes through the rewriter unchanged | [`lifecycle/asset-href-passthrough.test.ts`](tests/integration/hmr/lifecycle/asset-href-passthrough.test.ts) |
 | Multi-tab WebSocket broadcast — independent manifests per client | covered as part of [`lifecycle/cold-start.test.ts`](tests/integration/hmr/lifecycle/cold-start.test.ts) ("second client receives independent manifest") |
 | Path A → restart fallback: in-place framework-add emits `[abs:restart]` | _gap_ — verified manually; needs `tests/integration/hmr/lifecycle/framework-add-restart.test.ts` |
 | New page entry mid-session falls through to `[abs:restart]` | _gap_ — verified manually; needs `tests/integration/hmr/lifecycle/new-page-restart.test.ts` |
@@ -74,7 +74,6 @@ bun test tests/integration/hmr
 | Child component change triggers update | [`frameworks/angular-hmr.test.ts`](tests/integration/hmr/frameworks/angular-hmr.test.ts) ("child component change triggers update") + [`components/component-hmr.test.ts`](tests/integration/hmr/components/component-hmr.test.ts) ("angular child component change triggers angular-update") |
 | Tier-0 surgical update → SSR catches up after debounce | [`lifecycle/tier-zero-ssr.test.ts`](tests/integration/hmr/lifecycle/tier-zero-ssr.test.ts) ("angular: SSR returns post-edit content after debounce") |
 | Service (`.ts` in `angular/`) edits propagate to consuming component on every edit | [`lifecycle/dep-graph-recreate.test.ts`](tests/integration/hmr/lifecycle/dep-graph-recreate.test.ts) (uses `services/cycle-a.ts`) |
-| Production `bun run build` succeeds with JSON imports from components | _gap_ — verified manually (fix shipped: `compileAngular.ts` AOT JSON copy) |
 | Tailwind utility classes added to Angular templates land in `tailwind.generated.css` | _gap_ — needs Tailwind fixture; verified manually |
 | Template (`.html`) edits propagate | covered indirectly via tier-0 SSR test (it edits `angular-example.html`) |
 
@@ -91,9 +90,8 @@ bun test tests/integration/hmr
 | Tier-0 surgical update → SSR catches up after debounce | [`lifecycle/tier-zero-ssr.test.ts`](tests/integration/hmr/lifecycle/tier-zero-ssr.test.ts) |
 | New component file + import in page → renders after rebuild | _gap_ — verified manually |
 | Page rename + import update → page recovers | _gap_ — verified manually |
-| Scoped style block edits propagate | _gap_ — verified manually |
-| Composable (`.ts` inside `svelteDir/`) edit propagates to SSR | _gap_ — fix landed (#228), Svelte test mirroring [`lifecycle/vue-composable-ssr.test.ts`](tests/integration/hmr/lifecycle/vue-composable-ssr.test.ts) still to be written |
-| Production `bun run build` + `bun run start` parity | _gap_ — verified manually |
+| Scoped style block edits propagate | [`lifecycle/scoped-style-edits.test.ts`](tests/integration/hmr/lifecycle/scoped-style-edits.test.ts) ("svelte scoped style edit lands in SSR HTML") |
+| Composable (`.svelte.ts` / `.ts` inside `svelteDir/`) edit propagates to SSR | [`lifecycle/svelte-composable-ssr.test.ts`](tests/integration/hmr/lifecycle/svelte-composable-ssr.test.ts) |
 
 ---
 
@@ -107,9 +105,8 @@ bun test tests/integration/hmr
 | Fast path provides `pageModuleUrl` | [`frameworks/vue-hmr.test.ts`](tests/integration/hmr/frameworks/vue-hmr.test.ts) |
 | Child component change triggers update | [`frameworks/vue-hmr.test.ts`](tests/integration/hmr/frameworks/vue-hmr.test.ts) + [`components/component-hmr.test.ts`](tests/integration/hmr/components/component-hmr.test.ts) |
 | Tier-0 surgical update → SSR catches up after debounce | [`lifecycle/tier-zero-ssr.test.ts`](tests/integration/hmr/lifecycle/tier-zero-ssr.test.ts) |
-| Scoped `<style scoped>` block edits propagate | _gap_ — verified manually |
+| Scoped `<style scoped>` block edits propagate | [`lifecycle/scoped-style-edits.test.ts`](tests/integration/hmr/lifecycle/scoped-style-edits.test.ts) ("vue scoped style edit lands in SSR HTML") |
 | Composable (`.ts` inside `vueDir/`) edit propagates to SSR | [`lifecycle/vue-composable-ssr.test.ts`](tests/integration/hmr/lifecycle/vue-composable-ssr.test.ts) |
-| Production `bun run build` + `bun run start` parity | _gap_ — verified manually |
 
 ---
 
@@ -120,9 +117,8 @@ bun test tests/integration/hmr
 | Page change broadcasts `html-update` | [`frameworks/html-hmr.test.ts`](tests/integration/hmr/frameworks/html-hmr.test.ts) ("html page change triggers html-update") |
 | Update message contains framework metadata | [`frameworks/html-hmr.test.ts`](tests/integration/hmr/frameworks/html-hmr.test.ts) |
 | Update payload contains body content with changes | [`frameworks/html-hmr.test.ts`](tests/integration/hmr/frameworks/html-hmr.test.ts) ("html update contains body content with changes") |
-| Absolute `<link rel="stylesheet" href="/assets/...">` passes through asset rewriter unchanged | _gap_ — verified manually (fix shipped) |
+| Absolute `<link rel="stylesheet" href="/assets/...">` passes through asset rewriter unchanged | [`lifecycle/asset-href-passthrough.test.ts`](tests/integration/hmr/lifecycle/asset-href-passthrough.test.ts) ("HTML page keeps `/assets/ico/favicon.ico` href unchanged") |
 | Tailwind class added to HTML markup lands in `tailwind.generated.css` | _gap_ — needs Tailwind fixture; verified manually (fix shipped) |
-| Production `bun run build` + `bun run start` parity | _gap_ — verified manually |
 
 ---
 
@@ -133,9 +129,8 @@ bun test tests/integration/hmr
 | Page change broadcasts `htmx-update` | [`frameworks/htmx-hmr.test.ts`](tests/integration/hmr/frameworks/htmx-hmr.test.ts) ("htmx page change triggers htmx-update") |
 | Update message contains framework metadata | [`frameworks/htmx-hmr.test.ts`](tests/integration/hmr/frameworks/htmx-hmr.test.ts) |
 | Fragment endpoint edit propagates via Path B reload | _gap_ — verified manually (route-handler swap) |
-| `/htmx/htmx.min.js` is served from `htmxDirectory` | _gap_ — verified manually |
+| `/htmx/htmx.min.js` is served from `htmxDirectory` | [`lifecycle/htmx-vendor-serving.test.ts`](tests/integration/hmr/lifecycle/htmx-vendor-serving.test.ts) |
 | Tailwind class added to HTMX markup lands in `tailwind.generated.css` | _gap_ — needs Tailwind fixture; verified manually (fix shipped) |
-| Production `bun run build` + `bun run start` parity | _gap_ — verified manually |
 
 ---
 
