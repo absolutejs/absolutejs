@@ -147,6 +147,8 @@ bun test tests/integration/hmr
 
 ## Svelte
 
+### Baseline HMR
+
 | Scenario | Test |
 |---|---|
 | Page change broadcasts `svelte-update` | [`frameworks/svelte-hmr.test.ts`](tests/integration/hmr/frameworks/svelte-hmr.test.ts) ("svelte page change triggers svelte-update") |
@@ -159,9 +161,28 @@ bun test tests/integration/hmr
 | Scoped style block edits propagate | [`lifecycle/scoped-style-edits.test.ts`](tests/integration/hmr/lifecycle/scoped-style-edits.test.ts) ("svelte scoped style edit lands in SSR HTML") |
 | Composable (`.svelte.ts` / `.ts` inside `svelteDir/`) edit propagates to SSR | [`lifecycle/svelte-composable-ssr.test.ts`](tests/integration/hmr/lifecycle/svelte-composable-ssr.test.ts) |
 
+### Svelte 5 deep coverage (runes, control-flow, slots, context)
+
+| Scenario | Test |
+|---|---|
+| `$state` rune initial value change reaches SSR | [`lifecycle/svelte-deep-coverage.test.ts`](tests/integration/hmr/lifecycle/svelte-deep-coverage.test.ts) |
+| `$derived` rune recomputes on dependency change | [`lifecycle/svelte-deep-coverage.test.ts`](tests/integration/hmr/lifecycle/svelte-deep-coverage.test.ts) |
+| `.svelte.ts` module body change propagates to importer | [`lifecycle/svelte-deep-coverage.test.ts`](tests/integration/hmr/lifecycle/svelte-deep-coverage.test.ts) |
+| Composable shape change (new exported function) is consumed by importer | [`lifecycle/svelte-deep-coverage.test.ts`](tests/integration/hmr/lifecycle/svelte-deep-coverage.test.ts) |
+| New `export let` prop consumed by parent | [`lifecycle/svelte-deep-coverage.test.ts`](tests/integration/hmr/lifecycle/svelte-deep-coverage.test.ts) |
+| Named `<slot>` from a new child component renders parent content | [`lifecycle/svelte-deep-coverage.test.ts`](tests/integration/hmr/lifecycle/svelte-deep-coverage.test.ts) |
+| `setContext` / `getContext` flows value ancestor → descendant | [`lifecycle/svelte-deep-coverage.test.ts`](tests/integration/hmr/lifecycle/svelte-deep-coverage.test.ts) |
+| `{#if}` block renders truthy branch | [`lifecycle/svelte-deep-coverage.test.ts`](tests/integration/hmr/lifecycle/svelte-deep-coverage.test.ts) |
+| `{#each}` block renders every iteration | [`lifecycle/svelte-deep-coverage.test.ts`](tests/integration/hmr/lifecycle/svelte-deep-coverage.test.ts) |
+| `{#await}` resolved-branch body renders SSR-side | [`lifecycle/svelte-deep-coverage.test.ts`](tests/integration/hmr/lifecycle/svelte-deep-coverage.test.ts) |
+| `<style>` block edit lands a fresh rule in SSR-inlined `<style>` | [`lifecycle/svelte-deep-coverage.test.ts`](tests/integration/hmr/lifecycle/svelte-deep-coverage.test.ts) |
+| `on:click` handler edit round-trips through HMR + SSR | [`lifecycle/svelte-deep-coverage.test.ts`](tests/integration/hmr/lifecycle/svelte-deep-coverage.test.ts) |
+
 ---
 
 ## Vue
+
+### Baseline HMR
 
 | Scenario | Test |
 |---|---|
@@ -173,6 +194,23 @@ bun test tests/integration/hmr
 | Tier-0 surgical update → SSR catches up after debounce | [`lifecycle/tier-zero-ssr.test.ts`](tests/integration/hmr/lifecycle/tier-zero-ssr.test.ts) |
 | Scoped `<style scoped>` block edits propagate | [`lifecycle/scoped-style-edits.test.ts`](tests/integration/hmr/lifecycle/scoped-style-edits.test.ts) ("vue scoped style edit lands in SSR HTML") |
 | Composable (`.ts` inside `vueDir/`) edit propagates to SSR | [`lifecycle/vue-composable-ssr.test.ts`](tests/integration/hmr/lifecycle/vue-composable-ssr.test.ts) |
+
+### Vue deep coverage (Composition API, slots, provide/inject)
+
+| Scenario | Test |
+|---|---|
+| `ref()` initial value change reaches SSR | [`lifecycle/vue-deep-coverage.test.ts`](tests/integration/hmr/lifecycle/vue-deep-coverage.test.ts) |
+| `computed()` body change reaches SSR | [`lifecycle/vue-deep-coverage.test.ts`](tests/integration/hmr/lifecycle/vue-deep-coverage.test.ts) |
+| `reactive()` object property change reaches SSR | [`lifecycle/vue-deep-coverage.test.ts`](tests/integration/hmr/lifecycle/vue-deep-coverage.test.ts) |
+| Composable body change propagates through importing `.vue` | [`lifecycle/vue-deep-coverage.test.ts`](tests/integration/hmr/lifecycle/vue-deep-coverage.test.ts) |
+| Composable shape change (new return field) propagates | [`lifecycle/vue-deep-coverage.test.ts`](tests/integration/hmr/lifecycle/vue-deep-coverage.test.ts) |
+| New prop on child component consumed by parent | [`lifecycle/vue-deep-coverage.test.ts`](tests/integration/hmr/lifecycle/vue-deep-coverage.test.ts) |
+| Named `<slot>` from a new child component renders | [`lifecycle/vue-deep-coverage.test.ts`](tests/integration/hmr/lifecycle/vue-deep-coverage.test.ts) |
+| `provide` / `inject` flows ancestor → descendant | [`lifecycle/vue-deep-coverage.test.ts`](tests/integration/hmr/lifecycle/vue-deep-coverage.test.ts) |
+| `v-if` directive edit toggles which branch renders | [`lifecycle/vue-deep-coverage.test.ts`](tests/integration/hmr/lifecycle/vue-deep-coverage.test.ts) |
+| `v-for` directive renders every iteration | [`lifecycle/vue-deep-coverage.test.ts`](tests/integration/hmr/lifecycle/vue-deep-coverage.test.ts) |
+| `defineExpose` member surfaces no SSR errors | [`lifecycle/vue-deep-coverage.test.ts`](tests/integration/hmr/lifecycle/vue-deep-coverage.test.ts) |
+| Scoped `<style>` edit hashes new `data-v-…` attribute into served CSS | [`lifecycle/vue-deep-coverage.test.ts`](tests/integration/hmr/lifecycle/vue-deep-coverage.test.ts) |
 
 ---
 
@@ -197,6 +235,22 @@ bun test tests/integration/hmr
 | Fragment endpoint edit propagates via Path B reload | [`lifecycle/htmx-fragment-path-b.test.ts`](tests/integration/hmr/lifecycle/htmx-fragment-path-b.test.ts) |
 | `/htmx/htmx.min.js` is served from `htmxDirectory` | [`lifecycle/htmx-vendor-serving.test.ts`](tests/integration/hmr/lifecycle/htmx-vendor-serving.test.ts) |
 | Tailwind class added to HTMX markup lands in `tailwind.generated.css` | [`lifecycle/tailwind-class-discovery.test.ts`](tests/integration/hmr/lifecycle/tailwind-class-discovery.test.ts) ("HTMX page edit lands a fresh utility…") |
+
+---
+
+## Cross-cutting reliability
+
+| Scenario | Test |
+|---|---|
+| Long-running session — 25 sequential Vue page edits all converge | [`lifecycle/cross-cutting-reliability.test.ts`](tests/integration/hmr/lifecycle/cross-cutting-reliability.test.ts) |
+| Rapid concurrent edits converge on last-edit state | [`lifecycle/cross-cutting-reliability.test.ts`](tests/integration/hmr/lifecycle/cross-cutting-reliability.test.ts) |
+| Build-error recovery — syntax error → fix → SSR recovers, dev server still healthy | [`lifecycle/cross-cutting-reliability.test.ts`](tests/integration/hmr/lifecycle/cross-cutting-reliability.test.ts) |
+| HMR client disconnect → reconnect preserves server state | [`lifecycle/cross-cutting-reliability.test.ts`](tests/integration/hmr/lifecycle/cross-cutting-reliability.test.ts) |
+| 10 Angular template edits don't corrupt or grow the manifest | [`lifecycle/cross-cutting-reliability.test.ts`](tests/integration/hmr/lifecycle/cross-cutting-reliability.test.ts) |
+| `/@src/` module-server URL serves source files (not 404 from staticPlugin) | [`lifecycle/cross-cutting-reliability.test.ts`](tests/integration/hmr/lifecycle/cross-cutting-reliability.test.ts) |
+| Same-basename pages in html/ + htmx/ fire collision warning at boot | [`lifecycle/manifest-key-collision.test.ts`](tests/integration/hmr/lifecycle/manifest-key-collision.test.ts) (#223) |
+| Rapid HMR rebuilds never produce 5xx responses for current asset URLs | [`lifecycle/static-serving-race.test.ts`](tests/integration/hmr/lifecycle/static-serving-race.test.ts) (#224) |
+| New page entry mid-session emits `[abs:restart]` for parent CLI | [`lifecycle/new-page-restart.test.ts`](tests/integration/hmr/lifecycle/new-page-restart.test.ts) (#226) |
 
 ---
 
