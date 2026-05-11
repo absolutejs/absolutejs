@@ -118,6 +118,17 @@ export const startServerEntryWatcher = () => {
 			// On success, the new module's `networking` plugin call
 			// has already swapped the running Bun.serve's fetch
 			// handler via `app.server.reload({ fetch, routes: {} })`.
+			// Broadcast a completion signal so dev clients (and tests)
+			// can react to the swap deterministically instead of
+			// polling for stdout markers or sleeping.
+			const hmrState = globalThis.__hmrDevResult?.hmrState;
+			if (hmrState) {
+				const { broadcastToClients } = await import('./webSocket');
+				broadcastToClients(hmrState, {
+					data: { entryPath, cause },
+					type: 'server-entry-reloaded'
+				});
+			}
 		} catch (err) {
 			console.error(
 				`[hmr] entry re-evaluation failed: ${

@@ -9,6 +9,14 @@ export type DevServer = {
 	baseUrl: string;
 	proc: ReturnType<typeof Bun.spawn>;
 	kill: () => Promise<void>;
+	/** Resolves when a line matching `pattern` is observed on the
+	 *  dev server's stdout/stderr. Useful for asserting on the
+	 *  `[abs:restart] <path>` stdout marker that the framework
+	 *  emits when it falls back to a parent-CLI-driven restart. */
+	waitForOutput: (
+		pattern: RegExp,
+		options?: { timeoutMs?: number }
+	) => Promise<string>;
 };
 
 type DevServerOptions = {
@@ -16,6 +24,33 @@ type DevServerOptions = {
 	serverEntry?: string;
 	configPath?: string;
 	env?: Record<string, string>;
+};
+
+const DEFAULT_OUTPUT_TIMEOUT_MS = 10_000;
+
+const drainStream = (
+	stream: ReadableStream<Uint8Array> | null,
+	onLine: (line: string) => void
+) => {
+	if (!stream) return;
+	const reader = stream.getReader();
+	const decoder = new TextDecoder();
+	let buffer = '';
+	const pump = async () => {
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) return;
+			buffer += decoder.decode(value, { stream: true });
+			let idx;
+			while ((idx = buffer.indexOf('\n')) !== -1) {
+				onLine(buffer.slice(0, idx));
+				buffer = buffer.slice(idx + 1);
+			}
+		}
+	};
+	void pump().catch(() => {
+		/* stream closed */
+	});
 };
 
 export const startDevServer = async (options?: DevServerOptions | number) => {
@@ -43,17 +78,36 @@ export const startDevServer = async (options?: DevServerOptions | number) => {
 		stdout: 'pipe'
 	});
 
+	const outputLines: string[] = [];
+	const lineWaiters: Array<{
+		pattern: RegExp;
+		resolve: (line: string) => void;
+	}> = [];
+	const recordLine = (line: string) => {
+		outputLines.push(line);
+		for (let i = lineWaiters.length - 1; i >= 0; i--) {
+			const entry = lineWaiters[i];
+			if (entry && entry.pattern.test(line)) {
+				lineWaiters.splice(i, 1);
+				entry.resolve(line);
+			}
+		}
+	};
+	drainStream(proc.stdout as ReadableStream<Uint8Array> | null, recordLine);
+	drainStream(proc.stderr as ReadableStream<Uint8Array> | null, recordLine);
+
 	const baseUrl = `http://localhost:${resolvedPort}`;
 
 	try {
 		await waitForServer(`${baseUrl}/hmr-status`);
 	} catch (err) {
 		proc.kill();
-		const stderr = proc.stderr
-			? (await new Response(proc.stderr).text()).trim()
-			: '';
 		throw new Error(
-			`Dev server failed to start on port ${resolvedPort}: ${err}${stderr ? `\n\nstderr:\n${stderr}` : ''}`,
+			`Dev server failed to start on port ${resolvedPort}: ${err}${
+				outputLines.length
+					? `\n\nlast output:\n${outputLines.slice(-20).join('\n')}`
+					: ''
+			}`,
 			{ cause: err }
 		);
 	}
@@ -67,5 +121,37 @@ export const startDevServer = async (options?: DevServerOptions | number) => {
 		await proc.exited;
 	};
 
-	return { baseUrl, kill, port: resolvedPort, proc } satisfies DevServer;
+	const waitForOutput = (
+		pattern: RegExp,
+		{ timeoutMs = DEFAULT_OUTPUT_TIMEOUT_MS } = {}
+	) => {
+		const existing = outputLines.find((line) => pattern.test(line));
+		if (existing) return Promise.resolve(existing);
+		return new Promise<string>((res, rej) => {
+			const timer = setTimeout(() => {
+				const idx = lineWaiters.findIndex((w) => w.resolve === res);
+				if (idx !== -1) lineWaiters.splice(idx, 1);
+				rej(
+					new Error(
+						`Timed out waiting for stdout/stderr line matching ${pattern} after ${timeoutMs}ms. Last 20 lines:\n${outputLines.slice(-20).join('\n')}`
+					)
+				);
+			}, timeoutMs);
+			lineWaiters.push({
+				pattern,
+				resolve: (line) => {
+					clearTimeout(timer);
+					res(line);
+				}
+			});
+		});
+	};
+
+	return {
+		baseUrl,
+		kill,
+		port: resolvedPort,
+		proc,
+		waitForOutput
+	} satisfies DevServer;
 };

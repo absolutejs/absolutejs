@@ -53,14 +53,14 @@ bun test tests/integration/hmr
 | **Elysia `app.store` (incl. scopedState) preserved across Path B reload** | [`lifecycle/app-store-preservation.test.ts`](tests/integration/hmr/lifecycle/app-store-preservation.test.ts) |
 | **Tier-0 surgical Angular/Svelte/Vue edit makes SSR catch up after debounce** | [`lifecycle/tier-zero-ssr.test.ts`](tests/integration/hmr/lifecycle/tier-zero-ssr.test.ts) |
 | **Dep-graph reverse-link re-established after file delete + recreate** | [`lifecycle/dep-graph-recreate.test.ts`](tests/integration/hmr/lifecycle/dep-graph-recreate.test.ts) |
-| Atomic-rename writes to root config files (`.env`, `tsconfig.json`, `package.json`) trigger child restart | _gap_ — verified manually; needs `tests/integration/hmr/lifecycle/atomic-rename-root.test.ts` |
+| Non-applicable `absolute.config.ts` change emits `[abs:restart]` marker for parent CLI to respawn | [`lifecycle/restart-fallback.test.ts`](tests/integration/hmr/lifecycle/restart-fallback.test.ts) |
 | `dev.watchDirs` extra paths fire HMR | _gap_ — verified manually; needs `tests/integration/hmr/lifecycle/watch-dirs.test.ts` |
 | `collectStreamingSlots: true` silences the DeferSlot warning | _gap_ — verified manually; needs `tests/integration/hmr/lifecycle/streaming-slots.test.ts` |
 | Tailwind auto-injects `@source` directives for every configured framework dir | _gap_ — needs Tailwind fixture; verified manually |
 | Tailwind incremental regen picks up new utility classes from HTML/HTMX page edits | _gap_ — needs Tailwind fixture; verified manually (fix shipped) |
 | HTML/HTMX `<link rel="stylesheet" href="/assets/...">` (absolute path) passes through the rewriter unchanged | [`lifecycle/asset-href-passthrough.test.ts`](tests/integration/hmr/lifecycle/asset-href-passthrough.test.ts) |
 | Multi-tab WebSocket broadcast — independent manifests per client | covered as part of [`lifecycle/cold-start.test.ts`](tests/integration/hmr/lifecycle/cold-start.test.ts) ("second client receives independent manifest") |
-| Path A → restart fallback: in-place framework-add emits `[abs:restart]` | _gap_ — verified manually; needs `tests/integration/hmr/lifecycle/framework-add-restart.test.ts` |
+| Path A → restart fallback: in-place framework-dir change emits `[abs:restart]` | [`lifecycle/restart-fallback.test.ts`](tests/integration/hmr/lifecycle/restart-fallback.test.ts) ("framework-dir rename emits [abs:restart] with \"removed framework(s)\" log") |
 | New page entry mid-session falls through to `[abs:restart]` | _gap_ — verified manually; needs `tests/integration/hmr/lifecycle/new-page-restart.test.ts` |
 
 ---
@@ -88,7 +88,7 @@ bun test tests/integration/hmr
 | Fast path provides `pageModuleUrl` for unbundled ESM | [`frameworks/svelte-hmr.test.ts`](tests/integration/hmr/frameworks/svelte-hmr.test.ts) |
 | Child component change triggers update | [`frameworks/svelte-hmr.test.ts`](tests/integration/hmr/frameworks/svelte-hmr.test.ts) + [`components/component-hmr.test.ts`](tests/integration/hmr/components/component-hmr.test.ts) |
 | Tier-0 surgical update → SSR catches up after debounce | [`lifecycle/tier-zero-ssr.test.ts`](tests/integration/hmr/lifecycle/tier-zero-ssr.test.ts) |
-| New component file + import in page → renders after rebuild | _gap_ — verified manually |
+| New component file + import in page → renders after rebuild | [`lifecycle/new-component-import.test.ts`](tests/integration/hmr/lifecycle/new-component-import.test.ts) |
 | Page rename + import update → page recovers | _gap_ — verified manually |
 | Scoped style block edits propagate | [`lifecycle/scoped-style-edits.test.ts`](tests/integration/hmr/lifecycle/scoped-style-edits.test.ts) ("svelte scoped style edit lands in SSR HTML") |
 | Composable (`.svelte.ts` / `.ts` inside `svelteDir/`) edit propagates to SSR | [`lifecycle/svelte-composable-ssr.test.ts`](tests/integration/hmr/lifecycle/svelte-composable-ssr.test.ts) |
@@ -128,7 +128,7 @@ bun test tests/integration/hmr
 |---|---|
 | Page change broadcasts `htmx-update` | [`frameworks/htmx-hmr.test.ts`](tests/integration/hmr/frameworks/htmx-hmr.test.ts) ("htmx page change triggers htmx-update") |
 | Update message contains framework metadata | [`frameworks/htmx-hmr.test.ts`](tests/integration/hmr/frameworks/htmx-hmr.test.ts) |
-| Fragment endpoint edit propagates via Path B reload | _gap_ — verified manually (route-handler swap) |
+| Fragment endpoint edit propagates via Path B reload | [`lifecycle/htmx-fragment-path-b.test.ts`](tests/integration/hmr/lifecycle/htmx-fragment-path-b.test.ts) |
 | `/htmx/htmx.min.js` is served from `htmxDirectory` | [`lifecycle/htmx-vendor-serving.test.ts`](tests/integration/hmr/lifecycle/htmx-vendor-serving.test.ts) |
 | Tailwind class added to HTMX markup lands in `tailwind.generated.css` | _gap_ — needs Tailwind fixture; verified manually (fix shipped) |
 
