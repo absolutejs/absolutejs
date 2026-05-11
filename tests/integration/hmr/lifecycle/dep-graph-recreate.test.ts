@@ -37,46 +37,41 @@ describe('Dep graph reverse-link after delete+recreate', () => {
 		client.drain();
 	}, 60_000);
 
-	test('recreated file re-establishes dep-graph reverse-link', async () => {
-		// Use an Angular service file that's already imported by a
-		// component — when we delete + recreate it with new content,
-		// the importer's bundle should pick up the new content via
-		// the rebuilt reverse-link.
+	test('recreated dependency re-establishes dep-graph reverse-link', async () => {
+		// Use the counter component template (referenced by
+		// counter.component.ts via templateUrl). Delete + recreate
+		// with a sentinel injected; the .ts file shouldn't need
+		// touching for the angular page's SSR to pick up the
+		// recreated template's content.
 		const target = resolve(
 			PROJECT_ROOT,
-			'example/angular/services/cycle-a.ts'
+			'example/angular/templates/counter.component.html'
 		);
 		const original = readFileSync(target, 'utf-8');
+		const marker = 'DEP_GRAPH_RECREATED_MARKER';
+		expect(original).not.toContain(marker);
 
 		try {
-			// Delete the file. Importing page errors transiently.
 			unlinkSync(target);
-			// fs.watch fires; addFileToGraph for the removed file is
-			// a no-op (file gone). Dependents now have a broken edge
-			// to a non-existent target.
+			// Dep-graph removal fires. Pre-fix, this severed the
+			// reverse-link from dependents. Post-fix
+			// (`dependencyGraph.ts` change), the link survives so
+			// the recreate below can reconnect.
 			await Bun.sleep(800);
 
-			// Recreate with mutated content. The fix in
-			// `dependencyGraph.ts`'s addFileToGraph walks every
-			// known file's deps and reconnects any that named this
-			// path — restoring the reverse-link.
-			const next = original.replace(
-				/'cycle-a-[A-Z0-9]+'/,
-				"'cycle-a-RECREATED'"
-			);
+			const next = original.replace(/count is/, `count is ${marker}`);
+			expect(next).toContain(marker);
 			writeFileSync(target, next, 'utf-8');
 
-			// Wait for the rebuild debounce + bundle rebuild.
-			await Bun.sleep(5_000);
+			// Wait for the rebuild debounce + Angular bundle rebuild.
+			await Bun.sleep(6_000);
 
-			// Verify SSR sees the new value.
 			const res = await fetch(`${server.baseUrl}/angular`);
 			const html = await res.text();
-			expect(html).toContain('cycle-a-RECREATED');
+			expect(html).toContain(marker);
 		} finally {
-			// Ensure the file is restored even on assertion failure.
-			if (!existsSync(target)) writeFileSync(target, original, 'utf-8');
-			else writeFileSync(target, original, 'utf-8');
+			writeFileSync(target, original, 'utf-8');
+			expect(existsSync(target)).toBe(true);
 		}
 	}, 60_000);
 });
