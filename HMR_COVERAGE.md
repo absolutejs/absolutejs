@@ -54,14 +54,14 @@ bun test tests/integration/hmr
 | **Tier-0 surgical Angular/Svelte/Vue edit makes SSR catch up after debounce** | [`lifecycle/tier-zero-ssr.test.ts`](tests/integration/hmr/lifecycle/tier-zero-ssr.test.ts) |
 | **Dep-graph reverse-link re-established after file delete + recreate** | [`lifecycle/dep-graph-recreate.test.ts`](tests/integration/hmr/lifecycle/dep-graph-recreate.test.ts) |
 | Non-applicable `absolute.config.ts` change emits `[abs:restart]` marker for parent CLI to respawn | [`lifecycle/restart-fallback.test.ts`](tests/integration/hmr/lifecycle/restart-fallback.test.ts) |
-| `dev.watchDirs` extra paths fire HMR | _gap_ — verified manually; needs `tests/integration/hmr/lifecycle/watch-dirs.test.ts` |
+| `dev.watchDirs` extra paths fire HMR | [`lifecycle/dev-watch-dirs.test.ts`](tests/integration/hmr/lifecycle/dev-watch-dirs.test.ts) |
 | `collectStreamingSlots: true` silences the DeferSlot warning | _gap_ — verified manually; needs `tests/integration/hmr/lifecycle/streaming-slots.test.ts` |
 | Tailwind auto-injects `@source` directives for every configured framework dir | [`lifecycle/tailwind-class-discovery.test.ts`](tests/integration/hmr/lifecycle/tailwind-class-discovery.test.ts) (the per-framework subtests pass only if `@source` for each dir is auto-injected) |
 | Tailwind incremental regen picks up new utility classes from HTML/HTMX page edits | [`lifecycle/tailwind-class-discovery.test.ts`](tests/integration/hmr/lifecycle/tailwind-class-discovery.test.ts) (HTML / HTMX subtests) |
 | HTML/HTMX `<link rel="stylesheet" href="/assets/...">` (absolute path) passes through the rewriter unchanged | [`lifecycle/asset-href-passthrough.test.ts`](tests/integration/hmr/lifecycle/asset-href-passthrough.test.ts) |
 | Multi-tab WebSocket broadcast — independent manifests per client | covered as part of [`lifecycle/cold-start.test.ts`](tests/integration/hmr/lifecycle/cold-start.test.ts) ("second client receives independent manifest") |
 | Path A → restart fallback: in-place framework-dir change emits `[abs:restart]` | [`lifecycle/restart-fallback.test.ts`](tests/integration/hmr/lifecycle/restart-fallback.test.ts) ("framework-dir rename emits [abs:restart] with \"removed framework(s)\" log") |
-| New page entry mid-session falls through to `[abs:restart]` | _gap_ — verified manually; needs `tests/integration/hmr/lifecycle/new-page-restart.test.ts` |
+| New page entry mid-session falls through to `[abs:restart]` | [`lifecycle/new-page-restart.test.ts`](tests/integration/hmr/lifecycle/new-page-restart.test.ts) |
 
 ---
 
