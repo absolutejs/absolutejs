@@ -1908,11 +1908,23 @@ export const compileAngular = async (
 				...candidatePaths.map((file) => resolve(file)),
 				...compiledFallbackPaths
 			];
+			// Match by the page's full source-relative path (e.g.
+			// `src/frontend/pages/admin/admin.js`). Required for the
+			// folder-per-page layout, where basename-only matching can
+			// collide with same-named files elsewhere in the project
+			// (e.g. `src/types/admin/admin.ts`).
 			let candidate = normalizedCandidates.find(
 				(file) =>
 					existsSync(file) &&
-					file.endsWith(`${sep}pages${sep}${jsName}`)
+					file.endsWith(`${sep}${relativeEntry}`)
 			);
+			if (!candidate) {
+				candidate = normalizedCandidates.find(
+					(file) =>
+						existsSync(file) &&
+						file.endsWith(`${sep}pages${sep}${jsName}`)
+				);
+			}
 			if (!candidate) {
 				candidate = normalizedCandidates.find(
 					(file) =>
