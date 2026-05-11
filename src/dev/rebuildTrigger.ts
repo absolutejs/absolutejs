@@ -991,6 +991,60 @@ const computeClientRoot = async (resolvedPaths: ResolvedBuildPaths) => {
 		: commonAncestor(clientRoots, projectRoot);
 };
 
+/* Mirror core/build.ts (serverDirMap logic). The initial build uses
+ * commonAncestor of all framework generated dirs as `serverRoot` and
+ * the bare `buildDir` as `serverOutDir` when more than one framework
+ * is configured — yielding e.g. `build/vue/server/pages/Foo.HASH.js`.
+ * Single-FW mode collapses to `<generated>/vue/server` as the root
+ * and `build/vue` as the outdir, yielding `build/vue/pages/Foo.HASH.js`.
+ *
+ * Without this, the per-framework rebuild scheduler in multi-FW mode
+ * writes to the wrong place and the manifest never picks up the new
+ * bundle. (Subtler: the manifest *does* update because `serverResult`
+ * outputs are stored by path, but the new path is inside a directory
+ * tree the initial build never used, so it cohabits with stale entries
+ * rather than overwriting them.) */
+const computeServerOutPaths = async (
+	resolvedPaths: ResolvedBuildPaths,
+	framework: 'svelte' | 'vue'
+) => {
+	const { getFrameworkGeneratedDir } = await import('../utils/generatedDir');
+	const { commonAncestor } = await import('../utils/commonAncestor');
+	const projectRoot = process.cwd();
+	const serverDirs: { dir: string; subdir: string }[] = [];
+	if (resolvedPaths.svelteDir)
+		serverDirs.push({
+			dir: getFrameworkGeneratedDir('svelte', projectRoot),
+			subdir: 'server'
+		});
+	if (resolvedPaths.vueDir)
+		serverDirs.push({
+			dir: getFrameworkGeneratedDir('vue', projectRoot),
+			subdir: 'server'
+		});
+	if (resolvedPaths.angularDir)
+		serverDirs.push({
+			dir: getFrameworkGeneratedDir('angular', projectRoot),
+			subdir: ''
+		});
+
+	if (serverDirs.length <= 1) {
+		const dir = getFrameworkGeneratedDir(framework, projectRoot);
+		return {
+			serverOutDir: resolve(resolvedPaths.buildDir, basename(dir)),
+			serverRoot: resolve(dir, 'server')
+		};
+	}
+
+	return {
+		serverOutDir: resolvedPaths.buildDir,
+		serverRoot: commonAncestor(
+			serverDirs.map((entry) => entry.dir),
+			projectRoot
+		)
+	};
+};
+
 const updateServerManifestEntry = (
 	state: HMRState,
 	artifact: { path: string; hash: string | null }
@@ -1001,6 +1055,55 @@ const updateServerManifestEntry = (
 		return;
 	}
 	state.manifest[toPascal(baseName)] = artifact.path;
+};
+
+/* After writing `Page.NEWHASH.js`, remove `Page.OLDHASH.js` siblings
+ * in the same directory. Two reasons:
+ * 1. SSR resolvers (e.g. `resolveCurrentGeneratedVueModulePath`) do a
+ *    directory scan and pick the first matching prefix — stale
+ *    siblings can shadow the freshly built bundle.
+ * 2. Build dirs grow unboundedly during long dev sessions otherwise.
+ * Operates only on `.js` files with the exact `Name.hash.js` shape
+ * so it can't touch unrelated files. */
+const pruneStaleHashedSiblings = async (
+	freshOutputs: { path: string; hash: string | null }[] | undefined
+) => {
+	if (!freshOutputs?.length) return;
+	const { readdir, unlink } = await import('node:fs/promises');
+	const keepByDir = new Map<string, Set<string>>();
+	const prefixByDir = new Map<string, Set<string>>();
+	for (const artifact of freshOutputs) {
+		const dir = dirname(artifact.path);
+		const name = basename(artifact.path);
+		const [prefix] = name.split('.');
+		if (!prefix) continue;
+		if (!keepByDir.has(dir)) keepByDir.set(dir, new Set());
+		if (!prefixByDir.has(dir)) prefixByDir.set(dir, new Set());
+		keepByDir.get(dir)!.add(name);
+		prefixByDir.get(dir)!.add(prefix);
+	}
+	await Promise.all(
+		Array.from(keepByDir.entries()).map(async ([dir, keep]) => {
+			const prefixes = prefixByDir.get(dir);
+			if (!prefixes) return;
+			const entries = await readdir(dir).catch(() => [] as string[]);
+			await Promise.all(
+				entries.map(async (entryName) => {
+					if (keep.has(entryName)) return;
+					if (!entryName.endsWith('.js')) return;
+					const parts = entryName.split('.');
+					if (parts.length !== 3) return;
+					const [base] = parts;
+					if (!base || !prefixes.has(base)) return;
+					try {
+						await unlink(`${dir}/${entryName}`);
+					} catch {
+						/* concurrent rebuild already unlinked — ignore */
+					}
+				})
+			);
+		})
+	);
 };
 
 const bundleAngularClient = async (
@@ -1833,6 +1936,11 @@ const compileAndBundleAngular = async (
 			angularDir
 		);
 	}
+
+	broadcastToClients(state, {
+		data: { manifest: state.manifest },
+		type: 'angular-tier-zero-ssr-rebuild-complete'
+	});
 };
 
 const handleAngularFastPath = async (
@@ -2246,11 +2354,10 @@ const runSvelteBundleRebuild = async (
 	const serverEntries = [...svelteServerPaths];
 	const clientEntries = [...svelteIndexPaths, ...svelteClientPaths];
 
-	const { getFrameworkGeneratedDir } = await import(
-		'../utils/generatedDir'
+	const { serverRoot, serverOutDir } = await computeServerOutPaths(
+		state.resolvedPaths,
+		'svelte'
 	);
-	const serverRoot = resolve(getFrameworkGeneratedDir('svelte'), 'server');
-	const serverOutDir = resolve(buildDir, basename(svelteDir));
 
 	const [serverResult, clientResult] = await Promise.all([
 		serverEntries.length > 0
@@ -2297,6 +2404,11 @@ const runSvelteBundleRebuild = async (
 
 	handleServerManifestUpdate(state, serverResult);
 	await handleClientManifestUpdate(state, clientResult, buildDir);
+	await pruneStaleHashedSiblings(serverResult?.outputs);
+	broadcastToClients(state, {
+		data: { manifest: state.manifest },
+		type: 'svelte-tier-zero-ssr-rebuild-complete'
+	});
 };
 
 const scheduleSvelteBundleRebuild = (
@@ -2398,14 +2510,10 @@ const handleSvelteFastPath = async (
 		const serverEntries = [...svelteServerPaths];
 		const clientEntries = [...svelteIndexPaths, ...svelteClientPaths];
 
-		const { getFrameworkGeneratedDir } = await import(
-			'../utils/generatedDir'
+		const { serverRoot, serverOutDir } = await computeServerOutPaths(
+			state.resolvedPaths,
+			'svelte'
 		);
-		const serverRoot = resolve(
-			getFrameworkGeneratedDir('svelte'),
-			'server'
-		);
-		const serverOutDir = resolve(buildDir, basename(svelteDir));
 
 		const [serverResult, clientResult] = await Promise.all([
 			serverEntries.length > 0
@@ -2621,9 +2729,10 @@ const runVueBundleRebuild = async (
 	const serverEntries = [...vueServerPaths];
 	const clientEntries = [...vueIndexPaths, ...vueClientPaths];
 
-	const { getFrameworkGeneratedDir } = await import('../utils/generatedDir');
-	const serverRoot = resolve(getFrameworkGeneratedDir('vue'), 'server');
-	const serverOutDir = resolve(buildDir, basename(vueDir));
+	const { serverRoot, serverOutDir } = await computeServerOutPaths(
+		state.resolvedPaths,
+		'vue'
+	);
 
 	const [serverResult, clientResult] = await Promise.all([
 		serverEntries.length > 0
@@ -2663,6 +2772,11 @@ const runVueBundleRebuild = async (
 
 	handleServerManifestUpdate(state, serverResult);
 	await handleClientManifestUpdate(state, clientResult, buildDir);
+	await pruneStaleHashedSiblings(serverResult?.outputs);
+	broadcastToClients(state, {
+		data: { manifest: state.manifest },
+		type: 'vue-tier-zero-ssr-rebuild-complete'
+	});
 };
 
 const scheduleVueBundleRebuild = (

@@ -92,7 +92,7 @@ bun test tests/integration/hmr
 | New component file + import in page → renders after rebuild | _gap_ — verified manually |
 | Page rename + import update → page recovers | _gap_ — verified manually |
 | Scoped style block edits propagate | _gap_ — verified manually |
-| **Composable (`.ts` inside `svelteDir/`) edit — first edit propagates, subsequent edits stall** | **OPEN BUG — tracked under task #227.** Repro: edit a `.ts` file imported by `.svelte`, observe first edit reaches SSR, second+ edits don't. See _Open issues_ below. Needs `tests/integration/hmr/frameworks/svelte-composable.test.ts` (currently passing-on-first-edit, expected-fail-on-second). |
+| Composable (`.ts` inside `svelteDir/`) edit propagates to SSR | _gap_ — fix landed (#228), Svelte test mirroring [`lifecycle/vue-composable-ssr.test.ts`](tests/integration/hmr/lifecycle/vue-composable-ssr.test.ts) still to be written |
 | Production `bun run build` + `bun run start` parity | _gap_ — verified manually |
 
 ---
@@ -108,7 +108,7 @@ bun test tests/integration/hmr
 | Child component change triggers update | [`frameworks/vue-hmr.test.ts`](tests/integration/hmr/frameworks/vue-hmr.test.ts) + [`components/component-hmr.test.ts`](tests/integration/hmr/components/component-hmr.test.ts) |
 | Tier-0 surgical update → SSR catches up after debounce | [`lifecycle/tier-zero-ssr.test.ts`](tests/integration/hmr/lifecycle/tier-zero-ssr.test.ts) |
 | Scoped `<style scoped>` block edits propagate | _gap_ — verified manually |
-| **Composable (`.ts` inside `vueDir/`) edit — first edit propagates, subsequent edits stall** | **OPEN BUG — tracked under task #227.** Same root cause as the Svelte composable issue. Needs `tests/integration/hmr/frameworks/vue-composable.test.ts`. |
+| Composable (`.ts` inside `vueDir/`) edit propagates to SSR | [`lifecycle/vue-composable-ssr.test.ts`](tests/integration/hmr/lifecycle/vue-composable-ssr.test.ts) |
 | Production `bun run build` + `bun run start` parity | _gap_ — verified manually |
 
 ---
@@ -141,33 +141,30 @@ bun test tests/integration/hmr
 
 ## Open issues
 
-- **Task #227 — Svelte/Vue composable multi-edit stall.** Editing
-  a `.ts` file imported by a `.svelte` or `.vue` page propagates
-  the first edit only; subsequent edits stall.
+- **Tasks #227 / #228 — RESOLVED.** Composable (`.ts` under
+  `vueDir/` or `svelteDir/`) edits now propagate through SSR
+  on every subsequent edit, not just the first. Three coupled
+  fixes shipped:
 
-  Real root cause (deeper than first thought): the dev pipeline
-  never writes transitive `.ts` files to disk for Vue/Svelte.
-  Angular's `compileAngularFileJIT` walks every transitive
-  import via `transpileFile` and writes
-  `.absolutejs/generated/angular/...` for each `.ts`/`.json`.
-  Vue's `compileVue` translates `.vue` → `.ts` but does NOT
-  re-emit transitive `.ts` deps; `moduleServer.transformVueFile`
-  serves browser fetches on demand but doesn't write back to
-  disk. Same for Svelte.
+  1. `compileVue` / `compileSvelte` persistent caches now
+     disk-check the cached output paths before short-circuiting
+     a recompile. An external cleanup (incremental build, manual
+     wipe of `.absolutejs/generated`) used to leave the cache
+     pointing at vanished intermediates; the next bundle pass
+     would die on `Could not resolve "../components/Foo.js"`.
+  2. Per-framework tier-0 bundle rebuilds (`runVueBundleRebuild`,
+     `runSvelteBundleRebuild`) now mirror the multi-framework
+     `commonAncestor` `serverRoot` / `serverOutDir` math from
+     `core/build.ts`, so rebuild outputs land at the same path
+     the manifest already points to (`build/<fw>/server/pages/...`
+     under multi-fw mode).
+  3. The Angular SSR loader applies an mtime cacheBuster to
+     `.js` page modules in development so a post-rebuild
+     `await import()` actually re-reads the file instead of
+     returning Bun's cached module.
 
-  So when a composable edit fires, the bundle rebuild runs
-  `Bun.build` against the JIT-emitted page; Bun.build resolves
-  the composable to `.absolutejs/generated/<fw>/server/composables/<x>.js`
-  which still has the STALE bytes from the initial build. The
-  bundle inlines stale content; SSR shows stale.
-
-  Full fix path documented in task #228. Requires mirroring
-  Angular's JIT-to-disk pipeline for Vue + Svelte transitive
-  `.ts` deps, plus aligning the scheduler's serverOutDir with
-  the initial multi-framework build's `commonAncestor`
-  serverRoot math (currently the scheduler writes to
-  `build/<fw>/pages/` but manifest expects
-  `build/<fw>/server/pages/` under multi-fw mode).
+  Verified by [`lifecycle/tier-zero-ssr.test.ts`](tests/integration/hmr/lifecycle/tier-zero-ssr.test.ts)
+  and [`lifecycle/vue-composable-ssr.test.ts`](tests/integration/hmr/lifecycle/vue-composable-ssr.test.ts).
 - **Task #223 — Page basename collision across framework dirs.**
   `Page.html` in both `html/pages/` and `htmx/pages/` collide in
   the manifest under the same `Page` key. Whichever framework's

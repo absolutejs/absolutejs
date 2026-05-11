@@ -208,12 +208,21 @@ export const compileSvelte = async (
 		const raw = await file(src).text();
 		const islandMetadataExports = buildIslandMetadataExports(raw);
 
-		// Check if source is unchanged since last compilation
+		// Check if source is unchanged since last compilation. Disk-check
+		// the cached outputs too: an external process can wipe
+		// `.absolutejs/generated` while our in-memory cache still claims
+		// to have written there, and a later bundle pass would then
+		// fail to resolve the missing component.
 		const contentHash = Bun.hash(raw).toString(BASE_36_RADIX);
 		const prevHash = sourceHashCache.get(src);
 		const persistent = persistentCache.get(src);
 
-		if (prevHash === contentHash && persistent) {
+		if (
+			prevHash === contentHash &&
+			persistent &&
+			existsSync(persistent.ssr) &&
+			existsSync(persistent.client)
+		) {
 			cache.set(src, persistent);
 
 			return persistent;

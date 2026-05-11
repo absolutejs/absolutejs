@@ -165,6 +165,27 @@ const ensureAngularSsrNodeModules = async (outDir: string) => {
 
 const resolveRuntimeAngularModulePath = async (pagePath: string) => {
 	if (!pagePath.endsWith('.ts')) {
+		// In dev, the manifest points at `.ssr.js` / `.js` bundles whose
+		// path stays stable across rebuilds (no content-hash in the
+		// filename). After a tier-0 bundle rebuild, the file content
+		// changes but the URL doesn't — so `await import(url)` returns
+		// Bun's cached module and SSR serves pre-edit bytes. Use the
+		// file's mtime as a cacheBuster so a fresh write cracks the
+		// import cache while unchanged files keep their cached module.
+		// In production, NODE_ENV !== 'development' skips the stat and
+		// avoids the per-request filesystem hit.
+		if (process.env.NODE_ENV === 'development') {
+			try {
+				const { stat } = await import('node:fs/promises');
+				const stats = await stat(pagePath);
+				return {
+					path: pagePath,
+					cacheBuster: stats.mtimeMs.toString(BASE_36_RADIX)
+				};
+			} catch {
+				return { path: pagePath, cacheBuster: undefined };
+			}
+		}
 		return {
 			path: pagePath,
 			cacheBuster: undefined

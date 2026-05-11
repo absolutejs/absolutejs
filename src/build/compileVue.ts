@@ -90,6 +90,7 @@ export const clearVueHmrCaches = () => {
 	persistentBuildCache.clear();
 	vueSourceHashCache.clear();
 };
+
 export const detectVueChangeType = (
 	filePath: string,
 	descriptor: SFCDescriptor
@@ -257,12 +258,22 @@ const compileVueFile = async (
 		: rawSourceContent;
 	const islandMetadataExports = buildIslandMetadataExports(sourceContent);
 
-	// Check persistent cache — skip recompilation if source unchanged
+	// Check persistent cache — skip recompilation if source unchanged AND
+	// the compiled outputs still exist on disk. The disk check matters
+	// because an outer process (incremental build, test cleanup, manual
+	// clean of `.absolutejs/generated`) can remove intermediates while
+	// the in-memory cache still believes they're present; bundling the
+	// entry would then fail with `Could not resolve "../components/..."`.
 	const contentHash = Bun.hash(sourceContent).toString(BASE_36_RADIX);
 	const prevHash = vueSourceHashCache.get(sourceFilePath);
 	const persistent = persistentBuildCache.get(sourceFilePath);
 
-	if (prevHash === contentHash && persistent) {
+	if (
+		prevHash === contentHash &&
+		persistent &&
+		existsSync(persistent.clientPath) &&
+		existsSync(persistent.serverPath)
+	) {
 		cacheMap.set(sourceFilePath, persistent);
 
 		return persistent;
