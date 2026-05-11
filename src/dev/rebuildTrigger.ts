@@ -2017,15 +2017,24 @@ const handleAngularFastPath = async (
 		void runBundle();
 	} else if (verdict.tier === 1 && verdict.kind === 'remount') {
 		// Tier 1a per-component remount — same pattern as Tier 0,
-		// no bundle work. The browser's `__ng_hmr_remount` fetches
-		// `/@ng/component` and runs `createComponent` against the
-		// already-running app's class identities.
+		// no bundle work required for the live session. The
+		// browser's `__ng_hmr_remount` fetches `/@ng/component`
+		// and runs `createComponent` against the already-running
+		// app's class identities.
 		await runAngularHmrIncremental(state, angularDir, pageEntries);
 		broadcastRemount(state, verdict.queue);
 		const b = verdict.breakdown;
 		logInfo(
 			`[ng-hmr] tier-1a remount ${queueDescription(verdict.queue)} (server ${tierMs}ms: imports ${b.importsMs}/resolve ${b.resolveMs}/compile ${b.compileMs}; awaiting client apply)`
 		);
+		// The on-disk SSR bundle would otherwise stay frozen at
+		// startup-time bytes after a tier-1a edit (e.g. a fresh
+		// `topLevelImport` or `@Input`/`@Output` change) — same
+		// problem the tier-0 path schedules `runBundle()` for. The
+		// live session is already updated via the remount above;
+		// this background rebuild only matters for fresh-tab /
+		// curl SSR fetches.
+		void runBundle();
 	} else if (verdict.tier === 1 && verdict.kind === 'rebootstrap') {
 		// Tier 1b full app rebootstrap — fastHmr couldn't even
 		// compile (no decorated class, ngtsc unavailable). Bundle

@@ -67,15 +67,81 @@ bun test tests/integration/hmr
 
 ## Angular
 
+### Baseline HMR
+
 | Scenario | Test |
 |---|---|
 | Page change broadcasts `angular-update` | [`frameworks/angular-hmr.test.ts`](tests/integration/hmr/frameworks/angular-hmr.test.ts) ("angular page change triggers angular-update") |
 | Update message contains framework metadata | [`frameworks/angular-hmr.test.ts`](tests/integration/hmr/frameworks/angular-hmr.test.ts) ("update message contains framework data") |
-| Child component change triggers update | [`frameworks/angular-hmr.test.ts`](tests/integration/hmr/frameworks/angular-hmr.test.ts) ("child component change triggers update") + [`components/component-hmr.test.ts`](tests/integration/hmr/components/component-hmr.test.ts) ("angular child component change triggers angular-update") |
+| Child component change triggers update | [`frameworks/angular-hmr.test.ts`](tests/integration/hmr/frameworks/angular-hmr.test.ts) + [`components/component-hmr.test.ts`](tests/integration/hmr/components/component-hmr.test.ts) |
 | Tier-0 surgical update → SSR catches up after debounce | [`lifecycle/tier-zero-ssr.test.ts`](tests/integration/hmr/lifecycle/tier-zero-ssr.test.ts) ("angular: SSR returns post-edit content after debounce") |
-| Service (`.ts` in `angular/`) edits propagate to consuming component on every edit | [`lifecycle/dep-graph-recreate.test.ts`](tests/integration/hmr/lifecycle/dep-graph-recreate.test.ts) (uses `services/cycle-a.ts`) |
-| Tailwind utility classes added to Angular templates land in `tailwind.generated.css` | [`lifecycle/tailwind-class-discovery.test.ts`](tests/integration/hmr/lifecycle/tailwind-class-discovery.test.ts) — currently `test.todo` (the regen *does* fire on disk; the WebSocket `style-update` broadcast is racy when an unrelated framework's afterEach restore lands in the same watcher batch — tracked separately) |
-| Template (`.html`) edits propagate | covered indirectly via tier-0 SSR test (it edits `angular-example.html`) |
+| Service (`.ts` in `angular/`) edits propagate to consuming component on every edit | [`lifecycle/dep-graph-recreate.test.ts`](tests/integration/hmr/lifecycle/dep-graph-recreate.test.ts) |
+| Tailwind utility classes added to Angular templates land in `tailwind.generated.css` | [`lifecycle/tailwind-class-discovery.test.ts`](tests/integration/hmr/lifecycle/tailwind-class-discovery.test.ts) — `test.todo` (regen fires on disk; WS broadcast race tracked separately) |
+| Template (`.html`) edits propagate | covered by tier-0 SSR test (edits `angular-example.html`) |
+
+### Tier-decision matrix (`fastHmrCompiler.ts`'s fingerprint comparison)
+
+| Edit shape | Expected tier | Test |
+|---|---|---|
+| Method body change (no decorator-arg change) | tier-0 surgical | [`lifecycle/angular-tiering.test.ts`](tests/integration/hmr/lifecycle/angular-tiering.test.ts) "method body change" |
+| External `templateUrl` HTML edit | tier-0 surgical | [`lifecycle/angular-tiering.test.ts`](tests/integration/hmr/lifecycle/angular-tiering.test.ts) "external templateUrl HTML edit" |
+| Field initializer value change (name set unchanged) | tier-0 surgical | [`lifecycle/angular-tiering.test.ts`](tests/integration/hmr/lifecycle/angular-tiering.test.ts) "field initializer value change" |
+| Adding a new `@Input()` field | tier-1a remount | [`lifecycle/angular-tiering.test.ts`](tests/integration/hmr/lifecycle/angular-tiering.test.ts) "adding a new `@Input()` field" |
+| `ChangeDetectionStrategy.OnPush` swap | tier-1a remount | [`lifecycle/angular-tiering.test.ts`](tests/integration/hmr/lifecycle/angular-tiering.test.ts) "switching `ChangeDetectionStrategy`" |
+| `ViewEncapsulation.ShadowDom` swap | tier-1a remount | [`lifecycle/angular-tiering.test.ts`](tests/integration/hmr/lifecycle/angular-tiering.test.ts) "switching `encapsulation`" |
+| Adding `host: { ... }` bindings | tier-1a remount | [`lifecycle/angular-tiering.test.ts`](tests/integration/hmr/lifecycle/angular-tiering.test.ts) "adding `host: {...}` bindings" |
+| `imports: [...]` array mutation | tier-1b rebootstrap | [`lifecycle/angular-tiering.test.ts`](tests/integration/hmr/lifecycle/angular-tiering.test.ts) "mutating the `imports: [...]` array" |
+| Adding component-level `providers` | tier-1b rebootstrap | [`lifecycle/angular-tiering.test.ts`](tests/integration/hmr/lifecycle/angular-tiering.test.ts) "adding component-level `providers`" |
+| Adding `hostDirectives: []` | tier-1b rebootstrap | [`lifecycle/angular-tiering.test.ts`](tests/integration/hmr/lifecycle/angular-tiering.test.ts) "adding `hostDirectives: []`" |
+| `routes` page-level export added/changed | tier-1b rebootstrap | [`lifecycle/angular-tiering.test.ts`](tests/integration/hmr/lifecycle/angular-tiering.test.ts) "editing a `routes` page-level export" |
+
+### DI + injectables
+
+| Scenario | Test |
+|---|---|
+| `@Component({ providers: [...] })` override changes SSR-rendered count | [`lifecycle/angular-di-injectables.test.ts`](tests/integration/hmr/lifecycle/angular-di-injectables.test.ts) "providers override" |
+| Constructor body change reading `inject(TOKEN)` value | [`lifecycle/angular-di-injectables.test.ts`](tests/integration/hmr/lifecycle/angular-di-injectables.test.ts) "editing constructor body that reads from inject()" |
+| Declaring + injecting a new `InjectionToken` flows through to SSR | [`lifecycle/angular-di-injectables.test.ts`](tests/integration/hmr/lifecycle/angular-di-injectables.test.ts) "declaring + injecting a new InjectionToken" |
+
+### Modern template syntax (v17+)
+
+| Scenario | Test |
+|---|---|
+| `@if` branch edit re-renders the chosen body | [`lifecycle/angular-modern-template.test.ts`](tests/integration/hmr/lifecycle/angular-modern-template.test.ts) |
+| `@for` block edit renders every iteration | [`lifecycle/angular-modern-template.test.ts`](tests/integration/hmr/lifecycle/angular-modern-template.test.ts) |
+| `@switch`/`@case` block picks matching case | [`lifecycle/angular-modern-template.test.ts`](tests/integration/hmr/lifecycle/angular-modern-template.test.ts) |
+| `@defer` block ships the lowered placeholder body in SSR | [`lifecycle/angular-modern-template.test.ts`](tests/integration/hmr/lifecycle/angular-modern-template.test.ts) |
+| `signal()` initial value change reaches SSR | [`lifecycle/angular-modern-template.test.ts`](tests/integration/hmr/lifecycle/angular-modern-template.test.ts) |
+| `computed()` body change reaches SSR | [`lifecycle/angular-modern-template.test.ts`](tests/integration/hmr/lifecycle/angular-modern-template.test.ts) |
+
+### External resources
+
+| Scenario | Test |
+|---|---|
+| `styleUrl` (.css) edit reaches SSR inlined `<style ng-app-id>` block | [`lifecycle/angular-external-resources.test.ts`](tests/integration/hmr/lifecycle/angular-external-resources.test.ts) |
+| `@import` chain inside a `styleUrl` propagates leaf changes | [`lifecycle/angular-external-resources.test.ts`](tests/integration/hmr/lifecycle/angular-external-resources.test.ts) |
+| `styleUrl` deep edit (cascade-affecting selector) reaches SSR | [`lifecycle/angular-external-resources.test.ts`](tests/integration/hmr/lifecycle/angular-external-resources.test.ts) |
+| `encapsulation: None` style edit propagates without `_ngcontent` rewrites | [`lifecycle/angular-external-resources.test.ts`](tests/integration/hmr/lifecycle/angular-external-resources.test.ts) |
+| Inline `styles: [...]` array edit reaches SSR | [`lifecycle/angular-external-resources.test.ts`](tests/integration/hmr/lifecycle/angular-external-resources.test.ts) |
+
+### Multi-file edits
+
+| Scenario | Test |
+|---|---|
+| Editing leaf template propagates to /angular page SSR | [`lifecycle/angular-multifile.test.ts`](tests/integration/hmr/lifecycle/angular-multifile.test.ts) "editing counter template (child)" |
+| Editing parent while child untouched still re-renders subtree | [`lifecycle/angular-multifile.test.ts`](tests/integration/hmr/lifecycle/angular-multifile.test.ts) "editing parent (app.component)" |
+| First-edit fingerprint priming (no prior baseline) picks correct tier | [`lifecycle/angular-multifile.test.ts`](tests/integration/hmr/lifecycle/angular-multifile.test.ts) "first edit (no prior fingerprint)" |
+| Simultaneous edits to two different components both apply | [`lifecycle/angular-multifile.test.ts`](tests/integration/hmr/lifecycle/angular-multifile.test.ts) "simultaneous edits to two different components" |
+
+### Vendor / SSR specifics
+
+| Scenario | Test |
+|---|---|
+| Baseline SSR HTML carries Angular hydration markers (`<!--nghm-->`, `ng-version`, `ng-server-context`, `ngh`, `<script id="ng-state">`) | [`lifecycle/angular-vendor-ssr.test.ts`](tests/integration/hmr/lifecycle/angular-vendor-ssr.test.ts) "hydration markers" |
+| Manifest exposes `AngularExample` / `AngularExampleIndex` / `AngularExampleCSS` (`.ssr.js` or `.js`) | [`lifecycle/angular-vendor-ssr.test.ts`](tests/integration/hmr/lifecycle/angular-vendor-ssr.test.ts) "manifest exposes AngularExample" |
+| Template edit re-emits a fresh bundle; SSR reflects new bytes | [`lifecycle/angular-vendor-ssr.test.ts`](tests/integration/hmr/lifecycle/angular-vendor-ssr.test.ts) "editing a component template" |
+| `__ABSOLUTE_PAGE_USES_LEGACY_ANIMATIONS__` set when page imports `@angular/animations` | [`lifecycle/angular-vendor-ssr.test.ts`](tests/integration/hmr/lifecycle/angular-vendor-ssr.test.ts) "legacy animations flag" |
+| SSR HTML imports the page index bundle URL from the manifest | [`lifecycle/angular-vendor-ssr.test.ts`](tests/integration/hmr/lifecycle/angular-vendor-ssr.test.ts) "SSR HTML imports the page index" |
 
 ---
 

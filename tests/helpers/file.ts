@@ -1,9 +1,16 @@
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import {
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	rmdirSync,
+	unlinkSync,
+	writeFileSync
+} from 'node:fs';
+import { dirname, resolve } from 'node:path';
 
 type BackupEntry =
 	| { kind: 'mutated'; path: string; content: string }
-	| { kind: 'created'; path: string };
+	| { kind: 'created'; path: string; createdDirs?: string[] };
 
 const backups: BackupEntry[] = [];
 
@@ -26,8 +33,27 @@ export const createFile = (filePath: string, content: string) => {
 			`createFile: refusing to overwrite existing file ${resolved}. Use mutateFile if you mean to modify.`
 		);
 	}
+	// Walk up missing parent dirs so we can roll them back individually
+	// during restoreAllFiles — `mkdirSync({ recursive: true })` would
+	// silently leave behind whatever it created if any path segment was
+	// already present.
+	const createdDirs: string[] = [];
+	let dir = dirname(resolved);
+	const missing: string[] = [];
+	while (!existsSync(dir) && dir !== '/' && dir !== '.') {
+		missing.unshift(dir);
+		dir = dirname(dir);
+	}
+	for (const d of missing) {
+		mkdirSync(d);
+		createdDirs.push(d);
+	}
 	writeFileSync(resolved, content, 'utf-8');
-	backups.push({ kind: 'created', path: resolved });
+	backups.push({
+		createdDirs: createdDirs.length > 0 ? createdDirs : undefined,
+		kind: 'created',
+		path: resolved
+	});
 };
 /* Rename a file in two steps so the existing backup tape can roll
  * the change back: record a `mutated` backup for the source path
@@ -59,8 +85,22 @@ export const restoreAllFiles = () => {
 		if (!entry) continue;
 		if (entry.kind === 'mutated') {
 			writeFileSync(entry.path, entry.content, 'utf-8');
-		} else if (existsSync(entry.path)) {
-			unlinkSync(entry.path);
+		} else {
+			if (existsSync(entry.path)) {
+				unlinkSync(entry.path);
+			}
+			// Pop dirs we created from deepest to shallowest. If any
+			// of them already has unexpected siblings the rmdir
+			// throws ENOTEMPTY and we leave it alone.
+			if (entry.createdDirs) {
+				for (const d of [...entry.createdDirs].reverse()) {
+					try {
+						rmdirSync(d);
+					} catch {
+						/* not empty or already gone — leave it */
+					}
+				}
+			}
 		}
 	}
 };
@@ -72,8 +112,19 @@ export const restoreFile = (filePath: string) => {
 	if (!entry) return;
 	if (entry.kind === 'mutated') {
 		writeFileSync(entry.path, entry.content, 'utf-8');
-	} else if (existsSync(entry.path)) {
+		return;
+	}
+	if (existsSync(entry.path)) {
 		unlinkSync(entry.path);
+	}
+	if (entry.createdDirs) {
+		for (const d of [...entry.createdDirs].reverse()) {
+			try {
+				rmdirSync(d);
+			} catch {
+				/* not empty or already gone — leave it */
+			}
+		}
 	}
 };
 export const withFileMutation = async <T>(
