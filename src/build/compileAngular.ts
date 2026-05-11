@@ -2052,12 +2052,6 @@ export const compileAngular = async (
 			rewritten = `import '@angular/compiler';\n${rewritten}`;
 		}
 
-		// Replace templateUrl if it exists
-		rewritten = rewritten.replace(
-			new RegExp(`templateUrl:\\s*['"]\\.\\/${fileBase}\\.html['"]`),
-			`templateUrl: '../../pages/${fileBase}.html'`
-		);
-
 		// Only add default export if one doesn't already exist AND we
 		// actually detected a real class to point it at — convention
 		// pages that export a render function (e.g. not-found.ts's
