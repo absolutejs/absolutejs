@@ -346,6 +346,9 @@ bun test tests/integration/hmr
 | SSR error stack frames map back to the `.svelte` source (sourcemap chain composes through compileSvelte intermediates) | [`lifecycle/sourcemap-stack-traces.test.ts`](tests/integration/hmr/lifecycle/sourcemap-stack-traces.test.ts) "Svelte SFC" |
 | Angular SSR error stack frames land on the on-disk intermediate `.js` (real file the dev can open; full `.ts` mapping pending — see open issues) | [`lifecycle/sourcemap-stack-traces.test.ts`](tests/integration/hmr/lifecycle/sourcemap-stack-traces.test.ts) "Angular component" |
 | Behavioral snapshot: natural `delete cache + await import` pattern on `bun --hot` after atomic-rename — returns fresh bytes (tripwire — if this regresses, restore the sibling-copy workaround from git history) | [`lifecycle/bun-entry-natural-pattern-sentinel.test.ts`](tests/integration/hmr/lifecycle/bun-entry-natural-pattern-sentinel.test.ts) |
+| Cold-start with a syntax error in a page — dev server fails to boot (current behaviour, documented gap; see open issues) | [`lifecycle/cold-start-with-broken-page.test.ts`](tests/integration/hmr/lifecycle/cold-start-with-broken-page.test.ts) |
+| server.ts top-level throw mid-session → `[abs:restart]` marker fires + OLD app keeps serving until supervisor respawns | [`lifecycle/server-entry-top-level-throw.test.ts`](tests/integration/hmr/lifecycle/server-entry-top-level-throw.test.ts) |
+| CLI crash-loop guard — 6+ child exits within 10s prints `refusing to restart` and exits 1 (no terminal-spam loop) | [`lifecycle/cli-crash-loop-guard.test.ts`](tests/integration/hmr/lifecycle/cli-crash-loop-guard.test.ts) |
 
 ---
 
@@ -402,6 +405,20 @@ bun test tests/integration/hmr
   `src/build/chainInlineSourcemaps.ts` composes the chain
   post-build. Vue and Svelte SSR stack frames now resolve to
   `.vue` / `.svelte` source through this chain.
+- **Cold-start with a syntax error in any page kills boot.** The
+  initial `build()` pass runs with `throwOnError: true`. If one
+  page has a build-time syntax error at the moment `bun run dev`
+  starts, the build fails, the bun child exits before reaching
+  `Bun.serve`, and `/hmr-status` never responds. The user sees one
+  stderr line and a dead terminal with no live-reload feedback.
+  Mid-session build-error recovery already works
+  (`cross-cutting-reliability.test.ts` "build-error recovery"
+  subtest); the cold-start side does not. Cleaner future: come up
+  anyway, render a cold-start error page on the broken route, keep
+  the file watcher alive, and recover once the user fixes the
+  source — same shape as the mid-session path. Snapshot test
+  `lifecycle/cold-start-with-broken-page.test.ts` locks in
+  current behaviour.
 - **Angular SSR stack frames don't map back to the `.ts`
   source.** Filed: oven-sh/bun#30538 — request for
   `Bun.Transpiler.transformSync` to optionally emit a v3

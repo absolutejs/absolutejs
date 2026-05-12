@@ -29,6 +29,11 @@ type DevServerOptions = {
 	serverEntry?: string;
 	configPath?: string;
 	env?: Record<string, string>;
+	/** Override the boot-readiness `waitForServer` retry count.
+	 *  Default is the helper's own (120 × 500ms = 60s). Useful for
+	 *  tests that EXPECT boot to fail and don't want to eat the full
+	 *  timeout. */
+	bootMaxRetries?: number;
 };
 
 const DEFAULT_OUTPUT_TIMEOUT_MS = 10_000;
@@ -104,7 +109,7 @@ export const startDevServer = async (options?: DevServerOptions | number) => {
 	const baseUrl = `http://localhost:${resolvedPort}`;
 
 	try {
-		await waitForServer(`${baseUrl}/hmr-status`);
+		await waitForServer(`${baseUrl}/hmr-status`, opts.bootMaxRetries);
 	} catch (err) {
 		proc.kill();
 		throw new Error(
