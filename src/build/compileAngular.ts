@@ -1768,6 +1768,18 @@ export const compileAngularFileJIT = async (
 				importRewrites
 			);
 
+			// No inline sourcemap on the intermediate for Angular.
+			// Bun.Transpiler doesn't emit sourcemaps, and the
+			// decorator-metadata rewrite reshapes the class body
+			// aggressively enough that content-matching the
+			// original .ts to the transpiled output produces only
+			// trivial mappings (imports). Server-side stack frames
+			// therefore point at the on-disk intermediate `.js`
+			// under `.absolutejs/generated/angular/...` — a real
+			// file the developer can open. See HMR_COVERAGE.md
+			// open-issues for the path forward (switch the per-file
+			// transpile to a Bun.build pass so we get its native
+			// sourcemap output).
 			await fs.mkdir(targetDir, { recursive: true });
 			await fs.writeFile(targetPath, processedContent, 'utf-8');
 			jitContentCache.set(cacheKey, contentHash);

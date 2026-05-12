@@ -378,14 +378,14 @@ export const compileSvelte = async (
 		const generate = (mode: 'server' | 'client') => {
 			const transpiled =
 				mode === 'server' ? transpiledServer : transpiledClient;
-			const compiled = isModule
+			const compiledJs = isModule
 				? compileModule(transpiled, {
 						dev: mode === 'client' && dev,
 						experimental: {
 							async: transformedByLowering
 						},
 						filename: src
-					}).js.code
+					}).js
 				: compile(transpiled, {
 						css: 'injected',
 						dev: mode === 'client' && dev,
@@ -395,8 +395,8 @@ export const compileSvelte = async (
 						filename: src,
 						generate: mode,
 						hmr: mode === 'client' && isDev
-					}).js.code;
-			let code = compiled.replace(
+					}).js;
+			let code = compiledJs.code.replace(
 				/\.svelte(?:\.(?:ts|js))?(['"])/g,
 				'.js$1'
 			);
@@ -430,7 +430,7 @@ export const compileSvelte = async (
 
 			code += islandMetadataExports;
 
-			return code;
+			return { code, map: compiledJs.map };
 		};
 
 		const ssrPath = join(serverDir, relDir, `${baseName}.js`);
@@ -441,21 +441,40 @@ export const compileSvelte = async (
 			mkdir(dirname(clientPath), { recursive: true })
 		]);
 
+		// Inline Svelte's compiler-emitted sourcemap on each intermediate.
+		// All later transforms (`rewriteExternalImports`, the `.svelte → .js`
+		// extension replace, the HMR-client wrapping for client mode) are
+		// string-level edits that do not move line boundaries, so the map
+		// applies directly to the written intermediate JS. `Bun.build`
+		// composes this through to the final hashed bundle (with
+		// `sourcemap: 'inline'`), and `chainBundleInlineSourcemap`
+		// stitches the chain because Bun.build doesn't honour input
+		// inline sourcemaps yet (BUN_SOURCEMAP_CHAIN_BUG.md).
+		const inlineMap = (map: unknown) =>
+			map
+				? `\n//# sourceMappingURL=data:application/json;base64,${Buffer.from(
+						JSON.stringify(map)
+					).toString('base64')}\n`
+				: '';
+
 		if (isModule) {
-			const bundle = rewriteExternalImports(generate('client'), 'client');
+			const generated = generate('client');
+			const bundle =
+				rewriteExternalImports(generated.code, 'client') +
+				inlineMap(generated.map);
 			await Promise.all([
 				write(ssrPath, bundle),
 				write(clientPath, bundle)
 			]);
 		} else {
-			const serverBundle = rewriteExternalImports(
-				generate('server'),
-				'server'
-			);
-			const clientBundle = rewriteExternalImports(
-				generate('client'),
-				'client'
-			);
+			const serverGen = generate('server');
+			const clientGen = generate('client');
+			const serverBundle =
+				rewriteExternalImports(serverGen.code, 'server') +
+				inlineMap(serverGen.map);
+			const clientBundle =
+				rewriteExternalImports(clientGen.code, 'client') +
+				inlineMap(clientGen.map);
 			await Promise.all([
 				write(ssrPath, serverBundle),
 				write(clientPath, clientBundle)

@@ -20,6 +20,14 @@ afterEach(async () => {
 });
 
 const vuePage = resolve(PROJECT_ROOT, 'example/vue/pages/VueExample.vue');
+const sveltePage = resolve(
+	PROJECT_ROOT,
+	'example/svelte/pages/SvelteExample.svelte'
+);
+const angularComp = resolve(
+	PROJECT_ROOT,
+	'example/angular/components/counter.component.ts'
+);
 
 const startAll = async () => {
 	server = await startDevServer();
@@ -124,6 +132,110 @@ describe('SSR error logging reaches dev-server stderr', () => {
 			// (BUN_SOURCEMAP_CHAIN_BUG.md). Together: stack frames
 			// for SSR throws point at the .vue file.
 			expect(trace).toMatch(/VueExample\.vue(?::\d+)?/);
+		},
+		60_000
+	);
+
+	test(
+		'a thrown error in a Svelte SFC is logged with the throw site mapped to the .svelte source',
+		async () => {
+			const { client: c, server: srv } = await startAll();
+
+			// Warm the pipeline.
+			for (const marker of ['WARM_1', 'WARM_2']) {
+				mutateFile(sveltePage, (text) =>
+					text.replace(
+						/<h1>AbsoluteJS \+ Svelte[^<]*<\/h1>/,
+						`<h1>AbsoluteJS + Svelte ${marker}</h1>`
+					)
+				);
+				await c.waitFor(
+					'svelte-tier-zero-ssr-rebuild-complete',
+					30_000
+				);
+			}
+			c.drain();
+
+			// Inject a throw at the top of the <script> block.
+			const sentinel = `SOURCEMAP_SVELTE_${Date.now()}`;
+			mutateFile(sveltePage, (text) =>
+				text.replace(
+					'<script lang="ts">',
+					`<script lang="ts">\n\tthrow new Error('${sentinel}');`
+				)
+			);
+			await c.waitFor('svelte-tier-zero-ssr-rebuild-complete', 30_000);
+
+			const res = await fetch(`${srv.baseUrl}/svelte`);
+			expect(res.status).toBeGreaterThanOrEqual(200);
+			const body = await res.text();
+			expect(body).toContain(sentinel);
+
+			await new Promise((r) => setTimeout(r, 750));
+
+			const block = collectSentinelOutput(srv.outputLines, sentinel, 30);
+			expect(block).not.toBeNull();
+			const trace = block!.join('\n');
+
+			expect(trace).toContain(sentinel);
+			expect(trace).toMatch(/at\s+\w[\w$]*\s+\([^)]+:\d+:\d+\)/);
+
+			// Svelte's compile-emitted inline sourcemap, threaded through
+			// Bun.build's output map by chainBundleInlineSourcemap, lands
+			// the frame on the .svelte source.
+			expect(trace).toMatch(/SvelteExample\.svelte(?::\d+)?/);
+		},
+		60_000
+	);
+
+	test(
+		'a thrown error in an Angular component frame points at the on-disk intermediate JS',
+		async () => {
+			const { server: srv } = await startAll();
+
+			const sentinel = `SOURCEMAP_NG_${Date.now()}`;
+			mutateFile(angularComp, (text) =>
+				text.replace(
+					/(@Component\([^)]*\)\s*export\s+class\s+\w+\s*\{)/,
+					`$1\n  constructor() { throw new Error('${sentinel}'); }`
+				)
+			);
+
+			const deadline = Date.now() + 30_000;
+			let body = '';
+			while (Date.now() < deadline) {
+				const res = await fetch(`${srv.baseUrl}/angular`);
+				body = await res.text();
+				if (body.includes(sentinel)) break;
+				await new Promise((r) => setTimeout(r, 250));
+			}
+			expect(body).toContain(sentinel);
+
+			await new Promise((r) => setTimeout(r, 750));
+
+			const block = collectSentinelOutput(srv.outputLines, sentinel, 30);
+			expect(block).not.toBeNull();
+			const trace = block!.join('\n');
+
+			expect(trace).toContain(sentinel);
+			expect(trace).toMatch(/at\s+\w[\w$]*\s+\([^)]+:\d+:\d+\)/);
+
+			// Angular SSR consumes compileAngular's per-file
+			// intermediates directly (no Bun.build for the server
+			// path). Bun.Transpiler doesn't emit sourcemaps and the
+			// decorator-metadata rewrite reshapes the class body
+			// aggressively enough that content-matching the
+			// original .ts gives only trivial mappings — so the
+			// frame currently lands on the on-disk intermediate
+			// `.js` under `.absolutejs/generated/angular/...`. The
+			// developer can still open and read that file; line
+			// numbers won't match the `.ts` they edit. Tracked in
+			// HMR_COVERAGE.md open issues as the next step
+			// (switching to a per-file Bun.build pass would unlock
+			// chainable sourcemaps for Angular).
+			expect(trace).toMatch(
+				/\.absolutejs[/\\]generated[/\\]angular[/\\].*counter\.component\.js/
+			);
 		},
 		60_000
 	);

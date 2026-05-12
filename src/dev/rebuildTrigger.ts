@@ -1168,6 +1168,7 @@ const bundleAngularClient = async (
 			})
 		],
 		root: clientRoot,
+		sourcemap: 'inline',
 		target: 'browser',
 		throw: false
 	});
@@ -1185,6 +1186,15 @@ const bundleAngularClient = async (
 				...depVendorPaths
 			}
 		);
+	}
+
+	// Compose compileAngular's per-intermediate inline map with
+	// Bun.build's output map post-build (BUN_SOURCEMAP_CHAIN_BUG.md).
+	const { chainBundleInlineSourcemap } = await import(
+		'../build/chainInlineSourcemaps'
+	);
+	for (const out of clientResult.outputs) {
+		if (out.path.endsWith('.js')) chainBundleInlineSourcemap(out.path);
 	}
 
 	const clientManifest = generateManifest(clientResult.outputs, buildDir);
@@ -2398,6 +2408,7 @@ const runSvelteBundleRebuild = async (
 						)
 					],
 					root: serverRoot,
+					sourcemap: 'inline',
 					target: 'bun',
 					throw: false
 				})
@@ -2414,6 +2425,7 @@ const runSvelteBundleRebuild = async (
 						)
 					],
 					root: clientRoot,
+					sourcemap: 'inline',
 					target: 'browser',
 					throw: false
 				})
@@ -2423,6 +2435,21 @@ const runSvelteBundleRebuild = async (
 	handleServerManifestUpdate(state, serverResult);
 	await handleClientManifestUpdate(state, clientResult, buildDir);
 	await pruneStaleHashedSiblings(serverResult?.outputs);
+
+	// Compose Svelte's per-intermediate inline map with Bun.build's
+	// output map post-build (BUN_SOURCEMAP_CHAIN_BUG.md).
+	if (serverResult?.success || clientResult?.success) {
+		const { chainBundleInlineSourcemap } = await import(
+			'../build/chainInlineSourcemaps'
+		);
+		for (const out of serverResult?.outputs ?? []) {
+			if (out.path.endsWith('.js')) chainBundleInlineSourcemap(out.path);
+		}
+		for (const out of clientResult?.outputs ?? []) {
+			if (out.path.endsWith('.js')) chainBundleInlineSourcemap(out.path);
+		}
+	}
+
 	broadcastToClients(state, {
 		data: { manifest: state.manifest },
 		type: 'svelte-tier-zero-ssr-rebuild-complete'

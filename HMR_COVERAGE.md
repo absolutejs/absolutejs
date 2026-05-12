@@ -342,7 +342,9 @@ bun test tests/integration/hmr
 | 20 concurrent `/vue` fetches across a tier-0 edit window never produce 5xx or empty bodies | [`lifecycle/ssr-mid-rebuild-race.test.ts`](tests/integration/hmr/lifecycle/ssr-mid-rebuild-race.test.ts) "20 concurrent /vue fetches" |
 | 40 fetches across 4 rapid Svelte edits never produce 5xx or empty bodies | [`lifecycle/ssr-mid-rebuild-race.test.ts`](tests/integration/hmr/lifecycle/ssr-mid-rebuild-race.test.ts) "40 fetches across 4 rapid Svelte edits" |
 | Dev-server RSS stays within 3× the warmed baseline across 100 Vue HMR cycles (Linux-only) | [`lifecycle/dev-server-memory-ratchet.test.ts`](tests/integration/hmr/lifecycle/dev-server-memory-ratchet.test.ts) |
-| SSR error stack frames map back to the `.vue` source (sourcemap chain composes through compileVue intermediates) | [`lifecycle/sourcemap-stack-traces.test.ts`](tests/integration/hmr/lifecycle/sourcemap-stack-traces.test.ts) |
+| SSR error stack frames map back to the `.vue` source (sourcemap chain composes through compileVue intermediates) | [`lifecycle/sourcemap-stack-traces.test.ts`](tests/integration/hmr/lifecycle/sourcemap-stack-traces.test.ts) "Vue SFC" |
+| SSR error stack frames map back to the `.svelte` source (sourcemap chain composes through compileSvelte intermediates) | [`lifecycle/sourcemap-stack-traces.test.ts`](tests/integration/hmr/lifecycle/sourcemap-stack-traces.test.ts) "Svelte SFC" |
+| Angular SSR error stack frames land on the on-disk intermediate `.js` (real file the dev can open; full `.ts` mapping pending — see open issues) | [`lifecycle/sourcemap-stack-traces.test.ts`](tests/integration/hmr/lifecycle/sourcemap-stack-traces.test.ts) "Angular component" |
 | Behavioral snapshot: natural `delete cache + await import` pattern on `bun --hot` after atomic-rename — returns fresh bytes (tripwire — if this regresses, restore the sibling-copy workaround from git history) | [`lifecycle/bun-entry-natural-pattern-sentinel.test.ts`](tests/integration/hmr/lifecycle/bun-entry-natural-pattern-sentinel.test.ts) |
 
 ---
@@ -396,12 +398,24 @@ bun test tests/integration/hmr
   root SCSS-file edits land in SSR; deeper @use partial-graph
   reverse-link follow-through is not yet asserted end-to-end.
 - **Bun.build does not chain through input inline sourcemaps.**
-  Filed: `BUN_SOURCEMAP_CHAIN_BUG.md` (upstream issue not yet
-  filed). Bandaid in `src/build/chainInlineSourcemaps.ts`
-  composes the chain post-build so Vue SSR stack frames now
-  resolve to `.vue` source. Svelte/Angular SSR pipelines don't
-  emit intermediate sourcemaps yet — extending the chain to
-  them is the next step; tracked in the bandaid doc.
+  Filed: oven-sh/bun#30536. Bandaid in
+  `src/build/chainInlineSourcemaps.ts` composes the chain
+  post-build. Vue and Svelte SSR stack frames now resolve to
+  `.vue` / `.svelte` source through this chain.
+- **Angular SSR stack frames don't map back to the `.ts`
+  source.** `compileAngular` uses `Bun.Transpiler` for
+  per-file TS-stripping + Angular decorator-metadata emission.
+  `Bun.Transpiler` doesn't return a sourcemap and the
+  decorator rewrite reshapes the class body enough that
+  content-matching the original `.ts` only yields trivial
+  mappings (imports). Frames currently land on the on-disk
+  intermediate `.js` under `.absolutejs/generated/angular/...`
+  — a real file the dev can navigate to, just one hop short of
+  the `.ts` they edit. Path forward: replace the per-file
+  `Bun.Transpiler` call with a per-file `Bun.build` pass (which
+  emits its own sourcemap natively) and let
+  `chainBundleInlineSourcemap` compose. Trade-off is some
+  per-file build cost.
 
 ---
 

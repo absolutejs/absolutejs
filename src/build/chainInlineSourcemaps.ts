@@ -143,27 +143,50 @@ const traceInner = (
 	targetCol: number
 ) => {
 	if (targetLine < 0 || targetLine >= innerLines.length) return null;
-	const line = innerLines[targetLine];
-	let lo = 0;
-	let hi = line.length - 1;
-	let best = -1;
-	while (lo <= hi) {
-		const mid = (lo + hi) >> 1;
-		if (line[mid].genCol <= targetCol) {
-			best = mid;
-			lo = mid + 1;
-		} else {
-			hi = mid - 1;
+	// Step 1: try the target line. Take the largest segment with
+	// genCol <= targetCol; if none qualifies (targetCol is before the
+	// first segment on this line, but the line has mappings), fall
+	// through to the first segment on the line as a column-imprecise
+	// hit. Stack-trace remapping cares about line >> column, so a
+	// same-line fallback is preferable to walking back to an earlier
+	// line.
+	const targetLineSegs = innerLines[targetLine];
+	for (let i = targetLineSegs.length - 1; i >= 0; i--) {
+		const seg = targetLineSegs[i];
+		if (seg.genCol <= targetCol && seg.sourceIdx !== undefined) {
+			return {
+				col: seg.sourceCol!,
+				line: seg.sourceLine!,
+				sourceIdx: seg.sourceIdx
+			};
 		}
 	}
-	if (best === -1) return null;
-	const seg = line[best];
-	if (seg.sourceIdx === undefined) return null;
-	return {
-		col: seg.sourceCol!,
-		line: seg.sourceLine!,
-		sourceIdx: seg.sourceIdx
-	};
+	for (const seg of targetLineSegs) {
+		if (seg.sourceIdx !== undefined) {
+			return {
+				col: seg.sourceCol!,
+				line: seg.sourceLine!,
+				sourceIdx: seg.sourceIdx
+			};
+		}
+	}
+	// Step 2: target line has no segments at all. Walk back to the
+	// nearest prior line with a mapping. Standard sourcemap-resolver
+	// behaviour (V8/JSC honour this).
+	for (let li = targetLine - 1; li >= 0; li--) {
+		const line = innerLines[li];
+		for (let i = line.length - 1; i >= 0; i--) {
+			const seg = line[i];
+			if (seg.sourceIdx !== undefined) {
+				return {
+					col: seg.sourceCol!,
+					line: seg.sourceLine!,
+					sourceIdx: seg.sourceIdx
+				};
+			}
+		}
+	}
+	return null;
 };
 
 type SourceMap = {
@@ -233,6 +256,49 @@ export const buildLineRemap = (before: string, after: string) => {
 		}
 	}
 	return remap;
+};
+
+/* Build an inline-sourcemap comment from scratch for a transform that
+ * is mostly line-preserving (e.g. Bun.Transpiler's TS-stripping over a
+ * .ts file). For each source-content line that survived into the
+ * generated content (per `buildLineRemap`'s content-matching), emit a
+ * single mapping at that generated line pointing back to the source
+ * line. Stack-trace remapping cares about line >> column; columns
+ * default to 0.
+ *
+ * Returns the `\n//# sourceMappingURL=data:...base64...\n` comment
+ * suitable for appending to the generated file. */
+export const inlineLineMapComment = (
+	sourcePath: string,
+	sourceContent: string,
+	generatedContent: string
+) => {
+	const remap = buildLineRemap(sourceContent, generatedContent);
+	const generatedLineCount = generatedContent.split('\n').length;
+	const segs: Segment[][] = Array.from(
+		{ length: generatedLineCount },
+		() => []
+	);
+	for (let srcLine = 0; srcLine < remap.length; srcLine++) {
+		const genLine = remap[srcLine];
+		if (genLine < 0 || genLine >= generatedLineCount) continue;
+		segs[genLine].push({
+			genCol: 0,
+			sourceCol: 0,
+			sourceIdx: 0,
+			sourceLine: srcLine
+		});
+	}
+	const map: SourceMap = {
+		mappings: encodeMappings(segs),
+		names: [],
+		sources: [sourcePath],
+		sourcesContent: [sourceContent],
+		version: 3
+	};
+	return `\n//# sourceMappingURL=data:application/json;base64,${Buffer.from(
+		JSON.stringify(map)
+	).toString('base64')}\n`;
 };
 
 /* Apply a generated-line remap to a sourcemap's mappings. Segments on
