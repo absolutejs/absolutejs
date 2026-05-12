@@ -349,6 +349,7 @@ bun test tests/integration/hmr
 | Cold-start with a syntax error in a page — dev server fails to boot (current behaviour, documented gap; see open issues) | [`lifecycle/cold-start-with-broken-page.test.ts`](tests/integration/hmr/lifecycle/cold-start-with-broken-page.test.ts) |
 | server.ts top-level throw mid-session → `[abs:restart]` marker fires + OLD app keeps serving until supervisor respawns | [`lifecycle/server-entry-top-level-throw.test.ts`](tests/integration/hmr/lifecycle/server-entry-top-level-throw.test.ts) |
 | CLI crash-loop guard — 6+ child exits within 10s prints `refusing to restart` and exits 1 (no terminal-spam loop) | [`lifecycle/cli-crash-loop-guard.test.ts`](tests/integration/hmr/lifecycle/cli-crash-loop-guard.test.ts) |
+| HMR scaling — 10-edit average latency stays under loose bounds at N=50 and N=100 generated Vue components (verifies no O(N²) hotspots in dep-graph walk / manifest update / tier-0 fingerprint compare) | [`lifecycle/hmr-at-scale.test.ts`](tests/integration/hmr/lifecycle/hmr-at-scale.test.ts) |
 
 ---
 
