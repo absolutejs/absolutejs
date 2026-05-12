@@ -28,12 +28,6 @@ describe('isAtomicWriteTemp', () => {
 		expect(isAtomicWriteTemp('.#counter.component.html')).toBe(true);
 	});
 
-	test('matches `.absolutejs-hmr-` prefix (Path B sibling copy)', () => {
-		expect(
-			isAtomicWriteTemp('.absolutejs-hmr-1234567890123-abc123.ts')
-		).toBe(true);
-	});
-
 	test('matches `sed<random>` (sed -i in-place tmp)', () => {
 		expect(isAtomicWriteTemp('sedABC123def')).toBe(true);
 		expect(isAtomicWriteTemp('sedXYZ789012345')).toBe(true);

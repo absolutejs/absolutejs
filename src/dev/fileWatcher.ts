@@ -44,9 +44,7 @@ const ATOMIC_WRITE_TEMP_PATTERNS = [
 	// sed -i: `sed[A-Za-z0-9]+`, no extension
 	/(^|\/)sed[A-Za-z0-9]{6,}$/,
 	// vim's "4913" probe file used to test write permissions
-	/(^|\/)4913$/,
-	// Path B HMR's sibling-copy temp file (see serverEntryWatcher.ts)
-	/(^|\/)\.absolutejs-hmr-/
+	/(^|\/)4913$/
 ];
 
 const shouldSkipFilename = (filename: string, isStylesDir: boolean) =>

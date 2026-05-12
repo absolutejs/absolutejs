@@ -59,7 +59,6 @@ dist/
 docs/
 
 .absolutejs
-.absolutejs-hmr-*.ts
 .cache/
 
 CLAUDE.md

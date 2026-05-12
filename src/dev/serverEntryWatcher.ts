@@ -2,9 +2,10 @@
  * ABSOLUTE_CONFIG_TOGGLE_LIMITATION.md): watch the user's entry file
  * (`Bun.main`) AND `absolute.config.ts` from inside the bun child.
  *
- * Entry edits → cache-busted dynamic import (sibling-copy workaround,
- * see comments below). The fresh module's `networking` plugin call
- * detects the live `Bun.serve` instance on globalThis and calls
+ * Entry edits → cache-busted dynamic import via the natural
+ * `delete require_.cache[entryPath]; await import(entryPath)` pattern.
+ * The fresh module's `networking` plugin call detects the live
+ * `Bun.serve` instance on globalThis and calls
  * `.reload({ fetch, routes: {} })` to swap the handler atomically
  * without rebinding the port.
  *
@@ -34,7 +35,8 @@
  * serving until the restart kicks in.
  */
 
-import { copyFileSync, existsSync, statSync, unlinkSync, watch } from 'node:fs';
+import { existsSync, statSync, watch } from 'node:fs';
+import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { applyConfigChanges } from '../core/devBuild';
 
@@ -57,8 +59,6 @@ const ATOMIC_WRITE_TEMP_PATTERNS: RegExp[] = [
  *   - `.tmp` suffix or `.tmp.` substring (generic + Prettier)
  *   - `~` suffix (Emacs, Vim, some IDEs)
  *   - `.#…` prefix (Emacs lockfiles)
- *   - `.absolutejs-hmr-…` prefix (our own Path B sibling copies —
- *     see serverEntryWatcher.ts header)
  *   - `sed<random>` (in-place `sed -i` tmp)
  *   - `4913` (vim's preflight write probe)
  *
@@ -69,7 +69,6 @@ export const isAtomicWriteTemp = (filename: string) =>
 	filename.includes('.tmp.') ||
 	filename.endsWith('~') ||
 	filename.startsWith('.#') ||
-	filename.startsWith('.absolutejs-hmr-') ||
 	ATOMIC_WRITE_TEMP_PATTERNS.some((re) => re.test(filename));
 
 export const startServerEntryWatcher = () => {
@@ -92,43 +91,29 @@ export const startServerEntryWatcher = () => {
 	let entryReloadTimer: ReturnType<typeof setTimeout> | null = null;
 	let configReloadTimer: ReturnType<typeof setTimeout> | null = null;
 
-	// Bun cache invalidation under `bun --hot` for the entry path
-	// (oven-sh/bun#30447, oven-sh/bun#30449):
-	//
-	// The natural pattern is
-	//   delete createRequire(import.meta.url).cache[path];
-	//   await import(path);
-	// which works under plain `bun` but threw "Requested module is
-	// not instantiated yet" under `bun --hot` 1.3.13 and earlier
-	// (#30447). The throw was fixed in 1.3.14 by the WebKit
-	// module-loader rewrite (#29393), but only for non-entry
-	// modules. Atomic-rename writes (sed -i, vim default,
-	// prettier, VSCode, etc.) to the entry under `--hot` leave
-	// `--hot`'s pinned module record in place; userland cache
-	// invalidation re-runs the top-level but reads stale source
-	// bytes (#30449). Our framework always reloads the entry, so
-	// the natural pattern still doesn't work for us.
-	//
-	// Workaround: copy the entry to a unique sibling path and
-	// `await import` the copy. Different path → different URL key
-	// → Bun parses+transpiles fresh and `--hot` doesn't own the
-	// sibling. Same-directory placement keeps relative imports
-	// (`./angular/...`, `./absolute.config`) resolving correctly.
-	// Delete the copy in `finally`.
+	// Bun cache invalidation for the entry path under `bun --hot`.
+	// Use the natural pattern: clear the CommonJS-style cache entry
+	// for the entry path and re-import. On the current Bun version
+	// (verified 1.3.14-canary.1 by
+	// `tests/integration/hmr/lifecycle/bun-entry-natural-pattern-sentinel.test.ts`)
+	// the re-import reads fresh source bytes after an atomic-rename
+	// write — the bun#30447 / bun#30449 chain that previously
+	// pinned the entry record has been resolved upstream. If a
+	// future Bun regresses entry-record reload, the sentinel test
+	// flips and we restore the sibling-copy workaround from git
+	// history (see commit history for `serverEntryWatcher.ts`
+	// 2026-05-12).
+	const require_ = createRequire(import.meta.url);
 	const triggerEntryReload = async (cause: string) => {
 		const now = Date.now();
 		const last = recentlyHandled.get(`entry:${cause}`) ?? 0;
 		if (now - last < 100) return;
 		recentlyHandled.set(`entry:${cause}`, now);
 
-		const tmpName = `.absolutejs-hmr-${now}-${Math.random()
-			.toString(36)
-			.slice(2, 8)}.ts`;
-		const tmpPath = join(entryDir, tmpName);
 		try {
 			console.log(`[hmr] reloading server entry (${cause})`);
-			copyFileSync(entryPath, tmpPath);
-			await import(tmpPath);
+			delete require_.cache[entryPath];
+			await import(entryPath);
 			// On success, the new module's `networking` plugin call
 			// has already swapped the running Bun.serve's fetch
 			// handler via `app.server.reload({ fetch, routes: {} })`.
@@ -150,12 +135,6 @@ export const startServerEntryWatcher = () => {
 				}`
 			);
 			console.log(`[abs:restart] ${entryPath}`);
-		} finally {
-			try {
-				unlinkSync(tmpPath);
-			} catch {
-				/* may not exist if copy failed */
-			}
 		}
 	};
 

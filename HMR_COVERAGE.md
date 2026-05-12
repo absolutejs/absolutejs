@@ -336,13 +336,13 @@ bun test tests/integration/hmr
 | Stylus via Vue `<style lang="stylus">` block — indentation-based syntax reaches served CSS | [`lifecycle/style-preprocessor-roundtrip.test.ts`](tests/integration/hmr/lifecycle/style-preprocessor-roundtrip.test.ts) "Stylus in Vue style block" |
 | tsconfig `compilerOptions.paths` alias for `.vue` composable resolves at compile time | [`lifecycle/typescript-path-aliases.test.ts`](tests/integration/hmr/lifecycle/typescript-path-aliases.test.ts) "aliased composable import resolves at compile time and SSR renders cleanly" |
 | Editing the alias-importing `.vue` file still triggers HMR | [`lifecycle/typescript-path-aliases.test.ts`](tests/integration/hmr/lifecycle/typescript-path-aliases.test.ts) "editing the alias-imported `.vue` file (its own source) still triggers HMR" |
-| bun#30449 stale-source workaround — serverEntry edit lands on the next request (not the cached entry record) | [`lifecycle/bun-entry-stale-source-workaround.test.ts`](tests/integration/hmr/lifecycle/bun-entry-stale-source-workaround.test.ts) |
-| `isAtomicWriteTemp` filters editor tmp filenames (`.tmp`, `~`, `.#`, `.absolutejs-hmr-`, `sed<random>`, `4913`) so the watcher skips them | [`tests/unit/dev/atomic-write-temp-patterns.test.ts`](tests/unit/dev/atomic-write-temp-patterns.test.ts) (unit) |
+| Server-entry reload — serverEntry edit lands on the next request via natural `delete cache + await import` (bun#30447/#30449 sibling-copy workaround retired 2026-05-12) | [`lifecycle/server-entry-reload.test.ts`](tests/integration/hmr/lifecycle/server-entry-reload.test.ts) |
+| `isAtomicWriteTemp` filters editor tmp filenames (`.tmp`, `~`, `.#`, `sed<random>`, `4913`) so the watcher skips them | [`tests/unit/dev/atomic-write-temp-patterns.test.ts`](tests/unit/dev/atomic-write-temp-patterns.test.ts) (unit) |
 | 20 concurrent `/vue` fetches across a tier-0 edit window never produce 5xx or empty bodies | [`lifecycle/ssr-mid-rebuild-race.test.ts`](tests/integration/hmr/lifecycle/ssr-mid-rebuild-race.test.ts) "20 concurrent /vue fetches" |
 | 40 fetches across 4 rapid Svelte edits never produce 5xx or empty bodies | [`lifecycle/ssr-mid-rebuild-race.test.ts`](tests/integration/hmr/lifecycle/ssr-mid-rebuild-race.test.ts) "40 fetches across 4 rapid Svelte edits" |
 | Dev-server RSS stays within 3× the warmed baseline across 100 Vue HMR cycles (Linux-only) | [`lifecycle/dev-server-memory-ratchet.test.ts`](tests/integration/hmr/lifecycle/dev-server-memory-ratchet.test.ts) |
 | SSR error stack frames map back to the `.vue` source (sourcemap chain composes through compileVue intermediates) | [`lifecycle/sourcemap-stack-traces.test.ts`](tests/integration/hmr/lifecycle/sourcemap-stack-traces.test.ts) |
-| Behavioral snapshot: natural `delete cache + await import` pattern on `bun --hot` after atomic-rename — currently returns fresh bytes (tripwire for the sibling-copy workaround's necessity) | [`lifecycle/bun-entry-natural-pattern-sentinel.test.ts`](tests/integration/hmr/lifecycle/bun-entry-natural-pattern-sentinel.test.ts) |
+| Behavioral snapshot: natural `delete cache + await import` pattern on `bun --hot` after atomic-rename — returns fresh bytes (tripwire — if this regresses, restore the sibling-copy workaround from git history) | [`lifecycle/bun-entry-natural-pattern-sentinel.test.ts`](tests/integration/hmr/lifecycle/bun-entry-natural-pattern-sentinel.test.ts) |
 
 ---
 
@@ -402,14 +402,6 @@ bun test tests/integration/hmr
   through Angular `styleUrl`.** The integration test verifies
   root SCSS-file edits land in SSR; deeper @use partial-graph
   reverse-link follow-through is not yet asserted end-to-end.
-- **bun#30449 multi-cycle stability and sibling-unlink filter.**
-  Tested for one edit cycle. Repeated entry edits picking up
-  fresh bytes on each iteration, and the watcher never firing a
-  self-fire HMR loop from the sibling unlink, are racy to assert
-  black-box because they depend on Bun's atomic-write event
-  ordering and the watcher's 100ms dedupe. The atomic-write
-  filter regex itself is unit-tested
-  (`tests/unit/dev/atomic-write-temp-patterns.test.ts`).
 - **Bun.build does not chain through input inline sourcemaps.**
   Filed: `BUN_SOURCEMAP_CHAIN_BUG.md` (upstream issue not yet
   filed). Bandaid in `src/build/chainInlineSourcemaps.ts`
