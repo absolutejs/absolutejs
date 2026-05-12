@@ -59,6 +59,16 @@ describe('cold-start with a syntax error recovers to a healthy dev server', () =
 				(await fetch(`${server.baseUrl}/hmr-status`)).status
 			).toBe(200);
 
+			// Broken route returns a styled error page (not a raw
+			// 500 text body) — the dev-mode build-error-recovery
+			// onError plugin routes "Asset … not found in manifest"
+			// errors through `ssrErrorPage`.
+			const broken = await fetch(`${server.baseUrl}/vue`);
+			expect(broken.status).toBe(500);
+			const brokenBody = await broken.text();
+			expect(brokenBody).toContain('Server Render Error');
+			expect(brokenBody).toContain('Build artifact');
+
 			// WS handshake completes — file watcher is alive.
 			client = await connectHMR(server.port);
 			await client.waitFor('manifest');

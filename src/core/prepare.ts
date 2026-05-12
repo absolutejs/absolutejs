@@ -238,6 +238,7 @@ const prepareDev = async (
 		)
 		.use(hmrPlugin)
 		.use(createSitemapPlugin(buildDir, config.sitemap))
+		.use(createBuildErrorRecoveryPlugin())
 		.use(createNotFoundPlugin());
 	recordStep('assemble dev runtime', stepStartedAt);
 	logStartupTimingBlock('AbsoluteJS prepareDev timing', startupSteps);
@@ -297,6 +298,53 @@ const createNotFoundPlugin = () =>
 			if (response) return response;
 
 			return undefined;
+		}
+	);
+
+/* Dev-only error renderer for routes that throw "Asset ... not
+ * found in manifest." — the most common failure mode when a build
+ * error left the dev server with a partially-populated manifest
+ * (cold-start with a broken page; mid-session build failure that
+ * caused the rebuild to bail). Without this, Elysia surfaces the
+ * raw error string as a plain-text 500 plus a `Server error on
+ * GET <url>: undefined` log; with it, the user gets the same
+ * styled `ssrErrorPage` they already know from SSR-throw cases,
+ * and the terminal log carries the actual missing-asset name
+ * instead of `undefined`. The plugin returns `undefined` for any
+ * other error so the default chain still runs. */
+const createBuildErrorRecoveryPlugin = () =>
+	new Elysia({ name: 'absolutejs-build-error-recovery' }).onError(
+		{ as: 'global' },
+		async ({ error }) => {
+			const message = error instanceof Error ? error.message : String(error);
+			const assetMatch = /^Asset "(.+)" not found in manifest\.$/.exec(
+				message
+			);
+			if (!assetMatch) return undefined;
+			const missingAsset = assetMatch[1] ?? '';
+			const framework =
+				/^(?:[A-Z][a-z]*)*?(Angular|Vue|Svelte|React|Html|Htmx|Ember)/.exec(
+					missingAsset
+				)?.[1]?.toLowerCase() ?? 'absolutejs';
+			console.error(
+				`[hmr] Build artifact "${missingAsset}" missing from manifest — ` +
+					`the user likely has a build-time error. Save a fix to trigger ` +
+					`a recovery rebuild.`
+			);
+			const { ssrErrorPage } = await import('../utils/ssrErrorPage');
+			const html = ssrErrorPage(
+				framework,
+				new Error(
+					`Build artifact "${missingAsset}" missing from manifest.\n\n` +
+						'This usually means a build-time error in a source file. ' +
+						'Check the dev-server terminal for the underlying error, ' +
+						'fix the file, and save to trigger a recovery rebuild.'
+				)
+			);
+			return new Response(html, {
+				headers: { 'content-type': 'text/html; charset=utf-8' },
+				status: 500
+			});
 		}
 	);
 
