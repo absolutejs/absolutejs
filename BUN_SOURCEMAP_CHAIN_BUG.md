@@ -1,9 +1,20 @@
 # Bun — `Bun.build` does not chain through input inline sourcemaps
 
-**Tracking:** _file when surfacing on oven-sh/bun (not yet filed)._
-**Status:** Reproduces on Bun 1.3.14-canary.1+fe735f8f0. Tested with a
-minimal two-hop case (see "What's wrong upstream" below). **Action when
-fixed:** see "What to do when Bun fixes it" at the bottom.
+**Tracking:** [oven-sh/bun#30536](https://github.com/oven-sh/bun/issues/30536)
+— the file-input variant we filed. Cross-references the plugin-input
+sibling [oven-sh/bun#6173](https://github.com/oven-sh/bun/issues/6173)
+(open since 2023-09-29) and the in-progress draft PR
+[#20865](https://github.com/oven-sh/bun/pull/20865) by Jarred Sumner
+(adds `sourcemap` field on `BunPlugin.onLoad` return values and the
+`LinkerContext.zig` plumbing to consume it). Same root cause: Bun's
+bundler doesn't compose `//# sourceMappingURL=` comments from input
+modules when emitting its output sourcemap. #20865's linker plumbing
+likely covers the file-input case too once a small lexer-side wiring
+patch lands (feeding `lexer.source_mapping_url` into the same
+pipeline #20865 consumes plugin-provided sourcemaps from).
+
+**Status:** Reproduces on Bun 1.3.14-canary.1+fe735f8f0. **Action
+when fixed:** see "What to do when Bun fixes it" at the bottom.
 
 ## What's wrong upstream
 
