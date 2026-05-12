@@ -24,6 +24,10 @@ const countButton = resolve(
 	PROJECT_ROOT,
 	'example/vue/components/CountButton.vue'
 );
+const counterComp = resolve(
+	PROJECT_ROOT,
+	'example/angular/components/counter.component.ts'
+);
 
 const startAll = async () => {
 	server = await startDevServer();
@@ -34,20 +38,19 @@ const startAll = async () => {
 	return { client: client!, server: server! };
 };
 
-/* Vue/Svelte components resolve their `<script setup>` imports via
- * Bun.build's plugin chain, which honours tsconfig
- * `compilerOptions.paths`. This test adds a path alias for the Vue
- * composable directory, rewrites a `.vue` file's import to use the
- * alias, and confirms:
+/* Vue/Svelte/Angular components resolve their imports via the
+ * respective compile pipelines (Bun.build's plugin chain for Vue/
+ * Svelte; `readTsconfigPathAliases` + `matchTsconfigAlias` in
+ * `compileAngular.ts` for Angular), all of which honour tsconfig
+ * `compilerOptions.paths`. This test adds path aliases, rewrites
+ * imports to use them, and confirms:
  *   1. SSR renders the page without error (alias resolved cleanly).
- *   2. HMR still fires on edits to the aliased composable.
- *
- * Angular pipeline path-alias support exists in
- * `readTsconfigPathAliases` (compileAngular.ts) but currently
- * causes a separate `@angular/core` resolution path that trips
- * NG0203 at SSR — that's a pre-existing bug tracked separately;
- * Vue's path is the canonical alias-works contract. */
-describe('TypeScript tsconfig.json paths/baseUrl alias resolution (Vue)', () => {
+ *   2. HMR still fires on edits to the aliased source.
+ *   3. Angular's SSR doesn't trip NG0203 (the
+ *      `verifyAngularCoreUniqueness` build-time guardrail + the
+ *      HMR-mode bare-`@angular/*`-specifiers strategy pin Angular
+ *      to a single module instance regardless of tsconfig paths). */
+describe('TypeScript tsconfig.json paths/baseUrl alias resolution', () => {
 	test(
 		'aliased composable import resolves at compile time and SSR renders cleanly',
 		async () => {
@@ -109,6 +112,46 @@ describe('TypeScript tsconfig.json paths/baseUrl alias resolution (Vue)', () => 
 
 			const after = await (await fetch(`${srv.baseUrl}/vue`)).text();
 			expect(after).toContain('tally is');
+		},
+		60_000
+	);
+
+	test(
+		'Angular component import via alias resolves at compile time and SSR renders cleanly (no NG0203)',
+		async () => {
+			mutateFile(tsconfigPath, (text) =>
+				text.replace(
+					'"useDefineForClassFields": false',
+					'"useDefineForClassFields": false,\n\t\t"baseUrl": ".",\n\t\t"paths": { "@ng-components/*": ["example/angular/components/*"] }'
+				)
+			);
+			// Make counter.component import dropdown via the alias —
+			// exercises the matchTsconfigAlias path inside
+			// compileAngular.transpileFile.
+			mutateFile(counterComp, (text) =>
+				text.replace(
+					/(import\s+\{[^}]+\}\s+from\s+['"]@angular\/core['"];?)/,
+					`$1\nimport '@ng-components/dropdown.component';`
+				)
+			);
+
+			const { server: srv } = await startAll();
+			const res = await fetch(`${srv.baseUrl}/angular`);
+			const body = await res.text();
+
+			expect(res.status).toBe(200);
+			expect(body).not.toMatch(/Server Render Error/);
+			expect(body).toContain('app-counter');
+			expect(body).toContain('count is');
+			// The NG0203 / two-instance failure mode logs to stderr
+			// even when SSR returns a (broken) 200 — assert nothing
+			// in that family hit the dev-server output.
+			const sawAngularInjectorError = srv.outputLines.some((l) =>
+				/NG0203|NG0201|NullInjectorError|Failed to resolve injector/.test(
+					l
+				)
+			);
+			expect(sawAngularInjectorError).toBe(false);
 		},
 		60_000
 	);

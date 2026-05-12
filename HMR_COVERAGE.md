@@ -336,6 +336,7 @@ bun test tests/integration/hmr
 | Stylus via Vue `<style lang="stylus">` block — indentation-based syntax reaches served CSS | [`lifecycle/style-preprocessor-roundtrip.test.ts`](tests/integration/hmr/lifecycle/style-preprocessor-roundtrip.test.ts) "Stylus in Vue style block" |
 | tsconfig `compilerOptions.paths` alias for `.vue` composable resolves at compile time | [`lifecycle/typescript-path-aliases.test.ts`](tests/integration/hmr/lifecycle/typescript-path-aliases.test.ts) "aliased composable import resolves at compile time and SSR renders cleanly" |
 | Editing the alias-importing `.vue` file still triggers HMR | [`lifecycle/typescript-path-aliases.test.ts`](tests/integration/hmr/lifecycle/typescript-path-aliases.test.ts) "editing the alias-imported `.vue` file (its own source) still triggers HMR" |
+| Angular component import via alias resolves at compile time + SSR renders without NG0203 (verifyAngularCoreUniqueness + HMR bare-specifier strategy pin one `@angular/core` instance regardless of tsconfig paths) | [`lifecycle/typescript-path-aliases.test.ts`](tests/integration/hmr/lifecycle/typescript-path-aliases.test.ts) "Angular component import via alias resolves at compile time and SSR renders cleanly (no NG0203)" |
 | Server-entry reload — serverEntry edit lands on the next request via natural `delete cache + await import` (bun#30447/#30449 sibling-copy workaround retired 2026-05-12) | [`lifecycle/server-entry-reload.test.ts`](tests/integration/hmr/lifecycle/server-entry-reload.test.ts) |
 | `isAtomicWriteTemp` filters editor tmp filenames (`.tmp`, `~`, `.#`, `sed<random>`, `4913`) so the watcher skips them | [`tests/unit/dev/atomic-write-temp-patterns.test.ts`](tests/unit/dev/atomic-write-temp-patterns.test.ts) (unit) |
 | 20 concurrent `/vue` fetches across a tier-0 edit window never produce 5xx or empty bodies | [`lifecycle/ssr-mid-rebuild-race.test.ts`](tests/integration/hmr/lifecycle/ssr-mid-rebuild-race.test.ts) "20 concurrent /vue fetches" |
@@ -383,14 +384,6 @@ bun test tests/integration/hmr
   `generateETag` reads the previous hash and bubbles ENOENT
   through the request handler. Real users hit rarely; restart
   resolves.
-- **Angular path-alias `paths` config trips NG0203 at SSR.**
-  `readTsconfigPathAliases` (compileAngular.ts) wires tsconfig
-  paths into the Angular pipeline, but adding a `paths` entry
-  for component imports causes Angular to resolve `@angular/core`
-  along two paths; SSR throws NG0203. Vue alias path is
-  unaffected and is the canonical contract test
-  (`lifecycle/typescript-path-aliases.test.ts`). Separate fix needed
-  for the Angular compile graph.
 - **Less / Stylus via Angular `styleUrl` is async-only.**
   `compileStyleFileIfNeededSync` deliberately errors on
   Less/Stylus because their compilers expose only an async API
