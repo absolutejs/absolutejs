@@ -266,18 +266,48 @@ const startCompiledServer = async (
 		stdout: 'pipe'
 	});
 	serverProcesses.add(proc);
+
+	// Continuously drain stdout/stderr so a mid-test crash leaves a
+	// trace. Without this, the compiled server's death between
+	// fetches would be invisible (the spawn streams stay buffered
+	// until consumed). If the server exits non-zero we dump the
+	// captured output to the test reporter so the error message is
+	// preserved for the failing assertion.
+	const stderrChunks: string[] = [];
+	const stdoutChunks: string[] = [];
+	const drain = async (
+		stream: ReadableStream<Uint8Array> | null,
+		into: string[]
+	) => {
+		if (!stream) return;
+		const reader = stream.getReader();
+		const decoder = new TextDecoder();
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) return;
+			into.push(decoder.decode(value, { stream: true }));
+		}
+	};
+	void drain(proc.stdout as ReadableStream<Uint8Array> | null, stdoutChunks);
+	void drain(proc.stderr as ReadableStream<Uint8Array> | null, stderrChunks);
+	void proc.exited.then((code) => {
+		if (code !== 0 && code !== 143 && code !== null) {
+			console.error(
+				`[compiled-server] exited unexpectedly with code ${code}\n` +
+					`stdout:\n${stdoutChunks.join('')}\n` +
+					`stderr:\n${stderrChunks.join('')}`
+			);
+		}
+	});
+
 	try {
 		await waitForServer(`http://localhost:${port}/`, 80, 250);
 	} catch (error) {
 		proc.kill();
-		const [stdout, stderr] = await Promise.all([
-			new Response(proc.stdout).text(),
-			new Response(proc.stderr).text()
-		]);
 		throw new Error(
 			`Compiled server did not start: ${
 				error instanceof Error ? error.message : String(error)
-			}\n${stdout}\n${stderr}`
+			}\nstdout:\n${stdoutChunks.join('')}\nstderr:\n${stderrChunks.join('')}`
 		);
 	}
 

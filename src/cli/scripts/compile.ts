@@ -734,6 +734,19 @@ const getMime = (p: string) =>
 // ── Server ──────────────────────────────────────────────────────
 const port = Number(process.env.PORT) || ${DEFAULT_PORT};
 
+// Uncaught-error safety net for the compiled binary. \`bun --hot\` and
+// \`bun dev\` both keep the process alive on uncaught throws / rejections;
+// a standalone executable has no such wrapper, so a stream-error inside
+// a route handler (\`controller.error(new Error(...))\`) would otherwise
+// kill the server. Log loudly + stay up — same shape as the resilience
+// every production HTTP server is expected to have.
+process.on("uncaughtException", (err) => {
+	console.error("[absolutejs] uncaught exception:", err);
+});
+process.on("unhandledRejection", (reason) => {
+	console.error("[absolutejs] unhandled rejection:", reason);
+});
+
 const servePage = (path: string) =>
 	new Response(Bun.file(path), {
 		headers: { "content-type": "text/html; charset=utf-8" },
@@ -1005,9 +1018,13 @@ const createStubPlugin = (
 		}));
 		bld.onLoad(
 			{
-				filter: /dev\/(assetStore|clientManager|webSocket|moduleVersionTracker|buildHMRClient)\.ts$/
+				filter: /dev\/(assetStore|clientManager|webSocket|moduleVersionTracker|buildHMRClient|serverEntryWatcher)\.ts$/
 			},
-			() => ({ contents: 'export {};', loader: 'js' })
+			() => ({
+				contents:
+					'export const startServerEntryWatcher = () => {}; export const isAtomicWriteTemp = () => false;',
+				loader: 'js'
+			})
 		);
 		bld.onLoad({ filter: /dev\/moduleServer\.(ts|js)$/ }, () => ({
 			contents: 'export {};',
@@ -1188,7 +1205,12 @@ const compileUnlocked = async (
 				stubVue: !buildConfig.vueDirectory
 			})
 		],
-		target: 'bun'
+		target: 'bun',
+		// Mirror start.ts: surface bundle errors as data so the
+		// `if (!serverBundle.success)` branch below can print them.
+		// Default `throw: true` on newer Bun yields a useless
+		// `AggregateError: Bundle failed`.
+		throw: false
 	});
 
 	if (!serverBundle.success) {
