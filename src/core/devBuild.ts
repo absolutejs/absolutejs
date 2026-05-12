@@ -474,17 +474,40 @@ export const devBuild = async (config: BuildConfig) => {
 
 	const buildStart = performance.now();
 
-	// Initial build (HMR client is baked into index files and HTML/HTMX pages)
-	const buildResult = await build({
-		...config,
-		mode: 'development',
-		options: {
-			...config.options,
-			injectHMR: true
+	// Initial build (HMR client is baked into index files and HTML/HTMX pages).
+	//
+	// `throwOnError: true` so a broken page in the user's source tree
+	// throws rather than calling `exit(1)` from inside `extractBuildError`.
+	// We catch it here and continue with an empty manifest: the dev
+	// server still binds its port, the file watcher still starts, and
+	// the user's next edit triggers `rebuildManifest` which converges
+	// to a working state — mirror of the mid-session build-error
+	// recovery contract. Without this, a single syntax error at cold
+	// start kills boot and leaves the user without live-reload
+	// feedback to find their mistake.
+	let buildResult: Awaited<ReturnType<typeof build>> | null = null;
+	try {
+		buildResult = await build({
+			...config,
+			mode: 'development',
+			options: {
+				...config.options,
+				injectHMR: true,
+				throwOnError: true
+			}
+		});
+	} catch (err) {
+		console.error(
+			'[hmr] initial build failed — starting dev server with an empty manifest.\n' +
+				'      Fix the error above and save the file to trigger a recovery rebuild.'
+		);
+		if (err instanceof Error && err.stack) {
+			console.error(err.stack);
 		}
-	});
-	const manifest = buildResult.manifest ?? {};
-	const conventions = buildResult.conventions ?? {};
+		state.initialBuildFailed = true;
+	}
+	const manifest = buildResult?.manifest ?? {};
+	const conventions = buildResult?.conventions ?? {};
 	recordStep('initial build', buildStart);
 
 	if (Object.keys(manifest).length === 0) {
@@ -658,7 +681,56 @@ export const devBuild = async (config: BuildConfig) => {
 	state.manifest = manifest;
 
 	stepStartedAt = performance.now();
+	// Cold-start recovery: if the initial `build()` threw, route the
+	// next file change through a FULL `build()` (the same call as the
+	// initial one) so the manifest, asset store, and on-disk
+	// intermediates all repopulate from scratch. The fast-path
+	// `queueFileChange` only updates the directly-edited file's
+	// manifest entry — fine on a healthy session, but here it leaves
+	// e.g. `VueExampleCSS` / `VueExampleIndex` undefined and the
+	// route's `asset(...)` call still throws "not found." After a
+	// successful recovery build, clear the flag and fall back to the
+	// fast path for subsequent edits.
+	const recoverFromColdStartFailure = async () => {
+		await waitForRebuild(state);
+		state.isRebuilding = true;
+		try {
+			const recoveryResult = await build({
+				...config,
+				mode: 'development',
+				options: {
+					...config.options,
+					injectHMR: true,
+					throwOnError: true
+				}
+			});
+			if (recoveryResult?.manifest) {
+				Object.assign(manifest, recoveryResult.manifest);
+				state.manifest = manifest;
+				await populateAssetStore(
+					state.assetStore,
+					manifest,
+					state.resolvedPaths.buildDir
+				);
+				state.initialBuildFailed = false;
+				console.log(
+					'[hmr] cold-start recovery rebuild succeeded — manifest populated.'
+				);
+			}
+		} catch {
+			/* still broken — leave the flag set; next file change
+			 * retries. The build logs its own error output. */
+		} finally {
+			state.rebuildCount++;
+			state.isRebuilding = false;
+			state.fileChangeQueue.clear();
+		}
+	};
 	startFileWatching(state, config, (filePath: string) => {
+		if (state.initialBuildFailed) {
+			void recoverFromColdStartFailure();
+			return;
+		}
 		queueFileChange(state, filePath, config, (newBuildResult) => {
 			Object.assign(manifest, newBuildResult.manifest);
 			state.manifest = manifest;

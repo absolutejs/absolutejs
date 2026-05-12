@@ -1,13 +1,17 @@
 import { describe, expect, test, afterEach } from 'bun:test';
 import { resolve } from 'node:path';
 import { startDevServer, type DevServer } from '../../../helpers/devServer';
+import { connectHMR, type HMRClient } from '../../../helpers/ws';
 import { mutateFile, restoreAllFiles } from '../../../helpers/file';
 
 const PROJECT_ROOT = resolve(import.meta.dir, '..', '..', '..', '..');
 
 let server: DevServer | undefined;
+let client: HMRClient | undefined;
 
 afterEach(async () => {
+	client?.close();
+	client = undefined;
 	if (server) {
 		await server.kill();
 		server = undefined;
@@ -17,26 +21,29 @@ afterEach(async () => {
 
 const vuePage = resolve(PROJECT_ROOT, 'example/vue/pages/VueExample.vue');
 
-/* Snapshot of current cold-start behaviour when a user has an
- * initial build-time error in any framework page. The dev server's
- * initial `build()` pass runs with `throwOnError: true`; the broken
- * page makes the whole pass fail, the bun child exits before
- * reaching `Bun.serve`, and `/hmr-status` never responds. The user
- * sees a single error in stderr and a dead terminal — they have to
- * fix the syntax error without any live-reload feedback.
+/* Cold-start build-error recovery contract.
  *
- * This is a documented DX gap (see HMR_COVERAGE.md open issues).
- * The cleaner future behaviour is: come up anyway, serve a
- * cold-start error page on the broken route, keep the file watcher
- * alive, and recover once the user fixes the file — same shape as
- * the mid-session build-error recovery already tested by
- * `cross-cutting-reliability.test.ts`. When that lands, this test
- * will start passing the wrong way (boot succeeds where we
- * currently expect failure) and the assertion should be inverted
- * to lock in the new contract. */
-describe('cold-start with a syntax error in one page (current behaviour)', () => {
+ * When the user's initial `bun run dev` runs against a source tree
+ * with a build-time syntax error anywhere, the dev server still
+ * binds its port, `/hmr-status` still responds, the WS handshake
+ * still completes, and the file watcher still runs — so the user
+ * gets live-reload feedback for the fix.
+ *
+ * The broken route itself returns 5xx (manifest is empty for that
+ * page) until a successful rebuild populates it. Other framework
+ * pages that DIDN'T have errors are part of the same all-or-nothing
+ * Bun.build pass and also won't have manifest entries until the
+ * recovery rebuild — so they 5xx too on cold-start. The contract is
+ * "dev server alive + live-reload working", not "partial routes
+ * still serve." Once the user saves a fix, `rebuildManifest`
+ * converges and all routes come up.
+ *
+ * Mirrors the mid-session build-error recovery already covered by
+ * `cross-cutting-reliability.test.ts` — the same shape, just
+ * starting from a broken initial state. */
+describe('cold-start with a syntax error recovers to a healthy dev server', () => {
 	test(
-		'dev server fails to start when an initial page has a build-time syntax error',
+		'dev server boots with an empty manifest; fixing the file converges',
 		async () => {
 			mutateFile(vuePage, (text) =>
 				text.replace(
@@ -45,20 +52,59 @@ describe('cold-start with a syntax error in one page (current behaviour)', () =>
 				)
 			);
 
-			let bootError: unknown = null;
-			try {
-				// Short retry budget — we expect failure and don't
-				// want to eat the default 60s timeout.
-				server = await startDevServer({ bootMaxRetries: 16 });
-			} catch (err) {
-				bootError = err;
-			}
+			server = await startDevServer();
 
-			expect(bootError).not.toBeNull();
+			// Supervisor liveness.
 			expect(
-				bootError instanceof Error ? bootError.message : String(bootError)
-			).toMatch(/did not become ready|Server build failed/);
+				(await fetch(`${server.baseUrl}/hmr-status`)).status
+			).toBe(200);
+
+			// WS handshake completes — file watcher is alive.
+			client = await connectHMR(server.port);
+			await client.waitFor('manifest');
+			await client.waitFor('connected');
+			client.drain();
+
+			// Now fix the broken file. The mid-session rebuild
+			// path picks it up and the route starts working.
+			restoreAllFiles();
+			mutateFile(vuePage, (text) =>
+				text.replace(
+					/<h1>AbsoluteJS \+ Vue[^<]*<\/h1>/,
+					'<h1>AbsoluteJS + Vue COLD_START_RECOVERED</h1>'
+				)
+			);
+
+			// Don't require a specific HMR event — recovery from a
+			// build-error state in Vue may surface via different
+			// signals depending on which fast path runs. Poll the
+			// SSR endpoint instead.
+			const deadline = Date.now() + 60_000;
+			let recovered = false;
+			let lastBody = '';
+			let lastStatus = 0;
+			while (Date.now() < deadline) {
+				const res = await fetch(`${server.baseUrl}/vue`);
+				lastStatus = res.status;
+				lastBody = await res.text();
+				if (lastBody.includes('COLD_START_RECOVERED')) {
+					recovered = true;
+					break;
+				}
+				await new Promise((r) => setTimeout(r, 300));
+			}
+			if (!recovered) {
+				console.error(
+					`[recovery-debug] last status: ${lastStatus} body: ${lastBody.slice(0, 300)}\nrecent ws events: ${client?.messages
+						.slice(-15)
+						.map((m) => m.type)
+						.join(', ')}\nlast 50 server lines:\n${server.outputLines.slice(-50).join('\n')}\n` +
+						`manifest keys via server log:\n` +
+						`(see [recovery-debug] above)`
+				);
+			}
+			expect(recovered).toBe(true);
 		},
-		30_000
+		120_000
 	);
 });

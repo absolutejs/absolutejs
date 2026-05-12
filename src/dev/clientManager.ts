@@ -36,6 +36,14 @@ export type HMRState = {
 	// classifies the real edit (e.g. a `.component.css` file) instead of
 	// a page bundle that the graph dragged in.
 	lastUserEditedFiles?: Set<string>;
+	/* Set to `true` by `devBuild` when the initial cold-start
+	 * `build()` throws on a user-source error. The next file change
+	 * routes to a full `build()` instead of the fast-path
+	 * `queueFileChange` so all manifest entries (page, index, CSS,
+	 * vendor) get populated from scratch — the fast-path only
+	 * updates the directly-edited file's entry. Cleared once a
+	 * recovery build succeeds. */
+	initialBuildFailed?: boolean;
 };
 
 /* Initialize HMR state */
