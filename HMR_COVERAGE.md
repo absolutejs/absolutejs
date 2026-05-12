@@ -352,6 +352,7 @@ bun test tests/integration/hmr
 | HMR scaling — 10-edit average latency stays under loose bounds at N=50 and N=100 generated Vue components (verifies no O(N²) hotspots in dep-graph walk / manifest update / tier-0 fingerprint compare) | [`lifecycle/hmr-at-scale.test.ts`](tests/integration/hmr/lifecycle/hmr-at-scale.test.ts) |
 | HTTPS dev server (`dev.https: true` / `ABSOLUTE_HTTPS=true`) — cert auto-generated, `Bun.serve` binds with TLS, HMR over WSS works, edit cycle round-trips through HTTPS | [`lifecycle/https-dev-server.test.ts`](tests/integration/hmr/lifecycle/https-dev-server.test.ts) |
 | Production-bundle hardening — `manifest.json` shape correct, no `/@src/` dev URLs in SSR HTML, no inline sourcemap comments in client JS, hashed assets serve with `max-age`, prod WS `/hmr` upgrade refused | [`tests/integration/server/prod-hardening.test.ts`](tests/integration/server/prod-hardening.test.ts) |
+| Partial-framework prod build — Vue-only / Svelte-only / HTML-only synthetic projects build + serve cleanly (no all-frameworks-assumed code path trips for subset configs) | [`tests/integration/server/prod-partial-framework.test.ts`](tests/integration/server/prod-partial-framework.test.ts) |
 
 ---
 
