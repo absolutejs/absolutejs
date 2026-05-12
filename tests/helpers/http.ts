@@ -10,11 +10,26 @@ export const fetchPage = async (url: string) => {
 export const waitForServer = async (
 	url: string,
 	maxRetries = DEFAULT_MAX_RETRIES,
-	delayMs = DEFAULT_RETRY_DELAY_MS
+	tlsOptionsOrDelay?:
+		| number
+		| { rejectUnauthorized?: boolean; delayMs?: number }
 ) => {
+	const delayMs =
+		typeof tlsOptionsOrDelay === 'number'
+			? tlsOptionsOrDelay
+			: (tlsOptionsOrDelay?.delayMs ?? DEFAULT_RETRY_DELAY_MS);
+	// `tls: { rejectUnauthorized: false }` bypasses the self-signed
+	// cert reject when probing HTTPS dev servers.
+	const fetchInit =
+		typeof tlsOptionsOrDelay === 'object' &&
+		tlsOptionsOrDelay?.rejectUnauthorized === false
+			? ({
+					tls: { rejectUnauthorized: false }
+				} as unknown as RequestInit)
+			: undefined;
 	for (let i = 0; i < maxRetries; i++) {
 		try {
-			const res = await fetch(url);
+			const res = await fetch(url, fetchInit);
 			if (res.ok) return true;
 		} catch {
 			// Server not ready yet

@@ -34,6 +34,13 @@ type DevServerOptions = {
 	 *  tests that EXPECT boot to fail and don't want to eat the full
 	 *  timeout. */
 	bootMaxRetries?: number;
+	/** Run the dev server with TLS enabled (sets `ABSOLUTE_HTTPS=true`
+	 *  for the bun child; baseUrl becomes `https://localhost:<port>`).
+	 *  The dev runtime auto-generates a self-signed cert via openssl
+	 *  if mkcert isn't installed; this helper otherwise needs no
+	 *  extra plumbing. Cert validation is bypassed in the readiness
+	 *  probe so the self-signed boot still satisfies `waitForServer`. */
+	https?: boolean;
 };
 
 const DEFAULT_OUTPUT_TIMEOUT_MS = 10_000;
@@ -73,6 +80,7 @@ export const startDevServer = async (options?: DevServerOptions | number) => {
 	const configPath =
 		opts.configPath ?? resolve(PROJECT_ROOT, 'example/absolute.config.ts');
 
+	const httpsEnabled = opts.https === true;
 	const proc = Bun.spawn(['bun', '--hot', '--no-clear-screen', serverEntry], {
 		cwd: PROJECT_ROOT,
 		env: {
@@ -82,6 +90,7 @@ export const startDevServer = async (options?: DevServerOptions | number) => {
 			NODE_ENV: 'development',
 			PORT: String(resolvedPort),
 			TELEMETRY_OFF: '1',
+			...(httpsEnabled ? { ABSOLUTE_HTTPS: 'true' } : {}),
 			...opts.env
 		},
 		stderr: 'pipe',
@@ -106,10 +115,12 @@ export const startDevServer = async (options?: DevServerOptions | number) => {
 	drainStream(proc.stdout as ReadableStream<Uint8Array> | null, recordLine);
 	drainStream(proc.stderr as ReadableStream<Uint8Array> | null, recordLine);
 
-	const baseUrl = `http://localhost:${resolvedPort}`;
+	const baseUrl = `${httpsEnabled ? 'https' : 'http'}://localhost:${resolvedPort}`;
 
 	try {
-		await waitForServer(`${baseUrl}/hmr-status`, opts.bootMaxRetries);
+		await waitForServer(`${baseUrl}/hmr-status`, opts.bootMaxRetries, {
+			rejectUnauthorized: !httpsEnabled
+		});
 	} catch (err) {
 		proc.kill();
 		throw new Error(

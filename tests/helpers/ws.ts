@@ -14,9 +14,18 @@ export type HMRClient = {
 	ws: WebSocket;
 };
 
-export const connectHMR = (port: number) =>
+export const connectHMR = (
+	port: number,
+	options?: { protocol?: 'ws' | 'wss' }
+) =>
 	new Promise<HMRClient>((resolve, reject) => {
-		const ws = new WebSocket(`ws://localhost:${port}/hmr`);
+		const protocol = options?.protocol ?? 'ws';
+		// `tls: { rejectUnauthorized: false }` is required for the
+		// self-signed cert used in dev-HTTPS tests. Bun's WebSocket
+		// honours this option.
+		const ws = new WebSocket(`${protocol}://localhost:${port}/hmr`, {
+			tls: { rejectUnauthorized: false }
+		} as unknown as undefined);
 		const messages: HMRMessage[] = [];
 		const waiters: Array<{
 			type: string;
