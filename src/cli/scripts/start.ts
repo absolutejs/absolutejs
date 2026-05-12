@@ -1,6 +1,6 @@
 import { env } from 'bun';
-import { existsSync, readFileSync } from 'node:fs';
-import { basename, resolve } from 'node:path';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { basename, join, resolve } from 'node:path';
 import type { DbScripts } from '../../../types/cli';
 import {
 	DEFAULT_PORT,
@@ -233,6 +233,10 @@ export const start = async (
 		]);
 		if (!build) throw new Error('Could not locate build module');
 		await build(buildConfig);
+		rmSync(join(resolvedOutdir, '_prerendered'), {
+			force: true,
+			recursive: true
+		});
 	} catch (err) {
 		console.error(cliTag('\x1b[31m', 'Build step failed.'));
 		console.error(err);

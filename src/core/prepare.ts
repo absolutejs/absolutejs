@@ -227,7 +227,7 @@ const prepareDev = async (
 		)
 		.use(imageOptimizer(config.images, buildDir))
 		.use(
-			staticPlugin({
+			await staticPlugin({
 				alwaysStatic: true,
 				assets: buildDir,
 				directive: 'no-cache',
@@ -404,7 +404,7 @@ export const prepare = async (configOrPath?: string) => {
 
 	stepStartedAt = performance.now();
 	const { staticPlugin } = await import('@elysiajs/static');
-	const staticFiles = staticPlugin({
+	const staticFiles = await staticPlugin({
 		alwaysStatic: true,
 		assets: buildDir,
 		prefix: '',
