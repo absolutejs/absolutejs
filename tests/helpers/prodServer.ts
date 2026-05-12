@@ -44,8 +44,8 @@ export const startProdServer = async (port?: number) => {
 					PORT: String(resolvedPort),
 					TELEMETRY_OFF: '1'
 				},
-				stderr: 'ignore',
-				stdout: 'ignore'
+				stderr: 'pipe',
+				stdout: 'pipe'
 			}
 		);
 

@@ -276,10 +276,10 @@ export const start = async (
 			// Stub dev modules — only used during HMR/dev builds
 			bld.onLoad(
 				{
-					filter: /dev\/(assetStore|clientManager|webSocket|moduleVersionTracker|buildHMRClient)\.ts$/
+					filter: /dev\/(assetStore|clientManager|webSocket|moduleVersionTracker|buildHMRClient|serverEntryWatcher)\.ts$/
 				},
 				() => ({
-					contents: 'export {};',
+					contents: 'export const startServerEntryWatcher = () => {}; export const isAtomicWriteTemp = () => false;',
 					loader: 'js'
 				})
 			);
@@ -361,7 +361,13 @@ export const start = async (
 		],
 		outdir: resolvedOutdir,
 		plugins: [stubPlugin],
-		target: 'bun'
+		target: 'bun',
+		// Default `throw: true` on newer Bun makes a build error
+		// bubble out as `AggregateError: Bundle failed` with no
+		// detail; `handleBundleFailure` below already iterates
+		// `serverBundle.logs` and prints each entry, so we want the
+		// failure-as-data shape instead.
+		throw: false
 	});
 
 	if (!serverBundle.success) {
