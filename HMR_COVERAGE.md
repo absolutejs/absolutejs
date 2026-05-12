@@ -76,7 +76,7 @@ bun test tests/integration/hmr
 | Child component change triggers update | [`frameworks/angular-hmr.test.ts`](tests/integration/hmr/frameworks/angular-hmr.test.ts) + [`components/component-hmr.test.ts`](tests/integration/hmr/components/component-hmr.test.ts) |
 | Tier-0 surgical update → SSR catches up after debounce | [`lifecycle/tier-zero-ssr.test.ts`](tests/integration/hmr/lifecycle/tier-zero-ssr.test.ts) ("angular: SSR returns post-edit content after debounce") |
 | Service (`.ts` in `angular/`) edits propagate to consuming component on every edit | [`lifecycle/dep-graph-recreate.test.ts`](tests/integration/hmr/lifecycle/dep-graph-recreate.test.ts) |
-| Tailwind utility classes added to Angular templates land in `tailwind.generated.css` | [`lifecycle/tailwind-class-discovery.test.ts`](tests/integration/hmr/lifecycle/tailwind-class-discovery.test.ts) — `test.todo` (regen fires on disk; WS broadcast race tracked separately) |
+| Tailwind utility classes added to Angular templates land in `tailwind.generated.css` | [`lifecycle/tailwind-class-discovery.test.ts`](tests/integration/hmr/lifecycle/tailwind-class-discovery.test.ts) ("Angular template edit lands a fresh utility…") |
 | Template (`.html`) edits propagate | covered by tier-0 SSR test (edits `angular-example.html`) |
 
 ### Tier-decision matrix (`fastHmrCompiler.ts`'s fingerprint comparison)
@@ -371,20 +371,22 @@ bun test tests/integration/hmr
 ## Coverage notes
 
 Every row in the matrix above is backed by a real integration
-test. There is one `test.todo` (Angular template Tailwind regen)
-covering a known race between the WebSocket `style-update`
-broadcast and an unrelated framework's afterEach restore landing
-in the same watcher batch — the Tailwind regen itself fires on
-disk; the WebSocket signal is what's flaky in test conditions.
-The four other framework dirs (HTML / HTMX / Svelte / Vue) all
-exercise the same `@source` auto-injection and
-`isTailwindCandidate` plumbing, so any regression in those
-mechanisms would surface in at least one of those four subtests.
+test. There are no `test.todo` entries in the suite.
+
+The Tailwind `style-update` broadcast that was previously flaky
+under shared-server conditions now carries `data.cause` (the
+filtered list of files whose edit triggered the regen), and
+[`lifecycle/tailwind-class-discovery.test.ts`](tests/integration/hmr/lifecycle/tailwind-class-discovery.test.ts)
+filters on it. Combined with per-test dev-server isolation, this
+removes the race that previously forced the Angular subtest into
+`test.todo`. The four other framework dirs (HTML / HTMX / Svelte
+/ Vue) plus Angular all exercise the same `@source` auto-injection
+and `isTailwindCandidate` plumbing.
 
 Tests run against the real `example/` app via
 `tests/helpers/devServer.ts`, which spawns `bun --hot example/server.ts`
 and exposes deterministic completion signals
 (`waitFor('<framework>-tier-zero-ssr-rebuild-complete')`,
-`waitForOutput(/\[abs:restart\]/)`, etc.) so the suite avoids
-sleep-based polling everywhere except where Bun's WebSocket
-implementation forces it.
+`waitForOutput(/\[abs:restart\]/)`, content-cause-filtered
+`style-update`, etc.) so the suite avoids sleep-based polling
+everywhere.

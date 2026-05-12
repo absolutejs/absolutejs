@@ -126,7 +126,11 @@ const recompileTailwindForFastPath = async (
 		}
 
 		broadcastToClients(state, {
-			data: { framework: 'tailwind', manifest: state.manifest },
+			data: {
+				cause: files.filter(isTailwindCandidate),
+				framework: 'tailwind',
+				manifest: state.manifest
+			},
 			message: 'Tailwind utilities recompiled',
 			type: 'style-update'
 		});
@@ -4499,7 +4503,12 @@ const performFullRebuild = async (
 			/* file may not exist if Tailwind compile failed */
 		}
 		broadcastToClients(state, {
-			data: { framework: 'tailwind', manifest },
+			data: {
+				cause:
+					filesToRebuild?.filter(isTailwindCandidate) ?? [],
+				framework: 'tailwind',
+				manifest
+			},
 			message: 'Tailwind utilities recompiled',
 			type: 'style-update'
 		});

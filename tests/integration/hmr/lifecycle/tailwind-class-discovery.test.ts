@@ -1,4 +1,4 @@
-import { describe, expect, test, afterAll, afterEach } from 'bun:test';
+import { describe, expect, test, afterEach } from 'bun:test';
 import { resolve } from 'node:path';
 import { startDevServer, type DevServer } from '../../../helpers/devServer';
 import { connectHMR, type HMRClient } from '../../../helpers/ws';
@@ -7,16 +7,17 @@ import { mutateFile, restoreAllFiles } from '../../../helpers/file';
 const PROJECT_ROOT = resolve(import.meta.dir, '..', '..', '..', '..');
 const TAILWIND_OUTPUT_PATH = '/assets/css/tailwind.generated.css';
 
-let server: DevServer;
-let client: HMRClient;
+let server: DevServer | undefined;
+let client: HMRClient | undefined;
 
-afterEach(() => {
-	restoreAllFiles();
-});
-
-afterAll(async () => {
+afterEach(async () => {
 	client?.close();
-	await server?.kill();
+	client = undefined;
+	if (server) {
+		await server.kill();
+		server = undefined;
+	}
+	restoreAllFiles();
 });
 
 /* When `config.tailwind` is set, the framework auto-injects an
@@ -26,18 +27,44 @@ afterAll(async () => {
  * lands at `<buildDir>/<tailwind.output>` and is served at the
  * matching URL (`/assets/css/tailwind.generated.css` here).
  *
- * Each test adds a uniquely-coloured arbitrary-value utility to a
- * page in one framework's dir, waits for the regenerated CSS to
- * contain the sentinel, then asserts. Filtering by *content*
- * survives a race where afterEach's file-restore from the previous
- * test sneaks a stale `style-update` into the WebSocket queue
- * before this test's mutation has had time to fire its own — we
- * keep consuming `style-update` events until one comes with a
- * Tailwind output body that actually has the sentinel. */
-const driveTailwindRegen = async (sentinel: string) => {
+ * The Tailwind `style-update` broadcast carries `data.cause`: the
+ * list of changed files (filtered to Tailwind candidates) that
+ * triggered the regen. Tests filter by their own file's path so a
+ * batch that also includes a sibling framework's afterEach restore
+ * still matches if the expected file is somewhere in the cause
+ * set. One dev server per test guards against the watcher coalescing
+ * a prior test's afterEach restore with the current test's mutation
+ * (the first style-update would then carry both files and a
+ * downstream test would get a `cause` set that doesn't include its
+ * file at all). */
+
+const startAndConnect = async () => {
+	server = await startDevServer();
+	client = await connectHMR(server.port);
+	await client.waitFor('manifest');
+	await client.waitFor('connected');
+	client.drain();
+	return server;
+};
+
+const driveTailwindRegenFor = async (
+	expectedFile: string,
+	sentinel: string,
+	srv: DevServer,
+	c: HMRClient
+) => {
+	const resolvedExpected = resolve(expectedFile);
 	while (true) {
-		await client.waitFor('style-update');
-		const res = await fetch(`${server.baseUrl}${TAILWIND_OUTPUT_PATH}`);
+		const msg = await c.waitFor('style-update', 30_000);
+		const cause =
+			(msg.data as { cause?: string[] })?.cause?.map((f) =>
+				resolve(f)
+			) ?? [];
+		// Skip broadcasts whose cause set doesn't include our file
+		// — a defensive guard, even though per-server isolation
+		// makes this rare.
+		if (!cause.includes(resolvedExpected)) continue;
+		const res = await fetch(`${srv.baseUrl}${TAILWIND_OUTPUT_PATH}`);
 		expect(res.status).toBe(200);
 		const body = await res.text();
 		if (body.includes(sentinel)) return body;
@@ -45,104 +72,105 @@ const driveTailwindRegen = async (sentinel: string) => {
 };
 
 describe('Tailwind class discovery per framework dir', () => {
-	test('setup', async () => {
-		server = await startDevServer();
-		client = await connectHMR(server.port);
-		await client.waitFor('manifest');
-		await client.waitFor('connected');
-		client.drain();
-	}, 60_000);
-
-	test('initial Tailwind output is served (auto-injected @source covers all framework dirs)', async () => {
-		const res = await fetch(`${server.baseUrl}${TAILWIND_OUTPUT_PATH}`);
-		expect(res.status).toBe(200);
-		const body = await res.text();
-		// Tailwind v4 emits a header comment + @layer declarations
-		// regardless of utility usage. If this is missing the input
-		// wasn't recognized as a Tailwind entry.
-		expect(body).toMatch(/tailwindcss v4/i);
-		expect(body).toContain('@layer');
-	});
+	test(
+		'initial Tailwind output is served (auto-injected @source covers all framework dirs)',
+		async () => {
+			const srv = await startAndConnect();
+			const res = await fetch(`${srv.baseUrl}${TAILWIND_OUTPUT_PATH}`);
+			expect(res.status).toBe(200);
+			const body = await res.text();
+			expect(body).toMatch(/tailwindcss v4/i);
+			expect(body).toContain('@layer');
+		},
+		60_000
+	);
 
 	test(
 		'HTML page edit lands a fresh utility in tailwind.generated.css',
 		async () => {
+			const srv = await startAndConnect();
+			if (!client) throw new Error('client missing');
 			const page = resolve(
 				PROJECT_ROOT,
 				'example/html/pages/HTMLExample.html'
 			);
-			client.drain();
 			mutateFile(page, (c) =>
 				c.replace('<h1>', '<h1 class="text-[#ff00aa]">')
 			);
-			await driveTailwindRegen('#ff00aa');
+			await driveTailwindRegenFor(page, '#ff00aa', srv, client);
 		},
-		20_000
+		60_000
 	);
 
 	test(
 		'HTMX page edit lands a fresh utility in tailwind.generated.css',
 		async () => {
+			const srv = await startAndConnect();
+			if (!client) throw new Error('client missing');
 			const page = resolve(
 				PROJECT_ROOT,
 				'example/htmx/pages/HTMXExample.html'
 			);
-			client.drain();
 			mutateFile(page, (c) =>
 				c.replace('<h1>', '<h1 class="text-[#aa00ff]">')
 			);
-			await driveTailwindRegen('#aa00ff');
+			await driveTailwindRegenFor(page, '#aa00ff', srv, client);
 		},
-		20_000
+		60_000
 	);
 
-	// Angular template edits route through the tier-0 surgical path
-	// (handleAngularFastPath), which mutates the live component in
-	// place AND triggers the recompileTailwindForFastPath branch in
-	// the orchestrator. In practice the in-browser tailwind output
-	// IS regenerated when this happens — visible in the dev server's
-	// logs — but the `style-update` broadcast doesn't reliably reach
-	// the test client when an unrelated framework's afterEach restore
-	// is processed in the same batch (the HTMX restore from a prior
-	// test leaks into this run because the watcher debounces under
-	// 100ms). The Tailwind pass IS firing; only the WebSocket signal
-	// is racy. Tracking under a separate task — until then the four
-	// other frameworks above already exercise the
-	// `@source` auto-injection + `isTailwindCandidate` plumbing
-	// (any one failing would mean the framework wasn't auto-scanned).
-	test.todo(
-		'Angular template edit lands a fresh utility in tailwind.generated.css'
+	test(
+		'Angular template edit lands a fresh utility in tailwind.generated.css',
+		async () => {
+			const srv = await startAndConnect();
+			if (!client) throw new Error('client missing');
+			// `angular-example.html` is the page-shell template (just
+			// renders `<app-dropdown>` + `<app-root>`). Mutate the
+			// inner app component's template — that's where the real
+			// markup tree lives.
+			const template = resolve(
+				PROJECT_ROOT,
+				'example/angular/templates/app.component.html'
+			);
+			mutateFile(template, (c) =>
+				c.replace('<h1>', '<h1 class="text-[#00aaff]">')
+			);
+			await driveTailwindRegenFor(template, '#00aaff', srv, client);
+		},
+		60_000
 	);
 
 	test(
 		'Svelte page edit lands a fresh utility in tailwind.generated.css',
 		async () => {
+			const srv = await startAndConnect();
+			if (!client) throw new Error('client missing');
 			const page = resolve(
 				PROJECT_ROOT,
 				'example/svelte/pages/SvelteExample.svelte'
 			);
-			client.drain();
 			mutateFile(page, (c) =>
 				c.replace('<h1>', '<h1 class="text-[#0aff00]">')
 			);
-			await driveTailwindRegen('#0aff00');
+			await driveTailwindRegenFor(page, '#0aff00', srv, client);
 		},
-		20_000
+		60_000
 	);
 
 	test(
 		'Vue page edit lands a fresh utility in tailwind.generated.css',
 		async () => {
+			const srv = await startAndConnect();
+			if (!client) throw new Error('client missing');
 			const page = resolve(
 				PROJECT_ROOT,
 				'example/vue/pages/VueExample.vue'
 			);
-			client.drain();
 			mutateFile(page, (c) =>
 				c.replace('<h1>', '<h1 class="text-[#0a00ff]">')
 			);
-			await driveTailwindRegen('#0a00ff');
+			await driveTailwindRegenFor(page, '#0a00ff', srv, client);
 		},
-		20_000
+		60_000
 	);
 });
