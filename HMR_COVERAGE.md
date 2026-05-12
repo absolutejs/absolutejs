@@ -341,7 +341,7 @@ bun test tests/integration/hmr
 | 20 concurrent `/vue` fetches across a tier-0 edit window never produce 5xx or empty bodies | [`lifecycle/ssr-mid-rebuild-race.test.ts`](tests/integration/hmr/lifecycle/ssr-mid-rebuild-race.test.ts) "20 concurrent /vue fetches" |
 | 40 fetches across 4 rapid Svelte edits never produce 5xx or empty bodies | [`lifecycle/ssr-mid-rebuild-race.test.ts`](tests/integration/hmr/lifecycle/ssr-mid-rebuild-race.test.ts) "40 fetches across 4 rapid Svelte edits" |
 | Dev-server RSS stays within 3× the warmed baseline across 100 Vue HMR cycles (Linux-only) | [`lifecycle/dev-server-memory-ratchet.test.ts`](tests/integration/hmr/lifecycle/dev-server-memory-ratchet.test.ts) |
-| SSR error logging — thrown `Error` from a Vue SFC surfaces in dev-server stderr with a frame from the compiled SSR JS | [`lifecycle/sourcemap-stack-traces.test.ts`](tests/integration/hmr/lifecycle/sourcemap-stack-traces.test.ts) |
+| SSR error stack frames map back to the `.vue` source (sourcemap chain composes through compileVue intermediates) | [`lifecycle/sourcemap-stack-traces.test.ts`](tests/integration/hmr/lifecycle/sourcemap-stack-traces.test.ts) |
 | Behavioral snapshot: natural `delete cache + await import` pattern on `bun --hot` after atomic-rename — currently returns fresh bytes (tripwire for the sibling-copy workaround's necessity) | [`lifecycle/bun-entry-natural-pattern-sentinel.test.ts`](tests/integration/hmr/lifecycle/bun-entry-natural-pattern-sentinel.test.ts) |
 
 ---
@@ -410,20 +410,13 @@ bun test tests/integration/hmr
   ordering and the watcher's 100ms dedupe. The atomic-write
   filter regex itself is unit-tested
   (`tests/unit/dev/atomic-write-temp-patterns.test.ts`).
-- **Vue SSR build output is emitted without sourcemaps.**
-  When a Vue SFC throws during SSR, the dev runtime catches the
-  error and renders `ssrErrorPage` to the browser, but the
-  underlying stack frames in stderr point at the compiled
-  `example/build/vue/server/pages/VueExample.<hash>.js` file
-  (with that file's line numbers), not at the original `.vue`
-  source. The compileVue pipeline doesn't emit inline
-  sourcemaps and Bun's runtime can't thread back to the
-  authored source. `lifecycle/sourcemap-stack-traces.test.ts`
-  asserts the visibility contract (sentinel + frame format in
-  stderr) and pins the current build-output frame shape as a
-  snapshot; tighten it to require `VueExample.vue` once
-  sourcemaps land. Same likely affects Svelte and Angular SSR
-  pipelines — verified for Vue only.
+- **Bun.build does not chain through input inline sourcemaps.**
+  Filed: `BUN_SOURCEMAP_CHAIN_BUG.md` (upstream issue not yet
+  filed). Bandaid in `src/build/chainInlineSourcemaps.ts`
+  composes the chain post-build so Vue SSR stack frames now
+  resolve to `.vue` source. Svelte/Angular SSR pipelines don't
+  emit intermediate sourcemaps yet — extending the chain to
+  them is the next step; tracked in the bandaid doc.
 
 ---
 

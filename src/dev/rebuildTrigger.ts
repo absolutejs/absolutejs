@@ -2774,6 +2774,7 @@ const runVueBundleRebuild = async (
 						)
 					],
 					root: serverRoot,
+					sourcemap: 'inline',
 					target: 'bun',
 					throw: false
 				})
@@ -2790,6 +2791,7 @@ const runVueBundleRebuild = async (
 						)
 					],
 					root: clientRoot,
+					sourcemap: 'inline',
 					target: 'browser',
 					throw: false
 				})
@@ -2822,6 +2824,30 @@ const runVueBundleRebuild = async (
 	await handleClientManifestUpdate(state, cssResult, buildDir);
 	await pruneStaleHashedSiblings(serverResult?.outputs);
 	await pruneStaleHashedSiblings(cssResult?.outputs);
+
+	// Bandaid for Bun.build not chaining through input inline
+	// sourcemaps (BUN_SOURCEMAP_CHAIN_BUG.md). The intermediate
+	// `.absolutejs/generated/vue/.../X.js` files carry inline maps
+	// pointing back to their `.vue` source from `compileVue`;
+	// `Bun.build` emits a map to those intermediates but stops
+	// there. Post-process every Vue server bundle to walk the chain.
+	if (serverResult?.success) {
+		const { chainBundleInlineSourcemap } = await import(
+			'../build/chainInlineSourcemaps'
+		);
+		for (const out of serverResult.outputs) {
+			if (out.path.endsWith('.js')) chainBundleInlineSourcemap(out.path);
+		}
+	}
+	if (clientResult?.success) {
+		const { chainBundleInlineSourcemap } = await import(
+			'../build/chainInlineSourcemaps'
+		);
+		for (const out of clientResult.outputs) {
+			if (out.path.endsWith('.js')) chainBundleInlineSourcemap(out.path);
+		}
+	}
+
 	broadcastToClients(state, {
 		data: { manifest: state.manifest },
 		type: 'vue-tier-zero-ssr-rebuild-complete'

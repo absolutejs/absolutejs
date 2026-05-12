@@ -21,6 +21,7 @@ import { toKebab } from '../utils/stringModifiers';
 import { getFrameworkGeneratedDir } from '../utils/generatedDir';
 import { resolvePackageImport } from './resolvePackageImport';
 import { buildIslandMetadataExports } from '../islands/sourceMetadata';
+import { buildLineRemap, remapGeneratedLines } from './chainInlineSourcemaps';
 import { addAutoRouterSetupApp } from './vueAutoRouterTransform';
 import {
 	addStyleImporter,
@@ -381,9 +382,10 @@ const compileVueFile = async (
 	const compiledScript = hasScript
 		? compiler.compileScript(descriptor, {
 				id: componentId,
-				inlineTemplate: false
+				inlineTemplate: false,
+				sourceMap: true
 			})
-		: { bindings: {}, content: 'export default {};' };
+		: { bindings: {}, content: 'export default {};', map: undefined };
 	const strippedScript = stripExports(compiledScript.content);
 	const sourceDir = dirname(sourceFilePath);
 	const transpiledScript = transpiler
@@ -565,22 +567,42 @@ if (typeof __VUE_HMR_RUNTIME__ !== 'undefined') {
 
 	await mkdir(dirname(clientOutputPath), { recursive: true });
 	await mkdir(dirname(serverOutputPath), { recursive: true });
-	await write(
+
+	const clientFinal = rewritePackageImports(
+		adjustImports(clientCode),
 		clientOutputPath,
-		rewritePackageImports(
-			adjustImports(clientCode),
-			clientOutputPath,
-			'client'
-		)
+		'client'
 	);
-	await write(
+	const serverFinal = rewritePackageImports(
+		adjustImports(serverCode),
 		serverOutputPath,
-		rewritePackageImports(
-			adjustImports(serverCode),
-			serverOutputPath,
-			'server'
-		)
+		'server'
 	);
+
+	// Inline sourcemap: chain compileScript's map (compileScript-line
+	// → .vue line) through a content-derived line remap that captures
+	// every later non-line-preserving transform (Bun.Transpiler blank-
+	// line drops, mergeVueImports consolidation, etc.). Bun.build then
+	// composes this through to the final hashed bundle when invoked
+	// with `sourcemap: 'inline'`, and `chainBundleInlineSourcemap`
+	// stitches Bun.build's output map onto this one because Bun.build
+	// itself doesn't chain through input inline sourcemaps yet
+	// (BUN_SOURCEMAP_CHAIN_BUG.md).
+	const inlineSourceMapFor = (finalContent: string) => {
+		if (!compiledScript.map || !hasScript) return '';
+		const remap = buildLineRemap(strippedScript, finalContent);
+		const mappings = remapGeneratedLines(
+			compiledScript.map.mappings,
+			remap
+		);
+		const map = { ...compiledScript.map, mappings };
+		return `\n//# sourceMappingURL=data:application/json;base64,${Buffer.from(
+			JSON.stringify(map)
+		).toString('base64')}\n`;
+	};
+
+	await write(clientOutputPath, clientFinal + inlineSourceMapFor(clientFinal));
+	await write(serverOutputPath, serverFinal + inlineSourceMapFor(serverFinal));
 
 	const result: BuildResult = {
 		clientPath: clientOutputPath,

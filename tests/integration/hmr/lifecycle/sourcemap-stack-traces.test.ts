@@ -113,16 +113,17 @@ describe('SSR error logging reaches dev-server stderr', () => {
 			expect(trace).toContain(sentinel);
 			expect(trace).toMatch(/at\s+\w[\w$]*\s+\([^)]+:\d+:\d+\)/);
 
-			// The compiled-SSR build path currently shows up because
-			// Vue's SSR compile pipeline doesn't emit sourcemaps
-			// (HMR_COVERAGE.md "open issues"). When sourcemaps land
-			// and stack frames map back to the .vue source, swap
-			// this regex to require `VueExample.vue` instead.
-			const sawBuildOutputFrame =
-				/example[/\\]build[/\\]vue[/\\]server[/\\]pages[/\\]VueExample/.test(
-					trace
-				);
-			expect(sawBuildOutputFrame).toBe(true);
+			// Sourcemaps land us back at the .vue source.
+			// compileVue inlines compileScript's sourcemap (with a
+			// blank-line remap to match Bun.Transpiler's output) on
+			// the intermediate; Bun.build's `sourcemap: 'inline'`
+			// emits a map from the final hashed bundle to the
+			// intermediate; `chainBundleInlineSourcemap` composes the
+			// chain post-build because Bun.build doesn't chain
+			// through input inline sourcemaps yet
+			// (BUN_SOURCEMAP_CHAIN_BUG.md). Together: stack frames
+			// for SSR throws point at the .vue file.
+			expect(trace).toMatch(/VueExample\.vue(?::\d+)?/);
 		},
 		60_000
 	);
