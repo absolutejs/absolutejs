@@ -338,6 +338,11 @@ bun test tests/integration/hmr
 | Editing the alias-importing `.vue` file still triggers HMR | [`lifecycle/typescript-path-aliases.test.ts`](tests/integration/hmr/lifecycle/typescript-path-aliases.test.ts) "editing the alias-imported `.vue` file (its own source) still triggers HMR" |
 | bun#30449 stale-source workaround — serverEntry edit lands on the next request (not the cached entry record) | [`lifecycle/bun-entry-stale-source-workaround.test.ts`](tests/integration/hmr/lifecycle/bun-entry-stale-source-workaround.test.ts) |
 | `isAtomicWriteTemp` filters editor tmp filenames (`.tmp`, `~`, `.#`, `.absolutejs-hmr-`, `sed<random>`, `4913`) so the watcher skips them | [`tests/unit/dev/atomic-write-temp-patterns.test.ts`](tests/unit/dev/atomic-write-temp-patterns.test.ts) (unit) |
+| 20 concurrent `/vue` fetches across a tier-0 edit window never produce 5xx or empty bodies | [`lifecycle/ssr-mid-rebuild-race.test.ts`](tests/integration/hmr/lifecycle/ssr-mid-rebuild-race.test.ts) "20 concurrent /vue fetches" |
+| 40 fetches across 4 rapid Svelte edits never produce 5xx or empty bodies | [`lifecycle/ssr-mid-rebuild-race.test.ts`](tests/integration/hmr/lifecycle/ssr-mid-rebuild-race.test.ts) "40 fetches across 4 rapid Svelte edits" |
+| Dev-server RSS stays within 3× the warmed baseline across 100 Vue HMR cycles (Linux-only) | [`lifecycle/dev-server-memory-ratchet.test.ts`](tests/integration/hmr/lifecycle/dev-server-memory-ratchet.test.ts) |
+| SSR error logging — thrown `Error` from a Vue SFC surfaces in dev-server stderr with a frame from the compiled SSR JS | [`lifecycle/sourcemap-stack-traces.test.ts`](tests/integration/hmr/lifecycle/sourcemap-stack-traces.test.ts) |
+| Behavioral snapshot: natural `delete cache + await import` pattern on `bun --hot` after atomic-rename — currently returns fresh bytes (tripwire for the sibling-copy workaround's necessity) | [`lifecycle/bun-entry-natural-pattern-sentinel.test.ts`](tests/integration/hmr/lifecycle/bun-entry-natural-pattern-sentinel.test.ts) |
 
 ---
 
@@ -405,6 +410,20 @@ bun test tests/integration/hmr
   ordering and the watcher's 100ms dedupe. The atomic-write
   filter regex itself is unit-tested
   (`tests/unit/dev/atomic-write-temp-patterns.test.ts`).
+- **Vue SSR build output is emitted without sourcemaps.**
+  When a Vue SFC throws during SSR, the dev runtime catches the
+  error and renders `ssrErrorPage` to the browser, but the
+  underlying stack frames in stderr point at the compiled
+  `example/build/vue/server/pages/VueExample.<hash>.js` file
+  (with that file's line numbers), not at the original `.vue`
+  source. The compileVue pipeline doesn't emit inline
+  sourcemaps and Bun's runtime can't thread back to the
+  authored source. `lifecycle/sourcemap-stack-traces.test.ts`
+  asserts the visibility contract (sentinel + frame format in
+  stderr) and pins the current build-output frame shape as a
+  snapshot; tighten it to require `VueExample.vue` once
+  sourcemaps land. Same likely affects Svelte and Angular SSR
+  pipelines — verified for Vue only.
 
 ---
 
