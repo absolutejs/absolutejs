@@ -403,19 +403,22 @@ bun test tests/integration/hmr
   post-build. Vue and Svelte SSR stack frames now resolve to
   `.vue` / `.svelte` source through this chain.
 - **Angular SSR stack frames don't map back to the `.ts`
-  source.** `compileAngular` uses `Bun.Transpiler` for
-  per-file TS-stripping + Angular decorator-metadata emission.
-  `Bun.Transpiler` doesn't return a sourcemap and the
-  decorator rewrite reshapes the class body enough that
-  content-matching the original `.ts` only yields trivial
-  mappings (imports). Frames currently land on the on-disk
-  intermediate `.js` under `.absolutejs/generated/angular/...`
-  — a real file the dev can navigate to, just one hop short of
-  the `.ts` they edit. Path forward: replace the per-file
-  `Bun.Transpiler` call with a per-file `Bun.build` pass (which
-  emits its own sourcemap natively) and let
-  `chainBundleInlineSourcemap` compose. Trade-off is some
-  per-file build cost.
+  source.** Filed: oven-sh/bun#30538 — request for
+  `Bun.Transpiler.transformSync` to optionally emit a v3
+  sourcemap. `compileAngular` uses `Bun.Transpiler` for
+  per-file TS-stripping + Angular decorator-metadata emission;
+  `Bun.Transpiler` currently returns only a string. The
+  decorator-metadata rewrite reshapes the class body enough
+  that content-matching the original `.ts` to the transpiled
+  output yields only trivial mappings (imports). Frames
+  currently land on the on-disk intermediate `.js` under
+  `.absolutejs/generated/angular/...` — a real file the dev
+  can navigate to, just one hop short of the `.ts` they edit.
+  When the upstream feature lands, capture the emitted map
+  alongside the code, inline it on the intermediate, and the
+  existing `chainBundleInlineSourcemap` post-build pass for
+  the Angular client bundle will compose the chain through to
+  the user's `.ts` — same shape as the Vue/Svelte fix.
 
 ---
 
