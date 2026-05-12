@@ -50,7 +50,21 @@ const ATOMIC_WRITE_TEMP_PATTERNS: RegExp[] = [
 	/^4913$/
 ];
 
-const isAtomicWriteTemp = (filename: string) =>
+/* Detect filenames produced by atomic-rename editors. These files
+ * appear briefly on disk during a save (the editor writes the new
+ * content to a tmp sibling, then renames it over the original)
+ * and would otherwise trigger a spurious HMR cycle. Patterns:
+ *   - `.tmp` suffix or `.tmp.` substring (generic + Prettier)
+ *   - `~` suffix (Emacs, Vim, some IDEs)
+ *   - `.#…` prefix (Emacs lockfiles)
+ *   - `.absolutejs-hmr-…` prefix (our own Path B sibling copies —
+ *     see serverEntryWatcher.ts header)
+ *   - `sed<random>` (in-place `sed -i` tmp)
+ *   - `4913` (vim's preflight write probe)
+ *
+ * Exported for direct unit testing — the integration suite can
+ * assert the regex set without spinning up a dev server. */
+export const isAtomicWriteTemp = (filename: string) =>
 	filename.endsWith('.tmp') ||
 	filename.includes('.tmp.') ||
 	filename.endsWith('~') ||

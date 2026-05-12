@@ -78,6 +78,7 @@ bun test tests/integration/hmr
 | Service (`.ts` in `angular/`) edits propagate to consuming component on every edit | [`lifecycle/dep-graph-recreate.test.ts`](tests/integration/hmr/lifecycle/dep-graph-recreate.test.ts) |
 | Tailwind utility classes added to Angular templates land in `tailwind.generated.css` | [`lifecycle/tailwind-class-discovery.test.ts`](tests/integration/hmr/lifecycle/tailwind-class-discovery.test.ts) ("Angular template edit lands a fresh utility…") |
 | Template (`.html`) edits propagate | covered by tier-0 SSR test (edits `angular-example.html`) |
+| Browser-side counter state survives a tier-0 template-only edit (`ɵɵreplaceMetadata`) | [`lifecycle/angular-state-preservation.test.ts`](tests/integration/hmr/lifecycle/angular-state-preservation.test.ts) |
 
 ### Tier-decision matrix (`fastHmrCompiler.ts`'s fingerprint comparison)
 
@@ -160,6 +161,7 @@ bun test tests/integration/hmr
 | Page rename + import update → page recovers | [`lifecycle/page-component-rename.test.ts`](tests/integration/hmr/lifecycle/page-component-rename.test.ts) |
 | Scoped style block edits propagate | [`lifecycle/scoped-style-edits.test.ts`](tests/integration/hmr/lifecycle/scoped-style-edits.test.ts) ("svelte scoped style edit lands in SSR HTML") |
 | Composable (`.svelte.ts` / `.ts` inside `svelteDir/`) edit propagates to SSR | [`lifecycle/svelte-composable-ssr.test.ts`](tests/integration/hmr/lifecycle/svelte-composable-ssr.test.ts) |
+| Browser-side `$state` counter survives a template/runes-mode edit (`$.hmr` collect/restore) | [`lifecycle/svelte-state-preservation.test.ts`](tests/integration/hmr/lifecycle/svelte-state-preservation.test.ts) |
 
 ### Svelte 5 deep coverage (runes, control-flow, slots, context)
 
@@ -214,6 +216,9 @@ bun test tests/integration/hmr
 | Tier-0 surgical update → SSR catches up after debounce | [`lifecycle/tier-zero-ssr.test.ts`](tests/integration/hmr/lifecycle/tier-zero-ssr.test.ts) |
 | Scoped `<style scoped>` block edits propagate | [`lifecycle/scoped-style-edits.test.ts`](tests/integration/hmr/lifecycle/scoped-style-edits.test.ts) ("vue scoped style edit lands in SSR HTML") |
 | Composable (`.ts` inside `vueDir/`) edit propagates to SSR | [`lifecycle/vue-composable-ssr.test.ts`](tests/integration/hmr/lifecycle/vue-composable-ssr.test.ts) |
+| Browser-side `ref()` counter survives a template edit (`__VUE_HMR_RUNTIME__.rerender`) | [`lifecycle/vue-state-preservation.test.ts`](tests/integration/hmr/lifecycle/vue-state-preservation.test.ts) |
+| Page-exported `setupApp(app, ctx)` hook receives Vue app + ctx, provide/inject lands in SSR | [`lifecycle/vue-setup-app-hook.test.ts`](tests/integration/hmr/lifecycle/vue-setup-app-hook.test.ts) "setupApp injection lands in SSR HTML" |
+| Editing the `setupApp` body propagates through HMR | [`lifecycle/vue-setup-app-hook.test.ts`](tests/integration/hmr/lifecycle/vue-setup-app-hook.test.ts) "setupApp body edit propagates through HMR" |
 
 ### Vue deep coverage (Composition API, slots, provide/inject)
 
@@ -292,6 +297,7 @@ bun test tests/integration/hmr
 | Fragment endpoint edit propagates via Path B reload | [`lifecycle/htmx-fragment-path-b.test.ts`](tests/integration/hmr/lifecycle/htmx-fragment-path-b.test.ts) |
 | `/htmx/htmx.min.js` is served from `htmxDirectory` | [`lifecycle/htmx-vendor-serving.test.ts`](tests/integration/hmr/lifecycle/htmx-vendor-serving.test.ts) |
 | Tailwind class added to HTMX markup lands in `tailwind.generated.css` | [`lifecycle/tailwind-class-discovery.test.ts`](tests/integration/hmr/lifecycle/tailwind-class-discovery.test.ts) ("HTMX page edit lands a fresh utility…") |
+| Module-level `globalThis`-stashed counter survives an entry edit + Path B reload | [`lifecycle/htmx-state-preservation.test.ts`](tests/integration/hmr/lifecycle/htmx-state-preservation.test.ts) |
 
 ### HTMX deeper coverage (hx-* attributes + fragment endpoints)
 
@@ -325,6 +331,13 @@ bun test tests/integration/hmr
 | Same-basename pages in html/ + htmx/ fire collision warning at boot | [`lifecycle/manifest-key-collision.test.ts`](tests/integration/hmr/lifecycle/manifest-key-collision.test.ts) (#223) |
 | Rapid HMR rebuilds never produce 5xx responses for current asset URLs | [`lifecycle/static-serving-race.test.ts`](tests/integration/hmr/lifecycle/static-serving-race.test.ts) (#224) |
 | New page entry mid-session emits `[abs:restart]` for parent CLI | [`lifecycle/new-page-restart.test.ts`](tests/integration/hmr/lifecycle/new-page-restart.test.ts) (#226) |
+| SCSS via Angular `styleUrl` — `$var` substitution lands in SSR-inlined `<style>` block | [`lifecycle/style-preprocessor-roundtrip.test.ts`](tests/integration/hmr/lifecycle/style-preprocessor-roundtrip.test.ts) "SCSS via Angular styleUrl" |
+| Less via Vue `<style lang="less">` block — `@var` interpolation reaches served CSS | [`lifecycle/style-preprocessor-roundtrip.test.ts`](tests/integration/hmr/lifecycle/style-preprocessor-roundtrip.test.ts) "Less in Vue style block" |
+| Stylus via Vue `<style lang="stylus">` block — indentation-based syntax reaches served CSS | [`lifecycle/style-preprocessor-roundtrip.test.ts`](tests/integration/hmr/lifecycle/style-preprocessor-roundtrip.test.ts) "Stylus in Vue style block" |
+| tsconfig `compilerOptions.paths` alias for `.vue` composable resolves at compile time | [`lifecycle/typescript-path-aliases.test.ts`](tests/integration/hmr/lifecycle/typescript-path-aliases.test.ts) "aliased composable import resolves at compile time and SSR renders cleanly" |
+| Editing the alias-importing `.vue` file still triggers HMR | [`lifecycle/typescript-path-aliases.test.ts`](tests/integration/hmr/lifecycle/typescript-path-aliases.test.ts) "editing the alias-imported `.vue` file (its own source) still triggers HMR" |
+| bun#30449 stale-source workaround — serverEntry edit lands on the next request (not the cached entry record) | [`lifecycle/bun-entry-stale-source-workaround.test.ts`](tests/integration/hmr/lifecycle/bun-entry-stale-source-workaround.test.ts) |
+| `isAtomicWriteTemp` filters editor tmp filenames (`.tmp`, `~`, `.#`, `.absolutejs-hmr-`, `sed<random>`, `4913`) so the watcher skips them | [`tests/unit/dev/atomic-write-temp-patterns.test.ts`](tests/unit/dev/atomic-write-temp-patterns.test.ts) (unit) |
 
 ---
 
@@ -365,6 +378,33 @@ bun test tests/integration/hmr
   `generateETag` reads the previous hash and bubbles ENOENT
   through the request handler. Real users hit rarely; restart
   resolves.
+- **Angular path-alias `paths` config trips NG0203 at SSR.**
+  `readTsconfigPathAliases` (compileAngular.ts) wires tsconfig
+  paths into the Angular pipeline, but adding a `paths` entry
+  for component imports causes Angular to resolve `@angular/core`
+  along two paths; SSR throws NG0203. Vue alias path is
+  unaffected and is the canonical contract test
+  (`lifecycle/typescript-path-aliases.test.ts`). Separate fix needed
+  for the Angular compile graph.
+- **Less / Stylus via Angular `styleUrl` is async-only.**
+  `compileStyleFileIfNeededSync` deliberately errors on
+  Less/Stylus because their compilers expose only an async API
+  and Angular's `styleUrl` resolution is sync. Vue's
+  `<style lang="…">` path uses the async preprocessor pipeline
+  and supports both
+  (`lifecycle/style-preprocessor-roundtrip.test.ts`).
+- **SCSS partial (`@use` / `@import`) leaf-edit propagation
+  through Angular `styleUrl`.** The integration test verifies
+  root SCSS-file edits land in SSR; deeper @use partial-graph
+  reverse-link follow-through is not yet asserted end-to-end.
+- **bun#30449 multi-cycle stability and sibling-unlink filter.**
+  Tested for one edit cycle. Repeated entry edits picking up
+  fresh bytes on each iteration, and the watcher never firing a
+  self-fire HMR loop from the sibling unlink, are racy to assert
+  black-box because they depend on Bun's atomic-write event
+  ordering and the watcher's 100ms dedupe. The atomic-write
+  filter regex itself is unit-tested
+  (`tests/unit/dev/atomic-write-temp-patterns.test.ts`).
 
 ---
 
