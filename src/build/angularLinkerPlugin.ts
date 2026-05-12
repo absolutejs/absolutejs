@@ -5,6 +5,9 @@ import type { BunPlugin } from 'bun';
 
 const CACHE_ROOT = resolve('.absolutejs', 'cache', 'angular-linker');
 
+export const ANGULAR_LINKER_CANDIDATE_RE =
+	/[\\/]node_modules[\\/].*\.m?js$/;
+
 /**
  * Bun bundler plugin that runs the Angular Linker on partially compiled
  * Angular libraries at build time. Converts ɵɵngDeclare* declarations
@@ -39,7 +42,7 @@ export const createAngularLinkerPlugin = (
 		const cacheDir = join(CACHE_ROOT, linkerJitMode ? 'jit' : 'aot');
 
 		bld.onLoad(
-			{ filter: /[\\/]@angular[\\/].*\.m?js$/ },
+			{ filter: ANGULAR_LINKER_CANDIDATE_RE },
 			async (args) => {
 				const source = await Bun.file(args.path).text();
 
