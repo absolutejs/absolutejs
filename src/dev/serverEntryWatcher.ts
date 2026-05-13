@@ -1,5 +1,5 @@
 /* Path B (framework-owned backend HMR — see
- * ABSOLUTE_CONFIG_TOGGLE_LIMITATION.md): watch the user's entry file
+ * docs/ABSOLUTE_CONFIG_TOGGLE_LIMITATION.md): watch the user's entry file
  * (`Bun.main`) AND `absolute.config.ts` from inside the bun child.
  *
  * Entry edits → cache-busted dynamic import via the natural

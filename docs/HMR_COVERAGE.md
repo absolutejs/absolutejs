@@ -16,11 +16,11 @@ behavior has been verified by hand against the dev runtime).
   claim against React in this repo would be testing the wrong
   path. **Once #28312 ships and we wire it through
   `moduleServer.ts`'s React transpile, re-run every row of this
-  matrix against React for parity.** See `REACT_TRANSPILER_BUG.md`.
-- **Ember** — Phase 1 shipped (`EMBER_PLAN.md`); HMR layering is
+  matrix against React for parity.** See `docs/REACT_TRANSPILER_BUG.md`.
+- **Ember** — Phase 1 shipped (`docs/EMBER_PLAN.md`); HMR layering is
   a later phase. **Once Ember reaches feature parity with the
   other adapters, re-run every row of this matrix against Ember.**
-  See `EMBER_PLAN.md`, `EMBER_BANDAID.md`.
+  See `docs/EMBER_PLAN.md`, `docs/EMBER_BANDAID.md`.
 
 How to run any test below:
 

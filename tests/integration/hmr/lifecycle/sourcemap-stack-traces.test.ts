@@ -65,7 +65,7 @@ const collectSentinelOutput = (
  * `example/build/vue/server/pages/VueExample.<hash>.js`, NOT at
  * the original `VueExample.vue` source — Vue's SSR build output
  * is emitted without sourcemaps today. That's a documented DX
- * regression listed in HMR_COVERAGE.md's open-issues section.
+ * regression listed in docs/HMR_COVERAGE.md's open-issues section.
  * Tightening this test to require the `.vue` path is the natural
  * follow-up once the Vue compile pipeline starts emitting inline
  * sourcemaps and Bun's runtime threads them through Error.stack.
@@ -127,7 +127,7 @@ describe('SSR error logging reaches dev-server stderr', () => {
 		// intermediate; `chainBundleInlineSourcemap` composes the
 		// chain post-build because Bun.build doesn't chain
 		// through input inline sourcemaps yet
-		// (BUN_SOURCEMAP_CHAIN_BUG.md). Together: stack frames
+		// (docs/BUN_SOURCEMAP_CHAIN_BUG.md). Together: stack frames
 		// for SSR throws point at the .vue file.
 		expect(trace).toMatch(/VueExample\.vue(?::\d+)?/);
 	}, 60_000);
@@ -217,7 +217,7 @@ describe('SSR error logging reaches dev-server stderr', () => {
 		// `.js` under `.absolutejs/generated/angular/...`. The
 		// developer can still open and read that file; line
 		// numbers won't match the `.ts` they edit. Tracked in
-		// HMR_COVERAGE.md open issues as the next step
+		// docs/HMR_COVERAGE.md open issues as the next step
 		// (switching to a per-file Bun.build pass would unlock
 		// chainable sourcemaps for Angular).
 		expect(trace).toMatch(

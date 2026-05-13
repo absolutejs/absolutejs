@@ -2135,7 +2135,7 @@ const buildUnlocked = async ({
 								// Dev-only inline sourcemaps + post-build
 								// chain so SSR error stacks map back to
 								// the .vue source (see
-								// BUN_SOURCEMAP_CHAIN_BUG.md).
+								// docs/BUN_SOURCEMAP_CHAIN_BUG.md).
 								sourcemap: isDev ? 'inline' : 'none',
 								target: 'bun',
 								throw: false,
@@ -2301,7 +2301,7 @@ const buildUnlocked = async ({
 	const serverLogs = serverResult?.logs ?? [];
 	const serverOutputs = serverResult?.outputs ?? [];
 
-	// Dev-mode sourcemap chain (BUN_SOURCEMAP_CHAIN_BUG.md). Bun.build
+	// Dev-mode sourcemap chain (docs/BUN_SOURCEMAP_CHAIN_BUG.md). Bun.build
 	// emits a map from the final bundle back to the per-framework
 	// intermediate (e.g. compileVue's .absolutejs/generated/vue/.../X.js
 	// which carries its own inline map to the .vue source) but does

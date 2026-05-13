@@ -134,7 +134,7 @@ When `fs.watch(recursive: true)` on Linux reliably delivers
 
 ## Independent of the bun bug
 
-Unlike `BUN_HOT_WATCHER_BUG.md` (which is a Bun `--hot` issue), this
+Unlike `docs/BUN_HOT_WATCHER_BUG.md` (which is a Bun `--hot` issue), this
 one is a **Node `fs.watch` issue**. They're independent. Even when
 Bun fixes `--hot`, we still need this workaround for the framework's
 own internal file watcher (which uses `node:fs.watch`, not bun's

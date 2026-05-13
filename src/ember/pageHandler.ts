@@ -48,7 +48,7 @@ const resolveRequestPathname = (request: Request | undefined) => {
 	}
 };
 
-// EMBER_BANDAID #3 — see `EMBER_BANDAID.md`. Drop once `@ember/renderer`
+// EMBER_BANDAID #3 — see `docs/EMBER_BANDAID.md`. Drop once `@ember/renderer`
 // stops reading `globalThis.Element` to decide whether to clear the
 // target's innerHTML. Upstream fix needed in emberjs/ember.js.
 const installSimpleDomGlobals = () => {

@@ -56,7 +56,6 @@ dist/
 
 # Test build artifacts
 /.test-*/
-docs/
 
 .absolutejs
 .cache/

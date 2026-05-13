@@ -1187,7 +1187,7 @@ const bundleAngularClient = async (
 	}
 
 	// Compose compileAngular's per-intermediate inline map with
-	// Bun.build's output map post-build (BUN_SOURCEMAP_CHAIN_BUG.md).
+	// Bun.build's output map post-build (docs/BUN_SOURCEMAP_CHAIN_BUG.md).
 	const { chainBundleInlineSourcemap } = await import(
 		'../build/chainInlineSourcemaps'
 	);
@@ -2440,7 +2440,7 @@ const runSvelteBundleRebuild = async (
 	await pruneStaleHashedSiblings(serverResult?.outputs);
 
 	// Compose Svelte's per-intermediate inline map with Bun.build's
-	// output map post-build (BUN_SOURCEMAP_CHAIN_BUG.md).
+	// output map post-build (docs/BUN_SOURCEMAP_CHAIN_BUG.md).
 	if (serverResult?.success || clientResult?.success) {
 		const { chainBundleInlineSourcemap } = await import(
 			'../build/chainInlineSourcemaps'
@@ -2856,7 +2856,7 @@ const runVueBundleRebuild = async (
 	await pruneStaleHashedSiblings(cssResult?.outputs);
 
 	// Bandaid for Bun.build not chaining through input inline
-	// sourcemaps (BUN_SOURCEMAP_CHAIN_BUG.md). The intermediate
+	// sourcemaps (docs/BUN_SOURCEMAP_CHAIN_BUG.md). The intermediate
 	// `.absolutejs/generated/vue/.../X.js` files carry inline maps
 	// pointing back to their `.vue` source from `compileVue`;
 	// `Bun.build` emits a map to those intermediates but stops

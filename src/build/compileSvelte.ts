@@ -449,7 +449,7 @@ export const compileSvelte = async (
 		// composes this through to the final hashed bundle (with
 		// `sourcemap: 'inline'`), and `chainBundleInlineSourcemap`
 		// stitches the chain because Bun.build doesn't honour input
-		// inline sourcemaps yet (BUN_SOURCEMAP_CHAIN_BUG.md).
+		// inline sourcemaps yet (docs/BUN_SOURCEMAP_CHAIN_BUG.md).
 		const inlineMap = (map: unknown) =>
 			map
 				? `\n//# sourceMappingURL=data:application/json;base64,${Buffer.from(

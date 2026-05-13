@@ -587,7 +587,7 @@ if (typeof __VUE_HMR_RUNTIME__ !== 'undefined') {
 	// with `sourcemap: 'inline'`, and `chainBundleInlineSourcemap`
 	// stitches Bun.build's output map onto this one because Bun.build
 	// itself doesn't chain through input inline sourcemaps yet
-	// (BUN_SOURCEMAP_CHAIN_BUG.md).
+	// (docs/BUN_SOURCEMAP_CHAIN_BUG.md).
 	const inlineSourceMapFor = (finalContent: string) => {
 		if (!compiledScript.map || !hasScript) return '';
 		const remap = buildLineRemap(strippedScript, finalContent);

@@ -9,7 +9,7 @@ sibling [oven-sh/bun#6173](https://github.com/oven-sh/bun/issues/6173)
 `LinkerContext.zig` plumbing to consume it), and the sibling feature
 request [oven-sh/bun#30538](https://github.com/oven-sh/bun/issues/30538)
 asking `Bun.Transpiler.transformSync` to optionally emit a sourcemap
-(the Angular blocker — see `HMR_COVERAGE.md`'s open-issues entry).
+(the Angular blocker — see `docs/HMR_COVERAGE.md`'s open-issues entry).
 Same root family: Bun's compile/bundle stack doesn't return / compose
 v3 sourcemaps consistently across `Bun.Transpiler`, `BunPlugin.onLoad`,
 and `Bun.build`. #20865's linker plumbing likely covers the file-input
@@ -176,7 +176,7 @@ the chainer becomes dead weight. Delete in this order:
    — the `VueExample.vue` assertion still holds; only the path the
    chain travels changes.
 5. Mark this file resolved and remove the open-issues entry from
-   `HMR_COVERAGE.md`.
+   `docs/HMR_COVERAGE.md`.
 
 No version pinning required — the chainer's behavior is idempotent
 when Bun does the work itself (composing a map that already points at

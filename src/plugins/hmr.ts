@@ -231,7 +231,7 @@ export const hmr = (
 		// fetch this. The default export is the
 		// `${ClassName}_UpdateMetadata` callback that
 		// `ɵɵreplaceMetadata` runs against the LIVE class — see
-		// ABSOLUTEJS_ANGULAR_HMR.md for the architecture.
+		// docs/ABSOLUTEJS_ANGULAR_HMR.md for the architecture.
 		// Wildcard `/@ng/*` (rather than exact `/@ng/component`)
 		// because Elysia's tree router doesn't match exact paths
 		// reliably when the leading segment starts with `@` —

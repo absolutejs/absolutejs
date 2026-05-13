@@ -63,7 +63,7 @@ const getPreprocessor = async () => {
 };
 
 /**
- * Tracked-by: EMBER_PLAN.md §0.1 "Stage-3 decorator migration".
+ * Tracked-by: docs/EMBER_PLAN.md §0.1 "Stage-3 decorator migration".
  *
  * Glimmer's `@tracked` decorator (and Ember's `@service`, `@action`, etc.)
  * are written for the legacy stage-1 / TypeScript decorator semantics —
@@ -79,7 +79,7 @@ const getPreprocessor = async () => {
  * break.
  *
  * Drop both flags once Glimmer migrates `@tracked` (and friends) to
- * stage-3. EMBER_PLAN.md §0.1 documents what to watch for and the
+ * stage-3. docs/EMBER_PLAN.md §0.1 documents what to watch for and the
  * contingency if upstream never ships the migration.
  */
 const transpiler = new Transpiler({
@@ -207,7 +207,7 @@ export const importSync = (specifier) => {
 `;
 
 /**
- * EMBER_BANDAID #1 — see `EMBER_BANDAID.md`. Drop the @ember/* /
+ * EMBER_BANDAID #1 — see `docs/EMBER_BANDAID.md`. Drop the @ember/* /
  * @glimmer/* / @simple-dom/* `onResolve` rules once
  * https://github.com/oven-sh/bun/issues/30187 ships. The
  * @embroider/macros virtualization stays regardless (separate concern).
@@ -333,7 +333,7 @@ const createEmberServerResolverPlugin = (
  * also installs the polyfill before invoking the bundle, but having it
  * here too makes the bundle robust to being called in isolation.
  */
-// EMBER_BANDAID #3 — see `EMBER_BANDAID.md`. Drop `installSimpleDomGlobals`
+// EMBER_BANDAID #3 — see `docs/EMBER_BANDAID.md`. Drop `installSimpleDomGlobals`
 // once `@ember/renderer` stops doing `into instanceof Element` against
 // the global Element constructor (upstream renderer fix needed).
 const generateServerHarness = (pageModulePath: string) => `\

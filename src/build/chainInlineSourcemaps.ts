@@ -1,5 +1,5 @@
 /* Bandaid for oven-sh/bun: `Bun.build` does not chain through input
- * files' inline sourcemap comments. See `BUN_SOURCEMAP_CHAIN_BUG.md`
+ * files' inline sourcemap comments. See `docs/BUN_SOURCEMAP_CHAIN_BUG.md`
  * for repro, upstream tracking, and removal criteria.
  *
  * What this module does: takes a built file whose inline sourcemap

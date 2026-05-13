@@ -204,7 +204,7 @@ const generateVendorEntrySource = (resolution: EmberSpecifierResolution) => {
 };
 
 /**
- * EMBER_BANDAID #1 — see `EMBER_BANDAID.md`. Drop this plugin once
+ * EMBER_BANDAID #1 — see `docs/EMBER_BANDAID.md`. Drop this plugin once
  * https://github.com/oven-sh/bun/issues/30187 ships in a Bun release.
  *
  * Bun.build plugin that intercepts every `@ember/*`, `@glimmer/*`,

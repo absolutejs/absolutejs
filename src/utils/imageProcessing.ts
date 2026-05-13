@@ -26,7 +26,7 @@ const BLUR_SIZE = 8;
 const BLUR_QUALITY = 70;
 const BLUR_DEVIATION = 20;
 
-// ── Sharp Loading ──────────────────────────────────────────────────
+// ── Sharp Loading (AVIF fallback only — see docs/SHARP_REMOVAL.md) ─
 
 let sharpModule: unknown = undefined;
 let sharpLoaded = false;
@@ -93,20 +93,17 @@ type SharpFactory = (input: Buffer) => SharpPipeline;
 const isSharpFactory = (value: unknown): value is SharpFactory =>
 	typeof value === 'function';
 
-/** Convert sharp dynamic import result to a callable factory */
-const callSharp = (sharpRef: unknown, input: Buffer) => {
-	if (!isSharpFactory(sharpRef)) {
-		throw new Error('Loaded sharp module is not callable.');
-	}
-
-	return sharpRef(input);
-};
-
 const toBuffer = (input: Buffer | ArrayBuffer) => {
 	if (Buffer.isBuffer(input)) return input;
 
 	return Buffer.from(input);
 };
+
+const isUnsupportedFormatError = (err: unknown) =>
+	typeof err === 'object' &&
+	err !== null &&
+	'code' in err &&
+	(err as { code?: string }).code === 'ERR_IMAGE_FORMAT_UNSUPPORTED';
 
 // ── Exports (alphabetically sorted) ────────────────────────────────
 
@@ -127,11 +124,7 @@ export type CacheMeta = {
 export const formatToMime = (format: ImageFormat) => MIME_MAP[format];
 
 export const generateBlurDataURL = async (buffer: Buffer | ArrayBuffer) => {
-	const sharp = await tryLoadSharp();
-
-	if (!sharp) return '';
-
-	const tiny: Buffer = await callSharp(sharp, toBuffer(buffer))
+	const tiny = await new Bun.Image(toBuffer(buffer))
 		.resize(BLUR_SIZE, BLUR_SIZE, { fit: 'inside' })
 		.webp({ quality: BLUR_QUALITY })
 		.toBuffer();
@@ -141,7 +134,7 @@ export const generateBlurDataURL = async (buffer: Buffer | ArrayBuffer) => {
 
 export const generateBlurSvg = (base64Thumbnail: string) => {
 	// Match Next.js: wrap tiny thumbnail in SVG with Gaussian blur
-	const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320"><filter id="b" color-interpolation-filters="sRGB"><feGaussianBlur stdDeviation="${BLUR_DEVIATION}"/><feColorMatrix values="1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 100 -1"/></filter><image filter="url(#b)" x="0" y="0" width="100%" height="100%" href="${base64Thumbnail}"/></svg>`;
+	const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320"><filter id="b" color-interpolation-filters="sRGB"><feGaussianBlur stdDeviation="${BLUR_DEVIATION}"/><feColorMatrix values="1 0 0 0 0 0 1 0 0 0 0 0 100 -1"/></filter><image filter="url(#b)" x="0" y="0" width="100%" height="100%" href="${base64Thumbnail}"/></svg>`;
 
 	const encoded = encodeURIComponent(svg);
 
@@ -289,18 +282,46 @@ export const negotiateFormat = (
 
 const AVIF_QUALITY_OFFSET = 20;
 const AVIF_EFFORT = 3;
+const PNG_COMPRESSION_LEVEL = 9;
 
-export const optimizeImage = async (
-	buffer: Buffer | ArrayBuffer,
+const optimizeWithBunImage = async (
+	buffer: Buffer,
 	width: number,
 	quality: number,
 	format: ImageFormat
 ) => {
-	const sharp = await tryLoadSharp();
+	// autoOrient defaults to true — EXIF orientation is applied automatically.
+	// Pipeline order is fixed: autoOrient → rotate → flip → resize → modulate.
+	const pipeline = new Bun.Image(buffer).resize(width, undefined, {
+		withoutEnlargement: true
+	});
 
-	if (!sharp) return toBuffer(buffer);
+	switch (format) {
+		case 'avif':
+			return pipeline
+				.avif({
+					quality: Math.max(1, quality - AVIF_QUALITY_OFFSET)
+				})
+				.toBuffer();
+		case 'jpeg':
+			return pipeline.jpeg({ quality }).toBuffer();
+		case 'png':
+			return pipeline
+				.png({ compressionLevel: PNG_COMPRESSION_LEVEL })
+				.toBuffer();
+		case 'webp':
+			return pipeline.webp({ quality }).toBuffer();
+	}
+};
 
-	const pipeline = callSharp(sharp, toBuffer(buffer))
+const optimizeWithSharp = async (
+	sharpRef: SharpFactory,
+	buffer: Buffer,
+	width: number,
+	quality: number,
+	format: ImageFormat
+) => {
+	const pipeline = sharpRef(buffer)
 		.rotate()
 		.resize(width, undefined, { withoutEnlargement: true });
 
@@ -318,8 +339,31 @@ export const optimizeImage = async (
 			return pipeline.png({ quality }).toBuffer();
 		case 'webp':
 			return pipeline.webp({ quality }).toBuffer();
-		default:
-			return toBuffer(buffer);
+	}
+};
+
+export const optimizeImage = async (
+	buffer: Buffer | ArrayBuffer,
+	width: number,
+	quality: number,
+	format: ImageFormat
+) => {
+	const input = toBuffer(buffer);
+
+	try {
+		return await optimizeWithBunImage(input, width, quality, format);
+	} catch (err) {
+		// Bun.Image AVIF encode requires macOS Apple Silicon M3+ or Windows with
+		// AV1 Video Extension — falls back to sharp on other platforms.
+		if (format === 'avif' && isUnsupportedFormatError(err)) {
+			const sharp = await tryLoadSharp();
+
+			if (sharp && isSharpFactory(sharp)) {
+				return optimizeWithSharp(sharp, input, width, quality, format);
+			}
+		}
+
+		throw err;
 	}
 };
 
@@ -362,7 +406,9 @@ export const tryLoadSharp = async () => {
 		sharpWarned = true;
 
 		console.warn(
-			'[image] sharp not installed — serving unoptimized images. Install with: bun add sharp'
+			'[image] AVIF requested but sharp not installed and Bun.Image cannot encode AVIF on this platform. ' +
+				'Install sharp (`bun add sharp`) to enable AVIF, or remove "avif" from your image formats config. ' +
+				'See docs/SHARP_REMOVAL.md for context.'
 		);
 
 		return null;

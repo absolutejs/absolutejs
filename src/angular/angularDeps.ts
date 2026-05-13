@@ -112,4 +112,4 @@ export const getAngularDeps = () => {
 // `tests/fixtures/compile-angular` is wired for compile-time checks
 // only, so end-to-end verification of the SSR core uniqueness fix
 // happens manually in `~/onspark/absolutejs/dealroom` (see
-// ABSOLUTEJS_ANGULAR_HMR.md §3.9).
+// docs/ABSOLUTEJS_ANGULAR_HMR.md §3.9).

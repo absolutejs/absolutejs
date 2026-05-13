@@ -1776,7 +1776,7 @@ export const compileAngularFileJIT = async (
 			// trivial mappings (imports). Server-side stack frames
 			// therefore point at the on-disk intermediate `.js`
 			// under `.absolutejs/generated/angular/...` — a real
-			// file the developer can open. See HMR_COVERAGE.md
+			// file the developer can open. See docs/HMR_COVERAGE.md
 			// open-issues for the path forward (switch the per-file
 			// transpile to a Bun.build pass so we get its native
 			// sourcemap output).

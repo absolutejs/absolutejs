@@ -14,7 +14,7 @@
  * Coverage and the small set of cases that escalate to Tier 1b
  * rebootstrap (heritage from a decorated parent class, exotic
  * decorator-arg shapes) are documented in
- * `ABSOLUTEJS_ANGULAR_HMR.md`. */
+ * `docs/ABSOLUTEJS_ANGULAR_HMR.md`. */
 
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, extname, relative, resolve } from 'node:path';
@@ -2381,7 +2381,7 @@ const extractArrowFieldSig = (cls: ts.ClassDeclaration): string[] => {
  * `inputs` / `outputs` fields in the fingerprint already capture
  * additions and removals via the binding-name list. (Alias-only
  * changes within a stable name list aren't caught — minor known
- * gap, see ABSOLUTEJS_ANGULAR_HMR.md.) */
+ * gap, see docs/ABSOLUTEJS_ANGULAR_HMR.md.) */
 const INPUT_OUTPUT_DECORATORS = new Set(['Input', 'Output']);
 
 const extractMemberDecoratorSig = (cls: ts.ClassDeclaration): string[] => {
@@ -3187,7 +3187,7 @@ ${block}
  * Read once per project root and cached for the lifetime of the
  * dev server. The full coverage matrix for every public option in
  * `@angular/compiler-cli`'s `angularCompilerOptions` is documented
- * in ABSOLUTEJS_ANGULAR_HMR.md §9.2; the short version:
+ * in docs/ABSOLUTEJS_ANGULAR_HMR.md §9.2; the short version:
  *
  * Propagated to IR / parseTemplate:
  *   - preserveWhitespaces, enableI18nLegacyMessageIdFormat,

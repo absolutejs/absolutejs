@@ -487,7 +487,7 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 		// 2. Project-root config files this watcher is the *fallback*
 		//    for. The server entry itself (`server.ts`) is now handled
 		//    in-place by the dev runtime's `serverEntryWatcher` (Path
-		//    B — see ABSOLUTE_CONFIG_TOGGLE_LIMITATION.md): it dynamic-
+		//    B — see docs/ABSOLUTE_CONFIG_TOGGLE_LIMITATION.md): it dynamic-
 		//    imports the entry with a cache-bust query and the
 		//    `networking` plugin swaps the live Bun.serve handler via
 		//    `app.server.reload({ fetch })`. We skip the entry's

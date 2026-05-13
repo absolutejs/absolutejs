@@ -73,7 +73,7 @@ the one that depends on `--hot` and breaks.
 
 We stopped relying on `--hot` for backend reload and own the pipeline
 ourselves via `Bun.serve(...).reload({ fetch, routes: {} })`. See
-`ABSOLUTE_CONFIG_TOGGLE_LIMITATION.md` for the full design rationale.
+`docs/ABSOLUTE_CONFIG_TOGGLE_LIMITATION.md` for the full design rationale.
 Concretely:
 
 - `src/plugins/networking.ts` captures `app.server` to

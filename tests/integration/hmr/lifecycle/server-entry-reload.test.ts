@@ -37,7 +37,7 @@ const startAll = async () => {
  * pinned entry module record.
  *
  * Used to require a sibling-copy workaround for bun#30447/#30449 (see
- * BUN_HOT_WATCHER_BUG.md for the history). The current implementation
+ * docs/BUN_HOT_WATCHER_BUG.md for the history). The current implementation
  * uses the natural `delete require_.cache[entryPath]; await import(entryPath)`
  * pattern; the snapshot in bun-entry-natural-pattern-sentinel.test.ts
  * pins that contract against the current Bun version. */

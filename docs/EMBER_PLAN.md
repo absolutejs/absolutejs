@@ -137,7 +137,8 @@ Phase 1.5 or 1.6):
   those to `globalThis` for the duration of one render and restore
   afterwards (per-request isolation, per `vite-ember-ssr`).
 - Both `EMBER_BANDAID #3` (Element polyfill) and `EMBER_BANDAID #4`
-  (simple-dom serializer split) dissolve in this single migration.
+  (simple-dom serializer split) dissolve in this single migration — see
+  [docs/EMBER_BANDAID.md](docs/EMBER_BANDAID.md).
 - Document the new SSR semantics for users — lifecycle hooks and
   modifiers run during SSR; write SSR-safe hooks.
 

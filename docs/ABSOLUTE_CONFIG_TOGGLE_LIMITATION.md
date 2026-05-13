@@ -69,7 +69,7 @@ the *additive* half of in-place toggle:
 
 But it's only called from `handleCachedReload`, which only fires on a
 Bun `--hot` reload of `server.ts` — and Bun `--hot` is broken for our
-setup (oven-sh/bun#30436, `BUN_HOT_WATCHER_BUG.md`). So this path
+setup (oven-sh/bun#30436, `docs/BUN_HOT_WATCHER_BUG.md`). So this path
 never executes.
 
 `reloadConfig()` in the same file uses regex parsing of the source
@@ -192,7 +192,7 @@ them on the next refactor.
      The entire entry-reload portion of `serverEntryWatcher.ts`
      plus the allowlist entries go away. #30449 becomes moot
      because we no longer trigger the buggy code path.
-     `BUN_HOT_WATCHER_BUG.md` carries the detailed cleanup
+     `docs/BUN_HOT_WATCHER_BUG.md` carries the detailed cleanup
      procedure for this case.
 
    #30436 is the structural blocker; #30449 is downstream of it.
@@ -201,7 +201,7 @@ them on the next refactor.
 #### Original Path B design (kept for context)
 
 Build our own backend hot-module pipeline using `Bun.serve.reload`,
-sidestepping Bun `--hot` entirely. This solves both `BUN_HOT_WATCHER_BUG.md`
+sidestepping Bun `--hot` entirely. This solves both `docs/BUN_HOT_WATCHER_BUG.md`
 *and* config toggle in one design:
 
 1. **Capture the Bun.serve instance.** In `src/plugins/networking.ts`,
@@ -266,7 +266,7 @@ upside is large:
 
 Don't ship Path A alone — it's complexity for a niche. Ship Path B
 when prioritized; until then, the CLI-restart pathway is the
-supported answer. `BUN_HOT_WATCHER_BUG.md` and this doc both point at
+supported answer. `docs/BUN_HOT_WATCHER_BUG.md` and this doc both point at
 the same underlying solution (Path B); shipping it would let us
 delete chunks of both workarounds.
 

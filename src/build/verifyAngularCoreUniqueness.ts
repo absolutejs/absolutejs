@@ -1,6 +1,6 @@
 /* SSR Angular core multi-instance guardrail.
  *
- * Background (see ABSOLUTEJS_ANGULAR_HMR.md §3.9): when an SSR
+ * Background (see docs/ABSOLUTEJS_ANGULAR_HMR.md §3.9): when an SSR
  * build ends up loading two distinct `@angular/core` module
  * instances at runtime, each gets its own `currentInjector`
  * global. `inject()` calls cross the boundary and read the wrong
