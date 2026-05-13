@@ -27,7 +27,7 @@ describe('Angular HMR', () => {
 		client.drain();
 	}, 60_000);
 
-	test('angular page change triggers angular-update', async () => {
+	test('angular page change triggers angular:component-update', async () => {
 		const angularPage = resolve(
 			PROJECT_ROOT,
 			'example/angular/pages/angular-example.ts'
@@ -39,22 +39,21 @@ describe('Angular HMR', () => {
 
 		await client.waitFor('rebuild-start', 15_000);
 
-		// Fast path sends the framework-specific update directly (no rebuild-complete)
-		const update = await client.waitFor('angular-update', 30_000);
-		expect(update.type).toBe('angular-update');
+		// Tier 0 surgical update — see broadcastSurgical in rebuildTrigger.ts.
+		const update = await client.waitFor('angular:component-update', 30_000);
+		expect(update.type).toBe('angular:component-update');
 	}, 60_000);
 
-	test('update message contains framework data', async () => {
+	test('update message contains component id and timestamp', async () => {
 		const updates = client.messages.filter(
-			(m) => m.type === 'angular-update'
+			(m) => m.type === 'angular:component-update'
 		);
 		expect(updates.length).toBeGreaterThan(0);
 		const [first] = updates;
 		if (!first) return;
 		const data = first.data as Record<string, unknown>;
-		expect(data.framework).toBe('angular');
-		expect(data.manifest).toBeDefined();
-		expect(data.sourceFile).toBeDefined();
+		expect(typeof data.id).toBe('string');
+		expect(typeof data.timestamp).toBe('number');
 	});
 
 	test('child component change triggers update', async () => {
@@ -69,7 +68,7 @@ describe('Angular HMR', () => {
 		// Force a real change
 		mutateFile(appComponent, (c) => `${c}\n// hmr-test`);
 
-		const update = await client.waitFor('angular-update', 30_000);
-		expect(update.type).toBe('angular-update');
+		const update = await client.waitFor('angular:component-update', 30_000);
+		expect(update.type).toBe('angular:component-update');
 	}, 60_000);
 });

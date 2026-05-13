@@ -1,8 +1,25 @@
 {
-	"name": "absolute-compile-dependency-stress",
+	"name": "@absolutejs/fixture-compile-dependency-stress",
 	"private": true,
 	"type": "module",
+	"version": "0.0.0",
 	"imports": {
 		"#runtime/*": "./runtime/*.ts"
+	},
+	"dependencies": {
+		"@absolutejs/absolute": "file:../../..",
+		"@angular/animations": "*",
+		"@angular/common": "*",
+		"@angular/compiler": "*",
+		"@angular/core": "*",
+		"@angular/forms": "*",
+		"@angular/platform-browser": "*",
+		"@angular/platform-server": "*",
+		"@angular/router": "*",
+		"@angular/ssr": "*",
+		"elysia": "*",
+		"rxjs": "*",
+		"zone.js": "*",
+		"zustand": "*"
 	}
 }

@@ -316,16 +316,17 @@ const createBuildErrorRecoveryPlugin = () =>
 	new Elysia({ name: 'absolutejs-build-error-recovery' }).onError(
 		{ as: 'global' },
 		async ({ error }) => {
-			const message = error instanceof Error ? error.message : String(error);
+			const message =
+				error instanceof Error ? error.message : String(error);
 			const assetMatch = /^Asset "(.+)" not found in manifest\.$/.exec(
 				message
 			);
 			if (!assetMatch) return undefined;
 			const missingAsset = assetMatch[1] ?? '';
 			const framework =
-				/^(?:[A-Z][a-z]*)*?(Angular|Vue|Svelte|React|Html|Htmx|Ember)/.exec(
-					missingAsset
-				)?.[1]?.toLowerCase() ?? 'absolutejs';
+				/^(?:[A-Z][a-z]*)*?(Angular|Vue|Svelte|React|Html|Htmx|Ember)/
+					.exec(missingAsset)?.[1]
+					?.toLowerCase() ?? 'absolutejs';
 			console.error(
 				`[hmr] Build artifact "${missingAsset}" missing from manifest — ` +
 					`the user likely has a build-time error. Save a fix to trigger ` +

@@ -1,5 +1,5 @@
-import { Elysia } from '__ELYSIA_ENTRY__';
-import { networking, prepare } from '__ABSOLUTE_DIST_INDEX__';
+import { Elysia, t } from 'elysia';
+import { networking, prepare } from '@absolutejs/absolute';
 import { scalePageCount } from './runtime/routes';
 
 await prepare();
@@ -70,12 +70,16 @@ export const server = new Elysia()
 		path: params['*'],
 		search: new URL(request.url).search
 	}))
-	.get('/page-:id', ({ params }) => {
-		const id = Number(params.id);
-		if (!Number.isInteger(id) || id < 0 || id >= scalePageCount) {
-			return new Response('missing scale page', { status: 404 });
-		}
+	.get(
+		'/page-:id',
+		({ params }) => {
+			const id = Number(params.id);
+			if (!Number.isInteger(id) || id < 0 || id >= scalePageCount) {
+				return new Response('missing scale page', { status: 404 });
+			}
 
-		return renderPage(`ROUTE_SCALE_PAGE_${id}`);
-	})
+			return renderPage(`ROUTE_SCALE_PAGE_${id}`);
+		},
+		{ params: t.Object({ id: t.String() }) }
+	)
 	.use(networking);

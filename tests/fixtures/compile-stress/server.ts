@@ -1,6 +1,6 @@
-import { Elysia } from '__ELYSIA_ENTRY__';
-import { asset, networking, prepare } from '__ABSOLUTE_DIST_INDEX__';
-import { handleReactPageRequest } from '__ABSOLUTE_DIST_REACT__';
+import { Elysia } from 'elysia';
+import { asset, networking, prepare } from '@absolutejs/absolute';
+import { handleReactPageRequest } from '@absolutejs/absolute/react';
 import { BoomPage } from './react/pages/boom';
 import { GoodPage } from './react/pages/good';
 import { LinkedPage } from './react/pages/linked';

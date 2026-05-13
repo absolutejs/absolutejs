@@ -47,52 +47,44 @@ const insertStreamSlot = (svelteSource: string, slotId: string) =>
  *      resolves the message would already be in the stdout buffer
  *      if it were going to fire.) */
 describe('collectStreamingSlots option silences the streaming-slot warning', () => {
-	test(
-		'warning fires when handler omits `collectStreamingSlots`',
-		async () => {
-			const page = resolve(
-				PROJECT_ROOT,
-				'example/svelte/pages/SvelteExample.svelte'
-			);
-			mutateFile(page, (c) => insertStreamSlot(c, 'stream-warn-test'));
+	test('warning fires when handler omits `collectStreamingSlots`', async () => {
+		const page = resolve(
+			PROJECT_ROOT,
+			'example/svelte/pages/SvelteExample.svelte'
+		);
+		mutateFile(page, (c) => insertStreamSlot(c, 'stream-warn-test'));
 
-			server = await startDevServer();
-			await (await fetch(`${server.baseUrl}/svelte`)).text();
-			await server.waitForOutput(STREAM_SLOT_WARNING_PATTERN);
-		},
-		30_000
-	);
+		server = await startDevServer();
+		await (await fetch(`${server.baseUrl}/svelte`)).text();
+		await server.waitForOutput(STREAM_SLOT_WARNING_PATTERN);
+	}, 30_000);
 
-	test(
-		'warning is silenced when handler passes `collectStreamingSlots: true`',
-		async () => {
-			const page = resolve(
-				PROJECT_ROOT,
-				'example/svelte/pages/SvelteExample.svelte'
-			);
-			const serverEntry = resolve(PROJECT_ROOT, 'example/server.ts');
-			mutateFile(page, (c) => insertStreamSlot(c, 'stream-ok-test'));
-			mutateFile(serverEntry, (c) =>
-				c.replace(
-					'handleSveltePageRequest<typeof SvelteExample>({',
-					'handleSveltePageRequest<typeof SvelteExample>({\n\t\t\tcollectStreamingSlots: true,'
-				)
-			);
+	test('warning is silenced when handler passes `collectStreamingSlots: true`', async () => {
+		const page = resolve(
+			PROJECT_ROOT,
+			'example/svelte/pages/SvelteExample.svelte'
+		);
+		const serverEntry = resolve(PROJECT_ROOT, 'example/server.ts');
+		mutateFile(page, (c) => insertStreamSlot(c, 'stream-ok-test'));
+		mutateFile(serverEntry, (c) =>
+			c.replace(
+				'handleSveltePageRequest<typeof SvelteExample>({',
+				'handleSveltePageRequest<typeof SvelteExample>({\n\t\t\tcollectStreamingSlots: true,'
+			)
+		);
 
-			server = await startDevServer();
-			await (await fetch(`${server.baseUrl}/svelte`)).text();
-			await (await fetch(`${server.baseUrl}/svelte`)).text();
-			// Allow any pending microtasks to drain before the
-			// absence check (the warning would be emitted synchronously
-			// inside SSR, but stream pumping straddles event-loop
-			// ticks; one tick is enough to flush stdout writes).
-			await new Promise<void>((tick) => setImmediate(tick));
+		server = await startDevServer();
+		await (await fetch(`${server.baseUrl}/svelte`)).text();
+		await (await fetch(`${server.baseUrl}/svelte`)).text();
+		// Allow any pending microtasks to drain before the
+		// absence check (the warning would be emitted synchronously
+		// inside SSR, but stream pumping straddles event-loop
+		// ticks; one tick is enough to flush stdout writes).
+		await new Promise<void>((tick) => setImmediate(tick));
 
-			const sawWarning = server.outputLines.some((line) =>
-				STREAM_SLOT_WARNING_PATTERN.test(line)
-			);
-			expect(sawWarning).toBe(false);
-		},
-		30_000
-	);
+		const sawWarning = server.outputLines.some((line) =>
+			STREAM_SLOT_WARNING_PATTERN.test(line)
+		);
+		expect(sawWarning).toBe(false);
+	}, 30_000);
 });

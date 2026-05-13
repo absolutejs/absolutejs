@@ -121,51 +121,43 @@ const atomicRenameSentinel = (entryPath: string, from: string, to: string) => {
  * to Bun's --hot entry-reload semantics rather than letting them
  * pass silently. */
 describe('bun#30449 natural-pattern sentinel (workaround tripwire)', () => {
-	test(
-		'plain `bun` (no --hot): natural pattern returns fresh bytes after atomic-rename',
-		async () => {
-			tmpDir = mkdtempSync(join(tmpdir(), 'absolutejs-bun-30449-plain-'));
-			const entryPath = resolve(tmpDir, 'entry.ts');
-			const port = await getAvailablePort();
-			writeEntryScript(entryPath, port, 'V0');
-			proc = await spawnEntry(entryPath, port, false);
+	test('plain `bun` (no --hot): natural pattern returns fresh bytes after atomic-rename', async () => {
+		tmpDir = mkdtempSync(join(tmpdir(), 'absolutejs-bun-30449-plain-'));
+		const entryPath = resolve(tmpDir, 'entry.ts');
+		const port = await getAvailablePort();
+		writeEntryScript(entryPath, port, 'V0');
+		proc = await spawnEntry(entryPath, port, false);
 
-			expect(await (await fetch(`http://localhost:${port}`)).text()).toBe(
-				'V0'
-			);
-			atomicRenameSentinel(entryPath, 'V0', 'V1');
-			await new Promise((r) => setTimeout(r, 200));
-			expect(await (await fetch(`http://localhost:${port}`)).text()).toBe(
-				'V1'
-			);
-		},
-		30_000
-	);
+		expect(await (await fetch(`http://localhost:${port}`)).text()).toBe(
+			'V0'
+		);
+		atomicRenameSentinel(entryPath, 'V0', 'V1');
+		await new Promise((r) => setTimeout(r, 200));
+		expect(await (await fetch(`http://localhost:${port}`)).text()).toBe(
+			'V1'
+		);
+	}, 30_000);
 
-	test(
-		'`bun --hot`: natural pattern currently returns fresh bytes after atomic-rename (snapshot — see header)',
-		async () => {
-			tmpDir = mkdtempSync(join(tmpdir(), 'absolutejs-bun-30449-hot-'));
-			const entryPath = resolve(tmpDir, 'entry.ts');
-			const port = await getAvailablePort();
-			writeEntryScript(entryPath, port, 'V0');
-			proc = await spawnEntry(entryPath, port, true);
+	test('`bun --hot`: natural pattern currently returns fresh bytes after atomic-rename (snapshot — see header)', async () => {
+		tmpDir = mkdtempSync(join(tmpdir(), 'absolutejs-bun-30449-hot-'));
+		const entryPath = resolve(tmpDir, 'entry.ts');
+		const port = await getAvailablePort();
+		writeEntryScript(entryPath, port, 'V0');
+		proc = await spawnEntry(entryPath, port, true);
 
-			expect(await (await fetch(`http://localhost:${port}`)).text()).toBe(
-				'V0'
-			);
-			atomicRenameSentinel(entryPath, 'V0', 'V1');
-			await new Promise((r) => setTimeout(r, 500));
-			const after = await (await fetch(`http://localhost:${port}`)).text();
+		expect(await (await fetch(`http://localhost:${port}`)).text()).toBe(
+			'V0'
+		);
+		atomicRenameSentinel(entryPath, 'V0', 'V1');
+		await new Promise((r) => setTimeout(r, 500));
+		const after = await (await fetch(`http://localhost:${port}`)).text();
 
-			// Snapshot of current --hot behavior on this Bun version.
-			// If this flips to 'V0', see the file header — the
-			// sibling-copy workaround in serverEntryWatcher.ts is
-			// load-bearing. If it stays at 'V1', the workaround may
-			// be removable, but verify against the real AbsoluteJS
-			// server entry before deleting it.
-			expect(after).toBe('V1');
-		},
-		30_000
-	);
+		// Snapshot of current --hot behavior on this Bun version.
+		// If this flips to 'V0', see the file header — the
+		// sibling-copy workaround in serverEntryWatcher.ts is
+		// load-bearing. If it stays at 'V1', the workaround may
+		// be removable, but verify against the real AbsoluteJS
+		// server entry before deleting it.
+		expect(after).toBe('V1');
+	}, 30_000);
 });

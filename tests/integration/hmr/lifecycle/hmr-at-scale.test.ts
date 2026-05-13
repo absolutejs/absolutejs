@@ -2,11 +2,7 @@ import { describe, expect, test, afterEach } from 'bun:test';
 import { resolve } from 'node:path';
 import { startDevServer, type DevServer } from '../../../helpers/devServer';
 import { connectHMR, type HMRClient } from '../../../helpers/ws';
-import {
-	createFile,
-	mutateFile,
-	restoreAllFiles
-} from '../../../helpers/file';
+import { createFile, mutateFile, restoreAllFiles } from '../../../helpers/file';
 
 const PROJECT_ROOT = resolve(import.meta.dir, '..', '..', '..', '..');
 
@@ -51,7 +47,8 @@ const generateScaleComponents = (n: number) => {
 const importAllInPage = (text: string, n: number) => {
 	const imports = Array.from(
 		{ length: n },
-		(_, i) => `import ScaleComp${i} from '../components/_scale/ScaleComp${i}.vue';`
+		(_, i) =>
+			`import ScaleComp${i} from '../components/_scale/ScaleComp${i}.vue';`
 	).join('\n');
 	const usages = Array.from(
 		{ length: n },
@@ -111,10 +108,7 @@ const probeScale = async (n: number): Promise<ScaleProbe> => {
 				`'scale-comp-${compIdx}-EDIT-${i}'`
 			)
 		);
-		await client.waitFor(
-			'vue-tier-zero-ssr-rebuild-complete',
-			60_000
-		);
+		await client.waitFor('vue-tier-zero-ssr-rebuild-complete', 60_000);
 		editLatencies.push(performance.now() - start);
 	}
 	const avgEditMs =
@@ -141,37 +135,29 @@ const probeScale = async (n: number): Promise<ScaleProbe> => {
  * suite starts gating on tighter numbers later, tighten the
  * expects here. */
 describe('HMR scaling — component edit latency at N=50 and N=100', () => {
-	test(
-		'N=50 — cold-start + 10-edit avg stay under loose bounds; numbers reported',
-		async () => {
-			const p = await probeScale(50);
-			console.log(
-				`[hmr-scale] N=${p.n} cold-start=${p.coldStartMs.toFixed(0)}ms ` +
-					`firstEdit=${p.firstEditMs.toFixed(0)}ms ` +
-					`avgEdit=${p.avgEditMs.toFixed(0)}ms maxEdit=${p.maxEditMs.toFixed(0)}ms`
-			);
-			expect(p.coldStartMs).toBeLessThan(60_000);
-			expect(p.firstEditMs).toBeLessThan(20_000);
-			expect(p.avgEditMs).toBeLessThan(15_000);
-			expect(p.maxEditMs).toBeLessThan(30_000);
-		},
-		300_000
-	);
+	test('N=50 — cold-start + 10-edit avg stay under loose bounds; numbers reported', async () => {
+		const p = await probeScale(50);
+		console.log(
+			`[hmr-scale] N=${p.n} cold-start=${p.coldStartMs.toFixed(0)}ms ` +
+				`firstEdit=${p.firstEditMs.toFixed(0)}ms ` +
+				`avgEdit=${p.avgEditMs.toFixed(0)}ms maxEdit=${p.maxEditMs.toFixed(0)}ms`
+		);
+		expect(p.coldStartMs).toBeLessThan(60_000);
+		expect(p.firstEditMs).toBeLessThan(20_000);
+		expect(p.avgEditMs).toBeLessThan(15_000);
+		expect(p.maxEditMs).toBeLessThan(30_000);
+	}, 300_000);
 
-	test(
-		'N=100 — same scenario; checks N=50→N=100 latency ratio stays sub-quadratic',
-		async () => {
-			const p = await probeScale(100);
-			console.log(
-				`[hmr-scale] N=${p.n} cold-start=${p.coldStartMs.toFixed(0)}ms ` +
-					`firstEdit=${p.firstEditMs.toFixed(0)}ms ` +
-					`avgEdit=${p.avgEditMs.toFixed(0)}ms maxEdit=${p.maxEditMs.toFixed(0)}ms`
-			);
-			expect(p.coldStartMs).toBeLessThan(120_000);
-			expect(p.firstEditMs).toBeLessThan(40_000);
-			expect(p.avgEditMs).toBeLessThan(30_000);
-			expect(p.maxEditMs).toBeLessThan(60_000);
-		},
-		600_000
-	);
+	test('N=100 — same scenario; checks N=50→N=100 latency ratio stays sub-quadratic', async () => {
+		const p = await probeScale(100);
+		console.log(
+			`[hmr-scale] N=${p.n} cold-start=${p.coldStartMs.toFixed(0)}ms ` +
+				`firstEdit=${p.firstEditMs.toFixed(0)}ms ` +
+				`avgEdit=${p.avgEditMs.toFixed(0)}ms maxEdit=${p.maxEditMs.toFixed(0)}ms`
+		);
+		expect(p.coldStartMs).toBeLessThan(120_000);
+		expect(p.firstEditMs).toBeLessThan(40_000);
+		expect(p.avgEditMs).toBeLessThan(30_000);
+		expect(p.maxEditMs).toBeLessThan(60_000);
+	}, 600_000);
 });

@@ -288,7 +288,7 @@ const createStripPureAnnotationsPlugin = (): BunPlugin => ({
 	setup(bld) {
 		bld.onLoad({ filter: /\.(?:m?js|cjs)$/ }, async (args) => {
 			const source = await Bun.file(args.path).text();
-			if (!source.includes('@__PURE__')) return null;
+			if (!source.includes('@__PURE__')) return undefined;
 
 			return {
 				contents: source.replace(PURE_ANNOTATION, ''),

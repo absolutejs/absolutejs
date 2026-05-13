@@ -33,26 +33,22 @@ describe('Svelte composable .svelte.ts edit reaches SSR', () => {
 		client.drain();
 	}, 60_000);
 
-	test(
-		'editing counter() adjusts count rendered by SSR',
-		async () => {
-			const composable = resolve(
-				PROJECT_ROOT,
-				'example/svelte/composables/counter.svelte.ts'
-			);
+	test('editing counter() adjusts count rendered by SSR', async () => {
+		const composable = resolve(
+			PROJECT_ROOT,
+			'example/svelte/composables/counter.svelte.ts'
+		);
 
-			client.drain();
-			mutateFile(composable, (c) =>
-				c.replace(
-					'let count = initialCount;',
-					'let count = initialCount + 41;'
-				)
-			);
+		client.drain();
+		mutateFile(composable, (c) =>
+			c.replace(
+				'let count = initialCount;',
+				'let count = initialCount + 41;'
+			)
+		);
 
-			await client.waitFor('svelte-tier-zero-ssr-rebuild-complete');
-			const html = await (await fetch(`${server.baseUrl}/svelte`)).text();
-			expect(html).toContain('count is 41');
-		},
-		15_000
-	);
+		await client.waitFor('svelte-tier-zero-ssr-rebuild-complete');
+		const html = await (await fetch(`${server.baseUrl}/svelte`)).text();
+		expect(html).toContain('count is 41');
+	}, 15_000);
 });

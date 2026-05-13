@@ -118,10 +118,13 @@ describe('broadcastToClients', () => {
 		expect(typeof msg.timestamp).toBe('number');
 	});
 
-	test('removes clients with closed connections', () => {
+	test('removes clients whose send throws', () => {
 		const state = createHMRState(makeConfig());
 		const openClient = makeMockClient(WS_READY_STATE_OPEN);
 		const closedClient = makeMockClient(3); // CLOSED state
+		closedClient.send = mock(() => {
+			throw new Error('socket closed');
+		}) as unknown as HMRWebSocket['send'];
 		state.connectedClients.add(openClient);
 		state.connectedClients.add(closedClient);
 

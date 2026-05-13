@@ -18,7 +18,7 @@
  * rebuilds. The full rebuild costs ~300ms on a medium app, but it
  * happens at most once per `.ts` save, not once per `.html` save. */
 
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { type Dirent, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, extname, join, resolve } from 'node:path';
 import ts from 'typescript';
 
@@ -48,7 +48,7 @@ const isAngularSourceFile = (file: string): boolean =>
 const walkAngularSourceFiles = (root: string): string[] => {
 	const out: string[] = [];
 	const visit = (dir: string) => {
-		let entries: ReturnType<typeof readdirSync>;
+		let entries: Dirent[];
 		try {
 			entries = readdirSync(dir, { withFileTypes: true });
 		} catch {

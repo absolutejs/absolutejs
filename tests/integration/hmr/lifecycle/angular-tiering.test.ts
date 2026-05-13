@@ -78,186 +78,140 @@ const waitForAngularTier = (c: HMRClient, deadlineMs = 12_000) =>
 	]);
 
 describe('Angular tier-0 surgical (cosmetic guts → ɵɵreplaceMetadata)', () => {
-	test(
-		'method body change is tier-0',
-		async () => {
-			const { client: c } = await startAndConnect();
-			mutateFile(counterComponent, (c) =>
-				c.replace('this.count++;', 'this.count = this.count + 2;')
-			);
-			const msg = await waitForAngularTier(c);
-			expect(msg.type).toBe('angular:component-update');
-		},
-		30_000
-	);
+	test('method body change is tier-0', async () => {
+		const { client: c } = await startAndConnect();
+		mutateFile(counterComponent, (c) =>
+			c.replace('this.count++;', 'this.count = this.count + 2;')
+		);
+		const msg = await waitForAngularTier(c);
+		expect(msg.type).toBe('angular:component-update');
+	}, 30_000);
 
-	test(
-		'external `templateUrl` HTML edit is tier-0',
-		async () => {
-			const { client: c } = await startAndConnect();
-			mutateFile(counterTemplate, (c) =>
-				c.replace('count is', 'tally is')
-			);
-			const msg = await waitForAngularTier(c);
-			expect(msg.type).toBe('angular:component-update');
-		},
-		30_000
-	);
+	test('external `templateUrl` HTML edit is tier-0', async () => {
+		const { client: c } = await startAndConnect();
+		mutateFile(counterTemplate, (c) => c.replace('count is', 'tally is'));
+		const msg = await waitForAngularTier(c);
+		expect(msg.type).toBe('angular:component-update');
+	}, 30_000);
 
-	test(
-		'field initializer value change is tier-0 (name set unchanged)',
-		async () => {
-			const { client: c } = await startAndConnect();
-			mutateFile(counterComponent, (c) =>
-				c.replace('count: number = 0;', 'count: number = 100;')
-			);
-			const msg = await waitForAngularTier(c);
-			expect(msg.type).toBe('angular:component-update');
-		},
-		30_000
-	);
+	test('field initializer value change is tier-0 (name set unchanged)', async () => {
+		const { client: c } = await startAndConnect();
+		mutateFile(counterComponent, (c) =>
+			c.replace('count: number = 0;', 'count: number = 100;')
+		);
+		const msg = await waitForAngularTier(c);
+		expect(msg.type).toBe('angular:component-update');
+	}, 30_000);
 });
 
 describe('Angular tier-1a remount (public-API / scoping change → createComponent)', () => {
-	test(
-		'adding a new `@Input()` field forces remount',
-		async () => {
-			const { client: c } = await startAndConnect();
-			mutateFile(counterComponent, (c) =>
-				c.replace(
-					'@Input() initialCount: number = 0;',
-					'@Input() initialCount: number = 0;\n\t@Input() multiplier: number = 2;'
-				)
-			);
-			const msg = await waitForAngularTier(c);
-			expect(msg.type).toBe('angular:component-remount');
-		},
-		30_000
-	);
+	test('adding a new `@Input()` field forces remount', async () => {
+		const { client: c } = await startAndConnect();
+		mutateFile(counterComponent, (c) =>
+			c.replace(
+				'@Input() initialCount: number = 0;',
+				'@Input() initialCount: number = 0;\n\t@Input() multiplier: number = 2;'
+			)
+		);
+		const msg = await waitForAngularTier(c);
+		expect(msg.type).toBe('angular:component-remount');
+	}, 30_000);
 
-	test(
-		'switching `ChangeDetectionStrategy` to OnPush forces remount',
-		async () => {
-			const { client: c } = await startAndConnect();
-			mutateFile(counterComponent, (c) =>
-				c
-					.replace(
-						"import { Component, Input } from '@angular/core';",
-						"import { ChangeDetectionStrategy, Component, Input } from '@angular/core';"
-					)
-					.replace(
-						'@Component({',
-						'@Component({\n\tchangeDetection: ChangeDetectionStrategy.OnPush,'
-					)
-			);
-			const msg = await waitForAngularTier(c);
-			expect(msg.type).toBe('angular:component-remount');
-		},
-		30_000
-	);
-
-	test(
-		'switching `encapsulation` to ShadowDom forces remount',
-		async () => {
-			const { client: c } = await startAndConnect();
-			mutateFile(appComponent, (c) =>
-				c.replace(
-					'encapsulation: ViewEncapsulation.None,',
-					'encapsulation: ViewEncapsulation.ShadowDom,'
+	test('switching `ChangeDetectionStrategy` to OnPush forces remount', async () => {
+		const { client: c } = await startAndConnect();
+		mutateFile(counterComponent, (c) =>
+			c
+				.replace(
+					"import { Component, Input } from '@angular/core';",
+					"import { ChangeDetectionStrategy, Component, Input } from '@angular/core';"
 				)
-			);
-			const msg = await waitForAngularTier(c);
-			expect(msg.type).toBe('angular:component-remount');
-		},
-		30_000
-	);
-
-	test(
-		'adding `host: {...}` bindings forces remount',
-		async () => {
-			const { client: c } = await startAndConnect();
-			mutateFile(dropdownComponent, (c) =>
-				c.replace(
-					"selector: 'app-dropdown',",
-					"selector: 'app-dropdown',\n\thost: { 'data-test': 'remount-host' },"
+				.replace(
+					'@Component({',
+					'@Component({\n\tchangeDetection: ChangeDetectionStrategy.OnPush,'
 				)
-			);
-			const msg = await waitForAngularTier(c);
-			expect(msg.type).toBe('angular:component-remount');
-		},
-		30_000
-	);
+		);
+		const msg = await waitForAngularTier(c);
+		expect(msg.type).toBe('angular:component-remount');
+	}, 30_000);
+
+	test('switching `encapsulation` to ShadowDom forces remount', async () => {
+		const { client: c } = await startAndConnect();
+		mutateFile(appComponent, (c) =>
+			c.replace(
+				'encapsulation: ViewEncapsulation.None,',
+				'encapsulation: ViewEncapsulation.ShadowDom,'
+			)
+		);
+		const msg = await waitForAngularTier(c);
+		expect(msg.type).toBe('angular:component-remount');
+	}, 30_000);
+
+	test('adding `host: {...}` bindings forces remount', async () => {
+		const { client: c } = await startAndConnect();
+		mutateFile(dropdownComponent, (c) =>
+			c.replace(
+				"selector: 'app-dropdown',",
+				"selector: 'app-dropdown',\n\thost: { 'data-test': 'remount-host' },"
+			)
+		);
+		const msg = await waitForAngularTier(c);
+		expect(msg.type).toBe('angular:component-remount');
+	}, 30_000);
 });
 
 describe('Angular tier-1b rebootstrap (structural / DI change → full reboot)', () => {
-	test(
-		'mutating the `imports: [...]` array forces rebootstrap',
-		async () => {
-			const { client: c } = await startAndConnect();
-			// Order-sensitive: reordering counts as a structural change
-			// (the fast extractor hashes the array text). Reordering
-			// here avoids needing a real new component to import.
-			mutateFile(appComponent, (c) =>
-				c.replace(
-					'imports: [CommonModule, CounterComponent],',
-					'imports: [CounterComponent, CommonModule],'
-				)
-			);
-			const msg = await waitForAngularTier(c);
-			expect(msg.type).toBe('angular:rebootstrap');
-		},
-		30_000
-	);
+	test('mutating the `imports: [...]` array forces rebootstrap', async () => {
+		const { client: c } = await startAndConnect();
+		// Order-sensitive: reordering counts as a structural change
+		// (the fast extractor hashes the array text). Reordering
+		// here avoids needing a real new component to import.
+		mutateFile(appComponent, (c) =>
+			c.replace(
+				'imports: [CommonModule, CounterComponent],',
+				'imports: [CounterComponent, CommonModule],'
+			)
+		);
+		const msg = await waitForAngularTier(c);
+		expect(msg.type).toBe('angular:rebootstrap');
+	}, 30_000);
 
-	test(
-		'adding component-level `providers` forces rebootstrap',
-		async () => {
-			const { client: c } = await startAndConnect();
-			mutateFile(counterComponent, (c) =>
-				c.replace(
-					"selector: 'app-counter',",
-					"selector: 'app-counter',\n\tproviders: [],"
-				)
-			);
-			const msg = await waitForAngularTier(c);
-			expect(msg.type).toBe('angular:rebootstrap');
-		},
-		30_000
-	);
+	test('adding component-level `providers` forces rebootstrap', async () => {
+		const { client: c } = await startAndConnect();
+		mutateFile(counterComponent, (c) =>
+			c.replace(
+				"selector: 'app-counter',",
+				"selector: 'app-counter',\n\tproviders: [],"
+			)
+		);
+		const msg = await waitForAngularTier(c);
+		expect(msg.type).toBe('angular:rebootstrap');
+	}, 30_000);
 
-	test(
-		'adding `hostDirectives: []` forces rebootstrap',
-		async () => {
-			const { client: c } = await startAndConnect();
-			mutateFile(dropdownComponent, (c) =>
-				c.replace(
-					'standalone: true,',
-					'standalone: true,\n\thostDirectives: [],'
-				)
-			);
-			const msg = await waitForAngularTier(c);
-			expect(msg.type).toBe('angular:rebootstrap');
-		},
-		30_000
-	);
+	test('adding `hostDirectives: []` forces rebootstrap', async () => {
+		const { client: c } = await startAndConnect();
+		mutateFile(dropdownComponent, (c) =>
+			c.replace(
+				'standalone: true,',
+				'standalone: true,\n\thostDirectives: [],'
+			)
+		);
+		const msg = await waitForAngularTier(c);
+		expect(msg.type).toBe('angular:rebootstrap');
+	}, 30_000);
 
-	test(
-		'editing a `routes` page-level export forces rebootstrap (pageExportsSig)',
-		async () => {
-			const { client: c } = await startAndConnect();
-			// `routes` is one of the page-level export names the fast
-			// extractor fingerprints via `pageExportsSig`. The example
-			// page doesn't export `routes` today, so we add one — the
-			// presence-or-absence of the export is what flips the hash.
-			mutateFile(pageComponent, (c) =>
-				c.replace(
-					'export const page = defineAngularPage<AngularPageProps>({',
-					'export const routes = [];\n\nexport const page = defineAngularPage<AngularPageProps>({'
-				)
-			);
-			const msg = await waitForAngularTier(c);
-			expect(msg.type).toBe('angular:rebootstrap');
-		},
-		30_000
-	);
+	test('editing a `routes` page-level export forces rebootstrap (pageExportsSig)', async () => {
+		const { client: c } = await startAndConnect();
+		// `routes` is one of the page-level export names the fast
+		// extractor fingerprints via `pageExportsSig`. The example
+		// page doesn't export `routes` today, so we add one — the
+		// presence-or-absence of the export is what flips the hash.
+		mutateFile(pageComponent, (c) =>
+			c.replace(
+				'export const page = defineAngularPage<AngularPageProps>({',
+				'export const routes = [];\n\nexport const page = defineAngularPage<AngularPageProps>({'
+			)
+		);
+		const msg = await waitForAngularTier(c);
+		expect(msg.type).toBe('angular:rebootstrap');
+	}, 30_000);
 });

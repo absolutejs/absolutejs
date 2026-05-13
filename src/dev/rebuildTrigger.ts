@@ -682,9 +682,7 @@ export const queueFileChange = async (
 		const normalizedDir = sourceDir.replace(/\\/g, '/');
 		if (!normalizedSource.startsWith(normalizedDir + '/')) return false;
 		try {
-			const relFromDir = normalizedSource.slice(
-				normalizedDir.length + 1
-			);
+			const relFromDir = normalizedSource.slice(normalizedDir.length + 1);
 			const buildDir = state.resolvedPaths.buildDir;
 			const destPath = resolve(
 				buildDir,
@@ -1333,7 +1331,12 @@ const decideAngularTier = async (
 	angularDir: string
 ): Promise<AngularHmrVerdict> => {
 	const userEdited = state.lastUserEditedFiles ?? new Set<string>();
-	if (userEdited.size === 0) return { queue: [], tier: 0 };
+	if (userEdited.size === 0)
+		return {
+			breakdown: { compileMs: 0, importsMs: 0, resolveMs: 0 },
+			queue: [],
+			tier: 0
+		};
 
 	const importsStart = performance.now();
 	const {
@@ -4557,8 +4560,7 @@ const performFullRebuild = async (
 		}
 		broadcastToClients(state, {
 			data: {
-				cause:
-					filesToRebuild?.filter(isTailwindCandidate) ?? [],
+				cause: filesToRebuild?.filter(isTailwindCandidate) ?? [],
 				framework: 'tailwind',
 				manifest
 			},

@@ -33,10 +33,7 @@ declare global {
 	 *  framework-owned backend HMR — see ABSOLUTE_CONFIG_TOGGLE_LIMITATION.md)
 	 *  detect this and call `.reload({ fetch })` on the existing server
 	 *  instead of re-binding the port. Stays unset outside dev. */
-	var __absoluteBunServer:
-		| import('bun').Server
-		| null
-		| undefined;
+	var __absoluteBunServer: import('bun').Server | null | undefined;
 
 	/** Snapshot of the previous Elysia instance's `app.store` reference,
 	 *  captured by the `networking` plugin at first listen and refreshed

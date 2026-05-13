@@ -73,112 +73,98 @@ const waitForBundleAndFetch = async (
  *     the child's fingerprint, and the resulting SSR should reflect
  *     both edits' effects. */
 describe('Angular multi-file edits propagate correctly', () => {
-	test(
-		'editing counter template (child) reaches /angular SSR (page renders fresh child)',
-		async () => {
-			const srv = await startAndConnect();
-			if (!client) throw new Error('client missing');
+	test('editing counter template (child) reaches /angular SSR (page renders fresh child)', async () => {
+		const srv = await startAndConnect();
+		if (!client) throw new Error('client missing');
 
-			// Counter's template ships inside AppComponent, which ships
-			// inside the page. Editing the leaf-most template must
-			// propagate all the way to the page-level SSR HTML.
-			mutateFile(counterTemplate, (c) =>
-				c.replace('count is', 'A_TO_B_PROPAGATED')
-			);
+		// Counter's template ships inside AppComponent, which ships
+		// inside the page. Editing the leaf-most template must
+		// propagate all the way to the page-level SSR HTML.
+		mutateFile(counterTemplate, (c) =>
+			c.replace('count is', 'A_TO_B_PROPAGATED')
+		);
 
-			const html = await waitForBundleAndFetch(client, srv);
-			expect(html).toContain('A_TO_B_PROPAGATED');
-		},
-		60_000
-	);
+		const html = await waitForBundleAndFetch(client, srv);
+		expect(html).toContain('A_TO_B_PROPAGATED');
+	}, 60_000);
 
-	test(
-		'editing parent (app.component) while child (counter) stays untouched still re-renders subtree',
-		async () => {
-			const srv = await startAndConnect();
-			if (!client) throw new Error('client missing');
+	test('editing parent (app.component) while child (counter) stays untouched still re-renders subtree', async () => {
+		const srv = await startAndConnect();
+		if (!client) throw new Error('client missing');
 
-			mutateFile(appComponent, (c) =>
-				c.replace(
-					'@Input() initialCount: number = 0;',
-					'@Input() initialCount: number = 0;\n\tparentSentinel = "PARENT_RENDERED";'
-				)
-			);
-			const appTemplate = resolve(
-				PROJECT_ROOT,
-				'example/angular/templates/app.component.html'
-			);
-			mutateFile(appTemplate, (c) =>
-				`${c}\n<span>{{ parentSentinel }}</span>\n`
-			);
+		mutateFile(appComponent, (c) =>
+			c.replace(
+				'@Input() initialCount: number = 0;',
+				'@Input() initialCount: number = 0;\n\tparentSentinel = "PARENT_RENDERED";'
+			)
+		);
+		const appTemplate = resolve(
+			PROJECT_ROOT,
+			'example/angular/templates/app.component.html'
+		);
+		mutateFile(
+			appTemplate,
+			(c) => `${c}\n<span>{{ parentSentinel }}</span>\n`
+		);
 
-			const html = await waitForBundleAndFetch(client, srv);
-			expect(html).toContain('PARENT_RENDERED');
-			// Child is still rendered too (the @Input(initialCount)
-			// flow still wires through).
-			expect(html).toContain('count is');
-		},
-		60_000
-	);
+		const html = await waitForBundleAndFetch(client, srv);
+		expect(html).toContain('PARENT_RENDERED');
+		// Child is still rendered too (the @Input(initialCount)
+		// flow still wires through).
+		expect(html).toContain('count is');
+	}, 60_000);
 
-	test(
-		'first edit (no prior fingerprint) still picks the correct tier',
-		async () => {
-			// This is the `primeComponentFingerprint` smoke test —
-			// it verifies that the very first edit to a never-touched
-			// component file in a fresh dev session can correctly
-			// classify as tier-0 (vs. silently undershooting to a no-
-			// op because the fingerprint baseline was undefined).
-			const srv = await startAndConnect();
-			if (!client) throw new Error('client missing');
+	test('first edit (no prior fingerprint) still picks the correct tier', async () => {
+		// This is the `primeComponentFingerprint` smoke test —
+		// it verifies that the very first edit to a never-touched
+		// component file in a fresh dev session can correctly
+		// classify as tier-0 (vs. silently undershooting to a no-
+		// op because the fingerprint baseline was undefined).
+		const srv = await startAndConnect();
+		if (!client) throw new Error('client missing');
 
-			// Counter has not been edited yet in this server's lifetime.
-			// A pure body change should land tier-0.
-			mutateFile(counterComponent, (c) =>
-				c.replace('this.count++;', 'this.count = this.count + 3;')
-			);
+		// Counter has not been edited yet in this server's lifetime.
+		// A pure body change should land tier-0.
+		mutateFile(counterComponent, (c) =>
+			c.replace('this.count++;', 'this.count = this.count + 3;')
+		);
 
-			// Race the three tier broadcasts and require tier-0.
-			const tier = await Promise.race([
-				client.waitFor('angular:component-update', 20_000),
-				client.waitFor('angular:component-remount', 20_000),
-				client.waitFor('angular:rebootstrap', 20_000)
-			]);
-			expect(tier.type).toBe('angular:component-update');
-		},
-		30_000
-	);
+		// Race the three tier broadcasts and require tier-0.
+		const tier = await Promise.race([
+			client.waitFor('angular:component-update', 20_000),
+			client.waitFor('angular:component-remount', 20_000),
+			client.waitFor('angular:rebootstrap', 20_000)
+		]);
+		expect(tier.type).toBe('angular:component-update');
+	}, 30_000);
 
-	test(
-		'simultaneous edits to two different components both apply',
-		async () => {
-			const srv = await startAndConnect();
-			if (!client) throw new Error('client missing');
+	test('simultaneous edits to two different components both apply', async () => {
+		const srv = await startAndConnect();
+		if (!client) throw new Error('client missing');
 
-			// Two unrelated mutations in one save: child template
-			// content + parent component data. Both should surface
-			// in the same SSR pass.
-			mutateFile(counterTemplate, (c) =>
-				c.replace('count is', 'COUNTER_TEXT_CHANGED')
-			);
-			mutateFile(appComponent, (c) =>
-				c.replace(
-					'@Input() initialCount: number = 0;',
-					'@Input() initialCount: number = 0;\n\tappSentinel = "APP_TEXT_CHANGED";'
-				)
-			);
-			const appTemplate = resolve(
-				PROJECT_ROOT,
-				'example/angular/templates/app.component.html'
-			);
-			mutateFile(appTemplate, (c) =>
-				`${c}\n<span data-app-sentinel>{{ appSentinel }}</span>\n`
-			);
+		// Two unrelated mutations in one save: child template
+		// content + parent component data. Both should surface
+		// in the same SSR pass.
+		mutateFile(counterTemplate, (c) =>
+			c.replace('count is', 'COUNTER_TEXT_CHANGED')
+		);
+		mutateFile(appComponent, (c) =>
+			c.replace(
+				'@Input() initialCount: number = 0;',
+				'@Input() initialCount: number = 0;\n\tappSentinel = "APP_TEXT_CHANGED";'
+			)
+		);
+		const appTemplate = resolve(
+			PROJECT_ROOT,
+			'example/angular/templates/app.component.html'
+		);
+		mutateFile(
+			appTemplate,
+			(c) => `${c}\n<span data-app-sentinel>{{ appSentinel }}</span>\n`
+		);
 
-			const html = await waitForBundleAndFetch(client, srv);
-			expect(html).toContain('COUNTER_TEXT_CHANGED');
-			expect(html).toContain('APP_TEXT_CHANGED');
-		},
-		60_000
-	);
+		const html = await waitForBundleAndFetch(client, srv);
+		expect(html).toContain('COUNTER_TEXT_CHANGED');
+		expect(html).toContain('APP_TEXT_CHANGED');
+	}, 60_000);
 });

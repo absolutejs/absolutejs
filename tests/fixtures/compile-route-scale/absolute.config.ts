@@ -1,4 +1,4 @@
-import { defineConfig } from '__ABSOLUTE_DIST_INDEX__';
+import { defineConfig } from '@absolutejs/absolute';
 import { staticRoutes } from './runtime/routes';
 
 export default defineConfig({

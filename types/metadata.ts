@@ -45,6 +45,8 @@ export type MetaTag = {
 	content: string;
 };
 
+import type { JsonLdSchema } from './jsonLd';
+
 export type Metadata = {
 	title?: string;
 	description?: string;
@@ -56,4 +58,5 @@ export type Metadata = {
 	twitter?: TwitterCard;
 	robots?: RobotsDirective;
 	meta?: MetaTag[];
+	jsonLd?: JsonLdSchema | JsonLdSchema[];
 };

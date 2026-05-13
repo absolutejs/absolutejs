@@ -34,55 +34,48 @@ const vuePage = resolve(PROJECT_ROOT, 'example/vue/pages/VueExample.vue');
  * Linux test box and on macOS); skipping is the right call if a
  * future runner doesn't have it. */
 describe('HTTPS dev server / WSS HMR', () => {
-	test(
-		'dev server starts with TLS, HMR over WSS works, edit cycle round-trips',
-		async () => {
-			server = await startDevServer({ https: true });
-			expect(server.baseUrl.startsWith('https://')).toBe(true);
+	test('dev server starts with TLS, HMR over WSS works, edit cycle round-trips', async () => {
+		server = await startDevServer({ https: true });
+		expect(server.baseUrl.startsWith('https://')).toBe(true);
 
-			// Self-signed cert; supervisor probe with cert validation
-			// disabled. (The helper already did this in
-			// waitForServer; replay it here to lock in the SSL/TLS
-			// handshake actually succeeds end-to-end.)
-			const status = await fetch(`${server.baseUrl}/hmr-status`, {
-				tls: { rejectUnauthorized: false }
-			} as unknown as RequestInit);
-			expect(status.status).toBe(200);
+		// Self-signed cert; supervisor probe with cert validation
+		// disabled. (The helper already did this in
+		// waitForServer; replay it here to lock in the SSL/TLS
+		// handshake actually succeeds end-to-end.)
+		const status = await fetch(`${server.baseUrl}/hmr-status`, {
+			tls: { rejectUnauthorized: false }
+		} as unknown as RequestInit);
+		expect(status.status).toBe(200);
 
-			// SSR document fetch over HTTPS.
-			const vue = await fetch(`${server.baseUrl}/vue`, {
-				tls: { rejectUnauthorized: false }
-			} as unknown as RequestInit);
-			expect(vue.status).toBe(200);
-			expect((await vue.text()).length).toBeGreaterThan(200);
+		// SSR document fetch over HTTPS.
+		const vue = await fetch(`${server.baseUrl}/vue`, {
+			tls: { rejectUnauthorized: false }
+		} as unknown as RequestInit);
+		expect(vue.status).toBe(200);
+		expect((await vue.text()).length).toBeGreaterThan(200);
 
-			// HMR over WSS.
-			client = await connectHMR(server.port, { protocol: 'wss' });
-			await client.waitFor('manifest');
-			await client.waitFor('connected');
-			client.drain();
+		// HMR over WSS.
+		client = await connectHMR(server.port, { protocol: 'wss' });
+		await client.waitFor('manifest');
+		await client.waitFor('connected');
+		client.drain();
 
-			// Edit cycle: mutate the Vue page, observe the tier-0
-			// rebuild signal on the WSS connection, then refetch and
-			// confirm the SSR HTML reflects the edit.
-			const sentinel = `HTTPS_HMR_${Date.now()}`;
-			mutateFile(vuePage, (text) =>
-				text.replace(
-					/<h1>AbsoluteJS \+ Vue[^<]*<\/h1>/,
-					`<h1>AbsoluteJS + Vue ${sentinel}</h1>`
-				)
-			);
-			await client.waitFor(
-				'vue-tier-zero-ssr-rebuild-complete',
-				30_000
-			);
+		// Edit cycle: mutate the Vue page, observe the tier-0
+		// rebuild signal on the WSS connection, then refetch and
+		// confirm the SSR HTML reflects the edit.
+		const sentinel = `HTTPS_HMR_${Date.now()}`;
+		mutateFile(vuePage, (text) =>
+			text.replace(
+				/<h1>AbsoluteJS \+ Vue[^<]*<\/h1>/,
+				`<h1>AbsoluteJS + Vue ${sentinel}</h1>`
+			)
+		);
+		await client.waitFor('vue-tier-zero-ssr-rebuild-complete', 30_000);
 
-			const after = await fetch(`${server.baseUrl}/vue`, {
-				tls: { rejectUnauthorized: false }
-			} as unknown as RequestInit);
-			const afterText = await after.text();
-			expect(afterText).toContain(sentinel);
-		},
-		90_000
-	);
+		const after = await fetch(`${server.baseUrl}/vue`, {
+			tls: { rejectUnauthorized: false }
+		} as unknown as RequestInit);
+		const afterText = await after.text();
+		expect(afterText).toContain(sentinel);
+	}, 90_000);
 });

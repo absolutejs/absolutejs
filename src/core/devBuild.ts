@@ -121,8 +121,8 @@ const detectConfigChanges = async (
 	const state = cached.hmrState;
 	const oldConfig = state.config;
 
-	const added: typeof FRAMEWORK_DIR_KEYS[number][] = [];
-	const removed: typeof FRAMEWORK_DIR_KEYS[number][] = [];
+	const added: (typeof FRAMEWORK_DIR_KEYS)[number][] = [];
+	const removed: (typeof FRAMEWORK_DIR_KEYS)[number][] = [];
 	for (const key of FRAMEWORK_DIR_KEYS) {
 		const oldVal = oldConfig[key];
 		const newVal = newConfig[key];
@@ -211,11 +211,12 @@ const detectConfigChanges = async (
  *  `serverEntryWatcher`. Returns null if there's no live dev runtime
  *  (e.g. compiled production), or the diff that `detectConfigChanges`
  *  applied. */
-export const applyConfigChanges = async (): Promise<ConfigChangeDiff | null> => {
-	const cached = globalThis.__hmrDevResult;
-	if (!cached) return null;
-	return detectConfigChanges(cached);
-};
+export const applyConfigChanges =
+	async (): Promise<ConfigChangeDiff | null> => {
+		const cached = globalThis.__hmrDevResult;
+		if (!cached) return null;
+		return detectConfigChanges(cached);
+	};
 
 /** Remove keys from target that don't exist in source */
 const removeStaleKeys = (

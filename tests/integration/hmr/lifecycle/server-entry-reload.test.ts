@@ -42,26 +42,22 @@ const startAll = async () => {
  * pattern; the snapshot in bun-entry-natural-pattern-sentinel.test.ts
  * pins that contract against the current Bun version. */
 describe('server-entry reload after edit', () => {
-	test(
-		'serverEntry edit lands on the next request (not the stale entry record)',
-		async () => {
-			const { client: c, server: srv } = await startAll();
+	test('serverEntry edit lands on the next request (not the stale entry record)', async () => {
+		const { client: c, server: srv } = await startAll();
 
-			const before = await fetch(`${srv.baseUrl}/__entry_reload_probe`);
-			expect(before.status).toBe(404);
+		const before = await fetch(`${srv.baseUrl}/__entry_reload_probe`);
+		expect(before.status).toBe(404);
 
-			mutateFile(serverEntry, (text) =>
-				text.replace(
-					'.use(absolutejs)',
-					'.use(absolutejs).get("/__entry_reload_probe", () => "RELOAD_OK")'
-				)
-			);
-			await c.waitFor('server-entry-reloaded', 15_000);
+		mutateFile(serverEntry, (text) =>
+			text.replace(
+				'.use(absolutejs)',
+				'.use(absolutejs).get("/__entry_reload_probe", () => "RELOAD_OK")'
+			)
+		);
+		await c.waitFor('server-entry-reloaded', 15_000);
 
-			const after = await fetch(`${srv.baseUrl}/__entry_reload_probe`);
-			expect(after.status).toBe(200);
-			expect(await after.text()).toBe('RELOAD_OK');
-		},
-		60_000
-	);
+		const after = await fetch(`${srv.baseUrl}/__entry_reload_probe`);
+		expect(after.status).toBe(200);
+		expect(await after.text()).toBe('RELOAD_OK');
+	}, 60_000);
 });

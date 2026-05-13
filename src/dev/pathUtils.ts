@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { type Dirent, existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { BuildConfig } from '../../types/build';
 import { normalizePath } from '../utils/normalizePath';
@@ -113,7 +113,7 @@ const collectAngularResourceDirs = (angularDir: string): string[] => {
 	const angularRootNormalized = normalizePath(angularRoot);
 
 	const walk = (dir: string) => {
-		let entries: ReturnType<typeof readdirSync>;
+		let entries: Dirent[];
 		try {
 			entries = readdirSync(dir, { withFileTypes: true });
 		} catch {

@@ -15,6 +15,7 @@ const makePaths = (
 	emberDir: '/project/example/ember',
 	htmlDir: '/project/example/html',
 	htmxDir: '/project/example/htmx',
+	publicDir: undefined,
 	reactDir: '/project/example/react',
 	stylesDir: '/project/example/styles',
 	svelteDir: '/project/example/svelte',

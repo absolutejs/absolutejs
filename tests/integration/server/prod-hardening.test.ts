@@ -16,14 +16,10 @@ afterAll(async () => {
  * accidentally re-introduce when refactoring `start.ts`'s stub
  * plugin or the dev-build path. */
 describe('production bundle hardening', () => {
-	test(
-		'setup: start production server',
-		async () => {
-			server = await startProdServer();
-			expect(server.port).toBeGreaterThan(0);
-		},
-		120_000
-	);
+	test('setup: start production server', async () => {
+		server = await startProdServer();
+		expect(server.port).toBeGreaterThan(0);
+	}, 120_000);
 
 	test('manifest.json exists at the outdir root with expected page entries', () => {
 		const manifestPath = join(server.outdir, 'manifest.json');
@@ -90,7 +86,9 @@ describe('production bundle hardening', () => {
 		// `<hash>` is the bundler's content-hash, so the file is
 		// safe to cache forever.
 		const hashedUrls = [
-			...html.matchAll(/(?:href|src)="(\/[^"]+\.[a-z0-9]{6,}\.(?:js|css))"/g)
+			...html.matchAll(
+				/(?:href|src)="(\/[^"]+\.[a-z0-9]{6,}\.(?:js|css))"/g
+			)
 		].map((m) => m[1]);
 		expect(hashedUrls.length).toBeGreaterThan(0);
 		for (const url of hashedUrls) {

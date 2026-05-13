@@ -2,11 +2,7 @@ import { describe, expect, test, afterAll, afterEach } from 'bun:test';
 import { resolve } from 'node:path';
 import { startDevServer, type DevServer } from '../../../helpers/devServer';
 import { connectHMR, type HMRClient } from '../../../helpers/ws';
-import {
-	mutateFile,
-	renameFile,
-	restoreAllFiles
-} from '../../../helpers/file';
+import { mutateFile, renameFile, restoreAllFiles } from '../../../helpers/file';
 
 const PROJECT_ROOT = resolve(import.meta.dir, '..', '..', '..', '..');
 
@@ -46,45 +42,41 @@ describe('Page rename + import update → page recovers', () => {
 		client.drain();
 	}, 60_000);
 
-	test(
-		'renaming Counter.svelte → CounterRenamed.svelte and updating the import keeps /svelte rendering',
-		async () => {
-			const oldComponent = resolve(
-				PROJECT_ROOT,
-				'example/svelte/components/Counter.svelte'
-			);
-			const newComponent = resolve(
-				PROJECT_ROOT,
-				'example/svelte/components/CounterRenamed.svelte'
-			);
-			const page = resolve(
-				PROJECT_ROOT,
-				'example/svelte/pages/SvelteExample.svelte'
-			);
+	test('renaming Counter.svelte → CounterRenamed.svelte and updating the import keeps /svelte rendering', async () => {
+		const oldComponent = resolve(
+			PROJECT_ROOT,
+			'example/svelte/components/Counter.svelte'
+		);
+		const newComponent = resolve(
+			PROJECT_ROOT,
+			'example/svelte/components/CounterRenamed.svelte'
+		);
+		const page = resolve(
+			PROJECT_ROOT,
+			'example/svelte/pages/SvelteExample.svelte'
+		);
 
-			client.drain();
-			renameFile(oldComponent, newComponent);
-			mutateFile(page, (c) =>
-				c
-					.replace(
-						"import Counter from '../components/Counter.svelte';",
-						"import Counter from '../components/CounterRenamed.svelte';"
-					)
-					.replace(
-						'<Counter {initialCount} />',
-						'<Counter {initialCount} /><span data-renamed-rendered="true">RENAME_OK</span>'
-					)
-			);
+		client.drain();
+		renameFile(oldComponent, newComponent);
+		mutateFile(page, (c) =>
+			c
+				.replace(
+					"import Counter from '../components/Counter.svelte';",
+					"import Counter from '../components/CounterRenamed.svelte';"
+				)
+				.replace(
+					'<Counter {initialCount} />',
+					'<Counter {initialCount} /><span data-renamed-rendered="true">RENAME_OK</span>'
+				)
+		);
 
-			await client.waitFor('svelte-tier-zero-ssr-rebuild-complete');
-			const html = await (await fetch(`${server.baseUrl}/svelte`)).text();
-			// Two assertions: (a) the page rendered at all (no
-			// module-not-found from the dangling import), and
-			// (b) the renamed component's compiled output is what
-			// SSR loaded (the sentinel proves the import is wired).
-			expect(html).toContain('RENAME_OK');
-			expect(html).toContain('count is 0');
-		},
-		20_000
-	);
+		await client.waitFor('svelte-tier-zero-ssr-rebuild-complete');
+		const html = await (await fetch(`${server.baseUrl}/svelte`)).text();
+		// Two assertions: (a) the page rendered at all (no
+		// module-not-found from the dangling import), and
+		// (b) the renamed component's compiled output is what
+		// SSR loaded (the sentinel proves the import is wired).
+		expect(html).toContain('RENAME_OK');
+		expect(html).toContain('count is 0');
+	}, 20_000);
 });

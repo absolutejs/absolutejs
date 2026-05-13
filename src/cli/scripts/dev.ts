@@ -340,9 +340,7 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 				portRange: dev.portRange,
 				strictPort: dev.strictPort
 			}).catch((err) => {
-				console.error(
-					cliTag('\x1b[31m', String(err.message ?? err))
-				);
+				console.error(cliTag('\x1b[31m', String(err.message ?? err)));
 				return undefined;
 			});
 			if (probe && probe.port !== port) {
@@ -463,7 +461,10 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 			? filePath.slice(process.cwd().length + 1)
 			: filePath;
 		console.log(
-			cliTag('\x1b[36m', `Server file changed: ${relPath} — restarting...`)
+			cliTag(
+				'\x1b[36m',
+				`Server file changed: ${relPath} — restarting...`
+			)
 		);
 		setTimeout(() => {
 			serverRestartPending = false;

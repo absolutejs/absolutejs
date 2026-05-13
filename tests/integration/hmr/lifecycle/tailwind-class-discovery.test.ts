@@ -57,9 +57,8 @@ const driveTailwindRegenFor = async (
 	while (true) {
 		const msg = await c.waitFor('style-update', 30_000);
 		const cause =
-			(msg.data as { cause?: string[] })?.cause?.map((f) =>
-				resolve(f)
-			) ?? [];
+			(msg.data as { cause?: string[] })?.cause?.map((f) => resolve(f)) ??
+			[];
 		// Skip broadcasts whose cause set doesn't include our file
 		// — a defensive guard, even though per-server isolation
 		// makes this rare.
@@ -72,105 +71,78 @@ const driveTailwindRegenFor = async (
 };
 
 describe('Tailwind class discovery per framework dir', () => {
-	test(
-		'initial Tailwind output is served (auto-injected @source covers all framework dirs)',
-		async () => {
-			const srv = await startAndConnect();
-			const res = await fetch(`${srv.baseUrl}${TAILWIND_OUTPUT_PATH}`);
-			expect(res.status).toBe(200);
-			const body = await res.text();
-			expect(body).toMatch(/tailwindcss v4/i);
-			expect(body).toContain('@layer');
-		},
-		60_000
-	);
+	test('initial Tailwind output is served (auto-injected @source covers all framework dirs)', async () => {
+		const srv = await startAndConnect();
+		const res = await fetch(`${srv.baseUrl}${TAILWIND_OUTPUT_PATH}`);
+		expect(res.status).toBe(200);
+		const body = await res.text();
+		expect(body).toMatch(/tailwindcss v4/i);
+		expect(body).toContain('@layer');
+	}, 60_000);
 
-	test(
-		'HTML page edit lands a fresh utility in tailwind.generated.css',
-		async () => {
-			const srv = await startAndConnect();
-			if (!client) throw new Error('client missing');
-			const page = resolve(
-				PROJECT_ROOT,
-				'example/html/pages/HTMLExample.html'
-			);
-			mutateFile(page, (c) =>
-				c.replace('<h1>', '<h1 class="text-[#ff00aa]">')
-			);
-			await driveTailwindRegenFor(page, '#ff00aa', srv, client);
-		},
-		60_000
-	);
+	test('HTML page edit lands a fresh utility in tailwind.generated.css', async () => {
+		const srv = await startAndConnect();
+		if (!client) throw new Error('client missing');
+		const page = resolve(
+			PROJECT_ROOT,
+			'example/html/pages/HTMLExample.html'
+		);
+		mutateFile(page, (c) =>
+			c.replace('<h1>', '<h1 class="text-[#ff00aa]">')
+		);
+		await driveTailwindRegenFor(page, '#ff00aa', srv, client);
+	}, 60_000);
 
-	test(
-		'HTMX page edit lands a fresh utility in tailwind.generated.css',
-		async () => {
-			const srv = await startAndConnect();
-			if (!client) throw new Error('client missing');
-			const page = resolve(
-				PROJECT_ROOT,
-				'example/htmx/pages/HTMXExample.html'
-			);
-			mutateFile(page, (c) =>
-				c.replace('<h1>', '<h1 class="text-[#aa00ff]">')
-			);
-			await driveTailwindRegenFor(page, '#aa00ff', srv, client);
-		},
-		60_000
-	);
+	test('HTMX page edit lands a fresh utility in tailwind.generated.css', async () => {
+		const srv = await startAndConnect();
+		if (!client) throw new Error('client missing');
+		const page = resolve(
+			PROJECT_ROOT,
+			'example/htmx/pages/HTMXExample.html'
+		);
+		mutateFile(page, (c) =>
+			c.replace('<h1>', '<h1 class="text-[#aa00ff]">')
+		);
+		await driveTailwindRegenFor(page, '#aa00ff', srv, client);
+	}, 60_000);
 
-	test(
-		'Angular template edit lands a fresh utility in tailwind.generated.css',
-		async () => {
-			const srv = await startAndConnect();
-			if (!client) throw new Error('client missing');
-			// `angular-example.html` is the page-shell template (just
-			// renders `<app-dropdown>` + `<app-root>`). Mutate the
-			// inner app component's template — that's where the real
-			// markup tree lives.
-			const template = resolve(
-				PROJECT_ROOT,
-				'example/angular/templates/app.component.html'
-			);
-			mutateFile(template, (c) =>
-				c.replace('<h1>', '<h1 class="text-[#00aaff]">')
-			);
-			await driveTailwindRegenFor(template, '#00aaff', srv, client);
-		},
-		60_000
-	);
+	test('Angular template edit lands a fresh utility in tailwind.generated.css', async () => {
+		const srv = await startAndConnect();
+		if (!client) throw new Error('client missing');
+		// `angular-example.html` is the page-shell template (just
+		// renders `<app-dropdown>` + `<app-root>`). Mutate the
+		// inner app component's template — that's where the real
+		// markup tree lives.
+		const template = resolve(
+			PROJECT_ROOT,
+			'example/angular/templates/app.component.html'
+		);
+		mutateFile(template, (c) =>
+			c.replace('<h1>', '<h1 class="text-[#00aaff]">')
+		);
+		await driveTailwindRegenFor(template, '#00aaff', srv, client);
+	}, 60_000);
 
-	test(
-		'Svelte page edit lands a fresh utility in tailwind.generated.css',
-		async () => {
-			const srv = await startAndConnect();
-			if (!client) throw new Error('client missing');
-			const page = resolve(
-				PROJECT_ROOT,
-				'example/svelte/pages/SvelteExample.svelte'
-			);
-			mutateFile(page, (c) =>
-				c.replace('<h1>', '<h1 class="text-[#0aff00]">')
-			);
-			await driveTailwindRegenFor(page, '#0aff00', srv, client);
-		},
-		60_000
-	);
+	test('Svelte page edit lands a fresh utility in tailwind.generated.css', async () => {
+		const srv = await startAndConnect();
+		if (!client) throw new Error('client missing');
+		const page = resolve(
+			PROJECT_ROOT,
+			'example/svelte/pages/SvelteExample.svelte'
+		);
+		mutateFile(page, (c) =>
+			c.replace('<h1>', '<h1 class="text-[#0aff00]">')
+		);
+		await driveTailwindRegenFor(page, '#0aff00', srv, client);
+	}, 60_000);
 
-	test(
-		'Vue page edit lands a fresh utility in tailwind.generated.css',
-		async () => {
-			const srv = await startAndConnect();
-			if (!client) throw new Error('client missing');
-			const page = resolve(
-				PROJECT_ROOT,
-				'example/vue/pages/VueExample.vue'
-			);
-			mutateFile(page, (c) =>
-				c.replace('<h1>', '<h1 class="text-[#0a00ff]">')
-			);
-			await driveTailwindRegenFor(page, '#0a00ff', srv, client);
-		},
-		60_000
-	);
+	test('Vue page edit lands a fresh utility in tailwind.generated.css', async () => {
+		const srv = await startAndConnect();
+		if (!client) throw new Error('client missing');
+		const page = resolve(PROJECT_ROOT, 'example/vue/pages/VueExample.vue');
+		mutateFile(page, (c) =>
+			c.replace('<h1>', '<h1 class="text-[#0a00ff]">')
+		);
+		await driveTailwindRegenFor(page, '#0a00ff', srv, client);
+	}, 60_000);
 });

@@ -1,4 +1,5 @@
 import { env } from 'bun';
+import { createExternalAssetPlugin } from '../../build/externalAssetPlugin';
 import {
 	cpSync,
 	existsSync,
@@ -1192,6 +1193,15 @@ const compileUnlocked = async (
 	const bundleStart = performance.now();
 	process.stdout.write(cliTag('\x1b[36m', 'Bundling production server'));
 
+	const userSourceRoots = [
+		buildConfig.reactDirectory,
+		buildConfig.svelteDirectory,
+		buildConfig.vueDirectory,
+		buildConfig.angularDirectory,
+		buildConfig.htmlDirectory,
+		buildConfig.htmxDirectory
+	].filter((dir): dir is string => Boolean(dir));
+
 	const serverBundle = await Bun.build({
 		define: { 'process.env.NODE_ENV': '"production"' },
 		entrypoints: [resolve(serverEntry)],
@@ -1203,7 +1213,8 @@ const compileUnlocked = async (
 				stubReact: !buildConfig.reactDirectory,
 				stubSvelte: !buildConfig.svelteDirectory,
 				stubVue: !buildConfig.vueDirectory
-			})
+			}),
+			createExternalAssetPlugin(resolvedOutdir, userSourceRoots)
 		],
 		target: 'bun',
 		// Mirror start.ts: surface bundle errors as data so the

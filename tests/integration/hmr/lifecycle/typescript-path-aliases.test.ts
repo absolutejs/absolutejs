@@ -51,108 +51,94 @@ const startAll = async () => {
  *      HMR-mode bare-`@angular/*`-specifiers strategy pin Angular
  *      to a single module instance regardless of tsconfig paths). */
 describe('TypeScript tsconfig.json paths/baseUrl alias resolution', () => {
-	test(
-		'aliased composable import resolves at compile time and SSR renders cleanly',
-		async () => {
-			// Add path alias to tsconfig BEFORE server boots.
-			mutateFile(tsconfigPath, (text) =>
-				text.replace(
-					'"useDefineForClassFields": false',
-					'"useDefineForClassFields": false,\n\t\t"baseUrl": ".",\n\t\t"paths": { "@vue-composables/*": ["example/vue/composables/*"] }'
-				)
-			);
-			// Replace the relative import with the alias.
-			mutateFile(countButton, (text) =>
-				text.replace(
-					"import { useCount } from '../composables/useCount';",
-					"import { useCount } from '@vue-composables/useCount';"
-				)
-			);
+	test('aliased composable import resolves at compile time and SSR renders cleanly', async () => {
+		// Add path alias to tsconfig BEFORE server boots.
+		mutateFile(tsconfigPath, (text) =>
+			text.replace(
+				'"useDefineForClassFields": false',
+				'"useDefineForClassFields": false,\n\t\t"baseUrl": ".",\n\t\t"paths": { "@vue-composables/*": ["example/vue/composables/*"] }'
+			)
+		);
+		// Replace the relative import with the alias.
+		mutateFile(countButton, (text) =>
+			text.replace(
+				"import { useCount } from '../composables/useCount';",
+				"import { useCount } from '@vue-composables/useCount';"
+			)
+		);
 
-			const { server: srv } = await startAll();
+		const { server: srv } = await startAll();
 
-			const baseline = await (await fetch(`${srv.baseUrl}/vue`)).text();
-			// SSR rendered normally — composable resolved via alias.
-			expect(baseline).toContain('count is 0');
-			// Sanity: no SSR error page.
-			expect(baseline).not.toMatch(/Server Render Error/);
-		},
-		60_000
-	);
+		const baseline = await (await fetch(`${srv.baseUrl}/vue`)).text();
+		// SSR rendered normally — composable resolved via alias.
+		expect(baseline).toContain('count is 0');
+		// Sanity: no SSR error page.
+		expect(baseline).not.toMatch(/Server Render Error/);
+	}, 60_000);
 
-	test(
-		'editing the alias-imported `.vue` file (its own source) still triggers HMR',
-		async () => {
-			mutateFile(tsconfigPath, (text) =>
-				text.replace(
-					'"useDefineForClassFields": false',
-					'"useDefineForClassFields": false,\n\t\t"baseUrl": ".",\n\t\t"paths": { "@vue-composables/*": ["example/vue/composables/*"] }'
-				)
-			);
-			mutateFile(countButton, (text) =>
-				text.replace(
-					"import { useCount } from '../composables/useCount';",
-					"import { useCount } from '@vue-composables/useCount';"
-				)
-			);
+	test('editing the alias-imported `.vue` file (its own source) still triggers HMR', async () => {
+		mutateFile(tsconfigPath, (text) =>
+			text.replace(
+				'"useDefineForClassFields": false',
+				'"useDefineForClassFields": false,\n\t\t"baseUrl": ".",\n\t\t"paths": { "@vue-composables/*": ["example/vue/composables/*"] }'
+			)
+		);
+		mutateFile(countButton, (text) =>
+			text.replace(
+				"import { useCount } from '../composables/useCount';",
+				"import { useCount } from '@vue-composables/useCount';"
+			)
+		);
 
-			const { client: c, server: srv } = await startAll();
+		const { client: c, server: srv } = await startAll();
 
-			// Now edit the COUNT BUTTON .vue file (the one that
-			// does the alias-import). The dep graph still tracks
-			// the .vue itself; only the inverse `.ts → .vue`
-			// propagation goes through the alias resolver.
-			mutateFile(countButton, (text) =>
-				text.replace(
-					'<button @click="increment">count is {{ count }}</button>',
-					'<button @click="increment">tally is {{ count }} (alias-edit)</button>'
-				)
-			);
-			await c.waitFor('vue-tier-zero-ssr-rebuild-complete', 30_000);
+		// Now edit the COUNT BUTTON .vue file (the one that
+		// does the alias-import). The dep graph still tracks
+		// the .vue itself; only the inverse `.ts → .vue`
+		// propagation goes through the alias resolver.
+		mutateFile(countButton, (text) =>
+			text.replace(
+				'<button @click="increment">count is {{ count }}</button>',
+				'<button @click="increment">tally is {{ count }} (alias-edit)</button>'
+			)
+		);
+		await c.waitFor('vue-tier-zero-ssr-rebuild-complete', 30_000);
 
-			const after = await (await fetch(`${srv.baseUrl}/vue`)).text();
-			expect(after).toContain('tally is');
-		},
-		60_000
-	);
+		const after = await (await fetch(`${srv.baseUrl}/vue`)).text();
+		expect(after).toContain('tally is');
+	}, 60_000);
 
-	test(
-		'Angular component import via alias resolves at compile time and SSR renders cleanly (no NG0203)',
-		async () => {
-			mutateFile(tsconfigPath, (text) =>
-				text.replace(
-					'"useDefineForClassFields": false',
-					'"useDefineForClassFields": false,\n\t\t"baseUrl": ".",\n\t\t"paths": { "@ng-components/*": ["example/angular/components/*"] }'
-				)
-			);
-			// Make counter.component import dropdown via the alias —
-			// exercises the matchTsconfigAlias path inside
-			// compileAngular.transpileFile.
-			mutateFile(counterComp, (text) =>
-				text.replace(
-					/(import\s+\{[^}]+\}\s+from\s+['"]@angular\/core['"];?)/,
-					`$1\nimport '@ng-components/dropdown.component';`
-				)
-			);
+	test('Angular component import via alias resolves at compile time and SSR renders cleanly (no NG0203)', async () => {
+		mutateFile(tsconfigPath, (text) =>
+			text.replace(
+				'"useDefineForClassFields": false',
+				'"useDefineForClassFields": false,\n\t\t"baseUrl": ".",\n\t\t"paths": { "@ng-components/*": ["example/angular/components/*"] }'
+			)
+		);
+		// Make counter.component import dropdown via the alias —
+		// exercises the matchTsconfigAlias path inside
+		// compileAngular.transpileFile.
+		mutateFile(counterComp, (text) =>
+			text.replace(
+				/(import\s+\{[^}]+\}\s+from\s+['"]@angular\/core['"];?)/,
+				`$1\nimport '@ng-components/dropdown.component';`
+			)
+		);
 
-			const { server: srv } = await startAll();
-			const res = await fetch(`${srv.baseUrl}/angular`);
-			const body = await res.text();
+		const { server: srv } = await startAll();
+		const res = await fetch(`${srv.baseUrl}/angular`);
+		const body = await res.text();
 
-			expect(res.status).toBe(200);
-			expect(body).not.toMatch(/Server Render Error/);
-			expect(body).toContain('app-counter');
-			expect(body).toContain('count is');
-			// The NG0203 / two-instance failure mode logs to stderr
-			// even when SSR returns a (broken) 200 — assert nothing
-			// in that family hit the dev-server output.
-			const sawAngularInjectorError = srv.outputLines.some((l) =>
-				/NG0203|NG0201|NullInjectorError|Failed to resolve injector/.test(
-					l
-				)
-			);
-			expect(sawAngularInjectorError).toBe(false);
-		},
-		60_000
-	);
+		expect(res.status).toBe(200);
+		expect(body).not.toMatch(/Server Render Error/);
+		expect(body).toContain('app-counter');
+		expect(body).toContain('count is');
+		// The NG0203 / two-instance failure mode logs to stderr
+		// even when SSR returns a (broken) 200 — assert nothing
+		// in that family hit the dev-server output.
+		const sawAngularInjectorError = srv.outputLines.some((l) =>
+			/NG0203|NG0201|NullInjectorError|Failed to resolve injector/.test(l)
+		);
+		expect(sawAngularInjectorError).toBe(false);
+	}, 60_000);
 });

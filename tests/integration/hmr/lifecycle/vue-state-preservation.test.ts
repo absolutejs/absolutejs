@@ -3,7 +3,11 @@ import { resolve } from 'node:path';
 import { startDevServer, type DevServer } from '../../../helpers/devServer';
 import { connectHMR, type HMRClient } from '../../../helpers/ws';
 import { mutateFile, restoreAllFiles } from '../../../helpers/file';
-import { openPage, type BrowserSession, waitForText } from '../../../helpers/browser';
+import {
+	openPage,
+	type BrowserSession,
+	waitForText
+} from '../../../helpers/browser';
 
 const PROJECT_ROOT = resolve(import.meta.dir, '..', '..', '..', '..');
 
@@ -66,41 +70,38 @@ const startAll = async () => {
  * the new setup() body has to run against a fresh closure). We test
  * the template-edit case here. */
 describe('Vue state preservation across template edits', () => {
-	test(
-		'count survives a template-only edit (Vue HMR rerender preserves setup state)',
-		async () => {
-			const { client: c, session: s } = await startAll();
+	test('count survives a template-only edit (Vue HMR rerender preserves setup state)', async () => {
+		const { client: c, session: s } = await startAll();
 
-			// Click to count=7 — the CountButton uses `useCount()`
-			// composable which holds a `ref(initialCount)`. Each
-			// click bumps the ref.
-			for (let i = 0; i < 7; i++) {
-				await s.page.click('button[data-v-count-button]');
-			}
-			await waitForText(
-				s.page,
-				'button[data-v-count-button]',
-				(t) => t.includes('count is 7')
-			);
+		// Click to count=7 — the CountButton uses `useCount()`
+		// composable which holds a `ref(initialCount)`. Each
+		// click bumps the ref.
+		for (let i = 0; i < 7; i++) {
+			await s.page.click('button[data-v-count-button]');
+		}
+		await waitForText(s.page, 'button[data-v-count-button]', (t) =>
+			t.includes('count is 7')
+		);
 
-			c.drain();
-			mutateFile(countButton, (text) =>
-				text.replace(
-					'<button @click="increment">count is {{ count }}</button>',
-					'<button @click="increment">count is {{ count }}</button>\n\t<span data-vue-hmr-marker style="display:none">VUE_EDITED</span>'
-				)
-			);
+		c.drain();
+		mutateFile(countButton, (text) =>
+			text.replace(
+				'<button @click="increment">count is {{ count }}</button>',
+				'<button @click="increment">count is {{ count }}</button>\n\t<span data-vue-hmr-marker style="display:none">VUE_EDITED</span>'
+			)
+		);
 
-			await c.waitFor('vue-update', 15_000);
+		await c.waitFor('vue-update', 15_000);
 
-			// State preservation: after the rerender, the displayed
-			// count value should still be 7 (the underlying `ref`
-			// from useCount() is preserved across Vue's rerender).
-			// We poll the live count in the DOM rather than the
-			// button selector — the button can re-render but the
-			// `.counter-value`-equivalent text content remains the
-			// pre-edit value if state is preserved.
-			const sawSeven = await s.page.waitForFunction(
+		// State preservation: after the rerender, the displayed
+		// count value should still be 7 (the underlying `ref`
+		// from useCount() is preserved across Vue's rerender).
+		// We poll the live count in the DOM rather than the
+		// button selector — the button can re-render but the
+		// `.counter-value`-equivalent text content remains the
+		// pre-edit value if state is preserved.
+		const sawSeven = await s.page
+			.waitForFunction(
 				() => {
 					const buttons = document.querySelectorAll('button');
 					for (const b of buttons) {
@@ -110,9 +111,9 @@ describe('Vue state preservation across template edits', () => {
 					return false;
 				},
 				{ timeout: 15_000 }
-			).then(() => true).catch(() => false);
-			expect(sawSeven).toBe(true);
-		},
-		60_000
-	);
+			)
+			.then(() => true)
+			.catch(() => false);
+		expect(sawSeven).toBe(true);
+	}, 60_000);
 });

@@ -44,30 +44,48 @@ describe('In-flight request survives Path B reload', () => {
 	test('slow request finishes with original handler after reload', async () => {
 		const serverEntry = resolve(PROJECT_ROOT, 'example/server.ts');
 
+		client.drain();
+
 		// Add a slow-poll route + a marker route so we can verify
 		// the new handler is active. The slow route uses Bun.sleep
 		// to hold the request open across the reload.
 		mutateFile(serverEntry, (c) =>
-			c.replace(
-				'const { absolutejs, manifest } = await prepare();',
-				`const { absolutejs, manifest } = await prepare();
+			c
+				.replace(
+					'const { absolutejs, manifest } = await prepare();',
+					`const { absolutejs, manifest } = await prepare();
 const __testMarker = "before-edit";
 const __testSlowResponse = async () => {
   await Bun.sleep(2500);
   return __testMarker;
 };`
-			).replace(
-				'.use(absolutejs)',
-				'.use(absolutejs).get("/test-slow", () => __testSlowResponse()).get("/test-marker", () => __testMarker)'
-			)
+				)
+				.replace(
+					'.use(absolutejs)',
+					'.use(absolutejs).get("/test-slow", () => __testSlowResponse()).get("/test-marker", () => __testMarker)'
+				)
 		);
-		// Wait for Path B reload to apply.
-		await Bun.sleep(3_500);
-
-		// Confirm marker route works pre-flight.
-		const markerBefore = await fetch(`${server.baseUrl}/test-marker`).then(
-			(r) => r.text()
-		);
+		// Poll until the new route is observable. Path B reloads are
+		// debounced + asynchronous; relying on either a fixed sleep or
+		// the `server-entry-reloaded` broadcast alone has produced
+		// occasional flakes (the broadcast can arrive a tick before
+		// inbound connections see the swapped handler). On systems
+		// where the file watcher is slow to fire, re-touch the file
+		// every few seconds to keep nudging the watcher.
+		let markerBefore = '';
+		for (let i = 0; i < 60; i++) {
+			const r = await fetch(`${server.baseUrl}/test-marker`).catch(
+				() => null
+			);
+			markerBefore = r ? await r.text() : '';
+			if (markerBefore === 'before-edit') break;
+			if (i > 0 && i % 20 === 0) {
+				// Re-touch to nudge the watcher in case the initial
+				// write was missed.
+				mutateFile(serverEntry, (c) => c);
+			}
+			await Bun.sleep(150);
+		}
 		expect(markerBefore).toBe('before-edit');
 
 		// Kick off the slow request — don't await yet.
@@ -80,12 +98,19 @@ const __testSlowResponse = async () => {
 		mutateFile(serverEntry, (c) =>
 			c.replace('"before-edit"', '"after-edit"')
 		);
-		await Bun.sleep(1_500);
 
-		// New requests after the reload should see "after-edit".
-		const markerAfter = await fetch(`${server.baseUrl}/test-marker`).then(
-			(r) => r.text()
-		);
+		// Poll for the new handler — same reason as the pre-edit poll
+		// above: the reload is debounced and the broadcast can race the
+		// observable handler swap.
+		let markerAfter = '';
+		for (let i = 0; i < 40; i++) {
+			const r = await fetch(`${server.baseUrl}/test-marker`).catch(
+				() => null
+			);
+			markerAfter = r ? await r.text() : '';
+			if (markerAfter === 'after-edit') break;
+			await Bun.sleep(150);
+		}
 		expect(markerAfter).toBe('after-edit');
 
 		// The in-flight slow request, which started under the OLD

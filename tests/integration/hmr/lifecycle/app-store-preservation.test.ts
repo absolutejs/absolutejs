@@ -48,7 +48,8 @@ describe('Path B reload preserves app.store', () => {
 		for (let i = 0; i < 3; i++) {
 			await Bun.$`curl -s -b ${cookieFile} -c ${cookieFile} -X POST ${server.baseUrl}/htmx/increment`.text();
 		}
-		const before = await Bun.$`curl -s -b ${cookieFile} ${server.baseUrl}/htmx/count`.text();
+		const before =
+			await Bun.$`curl -s -b ${cookieFile} ${server.baseUrl}/htmx/count`.text();
 		expect(before.trim()).toBe('3');
 
 		// Trigger a Path B reload by editing server.ts.
@@ -66,12 +67,14 @@ describe('Path B reload preserves app.store', () => {
 		await Bun.sleep(4_000);
 
 		// State should still be 3 — preserved across reload.
-		const after = await Bun.$`curl -s -b ${cookieFile} ${server.baseUrl}/htmx/count`.text();
+		const after =
+			await Bun.$`curl -s -b ${cookieFile} ${server.baseUrl}/htmx/count`.text();
 		expect(after.trim()).toBe('3');
 
 		// Subsequent increments continue from where we left off.
 		await Bun.$`curl -s -b ${cookieFile} -c ${cookieFile} -X POST ${server.baseUrl}/htmx/increment`.text();
-		const afterInc = await Bun.$`curl -s -b ${cookieFile} ${server.baseUrl}/htmx/count`.text();
+		const afterInc =
+			await Bun.$`curl -s -b ${cookieFile} ${server.baseUrl}/htmx/count`.text();
 		expect(afterInc.trim()).toBe('4');
 	}, 60_000);
 });

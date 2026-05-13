@@ -58,78 +58,72 @@ const rssKb = (pid: number) => {
  * Linux-only (reads /proc/<pid>/status). On macOS/Windows the
  * test reports `skip` rather than fail. */
 describe('dev-server RSS does not grow unboundedly over many HMR cycles', () => {
-	test(
-		'100 Vue template edits stay within 3x the warmed RSS baseline',
-		async () => {
-			if (process.platform !== 'linux') {
-				console.warn(
-					`[skip] /proc-based RSS check requires Linux (current: ${process.platform})`
-				);
-				return;
-			}
-
-			const { client: c, server: srv } = await startAll();
-
-			// Warmup phase: 10 edits to fill manifest, prime caches,
-			// settle Bun's JIT and module-record allocation profile.
-			// We sample the post-warmup RSS as the baseline so this
-			// test isn't measuring "cold start to warmed dev session"
-			// growth, which is fine and expected.
-			for (let i = 0; i < 10; i++) {
-				const marker = `WARMUP_${i}`;
-				mutateFile(vuePage, (text) =>
-					text.replace(
-						/<h1>AbsoluteJS \+ Vue[^<]*<\/h1>/,
-						`<h1>AbsoluteJS + Vue ${marker}</h1>`
-					)
-				);
-				await c.waitFor('vue-tier-zero-ssr-rebuild-complete', 15_000);
-				c.drain();
-			}
-
-			// Settle and snapshot baseline.
-			await new Promise((r) => setTimeout(r, 1_000));
-			const baselineRss = rssKb(srv.proc.pid);
-
-			// 100 more edits. We don't drain the client every loop —
-			// some events may pile up in the WS buffer, but waitFor's
-			// snapshot/skip semantics keep that bounded.
-			for (let i = 0; i < 100; i++) {
-				const marker = `RATCHET_${i}`;
-				mutateFile(vuePage, (text) =>
-					text.replace(
-						/<h1>AbsoluteJS \+ Vue[^<]*<\/h1>/,
-						`<h1>AbsoluteJS + Vue ${marker}</h1>`
-					)
-				);
-				await c.waitFor('vue-tier-zero-ssr-rebuild-complete', 15_000);
-				if (i % 10 === 9) c.drain();
-			}
-
-			await new Promise((r) => setTimeout(r, 1_000));
-			const finalRss = rssKb(srv.proc.pid);
-
-			const ratio = finalRss / baselineRss;
-			console.log(
-				`[memory-ratchet] baseline=${baselineRss}kB final=${finalRss}kB ratio=${ratio.toFixed(2)}x`
+	test('100 Vue template edits stay within 3x the warmed RSS baseline', async () => {
+		if (process.platform !== 'linux') {
+			console.warn(
+				`[skip] /proc-based RSS check requires Linux (current: ${process.platform})`
 			);
+			return;
+		}
 
-			// Loose bound: 3× the warmed baseline. A real per-edit
-			// retain would blow past this; transient JIT/code-cache
-			// drift would not.
-			expect(ratio).toBeLessThan(3);
+		const { client: c, server: srv } = await startAll();
 
-			// SSR must still work — a leak that leaves the server
-			// alive but unable to render is also a regression. Vue's
-			// SSR import cache can lag the final HMR cycle by a
-			// beat, so we accept the last few markers as evidence
-			// the pipeline is still alive.
-			const finalRender = await (
-				await fetch(`${srv.baseUrl}/vue`)
-			).text();
-			const sawRecentMarker = /RATCHET_(?:9[5-9])/.test(finalRender);
-			expect(sawRecentMarker).toBe(true);
-		},
-		300_000
-	);
+		// Warmup phase: 10 edits to fill manifest, prime caches,
+		// settle Bun's JIT and module-record allocation profile.
+		// We sample the post-warmup RSS as the baseline so this
+		// test isn't measuring "cold start to warmed dev session"
+		// growth, which is fine and expected.
+		for (let i = 0; i < 10; i++) {
+			const marker = `WARMUP_${i}`;
+			mutateFile(vuePage, (text) =>
+				text.replace(
+					/<h1>AbsoluteJS \+ Vue[^<]*<\/h1>/,
+					`<h1>AbsoluteJS + Vue ${marker}</h1>`
+				)
+			);
+			await c.waitFor('vue-tier-zero-ssr-rebuild-complete', 15_000);
+			c.drain();
+		}
+
+		// Settle and snapshot baseline.
+		await new Promise((r) => setTimeout(r, 1_000));
+		const baselineRss = rssKb(srv.proc.pid);
+
+		// 100 more edits. We don't drain the client every loop —
+		// some events may pile up in the WS buffer, but waitFor's
+		// snapshot/skip semantics keep that bounded.
+		for (let i = 0; i < 100; i++) {
+			const marker = `RATCHET_${i}`;
+			mutateFile(vuePage, (text) =>
+				text.replace(
+					/<h1>AbsoluteJS \+ Vue[^<]*<\/h1>/,
+					`<h1>AbsoluteJS + Vue ${marker}</h1>`
+				)
+			);
+			await c.waitFor('vue-tier-zero-ssr-rebuild-complete', 15_000);
+			if (i % 10 === 9) c.drain();
+		}
+
+		await new Promise((r) => setTimeout(r, 1_000));
+		const finalRss = rssKb(srv.proc.pid);
+
+		const ratio = finalRss / baselineRss;
+		console.log(
+			`[memory-ratchet] baseline=${baselineRss}kB final=${finalRss}kB ratio=${ratio.toFixed(2)}x`
+		);
+
+		// Loose bound: 3× the warmed baseline. A real per-edit
+		// retain would blow past this; transient JIT/code-cache
+		// drift would not.
+		expect(ratio).toBeLessThan(3);
+
+		// SSR must still work — a leak that leaves the server
+		// alive but unable to render is also a regression. Vue's
+		// SSR import cache can lag the final HMR cycle by a
+		// beat, so we accept the last few markers as evidence
+		// the pipeline is still alive.
+		const finalRender = await (await fetch(`${srv.baseUrl}/vue`)).text();
+		const sawRecentMarker = /RATCHET_(?:9[5-9])/.test(finalRender);
+		expect(sawRecentMarker).toBe(true);
+	}, 300_000);
 });

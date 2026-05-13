@@ -1,6 +1,6 @@
-import { Elysia } from '__ELYSIA_ENTRY__';
-import { asset, networking, prepare } from '__ABSOLUTE_DIST_INDEX__';
-import { handleVuePageRequest } from '__ABSOLUTE_DIST_VUE__';
+import { Elysia } from 'elysia';
+import { asset, networking, prepare } from '@absolutejs/absolute';
+import { handleVuePageRequest } from '@absolutejs/absolute/vue/server';
 
 const { absolutejs, manifest } = await prepare();
 const pageAssets = (key: string) => ({
@@ -14,12 +14,14 @@ export const server = new Elysia()
 		handleVuePageRequest({
 			headTag:
 				'<head><title>Compile Vue</title><link rel="stylesheet" href="/vue.css"></head>',
+			props: {},
 			...pageAssets('Home')
 		})
 	)
 	.get('/boom', () =>
 		handleVuePageRequest({
 			headTag: '<head><title>Compile Vue Boom</title></head>',
+			props: {},
 			...pageAssets('Boom')
 		})
 	)

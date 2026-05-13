@@ -90,7 +90,10 @@ describe('Component-level HMR', () => {
 		expect(data.manifest).toBeDefined();
 	}, 60_000);
 
-	test('angular child component change triggers angular-update', async () => {
+	test('angular child component change triggers angular:component-update', async () => {
+		// Drain stale events from prior tests' restoreAllFiles cleanup,
+		// which can re-trigger HMR for vue/svelte/angular files.
+		await Bun.sleep(500);
 		client.drain();
 
 		const angularComponent = resolve(
@@ -98,17 +101,19 @@ describe('Component-level HMR', () => {
 			'example/angular/components/counter.component.ts'
 		);
 
+		// Edit the component class itself (not the templateUrl HTML)
+		// to keep this in the .ts file the test mutates.
 		mutateFile(angularComponent, (c) =>
-			c.replace('count is', 'counter is')
+			c.replace('count: number = 0;', 'count: number = 1;')
 		);
 
 		await client.waitFor('rebuild-start', 15_000);
 
-		const update = await client.waitFor('angular-update', 30_000);
-		expect(update.type).toBe('angular-update');
+		const update = await client.waitFor('angular:component-update', 30_000);
+		expect(update.type).toBe('angular:component-update');
 
 		const data = update.data as Record<string, unknown>;
-		expect(data.framework).toBe('angular');
-		expect(data.manifest).toBeDefined();
+		expect(typeof data.id).toBe('string');
+		expect(typeof data.timestamp).toBe('number');
 	}, 60_000);
 });

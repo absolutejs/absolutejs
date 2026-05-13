@@ -1390,7 +1390,8 @@ const transformAndCache = async (
 						const angularDir =
 							cfg.angularDirectory &&
 							resolve(projectRoot, cfg.angularDirectory);
-						if (angularDir) candidates.push(resolve(angularDir, tail));
+						if (angularDir)
+							candidates.push(resolve(angularDir, tail));
 					} catch {
 						/* fall back to the candidates we already have */
 					}

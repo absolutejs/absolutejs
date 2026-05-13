@@ -39,109 +39,103 @@ afterEach(async () => {
  * top of `server.ts` to deterministically simulate a hard crash on
  * every spawn. */
 describe('CLI crash-loop guard refuses to restart after N rapid crashes', () => {
-	test(
-		'broken server.ts → CLI respawns until the 10s window guard fires, prints `refusing to restart`, exits',
-		async () => {
-			// Pre-break server.ts to a hard exit. The bun child
-			// will `process.exit(7)` on every spawn; the CLI will
-			// catch the exit, respawn, exit, repeat — until the
-			// guard fires.
-			mutateFile(serverEntry, (text) =>
-				text.replace(/^/, 'process.exit(7);\n')
-			);
+	test('broken server.ts → CLI respawns until the 10s window guard fires, prints `refusing to restart`, exits', async () => {
+		// Pre-break server.ts to a hard exit. The bun child
+		// will `process.exit(7)` on every spawn; the CLI will
+		// catch the exit, respawn, exit, repeat — until the
+		// guard fires.
+		mutateFile(serverEntry, (text) =>
+			text.replace(/^/, 'process.exit(7);\n')
+		);
 
-			const port = await getAvailablePort();
-			proc = Bun.spawn(
-				[
-					'bun',
-					'run',
-					cliEntry,
-					'dev',
-					serverEntry,
-					'--config',
-					configPath,
-					'--port',
-					String(port)
-				],
-				{
-					cwd: PROJECT_ROOT,
-					env: {
-						...process.env,
-						FORCE_COLOR: '0',
-						NODE_ENV: 'development',
-						TELEMETRY_OFF: '1'
-					},
-					stderr: 'pipe',
-					stdout: 'pipe'
-				}
-			);
-
-			const outputLines: string[] = [];
-			const drainStream = async (
-				stream: ReadableStream<Uint8Array> | null
-			) => {
-				if (!stream) return;
-				const reader = stream.getReader();
-				const decoder = new TextDecoder();
-				let buf = '';
-				while (true) {
-					const { done, value } = await reader.read();
-					if (done) return;
-					buf += decoder.decode(value, { stream: true });
-					let idx;
-					while ((idx = buf.indexOf('\n')) !== -1) {
-						outputLines.push(buf.slice(0, idx));
-						buf = buf.slice(idx + 1);
-					}
-				}
-			};
-			void drainStream(proc.stdout as ReadableStream<Uint8Array> | null);
-			void drainStream(proc.stderr as ReadableStream<Uint8Array> | null);
-
-			// Wait for the CLI to give up. Allow up to 60s — the
-			// guard wants 6 crashes in any 10s window; bun --hot's
-			// boot + the CLI's spawn machinery means each cycle is
-			// ~1-3s, so 6 cycles can stretch close to 18s before
-			// the guard fires. Plus the CLI's cleanup. 60s is
-			// generous; the test usually finishes in 15-25s.
-			let exitCode: number | string = 'TIMEOUT';
-			try {
-				exitCode = await Promise.race([
-					proc.exited,
-					new Promise<number>((_, rej) =>
-						setTimeout(
-							() => rej(new Error('CLI did not exit in 60s')),
-							60_000
-						)
-					)
-				]);
-			} catch {
-				console.error(
-					`[crash-loop-debug] last 40 lines of CLI output:\n${outputLines.slice(-40).join('\n')}`
-				);
-				throw new Error(
-					'CLI did not exit in 60s — see debug above'
-				);
+		const port = await getAvailablePort();
+		proc = Bun.spawn(
+			[
+				'bun',
+				'run',
+				cliEntry,
+				'dev',
+				serverEntry,
+				'--config',
+				configPath,
+				'--port',
+				String(port)
+			],
+			{
+				cwd: PROJECT_ROOT,
+				env: {
+					...process.env,
+					FORCE_COLOR: '0',
+					NODE_ENV: 'development',
+					TELEMETRY_OFF: '1'
+				},
+				stderr: 'pipe',
+				stdout: 'pipe'
 			}
+		);
 
-			// The CLI exits 1 once it gives up.
-			expect(exitCode).toBe(1);
+		const outputLines: string[] = [];
+		const drainStream = async (
+			stream: ReadableStream<Uint8Array> | null
+		) => {
+			if (!stream) return;
+			const reader = stream.getReader();
+			const decoder = new TextDecoder();
+			let buf = '';
+			while (true) {
+				const { done, value } = await reader.read();
+				if (done) return;
+				buf += decoder.decode(value, { stream: true });
+				let idx;
+				while ((idx = buf.indexOf('\n')) !== -1) {
+					outputLines.push(buf.slice(0, idx));
+					buf = buf.slice(idx + 1);
+				}
+			}
+		};
+		void drainStream(proc.stdout as ReadableStream<Uint8Array> | null);
+		void drainStream(proc.stderr as ReadableStream<Uint8Array> | null);
 
-			// `refusing to restart` is the user-facing message.
-			const sawRefusal = outputLines.some((l) =>
-				/refusing to restart/i.test(l)
+		// Wait for the CLI to give up. Allow up to 60s — the
+		// guard wants 6 crashes in any 10s window; bun --hot's
+		// boot + the CLI's spawn machinery means each cycle is
+		// ~1-3s, so 6 cycles can stretch close to 18s before
+		// the guard fires. Plus the CLI's cleanup. 60s is
+		// generous; the test usually finishes in 15-25s.
+		let exitCode: number | string = 'TIMEOUT';
+		try {
+			exitCode = await Promise.race([
+				proc.exited,
+				new Promise<number>((_, rej) =>
+					setTimeout(
+						() => rej(new Error('CLI did not exit in 60s')),
+						60_000
+					)
+				)
+			]);
+		} catch {
+			console.error(
+				`[crash-loop-debug] last 40 lines of CLI output:\n${outputLines.slice(-40).join('\n')}`
 			);
-			expect(sawRefusal).toBe(true);
+			throw new Error('CLI did not exit in 60s — see debug above');
+		}
 
-			// And we should see the per-cycle "Server exited (code N),
-			// restarting..." log at least a few times (proves the
-			// supervisor actually ran the respawn loop before
-			// hitting the guard, not just hung).
-			const restartLogs = outputLines.filter((l) =>
-				/Server exited.*restarting/.test(l)
-			);
-			expect(restartLogs.length).toBeGreaterThanOrEqual(3);
-		},
-		90_000
-	);
+		// The CLI exits 1 once it gives up.
+		expect(exitCode).toBe(1);
+
+		// `refusing to restart` is the user-facing message.
+		const sawRefusal = outputLines.some((l) =>
+			/refusing to restart/i.test(l)
+		);
+		expect(sawRefusal).toBe(true);
+
+		// And we should see the per-cycle "Server exited (code N),
+		// restarting..." log at least a few times (proves the
+		// supervisor actually ran the respawn loop before
+		// hitting the guard, not just hung).
+		const restartLogs = outputLines.filter((l) =>
+			/Server exited.*restarting/.test(l)
+		);
+		expect(restartLogs.length).toBeGreaterThanOrEqual(3);
+	}, 90_000);
 });

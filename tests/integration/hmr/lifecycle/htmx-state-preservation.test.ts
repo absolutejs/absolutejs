@@ -41,58 +41,54 @@ const startAll = async () => {
  * then fetch `/htmx/count` and confirm the counter value is
  * preserved. */
 describe('HTMX server-side state preservation across Path B reload', () => {
-	test(
-		'globalThis-stashed counter survives a Path B reload',
-		async () => {
-			const { client: c, server: srv } = await startAll();
+	test('globalThis-stashed counter survives a Path B reload', async () => {
+		const { client: c, server: srv } = await startAll();
 
-			// Inject a `/test-counter` route that stashes its counter
-			// on globalThis. Hit it 3x, then trigger Path B reload
-			// via an unrelated edit, then hit it 2 more times and
-			// confirm it continues from 4, 5 (not 1, 2 — proving
-			// the global survived).
-			mutateFile(serverEntry, (text) =>
-				text.replace(
-					'.use(absolutejs)',
-					`.use(absolutejs).get("/test-counter", () => {
+		// Inject a `/test-counter` route that stashes its counter
+		// on globalThis. Hit it 3x, then trigger Path B reload
+		// via an unrelated edit, then hit it 2 more times and
+		// confirm it continues from 4, 5 (not 1, 2 — proving
+		// the global survived).
+		mutateFile(serverEntry, (text) =>
+			text.replace(
+				'.use(absolutejs)',
+				`.use(absolutejs).get("/test-counter", () => {
   const g = globalThis as { __htmxTestCounter?: number };
   g.__htmxTestCounter = (g.__htmxTestCounter ?? 0) + 1;
   return String(g.__htmxTestCounter);
 })`
-				)
-			);
-			await c.waitFor('server-entry-reloaded', 15_000);
+			)
+		);
+		await c.waitFor('server-entry-reloaded', 15_000);
 
-			const r1 = await fetch(`${srv.baseUrl}/test-counter`).then(
-				(r) => r.text()
-			);
-			const r2 = await fetch(`${srv.baseUrl}/test-counter`).then(
-				(r) => r.text()
-			);
-			const r3 = await fetch(`${srv.baseUrl}/test-counter`).then(
-				(r) => r.text()
-			);
-			expect([r1, r2, r3]).toEqual(['1', '2', '3']);
+		const r1 = await fetch(`${srv.baseUrl}/test-counter`).then((r) =>
+			r.text()
+		);
+		const r2 = await fetch(`${srv.baseUrl}/test-counter`).then((r) =>
+			r.text()
+		);
+		const r3 = await fetch(`${srv.baseUrl}/test-counter`).then((r) =>
+			r.text()
+		);
+		expect([r1, r2, r3]).toEqual(['1', '2', '3']);
 
-			// Path B reload via a no-op edit.
-			c.drain();
-			mutateFile(serverEntry, (text) =>
-				text.replace(
-					'.use(absolutejs)',
-					'.use(absolutejs).get("/htmx/noop", () => "noop")'
-				)
-			);
-			await c.waitFor('server-entry-reloaded', 15_000);
+		// Path B reload via a no-op edit.
+		c.drain();
+		mutateFile(serverEntry, (text) =>
+			text.replace(
+				'.use(absolutejs)',
+				'.use(absolutejs).get("/htmx/noop", () => "noop")'
+			)
+		);
+		await c.waitFor('server-entry-reloaded', 15_000);
 
-			// Counter continues from 4, 5 — globalThis survived.
-			const r4 = await fetch(`${srv.baseUrl}/test-counter`).then(
-				(r) => r.text()
-			);
-			const r5 = await fetch(`${srv.baseUrl}/test-counter`).then(
-				(r) => r.text()
-			);
-			expect([r4, r5]).toEqual(['4', '5']);
-		},
-		60_000
-	);
+		// Counter continues from 4, 5 — globalThis survived.
+		const r4 = await fetch(`${srv.baseUrl}/test-counter`).then((r) =>
+			r.text()
+		);
+		const r5 = await fetch(`${srv.baseUrl}/test-counter`).then((r) =>
+			r.text()
+		);
+		expect([r4, r5]).toEqual(['4', '5']);
+	}, 60_000);
 });

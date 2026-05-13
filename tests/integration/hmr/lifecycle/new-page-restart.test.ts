@@ -1,11 +1,7 @@
 import { describe, expect, test, afterEach } from 'bun:test';
 import { resolve } from 'node:path';
 import { startDevServer, type DevServer } from '../../../helpers/devServer';
-import {
-	createFile,
-	mutateFile,
-	restoreAllFiles
-} from '../../../helpers/file';
+import { createFile, mutateFile, restoreAllFiles } from '../../../helpers/file';
 
 const PROJECT_ROOT = resolve(import.meta.dir, '..', '..', '..', '..');
 
@@ -36,31 +32,25 @@ afterEach(async () => {
  * stdout. The test doesn't actually respawn — that's the parent
  * CLI's job — it just verifies the marker contract. */
 describe('Adding a new page entry mid-session falls through to [abs:restart]', () => {
-	test(
-		'creating a new svelte page + a server route referencing it emits [abs:restart]',
-		async () => {
-			server = await startDevServer();
-			const pagePath = resolve(
-				PROJECT_ROOT,
-				'example/svelte/pages/NewlyAddedPage.svelte'
-			);
-			const serverEntry = resolve(PROJECT_ROOT, 'example/server.ts');
+	test('creating a new svelte page + a server route referencing it emits [abs:restart]', async () => {
+		server = await startDevServer();
+		const pagePath = resolve(
+			PROJECT_ROOT,
+			'example/svelte/pages/NewlyAddedPage.svelte'
+		);
+		const serverEntry = resolve(PROJECT_ROOT, 'example/server.ts');
 
-			createFile(
-				pagePath,
-				`<script lang="ts">\n</script>\n\n<h1>NEW_PAGE_MARKER</h1>\n`
-			);
-			mutateFile(serverEntry, (c) =>
-				c.replace(
-					".get('/svelte', () =>",
-					".get('/new-page', () =>\n\t\t\thandleSveltePageRequest({\n\t\t\t\tindexPath: asset(manifest, 'NewlyAddedPageIndex'),\n\t\t\t\tpagePath: asset(manifest, 'NewlyAddedPage'),\n\t\t\t\tprops: {}\n\t\t\t})\n\t\t)\n\t\t.get('/svelte', () =>"
-				)
-			);
+		createFile(
+			pagePath,
+			`<script lang="ts">\n</script>\n\n<h1>NEW_PAGE_MARKER</h1>\n`
+		);
+		mutateFile(serverEntry, (c) =>
+			c.replace(
+				".get('/svelte', () =>",
+				".get('/new-page', () =>\n\t\t\thandleSveltePageRequest({\n\t\t\t\tindexPath: asset(manifest, 'NewlyAddedPageIndex'),\n\t\t\t\tpagePath: asset(manifest, 'NewlyAddedPage'),\n\t\t\t\tprops: {}\n\t\t\t})\n\t\t)\n\t\t.get('/svelte', () =>"
+			)
+		);
 
-			await server.waitForOutput(
-				/\[abs:restart\] .*server\.ts/
-			);
-		},
-		30_000
-	);
+		await server.waitForOutput(/\[abs:restart\] .*server\.ts/);
+	}, 30_000);
 });

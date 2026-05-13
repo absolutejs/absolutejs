@@ -358,8 +358,7 @@ const fingerprintsEqual = (
 	if (a.providersArraySig !== b.providersArraySig) return false;
 	if (a.viewProvidersArraySig !== b.viewProvidersArraySig) return false;
 	if (a.decoratorInputsArraySig !== b.decoratorInputsArraySig) return false;
-	if (a.decoratorOutputsArraySig !== b.decoratorOutputsArraySig)
-		return false;
+	if (a.decoratorOutputsArraySig !== b.decoratorOutputsArraySig) return false;
 	if (a.hostBindingsSig !== b.hostBindingsSig) return false;
 	if (a.pageExportsSig !== b.pageExportsSig) return false;
 	if (a.schemasSig !== b.schemasSig) return false;
@@ -398,10 +397,9 @@ export const primeComponentFingerprint = async (
 ): Promise<void> => {
 	let source: string;
 	try {
-		source = await (await import('node:fs/promises')).readFile(
-			componentFilePath,
-			'utf8'
-		);
+		source = await (
+			await import('node:fs/promises')
+		).readFile(componentFilePath, 'utf8');
 	} catch {
 		return;
 	}
@@ -1105,18 +1103,15 @@ const readDecoratorMeta = (
 				? providersExpr
 				: null,
 		viewProvidersExpr:
-			viewProvidersExpr &&
-			ts.isArrayLiteralExpression(viewProvidersExpr)
+			viewProvidersExpr && ts.isArrayLiteralExpression(viewProvidersExpr)
 				? viewProvidersExpr
 				: null,
 		inputsArrayExpr:
-			inputsArrayExpr &&
-			ts.isArrayLiteralExpression(inputsArrayExpr)
+			inputsArrayExpr && ts.isArrayLiteralExpression(inputsArrayExpr)
 				? inputsArrayExpr
 				: null,
 		outputsArrayExpr:
-			outputsArrayExpr &&
-			ts.isArrayLiteralExpression(outputsArrayExpr)
+			outputsArrayExpr && ts.isArrayLiteralExpression(outputsArrayExpr)
 				? outputsArrayExpr
 				: null,
 		hostExpr:
@@ -1457,6 +1452,7 @@ const mergeMemberHostDecorators = (
 	cls: ts.ClassDeclaration
 ): void => {
 	for (const member of cls.members) {
+		if (!ts.canHaveDecorators(member)) continue;
 		const decorators = ts.getDecorators(member) ?? [];
 		for (const dec of decorators) {
 			const expr = dec.expression;
@@ -2391,6 +2387,7 @@ const INPUT_OUTPUT_DECORATORS = new Set(['Input', 'Output']);
 const extractMemberDecoratorSig = (cls: ts.ClassDeclaration): string[] => {
 	const entries: string[] = [];
 	for (const member of cls.members) {
+		if (!ts.canHaveDecorators(member)) continue;
 		const decorators = ts.getDecorators(member) ?? [];
 		if (decorators.length === 0) continue;
 		const memberName = member.name?.getText() ?? '<anon>';
@@ -2894,7 +2891,6 @@ const buildFreshClassMethodsBlock = (
 		if (ts.isPropertyDeclaration(member)) {
 			const modifiers = (ts.getModifiers(member) ?? []).filter(
 				(m) =>
-					m.kind !== ts.SyntaxKind.Decorator &&
 					m.kind !== ts.SyntaxKind.PrivateKeyword &&
 					m.kind !== ts.SyntaxKind.PublicKeyword &&
 					m.kind !== ts.SyntaxKind.ProtectedKeyword &&
@@ -2929,7 +2925,6 @@ const buildFreshClassMethodsBlock = (
 					param,
 					(ts.getModifiers(param) ?? []).filter(
 						(m) =>
-							m.kind !== ts.SyntaxKind.Decorator &&
 							m.kind !== ts.SyntaxKind.PrivateKeyword &&
 							m.kind !== ts.SyntaxKind.PublicKeyword &&
 							m.kind !== ts.SyntaxKind.ProtectedKeyword &&
@@ -2979,16 +2974,15 @@ const buildFreshClassMethodsBlock = (
 			// its original construction; we don't re-apply them here
 			// because surgical only needs the method bodies on the
 			// prototype.
+			// Parameter decorators (Inject, Optional, etc.) reference
+			// runtime-imported symbols not in scope here. ts.getModifiers
+			// already excludes decorators (they come from
+			// ts.getDecorators), so passing only the modifier list to
+			// updateParameterDeclaration drops them.
 			const cleanedParams = member.parameters.map((param) =>
 				ts.factory.updateParameterDeclaration(
 					param,
-					(ts.getModifiers(param) ?? []).filter(
-						(m) =>
-							// Strip parameter decorators (Inject, Optional,
-							// etc.) for the same reason — they reference
-							// runtime-imported symbols.
-							m.kind !== ts.SyntaxKind.Decorator
-					),
+					ts.getModifiers(param) ?? [],
 					param.dotDotDotToken,
 					param.name,
 					param.questionToken,
@@ -2999,7 +2993,7 @@ const buildFreshClassMethodsBlock = (
 			let cleaned: ts.Node;
 			if (ts.isMethodDeclaration(member)) {
 				cleaned = ts.factory.createMethodDeclaration(
-					modifiers.filter((m) => m.kind !== ts.SyntaxKind.Decorator),
+					modifiers,
 					member.asteriskToken,
 					member.name,
 					member.questionToken,
@@ -3010,7 +3004,7 @@ const buildFreshClassMethodsBlock = (
 				);
 			} else if (ts.isGetAccessorDeclaration(member)) {
 				cleaned = ts.factory.createGetAccessorDeclaration(
-					modifiers.filter((m) => m.kind !== ts.SyntaxKind.Decorator),
+					modifiers,
 					member.name,
 					cleanedParams,
 					member.type,
@@ -3018,7 +3012,7 @@ const buildFreshClassMethodsBlock = (
 				);
 			} else {
 				cleaned = ts.factory.createSetAccessorDeclaration(
-					modifiers.filter((m) => m.kind !== ts.SyntaxKind.Decorator),
+					modifiers,
 					member.name,
 					cleanedParams,
 					member.body
@@ -3556,8 +3550,7 @@ export const tryFastHmr = async (
 				// stale tag. Force Tier 1b so the parent
 				// template's bundle is rebuilt and re-rendered
 				// against the new selector.
-				cachedFingerprint.selector !==
-					currentFingerprint.selector ||
+				cachedFingerprint.selector !== currentFingerprint.selector ||
 				// Module-level `export const providers = [...]` /
 				// `export const routes = [...]` reshape the DI /
 				// router tree at app-bootstrap; existing

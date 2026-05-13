@@ -74,104 +74,84 @@ const waitForBundleAndFetch = async (
  *
  * Each test asserts one of these contracts. */
 describe('Angular vendor / SSR specifics', () => {
-	test(
-		'baseline SSR HTML carries the standard Angular hydration markers',
-		async () => {
-			const { server: srv } = await startAndConnect();
-			const html = await (await fetch(`${srv.baseUrl}/angular`)).text();
-			expect(html).toContain('<!--nghm-->');
-			expect(html).toMatch(/ng-version="\d+\.\d+\.\d+"/);
-			expect(html).toMatch(/ng-server-context="[^"]+"/);
-			expect(html).toMatch(/ngh="[^"]+"/);
-			expect(html).toContain('<script id="ng-state"');
-		},
-		30_000
-	);
+	test('baseline SSR HTML carries the standard Angular hydration markers', async () => {
+		const { server: srv } = await startAndConnect();
+		const html = await (await fetch(`${srv.baseUrl}/angular`)).text();
+		expect(html).toContain('<!--nghm-->');
+		expect(html).toMatch(/ng-version="\d+\.\d+\.\d+"/);
+		expect(html).toMatch(/ng-server-context="[^"]+"/);
+		expect(html).toMatch(/ngh="[^"]+"/);
+		expect(html).toContain('<script id="ng-state"');
+	}, 30_000);
 
-	test(
-		'manifest exposes AngularExample page entry (either `.ssr.js` or `.js`)',
-		async () => {
-			const { initialManifest } = await startAndConnect();
-			const pagePath = initialManifest.AngularExample;
-			expect(pagePath).toBeTruthy();
-			// `.ssr.js` when vendor rewrites are active, plain `.js`
-			// otherwise — both are valid outcomes of
-			// `compileAndBundleAngular`'s vendor-rewrite branch.
-			expect(pagePath).toMatch(/\.(ssr\.js|js)$/);
-			// Index + CSS manifest entries are required for SSR
-			// boot.
-			expect(initialManifest.AngularExampleIndex).toBeTruthy();
-			expect(initialManifest.AngularExampleCSS).toBeTruthy();
-		},
-		30_000
-	);
+	test('manifest exposes AngularExample page entry (either `.ssr.js` or `.js`)', async () => {
+		const { initialManifest } = await startAndConnect();
+		const pagePath = initialManifest.AngularExample;
+		expect(pagePath).toBeTruthy();
+		// `.ssr.js` when vendor rewrites are active, plain `.js`
+		// otherwise — both are valid outcomes of
+		// `compileAndBundleAngular`'s vendor-rewrite branch.
+		expect(pagePath).toMatch(/\.(ssr\.js|js)$/);
+		// Index + CSS manifest entries are required for SSR
+		// boot.
+		expect(initialManifest.AngularExampleIndex).toBeTruthy();
+		expect(initialManifest.AngularExampleCSS).toBeTruthy();
+	}, 30_000);
 
-	test(
-		'editing a component template re-emits a fresh bundle and SSR reflects it',
-		async () => {
-			const { client: c, server: srv } = await startAndConnect();
+	test('editing a component template re-emits a fresh bundle and SSR reflects it', async () => {
+		const { client: c, server: srv } = await startAndConnect();
 
-			// Edit the *template* — that change can't be shadowed by
-			// ngOnInit the way a field initializer can.
-			const counterTemplate = resolve(
-				PROJECT_ROOT,
-				'example/angular/templates/counter.component.html'
-			);
-			mutateFile(counterTemplate, (c) =>
-				c.replace('count is', 'VENDOR_SSR_SENTINEL')
-			);
-			await waitForBundleAndFetch(c, srv);
+		// Edit the *template* — that change can't be shadowed by
+		// ngOnInit the way a field initializer can.
+		const counterTemplate = resolve(
+			PROJECT_ROOT,
+			'example/angular/templates/counter.component.html'
+		);
+		mutateFile(counterTemplate, (c) =>
+			c.replace('count is', 'VENDOR_SSR_SENTINEL')
+		);
+		await waitForBundleAndFetch(c, srv);
 
-			// After the bundle rebuild, the SSR response should
-			// reflect the new template content. The mtime cacheBuster
-			// in `pageHandler.ts` busts Bun's import cache so
-			// `await import(pagePath)` re-reads from disk.
-			const html = await (await fetch(`${srv.baseUrl}/angular`)).text();
-			expect(html).toContain('VENDOR_SSR_SENTINEL');
-		},
-		60_000
-	);
+		// After the bundle rebuild, the SSR response should
+		// reflect the new template content. The mtime cacheBuster
+		// in `pageHandler.ts` busts Bun's import cache so
+		// `await import(pagePath)` re-reads from disk.
+		const html = await (await fetch(`${srv.baseUrl}/angular`)).text();
+		expect(html).toContain('VENDOR_SSR_SENTINEL');
+	}, 60_000);
 
-	test(
-		'`__ABSOLUTE_PAGE_USES_LEGACY_ANIMATIONS__` is set when the page imports `@angular/animations`',
-		async () => {
-			const { client: c, server: srv } = await startAndConnect();
+	test('`__ABSOLUTE_PAGE_USES_LEGACY_ANIMATIONS__` is set when the page imports `@angular/animations`', async () => {
+		const { client: c, server: srv } = await startAndConnect();
 
-			mutateFile(pageComponent, (c) =>
-				c.replace(
-					"import { Component, inject, InjectionToken } from '@angular/core';",
-					"import { Component, inject, InjectionToken } from '@angular/core';\nimport { trigger } from '@angular/animations';\nconst _unusedTrigger = trigger;"
-				)
-			);
+		mutateFile(pageComponent, (c) =>
+			c.replace(
+				"import { Component, inject, InjectionToken } from '@angular/core';",
+				"import { Component, inject, InjectionToken } from '@angular/core';\nimport { trigger } from '@angular/animations';\nconst _unusedTrigger = trigger;"
+			)
+		);
 
-			await waitForBundleAndFetch(c, srv);
+		await waitForBundleAndFetch(c, srv);
 
-			const { readFileSync } = await import('node:fs');
-			const generatedPage = resolve(
-				PROJECT_ROOT,
-				'.absolutejs/generated/angular/pages/angular-example.js'
-			);
-			const emitted = readFileSync(generatedPage, 'utf-8');
-			expect(emitted).toContain(
-				'__ABSOLUTE_PAGE_USES_LEGACY_ANIMATIONS__ = true'
-			);
-		},
-		60_000
-	);
+		const { readFileSync } = await import('node:fs');
+		const generatedPage = resolve(
+			PROJECT_ROOT,
+			'.absolutejs/generated/angular/pages/angular-example.js'
+		);
+		const emitted = readFileSync(generatedPage, 'utf-8');
+		expect(emitted).toContain(
+			'__ABSOLUTE_PAGE_USES_LEGACY_ANIMATIONS__ = true'
+		);
+	}, 60_000);
 
-	test(
-		'SSR HTML imports the page index bundle URL from the manifest',
-		async () => {
-			const { initialManifest, server: srv } = await startAndConnect();
-			const indexPath = initialManifest.AngularExampleIndex;
-			expect(indexPath).toBeTruthy();
+	test('SSR HTML imports the page index bundle URL from the manifest', async () => {
+		const { initialManifest, server: srv } = await startAndConnect();
+		const indexPath = initialManifest.AngularExampleIndex;
+		expect(indexPath).toBeTruthy();
 
-			const html = await (await fetch(`${srv.baseUrl}/angular`)).text();
-			// The handler appends a `<script>import("...")</script>`
-			// at the end of <body> for client hydration. The URL is
-			// the manifest's index entry.
-			expect(html).toContain(indexPath!);
-		},
-		30_000
-	);
+		const html = await (await fetch(`${srv.baseUrl}/angular`)).text();
+		// The handler appends a `<script>import("...")</script>`
+		// at the end of <body> for client hydration. The URL is
+		// the manifest's index entry.
+		expect(html).toContain(indexPath!);
+	}, 30_000);
 });

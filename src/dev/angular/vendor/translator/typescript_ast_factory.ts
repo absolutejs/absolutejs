@@ -339,6 +339,9 @@ export class TypeScriptAstFactory
 		let templateLiteral: ts.TemplateLiteral;
 		const length = template.elements.length;
 		const head = template.elements[0];
+		if (head === undefined) {
+			throw new Error('createTemplateLiteral: template has no elements');
+		}
 		if (length === 1) {
 			templateLiteral = ts.factory.createNoSubstitutionTemplateLiteral(
 				head.cooked,
@@ -348,21 +351,31 @@ export class TypeScriptAstFactory
 			const spans: ts.TemplateSpan[] = [];
 			// Create the middle parts
 			for (let i = 1; i < length - 1; i++) {
-				const { cooked, raw, range } = template.elements[i];
+				const element = template.elements[i];
+				const expression = template.expressions[i - 1];
+				if (element === undefined || expression === undefined) {
+					throw new Error(
+						`createTemplateLiteral: missing element/expression at index ${i}`
+					);
+				}
+				const { cooked, raw, range } = element;
 				const middle = createTemplateMiddle(cooked, raw);
 				if (range !== null) {
 					this.setSourceMapRange(middle, range);
 				}
-				spans.push(
-					ts.factory.createTemplateSpan(
-						template.expressions[i - 1],
-						middle
-					)
-				);
+				spans.push(ts.factory.createTemplateSpan(expression, middle));
 			}
 			// Create the tail part
 			const resolvedExpression = template.expressions[length - 2];
 			const templatePart = template.elements[length - 1];
+			if (
+				resolvedExpression === undefined ||
+				templatePart === undefined
+			) {
+				throw new Error(
+					'createTemplateLiteral: missing tail element/expression'
+				);
+			}
 			const templateTail = createTemplateTail(
 				templatePart.cooked,
 				templatePart.raw

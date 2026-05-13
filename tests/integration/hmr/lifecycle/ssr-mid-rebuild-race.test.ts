@@ -67,65 +67,53 @@ const swarm = async (url: string, count: number) => {
  * rebuild (loader/manifest swap visible to a fetch handler before
  * the bundle on disk is fully written). */
 describe('SSR document requests landing mid-rebuild', () => {
-	test(
-		'20 concurrent /vue fetches across a tier-0 template edit window all succeed',
-		async () => {
-			const { server: srv } = await startAll();
+	test('20 concurrent /vue fetches across a tier-0 template edit window all succeed', async () => {
+		const { server: srv } = await startAll();
 
-			// Establish baseline content so we can recognize coherent
-			// renders.
-			const baseline = await (await fetch(`${srv.baseUrl}/vue`)).text();
-			expect(baseline).toContain('count is 0');
+		// Establish baseline content so we can recognize coherent
+		// renders.
+		const baseline = await (await fetch(`${srv.baseUrl}/vue`)).text();
+		expect(baseline).toContain('count is 0');
 
-			// Race window: fire the edit, then immediately swarm 20
-			// concurrent fetches. Some will resolve from the pre-edit
-			// bundle, some from the post-edit bundle.
-			mutateFile(vuePage, (text) =>
-				text.replace(
-					'<h1>AbsoluteJS + Vue</h1>',
-					'<h1>AbsoluteJS + Vue MID_REBUILD_OK</h1>'
-				)
+		// Race window: fire the edit, then immediately swarm 20
+		// concurrent fetches. Some will resolve from the pre-edit
+		// bundle, some from the post-edit bundle.
+		mutateFile(vuePage, (text) =>
+			text.replace(
+				'<h1>AbsoluteJS + Vue</h1>',
+				'<h1>AbsoluteJS + Vue MID_REBUILD_OK</h1>'
+			)
+		);
+		const results = await swarm(`${srv.baseUrl}/vue`, 20);
+
+		const failures = results.filter(
+			(r) => !r.ok || r.status >= 500 || r.length < 100
+		);
+		expect(failures).toEqual([]);
+	}, 60_000);
+
+	test('40 fetches across 4 rapid Svelte edits never produce 5xx or empty bodies', async () => {
+		const { server: srv } = await startAll();
+
+		// Baseline.
+		expect(
+			(await (await fetch(`${srv.baseUrl}/svelte`)).text()).length
+		).toBeGreaterThan(100);
+
+		const allResults: Awaited<ReturnType<typeof swarm>>[] = [];
+		for (let i = 0; i < 4; i++) {
+			mutateFile(sveltePage, (text) =>
+				text.replace('<h1>AbsoluteJS', `<h1>AbsoluteJS RAPID_${i}_`)
 			);
-			const results = await swarm(`${srv.baseUrl}/vue`, 20);
+			// Don't await an HMR cycle — we're explicitly probing
+			// the race window between edit and rebuild completion.
+			allResults.push(await swarm(`${srv.baseUrl}/svelte`, 10));
+			restoreAllFiles();
+		}
 
-			const failures = results.filter(
-				(r) => !r.ok || r.status >= 500 || r.length < 100
-			);
-			expect(failures).toEqual([]);
-		},
-		60_000
-	);
-
-	test(
-		'40 fetches across 4 rapid Svelte edits never produce 5xx or empty bodies',
-		async () => {
-			const { server: srv } = await startAll();
-
-			// Baseline.
-			expect(
-				(await (await fetch(`${srv.baseUrl}/svelte`)).text()).length
-			).toBeGreaterThan(100);
-
-			const allResults: Awaited<ReturnType<typeof swarm>>[] = [];
-			for (let i = 0; i < 4; i++) {
-				mutateFile(sveltePage, (text) =>
-					text.replace(
-						'<h1>AbsoluteJS',
-						`<h1>AbsoluteJS RAPID_${i}_`
-					)
-				);
-				// Don't await an HMR cycle — we're explicitly probing
-				// the race window between edit and rebuild completion.
-				allResults.push(await swarm(`${srv.baseUrl}/svelte`, 10));
-				restoreAllFiles();
-			}
-
-			const failures = allResults
-				.flat()
-				.filter((r) => !r.ok || r.status >= 500 || r.length < 100);
-			expect(failures).toEqual([]);
-		},
-		90_000
-	);
-
+		const failures = allResults
+			.flat()
+			.filter((r) => !r.ok || r.status >= 500 || r.length < 100);
+		expect(failures).toEqual([]);
+	}, 90_000);
 });

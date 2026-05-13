@@ -1,4 +1,5 @@
 import type { Metadata, RobotsDirective } from '../../types/metadata';
+import { serializeJsonLd } from './jsonLd';
 
 const renderRobotsContent = (robots: RobotsDirective) => {
 	const directives: string[] = [];
@@ -121,7 +122,8 @@ export const generateHeadElement = ({
 	openGraph,
 	twitter,
 	robots,
-	meta
+	meta,
+	jsonLd
 }: Metadata = {}) => {
 	const tags: string[] = [
 		'<meta charset="UTF-8">',
@@ -162,6 +164,12 @@ export const generateHeadElement = ({
 
 	for (const path of cssPaths) {
 		tags.push(`<link rel="stylesheet" href="${path}" type="text/css">`);
+	}
+
+	if (jsonLd) {
+		tags.push(
+			`<script type="application/ld+json">${serializeJsonLd(jsonLd)}</script>`
+		);
 	}
 
 	return `<head>\n  ${tags.join('\n  ')}\n</head>` as const;

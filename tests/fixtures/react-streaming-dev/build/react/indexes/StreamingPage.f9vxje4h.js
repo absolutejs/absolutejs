@@ -32,7 +32,6 @@ var hmrState = {
 };
 
 // src/dev/client/constants.ts
-var ANGULAR_INIT_TIMEOUT_MS = 500;
 var CSS_ERROR_RESOLVE_DELAY_MS = 50;
 var CSS_MAX_CHECK_ATTEMPTS = 10;
 var CSS_MAX_PARSE_TIMEOUT_MS = 500;
@@ -465,107 +464,509 @@ var showErrorOverlay = (opts) => {
   renderOverlay();
 };
 
-// src/angular/hmrPreserveCore.ts
-var isHmrPreserveDev = () => {
-  if (typeof window === "undefined")
-    return false;
-  const scope = globalThis;
-  return Boolean(scope.__DEV__) || Boolean(scope.ngDevMode);
-};
-var getCache = () => {
-  const scope = globalThis;
-  return scope.__ABS_HMR_INSTANCE_STATE__ ??= new Map;
-};
-var getTracker = () => {
-  const scope = globalThis;
-  return scope.__ABS_HMR_TRACKED_INSTANCES__ ??= new Set;
-};
-var getKeyMap = () => {
-  const scope = globalThis;
-  return scope.__ABS_HMR_INSTANCE_KEYS__ ??= new WeakMap;
-};
-var getRebootFlag = () => {
-  const scope = globalThis;
-  return scope.__ABS_HMR_REBOOT_IN_PROGRESS__ ??= { value: false };
-};
-var getRebootStats = () => {
-  const scope = globalThis;
-  return scope.__ABS_HMR_REBOOT_STATS__ ??= {
-    captured: 0,
-    restoredKeys: new Set
+// src/dev/client/handlers/angularHmrShim.ts
+var installAngularHmrShim = () => {
+  const listeners = new Map;
+  const bus = {
+    on(event, cb) {
+      let set = listeners.get(event);
+      if (!set) {
+        set = new Set;
+        listeners.set(event, set);
+      }
+      set.add(cb);
+    },
+    off(event, cb) {
+      listeners.get(event)?.delete(cb);
+    },
+    dispatch(event, data) {
+      const set = listeners.get(event);
+      if (!set)
+        return;
+      for (const cb of [...set]) {
+        try {
+          cb(data);
+        } catch (err) {
+          console.error("[absolutejs] angular HMR listener threw", err);
+        }
+      }
+    }
   };
+  return bus;
 };
-var isPreservable = (value, depth = 0) => {
-  if (depth > 8)
-    return false;
-  if (value === null || value === undefined)
-    return true;
-  const t = typeof value;
-  if (t === "string" || t === "number" || t === "boolean" || t === "bigint")
-    return true;
-  if (t === "function" || t === "symbol")
-    return false;
-  if (Array.isArray(value)) {
-    return value.every((item) => isPreservable(item, depth + 1));
-  }
-  if (t === "object") {
-    const proto = Object.getPrototypeOf(value);
-    if (proto !== Object.prototype && proto !== null)
-      return false;
-    return Object.values(value).every((v) => isPreservable(v, depth + 1));
-  }
-  return false;
+if (typeof globalThis !== "undefined" && !globalThis.__angularHmr) {
+  globalThis.__angularHmr = installAngularHmrShim();
+}
+var dispatchAngularComponentUpdate = (data) => {
+  globalThis.__angularHmr?.dispatch("angular:component-update", data);
 };
-var buildCacheKey = (instance, key) => {
-  const className = instance.constructor?.name;
-  if (!className || className === "Object")
+var dispatchAngularComponentRemount = (data) => {
+  globalThis.__angularHmr?.dispatch("angular:component-remount", data);
+};
+
+// src/dev/client/vendor/lview/slotConstants.ts
+var HOST = 0;
+var TVIEW = 1;
+var FLAGS = 2;
+var PARENT = 3;
+var NEXT = 4;
+var T_HOST = 5;
+var CLEANUP = 7;
+var CONTEXT = 8;
+var CHILD_HEAD = 12;
+var CHILD_TAIL = 13;
+var ON_DESTROY_HOOKS = 21;
+var HEADER_OFFSET = 27;
+var LFLAG_DESTROYED = 256;
+
+// src/dev/client/vendor/lview/lViewOps.ts
+var isLView = (v) => Array.isArray(v) && typeof v[TVIEW] === "object";
+var isLContainer = (v) => Array.isArray(v) && v[TVIEW] === undefined;
+var replaceLViewInTree = (parentLView, oldLView, newLView, index) => {
+  const parentTView = parentLView[TVIEW];
+  for (let i = HEADER_OFFSET;i < parentTView.bindingStartIndex; i++) {
+    const current = parentLView[i];
+    if ((isLView(current) || isLContainer(current)) && current[NEXT] === oldLView) {
+      current[NEXT] = newLView;
+      break;
+    }
+  }
+  if (parentLView[CHILD_HEAD] === oldLView)
+    parentLView[CHILD_HEAD] = newLView;
+  if (parentLView[CHILD_TAIL] === oldLView)
+    parentLView[CHILD_TAIL] = newLView;
+  newLView[NEXT] = oldLView[NEXT];
+  oldLView[NEXT] = null;
+  parentLView[index] = newLView;
+};
+var isNodeInjectorFactoryLike = (value) => typeof value === "object" && value !== null && value.constructor !== undefined && value.constructor.name === "NodeInjectorFactory";
+var executeOnDestroys = (tView, lView) => {
+  const destroyHooks = tView.destroyHooks;
+  if (destroyHooks == null)
+    return;
+  for (let i = 0;i < destroyHooks.length; i += 2) {
+    const slotIdx = destroyHooks[i];
+    const context = lView[slotIdx];
+    if (isNodeInjectorFactoryLike(context))
+      continue;
+    const toCall = destroyHooks[i + 1];
+    if (Array.isArray(toCall)) {
+      for (let j = 0;j < toCall.length; j += 2) {
+        const propKey = toCall[j];
+        const hook = toCall[j + 1];
+        const callContext = context[propKey];
+        try {
+          hook.call(callContext);
+        } catch (err) {
+          console.error("[absolutejs] onDestroy hook threw", err);
+        }
+      }
+    } else if (typeof toCall === "function") {
+      try {
+        toCall.call(context);
+      } catch (err) {
+        console.error("[absolutejs] onDestroy hook threw", err);
+      }
+    }
+  }
+};
+var processCleanups = (tView, lView) => {
+  const tCleanup = tView.cleanup;
+  const lCleanup = lView[CLEANUP];
+  if (tCleanup !== null && lCleanup !== null) {
+    for (let i = 0;i < tCleanup.length - 1; i += 2) {
+      const entry = tCleanup[i];
+      if (typeof entry === "string") {
+        const targetIdx = tCleanup[i + 3];
+        try {
+          if (targetIdx >= 0) {
+            lCleanup[targetIdx]();
+          } else {
+            lCleanup[-targetIdx].unsubscribe();
+          }
+        } catch (err) {
+          console.error("[absolutejs] DOM cleanup threw", err);
+        }
+        i += 2;
+      } else if (typeof entry === "function") {
+        const ctxIdx = tCleanup[i + 1];
+        try {
+          entry.call(lCleanup[ctxIdx]);
+        } catch (err) {
+          console.error("[absolutejs] cleanup callback threw", err);
+        }
+      }
+    }
+  }
+  if (lCleanup !== null) {
+    lView[CLEANUP] = null;
+  }
+  const onDestroyHooks = lView[ON_DESTROY_HOOKS];
+  if (onDestroyHooks !== null) {
+    lView[ON_DESTROY_HOOKS] = null;
+    for (const hook of onDestroyHooks) {
+      try {
+        hook();
+      } catch (err) {
+        console.error("[absolutejs] DestroyRef hook threw", err);
+      }
+    }
+  }
+};
+var markLViewDestroyed = (lView) => {
+  lView[FLAGS] = (lView[FLAGS] | LFLAG_DESTROYED) >>> 0;
+};
+
+// src/dev/client/handlers/angularRemount.ts
+var findLiveInstances = (Class) => {
+  const results = [];
+  const elements = document.querySelectorAll("*");
+  for (const el of Array.from(elements)) {
+    const ctx = el.__ngContext__;
+    if (typeof ctx !== "object" || ctx === null)
+      continue;
+    const lContext = ctx;
+    if (!lContext.lView || lContext.nodeIndex === undefined)
+      continue;
+    const slot = lContext.lView[lContext.nodeIndex];
+    if (!isLView(slot))
+      continue;
+    const ownLView = slot;
+    const instance = ownLView[CONTEXT];
+    if (!(instance instanceof Class))
+      continue;
+    const tNode = ownLView[T_HOST];
+    const host = ownLView[HOST];
+    if (!tNode || !host)
+      continue;
+    if (results.some((r) => r.oldLView === ownLView))
+      continue;
+    results.push({
+      host,
+      oldLView: ownLView,
+      parentLView: lContext.lView,
+      slotIndex: lContext.nodeIndex,
+      tNode
+    });
+  }
+  return results;
+};
+var createFreshAt = (Class, hostElement, core) => {
+  const w = window;
+  const envInjector = w.__ANGULAR_APP__?.injector;
+  if (!envInjector)
     return null;
-  const suffix = key === undefined || key === null ? "" : String(key);
-  return `${className}:${suffix}`;
-};
-var captureTrackedInstanceStates = () => {
-  if (!isHmrPreserveDev())
-    return;
-  const cache = getCache();
-  const tracker = getTracker();
-  const keyMap = getKeyMap();
-  const stats = getRebootStats();
-  const seen = new Set;
-  cache.clear();
-  stats.restoredKeys.clear();
-  stats.captured = 0;
-  for (const ref of tracker) {
-    const instance = ref.deref();
-    if (!instance)
-      continue;
-    const fullKey = keyMap.get(instance) ?? buildCacheKey(instance);
-    if (fullKey === null)
-      continue;
-    if (seen.has(fullKey)) {
-      console.warn(`[HMR] preserveAcrossHmr collision on "${fullKey}". Two instances would use the same cache slot — the later one will overwrite the earlier one's state on full re-bootstrap. Pass a unique \`key\` argument (e.g. an @Input id) to differentiate.`);
-    }
-    seen.add(fullKey);
-    const props = {};
-    for (const prop of Object.keys(instance)) {
-      const value = instance[prop];
-      if (isPreservable(value))
-        props[prop] = value;
-    }
-    cache.set(fullKey, props);
-    stats.captured++;
+  const ref = core.createComponent(Class, {
+    hostElement,
+    environmentInjector: envInjector
+  });
+  const newLView = ref.hostView._lView;
+  if (!newLView) {
+    ref.destroy();
+    return null;
   }
-  tracker.clear();
-  getRebootFlag().value = true;
+  return { instance: ref.instance, newLView, componentRef: ref };
 };
-var endHmrReboot = () => {
-  if (!isHmrPreserveDev())
-    return;
-  getRebootFlag().value = false;
-  const stats = getRebootStats();
-  if (stats.captured > 0) {
-    const restored = Array.from(stats.restoredKeys).map((k) => k.replace(/:$/, "")).sort();
-    console.info(`[HMR] Full re-bootstrap: restored state for ${restored.length}/${stats.captured} tracked instance(s)${restored.length > 0 ? ` — ${restored.join(", ")}` : ""}. Components without preservation reset to defaults; opt in via \`preserveAcrossHmr(this)\`.`);
+var spliceLViewIntoParent = (target, newLView, newInstance) => {
+  const { parentLView, oldLView, slotIndex, tNode } = target;
+  replaceLViewInTree(parentLView, oldLView, newLView, slotIndex);
+  newLView[PARENT] = parentLView;
+  newLView[T_HOST] = tNode;
+  const oldInstance = oldLView[CONTEXT];
+  const tNodeWithDirectiveRange = tNode;
+  const start = tNodeWithDirectiveRange.directiveStart;
+  const end = tNodeWithDirectiveRange.directiveEnd;
+  if (typeof start === "number" && typeof end === "number") {
+    for (let i = start;i < end; i++) {
+      if (parentLView[i] === oldInstance) {
+        parentLView[i] = newInstance;
+      }
+    }
   }
+};
+var teardownOldLView = (oldLView) => {
+  const oldTView = oldLView[TVIEW];
+  if (oldTView) {
+    executeOnDestroys(oldTView, oldLView);
+    processCleanups(oldTView, oldLView);
+  }
+  markLViewDestroyed(oldLView);
+};
+var copyInputsFromOldToNew = (oldInstance, newInstance) => {
+  if (!oldInstance || !newInstance)
+    return;
+  const def = newInstance.constructor?.ɵcmp;
+  const inputs = def?.inputs;
+  if (!inputs)
+    return;
+  for (const classField of Object.keys(inputs)) {
+    const oldRec = oldInstance;
+    const newRec = newInstance;
+    if (classField in oldRec) {
+      newRec[classField] = oldRec[classField];
+    }
+  }
+};
+var remountComponentClass = async (Class, applyMetadata, namespaces, locals, core, className) => {
+  let FreshClass = Class;
+  try {
+    const returned = applyMetadata.apply(null, [
+      Class,
+      namespaces,
+      ...locals
+    ]);
+    if (typeof returned === "function") {
+      FreshClass = returned;
+    }
+  } catch (err) {
+    return {
+      className,
+      error: `applyMetadata threw: ${err.message}`,
+      remounted: 0,
+      skipped: 0
+    };
+  }
+  const targets = findLiveInstances(Class);
+  if (targets.length === 0) {
+    return { className, remounted: 0, skipped: 0 };
+  }
+  let remounted = 0;
+  let skipped = 0;
+  for (const target of targets) {
+    try {
+      const fresh = createFreshAt(FreshClass, target.host, core);
+      if (!fresh) {
+        skipped++;
+        continue;
+      }
+      copyInputsFromOldToNew(target.oldLView[CONTEXT], fresh.instance);
+      spliceLViewIntoParent(target, fresh.newLView, fresh.instance);
+      teardownOldLView(target.oldLView);
+      fresh.componentRef.hostView.detectChanges?.();
+      remounted++;
+    } catch (err) {
+      console.error(`[absolutejs] remount of ${className} failed at`, target.host, err);
+      skipped++;
+    }
+  }
+  if (remounted > 0) {
+    const w = window;
+    try {
+      w.__ANGULAR_APP__?.tick?.();
+    } catch (err) {
+      console.error("[absolutejs] post-remount tick threw — partial state", err);
+    }
+  }
+  return { className, remounted, skipped };
+};
+
+// src/dev/client/handlers/angularRemountWiring.ts
+var installed = false;
+var installAngularRemountGlobal = () => {
+  if (installed)
+    return;
+  if (typeof globalThis === "undefined")
+    return;
+  globalThis.__absAngularRemount = remountComponentClass;
+  installed = true;
+};
+
+// src/dev/client/handlers/react.ts
+var handleReactUpdate = (message) => {
+  const currentFramework = detectCurrentFramework();
+  if (currentFramework !== "react")
+    return;
+  const hasComponentChanges = message.data.hasComponentChanges !== false;
+  const hasCSSChanges = message.data.hasCSSChanges === true;
+  const cssPath = message.data.manifest && message.data.manifest.ReactExampleCSS;
+  if (!hasComponentChanges && hasCSSChanges && cssPath) {
+    reloadReactCSS(cssPath);
+    return;
+  }
+  const refreshRuntime = window.$RefreshRuntime$;
+  const { serverDuration } = message.data;
+  const { pageModuleUrl } = message.data;
+  if (pageModuleUrl && refreshRuntime) {
+    applyRefreshImport(pageModuleUrl, refreshRuntime, serverDuration);
+    return;
+  }
+  window.location.reload();
+};
+var sendTiming = (clientStart, serverDuration) => {
+  if (window.__HMR_WS__) {
+    const clientMs = Math.round(performance.now() - clientStart);
+    const total = (serverDuration ?? 0) + clientMs;
+    window.__HMR_WS__.send(JSON.stringify({ duration: total, type: "hmr-timing" }));
+  }
+  if (window.__ERROR_BOUNDARY__) {
+    window.__ERROR_BOUNDARY__.reset();
+  } else {
+    hideErrorOverlay();
+  }
+};
+var applyRefreshImport = (moduleUrl, refreshRuntime, serverDuration) => {
+  const clientStart = performance.now();
+  import(`${moduleUrl}?t=${Date.now()}`).then(() => {
+    refreshRuntime.performReactRefresh();
+    sendTiming(clientStart, serverDuration);
+    return;
+  }).catch((err) => {
+    console.warn("[HMR] React Fast Refresh failed, falling back to reload:", err);
+    window.location.reload();
+  });
+};
+var reloadReactCSS = (cssPath) => {
+  const existingCSSLinks = document.head.querySelectorAll('link[rel="stylesheet"]');
+  existingCSSLinks.forEach((link) => {
+    const href = link.getAttribute("href");
+    if (!href) {
+      return;
+    }
+    const hrefBase = (href.split("?")[0] ?? "").split("/").pop() ?? "";
+    const cssPathBase = (cssPath.split("?")[0] ?? "").split("/").pop() ?? "";
+    if (hrefBase === cssPathBase || href.includes("react-example") || cssPathBase.includes(hrefBase)) {
+      const newHref = `${cssPath + (cssPath.includes("?") ? "&" : "?")}t=${Date.now()}`;
+      link.href = newHref;
+    }
+  });
+};
+
+// src/dev/client/domDiff.ts
+var getElementKey = (elem, index) => {
+  if (elem.nodeType !== Node.ELEMENT_NODE)
+    return `text_${index}`;
+  if (!(elem instanceof Element))
+    return `text_${index}`;
+  if (elem.id)
+    return `id_${elem.id}`;
+  if (elem.hasAttribute("data-key"))
+    return `key_${elem.getAttribute("data-key")}`;
+  return `tag_${elem.tagName}_${index}`;
+};
+var updateElementAttributes = (oldEl, newEl) => {
+  const newAttrs = Array.from(newEl.attributes);
+  const oldAttrs = Array.from(oldEl.attributes);
+  const runtimeAttrs = ["data-hmr-listeners-attached"];
+  oldAttrs.forEach((oldAttr) => {
+    if (!newEl.hasAttribute(oldAttr.name) && runtimeAttrs.indexOf(oldAttr.name) === UNFOUND_INDEX) {
+      oldEl.removeAttribute(oldAttr.name);
+    }
+  });
+  newAttrs.forEach((newAttr) => {
+    if (runtimeAttrs.indexOf(newAttr.name) !== UNFOUND_INDEX && oldEl.hasAttribute(newAttr.name)) {
+      return;
+    }
+    const oldValue = oldEl.getAttribute(newAttr.name);
+    if (oldValue !== newAttr.value) {
+      oldEl.setAttribute(newAttr.name, newAttr.value);
+    }
+  });
+};
+var updateTextNode = (oldNode, newNode) => {
+  if (oldNode.nodeValue !== newNode.nodeValue) {
+    oldNode.nodeValue = newNode.nodeValue;
+  }
+};
+var matchChildren = (oldChildren, newChildren) => {
+  const oldMap = new Map;
+  const newMap = new Map;
+  oldChildren.forEach((child, idx) => {
+    const key = getElementKey(child, idx);
+    if (!oldMap.has(key)) {
+      oldMap.set(key, []);
+    }
+    oldMap.get(key)?.push({ index: idx, node: child });
+  });
+  newChildren.forEach((child, idx) => {
+    const key = getElementKey(child, idx);
+    if (!newMap.has(key)) {
+      newMap.set(key, []);
+    }
+    newMap.get(key)?.push({ index: idx, node: child });
+  });
+  return { newMap, oldMap };
+};
+var isHMRScript = (elem) => elem instanceof Element && elem.hasAttribute("data-hmr-client");
+var isHMRPreserved = (elem) => isHMRScript(elem) || elem instanceof Element && elem.hasAttribute("data-hmr-overlay");
+var isNonHMRScript = (child) => child instanceof Element && child.tagName === "SCRIPT";
+var findBestMatch = (oldMatches, matchedOld) => {
+  const unmatched = oldMatches.find((entry) => !matchedOld.has(entry.node));
+  if (unmatched)
+    return unmatched;
+  if (oldMatches.length > 0)
+    return oldMatches[0] ?? null;
+  return null;
+};
+var reconcileChild = (newChild, newIndex, oldMap, matchedOld, parentNode, oldChildrenFiltered) => {
+  const newKey = getElementKey(newChild, newIndex);
+  const oldMatches = oldMap.get(newKey) || [];
+  if (oldMatches.length === 0) {
+    const clone2 = newChild.cloneNode(true);
+    parentNode.insertBefore(clone2, oldChildrenFiltered[newIndex] || null);
+    return;
+  }
+  const bestMatch = findBestMatch(oldMatches, matchedOld);
+  if (bestMatch && !matchedOld.has(bestMatch.node)) {
+    matchedOld.add(bestMatch.node);
+    patchNode(bestMatch.node, newChild);
+    return;
+  }
+  const clone = newChild.cloneNode(true);
+  parentNode.insertBefore(clone, oldChildrenFiltered[newIndex] || null);
+};
+var patchNode = (oldNode, newNode) => {
+  if (oldNode.nodeType === Node.TEXT_NODE && newNode.nodeType === Node.TEXT_NODE) {
+    updateTextNode(oldNode, newNode);
+    return;
+  }
+  if (oldNode.nodeType !== Node.ELEMENT_NODE || newNode.nodeType !== Node.ELEMENT_NODE) {
+    return;
+  }
+  if (!(oldNode instanceof Element) || !(newNode instanceof Element))
+    return;
+  const oldEl = oldNode;
+  const newEl = newNode;
+  if (oldEl.tagName !== newEl.tagName) {
+    const clone = newEl.cloneNode(true);
+    oldEl.replaceWith(clone);
+    return;
+  }
+  updateElementAttributes(oldEl, newEl);
+  const oldChildren = Array.from(oldNode.childNodes);
+  const newChildren = Array.from(newNode.childNodes);
+  const oldChildrenFiltered = oldChildren.filter((child) => !isHMRScript(child) && !isNonHMRScript(child));
+  const newChildrenFiltered = newChildren.filter((child) => !isHMRScript(child) && !isNonHMRScript(child));
+  const { oldMap } = matchChildren(oldChildrenFiltered, newChildrenFiltered);
+  const matchedOld = new Set;
+  newChildrenFiltered.forEach((newChild, newIndex) => {
+    reconcileChild(newChild, newIndex, oldMap, matchedOld, oldNode, oldChildrenFiltered);
+  });
+  oldChildrenFiltered.forEach((oldChild) => {
+    if (!matchedOld.has(oldChild) && !isHMRPreserved(oldChild)) {
+      oldChild.remove();
+    }
+  });
+};
+var patchDOMInPlace = (oldContainer, newHTML) => {
+  const tempDiv = document.createElement("div");
+  tempDiv.innerHTML = newHTML;
+  const newContainer = tempDiv;
+  const oldChildren = Array.from(oldContainer.childNodes);
+  const newChildren = Array.from(newContainer.childNodes);
+  const oldChildrenFiltered = oldChildren.filter((child) => !(child instanceof Element && child.tagName === "SCRIPT" && !child.hasAttribute("data-hmr-client")));
+  const newChildrenFiltered = newChildren.filter((child) => !isNonHMRScript(child));
+  const { oldMap } = matchChildren(oldChildrenFiltered, newChildrenFiltered);
+  const matchedOld = new Set;
+  newChildrenFiltered.forEach((newChild, newIndex) => {
+    reconcileChild(newChild, newIndex, oldMap, matchedOld, oldContainer, oldChildrenFiltered);
+  });
+  oldChildrenFiltered.forEach((oldChild) => {
+    if (matchedOld.has(oldChild))
+      return;
+    if (isHMRPreserved(oldChild))
+      return;
+    oldChild.remove();
+  });
 };
 
 // src/dev/client/domState.ts
@@ -899,655 +1300,6 @@ var saveScrollState = () => {
   return {
     window: { x: scrollX, y: scrollY }
   };
-};
-
-// src/dev/client/hmrToast.ts
-var CONTAINER_ID = "__abs_hmr_toast_container__";
-var VISIBLE_DURATION_MS = 2500;
-var FADE_MS = 220;
-var ensureContainer = () => {
-  const existing = document.getElementById(CONTAINER_ID);
-  if (existing)
-    return existing;
-  const container = document.createElement("div");
-  container.id = CONTAINER_ID;
-  Object.assign(container.style, {
-    position: "fixed",
-    bottom: "16px",
-    right: "16px",
-    display: "flex",
-    flexDirection: "column",
-    gap: "8px",
-    zIndex: "2147483646",
-    pointerEvents: "none",
-    fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
-    fontSize: "12px",
-    maxWidth: "420px"
-  });
-  document.body.appendChild(container);
-  return container;
-};
-var accentForType = (updateType) => {
-  switch (updateType) {
-    case "route":
-      return "#1d4ed8";
-    case "service-with-side-effects":
-      return "#b45309";
-    case "reboot":
-    default:
-      return "#dd0031";
-  }
-};
-var showHmrToast = ({
-  updateType,
-  reason,
-  editSourceFile
-}) => {
-  if (typeof document === "undefined")
-    return;
-  const container = ensureContainer();
-  const toast = document.createElement("div");
-  const accent = accentForType(updateType);
-  Object.assign(toast.style, {
-    background: "rgba(15, 17, 22, 0.94)",
-    color: "#f8fafc",
-    borderLeft: `3px solid ${accent}`,
-    padding: "8px 12px",
-    borderRadius: "6px",
-    boxShadow: "0 6px 24px rgba(0, 0, 0, 0.35)",
-    opacity: "0",
-    transform: "translateY(6px)",
-    transition: `opacity ${FADE_MS}ms ease, transform ${FADE_MS}ms ease`,
-    pointerEvents: "auto",
-    whiteSpace: "nowrap",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    maxWidth: "420px"
-  });
-  const label = document.createElement("div");
-  Object.assign(label.style, {
-    color: accent,
-    fontWeight: "600",
-    marginBottom: "2px",
-    letterSpacing: "0.02em"
-  });
-  label.textContent = `HMR reboot — ${updateType ?? "unknown"}`;
-  toast.appendChild(label);
-  const body = document.createElement("div");
-  Object.assign(body.style, {
-    color: "#cbd5e1",
-    whiteSpace: "normal",
-    wordBreak: "break-word"
-  });
-  body.textContent = reason ?? "(no reason given)";
-  toast.appendChild(body);
-  if (editSourceFile) {
-    const path = document.createElement("div");
-    Object.assign(path.style, {
-      color: "#64748b",
-      marginTop: "2px",
-      fontSize: "11px",
-      whiteSpace: "nowrap",
-      overflow: "hidden",
-      textOverflow: "ellipsis"
-    });
-    const cwdLike = editSourceFile.replace(/^.*?(\/src\/|\/pages\/)/, "$1");
-    path.textContent = cwdLike;
-    toast.appendChild(path);
-  }
-  container.appendChild(toast);
-  requestAnimationFrame(() => {
-    toast.style.opacity = "1";
-    toast.style.transform = "translateY(0)";
-  });
-  const removeAt = window.setTimeout(() => {
-    toast.style.opacity = "0";
-    toast.style.transform = "translateY(6px)";
-    window.setTimeout(() => {
-      if (toast.parentNode)
-        toast.parentNode.removeChild(toast);
-    }, FADE_MS);
-  }, VISIBLE_DURATION_MS);
-  toast.addEventListener("click", () => {
-    window.clearTimeout(removeAt);
-    toast.style.opacity = "0";
-    toast.style.transform = "translateY(6px)";
-    window.setTimeout(() => {
-      if (toast.parentNode)
-        toast.parentNode.removeChild(toast);
-    }, FADE_MS);
-  });
-};
-
-// src/dev/client/handlers/angular.ts
-var isAngularComponentExport = (value) => {
-  if (typeof value !== "function") {
-    return false;
-  }
-  return "ɵcmp" in value && Boolean(value.ɵcmp);
-};
-var swapStylesheet = (cssUrl, cssBaseName, framework) => {
-  let existingLink = null;
-  document.querySelectorAll('link[rel="stylesheet"]').forEach((link) => {
-    const linkEl = link instanceof HTMLLinkElement ? link : null;
-    const href = linkEl?.getAttribute("href") ?? "";
-    if (href.includes(cssBaseName) || href.includes(framework)) {
-      existingLink = linkEl;
-    }
-  });
-  if (!existingLink)
-    return;
-  const capturedExisting = existingLink;
-  const newLink = document.createElement("link");
-  newLink.rel = "stylesheet";
-  newLink.href = `${cssUrl}?t=${Date.now()}`;
-  newLink.onload = function() {
-    if (capturedExisting && capturedExisting.parentNode)
-      capturedExisting.remove();
-  };
-  document.head.appendChild(newLink);
-};
-var waitForAngularApp = () => {
-  if (window.__ANGULAR_APP__)
-    return Promise.resolve();
-  const { promise, resolve } = Promise.withResolvers();
-  const timeout = setTimeout(resolve, ANGULAR_INIT_TIMEOUT_MS);
-  let stored = window.__ANGULAR_APP__;
-  Object.defineProperty(window, "__ANGULAR_APP__", {
-    configurable: true,
-    enumerable: true,
-    get() {
-      return stored;
-    },
-    set(val) {
-      stored = val;
-      Object.defineProperty(window, "__ANGULAR_APP__", {
-        configurable: true,
-        enumerable: true,
-        value: val,
-        writable: true
-      });
-      clearTimeout(timeout);
-      resolve();
-    }
-  });
-  return promise;
-};
-var suppressNg0912 = () => {
-  const origWarn = console.warn;
-  console.warn = function(...args) {
-    if (typeof args[0] === "string" && args[0].includes("NG0912"))
-      return;
-    origWarn.apply(console, args);
-  };
-  return origWarn;
-};
-var tryPatchExport = (exportName, newModule, registry, hmr, sourceFile) => {
-  const exported = newModule[exportName];
-  if (!isAngularComponentExport(exported))
-    return "skip";
-  const registryId = `${sourceFile}#${exportName}`;
-  if (!registry.has(registryId))
-    return "skip";
-  const success = hmr.applyUpdate(registryId, exported);
-  if (!success)
-    return "fail";
-  return "patched";
-};
-var patchRegisteredComponents = (newModule, registry, hmr, sourceFile) => {
-  let patchedAny = false;
-  const allPatched = Object.keys(newModule).every((exportName) => {
-    const result = tryPatchExport(exportName, newModule, registry, hmr, sourceFile);
-    if (result === "skip") {
-      return true;
-    }
-    if (result === "fail") {
-      return false;
-    }
-    patchedAny = true;
-    return true;
-  });
-  return { allPatched, patchedAny };
-};
-var attemptFastPatch = async (indexPath, registry, hmr, sourceFile, origWarn) => {
-  const w = window;
-  w.__ANGULAR_HMR_FAST_PATCH__ = true;
-  try {
-    const newModule = await import(`${indexPath}?t=${Date.now()}`);
-    if (hmr.hasPageExportsChanged?.(sourceFile)) {
-      console.warn = origWarn;
-      return false;
-    }
-    const { allPatched, patchedAny } = patchRegisteredComponents(newModule, registry, hmr, sourceFile);
-    console.warn = origWarn;
-    if (!patchedAny)
-      return false;
-    if (!allPatched)
-      return false;
-    hmr.refresh();
-    return true;
-  } catch (err) {
-    console.warn = origWarn;
-    console.warn("[HMR] Angular fast update failed, falling back:", err);
-    return false;
-  } finally {
-    delete w.__ANGULAR_HMR_FAST_PATCH__;
-  }
-};
-var handleFastUpdate = async (message) => {
-  const hmr = window.__ANGULAR_HMR__;
-  if (!hmr || !hmr.getRegistry)
-    return false;
-  const registry = hmr.getRegistry();
-  if (registry.size === 0)
-    return false;
-  const indexPath = findIndexPath(message.data.manifest, message.data.sourceFile, "angular");
-  if (!indexPath)
-    return false;
-  const origWarn = suppressNg0912();
-  const patched = await attemptFastPatch(indexPath, registry, hmr, message.data.sourceFile || "", origWarn);
-  if (patched && message.data.cssUrl) {
-    swapStylesheet(message.data.cssUrl, message.data.cssBaseName || "", "angular");
-  }
-  return patched;
-};
-var activeMessage = null;
-var pendingMessage = null;
-var handleTemplateUpdate = async (_message) => false;
-var handleComponentStyleUpdate = async (_message) => false;
-var handleServiceMethodSwap = async (_message) => false;
-var logRebootReason = (message) => {
-  const reason = message.data.reason;
-  const updateType = message.data.updateType;
-  if (!reason && !updateType)
-    return;
-  console.info(`[HMR] Angular reboot — ${updateType ?? "unknown"}: ${reason ?? "(no reason given)"}`);
-  showHmrToast({
-    editSourceFile: message.data.editSourceFile,
-    reason,
-    updateType
-  });
-};
-var processMessage = async (message) => {
-  const updateType = message.data.updateType ?? "logic";
-  switch (updateType) {
-    case "template": {
-      const ok = await handleTemplateUpdate(message);
-      if (ok)
-        return;
-      break;
-    }
-    case "style-component": {
-      const ok = await handleComponentStyleUpdate(message);
-      if (ok)
-        return;
-      break;
-    }
-    case "service-method-only": {
-      const ok = await handleServiceMethodSwap(message);
-      if (ok)
-        return;
-      break;
-    }
-    case "class-component":
-    case "logic": {
-      try {
-        const patched = await handleFastUpdate(message);
-        if (patched)
-          return;
-      } catch (err) {
-        console.warn("[HMR] Angular fast update threw, falling back to reboot:", err);
-      }
-      break;
-    }
-    case "service-with-side-effects":
-    case "route":
-    case "reboot":
-    case "full":
-      break;
-    default:
-      break;
-  }
-  logRebootReason(message);
-  await handleFullUpdate(message);
-};
-var handleAngularUpdate = (message) => {
-  if (detectCurrentFramework() !== "angular")
-    return;
-  const updateType = message.data.updateType ?? "logic";
-  if ((updateType === "style" || updateType === "css-only") && message.data.cssUrl) {
-    swapStylesheet(message.data.cssUrl, message.data.cssBaseName || "", "angular");
-    return;
-  }
-  if (activeMessage) {
-    pendingMessage = message;
-    return;
-  }
-  activeMessage = processMessage(message).finally(() => {
-    activeMessage = null;
-    if (pendingMessage) {
-      const next = pendingMessage;
-      pendingMessage = null;
-      handleAngularUpdate(next);
-    }
-  });
-};
-var findRootSelector = (container) => {
-  const candidates = container.querySelectorAll("*");
-  for (let idx = 0;idx < candidates.length; idx++) {
-    const candidate = candidates[idx];
-    if (!candidate)
-      continue;
-    const tag = candidate.tagName.toLowerCase();
-    if (tag.includes("-"))
-      return tag;
-  }
-  return null;
-};
-var destroyAngularApp = () => {
-  if (!window.__ANGULAR_APP__)
-    return;
-  try {
-    window.__ANGULAR_APP__.destroy();
-  } catch {}
-  window.__ANGULAR_APP__ = null;
-};
-var bootstrapAngularModule = async (indexPath, rootSelector, rootContainer) => {
-  if (rootSelector && !rootContainer.querySelector(rootSelector)) {
-    rootContainer.appendChild(document.createElement(rootSelector));
-  }
-  window.__HMR_SKIP_HYDRATION__ = true;
-  const origWarn = suppressNg0912();
-  await import(`${indexPath}?t=${Date.now()}`);
-  await waitForAngularApp();
-  console.warn = origWarn;
-};
-var tickAngularApp = () => {
-  if (!window.__ANGULAR_APP__)
-    return;
-  try {
-    window.__ANGULAR_APP__.tick();
-  } catch {}
-};
-var APP_STABLE_FALLBACK_MS = 1e4;
-var waitForAppStable = async () => {
-  const app = window.__ANGULAR_APP__;
-  if (!app || typeof app.whenStable !== "function")
-    return;
-  let timer;
-  const fallback = new Promise((resolve) => {
-    timer = setTimeout(resolve, APP_STABLE_FALLBACK_MS);
-  });
-  try {
-    await Promise.race([app.whenStable(), fallback]);
-  } catch {} finally {
-    if (timer !== undefined)
-      clearTimeout(timer);
-  }
-};
-var runWithViewTransition = async (updateFn) => {
-  const doc = document;
-  if (typeof doc.startViewTransition !== "function") {
-    try {
-      await updateFn();
-    } catch (err) {
-      console.warn("[HMR] Angular update failed (non-fatal):", err);
-    }
-    return;
-  }
-  let styleEl = null;
-  try {
-    styleEl = document.createElement("style");
-    styleEl.textContent = "::view-transition-old(root),::view-transition-new(root){animation:none!important}";
-    document.head.appendChild(styleEl);
-  } catch {}
-  let updatePromise = Promise.resolve();
-  try {
-    const transition = doc.startViewTransition(() => {
-      updatePromise = updateFn();
-      return updatePromise;
-    });
-    await Promise.all([
-      transition.finished.catch(() => {}),
-      updatePromise.catch((err) => {
-        console.warn("[HMR] Angular update failed (non-fatal):", err);
-      })
-    ]);
-  } catch (err) {
-    console.warn("[HMR] Angular update failed (non-fatal):", err);
-    try {
-      await updateFn();
-    } catch (innerErr) {
-      console.warn("[HMR] Angular update failed (non-fatal):", innerErr);
-    }
-  } finally {
-    if (styleEl && styleEl.parentNode)
-      styleEl.remove();
-  }
-};
-var handleFullUpdate = async (message) => {
-  const scrollState = saveScrollState();
-  const formState = saveFormState();
-  if (message.data.cssUrl) {
-    swapStylesheet(message.data.cssUrl, message.data.cssBaseName || "", "angular");
-  }
-  const rootContainer = document.getElementById("root") || document.body;
-  const rootSelector = findRootSelector(rootContainer);
-  const indexPath = findIndexPath(message.data.manifest, message.data.sourceFile, "angular");
-  if (!indexPath)
-    return;
-  const doUpdate = async () => {
-    captureTrackedInstanceStates();
-    try {
-      destroyAngularApp();
-      await bootstrapAngularModule(indexPath, rootSelector, rootContainer);
-      tickAngularApp();
-      restoreFormState(formState);
-      restoreScrollState(scrollState);
-    } finally {
-      await waitForAppStable();
-      endHmrReboot();
-    }
-  };
-  await runWithViewTransition(doUpdate);
-};
-
-// src/dev/client/handlers/react.ts
-var handleReactUpdate = (message) => {
-  const currentFramework = detectCurrentFramework();
-  if (currentFramework !== "react")
-    return;
-  const hasComponentChanges = message.data.hasComponentChanges !== false;
-  const hasCSSChanges = message.data.hasCSSChanges === true;
-  const cssPath = message.data.manifest && message.data.manifest.ReactExampleCSS;
-  if (!hasComponentChanges && hasCSSChanges && cssPath) {
-    reloadReactCSS(cssPath);
-    return;
-  }
-  const refreshRuntime = window.$RefreshRuntime$;
-  const { serverDuration } = message.data;
-  const { pageModuleUrl } = message.data;
-  if (pageModuleUrl && refreshRuntime) {
-    applyRefreshImport(pageModuleUrl, refreshRuntime, serverDuration);
-    return;
-  }
-  window.location.reload();
-};
-var sendTiming = (clientStart, serverDuration) => {
-  if (window.__HMR_WS__) {
-    const clientMs = Math.round(performance.now() - clientStart);
-    const total = (serverDuration ?? 0) + clientMs;
-    window.__HMR_WS__.send(JSON.stringify({ duration: total, type: "hmr-timing" }));
-  }
-  if (window.__ERROR_BOUNDARY__) {
-    window.__ERROR_BOUNDARY__.reset();
-  } else {
-    hideErrorOverlay();
-  }
-};
-var applyRefreshImport = (moduleUrl, refreshRuntime, serverDuration) => {
-  const clientStart = performance.now();
-  import(`${moduleUrl}?t=${Date.now()}`).then(() => {
-    refreshRuntime.performReactRefresh();
-    sendTiming(clientStart, serverDuration);
-    return;
-  }).catch((err) => {
-    console.warn("[HMR] React Fast Refresh failed, falling back to reload:", err);
-    window.location.reload();
-  });
-};
-var reloadReactCSS = (cssPath) => {
-  const existingCSSLinks = document.head.querySelectorAll('link[rel="stylesheet"]');
-  existingCSSLinks.forEach((link) => {
-    const href = link.getAttribute("href");
-    if (!href) {
-      return;
-    }
-    const hrefBase = (href.split("?")[0] ?? "").split("/").pop() ?? "";
-    const cssPathBase = (cssPath.split("?")[0] ?? "").split("/").pop() ?? "";
-    if (hrefBase === cssPathBase || href.includes("react-example") || cssPathBase.includes(hrefBase)) {
-      const newHref = `${cssPath + (cssPath.includes("?") ? "&" : "?")}t=${Date.now()}`;
-      link.href = newHref;
-    }
-  });
-};
-
-// src/dev/client/domDiff.ts
-var getElementKey = (elem, index) => {
-  if (elem.nodeType !== Node.ELEMENT_NODE)
-    return `text_${index}`;
-  if (!(elem instanceof Element))
-    return `text_${index}`;
-  if (elem.id)
-    return `id_${elem.id}`;
-  if (elem.hasAttribute("data-key"))
-    return `key_${elem.getAttribute("data-key")}`;
-  return `tag_${elem.tagName}_${index}`;
-};
-var updateElementAttributes = (oldEl, newEl) => {
-  const newAttrs = Array.from(newEl.attributes);
-  const oldAttrs = Array.from(oldEl.attributes);
-  const runtimeAttrs = ["data-hmr-listeners-attached"];
-  oldAttrs.forEach((oldAttr) => {
-    if (!newEl.hasAttribute(oldAttr.name) && runtimeAttrs.indexOf(oldAttr.name) === UNFOUND_INDEX) {
-      oldEl.removeAttribute(oldAttr.name);
-    }
-  });
-  newAttrs.forEach((newAttr) => {
-    if (runtimeAttrs.indexOf(newAttr.name) !== UNFOUND_INDEX && oldEl.hasAttribute(newAttr.name)) {
-      return;
-    }
-    const oldValue = oldEl.getAttribute(newAttr.name);
-    if (oldValue !== newAttr.value) {
-      oldEl.setAttribute(newAttr.name, newAttr.value);
-    }
-  });
-};
-var updateTextNode = (oldNode, newNode) => {
-  if (oldNode.nodeValue !== newNode.nodeValue) {
-    oldNode.nodeValue = newNode.nodeValue;
-  }
-};
-var matchChildren = (oldChildren, newChildren) => {
-  const oldMap = new Map;
-  const newMap = new Map;
-  oldChildren.forEach((child, idx) => {
-    const key = getElementKey(child, idx);
-    if (!oldMap.has(key)) {
-      oldMap.set(key, []);
-    }
-    oldMap.get(key)?.push({ index: idx, node: child });
-  });
-  newChildren.forEach((child, idx) => {
-    const key = getElementKey(child, idx);
-    if (!newMap.has(key)) {
-      newMap.set(key, []);
-    }
-    newMap.get(key)?.push({ index: idx, node: child });
-  });
-  return { newMap, oldMap };
-};
-var isHMRScript = (elem) => elem instanceof Element && elem.hasAttribute("data-hmr-client");
-var isHMRPreserved = (elem) => isHMRScript(elem) || elem instanceof Element && elem.hasAttribute("data-hmr-overlay");
-var isNonHMRScript = (child) => child instanceof Element && child.tagName === "SCRIPT";
-var findBestMatch = (oldMatches, matchedOld) => {
-  const unmatched = oldMatches.find((entry) => !matchedOld.has(entry.node));
-  if (unmatched)
-    return unmatched;
-  if (oldMatches.length > 0)
-    return oldMatches[0] ?? null;
-  return null;
-};
-var reconcileChild = (newChild, newIndex, oldMap, matchedOld, parentNode, oldChildrenFiltered) => {
-  const newKey = getElementKey(newChild, newIndex);
-  const oldMatches = oldMap.get(newKey) || [];
-  if (oldMatches.length === 0) {
-    const clone2 = newChild.cloneNode(true);
-    parentNode.insertBefore(clone2, oldChildrenFiltered[newIndex] || null);
-    return;
-  }
-  const bestMatch = findBestMatch(oldMatches, matchedOld);
-  if (bestMatch && !matchedOld.has(bestMatch.node)) {
-    matchedOld.add(bestMatch.node);
-    patchNode(bestMatch.node, newChild);
-    return;
-  }
-  const clone = newChild.cloneNode(true);
-  parentNode.insertBefore(clone, oldChildrenFiltered[newIndex] || null);
-};
-var patchNode = (oldNode, newNode) => {
-  if (oldNode.nodeType === Node.TEXT_NODE && newNode.nodeType === Node.TEXT_NODE) {
-    updateTextNode(oldNode, newNode);
-    return;
-  }
-  if (oldNode.nodeType !== Node.ELEMENT_NODE || newNode.nodeType !== Node.ELEMENT_NODE) {
-    return;
-  }
-  if (!(oldNode instanceof Element) || !(newNode instanceof Element))
-    return;
-  const oldEl = oldNode;
-  const newEl = newNode;
-  if (oldEl.tagName !== newEl.tagName) {
-    const clone = newEl.cloneNode(true);
-    oldEl.replaceWith(clone);
-    return;
-  }
-  updateElementAttributes(oldEl, newEl);
-  const oldChildren = Array.from(oldNode.childNodes);
-  const newChildren = Array.from(newNode.childNodes);
-  const oldChildrenFiltered = oldChildren.filter((child) => !isHMRScript(child) && !isNonHMRScript(child));
-  const newChildrenFiltered = newChildren.filter((child) => !isHMRScript(child) && !isNonHMRScript(child));
-  const { oldMap } = matchChildren(oldChildrenFiltered, newChildrenFiltered);
-  const matchedOld = new Set;
-  newChildrenFiltered.forEach((newChild, newIndex) => {
-    reconcileChild(newChild, newIndex, oldMap, matchedOld, oldNode, oldChildrenFiltered);
-  });
-  oldChildrenFiltered.forEach((oldChild) => {
-    if (!matchedOld.has(oldChild) && !isHMRPreserved(oldChild)) {
-      oldChild.remove();
-    }
-  });
-};
-var patchDOMInPlace = (oldContainer, newHTML) => {
-  const tempDiv = document.createElement("div");
-  tempDiv.innerHTML = newHTML;
-  const newContainer = tempDiv;
-  const oldChildren = Array.from(oldContainer.childNodes);
-  const newChildren = Array.from(newContainer.childNodes);
-  const oldChildrenFiltered = oldChildren.filter((child) => !(child instanceof Element && child.tagName === "SCRIPT" && !child.hasAttribute("data-hmr-client")));
-  const newChildrenFiltered = newChildren.filter((child) => !isNonHMRScript(child));
-  const { oldMap } = matchChildren(oldChildrenFiltered, newChildrenFiltered);
-  const matchedOld = new Set;
-  newChildrenFiltered.forEach((newChild, newIndex) => {
-    reconcileChild(newChild, newIndex, oldMap, matchedOld, oldContainer, oldChildrenFiltered);
-  });
-  oldChildrenFiltered.forEach((oldChild) => {
-    if (matchedOld.has(oldChild))
-      return;
-    if (isHMRPreserved(oldChild))
-      return;
-    oldChild.remove();
-  });
 };
 
 // src/dev/client/cssUtils.ts
@@ -2453,7 +2205,7 @@ var normalizeHTMLForComparison2 = (element) => {
 var didHTMLStructureChange2 = (container, tempDiv) => normalizeHTMLForComparison2(container) !== normalizeHTMLForComparison2(tempDiv);
 
 // src/dev/client/handlers/svelte.ts
-var swapStylesheet2 = (cssUrl, cssBaseName, framework) => {
+var swapStylesheet = (cssUrl, cssBaseName, framework) => {
   let existingLink = null;
   document.querySelectorAll('link[rel="stylesheet"]').forEach((link) => {
     const href = link.getAttribute("href") ?? "";
@@ -2600,7 +2352,7 @@ var handleSvelteUpdate = (message) => {
   if (svelteFrameworkCheck !== "svelte")
     return;
   if (message.data.updateType === "css-only" && message.data.cssUrl) {
-    swapStylesheet2(message.data.cssUrl, message.data.cssBaseName || "", "svelte");
+    swapStylesheet(message.data.cssUrl, message.data.cssBaseName || "", "svelte");
     return;
   }
   const domState = saveDOMState(document.body);
@@ -2612,7 +2364,7 @@ var handleSvelteUpdate = (message) => {
   window.__HMR_PRESERVED_STATE__ = preservedState;
   saveStateToSession(preservedState);
   if (message.data.cssUrl) {
-    swapStylesheet2(message.data.cssUrl, message.data.cssBaseName || "", "svelte");
+    swapStylesheet(message.data.cssUrl, message.data.cssBaseName || "", "svelte");
   }
   const { pageModuleUrl } = message.data;
   if (pageModuleUrl) {
@@ -2703,7 +2455,7 @@ var findMatchingStylesheetLink = (cssBaseName) => {
   });
   return found;
 };
-var swapStylesheet3 = (cssUrl, cssBaseName) => {
+var swapStylesheet2 = (cssUrl, cssBaseName) => {
   const existingLink = findMatchingStylesheetLink(cssBaseName);
   if (!existingLink)
     return;
@@ -2763,7 +2515,7 @@ var handleVueUpdate = (message) => {
   if (vueFrameworkCheck !== "vue")
     return;
   if (message.data.updateType === "css-only" && message.data.cssUrl) {
-    swapStylesheet3(message.data.cssUrl, message.data.cssBaseName || "");
+    swapStylesheet2(message.data.cssUrl, message.data.cssBaseName || "");
     return;
   }
   sessionStorage.setItem("__HMR_ACTIVE__", "true");
@@ -2802,7 +2554,7 @@ var handleVueUpdate = (message) => {
     return;
   }
   if (message.data.cssUrl) {
-    swapStylesheet3(message.data.cssUrl, message.data.cssBaseName || "");
+    swapStylesheet2(message.data.cssUrl, message.data.cssBaseName || "");
   }
   const savedHTML = vueRoot ? vueRoot.innerHTML : "";
   if (window.__VUE_APP__) {
@@ -2916,6 +2668,7 @@ var handleRebuildError = (message) => {
 
 // src/dev/client/hmrClient.ts
 if (typeof window !== "undefined") {
+  installAngularRemountGlobal();
   if (!window.__HMR_MANIFEST__) {
     window.__HMR_MANIFEST__ = {};
   }
@@ -2952,7 +2705,9 @@ window.addEventListener("unhandledrejection", (evt) => {
   });
 });
 var hmrUpdateTypes = new Set([
-  "angular-update",
+  "angular:component-update",
+  "angular:component-remount",
+  "angular:rebootstrap",
   "react-update",
   "html-update",
   "htmx-update",
@@ -3007,10 +2762,44 @@ var handleHMRMessage = (message) => {
       hideErrorOverlay();
       handleVueUpdate(message);
       break;
-    case "angular-update":
+    case "angular:component-update": {
       hideErrorOverlay();
-      handleAngularUpdate(message);
+      const data = message.data;
+      if (data && typeof data.id === "string") {
+        dispatchAngularComponentUpdate({
+          id: data.id,
+          timestamp: typeof data.timestamp === "number" ? data.timestamp : Date.now()
+        });
+      }
       break;
+    }
+    case "angular:component-remount": {
+      hideErrorOverlay();
+      const data = message.data;
+      if (data && typeof data.id === "string") {
+        dispatchAngularComponentRemount({
+          id: data.id,
+          timestamp: typeof data.timestamp === "number" ? data.timestamp : Date.now()
+        });
+      }
+      break;
+    }
+    case "angular:rebootstrap": {
+      hideErrorOverlay();
+      const data = message.data;
+      if (data?.manifest) {
+        window.__HMR_MANIFEST__ = data.manifest;
+      }
+      const w = window;
+      if (typeof w.__ABS_ANGULAR_REBOOTSTRAP__ === "function") {
+        w.__ABS_ANGULAR_REBOOTSTRAP__().catch((err) => {
+          console.error("[absolutejs] angular:rebootstrap failed", err);
+        });
+      } else {
+        window.location.reload();
+      }
+      break;
+    }
     case "rebuild-error":
       handleRebuildError(message);
       break;
@@ -3112,6 +2901,16 @@ var exports_StreamingPage = {};
 __export(exports_StreamingPage, {
   StreamingPage: () => StreamingPage
 });
+
+// src/utils/jsonLd.ts
+var serializeJsonLd = (schema) => {
+  const schemaOrgContext = "https://schema.org";
+  const data = Array.isArray(schema) ? schema.map((s) => ({
+    "@context": schemaOrgContext,
+    ...s
+  })) : { "@context": schemaOrgContext, ...schema };
+  return JSON.stringify(data);
+};
 
 // src/react/components/Head.tsx
 import { jsxDEV, Fragment } from "/react/vendor/react_jsx-dev-runtime.js";
@@ -3257,7 +3056,8 @@ var Head = ({
   openGraph,
   twitter,
   robots,
-  meta
+  meta,
+  jsonLd
 } = {}) => /* @__PURE__ */ jsxDEV("head", {
   suppressHydrationWarning: true,
   children: [
@@ -3323,7 +3123,11 @@ var Head = ({
       rel: "stylesheet",
       suppressHydrationWarning: true,
       type: "text/css"
-    }, path, false, undefined, this))
+    }, path, false, undefined, this)),
+    jsonLd && /* @__PURE__ */ jsxDEV("script", {
+      dangerouslySetInnerHTML: { __html: serializeJsonLd(jsonLd) },
+      type: "application/ld+json"
+    }, undefined, false, undefined, this)
   ]
 }, undefined, true, undefined, this);
 $RefreshReg$(Head, "src/react/components/Head.tsx:Head");

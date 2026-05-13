@@ -74,77 +74,65 @@ const waitForBundleAndFetch = async (
  * fingerprint cache and the watcher's hash table clean — same
  * isolation strategy as `angular-tiering.test.ts`. */
 describe('Angular DI + injectables', () => {
-	test(
-		'`@Component({ providers: [...] })` override changes the SSR-rendered count',
-		async () => {
-			const srv = await startAndConnect();
-			if (!client) throw new Error('client missing');
+	test('`@Component({ providers: [...] })` override changes the SSR-rendered count', async () => {
+		const srv = await startAndConnect();
+		if (!client) throw new Error('client missing');
 
-			// Page reads `initialCount` from INITIAL_COUNT (provided via
-			// page-handler props). Counter pulls it via the @Input chain
-			// (page → AppComponent → CounterComponent), so component-level
-			// `providers` on the *page* changes the value the counter
-			// renders on a fresh SSR request.
-			mutateFile(pageComponent, (c) =>
-				c.replace(
-					'standalone: true,',
-					'standalone: true,\n\tproviders: [{ provide: INITIAL_COUNT, useValue: 1337 }],'
+		// Page reads `initialCount` from INITIAL_COUNT (provided via
+		// page-handler props). Counter pulls it via the @Input chain
+		// (page → AppComponent → CounterComponent), so component-level
+		// `providers` on the *page* changes the value the counter
+		// renders on a fresh SSR request.
+		mutateFile(pageComponent, (c) =>
+			c.replace(
+				'standalone: true,',
+				'standalone: true,\n\tproviders: [{ provide: INITIAL_COUNT, useValue: 1337 }],'
+			)
+		);
+
+		const html = await waitForBundleAndFetch(client, srv);
+		expect(html).toContain('count is <span _ngcontent-');
+		// The injected override flows through @Input → ngOnInit and
+		// CounterComponent renders the value.
+		expect(html).toMatch(/count is\s*<span[^>]*>1337<\/span>/);
+	}, 60_000);
+
+	test('editing constructor body that reads from inject() changes the SSR value', async () => {
+		const srv = await startAndConnect();
+		if (!client) throw new Error('client missing');
+
+		mutateFile(pageComponent, (c) =>
+			c.replace(
+				'this.initialCount = initialCountToken ?? 0;',
+				'this.initialCount = (initialCountToken ?? 0) + 999;'
+			)
+		);
+
+		const html = await waitForBundleAndFetch(client, srv);
+		// Default initialCount is 0 (props), so + 999 = 999.
+		expect(html).toMatch(/count is\s*<span[^>]*>999<\/span>/);
+	}, 60_000);
+
+	test('declaring + injecting a new InjectionToken flows through to SSR', async () => {
+		const srv = await startAndConnect();
+		if (!client) throw new Error('client missing');
+
+		mutateFile(pageComponent, (c) =>
+			c
+				.replace(
+					"export const INITIAL_COUNT = new InjectionToken<number>('INITIAL_COUNT');",
+					"export const INITIAL_COUNT = new InjectionToken<number>('INITIAL_COUNT');\nexport const COUNT_MULTIPLIER = new InjectionToken<number>('COUNT_MULTIPLIER', { providedIn: 'root', factory: () => 7 });"
 				)
-			);
-
-			const html = await waitForBundleAndFetch(client, srv);
-			expect(html).toContain('count is <span _ngcontent-');
-			// The injected override flows through @Input → ngOnInit and
-			// CounterComponent renders the value.
-			expect(html).toMatch(/count is\s*<span[^>]*>1337<\/span>/);
-		},
-		60_000
-	);
-
-	test(
-		'editing constructor body that reads from inject() changes the SSR value',
-		async () => {
-			const srv = await startAndConnect();
-			if (!client) throw new Error('client missing');
-
-			mutateFile(pageComponent, (c) =>
-				c.replace(
+				.replace(
 					'this.initialCount = initialCountToken ?? 0;',
-					'this.initialCount = (initialCountToken ?? 0) + 999;'
+					'const multiplier = inject(COUNT_MULTIPLIER);\n\t\tthis.initialCount = (initialCountToken ?? 0) + multiplier * 100;'
 				)
-			);
+		);
 
-			const html = await waitForBundleAndFetch(client, srv);
-			// Default initialCount is 0 (props), so + 999 = 999.
-			expect(html).toMatch(/count is\s*<span[^>]*>999<\/span>/);
-		},
-		60_000
-	);
-
-	test(
-		'declaring + injecting a new InjectionToken flows through to SSR',
-		async () => {
-			const srv = await startAndConnect();
-			if (!client) throw new Error('client missing');
-
-			mutateFile(pageComponent, (c) =>
-				c
-					.replace(
-						"export const INITIAL_COUNT = new InjectionToken<number>('INITIAL_COUNT');",
-						"export const INITIAL_COUNT = new InjectionToken<number>('INITIAL_COUNT');\nexport const COUNT_MULTIPLIER = new InjectionToken<number>('COUNT_MULTIPLIER', { providedIn: 'root', factory: () => 7 });"
-					)
-					.replace(
-						'this.initialCount = initialCountToken ?? 0;',
-						'const multiplier = inject(COUNT_MULTIPLIER);\n\t\tthis.initialCount = (initialCountToken ?? 0) + multiplier * 100;'
-					)
-			);
-
-			const html = await waitForBundleAndFetch(client, srv);
-			// 0 (default) + 7 * 100 = 700.
-			expect(html).toMatch(/count is\s*<span[^>]*>700<\/span>/);
-		},
-		60_000
-	);
+		const html = await waitForBundleAndFetch(client, srv);
+		// 0 (default) + 7 * 100 = 700.
+		expect(html).toMatch(/count is\s*<span[^>]*>700<\/span>/);
+	}, 60_000);
 
 	// A new `@Injectable({ providedIn: 'root' })` service file
 	// created mid-session combined with a page edit that imports it

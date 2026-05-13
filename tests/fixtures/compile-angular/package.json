@@ -1,0 +1,19 @@
+{
+	"name": "@absolutejs/fixture-compile-angular",
+	"private": true,
+	"type": "module",
+	"version": "0.0.0",
+	"dependencies": {
+		"@absolutejs/absolute": "file:../../..",
+		"@angular/animations": "*",
+		"@angular/common": "*",
+		"@angular/compiler": "*",
+		"@angular/core": "*",
+		"@angular/platform-browser": "*",
+		"@angular/platform-server": "*",
+		"@angular/ssr": "*",
+		"elysia": "*",
+		"rxjs": "*",
+		"zone.js": "*"
+	}
+}

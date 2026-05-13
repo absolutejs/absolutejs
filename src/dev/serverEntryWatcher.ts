@@ -47,10 +47,7 @@ declare global {
 const ATOMIC_RECOVERY_WINDOW_MS = 1000;
 const RELOAD_DEBOUNCE_MS = 80;
 
-const ATOMIC_WRITE_TEMP_PATTERNS: RegExp[] = [
-	/^sed[A-Za-z0-9]{6,}$/,
-	/^4913$/
-];
+const ATOMIC_WRITE_TEMP_PATTERNS: RegExp[] = [/^sed[A-Za-z0-9]{6,}$/, /^4913$/];
 
 /* Detect filenames produced by atomic-rename editors. These files
  * appear briefly on disk during a save (the editor writes the new
@@ -225,7 +222,8 @@ export const startServerEntryWatcher = () => {
 	const recoveryScan = (dir: string) => {
 		let entries: import('node:fs').Dirent[];
 		try {
-			const { readdirSync } = require('node:fs') as typeof import('node:fs');
+			const { readdirSync } =
+				require('node:fs') as typeof import('node:fs');
 			entries = readdirSync(dir, { withFileTypes: true });
 		} catch {
 			return;
@@ -277,10 +275,8 @@ export const startServerEntryWatcher = () => {
 	// need a second watcher on configDir.
 	let configWatcher: ReturnType<typeof watch> | null = null;
 	if (configDir !== entryDir) {
-		configWatcher = watch(
-			configDir,
-			{ recursive: false },
-			(event, file) => handleEvent(configDir, event, file)
+		configWatcher = watch(configDir, { recursive: false }, (event, file) =>
+			handleEvent(configDir, event, file)
 		);
 	}
 

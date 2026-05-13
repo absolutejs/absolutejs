@@ -2,11 +2,7 @@ import { describe, expect, test, afterAll, afterEach } from 'bun:test';
 import { resolve } from 'node:path';
 import { startDevServer, type DevServer } from '../../../helpers/devServer';
 import { connectHMR, type HMRClient } from '../../../helpers/ws';
-import {
-	createFile,
-	mutateFile,
-	restoreAllFiles
-} from '../../../helpers/file';
+import { createFile, mutateFile, restoreAllFiles } from '../../../helpers/file';
 
 const PROJECT_ROOT = resolve(import.meta.dir, '..', '..', '..', '..');
 

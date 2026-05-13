@@ -283,7 +283,8 @@ export const start = async (
 					filter: /dev\/(assetStore|clientManager|webSocket|moduleVersionTracker|buildHMRClient|serverEntryWatcher)\.ts$/
 				},
 				() => ({
-					contents: 'export const startServerEntryWatcher = () => {}; export const isAtomicWriteTemp = () => false;',
+					contents:
+						'export const startServerEntryWatcher = () => {}; export const isAtomicWriteTemp = () => false;',
 					loader: 'js'
 				})
 			);

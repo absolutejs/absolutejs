@@ -278,4 +278,3 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 		});
 	}
 };
-

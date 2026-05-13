@@ -272,8 +272,10 @@ export class ExpressionTranslatorVisitor<TFile, TStatement, TExpression, TType>
 		];
 		const expressions: TExpression[] = [];
 		for (let i = 0; i < ast.expressions.length; i++) {
+			const expression = ast.expressions[i];
+			if (expression === undefined) continue;
 			const placeholder = this.setSourceMapRange(
-				ast.expressions[i].visitExpression(this, context),
+				expression.visitExpression(this, context),
 				ast.getPlaceholderSourceSpan(i)
 			);
 			expressions.push(placeholder);

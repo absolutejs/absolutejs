@@ -36,29 +36,25 @@ describe('Vue composable .ts edit reaches SSR', () => {
 		client.drain();
 	}, 60_000);
 
-	test(
-		'editing useCount adjusts count rendered by SSR',
-		async () => {
-			const composable = resolve(
-				PROJECT_ROOT,
-				'example/vue/composables/useCount.ts'
-			);
+	test('editing useCount adjusts count rendered by SSR', async () => {
+		const composable = resolve(
+			PROJECT_ROOT,
+			'example/vue/composables/useCount.ts'
+		);
 
-			client.drain();
-			mutateFile(composable, (c) =>
-				c.replace(
-					'const count = ref(initialCount);',
-					'const count = ref(initialCount + 41);'
-				)
-			);
+		client.drain();
+		mutateFile(composable, (c) =>
+			c.replace(
+				'const count = ref(initialCount);',
+				'const count = ref(initialCount + 41);'
+			)
+		);
 
-			await client.waitFor('vue-tier-zero-ssr-rebuild-complete');
-			const html = await (await fetch(`${server.baseUrl}/vue`)).text();
-			// initialCount is 0 in example/server.ts; with +41 the rendered
-			// button text becomes "count is 41" — and that's what SSR
-			// should show on a fresh fetch.
-			expect(html).toContain('count is 41');
-		},
-		15_000
-	);
+		await client.waitFor('vue-tier-zero-ssr-rebuild-complete');
+		const html = await (await fetch(`${server.baseUrl}/vue`)).text();
+		// initialCount is 0 in example/server.ts; with +41 the rendered
+		// button text becomes "count is 41" — and that's what SSR
+		// should show on a fresh fetch.
+		expect(html).toContain('count is 41');
+	}, 15_000);
 });

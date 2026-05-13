@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { Elysia } from '__ELYSIA_ENTRY__';
-import { networking, prepare } from '__ABSOLUTE_DIST_INDEX__';
+import { Elysia } from 'elysia';
+import { networking, prepare } from '@absolutejs/absolute';
 import data from './runtime/data.json' with { type: 'json' };
 
 const { absolutejs } = await prepare();

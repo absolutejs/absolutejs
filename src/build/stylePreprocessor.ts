@@ -10,7 +10,7 @@ import {
 	relative,
 	resolve
 } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { BunPlugin } from 'bun';
 import type {
 	LessPreprocessorOptions,
@@ -526,7 +526,7 @@ const createSassImporter = (
 			language,
 			config
 		);
-		return resolved ? new URL(`file://${resolved}`) : null;
+		return resolved ? new URL(pathToFileURL(resolve(resolved)).href) : null;
 	},
 	load(canonicalUrl: URL) {
 		const filePath = fileURLToPath(canonicalUrl);
@@ -767,7 +767,7 @@ export const compileStyleSource = async (
 				loadPaths,
 				style: 'expanded',
 				syntax: language === 'sass' ? 'indented' : 'scss',
-				url: new URL(`file://${filePath}`)
+				url: new URL(pathToFileURL(resolve(filePath)).href)
 			});
 
 			const css = await runPostcss(result.css, filePath, config);
@@ -1146,7 +1146,7 @@ export const compileStyleFileIfNeededSync = (
 			loadPaths,
 			style: 'expanded',
 			syntax: language === 'sass' ? 'indented' : 'scss',
-			url: new URL(`file://${filePath}`)
+			url: new URL(pathToFileURL(resolve(filePath)).href)
 		});
 		// Track every `@use` / `@import` dependency Sass loaded so
 		// downstream HMR can find the entry stylesheet that needs to

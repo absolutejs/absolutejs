@@ -26,42 +26,38 @@ afterEach(async () => {
  * because the initial build is when the manifest is first
  * populated. */
 describe('Manifest key collision across framework dirs (bug #223)', () => {
-	test(
-		'creating same-basename pages in html/ and htmx/ fires the collision warning on dev startup',
-		async () => {
-			const colliding = 'CollisionExample';
-			const htmlPage = resolve(
-				PROJECT_ROOT,
-				`example/html/pages/${colliding}.html`
-			);
-			const htmxPage = resolve(
-				PROJECT_ROOT,
-				`example/htmx/pages/${colliding}.html`
-			);
+	test('creating same-basename pages in html/ and htmx/ fires the collision warning on dev startup', async () => {
+		const colliding = 'CollisionExample';
+		const htmlPage = resolve(
+			PROJECT_ROOT,
+			`example/html/pages/${colliding}.html`
+		);
+		const htmxPage = resolve(
+			PROJECT_ROOT,
+			`example/htmx/pages/${colliding}.html`
+		);
 
-			// Stage the conflicting pair BEFORE the dev server boots
-			// so the initial build sees them. Each is a minimal valid
-			// HTML doc — the collision is on the manifest key, not on
-			// any render error.
-			createFile(
-				htmlPage,
-				`<!doctype html><html><body><h1>HTML_${colliding}</h1></body></html>\n`
-			);
-			createFile(
-				htmxPage,
-				`<!doctype html><html><body><h1>HTMX_${colliding}</h1></body></html>\n`
-			);
+		// Stage the conflicting pair BEFORE the dev server boots
+		// so the initial build sees them. Each is a minimal valid
+		// HTML doc — the collision is on the manifest key, not on
+		// any render error.
+		createFile(
+			htmlPage,
+			`<!doctype html><html><body><h1>HTML_${colliding}</h1></body></html>\n`
+		);
+		createFile(
+			htmxPage,
+			`<!doctype html><html><body><h1>HTMX_${colliding}</h1></body></html>\n`
+		);
 
-			server = await startDevServer();
+		server = await startDevServer();
 
-			// `logWarn` writes `[hmr] warning ...` to stdout. The
-			// collision message contains the key name, so we match
-			// on that for specificity.
-			await server.waitForOutput(
-				new RegExp(`Manifest key collision: "${colliding}"`),
-				{ timeoutMs: 30_000 }
-			);
-		},
-		60_000
-	);
+		// `logWarn` writes `[hmr] warning ...` to stdout. The
+		// collision message contains the key name, so we match
+		// on that for specificity.
+		await server.waitForOutput(
+			new RegExp(`Manifest key collision: "${colliding}"`),
+			{ timeoutMs: 30_000 }
+		);
+	}, 60_000);
 });

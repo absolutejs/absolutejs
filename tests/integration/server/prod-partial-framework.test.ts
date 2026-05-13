@@ -116,14 +116,12 @@ afterAll(async () => {
  * "every framework dir is set" — e.g. unconditional Angular AOT
  * compile, eager React import — it'd fail here loudly. */
 describe('production build + start against a partial framework config', () => {
-	test(
-		'Vue-only — build succeeds, page renders',
-		async () => {
-			const server = await startMinimalProd(async (cwd) => {
-				await mkdir(join(cwd, 'vue', 'pages'), { recursive: true });
-				await writeFile(
-					join(cwd, 'vue', 'pages', 'Home.vue'),
-					`<template>
+	test('Vue-only — build succeeds, page renders', async () => {
+		const server = await startMinimalProd(async (cwd) => {
+			await mkdir(join(cwd, 'vue', 'pages'), { recursive: true });
+			await writeFile(
+				join(cwd, 'vue', 'pages', 'Home.vue'),
+				`<template>
 	<main>
 		<h1>VueOnlyHomePage</h1>
 		<p data-marker="vue-only">{{ greeting }}</p>
@@ -134,65 +132,58 @@ describe('production build + start against a partial framework config', () => {
 const greeting = 'hello from vue-only';
 </script>
 `
-				);
-				const configPath = join(cwd, 'absolute.config.ts');
-				const cwdNorm = cwd.replace(/\\/g, '/');
-				await writeFile(
-					configPath,
-					`import { defineConfig } from '${resolve(
-						PROJECT_ROOT,
-						'src/utils/defineConfig'
-					).replace(/\\/g, '/')}';\n` +
-						`export default defineConfig({\n` +
-						`\tbuildDirectory: '${cwdNorm}/dist',\n` +
-						`\tvueDirectory: '${cwdNorm}/vue'\n` +
-						`});\n`
-				);
-				const serverEntryPath = join(cwd, 'server.ts');
-				const srcRoot = resolve(PROJECT_ROOT, 'src').replace(
-					/\\/g,
-					'/'
-				);
-				await writeFile(
-					serverEntryPath,
-					`import { Elysia } from 'elysia';\n` +
-						`import { asset, prepare } from '${srcRoot}/index';\n` +
-						`import { handleVuePageRequest } from '${srcRoot}/vue';\n` +
-						`import { networking } from '${srcRoot}/plugins/networking';\n\n` +
-						`const { absolutejs, manifest } = await prepare();\n\n` +
-						`new Elysia()\n` +
-						`\t.use(absolutejs)\n` +
-						`\t.get('/', () =>\n` +
-						`\t\thandleVuePageRequest({\n` +
-						`\t\t\tcssPaths: [],\n` +
-						`\t\t\tindexPath: asset(manifest, 'HomeIndex'),\n` +
-						`\t\t\tpagePath: asset(manifest, 'Home'),\n` +
-						`\t\t\tprops: {}\n` +
-						`\t\t})\n` +
-						`\t)\n` +
-						`\t.use(networking);\n`
-				);
-				return { configPath, serverEntryPath };
-			});
-			activeServers.push(server);
+			);
+			const configPath = join(cwd, 'absolute.config.ts');
+			const cwdNorm = cwd.replace(/\\/g, '/');
+			await writeFile(
+				configPath,
+				`import { defineConfig } from '${resolve(
+					PROJECT_ROOT,
+					'src/utils/defineConfig'
+				).replace(/\\/g, '/')}';\n` +
+					`export default defineConfig({\n` +
+					`\tbuildDirectory: '${cwdNorm}/dist',\n` +
+					`\tvueDirectory: '${cwdNorm}/vue'\n` +
+					`});\n`
+			);
+			const serverEntryPath = join(cwd, 'server.ts');
+			const srcRoot = resolve(PROJECT_ROOT, 'src').replace(/\\/g, '/');
+			await writeFile(
+				serverEntryPath,
+				`import { Elysia } from 'elysia';\n` +
+					`import { asset, prepare } from '${srcRoot}/index';\n` +
+					`import { handleVuePageRequest } from '${srcRoot}/vue';\n` +
+					`import { networking } from '${srcRoot}/plugins/networking';\n\n` +
+					`const { absolutejs, manifest } = await prepare();\n\n` +
+					`new Elysia()\n` +
+					`\t.use(absolutejs)\n` +
+					`\t.get('/', () =>\n` +
+					`\t\thandleVuePageRequest({\n` +
+					`\t\t\tcssPaths: [],\n` +
+					`\t\t\tindexPath: asset(manifest, 'HomeIndex'),\n` +
+					`\t\t\tpagePath: asset(manifest, 'Home'),\n` +
+					`\t\t\tprops: {}\n` +
+					`\t\t})\n` +
+					`\t)\n` +
+					`\t.use(networking);\n`
+			);
+			return { configPath, serverEntryPath };
+		});
+		activeServers.push(server);
 
-			const { html, status } = await fetchPage(server.baseUrl);
-			expect(status).toBe(200);
-			expect(html).toContain('VueOnlyHomePage');
-			expect(html).toContain('hello from vue-only');
-			expect(html).not.toMatch(/Server Render Error/);
-		},
-		180_000
-	);
+		const { html, status } = await fetchPage(server.baseUrl);
+		expect(status).toBe(200);
+		expect(html).toContain('VueOnlyHomePage');
+		expect(html).toContain('hello from vue-only');
+		expect(html).not.toMatch(/Server Render Error/);
+	}, 180_000);
 
-	test(
-		'Svelte-only — build succeeds, page renders',
-		async () => {
-			const server = await startMinimalProd(async (cwd) => {
-				await mkdir(join(cwd, 'svelte', 'pages'), { recursive: true });
-				await writeFile(
-					join(cwd, 'svelte', 'pages', 'Home.svelte'),
-					`<script>
+	test('Svelte-only — build succeeds, page renders', async () => {
+		const server = await startMinimalProd(async (cwd) => {
+			await mkdir(join(cwd, 'svelte', 'pages'), { recursive: true });
+			await writeFile(
+				join(cwd, 'svelte', 'pages', 'Home.svelte'),
+				`<script>
 	let greeting = 'hello from svelte-only';
 </script>
 
@@ -201,65 +192,58 @@ const greeting = 'hello from vue-only';
 	<p data-marker="svelte-only">{greeting}</p>
 </main>
 `
-				);
-				const configPath = join(cwd, 'absolute.config.ts');
-				const cwdNorm = cwd.replace(/\\/g, '/');
-				await writeFile(
-					configPath,
-					`import { defineConfig } from '${resolve(
-						PROJECT_ROOT,
-						'src/utils/defineConfig'
-					).replace(/\\/g, '/')}';\n` +
-						`export default defineConfig({\n` +
-						`\tbuildDirectory: '${cwdNorm}/dist',\n` +
-						`\tsvelteDirectory: '${cwdNorm}/svelte'\n` +
-						`});\n`
-				);
-				const srcRoot = resolve(PROJECT_ROOT, 'src').replace(
-					/\\/g,
-					'/'
-				);
-				const serverEntryPath = join(cwd, 'server.ts');
-				await writeFile(
-					serverEntryPath,
-					`import { Elysia } from 'elysia';\n` +
-						`import { asset, prepare } from '${srcRoot}/index';\n` +
-						`import { handleSveltePageRequest } from '${srcRoot}/svelte';\n` +
-						`import { networking } from '${srcRoot}/plugins/networking';\n\n` +
-						`const { absolutejs, manifest } = await prepare();\n\n` +
-						`new Elysia()\n` +
-						`\t.use(absolutejs)\n` +
-						`\t.get('/', () =>\n` +
-						`\t\thandleSveltePageRequest({\n` +
-						`\t\t\tcssPaths: [],\n` +
-						`\t\t\tindexPath: asset(manifest, 'HomeIndex'),\n` +
-						`\t\t\tpagePath: asset(manifest, 'Home'),\n` +
-						`\t\t\tprops: {}\n` +
-						`\t\t})\n` +
-						`\t)\n` +
-						`\t.use(networking);\n`
-				);
-				return { configPath, serverEntryPath };
-			});
-			activeServers.push(server);
+			);
+			const configPath = join(cwd, 'absolute.config.ts');
+			const cwdNorm = cwd.replace(/\\/g, '/');
+			await writeFile(
+				configPath,
+				`import { defineConfig } from '${resolve(
+					PROJECT_ROOT,
+					'src/utils/defineConfig'
+				).replace(/\\/g, '/')}';\n` +
+					`export default defineConfig({\n` +
+					`\tbuildDirectory: '${cwdNorm}/dist',\n` +
+					`\tsvelteDirectory: '${cwdNorm}/svelte'\n` +
+					`});\n`
+			);
+			const srcRoot = resolve(PROJECT_ROOT, 'src').replace(/\\/g, '/');
+			const serverEntryPath = join(cwd, 'server.ts');
+			await writeFile(
+				serverEntryPath,
+				`import { Elysia } from 'elysia';\n` +
+					`import { asset, prepare } from '${srcRoot}/index';\n` +
+					`import { handleSveltePageRequest } from '${srcRoot}/svelte';\n` +
+					`import { networking } from '${srcRoot}/plugins/networking';\n\n` +
+					`const { absolutejs, manifest } = await prepare();\n\n` +
+					`new Elysia()\n` +
+					`\t.use(absolutejs)\n` +
+					`\t.get('/', () =>\n` +
+					`\t\thandleSveltePageRequest({\n` +
+					`\t\t\tcssPaths: [],\n` +
+					`\t\t\tindexPath: asset(manifest, 'HomeIndex'),\n` +
+					`\t\t\tpagePath: asset(manifest, 'Home'),\n` +
+					`\t\t\tprops: {}\n` +
+					`\t\t})\n` +
+					`\t)\n` +
+					`\t.use(networking);\n`
+			);
+			return { configPath, serverEntryPath };
+		});
+		activeServers.push(server);
 
-			const { html, status } = await fetchPage(server.baseUrl);
-			expect(status).toBe(200);
-			expect(html).toContain('SvelteOnlyHomePage');
-			expect(html).toContain('hello from svelte-only');
-			expect(html).not.toMatch(/Server Render Error/);
-		},
-		180_000
-	);
+		const { html, status } = await fetchPage(server.baseUrl);
+		expect(status).toBe(200);
+		expect(html).toContain('SvelteOnlyHomePage');
+		expect(html).toContain('hello from svelte-only');
+		expect(html).not.toMatch(/Server Render Error/);
+	}, 180_000);
 
-	test(
-		'HTML-only — static page builds + serves',
-		async () => {
-			const server = await startMinimalProd(async (cwd) => {
-				await mkdir(join(cwd, 'html', 'pages'), { recursive: true });
-				await writeFile(
-					join(cwd, 'html', 'pages', 'Home.html'),
-					`<!DOCTYPE html>
+	test('HTML-only — static page builds + serves', async () => {
+		const server = await startMinimalProd(async (cwd) => {
+			await mkdir(join(cwd, 'html', 'pages'), { recursive: true });
+			await writeFile(
+				join(cwd, 'html', 'pages', 'Home.html'),
+				`<!DOCTYPE html>
 <html>
 <head><title>HTMLOnlyTitle</title></head>
 <body>
@@ -268,45 +252,40 @@ const greeting = 'hello from vue-only';
 </body>
 </html>
 `
-				);
-				const configPath = join(cwd, 'absolute.config.ts');
-				const cwdNorm = cwd.replace(/\\/g, '/');
-				await writeFile(
-					configPath,
-					`import { defineConfig } from '${resolve(
-						PROJECT_ROOT,
-						'src/utils/defineConfig'
-					).replace(/\\/g, '/')}';\n` +
-						`export default defineConfig({\n` +
-						`\tbuildDirectory: '${cwdNorm}/dist',\n` +
-						`\thtmlDirectory: '${cwdNorm}/html'\n` +
-						`});\n`
-				);
-				const srcRoot = resolve(PROJECT_ROOT, 'src').replace(
-					/\\/g,
-					'/'
-				);
-				const serverEntryPath = join(cwd, 'server.ts');
-				await writeFile(
-					serverEntryPath,
-					`import { Elysia } from 'elysia';\n` +
-						`import { asset, handleHTMLPageRequest, prepare } from '${srcRoot}/index';\n` +
-						`import { networking } from '${srcRoot}/plugins/networking';\n\n` +
-						`const { absolutejs, manifest } = await prepare();\n\n` +
-						`new Elysia()\n` +
-						`\t.use(absolutejs)\n` +
-						`\t.get('/', () => handleHTMLPageRequest(asset(manifest, 'Home')))\n` +
-						`\t.use(networking);\n`
-				);
-				return { configPath, serverEntryPath };
-			});
-			activeServers.push(server);
+			);
+			const configPath = join(cwd, 'absolute.config.ts');
+			const cwdNorm = cwd.replace(/\\/g, '/');
+			await writeFile(
+				configPath,
+				`import { defineConfig } from '${resolve(
+					PROJECT_ROOT,
+					'src/utils/defineConfig'
+				).replace(/\\/g, '/')}';\n` +
+					`export default defineConfig({\n` +
+					`\tbuildDirectory: '${cwdNorm}/dist',\n` +
+					`\thtmlDirectory: '${cwdNorm}/html'\n` +
+					`});\n`
+			);
+			const srcRoot = resolve(PROJECT_ROOT, 'src').replace(/\\/g, '/');
+			const serverEntryPath = join(cwd, 'server.ts');
+			await writeFile(
+				serverEntryPath,
+				`import { Elysia } from 'elysia';\n` +
+					`import { asset, handleHTMLPageRequest, prepare } from '${srcRoot}/index';\n` +
+					`import { networking } from '${srcRoot}/plugins/networking';\n\n` +
+					`const { absolutejs, manifest } = await prepare();\n\n` +
+					`new Elysia()\n` +
+					`\t.use(absolutejs)\n` +
+					`\t.get('/', () => handleHTMLPageRequest(asset(manifest, 'Home')))\n` +
+					`\t.use(networking);\n`
+			);
+			return { configPath, serverEntryPath };
+		});
+		activeServers.push(server);
 
-			const { html, status } = await fetchPage(server.baseUrl);
-			expect(status).toBe(200);
-			expect(html).toContain('HTMLOnlyHomePage');
-			expect(html).toContain('hello from html-only');
-		},
-		180_000
-	);
+		const { html, status } = await fetchPage(server.baseUrl);
+		expect(status).toBe(200);
+		expect(html).toContain('HTMLOnlyHomePage');
+		expect(html).toContain('hello from html-only');
+	}, 180_000);
 });

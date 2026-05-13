@@ -1,6 +1,6 @@
-import { Elysia } from '__ELYSIA_ENTRY__';
-import { asset, networking, prepare } from '__ABSOLUTE_DIST_INDEX__';
-import { handleAngularPageRequest } from '__ABSOLUTE_DIST_ANGULAR__';
+import { Elysia } from 'elysia';
+import { asset, networking, prepare } from '@absolutejs/absolute';
+import { handleAngularPageRequest } from '@absolutejs/absolute/angular/server';
 import { createStore } from 'zustand/vanilla';
 import { packageImportValue } from '#runtime/package-import';
 import cjsProbe from './runtime/cjs-probe.cjs';

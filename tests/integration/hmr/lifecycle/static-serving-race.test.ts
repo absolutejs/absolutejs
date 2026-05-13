@@ -47,74 +47,65 @@ describe('Static asset serving survives rapid HMR rebuilds (#224)', () => {
 		expect(manifest.SvelteExample).toBeTruthy();
 	}, 60_000);
 
-	test(
-		'rapid edits never produce 5xx responses for current asset URLs',
-		async () => {
-			const vuePage = resolve(
-				PROJECT_ROOT,
-				'example/vue/pages/VueExample.vue'
+	test('rapid edits never produce 5xx responses for current asset URLs', async () => {
+		const vuePage = resolve(
+			PROJECT_ROOT,
+			'example/vue/pages/VueExample.vue'
+		);
+		const sveltePage = resolve(
+			PROJECT_ROOT,
+			'example/svelte/pages/SvelteExample.svelte'
+		);
+
+		// Helper: hit a few critical dev-server URLs and report
+		// any status ≥ 500. We don't care about 404 vs 200 here —
+		// both are valid outcomes during a rebuild window. We
+		// care that nothing CRASHES.
+		const probe = async () => {
+			const urls = [
+				`${server.baseUrl}/vue`,
+				`${server.baseUrl}/svelte`,
+				`${server.baseUrl}/angular`,
+				`${server.baseUrl}/htmx`,
+				`${server.baseUrl}/`,
+				`${server.baseUrl}/hmr-status`
+			];
+			const results = await Promise.all(
+				urls.map(async (url) => {
+					try {
+						const res = await fetch(url);
+						// Drain the body so the response is fully
+						// consumed (some Bun versions hold sockets
+						// open until the body is read).
+						await res.text();
+						return res.status;
+					} catch {
+						// Network-level failure (connection
+						// refused, etc.) counts as a crash too —
+						// return 599 to flag it.
+						return 599;
+					}
+				})
 			);
-			const sveltePage = resolve(
-				PROJECT_ROOT,
-				'example/svelte/pages/SvelteExample.svelte'
+			return results;
+		};
+
+		const allStatuses: number[][] = [];
+		for (let i = 0; i < 6; i++) {
+			// Mutate one of the pages, fire fetches without
+			// waiting for the HMR cycle to complete. This is the
+			// race-window probe.
+			const target = i % 2 === 0 ? vuePage : sveltePage;
+			mutateFile(target, (c) =>
+				c.replace('<h1>AbsoluteJS', `<h1>AbsoluteJS RAPID_${i}_`)
 			);
+			const statuses = await probe();
+			allStatuses.push(statuses);
+			restoreAllFiles();
+		}
 
-			// Helper: hit a few critical dev-server URLs and report
-			// any status ≥ 500. We don't care about 404 vs 200 here —
-			// both are valid outcomes during a rebuild window. We
-			// care that nothing CRASHES.
-			const probe = async () => {
-				const urls = [
-					`${server.baseUrl}/vue`,
-					`${server.baseUrl}/svelte`,
-					`${server.baseUrl}/angular`,
-					`${server.baseUrl}/htmx`,
-					`${server.baseUrl}/`,
-					`${server.baseUrl}/hmr-status`
-				];
-				const results = await Promise.all(
-					urls.map(async (url) => {
-						try {
-							const res = await fetch(url);
-							// Drain the body so the response is fully
-							// consumed (some Bun versions hold sockets
-							// open until the body is read).
-							await res.text();
-							return res.status;
-						} catch {
-							// Network-level failure (connection
-							// refused, etc.) counts as a crash too —
-							// return 599 to flag it.
-							return 599;
-						}
-					})
-				);
-				return results;
-			};
-
-			const allStatuses: number[][] = [];
-			for (let i = 0; i < 6; i++) {
-				// Mutate one of the pages, fire fetches without
-				// waiting for the HMR cycle to complete. This is the
-				// race-window probe.
-				const target = i % 2 === 0 ? vuePage : sveltePage;
-				mutateFile(target, (c) =>
-					c.replace(
-						'<h1>AbsoluteJS',
-						`<h1>AbsoluteJS RAPID_${i}_`
-					)
-				);
-				const statuses = await probe();
-				allStatuses.push(statuses);
-				restoreAllFiles();
-			}
-
-			// Flatten and check: no status ≥ 500.
-			const failures = allStatuses
-				.flat()
-				.filter((s) => s >= 500);
-			expect(failures).toEqual([]);
-		},
-		60_000
-	);
+		// Flatten and check: no status ≥ 500.
+		const failures = allStatuses.flat().filter((s) => s >= 500);
+		expect(failures).toEqual([]);
+	}, 60_000);
 });

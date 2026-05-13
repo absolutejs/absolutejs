@@ -5,6 +5,7 @@ import type {
 	TwitterCard,
 	RobotsDirective
 } from '../../../types/metadata';
+import { serializeJsonLd } from '../../utils/jsonLd';
 
 const RobotsContent = ({ robots }: { robots: RobotsDirective }) => {
 	const directives: string[] = [];
@@ -118,7 +119,8 @@ export const Head = ({
 	openGraph,
 	twitter,
 	robots,
-	meta
+	meta,
+	jsonLd
 }: Metadata = {}) => (
 	<head suppressHydrationWarning>
 		<meta charSet="utf-8" />
@@ -171,5 +173,11 @@ export const Head = ({
 						type="text/css"
 					/>
 				))}
+		{jsonLd && (
+			<script
+				dangerouslySetInnerHTML={{ __html: serializeJsonLd(jsonLd) }}
+				type="application/ld+json"
+			/>
+		)}
 	</head>
 );

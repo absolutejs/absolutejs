@@ -1,5 +1,5 @@
-import { Elysia } from '__ELYSIA_ENTRY__';
-import { networking } from '__ABSOLUTE_DIST_INDEX__';
+import { Elysia } from 'elysia';
+import { networking } from '@absolutejs/absolute';
 import { packageStyleMarker, readPackageAsset } from 'compile-asset-package';
 import { subpathValue } from 'compile-asset-package/subpath';
 

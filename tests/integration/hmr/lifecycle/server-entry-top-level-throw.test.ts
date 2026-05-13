@@ -35,54 +35,45 @@ const serverEntry = resolve(PROJECT_ROOT, 'example/server.ts');
  * shouldn't crash the child — it must stay alive long enough for
  * the CLI to see the marker and orchestrate a clean restart. */
 describe('server.ts top-level throw — falls back to [abs:restart] marker', () => {
-	test(
-		'mutating server.ts to throw at top-level emits [abs:restart] and the OLD app keeps serving',
-		async () => {
-			server = await startDevServer();
-			client = await connectHMR(server.port);
-			await client.waitFor('manifest');
-			await client.waitFor('connected');
-			client.drain();
+	test('mutating server.ts to throw at top-level emits [abs:restart] and the OLD app keeps serving', async () => {
+		server = await startDevServer();
+		client = await connectHMR(server.port);
+		await client.waitFor('manifest');
+		await client.waitFor('connected');
+		client.drain();
 
-			// Sanity: dev server is healthy and responding.
-			expect(
-				(await fetch(`${server.baseUrl}/hmr-status`)).status
-			).toBe(200);
+		// Sanity: dev server is healthy and responding.
+		expect((await fetch(`${server.baseUrl}/hmr-status`)).status).toBe(200);
 
-			// Inject a top-level throw into server.ts. The
-			// serverEntryWatcher's `await import(entryPath)` will
-			// reject with this error and the catch handler emits
-			// `[abs:restart] <entryPath>` to stdout.
-			mutateFile(serverEntry, (text) =>
-				text.replace(
-					/^/,
-					"throw new Error('TOP_LEVEL_BOOT_THROW');\n"
-				)
-			);
+		// Inject a top-level throw into server.ts. The
+		// serverEntryWatcher's `await import(entryPath)` will
+		// reject with this error and the catch handler emits
+		// `[abs:restart] <entryPath>` to stdout.
+		mutateFile(serverEntry, (text) =>
+			text.replace(/^/, "throw new Error('TOP_LEVEL_BOOT_THROW');\n")
+		);
 
-			// `[abs:restart] <entryPath>` is what the parent CLI's
-			// monitor watches for to know "respawn the child".
-			const marker = await server.waitForOutput(
-				/\[abs:restart\] .*example\/server\.ts/,
-				{ timeoutMs: 20_000 }
-			);
-			expect(marker).toMatch(/\[abs:restart\]/);
+		// `[abs:restart] <entryPath>` is what the parent CLI's
+		// monitor watches for to know "respawn the child".
+		const marker = await server.waitForOutput(
+			/\[abs:restart\] .*example\/server\.ts/,
+			{ timeoutMs: 20_000 }
+		);
+		expect(marker).toMatch(/\[abs:restart\]/);
 
-			// The CURRENT bun child stays alive after the failed
-			// re-import — the OLD app keeps serving its routes
-			// until the parent supervisor would otherwise respawn.
-			// In the test setup we don't have the parent CLI in
-			// the loop, so we just verify the existing child
-			// remains responsive (no crash on the failed import).
-			const stillUp = await fetch(`${server.baseUrl}/hmr-status`);
-			expect(stillUp.status).toBe(200);
+		// The CURRENT bun child stays alive after the failed
+		// re-import — the OLD app keeps serving its routes
+		// until the parent supervisor would otherwise respawn.
+		// In the test setup we don't have the parent CLI in
+		// the loop, so we just verify the existing child
+		// remains responsive (no crash on the failed import).
+		const stillUp = await fetch(`${server.baseUrl}/hmr-status`);
+		expect(stillUp.status).toBe(200);
 
-			// And the OLD routes (registered by the pre-edit
-			// server.ts that's still running) still respond.
-			const oldVue = await fetch(`${server.baseUrl}/vue`);
-			expect(oldVue.status).toBeLessThan(500);
-			expect((await oldVue.text()).length).toBeGreaterThan(200);
-		},
-		60_000
-	);
+		// And the OLD routes (registered by the pre-edit
+		// server.ts that's still running) still respond.
+		const oldVue = await fetch(`${server.baseUrl}/vue`);
+		expect(oldVue.status).toBeLessThan(500);
+		expect((await oldVue.text()).length).toBeGreaterThan(200);
+	}, 60_000);
 });

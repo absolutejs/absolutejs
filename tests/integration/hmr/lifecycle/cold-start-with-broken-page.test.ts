@@ -42,79 +42,75 @@ const vuePage = resolve(PROJECT_ROOT, 'example/vue/pages/VueExample.vue');
  * `cross-cutting-reliability.test.ts` — the same shape, just
  * starting from a broken initial state. */
 describe('cold-start with a syntax error recovers to a healthy dev server', () => {
-	test(
-		'dev server boots with an empty manifest; fixing the file converges',
-		async () => {
-			mutateFile(vuePage, (text) =>
-				text.replace(
-					"import { ref } from 'vue';",
-					"import { ref } from 'vue THIS_IS_BROKEN'"
-				)
-			);
+	test('dev server boots with an empty manifest; fixing the file converges', async () => {
+		mutateFile(vuePage, (text) =>
+			text.replace(
+				"import { ref } from 'vue';",
+				"import { ref } from 'vue THIS_IS_BROKEN'"
+			)
+		);
 
-			server = await startDevServer();
+		server = await startDevServer();
 
-			// Supervisor liveness.
-			expect(
-				(await fetch(`${server.baseUrl}/hmr-status`)).status
-			).toBe(200);
+		// Supervisor liveness.
+		expect((await fetch(`${server.baseUrl}/hmr-status`)).status).toBe(200);
 
-			// Broken route returns a styled error page (not a raw
-			// 500 text body) — the dev-mode build-error-recovery
-			// onError plugin routes "Asset … not found in manifest"
-			// errors through `ssrErrorPage`.
-			const broken = await fetch(`${server.baseUrl}/vue`);
-			expect(broken.status).toBe(500);
-			const brokenBody = await broken.text();
-			expect(brokenBody).toContain('Server Render Error');
-			expect(brokenBody).toContain('Build artifact');
+		// Broken route returns a styled error page (not a raw
+		// 500 text body) — the dev-mode build-error-recovery
+		// onError plugin routes "Asset … not found in manifest"
+		// errors through `ssrErrorPage`.
+		const broken = await fetch(`${server.baseUrl}/vue`);
+		expect(broken.status).toBe(500);
+		const brokenBody = await broken.text();
+		expect(brokenBody).toContain('Server Render Error');
+		expect(brokenBody).toContain('Build artifact');
 
-			// WS handshake completes — file watcher is alive.
-			client = await connectHMR(server.port);
-			await client.waitFor('manifest');
-			await client.waitFor('connected');
-			client.drain();
+		// WS handshake completes — file watcher is alive.
+		client = await connectHMR(server.port);
+		await client.waitFor('manifest');
+		await client.waitFor('connected');
+		client.drain();
 
-			// Now fix the broken file. The mid-session rebuild
-			// path picks it up and the route starts working.
-			restoreAllFiles();
-			mutateFile(vuePage, (text) =>
-				text.replace(
-					/<h1>AbsoluteJS \+ Vue[^<]*<\/h1>/,
-					'<h1>AbsoluteJS + Vue COLD_START_RECOVERED</h1>'
-				)
-			);
+		// Now fix the broken file. The mid-session rebuild
+		// path picks it up and the route starts working.
+		restoreAllFiles();
+		mutateFile(vuePage, (text) =>
+			text.replace(
+				/<h1>AbsoluteJS \+ Vue[^<]*<\/h1>/,
+				'<h1>AbsoluteJS + Vue COLD_START_RECOVERED</h1>'
+			)
+		);
 
-			// Don't require a specific HMR event — recovery from a
-			// build-error state in Vue may surface via different
-			// signals depending on which fast path runs. Poll the
-			// SSR endpoint instead.
-			const deadline = Date.now() + 60_000;
-			let recovered = false;
-			let lastBody = '';
-			let lastStatus = 0;
-			while (Date.now() < deadline) {
-				const res = await fetch(`${server.baseUrl}/vue`);
-				lastStatus = res.status;
-				lastBody = await res.text();
-				if (lastBody.includes('COLD_START_RECOVERED')) {
-					recovered = true;
-					break;
-				}
-				await new Promise((r) => setTimeout(r, 300));
+		// Don't require a specific HMR event — recovery from a
+		// build-error state in Vue may surface via different
+		// signals depending on which fast path runs. Poll the
+		// SSR endpoint instead.
+		const deadline = Date.now() + 60_000;
+		let recovered = false;
+		let lastBody = '';
+		let lastStatus = 0;
+		while (Date.now() < deadline) {
+			const res = await fetch(`${server.baseUrl}/vue`);
+			lastStatus = res.status;
+			lastBody = await res.text();
+			if (lastBody.includes('COLD_START_RECOVERED')) {
+				recovered = true;
+				break;
 			}
-			if (!recovered) {
-				console.error(
-					`[recovery-debug] last status: ${lastStatus} body: ${lastBody.slice(0, 300)}\nrecent ws events: ${client?.messages
-						.slice(-15)
-						.map((m) => m.type)
-						.join(', ')}\nlast 50 server lines:\n${server.outputLines.slice(-50).join('\n')}\n` +
-						`manifest keys via server log:\n` +
-						`(see [recovery-debug] above)`
-				);
-			}
-			expect(recovered).toBe(true);
-		},
-		120_000
-	);
+			await new Promise((r) => setTimeout(r, 300));
+		}
+		if (!recovered) {
+			console.error(
+				`[recovery-debug] last status: ${lastStatus} body: ${lastBody.slice(0, 300)}\nrecent ws events: ${client?.messages
+					.slice(-15)
+					.map((m) => m.type)
+					.join(
+						', '
+					)}\nlast 50 server lines:\n${server.outputLines.slice(-50).join('\n')}\n` +
+					`manifest keys via server log:\n` +
+					`(see [recovery-debug] above)`
+			);
+		}
+		expect(recovered).toBe(true);
+	}, 120_000);
 });

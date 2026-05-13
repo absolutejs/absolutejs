@@ -127,13 +127,19 @@ describe('matchPattern — optional params', () => {
 	});
 
 	test('optional :param? missing yields undefined', () => {
-		const result = matchPattern(compilePattern('/users/:id?'), '/users');
+		const result = matchPattern<'/users/:id?'>(
+			compilePattern('/users/:id?'),
+			'/users'
+		);
 		expect(result.matched).toBe(true);
 		if (result.matched) expect(result.params).toEqual({ id: undefined });
 	});
 
 	test('optional :param? at end allows shorter pathname to match', () => {
-		const result = matchPattern(compilePattern('/a/:b/:c?'), '/a/foo');
+		const result = matchPattern<'/a/:b/:c?'>(
+			compilePattern('/a/:b/:c?'),
+			'/a/foo'
+		);
 		expect(result.matched).toBe(true);
 		if (result.matched) {
 			expect(result.params).toEqual({ b: 'foo', c: undefined });

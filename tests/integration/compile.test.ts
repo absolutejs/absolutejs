@@ -5,8 +5,6 @@ import {
 	cp,
 	mkdir,
 	mkdtemp,
-	readdir,
-	readFile,
 	rm,
 	symlink,
 	writeFile
@@ -44,19 +42,11 @@ const ROUTE_SCALE_FIXTURE_DIR = resolve(
 	'tests/fixtures/compile-route-scale'
 );
 const CLI_ENTRY = resolve(PROJECT_ROOT, 'dist/cli/index.js');
-const ABSOLUTE_DIST_INDEX = resolve(PROJECT_ROOT, 'dist/index.js');
-const ABSOLUTE_DIST_REACT = resolve(PROJECT_ROOT, 'dist/react/index.js');
-const ABSOLUTE_DIST_ANGULAR = resolve(PROJECT_ROOT, 'dist/angular/server.js');
-const ABSOLUTE_DIST_SVELTE = resolve(PROJECT_ROOT, 'dist/svelte/server.js');
-const ABSOLUTE_DIST_VUE = resolve(PROJECT_ROOT, 'dist/vue/server.js');
-const ELYSIA_ENTRY = resolve(PROJECT_ROOT, 'node_modules/elysia/dist/index.js');
 
 const tempRoots = new Set<string>();
 const serverProcesses = new Set<ReturnType<typeof Bun.spawn>>();
 const dockerContainers = new Set<string>();
 const dockerImages = new Set<string>();
-
-const normalizeImportPath = (path: string) => path.replace(/\\/g, '/');
 
 const makeTempDir = async (name: string) => {
 	const dir = await mkdtemp(join(tmpdir(), `${name}-`));
@@ -65,84 +55,16 @@ const makeTempDir = async (name: string) => {
 	return dir;
 };
 
-const patchFixtureImports = async (fixtureRoot: string) => {
-	const replacements = {
-		__ABSOLUTE_DIST_ANGULAR__: normalizeImportPath(ABSOLUTE_DIST_ANGULAR),
-		__ABSOLUTE_DIST_INDEX__: normalizeImportPath(ABSOLUTE_DIST_INDEX),
-		__ABSOLUTE_DIST_REACT__: normalizeImportPath(ABSOLUTE_DIST_REACT),
-		__ABSOLUTE_DIST_SVELTE__: normalizeImportPath(ABSOLUTE_DIST_SVELTE),
-		__ABSOLUTE_DIST_VUE__: normalizeImportPath(ABSOLUTE_DIST_VUE),
-		__ELYSIA_ENTRY__: normalizeImportPath(ELYSIA_ENTRY)
-	};
-	const files: string[] = [];
-	const collect = async (dir: string) => {
-		const entries = await readdir(dir, { withFileTypes: true });
-		for (const entry of entries) {
-			const path = join(dir, entry.name);
-			if (entry.isDirectory()) {
-				await collect(path);
-				continue;
-			}
-			if (/\.(svelte|ts|tsx|vue)$/.test(entry.name)) files.push(path);
-		}
-	};
-	await collect(fixtureRoot);
-
-	for (const file of files) {
-		let text = await readFile(file, 'utf-8');
-		for (const [token, value] of Object.entries(replacements)) {
-			text = text.replaceAll(token, value);
-		}
-		await writeFile(file, text);
-	}
-};
-
+/* Fixtures are bun workspace members — the root install (hoisted
+   linker, see bunfig.toml) puts every fixture dep + framework dev-deps
+   into the project's root node_modules. Symlinking that into the
+   temp copy gives the compiled binary's runtime extraction a chain
+   back to every package it externalised at compile time. */
 const setupFixtureNodeModules = async (fixtureRoot: string) => {
-	const localModulesRoot = join(fixtureRoot, '.absolute-test-node_modules');
-	const localEntries = existsSync(localModulesRoot)
-		? await readdir(localModulesRoot)
-		: [];
-	const hasLocalModules = localEntries.some((entry) =>
-		existsSync(join(localModulesRoot, entry, 'package.json'))
-	);
-
-	if (!hasLocalModules) {
-		await symlink(
-			resolve(PROJECT_ROOT, 'node_modules'),
-			join(fixtureRoot, 'node_modules'),
-			'dir'
-		);
-
-		return;
-	}
-
-	const nodeModulesRoot = join(fixtureRoot, 'node_modules');
-	await mkdir(nodeModulesRoot, { recursive: true });
-
-	const rootEntries = await readdir(resolve(PROJECT_ROOT, 'node_modules'), {
-		withFileTypes: true
-	});
-	await Promise.all(
-		rootEntries.map((entry) =>
-			symlink(
-				resolve(PROJECT_ROOT, 'node_modules', entry.name),
-				join(nodeModulesRoot, entry.name),
-				entry.isDirectory() ? 'dir' : 'file'
-			)
-		)
-	);
-
-	await Promise.all(
-		localEntries.map(async (entry) => {
-			if (!existsSync(join(localModulesRoot, entry, 'package.json')))
-				return;
-
-			const target = join(nodeModulesRoot, entry);
-			await rm(target, { force: true, recursive: true });
-			await cp(join(localModulesRoot, entry), target, {
-				recursive: true
-			});
-		})
+	await symlink(
+		resolve(PROJECT_ROOT, 'node_modules'),
+		join(fixtureRoot, 'node_modules'),
+		'dir'
 	);
 };
 
@@ -204,9 +126,14 @@ const prepareFixtureRoot = async (sourceFixtureDir: string) => {
 	expect(existsSync(CLI_ENTRY)).toBe(true);
 
 	const fixtureRoot = await makeTempDir('absolute-compile-fixture');
-	await cp(sourceFixtureDir, fixtureRoot, { recursive: true });
+	// Skip node_modules — with hoisted linker the fixture's own
+	// node_modules is mostly absent, but if a stale one exists we still
+	// want setupFixtureNodeModules's symlink to win.
+	await cp(sourceFixtureDir, fixtureRoot, {
+		filter: (source) => !/[\\/]node_modules([\\/]|$)/.test(source),
+		recursive: true
+	});
 	await setupFixtureNodeModules(fixtureRoot);
-	await patchFixtureImports(fixtureRoot);
 
 	return fixtureRoot;
 };
@@ -1319,7 +1246,7 @@ describe('compile executable integration', () => {
 		);
 		await writeFile(
 			join(fixtureRoot, 'commands/absolute.config.ts'),
-			`import { defineConfig } from '${normalizeImportPath(ABSOLUTE_DIST_INDEX)}';
+			`import { defineConfig } from '@absolutejs/absolute';
 
 export default defineConfig({
 	buildDirectory: './build',

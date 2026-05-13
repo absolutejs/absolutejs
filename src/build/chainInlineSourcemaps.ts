@@ -24,7 +24,7 @@ const decodeVlq = (str: string, startPos: number) => {
 	let pos = startPos;
 	while (true) {
 		const digit = BASE64_TO_INT[str.charCodeAt(pos++)];
-		if (digit < 0) {
+		if (digit === undefined || digit < 0) {
 			throw new Error(
 				`chainInlineSourcemaps: invalid base64 char at ${pos - 1}`
 			);
@@ -151,9 +151,14 @@ const traceInner = (
 	// same-line fallback is preferable to walking back to an earlier
 	// line.
 	const targetLineSegs = innerLines[targetLine];
+	if (!targetLineSegs) return null;
 	for (let i = targetLineSegs.length - 1; i >= 0; i--) {
 		const seg = targetLineSegs[i];
-		if (seg.genCol <= targetCol && seg.sourceIdx !== undefined) {
+		if (
+			seg &&
+			seg.genCol <= targetCol &&
+			seg.sourceIdx !== undefined
+		) {
 			return {
 				col: seg.sourceCol!,
 				line: seg.sourceLine!,
@@ -175,9 +180,10 @@ const traceInner = (
 	// behaviour (V8/JSC honour this).
 	for (let li = targetLine - 1; li >= 0; li--) {
 		const line = innerLines[li];
+		if (!line) continue;
 		for (let i = line.length - 1; i >= 0; i--) {
 			const seg = line[i];
-			if (seg.sourceIdx !== undefined) {
+			if (seg && seg.sourceIdx !== undefined) {
 				return {
 					col: seg.sourceCol!,
 					line: seg.sourceLine!,
@@ -203,8 +209,10 @@ const SOURCEMAP_INLINE_RE =
 const extractInlineMap = (text: string): SourceMap | null => {
 	const match = text.match(SOURCEMAP_INLINE_RE);
 	if (!match) return null;
+	const encoded = match[1];
+	if (!encoded) return null;
 	try {
-		return JSON.parse(Buffer.from(match[1], 'base64').toString('utf-8'));
+		return JSON.parse(Buffer.from(encoded, 'base64').toString('utf-8'));
 	} catch {
 		return null;
 	}
@@ -240,7 +248,7 @@ export const buildLineRemap = (before: string, after: string) => {
 	let ai = 0;
 	for (let bi = 0; bi < bLines.length; bi++) {
 		const bLine = bLines[bi];
-		if (bLine.trim() === '') continue;
+		if (bLine === undefined || bLine.trim() === '') continue;
 		if (isVueImport(bLine)) {
 			remap[bi] = mergedVueImportLine;
 			continue;
@@ -248,7 +256,8 @@ export const buildLineRemap = (before: string, after: string) => {
 		const bNorm = norm(bLine);
 		const horizon = Math.min(aLines.length, ai + 30);
 		for (let probe = ai; probe < horizon; probe++) {
-			if (norm(aLines[probe]) === bNorm) {
+			const aLine = aLines[probe];
+			if (aLine !== undefined && norm(aLine) === bNorm) {
 				remap[bi] = probe;
 				ai = probe + 1;
 				break;
@@ -281,8 +290,15 @@ export const inlineLineMapComment = (
 	);
 	for (let srcLine = 0; srcLine < remap.length; srcLine++) {
 		const genLine = remap[srcLine];
-		if (genLine < 0 || genLine >= generatedLineCount) continue;
-		segs[genLine].push({
+		if (
+			genLine === undefined ||
+			genLine < 0 ||
+			genLine >= generatedLineCount
+		)
+			continue;
+		const segLine = segs[genLine];
+		if (!segLine) continue;
+		segLine.push({
 			genCol: 0,
 			sourceCol: 0,
 			sourceIdx: 0,
@@ -310,8 +326,10 @@ export const remapGeneratedLines = (mappings: string, lineRemap: number[]) => {
 	for (let origLine = 0; origLine < decoded.length; origLine++) {
 		const newLine = lineRemap[origLine];
 		if (newLine === undefined || newLine < 0) continue;
+		const origSegs = decoded[origLine];
+		if (!origSegs) continue;
 		while (remapped.length < newLine) remapped.push([]);
-		remapped[newLine] = decoded[origLine];
+		remapped[newLine] = origSegs;
 	}
 	return encodeMappings(remapped);
 };
@@ -367,6 +385,7 @@ export const chainSourcemap = (
 	const chained: Segment[][] = outerSegs.map((line) =>
 		line.map((seg) => {
 			if (seg.sourceIdx === undefined) return { genCol: seg.genCol };
+			const fallbackIdx = outerFallbackIdx[seg.sourceIdx] ?? -1;
 			const innerLines = innerDecoded[seg.sourceIdx];
 			if (innerLines) {
 				const t = traceInner(
@@ -375,10 +394,12 @@ export const chainSourcemap = (
 					seg.sourceCol!
 				);
 				if (t) {
+					const innerRemap = innerSrcRemap[seg.sourceIdx];
+					const remappedIdx = innerRemap?.[t.sourceIdx] ?? -1;
 					return {
 						genCol: seg.genCol,
 						sourceCol: t.col,
-						sourceIdx: innerSrcRemap[seg.sourceIdx][t.sourceIdx],
+						sourceIdx: remappedIdx,
 						sourceLine: t.line
 					};
 				}
@@ -387,14 +408,14 @@ export const chainSourcemap = (
 				return {
 					genCol: seg.genCol,
 					sourceCol: seg.sourceCol,
-					sourceIdx: outerFallbackIdx[seg.sourceIdx],
+					sourceIdx: fallbackIdx,
 					sourceLine: seg.sourceLine
 				};
 			}
 			return {
 				genCol: seg.genCol,
 				sourceCol: seg.sourceCol,
-				sourceIdx: outerFallbackIdx[seg.sourceIdx],
+				sourceIdx: fallbackIdx,
 				sourceLine: seg.sourceLine
 			};
 		})

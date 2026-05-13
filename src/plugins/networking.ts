@@ -131,13 +131,10 @@ export const networking = <A extends Elysia>(app: A) => {
 			const buildDuration =
 				globalThis.__hmrBuildDuration ??
 				Number(env.ABSOLUTE_BUILD_DURATION || 0);
-			const readyDuration =
-				process.uptime() * MILLISECONDS_IN_A_SECOND;
+			const readyDuration = process.uptime() * MILLISECONDS_IN_A_SECOND;
 
 			const version =
-				globalThis.__absoluteVersion ||
-				env.ABSOLUTE_VERSION ||
-				'';
+				globalThis.__absoluteVersion || env.ABSOLUTE_VERSION || '';
 
 			startupBanner({
 				buildDuration,

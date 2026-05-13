@@ -70,6 +70,7 @@ import type {
 	BunBuildPassKey
 } from '../../types/build';
 import { createAngularLinkerPlugin } from '../build/angularLinkerPlugin';
+import { createExternalAssetPlugin } from '../build/externalAssetPlugin';
 import { createAngularHmrInjectionPlugin } from '../dev/angular/hmrInjectionPlugin';
 import { cleanStaleOutputs } from '../utils/cleanStaleOutputs';
 import { cleanup } from '../utils/cleanup';
@@ -1450,7 +1451,9 @@ const buildUnlocked = async ({
 							const { primeComponentFingerprint } = await import(
 								'../dev/angular/fastHmrCompiler'
 							);
-							const { readdir } = await import('node:fs/promises');
+							const { readdir } = await import(
+								'node:fs/promises'
+							);
 							const { join } = await import('node:path');
 							const walk = async (
 								dir: string
@@ -1474,7 +1477,9 @@ const buildUnlocked = async ({
 								return out;
 							};
 							const tsFiles = await walk(angularDir);
-							await Promise.all(tsFiles.map(primeComponentFingerprint));
+							await Promise.all(
+								tsFiles.map(primeComponentFingerprint)
+							);
 						} catch {
 							// Best-effort: if priming fails, the only
 							// consequence is the pre-fix behavior
@@ -2112,7 +2117,17 @@ const buildUnlocked = async ({
 								format: 'esm',
 								naming: `[dir]/[name].[hash].[ext]`,
 								outdir: serverOutDir,
-								plugins: [stylePreprocessorPlugin],
+								plugins: [
+									stylePreprocessorPlugin,
+									...(serverOutDir
+										? [
+												createExternalAssetPlugin(
+													serverOutDir,
+													allFrameworkDirs
+												)
+											]
+										: [])
+								],
 								root: serverRoot,
 								// Dev-only inline sourcemaps + post-build
 								// chain so SSR error stacks map back to
@@ -2729,7 +2744,11 @@ const buildUnlocked = async ({
 			if (hmr) injectHMRIntoHTMLFile(htmlFile, 'html');
 			const fileName = basename(htmlFile, '.html');
 			if (manifest[fileName] && manifest[fileName] !== htmlFile) {
-				warnManifestKeyCollision(fileName, manifest[fileName], htmlFile);
+				warnManifestKeyCollision(
+					fileName,
+					manifest[fileName],
+					htmlFile
+				);
 			}
 			manifest[fileName] = htmlFile;
 		}
@@ -2770,7 +2789,11 @@ const buildUnlocked = async ({
 			if (hmr) injectHMRIntoHTMLFile(htmxFile, 'htmx');
 			const fileName = basename(htmxFile, '.html');
 			if (manifest[fileName] && manifest[fileName] !== htmxFile) {
-				warnManifestKeyCollision(fileName, manifest[fileName], htmxFile);
+				warnManifestKeyCollision(
+					fileName,
+					manifest[fileName],
+					htmxFile
+				);
 			}
 			manifest[fileName] = htmxFile;
 		}
