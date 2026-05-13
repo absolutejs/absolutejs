@@ -70,6 +70,11 @@ export type AngularPageRequestInput<
 	requestContext?: unknown;
 	/** Mutable response init made available through Angular's RESPONSE_INIT token. */
 	responseInit?: ResponseInit;
+	/** Sitemap metadata for this route. Statically read from the handler
+	 *  source at registration time, so only literal-object values are
+	 *  honoured. For finer control use `Route.data.sitemap` in the
+	 *  page's `Routes` config, or `sitemap.overrides` in `absolute.config.ts`. */
+	sitemap?: import('../../types/sitemap').PageHandlerSitemapMetadata;
 } & (AngularPageHasOptionalProps<Page> extends true
 		? { props?: NoInfer<AngularPagePropsOf<Page>> }
 		: { props: NoInfer<AngularPagePropsOf<Page>> });

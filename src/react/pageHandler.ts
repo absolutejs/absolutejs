@@ -30,6 +30,10 @@ export type ReactPageRequestInput<
 	 *  threading the URL by hand. User-supplied `props.url` (if present)
 	 *  takes precedence — the auto-injection only fills in when missing. */
 	request?: Request;
+	/** Sitemap metadata for this route. Statically read from the handler
+	 *  source at registration time, so only literal-object values are
+	 *  honoured. */
+	sitemap?: import('../../types/sitemap').PageHandlerSitemapMetadata;
 } & (keyof Props extends never
 		? { props?: NoInfer<Props> }
 		: { props: NoInfer<Props> });

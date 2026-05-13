@@ -1,4 +1,4 @@
-import { UNFOUND_INDEX } from '../constants';
+import { DEFAULT_PORT, UNFOUND_INDEX } from '../constants';
 import {
 	copyFileSync,
 	cpSync,
@@ -25,6 +25,8 @@ import { transformStaticPagesWithIslands } from '../build/staticIslandPages';
 import { outputLogs } from '../build/outputLogs';
 import { scanEntryPoints } from '../build/scanEntryPoints';
 import { scanConventions } from '../build/scanConventions';
+import { scanRouteRegistrations } from '../build/scanRouteRegistrations';
+import { generateSitemap } from '../utils/generateSitemap';
 import type {
 	ConventionsMap,
 	FrameworkConventionEntry,
@@ -774,7 +776,8 @@ const buildUnlocked = async ({
 	bunBuild: bunBuildConfig,
 	options,
 	incrementalFiles,
-	mode
+	mode,
+	sitemap
 }: BuildConfig) => {
 	const buildStart = performance.now();
 	const projectRoot = cwd();
@@ -2879,6 +2882,31 @@ const buildUnlocked = async ({
 	}
 
 	writeBuildTrace(buildPath);
+
+	// Sitemap is a deterministic build artifact derived from a static
+	// scan of project source for Elysia route registrations. Runs after
+	// every other artifact is on disk so we can read the project tree in
+	// a stable state; failure here is non-fatal (the build still
+	// succeeds, we just log and move on).
+	if (mode === 'production') {
+		try {
+			const routes = scanRouteRegistrations(projectRoot).map((r) => ({
+				handlerSource: r.handlerSource,
+				method: r.method,
+				path: r.path
+			}));
+			const sitemapBaseUrl =
+				sitemap?.baseUrl ?? `http://localhost:${DEFAULT_PORT}`;
+			await generateSitemap(routes, sitemapBaseUrl, buildPath, sitemap, {
+				angularDirectory,
+				reactDirectory,
+				svelteDirectory,
+				vueDirectory
+			});
+		} catch (err) {
+			console.warn('[sitemap] Build-time generation failed:', err);
+		}
+	}
 
 	// Production builds don't need the persistent Tailwind compiler in
 	// memory after the final write — release it. Dev / HMR builds keep

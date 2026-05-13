@@ -21,6 +21,15 @@ export type AngularPageDefinition<
 	Props extends Record<string, unknown> = Record<never, never>
 > = {
 	component: import('@angular/core').Type<unknown>;
+	/**
+	 * Optional SPA route configuration for this page. When provided,
+	 * the sitemap pipeline walks it (eagerly resolving `loadChildren`)
+	 * and emits one entry per non-dynamic leaf, prefixed by the
+	 * Elysia mount path. Pass the same `Routes` array given to
+	 * `provideRouter(...)` so the single source of truth stays in
+	 * user code.
+	 */
+	routes?: import('@angular/router').Routes;
 	/** Type-only marker used by handleAngularPageRequest to infer route props. */
 	__absoluteAngularPageProps?: Props;
 };

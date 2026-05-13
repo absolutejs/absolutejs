@@ -100,6 +100,10 @@ export type SveltePageRequestInput<
 	 *  `<Router url={url}>` without the caller threading it by hand.
 	 *  User-supplied `props.url` (if present) takes precedence. */
 	request?: Request;
+	/** Sitemap metadata for this route. Statically read from the handler
+	 *  source at registration time, so only literal-object values are
+	 *  honoured. */
+	sitemap?: import('../../types/sitemap').PageHandlerSitemapMetadata;
 } & (HasNoSvelteProps<SveltePropsOf<Component>> extends true
 		? { props?: NoInfer<SveltePropsOf<Component>> }
 		: { props: NoInfer<SveltePropsOf<Component>> });

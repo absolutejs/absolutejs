@@ -1,7 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { basename, join, relative, resolve } from 'node:path';
 import { Elysia } from 'elysia';
-import type { SitemapConfig } from '../../types/sitemap';
 import type { ConventionsMap } from '../../types/conventions';
 import { loadConfig } from '../utils/loadConfig';
 import { setCurrentIslandManifest } from './islandPageContext';
@@ -237,7 +236,6 @@ const prepareDev = async (
 			})
 		)
 		.use(hmrPlugin)
-		.use(createSitemapPlugin(buildDir, config.sitemap))
 		.use(createBuildErrorRecoveryPlugin())
 		.use(createNotFoundPlugin());
 	recordStep('assemble dev runtime', stepStartedAt);
@@ -271,23 +269,6 @@ const loadPrerenderMap = (prerenderDir: string) => {
 
 	return map;
 };
-
-const createSitemapPlugin = (buildDir: string, sitemapConfig?: SitemapConfig) =>
-	new Elysia({ name: 'absolutejs-sitemap' }).onStart((started) => {
-		const { server } = started;
-		if (!server) return;
-
-		import('../utils/generateSitemap')
-			.then(({ generateSitemap }) =>
-				generateSitemap(
-					started.routes,
-					server.url.origin,
-					buildDir,
-					sitemapConfig
-				)
-			)
-			.catch((err) => console.error('[sitemap] Generation failed:', err));
-	});
 
 const createNotFoundPlugin = () =>
 	new Elysia({ name: 'absolutejs-not-found' }).onError(
@@ -472,7 +453,6 @@ export const prepare = async (configOrPath?: string) => {
 			.use(imageOptimizer(config.images, buildDir))
 			.use(prerenderPlugin)
 			.use(staticFiles)
-			.use(createSitemapPlugin(buildDir, config.sitemap))
 			.use(createNotFoundPlugin());
 		recordStep('assemble production runtime', stepStartedAt);
 		logStartupTimingBlock('AbsoluteJS prepare timing', startupSteps);
@@ -485,7 +465,6 @@ export const prepare = async (configOrPath?: string) => {
 	const absolutejs = new Elysia({ name: 'absolutejs-runtime' })
 		.use(imageOptimizer(config.images, buildDir))
 		.use(staticFiles)
-		.use(createSitemapPlugin(buildDir, config.sitemap))
 		.use(createNotFoundPlugin());
 	recordStep('assemble production runtime', stepStartedAt);
 	logStartupTimingBlock('AbsoluteJS prepare timing', startupSteps);

@@ -41,6 +41,10 @@ export type VuePageRequestInput<Component extends VueComponent> =
 		 *  (see compileVue's index generation) so plugins like
 		 *  vue-router can navigate to the correct route before SSR. */
 		request?: Request;
+		/** Sitemap metadata for this route. Statically read from the
+		 *  handler source at registration time, so only literal-object
+		 *  values are honoured. */
+		sitemap?: import('../../types/sitemap').PageHandlerSitemapMetadata;
 	} & (keyof VuePropsOf<Component> extends never
 			? { props?: NoInfer<VuePropsOf<Component>> }
 			: { props: NoInfer<VuePropsOf<Component>> });

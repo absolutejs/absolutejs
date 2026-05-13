@@ -28,6 +28,9 @@ export type ContactPoint = {
 	telephone?: string;
 	contactType?: string;
 	availableLanguage?: string | string[];
+	email?: string;
+	url?: string;
+	areaServed?: string | string[];
 };
 
 export type Offer = {
@@ -37,6 +40,9 @@ export type Offer = {
 	availability?: string;
 	url?: string;
 	validFrom?: string;
+	category?: string;
+	itemCondition?: string;
+	sku?: string;
 };
 
 export type AggregateRating = {
@@ -100,7 +106,17 @@ export type OrganizationSchema = {
 	email?: string;
 	telephone?: string;
 	sameAs?: string[];
-	contactPoint?: ContactPoint;
+	contactPoint?: ContactPoint | ContactPoint[];
+	legalName?: string;
+	founder?: PersonSchema;
+	founders?: PersonSchema[];
+	slogan?: string;
+	numberOfEmployees?: string | number;
+	parentOrganization?: OrganizationSchema;
+	subOrganization?: OrganizationSchema | OrganizationSchema[];
+	brand?: OrganizationSchema | { '@type': 'Brand'; name: string };
+	keywords?: string | string[];
+	knowsAbout?: string | string[];
 };
 
 // --- WebSite ---
@@ -289,8 +305,18 @@ export type SoftwareApplicationSchema = {
 	image?: string;
 	operatingSystem?: string;
 	applicationCategory?: string;
-	offers?: Offer;
+	offers?: Offer | Offer[];
 	aggregateRating?: AggregateRating;
+	url?: string;
+	featureList?: string | string[];
+	screenshot?: string | ImageObject | (string | ImageObject)[];
+	softwareVersion?: string;
+	applicationSubCategory?: string;
+	downloadUrl?: string;
+	installUrl?: string;
+	releaseNotes?: string;
+	softwareRequirements?: string;
+	permissions?: string;
 };
 
 // --- JobPosting ---
