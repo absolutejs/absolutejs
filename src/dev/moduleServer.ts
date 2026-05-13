@@ -470,7 +470,7 @@ const addJsxImport = (code: string) => {
 // ignored — the transpiler runs but emits no $RefreshReg$/$RefreshSig$
 // calls, so the react-refresh runtime has no per-component registrations
 // and HMR cannot perform a state-preserving update. See
-// UPSTREAM_ISSUES.md for the full picture.
+// docs/REACT_TRANSPILER_BUG.md for the full picture.
 //
 // reactFastRefresh isn't in the upstream Bun.Transpiler typings yet, so
 // we intersect the option type locally.

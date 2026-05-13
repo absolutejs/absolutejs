@@ -1996,12 +1996,8 @@ export const compileAngular = async (
 		// `AdminLogsComponent`) get a dangling `export default
 		// ResourcesComponent` appended, which throws
 		// `ReferenceError: <X> is not defined` at module-evaluation time.
-		//
-		// In Bun ≤1.3.13 this fails only on the first request — sequential
-		// `import()` after an evaluation throw silently returns a
-		// partially-initialized module instead of re-throwing. Fixed on
-		// Bun main in PR oven-sh/bun#29393, awaiting 1.3.14. Tracked as
-		// oven-sh/bun#29791; see UPSTREAM_ISSUES.md.
+		// Surfaces immediately on every request as of Bun 1.3.14 (the
+		// loader bug oven-sh/bun#29791 that masked it on retries is fixed).
 		const detectExportedComponentClass = (
 			source: string
 		): string | null => {

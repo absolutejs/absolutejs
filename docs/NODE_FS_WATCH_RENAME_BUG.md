@@ -4,8 +4,12 @@
 behavior is well-known but I haven't pinned a single canonical bug.
 **Status:** Reproduces deterministically on Node-API parity surface
 (Bun 1.3.13's `node:fs.watch`, also reported on Node 22 historically).
-Workaround landed in this repo; see "Workaround." **Action when fixed:**
-see "What to do when Node fixes it."
+**Re-verified on Bun 1.3.14 (2026-05-13):** still broken. The 1.3.14
+release shipped a complete POSIX `fs.watch` rewrite (recursive new-dir
+tracking, delete-recreate `change` events), but the overwrite-rename
+case in the minimal repro below still drops the `IN_MOVED_TO` event —
+only the temp filename surfaces. Workaround landed in this repo; see
+"Workaround." **Action when fixed:** see "What to do when Node fixes it."
 
 ## What's wrong upstream
 

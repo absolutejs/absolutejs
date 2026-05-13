@@ -2,8 +2,11 @@
 
 **Tracking:** [oven-sh/bun#30436](https://github.com/oven-sh/bun/issues/30436)
 **Status:** Reproduces deterministically on Bun 1.3.13 (Linux x86_64).
-Workaround landed in this repo; see "Workaround." **Action when fixed:**
-see "What to do when Bun fixes it."
+**Re-verified on Bun 1.3.14 (2026-05-13):** still broken. The 1.3.14
+fs.watch rewrite did not incidentally fix this — the minimal repro
+below (baseline prints `n=1..3`, repro prints only `n=1`) still
+fails on 1.3.14. Workaround landed in this repo; see "Workaround."
+**Action when fixed:** see "What to do when Bun fixes it."
 
 ## What's wrong upstream
 
