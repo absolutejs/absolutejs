@@ -3,7 +3,6 @@ import {
 	ChangeDetectorRef,
 	Component,
 	Input,
-	NgZone,
 	inject,
 	signal
 } from '@angular/core';
@@ -54,16 +53,11 @@ const resolvePayloadHtml = (payload: unknown) => {
 export class StreamSlotComponent {
 	private readonly cdr = inject(ChangeDetectorRef);
 	private readonly sanitizer = inject(DomSanitizer);
-	private readonly zone = inject(NgZone);
 	private readonly slotConsumer = (payload: unknown) => {
-		this.zone.run(() => {
-			this.currentHtml.set(
-				this.sanitizer.bypassSecurityTrustHtml(
-					resolvePayloadHtml(payload)
-				)
-			);
-			this.cdr.markForCheck();
-		});
+		this.currentHtml.set(
+			this.sanitizer.bypassSecurityTrustHtml(resolvePayloadHtml(payload))
+		);
+		this.cdr.markForCheck();
 
 		return true;
 	};

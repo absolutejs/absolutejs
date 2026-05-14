@@ -16,6 +16,15 @@ export {
 } from './deterministicEnv';
 export { handleAngularPageRequest } from './pageHandler';
 export { defineAngularPage } from './page';
+export { useResource, useSubscription, useTimers } from './composables';
+export type {
+	Observer,
+	Resource,
+	ResourceFetcher,
+	ResourceMutator,
+	ResourceOptions,
+	ResourceStart
+} from './composables';
 export { preserveAcrossHmr } from './preserveAcrossHmr';
 export { withPendingTask } from './pendingTask';
 export { createTypedIsland } from './createIsland';

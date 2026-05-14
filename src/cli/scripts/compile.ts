@@ -347,13 +347,7 @@ const copyAngularRuntimePackages = (
 				.map((entry) => `@angular/${entry.name}`)
 		: [];
 
-	const roots = new Set([
-		...angularPackages,
-		'rxjs',
-		'tslib',
-		'typescript',
-		'zone.js'
-	]);
+	const roots = new Set([...angularPackages, 'rxjs', 'tslib', 'typescript']);
 	const seen = new Set<string>();
 	for (const specifier of roots) {
 		copyPackageToBuild(specifier, outdir, seen);
