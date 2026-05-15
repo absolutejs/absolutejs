@@ -1710,14 +1710,16 @@ export const compileAngularFileJIT = async (
 			dirname(actualPath)
 		).source;
 
-		// Compute output path preserving directory structure
+		// Compute output path preserving directory structure. `toOutputPath`
+		// is the single source of truth — it handles the in-place branch
+		// for inputs already under `outDir`. Derive `targetDir` and
+		// `relativeDir` from the resolved `targetPath` so the rewrite math
+		// below stays consistent with where the file actually lands.
 		const inputDir = dirname(actualPath);
-		const relativeDir = inputDir.startsWith(baseDir)
-			? inputDir.substring(baseDir.length + 1)
-			: inputDir;
 		const fileBase = basename(actualPath).replace(/\.[cm]?[tj]sx?$/, '.js');
-		const targetDir = join(outDir, relativeDir);
 		const targetPath = toOutputPath(actualPath);
+		const targetDir = dirname(targetPath);
+		const relativeDir = relative(outDir, targetDir).replace(/\\/g, '/');
 
 		// Find all relative imports to process recursively (needed
 		// even when skipping transpilation for cache-hit files).
