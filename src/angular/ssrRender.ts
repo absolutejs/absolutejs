@@ -119,6 +119,21 @@ export const renderAngularApp = async (
 	document: string | Document,
 	url: string = '/'
 ) => {
+	// Drain Angular's JIT component-resource resolution queue before
+	// bootstrap. The build's `compileAngularFileJIT` inlines every
+	// reachable `templateUrl`/`styleUrl` into the compiled `.js` output,
+	// and the page server bundle imports those compiled `.js` files —
+	// so by the time SSR runs nothing in the page graph should be
+	// queueing component resources for resolution. Any entries that
+	// did sneak in came from build-time module loads (the same process
+	// runs `absolute dev`'s build phase and then serves) and reference
+	// raw `.ts` template URLs that `bootstrapApplication`'s default
+	// `fetch`-based resourceResolver can't handle. Clearing the queue
+	// here means resolveJitResources sees an empty queue, skips the
+	// fetch, and SSR proceeds without the `ERR_INVALID_URL` noise
+	// without losing real resolution capability (there's nothing to
+	// resolve when inputs are pre-inlined). */
+	deps.clearResolutionOfComponentResourcesQueue();
 	const bootstrap = (context: BootstrapContext) =>
 		deps.bootstrapApplication(PageComponent, { providers }, context);
 

@@ -15,6 +15,7 @@ export type AngularDeps = {
 	Sanitizer: typeof import('@angular/core').Sanitizer;
 	SecurityContext: typeof import('@angular/core').SecurityContext;
 	withHttpTransferCacheOptions: typeof import('@angular/platform-browser').withHttpTransferCacheOptions;
+	clearResolutionOfComponentResourcesQueue: typeof import('@angular/core').ɵclearResolutionOfComponentResourcesQueue;
 };
 
 /**
