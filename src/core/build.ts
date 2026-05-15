@@ -1395,12 +1395,12 @@ const buildUnlocked = async ({
 	// compileAngular invocations below — both the page and island
 	// compiles read the generated files. Cheap (AST pass over backend
 	// `.ts` files, only fires when Angular is in use) and idempotent.
-	if (shouldCompileAngular) {
+	if (shouldCompileAngular && angularDir) {
 		await tracePhase('scan/angular-handlers', async () => {
 			const { runAngularHandlerScan } = await import(
 				'../build/runAngularHandlerScan'
 			);
-			runAngularHandlerScan(projectRoot);
+			runAngularHandlerScan(projectRoot, angularDir);
 		});
 	}
 

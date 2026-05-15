@@ -25,9 +25,14 @@ import {
 	scanAngularHandlerCalls,
 	type AngularHandlerCall
 } from './scanAngularHandlerCalls';
+import {
+	scanAngularPageRoutes,
+	type AngularPageRoutes
+} from './scanAngularPageRoutes';
 
 export type AngularHandlerScanResult = {
 	calls: AngularHandlerCall[];
+	pageRoutes: AngularPageRoutes[];
 	providersFiles: EmittedProvidersFile[];
 	/** Set of manifest keys that have a generated providers file the
 	 *  client bundle can import. */
@@ -35,10 +40,16 @@ export type AngularHandlerScanResult = {
 };
 
 export const runAngularHandlerScan = (
-	projectRoot: string
+	projectRoot: string,
+	angularDirectory: string
 ): AngularHandlerScanResult => {
 	const calls = scanAngularHandlerCalls(projectRoot);
-	const providersFiles = emitAngularProvidersFiles(projectRoot, calls);
+	const pageRoutes = scanAngularPageRoutes(angularDirectory);
+	const providersFiles = emitAngularProvidersFiles(
+		projectRoot,
+		calls,
+		pageRoutes
+	);
 	emitAngularRouteMounts(projectRoot, calls);
 
 	return {
@@ -46,6 +57,7 @@ export const runAngularHandlerScan = (
 		manifestKeysWithProviders: new Set(
 			providersFiles.map((file) => file.manifestKey)
 		),
+		pageRoutes,
 		providersFiles
 	};
 };

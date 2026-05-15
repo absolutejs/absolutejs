@@ -19,6 +19,10 @@ import type {
 	AngularHandlerCall,
 	ImportSpec
 } from './scanAngularHandlerCalls';
+import {
+	relativeRoutesImport,
+	type AngularPageRoutes
+} from './scanAngularPageRoutes';
 
 export type EmittedProvidersFile = {
 	manifestKey: string;
@@ -123,10 +127,16 @@ const renderImportGroup = (
 	return lines.join('\n');
 };
 
+const ROUTER_FEATURES_DEFAULT = [
+	'withComponentInputBinding',
+	'withViewTransitions'
+] as const;
+
 const renderFile = (
 	call: AngularHandlerCall,
 	outputPath: string,
-	basePath: string | null
+	basePath: string | null,
+	pageRoutes: AngularPageRoutes | undefined
 ): string => {
 	const sections: string[] = [];
 	sections.push(
@@ -150,11 +160,35 @@ const renderFile = (
 		);
 	}
 
+	// When the page module declares `export const routes: Routes = [...]`,
+	// auto-wire `provideRouter(routes, ...defaultFeatures)` — Angular's
+	// natural router-config pattern, surfaced for free instead of the
+	// user writing the call themselves. Router features default to
+	// `withComponentInputBinding()` and `withViewTransitions()`.
+	if (pageRoutes?.hasRoutes) {
+		const routesImport = relativeRoutesImport(
+			dirname(outputPath),
+			pageRoutes.pageFile
+		);
+		sections.push(
+			`import { ${['provideRouter', ...ROUTER_FEATURES_DEFAULT].join(
+				', '
+			)} } from "@angular/router";`,
+			`import { routes as __pageRoutes } from "${routesImport}";`,
+			`const __routerProvider = provideRouter(__pageRoutes, ${ROUTER_FEATURES_DEFAULT.map(
+				(name) => `${name}()`
+			).join(', ')});`
+		);
+	}
+
 	const userProviders = call.providersExpr ?? '[]';
+	const extras: string[] = [];
+	if (pageRoutes?.hasRoutes) extras.push('__routerProvider');
+	if (basePath !== null) extras.push('__basePathProvider');
 	const exportExpr =
-		basePath === null
+		extras.length === 0
 			? userProviders
-			: `[...(${userProviders}), __basePathProvider]`;
+			: `[...(${userProviders}), ${extras.join(', ')}]`;
 	sections.push(`export const providers = ${exportExpr};`);
 
 	return sections.join('\n\n') + '\n';
@@ -177,16 +211,23 @@ const deriveBasePath = (mountPath: string | null): string | null => {
 
 export const emitAngularProvidersFiles = (
 	projectRoot: string,
-	calls: AngularHandlerCall[]
+	calls: AngularHandlerCall[],
+	pageRoutes: AngularPageRoutes[]
 ): EmittedProvidersFile[] => {
 	const outputDir = getProvidersOutputDir(projectRoot);
 	mkdirSync(outputDir, { recursive: true });
+
+	const pageRoutesByKey = new Map<string, AngularPageRoutes>();
+	for (const entry of pageRoutes) {
+		pageRoutesByKey.set(entry.manifestKey, entry);
+	}
 
 	const emitted: EmittedProvidersFile[] = [];
 	for (const call of calls) {
 		const outputPath = join(outputDir, `${call.manifestKey}.providers.ts`);
 		const basePath = deriveBasePath(call.mountPath);
-		const content = renderFile(call, outputPath, basePath);
+		const pageRoute = pageRoutesByKey.get(call.manifestKey);
+		const content = renderFile(call, outputPath, basePath, pageRoute);
 		writeFileSync(outputPath, content, 'utf-8');
 		emitted.push({
 			basePath,
