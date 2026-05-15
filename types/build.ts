@@ -187,16 +187,21 @@ export type BaseBuildConfig = {
 	reactDirectory?: string;
 	vueDirectory?: string;
 	angularDirectory?: string;
-	/** Per-framework Angular config. Currently exposes `providersImport` —
-	 *  a project-relative path to a module that exports `appProviders`
-	 *  (the global default DI providers every page receives at SSR + client
-	 *  bootstrap). The framework imports this module from both the
-	 *  generated client bundle and the SSR handler so the two trees are
-	 *  identical. Per-page additions (e.g. `provideRouter(routes)`) come
-	 *  from page-level `export const routes` and are auto-wired by the
-	 *  build — users never write `provideRouter` themselves. */
+	/** Per-framework Angular config. `providers` is the global default
+	 *  DI provider array every page gets at SSR + client bootstrap.
+	 *  Write it as a real typed value (`providers: appProviders`) so
+	 *  TypeScript catches a missing import or renamed binding at
+	 *  compile time. The framework AST-parses absolute.config.ts at
+	 *  build time to find the import path of the binding referenced
+	 *  here, then bakes a matching import into every per-page generated
+	 *  providers file. Per-page additions (e.g. `provideRouter(routes)`)
+	 *  come from page-level `export const routes` and are auto-wired by
+	 *  the build — users never write `provideRouter` themselves. */
 	angular?: {
-		providersImport?: string;
+		providers?: ReadonlyArray<
+			| import('@angular/core').Provider
+			| import('@angular/core').EnvironmentProviders
+		>;
 	};
 	astroDirectory?: string;
 	svelteDirectory?: string;

@@ -766,7 +766,6 @@ const buildUnlocked = async ({
 	htmlDirectory,
 	htmxDirectory,
 	angularDirectory,
-	angular,
 	emberDirectory,
 	svelteDirectory,
 	vueDirectory,
@@ -1401,9 +1400,11 @@ const buildUnlocked = async ({
 			const { runAngularHandlerScan } = await import(
 				'../build/runAngularHandlerScan'
 			);
-			runAngularHandlerScan(projectRoot, angularDir, {
-				providersImport: angular?.providersImport
-			});
+			// `angular.providers` resolution happens inside the scan via
+			// an AST pass over `absolute.config.ts`. The build doesn't
+			// need to forward anything from this scope — the parser
+			// reads the same config the orchestrator loaded.
+			runAngularHandlerScan(projectRoot, angularDir);
 		});
 	}
 

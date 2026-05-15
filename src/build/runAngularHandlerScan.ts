@@ -21,6 +21,7 @@ import {
 	type EmittedProvidersFile
 } from './emitAngularProvidersFiles';
 import { emitAngularRouteMounts } from './emitAngularRouteMounts';
+import { parseAngularProvidersImport } from './parseAngularConfigImports';
 import {
 	scanAngularHandlerCalls,
 	type AngularHandlerCall
@@ -39,26 +40,24 @@ export type AngularHandlerScanResult = {
 	manifestKeysWithProviders: Set<string>;
 };
 
-export type AngularHandlerScanOptions = {
-	/** Project-relative path to the user's global Angular providers
-	 *  module (must export `appProviders`). When set, every generated
-	 *  providers file re-imports it so pages and per-handler calls
-	 *  never write providers themselves. */
-	providersImport?: string;
-};
-
 export const runAngularHandlerScan = (
 	projectRoot: string,
-	angularDirectory: string,
-	options: AngularHandlerScanOptions = {}
+	angularDirectory: string
 ): AngularHandlerScanResult => {
 	const calls = scanAngularHandlerCalls(projectRoot);
 	const pageRoutes = scanAngularPageRoutes(angularDirectory);
+	// AST-parse `absolute.config.ts` for the `angular.providers` binding's
+	// source import. The emitted per-page providers files re-import the
+	// same module so pages never write providers themselves. Returns null
+	// when the config doesn't set `angular.providers` — the emitter then
+	// skips the global import and relies on the handler call's `providers:`
+	// arg (escape hatch) or the legacy `export const providers` fallback.
+	const providersImport = parseAngularProvidersImport(projectRoot);
 	const providersFiles = emitAngularProvidersFiles(
 		projectRoot,
 		calls,
 		pageRoutes,
-		options
+		{ providersImport }
 	);
 	emitAngularRouteMounts(projectRoot, calls);
 

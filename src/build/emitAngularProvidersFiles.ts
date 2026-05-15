@@ -15,6 +15,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { getFrameworkGeneratedDir } from '../utils/generatedDir';
+import type { AngularProvidersImport } from './parseAngularConfigImports';
 import type {
 	AngularHandlerCall,
 	ImportSpec
@@ -137,7 +138,7 @@ const renderFile = (
 	outputPath: string,
 	basePath: string | null,
 	pageRoutes: AngularPageRoutes | undefined,
-	globalProvidersAbsPath: string | null
+	providersImport: AngularProvidersImport | null
 ): string => {
 	const sections: string[] = [];
 	sections.push(
@@ -152,24 +153,25 @@ const renderFile = (
 		}
 	}
 
-	// Global providers from `absolute.config.ts > angular.providersImport`.
-	// Re-imported relative to the generated file's location so every
-	// page inherits the user's global Angular DI setup (Firebase init,
-	// Sentry error handler, HttpClient, TanStack Query, app initializers,
-	// etc.) without writing it per page or per handler call.
-	if (globalProvidersAbsPath) {
+	// Global providers from `absolute.config.ts > angular.providers`.
+	// The build AST-parsed the config to extract the import source for
+	// whatever binding the user passed. Re-imported relative to the
+	// generated file's location so every page inherits the user's
+	// global Angular DI setup (Firebase init, Sentry error handler,
+	// HttpClient, TanStack Query, app initializers, etc.) without
+	// writing it per page or per handler call.
+	if (providersImport) {
 		const outputDir = dirname(outputPath);
-		const rel = relative(outputDir, globalProvidersAbsPath).replace(
+		const rel = relative(outputDir, providersImport.absolutePath).replace(
 			/\\/g,
 			'/'
 		);
-		const withoutExt = rel.replace(/\.[cm]?[tj]sx?$/, '');
-		const specifier = withoutExt.startsWith('.')
-			? withoutExt
-			: `./${withoutExt}`;
-		sections.push(
-			`import { appProviders as __globalProviders } from "${specifier}";`
-		);
+		const specifier = rel.startsWith('.') ? rel : `./${rel}`;
+		const importClause =
+			providersImport.importedName === providersImport.bindingName
+				? `{ ${providersImport.bindingName} as __globalProviders }`
+				: `{ ${providersImport.importedName} as __globalProviders }`;
+		sections.push(`import ${importClause} from "${specifier}";`);
 	}
 
 	if (basePath !== null) {
@@ -208,7 +210,7 @@ const renderFile = (
 	// `APP_BASE_HREF` in `providers:` still wins by Angular's
 	// last-provider-rule.
 	const fragments: string[] = [];
-	if (globalProvidersAbsPath) fragments.push('...__globalProviders');
+	if (providersImport) fragments.push('...__globalProviders');
 	if (call.providersExpr !== null) fragments.push(`...(${userProvidersExpr})`);
 	if (pageRoutes?.hasRoutes) fragments.push('__routerProvider');
 	if (basePath !== null) fragments.push('__basePathProvider');
@@ -235,10 +237,13 @@ const deriveBasePath = (mountPath: string | null): string | null => {
 };
 
 export type EmitAngularProvidersOptions = {
-	/** Project-relative path to the global providers module (exports
-	 *  `appProviders`). The emitted files re-import it so each page's
-	 *  generated providers always include the user's global setup. */
-	providersImport?: string;
+	/** AST-extracted import info for the user's `angular.providers`
+	 *  binding (from absolute.config.ts). Each emitted file re-imports
+	 *  the same binding by its source path so pages and per-handler
+	 *  calls never write providers themselves. Null when the config
+	 *  doesn't set `angular.providers` — the emitter skips the global
+	 *  import. */
+	providersImport?: AngularProvidersImport | null;
 };
 
 export const emitAngularProvidersFiles = (
@@ -265,9 +270,7 @@ export const emitAngularProvidersFiles = (
 			outputPath,
 			basePath,
 			pageRoute,
-			options.providersImport
-				? resolveProvidersImport(projectRoot, options.providersImport)
-				: null
+			options.providersImport ?? null
 		);
 		writeFileSync(outputPath, content, 'utf-8');
 		emitted.push({
@@ -279,20 +282,6 @@ export const emitAngularProvidersFiles = (
 	}
 
 	return emitted;
-};
-
-/** Resolve the user's `angular.providersImport` (a project-relative
- *  path) to an absolute path so the emitter can re-relativize it from
- *  the generated file's location. */
-const resolveProvidersImport = (
-	projectRoot: string,
-	providersImport: string
-): string => {
-	if (providersImport.startsWith('.')) {
-		return join(projectRoot, providersImport);
-	}
-
-	return providersImport;
 };
 
 /** Absolute path of the directory the emitter writes to. Exposed so other
