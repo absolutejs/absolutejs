@@ -1464,16 +1464,47 @@ const buildUnlocked = async ({
 		shouldCompileAngular
 			? tracePhase('compile/angular', async () => {
 					const mod = await import('../build/compileAngular');
-					const combinedAngularEntries =
-						angularProvidersEntryAddons.length > 0
-							? [...angularEntries, ...angularProvidersEntryAddons]
-							: angularEntries;
 					const result = await mod.compileAngular(
-						combinedAngularEntries,
+						angularEntries,
 						angularDir,
 						hmr,
 						styleTransformConfig
 					);
+					// Separately compile `angular.providers` source so its
+					// transitive component imports land in
+					// `.absolutejs/generated/angular/<rel>.js` with templates
+					// inlined. We DON'T add this to `angularEntries` — that
+					// would treat it as a page and emit a wrapper bundle
+					// that duplicates @angular/core into a fresh chunk,
+					// creating two parallel Angular instances when the SSR
+					// page also loads from the regular vendor copy. The
+					// generated providers file's runtime dynamic-import
+					// then resolves through whichever chunk Bun picks
+					// first and the queues drift apart. Calling
+					// `compileAngularFileJIT` directly runs only the
+					// inliner + per-file transpile that we actually need.
+					if (angularProvidersEntryAddons.length > 0 && angularDir) {
+						const { compileAngularFileJIT } = await import(
+							'../build/compileAngular'
+						);
+						const { getFrameworkGeneratedDir } = await import(
+							'../utils/generatedDir'
+						);
+						const compiledRoot = getFrameworkGeneratedDir(
+							'angular',
+							projectRoot
+						);
+						await Promise.all(
+							angularProvidersEntryAddons.map((entry) =>
+								compileAngularFileJIT(
+									entry,
+									compiledRoot,
+									angularDir,
+									styleTransformConfig
+								)
+							)
+						);
+					}
 					// In dev mode, prime the fast-HMR fingerprint cache
 					// for every component .ts file so the first user
 					// edit has a baseline. Without this, the first
