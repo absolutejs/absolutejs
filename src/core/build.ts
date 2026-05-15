@@ -1395,35 +1395,65 @@ const buildUnlocked = async ({
 	// compileAngular invocations below — both the page and island
 	// compiles read the generated files. Cheap (AST pass over backend
 	// `.ts` files, only fires when Angular is in use) and idempotent.
-	let angularProvidersFilesToCompile: string[] = [];
+	let angularProvidersInjection:
+		| import('../build/compileAngular').AngularProvidersInjection
+		| undefined = undefined;
+	let angularAppProvidersSource: string | undefined = undefined;
 	if (shouldCompileAngular && angularDir) {
 		await tracePhase('scan/angular-handlers', async () => {
 			const { runAngularHandlerScan } = await import(
 				'../build/runAngularHandlerScan'
 			);
-			// `angular.providers` resolution happens inside the scan via
-			// an AST pass over `absolute.config.ts`. The build doesn't
-			// need to forward anything from this scope — the parser
-			// reads the same config the orchestrator loaded.
-			const scanResult = runAngularHandlerScan(projectRoot, angularDir);
-			// Compile every emitted `.providers.ts` separately, BEFORE the
-			// page compile pass below. `compileAngularFileJIT` walks each
-			// providers file's transitive `.ts` imports — the user's
-			// `appProviders`, any handler-call `providers:` deps, the
-			// page's `routes` export, and any components those pull in
-			// — and writes inlined `.js` outputs into the angular
-			// generated tree. The compiled `.providers.js` ends up
-			// sibling-adjacent to its source (the JIT in-place output
-			// branch handles the `.absolutejs/generated/` self-nesting
-			// case). The page compile pass that runs next sees those
-			// `.js` files exist, appends a static `import { providers }
-			// from "<rel>/<Key>.providers.js"` to each page's server
-			// output, and the page Bun.build picks up everything in a
-			// single bundle — one shared `@angular/core` instance for
-			// page + providers chain, no runtime dynamic import. */
-			angularProvidersFilesToCompile = scanResult.providersFiles.map(
-				(file) => file.outputPath
+			const { parseAngularProvidersImport } = await import(
+				'../build/parseAngularConfigImports'
 			);
+			const scanResult = runAngularHandlerScan(projectRoot, angularDir);
+			const providersImport = parseAngularProvidersImport(projectRoot);
+			if (providersImport) {
+				angularAppProvidersSource = providersImport.absolutePath;
+				const pagesByFile = new Map<
+					string,
+					{ hasRoutes: boolean; basePath: string | null }
+				>();
+				const basePathByKey = new Map<string, string | null>();
+				for (const call of scanResult.calls) {
+					basePathByKey.set(
+						call.manifestKey,
+						call.mountPath?.endsWith('/*')
+							? call.mountPath.slice(0, -1)
+							: null
+					);
+				}
+				for (const route of scanResult.pageRoutes) {
+					const basePath = basePathByKey.get(route.manifestKey) ?? null;
+					const normalizedBase =
+						basePath === '/' ? null : basePath;
+					pagesByFile.set(route.pageFile, {
+						basePath: normalizedBase,
+						hasRoutes: route.hasRoutes
+					});
+				}
+				// Pages without a `routes` export still need the
+				// global appProviders + (optional) APP_BASE_HREF
+				// injected. Fill in entries for every page the
+				// handler scanner found, defaulting `hasRoutes` to
+				// false. Handler-call manifest keys → page files
+				// would be ideal, but the manifest key is derived
+				// from basename(pageFile), so we recover via the
+				// pageRoutes scan (which covers every `.ts` under
+				// `angularDirectory`).
+				for (const route of scanResult.pageRoutes) {
+					if (pagesByFile.has(route.pageFile)) continue;
+					pagesByFile.set(route.pageFile, {
+						basePath: null,
+						hasRoutes: route.hasRoutes
+					});
+				}
+				angularProvidersInjection = {
+					appProvidersSource: providersImport.absolutePath,
+					pagesByFile
+				};
+			}
 		});
 	}
 
@@ -1473,17 +1503,20 @@ const buildUnlocked = async ({
 		shouldCompileAngular
 			? tracePhase('compile/angular', async () => {
 					const mod = await import('../build/compileAngular');
-					// Compile the generated `.providers.ts` files first.
-					// They produce `<Key>.providers.js` in-place plus
-					// inlined `.js` for every transitively-imported
-					// `.component.ts`. The page compile pass then statically
-					// imports the `.providers.js` from its server output,
-					// so the page Bun.build bundles the providers chain
-					// alongside the page — one `@angular/core` instance.
-					if (
-						angularProvidersFilesToCompile.length > 0 &&
-						angularDir
-					) {
+					// Compile the user's `angular.providers` source
+					// (typically `appProviders.ts`) separately first.
+					// `compileAngularFileJIT` walks its transitive `.ts`
+					// imports and inlines every component's
+					// `templateUrl`/`styleUrls`, writing the resulting
+					// `.js` outputs into the angular generated tree.
+					// `compileAngular` then references the compiled
+					// `appProviders.js` directly from each page's
+					// server output via an injected
+					// `import { appProviders } from "<rel>"` — single
+					// module graph, no `.providers.ts` indirection, no
+					// circular ESM cycle when a router page exports
+					// `routes`.
+					if (angularAppProvidersSource && angularDir) {
 						const { getFrameworkGeneratedDir } = await import(
 							'../utils/generatedDir'
 						);
@@ -1491,22 +1524,19 @@ const buildUnlocked = async ({
 							'angular',
 							projectRoot
 						);
-						await Promise.all(
-							angularProvidersFilesToCompile.map((entry) =>
-								mod.compileAngularFileJIT(
-									entry,
-									compiledRoot,
-									angularDir,
-									styleTransformConfig
-								)
-							)
+						await mod.compileAngularFileJIT(
+							angularAppProvidersSource,
+							compiledRoot,
+							angularDir,
+							styleTransformConfig
 						);
 					}
 					const result = await mod.compileAngular(
 						angularEntries,
 						angularDir,
 						hmr,
-						styleTransformConfig
+						styleTransformConfig,
+						angularProvidersInjection
 					);
 					// In dev mode, prime the fast-HMR fingerprint cache
 					// for every component .ts file so the first user

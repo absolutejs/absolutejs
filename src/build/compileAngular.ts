@@ -1830,11 +1830,31 @@ export const compileAngularFileJIT = async (
 	return allOutputs;
 };
 
+/** Build-time providers info threaded down from `runAngularHandlerScan`.
+ *  When present, `compileAngular` injects an `export const providers = [...]`
+ *  declaration directly into each page's compiled server output instead
+ *  of relying on a sibling `.providers.ts` file. Injecting in-place
+ *  avoids the circular ESM dependency that arises when a router page
+ *  exports `routes` (`.providers.ts` would import `routes` from the
+ *  page, the page server output would re-export `providers` from
+ *  `.providers.ts` — circular; `provideRouter(undefined, ...)` then
+ *  throws NG04014 at SSR bootstrap). */
+export type AngularProvidersInjection = {
+	/** Source `.ts` path of the user's `angular.providers` binding. */
+	appProvidersSource: string;
+	/** Source `.ts` path → page metadata for every page the scanner saw. */
+	pagesByFile: Map<
+		string,
+		{ hasRoutes: boolean; basePath: string | null }
+	>;
+};
+
 export const compileAngular = async (
 	entryPoints: string[],
 	outRoot: string,
 	hmr = false,
-	stylePreprocessors?: StylePreprocessorConfig
+	stylePreprocessors?: StylePreprocessorConfig,
+	providersInjection?: AngularProvidersInjection
 ) => {
 	// Compile to <projectRoot>/.absolutejs/generated/angular/. The
 	// previous layout wrote into <angularDir>/generated/, leaking into
@@ -2101,30 +2121,70 @@ export const compileAngular = async (
 				'\nexport const __ABSOLUTE_PAGE_USES_LEGACY_ANIMATIONS__ = true;\n';
 		}
 
-		// Statically pull in the page's generated providers file when it
-		// exists. The build's earlier `compileAngularFileJIT` pass over
-		// the `.providers.ts` produced an in-place `.providers.js` (with
-		// the whole transitive component chain inlined and rewritten to
-		// compiled `.js` specifiers). Re-exporting `providers` from the
-		// page's server output makes those providers part of the page's
-		// own module graph: the downstream page Bun.build bundles
-		// page + providers together, so there's a single `@angular/core`
-		// instance across both. The SSR handler then reads `pageModule.providers`
-		// directly — no runtime dynamic import, no instance drift, no
-		// templateUrl JIT-fetch fallout. Server-only: the client wrapper
-		// has its own providers import path (see further below).
-		const providersServerPath = join(
-			compiledParent,
-			'providers',
-			`${toPascal(fileBase)}.providers.js`
+		// Inject the page's `providers` array directly into the compiled
+		// server output. The build's scan over `absolute.config.ts >
+		// angular.providers` + per-page `export const routes` + Elysia
+		// mount paths gives us everything needed to construct the
+		// providers array inline:
+		//   - `...appProviders` from the user's global binding
+		//   - `provideRouter(routes, ...)` when the page exports routes
+		//   - `{ provide: APP_BASE_HREF, useValue: "/portal/" }` when
+		//     the page is mounted under a sub-router pattern
+		// Direct injection (versus emitting a separate `.providers.ts`
+		// that the page server output re-exports from) avoids the
+		// circular ESM evaluation that broke router pages: the
+		// re-export module would import `routes` from the page, but
+		// the page module's evaluation is suspended on its own
+		// providers re-export, so `routes` was `undefined` when
+		// `provideRouter` captured it. The inline form runs *after*
+		// the page's `export const routes` declaration and references
+		// the live binding directly. */
+		const pageInjection = providersInjection?.pagesByFile.get(
+			resolvedEntry
 		);
-		if (existsSync(providersServerPath)) {
-			const rel = relative(
-				dirname(rawServerFile),
-				providersServerPath
-			).replace(/\\/g, '/');
-			const specifier = rel.startsWith('.') ? rel : `./${rel}`;
-			rewritten += `\nexport { providers } from "${specifier}";\n`;
+		if (providersInjection && pageInjection) {
+			const compiledAppProvidersPath = (() => {
+				const angularDirAbs = resolve(outRoot);
+				const appSourceAbs = resolve(
+					providersInjection.appProvidersSource
+				);
+				const rel = relative(angularDirAbs, appSourceAbs).replace(
+					/\\/g,
+					'/'
+				);
+				return join(compiledParent, rel).replace(
+					/\.[cm]?[tj]sx?$/,
+					'.js'
+				);
+			})();
+			const appProvidersSpec = (() => {
+				const rel = relative(
+					dirname(rawServerFile),
+					compiledAppProvidersPath
+				).replace(/\\/g, '/');
+				return rel.startsWith('.') ? rel : `./${rel}`;
+			})();
+			const importLines: string[] = [
+				`import { appProviders as __abs_globalProviders } from "${appProvidersSpec}";`
+			];
+			const fragments: string[] = ['...__abs_globalProviders'];
+			if (pageInjection.hasRoutes) {
+				importLines.push(
+					`import { provideRouter as __abs_provideRouter, withComponentInputBinding as __abs_withComponentInputBinding, withViewTransitions as __abs_withViewTransitions } from "@angular/router";`
+				);
+				fragments.push(
+					'__abs_provideRouter(routes, __abs_withComponentInputBinding(), __abs_withViewTransitions())'
+				);
+			}
+			if (pageInjection.basePath !== null) {
+				importLines.push(
+					`import { APP_BASE_HREF as __abs_APP_BASE_HREF } from "@angular/common";`
+				);
+				fragments.push(
+					`{ provide: __abs_APP_BASE_HREF, useValue: ${JSON.stringify(pageInjection.basePath)} }`
+				);
+			}
+			rewritten += `\n${importLines.join('\n')}\nexport const providers = [${fragments.join(', ')}];\n`;
 		}
 
 		// Note: proto-swap registration was here. SURGICAL_HMR §3.3
@@ -2148,37 +2208,13 @@ export const compileAngular = async (
 			? relativePath
 			: `./${relativePath}`;
 
-		// Generated providers file path (emitted by `runAngularHandlerScan`
-		// before this compile step runs). The wrapper imports it when
-		// present; pages without a `handleAngularPageRequest` call site
-		// (or projects that haven't migrated yet) fall back to the legacy
-		// `Reflect.get(pageModule, 'providers')` scan below.
-		const manifestKeyForProviders = toPascal(fileBase);
-		// Point the client wrapper at the in-place compiled `.providers.js`
-		// (produced by the build's `compileAngularFileJIT` pass over the
-		// `.providers.ts` source). Using the compiled `.js` explicitly
-		// keeps Bun.build for the client bundle from preferring a stale
-		// `.providers.ts` sibling and walking raw `.component.ts` sources
-		// whose `templateUrl`/`styleUrl` strings would only get inlined
-		// in the JIT pass.
-		const providersServerFilePath = join(
-			compiledParent,
-			'providers',
-			`${manifestKeyForProviders}.providers.js`
-		);
-		const hasGeneratedProviders = existsSync(providersServerFilePath);
-		const providersImportPath = hasGeneratedProviders
-			? (() => {
-					const rel = relative(
-						indexesDir,
-						providersServerFilePath.replace(/\.js$/, '')
-					).replace(/\\/g, '/');
-					return rel.startsWith('.') ? rel : `./${rel}`;
-				})()
-			: null;
-		const generatedProvidersImport = providersImportPath
-			? `import { providers as generatedProviders } from '${providersImportPath}';`
-			: 'var generatedProviders = null;';
+		// Page providers are now embedded directly in the server output
+		// (see the `providersInjection` block above), and the page module
+		// re-uses them via `pageModule.providers`. The client wrapper
+		// reads the same `providers` export off the page module — no
+		// separate generated-providers import path on the client either.
+		const generatedProvidersImport =
+			'var generatedProviders = null;';
 
 		// Angular HMR Runtime Layer (Level 3) — Import runtime before HMR client
 		const hmrPreamble = hmr
