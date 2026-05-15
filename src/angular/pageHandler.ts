@@ -34,10 +34,6 @@ import {
 	resolveSelector
 } from './ssrRender';
 import { resolveAngularRuntimePath } from './resolveAngularPackage';
-import {
-	loadAngularRouteMounts,
-	matchAngularBasePath
-} from './loadRouteMounts';
 import { isProductionRuntime } from '../utils/runtimeMode';
 
 let lastSelector = 'angular-page';
@@ -334,38 +330,24 @@ export const handleAngularPageRequest = async <Page = unknown>(
 
 				resetSsrSanitizer();
 				const sanitizer = getSsrSanitizer(deps);
-				// Page-level providers are statically re-exported from the
-				// page server bundle. `compileAngular` appends
-				// `export { providers } from "<rel>/<Key>.providers.js"` to
-				// each compiled page when the build emitted a providers
-				// file for it, so the downstream Bun.build bundles the
-				// providers chain into the page bundle. That keeps a
-				// single `@angular/core` instance across page + providers
-				// — no runtime dynamic import, no instance drift.
+				// Page-level providers are bundled into the page server
+				// output by `compileAngular`'s providers-injection step:
+				// it appends `export const providers = [...appProviders,
+				// provideRouter(routes, ...), { APP_BASE_HREF }]` at
+				// build time, so the page module already carries its
+				// full DI list (including the inferred APP_BASE_HREF
+				// for sub-router mounts). The SSR handler just reads
+				// `pageModule.providers` and stacks framework-level
+				// extras (redirect providers + server animations) on
+				// top. No runtime dynamic import, no per-request URL
+				// match against a route-mounts map, single
+				// `@angular/core` instance across page + providers.
 				const pageProvidersExport = Reflect.get(pageModule, 'providers');
 				const pageProviders: ReadonlyArray<
 					Provider | EnvironmentProviders
 				> = Array.isArray(pageProvidersExport) ? pageProvidersExport : [];
-				const routeMounts = await loadAngularRouteMounts();
-				const requestUrlPath = input.request
-					? new URL(input.request.url).pathname
-					: '/';
-				const inferredBasePath = matchAngularBasePath(
-					routeMounts,
-					requestUrlPath
-				);
-				const inferredBasePathProvider =
-					inferredBasePath === '/'
-						? []
-						: [
-								{
-									provide: deps.APP_BASE_HREF,
-									useValue: inferredBasePath
-								}
-							];
 				const combinedProviders = [
 					...(await buildRouterRedirectProviders(deps, responseInit)),
-					...inferredBasePathProvider,
 					...pageProviders,
 					...(await buildServerAnimationProviders(
 						usesLegacyAnimations

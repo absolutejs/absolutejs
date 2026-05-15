@@ -2208,15 +2208,7 @@ export const compileAngular = async (
 			? relativePath
 			: `./${relativePath}`;
 
-		// Page providers are now embedded directly in the server output
-		// (see the `providersInjection` block above), and the page module
-		// re-uses them via `pageModule.providers`. The client wrapper
-		// reads the same `providers` export off the page module — no
-		// separate generated-providers import path on the client either.
-		const generatedProvidersImport =
-			'var generatedProviders = null;';
-
-		// Angular HMR Runtime Layer (Level 3) — Import runtime before HMR client
+// Angular HMR Runtime Layer (Level 3) — Import runtime before HMR client
 		const hmrPreamble = hmr
 			? `window.__HMR_FRAMEWORK__ = "angular";\nimport "${hmrClientPath}";\n`
 			: '';
@@ -2228,8 +2220,6 @@ import { provideClientHydration } from '@angular/platform-browser';
 import { withHttpTransferCacheOptions } from '@angular/platform-browser';
 import { provideZonelessChangeDetection, REQUEST_CONTEXT } from '@angular/core';
 import * as pageModule from '${normalizedImportPath}';
-${generatedProvidersImport}
-
 var ${componentClassName} = pageModule.default;
 // REQUEST_CONTEXT is hydrated from the SSR-serialized payload so client-side
 // \`inject(REQUEST_CONTEXT)\` (or \`usePageContext<T>()\`) returns the same
@@ -2242,15 +2232,14 @@ var pageHasIslands = Boolean(pageModule.__ABSOLUTE_PAGE_HAS_ISLANDS__) || Boolea
 var pageHasRawStreamingSlots = Boolean(document.querySelector('[data-absolute-raw-slot="true"]'));
 var pageHasStreamingSlots = Boolean(document.querySelector('[data-absolute-slot="true"]'));
 var contextProviders = [{ provide: REQUEST_CONTEXT, useValue: requestContext }];
-// Page-level providers come from the build-generated providers file
-// (emitted by \`runAngularHandlerScan\` based on the page's
-// \`handleAngularPageRequest({...})\` call). Falls back to the legacy
-// \`export const providers\` on the page module for projects that
-// haven't migrated yet.
-var legacyPageProviders = Reflect.get(pageModule, 'providers');
-var pageProviders = Array.isArray(generatedProviders)
-    ? generatedProviders
-    : (Array.isArray(legacyPageProviders) ? legacyPageProviders : []);
+// Page-level providers are injected directly into the page module's
+// server output by \`compileAngular\`'s providers-injection step
+// (\`...appProviders, provideRouter(routes), { APP_BASE_HREF }\`),
+// so the page module always exports its own ready-to-use \`providers\`
+// array. Same module, same \`@angular/core\` instance on both server
+// and client bundle.
+var pageProvidersExport = Reflect.get(pageModule, 'providers');
+var pageProviders = Array.isArray(pageProvidersExport) ? pageProvidersExport : [];
 var absoluteHttpTransferCacheOptions = {
     includePostRequests: false,
     includeRequestsWithAuthHeaders: false,
@@ -2328,8 +2317,6 @@ import { provideClientHydration } from '@angular/platform-browser';
 import { withHttpTransferCacheOptions } from '@angular/platform-browser';
 import { enableProdMode, provideZonelessChangeDetection, REQUEST_CONTEXT } from '@angular/core';
 import * as pageModule from '${normalizedImportPath}';
-${generatedProvidersImport}
-
 var ${componentClassName} = pageModule.default;
 // REQUEST_CONTEXT is hydrated from the SSR-serialized payload so client-side
 // \`inject(REQUEST_CONTEXT)\` (or \`usePageContext<T>()\`) returns the same
@@ -2342,15 +2329,14 @@ var pageHasIslands = Boolean(pageModule.__ABSOLUTE_PAGE_HAS_ISLANDS__) || Boolea
 var pageHasRawStreamingSlots = Boolean(document.querySelector('[data-absolute-raw-slot="true"]'));
 var pageHasStreamingSlots = Boolean(document.querySelector('[data-absolute-slot="true"]'));
 var contextProviders = [{ provide: REQUEST_CONTEXT, useValue: requestContext }];
-// Page-level providers come from the build-generated providers file
-// (emitted by \`runAngularHandlerScan\` based on the page's
-// \`handleAngularPageRequest({...})\` call). Falls back to the legacy
-// \`export const providers\` on the page module for projects that
-// haven't migrated yet.
-var legacyPageProviders = Reflect.get(pageModule, 'providers');
-var pageProviders = Array.isArray(generatedProviders)
-    ? generatedProviders
-    : (Array.isArray(legacyPageProviders) ? legacyPageProviders : []);
+// Page-level providers are injected directly into the page module's
+// server output by \`compileAngular\`'s providers-injection step
+// (\`...appProviders, provideRouter(routes), { APP_BASE_HREF }\`),
+// so the page module always exports its own ready-to-use \`providers\`
+// array. Same module, same \`@angular/core\` instance on both server
+// and client bundle.
+var pageProvidersExport = Reflect.get(pageModule, 'providers');
+var pageProviders = Array.isArray(pageProvidersExport) ? pageProvidersExport : [];
 var absoluteHttpTransferCacheOptions = {
     includePostRequests: false,
     includeRequestsWithAuthHeaders: false,
