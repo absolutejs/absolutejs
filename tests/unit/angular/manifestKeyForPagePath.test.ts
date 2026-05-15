@@ -35,4 +35,20 @@ describe('manifestKeyForPagePath', () => {
 			'Portal'
 		);
 	});
+
+	test('dev rebuildTrigger .ssr.js sibling → manifest key', () => {
+		expect(
+			manifestKeyForPagePath(
+				'/abs/.absolutejs/generated/angular/pages/home/home.ssr.js'
+			)
+		).toBe('Home');
+	});
+
+	test('combo .ssr + content hash → manifest key', () => {
+		expect(
+			manifestKeyForPagePath(
+				'/abs/build/angular/pages/home/home.ssr.zpqs628y.js'
+			)
+		).toBe('Home');
+	});
 });
