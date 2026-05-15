@@ -357,6 +357,26 @@ export const handleAngularPageRequest = async <Page = unknown>(
 						: Array.isArray(legacyProvidersExport)
 							? legacyProvidersExport
 							: [];
+				// Auto-wire `provideRouter(routes, ...)` when the page module
+				// exports `routes` — same pattern the build emitter uses for
+				// the client bundle, so SSR + client bootstrap with the same
+				// router instance. Features default to
+				// `withComponentInputBinding()` and `withViewTransitions()`.
+				const routesExport = Reflect.get(pageModule, 'routes');
+				const autoRouterProviders: ReadonlyArray<EnvironmentProviders> =
+					Array.isArray(routesExport)
+						? [
+								(await import('@angular/router')).provideRouter(
+									routesExport,
+									(
+										await import('@angular/router')
+									).withComponentInputBinding(),
+									(
+										await import('@angular/router')
+									).withViewTransitions()
+								)
+							]
+						: [];
 				// Auto-derived `APP_BASE_HREF` from the Elysia route mount.
 				// Goes BEFORE user/page providers so a user-written override
 				// in `providers:` still wins by Angular's last-provider rule.
@@ -382,6 +402,7 @@ export const handleAngularPageRequest = async <Page = unknown>(
 					...inferredBasePathProvider,
 					...handlerProviders,
 					...legacyPageProviders,
+					...autoRouterProviders,
 					...(await buildServerAnimationProviders(
 						usesLegacyAnimations
 					))
