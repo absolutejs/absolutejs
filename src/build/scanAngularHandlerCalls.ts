@@ -324,17 +324,38 @@ const extractCallsFromFile = (
 				let manifestKey: string | null = null;
 				let providersExpr: ts.Expression | null = null;
 				for (const prop of arg.properties) {
-					if (!ts.isPropertyAssignment(prop)) continue;
-					if (!prop.name) continue;
-					const name = ts.isIdentifier(prop.name)
-						? prop.name.text
-						: ts.isStringLiteral(prop.name)
+					if (ts.isPropertyAssignment(prop)) {
+						if (!prop.name) continue;
+						const name = ts.isIdentifier(prop.name)
 							? prop.name.text
-							: null;
-					if (name === 'pagePath') {
-						manifestKey = extractManifestKey(prop.initializer);
-					} else if (name === 'providers') {
-						providersExpr = prop.initializer;
+							: ts.isStringLiteral(prop.name)
+								? prop.name.text
+								: null;
+						if (name === 'pagePath') {
+							manifestKey = extractManifestKey(prop.initializer);
+						} else if (name === 'providers') {
+							providersExpr = prop.initializer;
+						}
+					} else if (ts.isSpreadAssignment(prop)) {
+						// Project-level convention: `...helper("Foo")` is the
+						// idiomatic way to pass page-bundle paths (e.g. the
+						// `pageAssets(key)` helper that returns
+						// `{ indexPath, pagePath: asset(manifest, key) }`).
+						// We can't trace the helper body in the general case,
+						// but the string literal arg IS the manifest key by
+						// convention, so use it as a fallback when no direct
+						// `pagePath` property was found.
+						if (manifestKey) continue;
+						const spreadExpr = prop.expression;
+						if (
+							ts.isCallExpression(spreadExpr) &&
+							spreadExpr.arguments.length > 0
+						) {
+							const [firstArg] = spreadExpr.arguments;
+							if (firstArg && ts.isStringLiteral(firstArg)) {
+								manifestKey = firstArg.text;
+							}
+						}
 					}
 				}
 

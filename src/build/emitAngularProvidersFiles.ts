@@ -13,7 +13,8 @@
  * `export const providers` magic on the page module itself. */
 
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, relative } from 'node:path';
+import { dirname, join, relative } from 'node:path';
+import { getFrameworkGeneratedDir } from '../utils/generatedDir';
 import type {
 	AngularHandlerCall,
 	ImportSpec
@@ -178,12 +179,12 @@ export const emitAngularProvidersFiles = (
 	projectRoot: string,
 	calls: AngularHandlerCall[]
 ): EmittedProvidersFile[] => {
-	const outputDir = `${projectRoot}/.absolutejs/generated/providers`;
+	const outputDir = getProvidersOutputDir(projectRoot);
 	mkdirSync(outputDir, { recursive: true });
 
 	const emitted: EmittedProvidersFile[] = [];
 	for (const call of calls) {
-		const outputPath = `${outputDir}/${call.manifestKey}.providers.ts`;
+		const outputPath = join(outputDir, `${call.manifestKey}.providers.ts`);
 		const basePath = deriveBasePath(call.mountPath);
 		const content = renderFile(call, outputPath, basePath);
 		writeFileSync(outputPath, content, 'utf-8');
@@ -197,3 +198,10 @@ export const emitAngularProvidersFiles = (
 
 	return emitted;
 };
+
+/** Absolute path of the directory the emitter writes to. Exposed so other
+ *  build steps (`compileAngular`'s client wrapper, the SSR `pageHandler`)
+ *  can compute relative paths to the generated files without hard-coding
+ *  the convention. */
+export const getProvidersOutputDir = (projectRoot: string) =>
+	join(getFrameworkGeneratedDir('angular', projectRoot), 'providers');
