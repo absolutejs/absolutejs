@@ -23,9 +23,26 @@ const cache = new Map<string, ReadonlyArray<Provider | EnvironmentProviders>>();
 /** Derive the manifest key (PascalCase basename) from the page's
  *  resolved source path. Matches `generateManifest`'s convention for
  *  Angular `pages/` so `home/home.ts` → `Home`,
- *  `portal/portal.ts` → `Portal`, etc. */
-export const manifestKeyForPagePath = (pageSourcePath: string) =>
-	toPascal(basename(pageSourcePath).replace(/\.[cm]?[tj]sx?$/, ''));
+ *  `portal/portal.ts` → `Portal`, etc.
+ *
+ *  Runtime callers may pass either a source `.ts` path or a built
+ *  artifact path that includes a Bun content hash (e.g.
+ *  `home.zpqs628y.js`). Strip the hash before pascalizing so both
+ *  shapes resolve to the same manifest key the build emitted under
+ *  `<ManifestKey>.providers.ts`. The build's own
+ *  `getArtifactBaseName` uses the artifact's hash metadata to strip
+ *  the suffix; at runtime we don't have that metadata, so match the
+ *  shape Bun produces — `.<8 lowercase base36>` immediately before
+ *  the extension. */
+const BUN_CONTENT_HASH = /\.[a-z0-9]{8}$/;
+
+export const manifestKeyForPagePath = (pageSourcePath: string) => {
+	const stemWithExt = basename(pageSourcePath);
+	const stem = stemWithExt.replace(/\.[cm]?[tj]sx?$/, '');
+	const withoutHash = stem.replace(BUN_CONTENT_HASH, '');
+
+	return toPascal(withoutHash);
+};
 
 export const loadPageProviders = async (
 	pageSourcePath: string
