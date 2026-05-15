@@ -13,17 +13,54 @@
  * `export const providers` magic on the page module itself. */
 
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, join, relative } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { getFrameworkGeneratedDir } from '../utils/generatedDir';
 import type { AngularProvidersImport } from './parseAngularConfigImports';
 import type {
 	AngularHandlerCall,
 	ImportSpec
 } from './scanAngularHandlerCalls';
-import {
-	relativeRoutesImport,
-	type AngularPageRoutes
-} from './scanAngularPageRoutes';
+import type { AngularPageRoutes } from './scanAngularPageRoutes';
+
+/** Map a TypeScript source path inside the user's `angularDirectory` to
+ *  the compiled `.js` location under `.absolutejs/generated/angular/`.
+ *  Mirrors the layout `compileAngularFileJIT` writes — every input file's
+ *  output is `<angularGeneratedDir>/<pathRelativeToAngularDir>.js`.
+ *
+ *  Returning the compiled `.js` here (instead of the original source `.ts`)
+ *  is what lets the generated providers file dynamically import at SSR
+ *  without triggering `bootstrapApplication`'s JIT `templateUrl`/`styleUrl`
+ *  fetcher: the compiled output has those already inlined. The source path
+ *  is returned unchanged when it falls outside `angularDir` (e.g. backend
+ *  files referenced by a handler-call `providers:` arg). */
+const mapToCompiledPath = (
+	sourceAbsPath: string,
+	angularDir: string,
+	angularGeneratedDir: string
+): string => {
+	const normalizedSrc = resolve(sourceAbsPath);
+	const normalizedAngularDir = resolve(angularDir);
+	if (
+		!normalizedSrc.startsWith(`${normalizedAngularDir}/`) &&
+		normalizedSrc !== normalizedAngularDir
+	) {
+		return normalizedSrc;
+	}
+	const relPath = normalizedSrc.slice(normalizedAngularDir.length + 1);
+	const compiledRelPath = relPath.replace(/\.[cm]?[tj]sx?$/, '.js');
+
+	return join(angularGeneratedDir, compiledRelPath);
+};
+
+/** Render an import specifier relative to `fromDir` to `targetAbsPath`,
+ *  with the extension elided so Bun's resolver picks the on-disk variant
+ *  (`.js` for compiled outputs, `.ts` if the source is still raw). */
+const relativeImportSpecifier = (fromDir: string, targetAbsPath: string) => {
+	const targetWithoutExt = targetAbsPath.replace(/\.[cm]?[tj]sx?$/, '');
+	const rel = relative(fromDir, targetWithoutExt).replace(/\\/g, '/');
+
+	return rel.startsWith('.') ? rel : `./${rel}`;
+};
 
 export type EmittedProvidersFile = {
 	manifestKey: string;
@@ -133,12 +170,18 @@ const ROUTER_FEATURES_DEFAULT = [
 	'withViewTransitions'
 ] as const;
 
+type RenderFileContext = {
+	angularDir: string;
+	angularGeneratedDir: string;
+};
+
 const renderFile = (
 	call: AngularHandlerCall,
 	outputPath: string,
 	basePath: string | null,
 	pageRoutes: AngularPageRoutes | undefined,
-	providersImport: AngularProvidersImport | null
+	providersImport: AngularProvidersImport | null,
+	context: RenderFileContext
 ): string => {
 	const sections: string[] = [];
 	sections.push(
@@ -162,11 +205,19 @@ const renderFile = (
 	// writing it per page or per handler call.
 	if (providersImport) {
 		const outputDir = dirname(outputPath);
-		const rel = relative(outputDir, providersImport.absolutePath).replace(
-			/\\/g,
-			'/'
+		// Resolve to the compiled `.js` under the angular generated tree
+		// when the source file lives inside `angularDir`. SSR imports the
+		// `.providers.ts` via Bun's runtime transpiler, which does NOT run
+		// the Angular template inliner. Pointing at the already-compiled
+		// `.js` (whose transitive `.component.ts` deps are inlined by
+		// `compileAngularFileJIT`) is what keeps SSR `bootstrapApplication`
+		// from trying to JIT-fetch `templateUrl: "./foo.component.html"`.
+		const compiledTarget = mapToCompiledPath(
+			providersImport.absolutePath,
+			context.angularDir,
+			context.angularGeneratedDir
 		);
-		const specifier = rel.startsWith('.') ? rel : `./${rel}`;
+		const specifier = relativeImportSpecifier(outputDir, compiledTarget);
 		const importClause =
 			providersImport.importedName === providersImport.bindingName
 				? `{ ${providersImport.bindingName} as __globalProviders }`
@@ -189,9 +240,18 @@ const renderFile = (
 	// user writing the call themselves. Router features default to
 	// `withComponentInputBinding()` and `withViewTransitions()`.
 	if (pageRoutes?.hasRoutes) {
-		const routesImport = relativeRoutesImport(
+		// Same reason as for `providersImport` above — point at the
+		// compiled `.js` so the SSR-side runtime import doesn't pull the
+		// raw page source (with un-inlined `templateUrl`s on sibling
+		// components) into JIT.
+		const compiledPageTarget = mapToCompiledPath(
+			pageRoutes.pageFile,
+			context.angularDir,
+			context.angularGeneratedDir
+		);
+		const routesImport = relativeImportSpecifier(
 			dirname(outputPath),
-			pageRoutes.pageFile
+			compiledPageTarget
 		);
 		sections.push(
 			`import { ${['provideRouter', ...ROUTER_FEATURES_DEFAULT].join(
@@ -248,12 +308,22 @@ export type EmitAngularProvidersOptions = {
 
 export const emitAngularProvidersFiles = (
 	projectRoot: string,
+	angularDir: string,
 	calls: AngularHandlerCall[],
 	pageRoutes: AngularPageRoutes[],
 	options: EmitAngularProvidersOptions = {}
 ): EmittedProvidersFile[] => {
 	const outputDir = getProvidersOutputDir(projectRoot);
 	mkdirSync(outputDir, { recursive: true });
+
+	const angularGeneratedDir = getFrameworkGeneratedDir('angular', projectRoot);
+	const resolvedAngularDir = isAbsolute(angularDir)
+		? resolve(angularDir)
+		: resolve(projectRoot, angularDir);
+	const context: RenderFileContext = {
+		angularDir: resolvedAngularDir,
+		angularGeneratedDir
+	};
 
 	const pageRoutesByKey = new Map<string, AngularPageRoutes>();
 	for (const entry of pageRoutes) {
@@ -270,7 +340,8 @@ export const emitAngularProvidersFiles = (
 			outputPath,
 			basePath,
 			pageRoute,
-			options.providersImport ?? null
+			options.providersImport ?? null,
+			context
 		);
 		writeFileSync(outputPath, content, 'utf-8');
 		emitted.push({

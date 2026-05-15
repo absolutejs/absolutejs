@@ -55,6 +55,7 @@ export const runAngularHandlerScan = (
 	const providersImport = parseAngularProvidersImport(projectRoot);
 	const providersFiles = emitAngularProvidersFiles(
 		projectRoot,
+		angularDirectory,
 		calls,
 		pageRoutes,
 		{ providersImport }

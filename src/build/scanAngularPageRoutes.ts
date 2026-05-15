@@ -11,7 +11,7 @@
  * and the inferred APP_BASE_HREF. */
 
 import { readdirSync, readFileSync, type Dirent } from 'node:fs';
-import { basename, join, relative } from 'node:path';
+import { basename, join } from 'node:path';
 import ts from 'typescript';
 import { toPascal } from '../utils/stringModifiers';
 
@@ -142,17 +142,3 @@ export const scanAngularPageRoutes = (
 	return out;
 };
 
-/** Path the emitter uses as the import source for the page's routes —
- *  relative from the generated providers file (under
- *  `.absolutejs/generated/angular/providers/`) back to the page module. */
-export const relativeRoutesImport = (
-	emittedFromDir: string,
-	pageFile: string
-) => {
-	const rel = relative(emittedFromDir, pageFile.replace(/\.ts$/, '')).replace(
-		/\\/g,
-		'/'
-	);
-
-	return rel.startsWith('.') ? rel : `./${rel}`;
-};
