@@ -39,16 +39,26 @@ export type AngularHandlerScanResult = {
 	manifestKeysWithProviders: Set<string>;
 };
 
+export type AngularHandlerScanOptions = {
+	/** Project-relative path to the user's global Angular providers
+	 *  module (must export `appProviders`). When set, every generated
+	 *  providers file re-imports it so pages and per-handler calls
+	 *  never write providers themselves. */
+	providersImport?: string;
+};
+
 export const runAngularHandlerScan = (
 	projectRoot: string,
-	angularDirectory: string
+	angularDirectory: string,
+	options: AngularHandlerScanOptions = {}
 ): AngularHandlerScanResult => {
 	const calls = scanAngularHandlerCalls(projectRoot);
 	const pageRoutes = scanAngularPageRoutes(angularDirectory);
 	const providersFiles = emitAngularProvidersFiles(
 		projectRoot,
 		calls,
-		pageRoutes
+		pageRoutes,
+		options
 	);
 	emitAngularRouteMounts(projectRoot, calls);
 

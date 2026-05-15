@@ -38,6 +38,7 @@ import {
 	loadAngularRouteMounts,
 	matchAngularBasePath
 } from './loadRouteMounts';
+import { loadPageProviders } from './loadGlobalProviders';
 import { isProductionRuntime } from '../utils/runtimeMode';
 
 let lastSelector = 'angular-page';
@@ -334,17 +335,21 @@ export const handleAngularPageRequest = async <Page = unknown>(
 
 				resetSsrSanitizer();
 				const sanitizer = getSsrSanitizer(deps);
-				// Page-level providers come from the handler call's
-				// `providers:` argument. The build (`runAngularHandlerScan`)
-				// also extracts the same expression and emits a matching
-				// providers module the client bundle imports, so SSR + client
-				// bootstrap with identical DI trees. Legacy
+				// Page-level providers come from the build-emitted
+				// per-page generated providers file (under
+				// `.absolutejs/generated/angular/providers/<Key>.providers.ts`).
+				// That file's `providers` export already combines:
+				//   - global providers from `angular.providersImport`
+				//   - the handler call's `providers:` arg (if any)
+				//   - auto-wired `provideRouter(routes)` for pages exporting routes
+				// So SSR loads the same array the client bundle imports —
+				// hydration trees are identical. Legacy
 				// `export const providers` on the page module is still
-				// honoured as a fallback for projects that haven't migrated
-				// yet — drop the runtime scan once everyone's on the new API.
-				const handlerProviders: ReadonlyArray<
-					Provider | EnvironmentProviders
-				> = Array.isArray(input.providers) ? input.providers : [];
+				// honoured as a fallback for projects mid-migration; drop
+				// it once everyone's on the new pipeline.
+				const pageProviders = await loadPageProviders(
+					runtimePagePath.path
+				);
 				const legacyProvidersExport = Reflect.get(
 					pageModule,
 					'providers'
@@ -352,34 +357,15 @@ export const handleAngularPageRequest = async <Page = unknown>(
 				const legacyPageProviders: ReadonlyArray<
 					Provider | EnvironmentProviders
 				> =
-					handlerProviders.length > 0
+					pageProviders.length > 0
 						? []
 						: Array.isArray(legacyProvidersExport)
 							? legacyProvidersExport
 							: [];
-				// Auto-wire `provideRouter(routes, ...)` when the page module
-				// exports `routes` — same pattern the build emitter uses for
-				// the client bundle, so SSR + client bootstrap with the same
-				// router instance. Features default to
-				// `withComponentInputBinding()` and `withViewTransitions()`.
-				const routesExport = Reflect.get(pageModule, 'routes');
-				const autoRouterProviders: ReadonlyArray<EnvironmentProviders> =
-					Array.isArray(routesExport)
-						? [
-								(await import('@angular/router')).provideRouter(
-									routesExport,
-									(
-										await import('@angular/router')
-									).withComponentInputBinding(),
-									(
-										await import('@angular/router')
-									).withViewTransitions()
-								)
-							]
-						: [];
 				// Auto-derived `APP_BASE_HREF` from the Elysia route mount.
-				// Goes BEFORE user/page providers so a user-written override
-				// in `providers:` still wins by Angular's last-provider rule.
+				// Goes BEFORE the page-level providers so a user-written
+				// override (e.g. via the providers expression the build
+				// extracted) still wins by Angular's last-provider rule.
 				const routeMounts = await loadAngularRouteMounts();
 				const requestUrlPath = input.request
 					? new URL(input.request.url).pathname
@@ -400,9 +386,8 @@ export const handleAngularPageRequest = async <Page = unknown>(
 				const combinedProviders = [
 					...(await buildRouterRedirectProviders(deps, responseInit)),
 					...inferredBasePathProvider,
-					...handlerProviders,
+					...pageProviders,
 					...legacyPageProviders,
-					...autoRouterProviders,
 					...(await buildServerAnimationProviders(
 						usesLegacyAnimations
 					))

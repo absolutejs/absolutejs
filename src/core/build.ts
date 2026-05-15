@@ -766,6 +766,7 @@ const buildUnlocked = async ({
 	htmlDirectory,
 	htmxDirectory,
 	angularDirectory,
+	angular,
 	emberDirectory,
 	svelteDirectory,
 	vueDirectory,
@@ -1400,7 +1401,9 @@ const buildUnlocked = async ({
 			const { runAngularHandlerScan } = await import(
 				'../build/runAngularHandlerScan'
 			);
-			runAngularHandlerScan(projectRoot, angularDir);
+			runAngularHandlerScan(projectRoot, angularDir, {
+				providersImport: angular?.providersImport
+			});
 		});
 	}
 

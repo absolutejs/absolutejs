@@ -136,7 +136,8 @@ const renderFile = (
 	call: AngularHandlerCall,
 	outputPath: string,
 	basePath: string | null,
-	pageRoutes: AngularPageRoutes | undefined
+	pageRoutes: AngularPageRoutes | undefined,
+	globalProvidersAbsPath: string | null
 ): string => {
 	const sections: string[] = [];
 	sections.push(
@@ -149,6 +150,26 @@ const renderFile = (
 		for (const group of groups) {
 			sections.push(renderImportGroup(group, outputPath));
 		}
+	}
+
+	// Global providers from `absolute.config.ts > angular.providersImport`.
+	// Re-imported relative to the generated file's location so every
+	// page inherits the user's global Angular DI setup (Firebase init,
+	// Sentry error handler, HttpClient, TanStack Query, app initializers,
+	// etc.) without writing it per page or per handler call.
+	if (globalProvidersAbsPath) {
+		const outputDir = dirname(outputPath);
+		const rel = relative(outputDir, globalProvidersAbsPath).replace(
+			/\\/g,
+			'/'
+		);
+		const withoutExt = rel.replace(/\.[cm]?[tj]sx?$/, '');
+		const specifier = withoutExt.startsWith('.')
+			? withoutExt
+			: `./${withoutExt}`;
+		sections.push(
+			`import { appProviders as __globalProviders } from "${specifier}";`
+		);
 	}
 
 	if (basePath !== null) {
@@ -181,14 +202,18 @@ const renderFile = (
 		);
 	}
 
-	const userProviders = call.providersExpr ?? '[]';
-	const extras: string[] = [];
-	if (pageRoutes?.hasRoutes) extras.push('__routerProvider');
-	if (basePath !== null) extras.push('__basePathProvider');
+	const userProvidersExpr = call.providersExpr ?? '[]';
+	// Order: global → user-supplied (handler `providers:` arg) → router →
+	// basePath. The basePath override comes last so a user-written
+	// `APP_BASE_HREF` in `providers:` still wins by Angular's
+	// last-provider-rule.
+	const fragments: string[] = [];
+	if (globalProvidersAbsPath) fragments.push('...__globalProviders');
+	if (call.providersExpr !== null) fragments.push(`...(${userProvidersExpr})`);
+	if (pageRoutes?.hasRoutes) fragments.push('__routerProvider');
+	if (basePath !== null) fragments.push('__basePathProvider');
 	const exportExpr =
-		extras.length === 0
-			? userProviders
-			: `[...(${userProviders}), ${extras.join(', ')}]`;
+		fragments.length === 0 ? '[]' : `[${fragments.join(', ')}]`;
 	sections.push(`export const providers = ${exportExpr};`);
 
 	return sections.join('\n\n') + '\n';
@@ -209,10 +234,18 @@ const deriveBasePath = (mountPath: string | null): string | null => {
 	return trimmed === '/' ? null : trimmed;
 };
 
+export type EmitAngularProvidersOptions = {
+	/** Project-relative path to the global providers module (exports
+	 *  `appProviders`). The emitted files re-import it so each page's
+	 *  generated providers always include the user's global setup. */
+	providersImport?: string;
+};
+
 export const emitAngularProvidersFiles = (
 	projectRoot: string,
 	calls: AngularHandlerCall[],
-	pageRoutes: AngularPageRoutes[]
+	pageRoutes: AngularPageRoutes[],
+	options: EmitAngularProvidersOptions = {}
 ): EmittedProvidersFile[] => {
 	const outputDir = getProvidersOutputDir(projectRoot);
 	mkdirSync(outputDir, { recursive: true });
@@ -227,7 +260,15 @@ export const emitAngularProvidersFiles = (
 		const outputPath = join(outputDir, `${call.manifestKey}.providers.ts`);
 		const basePath = deriveBasePath(call.mountPath);
 		const pageRoute = pageRoutesByKey.get(call.manifestKey);
-		const content = renderFile(call, outputPath, basePath, pageRoute);
+		const content = renderFile(
+			call,
+			outputPath,
+			basePath,
+			pageRoute,
+			options.providersImport
+				? resolveProvidersImport(projectRoot, options.providersImport)
+				: null
+		);
 		writeFileSync(outputPath, content, 'utf-8');
 		emitted.push({
 			basePath,
@@ -238,6 +279,20 @@ export const emitAngularProvidersFiles = (
 	}
 
 	return emitted;
+};
+
+/** Resolve the user's `angular.providersImport` (a project-relative
+ *  path) to an absolute path so the emitter can re-relativize it from
+ *  the generated file's location. */
+const resolveProvidersImport = (
+	projectRoot: string,
+	providersImport: string
+): string => {
+	if (providersImport.startsWith('.')) {
+		return join(projectRoot, providersImport);
+	}
+
+	return providersImport;
 };
 
 /** Absolute path of the directory the emitter writes to. Exposed so other

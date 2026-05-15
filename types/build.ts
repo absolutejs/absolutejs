@@ -187,6 +187,17 @@ export type BaseBuildConfig = {
 	reactDirectory?: string;
 	vueDirectory?: string;
 	angularDirectory?: string;
+	/** Per-framework Angular config. Currently exposes `providersImport` —
+	 *  a project-relative path to a module that exports `appProviders`
+	 *  (the global default DI providers every page receives at SSR + client
+	 *  bootstrap). The framework imports this module from both the
+	 *  generated client bundle and the SSR handler so the two trees are
+	 *  identical. Per-page additions (e.g. `provideRouter(routes)`) come
+	 *  from page-level `export const routes` and are auto-wired by the
+	 *  build — users never write `provideRouter` themselves. */
+	angular?: {
+		providersImport?: string;
+	};
 	astroDirectory?: string;
 	svelteDirectory?: string;
 	emberDirectory?: string;
