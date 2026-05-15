@@ -1395,7 +1395,7 @@ const buildUnlocked = async ({
 	// compileAngular invocations below — both the page and island
 	// compiles read the generated files. Cheap (AST pass over backend
 	// `.ts` files, only fires when Angular is in use) and idempotent.
-	let angularProvidersEntryAddons: string[] = [];
+	let angularProvidersFilesToCompile: string[] = [];
 	if (shouldCompileAngular && angularDir) {
 		await tracePhase('scan/angular-handlers', async () => {
 			const { runAngularHandlerScan } = await import(
@@ -1406,15 +1406,24 @@ const buildUnlocked = async ({
 			// need to forward anything from this scope — the parser
 			// reads the same config the orchestrator loaded.
 			const scanResult = runAngularHandlerScan(projectRoot, angularDir);
-			// Treat the `angular.providers` source file as an additional
-			// angular compile entry so `compileAngularFileJIT` walks its
-			// transitive `.component.ts` imports and inlines their
-			// `templateUrl`/`styleUrl` strings. The SSR-side `loadPageProviders`
-			// dynamically imports the generated `.providers.ts`, which in
-			// turn points at the compiled `.js` outputs produced here —
-			// without this entry the chain would chase raw source and JIT
-			// would try to `fetch()` the un-inlined template URLs.
-			angularProvidersEntryAddons = scanResult.angularEntryAddons;
+			// Compile every emitted `.providers.ts` separately, BEFORE the
+			// page compile pass below. `compileAngularFileJIT` walks each
+			// providers file's transitive `.ts` imports — the user's
+			// `appProviders`, any handler-call `providers:` deps, the
+			// page's `routes` export, and any components those pull in
+			// — and writes inlined `.js` outputs into the angular
+			// generated tree. The compiled `.providers.js` ends up
+			// sibling-adjacent to its source (the JIT in-place output
+			// branch handles the `.absolutejs/generated/` self-nesting
+			// case). The page compile pass that runs next sees those
+			// `.js` files exist, appends a static `import { providers }
+			// from "<rel>/<Key>.providers.js"` to each page's server
+			// output, and the page Bun.build picks up everything in a
+			// single bundle — one shared `@angular/core` instance for
+			// page + providers chain, no runtime dynamic import. */
+			angularProvidersFilesToCompile = scanResult.providersFiles.map(
+				(file) => file.outputPath
+			);
 		});
 	}
 
@@ -1464,29 +1473,17 @@ const buildUnlocked = async ({
 		shouldCompileAngular
 			? tracePhase('compile/angular', async () => {
 					const mod = await import('../build/compileAngular');
-					const result = await mod.compileAngular(
-						angularEntries,
-						angularDir,
-						hmr,
-						styleTransformConfig
-					);
-					// Separately compile `angular.providers` source so its
-					// transitive component imports land in
-					// `.absolutejs/generated/angular/<rel>.js` with templates
-					// inlined. We DON'T add this to `angularEntries` — that
-					// would treat it as a page and emit a wrapper bundle
-					// that duplicates @angular/core into a fresh chunk,
-					// creating two parallel Angular instances when the SSR
-					// page also loads from the regular vendor copy. The
-					// generated providers file's runtime dynamic-import
-					// then resolves through whichever chunk Bun picks
-					// first and the queues drift apart. Calling
-					// `compileAngularFileJIT` directly runs only the
-					// inliner + per-file transpile that we actually need.
-					if (angularProvidersEntryAddons.length > 0 && angularDir) {
-						const { compileAngularFileJIT } = await import(
-							'../build/compileAngular'
-						);
+					// Compile the generated `.providers.ts` files first.
+					// They produce `<Key>.providers.js` in-place plus
+					// inlined `.js` for every transitively-imported
+					// `.component.ts`. The page compile pass then statically
+					// imports the `.providers.js` from its server output,
+					// so the page Bun.build bundles the providers chain
+					// alongside the page — one `@angular/core` instance.
+					if (
+						angularProvidersFilesToCompile.length > 0 &&
+						angularDir
+					) {
 						const { getFrameworkGeneratedDir } = await import(
 							'../utils/generatedDir'
 						);
@@ -1495,8 +1492,8 @@ const buildUnlocked = async ({
 							projectRoot
 						);
 						await Promise.all(
-							angularProvidersEntryAddons.map((entry) =>
-								compileAngularFileJIT(
+							angularProvidersFilesToCompile.map((entry) =>
+								mod.compileAngularFileJIT(
 									entry,
 									compiledRoot,
 									angularDir,
@@ -1505,6 +1502,12 @@ const buildUnlocked = async ({
 							)
 						);
 					}
+					const result = await mod.compileAngular(
+						angularEntries,
+						angularDir,
+						hmr,
+						styleTransformConfig
+					);
 					// In dev mode, prime the fast-HMR fingerprint cache
 					// for every component .ts file so the first user
 					// edit has a baseline. Without this, the first

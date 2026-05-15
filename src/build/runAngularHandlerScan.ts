@@ -38,15 +38,6 @@ export type AngularHandlerScanResult = {
 	/** Set of manifest keys that have a generated providers file the
 	 *  client bundle can import. */
 	manifestKeysWithProviders: Set<string>;
-	/** Source path of the user's `angular.providers` binding (from
-	 *  `absolute.config.ts`), if any. The build orchestrator adds this
-	 *  to the angular compile entry list so `compileAngularFileJIT`
-	 *  walks the providers chain (including any transitively-imported
-	 *  components like a dynamically-mounted consent banner) and inlines
-	 *  every `templateUrl`/`styleUrl` it finds. Without this, the SSR
-	 *  loader's dynamic-import of `.providers.ts` would chase raw `.ts`
-	 *  sources whose component templates JIT-fetches via `fetch()`. */
-	angularEntryAddons: string[];
 };
 
 export const runAngularHandlerScan = (
@@ -64,19 +55,13 @@ export const runAngularHandlerScan = (
 	const providersImport = parseAngularProvidersImport(projectRoot);
 	const providersFiles = emitAngularProvidersFiles(
 		projectRoot,
-		angularDirectory,
 		calls,
 		pageRoutes,
 		{ providersImport }
 	);
 	emitAngularRouteMounts(projectRoot, calls);
 
-	const angularEntryAddons = providersImport
-		? [providersImport.absolutePath]
-		: [];
-
 	return {
-		angularEntryAddons,
 		calls,
 		manifestKeysWithProviders: new Set(
 			providersFiles.map((file) => file.manifestKey)

@@ -1562,13 +1562,28 @@ export const compileAngularFileJIT = async (
 
 	const toOutputPath = (sourcePath: string) => {
 		const inputDir = dirname(sourcePath);
-		const relativeDir = inputDir.startsWith(baseDir)
-			? inputDir.substring(baseDir.length + 1)
-			: inputDir;
 		// `.ts/.tsx/.js/.jsx` → `.js`. `.json` is preserved
 		// (the angular generated tree mirrors the source layout for
 		// JSON imports so `import x from './x.json'` resolves).
 		const fileBase = basename(sourcePath).replace(/\.[cm]?[tj]sx?$/, '.js');
+
+		// In-place output when the source already lives under `outDir`.
+		// Used by the generated providers files at
+		// `.absolutejs/generated/angular/providers/<Key>.providers.ts`:
+		// compiling them in-place produces a sibling `.providers.js`
+		// the page server bundle can statically import. The default
+		// `baseDir + relativeDir` math would double-nest the path
+		// (`outDir/.absolutejs/generated/angular/providers/...`).
+		if (
+			inputDir === outDir ||
+			inputDir.startsWith(`${outDir}${sep}`)
+		) {
+			return join(inputDir, fileBase);
+		}
+
+		const relativeDir = inputDir.startsWith(baseDir)
+			? inputDir.substring(baseDir.length + 1)
+			: inputDir;
 
 		return join(outDir, relativeDir, fileBase);
 	};
@@ -2084,6 +2099,32 @@ export const compileAngular = async (
 				'\nexport const __ABSOLUTE_PAGE_USES_LEGACY_ANIMATIONS__ = true;\n';
 		}
 
+		// Statically pull in the page's generated providers file when it
+		// exists. The build's earlier `compileAngularFileJIT` pass over
+		// the `.providers.ts` produced an in-place `.providers.js` (with
+		// the whole transitive component chain inlined and rewritten to
+		// compiled `.js` specifiers). Re-exporting `providers` from the
+		// page's server output makes those providers part of the page's
+		// own module graph: the downstream page Bun.build bundles
+		// page + providers together, so there's a single `@angular/core`
+		// instance across both. The SSR handler then reads `pageModule.providers`
+		// directly — no runtime dynamic import, no instance drift, no
+		// templateUrl JIT-fetch fallout. Server-only: the client wrapper
+		// has its own providers import path (see further below).
+		const providersServerPath = join(
+			compiledParent,
+			'providers',
+			`${toPascal(fileBase)}.providers.js`
+		);
+		if (existsSync(providersServerPath)) {
+			const rel = relative(
+				dirname(rawServerFile),
+				providersServerPath
+			).replace(/\\/g, '/');
+			const specifier = rel.startsWith('.') ? rel : `./${rel}`;
+			rewritten += `\nexport { providers } from "${specifier}";\n`;
+		}
+
 		// Note: proto-swap registration was here. SURGICAL_HMR §3.3
 		// replaced it with `hmrInjectionPlugin.ts`, which appends a
 		// per-component `__ng_hmr_load` listener at bundle time.
@@ -2111,17 +2152,24 @@ export const compileAngular = async (
 		// (or projects that haven't migrated yet) fall back to the legacy
 		// `Reflect.get(pageModule, 'providers')` scan below.
 		const manifestKeyForProviders = toPascal(fileBase);
-		const providersFilePath = join(
+		// Point the client wrapper at the in-place compiled `.providers.js`
+		// (produced by the build's `compileAngularFileJIT` pass over the
+		// `.providers.ts` source). Using the compiled `.js` explicitly
+		// keeps Bun.build for the client bundle from preferring a stale
+		// `.providers.ts` sibling and walking raw `.component.ts` sources
+		// whose `templateUrl`/`styleUrl` strings would only get inlined
+		// in the JIT pass.
+		const providersServerFilePath = join(
 			compiledParent,
 			'providers',
-			`${manifestKeyForProviders}.providers.ts`
+			`${manifestKeyForProviders}.providers.js`
 		);
-		const hasGeneratedProviders = existsSync(providersFilePath);
+		const hasGeneratedProviders = existsSync(providersServerFilePath);
 		const providersImportPath = hasGeneratedProviders
 			? (() => {
 					const rel = relative(
 						indexesDir,
-						providersFilePath.replace(/\.ts$/, '')
+						providersServerFilePath.replace(/\.js$/, '')
 					).replace(/\\/g, '/');
 					return rel.startsWith('.') ? rel : `./${rel}`;
 				})()
