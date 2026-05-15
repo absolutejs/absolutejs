@@ -1395,6 +1395,7 @@ const buildUnlocked = async ({
 	// compileAngular invocations below — both the page and island
 	// compiles read the generated files. Cheap (AST pass over backend
 	// `.ts` files, only fires when Angular is in use) and idempotent.
+	let angularProvidersEntryAddons: string[] = [];
 	if (shouldCompileAngular && angularDir) {
 		await tracePhase('scan/angular-handlers', async () => {
 			const { runAngularHandlerScan } = await import(
@@ -1404,7 +1405,16 @@ const buildUnlocked = async ({
 			// an AST pass over `absolute.config.ts`. The build doesn't
 			// need to forward anything from this scope — the parser
 			// reads the same config the orchestrator loaded.
-			runAngularHandlerScan(projectRoot, angularDir);
+			const scanResult = runAngularHandlerScan(projectRoot, angularDir);
+			// Treat the `angular.providers` source file as an additional
+			// angular compile entry so `compileAngularFileJIT` walks its
+			// transitive `.component.ts` imports and inlines their
+			// `templateUrl`/`styleUrl` strings. The SSR-side `loadPageProviders`
+			// dynamically imports the generated `.providers.ts`, which in
+			// turn points at the compiled `.js` outputs produced here —
+			// without this entry the chain would chase raw source and JIT
+			// would try to `fetch()` the un-inlined template URLs.
+			angularProvidersEntryAddons = scanResult.angularEntryAddons;
 		});
 	}
 
@@ -1454,8 +1464,12 @@ const buildUnlocked = async ({
 		shouldCompileAngular
 			? tracePhase('compile/angular', async () => {
 					const mod = await import('../build/compileAngular');
+					const combinedAngularEntries =
+						angularProvidersEntryAddons.length > 0
+							? [...angularEntries, ...angularProvidersEntryAddons]
+							: angularEntries;
 					const result = await mod.compileAngular(
-						angularEntries,
+						combinedAngularEntries,
 						angularDir,
 						hmr,
 						styleTransformConfig
