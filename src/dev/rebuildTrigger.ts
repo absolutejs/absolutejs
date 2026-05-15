@@ -1861,11 +1861,58 @@ const compileAndBundleAngular = async (
 	angularDir: string
 ) => {
 	const { compileAngular } = await import('../build/compileAngular');
+	// Re-run the providers scan so `compileAngular`'s per-page injection
+	// step sees the current `absolute.config.ts > angular.providers`
+	// binding, current per-page `export const routes`, and current
+	// `handleAngularPageRequest({...})` mount paths. Skipping this on
+	// HMR rebuilds would silently drop the `export const providers = [
+	// ...appProviders, provideRouter(routes), { APP_BASE_HREF } ]`
+	// declaration that gets appended to each page's compiled server
+	// output, leaving the rebuilt page with no DI graph at SSR.
+	const { runAngularHandlerScan } = await import(
+		'../build/runAngularHandlerScan'
+	);
+	const { parseAngularProvidersImport } = await import(
+		'../build/parseAngularConfigImports'
+	);
+	const projectRoot = process.cwd();
+	const providersImport = parseAngularProvidersImport(projectRoot);
+	const providersInjection = providersImport
+		? (() => {
+				const scan = runAngularHandlerScan(projectRoot, angularDir);
+				const basePathByKey = new Map<string, string | null>();
+				for (const call of scan.calls) {
+					basePathByKey.set(
+						call.manifestKey,
+						call.mountPath?.endsWith('/*')
+							? call.mountPath.slice(0, -1)
+							: null
+					);
+				}
+				const pagesByFile = new Map<
+					string,
+					{ hasRoutes: boolean; basePath: string | null }
+				>();
+				for (const route of scan.pageRoutes) {
+					const basePath =
+						basePathByKey.get(route.manifestKey) ?? null;
+					pagesByFile.set(route.pageFile, {
+						basePath: basePath === '/' ? null : basePath,
+						hasRoutes: route.hasRoutes
+					});
+				}
+				return {
+					appProvidersSource: providersImport.absolutePath,
+					pagesByFile
+				};
+			})()
+		: undefined;
 	const { clientPaths, serverPaths } = await compileAngular(
 		pageEntries,
 		angularDir,
 		true,
-		getStyleTransformConfig(state.config)
+		getStyleTransformConfig(state.config),
+		providersInjection
 	);
 
 	// Prime the fast-HMR fingerprint cache for every component / page

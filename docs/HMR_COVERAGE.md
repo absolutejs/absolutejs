@@ -104,6 +104,19 @@ bun test tests/integration/hmr
 | Constructor body change reading `inject(TOKEN)` value | [`lifecycle/angular-di-injectables.test.ts`](tests/integration/hmr/lifecycle/angular-di-injectables.test.ts) "editing constructor body that reads from inject()" |
 | Declaring + injecting a new `InjectionToken` flows through to SSR | [`lifecycle/angular-di-injectables.test.ts`](tests/integration/hmr/lifecycle/angular-di-injectables.test.ts) "declaring + injecting a new InjectionToken" |
 
+### Config-driven providers (`absolute.config.ts > angular.providers`)
+
+Pre-compile AST scan resolves the user's `angular.providers` binding to its source file and threads the per-page `hasRoutes` + `basePath` (from Elysia mount paths) into `compileAngular`'s providers-injection step. Each page's compiled server output is appended with `export const providers = [...appProviders, provideRouter(routes), { APP_BASE_HREF }]`. On HMR rebuild, `compileAndBundleAngular` re-runs the scan so the injection picks up the latest values.
+
+| Scenario | Test |
+|---|---|
+| Adding a new provider to `appProviders` (e.g. another `@Injectable` service) propagates to next-request SSR across every page | _GAP — no integration test_ |
+| Renaming the `angular.providers` binding in `absolute.config.ts` triggers `[abs:restart]` (config change is non-HMR) | _GAP — partly covered by `lifecycle/restart-fallback.test.ts`, not Angular-specific_ |
+| Adding `export const routes: Routes = [...]` to a page that previously had none injects `provideRouter(routes, ...)` on next rebuild | _GAP — no integration test_ |
+| Removing `routes` export from a page strips `provideRouter` from the next rebuild's injected providers | _GAP — no integration test_ |
+| Changing the Elysia mount path (`.get("/portal/*", ...)` → `.get("/admin/*", ...)`) updates the `APP_BASE_HREF` baked into the page bundle | _GAP — backend-file edits don't currently invalidate the angular page rebuild; verify the rebuild fires_ |
+| `appProviders.ts` edit + transitive `*.component.ts` reach (e.g. a service used inside the providers chain references a component): inliner re-applies on rebuild, no `templateUrl` JIT-fetch errors at SSR | _GAP — would catch the multi-Angular-instance regression class_ |
+
 ### Modern template syntax (v17+)
 
 | Scenario | Test |
