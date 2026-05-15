@@ -1,5 +1,4 @@
 import '@angular/compiler';
-import { defineAngularPage } from '../../../src/angular/page';
 import { Component, inject } from '@angular/core';
 import {
 	type CanActivateFn,
@@ -52,5 +51,3 @@ export const providers = [
 ];
 
 export { RouteGuardRedirectPage };
-
-export const page = defineAngularPage({ component: RouteGuardRedirectPage });

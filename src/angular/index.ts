@@ -1,8 +1,4 @@
 import '@angular/compiler';
-export type {
-	AngularPageDefinition,
-	AngularPagePropsOf
-} from '../../types/angular';
 export {
 	ABSOLUTE_HTTP_TRANSFER_CACHE_SKIP_HEADER,
 	buildAbsoluteHttpTransferCacheOptions
@@ -15,8 +11,12 @@ export {
 	provideDeterministicEnv
 } from './deterministicEnv';
 export { handleAngularPageRequest } from './pageHandler';
-export { defineAngularPage } from './page';
-export { useResource, useSubscription, useTimers } from './composables';
+export {
+	usePageContext,
+	useResource,
+	useSubscription,
+	useTimers
+} from './composables';
 export type {
 	Observer,
 	Resource,

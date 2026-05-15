@@ -17,32 +17,26 @@ export type AngularDeps = {
 	withHttpTransferCacheOptions: typeof import('@angular/platform-browser').withHttpTransferCacheOptions;
 };
 
-export type AngularPageDefinition<
-	Props extends Record<string, unknown> = Record<never, never>
-> = {
-	component: import('@angular/core').Type<unknown>;
-	/**
-	 * Optional SPA route configuration for this page. When provided,
-	 * the sitemap pipeline walks it (eagerly resolving `loadChildren`)
-	 * and emits one entry per non-dynamic leaf, prefixed by the
-	 * Elysia mount path. Pass the same `Routes` array given to
-	 * `provideRouter(...)` so the single source of truth stays in
-	 * user code.
-	 */
-	routes?: import('@angular/router').Routes;
-	/** Type-only marker used by handleAngularPageRequest to infer route props. */
-	__absoluteAngularPageProps?: Props;
+/**
+ * Cached render data per route. The `headTag` is captured once when
+ * the page module is registered so subsequent renders skip the
+ * filesystem read. The `requestContext` is the per-request payload
+ * the backend handler passed under `requestContext`, kept for HMR
+ * replay.
+ */
+export type CachedRouteData = {
+	requestContext: unknown;
+	headTag: `<head>${string}</head>`;
 };
 
-export type AngularPagePropsOf<Page> = Page extends {
-	page: AngularPageDefinition<infer Props>;
-}
-	? Props
-	: Page extends { default: AngularPageDefinition<infer Props> }
-		? Props
-		: Record<never, never>;
-
-export type CachedRouteData = {
-	props: Record<string, unknown> | undefined;
-	headTag: `<head>${string}</head>`;
+/**
+ * One entry in the build-emitted route-mounts map. The SSR handler
+ * tests each request URL against `pattern` and uses the matching
+ * `basePath` as `APP_BASE_HREF` so sub-router pages (mounted at
+ * `/portal/*`, `/admin/*`, etc.) get the right router base without
+ * the page explicitly overriding it.
+ */
+export type AngularRouteMount = {
+	pattern: RegExp;
+	basePath: string;
 };

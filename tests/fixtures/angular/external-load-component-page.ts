@@ -1,5 +1,4 @@
 import '@angular/compiler';
-import { defineAngularPage } from '../../../src/angular/page';
 import { Component } from '@angular/core';
 import {
 	provideRouter,
@@ -29,5 +28,3 @@ export class ExternalLoadComponentPage {}
 export const providers = [
 	provideRouter(routes, withEnabledBlockingInitialNavigation())
 ];
-
-export const page = defineAngularPage({ component: ExternalLoadComponentPage });

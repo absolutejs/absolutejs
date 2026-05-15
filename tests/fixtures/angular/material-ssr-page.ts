@@ -1,5 +1,4 @@
 import '@angular/compiler';
-import { defineAngularPage } from '../../../src/angular/page';
 import { Component, inject, signal } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
@@ -30,7 +29,7 @@ class MaterialDialogContent {}
 		</mat-card>
 	`
 })
-class MaterialSsrTestPage {
+export class MaterialSsrTestPage {
 	private readonly dialog = inject(MatDialog);
 	readonly dialogState = signal('closed');
 
@@ -44,5 +43,3 @@ class MaterialSsrTestPage {
 }
 
 export const providers = [provideAnimations()];
-
-export const page = defineAngularPage({ component: MaterialSsrTestPage });

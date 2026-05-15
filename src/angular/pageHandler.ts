@@ -4,10 +4,6 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { EnvironmentProviders, Provider, Type } from '@angular/core';
-import type {
-	AngularPageDefinition,
-	AngularPagePropsOf
-} from '../../types/angular';
 import { BASE_36_RADIX, RANDOM_ID_END_INDEX } from '../constants';
 import { injectIslandPageContext } from '../core/islandPageContext';
 import { ssrErrorPage } from '../utils/ssrErrorPage';
@@ -33,78 +29,83 @@ import {
 import {
 	buildProviders,
 	cacheRouteData,
-	discoverTokens,
 	injectSsrScripts,
 	renderAngularApp,
 	resolveSelector
 } from './ssrRender';
 import { resolveAngularRuntimePath } from './resolveAngularPackage';
+import {
+	loadAngularRouteMounts,
+	matchAngularBasePath
+} from './loadRouteMounts';
 import { isProductionRuntime } from '../utils/runtimeMode';
 
 let lastSelector = 'angular-page';
 type AngularPageRenderOptions = StreamingSlotEnhancerOptions & {
 	collectStreamingSlots?: boolean;
 };
-type IsAny<T> = 0 extends 1 & T ? true : false;
-type HasNoRequiredAngularProps<Props> =
-	IsAny<Props> extends true ? true : keyof Props extends never ? true : false;
-type AngularPageHasOptionalProps<Page> = Page extends {
-	page: AngularPageDefinition<infer Props>;
-}
-	? HasNoRequiredAngularProps<Props>
-	: Page extends { default: AngularPageDefinition<infer Props> }
-		? HasNoRequiredAngularProps<Props>
-		: HasNoRequiredAngularProps<AngularPagePropsOf<Page>>;
-export type AngularPageRequestInput<
-	Page = { page: AngularPageDefinition<Record<never, never>> }
-> = AngularPageRenderOptions & {
-	headTag?: `<head>${string}</head>`;
-	indexPath: string;
-	pagePath: string;
-	/** The incoming request. When provided, its URL is forwarded to
-	 *  Angular's `renderApplication`, so `LocationStrategy.path()` and
-	 *  Angular Router both see the real URL instead of `/`. Without it,
-	 *  Router-based pages can't match anything but the root route. */
-	request?: Request;
-	/** Per-request context made available through Angular's REQUEST_CONTEXT token. */
-	requestContext?: unknown;
-	/** Mutable response init made available through Angular's RESPONSE_INIT token. */
-	responseInit?: ResponseInit;
-	/** Sitemap metadata for this route. Statically read from the handler
-	 *  source at registration time, so only literal-object values are
-	 *  honoured. For finer control use `Route.data.sitemap` in the
-	 *  page's `Routes` config, or `sitemap.overrides` in `absolute.config.ts`. */
-	sitemap?: import('../../types/sitemap').PageHandlerSitemapMetadata;
-} & (AngularPageHasOptionalProps<Page> extends true
-		? { props?: NoInfer<AngularPagePropsOf<Page>> }
-		: { props: NoInfer<AngularPagePropsOf<Page>> });
+/** True when the request-context type has no required keys — used to
+ *  flip the `requestContext` argument between required and optional.
+ *  Pages whose `Context` has only optional fields (or where the caller
+ *  passes no generic at all) can omit `requestContext`. */
+type HasNoRequiredContextKeys<Ctx> = keyof Ctx extends never
+	? true
+	: Partial<Ctx> extends Ctx
+		? true
+		: false;
+export type AngularPageRequestInput<Ctx = unknown> =
+	AngularPageRenderOptions & {
+		headTag?: `<head>${string}</head>`;
+		indexPath: string;
+		pagePath: string;
+		/** The incoming request. When provided, its URL is forwarded to
+		 *  Angular's `renderApplication`, so `LocationStrategy.path()` and
+		 *  Angular Router both see the real URL instead of `/`. Without it,
+		 *  Router-based pages can't match anything but the root route. */
+		request?: Request;
+		/** Mutable response init made available through Angular's RESPONSE_INIT token. */
+		responseInit?: ResponseInit;
+		/** Page-level Angular providers — `appProviders` for the typical case,
+		 *  `[...appProviders, provideRouter(routes)]` for sub-router pages, etc.
+		 *  These flow into `bootstrapApplication` at SSR. The framework's
+		 *  build pass (`runAngularHandlerScan`) reads the same expression
+		 *  via static AST analysis and emits a matching providers module the
+		 *  client bundle imports, so SSR and client bootstrap with identical
+		 *  DI trees without the page module exporting `providers`. */
+		providers?: ReadonlyArray<Provider | EnvironmentProviders>;
+		/** Sitemap metadata for this route. Statically read from the handler
+		 *  source at registration time, so only literal-object values are
+		 *  honoured. For finer control use `Route.data.sitemap` in the
+		 *  page's `Routes` config, or `sitemap.overrides` in `absolute.config.ts`. */
+		sitemap?: import('../../types/sitemap').PageHandlerSitemapMetadata;
+	} & (HasNoRequiredContextKeys<Ctx> extends true
+			? { requestContext?: NoInfer<Ctx> }
+			: { requestContext: NoInfer<Ctx> });
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === 'object' && value !== null;
 
 const isAngularComponent = (value: unknown): value is Type<unknown> =>
 	typeof value === 'function';
 
-const isAngularPageDefinition = (
-	value: unknown
-): value is AngularPageDefinition<Record<string, unknown>> =>
-	isRecord(value) && isAngularComponent(value.component);
-
+/** Walks the page module looking for the component to render. The
+ *  canonical export is a single `export class FooComponent` — page
+ *  modules need no `defineAngularPage` wrapper, no `export default`,
+ *  and no `page` symbol. When the module exports several Angular
+ *  components (e.g., a router-outlet page with co-located sub-route
+ *  components), the page-level component is whichever is declared
+ *  last — sub-route components have to be declared before the
+ *  routes table that references them. `export default Component`
+ *  remains as an explicit override if someone wants to short-circuit
+ *  the heuristic. */
 const resolvePageComponent = (pageModule: Record<string, unknown>) => {
-	const page = Reflect.get(pageModule, 'page');
-	if (isAngularPageDefinition(page)) {
-		return page.component;
-	}
-
 	const defaultExport = pageModule.default;
-	if (isAngularPageDefinition(defaultExport)) {
-		return defaultExport.component;
-	}
-
 	if (isAngularComponent(defaultExport)) {
 		return defaultExport;
 	}
 
-	return Object.values(pageModule).find((value) => isAngularComponent(value));
+	return Object.values(pageModule).findLast((value) =>
+		isAngularComponent(value)
+	);
 };
 
 // `@angular/compiler` is required at request time only in dev, where
@@ -257,20 +258,10 @@ const resolveRequestRenderUrl = (request: Request | undefined) => {
 	}
 };
 
-const assertNoHandlerProviders = (input: Record<string, unknown>) => {
-	if (!('providers' in input)) return;
-
-	throw new Error(
-		'Angular handler providers are not supported. Export `providers` from the Angular page module, or inject REQUEST / REQUEST_CONTEXT for request-scoped data.'
-	);
-};
-
 const angularSsrContext = new AsyncLocalStorage<string>();
 setSsrContextGetter(() => angularSsrContext.getStore());
 
-export const handleAngularPageRequest = async <
-	Page = { page: AngularPageDefinition<Record<never, never>> }
->(
+export const handleAngularPageRequest = async <Page = unknown>(
 	input: AngularPageRequestInput<Page>
 ) => {
 	const requestId = `angular_${Date.now()}_${Math.random().toString(BASE_36_RADIX).substring(2, RANDOM_ID_END_INDEX)}`;
@@ -282,20 +273,18 @@ export const handleAngularPageRequest = async <
 		const resolvedIndexPath = input.indexPath;
 		const options = input;
 		const resolvedPagePath = input.pagePath;
-		const maybeProps = input.props;
+		const maybeRequestContext = input.requestContext;
 		const responseInit = input.responseInit ?? {};
 		const resolvedUrl = resolveRequestRenderUrl(input.request);
 
-		// Cache props + headTag for HMR replay — strip query strings
-		// so cache-busted HMR paths match the original manifest path.
+		// Cache requestContext + headTag for HMR replay — strip query
+		// strings so cache-busted HMR paths match the original manifest path.
 		cacheRouteData(resolvedPagePath, {
 			headTag: resolvedHeadTag,
-			props: maybeProps
+			requestContext: maybeRequestContext
 		});
 
 		try {
-			assertNoHandlerProviders(input);
-
 			const handlerCallsite =
 				options?.collectStreamingSlots === true
 					? undefined
@@ -334,7 +323,6 @@ export const handleAngularPageRequest = async <
 
 				const deps = baseDeps;
 
-				const tokenMap = discoverTokens(pageModule);
 				const selector = resolveSelector(
 					deps,
 					resolvedPagePath,
@@ -346,23 +334,54 @@ export const handleAngularPageRequest = async <
 
 				resetSsrSanitizer();
 				const sanitizer = getSsrSanitizer(deps);
-				// The page module's `providers` export is the source of truth
-				// for page-level DI — `bootstrapApplication` reads it on the
-				// client (see compileAngular.ts client bootstrap). Mirror that
-				// on the server so anything that requires `provideRouter`,
-				// `provideAnimations`, etc. resolves the same way during SSR.
-				const pageProvidersExport = Reflect.get(
+				// Page-level providers come from the handler call's
+				// `providers:` argument. The build (`runAngularHandlerScan`)
+				// also extracts the same expression and emits a matching
+				// providers module the client bundle imports, so SSR + client
+				// bootstrap with identical DI trees. Legacy
+				// `export const providers` on the page module is still
+				// honoured as a fallback for projects that haven't migrated
+				// yet — drop the runtime scan once everyone's on the new API.
+				const handlerProviders: ReadonlyArray<
+					Provider | EnvironmentProviders
+				> = Array.isArray(input.providers) ? input.providers : [];
+				const legacyProvidersExport = Reflect.get(
 					pageModule,
 					'providers'
 				);
-				const pageProviders: ReadonlyArray<
+				const legacyPageProviders: ReadonlyArray<
 					Provider | EnvironmentProviders
-				> = Array.isArray(pageProvidersExport)
-					? pageProvidersExport
-					: [];
+				> =
+					handlerProviders.length > 0
+						? []
+						: Array.isArray(legacyProvidersExport)
+							? legacyProvidersExport
+							: [];
+				// Auto-derived `APP_BASE_HREF` from the Elysia route mount.
+				// Goes BEFORE user/page providers so a user-written override
+				// in `providers:` still wins by Angular's last-provider rule.
+				const routeMounts = await loadAngularRouteMounts();
+				const requestUrlPath = input.request
+					? new URL(input.request.url).pathname
+					: '/';
+				const inferredBasePath = matchAngularBasePath(
+					routeMounts,
+					requestUrlPath
+				);
+				const inferredBasePathProvider =
+					inferredBasePath === '/'
+						? []
+						: [
+								{
+									provide: deps.APP_BASE_HREF,
+									useValue: inferredBasePath
+								}
+							];
 				const combinedProviders = [
 					...(await buildRouterRedirectProviders(deps, responseInit)),
-					...pageProviders,
+					...inferredBasePathProvider,
+					...handlerProviders,
+					...legacyPageProviders,
 					...(await buildServerAnimationProviders(
 						usesLegacyAnimations
 					))
@@ -370,10 +389,8 @@ export const handleAngularPageRequest = async <
 				const providers = buildProviders(
 					deps,
 					sanitizer,
-					maybeProps,
-					tokenMap,
 					input.request,
-					input.requestContext,
+					maybeRequestContext,
 					responseInit,
 					combinedProviders
 				);
@@ -396,7 +413,7 @@ export const handleAngularPageRequest = async <
 						htmlWithLoweredIslands,
 						requestId,
 						resolvedIndexPath,
-						maybeProps
+						maybeRequestContext
 					),
 					{ hasIslands: shouldProcessIslands }
 				);

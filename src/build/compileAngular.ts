@@ -2105,6 +2105,31 @@ export const compileAngular = async (
 			? relativePath
 			: `./${relativePath}`;
 
+		// Generated providers file path (emitted by `runAngularHandlerScan`
+		// before this compile step runs). The wrapper imports it when
+		// present; pages without a `handleAngularPageRequest` call site
+		// (or projects that haven't migrated yet) fall back to the legacy
+		// `Reflect.get(pageModule, 'providers')` scan below.
+		const manifestKeyForProviders = toPascal(fileBase);
+		const providersFilePath = join(
+			compiledParent,
+			'providers',
+			`${manifestKeyForProviders}.providers.ts`
+		);
+		const hasGeneratedProviders = existsSync(providersFilePath);
+		const providersImportPath = hasGeneratedProviders
+			? (() => {
+					const rel = relative(
+						indexesDir,
+						providersFilePath.replace(/\.ts$/, '')
+					).replace(/\\/g, '/');
+					return rel.startsWith('.') ? rel : `./${rel}`;
+				})()
+			: null;
+		const generatedProvidersImport = providersImportPath
+			? `import { providers as generatedProviders } from '${providersImportPath}';`
+			: 'var generatedProviders = null;';
+
 		// Angular HMR Runtime Layer (Level 3) — Import runtime before HMR client
 		const hmrPreamble = hmr
 			? `window.__HMR_FRAMEWORK__ = "angular";\nimport "${hmrClientPath}";\n`
@@ -2115,32 +2140,31 @@ import '@angular/compiler';
 import { bootstrapApplication } from '@angular/platform-browser';
 import { provideClientHydration } from '@angular/platform-browser';
 import { withHttpTransferCacheOptions } from '@angular/platform-browser';
-import { provideZonelessChangeDetection } from '@angular/core';
+import { provideZonelessChangeDetection, REQUEST_CONTEXT } from '@angular/core';
 import * as pageModule from '${normalizedImportPath}';
+${generatedProvidersImport}
 
 var ${componentClassName} = pageModule.default;
-var toScreamingSnake = function(str) {
-    return str.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toUpperCase();
-};
-var isInjectionToken = function(value) {
-    return Boolean(value) && typeof value === 'object' && value.ngMetadataName === 'InjectionToken';
-};
-var pageProps = window.__ABS_ANGULAR_PAGE_PROPS__ || {};
+// REQUEST_CONTEXT is hydrated from the SSR-serialized payload so client-side
+// \`inject(REQUEST_CONTEXT)\` (or \`usePageContext<T>()\`) returns the same
+// object the server rendered with — no second round-trip, no transferState
+// dance for callers.
+var requestContext = Object.prototype.hasOwnProperty.call(window, '__ABS_ANGULAR_REQUEST_CONTEXT__')
+    ? window.__ABS_ANGULAR_REQUEST_CONTEXT__
+    : null;
 var pageHasIslands = Boolean(pageModule.__ABSOLUTE_PAGE_HAS_ISLANDS__) || Boolean(document.querySelector('[data-island="true"]'));
 var pageHasRawStreamingSlots = Boolean(document.querySelector('[data-absolute-raw-slot="true"]'));
 var pageHasStreamingSlots = Boolean(document.querySelector('[data-absolute-slot="true"]'));
-var propProviders = Object.entries(pageProps).map(function(entry) {
-    var propName = entry[0];
-    var propValue = entry[1];
-    var token = pageModule[toScreamingSnake(propName)];
-    return isInjectionToken(token) ? { provide: token, useValue: propValue } : null;
-}).filter(Boolean);
-// Page-level providers, opt-in via \`export const providers = [...]\` in the
-// page module. Required so DI tokens that the component (or any service it
-// injects) needs are available client-side too — without these, services
-// that worked in SSR fail with NG0201 after hydration.
-var maybePageProviders = Reflect.get(pageModule, 'providers');
-var pageProviders = Array.isArray(maybePageProviders) ? maybePageProviders : [];
+var contextProviders = [{ provide: REQUEST_CONTEXT, useValue: requestContext }];
+// Page-level providers come from the build-generated providers file
+// (emitted by \`runAngularHandlerScan\` based on the page's
+// \`handleAngularPageRequest({...})\` call). Falls back to the legacy
+// \`export const providers\` on the page module for projects that
+// haven't migrated yet.
+var legacyPageProviders = Reflect.get(pageModule, 'providers');
+var pageProviders = Array.isArray(generatedProviders)
+    ? generatedProviders
+    : (Array.isArray(legacyPageProviders) ? legacyPageProviders : []);
 var absoluteHttpTransferCacheOptions = {
     includePostRequests: false,
     includeRequestsWithAuthHeaders: false,
@@ -2187,7 +2211,7 @@ if (!window.__HMR_SKIP_HYDRATION__ && !pageHasIslands) {
 }
 delete window.__HMR_SKIP_HYDRATION__;
 providers.push.apply(providers, pageProviders);
-providers.push.apply(providers, propProviders);
+providers.push.apply(providers, contextProviders);
 window.__ABS_SLOT_HYDRATION_PENDING__ = pageHasRawStreamingSlots;
 
 if (pageHasRawStreamingSlots) {
@@ -2216,32 +2240,31 @@ import '@angular/compiler';
 import { bootstrapApplication } from '@angular/platform-browser';
 import { provideClientHydration } from '@angular/platform-browser';
 import { withHttpTransferCacheOptions } from '@angular/platform-browser';
-import { enableProdMode, provideZonelessChangeDetection } from '@angular/core';
+import { enableProdMode, provideZonelessChangeDetection, REQUEST_CONTEXT } from '@angular/core';
 import * as pageModule from '${normalizedImportPath}';
+${generatedProvidersImport}
 
 var ${componentClassName} = pageModule.default;
-var toScreamingSnake = function(str) {
-    return str.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toUpperCase();
-};
-var isInjectionToken = function(value) {
-    return Boolean(value) && typeof value === 'object' && value.ngMetadataName === 'InjectionToken';
-};
-var pageProps = window.__ABS_ANGULAR_PAGE_PROPS__ || {};
+// REQUEST_CONTEXT is hydrated from the SSR-serialized payload so client-side
+// \`inject(REQUEST_CONTEXT)\` (or \`usePageContext<T>()\`) returns the same
+// object the server rendered with — no second round-trip, no transferState
+// dance for callers.
+var requestContext = Object.prototype.hasOwnProperty.call(window, '__ABS_ANGULAR_REQUEST_CONTEXT__')
+    ? window.__ABS_ANGULAR_REQUEST_CONTEXT__
+    : null;
 var pageHasIslands = Boolean(pageModule.__ABSOLUTE_PAGE_HAS_ISLANDS__) || Boolean(document.querySelector('[data-island="true"]'));
 var pageHasRawStreamingSlots = Boolean(document.querySelector('[data-absolute-raw-slot="true"]'));
 var pageHasStreamingSlots = Boolean(document.querySelector('[data-absolute-slot="true"]'));
-var propProviders = Object.entries(pageProps).map(function(entry) {
-    var propName = entry[0];
-    var propValue = entry[1];
-    var token = pageModule[toScreamingSnake(propName)];
-    return isInjectionToken(token) ? { provide: token, useValue: propValue } : null;
-}).filter(Boolean);
-// Page-level providers, opt-in via \`export const providers = [...]\` in the
-// page module. Required so DI tokens that the component (or any service it
-// injects) needs are available client-side too — without these, services
-// that worked in SSR fail with NG0201 after hydration.
-var maybePageProviders = Reflect.get(pageModule, 'providers');
-var pageProviders = Array.isArray(maybePageProviders) ? maybePageProviders : [];
+var contextProviders = [{ provide: REQUEST_CONTEXT, useValue: requestContext }];
+// Page-level providers come from the build-generated providers file
+// (emitted by \`runAngularHandlerScan\` based on the page's
+// \`handleAngularPageRequest({...})\` call). Falls back to the legacy
+// \`export const providers\` on the page module for projects that
+// haven't migrated yet.
+var legacyPageProviders = Reflect.get(pageModule, 'providers');
+var pageProviders = Array.isArray(generatedProviders)
+    ? generatedProviders
+    : (Array.isArray(legacyPageProviders) ? legacyPageProviders : []);
 var absoluteHttpTransferCacheOptions = {
     includePostRequests: false,
     includeRequestsWithAuthHeaders: false,
@@ -2252,7 +2275,7 @@ var absoluteHttpTransferCacheOptions = {
 
 enableProdMode();
 
-var providers = [provideZonelessChangeDetection()].concat(pageProviders).concat(propProviders);
+var providers = [provideZonelessChangeDetection()].concat(pageProviders).concat(contextProviders);
 if (!pageHasIslands) {
     providers.unshift(provideClientHydration(withHttpTransferCacheOptions(absoluteHttpTransferCacheOptions)));
 }

@@ -1,7 +1,3 @@
-export type {
-	AngularPageDefinition,
-	AngularPagePropsOf
-} from '../../types/angular';
 export {
 	ABSOLUTE_HTTP_TRANSFER_CACHE_SKIP_HEADER,
 	buildAbsoluteHttpTransferCacheOptions
@@ -13,8 +9,12 @@ export {
 	DETERMINISTIC_SEED,
 	provideDeterministicEnv
 } from './deterministicEnv';
-export { defineAngularPage } from './page';
-export { useResource, useSubscription, useTimers } from './composables';
+export {
+	usePageContext,
+	useResource,
+	useSubscription,
+	useTimers
+} from './composables';
 export type {
 	Observer,
 	Resource,

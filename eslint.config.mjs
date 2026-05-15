@@ -279,5 +279,15 @@ export default defineConfig([
 			'no-magic-numbers': 'off',
 			'promise/avoid-new': 'off'
 		}
+	},
+	{
+		// `usePageContext` re-types Angular's `REQUEST_CONTEXT: InjectionToken<unknown>`
+		// as the caller-provided generic. The cast is the entire point of the
+		// composable — it gives user code a typed handle to the per-request
+		// context without forcing every page to repeat the assertion.
+		files: ['src/angular/composables/usePageContext.ts'],
+		rules: {
+			'@typescript-eslint/consistent-type-assertions': 'off'
+		}
 	}
 ]);

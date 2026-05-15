@@ -56,45 +56,60 @@ const compileTypeFixture = (source: string) => {
 };
 
 describe('Angular page handler types', () => {
-	test('allows omitted props for no-prop pages and preserves required props', () => {
+	test('typechecks requestContext against the caller-supplied Ctx generic', () => {
 		const diagnostics = compileTypeFixture(`
 			import type { AngularPageRequestInput } from '../../src/angular/pageHandler';
-			import type { AngularPageDefinition } from '../../types/angular';
 
-			type OptionalAnyPage = {
-				page: AngularPageDefinition<any>;
-			};
-			const optionalAnyInput: AngularPageRequestInput<OptionalAnyPage> = {
+			const noCtxInput: AngularPageRequestInput = {
 				indexPath: '/index.js',
 				pagePath: '/home.js'
 			};
-			void optionalAnyInput;
+			void noCtxInput;
 
-			type NoArgPage = {
-				page: AngularPageDefinition;
-			};
-			const noArgInput: AngularPageRequestInput<NoArgPage> = {
-				indexPath: '/index.js',
-				pagePath: '/home.js'
-			};
-			void noArgInput;
-
-			type RequiredPropsPage = {
-				page: AngularPageDefinition<{ id: string }>;
-			};
-			// @ts-expect-error props are required when the page declaration has required typed props.
-			const missingRequiredProps: AngularPageRequestInput<RequiredPropsPage> = {
+			type RequiredCtx = { id: string };
+			// @ts-expect-error requestContext is required when Ctx has required keys.
+			const missingRequiredCtx: AngularPageRequestInput<RequiredCtx> = {
 				indexPath: '/index.js',
 				pagePath: '/profile.js'
 			};
-			void missingRequiredProps;
+			void missingRequiredCtx;
 
-			const requiredPropsInput: AngularPageRequestInput<RequiredPropsPage> = {
+			const requiredCtxInput: AngularPageRequestInput<RequiredCtx> = {
 				indexPath: '/index.js',
 				pagePath: '/profile.js',
-				props: { id: 'profile-1' }
+				requestContext: { id: 'profile-1' }
 			};
-			void requiredPropsInput;
+			void requiredCtxInput;
+
+			type OptionalCtx = { id?: string };
+			const optionalCtxInput: AngularPageRequestInput<OptionalCtx> = {
+				indexPath: '/index.js',
+				pagePath: '/profile.js'
+			};
+			void optionalCtxInput;
+
+			type NullableCtx = { id: string | null };
+			// @ts-expect-error null in the field type does not flip requestContext to optional.
+			const missingNullableCtx: AngularPageRequestInput<NullableCtx> = {
+				indexPath: '/index.js',
+				pagePath: '/profile.js'
+			};
+			void missingNullableCtx;
+
+			const nullableCtxInput: AngularPageRequestInput<NullableCtx> = {
+				indexPath: '/index.js',
+				pagePath: '/profile.js',
+				requestContext: { id: null }
+			};
+			void nullableCtxInput;
+
+			const extraKeyInput: AngularPageRequestInput<RequiredCtx> = {
+				indexPath: '/index.js',
+				pagePath: '/profile.js',
+				// @ts-expect-error unknown keys are rejected by the standard excess-property check.
+				requestContext: { id: 'profile-1', mystery: 'oops' }
+			};
+			void extraKeyInput;
 		`);
 
 		expect(diagnostics).toEqual([]);

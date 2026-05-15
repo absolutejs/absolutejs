@@ -207,8 +207,8 @@ describe('Angular tier-1b rebootstrap (structural / DI change → full reboot)',
 		// presence-or-absence of the export is what flips the hash.
 		mutateFile(pageComponent, (c) =>
 			c.replace(
-				'export const page = defineAngularPage<AngularPageProps>({',
-				'export const routes = [];\n\nexport const page = defineAngularPage<AngularPageProps>({'
+				'export class AngularExampleComponent',
+				'export const routes = [];\n\nexport class AngularExampleComponent'
 			)
 		);
 		const msg = await waitForAngularTier(c);

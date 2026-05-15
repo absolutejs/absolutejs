@@ -1,13 +1,10 @@
-import { Component, inject, InjectionToken } from '@angular/core';
+import { Component } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { defineAngularPage } from '../../../src/angular/page';
+import { usePageContext } from '../../../src/angular/composables/usePageContext';
 import { DropdownComponent } from '../components/dropdown.component';
 import { AppComponent } from '../components/app.component';
 
-// Injection tokens for component props
-export const INITIAL_COUNT = new InjectionToken<number>('INITIAL_COUNT');
-
-type AngularPageProps = {
+export type Context = {
 	initialCount: number;
 };
 
@@ -18,14 +15,6 @@ type AngularPageProps = {
 	templateUrl: '../templates/angular-example.html'
 })
 export class AngularExampleComponent {
-	initialCount: number = 0;
-
-	constructor() {
-		const initialCountToken = inject(INITIAL_COUNT, { optional: true });
-		this.initialCount = initialCountToken ?? 0;
-	}
+	private ctx = usePageContext<Context>();
+	initialCount = this.ctx.initialCount;
 }
-
-export const page = defineAngularPage<AngularPageProps>({
-	component: AngularExampleComponent
-});

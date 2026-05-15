@@ -34,9 +34,7 @@ export type EmberPageDefinition<
 };
 
 /**
- * Pull the props type out of a page module's default export. Mirrors
- * `AngularPagePropsOf` so the call-site shape is identical between
- * adapters.
+ * Pull the props type out of a page module's default export.
  */
 export type EmberPagePropsOf<Page> = Page extends {
 	default: EmberComponentLike<infer Args>;

@@ -1,7 +1,3 @@
-export type {
-	AngularPageDefinition,
-	AngularPagePropsOf
-} from '../../types/angular';
 export {
 	ABSOLUTE_HTTP_TRANSFER_CACHE_SKIP_HEADER,
 	buildAbsoluteHttpTransferCacheOptions
@@ -14,5 +10,4 @@ export {
 	provideDeterministicEnv
 } from './deterministicEnv';
 export { handleAngularPageRequest } from './pageHandler';
-export { defineAngularPage } from './page';
 export { withPendingTask } from './pendingTask';

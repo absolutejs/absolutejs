@@ -67,14 +67,14 @@ export const server = new Elysia()
 		})
 	)
 	.get('/angular', async () =>
-		handleAngularPageRequest<typeof AngularExamplePage>({
+		handleAngularPageRequest<AngularExamplePage.Context>({
 			headTag: generateHeadElement({
 				cssPath: asset(manifest, 'AngularExampleCSS'),
 				title: 'AbsoluteJS + Angular'
 			}),
 			indexPath: asset(manifest, 'AngularExampleIndex'),
 			pagePath: asset(manifest, 'AngularExample'),
-			props: { initialCount: 0 }
+			requestContext: { initialCount: 0 }
 		})
 	)
 	.get('/ember', () =>

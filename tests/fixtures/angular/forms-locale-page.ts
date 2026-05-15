@@ -1,5 +1,4 @@
 import '@angular/compiler';
-import { defineAngularPage } from '../../../src/angular/page';
 import { CurrencyPipe, DatePipe, registerLocaleData } from '@angular/common';
 import localeFr from '@angular/common/locales/fr';
 import { Component, inject, LOCALE_ID, type Provider } from '@angular/core';
@@ -22,7 +21,7 @@ registerLocaleData(localeFr);
 		<p id="locale-currency">{{ amount | currency: 'EUR' : 'code' }}</p>
 	`
 })
-class FormsLocaleSsrTestPage {
+export class FormsLocaleSsrTestPage {
 	readonly amount = 1234.5;
 	readonly date = new Date(Date.UTC(2024, 0, 1, 12));
 	readonly form = new FormGroup({
@@ -34,5 +33,3 @@ class FormsLocaleSsrTestPage {
 export const providers: Provider[] = [
 	{ provide: LOCALE_ID, useValue: 'fr-FR' }
 ];
-
-export const page = defineAngularPage({ component: FormsLocaleSsrTestPage });

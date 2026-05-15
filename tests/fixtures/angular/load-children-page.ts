@@ -1,5 +1,4 @@
 import '@angular/compiler';
-import { defineAngularPage } from '../../../src/angular/page';
 import { Component } from '@angular/core';
 import {
 	provideRouter,
@@ -22,10 +21,8 @@ const routes: Routes = [
 	standalone: true,
 	template: '<router-outlet></router-outlet>'
 })
-class LoadChildrenSsrTestPage {}
+export class LoadChildrenSsrTestPage {}
 
 export const providers = [
 	provideRouter(routes, withEnabledBlockingInitialNavigation())
 ];
-
-export const page = defineAngularPage({ component: LoadChildrenSsrTestPage });

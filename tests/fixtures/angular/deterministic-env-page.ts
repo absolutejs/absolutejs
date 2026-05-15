@@ -1,5 +1,4 @@
 import '@angular/compiler';
-import { defineAngularPage } from '../../../src/angular/page';
 import { Component, inject } from '@angular/core';
 import {
 	DETERMINISTIC_NOW,
@@ -30,5 +29,3 @@ export class DeterministicEnvPage {
 		this.random().toFixed(6)
 	].join(',');
 }
-
-export const page = defineAngularPage({ component: DeterministicEnvPage });

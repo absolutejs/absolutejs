@@ -1,5 +1,4 @@
 import '@angular/compiler';
-import { defineAngularPage } from '../../../src/angular/page';
 import { DOCUMENT } from '@angular/common';
 import { Component, inject } from '@angular/core';
 import { Meta, Title } from '@angular/platform-browser';
@@ -12,7 +11,7 @@ import { Meta, Title } from '@angular/platform-browser';
 		<p id="document-title-value">{{ titleValue }}</p>
 	`
 })
-class DocumentTitleMetaSsrTestPage {
+export class DocumentTitleMetaSsrTestPage {
 	private readonly document = inject(DOCUMENT);
 	private readonly meta = inject(Meta);
 	private readonly title = inject(Title);
@@ -27,7 +26,3 @@ class DocumentTitleMetaSsrTestPage {
 		});
 	}
 }
-
-export const page = defineAngularPage({
-	component: DocumentTitleMetaSsrTestPage
-});

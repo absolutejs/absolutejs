@@ -1,5 +1,4 @@
 import '@angular/compiler';
-import { defineAngularPage } from '../../../src/angular/page';
 import {
 	Component,
 	inject,
@@ -58,5 +57,3 @@ export const providers = [
 ];
 
 export { RouteProviderPage };
-
-export const page = defineAngularPage({ component: RouteProviderPage });

@@ -1,5 +1,4 @@
 import '@angular/compiler';
-import { defineAngularPage } from '../../../src/angular/page';
 import { NgOptimizedImage } from '@angular/common';
 import { Component } from '@angular/core';
 
@@ -18,8 +17,4 @@ import { Component } from '@angular/core';
 		<p id="optimized-image-ready">optimized image ready</p>
 	`
 })
-class NgOptimizedImageSsrTestPage {}
-
-export const page = defineAngularPage({
-	component: NgOptimizedImageSsrTestPage
-});
+export class NgOptimizedImageSsrTestPage {}

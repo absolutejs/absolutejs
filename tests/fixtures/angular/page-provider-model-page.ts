@@ -1,5 +1,4 @@
 import '@angular/compiler';
-import { defineAngularPage } from '../../../src/angular/page';
 import {
 	Component,
 	inject,
@@ -23,5 +22,3 @@ export class ProviderModelPage {
 export const providers: Provider[] = [
 	{ provide: PROVIDER_MODEL_VALUE, useValue: 'page-module-provider' }
 ];
-
-export const page = defineAngularPage({ component: ProviderModelPage });

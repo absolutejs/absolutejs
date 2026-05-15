@@ -1389,6 +1389,21 @@ const buildUnlocked = async ({
 	const shouldCompileIslandAngular =
 		angularDir && islandAngularSources.length > 0;
 
+	// Scan backend code for `handleAngularPageRequest({...})` calls and
+	// emit per-page providers files + a shared route-mounts map under
+	// `.absolutejs/generated/angular/`. Has to run BEFORE the parallel
+	// compileAngular invocations below — both the page and island
+	// compiles read the generated files. Cheap (AST pass over backend
+	// `.ts` files, only fires when Angular is in use) and idempotent.
+	if (shouldCompileAngular) {
+		await tracePhase('scan/angular-handlers', async () => {
+			const { runAngularHandlerScan } = await import(
+				'../build/runAngularHandlerScan'
+			);
+			runAngularHandlerScan(projectRoot);
+		});
+	}
+
 	const [
 		{ svelteServerPaths, svelteIndexPaths, svelteClientPaths },
 		{ vueServerPaths, vueIndexPaths, vueClientPaths, vueCssPaths },

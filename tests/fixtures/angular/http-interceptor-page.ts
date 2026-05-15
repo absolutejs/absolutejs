@@ -1,5 +1,4 @@
 import '@angular/compiler';
-import { defineAngularPage } from '../../../src/angular/page';
 import {
 	HttpClient,
 	type HttpHandlerFn,
@@ -43,7 +42,7 @@ const absoluteSsrInterceptor: HttpInterceptorFn = (
 		<p id="http-interceptor-marker">{{ marker() }}</p>
 	`
 })
-class HttpInterceptorSsrTestPage {
+export class HttpInterceptorSsrTestPage {
 	private readonly http = inject(HttpClient);
 	private readonly pendingTasks = inject(PendingTasks);
 	readonly cookie = signal('pending');
@@ -80,7 +79,3 @@ class HttpInterceptorSsrTestPage {
 export const providers: EnvironmentProviders[] = [
 	provideHttpClient(withFetch(), withInterceptors([absoluteSsrInterceptor]))
 ];
-
-export const page = defineAngularPage({
-	component: HttpInterceptorSsrTestPage
-});

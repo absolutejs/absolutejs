@@ -1,7 +1,6 @@
 import type { EnvironmentProviders, Provider, Type } from '@angular/core';
 import type { BootstrapContext } from '@angular/platform-browser';
 import type { AngularDeps, CachedRouteData } from '../../types/angular';
-import { toScreamingSnake } from '../utils/stringModifiers';
 import {
 	getAndClearClientScripts,
 	generateClientScriptCode
@@ -9,18 +8,18 @@ import {
 import { buildAbsoluteHttpTransferCacheOptions } from './httpTransferCache';
 import { buildRequestProviders } from './requestProviders';
 
-// --- Last-used props cache for HMR ---
-// Stores { props, headTag } from the most recent real request per route
-// so HMR re-renders with the same data the user last saw (Vite/Next behavior).
+// --- Last-used requestContext cache for HMR ---
+// Stores { requestContext, headTag } from the most recent real request per
+// route so HMR re-renders with the same data the user last saw.
 
-const routePropsCache = new Map<string, CachedRouteData>();
+const routeContextCache = new Map<string, CachedRouteData>();
 
 export const cacheRouteData = (pagePath: string, data: CachedRouteData) => {
 	const cacheKey = pagePath.split('?')[0] ?? pagePath;
-	routePropsCache.set(cacheKey, data);
+	routeContextCache.set(cacheKey, data);
 };
 export const getCachedRouteData = (pagePath: string) =>
-	routePropsCache.get(pagePath);
+	routeContextCache.get(pagePath);
 
 // --- Selector cache ---
 
@@ -28,63 +27,26 @@ const selectorCache = new Map<string, string>();
 export const buildProviders = (
 	deps: AngularDeps,
 	sanitizer: InstanceType<AngularDeps['DomSanitizer']>,
-	maybeProps: Record<string, unknown> | undefined,
-	tokenMap: Map<string, unknown>,
 	request: Request | undefined,
 	requestContext: unknown,
 	responseInit: ResponseInit | undefined,
 	userProviders: ReadonlyArray<Provider | EnvironmentProviders> = []
-) => {
-	const providers: (Provider | EnvironmentProviders)[] = [
-		deps.provideServerRendering(),
-		deps.provideClientHydration(
-			deps.withHttpTransferCacheOptions(
-				buildAbsoluteHttpTransferCacheOptions()
-			)
-		),
-		deps.provideZonelessChangeDetection(),
-		{ provide: deps.APP_BASE_HREF, useValue: '/' },
-		{
-			provide: deps.DomSanitizer,
-			useValue: sanitizer
-		},
-		{ provide: deps.Sanitizer, useValue: sanitizer },
-		...buildRequestProviders(deps, request, requestContext, responseInit),
-		...userProviders
-	];
-
-	if (!maybeProps) {
-		return providers;
-	}
-
-	const propProviders = Object.entries(maybeProps)
-		.map(([propName, propValue]) => ({
-			token: tokenMap.get(toScreamingSnake(propName)),
-			value: propValue
-		}))
-		.filter((entry) => entry.token)
-		.map((entry) => ({ provide: entry.token, useValue: entry.value }));
-
-	return [...providers, ...propProviders];
-};
+): (Provider | EnvironmentProviders)[] => [
+	deps.provideServerRendering(),
+	deps.provideClientHydration(
+		deps.withHttpTransferCacheOptions(
+			buildAbsoluteHttpTransferCacheOptions()
+		)
+	),
+	deps.provideZonelessChangeDetection(),
+	{ provide: deps.APP_BASE_HREF, useValue: '/' },
+	{ provide: deps.DomSanitizer, useValue: sanitizer },
+	{ provide: deps.Sanitizer, useValue: sanitizer },
+	...buildRequestProviders(deps, request, requestContext, responseInit),
+	...userProviders
+];
 export const clearSelectorCache = () => selectorCache.clear();
 
-const isInjectionToken = (value: unknown) => {
-	if (!value || typeof value !== 'object') {
-		return false;
-	}
-
-	return (
-		'ngMetadataName' in value && value.ngMetadataName === 'InjectionToken'
-	);
-};
-
-export const discoverTokens = (pageModule: Record<string, unknown>) =>
-	new Map(
-		Object.entries(pageModule).filter(([, value]) =>
-			isInjectionToken(value)
-		)
-	);
 export const resolveSelector = (
 	deps: AngularDeps,
 	pagePath: string,
@@ -121,7 +83,7 @@ export const injectSsrScripts = (
 	html: string,
 	requestId: string,
 	indexPath: string,
-	props?: Record<string, unknown>
+	requestContext?: unknown
 ) => {
 	let result = html;
 
@@ -133,10 +95,10 @@ export const injectSsrScripts = (
 		);
 	}
 
-	if (props) {
+	if (requestContext !== undefined) {
 		result = injectBeforeClose(
 			result,
-			`<script>window.__ABS_ANGULAR_PAGE_PROPS__ = ${JSON.stringify(props)};</script>`
+			`<script>window.__ABS_ANGULAR_REQUEST_CONTEXT__ = ${JSON.stringify(requestContext)};</script>`
 		);
 	}
 

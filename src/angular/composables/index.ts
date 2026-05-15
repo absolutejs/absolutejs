@@ -1,3 +1,4 @@
+export { usePageContext } from './usePageContext';
 export { useResource } from './useResource';
 export type {
 	Resource,
