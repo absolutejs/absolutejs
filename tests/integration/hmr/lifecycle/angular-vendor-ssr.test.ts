@@ -125,8 +125,8 @@ describe('Angular vendor / SSR specifics', () => {
 
 		mutateFile(pageComponent, (c) =>
 			c.replace(
-				"import { Component, inject, InjectionToken } from '@angular/core';",
-				"import { Component, inject, InjectionToken } from '@angular/core';\nimport { trigger } from '@angular/animations';\nconst _unusedTrigger = trigger;"
+				"import { Component } from '@angular/core';",
+				"import { Component } from '@angular/core';\nimport { trigger } from '@angular/animations';\nconst _unusedTrigger = trigger;"
 			)
 		);
 

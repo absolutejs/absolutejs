@@ -78,38 +78,54 @@ describe('Angular DI + injectables', () => {
 		const srv = await startAndConnect();
 		if (!client) throw new Error('client missing');
 
-		// Page reads `initialCount` from INITIAL_COUNT (provided via
-		// page-handler props). Counter pulls it via the @Input chain
-		// (page → AppComponent → CounterComponent), so component-level
-		// `providers` on the *page* changes the value the counter
-		// renders on a fresh SSR request.
+		// Component-level `providers` on the page reshape the DI tree at
+		// element-creation time. After the rebuild, the counter input
+		// (page → AppComponent → CounterComponent via the
+		// `[initialCount]` binding) reflects the new provider value.
 		mutateFile(pageComponent, (c) =>
-			c.replace(
-				'standalone: true,',
-				'standalone: true,\n\tproviders: [{ provide: INITIAL_COUNT, useValue: 1337 }],'
-			)
+			c
+				.replace(
+					"import { Component } from '@angular/core';",
+					"import { Component, InjectionToken, inject } from '@angular/core';\nconst BONUS = new InjectionToken<number>('BONUS');"
+				)
+				.replace(
+					'initialCount = this.ctx.initialCount;',
+					'private bonus = inject(BONUS);\n\tinitialCount = this.ctx.initialCount + this.bonus;'
+				)
+				.replace(
+					'standalone: true,',
+					'standalone: true,\n\tproviders: [{ provide: BONUS, useValue: 1337 }],'
+				)
 		);
 
 		const html = await waitForBundleAndFetch(client, srv);
 		expect(html).toContain('count is <span _ngcontent-');
-		// The injected override flows through @Input → ngOnInit and
-		// CounterComponent renders the value.
+		// ctx.initialCount = 0 (server passes `{ initialCount: 0 }`),
+		// + BONUS = 1337 → 1337 on the rendered counter.
 		expect(html).toMatch(/count is\s*<span[^>]*>1337<\/span>/);
 	}, 60_000);
 
-	test('editing constructor body that reads from inject() changes the SSR value', async () => {
+	test('editing field initializer that reads from inject() changes the SSR value', async () => {
 		const srv = await startAndConnect();
 		if (!client) throw new Error('client missing');
 
+		// Stage 1 baseline: page already injects a token (added by the
+		// same mutation) and feeds its value into `initialCount`. The
+		// edit then changes how that injected value is folded in.
 		mutateFile(pageComponent, (c) =>
-			c.replace(
-				'this.initialCount = initialCountToken ?? 0;',
-				'this.initialCount = (initialCountToken ?? 0) + 999;'
-			)
+			c
+				.replace(
+					"import { Component } from '@angular/core';",
+					"import { Component, InjectionToken, inject } from '@angular/core';\nconst MULTIPLIER = new InjectionToken<number>('MULTIPLIER', { providedIn: 'root', factory: () => 3 });"
+				)
+				.replace(
+					'initialCount = this.ctx.initialCount;',
+					'private multiplier = inject(MULTIPLIER);\n\tinitialCount = (this.ctx.initialCount ?? 0) + this.multiplier * 333;'
+				)
 		);
 
 		const html = await waitForBundleAndFetch(client, srv);
-		// Default initialCount is 0 (props), so + 999 = 999.
+		// 0 (ctx) + 3 * 333 = 999.
 		expect(html).toMatch(/count is\s*<span[^>]*>999<\/span>/);
 	}, 60_000);
 
@@ -120,17 +136,17 @@ describe('Angular DI + injectables', () => {
 		mutateFile(pageComponent, (c) =>
 			c
 				.replace(
-					"export const INITIAL_COUNT = new InjectionToken<number>('INITIAL_COUNT');",
-					"export const INITIAL_COUNT = new InjectionToken<number>('INITIAL_COUNT');\nexport const COUNT_MULTIPLIER = new InjectionToken<number>('COUNT_MULTIPLIER', { providedIn: 'root', factory: () => 7 });"
+					"import { Component } from '@angular/core';",
+					"import { Component, InjectionToken, inject } from '@angular/core';\nconst COUNT_MULTIPLIER = new InjectionToken<number>('COUNT_MULTIPLIER', { providedIn: 'root', factory: () => 7 });"
 				)
 				.replace(
-					'this.initialCount = initialCountToken ?? 0;',
-					'const multiplier = inject(COUNT_MULTIPLIER);\n\t\tthis.initialCount = (initialCountToken ?? 0) + multiplier * 100;'
+					'initialCount = this.ctx.initialCount;',
+					'private multiplier = inject(COUNT_MULTIPLIER);\n\tinitialCount = (this.ctx.initialCount ?? 0) + this.multiplier * 100;'
 				)
 		);
 
 		const html = await waitForBundleAndFetch(client, srv);
-		// 0 (default) + 7 * 100 = 700.
+		// 0 (ctx default) + 7 * 100 = 700.
 		expect(html).toMatch(/count is\s*<span[^>]*>700<\/span>/);
 	}, 60_000);
 

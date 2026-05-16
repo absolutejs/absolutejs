@@ -45,11 +45,17 @@ const startAndConnect = async () => {
 };
 
 const waitForBundleRebuild = async (c: HMRClient) => {
-	// `compileAndBundleAngular` ends with this broadcast — it's the
-	// authoritative "bundle written, manifest updated" signal for
-	// page edits (and now for `appProviders.ts` edits that the
-	// providers-injection step re-routes through the same path).
-	await c.waitFor('angular-tier-zero-ssr-rebuild-complete', 30_000);
+	// Page edits that flip component shape land at tier-0/1a and
+	// broadcast `angular-tier-zero-ssr-rebuild-complete` when the
+	// debounced bundle finishes. Edits to the `appProviders.ts`
+	// source go through tier-1b rebootstrap (no decorated class
+	// change to extract) and broadcast `angular:rebootstrap` after
+	// the bundle write. Both signal "bundle on disk is fresh"; race
+	// them so the test isn't coupled to the tier decision.
+	await Promise.race([
+		c.waitFor('angular-tier-zero-ssr-rebuild-complete', 30_000),
+		c.waitFor('angular:rebootstrap', 30_000)
+	]);
 };
 
 /* The build's providers-injection step (in `compileAngular.ts`)
@@ -87,11 +93,13 @@ describe('Angular config-driven providers (HMR)', () => {
 				"selector: 'angular-page-providers-test',"
 			)
 		);
-		// Pause briefly so the watcher sees the page edit separately
-		// from the providers-source edit. Combined edits with no gap
-		// can land in a single watcher tick that dedupes by content
-		// hash before the providers scan sees them.
-		await new Promise((r) => setTimeout(r, 200));
+		await waitForBundleRebuild(client);
+		// Drain so the providers-source-edit rebuild is the next
+		// `angular-tier-zero-ssr-rebuild-complete` `waitFor` resolves on.
+		// Without this drain the wait can race-match the page-edit's
+		// rebuild and the assertion runs against a tree that hasn't
+		// seen the providers edit yet.
+		client.drain();
 		mutateFile(appProvidersSource, () =>
 			[
 				"import type { EnvironmentProviders, Provider } from '@angular/core';",
@@ -131,7 +139,16 @@ describe('Angular config-driven providers (HMR)', () => {
 				"import { Component } from '@angular/core';\nimport type { Routes } from '@angular/router';\n\nexport const routes: Routes = [];"
 			)
 		);
-		await waitForBundleRebuild(client);
+		// Adding `export const routes` to the page changes the
+		// providers-injection signature (hasRoutes flips from false →
+		// true) but Bun's compile/bundle pipeline runs the wrapper-write
+		// step *after* a 2s debounced bundle rebuild on tier-0 surgical
+		// edits. The angular HMR broadcast races: a surgical broadcast
+		// fires immediately, then `angular-tier-zero-ssr-rebuild-complete`
+		// at the end of the rebuilt-bundle pass. We need the *second*
+		// one — wait for that specifically so the assertion reads the
+		// freshly re-injected output.
+		await client.waitFor('angular-tier-zero-ssr-rebuild-complete', 30_000);
 
 		const compiled = readFileSync(compiledAngularExample, 'utf-8');
 		// Build appends a router import + a provideRouter() call into
@@ -157,7 +174,12 @@ describe('Angular config-driven providers (HMR)', () => {
 		// rebuild; nudge a page file too so the bundler re-runs over
 		// the angular tree.
 		mutateFile(angularExamplePage, (c) => `${c}\n`);
-		await waitForBundleRebuild(client);
+		// Same race story as the routes test — surgical-update
+		// broadcasts can fire before the bundle rebuild that actually
+		// re-applies the providers injection. Wait specifically for
+		// the post-bundle broadcast so the assertion reads the
+		// rebuilt output.
+		await client.waitFor('angular-tier-zero-ssr-rebuild-complete', 30_000);
 
 		const compiled = readFileSync(compiledAngularExample, 'utf-8');
 		expect(compiled).toContain(
@@ -188,7 +210,8 @@ describe('Angular config-driven providers (HMR)', () => {
 				"selector: 'angular-page-transitive-test',"
 			)
 		);
-		await new Promise((r) => setTimeout(r, 200));
+		await waitForBundleRebuild(client);
+		client.drain();
 		mutateFile(appProvidersSource, () =>
 			[
 				"import type { EnvironmentProviders, Provider } from '@angular/core';",
