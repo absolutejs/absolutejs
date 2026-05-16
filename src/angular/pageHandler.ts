@@ -61,13 +61,20 @@ export type AngularPageRequestInput<Ctx = unknown> =
 		request?: Request;
 		/** Mutable response init made available through Angular's RESPONSE_INIT token. */
 		responseInit?: ResponseInit;
-		/** Page-level Angular providers — `appProviders` for the typical case,
-		 *  `[...appProviders, provideRouter(routes)]` for sub-router pages, etc.
-		 *  These flow into `bootstrapApplication` at SSR. The framework's
-		 *  build pass (`runAngularHandlerScan`) reads the same expression
-		 *  via static AST analysis and emits a matching providers module the
-		 *  client bundle imports, so SSR and client bootstrap with identical
-		 *  DI trees without the page module exporting `providers`. */
+		/** Extra per-request providers merged in on top of the page
+		 *  module's bundled providers (`appProviders` + `provideRouter` +
+		 *  `APP_BASE_HREF`) at SSR bootstrap. Use for handler-scoped DI
+		 *  values that depend on the request — e.g. a tenant-specific
+		 *  feature-flag service, a per-request HTTP interceptor token,
+		 *  or test-only overrides. The same Angular module instance is
+		 *  shared (the backend resolves `@angular/core` through the same
+		 *  `node_modules` Bun cache key as the rebuilt page bundle), so
+		 *  tokens declared here interop with the bundled providers.
+		 *
+		 *  **SSR-only.** The browser bundle doesn't see these — the
+		 *  client picks up only the providers baked into the page
+		 *  module. If the same provider must run on both sides, add it
+		 *  to `absolute.config.ts > angular.providers` instead. */
 		providers?: ReadonlyArray<Provider | EnvironmentProviders>;
 		/** Sitemap metadata for this route. Statically read from the handler
 		 *  source at registration time, so only literal-object values are
@@ -346,9 +353,19 @@ export const handleAngularPageRequest = async <Page = unknown>(
 				const pageProviders: ReadonlyArray<
 					Provider | EnvironmentProviders
 				> = Array.isArray(pageProvidersExport) ? pageProvidersExport : [];
+				// Per-request `providers` from the handler call sit on top
+				// of the bundled page providers and below the framework
+				// extras, so a handler-call override beats `appProviders`
+				// (last-provider-wins via Angular's DI lookup) but the
+				// framework providers — redirect + server animations —
+				// always own their slots.
+				const handlerCallProviders: ReadonlyArray<
+					Provider | EnvironmentProviders
+				> = Array.isArray(input.providers) ? input.providers : [];
 				const combinedProviders = [
 					...(await buildRouterRedirectProviders(deps, responseInit)),
 					...pageProviders,
+					...handlerCallProviders,
 					...(await buildServerAnimationProviders(
 						usesLegacyAnimations
 					))
