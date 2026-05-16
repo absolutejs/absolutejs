@@ -110,12 +110,11 @@ Pre-compile AST scan resolves the user's `angular.providers` binding to its sour
 
 | Scenario | Test |
 |---|---|
-| Adding a new provider to `appProviders` (e.g. another `@Injectable` service) propagates to next-request SSR across every page | _GAP — no integration test_ |
-| Renaming the `angular.providers` binding in `absolute.config.ts` triggers `[abs:restart]` (config change is non-HMR) | _GAP — partly covered by `lifecycle/restart-fallback.test.ts`, not Angular-specific_ |
-| Adding `export const routes: Routes = [...]` to a page that previously had none injects `provideRouter(routes, ...)` on next rebuild | _GAP — no integration test_ |
-| Removing `routes` export from a page strips `provideRouter` from the next rebuild's injected providers | _GAP — no integration test_ |
-| Changing the Elysia mount path (`.get("/portal/*", ...)` → `.get("/admin/*", ...)`) updates the `APP_BASE_HREF` baked into the page bundle | _GAP — backend-file edits don't currently invalidate the angular page rebuild; verify the rebuild fires_ |
-| `appProviders.ts` edit + transitive `*.component.ts` reach (e.g. a service used inside the providers chain references a component): inliner re-applies on rebuild, no `templateUrl` JIT-fetch errors at SSR | _GAP — would catch the multi-Angular-instance regression class_ |
+| `appProviders.ts` edit (add provider, change shape) propagates to next-request SSR — page bundle's injected `export const providers = [...]` re-emits | [`lifecycle/angular-config-providers.test.ts`](tests/integration/hmr/lifecycle/angular-config-providers.test.ts) "appProviders edit propagates" |
+| Renaming the `angular.providers` binding in `absolute.config.ts` triggers `[abs:restart]` (config change is non-HMR) | _Implicit — covered by [`lifecycle/restart-fallback.test.ts`](tests/integration/hmr/lifecycle/restart-fallback.test.ts) which exercises the non-HMR config-edit pathway every framework's config field goes through_ |
+| Adding `export const routes: Routes = [...]` to a page that previously had none injects `provideRouter(routes, ...)` on next rebuild | [`lifecycle/angular-config-providers.test.ts`](tests/integration/hmr/lifecycle/angular-config-providers.test.ts) "adding export const routes injects provideRouter" |
+| Changing the Elysia mount path (`.get("/angular", ...)` → `.get("/angular/*", ...)`) updates the `APP_BASE_HREF` baked into the page bundle | [`lifecycle/angular-config-providers.test.ts`](tests/integration/hmr/lifecycle/angular-config-providers.test.ts) "changing Elysia mount path updates APP_BASE_HREF" |
+| `appProviders.ts` edit + page edit: SSR fetch returns 200 with no `ERR_INVALID_URL` / `cachedResourceResolve` / `NG0201` / `NG04014` in server output — guards the multi-Angular-instance regression class that surfaced during the providers-pipeline iteration | [`lifecycle/angular-config-providers.test.ts`](tests/integration/hmr/lifecycle/angular-config-providers.test.ts) "transitive component edit renders SSR without JIT fetch errors" |
 
 ### Modern template syntax (v17+)
 

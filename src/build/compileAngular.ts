@@ -2075,7 +2075,35 @@ export const compileAngular = async (
 		// If it hasn't changed since last HMR cycle, skip all the rewriting,
 		// HMR registration injection, SSR deps writing, and index regeneration.
 		// This eliminates ~100-500ms of wrapper overhead on cache hits.
-		const serverContentHash = Bun.hash(original).toString(BASE_36_RADIX);
+		// Also fold the providers-injection signature into the hash: a
+		// page's compiled `.ts → .js` output is unchanged when *only* the
+		// `appProviders` source (or a per-page `routes`/`basePath`
+		// scan result) changed, but the injected `export const providers`
+		// declaration needs to re-emit. Without this the cache short-
+		// circuits and the rebuilt page module ships a stale providers
+		// array on the next request.
+		const pageInjectionForHash = providersInjection?.pagesByFile.get(
+			resolvedEntry
+		);
+		const providersHashInput = providersInjection
+			? (() => {
+					let providersSourceContent = '';
+					try {
+						providersSourceContent = readFileSync(
+							providersInjection.appProvidersSource,
+							'utf-8'
+						);
+					} catch {
+						/* missing source — treat as empty */
+					}
+					return JSON.stringify({
+						basePath: pageInjectionForHash?.basePath ?? null,
+						hasRoutes: pageInjectionForHash?.hasRoutes ?? false,
+						source: providersSourceContent
+					});
+				})()
+			: 'no-providers';
+		const serverContentHash = `${Bun.hash(original).toString(BASE_36_RADIX)}.${Bun.hash(providersHashInput).toString(BASE_36_RADIX)}`;
 		const cachedWrapper = wrapperOutputCache.get(resolvedEntry);
 		const clientFile = join(indexesDir, jsName);
 		if (
@@ -2142,6 +2170,17 @@ export const compileAngular = async (
 		const pageInjection = providersInjection?.pagesByFile.get(
 			resolvedEntry
 		);
+		// Strip any providers-injection block left over from a previous
+		// compile cycle before appending the fresh one. The injection
+		// is bracketed by sentinel comments so the regex match is
+		// unambiguous — without this, every HMR rebuild stacks another
+		// `export const providers = [...]` on the end of the file,
+		// producing a duplicate-export syntax error on the next
+		// `Bun.build` over the page entry.
+		rewritten = rewritten.replace(
+			/\n\/\* __ABS_PROVIDERS_INJECTION_START \*\/[\s\S]*?\/\* __ABS_PROVIDERS_INJECTION_END \*\/\n?/g,
+			''
+		);
 		if (providersInjection && pageInjection) {
 			const compiledAppProvidersPath = (() => {
 				const angularDirAbs = resolve(outRoot);
@@ -2184,7 +2223,7 @@ export const compileAngular = async (
 					`{ provide: __abs_APP_BASE_HREF, useValue: ${JSON.stringify(pageInjection.basePath)} }`
 				);
 			}
-			rewritten += `\n${importLines.join('\n')}\nexport const providers = [${fragments.join(', ')}];\n`;
+			rewritten += `\n/* __ABS_PROVIDERS_INJECTION_START */\n${importLines.join('\n')}\nexport const providers = [${fragments.join(', ')}];\n/* __ABS_PROVIDERS_INJECTION_END */\n`;
 		}
 
 		// Note: proto-swap registration was here. SURGICAL_HMR §3.3

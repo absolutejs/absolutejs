@@ -93,9 +93,23 @@ const findImportForBinding = (
 	return null;
 };
 
-/** Locate `absolute.config.ts` at the project root. Returns null if
- *  the file doesn't exist — caller falls back to "no global providers". */
+/** Locate `absolute.config.ts`. Honours the `ABSOLUTE_CONFIG` env var
+ *  (same one `src/cli/index.ts` uses to thread `--config` through to
+ *  the dev/build runtime), so tests that boot the example app from
+ *  the repo root with `ABSOLUTE_CONFIG=example/absolute.config.ts`
+ *  find the example's config instead of looking for one at the repo
+ *  root. Falls back to `<projectRoot>/absolute.config.{ts,mts,js,mjs}`.
+ *  Returns null if no candidate exists — caller treats that as
+ *  "no global providers". */
 const resolveConfigPath = (projectRoot: string): string | null => {
+	const envOverride = process.env.ABSOLUTE_CONFIG;
+	if (envOverride) {
+		const resolved = isAbsolute(envOverride)
+			? envOverride
+			: join(projectRoot, envOverride);
+		if (existsSync(resolved)) return resolved;
+	}
+
 	const candidates = [
 		join(projectRoot, 'absolute.config.ts'),
 		join(projectRoot, 'absolute.config.mts'),

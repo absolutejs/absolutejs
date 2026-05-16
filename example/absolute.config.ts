@@ -1,6 +1,8 @@
 import { defineConfig } from '../src/utils/defineConfig';
+import { appProviders } from './angular/appProviders';
 
 export default defineConfig({
+	angular: { providers: appProviders },
 	angularDirectory: 'example/angular',
 	assetsDirectory: 'example/assets',
 	buildDirectory: 'example/build',

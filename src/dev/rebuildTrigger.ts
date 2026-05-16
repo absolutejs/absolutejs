@@ -1876,10 +1876,20 @@ const compileAndBundleAngular = async (
 		'../build/parseAngularConfigImports'
 	);
 	const projectRoot = process.cwd();
+	// `runAngularHandlerScan` resolves page paths against the angularDir
+	// it's handed; passing a relative `angularDir` leaves the scan
+	// result's `pageFile` entries relative too, while `compileAngular`
+	// looks them up with absolute `resolve(entry)` — keys would never
+	// match. Resolve up-front so the map keys line up with what the
+	// compile pass passes in.
+	const resolvedAngularDir = resolve(angularDir);
 	const providersImport = parseAngularProvidersImport(projectRoot);
 	const providersInjection = providersImport
 		? (() => {
-				const scan = runAngularHandlerScan(projectRoot, angularDir);
+				const scan = runAngularHandlerScan(
+					projectRoot,
+					resolvedAngularDir
+				);
 				const basePathByKey = new Map<string, string | null>();
 				for (const call of scan.calls) {
 					basePathByKey.set(
@@ -2033,11 +2043,60 @@ const handleAngularFastPath = async (
 	}
 
 	const angularPagesPath = resolve(angularDir, 'pages');
-	const pageEntries = resolveAngularPageEntries(
+	const initialPageEntries = resolveAngularPageEntries(
 		state,
 		angularFiles,
 		angularPagesPath
 	);
+
+	// The `angular.providers` source file from `absolute.config.ts` is an
+	// implicit dependency of every page — the build's providers-injection
+	// step appends `import { appProviders } from "..."` to each compiled
+	// page server output, but that import doesn't appear anywhere in the
+	// user's source graph, so the dep-graph reverse-lookup in
+	// `resolveAngularPageEntries` can't find any affected pages on its
+	// own. Detect edits to that source here and expand the rebuild set
+	// to every page Angular knows about, so changes to `appProviders` —
+	// or any of its transitive `.component.ts` deps — actually re-run
+	// the per-page injection and re-emit the bundles.
+	const projectRoot = process.cwd();
+	const { parseAngularProvidersImport } = await import(
+		'../build/parseAngularConfigImports'
+	);
+	const providersImport = parseAngularProvidersImport(projectRoot);
+	const editedProvidersChain =
+		providersImport &&
+		angularFiles.some(
+			(file) =>
+				resolve(file) === resolve(providersImport.absolutePath) ||
+				resolve(file).startsWith(`${resolve(angularDir)}/`)
+		);
+	const pageEntries =
+		editedProvidersChain && initialPageEntries.length === 0
+			? (() => {
+					const allPages: string[] = [];
+					const { readdirSync } = require('node:fs') as typeof import('node:fs');
+					const walk = (dir: string) => {
+						for (const entry of readdirSync(dir, {
+							withFileTypes: true
+						})) {
+							const full = resolve(dir, entry.name);
+							if (entry.isDirectory()) walk(full);
+							else if (
+								entry.isFile() &&
+								entry.name.endsWith('.ts')
+							)
+								allPages.push(full);
+						}
+					};
+					try {
+						walk(angularPagesPath);
+					} catch {
+						/* pages dir might not exist yet — leave empty */
+					}
+					return allPages;
+				})()
+			: initialPageEntries;
 
 	// Decide tier BEFORE bundling. Tier 0 means we can broadcast
 	// the surgical update immediately and let the bundle rebuild
