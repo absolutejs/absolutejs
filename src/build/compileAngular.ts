@@ -1568,12 +1568,10 @@ export const compileAngularFileJIT = async (
 		const fileBase = basename(sourcePath).replace(/\.[cm]?[tj]sx?$/, '.js');
 
 		// In-place output when the source already lives under `outDir`.
-		// Used by the generated providers files at
-		// `.absolutejs/generated/angular/providers/<Key>.providers.ts`:
-		// compiling them in-place produces a sibling `.providers.js`
-		// the page server bundle can statically import. The default
-		// `baseDir + relativeDir` math would double-nest the path
-		// (`outDir/.absolutejs/generated/angular/providers/...`).
+		// Defensive — none of the current entrypoints feed a file from
+		// inside the generated tree through `compileAngularFileJIT`, but
+		// the default `baseDir + relativeDir` math would double-nest
+		// the path if any future caller did, so handle it here.
 		if (
 			inputDir === outDir ||
 			inputDir.startsWith(`${outDir}${sep}`)

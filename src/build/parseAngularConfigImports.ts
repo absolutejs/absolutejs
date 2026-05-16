@@ -1,15 +1,17 @@
 /* Build-time AST pass over `absolute.config.ts`. Reads the import path
- * the user's `angular.providers` field references so the emitter can
- * write a matching `import { appProviders } from "..."` into every
- * per-page generated providers file.
+ * the user's `angular.providers` field references so `compileAngular`'s
+ * providers-injection step can append a matching
+ * `import { appProviders } from "..."` plus an
+ * `export const providers = [...]` declaration directly into every
+ * page's compiled server output.
  *
  * Why AST: the framework already loads the config at build time (to
  * get the runtime values), but the runtime value of
  * `angular.providers` is an array of Angular `Provider` /
  * `EnvironmentProviders` objects — a graph of function references
- * that can't be serialized back to source for the client bundle to
- * import. The path string is the only piece the build needs in text
- * form, and the source code is where it actually lives. */
+ * that can't be serialized back to source. The path string is the
+ * only piece the build needs in text form, and the source code is
+ * where it actually lives. */
 
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, isAbsolute, join } from 'node:path';
