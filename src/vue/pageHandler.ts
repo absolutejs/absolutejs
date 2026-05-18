@@ -22,30 +22,38 @@ import {
 type VuePageRenderOptions = StreamingSlotEnhancerOptions & {
 	collectStreamingSlots?: boolean;
 };
+/** Hydration mode for the page bundle.
+ *  - `'auto'` (default): emit `<script>window.__INITIAL_PROPS__=…</script>`
+ *    plus the page's `<script type="module">` index, mounting Vue on the
+ *    client.
+ *  - `'none'`: SSR-only. Skip both scripts entirely so the page ships
+ *    pure HTML — useful for marketing / docs pages that use Vue
+ *    templating + Tailwind without paying the runtime cost. The build
+ *    pipeline also skips emitting the per-page client bundle (and its
+ *    manifest entry) when this option is set at registration time —
+ *    `scanVueSsrOnlyPages` reads the literal `client: 'none'` token
+ *    from the handler source and excludes the matching .vue entry
+ *    from the client bundler pass. */
+type VuePageClientMode =
+	| { client: 'none'; indexPath?: string }
+	| { client?: 'auto'; indexPath: string };
+
 export type VuePageRequestInput<Component extends VueComponent> =
-	VuePageRenderOptions & {
-		/** Hydration mode for the page bundle.
-		 *  - `'auto'` (default): emit `<script>window.__INITIAL_PROPS__=…</script>`
-		 *    plus the page's `<script type="module">` index, mounting Vue on the
-		 *    client.
-		 *  - `'none'`: SSR-only. Skip both scripts entirely so the page ships
-		 *    pure HTML — useful for marketing / docs pages that use Vue
-		 *    templating + Tailwind without paying the runtime cost. */
-		client?: 'auto' | 'none';
-		headTag?: `<head>${string}</head>`;
-		indexPath: string;
-		pagePath: string;
-		Page?: Component;
-		/** The incoming Elysia request. Forwarded into the page
-		 *  module's exported `setupApp(app, { url, isServer })` hook
-		 *  (see compileVue's index generation) so plugins like
-		 *  vue-router can navigate to the correct route before SSR. */
-		request?: Request;
-		/** Sitemap metadata for this route. Statically read from the
-		 *  handler source at registration time, so only literal-object
-		 *  values are honoured. */
-		sitemap?: import('../../types/sitemap').PageHandlerSitemapMetadata;
-	} & (keyof VuePropsOf<Component> extends never
+	VuePageRenderOptions &
+		VuePageClientMode & {
+			headTag?: `<head>${string}</head>`;
+			pagePath: string;
+			Page?: Component;
+			/** The incoming Elysia request. Forwarded into the page
+			 *  module's exported `setupApp(app, { url, isServer })` hook
+			 *  (see compileVue's index generation) so plugins like
+			 *  vue-router can navigate to the correct route before SSR. */
+			request?: Request;
+			/** Sitemap metadata for this route. Statically read from the
+			 *  handler source at registration time, so only literal-object
+			 *  values are honoured. */
+			sitemap?: import('../../types/sitemap').PageHandlerSitemapMetadata;
+		} & (keyof VuePropsOf<Component> extends never
 			? { props?: NoInfer<VuePropsOf<Component>> }
 			: { props: NoInfer<VuePropsOf<Component>> });
 type GenericVueComponent = VueComponent;
@@ -117,16 +125,42 @@ const primeVueStream = async (stream: ReadableStream) => {
 	return { firstChunk, reader };
 };
 
+/* Dev-only: SSR-only Vue pages (`client: 'none'`) ship zero client JS by
+ *  design, which also means no WebSocket listener for HMR. To keep the
+ *  developer loop alive without reintroducing a framework runtime, inject
+ *  the same inlined HMR client bundle that HTML/HTMX pages get at build
+ *  time (see `injectHMRIntoHTMLFile` in `src/core/build.ts`). The bundle
+ *  is built lazily on first SSR-only request and cached for the life of
+ *  the dev server. Production builds never call this path. */
+let cachedSsrOnlyHmrShim: Promise<string> | null = null;
+
+const getSsrOnlyHmrShim = () => {
+	if (cachedSsrOnlyHmrShim) return cachedSsrOnlyHmrShim;
+	cachedSsrOnlyHmrShim = (async () => {
+		const { buildHMRClient } = await import('../dev/buildHMRClient');
+		const bundle = await buildHMRClient();
+
+		return `<script>window.__HMR_FRAMEWORK__="vue";</script><script data-hmr-client>${bundle}</script>`;
+	})();
+
+	return cachedSsrOnlyHmrShim;
+};
+
 export const handleVuePageRequest = async <Component extends VueComponent>(
 	input: VuePageRequestInput<Component>
 ) => {
 	const passedPageComponent = input.Page;
 	const resolvedHeadTag = input.headTag ?? '<head></head>';
-	const resolvedIndexPath = input.indexPath;
 	const resolvedOptions = input;
 	const resolvedPagePath = input.pagePath;
 	const maybeProps = input.props;
 	const clientMode: 'auto' | 'none' = input.client ?? 'auto';
+	const resolvedIndexPath = input.indexPath;
+	if (clientMode === 'auto' && !resolvedIndexPath) {
+		throw new Error(
+			'handleVuePageRequest: `indexPath` is required when `client` is `"auto"` (the default). Pass `client: "none"` to ship a SSR-only page with no client bundle.'
+		);
+	}
 
 	try {
 		const handlerCallsite =
@@ -213,9 +247,13 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 			const { firstChunk, reader } = await primeVueStream(bodyStream);
 
 			const head = `<!DOCTYPE html><html>${resolvedHeadTag}<body><div id="root">`;
+			const ssrOnlyHmrShim =
+				clientMode === 'none' && process.env.NODE_ENV === 'development'
+					? await getSsrOnlyHmrShim()
+					: '';
 			const tail =
 				clientMode === 'none'
-					? `</div></body></html>`
+					? `</div>${ssrOnlyHmrShim}</body></html>`
 					: `</div><script>window.__INITIAL_PROPS__=${JSON.stringify(
 							maybeProps ?? {}
 						)}</script><script type="module" src="${resolvedIndexPath}"></script></body></html>`;

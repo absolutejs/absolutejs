@@ -601,8 +601,14 @@ if (typeof __VUE_HMR_RUNTIME__ !== 'undefined') {
 		).toString('base64')}\n`;
 	};
 
-	await write(clientOutputPath, clientFinal + inlineSourceMapFor(clientFinal));
-	await write(serverOutputPath, serverFinal + inlineSourceMapFor(serverFinal));
+	await write(
+		clientOutputPath,
+		clientFinal + inlineSourceMapFor(clientFinal)
+	);
+	await write(
+		serverOutputPath,
+		serverFinal + inlineSourceMapFor(serverFinal)
+	);
 
 	const result: BuildResult = {
 		clientPath: clientOutputPath,
@@ -631,7 +637,8 @@ export const compileVue = async (
 	entryPoints: string[],
 	vueRootDir: string,
 	isDev = false,
-	stylePreprocessors?: StylePreprocessorConfig
+	stylePreprocessors?: StylePreprocessorConfig,
+	ssrOnlyEntries?: ReadonlySet<string>
 ) => {
 	const compiler: VueCompiler = await import('@vue/compiler-sfc');
 
@@ -655,8 +662,9 @@ export const compileVue = async (
 
 	const compiledPages = await Promise.all(
 		entryPoints.map(async (entryPath) => {
+			const resolvedEntryPath = resolve(entryPath);
 			const result = await compileVueFile(
-				resolve(entryPath),
+				resolvedEntryPath,
 				{
 					client: clientOutputDir,
 					css: cssOutputDir,
@@ -670,6 +678,21 @@ export const compileVue = async (
 			);
 
 			result.tsHelperPaths.forEach((path) => allTsHelperPaths.add(path));
+
+			// SSR-only entries (flagged `client: 'none'` at registration
+			// time, see `scanVueSsrOnlyPages`) skip the per-page client
+			// hydration index entirely — no `<script type="module">`
+			// ships, no manifest entry, no bundler work for the client
+			// path. The server bundle and per-page CSS still emit so the
+			// SSR handler can render the page.
+			if (ssrOnlyEntries?.has(resolvedEntryPath)) {
+				return {
+					clientPath: null,
+					cssPaths: result.cssPaths,
+					indexPath: null,
+					serverPath: result.serverPath
+				};
+			}
 
 			const entryBaseName = basename(entryPath, '.vue');
 			const indexOutputFile = join(indexOutputDir, `${entryBaseName}.js`);
@@ -727,14 +750,14 @@ export const compileVue = async (
 					'const shouldHydrate = typeof window === "undefined" ? false : !(isHMR || isSsrDirty);',
 					'const app = shouldHydrate ? createSSRApp(Comp, mergedProps) : createApp(Comp, mergedProps);',
 					'',
-					'// `setupApp` hook. Reflect.get hides the lookup from Bun\'s',
-					'// static analyzer so non-SPA pages without it don\'t trigger',
+					"// `setupApp` hook. Reflect.get hides the lookup from Bun's",
+					"// static analyzer so non-SPA pages without it don't trigger",
 					'// "always undefined" warnings. Pages that export `routes`',
 					'// have their setupApp auto-synthesized at compile time by',
 					'// compileVue (see addAutoRouterSetupApp below) — that wrapper',
-					'// uses the page-bundle\'s own vue-router instance so',
+					"// uses the page-bundle's own vue-router instance so",
 					'// provide/inject symbols match between the router and the',
-					'// page\'s `useRoute()` calls.',
+					"// page's `useRoute()` calls.",
 					'const setupAppHook = Reflect.get(PageModule, "setupApp");',
 					'async function bootstrapApp() {',
 					'  if (typeof setupAppHook === "function") {',
@@ -852,12 +875,14 @@ export const compileVue = async (
 		})
 	);
 
+	const isString = (value: string | null): value is string => value !== null;
+
 	return {
 		// Export HMR metadata from vueHmrMetadata map (populated during compilation)
 		hmrMetadata: new Map(vueHmrMetadata),
-		vueClientPaths: compiledPages.map((result) => result.clientPath),
+		vueClientPaths: compiledPages.map((p) => p.clientPath).filter(isString),
 		vueCssPaths: compiledPages.flatMap((result) => result.cssPaths),
-		vueIndexPaths: compiledPages.map((result) => result.indexPath),
+		vueIndexPaths: compiledPages.map((p) => p.indexPath).filter(isString),
 		vueServerPaths: compiledPages.map((result) => result.serverPath)
 	};
 };

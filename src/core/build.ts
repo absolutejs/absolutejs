@@ -1367,6 +1367,33 @@ const buildUnlocked = async ({
 	const shouldCompileSvelte = svelteDir && svelteEntries.length > 0;
 	const shouldCompileVue = vueDir && vueEntries.length > 0;
 	const shouldCompileAngular = angularDir && angularEntries.length > 0;
+
+	// Resolve the SSR-only Vue page set by statically scanning project
+	// source for `handleVuePageRequest({ client: 'none', ... })` calls,
+	// then mapping the literal manifest keys back to absolute .vue entry
+	// paths. SSR-only pages skip the client hydration index and the
+	// per-page client bundle — see `scanVueSsrOnlyPages` for the
+	// detection contract. Falls back to empty (i.e. every Vue page gets
+	// a client bundle, today's behavior) whenever the static scan can't
+	// resolve a name; never produces false positives.
+	const ssrOnlyVueEntries = shouldCompileVue
+		? await tracePhase('scan/vue-ssr-only', async () => {
+				const { scanVueSsrOnlyPages } = await import(
+					'../build/scanVueSsrOnlyPages'
+				);
+				const ssrOnlyPageNames = scanVueSsrOnlyPages(projectRoot);
+				if (ssrOnlyPageNames.size === 0) return new Set<string>();
+				const resolved = new Set<string>();
+				for (const entry of vueEntries) {
+					const name = basename(entry, '.vue');
+					if (ssrOnlyPageNames.has(name)) {
+						resolved.add(resolve(entry));
+					}
+				}
+
+				return resolved;
+			})
+		: new Set<string>();
 	const shouldCompileEmber = emberDir && emberEntries.length > 0;
 
 	const emptyStringArray: string[] = [];
@@ -1425,9 +1452,9 @@ const buildUnlocked = async ({
 					);
 				}
 				for (const route of scanResult.pageRoutes) {
-					const basePath = basePathByKey.get(route.manifestKey) ?? null;
-					const normalizedBase =
-						basePath === '/' ? null : basePath;
+					const basePath =
+						basePathByKey.get(route.manifestKey) ?? null;
+					const normalizedBase = basePath === '/' ? null : basePath;
 					pagesByFile.set(route.pageFile, {
 						basePath: normalizedBase,
 						hasRoutes: route.hasRoutes
@@ -1490,7 +1517,8 @@ const buildUnlocked = async ({
 							vueEntries,
 							vueDir,
 							hmr,
-							styleTransformConfig
+							styleTransformConfig,
+							ssrOnlyVueEntries
 						)
 					)
 				)
