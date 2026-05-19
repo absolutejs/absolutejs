@@ -1,5 +1,5 @@
 import { BASE_36_RADIX } from '../constants';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import {
 	basename,
@@ -379,8 +379,23 @@ const compileVueFile = async (
 	]);
 
 	const hasScript = descriptor.script || descriptor.scriptSetup;
+	// Vue's compileScript falls back to `typescript.sys` for filesystem
+	// access when resolving cross-file type references in
+	// `defineProps<ImportedType>()`. That fallback is dynamic-required
+	// inside @vue/compiler-sfc and isn't always loaded under Bun, so
+	// pass an explicit fs adapter — without it any page that uses an
+	// imported type as its props alias errors with
+	// "No fs option provided to compileScript in non-Node environment".
 	const compiledScript = hasScript
 		? compiler.compileScript(descriptor, {
+				fs: {
+					fileExists: existsSync,
+					readFile: (file) =>
+						existsSync(file)
+							? readFileSync(file, 'utf-8')
+							: undefined,
+					realpath: realpathSync
+				},
 				id: componentId,
 				inlineTemplate: false,
 				sourceMap: true
