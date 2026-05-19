@@ -4,6 +4,7 @@ import { basename, dirname, extname, join, resolve, relative } from 'node:path';
 import { resolvePackageImport } from '../build/resolvePackageImport';
 import { addAutoRouterSetupApp } from '../build/vueAutoRouterTransform';
 import { buildIslandMetadataExports } from '../islands/sourceMetadata';
+import { toKebab } from '../utils/stringModifiers';
 import {
 	compileStyleSource,
 	createSvelteStylePreprocessor
@@ -991,7 +992,12 @@ const transformVueFile = async (
 	}
 
 	const fileName = basename(filePath, '.vue');
-	const componentId = fileName.toLowerCase();
+	// `data-v-...` scope id format must match the build-time compiler's
+	// (compileVue.ts uses toKebab(fileBaseName)). Otherwise the SSR HTML's
+	// scope attribute (kebab) won't match the dev-served CSS rule selectors
+	// (lowercase), and every scoped <style> rule silently fails to apply
+	// post-hydration.
+	const componentId = toKebab(fileName);
 	const { descriptor } = vueCompiler.parse(raw, { filename: filePath });
 
 	// Template-only components (no `<script>` or `<script setup>`) are
