@@ -916,6 +916,15 @@ const compileVueTemplate = (
 	let code = scriptContent.replace('export default', 'const __script__ =');
 	code += `\n${templateResult.code}`;
 	code += '\n__script__.render = render;';
+	// __scopeId tells Vue's runtime to apply the scope-id attribute to every
+	// element created via `_createElementVNode` during render. SSR sets it on
+	// always-rendered nodes server-side, but v-if branches that flip on
+	// post-hydration are created client-side — they need __scopeId on the
+	// component to inherit the attribute. Without this the scoped CSS rule
+	// `.X[data-v-foo]` silently fails to match anything in the v-if branch.
+	if (isScoped) {
+		code += `\n__script__.__scopeId = "data-v-${componentId}";`;
+	}
 	code += '\nexport default __script__;';
 
 	return code;
