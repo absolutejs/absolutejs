@@ -11,6 +11,7 @@ import {
 	captureStreamingSlotWarningCallsite,
 	runWithStreamingSlotWarningScope
 } from '../core/streamingSlotWarningScope';
+import { readSiblingCss } from '../utils/inlinePageCss';
 import { ssrErrorPage } from '../utils/ssrErrorPage';
 import {
 	derivePageName,
@@ -204,6 +205,19 @@ export const handleSveltePageRequest = async <
 			);
 			const resolvedPage = await resolvePageComponent();
 
+			// Inline per-page compiled CSS so scoped styles ship in the
+			// SSR head instead of loading after client hydration. Bun's
+			// .svelte loader emits a sibling .css next to each SSR JS
+			// during the server bundle pass; we read it here and stitch
+			// it into headContent. See utils/inlinePageCss.
+			const siblingCss = await readSiblingCss(resolvedPagePath);
+			const cssBlock = siblingCss
+				? `<style data-absolute-page-css>${siblingCss}</style>`
+				: '';
+			const composedHeadContent = `${cssBlock}${
+				resolvedOptions?.headContent ?? ''
+			}`;
+
 			const stream = await renderToReadableStream(
 				resolvedPage.component,
 				resolvedProps,
@@ -212,7 +226,7 @@ export const handleSveltePageRequest = async <
 					bootstrapScriptContent: `window.__ABS_SLOT_HYDRATION_PENDING__=true;window.__INITIAL_PROPS__=${JSON.stringify(
 						resolvedProps
 					)};${resolvedIndexPath ? `import(${JSON.stringify(resolvedIndexPath)});` : ''}`,
-					headContent: resolvedOptions?.headContent
+					headContent: composedHeadContent
 				}
 			);
 

@@ -84,7 +84,7 @@ import {
 import { withBuildDirectoryLock } from '../utils/buildDirectoryLock';
 import { logError, logWarn } from '../utils/logger';
 import { normalizePath } from '../utils/normalizePath';
-import { toPascal } from '../utils/stringModifiers';
+import { toKebab, toPascal } from '../utils/stringModifiers';
 import { validateSafePath } from '../utils/validateSafePath';
 
 const isDev = env.NODE_ENV === 'development';
@@ -2765,6 +2765,44 @@ const buildUnlocked = async ({
 		if (!baseName) continue;
 		manifest[toPascal(baseName)] = artifact.path;
 	}
+
+	// Per-page CSS sidecar: for each SSR JS output, write a sibling .css
+	// containing the page's compiled scoped styles. handle*PageRequest
+	// reads `${pagePath}.css` (sibling next to the SSR JS) at render time
+	// and inlines it as a <style> block in the SSR head, so scoped style
+	// rules are available on first paint and the chrome doesn't render
+	// unstyled for a frame before the client bundle finishes loading.
+	//
+	// The Bun.build CSS passes already hash the CSS to `<name>.<hash>.ext`
+	// in `build/assets/css/`. The naming convention links each output to
+	// its origin via the `[name]` segment: Vue's CSS inputs are kebab-cased
+	// `<page>-compiled.css` (from compileVue.ts:545), so the SSR JS output
+	// `<PageName>.<jshash>.js` maps to CSS `<kebab(PageName)>-compiled.<csshash>.css`.
+	// We don't rely on URL routing — the handler reads the FS sibling.
+	const cssByName = new Map<string, BuildArtifact>();
+	for (const artifact of cssOutputs) {
+		if (extname(artifact.path) !== '.css') continue;
+		const fileBase = basename(artifact.path);
+		const [cssName] = fileBase.split(`.${artifact.hash}.`);
+		if (cssName) cssByName.set(cssName, artifact);
+	}
+	const fsPromises = await import('node:fs/promises');
+	await Promise.all(
+		serverOutputs.map(async (artifact) => {
+			if (extname(artifact.path) !== '.js') return;
+			const fileWithHash = basename(artifact.path);
+			const [pascalName] = fileWithHash.split(`.${artifact.hash}.`);
+			if (!pascalName) return;
+			// Vue convention. (Svelte/Angular wire up matching names from
+			// their own compilers — extend this lookup as those land.)
+			const cssArtifact = cssByName.get(
+				`${toKebab(pascalName)}-compiled`
+			);
+			if (!cssArtifact) return;
+			const siblingCssPath = artifact.path.replace(/\.js$/, '.css');
+			await fsPromises.copyFile(cssArtifact.path, siblingCssPath);
+		})
+	);
 
 	// Ember server bundles bypass the central serverOutputs pass — they're
 	// already self-contained Bun.build outputs from compileEmber (which uses

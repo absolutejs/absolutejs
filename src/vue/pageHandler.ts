@@ -3,6 +3,7 @@ import { readdir } from 'node:fs/promises';
 import { basename, dirname } from 'node:path';
 import type { VuePropsOf, VueSetupApp } from '../../types/vue';
 import { EXCLUDE_LAST_OFFSET } from '../constants';
+import { injectInlineCss, readSiblingCss } from '../utils/inlinePageCss';
 import { injectIslandPageContextStream } from '../core/islandPageContext';
 import { getCurrentRouteRegistrationCallsite } from '../core/devRouteRegistrationCallsite';
 import {
@@ -150,9 +151,13 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 	input: VuePageRequestInput<Component>
 ) => {
 	const passedPageComponent = input.Page;
-	const resolvedHeadTag = input.headTag ?? '<head></head>';
+	const userHeadTag = input.headTag ?? '<head></head>';
 	const resolvedOptions = input;
 	const resolvedPagePath = input.pagePath;
+	// Inline per-page compiled CSS so scoped styles ship in the SSR head
+	// instead of loading after client hydration. See utils/inlinePageCss.
+	const siblingCss = await readSiblingCss(resolvedPagePath);
+	const resolvedHeadTag = injectInlineCss(userHeadTag, siblingCss);
 	const maybeProps = input.props;
 	const clientMode: 'auto' | 'none' = input.client ?? 'auto';
 	const resolvedIndexPath = input.indexPath;

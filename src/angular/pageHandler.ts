@@ -6,6 +6,7 @@ import { pathToFileURL } from 'node:url';
 import type { EnvironmentProviders, Provider, Type } from '@angular/core';
 import { BASE_36_RADIX, RANDOM_ID_END_INDEX } from '../constants';
 import { injectIslandPageContext } from '../core/islandPageContext';
+import { injectInlineCss, readSiblingCss } from '../utils/inlinePageCss';
 import { ssrErrorPage } from '../utils/ssrErrorPage';
 import {
 	derivePageName,
@@ -272,13 +273,21 @@ export const handleAngularPageRequest = async <Page = unknown>(
 	return angularSsrContext.run(requestId, async () => {
 		await ensureAngularCompiler();
 
-		const resolvedHeadTag = input.headTag ?? '<head></head>';
+		const userHeadTag = input.headTag ?? '<head></head>';
 		const resolvedIndexPath = input.indexPath;
 		const options = input;
 		const resolvedPagePath = input.pagePath;
 		const maybeRequestContext = input.requestContext;
 		const responseInit = input.responseInit ?? {};
 		const resolvedUrl = resolveRequestRenderUrl(input.request);
+
+		// Inline per-page compiled CSS so scoped component styles ship in
+		// the SSR head instead of loading after client hydration. Bun's
+		// Angular client bundle emits a sibling .css next to each SSR
+		// JS; we read it here and splice <style> before </head>.
+		// See utils/inlinePageCss.
+		const siblingCss = await readSiblingCss(resolvedPagePath);
+		const resolvedHeadTag = injectInlineCss(userHeadTag, siblingCss);
 
 		// Cache requestContext + headTag for HMR replay — strip query
 		// strings so cache-busted HMR paths match the original manifest path.
