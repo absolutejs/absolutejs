@@ -160,6 +160,19 @@ const extractImports = (sourceCode: string) =>
 		.map((match) => match[1])
 		.filter((importPath): importPath is string => importPath !== undefined);
 
+// Resolve a relative .ts helper import to an actual file path. Mirrors
+// node's resolution: if `<dir>/<helper>.ts` doesn't exist, try
+// `<dir>/<helper>/index.ts` so callers can import a directory module.
+const resolveHelperTsPath = (sourceDir: string, helper: string) => {
+	if (helper.endsWith('.ts')) return resolve(sourceDir, helper);
+	const direct = resolve(sourceDir, `${helper}.ts`);
+	if (existsSync(direct)) return direct;
+	const indexed = resolve(sourceDir, helper, 'index.ts');
+	if (existsSync(indexed)) return indexed;
+
+	return direct;
+};
+
 const toJs = (filePath: string, sourceDir?: string) => {
 	if (filePath.endsWith('.vue')) return filePath.replace(/\.vue$/, '.js');
 	if (filePath.endsWith('.ts')) return filePath.replace(/\.ts$/, '.js');
@@ -181,6 +194,19 @@ const toJs = (filePath: string, sourceDir?: string) => {
 		}
 
 		return filePath;
+	}
+
+	// Bare relative import without extension — could be a `.ts` file or a
+	// directory with `index.ts`. Probe the filesystem so callers can write
+	// `import x from "../state"` against a `state/index.ts` directory module.
+	if (
+		sourceDir &&
+		(filePath.startsWith('./') || filePath.startsWith('../'))
+	) {
+		const directTs = resolve(sourceDir, `${filePath}.ts`);
+		if (existsSync(directTs)) return `${filePath}.js`;
+		const indexedTs = resolve(sourceDir, filePath, 'index.ts');
+		if (existsSync(indexedTs)) return `${filePath}/index.js`;
 	}
 
 	return `${filePath}.js`;
@@ -633,10 +659,7 @@ if (typeof __VUE_HMR_RUNTIME__ !== 'undefined') {
 		serverPath: serverOutputPath,
 		tsHelperPaths: [
 			...helperModulePaths.map((helper) =>
-				resolve(
-					dirname(sourceFilePath),
-					helper.endsWith('.ts') ? helper : `${helper}.ts`
-				)
+				resolveHelperTsPath(dirname(sourceFilePath), helper)
 			),
 			...childBuildResults.flatMap((child) => child.tsHelperPaths)
 		]
