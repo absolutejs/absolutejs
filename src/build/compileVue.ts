@@ -160,26 +160,32 @@ const extractImports = (sourceCode: string) =>
 		.map((match) => match[1])
 		.filter((importPath): importPath is string => importPath !== undefined);
 
-// CSS spec requires `@import` rules to come before any other rules. When
-// scoped <style> blocks from many components are concatenated into one
-// bundle, the @imports get scattered through the file. Extract them in
-// source order, dedupe (an @import twice has no extra effect), and emit
-// at the top. Doesn't try to resolve them — the bundler does that.
-const hoistCssImports = (css: string) => {
-	const importRegex = /@import\s+[^;]+;\s*\n?/g;
-	const imports: string[] = [];
-	const seen = new Set<string>();
-	const stripped = css.replace(importRegex, (match) => {
-		const normalised = match.trim();
-		if (seen.has(normalised)) return '';
-		seen.add(normalised);
-		imports.push(normalised);
+// Inline `@import "rel.css"` / `@import url("rel.css")` statements in a
+// Vue <style> block by reading the referenced file and embedding its
+// contents. Done before compileStyle so the scoped-class hashing
+// applies uniformly across imported content, and so the concatenated
+// bundle has no `@import` rules to keep in spec-required order. Bare
+// (non-relative) imports are preserved — those resolve through the
+// regular CSS loader chain.
+const inlineCssImports = (
+	cssContent: string,
+	cssFilePath: string,
+	visited: Set<string> = new Set()
+): string => {
+	const resolved = realpathSync(cssFilePath);
+	if (visited.has(resolved)) return '';
+	visited.add(resolved);
 
-		return '';
+	const importRegex
+		= /@import\s+(?:url\(\s*)?(['"])(\.{1,2}\/[^'"]+)\1\s*\)?\s*;?/g;
+
+	return cssContent.replace(importRegex, (match, _quote, relPath) => {
+		const importedPath = resolve(dirname(cssFilePath), relPath);
+		if (!existsSync(importedPath)) return match;
+		const importedContent = readFileSync(importedPath, 'utf-8');
+
+		return inlineCssImports(importedContent, importedPath, visited);
 	});
-	if (imports.length === 0) return css;
-
-	return `${imports.join('\n')}\n${stripped}`;
 };
 
 // Resolve a relative .ts helper import to an actual file path. Mirrors
@@ -508,23 +514,24 @@ const compileVueFile = async (
 	};
 
 	const localCss = await Promise.all(
-		descriptor.styles.map(
-			async (styleBlock) =>
-				compiler.compileStyle({
-					filename: sourceFilePath,
-					id: componentId,
-					scoped: styleBlock.scoped,
-					source: styleBlock.lang
-						? await compileStyleSource(
-								sourceFilePath,
-								styleBlock.content,
-								styleBlock.lang,
-								stylePreprocessors
-							)
-						: styleBlock.content,
-					trim: true
-				}).code
-		)
+		descriptor.styles.map(async (styleBlock) => {
+			const rawContent = styleBlock.lang
+				? await compileStyleSource(
+						sourceFilePath,
+						styleBlock.content,
+						styleBlock.lang,
+						stylePreprocessors
+					)
+				: styleBlock.content;
+
+			return compiler.compileStyle({
+				filename: sourceFilePath,
+				id: componentId,
+				scoped: styleBlock.scoped,
+				source: inlineCssImports(rawContent, sourceFilePath),
+				trim: true
+			}).code;
+		})
 	);
 	const allCss = [
 		...localCss,
@@ -538,7 +545,7 @@ const compileVueFile = async (
 			`${toKebab(fileBaseName)}-compiled.css`
 		);
 		await mkdir(dirname(cssOutputFile), { recursive: true });
-		await write(cssOutputFile, hoistCssImports(allCss.join('\n')));
+		await write(cssOutputFile, allCss.join('\n'));
 		cssOutputPaths = [cssOutputFile];
 	}
 
