@@ -2779,19 +2779,35 @@ const buildUnlocked = async ({
 	// `<page>-compiled.css` (from compileVue.ts:545), so the SSR JS output
 	// `<PageName>.<jshash>.js` maps to CSS `<kebab(PageName)>-compiled.<csshash>.css`.
 	// We don't rely on URL routing — the handler reads the FS sibling.
+	// Extract the basename without hash. Bun's [name].[hash].[ext] outputs
+	// have a `hash` field on the artifact, but it can be null for chunks/
+	// non-entry outputs — fall back to a regex peel of `<name>.<8+chars>.<ext>`.
+	const stripHash = (fileBase: string, hash: string | null) => {
+		if (hash) {
+			const tag = `.${hash}.`;
+			const idx = fileBase.indexOf(tag);
+			if (idx > 0) return fileBase.slice(0, idx);
+		}
+		// Generic peel: `<name>.<hash>.<ext>` where hash is 8+ alphanumerics
+		const m = fileBase.match(/^(.+)\.[a-z0-9]{8,}\.[^.]+$/i);
+
+		return m ? m[1] : null;
+	};
+
 	const cssByName = new Map<string, BuildArtifact>();
 	for (const artifact of cssOutputs) {
 		if (extname(artifact.path) !== '.css') continue;
-		const fileBase = basename(artifact.path);
-		const [cssName] = fileBase.split(`.${artifact.hash}.`);
+		const cssName = stripHash(basename(artifact.path), artifact.hash);
 		if (cssName) cssByName.set(cssName, artifact);
 	}
 	const fsPromises = await import('node:fs/promises');
 	await Promise.all(
 		serverOutputs.map(async (artifact) => {
 			if (extname(artifact.path) !== '.js') return;
-			const fileWithHash = basename(artifact.path);
-			const [pascalName] = fileWithHash.split(`.${artifact.hash}.`);
+			const pascalName = stripHash(
+				basename(artifact.path),
+				artifact.hash
+			);
 			if (!pascalName) return;
 			// Vue convention. (Svelte/Angular wire up matching names from
 			// their own compilers — extend this lookup as those land.)
