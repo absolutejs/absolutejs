@@ -160,6 +160,28 @@ const extractImports = (sourceCode: string) =>
 		.map((match) => match[1])
 		.filter((importPath): importPath is string => importPath !== undefined);
 
+// CSS spec requires `@import` rules to come before any other rules. When
+// scoped <style> blocks from many components are concatenated into one
+// bundle, the @imports get scattered through the file. Extract them in
+// source order, dedupe (an @import twice has no extra effect), and emit
+// at the top. Doesn't try to resolve them — the bundler does that.
+const hoistCssImports = (css: string) => {
+	const importRegex = /@import\s+[^;]+;\s*\n?/g;
+	const imports: string[] = [];
+	const seen = new Set<string>();
+	const stripped = css.replace(importRegex, (match) => {
+		const normalised = match.trim();
+		if (seen.has(normalised)) return '';
+		seen.add(normalised);
+		imports.push(normalised);
+
+		return '';
+	});
+	if (imports.length === 0) return css;
+
+	return `${imports.join('\n')}\n${stripped}`;
+};
+
 // Resolve a relative .ts helper import to an actual file path. Mirrors
 // node's resolution: if `<dir>/<helper>.ts` doesn't exist, try
 // `<dir>/<helper>/index.ts` so callers can import a directory module.
@@ -516,7 +538,7 @@ const compileVueFile = async (
 			`${toKebab(fileBaseName)}-compiled.css`
 		);
 		await mkdir(dirname(cssOutputFile), { recursive: true });
-		await write(cssOutputFile, allCss.join('\n'));
+		await write(cssOutputFile, hoistCssImports(allCss.join('\n')));
 		cssOutputPaths = [cssOutputFile];
 	}
 
