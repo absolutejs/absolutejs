@@ -21,6 +21,10 @@ import { toKebab } from '../utils/stringModifiers';
 import { getFrameworkGeneratedDir } from '../utils/generatedDir';
 import { resolvePackageImport } from './resolvePackageImport';
 import { buildIslandMetadataExports } from '../islands/sourceMetadata';
+import {
+	parseVueSpaRoutes,
+	type ParsedVueSpaRoute
+} from './parseVueSpaRoutes';
 import { buildLineRemap, remapGeneratedLines } from './chainInlineSourcemaps';
 import { addAutoRouterSetupApp } from './vueAutoRouterTransform';
 import {
@@ -60,6 +64,11 @@ type BuildResult = {
 	cssCodes: string[];
 	tsHelperPaths: string[];
 	hmrId: string;
+	/** Entries from `export const routes = defineRoutes([...])` when
+	 *  this Vue file is an SPA-shell page. Drives the SSR child-route
+	 *  CSS side manifest in `core/build.ts`. Empty/undefined for non-
+	 *  entry-point files and entries that don't register routes. */
+	spaRoutes?: ParsedVueSpaRoute[];
 };
 
 // HMR change type detection
@@ -338,6 +347,13 @@ const compileVueFile = async (
 	const { descriptor } = compiler.parse(sourceContent, {
 		filename: sourceFilePath
 	});
+
+	// `export const routes = defineRoutes([...])` declarations live in the
+	// module-level `<script>` block. Parse them so core/build.ts can emit
+	// the per-route CSS side manifest (see ParsedVueSpaRoute).
+	const spaRoutes = isEntryPoint
+		? parseVueSpaRoutes(descriptor.script?.content ?? '')
+		: [];
 
 	// Generate HMR ID and detect change type
 	const hmrId = generateVueHmrId(sourceFilePath, vueRootDir);
@@ -680,6 +696,7 @@ if (typeof __VUE_HMR_RUNTIME__ !== 'undefined') {
 		cssPaths: cssOutputPaths,
 		hmrId,
 		serverPath: serverOutputPath,
+		spaRoutes: spaRoutes.length > 0 ? spaRoutes : undefined,
 		tsHelperPaths: [
 			...helperModulePaths.map((helper) =>
 				resolveHelperTsPath(dirname(sourceFilePath), helper)
@@ -751,7 +768,9 @@ export const compileVue = async (
 					clientPath: null,
 					cssPaths: result.cssPaths,
 					indexPath: null,
-					serverPath: result.serverPath
+					serverPath: result.serverPath,
+					sourcePath: resolvedEntryPath,
+					spaRoutes: result.spaRoutes
 				};
 			}
 
@@ -914,7 +933,9 @@ export const compileVue = async (
 				clientPath: clientOutputFile,
 				cssPaths: result.cssPaths,
 				indexPath: indexOutputFile,
-				serverPath: result.serverPath
+				serverPath: result.serverPath,
+				sourcePath: resolvedEntryPath,
+				spaRoutes: result.spaRoutes
 			};
 		})
 	);
@@ -960,12 +981,25 @@ export const compileVue = async (
 
 	const isString = (value: string | null): value is string => value !== null;
 
+	// Per-entry SPA route info keyed by the .vue source path. Consumed by
+	// core/build.ts to emit per-route CSS side-manifests next to the SSR
+	// JS, so the Vue page handler can inline the matched child route's
+	// styles on first paint instead of waiting for the lazy JS chunk to
+	// arrive.
+	const vueSpaRoutesBySource = new Map<string, ParsedVueSpaRoute[]>();
+	for (const page of compiledPages) {
+		if (page.spaRoutes && page.spaRoutes.length > 0) {
+			vueSpaRoutesBySource.set(page.sourcePath, page.spaRoutes);
+		}
+	}
+
 	return {
 		// Export HMR metadata from vueHmrMetadata map (populated during compilation)
 		hmrMetadata: new Map(vueHmrMetadata),
 		vueClientPaths: compiledPages.map((p) => p.clientPath).filter(isString),
 		vueCssPaths: compiledPages.flatMap((result) => result.cssPaths),
 		vueIndexPaths: compiledPages.map((p) => p.indexPath).filter(isString),
-		vueServerPaths: compiledPages.map((result) => result.serverPath)
+		vueServerPaths: compiledPages.map((result) => result.serverPath),
+		vueSpaRoutesBySource
 	};
 };

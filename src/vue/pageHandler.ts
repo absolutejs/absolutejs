@@ -4,6 +4,7 @@ import { basename, dirname } from 'node:path';
 import type { VuePropsOf, VueSetupApp } from '../../types/vue';
 import { EXCLUDE_LAST_OFFSET } from '../constants';
 import { injectInlineCss, readSiblingCss } from '../utils/inlinePageCss';
+import { resolveSpaChildCss } from '../utils/spaRouteCss';
 import { injectIslandPageContextStream } from '../core/islandPageContext';
 import { getCurrentRouteRegistrationCallsite } from '../core/devRouteRegistrationCallsite';
 import {
@@ -156,8 +157,20 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 	const resolvedPagePath = input.pagePath;
 	// Inline per-page compiled CSS so scoped styles ship in the SSR head
 	// instead of loading after client hydration. See utils/inlinePageCss.
-	const siblingCss = await readSiblingCss(resolvedPagePath);
-	const resolvedHeadTag = injectInlineCss(userHeadTag, siblingCss);
+	//
+	// For SPA-shell pages (those that export `routes = defineRoutes([...])`),
+	// also inline the matched child route's compiled CSS so the rendered
+	// child component paints styled on first paint instead of waiting for
+	// the lazy chunk to land. The page's `.spa.json` side manifest, written
+	// in core/build.ts, lists every child route's compiled CSS path.
+	const [siblingCss, spaChildCss] = await Promise.all([
+		readSiblingCss(resolvedPagePath),
+		resolveSpaChildCss(resolvedPagePath, input.request?.url)
+	]);
+	const resolvedHeadTag = injectInlineCss(
+		injectInlineCss(userHeadTag, siblingCss),
+		spaChildCss
+	);
 	const maybeProps = input.props;
 	const clientMode: 'auto' | 'none' = input.client ?? 'auto';
 	const resolvedIndexPath = input.indexPath;

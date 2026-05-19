@@ -1486,7 +1486,13 @@ const buildUnlocked = async ({
 
 	const [
 		{ svelteServerPaths, svelteIndexPaths, svelteClientPaths },
-		{ vueServerPaths, vueIndexPaths, vueClientPaths, vueCssPaths },
+		{
+			vueServerPaths,
+			vueIndexPaths,
+			vueClientPaths,
+			vueCssPaths,
+			vueSpaRoutesBySource
+		},
 		{ clientPaths: angularClientPaths, serverPaths: angularServerPaths },
 		{ clientPaths: emberClientPaths, serverPaths: emberServerPaths },
 		{ svelteClientPaths: islandSvelteClientPaths },
@@ -1526,7 +1532,11 @@ const buildUnlocked = async ({
 					vueClientPaths: [...emptyStringArray],
 					vueCssPaths: [...emptyStringArray],
 					vueIndexPaths: [...emptyStringArray],
-					vueServerPaths: [...emptyStringArray]
+					vueServerPaths: [...emptyStringArray],
+					vueSpaRoutesBySource: new Map<
+						string,
+						{ path: string; importPath: string }[]
+					>()
 				},
 		shouldCompileAngular
 			? tracePhase('compile/angular', async () => {
@@ -2802,6 +2812,7 @@ const buildUnlocked = async ({
 	}
 	const fsPromises = await import('node:fs/promises');
 	const siblingCssPaths: string[] = [];
+	const serverJsByPascalName = new Map<string, BuildArtifact>();
 	await Promise.all(
 		serverOutputs.map(async (artifact) => {
 			if (extname(artifact.path) !== '.js') return;
@@ -2810,6 +2821,7 @@ const buildUnlocked = async ({
 				artifact.hash
 			);
 			if (!pascalName) return;
+			serverJsByPascalName.set(pascalName, artifact);
 			// Vue convention. (Svelte/Angular wire up matching names from
 			// their own compilers — extend this lookup as those land.)
 			const cssArtifact = cssByName.get(
@@ -2826,6 +2838,52 @@ const buildUnlocked = async ({
 			manifest[`${pascalName}Css`] = siblingCssPath;
 		})
 	);
+
+	// SPA child-route CSS side manifest. For every Vue page that
+	// registers `export const routes = defineRoutes([...])`, write
+	// `<pagePath>.spa.json` next to the SSR JS. The Vue page handler
+	// reads this at request time, matches the URL against the listed
+	// routes, and inlines the matched child route's compiled CSS too —
+	// otherwise a fresh nav to e.g. /portal/dashboard paints Dashboard's
+	// markup unstyled until the lazy chunk lands. See
+	// `utils/spaRouteCss.ts` for the runtime side.
+	const spaSideManifestPaths: string[] = [];
+	if (vueSpaRoutesBySource && vueSpaRoutesBySource.size > 0) {
+		await Promise.all(
+			[...vueSpaRoutesBySource.entries()].map(
+				async ([source, routes]) => {
+					const parentName = basename(source, '.vue');
+					const parentArtifact = serverJsByPascalName.get(parentName);
+					if (!parentArtifact) return;
+					const sourceDir = dirname(source);
+					const entries = routes.flatMap(({ path, importPath }) => {
+						const childSourcePath = resolve(sourceDir, importPath);
+						const childName = basename(childSourcePath, '.vue');
+						const childArtifact =
+							serverJsByPascalName.get(childName);
+						if (!childArtifact) return [];
+						const cssPath = childArtifact.path.replace(
+							/\.js$/,
+							'.css'
+						);
+
+						return [{ cssPath, path }];
+					});
+					if (entries.length === 0) return;
+					const sideManifestPath = parentArtifact.path.replace(
+						/\.js$/,
+						'.spa.json'
+					);
+					await fsPromises.writeFile(
+						sideManifestPath,
+						JSON.stringify(entries)
+					);
+					spaSideManifestPaths.push(sideManifestPath);
+					manifest[`${parentName}SpaManifest`] = sideManifestPath;
+				}
+			)
+		);
+	}
 
 	// Ember server bundles bypass the central serverOutputs pass — they're
 	// already self-contained Bun.build outputs from compileEmber (which uses
@@ -3009,6 +3067,7 @@ const buildUnlocked = async ({
 				...islandClientOutputs.map((a) => a.path),
 				...cssOutputs.map((a) => a.path),
 				...siblingCssPaths,
+				...spaSideManifestPaths,
 				...conventionOutputPaths
 			])
 		);
