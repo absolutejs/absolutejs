@@ -881,6 +881,28 @@ export const compileVue = async (
 		})
 	);
 
+	// Recursively trace .ts helpers. Helpers can import other helpers
+	// (e.g. `state/index.ts` re-exports `./auth`, `./profile`), and those
+	// transitive dependencies need to be transpiled + copied too so their
+	// relative `import "./auth"` resolves in the generated tree.
+	const queue = Array.from(allTsHelperPaths);
+	while (queue.length > 0) {
+		const tsPath = queue.shift();
+		if (!tsPath) continue;
+		const sourceCode = await file(tsPath).text();
+		const helperDir = dirname(tsPath);
+		for (const dep of extractImports(sourceCode)) {
+			if (!dep.startsWith('.') || isStylePath(dep) || dep.endsWith('.vue')) {
+				continue;
+			}
+			const resolved = resolveHelperTsPath(helperDir, dep);
+			if (!existsSync(resolved)) continue;
+			if (allTsHelperPaths.has(resolved)) continue;
+			allTsHelperPaths.add(resolved);
+			queue.push(resolved);
+		}
+	}
+
 	await Promise.all(
 		Array.from(allTsHelperPaths).map(async (tsPath) => {
 			const sourceCode = await file(tsPath).text();
