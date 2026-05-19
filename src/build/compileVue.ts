@@ -452,29 +452,38 @@ const compileVueFile = async (
 		});
 	}
 
-	const generateRenderFunction = (ssr: boolean) =>
-		compiler
-			.compileTemplate({
-				compilerOptions: {
-					bindingMetadata: compiledScript.bindings,
-					expressionPlugins: ['typescript'],
-					isCustomElement: (tag) => tag === 'absolute-island',
-					prefixIdentifiers: true
-				},
-				filename: sourceFilePath,
-				id: componentId,
-				scoped: descriptor.styles.some(
-					(styleBlock) => styleBlock.scoped
-				),
-				source: descriptor.template?.content ?? '',
-				ssr,
-				ssrCssVars: descriptor.cssVars
-			})
-			.code.replace(
+	const generateRenderFunction = (ssr: boolean) => {
+		const rendered = compiler.compileTemplate({
+			compilerOptions: {
+				bindingMetadata: compiledScript.bindings,
+				expressionPlugins: ['typescript'],
+				isCustomElement: (tag) => tag === 'absolute-island',
+				prefixIdentifiers: true
+			},
+			filename: sourceFilePath,
+			id: componentId,
+			scoped: descriptor.styles.some(
+				(styleBlock) => styleBlock.scoped
+			),
+			source: descriptor.template?.content ?? '',
+			ssr,
+			ssrCssVars: descriptor.cssVars
+		}).code;
+
+		// `expressionPlugins: ['typescript']` lets compileTemplate accept
+		// TS syntax inside template bindings (e.g. `($event.target as
+		// HTMLInputElement).value`) but it doesn't strip the assertions
+		// from the emitted render code, so the cast leaks into the JS
+		// output and Bun's bundler parses it as a syntax error. Run the
+		// render output through Bun's TS transpiler before path rewriting.
+		return transpiler
+			.transformSync(rendered)
+			.replace(
 				/(['"])(\.{1,2}\/[^'"]+)(['"])/g,
 				(_, quoteStart, relativeImport, quoteEnd) =>
 					`${quoteStart}${toJs(relativeImport, sourceDir)}${quoteEnd}`
 			);
+	};
 
 	const localCss = await Promise.all(
 		descriptor.styles.map(
