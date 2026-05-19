@@ -79,17 +79,25 @@ const preserveTypeExports = (
 	return `${transpiled}\n${stubs}\n`;
 };
 // Try known extensions to resolve an extensionless path. Returns
-// the original path if none match (existsSync-based probing).
+// the original path if none match (existsSync-based probing). Falls
+// back to `<srcPath>/index.<ext>` so `import "../state"` resolves to
+// `state/index.ts` (Node's directory-module resolution).
 const resolveRelativeExtension = (
 	srcPath: string,
 	projectRoot: string,
 	extensions: string[]
 ) => {
-	const found = extensions.find((ext) =>
+	const directHit = extensions.find((ext) =>
 		existsSync(resolve(projectRoot, srcPath + ext))
 	);
+	if (directHit) return srcPath + directHit;
 
-	return found ? srcPath + found : srcPath;
+	const indexHit = extensions.find((ext) =>
+		existsSync(resolve(projectRoot, srcPath, `index${ext}`))
+	);
+	if (indexHit) return `${srcPath}/index${indexHit}`;
+
+	return srcPath;
 };
 
 const IMPORT_EXTENSIONS = ['.tsx', '.ts', '.jsx', '.js', '.svelte', '.vue'];
