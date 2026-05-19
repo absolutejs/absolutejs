@@ -2146,6 +2146,13 @@ const buildUnlocked = async ({
 		'svelte/*',
 		'vue',
 		'vue/*',
+		// vue-demi is a Vue 2/3 compat shim that does `import * as Vue from 'vue'`
+		// followed by `export * from 'vue'`. Bun's bundler rewrites the second
+		// statement into a `__reExport(exports, vue)` call that references an
+		// undefined `vue` binding, so the bundled SSR module crashes the moment
+		// `@tanstack/vue-query` (or any vue-demi consumer) is loaded. Externalize
+		// it so the Node runtime handles the re-export with normal ESM semantics.
+		'vue-demi',
 		// `@vue/*` covers @vue/compiler-sfc and friends — pulled in via dynamic
 		// imports from server-side island compile helpers. Without externalizing
 		// them, Bun still follows `await import(...)` during bundling and an
