@@ -2801,6 +2801,7 @@ const buildUnlocked = async ({
 		if (cssName) cssByName.set(cssName, artifact);
 	}
 	const fsPromises = await import('node:fs/promises');
+	const siblingCssPaths: string[] = [];
 	await Promise.all(
 		serverOutputs.map(async (artifact) => {
 			if (extname(artifact.path) !== '.js') return;
@@ -2817,6 +2818,12 @@ const buildUnlocked = async ({
 			if (!cssArtifact) return;
 			const siblingCssPath = artifact.path.replace(/\.js$/, '.css');
 			await fsPromises.copyFile(cssArtifact.path, siblingCssPath);
+			siblingCssPaths.push(siblingCssPath);
+			// Register in manifest so cleanStaleAssets (in devBuild)
+			// recognises the sibling as a live build artifact and doesn't
+			// remove it on the next walk. Without this, hashed files not
+			// in the manifest get unlinked.
+			manifest[`${pascalName}Css`] = siblingCssPath;
 		})
 	);
 
@@ -3001,6 +3008,7 @@ const buildUnlocked = async ({
 				...nonReactClientOutputs.map((a) => a.path),
 				...islandClientOutputs.map((a) => a.path),
 				...cssOutputs.map((a) => a.path),
+				...siblingCssPaths,
 				...conventionOutputPaths
 			])
 		);
