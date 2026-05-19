@@ -1,5 +1,5 @@
 import { BASE_36_RADIX, UNFOUND_INDEX } from '../constants';
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, extname, join, resolve, relative } from 'node:path';
 import { resolvePackageImport } from '../build/resolvePackageImport';
 import { addAutoRouterSetupApp } from '../build/vueAutoRouterTransform';
@@ -993,6 +993,14 @@ const transformVueFile = async (
 	const hasScript = descriptor.script || descriptor.scriptSetup;
 	const compiledScript = hasScript
 		? vueCompiler.compileScript(descriptor, {
+				fs: {
+					fileExists: existsSync,
+					readFile: (file) =>
+						existsSync(file)
+							? readFileSync(file, 'utf-8')
+							: undefined,
+					realpath: realpathSync
+				},
 				id: componentId,
 				inlineTemplate: false
 			})

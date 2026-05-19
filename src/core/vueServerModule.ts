@@ -1,3 +1,4 @@
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
 import { Transpiler } from 'bun';
@@ -99,6 +100,14 @@ export const compileVueServerModule = async (sourcePath: string) => {
 	const hasScript = descriptor.script || descriptor.scriptSetup;
 	const compiledScript = hasScript
 		? compiler.compileScript(descriptor, {
+				fs: {
+					fileExists: existsSync,
+					readFile: (file) =>
+						existsSync(file)
+							? readFileSync(file, 'utf-8')
+							: undefined,
+					realpath: realpathSync
+				},
 				id: componentId,
 				inlineTemplate: false
 			})
