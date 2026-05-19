@@ -2075,7 +2075,8 @@ const handleAngularFastPath = async (
 		editedProvidersChain && initialPageEntries.length === 0
 			? (() => {
 					const allPages: string[] = [];
-					const { readdirSync } = require('node:fs') as typeof import('node:fs');
+					const { readdirSync } =
+						require('node:fs') as typeof import('node:fs');
 					const walk = (dir: string) => {
 						for (const entry of readdirSync(dir, {
 							withFileTypes: true

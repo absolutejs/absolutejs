@@ -104,12 +104,12 @@ describe('Angular config-driven providers (HMR)', () => {
 			[
 				"import type { EnvironmentProviders, Provider } from '@angular/core';",
 				"import { InjectionToken } from '@angular/core';",
-				"",
+				'',
 				"export const FROM_APP_PROVIDERS = new InjectionToken<string>('FROM_APP_PROVIDERS');",
-				"",
-				"export const appProviders: ReadonlyArray<Provider | EnvironmentProviders> = [",
+				'',
+				'export const appProviders: ReadonlyArray<Provider | EnvironmentProviders> = [',
 				"	{ provide: FROM_APP_PROVIDERS, useValue: 'config-providers-flow' }",
-				"];"
+				'];'
 			].join('\n')
 		);
 		await waitForBundleRebuild(client);
@@ -216,12 +216,12 @@ describe('Angular config-driven providers (HMR)', () => {
 			[
 				"import type { EnvironmentProviders, Provider } from '@angular/core';",
 				"import { InjectionToken } from '@angular/core';",
-				"",
+				'',
 				"export const TENANT_ID = new InjectionToken<string>('TENANT_ID');",
-				"",
-				"export const appProviders: ReadonlyArray<Provider | EnvironmentProviders> = [",
+				'',
+				'export const appProviders: ReadonlyArray<Provider | EnvironmentProviders> = [',
 				"	{ provide: TENANT_ID, useValue: 'tenant-a' }",
-				"];"
+				'];'
 			].join('\n')
 		);
 		await waitForBundleRebuild(client);

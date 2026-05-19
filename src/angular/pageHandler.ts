@@ -349,10 +349,15 @@ export const handleAngularPageRequest = async <Page = unknown>(
 				// top. No runtime dynamic import, no per-request URL
 				// match against a route-mounts map, single
 				// `@angular/core` instance across page + providers.
-				const pageProvidersExport = Reflect.get(pageModule, 'providers');
+				const pageProvidersExport = Reflect.get(
+					pageModule,
+					'providers'
+				);
 				const pageProviders: ReadonlyArray<
 					Provider | EnvironmentProviders
-				> = Array.isArray(pageProvidersExport) ? pageProvidersExport : [];
+				> = Array.isArray(pageProvidersExport)
+					? pageProvidersExport
+					: [];
 				// Per-request `providers` from the handler call sit on top
 				// of the bundled page providers and below the framework
 				// extras, so a handler-call override beats `appProviders`
