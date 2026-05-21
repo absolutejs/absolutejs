@@ -302,6 +302,16 @@ export const eslint = async (args: string[]) => {
 		return;
 	}
 
+	// `bun eslint` would otherwise fail with a cryptic `Script not found
+	// "eslint"` when the project hasn't installed ESLint. Surface an
+	// actionable message instead (mirrors the typecheck checker hints).
+	if (!existsSync(resolve('node_modules', '.bin', 'eslint'))) {
+		console.error(
+			'\x1b[31m✗\x1b[0m ESLint is not installed in this project. Add it (and a flat `eslint.config.*`): bun add -d eslint'
+		);
+		process.exit(1);
+	}
+
 	checkForMisplacedIgnores();
 
 	const command = [
