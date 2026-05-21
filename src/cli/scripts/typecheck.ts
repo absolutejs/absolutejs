@@ -18,7 +18,21 @@ type CheckerResult = { name: string; exitCode: number; output: string };
 const isCommandService = (service: ServiceConfig) =>
 	service.kind === 'command' || Array.isArray(service.command);
 
+const resolveConfigPath = (configPath?: string) =>
+	resolve(configPath ?? process.env.ABSOLUTE_CONFIG ?? 'absolute.config.ts');
+
 const getTypecheckTargets = async (configPath?: string) => {
+	// The config is optional for typechecking. A plain TypeScript library or
+	// published package is not an AbsoluteJS app — it has no frontend
+	// directories to discover — but it should still be able to run
+	// `absolute typecheck` (cached tsc, with vue-tsc/svelte-check/ngc layered
+	// in only when a config declares those framework directories). With no
+	// config present we fall back to a single framework-less target, so the
+	// check is exactly `tsc --noEmit` over the project's tsconfig.
+	if (!existsSync(resolveConfigPath(configPath))) {
+		return [{} as AbsoluteServiceConfig];
+	}
+
 	const rawConfig = await loadRawConfig(configPath);
 	if (!isWorkspaceConfig(rawConfig)) {
 		return [await loadConfig(configPath)];
