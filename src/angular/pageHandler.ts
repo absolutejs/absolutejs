@@ -91,6 +91,39 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const isAngularComponent = (value: unknown): value is Type<unknown> =>
 	typeof value === 'function';
 
+/** True when a standalone component imports `RouterOutlet` (i.e. its template
+ *  hosts `<router-outlet>`). Used to pick the page root among co-located
+ *  components: the routed children don't import the outlet, the host does.
+ *  Matched by selector string rather than class identity so it survives
+ *  duplicate `@angular/router` module instances. */
+const componentHostsRouterOutlet = (component: Type<unknown>): boolean => {
+	const componentDef = Reflect.get(component, 'ɵcmp') as
+		| { dependencies?: unknown }
+		| undefined;
+	if (!componentDef) return false;
+
+	const rawDependencies = componentDef.dependencies;
+	const dependencies =
+		typeof rawDependencies === 'function'
+			? (rawDependencies as () => unknown[])()
+			: rawDependencies;
+	if (!Array.isArray(dependencies)) return false;
+
+	return dependencies.some((dependency) => {
+		const directiveDef =
+			(Reflect.get(dependency as object, 'ɵdir') as
+				| { selectors?: unknown }
+				| undefined) ??
+			(dependency as { selectors?: unknown } | undefined);
+		const selectors = directiveDef?.selectors;
+
+		return (
+			Array.isArray(selectors) &&
+			JSON.stringify(selectors).includes('router-outlet')
+		);
+	});
+};
+
 /** Walks the page module looking for the component to render. The
  *  canonical export is a single `export class FooComponent` — page
  *  modules need no `defineAngularPage` wrapper, no `export default`,
@@ -107,9 +140,22 @@ const resolvePageComponent = (pageModule: Record<string, unknown>) => {
 		return defaultExport;
 	}
 
-	return Object.values(pageModule).findLast((value) =>
-		isAngularComponent(value)
-	);
+	const components = Object.values(pageModule).filter(isAngularComponent);
+	if (components.length <= 1) {
+		return components[0];
+	}
+
+	// Multiple components (a router-outlet host plus co-located routed
+	// children). The "page-level component is whichever is declared last"
+	// heuristic can't be honored here: a module namespace exposes its keys
+	// alphabetically, not in declaration order. Pick the component that hosts
+	// the router-outlet — that's the page root; the rest are routed children.
+	const outletHosts = components.filter(componentHostsRouterOutlet);
+	if (outletHosts.length === 1) {
+		return outletHosts[0];
+	}
+
+	return components.at(-1);
 };
 
 // `@angular/compiler` is required at request time only in dev, where
