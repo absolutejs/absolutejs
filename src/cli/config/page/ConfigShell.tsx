@@ -1,13 +1,17 @@
 import { EslintPanel } from '../eslint/EslintPanel';
 import { ESLINT_CSS } from '../eslint/eslintStyles';
+import { TsconfigPanel } from '../tsconfig/TsconfigPanel';
+import { TSCONFIG_CSS } from '../tsconfig/tsconfigStyles';
 import { CONFIG_CSS } from './configStyles';
 import { CONFIG_PANELS } from '../panels';
 import type { ConfigPanelId, ConfigPanelMeta } from '../../../../types/config';
 import type { RuleCatalog } from '../../../../types/eslintConfig';
+import type { TsConfigState } from '../../../../types/tsconfig';
 
 type ConfigShellProps = {
 	eslintCatalog: RuleCatalog | null;
 	panel: ConfigPanelId;
+	tsconfigState: TsConfigState | null;
 };
 
 type NavItemProps = {
@@ -44,11 +48,19 @@ const Placeholder = ({ body, title }: PlaceholderProps) => (
 	</div>
 );
 
-const renderBody = (
-	panel: ConfigPanelId,
-	eslintCatalog: RuleCatalog | null,
-	active: ConfigPanelMeta | undefined
-) => {
+type RenderBodyArgs = {
+	active: ConfigPanelMeta | undefined;
+	eslintCatalog: RuleCatalog | null;
+	panel: ConfigPanelId;
+	tsconfigState: TsConfigState | null;
+};
+
+const renderBody = ({
+	active,
+	eslintCatalog,
+	panel,
+	tsconfigState
+}: RenderBodyArgs) => {
 	if (panel === 'eslint') {
 		if (eslintCatalog) return <EslintPanel catalog={eslintCatalog} />;
 
@@ -66,6 +78,23 @@ const renderBody = (
 		);
 	}
 
+	if (panel === 'tsconfig') {
+		if (tsconfigState?.configPath) {
+			return <TsconfigPanel state={tsconfigState} />;
+		}
+
+		return (
+			<div className="cfg-placeholder">
+				<h2 className="cfg-placeholder-title">
+					No <em>tsconfig</em> found
+				</h2>
+				<p className="cfg-placeholder-text">
+					No tsconfig.json or jsconfig.json was found in this project.
+				</p>
+			</div>
+		);
+	}
+
 	if (active) {
 		return (
 			<Placeholder
@@ -78,7 +107,11 @@ const renderBody = (
 	return null;
 };
 
-export const ConfigShell = ({ eslintCatalog, panel }: ConfigShellProps) => {
+export const ConfigShell = ({
+	eslintCatalog,
+	panel,
+	tsconfigState
+}: ConfigShellProps) => {
 	const active = CONFIG_PANELS.find((entry) => entry.id === panel);
 	const activeLabel = active?.label ?? 'Config';
 
@@ -103,7 +136,7 @@ export const ConfigShell = ({ eslintCatalog, panel }: ConfigShellProps) => {
 				/>
 				<style
 					dangerouslySetInnerHTML={{
-						__html: ESLINT_CSS + CONFIG_CSS
+						__html: ESLINT_CSS + TSCONFIG_CSS + CONFIG_CSS
 					}}
 				/>
 			</head>
@@ -128,7 +161,12 @@ export const ConfigShell = ({ eslintCatalog, panel }: ConfigShellProps) => {
 						</nav>
 					</aside>
 					<main className="cfg-main">
-						{renderBody(panel, eslintCatalog, active)}
+						{renderBody({
+							active,
+							eslintCatalog,
+							panel,
+							tsconfigState
+						})}
 					</main>
 				</div>
 			</body>

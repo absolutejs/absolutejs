@@ -7,6 +7,11 @@ import { applyRuleEdit } from './eslint/editConfigRule';
 import { resolveRuleCatalog } from './eslint/resolveConfig';
 import { ensureConfigCert } from './configCert';
 import { isRecord } from './guards';
+import { applyTsconfigEdit } from './tsconfig/editTsconfig';
+import {
+	findTsconfigPath,
+	resolveTsconfigState
+} from './tsconfig/resolveTsconfig';
 import {
 	CONFIG_DEFAULT_HOST,
 	CONFIG_DEFAULT_PORT,
@@ -21,6 +26,7 @@ import type {
 	RuleEditResult,
 	RuleSeverity
 } from '../../../types/eslintConfig';
+import type { TsEditRequest, TsEditResult } from '../../../types/tsconfig';
 
 const CLIENT_ROUTE = '/config-client.js';
 
@@ -91,11 +97,13 @@ const renderShell = async (
 ) => {
 	const eslintCatalog =
 		panel === 'eslint' ? await resolveRuleCatalog(cwd, fileScope) : null;
+	const tsconfigState =
+		panel === 'tsconfig' ? resolveTsconfigState(cwd) : null;
 
 	return handleReactPageRequest({
 		Page: ConfigShell,
 		index: CLIENT_ROUTE,
-		props: { eslintCatalog, panel }
+		props: { eslintCatalog, panel, tsconfigState }
 	});
 };
 
@@ -151,6 +159,46 @@ const handleEdit = async (cwd: string, body: unknown) => {
 	return result;
 };
 
+const parseTsEditRequest = (body: unknown) => {
+	if (!isRecord(body) || typeof body.name !== 'string') return null;
+
+	const request: TsEditRequest = {
+		name: body.name,
+		remove: body.remove === true,
+		value: body.value
+	};
+
+	return request;
+};
+
+const handleTsEdit = (cwd: string, body: unknown) => {
+	const request = parseTsEditRequest(body);
+	const configPath = findTsconfigPath(cwd);
+	if (!request || !configPath) {
+		const invalid: TsEditResult = {
+			message: !configPath
+				? 'No tsconfig.json found.'
+				: 'Invalid edit request.',
+			ok: false,
+			state: null
+		};
+
+		return new Response(JSON.stringify(invalid), {
+			headers: { 'Content-Type': 'application/json' },
+			status: HTTP_STATUS_BAD_REQUEST
+		});
+	}
+
+	const outcome = applyTsconfigEdit(configPath, request);
+	const result: TsEditResult = {
+		message: outcome.message,
+		ok: outcome.ok,
+		state: outcome.ok ? resolveTsconfigState(cwd) : null
+	};
+
+	return result;
+};
+
 const listenOptions = (
 	port: number,
 	cert: { cert: string; key: string } | null
@@ -187,6 +235,8 @@ export const launchConfig = async (args: string[], cwd = process.cwd()) => {
 			resolveRuleCatalog(cwd, fileScopeOf(query))
 		)
 		.post('/api/rules', ({ body }) => handleEdit(cwd, body))
+		.get('/api/tsconfig', () => resolveTsconfigState(cwd))
+		.post('/api/tsconfig', ({ body }) => handleTsEdit(cwd, body))
 		.listen(listenOptions(port, cert));
 
 	const url = cert ? `https://${host}:${port}` : `http://localhost:${port}`;

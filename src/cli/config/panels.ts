@@ -14,7 +14,7 @@ export const CONFIG_PANELS: ConfigPanelMeta[] = [
 		blurb: 'TypeScript compiler options',
 		id: 'tsconfig',
 		label: 'tsconfig',
-		status: 'soon'
+		status: 'ready'
 	},
 	{
 		blurb: 'Formatting options',
