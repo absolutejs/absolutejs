@@ -5,6 +5,7 @@ export * from './jsonLd';
 export * from './defineEnv';
 export * from './getEnv';
 export * from './networking';
+export * from './projectRoot';
 export * from './registerClientScript';
 export * from './streamingSlotMetricSink';
 export * from './streamingSlots';
