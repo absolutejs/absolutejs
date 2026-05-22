@@ -10,7 +10,7 @@ import {
 	objectProperties,
 	parseConfigSource
 } from './configAst';
-import { getRecord, getString, isMap, isRecord } from './guards';
+import { getRecord, getString, isMap, isRecord } from '../guards';
 import type {
 	ConfigBlock,
 	ConfiguredRule,
@@ -18,7 +18,7 @@ import type {
 	RuleCatalog,
 	RuleMeta,
 	RuleSeverity
-} from '../../../../types/eslintStudio';
+} from '../../../../types/eslintConfig';
 
 const CONFIG_CANDIDATES = [
 	'eslint.config.js',

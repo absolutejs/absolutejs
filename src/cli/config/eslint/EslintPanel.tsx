@@ -1,17 +1,16 @@
 import { useMemo, useState } from 'react';
-import { STUDIO_CSS } from './studioStyles';
 import type {
 	ConfigBlock,
 	EffectiveRule,
 	RuleCatalog,
 	RuleMeta,
 	RuleSeverity
-} from '../../../../../types/eslintStudio';
+} from '../../../../types/eslintConfig';
 
 const SEVERITIES: RuleSeverity[] = ['off', 'warn', 'error'];
 const CATALOG_RENDER_CAP = 250;
 
-type StudioTab = 'config' | 'catalog' | 'effective';
+type EslintTab = 'config' | 'catalog' | 'effective';
 
 type Notice = {
 	kind: 'ok' | 'err';
@@ -295,13 +294,13 @@ const matchesQuery = (
 	);
 };
 
-type StudioAppProps = {
+type EslintPanelProps = {
 	catalog: RuleCatalog;
 };
 
-const StudioApp = ({ catalog: initialCatalog }: StudioAppProps) => {
+export const EslintPanel = ({ catalog: initialCatalog }: EslintPanelProps) => {
 	const [catalog, setCatalog] = useState(initialCatalog);
-	const [tab, setTab] = useState<StudioTab>('config');
+	const [tab, setTab] = useState<EslintTab>('config');
 	const [query, setQuery] = useState('');
 	const [source, setSource] = useState('all');
 	const [busyRule, setBusyRule] = useState<string | null>(null);
@@ -384,7 +383,7 @@ const StudioApp = ({ catalog: initialCatalog }: StudioAppProps) => {
 			<header className="topbar">
 				<div className="brand">
 					<h1 className="wordmark">
-						ESLint <em>Studio</em>
+						ESLint <em>rules</em>
 					</h1>
 					<div className="subpath">
 						<span className="dot" />
@@ -729,34 +728,3 @@ const effectiveSeverity = (
 	name: string,
 	effectiveByName: Map<string, RuleSeverity>
 ) => effectiveByName.get(name) ?? 'off';
-
-type EslintStudioProps = {
-	catalog: RuleCatalog;
-};
-
-export const EslintStudio = ({ catalog }: EslintStudioProps) => (
-	<html lang="en">
-		<head>
-			<meta charSet="utf-8" />
-			<meta
-				content="width=device-width, initial-scale=1"
-				name="viewport"
-			/>
-			<title>ESLint Studio</title>
-			<link href="https://fonts.googleapis.com" rel="preconnect" />
-			<link
-				crossOrigin="anonymous"
-				href="https://fonts.gstatic.com"
-				rel="preconnect"
-			/>
-			<link
-				href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap"
-				rel="stylesheet"
-			/>
-			<style dangerouslySetInnerHTML={{ __html: STUDIO_CSS }} />
-		</head>
-		<body>
-			<StudioApp catalog={catalog} />
-		</body>
-	</html>
-);

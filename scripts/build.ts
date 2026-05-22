@@ -181,45 +181,45 @@ const EXTERNALS = [
 	'@absolutejs/native-darwin-arm64'
 ];
 
-/* The Studio server bundles React (for SSR) so it works even in
+/* The config server bundles React (for SSR) so it works even in
    Svelte/Vue/Angular-only projects that never installed React. ESLint and
    Elysia stay external — every consuming project already has them, and the
    user's ESLint must be the one that resolves their config + plugins. */
-const STUDIO_SERVER_EXTERNALS = [
+const CONFIG_SERVER_EXTERNALS = [
 	...EXTERNALS.filter((dep) => dep !== 'react' && dep !== 'react-dom'),
 	'eslint',
 	'eslint/use-at-your-own-risk'
 ];
 
-const buildEslintStudio = async () => {
-	console.log('Building ESLint Studio (server)...');
-	const studioServerBuild = await Bun.build({
-		entrypoints: ['src/cli/eslint/studio/server.ts'],
-		external: STUDIO_SERVER_EXTERNALS,
+const buildConfig = async () => {
+	console.log('Building Absolute Config (server)...');
+	const configServerBuild = await Bun.build({
+		entrypoints: ['src/cli/config/server.ts'],
+		external: CONFIG_SERVER_EXTERNALS,
 		jsx: { development: false },
-		outdir: join(DIST, 'cli', 'eslint', 'studio'),
+		outdir: join(DIST, 'cli', 'config'),
 		target: 'bun'
 	});
 
-	if (!studioServerBuild.success) {
-		console.error('ESLint Studio server build failed:');
-		for (const log of studioServerBuild.logs) console.error(log);
+	if (!configServerBuild.success) {
+		console.error('Absolute Config server build failed:');
+		for (const log of configServerBuild.logs) console.error(log);
 		process.exit(1);
 	}
 
-	console.log('Building ESLint Studio (client)...');
-	const studioClientBuild = await Bun.build({
+	console.log('Building Absolute Config (client)...');
+	const configClientBuild = await Bun.build({
 		define: { 'process.env.NODE_ENV': '"production"' },
-		entrypoints: ['src/cli/eslint/studio/client.tsx'],
+		entrypoints: ['src/cli/config/client.tsx'],
 		jsx: { development: false },
 		minify: true,
-		outdir: join(DIST, 'cli', 'eslint', 'studio'),
+		outdir: join(DIST, 'cli', 'config'),
 		target: 'browser'
 	});
 
-	if (!studioClientBuild.success) {
-		console.error('ESLint Studio client build failed:');
-		for (const log of studioClientBuild.logs) console.error(log);
+	if (!configClientBuild.success) {
+		console.error('Absolute Config client build failed:');
+		for (const log of configClientBuild.logs) console.error(log);
 		process.exit(1);
 	}
 };
@@ -281,7 +281,7 @@ const build = async () => {
 	}
 
 	console.log('Building CLI...');
-	// The Studio server is built as a separate bundle below (it carries React
+	// The config server is built as a separate bundle below (it carries React
 	// for SSR). The CLI imports it via a runtime-resolved specifier, so the
 	// bundler leaves it out of this lean main chunk automatically.
 	const cliBuild = await Bun.build({
@@ -296,7 +296,7 @@ const build = async () => {
 		process.exit(1);
 	}
 
-	await buildEslintStudio();
+	await buildConfig();
 
 	console.log('Generating type declarations...');
 	// tsc emits .d.ts files even when reporting type errors (noEmitOnError defaults

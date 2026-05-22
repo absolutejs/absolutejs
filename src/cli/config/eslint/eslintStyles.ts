@@ -1,4 +1,4 @@
-export const STUDIO_CSS = `
+export const ESLINT_CSS = `
 :root {
 	--bg: #0b0c0e;
 	--bg-grid: #14161a;

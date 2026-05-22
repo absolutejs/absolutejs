@@ -1,26 +1,28 @@
 import { Elysia } from 'elysia';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { applyRuleEdit } from './editConfigRule';
+import { ConfigShell } from './page/ConfigShell';
+import { DEFAULT_PANEL } from './panels';
+import { applyRuleEdit } from './eslint/editConfigRule';
+import { resolveRuleCatalog } from './eslint/resolveConfig';
+import { ensureConfigCert } from './configCert';
 import { isRecord } from './guards';
-import { EslintStudio } from './page/EslintStudio';
-import { resolveRuleCatalog } from './resolveConfig';
-import { ensureStudioCert } from './studioCert';
 import {
-	ESLINT_STUDIO_DEFAULT_HOST,
-	ESLINT_STUDIO_DEFAULT_PORT,
+	CONFIG_DEFAULT_HOST,
+	CONFIG_DEFAULT_PORT,
 	HTTP_STATUS_BAD_REQUEST,
 	UNFOUND_INDEX
-} from '../../../constants';
-import { handleReactPageRequest } from '../../../react/pageHandler';
-import { killStaleProcesses, openUrlInBrowser } from '../../utils';
+} from '../../constants';
+import { handleReactPageRequest } from '../../react/pageHandler';
+import { killStaleProcesses, openUrlInBrowser } from '../utils';
+import type { ConfigPanelId } from '../../../types/config';
 import type {
 	RuleEditRequest,
 	RuleEditResult,
 	RuleSeverity
-} from '../../../../types/eslintStudio';
+} from '../../../types/eslintConfig';
 
-const CLIENT_ROUTE = '/studio-client.js';
+const CLIENT_ROUTE = '/config-client.js';
 
 const flagValue = (args: string[], flag: string) => {
 	const index = args.indexOf(flag);
@@ -32,16 +34,16 @@ const resolvePort = (args: string[]) => {
 	const fromFlag = Number(flagValue(args, '--port'));
 	if (Number.isInteger(fromFlag) && fromFlag > 0) return fromFlag;
 
-	const fromEnv = Number(process.env.ABSOLUTE_ESLINT_STUDIO_PORT);
+	const fromEnv = Number(process.env.ABSOLUTE_CONFIG_PORT);
 	if (Number.isInteger(fromEnv) && fromEnv > 0) return fromEnv;
 
-	return ESLINT_STUDIO_DEFAULT_PORT;
+	return CONFIG_DEFAULT_PORT;
 };
 
 const resolveHost = (args: string[]) =>
 	flagValue(args, '--host') ||
-	process.env.ABSOLUTE_ESLINT_STUDIO_HOST ||
-	ESLINT_STUDIO_DEFAULT_HOST;
+	process.env.ABSOLUTE_CONFIG_HOST ||
+	CONFIG_DEFAULT_HOST;
 
 const fileScopeOf = (query: Record<string, unknown>) =>
 	typeof query.file === 'string' ? query.file : undefined;
@@ -62,12 +64,12 @@ const buildClientBundle = async () => {
 	});
 	if (!built.success) {
 		throw new Error(
-			`Failed to build ESLint Studio client: ${built.logs.join('\n')}`
+			`Failed to build Absolute Config client: ${built.logs.join('\n')}`
 		);
 	}
 
 	const [output] = built.outputs;
-	if (!output) throw new Error('ESLint Studio client produced no output.');
+	if (!output) throw new Error('Absolute Config client produced no output.');
 
 	return output.text();
 };
@@ -82,13 +84,18 @@ const getClientBundle = async () => {
 	return cachedClientBundle;
 };
 
-const renderPage = async (cwd: string, fileScope?: string) => {
-	const catalog = await resolveRuleCatalog(cwd, fileScope);
+const renderShell = async (
+	panel: ConfigPanelId,
+	cwd: string,
+	fileScope?: string
+) => {
+	const eslintCatalog =
+		panel === 'eslint' ? await resolveRuleCatalog(cwd, fileScope) : null;
 
 	return handleReactPageRequest({
+		Page: ConfigShell,
 		index: CLIENT_ROUTE,
-		Page: EslintStudio,
-		props: { catalog }
+		props: { eslintCatalog, panel }
 	});
 };
 
@@ -152,23 +159,23 @@ const listenOptions = (
 		? { hostname: '127.0.0.1', port, tls: cert }
 		: { hostname: '127.0.0.1', port };
 
-export const launchEslintStudio = async (
-	args: string[],
-	cwd = process.cwd()
-) => {
+export const launchConfig = async (args: string[], cwd = process.cwd()) => {
 	const port = resolvePort(args);
 	const host = resolveHost(args);
 	const httpsRequested = !args.includes('--no-https');
 	killStaleProcesses(port);
 
-	// Fail fast with a clear message before binding a port if the project
-	// has no flat config to manage.
-	const { configPath } = await resolveRuleCatalog(cwd);
-
-	const cert = httpsRequested ? ensureStudioCert(host) : null;
+	const cert = httpsRequested ? ensureConfigCert(host) : null;
 
 	const app = new Elysia()
-		.get('/', ({ query }) => renderPage(cwd, fileScopeOf(query)))
+		.get('/', ({ query }) =>
+			renderShell(DEFAULT_PANEL, cwd, fileScopeOf(query))
+		)
+		.get('/eslint', ({ query }) =>
+			renderShell('eslint', cwd, fileScopeOf(query))
+		)
+		.get('/tsconfig', () => renderShell('tsconfig', cwd))
+		.get('/prettier', () => renderShell('prettier', cwd))
 		.get(CLIENT_ROUTE, async () => {
 			const bundle = await getClientBundle();
 
@@ -186,8 +193,10 @@ export const launchEslintStudio = async (
 	const green = '\x1b[32m';
 	const dim = '\x1b[2m';
 	const reset = '\x1b[0m';
-	console.log(`\n${green}✓ ESLint Studio${reset} running at ${url}`);
-	console.log(`${dim}Editing ${configPath} — press Ctrl+C to stop${reset}`);
+	console.log(`\n${green}✓ Absolute Config${reset} running at ${url}`);
+	console.log(
+		`${dim}ESLint · tsconfig · Prettier — press Ctrl+C to stop${reset}`
+	);
 	if (!cert && httpsRequested) {
 		console.log(
 			`${dim}Tip: install mkcert (\`absolute mkcert\`) to serve a trusted https://${host}${reset}`

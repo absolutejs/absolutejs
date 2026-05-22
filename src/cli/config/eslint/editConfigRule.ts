@@ -8,9 +8,9 @@ import {
 	objectProperties,
 	parseConfigSource
 } from './configAst';
-import { isRecord } from './guards';
+import { isRecord } from '../guards';
 import { serializeRuleValue } from './serializeValue';
-import type { RuleEditRequest } from '../../../../types/eslintStudio';
+import type { RuleEditRequest } from '../../../../types/eslintConfig';
 
 export type EditOutcome = {
 	message: string | null;

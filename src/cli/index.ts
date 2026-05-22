@@ -64,14 +64,14 @@ if (command === 'dev') {
 		configPath,
 		noTui: args.includes('--no-tui')
 	});
-} else if (command === 'eslint' && args[0] === 'studio') {
-	sendTelemetryEvent('cli:command', { command: 'eslint:studio' });
+} else if (command === 'config') {
+	sendTelemetryEvent('cli:command', { command: 'config' });
 	// Resolved at runtime (not a static literal) so the bundler keeps the
-	// React-carrying Studio server out of the lean main CLI chunk. Resolves
-	// to `studio/server.ts` from source and `studio/server.js` from dist.
-	const studioServerModule = `${import.meta.dir}/eslint/studio/server`;
-	const { launchEslintStudio } = await import(studioServerModule);
-	await launchEslintStudio(args.slice(1));
+	// React-carrying config server out of the lean main CLI chunk. Resolves
+	// to `config/server.ts` from source and `config/server.js` from dist.
+	const configServerModule = `${import.meta.dir}/config/server`;
+	const { launchConfig } = await import(configServerModule);
+	await launchConfig(args);
 } else if (command === 'eslint') {
 	sendTelemetryEvent('cli:command', { command });
 	await eslint(args);
@@ -118,10 +118,10 @@ if (command === 'dev') {
 	console.error(
 		'  compile [entry] [--outdir dir] [--outfile path] Compile standalone executable'
 	);
-	console.error('  eslint        Run ESLint (cached)');
 	console.error(
-		'  eslint studio [--port n] Open the rule manager UI in a browser'
+		'  config [--port n] Open the unified config UI (ESLint, tsconfig, Prettier)'
 	);
+	console.error('  eslint        Run ESLint (cached)');
 	console.error('  info          Print system info for bug reports');
 	console.error('  prettier      Run Prettier check (cached)');
 	console.error('  typecheck     Run type checkers for all frameworks');
