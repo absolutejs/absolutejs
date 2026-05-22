@@ -1,4 +1,10 @@
-import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import {
+	copyFileSync,
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	rmSync
+} from 'node:fs';
 import { platform } from 'node:os';
 import { join } from 'node:path';
 
@@ -277,6 +283,81 @@ const ensureMkcert = () => {
 	return true;
 };
 
+const isWSL = () => {
+	if (platform() !== 'linux') return false;
+	try {
+		return /microsoft|wsl/i.test(readFileSync('/proc/version', 'utf-8'));
+	} catch {
+		return false;
+	}
+};
+
+const runCapture = (cmd: string[]) => {
+	try {
+		const result = Bun.spawnSync(cmd, { stderr: 'pipe', stdout: 'pipe' });
+		if (result.exitCode !== 0) return null;
+		const out = new TextDecoder().decode(result.stdout).trim();
+
+		return out || null;
+	} catch {
+		return null;
+	}
+};
+
+const mkcertCaRoot = () => runCapture(['mkcert', '-CAROOT']);
+const toWindowsPath = (linuxPath: string) =>
+	runCapture(['wslpath', '-w', linuxPath]);
+const windowsTempDir = () => {
+	const winTemp = runCapture(['cmd.exe', '/c', 'echo %TEMP%']);
+	if (!winTemp) return null;
+
+	return runCapture(['wslpath', '-u', winTemp]);
+};
+
+/**
+ * Under WSL the browser runs on Windows, whose trust store never receives the
+ * CA that `mkcert -install` added on the Linux side — so dev HTTPS shows as
+ * untrusted there. Stage mkcert's rootCA in a Windows-visible temp dir and
+ * import it into the current user's Root store via PowerShell (no admin, no GUI
+ * prompt, idempotent). Returns true when the CA is trusted on Windows.
+ */
+const trustCaOnWindows = () => {
+	const caRoot = mkcertCaRoot();
+	if (!caRoot) return false;
+	const rootCa = join(caRoot, 'rootCA.pem');
+	if (!existsSync(rootCa)) return false;
+
+	const winTemp = windowsTempDir();
+	if (!winTemp) return false;
+
+	const staged = join(winTemp, 'absolutejs-mkcert-rootCA.crt');
+	try {
+		copyFileSync(rootCa, staged);
+	} catch {
+		return false;
+	}
+
+	const stagedWin = toWindowsPath(staged);
+	if (!stagedWin) {
+		rmSync(staged, { force: true });
+
+		return false;
+	}
+
+	const result = Bun.spawnSync(
+		[
+			'powershell.exe',
+			'-NoProfile',
+			'-Command',
+			`Import-Certificate -FilePath '${stagedWin}' -CertStoreLocation Cert:\\CurrentUser\\Root`
+		],
+		{ stderr: 'pipe', stdout: 'pipe' }
+	);
+	rmSync(staged, { force: true });
+
+	return result.exitCode === 0;
+};
+
 // CLI command: install mkcert, set up CA, regenerate cert
 export const setupMkcert = () => {
 	if (!ensureMkcert()) return false;
@@ -292,6 +373,29 @@ export const setupMkcert = () => {
 		devWarn('Failed to install local CA');
 
 		return false;
+	}
+
+	// On WSL the Linux trust store the step above wrote to is invisible to the
+	// Windows browser; mirror the CA into the Windows store so HTTPS is trusted.
+	if (isWSL()) {
+		if (trustCaOnWindows()) {
+			devLog(
+				'Trusted the local CA in the Windows store — Chrome/Edge on Windows now accept dev HTTPS'
+			);
+		} else {
+			const caRoot = mkcertCaRoot();
+			const hint = caRoot
+				? toWindowsPath(join(caRoot, 'rootCA.pem'))
+				: null;
+			devWarn(
+				'Could not auto-trust the local CA on Windows; Windows browsers may warn.'
+			);
+			if (hint) {
+				console.log(
+					`  Run in PowerShell: Import-Certificate -FilePath "${hint}" -CertStoreLocation Cert:\\CurrentUser\\Root`
+				);
+			}
+		}
 	}
 
 	// Remove old cert to force regeneration with mkcert
