@@ -1,13 +1,22 @@
 import ts from 'typescript';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { introspectConfigFields } from './introspectConfig';
+import { introspectType } from '../introspectType';
 
 const CONFIG_CANDIDATES = [
 	'absolute.config.ts',
 	'absolute.config.js',
 	'absolute.config.mjs'
 ];
+
+// Members injected by the CLI/runtime, not written in defineConfig({...}).
+const RUNTIME_FIELDS = new Set([
+	'cwd',
+	'config',
+	'entry',
+	'mode',
+	'incrementalFiles'
+]);
 
 export const findConfigPath = (cwd: string) => {
 	for (const name of CONFIG_CANDIDATES) {
@@ -115,16 +124,25 @@ const readCurrent = (configPath: string) => {
 
 export const resolveAbsoluteConfigState = (cwd: string) => {
 	const configPath = findConfigPath(cwd);
-	const fields = introspectConfigFields(cwd);
+	const fields = introspectType(cwd, 'BaseBuildConfig', RUNTIME_FIELDS);
 	const { complexKeys, current } = configPath
 		? readCurrent(configPath)
 		: { complexKeys: [], current: {} };
+
+	// A union field that currently holds an object/array stays read-only so a
+	// typed scalar can't clobber the structure.
+	const complexSet = new Set(complexKeys);
+	const adjusted = fields.map((field) =>
+		complexSet.has(field.name) && field.kind !== 'complex'
+			? { ...field, kind: 'complex' as const }
+			: field
+	);
 
 	return {
 		available: fields.length > 0,
 		complexKeys,
 		configPath,
 		current,
-		fields
+		fields: adjusted
 	};
 };

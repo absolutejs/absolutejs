@@ -15,3 +15,23 @@ export type ConfigPanelMeta = {
 	/** `'ready'` panels are interactive; `'soon'` panels render a placeholder. */
 	status: ConfigPanelStatus;
 };
+
+export type ConfigFieldKind =
+	| 'string'
+	| 'number'
+	| 'boolean'
+	| 'enum'
+	| 'complex';
+
+/** A field recovered from a TypeScript type by introspection — the shared unit
+ *  the absolute.config and package.json panels render. */
+export type ConfigField = {
+	/** Allowed values for `enum` kinds; empty otherwise. */
+	choices: string[];
+	description: string;
+	kind: ConfigFieldKind;
+	name: string;
+	optional: boolean;
+	/** The field's TypeScript type, shown for `complex` (read-only) fields. */
+	typeText: string;
+};

@@ -1,27 +1,215 @@
 import { useState } from 'react';
+import type { ConfigField } from '../../../../types/config';
 import type {
-	PackageField,
 	PackageJsonEditResult,
 	PackageJsonState,
 	PackageScript
-} from '../../../../types/packageJson';
+} from '../../../../types/packageJsonPanel';
 
 type Notice = {
 	kind: 'ok' | 'err';
 	text: string;
 };
 
+type SaveFn = (value: unknown, remove?: boolean) => void;
+
 const matchesQuery = (query: string, text: string) =>
 	query === '' || text.toLowerCase().includes(query.toLowerCase());
 
+type BooleanControlProps = {
+	isSet: boolean;
+	onSave: SaveFn;
+	value: unknown;
+};
+
+const BooleanControl = ({ isSet, onSave, value }: BooleanControlProps) => (
+	<div className="ts-control">
+		<div className="seg">
+			<button
+				data-on={value === false}
+				onClick={() => onSave(false)}
+				type="button"
+			>
+				false
+			</button>
+			<button
+				data-on={value === true}
+				onClick={() => onSave(true)}
+				type="button"
+			>
+				true
+			</button>
+		</div>
+		{isSet && (
+			<button
+				className="ts-clear"
+				onClick={() => onSave(undefined, true)}
+				type="button"
+			>
+				unset
+			</button>
+		)}
+	</div>
+);
+
+type ChoiceControlProps = {
+	choices: string[];
+	isSet: boolean;
+	onSave: SaveFn;
+	value: unknown;
+};
+
+const ChoiceControl = ({
+	choices,
+	isSet,
+	onSave,
+	value
+}: ChoiceControlProps) => (
+	<select
+		className="ts-select"
+		onChange={(event) =>
+			event.target.value === ''
+				? onSave(undefined, true)
+				: onSave(event.target.value)
+		}
+		value={isSet ? String(value) : ''}
+	>
+		<option value="">— unset —</option>
+		{choices.map((choice) => (
+			<option key={choice} value={choice}>
+				{choice}
+			</option>
+		))}
+	</select>
+);
+
+type TextControlProps = {
+	numeric: boolean;
+	onSave: SaveFn;
+	value: unknown;
+};
+
+const TextControl = ({ numeric, onSave, value }: TextControlProps) => {
+	const [draft, setDraft] = useState(
+		value === undefined ? '' : String(value)
+	);
+	const [error, setError] = useState<string | null>(null);
+
+	const commit = () => {
+		const text = draft.trim();
+		if (text === '') {
+			onSave(undefined, true);
+			setError(null);
+
+			return;
+		}
+		if (numeric) {
+			const parsed = Number(text);
+			if (Number.isNaN(parsed)) {
+				setError('Must be a number');
+
+				return;
+			}
+			onSave(parsed);
+			setError(null);
+
+			return;
+		}
+		onSave(text);
+		setError(null);
+	};
+
+	return (
+		<div>
+			<div className="ts-control">
+				<input
+					className={error ? 'ts-input err' : 'ts-input'}
+					onChange={(event) => setDraft(event.target.value)}
+					onKeyDown={(event) => {
+						if (event.key === 'Enter') commit();
+					}}
+					spellCheck={false}
+					value={draft}
+				/>
+				<button className="ts-btn" onClick={commit} type="button">
+					save
+				</button>
+			</div>
+			{error && <div className="ts-err">{error}</div>}
+		</div>
+	);
+};
+
+type FieldRowProps = {
+	complexKeys: string[];
+	current: Record<string, unknown>;
+	field: ConfigField;
+	onSave: (name: string) => SaveFn;
+};
+
+const FieldRow = ({ complexKeys, current, field, onSave }: FieldRowProps) => {
+	const editable = field.kind !== 'complex';
+	const isSet = editable
+		? Object.prototype.hasOwnProperty.call(current, field.name)
+		: complexKeys.includes(field.name);
+	const value = current[field.name];
+
+	const control = () => {
+		if (field.kind === 'boolean') {
+			return (
+				<BooleanControl
+					isSet={isSet}
+					onSave={onSave(field.name)}
+					value={value}
+				/>
+			);
+		}
+		if (field.kind === 'enum') {
+			return (
+				<ChoiceControl
+					choices={field.choices}
+					isSet={isSet}
+					onSave={onSave(field.name)}
+					value={value}
+				/>
+			);
+		}
+
+		return (
+			<TextControl
+				numeric={field.kind === 'number'}
+				onSave={onSave(field.name)}
+				value={value}
+			/>
+		);
+	};
+
+	return (
+		<div className="rule">
+			<div className="rule-main">
+				<div className="rule-name-row">
+					<span className="rule-name">{field.name}</span>
+					{isSet && <span className="badge src">set</span>}
+					{!editable && (
+						<span className="badge dep">edit in file</span>
+					)}
+					{field.description !== '' && (
+						<span className="ts-default">{field.description}</span>
+					)}
+				</div>
+			</div>
+			{editable && <div className="rule-controls">{control()}</div>}
+		</div>
+	);
+};
+
 type ScriptRowProps = {
-	busy: boolean;
 	onRemove: () => void;
 	onSave: (command: string) => void;
 	script: PackageScript;
 };
 
-const ScriptRow = ({ busy, onRemove, onSave, script }: ScriptRowProps) => {
+const ScriptRow = ({ onRemove, onSave, script }: ScriptRowProps) => {
 	const [draft, setDraft] = useState(script.command);
 
 	return (
@@ -42,7 +230,6 @@ const ScriptRow = ({ busy, onRemove, onSave, script }: ScriptRowProps) => {
 					/>
 					<button
 						className="ts-btn"
-						disabled={busy}
 						onClick={() => onSave(draft)}
 						type="button"
 					>
@@ -106,98 +293,6 @@ const AddScript = ({ onAdd }: AddScriptProps) => {
 	);
 };
 
-type FieldRowProps = {
-	field: PackageField;
-	onSave: (value: unknown, remove?: boolean) => void;
-};
-
-const FieldRow = ({ field, onSave }: FieldRowProps) => {
-	const [draft, setDraft] = useState(
-		field.value === undefined || field.value === null
-			? ''
-			: String(field.value)
-	);
-
-	if (field.kind === 'complex') {
-		return (
-			<div className="rule">
-				<div className="rule-main">
-					<div className="rule-name-row">
-						<span className="rule-name">{field.name}</span>
-						<span className="badge dep">edit in file</span>
-					</div>
-				</div>
-			</div>
-		);
-	}
-
-	if (field.kind === 'boolean') {
-		return (
-			<div className="rule">
-				<div className="rule-main">
-					<div className="rule-name-row">
-						<span className="rule-name">{field.name}</span>
-					</div>
-				</div>
-				<div className="rule-controls">
-					<div className="seg">
-						<button
-							data-on={field.value === false}
-							onClick={() => onSave(false)}
-							type="button"
-						>
-							false
-						</button>
-						<button
-							data-on={field.value === true}
-							onClick={() => onSave(true)}
-							type="button"
-						>
-							true
-						</button>
-					</div>
-				</div>
-			</div>
-		);
-	}
-
-	const commit = () => {
-		if (field.kind === 'number') {
-			const parsed = Number(draft.trim());
-			if (!Number.isNaN(parsed)) onSave(parsed);
-
-			return;
-		}
-		onSave(draft);
-	};
-
-	return (
-		<div className="rule">
-			<div className="rule-main">
-				<div className="rule-name-row">
-					<span className="rule-name">{field.name}</span>
-				</div>
-			</div>
-			<div className="rule-controls">
-				<div className="ts-control">
-					<input
-						className="ts-input"
-						onChange={(event) => setDraft(event.target.value)}
-						onKeyDown={(event) => {
-							if (event.key === 'Enter') commit();
-						}}
-						spellCheck={false}
-						value={draft}
-					/>
-					<button className="ts-btn" onClick={commit} type="button">
-						save
-					</button>
-				</div>
-			</div>
-		</div>
-	);
-};
-
 type PackageJsonPanelProps = {
 	state: PackageJsonState;
 };
@@ -205,11 +300,9 @@ type PackageJsonPanelProps = {
 export const PackageJsonPanel = ({ state: initial }: PackageJsonPanelProps) => {
 	const [state, setState] = useState(initial);
 	const [query, setQuery] = useState('');
-	const [busy, setBusy] = useState(false);
 	const [notice, setNotice] = useState<Notice | null>(null);
 
 	const post = async (path: string, body: unknown) => {
-		setBusy(true);
 		setNotice(null);
 		try {
 			const response = await fetch(path, {
@@ -229,19 +322,22 @@ export const PackageJsonPanel = ({ state: initial }: PackageJsonPanelProps) => {
 			}
 		} catch (error) {
 			setNotice({ kind: 'err', text: String(error) });
-		} finally {
-			setBusy(false);
 		}
 	};
+
+	const saveField = (name: string) => (value: unknown, remove?: boolean) =>
+		post('/api/package/field', { name, remove, value });
 
 	const scripts = state.scripts.filter(
 		(script) =>
 			matchesQuery(query, script.name) ||
 			matchesQuery(query, script.command)
 	);
-	const fields = state.fields.filter((field) =>
+	const visible = state.fields.filter((field) =>
 		matchesQuery(query, field.name)
 	);
+	const editable = visible.filter((field) => field.kind !== 'complex');
+	const advanced = visible.filter((field) => field.kind === 'complex');
 
 	return (
 		<div className="shell">
@@ -261,7 +357,7 @@ export const PackageJsonPanel = ({ state: initial }: PackageJsonPanelProps) => {
 						<span>scripts</span>
 					</div>
 					<div className="count">
-						<b>{state.fields.length}</b>
+						<b>{editable.length}</b>
 						<span>fields</span>
 					</div>
 				</div>
@@ -286,7 +382,6 @@ export const PackageJsonPanel = ({ state: initial }: PackageJsonPanelProps) => {
 					</div>
 					{scripts.map((script) => (
 						<ScriptRow
-							busy={busy}
 							key={script.name}
 							onRemove={() =>
 								post('/api/package/script', {
@@ -312,27 +407,45 @@ export const PackageJsonPanel = ({ state: initial }: PackageJsonPanelProps) => {
 					)}
 				</section>
 
-				<section className="section">
-					<div className="section-head">
-						<h2 className="section-title">Fields</h2>
-						<span className="section-files">
-							top-level metadata
-						</span>
-					</div>
-					{fields.map((field) => (
-						<FieldRow
-							field={field}
-							key={field.name}
-							onSave={(value, remove) =>
-								post('/api/package/field', {
-									name: field.name,
-									remove,
-									value
-								})
-							}
-						/>
-					))}
-				</section>
+				{editable.length > 0 && (
+					<section className="section">
+						<div className="section-head">
+							<h2 className="section-title">Fields</h2>
+							<span className="section-files">
+								{editable.length} editable
+							</span>
+						</div>
+						{editable.map((field) => (
+							<FieldRow
+								complexKeys={state.complexKeys}
+								current={state.current}
+								field={field}
+								key={field.name}
+								onSave={saveField}
+							/>
+						))}
+					</section>
+				)}
+
+				{advanced.length > 0 && (
+					<section className="section">
+						<div className="section-head">
+							<h2 className="section-title">Advanced</h2>
+							<span className="section-files">
+								object/array fields — edit in the file
+							</span>
+						</div>
+						{advanced.map((field) => (
+							<FieldRow
+								complexKeys={state.complexKeys}
+								current={state.current}
+								field={field}
+								key={field.name}
+								onSave={saveField}
+							/>
+						))}
+					</section>
+				)}
 			</main>
 
 			{notice && (

@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import type {
 	AbsoluteConfigEditResult,
-	AbsoluteConfigState,
-	ConfigField
+	AbsoluteConfigState
 } from '../../../../types/absoluteConfig';
+import type { ConfigField } from '../../../../types/config';
 
 type Notice = {
 	kind: 'ok' | 'err';

@@ -1,22 +1,9 @@
 import ts from 'typescript';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import type {
-	ConfigField,
-	ConfigFieldKind
-} from '../../../../types/absoluteConfig';
+import type { ConfigField, ConfigFieldKind } from '../../../types/config';
 
-const VIRTUAL_NAME = '__absolute_config_introspect__.ts';
-
-// `BaseBuildConfig` is the authorable shape; these few members are injected by
-// the CLI/runtime (not written in defineConfig), so they're hidden from the UI.
-const RUNTIME_FIELDS = new Set([
-	'cwd',
-	'config',
-	'entry',
-	'mode',
-	'incrementalFiles'
-]);
+const VIRTUAL_NAME = '__absolute_type_introspect__.ts';
 
 const isFrameworkRepo = (cwd: string) => {
 	try {
@@ -89,10 +76,12 @@ const classify = (
 const introspectFrom = (
 	cwd: string,
 	specifier: string,
-	options: ts.CompilerOptions
+	typeName: string,
+	options: ts.CompilerOptions,
+	exclude: Set<string>
 ) => {
 	const virtualPath = resolve(cwd, VIRTUAL_NAME);
-	const source = `import type { BaseBuildConfig } from '${specifier}';\ndeclare const value: BaseBuildConfig;\nexport { value };\n`;
+	const source = `import type { ${typeName} } from '${specifier}';\ndeclare const value: ${typeName};\nexport { value };\n`;
 	const host = ts.createCompilerHost(options, true);
 	const getSourceFile = host.getSourceFile.bind(host);
 	host.getSourceFile = (fileName, languageVersion, onError, shouldCreate) =>
@@ -118,7 +107,8 @@ const introspectFrom = (
 		if (!declaration) return;
 		const type = checker.getTypeAtLocation(declaration);
 		for (const symbol of checker.getPropertiesOfType(type)) {
-			if (RUNTIME_FIELDS.has(symbol.getName())) continue;
+			const name = symbol.getName();
+			if (exclude.has(name) || name.startsWith('__')) continue;
 			const propertyType = checker.getTypeOfSymbolAtLocation(
 				symbol,
 				declaration
@@ -132,7 +122,7 @@ const introspectFrom = (
 					)
 					.trim(),
 				kind,
-				name: symbol.getName(),
+				name,
 				optional: (symbol.flags & ts.SymbolFlags.Optional) !== 0,
 				typeText: checker.typeToString(propertyType)
 			});
@@ -142,24 +132,37 @@ const introspectFrom = (
 	return fields.sort((left, right) => left.name.localeCompare(right.name));
 };
 
-let cached: ConfigField[] | null = null;
+const cache = new Map<string, ConfigField[]>();
 
-// Source the catalog from the framework's own BuildConfig type so it can never
-// drift. Resolves the type from the installed `@absolutejs/absolute`; when run
-// inside the framework repo itself, falls back to the local type.
-export const introspectConfigFields = (cwd: string) => {
+// Recover a runtime catalog (names, kinds, JSDoc) from a TypeScript type that
+// is otherwise erased at runtime. Reads the *real* exported type, so it can
+// never drift from the source. Resolves the type from the installed
+// `@absolutejs/absolute`, falling back to the local barrel inside the framework
+// repo. `exclude` drops members that aren't user-authored (CLI/runtime fields).
+export const introspectType = (
+	cwd: string,
+	typeName: string,
+	exclude: Set<string> = new Set()
+) => {
+	const cached = cache.get(typeName);
 	if (cached) return cached;
 	const options = compilerOptionsFor(cwd);
 	const specifiers = ['@absolutejs/absolute'];
-	if (isFrameworkRepo(cwd) && existsSync(resolve(cwd, 'types/build.ts'))) {
-		specifiers.push('./types/build');
+	if (isFrameworkRepo(cwd) && existsSync(resolve(cwd, 'types/index.ts'))) {
+		specifiers.push('./types');
 	}
 
 	for (const specifier of specifiers) {
 		try {
-			const fields = introspectFrom(cwd, specifier, options);
+			const fields = introspectFrom(
+				cwd,
+				specifier,
+				typeName,
+				options,
+				exclude
+			);
 			if (fields.length > 0) {
-				cached = fields;
+				cache.set(typeName, fields);
 
 				return fields;
 			}
@@ -168,7 +171,7 @@ export const introspectConfigFields = (cwd: string) => {
 		}
 	}
 
-	cached = [];
+	cache.set(typeName, []);
 
-	return cached;
+	return cache.get(typeName) ?? [];
 };

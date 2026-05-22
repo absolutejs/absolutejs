@@ -51,7 +51,7 @@ import type {
 	PackageFieldEdit,
 	PackageJsonEditResult,
 	PackageScriptEdit
-} from '../../../types/packageJson';
+} from '../../../types/packageJsonPanel';
 
 const CLIENT_ROUTE = '/config-client.js';
 

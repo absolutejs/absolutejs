@@ -8,7 +8,7 @@ import type { RuleCatalog } from '../../../types/eslintConfig';
 import type { TsConfigState } from '../../../types/tsconfig';
 import type { PrettierState } from '../../../types/prettier';
 import type { AbsoluteConfigState } from '../../../types/absoluteConfig';
-import type { PackageJsonState } from '../../../types/packageJson';
+import type { PackageJsonState } from '../../../types/packageJsonPanel';
 
 type ShellProps = {
 	absoluteConfigState: AbsoluteConfigState | null;

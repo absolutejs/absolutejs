@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import type {
 	PackageFieldEdit,
 	PackageScriptEdit
-} from '../../../../types/packageJson';
+} from '../../../../types/packageJsonPanel';
 
 const detectFormatting = (text: string) => {
 	const indent = text.match(/\n([\t ]+)\S/)?.[1];
