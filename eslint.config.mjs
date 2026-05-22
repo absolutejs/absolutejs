@@ -31,10 +31,7 @@ export default defineConfig([
 			'**/*/htmx.*.min.js',
 			// Local-only / scratch.
 			'.claude/**',
-			'.test-builds/**',
-			'.test-run-output/**',
-			'rag-smoke.ts',
-			'speed-test.ts'
+			'.test-builds/**'
 		]
 	},
 
