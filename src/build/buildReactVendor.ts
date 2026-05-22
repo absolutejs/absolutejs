@@ -8,9 +8,29 @@ const resolveJsxDevRuntimeCompatPath = () => {
 		resolve(import.meta.dir, 'react', 'jsxDevRuntimeCompat.js'),
 		resolve(import.meta.dir, 'src', 'react', 'jsxDevRuntimeCompat.ts'),
 		resolve(import.meta.dir, '..', 'react', 'jsxDevRuntimeCompat.js'),
-		resolve(import.meta.dir, '..', 'src', 'react', 'jsxDevRuntimeCompat.ts'),
-		resolve(import.meta.dir, '..', '..', 'dist', 'react', 'jsxDevRuntimeCompat.js'),
-		resolve(import.meta.dir, '..', '..', 'src', 'react', 'jsxDevRuntimeCompat.ts')
+		resolve(
+			import.meta.dir,
+			'..',
+			'src',
+			'react',
+			'jsxDevRuntimeCompat.ts'
+		),
+		resolve(
+			import.meta.dir,
+			'..',
+			'..',
+			'dist',
+			'react',
+			'jsxDevRuntimeCompat.js'
+		),
+		resolve(
+			import.meta.dir,
+			'..',
+			'..',
+			'src',
+			'react',
+			'jsxDevRuntimeCompat.ts'
+		)
 	];
 	for (const candidate of candidates) {
 		if (existsSync(candidate)) {
@@ -18,10 +38,10 @@ const resolveJsxDevRuntimeCompatPath = () => {
 		}
 	}
 
-	return (candidates[0] ?? resolve(import.meta.dir, 'react', 'jsxDevRuntimeCompat.js')).replace(
-		/\\/g,
-		'/'
-	);
+	return (
+		candidates[0] ??
+		resolve(import.meta.dir, 'react', 'jsxDevRuntimeCompat.js')
+	).replace(/\\/g, '/');
 };
 
 const jsxDevRuntimeCompatPath = resolveJsxDevRuntimeCompatPath();
@@ -35,34 +55,19 @@ const reactSpecifiers = [
 	'react/jsx-dev-runtime'
 ];
 
-const isResolvable = (specifier: string) => {
-	try {
-		Bun.resolveSync(specifier, process.cwd());
-
-		return true;
-	} catch {
-		return false;
-	}
-};
-
-/** Includes react-refresh/runtime when the package is installed (dev HMR) */
-const resolveVendorSpecifiers = () => {
-	if (isResolvable('react-refresh/runtime')) {
-		return [...reactSpecifiers, 'react-refresh/runtime'];
-	}
-
-	return reactSpecifiers;
-};
+/* react-refresh/runtime is intentionally absent: it's vendored into this
+ * package's dev client (src/dev/client/vendor/reactRefreshRuntime.js) and
+ * imported by relative path, so consuming projects never install it and
+ * non-React projects never pull it in. */
 
 /** Convert a bare specifier to a safe filename: react-dom/client → react-dom_client */
-const toSafeFileName = (specifier: string) =>
-	specifier.replace(/\//g, '_');
+const toSafeFileName = (specifier: string) => specifier.replace(/\//g, '_');
 
 /** Compute the deterministic vendor paths mapping (no build needed).
  *  This can be called before vendor files exist on disk. */
 export const computeVendorPaths = () => {
 	const paths: Record<string, string> = {};
-	for (const specifier of resolveVendorSpecifiers()) {
+	for (const specifier of reactSpecifiers) {
 		paths[specifier] = `/react/vendor/${toSafeFileName(specifier)}.js`;
 	}
 
@@ -91,7 +96,7 @@ const generateEntrySource = async (specifier: string) => {
 		lines.push(`export { default } from '${specifier}';`);
 	}
 
-	return `${lines.join('\n')  }\n`;
+	return `${lines.join('\n')}\n`;
 };
 
 /** Build React packages into stable vendor files (no content hash).
@@ -105,7 +110,7 @@ export const buildReactVendor = async (buildDir: string) => {
 	const tmpDir = join(buildDir, '_vendor_tmp');
 	mkdirSync(tmpDir, { recursive: true });
 
-	const specifiers = resolveVendorSpecifiers();
+	const specifiers = reactSpecifiers;
 
 	// Create temp entry files with explicit named exports
 	const entrypoints = await Promise.all(

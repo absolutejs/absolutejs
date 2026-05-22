@@ -4,3 +4,5 @@ build/
 !src/build/
 !src/build/**
 *.min.js
+# Vendored third-party code — keep as faithful upstream/bundled output.
+**/vendor/**

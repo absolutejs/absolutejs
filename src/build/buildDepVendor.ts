@@ -31,13 +31,10 @@ const isResolvable = (specifier: string) => {
 };
 
 const isBareSpecifier = (spec: string) =>
-	!spec.startsWith('.') &&
-	!spec.startsWith('/') &&
-	!spec.startsWith('@src/');
+	!spec.startsWith('.') && !spec.startsWith('/') && !spec.startsWith('@src/');
 
 const isAbsolutePackageSpecifier = (spec: string) =>
-	spec === '@absolutejs/absolute' ||
-	spec.startsWith('@absolutejs/absolute/');
+	spec === '@absolutejs/absolute' || spec.startsWith('@absolutejs/absolute/');
 
 // Known specifiers that are already handled by framework-specific vendors.
 // React/Svelte/Vue have finite, well-known entrypoints so they're listed
@@ -52,7 +49,6 @@ const FRAMEWORK_SPECIFIERS = new Set([
 	'react-dom/server',
 	'react/jsx-runtime',
 	'react/jsx-dev-runtime',
-	'react-refresh/runtime',
 	'svelte',
 	'svelte/internal',
 	'svelte/internal/flags/async',
@@ -109,7 +105,8 @@ const readFileSpecifiers = async (
 		const content = await Bun.file(file).text();
 		for (const imp of transpiler.scanImports(content)) {
 			if (isDepSpecifier(imp.path)) dep.push(imp.path);
-			else if (isFrameworkRootCandidate(imp.path)) framework.push(imp.path);
+			else if (isFrameworkRootCandidate(imp.path))
+				framework.push(imp.path);
 		}
 	} catch {
 		// unreadable file, skip
@@ -167,7 +164,6 @@ const scanBareImports = async (
 		framework: Array.from(framework).filter(isResolvable)
 	};
 };
-
 
 // Resolve each bare specifier and scan its entry file for further bare imports
 // (subpaths of the same or other packages). Bun's `external: ["rxjs"]` matches

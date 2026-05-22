@@ -7,7 +7,7 @@
    is preserved so new component registrations feed into the SAME RefreshRuntime
    instance that owns the current React tree. */
 
-import * as RefreshRuntime from 'react-refresh/runtime';
+import * as RefreshRuntime from './vendor/reactRefreshRuntime.js';
 
 if (!window.$RefreshRuntime$) {
 	RefreshRuntime.injectIntoGlobalHook(window);

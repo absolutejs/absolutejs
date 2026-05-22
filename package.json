@@ -253,7 +253,6 @@
 		"postcss": "^8.5.0",
 		"react": "^19.2.0",
 		"react-dom": "^19.2.0",
-		"react-refresh": "^0.18.0",
 		"rxjs": "^7.8.0",
 		"sass": "^1.99.0",
 		"sharp": ">=0.33.0",
@@ -305,9 +304,6 @@
 			"optional": true
 		},
 		"react-dom": {
-			"optional": true
-		},
-		"react-refresh": {
 			"optional": true
 		},
 		"rxjs": {
