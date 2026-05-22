@@ -83,6 +83,8 @@ export const CONFIG_CSS = `
 .cfg-placeholder-title { font-family: var(--serif); font-size: 40px; margin-bottom: 12px; }
 .cfg-placeholder-title em { color: var(--accent); font-style: italic; }
 .cfg-placeholder-text { color: var(--dim); font-size: 14px; max-width: 460px; margin: 0 auto; }
+.cfg-loading { animation: cfg-pulse 1.2s ease-in-out infinite; }
+@keyframes cfg-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
 
 @media (max-width: 720px) {
 	.cfg { flex-direction: column; }

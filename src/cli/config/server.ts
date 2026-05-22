@@ -115,35 +115,15 @@ const getClientBundle = async () => {
 	return cachedClientBundle;
 };
 
-const renderShell = async (
-	panel: ConfigPanelId,
-	cwd: string,
-	fileScope?: string
-) => {
-	const eslintCatalog =
-		panel === 'eslint' ? await resolveRuleCatalog(cwd, fileScope) : null;
-	const tsconfigState =
-		panel === 'tsconfig' ? resolveTsconfigState(cwd) : null;
-	const prettierState =
-		panel === 'prettier' ? await resolvePrettierState(cwd) : null;
-	const absoluteConfigState =
-		panel === 'absolute' ? resolveAbsoluteConfigState(cwd) : null;
-	const packageJsonState =
-		panel === 'package' ? resolvePackageJsonState(cwd) : null;
-
-	return handleReactPageRequest({
+// Renders only the shell (sidebar + skeleton) — instantly. The heavy data
+// resolution (TS-type introspection, ESLint load) runs lazily when the client
+// fetches /api/<panel>, so the first byte isn't blocked for seconds.
+const renderShell = (panel: ConfigPanelId) =>
+	handleReactPageRequest({
 		Page: ConfigShell,
 		index: CLIENT_ROUTE,
-		props: {
-			absoluteConfigState,
-			eslintCatalog,
-			packageJsonState,
-			panel,
-			prettierState,
-			tsconfigState
-		}
+		props: { panel }
 	});
-};
 
 const isSeverity = (value: unknown): value is RuleSeverity =>
 	value === 'off' || value === 'warn' || value === 'error';
@@ -294,9 +274,9 @@ const parseAbsoluteEdit = (body: unknown) => {
 	return request;
 };
 
-const handleAbsoluteEdit = (cwd: string, body: unknown) => {
+const handleAbsoluteEdit = (cwd: string, body: unknown, override?: string) => {
 	const request = parseAbsoluteEdit(body);
-	const configPath = findConfigPath(cwd);
+	const configPath = findConfigPath(cwd, override);
 	if (!request || !configPath) {
 		const invalid: AbsoluteConfigEditResult = {
 			message: !configPath
@@ -316,7 +296,7 @@ const handleAbsoluteEdit = (cwd: string, body: unknown) => {
 	const result: AbsoluteConfigEditResult = {
 		message: outcome.message,
 		ok: outcome.ok,
-		state: outcome.ok ? resolveAbsoluteConfigState(cwd) : null
+		state: outcome.ok ? resolveAbsoluteConfigState(cwd, override) : null
 	};
 
 	return result;
@@ -390,21 +370,19 @@ export const launchConfig = async (args: string[], cwd = process.cwd()) => {
 	const port = resolvePort(args);
 	const host = resolveHost(args);
 	const httpsRequested = !args.includes('--no-https');
+	const shouldOpen = args.includes('--open');
+	const configOverride = flagValue(args, '--config');
 	killStaleProcesses(port);
 
 	const cert = httpsRequested ? ensureConfigCert(host) : null;
 
 	const app = new Elysia()
-		.get('/', ({ query }) =>
-			renderShell(DEFAULT_PANEL, cwd, fileScopeOf(query))
-		)
-		.get('/eslint', ({ query }) =>
-			renderShell('eslint', cwd, fileScopeOf(query))
-		)
-		.get('/tsconfig', () => renderShell('tsconfig', cwd))
-		.get('/prettier', () => renderShell('prettier', cwd))
-		.get('/absolute', () => renderShell('absolute', cwd))
-		.get('/package', () => renderShell('package', cwd))
+		.get('/', () => renderShell(DEFAULT_PANEL))
+		.get('/eslint', () => renderShell('eslint'))
+		.get('/tsconfig', () => renderShell('tsconfig'))
+		.get('/prettier', () => renderShell('prettier'))
+		.get('/absolute', () => renderShell('absolute'))
+		.get('/package', () => renderShell('package'))
 		.get(CLIENT_ROUTE, async () => {
 			const bundle = await getClientBundle();
 
@@ -420,8 +398,12 @@ export const launchConfig = async (args: string[], cwd = process.cwd()) => {
 		.post('/api/tsconfig', ({ body }) => handleTsEdit(cwd, body))
 		.get('/api/prettier', () => resolvePrettierState(cwd))
 		.post('/api/prettier', ({ body }) => handlePrettierEdit(cwd, body))
-		.get('/api/absolute', () => resolveAbsoluteConfigState(cwd))
-		.post('/api/absolute', ({ body }) => handleAbsoluteEdit(cwd, body))
+		.get('/api/absolute', () =>
+			resolveAbsoluteConfigState(cwd, configOverride)
+		)
+		.post('/api/absolute', ({ body }) =>
+			handleAbsoluteEdit(cwd, body, configOverride)
+		)
 		.get('/api/package', () => resolvePackageJsonState(cwd))
 		.post('/api/package/script', ({ body }) => handleScriptEdit(cwd, body))
 		.post('/api/package/field', ({ body }) => handleFieldEdit(cwd, body))
@@ -433,15 +415,19 @@ export const launchConfig = async (args: string[], cwd = process.cwd()) => {
 	const reset = '\x1b[0m';
 	console.log(`\n${green}✓ Absolute Config${reset} running at ${url}`);
 	console.log(
-		`${dim}ESLint · tsconfig · Prettier — press Ctrl+C to stop${reset}`
+		`${dim}absolute.config · package.json · ESLint · tsconfig · Prettier — Ctrl+C to stop${reset}`
 	);
 	if (!cert && httpsRequested) {
 		console.log(
 			`${dim}Tip: install mkcert (\`absolute mkcert\`) to serve a trusted https://${host}${reset}`
 		);
 	}
+	if (shouldOpen) {
+		openUrlInBrowser(url, (message) => console.warn(message));
+	} else {
+		console.log(`${dim}Open it in your browser, or pass --open.${reset}`);
+	}
 	console.log('');
-	openUrlInBrowser(url, (message) => console.warn(message));
 
 	process.on('SIGINT', () => {
 		app.stop();

@@ -18,7 +18,12 @@ const RUNTIME_FIELDS = new Set([
 	'incrementalFiles'
 ]);
 
-export const findConfigPath = (cwd: string) => {
+export const findConfigPath = (cwd: string, override?: string) => {
+	if (override) {
+		const resolved = resolve(cwd, override);
+
+		return existsSync(resolved) ? resolved : null;
+	}
 	for (const name of CONFIG_CANDIDATES) {
 		const candidate = resolve(cwd, name);
 		if (existsSync(candidate)) return candidate;
@@ -122,8 +127,8 @@ const readCurrent = (configPath: string) => {
 	return { complexKeys, current };
 };
 
-export const resolveAbsoluteConfigState = (cwd: string) => {
-	const configPath = findConfigPath(cwd);
+export const resolveAbsoluteConfigState = (cwd: string, override?: string) => {
+	const configPath = findConfigPath(cwd, override);
 	const fields = introspectType(cwd, 'BaseBuildConfig', RUNTIME_FIELDS);
 	const { complexKeys, current } = configPath
 		? readCurrent(configPath)
