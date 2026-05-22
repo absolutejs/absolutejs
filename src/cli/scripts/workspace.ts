@@ -39,6 +39,7 @@ import type {
 
 type WorkspaceDevOptions = {
 	configPath?: string;
+	noTui?: boolean;
 };
 
 type ResolvedWorkspaceService = {
@@ -487,10 +488,14 @@ const probeReady = async (
 	service: ResolvedWorkspaceService
 ) => {
 	try {
-		if (resolved.type === 'http') return probeHttpReady(resolved);
-		if (resolved.type === 'tcp') return probeTcpReady(resolved);
+		// Must await inside the try: returning the probe promise unawaited would
+		// let a rejection (e.g. an AbortSignal.timeout on the readiness fetch)
+		// escape this catch and crash the workspace instead of being treated as
+		// "not ready yet".
+		if (resolved.type === 'http') return await probeHttpReady(resolved);
+		if (resolved.type === 'tcp') return await probeTcpReady(resolved);
 
-		return probeCommandReady(resolved, service);
+		return await probeCommandReady(resolved, service);
 	} catch {
 		return false;
 	}
@@ -872,6 +877,7 @@ export const workspace = async (
 			restart: () => restartWorkspace(),
 			shell: (command) => runShellCommand(command)
 		},
+		headless: options.noTui,
 		services: orderedNames.map((name) => {
 			const service = services[name];
 

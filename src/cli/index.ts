@@ -60,7 +60,10 @@ if (command === 'dev') {
 		command: `workspace:${workspaceCommand ?? 'unknown'}`
 	});
 	const configPath = parseNamedArg('--config');
-	await workspace(workspaceCommand, { configPath });
+	await workspace(workspaceCommand, {
+		configPath,
+		noTui: args.includes('--no-tui')
+	});
 } else if (command === 'eslint' && args[0] === 'studio') {
 	sendTelemetryEvent('cli:command', { command: 'eslint:studio' });
 	// Resolved at runtime (not a static literal) so the bundler keeps the
@@ -107,7 +110,9 @@ if (command === 'dev') {
 	console.error('Usage: absolute <command>');
 	console.error('Commands:');
 	console.error('  dev [entry]   Start development server');
-	console.error('  workspace dev Start multi-service workspace dev');
+	console.error(
+		'  workspace dev [--no-tui] Start multi-service workspace dev'
+	);
 	console.error('  build [--outdir dir] Build production assets');
 	console.error('  start [entry] [--outdir dir] Start production server');
 	console.error(

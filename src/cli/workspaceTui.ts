@@ -343,14 +343,30 @@ const isPartialEscapeSequence = (value: string) => {
 
 export const createWorkspaceTui = ({
 	actions,
+	headless: headlessOption,
 	services,
 	version
 }: {
 	actions: WorkspaceTuiActions;
+	headless?: boolean;
 	services: WorkspaceTuiService[];
 	version: string;
 }) => {
-	let input: WorkspaceInput | null = null;
+	// The interactive dashboard needs a real terminal: it enters the alternate
+	// screen buffer and reads raw keyboard input. Detect usable input by
+	// *probing* (openTtyStream) rather than trusting flags — some PTY wrappers
+	// (CI runners, AI agents such as Claude Code) report stdin.isTTY and expose
+	// setRawMode yet throw when raw mode is actually enabled. When no interactive
+	// input can be acquired (or headless is forced via `--no-tui`/CI), stream
+	// plain logs instead of a dashboard nobody can render or drive.
+	const headlessForced =
+		headlessOption === true ||
+		process.env.CI === '1' ||
+		process.env.CI === 'true';
+	const input: WorkspaceInput | null = headlessForced
+		? null
+		: openTtyStream();
+	const headless = headlessForced || (headlessOption !== false && !input);
 	let disposed = false;
 	let renderTimer: NodeJS.Timeout | null = null;
 	let shellMode = false;
@@ -387,7 +403,7 @@ export const createWorkspaceTui = ({
 	};
 
 	const scheduleRender = () => {
-		if (disposed || renderTimer) {
+		if (headless || disposed || renderTimer) {
 			return;
 		}
 		renderTimer = setTimeout(() => {
@@ -641,11 +657,24 @@ export const createWorkspaceTui = ({
 		}
 		existing.status = status;
 		existing.detail = detail;
+		if (headless) {
+			addLog(
+				'workspace',
+				`${name} ${status}${detail ? ` — ${detail}` : ''}`,
+				status === 'error' ? 'error' : 'info'
+			);
+		}
 		scheduleRender();
 	};
 
 	const setReadyDuration = (durationMs: number | null) => {
 		readyDurationMs = durationMs;
+		if (headless && durationMs !== null) {
+			addLog(
+				'workspace',
+				`workspace ready in ${getDurationString(durationMs)}`
+			);
+		}
 		scheduleRender();
 	};
 
@@ -660,12 +689,19 @@ export const createWorkspaceTui = ({
 		}
 
 		for (const line of cleanMessage.split('\n')) {
-			logEntries.push({
-				level,
-				message: line,
-				source,
-				timestamp: formatTimestamp()
-			});
+			const timestamp = formatTimestamp();
+			logEntries.push({ level, message: line, source, timestamp });
+			if (headless) {
+				const levelColor =
+					level === 'error'
+						? colors.red
+						: level === 'warn'
+							? colors.yellow
+							: colors.dim;
+				process.stdout.write(
+					`${colors.dim}${timestamp}${colors.reset} ${levelColor}${source}${colors.reset} ${line}\n`
+				);
+			}
 		}
 		if (logEntries.length > MAX_LOG_ENTRIES) {
 			logEntries.splice(0, logEntries.length - MAX_LOG_ENTRIES);
@@ -943,8 +979,24 @@ export const createWorkspaceTui = ({
 	};
 
 	const start = () => {
+		if (headless) {
+			addLog(
+				'workspace',
+				`ABSOLUTEJS WORKSPACE v${version} — headless mode (no interactive TTY); streaming logs. Ctrl+C to stop.`
+			);
+			for (const service of serviceStates.values()) {
+				const target =
+					service.url ??
+					(service.port ? `:${service.port}` : 'internal');
+				addLog(
+					'workspace',
+					`${service.name} (${service.visibility}) ${target}`
+				);
+			}
+
+			return;
+		}
 		process.stdout.write('\x1b[?1049h\x1b[2J\x1b[H\x1b[?25l');
-		input = openTtyStream();
 		if (input) {
 			input.resume();
 			input.on('data', onData);
@@ -976,6 +1028,9 @@ export const createWorkspaceTui = ({
 			return;
 		}
 		disposed = true;
+		if (headless) {
+			return;
+		}
 		clearPendingEscape();
 		if (renderTimer) {
 			clearTimeout(renderTimer);
