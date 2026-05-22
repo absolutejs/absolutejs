@@ -1616,7 +1616,7 @@ const extractSignalQueries = (
 	const viewQueries: import('@angular/compiler').R3QueryMetadata[] = [];
 	for (const member of cls.members) {
 		if (!ts.isPropertyDeclaration(member) || !member.initializer) continue;
-		let init: ts.Expression = member.initializer;
+		let init = member.initializer;
 		if (!ts.isCallExpression(init)) continue;
 
 		// Disambiguate `viewChild(...)` vs `viewChild.required(...)`.
@@ -3715,7 +3715,7 @@ export const tryFastHmr = async (
 			{ moduleName: '@angular/core', assignedName: 'ɵhmr0' }
 		];
 
-		const callback: DeclareFunctionStmt = compiler.compileHmrUpdateCallback(
+		const callback = compiler.compileHmrUpdateCallback(
 			[
 				{
 					name: 'ɵcmp',

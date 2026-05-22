@@ -274,7 +274,7 @@ export const remountComponentClass = async (
 	core: AngularCoreNamespace,
 	className: string
 ): Promise<RemountResult> => {
-	let FreshClass: ComponentClass = Class;
+	let FreshClass = Class;
 	try {
 		// `applyMetadata` from a recent fastHmr build returns a `_Fresh`
 		// class with the new constructor + field initializers + the

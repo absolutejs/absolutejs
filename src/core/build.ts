@@ -948,7 +948,7 @@ const buildUnlocked = async ({
 	// source dir in the candidate list and fall back to a common ancestor
 	// when both kinds are present.
 	const generatedRoot = getGeneratedRoot(projectRoot);
-	const sourceClientRoots: string[] = [
+	const sourceClientRoots = [
 		htmlDir,
 		htmxDir,
 		islandBootstrapPath && dirname(islandBootstrapPath)

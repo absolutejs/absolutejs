@@ -156,6 +156,8 @@ const resolveFormElement = (
 	name: string
 ) => {
 	if (isStandalone) {
+		// Annotation drives querySelector's generic `E` (downstream needs
+		// HTMLInputElement, not the default Element).
 		const element: HTMLInputElement | null = document.querySelector(
 			`input[name="${name}"], textarea[name="${name}"], select[name="${name}"]`
 		);

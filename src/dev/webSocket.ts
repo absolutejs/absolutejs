@@ -93,7 +93,7 @@ const parseMessage = (message: unknown) => {
 	}
 
 	if (ArrayBuffer.isView(message)) {
-		const view: Uint8Array = new Uint8Array(
+		const view = new Uint8Array(
 			message.buffer,
 			message.byteOffset,
 			message.byteLength

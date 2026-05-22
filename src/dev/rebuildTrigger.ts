@@ -975,10 +975,9 @@ const computeClientRoot = async (resolvedPaths: ResolvedBuildPaths) => {
 	// the user's source dirs and merge into the common ancestor.
 	const { getGeneratedRoot } = await import('../utils/generatedDir');
 	const projectRoot = process.cwd();
-	const clientRoots: string[] = [
-		resolvedPaths.htmlDir,
-		resolvedPaths.htmxDir
-	].filter((dir): dir is string => Boolean(dir));
+	const clientRoots = [resolvedPaths.htmlDir, resolvedPaths.htmxDir].filter(
+		(dir): dir is string => Boolean(dir)
+	);
 	const usesGenerated =
 		Boolean(resolvedPaths.reactDir) ||
 		Boolean(resolvedPaths.svelteDir) ||

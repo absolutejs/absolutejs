@@ -15,7 +15,7 @@ const { pushState, replaceState } = await import(
 );
 const { page } = await import('../../../../src/svelte/router/page.svelte');
 
-const originalWindow: unknown = (globalThis as { window?: unknown }).window;
+const originalWindow = (globalThis as { window?: unknown }).window;
 
 afterEach(() => {
 	if (originalWindow === undefined) {

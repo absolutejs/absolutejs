@@ -3,6 +3,8 @@
 	export let cssPath: string | undefined = undefined;
 
 	import Counter from '../components/Counter.svelte';
+	import { setContext } from 'svelte';
+	setContext('themeMessage', 'CONTEXT_OK');
 	import Head from '../../../src/svelte/components/Head.svelte';
 
 	let isOpen = false;

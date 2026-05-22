@@ -61,6 +61,14 @@ if (command === 'dev') {
 	});
 	const configPath = parseNamedArg('--config');
 	await workspace(workspaceCommand, { configPath });
+} else if (command === 'eslint' && args[0] === 'studio') {
+	sendTelemetryEvent('cli:command', { command: 'eslint:studio' });
+	// Resolved at runtime (not a static literal) so the bundler keeps the
+	// React-carrying Studio server out of the lean main CLI chunk. Resolves
+	// to `studio/server.ts` from source and `studio/server.js` from dist.
+	const studioServerModule = `${import.meta.dir}/eslint/studio/server`;
+	const { launchEslintStudio } = await import(studioServerModule);
+	await launchEslintStudio(args.slice(1));
 } else if (command === 'eslint') {
 	sendTelemetryEvent('cli:command', { command });
 	await eslint(args);
@@ -106,6 +114,9 @@ if (command === 'dev') {
 		'  compile [entry] [--outdir dir] [--outfile path] Compile standalone executable'
 	);
 	console.error('  eslint        Run ESLint (cached)');
+	console.error(
+		'  eslint studio [--port n] Open the rule manager UI in a browser'
+	);
 	console.error('  info          Print system info for bug reports');
 	console.error('  prettier      Run Prettier check (cached)');
 	console.error('  typecheck     Run type checkers for all frameworks');

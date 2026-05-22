@@ -121,6 +121,14 @@ export const Image = ({
 			: { color: 'transparent' })
 	};
 
+	const fillWrapperStyle: Record<string, string | number> = {
+		display: 'block',
+		height: '100%',
+		overflow: 'hidden',
+		position: 'relative',
+		width: '100%'
+	};
+
 	// ── Preload link for priority images ────────────────────────
 	const preloadLink = priority ? (
 		<link
@@ -168,17 +176,7 @@ export const Image = ({
 		return (
 			<>
 				{preloadLink}
-				<span
-					style={{
-						display: 'block',
-						height: '100%',
-						overflow: 'hidden',
-						position: 'relative',
-						width: '100%'
-					}}
-				>
-					{imgElement}
-				</span>
+				<span style={fillWrapperStyle}>{imgElement}</span>
 			</>
 		);
 	}

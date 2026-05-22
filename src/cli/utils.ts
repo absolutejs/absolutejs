@@ -60,6 +60,39 @@ export const killStaleProcesses = (
 		`\x1b[2m${formatTimestamp()}\x1b[0m \x1b[33m[cli]\x1b[0m \x1b[33m${message}\x1b[0m`
 	);
 };
+export const openUrlInBrowser = (
+	url: string,
+	onError?: (message: string) => void
+) => {
+	if (process.env.ABSOLUTE_NO_OPEN) return false;
+
+	const { platform } = process;
+	const isWSL = platform === 'linux' && isWSLEnvironment();
+	let command: string;
+	if (isWSL) {
+		command = 'cmd.exe';
+	} else if (platform === 'darwin') {
+		command = 'open';
+	} else if (platform === 'win32') {
+		command = 'start';
+	} else {
+		command = 'xdg-open';
+	}
+	const commandArgs = isWSL ? ['/c', 'start', url] : [url];
+	try {
+		Bun.spawn([command, ...commandArgs], {
+			stderr: 'ignore',
+			stdout: 'ignore'
+		});
+
+		return true;
+	} catch {
+		onError?.(`Could not open browser automatically. Visit ${url}`);
+
+		return false;
+	}
+};
+
 export const printHelp = (subject = 'server') => {
 	const title = subject === 'workspace' ? 'workspace' : subject;
 	console.log('');

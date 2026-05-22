@@ -16,19 +16,23 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 export default defineConfig([
 	{
 		ignores: [
-			'node_modules/**',
-			'dist/**',
-			'build/**',
+			// Dependencies (incl. nested, e.g. benchmark apps).
+			'**/node_modules/**',
+			// Build / compile output.
+			'**/dist/**',
 			'**/build/**',
 			'**/compiled/**',
+			// Generated, cached, and vendored code — not authored by us.
+			'**/.absolutejs/**',
+			'**/.cache/**',
+			'**/generated/**',
+			'**/vendor/**',
+			'**/indexes/**',
 			'**/*/htmx.*.min.js',
-			'.absolutejs/**',
-			'.cache/**',
+			// Local-only / scratch.
 			'.claude/**',
 			'.test-builds/**',
-			'example/build/**',
-			'example/dist/**',
-			'example/react/indexes/*',
+			'.test-run-output/**',
 			'rag-smoke.ts',
 			'speed-test.ts'
 		]
@@ -97,7 +101,10 @@ export default defineConfig([
 			security: securityPlugin
 		},
 		rules: {
+			// TODO: framework directive defines 2 features + test fixtures; promote to error with test overrides.
+			'absolute/angular-one-feature-per-file': 'warn',
 			'absolute/explicit-object-types': 'error',
+			'absolute/inline-style-limit': 'error',
 			'absolute/localize-react-props': 'error',
 			'absolute/max-depth-extended': ['error', 1],
 			'absolute/max-jsxnesting': ['error', 5],
@@ -105,8 +112,26 @@ export default defineConfig([
 				'error',
 				{ allowedVars: ['_', 'id', 'db', 'OK', 'ws'], minLength: 3 }
 			],
+			'absolute/no-button-navigation': 'error',
 			'absolute/no-explicit-return-type': 'error',
+			// TODO: 113 inline object types to extract into named aliases; promote to error after cleanup.
+			'absolute/no-inline-object-types': 'warn',
+			'absolute/no-multi-style-objects': 'error',
+			// TODO: studio render helpers + a streaming test return nested JSX; promote to error after refactor/overrides.
+			'absolute/no-nested-jsx-return': 'warn',
+			'absolute/no-nondeterministic-render': 'error',
+			'absolute/no-or-none-component': 'error',
+			'absolute/no-redundant-type-annotation': 'error',
+			'absolute/no-transition-cssproperties': 'error',
+			// TODO: 35 identity aliases to inline; promote to error after cleanup.
+			'absolute/no-trivial-alias': 'warn',
+			'absolute/no-unnecessary-div': 'error',
+			'absolute/no-unnecessary-key': 'error',
 			'absolute/no-useless-function': 'error',
+			// TODO: 4 trailing `export {}` blocks to inline; one (loadConfig)
+			// needs reordering to also satisfy sort-exports. Promote after.
+			'absolute/prefer-inline-exports': 'warn',
+			'absolute/seperate-style-files': 'error',
 			'absolute/sort-exports': [
 				'error',
 				{
@@ -125,6 +150,7 @@ export default defineConfig([
 					variablesBeforeFunctions: true
 				}
 			],
+			'absolute/spring-naming-convention': 'error',
 			'arrow-body-style': ['error', 'as-needed'],
 			'consistent-return': 'error',
 			eqeqeq: 'error',
@@ -288,6 +314,17 @@ export default defineConfig([
 		files: ['src/angular/composables/usePageContext.ts'],
 		rules: {
 			'@typescript-eslint/consistent-type-assertions': 'off'
+		}
+	},
+	{
+		// The ESLint Studio is internal tooling: a flat-config AST walker plus
+		// a React rule-browser UI. Deep nesting is inherent to tree walking,
+		// and the recursive serializers need return-type annotations TypeScript
+		// can't otherwise infer (literal widening + self-reference).
+		files: ['src/cli/eslint/studio/**'],
+		rules: {
+			'absolute/max-depth-extended': 'off',
+			'absolute/no-explicit-return-type': 'off'
 		}
 	}
 ]);
