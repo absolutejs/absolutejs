@@ -733,6 +733,12 @@ const resolveService = (
 	const envVars = Object.assign(
 		getDefinedProcessEnv(),
 		workspaceEnv,
+		// A managed service's configured port is authoritative over any ambient
+		// PORT inherited from the shell or a loaded .env: a single global PORT
+		// cannot be correct for more than one service in a workspace, so letting
+		// it override would silently collapse every service onto the same port.
+		// An explicit service.env.PORT below still wins for intentional overrides.
+		service.port ? { PORT: String(service.port) } : {},
 		service.env,
 		{
 			ABSOLUTE_WORKSPACE_MANAGED: '1',
@@ -742,10 +748,6 @@ const resolveService = (
 			NODE_ENV: 'development'
 		}
 	);
-
-	if (service.port && !envVars.PORT) {
-		envVars.PORT = String(service.port);
-	}
 
 	if (isAbsoluteService(service)) {
 		const configPath = resolveAbsoluteServiceConfigPath(
