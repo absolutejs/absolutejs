@@ -12,6 +12,8 @@ import {
 	findTsconfigPath,
 	resolveTsconfigState
 } from './tsconfig/resolveTsconfig';
+import { applyPrettierEdit } from './prettier/editPrettier';
+import { resolvePrettierState } from './prettier/resolvePrettier';
 import {
 	CONFIG_DEFAULT_HOST,
 	CONFIG_DEFAULT_PORT,
@@ -27,6 +29,10 @@ import type {
 	RuleSeverity
 } from '../../../types/eslintConfig';
 import type { TsEditRequest, TsEditResult } from '../../../types/tsconfig';
+import type {
+	PrettierEditRequest,
+	PrettierEditResult
+} from '../../../types/prettier';
 
 const CLIENT_ROUTE = '/config-client.js';
 
@@ -99,11 +105,13 @@ const renderShell = async (
 		panel === 'eslint' ? await resolveRuleCatalog(cwd, fileScope) : null;
 	const tsconfigState =
 		panel === 'tsconfig' ? resolveTsconfigState(cwd) : null;
+	const prettierState =
+		panel === 'prettier' ? await resolvePrettierState(cwd) : null;
 
 	return handleReactPageRequest({
 		Page: ConfigShell,
 		index: CLIENT_ROUTE,
-		props: { eslintCatalog, panel, tsconfigState }
+		props: { eslintCatalog, panel, prettierState, tsconfigState }
 	});
 };
 
@@ -199,6 +207,51 @@ const handleTsEdit = (cwd: string, body: unknown) => {
 	return result;
 };
 
+const parsePrettierEdit = (body: unknown) => {
+	if (!isRecord(body) || typeof body.name !== 'string') return null;
+
+	const request: PrettierEditRequest = {
+		name: body.name,
+		remove: body.remove === true,
+		value: body.value
+	};
+
+	return request;
+};
+
+const handlePrettierEdit = async (cwd: string, body: unknown) => {
+	const request = parsePrettierEdit(body);
+	const state = await resolvePrettierState(cwd);
+	if (!request || !state.editable) {
+		const invalid: PrettierEditResult = {
+			message: !state.editable
+				? 'This prettier config format is not editable here.'
+				: 'Invalid edit request.',
+			ok: false,
+			state: null
+		};
+
+		return new Response(JSON.stringify(invalid), {
+			headers: { 'Content-Type': 'application/json' },
+			status: HTTP_STATUS_BAD_REQUEST
+		});
+	}
+
+	const outcome = applyPrettierEdit(
+		cwd,
+		state.format,
+		state.configPath,
+		request
+	);
+	const result: PrettierEditResult = {
+		message: outcome.message,
+		ok: outcome.ok,
+		state: outcome.ok ? await resolvePrettierState(cwd) : null
+	};
+
+	return result;
+};
+
 const listenOptions = (
 	port: number,
 	cert: { cert: string; key: string } | null
@@ -237,6 +290,8 @@ export const launchConfig = async (args: string[], cwd = process.cwd()) => {
 		.post('/api/rules', ({ body }) => handleEdit(cwd, body))
 		.get('/api/tsconfig', () => resolveTsconfigState(cwd))
 		.post('/api/tsconfig', ({ body }) => handleTsEdit(cwd, body))
+		.get('/api/prettier', () => resolvePrettierState(cwd))
+		.post('/api/prettier', ({ body }) => handlePrettierEdit(cwd, body))
 		.listen(listenOptions(port, cert));
 
 	const url = cert ? `https://${host}:${port}` : `http://localhost:${port}`;

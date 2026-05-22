@@ -188,7 +188,8 @@ const EXTERNALS = [
 const CONFIG_SERVER_EXTERNALS = [
 	...EXTERNALS.filter((dep) => dep !== 'react' && dep !== 'react-dom'),
 	'eslint',
-	'eslint/use-at-your-own-risk'
+	'eslint/use-at-your-own-risk',
+	'prettier'
 ];
 
 const buildConfig = async () => {

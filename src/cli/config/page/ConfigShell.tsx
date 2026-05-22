@@ -2,15 +2,18 @@ import { EslintPanel } from '../eslint/EslintPanel';
 import { ESLINT_CSS } from '../eslint/eslintStyles';
 import { TsconfigPanel } from '../tsconfig/TsconfigPanel';
 import { TSCONFIG_CSS } from '../tsconfig/tsconfigStyles';
+import { PrettierPanel } from '../prettier/PrettierPanel';
 import { CONFIG_CSS } from './configStyles';
 import { CONFIG_PANELS } from '../panels';
 import type { ConfigPanelId, ConfigPanelMeta } from '../../../../types/config';
 import type { RuleCatalog } from '../../../../types/eslintConfig';
 import type { TsConfigState } from '../../../../types/tsconfig';
+import type { PrettierState } from '../../../../types/prettier';
 
 type ConfigShellProps = {
 	eslintCatalog: RuleCatalog | null;
 	panel: ConfigPanelId;
+	prettierState: PrettierState | null;
 	tsconfigState: TsConfigState | null;
 };
 
@@ -52,6 +55,7 @@ type RenderBodyArgs = {
 	active: ConfigPanelMeta | undefined;
 	eslintCatalog: RuleCatalog | null;
 	panel: ConfigPanelId;
+	prettierState: PrettierState | null;
 	tsconfigState: TsConfigState | null;
 };
 
@@ -59,6 +63,7 @@ const renderBody = ({
 	active,
 	eslintCatalog,
 	panel,
+	prettierState,
 	tsconfigState
 }: RenderBodyArgs) => {
 	if (panel === 'eslint') {
@@ -95,6 +100,25 @@ const renderBody = ({
 		);
 	}
 
+	if (panel === 'prettier') {
+		if (prettierState?.editable) {
+			return <PrettierPanel state={prettierState} />;
+		}
+
+		return (
+			<div className="cfg-placeholder">
+				<h2 className="cfg-placeholder-title">
+					Prettier <em>unavailable</em>
+				</h2>
+				<p className="cfg-placeholder-text">
+					{prettierState && !prettierState.available
+						? 'Prettier is not installed in this project.'
+						: 'Your prettier config uses a JS/YAML format that this editor cannot rewrite. Switch to .prettierrc.json to edit it here.'}
+				</p>
+			</div>
+		);
+	}
+
 	if (active) {
 		return (
 			<Placeholder
@@ -110,6 +134,7 @@ const renderBody = ({
 export const ConfigShell = ({
 	eslintCatalog,
 	panel,
+	prettierState,
 	tsconfigState
 }: ConfigShellProps) => {
 	const active = CONFIG_PANELS.find((entry) => entry.id === panel);
@@ -165,6 +190,7 @@ export const ConfigShell = ({
 							active,
 							eslintCatalog,
 							panel,
+							prettierState,
 							tsconfigState
 						})}
 					</main>

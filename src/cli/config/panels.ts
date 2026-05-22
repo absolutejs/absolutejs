@@ -20,7 +20,7 @@ export const CONFIG_PANELS: ConfigPanelMeta[] = [
 		blurb: 'Formatting options',
 		id: 'prettier',
 		label: 'Prettier',
-		status: 'soon'
+		status: 'ready'
 	}
 ];
 

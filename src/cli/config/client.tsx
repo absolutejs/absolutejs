@@ -6,10 +6,12 @@ import { isRecord } from './guards';
 import type { ConfigPanelId } from '../../../types/config';
 import type { RuleCatalog } from '../../../types/eslintConfig';
 import type { TsConfigState } from '../../../types/tsconfig';
+import type { PrettierState } from '../../../types/prettier';
 
 type ShellProps = {
 	eslintCatalog: RuleCatalog | null;
 	panel: ConfigPanelId;
+	prettierState: PrettierState | null;
 	tsconfigState: TsConfigState | null;
 };
 
@@ -19,11 +21,15 @@ const isCatalog = (value: unknown): value is RuleCatalog =>
 const isTsState = (value: unknown): value is TsConfigState =>
 	isRecord(value) && Array.isArray(value.options);
 
+const isPrettierState = (value: unknown): value is PrettierState =>
+	isRecord(value) && Array.isArray(value.options);
+
 const readShellProps = (value: unknown): ShellProps => {
 	if (!isRecord(value)) {
 		return {
 			eslintCatalog: null,
 			panel: DEFAULT_PANEL,
+			prettierState: null,
 			tsconfigState: null
 		};
 	}
@@ -33,6 +39,9 @@ const readShellProps = (value: unknown): ShellProps => {
 			? value.eslintCatalog
 			: null,
 		panel: isConfigPanelId(value.panel) ? value.panel : DEFAULT_PANEL,
+		prettierState: isPrettierState(value.prettierState)
+			? value.prettierState
+			: null,
 		tsconfigState: isTsState(value.tsconfigState)
 			? value.tsconfigState
 			: null
