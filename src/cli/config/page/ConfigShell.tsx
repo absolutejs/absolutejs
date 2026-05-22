@@ -4,6 +4,7 @@ import { TsconfigPanel } from '../tsconfig/TsconfigPanel';
 import { TSCONFIG_CSS } from '../tsconfig/tsconfigStyles';
 import { PrettierPanel } from '../prettier/PrettierPanel';
 import { AbsoluteConfigPanel } from '../absolute/AbsoluteConfigPanel';
+import { PackageJsonPanel } from '../packageJson/PackageJsonPanel';
 import { CONFIG_CSS } from './configStyles';
 import { CONFIG_PANELS } from '../panels';
 import type { ConfigPanelId, ConfigPanelMeta } from '../../../../types/config';
@@ -11,10 +12,12 @@ import type { RuleCatalog } from '../../../../types/eslintConfig';
 import type { TsConfigState } from '../../../../types/tsconfig';
 import type { PrettierState } from '../../../../types/prettier';
 import type { AbsoluteConfigState } from '../../../../types/absoluteConfig';
+import type { PackageJsonState } from '../../../../types/packageJson';
 
 type ConfigShellProps = {
 	absoluteConfigState: AbsoluteConfigState | null;
 	eslintCatalog: RuleCatalog | null;
+	packageJsonState: PackageJsonState | null;
 	panel: ConfigPanelId;
 	prettierState: PrettierState | null;
 	tsconfigState: TsConfigState | null;
@@ -58,6 +61,7 @@ type RenderBodyArgs = {
 	absoluteConfigState: AbsoluteConfigState | null;
 	active: ConfigPanelMeta | undefined;
 	eslintCatalog: RuleCatalog | null;
+	packageJsonState: PackageJsonState | null;
 	panel: ConfigPanelId;
 	prettierState: PrettierState | null;
 	tsconfigState: TsConfigState | null;
@@ -67,6 +71,7 @@ const renderBody = ({
 	absoluteConfigState,
 	active,
 	eslintCatalog,
+	packageJsonState,
 	panel,
 	prettierState,
 	tsconfigState
@@ -83,6 +88,23 @@ const renderBody = ({
 				</h2>
 				<p className="cfg-placeholder-text">
 					No absolute.config.ts was found in this project.
+				</p>
+			</div>
+		);
+	}
+
+	if (panel === 'package') {
+		if (packageJsonState?.configPath) {
+			return <PackageJsonPanel state={packageJsonState} />;
+		}
+
+		return (
+			<div className="cfg-placeholder">
+				<h2 className="cfg-placeholder-title">
+					No <em>package.json</em>
+				</h2>
+				<p className="cfg-placeholder-text">
+					No package.json was found in this project.
 				</p>
 			</div>
 		);
@@ -156,6 +178,7 @@ const renderBody = ({
 export const ConfigShell = ({
 	absoluteConfigState,
 	eslintCatalog,
+	packageJsonState,
 	panel,
 	prettierState,
 	tsconfigState
@@ -213,6 +236,7 @@ export const ConfigShell = ({
 							absoluteConfigState,
 							active,
 							eslintCatalog,
+							packageJsonState,
 							panel,
 							prettierState,
 							tsconfigState

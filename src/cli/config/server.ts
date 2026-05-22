@@ -19,6 +19,11 @@ import {
 	findConfigPath,
 	resolveAbsoluteConfigState
 } from './absolute/resolveAbsoluteConfig';
+import { applyFieldEdit, applyScriptEdit } from './packageJson/editPackageJson';
+import {
+	findPackageJsonPath,
+	resolvePackageJsonState
+} from './packageJson/resolvePackageJson';
 import {
 	CONFIG_DEFAULT_HOST,
 	CONFIG_DEFAULT_PORT,
@@ -42,6 +47,11 @@ import type {
 	AbsoluteConfigEditRequest,
 	AbsoluteConfigEditResult
 } from '../../../types/absoluteConfig';
+import type {
+	PackageFieldEdit,
+	PackageJsonEditResult,
+	PackageScriptEdit
+} from '../../../types/packageJson';
 
 const CLIENT_ROUTE = '/config-client.js';
 
@@ -118,6 +128,8 @@ const renderShell = async (
 		panel === 'prettier' ? await resolvePrettierState(cwd) : null;
 	const absoluteConfigState =
 		panel === 'absolute' ? resolveAbsoluteConfigState(cwd) : null;
+	const packageJsonState =
+		panel === 'package' ? resolvePackageJsonState(cwd) : null;
 
 	return handleReactPageRequest({
 		Page: ConfigShell,
@@ -125,6 +137,7 @@ const renderShell = async (
 		props: {
 			absoluteConfigState,
 			eslintCatalog,
+			packageJsonState,
 			panel,
 			prettierState,
 			tsconfigState
@@ -309,6 +322,62 @@ const handleAbsoluteEdit = (cwd: string, body: unknown) => {
 	return result;
 };
 
+const packageError = (message: string) => {
+	const invalid: PackageJsonEditResult = { message, ok: false, state: null };
+
+	return new Response(JSON.stringify(invalid), {
+		headers: { 'Content-Type': 'application/json' },
+		status: HTTP_STATUS_BAD_REQUEST
+	});
+};
+
+const handleScriptEdit = (cwd: string, body: unknown) => {
+	const configPath = findPackageJsonPath(cwd);
+	if (!isRecord(body) || typeof body.name !== 'string' || !configPath) {
+		return packageError(
+			configPath ? 'Invalid script edit.' : 'No package.json found.'
+		);
+	}
+
+	const edit: PackageScriptEdit = {
+		command: typeof body.command === 'string' ? body.command : undefined,
+		name: body.name,
+		remove: body.remove === true,
+		rename: typeof body.rename === 'string' ? body.rename : undefined
+	};
+	const outcome = applyScriptEdit(configPath, edit);
+	const result: PackageJsonEditResult = {
+		message: outcome.message,
+		ok: outcome.ok,
+		state: outcome.ok ? resolvePackageJsonState(cwd) : null
+	};
+
+	return result;
+};
+
+const handleFieldEdit = (cwd: string, body: unknown) => {
+	const configPath = findPackageJsonPath(cwd);
+	if (!isRecord(body) || typeof body.name !== 'string' || !configPath) {
+		return packageError(
+			configPath ? 'Invalid field edit.' : 'No package.json found.'
+		);
+	}
+
+	const edit: PackageFieldEdit = {
+		name: body.name,
+		remove: body.remove === true,
+		value: body.value
+	};
+	const outcome = applyFieldEdit(configPath, edit);
+	const result: PackageJsonEditResult = {
+		message: outcome.message,
+		ok: outcome.ok,
+		state: outcome.ok ? resolvePackageJsonState(cwd) : null
+	};
+
+	return result;
+};
+
 const listenOptions = (
 	port: number,
 	cert: { cert: string; key: string } | null
@@ -335,6 +404,7 @@ export const launchConfig = async (args: string[], cwd = process.cwd()) => {
 		.get('/tsconfig', () => renderShell('tsconfig', cwd))
 		.get('/prettier', () => renderShell('prettier', cwd))
 		.get('/absolute', () => renderShell('absolute', cwd))
+		.get('/package', () => renderShell('package', cwd))
 		.get(CLIENT_ROUTE, async () => {
 			const bundle = await getClientBundle();
 
@@ -352,6 +422,9 @@ export const launchConfig = async (args: string[], cwd = process.cwd()) => {
 		.post('/api/prettier', ({ body }) => handlePrettierEdit(cwd, body))
 		.get('/api/absolute', () => resolveAbsoluteConfigState(cwd))
 		.post('/api/absolute', ({ body }) => handleAbsoluteEdit(cwd, body))
+		.get('/api/package', () => resolvePackageJsonState(cwd))
+		.post('/api/package/script', ({ body }) => handleScriptEdit(cwd, body))
+		.post('/api/package/field', ({ body }) => handleFieldEdit(cwd, body))
 		.listen(listenOptions(port, cert));
 
 	const url = cert ? `https://${host}:${port}` : `http://localhost:${port}`;

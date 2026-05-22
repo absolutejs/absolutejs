@@ -11,6 +11,12 @@ export const CONFIG_PANELS: ConfigPanelMeta[] = [
 		status: 'ready'
 	},
 	{
+		blurb: 'Scripts & metadata',
+		id: 'package',
+		label: 'package.json',
+		status: 'ready'
+	},
+	{
 		blurb: 'Lint rules & severities',
 		id: 'eslint',
 		label: 'ESLint',
@@ -34,6 +40,7 @@ export const DEFAULT_PANEL: ConfigPanelId = 'absolute';
 
 export const isConfigPanelId = (value: unknown): value is ConfigPanelId =>
 	value === 'absolute' ||
+	value === 'package' ||
 	value === 'eslint' ||
 	value === 'tsconfig' ||
 	value === 'prettier';

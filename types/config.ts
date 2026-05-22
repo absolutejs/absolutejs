@@ -1,4 +1,9 @@
-export type ConfigPanelId = 'absolute' | 'eslint' | 'tsconfig' | 'prettier';
+export type ConfigPanelId =
+	| 'absolute'
+	| 'package'
+	| 'eslint'
+	| 'tsconfig'
+	| 'prettier';
 
 export type ConfigPanelStatus = 'ready' | 'soon';
 

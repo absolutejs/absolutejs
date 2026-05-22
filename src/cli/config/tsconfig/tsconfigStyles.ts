@@ -33,6 +33,7 @@ export const TSCONFIG_CSS = `
 }
 .ts-input:focus { outline: none; border-color: var(--accent); }
 .ts-input.err { border-color: var(--error); }
+.ts-input.wide { flex: 1; min-width: 320px; }
 
 .ts-btn {
 	font-family: var(--mono);
