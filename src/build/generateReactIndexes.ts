@@ -40,6 +40,19 @@ const refreshSetupPath = join(devClientDir, 'reactRefreshSetup.ts').replace(
 	'/'
 );
 
+// Absolute path to the vendored react-refresh runtime (shipped inside this
+// package's dev client). Bun's reactFastRefresh injects a bare
+// `react-refresh/runtime` import into every component during the bundled
+// build; the React client build resolves that specifier to this file so
+// consumers never need react-refresh in their own node_modules. Matches the
+// path reactRefreshSetup's relative `./vendor/reactRefreshRuntime.js` import
+// resolves to, so Bun dedupes both into a single runtime instance.
+export const reactRefreshRuntimePath = join(
+	devClientDir,
+	'vendor',
+	'reactRefreshRuntime.js'
+).replace(/\\/g, '/');
+
 export const generateReactIndexFiles = async (
 	reactPagesDirectory: string,
 	reactIndexesDirectory: string,
