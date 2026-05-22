@@ -3,14 +3,17 @@ import { ESLINT_CSS } from '../eslint/eslintStyles';
 import { TsconfigPanel } from '../tsconfig/TsconfigPanel';
 import { TSCONFIG_CSS } from '../tsconfig/tsconfigStyles';
 import { PrettierPanel } from '../prettier/PrettierPanel';
+import { AbsoluteConfigPanel } from '../absolute/AbsoluteConfigPanel';
 import { CONFIG_CSS } from './configStyles';
 import { CONFIG_PANELS } from '../panels';
 import type { ConfigPanelId, ConfigPanelMeta } from '../../../../types/config';
 import type { RuleCatalog } from '../../../../types/eslintConfig';
 import type { TsConfigState } from '../../../../types/tsconfig';
 import type { PrettierState } from '../../../../types/prettier';
+import type { AbsoluteConfigState } from '../../../../types/absoluteConfig';
 
 type ConfigShellProps = {
+	absoluteConfigState: AbsoluteConfigState | null;
 	eslintCatalog: RuleCatalog | null;
 	panel: ConfigPanelId;
 	prettierState: PrettierState | null;
@@ -52,6 +55,7 @@ const Placeholder = ({ body, title }: PlaceholderProps) => (
 );
 
 type RenderBodyArgs = {
+	absoluteConfigState: AbsoluteConfigState | null;
 	active: ConfigPanelMeta | undefined;
 	eslintCatalog: RuleCatalog | null;
 	panel: ConfigPanelId;
@@ -60,12 +64,30 @@ type RenderBodyArgs = {
 };
 
 const renderBody = ({
+	absoluteConfigState,
 	active,
 	eslintCatalog,
 	panel,
 	prettierState,
 	tsconfigState
 }: RenderBodyArgs) => {
+	if (panel === 'absolute') {
+		if (absoluteConfigState?.configPath) {
+			return <AbsoluteConfigPanel state={absoluteConfigState} />;
+		}
+
+		return (
+			<div className="cfg-placeholder">
+				<h2 className="cfg-placeholder-title">
+					No <em>absolute.config</em>
+				</h2>
+				<p className="cfg-placeholder-text">
+					No absolute.config.ts was found in this project.
+				</p>
+			</div>
+		);
+	}
+
 	if (panel === 'eslint') {
 		if (eslintCatalog) return <EslintPanel catalog={eslintCatalog} />;
 
@@ -132,6 +154,7 @@ const renderBody = ({
 };
 
 export const ConfigShell = ({
+	absoluteConfigState,
 	eslintCatalog,
 	panel,
 	prettierState,
@@ -187,6 +210,7 @@ export const ConfigShell = ({
 					</aside>
 					<main className="cfg-main">
 						{renderBody({
+							absoluteConfigState,
 							active,
 							eslintCatalog,
 							panel,

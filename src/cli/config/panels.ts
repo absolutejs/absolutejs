@@ -5,6 +5,12 @@ import type { ConfigPanelId, ConfigPanelMeta } from '../../../types/config';
  *  the unified config tool. */
 export const CONFIG_PANELS: ConfigPanelMeta[] = [
 	{
+		blurb: 'Framework config (defineConfig)',
+		id: 'absolute',
+		label: 'absolute.config',
+		status: 'ready'
+	},
+	{
 		blurb: 'Lint rules & severities',
 		id: 'eslint',
 		label: 'ESLint',
@@ -24,7 +30,10 @@ export const CONFIG_PANELS: ConfigPanelMeta[] = [
 	}
 ];
 
-export const DEFAULT_PANEL: ConfigPanelId = 'eslint';
+export const DEFAULT_PANEL: ConfigPanelId = 'absolute';
 
 export const isConfigPanelId = (value: unknown): value is ConfigPanelId =>
-	value === 'eslint' || value === 'tsconfig' || value === 'prettier';
+	value === 'absolute' ||
+	value === 'eslint' ||
+	value === 'tsconfig' ||
+	value === 'prettier';

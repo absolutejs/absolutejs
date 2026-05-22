@@ -7,8 +7,10 @@ import type { ConfigPanelId } from '../../../types/config';
 import type { RuleCatalog } from '../../../types/eslintConfig';
 import type { TsConfigState } from '../../../types/tsconfig';
 import type { PrettierState } from '../../../types/prettier';
+import type { AbsoluteConfigState } from '../../../types/absoluteConfig';
 
 type ShellProps = {
+	absoluteConfigState: AbsoluteConfigState | null;
 	eslintCatalog: RuleCatalog | null;
 	panel: ConfigPanelId;
 	prettierState: PrettierState | null;
@@ -24,9 +26,13 @@ const isTsState = (value: unknown): value is TsConfigState =>
 const isPrettierState = (value: unknown): value is PrettierState =>
 	isRecord(value) && Array.isArray(value.options);
 
+const isAbsoluteState = (value: unknown): value is AbsoluteConfigState =>
+	isRecord(value) && Array.isArray(value.fields);
+
 const readShellProps = (value: unknown): ShellProps => {
 	if (!isRecord(value)) {
 		return {
+			absoluteConfigState: null,
 			eslintCatalog: null,
 			panel: DEFAULT_PANEL,
 			prettierState: null,
@@ -35,6 +41,9 @@ const readShellProps = (value: unknown): ShellProps => {
 	}
 
 	return {
+		absoluteConfigState: isAbsoluteState(value.absoluteConfigState)
+			? value.absoluteConfigState
+			: null,
 		eslintCatalog: isCatalog(value.eslintCatalog)
 			? value.eslintCatalog
 			: null,

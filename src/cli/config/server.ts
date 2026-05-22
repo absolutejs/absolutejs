@@ -14,6 +14,11 @@ import {
 } from './tsconfig/resolveTsconfig';
 import { applyPrettierEdit } from './prettier/editPrettier';
 import { resolvePrettierState } from './prettier/resolvePrettier';
+import { applyAbsoluteConfigEdit } from './absolute/editAbsoluteConfig';
+import {
+	findConfigPath,
+	resolveAbsoluteConfigState
+} from './absolute/resolveAbsoluteConfig';
 import {
 	CONFIG_DEFAULT_HOST,
 	CONFIG_DEFAULT_PORT,
@@ -33,6 +38,10 @@ import type {
 	PrettierEditRequest,
 	PrettierEditResult
 } from '../../../types/prettier';
+import type {
+	AbsoluteConfigEditRequest,
+	AbsoluteConfigEditResult
+} from '../../../types/absoluteConfig';
 
 const CLIENT_ROUTE = '/config-client.js';
 
@@ -107,11 +116,19 @@ const renderShell = async (
 		panel === 'tsconfig' ? resolveTsconfigState(cwd) : null;
 	const prettierState =
 		panel === 'prettier' ? await resolvePrettierState(cwd) : null;
+	const absoluteConfigState =
+		panel === 'absolute' ? resolveAbsoluteConfigState(cwd) : null;
 
 	return handleReactPageRequest({
 		Page: ConfigShell,
 		index: CLIENT_ROUTE,
-		props: { eslintCatalog, panel, prettierState, tsconfigState }
+		props: {
+			absoluteConfigState,
+			eslintCatalog,
+			panel,
+			prettierState,
+			tsconfigState
+		}
 	});
 };
 
@@ -252,6 +269,46 @@ const handlePrettierEdit = async (cwd: string, body: unknown) => {
 	return result;
 };
 
+const parseAbsoluteEdit = (body: unknown) => {
+	if (!isRecord(body) || typeof body.name !== 'string') return null;
+
+	const request: AbsoluteConfigEditRequest = {
+		name: body.name,
+		remove: body.remove === true,
+		value: body.value
+	};
+
+	return request;
+};
+
+const handleAbsoluteEdit = (cwd: string, body: unknown) => {
+	const request = parseAbsoluteEdit(body);
+	const configPath = findConfigPath(cwd);
+	if (!request || !configPath) {
+		const invalid: AbsoluteConfigEditResult = {
+			message: !configPath
+				? 'No absolute.config.ts found.'
+				: 'Invalid edit request.',
+			ok: false,
+			state: null
+		};
+
+		return new Response(JSON.stringify(invalid), {
+			headers: { 'Content-Type': 'application/json' },
+			status: HTTP_STATUS_BAD_REQUEST
+		});
+	}
+
+	const outcome = applyAbsoluteConfigEdit(configPath, request);
+	const result: AbsoluteConfigEditResult = {
+		message: outcome.message,
+		ok: outcome.ok,
+		state: outcome.ok ? resolveAbsoluteConfigState(cwd) : null
+	};
+
+	return result;
+};
+
 const listenOptions = (
 	port: number,
 	cert: { cert: string; key: string } | null
@@ -277,6 +334,7 @@ export const launchConfig = async (args: string[], cwd = process.cwd()) => {
 		)
 		.get('/tsconfig', () => renderShell('tsconfig', cwd))
 		.get('/prettier', () => renderShell('prettier', cwd))
+		.get('/absolute', () => renderShell('absolute', cwd))
 		.get(CLIENT_ROUTE, async () => {
 			const bundle = await getClientBundle();
 
@@ -292,6 +350,8 @@ export const launchConfig = async (args: string[], cwd = process.cwd()) => {
 		.post('/api/tsconfig', ({ body }) => handleTsEdit(cwd, body))
 		.get('/api/prettier', () => resolvePrettierState(cwd))
 		.post('/api/prettier', ({ body }) => handlePrettierEdit(cwd, body))
+		.get('/api/absolute', () => resolveAbsoluteConfigState(cwd))
+		.post('/api/absolute', ({ body }) => handleAbsoluteEdit(cwd, body))
 		.listen(listenOptions(port, cert));
 
 	const url = cert ? `https://${host}:${port}` : `http://localhost:${port}`;
