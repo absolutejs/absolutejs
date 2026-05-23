@@ -78,7 +78,13 @@ const readJsonFile = (path: string) => {
 	}
 };
 
-const SOURCES: InstanceSource[] = ['dev', 'standalone', 'start', 'workspace'];
+const SOURCES: InstanceSource[] = [
+	'compiled',
+	'dev',
+	'standalone',
+	'start',
+	'workspace'
+];
 
 const toStringArray = (value: unknown) =>
 	Array.isArray(value)

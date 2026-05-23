@@ -32,7 +32,12 @@ export type InstanceRecord = {
 	startedAt: string;
 };
 
-export type InstanceSource = 'dev' | 'standalone' | 'start' | 'workspace';
+export type InstanceSource =
+	| 'compiled'
+	| 'dev'
+	| 'standalone'
+	| 'start'
+	| 'workspace';
 
 export type InstanceStatus = 'ready' | 'starting' | 'stopped';
 

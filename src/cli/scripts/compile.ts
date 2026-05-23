@@ -677,10 +677,10 @@ const generateEntrypoint = (
 // ── Embedded asset imports ──────────────────────────────────────
 ${imports.join('\n')}
 
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { tmpdir } from "node:os";
+import { basename, dirname, join } from "node:path";
+import { homedir, tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
@@ -874,6 +874,49 @@ const server = Bun.serve({
 		return new Response("Not found", { status: 404 });
 	},
 });
+
+// Register in the global instance registry so 'absolute ls' can see this
+// compiled binary. Best-effort; never blocks startup. Dead entries are pruned
+// on read, so a hard kill that skips the exit handler is harmless.
+try {
+	const absInstancesDir = join(homedir(), ".absolutejs", "instances");
+	mkdirSync(absInstancesDir, { recursive: true });
+	const absInstanceFile = join(absInstancesDir, process.pid + ".json");
+	writeFileSync(
+		absInstanceFile,
+		JSON.stringify(
+			{
+				// Bun sets process.argv[0] to "bun" in a compiled binary;
+				// process.execPath is the real standalone executable path.
+				command: process.execPath ? [process.execPath] : [],
+				configPath: null,
+				controllerPid: process.pid,
+				cwd: process.cwd(),
+				frameworks: [],
+				host: "localhost",
+				https: false,
+				logFile: null,
+				name: basename(process.execPath || "compiled"),
+				pid: process.pid,
+				port: server.port,
+				ppid: process.ppid,
+				source: "compiled",
+				startedAt: new Date().toISOString()
+			},
+			null,
+			2
+		)
+	);
+	process.on("exit", () => {
+		try {
+			unlinkSync(absInstanceFile);
+		} catch {
+			/* already gone */
+		}
+	});
+} catch {
+	/* registry is best-effort */
+}
 
 const assetCount = Object.keys(ASSETS).length;
 const pageCount = Object.keys(PAGES).length;
