@@ -3,35 +3,18 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { ConfigShell } from './page/ConfigShell';
 import { DEFAULT_PANEL } from './panels';
-import { applyRuleEdit } from './eslint/editConfigRule';
-import { resolveRuleCatalog } from './eslint/resolveConfig';
 import { ensureConfigCert } from './configCert';
 import { isRecord } from './guards';
-import { applyTsconfigEdit } from './tsconfig/editTsconfig';
-import {
-	findTsconfigPath,
-	resolveTsconfigState
-} from './tsconfig/resolveTsconfig';
-import { applyPrettierEdit } from './prettier/editPrettier';
-import { resolvePrettierState } from './prettier/resolvePrettier';
-import { applyAbsoluteConfigEdit } from './absolute/editAbsoluteConfig';
-import {
-	findConfigPath,
-	resolveAbsoluteConfigState
-} from './absolute/resolveAbsoluteConfig';
-import { applyFieldEdit, applyScriptEdit } from './packageJson/editPackageJson';
-import {
-	findPackageJsonPath,
-	resolvePackageJsonState
-} from './packageJson/resolvePackageJson';
 import {
 	CONFIG_DEFAULT_HOST,
 	CONFIG_DEFAULT_PORT,
 	HTTP_STATUS_BAD_REQUEST,
+	MILLISECONDS_IN_A_SECOND,
 	UNFOUND_INDEX
 } from '../../constants';
 import { handleReactPageRequest } from '../../react/pageHandler';
 import { killStaleProcesses, openUrlInBrowser } from '../utils';
+import { startupBanner } from '../../utils/startupBanner';
 import type { ConfigPanelId } from '../../../types/config';
 import type {
 	RuleEditRequest,
@@ -53,7 +36,55 @@ import type {
 	PackageScriptEdit
 } from '../../../types/packageJsonPanel';
 
+// The ESLint/TypeScript/Prettier resolvers pull in heavy modules (the whole
+// `typescript` compiler, ESLint, jiti). They're loaded lazily — only when a
+// panel's /api route is actually hit — so `absolute config` starts in well under
+// a second instead of ~14s. The shell render needs none of them.
+const eslintOps = () =>
+	Promise.all([
+		import('./eslint/editConfigRule'),
+		import('./eslint/resolveConfig')
+	]);
+const tsconfigOps = () =>
+	Promise.all([
+		import('./tsconfig/editTsconfig'),
+		import('./tsconfig/resolveTsconfig')
+	]);
+const prettierOps = () =>
+	Promise.all([
+		import('./prettier/editPrettier'),
+		import('./prettier/resolvePrettier')
+	]);
+const absoluteOps = () =>
+	Promise.all([
+		import('./absolute/editAbsoluteConfig'),
+		import('./absolute/resolveAbsoluteConfig')
+	]);
+const packageOps = () =>
+	Promise.all([
+		import('./packageJson/editPackageJson'),
+		import('./packageJson/resolvePackageJson')
+	]);
+
 const CLIENT_ROUTE = '/config-client.js';
+
+// The framework version, for the startup banner. Reads the package.json that
+// ships the CLI — the same path resolves from source and from dist.
+const readVersion = () => {
+	for (const candidate of [
+		resolve(import.meta.dir, '..', '..', '..', 'package.json'),
+		resolve(import.meta.dir, '..', '..', '..', '..', 'package.json')
+	]) {
+		try {
+			const pkg = JSON.parse(readFileSync(candidate, 'utf-8'));
+			if (typeof pkg?.version === 'string') return pkg.version;
+		} catch {
+			/* try the next candidate */
+		}
+	}
+
+	return '';
+};
 
 const flagValue = (args: string[], flag: string) => {
 	const index = args.indexOf(flag);
@@ -164,6 +195,7 @@ const handleEdit = async (cwd: string, body: unknown) => {
 		});
 	}
 
+	const [{ applyRuleEdit }, { resolveRuleCatalog }] = await eslintOps();
 	const fileScope =
 		isRecord(body) && typeof body.file === 'string' ? body.file : undefined;
 	const { configPath } = await resolveRuleCatalog(cwd);
@@ -189,8 +221,10 @@ const parseTsEditRequest = (body: unknown) => {
 	return request;
 };
 
-const handleTsEdit = (cwd: string, body: unknown) => {
+const handleTsEdit = async (cwd: string, body: unknown) => {
 	const request = parseTsEditRequest(body);
+	const [{ applyTsconfigEdit }, { findTsconfigPath, resolveTsconfigState }] =
+		await tsconfigOps();
 	const configPath = findTsconfigPath(cwd);
 	if (!request || !configPath) {
 		const invalid: TsEditResult = {
@@ -231,6 +265,8 @@ const parsePrettierEdit = (body: unknown) => {
 
 const handlePrettierEdit = async (cwd: string, body: unknown) => {
 	const request = parsePrettierEdit(body);
+	const [{ applyPrettierEdit }, { resolvePrettierState }] =
+		await prettierOps();
 	const state = await resolvePrettierState(cwd);
 	if (!request || !state.editable) {
 		const invalid: PrettierEditResult = {
@@ -274,8 +310,16 @@ const parseAbsoluteEdit = (body: unknown) => {
 	return request;
 };
 
-const handleAbsoluteEdit = (cwd: string, body: unknown, override?: string) => {
+const handleAbsoluteEdit = async (
+	cwd: string,
+	body: unknown,
+	override?: string
+) => {
 	const request = parseAbsoluteEdit(body);
+	const [
+		{ applyAbsoluteConfigEdit },
+		{ findConfigPath, resolveAbsoluteConfigState }
+	] = await absoluteOps();
 	const configPath = findConfigPath(cwd, override);
 	if (!request || !configPath) {
 		const invalid: AbsoluteConfigEditResult = {
@@ -311,7 +355,11 @@ const packageError = (message: string) => {
 	});
 };
 
-const handleScriptEdit = (cwd: string, body: unknown) => {
+const handleScriptEdit = async (cwd: string, body: unknown) => {
+	const [
+		{ applyScriptEdit },
+		{ findPackageJsonPath, resolvePackageJsonState }
+	] = await packageOps();
 	const configPath = findPackageJsonPath(cwd);
 	if (!isRecord(body) || typeof body.name !== 'string' || !configPath) {
 		return packageError(
@@ -335,7 +383,11 @@ const handleScriptEdit = (cwd: string, body: unknown) => {
 	return result;
 };
 
-const handleFieldEdit = (cwd: string, body: unknown) => {
+const handleFieldEdit = async (cwd: string, body: unknown) => {
+	const [
+		{ applyFieldEdit },
+		{ findPackageJsonPath, resolvePackageJsonState }
+	] = await packageOps();
 	const configPath = findPackageJsonPath(cwd);
 	if (!isRecord(body) || typeof body.name !== 'string' || !configPath) {
 		return packageError(
@@ -390,42 +442,60 @@ export const launchConfig = async (args: string[], cwd = process.cwd()) => {
 				headers: { 'Content-Type': 'text/javascript; charset=utf-8' }
 			});
 		})
-		.get('/api/rules', ({ query }) =>
-			resolveRuleCatalog(cwd, fileScopeOf(query))
-		)
+		.get('/api/rules', async ({ query }) => {
+			const [, { resolveRuleCatalog }] = await eslintOps();
+
+			return resolveRuleCatalog(cwd, fileScopeOf(query));
+		})
 		.post('/api/rules', ({ body }) => handleEdit(cwd, body))
-		.get('/api/tsconfig', () => resolveTsconfigState(cwd))
+		.get('/api/tsconfig', async () => {
+			const [, { resolveTsconfigState }] = await tsconfigOps();
+
+			return resolveTsconfigState(cwd);
+		})
 		.post('/api/tsconfig', ({ body }) => handleTsEdit(cwd, body))
-		.get('/api/prettier', () => resolvePrettierState(cwd))
+		.get('/api/prettier', async () => {
+			const [, { resolvePrettierState }] = await prettierOps();
+
+			return resolvePrettierState(cwd);
+		})
 		.post('/api/prettier', ({ body }) => handlePrettierEdit(cwd, body))
-		.get('/api/absolute', () =>
-			resolveAbsoluteConfigState(cwd, configOverride)
-		)
+		.get('/api/absolute', async () => {
+			const [, { resolveAbsoluteConfigState }] = await absoluteOps();
+
+			return resolveAbsoluteConfigState(cwd, configOverride);
+		})
 		.post('/api/absolute', ({ body }) =>
 			handleAbsoluteEdit(cwd, body, configOverride)
 		)
-		.get('/api/package', () => resolvePackageJsonState(cwd))
+		.get('/api/package', async () => {
+			const [, { resolvePackageJsonState }] = await packageOps();
+
+			return resolvePackageJsonState(cwd);
+		})
 		.post('/api/package/script', ({ body }) => handleScriptEdit(cwd, body))
 		.post('/api/package/field', ({ body }) => handleFieldEdit(cwd, body))
 		.listen(listenOptions(port, cert));
 
-	const url = cert ? `https://${host}:${port}` : `http://localhost:${port}`;
-	const green = '\x1b[32m';
 	const dim = '\x1b[2m';
 	const reset = '\x1b[0m';
-	console.log(`\n${green}✓ Absolute Config${reset} running at ${url}`);
-	console.log(
-		`${dim}absolute.config · package.json · ESLint · tsconfig · Prettier — Ctrl+C to stop${reset}`
-	);
+	startupBanner({
+		host,
+		port,
+		protocol: cert ? 'https' : 'http',
+		readyDuration: process.uptime() * MILLISECONDS_IN_A_SECOND,
+		version: process.env.ABSOLUTE_VERSION || readVersion()
+	});
 	if (!cert && httpsRequested) {
 		console.log(
-			`${dim}Tip: install mkcert (\`absolute mkcert\`) to serve a trusted https://${host}${reset}`
+			`  ${dim}Tip: install mkcert (\`absolute mkcert\`) for trusted https${reset}`
 		);
 	}
+	const url = cert ? `https://${host}:${port}` : `http://localhost:${port}`;
 	if (shouldOpen) {
 		openUrlInBrowser(url, (message) => console.warn(message));
 	} else {
-		console.log(`${dim}Open it in your browser, or pass --open.${reset}`);
+		console.log(`  ${dim}Open it in your browser, or pass --open.${reset}`);
 	}
 	console.log('');
 
