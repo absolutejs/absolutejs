@@ -349,6 +349,7 @@
 		"dev": "TELEMETRY_OFF=1 bun run src/cli/index.ts dev example/server.ts --config example/absolute.config.ts",
 		"format": "bun run src/cli/index.ts prettier --write",
 		"lint": "bun run src/cli/index.ts eslint",
+		"ls": "bun run src/cli/index.ts ls",
 		"release": "bun run test && bun run format && bun run build:native && bun run build && ./native/publish.sh && bun publish",
 		"release:beta": "bun run test && bun run format && bun run build:native && bun run build && ./native/publish.sh --tag beta && bun publish --tag beta",
 		"start": "TELEMETRY_OFF=1 bun run src/cli/index.ts start example/server.ts --outdir example/dist --config example/absolute.config.ts",
@@ -400,5 +401,5 @@
 			]
 		}
 	},
-	"version": "0.19.0-beta.1018"
+	"version": "0.19.0-beta.1019"
 }

@@ -78,7 +78,7 @@ if (command === 'dev') {
 } else if (command === 'prettier') {
 	sendTelemetryEvent('cli:command', { command });
 	await prettier(args);
-} else if (command === 'ls' || command === 'list' || command === 'ps') {
+} else if (command === 'ls' || command === 'ps') {
 	sendTelemetryEvent('cli:command', { command: 'ls' });
 	const { runList } = await import('./scripts/list');
 	await runList(args);
@@ -128,7 +128,7 @@ if (command === 'dev') {
 	console.error('  eslint        Run ESLint (cached)');
 	console.error('  info          Print system info for bug reports');
 	console.error(
-		'  ls [--watch] [--json] List/manage running servers (alias: list)'
+		'  ls [--watch] [--json] List/manage running servers (alias: ps)'
 	);
 	console.error('  prettier      Run Prettier check (cached)');
 	console.error('  typecheck     Run type checkers for all frameworks');
