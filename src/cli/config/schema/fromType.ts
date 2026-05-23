@@ -1,5 +1,11 @@
 import ts from 'typescript';
-import { existsSync, readFileSync } from 'node:fs';
+import {
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	statSync,
+	writeFileSync
+} from 'node:fs';
 import { resolve } from 'node:path';
 import type { FieldNode, FieldSchema } from '../../../../types/config';
 
@@ -24,13 +30,96 @@ const compilerOptionsFor = (cwd: string) => {
 		ts.sys.fileExists,
 		'tsconfig.json'
 	);
-	if (!tsconfigPath) return ts.getDefaultCompilerOptions();
-	const parsed = ts.getParsedCommandLineOfConfigFile(tsconfigPath, {}, {
-		...ts.sys,
-		onUnRecoverableConfigFileDiagnostic: () => {}
-	} as ts.ParseConfigFileHost);
+	const base =
+		tsconfigPath &&
+		ts.getParsedCommandLineOfConfigFile(tsconfigPath, {}, {
+			...ts.sys,
+			onUnRecoverableConfigFileDiagnostic: () => {}
+		} as ts.ParseConfigFileHost)?.options;
 
-	return parsed?.options ?? ts.getDefaultCompilerOptions();
+	// We only read the type's shape — never type-check — so skip lib checking and
+	// auto-included @types/* to make program creation as fast as possible.
+	return {
+		...(base ?? ts.getDefaultCompilerOptions()),
+		noEmit: true,
+		skipDefaultLibCheck: true,
+		skipLibCheck: true,
+		types: []
+	};
+};
+
+// Disk cache so the (multi-second) TS program creation runs once, not on every
+// launch. Keyed by the framework version; in the framework repo we also fold in
+// the type-source mtime so local edits during dev invalidate it.
+const SCHEMA_VERSION = 1;
+
+const frameworkVersion = (cwd: string) => {
+	for (const candidate of [
+		resolve(cwd, 'node_modules', '@absolutejs', 'absolute', 'package.json'),
+		resolve(cwd, 'package.json')
+	]) {
+		try {
+			const version = JSON.parse(
+				readFileSync(candidate, 'utf-8')
+			).version;
+			if (typeof version === 'string') return version;
+		} catch {
+			/* try the next candidate */
+		}
+	}
+
+	return 'unknown';
+};
+
+const cacheSignature = (cwd: string, typeName: string, local: boolean) => {
+	let signature = `${SCHEMA_VERSION}:${frameworkVersion(cwd)}`;
+	if (local) {
+		const file = typeName === 'PackageJson' ? 'packageJson.ts' : 'build.ts';
+		try {
+			signature += `:${statSync(resolve(cwd, 'types', file)).mtimeMs}`;
+		} catch {
+			/* type file missing — version alone keys it */
+		}
+	}
+
+	return signature;
+};
+
+const cacheFile = (cwd: string, typeName: string) =>
+	resolve(cwd, '.absolutejs', 'config-schema', `${typeName}.json`);
+
+const readDiskCache = (cwd: string, typeName: string, signature: string) => {
+	try {
+		const cached = JSON.parse(
+			readFileSync(cacheFile(cwd, typeName), 'utf-8')
+		);
+		if (cached?.signature === signature && Array.isArray(cached.fields)) {
+			return cached.fields as FieldNode[];
+		}
+	} catch {
+		/* no/stale cache */
+	}
+
+	return null;
+};
+
+const writeDiskCache = (
+	cwd: string,
+	typeName: string,
+	signature: string,
+	fields: FieldNode[]
+) => {
+	try {
+		mkdirSync(resolve(cwd, '.absolutejs', 'config-schema'), {
+			recursive: true
+		});
+		writeFileSync(
+			cacheFile(cwd, typeName),
+			JSON.stringify({ fields, signature })
+		);
+	} catch {
+		/* cache is best-effort */
+	}
 };
 
 const docOf = (symbol: ts.Symbol, checker: ts.TypeChecker) =>
@@ -224,11 +313,21 @@ export const introspectType = (
 ) => {
 	const cached = cache.get(typeName);
 	if (cached) return cached;
-	const options = compilerOptionsFor(cwd);
-	const specifiers = ['@absolutejs/absolute'];
-	if (isFrameworkRepo(cwd) && existsSync(resolve(cwd, 'types/index.ts'))) {
-		specifiers.push('./types');
+
+	const local =
+		isFrameworkRepo(cwd) && existsSync(resolve(cwd, 'types/index.ts'));
+	const signature = cacheSignature(cwd, typeName, local);
+	const fromDisk = readDiskCache(cwd, typeName, signature);
+	if (fromDisk) {
+		cache.set(typeName, fromDisk);
+
+		return fromDisk;
 	}
+
+	const options = compilerOptionsFor(cwd);
+	const specifiers = local
+		? ['@absolutejs/absolute', './types']
+		: ['@absolutejs/absolute'];
 
 	for (const specifier of specifiers) {
 		try {
@@ -241,6 +340,7 @@ export const introspectType = (
 			);
 			if (nodes.length > 0) {
 				cache.set(typeName, nodes);
+				writeDiskCache(cwd, typeName, signature, nodes);
 
 				return nodes;
 			}
