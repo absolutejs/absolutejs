@@ -334,9 +334,15 @@ const rewriteImports = (
 	};
 
 	// Combined: import/export from 'bare', import 'bare' (line-anchored)
-	// Uses [\s\S]+? to match multi-line imports (e.g., import {\n  foo\n} from 'pkg')
+	// The clause between `import`/`export` and `from` is matched with
+	// [^"'`;]+? rather than [\s\S]+?: it still spans newlines (so multi-line
+	// imports like `import {\n  foo\n} from 'pkg'` work), but it can never
+	// cross a string literal or statement boundary. Using [\s\S]+? let a
+	// top-level `export`/`import` token lazily bridge across transpiled JSX
+	// to a later ` from` appearing INSIDE a string (e.g. JSX text ending in
+	// the word "from"), corrupting unrelated code with a bogus /@stub/.
 	result = result.replace(
-		/^((?:import\s+[\s\S]+?\s+from|export\s+[\s\S]+?\s+from|import)\s*["'])([^"'./][^"']*)(["'])/gm,
+		/^((?:import\s+[^"'`;]+?\s+from|export\s+[^"'`;]+?\s+from|import)\s*["'])([^"'./][^"']*)(["'])/gm,
 		stubReplace
 	);
 	// Dynamic: import('bare')
