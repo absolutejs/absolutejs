@@ -1,4 +1,6 @@
 import { useMemo, useState } from 'react';
+import { FieldEditor } from '../page/FieldEditor';
+import { eslintOptionsSchema } from '../schema/fromJsonSchema';
 import type {
 	ConfigBlock,
 	EffectiveRule,
@@ -106,31 +108,15 @@ const ConfigRow = ({
 	severity
 }: ConfigRowProps) => {
 	const [editing, setEditing] = useState(false);
-	const [draft, setDraft] = useState('');
-	const [error, setError] = useState<string | null>(null);
+	const [draft, setDraft] = useState<unknown[]>(options);
+	const optionsSchema = useMemo(
+		() => eslintOptionsSchema(meta?.schema),
+		[meta]
+	);
 
 	const openEditor = () => {
-		setDraft(JSON.stringify(options, null, 2));
-		setError(null);
+		setDraft(options);
 		setEditing(true);
-	};
-
-	const applyOptions = () => {
-		const text = draft.trim();
-		try {
-			const parsed = text === '' ? [] : JSON.parse(text);
-			if (!Array.isArray(parsed)) {
-				setError(
-					'Options must be a JSON array, e.g. [{ "minLength": 3 }]'
-				);
-
-				return;
-			}
-			onSave(severity, parsed);
-			setEditing(false);
-		} catch (parseError) {
-			setError(String(parseError));
-		}
 	};
 
 	return (
@@ -145,18 +131,22 @@ const ConfigRow = ({
 				)}
 				{editing && (
 					<div className="opts-editor">
-						<textarea
-							className="opts-input"
-							onChange={(event) => setDraft(event.target.value)}
-							rows={5}
-							spellCheck={false}
-							value={draft}
-						/>
-						{error && <div className="opts-error">{error}</div>}
+						<div className="fe-root">
+							<FieldEditor
+								onChange={(value) =>
+									setDraft(Array.isArray(value) ? value : [])
+								}
+								schema={optionsSchema}
+								value={draft}
+							/>
+						</div>
 						<div className="opts-actions">
 							<button
 								className="opts-btn save"
-								onClick={applyOptions}
+								onClick={() => {
+									onSave(severity, draft);
+									setEditing(false);
+								}}
 								type="button"
 							>
 								Save options

@@ -22,6 +22,8 @@ export const emptyValue = (schema: FieldSchema): unknown => {
 			return schema.choices[0] ?? '';
 		case 'array':
 			return [];
+		case 'tuple':
+			return schema.items.map(emptyValue);
 		case 'record':
 			return {};
 		case 'object':
@@ -169,6 +171,31 @@ const ArrayField = ({ onChange, schema, value }: EditorProps) => {
 			>
 				+ add
 			</button>
+		</div>
+	);
+};
+
+const TupleField = ({ onChange, schema, value }: EditorProps) => {
+	if (schema.kind !== 'tuple') return null;
+	const items = Array.isArray(value) ? value : [];
+
+	return (
+		<div className="fe-array">
+			{schema.items.map((itemSchema, index) => (
+				<div className="fe-item" key={index}>
+					<FieldEditor
+						onChange={(next) =>
+							onChange(
+								schema.items.map((_, i) =>
+									i === index ? next : items[i]
+								)
+							)
+						}
+						schema={itemSchema}
+						value={items[index]}
+					/>
+				</div>
+			))}
 		</div>
 	);
 };
@@ -352,6 +379,8 @@ export const FieldEditor = (props: EditorProps) => {
 			return <EnumField {...props} />;
 		case 'array':
 			return <ArrayField {...props} />;
+		case 'tuple':
+			return <TupleField {...props} />;
 		case 'record':
 			return <RecordField {...props} />;
 		case 'object':

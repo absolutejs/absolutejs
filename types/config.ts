@@ -27,6 +27,7 @@ export type FieldSchema =
 	| { kind: 'boolean' }
 	| { kind: 'enum'; choices: (string | number)[] }
 	| { kind: 'array'; item: FieldSchema }
+	| { kind: 'tuple'; items: FieldSchema[] }
 	| { kind: 'object'; fields: FieldNode[] }
 	| { kind: 'record'; value: FieldSchema }
 	| { kind: 'union'; variants: FieldSchema[] }

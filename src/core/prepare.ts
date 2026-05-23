@@ -392,6 +392,35 @@ export const prepare = async (configOrPath?: string) => {
 		prefix: '',
 		staticLimit: MAX_STATIC_ROUTE_COUNT
 	});
+
+	// `@elysiajs/static` skips dot-directories when walking `assets`, so the
+	// content-hashed client hydration bundles emitted to
+	// `<buildDir>/.absolutejs/generated/**` never get static routes and 404 in
+	// production (only dev served them, via the HMR disk fallback). Serve that
+	// one directory explicitly, with a path-traversal guard. The files are
+	// hash-named, so they are safe to cache immutably.
+	const generatedAssetsRoot = join(buildDir, '.absolutejs');
+	const generatedAssetsPlugin = new Elysia({
+		name: 'absolutejs-generated-assets'
+	}).get('/.absolutejs/*', async ({ params, set }) => {
+		const requestedPath = resolve(generatedAssetsRoot, params['*']);
+		if (relative(generatedAssetsRoot, requestedPath).startsWith('..')) {
+			set.status = 404;
+
+			return 'Not Found';
+		}
+
+		const file = Bun.file(requestedPath);
+		if (!(await file.exists())) {
+			set.status = 404;
+
+			return 'Not Found';
+		}
+
+		set.headers['cache-control'] = 'public, max-age=31536000, immutable';
+
+		return file;
+	});
 	recordStep('create static plugin', stepStartedAt);
 
 	// Check for pre-rendered pages (from SSG or compile)
@@ -453,6 +482,7 @@ export const prepare = async (configOrPath?: string) => {
 			.use(imageOptimizer(config.images, buildDir))
 			.use(prerenderPlugin)
 			.use(staticFiles)
+			.use(generatedAssetsPlugin)
 			.use(createNotFoundPlugin());
 		recordStep('assemble production runtime', stepStartedAt);
 		logStartupTimingBlock('AbsoluteJS prepare timing', startupSteps);
@@ -465,6 +495,7 @@ export const prepare = async (configOrPath?: string) => {
 	const absolutejs = new Elysia({ name: 'absolutejs-runtime' })
 		.use(imageOptimizer(config.images, buildDir))
 		.use(staticFiles)
+		.use(generatedAssetsPlugin)
 		.use(createNotFoundPlugin());
 	recordStep('assemble production runtime', stepStartedAt);
 	logStartupTimingBlock('AbsoluteJS prepare timing', startupSteps);

@@ -1,4 +1,6 @@
 import { useMemo, useState } from 'react';
+import { FieldEditor } from '../page/FieldEditor';
+import type { FieldSchema } from '../../../../types/config';
 import type {
 	TsConfigState,
 	TsEditResult,
@@ -181,6 +183,44 @@ const TextControl = ({ kind, onSave, value }: TextControlProps) => {
 	);
 };
 
+type ListControlProps = {
+	onSave: SaveFn;
+	option: TsOption;
+	value: unknown;
+};
+
+const ListControl = ({ onSave, option, value }: ListControlProps) => {
+	const [draft, setDraft] = useState<unknown>(
+		Array.isArray(value) ? value : []
+	);
+	const schema: FieldSchema = {
+		item:
+			option.enumValues.length > 0
+				? { choices: option.enumValues, kind: 'enum' }
+				: { kind: 'string' },
+		kind: 'array'
+	};
+
+	return (
+		<div className="ts-control">
+			<div className="fe-root">
+				<FieldEditor
+					onChange={setDraft}
+					schema={schema}
+					value={draft}
+				/>
+			</div>
+			<button
+				className="ts-btn"
+				onClick={() => onSave(draft)}
+				type="button"
+			>
+				save
+			</button>
+		</div>
+	);
+};
+
 type ControlProps = {
 	busy: boolean;
 	isSet: boolean;
@@ -209,6 +249,9 @@ const Control = ({ busy, isSet, onSave, option, value }: ControlProps) => {
 				value={value}
 			/>
 		);
+	}
+	if (option.kind === 'list') {
+		return <ListControl onSave={onSave} option={option} value={value} />;
 	}
 
 	return <TextControl kind={option.kind} onSave={onSave} value={value} />;
