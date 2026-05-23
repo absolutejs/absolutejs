@@ -78,6 +78,10 @@ if (command === 'dev') {
 } else if (command === 'prettier') {
 	sendTelemetryEvent('cli:command', { command });
 	await prettier(args);
+} else if (command === 'ls' || command === 'list' || command === 'ps') {
+	sendTelemetryEvent('cli:command', { command: 'ls' });
+	const { runList } = await import('./scripts/list');
+	await runList(args);
 } else if (command === 'info') {
 	sendTelemetryEvent('cli:command', { command });
 	info();
@@ -123,6 +127,9 @@ if (command === 'dev') {
 	);
 	console.error('  eslint        Run ESLint (cached)');
 	console.error('  info          Print system info for bug reports');
+	console.error(
+		'  ls [--watch] [--json] List/manage running servers (alias: list)'
+	);
 	console.error('  prettier      Run Prettier check (cached)');
 	console.error('  typecheck     Run type checkers for all frameworks');
 	console.error('  telemetry     Manage anonymous telemetry');

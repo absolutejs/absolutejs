@@ -8,6 +8,11 @@ import {
 	MILLISECONDS_IN_A_SECOND
 } from '../../constants';
 import { getDurationString } from '../../utils/getDurationString';
+import {
+	deregisterInstance,
+	registerInstance,
+	resolveProjectName
+} from '../../utils/instanceRegistry';
 import { loadConfig } from '../../utils/loadConfig';
 import { formatTimestamp } from '../../utils/startupBanner';
 import { sendTelemetryEvent } from '../telemetryEvent';
@@ -172,6 +177,9 @@ const prerenderStaticPages = async (
 			staticConfig,
 			{
 				ABSOLUTE_BUILD_DIR: resolvedOutdir,
+				// Transient prerender server — don't let it self-register in
+				// the global instance registry.
+				ABSOLUTE_INSTANCE_MANAGED: '1',
 				ABSOLUTE_VERSION: absoluteVersion,
 				FORCE_COLOR: '0',
 				NODE_ENV: 'production',
@@ -481,6 +489,9 @@ export const start = async (
 			...process.env,
 			ABSOLUTE_BUILD_DIR: resolvedOutdir,
 			ABSOLUTE_BUILD_DURATION: String(Math.round(totalDuration)),
+			// The parent CLI owns this server's registry entry, so the child's
+			// runtime (networking plugin) must not self-register.
+			ABSOLUTE_INSTANCE_MANAGED: '1',
 			ABSOLUTE_VERSION: absoluteVersion,
 			FORCE_COLOR: '1',
 			NODE_ENV: 'production',
@@ -491,9 +502,38 @@ export const start = async (
 		stdout: 'inherit'
 	});
 
+	// Publish the production server to the global registry so `absolute ls`
+	// can see/stop it. The child is `bun run <bundle>`; killing this parent
+	// (controllerPid) tears the child down via the cleanup handler below.
+	const relaunchCommand = [
+		process.execPath,
+		process.argv[1] ?? '',
+		'start',
+		serverEntry,
+		...(outdir ? ['--outdir', outdir] : []),
+		...(configPath ? ['--config', configPath] : [])
+	].filter((part) => part.length > 0);
+	registerInstance({
+		command: relaunchCommand,
+		configPath: configPath ?? null,
+		controllerPid: process.pid,
+		cwd: process.cwd(),
+		frameworks,
+		host: env.ABSOLUTE_HOST ?? env.HOST ?? 'localhost',
+		https: env.ABSOLUTE_HTTPS === 'true',
+		logFile: null,
+		name: resolveProjectName(process.cwd()),
+		pid: process.pid,
+		port,
+		ppid: process.ppid,
+		source: 'start',
+		startedAt: new Date().toISOString()
+	});
+
 	const cleanup = async (exitCode = 0) => {
 		if (cleaning) return;
 		cleaning = true;
+		deregisterInstance(process.pid);
 		sendTelemetryEvent('start:session-duration', {
 			duration: Math.round(
 				(Date.now() - sessionStart) / MILLISECONDS_IN_A_SECOND

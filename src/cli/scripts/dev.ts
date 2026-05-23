@@ -1,9 +1,10 @@
 import { $, env } from 'bun';
 import { spawn as nodeSpawn, type ChildProcess } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { createWriteStream, existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { DbScripts, InteractiveHandler } from '../../../types/cli';
 import {
+	ANSI_ESCAPE_CODE,
 	DEFAULT_PORT,
 	MILLISECONDS_IN_A_SECOND,
 	SIGINT_EXIT_CODE,
@@ -16,6 +17,13 @@ import {
 	acquireBuildDirectoryLock,
 	updateLockMetadata
 } from '../../utils/buildDirectoryLock';
+import {
+	deregisterInstance,
+	instanceLogPath,
+	registerInstance,
+	resolveProjectName,
+	updateInstance
+} from '../../utils/instanceRegistry';
 import { loadConfig } from '../../utils/loadConfig';
 import { resolveDevPort } from '../../utils/resolveDevPort';
 import {
@@ -32,6 +40,14 @@ const cliTag = (color: string, message: string) =>
 	`\x1b[2m${formatTimestamp()}\x1b[0m ${color}[cli]\x1b[0m ${color}${message}\x1b[0m`;
 
 const DEFAULT_PORT_RANGE = 10;
+
+// Strip SGR/control sequences before tee'ing the dev server's output to the
+// central instance log so `absolute ps` can render the tail inside its own
+// alternate-screen TUI without leaking cursor moves or clears.
+const ANSI_LOG_REGEX = new RegExp(
+	`${String.fromCharCode(ANSI_ESCAPE_CODE)}\\[[0-?]*[ -/]*[@-~]`,
+	'g'
+);
 
 // Lightweight interactive yes/no prompt with arrow key support.
 // ◆ message
@@ -222,6 +238,44 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 	// in its "PID X holds port Y" error message.
 	updateLockMetadata(buildDirectory, { port });
 
+	// Publish this dev server to the global instance registry so `absolute ps`
+	// can list/manage it from anywhere on the machine. `command` is the
+	// argv needed to relaunch us on a TUI-driven restart; `frameworks` is
+	// filled in once detected below.
+	const instancePid = process.pid;
+	const instanceLogFile = instanceLogPath(instancePid);
+	const relaunchCommand = [
+		process.execPath,
+		process.argv[1] ?? '',
+		'dev',
+		serverEntry,
+		...(configPath ? ['--config', configPath] : [])
+	].filter((part) => part.length > 0);
+	registerInstance({
+		command: relaunchCommand,
+		configPath: configPath ?? null,
+		controllerPid: instancePid,
+		cwd: process.cwd(),
+		frameworks: [],
+		host: resolvedDev.host,
+		https: httpsEnabled,
+		logFile: instanceLogFile,
+		name: resolveProjectName(process.cwd()),
+		pid: instancePid,
+		port,
+		ppid: process.ppid,
+		source: 'dev',
+		startedAt: new Date().toISOString()
+	});
+	const instanceLog = createWriteStream(instanceLogFile, { flags: 'w' });
+	const writeInstanceLog = (text: string) => {
+		try {
+			instanceLog.write(text.replace(ANSI_LOG_REGEX, ''));
+		} catch {
+			/* stream closed during shutdown */
+		}
+	};
+
 	const usesDocker = existsSync(resolve(COMPOSE_PATH));
 	const scripts: DbScripts | null = usesDocker ? await readDbScripts() : null;
 
@@ -354,6 +408,7 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 				);
 				port = probe.port;
 				updateLockMetadata(buildDirectory, { port });
+				updateInstance(instancePid, { port });
 			}
 			resolvedDev = dev;
 		}
@@ -410,6 +465,9 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 				env: {
 					...process.env,
 					...readDotenvFiles(),
+					// The parent CLI owns this server's registry entry, so the
+					// child's runtime (networking plugin) must not self-register.
+					ABSOLUTE_INSTANCE_MANAGED: '1',
 					FORCE_COLOR: '1',
 					NODE_ENV: 'development',
 					ABSOLUTE_PORT: String(port),
@@ -429,6 +487,7 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 			source.on('data', (chunk: Buffer) => {
 				if (serverReady) interactive?.clearPrompt();
 				dest.write(chunk);
+				writeInstanceLog(chunk.toString());
 				handleChunk(chunk);
 			});
 		};
@@ -634,6 +693,7 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 	} catch {
 		/* config may not be loadable — frameworks stays empty */
 	}
+	updateInstance(instancePid, { frameworks });
 
 	// Server files are handled by Bun --hot (module re-evaluation without process restart).
 	// Frontend files are handled by the HMR file watcher inside the server process.
@@ -685,6 +745,12 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 			}, 2000).unref();
 		});
 		if (scripts) await stopDatabase(scripts);
+		try {
+			instanceLog.end();
+		} catch {
+			/* already closed */
+		}
+		deregisterInstance(instancePid);
 		process.exit(exitCode);
 	};
 

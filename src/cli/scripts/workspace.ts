@@ -22,6 +22,10 @@ import {
 } from '../../constants';
 import { getWorkspaceServices, loadRawConfig } from '../../utils/loadConfig';
 import { getDurationString } from '../../utils/getDurationString';
+import {
+	deregisterInstance,
+	registerInstance
+} from '../../utils/instanceRegistry';
 import { createWorkspaceTui } from '../workspaceTui';
 import {
 	DEFAULT_SERVER_ENTRY,
@@ -746,6 +750,9 @@ const resolveService = (
 		service.port ? { PORT: String(service.port) } : {},
 		service.env,
 		{
+			// The orchestrator owns each service's registry entry, so the
+			// child's runtime (networking plugin) must not self-register.
+			ABSOLUTE_INSTANCE_MANAGED: '1',
 			ABSOLUTE_WORKSPACE_MANAGED: '1',
 			ABSOLUTE_WORKSPACE_SERVICE_NAME: name,
 			ABSOLUTE_WORKSPACE_SERVICE_VISIBILITY: getVisibility(service),
@@ -900,6 +907,7 @@ export const workspace = async (
 		} catch {
 			/* process already exited */
 		}
+		deregisterInstance(service.process.pid);
 	};
 
 	const runShutdownHookSafely = async (service: RunningService) => {
@@ -1112,6 +1120,31 @@ export const workspace = async (
 			resolved
 		};
 		running.push(runningService);
+
+		// Publish to the global registry so `absolute ls` can see workspace
+		// services alongside standalone dev/start servers. controllerPid is the
+		// orchestrator: stopping a workspace row stops the whole workspace,
+		// which is the only safe unit (the orchestrator tears down on any
+		// child exit). command is left empty so per-service restart is disabled.
+		registerInstance({
+			command: [],
+			configPath: resolved.configPath ?? null,
+			controllerPid: process.pid,
+			cwd: resolved.cwd,
+			frameworks: [],
+			host: getServicePublicHost(resolved.service),
+			https: getServiceProtocol(resolved.service) === 'https',
+			logFile: resolve(
+				workspaceLogs.logDirectory,
+				`${sanitizeLogFileName(name)}.log`
+			),
+			name,
+			pid: processHandle.pid,
+			port: resolved.service.port ?? null,
+			ppid: process.pid,
+			source: 'workspace',
+			startedAt: new Date().toISOString()
+		});
 
 		void processHandle.exited.then(
 			handleServiceExit.bind(null, runningService)

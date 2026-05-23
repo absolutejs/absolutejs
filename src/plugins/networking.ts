@@ -3,6 +3,10 @@ import { env } from 'bun';
 import { Elysia } from 'elysia';
 import { DEFAULT_PORT, MILLISECONDS_IN_A_SECOND } from '../constants';
 import { loadDevCert } from '../dev/devCert';
+import {
+	registerInstance,
+	resolveProjectName
+} from '../utils/instanceRegistry';
 import { getLocalIPAddress } from '../utils/networking';
 import { startupBanner } from '../utils/startupBanner';
 
@@ -36,6 +40,32 @@ const loadTls = () => {
 };
 const tls = loadTls();
 const protocol = tls ? 'https' : 'http';
+
+// Publish this server to the global instance registry so `absolute ls` can see
+// it. Skipped when an outer `absolute` CLI/orchestrator already owns the entry
+// (ABSOLUTE_INSTANCE_MANAGED) — this branch is the catch-all for servers
+// started outside the CLI: a manually-run `bun server.ts` or any standalone
+// process. registerInstance handles its own exit cleanup.
+const selfRegisterInstance = () => {
+	if (env.ABSOLUTE_INSTANCE_MANAGED === '1') return;
+
+	registerInstance({
+		command: [...process.argv],
+		configPath: env.ABSOLUTE_CONFIG ?? null,
+		controllerPid: process.pid,
+		cwd: process.cwd(),
+		frameworks: [],
+		host,
+		https: protocol === 'https',
+		logFile: null,
+		name: resolveProjectName(process.cwd()),
+		pid: process.pid,
+		port: Number(port) || null,
+		ppid: process.ppid,
+		source: 'standalone',
+		startedAt: new Date().toISOString()
+	});
+};
 
 export const networking = <A extends Elysia>(app: A) => {
 	if (env.ABSOLUTE_COMPILED_RUNTIME === '1') return app;
@@ -117,6 +147,8 @@ export const networking = <A extends Elysia>(app: A) => {
 				: {})
 		},
 		() => {
+			selfRegisterInstance();
+
 			if (visibility === 'internal' || managedByWorkspace) {
 				return;
 			}
