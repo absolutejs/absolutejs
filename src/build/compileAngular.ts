@@ -1838,8 +1838,11 @@ export const compileAngularFileJIT = async (
  *  `.providers.ts` — circular; `provideRouter(undefined, ...)` then
  *  throws NG04014 at SSR bootstrap). */
 export type AngularProvidersInjection = {
-	/** Source `.ts` path of the user's `angular.providers` binding. */
-	appProvidersSource: string;
+	/** Source `.ts` path of the user's `angular.providers` binding, or null
+	 *  when no global binding is configured. Router pages still get
+	 *  `provideRouter(routes)` + `APP_BASE_HREF` injected without it — the
+	 *  global `appProviders` spread is simply omitted. */
+	appProvidersSource: string | null;
 	/** Source `.ts` path → page metadata for every page the scanner saw. */
 	pagesByFile: Map<
 		string,
@@ -2086,13 +2089,15 @@ export const compileAngular = async (
 		const providersHashInput = providersInjection
 			? (() => {
 					let providersSourceContent = '';
-					try {
-						providersSourceContent = readFileSync(
-							providersInjection.appProvidersSource,
-							'utf-8'
-						);
-					} catch {
-						/* missing source — treat as empty */
+					if (providersInjection.appProvidersSource) {
+						try {
+							providersSourceContent = readFileSync(
+								providersInjection.appProvidersSource,
+								'utf-8'
+							);
+						} catch {
+							/* missing source — treat as empty */
+						}
 					}
 					return JSON.stringify({
 						basePath: pageInjectionForHash?.basePath ?? null,
@@ -2180,31 +2185,38 @@ export const compileAngular = async (
 			''
 		);
 		if (providersInjection && pageInjection) {
-			const compiledAppProvidersPath = (() => {
-				const angularDirAbs = resolve(outRoot);
-				const appSourceAbs = resolve(
-					providersInjection.appProvidersSource
+			const importLines: string[] = [];
+			const fragments: string[] = [];
+			// Spread the user's global `appProviders` only when a binding is
+			// configured. Router pages with no global binding still get their
+			// `provideRouter` + `APP_BASE_HREF` injected below.
+			if (providersInjection.appProvidersSource) {
+				const compiledAppProvidersPath = (() => {
+					const angularDirAbs = resolve(outRoot);
+					const appSourceAbs = resolve(
+						providersInjection.appProvidersSource
+					);
+					const rel = relative(angularDirAbs, appSourceAbs).replace(
+						/\\/g,
+						'/'
+					);
+					return join(compiledParent, rel).replace(
+						/\.[cm]?[tj]sx?$/,
+						'.js'
+					);
+				})();
+				const appProvidersSpec = (() => {
+					const rel = relative(
+						dirname(rawServerFile),
+						compiledAppProvidersPath
+					).replace(/\\/g, '/');
+					return rel.startsWith('.') ? rel : `./${rel}`;
+				})();
+				importLines.push(
+					`import { appProviders as __abs_globalProviders } from "${appProvidersSpec}";`
 				);
-				const rel = relative(angularDirAbs, appSourceAbs).replace(
-					/\\/g,
-					'/'
-				);
-				return join(compiledParent, rel).replace(
-					/\.[cm]?[tj]sx?$/,
-					'.js'
-				);
-			})();
-			const appProvidersSpec = (() => {
-				const rel = relative(
-					dirname(rawServerFile),
-					compiledAppProvidersPath
-				).replace(/\\/g, '/');
-				return rel.startsWith('.') ? rel : `./${rel}`;
-			})();
-			const importLines: string[] = [
-				`import { appProviders as __abs_globalProviders } from "${appProvidersSpec}";`
-			];
-			const fragments: string[] = ['...__abs_globalProviders'];
+				fragments.push('...__abs_globalProviders');
+			}
 			if (pageInjection.hasRoutes) {
 				importLines.push(
 					`import { provideRouter as __abs_provideRouter, withComponentInputBinding as __abs_withComponentInputBinding, withViewTransitions as __abs_withViewTransitions } from "@angular/router";`
@@ -2221,7 +2233,11 @@ export const compileAngular = async (
 					`{ provide: __abs_APP_BASE_HREF, useValue: ${JSON.stringify(pageInjection.basePath)} }`
 				);
 			}
-			rewritten += `\n/* __ABS_PROVIDERS_INJECTION_START */\n${importLines.join('\n')}\nexport const providers = [${fragments.join(', ')}];\n/* __ABS_PROVIDERS_INJECTION_END */\n`;
+			// Nothing to inject (no global providers, no routes, no base
+			// href) — skip emitting an empty `export const providers = []`.
+			if (fragments.length > 0) {
+				rewritten += `\n/* __ABS_PROVIDERS_INJECTION_START */\n${importLines.join('\n')}\nexport const providers = [${fragments.join(', ')}];\n/* __ABS_PROVIDERS_INJECTION_END */\n`;
+			}
 		}
 
 		// Note: proto-swap registration was here. SURGICAL_HMR §3.3

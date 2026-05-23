@@ -1883,39 +1883,37 @@ const compileAndBundleAngular = async (
 	// compile pass passes in.
 	const resolvedAngularDir = resolve(angularDir);
 	const providersImport = parseAngularProvidersImport(projectRoot);
-	const providersInjection = providersImport
-		? (() => {
-				const scan = runAngularHandlerScan(
-					projectRoot,
-					resolvedAngularDir
-				);
-				const basePathByKey = new Map<string, string | null>();
-				for (const call of scan.calls) {
-					basePathByKey.set(
-						call.manifestKey,
-						call.mountPath?.endsWith('/*')
-							? call.mountPath.slice(0, -1)
-							: null
-					);
-				}
-				const pagesByFile = new Map<
-					string,
-					{ hasRoutes: boolean; basePath: string | null }
-				>();
-				for (const route of scan.pageRoutes) {
-					const basePath =
-						basePathByKey.get(route.manifestKey) ?? null;
-					pagesByFile.set(route.pageFile, {
-						basePath: basePath === '/' ? null : basePath,
-						hasRoutes: route.hasRoutes
-					});
-				}
-				return {
-					appProvidersSource: providersImport.absolutePath,
-					pagesByFile
-				};
-			})()
-		: undefined;
+	// Build the injection map regardless of a global `angular.providers`
+	// binding so router pages get `provideRouter` + `APP_BASE_HREF` on HMR
+	// rebuilds too; the global `appProviders` spread is layered on only when
+	// a binding exists.
+	const providersInjection = (() => {
+		const scan = runAngularHandlerScan(projectRoot, resolvedAngularDir);
+		const basePathByKey = new Map<string, string | null>();
+		for (const call of scan.calls) {
+			basePathByKey.set(
+				call.manifestKey,
+				call.mountPath?.endsWith('/*')
+					? call.mountPath.slice(0, -1)
+					: null
+			);
+		}
+		const pagesByFile = new Map<
+			string,
+			{ hasRoutes: boolean; basePath: string | null }
+		>();
+		for (const route of scan.pageRoutes) {
+			const basePath = basePathByKey.get(route.manifestKey) ?? null;
+			pagesByFile.set(route.pageFile, {
+				basePath: basePath === '/' ? null : basePath,
+				hasRoutes: route.hasRoutes
+			});
+		}
+		return {
+			appProvidersSource: providersImport?.absolutePath ?? null,
+			pagesByFile
+		};
+	})();
 	const { clientPaths, serverPaths } = await compileAngular(
 		pageEntries,
 		angularDir,

@@ -1444,51 +1444,40 @@ const buildUnlocked = async ({
 			);
 			const scanResult = runAngularHandlerScan(projectRoot, angularDir);
 			const providersImport = parseAngularProvidersImport(projectRoot);
-			if (providersImport) {
-				angularAppProvidersSource = providersImport.absolutePath;
-				const pagesByFile = new Map<
-					string,
-					{ hasRoutes: boolean; basePath: string | null }
-				>();
-				const basePathByKey = new Map<string, string | null>();
-				for (const call of scanResult.calls) {
-					basePathByKey.set(
-						call.manifestKey,
-						call.mountPath?.endsWith('/*')
-							? call.mountPath.slice(0, -1)
-							: null
-					);
-				}
-				for (const route of scanResult.pageRoutes) {
-					const basePath =
-						basePathByKey.get(route.manifestKey) ?? null;
-					const normalizedBase = basePath === '/' ? null : basePath;
-					pagesByFile.set(route.pageFile, {
-						basePath: normalizedBase,
-						hasRoutes: route.hasRoutes
-					});
-				}
-				// Pages without a `routes` export still need the
-				// global appProviders + (optional) APP_BASE_HREF
-				// injected. Fill in entries for every page the
-				// handler scanner found, defaulting `hasRoutes` to
-				// false. Handler-call manifest keys → page files
-				// would be ideal, but the manifest key is derived
-				// from basename(pageFile), so we recover via the
-				// pageRoutes scan (which covers every `.ts` under
-				// `angularDirectory`).
-				for (const route of scanResult.pageRoutes) {
-					if (pagesByFile.has(route.pageFile)) continue;
-					pagesByFile.set(route.pageFile, {
-						basePath: null,
-						hasRoutes: route.hasRoutes
-					});
-				}
-				angularProvidersInjection = {
-					appProvidersSource: providersImport.absolutePath,
-					pagesByFile
-				};
+			// Build the per-page injection map whether or not a global
+			// `angular.providers` binding exists. Router pages (those that
+			// `export const routes`) get `provideRouter` + `APP_BASE_HREF`
+			// injected from the scan alone; the global `appProviders` spread
+			// is added on top only when a binding is configured.
+			angularAppProvidersSource = providersImport?.absolutePath;
+			const pagesByFile = new Map<
+				string,
+				{ hasRoutes: boolean; basePath: string | null }
+			>();
+			const basePathByKey = new Map<string, string | null>();
+			for (const call of scanResult.calls) {
+				basePathByKey.set(
+					call.manifestKey,
+					call.mountPath?.endsWith('/*')
+						? call.mountPath.slice(0, -1)
+						: null
+				);
 			}
+			// `pageRoutes` covers every `.ts` under `angularDirectory`, so
+			// this also fills entries for pages without a `routes` export
+			// (they default to `hasRoutes: false`).
+			for (const route of scanResult.pageRoutes) {
+				const basePath = basePathByKey.get(route.manifestKey) ?? null;
+				const normalizedBase = basePath === '/' ? null : basePath;
+				pagesByFile.set(route.pageFile, {
+					basePath: normalizedBase,
+					hasRoutes: route.hasRoutes
+				});
+			}
+			angularProvidersInjection = {
+				appProvidersSource: providersImport?.absolutePath ?? null,
+				pagesByFile
+			};
 		});
 	}
 
