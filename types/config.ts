@@ -16,22 +16,26 @@ export type ConfigPanelMeta = {
 	status: ConfigPanelStatus;
 };
 
-export type ConfigFieldKind =
-	| 'string'
-	| 'number'
-	| 'boolean'
-	| 'enum'
-	| 'complex';
+/** A normalized, recursive description of a value's shape — produced from a TS
+ *  type (config panels) or a JSON Schema (ESLint rule options), and consumed by
+ *  the recursive FieldEditor so every value gets a real UI instead of raw JSON.
+ *  `opaque` is the last resort: a value we can't safely structure-edit (e.g. it
+ *  references an imported binding); `typeText` is shown for it. */
+export type FieldSchema =
+	| { kind: 'string' }
+	| { kind: 'number' }
+	| { kind: 'boolean' }
+	| { kind: 'enum'; choices: (string | number)[] }
+	| { kind: 'array'; item: FieldSchema }
+	| { kind: 'object'; fields: FieldNode[] }
+	| { kind: 'record'; value: FieldSchema }
+	| { kind: 'union'; variants: FieldSchema[] }
+	| { kind: 'opaque'; typeText: string };
 
-/** A field recovered from a TypeScript type by introspection — the shared unit
- *  the absolute.config and package.json panels render. */
-export type ConfigField = {
-	/** Allowed values for `enum` kinds; empty otherwise. */
-	choices: string[];
+/** A named field within an object schema (or a top-level config field). */
+export type FieldNode = {
 	description: string;
-	kind: ConfigFieldKind;
 	name: string;
 	optional: boolean;
-	/** The field's TypeScript type, shown for `complex` (read-only) fields. */
-	typeText: string;
+	schema: FieldSchema;
 };

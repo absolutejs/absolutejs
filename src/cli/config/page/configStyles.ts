@@ -86,6 +86,50 @@ export const CONFIG_CSS = `
 .cfg-loading { animation: cfg-pulse 1.2s ease-in-out infinite; }
 @keyframes cfg-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
 
+/* ---- recursive field editor ---- */
+.fe-block { align-items: flex-start; }
+.fe-root { margin-top: 10px; width: 100%; }
+.fe-actions { flex-direction: column; gap: 6px; }
+.fe-object {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	border-left: 2px solid var(--border);
+	padding-left: 14px;
+}
+.fe-field { display: flex; flex-direction: column; gap: 4px; }
+.fe-label { display: flex; align-items: center; gap: 8px; }
+.fe-name { color: var(--dim); font-size: 12px; }
+.fe-array, .fe-record, .fe-union { display: flex; flex-direction: column; gap: 6px; }
+.fe-item, .fe-entry { display: flex; align-items: flex-start; gap: 6px; }
+.fe-key { min-width: 160px; flex: 0 0 auto; }
+.fe-add {
+	align-self: flex-start;
+	font-family: var(--mono);
+	font-size: 11px;
+	color: var(--accent);
+	background: transparent;
+	border: 1px dashed var(--border);
+	border-radius: 7px;
+	padding: 4px 10px;
+	cursor: pointer;
+}
+.fe-add:hover { border-color: var(--accent); }
+.fe-remove {
+	font-family: var(--mono);
+	font-size: 11px;
+	color: var(--dim);
+	background: transparent;
+	border: 1px solid var(--border);
+	border-radius: 7px;
+	padding: 4px 8px;
+	cursor: pointer;
+}
+.fe-remove:hover { color: var(--error); border-color: var(--error); }
+.fe-type { color: var(--faint); font-size: 11px; margin-top: 4px; }
+.fe-raw { width: 100%; }
+.fe-raw .opts-input { width: 100%; }
+
 @media (max-width: 720px) {
 	.cfg { flex-direction: column; }
 	.cfg-nav {

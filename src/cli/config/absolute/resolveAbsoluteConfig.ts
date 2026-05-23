@@ -1,7 +1,7 @@
 import ts from 'typescript';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { introspectType } from '../introspectType';
+import { introspectType } from '../schema/fromType';
 
 const CONFIG_CANDIDATES = [
 	'absolute.config.ts',
@@ -78,35 +78,72 @@ export const parseConfigObject = (configPath: string) => {
 	return { object: findConfigObject(parseSource(configPath, text)), text };
 };
 
-const scalarValue = (initializer: ts.Expression) => {
-	if (ts.isStringLiteralLike(initializer)) {
-		return { complex: false, value: initializer.text };
+// Recursively evaluate a literal initializer to a JSON value. Returns opaque
+// for anything that isn't pure data (identifier refs like `appProviders`, calls,
+// spreads, template expressions) — those stay file-only so we never clobber code.
+const evalLiteral = (
+	node: ts.Expression
+): { opaque: boolean; value: unknown } => {
+	if (ts.isStringLiteralLike(node)) {
+		return { opaque: false, value: node.text };
 	}
-	if (initializer.kind === ts.SyntaxKind.TrueKeyword) {
-		return { complex: false, value: true };
+	if (node.kind === ts.SyntaxKind.TrueKeyword) {
+		return { opaque: false, value: true };
 	}
-	if (initializer.kind === ts.SyntaxKind.FalseKeyword) {
-		return { complex: false, value: false };
+	if (node.kind === ts.SyntaxKind.FalseKeyword) {
+		return { opaque: false, value: false };
 	}
-	if (ts.isNumericLiteral(initializer)) {
-		return { complex: false, value: Number(initializer.text) };
+	if (node.kind === ts.SyntaxKind.NullKeyword) {
+		return { opaque: false, value: null };
+	}
+	if (ts.isNumericLiteral(node)) {
+		return { opaque: false, value: Number(node.text) };
 	}
 	if (
-		ts.isPrefixUnaryExpression(initializer) &&
-		initializer.operator === ts.SyntaxKind.MinusToken &&
-		ts.isNumericLiteral(initializer.operand)
+		ts.isPrefixUnaryExpression(node) &&
+		node.operator === ts.SyntaxKind.MinusToken &&
+		ts.isNumericLiteral(node.operand)
 	) {
-		return { complex: false, value: -Number(initializer.operand.text) };
+		return { opaque: false, value: -Number(node.operand.text) };
+	}
+	if (ts.isArrayLiteralExpression(node)) {
+		const items: unknown[] = [];
+		for (const element of node.elements) {
+			const result = evalLiteral(element);
+			if (result.opaque) return { opaque: true, value: undefined };
+			items.push(result.value);
+		}
+
+		return { opaque: false, value: items };
+	}
+	if (ts.isObjectLiteralExpression(node)) {
+		const object: Record<string, unknown> = {};
+		for (const property of node.properties) {
+			if (
+				!ts.isPropertyAssignment(property) ||
+				!(
+					ts.isIdentifier(property.name) ||
+					ts.isStringLiteral(property.name)
+				)
+			) {
+				return { opaque: true, value: undefined };
+			}
+			const result = evalLiteral(property.initializer);
+			if (result.opaque) return { opaque: true, value: undefined };
+			object[property.name.text] = result.value;
+		}
+
+		return { opaque: false, value: object };
 	}
 
-	return { complex: true, value: undefined };
+	return { opaque: true, value: undefined };
 };
 
 const readCurrent = (configPath: string) => {
 	const current: Record<string, unknown> = {};
-	const complexKeys: string[] = [];
+	const opaqueKeys: string[] = [];
 	const { object } = parseConfigObject(configPath);
-	if (!object) return { complexKeys, current };
+	if (!object) return { current, opaqueKeys };
 
 	for (const property of object.properties) {
 		if (
@@ -119,35 +156,26 @@ const readCurrent = (configPath: string) => {
 			continue;
 		}
 		const name = property.name.text;
-		const scalar = scalarValue(property.initializer);
-		if (scalar.complex) complexKeys.push(name);
-		else current[name] = scalar.value;
+		const result = evalLiteral(property.initializer);
+		if (result.opaque) opaqueKeys.push(name);
+		else current[name] = result.value;
 	}
 
-	return { complexKeys, current };
+	return { current, opaqueKeys };
 };
 
 export const resolveAbsoluteConfigState = (cwd: string, override?: string) => {
 	const configPath = findConfigPath(cwd, override);
 	const fields = introspectType(cwd, 'BaseBuildConfig', RUNTIME_FIELDS);
-	const { complexKeys, current } = configPath
+	const { current, opaqueKeys } = configPath
 		? readCurrent(configPath)
-		: { complexKeys: [], current: {} };
-
-	// A union field that currently holds an object/array stays read-only so a
-	// typed scalar can't clobber the structure.
-	const complexSet = new Set(complexKeys);
-	const adjusted = fields.map((field) =>
-		complexSet.has(field.name) && field.kind !== 'complex'
-			? { ...field, kind: 'complex' as const }
-			: field
-	);
+		: { current: {}, opaqueKeys: [] };
 
 	return {
 		available: fields.length > 0,
-		complexKeys,
 		configPath,
 		current,
-		fields: adjusted
+		fields,
+		opaqueKeys
 	};
 };

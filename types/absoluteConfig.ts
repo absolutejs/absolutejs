@@ -1,14 +1,15 @@
-import type { ConfigField } from './config';
+import type { FieldNode } from './config';
 
 export type AbsoluteConfigState = {
 	/** False when the BuildConfig type couldn't be resolved (catalog empty). */
 	available: boolean;
 	configPath: string | null;
-	/** Simple top-level values literally present in defineConfig({...}). */
+	/** Values literally present in defineConfig({...}), read recursively. */
 	current: Record<string, unknown>;
-	/** Top-level keys present with a non-scalar (object/array/ref) value. */
-	complexKeys: string[];
-	fields: ConfigField[];
+	/** Top-level keys whose value contains code (refs/calls) — not form-editable. */
+	opaqueKeys: string[];
+	/** Recursive field catalog introspected from BaseBuildConfig. */
+	fields: FieldNode[];
 };
 
 export type AbsoluteConfigEditRequest = {

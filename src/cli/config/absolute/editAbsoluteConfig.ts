@@ -1,18 +1,8 @@
 import ts from 'typescript';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { findConfigObject } from './resolveAbsoluteConfig';
+import { serializeValue } from '../schema/serialize';
 import type { AbsoluteConfigEditRequest } from '../../../../types/absoluteConfig';
-
-const serializeValue = (value: unknown) => {
-	if (typeof value === 'string') {
-		return `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
-	}
-	if (typeof value === 'number' || typeof value === 'boolean') {
-		return String(value);
-	}
-
-	return JSON.stringify(value);
-};
 
 const lineStartOffset = (text: string, position: number) => {
 	let index = position;

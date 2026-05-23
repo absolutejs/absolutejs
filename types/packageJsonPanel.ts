@@ -1,4 +1,4 @@
-import type { ConfigField } from './config';
+import type { FieldNode } from './config';
 
 export type PackageScript = {
 	command: string;
@@ -6,13 +6,11 @@ export type PackageScript = {
 };
 
 export type PackageJsonState = {
-	/** Top-level keys present with a non-scalar (object/array) value. */
-	complexKeys: string[];
 	configPath: string | null;
-	/** Scalar values literally present in the file, keyed by field name. */
+	/** Top-level values present in the file (excluding `scripts`). */
 	current: Record<string, unknown>;
-	/** Field catalog introspected from the PackageJson type (excludes scripts). */
-	fields: ConfigField[];
+	/** Field catalog from the PackageJson type + any extra keys in the file. */
+	fields: FieldNode[];
 	scripts: PackageScript[];
 };
 
