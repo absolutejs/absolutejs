@@ -1,5 +1,7 @@
 import { env } from 'bun';
 import { createExternalAssetPlugin } from '../../build/externalAssetPlugin';
+import { loadIslandRegistryBuildInfo } from '../../build/islandEntries';
+import { createIslandRegistryDefinitionPlugin } from '../../build/islandRegistryTransform';
 import {
 	cpSync,
 	existsSync,
@@ -1239,12 +1241,22 @@ const compileUnlocked = async (
 		buildConfig.htmxDirectory
 	].filter((dir): dir is string => Boolean(dir));
 
+	// Rewrite the island registry's eager cross-framework component imports to
+	// lazy `{ source, export }` definitions (see start.ts / islandRegistryTransform.ts).
+	const islandRegistrySpec = buildConfig.islands?.registry;
+	const islandRegistryPlugin = islandRegistrySpec
+		? createIslandRegistryDefinitionPlugin(
+				await loadIslandRegistryBuildInfo(resolve(islandRegistrySpec))
+			)
+		: undefined;
+
 	const serverBundle = await Bun.build({
 		define: { 'process.env.NODE_ENV': '"production"' },
 		entrypoints: [resolve(serverEntry)],
 		external: resolveServerBundleExternals(buildConfig),
 		outdir: resolvedOutdir,
 		plugins: [
+			...(islandRegistryPlugin ? [islandRegistryPlugin] : []),
 			createStubPlugin({
 				stubAngular: !buildConfig.angularDirectory,
 				stubReact: !buildConfig.reactDirectory,

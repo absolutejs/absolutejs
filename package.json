@@ -131,6 +131,14 @@
 			"import": "./dist/svelte/index.js",
 			"types": "./dist/src/svelte/index.d.ts"
 		},
+		"./svelte/Island.js": {
+			"import": "./dist/svelte/components/Island.svelte",
+			"types": "./dist/svelte/components/Island.svelte.d.ts"
+		},
+		"./svelte/Island.svelte": {
+			"import": "./dist/svelte/components/Island.svelte",
+			"types": "./dist/svelte/components/Island.svelte.d.ts"
+		},
 		"./svelte/router": {
 			"browser": "./dist/svelte/router/browser.ts",
 			"import": "./dist/svelte/router/index.ts",
@@ -401,5 +409,5 @@
 			]
 		}
 	},
-	"version": "0.19.0-beta.1021"
+	"version": "0.19.0-beta.1022"
 }

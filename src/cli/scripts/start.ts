@@ -13,6 +13,8 @@ import {
 	registerInstance,
 	resolveProjectName
 } from '../../utils/instanceRegistry';
+import { loadIslandRegistryBuildInfo } from '../../build/islandEntries';
+import { createIslandRegistryDefinitionPlugin } from '../../build/islandRegistryTransform';
 import { loadConfig } from '../../utils/loadConfig';
 import { formatTimestamp } from '../../utils/startupBanner';
 import { sendTelemetryEvent } from '../telemetryEvent';
@@ -350,6 +352,18 @@ export const start = async (
 		}
 	};
 
+	// Rewrite the island registry's eager cross-framework component imports to
+	// lazy `{ source, export }` definitions so the production server bundle
+	// doesn't try to statically import (stubbed) framework component sources.
+	// The runtime resolves them lazily via dynamic import. See
+	// build/islandRegistryTransform.ts.
+	const islandRegistrySpec = buildConfig.islands?.registry;
+	const islandRegistryPlugin = islandRegistrySpec
+		? createIslandRegistryDefinitionPlugin(
+				await loadIslandRegistryBuildInfo(resolve(islandRegistrySpec))
+			)
+		: undefined;
+
 	const serverBundle = await Bun.build({
 		define: { 'process.env.NODE_ENV': '"production"' },
 		entrypoints: [resolve(serverEntry)],
@@ -373,7 +387,9 @@ export const start = async (
 			'typescript'
 		],
 		outdir: resolvedOutdir,
-		plugins: [stubPlugin],
+		plugins: islandRegistryPlugin
+			? [islandRegistryPlugin, stubPlugin]
+			: [stubPlugin],
 		target: 'bun',
 		// Default `throw: true` on newer Bun makes a build error
 		// bubble out as `AggregateError: Bundle failed` with no

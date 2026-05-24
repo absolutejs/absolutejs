@@ -81,6 +81,7 @@ import type {
 } from '../../types/build';
 import { createAngularLinkerPlugin } from '../build/angularLinkerPlugin';
 import { createExternalAssetPlugin } from '../build/externalAssetPlugin';
+import { createIslandRegistryDefinitionPlugin } from '../build/islandRegistryTransform';
 import { createAngularHmrInjectionPlugin } from '../dev/angular/hmrInjectionPlugin';
 import { cleanStaleOutputs } from '../utils/cleanStaleOutputs';
 import { cleanup } from '../utils/cleanup';
@@ -1410,6 +1411,19 @@ const buildUnlocked = async ({
 				loadIslandRegistryBuildInfo(islandRegistryPath)
 			)
 		: null;
+	// Rewrites the island registry's eager cross-framework component imports to
+	// lazy `{ source, export }` definitions in every bundle, so a host of one
+	// framework doesn't try to bundle another framework's raw island source
+	// (which it can't resolve/compile). See islandRegistryTransform.ts.
+	const islandRegistryPlugin = islandBuildInfo
+		? createIslandRegistryDefinitionPlugin({
+				definitions: islandBuildInfo.definitions,
+				resolvedRegistryPath: islandBuildInfo.resolvedRegistryPath
+			})
+		: undefined;
+	const islandRegistryPlugins = islandRegistryPlugin
+		? [islandRegistryPlugin]
+		: [];
 	const islandFrameworkSources = islandBuildInfo
 		? collectIslandFrameworkSources(islandBuildInfo)
 		: {};
@@ -2222,9 +2236,13 @@ const buildUnlocked = async ({
 						plugins: hmr
 							? [
 									stylePreprocessorPlugin,
-									reactRefreshRuntimePlugin
+									reactRefreshRuntimePlugin,
+									...islandRegistryPlugins
 								]
-							: [stylePreprocessorPlugin],
+							: [
+									stylePreprocessorPlugin,
+									...islandRegistryPlugins
+								],
 						root: clientRoot,
 						splitting: true,
 						target: 'browser',
@@ -2278,6 +2296,7 @@ const buildUnlocked = async ({
 								outdir: serverOutDir,
 								plugins: [
 									stylePreprocessorPlugin,
+									...islandRegistryPlugins,
 									...(serverOutDir
 										? [
 												createExternalAssetPlugin(
@@ -2322,6 +2341,7 @@ const buildUnlocked = async ({
 								outdir: buildPath,
 								plugins: [
 									stylePreprocessorPlugin,
+									...islandRegistryPlugins,
 									...(angularDir && hmr
 										? [
 												createAngularHmrInjectionPlugin(
@@ -2376,6 +2396,7 @@ const buildUnlocked = async ({
 								outdir: buildPath,
 								plugins: [
 									stylePreprocessorPlugin,
+									...islandRegistryPlugins,
 									...(angularDir && hmr
 										? [
 												createAngularHmrInjectionPlugin(
