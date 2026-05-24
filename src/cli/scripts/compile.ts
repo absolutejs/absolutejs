@@ -686,6 +686,10 @@ import { homedir, tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
+// Elysia's WebSocket dispatcher (stateless: routes every event through
+// ws.data.*). Wiring it into Bun.serve below is what lets compiled servers
+// serve .ws() routes — without it every upgrade falls through to a 404.
+import { websocket as elysiaWebsocket } from "elysia/ws";
 
 const SERVER_MODULE = (runtimeDir: string) => import(pathToFileURL(join(runtimeDir, ${JSON.stringify(serverBundleName)})).href);
 const RUNTIME_BUILD_ID = ${JSON.stringify(runtimeBuildId)};
@@ -837,6 +841,14 @@ const resolveRuntimeFetch = async () => {
 	const fetchHandler = runtimeServer?.fetch;
 	if (typeof fetchHandler !== "function") return null;
 
+	// Elysia .ws() handlers upgrade via \`context.server ?? app.server\`. The
+	// compiled runtime never calls app.listen() (the networking plugin returns
+	// early when ABSOLUTE_COMPILED_RUNTIME=1), so app.server stays null. Point it
+	// at the live Bun server below so WebSocket upgrades resolve instead of 404ing.
+	if (runtimeServer && typeof runtimeServer === "object") {
+		runtimeServer.server = server;
+	}
+
 	return fetchHandler.bind(runtimeServer);
 };
 
@@ -852,6 +864,10 @@ const getRuntimeFetch = () => {
 
 const server = Bun.serve({
 	port,
+	// Registering Elysia's WebSocket dispatcher here (plus assigning app.server in
+	// resolveRuntimeFetch) is what makes .ws() routes work in a compiled server —
+	// without it, every upgrade request falls through to the 404 below.
+	websocket: elysiaWebsocket,
 	async fetch(request) {
 		const url = new URL(request.url);
 
