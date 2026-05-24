@@ -2038,6 +2038,19 @@ const buildUnlocked = async ({
 		vendorPaths = computeVendorPaths();
 		setDevVendorPaths(vendorPaths);
 	}
+	// Production: dev pre-builds the React vendor in devBuild.ts; prod has no
+	// equivalent, so build it here and populate the path map. Without this,
+	// React is never externalized and gets inlined into the host page AND every
+	// React island bundle — two+ React copies → "Invalid hook call" / null
+	// dispatcher when islands hydrate. Mirrors the Angular prod block below.
+	if (!hmr && reactDir) {
+		const { buildReactVendor, computeVendorPaths } = await import(
+			'../build/buildReactVendor'
+		);
+		await buildReactVendor(buildPath);
+		vendorPaths = computeVendorPaths();
+		setDevVendorPaths(vendorPaths);
+	}
 	let angularVendorPaths = getAngularVendorPaths();
 	if (!angularVendorPaths && hmr && angularDir) {
 		const { computeAngularVendorPaths } = await import(
@@ -2123,11 +2136,33 @@ const buildUnlocked = async ({
 		vueVendorPaths = computeVueVendorPaths();
 		setVueVendorPaths(vueVendorPaths);
 	}
+	// Production: build the Vue vendor so Vue is externalized + shared (one
+	// instance across host page and Vue island bundles), not inlined per bundle.
+	if (!hmr && vueDir) {
+		const { buildVueVendor, computeVueVendorPaths } = await import(
+			'../build/buildVueVendor'
+		);
+		await buildVueVendor(buildPath);
+		vueVendorPaths = computeVueVendorPaths();
+		setVueVendorPaths(vueVendorPaths);
+	}
 	let svelteVendorPaths = getSvelteVendorPaths();
 	if (!svelteVendorPaths && hmr && svelteDir) {
 		const { computeSvelteVendorPaths } = await import(
 			'../build/buildSvelteVendor'
 		);
+		svelteVendorPaths = computeSvelteVendorPaths();
+		setSvelteVendorPaths(svelteVendorPaths);
+	}
+	// Production: build the Svelte vendor so the Svelte client runtime is
+	// externalized + shared (one instance across host page and Svelte island
+	// bundles), not inlined — duplicated runtimes break Svelte 5 hydration
+	// (`Cannot read properties of null (reading 'nodes')`).
+	if (!hmr && svelteDir) {
+		const { buildSvelteVendor, computeSvelteVendorPaths } = await import(
+			'../build/buildSvelteVendor'
+		);
+		await buildSvelteVendor(buildPath);
 		svelteVendorPaths = computeSvelteVendorPaths();
 		setSvelteVendorPaths(svelteVendorPaths);
 	}
