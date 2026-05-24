@@ -137,6 +137,8 @@ const SERVER_ENTRY_POINTS = [
 	'src/react/index.ts',
 	'src/react/browser.ts',
 	'src/react/server.ts',
+	'src/react/router/index.ts',
+	'src/react/router/browser.ts',
 	'src/react/jsxDevRuntimeCompat.ts',
 	'src/react/components/index.ts',
 	'src/react/hooks/index.ts',

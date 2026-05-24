@@ -56,6 +56,7 @@
 		"react": "19.2.1",
 		"react-dom": "19.2.1",
 		"react-refresh": "0.18.0",
+		"react-router": "7.15.1",
 		"rxjs": "^7.8.0",
 		"sass": "^1.99.0",
 		"stylus": "^0.64.0",
@@ -118,6 +119,11 @@
 		"./react/hooks": {
 			"import": "./dist/react/hooks/index.js",
 			"types": "./dist/src/react/hooks/index.d.ts"
+		},
+		"./react/router": {
+			"browser": "./dist/react/router/browser.js",
+			"import": "./dist/react/router/index.js",
+			"types": "./dist/src/react/router/index.d.ts"
 		},
 		"./react/server": {
 			"import": "./dist/react/server.js",
@@ -262,6 +268,7 @@
 		"postcss": "^8.5.0",
 		"react": "^19.2.0",
 		"react-dom": "^19.2.0",
+		"react-router": "^7.0.0",
 		"rxjs": "^7.8.0",
 		"sass": "^1.99.0",
 		"sharp": ">=0.33.0",
@@ -312,6 +319,9 @@
 			"optional": true
 		},
 		"react-dom": {
+			"optional": true
+		},
+		"react-router": {
 			"optional": true
 		},
 		"rxjs": {
@@ -405,5 +415,5 @@
 			]
 		}
 	},
-	"version": "0.19.0-beta.1027"
+	"version": "0.19.0-beta.1028"
 }
