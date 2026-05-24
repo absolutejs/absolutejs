@@ -269,8 +269,7 @@
 		"svelte": "^5.35.2",
 		"tailwindcss": "^4.1.0",
 		"typescript": "^5.9.3",
-		"vue": "^3.5.27",
-		"zone.js": "^0.15.0"
+		"vue": "^3.5.27"
 	},
 	"peerDependenciesMeta": {
 		"@angular/animations": {
@@ -337,9 +336,6 @@
 			"optional": true
 		},
 		"vue": {
-			"optional": true
-		},
-		"zone.js": {
 			"optional": true
 		}
 	},
@@ -409,5 +405,5 @@
 			]
 		}
 	},
-	"version": "0.19.0-beta.1024"
+	"version": "0.19.0-beta.1025"
 }
