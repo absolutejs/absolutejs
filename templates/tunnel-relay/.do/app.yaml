@@ -1,0 +1,24 @@
+# DigitalOcean App Platform spec for the AbsoluteJS tunnel relay.
+# Create via: doctl apps create --spec .do/app.yaml  (or paste in the DO UI).
+name: absolute-tunnel-relay
+services:
+  - name: relay
+    dockerfile_path: Dockerfile
+    # Point this at the git repo holding this template (push-to-deploy).
+    github:
+      repo: your-org/absolute-tunnel-relay
+      branch: main
+      deploy_on_push: true
+    http_port: 8080
+    instance_size_slug: basic-xxs
+    instance_count: 1
+    envs:
+      # Long random shared secret; the dev client must send the same value.
+      - key: ABSOLUTE_TUNNEL_TOKEN
+        scope: RUN_TIME
+        type: SECRET
+        value: REPLACE_WITH_A_LONG_RANDOM_SECRET
+      # The relay's own public URL (fill in after the first deploy assigns it).
+      - key: ABSOLUTE_TUNNEL_PUBLIC_URL
+        scope: RUN_TIME
+        value: https://absolute-tunnel-relay-xxxxx.ondigitalocean.app

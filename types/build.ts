@@ -244,6 +244,17 @@ export type BaseBuildConfig = {
 		 *  conventional source dirs (`src/`, `db/`, `assets/`, `styles/`),
 		 *  and these `watchDirs` is implicitly ignored. */
 		watchDirs?: string[];
+		/** Expose the dev server to the public internet through a self-hosted
+		 *  AbsoluteJS reverse-tunnel relay (for webhooks: Twilio, Stripe, OAuth).
+		 *  Run the relay with `absolute tunnel-relay` on a public host; point a
+		 *  dev client at it here. Prints a `Public:` URL on start. */
+		tunnel?: {
+			/** Relay base URL, e.g. `https://my-relay.ondigitalocean.app`
+			 *  (env: ABSOLUTE_TUNNEL_RELAY). */
+			relay?: string;
+			/** Shared secret matching the relay's token (env: ABSOLUTE_TUNNEL_TOKEN). */
+			token?: string;
+		};
 		devtools?: {
 			// Override the workspace root reported to Chrome DevTools.
 			projectRoot?: string;

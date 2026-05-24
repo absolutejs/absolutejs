@@ -106,6 +106,10 @@ if (command === 'dev') {
 	sendTelemetryEvent('cli:command', { command });
 	const { setupMkcert } = await import('../dev/devCert');
 	setupMkcert();
+} else if (command === 'tunnel-relay') {
+	sendTelemetryEvent('cli:command', { command });
+	const { tunnelRelay } = await import('./scripts/tunnelRelay');
+	tunnelRelay();
 } else {
 	const message = command
 		? `Unknown command: ${command}`
@@ -133,5 +137,8 @@ if (command === 'dev') {
 	console.error('  prettier      Run Prettier check (cached)');
 	console.error('  typecheck     Run type checkers for all frameworks');
 	console.error('  telemetry     Manage anonymous telemetry');
+	console.error(
+		'  tunnel-relay  Run the public reverse-tunnel relay (for webhook dev)'
+	);
 	process.exit(1);
 }

@@ -10,6 +10,7 @@ import {
 	SIGINT_EXIT_CODE,
 	SIGTERM_EXIT_CODE
 } from '../../constants';
+import { startTunnelClient } from '../../dev/tunnel/client';
 import { formatTimestamp } from '../../utils/startupBanner';
 import { createInteractiveHandler } from '../interactive';
 import { sendTelemetryEvent } from '../telemetryEvent';
@@ -143,6 +144,7 @@ type ResolvedDevConfig = {
 	strictPort: boolean;
 	host: string;
 	https: boolean;
+	tunnel?: { relay: string; token: string };
 };
 
 /** Resolve dev-server settings with env-var precedence over config file.
@@ -155,23 +157,31 @@ const resolveDevConfig = (
 				strictPort?: boolean;
 				host?: string;
 				https?: boolean;
+				tunnel?: { relay?: string; token?: string };
 		  }
 		| undefined
-): ResolvedDevConfig => ({
-	port:
-		Number(env.ABSOLUTE_PORT) ||
-		Number(env.PORT) ||
-		configDev?.port ||
-		DEFAULT_PORT,
-	portRange:
-		Number(env.ABSOLUTE_PORT_RANGE) ||
-		configDev?.portRange ||
-		DEFAULT_PORT_RANGE,
-	strictPort:
-		env.ABSOLUTE_STRICT_PORT === 'true' || configDev?.strictPort === true,
-	host: env.ABSOLUTE_HOST ?? configDev?.host ?? 'localhost',
-	https: env.ABSOLUTE_HTTPS === 'true' || configDev?.https === true
-});
+): ResolvedDevConfig => {
+	const relay = env.ABSOLUTE_TUNNEL_RELAY ?? configDev?.tunnel?.relay;
+	const token = env.ABSOLUTE_TUNNEL_TOKEN ?? configDev?.tunnel?.token;
+
+	return {
+		host: env.ABSOLUTE_HOST ?? configDev?.host ?? 'localhost',
+		https: env.ABSOLUTE_HTTPS === 'true' || configDev?.https === true,
+		port:
+			Number(env.ABSOLUTE_PORT) ||
+			Number(env.PORT) ||
+			configDev?.port ||
+			DEFAULT_PORT,
+		portRange:
+			Number(env.ABSOLUTE_PORT_RANGE) ||
+			configDev?.portRange ||
+			DEFAULT_PORT_RANGE,
+		strictPort:
+			env.ABSOLUTE_STRICT_PORT === 'true' ||
+			configDev?.strictPort === true,
+		...(relay && token ? { tunnel: { relay, token } } : {})
+	};
+};
 
 export const dev = async (serverEntry: string, configPath?: string) => {
 	let httpsEnabled = false;
@@ -221,7 +231,7 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 		console.error(cliTag('\x1b[31m', String(err.message ?? err)));
 		process.exit(1);
 	});
-	let port = initialPortProbe.port;
+	let {port} = initialPortProbe;
 	if (initialPortProbe.fellBack) {
 		const displayHost =
 			resolvedDev.host === '0.0.0.0' ? 'localhost' : resolvedDev.host;
@@ -286,11 +296,26 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 	let interactive: InteractiveHandler | null = null;
 
 	let serverReady = false;
+	let tunnelClient: { close(): void } | null = null;
+
+	// Once the dev server is up, dial the reverse-tunnel relay (if configured)
+	// so public webhooks reach this machine. Started once; survives HMR.
+	const startTunnelIfConfigured = () => {
+		if (tunnelClient || !resolvedDev.tunnel) return;
+		tunnelClient = startTunnelClient({
+			localOrigin: `http://localhost:${port}`,
+			relayUrl: resolvedDev.tunnel.relay,
+			token: resolvedDev.tunnel.token,
+			onReady: (publicUrl) =>
+				process.stdout.write(`  \x1b[32m➜\x1b[0m  \x1b[1mPublic:\x1b[0m  ${publicUrl}/\n`)
+		});
+	};
 
 	const checkServerReady = (value: Buffer) => {
 		const chunk = value.toString();
 		if (!chunk.includes('Local:')) return;
 		serverReady = true;
+		startTunnelIfConfigured();
 		interactive?.showPrompt();
 	};
 
@@ -395,6 +420,7 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 				strictPort: dev.strictPort
 			}).catch((err) => {
 				console.error(cliTag('\x1b[31m', String(err.message ?? err)));
+
 				return undefined;
 			});
 			if (probe && probe.port !== port) {
@@ -451,6 +477,7 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 				merged[key] = val;
 			}
 		}
+
 		return merged;
 	};
 
@@ -651,6 +678,7 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 					if (event === 'rename') {
 						void recoveryScan();
 					}
+
 					return;
 				}
 				handleCandidate(filename);
@@ -730,6 +758,7 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 			entry: serverEntry
 		});
 		if (interactive) interactive.dispose();
+		tunnelClient?.close();
 		if (paused) sendSignal('SIGCONT');
 		killChildTree('SIGTERM');
 		await new Promise<void>((res) => {
