@@ -17,16 +17,6 @@ type IslandMarkerElement = HTMLElement & {
 	};
 };
 
-const getClaimMap = () => {
-	if (typeof window === 'undefined') {
-		return null;
-	}
-
-	window.__ABS_CLAIMED_ISLAND_MARKUP__ ??= new Map<string, number>();
-
-	return window.__ABS_CLAIMED_ISLAND_MARKUP__;
-};
-
 const getSnapshotMap = () => {
 	if (typeof window === 'undefined') {
 		return null;
@@ -119,22 +109,40 @@ export const preserveIslandMarkup = (props: RuntimeIslandRenderProps) => {
 		};
 	}
 
-	const claimMap = getClaimMap();
 	const snapshotMap = getSnapshotMap();
 	const signature = getIslandSignature(props);
-	const claimedCount = claimMap?.get(signature) ?? 0;
-	const snapshotCandidate = snapshotMap?.get(signature)?.[claimedCount];
-	const candidates = Array.from(
+	// Islands that share a signature (same component, framework, hydrate mode
+	// and serialized props) produce byte-identical SSR markup, so the first
+	// captured snapshot is correct for every instance. Returning it
+	// unconditionally keeps this stateless: React may call the component many
+	// times during a single hydration (StrictMode double-render, hydration
+	// retries, mismatch regeneration), and a per-call claim counter would run
+	// past the snapshot list and yield empty markup — making the host render
+	// `dangerouslySetInnerHTML={{ __html: '' }}` and wipe the island's
+	// server-rendered DOM before the island runtime can hydrate it.
+	const snapshotCandidate = snapshotMap?.get(signature)?.[0];
+	if (snapshotCandidate) {
+		return snapshotCandidate;
+	}
+
+	// Snapshot not captured yet (the island runtime module hasn't evaluated):
+	// fall back to reading the live SSR DOM directly.
+	const liveCandidate = Array.from(
 		document.querySelectorAll('[data-island="true"]')
-	).filter((element) => isMatchingIslandElement(element, props));
-	const candidate = candidates[claimedCount];
-	if (claimMap) {
-		claimMap.set(signature, claimedCount + 1);
+	).find((element) => isMatchingIslandElement(element, props));
+	if (!liveCandidate) {
+		return {
+			attributes: getIslandMarkerAttributes(props),
+			innerHTML: ''
+		};
 	}
 
 	return {
-		attributes:
-			snapshotCandidate?.attributes ?? getIslandMarkerAttributes(props),
-		innerHTML: snapshotCandidate?.innerHTML ?? candidate?.innerHTML ?? ''
+		attributes: Object.fromEntries(
+			liveCandidate
+				.getAttributeNames()
+				.map((name) => [name, liveCandidate.getAttribute(name) ?? ''])
+		),
+		innerHTML: liveCandidate.innerHTML
 	};
 };

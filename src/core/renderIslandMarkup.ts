@@ -9,6 +9,7 @@ import {
 	renderSvelteIslandToHtml,
 	renderVueIslandToHtml
 } from './islandSsr';
+import { compileAngularServerModule } from './angularServerModule';
 import { compileSvelteServerModule } from './svelteServerModule';
 import { compileVueServerModule } from './vueServerModule';
 import {
@@ -182,8 +183,35 @@ const resolveVueServerIslandComponent = async (component: unknown) => {
 	return resolvedComponent;
 };
 
+const loadAngularServerBuildComponent = async (
+	buildReferencePath: string,
+	exportName?: string
+) => {
+	const serverModulePath =
+		await compileAngularServerModule(buildReferencePath);
+	const loadedModule = await import(serverModulePath);
+	if (exportName && exportName !== 'default' && exportName in loadedModule) {
+		return loadedModule[exportName];
+	}
+
+	return 'default' in loadedModule ? loadedModule.default : loadedModule;
+};
+
 const resolveAngularServerIslandComponent = async (component: unknown) => {
-	const resolvedComponent = await resolveServerIslandComponent(component);
+	// In a production build the registry entry is a lazy build reference to the
+	// component's raw `.ts`; compile it to a vendor-linked server module first so
+	// it shares the render pipeline's Angular instance (see angularServerModule).
+	// In dev the registry holds the real component, so fall through.
+	const buildReference = getIslandBuildReference(component);
+	const buildReferencePath = buildReference?.source
+		? resolveBuildReferencePath(buildReference.source, import.meta.url)
+		: null;
+	const resolvedComponent = buildReferencePath
+		? await loadAngularServerBuildComponent(
+				buildReferencePath,
+				buildReference?.export
+			)
+		: await resolveServerIslandComponent(component);
 	if (!isAngularServerIslandComponent(resolvedComponent)) {
 		throw new Error(
 			'Resolved Angular island is not a valid Angular component.'

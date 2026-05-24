@@ -125,7 +125,6 @@ declare global {
 		__ABS_SLOT_PENDING__?: Record<string, unknown>;
 		__ABS_SLOT_RUNTIME__?: boolean;
 		__ABS_ANGULAR_ISLAND_APPS__?: unknown[];
-		__ABS_CLAIMED_ISLAND_MARKUP__?: Map<string, number>;
 		__ABS_SERVER_ISLAND_HTML__?: Map<
 			string,
 			Array<{ attributes: Record<string, string>; innerHTML: string }>

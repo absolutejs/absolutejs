@@ -131,9 +131,16 @@ const buildAngularIslandWrapperMetadata = async (
 	islandId: string,
 	wrapperKey: string
 ) => {
-	const { Component, InjectionToken, inject } = await import('@angular/core');
-	const { NgComponentOutlet } = await import('@angular/common');
+	// Resolve Angular through getAngularDeps so the wrapper is built with the
+	// SAME Angular instance that renders it. In production server-side imports
+	// point at the pre-linked Angular vendor bundle; bare `@angular/*` imports
+	// here would instead resolve to node_modules, giving the wrapper component
+	// (its decorator, InjectionToken and inject) a different Angular instance
+	// than the render pipeline's injector — every cross-instance token lookup
+	// then fails with NG0201. (Dev uses a single node_modules Angular, so this
+	// only manifests in production.)
 	const deps = await getAngularDeps();
+	const { Component, InjectionToken, NgComponentOutlet, inject } = deps;
 	const selector = getAngularIslandSelector(islandId);
 	const propsToken = new InjectionToken<Record<string, unknown>>(
 		`${wrapperKey}:props`

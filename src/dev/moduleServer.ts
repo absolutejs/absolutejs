@@ -28,18 +28,38 @@ const jsTranspiler = new Bun.Transpiler({
 	trimUnusedImports: true
 });
 
+// Decorated modules (Angular `@Component`/`@Injectable`/`@Input`, etc.)
+// must compile with legacy TypeScript decorators so Bun emits the
+// `__legacyDecorateClassTS`/`__legacyMetadataTS` helpers that the
+// virtual `bun:wrap` module below provides. Without this the transpiler
+// defaults to the standard TC39 decorator transform and emits
+// `__decorateElement`/`__decoratorStart`/… which bun:wrap doesn't export,
+// breaking decorated modules in the browser. Bun.Transpiler doesn't read
+// the consumer's tsconfig, so set it explicitly. Files without decorators
+// transpile identically either way.
+// Passed as a JSON string because Bun honors these compilerOptions at
+// runtime but omits them from its `TSConfig` typings.
+const legacyDecoratorTsconfig = JSON.stringify({
+	compilerOptions: {
+		emitDecoratorMetadata: true,
+		experimentalDecorators: true
+	}
+});
+
 // Shared transpiler for TypeScript files — trimUnusedImports strips
 // type-only imports so the browser doesn't request unnecessary modules
 // Separate transpilers for .ts and .tsx — using 'tsx' for .ts files
 // causes parse errors on TypeScript generics like <T> (interpreted as JSX).
 const tsTranspiler = new Bun.Transpiler({
 	loader: 'ts',
-	trimUnusedImports: true
+	trimUnusedImports: true,
+	tsconfig: legacyDecoratorTsconfig
 });
 
 const tsxTranspiler = new Bun.Transpiler({
 	loader: 'tsx',
-	trimUnusedImports: true
+	trimUnusedImports: true,
+	tsconfig: legacyDecoratorTsconfig
 });
 
 const TRANSPILABLE = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs']);
@@ -1255,6 +1275,9 @@ export function __legacyMetadataTS(k, v) {
 	if (typeof Reflect === "object" && typeof Reflect.metadata === "function") {
 		return Reflect.metadata(k, v);
 	}
+}
+export function __legacyDecorateParamTS(paramIndex, decorator) {
+	return function (target, key) { decorator(target, key, paramIndex); };
 }
 `.trim();
 

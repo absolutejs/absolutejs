@@ -1,9 +1,12 @@
 export type AngularDeps = {
 	APP_BASE_HREF: typeof import('@angular/common').APP_BASE_HREF;
 	bootstrapApplication: typeof import('@angular/platform-browser').bootstrapApplication;
+	Component: typeof import('@angular/core').Component;
 	DomSanitizer: typeof import('@angular/platform-browser').DomSanitizer;
 	ENVIRONMENT_INITIALIZER: typeof import('@angular/core').ENVIRONMENT_INITIALIZER;
 	inject: typeof import('@angular/core').inject;
+	InjectionToken: typeof import('@angular/core').InjectionToken;
+	NgComponentOutlet: typeof import('@angular/common').NgComponentOutlet;
 	provideClientHydration: typeof import('@angular/platform-browser').provideClientHydration;
 	provideServerRendering: typeof import('@angular/platform-server').provideServerRendering;
 	provideZonelessChangeDetection: typeof import('@angular/core').provideZonelessChangeDetection;

@@ -14,7 +14,9 @@ describe('createModuleServer import rewriting', () => {
 	// unrelated code and producing "Uncaught SyntaxError: Invalid or
 	// unexpected token" in the browser.
 	test('does not stub the word "from" inside JSX string children', async () => {
-		const root = await mkdtemp(join(tmpdir(), 'absolutejs-import-rewrite-'));
+		const root = await mkdtemp(
+			join(tmpdir(), 'absolutejs-import-rewrite-')
+		);
 		try {
 			const component = join(root, 'Sample.tsx');
 			await writeFile(
@@ -48,7 +50,9 @@ describe('createModuleServer import rewriting', () => {
 			expect(code).not.toContain('%2C');
 			expect(code).not.toContain('%0A');
 			// The two adjacent string children survive intact.
-			expect(code).toContain('"Are you sure you want to unregister from"');
+			expect(code).toContain(
+				'"Are you sure you want to unregister from"'
+			);
 			expect(code).toContain('" "');
 		} finally {
 			await rm(root, { recursive: true, force: true });
