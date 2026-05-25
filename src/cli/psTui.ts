@@ -589,7 +589,7 @@ const driveListTui = async (terminal: TuiInput) => {
 		if (instances.length === 0) {
 			rows.push(
 				padLine(
-					`${colors.dim}No servers running. Start one with \`absolute dev\`.${colors.reset}`,
+					`${colors.dim}No running servers found. Start one with \`absolute dev\`, \`start\`, or \`workspace dev\`.${colors.reset}`,
 					width
 				)
 			);

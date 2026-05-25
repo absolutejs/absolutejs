@@ -61,7 +61,7 @@ const renderRow = (cells: string[], widths: number[]) =>
 const printInstanceTable = (instances: LiveInstance[]) => {
 	if (instances.length === 0) {
 		process.stdout.write(
-			`${colors.dim}No AbsoluteJS servers are running. Start one with \`absolute dev\`.${colors.reset}\n`
+			`${colors.dim}No running servers found. Start one with \`absolute dev\`, \`start\`, or \`workspace dev\`.${colors.reset}\n`
 		);
 
 		return;
