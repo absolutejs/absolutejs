@@ -126,6 +126,10 @@ if (command === 'dev') {
 	sendTelemetryEvent('cli:command', { command: 'inspect' });
 	const { runInspect } = await import('./scripts/inspect');
 	await runInspect(args);
+} else if (command === 'islands') {
+	sendTelemetryEvent('cli:command', { command: 'islands' });
+	const { runIslands } = await import('./scripts/islands');
+	await runIslands(args);
 } else if (command === 'info') {
 	sendTelemetryEvent('cli:command', { command });
 	info();
@@ -194,6 +198,9 @@ if (command === 'dev') {
 	console.error('  info          Print system info for bug reports');
 	console.error(
 		'  inspect [--json] Live request inspector for a running dev server'
+	);
+	console.error(
+		'  islands [--sizes] [--json] List islands by framework, hydration, pages (cross-framework aware)'
 	);
 	console.error(
 		'  remove <framework> [--prune] Remove a framework from config (keeps source)'
