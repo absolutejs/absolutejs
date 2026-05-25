@@ -94,6 +94,9 @@ export const fetchRequests = async (url: string) => {
 				kind: entry.kind,
 				method: String(entry.method ?? ''),
 				path: String(entry.path ?? ''),
+				query: String(entry.query ?? ''),
+				requestHeaders: entry.requestHeaders ?? {},
+				responseHeaders: entry.responseHeaders ?? {},
 				size:
 					entry.size === null || entry.size === undefined
 						? null
@@ -145,6 +148,25 @@ export const pathColumnWidth = (totalWidth: number) => {
 	const gaps = COLUMN_GAP.length * (COLUMN_COUNT - 1);
 
 	return Math.max(MIN_PATH_WIDTH, totalWidth - fixed - gaps);
+};
+
+// The drill-down detail for one request: status line + request/response headers.
+export const requestDetail = (record: RequestRecord) => {
+	const size = record.size === null ? '—' : formatBytes(record.size);
+	const lines = [
+		`${colors.bold}${record.method} ${record.path}${record.query}${colors.reset}`,
+		`${colors.dim}status${colors.reset} ${statusColor(record.status)}${record.status}${colors.reset}   ${colors.dim}took${colors.reset} ${Math.round(record.durationMs)}ms   ${colors.dim}size${colors.reset} ${size}   ${colors.dim}kind${colors.reset} ${record.kind}`,
+		`${colors.dim}request headers${colors.reset}`
+	];
+	for (const [key, value] of Object.entries(record.requestHeaders)) {
+		lines.push(`  ${colors.cyan}${key}${colors.reset} ${value}`);
+	}
+	lines.push(`${colors.dim}response headers${colors.reset}`);
+	for (const [key, value] of Object.entries(record.responseHeaders)) {
+		lines.push(`  ${colors.cyan}${key}${colors.reset} ${value}`);
+	}
+
+	return lines;
 };
 
 export const requestHeader = (pathWidth: number) =>

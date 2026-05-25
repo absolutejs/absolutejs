@@ -98,6 +98,14 @@ if (command === 'dev') {
 	sendTelemetryEvent('cli:command', { command: 'add' });
 	const { runAdd } = await import('./scripts/add');
 	await runAdd(args);
+} else if (command === 'analyze') {
+	sendTelemetryEvent('cli:command', { command: 'analyze' });
+	const { runAnalyze } = await import('./scripts/analyze');
+	await runAnalyze(args);
+} else if (command === 'api') {
+	sendTelemetryEvent('cli:command', { command: 'api' });
+	const { runApi } = await import('./scripts/api');
+	await runApi(args);
 } else if (command === 'remove') {
 	sendTelemetryEvent('cli:command', { command: 'remove' });
 	const { runRemove } = await import('./scripts/remove');
@@ -180,13 +188,19 @@ if (command === 'dev') {
 		'  config [--port n] Open the unified config UI (ESLint, tsconfig, Prettier)'
 	);
 	console.error(
-		'  doctor [--json] Diagnose the project (bun, config, framework dirs, env, port)'
+		'  doctor [--fix] [--json] Diagnose the project (bun, config, framework dirs, env, port)'
 	);
 	console.error(
 		'  env [--check] [--json] Report env vars the app reads (getEnv) and which are missing'
 	);
 	console.error(
 		'  add <framework> [--no-install] Add a framework (deps, config, starter page)'
+	);
+	console.error(
+		'  analyze [--save] [--json] Bundle size breakdown + diff vs a saved baseline'
+	);
+	console.error(
+		'  api [--openapi] [--json] Show the API surface (or emit OpenAPI) from a running dev server'
 	);
 	console.error('  eslint        Run ESLint (cached)');
 	console.error(
@@ -212,7 +226,7 @@ if (command === 'dev') {
 		'  ls [--sizes] [--budget <size>] [--json] List the project\'s pages by framework'
 	);
 	console.error(
-		'  mem [--json]  Memory report (RSS) for running servers, plus system usage'
+		'  mem [--json] | mem diff <a> <b>  Memory report (RSS), or diff two heap snapshots'
 	);
 	console.error(
 		'  ps [--watch] [--json] [--kill <pid|port>] [--kill-all] List/manage running servers'

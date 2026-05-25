@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { arch, platform } from 'node:os';
 import { join } from 'node:path';
@@ -146,7 +146,7 @@ const printReport = (checks: Check[]) => {
 	);
 };
 
-export const runDoctor = async (args: string[]) => {
+const gatherChecks = async () => {
 	const config = await loadConfigOrNull();
 	const configCheck =
 		config === null
@@ -159,7 +159,7 @@ export const runDoctor = async (args: string[]) => {
 			: portCheck(config)
 	]);
 
-	const checks: Check[] = [
+	return [
 		checkBun(),
 		checkAbsolute(),
 		checkNative(),
@@ -168,9 +168,68 @@ export const runDoctor = async (args: string[]) => {
 		env,
 		port
 	];
+};
 
+// Create the framework directory (+ pages/) when it's configured but missing.
+const fixFrameworkDirs = (cwd: string, config: object) => {
+	const fixes: string[] = [];
+	for (const field of FRAMEWORK_FIELDS) {
+		const dir = readString(config, field);
+		if (dir === undefined || existsSync(join(cwd, dir))) continue;
+		mkdirSync(join(cwd, dir, 'pages'), { recursive: true });
+		fixes.push(`created ${dir}/pages`);
+	}
+
+	return fixes;
+};
+
+// Scaffold any unset getEnv() keys into .env.example (placeholders only — never
+// invents secret values).
+const fixEnvExample = async (cwd: string) => {
+	const missing = (await collectEnvVars()).filter((entry) => !entry.set);
+	if (missing.length === 0) return null;
+	const envExample = join(cwd, '.env.example');
+	const existing = existsSync(envExample)
+		? readFileSync(envExample, 'utf-8')
+		: '';
+	const existingKeys = new Set(
+		existing.split('\n').map((line) => line.split('=')[0]?.trim())
+	);
+	const toAdd = missing.filter((entry) => !existingKeys.has(entry.key));
+	if (toAdd.length === 0) return null;
+	const prefix = existing === '' || existing.endsWith('\n') ? existing : `${existing}\n`;
+	writeFileSync(
+		envExample,
+		`${prefix}${toAdd.map((entry) => `${entry.key}=`).join('\n')}\n`
+	);
+
+	return `added ${toAdd.length} key(s) to .env.example`;
+};
+
+const applyFixes = async () => {
+	const cwd = process.cwd();
+	const config = await loadConfigOrNull();
+	const fixes = config ? fixFrameworkDirs(cwd, config) : [];
+	const envFix = await fixEnvExample(cwd);
+	if (envFix) fixes.push(envFix);
+
+	return fixes;
+};
+
+export const runDoctor = async (args: string[]) => {
+	const fixes = args.includes('--fix') ? await applyFixes() : null;
+	if (fixes && !args.includes('--json')) {
+		const head = fixes.length
+			? fixes
+					.map((fix) => `  ${colors.green}fixed${colors.reset} ${fix}`)
+					.join('\n')
+			: `  ${colors.dim}nothing to fix${colors.reset}`;
+		process.stdout.write(`${head}\n\n`);
+	}
+
+	const checks = await gatherChecks();
 	if (args.includes('--json')) {
-		process.stdout.write(`${JSON.stringify(checks, null, 2)}\n`);
+		process.stdout.write(`${JSON.stringify({ checks, fixes }, null, 2)}\n`);
 	} else {
 		printReport(checks);
 	}

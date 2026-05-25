@@ -46,27 +46,45 @@ const byteSize = (header: unknown, value: unknown) => {
 	return null;
 };
 
-const starts = new WeakMap<Request, number>();
+const toHeaderRecord = (headers: Record<string, unknown>) => {
+	const record: Record<string, string> = {};
+	for (const [key, value] of Object.entries(headers)) {
+		if (value !== undefined && value !== null) record[key] = String(value);
+	}
+
+	return record;
+};
+
+type Pending = { headers: Record<string, string>; start: number };
+
+const pending = new WeakMap<Request, Pending>();
 
 export const requestInspector = new Elysia({
 	name: 'absolute-request-inspector'
 })
 	.get('/__absolute/requests', () => requestLog())
 	.onRequest(({ request }) => {
-		starts.set(request, performance.now());
+		pending.set(request, {
+			headers: toHeaderRecord(Object.fromEntries(request.headers)),
+			start: performance.now()
+		});
 	})
 	.onAfterResponse(({ request, set, responseValue }) => {
 		const path = pathOf(request.url);
 		// Skip the inspector's own introspection traffic (observer effect).
 		if (path.startsWith('/__absolute')) return;
-		const start = starts.get(request);
+		const entry = pending.get(request);
 		const log = requestLog();
 		log.push({
 			at: Date.now(),
-			durationMs: start === undefined ? 0 : performance.now() - start,
+			durationMs:
+				entry === undefined ? 0 : performance.now() - entry.start,
 			kind: classify(path),
 			method: request.method,
 			path,
+			query: new URL(request.url).search,
+			requestHeaders: entry?.headers ?? {},
+			responseHeaders: toHeaderRecord(set.headers),
 			size: byteSize(set.headers['content-length'], responseValue),
 			status: typeof set.status === 'number' ? set.status : DEFAULT_STATUS
 		});

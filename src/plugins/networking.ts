@@ -76,10 +76,20 @@ export const networking = <A extends Elysia>(app: A) => {
 	// global hooks must precede the routes they observe.) Never exposed in prod.
 	if (env.NODE_ENV === 'development') {
 		app.get('/__absolute/routes', () =>
-			app.routes.map((route) => ({
-				method: route.method,
-				path: route.path
-			}))
+			app.routes.map((route) => {
+				const hooks = route.hooks ?? {};
+
+				return {
+					method: route.method,
+					path: route.path,
+					schema: {
+						body: hooks.body ?? null,
+						params: hooks.params ?? null,
+						query: hooks.query ?? null,
+						response: hooks.response ?? null
+					}
+				};
+			})
 		);
 	}
 

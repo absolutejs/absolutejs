@@ -66,6 +66,9 @@ export type RequestRecord = {
 	kind: RequestKind;
 	method: string;
 	path: string;
+	query: string;
+	requestHeaders: Record<string, string>;
+	responseHeaders: Record<string, string>;
 	size: number | null;
 	status: number;
 };

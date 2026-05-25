@@ -70,6 +70,13 @@ const printReport = (instances: LiveInstance[]) => {
 };
 
 export const runMem = async (args: string[]) => {
+	if (args[0] === 'diff') {
+		const { runHeapDiff } = await import('../heapDiff');
+		runHeapDiff(args[1], args[2]);
+
+		return;
+	}
+
 	const instances = (await enrichInstances(await discoverInstances())).sort(
 		(left, right) => (right.memoryBytes ?? 0) - (left.memoryBytes ?? 0)
 	);
