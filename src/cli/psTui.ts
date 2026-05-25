@@ -16,6 +16,7 @@ import {
 	LIST_WATCH_REFRESH_MS,
 	UNFOUND_INDEX
 } from '../constants';
+import { formatBytes } from '../utils/formatBytes';
 import { getDurationString } from '../utils/getDurationString';
 import { discoverInstances } from './discoverInstances';
 import { enrichInstances } from './instanceStatus';
@@ -44,11 +45,12 @@ const TUI_HEADERS = [
 	'PORT',
 	'PID',
 	'UPTIME',
+	'MEM',
 	'STATUS',
 	'URL'
 ];
-const STATUS_INDEX = 5;
-const URL_INDEX = 6;
+const STATUS_INDEX = 6;
+const URL_INDEX = 7;
 
 const helpLines = [
 	'Hotkeys',
@@ -56,7 +58,7 @@ const helpLines = [
 	'  s            Stop the selected server',
 	'  r            Restart the selected server',
 	'  o            Open the selected server in the browser',
-	'  f            Free a port (kill whatever is listening on it)',
+	'  f            Free a port (prefilled with the selected one)',
 	'  x            Stop every listed server',
 	'  PgUp/PgDn    Scroll the log pane',
 	'  ? or h       Toggle this help',
@@ -84,6 +86,7 @@ const instanceRowCells = (instance: LiveInstance) => [
 	instance.port === null ? '-' : String(instance.port),
 	String(instance.pid),
 	getDurationString(instance.uptimeMs),
+	formatBytes(instance.memoryBytes),
 	instance.status,
 	instance.url ?? '-'
 ];
@@ -335,11 +338,17 @@ const driveListTui = async (terminal: TuiInput) => {
 		process.stdout.off('resize', onResize);
 		terminal.off('data', onData);
 		if (terminal.setRawMode) terminal.setRawMode(false);
+		// Pause before deciding whether to destroy: when openTtyStream fell back
+		// to process.stdin we must not destroy it, but a still-resumed stdin
+		// keeps the event loop alive — so `q` would restore the screen yet hang.
+		terminal.pause();
 		if (terminal !== process.stdin) terminal.destroy();
 		process.stdout.write('\x1b[?25h\x1b[?1049l');
 	};
 
 	const quit = () => {
+		process.off('SIGINT', quit);
+		process.off('SIGTERM', quit);
 		dispose();
 		resolveExit();
 	};
@@ -364,7 +373,10 @@ const driveListTui = async (terminal: TuiInput) => {
 
 	const enterPortMode = () => {
 		mode = 'port';
-		portBuffer = '';
+		// Prefill with the hovered server's port so killing it is just Enter —
+		// still editable for freeing an arbitrary port.
+		const selectedPort = selectedInstance()?.port;
+		portBuffer = typeof selectedPort === 'number' ? String(selectedPort) : '';
 		scheduleRender();
 	};
 

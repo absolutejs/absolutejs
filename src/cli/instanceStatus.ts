@@ -1,5 +1,6 @@
 import { createConnection } from 'node:net';
-import { INSTANCE_PROBE_TIMEOUT_MS } from '../constants';
+import { $ } from 'bun';
+import { BYTES_PER_KILOBYTE, INSTANCE_PROBE_TIMEOUT_MS } from '../constants';
 import type {
 	InstanceRecord,
 	InstanceStatus,
@@ -45,14 +46,40 @@ const probeStatus = async (record: InstanceRecord) => {
 	return (reachable ? 'ready' : 'starting') satisfies InstanceStatus;
 };
 
+// One `ps` call maps each pid to its resident memory (RSS, KB) in bytes.
+const readMemory = async (pids: number[]) => {
+	const result = new Map<number, number>();
+	if (pids.length === 0) return result;
+
+	const output = await $`ps -o pid=,rss= -p ${pids.join(',')}`
+		.quiet()
+		.nothrow()
+		.text();
+	output.split('\n').forEach((line) => {
+		const match = line.trim().match(/^(\d+)\s+(\d+)$/);
+		if (match) {
+			result.set(
+				Number(match[1]),
+				Number(match[2]) * BYTES_PER_KILOBYTE
+			);
+		}
+	});
+
+	return result;
+};
+
 export const enrichInstances = async (records: InstanceRecord[]) => {
 	const now = Date.now();
-	const statuses = await Promise.all(records.map(probeStatus));
+	const [statuses, memory] = await Promise.all([
+		Promise.all(records.map(probeStatus)),
+		readMemory(records.map((record) => record.pid))
+	]);
 
 	return records.map(
 		(record, index) =>
 			({
 				...record,
+				memoryBytes: memory.get(record.pid) ?? null,
 				status: statuses[index] ?? 'starting',
 				uptimeMs: Math.max(0, now - Date.parse(record.startedAt)),
 				url: instanceUrl(record)

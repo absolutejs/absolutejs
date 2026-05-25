@@ -1,4 +1,5 @@
 import { LIST_TUI_COLUMN_GAP } from '../../constants';
+import { formatBytes } from '../../utils/formatBytes';
 import { getDurationString } from '../../utils/getDurationString';
 import { discoverInstances } from '../discoverInstances';
 import { enrichInstances } from '../instanceStatus';
@@ -21,6 +22,7 @@ const TABLE_HEADERS = [
 	'PORT',
 	'PID',
 	'UPTIME',
+	'MEM',
 	'STATUS',
 	'URL'
 ];
@@ -38,6 +40,7 @@ const instanceCells = (instance: LiveInstance) => [
 	instance.port === null ? '-' : String(instance.port),
 	String(instance.pid),
 	getDurationString(instance.uptimeMs),
+	formatBytes(instance.memoryBytes),
 	`${statusColor(instance.status)}${instance.status}${colors.reset}`,
 	instance.url ?? '-'
 ];

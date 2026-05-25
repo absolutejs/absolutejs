@@ -49,6 +49,7 @@ export type InteractiveHandler = {
 };
 
 export type LiveInstance = InstanceRecord & {
+	memoryBytes: number | null;
 	status: InstanceStatus;
 	uptimeMs: number;
 	url: string | null;
@@ -68,6 +69,7 @@ export type TuiInput = {
 	destroy: () => void;
 	off: (event: 'data', listener: (chunk: Buffer) => void) => void;
 	on: (event: 'data', listener: (chunk: Buffer) => void) => void;
+	pause: () => void;
 	resume: () => void;
 	setRawMode?: (enabled: boolean) => void;
 };
