@@ -130,6 +130,54 @@ export const CONFIG_CSS = `
 .fe-raw { width: 100%; }
 .fe-raw .opts-input { width: 100%; }
 
+/* ---- integrations panel ---- */
+.intg-note {
+	font-size: 11.5px;
+	color: var(--warn);
+	margin-top: 6px;
+	max-width: 64ch;
+	line-height: 1.45;
+}
+.intg-code {
+	font-family: var(--mono);
+	font-size: 11.5px;
+	color: var(--accent-dim);
+	background: var(--bg);
+	border: 1px solid var(--border);
+	border-radius: 7px;
+	padding: 7px 10px;
+	margin-top: 8px;
+	overflow-x: auto;
+	white-space: pre;
+}
+
+/* ---- auth panel ---- */
+.auth-banner {
+	font-size: 12px;
+	color: var(--dim);
+	background: var(--panel);
+	border: 1px solid var(--border);
+	border-radius: 9px;
+	padding: 10px 14px;
+	margin-bottom: 18px;
+	line-height: 1.5;
+}
+.auth-banner.warn { color: var(--warn); border-color: rgba(240, 180, 41, 0.25); }
+.auth-banner code { color: var(--accent-dim); }
+.auth-chips { display: flex; flex-wrap: wrap; gap: 7px; }
+.auth-chip {
+	font-family: var(--mono);
+	font-size: 11px;
+	color: var(--dim);
+	background: var(--bg);
+	border: 1px solid var(--border);
+	border-radius: 7px;
+	padding: 4px 9px;
+}
+.auth-links { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 10px; }
+.auth-link { font-size: 12px; color: var(--accent); text-decoration: none; }
+.auth-link:hover { text-decoration: underline; }
+
 @media (max-width: 720px) {
 	.cfg { flex-direction: column; }
 	.cfg-nav {

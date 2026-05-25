@@ -65,6 +65,7 @@ const packageOps = () =>
 		import('./packageJson/editPackageJson'),
 		import('./packageJson/resolvePackageJson')
 	]);
+const authOps = () => import('./auth/resolveAuthState');
 
 const CLIENT_ROUTE = '/config-client.js';
 
@@ -434,6 +435,8 @@ export const launchConfig = async (args: string[], cwd = process.cwd()) => {
 		.get('/tsconfig', () => renderShell('tsconfig'))
 		.get('/prettier', () => renderShell('prettier'))
 		.get('/absolute', () => renderShell('absolute'))
+		.get('/integrations', () => renderShell('integrations'))
+		.get('/auth', () => renderShell('auth'))
 		.get('/package', () => renderShell('package'))
 		.get(CLIENT_ROUTE, async () => {
 			const bundle = await getClientBundle();
@@ -468,6 +471,11 @@ export const launchConfig = async (args: string[], cwd = process.cwd()) => {
 		.post('/api/absolute', ({ body }) =>
 			handleAbsoluteEdit(cwd, body, configOverride)
 		)
+		.get('/api/auth', async () => {
+			const { resolveAuthState } = await authOps();
+
+			return resolveAuthState(cwd);
+		})
 		.get('/api/package', async () => {
 			const [, { resolvePackageJsonState }] = await packageOps();
 

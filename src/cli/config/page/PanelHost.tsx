@@ -3,6 +3,8 @@ import { EslintPanel } from '../eslint/EslintPanel';
 import { TsconfigPanel } from '../tsconfig/TsconfigPanel';
 import { PrettierPanel } from '../prettier/PrettierPanel';
 import { AbsoluteConfigPanel } from '../absolute/AbsoluteConfigPanel';
+import { IntegrationsPanel } from '../integrations/IntegrationsPanel';
+import { AuthPanel } from '../auth/AuthPanel';
 import { PackageJsonPanel } from '../packageJson/PackageJsonPanel';
 import { isRecord } from '../guards';
 import type { ConfigPanelId } from '../../../../types/config';
@@ -10,11 +12,14 @@ import type { RuleCatalog } from '../../../../types/eslintConfig';
 import type { TsConfigState } from '../../../../types/tsconfig';
 import type { PrettierState } from '../../../../types/prettier';
 import type { AbsoluteConfigState } from '../../../../types/absoluteConfig';
+import type { AuthPanelState } from '../../../../types/authPanel';
 import type { PackageJsonState } from '../../../../types/packageJsonPanel';
 
 const ENDPOINTS: Record<ConfigPanelId, string> = {
 	absolute: '/api/absolute',
+	auth: '/api/auth',
 	eslint: '/api/rules',
+	integrations: '/api/absolute',
 	package: '/api/package',
 	prettier: '/api/prettier',
 	tsconfig: '/api/tsconfig'
@@ -22,7 +27,9 @@ const ENDPOINTS: Record<ConfigPanelId, string> = {
 
 const LABELS: Record<ConfigPanelId, string> = {
 	absolute: 'absolute.config',
+	auth: 'Auth',
 	eslint: 'ESLint',
+	integrations: 'Integrations',
 	package: 'package.json',
 	prettier: 'Prettier',
 	tsconfig: 'tsconfig'
@@ -55,6 +62,8 @@ const isPrettierState = (value: unknown): value is PrettierState =>
 	isRecord(value) && Array.isArray(value.options);
 const isAbsoluteState = (value: unknown): value is AbsoluteConfigState =>
 	isRecord(value) && Array.isArray(value.fields);
+const isAuthState = (value: unknown): value is AuthPanelState =>
+	isRecord(value) && Array.isArray(value.features);
 const isPackageState = (value: unknown): value is PackageJsonState =>
 	isRecord(value) &&
 	Array.isArray(value.scripts) &&
@@ -98,6 +107,26 @@ const renderPanel = (panel: ConfigPanelId, data: unknown) => {
 			<Message
 				body="No absolute.config.ts was found. Run with --config <path> to point at one."
 				title="No absolute.config"
+			/>
+		);
+	}
+	if (panel === 'integrations') {
+		return isAbsoluteState(data) && data.configPath ? (
+			<IntegrationsPanel state={data} />
+		) : (
+			<Message
+				body="No absolute.config.ts was found. Run with --config <path> to point at one."
+				title="No absolute.config"
+			/>
+		);
+	}
+	if (panel === 'auth') {
+		return isAuthState(data) ? (
+			<AuthPanel state={data} />
+		) : (
+			<Message
+				body="Couldn't read the @absolutejs/auth setup for this project."
+				title="Auth unavailable"
 			/>
 		);
 	}

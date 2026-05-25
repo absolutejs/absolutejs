@@ -11,6 +11,18 @@ export const CONFIG_PANELS: ConfigPanelMeta[] = [
 		status: 'ready'
 	},
 	{
+		blurb: 'Official Elysia plugins',
+		id: 'integrations',
+		label: 'Integrations',
+		status: 'ready'
+	},
+	{
+		blurb: '@absolutejs/auth setup',
+		id: 'auth',
+		label: 'Auth',
+		status: 'ready'
+	},
+	{
 		blurb: 'Scripts & metadata',
 		id: 'package',
 		label: 'package.json',
@@ -40,6 +52,8 @@ export const DEFAULT_PANEL: ConfigPanelId = 'absolute';
 
 export const isConfigPanelId = (value: unknown): value is ConfigPanelId =>
 	value === 'absolute' ||
+	value === 'integrations' ||
+	value === 'auth' ||
 	value === 'package' ||
 	value === 'eslint' ||
 	value === 'tsconfig' ||

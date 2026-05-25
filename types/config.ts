@@ -1,5 +1,7 @@
 export type ConfigPanelId =
 	| 'absolute'
+	| 'integrations'
+	| 'auth'
 	| 'package'
 	| 'eslint'
 	| 'tsconfig'
