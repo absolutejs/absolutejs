@@ -359,6 +359,7 @@
 		"bd": "bun run scripts/build.ts && bun",
 		"build": "bun run scripts/build.ts",
 		"build:native": "./native/build.sh",
+		"config": "bun run src/cli/index.ts config",
 		"config:studio": "bun run src/cli/index.ts config --config example/absolute.config.ts",
 		"db:push": "drizzle-kit push",
 		"db:studio": "drizzle-kit studio",
