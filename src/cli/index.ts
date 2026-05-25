@@ -94,6 +94,18 @@ if (command === 'dev') {
 	sendTelemetryEvent('cli:command', { command: 'generate' });
 	const { runGenerate } = await import('./scripts/generate');
 	await runGenerate(args);
+} else if (command === 'add') {
+	sendTelemetryEvent('cli:command', { command: 'add' });
+	const { runAdd } = await import('./scripts/add');
+	await runAdd(args);
+} else if (command === 'remove') {
+	sendTelemetryEvent('cli:command', { command: 'remove' });
+	const { runRemove } = await import('./scripts/remove');
+	await runRemove(args);
+} else if (command === 'htmx') {
+	sendTelemetryEvent('cli:command', { command: 'htmx' });
+	const { runHtmx } = await import('./scripts/htmx');
+	await runHtmx(args);
 } else if (command === 'env') {
 	sendTelemetryEvent('cli:command', { command: 'env' });
 	const { runEnv } = await import('./scripts/env');
@@ -165,11 +177,20 @@ if (command === 'dev') {
 	console.error(
 		'  env [--check] [--json] Report env vars the app reads (getEnv) and which are missing'
 	);
+	console.error(
+		'  add <framework> [--no-install] Add a framework (deps, config, starter page)'
+	);
 	console.error('  eslint        Run ESLint (cached)');
 	console.error(
 		'  generate <page|api|component> <name> [--framework <fw>] Scaffold a page, API plugin, or component'
 	);
+	console.error(
+		'  htmx [version] Self-host htmx — report or install/upgrade the pinned copy'
+	);
 	console.error('  info          Print system info for bug reports');
+	console.error(
+		'  remove <framework> [--prune] Remove a framework from config (keeps source)'
+	);
 	console.error(
 		'  logs <name> [-f] [-n <lines>] Tail a running server\'s log by name'
 	);

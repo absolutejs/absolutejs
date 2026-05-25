@@ -339,6 +339,14 @@ const build = async () => {
 			)
 	);
 
+	// Vendor the self-hosted htmx runtime so `absolute add htmx` / `absolute htmx`
+	// can place it offline (resolved via import.meta.dir in both src and dist).
+	await mkdir(join(DIST, 'cli', 'htmx'), { recursive: true });
+	await cp(
+		join('src', 'cli', 'htmx', 'htmx.min.js'),
+		join(DIST, 'cli', 'htmx', 'htmx.min.js')
+	);
+
 	// Generate .d.ts files for SFC components so consumers get type safety
 	console.log('Generating SFC type declarations...');
 	await generateSfcDeclarations();
