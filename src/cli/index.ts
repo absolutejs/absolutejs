@@ -90,6 +90,10 @@ if (command === 'dev') {
 	sendTelemetryEvent('cli:command', { command: 'mem' });
 	const { runMem } = await import('./scripts/mem');
 	await runMem(args);
+} else if (command === 'generate' || command === 'g') {
+	sendTelemetryEvent('cli:command', { command: 'generate' });
+	const { runGenerate } = await import('./scripts/generate');
+	await runGenerate(args);
 } else if (command === 'env') {
 	sendTelemetryEvent('cli:command', { command: 'env' });
 	const { runEnv } = await import('./scripts/env');
@@ -162,6 +166,9 @@ if (command === 'dev') {
 		'  env [--check] [--json] Report env vars the app reads (getEnv) and which are missing'
 	);
 	console.error('  eslint        Run ESLint (cached)');
+	console.error(
+		'  generate <page|api|component> <name> [--framework <fw>] Scaffold a page, API plugin, or component'
+	);
 	console.error('  info          Print system info for bug reports');
 	console.error(
 		'  logs <name> [-f] [-n <lines>] Tail a running server\'s log by name'
