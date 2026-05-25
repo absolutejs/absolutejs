@@ -142,7 +142,7 @@ const resolveDevAssetResponse = async (
 const tryReadFromBuildDir = async (
 	hmrState: HMRState,
 	pathname: string
-): Promise<Uint8Array | null> => {
+) => {
 	const buildDir = hmrState.resolvedPaths?.buildDir;
 	if (!buildDir) return null;
 	if (!pathname.startsWith('/')) return null;

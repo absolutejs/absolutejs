@@ -34,7 +34,7 @@ const sideManifestCache = new Map<string, SpaRouteEntry[]>();
 
 const readSideManifest = async (
 	sideManifestPath: string
-): Promise<SpaRouteEntry[]> => {
+) => {
 	const cached = sideManifestCache.get(sideManifestPath);
 	if (cached !== undefined) return cached;
 	try {
@@ -57,7 +57,7 @@ const readSideManifest = async (
  *  the same set of URLs. Supports `:param` (segment), `:param(\\d+)`
  *  (segment with custom regex), and trailing `*` wildcards. Anchored to
  *  `^…$` so partial matches don't sneak through. */
-const compilePathToRegExp = (pattern: string): RegExp => {
+const compilePathToRegExp = (pattern: string) => {
 	// Escape regex metachars, then unescape the colon/wildcard tokens we
 	// re-introduce below.
 	const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
@@ -70,7 +70,7 @@ const compilePathToRegExp = (pattern: string): RegExp => {
 
 const routeMatchers = new Map<string, RegExp>();
 
-const matcherFor = (pattern: string): RegExp => {
+const matcherFor = (pattern: string) => {
 	const cached = routeMatchers.get(pattern);
 	if (cached !== undefined) return cached;
 	const compiled = compilePathToRegExp(pattern);
@@ -84,7 +84,7 @@ const matcherFor = (pattern: string): RegExp => {
 const findMatchingRoute = (
 	routes: SpaRouteEntry[],
 	pathname: string
-): SpaRouteEntry | null => {
+) => {
 	for (const route of routes) {
 		if (matcherFor(route.path).test(pathname)) return route;
 	}
@@ -94,7 +94,7 @@ const findMatchingRoute = (
 
 const childCssCache = new Map<string, string>();
 
-const readChildCss = async (cssPath: string): Promise<string> => {
+const readChildCss = async (cssPath: string) => {
 	if (!cssPath) return '';
 	const cached = childCssCache.get(cssPath);
 	if (cached !== undefined) return cached;
@@ -116,7 +116,7 @@ const readChildCss = async (cssPath: string): Promise<string> => {
 export const resolveSpaChildCss = async (
 	siblingJsPath: string | undefined,
 	requestUrl: string | undefined
-): Promise<string> => {
+) => {
 	if (!siblingJsPath || !requestUrl) return '';
 	const sideManifestPath = siblingJsPath.replace(/\.js$/, '.spa.json');
 	if (sideManifestPath === siblingJsPath) return '';

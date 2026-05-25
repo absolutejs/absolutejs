@@ -199,7 +199,7 @@ type TsconfigJson = {
 	include?: string[];
 };
 
-const readProjectTsconfig = (): TsconfigJson => {
+const readProjectTsconfig = () => {
 	try {
 		return JSON.parse(readFileSync(resolve('tsconfig.json'), 'utf-8'));
 	} catch {

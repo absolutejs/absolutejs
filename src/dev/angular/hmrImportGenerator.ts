@@ -22,7 +22,7 @@ import type {
 export const createHmrImportGenerator = (
 	namespaceMap: Map<string, string>
 ): ImportGenerator<ts.SourceFile, ts.Expression> => ({
-	addImport(request: ImportRequest<ts.SourceFile>): ts.Expression {
+	addImport(request: ImportRequest<ts.SourceFile>) {
 		const ns = namespaceMap.get(request.exportModuleSpecifier);
 		if (!ns) {
 			throw new Error(

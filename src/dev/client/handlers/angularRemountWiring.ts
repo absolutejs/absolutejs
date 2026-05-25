@@ -43,7 +43,7 @@ declare global {
 
 let installed = false;
 
-export const installAngularRemountGlobal = (): void => {
+export const installAngularRemountGlobal = () => {
 	if (installed) return;
 	if (typeof globalThis === 'undefined') return;
 	globalThis.__absAngularRemount = remountComponentClass;

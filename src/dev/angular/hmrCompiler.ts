@@ -26,7 +26,7 @@ import { tryFastHmr } from './fastHmrCompiler';
 export const encodeHmrComponentId = (
 	absoluteFilePath: string,
 	className: string
-): string => {
+) => {
 	const projectRel = relative(process.cwd(), absoluteFilePath).replace(
 		/\\/g,
 		'/'
@@ -36,7 +36,7 @@ export const encodeHmrComponentId = (
 };
 export const getApplyMetadataModule = async (
 	encodedId: string
-): Promise<string | null> => {
+) => {
 	const decoded = decodeURIComponent(encodedId);
 	const at = decoded.lastIndexOf('@');
 	if (at === -1) return null;

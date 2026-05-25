@@ -1583,7 +1583,7 @@ const transformAndCache = async (
 let cachedAngularUserRoot: string | null | undefined;
 const getAngularUserRoot = async (
 	_projectRoot: string
-): Promise<string | null> => {
+) => {
 	if (cachedAngularUserRoot !== undefined) return cachedAngularUserRoot;
 	cachedAngularUserRoot = configuredAngularUserRoot ?? null;
 

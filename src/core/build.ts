@@ -705,7 +705,7 @@ const isBunBuildPassConfig = (
 const sanitizeBunBuildOverride = (
 	override: BunBuildConfigOverride | undefined,
 	extraReservedKeys: Set<string> = new Set()
-): BunBuildConfigOverride => {
+) => {
 	if (!override) return {};
 	const sanitized: Record<string, unknown> = { ...override };
 	for (const key of reservedBunBuildConfigKeys) {
@@ -721,7 +721,7 @@ const sanitizeBunBuildOverride = (
 export const resolveBunBuildOverride = (
 	config: BuildConfig['bunBuild'],
 	pass: BunBuildPassKey
-): BunBuildConfigOverride => {
+) => {
 	const locked = passLockedKeys[pass] ?? new Set<string>();
 	if (!config) return {};
 	if (!isBunBuildPassConfig(config)) {
@@ -742,7 +742,7 @@ const dedupe = <T>(values: T[]) => [...new Set(values)];
 export const mergeBunBuildConfig = (
 	base: BunBuildOptions,
 	override: BunBuildConfigOverride
-): BunBuildOptions => {
+) => {
 	const sanitized = sanitizeBunBuildOverride(override);
 	const merged = {
 		...base,
@@ -808,7 +808,7 @@ const buildUnlocked = async ({
 		name: string,
 		fn: () => Promise<T> | T,
 		metadata?: Record<string, unknown>
-	): Promise<T> => {
+	) => {
 		if (!traceEnabled) return fn();
 		const phaseStart = performance.now();
 		try {
@@ -1606,7 +1606,7 @@ const buildUnlocked = async ({
 							const { join } = await import('node:path');
 							const walk = async (
 								dir: string
-							): Promise<string[]> => {
+							) => {
 								const entries = await readdir(dir, {
 									withFileTypes: true
 								});

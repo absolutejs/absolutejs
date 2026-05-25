@@ -42,10 +42,10 @@ const ENTITY_DECORATORS: Record<string, AngularEntityKind> = {
 	Pipe: 'pipe'
 };
 
-const isAngularSourceFile = (file: string): boolean =>
+const isAngularSourceFile = (file: string) =>
 	file.endsWith('.ts') || file.endsWith('.tsx');
 
-const walkAngularSourceFiles = (root: string): string[] => {
+const walkAngularSourceFiles = (root: string) => {
 	const out: string[] = [];
 	const visit = (dir: string) => {
 		let entries: Dirent[];
@@ -87,7 +87,7 @@ type DecoratedClass = {
 const getStringPropertyValue = (
 	obj: ts.ObjectLiteralExpression,
 	name: string
-): string | null => {
+) => {
 	for (const prop of obj.properties) {
 		if (!ts.isPropertyAssignment(prop)) continue;
 		const propName = ts.isIdentifier(prop.name)
@@ -111,7 +111,7 @@ const getStringPropertyValue = (
 const getStringArrayProperty = (
 	obj: ts.ObjectLiteralExpression,
 	name: string
-): string[] => {
+) => {
 	const out: string[] = [];
 	for (const prop of obj.properties) {
 		if (!ts.isPropertyAssignment(prop)) continue;
@@ -140,7 +140,7 @@ const getStringArrayProperty = (
  * tracked Angular decorators. A class can technically have more than
  * one Angular decorator (rare), but the decorator type-checker
  * rejects that — picking the first matching one is correct. */
-const parseDecoratedClasses = (filePath: string): DecoratedClass[] => {
+const parseDecoratedClasses = (filePath: string) => {
 	let source: string;
 	try {
 		source = readFileSync(filePath, 'utf8');
@@ -214,13 +214,13 @@ const parseDecoratedClasses = (filePath: string): DecoratedClass[] => {
 	return out;
 };
 
-const safeNormalize = (path: string): string =>
+const safeNormalize = (path: string) =>
 	resolve(path).replace(/\\/g, '/');
 
 export const resolveOwningComponents = (params: {
 	changedFilePath: string;
 	userAngularRoot: string;
-}): AffectedEntity[] => {
+}) => {
 	const { changedFilePath, userAngularRoot } = params;
 	const changedAbs = safeNormalize(changedFilePath);
 	const out: AffectedEntity[] = [];
@@ -315,7 +315,7 @@ const resolveParentClassFile = (
 	parentName: string,
 	childFilePath: string,
 	angularRoot: string
-): string | null => {
+) => {
 	let source: string;
 	try {
 		source = readFileSync(childFilePath, 'utf8');
@@ -389,7 +389,7 @@ const resolveParentClassFile = (
 	return null;
 };
 
-const getOrBuildIndexes = (userAngularRoot: string): IndexBundle => {
+const getOrBuildIndexes = (userAngularRoot: string) => {
 	const cached = indexByRoot.get(userAngularRoot);
 	if (cached) return cached;
 
@@ -439,7 +439,7 @@ const getOrBuildIndexes = (userAngularRoot: string): IndexBundle => {
 	return bundle;
 };
 
-const getOrBuildResourceIndex = (userAngularRoot: string): ResourceIndex =>
+const getOrBuildResourceIndex = (userAngularRoot: string) =>
 	getOrBuildIndexes(userAngularRoot).resource;
 
 /* Returns the list of Angular entities (components, directives,
@@ -450,13 +450,13 @@ const getOrBuildResourceIndex = (userAngularRoot: string): ResourceIndex =>
  * Used by the dispatcher to detect edits to plain utility base
  * classes that should trigger a Tier 1b rebootstrap so the
  * extending children see the new parent methods. */
-export const invalidateResourceIndex = (): void => {
+export const invalidateResourceIndex = () => {
 	indexByRoot.clear();
 };
 export const resolveDescendantsOfParent = (params: {
 	changedFilePath: string;
 	userAngularRoot: string;
-}): AffectedEntity[] => {
+}) => {
 	const norm = safeNormalize(params.changedFilePath);
 	let rootStat: ReturnType<typeof statSync>;
 	try {

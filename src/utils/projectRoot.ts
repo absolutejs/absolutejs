@@ -10,7 +10,7 @@ const CONFIG_CANDIDATES = [
 	'absolute.config.cts'
 ];
 
-const findProjectRoot = (): string => {
+const findProjectRoot = () => {
 	const start = process.cwd();
 	let packageRoot: string | null = null;
 	let dir = start;

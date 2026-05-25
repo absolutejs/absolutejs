@@ -82,7 +82,7 @@ type LiveInstance = {
  * We walk DOM (not Angular's TRACKED_LVIEWS map) because (a)
  * TRACKED_LVIEWS isn't exported and (b) the DOM walk is bounded by
  * page size, which is fast enough for HMR. */
-const findLiveInstances = (Class: ComponentClass): LiveInstance[] => {
+const findLiveInstances = (Class: ComponentClass) => {
 	const results: LiveInstance[] = [];
 	const elements = document.querySelectorAll('*');
 	for (const el of Array.from(elements)) {
@@ -169,7 +169,7 @@ const spliceLViewIntoParent = (
 	target: LiveInstance,
 	newLView: LView,
 	newInstance: unknown
-): void => {
+) => {
 	const { parentLView, oldLView, slotIndex, tNode } = target;
 	replaceLViewInTree(parentLView, oldLView, newLView, slotIndex);
 	newLView[PARENT] = parentLView;
@@ -195,7 +195,7 @@ const spliceLViewIntoParent = (
  * listeners, and `inject(DestroyRef).onDestroy(...)` callbacks all
  * fire. Then mark the LView as destroyed so any subsequent
  * tree-walk skips it. */
-const teardownOldLView = (oldLView: LView): void => {
+const teardownOldLView = (oldLView: LView) => {
 	const oldTView = oldLView[TVIEW] as TView | null;
 	if (oldTView) {
 		executeOnDestroys(oldTView, oldLView);
@@ -225,7 +225,7 @@ const teardownOldLView = (oldLView: LView): void => {
 const copyInputsFromOldToNew = (
 	oldInstance: unknown,
 	newInstance: unknown
-): void => {
+) => {
 	if (!oldInstance || !newInstance) return;
 	const def = (newInstance as { constructor?: { ɵcmp?: unknown } })
 		.constructor?.ɵcmp as { inputs?: Record<string, unknown> } | undefined;

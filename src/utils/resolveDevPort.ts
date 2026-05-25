@@ -44,7 +44,7 @@ export type ResolveDevPortResult = {
 export const resolveDevPort = async (
 	requestedPort: number,
 	options: ResolveDevPortOptions = {}
-): Promise<ResolveDevPortResult> => {
+) => {
 	const strictPort = options.strictPort === true;
 	const portRange = options.portRange ?? 10;
 	const host = options.host ?? 'localhost';

@@ -14,7 +14,7 @@ const CONTAINER_ID = '__abs_hmr_toast_container__';
 const VISIBLE_DURATION_MS = 2500;
 const FADE_MS = 220;
 
-const ensureContainer = (): HTMLDivElement => {
+const ensureContainer = () => {
 	const existing = document.getElementById(
 		CONTAINER_ID
 	) as HTMLDivElement | null;
@@ -41,7 +41,7 @@ const ensureContainer = (): HTMLDivElement => {
 	return container;
 };
 
-const accentForType = (updateType: string | undefined): string => {
+const accentForType = (updateType: string | undefined) => {
 	switch (updateType) {
 		case 'route':
 			return '#1d4ed8';

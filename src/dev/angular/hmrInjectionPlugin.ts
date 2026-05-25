@@ -65,7 +65,7 @@ const IMPORT_RE =
 const TOP_LEVEL_DECL_RE =
 	/^(?:export\s+)?(?:const|let|var|function|class)\s+([A-Za-z_$][\w$]*)/gm;
 
-const extractAllTopLevelNames = (jsSource: string): string[] => {
+const extractAllTopLevelNames = (jsSource: string) => {
 	const names = new Set<string>();
 
 	IMPORT_RE.lastIndex = 0;
@@ -102,7 +102,7 @@ const extractAllTopLevelNames = (jsSource: string): string[] => {
 	return [...names];
 };
 
-const buildHmrTail = (className: string, encodedIdLiteral: string): string => `
+const buildHmrTail = (className: string, encodedIdLiteral: string) => `
 
 // absolutejs HMR — auto-generated; mirrors compileHmrInitializer from
 // @angular/compiler with import.meta.hot adapted to globalThis.__angularHmr.
@@ -266,7 +266,7 @@ export const applyAngularHmrInjection = (
 	jsSource: string,
 	componentJsAbsPath: string,
 	params: AngularHmrInjectionParams
-): string | undefined => {
+) => {
 	const { generatedAngularRoot, userAngularRoot, projectRoot } = params;
 	const normalizedGenRoot = resolve(generatedAngularRoot).replace(/\\/g, '/');
 	const normalizedPath = componentJsAbsPath.replace(/\\/g, '/');

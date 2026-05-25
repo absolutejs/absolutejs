@@ -36,7 +36,7 @@ declare global {
 	var __angularHmr: AngularHmrBus | undefined;
 }
 
-const installAngularHmrShim = (): AngularHmrBus => {
+const installAngularHmrShim = () => {
 	const listeners = new Map<AngularHmrEvent, Set<AngularHmrListener>>();
 
 	const bus: AngularHmrBus = {

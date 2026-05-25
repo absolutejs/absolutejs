@@ -107,7 +107,7 @@ export const detectFramework = (
  *
  * Cheap to do once at startup: a small angular project has <100
  * `.component.ts` files, each ~1ms to read+regex-scan. */
-const collectAngularResourceDirs = (angularDir: string): string[] => {
+const collectAngularResourceDirs = (angularDir: string) => {
 	const out = new Set<string>();
 	const angularRoot = resolve(angularDir);
 	const angularRootNormalized = normalizePath(angularRoot);

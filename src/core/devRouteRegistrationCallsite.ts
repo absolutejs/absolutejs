@@ -66,14 +66,14 @@ const handlerSourceMentionsPageHelper = (
 
 export const getOriginalPageHandlerSource = (
 	handler: unknown
-): string | undefined => {
+) => {
 	if (typeof handler !== 'function') return undefined;
 	const fn = handler as (...args: unknown[]) => unknown;
 	const info = pageHandlerWrappers.get(fn);
 
 	return (info?.originalHandler ?? fn).toString();
 };
-export const isPageHandler = (handler: unknown): boolean => {
+export const isPageHandler = (handler: unknown) => {
 	if (typeof handler !== 'function') return false;
 	const fn = handler as (...args: unknown[]) => unknown;
 	if (pageHandlerWrappers.has(fn)) return true;

@@ -72,7 +72,7 @@ const readHasIslands = (value: unknown) => {
 	return typeof hasIslands === 'boolean' ? hasIslands : false;
 };
 
-const readSetupAppHook = (value: unknown): VueSetupApp | null => {
+const readSetupAppHook = (value: unknown) => {
 	if (!isRecord(value)) return null;
 	const setupApp = value['setupApp'];
 

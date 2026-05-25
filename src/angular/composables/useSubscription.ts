@@ -46,7 +46,7 @@ export function useSubscription<T>(
 	observable: Observable<T>,
 	observerOrNext: Observer<T> | ((value: T) => void),
 	destroyRef?: DestroyRef
-): Subscription {
+) {
 	const captured = destroyRef ?? inject(DestroyRef);
 	const observer =
 		typeof observerOrNext === 'function'

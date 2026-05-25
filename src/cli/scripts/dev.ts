@@ -458,7 +458,7 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 	// Re-parsing the dotenv files on each spawn and overlaying *on top of*
 	// `process.env` gives the latest values without losing inherited
 	// system env (PATH, HOME, etc.).
-	const readDotenvFiles = (): Record<string, string> => {
+	const readDotenvFiles = () => {
 		const merged: Record<string, string> = {};
 		// Load order matches Bun's: .env, .env.development, .env.local
 		// (later wins). Skip files that don't exist.
@@ -491,7 +491,7 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 		return merged;
 	};
 
-	const spawnServer = async (): Promise<ChildProcess> => {
+	const spawnServer = async () => {
 		await refreshDevConfigForSpawn();
 		const proc = nodeSpawn(
 			'bun',

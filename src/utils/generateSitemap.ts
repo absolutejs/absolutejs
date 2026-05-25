@@ -83,7 +83,7 @@ const VALID_CHANGEFREQ = new Set<ChangeFrequency>([
 
 const extractSitemapMetadataFromHandlerSource = (
 	source: string
-): SitemapRouteOverride | undefined => {
+) => {
 	const block = SITEMAP_BLOCK_PATTERN.exec(source);
 	if (!block) return undefined;
 	const body = block[1];
@@ -132,13 +132,13 @@ const PAGE_HANDLER_NAMES = [
 const sourceMentionsPageHandler = (source: string) =>
 	PAGE_HANDLER_NAMES.some((name) => source.includes(name));
 
-const routeHandlerSource = (route: AppRoute): string | undefined => {
+const routeHandlerSource = (route: AppRoute) => {
 	if (route.handlerSource) return route.handlerSource;
 
 	return getOriginalPageHandlerSource(route.handler);
 };
 
-const routeIsPageHandler = (route: AppRoute): boolean => {
+const routeIsPageHandler = (route: AppRoute) => {
 	if (route.handlerSource)
 		return sourceMentionsPageHandler(route.handlerSource);
 
@@ -147,7 +147,7 @@ const routeIsPageHandler = (route: AppRoute): boolean => {
 
 const sitemapMetadataForRoute = (
 	route: AppRoute
-): SitemapRouteOverride | undefined => {
+) => {
 	const source = routeHandlerSource(route);
 	if (!source) return undefined;
 
@@ -157,7 +157,7 @@ const sitemapMetadataForRoute = (
 const discoverPageRoutes = (
 	routes: AppRoute[],
 	exclude: (string | RegExp)[]
-): DiscoveredPage[] => {
+) => {
 	const seen = new Set<string>();
 	const out: DiscoveredPage[] = [];
 
@@ -184,7 +184,7 @@ const discoverPageRoutes = (
 	return out;
 };
 
-const joinMountAndSubPath = (mount: string, sub: string): string => {
+const joinMountAndSubPath = (mount: string, sub: string) => {
 	const trimmedMount = mount.replace(/\/+$/, '');
 	const trimmedSub = sub.replace(/^\/+/, '');
 	if (!trimmedSub) return trimmedMount || '/';
@@ -250,7 +250,7 @@ const collectFrameworkSpaEntries = (
 	mountOverridesByPath: Map<string, SitemapRouteOverride | undefined>,
 	exclude: (string | RegExp)[],
 	seenPaths: Set<string>
-): ResolvedEntry[] => {
+) => {
 	const out: ResolvedEntry[] = [];
 	for (const host of hosts) {
 		const mount = normalizeMountFromBaseHref(host.baseHref);
@@ -275,7 +275,7 @@ const collectFrameworkSpaEntries = (
 const runAnalyzer = async (
 	label: string,
 	analyzer: () => Promise<SpaHost[]>
-): Promise<SpaHost[]> => {
+) => {
 	try {
 		return await analyzer();
 	} catch (err) {

@@ -15,4 +15,4 @@ import { inject, REQUEST_CONTEXT } from '@angular/core';
  *
  *  Must be called in an Angular injection context (component
  *  constructor, field initializer, or `runInInjectionContext`). */
-export const usePageContext = <T>(): T => inject(REQUEST_CONTEXT) as T;
+export const usePageContext = <T>() => inject(REQUEST_CONTEXT) as T;

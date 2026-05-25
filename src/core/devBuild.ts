@@ -212,7 +212,7 @@ const detectConfigChanges = async (
  *  (e.g. compiled production), or the diff that `detectConfigChanges`
  *  applied. */
 export const applyConfigChanges =
-	async (): Promise<ConfigChangeDiff | null> => {
+	async () => {
 		const cached = globalThis.__hmrDevResult;
 		if (!cached) return null;
 

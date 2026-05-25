@@ -8,7 +8,7 @@ const DEFAULT_CACHE_LOCATION = '.absolutejs/eslint-cache';
  * CI to avoid cache collisions across packages, or to relocate the
  * cache off a slow filesystem.
  */
-const getCacheLocation = (): string =>
+const getCacheLocation = () =>
 	process.env.ABSOLUTE_ESLINT_CACHE?.trim() || DEFAULT_CACHE_LOCATION;
 
 /**
@@ -65,7 +65,7 @@ const FLAG_VALUE_FLAGS = new Set<string>([
  * If the user is targeting a specific path / file, we skip appending
  * the implicit `.` so we don't expand the lint scope past their intent.
  */
-const hasUserPositional = (args: string[]): boolean => {
+const hasUserPositional = (args: string[]) => {
 	for (let i = 0; i < args.length; i++) {
 		const arg = args[i];
 		if (arg === undefined) continue;
@@ -83,7 +83,7 @@ const hasUserPositional = (args: string[]): boolean => {
 	return false;
 };
 
-const findConfigPath = (): string | null => {
+const findConfigPath = () => {
 	const cwd = process.cwd();
 	for (const name of CONFIG_CANDIDATES) {
 		const candidate = resolve(cwd, name);
@@ -93,7 +93,7 @@ const findConfigPath = (): string | null => {
 	return null;
 };
 
-const hasKey = (objectLiteralSource: string, key: string): boolean => {
+const hasKey = (objectLiteralSource: string, key: string) => {
 	const pattern = new RegExp(`(^|[\\s,{])${key}\\s*:`, 'm');
 
 	return pattern.test(objectLiteralSource);
@@ -128,7 +128,7 @@ const isGlobalIgnoresBlock = (block: string) => {
  * depth, string literals, and comments so we don't false-match on
  * "{...}" appearing inside string contents or comments.
  */
-const extractTopLevelObjectLiterals = (source: string): string[] => {
+const extractTopLevelObjectLiterals = (source: string) => {
 	const arrayStart = source.search(
 		/defineConfig\s*\(\s*\[|export\s+default\s*\[/
 	);
@@ -256,7 +256,7 @@ Detected at: ${configPath}${reset}`
 	);
 };
 
-const formatDuration = (ms: number): string => {
+const formatDuration = (ms: number) => {
 	if (ms < 1000) return `${ms}ms`;
 	if (ms < 60_000) return `${(ms / 1000).toFixed(2)}s`;
 	const minutes = Math.floor(ms / 60_000);
@@ -265,7 +265,7 @@ const formatDuration = (ms: number): string => {
 	return `${minutes}m ${seconds}s`;
 };
 
-const handleClearCache = (cacheLocation: string): void => {
+const handleClearCache = (cacheLocation: string) => {
 	try {
 		rmSync(cacheLocation, { force: true });
 		console.log(`\x1b[32m✓\x1b[0m Cleared cache: ${cacheLocation}`);

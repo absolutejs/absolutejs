@@ -21,7 +21,7 @@ const siblingCssCache = new Map<string, string>();
 export const injectInlineCss = <T extends string>(
 	headTag: T,
 	css: string
-): T => {
+) => {
 	if (!css) return headTag;
 	const styleBlock = `<style data-absolute-page-css>${css}</style>`;
 
@@ -29,7 +29,7 @@ export const injectInlineCss = <T extends string>(
 };
 export const readSiblingCss = async (
 	siblingJsPath: string | undefined
-): Promise<string> => {
+) => {
 	if (!siblingJsPath) return '';
 	const cssPath = siblingJsPath.replace(/\.js$/, '.css');
 	if (cssPath === siblingJsPath) return '';

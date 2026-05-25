@@ -79,7 +79,7 @@ import {
 export const preserveAcrossHmr = (
 	instance: object,
 	key?: string | number
-): void => {
+) => {
 	if (!isHmrPreserveDev()) return;
 
 	const fullKey = buildCacheKey(instance, key);

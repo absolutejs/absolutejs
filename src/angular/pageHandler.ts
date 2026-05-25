@@ -96,7 +96,7 @@ const isAngularComponent = (value: unknown): value is Type<unknown> =>
  *  components: the routed children don't import the outlet, the host does.
  *  Matched by selector string rather than class identity so it survives
  *  duplicate `@angular/router` module instances. */
-const componentHostsRouterOutlet = (component: Type<unknown>): boolean => {
+const componentHostsRouterOutlet = (component: Type<unknown>) => {
 	const componentDef = Reflect.get(component, 'ɵcmp') as
 		| { dependencies?: unknown }
 		| undefined;

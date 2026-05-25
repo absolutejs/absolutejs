@@ -31,7 +31,7 @@ export const buildProviders = (
 	requestContext: unknown,
 	responseInit: ResponseInit | undefined,
 	userProviders: ReadonlyArray<Provider | EnvironmentProviders> = []
-): (Provider | EnvironmentProviders)[] => [
+) => [
 	deps.provideServerRendering(),
 	deps.provideClientHydration(
 		deps.withHttpTransferCacheOptions(

@@ -92,7 +92,7 @@ const writeLockFileSync = (lockPath: string, metadata: LockMetadata) => {
 	writeFileSync(lockPath, JSON.stringify(metadata, null, 2), { flag: 'wx' });
 };
 
-const readLockMetadata = (lockPath: string): LockMetadata | null => {
+const readLockMetadata = (lockPath: string) => {
 	try {
 		const raw = readFileSync(lockPath, 'utf-8');
 		const parsed = JSON.parse(raw);

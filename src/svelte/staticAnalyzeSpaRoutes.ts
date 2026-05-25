@@ -9,14 +9,14 @@ const pathHasDynamic = (path: string) =>
 		.split('/')
 		.some((seg) => DYNAMIC_SEGMENT_PATTERN.test(seg) || seg === '**');
 
-const joinSegments = (parent: string, child: string): string => {
+const joinSegments = (parent: string, child: string) => {
 	if (!child) return parent;
 	if (!parent) return child;
 
 	return `${parent.replace(/\/+$/, '')}/${child.replace(/^\/+/, '')}`;
 };
 
-const readAttribute = (tag: string, name: string): string | null => {
+const readAttribute = (tag: string, name: string) => {
 	const re = new RegExp(
 		`${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|\\{?["']([^"']+)["']\\}?)`
 	);
@@ -48,7 +48,7 @@ const findRouterBlock = (
 	return { basepath, body };
 };
 
-const extractRoutesFromBody = (body: string): SpaRoute[] => {
+const extractRoutesFromBody = (body: string) => {
 	const out: SpaRoute[] = [];
 	let match;
 	ROUTE_TAG_PATTERN.lastIndex = 0;
@@ -96,7 +96,7 @@ const analyzeFile = async (filePath: string): Promise<SpaHost | null> => {
 	return { baseHref, routes: joinedRoutes, sourceFile: filePath };
 };
 
-const walkSvelteFiles = async (dir: string, out: string[]): Promise<void> => {
+const walkSvelteFiles = async (dir: string, out: string[]) => {
 	let items: import('node:fs').Dirent[];
 	try {
 		items = await fs.readdir(dir, { withFileTypes: true });
@@ -121,7 +121,7 @@ const walkSvelteFiles = async (dir: string, out: string[]): Promise<void> => {
  *  parseable; covers the common case where the markup is literal. */
 export const analyzeSvelteSpaRoutes = async (
 	svelteDirectory: string
-): Promise<SpaHost[]> => {
+) => {
 	if (!existsSync(svelteDirectory)) return [];
 
 	const files: string[] = [];
