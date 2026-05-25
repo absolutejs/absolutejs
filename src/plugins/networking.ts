@@ -70,6 +70,18 @@ const selfRegisterInstance = () => {
 export const networking = <A extends Elysia>(app: A) => {
 	if (env.ABSOLUTE_COMPILED_RUNTIME === '1') return app;
 
+	// Dev-only route introspection for `absolute routes` — reads the live
+	// route table at request time (so it reflects every registered route),
+	// never exposed outside development.
+	if (env.NODE_ENV === 'development') {
+		app.get('/__absolute/routes', () =>
+			app.routes.map((route) => ({
+				method: route.method,
+				path: route.path
+			}))
+		);
+	}
+
 	// Path B (in-place backend HMR): if a previous evaluation of this
 	// entry already started a Bun.serve, swap its handler in place
 	// instead of re-binding the port. The new Elysia instance becomes

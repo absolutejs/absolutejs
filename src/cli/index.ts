@@ -102,6 +102,10 @@ if (command === 'dev') {
 	sendTelemetryEvent('cli:command', { command: 'doctor' });
 	const { runDoctor } = await import('./scripts/doctor');
 	await runDoctor(args);
+} else if (command === 'routes') {
+	sendTelemetryEvent('cli:command', { command: 'routes' });
+	const { runRoutes } = await import('./scripts/routes');
+	await runRoutes(args);
 } else if (command === 'info') {
 	sendTelemetryEvent('cli:command', { command });
 	info();
@@ -170,6 +174,9 @@ if (command === 'dev') {
 		'  ps [--watch] [--json] [--kill <pid|port>] [--kill-all] List/manage running servers'
 	);
 	console.error('  prettier      Run Prettier check (cached)');
+	console.error(
+		'  routes [--json] List every route (pages + API) of a running dev server'
+	);
 	console.error('  typecheck     Run type checkers for all frameworks');
 	console.error('  telemetry     Manage anonymous telemetry');
 	console.error(
