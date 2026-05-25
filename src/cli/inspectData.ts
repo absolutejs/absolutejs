@@ -150,14 +150,46 @@ export const pathColumnWidth = (totalWidth: number) => {
 	return Math.max(MIN_PATH_WIDTH, totalWidth - fixed - gaps);
 };
 
-// The drill-down detail for one request: status line + request/response headers.
+// Parse the Server-Timing header (@elysiajs/server-timing) into per-phase
+// durations so the inspector can show where a request's time actually went.
+const parseTiming = (headers: Record<string, string>) => {
+	const key = Object.keys(headers).find(
+		(name) => name.toLowerCase() === 'server-timing'
+	);
+	const value = key === undefined ? undefined : headers[key];
+	if (value === undefined) return [];
+
+	return value
+		.split(',')
+		.map((part) => {
+			const [name] = part.trim().split(';');
+			const match = part.match(/dur=([0-9.]+)/);
+
+			return {
+				dur: match ? Number(match[1]) : null,
+				name: (name ?? '').trim()
+			};
+		})
+		.filter(
+			(phase): phase is { dur: number; name: string } =>
+				phase.dur !== null && Number.isFinite(phase.dur)
+		);
+};
+
+// The drill-down detail for one request: status line + timing + headers.
 export const requestDetail = (record: RequestRecord) => {
 	const size = record.size === null ? '—' : formatBytes(record.size);
 	const lines = [
 		`${colors.bold}${record.method} ${record.path}${record.query}${colors.reset}`,
-		`${colors.dim}status${colors.reset} ${statusColor(record.status)}${record.status}${colors.reset}   ${colors.dim}took${colors.reset} ${Math.round(record.durationMs)}ms   ${colors.dim}size${colors.reset} ${size}   ${colors.dim}kind${colors.reset} ${record.kind}`,
-		`${colors.dim}request headers${colors.reset}`
+		`${colors.dim}status${colors.reset} ${statusColor(record.status)}${record.status}${colors.reset}   ${colors.dim}took${colors.reset} ${Math.round(record.durationMs)}ms   ${colors.dim}size${colors.reset} ${size}   ${colors.dim}kind${colors.reset} ${record.kind}`
 	];
+	const timing = parseTiming(record.responseHeaders);
+	if (timing.length > 0) {
+		lines.push(
+			`${colors.dim}phases${colors.reset} ${timing.map((phase) => `${phase.name} ${phase.dur.toFixed(1)}ms`).join(' · ')}`
+		);
+	}
+	lines.push(`${colors.dim}request headers${colors.reset}`);
 	for (const [key, value] of Object.entries(record.requestHeaders)) {
 		lines.push(`  ${colors.cyan}${key}${colors.reset} ${value}`);
 	}

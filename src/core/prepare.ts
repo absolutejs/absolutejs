@@ -3,6 +3,7 @@ import { basename, join, relative, resolve } from 'node:path';
 import { Elysia } from 'elysia';
 import type { ConventionsMap } from '../../types/conventions';
 import { withOpenApi } from '../plugins/openApiPlugin';
+import { withTelemetry } from '../plugins/telemetryPlugin';
 import { loadConfig } from '../utils/loadConfig';
 import { setCurrentIslandManifest } from './islandPageContext';
 import { loadIslandRegistry } from './loadIslandRegistry';
@@ -216,11 +217,15 @@ const prepareDev = async (
 	stepStartedAt = performance.now();
 	const { imageOptimizer } = await import('../plugins/imageOptimizer');
 	const { requestInspector } = await import('../dev/requestInspector');
+	const { serverTiming } = await import('@elysiajs/server-timing');
 	const absolutejs = new Elysia({ name: 'absolutejs-runtime' })
 		// Must be first: the inspector's global onRequest/onAfterResponse hooks
 		// only reach routes compiled after them, so it has to precede the
 		// page/static/user routes (which mount after `.use(absolutejs)`).
 		.use(requestInspector)
+		// Server-Timing per lifecycle phase (dev only) — powers the per-phase
+		// timing breakdown in `absolute inspect`.
+		.use(serverTiming())
 		.use(
 			devtoolsJson(buildDir, {
 				normalizeForWindowsContainer:
@@ -245,6 +250,7 @@ const prepareDev = async (
 		.use(createBuildErrorRecoveryPlugin())
 		.use(createNotFoundPlugin());
 	await withOpenApi(absolutejs, config, process.cwd(), true);
+	await withTelemetry(absolutejs, config, process.cwd());
 	recordStep('assemble dev runtime', stepStartedAt);
 	logStartupTimingBlock('AbsoluteJS prepareDev timing', startupSteps);
 
@@ -493,6 +499,7 @@ export const prepare = async (configOrPath?: string) => {
 			.use(generatedAssetsPlugin)
 			.use(createNotFoundPlugin());
 		await withOpenApi(absolutejs, config, process.cwd(), false);
+		await withTelemetry(absolutejs, config, process.cwd());
 		recordStep('assemble production runtime', stepStartedAt);
 		logStartupTimingBlock('AbsoluteJS prepare timing', startupSteps);
 
@@ -507,6 +514,7 @@ export const prepare = async (configOrPath?: string) => {
 		.use(generatedAssetsPlugin)
 		.use(createNotFoundPlugin());
 	await withOpenApi(absolutejs, config, process.cwd(), false);
+	await withTelemetry(absolutejs, config, process.cwd());
 	recordStep('assemble production runtime', stepStartedAt);
 	logStartupTimingBlock('AbsoluteJS prepare timing', startupSteps);
 
