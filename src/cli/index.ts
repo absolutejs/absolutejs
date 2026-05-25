@@ -122,6 +122,10 @@ if (command === 'dev') {
 	sendTelemetryEvent('cli:command', { command: 'routes' });
 	const { runRoutes } = await import('./scripts/routes');
 	await runRoutes(args);
+} else if (command === 'inspect') {
+	sendTelemetryEvent('cli:command', { command: 'inspect' });
+	const { runInspect } = await import('./scripts/inspect');
+	await runInspect(args);
 } else if (command === 'info') {
 	sendTelemetryEvent('cli:command', { command });
 	info();
@@ -188,6 +192,9 @@ if (command === 'dev') {
 		'  htmx [version] Self-host htmx — report or install/upgrade the pinned copy'
 	);
 	console.error('  info          Print system info for bug reports');
+	console.error(
+		'  inspect [--json] Live request inspector for a running dev server'
+	);
 	console.error(
 		'  remove <framework> [--prune] Remove a framework from config (keeps source)'
 	);

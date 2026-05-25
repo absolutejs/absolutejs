@@ -45,6 +45,14 @@ declare global {
 	 *  every key the new app declares. Stays unset outside dev. */
 	var __absolutePreviousAppStore: Record<string, unknown> | undefined;
 
+	/** Dev-only request inspector ring buffer, filled by the global
+	 *  onRequest/onAfterResponse hooks in `requestInspector` and served at
+	 *  `/__absolute/requests` for `absolute inspect`. On globalThis so it
+	 *  survives Path B server-entry HMR. Stays unset outside dev. */
+	var __absoluteRequestLog:
+		| import('./cli').RequestRecord[]
+		| undefined;
+
 	/* Client-side globals (Window extensions for HMR) */
 	interface Window {
 		$RefreshReg$?: (type: unknown, id: string) => void;

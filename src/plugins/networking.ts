@@ -70,9 +70,10 @@ const selfRegisterInstance = () => {
 export const networking = <A extends Elysia>(app: A) => {
 	if (env.ABSOLUTE_COMPILED_RUNTIME === '1') return app;
 
-	// Dev-only route introspection for `absolute routes` — reads the live
-	// route table at request time (so it reflects every registered route),
-	// never exposed outside development.
+	// Dev-only route introspection for `absolute routes` — reads the live route
+	// table at request time. (The request inspector for `absolute inspect` is
+	// mounted first inside the `absolutejs` runtime in prepare(), since its
+	// global hooks must precede the routes they observe.) Never exposed in prod.
 	if (env.NODE_ENV === 'development') {
 		app.get('/__absolute/routes', () =>
 			app.routes.map((route) => ({

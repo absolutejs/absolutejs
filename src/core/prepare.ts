@@ -214,7 +214,12 @@ const prepareDev = async (
 
 	stepStartedAt = performance.now();
 	const { imageOptimizer } = await import('../plugins/imageOptimizer');
+	const { requestInspector } = await import('../dev/requestInspector');
 	const absolutejs = new Elysia({ name: 'absolutejs-runtime' })
+		// Must be first: the inspector's global onRequest/onAfterResponse hooks
+		// only reach routes compiled after them, so it has to precede the
+		// page/static/user routes (which mount after `.use(absolutejs)`).
+		.use(requestInspector)
 		.use(
 			devtoolsJson(buildDir, {
 				normalizeForWindowsContainer:

@@ -56,6 +56,20 @@ export type LiveInstance = InstanceRecord & {
 	url: string | null;
 };
 
+export type RequestKind = 'api' | 'asset' | 'hmr' | 'internal' | 'page';
+
+// One captured request in the dev-only inspector ring buffer (served at
+// /__absolute/requests, rendered by `absolute inspect`).
+export type RequestRecord = {
+	at: number;
+	durationMs: number;
+	kind: RequestKind;
+	method: string;
+	path: string;
+	size: number | null;
+	status: number;
+};
+
 export type TuiColors = {
 	bold: string;
 	cyan: string;
