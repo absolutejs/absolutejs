@@ -12,6 +12,8 @@ export type ConfigPanelStatus = 'ready' | 'soon';
 export type ConfigPanelMeta = {
 	/** One-line description shown under the panel name in the sidebar. */
 	blurb: string;
+	/** Sidebar section heading this panel is grouped under. */
+	group: string;
 	id: ConfigPanelId;
 	label: string;
 	/** `'ready'` panels are interactive; `'soon'` panels render a placeholder. */

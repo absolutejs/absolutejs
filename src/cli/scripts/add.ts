@@ -5,6 +5,8 @@ import { generatePage } from '../generate/generatePage';
 import { isFrameworkKey } from '../generate/frameworkKey';
 import { frameworks } from '../generate/frameworks';
 import { installFrameworkDependencies } from '../add/dependencies';
+import { addIntegration } from '../integrations/addPlugin';
+import { isIntegrationId } from '../integrations/catalog';
 import { readVendoredHtmx, writeHtmx } from '../htmx/install';
 import { colors } from '../tuiPrimitives';
 
@@ -31,12 +33,37 @@ const frontendRoot = (
 	return firstDir ? dirname(firstDir) : join(cwd, 'src', 'frontend');
 };
 
+const addIntegrationCli = (id: string, install: boolean) => {
+	const result = addIntegration(process.cwd(), id, { install });
+	if (!result.ok) {
+		fail(result.message);
+
+		return;
+	}
+	write(`${colors.green}✓${colors.reset} ${result.message}`);
+	if (result.wiringSnippet) {
+		write(`\n  ${colors.dim}Add to your server${colors.reset}:`);
+		for (const line of result.wiringSnippet.split('\n'))
+			write(`    ${line}`);
+	}
+	write(
+		`\n  ${colors.dim}Next${colors.reset}  ${result.wired ? 'run `absolute dev`' : 'wire it in, then run `absolute dev`'}`
+	);
+};
+
 export const runAdd = async (args: string[]) => {
 	const [framework] = args.filter((arg) => !arg.startsWith('--'));
 	const noInstall = args.includes('--no-install');
+
+	if (framework && isIntegrationId(framework)) {
+		addIntegrationCli(framework, !noInstall);
+
+		return;
+	}
+
 	if (!framework || !isFrameworkKey(framework)) {
 		fail(
-			'Usage: absolute add <react|svelte|vue|angular|html|htmx> [--no-install]'
+			'Usage: absolute add <react|svelte|vue|angular|html|htmx | openapi|telemetry|cors|jwt|cron> [--no-install]'
 		);
 
 		return;

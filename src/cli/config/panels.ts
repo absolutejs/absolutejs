@@ -6,44 +6,51 @@ import type { ConfigPanelId, ConfigPanelMeta } from '../../../types/config';
 export const CONFIG_PANELS: ConfigPanelMeta[] = [
 	{
 		blurb: 'Framework config (defineConfig)',
+		group: 'Project',
 		id: 'absolute',
 		label: 'absolute.config',
 		status: 'ready'
 	},
 	{
-		blurb: 'Official Elysia plugins',
-		id: 'integrations',
-		label: 'Integrations',
-		status: 'ready'
-	},
-	{
-		blurb: '@absolutejs/auth setup',
-		id: 'auth',
-		label: 'Auth',
-		status: 'ready'
-	},
-	{
 		blurb: 'Scripts & metadata',
+		group: 'Project',
 		id: 'package',
 		label: 'package.json',
 		status: 'ready'
 	},
 	{
 		blurb: 'Lint rules & severities',
+		group: 'Project',
 		id: 'eslint',
 		label: 'ESLint',
 		status: 'ready'
 	},
 	{
 		blurb: 'TypeScript compiler options',
+		group: 'Project',
 		id: 'tsconfig',
 		label: 'tsconfig',
 		status: 'ready'
 	},
 	{
 		blurb: 'Formatting options',
+		group: 'Project',
 		id: 'prettier',
 		label: 'Prettier',
+		status: 'ready'
+	},
+	{
+		blurb: 'Official Elysia plugins',
+		group: 'Integrations',
+		id: 'integrations',
+		label: 'Integrations',
+		status: 'ready'
+	},
+	{
+		blurb: '@absolutejs/auth setup',
+		group: 'Integrations',
+		id: 'auth',
+		label: 'Auth',
 		status: 'ready'
 	}
 ];

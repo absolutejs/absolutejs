@@ -13,13 +13,14 @@ import type { TsConfigState } from '../../../../types/tsconfig';
 import type { PrettierState } from '../../../../types/prettier';
 import type { AbsoluteConfigState } from '../../../../types/absoluteConfig';
 import type { AuthPanelState } from '../../../../types/authPanel';
+import type { IntegrationsPanelState } from '../../../../types/integrationsPanel';
 import type { PackageJsonState } from '../../../../types/packageJsonPanel';
 
 const ENDPOINTS: Record<ConfigPanelId, string> = {
 	absolute: '/api/absolute',
 	auth: '/api/auth',
 	eslint: '/api/rules',
-	integrations: '/api/absolute',
+	integrations: '/api/integrations',
 	package: '/api/package',
 	prettier: '/api/prettier',
 	tsconfig: '/api/tsconfig'
@@ -64,6 +65,8 @@ const isAbsoluteState = (value: unknown): value is AbsoluteConfigState =>
 	isRecord(value) && Array.isArray(value.fields);
 const isAuthState = (value: unknown): value is AuthPanelState =>
 	isRecord(value) && Array.isArray(value.features);
+const isIntegrationsState = (value: unknown): value is IntegrationsPanelState =>
+	isRecord(value) && Array.isArray(value.items);
 const isPackageState = (value: unknown): value is PackageJsonState =>
 	isRecord(value) &&
 	Array.isArray(value.scripts) &&
@@ -111,12 +114,12 @@ const renderPanel = (panel: ConfigPanelId, data: unknown) => {
 		);
 	}
 	if (panel === 'integrations') {
-		return isAbsoluteState(data) && data.configPath ? (
+		return isIntegrationsState(data) ? (
 			<IntegrationsPanel state={data} />
 		) : (
 			<Message
-				body="No absolute.config.ts was found. Run with --config <path> to point at one."
-				title="No absolute.config"
+				body="Couldn't read the integrations status for this project."
+				title="Integrations unavailable"
 			/>
 		);
 	}

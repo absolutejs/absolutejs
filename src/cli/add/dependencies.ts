@@ -85,3 +85,8 @@ export const installFrameworkDependencies = (
 
 	return { ok: succeeded, specs };
 };
+
+// Generic `bun add` for an explicit spec list — used by integrations (Elysia
+// plugins) which aren't framework-pinned. Returns whether the install succeeded.
+export const installPackages = (cwd: string, specs: string[], dev = false) =>
+	runBunAdd(cwd, specs, dev);

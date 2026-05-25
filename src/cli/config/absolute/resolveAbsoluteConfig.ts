@@ -164,6 +164,17 @@ const readCurrent = (configPath: string) => {
 	return { current, opaqueKeys };
 };
 
+// The configured values only (no BaseBuildConfig type introspection) — for callers
+// like the integrations engine that just need to read/flip a known field.
+export const readAbsoluteConfigValues = (cwd: string, override?: string) => {
+	const configPath = findConfigPath(cwd, override);
+	const { current, opaqueKeys } = configPath
+		? readCurrent(configPath)
+		: { current: {}, opaqueKeys: [] };
+
+	return { configPath, current, opaqueKeys };
+};
+
 export const resolveAbsoluteConfigState = (cwd: string, override?: string) => {
 	const configPath = findConfigPath(cwd, override);
 	const fields = introspectType(cwd, 'BaseBuildConfig', RUNTIME_FIELDS);

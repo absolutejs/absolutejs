@@ -29,6 +29,49 @@ const NavItem = ({ active, panel }: NavItemProps) => (
 	</a>
 );
 
+type PanelGroup = {
+	items: ConfigPanelMeta[];
+	label: string;
+};
+
+const addToGroup = (
+	entry: ConfigPanelMeta,
+	order: string[],
+	byGroup: Map<string, ConfigPanelMeta[]>
+) => {
+	const list = byGroup.get(entry.group);
+	if (list) {
+		list.push(entry);
+
+		return;
+	}
+	order.push(entry.group);
+	byGroup.set(entry.group, [entry]);
+};
+
+// Group the panels by their `group` field, preserving first-appearance order.
+const groupedPanels = () => {
+	const order: string[] = [];
+	const byGroup = new Map<string, ConfigPanelMeta[]>();
+	for (const entry of CONFIG_PANELS) addToGroup(entry, order, byGroup);
+
+	return order.map((label) => ({ items: byGroup.get(label) ?? [], label }));
+};
+
+type NavGroupProps = {
+	active: ConfigPanelId;
+	group: PanelGroup;
+};
+
+const NavGroup = ({ active, group }: NavGroupProps) => (
+	<div className="cfg-group">
+		<div className="cfg-rail-label">{group.label}</div>
+		{group.items.map((entry) => (
+			<NavItem active={entry.id === active} key={entry.id} panel={entry} />
+		))}
+	</div>
+);
+
 export const ConfigShell = ({ panel }: ConfigShellProps) => {
 	const active = CONFIG_PANELS.find((entry) => entry.id === panel);
 	const activeLabel = active?.label ?? 'Config';
@@ -68,12 +111,11 @@ export const ConfigShell = ({ panel }: ConfigShellProps) => {
 							<span className="cfg-tag">project tooling</span>
 						</div>
 						<nav className="cfg-panels">
-							<div className="cfg-rail-label">Panels</div>
-							{CONFIG_PANELS.map((entry) => (
-								<NavItem
-									active={entry.id === panel}
-									key={entry.id}
-									panel={entry}
+							{groupedPanels().map((group) => (
+								<NavGroup
+									active={panel}
+									group={group}
+									key={group.label}
 								/>
 							))}
 						</nav>

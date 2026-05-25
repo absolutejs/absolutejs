@@ -178,6 +178,9 @@ export const CONFIG_CSS = `
 .auth-link { font-size: 12px; color: var(--accent); text-decoration: none; }
 .auth-link:hover { text-decoration: underline; }
 
+/* ---- grouped sidebar ---- */
+.cfg-group + .cfg-group { margin-top: 16px; }
+
 @media (max-width: 720px) {
 	.cfg { flex-direction: column; }
 	.cfg-nav {

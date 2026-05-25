@@ -30,6 +30,7 @@ import type {
 	AbsoluteConfigEditRequest,
 	AbsoluteConfigEditResult
 } from '../../../types/absoluteConfig';
+import type { IntegrationAddResult } from '../../../types/integrationsPanel';
 import type {
 	PackageFieldEdit,
 	PackageJsonEditResult,
@@ -66,6 +67,7 @@ const packageOps = () =>
 		import('./packageJson/resolvePackageJson')
 	]);
 const authOps = () => import('./auth/resolveAuthState');
+const integrationsOps = () => import('../integrations/addPlugin');
 
 const CLIENT_ROUTE = '/config-client.js';
 
@@ -347,6 +349,28 @@ const handleAbsoluteEdit = async (
 	return result;
 };
 
+const handleIntegrationAdd = async (
+	cwd: string,
+	body: unknown,
+	override?: string
+) => {
+	const { addIntegration } = await integrationsOps();
+	if (!isRecord(body) || typeof body.id !== 'string') {
+		const invalid: IntegrationAddResult = {
+			installed: false,
+			item: null,
+			message: 'Missing integration id.',
+			ok: false,
+			wired: false,
+			wiringSnippet: null
+		};
+
+		return invalid;
+	}
+
+	return addIntegration(cwd, body.id, { install: true, override });
+};
+
 const packageError = (message: string) => {
 	const invalid: PackageJsonEditResult = { message, ok: false, state: null };
 
@@ -470,6 +494,14 @@ export const launchConfig = async (args: string[], cwd = process.cwd()) => {
 		})
 		.post('/api/absolute', ({ body }) =>
 			handleAbsoluteEdit(cwd, body, configOverride)
+		)
+		.get('/api/integrations', async () => {
+			const { resolveIntegrationsState } = await integrationsOps();
+
+			return resolveIntegrationsState(cwd, configOverride);
+		})
+		.post('/api/integrations/add', ({ body }) =>
+			handleIntegrationAdd(cwd, body, configOverride)
 		)
 		.get('/api/auth', async () => {
 			const { resolveAuthState } = await authOps();
