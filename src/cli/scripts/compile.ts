@@ -446,11 +446,7 @@ const resolvePackageEntryFile = (
 
 	const pkg = JSON.parse(readFileSync(packageJsonPath, 'utf-8'));
 	const exportKey =
-		resolvedPackageDir === subPackageDir
-			? '.'
-			: subpath
-				? `.${subpath}`
-				: '.';
+		resolvedPackageDir !== subPackageDir && subpath ? `.${subpath}` : '.';
 	const rootExport = pkg.exports?.[exportKey];
 	const entry =
 		pickExportEntry(rootExport) ??

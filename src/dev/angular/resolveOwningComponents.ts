@@ -90,9 +90,8 @@ const getStringPropertyValue = (
 ) => {
 	for (const prop of obj.properties) {
 		if (!ts.isPropertyAssignment(prop)) continue;
-		const propName = ts.isIdentifier(prop.name)
-			? prop.name.text
-			: ts.isStringLiteral(prop.name)
+		const propName =
+			ts.isIdentifier(prop.name) || ts.isStringLiteral(prop.name)
 				? prop.name.text
 				: null;
 		if (propName !== name) continue;
@@ -115,9 +114,8 @@ const getStringArrayProperty = (
 	const out: string[] = [];
 	for (const prop of obj.properties) {
 		if (!ts.isPropertyAssignment(prop)) continue;
-		const propName = ts.isIdentifier(prop.name)
-			? prop.name.text
-			: ts.isStringLiteral(prop.name)
+		const propName =
+			ts.isIdentifier(prop.name) || ts.isStringLiteral(prop.name)
 				? prop.name.text
 				: null;
 		if (propName !== name) continue;

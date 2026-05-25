@@ -136,12 +136,15 @@ export const applyPatches = async () => {
 	// these methods before the lazy patch path would have run.
 	try {
 		const adapter = new ɵDominoAdapter();
-		const seedDoc =
-			typeof adapter.createHtmlDocument === 'function'
-				? adapter.createHtmlDocument()
-				: typeof adapter.getDefaultDocument === 'function'
-					? adapter.getDefaultDocument()
-					: null;
+		const resolveSeedDoc = () => {
+			if (typeof adapter.createHtmlDocument === 'function')
+				return adapter.createHtmlDocument();
+			if (typeof adapter.getDefaultDocument === 'function')
+				return adapter.getDefaultDocument();
+
+			return null;
+		};
+		const seedDoc = resolveSeedDoc();
 		if (seedDoc) {
 			patchElementLayout(seedDoc);
 			const probe = seedDoc.createElement('div') as Element & {
