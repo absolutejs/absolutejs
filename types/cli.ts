@@ -2,6 +2,7 @@ export type Action = () => void | Promise<void>;
 
 export type Actions = {
 	clear: Action;
+	heapSnapshot: Action;
 	help: Action;
 	open: Action;
 	pause: Action;

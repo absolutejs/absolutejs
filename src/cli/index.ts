@@ -86,6 +86,10 @@ if (command === 'dev') {
 	sendTelemetryEvent('cli:command', { command: 'ps' });
 	const { runPs } = await import('./scripts/ps');
 	await runPs(args);
+} else if (command === 'mem') {
+	sendTelemetryEvent('cli:command', { command: 'mem' });
+	const { runMem } = await import('./scripts/mem');
+	await runMem(args);
 } else if (command === 'info') {
 	sendTelemetryEvent('cli:command', { command });
 	info();
@@ -136,7 +140,10 @@ if (command === 'dev') {
 	console.error('  eslint        Run ESLint (cached)');
 	console.error('  info          Print system info for bug reports');
 	console.error(
-		'  ls [--all] [--json] List the project\'s built pages, islands, and assets'
+		'  ls [--sizes] [--json] List the project\'s pages by framework (from source)'
+	);
+	console.error(
+		'  mem [--json]  Memory report (RSS) for running servers, plus system usage'
 	);
 	console.error(
 		'  ps [--watch] [--json] [--kill <pid|port>] [--kill-all] List/manage running servers'

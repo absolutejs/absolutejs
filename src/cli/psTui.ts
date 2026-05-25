@@ -46,11 +46,15 @@ const TUI_HEADERS = [
 	'PID',
 	'UPTIME',
 	'MEM',
+	'PEAK',
+	'TREND',
 	'STATUS',
 	'URL'
 ];
-const STATUS_INDEX = 6;
-const URL_INDEX = 7;
+const STATUS_INDEX = 8;
+const URL_INDEX = 9;
+const MEM_HISTORY_MAX = 12;
+const SPARK_CHARS = '▁▂▃▄▅▆▇█';
 
 const helpLines = [
 	'Hotkeys',
@@ -80,16 +84,27 @@ const statusColor = (status: InstanceStatus) => {
 	return colors.dim;
 };
 
-const instanceRowCells = (instance: LiveInstance) => [
-	instance.name,
-	instance.source,
-	instance.port === null ? '-' : String(instance.port),
-	String(instance.pid),
-	getDurationString(instance.uptimeMs),
-	formatBytes(instance.memoryBytes),
-	instance.status,
-	instance.url ?? '-'
-];
+// Relative sparkline of recent RSS samples — shows the shape of a server's
+// memory trend (climbing = possible leak) within the watch session.
+const sparkline = (samples: number[]) => {
+	if (samples.length === 0) return '';
+	const max = Math.max(...samples);
+	const min = Math.min(...samples);
+	const range = max - min;
+
+	return samples
+		.map((value) => {
+			const level =
+				range === 0
+					? 0
+					: Math.round(
+							((value - min) / range) * (SPARK_CHARS.length - 1)
+						);
+
+			return SPARK_CHARS[level] ?? SPARK_CHARS[0];
+		})
+		.join('');
+};
 
 const columnWidths = (allCells: string[][]) =>
 	TUI_HEADERS.map((header, index) =>
@@ -148,6 +163,7 @@ const driveListTui = async (terminal: TuiInput) => {
 	const { promise, resolve: resolveExit } = Promise.withResolvers<void>();
 
 	let instances: LiveInstance[] = [];
+	const memoryHistory = new Map<number, number[]>();
 	let selectedIndex = 0;
 	let mode: ListMode = 'list';
 	let helpVisible = false;
@@ -183,9 +199,23 @@ const driveListTui = async (terminal: TuiInput) => {
 		scheduleRender();
 	};
 
+	const recordMemory = () => {
+		const livePids = new Set(instances.map((entry) => entry.pid));
+		instances.forEach((entry) => {
+			const samples = memoryHistory.get(entry.pid) ?? [];
+			samples.push(entry.memoryBytes ?? 0);
+			if (samples.length > MEM_HISTORY_MAX) samples.shift();
+			memoryHistory.set(entry.pid, samples);
+		});
+		[...memoryHistory.keys()].forEach((pid) => {
+			if (!livePids.has(pid)) memoryHistory.delete(pid);
+		});
+	};
+
 	const refresh = async () => {
 		const previousPid = selectedInstance()?.pid;
 		instances = await enrichInstances(await discoverInstances());
+		recordMemory();
 		const foundIndex =
 			previousPid === undefined
 				? 0
@@ -570,12 +600,33 @@ const driveListTui = async (terminal: TuiInput) => {
 		return padded;
 	};
 
+	const cellsFor = (instance: LiveInstance) => {
+		const history = memoryHistory.get(instance.pid) ?? [];
+		const peak =
+			history.length > 0
+				? Math.max(...history)
+				: (instance.memoryBytes ?? 0);
+
+		return [
+			instance.name,
+			instance.source,
+			instance.port === null ? '-' : String(instance.port),
+			String(instance.pid),
+			getDurationString(instance.uptimeMs),
+			formatBytes(instance.memoryBytes),
+			formatBytes(peak),
+			sparkline(history),
+			instance.status,
+			instance.url ?? '-'
+		];
+	};
+
 	const renderInstanceRow = (
 		instance: LiveInstance,
 		widths: number[],
 		isSelected: boolean
 	) => {
-		const body = instanceRowCells(instance)
+		const body = cellsFor(instance)
 			.map((cell, index) =>
 				colorizeCell(cell, index, instance.status, isSelected, widths)
 			)
@@ -596,7 +647,7 @@ const driveListTui = async (terminal: TuiInput) => {
 
 			return;
 		}
-		const allCells = instances.map(instanceRowCells);
+		const allCells = instances.map(cellsFor);
 		const widths = layoutWidths(allCells, width);
 		const header = TUI_HEADERS.map((label, index) =>
 			padLine(label, widths[index] ?? 0)

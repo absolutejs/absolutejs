@@ -6,6 +6,7 @@ import { ANSI_ESCAPE_LENGTH, ASCII_SPACE, UNFOUND_INDEX } from '../constants';
 const SHORTCUTS: Record<string, keyof Omit<Actions, 'shell'>> = {
 	c: 'clear',
 	h: 'help',
+	m: 'heapSnapshot',
 	o: 'open',
 	p: 'pause',
 	q: 'quit',
@@ -14,12 +15,14 @@ const SHORTCUTS: Record<string, keyof Omit<Actions, 'shell'>> = {
 
 const WORD_COMMANDS: Record<string, keyof Omit<Actions, 'shell'>> = {
 	clear: 'clear',
+	heap: 'heapSnapshot',
 	help: 'help',
 	open: 'open',
 	pause: 'pause',
 	quit: 'quit',
 	restart: 'restart',
-	resume: 'pause'
+	resume: 'pause',
+	snapshot: 'heapSnapshot'
 };
 
 type InteractiveInput = {

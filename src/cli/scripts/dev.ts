@@ -1,7 +1,14 @@
 import { $, env } from 'bun';
 import { spawn as nodeSpawn, type ChildProcess } from 'node:child_process';
-import { createWriteStream, existsSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import {
+	createWriteStream,
+	existsSync,
+	readFileSync,
+	rmSync,
+	writeFileSync
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import type { DbScripts, InteractiveHandler } from '../../../types/cli';
 import {
 	ANSI_ESCAPE_CODE,
@@ -42,6 +49,20 @@ const cliTag = (color: string, message: string) =>
 	`\x1b[2m${formatTimestamp()}\x1b[0m ${color}[cli]\x1b[0m ${color}${message}\x1b[0m`;
 
 const DEFAULT_PORT_RANGE = 10;
+
+// Written to a temp file and passed to the dev child via `bun --preload` so a
+// SIGUSR2 (the `m` hotkey) dumps a DevTools-loadable heap snapshot. Works for
+// any dev server — no `.use(networking)` or build step required.
+const HEAP_SNAPSHOT_PRELOAD = `process.on('SIGUSR2', () => {
+	try {
+		const file = 'heap-' + process.pid + '-' + Date.now() + '.heapsnapshot';
+		Bun.write(file, Bun.generateHeapSnapshot('v8'));
+		console.log('[absolute] heap snapshot written: ' + file + ' (open in DevTools Memory tab)');
+	} catch (error) {
+		console.error('[absolute] heap snapshot failed:', error);
+	}
+});
+`;
 
 // Strip SGR/control sequences before tee'ing the dev server's output to the
 // central instance log so `absolute ps` can render the tail inside its own
@@ -491,11 +512,40 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 		return merged;
 	};
 
+	// Best-effort: write the heap-snapshot preload to a temp file. If it can't
+	// be written, the `m` hotkey is simply disabled (never sends a stray signal
+	// that could terminate a server with no handler).
+	const heapPreloadPath = join(tmpdir(), `absolute-heap-${process.pid}.ts`);
+	let heapSnapshotEnabled = false;
+	try {
+		writeFileSync(heapPreloadPath, HEAP_SNAPSHOT_PRELOAD);
+		heapSnapshotEnabled = true;
+	} catch {
+		heapSnapshotEnabled = false;
+	}
+
+	const removeHeapPreload = () => {
+		if (!heapSnapshotEnabled) return;
+
+		try {
+			rmSync(heapPreloadPath, { force: true });
+		} catch {
+			/* temp file already gone */
+		}
+	};
+
 	const spawnServer = async () => {
 		await refreshDevConfigForSpawn();
 		const proc = nodeSpawn(
 			'bun',
-			['--hot', '--no-clear-screen', serverEntry],
+			[
+				'--hot',
+				'--no-clear-screen',
+				...(heapSnapshotEnabled
+					? ['--preload', heapPreloadPath]
+					: []),
+				serverEntry
+			],
 			{
 				cwd: process.cwd(),
 				detached: true, // new process group → kill cascades
@@ -790,6 +840,7 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 			/* already closed */
 		}
 		deregisterInstance(instancePid);
+		removeHeapPreload();
 		process.exit(exitCode);
 	};
 
@@ -890,10 +941,34 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 		}
 	};
 
+	const triggerHeapSnapshot = () => {
+		if (!heapSnapshotEnabled) {
+			console.log(
+				cliTag('\x1b[33m', 'Heap snapshot unavailable (no preload).')
+			);
+
+			return;
+		}
+		const childPid = serverProcess.pid;
+		if (childPid === undefined) return;
+
+		try {
+			process.kill(childPid, 'SIGUSR2');
+			console.log(cliTag('\x1b[36m', 'Capturing heap snapshot...'));
+		} catch {
+			console.log(
+				cliTag('\x1b[33m', 'Could not signal the server for a snapshot.')
+			);
+		}
+	};
+
 	interactive = createInteractiveHandler({
 		shell: runShellCommand,
 		clear: () => {
 			process.stdout.write('\x1Bc');
+		},
+		heapSnapshot: () => {
+			triggerHeapSnapshot();
 		},
 		help: () => {
 			printHelp();

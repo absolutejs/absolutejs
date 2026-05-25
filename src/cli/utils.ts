@@ -101,6 +101,7 @@ export const printHelp = (subject = 'server') => {
 	console.log(`  \x1b[36mp\x1b[0m / pause    — Pause/resume ${title}`);
 	console.log('  \x1b[36mo\x1b[0m / open     — Open in browser');
 	console.log('  \x1b[36mc\x1b[0m / clear    — Clear terminal');
+	console.log('  \x1b[36mm\x1b[0m / heap     — Write a heap snapshot');
 	console.log('  \x1b[36mq\x1b[0m / quit     — Graceful shutdown');
 	console.log('  \x1b[36mh\x1b[0m / help     — Show this help');
 	console.log('  \x1b[36m$\x1b[0m            — Run a shell command');
