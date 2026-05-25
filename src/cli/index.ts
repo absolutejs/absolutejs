@@ -54,7 +54,7 @@ if (command === 'dev') {
 	const outdir = parseNamedArg('--outdir');
 	const configPath = parseNamedArg('--config');
 	const { build } = await import('./scripts/build');
-	await build(outdir, configPath);
+	await build(outdir, configPath, args.includes('--profile'));
 } else if (command === 'workspace') {
 	sendTelemetryEvent('cli:command', {
 		command: `workspace:${workspaceCommand ?? 'unknown'}`
@@ -145,7 +145,9 @@ if (command === 'dev') {
 	console.error(
 		'  workspace dev [--no-tui] Start multi-service workspace dev'
 	);
-	console.error('  build [--outdir dir] Build production assets');
+	console.error(
+		'  build [--outdir dir] [--profile] Build production assets'
+	);
 	console.error('  start [entry] [--outdir dir] Start production server');
 	console.error(
 		'  compile [entry] [--outdir dir] [--outfile path] Compile standalone executable'
@@ -165,7 +167,7 @@ if (command === 'dev') {
 		'  logs <name> [-f] [-n <lines>] Tail a running server\'s log by name'
 	);
 	console.error(
-		'  ls [--sizes] [--json] List the project\'s pages by framework (from source)'
+		'  ls [--sizes] [--budget <size>] [--json] List the project\'s pages by framework'
 	);
 	console.error(
 		'  mem [--json]  Memory report (RSS) for running servers, plus system usage'

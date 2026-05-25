@@ -299,6 +299,41 @@ const printDim = (message: string) => {
 	process.stdout.write(`${colors.dim}${message}${colors.reset}\n`);
 };
 
+const SIZE_UNITS: Record<string, number> = {
+	b: 1,
+	gb: BYTES_PER_KILOBYTE * BYTES_PER_KILOBYTE * BYTES_PER_KILOBYTE,
+	kb: BYTES_PER_KILOBYTE,
+	mb: BYTES_PER_KILOBYTE * BYTES_PER_KILOBYTE
+};
+
+const parseBudget = (args: string[]) => {
+	const value = parseFlagValue(args, '--budget');
+	if (value === undefined) return null;
+	const match = value.toLowerCase().match(/^([\d.]+)\s*(gb|mb|kb|b)?$/);
+	const amount = match ? Number(match[1]) : NaN;
+	if (!Number.isFinite(amount)) return null;
+
+	return amount * (SIZE_UNITS[match?.[2] ?? 'b'] ?? 1);
+};
+
+const reportBudget = (groups: FrameworkGroup[], budget: number) => {
+	const over = groups
+		.flatMap((group) => group.pages)
+		.filter((page) => (page.sizeBytes ?? 0) > budget);
+	if (over.length === 0) {
+		printDim(`✓ all pages within ${formatSize(budget)} budget`);
+
+		return;
+	}
+	over.forEach((page) =>
+		process.stdout.write(
+			`  ${colors.red}✗ ${page.name} ${formatSize(page.sizeBytes)} > ${formatSize(budget)}${colors.reset}\n`
+		)
+	);
+	printDim(`${over.length} page${over.length === 1 ? '' : 's'} over budget`);
+	process.exitCode = 1;
+};
+
 const guardBrokenPipe = () => {
 	// `absolute ls | head` closes the reader early, surfacing as an async EPIPE
 	// on stdout. Exit cleanly instead of crashing with a stack trace.
@@ -361,4 +396,7 @@ export const runLs = async (args: string[]) => {
 	const sized = withSizes(groups, pageSizer(readManifestSizes(sizesDir)));
 	const note = `${relativeOrSelf(manifestPath)} · built ${manifestAge(manifestPath)} ago`;
 	emit(sized, true, note, wantsJson);
+
+	const budget = parseBudget(args);
+	if (budget !== null && !wantsJson) reportBudget(sized, budget);
 };
