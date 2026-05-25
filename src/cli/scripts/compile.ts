@@ -13,7 +13,7 @@ import {
 	unlinkSync,
 	writeFileSync
 } from 'node:fs';
-import { basename, dirname, join, relative, resolve } from 'node:path';
+import { basename, dirname, extname, join, relative, resolve } from 'node:path';
 import type { BuildConfig } from '../../../types/build';
 import { DEFAULT_PORT } from '../../constants';
 import { prerenderWithServer } from '../../core/prerender';
@@ -369,17 +369,22 @@ const copyFrameworkRuntimePackages = (
 	if (buildConfig.vueDirectory) {
 		copyPackageToBuild('vue', outdir, seen);
 		copyPackageToBuild('@vue/server-renderer', outdir, seen);
-		// vue-demi (the Vue 2/3 compatibility layer used by libs like
-		// @tanstack/vue-query) is a transitive dep of those libraries, NOT of
-		// vue — so the recursive copy above never reaches it. SSR page chunks
-		// import it as a bare specifier, which then fails at runtime in the
-		// extracted /tmp runtime ("Cannot find package 'vue-demi'"). Copy it so
-		// it resolves like vue. No-op when the app doesn't use it
-		// (copyPackageToBuild skips missing packages).
-		copyPackageToBuild('vue-demi', outdir, seen);
 	}
 
 	copyAngularRuntimePackages(buildConfig, outdir);
+
+	// The framework roots above cover each framework's SSR core (some of which,
+	// like @vue/server-renderer, are imported only by the bundled server and
+	// never appear in a page chunk). But emitted page chunks ALSO import
+	// transitive runtime deps the bundler left external — pulled in by app
+	// libraries (e.g. @tanstack/vue-query → vue-demi, @vue/devtools-api) and so
+	// unreachable from the roots' dependency graphs. Scan the chunks for the
+	// bare specifiers they import and copy each referenced package (copyPackage-
+	// ToBuild recurses its package.json deps). rewriteRuntimeModuleSpecifiers,
+	// run next, then rewrites those imports onto the copied files; without the
+	// copy it leaves them bare and they fail to resolve in the extracted runtime
+	// ("Cannot find package 'X'").
+	copyChunkReferencedPackages(outdir, seen);
 };
 
 const collectRuntimePackageSpecifiers = (distDir: string) => {
@@ -531,6 +536,41 @@ const collectRuntimeRewriteRoots = (distDir: string) =>
 	collectFiles(distDir).filter(
 		(filePath) => isRuntimeJsFile(filePath) && !isNodeModulesPath(filePath)
 	);
+
+/** Reduce a module specifier to its installable top-level package name
+ *  (`@scope/name` or `name`), dropping any subpath. */
+const toTopLevelPackage = (specifier: string) =>
+	specifier
+		.split('/')
+		.slice(0, specifier.startsWith('@') ? 2 : 1)
+		.join('/');
+
+/** Copy every package that the emitted (non-node_modules) runtime chunks import
+ *  as a bare specifier into the compiled runtime's node_modules. The framework
+ *  roots only reach packages declared in their own dependency graphs; app
+ *  libraries are bundled into the chunks but can leave transitive deps external
+ *  (e.g. vue-demi, @vue/devtools-api), and those must be present for the
+ *  subsequent rewrite + runtime resolution to succeed. No-op for builtins and
+ *  uninstalled packages (copyPackageToBuild skips them). */
+const copyChunkReferencedPackages = (distDir: string, seen: Set<string>) => {
+	for (const filePath of collectRuntimeRewriteRoots(distDir)) {
+		const source = readFileSync(filePath, 'utf-8');
+		for (const match of source.matchAll(MODULE_SPECIFIER_RE)) {
+			const specifier = match[3];
+			if (
+				!specifier ||
+				specifier.startsWith('.') ||
+				specifier.startsWith('/') ||
+				specifier.startsWith('#') ||
+				specifier.startsWith('node:') ||
+				specifier.startsWith('bun:')
+			) {
+				continue;
+			}
+			copyPackageToBuild(toTopLevelPackage(specifier), distDir, seen);
+		}
+	}
+};
 
 const rewriteRuntimeModuleSpecifiers = (distDir: string) => {
 	const packageSpecifiers = collectRuntimePackageSpecifiers(distDir);
