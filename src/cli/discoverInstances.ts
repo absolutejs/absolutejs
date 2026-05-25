@@ -9,6 +9,15 @@ const MS_PER_SECOND = 1000;
 // sshd, and other non-server listeners.
 const isJsRuntime = (command: string) => /\b(bun|deno|node)\b/.test(command);
 
+// …but plenty of JS runtimes aren't app servers: editors, IDE remotes, and
+// language servers all run on node and listen on a port. Exclude them so an
+// `untracked` row means "a real server we lack registry data for" rather than
+// "VS Code". Real AbsoluteJS servers register themselves (`dev` via the CLI,
+// `standalone` via the networking plugin), so this never hides one of ours.
+const TOOLING_RE =
+	/\.vscode-server|\.vscode\b|\.cursor-server|\.cursor\b|\.windsurf|jetbrains|bootstrap-fork|tsserver|typescript-language-server|language-?server|eslintserver|vscode-eslint|copilot/i;
+const isToolingProcess = (command: string) => TOOLING_RE.test(command);
+
 // Derive a readable label from a hand-run server's command, e.g.
 // `bun run /repo/dealroom/dist/server.js` -> `dealroom`.
 const untrackedName = (command: string) => {
@@ -76,6 +85,7 @@ export const discoverInstances = async () => {
 		if (knownPids.has(listener.pid) || seen.has(listener.pid)) continue;
 		if (knownPorts.has(listener.port)) continue;
 		if (!isJsRuntime(listener.command)) continue;
+		if (isToolingProcess(listener.command)) continue;
 		seen.add(listener.pid);
 		untracked.push(toUntrackedRecord(listener));
 	}
