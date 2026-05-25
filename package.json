@@ -42,7 +42,7 @@
 		"elysia-scoped-state": "0.1.1",
 		"ember-source": "^6.12.0",
 		"eslint": "10.0.3",
-		"eslint-plugin-absolute": "0.11.0",
+		"eslint-plugin-absolute": "0.11.1",
 		"eslint-plugin-promise": "7.2.1",
 		"eslint-plugin-security": "4.0.0",
 		"globals": "^17.4.0",

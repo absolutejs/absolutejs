@@ -27,14 +27,14 @@ type PreserveScope = typeof globalThis & {
 export const buildCacheKey = (
 	instance: object,
 	key?: unknown
-): string | null => {
+) => {
 	const className = instance.constructor?.name;
 	if (!className || className === 'Object') return null;
 	const suffix = key === undefined || key === null ? '' : String(key);
 
 	return `${className}:${suffix}`;
 };
-export const captureTrackedInstanceStates = (): void => {
+export const captureTrackedInstanceStates = () => {
 	if (!isHmrPreserveDev()) return;
 
 	const cache = getCache();
@@ -87,7 +87,7 @@ export const captureTrackedInstanceStates = (): void => {
 
 	getRebootFlag().value = true;
 };
-export const endHmrReboot = (): void => {
+export const endHmrReboot = () => {
 	if (!isHmrPreserveDev()) return;
 	getRebootFlag().value = false;
 
@@ -103,22 +103,22 @@ export const endHmrReboot = (): void => {
 		);
 	}
 };
-export const getCache = (): StateCache => {
+export const getCache = () => {
 	const scope = globalThis as PreserveScope;
 
 	return (scope.__ABS_HMR_INSTANCE_STATE__ ??= new Map());
 };
-export const getKeyMap = (): InstanceKeyMap => {
+export const getKeyMap = () => {
 	const scope = globalThis as PreserveScope;
 
 	return (scope.__ABS_HMR_INSTANCE_KEYS__ ??= new WeakMap());
 };
-export const getRebootFlag = (): RebootFlag => {
+export const getRebootFlag = () => {
 	const scope = globalThis as PreserveScope;
 
 	return (scope.__ABS_HMR_REBOOT_IN_PROGRESS__ ??= { value: false });
 };
-export const getRebootStats = (): RebootStats => {
+export const getRebootStats = () => {
 	const scope = globalThis as PreserveScope;
 
 	return (scope.__ABS_HMR_REBOOT_STATS__ ??= {
@@ -126,12 +126,12 @@ export const getRebootStats = (): RebootStats => {
 		restoredKeys: new Set()
 	});
 };
-export const getTracker = (): InstanceTracker => {
+export const getTracker = () => {
 	const scope = globalThis as PreserveScope;
 
 	return (scope.__ABS_HMR_TRACKED_INSTANCES__ ??= new Set());
 };
-export const isHmrPreserveDev = (): boolean => {
+export const isHmrPreserveDev = () => {
 	// SSR safety: globalThis on the server is process-wide and shared
 	// across requests, so writing to the preservation cache during SSR
 	// would leak request state between users. Gate strictly on the
@@ -169,7 +169,7 @@ export const isPreservable = (value: unknown, depth = 0): boolean => {
 export const restoreFromCacheCore = (
 	instance: object,
 	key: string
-): boolean => {
+) => {
 	const cache = getCache();
 	const stored = cache.get(key);
 	if (!stored) return false;

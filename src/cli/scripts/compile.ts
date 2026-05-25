@@ -1167,7 +1167,7 @@ const FRAMEWORK_EXTERNALS = [
 // createSessionCookie hangs when bundled but works loaded from node_modules at
 // runtime. Listing such a package here keeps the bare specifier external so the
 // standalone binary resolves the working installed copy at runtime.
-const collectUserServerExternals = (buildConfig: BuildConfig): string[] => {
+const collectUserServerExternals = (buildConfig: BuildConfig) => {
 	const bunBuild = buildConfig.bunBuild as
 		| { external?: string[]; default?: { external?: string[] } }
 		| undefined;
