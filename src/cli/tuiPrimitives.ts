@@ -4,7 +4,7 @@ import { ANSI_ESCAPE_CODE } from '../constants';
 import type { TuiColors } from '../../types/cli';
 
 // Pure terminal helpers shared by the interactive CLI dashboards
-// (`workspaceTui`, `listTui`): ANSI handling, fixed-width padding/wrapping,
+// (`workspaceTui`, `psTui`): ANSI handling, fixed-width padding/wrapping,
 // raw-mode TTY acquisition, and escape-sequence classification.
 
 const ANSI_REGEX = new RegExp(

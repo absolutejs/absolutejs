@@ -893,7 +893,7 @@ const server = Bun.serve({
 	},
 });
 
-// Register in the global instance registry so 'absolute ls' can see this
+// Register in the global instance registry so 'absolute ps' can see this
 // compiled binary. Best-effort; never blocks startup. Dead entries are pruned
 // on read, so a hard kill that skips the exit handler is harmless.
 try {

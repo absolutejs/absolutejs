@@ -1121,7 +1121,7 @@ export const workspace = async (
 		};
 		running.push(runningService);
 
-		// Publish to the global registry so `absolute ls` can see workspace
+		// Publish to the global registry so `absolute ps` can see workspace
 		// services alongside standalone dev/start servers. controllerPid is the
 		// orchestrator: stopping a workspace row stops the whole workspace,
 		// which is the only safe unit (the orchestrator tears down on any

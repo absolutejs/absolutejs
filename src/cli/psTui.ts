@@ -725,11 +725,11 @@ const driveListTui = async (terminal: TuiInput) => {
 	await promise;
 };
 
-export const runListTui = async () => {
+export const runPsTui = async () => {
 	const input = openTtyStream();
 	if (!input) {
 		process.stdout.write(
-			'Interactive ls requires a TTY. Run `absolute ls` for a snapshot.\n'
+			'Interactive ps requires a TTY. Run `absolute ps` for a snapshot.\n'
 		);
 
 		return;

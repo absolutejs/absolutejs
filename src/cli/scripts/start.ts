@@ -518,7 +518,7 @@ export const start = async (
 		stdout: 'inherit'
 	});
 
-	// Publish the production server to the global registry so `absolute ls`
+	// Publish the production server to the global registry so `absolute ps`
 	// can see/stop it. The child is `bun run <bundle>`; killing this parent
 	// (controllerPid) tears the child down via the cleanup handler below.
 	const relaunchCommand = [

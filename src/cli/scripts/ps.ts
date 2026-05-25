@@ -75,8 +75,8 @@ const printInstanceTable = (instances: LiveInstance[]) => {
 	}
 };
 
-export const runList = async (args: string[]) => {
-	// `absolute ls | head` closes the reader early, which surfaces as an async
+export const runPs = async (args: string[]) => {
+	// `absolute ps | head` closes the reader early, which surfaces as an async
 	// EPIPE on stdout. Exit cleanly instead of crashing with a stack trace.
 	process.stdout.on('error', (error) => {
 		if (
@@ -89,8 +89,8 @@ export const runList = async (args: string[]) => {
 	});
 
 	if (args.includes('--watch') || args.includes('-w')) {
-		const { runListTui } = await import('../listTui');
-		await runListTui();
+		const { runPsTui } = await import('../psTui');
+		await runPsTui();
 
 		return;
 	}

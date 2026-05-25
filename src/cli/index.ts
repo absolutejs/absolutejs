@@ -78,10 +78,14 @@ if (command === 'dev') {
 } else if (command === 'prettier') {
 	sendTelemetryEvent('cli:command', { command });
 	await prettier(args);
-} else if (command === 'ls' || command === 'ps') {
+} else if (command === 'ls') {
 	sendTelemetryEvent('cli:command', { command: 'ls' });
-	const { runList } = await import('./scripts/list');
-	await runList(args);
+	const { runLs } = await import('./scripts/ls');
+	await runLs(args);
+} else if (command === 'ps') {
+	sendTelemetryEvent('cli:command', { command: 'ps' });
+	const { runPs } = await import('./scripts/ps');
+	await runPs(args);
 } else if (command === 'info') {
 	sendTelemetryEvent('cli:command', { command });
 	info();
@@ -132,7 +136,10 @@ if (command === 'dev') {
 	console.error('  eslint        Run ESLint (cached)');
 	console.error('  info          Print system info for bug reports');
 	console.error(
-		'  ls [--watch] [--json] [--kill <pid|port>] [--kill-all] List/manage running servers (alias: ps)'
+		'  ls [--all] [--json] List the project\'s built pages, islands, and assets'
+	);
+	console.error(
+		'  ps [--watch] [--json] [--kill <pid|port>] [--kill-all] List/manage running servers'
 	);
 	console.error('  prettier      Run Prettier check (cached)');
 	console.error('  typecheck     Run type checkers for all frameworks');

@@ -41,7 +41,7 @@ const loadTls = () => {
 const tls = loadTls();
 const protocol = tls ? 'https' : 'http';
 
-// Publish this server to the global instance registry so `absolute ls` can see
+// Publish this server to the global instance registry so `absolute ps` can see
 // it. Skipped when an outer `absolute` CLI/orchestrator already owns the entry
 // (ABSOLUTE_INSTANCE_MANAGED) — this branch is the catch-all for servers
 // started outside the CLI: a manually-run `bun server.ts` or any standalone
