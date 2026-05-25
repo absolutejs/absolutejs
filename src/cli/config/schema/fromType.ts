@@ -34,7 +34,9 @@ const compilerOptionsFor = (cwd: string) => {
 		tsconfigPath &&
 		ts.getParsedCommandLineOfConfigFile(tsconfigPath, {}, {
 			...ts.sys,
-			onUnRecoverableConfigFileDiagnostic: () => {}
+			onUnRecoverableConfigFileDiagnostic: () => {
+				/* shape only — ignore config file errors */
+			}
 		} as ts.ParseConfigFileHost)?.options;
 
 	// We only read the type's shape — never type-check — so skip lib checking and

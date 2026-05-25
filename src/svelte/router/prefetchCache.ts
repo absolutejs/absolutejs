@@ -68,7 +68,11 @@ type HoverHandle = {
  */
 export const scheduleHoverPrefetch = (url: string): HoverHandle => {
 	if (typeof window === 'undefined') {
-		return { cancel: () => {} };
+		return {
+			cancel: () => {
+				/* nothing scheduled server-side */
+			}
+		};
 	}
 
 	const timer = window.setTimeout(() => {

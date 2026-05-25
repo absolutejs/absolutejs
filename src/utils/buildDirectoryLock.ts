@@ -187,7 +187,9 @@ export const acquireBuildDirectoryLock = async (
 	registerExitHandlersOnce();
 
 	if (readHeldLockEnv().has(buildDirectory)) {
-		return async () => {};
+		return async () => {
+			/* lock not held by this process */
+		};
 	}
 
 	const heldLock = heldLocks.get(buildDirectory);

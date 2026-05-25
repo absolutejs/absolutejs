@@ -119,9 +119,9 @@ const withBuildLock = async (action: () => Promise<void>) => {
 	try {
 		await action();
 	} finally {
-		await rm(BUILD_LOCK_DIR, { force: true, recursive: true }).catch(
-			() => {}
-		);
+		await rm(BUILD_LOCK_DIR, { force: true, recursive: true }).catch(() => {
+			/* lock dir already removed */
+		});
 	}
 };
 
@@ -864,7 +864,9 @@ const compileAngularComponentsPartial = async () => {
 			target: 'bun'
 		});
 	} finally {
-		await rm(tmpDir, { force: true, recursive: true }).catch(() => {});
+		await rm(tmpDir, { force: true, recursive: true }).catch(() => {
+			/* temp dir already gone */
+		});
 	}
 };
 
