@@ -545,15 +545,37 @@ const toTopLevelPackage = (specifier: string) =>
 		.slice(0, specifier.startsWith('@') ? 2 : 1)
 		.join('/');
 
-/** Copy every package that the emitted (non-node_modules) runtime chunks import
- *  as a bare specifier into the compiled runtime's node_modules. The framework
- *  roots only reach packages declared in their own dependency graphs; app
- *  libraries are bundled into the chunks but can leave transitive deps external
- *  (e.g. vue-demi, @vue/devtools-api), and those must be present for the
- *  subsequent rewrite + runtime resolution to succeed. No-op for builtins and
+/** The framework's own package. Page chunks reference its subpath entries
+ *  (e.g. `@absolutejs/absolute/svelte`), but it must NOT be copied into the
+ *  compiled runtime's node_modules: its dependency graph pulls the platform
+ *  `@absolutejs/native-*` packages whose `.node` binaries cannot be embedded
+ *  (`Bun.file` rejects them), which aborts the whole embedded-runtime
+ *  extraction. The framework runtime is provided by the embedded server
+ *  bundle, not a node_modules copy. */
+const FRAMEWORK_PACKAGE_NAME = '@absolutejs/absolute';
+
+/** Copy every package that the emitted SSR page chunks import as a bare
+ *  specifier into the compiled runtime's node_modules. The framework roots only
+ *  reach packages declared in their own dependency graphs; app libraries are
+ *  bundled into the chunks but can leave transitive deps external (e.g.
+ *  vue-demi, @vue/devtools-api), and those must be present for the subsequent
+ *  rewrite + runtime resolution to succeed.
+ *
+ *  Scope matters: only the page chunks need this. They are raw-embedded files
+ *  extracted to /tmp and dynamically imported at SSR time, so their bare imports
+ *  resolve solely against the runtime node_modules. The server bundle (and the
+ *  generated entrypoint) live at the dist root and ARE part of the
+ *  `bun build --compile` graph, so their bare externals (elysia, typescript,
+ *  …) resolve from the binary itself and must NOT be copied — copying the
+ *  server's full external tree both bloats the binary and pulls packages whose
+ *  files can't be embedded (breaking the whole runtime extraction). Skipping
+ *  root-level files excludes the server bundle while keeping every framework
+ *  page chunk (which always lives in a subdirectory). No-op for builtins and
  *  uninstalled packages (copyPackageToBuild skips them). */
 const copyChunkReferencedPackages = (distDir: string, seen: Set<string>) => {
+	const distRoot = resolve(distDir);
 	for (const filePath of collectRuntimeRewriteRoots(distDir)) {
+		if (resolve(dirname(filePath)) === distRoot) continue;
 		const source = readFileSync(filePath, 'utf-8');
 		for (const match of source.matchAll(MODULE_SPECIFIER_RE)) {
 			const specifier = match[3];
@@ -567,7 +589,9 @@ const copyChunkReferencedPackages = (distDir: string, seen: Set<string>) => {
 			) {
 				continue;
 			}
-			copyPackageToBuild(toTopLevelPackage(specifier), distDir, seen);
+			const packageName = toTopLevelPackage(specifier);
+			if (packageName === FRAMEWORK_PACKAGE_NAME) continue;
+			copyPackageToBuild(packageName, distDir, seen);
 		}
 	}
 };
