@@ -90,6 +90,18 @@ if (command === 'dev') {
 	sendTelemetryEvent('cli:command', { command: 'mem' });
 	const { runMem } = await import('./scripts/mem');
 	await runMem(args);
+} else if (command === 'env') {
+	sendTelemetryEvent('cli:command', { command: 'env' });
+	const { runEnv } = await import('./scripts/env');
+	await runEnv(args);
+} else if (command === 'logs') {
+	sendTelemetryEvent('cli:command', { command: 'logs' });
+	const { runLogs } = await import('./scripts/logs');
+	await runLogs(args);
+} else if (command === 'doctor') {
+	sendTelemetryEvent('cli:command', { command: 'doctor' });
+	const { runDoctor } = await import('./scripts/doctor');
+	await runDoctor(args);
 } else if (command === 'info') {
 	sendTelemetryEvent('cli:command', { command });
 	info();
@@ -137,8 +149,17 @@ if (command === 'dev') {
 	console.error(
 		'  config [--port n] Open the unified config UI (ESLint, tsconfig, Prettier)'
 	);
+	console.error(
+		'  doctor [--json] Diagnose the project (bun, config, framework dirs, env, port)'
+	);
+	console.error(
+		'  env [--check] [--json] Report env vars the app reads (getEnv) and which are missing'
+	);
 	console.error('  eslint        Run ESLint (cached)');
 	console.error('  info          Print system info for bug reports');
+	console.error(
+		'  logs <name> [-f] [-n <lines>] Tail a running server\'s log by name'
+	);
 	console.error(
 		'  ls [--sizes] [--json] List the project\'s pages by framework (from source)'
 	);
