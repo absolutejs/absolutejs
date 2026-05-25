@@ -17,7 +17,7 @@ import {
 	UNFOUND_INDEX
 } from '../constants';
 import { getDurationString } from '../utils/getDurationString';
-import { listLiveInstances } from '../utils/instanceRegistry';
+import { discoverInstances } from './discoverInstances';
 import { enrichInstances } from './instanceStatus';
 import {
 	ESCAPE,
@@ -182,7 +182,7 @@ const driveListTui = async (terminal: TuiInput) => {
 
 	const refresh = async () => {
 		const previousPid = selectedInstance()?.pid;
-		instances = await enrichInstances(listLiveInstances());
+		instances = await enrichInstances(await discoverInstances());
 		const foundIndex =
 			previousPid === undefined
 				? 0

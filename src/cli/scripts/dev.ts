@@ -26,6 +26,7 @@ import {
 	updateInstance
 } from '../../utils/instanceRegistry';
 import { loadConfig } from '../../utils/loadConfig';
+import { scanListeners } from '../../utils/portScan';
 import { resolveDevPort } from '../../utils/resolveDevPort';
 import {
 	COMPOSE_PATH,
@@ -235,10 +236,19 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 	if (initialPortProbe.fellBack) {
 		const displayHost =
 			resolvedDev.host === '0.0.0.0' ? 'localhost' : resolvedDev.host;
+		const holders = (await scanListeners()).filter(
+			(listener) => listener.port === resolvedDev.port
+		);
+		const heldBy =
+			holders.length > 0
+				? ` (held by ${holders
+						.map((holder) => `pid ${holder.pid} — ${holder.command.slice(0, 60)}`)
+						.join(', ')})`
+				: '';
 		console.log(
 			cliTag(
 				'\x1b[33m',
-				`Port ${resolvedDev.port} is in use, trying another one... → http://${displayHost}:${port}/`
+				`Port ${resolvedDev.port} is in use${heldBy}, trying another one... → http://${displayHost}:${port}/`
 			)
 		);
 	}

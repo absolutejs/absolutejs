@@ -37,6 +37,7 @@ export type InstanceSource =
 	| 'dev'
 	| 'standalone'
 	| 'start'
+	| 'untracked'
 	| 'workspace';
 
 export type InstanceStatus = 'ready' | 'starting' | 'stopped';

@@ -132,7 +132,7 @@ if (command === 'dev') {
 	console.error('  eslint        Run ESLint (cached)');
 	console.error('  info          Print system info for bug reports');
 	console.error(
-		'  ls [--watch] [--json] List/manage running servers (alias: ps)'
+		'  ls [--watch] [--json] [--kill <pid|port>] [--kill-all] List/manage running servers (alias: ps)'
 	);
 	console.error('  prettier      Run Prettier check (cached)');
 	console.error('  typecheck     Run type checkers for all frameworks');

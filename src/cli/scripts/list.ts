@@ -1,9 +1,19 @@
 import { LIST_TUI_COLUMN_GAP } from '../../constants';
 import { getDurationString } from '../../utils/getDurationString';
-import { listLiveInstances } from '../../utils/instanceRegistry';
+import { discoverInstances } from '../discoverInstances';
 import { enrichInstances } from '../instanceStatus';
 import { colors, padLine, visibleLength } from '../tuiPrimitives';
 import type { InstanceStatus, LiveInstance } from '../../../types/cli';
+
+const killPid = (pid: number) => {
+	try {
+		process.kill(pid, 'SIGTERM');
+
+		return true;
+	} catch {
+		return false;
+	}
+};
 
 const TABLE_HEADERS = [
 	'NAME',
@@ -85,7 +95,34 @@ export const runList = async (args: string[]) => {
 		return;
 	}
 
-	const instances = await enrichInstances(listLiveInstances());
+	const instances = await enrichInstances(await discoverInstances());
+
+	if (args.includes('--kill-all')) {
+		const killed = instances.filter((instance) => killPid(instance.pid));
+		process.stdout.write(
+			`${colors.dim}Killed ${killed.length} server${killed.length === 1 ? '' : 's'}.${colors.reset}\n`
+		);
+
+		return;
+	}
+
+	if (args.includes('--kill')) {
+		const value = args[args.indexOf('--kill') + 1];
+		const target = Number(value);
+		const match = instances.find(
+			(instance) => instance.pid === target || instance.port === target
+		);
+		const pid = match?.pid ?? target;
+		const killed = Number.isInteger(pid) && killPid(pid);
+		const label = match
+			? `${match.name} (pid ${pid}${match.port === null ? '' : `, port ${match.port}`})`
+			: `pid ${pid}`;
+		process.stdout.write(
+			`${colors.dim}${killed ? `Killed ${label}` : `No server found for \`--kill ${value ?? ''}\``}.${colors.reset}\n`
+		);
+
+		return;
+	}
 
 	if (args.includes('--json')) {
 		process.stdout.write(`${JSON.stringify(instances, null, 2)}\n`);
