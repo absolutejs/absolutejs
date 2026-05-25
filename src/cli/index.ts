@@ -118,6 +118,12 @@ if (command === 'dev') {
 	sendTelemetryEvent('cli:command', { command: 'env' });
 	const { runEnv } = await import('./scripts/env');
 	await runEnv(args);
+} else if (command === 'db') {
+	sendTelemetryEvent('cli:command', {
+		command: `db:${workspaceCommand ?? 'unknown'}`
+	});
+	const { runDb } = await import('./scripts/db');
+	await runDb(args);
 } else if (command === 'logs') {
 	sendTelemetryEvent('cli:command', { command: 'logs' });
 	const { runLogs } = await import('./scripts/logs');
@@ -177,15 +183,16 @@ if (command === 'dev') {
 	console.error(
 		'  workspace dev [--no-tui] Start multi-service workspace dev'
 	);
-	console.error(
-		'  build [--outdir dir] [--profile] Build production assets'
-	);
+	console.error('  build [--outdir dir] [--profile] Build production assets');
 	console.error('  start [entry] [--outdir dir] Start production server');
 	console.error(
 		'  compile [entry] [--outdir dir] [--outfile path] Compile standalone executable'
 	);
 	console.error(
 		'  config [--port n] Open the unified config UI (ESLint, tsconfig, Prettier)'
+	);
+	console.error(
+		'  db <backup|restore|seed> Backup/restore any Postgres DB (ORM-agnostic, upsert by PK) or run the seed script'
 	);
 	console.error(
 		'  doctor [--fix] [--json] Diagnose the project (bun, config, framework dirs, env, port)'
@@ -220,10 +227,10 @@ if (command === 'dev') {
 		'  remove <framework> [--prune] Remove a framework from config (keeps source)'
 	);
 	console.error(
-		'  logs <name> [-f] [-n <lines>] Tail a running server\'s log by name'
+		"  logs <name> [-f] [-n <lines>] Tail a running server's log by name"
 	);
 	console.error(
-		'  ls [--sizes] [--budget <size>] [--json] List the project\'s pages by framework'
+		"  ls [--sizes] [--budget <size>] [--json] List the project's pages by framework"
 	);
 	console.error(
 		'  mem [--json] | mem diff <a> <b>  Memory report (RSS), or diff two heap snapshots'
