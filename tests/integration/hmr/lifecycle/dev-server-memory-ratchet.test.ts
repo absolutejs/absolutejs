@@ -28,7 +28,8 @@ const startAll = async () => {
 	await client.waitFor('manifest');
 	await client.waitFor('connected');
 	client.drain();
-	return { client: client!, server: server! };
+
+	return { client: client, server: server };
 };
 
 const rssKb = (pid: number) => {
@@ -37,6 +38,7 @@ const rssKb = (pid: number) => {
 	if (!match) {
 		throw new Error(`Could not parse VmRSS from /proc/${pid}/status`);
 	}
+
 	return Number(match[1]);
 };
 
@@ -63,6 +65,7 @@ describe('dev-server RSS does not grow unboundedly over many HMR cycles', () => 
 			console.warn(
 				`[skip] /proc-based RSS check requires Linux (current: ${process.platform})`
 			);
+
 			return;
 		}
 

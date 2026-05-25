@@ -30,7 +30,8 @@ const startAll = async () => {
 	await client.waitFor('manifest');
 	await client.waitFor('connected');
 	client.drain();
-	return { client: client!, server: server! };
+
+	return { client: client, server: server };
 };
 
 const swarm = async (url: string, count: number) => {
@@ -38,16 +39,18 @@ const swarm = async (url: string, count: number) => {
 		try {
 			const res = await fetch(url);
 			const body = await res.text();
-			return { ok: true, status: res.status, length: body.length };
+
+			return { length: body.length, ok: true, status: res.status };
 		} catch (err) {
 			return {
+				length: 0,
 				ok: false,
 				reason: err instanceof Error ? err.message : String(err),
-				status: 0,
-				length: 0
+				status: 0
 			};
 		}
 	});
+
 	return Promise.all(tasks);
 };
 

@@ -241,13 +241,13 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 				await resolvedPage.setupApp(app, {
 					isServer: true,
 					router: null,
+					url,
 					setRedirect: (location, status) => {
 						pendingRedirect = {
 							location,
 							status: status ?? 302
 						};
-					},
-					url
+					}
 				});
 			}
 

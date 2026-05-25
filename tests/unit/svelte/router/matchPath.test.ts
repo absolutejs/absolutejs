@@ -187,15 +187,15 @@ describe('matchPattern — wildcards', () => {
 
 describe('comparePatterns — specificity ranking', () => {
 	test('higher score sorts first', () => {
-		const a = { score: 200, index: 5 };
-		const b = { score: 100, index: 0 };
+		const a = { index: 5, score: 200 };
+		const b = { index: 0, score: 100 };
 		expect(comparePatterns(a, b)).toBeLessThan(0);
 		expect(comparePatterns(b, a)).toBeGreaterThan(0);
 	});
 
 	test('equal score: earlier declaration index wins', () => {
-		const a = { score: 100, index: 0 };
-		const b = { score: 100, index: 5 };
+		const a = { index: 0, score: 100 };
+		const b = { index: 5, score: 100 };
 		expect(comparePatterns(a, b)).toBeLessThan(0);
 		expect(comparePatterns(b, a)).toBeGreaterThan(0);
 	});

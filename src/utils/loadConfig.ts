@@ -53,7 +53,7 @@ const isServiceCandidate = (value: unknown): value is ServiceConfig =>
 	isObject(value) &&
 	(typeof value.entry === 'string' || Array.isArray(value.command));
 
-const isWorkspaceConfig = (config: ConfigInput): config is WorkspaceConfig => {
+export const isWorkspaceConfig = (config: ConfigInput): config is WorkspaceConfig => {
 	if (!isObject(config)) {
 		return false;
 	}
@@ -72,7 +72,7 @@ const isWorkspaceConfig = (config: ConfigInput): config is WorkspaceConfig => {
 
 const isConfigInput = (value: unknown): value is ConfigInput => isObject(value);
 
-const getWorkspaceServices = (config: ConfigInput) => {
+export const getWorkspaceServices = (config: ConfigInput) => {
 	if (!isWorkspaceConfig(config)) {
 		throw new Error(
 			'absolute.config.ts is not a multi-service config. Define top-level named services with `entry` or `command` before using `absolute workspace dev`.'
@@ -151,4 +151,4 @@ export const loadRawConfig = async (configPath?: string) => {
 	return config;
 };
 
-export { getWorkspaceServices, isWorkspaceConfig };
+

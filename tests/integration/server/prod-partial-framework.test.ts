@@ -98,7 +98,7 @@ const startMinimalProd = async (
 	return { baseUrl, cwd, kill, outdir, port, proc };
 };
 
-let activeServers: Spawned[] = [];
+const activeServers: Spawned[] = [];
 afterAll(async () => {
 	for (const s of activeServers) await s.kill().catch(() => {});
 });
@@ -167,6 +167,7 @@ const greeting = 'hello from vue-only';
 					`\t)\n` +
 					`\t.use(networking);\n`
 			);
+
 			return { configPath, serverEntryPath };
 		});
 		activeServers.push(server);
@@ -227,6 +228,7 @@ const greeting = 'hello from vue-only';
 					`\t)\n` +
 					`\t.use(networking);\n`
 			);
+
 			return { configPath, serverEntryPath };
 		});
 		activeServers.push(server);
@@ -279,6 +281,7 @@ const greeting = 'hello from vue-only';
 					`\t.get('/', () => handleHTMLPageRequest(asset(manifest, 'Home')))\n` +
 					`\t.use(networking);\n`
 			);
+
 			return { configPath, serverEntryPath };
 		});
 		activeServers.push(server);

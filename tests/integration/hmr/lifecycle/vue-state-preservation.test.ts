@@ -55,7 +55,8 @@ const startAll = async () => {
 		(t) => /count is \d+/.test(t),
 		15_000
 	);
-	return { client: client!, server: server!, session: session! };
+
+	return { client: client, server: server, session: session };
 };
 
 /* Vue HMR preserves component-local state via `__VUE_HMR_RUNTIME__`
@@ -108,6 +109,7 @@ describe('Vue state preservation across template edits', () => {
 						if (/count is 7\b/.test(b.textContent ?? ''))
 							return true;
 					}
+
 					return false;
 				},
 				{ timeout: 15_000 }

@@ -27,7 +27,8 @@ const startAll = async () => {
 	await client.waitFor('manifest');
 	await client.waitFor('connected');
 	client.drain();
-	return { client: client!, server: server! };
+
+	return { client: client, server: server };
 };
 
 /* Vue pages can export a `setupApp(app, ctx)` hook that the Vue

@@ -70,7 +70,7 @@ describe('resolveDevPort — Vite-style port fallback', () => {
 		// Occupy a small contiguous block.
 		const range = 3;
 		for (let offset = 0; offset < range; offset += 1) {
-			// eslint-disable-next-line no-await-in-loop
+			 
 			await occupyPort(start + offset);
 		}
 

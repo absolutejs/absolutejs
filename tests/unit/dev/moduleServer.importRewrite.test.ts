@@ -55,7 +55,7 @@ describe('createModuleServer import rewriting', () => {
 			);
 			expect(code).toContain('" "');
 		} finally {
-			await rm(root, { recursive: true, force: true });
+			await rm(root, { force: true, recursive: true });
 		}
 	});
 });

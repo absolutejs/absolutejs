@@ -25,7 +25,7 @@ const readPropertyKey = (
 	property: ts.ObjectLiteralElementLike
 ): string | null => {
 	if (ts.isPropertyAssignment(property)) {
-		const name = property.name;
+		const {name} = property;
 		if (ts.isIdentifier(name) || ts.isStringLiteral(name)) return name.text;
 	}
 	if (ts.isShorthandPropertyAssignment(property)) {

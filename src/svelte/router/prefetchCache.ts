@@ -11,11 +11,9 @@ const cache = new Map<string, CacheEntry>();
 const isSlowConnection = () => {
 	if (typeof navigator === 'undefined') return false;
 
-	const connection = (
-		navigator as Navigator & {
+	const {connection} = (navigator as Navigator & {
 			connection?: { saveData?: boolean };
-		}
-	).connection;
+		});
 
 	return connection?.saveData === true;
 };
@@ -36,6 +34,16 @@ const evictOldest = () => {
  * Prefetch a URL into the in-memory cache. No-op if the user has signalled
  * data-saver / reduced-data, or if the URL is already cached.
  */
+export const clearPrefetchCache = () => {
+	cache.clear();
+};
+export const consumePrefetch = (url: string) => {
+	const entry = cache.get(url);
+	if (!entry) return undefined;
+	cache.delete(url);
+
+	return entry.promise;
+};
 export const prefetch = (url: string) => {
 	if (typeof fetch === 'undefined') return;
 	if (isSlowConnection() || prefersReducedData()) return;
@@ -47,22 +55,6 @@ export const prefetch = (url: string) => {
 		() => new Response(null, { status: 0 })
 	);
 	cache.set(url, { promise, url });
-};
-
-/**
- * Consume a cached prefetch entry on actual navigation, removing it from
- * the cache. Returns the cached Promise<Response> or undefined.
- */
-export const consumePrefetch = (url: string) => {
-	const entry = cache.get(url);
-	if (!entry) return undefined;
-	cache.delete(url);
-
-	return entry.promise;
-};
-
-export const clearPrefetchCache = () => {
-	cache.clear();
 };
 
 type HoverHandle = {

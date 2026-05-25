@@ -570,7 +570,7 @@ const copyPublishedSvelteRouterSources = async () => {
 			const sourceText = await readFile(sourcePath, 'utf8');
 			await writeFile(targetPath, rewriteSvelteRouterSource(sourceText));
 
-			return;
+			
 		}
 	});
 

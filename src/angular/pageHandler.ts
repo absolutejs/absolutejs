@@ -234,17 +234,19 @@ const resolveRuntimeAngularModulePath = async (pagePath: string) => {
 			try {
 				const { stat } = await import('node:fs/promises');
 				const stats = await stat(pagePath);
+
 				return {
-					path: pagePath,
-					cacheBuster: stats.mtimeMs.toString(BASE_36_RADIX)
+					cacheBuster: stats.mtimeMs.toString(BASE_36_RADIX),
+					path: pagePath
 				};
 			} catch {
-				return { path: pagePath, cacheBuster: undefined };
+				return { cacheBuster: undefined, path: pagePath };
 			}
 		}
+
 		return {
-			path: pagePath,
-			cacheBuster: undefined
+			cacheBuster: undefined,
+			path: pagePath
 		};
 	}
 
@@ -268,8 +270,8 @@ const resolveRuntimeAngularModulePath = async (pagePath: string) => {
 		pagePath;
 
 	return {
-		path: runtimePagePath,
-		cacheBuster
+		cacheBuster,
+		path: runtimePagePath
 	};
 };
 

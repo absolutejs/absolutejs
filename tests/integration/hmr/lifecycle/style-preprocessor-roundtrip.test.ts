@@ -34,7 +34,8 @@ const startAll = async () => {
 	await client.waitFor('manifest');
 	await client.waitFor('connected');
 	client.drain();
-	return { client: client!, server: server! };
+
+	return { client: client, server: server };
 };
 
 /* AbsoluteJS supports SCSS, Less, and Stylus through the

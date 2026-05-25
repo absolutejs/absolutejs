@@ -45,7 +45,8 @@ const startAll = async () => {
 	await waitForText(session.page, 'app-counter .counter-value', (t) =>
 		/\d+/.test(t)
 	);
-	return { client: client!, server: server!, session: session! };
+
+	return { client: client, server: server, session: session };
 };
 
 /* State preservation is the whole point of tier-0 surgical updates:

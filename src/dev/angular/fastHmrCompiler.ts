@@ -317,6 +317,7 @@ const pendingModuleCache = new Map<string, string>();
 export const takePendingModule = (id: string): string | undefined => {
 	const cached = pendingModuleCache.get(id);
 	if (cached !== undefined) pendingModuleCache.delete(id);
+
 	return cached;
 };
 
@@ -366,32 +367,10 @@ const fingerprintsEqual = (
 	return true;
 };
 
-export const recordFingerprint = (
-	id: string,
-	fp: ComponentFingerprint
-): void => {
-	fingerprintCache.set(id, fp);
+export const invalidateFingerprintCache = (): void => {
+	fingerprintCache.clear();
+	entityFingerprintCache.clear();
 };
-
-/* Prime the fingerprint cache for one component file using the
- * pre-edit (initial-bundle) source. Called after the initial
- * `compileAngular` finishes so that the FIRST user edit has a
- * baseline to compare against — without priming, the first
- * edit always reports `cachedFingerprint === undefined` and
- * skips both `fingerprintChanged` and `rebootstrapRequired`
- * detection, so a user's first imports/hostDirectives/providers
- * edit silently runs through Tier 0 instead of escalating to
- * Tier 1b.
- *
- * The function deliberately mirrors the early phases of
- * `tryFastHmr`: parse the file, find the class node by name,
- * read the decorator metadata, extract the fingerprint, store
- * it. We DON'T run the IR compile (no `compileComponentFromMetadata`
- * call) — fingerprint extraction alone is enough for the
- * comparison path, and skipping the IR keeps priming cheap
- * (~1-3 ms per file). On parse error / missing decorator we
- * silently skip; the cache will populate naturally on the
- * first successful HMR cycle. */
 export const primeComponentFingerprint = async (
 	componentFilePath: string
 ): Promise<void> => {
@@ -436,6 +415,7 @@ export const primeComponentFingerprint = async (
 					return expr.text;
 				}
 			}
+
 			return null;
 		})();
 		if (!decoratorName) continue;
@@ -450,6 +430,7 @@ export const primeComponentFingerprint = async (
 			const componentDecorator = decorators.find((d) => {
 				if (!ts.isCallExpression(d.expression)) return false;
 				const expr = d.expression.expression;
+
 				return ts.isIdentifier(expr) && expr.text === 'Component';
 			});
 			if (!componentDecorator) continue;
@@ -494,14 +475,11 @@ export const primeComponentFingerprint = async (
 		}
 	}
 };
-
-/* Clear all cached fingerprints. Called after a Tier 1
- * re-bootstrap completes — at that point the running app's
- * structure matches the new bundle, and the next surgical edit
- * should establish fresh baselines from the new source. */
-export const invalidateFingerprintCache = (): void => {
-	fingerprintCache.clear();
-	entityFingerprintCache.clear();
+export const recordFingerprint = (
+	id: string,
+	fp: ComponentFingerprint
+): void => {
+	fingerprintCache.set(id, fp);
 };
 
 /* Per-entity fingerprint cache for non-component Angular classes
@@ -540,6 +518,7 @@ const entityFingerprintsEqual = (
 	if (!arraysEqual(a.memberDecoratorSig, b.memberDecoratorSig)) return false;
 	if (!arraysEqual(a.arrowFieldSig, b.arrowFieldSig)) return false;
 	if (!arraysEqual(a.propertyFieldNames, b.propertyFieldNames)) return false;
+
 	return true;
 };
 
@@ -552,6 +531,7 @@ const findEntityDecorator = (cls: ts.ClassDeclaration): ts.Decorator | null => {
 		if (!ts.isIdentifier(expr.expression)) continue;
 		if (ENTITY_DECORATOR_NAMES.has(expr.expression.text)) return dec;
 	}
+
 	return null;
 };
 
@@ -589,9 +569,11 @@ const extractEntityFingerprint = (
 									const args = e.arguments
 										.map((a) => a.getText())
 										.join(',');
+
 									return `@${e.expression.text}(${args})`;
 								}
 								if (ts.isIdentifier(e)) return `@${e.text}`;
+
 								return '@<unknown>';
 							})
 							.join('');
@@ -601,13 +583,13 @@ const extractEntityFingerprint = (
 	}
 
 	return {
-		className,
-		decoratorArgsText,
-		ctorParamTypes,
-		topLevelImports: extractTopLevelImports(sourceFile),
-		memberDecoratorSig: extractMemberDecoratorSig(cls),
 		arrowFieldSig: extractArrowFieldSig(cls),
-		propertyFieldNames: extractPropertyFieldNames(cls)
+		className,
+		ctorParamTypes,
+		decoratorArgsText,
+		memberDecoratorSig: extractMemberDecoratorSig(cls),
+		propertyFieldNames: extractPropertyFieldNames(cls),
+		topLevelImports: extractTopLevelImports(sourceFile)
 	};
 };
 
@@ -744,6 +726,7 @@ const classHasAngularDecorator = (cls: ts.ClassDeclaration): boolean => {
 			return true;
 		}
 	}
+
 	return false;
 };
 
@@ -756,6 +739,7 @@ const findClassInSourceFile = (
 			return stmt;
 		}
 	}
+
 	return null;
 };
 
@@ -817,11 +801,14 @@ const parentHasAngularDecoratorAcrossFiles = (
 			);
 			const parentCls = findClassInSourceFile(parentSf, parentClassName);
 			if (!parentCls) continue;
+
 			return classHasAngularDecorator(parentCls);
 		}
+
 		// Import found but file unreadable — conservative bail.
 		return true;
 	}
+
 	// No matching import — parent is either local-but-undeclared or
 	// global. Conservative bail.
 	return true;
@@ -855,6 +842,7 @@ const inheritsDecoratedClass = (
 			}
 		}
 	}
+
 	return false;
 };
 
@@ -961,7 +949,7 @@ const extractControlCreate = (
 			)
 		)
 			continue;
-		const name = member.name;
+		const {name} = member;
 		if (name === undefined) continue;
 		const nameText = ts.isIdentifier(name) ? name.text : name.getText();
 		if (nameText !== CONTROL_CREATE_METHOD_NAME) continue;
@@ -985,8 +973,10 @@ const extractControlCreate = (
 		) {
 			return { passThroughInput: null };
 		}
+
 		return { passThroughInput: arg.literal.text };
 	}
+
 	return null;
 };
 
@@ -1004,6 +994,7 @@ const resolveEnumPropertyAccess = (
 	if (!ts.isIdentifier(expr.expression)) return null;
 	if (expr.expression.text !== enumName) return null;
 	const v = values[expr.name.text];
+
 	return typeof v === 'number' ? v : null;
 };
 
@@ -1178,10 +1169,10 @@ const extractDecoratorInput = (
 		return {
 			classPropertyName,
 			meta: {
-				classPropertyName,
 				bindingPropertyName,
-				required,
+				classPropertyName,
 				isSignal: false,
+				required,
 				transformFunction
 			}
 		};
@@ -1237,10 +1228,10 @@ const extractSignalInput = (
 	return {
 		classPropertyName,
 		meta: {
-			classPropertyName,
 			bindingPropertyName,
-			required,
+			classPropertyName,
 			isSignal: true,
+			required,
 			transformFunction
 		}
 	};
@@ -1261,7 +1252,7 @@ const extractDecoratorOutput = (
 		const arg = expr.arguments[0];
 		if (arg && ts.isStringLiteral(arg)) bindingName = arg.text;
 
-		return { classPropertyName, bindingName };
+		return { bindingName, classPropertyName };
 	}
 
 	return null;
@@ -1297,7 +1288,7 @@ const extractSignalOutput = (
 		if (aliasNode !== null) bindingName = aliasNode;
 	}
 
-	return { classPropertyName, bindingName };
+	return { bindingName, classPropertyName };
 };
 
 const extractInputsAndOutputs = (
@@ -1346,7 +1337,7 @@ const extractInputsAndOutputs = (
 		}
 	}
 
-	return { inputs, outputs, hasDecoratorIO, hasSignalIO };
+	return { hasDecoratorIO, hasSignalIO, inputs, outputs };
 };
 
 /* ─── Advanced-feature metadata extraction ───────────────────
@@ -1405,7 +1396,7 @@ const parseHostObjectInto = (
 		hostNode && ts.isObjectLiteralExpression(hostNode)
 			? hostNode
 			: hostExprNode
-	) as ts.ObjectLiteralExpression | null;
+	);
 	if (!obj) return;
 
 	for (const prop of obj.properties) {
@@ -1479,7 +1470,7 @@ const mergeMemberHostDecorators = (
 				if (!eventArg || !ts.isStringLiteral(eventArg)) continue;
 				const event = eventArg.text;
 				const argsArg = expr.arguments[1];
-				let argsList: string[] = [];
+				const argsList: string[] = [];
 				if (argsArg && ts.isArrayLiteralExpression(argsArg)) {
 					for (const el of argsArg.elements) {
 						if (ts.isStringLiteral(el)) argsList.push(el.text);
@@ -1517,7 +1508,8 @@ const parseQueryDecoratorOptions = (
 		emitDistinctChangesOnly =
 			getBooleanProperty(opts, 'emitDistinctChangesOnly') ?? true;
 	}
-	return { static_, descendants, emitDistinctChangesOnly };
+
+	return { descendants, emitDistinctChangesOnly, static_ };
 };
 
 const queryPredicateFromArg = (
@@ -1532,6 +1524,7 @@ const queryPredicateFromArg = (
 			.map((s) => s.trim())
 			.filter(Boolean);
 	}
+
 	// Token query: `@ViewChild(SomeService)`. Wrap the identifier
 	// expression as `WrappedNodeExpr` for the runtime.
 	return {
@@ -1574,14 +1567,14 @@ const extractDecoratorQueries = (
 				}
 			}
 			const meta: import('@angular/compiler').R3QueryMetadata = {
-				propertyName,
-				first: fn.text === 'ViewChild' || fn.text === 'ContentChild',
-				predicate,
 				descendants,
 				emitDistinctChangesOnly,
+				first: fn.text === 'ViewChild' || fn.text === 'ContentChild',
+				isSignal: false,
+				predicate,
+				propertyName,
 				read,
-				static: static_,
-				isSignal: false
+				static: static_
 			};
 			if (fn.text === 'ViewChild' || fn.text === 'ViewChildren') {
 				viewQueries.push(meta);
@@ -1590,6 +1583,7 @@ const extractDecoratorQueries = (
 			}
 		}
 	}
+
 	return { contentQueries, viewQueries };
 };
 
@@ -1599,10 +1593,10 @@ const SIGNAL_QUERY_TO_RUNTIME: Record<
 	string,
 	{ isView: boolean; first: boolean }
 > = {
-	viewChild: { isView: true, first: true },
-	viewChildren: { isView: true, first: false },
-	contentChild: { isView: false, first: true },
-	contentChildren: { isView: false, first: false }
+	contentChild: { first: true, isView: false },
+	contentChildren: { first: false, isView: false },
+	viewChild: { first: true, isView: true },
+	viewChildren: { first: false, isView: true }
 };
 
 const extractSignalQueries = (
@@ -1616,7 +1610,7 @@ const extractSignalQueries = (
 	const viewQueries: import('@angular/compiler').R3QueryMetadata[] = [];
 	for (const member of cls.members) {
 		if (!ts.isPropertyDeclaration(member) || !member.initializer) continue;
-		let init = member.initializer;
+		const init = member.initializer;
 		if (!ts.isCallExpression(init)) continue;
 
 		// Disambiguate `viewChild(...)` vs `viewChild.required(...)`.
@@ -1651,18 +1645,19 @@ const extractSignalQueries = (
 		}
 
 		const meta: import('@angular/compiler').R3QueryMetadata = {
-			propertyName,
-			first: runtime.first,
-			predicate,
 			descendants,
 			emitDistinctChangesOnly: true,
+			first: runtime.first,
+			isSignal: true,
+			predicate,
+			propertyName,
 			read,
-			static: false,
-			isSignal: true
+			static: false
 		};
 		if (runtime.isView) viewQueries.push(meta);
 		else contentQueries.push(meta);
 	}
+
 	return { contentQueries, viewQueries };
 };
 
@@ -1680,8 +1675,10 @@ const extractExportAs = (args: ts.ObjectLiteralExpression): string[] | null => {
 		for (const el of node.elements) {
 			if (ts.isStringLiteral(el)) out.push(el.text);
 		}
+
 		return out.length > 0 ? out : null;
 	}
+
 	return null;
 };
 
@@ -1696,11 +1693,11 @@ const extractHostDirectives = (
 		if (ts.isIdentifier(el)) {
 			out.push({
 				directive: {
-					value: new compiler.WrappedNodeExpr(el),
-					type: new compiler.WrappedNodeExpr(el)
+					type: new compiler.WrappedNodeExpr(el),
+					value: new compiler.WrappedNodeExpr(el)
 				},
-				isForwardReference: false,
 				inputs: null,
+				isForwardReference: false,
 				outputs: null
 			});
 			continue;
@@ -1721,18 +1718,20 @@ const extractHostDirectives = (
 				const [name, alias] = item.text.split(':').map((s) => s.trim());
 				if (name) map[name] = alias ?? name;
 			}
+
 			return Object.keys(map).length > 0 ? map : null;
 		};
 		out.push({
 			directive: {
-				value: new compiler.WrappedNodeExpr(directiveNode),
-				type: new compiler.WrappedNodeExpr(directiveNode)
+				type: new compiler.WrappedNodeExpr(directiveNode),
+				value: new compiler.WrappedNodeExpr(directiveNode)
 			},
-			isForwardReference: false,
 			inputs: collectMap(inputsNode),
+			isForwardReference: false,
 			outputs: collectMap(outputsNode)
 		});
 	}
+
 	return out.length > 0 ? out : null;
 };
 
@@ -1785,14 +1784,14 @@ const extractAdvancedMetadata = (
 		: null;
 
 	return {
-		host,
+		animations,
 		contentQueries,
-		viewQueries,
 		exportAs: extractExportAs(decoratorArgs),
+		host,
+		hostDirectives: extractHostDirectives(decoratorArgs, compiler),
 		providers,
 		viewProviders,
-		animations,
-		hostDirectives: extractHostDirectives(decoratorArgs, compiler)
+		viewQueries
 	};
 };
 
@@ -1865,6 +1864,7 @@ const getChildComponentInfoFromTsSource = (
 			info: null,
 			mtimeMs: stat.mtimeMs
 		});
+
 		return null;
 	}
 	const sf = ts.createSourceFile(
@@ -1901,6 +1901,7 @@ const getChildComponentInfoFromTsSource = (
 	}
 
 	childComponentInfoCache.set(cacheKey, { info, mtimeMs: stat.mtimeMs });
+
 	return info;
 };
 
@@ -1926,6 +1927,7 @@ const getChildComponentInfoFromDts = (
 			info: null,
 			mtimeMs: stat.mtimeMs
 		});
+
 		return null;
 	}
 
@@ -1949,6 +1951,7 @@ const getChildComponentInfoFromDts = (
 			info: null,
 			mtimeMs: stat.mtimeMs
 		});
+
 		return null;
 	}
 
@@ -1962,6 +1965,7 @@ const getChildComponentInfoFromDts = (
 			info: null,
 			mtimeMs: stat.mtimeMs
 		});
+
 		return null;
 	}
 	const selectorRaw = headerMatch[1] ?? '';
@@ -1974,6 +1978,7 @@ const getChildComponentInfoFromDts = (
 			info: null,
 			mtimeMs: stat.mtimeMs
 		});
+
 		return null;
 	}
 
@@ -1992,6 +1997,7 @@ const getChildComponentInfoFromDts = (
 					return { end: i, text: content.slice(start, i + 1) };
 			}
 		}
+
 		return null;
 	};
 
@@ -2002,6 +2008,7 @@ const getChildComponentInfoFromDts = (
 			info: null,
 			mtimeMs: stat.mtimeMs
 		});
+
 		return null;
 	}
 
@@ -2024,6 +2031,7 @@ const getChildComponentInfoFromDts = (
 			const alias = m[2] ?? '';
 			out.add(alias || propName);
 		}
+
 		return out;
 	};
 
@@ -2035,6 +2043,7 @@ const getChildComponentInfoFromDts = (
 		selector
 	};
 	childComponentInfoCache.set(cacheKey, { info, mtimeMs: stat.mtimeMs });
+
 	return info;
 };
 
@@ -2057,6 +2066,7 @@ const buildClassToSpecMap = (
 			}
 		}
 	}
+
 	return result;
 };
 
@@ -2106,6 +2116,7 @@ const findDtsContainingClass = (
 		const names = namedList.split(',').map((n) => {
 			const trimmed = n.trim();
 			const asIdx = trimmed.lastIndexOf(' as ');
+
 			return asIdx >= 0 ? trimmed.slice(asIdx + 4).trim() : trimmed;
 		});
 		if (!names.includes(className)) continue;
@@ -2146,6 +2157,7 @@ const resolveDtsFromSpec = (spec: string, fromDir: string): string | null => {
 	for (const c of candidates) {
 		if (existsSync(c)) return c;
 	}
+
 	return null;
 };
 
@@ -2189,6 +2201,7 @@ const resolveChildComponentInfo = (
 			);
 			if (info) return info;
 		}
+
 		return null;
 	}
 	try {
@@ -2197,11 +2210,13 @@ const resolveChildComponentInfo = (
 		if (!initialDts) return null;
 		const finalDts = findDtsContainingClass(initialDts, className);
 		if (!finalDts) return null;
+
 		return getChildComponentInfoFromDts(finalDts, className);
 	} catch {
 		// Resolution failed — skip silently. Worst case the static-attr
 		// fix doesn't apply for this child component.
 	}
+
 	return null;
 };
 
@@ -2324,14 +2339,17 @@ const initializerShapeIsStructural = (node: ts.Expression): boolean => {
 				return true;
 			}
 		}
+
 		return false;
 	}
 	if (ts.isArrayLiteralExpression(node)) {
 		for (const el of node.elements) {
 			if (initializerShapeIsStructural(el)) return true;
 		}
+
 		return false;
 	}
+
 	return false;
 };
 
@@ -2469,6 +2487,7 @@ const fileHasModuleProviders = (filePath: string): boolean => {
 				if (!arg || !ts.isObjectLiteralExpression(arg)) continue;
 				if (getProperty(arg, 'providers') !== null) {
 					hasProviders = true;
+
 					return;
 				}
 			}
@@ -2505,7 +2524,7 @@ const resolveImportSource = (
 		if (!ts.isStringLiteral(moduleSpec)) continue;
 		const spec = moduleSpec.text;
 		if (!spec.startsWith('.') && !spec.startsWith('/')) continue;
-		const importClause = stmt.importClause;
+		const {importClause} = stmt;
 		if (!importClause) continue;
 
 		let matches = false;
@@ -2632,7 +2651,7 @@ const extractPropertyFieldNames = (cls: ts.ClassDeclaration): string[] => {
 		) {
 			continue;
 		}
-		const name = member.name;
+		const {name} = member;
 		if (name === undefined) continue;
 		const text = ts.isIdentifier(name)
 			? name.text
@@ -2642,6 +2661,7 @@ const extractPropertyFieldNames = (cls: ts.ClassDeclaration): string[] => {
 				: name.getText();
 		if (text.length > 0) names.push(text);
 	}
+
 	return names.sort();
 };
 
@@ -2669,6 +2689,7 @@ const extractTopLevelImports = (sourceFile: ts.SourceFile): string[] => {
 			}
 		}
 	}
+
 	return [...names].sort();
 };
 
@@ -2710,11 +2731,13 @@ const extractFingerprint = (
 									const args = expr.arguments
 										.map((a) => a.getText())
 										.join(',');
+
 									return `@${expr.expression.text}(${args})`;
 								}
 								if (ts.isIdentifier(expr)) {
 									return `@${expr.text}`;
 								}
+
 								return '@<unknown>';
 							})
 							.join('');
@@ -3117,6 +3140,7 @@ const resolveAndReadStyleResource = (
 	try {
 		const { compileStyleFileIfNeededSync } =
 			require('../../build/stylePreprocessor') as typeof import('../../build/stylePreprocessor');
+
 		return compileStyleFileIfNeededSync(abs);
 	} catch {
 		// Less / Stylus / missing-sass cases land here. Returning
@@ -3140,11 +3164,11 @@ const collectStyles = (
 
 	for (const url of urls) {
 		const css = resolveAndReadStyleResource(componentDir, url);
-		if (css === null) return { styles, missing: url };
+		if (css === null) return { missing: url, styles };
 		styles.push(css);
 	}
 
-	return { styles, missing: null };
+	return { missing: null, styles };
 };
 
 /* ─── Non-component surgical (services / pipes / directives) ──── */
@@ -3267,6 +3291,7 @@ const readProjectAngularCompilerOptions = (
 		}
 	}
 	projectOptionsCache.set(projectRoot, opts);
+
 	return opts;
 };
 
@@ -3365,6 +3390,7 @@ export const tryFastHmr = async (
 		}
 
 		entityFingerprintCache.set(entityId, currentEntityFingerprint);
+
 		return {
 			componentSource: sourceFile,
 			fingerprintChanged: false,
@@ -3475,13 +3501,14 @@ export const tryFastHmr = async (
 			typeof lineIndex === 'number' && lineIndex >= 0
 				? (templateText.split(/\r?\n/)[lineIndex] ?? undefined)
 				: undefined;
+
 		return fail(
 			'template-parse-error',
 			parsed.errors.map((e) => e.toString()).join('\n'),
 			{
+				column: typeof colIndex === 'number' ? colIndex + 1 : undefined,
 				file: templatePath,
 				line: typeof lineIndex === 'number' ? lineIndex + 1 : undefined,
-				column: typeof colIndex === 'number' ? colIndex + 1 : undefined,
 				lineText: lineTextValue
 			}
 		);
@@ -3615,37 +3642,33 @@ export const tryFastHmr = async (
 	}));
 
 	const meta = {
-		name: className,
-		type: { value: wrappedClass, type: wrappedClass },
-		typeArgumentCount: 0,
-		typeSourceSpan,
-		deps: null,
-		selector: decoratorMeta.selector,
-		queries: advancedMetadata.contentQueries,
-		viewQueries: advancedMetadata.viewQueries,
-		host: advancedMetadata.host,
-		lifecycle: {
-			/* `ngOnChanges` is special: the runtime needs this flag
-			 * to wrap input setters with change-tracking so the
-			 * hook is called when bindings update. Detected by
-			 * presence of a class member named `ngOnChanges` (any
-			 * method declaration; signature shape isn't relevant
-			 * for the flag). */
-			usesOnChanges: classNode.members.some(
-				(m) =>
-					ts.isMethodDeclaration(m) &&
-					m.name !== undefined &&
-					ts.isIdentifier(m.name) &&
-					m.name.text === 'ngOnChanges'
-			)
-		},
-		inputs,
-		outputs,
-		usesInheritance: false,
+		animations: advancedMetadata.animations,
+		changeDetection: decoratorMeta.changeDetection,
 		controlCreate: extractControlCreate(classNode),
+		declarationListEmitMode: declarations.length > 0 ? 1 : 0,
+		declarations,
+		// `@defer` block handling for HMR. PerBlock mode (mode 0)
+		// requires every TmplAstDeferredBlock to have a per-block
+		// dependency function entry, or `compileComponentFromMetadata`
+		// throws "unable to find a dependency function for this
+		// deferred block". PerComponent mode (mode 1) with a
+		// `dependenciesFn: null` is supported by the runtime: the
+		// deferred-block resolver short-circuits to "loading
+		// complete" (no async deps) and renders the block's content
+		// against whatever directiveDefs the live component already
+		// has, which `mergeWithExistingDefinition` preserves from
+		// the initial bundle. Production builds emit per-block dep
+		// functions for code-splitting; in dev everything is already
+		// loaded, so the runtime no-op is correct.
+		defer: { dependenciesFn: null, mode: 1 },
+		deps: null,
+		encapsulation: decoratorMeta.encapsulation,
 		exportAs: advancedMetadata.exportAs,
-		providers: advancedMetadata.providers,
-		isStandalone: decoratorMeta.standalone,
+		hasDirectiveDependencies: declarations.length > 0,
+		host: advancedMetadata.host,
+		hostDirectives: advancedMetadata.hostDirectives,
+		i18nUseExternalIds: projectDefaults.i18nUseExternalIds ?? false,
+		inputs,
 		/* "Fully signal-based" detection: at least one signal-form
 		 * input/output/query, AND zero decorator-form @Input,
 		 * @Output, @ViewChild, @ViewChildren, @ContentChild, or
@@ -3663,37 +3686,41 @@ export const tryFastHmr = async (
 			!hasDecoratorIO &&
 			!advancedMetadata.contentQueries.some((q) => !q.isSignal) &&
 			!advancedMetadata.viewQueries.some((q) => !q.isSignal),
-		hostDirectives: advancedMetadata.hostDirectives,
+		isStandalone: decoratorMeta.standalone,
+		lifecycle: {
+			/* `ngOnChanges` is special: the runtime needs this flag
+			 * to wrap input setters with change-tracking so the
+			 * hook is called when bindings update. Detected by
+			 * presence of a class member named `ngOnChanges` (any
+			 * method declaration; signature shape isn't relevant
+			 * for the flag). */
+			usesOnChanges: classNode.members.some(
+				(m) =>
+					ts.isMethodDeclaration(m) &&
+					m.name !== undefined &&
+					ts.isIdentifier(m.name) &&
+					m.name.text === 'ngOnChanges'
+			)
+		},
+		name: className,
+		outputs,
+		providers: advancedMetadata.providers,
+		queries: advancedMetadata.contentQueries,
+		relativeContextFilePath: projectRelPath,
+		relativeTemplatePath: null,
+		selector: decoratorMeta.selector,
+		styles,
 		template: {
-			nodes: parsed.nodes,
 			ngContentSelectors: parsed.ngContentSelectors ?? [],
+			nodes: parsed.nodes,
 			preserveWhitespaces: decoratorMeta.preserveWhitespaces
 		},
-		declarations,
-		// `@defer` block handling for HMR. PerBlock mode (mode 0)
-		// requires every TmplAstDeferredBlock to have a per-block
-		// dependency function entry, or `compileComponentFromMetadata`
-		// throws "unable to find a dependency function for this
-		// deferred block". PerComponent mode (mode 1) with a
-		// `dependenciesFn: null` is supported by the runtime: the
-		// deferred-block resolver short-circuits to "loading
-		// complete" (no async deps) and renders the block's content
-		// against whatever directiveDefs the live component already
-		// has, which `mergeWithExistingDefinition` preserves from
-		// the initial bundle. Production builds emit per-block dep
-		// functions for code-splitting; in dev everything is already
-		// loaded, so the runtime no-op is correct.
-		defer: { dependenciesFn: null, mode: 1 },
-		declarationListEmitMode: declarations.length > 0 ? 1 : 0,
-		styles,
-		encapsulation: decoratorMeta.encapsulation,
-		animations: advancedMetadata.animations,
+		type: { type: wrappedClass, value: wrappedClass },
+		typeArgumentCount: 0,
+		typeSourceSpan,
+		usesInheritance: false,
 		viewProviders: advancedMetadata.viewProviders,
-		relativeContextFilePath: projectRelPath,
-		i18nUseExternalIds: projectDefaults.i18nUseExternalIds ?? false,
-		changeDetection: decoratorMeta.changeDetection,
-		relativeTemplatePath: null,
-		hasDirectiveDependencies: declarations.length > 0
+		viewQueries: advancedMetadata.viewQueries
 	};
 
 	let compiled: R3CompiledExpression;
@@ -3712,24 +3739,24 @@ export const tryFastHmr = async (
 		);
 
 		const namespaceDependencies: R3HmrNamespaceDependency[] = [
-			{ moduleName: '@angular/core', assignedName: 'ɵhmr0' }
+			{ assignedName: 'ɵhmr0', moduleName: '@angular/core' }
 		];
 
 		const callback = compiler.compileHmrUpdateCallback(
 			[
 				{
-					name: 'ɵcmp',
 					initializer: compiled.expression,
+					name: 'ɵcmp',
 					statements: compiled.statements ?? []
 				}
 			],
 			pool.statements,
 			{
-				type: wrappedClass,
 				className,
 				filePath: projectRelPath,
+				localDependencies: [],
 				namespaceDependencies,
-				localDependencies: []
+				type: wrappedClass
 			}
 		);
 
@@ -3957,7 +3984,7 @@ export const tryFastHmr = async (
 			moduleText =
 				moduleText.slice(0, insertAt) +
 				depsDestructure +
-				(methodsBlock ? '\n' + methodsBlock + '\n' : '') +
+				(methodsBlock ? `\n${  methodsBlock  }\n` : '') +
 				moduleText.slice(insertAt);
 		}
 

@@ -63,6 +63,7 @@ const startAndConnect = async () => {
 	await client.waitFor('manifest');
 	await client.waitFor('connected');
 	client.drain();
+
 	return { client: client, server: server };
 };
 

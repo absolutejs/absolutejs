@@ -64,18 +64,6 @@ const handlerSourceMentionsPageHelper = (
 	return PAGE_HANDLER_NAMES.some((name) => source.includes(name));
 };
 
-export const isPageHandler = (handler: unknown): boolean => {
-	if (typeof handler !== 'function') return false;
-	const fn = handler as (...args: unknown[]) => unknown;
-	if (pageHandlerWrappers.has(fn)) return true;
-
-	return handlerSourceMentionsPageHelper(fn);
-};
-
-/** Returns the unwrapped handler source. In dev the dev wrapper's
- *  `.toString()` is opaque, so we use the registration-time-captured
- *  original handler. In prod nothing wraps, so `route.handler` IS the
- *  original. Returns `undefined` for non-functions. */
 export const getOriginalPageHandlerSource = (
 	handler: unknown
 ): string | undefined => {
@@ -84,6 +72,13 @@ export const getOriginalPageHandlerSource = (
 	const info = pageHandlerWrappers.get(fn);
 
 	return (info?.originalHandler ?? fn).toString();
+};
+export const isPageHandler = (handler: unknown): boolean => {
+	if (typeof handler !== 'function') return false;
+	const fn = handler as (...args: unknown[]) => unknown;
+	if (pageHandlerWrappers.has(fn)) return true;
+
+	return handlerSourceMentionsPageHelper(fn);
 };
 
 const isObjectRecord = (value: unknown): value is Record<string, unknown> =>

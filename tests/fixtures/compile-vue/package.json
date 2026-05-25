@@ -1,11 +1,11 @@
 {
-	"name": "@absolutejs/fixture-compile-vue",
-	"private": true,
-	"type": "module",
-	"version": "0.0.0",
 	"dependencies": {
 		"@absolutejs/absolute": "file:../../..",
 		"elysia": "*",
 		"vue": "*"
-	}
+	},
+	"name": "@absolutejs/fixture-compile-vue",
+	"private": true,
+	"type": "module",
+	"version": "0.0.0"
 }

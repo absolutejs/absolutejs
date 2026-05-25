@@ -323,6 +323,7 @@ const createBuildErrorRecoveryPlugin = () =>
 						'fix the file, and save to trigger a recovery rebuild.'
 				)
 			);
+
 			return new Response(html, {
 				headers: { 'content-type': 'text/html; charset=utf-8' },
 				status: 500

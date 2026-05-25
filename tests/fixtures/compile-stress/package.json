@@ -1,12 +1,12 @@
 {
-	"name": "@absolutejs/fixture-compile-stress",
-	"private": true,
-	"type": "module",
-	"version": "0.0.0",
 	"dependencies": {
 		"@absolutejs/absolute": "file:../../..",
 		"elysia": "*",
 		"react": "*",
 		"react-dom": "*"
-	}
+	},
+	"name": "@absolutejs/fixture-compile-stress",
+	"private": true,
+	"type": "module",
+	"version": "0.0.0"
 }

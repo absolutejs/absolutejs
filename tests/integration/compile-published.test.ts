@@ -120,7 +120,7 @@ const writeAcceptanceApp = async (root: string) => {
 
 	await writeFile(
 		join(root, 'package.json'),
-		JSON.stringify(
+		`${JSON.stringify(
 			{
 				dependencies: {
 					'@absolutejs/absolute': 'beta',
@@ -142,7 +142,7 @@ const writeAcceptanceApp = async (root: string) => {
 			},
 			null,
 			'\t'
-		) + '\n'
+		)  }\n`
 	);
 
 	await writeFile(
@@ -373,8 +373,7 @@ const waitForEvaluate = async <T>(
 };
 
 const assertBrowserAcceptance = async (baseUrl: string) => {
-	const WebView = (
-		Bun as unknown as {
+	const {WebView} = (Bun as unknown as {
 			WebView?: new (options: Record<string, unknown>) => {
 				addEventListener?: (
 					type: string,
@@ -392,8 +391,7 @@ const assertBrowserAcceptance = async (baseUrl: string) => {
 				evaluate: <T = unknown>(script: string) => Promise<T>;
 				navigate: (url: string) => Promise<void>;
 			};
-		}
-	).WebView;
+		});
 	if (!WebView) return;
 
 	const consoleErrors: unknown[] = [];
@@ -405,11 +403,11 @@ const assertBrowserAcceptance = async (baseUrl: string) => {
 	try {
 		view = new WebView({
 			backend: 'chrome',
+			height: 720,
+			width: 1280,
 			console: (type: string, ...args: unknown[]) => {
 				if (type === 'error') consoleErrors.push(args);
-			},
-			height: 720,
-			width: 1280
+			}
 		});
 		await view.navigate('about:blank');
 		if (view.cdp && view.addEventListener) {

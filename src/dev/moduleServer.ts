@@ -930,8 +930,8 @@ const compileVueTemplate = (
 		compilerOptions: {
 			bindingMetadata: compiledScript.bindings,
 			expressionPlugins: ['typescript'],
-			isCustomElement: (tag) => tag === 'absolute-island',
-			prefixIdentifiers: true
+			prefixIdentifiers: true,
+			isCustomElement: (tag) => tag === 'absolute-island'
 		},
 		filename: filePath,
 		id: componentId,
@@ -1044,11 +1044,11 @@ const transformVueFile = async (
 		? vueCompiler.compileScript(descriptor, {
 				fs: {
 					fileExists: existsSync,
+					realpath: realpathSync,
 					readFile: (file) =>
 						existsSync(file)
 							? readFileSync(file, 'utf-8')
-							: undefined,
-					realpath: realpathSync
+							: undefined
 				},
 				id: componentId,
 				inlineTemplate: false
@@ -1405,6 +1405,7 @@ const transformAndCache = async (
 			const fileExists = async (p: string) => {
 				try {
 					await stat(p);
+
 					return true;
 				} catch {
 					return false;
@@ -1420,7 +1421,7 @@ const transformAndCache = async (
 				).replace(/\\/g, '/');
 				const normalized = filePath.replace(/\\/g, '/');
 				if (
-					normalized.startsWith(generatedAngularRoot + '/') ||
+					normalized.startsWith(`${generatedAngularRoot  }/`) ||
 					normalized.startsWith(generatedAngularRoot)
 				) {
 					const tail = normalized.slice(
@@ -1431,7 +1432,7 @@ const transformAndCache = async (
 					// path appended to the generated root, so a
 					// leading `/`-prefixed tail IS already the source
 					// path.
-					const absoluteCandidate = '/' + tail.replace(/^\/+/, '');
+					const absoluteCandidate = `/${  tail.replace(/^\/+/, '')}`;
 					// Source files INSIDE the angular root (most
 					// common — `angular/data/labels.json`) land as
 					// just the relative-from-angular-root path. To
@@ -1467,6 +1468,7 @@ const transformAndCache = async (
 			// Validate so a syntax error in the JSON surfaces as a
 			// useful 500 rather than silent garbage in the browser.
 			JSON.parse(text);
+
 			return jsResponse(`export default ${text};`);
 		} catch (err) {
 			return new Response(
@@ -1584,6 +1586,7 @@ const getAngularUserRoot = async (
 ): Promise<string | null> => {
 	if (cachedAngularUserRoot !== undefined) return cachedAngularUserRoot;
 	cachedAngularUserRoot = configuredAngularUserRoot ?? null;
+
 	return cachedAngularUserRoot;
 };
 let configuredAngularUserRoot: string | undefined;

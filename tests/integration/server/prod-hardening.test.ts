@@ -73,6 +73,7 @@ describe('production bundle hardening', () => {
 
 		const withInlineMap = seenJsFiles.filter((file) => {
 			const text = readFileSync(file, 'utf-8');
+
 			return /\n\/\/# sourceMappingURL=data:application\/json;base64,/.test(
 				text
 			);

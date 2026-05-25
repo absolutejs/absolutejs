@@ -12,7 +12,7 @@ export function GoodPage() {
 		<html>
 			<head>
 				<title>Compile Stress</title>
-				<link rel="stylesheet" href="/stress.css" />
+				<link href="/stress.css" rel="stylesheet" />
 			</head>
 			<body>
 				<h1>GOOD_PAGE</h1>

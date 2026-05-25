@@ -27,7 +27,8 @@ const startAll = async () => {
 	await client.waitFor('manifest');
 	await client.waitFor('connected');
 	client.drain();
-	return { client: client!, server: server! };
+
+	return { client: client, server: server };
 };
 
 /* HTMX state lives server-side (in this app: in the `scopedStore`

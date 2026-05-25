@@ -3,7 +3,7 @@ export function LinkedPage() {
 		<html>
 			<head>
 				<title>Linked</title>
-				<link rel="stylesheet" href="/stress.css" />
+				<link href="/stress.css" rel="stylesheet" />
 			</head>
 			<body>
 				<h1>LINKED_PAGE</h1>

@@ -31,22 +31,6 @@ const inner = $state<PageState>(initialState());
  * Backed by `$state`. Direct property access in templates re-renders.
  */
 export const page = inner;
-
-/**
- * Internal — only Router.svelte and the navigation primitives call this.
- * Replaces the entire page state in one assignment so subscribers fire
- * once per navigation rather than once per mutated field.
- */
-export const setPage = (next: Partial<PageState>) => {
-	if (next.url !== undefined) inner.url = next.url;
-	if (next.params !== undefined) inner.params = next.params;
-	if (next.state !== undefined) inner.state = next.state;
-};
-
-/**
- * Internal — used during SSR to seed the page state before render so
- * `<Route>` blocks see the correct `page.url`.
- */
 export const seedPage = (
 	url: URL,
 	params: Record<string, string | undefined> = {}
@@ -54,4 +38,9 @@ export const seedPage = (
 	inner.url = url;
 	inner.params = params;
 	inner.state = undefined;
+};
+export const setPage = (next: Partial<PageState>) => {
+	if (next.url !== undefined) inner.url = next.url;
+	if (next.params !== undefined) inner.params = next.params;
+	if (next.state !== undefined) inner.state = next.state;
 };

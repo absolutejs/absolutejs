@@ -23,18 +23,18 @@ const ensureContainer = (): HTMLDivElement => {
 	const container = document.createElement('div');
 	container.id = CONTAINER_ID;
 	Object.assign(container.style, {
-		position: 'fixed',
 		bottom: '16px',
-		right: '16px',
 		display: 'flex',
 		flexDirection: 'column',
-		gap: '8px',
-		zIndex: '2147483646',
-		pointerEvents: 'none',
 		fontFamily:
 			'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
 		fontSize: '12px',
-		maxWidth: '420px'
+		gap: '8px',
+		maxWidth: '420px',
+		pointerEvents: 'none',
+		position: 'fixed',
+		right: '16px',
+		zIndex: '2147483646'
 	});
 	document.body.appendChild(container);
 
@@ -71,27 +71,27 @@ export const showHmrToast = ({
 	const accent = accentForType(updateType);
 	Object.assign(toast.style, {
 		background: 'rgba(15, 17, 22, 0.94)',
-		color: '#f8fafc',
 		borderLeft: `3px solid ${accent}`,
-		padding: '8px 12px',
 		borderRadius: '6px',
 		boxShadow: '0 6px 24px rgba(0, 0, 0, 0.35)',
+		color: '#f8fafc',
+		maxWidth: '420px',
 		opacity: '0',
+		overflow: 'hidden',
+		padding: '8px 12px',
+		pointerEvents: 'auto',
+		textOverflow: 'ellipsis',
 		transform: 'translateY(6px)',
 		transition: `opacity ${FADE_MS}ms ease, transform ${FADE_MS}ms ease`,
-		pointerEvents: 'auto',
-		whiteSpace: 'nowrap',
-		overflow: 'hidden',
-		textOverflow: 'ellipsis',
-		maxWidth: '420px'
+		whiteSpace: 'nowrap'
 	});
 
 	const label = document.createElement('div');
 	Object.assign(label.style, {
 		color: accent,
 		fontWeight: '600',
-		marginBottom: '2px',
-		letterSpacing: '0.02em'
+		letterSpacing: '0.02em',
+		marginBottom: '2px'
 	});
 	label.textContent = `HMR reboot — ${updateType ?? 'unknown'}`;
 	toast.appendChild(label);
@@ -109,11 +109,11 @@ export const showHmrToast = ({
 		const path = document.createElement('div');
 		Object.assign(path.style, {
 			color: '#64748b',
-			marginTop: '2px',
 			fontSize: '11px',
-			whiteSpace: 'nowrap',
+			marginTop: '2px',
 			overflow: 'hidden',
-			textOverflow: 'ellipsis'
+			textOverflow: 'ellipsis',
+			whiteSpace: 'nowrap'
 		});
 		// Format like the server logger does: relative + leading slash.
 		const cwdLike = editSourceFile.replace(/^.*?(\/src\/|\/pages\/)/, '$1');

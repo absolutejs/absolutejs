@@ -7,6 +7,24 @@ const opaque = (): FieldSchema => ({ kind: 'opaque', typeText: 'json' });
 
 // Map a JSON Schema node to our normalized FieldSchema so the recursive
 // FieldEditor can render it (used for ESLint rule options, which ship a schema).
+export const eslintOptionsSchema = (metaSchema: unknown): FieldSchema => {
+	if (Array.isArray(metaSchema)) {
+		if (metaSchema.length === 0)
+			return { kind: 'opaque', typeText: 'options' };
+
+		return {
+			items: metaSchema.map((entry) => fromJsonSchema(entry)),
+			kind: 'tuple'
+		};
+	}
+	if (isRecord(metaSchema)) {
+		if (metaSchema.type === 'array') return fromJsonSchema(metaSchema);
+
+		return { items: [fromJsonSchema(metaSchema)], kind: 'tuple' };
+	}
+
+	return { kind: 'opaque', typeText: 'options' };
+};
 export const fromJsonSchema = (schema: unknown, depth = 0): FieldSchema => {
 	if (depth > MAX_DEPTH || !isRecord(schema)) return opaque();
 
@@ -38,7 +56,7 @@ export const fromJsonSchema = (schema: unknown, depth = 0): FieldSchema => {
 	if (type === 'boolean') return { kind: 'boolean' };
 
 	if (type === 'array') {
-		const items = schema.items;
+		const {items} = schema;
 		if (Array.isArray(items)) {
 			return {
 				items: items.map((item) => fromJsonSchema(item, depth + 1)),
@@ -83,25 +101,4 @@ export const fromJsonSchema = (schema: unknown, depth = 0): FieldSchema => {
 	}
 
 	return opaque();
-};
-
-// An ESLint rule's `meta.schema` describes its *options array*. Normalize it to
-// a single FieldSchema for that array (positional schemas become a tuple).
-export const eslintOptionsSchema = (metaSchema: unknown): FieldSchema => {
-	if (Array.isArray(metaSchema)) {
-		if (metaSchema.length === 0)
-			return { kind: 'opaque', typeText: 'options' };
-
-		return {
-			items: metaSchema.map((entry) => fromJsonSchema(entry)),
-			kind: 'tuple'
-		};
-	}
-	if (isRecord(metaSchema)) {
-		if (metaSchema.type === 'array') return fromJsonSchema(metaSchema);
-
-		return { items: [fromJsonSchema(metaSchema)], kind: 'tuple' };
-	}
-
-	return { kind: 'opaque', typeText: 'options' };
 };

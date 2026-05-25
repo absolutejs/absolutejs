@@ -13,20 +13,20 @@ export const server = new Elysia()
 	.use(absolutejs)
 	.get('/', () =>
 		handleReactPageRequest({
-			Page: GoodPage,
-			index: asset(manifest, 'GoodIndex')
+			index: asset(manifest, 'GoodIndex'),
+			Page: GoodPage
 		})
 	)
 	.get('/linked', () =>
 		handleReactPageRequest({
-			Page: LinkedPage,
-			index: asset(manifest, 'LinkedIndex')
+			index: asset(manifest, 'LinkedIndex'),
+			Page: LinkedPage
 		})
 	)
 	.get('/boom', () =>
 		handleReactPageRequest({
-			Page: BoomPage,
-			index: asset(manifest, 'BoomIndex')
+			index: asset(manifest, 'BoomIndex'),
+			Page: BoomPage
 		})
 	)
 	.get('/api/ping', ({ query }) => ({

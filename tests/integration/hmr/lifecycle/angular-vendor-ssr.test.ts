@@ -40,6 +40,7 @@ const startAndConnect = async () => {
 		{};
 	await client.waitFor('connected');
 	client.drain();
+
 	return { client, initialManifest, server };
 };
 
@@ -49,6 +50,7 @@ const waitForBundleAndFetch = async (
 	url = '/angular'
 ) => {
 	await c.waitFor('angular-tier-zero-ssr-rebuild-complete', 30_000);
+
 	return (await fetch(`${srv.baseUrl}${url}`)).text();
 };
 

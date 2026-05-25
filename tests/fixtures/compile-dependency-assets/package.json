@@ -1,11 +1,11 @@
 {
-	"name": "@absolutejs/fixture-compile-dependency-assets",
-	"private": true,
-	"type": "module",
-	"version": "0.0.0",
 	"dependencies": {
 		"@absolutejs/absolute": "file:../../..",
 		"compile-asset-package": "file:../_packages/compile-asset-package",
 		"elysia": "*"
-	}
+	},
+	"name": "@absolutejs/fixture-compile-dependency-assets",
+	"private": true,
+	"type": "module",
+	"version": "0.0.0"
 }

@@ -34,6 +34,7 @@ const startAndConnect = async () => {
 	await client.waitFor('manifest');
 	await client.waitFor('connected');
 	client.drain();
+
 	return server;
 };
 
@@ -43,6 +44,7 @@ const waitForBundleAndFetch = async (
 	url = '/svelte'
 ) => {
 	await c.waitFor('svelte-tier-zero-ssr-rebuild-complete', 30_000);
+
 	return (await fetch(`${srv.baseUrl}${url}`)).text();
 };
 

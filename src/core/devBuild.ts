@@ -215,6 +215,7 @@ export const applyConfigChanges =
 	async (): Promise<ConfigChangeDiff | null> => {
 		const cached = globalThis.__hmrDevResult;
 		if (!cached) return null;
+
 		return detectConfigChanges(cached);
 	};
 
@@ -730,6 +731,7 @@ export const devBuild = async (config: BuildConfig) => {
 	startFileWatching(state, config, (filePath: string) => {
 		if (state.initialBuildFailed) {
 			void recoverFromColdStartFailure();
+
 			return;
 		}
 		queueFileChange(state, filePath, config, (newBuildResult) => {

@@ -82,18 +82,18 @@ setInterval(() => {}, 1_000_000);
 		const start = Date.now();
 		let childPid: number | null = null;
 		while (Date.now() - start < 10_000) {
-			// eslint-disable-next-line no-await-in-loop
+			 
 			const file = Bun.file(pidFile);
-			// eslint-disable-next-line no-await-in-loop
+			 
 			if (await file.exists()) {
-				// eslint-disable-next-line no-await-in-loop
+				 
 				const text = (await file.text()).trim();
 				if (text.length > 0) {
 					childPid = Number(text);
 					break;
 				}
 			}
-			// eslint-disable-next-line no-await-in-loop
+			 
 			await Bun.sleep(50);
 		}
 
@@ -134,7 +134,7 @@ setInterval(() => {}, 1_000_000);
 		const killStart = Date.now();
 		while (Date.now() - killStart < 2_000) {
 			if (!isPidRunning(childPid!)) break;
-			// eslint-disable-next-line no-await-in-loop
+			 
 			await Bun.sleep(50);
 		}
 

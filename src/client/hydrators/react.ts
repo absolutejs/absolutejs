@@ -34,11 +34,6 @@ const detachFromHostReactRoot = (element: HTMLElement) => {
 	}
 };
 
-export const isReactComponent = (
-	value: unknown
-): value is ComponentType<Record<string, unknown>> =>
-	typeof value === 'function';
-
 export const hydrateReactIsland = (
 	component: ComponentType<Record<string, unknown>>,
 	element: HTMLElement,
@@ -71,3 +66,7 @@ export const hydrateReactIsland = (
 		hydrateRoot(element, createElement(component, props))
 	);
 };
+export const isReactComponent = (
+	value: unknown
+): value is ComponentType<Record<string, unknown>> =>
+	typeof value === 'function';

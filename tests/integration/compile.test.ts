@@ -130,8 +130,8 @@ const prepareFixtureRoot = async (sourceFixtureDir: string) => {
 	// node_modules is mostly absent, but if a stale one exists we still
 	// want setupFixtureNodeModules's symlink to win.
 	await cp(sourceFixtureDir, fixtureRoot, {
-		filter: (source) => !/[\\/]node_modules([\\/]|$)/.test(source),
-		recursive: true
+		recursive: true,
+		filter: (source) => !/[\\/]node_modules([\\/]|$)/.test(source)
 	});
 	await setupFixtureNodeModules(fixtureRoot);
 
@@ -895,8 +895,7 @@ const waitForEvaluate = async <T>(
 
 const runBrowserProbe = async (baseUrl: string) => {
 	const browserBaseUrl = baseUrl.replace('localhost', '127.0.0.1');
-	const WebView = (
-		Bun as unknown as {
+	const {WebView} = (Bun as unknown as {
 			WebView?: new (options: Record<string, unknown>) => {
 				addEventListener?: (
 					type: string,
@@ -914,8 +913,7 @@ const runBrowserProbe = async (baseUrl: string) => {
 				evaluate: <T = unknown>(script: string) => Promise<T>;
 				navigate: (url: string) => Promise<void>;
 			};
-		}
-	).WebView;
+		});
 	if (!WebView) return;
 
 	const consoleErrors: unknown[] = [];
@@ -926,11 +924,11 @@ const runBrowserProbe = async (baseUrl: string) => {
 	try {
 		view = new WebView({
 			backend: 'chrome',
+			height: 720,
+			width: 1280,
 			console: (type: string, ...args: unknown[]) => {
 				if (type === 'error') consoleErrors.push(args);
-			},
-			height: 720,
-			width: 1280
+			}
 		});
 		await view.navigate('about:blank');
 		if (view.cdp && view.addEventListener) {
@@ -1040,8 +1038,7 @@ const runFrameworkHydrationProbe = async (
 	}
 ) => {
 	const browserBaseUrl = baseUrl.replace('localhost', '127.0.0.1');
-	const WebView = (
-		Bun as unknown as {
+	const {WebView} = (Bun as unknown as {
 			WebView?: new (options: Record<string, unknown>) => {
 				addEventListener?: (
 					type: string,
@@ -1059,8 +1056,7 @@ const runFrameworkHydrationProbe = async (
 				evaluate: <T = unknown>(script: string) => Promise<T>;
 				navigate: (url: string) => Promise<void>;
 			};
-		}
-	).WebView;
+		});
 	if (!WebView) return;
 
 	const consoleErrors: unknown[] = [];
@@ -1071,11 +1067,11 @@ const runFrameworkHydrationProbe = async (
 	try {
 		view = new WebView({
 			backend: 'chrome',
+			height: 720,
+			width: 1280,
 			console: (type: string, ...args: unknown[]) => {
 				if (type === 'error') consoleErrors.push(args);
-			},
-			height: 720,
-			width: 1280
+			}
 		});
 		await view.navigate('about:blank');
 		if (view.cdp && view.addEventListener) {

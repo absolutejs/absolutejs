@@ -148,6 +148,7 @@ export const startDevServer = async (options?: DevServerOptions | number) => {
 	) => {
 		const existing = outputLines.find((line) => pattern.test(line));
 		if (existing) return Promise.resolve(existing);
+
 		return new Promise<string>((res, rej) => {
 			const timer = setTimeout(() => {
 				const idx = lineWaiters.findIndex((w) => w.resolve === res);
@@ -171,11 +172,11 @@ export const startDevServer = async (options?: DevServerOptions | number) => {
 	return {
 		baseUrl,
 		kill,
-		get outputLines() {
-			return outputLines;
-		},
 		port: resolvedPort,
 		proc,
-		waitForOutput
+		waitForOutput,
+		get outputLines() {
+			return outputLines;
+		}
 	} satisfies DevServer;
 };

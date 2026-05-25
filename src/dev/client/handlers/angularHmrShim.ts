@@ -31,7 +31,7 @@ declare global {
 	interface Window {
 		__angularHmr?: AngularHmrBus;
 	}
-	// eslint-disable-next-line no-var
+	 
 	var __angularHmr: AngularHmrBus | undefined;
 }
 
@@ -39,17 +39,6 @@ const installAngularHmrShim = (): AngularHmrBus => {
 	const listeners = new Map<AngularHmrEvent, Set<AngularHmrListener>>();
 
 	const bus: AngularHmrBus = {
-		on(event, cb) {
-			let set = listeners.get(event);
-			if (!set) {
-				set = new Set();
-				listeners.set(event, set);
-			}
-			set.add(cb);
-		},
-		off(event, cb) {
-			listeners.get(event)?.delete(cb);
-		},
 		dispatch(event, data) {
 			const set = listeners.get(event);
 			if (!set) return;
@@ -64,6 +53,17 @@ const installAngularHmrShim = (): AngularHmrBus => {
 					);
 				}
 			}
+		},
+		off(event, cb) {
+			listeners.get(event)?.delete(cb);
+		},
+		on(event, cb) {
+			let set = listeners.get(event);
+			if (!set) {
+				set = new Set();
+				listeners.set(event, set);
+			}
+			set.add(cb);
 		}
 	};
 
@@ -74,14 +74,13 @@ if (typeof globalThis !== 'undefined' && !globalThis.__angularHmr) {
 	globalThis.__angularHmr = installAngularHmrShim();
 }
 
-export const dispatchAngularComponentUpdate = (
-	data: AngularComponentUpdate
-) => {
-	globalThis.__angularHmr?.dispatch('angular:component-update', data);
-};
-
 export const dispatchAngularComponentRemount = (
 	data: AngularComponentUpdate
 ) => {
 	globalThis.__angularHmr?.dispatch('angular:component-remount', data);
+};
+export const dispatchAngularComponentUpdate = (
+	data: AngularComponentUpdate
+) => {
+	globalThis.__angularHmr?.dispatch('angular:component-update', data);
 };

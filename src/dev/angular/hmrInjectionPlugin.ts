@@ -270,7 +270,7 @@ export const applyAngularHmrInjection = (
 	const { generatedAngularRoot, userAngularRoot, projectRoot } = params;
 	const normalizedGenRoot = resolve(generatedAngularRoot).replace(/\\/g, '/');
 	const normalizedPath = componentJsAbsPath.replace(/\\/g, '/');
-	if (!normalizedPath.startsWith(normalizedGenRoot + '/')) return undefined;
+	if (!normalizedPath.startsWith(`${normalizedGenRoot  }/`)) return undefined;
 
 	const seen = new Set<string>();
 	const classNames: string[] = [];
@@ -301,6 +301,7 @@ export const applyAngularHmrInjection = (
 	const tail = classNames
 		.map((className) => {
 			const id = `${projectRel}@${className}`;
+
 			return buildHmrTail(className, JSON.stringify(id));
 		})
 		.join('');
@@ -329,14 +330,14 @@ export const applyAngularHmrInjection = (
 		.join(', ');
 	const depsBlock =
 		classNames.length > 0 && depsKeys
-			? `\n\n// absolutejs HMR — Tier 1a class-deps registry\n` +
+			? `\n\n// absolutejs HMR — Tier 1a class-deps registry\n${ 
 				classNames
 					.map(
 						(c) =>
 							`try { ${c}.__abs_deps = { ${depsKeys} }; } catch {}`
 					)
-					.join('\n') +
-				'\n'
+					.join('\n') 
+				}\n`
 			: '';
 
 	return jsSource + tail + depsBlock;
@@ -362,6 +363,7 @@ export const createAngularHmrInjectionPlugin = (
 				params
 			);
 			if (transformed === undefined) return undefined;
+
 			return { contents: transformed, loader: 'js' };
 		});
 	}

@@ -14,8 +14,8 @@ type IslandStoreInstance = {
 	store: AnyIslandStore;
 };
 
-const ABSOLUTE_ISLAND_STATE = '__ABS_ISLAND_STATE__';
-const ABSOLUTE_ISLAND_STORES = '__ABS_ISLAND_STORES__';
+export const ABSOLUTE_ISLAND_STATE = '__ABS_ISLAND_STATE__';
+export const ABSOLUTE_ISLAND_STORES = '__ABS_ISLAND_STORES__';
 
 declare global {
 	var __ABS_ISLAND_STATE__: IslandStateSnapshot | undefined;
@@ -179,4 +179,4 @@ export const subscribeIslandStore = <
 	});
 };
 
-export { ABSOLUTE_ISLAND_STATE, ABSOLUTE_ISLAND_STORES };
+

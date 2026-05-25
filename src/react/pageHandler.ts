@@ -67,7 +67,7 @@ export const handleReactPageRequest = async <
 >(
 	input: ReactPageRequestInput<Props>
 ) => {
-	const Page = input.Page;
+	const {Page} = input;
 	const resolvedIndex = input.index;
 	const options = input;
 	const userProps = input.props;

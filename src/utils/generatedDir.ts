@@ -28,10 +28,9 @@ export type GeneratedFramework =
 const GENERATED_DIR_NAME = 'generated';
 const ABSOLUTE_CACHE_DIR_NAME = '.absolutejs';
 
-export const getGeneratedRoot = (projectRoot: string = process.cwd()) =>
-	join(projectRoot, ABSOLUTE_CACHE_DIR_NAME, GENERATED_DIR_NAME);
-
 export const getFrameworkGeneratedDir = (
 	framework: GeneratedFramework,
 	projectRoot: string = process.cwd()
 ) => join(getGeneratedRoot(projectRoot), framework);
+export const getGeneratedRoot = (projectRoot: string = process.cwd()) =>
+	join(projectRoot, ABSOLUTE_CACHE_DIR_NAME, GENERATED_DIR_NAME);

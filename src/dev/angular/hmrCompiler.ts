@@ -23,6 +23,17 @@ import { logInfo } from '../../utils/logger';
 import { tryFastHmr } from './fastHmrCompiler';
 
 /* Top-level helper for the `/@ng/component?c=<id>` endpoint. */
+export const encodeHmrComponentId = (
+	absoluteFilePath: string,
+	className: string
+): string => {
+	const projectRel = relative(process.cwd(), absoluteFilePath).replace(
+		/\\/g,
+		'/'
+	);
+
+	return `${projectRel}@${className}`;
+};
 export const getApplyMetadataModule = async (
 	encodedId: string
 ): Promise<string | null> => {
@@ -76,8 +87,10 @@ export const getApplyMetadataModule = async (
 		logInfo(
 			`[ng-hmr fast/${kind}] ${className} ${(performance.now() - fastStart).toFixed(1)}ms`
 		);
+
 		return fast.moduleText;
 	}
+
 	// Fast-path failures that aren't fingerprint mismatches (parse
 	// errors, missing template/style files, inheritance from a
 	// decorated parent, etc.) are structural — the dispatcher
@@ -85,31 +98,4 @@ export const getApplyMetadataModule = async (
 	// "no surgical update available" and lets the rebootstrap broadcast
 	// take over.
 	return null;
-};
-
-/* The raw HMR component id used for two purposes:
- *   1. Server-side `'angular:component-update'` WS broadcast
- *      payload — compared by string-equality against the bundle's
- *      `__ng_hmr_id` constant in the injected listener.
- *   2. The `?c=<id>` query parameter in the surgical-update URL,
- *      where it gets URL-encoded at request time
- *      (`encodeURIComponent(__ng_hmr_id)`).
- *
- * Earlier this function URL-encoded eagerly to match Angular CLI's
- * convention, but our `hmrInjectionPlugin` stores the id raw and
- * encodes only at URL-construction time. The eager-encode caused
- * a string-mismatch in the bundle's listener — the WS payload had
- * `%2F` / `%40` while `__ng_hmr_id` had `/` / `@` — so the
- * listener never matched and nothing fetched. Returning the raw
- * form aligns server and client. */
-export const encodeHmrComponentId = (
-	absoluteFilePath: string,
-	className: string
-): string => {
-	const projectRel = relative(process.cwd(), absoluteFilePath).replace(
-		/\\/g,
-		'/'
-	);
-
-	return `${projectRel}@${className}`;
 };

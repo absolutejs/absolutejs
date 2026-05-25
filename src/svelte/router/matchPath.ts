@@ -45,6 +45,14 @@ const compileSegment = (raw: string): CompiledSegment => {
  * Compile a `<Route path>` pattern into segments + a specificity score.
  * Higher score = more specific (longer static prefix beats parameterised).
  */
+export const comparePatterns = (
+	a: { score: number; index: number },
+	b: { score: number; index: number }
+) => {
+	if (a.score !== b.score) return b.score - a.score;
+
+	return a.index - b.index;
+};
 export const compilePattern = (pattern: string): CompiledPattern => {
 	const segments = splitPath(pattern).map(compileSegment);
 
@@ -58,13 +66,22 @@ export const compilePattern = (pattern: string): CompiledPattern => {
 			score += WILDCARD_SEGMENT_WEIGHT;
 	}
 
-	return { segments, score };
+	return { score, segments };
 };
+export const joinBasepath = (basepath: string, pattern: string) => {
+	const trimmedBase = basepath.replace(/\/+$/, '');
+	const trimmedPattern = pattern.replace(/^\/+/, '');
 
-/**
- * Match a URL pathname against a compiled pattern. Returns the extracted
- * params on a successful match, or a miss otherwise.
- */
+	if (trimmedPattern === '') {
+		return trimmedBase === '' ? '/' : trimmedBase;
+	}
+
+	if (trimmedBase === '') {
+		return `/${trimmedPattern}`;
+	}
+
+	return `${trimmedBase}/${trimmedPattern}`;
+};
 export const matchPattern = <Path extends string>(
 	pattern: CompiledPattern,
 	pathname: string
@@ -79,6 +96,7 @@ export const matchPattern = <Path extends string>(
 
 		if (segment.kind === 'wildcard') {
 			params['wildcard'] = pathSegments.slice(pi).join('/');
+
 			return {
 				matched: true,
 				params: params as ExtractRouteParams<Path>
@@ -115,44 +133,4 @@ export const matchPattern = <Path extends string>(
 		matched: true,
 		params: params as ExtractRouteParams<Path>
 	};
-};
-
-/**
- * Stable comparator for compiled patterns. Higher specificity sorts first.
- * When two patterns have equal score, declaration order (the original index)
- * decides — passed in via the `index` field on each entry.
- */
-export const comparePatterns = (
-	a: { score: number; index: number },
-	b: { score: number; index: number }
-) => {
-	if (a.score !== b.score) return b.score - a.score;
-
-	return a.index - b.index;
-};
-
-/**
- * Join a basepath stack with a child pattern, producing an absolute pattern
- * that the route matcher can compile against an incoming pathname.
- *
- * Handles slash edge cases:
- *   joinBasepath('', '/users')           → '/users'
- *   joinBasepath('/portal', '/users')    → '/portal/users'
- *   joinBasepath('/portal/', '/users')   → '/portal/users'
- *   joinBasepath('/portal', 'users')     → '/portal/users'
- *   joinBasepath('/portal', '/')         → '/portal'
- */
-export const joinBasepath = (basepath: string, pattern: string) => {
-	const trimmedBase = basepath.replace(/\/+$/, '');
-	const trimmedPattern = pattern.replace(/^\/+/, '');
-
-	if (trimmedPattern === '') {
-		return trimmedBase === '' ? '/' : trimmedBase;
-	}
-
-	if (trimmedBase === '') {
-		return `/${trimmedPattern}`;
-	}
-
-	return `${trimmedBase}/${trimmedPattern}`;
 };

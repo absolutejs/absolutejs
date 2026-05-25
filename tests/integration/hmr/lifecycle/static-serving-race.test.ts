@@ -78,6 +78,7 @@ describe('Static asset serving survives rapid HMR rebuilds (#224)', () => {
 						// consumed (some Bun versions hold sockets
 						// open until the body is read).
 						await res.text();
+
 						return res.status;
 					} catch {
 						// Network-level failure (connection
@@ -87,6 +88,7 @@ describe('Static asset serving survives rapid HMR rebuilds (#224)', () => {
 					}
 				})
 			);
+
 			return results;
 		};
 

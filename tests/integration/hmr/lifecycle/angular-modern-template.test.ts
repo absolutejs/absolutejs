@@ -38,6 +38,7 @@ const startAndConnect = async () => {
 	await client.waitFor('manifest');
 	await client.waitFor('connected');
 	client.drain();
+
 	return server;
 };
 
@@ -50,6 +51,7 @@ const waitForBundleAndFetch = async (
 	// vendor caches the first bundle can take 10–15s. 30s is well
 	// inside the per-test 60s deadline.
 	await c.waitFor('angular-tier-zero-ssr-rebuild-complete', 30_000);
+
 	return (await fetch(`${srv.baseUrl}${url}`)).text();
 };
 

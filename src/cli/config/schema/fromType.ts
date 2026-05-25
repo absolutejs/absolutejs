@@ -59,9 +59,9 @@ const frameworkVersion = (cwd: string) => {
 		resolve(cwd, 'package.json')
 	]) {
 		try {
-			const version = JSON.parse(
+			const {version} = JSON.parse(
 				readFileSync(candidate, 'utf-8')
-			).version;
+			);
 			if (typeof version === 'string') return version;
 		} catch {
 			/* try the next candidate */

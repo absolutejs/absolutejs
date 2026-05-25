@@ -1,5 +1,9 @@
 {
-	"extends": "../../../tsconfig.json",
+	"angularCompilerOptions": {
+		"compilationMode": "partial",
+		"strictInjectionParameters": true,
+		"strictTemplates": true
+	},
 	"compilerOptions": {
 		"allowSyntheticDefaultImports": true,
 		"emitDecoratorMetadata": true,
@@ -13,9 +17,5 @@
 		"target": "ES2022",
 		"useDefineForClassFields": false
 	},
-	"angularCompilerOptions": {
-		"compilationMode": "partial",
-		"strictInjectionParameters": true,
-		"strictTemplates": true
-	}
+	"extends": "../../../tsconfig.json"
 }

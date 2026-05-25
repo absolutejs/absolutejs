@@ -35,14 +35,14 @@ export const openPage = async (
 
 	return {
 		browser,
+		page,
 		close: async () => {
 			try {
 				await browser.close();
 			} catch {
 				/* already closed */
 			}
-		},
-		page
+		}
 	};
 };
 

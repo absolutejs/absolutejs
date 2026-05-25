@@ -104,7 +104,7 @@ export const networking = <A extends Elysia>(app: A) => {
 		const prevStore = globalThis.__absolutePreviousAppStore;
 		if (prevStore && app.store && typeof app.store === 'object') {
 			const newStore = app.store as Record<string, unknown>;
-			const oldStore = prevStore as Record<string, unknown>;
+			const oldStore = prevStore;
 			for (const key of Object.keys(newStore)) {
 				if (key in oldStore) {
 					newStore[key] = oldStore[key];
@@ -126,8 +126,8 @@ export const networking = <A extends Elysia>(app: A) => {
 		// keeps serving original handlers. Clear it on reload so every
 		// request falls through to our new app's fetch.
 		liveServer.reload({
-			fetch: (request: Request) => app.fetch(request),
-			routes: {}
+			routes: {},
+			fetch: (request: Request) => app.fetch(request)
 		});
 
 		return app;

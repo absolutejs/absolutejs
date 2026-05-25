@@ -44,16 +44,15 @@ const routes: Routes = [
 	}
 ];
 
-@Component({
+export const providers = [
+	provideRouter(routes, withEnabledBlockingInitialNavigation())
+];
+export @Component({
 	imports: [RouterOutlet],
 	selector: 'route-provider-test',
 	standalone: true,
 	template: '<router-outlet></router-outlet>'
 })
-class RouteProviderPage {}
+class RouteProviderPage {};
 
-export const providers = [
-	provideRouter(routes, withEnabledBlockingInitialNavigation())
-];
 
-export { RouteProviderPage };

@@ -49,9 +49,9 @@ const ReactStreamingTestPage = () => (
 describe('handleReactPageRequest streaming', () => {
 	test('injects runtime and appends patches for registered StreamSlot components', async () => {
 		const response = await handleReactPageRequest({
-			Page: ReactStreamingTestPage,
+			collectStreamingSlots: true,
 			index: '/react-test-index.js',
-			collectStreamingSlots: true
+			Page: ReactStreamingTestPage
 		});
 		const html = await response.text();
 		const fastPatchIndex = html.indexOf('"react-fast"');
@@ -97,9 +97,9 @@ describe('handleReactPageRequest streaming', () => {
 			</html>
 		);
 		const response = await handleReactPageRequest({
-			Page: ReactSuspenseTestPage,
+			collectStreamingSlots: true,
 			index: '/react-suspense-test-index.js',
-			collectStreamingSlots: true
+			Page: ReactSuspenseTestPage
 		});
 		const html = await response.text();
 

@@ -18,6 +18,15 @@
  *  the handler hits `readFile` at most once per page per process. */
 const siblingCssCache = new Map<string, string>();
 
+export const injectInlineCss = <T extends string>(
+	headTag: T,
+	css: string
+): T => {
+	if (!css) return headTag;
+	const styleBlock = `<style data-absolute-page-css>${css}</style>`;
+
+	return headTag.replace('</head>', `${styleBlock}</head>`) as T;
+};
 export const readSiblingCss = async (
 	siblingJsPath: string | undefined
 ): Promise<string> => {
@@ -40,16 +49,4 @@ export const readSiblingCss = async (
 
 		return '';
 	}
-};
-
-/** Splice an inline <style> block before `</head>` in the user's
- *  headTag. No-op when the css string is empty. */
-export const injectInlineCss = <T extends string>(
-	headTag: T,
-	css: string
-): T => {
-	if (!css) return headTag;
-	const styleBlock = `<style data-absolute-page-css>${css}</style>`;
-
-	return headTag.replace('</head>', `${styleBlock}</head>`) as T;
 };

@@ -20,6 +20,25 @@ const setPath = (text: string, path: (string | number)[], value: unknown) =>
 		modify(text, path, value, { formattingOptions: detectFormatting(text) })
 	);
 
+export const applyFieldEdit = (configPath: string, edit: PackageFieldEdit) => {
+	try {
+		const text = readFileSync(configPath, 'utf-8');
+		writeFileSync(
+			configPath,
+			setPath(text, [edit.name], edit.remove ? undefined : edit.value),
+			'utf-8'
+		);
+
+		return {
+			message: edit.remove
+				? `Removed ${edit.name}`
+				: `Updated ${edit.name}`,
+			ok: true
+		};
+	} catch (error) {
+		return { message: String(error), ok: false };
+	}
+};
 export const applyScriptEdit = (
 	configPath: string,
 	edit: PackageScriptEdit
@@ -46,26 +65,6 @@ export const applyScriptEdit = (
 		writeFileSync(configPath, text, 'utf-8');
 
 		return { message: `Updated script "${edit.name}"`, ok: true };
-	} catch (error) {
-		return { message: String(error), ok: false };
-	}
-};
-
-export const applyFieldEdit = (configPath: string, edit: PackageFieldEdit) => {
-	try {
-		const text = readFileSync(configPath, 'utf-8');
-		writeFileSync(
-			configPath,
-			setPath(text, [edit.name], edit.remove ? undefined : edit.value),
-			'utf-8'
-		);
-
-		return {
-			message: edit.remove
-				? `Removed ${edit.name}`
-				: `Updated ${edit.name}`,
-			ok: true
-		};
 	} catch (error) {
 		return { message: String(error), ok: false };
 	}

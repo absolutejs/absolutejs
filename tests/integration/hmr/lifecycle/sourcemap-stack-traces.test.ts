@@ -35,7 +35,8 @@ const startAll = async () => {
 	await client.waitFor('manifest');
 	await client.waitFor('connected');
 	client.drain();
-	return { client: client!, server: server! };
+
+	return { client: client, server: server };
 };
 
 const collectSentinelOutput = (
@@ -45,6 +46,7 @@ const collectSentinelOutput = (
 ) => {
 	const idx = lines.findIndex((line) => line.includes(sentinel));
 	if (idx === -1) return null;
+
 	return lines.slice(idx, Math.min(lines.length, idx + followLines + 1));
 };
 

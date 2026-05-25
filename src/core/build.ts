@@ -1623,6 +1623,7 @@ const buildUnlocked = async ({
 										out.push(full);
 									}
 								}
+
 								return out;
 							};
 							const tsFiles = await walk(angularDir);
@@ -1636,6 +1637,7 @@ const buildUnlocked = async ({
 							// to Tier 0).
 						}
 					}
+
 					return result;
 				})
 			: {
@@ -2712,7 +2714,7 @@ const buildUnlocked = async ({
 				const fileDir = dirname(artifact.path);
 				const relativePaths: Record<string, string> = {};
 				for (const [specifier, absolute] of Object.entries(
-					angularServerVendorPaths!
+					angularServerVendorPaths
 				)) {
 					const rel = relative(fileDir, absolute);
 					relativePaths[specifier] = rel.startsWith('.')

@@ -24,15 +24,15 @@ export const broadcastToClients = (
 		timestamp: Date.now()
 	});
 
-	const shouldRemove = (client: HMRWebSocket) => {
+	const shouldRemove = (client: HMRWebSocket) => 
 		// Note: Bun's WebSocket wrapper sometimes reports `readyState=3`
 		// (CLOSED) for connections that are actually still alive on the
 		// browser side — observed when sending consecutive broadcasts
 		// inside a single tick. Try the send unconditionally; if the
 		// underlying socket is genuinely closed, `client.send` throws
 		// and we drop on the catch path.
-		return !trySendMessage(client, messageStr);
-	};
+		 !trySendMessage(client, messageStr)
+	;
 
 	const clientsToRemove: HMRWebSocket[] = [];
 	state.connectedClients.forEach((client) => {

@@ -1,5 +1,7 @@
 import type { JsonLdSchema, WithContext } from '../../types/jsonLd';
 
+export const jsonLd = (schema: JsonLdSchema | JsonLdSchema[]) =>
+	`<script type="application/ld+json">${serializeJsonLd(schema)}</script>`;
 export const serializeJsonLd = (schema: JsonLdSchema | JsonLdSchema[]) => {
 	const schemaOrgContext = 'https://schema.org';
 	const data: WithContext<JsonLdSchema> | WithContext<JsonLdSchema>[] =
@@ -12,6 +14,3 @@ export const serializeJsonLd = (schema: JsonLdSchema | JsonLdSchema[]) => {
 
 	return JSON.stringify(data);
 };
-
-export const jsonLd = (schema: JsonLdSchema | JsonLdSchema[]) =>
-	`<script type="application/ld+json">${serializeJsonLd(schema)}</script>`;

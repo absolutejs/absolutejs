@@ -11,14 +11,14 @@ describe('workspace build directory warnings', () => {
 				cwd: './apps/api',
 				entry: './server.ts'
 			},
-			worker: {
-				command: ['bun', 'run', 'worker.ts'],
-				kind: 'command'
-			},
 			web: {
 				buildDirectory: '../shared-build',
 				cwd: './apps/web',
 				entry: './server.ts'
+			},
+			worker: {
+				command: ['bun', 'run', 'worker.ts'],
+				kind: 'command'
 			}
 		});
 

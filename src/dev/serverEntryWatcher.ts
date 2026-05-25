@@ -70,7 +70,7 @@ export const isAtomicWriteTemp = (filename: string) =>
 
 export const startServerEntryWatcher = () => {
 	if (globalThis.__absoluteEntryWatcherStarted) return;
-	const main = Bun.main;
+	const {main} = Bun;
 	if (!main || !existsSync(main)) return;
 	globalThis.__absoluteEntryWatcherStarted = true;
 
@@ -121,7 +121,7 @@ export const startServerEntryWatcher = () => {
 			if (hmrState) {
 				const { broadcastToClients } = await import('./webSocket');
 				broadcastToClients(hmrState, {
-					data: { entryPath, cause },
+					data: { cause, entryPath },
 					type: 'server-entry-reloaded'
 				});
 			}
@@ -162,6 +162,7 @@ export const startServerEntryWatcher = () => {
 					'[hmr] absolute.config.ts changed (non-framework keys) — restarting'
 				);
 				console.log(`[abs:restart] ${configPath}`);
+
 				return;
 			}
 			if (diff.removed.length > 0) {
@@ -172,6 +173,7 @@ export const startServerEntryWatcher = () => {
 					`[hmr] absolute.config.ts removed framework(s) ${diff.removed.join(', ')} — restarting`
 				);
 				console.log(`[abs:restart] ${configPath}`);
+
 				return;
 			}
 			// Pure addition. `applyConfigChanges` set up vendor paths
@@ -254,15 +256,17 @@ export const startServerEntryWatcher = () => {
 		if (!filename) return;
 		if (isAtomicWriteTemp(filename)) {
 			recoveryScan(dir);
+
 			return;
 		}
 		if (dir === entryDir && filename === entryBase) {
 			scheduleEntryReload(filename);
+
 			return;
 		}
 		if (dir === configDir && filename === configBase) {
 			scheduleConfigChange(filename);
-			return;
+			
 		}
 	};
 

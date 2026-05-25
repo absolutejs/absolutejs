@@ -1,9 +1,9 @@
 {
+	"exports": {
+		"./lazy": "./lazy.ts"
+	},
 	"name": "@absolutejs-test/angular-lazy-package",
 	"private": true,
 	"type": "module",
-	"version": "0.0.0",
-	"exports": {
-		"./lazy": "./lazy.ts"
-	}
+	"version": "0.0.0"
 }

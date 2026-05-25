@@ -38,16 +38,15 @@ const routes: Routes = [
 	}
 ];
 
-@Component({
+export const providers = [
+	provideRouter(routes, withEnabledBlockingInitialNavigation())
+];
+export @Component({
 	imports: [RouterOutlet],
 	selector: 'route-guard-redirect-test',
 	standalone: true,
 	template: '<router-outlet></router-outlet>'
 })
-class RouteGuardRedirectPage {}
+class RouteGuardRedirectPage {};
 
-export const providers = [
-	provideRouter(routes, withEnabledBlockingInitialNavigation())
-];
 
-export { RouteGuardRedirectPage };

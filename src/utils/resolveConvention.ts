@@ -32,6 +32,15 @@ export const getConventions = () => getMap();
 const normalizeConventionPageName = (name: string) =>
 	toPascal(name).replace(/\d+$/, '');
 
+export const hasErrorConvention = (framework: keyof ConventionsMap) => {
+	const conventions = getMap()[framework];
+	if (!conventions) return false;
+	if (conventions.defaults?.error) return true;
+
+	return Object.values(conventions.pages ?? {}).some((page) =>
+		Boolean(page.error)
+	);
+};
 export const resolveErrorConventionPath = (
 	framework: keyof ConventionsMap,
 	pageName: string
@@ -54,17 +63,6 @@ export const resolveErrorConventionPath = (
 export const resolveNotFoundConventionPath = (
 	framework: keyof ConventionsMap
 ) => getMap()[framework]?.defaults?.notFound;
-
-export const hasErrorConvention = (framework: keyof ConventionsMap) => {
-	const conventions = getMap()[framework];
-	if (!conventions) return false;
-	if (conventions.defaults?.error) return true;
-
-	return Object.values(conventions.pages ?? {}).some((page) =>
-		Boolean(page.error)
-	);
-};
-
 export const setConventions = (map: ConventionsMap) => {
 	Reflect.set(globalThis, CONVENTIONS_KEY, map);
 };
@@ -80,7 +78,7 @@ const buildErrorProps = (error: unknown): ErrorPageProps => {
 		};
 	}
 
-	return { name: 'Error', message: String(error) };
+	return { message: String(error), name: 'Error' };
 };
 
 const renderReactError = async (

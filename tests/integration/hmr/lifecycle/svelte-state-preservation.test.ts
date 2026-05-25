@@ -69,7 +69,8 @@ const startAll = async () => {
 		(t) => /count is \d+/.test(t),
 		15_000
 	);
-	return { client: client!, server: server!, session: session! };
+
+	return { client: client, server: server, session: session };
 };
 
 /* Svelte 5's HMR runtime preserves state via `$.hmr()` —
@@ -110,6 +111,7 @@ describe('Svelte 5 state preservation across template edits', () => {
 						if (/count is 7\b/.test(b.textContent ?? ''))
 							return true;
 					}
+
 					return false;
 				},
 				{ timeout: 15_000 }

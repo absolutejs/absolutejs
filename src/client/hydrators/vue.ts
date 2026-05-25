@@ -5,11 +5,6 @@ const vueIslandApps = new WeakMap<HTMLElement, VueApp>();
 const isPropsRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === 'object' && value !== null;
 
-export const isVueComponent = (
-	value: unknown
-): value is import('vue').Component<Record<string, unknown>> =>
-	typeof value === 'function' || isPropsRecord(value);
-
 export const hydrateVueIsland = (
 	component: import('vue').Component<Record<string, unknown>>,
 	element: HTMLElement,
@@ -25,3 +20,7 @@ export const hydrateVueIsland = (
 	app.mount(element);
 	vueIslandApps.set(element, app);
 };
+export const isVueComponent = (
+	value: unknown
+): value is import('vue').Component<Record<string, unknown>> =>
+	typeof value === 'function' || isPropsRecord(value);

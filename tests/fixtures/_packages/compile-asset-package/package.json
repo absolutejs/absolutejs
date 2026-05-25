@@ -1,12 +1,12 @@
 {
-	"name": "compile-asset-package",
-	"private": true,
-	"type": "module",
-	"version": "0.0.0",
 	"exports": {
 		".": "./index.ts",
 		"./dynamic": "./dynamic.ts",
 		"./style.css": "./style.css",
 		"./subpath": "./subpath.ts"
-	}
+	},
+	"name": "compile-asset-package",
+	"private": true,
+	"type": "module",
+	"version": "0.0.0"
 }

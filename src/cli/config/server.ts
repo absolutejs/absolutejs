@@ -151,8 +151,8 @@ const getClientBundle = async () => {
 // fetches /api/<panel>, so the first byte isn't blocked for seconds.
 const renderShell = (panel: ConfigPanelId) =>
 	handleReactPageRequest({
-		Page: ConfigShell,
 		index: CLIENT_ROUTE,
+		Page: ConfigShell,
 		props: { panel }
 	});
 

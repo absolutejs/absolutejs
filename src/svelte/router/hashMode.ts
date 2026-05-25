@@ -13,8 +13,13 @@
  * Returns the part after `#/`, prefixed with `/` so it parses as a
  * normal pathname.
  */
+export const buildHashHref = (pathname: string) => {
+	const trimmed = pathname.replace(/^\/+/, '');
+
+	return trimmed === '' ? '#/' : `#/${trimmed}`;
+};
 export const hashPathnameOf = (url: URL) => {
-	const hash = url.hash;
+	const {hash} = url;
 	if (!hash || hash === '#') return '/';
 
 	// Tolerate both `#/foo` and `#foo`.
@@ -23,15 +28,4 @@ export const hashPathnameOf = (url: URL) => {
 	if (trimmed === '') return '/';
 
 	return `/${trimmed.replace(/^\/+/, '')}`;
-};
-
-/**
- * Build a hash URL from a routable pathname. Used by goto() / pushState()
- * when in hash mode — converts `/dashboard/settings` to `#/dashboard/settings`
- * and writes the result back to the URL.
- */
-export const buildHashHref = (pathname: string) => {
-	const trimmed = pathname.replace(/^\/+/, '');
-
-	return trimmed === '' ? '#/' : `#/${trimmed}`;
 };

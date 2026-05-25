@@ -50,7 +50,7 @@ export const mountEmberPage = async (
 
 	return rendererModule.renderComponent(component, {
 		args: props,
-		into: root as Element,
+		into: root,
 		owner: {}
 	});
 };

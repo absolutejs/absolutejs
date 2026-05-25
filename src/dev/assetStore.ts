@@ -156,6 +156,7 @@ export const populateAssetStore = async (
 	const staleKeys = [...store.keys()].filter((existingPath) => {
 		if (existingPath.includes('/chunk-')) return false;
 		const replacement = newIdentities.get(stripHash(existingPath));
+
 		return replacement !== undefined && replacement !== existingPath;
 	});
 	staleKeys.forEach((key) => store.delete(key));

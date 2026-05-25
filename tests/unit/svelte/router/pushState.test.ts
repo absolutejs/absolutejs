@@ -75,13 +75,13 @@ describe('pushState / replaceState — no window (SSR)', () => {
 describe('pushState — with window', () => {
 	test('pushState calls window.history.pushState and updates page state', () => {
 		const { calls } = installFakeWindow();
-		pushState('/photos/42', { modal: 'photo', id: 42 });
+		pushState('/photos/42', { id: 42, modal: 'photo' });
 
 		expect(calls).toHaveLength(1);
 		expect(calls[0]?.method).toBe('pushState');
-		expect(calls[0]?.state).toEqual({ modal: 'photo', id: 42 });
+		expect(calls[0]?.state).toEqual({ id: 42, modal: 'photo' });
 		expect(calls[0]?.url).toBe('http://example.test/photos/42');
-		expect(page.state).toEqual({ modal: 'photo', id: 42 });
+		expect(page.state).toEqual({ id: 42, modal: 'photo' });
 		expect(page.url.pathname).toBe('/photos/42');
 	});
 

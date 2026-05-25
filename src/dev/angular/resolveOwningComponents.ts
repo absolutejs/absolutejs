@@ -38,8 +38,8 @@ export type OwningComponent = AffectedEntity;
 const ENTITY_DECORATORS: Record<string, AngularEntityKind> = {
 	Component: 'component',
 	Directive: 'directive',
-	Pipe: 'pipe',
-	Injectable: 'service'
+	Injectable: 'service',
+	Pipe: 'pipe'
 };
 
 const isAngularSourceFile = (file: string): boolean =>
@@ -184,10 +184,10 @@ const parseDecoratedClasses = (filePath: string): DecoratedClass[] => {
 
 				const entry: DecoratedClass = {
 					className: node.name.text,
+					extendsName,
 					kind,
 					styleUrls: [],
-					templateUrls: [],
-					extendsName
+					templateUrls: []
 				};
 				const arg = expr.arguments[0];
 				if (
@@ -375,14 +375,17 @@ const resolveParentClassFile = (
 					 * framework path so the parent-file index
 					 * wouldn't be consulted for them anyway. */
 					if (!norm.startsWith(angularRootNorm)) return null;
+
 					return norm;
 				}
 			} catch {
 				/* candidate doesn't exist, try next */
 			}
 		}
+
 		return null;
 	}
+
 	return null;
 };
 
@@ -432,6 +435,7 @@ const getOrBuildIndexes = (userAngularRoot: string): IndexBundle => {
 
 	const bundle: IndexBundle = { parentFile, resource };
 	indexByRoot.set(userAngularRoot, bundle);
+
 	return bundle;
 };
 
@@ -446,6 +450,9 @@ const getOrBuildResourceIndex = (userAngularRoot: string): ResourceIndex =>
  * Used by the dispatcher to detect edits to plain utility base
  * classes that should trigger a Tier 1b rebootstrap so the
  * extending children see the new parent methods. */
+export const invalidateResourceIndex = (): void => {
+	indexByRoot.clear();
+};
 export const resolveDescendantsOfParent = (params: {
 	changedFilePath: string;
 	userAngularRoot: string;
@@ -459,13 +466,6 @@ export const resolveDescendantsOfParent = (params: {
 	}
 	if (!rootStat.isDirectory()) return [];
 	const bundle = getOrBuildIndexes(params.userAngularRoot);
-	return bundle.parentFile.get(norm) ?? [];
-};
 
-/* Drop the resource and parent-file indexes. Called from the
- * dispatcher when a `.ts` edit lands so the next `.html` /
- * `.css` / etc. edit rebuilds with the latest `templateUrl` /
- * `styleUrl` and heritage mappings. */
-export const invalidateResourceIndex = (): void => {
-	indexByRoot.clear();
+	return bundle.parentFile.get(norm) ?? [];
 };

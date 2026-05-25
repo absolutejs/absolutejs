@@ -315,14 +315,14 @@ const copyPackageToBuild = (
 	const destDir = join(outdir, 'node_modules', ...specifier.split('/'));
 	rmSync(destDir, { force: true, recursive: true });
 	cpSync(srcDir, destDir, {
+		force: true,
+		recursive: true,
 		filter(source) {
 			const rel = relative(srcDir, source);
 			const [firstSegment] = rel.split(/[\\/]/);
 
 			return firstSegment !== 'node_modules' && firstSegment !== '.git';
-		},
-		force: true,
-		recursive: true
+		}
 	});
 
 	const deps = {
@@ -675,6 +675,7 @@ const generateEntrypoint = (
 				: value,
 		2
 	);
+
 	return `// Auto-generated compile entrypoint
 // ── Embedded asset imports ──────────────────────────────────────
 ${imports.join('\n')}

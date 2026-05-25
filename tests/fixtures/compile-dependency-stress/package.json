@@ -1,11 +1,4 @@
 {
-	"name": "@absolutejs/fixture-compile-dependency-stress",
-	"private": true,
-	"type": "module",
-	"version": "0.0.0",
-	"imports": {
-		"#runtime/*": "./runtime/*.ts"
-	},
 	"dependencies": {
 		"@absolutejs/absolute": "file:../../..",
 		"@angular/animations": "*",
@@ -21,5 +14,12 @@
 		"rxjs": "*",
 		"zone.js": "*",
 		"zustand": "*"
-	}
+	},
+	"imports": {
+		"#runtime/*": "./runtime/*.ts"
+	},
+	"name": "@absolutejs/fixture-compile-dependency-stress",
+	"private": true,
+	"type": "module",
+	"version": "0.0.0"
 }

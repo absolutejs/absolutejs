@@ -282,7 +282,7 @@ const FRAMEWORK_DIR_KEYS_FOR_CLEANUP: Array<{
 ];
 
 const removeStaleGenerated = (state: HMRState, deletedFile: string) => {
-	const config = state.config;
+	const {config} = state;
 	const cwd = process.cwd();
 	const absDeleted = resolve(deletedFile).replace(/\\/g, '/');
 	for (const { configKey, framework } of FRAMEWORK_DIR_KEYS_FOR_CLEANUP) {
@@ -308,6 +308,7 @@ const removeStaleGenerated = (state: HMRState, deletedFile: string) => {
 				/* best effort */
 			}
 		}
+
 		return;
 	}
 };
@@ -590,7 +591,7 @@ const enqueueAngularOwningComponentForStyle = (
 	state: HMRState,
 	changedStylePath: string
 ): void => {
-	const angularDir = state.resolvedPaths.angularDir;
+	const {angularDir} = state.resolvedPaths;
 	if (!angularDir) return;
 	const visited = new Set<string>();
 	const stack = [
@@ -671,8 +672,8 @@ export const queueFileChange = async (
 	// `public/` mirrors to the build root (`build/<file>`).
 	// `assets/` mirrors to `build/assets/<file>` so URLs like
 	// `/assets/icons/foo.svg` keep resolving.
-	const publicDir = state.resolvedPaths.publicDir;
-	const assetsDir = state.resolvedPaths.assetsDir;
+	const {publicDir} = state.resolvedPaths;
+	const {assetsDir} = state.resolvedPaths;
 	const handleStaticMirror = async (
 		sourceDir: string,
 		urlPrefix: string
@@ -680,10 +681,10 @@ export const queueFileChange = async (
 		const absSource = resolve(filePath);
 		const normalizedSource = absSource.replace(/\\/g, '/');
 		const normalizedDir = sourceDir.replace(/\\/g, '/');
-		if (!normalizedSource.startsWith(normalizedDir + '/')) return false;
+		if (!normalizedSource.startsWith(`${normalizedDir  }/`)) return false;
 		try {
 			const relFromDir = normalizedSource.slice(normalizedDir.length + 1);
-			const buildDir = state.resolvedPaths.buildDir;
+			const {buildDir} = state.resolvedPaths;
 			const destPath = resolve(
 				buildDir,
 				urlPrefix ? `${urlPrefix}/${relFromDir}` : relFromDir
@@ -713,6 +714,7 @@ export const queueFileChange = async (
 			// Best-effort. If the copy fails the user can hit
 			// the URL again or restart.
 		}
+
 		return true;
 	};
 	if (publicDir && (await handleStaticMirror(publicDir, ''))) return;
@@ -748,7 +750,7 @@ export const queueFileChange = async (
 		// would silently re-run with the pre-edit value. Only a full
 		// bundle rebuild gets fresh module references into
 		// `__abs_deps`.
-		const angularDir = state.resolvedPaths.angularDir;
+		const {angularDir} = state.resolvedPaths;
 		let hasAngularDependent = false;
 		if (angularDir && state.dependencyGraph) {
 			try {
@@ -794,6 +796,7 @@ export const queueFileChange = async (
 			// effect. Framework-agnostic — covers every project,
 			// no hardcoded filename list.
 			console.log(`[abs:restart] ${resolve(filePath)}`);
+
 			return;
 		}
 
@@ -1031,6 +1034,7 @@ const computeServerOutPaths = async (
 
 	if (serverDirs.length <= 1) {
 		const dir = getFrameworkGeneratedDir(framework, projectRoot);
+
 		return {
 			serverOutDir: resolve(resolvedPaths.buildDir, basename(dir)),
 			serverRoot: resolve(dir, 'server')
@@ -1160,8 +1164,8 @@ const bundleAngularClient = async (
 			),
 			createAngularHmrInjectionPlugin({
 				generatedAngularRoot,
-				userAngularRoot,
-				projectRoot: process.cwd()
+				projectRoot: process.cwd(),
+				userAngularRoot
 			})
 		],
 		root: clientRoot,
@@ -1322,6 +1326,7 @@ const loadAngularDispatcherModules =
 			resolveOwningComponents: resolveMod.resolveOwningComponents,
 			tryFastHmr: fastMod.tryFastHmr
 		};
+
 		return angularDispatcherModules;
 	};
 
@@ -1433,6 +1438,7 @@ const decideAngularTier = async (
 					.map((d) => d.className)
 					.slice(0, 3)
 					.join(', ');
+
 				return {
 					kind: 'rebootstrap',
 					reason: `parent class file edited; descendant Angular entities (${names}${descendants.length > 3 ? ', ...' : ''}) need to pick up new prototype`,
@@ -1478,7 +1484,7 @@ const decideAngularTier = async (
 			// to absolute before the prefix check.
 			const normalized = editedFile.replace(/\\/g, '/');
 			const angularDirAbs = resolve(angularDir).replace(/\\/g, '/');
-			if (normalized.startsWith(angularDirAbs + '/')) {
+			if (normalized.startsWith(`${angularDirAbs  }/`)) {
 				return {
 					kind: 'rebootstrap',
 					reason: `non-decorated angular file edited (${editedFile}) — consumers may hold stale resolved values`,
@@ -1514,6 +1520,7 @@ const decideAngularTier = async (
 						tier: 1
 					};
 				}
+
 				return {
 					kind: 'rebootstrap',
 					reason: `${className}: ${result.reason}${
@@ -1534,9 +1541,9 @@ const decideAngularTier = async (
 	}
 
 	const breakdown = {
+		compileMs: Math.round(totalCompileMs),
 		importsMs: Math.round(importsMs),
-		resolveMs: Math.round(totalResolveMs),
-		compileMs: Math.round(totalCompileMs)
+		resolveMs: Math.round(totalResolveMs)
 	};
 	if (rebootstrapClassName !== null) {
 		// Structural component changes that Tier 1a can't faithfully
@@ -1557,6 +1564,7 @@ const decideAngularTier = async (
 	if (anyFingerprintChanged) {
 		return { breakdown, kind: 'remount', queue, tier: 1 };
 	}
+
 	return { breakdown, queue, tier: 0 };
 };
 
@@ -1709,6 +1717,7 @@ const scheduleAngularBundleRebuild = (
 		if (ctx.inFlight) {
 			ctx.pending = true;
 			ctx.inFlight.finally(() => resolve?.());
+
 			return;
 		}
 		ctx.inFlight = drive();
@@ -1735,6 +1744,7 @@ const scheduleAngularBundleRebuild = (
 			clearTimeout(ctx.debounceTimer);
 			ctx.debounceTimer = setTimeout(fire, ANGULAR_BUNDLE_DEBOUNCE_MS);
 		}
+
 		return ctx.debouncedPromise;
 	};
 };
@@ -1760,6 +1770,7 @@ const runAngularHmrIncremental = async (
 		const angularDirAbs = resolve(angularDir);
 		const filesUnderAngular = Array.from(editedFiles).filter((file) => {
 			const abs = resolve(file);
+
 			return abs === angularDirAbs || abs.startsWith(angularDirAbs + sep);
 		});
 		if (filesUnderAngular.length === 0) return;
@@ -1808,6 +1819,7 @@ const runAngularHmrIncremental = async (
 					// debounced bundle rebuild — see `invalidateAngularJitCache`'s
 					// comment in compileAngular.ts).
 					invalidateAngularJitCache(file);
+
 					return compileAngularFileJIT(
 						file,
 						compiledRoot,
@@ -1909,6 +1921,7 @@ const compileAndBundleAngular = async (
 				hasRoutes: route.hasRoutes
 			});
 		}
+
 		return {
 			appProvidersSource: providersImport?.absolutePath ?? null,
 			pagesByFile
@@ -1950,6 +1963,7 @@ const compileAndBundleAngular = async (
 						files.push(full);
 					}
 				}
+
 				return files;
 			};
 			const tsFiles = await walk(angularDir);
@@ -2092,6 +2106,7 @@ const handleAngularFastPath = async (
 					} catch {
 						/* pages dir might not exist yet — leave empty */
 					}
+
 					return allPages;
 				})()
 			: initialPageEntries;
@@ -2461,6 +2476,7 @@ const getOrCreateBundleCtx = (
 		};
 		store.set(state, ctx);
 	}
+
 	return ctx;
 };
 
@@ -2594,6 +2610,7 @@ const scheduleSvelteBundleRebuild = (
 		if (ctx.inFlight) {
 			ctx.pending = true;
 			ctx.inFlight.finally(() => resolveFn?.());
+
 			return;
 		}
 		ctx.inFlight = drive();
@@ -2608,6 +2625,7 @@ const scheduleSvelteBundleRebuild = (
 		}
 		if (ctx.debounceTimer) clearTimeout(ctx.debounceTimer);
 		ctx.debounceTimer = setTimeout(fire, SVELTE_BUNDLE_DEBOUNCE_MS);
+
 		return ctx.debouncedPromise;
 	};
 };
@@ -3019,6 +3037,7 @@ const scheduleVueBundleRebuild = (
 		if (ctx.inFlight) {
 			ctx.pending = true;
 			ctx.inFlight.finally(() => resolveFn?.());
+
 			return;
 		}
 		ctx.inFlight = drive();
@@ -3033,6 +3052,7 @@ const scheduleVueBundleRebuild = (
 		}
 		if (ctx.debounceTimer) clearTimeout(ctx.debounceTimer);
 		ctx.debounceTimer = setTimeout(fire, VUE_BUNDLE_DEBOUNCE_MS);
+
 		return ctx.debouncedPromise;
 	};
 };
@@ -4772,6 +4792,7 @@ const hasAngularOwnedStyleEdit = async (
 		});
 		if (owners.length > 0) return true;
 	}
+
 	return false;
 };
 

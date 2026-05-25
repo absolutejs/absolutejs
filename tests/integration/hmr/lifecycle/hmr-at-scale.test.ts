@@ -54,6 +54,7 @@ const importAllInPage = (text: string, n: number) => {
 		{ length: n },
 		(_, i) => `\t\t<ScaleComp${i} />`
 	).join('\n');
+
 	return text
 		.replace(
 			"import CountButton from '../components/CountButton.vue';",
@@ -114,6 +115,7 @@ const probeScale = async (n: number): Promise<ScaleProbe> => {
 	const avgEditMs =
 		editLatencies.reduce((a, b) => a + b, 0) / editLatencies.length;
 	const maxEditMs = Math.max(...editLatencies);
+
 	return { avgEditMs, coldStartMs, firstEditMs, maxEditMs, n };
 };
 

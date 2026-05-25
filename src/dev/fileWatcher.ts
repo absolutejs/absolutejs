@@ -134,6 +134,7 @@ const setupWatcher = (
 					).replace(/\\/g, '/');
 					atomicRecoveryScan(eventDir);
 				}
+
 				return;
 			}
 

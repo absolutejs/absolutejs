@@ -23,8 +23,6 @@
 const ENV_VAR = 'NODE_ENV';
 
 export const getNodeEnv = () => process.env[ENV_VAR];
-
-export const isProductionRuntime = () => process.env[ENV_VAR] === 'production';
-
 export const isDevelopmentRuntime = () =>
 	process.env[ENV_VAR] === 'development';
+export const isProductionRuntime = () => process.env[ENV_VAR] === 'production';

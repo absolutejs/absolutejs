@@ -79,7 +79,7 @@ export const applyAbsoluteConfigEdit = (
 			return { message: `Updated ${request.name}`, ok: true };
 		}
 
-		const properties = object.properties;
+		const {properties} = object;
 		const entry = `${request.name}: ${valueText}`;
 		if (properties.length > 0) {
 			const last = properties[properties.length - 1];

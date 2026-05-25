@@ -93,7 +93,7 @@ const findLiveInstances = (Class: ComponentClass): LiveInstance[] => {
 
 		const slot = lContext.lView[lContext.nodeIndex];
 		if (!isLView(slot)) continue;
-		const ownLView = slot as LView;
+		const ownLView = slot;
 		const instance = ownLView[CONTEXT];
 		if (!(instance instanceof Class)) continue;
 
@@ -113,6 +113,7 @@ const findLiveInstances = (Class: ComponentClass): LiveInstance[] => {
 			tNode
 		});
 	}
+
 	return results;
 };
 
@@ -135,8 +136,8 @@ const createFreshAt = (
 	if (!envInjector) return null;
 
 	const ref = core.createComponent(Class, {
-		hostElement,
-		environmentInjector: envInjector
+		environmentInjector: envInjector,
+		hostElement
 	});
 
 	const newLView = ref.hostView._lView;
@@ -145,10 +146,11 @@ const createFreshAt = (
 		// internal createComponent path. If it is missing, our slot
 		// constants might be off; bail to caller for fallback.
 		ref.destroy();
+
 		return null;
 	}
 
-	return { instance: ref.instance, newLView, componentRef: ref };
+	return { componentRef: ref, instance: ref.instance, newLView };
 };
 
 /* Splice `newLView` into `parentLView` at `slotIndex`, replacing
