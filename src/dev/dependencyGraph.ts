@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { Glob } from 'bun';
 import { resolve } from 'node:path';
+import { stripStringsAndComments } from '../utils/stripStringsAndComments';
 
 /* Dependency graph for tracking file relationships
    This handles the "what depends on what" problem for incremental HMR */
@@ -248,7 +249,13 @@ const extractJsDependencies = (
 		if (resolved) dependencies.push(resolved);
 	}
 
-	if (content.includes('@Component')) {
+	// Only treat as Angular when `@Component` survives stripping strings +
+	// comments — otherwise docs/examples that mention it in text get
+	// misclassified. The raw check stays as a cheap fast-path.
+	if (
+		content.includes('@Component') &&
+		stripStringsAndComments(content).includes('@Component')
+	) {
 		extractAngularDependencies(content, filePath, dependencies);
 	}
 

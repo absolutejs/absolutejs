@@ -18,6 +18,7 @@ import type { BuildConfig } from '../../../types/build';
 import { DEFAULT_PORT } from '../../constants';
 import { prerenderWithServer } from '../../core/prerender';
 import { getDurationString } from '../../utils/getDurationString';
+import { stripStringsAndComments } from '../../utils/stripStringsAndComments';
 import { withBuildDirectoryLock } from '../../utils/buildDirectoryLock';
 import { loadConfig } from '../../utils/loadConfig';
 import { formatTimestamp } from '../../utils/startupBanner';
@@ -1194,11 +1195,15 @@ const createStubPlugin = (
 			const normalizedPath = args.path.replace(/\\/g, '/');
 			if (normalizedPath.includes('/src/angular/')) return undefined;
 			const text = await Bun.file(args.path).text();
-			const stripped = text
-				.replace(/`(?:[^`\\]|\\.)*`/gs, '')
-				.replace(/'(?:[^'\\]|\\.)*'/g, '')
-				.replace(/"(?:[^"\\]|\\.)*"/g, '');
-			if (stripped.includes('@Component')) {
+			// Stub real Angular component sources so the (React/Vue/Svelte)
+			// server bundle doesn't pull in externalized Angular. Strip strings
+			// + comments first so docs/examples that merely mention `@Component`
+			// in text aren't false-flagged. The raw check is a cheap fast-path
+			// that avoids the lexer for unrelated files.
+			if (
+				text.includes('@Component') &&
+				stripStringsAndComments(text).includes('@Component')
+			) {
 				return { contents: 'export default {}', loader: 'js' };
 			}
 
