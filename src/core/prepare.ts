@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { basename, join, relative, resolve } from 'node:path';
 import { Elysia } from 'elysia';
 import type { ConventionsMap } from '../../types/conventions';
+import { withOpenApi } from '../plugins/openApiPlugin';
 import { loadConfig } from '../utils/loadConfig';
 import { setCurrentIslandManifest } from './islandPageContext';
 import { loadIslandRegistry } from './loadIslandRegistry';
@@ -243,6 +244,7 @@ const prepareDev = async (
 		.use(hmrPlugin)
 		.use(createBuildErrorRecoveryPlugin())
 		.use(createNotFoundPlugin());
+	await withOpenApi(absolutejs, config, process.cwd(), true);
 	recordStep('assemble dev runtime', stepStartedAt);
 	logStartupTimingBlock('AbsoluteJS prepareDev timing', startupSteps);
 
@@ -490,6 +492,7 @@ export const prepare = async (configOrPath?: string) => {
 			.use(staticFiles)
 			.use(generatedAssetsPlugin)
 			.use(createNotFoundPlugin());
+		await withOpenApi(absolutejs, config, process.cwd(), false);
 		recordStep('assemble production runtime', stepStartedAt);
 		logStartupTimingBlock('AbsoluteJS prepare timing', startupSteps);
 
@@ -503,6 +506,7 @@ export const prepare = async (configOrPath?: string) => {
 		.use(staticFiles)
 		.use(generatedAssetsPlugin)
 		.use(createNotFoundPlugin());
+	await withOpenApi(absolutejs, config, process.cwd(), false);
 	recordStep('assemble production runtime', stepStartedAt);
 	logStartupTimingBlock('AbsoluteJS prepare timing', startupSteps);
 

@@ -272,6 +272,27 @@ export type BaseBuildConfig = {
 	images?: ImageConfig;
 	// Sitemap generation — auto-discovers page routes on server start
 	sitemap?: SitemapConfig;
+	// OpenAPI docs via @elysiajs/openapi. `true` serves a Scalar UI at /openapi
+	// derived from your route schemas; an object customizes it. On by default in
+	// dev, opt-in for production builds.
+	openapi?: boolean | OpenApiConfig;
+	// OpenTelemetry via @elysiajs/opentelemetry (opt-in). Requires the package +
+	// an OTLP collector; configure the service name here.
+	telemetry?: boolean | OtelConfig;
+};
+
+export type OpenApiConfig = {
+	documentation?: {
+		description?: string;
+		title?: string;
+		version?: string;
+	};
+	path?: string;
+	provider?: 'scalar' | 'swagger';
+};
+
+export type OtelConfig = {
+	serviceName?: string;
 };
 
 export type AbsoluteServiceConfig = BaseBuildConfig & {
