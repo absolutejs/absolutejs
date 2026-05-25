@@ -369,6 +369,14 @@ const copyFrameworkRuntimePackages = (
 	if (buildConfig.vueDirectory) {
 		copyPackageToBuild('vue', outdir, seen);
 		copyPackageToBuild('@vue/server-renderer', outdir, seen);
+		// vue-demi (the Vue 2/3 compatibility layer used by libs like
+		// @tanstack/vue-query) is a transitive dep of those libraries, NOT of
+		// vue — so the recursive copy above never reaches it. SSR page chunks
+		// import it as a bare specifier, which then fails at runtime in the
+		// extracted /tmp runtime ("Cannot find package 'vue-demi'"). Copy it so
+		// it resolves like vue. No-op when the app doesn't use it
+		// (copyPackageToBuild skips missing packages).
+		copyPackageToBuild('vue-demi', outdir, seen);
 	}
 
 	copyAngularRuntimePackages(buildConfig, outdir);
