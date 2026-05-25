@@ -30,6 +30,11 @@ import type {
 	AbsoluteConfigEditRequest,
 	AbsoluteConfigEditResult
 } from '../../../types/absoluteConfig';
+import type {
+	AuthConfigEditRequest,
+	AuthConfigEditResult,
+	AuthScaffoldResult
+} from '../../../types/authPanel';
 import type { IntegrationAddResult } from '../../../types/integrationsPanel';
 import type {
 	PackageFieldEdit,
@@ -67,6 +72,12 @@ const packageOps = () =>
 		import('./packageJson/resolvePackageJson')
 	]);
 const authOps = () => import('./auth/resolveAuthState');
+const authEditOps = () =>
+	Promise.all([
+		import('./auth/editAuthConfig'),
+		import('./auth/resolveAuthSettings')
+	]);
+const scaffoldOps = () => import('./auth/scaffoldAuthFeature');
 const integrationsOps = () => import('../integrations/addPlugin');
 
 const CLIENT_ROUTE = '/config-client.js';
@@ -371,6 +382,66 @@ const handleIntegrationAdd = async (
 	return addIntegration(cwd, body.id, { install: true, override });
 };
 
+const parseAuthEdit = (body: unknown) => {
+	if (!isRecord(body) || typeof body.name !== 'string') return null;
+
+	const request: AuthConfigEditRequest = {
+		name: body.name,
+		remove: body.remove === true,
+		value: body.value
+	};
+
+	return request;
+};
+
+const handleAuthEdit = async (cwd: string, body: unknown) => {
+	const [{ applyAuthConfigEdit }, { findAuthSettingsPath }] =
+		await authEditOps();
+	const { resolveAuthState } = await authOps();
+	const request = parseAuthEdit(body);
+	const configPath = findAuthSettingsPath(cwd);
+	if (!request || !configPath) {
+		const invalid: AuthConfigEditResult = {
+			message: configPath
+				? 'Invalid edit request.'
+				: 'No auth.config.ts found — create one with defineAuthSettings({}).',
+			ok: false,
+			state: null
+		};
+
+		return new Response(JSON.stringify(invalid), {
+			headers: { 'Content-Type': 'application/json' },
+			status: HTTP_STATUS_BAD_REQUEST
+		});
+	}
+
+	const outcome = applyAuthConfigEdit(configPath, request);
+	const result: AuthConfigEditResult = {
+		message: outcome.message,
+		ok: outcome.ok,
+		state: outcome.ok ? resolveAuthState(cwd) : null
+	};
+
+	return result;
+};
+
+const handleAuthScaffold = async (cwd: string, body: unknown) => {
+	const { scaffoldAuthFeature } = await scaffoldOps();
+	if (!isRecord(body) || typeof body.id !== 'string') {
+		const invalid: AuthScaffoldResult = {
+			created: null,
+			installed: false,
+			message: 'Missing auth feature id.',
+			ok: false,
+			spreadSnippet: null
+		};
+
+		return invalid;
+	}
+
+	return scaffoldAuthFeature(cwd, body.id, { install: true });
+};
+
 const packageError = (message: string) => {
 	const invalid: PackageJsonEditResult = { message, ok: false, state: null };
 
@@ -508,6 +579,10 @@ export const launchConfig = async (args: string[], cwd = process.cwd()) => {
 
 			return resolveAuthState(cwd);
 		})
+		.post('/api/auth', ({ body }) => handleAuthEdit(cwd, body))
+		.post('/api/auth/scaffold', ({ body }) =>
+			handleAuthScaffold(cwd, body)
+		)
 		.get('/api/package', async () => {
 			const [, { resolvePackageJsonState }] = await packageOps();
 

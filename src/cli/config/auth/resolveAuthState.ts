@@ -2,6 +2,8 @@ import ts from 'typescript';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { AUTH_FEATURES } from './authCatalog';
+import { isScaffoldableFeature } from './authScaffolds';
+import { resolveAuthSettingsState } from './resolveAuthSettings';
 import type { AuthPanelState } from '../../../../types/authPanel';
 
 const AUTH_PACKAGE = '@absolutejs/auth';
@@ -227,7 +229,8 @@ const featureStatuses = (keys: Set<string>) =>
 		configured: keys.has(feature.configKey),
 		id: feature.id,
 		kind: feature.kind,
-		label: feature.label
+		label: feature.label,
+		scaffoldable: isScaffoldableFeature(feature.id)
 	}));
 
 export const resolveAuthState = (cwd: string) => {
@@ -254,6 +257,7 @@ export const resolveAuthState = (cwd: string) => {
 		npmUrl: NPM_URL,
 		providerCount: match?.providerCount ?? null,
 		repoUrl: REPO_URL,
+		settings: resolveAuthSettingsState(cwd),
 		setupPath,
 		usesSpread: match?.usesSpread ?? false
 	};

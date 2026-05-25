@@ -7,6 +7,7 @@ import { frameworks } from '../generate/frameworks';
 import { installFrameworkDependencies } from '../add/dependencies';
 import { addIntegration } from '../integrations/addPlugin';
 import { isIntegrationId } from '../integrations/catalog';
+import { scaffoldAuthFeature } from '../config/auth/scaffoldAuthFeature';
 import { readVendoredHtmx, writeHtmx } from '../htmx/install';
 import { colors } from '../tuiPrimitives';
 
@@ -51,9 +52,33 @@ const addIntegrationCli = (id: string, install: boolean) => {
 	);
 };
 
+const addAuthFeatureCli = (id: string, install: boolean) => {
+	const result = scaffoldAuthFeature(process.cwd(), id, { install });
+	if (!result.ok) {
+		fail(result.message);
+
+		return;
+	}
+	write(`${colors.green}✓${colors.reset} ${result.message}`);
+	if (result.spreadSnippet) {
+		write(`\n  ${colors.dim}Wire it in${colors.reset}:`);
+		for (const line of result.spreadSnippet.split('\n'))
+			write(`    ${line}`);
+	}
+	write(
+		`\n  ${colors.dim}Next${colors.reset}  fill the TODO stubs, run \`absolute prettier --write\`, then \`absolute dev\``
+	);
+};
+
 export const runAdd = async (args: string[]) => {
 	const [framework] = args.filter((arg) => !arg.startsWith('--'));
 	const noInstall = args.includes('--no-install');
+
+	if (framework?.startsWith('auth:')) {
+		addAuthFeatureCli(framework.slice('auth:'.length), !noInstall);
+
+		return;
+	}
 
 	if (framework && isIntegrationId(framework)) {
 		addIntegrationCli(framework, !noInstall);

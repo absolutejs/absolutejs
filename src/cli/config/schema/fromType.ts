@@ -55,15 +55,20 @@ const compilerOptionsFor = (cwd: string) => {
 // the type-source mtime so local edits during dev invalidate it.
 const SCHEMA_VERSION = 1;
 
-const frameworkVersion = (cwd: string) => {
-	for (const candidate of [
-		resolve(cwd, 'node_modules', '@absolutejs', 'absolute', 'package.json'),
-		resolve(cwd, 'package.json')
-	]) {
+// Resolve the installed version of the package whose type we're introspecting, so
+// the disk cache invalidates when that package upgrades. For the framework we also
+// fall back to the cwd package.json (the framework repo itself).
+const packageVersion = (cwd: string, specifier: string) => {
+	const candidates =
+		specifier === '@absolutejs/absolute'
+			? [
+					resolve(cwd, 'node_modules', '@absolutejs', 'absolute', 'package.json'),
+					resolve(cwd, 'package.json')
+				]
+			: [resolve(cwd, 'node_modules', ...specifier.split('/'), 'package.json')];
+	for (const candidate of candidates) {
 		try {
-			const {version} = JSON.parse(
-				readFileSync(candidate, 'utf-8')
-			);
+			const { version } = JSON.parse(readFileSync(candidate, 'utf-8'));
 			if (typeof version === 'string') return version;
 		} catch {
 			/* try the next candidate */
@@ -73,8 +78,13 @@ const frameworkVersion = (cwd: string) => {
 	return 'unknown';
 };
 
-const cacheSignature = (cwd: string, typeName: string, local: boolean) => {
-	let signature = `${SCHEMA_VERSION}:${frameworkVersion(cwd)}`;
+const cacheSignature = (
+	cwd: string,
+	typeName: string,
+	local: boolean,
+	specifier: string
+) => {
+	let signature = `${SCHEMA_VERSION}:${specifier}:${packageVersion(cwd, specifier)}`;
 	if (local) {
 		const file = typeName === 'PackageJson' ? 'packageJson.ts' : 'build.ts';
 		try {
@@ -87,13 +97,26 @@ const cacheSignature = (cwd: string, typeName: string, local: boolean) => {
 	return signature;
 };
 
-const cacheFile = (cwd: string, typeName: string) =>
-	resolve(cwd, '.absolutejs', 'config-schema', `${typeName}.json`);
+const cacheSlug = (specifier: string) => specifier.replace('@', '').split('/').join('-');
 
-const readDiskCache = (cwd: string, typeName: string, signature: string) => {
+const cacheFile = (cwd: string, typeName: string, specifier: string) => {
+	const name =
+		specifier === '@absolutejs/absolute'
+			? typeName
+			: `${typeName}.${cacheSlug(specifier)}`;
+
+	return resolve(cwd, '.absolutejs', 'config-schema', `${name}.json`);
+};
+
+const readDiskCache = (
+	cwd: string,
+	typeName: string,
+	signature: string,
+	specifier: string
+) => {
 	try {
 		const cached = JSON.parse(
-			readFileSync(cacheFile(cwd, typeName), 'utf-8')
+			readFileSync(cacheFile(cwd, typeName, specifier), 'utf-8')
 		);
 		if (cached?.signature === signature && Array.isArray(cached.fields)) {
 			return cached.fields as FieldNode[];
@@ -109,14 +132,15 @@ const writeDiskCache = (
 	cwd: string,
 	typeName: string,
 	signature: string,
-	fields: FieldNode[]
+	fields: FieldNode[],
+	specifier: string
 ) => {
 	try {
 		mkdirSync(resolve(cwd, '.absolutejs', 'config-schema'), {
 			recursive: true
 		});
 		writeFileSync(
-			cacheFile(cwd, typeName),
+			cacheFile(cwd, typeName, specifier),
 			JSON.stringify({ fields, signature })
 		);
 	} catch {
@@ -311,38 +335,40 @@ const cache = new Map<string, FieldNode[]>();
 export const introspectType = (
 	cwd: string,
 	typeName: string,
-	exclude: Set<string> = new Set()
+	exclude: Set<string> = new Set(),
+	specifier = '@absolutejs/absolute'
 ) => {
-	const cached = cache.get(typeName);
+	const cacheKey = `${specifier}:${typeName}`;
+	const cached = cache.get(cacheKey);
 	if (cached) return cached;
 
 	const local =
-		isFrameworkRepo(cwd) && existsSync(resolve(cwd, 'types/index.ts'));
-	const signature = cacheSignature(cwd, typeName, local);
-	const fromDisk = readDiskCache(cwd, typeName, signature);
+		specifier === '@absolutejs/absolute' &&
+		isFrameworkRepo(cwd) &&
+		existsSync(resolve(cwd, 'types/index.ts'));
+	const signature = cacheSignature(cwd, typeName, local, specifier);
+	const fromDisk = readDiskCache(cwd, typeName, signature, specifier);
 	if (fromDisk) {
-		cache.set(typeName, fromDisk);
+		cache.set(cacheKey, fromDisk);
 
 		return fromDisk;
 	}
 
 	const options = compilerOptionsFor(cwd);
-	const specifiers = local
-		? ['@absolutejs/absolute', './types']
-		: ['@absolutejs/absolute'];
+	const specifiers = local ? [specifier, './types'] : [specifier];
 
-	for (const specifier of specifiers) {
+	for (const candidate of specifiers) {
 		try {
 			const nodes = introspectFrom(
 				cwd,
-				specifier,
+				candidate,
 				typeName,
 				options,
 				exclude
 			);
 			if (nodes.length > 0) {
-				cache.set(typeName, nodes);
-				writeDiskCache(cwd, typeName, signature, nodes);
+				cache.set(cacheKey, nodes);
+				writeDiskCache(cwd, typeName, signature, nodes, specifier);
 
 				return nodes;
 			}
@@ -351,7 +377,7 @@ export const introspectType = (
 		}
 	}
 
-	cache.set(typeName, []);
+	cache.set(cacheKey, []);
 
-	return cache.get(typeName) ?? [];
+	return cache.get(cacheKey) ?? [];
 };

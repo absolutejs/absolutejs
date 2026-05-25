@@ -1,17 +1,103 @@
+import { useState } from 'react';
 import { AUTH_CORE_ROUTES } from './authCatalog';
-import type { AuthFeatureStatus, AuthPanelState } from '../../../../types/authPanel';
+import { FieldEditor } from '../page/FieldEditor';
+import type {
+	AuthConfigEditResult,
+	AuthFeatureStatus,
+	AuthPanelState,
+	AuthScaffoldResult
+} from '../../../../types/authPanel';
+import type { FieldNode } from '../../../../types/config';
 
-const FeatureCard = ({ blurb, configKey, configured, kind, label }: AuthFeatureStatus) => (
+type Notice = { kind: 'err' | 'ok'; text: string };
+
+type SettingRowProps = {
+	busy: boolean;
+	field: FieldNode;
+	isSet: boolean;
+	onSave: (value: unknown, remove?: boolean) => void;
+	value: unknown;
+};
+
+const SettingRow = ({ busy, field, isSet, onSave, value }: SettingRowProps) => {
+	const [draft, setDraft] = useState<unknown>(value);
+
+	return (
+		<div className="rule fe-block">
+			<div className="rule-main">
+				<div className="rule-name-row">
+					<span className="rule-name">{field.name}</span>
+					{isSet && <span className="badge src">set</span>}
+				</div>
+				{field.description !== '' && (
+					<p className="rule-desc">{field.description}</p>
+				)}
+				<div className="fe-root">
+					<FieldEditor
+						onChange={setDraft}
+						schema={field.schema}
+						value={draft}
+					/>
+				</div>
+			</div>
+			<div className="rule-controls fe-actions">
+				<button
+					className="ts-btn"
+					disabled={busy}
+					onClick={() => onSave(draft)}
+					type="button"
+				>
+					save
+				</button>
+				{isSet && (
+					<button
+						className="ts-clear"
+						onClick={() => onSave(undefined, true)}
+						type="button"
+					>
+						unset
+					</button>
+				)}
+			</div>
+		</div>
+	);
+};
+
+type FeatureCardProps = {
+	busy: boolean;
+	feature: AuthFeatureStatus;
+	onScaffold: () => void;
+	result: AuthScaffoldResult | null;
+};
+
+const FeatureCard = ({ busy, feature, onScaffold, result }: FeatureCardProps) => (
 	<div className="rule">
 		<div className="rule-main">
 			<div className="rule-name-row">
-				<span className="rule-name">{label}</span>
-				<span className="badge dep">{configKey}</span>
-				<span className="badge">{kind}</span>
-				{configured && <span className="badge src">configured</span>}
+				<span className="rule-name">{feature.label}</span>
+				<span className="badge dep">{feature.configKey}</span>
+				<span className="badge">{feature.kind}</span>
+				{feature.configured && (
+					<span className="badge src">configured</span>
+				)}
 			</div>
-			<p className="rule-desc">{blurb}</p>
+			<p className="rule-desc">{feature.blurb}</p>
+			{result?.spreadSnippet && (
+				<pre className="intg-code">{result.spreadSnippet}</pre>
+			)}
 		</div>
+		{!feature.configured && feature.scaffoldable && (
+			<div className="rule-controls fe-actions">
+				<button
+					className="ts-btn"
+					disabled={busy}
+					onClick={onScaffold}
+					type="button"
+				>
+					{result?.created ? 'scaffolded' : 'scaffold wiring'}
+				</button>
+			</div>
+		)}
 	</div>
 );
 
@@ -53,13 +139,65 @@ type AuthPanelProps = {
 	state: AuthPanelState;
 };
 
-export const AuthPanel = ({ state }: AuthPanelProps) => {
+export const AuthPanel = ({ state: initial }: AuthPanelProps) => {
+	const [state, setState] = useState(initial);
+	const [busy, setBusy] = useState<string | null>(null);
+	const [notice, setNotice] = useState<Notice | null>(null);
+	const [results, setResults] = useState<Record<string, AuthScaffoldResult>>(
+		{}
+	);
+
+	const saveSetting =
+		(name: string) => async (value: unknown, remove?: boolean) => {
+			setBusy(`setting:${name}`);
+			setNotice(null);
+			try {
+				const response = await fetch('/api/auth', {
+					body: JSON.stringify({ name, remove, value }),
+					headers: { 'Content-Type': 'application/json' },
+					method: 'POST'
+				});
+				const result: AuthConfigEditResult = await response.json();
+				if (result.ok && result.state) {
+					setState(result.state);
+					setNotice({ kind: 'ok', text: result.message });
+				} else {
+					setNotice({ kind: 'err', text: result.message });
+				}
+			} catch (error) {
+				setNotice({ kind: 'err', text: String(error) });
+			} finally {
+				setBusy(null);
+			}
+		};
+
+	const scaffold = (id: string) => async () => {
+		setBusy(id);
+		setNotice(null);
+		try {
+			const response = await fetch('/api/auth/scaffold', {
+				body: JSON.stringify({ id }),
+				headers: { 'Content-Type': 'application/json' },
+				method: 'POST'
+			});
+			const result: AuthScaffoldResult = await response.json();
+			setResults((prev) => ({ ...prev, [id]: result }));
+			setNotice({ kind: result.ok ? 'ok' : 'err', text: result.message });
+		} catch (error) {
+			setNotice({ kind: 'err', text: String(error) });
+		} finally {
+			setBusy(null);
+		}
+	};
+
 	if (!state.installed) return <NotInstalled {...state} />;
 
 	const configuredCount = state.features.filter(
 		(feature) => feature.configured
 	).length;
 	const version = state.installedVersion ?? state.declaredVersion ?? '—';
+	const { settings } = state;
+	const canEditSettings = settings.available && settings.configPath !== null;
 
 	return (
 		<div className="shell">
@@ -128,8 +266,51 @@ export const AuthPanel = ({ state }: AuthPanelProps) => {
 						</span>
 					</div>
 					{state.features.map((feature) => (
-						<FeatureCard key={feature.id} {...feature} />
+						<FeatureCard
+							busy={busy === feature.id}
+							feature={feature}
+							key={feature.id}
+							onScaffold={scaffold(feature.id)}
+							result={results[feature.id] ?? null}
+						/>
 					))}
+				</section>
+
+				<section className="section">
+					<div className="section-head">
+						<h2 className="section-title">Settings</h2>
+						<span className="section-files">
+							{settings.configPath ?? 'auth.config.ts'}
+						</span>
+					</div>
+					{!settings.available && (
+						<p className="rule-desc">
+							Upgrade <code>@absolutejs/auth</code> to a version that
+							exports <code>AuthSettings</code> to edit settings here.
+						</p>
+					)}
+					{settings.available && settings.configPath === null && (
+						<p className="rule-desc">
+							Create an <code>auth.config.ts</code> exporting{' '}
+							<code>{'defineAuthSettings({})'}</code> and spread it into
+							your <code>auth()</code> call, then edit the route paths,
+							durations, and limits here.
+						</p>
+					)}
+					{canEditSettings &&
+						settings.fields.map((field) => (
+							<SettingRow
+								busy={busy === `setting:${field.name}`}
+								field={field}
+								isSet={Object.prototype.hasOwnProperty.call(
+									settings.current,
+									field.name
+								)}
+								key={field.name}
+								onSave={saveSetting(field.name)}
+								value={settings.current[field.name]}
+							/>
+						))}
 				</section>
 
 				<section className="section">
@@ -172,6 +353,13 @@ export const AuthPanel = ({ state }: AuthPanelProps) => {
 					</div>
 				</section>
 			</main>
+
+			{notice && (
+				<div className={`toast ${notice.kind}`}>
+					<b>{notice.kind === 'ok' ? '✓' : '✕'}</b>
+					{notice.text}
+				</div>
+			)}
 		</div>
 	);
 };
