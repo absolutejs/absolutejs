@@ -16,6 +16,7 @@
  */
 
 declare global {
+	// eslint-disable-next-line @typescript-eslint/consistent-type-definitions -- Window augmentation requires interface merging
 	interface Window {
 		__INITIAL_PROPS__?: Record<string, unknown>;
 	}

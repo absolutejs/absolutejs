@@ -28,6 +28,7 @@ type AngularHmrBus = {
 };
 
 declare global {
+	// eslint-disable-next-line @typescript-eslint/consistent-type-definitions -- Window augmentation requires interface merging
 	interface Window {
 		__angularHmr?: AngularHmrBus;
 	}

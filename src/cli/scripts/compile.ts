@@ -1159,8 +1159,29 @@ const FRAMEWORK_EXTERNALS = [
 	'typescript'
 ];
 
-const resolveServerBundleExternals = (buildConfig: BuildConfig) =>
-	FRAMEWORK_EXTERNALS.filter((specifier) => {
+// User-declared externals from `bunBuild` (override form `{ external }` or
+// pass-config form `{ default: { external } }`). The compiled server bundle
+// otherwise inlines every node_modules dependency, which breaks heavy server
+// libs whose runtime (native addons, lazy requires, custom HTTP/auth transports)
+// does not survive `bun build --compile` — e.g. `firebase-admin`, whose
+// createSessionCookie hangs when bundled but works loaded from node_modules at
+// runtime. Listing such a package here keeps the bare specifier external so the
+// standalone binary resolves the working installed copy at runtime.
+const collectUserServerExternals = (buildConfig: BuildConfig): string[] => {
+	const bunBuild = buildConfig.bunBuild as
+		| { external?: string[]; default?: { external?: string[] } }
+		| undefined;
+	if (!bunBuild) return [];
+	const override = Array.isArray(bunBuild.external) ? bunBuild.external : [];
+	const fromDefault = Array.isArray(bunBuild.default?.external)
+		? bunBuild.default.external
+		: [];
+
+	return [...override, ...fromDefault];
+};
+
+const resolveServerBundleExternals = (buildConfig: BuildConfig) => [
+	...FRAMEWORK_EXTERNALS.filter((specifier) => {
 		if (
 			buildConfig.reactDirectory &&
 			(specifier === 'react' ||
@@ -1182,7 +1203,9 @@ const resolveServerBundleExternals = (buildConfig: BuildConfig) =>
 			return false;
 
 		return true;
-	});
+	}),
+	...collectUserServerExternals(buildConfig)
+];
 
 // ── Main compile command ────────────────────────────────────────
 export const compile = async (

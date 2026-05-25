@@ -312,6 +312,8 @@ const optimizeWithBunImage = async (
 		case 'webp':
 			return pipeline.webp({ quality }).toBuffer();
 	}
+
+	throw new Error(`Unsupported image format: ${format}`);
 };
 
 const optimizeWithSharp = async (
@@ -340,6 +342,8 @@ const optimizeWithSharp = async (
 		case 'webp':
 			return pipeline.webp({ quality }).toBuffer();
 	}
+
+	throw new Error(`Unsupported image format: ${format}`);
 };
 
 export const optimizeImage = async (

@@ -809,7 +809,7 @@ const buildUnlocked = async ({
 		fn: () => Promise<T> | T,
 		metadata?: Record<string, unknown>
 	): Promise<T> => {
-		if (!traceEnabled) return await fn();
+		if (!traceEnabled) return fn();
 		const phaseStart = performance.now();
 		try {
 			const result = await fn();
@@ -3250,5 +3250,5 @@ export const build = async (config: BuildConfig) => {
 		projectRoot
 	);
 
-	return await withBuildDirectoryLock(buildPath, () => buildUnlocked(config));
+	return withBuildDirectoryLock(buildPath, () => buildUnlocked(config));
 };
