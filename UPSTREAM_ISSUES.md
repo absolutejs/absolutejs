@@ -126,3 +126,60 @@ docker run --rm --network v6bh --cap-add=NET_ADMIN oven/bun:latest bash -c '
 ~25–138s on DO but works locally; IPv4-only hosts work everywhere. Confirm with
 `getent ahostsv6 <host>` (has AAAA?) and `curl -6 <host>` from the box (does v6
 egress work?).
+
+---
+
+## 3. `@playwright/mcp` orphans Chrome process trees when the MCP host dies
+
+- **Dependency:** `@playwright/mcp` (Microsoft) — source actually lives in
+  `playwright-core` at `packages/playwright-core/src/tools/mcp/watchdog.ts`
+- **Status:** PR open upstream; two prior reports dismissed as "no repro"
+  - **microsoft/playwright#41009** (the fix, open):
+    https://github.com/microsoft/playwright/pull/41009
+  - **microsoft/playwright-mcp#1634** (companion issue, open, reproduces with
+    PR linked): https://github.com/microsoft/playwright-mcp/issues/1634
+  - microsoft/playwright-mcp#1568 — same bug, correct root cause analysis,
+    closed by maintainer as "no repro":
+    https://github.com/microsoft/playwright-mcp/issues/1568
+  - microsoft/playwright-mcp#1512 — sister bug (orphan MCP servers via
+    `npm exec`), closed as no repro:
+    https://github.com/microsoft/playwright-mcp/issues/1512
+
+**Symptom.** Doesn't bite **deployed** AbsoluteJS apps — bites the **dev
+environment** any time an AI agent (Claude Code, Cursor, etc.) uses the
+`@playwright/mcp` server for browser automation. After hours/days of normal use,
+`pgrep -a -f 'ms-playwright/mcp-chrome'` shows multiple Chrome process trees
+re-parented to PID 1, each 200-500MB, sometimes burning a full core via
+SwiftShader software rendering after the parent is gone. On WSL with a fixed
+memory cap this drives the VM toward swap and slows everything else (TS server,
+bundlers, your AbsoluteJS app process).
+
+**Root cause.** `watchdog.ts` only listens for `SIGINT`, `SIGTERM`, and
+`process.stdin.on('close')`. None of those fire when:
+- the parent MCP host is SIGKILL'd (no signal reaches the MCP server), or
+- the parent sits behind an `npm exec` / `npx` intermediary (standard MCP
+  config: `{ "command": "npx", "args": ["@playwright/mcp@latest"] }`) which
+  swallows the stdin-close propagation.
+- the watchdog's 15s hard-exit `setTimeout(() => process.exit(0), 15000)`
+  calls `process.exit` **without** invoking `killSet` first, so even when it
+  does run, a slow `gracefullyCloseAll()` leaves chrome alive.
+
+**Workaround.** Periodically nuke orphan process trees. Safe to run any time —
+`@playwright/mcp` re-spawns Chrome on the next `browser_navigate`:
+
+```bash
+pgrep -f 'playwright-mcp' | xargs -r kill -9
+pgrep -f 'ms-playwright/mcp-chrome' | xargs -r kill -9
+# stale profile dirs older than 1h with no chrome attached:
+find ~/.cache/ms-playwright -maxdepth 1 -name 'mcp-chrome-*' -type d -mmin +60 -exec rm -rf {} +
+```
+
+The same instructions live in `~/.claude/CLAUDE.md` so every Claude Code
+session on the machine knows to triage this on its own.
+
+**Detection.** `ps -eo pid,rss,etime,cmd --sort=-rss | grep -E "playwright|mcp-chrome" | head`
+— if chrome processes are older than your longest active client session,
+they're orphans. On WSL especially: watch `free -m` against expected per-AI
+overhead; a persistent 1GB+ `node` is usually the TS server, but multiple
+600MB+ Chrome renderers with `etime > 1h` and no active browser session is
+this bug.
