@@ -133,11 +133,15 @@ egress work?).
 
 - **Dependency:** `@playwright/mcp` (Microsoft) — source actually lives in
   `playwright-core` at `packages/playwright-core/src/tools/mcp/watchdog.ts`
-- **Status:** PR open upstream; two prior reports dismissed as "no repro"
-  - **microsoft/playwright#41009** (the fix, open):
+- **Status:** bug filed on `microsoft/playwright`; original PR was dismissed
+  - **microsoft/playwright#41013** (the bug report with deterministic repro,
+    filed on the right repo since the code lives in `playwright-core`):
+    https://github.com/microsoft/playwright/issues/41013
+  - microsoft/playwright#41009 — proposed fix; closed by maintainer
+    ("Looks like agentic slop") without technical review:
     https://github.com/microsoft/playwright/pull/41009
-  - **microsoft/playwright-mcp#1634** (companion issue, open, reproduces with
-    PR linked): https://github.com/microsoft/playwright-mcp/issues/1634
+  - **microsoft/playwright-mcp#1634** (companion issue on the wrapper repo,
+    same analysis): https://github.com/microsoft/playwright-mcp/issues/1634
   - microsoft/playwright-mcp#1568 — same bug, correct root cause analysis,
     closed by maintainer as "no repro":
     https://github.com/microsoft/playwright-mcp/issues/1568
