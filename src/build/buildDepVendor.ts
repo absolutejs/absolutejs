@@ -165,6 +165,85 @@ const scanBareImports = async (
 	};
 };
 
+// Walk a package's internal relative-import graph starting from `entryPath`,
+// returning every bare specifier (subpath or sibling-package import) found
+// along the way. Cycle-safe (per-call `seenFiles`) and depth-limited (defaults
+// to 8 — deep enough for the CJS dev/prod-wrapper pattern that nests at least
+// 2 levels, conservative enough to bound work on pathologically deep trees).
+//
+// Why this exists: many published packages — especially anything React-adjacent
+// — ship a tiny CJS wrapper as their package "main" that conditionally
+// requires `./pkg.cjs.prod.js` or `./pkg.cjs.dev.js`. Those wrapper files
+// contain ONLY relative imports, so a one-file scan of the entry surfaces no
+// bare specifiers at all. The actual bare imports (`react`, `three`,
+// `zustand/traditional`, …) live in the dev/prod files. Without walking past
+// the wrapper, those deep bare imports never reach the vendor pipeline; the
+// browser later receives raw `import "zustand/traditional"` and fails module
+// resolution on hydration. Concrete repro: @react-three/fiber's wrapper
+// missed `zustand/traditional` until this walker existed.
+//
+// Walks across the SAME PACKAGE (relative paths from the entry's location)
+// and stops at any bare or absolute specifier — bare ones go into the result
+// for further per-spec processing by the caller. Resolution failures and
+// unreadable files are silent skips (matches the rest of the vendor
+// pipeline's "best-effort, never throw" stance).
+const collectBareImportsFromFile = async (
+	entryPath: string,
+	transpiler: Bun.Transpiler,
+	maxDepth = 8
+): Promise<string[]> => {
+	const { readFileSync } = await import('node:fs');
+	const { dirname } = await import('node:path');
+	const seenFiles = new Set<string>();
+	const bareOut = new Set<string>();
+	const queue: Array<{ path: string; depth: number }> = [
+		{ depth: 0, path: entryPath }
+	];
+
+	while (queue.length > 0) {
+		const { path, depth } = queue.shift()!;
+		if (seenFiles.has(path)) continue;
+		seenFiles.add(path);
+		if (depth > maxDepth) continue;
+
+		let content: string;
+		try {
+			content = readFileSync(path, 'utf-8');
+		} catch {
+			continue;
+		}
+		let imports;
+		try {
+			imports = transpiler.scanImports(content);
+		} catch {
+			continue;
+		}
+		const fromDir = dirname(path);
+		for (const imp of imports) {
+			const child = imp.path;
+			if (child.startsWith('.') || child.startsWith('/')) {
+				// Same-package relative — resolve from the importing file's
+				// directory (NOT the original entry's) so multi-level walks
+				// follow the actual filesystem tree. Resolution may fail for
+				// dynamic globs or platform-conditional imports; skip silently.
+				let resolved: string;
+				try {
+					resolved = Bun.resolveSync(child, fromDir);
+				} catch {
+					continue;
+				}
+				if (!seenFiles.has(resolved)) {
+					queue.push({ depth: depth + 1, path: resolved });
+				}
+			} else {
+				bareOut.add(child);
+			}
+		}
+	}
+
+	return Array.from(bareOut);
+};
+
 // Resolve each bare specifier and scan its entry file for further bare imports
 // (subpaths of the same or other packages). Bun's `external: ["rxjs"]` matches
 // subpaths like `rxjs/operators` as a prefix, so any subpath a transitive dep
@@ -177,12 +256,17 @@ const scanBareImports = async (
 // vendor pipeline (Angular/React/etc.) handles them. This is what surfaces
 // subpaths like `@firebase/auth/internal` that an Angular package transitively
 // imports through firebase-compat layers.
+//
+// Each spec's entry is walked through `collectBareImportsFromFile`, which
+// follows relative imports inside the package — necessary for packages whose
+// "main" is a tiny CJS wrapper that conditionally requires `./pkg.cjs.dev.js`
+// or `./pkg.cjs.prod.js` (the actual bare imports live deeper). See
+// collectBareImportsFromFile's comment for the full rationale.
 const collectTransitiveImports = async (
 	specs: Iterable<string>,
 	alreadyVendored: Set<string>,
 	alreadyScanned: Set<string>
 ) => {
-	const { readFileSync } = await import('node:fs');
 	const transpiler = new Bun.Transpiler({ loader: 'js' });
 	const newSpecs = new Set<string>();
 
@@ -195,20 +279,11 @@ const collectTransitiveImports = async (
 		} catch {
 			continue;
 		}
-		let content: string;
-		try {
-			content = readFileSync(resolved, 'utf-8');
-		} catch {
-			continue;
-		}
-		let imports;
-		try {
-			imports = transpiler.scanImports(content);
-		} catch {
-			continue;
-		}
-		for (const imp of imports) {
-			const child = imp.path;
+		const bareImports = await collectBareImportsFromFile(
+			resolved,
+			transpiler
+		);
+		for (const child of bareImports) {
 			if (!isBareSpecifier(child)) continue;
 			if (isFrameworkSpecifier(child)) continue;
 			if (isAbsolutePackageSpecifier(child)) continue;
