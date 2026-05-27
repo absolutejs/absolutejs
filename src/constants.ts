@@ -5,6 +5,13 @@ export const ASCII_SPACE = 32;
 export const BASE_36_RADIX = 36;
 export const BUN_BUILD_WARNING_SUPPRESSION =
 	'wildcard sideEffects are not supported yet';
+/* Tailwind v4 at-rules that Bun's native CSS parser doesn't recognize.
+   When a user imports their Tailwind entry CSS from a TS/TSX file, Bun's
+   bundler walks it and warns about each unknown at-rule even though the
+   actual Tailwind output is produced via the separate tailwindcss compile()
+   pipeline (see compileTailwind.ts). The warnings are noise — suppress them. */
+export const TAILWIND_BUN_CSS_WARNING_PATTERN =
+	/invalid @ rule encountered: '@(theme|tailwind|source|utility|variant|custom-variant|apply|reference|plugin|config)'/;
 export const BODY_SLICE_LENGTH = 2000;
 export const BYTES_PER_KILOBYTE = 1024;
 export const CLI_ARGS_OFFSET = 3;
