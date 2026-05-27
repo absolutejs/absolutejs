@@ -577,8 +577,6 @@ const copyPublishedSvelteRouterSources = async () => {
 		if (entry.endsWith('.ts')) {
 			const sourceText = await readFile(sourcePath, 'utf8');
 			await writeFile(targetPath, rewriteSvelteRouterSource(sourceText));
-
-			
 		}
 	});
 

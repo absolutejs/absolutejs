@@ -253,7 +253,7 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 		console.error(cliTag('\x1b[31m', String(err.message ?? err)));
 		process.exit(1);
 	});
-	let {port} = initialPortProbe;
+	let { port } = initialPortProbe;
 	if (initialPortProbe.fellBack) {
 		const displayHost =
 			resolvedDev.host === '0.0.0.0' ? 'localhost' : resolvedDev.host;
@@ -263,7 +263,10 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 		const heldBy =
 			holders.length > 0
 				? ` (held by ${holders
-						.map((holder) => `pid ${holder.pid} — ${holder.command.slice(0, 60)}`)
+						.map(
+							(holder) =>
+								`pid ${holder.pid} — ${holder.command.slice(0, 60)}`
+						)
 						.join(', ')})`
 				: '';
 		console.log(
@@ -338,7 +341,9 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 			relayUrl: resolvedDev.tunnel.relay,
 			token: resolvedDev.tunnel.token,
 			onReady: (publicUrl) =>
-				process.stdout.write(`  \x1b[32m➜\x1b[0m  \x1b[1mPublic:\x1b[0m  ${publicUrl}/\n`)
+				process.stdout.write(
+					`  \x1b[32m➜\x1b[0m  \x1b[1mPublic:\x1b[0m  ${publicUrl}/\n`
+				)
 		});
 	};
 
@@ -541,9 +546,7 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 			[
 				'--hot',
 				'--no-clear-screen',
-				...(heapSnapshotEnabled
-					? ['--preload', heapPreloadPath]
-					: []),
+				...(heapSnapshotEnabled ? ['--preload', heapPreloadPath] : []),
 				serverEntry
 			],
 			{
@@ -957,7 +960,10 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 			console.log(cliTag('\x1b[36m', 'Capturing heap snapshot...'));
 		} catch {
 			console.log(
-				cliTag('\x1b[33m', 'Could not signal the server for a snapshot.')
+				cliTag(
+					'\x1b[33m',
+					'Could not signal the server for a snapshot.'
+				)
 			);
 		}
 	};

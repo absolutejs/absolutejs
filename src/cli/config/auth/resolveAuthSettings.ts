@@ -37,9 +37,7 @@ export const findAuthSettingsObject = (
 
 	const visit = (node: ts.Node) => {
 		if (found) return;
-		const [firstArgument] = ts.isCallExpression(node)
-			? node.arguments
-			: [];
+		const [firstArgument] = ts.isCallExpression(node) ? node.arguments : [];
 		if (
 			ts.isCallExpression(node) &&
 			ts.isIdentifier(node.expression) &&
@@ -80,7 +78,8 @@ export const parseAuthSettingsObject = (configPath: string) => {
 const evalLiteral = (
 	node: ts.Expression
 ): { opaque: boolean; value: unknown } => {
-	if (ts.isStringLiteralLike(node)) return { opaque: false, value: node.text };
+	if (ts.isStringLiteralLike(node))
+		return { opaque: false, value: node.text };
 	if (node.kind === ts.SyntaxKind.TrueKeyword) {
 		return { opaque: false, value: true };
 	}

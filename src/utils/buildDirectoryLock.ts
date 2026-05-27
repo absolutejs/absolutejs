@@ -124,7 +124,7 @@ const isProcessAlive = (pid: number) => {
 
 		return true;
 	} catch (err) {
-		const {code} = (err as NodeJS.ErrnoException);
+		const { code } = err as NodeJS.ErrnoException;
 		if (code === 'ESRCH') return false; // no such process
 		if (code === 'EPERM') return true; // alive but not ours
 

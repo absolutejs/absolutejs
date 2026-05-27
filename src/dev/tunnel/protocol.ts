@@ -111,12 +111,14 @@ export type TunnelServerMessage =
 
 export const decodeTunnelMessage = (raw: string) => {
 	try {
-		const parsed: TunnelClientMessage | TunnelServerMessage = JSON.parse(raw);
+		const parsed: TunnelClientMessage | TunnelServerMessage =
+			JSON.parse(raw);
 
 		return parsed;
 	} catch {
 		return null;
 	}
 };
-export const encodeTunnelMessage = (message: TunnelClientMessage | TunnelServerMessage) =>
-	JSON.stringify(message);
+export const encodeTunnelMessage = (
+	message: TunnelClientMessage | TunnelServerMessage
+) => JSON.stringify(message);

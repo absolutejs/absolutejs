@@ -29,7 +29,8 @@ const untrackedName = (command: string) => {
 	const segments = entry.split('/').filter(Boolean);
 	segments.pop();
 	let dir = segments.pop();
-	if (dir === 'build' || dir === 'dist' || dir === 'src') dir = segments.pop();
+	if (dir === 'build' || dir === 'dist' || dir === 'src')
+		dir = segments.pop();
 
 	return dir ?? 'untracked';
 };

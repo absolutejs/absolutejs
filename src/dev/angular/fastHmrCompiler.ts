@@ -949,7 +949,7 @@ const extractControlCreate = (
 			)
 		)
 			continue;
-		const {name} = member;
+		const { name } = member;
 		if (name === undefined) continue;
 		const nameText = ts.isIdentifier(name) ? name.text : name.getText();
 		if (nameText !== CONTROL_CREATE_METHOD_NAME) continue;
@@ -1392,11 +1392,10 @@ const parseHostObjectInto = (
 		// sometimes have a parsed ref already)
 		if (!hostExprNode) return;
 	}
-	const obj = (
+	const obj =
 		hostNode && ts.isObjectLiteralExpression(hostNode)
 			? hostNode
-			: hostExprNode
-	);
+			: hostExprNode;
 	if (!obj) return;
 
 	for (const prop of obj.properties) {
@@ -2524,7 +2523,7 @@ const resolveImportSource = (
 		if (!ts.isStringLiteral(moduleSpec)) continue;
 		const spec = moduleSpec.text;
 		if (!spec.startsWith('.') && !spec.startsWith('/')) continue;
-		const {importClause} = stmt;
+		const { importClause } = stmt;
 		if (!importClause) continue;
 
 		let matches = false;
@@ -2651,7 +2650,7 @@ const extractPropertyFieldNames = (cls: ts.ClassDeclaration): string[] => {
 		) {
 			continue;
 		}
-		const {name} = member;
+		const { name } = member;
 		if (name === undefined) continue;
 		const text = ts.isIdentifier(name)
 			? name.text
@@ -3984,7 +3983,7 @@ export const tryFastHmr = async (
 			moduleText =
 				moduleText.slice(0, insertAt) +
 				depsDestructure +
-				(methodsBlock ? `\n${  methodsBlock  }\n` : '') +
+				(methodsBlock ? `\n${methodsBlock}\n` : '') +
 				moduleText.slice(insertAt);
 		}
 

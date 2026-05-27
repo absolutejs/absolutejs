@@ -203,7 +203,7 @@ type OptionRowProps = {
 };
 
 const OptionRow = ({ busy, current, onSave, option }: OptionRowProps) => {
-	const {name} = option;
+	const { name } = option;
 	if (name === undefined) return null;
 	const isSet = Object.prototype.hasOwnProperty.call(current, name);
 

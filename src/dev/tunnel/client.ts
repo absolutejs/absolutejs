@@ -38,7 +38,12 @@ const controlSocketUrl = (relayUrl: string, token: string) => {
 };
 
 // Hop-by-hop / relay-injected headers that must not be replayed to the local app.
-const STRIPPED_REQUEST_HEADERS = new Set(['host', 'connection', 'content-length', TUNNEL_FORWARDED_HOST_HEADER]);
+const STRIPPED_REQUEST_HEADERS = new Set([
+	'host',
+	'connection',
+	'content-length',
+	TUNNEL_FORWARDED_HOST_HEADER
+]);
 
 /**
  * Start the dev-side tunnel client. Dials the relay's control socket and
@@ -53,8 +58,13 @@ export const startTunnelClient = (options: TunnelClientOptions) => {
 	let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 	const localSockets = new Map<string, LocalWsEntry>();
 
-	const sendFrameToRelay = (id: string, data: string | Buffer, binary: boolean) => {
-		const bytes = typeof data === 'string' ? Buffer.from(data, 'utf8') : data;
+	const sendFrameToRelay = (
+		id: string,
+		data: string | Buffer,
+		binary: boolean
+	) => {
+		const bytes =
+			typeof data === 'string' ? Buffer.from(data, 'utf8') : data;
 		const message: TunnelWsDataMessage = {
 			binary,
 			dataBase64: bytes.toString('base64'),
@@ -73,9 +83,13 @@ export const startTunnelClient = (options: TunnelClientOptions) => {
 
 		local.addEventListener('open', () => {
 			entry.ready = true;
-			socket?.send(encodeTunnelMessage({ id, ok: true, type: 'ws_open_ack' }));
+			socket?.send(
+				encodeTunnelMessage({ id, ok: true, type: 'ws_open_ack' })
+			);
 			for (const frame of entry.pending) {
-				local.send(frame.binary ? frame.bytes : frame.bytes.toString('utf8'));
+				local.send(
+					frame.binary ? frame.bytes : frame.bytes.toString('utf8')
+				);
 			}
 			entry.pending = [];
 		});
@@ -88,12 +102,19 @@ export const startTunnelClient = (options: TunnelClientOptions) => {
 		});
 		local.addEventListener('close', (event) => {
 			localSockets.delete(id);
-			socket?.send(encodeTunnelMessage({ code: event.code, id, type: 'ws_close' }));
+			socket?.send(
+				encodeTunnelMessage({ code: event.code, id, type: 'ws_close' })
+			);
 		});
 		local.addEventListener('error', () => {
 			if (!entry.ready) {
 				socket?.send(
-					encodeTunnelMessage({ error: 'local ws failed', id, ok: false, type: 'ws_open_ack' })
+					encodeTunnelMessage({
+						error: 'local ws failed',
+						id,
+						ok: false,
+						type: 'ws_open_ack'
+					})
 				);
 			}
 		});
@@ -111,18 +132,26 @@ export const startTunnelClient = (options: TunnelClientOptions) => {
 		entry.ws.send(message.binary ? bytes : bytes.toString('utf8'));
 	};
 
-	const handleRequest = async (message: Extract<TunnelServerMessage, { type: 'request' }>) => {
+	const handleRequest = async (
+		message: Extract<TunnelServerMessage, { type: 'request' }>
+	) => {
 		const headers: Record<string, string> = {};
 		for (const [key, value] of Object.entries(message.headers)) {
-			if (!STRIPPED_REQUEST_HEADERS.has(key.toLowerCase())) headers[key] = value;
+			if (!STRIPPED_REQUEST_HEADERS.has(key.toLowerCase()))
+				headers[key] = value;
 		}
 		try {
-			const response = await fetch(`${options.localOrigin}${message.url}`, {
-				body: message.bodyBase64 ? Buffer.from(message.bodyBase64, 'base64') : undefined,
-				headers,
-				method: message.method,
-				redirect: 'manual'
-			});
+			const response = await fetch(
+				`${options.localOrigin}${message.url}`,
+				{
+					body: message.bodyBase64
+						? Buffer.from(message.bodyBase64, 'base64')
+						: undefined,
+					headers,
+					method: message.method,
+					redirect: 'manual'
+				}
+			);
 			const bodyBytes = new Uint8Array(await response.arrayBuffer());
 			const responseHeaders: Record<string, string> = {};
 			response.headers.forEach((value, key) => {
@@ -133,14 +162,17 @@ export const startTunnelClient = (options: TunnelClientOptions) => {
 				id: message.id,
 				status: response.status,
 				type: 'response',
-				...(bodyBytes.length > 0 ? { bodyBase64: Buffer.from(bodyBytes).toString('base64') } : {})
+				...(bodyBytes.length > 0
+					? { bodyBase64: Buffer.from(bodyBytes).toString('base64') }
+					: {})
 			};
 			socket?.send(encodeTunnelMessage(reply));
 		} catch (error) {
 			socket?.send(
 				encodeTunnelMessage({
 					id: message.id,
-					message: error instanceof Error ? error.message : String(error),
+					message:
+						error instanceof Error ? error.message : String(error),
 					type: 'error'
 				})
 			);
@@ -149,7 +181,9 @@ export const startTunnelClient = (options: TunnelClientOptions) => {
 
 	const connect = () => {
 		if (closed) return;
-		socket = new WebSocket(controlSocketUrl(options.relayUrl, options.token));
+		socket = new WebSocket(
+			controlSocketUrl(options.relayUrl, options.token)
+		);
 
 		socket.addEventListener('message', (event) => {
 			const message = decodeTunnelMessage(String(event.data));

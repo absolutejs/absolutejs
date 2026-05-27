@@ -47,8 +47,10 @@ const headersToObject = (headers: Headers) => {
  * it. Single-tenant: the shared `token` gates the control channel.
  */
 export const startTunnelRelay = (options: RelayOptions) => {
-	const port = options.port ?? (Number(process.env.PORT) || DEFAULT_RELAY_PORT);
-	const requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+	const port =
+		options.port ?? (Number(process.env.PORT) || DEFAULT_RELAY_PORT);
+	const requestTimeoutMs =
+		options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
 
 	let client: ServerWebSocket<SocketData> | null = null;
 	const pending = new Map<string, (message: TunnelClientMessage) => void>();
@@ -58,7 +60,9 @@ export const startTunnelRelay = (options: RelayOptions) => {
 		if (options.publicUrl) return options.publicUrl.replace(/\/$/, '');
 		const url = new URL(request.url);
 		const host = request.headers.get('x-forwarded-host') ?? url.host;
-		const proto = request.headers.get('x-forwarded-proto') ?? url.protocol.replace(':', '');
+		const proto =
+			request.headers.get('x-forwarded-proto') ??
+			url.protocol.replace(':', '');
 
 		return `${proto}://${host}`;
 	};
@@ -76,13 +80,18 @@ export const startTunnelRelay = (options: RelayOptions) => {
 					return;
 				}
 				publicSockets.delete(ws.data.id);
-				client?.send(encodeTunnelMessage({ id: ws.data.id, type: 'ws_close' }));
+				client?.send(
+					encodeTunnelMessage({ id: ws.data.id, type: 'ws_close' })
+				);
 			},
 			message(ws, raw) {
 				// Public socket: forward the raw frame to the dev client.
 				if (!ws.data.control) {
 					const binary = typeof raw !== 'string';
-					const bytes = typeof raw === 'string' ? Buffer.from(raw, 'utf8') : Buffer.from(raw);
+					const bytes =
+						typeof raw === 'string'
+							? Buffer.from(raw, 'utf8')
+							: Buffer.from(raw);
 					client?.send(
 						encodeTunnelMessage({
 							binary,
@@ -114,11 +123,15 @@ export const startTunnelRelay = (options: RelayOptions) => {
 					case 'ws_data': {
 						const target = publicSockets.get(message.id);
 						const bytes = Buffer.from(message.dataBase64, 'base64');
-						target?.send(message.binary ? bytes : bytes.toString('utf8'));
+						target?.send(
+							message.binary ? bytes : bytes.toString('utf8')
+						);
 						break;
 					}
 					case 'ws_close':
-						publicSockets.get(message.id)?.close(message.code, message.reason);
+						publicSockets
+							.get(message.id)
+							?.close(message.code, message.reason);
 						publicSockets.delete(message.id);
 						break;
 					default:
@@ -129,7 +142,12 @@ export const startTunnelRelay = (options: RelayOptions) => {
 				if (ws.data.control) {
 					// Single-tenant: a new client replaces any stale one.
 					client = ws;
-					ws.send(encodeTunnelMessage({ publicUrl: options.publicUrl ?? '', type: 'ready' }));
+					ws.send(
+						encodeTunnelMessage({
+							publicUrl: options.publicUrl ?? '',
+							type: 'ready'
+						})
+					);
 
 					return;
 				}
@@ -153,13 +171,20 @@ export const startTunnelRelay = (options: RelayOptions) => {
 				if (url.searchParams.get('token') !== options.token) {
 					return new Response('Forbidden', { status: 403 });
 				}
-				const upgraded = srv.upgrade(request, { data: { control: true } });
+				const upgraded = srv.upgrade(request, {
+					data: { control: true }
+				});
 
-				return upgraded ? undefined : new Response('Upgrade failed', { status: 426 });
+				return upgraded
+					? undefined
+					: new Response('Upgrade failed', { status: 426 });
 			}
 
 			if (!client) {
-				return new Response('Tunnel offline: no dev client connected.', { status: 503 });
+				return new Response(
+					'Tunnel offline: no dev client connected.',
+					{ status: 503 }
+				);
 			}
 
 			// Public WebSocket (e.g. Twilio Media Stream) → tunnel it by id.
@@ -174,7 +199,9 @@ export const startTunnelRelay = (options: RelayOptions) => {
 					}
 				});
 
-				return upgraded ? undefined : new Response('Upgrade failed', { status: 426 });
+				return upgraded
+					? undefined
+					: new Response('Upgrade failed', { status: 426 });
 			}
 
 			// Public HTTP request → forward and await the dev client's response.
@@ -196,32 +223,43 @@ export const startTunnelRelay = (options: RelayOptions) => {
 					: {})
 			};
 
-			const responsePromise = new Promise<TunnelClientMessage>((resolve) => {
-				pending.set(id, resolve);
-			});
+			const responsePromise = new Promise<TunnelClientMessage>(
+				(resolve) => {
+					pending.set(id, resolve);
+				}
+			);
 			client.send(encodeTunnelMessage(message));
 
 			const timeout = new Promise<TunnelClientMessage>((resolve) =>
-				setTimeout(() => resolve({ id, message: 'timeout', type: 'error' }), requestTimeoutMs)
+				setTimeout(
+					() => resolve({ id, message: 'timeout', type: 'error' }),
+					requestTimeoutMs
+				)
 			);
 			const result = await Promise.race([responsePromise, timeout]);
 			pending.delete(id);
 
 			if (result.type === 'error') {
-				return new Response(`Tunnel error: ${result.message}`, { status: 504 });
+				return new Response(`Tunnel error: ${result.message}`, {
+					status: 504
+				});
 			}
 			if (result.type !== 'response') {
 				return new Response('Tunnel protocol error', { status: 502 });
 			}
 
 			return new Response(
-				result.bodyBase64 ? Buffer.from(result.bodyBase64, 'base64') : null,
+				result.bodyBase64
+					? Buffer.from(result.bodyBase64, 'base64')
+					: null,
 				{ headers: result.headers, status: result.status }
 			);
 		}
 	});
 
-	console.info(`[tunnel-relay] listening on :${server.port} (control ${TUNNEL_CONTROL_PATH})`);
+	console.info(
+		`[tunnel-relay] listening on :${server.port} (control ${TUNNEL_CONTROL_PATH})`
+	);
 
 	return server;
 };

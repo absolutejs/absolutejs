@@ -70,7 +70,7 @@ export const isAtomicWriteTemp = (filename: string) =>
 
 export const startServerEntryWatcher = () => {
 	if (globalThis.__absoluteEntryWatcherStarted) return;
-	const {main} = Bun;
+	const { main } = Bun;
 	if (!main || !existsSync(main)) return;
 	globalThis.__absoluteEntryWatcherStarted = true;
 
@@ -266,7 +266,6 @@ export const startServerEntryWatcher = () => {
 		}
 		if (dir === configDir && filename === configBase) {
 			scheduleConfigChange(filename);
-			
 		}
 	};
 

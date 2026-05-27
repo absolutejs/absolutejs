@@ -282,7 +282,7 @@ const FRAMEWORK_DIR_KEYS_FOR_CLEANUP: Array<{
 ];
 
 const removeStaleGenerated = (state: HMRState, deletedFile: string) => {
-	const {config} = state;
+	const { config } = state;
 	const cwd = process.cwd();
 	const absDeleted = resolve(deletedFile).replace(/\\/g, '/');
 	for (const { configKey, framework } of FRAMEWORK_DIR_KEYS_FOR_CLEANUP) {
@@ -591,7 +591,7 @@ const enqueueAngularOwningComponentForStyle = (
 	state: HMRState,
 	changedStylePath: string
 ): void => {
-	const {angularDir} = state.resolvedPaths;
+	const { angularDir } = state.resolvedPaths;
 	if (!angularDir) return;
 	const visited = new Set<string>();
 	const stack = [
@@ -672,8 +672,8 @@ export const queueFileChange = async (
 	// `public/` mirrors to the build root (`build/<file>`).
 	// `assets/` mirrors to `build/assets/<file>` so URLs like
 	// `/assets/icons/foo.svg` keep resolving.
-	const {publicDir} = state.resolvedPaths;
-	const {assetsDir} = state.resolvedPaths;
+	const { publicDir } = state.resolvedPaths;
+	const { assetsDir } = state.resolvedPaths;
 	const handleStaticMirror = async (
 		sourceDir: string,
 		urlPrefix: string
@@ -681,10 +681,10 @@ export const queueFileChange = async (
 		const absSource = resolve(filePath);
 		const normalizedSource = absSource.replace(/\\/g, '/');
 		const normalizedDir = sourceDir.replace(/\\/g, '/');
-		if (!normalizedSource.startsWith(`${normalizedDir  }/`)) return false;
+		if (!normalizedSource.startsWith(`${normalizedDir}/`)) return false;
 		try {
 			const relFromDir = normalizedSource.slice(normalizedDir.length + 1);
-			const {buildDir} = state.resolvedPaths;
+			const { buildDir } = state.resolvedPaths;
 			const destPath = resolve(
 				buildDir,
 				urlPrefix ? `${urlPrefix}/${relFromDir}` : relFromDir
@@ -750,7 +750,7 @@ export const queueFileChange = async (
 		// would silently re-run with the pre-edit value. Only a full
 		// bundle rebuild gets fresh module references into
 		// `__abs_deps`.
-		const {angularDir} = state.resolvedPaths;
+		const { angularDir } = state.resolvedPaths;
 		let hasAngularDependent = false;
 		if (angularDir && state.dependencyGraph) {
 			try {
@@ -1484,7 +1484,7 @@ const decideAngularTier = async (
 			// to absolute before the prefix check.
 			const normalized = editedFile.replace(/\\/g, '/');
 			const angularDirAbs = resolve(angularDir).replace(/\\/g, '/');
-			if (normalized.startsWith(`${angularDirAbs  }/`)) {
+			if (normalized.startsWith(`${angularDirAbs}/`)) {
 				return {
 					kind: 'rebootstrap',
 					reason: `non-decorated angular file edited (${editedFile}) — consumers may hold stale resolved values`,

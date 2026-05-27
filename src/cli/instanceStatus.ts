@@ -58,10 +58,7 @@ const readMemory = async (pids: number[]) => {
 	output.split('\n').forEach((line) => {
 		const match = line.trim().match(/^(\d+)\s+(\d+)$/);
 		if (match) {
-			result.set(
-				Number(match[1]),
-				Number(match[2]) * BYTES_PER_KILOBYTE
-			);
+			result.set(Number(match[1]), Number(match[2]) * BYTES_PER_KILOBYTE);
 		}
 	});
 

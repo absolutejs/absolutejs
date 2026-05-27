@@ -580,9 +580,7 @@ export const launchConfig = async (args: string[], cwd = process.cwd()) => {
 			return resolveAuthState(cwd);
 		})
 		.post('/api/auth', ({ body }) => handleAuthEdit(cwd, body))
-		.post('/api/auth/scaffold', ({ body }) =>
-			handleAuthScaffold(cwd, body)
-		)
+		.post('/api/auth/scaffold', ({ body }) => handleAuthScaffold(cwd, body))
 		.get('/api/package', async () => {
 			const [, { resolvePackageJsonState }] = await packageOps();
 

@@ -1604,9 +1604,7 @@ const buildUnlocked = async ({
 								'node:fs/promises'
 							);
 							const { join } = await import('node:path');
-							const walk = async (
-								dir: string
-							) => {
+							const walk = async (dir: string) => {
 								const entries = await readdir(dir, {
 									withFileTypes: true
 								});

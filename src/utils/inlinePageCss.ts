@@ -18,18 +18,13 @@
  *  the handler hits `readFile` at most once per page per process. */
 const siblingCssCache = new Map<string, string>();
 
-export const injectInlineCss = <T extends string>(
-	headTag: T,
-	css: string
-) => {
+export const injectInlineCss = <T extends string>(headTag: T, css: string) => {
 	if (!css) return headTag;
 	const styleBlock = `<style data-absolute-page-css>${css}</style>`;
 
 	return headTag.replace('</head>', `${styleBlock}</head>`) as T;
 };
-export const readSiblingCss = async (
-	siblingJsPath: string | undefined
-) => {
+export const readSiblingCss = async (siblingJsPath: string | undefined) => {
 	if (!siblingJsPath) return '';
 	const cssPath = siblingJsPath.replace(/\.js$/, '.css');
 	if (cssPath === siblingJsPath) return '';

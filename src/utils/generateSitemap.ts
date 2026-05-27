@@ -81,9 +81,7 @@ const VALID_CHANGEFREQ = new Set<ChangeFrequency>([
 	'never'
 ]);
 
-const extractSitemapMetadataFromHandlerSource = (
-	source: string
-) => {
+const extractSitemapMetadataFromHandlerSource = (source: string) => {
 	const block = SITEMAP_BLOCK_PATTERN.exec(source);
 	if (!block) return undefined;
 	const body = block[1];
@@ -145,9 +143,7 @@ const routeIsPageHandler = (route: AppRoute) => {
 	return isPageHandler(route.handler);
 };
 
-const sitemapMetadataForRoute = (
-	route: AppRoute
-) => {
+const sitemapMetadataForRoute = (route: AppRoute) => {
 	const source = routeHandlerSource(route);
 	if (!source) return undefined;
 

@@ -64,9 +64,7 @@ const handlerSourceMentionsPageHelper = (
 	return PAGE_HANDLER_NAMES.some((name) => source.includes(name));
 };
 
-export const getOriginalPageHandlerSource = (
-	handler: unknown
-) => {
+export const getOriginalPageHandlerSource = (handler: unknown) => {
 	if (typeof handler !== 'function') return undefined;
 	const fn = handler as (...args: unknown[]) => unknown;
 	const info = pageHandlerWrappers.get(fn);

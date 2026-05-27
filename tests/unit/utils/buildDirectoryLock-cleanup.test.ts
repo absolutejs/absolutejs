@@ -77,7 +77,6 @@ main();
 		const errDrainPromise = drainErr();
 		const start = Date.now();
 		while (Date.now() - start < 10_000) {
-			 
 			const { value, done } = await reader.read();
 			if (done) break;
 			buffer += decoder.decode(value, { stream: true });

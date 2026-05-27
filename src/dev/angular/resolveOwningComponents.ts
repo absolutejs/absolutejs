@@ -212,8 +212,7 @@ const parseDecoratedClasses = (filePath: string) => {
 	return out;
 };
 
-const safeNormalize = (path: string) =>
-	resolve(path).replace(/\\/g, '/');
+const safeNormalize = (path: string) => resolve(path).replace(/\\/g, '/');
 
 export const resolveOwningComponents = (params: {
 	changedFilePath: string;

@@ -32,7 +32,7 @@ declare global {
 	interface Window {
 		__angularHmr?: AngularHmrBus;
 	}
-	 
+
 	var __angularHmr: AngularHmrBus | undefined;
 }
 

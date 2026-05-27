@@ -53,7 +53,9 @@ const isServiceCandidate = (value: unknown): value is ServiceConfig =>
 	isObject(value) &&
 	(typeof value.entry === 'string' || Array.isArray(value.command));
 
-export const isWorkspaceConfig = (config: ConfigInput): config is WorkspaceConfig => {
+export const isWorkspaceConfig = (
+	config: ConfigInput
+): config is WorkspaceConfig => {
 	if (!isObject(config)) {
 		return false;
 	}
@@ -150,5 +152,3 @@ export const loadRawConfig = async (configPath?: string) => {
 
 	return config;
 };
-
-
