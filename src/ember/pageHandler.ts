@@ -105,9 +105,7 @@ const buildHtmlShell = (
 	return (
 		`<!DOCTYPE html><html>${headTag}<body>` +
 		`<div id="ember-root">${bodyContent}</div>` +
-		`<script>${propsScript}</script>${ 
-		indexImport 
-		}</body></html>`
+		`<script>${propsScript}</script>${indexImport}</body></html>`
 	);
 };
 

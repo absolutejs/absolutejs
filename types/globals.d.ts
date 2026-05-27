@@ -49,9 +49,7 @@ declare global {
 	 *  onRequest/onAfterResponse hooks in `requestInspector` and served at
 	 *  `/__absolute/requests` for `absolute inspect`. On globalThis so it
 	 *  survives Path B server-entry HMR. Stays unset outside dev. */
-	var __absoluteRequestLog:
-		| import('./cli').RequestRecord[]
-		| undefined;
+	var __absoluteRequestLog: import('./cli').RequestRecord[] | undefined;
 
 	/* Client-side globals (Window extensions for HMR) */
 	interface Window {

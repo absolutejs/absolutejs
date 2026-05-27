@@ -76,7 +76,7 @@ const writeEntryScript = (entryPath: string, port: number, sentinel: string) =>
 
 const atomicRenameSentinel = (entryPath: string, from: string, to: string) => {
 	const current = readFileSync(entryPath, 'utf-8');
-	const tmpPath = `${entryPath  }.tmp`;
+	const tmpPath = `${entryPath}.tmp`;
 	writeFileSync(
 		tmpPath,
 		current.replace(`SENTINEL = '${from}'`, `SENTINEL = '${to}'`),

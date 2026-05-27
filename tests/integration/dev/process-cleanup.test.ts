@@ -82,18 +82,16 @@ setInterval(() => {}, 1_000_000);
 		const start = Date.now();
 		let childPid: number | null = null;
 		while (Date.now() - start < 10_000) {
-			 
 			const file = Bun.file(pidFile);
-			 
+
 			if (await file.exists()) {
-				 
 				const text = (await file.text()).trim();
 				if (text.length > 0) {
 					childPid = Number(text);
 					break;
 				}
 			}
-			 
+
 			await Bun.sleep(50);
 		}
 
@@ -134,7 +132,7 @@ setInterval(() => {}, 1_000_000);
 		const killStart = Date.now();
 		while (Date.now() - killStart < 2_000) {
 			if (!isPidRunning(childPid!)) break;
-			 
+
 			await Bun.sleep(50);
 		}
 

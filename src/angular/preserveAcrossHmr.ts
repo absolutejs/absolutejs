@@ -76,10 +76,7 @@ import {
  *      to string. Use `ngOnInit` to call this when the key depends
  *      on `@Input` values, since Angular sets inputs between
  *      constructor and ngOnInit. */
-export const preserveAcrossHmr = (
-	instance: object,
-	key?: string | number
-) => {
+export const preserveAcrossHmr = (instance: object, key?: string | number) => {
 	if (!isHmrPreserveDev()) return;
 
 	const fullKey = buildCacheKey(instance, key);

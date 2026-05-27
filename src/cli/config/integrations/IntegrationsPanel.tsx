@@ -138,8 +138,8 @@ export const IntegrationsPanel = ({
 					</h1>
 					<div className="subpath">
 						<span className="dot" />
-						official Elysia plugins — install &amp; wire from here or{' '}
-						<code>absolute add</code>
+						official Elysia plugins — install &amp; wire from here
+						or <code>absolute add</code>
 					</div>
 				</div>
 			</header>
@@ -149,7 +149,8 @@ export const IntegrationsPanel = ({
 					<div className="section-head">
 						<h2 className="section-title">Official plugins</h2>
 						<span className="section-files">
-							{items.filter((item) => item.enabled).length} enabled
+							{items.filter((item) => item.enabled).length}{' '}
+							enabled
 						</span>
 					</div>
 					{items.map((item) => (

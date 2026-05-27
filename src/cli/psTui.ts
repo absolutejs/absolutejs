@@ -406,7 +406,8 @@ const driveListTui = async (terminal: TuiInput) => {
 		// Prefill with the hovered server's port so killing it is just Enter —
 		// still editable for freeing an arbitrary port.
 		const selectedPort = selectedInstance()?.port;
-		portBuffer = typeof selectedPort === 'number' ? String(selectedPort) : '';
+		portBuffer =
+			typeof selectedPort === 'number' ? String(selectedPort) : '';
 		scheduleRender();
 	};
 

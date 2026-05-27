@@ -62,10 +62,23 @@ const packageVersion = (cwd: string, specifier: string) => {
 	const candidates =
 		specifier === '@absolutejs/absolute'
 			? [
-					resolve(cwd, 'node_modules', '@absolutejs', 'absolute', 'package.json'),
+					resolve(
+						cwd,
+						'node_modules',
+						'@absolutejs',
+						'absolute',
+						'package.json'
+					),
 					resolve(cwd, 'package.json')
 				]
-			: [resolve(cwd, 'node_modules', ...specifier.split('/'), 'package.json')];
+			: [
+					resolve(
+						cwd,
+						'node_modules',
+						...specifier.split('/'),
+						'package.json'
+					)
+				];
 	for (const candidate of candidates) {
 		try {
 			const { version } = JSON.parse(readFileSync(candidate, 'utf-8'));
@@ -97,7 +110,8 @@ const cacheSignature = (
 	return signature;
 };
 
-const cacheSlug = (specifier: string) => specifier.replace('@', '').split('/').join('-');
+const cacheSlug = (specifier: string) =>
+	specifier.replace('@', '').split('/').join('-');
 
 const cacheFile = (cwd: string, typeName: string, specifier: string) => {
 	const name =

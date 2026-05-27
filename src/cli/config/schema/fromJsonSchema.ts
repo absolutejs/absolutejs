@@ -56,7 +56,7 @@ export const fromJsonSchema = (schema: unknown, depth = 0): FieldSchema => {
 	if (type === 'boolean') return { kind: 'boolean' };
 
 	if (type === 'array') {
-		const {items} = schema;
+		const { items } = schema;
 		if (Array.isArray(items)) {
 			return {
 				items: items.map((item) => fromJsonSchema(item, depth + 1)),

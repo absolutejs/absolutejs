@@ -32,9 +32,7 @@ type SpaRouteEntry = {
 
 const sideManifestCache = new Map<string, SpaRouteEntry[]>();
 
-const readSideManifest = async (
-	sideManifestPath: string
-) => {
+const readSideManifest = async (sideManifestPath: string) => {
 	const cached = sideManifestCache.get(sideManifestPath);
 	if (cached !== undefined) return cached;
 	try {
@@ -81,10 +79,7 @@ const matcherFor = (pattern: string) => {
 
 /** Find the route whose path pattern matches the given URL pathname.
  *  Routes are tried in declaration order; the first match wins. */
-const findMatchingRoute = (
-	routes: SpaRouteEntry[],
-	pathname: string
-) => {
+const findMatchingRoute = (routes: SpaRouteEntry[], pathname: string) => {
 	for (const route of routes) {
 		if (matcherFor(route.path).test(pathname)) return route;
 	}

@@ -38,9 +38,7 @@ const tailLines = (path: string, maxLines: number) => {
 };
 
 const parseLines = (args: string[]) => {
-	const index = args.findIndex(
-		(arg) => arg === '-n' || arg === '--lines'
-	);
+	const index = args.findIndex((arg) => arg === '-n' || arg === '--lines');
 	if (index === UNFOUND_INDEX) return DEFAULT_LINES;
 	const value = Number(args[index + 1]);
 
@@ -49,9 +47,7 @@ const parseLines = (args: string[]) => {
 
 // Strip `-n N` so the remaining bare token is the server name.
 const targetName = (args: string[]) => {
-	const index = args.findIndex(
-		(arg) => arg === '-n' || arg === '--lines'
-	);
+	const index = args.findIndex((arg) => arg === '-n' || arg === '--lines');
 	const cleaned =
 		index === UNFOUND_INDEX
 			? args

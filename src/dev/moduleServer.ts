@@ -1421,7 +1421,7 @@ const transformAndCache = async (
 				).replace(/\\/g, '/');
 				const normalized = filePath.replace(/\\/g, '/');
 				if (
-					normalized.startsWith(`${generatedAngularRoot  }/`) ||
+					normalized.startsWith(`${generatedAngularRoot}/`) ||
 					normalized.startsWith(generatedAngularRoot)
 				) {
 					const tail = normalized.slice(
@@ -1432,7 +1432,7 @@ const transformAndCache = async (
 					// path appended to the generated root, so a
 					// leading `/`-prefixed tail IS already the source
 					// path.
-					const absoluteCandidate = `/${  tail.replace(/^\/+/, '')}`;
+					const absoluteCandidate = `/${tail.replace(/^\/+/, '')}`;
 					// Source files INSIDE the angular root (most
 					// common — `angular/data/labels.json`) land as
 					// just the relative-from-angular-root path. To
@@ -1581,9 +1581,7 @@ const transformAndCache = async (
  * that context — go through a module-level cached lookup so we don't
  * thread the parameter through every call site. */
 let cachedAngularUserRoot: string | null | undefined;
-const getAngularUserRoot = async (
-	_projectRoot: string
-) => {
+const getAngularUserRoot = async (_projectRoot: string) => {
 	if (cachedAngularUserRoot !== undefined) return cachedAngularUserRoot;
 	cachedAngularUserRoot = configuredAngularUserRoot ?? null;
 

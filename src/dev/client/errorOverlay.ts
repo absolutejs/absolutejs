@@ -107,7 +107,7 @@ const buildLocationSection = (
 
 	if (lineText) {
 		const codeBlock = document.createElement('pre');
-		codeBlock.style.cssText = `${codeBlockStyle  }margin-top:8px;`;
+		codeBlock.style.cssText = `${codeBlockStyle}margin-top:8px;`;
 		codeBlock.textContent = lineText;
 		locSection.appendChild(codeBlock);
 	}
@@ -140,7 +140,7 @@ const buildStackSection = (stack: string | undefined, message: string) => {
 	label.textContent = 'Stack';
 	section.appendChild(label);
 	const pre = document.createElement('pre');
-	pre.style.cssText = `${codeBlockStyle  }max-height:300px;overflow-y:auto;`;
+	pre.style.cssText = `${codeBlockStyle}max-height:300px;overflow-y:auto;`;
 	pre.textContent = cleaned;
 	section.appendChild(pre);
 
@@ -154,7 +154,7 @@ const collectLoadedScripts = () => {
 	const scripts = Array.from(document.querySelectorAll('script[src]'));
 	const urls: string[] = [];
 	for (const script of scripts) {
-		const {src} = (script as HTMLScriptElement);
+		const { src } = script as HTMLScriptElement;
 		if (!src) continue;
 		// Filter to JS we serve — vendor chunks, generated indexes, root
 		// chunk-XXX.js outputs. Skip user-pasted CDN scripts and the like.
@@ -194,7 +194,7 @@ const buildDiagnosticsSection = () => {
 	}
 
 	const pre = document.createElement('pre');
-	pre.style.cssText = `${codeBlockStyle  }max-height:200px;overflow-y:auto;`;
+	pre.style.cssText = `${codeBlockStyle}max-height:200px;overflow-y:auto;`;
 	pre.textContent = lines.join('\n');
 	section.appendChild(pre);
 

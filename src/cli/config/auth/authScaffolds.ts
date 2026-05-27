@@ -61,7 +61,10 @@ export const AUTH_SCAFFOLDS: Record<string, AuthScaffold> = {
 		configKey: 'compliance',
 		exportName: 'complianceConfig',
 		fields: [
-			{ name: 'deleteUserData', value: TODO('erase or anonymize the user in your stores') },
+			{
+				name: 'deleteUserData',
+				value: TODO('erase or anonymize the user in your stores')
+			},
 			{ name: 'exportUserData', value: 'async ({ user }) => ({})' },
 			{ name: 'getUserId', value: '(user) => user.sub' }
 		],
@@ -75,10 +78,21 @@ export const AUTH_SCAFFOLDS: Record<string, AuthScaffold> = {
 		configKey: 'credentials',
 		exportName: 'credentialsConfig',
 		fields: [
-			{ name: 'credentialStore', value: 'createInMemoryCredentialStore()' },
+			{
+				name: 'credentialStore',
+				value: 'createInMemoryCredentialStore()'
+			},
 			{ name: 'getUserByEmail', value: TODO('look up a user by email') },
-			{ name: 'onCreateCredentialUser', value: TODO('create and return the user for identity.email') },
-			{ name: 'onSendEmail', value: TODO('send the verification / reset email containing message.token') },
+			{
+				name: 'onCreateCredentialUser',
+				value: TODO('create and return the user for identity.email')
+			},
+			{
+				name: 'onSendEmail',
+				value: TODO(
+					'send the verification / reset email containing message.token'
+				)
+			},
 			{ name: 'requireEmailVerification', value: 'false' }
 		],
 		generic: true,
@@ -107,7 +121,10 @@ export const AUTH_SCAFFOLDS: Record<string, AuthScaffold> = {
 		fields: [
 			{ name: 'mfaStore', value: 'createInMemoryMfaStore()' },
 			{ name: 'getUserId', value: '(user) => user.sub' },
-			{ name: 'getChallengeUser', value: TODO('resolve the parked challenge identity to a user') },
+			{
+				name: 'getChallengeUser',
+				value: TODO('resolve the parked challenge identity to a user')
+			},
 			{ name: 'issuer', value: "'YourApp'" }
 		],
 		generic: true,
@@ -121,7 +138,10 @@ export const AUTH_SCAFFOLDS: Record<string, AuthScaffold> = {
 		exportName: 'organizationsConfig',
 		fields: [
 			{ name: 'getUserId', value: '(user) => user.sub' },
-			{ name: 'organizationStore', value: 'createInMemoryOrganizationStore()' }
+			{
+				name: 'organizationStore',
+				value: 'createInMemoryOrganizationStore()'
+			}
 		],
 		generic: true,
 		imports: ['createInMemoryOrganizationStore'],
@@ -133,9 +153,15 @@ export const AUTH_SCAFFOLDS: Record<string, AuthScaffold> = {
 		configKey: 'passwordless',
 		exportName: 'passwordlessConfig',
 		fields: [
-			{ name: 'passwordlessTokenStore', value: 'createInMemoryPasswordlessTokenStore()' },
+			{
+				name: 'passwordlessTokenStore',
+				value: 'createInMemoryPasswordlessTokenStore()'
+			},
 			{ name: 'getUserByEmail', value: TODO('look up a user by email') },
-			{ name: 'onSendMagicLink', value: TODO('email the magic link containing message.token') }
+			{
+				name: 'onSendMagicLink',
+				value: TODO('email the magic link containing message.token')
+			}
 		],
 		generic: true,
 		imports: ['createInMemoryPasswordlessTokenStore'],
@@ -147,7 +173,10 @@ export const AUTH_SCAFFOLDS: Record<string, AuthScaffold> = {
 		configKey: 'portal',
 		exportName: 'portalConfig',
 		fields: [
-			{ name: 'setupSessionStore', value: 'createInMemorySetupSessionStore()' }
+			{
+				name: 'setupSessionStore',
+				value: 'createInMemorySetupSessionStore()'
+			}
 		],
 		generic: false,
 		imports: ['createInMemorySetupSessionStore'],
@@ -160,7 +189,10 @@ export const AUTH_SCAFFOLDS: Record<string, AuthScaffold> = {
 		exportName: 'rolesConfig',
 		fields: [
 			{ name: 'getUserId', value: '(user) => user.sub' },
-			{ name: 'organizationStore', value: 'createInMemoryOrganizationStore()' },
+			{
+				name: 'organizationStore',
+				value: 'createInMemoryOrganizationStore()'
+			},
 			{ name: 'roleStore', value: 'createInMemoryRoleStore()' }
 		],
 		generic: true,
@@ -174,11 +206,25 @@ export const AUTH_SCAFFOLDS: Record<string, AuthScaffold> = {
 		exportName: 'scimConfig',
 		fields: [
 			{ name: 'scimTokenStore', value: 'createInMemoryScimTokenStore()' },
-			{ name: 'getScimUser', value: TODO('return the SCIM user for { id, organizationId }') },
+			{
+				name: 'getScimUser',
+				value: TODO('return the SCIM user for { id, organizationId }')
+			},
 			{ name: 'listScimUsers', value: 'async () => []' },
-			{ name: 'onScimUserCreate', value: TODO('create and return the SCIM user') },
-			{ name: 'onScimUserDeactivate', value: TODO('deprovision the user (hard-delete or deactivate)') },
-			{ name: 'onScimUserReplace', value: TODO('replace and return the SCIM user (undefined if unknown)') }
+			{
+				name: 'onScimUserCreate',
+				value: TODO('create and return the SCIM user')
+			},
+			{
+				name: 'onScimUserDeactivate',
+				value: TODO('deprovision the user (hard-delete or deactivate)')
+			},
+			{
+				name: 'onScimUserReplace',
+				value: TODO(
+					'replace and return the SCIM user (undefined if unknown)'
+				)
+			}
 		],
 		generic: false,
 		imports: ['createInMemoryScimTokenStore'],
@@ -200,8 +246,16 @@ export const AUTH_SCAFFOLDS: Record<string, AuthScaffold> = {
 		configKey: 'sso',
 		exportName: 'ssoConfig',
 		fields: [
-			{ name: 'ssoConnectionStore', value: 'createInMemorySsoConnectionStore()' },
-			{ name: 'getSsoUser', value: TODO('map the verified SSO identity to your user (create on first sign-in)') }
+			{
+				name: 'ssoConnectionStore',
+				value: 'createInMemorySsoConnectionStore()'
+			},
+			{
+				name: 'getSsoUser',
+				value: TODO(
+					'map the verified SSO identity to your user (create on first sign-in)'
+				)
+			}
 		],
 		generic: true,
 		imports: ['createInMemorySsoConnectionStore'],
@@ -213,9 +267,15 @@ export const AUTH_SCAFFOLDS: Record<string, AuthScaffold> = {
 		configKey: 'webauthn',
 		exportName: 'webauthnConfig',
 		fields: [
-			{ name: 'credentialStore', value: 'createInMemoryWebAuthnCredentialStore()' },
+			{
+				name: 'credentialStore',
+				value: 'createInMemoryWebAuthnCredentialStore()'
+			},
 			{ name: 'getUserId', value: '(user) => user.sub' },
-			{ name: 'getWebAuthnUser', value: TODO('resolve a stored credential userId back to a user') },
+			{
+				name: 'getWebAuthnUser',
+				value: TODO('resolve a stored credential userId back to a user')
+			},
 			{ name: 'origin', value: "'http://localhost:3000'" },
 			{ name: 'rpId', value: "'localhost'" },
 			{ name: 'rpName', value: "'YourApp'" },
@@ -225,7 +285,10 @@ export const AUTH_SCAFFOLDS: Record<string, AuthScaffold> = {
 			}
 		],
 		generic: true,
-		imports: ['createInMemoryWebAuthnCredentialStore', 'type WebAuthnAdapter'],
+		imports: [
+			'createInMemoryWebAuthnCredentialStore',
+			'type WebAuthnAdapter'
+		],
 		note: 'Provide a real `webauthnAdapter` wrapping a vetted library (e.g. @simplewebauthn/server); set origin/rpId/rpName for your domain.',
 		packages: [],
 		typeName: 'WebAuthnConfig'

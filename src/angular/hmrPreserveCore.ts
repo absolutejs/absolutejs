@@ -24,10 +24,7 @@ type PreserveScope = typeof globalThis & {
 	__ABS_HMR_REBOOT_STATS__?: RebootStats;
 };
 
-export const buildCacheKey = (
-	instance: object,
-	key?: unknown
-) => {
+export const buildCacheKey = (instance: object, key?: unknown) => {
 	const className = instance.constructor?.name;
 	if (!className || className === 'Object') return null;
 	const suffix = key === undefined || key === null ? '' : String(key);
@@ -166,10 +163,7 @@ export const isPreservable = (value: unknown, depth = 0): boolean => {
 
 	return false;
 };
-export const restoreFromCacheCore = (
-	instance: object,
-	key: string
-) => {
+export const restoreFromCacheCore = (instance: object, key: string) => {
 	const cache = getCache();
 	const stored = cache.get(key);
 	if (!stored) return false;

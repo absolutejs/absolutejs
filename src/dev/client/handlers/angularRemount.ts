@@ -222,10 +222,7 @@ const teardownOldLView = (oldLView: LView) => {
  * `def.inputs` metadata format (modern Angular):
  *   - `{ propName: 'classFieldName' }` (simple alias)
  *   - `{ propName: ['publicName', 'classFieldName', transformFn?] }` */
-const copyInputsFromOldToNew = (
-	oldInstance: unknown,
-	newInstance: unknown
-) => {
+const copyInputsFromOldToNew = (oldInstance: unknown, newInstance: unknown) => {
 	if (!oldInstance || !newInstance) return;
 	const def = (newInstance as { constructor?: { ɵcmp?: unknown } })
 		.constructor?.ɵcmp as { inputs?: Record<string, unknown> } | undefined;

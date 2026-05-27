@@ -229,7 +229,9 @@ const columnWidths = (groups: FrameworkGroup[], showSizes: boolean) => {
 	return {
 		name: Math.max(...pages.map((page) => page.name.length)),
 		size: showSizes
-			? Math.max(...pages.map((page) => formatSize(page.sizeBytes).length))
+			? Math.max(
+					...pages.map((page) => formatSize(page.sizeBytes).length)
+				)
 			: 0
 	};
 };
@@ -261,7 +263,10 @@ const renderGroup = (
 
 const renderFooter = (groups: FrameworkGroup[]) => {
 	const frameworkCount = groups.length;
-	const pageCount = groups.reduce((sum, group) => sum + group.pages.length, 0);
+	const pageCount = groups.reduce(
+		(sum, group) => sum + group.pages.length,
+		0
+	);
 
 	return `\n${colors.dim}${frameworkCount} ${frameworkCount === 1 ? 'framework' : 'frameworks'} · ${pageCount} ${pluralPages(pageCount)}${colors.reset}`;
 };

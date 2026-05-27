@@ -142,7 +142,7 @@ const writeAcceptanceApp = async (root: string) => {
 			},
 			null,
 			'\t'
-		)  }\n`
+		)}\n`
 	);
 
 	await writeFile(
@@ -373,25 +373,25 @@ const waitForEvaluate = async <T>(
 };
 
 const assertBrowserAcceptance = async (baseUrl: string) => {
-	const {WebView} = (Bun as unknown as {
-			WebView?: new (options: Record<string, unknown>) => {
-				addEventListener?: (
-					type: string,
-					listener: (event: { data?: unknown }) => void
-				) => void;
-				cdp?: (
-					method: string,
-					params?: Record<string, unknown>
-				) => Promise<unknown>;
-				click: (
-					selector: string,
-					options?: Record<string, unknown>
-				) => Promise<void>;
-				close: () => void;
-				evaluate: <T = unknown>(script: string) => Promise<T>;
-				navigate: (url: string) => Promise<void>;
-			};
-		});
+	const { WebView } = Bun as unknown as {
+		WebView?: new (options: Record<string, unknown>) => {
+			addEventListener?: (
+				type: string,
+				listener: (event: { data?: unknown }) => void
+			) => void;
+			cdp?: (
+				method: string,
+				params?: Record<string, unknown>
+			) => Promise<unknown>;
+			click: (
+				selector: string,
+				options?: Record<string, unknown>
+			) => Promise<void>;
+			close: () => void;
+			evaluate: <T = unknown>(script: string) => Promise<T>;
+			navigate: (url: string) => Promise<void>;
+		};
+	};
 	if (!WebView) return;
 
 	const consoleErrors: unknown[] = [];

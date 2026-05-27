@@ -168,7 +168,7 @@ const collectAngularResourceDirs = (angularDir: string) => {
 				// Skip if already under angularDir (recursive watch covers it).
 				if (
 					refDir === angularRootNormalized ||
-					refDir.startsWith(`${angularRootNormalized  }/`)
+					refDir.startsWith(`${angularRootNormalized}/`)
 				) {
 					continue;
 				}

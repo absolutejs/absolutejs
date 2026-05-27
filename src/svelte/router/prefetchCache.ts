@@ -11,9 +11,9 @@ const cache = new Map<string, CacheEntry>();
 const isSlowConnection = () => {
 	if (typeof navigator === 'undefined') return false;
 
-	const {connection} = (navigator as Navigator & {
-			connection?: { saveData?: boolean };
-		});
+	const { connection } = navigator as Navigator & {
+		connection?: { saveData?: boolean };
+	};
 
 	return connection?.saveData === true;
 };

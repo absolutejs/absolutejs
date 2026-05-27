@@ -19,7 +19,7 @@ export const buildHashHref = (pathname: string) => {
 	return trimmed === '' ? '#/' : `#/${trimmed}`;
 };
 export const hashPathnameOf = (url: URL) => {
-	const {hash} = url;
+	const { hash } = url;
 	if (!hash || hash === '#') return '/';
 
 	// Tolerate both `#/foo` and `#foo`.

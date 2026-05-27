@@ -67,7 +67,11 @@ const NavGroup = ({ active, group }: NavGroupProps) => (
 	<div className="cfg-group">
 		<div className="cfg-rail-label">{group.label}</div>
 		{group.items.map((entry) => (
-			<NavItem active={entry.id === active} key={entry.id} panel={entry} />
+			<NavItem
+				active={entry.id === active}
+				key={entry.id}
+				panel={entry}
+			/>
 		))}
 	</div>
 );

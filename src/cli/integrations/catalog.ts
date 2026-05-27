@@ -64,7 +64,8 @@ export const INTEGRATIONS: IntegrationMeta[] = [
 		wiring: {
 			importLine: "import { cron } from '@elysiajs/cron';",
 			kind: 'use',
-			useLine: ".use(cron({ name: 'heartbeat', pattern: '0 */6 * * *', run() {} }))"
+			useLine:
+				".use(cron({ name: 'heartbeat', pattern: '0 */6 * * *', run() {} }))"
 		}
 	}
 ];

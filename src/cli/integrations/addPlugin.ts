@@ -3,7 +3,11 @@ import { join } from 'node:path';
 import { installPackages } from '../add/dependencies';
 import { applyAbsoluteConfigEdit } from '../config/absolute/editAbsoluteConfig';
 import { readAbsoluteConfigValues } from '../config/absolute/resolveAbsoluteConfig';
-import { findIntegration, INTEGRATIONS, type IntegrationWiring } from './catalog';
+import {
+	findIntegration,
+	INTEGRATIONS,
+	type IntegrationWiring
+} from './catalog';
 import type {
 	IntegrationAddResult,
 	IntegrationItem,

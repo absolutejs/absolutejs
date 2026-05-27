@@ -34,9 +34,7 @@ export const encodeHmrComponentId = (
 
 	return `${projectRel}@${className}`;
 };
-export const getApplyMetadataModule = async (
-	encodedId: string
-) => {
+export const getApplyMetadataModule = async (encodedId: string) => {
 	const decoded = decodeURIComponent(encodedId);
 	const at = decoded.lastIndexOf('@');
 	if (at === -1) return null;

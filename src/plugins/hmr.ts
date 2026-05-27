@@ -139,10 +139,7 @@ const resolveDevAssetResponse = async (
 /* Attempt to read `<buildDir>/<pathname>` from disk for a hashed
  * asset URL that's no longer in the in-memory store. Returns null
  * on read error (file not found, outside buildDir, etc.). */
-const tryReadFromBuildDir = async (
-	hmrState: HMRState,
-	pathname: string
-) => {
+const tryReadFromBuildDir = async (hmrState: HMRState, pathname: string) => {
 	const buildDir = hmrState.resolvedPaths?.buildDir;
 	if (!buildDir) return null;
 	if (!pathname.startsWith('/')) return null;

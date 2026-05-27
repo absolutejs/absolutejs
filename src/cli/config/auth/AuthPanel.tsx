@@ -70,7 +70,12 @@ type FeatureCardProps = {
 	result: AuthScaffoldResult | null;
 };
 
-const FeatureCard = ({ busy, feature, onScaffold, result }: FeatureCardProps) => (
+const FeatureCard = ({
+	busy,
+	feature,
+	onScaffold,
+	result
+}: FeatureCardProps) => (
 	<div className="rule">
 		<div className="rule-main">
 			<div className="rule-name-row">
@@ -118,15 +123,25 @@ const NotInstalled = ({ npmUrl, repoUrl }: AuthPanelState) => (
 			<section className="section">
 				<p className="rule-desc">
 					Enterprise auth for AbsoluteJS — OAuth2, credentials, SSO,
-					SCIM, MFA, passkeys, organizations, and more. Install it, then
-					this panel introspects your setup.
+					SCIM, MFA, passkeys, organizations, and more. Install it,
+					then this panel introspects your setup.
 				</p>
 				<pre className="intg-code">bun add @absolutejs/auth</pre>
 				<div className="auth-links">
-					<a className="auth-link" href={repoUrl} rel="noreferrer" target="_blank">
+					<a
+						className="auth-link"
+						href={repoUrl}
+						rel="noreferrer"
+						target="_blank"
+					>
 						GitHub ↗
 					</a>
-					<a className="auth-link" href={npmUrl} rel="noreferrer" target="_blank">
+					<a
+						className="auth-link"
+						href={npmUrl}
+						rel="noreferrer"
+						target="_blank"
+					>
 						npm ↗
 					</a>
 				</div>
@@ -238,9 +253,10 @@ export const AuthPanel = ({ state: initial }: AuthPanelProps) => {
 					</div>
 				) : (
 					<div className="auth-banner warn">
-						Couldn’t find an <code>auth()</code> call to introspect —
-						showing the full capability catalog as a reference. Features
-						are configured in code where you call <code>auth()</code>.
+						Couldn’t find an <code>auth()</code> call to introspect
+						— showing the full capability catalog as a reference.
+						Features are configured in code where you call{' '}
+						<code>auth()</code>.
 					</div>
 				)}
 
@@ -262,7 +278,8 @@ export const AuthPanel = ({ state: initial }: AuthPanelProps) => {
 					<div className="section-head">
 						<h2 className="section-title">Features</h2>
 						<span className="section-files">
-							{configuredCount} of {state.features.length} configured
+							{configuredCount} of {state.features.length}{' '}
+							configured
 						</span>
 					</div>
 					{state.features.map((feature) => (
@@ -285,16 +302,17 @@ export const AuthPanel = ({ state: initial }: AuthPanelProps) => {
 					</div>
 					{!settings.available && (
 						<p className="rule-desc">
-							Upgrade <code>@absolutejs/auth</code> to a version that
-							exports <code>AuthSettings</code> to edit settings here.
+							Upgrade <code>@absolutejs/auth</code> to a version
+							that exports <code>AuthSettings</code> to edit
+							settings here.
 						</p>
 					)}
 					{settings.available && settings.configPath === null && (
 						<p className="rule-desc">
 							Create an <code>auth.config.ts</code> exporting{' '}
-							<code>{'defineAuthSettings({})'}</code> and spread it into
-							your <code>auth()</code> call, then edit the route paths,
-							durations, and limits here.
+							<code>{'defineAuthSettings({})'}</code> and spread
+							it into your <code>auth()</code> call, then edit the
+							route paths, durations, and limits here.
 						</p>
 					)}
 					{canEditSettings &&
@@ -318,8 +336,8 @@ export const AuthPanel = ({ state: initial }: AuthPanelProps) => {
 						<h2 className="section-title">Related</h2>
 					</div>
 					<p className="rule-desc">
-						Signing your own API/service tokens (not user login)? See{' '}
-						<code>@elysiajs/jwt</code> in the{' '}
+						Signing your own API/service tokens (not user login)?
+						See <code>@elysiajs/jwt</code> in the{' '}
 						<a className="auth-link" href="/integrations">
 							Integrations panel
 						</a>

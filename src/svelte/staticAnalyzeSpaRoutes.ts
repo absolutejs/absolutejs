@@ -119,9 +119,7 @@ const walkSvelteFiles = async (dir: string, out: string[]) => {
  *  AbsoluteJS's Svelte router with one or more `<Route path="...">`
  *  children. Regex-based since `.svelte` files aren't directly TS-AST
  *  parseable; covers the common case where the markup is literal. */
-export const analyzeSvelteSpaRoutes = async (
-	svelteDirectory: string
-) => {
+export const analyzeSvelteSpaRoutes = async (svelteDirectory: string) => {
 	if (!existsSync(svelteDirectory)) return [];
 
 	const files: string[] = [];

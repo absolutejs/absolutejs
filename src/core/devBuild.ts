@@ -211,13 +211,12 @@ const detectConfigChanges = async (
  *  `serverEntryWatcher`. Returns null if there's no live dev runtime
  *  (e.g. compiled production), or the diff that `detectConfigChanges`
  *  applied. */
-export const applyConfigChanges =
-	async () => {
-		const cached = globalThis.__hmrDevResult;
-		if (!cached) return null;
+export const applyConfigChanges = async () => {
+	const cached = globalThis.__hmrDevResult;
+	if (!cached) return null;
 
-		return detectConfigChanges(cached);
-	};
+	return detectConfigChanges(cached);
+};
 
 /** Remove keys from target that don't exist in source */
 const removeStaleKeys = (

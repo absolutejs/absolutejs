@@ -26,7 +26,9 @@ const printProfile = (buildDir: string) => {
 	if (latest === undefined) return;
 
 	const trace = JSON.parse(readFileSync(join(traceDir, latest), 'utf-8'));
-	const events: TraceEvent[] = Array.isArray(trace.events) ? trace.events : [];
+	const events: TraceEvent[] = Array.isArray(trace.events)
+		? trace.events
+		: [];
 	if (events.length === 0) return;
 
 	const slowest = [...events]

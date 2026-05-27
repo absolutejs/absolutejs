@@ -8,7 +8,6 @@
 import { remountComponentClass, type RemountResult } from './angularRemount';
 
 declare global {
-	 
 	var __absAngularRemount:
 		| ((
 				Class: new (...args: unknown[]) => unknown,

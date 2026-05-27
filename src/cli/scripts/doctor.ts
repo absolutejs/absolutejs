@@ -197,7 +197,8 @@ const fixEnvExample = async (cwd: string) => {
 	);
 	const toAdd = missing.filter((entry) => !existingKeys.has(entry.key));
 	if (toAdd.length === 0) return null;
-	const prefix = existing === '' || existing.endsWith('\n') ? existing : `${existing}\n`;
+	const prefix =
+		existing === '' || existing.endsWith('\n') ? existing : `${existing}\n`;
 	writeFileSync(
 		envExample,
 		`${prefix}${toAdd.map((entry) => `${entry.key}=`).join('\n')}\n`
@@ -221,7 +222,9 @@ export const runDoctor = async (args: string[]) => {
 	if (fixes && !args.includes('--json')) {
 		const head = fixes.length
 			? fixes
-					.map((fix) => `  ${colors.green}fixed${colors.reset} ${fix}`)
+					.map(
+						(fix) => `  ${colors.green}fixed${colors.reset} ${fix}`
+					)
 					.join('\n')
 			: `  ${colors.dim}nothing to fix${colors.reset}`;
 		process.stdout.write(`${head}\n\n`);
