@@ -187,3 +187,64 @@ they're orphans. On WSL especially: watch `free -m` against expected per-AI
 overhead; a persistent 1GB+ `node` is usually the TS server, but multiple
 600MB+ Chrome renderers with `etime > 1h` and no active browser session is
 this bug.
+
+---
+
+## 4. Bun's native CSS parser doesn't understand Tailwind v4 at-rules
+
+- **Dependency:** Bun (`bun`)
+- **Status:** open upstream
+  - **oven-sh/bun#12878** — "Bun Bundler: Tailwind CSS" (umbrella, open since
+    July 2024): https://github.com/oven-sh/bun/issues/12878
+- **Surfaced in AbsoluteJS as:**
+  [absolutejs/absolutejs#37](https://github.com/absolutejs/absolutejs/issues/37)
+
+**Symptom.** When a TS/TSX file `import`s a Tailwind v4 entry CSS (e.g.
+`import "./index.css"` where `index.css` contains `@theme {…}` / `@tailwind …`),
+Bun's bundler walks the file with its native CSS parser and emits one
+`warn: invalid @ rule encountered: '@theme'` (or `'@tailwind'`, `'@source'`,
+`'@utility'`, `'@variant'`, `'@custom-variant'`, `'@apply'`, `'@reference'`,
+`'@plugin'`, `'@config'`) per unknown at-rule. Build succeeds and styles render
+correctly — it's pure noise — but it's loud noise and confuses new users into
+thinking Tailwind is broken.
+
+**Root cause.** Bun's CSS parser only understands the standard CSS at-rule
+set; it has no knowledge of Tailwind v4's authoring directives. AbsoluteJS
+produces the actual Tailwind output via the separate `tailwindcss` `compile()`
+pipeline (`src/build/compileTailwind.ts`), so the bundle pass that triggers
+the warnings doesn't need to understand the raw directives — but Bun warns
+anyway because it sees them in CSS that participates in a build.
+
+**Why local examples never surfaced it.** `examples/stylelab` (which exercises
+every styling path including Tailwind v4) keeps its Tailwind entry at
+`src/frontend/styles/tailwind.css` — outside any framework directory — and
+pulls the **compiled** output in via `<link rel="stylesheet" href="/tailwind.css">`.
+Bun's bundler never touches the raw entry. The pattern that surfaces it is
+the Vite/CRA-style `src/react/index.css` colocated with the React tree and
+imported from a component.
+
+**Workaround in AbsoluteJS.** Filter the known Tailwind v4 directives out of
+the central log sink (`src/build/outputLogs.ts`) via
+`TAILWIND_BUN_CSS_WARNING_PATTERN` in `src/constants.ts`. Landed in
+[`2ff984b`](https://github.com/absolutejs/absolutejs/commit/2ff984b).
+Remove the suppression once Bun's CSS parser learns about Tailwind v4 (or
+adds a way to silence unknown-at-rule warnings per file).
+
+**Reproduce** (without AbsoluteJS):
+
+```ts
+// entry.tsx
+import "./test.css";
+```
+```css
+/* test.css */
+@theme { --color-primary: #00685b; }
+@tailwind base;
+```
+```ts
+const r = await Bun.build({
+  entrypoints: ["entry.tsx"], outdir: "out", target: "browser", throw: false
+});
+// r.logs → [warn] invalid @ rule encountered: '@theme'
+//          [warn] invalid @ rule encountered: '@tailwind'
+```
