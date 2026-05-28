@@ -34,13 +34,63 @@ describe('compileVue', () => {
 				: '';
 
 			expect(indexContent).toContain(
-				'const shouldHydrate = typeof window === "undefined" ? false : !(isHMR || isSsrDirty);'
+				'const shouldHydrate = typeof window === "undefined" ? false : !(isHMR || isSsrDirty || hasSpaRoutes);'
 			);
 			expect(indexContent).toContain('window.__ABS_SLOT_HYDRATION_PENDING__ = shouldHydrate;');
 			expect(indexContent).toContain(
 				'if (shouldHydrate && typeof requestAnimationFrame === "function") {'
 			);
 			expect(indexContent).toContain('requestAnimationFrame(releaseStreamingSlots);');
+		} finally {
+			await rm(root, { force: true, recursive: true });
+		}
+	});
+
+	test('fresh-mounts routed SPA pages instead of hydrating SSR shell', async () => {
+		const root = await mkdtemp(join(tmpdir(), 'absolutejs-compile-vue-'));
+		const pagePath = join(root, 'Portal.vue');
+
+		try {
+			await writeTempFile(
+				pagePath,
+				`<script lang="ts">
+import { defineRoutes } from '@absolutejs/absolute/vue';
+
+export const routes = defineRoutes([
+  { path: '/portal/dashboard', component: () => import('./Dashboard.vue') },
+  { path: '/portal/intake', component: () => import('./Intake.vue') },
+]);
+</script>
+
+<template>
+  <RouterView />
+</template>`
+			);
+			await writeTempFile(
+				join(root, 'Dashboard.vue'),
+				`<template><h1>Dashboard</h1></template>`
+			);
+			await writeTempFile(
+				join(root, 'Intake.vue'),
+				`<template><h1>Intake</h1></template>`
+			);
+
+			const { vueIndexPaths } = await compileVue([pagePath], root, false);
+			const indexPath = vueIndexPaths.find((path) =>
+				path.endsWith('Portal.js')
+			);
+			expect(indexPath).toBeDefined();
+
+			const indexContent = indexPath
+				? await Bun.file(indexPath).text()
+				: '';
+
+			expect(indexContent).toContain(
+				'const hasSpaRoutes = Array.isArray(Reflect.get(PageModule, "routes"));'
+			);
+			expect(indexContent).toContain(
+				'const shouldHydrate = typeof window === "undefined" ? false : !(isHMR || isSsrDirty || hasSpaRoutes);'
+			);
 		} finally {
 			await rm(root, { force: true, recursive: true });
 		}
