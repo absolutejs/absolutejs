@@ -10,8 +10,11 @@
  *  Dashboard's markup paints unstyled until the lazy chunk loads. This
  *  module reads a side manifest the build writes alongside each SPA
  *  page (`<pagePath>.spa.json`), matches the request URL against the
- *  registered child routes, and returns the matched child's CSS so the
- *  page handler can inline it next to the parent's.
+ *  registered child routes, and returns the child-route CSS so the page
+ *  handler can inline it next to the parent's. We include every child
+ *  route's CSS for the shell, not just the initially matched route,
+ *  because client-side SPA navigations do not make another SSR request
+ *  where the next route's extracted CSS could be inlined.
  *
  *  See `core/build.ts` for the build-time side-manifest emission and
  *  `vue/pageHandler.ts` for the call site. */
@@ -111,7 +114,7 @@ const readChildCss = async (cssPath: string, sideManifestPath: string) => {
 	}
 };
 
-/** Resolve the matched SPA child route's compiled CSS for a request.
+/** Resolve SPA child route compiled CSS for a request.
  *  Returns the CSS text (possibly empty) so the page handler can
  *  inline it alongside the parent page's own sibling CSS. */
 export const resolveSpaChildCss = async (
@@ -133,5 +136,13 @@ export const resolveSpaChildCss = async (
 	const matched = findMatchingRoute(routes, pathname);
 	if (!matched) return '';
 
-	return readChildCss(matched.cssPath, sideManifestPath);
+	const cssPaths = [
+		matched.cssPath,
+		...routes.map((route) => route.cssPath)
+	].filter((cssPath, index, all) => cssPath && all.indexOf(cssPath) === index);
+	const chunks = await Promise.all(
+		cssPaths.map((cssPath) => readChildCss(cssPath, sideManifestPath))
+	);
+
+	return chunks.filter(Boolean).join('\n');
 };
