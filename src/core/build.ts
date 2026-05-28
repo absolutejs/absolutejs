@@ -2932,9 +2932,13 @@ const buildUnlocked = async ({
 						const childArtifact =
 							serverJsByPascalName.get(childName);
 						if (!childArtifact) return [];
-						const cssPath = childArtifact.path.replace(
+						const absoluteCssPath = childArtifact.path.replace(
 							/\.js$/,
 							'.css'
+						);
+						const cssPath = relative(
+							dirname(parentArtifact.path),
+							absoluteCssPath
 						);
 
 						return [{ cssPath, path }];

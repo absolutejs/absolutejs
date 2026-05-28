@@ -16,6 +16,7 @@
  *  See `core/build.ts` for the build-time side-manifest emission and
  *  `vue/pageHandler.ts` for the call site. */
 import { readFile } from 'node:fs/promises';
+import { dirname, isAbsolute, resolve } from 'node:path';
 
 type SpaRouteEntry = {
 	/** Vue-router-style path pattern from `defineRoutes` — supports
@@ -23,10 +24,12 @@ type SpaRouteEntry = {
 	 *  one) since SSR only needs to identify *which* component will
 	 *  render, not extract param values. */
 	path: string;
-	/** Absolute disk path to the route component's sibling compiled
-	 *  CSS, written by core/build.ts. Empty string means the route has
-	 *  no styles to inline (e.g. a redirect or a component that doesn't
-	 *  use `<style scoped>`). */
+	/** Path to the route component's sibling compiled CSS, written by
+	 *  core/build.ts. Relative paths are resolved from the side manifest
+	 *  directory so compiled binaries can read their extracted runtime
+	 *  assets instead of the build machine's absolute paths. Empty string
+	 *  means the route has no styles to inline (e.g. a redirect or a
+	 *  component that doesn't use `<style scoped>`). */
 	cssPath: string;
 };
 
@@ -89,17 +92,20 @@ const findMatchingRoute = (routes: SpaRouteEntry[], pathname: string) => {
 
 const childCssCache = new Map<string, string>();
 
-const readChildCss = async (cssPath: string) => {
+const readChildCss = async (cssPath: string, sideManifestPath: string) => {
 	if (!cssPath) return '';
-	const cached = childCssCache.get(cssPath);
+	const resolvedCssPath = isAbsolute(cssPath)
+		? cssPath
+		: resolve(dirname(sideManifestPath), cssPath);
+	const cached = childCssCache.get(resolvedCssPath);
 	if (cached !== undefined) return cached;
 	try {
-		const css = await readFile(cssPath, 'utf-8');
-		childCssCache.set(cssPath, css);
+		const css = await readFile(resolvedCssPath, 'utf-8');
+		childCssCache.set(resolvedCssPath, css);
 
 		return css;
 	} catch {
-		childCssCache.set(cssPath, '');
+		childCssCache.set(resolvedCssPath, '');
 
 		return '';
 	}
@@ -127,5 +133,5 @@ export const resolveSpaChildCss = async (
 	const matched = findMatchingRoute(routes, pathname);
 	if (!matched) return '';
 
-	return readChildCss(matched.cssPath);
+	return readChildCss(matched.cssPath, sideManifestPath);
 };
