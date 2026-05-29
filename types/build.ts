@@ -148,6 +148,17 @@ export type CompileConfig = {
 	 * and start never evaluate `.node` files as ESM imports.
 	 */
 	nativeAssets?: CompileNativeAssetConfig[];
+	/**
+	 * Bun bundler plugins applied to the standalone server bundle produced by
+	 * `absolute compile`. The server `compile` pass runs its own `Bun.build`,
+	 * which does NOT pick up `bunBuild.plugins` (those target the client
+	 * bundles only). This is the escape hatch for deps whose published source
+	 * is bundle-hostile under `bun build --compile` — register an `onLoad`
+	 * plugin here to rewrite their source so the standalone binary can embed
+	 * them (e.g. shimming a CJS `debug` default-import interop, or stubbing a
+	 * lazy `require`). Runs after Absolute's internal compile plugins.
+	 */
+	plugins?: NonNullable<BunBuildConfig['plugins']>;
 };
 
 export type HttpReadyConfig = {

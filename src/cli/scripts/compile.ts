@@ -1267,9 +1267,16 @@ const createStubPlugin = (
 		bld.onResolve({ filter: /^react\/jsx-dev-runtime$/ }, () => ({
 			path: jsxDevRuntimeCompatPath
 		}));
+		// Stub debug — it's a transitive dep of node-cache (via @elysiajs/static)
+		// and a no-op in production anyway. Stubbing it also drops ms, has-flag,
+		// and supports-color from the bundle. `module.exports.default` must point
+		// back at the factory: CJS consumers compiled with TS's `__importDefault`
+		// (e.g. @node-saml/node-saml's `(0, debug_1.default)("node-saml")`) read
+		// `.default` directly, and without it the bundled binary crashes with
+		// "(0, debug_1.default) is not a function".
 		bld.onLoad({ filter: /node_modules\/debug/ }, () => ({
 			contents:
-				'module.exports = () => { const noop = () => {}; noop.enabled = false; return noop; }; module.exports.enable = () => {}; module.exports.disable = () => {}; module.exports.enabled = () => false;',
+				'module.exports = () => { const noop = () => {}; noop.enabled = false; return noop; }; module.exports.enable = () => {}; module.exports.disable = () => {}; module.exports.enabled = () => false; module.exports.default = module.exports;',
 			loader: 'js'
 		}));
 		bld.onLoad({ filter: /\.ts$/ }, async (args) => {
@@ -1458,7 +1465,13 @@ const compileUnlocked = async (
 				stubSvelte: !buildConfig.svelteDirectory,
 				stubVue: !buildConfig.vueDirectory
 			}),
-			createExternalAssetPlugin(resolvedOutdir, userSourceRoots)
+			createExternalAssetPlugin(resolvedOutdir, userSourceRoots),
+			// User-supplied compile plugins (config `compile.plugins`). The
+			// escape hatch for bundle-hostile deps under `bun build --compile`:
+			// an `onLoad` source rewrite here lets the standalone binary embed
+			// packages whose published form the bundler otherwise chokes on.
+			// Last so user shims see (and can override) Absolute's transforms.
+			...(buildConfig.compile?.plugins ?? [])
 		],
 		target: 'bun',
 		// Mirror start.ts: surface bundle errors as data so the
