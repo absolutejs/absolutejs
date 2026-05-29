@@ -7,7 +7,11 @@
    is preserved so new component registrations feed into the SAME RefreshRuntime
    instance that owns the current React tree. */
 
-import * as RefreshRuntime from './vendor/reactRefreshRuntime.js';
+// Bare specifier (not the relative ./vendor path) so the React client build
+// externalizes it and rewrites it to the same /react/vendor/react-refresh_runtime.js
+// URL that Fast Refresh-instrumented components import — one shared runtime
+// instance across this setup module and every component chunk.
+import * as RefreshRuntime from 'react-refresh/runtime';
 
 if (!window.$RefreshRuntime$) {
 	RefreshRuntime.injectIntoGlobalHook(window);

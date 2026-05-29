@@ -2,6 +2,7 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { rm } from 'node:fs/promises';
 import { build as bunBuild } from 'bun';
+import { reactRefreshRuntimePath } from './generateReactIndexes';
 
 const resolveJsxDevRuntimeCompatPath = () => {
 	const candidates = [
@@ -52,13 +53,17 @@ const reactSpecifiers = [
 	'react-dom',
 	'react-dom/client',
 	'react/jsx-runtime',
-	'react/jsx-dev-runtime'
+	'react/jsx-dev-runtime',
+	// react-refresh/runtime is built from the copy vendored inside this
+	// package (see generateEntrySource), not node_modules — consumers never
+	// install react-refresh. Externalizing it (rather than resolve-and-bundle
+	// with code splitting) keeps Bun's reactFastRefresh `register` binding a
+	// stable named import from this vendor file instead of a cross-chunk
+	// hoisted `export_register`, which Bun fails to re-link on incremental
+	// HMR rebuilds (issue #38). reactRefreshSetup imports the same specifier,
+	// so both resolve to one shared runtime instance.
+	'react-refresh/runtime'
 ];
-
-/* react-refresh/runtime is intentionally absent: it's vendored into this
- * package's dev client (src/dev/client/vendor/reactRefreshRuntime.js) and
- * imported by relative path, so consuming projects never install it and
- * non-React projects never pull it in. */
 
 /** Convert a bare specifier to a safe filename: react-dom/client → react-dom_client */
 const toSafeFileName = (specifier: string) => specifier.replace(/\//g, '_');
@@ -81,6 +86,13 @@ export const computeVendorPaths = () => {
 const generateEntrySource = async (specifier: string) => {
 	if (specifier === 'react/jsx-dev-runtime') {
 		return `export { Fragment, jsxDEV } from '${jsxDevRuntimeCompatPath}';\n`;
+	}
+
+	// Source the refresh runtime from the package's vendored copy rather than
+	// `await import('react-refresh/runtime')`, which would fail in consumer
+	// projects that don't have react-refresh installed.
+	if (specifier === 'react-refresh/runtime') {
+		return `export * from '${reactRefreshRuntimePath}';\n`;
 	}
 
 	const mod = await import(specifier);

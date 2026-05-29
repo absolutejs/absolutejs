@@ -11,12 +11,7 @@ import {
 } from 'node:fs';
 import { basename, dirname, extname, join, relative, resolve } from 'node:path';
 import { cwd, env, exit } from 'node:process';
-import {
-	build as bunBuild,
-	type BuildArtifact,
-	type BunPlugin,
-	Glob
-} from 'bun';
+import { build as bunBuild, type BuildArtifact, Glob } from 'bun';
 import { generateManifest } from '../build/generateManifest';
 import { verifyAngularCoreUniqueness } from '../build/verifyAngularCoreUniqueness';
 import {
@@ -24,10 +19,7 @@ import {
 	generateIslandEntryPoints,
 	loadIslandRegistryBuildInfo
 } from '../build/islandEntries';
-import {
-	generateReactIndexFiles,
-	reactRefreshRuntimePath
-} from '../build/generateReactIndexes';
+import { generateReactIndexFiles } from '../build/generateReactIndexes';
 import { createHTMLScriptHMRPlugin } from '../build/htmlScriptHMRPlugin';
 import { transformStaticPagesWithIslands } from '../build/staticIslandPages';
 import { outputLogs } from '../build/outputLogs';
@@ -2239,17 +2231,13 @@ const buildUnlocked = async ({
 		? createHTMLScriptHMRPlugin(htmlDir, htmxDir)
 		: undefined;
 	// Bun's reactFastRefresh injects a bare `react-refresh/runtime` import into
-	// every component. Resolve it to the runtime vendored inside this package
-	// (same file reactRefreshSetup imports) so consumers never install
-	// react-refresh and Bun dedupes both into a single runtime instance.
-	const reactRefreshRuntimePlugin: BunPlugin = {
-		name: 'absolute-react-refresh-runtime',
-		setup(builder) {
-			builder.onResolve({ filter: /^react-refresh\/runtime$/ }, () => ({
-				path: reactRefreshRuntimePath
-			}));
-		}
-	};
+	// every component. It's externalized via reactExternalPaths (built as a
+	// stable vendor file from the copy shipped in this package) and rewritten
+	// to its /react/vendor URL by rewriteReactImports — the same treatment as
+	// react/react-dom. Resolve-and-bundling it instead (with splitting:true)
+	// hoisted the runtime's `register` binding into a shared chunk that Bun
+	// failed to re-link on incremental rebuilds, leaving a dangling
+	// `export_register` reference that crashed the app (issue #38).
 	const reactBuildConfig: Parameters<typeof bunBuild>[0] | undefined =
 		reactClientEntryPoints.length > 0
 			? mergeBunBuildConfig(
@@ -2268,16 +2256,10 @@ const buildUnlocked = async ({
 									reactFastRefresh: true
 								}
 							: {}),
-						plugins: hmr
-							? [
-									stylePreprocessorPlugin,
-									reactRefreshRuntimePlugin,
-									...islandRegistryPlugins
-								]
-							: [
-									stylePreprocessorPlugin,
-									...islandRegistryPlugins
-								],
+						plugins: [
+							stylePreprocessorPlugin,
+							...islandRegistryPlugins
+						],
 						root: clientRoot,
 						splitting: true,
 						target: 'browser',

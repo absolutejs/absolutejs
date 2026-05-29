@@ -19,6 +19,9 @@ const STARTUP_POLL_INTERVAL_MS = 100;
 /** Default maximum time to wait for the prerender server to become ready. */
 const DEFAULT_STARTUP_TIMEOUT_MS = 30_000;
 
+/** Default maximum time to wait for any prerender HTTP request. */
+const DEFAULT_FETCH_TIMEOUT_MS = 10_000;
+
 /** Header used to bypass the prerender cache during ISR re-renders */
 export const PRERENDER_BYPASS_HEADER = 'X-Absolute-Prerender-Bypass';
 
@@ -66,7 +69,9 @@ const extractLinks = (html: string, visited: Set<string>) => {
 
 /** Fetch a single route and return its HTML if it's a valid HTML page */
 const fetchRoute = async (baseUrl: string, path: string) => {
-	const res = await fetch(`${baseUrl}${path}`, { redirect: 'manual' });
+	const res = await fetchWithTimeout(`${baseUrl}${path}`, {
+		redirect: 'manual'
+	});
 	if (!res.ok) return null;
 
 	const contentType = res.headers.get('content-type') ?? '';
@@ -122,7 +127,7 @@ export const rerenderRoute = async (
 	prerenderDir: string
 ) => {
 	try {
-		const res = await fetch(`http://localhost:${port}${route}`, {
+		const res = await fetchWithTimeout(`http://localhost:${port}${route}`, {
 			headers: { [PRERENDER_BYPASS_HEADER]: '1' },
 			redirect: 'manual'
 		});
@@ -148,7 +153,7 @@ const prerenderRoute = async (
 	result: PrerenderResult,
 	log?: LogFn
 ) => {
-	const res = await fetch(`${baseUrl}${route}`, {
+	const res = await fetchWithTimeout(`${baseUrl}${route}`, {
 		redirect: 'manual'
 	}).catch(() => null);
 	if (!res) {
@@ -228,6 +233,21 @@ const getStartupTimeoutMs = () => {
 		: DEFAULT_STARTUP_TIMEOUT_MS;
 };
 
+const getFetchTimeoutMs = () => {
+	const rawTimeout = Bun.env.ABSOLUTE_PRERENDER_FETCH_TIMEOUT_MS;
+	const parsedTimeout = rawTimeout ? Number(rawTimeout) : NaN;
+
+	return Number.isFinite(parsedTimeout) && parsedTimeout > 0
+		? parsedTimeout
+		: DEFAULT_FETCH_TIMEOUT_MS;
+};
+
+const fetchWithTimeout = (url: string, init: RequestInit = {}) =>
+	fetch(url, {
+		...init,
+		signal: init.signal ?? AbortSignal.timeout(getFetchTimeoutMs())
+	});
+
 /** Poll the server until it responds or startup timeout elapses */
 const waitForServerReady = async (port: number) => {
 	const deadline = performance.now() + getStartupTimeoutMs();
@@ -247,7 +267,9 @@ const waitForServerReady = async (port: number) => {
 };
 
 const probePrerenderServer = async (port: number) => {
-	const res = await fetch(`http://localhost:${port}/`).catch(() => null);
+	const res = await fetchWithTimeout(`http://localhost:${port}/`, {
+		signal: AbortSignal.timeout(Math.min(getFetchTimeoutMs(), 1000))
+	}).catch(() => null);
 	if (!res) {
 		return false;
 	}

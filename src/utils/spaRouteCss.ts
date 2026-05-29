@@ -139,7 +139,9 @@ export const resolveSpaChildCss = async (
 	const cssPaths = [
 		matched.cssPath,
 		...routes.map((route) => route.cssPath)
-	].filter((cssPath, index, all) => cssPath && all.indexOf(cssPath) === index);
+	].filter(
+		(cssPath, index, all) => cssPath && all.indexOf(cssPath) === index
+	);
 	const chunks = await Promise.all(
 		cssPaths.map((cssPath) => readChildCss(cssPath, sideManifestPath))
 	);

@@ -49,6 +49,21 @@ const cliTag = (color: string, message: string) =>
 	`\x1b[2m${formatTimestamp()}\x1b[0m ${color}[cli]\x1b[0m ${color}${message}\x1b[0m`;
 
 const DEFAULT_PORT_RANGE = 10;
+const NODE_API_IMPORT_ERROR =
+	'To load Node-API modules, use require() or process.dlopen instead of import.';
+
+export const formatServerBootDiagnostic = (
+	output: string,
+	serverEntry: string
+) => {
+	if (!output.includes(NODE_API_IMPORT_ERROR)) return null;
+
+	return [
+		`Server boot failed while evaluating ${serverEntry}.`,
+		'Bun is trying to load a native Node-API addon from an ESM import.',
+		'Load `.node` addons with require()/process.dlopen, or gate `with { type: "file" }` asset imports so they only run in compiled builds.'
+	].join('\n');
+};
 
 // Written to a temp file and passed to the dev child via `bun --preload` so a
 // SIGUSR2 (the `m` hotkey) dumps a DevTools-loadable heap snapshot. Works for
@@ -569,9 +584,11 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 			}
 		);
 
+		let printedBootDiagnostic = false;
 		const forward = (
 			source: NodeJS.ReadableStream | null,
-			dest: NodeJS.WriteStream
+			dest: NodeJS.WriteStream,
+			sourceName: 'stdout' | 'stderr'
 		) => {
 			if (!source) return;
 			source.on('data', (chunk: Buffer) => {
@@ -579,10 +596,22 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 				dest.write(chunk);
 				writeInstanceLog(chunk.toString());
 				handleChunk(chunk);
+				if (sourceName === 'stderr' && !printedBootDiagnostic) {
+					const diagnostic = formatServerBootDiagnostic(
+						chunk.toString(),
+						serverEntry
+					);
+					if (diagnostic) {
+						printedBootDiagnostic = true;
+						const formatted = cliTag('\x1b[33m', diagnostic);
+						process.stderr.write(`${formatted}\n`);
+						writeInstanceLog(`${formatted}\n`);
+					}
+				}
 			});
 		};
-		forward(proc.stdout, process.stdout);
-		forward(proc.stderr, process.stderr);
+		forward(proc.stdout, process.stdout, 'stdout');
+		forward(proc.stderr, process.stderr, 'stderr');
 
 		return proc;
 	};

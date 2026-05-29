@@ -13,7 +13,10 @@ describe('resolveSpaChildCss', () => {
 		const manifestPath = join(root, 'Portal.spa.json');
 
 		try {
-			await writeFile(dashboardCssPath, '.dashboard-page { color: red; }');
+			await writeFile(
+				dashboardCssPath,
+				'.dashboard-page { color: red; }'
+			);
 			await writeFile(intakeCssPath, '.intake-page { color: blue; }');
 			await writeFile(
 				manifestPath,
@@ -24,7 +27,10 @@ describe('resolveSpaChildCss', () => {
 			);
 
 			await expect(
-				resolveSpaChildCss(pagePath, 'https://example.com/portal/dashboard')
+				resolveSpaChildCss(
+					pagePath,
+					'https://example.com/portal/dashboard'
+				)
 			).resolves.toBe(
 				'.dashboard-page { color: red; }\n.intake-page { color: blue; }'
 			);

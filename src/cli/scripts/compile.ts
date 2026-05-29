@@ -13,6 +13,7 @@ import {
 	unlinkSync,
 	writeFileSync
 } from 'node:fs';
+import { createRequire } from 'node:module';
 import { basename, dirname, extname, join, relative, resolve } from 'node:path';
 import type { BuildConfig } from '../../../types/build';
 import { DEFAULT_PORT } from '../../constants';
@@ -286,6 +287,53 @@ export const shouldEmbedCompiledAsset = (
 	if (relativePath.includes('/server/')) return false;
 
 	return true;
+};
+
+const ENV_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+const resolveCompileNativeAssets = (buildConfig: BuildConfig) =>
+	(buildConfig.compile?.nativeAssets ?? []).filter((asset) => {
+		if (!asset || typeof asset !== 'object') return false;
+		if (typeof asset.import !== 'string' || asset.import.length === 0) {
+			console.warn(
+				cliTag(
+					'\x1b[33m',
+					'Ignoring compile.nativeAssets entry with missing import.'
+				)
+			);
+
+			return false;
+		}
+		if (typeof asset.env !== 'string' || !ENV_NAME_RE.test(asset.env)) {
+			console.warn(
+				cliTag(
+					'\x1b[33m',
+					`Ignoring compile.nativeAssets entry for ${asset.import}: env must be a valid environment variable name.`
+				)
+			);
+
+			return false;
+		}
+
+		return true;
+	});
+
+const requireForCompile = createRequire(import.meta.url);
+
+const resolveNativeAssetForRuntime = (specifier: string) => {
+	if (specifier.startsWith('.')) return resolve(process.cwd(), specifier);
+	if (specifier.startsWith('/')) return specifier;
+
+	return requireForCompile.resolve(specifier, { paths: [process.cwd()] });
+};
+
+const resolveCompileNativeAssetEnv = (buildConfig: BuildConfig) => {
+	const env: Record<string, string> = {};
+	for (const asset of resolveCompileNativeAssets(buildConfig)) {
+		env[asset.env] = resolveNativeAssetForRuntime(asset.import);
+	}
+
+	return env;
 };
 
 const tryReadNodePackageJson = (packageDir: string) => {
@@ -690,9 +738,25 @@ const generateEntrypoint = (
 	);
 
 	const imports: string[] = [];
+	const nativeImports: string[] = [];
+	const nativeMappings: string[] = [];
 	const embeddedMappings: string[] = [];
 	const mappings: string[] = [];
 	const embeddedVarMap = new Map<string, string>();
+	const nativeAssets = resolveCompileNativeAssets(buildConfig);
+
+	nativeAssets.forEach((asset, idx) => {
+		const varName = `__native${idx}`;
+		const importSpecifier = asset.import.startsWith('.')
+			? resolve(process.cwd(), asset.import)
+			: asset.import;
+		nativeImports.push(
+			`import ${varName} from ${JSON.stringify(importSpecifier)} with { type: "file" };`
+		);
+		nativeMappings.push(
+			`\t[${JSON.stringify(asset.env)}, resolveNativeAssetPath(${varName})],`
+		);
+	});
 
 	embeddedFiles.forEach((filePath, idx) => {
 		const rel = relative(distDir, filePath).replace(/\\/g, '/');
@@ -746,6 +810,9 @@ const generateEntrypoint = (
 	);
 
 	return `// Auto-generated compile entrypoint
+// ── Native asset imports ────────────────────────────────────────
+${nativeImports.join('\n')}
+
 // ── Embedded asset imports ──────────────────────────────────────
 ${imports.join('\n')}
 
@@ -755,7 +822,7 @@ import { basename, dirname, join } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 // Elysia's WebSocket dispatcher (stateless: routes every event through
 // ws.data.*). Wiring it into Bun.serve below is what lets compiled servers
 // serve .ws() routes — without it every upgrade falls through to a 404.
@@ -766,6 +833,18 @@ const RUNTIME_BUILD_ID = ${JSON.stringify(runtimeBuildId)};
 const RUNTIME_CONFIG_SOURCE = ${JSON.stringify(runtimeConfigSource)};
 const ORIGINAL_BUILD_DIR = ${JSON.stringify(resolve(distDir))};
 const ORIGINAL_BUILD_DIR_NORMALIZED = ORIGINAL_BUILD_DIR.replace(/\\\\/g, "/");
+
+const resolveNativeAssetPath = (assetPath: string) => {
+	try {
+		return fileURLToPath(new URL(assetPath, import.meta.url));
+	} catch {
+		return assetPath;
+	}
+};
+
+const NATIVE_ASSETS: Array<[string, string]> = [
+${nativeMappings.join('\n')}
+];
 
 // ── Asset URL → embedded path map ───────────────────────────────
 const ASSETS: Record<string, string> = {
@@ -899,6 +978,9 @@ const rewriteRuntimeJsonPaths = (runtimeDir: string, fileName: string) => {
 
 const resolveRuntimeFetch = async () => {
 	const { configPath, runtimeDir } = await materializeRuntimeFiles();
+	for (const [envName, assetPath] of NATIVE_ASSETS) {
+		process.env[envName] = assetPath;
+	}
 	process.env.ABSOLUTE_BUILD_DIR = runtimeDir;
 	process.env.ABSOLUTE_CONFIG = configPath;
 	process.env.ABSOLUTE_COMPILED_RUNTIME = "1";
@@ -1465,6 +1547,7 @@ const compileUnlocked = async (
 			ABSOLUTE_VERSION: absoluteVersion,
 			FORCE_COLOR: '0',
 			NODE_ENV: 'production',
+			...resolveCompileNativeAssetEnv(buildConfig),
 			...(configPath ? { ABSOLUTE_CONFIG: configPath } : {})
 		}
 	);

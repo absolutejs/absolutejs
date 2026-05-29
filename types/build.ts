@@ -127,6 +127,29 @@ export type StaticConfig = {
 	revalidate?: number;
 };
 
+export type CompileNativeAssetConfig = {
+	/**
+	 * Static import specifier for a native asset that Bun must embed only when
+	 * producing a standalone executable, e.g.
+	 * "@scope/native-linux-x64/native.node".
+	 */
+	import: string;
+	/**
+	 * Environment variable set to the embedded asset's runtime path before the
+	 * compiled server bundle is imported.
+	 */
+	env: string;
+};
+
+export type CompileConfig = {
+	/**
+	 * Native assets to embed with Bun's `with { type: "file" }` compile import.
+	 * These are injected into Absolute's generated compile entrypoint, so dev
+	 * and start never evaluate `.node` files as ESM imports.
+	 */
+	nativeAssets?: CompileNativeAssetConfig[];
+};
+
 export type HttpReadyConfig = {
 	type?: 'http';
 	path?: string;
@@ -268,6 +291,8 @@ export type BaseBuildConfig = {
 	};
 	// Static site generation — pre-render routes at build time
 	static?: StaticConfig;
+	// Standalone executable generation options
+	compile?: CompileConfig;
 	// Image optimization — on-demand resizing, format conversion, caching
 	images?: ImageConfig;
 	// Sitemap generation — auto-discovers page routes on server start
