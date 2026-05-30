@@ -24,7 +24,7 @@ afterAll(async () => {
  * holds HTML referencing its hash). The expected behaviour is that
  * the dev-server's asset path (assetStore → disk → hashless alias)
  * always lands on a 200 or 404, never a 5xx crash from
- * `@elysiajs/static`'s pre-registered routes throwing ENOENT
+ * `@elysia/static`'s pre-registered routes throwing ENOENT
  * mid-rebuild.
  *
  * The test fires 8 mutate-fetch pairs in tight succession against

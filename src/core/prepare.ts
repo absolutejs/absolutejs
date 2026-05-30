@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { basename, join, relative, resolve } from 'node:path';
 import { Elysia } from 'elysia';
+import type { staticPlugin } from '@elysia/static';
 import type { ConventionsMap } from '../../types/conventions';
 import { withOpenApi } from '../plugins/openApiPlugin';
 import { withTelemetry } from '../plugins/telemetryPlugin';
@@ -17,10 +18,42 @@ import {
 	renderFirstNotFound
 } from '../utils/resolveConvention';
 import { logStartupTimingBlock } from '../utils/startupTimings';
+import { logWarn } from '../utils/logger';
 
 const MS_PER_SECOND = 1000;
 const DEFAULT_PORT = 3000;
 const MAX_STATIC_ROUTE_COUNT = Number.MAX_SAFE_INTEGER;
+const STATIC_PLUGIN_RETRY_DELAY_MS = 50;
+
+// `@elysia/static` builds its routes by walking `assets` and reading each file
+// up front (we pass `alwaysStatic: true`). In dev the build dir is live, so a
+// content-hashed bundle can be mid-write — or just pruned — when the walk
+// reaches it, and the read can throw. Retry once after a short delay (the
+// rebuild settles within a tick), then degrade to an empty plugin so a
+// transient miss never takes down the server with an unhandled rejection.
+const mountStaticPlugin = async (
+	createStaticPlugin: typeof staticPlugin,
+	options: Parameters<typeof staticPlugin>[0]
+) => {
+	try {
+		return await createStaticPlugin(options);
+	} catch {
+		await new Promise((resolveDelay) => {
+			setTimeout(resolveDelay, STATIC_PLUGIN_RETRY_DELAY_MS);
+		});
+		try {
+			return await createStaticPlugin(options);
+		} catch (error) {
+			logWarn(
+				`Static asset routes were skipped this cycle — a build file was unavailable mid-rebuild: ${
+					error instanceof Error ? error.message : String(error)
+				}`
+			);
+
+			return new Elysia({ name: 'absolutejs-static-fallback' });
+		}
+	}
+};
 
 type PrewarmEntry = { dir: string; pattern: string };
 
@@ -130,7 +163,7 @@ const prepareDev = async (
 
 	stepStartedAt = performance.now();
 	const { hmr } = await import('../plugins/hmr');
-	const { staticPlugin } = await import('@elysiajs/static');
+	const { staticPlugin } = await import('@elysia/static');
 	const { createModuleServer } = await import('../dev/moduleServer');
 	const {
 		getDevVendorPaths,
@@ -237,7 +270,7 @@ const prepareDev = async (
 		)
 		.use(imageOptimizer(config.images, buildDir))
 		.use(
-			await staticPlugin({
+			await mountStaticPlugin(staticPlugin, {
 				alwaysStatic: true,
 				assets: buildDir,
 				directive: 'no-cache',
@@ -399,15 +432,15 @@ export const prepare = async (configOrPath?: string) => {
 	recordStep('load production conventions', stepStartedAt);
 
 	stepStartedAt = performance.now();
-	const { staticPlugin } = await import('@elysiajs/static');
-	const staticFiles = await staticPlugin({
+	const { staticPlugin } = await import('@elysia/static');
+	const staticFiles = await mountStaticPlugin(staticPlugin, {
 		alwaysStatic: true,
 		assets: buildDir,
 		prefix: '',
 		staticLimit: MAX_STATIC_ROUTE_COUNT
 	});
 
-	// `@elysiajs/static` skips dot-directories when walking `assets`, so the
+	// `@elysia/static` skips dot-directories when walking `assets`, so the
 	// content-hashed client hydration bundles emitted to
 	// `<buildDir>/.absolutejs/generated/**` never get static routes and 404 in
 	// production (only dev served them, via the HMR disk fallback). Serve that

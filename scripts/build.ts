@@ -165,7 +165,7 @@ const EXTERNALS = [
 	'svelte/compiler',
 	'svelte/server',
 	'elysia',
-	'@elysiajs/static',
+	'@elysia/static',
 	'@angular/compiler-cli',
 	'@angular/compiler',
 	'@angular/core',

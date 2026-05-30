@@ -324,8 +324,8 @@ export const start = async (
 			bld.onResolve({ filter: /^react\/jsx-dev-runtime$/ }, () => ({
 				path: jsxDevRuntimeCompatPath
 			}));
-			// Stub debug — it's a transitive dep of node-cache (via @elysiajs/static)
-			// and is a no-op in production anyway. Stubbing it also eliminates ms,
+			// Stub debug — it's pulled in transitively (e.g. via @node-saml) and
+			// is a no-op in production anyway. Stubbing it also eliminates ms,
 			// has-flag, and supports-color from the bundle. `module.exports.default`
 			// must point back at the factory: CJS consumers compiled with TS's
 			// `__importDefault` (e.g. @node-saml/node-saml's
