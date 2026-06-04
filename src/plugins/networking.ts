@@ -1,6 +1,7 @@
 import { argv } from 'node:process';
 import { env } from 'bun';
-import { Elysia } from 'elysia';
+import { type AnyElysia } from 'elysia';
+import { websocket as elysiaWebSocketHandler } from 'elysia/ws';
 import { DEFAULT_PORT, MILLISECONDS_IN_A_SECOND } from '../constants';
 import { loadDevCert } from '../dev/devCert';
 import {
@@ -67,7 +68,12 @@ const selfRegisterInstance = () => {
 	});
 };
 
-export const networking = <A extends Elysia>(app: A) => {
+// `AnyElysia` (not the base `Elysia`) as the bound: this wrapper accepts ANY
+// app shape and returns it unchanged (`A`), so a large app's accumulated
+// context (e.g. auth's `protectRoute` derive) does not have to satisfy the
+// empty base singleton — checking that against a big chain trips TS2589 at the
+// call site. The bound is what's widened, never the return.
+export const networking = <A extends AnyElysia>(app: A) => {
 	if (env.ABSOLUTE_COMPILED_RUNTIME === '1') return app;
 
 	// Dev-only route introspection for `absolute routes` — reads the live route
@@ -138,8 +144,28 @@ export const networking = <A extends Elysia>(app: A) => {
 		// only swaps the fetch fallback — the OLD static `routes` map
 		// keeps serving original handlers. Clear it on reload so every
 		// request falls through to our new app's fetch.
+		//
+		// Re-pass `websocket` too, mirroring what Elysia's own BunAdapter
+		// reload does (it spreads the full serve config). Elysia's handler is
+		// a stateless singleton that dispatches via `ws.data`, but the new
+		// app's `config.websocket` (idleTimeout, maxPayloadLength, etc. — which
+		// matter for long-lived voice/referee sockets) only takes effect if we
+		// re-apply it here.
+		//
+		// Critically, wire the live Bun server onto the new app instance. A WS
+		// upgrade runs through `app.fetch`, where Elysia does
+		// `(context.server ?? app.server).upgrade(request, …)`. Path B never
+		// calls `.listen()` on the new instance, so its `app.server` is null —
+		// the upgrade is skipped and every `.ws()` route 400s after the first
+		// hot reload (the symptom that read as "voice doesn't work in dev").
+		// Pointing `app.server` at the persisted socket restores upgrades.
+		app.server = liveServer;
 		liveServer.reload({
 			routes: {},
+			websocket: {
+				...(app.config.websocket ?? {}),
+				...elysiaWebSocketHandler
+			},
 			fetch: (request: Request) => app.fetch(request)
 		});
 

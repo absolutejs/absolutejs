@@ -61,4 +61,42 @@ describe('server-entry reload after edit', () => {
 		expect(after.status).toBe(200);
 		expect(await after.text()).toBe('RELOAD_OK');
 	}, 60_000);
+
+	/* WebSocket reload contract: Path B reloads Bun.serve with { fetch,
+	 * routes: {}, websocket }. The websocket handler MUST be re-passed so a
+	 * `.ws()` route added (or changed) by the edit still upgrades and dispatches
+	 * against the new app instance — otherwise long-lived sockets (voice/referee
+	 * streams) silently stop working after the first hot reload. */
+	test('a .ws() route added by an edit still upgrades + echoes after reload', async () => {
+		const { client: c, server: srv } = await startAll();
+
+		mutateFile(serverEntry, (text) =>
+			text.replace(
+				'.use(absolutejs)',
+				'.use(absolutejs).ws("/__ws_probe", { message(ws, message) { ws.send(message); } })'
+			)
+		);
+		await c.waitFor('server-entry-reloaded', 15_000);
+
+		const wsUrl = `${srv.baseUrl.replace(/^http/, 'ws')}/__ws_probe`;
+		const echoed = await new Promise<string>((_resolve, _reject) => {
+			const socket = new WebSocket(wsUrl);
+			const timer = setTimeout(() => {
+				socket.close();
+				_reject(new Error('ws echo timed out'));
+			}, 5_000);
+			socket.addEventListener('open', () => socket.send('ping'));
+			socket.addEventListener('message', (event) => {
+				clearTimeout(timer);
+				socket.close();
+				_resolve(String(event.data));
+			});
+			socket.addEventListener('error', () => {
+				clearTimeout(timer);
+				_reject(new Error('ws connection errored'));
+			});
+		});
+
+		expect(echoed).toBe('ping');
+	}, 60_000);
 });
