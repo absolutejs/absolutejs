@@ -178,14 +178,19 @@ const updateHTMLBody = (
 	const domSnapshot = snapshotDOMChanges(container);
 
 	const existingScripts = collectScripts(container);
+	const oldInlineScripts = collectInlineScripts(container);
 	const hmrScript = container.querySelector('script[data-hmr-client]');
 	const tempDiv = document.createElement('div');
 	tempDiv.innerHTML = htmlBody;
 	const newScripts = collectScriptsFromElement(tempDiv);
+	const newInlineScripts = collectInlineScripts(tempDiv);
 
 	const htmlStructureChanged = didHTMLStructureChange(container, tempDiv);
+	const scriptsChanged =
+		didScriptsChange(existingScripts, newScripts) ||
+		didInlineScriptsChange(oldInlineScripts, newInlineScripts);
 
-	if (htmlStructureChanged || didScriptsChange(existingScripts, newScripts)) {
+	if (htmlStructureChanged || scriptsChanged) {
 		patchDOMInPlace(container, htmlBody);
 		restoreDOMChanges(container, domSnapshot, htmlBody);
 	}
@@ -197,12 +202,12 @@ const updateHTMLBody = (
 		restoreFormState(savedState.forms);
 		restoreScrollState(savedState.scroll);
 
-		if (
-			didScriptsChange(existingScripts, newScripts) ||
-			htmlStructureChanged
-		) {
+		// Only touch scripts/interactive elements when a script actually
+		// changed. A pure markup edit (e.g. a heading) leaves inline-script
+		// state and `addEventListener` handlers intact.
+		if (scriptsChanged) {
 			cloneInteractiveElements(container);
-			reExecuteScripts(container, newScripts);
+			reExecuteScripts(container, newScripts, oldInlineScripts);
 		}
 	});
 	sessionStorage.removeItem('__HMR_ACTIVE__');
@@ -244,6 +249,7 @@ const updateHTMLBodyDirect = (
 	const savedState = saveHTMLState();
 	const domSnapshot = snapshotDOMChanges(container);
 
+	const oldInlineScripts = collectInlineScripts(container);
 	const tempDiv = document.createElement('div');
 	tempDiv.innerHTML = htmlBody;
 	const newScripts = collectScriptsFromElement(tempDiv);
@@ -270,8 +276,7 @@ const updateHTMLBodyDirect = (
 			container.appendChild(newScript);
 		});
 
-		const inlineScripts = container.querySelectorAll('script:not([src])');
-		inlineScripts.forEach(replaceInlineScript);
+		reExecuteInlineScripts(container, oldInlineScripts);
 	});
 	sessionStorage.removeItem('__HMR_ACTIVE__');
 };
@@ -289,6 +294,21 @@ const collectScriptsFromElement = (elem: HTMLElement) =>
 		src: script.getAttribute('src') || '',
 		type: script.getAttribute('type') || 'text/javascript'
 	}));
+
+/* Inline (non-src) scripts, excluding the HMR client. Captured by ordinal so
+ * an unchanged inline script can be skipped on re-execution — re-running it
+ * would reset its module/global state (e.g. `let count = 0`) on every edit. */
+const collectInlineScripts = (elem: HTMLElement) =>
+	Array.from(
+		elem.querySelectorAll('script:not([src]):not([data-hmr-client])')
+	).map((script) => script.textContent || '');
+
+const didInlineScriptsChange = (
+	oldInline: string[],
+	newInline: string[]
+) =>
+	oldInline.length !== newInline.length ||
+	oldInline.some((content, idx) => content !== newInline[idx]);
 
 const didScriptsChange = (oldScripts: ScriptInfo[], newScripts: ScriptInfo[]) =>
 	oldScripts.length !== newScripts.length ||
@@ -347,7 +367,11 @@ const removeOldScripts = (container: HTMLElement) => {
 	});
 };
 
-const reExecuteScripts = (container: HTMLElement, newScripts: ScriptInfo[]) => {
+const reExecuteScripts = (
+	container: HTMLElement,
+	newScripts: ScriptInfo[],
+	oldInlineScripts: string[]
+) => {
 	removeOldScripts(container);
 
 	newScripts.forEach((scriptInfo) => {
@@ -358,6 +382,24 @@ const reExecuteScripts = (container: HTMLElement, newScripts: ScriptInfo[]) => {
 		container.appendChild(newScript);
 	});
 
-	const inlineScripts = container.querySelectorAll('script:not([src])');
-	inlineScripts.forEach(replaceInlineScript);
+	reExecuteInlineScripts(container, oldInlineScripts);
+};
+
+/* Re-execute inline scripts by replacing them with fresh nodes, but skip any
+ * whose textContent is byte-identical to its previous counterpart (matched by
+ * ordinal). Skipping leaves the original execution's global bindings intact,
+ * so unrelated edits don't reset inline-script state. */
+const reExecuteInlineScripts = (
+	container: HTMLElement,
+	oldInlineScripts: string[]
+) => {
+	const inlineScripts = container.querySelectorAll(
+		'script:not([src]):not([data-hmr-client])'
+	);
+	inlineScripts.forEach((script, idx) => {
+		if (oldInlineScripts[idx] === (script.textContent || '')) {
+			return;
+		}
+		replaceInlineScript(script);
+	});
 };

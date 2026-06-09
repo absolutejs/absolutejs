@@ -44,6 +44,13 @@ export type HMRState = {
 	 * updates the directly-edited file's entry. Cleared once a
 	 * recovery build succeeds. */
 	initialBuildFailed?: boolean;
+	/* Resolved paths of `.svelte` files the surgical fast path already
+	 * broadcast a `svelte-update` for in the current rebuild cycle.
+	 * Consumed by `handleSvelteHMR` to suppress the redundant
+	 * page-update broadcast (which re-bootstraps the page and discards
+	 * component-local state) for files the fast path already swapped in
+	 * place. Reset at the start of each rebuild. */
+	svelteSurgicallyHandled?: Set<string>;
 };
 
 /* Initialize HMR state */

@@ -2409,6 +2409,17 @@ const handleSvelteModuleServerPath = async (
 		state.fileHashes.set(resolve(file), computeFileHash(file));
 	}
 
+	// Record which files the surgical path is about to broadcast for, so a
+	// later full-build pass (triggered when the same save batch also touched
+	// a non-fast-path file) doesn't fire a second `svelte-update` that
+	// re-bootstraps the page and wipes the state we just preserved.
+	const surgicallyHandled =
+		state.svelteSurgicallyHandled ?? new Set<string>();
+	for (const file of svelteFiles) {
+		surgicallyHandled.add(resolve(file));
+	}
+	state.svelteSurgicallyHandled = surgicallyHandled;
+
 	const serverDuration = Date.now() - startTime;
 
 	await runSequentially(svelteFiles, (changedFile) =>
@@ -3874,9 +3885,19 @@ const handleSvelteHMR = (
 		handleSvelteCssOnlyUpdate(state, svelteCssFiles, manifest, duration);
 	}
 
-	pagesToUpdate.forEach((sveltePagePath) => {
-		broadcastSveltePageUpdate(state, sveltePagePath, manifest, duration);
-	});
+	// Skip pages the surgical fast path already swapped in place this cycle.
+	// Re-broadcasting a `svelte-update` for them hits the client's bundled
+	// fallback (no `pageModuleUrl`), which re-bootstraps the component tree
+	// and discards the state the surgical pass just preserved.
+	const surgicallyHandled = state.svelteSurgicallyHandled;
+	pagesToUpdate
+		.filter(
+			(sveltePagePath) =>
+				!surgicallyHandled?.has(resolve(sveltePagePath))
+		)
+		.forEach((sveltePagePath) => {
+			broadcastSveltePageUpdate(state, sveltePagePath, manifest, duration);
+		});
 };
 
 const collectAngularAffectedPages = (
@@ -4557,6 +4578,11 @@ const performFullRebuild = async (
 	// This handles cross-framework batches (e.g., editing a React
 	// and Svelte file in the same save) without falling through
 	// to the full build.
+	// Fresh slate each cycle: the surgical fast path repopulates this as it
+	// broadcasts, and `handleSvelteHMR` reads it to skip redundant page
+	// updates. Clearing here prevents a stale entry from a prior cycle from
+	// suppressing a legitimate page update.
+	state.svelteSurgicallyHandled = undefined;
 	const hasManifest = Object.keys(state.manifest).length > 0;
 	const files = filesToRebuild ?? [];
 	let allHandled = files.length > 0 && hasManifest;
