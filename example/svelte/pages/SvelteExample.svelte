@@ -1,13 +1,13 @@
 <script lang="ts">
-	export let initialCount: number;
-	export let cssPath: string | undefined = undefined;
-
 	import Counter from '../components/Counter.svelte';
 	import { setContext } from 'svelte';
 	setContext('themeMessage', 'CONTEXT_OK');
 	import Head from '../../../src/svelte/components/Head.svelte';
 
-	let isOpen = false;
+	let { initialCount, cssPath }: { initialCount: number; cssPath?: string } =
+		$props();
+
+	let isOpen = $state(false);
 </script>
 
 <Head
