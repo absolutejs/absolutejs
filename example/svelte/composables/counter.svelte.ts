@@ -1,5 +1,5 @@
 export const counter = (initialCount: number) => {
-	let count = initialCount;
+	let count = $state(initialCount);
 
 	const getCount = () => count;
 

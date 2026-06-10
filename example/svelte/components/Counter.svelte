@@ -1,8 +1,8 @@
 <script lang="ts">
-	export let initialCount: number;
-
 	import { counter } from '../composables/counter.svelte';
 	import { getContext } from 'svelte';
+
+	let { initialCount }: { initialCount: number } = $props();
 	const themeMessage = getContext<string>('themeMessage') ?? 'NO_CONTEXT';
 	const { getCount, increment } = counter(initialCount);
 </script>
