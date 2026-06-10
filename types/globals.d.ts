@@ -78,6 +78,7 @@ declare global {
 		__SVELTE_COMPONENT__?: Record<string, unknown>;
 		__ABS_SVELTE_ISLAND_HTML__?: Record<string, string>;
 		__SVELTE_UNMOUNT__?: () => void;
+		__SVELTE_REMOUNT__?: (props: Record<string, unknown>) => void;
 		__ANGULAR_APP__?: {
 			destroy: () => void;
 			tick: () => void;

@@ -565,6 +565,14 @@ if (isHMR) {
 if (typeof window !== "undefined") {
   window.__SVELTE_COMPONENT__ = component;
   window.__SVELTE_UNMOUNT__ = function() { if (component) { unmount(component); } };
+  window.__SVELTE_REMOUNT__ = function(props) {
+    if (typeof window.__SVELTE_UNMOUNT__ === "function") {
+      try { window.__SVELTE_UNMOUNT__(); } catch (err) { /* ignore */ }
+    }
+    component = mount(Component, { target, props });
+    window.__SVELTE_COMPONENT__ = component;
+    window.__SVELTE_UNMOUNT__ = function() { if (component) { unmount(component); } };
+  };
   window.__ABS_SLOT_HYDRATION_PENDING__ = shouldHydrate;
   var releaseStreamingSlots = function() {
     window.__ABS_SLOT_HYDRATION_PENDING__ = false;

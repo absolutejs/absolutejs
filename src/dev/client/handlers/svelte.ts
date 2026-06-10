@@ -281,6 +281,26 @@ export const handleSvelteUpdate = (message: {
 					acceptFn(newModule);
 				}
 
+				/* $.hmr_accept swaps component code in place but re-runs
+				 * the <script> body with the original mount props, so any
+				 * state seeded from a prop (e.g. a composable doing
+				 * $state(initialCount)) resets. Remount with the preserved
+				 * state merged into props — mirroring the bundled-fallback
+				 * bootstrap — so that state carries across (issue #41). */
+				const preserved = window.__HMR_PRESERVED_STATE__;
+				const remount = window.__SVELTE_REMOUNT__;
+				if (
+					typeof remount === 'function' &&
+					preserved &&
+					Object.keys(preserved).length > 0
+				) {
+					remount({
+						...(window.__INITIAL_PROPS__ ?? {}),
+						...preserved
+					});
+				}
+				window.__HMR_PRESERVED_STATE__ = undefined;
+
 				if (
 					window.__HMR_WS__ &&
 					message.data.serverDuration !== undefined
