@@ -1,0 +1,87 @@
+name: Documentation issue
+description: Report missing, unclear, outdated, or incorrect AbsoluteJS documentation
+title: "[Docs]: "
+labels: ["type: docs", "status: needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve the AbsoluteJS documentation.
+
+        Please describe what is missing, unclear, outdated, or incorrect.
+
+  - type: dropdown
+    id: docs-issue-type
+    attributes:
+      label: Documentation issue type
+      options:
+        - Missing documentation
+        - Incorrect documentation
+        - Outdated documentation
+        - Unclear explanation
+        - Broken link
+        - Typo / grammar
+        - Example does not work
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: page-or-section
+    attributes:
+      label: Page, section, or file
+      description: Link to the page or name the docs file/section.
+      placeholder: "Example: docs/hmr.md or https://absolutejs.dev/docs/hmr"
+    validations:
+      required: true
+
+  - type: textarea
+    id: current-behavior
+    attributes:
+      label: Current documentation
+      description: What does the documentation currently say or fail to explain?
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-docs
+    attributes:
+      label: Suggested improvement
+      description: What should the documentation say instead?
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: area
+    attributes:
+      label: Related area
+      description: Select every part of AbsoluteJS related to this documentation issue. If unsure, leave blank and explain in additional context.
+      options:
+        - label: CLI / scaffolding
+        - label: Dev server
+        - label: HMR
+        - label: SSR
+        - label: Routing
+        - label: Plugin system
+        - label: Database integration
+        - label: Auth
+        - label: Docs
+        - label: Devtools
+        - label: Workspace
+        - label: Other
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Add links, screenshots, related issues, or examples.
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I checked that this documentation issue still exists in the latest version.
+          required: true
+        - label: I included the relevant page, section, or file.
+          required: true

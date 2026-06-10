@@ -1,0 +1,152 @@
+name: Bug report
+description: Report a reproducible AbsoluteJS bug
+title: "[Bug]: "
+labels: ["type: bug", "status: needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting an AbsoluteJS bug.
+
+        Please provide enough detail for the maintainers to reproduce and diagnose the issue quickly.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Bug summary
+      description: What happened?
+      placeholder: "Example: React HMR reloads the whole page instead of preserving state."
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Provide exact steps to reproduce the issue.
+      placeholder: |
+        1. Run `bun create absolutejs@latest`
+        2. Select React + Drizzle + SQLite
+        3. Start the dev server with `bun dev`
+        4. Edit `src/pages/index.tsx`
+        5. Observe the error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should have happened?
+      placeholder: "Example: The edited component should hot reload while preserving local state."
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What actually happened?
+      placeholder: "Example: The browser performs a full page reload and local state is lost."
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: area
+    attributes:
+      label: Affected area
+      description: Select every part of AbsoluteJS that seems related to this issue. If unsure, leave blank and explain in additional context.
+      options:
+        - label: CLI / scaffolding
+        - label: Dev server
+        - label: HMR
+        - label: SSR
+        - label: Routing
+        - label: Plugin system
+        - label: Database integration
+        - label: Auth
+        - label: Docs
+        - label: Devtools
+        - label: Workspace
+        - label: Other
+
+  - type: checkboxes
+    id: framework
+    attributes:
+      label: Framework / template
+      description: Select every AbsoluteJS template or frontend integration affected. If unsure, leave blank and explain in additional context.
+      options:
+        - label: HTML
+        - label: HTMX
+        - label: React
+        - label: Vue
+        - label: Svelte
+        - label: Angular
+        - label: Not framework-specific
+        - label: Other
+
+  - type: input
+    id: absolute-version
+    attributes:
+      label: AbsoluteJS version
+      description: Which version of AbsoluteJS are you using?
+      placeholder: "Example: 0.1.8"
+    validations:
+      required: true
+
+  - type: input
+    id: bun-version
+    attributes:
+      label: Bun version
+      description: Run `bun --version`.
+      placeholder: "Example: 1.2.15"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system / environment
+      description: Include OS, version, and whether you are using WSL, Docker, or a remote environment.
+      placeholder: "Example: macOS 15.5, Windows 11 WSL2, Ubuntu 24.04, Docker"
+    validations:
+      required: true
+
+  - type: input
+    id: browser
+    attributes:
+      label: Browser
+      description: Required only for frontend/browser-related bugs.
+      placeholder: "Example: Chrome 125, Safari 18, Firefox 126"
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error logs
+      description: Paste terminal output, stack traces, browser console errors, or relevant logs.
+      render: shell
+
+  - type: textarea
+    id: minimal-reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Link to a reproduction repo, gist, StackBlitz, CodeSandbox, or explain why one is not available.
+      placeholder: "https://github.com/..."
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Add screenshots, recordings, related issues, or anything else that may help.
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues and did not find a duplicate.
+          required: true
+        - label: I included clear reproduction steps.
+          required: true
+        - label: I included my AbsoluteJS version and Bun version.
+          required: true

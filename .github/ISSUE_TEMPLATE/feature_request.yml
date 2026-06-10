@@ -1,0 +1,104 @@
+name: Feature request
+description: Suggest an improvement or new capability for AbsoluteJS
+title: "[Feature]: "
+labels: ["type: feature", "status: needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting an AbsoluteJS feature.
+
+        Please explain the problem, the proposed solution, and why it belongs in AbsoluteJS.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What problem does this feature solve?
+      placeholder: "Example: It is currently difficult to scaffold multiple AbsoluteJS apps that share one workspace-level dev server."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: What would you like AbsoluteJS to do?
+      placeholder: "Example: Add an `absolute workspace` command that can run and coordinate multiple apps."
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What alternatives, workarounds, or existing tools have you considered?
+
+  - type: checkboxes
+    id: area
+    attributes:
+      label: Affected area
+      description: Select every part of AbsoluteJS this feature would affect. If unsure, leave blank and explain in additional context.
+      options:
+        - label: CLI / scaffolding
+        - label: Dev server
+        - label: HMR
+        - label: SSR
+        - label: Routing
+        - label: Plugin system
+        - label: Database integration
+        - label: Auth
+        - label: Docs
+        - label: Devtools
+        - label: Workspace
+        - label: Other
+
+  - type: checkboxes
+    id: framework
+    attributes:
+      label: Framework / template
+      description: Select every AbsoluteJS template or frontend integration this feature would affect. If unsure, leave blank and explain in additional context.
+      options:
+        - label: HTML
+        - label: HTMX
+        - label: React
+        - label: Vue
+        - label: Svelte
+        - label: Angular
+        - label: Not framework-specific
+        - label: Other
+
+  - type: textarea
+    id: examples
+    attributes:
+      label: Example usage
+      description: Show what the API, CLI command, config, or developer experience could look like.
+      render: shell
+      placeholder: |
+        absolute workspace dev
+
+        // or
+
+        export default defineConfig({
+          workspace: {
+            apps: ["apps/web", "apps/admin"]
+          }
+        })
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Add screenshots, links, prior discussion, or related issues.
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues and discussions before opening this request.
+          required: true
+        - label: I explained the problem this feature would solve.
+          required: true
+        - label: I included an example of the desired developer experience where possible.
+          required: false
