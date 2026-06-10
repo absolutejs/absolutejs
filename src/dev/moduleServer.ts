@@ -757,7 +757,15 @@ const wrapComposableExport = (source: string, name: string) => {
 
 // Virtual CSS modules for Svelte's css:'external' mode.
 // Keyed by fake path (e.g., /path/to/Counter.svelte.css).
-const svelteExternalCss = new Map<string, string>();
+/* Must survive `bun --hot` server re-evaluation (module state resets,
+ * globalThis persists). The globalThis-backed transform cache keeps
+ * serving cached Svelte components whose code imports virtual
+ * `.svelte.css` URLs — if this registry were module-level it would be
+ * reborn empty on re-evaluation and those imports would 500 on the
+ * next full page load, breaking hydration. */
+const svelteExternalCss =
+	globalThis.__svelteExternalCss ?? new Map<string, string>();
+globalThis.__svelteExternalCss = svelteExternalCss;
 
 // ─── Framework-specific transforms (Svelte, Vue) ────────────
 // Cached compiler references — avoid re-importing on every request.

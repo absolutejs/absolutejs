@@ -14,6 +14,11 @@ declare global {
 		| Map<string, { content: string; imports: string[]; mtime: number }>
 		| undefined;
 	var __transformImporters: Map<string, Set<string>> | undefined;
+	/** Virtual `.svelte.css` modules (css:'external' compile output) served by
+	 *  the dev moduleServer. On globalThis so it survives `bun --hot`
+	 *  server re-evaluation alongside the transform cache — cached Svelte
+	 *  transforms import these URLs, so the registry must outlive the module. */
+	var __svelteExternalCss: Map<string, string> | undefined;
 	var __transformInvalidationVersions: Map<string, number> | undefined;
 	var __http2Config:
 		| {

@@ -190,7 +190,63 @@ this bug.
 
 ---
 
-## 4. Bun's native CSS parser doesn't understand Tailwind v4 at-rules
+## 4. Svelte 5's `$.hmr()` does not preserve `$state` across HMR component swaps
+
+- **Dependency:** Svelte (`svelte`)
+- **Status:** our fix PR is open upstream
+  - **sveltejs/svelte#17995** (our PR) — "feat: preserve $state across HMR
+    component swaps": https://github.com/sveltejs/svelte/pull/17995
+  - sveltejs/svelte#14434 — the long-standing feature request it fixes:
+    https://github.com/sveltejs/svelte/issues/14434
+- **Surfaced in AbsoluteJS as:**
+  [absolutejs/absolutejs#41](https://github.com/absolutejs/absolutejs/issues/41)
+
+**Symptom.** Dev-only. On a surgical Svelte HMR update (`$.hmr_accept`), any
+reactive state that lives where the swap can't reach — composables
+(`.svelte.ts` modules doing `$state(initialProp)`) and other setup-time-created
+signals — resets to its initial value, because Svelte re-executes the
+component's `<script>` body with the original props and a fresh `$state`.
+
+**Root cause.** Stock Svelte 5's `$.hmr()` destroys the old effect tree and
+re-creates the component without carrying signal values across. PR #17995 adds
+`collect_state()` (walks the effect tree incl. composable/derived deps for
+`$.tag()`-labeled signals) + restore-on-init via
+`globalThis.__hmr_preserved_state__`, so the runtime preserves `$state`
+natively — including composable state.
+
+**Bandaid in AbsoluteJS** (issue #41, shipped `0.19.0-beta.1067`): re-mount the
+page with a DOM-extracted state snapshot merged into props after the surgical
+swap. It is fully prop-driven and counter-shaped (`extractCountFromDOM`), i.e.
+a heuristic — the upstream fix is the real solution. The bandaid's full
+footprint, for clean removal later:
+
+1. `src/dev/client/handlers/svelte.ts` — the post-`acceptFn` remount block
+   (reads `__HMR_PRESERVED_STATE__`, calls `window.__SVELTE_REMOUNT__`), plus
+   the snapshot machinery it feeds on: `extractCountFromDOM`,
+   `loadStateFromSession`/`saveStateToSession` (`__SVELTE_HMR_STATE__` in
+   sessionStorage), and the `window.__HMR_PRESERVED_STATE__` assignment in
+   `handleSvelteUpdate`.
+2. `src/build/compileSvelte.ts` — the `window.__SVELTE_REMOUNT__` helper in the
+   index bootstrap codegen, and the `isHMR` branch's
+   `__HMR_PRESERVED_STATE__`/sessionStorage `mergedProps` merge (the
+   bundled-fallback variant of the same bandaid).
+3. `src/dev/moduleServer.ts` — `generateSvelteHmrBootstrap`'s DOM-count
+   extraction + `__INITIAL_PROPS__` rewrite (legacy `/@hmr/svelte/` path).
+4. `types/globals.d.ts` — the `__SVELTE_REMOUNT__` Window field.
+   **Keep** `__HMR_PRESERVED_STATE__` — it is shared with the Vue and React
+   HMR paths (`compileVue.ts`, `generateReactIndexes.ts`).
+
+**Remove when:** a Svelte release containing #17995 ships **and** AbsoluteJS
+bumps its `svelte` dependency past it. At that point `$.hmr_accept` preserves
+composable `$state` natively, the remount becomes a redundant
+destroy-and-recreate, and all four footprint items above should be deleted in
+one pass (verify with the issue-41 repro: `example/svelte` counter to 3, edit
+the page `<script>`, count must survive — now via the runtime, with no remount
+log/behavior).
+
+---
+
+## 5. Bun's native CSS parser doesn't understand Tailwind v4 at-rules
 
 - **Dependency:** Bun (`bun`)
 - **Status:** open upstream
