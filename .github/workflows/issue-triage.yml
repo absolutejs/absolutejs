@@ -1,0 +1,114 @@
+name: Issue triage
+
+on:
+  issues:
+    types:
+      - opened
+      - reopened
+
+permissions:
+  issues: write
+
+jobs:
+  triage:
+    name: Add triage status and comment
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Add needs-triage label
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+
+            if (!issue) {
+              core.info("No issue found in payload.");
+              return;
+            }
+
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issue_number = issue.number;
+
+            const existingLabels = issue.labels.map((label) =>
+              typeof label === "string" ? label : label.name
+            );
+
+            const hasStatusLabel = existingLabels.some((label) =>
+              label.startsWith("status:")
+            );
+
+            if (!hasStatusLabel) {
+              await github.rest.issues.addLabels({
+                owner,
+                repo,
+                issue_number,
+                labels: ["status: needs-triage"],
+              });
+
+              core.info("Added status: needs-triage label.");
+            } else {
+              core.info("Issue already has a status label.");
+            }
+
+      - name: Add triage comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+
+            if (!issue) {
+              core.info("No issue found in payload.");
+              return;
+            }
+
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issue_number = issue.number;
+
+            const commentMarker = "<!-- absolutejs-triage-comment -->";
+
+            const comments = await github.paginate(
+              github.rest.issues.listComments,
+              {
+                owner,
+                repo,
+                issue_number,
+                per_page: 100,
+              }
+            );
+
+            const alreadyCommented = comments.some((comment) =>
+              comment.body && comment.body.includes(commentMarker)
+            );
+
+            if (alreadyCommented) {
+              core.info("Triage comment already exists.");
+              return;
+            }
+
+            const body = `${commentMarker}
+            Thanks for opening this issue.
+
+            This has been marked for triage. A maintainer will review the report and determine the next step.
+
+            To help us move faster, please make sure the issue includes:
+
+            - Clear reproduction steps
+            - Expected behavior
+            - Actual behavior
+            - AbsoluteJS version
+            - Bun version
+            - Relevant logs or screenshots
+            - A minimal reproduction repo if possible
+
+            If this is a bug and the report is missing reproduction details, we may mark it as \`status: needs-repro\` before investigating further.`;
+
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number,
+              body,
+            });
+
+            core.info("Added triage comment.");
