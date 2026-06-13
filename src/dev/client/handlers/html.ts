@@ -186,9 +186,12 @@ const updateHTMLBody = (
 	const newInlineScripts = collectInlineScripts(tempDiv);
 
 	const htmlStructureChanged = didHTMLStructureChange(container, tempDiv);
+	const inlineScriptsChanged = didInlineScriptsChange(
+		oldInlineScripts,
+		newInlineScripts
+	);
 	const scriptsChanged =
-		didScriptsChange(existingScripts, newScripts) ||
-		didInlineScriptsChange(oldInlineScripts, newInlineScripts);
+		didScriptsChange(existingScripts, newScripts) || inlineScriptsChanged;
 
 	if (htmlStructureChanged || scriptsChanged) {
 		patchDOMInPlace(container, htmlBody);
@@ -206,25 +209,20 @@ const updateHTMLBody = (
 		// changed. A pure markup edit (e.g. a heading) leaves inline-script
 		// state and `addEventListener` handlers intact.
 		if (scriptsChanged) {
-			cloneInteractiveElements(container);
+			// Clone (which strips listeners via cloneNode) ONLY when an inline
+			// script changed: a changed inline script re-runs in place below
+			// and would otherwise double-bind on elements that still carry the
+			// old handler. Unchanged inline scripts are skipped on re-exec, and
+			// external modules are re-imported via `import()` whose module cache
+			// means an unchanged body never re-runs — cloning for those would
+			// orphan their listeners forever (the regression this fixes).
+			if (inlineScriptsChanged) {
+				cloneInteractiveElements(container);
+			}
 			reExecuteScripts(container, newScripts, oldInlineScripts);
 		}
 	});
 	sessionStorage.removeItem('__HMR_ACTIVE__');
-};
-
-const cloneHmrListenerElements = (container: HTMLElement) => {
-	container
-		.querySelectorAll('[data-hmr-listeners-attached]')
-		.forEach((elem) => {
-			const cloned = elem.cloneNode(true);
-			if (elem.parentNode) {
-				elem.parentNode.replaceChild(cloned, elem);
-			}
-			if (cloned instanceof Element) {
-				cloned.removeAttribute('data-hmr-listeners-attached');
-			}
-		});
 };
 
 const replaceInlineScript = (script: Element) => {
@@ -265,7 +263,13 @@ const updateHTMLBodyDirect = (
 		restoreFormState(savedState.forms);
 		restoreScrollState(savedState.scroll);
 
-		cloneHmrListenerElements(container);
+		// Unlike `updateHTMLBody` (which re-imports externals as ES modules and
+		// must not clone unchanged ones), this path rebuilds EVERY external
+		// script below as a fresh `<script src?t=>` tag that always
+		// re-executes. So a single clone here is correct and necessary: it
+		// gives each re-running script a pristine element to bind once, with no
+		// double-binding.
+		cloneInteractiveElements(container);
 
 		removeOldScripts(container);
 		newScripts.forEach((scriptInfo) => {

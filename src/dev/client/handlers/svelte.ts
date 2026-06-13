@@ -272,13 +272,31 @@ export const handleSvelteUpdate = (message: {
 		const svelteWindow: SvelteHmrWindow = window;
 		const acceptRegistry = svelteWindow.__SVELTE_HMR_ACCEPT__;
 
-		// Save the OLD module's accept callback BEFORE importing.
-		const acceptFn = acceptRegistry?.[pageModuleUrl];
+		// Save the OLD module's accept callback BEFORE importing. The exact
+		// key is the broadcast `pageModuleUrl`; on the happy path it matches
+		// the key the module server registered. If it doesn't (the registry
+		// was repopulated under a slightly different URL key, or `bun --hot`
+		// re-evaluated the module and reset `__SVELTE_HMR_ACCEPT__`), fall back
+		// to a suffix/basename match so we still find the callback. Exact match
+		// always wins, so the happy path is unchanged.
+		let acceptFn = acceptRegistry?.[pageModuleUrl];
+		if (!acceptFn && acceptRegistry) {
+			const wantBase = pageModuleUrl.split('?')[0] ?? pageModuleUrl;
+			const hit = Object.keys(acceptRegistry).find(
+				(key) =>
+					key === wantBase ||
+					key.endsWith(wantBase) ||
+					wantBase.endsWith(key)
+			);
+			if (hit) acceptFn = acceptRegistry[hit];
+		}
 
 		import(modulePath)
 			.then((newModule) => {
+				let applied = false;
 				if (acceptFn) {
 					acceptFn(newModule);
+					applied = true;
 				}
 
 				/* $.hmr_accept swaps component code in place but re-runs
@@ -289,15 +307,35 @@ export const handleSvelteUpdate = (message: {
 				 * bootstrap — so that state carries across (issue #41). */
 				const preserved = window.__HMR_PRESERVED_STATE__;
 				const remount = window.__SVELTE_REMOUNT__;
-				if (
-					typeof remount === 'function' &&
-					preserved &&
-					Object.keys(preserved).length > 0
-				) {
+				const hasPreserved =
+					preserved && Object.keys(preserved).length > 0;
+
+				if (applied) {
+					if (typeof remount === 'function' && hasPreserved) {
+						remount({
+							...(window.__INITIAL_PROPS__ ?? {}),
+							...preserved
+						});
+					}
+				} else if (typeof remount === 'function') {
+					/* Resilience fallback: no accept callback was found, so
+					 * `$.hmr` never wired the freshly imported module in. The
+					 * import warmed the module cache; remount the page with
+					 * merged props to actually apply the new code instead of
+					 * silently doing nothing. */
 					remount({
 						...(window.__INITIAL_PROPS__ ?? {}),
-						...preserved
+						...(preserved ?? {})
 					});
+				} else {
+					/* Last resort: nothing can apply the update in place. */
+					console.warn(
+						'[HMR] Svelte accept callback missing and no remount available; reloading'
+					);
+					window.__HMR_PRESERVED_STATE__ = undefined;
+					window.location.reload();
+
+					return undefined;
 				}
 				window.__HMR_PRESERVED_STATE__ = undefined;
 
