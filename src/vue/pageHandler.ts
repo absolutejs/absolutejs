@@ -79,6 +79,13 @@ const readSetupAppHook = (value: unknown) => {
 	return typeof setupApp === 'function' ? (setupApp as VueSetupApp) : null;
 };
 
+// A page that exports `routes = defineRoutes([...])` is a SPA shell: the client
+// boots it with `createApp` (fresh mount), which DISCARDS any server-rendered
+// markup and re-renders from scratch — so SSR-ing its body wastes a render AND
+// double-fires every CSS entrance animation (server paint, then client mount).
+const readHasSpaRoutes = (value: unknown) =>
+	isRecord(value) && Array.isArray(value['routes']);
+
 const readDefaultExport = (value: unknown) =>
 	isRecord(value) ? value.default : undefined;
 
@@ -192,7 +199,7 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 					return {
 						component: passedPageComponent,
 						hasIslands: readHasIslands(passedPageComponent),
-						routes: null as unknown[] | null,
+						hasSpaRoutes: false,
 						setupApp: null as VueSetupApp | null
 					};
 				}
@@ -215,6 +222,7 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 				return {
 					component: importedPageComponent,
 					hasIslands: readHasIslands(importedPageModule),
+					hasSpaRoutes: readHasSpaRoutes(importedPageModule),
 					setupApp: readSetupAppHook(importedPageModule)
 				};
 			};
@@ -261,9 +269,6 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 				});
 			}
 
-			const bodyStream = renderToWebStream(app);
-			const { firstChunk, reader } = await primeVueStream(bodyStream);
-
 			const head = `<!DOCTYPE html><html>${resolvedHeadTag}<body><div id="root">`;
 			const ssrOnlyHmrShim =
 				clientMode === 'none' && process.env.NODE_ENV === 'development'
@@ -275,6 +280,20 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 					: `</div><script>window.__INITIAL_PROPS__=${JSON.stringify(
 							maybeProps ?? {}
 						)}</script><script type="module" src="${resolvedIndexPath}"></script></body></html>`;
+
+			// SPA-shell page with a client bundle: ship an EMPTY #root. The client
+			// boots with createApp and renders from scratch, so any SSR body here
+			// is discarded AND its CSS entrance animations fire twice (server paint
+			// + client mount). Server-side setupApp already ran above (redirects);
+			// we just skip the throwaway render. Non-SPA pages keep SSR + hydrate.
+			if (resolvedPage.hasSpaRoutes && clientMode === 'auto') {
+				return new Response(`${head}${tail}`, {
+					headers: { 'Content-Type': 'text/html' }
+				});
+			}
+
+			const bodyStream = renderToWebStream(app);
+			const { firstChunk, reader } = await primeVueStream(bodyStream);
 
 			const stream = new ReadableStream({
 				start(controller) {
