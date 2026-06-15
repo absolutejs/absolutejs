@@ -187,7 +187,7 @@ var buildLocationSection = (file, line, column, lineText) => {
   locSection.appendChild(locEl);
   if (lineText) {
     const codeBlock = document.createElement("pre");
-    codeBlock.style.cssText = codeBlockStyle + "margin-top:8px;";
+    codeBlock.style.cssText = `${codeBlockStyle}margin-top:8px;`;
     codeBlock.textContent = lineText;
     locSection.appendChild(codeBlock);
   }
@@ -217,7 +217,7 @@ var buildStackSection = (stack, message) => {
   label.textContent = "Stack";
   section.appendChild(label);
   const pre = document.createElement("pre");
-  pre.style.cssText = codeBlockStyle + "max-height:300px;overflow-y:auto;";
+  pre.style.cssText = `${codeBlockStyle}max-height:300px;overflow-y:auto;`;
   pre.textContent = cleaned;
   section.appendChild(pre);
   return section;
@@ -226,7 +226,7 @@ var collectLoadedScripts = () => {
   const scripts = Array.from(document.querySelectorAll("script[src]"));
   const urls = [];
   for (const script of scripts) {
-    const src = script.src;
+    const { src } = script;
     if (!src)
       continue;
     if (src.includes("/vendor/") || src.includes("/generated/") || /\/chunk-[a-z0-9]+\.js(\?|$)/i.test(src) || src.includes("/_src_indexes/")) {
@@ -255,7 +255,7 @@ var buildDiagnosticsSection = () => {
     }
   }
   const pre = document.createElement("pre");
-  pre.style.cssText = codeBlockStyle + "max-height:200px;overflow-y:auto;";
+  pre.style.cssText = `${codeBlockStyle}max-height:200px;overflow-y:auto;`;
   pre.textContent = lines.join(`
 `);
   section.appendChild(pre);
@@ -468,17 +468,6 @@ var showErrorOverlay = (opts) => {
 var installAngularHmrShim = () => {
   const listeners = new Map;
   const bus = {
-    on(event, cb) {
-      let set = listeners.get(event);
-      if (!set) {
-        set = new Set;
-        listeners.set(event, set);
-      }
-      set.add(cb);
-    },
-    off(event, cb) {
-      listeners.get(event)?.delete(cb);
-    },
     dispatch(event, data) {
       const set = listeners.get(event);
       if (!set)
@@ -490,6 +479,17 @@ var installAngularHmrShim = () => {
           console.error("[absolutejs] angular HMR listener threw", err);
         }
       }
+    },
+    off(event, cb) {
+      listeners.get(event)?.delete(cb);
+    },
+    on(event, cb) {
+      let set = listeners.get(event);
+      if (!set) {
+        set = new Set;
+        listeners.set(event, set);
+      }
+      set.add(cb);
     }
   };
   return bus;
@@ -497,11 +497,11 @@ var installAngularHmrShim = () => {
 if (typeof globalThis !== "undefined" && !globalThis.__angularHmr) {
   globalThis.__angularHmr = installAngularHmrShim();
 }
-var dispatchAngularComponentUpdate = (data) => {
-  globalThis.__angularHmr?.dispatch("angular:component-update", data);
-};
 var dispatchAngularComponentRemount = (data) => {
   globalThis.__angularHmr?.dispatch("angular:component-remount", data);
+};
+var dispatchAngularComponentUpdate = (data) => {
+  globalThis.__angularHmr?.dispatch("angular:component-update", data);
 };
 
 // src/dev/client/vendor/lview/slotConstants.ts
@@ -657,15 +657,15 @@ var createFreshAt = (Class, hostElement, core) => {
   if (!envInjector)
     return null;
   const ref = core.createComponent(Class, {
-    hostElement,
-    environmentInjector: envInjector
+    environmentInjector: envInjector,
+    hostElement
   });
   const newLView = ref.hostView._lView;
   if (!newLView) {
     ref.destroy();
     return null;
   }
-  return { instance: ref.instance, newLView, componentRef: ref };
+  return { componentRef: ref, instance: ref.instance, newLView };
 };
 var spliceLViewIntoParent = (target, newLView, newInstance) => {
   const { parentLView, oldLView, slotIndex, tNode } = target;
@@ -3263,6 +3263,13 @@ var Image = ({
       width: "100%"
     } : { color: "transparent" }
   };
+  const fillWrapperStyle = {
+    display: "block",
+    height: "100%",
+    overflow: "hidden",
+    position: "relative",
+    width: "100%"
+  };
   const preloadLink = priority ? /* @__PURE__ */ jsxDEV2("link", {
     as: "image",
     crossOrigin,
@@ -3300,13 +3307,7 @@ var Image = ({
       children: [
         preloadLink,
         /* @__PURE__ */ jsxDEV2("span", {
-          style: {
-            display: "block",
-            height: "100%",
-            overflow: "hidden",
-            position: "relative",
-            width: "100%"
-          },
+          style: fillWrapperStyle,
           children: imgElement
         }, undefined, false, undefined, this)
       ]

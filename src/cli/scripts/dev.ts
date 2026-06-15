@@ -49,6 +49,9 @@ const cliTag = (color: string, message: string) =>
 	`\x1b[2m${formatTimestamp()}\x1b[0m ${color}[cli]\x1b[0m ${color}${message}\x1b[0m`;
 
 const DEFAULT_PORT_RANGE = 10;
+// Poll cadence while the exit monitor parks for an in-flight intentional
+// restart to install the replacement child.
+const RESTART_PARK_POLL_MS = 20;
 const NODE_API_IMPORT_ERROR =
 	'To load Node-API modules, use require() or process.dlopen instead of import.';
 
@@ -631,9 +634,35 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 	// bun child because we can't ask the child to restart itself
 	// gracefully without dropping the parent's process-group + signal
 	// plumbing.
+	// `serverRestartPending` covers the whole lifecycle (debounce + the async
+	// restart), not just the debounce window — so a burst of edits can't kick
+	// off OVERLAPPING restarts that each capture the same `old` proc and spawn
+	// two replacements (one binds the port, the other slides to the next).
+	// Edits that land mid-restart set `serverRestartQueued` so exactly one
+	// follow-up restart runs after the current one settles.
 	let serverRestartPending = false;
+	let serverRestartQueued = false;
+	const runServerRestart = async () => {
+		serverRestartQueued = false;
+		try {
+			await restartServer();
+		} catch (err) {
+			console.error(cliTag('\x1b[31m', `Restart failed: ${err}`));
+		}
+		// An edit landed while we were restarting → run exactly one more.
+		if (serverRestartQueued) {
+			await runServerRestart();
+
+			return;
+		}
+		serverRestartPending = false;
+	};
 	const scheduleServerRestart = (filePath: string) => {
-		if (serverRestartPending) return;
+		if (serverRestartPending) {
+			serverRestartQueued = true;
+
+			return;
+		}
 		serverRestartPending = true;
 		const relPath = filePath.startsWith(process.cwd())
 			? filePath.slice(process.cwd().length + 1)
@@ -645,10 +674,7 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 			)
 		);
 		setTimeout(() => {
-			serverRestartPending = false;
-			restartServer().catch((err) => {
-				console.error(cliTag('\x1b[31m', `Restart failed: ${err}`));
-			});
+			void runServerRestart();
 		}, 80);
 	};
 	try {
@@ -820,13 +846,14 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 
 	sendTelemetryEvent('dev:start', { entry: serverEntry, frameworks });
 
-	const killChildTree = (signal: NodeJS.Signals) => {
-		const childPid = serverProcess.pid;
+	// Signal a child and its whole process group. With `detached: true` the
+	// child leads its own group, so the negative-PID target cascades to
+	// `bun --hot` and every descendant; the single-PID path is the fallback
+	// when the group send fails (e.g. the leader already reaped).
+	const signalChildTree = (proc: ChildProcess, signal: NodeJS.Signals) => {
+		const childPid = proc.pid;
 		if (typeof childPid !== 'number') return;
 		try {
-			// Negative PID → group target. With detached: true the child is
-			// the leader of its own group, so this cascades to bun --hot
-			// and any of its descendants.
 			process.kill(-childPid, signal);
 
 			return;
@@ -839,6 +866,36 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 			/* already exited */
 		}
 	};
+
+	const killChildTree = (signal: NodeJS.Signals) =>
+		signalChildTree(serverProcess, signal);
+
+	// Fully terminate a child and WAIT for it to exit — so its listening
+	// socket is released before anything tries to rebind the port. SIGTERM
+	// first; if `bun --hot` is mid-reload and ignores it, force SIGKILL after
+	// a grace window so a restart can never wedge waiting on a stuck child.
+	const FORCE_KILL_GRACE_MS = 2 * MILLISECONDS_IN_A_SECOND;
+	const terminateChild = (proc: ChildProcess) =>
+		new Promise<void>((res) => {
+			if (proc.exitCode !== null || typeof proc.pid !== 'number') {
+				res();
+
+				return;
+			}
+			let settled = false;
+			const finish = () => {
+				if (settled) return;
+				settled = true;
+				clearTimeout(killTimer);
+				res();
+			};
+			proc.once('exit', finish);
+			signalChildTree(proc, 'SIGTERM');
+			const killTimer = setTimeout(() => {
+				signalChildTree(proc, 'SIGKILL');
+			}, FORCE_KILL_GRACE_MS);
+			killTimer.unref();
+		});
 
 	const cleanup = async (exitCode = 0) => {
 		if (cleaning) return;
@@ -876,6 +933,10 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 		process.exit(exitCode);
 	};
 
+	// Set while `restartServer` deliberately kills the child, so the exit
+	// monitor doesn't mistake the intentional kill for a crash and respawn a
+	// competing child.
+	let intentionalRestart = false;
 	const restartServer = async () => {
 		serverReady = false;
 		console.log(cliTag('\x1b[36m', 'Restarting server...'));
@@ -885,20 +946,22 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 			sendSignal('SIGCONT');
 			paused = false;
 		}
-		try {
-			old.kill('SIGTERM');
-		} catch {
-			/* already exited */
-		}
+		// Kill the old child (whole group) and WAIT for it to exit BEFORE
+		// spawning the replacement. Spawning first lets the new child lose
+		// the port race — it slides to the next port in the range while the
+		// old child lingers serving STALE code on the original port, so the
+		// browser keeps hitting the pre-edit bundle and the restart looks
+		// like a no-op. Terminating first guarantees the port is free so the
+		// replacement rebinds the SAME port.
+		//
+		// `intentionalRestart` tells `monitorServer` this exit is deliberate
+		// so it doesn't fire the crash-respawn path (which would race this
+		// spawn and double-bind / wedge the port). The monitor parks until
+		// the replacement is installed, then resumes watching it.
+		intentionalRestart = true;
+		await terminateChild(old);
 		serverProcess = await spawnServer();
-		await new Promise<void>((res) => {
-			if (old.exitCode !== null) {
-				res();
-
-				return;
-			}
-			old.once('exit', () => res());
-		});
+		intentionalRestart = false;
 		console.log(cliTag('\x1b[32m', 'Server restarted.'));
 	};
 
@@ -1114,6 +1177,15 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 		return true;
 	};
 
+	// Poll until an in-flight intentional restart has installed the
+	// replacement child (recursive, not a loop, to keep each await a tail
+	// step). Bounded in practice by spawn latency (sub-second).
+	const waitForIntentionalRestart = async () => {
+		if (!intentionalRestart) return;
+		await Bun.sleep(RESTART_PARK_POLL_MS);
+		await waitForIntentionalRestart();
+	};
+
 	const monitorServer = async () => {
 		if (cleaning) {
 			return;
@@ -1127,6 +1199,15 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 			}
 			current.once('exit', (code) => res(code));
 		});
+		// Skip the crash path when this exit was a deliberate restart kill —
+		// park until `restartServer` installs the replacement, then resume
+		// monitoring whatever `serverProcess` now points at.
+		if (intentionalRestart) {
+			await waitForIntentionalRestart();
+			await monitorServer();
+
+			return;
+		}
 		if (cleaning || serverProcess !== current) {
 			await monitorServer();
 

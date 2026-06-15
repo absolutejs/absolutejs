@@ -1,9 +1,37 @@
-import {
-  __commonJS,
-  __toESM
-} from "./chunk-2kh60w9b.js";
+import"./chunk-2kh60w9b.js";
 
-// node_modules/react-refresh/cjs/react-refresh-runtime.development.js
+// src/dev/client/vendor/reactRefreshRuntime.js
+var __create = Object.create;
+var __getProtoOf = Object.getPrototypeOf;
+var __defProp = Object.defineProperty;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+function __accessProp(key) {
+  return this[key];
+}
+var __toESMCache_node;
+var __toESMCache_esm;
+var __toESM = (mod, isNodeMode, target) => {
+  var canCache = mod != null && typeof mod === "object";
+  if (canCache) {
+    var cache = isNodeMode ? __toESMCache_node ??= new WeakMap : __toESMCache_esm ??= new WeakMap;
+    var cached = cache.get(mod);
+    if (cached)
+      return cached;
+  }
+  target = mod != null ? __create(__getProtoOf(mod)) : {};
+  const to = isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target;
+  for (let key of __getOwnPropNames(mod))
+    if (!__hasOwnProp.call(to, key))
+      __defProp(to, key, {
+        get: __accessProp.bind(mod, key),
+        enumerable: true
+      });
+  if (canCache)
+    cache.set(mod, to);
+  return to;
+};
+var __commonJS = (cb, mod) => () => (mod || cb((mod = { exports: {} }).exports, mod), mod.exports);
 var require_react_refresh_runtime_development = __commonJS((exports) => {
   (function() {
     function computeFullKey(signature) {
@@ -241,16 +269,12 @@ var require_react_refresh_runtime_development = __commonJS((exports) => {
     exports.setSignature = setSignature;
   })();
 });
-
-// node_modules/react-refresh/runtime.js
 var require_runtime = __commonJS((exports, module) => {
   var react_refresh_runtime_development = __toESM(require_react_refresh_runtime_development());
   if (false) {} else {
     module.exports = react_refresh_runtime_development;
   }
 });
-
-// tests/fixtures/react-streaming-dev/build/_vendor_tmp/react-refresh_runtime.ts
 var import_runtime = __toESM(require_runtime(), 1);
 var import_runtime2 = __toESM(require_runtime(), 1);
 var export_setSignature = import_runtime.setSignature;
@@ -265,7 +289,6 @@ var export_default = import_runtime2.default;
 var export_createSignatureFunctionForTransform = import_runtime.createSignatureFunctionForTransform;
 var export_collectCustomHooksForSignature = import_runtime.collectCustomHooksForSignature;
 var export__getMountedRootCount = import_runtime._getMountedRootCount;
-
 export {
   export_setSignature as setSignature,
   export_register as register,
@@ -275,7 +298,6 @@ export {
   export_hasUnrecoverableErrors as hasUnrecoverableErrors,
   export_getFamilyByType as getFamilyByType,
   export_getFamilyByID as getFamilyByID,
-  export_default as default,
   export_createSignatureFunctionForTransform as createSignatureFunctionForTransform,
   export_collectCustomHooksForSignature as collectCustomHooksForSignature,
   export__getMountedRootCount as _getMountedRootCount

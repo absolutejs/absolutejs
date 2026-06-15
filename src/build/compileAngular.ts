@@ -1488,6 +1488,84 @@ const inlineResources = async (
 	};
 };
 
+const CLASS_KEYWORD = 'class';
+
+const isIdentifierChar = (char: string | undefined) =>
+	char !== undefined && /[A-Za-z0-9_$]/.test(char);
+
+/** Index just past the string/template literal that opens at `start`. */
+const skipStringLiteral = (source: string, start: number) => {
+	const quote = source[start];
+	let index = start + 1;
+	while (index < source.length) {
+		if (source[index] === '\\') {
+			index += 2;
+			continue;
+		}
+		if (source[index] === quote) return index + 1;
+		index += 1;
+	}
+
+	return index;
+};
+
+/** From the decorator at `start`, scan past stacked decorators (skipping
+ *  balanced brackets and strings in their argument lists) to the top-level
+ *  `class` keyword they apply to. Returns its index, or -1 if not found. */
+const findDecoratedClassKeyword = (source: string, start: number) => {
+	let index = start;
+	let depth = 0;
+	while (index < source.length) {
+		const char = source[index];
+		if (char === '"' || char === "'" || char === '`') {
+			index = skipStringLiteral(source, index);
+			continue;
+		}
+		const isOpen = char === '(' || char === '[' || char === '{';
+		const isClose = char === ')' || char === ']' || char === '}';
+		const atClass =
+			depth === 0 &&
+			source.startsWith(CLASS_KEYWORD, index) &&
+			!isIdentifierChar(source[index - 1]) &&
+			!isIdentifierChar(source[index + CLASS_KEYWORD.length]);
+		if (atClass) return index;
+		if (isOpen) depth += 1;
+		else if (isClose) depth -= 1;
+		index += 1;
+	}
+
+	return -1;
+};
+
+/** Bun's transpiler rejects the `export @Decorator class X {}` form with
+ *  "Unexpected @", though TypeScript accepts it — and it DOES accept the
+ *  equivalent `@Decorator export class X {}`. Rewrite the former to the latter
+ *  so legacy-decorator classes exported this way (common for Angular page
+ *  components) compile. Matches only a real `export` keyword followed by a
+ *  decorator; decorator argument lists are balanced-scanned so braces, parens
+ *  and strings inside them never break the rewrite. */
+const hoistExportPastDecorators = (source: string) => {
+	const exportBeforeDecorator = /\bexport\s+(?=@)/g;
+	let result = '';
+	let lastIndex = 0;
+	let match = exportBeforeDecorator.exec(source);
+	while (match !== null) {
+		const decoratorStart = match.index + match[0].length;
+		const classIndex = findDecoratedClassKeyword(source, decoratorStart);
+		if (classIndex !== -1) {
+			result += source.slice(lastIndex, match.index);
+			result += source.slice(decoratorStart, classIndex);
+			result += `export ${CLASS_KEYWORD}`;
+			lastIndex = classIndex + CLASS_KEYWORD.length;
+			exportBeforeDecorator.lastIndex = lastIndex;
+		}
+		match = exportBeforeDecorator.exec(source);
+	}
+	result += source.slice(lastIndex);
+
+	return result;
+};
+
 /** Angular HMR Runtime Layer (Level 3) — JIT-mode compilation for dev/HMR builds.
  *  Uses ts.transpileModule() instead of Angular AOT performCompilation().
  *  Inlines templateUrl → template and styleUrls → styles from disk.
@@ -1599,7 +1677,9 @@ export const compileAngularFileJIT = async (
 		actualPath: string,
 		importRewrites: Map<string, string>
 	) => {
-		let processedContent = angularTranspiler.transformSync(sourceCode);
+		let processedContent = angularTranspiler.transformSync(
+			hoistExportPastDecorators(sourceCode)
+		);
 		const outputPath = toOutputPath(actualPath);
 		const rewriteBareImport = (
 			prefix: string,

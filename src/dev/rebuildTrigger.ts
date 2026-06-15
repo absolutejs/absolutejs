@@ -3892,11 +3892,15 @@ const handleSvelteHMR = (
 	const surgicallyHandled = state.svelteSurgicallyHandled;
 	pagesToUpdate
 		.filter(
-			(sveltePagePath) =>
-				!surgicallyHandled?.has(resolve(sveltePagePath))
+			(sveltePagePath) => !surgicallyHandled?.has(resolve(sveltePagePath))
 		)
 		.forEach((sveltePagePath) => {
-			broadcastSveltePageUpdate(state, sveltePagePath, manifest, duration);
+			broadcastSveltePageUpdate(
+				state,
+				sveltePagePath,
+				manifest,
+				duration
+			);
 		});
 };
 

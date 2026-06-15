@@ -307,10 +307,7 @@ const collectInlineScripts = (elem: HTMLElement) =>
 		elem.querySelectorAll('script:not([src]):not([data-hmr-client])')
 	).map((script) => script.textContent || '');
 
-const didInlineScriptsChange = (
-	oldInline: string[],
-	newInline: string[]
-) =>
+const didInlineScriptsChange = (oldInline: string[], newInline: string[]) =>
 	oldInline.length !== newInline.length ||
 	oldInline.some((content, idx) => content !== newInline[idx]);
 
