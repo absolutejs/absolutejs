@@ -2,7 +2,11 @@ import { argv } from 'node:process';
 import { env } from 'bun';
 import { type AnyElysia } from 'elysia';
 import { websocket as elysiaWebSocketHandler } from 'elysia/ws';
-import { DEFAULT_PORT, MILLISECONDS_IN_A_SECOND } from '../constants';
+import {
+	DEFAULT_PORT,
+	DEFAULT_WEBSOCKET_IDLE_TIMEOUT_SECONDS,
+	MILLISECONDS_IN_A_SECOND
+} from '../constants';
 import { loadDevCert } from '../dev/devCert';
 import {
 	registerInstance,
@@ -73,8 +77,24 @@ const selfRegisterInstance = () => {
 // context (e.g. auth's `protectRoute` derive) does not have to satisfy the
 // empty base singleton — checking that against a big chain trips TS2589 at the
 // call site. The bound is what's widened, never the return.
+// Apply framework keepalive defaults to the app's WebSocket config without
+// clobbering anything the consumer set explicitly (their values win via the
+// trailing spread). `app.config.websocket` is what both the reload branch and
+// `app.listen()` below hand to Bun.serve, so mutating it once here covers every
+// dev path. The compiled runtime takes a parallel default in compile.ts (it
+// builds its own Bun.serve and returns early below).
+const applyWebSocketKeepaliveDefaults = (app: AnyElysia) => {
+	app.config.websocket = {
+		idleTimeout: DEFAULT_WEBSOCKET_IDLE_TIMEOUT_SECONDS,
+		sendPings: true,
+		...(app.config.websocket ?? {})
+	};
+};
+
 export const networking = <A extends AnyElysia>(app: A) => {
 	if (env.ABSOLUTE_COMPILED_RUNTIME === '1') return app;
+
+	applyWebSocketKeepaliveDefaults(app);
 
 	// Dev-only route introspection for `absolute routes` — reads the live route
 	// table at request time. (The request inspector for `absolute inspect` is

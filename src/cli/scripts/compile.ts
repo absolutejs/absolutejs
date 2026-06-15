@@ -16,7 +16,10 @@ import {
 import { createRequire } from 'node:module';
 import { basename, dirname, extname, join, relative, resolve } from 'node:path';
 import type { BuildConfig } from '../../../types/build';
-import { DEFAULT_PORT } from '../../constants';
+import {
+	DEFAULT_PORT,
+	DEFAULT_WEBSOCKET_IDLE_TIMEOUT_SECONDS
+} from '../../constants';
 import { prerenderWithServer } from '../../core/prerender';
 import { getDurationString } from '../../utils/getDurationString';
 import { stripStringsAndComments } from '../../utils/stripStringsAndComments';
@@ -1019,7 +1022,20 @@ const server = Bun.serve({
 	// Registering Elysia's WebSocket dispatcher here (plus assigning app.server in
 	// resolveRuntimeFetch) is what makes .ws() routes work in a compiled server —
 	// without it, every upgrade request falls through to the 404 below.
-	websocket: elysiaWebsocket,
+	//
+	// idleTimeout + sendPings keep long-lived sockets (voice intake, referee,
+	// realtime sync) alive through greeting playback / silent listening. The
+	// compiled runtime builds its own Bun.serve and never reads the app's
+	// config.websocket, so without these a quiet caller was killed at Bun's small
+	// fallback (~60s) with INACTIVE_CLIENT. sendPings (Bun default, explicit here)
+	// is protocol-level keepalive the browser answers without JS — so a throttled
+	// background tab still responds. elysiaWebsocket has no idleTimeout/sendPings,
+	// so spreading it last keeps the dispatcher without clobbering these.
+	websocket: {
+		idleTimeout: ${DEFAULT_WEBSOCKET_IDLE_TIMEOUT_SECONDS},
+		sendPings: true,
+		...elysiaWebsocket
+	},
 	async fetch(request) {
 		const url = new URL(request.url);
 

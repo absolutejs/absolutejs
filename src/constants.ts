@@ -88,6 +88,16 @@ export const TIME_PRECISION = 2;
 export const TWO_THIRDS = 2 / 3;
 export const UNFOUND_INDEX = -1;
 export const WEBSOCKET_NORMAL_CLOSURE = 1000;
+// Default Bun WebSocket idleTimeout (seconds) applied to every absolute server.
+// Long-lived sockets (voice intake, referee, realtime sync) sit idle during
+// greeting playback or while a user listens silently — no client→server frames.
+// Without an explicit value the WS idleTimeout falls back to Elysia's small
+// top-level serve default (~30s, closing at ~60s), which kills these sessions
+// mid-call with INACTIVE_CLIENT. 240s outlasts any greeting or think-pause and
+// gives a briefly-suspended tab time to wake and reconnect. Paired with Bun's
+// `sendPings` (protocol-level keepalive the browser answers without JS, so a
+// throttled background tab still responds). Bun's hard ceiling is 960s.
+export const DEFAULT_WEBSOCKET_IDLE_TIMEOUT_SECONDS = 240;
 export const WORKSPACE_COMMAND_ARGS_OFFSET = 3;
 export const WORKSPACE_FAILURE_LOG_PRINT_LIMIT = 30;
 export const WORKSPACE_FAILURE_RECENT_LOG_LIMIT = 60;
