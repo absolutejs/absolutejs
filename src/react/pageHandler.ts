@@ -2,6 +2,10 @@ import type { ComponentType as ReactComponent } from 'react';
 import { injectIslandPageContextStream } from '../core/islandPageContext';
 import { getCurrentRouteRegistrationCallsite } from '../core/devRouteRegistrationCallsite';
 import {
+	streamingPageHeaders,
+	withPageCacheHeaders
+} from '../core/pageResponseCache';
+import {
 	type StreamingSlotEnhancerOptions,
 	withRegisteredStreamingSlots
 } from '../core/responseEnhancers';
@@ -129,17 +133,19 @@ export const handleReactPageRequest = async <
 			}
 
 			return new Response(htmlStream, {
-				headers: { 'Content-Type': 'text/html' }
+				headers: streamingPageHeaders()
 			});
 		};
 
-		return await runWithStreamingSlotWarningScope(
+		const pageResponse = await runWithStreamingSlotWarningScope(
 			() =>
 				options?.collectStreamingSlots === true
 					? withRegisteredStreamingSlots(renderPageResponse, options)
 					: renderPageResponse(),
 			{ handlerCallsite }
 		);
+
+		return withPageCacheHeaders(pageResponse, input.request);
 	} catch (error) {
 		console.error('[SSR] React render error:', error);
 
@@ -148,11 +154,16 @@ export const handleReactPageRequest = async <
 			pageName,
 			error
 		);
-		if (conventionResponse) return conventionResponse;
+		if (conventionResponse) {
+			return withPageCacheHeaders(conventionResponse, input.request);
+		}
 
-		return new Response(ssrErrorPage('react', error), {
-			headers: { 'Content-Type': 'text/html' },
-			status: 500
-		});
+		return withPageCacheHeaders(
+			new Response(ssrErrorPage('react', error), {
+				headers: { 'Content-Type': 'text/html' },
+				status: 500
+			}),
+			input.request
+		);
 	}
 };

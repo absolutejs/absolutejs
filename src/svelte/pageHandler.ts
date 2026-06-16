@@ -4,6 +4,10 @@ import { compileSvelteServerModule } from '../core/svelteServerModule';
 import { injectIslandPageContextStream } from '../core/islandPageContext';
 import { getCurrentRouteRegistrationCallsite } from '../core/devRouteRegistrationCallsite';
 import {
+	streamingPageHeaders,
+	withPageCacheHeaders
+} from '../core/pageResponseCache';
+import {
 	type StreamingSlotEnhancerOptions,
 	withRegisteredStreamingSlots
 } from '../core/responseEnhancers';
@@ -236,11 +240,11 @@ export const handleSveltePageRequest = async <
 			const { firstChunk, reader } = await primeSvelteStream(htmlStream);
 
 			return new Response(restorePrimedStream(firstChunk, reader), {
-				headers: { 'Content-Type': 'text/html' }
+				headers: streamingPageHeaders()
 			});
 		};
 
-		return await runWithStreamingSlotWarningScope(
+		const pageResponse = await runWithStreamingSlotWarningScope(
 			() =>
 				resolvedOptions?.collectStreamingSlots === true
 					? withRegisteredStreamingSlots(renderPageResponse, {
@@ -251,6 +255,8 @@ export const handleSveltePageRequest = async <
 					: renderPageResponse(),
 			{ handlerCallsite }
 		);
+
+		return withPageCacheHeaders(pageResponse, input.request);
 	} catch (error) {
 		console.error('[SSR] Svelte render error:', error);
 
@@ -260,11 +266,16 @@ export const handleSveltePageRequest = async <
 			pageName,
 			error
 		);
-		if (conventionResponse) return conventionResponse;
+		if (conventionResponse) {
+			return withPageCacheHeaders(conventionResponse, input.request);
+		}
 
-		return new Response(ssrErrorPage('svelte', error), {
-			headers: { 'Content-Type': 'text/html' },
-			status: 500
-		});
+		return withPageCacheHeaders(
+			new Response(ssrErrorPage('svelte', error), {
+				headers: { 'Content-Type': 'text/html' },
+				status: 500
+			}),
+			input.request
+		);
 	}
 };

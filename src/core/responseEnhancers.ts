@@ -4,6 +4,7 @@ import {
 	type StreamingSlotPolicy,
 	type StreamingSlot
 } from '../utils/streamingSlots';
+import { STREAMING_PAGE_HEADER } from './pageResponseCache';
 import { runWithStreamingSlotRegistry } from './streamingSlotRegistry';
 
 type ResponseLike = Response | Promise<Response>;
@@ -51,8 +52,13 @@ export const enhanceHtmlResponseWithStreamingSlots = (
 		}
 	);
 
+	// This response now streams, so it can't carry a content-hash ETag — tag it
+	// so withPageCacheHeaders marks it no-cache instead of buffering to hash.
+	const headers = cloneHeaders(response);
+	headers.set(STREAMING_PAGE_HEADER, '1');
+
 	return new Response(body, {
-		headers: cloneHeaders(response),
+		headers,
 		status: response.status,
 		statusText: response.statusText
 	});

@@ -1,4 +1,5 @@
 import { pathToFileURL } from 'node:url';
+import { withPageCacheHeaders } from '../core/pageResponseCache';
 import { ssrErrorPage } from '../utils/ssrErrorPage';
 
 /**
@@ -145,15 +146,21 @@ export const handleEmberPageRequest = async (input: EmberPageRequestInput) => {
 			props
 		);
 
-		return new Response(html, {
-			headers: { 'Content-Type': 'text/html' }
-		});
+		return withPageCacheHeaders(
+			new Response(html, {
+				headers: { 'Content-Type': 'text/html' }
+			}),
+			input.request
+		);
 	} catch (error) {
 		console.error('[SSR] Ember render error:', error);
 
-		return new Response(ssrErrorPage('ember', error), {
-			headers: { 'Content-Type': 'text/html' },
-			status: 500
-		});
+		return withPageCacheHeaders(
+			new Response(ssrErrorPage('ember', error), {
+				headers: { 'Content-Type': 'text/html' },
+				status: 500
+			}),
+			input.request
+		);
 	}
 };

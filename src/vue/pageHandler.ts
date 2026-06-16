@@ -8,6 +8,10 @@ import { resolveSpaChildCss } from '../utils/spaRouteCss';
 import { injectIslandPageContextStream } from '../core/islandPageContext';
 import { getCurrentRouteRegistrationCallsite } from '../core/devRouteRegistrationCallsite';
 import {
+	streamingPageHeaders,
+	withPageCacheHeaders
+} from '../core/pageResponseCache';
+import {
 	type StreamingSlotEnhancerOptions,
 	withRegisteredStreamingSlots
 } from '../core/responseEnhancers';
@@ -326,11 +330,11 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 			});
 
 			return new Response(htmlStream, {
-				headers: { 'Content-Type': 'text/html' }
+				headers: streamingPageHeaders()
 			});
 		};
 
-		return await runWithStreamingSlotWarningScope(
+		const pageResponse = await runWithStreamingSlotWarningScope(
 			() =>
 				resolvedOptions?.collectStreamingSlots === true
 					? withRegisteredStreamingSlots(
@@ -340,6 +344,8 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 					: renderPageResponse(),
 			{ handlerCallsite }
 		);
+
+		return withPageCacheHeaders(pageResponse, input.request);
 	} catch (error) {
 		console.error('[SSR] Vue render error:', error);
 
@@ -349,11 +355,16 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 			pageName,
 			error
 		);
-		if (conventionResponse) return conventionResponse;
+		if (conventionResponse) {
+			return withPageCacheHeaders(conventionResponse, input.request);
+		}
 
-		return new Response(ssrErrorPage('vue', error), {
-			headers: { 'Content-Type': 'text/html' },
-			status: 500
-		});
+		return withPageCacheHeaders(
+			new Response(ssrErrorPage('vue', error), {
+				headers: { 'Content-Type': 'text/html' },
+				status: 500
+			}),
+			input.request
+		);
 	}
 };

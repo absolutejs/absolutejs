@@ -19,6 +19,7 @@ import { buildRouterRedirectProviders } from './routerRedirectProviders';
 import { lowerAngularServerIslands } from './lowerServerIslands';
 import { getCurrentRouteRegistrationCallsite } from '../core/devRouteRegistrationCallsite';
 import { getSsrSanitizer, resetSsrSanitizer } from './ssrSanitizer';
+import { withPageCacheHeaders } from '../core/pageResponseCache';
 import {
 	type StreamingSlotEnhancerOptions,
 	withRegisteredStreamingSlots
@@ -467,7 +468,7 @@ export const handleAngularPageRequest = async <Page = unknown>(
 				return new Response(html, withHtmlContentType(responseInit));
 			};
 
-			return await runWithStreamingSlotWarningScope(
+			const pageResponse = await runWithStreamingSlotWarningScope(
 				() =>
 					options?.collectStreamingSlots === true
 						? withRegisteredStreamingSlots(
@@ -477,6 +478,8 @@ export const handleAngularPageRequest = async <Page = unknown>(
 						: renderPageResponse(),
 				{ handlerCallsite }
 			);
+
+			return withPageCacheHeaders(pageResponse, input.request);
 		} catch (error) {
 			console.error('[SSR] Angular render error:', error);
 
@@ -486,12 +489,17 @@ export const handleAngularPageRequest = async <Page = unknown>(
 				pageName,
 				error
 			);
-			if (conventionResponse) return conventionResponse;
+			if (conventionResponse) {
+				return withPageCacheHeaders(conventionResponse, input.request);
+			}
 
-			return new Response(ssrErrorPage('angular', error), {
-				headers: { 'Content-Type': 'text/html' },
-				status: 500
-			});
+			return withPageCacheHeaders(
+				new Response(ssrErrorPage('angular', error), {
+					headers: { 'Content-Type': 'text/html' },
+					status: 500
+				}),
+				input.request
+			);
 		}
 	});
 };

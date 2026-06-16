@@ -1,6 +1,7 @@
 import { file } from 'bun';
 import { transformCurrentStaticPageHtml } from '../build/staticIslandPages';
 import { injectIslandPageContext } from './islandPageContext';
+import { withPageCacheHeaders } from './pageResponseCache';
 import { extractStaticStreamingTags } from './staticStreaming';
 import {
 	type StreamingSlotEnhancerOptions,
@@ -25,14 +26,16 @@ const handleStaticPageRequest = async (
 		settings
 	);
 
-	return withStreamingSlots(
-		new Response(injectIslandPageContext(transformedHtml), {
-			headers: { 'Content-Type': 'text/html' }
-		}),
-		{
-			...options,
-			streamingSlots: options.streamingSlots ?? []
-		}
+	return withPageCacheHeaders(
+		await withStreamingSlots(
+			new Response(injectIslandPageContext(transformedHtml), {
+				headers: { 'Content-Type': 'text/html' }
+			}),
+			{
+				...options,
+				streamingSlots: options.streamingSlots ?? []
+			}
+		)
 	);
 };
 

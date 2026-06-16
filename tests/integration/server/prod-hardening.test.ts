@@ -44,6 +44,24 @@ describe('production bundle hardening', () => {
 		}
 	});
 
+	test('page HTML is served no-cache (so deploys are picked up)', async () => {
+		// The HTML shell must always revalidate, or a cached index keeps
+		// pointing at the previous deploy's hashed assets. Buffered pages also
+		// carry a content-hash ETag (→ a 304 when byte-identical; the 304
+		// mechanics are covered by the pageResponseCache unit test). Hashed
+		// assets stay immutable — covered by the asset-cache test below.
+		for (const route of ['/vue', '/svelte', '/angular', '/']) {
+			const res = await fetch(`${server.baseUrl}${route}`);
+			await res.text();
+			expect(res.headers.get('content-type') ?? '').toContain(
+				'text/html'
+			);
+			expect(res.headers.get('cache-control')).toBe('no-cache');
+			// The internal streaming marker must never leak to the client.
+			expect(res.headers.get('x-absolute-stream')).toBeNull();
+		}
+	});
+
 	test('client-side JS bundles do NOT carry inline sourcemap comments (dev-only)', () => {
 		// Walk the outdir for *.js files (not .ssr.js / vendor / chunk
 		// internals — those land outside the served paths too, but
