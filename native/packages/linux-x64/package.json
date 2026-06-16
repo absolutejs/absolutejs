@@ -16,5 +16,9 @@
 		"type": "git",
 		"url": "https://github.com/absolutejs/absolutejs.git"
 	},
+	"homepage": "https://github.com/absolutejs/absolutejs/tree/main/native/packages/linux-x64",
+	"bugs": {
+		"url": "https://github.com/absolutejs/absolutejs/issues"
+	},
 	"version": "0.19.0-beta.1072"
 }

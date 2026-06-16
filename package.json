@@ -355,6 +355,10 @@
 		"type": "git",
 		"url": "git+https://github.com/absolutejs/absolutejs.git"
 	},
+	"homepage": "https://github.com/absolutejs/absolutejs",
+	"bugs": {
+		"url": "https://github.com/absolutejs/absolutejs/issues"
+	},
 	"scripts": {
 		"bd": "bun run scripts/build.ts && bun",
 		"build": "bun run scripts/build.ts",
