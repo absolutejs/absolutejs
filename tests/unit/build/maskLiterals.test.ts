@@ -74,6 +74,23 @@ describe('import rewriter — does NOT touch non-code spans', () => {
 		);
 	});
 
+	test('specifier inside a plain (non-template) data string is preserved', () => {
+		// Bun can lower a no-interpolation template literal to a plain string;
+		// the snippet then lives in a "..." literal, which must still be shielded.
+		const src = 'const sample = "import x from \'react\';\\nconst y = 1;";';
+		expect(rw(src)).toBe(src);
+	});
+
+	test('real import specifiers next to data strings still rewrite', () => {
+		const src =
+			'const note = "uses react";\nimport React from "react";\n' +
+			'export { z } from "react";';
+		expect(rw(src)).toBe(
+			'const note = "uses react";\nimport React from "/vendor/react.js";\n' +
+				'export { z } from "/vendor/react.js";'
+		);
+	});
+
 	test('regex literal containing quotes does not derail a later real import', () => {
 		const src = 'const re = /[\'"]/g;\nimport x from "react";';
 		expect(rw(src)).toBe('const re = /[\'"]/g;\nimport x from "/vendor/react.js";');

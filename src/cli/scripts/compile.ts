@@ -1,5 +1,6 @@
 import { env } from 'bun';
 import { createExternalAssetPlugin } from '../../build/externalAssetPlugin';
+import { maskLiterals } from '../../build/maskLiterals';
 import { loadIslandRegistryBuildInfo } from '../../build/islandEntries';
 import { createIslandRegistryDefinitionPlugin } from '../../build/islandRegistryTransform';
 import {
@@ -669,7 +670,12 @@ const rewriteRuntimeModuleSpecifiers = (distDir: string) => {
 		seen.add(filePath);
 
 		const source = readFileSync(filePath, 'utf-8');
-		const rewritten = source.replace(
+		// Only rewrite REAL imports. Mask template-literal code samples and
+		// comment bodies first so a `from '...'` inside rendered example code
+		// isn't rewritten — that would diverge from the SSR pre-render output and
+		// trip a React hydration mismatch on the code block.
+		const { masked, restore } = maskLiterals(source);
+		const rewrittenMasked = masked.replace(
 			MODULE_SPECIFIER_RE,
 			(match, prefix, quote, specifier) => {
 				if (
@@ -707,6 +713,7 @@ const rewriteRuntimeModuleSpecifiers = (distDir: string) => {
 				return `${prefix}${quote}${ensureRelativeModuleSpecifier(filePath, target)}${quote}`;
 			}
 		);
+		const rewritten = restore(rewrittenMasked);
 
 		if (rewritten !== source) {
 			writeFileSync(filePath, rewritten);

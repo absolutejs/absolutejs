@@ -1,31 +1,33 @@
 /** Shields non-code spans from the regex/text-based import rewriters.
  *
- *  The import rewriters (rewriteReactImports, rewriteImportsPlugin, and the
- *  native Zig scanner) replace `from "X"` / `import "X"` / `import("X")` across
- *  the whole file text. That text scan can't tell a real import from the *text*
- *  `from 'X'` sitting inside a TEMPLATE LITERAL (an example-code snippet a page
- *  renders) or a comment — so it rewrites the snippet's specifier too. The
- *  server pre-render keeps the snippet verbatim while the browser bundle gets it
- *  rewritten, so the two diverge → React hydration mismatch on the code block.
+ *  The import rewriters (rewriteReactImports, rewriteImportsPlugin, the native
+ *  Zig scanner, and compile's runtime-specifier rewrite) replace `from "X"` /
+ *  `import "X"` / `import("X")` / `require("X")` across the whole file text. That
+ *  text scan can't tell a real import from the *text* `from 'X'` sitting inside a
+ *  template literal / data string (an example-code snippet a page renders) or a
+ *  comment — so it rewrites the snippet's specifier too. The browser bundle then
+ *  diverges from the SSR pre-render → React hydration mismatch on the code block.
  *
- *  Fix: before rewriting, replace template literals and comment bodies with
- *  opaque placeholders; rewrite; then restore them verbatim. Regular string
- *  literals (where real import specifiers live) and regex literals pass through
- *  untouched, so real import rewriting is completely unaffected.
+ *  Fix: before rewriting, replace template literals, comments, and non-specifier
+ *  string literals with opaque placeholders; rewrite; then restore them verbatim.
+ *  String literals that ARE real import specifiers (those right after
+ *  `from`/`import`, or inside `import(`/`require(`) are left untouched, so real
+ *  import rewriting is unaffected. Regex literals are skipped (copied verbatim)
+ *  so their contents can't be misread as strings/templates.
  *
  *  Usage: `const { masked, restore } = maskLiterals(src)`, run the existing
  *  rewriter on `masked`, then `restore(rewritten)`.
  */
 
-// Private-Use-Area sentinel: never appears in real JS/TS source, carries no
-// from/import/quote chars, so placeholders can't collide with code or be
-// matched by the rewriters.
-const SENTINEL = '';
+// Private-Use-Area sentinel: never appears in real source, carries no
+// from/import/quote chars, so placeholders can't collide with code or be matched
+// by the rewriters.
+const SENTINEL = String.fromCharCode(0xe000);
 
 const isIdentChar = (c: string) => /[A-Za-z0-9_$]/.test(c);
 
 // A `/` starts a regex literal (not division) when the previous significant
-// token is one of these chars, or one of the keywords below, or nothing (BOF).
+// token is one of these chars/keywords, or nothing (start of file).
 const REGEX_OK_AFTER_CHAR = new Set([
 	'(', ',', '=', ':', '[', '!', '&', '|', '?', '{', '}', ';',
 	'+', '-', '*', '/', '%', '^', '~', '<', '>'
@@ -45,14 +47,34 @@ export const maskLiterals = (src: string): MaskedSource => {
 	const pieces: string[] = [];
 	let out = '';
 	let i = 0;
+
+	// State used by the regex-vs-division heuristic and the import-specifier test.
 	let prevChar = ''; // last significant (non-whitespace) code char
-	let prevWord = ''; // trailing identifier run in code
+	let prevWord = ''; // identifier immediately preceding (through whitespace)
+	let prevWasSpace = false; // was the immediately previous char whitespace?
+	let wordBeforeParen = ''; // identifier before the last '(' — for import()/require()
 
 	const mask = (text: string) => {
 		out += SENTINEL + pieces.length + SENTINEL;
 		pieces.push(text);
+		prevChar = ')'; // a literal stands where a value would; not a word
+		prevWord = '';
+		prevWasSpace = false;
 	};
 
+	const endOfString = (start: number): number => {
+		const q = src[start];
+		let j = start + 1;
+		while (j < n) {
+			const c = src[j];
+			if (c === '\\') { j += 2; continue; }
+			if (c === q) return j + 1;
+			if (c === '\n') return j; // unterminated guard
+			j++;
+		}
+
+		return j;
+	};
 	// src index just past `${` → index just past the matching `}`
 	const endOfInterp = (start: number): number => {
 		let j = start;
@@ -92,19 +114,6 @@ export const maskLiterals = (src: string): MaskedSource => {
 
 		return j;
 	}
-	function endOfString(start: number): number {
-		const q = src[start];
-		let j = start + 1;
-		while (j < n) {
-			const c = src[j];
-			if (c === '\\') { j += 2; continue; }
-			if (c === q) return j + 1;
-			if (c === '\n') return j;
-			j++;
-		}
-
-		return j;
-	}
 	const endOfRegex = (start: number): number => {
 		let j = start + 1;
 		let inClass = false;
@@ -132,8 +141,6 @@ export const maskLiterals = (src: string): MaskedSource => {
 			const s = i;
 			while (i < n && src[i] !== '\n') i++;
 			mask(src.slice(s, i));
-			prevChar = '';
-			prevWord = '';
 			continue;
 		}
 		if (c === '/' && c2 === '*') {
@@ -150,16 +157,28 @@ export const maskLiterals = (src: string): MaskedSource => {
 			const end = endOfTemplate(i);
 			mask(src.slice(i, end));
 			i = end;
-			prevChar = '`';
-			prevWord = '';
 			continue;
 		}
 		if (c === '"' || c === "'") {
 			const end = endOfString(i);
-			out += src.slice(i, end);
+			// A string is a real import specifier only when it follows
+			// `from`/`import` or sits inside `import(`/`require(`. Leave those for
+			// the rewriter; mask every other (data) string.
+			const isSpecifier =
+				prevWord === 'from' ||
+				prevWord === 'import' ||
+				(prevChar === '(' &&
+					(wordBeforeParen === 'import' ||
+						wordBeforeParen === 'require'));
+			if (isSpecifier) {
+				out += src.slice(i, end);
+				prevChar = '"';
+				prevWord = '';
+				prevWasSpace = false;
+			} else {
+				mask(src.slice(i, end));
+			}
 			i = end;
-			prevChar = '"';
-			prevWord = '';
 			continue;
 		}
 		if (
@@ -172,18 +191,28 @@ export const maskLiterals = (src: string): MaskedSource => {
 			if (end > 0) {
 				out += src.slice(i, end);
 				i = end;
-				prevChar = '/';
+				prevChar = ')';
 				prevWord = '';
+				prevWasSpace = false;
 				continue;
 			}
 		}
 
 		out += c;
 		i++;
-		if (c === ' ' || c === '\t' || c === '\r' || c === '\n') continue;
-		const wasIdent = isIdentChar(prevChar);
+		if (c === ' ' || c === '\t' || c === '\r' || c === '\n') {
+			prevWasSpace = true;
+			continue;
+		}
+		if (isIdentChar(c)) {
+			const contiguous = isIdentChar(prevChar) && !prevWasSpace;
+			prevWord = contiguous ? prevWord + c : c;
+		} else {
+			if (c === '(') wordBeforeParen = prevWord;
+			prevWord = '';
+		}
 		prevChar = c;
-		prevWord = isIdentChar(c) ? (wasIdent ? prevWord + c : c) : '';
+		prevWasSpace = false;
 	}
 
 	const restoreRegex = new RegExp(`${SENTINEL}(\\d+)${SENTINEL}`, 'g');
