@@ -3,8 +3,10 @@ import { env } from 'bun';
 import { type AnyElysia } from 'elysia';
 import { websocket as elysiaWebSocketHandler } from 'elysia/ws';
 import {
-	DEFAULT_PORT,
+	DEFAULT_HTTP_IDLE_TIMEOUT_SECONDS,
 	DEFAULT_WEBSOCKET_IDLE_TIMEOUT_SECONDS,
+	DEFAULT_PORT,
+	MAX_HTTP_IDLE_TIMEOUT_SECONDS,
 	MILLISECONDS_IN_A_SECOND
 } from '../constants';
 import { loadDevCert } from '../dev/devCert';
@@ -45,6 +47,26 @@ const loadTls = () => {
 };
 const tls = loadTls();
 const protocol = tls ? 'https' : 'http';
+
+// Resolve the HTTP idleTimeout (seconds) passed to Bun.serve. Bun's default is
+// 10s, which silently reaps long-lived/streaming responses (SSE, AI turns, long
+// polls). We default high (DEFAULT_HTTP_IDLE_TIMEOUT_SECONDS) and let a consumer
+// override via ABSOLUTE_IDLE_TIMEOUT. 0 is honored as "disable the timeout";
+// other values clamp to Bun's [1, 255] range so an out-of-range config can't
+// throw at listen() time.
+const resolveHttpIdleTimeout = (): number => {
+	const raw = env.ABSOLUTE_IDLE_TIMEOUT;
+	if (raw === undefined || raw.trim() === '') {
+		return DEFAULT_HTTP_IDLE_TIMEOUT_SECONDS;
+	}
+	const parsed = Number(raw);
+	if (!Number.isFinite(parsed) || parsed < 0) {
+		return DEFAULT_HTTP_IDLE_TIMEOUT_SECONDS;
+	}
+	if (parsed === 0) return 0;
+	return Math.min(Math.max(Math.round(parsed), 1), MAX_HTTP_IDLE_TIMEOUT_SECONDS);
+};
+const httpIdleTimeout = resolveHttpIdleTimeout();
 
 // Publish this server to the global instance registry so `absolute ps` can see
 // it. Skipped when an outer `absolute` CLI/orchestrator already owns the entry
@@ -195,6 +217,7 @@ export const networking = <A extends AnyElysia>(app: A) => {
 	const listened = app.listen(
 		{
 			hostname: host,
+			idleTimeout: httpIdleTimeout,
 			port: port,
 			...(tls
 				? {

@@ -22,6 +22,11 @@ import {
 
 type ReactPageRenderOptions = StreamingSlotEnhancerOptions & {
 	collectStreamingSlots?: boolean;
+	/** Buffer this page's stream so it can carry a content-hash `ETag` and
+	 *  serve a `304` on repeat visits, at the cost of streaming's fast first
+	 *  byte. Only worth it on pages static enough that the 304 beats the
+	 *  stream. See {@link PageCacheOptions.bufferStreamForEtag}. */
+	bufferStreamForEtag?: boolean;
 };
 export type ReactPageRequestInput<
 	Props extends Record<string, unknown> = Record<never, never>
@@ -145,7 +150,9 @@ export const handleReactPageRequest = async <
 			{ handlerCallsite }
 		);
 
-		return withPageCacheHeaders(pageResponse, input.request);
+		return withPageCacheHeaders(pageResponse, input.request, {
+			bufferStreamForEtag: input.bufferStreamForEtag
+		});
 	} catch (error) {
 		console.error('[SSR] React render error:', error);
 

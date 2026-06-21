@@ -17,8 +17,10 @@ import { createRequire } from 'node:module';
 import { basename, dirname, extname, join, relative, resolve } from 'node:path';
 import type { BuildConfig } from '../../../types/build';
 import {
+	DEFAULT_HTTP_IDLE_TIMEOUT_SECONDS,
 	DEFAULT_PORT,
-	DEFAULT_WEBSOCKET_IDLE_TIMEOUT_SECONDS
+	DEFAULT_WEBSOCKET_IDLE_TIMEOUT_SECONDS,
+	MAX_HTTP_IDLE_TIMEOUT_SECONDS
 } from '../../constants';
 import { prerenderWithServer } from '../../core/prerender';
 import { getDurationString } from '../../utils/getDurationString';
@@ -887,6 +889,19 @@ const getMime = (p: string) =>
 // ── Server ──────────────────────────────────────────────────────
 const port = Number(process.env.PORT) || ${DEFAULT_PORT};
 
+// HTTP idleTimeout (seconds). Bun's 10s default reaps long-lived/streaming
+// responses (SSE, AI turns, long polls) with no error. Default high and honor
+// ABSOLUTE_IDLE_TIMEOUT at runtime; 0 disables; clamp to Bun's [1, 255] range.
+const resolveIdleTimeout = () => {
+	const raw = process.env.ABSOLUTE_IDLE_TIMEOUT;
+	if (raw === undefined || raw.trim() === "") return ${DEFAULT_HTTP_IDLE_TIMEOUT_SECONDS};
+	const parsed = Number(raw);
+	if (!Number.isFinite(parsed) || parsed < 0) return ${DEFAULT_HTTP_IDLE_TIMEOUT_SECONDS};
+	if (parsed === 0) return 0;
+	return Math.min(Math.max(Math.round(parsed), 1), ${MAX_HTTP_IDLE_TIMEOUT_SECONDS});
+};
+const idleTimeout = resolveIdleTimeout();
+
 // Uncaught-error safety net for the compiled binary. \`bun --hot\` and
 // \`bun dev\` both keep the process alive on uncaught throws / rejections;
 // a standalone executable has no such wrapper, so a stream-error inside
@@ -1019,6 +1034,7 @@ const getRuntimeFetch = () => {
 
 const server = Bun.serve({
 	port,
+	idleTimeout,
 	// Registering Elysia's WebSocket dispatcher here (plus assigning app.server in
 	// resolveRuntimeFetch) is what makes .ws() routes work in a compiled server —
 	// without it, every upgrade request falls through to the 404 below.

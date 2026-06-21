@@ -58,6 +58,43 @@ describe('withPageCacheHeaders', () => {
 		expect(out.headers.get('x-absolute-stream')).toBeNull();
 	});
 
+	test('bufferStreamForEtag buffers a streamed page into an ETagged 200', async () => {
+		const streamed = new Response('<html>streamed</html>', {
+			headers: streamingPageHeaders()
+		});
+		const out = await withPageCacheHeaders(streamed, undefined, {
+			bufferStreamForEtag: true
+		});
+
+		expect(out.headers.get('cache-control')).toBe('no-cache');
+		expect(out.headers.get('etag')).toMatch(/^W\/"/);
+		expect(out.headers.get('x-absolute-stream')).toBeNull();
+		expect(await out.text()).toContain('streamed');
+	});
+
+	test('bufferStreamForEtag lets a streamed page revalidate to 304', async () => {
+		const first = await withPageCacheHeaders(
+			new Response('<html>streamed</html>', {
+				headers: streamingPageHeaders()
+			}),
+			undefined,
+			{ bufferStreamForEtag: true }
+		);
+		const etag = first.headers.get('etag') ?? '';
+
+		const revalidated = await withPageCacheHeaders(
+			new Response('<html>streamed</html>', {
+				headers: streamingPageHeaders()
+			}),
+			requestWithEtag(etag),
+			{ bufferStreamForEtag: true }
+		);
+
+		expect(revalidated.status).toBe(304);
+		expect(revalidated.headers.get('etag')).toBe(etag);
+		expect(await revalidated.text()).toBe('');
+	});
+
 	test('non-HTML responses pass through untouched', async () => {
 		const json = new Response('{}', {
 			headers: { 'Content-Type': 'application/json' }

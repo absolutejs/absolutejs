@@ -85,6 +85,11 @@ export type SveltePageRenderOptions = {
 	collectStreamingSlots?: boolean;
 	bodyContent?: string;
 	headContent?: string;
+	/** Buffer this page's stream so it can carry a content-hash `ETag` and
+	 *  serve a `304` on repeat visits, at the cost of streaming's fast first
+	 *  byte. Only worth it on pages static enough that the 304 beats the
+	 *  stream. See {@link PageCacheOptions.bufferStreamForEtag}. */
+	bufferStreamForEtag?: boolean;
 } & StreamingSlotEnhancerOptions;
 
 type HasNoSvelteProps<Props> = [Props] extends [never]
@@ -256,7 +261,9 @@ export const handleSveltePageRequest = async <
 			{ handlerCallsite }
 		);
 
-		return withPageCacheHeaders(pageResponse, input.request);
+		return withPageCacheHeaders(pageResponse, input.request, {
+			bufferStreamForEtag: input.bufferStreamForEtag
+		});
 	} catch (error) {
 		console.error('[SSR] Svelte render error:', error);
 

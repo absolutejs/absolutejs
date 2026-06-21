@@ -34,25 +34,50 @@ export const streamingPageHeaders = (extra?: HeadersInit) => {
 const computeEtag = (html: string) =>
 	`W/"${createHash('sha1').update(html).digest('base64url')}"`;
 
+/** Options for {@link withPageCacheHeaders}. */
+export type PageCacheOptions = {
+	/** Opt a *streaming* page into the buffered-ETag path: buffer its whole
+	 *  body before sending so it can carry a content-hash `ETag` and serve a
+	 *  `304` on repeat visits. This trades streaming's fast first byte for the
+	 *  revalidation saving, so only set it on pages whose output is static
+	 *  enough that the 304 is worth losing the stream (e.g. a marketing page).
+	 *  No effect on already-buffered pages — those are ETagged regardless. */
+	bufferStreamForEtag?: boolean;
+};
+
 /** Apply the SPA cache policy to a page Response. HTML gets `no-cache` (+ a
  *  content-hash `ETag` / `304` for buffered responses); non-HTML responses
  *  (redirects, JSON, etc.) pass through untouched. Safe to call on every page
- *  handler's final response. */
+ *  handler's final response.
+ *
+ *  Streaming pages skip the ETag (their headers flush before the body renders)
+ *  unless the caller passes `bufferStreamForEtag`, which buffers the stream so
+ *  it can be hashed — see {@link PageCacheOptions}. */
 export const withPageCacheHeaders = async (
 	response: Response,
-	request?: Request
+	request?: Request,
+	options?: PageCacheOptions
 ) => {
 	const contentType = response.headers.get('content-type') ?? '';
 	if (!contentType.includes(HTML_CONTENT_TYPE)) return response;
 
-	// Streaming (or bodyless) responses: no-cache only, strip the marker.
-	if (response.headers.get(STREAMING_PAGE_HEADER) === '1' || !response.body) {
+	const isStreaming = response.headers.get(STREAMING_PAGE_HEADER) === '1';
+
+	// Streaming (or bodyless) responses: no-cache only, strip the marker —
+	// unless the caller opted this page into the buffered-ETag path, in which
+	// case we fall through and buffer the stream below to hash it.
+	if (
+		(isStreaming && !options?.bufferStreamForEtag) ||
+		!response.body
+	) {
 		response.headers.delete(STREAMING_PAGE_HEADER);
 		response.headers.set('cache-control', 'no-cache');
 
 		return response;
 	}
 
+	// Buffer the body (for a streamed page this consumes the stream, forfeiting
+	// the fast first byte) so we can hash it into a content-hash ETag.
 	const html = await response.text();
 	const etag = computeEtag(html);
 	if (request?.headers.get('if-none-match') === etag) {
@@ -63,6 +88,7 @@ export const withPageCacheHeaders = async (
 	}
 
 	const headers = new Headers(response.headers);
+	headers.delete(STREAMING_PAGE_HEADER);
 	headers.set('cache-control', 'no-cache');
 	headers.set('etag', etag);
 

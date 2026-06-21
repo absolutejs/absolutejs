@@ -98,6 +98,16 @@ export const WEBSOCKET_NORMAL_CLOSURE = 1000;
 // `sendPings` (protocol-level keepalive the browser answers without JS, so a
 // throttled background tab still responds). Bun's hard ceiling is 960s.
 export const DEFAULT_WEBSOCKET_IDLE_TIMEOUT_SECONDS = 240;
+// HTTP idleTimeout for Bun.serve. Bun's DEFAULT is a hostile 10s for a
+// framework meant to host streaming/AI workloads: a long-lived SSE response
+// (or any long poll) that stays silent past 10s — e.g. an agentic AI turn
+// waiting on the model's first token after a large tool result inflates the
+// prompt — gets its socket reaped with no error, and the client hangs. 240s
+// mirrors the WS default and outlasts realistic model think-pauses; Bun's
+// hard ceiling for HTTP idleTimeout is 255s. Override per-app with the
+// ABSOLUTE_IDLE_TIMEOUT env var (seconds; 0 disables the timeout entirely).
+export const DEFAULT_HTTP_IDLE_TIMEOUT_SECONDS = 240;
+export const MAX_HTTP_IDLE_TIMEOUT_SECONDS = 255;
 export const WORKSPACE_COMMAND_ARGS_OFFSET = 3;
 export const WORKSPACE_FAILURE_LOG_PRINT_LIMIT = 30;
 export const WORKSPACE_FAILURE_RECENT_LOG_LIMIT = 60;
