@@ -336,9 +336,20 @@ export const prerenderWithServer = async (
 	log?: LogFn
 ) => {
 	const serverOutput: string[] = [];
+	// Pin the server to exactly `port` on localhost. networking() resolves its bind
+	// as ABSOLUTE_PORT ?? PORT ?? DEFAULT_PORT, so an ABSOLUTE_PORT/ABSOLUTE_HOST
+	// inherited from the parent (or a stale config) would otherwise win and make the
+	// child bind the wrong (occupied) port while the harness polls this one.
 	const serverProcess = Bun.spawn(['bun', 'run', serverBundlePath], {
 		cwd: process.cwd(),
-		env: { ...process.env, ...env, PORT: String(port) },
+		env: {
+			...process.env,
+			...env,
+			ABSOLUTE_HOST: 'localhost',
+			ABSOLUTE_PORT: String(port),
+			HOST: 'localhost',
+			PORT: String(port)
+		},
 		stderr: 'pipe',
 		stdout: 'pipe'
 	});

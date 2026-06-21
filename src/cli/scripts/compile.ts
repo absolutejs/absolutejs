@@ -29,7 +29,7 @@ import { withBuildDirectoryLock } from '../../utils/buildDirectoryLock';
 import { loadConfig } from '../../utils/loadConfig';
 import { formatTimestamp } from '../../utils/startupBanner';
 import { sendTelemetryEvent } from '../telemetryEvent';
-import { killStaleProcesses } from '../utils';
+import { findFreePort, killStaleProcesses } from '../utils';
 
 // ── Logging ─────────────────────────────────────────────────────
 const cliTag = (color: string, message: string) =>
@@ -1421,8 +1421,12 @@ const compileUnlocked = async (
 	outfile?: string,
 	configPath?: string
 ) => {
+	// Pick a guaranteed-free port for the pre-render server. An explicit
+	// COMPILE_PORT/PORT still wins; otherwise grab an OS-assigned free port rather
+	// than the old DEFAULT_PORT+1 guess (which collides on CI runners and can't be
+	// cleared there because the lsof-based killStaleProcesses no-ops without lsof).
 	const prerenderPort =
-		Number(env.COMPILE_PORT) || Number(env.PORT) || DEFAULT_PORT + 1;
+		Number(env.COMPILE_PORT) || Number(env.PORT) || findFreePort();
 	killStaleProcesses(prerenderPort);
 
 	const entryName = basename(serverEntry).replace(/\.[^.]+$/, '');

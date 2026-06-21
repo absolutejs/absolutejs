@@ -25,6 +25,22 @@ const safeKill = (pid: number) => {
 	}
 };
 
+// Ask the OS for an unused TCP port (bind :0, read the assigned port, release it).
+// Used to pick a collision-proof port for the compile pre-render server: the old
+// `DEFAULT_PORT + 1` is frequently occupied on CI runners, and the `lsof`-based
+// stale-process cleanup is a no-op on minimal images where `lsof` isn't installed —
+// together those produced an EADDRINUSE that failed every runner compile.
+export const findFreePort = (): number => {
+	const server = Bun.serve({ fetch: () => new Response(), port: 0 });
+	const { port } = server;
+	server.stop(true);
+	if (port === undefined) {
+		throw new Error('Failed to allocate a free port');
+	}
+
+	return port;
+};
+
 export const killStaleProcesses = (
 	port: number,
 	logMessage?: (message: string) => void
