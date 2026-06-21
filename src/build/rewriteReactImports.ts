@@ -4,6 +4,7 @@
  *  Uses native Zig scanner when available (15x faster on large files),
  *  falls back to JS regex on Windows or when native addon is missing. */
 
+import { maskLiterals } from './maskLiterals';
 import { nativeRewriteImports } from './nativeRewrite';
 
 const escapeRegex = (str: string) =>
@@ -135,10 +136,16 @@ export const rewriteReactImports = async (
 		jsFiles.map(async (filePath) => {
 			const original = await Bun.file(filePath).text();
 
+			// Mask template literals + comments so `from '...'` inside example-
+			// code snippets isn't rewritten like a real import (would diverge
+			// from the SSR output → hydration mismatch); restore them after.
+			const { masked, restore } = maskLiterals(original);
+
 			// Try native Zig scanner first (15x faster on large files)
-			const native = nativeRewriteImports(original, replacements);
-			const content =
-				native ?? applyAllReplacements(original, rewriter);
+			const native = nativeRewriteImports(masked, replacements);
+			const content = restore(
+				native ?? applyAllReplacements(masked, rewriter)
+			);
 
 			if (content !== original) {
 				await Bun.write(filePath, content);

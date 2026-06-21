@@ -14,6 +14,7 @@
 import type { BuildArtifact, BuildOutput } from 'bun';
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
+import { maskLiterals } from './maskLiterals';
 import { nativeRewriteImports } from './nativeRewrite';
 
 const escapeRegex = (str: string) =>
@@ -60,9 +61,12 @@ export const rewriteImportsInContent = (
 		([keyA], [keyB]) => keyB.length - keyA.length
 	);
 
-	const native = nativeRewriteImports(content, replacements);
+	// Mask template literals + comments so `from '...'` inside example-code
+	// snippets isn't mistaken for a real import; restore them after rewriting.
+	const { masked, restore } = maskLiterals(content);
+	const native = nativeRewriteImports(masked, replacements);
 
-	return native ?? jsRewriteImports(content, replacements);
+	return restore(native ?? jsRewriteImports(masked, replacements));
 };
 
 /** Workaround for a Bun bundler bug: when a module does both
