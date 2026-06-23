@@ -470,6 +470,42 @@ export const prepare = async (configOrPath?: string) => {
 	});
 	recordStep('create static plugin', stepStartedAt);
 
+	// Cache policy for static assets. Content-hashed filenames (e.g.
+	// `Page.a1b2c3d4.js`, `/chunk-xxxxxxxx.js`, and the `/.absolutejs/*` hydration
+	// bundles) are safe to cache forever; their URL changes when the content
+	// does. Stable-named-but-content-variable files (Tailwind's
+	// `tailwind.generated.css`, vendor bundles like `vue.js`, user assets) must
+	// revalidate, or a deploy's CSS/asset changes never reach returning visitors
+	// (their URL never changes but `immutable` tells the browser never to check).
+	// Without this, @elysiajs/static + the generated-assets handler apply one
+	// blanket policy and stale non-hashed assets get pinned for up to a year.
+	// A content-hashed filename always mixes letters AND digits in its hash
+	// segment (e.g. `a1b2c3d4`); dictionary-word segments (`generated`, `vue`,
+	// `iconfont`) never do, so they correctly fall through to revalidation.
+	const isFingerprintedAsset = (pathname: string) => {
+		if (pathname.startsWith('/.absolutejs/')) return true;
+		const base = pathname.slice(pathname.lastIndexOf('/') + 1);
+		const hash = base.match(/[.-]([0-9a-z]{6,12})\.[0-9a-z]+$/i)?.[1];
+
+		return hash ? /[0-9]/.test(hash) && /[a-z]/i.test(hash) : false;
+	};
+	const assetCachePlugin = new Elysia({
+		name: 'absolutejs-asset-cache'
+	}).onAfterHandle({ as: 'global' }, ({ request, response }) => {
+		if (!(response instanceof Response)) return;
+		if (request.method !== 'GET' && request.method !== 'HEAD') return;
+		const { pathname } = new URL(request.url);
+		// Only touch real static files (have an extension) — never pages/APIs.
+		if (pathname.endsWith('/') || !/\.[0-9a-z]+$/i.test(pathname)) return;
+		// Replace (not append) whatever blanket policy @elysiajs/static set.
+		response.headers.set(
+			'cache-control',
+			isFingerprintedAsset(pathname)
+				? 'public, max-age=31536000, immutable'
+				: 'public, max-age=0, must-revalidate'
+		);
+	});
+
 	// Check for pre-rendered pages (from SSG or compile)
 	stepStartedAt = performance.now();
 	const prerenderDir = join(buildDir, '_prerendered');
@@ -526,6 +562,7 @@ export const prepare = async (configOrPath?: string) => {
 		stepStartedAt = performance.now();
 		const { imageOptimizer } = await import('../plugins/imageOptimizer');
 		const absolutejs = new Elysia({ name: 'absolutejs-runtime' })
+			.use(assetCachePlugin)
 			.use(imageOptimizer(config.images, buildDir))
 			.use(prerenderPlugin)
 			.use(staticFiles)
@@ -542,6 +579,7 @@ export const prepare = async (configOrPath?: string) => {
 	stepStartedAt = performance.now();
 	const { imageOptimizer } = await import('../plugins/imageOptimizer');
 	const absolutejs = new Elysia({ name: 'absolutejs-runtime' })
+		.use(assetCachePlugin)
 		.use(imageOptimizer(config.images, buildDir))
 		.use(staticFiles)
 		.use(generatedAssetsPlugin)
