@@ -893,6 +893,15 @@ const MIME: Record<string, string> = {
 const getMime = (p: string) =>
 	MIME[p.substring(p.lastIndexOf("."))] ?? "application/octet-stream";
 
+// Content-hashed filenames (hash segment mixes letters AND digits) are safe to
+// cache forever; stable-named-but-content-variable files (tailwind.generated.css,
+// vendor bundles) must revalidate so a deploy's changes reach returning visitors.
+const isFingerprintedAsset = (p: string) => {
+	const base = p.slice(p.lastIndexOf("/") + 1);
+	const hash = base.match(/[.-]([0-9a-z]{6,12})\\.[0-9a-z]+$/i)?.[1];
+	return hash ? /[0-9]/.test(hash) && /[a-z]/i.test(hash) : false;
+};
+
 // ── Server ──────────────────────────────────────────────────────
 const port = Number(process.env.PORT) || ${DEFAULT_PORT};
 
@@ -1071,7 +1080,9 @@ const server = Bun.serve({
 		if (embedded) {
 			return new Response(Bun.file(embedded), {
 				headers: {
-					"cache-control": "public, max-age=31536000, immutable",
+					"cache-control": isFingerprintedAsset(url.pathname)
+						? "public, max-age=31536000, immutable"
+						: "public, max-age=0, must-revalidate",
 					"content-type": getMime(url.pathname),
 				},
 			});
