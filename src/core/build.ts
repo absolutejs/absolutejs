@@ -4,7 +4,9 @@ import {
 	cpSync,
 	existsSync,
 	mkdirSync,
+	readdirSync,
 	readFileSync,
+	renameSync,
 	rmSync,
 	statSync,
 	writeFileSync
@@ -729,6 +731,21 @@ export const resolveBunBuildOverride = (
 	);
 };
 
+/** Resolve the Bun `sourcemap` mode for CLIENT bundles from the `sourcemaps`
+ *  config. Dev always uses inline maps (HMR / devtools); production emits
+ *  external maps only when explicitly enabled — they're then chained back to
+ *  source + moved to a private dir by `privatizeClientSourcemaps`. */
+export const resolveClientSourcemap = (
+	sourcemaps: BuildConfig['sourcemaps'],
+	isDev: boolean
+): 'inline' | 'external' | 'none' => {
+	if (isDev) return sourcemaps === false ? 'none' : 'inline';
+	if (sourcemaps === 'external' || sourcemaps === true) return 'external';
+	if (sourcemaps === 'inline') return 'inline';
+
+	return 'none';
+};
+
 const dedupe = <T>(values: T[]) => [...new Set(values)];
 
 export const mergeBunBuildConfig = (
@@ -778,7 +795,8 @@ const buildUnlocked = async ({
 	options,
 	incrementalFiles,
 	mode,
-	sitemap
+	sitemap,
+	sourcemaps
 }: BuildConfig) => {
 	const buildStart = performance.now();
 	const projectRoot = cwd();
@@ -2261,6 +2279,7 @@ const buildUnlocked = async ({
 							...islandRegistryPlugins
 						],
 						root: clientRoot,
+						sourcemap: resolveClientSourcemap(sourcemaps, isDev),
 						splitting: true,
 						target: 'browser',
 						throw: false
@@ -2383,6 +2402,7 @@ const buildUnlocked = async ({
 										: [])
 								],
 								root: clientRoot,
+								sourcemap: resolveClientSourcemap(sourcemaps, isDev),
 								splitting: !isDev,
 								target: 'browser',
 								throw: false,
@@ -2435,6 +2455,7 @@ const buildUnlocked = async ({
 										: [])
 								],
 								root: islandEntryResult.generatedRoot,
+								sourcemap: resolveClientSourcemap(sourcemaps, isDev),
 								splitting: !isDev,
 								target: 'browser',
 								throw: false,
@@ -2508,6 +2529,43 @@ const buildUnlocked = async ({
 		for (const out of serverOutputs) {
 			if (out.path.endsWith('.js')) chainBundleInlineSourcemap(out.path);
 		}
+	}
+
+	// Production EXTERNAL client source maps (`sourcemaps: 'external'`): chain
+	// each `.js.map` back to original `.vue`/`.ts` source, then move it OUT of
+	// the served build dir into a private `sourcemaps/` dir and strip the
+	// `sourceMappingURL` comment from the shipped JS — so source is NOT publicly
+	// exposed, and a server-side symbolicator (e.g. @absolutejs/errors) reads the
+	// private maps keyed by the JS file's basename.
+	if (!isDev && resolveClientSourcemap(sourcemaps, isDev) === 'external') {
+		const { chainExternalSourcemap } = await import(
+			'../build/chainInlineSourcemaps'
+		);
+		const sourcemapDir = join(projectRoot, 'sourcemaps');
+		mkdirSync(sourcemapDir, { recursive: true });
+		const mapFiles = (readdirSync(buildPath, { recursive: true }) as string[])
+			.filter(
+				(entry) =>
+					entry.endsWith('.js.map') && !entry.includes('node_modules')
+			)
+			.map((entry) => join(buildPath, entry));
+		for (const mapPath of mapFiles) {
+			chainExternalSourcemap(mapPath);
+			renameSync(mapPath, join(sourcemapDir, basename(mapPath)));
+			const jsPath = mapPath.slice(0, -4); // drop ".map"
+			try {
+				const js = readFileSync(jsPath, 'utf-8').replace(
+					/\n?\/\/# sourceMappingURL=[^\n]*\s*$/,
+					'\n'
+				);
+				writeFileSync(jsPath, js);
+			} catch {
+				// best-effort — a missing/locked JS file must not fail the build
+			}
+		}
+		console.info(
+			`[absolute] sourcemaps: chained + privatized ${mapFiles.length} client maps → ${relative(projectRoot, sourcemapDir)}/`
+		);
 	}
 
 	if (serverResult && !serverResult.success && serverLogs.length > 0) {

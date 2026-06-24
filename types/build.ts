@@ -315,6 +315,17 @@ export type BaseBuildConfig = {
 	// OpenTelemetry via @elysiajs/opentelemetry (opt-in). Requires the package +
 	// an OTLP collector; configure the service name here.
 	telemetry?: boolean | OtelConfig;
+	// Browser source maps for production observability/symbolication. Dev always
+	// uses inline maps regardless of this. In PRODUCTION:
+	//   - `'external'` / `true` — emit external client `.js.map`s, chain them back
+	//     to original `.vue`/`.ts` source, then move them out of the served build
+	//     dir into a private `sourcemaps/` dir and strip the `sourceMappingURL`
+	//     comment from the shipped JS (source is NOT publicly exposed). The
+	//     private dir is what a server-side symbolicator (e.g. @absolutejs/errors)
+	//     reads, keyed by the JS file's basename.
+	//   - `'inline'` — inline maps in production too (exposes source; debugging).
+	//   - `false` / unset — no production maps (the default).
+	sourcemaps?: 'external' | 'inline' | boolean;
 };
 
 export type OpenApiConfig = {

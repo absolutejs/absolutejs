@@ -25,7 +25,11 @@ import {
 	parseVueSpaRoutes,
 	type ParsedVueSpaRoute
 } from './parseVueSpaRoutes';
-import { buildLineRemap, remapGeneratedLines } from './chainInlineSourcemaps';
+import {
+	buildLineRemap,
+	inlineLineMapComment,
+	remapGeneratedLines
+} from './chainInlineSourcemaps';
 import { addAutoRouterSetupApp } from './vueAutoRouterTransform';
 import {
 	addStyleImporter,
@@ -971,6 +975,12 @@ export const compileVue = async (
 		Array.from(allTsHelperPaths).map(async (tsPath) => {
 			const sourceCode = await file(tsPath).text();
 			const transpiledCode = transpiler.transformSync(sourceCode);
+			// Append an inline map back to the .ts source (TS-stripping is
+			// line-preserving) so the production external-sourcemap chain
+			// resolves stacks to the .ts, not this transpiled intermediate.
+			const withMap =
+				transpiledCode +
+				inlineLineMapComment(tsPath, sourceCode, transpiledCode);
 			const relativeJsPath = relative(vueRootDir, tsPath).replace(
 				/\.ts$/,
 				'.js'
@@ -979,8 +989,8 @@ export const compileVue = async (
 			const outServerPath = join(serverOutputDir, relativeJsPath);
 			await mkdir(dirname(outClientPath), { recursive: true });
 			await mkdir(dirname(outServerPath), { recursive: true });
-			await write(outClientPath, transpiledCode);
-			await write(outServerPath, transpiledCode);
+			await write(outClientPath, withMap);
+			await write(outServerPath, withMap);
 		})
 	);
 

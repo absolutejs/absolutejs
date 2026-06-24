@@ -460,3 +460,27 @@ export const chainBundleInlineSourcemap = (bundleFilePath: string) => {
 		Buffer.from(JSON.stringify(chained)).toString('base64');
 	writeFileSync(bundleFilePath, stripped + inline);
 };
+
+/* Chain an EXTERNAL `.js.map` (production builds) the same way
+ * `chainBundleInlineSourcemap` chains inline maps: compose the bundle map
+ * with each input's own inline map (carried in the bundle map's
+ * `sourcesContent[]`) so the external map resolves to original `.vue`/`.ts`
+ * source rather than the intermediate compile output. Rewrites the `.map`
+ * file in place. No-op if the file isn't a valid source map. */
+export const chainExternalSourcemap = (mapFilePath: string) => {
+	let outerMap: SourceMap;
+	try {
+		outerMap = JSON.parse(readFileSync(mapFilePath, 'utf-8')) as SourceMap;
+	} catch {
+		return;
+	}
+	if (!Array.isArray(outerMap.sources)) return;
+	const chained = chainSourcemap(outerMap, (src) => {
+		const idx = outerMap.sources.indexOf(src);
+		if (idx < 0) return null;
+		const content = outerMap.sourcesContent?.[idx];
+		if (!content) return null;
+		return extractInlineMap(content);
+	});
+	writeFileSync(mapFilePath, JSON.stringify(chained));
+};
