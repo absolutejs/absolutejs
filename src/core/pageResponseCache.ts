@@ -66,10 +66,7 @@ export const withPageCacheHeaders = async (
 	// Streaming (or bodyless) responses: no-cache only, strip the marker —
 	// unless the caller opted this page into the buffered-ETag path, in which
 	// case we fall through and buffer the stream below to hash it.
-	if (
-		(isStreaming && !options?.bufferStreamForEtag) ||
-		!response.body
-	) {
+	if ((isStreaming && !options?.bufferStreamForEtag) || !response.body) {
 		response.headers.delete(STREAMING_PAGE_HEADER);
 		response.headers.set('cache-control', 'no-cache');
 

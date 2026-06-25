@@ -20,6 +20,18 @@ const toSafeFileName = (specifier: string) => {
 	);
 };
 
+// The package a specifier belongs to: `@use-gesture/core/actions` →
+// `@use-gesture/core`, `rxjs/operators` → `rxjs`. Used to group a package's own
+// subpaths so they build together and share internal chunks (see
+// buildDepVendorPass).
+const packageRootOf = (specifier: string) => {
+	const parts = specifier.split('/');
+	if (specifier.startsWith('@'))
+		return parts.slice(0, 2).join('/') || specifier;
+
+	return parts[0] ?? specifier;
+};
+
 const isResolvable = (specifier: string) => {
 	try {
 		Bun.resolveSync(specifier, process.cwd());
@@ -490,10 +502,61 @@ const buildDepVendorPass = async (
 		return lastResult!;
 	};
 
+	// A package whose internal module-scoped state (registries, singletons)
+	// is shared across its OWN subpaths must build all those subpaths in ONE
+	// Bun.build with `splitting: true`, so the shared *internal relative* chunk
+	// is emitted once instead of inlined into each subpath's output. Building
+	// each subpath separately (as below for single-spec packages) duplicates
+	// that chunk — e.g. `@use-gesture/core` and `@use-gesture/core/actions`
+	// each get their own copy of `ConfigResolverMap`, so `registerAction`
+	// (called via the actions subpath) writes one map while the Controller
+	// (from the package main) reads the other and the drag action looks
+	// unregistered. Cross-PACKAGE singletons stay deduped the existing way:
+	// other packages' specs are still externalized to their own vendor files.
+	const groups = new Map<string, typeof entries>();
+	for (const entry of entries) {
+		const root = packageRootOf(entry.specifier);
+		const list = groups.get(root) ?? [];
+		list.push(entry);
+		groups.set(root, list);
+	}
+
+	const buildPackageGroup = (groupEntries: typeof entries) => {
+		const groupSpecs = new Set(
+			groupEntries.map((entry) => entry.specifier)
+		);
+
+		return bunBuild({
+			entrypoints: groupEntries.map((entry) => entry.entryPath),
+			// Externalize every OTHER package's spec (shared via their own
+			// vendor files); keep this package's own subpaths internal so
+			// splitting can share their common chunks.
+			external: [
+				...FRAMEWORK_EXTERNALS,
+				...specifiers.filter((spec) => !groupSpecs.has(spec))
+			],
+			format: 'esm',
+			minify: false,
+			naming: { chunk: '[name]-[hash].[ext]', entry: '[name].[ext]' },
+			outdir: vendorDir,
+			plugins: [createStripPureAnnotationsPlugin()],
+			splitting: true,
+			target: 'browser',
+			throw: false
+		});
+	};
+
 	const results = await Promise.all(
-		entries.map(({ entryPath, specifier }) =>
-			buildEntryWithCjsRequireResolution(entryPath, specifier)
-		)
+		Array.from(groups.values()).map((groupEntries) => {
+			const only = groupEntries[0];
+			if (groupEntries.length === 1 && only)
+				return buildEntryWithCjsRequireResolution(
+					only.entryPath,
+					only.specifier
+				);
+
+			return buildPackageGroup(groupEntries);
+		})
 	);
 
 	const aggregated = {

@@ -4,17 +4,16 @@ import type {
 	ComponentCustomProps,
 	VNodeProps
 } from 'vue';
+import type { Router } from 'vue-router';
 
-/** Structural shape of vue-router we expose to user code. Keeps the helper
- *  free of a hard dependency on `vue-router` types — users opt in to the
- *  router by exporting `routes`, the package shouldn't pull a peer dep
- *  type-check into every consumer. */
-export type VueAutoRouter = {
-	currentRoute: { value: { fullPath: string } };
-	push: (to: string) => Promise<unknown>;
-	isReady: () => Promise<void>;
-	beforeEach: (guard: (to: unknown, from: unknown) => unknown) => () => void;
-};
+/** The vue-router instance AbsoluteJS auto-creates from a page's `routes`
+ *  export. Aliased to vue-router's own `Router` so consumers get the full,
+ *  always-current API (`onError`, `afterEach`, `resolve`, …) rather than a
+ *  hand-mirrored subset that silently drifts out of date — the missing
+ *  `onError` is exactly the kind of gap a duplicated type hides. `vue-router`
+ *  is an optional peer dependency: only pages that export `routes` reference
+ *  this type, and those pages already depend on vue-router. */
+export type VueAutoRouter = Router;
 
 export type VueSetupAppContext = {
 	url: string;
@@ -22,7 +21,7 @@ export type VueSetupAppContext = {
 	/** The vue-router instance AbsoluteJS auto-created from the page's
 	 *  `routes` export, already installed on the app and navigated to
 	 *  the request URL. `null` when the page didn't export `routes`. */
-	router: VueAutoRouter | null;
+	router: Router | null;
 	/** Server-only. Call to short-circuit SSR and emit an HTTP redirect
 	 *  instead. Pass the destination location and an optional status
 	 *  (defaults to `302`). */

@@ -68,6 +68,7 @@
 		"typescript": "^5.9.3",
 		"typescript-eslint": "8.56.1",
 		"vue": "3.5.27",
+		"vue-router": "^4.5.1",
 		"vue-tsc": "^3.2.5"
 	},
 	"engines": {
@@ -278,7 +279,8 @@
 		"svelte": "^5.35.2",
 		"tailwindcss": "^4.1.0",
 		"typescript": "^5.9.3",
-		"vue": "^3.5.27"
+		"vue": "^3.5.27",
+		"vue-router": "^4.5.1"
 	},
 	"peerDependenciesMeta": {
 		"@angular/animations": {
@@ -349,6 +351,9 @@
 		},
 		"vue": {
 			"optional": true
+		},
+		"vue-router": {
+			"optional": true
 		}
 	},
 	"repository": {
@@ -418,7 +423,7 @@
 			]
 		}
 	},
-	"version": "0.19.0-beta.1086",
+	"version": "0.19.0-beta.1087",
 	"workspaces": [
 		"tests/fixtures/*",
 		"tests/fixtures/_packages/*"

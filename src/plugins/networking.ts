@@ -64,7 +64,10 @@ const resolveHttpIdleTimeout = (): number => {
 		return DEFAULT_HTTP_IDLE_TIMEOUT_SECONDS;
 	}
 	if (parsed === 0) return 0;
-	return Math.min(Math.max(Math.round(parsed), 1), MAX_HTTP_IDLE_TIMEOUT_SECONDS);
+	return Math.min(
+		Math.max(Math.round(parsed), 1),
+		MAX_HTTP_IDLE_TIMEOUT_SECONDS
+	);
 };
 const httpIdleTimeout = resolveHttpIdleTimeout();
 
