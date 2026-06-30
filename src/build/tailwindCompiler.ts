@@ -20,8 +20,9 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
-import { dirname, isAbsolute, resolve } from 'node:path';
+import { dirname, extname, isAbsolute, resolve } from 'node:path';
 import { compileStyleSource } from './stylePreprocessor';
+import type { Scanner as OxideScanner } from '@tailwindcss/oxide';
 import type {
 	StylePreprocessorConfig,
 	TailwindConfig
@@ -41,11 +42,12 @@ type CompilerEntry = {
 	   the parsed AST is stale and we have to rebuild the compiler — Tailwind
 	   only resolves imports once at compile() time. */
 	cssDependencies: Map<string, number>;
-	/* Ref-counted union of candidates across the whole source tree. We
-	   count rather than track presence so that a class still referenced by
-	   another file isn't dropped when it disappears from one. */
-	candidateCounts: Map<string, number>;
-	perFileCandidates: Map<string, Set<string>>;
+	/* Tailwind's official @tailwindcss/oxide scanner (the same engine
+	   @tailwindcss/vite and the CLI use), held alive so repeat scans stay
+	   incremental, plus the accumulated union of class candidates it has
+	   produced across the source tree. */
+	scanner: OxideScanner;
+	candidates: Set<string>;
 	lastEmittedHash: string | null;
 };
 
@@ -67,6 +69,28 @@ const loadTailwindCompile = async () => {
 	} catch {
 		throw new Error(
 			'Tailwind incremental dev compiler requires `tailwindcss` to be installed.'
+		);
+	}
+};
+
+type OxideScannerCtor = typeof import('@tailwindcss/oxide').Scanner;
+
+let cachedScannerCtor: OxideScannerCtor | null = null;
+
+/* Load Tailwind's real content scanner (oxide). This is the same scanner
+   @tailwindcss/vite and the CLI use, so dev/prod content detection matches
+   them byte-for-byte — rather than a hand-rolled regex that drifts. */
+const loadScanner = async () => {
+	if (cachedScannerCtor) return cachedScannerCtor;
+	try {
+		const mod = await import('@tailwindcss/oxide');
+
+		cachedScannerCtor = mod.Scanner;
+
+		return mod.Scanner;
+	} catch {
+		throw new Error(
+			'Tailwind incremental dev compiler requires `@tailwindcss/oxide` (it ships with Tailwind v4).'
 		);
 	}
 };
@@ -202,41 +226,26 @@ const buildCompilerEntry = async (
 		loadStylesheet: createLoadStylesheet(cssDependencies)
 	});
 
+	const sources = [...compiler.sources];
+	const Scanner = await loadScanner();
+	const scanner = new Scanner({
+		sources: sources.map((source) => ({
+			base: source.base,
+			negated: source.negated,
+			pattern: source.pattern
+		}))
+	});
+
 	return {
-		candidateCounts: new Map<string, number>(),
+		candidates: new Set<string>(scanner.scan()),
 		compiler,
 		cssDependencies,
 		cssMtimeMs,
 		cssPath: absPath,
 		lastEmittedHash: null,
-		perFileCandidates: new Map(),
-		sources: [...compiler.sources]
+		scanner,
+		sources
 	};
-};
-
-/* Permissive candidate extractor — matches anything that *could* be a
-   Tailwind utility class. The compiler discards inputs that don't resolve
-   to real utilities, so a superset is fine.
-
-   The class character set covers v4 syntax including:
-   - variants  : `hover:`, `dark:`, `md:`, `data-[open]:`
-   - modifiers : `text-blue/50`
-   - arbitraries: `bg-[var(--c)]`, `min-h-[260px]`, `bg-[#fff]`
-   - negation  : `-mx-4`, `!important`
-   - groups    : `group-hover:opacity-50`
-
-   Tokens must start with a letter / `-` / `!` (so we don't pull in pure
-   numbers) and end with a word char or `]` or `)` (so we don't include
-   trailing punctuation). */
-const CANDIDATE_PATTERN = /[A-Za-z!\-_][\w:\-/[\]().!,#%@&]*[\w\])]/g;
-
-export const extractCandidates = (source: string) => {
-	const out = new Set<string>();
-	for (const match of source.matchAll(CANDIDATE_PATTERN)) {
-		out.add(match[0]);
-	}
-
-	return out;
 };
 
 const hashCss = (css: string) => createHash('sha1').update(css).digest('hex');
@@ -268,113 +277,6 @@ const fileMatchesSources = (file: string, sources: TailwindSource[]) => {
 	return false;
 };
 
-const incrementCandidateCount = (entry: CompilerEntry, candidate: string) => {
-	const current = entry.candidateCounts.get(candidate) ?? 0;
-	entry.candidateCounts.set(candidate, current + 1);
-};
-
-const decrementCandidateCount = (entry: CompilerEntry, candidate: string) => {
-	const current = entry.candidateCounts.get(candidate) ?? 0;
-	const next = current - 1;
-	if (next <= 0) {
-		entry.candidateCounts.delete(candidate);
-
-		return;
-	}
-	entry.candidateCounts.set(candidate, next);
-};
-
-const replaceFileCandidates = (
-	entry: CompilerEntry,
-	file: string,
-	freshCandidates: Set<string>
-) => {
-	const previous = entry.perFileCandidates.get(file);
-	if (previous) {
-		for (const candidate of previous)
-			decrementCandidateCount(entry, candidate);
-	}
-	entry.perFileCandidates.set(file, freshCandidates);
-	for (const candidate of freshCandidates)
-		incrementCandidateCount(entry, candidate);
-};
-
-// Split an absolute glob like /abs/src/frontend/<glob> into a literal
-// scan root (/abs/src/frontend) and a relative glob portion. Bun.Glob.scan
-// needs a real directory as `cwd`; passing a glob there silently scans
-// nothing.
-const splitGlobAtFirstMeta = (absolutePattern: string) => {
-	const firstMetaIndex = absolutePattern.search(/[*?{[]/);
-	if (firstMetaIndex === -1) {
-		return { glob: '', root: absolutePattern };
-	}
-	const lastSlashBeforeMeta = absolutePattern.lastIndexOf(
-		'/',
-		firstMetaIndex
-	);
-
-	return {
-		glob: absolutePattern.slice(lastSlashBeforeMeta + 1),
-		root: absolutePattern.slice(0, lastSlashBeforeMeta) || '/'
-	};
-};
-
-const collectFilesForSources = async (sources: TailwindSource[]) => {
-	const seen = new Set<string>();
-	const collected: string[] = [];
-	const scans = sources
-		.filter((source) => !source.negated)
-		.map(async (source) => {
-			const absolutePattern = resolve(source.base, source.pattern);
-			const { glob: relativePattern, root } =
-				splitGlobAtFirstMeta(absolutePattern);
-			// Literal source path (no glob metachars) — Tailwind v4 lets
-			// `@source "./foo.html"` reference a single file, so just
-			// return it directly if it exists.
-			if (!relativePattern) {
-				try {
-					const stats = await stat(absolutePattern);
-					return stats.isFile() ? [absolutePattern] : [];
-				} catch {
-					return [];
-				}
-			}
-			const glob = new Bun.Glob(relativePattern);
-			const matches: string[] = [];
-			for await (const relative of glob.scan({
-				absolute: false,
-				cwd: root,
-				onlyFiles: true
-			})) {
-				matches.push(resolve(root, relative));
-			}
-
-			return matches;
-		});
-	const results = await Promise.all(scans);
-	for (const absolute of results.flat()) {
-		if (seen.has(absolute)) continue;
-		seen.add(absolute);
-		collected.push(absolute);
-	}
-
-	return collected;
-};
-
-const ingestFile = async (entry: CompilerEntry, absolute: string) => {
-	try {
-		const text = await readFile(absolute, 'utf-8');
-		replaceFileCandidates(entry, absolute, extractCandidates(text));
-	} catch {
-		// File vanished between glob and read — skip silently.
-	}
-};
-
-const populateCandidatesFromAllSources = async (entry: CompilerEntry) => {
-	const files = await collectFilesForSources(entry.sources);
-	await Promise.all(files.map((file) => ingestFile(entry, file)));
-};
-
 const isCompilerStale = async (entry: CompilerEntry) => {
 	const checks = [...entry.cssDependencies.entries()].map(
 		async ([path, knownMtime]) => {
@@ -401,7 +303,6 @@ const getCompilerEntry = async (
 	if (cached && !(await isCompilerStale(cached))) return cached;
 
 	const fresh = await buildCompilerEntry(cssPath, extraSources);
-	await populateCandidatesFromAllSources(fresh);
 	compilerCache.set(key, fresh);
 
 	return fresh;
@@ -439,9 +340,17 @@ export const incrementalTailwindBuild = async (
 		filesToRescan.push(abs);
 	}
 
-	await Promise.all(filesToRescan.map((file) => ingestFile(entry, file)));
+	if (filesToRescan.length > 0) {
+		const found = entry.scanner.scanFiles(
+			filesToRescan.map((file) => ({
+				extension: extname(file).slice(1),
+				file
+			}))
+		);
+		for (const candidate of found) entry.candidates.add(candidate);
+	}
 
-	const rawCss = entry.compiler.build([...entry.candidateCounts.keys()]);
+	const rawCss = entry.compiler.build([...entry.candidates]);
 	const outputPath = resolve(buildPath, tailwind.output);
 	const finalCss = await compileStyleSource(
 		outputPath,

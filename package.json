@@ -7,6 +7,7 @@
 		"@elysia/static": "^1.4.11",
 		"@elysiajs/openapi": "^1.4.15",
 		"@elysiajs/server-timing": "^1.4.0",
+		"@tailwindcss/oxide": "^4.1.0",
 		"zustand": "^5.0.12"
 	},
 	"description": "A fullstack meta-framework for building web applications with TypeScript",
@@ -423,7 +424,7 @@
 			]
 		}
 	},
-	"version": "0.19.0-beta.1087",
+	"version": "0.19.0-beta.1088",
 	"workspaces": [
 		"tests/fixtures/*",
 		"tests/fixtures/_packages/*"
