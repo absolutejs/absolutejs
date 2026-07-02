@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { basename, join, relative, resolve } from 'node:path';
 import { Elysia } from 'elysia';
@@ -6,6 +7,7 @@ import type { ConventionsMap } from '../../types/conventions';
 import { withOpenApi } from '../plugins/openApiPlugin';
 import { withTelemetry } from '../plugins/telemetryPlugin';
 import { loadConfig } from '../utils/loadConfig';
+import { setIconVersionResolver } from '../utils/iconVersion';
 import { setCurrentIslandManifest } from './islandPageContext';
 import { loadIslandRegistry } from './loadIslandRegistry';
 import { setCurrentIslandRegistry } from './currentIslandRegistry';
@@ -133,6 +135,37 @@ const patchManifestIndexes = (
 		const rel = relative(process.cwd(), srcPath).replace(/\\/g, '/');
 		manifest[key] = `${SRC_URL_PREFIX}${rel}`;
 	}
+};
+
+// Register the favicon cache-buster: map a local `/assets/...` icon href to
+// `<href>?v=<content-hash>` so the URL changes when the icon bytes change and
+// browsers' sticky favicon caches re-fetch — no manual file renames. Hashes
+// are memoized per href (icon files don't change during a process lifetime),
+// and external/off-disk hrefs pass through unchanged.
+const ICON_HASH_LENGTH = 8;
+const registerIconVersioning = (buildDir: string) => {
+	const cache = new Map<string, string>();
+	setIconVersionResolver((href) => {
+		if (!href.startsWith('/') || href.startsWith('//')) return href;
+		const cached = cache.get(href);
+		if (cached !== undefined) return cached;
+
+		const path = href.split('?')[0] ?? href;
+		const filePath = join(buildDir, path);
+		let versioned = href;
+		if (existsSync(filePath)) {
+			const hash = createHash('sha256')
+				.update(readFileSync(filePath))
+				.digest('hex')
+				.slice(0, ICON_HASH_LENGTH);
+			versioned = href.includes('?')
+				? `${href}&v=${hash}`
+				: `${href}?v=${hash}`;
+		}
+		cache.set(href, versioned);
+
+		return versioned;
+	});
 };
 
 const prepareDev = async (
@@ -397,6 +430,7 @@ export const prepare = async (configOrPath?: string) => {
 	const buildDir = resolve(
 		process.env.ABSOLUTE_BUILD_DIR ?? config.buildDirectory ?? 'build'
 	);
+	registerIconVersioning(buildDir);
 
 	if (isDev) {
 		stepStartedAt = performance.now();

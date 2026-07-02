@@ -1,6 +1,7 @@
 export * from './defineConfig';
 export * from './defineConvention';
 export * from './generateHeadElement';
+export * from './iconVersion';
 export * from './jsonLd';
 export * from './defineEnv';
 export * from './getEnv';

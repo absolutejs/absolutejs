@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { Metadata, RobotsDirective } from '../../../types/metadata';
+	import { applyIconVersion, iconMimeType } from '../../utils/iconVersion';
 
 	export let title: Metadata['title'] = 'AbsoluteJS';
 	export let description: Metadata['description'] =
@@ -32,6 +33,7 @@
 	};
 
 	$: cssPaths = cssPath ? (Array.isArray(cssPath) ? cssPath : [cssPath]) : [];
+	$: resolvedIcon = icon ?? '/assets/ico/favicon.ico';
 </script>
 
 <svelte:head>
@@ -39,7 +41,7 @@
 	<title>{title}</title>
 	<meta name="description" content={description} />
 	<meta name="viewport" content="width=device-width, initial-scale=1" />
-	<link rel="icon" href={icon} />
+	<link rel="icon" href={applyIconVersion(resolvedIcon)} type={iconMimeType(resolvedIcon)} />
 
 	{#if canonical}
 		<link rel="canonical" href={canonical} />

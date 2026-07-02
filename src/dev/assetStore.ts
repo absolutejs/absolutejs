@@ -2,14 +2,29 @@ import { resolve } from 'node:path';
 import { readdir, unlink } from 'node:fs/promises';
 
 const mimeTypes: Record<string, string> = {
+	'.avif': 'image/avif',
+	'.bmp': 'image/bmp',
 	'.css': 'text/css',
+	'.eot': 'application/vnd.ms-fontobject',
+	'.gif': 'image/gif',
 	'.html': 'text/html',
+	'.ico': 'image/x-icon',
+	'.jpeg': 'image/jpeg',
+	'.jpg': 'image/jpeg',
 	'.js': 'application/javascript',
 	'.json': 'application/json',
+	'.map': 'application/json',
 	'.mjs': 'application/javascript',
+	'.otf': 'font/otf',
+	'.png': 'image/png',
 	'.svg': 'image/svg+xml',
+	'.ttf': 'font/ttf',
+	'.txt': 'text/plain',
+	'.wasm': 'application/wasm',
+	'.webp': 'image/webp',
 	'.woff': 'font/woff',
-	'.woff2': 'font/woff2'
+	'.woff2': 'font/woff2',
+	'.xml': 'application/xml'
 };
 
 /** Determine Content-Type from a file path extension */

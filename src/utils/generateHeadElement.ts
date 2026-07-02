@@ -1,4 +1,5 @@
 import type { Metadata, RobotsDirective } from '../../types/metadata';
+import { applyIconVersion, iconMimeType } from './iconVersion';
 import { serializeJsonLd } from './jsonLd';
 
 const renderRobotsContent = (robots: RobotsDirective) => {
@@ -130,7 +131,7 @@ export const generateHeadElement = ({
 		'<meta name="viewport" content="width=device-width, initial-scale=1.0">',
 		`<title>${title}</title>`,
 		`<meta name="description" content="${description}">`,
-		`<link rel="icon" href="${icon}" type="image/x-icon">`
+		`<link rel="icon" href="${applyIconVersion(icon)}" type="${iconMimeType(icon)}">`
 	];
 
 	if (canonical) {

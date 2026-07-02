@@ -5,6 +5,7 @@ import type {
 	TwitterCard,
 	RobotsDirective
 } from '../../../types/metadata';
+import { applyIconVersion, iconMimeType } from '../../utils/iconVersion';
 import { serializeJsonLd } from '../../utils/jsonLd';
 
 const RobotsContent = ({ robots }: { robots: RobotsDirective }) => {
@@ -127,7 +128,7 @@ export const Head = ({
 		<title>{title}</title>
 		<meta content={description} name="description" />
 		<meta content="width=device-width, initial-scale=1" name="viewport" />
-		<link href={icon} rel="icon" />
+		<link href={applyIconVersion(icon)} rel="icon" type={iconMimeType(icon)} />
 		{canonical && <link href={canonical} rel="canonical" />}
 		{openGraph && (
 			<OpenGraphTags
