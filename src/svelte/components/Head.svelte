@@ -41,7 +41,11 @@
 	<title>{title}</title>
 	<meta name="description" content={description} />
 	<meta name="viewport" content="width=device-width, initial-scale=1" />
-	<link rel="icon" href={applyIconVersion(resolvedIcon)} type={iconMimeType(resolvedIcon)} />
+	<link
+		rel="icon"
+		href={applyIconVersion(resolvedIcon)}
+		type={iconMimeType(resolvedIcon)}
+	/>
 
 	{#if canonical}
 		<link rel="canonical" href={canonical} />

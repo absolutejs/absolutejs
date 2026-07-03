@@ -2402,7 +2402,10 @@ const buildUnlocked = async ({
 										: [])
 								],
 								root: clientRoot,
-								sourcemap: resolveClientSourcemap(sourcemaps, isDev),
+								sourcemap: resolveClientSourcemap(
+									sourcemaps,
+									isDev
+								),
 								splitting: !isDev,
 								target: 'browser',
 								throw: false,
@@ -2455,7 +2458,10 @@ const buildUnlocked = async ({
 										: [])
 								],
 								root: islandEntryResult.generatedRoot,
-								sourcemap: resolveClientSourcemap(sourcemaps, isDev),
+								sourcemap: resolveClientSourcemap(
+									sourcemaps,
+									isDev
+								),
 								splitting: !isDev,
 								target: 'browser',
 								throw: false,
@@ -2543,7 +2549,9 @@ const buildUnlocked = async ({
 		);
 		const sourcemapDir = join(projectRoot, 'sourcemaps');
 		mkdirSync(sourcemapDir, { recursive: true });
-		const mapFiles = (readdirSync(buildPath, { recursive: true }) as string[])
+		const mapFiles = (
+			readdirSync(buildPath, { recursive: true }) as string[]
+		)
 			.filter(
 				(entry) =>
 					entry.endsWith('.js.map') && !entry.includes('node_modules')

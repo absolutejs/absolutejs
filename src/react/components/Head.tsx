@@ -128,7 +128,11 @@ export const Head = ({
 		<title>{title}</title>
 		<meta content={description} name="description" />
 		<meta content="width=device-width, initial-scale=1" name="viewport" />
-		<link href={applyIconVersion(icon)} rel="icon" type={iconMimeType(icon)} />
+		<link
+			href={applyIconVersion(icon)}
+			rel="icon"
+			type={iconMimeType(icon)}
+		/>
 		{canonical && <link href={canonical} rel="canonical" />}
 		{openGraph && (
 			<OpenGraphTags
