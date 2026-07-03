@@ -68,10 +68,22 @@ export const formatServerBootDiagnostic = (
 	].join('\n');
 };
 
-// Written to a temp file and passed to the dev child via `bun --preload` so a
-// SIGUSR2 (the `m` hotkey) dumps a DevTools-loadable heap snapshot. Works for
-// any dev server — no `.use(networking)` or build step required.
-const HEAP_SNAPSHOT_PRELOAD = `process.on('SIGUSR2', () => {
+// Written to a temp file and passed to the dev child via `bun --preload`.
+// Two jobs:
+//
+// 1. SIGUSR2 (the `m` hotkey) dumps a DevTools-loadable heap snapshot. Works
+//    for any dev server — no `.use(networking)` or build step required.
+//
+// 2. §1.3 — a parent-death watchdog INSIDE the child. The CLI's
+//    SIGINT/SIGTERM/exit handlers and its own ppid watcher cover every
+//    teardown path except one: the CLI process itself being SIGKILLed
+//    (kill -9 / pkill -9 / OOM-killer / a task runner hard-stopping it). No
+//    handler runs in the CLI then, the `bun --hot` child is reparented to
+//    init, keeps the dev port, and serves STALE code forever — edits appear
+//    to "not take" no matter how many restarts. The child is the only
+//    process that can notice that, so it polls its own ppid (same technique
+//    the CLI uses one level up) and exits when the CLI is gone.
+const DEV_CHILD_PRELOAD = `process.on('SIGUSR2', () => {
 	try {
 		const file = 'heap-' + process.pid + '-' + Date.now() + '.heapsnapshot';
 		Bun.write(file, Bun.generateHeapSnapshot('v8'));
@@ -80,6 +92,13 @@ const HEAP_SNAPSHOT_PRELOAD = `process.on('SIGUSR2', () => {
 		console.error('[absolute] heap snapshot failed:', error);
 	}
 });
+const absoluteDevInitialPpid = process.ppid;
+const absoluteDevParentWatch = setInterval(() => {
+	if (process.ppid === absoluteDevInitialPpid) return;
+	console.error('[absolute] dev CLI (pid ' + absoluteDevInitialPpid + ') is gone — shutting down so the port is not held by an orphaned server');
+	process.exit(0);
+}, 1000);
+if (typeof absoluteDevParentWatch.unref === 'function') absoluteDevParentWatch.unref();
 `;
 
 // Strip SGR/control sequences before tee'ing the dev server's output to the
@@ -535,13 +554,15 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 		return merged;
 	};
 
-	// Best-effort: write the heap-snapshot preload to a temp file. If it can't
-	// be written, the `m` hotkey is simply disabled (never sends a stray signal
-	// that could terminate a server with no handler).
+	// Best-effort: write the dev-child preload (heap-snapshot hotkey + the
+	// orphan watchdog) to a temp file. If it can't be written, the `m` hotkey
+	// is disabled and orphan protection falls back to the CLI-side handlers
+	// (never sends a stray signal that could terminate a server with no
+	// handler).
 	const heapPreloadPath = join(tmpdir(), `absolute-heap-${process.pid}.ts`);
 	let heapSnapshotEnabled = false;
 	try {
-		writeFileSync(heapPreloadPath, HEAP_SNAPSHOT_PRELOAD);
+		writeFileSync(heapPreloadPath, DEV_CHILD_PRELOAD);
 		heapSnapshotEnabled = true;
 	} catch {
 		heapSnapshotEnabled = false;
