@@ -1,39 +1,86 @@
-/** Extract SPA child routes from a Vue page's source.
+/** Extract SPA child routes from a Vue page's module-level script.
  *
- *  Looks for `export const routes = defineRoutes([ ... ])` and parses
- *  each entry's `{ path, component: () => import('./X.vue') }` shape
- *  into a `{ path, importPath }` pair. The result drives the per-route
- *  CSS side-manifest emitted in `core/build.ts` so the SSR handler can
- *  inline the matched child route's compiled CSS (see
- *  `utils/spaRouteCss.ts` for the runtime side).
- *
- *  Regex-based on purpose: the supported shape is single-statement
- *  array-of-object-literals, which is the only form `defineRoutes` is
- *  documented to take. AST parsing would catch a few exotic edge cases
- *  but adds a dependency on every page compile; the failure mode of a
- *  miss is "child route CSS isn't inlined for that route", same as
- *  pre-feature behaviour, so a loose regex is the right trade-off. */
+ *  The result drives the per-route CSS side manifest emitted in
+ *  `core/build.ts`. Parse the supported `defineRoutes([...])` shape with the
+ *  TypeScript AST so redirect-only entries cannot accidentally consume the
+ *  dynamic import from the following route.
+ */
+import ts from 'typescript';
 
 export type ParsedVueSpaRoute = {
 	path: string;
 	importPath: string;
 };
 
-const ROUTES_BLOCK_RE =
-	/export\s+const\s+routes\s*=\s*defineRoutes\s*\(\s*\[([\s\S]*?)\]\s*\)\s*;?/;
+const propertyName = (node: ts.PropertyName) =>
+	ts.isIdentifier(node) || ts.isStringLiteralLike(node) ? node.text : null;
 
-const ROUTE_ENTRY_RE =
-	/path:\s*['"`]([^'"`]+)['"`][\s\S]*?import\(\s*['"`]([^'"`]+\.vue)['"`]\s*\)/g;
+const stringValue = (node: ts.Expression) =>
+	ts.isStringLiteralLike(node) ? node.text : null;
+
+const findVueImport = (node: ts.Node): string | null => {
+	if (
+		ts.isCallExpression(node) &&
+		node.expression.kind === ts.SyntaxKind.ImportKeyword
+	) {
+		const [specifier] = node.arguments;
+		if (specifier && ts.isStringLiteralLike(specifier)) {
+			return specifier.text.endsWith('.vue') ? specifier.text : null;
+		}
+	}
+
+	let found: string | null = null;
+	ts.forEachChild(node, (child) => {
+		if (found === null) found = findVueImport(child);
+	});
+
+	return found;
+};
+
+const parseRoute = (node: ts.Expression): ParsedVueSpaRoute | null => {
+	if (!ts.isObjectLiteralExpression(node)) return null;
+	let path: string | null = null;
+	let importPath: string | null = null;
+
+	for (const property of node.properties) {
+		if (!ts.isPropertyAssignment(property)) continue;
+		const name = propertyName(property.name);
+		if (name === 'path') path = stringValue(property.initializer);
+		if (name === 'component')
+			importPath = findVueImport(property.initializer);
+	}
+
+	return path && importPath ? { importPath, path } : null;
+};
 
 export const parseVueSpaRoutes = (source: string): ParsedVueSpaRoute[] => {
-	const blockMatch = source.match(ROUTES_BLOCK_RE);
-	if (!blockMatch?.[1]) return [];
-	const block = blockMatch[1];
+	const sourceFile = ts.createSourceFile(
+		'absolute-vue-routes.ts',
+		source,
+		ts.ScriptTarget.Latest,
+		true,
+		ts.ScriptKind.TS
+	);
 	const entries: ParsedVueSpaRoute[] = [];
-	for (const match of block.matchAll(ROUTE_ENTRY_RE)) {
-		const [, path, importPath] = match;
-		if (path && importPath) entries.push({ importPath, path });
-	}
+
+	const visit = (node: ts.Node) => {
+		if (
+			ts.isCallExpression(node) &&
+			ts.isIdentifier(node.expression) &&
+			node.expression.text === 'defineRoutes'
+		) {
+			const [routes] = node.arguments;
+			if (routes && ts.isArrayLiteralExpression(routes)) {
+				for (const element of routes.elements) {
+					const route = parseRoute(element);
+					if (route) entries.push(route);
+				}
+			}
+		}
+		ts.forEachChild(node, visit);
+	};
+
+	ts.forEachChild(sourceFile, visit);
 
 	return entries;
 };
