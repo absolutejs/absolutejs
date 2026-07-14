@@ -1,4 +1,5 @@
 import { mkdirSync } from 'node:fs';
+import { isBuiltin } from 'node:module';
 import { join } from 'node:path';
 import { rm } from 'node:fs/promises';
 import { build as bunBuild, Glob, type BunPlugin } from 'bun';
@@ -94,6 +95,7 @@ const isSkippedFile = (file: string) =>
 
 const isDepSpecifier = (path: string) =>
 	isBareSpecifier(path) &&
+	!isBuiltin(path) &&
 	!isFrameworkSpecifier(path) &&
 	!isAbsolutePackageSpecifier(path);
 
@@ -297,6 +299,7 @@ const collectTransitiveImports = async (
 		);
 		for (const child of bareImports) {
 			if (!isBareSpecifier(child)) continue;
+			if (isBuiltin(child)) continue;
 			if (isFrameworkSpecifier(child)) continue;
 			if (isAbsolutePackageSpecifier(child)) continue;
 			if (alreadyVendored.has(child)) continue;

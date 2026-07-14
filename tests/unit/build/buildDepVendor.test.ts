@@ -58,6 +58,25 @@ describe('computeDepVendorPaths', () => {
 		expect(paths['zustand/vanilla']).toBe('/vendor/zustand_vanilla.js');
 	});
 
+	test('does not vendor Node builtins imported by application source', async () => {
+		const dir = mkdtempSync(join(tmpdir(), 'absolute-dep-vendor-'));
+		tempDirs.push(dir);
+		writeFileSync(
+			join(dir, 'entry.ts'),
+			[
+				`import { createRequire } from 'node:module';`,
+				`import { Worker } from 'worker_threads';`,
+				'void createRequire;',
+				'void Worker;'
+			].join('\n')
+		);
+
+		const paths = await computeDepVendorPaths([dir]);
+
+		expect(paths['node:module']).toBeUndefined();
+		expect(paths.worker_threads).toBeUndefined();
+	});
+
 	// Regression: a published package whose "main" is a tiny CJS wrapper that
 	// conditionally requires `./pkg.cjs.prod.js` or `./pkg.cjs.dev.js` (the
 	// ubiquitous React-ecosystem pattern) used to defeat transitive discovery.
@@ -95,7 +114,7 @@ describe('computeDepVendorPaths', () => {
 					"}"
 				].join('\n'),
 				'dist/wrapper.cjs.dev.js':
-					"const z = require('zustand-vendor'); module.exports = { z };",
+					"const z = require('zustand-vendor'); require('worker_threads'); module.exports = { z };",
 				'dist/wrapper.cjs.prod.js':
 					"const z = require('zustand-vendor'); module.exports = { z };"
 			},
@@ -124,6 +143,9 @@ describe('computeDepVendorPaths', () => {
 		// The crux: the deep bare import becomes a vendor entry even though
 		// the package's main file never names it.
 		expect(paths['zustand-vendor']).toBe('/vendor/zustand_vendor.js');
+		// Node builtins found while walking a package's server entry are not
+		// browser dependencies and must never get their own vendor entries.
+		expect(paths.worker_threads).toBeUndefined();
 	});
 
 	test('@-scoped specs get an underscore prefix to avoid collision', async () => {
