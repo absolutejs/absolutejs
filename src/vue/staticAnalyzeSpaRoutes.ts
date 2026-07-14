@@ -97,6 +97,7 @@ const extractRouteEntries = (
 		let pathSegment: string | null = null;
 		let redirected = false;
 		let sitemapExcluded = false;
+		let alias: string | null = null;
 		let childrenLiteral: ts.ArrayLiteralExpression | null = null;
 
 		for (const property of element.properties) {
@@ -105,6 +106,8 @@ const extractRouteEntries = (
 			if (!ts.isPropertyAssignment(property)) continue;
 			if (key === 'path') {
 				pathSegment = readStringLiteral(property.initializer);
+			} else if (key === 'alias') {
+				alias = readStringLiteral(property.initializer);
 			} else if (key === 'redirect') {
 				redirected = true;
 			} else if (
@@ -135,7 +138,6 @@ const extractRouteEntries = (
 			continue;
 		}
 
-		if (redirected) continue;
 		if (joined === '') continue;
 
 		out.push({
@@ -144,7 +146,48 @@ const extractRouteEntries = (
 			redirected,
 			sitemapExcluded
 		});
+		if (alias) {
+			out.push({
+				dynamic: pathHasDynamic(alias),
+				path: alias,
+				redirected: false,
+				sitemapExcluded: true
+			});
+		}
 	}
+};
+
+const findDefineRoutesArray = (sf: ts.SourceFile) => {
+	let found: ts.ArrayLiteralExpression | null = null;
+	const visit = (node: ts.Node) => {
+		if (found) return;
+		if (
+			ts.isCallExpression(node) &&
+			ts.isIdentifier(node.expression) &&
+			node.expression.text === 'defineRoutes' &&
+			node.arguments[0] &&
+			ts.isArrayLiteralExpression(node.arguments[0])
+		) {
+			found = node.arguments[0];
+
+			return;
+		}
+		ts.forEachChild(node, visit);
+	};
+	ts.forEachChild(sf, visit);
+
+	return found;
+};
+
+const inferBaseHref = (routes: SpaRoute[]) => {
+	const firstSegments = routes
+		.map((route) => route.path.split('/').filter(Boolean)[0])
+		.filter((segment): segment is string => Boolean(segment));
+	const first = firstSegments[0];
+	if (!first || firstSegments.some((segment) => segment !== first))
+		return '/';
+
+	return `/${first}/`;
 };
 
 const findCreateRouterCall = (sf: ts.SourceFile): ts.CallExpression | null => {
@@ -245,7 +288,11 @@ const analyzeFile = async (filePath: string): Promise<SpaHost | null> => {
 		analysisSource = script;
 	}
 
-	if (!analysisSource.includes('createRouter')) return null;
+	if (
+		!analysisSource.includes('createRouter') &&
+		!analysisSource.includes('defineRoutes')
+	)
+		return null;
 
 	const sf = ts.createSourceFile(
 		filePath,
@@ -255,22 +302,20 @@ const analyzeFile = async (filePath: string): Promise<SpaHost | null> => {
 		ts.ScriptKind.TS
 	);
 
-	if (!importsSymbolFrom(sf, 'createRouter', 'vue-router')) return null;
-
-	const call = findCreateRouterCall(sf);
-	if (!call) return null;
-
-	const optionsArg = call.arguments[0];
-	if (!optionsArg) return null;
-
-	const routesArray = readRoutesFromCreateRouterOptions(sf, optionsArg);
+	const defineRoutesArray = findDefineRoutesArray(sf);
+	const call = importsSymbolFrom(sf, 'createRouter', 'vue-router')
+		? findCreateRouterCall(sf)
+		: null;
+	const optionsArg = call?.arguments[0];
+	const routesArray =
+		defineRoutesArray ??
+		(optionsArg ? readRoutesFromCreateRouterOptions(sf, optionsArg) : null);
 	if (!routesArray) return null;
-
-	const base = findCreateWebHistoryBase(sf) ?? '/';
-	const baseHref = base.endsWith('/') ? base : `${base}/`;
 
 	const routes: SpaRoute[] = [];
 	extractRouteEntries(routesArray, '', routes);
+	const base = findCreateWebHistoryBase(sf) ?? inferBaseHref(routes);
+	const baseHref = base.endsWith('/') ? base : `${base}/`;
 
 	return { baseHref, routes, sourceFile: filePath };
 };

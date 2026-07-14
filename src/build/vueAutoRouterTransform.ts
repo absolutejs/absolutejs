@@ -24,8 +24,7 @@ const ROUTES_EXPORT_REGEX = /\bexport\s+(?:const|let|var)\s+routes\b/;
 
 const SENTINEL = '__ABSOLUTE_AUTO_ROUTER__';
 
-const SETUP_APP_DECLARATION_REGEX =
-	/\bexport\s+(const|let|var)\s+setupApp\b/;
+const SETUP_APP_DECLARATION_REGEX = /\bexport\s+(const|let|var)\s+setupApp\b/;
 
 const SETUP_APP_FUNCTION_REGEX =
 	/\bexport\s+(async\s+function|function)\s+setupApp\b/;
@@ -61,11 +60,7 @@ import {
 	createMemoryHistory as __absoluteCreateMemoryHistory__,
 	createWebHistory as __absoluteCreateWebHistory__,
 } from 'vue-router';
-${
-	userHadSetupApp
-		? ''
-		: 'const __absoluteUserSetupApp__ = null;'
-}
+${userHadSetupApp ? '' : 'const __absoluteUserSetupApp__ = null;'}
 export const setupApp = async (app, ctx) => {
 	const router = __absoluteCreateRouter__({
 		history: ctx.isServer
@@ -80,6 +75,20 @@ export const setupApp = async (app, ctx) => {
 	await router.isReady();
 	if (__absoluteUserSetupApp__) {
 		await __absoluteUserSetupApp__(app, { ...ctx, router });
+	}
+	const currentRouteMatched = router.currentRoute.value.matched.length > 0;
+	if (!currentRouteMatched) {
+		if (ctx.isServer) {
+			ctx.setNotFound();
+		} else {
+			window.location.assign(ctx.url);
+		}
+		return;
+	}
+	if (!ctx.isServer) {
+		router.afterEach((to) => {
+			if (to.matched.length === 0) window.location.assign(to.fullPath);
+		});
 	}
 };
 `;

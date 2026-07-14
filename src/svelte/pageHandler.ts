@@ -17,6 +17,7 @@ import {
 } from '../core/streamingSlotWarningScope';
 import { readSiblingCss } from '../utils/inlinePageCss';
 import { ssrErrorPage } from '../utils/ssrErrorPage';
+import { renderSpaNotFound } from '../utils/spaRouteManifest';
 import {
 	derivePageName,
 	renderConventionError
@@ -153,6 +154,13 @@ export const handleSveltePageRequest = async <
 			: userProps;
 
 	try {
+		const spaNotFound = await renderSpaNotFound(
+			'svelte',
+			derivePageName(resolvedPagePath),
+			input.request
+		);
+		if (spaNotFound)
+			return withPageCacheHeaders(spaNotFound, input.request);
 		const handlerCallsite =
 			resolvedOptions?.collectStreamingSlots === true
 				? undefined

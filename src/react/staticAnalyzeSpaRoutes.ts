@@ -142,7 +142,6 @@ const extractRouteEntries = (
 			continue;
 		}
 
-		if (redirected) continue;
 		if (!isIndex && pathSegment === null) continue;
 		if (joined === '') continue;
 

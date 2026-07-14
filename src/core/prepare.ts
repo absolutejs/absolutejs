@@ -19,6 +19,7 @@ import {
 	setConventions,
 	renderFirstNotFound
 } from '../utils/resolveConvention';
+import { setSpaRouteManifest } from '../utils/spaRouteManifest';
 import { logStartupTimingBlock } from '../utils/startupTimings';
 import { logWarn } from '../utils/logger';
 
@@ -462,6 +463,10 @@ export const prepare = async (configOrPath?: string) => {
 			readFileSync(conventionsPath, 'utf-8')
 		);
 		setConventions(conventions);
+	}
+	const spaRoutesPath = join(buildDir, 'spa-routes.json');
+	if (existsSync(spaRoutesPath)) {
+		setSpaRouteManifest(JSON.parse(readFileSync(spaRoutesPath, 'utf-8')));
 	}
 	recordStep('load production conventions', stepStartedAt);
 

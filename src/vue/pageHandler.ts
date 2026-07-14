@@ -5,6 +5,7 @@ import type { VuePropsOf, VueSetupApp } from '../../types/vue';
 import { EXCLUDE_LAST_OFFSET } from '../constants';
 import { injectInlineCss, readSiblingCss } from '../utils/inlinePageCss';
 import { resolveSpaChildCss } from '../utils/spaRouteCss';
+import { renderSpaNotFound } from '../utils/spaRouteManifest';
 import { injectIslandPageContextStream } from '../core/islandPageContext';
 import { getCurrentRouteRegistrationCallsite } from '../core/devRouteRegistrationCallsite';
 import {
@@ -22,6 +23,7 @@ import {
 import { ssrErrorPage } from '../utils/ssrErrorPage';
 import {
 	derivePageName,
+	renderFirstNotFound,
 	renderConventionError
 } from '../utils/resolveConvention';
 
@@ -197,6 +199,13 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 	}
 
 	try {
+		const spaNotFound = await renderSpaNotFound(
+			'vue',
+			derivePageName(resolvedPagePath),
+			input.request
+		);
+		if (spaNotFound)
+			return withPageCacheHeaders(spaNotFound, input.request);
 		const handlerCallsite =
 			resolvedOptions?.collectStreamingSlots === true
 				? undefined
@@ -246,6 +255,7 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 
 			let pendingRedirect: { location: string; status: number } | null =
 				null;
+			let pendingNotFound = false;
 			if (resolvedPage.setupApp) {
 				const url = resolveRequestRenderUrl(input.request);
 				// `router` is null here — when the page exports `routes`, the
@@ -264,6 +274,9 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 							location,
 							status: status ?? 302
 						};
+					},
+					setNotFound: () => {
+						pendingNotFound = true;
 					}
 				});
 			}
@@ -276,6 +289,16 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 					headers: { Location: redirect.location },
 					status: redirect.status
 				});
+			}
+
+			if (pendingNotFound) {
+				return (
+					(await renderFirstNotFound()) ??
+					new Response('Not found', {
+						headers: { 'Content-Type': 'text/plain' },
+						status: 404
+					})
+				);
 			}
 
 			const head = `<!DOCTYPE html><html>${resolvedHeadTag}<body><div id="root">`;

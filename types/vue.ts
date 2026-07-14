@@ -26,6 +26,9 @@ export type VueSetupAppContext = {
 	 *  instead. Pass the destination location and an optional status
 	 *  (defaults to `302`). */
 	setRedirect: (location: string, status?: number) => void;
+	/** Server-only. Mark the current SPA route as unmatched so the page
+	 *  handler returns the project's not-found convention with HTTP 404. */
+	setNotFound: () => void;
 };
 
 export type VueSetupApp = (

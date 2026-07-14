@@ -14,6 +14,7 @@ import {
 	runWithStreamingSlotWarningScope
 } from '../core/streamingSlotWarningScope';
 import { ssrErrorPage } from '../utils/ssrErrorPage';
+import { renderSpaNotFound } from '../utils/spaRouteManifest';
 import {
 	hasErrorConvention,
 	renderConventionError,
@@ -94,6 +95,13 @@ export const handleReactPageRequest = async <
 	const pageName = Page.name || Page.displayName || '';
 
 	try {
+		const spaNotFound = await renderSpaNotFound(
+			'react',
+			pageName,
+			input.request
+		);
+		if (spaNotFound)
+			return withPageCacheHeaders(spaNotFound, input.request);
 		const handlerCallsite =
 			options?.collectStreamingSlots === true
 				? undefined

@@ -89,6 +89,7 @@ import { logError, logWarn } from '../utils/logger';
 import { normalizePath } from '../utils/normalizePath';
 import { toKebab, toPascal } from '../utils/stringModifiers';
 import { validateSafePath } from '../utils/validateSafePath';
+import { setSpaRouteManifest } from '../utils/spaRouteManifest';
 
 const isDev = env.NODE_ENV === 'development';
 
@@ -3233,6 +3234,50 @@ const buildUnlocked = async ({
 		frameworks: frameworkNames,
 		mode: mode ?? (isDev ? 'development' : 'production')
 	});
+
+	const [reactSpaHosts, svelteSpaHosts, vueSpaHosts, angularSpaHosts] =
+		await Promise.all([
+			reactDir
+				? import('../react/staticAnalyzeSpaRoutes').then((module) =>
+						module.analyzeReactSpaRoutes(reactDir)
+					)
+				: [],
+			svelteDir
+				? import('../svelte/staticAnalyzeSpaRoutes').then((module) =>
+						module.analyzeSvelteSpaRoutes(svelteDir)
+					)
+				: [],
+			vueDir
+				? import('../vue/staticAnalyzeSpaRoutes').then((module) =>
+						module.analyzeVueSpaRoutes(vueDir)
+					)
+				: [],
+			angularDir
+				? import('../angular/staticAnalyzeSpaRoutes').then((module) =>
+						module.analyzeAngularSpaRoutes(angularDir)
+					)
+				: []
+		]);
+	const spaRouteHosts = [
+		...reactSpaHosts.map((host) => ({
+			...host,
+			framework: 'react' as const
+		})),
+		...svelteSpaHosts.map((host) => ({
+			...host,
+			framework: 'svelte' as const
+		})),
+		...vueSpaHosts.map((host) => ({ ...host, framework: 'vue' as const })),
+		...angularSpaHosts.map((host) => ({
+			...host,
+			framework: 'angular' as const
+		}))
+	];
+	setSpaRouteManifest(spaRouteHosts);
+	writeFileSync(
+		join(buildPath, 'spa-routes.json'),
+		JSON.stringify(spaRouteHosts, null, '\t')
+	);
 
 	// Skip manifest.json disk write during incremental (HMR) builds —
 	// the in-memory manifest is authoritative and writing to disk on

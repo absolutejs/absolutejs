@@ -21,10 +21,7 @@ import { toKebab } from '../utils/stringModifiers';
 import { getFrameworkGeneratedDir } from '../utils/generatedDir';
 import { resolvePackageImport } from './resolvePackageImport';
 import { buildIslandMetadataExports } from '../islands/sourceMetadata';
-import {
-	parseVueSpaRoutes,
-	type ParsedVueSpaRoute
-} from './parseVueSpaRoutes';
+import { parseVueSpaRoutes, type ParsedVueSpaRoute } from './parseVueSpaRoutes';
 import {
 	buildLineRemap,
 	inlineLineMapComment,
@@ -189,8 +186,8 @@ const inlineCssImports = (
 	if (visited.has(resolved)) return '';
 	visited.add(resolved);
 
-	const importRegex
-		= /@import\s+(?:url\(\s*)?(['"])(\.{1,2}\/[^'"]+)\1\s*\)?\s*;?/g;
+	const importRegex =
+		/@import\s+(?:url\(\s*)?(['"])(\.{1,2}\/[^'"]+)\1\s*\)?\s*;?/g;
 
 	return cssContent.replace(importRegex, (match, _quote, relPath) => {
 		const importedPath = resolve(dirname(cssFilePath), relPath);
@@ -510,9 +507,7 @@ const compileVueFile = async (
 			},
 			filename: sourceFilePath,
 			id: componentId,
-			scoped: descriptor.styles.some(
-				(styleBlock) => styleBlock.scoped
-			),
+			scoped: descriptor.styles.some((styleBlock) => styleBlock.scoped),
 			source: descriptor.template?.content ?? '',
 			ssr,
 			ssrCssVars: descriptor.cssVars
@@ -856,6 +851,7 @@ export const compileVue = async (
 					'    await setupAppHook(app, {',
 					'      isServer: false,',
 					'      router: null,',
+					'      setNotFound: () => {},',
 					'      setRedirect: () => {},',
 					'      url: clientUrl',
 					'    });',
@@ -960,7 +956,11 @@ export const compileVue = async (
 		const sourceCode = await file(tsPath).text();
 		const helperDir = dirname(tsPath);
 		for (const dep of extractImports(sourceCode)) {
-			if (!dep.startsWith('.') || isStylePath(dep) || dep.endsWith('.vue')) {
+			if (
+				!dep.startsWith('.') ||
+				isStylePath(dep) ||
+				dep.endsWith('.vue')
+			) {
 				continue;
 			}
 			const resolved = resolveHelperTsPath(helperDir, dep);

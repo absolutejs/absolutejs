@@ -1,4 +1,7 @@
 import { describe, expect, test } from 'bun:test';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { defineComponent, h } from 'vue';
 import { handleVuePageRequest } from '../../../src/vue';
 import { StreamSlot, SuspenseSlot } from '../../../src/vue/components';
@@ -45,6 +48,30 @@ const VueStreamingTestPage = defineComponent({
 });
 
 describe('handleVuePageRequest streaming', () => {
+	test('returns a 404 when an SPA router marks the request as unmatched', async () => {
+		const directory = await mkdtemp(join(tmpdir(), 'absolute-vue-404-'));
+		const pagePath = join(directory, 'Portal.js');
+		await writeFile(
+			pagePath,
+			`export default { render() { return null; } };
+export const setupApp = async (_app, context) => context.setNotFound();`
+		);
+
+		try {
+			const response = await handleVuePageRequest({
+				client: 'none',
+				pagePath,
+				props: {},
+				request: new Request('https://example.com/portal/missing')
+			});
+
+			expect(response.status).toBe(404);
+			expect(await response.text()).toBe('Not found');
+		} finally {
+			await rm(directory, { force: true, recursive: true });
+		}
+	});
+
 	test('injects runtime and appends patches for registered StreamSlot components', async () => {
 		const response = await handleVuePageRequest({
 			collectStreamingSlots: true,

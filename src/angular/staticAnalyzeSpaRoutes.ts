@@ -147,8 +147,6 @@ const extractRoutePaths = (
 			continue;
 		}
 
-		// Pure-redirect terminal: not a destination URL.
-		if (redirected) continue;
 		// Empty path with no children isn't a navigable URL.
 		if (joined === '') continue;
 

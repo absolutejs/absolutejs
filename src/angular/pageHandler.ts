@@ -16,6 +16,7 @@ import { setSsrContextGetter } from '../utils/registerClientScript';
 import { getAngularDeps } from './angularDeps';
 import { buildServerAnimationProviders } from './animationProviders';
 import { buildRouterRedirectProviders } from './routerRedirectProviders';
+import { renderSpaNotFound } from '../utils/spaRouteManifest';
 import { lowerAngularServerIslands } from './lowerServerIslands';
 import { getCurrentRouteRegistrationCallsite } from '../core/devRouteRegistrationCallsite';
 import { getSsrSanitizer, resetSsrSanitizer } from './ssrSanitizer';
@@ -320,6 +321,13 @@ export const handleAngularPageRequest = async <Page = unknown>(
 	const requestId = `angular_${Date.now()}_${Math.random().toString(BASE_36_RADIX).substring(2, RANDOM_ID_END_INDEX)}`;
 
 	return angularSsrContext.run(requestId, async () => {
+		const spaNotFound = await renderSpaNotFound(
+			'angular',
+			derivePageName(input.pagePath),
+			input.request
+		);
+		if (spaNotFound)
+			return withPageCacheHeaders(spaNotFound, input.request);
 		await ensureAngularCompiler();
 
 		const userHeadTag = input.headTag ?? '<head></head>';
