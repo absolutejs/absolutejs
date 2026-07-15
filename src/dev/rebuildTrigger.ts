@@ -625,6 +625,74 @@ const enqueueAngularOwningComponentForStyle = (
 	}
 };
 
+/* Drain the accumulated `fileChangeQueue` into a rebuild: wait for writes to
+ * stabilize, record content hashes + bump module versions + expand to
+ * transitively-affected files (`buildFilesToProcess`), then trigger the
+ * rebuild. Shared by the watcher debounce AND the post-rebuild drain so both
+ * paths do identical bookkeeping — the post-rebuild drain used to bypass it,
+ * which silently lost edits made while a rebuild was in flight: no hash was
+ * recorded and no dependency expansion ran, so a changed component that isn't
+ * itself a page entry rebuilt nothing and the dev server kept serving the
+ * stale bundle until the next edit of that file or a restart. */
+const drainQueueAndRebuild = async (
+	state: HMRState,
+	config: BuildConfig,
+	onRebuildComplete: (result: {
+		manifest: Record<string, string>;
+		hmrState: HMRState;
+	}) => void
+) => {
+	// Wait for file writes to stabilize. Editors using atomic writes
+	// (write .tmp → rename) can trigger the watcher before the rename
+	// completes. Read the file twice with a gap — if hashes match,
+	// the write is stable.
+	await waitForStableWrites(state);
+
+	// A rebuild may have started while we debounced/stabilized. Leave the
+	// queue UNTOUCHED and bail: consuming it here would stamp fresh content
+	// hashes and then `triggerRebuild` would drop the whole batch (its
+	// isRebuilding guard), losing the edits permanently — later watcher
+	// events for the same content are filtered out by the unchanged-hash
+	// check. The running rebuild's `finally` re-schedules this drain.
+	if (state.isRebuilding) {
+		return;
+	}
+
+	// Capture the user's actual edits — the file paths in
+	// `fileChangeQueue` BEFORE the dependency graph expands them with
+	// transitive dependents. The Angular HMR classifier needs the
+	// pristine set so it can pick the right fast path (a CSS edit
+	// shouldn't classify as a class-component reboot just because
+	// the graph also flagged the sibling .component.ts as affected).
+	const userEditedFiles = new Set<string>();
+	state.fileChangeQueue.forEach((filePaths) => {
+		for (const filePath of filePaths) {
+			userEditedFiles.add(resolve(filePath));
+		}
+	});
+	state.lastUserEditedFiles = userEditedFiles;
+
+	const filesToProcess = buildFilesToProcess(state);
+	state.fileChangeQueue.clear();
+
+	if (filesToProcess.size === 0) {
+		return;
+	}
+
+	const affectedFrameworks = Array.from(filesToProcess.keys());
+
+	affectedFrameworks.forEach((frameworkKey) => {
+		state.rebuildQueue.add(frameworkKey);
+	});
+
+	const filesToRebuild: string[] = [];
+	filesToProcess.forEach((filePaths) => {
+		filesToRebuild.push(...filePaths);
+	});
+
+	void triggerRebuild(state, config, onRebuildComplete, filesToRebuild);
+};
+
 export const queueFileChange = async (
 	state: HMRState,
 	filePath: string,
@@ -859,6 +927,8 @@ export const queueFileChange = async (
 		enqueueStyleImporters(state, filePath);
 	}
 
+	// A rebuild is in flight — the change stays queued and the rebuild's
+	// `finally` block schedules the drain once it completes.
 	if (state.isRebuilding) {
 		return;
 	}
@@ -868,46 +938,8 @@ export const queueFileChange = async (
 	}
 
 	const DEBOUNCE_MS = config.options?.hmr?.debounceMs ?? DEFAULT_DEBOUNCE_MS;
-	state.rebuildTimeout = setTimeout(async () => {
-		// Wait for file writes to stabilize. Editors using atomic writes
-		// (write .tmp → rename) can trigger the watcher before the rename
-		// completes. Read the file twice with a gap — if hashes match,
-		// the write is stable.
-		await waitForStableWrites(state);
-
-		// Capture the user's actual edits — the file paths in
-		// `fileChangeQueue` BEFORE the dependency graph expands them with
-		// transitive dependents. The Angular HMR classifier needs the
-		// pristine set so it can pick the right fast path (a CSS edit
-		// shouldn't classify as a class-component reboot just because
-		// the graph also flagged the sibling .component.ts as affected).
-		const userEditedFiles = new Set<string>();
-		state.fileChangeQueue.forEach((filePaths) => {
-			for (const filePath of filePaths) {
-				userEditedFiles.add(resolve(filePath));
-			}
-		});
-		state.lastUserEditedFiles = userEditedFiles;
-
-		const filesToProcess = buildFilesToProcess(state);
-		state.fileChangeQueue.clear();
-
-		if (filesToProcess.size === 0) {
-			return;
-		}
-
-		const affectedFrameworks = Array.from(filesToProcess.keys());
-
-		affectedFrameworks.forEach((frameworkKey) => {
-			state.rebuildQueue.add(frameworkKey);
-		});
-
-		const filesToRebuild: string[] = [];
-		filesToProcess.forEach((filePaths) => {
-			filesToRebuild.push(...filePaths);
-		});
-
-		void triggerRebuild(state, config, onRebuildComplete, filesToRebuild);
+	state.rebuildTimeout = setTimeout(() => {
+		void drainQueueAndRebuild(state, config, onRebuildComplete);
 	}, DEBOUNCE_MS);
 };
 
@@ -4763,6 +4795,17 @@ const performFullRebuild = async (
 	return manifest;
 };
 
+/* Changes landed while a rebuild ran — schedule the STANDARD drain for them.
+ *
+ * This used to consume the queue itself and pass the raw file list straight
+ * to `triggerRebuild`, skipping `buildFilesToProcess`. That lost edits three
+ * ways: (1) no content hash was recorded, leaving the stored hash stale;
+ * (2) no dependency expansion ran, so a changed component that isn't a page
+ * entry rebuilt nothing and the server kept serving the stale bundle;
+ * (3) the consumed file list lived only in this timeout's closure — any
+ * subsequent `queueFileChange` cleared the timeout and destroyed it.
+ * Re-using `drainQueueAndRebuild` (which reads the still-intact queue at
+ * fire time) closes all three. */
 const drainPendingQueue = (
 	state: HMRState,
 	config: BuildConfig,
@@ -4775,21 +4818,9 @@ const drainPendingQueue = (
 		return;
 	}
 
-	const pending = Array.from(state.fileChangeQueue.keys());
-	const queuedFiles: string[] = [];
-	state.fileChangeQueue.forEach((filePaths) => {
-		queuedFiles.push(...filePaths);
-	});
-	state.fileChangeQueue.clear();
-	pending.forEach((file) => state.rebuildQueue.add(file));
 	if (state.rebuildTimeout) clearTimeout(state.rebuildTimeout);
 	state.rebuildTimeout = setTimeout(() => {
-		void triggerRebuild(
-			state,
-			config,
-			onRebuildComplete,
-			queuedFiles.length > 0 ? queuedFiles : undefined
-		);
+		void drainQueueAndRebuild(state, config, onRebuildComplete);
 	}, REBUILD_BATCH_DELAY_MS);
 };
 
