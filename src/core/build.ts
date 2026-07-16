@@ -28,6 +28,7 @@ import { outputLogs } from '../build/outputLogs';
 import { scanEntryPoints } from '../build/scanEntryPoints';
 import { scanConventions } from '../build/scanConventions';
 import { writeSpaSideManifests } from '../build/spaSideManifests';
+import { buildServerBundleExternals } from '../build/serverExternals';
 import { scanRouteRegistrations } from '../build/scanRouteRegistrations';
 import { generateSitemap } from '../utils/generateSitemap';
 import type {
@@ -2261,39 +2262,10 @@ const buildUnlocked = async ({
 	// keeps the bare specifier intact so dev resolves through
 	// node_modules (one canonical instance) and prod's `rewriteImports`
 	// retargets to the linked server-vendor file.
-	const angularPartialDeclSpecs = Object.keys(angularVendorPaths ?? {})
-		.filter((spec) => !spec.startsWith('@angular/'))
-		.flatMap((spec) => [spec, `${spec}/*`]);
-	const serverBuildExternals = [
-		'react',
-		'react/*',
-		'react-dom',
-		'react-dom/*',
-		'svelte',
-		'svelte/*',
-		'vue',
-		'vue/*',
-		// vue-demi is a Vue 2/3 compat shim that does `import * as Vue from 'vue'`
-		// followed by `export * from 'vue'`. Bun's bundler rewrites the second
-		// statement into a `__reExport(exports, vue)` call that references an
-		// undefined `vue` binding, so the bundled SSR module crashes the moment
-		// `@tanstack/vue-query` (or any vue-demi consumer) is loaded. Externalize
-		// it so the Node runtime handles the re-export with normal ESM semantics.
-		'vue-demi',
-		// `@vue/*` covers @vue/compiler-sfc and friends — pulled in via dynamic
-		// imports from server-side island compile helpers. Without externalizing
-		// them, Bun still follows `await import(...)` during bundling and an
-		// angular-only project (no @vue/* installed) fails server build.
-		'@vue/*',
-		// Externalize @angular/* in the server bundle — partial declarations
-		// are linked once at vendor build time, and `rewriteImports` then
-		// rewrites every bare `@angular/*` specifier in this bundle's outputs
-		// to the absolute vendor file path, so the runtime ends up with one
-		// linked module instance per package.
-		'@angular/*',
-		...angularPartialDeclSpecs,
-		'typescript'
-	];
+	// Shared with the dev bundle rebuilds (src/build/serverExternals.ts) so a
+	// single-framework project's SSR rebuild doesn't fail resolving the other
+	// frameworks' runtimes — see that module for per-entry rationale.
+	const serverBuildExternals = buildServerBundleExternals(angularVendorPaths);
 
 	// Svelte-aware libraries (svelte-routing, svelte-spa-router, etc.)
 	// publish their entry only under custom export conditions like

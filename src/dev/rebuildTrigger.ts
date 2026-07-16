@@ -2421,6 +2421,57 @@ const handleReactFastPath = async (
 	);
 };
 
+/* Vendor-path union for dev CLIENT page bundles — the same externalize-then-
+ * rewrite treatment the initial build and the angular dev path use. Client
+ * intermediates import `@absolutejs/absolute/<fw>` whose dist chunks touch
+ * every framework's runtime; without these externals, a single-framework
+ * project's client bundle rebuild fails resolving the frameworks it doesn't
+ * have installed. */
+const getClientVendorPaths = async (): Promise<Record<string, string>> => {
+	const {
+		getDevVendorPaths,
+		getAngularVendorPaths,
+		getSvelteVendorPaths,
+		getVueVendorPaths
+	} = await import('../core/devVendorPaths');
+
+	return {
+		...(getDevVendorPaths() ?? {}),
+		...(getAngularVendorPaths() ?? {}),
+		...(getSvelteVendorPaths() ?? {}),
+		...(getVueVendorPaths() ?? {}),
+		...(globalThis.__depVendorPaths ?? {})
+	};
+};
+
+/* Server externals for dev page-bundle rebuilds — mirrors the initial
+ * build's list (src/build/serverExternals.ts). */
+const getServerBundleExternals = async () => {
+	const [{ buildServerBundleExternals }, { getAngularVendorPaths }] =
+		await Promise.all([
+			import('../build/serverExternals'),
+			import('../core/devVendorPaths')
+		]);
+
+	return buildServerBundleExternals(getAngularVendorPaths());
+};
+
+/* Rewrite bare vendor specifiers in freshly built client bundles to their
+ * stable vendor URLs — required whenever `getClientVendorPaths()` keys were
+ * externalized (matches core/build + bundleAngularClient). */
+const rewriteClientVendorImports = async (
+	clientResult: Awaited<ReturnType<typeof import('bun').build>> | undefined,
+	clientVendorPaths: Record<string, string>
+) => {
+	if (!clientResult?.success) return;
+	if (Object.keys(clientVendorPaths).length === 0) return;
+	const { rewriteImports } = await import('../build/rewriteImports');
+	await rewriteImports(
+		clientResult.outputs.map((artifact) => artifact.path),
+		clientVendorPaths
+	);
+};
+
 /* Put a failed bundle batch back on its context's pending set and say so in
  * the terminal — shared by the vue and svelte bundle drive loops. */
 const requeueFailedBundleBatch = (
@@ -2686,19 +2737,14 @@ const runSvelteBundleRebuild = async (
 		state.resolvedPaths,
 		'svelte'
 	);
+	const serverExternals = await getServerBundleExternals();
+	const clientVendorPaths = await getClientVendorPaths();
 
 	const [serverResult, clientResult] = await Promise.all([
 		serverEntries.length > 0
 			? bunBuild({
 					entrypoints: serverEntries,
-					external: [
-						'react',
-						'react/*',
-						'react-dom',
-						'react-dom/*',
-						'svelte',
-						'svelte/*'
-					],
+					external: serverExternals,
 					format: 'esm',
 					naming: '[dir]/[name].[hash].[ext]',
 					outdir: serverOutDir,
@@ -2716,6 +2762,7 @@ const runSvelteBundleRebuild = async (
 		clientEntries.length > 0
 			? bunBuild({
 					entrypoints: clientEntries,
+					external: Object.keys(clientVendorPaths),
 					format: 'esm',
 					naming: '[dir]/[name].[hash].[ext]',
 					outdir: buildDir,
@@ -2734,6 +2781,7 @@ const runSvelteBundleRebuild = async (
 
 	logBundleFailure('svelte server', serverResult);
 	logBundleFailure('svelte client', clientResult);
+	await rewriteClientVendorImports(clientResult, clientVendorPaths);
 	handleServerManifestUpdate(state, serverResult);
 	await handleClientManifestUpdate(state, clientResult, buildDir);
 	await pruneStaleHashedSiblings(serverResult?.outputs);
@@ -2881,19 +2929,14 @@ const handleSvelteFastPath = async (
 			state.resolvedPaths,
 			'svelte'
 		);
+		const serverExternals = await getServerBundleExternals();
+		const clientVendorPaths = await getClientVendorPaths();
 
 		const [serverResult, clientResult] = await Promise.all([
 			serverEntries.length > 0
 				? bunBuild({
 						entrypoints: serverEntries,
-						external: [
-							'react',
-							'react/*',
-							'react-dom',
-							'react-dom/*',
-							'svelte',
-							'svelte/*'
-						],
+						external: serverExternals,
 						format: 'esm',
 						naming: '[dir]/[name].[hash].[ext]',
 						outdir: serverOutDir,
@@ -2910,6 +2953,7 @@ const handleSvelteFastPath = async (
 			clientEntries.length > 0
 				? bunBuild({
 						entrypoints: clientEntries,
+						external: Object.keys(clientVendorPaths),
 						format: 'esm',
 						naming: '[dir]/[name].[hash].[ext]',
 						outdir: buildDir,
@@ -2927,6 +2971,7 @@ const handleSvelteFastPath = async (
 
 		logBundleFailure('svelte server', serverResult);
 		logBundleFailure('svelte client', clientResult);
+		await rewriteClientVendorImports(clientResult, clientVendorPaths);
 		handleServerManifestUpdate(state, serverResult);
 		await handleClientManifestUpdate(state, clientResult, buildDir);
 		await pruneStaleHashedSiblings(serverResult?.outputs);
@@ -3118,12 +3163,14 @@ const runVueBundleRebuild = async (
 		state.resolvedPaths,
 		'vue'
 	);
+	const serverExternals = await getServerBundleExternals();
+	const clientVendorPaths = await getClientVendorPaths();
 
 	const [serverResult, clientResult, cssResult] = await Promise.all([
 		serverEntries.length > 0
 			? bunBuild({
 					entrypoints: serverEntries,
-					external: ['vue', 'vue/*', '@vue/*'],
+					external: serverExternals,
 					format: 'esm',
 					naming: '[dir]/[name].[hash].[ext]',
 					outdir: serverOutDir,
@@ -3141,6 +3188,7 @@ const runVueBundleRebuild = async (
 		clientEntries.length > 0
 			? bunBuild({
 					entrypoints: clientEntries,
+					external: Object.keys(clientVendorPaths),
 					format: 'esm',
 					naming: '[dir]/[name].[hash].[ext]',
 					outdir: buildDir,
@@ -3181,6 +3229,7 @@ const runVueBundleRebuild = async (
 	logBundleFailure('vue server', serverResult);
 	logBundleFailure('vue client', clientResult);
 	logBundleFailure('vue css', cssResult);
+	await rewriteClientVendorImports(clientResult, clientVendorPaths);
 	handleServerManifestUpdate(state, serverResult);
 	await handleClientManifestUpdate(state, clientResult, buildDir);
 	await handleClientManifestUpdate(state, cssResult, buildDir);
