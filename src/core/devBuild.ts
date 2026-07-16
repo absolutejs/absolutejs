@@ -39,7 +39,7 @@ import { buildInitialDependencyGraph } from '../dev/dependencyGraph';
 import { addFileWatchers, startFileWatching } from '../dev/fileWatcher';
 import { getWatchPaths } from '../dev/pathUtils';
 import { cleanStaleAssets, populateAssetStore } from '../dev/assetStore';
-import { queueFileChange } from '../dev/rebuildTrigger';
+import { drainPendingQueue, queueFileChange } from '../dev/rebuildTrigger';
 import { logServerReload } from '../utils/logger';
 import { logStartupTimingBlock } from '../utils/startupTimings';
 
@@ -254,6 +254,12 @@ const rebuildManifest = async (
 	await waitForRebuild(state);
 
 	state.isRebuilding = true;
+	// Queue entries that exist BEFORE the full build starts are guaranteed
+	// to be consumed by it — their writes completed before the build began,
+	// so every pass reads post-edit content. Clear them now; only edits
+	// arriving DURING the build (which the build may have read too late)
+	// stay queued for the post-build drain in `finally`.
+	state.fileChangeQueue.clear();
 
 	try {
 		const buildResult = await build({
@@ -297,9 +303,14 @@ const rebuildManifest = async (
 	} finally {
 		state.rebuildCount++;
 		state.isRebuilding = false;
-		// Clear any file-change queue entries that accumulated during the full build —
-		// the full build already picked up those files, so they don't need rebuilding.
-		state.fileChangeQueue.clear();
+		// Edits saved while the full build ran may have been read too late
+		// to be included (the build reads each source file at an unknowable
+		// point mid-build) — drain them into a follow-up rebuild instead of
+		// assuming the build consumed them. No-ops when the queue is empty.
+		drainPendingQueue(state, state.config, (newBuildResult) => {
+			Object.assign(cached.manifest, newBuildResult.manifest);
+			state.manifest = cached.manifest;
+		});
 	}
 };
 
@@ -480,6 +491,109 @@ export const devBuild = async (config: BuildConfig) => {
 	await resolveAbsoluteVersion();
 	recordStep('resolve version', stepStartedAt);
 
+	/* Created BEFORE the initial build so the file watcher (started below,
+	 * also before the build) can close over a stable object identity. The
+	 * initial build's manifest is merged in after `build()` returns. */
+	const manifest: Record<string, string> = {};
+
+	stepStartedAt = performance.now();
+	// Cold-start recovery: if the initial `build()` threw, route the
+	// next file change through a FULL `build()` (the same call as the
+	// initial one) so the manifest, asset store, and on-disk
+	// intermediates all repopulate from scratch. The fast-path
+	// `queueFileChange` only updates the directly-edited file's
+	// manifest entry — fine on a healthy session, but here it leaves
+	// e.g. `VueExampleCSS` / `VueExampleIndex` undefined and the
+	// route's `asset(...)` call still throws "not found." After a
+	// successful recovery build, clear the flag and fall back to the
+	// fast path for subsequent edits.
+	const onWatcherRebuildComplete = (newBuildResult: {
+		manifest: Record<string, string>;
+	}) => {
+		Object.assign(manifest, newBuildResult.manifest);
+		state.manifest = manifest;
+	};
+	const settleRecoveryQueue = () => {
+		if (state.initialBuildFailed) {
+			// Still broken — the next watcher event retries the full
+			// recovery build; fast-path entries queued mid-recovery
+			// would run against a broken manifest anyway.
+			state.fileChangeQueue.clear();
+
+			return;
+		}
+		// Edits saved while the recovery build ran may have been
+		// read too late to be included — drain, don't discard.
+		drainPendingQueue(state, config, onWatcherRebuildComplete);
+	};
+	const recoverFromColdStartFailure = async () => {
+		await waitForRebuild(state);
+		state.isRebuilding = true;
+		// Same pre-build guarantee as `rebuildManifest`: entries queued
+		// before the recovery build starts are consumed by it.
+		state.fileChangeQueue.clear();
+		try {
+			const recoveryResult = await build({
+				...config,
+				mode: 'development',
+				options: {
+					...config.options,
+					injectHMR: true,
+					throwOnError: true
+				}
+			});
+			if (recoveryResult?.manifest) {
+				Object.assign(manifest, recoveryResult.manifest);
+				state.manifest = manifest;
+				await populateAssetStore(
+					state.assetStore,
+					manifest,
+					state.resolvedPaths.buildDir
+				);
+				state.initialBuildFailed = false;
+				console.log(
+					'[hmr] cold-start recovery rebuild succeeded — manifest populated.'
+				);
+			}
+		} catch {
+			/* still broken — leave the flag set; next file change
+			 * retries. The build logs its own error output. */
+		} finally {
+			state.rebuildCount++;
+			state.isRebuilding = false;
+			settleRecoveryQueue();
+		}
+	};
+
+	/* Start watching BEFORE the initial build (the boot-window race):
+	 * watchers used to start only after the build + asset-store population
+	 * + compiler warming, so an edit saved during that window produced NO
+	 * watcher event at all. The build itself reads each source file at an
+	 * unknowable point mid-build, so such an edit could be consumed by
+	 * some passes and missed by others — a mixed first build that nothing
+	 * ever healed (the next event for the file only comes when the user
+	 * edits it again).
+	 *
+	 * `isRebuilding` is held for the entire boot sequence so the watcher
+	 * debounce's `drainQueueAndRebuild` bails with the queue intact (the
+	 * same contract as mid-session rebuilds); the queue is drained
+	 * explicitly once boot completes. Build outputs don't feed back into
+	 * the watcher — the same filters already keep mid-session full
+	 * rebuilds (which also run with live watchers) from self-triggering. */
+	state.isRebuilding = true;
+	startFileWatching(state, config, (filePath: string) => {
+		if (state.initialBuildFailed) {
+			void recoverFromColdStartFailure();
+
+			return;
+		}
+		queueFileChange(state, filePath, config, onWatcherRebuildComplete);
+	});
+	console.log(
+		'[hmr] watching for file changes — edits saved during the boot build are queued.'
+	);
+	recordStep('start file watching', stepStartedAt);
+
 	const buildStart = performance.now();
 
 	// Initial build (HMR client is baked into index files and HTML/HTMX pages).
@@ -514,7 +628,7 @@ export const devBuild = async (config: BuildConfig) => {
 		}
 		state.initialBuildFailed = true;
 	}
-	const manifest = buildResult?.manifest ?? {};
+	Object.assign(manifest, buildResult?.manifest ?? {});
 	const conventions = buildResult?.conventions ?? {};
 
 	/* A dev build no longer aborts on a single unresolvable reference —
@@ -705,64 +819,20 @@ export const devBuild = async (config: BuildConfig) => {
 	// Store initial manifest on HMR state for Angular fast-path HMR
 	state.manifest = manifest;
 
-	stepStartedAt = performance.now();
-	// Cold-start recovery: if the initial `build()` threw, route the
-	// next file change through a FULL `build()` (the same call as the
-	// initial one) so the manifest, asset store, and on-disk
-	// intermediates all repopulate from scratch. The fast-path
-	// `queueFileChange` only updates the directly-edited file's
-	// manifest entry — fine on a healthy session, but here it leaves
-	// e.g. `VueExampleCSS` / `VueExampleIndex` undefined and the
-	// route's `asset(...)` call still throws "not found." After a
-	// successful recovery build, clear the flag and fall back to the
-	// fast path for subsequent edits.
-	const recoverFromColdStartFailure = async () => {
-		await waitForRebuild(state);
-		state.isRebuilding = true;
-		try {
-			const recoveryResult = await build({
-				...config,
-				mode: 'development',
-				options: {
-					...config.options,
-					injectHMR: true,
-					throwOnError: true
-				}
-			});
-			if (recoveryResult?.manifest) {
-				Object.assign(manifest, recoveryResult.manifest);
-				state.manifest = manifest;
-				await populateAssetStore(
-					state.assetStore,
-					manifest,
-					state.resolvedPaths.buildDir
-				);
-				state.initialBuildFailed = false;
-				console.log(
-					'[hmr] cold-start recovery rebuild succeeded — manifest populated.'
-				);
-			}
-		} catch {
-			/* still broken — leave the flag set; next file change
-			 * retries. The build logs its own error output. */
-		} finally {
-			state.rebuildCount++;
-			state.isRebuilding = false;
-			state.fileChangeQueue.clear();
-		}
-	};
-	startFileWatching(state, config, (filePath: string) => {
-		if (state.initialBuildFailed) {
-			void recoverFromColdStartFailure();
-
-			return;
-		}
-		queueFileChange(state, filePath, config, (newBuildResult) => {
-			Object.assign(manifest, newBuildResult.manifest);
-			state.manifest = manifest;
-		});
-	});
-	recordStep('start file watching', stepStartedAt);
+	/* Boot complete — release the rebuild lock held since before the
+	 * initial build and heal any edits saved while it ran. */
+	state.isRebuilding = false;
+	if (state.fileChangeQueue.size > 0 && state.initialBuildFailed) {
+		// Cold-start contract: a failed initial build recovers via a
+		// FULL rebuild, not the fast path the queue would take.
+		state.fileChangeQueue.clear();
+		void recoverFromColdStartFailure();
+	} else if (state.fileChangeQueue.size > 0) {
+		console.log(
+			'[hmr] edits landed during the boot build — rebuilding to pick them up.'
+		);
+		drainPendingQueue(state, config, onWatcherRebuildComplete);
+	}
 
 	// Store build duration for the startup banner (printed by networking plugin)
 	globalThis.__hmrBuildDuration = performance.now() - buildStart;

@@ -41,6 +41,12 @@ type DevServerOptions = {
 	 *  extra plumbing. Cert validation is bypassed in the readiness
 	 *  probe so the self-signed boot still satisfies `waitForServer`. */
 	https?: boolean;
+	/** Called for every stdout/stderr line as it is observed, INCLUDING
+	 *  lines emitted before the server is ready — `waitForOutput` only
+	 *  exists on the resolved handle, so this is the hook for reacting
+	 *  to boot-time output (e.g. the file-watcher-active marker in the
+	 *  boot-window-edit test). */
+	onLine?: (line: string) => void;
 };
 
 const DEFAULT_OUTPUT_TIMEOUT_MS = 10_000;
@@ -104,6 +110,7 @@ export const startDevServer = async (options?: DevServerOptions | number) => {
 	}> = [];
 	const recordLine = (line: string) => {
 		outputLines.push(line);
+		opts.onLine?.(line);
 		for (let i = lineWaiters.length - 1; i >= 0; i--) {
 			const entry = lineWaiters[i];
 			if (entry && entry.pattern.test(line)) {

@@ -5138,8 +5138,14 @@ const performFullRebuild = async (
  * (3) the consumed file list lived only in this timeout's closure — any
  * subsequent `queueFileChange` cleared the timeout and destroyed it.
  * Re-using `drainQueueAndRebuild` (which reads the still-intact queue at
- * fire time) closes all three. */
-const drainPendingQueue = (
+ * fire time) closes all three.
+ *
+ * Exported for the full-build windows in `core/devBuild.ts` (initial boot
+ * build, `rebuildManifest`, cold-start recovery): a full build reads each
+ * source file at an unknowable point mid-build, so an edit saved while it
+ * runs may or may not be included. Draining the queue afterwards costs one
+ * redundant fast rebuild in the worst case; clearing it loses the edit. */
+export const drainPendingQueue = (
 	state: HMRState,
 	config: BuildConfig,
 	onRebuildComplete: (result: {
