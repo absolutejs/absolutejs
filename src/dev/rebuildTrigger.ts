@@ -32,6 +32,16 @@ import { invalidate as invalidateTransformCache } from './transformCache';
 // this resolves from Bun's module cache instantly.
 const moduleServerPromise = import('../dev/moduleServer');
 const getModuleServer = () => moduleServerPromise;
+
+/* Drop every SSR-side CSS memo (per-page sibling CSS + SPA side manifests +
+ * SPA child CSS). Called after any rebuild that rewrites page bundles —
+ * these caches are correct in prod (immutable hashed artifacts) but pin
+ * boot-time or mid-rebuild content in dev. Used by the vue/svelte/angular
+ * bundle paths and the full rebuild. */
+const clearDevSsrCssCaches = () => {
+	clearSpaRouteCssCaches();
+	clearSiblingCssCache();
+};
 import {
 	createModuleUpdates,
 	groupModuleUpdatesByFramework,
@@ -45,6 +55,7 @@ import { sendTelemetryEvent } from '../cli/telemetryEvent';
 import { cleanStaleAssets, populateAssetStore } from './assetStore';
 import { writeSpaSideManifests } from '../build/spaSideManifests';
 import { clearSpaRouteCssCaches } from '../utils/spaRouteCss';
+import { clearSiblingCssCache } from '../utils/inlinePageCss';
 import { detectFramework } from './pathUtils';
 import { resolveOwningComponents as resolveOwningComponentsSync } from './angular/resolveOwningComponents';
 import { toKebab, toPascal } from '../utils/stringModifiers';
@@ -137,6 +148,10 @@ const recompileTailwindForFastPath = async (
 			type: 'style-update'
 		});
 	} catch (err) {
+		console.error(
+			'[hmr] tailwind live update failed:',
+			err instanceof Error ? err.message : err
+		);
 		sendTelemetryEvent('hmr:error', {
 			framework: 'tailwind',
 			message: err instanceof Error ? err.message : String(err)
@@ -1223,6 +1238,7 @@ const bundleAngularClient = async (
 		throw: false
 	});
 
+	logBundleFailure('angular client', clientResult);
 	if (!clientResult.success) {
 		return;
 	}
@@ -1250,6 +1266,8 @@ const bundleAngularClient = async (
 	const clientManifest = generateManifest(clientResult.outputs, buildDir);
 	Object.assign(state.manifest, clientManifest);
 	await populateAssetStore(state.assetStore, clientManifest, buildDir);
+	await pruneStaleHashedSiblings(clientResult.outputs);
+	clearDevSsrCssCaches();
 };
 
 /* Tiered Angular HMR dispatch.
@@ -1743,7 +1761,18 @@ const scheduleAngularBundleRebuild = (
 
 	const doOne = async (): Promise<void> => {
 		if (pageEntries.length === 0) return;
-		await compileAndBundleAngular(state, pageEntries, angularDir);
+		try {
+			await compileAndBundleAngular(state, pageEntries, angularDir);
+		} catch (error) {
+			// Keep the drive loop (and ctx.inFlight consumers) alive and say
+			// so in the terminal — the next angular change reschedules with
+			// fresh entries. A thrown compile used to reject inFlight
+			// unhandled and silently leave the served bundles stale.
+			console.error(
+				'[hmr] angular bundle rebuild failed — will retry on the next change:',
+				error instanceof Error ? error.message : error
+			);
+		}
 	};
 
 	const drive = async (): Promise<void> => {
@@ -2709,6 +2738,7 @@ const runSvelteBundleRebuild = async (
 	await handleClientManifestUpdate(state, clientResult, buildDir);
 	await pruneStaleHashedSiblings(serverResult?.outputs);
 	await pruneStaleHashedSiblings(clientResult?.outputs);
+	clearDevSsrCssCaches();
 
 	// Compose Svelte's per-intermediate inline map with Bun.build's
 	// output map post-build (docs/BUN_SOURCEMAP_CHAIN_BUG.md).
@@ -2895,10 +2925,13 @@ const handleSvelteFastPath = async (
 				: undefined
 		]);
 
+		logBundleFailure('svelte server', serverResult);
+		logBundleFailure('svelte client', clientResult);
 		handleServerManifestUpdate(state, serverResult);
 		await handleClientManifestUpdate(state, clientResult, buildDir);
 		await pruneStaleHashedSiblings(serverResult?.outputs);
 		await pruneStaleHashedSiblings(clientResult?.outputs);
+		clearDevSsrCssCaches();
 	}
 
 	const { manifest } = state;
@@ -3178,7 +3211,7 @@ const runVueBundleRebuild = async (
 		);
 		Object.assign(state.manifest, spaManifestEntries);
 	}
-	clearSpaRouteCssCaches();
+	clearDevSsrCssCaches();
 
 	// Bandaid for Bun.build not chaining through input inline
 	// sourcemaps (docs/BUN_SOURCEMAP_CHAIN_BUG.md). The intermediate
@@ -3537,6 +3570,10 @@ const handleReactHMR = (
 			type: 'react-update'
 		});
 	} catch (err) {
+		console.error(
+			'[hmr] react live update failed:',
+			err instanceof Error ? err.message : err
+		);
 		sendTelemetryEvent('hmr:error', {
 			framework: 'react',
 			message: err instanceof Error ? err.message : String(err)
@@ -3743,6 +3780,10 @@ const processHtmlPageUpdate = async (
 			type: 'html-update'
 		});
 	} catch (err) {
+		console.error(
+			'[hmr] html live update failed:',
+			err instanceof Error ? err.message : err
+		);
 		sendTelemetryEvent('hmr:error', {
 			framework: 'html',
 			message: err instanceof Error ? err.message : String(err)
@@ -3947,6 +3988,10 @@ const processVuePageUpdate = async (
 			duration
 		);
 	} catch (err) {
+		console.error(
+			'[hmr] vue live update failed:',
+			err instanceof Error ? err.message : err
+		);
 		sendTelemetryEvent('hmr:error', {
 			framework: 'vue',
 			message: err instanceof Error ? err.message : String(err)
@@ -4050,6 +4095,10 @@ const broadcastSveltePageUpdate = (
 			type: 'svelte-update'
 		});
 	} catch (err) {
+		console.error(
+			'[hmr] svelte live update failed:',
+			err instanceof Error ? err.message : err
+		);
 		sendTelemetryEvent('hmr:error', {
 			framework: 'svelte',
 			message: err instanceof Error ? err.message : String(err)
@@ -4259,6 +4308,10 @@ const processHtmxPageUpdate = async (
 			type: 'htmx-update'
 		});
 	} catch (err) {
+		console.error(
+			'[hmr] htmx live update failed:',
+			err instanceof Error ? err.message : err
+		);
 		sendTelemetryEvent('hmr:error', {
 			framework: 'htmx',
 			message: err instanceof Error ? err.message : String(err)
@@ -5019,7 +5072,7 @@ const performFullRebuild = async (
 	// Full rebuilds rewrite the SPA side manifests + child CSS on disk (via
 	// core/build), but the SSR runtime caches them in-process forever — drop
 	// them so the next request re-reads the fresh artifacts.
-	clearSpaRouteCssCaches();
+	clearDevSsrCssCaches();
 
 	onRebuildComplete({ hmrState: state, manifest });
 

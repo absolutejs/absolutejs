@@ -18,6 +18,16 @@
  *  the handler hits `readFile` at most once per page per process. */
 const siblingCssCache = new Map<string, string>();
 
+/** Drop every memoised sibling-CSS read (including cached misses). The dev
+ *  server calls this after rebuilding page bundles: a request landing
+ *  mid-rebuild can otherwise cache '' for a freshly hashed path whose
+ *  sidecar hasn't been copied yet, and that page then SSRs unstyled for the
+ *  rest of the process. Prod never needs this — hashed artifacts are
+ *  immutable there. */
+export const clearSiblingCssCache = () => {
+	siblingCssCache.clear();
+};
+
 export const injectInlineCss = <T extends string>(headTag: T, css: string) => {
 	if (!css) return headTag;
 	const styleBlock = `<style data-absolute-page-css>${css}</style>`;
