@@ -4,7 +4,7 @@
  *  Uses native Zig scanner when available (15x faster on large files),
  *  falls back to JS regex on Windows or when native addon is missing. */
 
-import { maskLiterals } from './maskLiterals';
+import { maskLiterals, SENTINEL } from './maskLiterals';
 import { nativeRewriteImports } from './nativeRewrite';
 
 const escapeRegex = (str: string) =>
@@ -14,6 +14,9 @@ type CompiledRewriter = {
 	fromRegex: RegExp;
 	sideEffectRegex: RegExp;
 	dynamicRegex: RegExp;
+	sweepFromRegex: RegExp;
+	sweepSideEffectRegex: RegExp;
+	sweepDynamicRegex: RegExp;
 	lookup: Map<string, string>;
 };
 
@@ -53,32 +56,53 @@ const getOrCompileRewriter = (vendorPaths: Record<string, string>) => {
 		'g'
 	);
 
+	// Safety-net sweep (see applySweep): same specifiers, but the gap between
+	// the `from`/`import`/`require` keyword (or `(`) and the opening quote may
+	// contain whitespace and masked comments, so a real import whose specifier
+	// wasn't adjacent to its keyword in the masked text still gets rewritten.
+	// `maskLiterals` keeps the `/* */` and `//` delimiters and turns only the
+	// comment body into a placeholder, so an intervening comment appears as
+	// `/*<ph>*/` or `//<ph>`, not a bare placeholder — tolerate all three.
+	const ph = `${SENTINEL}\\d+${SENTINEL}`;
+	const gap = `(?:\\s|${ph}|/\\*${ph}\\*/|//${ph})*`;
+	const sweepFromRegex = new RegExp(`(\\bfrom${gap}["'])(${alt})(["'])`, 'g');
+	const sweepSideEffectRegex = new RegExp(
+		`(\\bimport${gap}["'])(${alt})(["'])`,
+		'g'
+	);
+	const sweepDynamicRegex = new RegExp(
+		`(\\b(?:import|require)${gap}\\(${gap}["'])(${alt})(["'])`,
+		'g'
+	);
+
 	const rewriter: CompiledRewriter = {
 		dynamicRegex,
 		fromRegex,
 		lookup,
-		sideEffectRegex
+		sideEffectRegex,
+		sweepDynamicRegex,
+		sweepFromRegex,
+		sweepSideEffectRegex
 	};
 	rewriterCache.set(key, rewriter);
 
 	return rewriter;
 };
 
-const applyAllReplacements = (
-	content: string,
-	rewriter: CompiledRewriter
-) => {
-	const replacer = (
-		_match: string,
-		prefix: string,
-		specifier: string,
-		suffix: string
-	) => {
+const makeReplacer =
+	(rewriter: CompiledRewriter) =>
+	(_match: string, prefix: string, specifier: string, suffix: string) => {
 		const webPath = rewriter.lookup.get(specifier);
 		if (!webPath) return _match;
 
 		return `${prefix}${webPath}${suffix}`;
 	};
+
+const applyAllReplacements = (
+	content: string,
+	rewriter: CompiledRewriter
+) => {
+	const replacer = makeReplacer(rewriter);
 
 	rewriter.fromRegex.lastIndex = 0;
 	rewriter.sideEffectRegex.lastIndex = 0;
@@ -88,6 +112,29 @@ const applyAllReplacements = (
 	result = result.replace(rewriter.fromRegex, replacer);
 	result = result.replace(rewriter.sideEffectRegex, replacer);
 	result = result.replace(rewriter.dynamicRegex, replacer);
+
+	return result;
+};
+
+/** Safety net: catch real import/export statements whose specifier the main
+ *  pass missed because a masked-literal placeholder (a preserved comment) or
+ *  extra whitespace sits between the `from`/`import`/`require` keyword and the
+ *  opening quote. Runs on the MASKED text, so import-like *text* inside masked
+ *  strings/templates/comments is a placeholder and can never match here — no
+ *  new false positives, while any genuinely-missed vendor import is rewritten.
+ *  Idempotent: already-rewritten specifiers are vendor paths (not in the
+ *  specifier set) so they don't re-match. */
+const applySweep = (content: string, rewriter: CompiledRewriter) => {
+	const replacer = makeReplacer(rewriter);
+
+	rewriter.sweepFromRegex.lastIndex = 0;
+	rewriter.sweepSideEffectRegex.lastIndex = 0;
+	rewriter.sweepDynamicRegex.lastIndex = 0;
+
+	let result = content;
+	result = result.replace(rewriter.sweepFromRegex, replacer);
+	result = result.replace(rewriter.sweepSideEffectRegex, replacer);
+	result = result.replace(rewriter.sweepDynamicRegex, replacer);
 
 	return result;
 };
@@ -143,9 +190,10 @@ export const rewriteReactImports = async (
 
 			// Try native Zig scanner first (15x faster on large files)
 			const native = nativeRewriteImports(masked, replacements);
-			const content = restore(
-				native ?? applyAllReplacements(masked, rewriter)
-			);
+			const rewritten = native ?? applyAllReplacements(masked, rewriter);
+			// Safety net for any real import the main pass skipped (keyword
+			// separated from its specifier by a masked comment / whitespace).
+			const content = restore(applySweep(rewritten, rewriter));
 
 			if (content !== original) {
 				await Bun.write(filePath, content);

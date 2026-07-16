@@ -8,12 +8,14 @@
  *  comment — so it rewrites the snippet's specifier too. The browser bundle then
  *  diverges from the SSR pre-render → React hydration mismatch on the code block.
  *
- *  Fix: before rewriting, replace template literals, comments, and non-specifier
- *  string literals with opaque placeholders; rewrite; then restore them verbatim.
- *  String literals that ARE real import specifiers (those right after
- *  `from`/`import`, or inside `import(`/`require(`) are left untouched, so real
- *  import rewriting is unaffected. Regex literals are skipped (copied verbatim)
- *  so their contents can't be misread as strings/templates.
+ *  Fix: before rewriting, replace template literals and comments with opaque
+ *  placeholders, plus any string literal whose *own text* contains an
+ *  import-like sequence (`from`/`import`/`require` + quote); rewrite; then
+ *  restore them verbatim. A real import specifier string (e.g.
+ *  "react/jsx-runtime") never contains that sequence, so it is left untouched
+ *  and always gets rewritten — no matter what token precedes it. Regex literals
+ *  are skipped (copied verbatim) so their contents can't be misread as
+ *  strings/templates.
  *
  *  Usage: `const { masked, restore } = maskLiterals(src)`, run the existing
  *  rewriter on `masked`, then `restore(rewritten)`.
@@ -22,7 +24,18 @@
 // Private-Use-Area sentinel: never appears in real source, carries no
 // from/import/quote chars, so placeholders can't collide with code or be matched
 // by the rewriters.
-const SENTINEL = String.fromCharCode(0xe000);
+export const SENTINEL = String.fromCharCode(0xe000);
+
+// A string literal only needs shielding when its TEXT actually contains an
+// import-like sequence a rewriter could mistake for a real import — `from` /
+// `import` / `require` followed (through optional whitespace/paren) by a quote.
+// A genuine import specifier string (e.g. "react/jsx-runtime") never contains
+// that internally, so it is left untouched and always gets rewritten. This
+// replaces the old "is this string in specifier position?" heuristic, which
+// mis-masked real specifiers whenever the preceding token wasn't exactly
+// `from`/`import` (e.g. an intervening comment), leaving a bare specifier in one
+// bundled chunk and breaking hydration.
+const RISKY_STRING_CONTENT = /\b(?:from|import|require)\s*\(?\s*["'`]/;
 
 const isIdentChar = (c: string) => /[A-Za-z0-9_$]/.test(c);
 
@@ -48,11 +61,10 @@ export const maskLiterals = (src: string): MaskedSource => {
 	let out = '';
 	let i = 0;
 
-	// State used by the regex-vs-division heuristic and the import-specifier test.
+	// State used by the regex-vs-division heuristic.
 	let prevChar = ''; // last significant (non-whitespace) code char
 	let prevWord = ''; // identifier immediately preceding (through whitespace)
 	let prevWasSpace = false; // was the immediately previous char whitespace?
-	let wordBeforeParen = ''; // identifier before the last '(' — for import()/require()
 
 	const mask = (text: string) => {
 		out += SENTINEL + pieces.length + SENTINEL;
@@ -161,22 +173,18 @@ export const maskLiterals = (src: string): MaskedSource => {
 		}
 		if (c === '"' || c === "'") {
 			const end = endOfString(i);
-			// A string is a real import specifier only when it follows
-			// `from`/`import` or sits inside `import(`/`require(`. Leave those for
-			// the rewriter; mask every other (data) string.
-			const isSpecifier =
-				prevWord === 'from' ||
-				prevWord === 'import' ||
-				(prevChar === '(' &&
-					(wordBeforeParen === 'import' ||
-						wordBeforeParen === 'require'));
-			if (isSpecifier) {
-				out += src.slice(i, end);
+			const text = src.slice(i, end);
+			// Only shield a string when its own text could be misread as a real
+			// import (contains `from`/`import`/`require` + quote) — e.g. an
+			// example-code snippet a page renders. A real import specifier
+			// string never matches, so it stays visible and gets rewritten.
+			if (RISKY_STRING_CONTENT.test(text)) {
+				mask(text);
+			} else {
+				out += text;
 				prevChar = '"';
 				prevWord = '';
 				prevWasSpace = false;
-			} else {
-				mask(src.slice(i, end));
 			}
 			i = end;
 			continue;
@@ -208,7 +216,6 @@ export const maskLiterals = (src: string): MaskedSource => {
 			const contiguous = isIdentChar(prevChar) && !prevWasSpace;
 			prevWord = contiguous ? prevWord + c : c;
 		} else {
-			if (c === '(') wordBeforeParen = prevWord;
 			prevWord = '';
 		}
 		prevChar = c;
