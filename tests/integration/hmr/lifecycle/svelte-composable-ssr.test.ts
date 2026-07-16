@@ -42,8 +42,8 @@ describe('Svelte composable .svelte.ts edit reaches SSR', () => {
 		client.drain();
 		mutateFile(composable, (c) =>
 			c.replace(
-				'let count = initialCount;',
-				'let count = initialCount + 41;'
+				'let count = $state(initialCount);',
+				'let count = $state(initialCount + 41);'
 			)
 		);
 

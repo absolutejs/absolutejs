@@ -1,7 +1,5 @@
 <script lang="ts">
 	import Counter from '../components/Counter.svelte';
-	import { setContext } from 'svelte';
-	setContext('themeMessage', 'CONTEXT_OK');
 	import Head from '../../../src/svelte/components/Head.svelte';
 
 	let { initialCount, cssPath }: { initialCount: number; cssPath?: string } =

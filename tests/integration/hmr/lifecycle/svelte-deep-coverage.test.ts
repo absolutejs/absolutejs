@@ -92,8 +92,8 @@ describe('Svelte 5 deep coverage', () => {
 
 		mutateFile(counterModule, (c) =>
 			c.replace(
-				'let count = initialCount;',
-				'let count = initialCount + 555;'
+				'let count = $state(initialCount);',
+				'let count = $state(initialCount + 555);'
 			)
 		);
 		const html = await waitForBundleAndFetch(client, srv);
@@ -132,8 +132,8 @@ describe('Svelte 5 deep coverage', () => {
 		mutateFile(counter, (c) =>
 			c
 				.replace(
-					'export let initialCount: number;',
-					'export let initialCount: number;\n\texport let tag: string = "";'
+					'let { initialCount }: { initialCount: number } = $props();',
+					'let { initialCount, tag = "" }: { initialCount: number; tag?: string } = $props();'
 				)
 				.replace(
 					'<button onclick={increment}>count is {getCount()}</button>',

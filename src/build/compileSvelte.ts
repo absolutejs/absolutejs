@@ -41,7 +41,14 @@ const devClientDir = resolveDevClientDir();
 
 const hmrClientPath = join(devClientDir, 'hmrClient.ts').replace(/\\/g, '/');
 
-type Built = { ssr: string; client: string; hasAwaitSlot: boolean };
+type Built = {
+	ssr: string;
+	client: string;
+	hasAwaitSlot: boolean;
+	/** `.svelte.ts`/`.svelte.js` runes module (compileModule output) — has no
+	 *  component default export, so it must never get a hydration index. */
+	isModule: boolean;
+};
 type Cache = Map<string, Built>;
 
 // Persistent cache across HMR cycles — avoids recompiling unchanged Svelte components
@@ -489,6 +496,7 @@ export const compileSvelte = async (
 				loweredServerSource.transformed ||
 				loweredClientSource.transformed ||
 				hasAwaitSlotFromChildren,
+			isModule,
 			ssr: ssrPath
 		};
 		cache.set(src, built);
@@ -499,8 +507,15 @@ export const compileSvelte = async (
 
 	const roots = await Promise.all(entryPoints.map(build));
 
+	// Runes modules (`.svelte.ts`) can land in the entry list during dev
+	// rebuilds (the changed file itself is passed alongside its importers).
+	// They compile fine as dependencies but have no component default
+	// export — synthesizing a hydration index for one produces a client
+	// bundle that fails with `No matching export … for import "default"`.
+	const componentRoots = roots.filter((root) => !root.isModule);
+
 	await Promise.all(
-		roots.map(async ({ client, hasAwaitSlot }) => {
+		componentRoots.map(async ({ client, hasAwaitSlot }) => {
 			const relClientDir = dirname(relative(clientDir, client));
 			const name = basename(client, extname(client));
 			const indexPath = join(indexDir, relClientDir, `${name}.js`);
@@ -600,8 +615,9 @@ if (typeof window !== "undefined") {
 	return {
 		// Actual client component paths (for official HMR module imports)
 		svelteClientPaths: roots.map(({ client }) => client),
-		// Index paths (entry points for hydration)
-		svelteIndexPaths: roots.map(({ client }) => {
+		// Index paths (entry points for hydration) — component entries only;
+		// runes modules have no index (see componentRoots above).
+		svelteIndexPaths: componentRoots.map(({ client }) => {
 			const rel = dirname(relative(clientDir, client));
 
 			return join(indexDir, rel, basename(client));

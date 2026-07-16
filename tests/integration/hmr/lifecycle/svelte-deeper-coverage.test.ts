@@ -197,8 +197,8 @@ describe('Svelte 5 deeper coverage', () => {
 		mutateFile(sveltePage, (c) =>
 			c
 				.replace(
-					'let isOpen = false;',
-					"let isOpen = false;\n\tlet inputValue = 'BIND_VALUE_OK';"
+					'let isOpen = $state(false);',
+					"let isOpen = $state(false);\n\tlet inputValue = $state('BIND_VALUE_OK');"
 				)
 				.replace(
 					'<h1>AbsoluteJS + Svelte</h1>',
