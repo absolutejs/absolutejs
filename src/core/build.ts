@@ -69,6 +69,7 @@ import {
 } from './devVendorPaths';
 import type {
 	BuildConfig,
+	BuildPassError,
 	BunBuildConfigOverride,
 	BunBuildPassConfig,
 	BunBuildPassKey
@@ -171,6 +172,72 @@ const updateConventionCompiledPaths = (
 	}
 };
 
+/* Turn a failing pass's Bun logs into a specific, actionable message.
+ * A bare Bun resolve failure (`Could not resolve: "./reset.css"`) omits
+ * WHERE the reference lives, so we fold in the referrer file + the
+ * unresolved specifier + line when Bun provides them. Also returns the
+ * structured bits so callers can drive the dev error overlay. */
+const summarizeBuildFailure = (
+	logs: (BuildMessage | ResolveMessage)[],
+	label: string
+) => {
+	const errLog = logs.find((log) => log.level === 'error') ?? logs[0];
+	const baseMessage = errLog?.message ?? `${label} build failed`;
+
+	// `specifier` only exists on ResolveMessage; `position.file` is the
+	// referrer for both message kinds. Narrow via `in` — no assertion.
+	const hasSpecifier =
+		errLog !== undefined &&
+		'specifier' in errLog &&
+		typeof errLog.specifier === 'string' &&
+		errLog.specifier.length > 0;
+	const specifier = hasSpecifier ? errLog.specifier : undefined;
+	const position = errLog?.position ?? undefined;
+	const file = position?.file || undefined;
+	const line = position?.line || undefined;
+	const column = position?.column || undefined;
+
+	const detailLines: string[] = [baseMessage];
+	if (specifier) {
+		detailLines.push(`  Unresolved reference: '${specifier}'`);
+	}
+	if (file) {
+		detailLines.push(`  Referenced from: ${file}${line ? `:${line}` : ''}`);
+	}
+
+	return {
+		column,
+		file,
+		line,
+		message: detailLines.join('\n'),
+		specifier
+	};
+};
+
+const buildPassError = (
+	logs: (BuildMessage | ResolveMessage)[],
+	pass: string,
+	label: string,
+	frameworkNames: string[],
+	isIncremental: boolean | 0 | undefined
+) => {
+	const { column, file, line, message, specifier } = summarizeBuildFailure(
+		logs,
+		label
+	);
+	const err = new Error(message);
+	Object.assign(err, { logs });
+	sendTelemetryEvent('build:error', {
+		frameworks: frameworkNames,
+		incremental: Boolean(isIncremental),
+		message,
+		pass
+	});
+	logError(`${label} build failed`, err);
+
+	return { column, file, label, line, logs, message, pass, specifier };
+};
+
 const extractBuildError = (
 	logs: (BuildMessage | ResolveMessage)[],
 	pass: string,
@@ -179,26 +246,18 @@ const extractBuildError = (
 	isIncremental: boolean | 0 | undefined,
 	throwOnError: boolean
 ) => {
-	const errLog = logs.find((log) => log.level === 'error') ?? logs[0];
-	if (!errLog) {
-		exit(1);
-
-		return;
-	}
-	const err = new Error(
-		typeof errLog.message === 'string'
-			? errLog.message
-			: String(errLog.message)
+	const passError = buildPassError(
+		logs,
+		pass,
+		label,
+		frameworkNames,
+		isIncremental
 	);
-	Object.assign(err, { logs });
-	sendTelemetryEvent('build:error', {
-		frameworks: frameworkNames,
-		incremental: Boolean(isIncremental),
-		message: err.message,
-		pass
-	});
-	logError(`${label} build failed`, err);
-	if (throwOnError) throw err;
+	if (throwOnError) {
+		const err = new Error(passError.message);
+		Object.assign(err, { logs });
+		throw err;
+	}
 	exit(1);
 };
 
@@ -2523,6 +2582,38 @@ const buildUnlocked = async ({
 	const serverLogs = serverResult?.logs ?? [];
 	const serverOutputs = serverResult?.outputs ?? [];
 
+	/* Dev resilience: a single failed bundling pass (a bad CSS `@import`,
+	 * a broken component import) must NOT abort the whole build. In dev we
+	 * record the failure and keep going, so `generateManifest` below still
+	 * runs over the passes that succeeded (merged over `baseManifest`) and
+	 * every unaffected route keeps serving. Gated on `hmr` (injectHMR),
+	 * which is set by every dev/HMR build path and never by `absolute
+	 * build` — so production keeps the original fail-hard behaviour
+	 * (`extractBuildError` throws / exits) regardless of ambient
+	 * NODE_ENV. */
+	const passErrors: BuildPassError[] = [];
+	const handlePassFailure = (
+		logs: (BuildMessage | ResolveMessage)[],
+		pass: string,
+		label: string
+	) => {
+		if (hmr) {
+			passErrors.push(
+				buildPassError(logs, pass, label, frameworkNames, isIncremental)
+			);
+
+			return;
+		}
+		extractBuildError(
+			logs,
+			pass,
+			label,
+			frameworkNames,
+			isIncremental,
+			throwOnError
+		);
+	};
+
 	// Dev-mode sourcemap chain (docs/BUN_SOURCEMAP_CHAIN_BUG.md). Bun.build
 	// emits a map from the final bundle back to the per-framework
 	// intermediate (e.g. compileVue's .absolutejs/generated/vue/.../X.js
@@ -2578,14 +2669,7 @@ const buildUnlocked = async ({
 	}
 
 	if (serverResult && !serverResult.success && serverLogs.length > 0) {
-		extractBuildError(
-			serverLogs,
-			'server',
-			'Server',
-			frameworkNames,
-			isIncremental,
-			throwOnError
-		);
+		handlePassFailure(serverLogs, 'server', 'Server');
 	}
 
 	const reactClientLogs = reactClientResult?.logs ?? [];
@@ -2596,14 +2680,7 @@ const buildUnlocked = async ({
 		!reactClientResult.success &&
 		reactClientLogs.length > 0
 	) {
-		extractBuildError(
-			reactClientLogs,
-			'react-client',
-			'React client',
-			frameworkNames,
-			isIncremental,
-			throwOnError
-		);
+		handlePassFailure(reactClientLogs, 'react-client', 'React client');
 	}
 
 	const reactClientOutputPaths = reactClientOutputs.map(
@@ -2677,13 +2754,10 @@ const buildUnlocked = async ({
 		!nonReactClientResult.success &&
 		nonReactClientLogs.length > 0
 	) {
-		extractBuildError(
+		handlePassFailure(
 			nonReactClientLogs,
 			'non-react-client',
-			'Non-React client',
-			frameworkNames,
-			isIncremental,
-			throwOnError
+			'Non-React client'
 		);
 	}
 	if (
@@ -2691,14 +2765,7 @@ const buildUnlocked = async ({
 		!islandClientResult.success &&
 		islandClientLogs.length > 0
 	) {
-		extractBuildError(
-			islandClientLogs,
-			'island-client',
-			'Island client',
-			frameworkNames,
-			isIncremental,
-			throwOnError
-		);
+		handlePassFailure(islandClientLogs, 'island-client', 'Island client');
 	}
 
 	// Post-process: rewrite bare Angular/Vue specifiers to vendor paths.
@@ -2806,25 +2873,11 @@ const buildUnlocked = async ({
 		!globalCssResult.success &&
 		globalCssResult.logs.length > 0
 	) {
-		extractBuildError(
-			globalCssResult.logs,
-			'global-css',
-			'Global CSS',
-			frameworkNames,
-			isIncremental,
-			throwOnError
-		);
+		handlePassFailure(globalCssResult.logs, 'global-css', 'Global CSS');
 	}
 
 	if (vueCssResult && !vueCssResult.success && vueCssResult.logs.length > 0) {
-		extractBuildError(
-			vueCssResult.logs,
-			'vue-css',
-			'Vue CSS',
-			frameworkNames,
-			isIncremental,
-			throwOnError
-		);
+		handlePassFailure(vueCssResult.logs, 'vue-css', 'Vue CSS');
 	}
 
 	// In dev mode, rewrite new URL('./path', import.meta.url) in all bundled
@@ -3285,7 +3338,11 @@ const buildUnlocked = async ({
 	if (isIncremental) {
 		writeBuildTrace(buildPath);
 
-		return { conventions: conventionsMap, manifest };
+		return {
+			conventions: conventionsMap,
+			errors: passErrors.length > 0 ? passErrors : undefined,
+			manifest
+		};
 	}
 
 	writeFileSync(
@@ -3335,7 +3392,11 @@ const buildUnlocked = async ({
 		disposeTailwindCompiler(tailwind.input);
 	}
 
-	return { conventions: conventionsMap, manifest };
+	return {
+		conventions: conventionsMap,
+		errors: passErrors.length > 0 ? passErrors : undefined,
+		manifest
+	};
 };
 
 export const build = async (config: BuildConfig) => {

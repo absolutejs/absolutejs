@@ -268,6 +268,13 @@ const rebuildManifest = async (
 		if (!buildResult?.manifest) return;
 		const newManifest = buildResult.manifest;
 
+		// Track partial-build failures so a reconnecting browser still sees
+		// the overlay; clear them when the build is fully clean again.
+		state.lastBuildErrors =
+			buildResult.errors && buildResult.errors.length > 0
+				? buildResult.errors
+				: undefined;
+
 		// Replace manifest contents instead of just merging.
 		// Object.assign only adds/updates keys — it never removes them,
 		// so deleted pages would leave dead keys in the manifest forever.
@@ -509,6 +516,23 @@ export const devBuild = async (config: BuildConfig) => {
 	}
 	const manifest = buildResult?.manifest ?? {};
 	const conventions = buildResult?.conventions ?? {};
+
+	/* A dev build no longer aborts on a single unresolvable reference —
+	 * it returns a partial manifest plus the failed passes. Stash them so
+	 * the WebSocket connect handler can show the error overlay to the
+	 * browser (which connects only after the server boots, so there is no
+	 * live `rebuild-error` broadcast for the cold-start build). */
+	if (buildResult?.errors && buildResult.errors.length > 0) {
+		state.lastBuildErrors = buildResult.errors;
+		console.error(
+			`[hmr] initial build completed with ${buildResult.errors.length} unresolved ` +
+				`reference(s) — affected routes are degraded, the rest are serving. ` +
+				`Fix and save to recover:`
+		);
+		for (const passError of buildResult.errors) {
+			console.error(`  • ${passError.label}: ${passError.message}`);
+		}
+	}
 	recordStep('initial build', buildStart);
 
 	if (Object.keys(manifest).length === 0) {
