@@ -1094,14 +1094,17 @@ const updateServerManifestEntry = (
 	state.manifest[toPascal(baseName)] = artifact.path;
 };
 
-/* After writing `Page.NEWHASH.js`, remove `Page.OLDHASH.js` siblings
- * in the same directory. Two reasons:
+/* After writing `Page.NEWHASH.js` (or `.css`), remove `Page.OLDHASH.*`
+ * siblings in the same directory. Two reasons:
  * 1. SSR resolvers (e.g. `resolveCurrentGeneratedVueModulePath`) do a
  *    directory scan and pick the first matching prefix — stale
  *    siblings can shadow the freshly built bundle.
- * 2. Build dirs grow unboundedly during long dev sessions otherwise.
- * Operates only on `.js` files with the exact `Name.hash.js` shape
- * so it can't touch unrelated files. */
+ * 2. Build dirs grow unboundedly during long dev sessions otherwise
+ *    (a page-CSS bundle is rewritten under a fresh hash on every
+ *    scoped-style edit; the in-memory asset store evicts the old
+ *    entry but the old file used to stay on disk until restart).
+ * Operates only on `.js`/`.css` files with the exact `Name.hash.ext`
+ * shape so it can't touch unrelated files. */
 const pruneStaleHashedSiblings = async (
 	freshOutputs: { path: string; hash: string | null }[] | undefined
 ) => {
@@ -1127,7 +1130,9 @@ const pruneStaleHashedSiblings = async (
 			await Promise.all(
 				entries.map(async (entryName) => {
 					if (keep.has(entryName)) return;
-					if (!entryName.endsWith('.js')) return;
+					if (!entryName.endsWith('.js') && !entryName.endsWith('.css')) {
+						return;
+					}
 					const parts = entryName.split('.');
 					if (parts.length !== 3) return;
 					const [base] = parts;
@@ -2601,6 +2606,7 @@ const runSvelteBundleRebuild = async (
 	handleServerManifestUpdate(state, serverResult);
 	await handleClientManifestUpdate(state, clientResult, buildDir);
 	await pruneStaleHashedSiblings(serverResult?.outputs);
+	await pruneStaleHashedSiblings(clientResult?.outputs);
 
 	// Compose Svelte's per-intermediate inline map with Bun.build's
 	// output map post-build (docs/BUN_SOURCEMAP_CHAIN_BUG.md).
@@ -2773,6 +2779,8 @@ const handleSvelteFastPath = async (
 
 		handleServerManifestUpdate(state, serverResult);
 		await handleClientManifestUpdate(state, clientResult, buildDir);
+		await pruneStaleHashedSiblings(serverResult?.outputs);
+		await pruneStaleHashedSiblings(clientResult?.outputs);
 	}
 
 	const { manifest } = state;
@@ -3018,6 +3026,7 @@ const runVueBundleRebuild = async (
 	await handleClientManifestUpdate(state, clientResult, buildDir);
 	await handleClientManifestUpdate(state, cssResult, buildDir);
 	await pruneStaleHashedSiblings(serverResult?.outputs);
+	await pruneStaleHashedSiblings(clientResult?.outputs);
 	await pruneStaleHashedSiblings(cssResult?.outputs);
 
 	// Bandaid for Bun.build not chaining through input inline

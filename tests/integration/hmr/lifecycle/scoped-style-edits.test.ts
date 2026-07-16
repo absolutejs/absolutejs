@@ -1,4 +1,5 @@
 import { describe, expect, test, afterAll, afterEach } from 'bun:test';
+import { readdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { startDevServer, type DevServer } from '../../../helpers/devServer';
 import { connectHMR, type HMRClient } from '../../../helpers/ws';
@@ -59,6 +60,15 @@ describe('Scoped style block edits propagate to SSR', () => {
 		expect(match?.[1]).toBeTruthy();
 		const css = await (await fetch(`${server.baseUrl}${match![1]}`)).text();
 		expect(css).toContain('#ff0aee');
+
+		// The rebuild wrote the page CSS under a fresh hash — the previous
+		// hash's file must be pruned, not left to accumulate for the whole
+		// dev session (pruneStaleHashedSiblings used to skip .css entirely).
+		const cssDir = resolve(PROJECT_ROOT, 'example/build/assets/css');
+		const siblings = (await readdir(cssDir)).filter((name) =>
+			/^vue-example-compiled\.[a-z0-9]+\.css$/.test(name)
+		);
+		expect(siblings).toHaveLength(1);
 	}, 15_000);
 
 	test('svelte scoped style edit lands in SSR HTML', async () => {
