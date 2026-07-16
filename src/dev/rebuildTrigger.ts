@@ -1,5 +1,5 @@
 import { existsSync, rmSync } from 'node:fs';
-import { basename, dirname, join, relative, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
 	getFrameworkGeneratedDir,
 	type GeneratedFramework
@@ -43,9 +43,11 @@ import {
 } from './moduleVersionTracker';
 import { sendTelemetryEvent } from '../cli/telemetryEvent';
 import { cleanStaleAssets, populateAssetStore } from './assetStore';
+import { writeSpaSideManifests } from '../build/spaSideManifests';
+import { clearSpaRouteCssCaches } from '../utils/spaRouteCss';
 import { detectFramework } from './pathUtils';
 import { resolveOwningComponents as resolveOwningComponentsSync } from './angular/resolveOwningComponents';
-import { toPascal } from '../utils/stringModifiers';
+import { toKebab, toPascal } from '../utils/stringModifiers';
 import type { ResolvedBuildPaths } from './configResolver';
 import { broadcastToClients } from './webSocket';
 import {
@@ -1111,6 +1113,7 @@ const pruneStaleHashedSiblings = async (
 	if (!freshOutputs?.length) return;
 	const { readdir, unlink } = await import('node:fs/promises');
 	const keepByDir = new Map<string, Set<string>>();
+	const keepStemsByDir = new Map<string, Set<string>>();
 	const prefixByDir = new Map<string, Set<string>>();
 	for (const artifact of freshOutputs) {
 		const dir = dirname(artifact.path);
@@ -1118,19 +1121,28 @@ const pruneStaleHashedSiblings = async (
 		const [prefix] = name.split('.');
 		if (!prefix) continue;
 		if (!keepByDir.has(dir)) keepByDir.set(dir, new Set());
+		if (!keepStemsByDir.has(dir)) keepStemsByDir.set(dir, new Set());
 		if (!prefixByDir.has(dir)) prefixByDir.set(dir, new Set());
 		keepByDir.get(dir)!.add(name);
+		// `Name.hash` without the extension — the FS-sibling convention pairs
+		// `Page.<hash>.css` with `Page.<hash>.js` (same hash), so a kept JS
+		// artifact must also protect its sibling CSS from the prune.
+		keepStemsByDir.get(dir)?.add(name.replace(/\.[^.]+$/, ''));
 		prefixByDir.get(dir)!.add(prefix);
 	}
 	await Promise.all(
 		Array.from(keepByDir.entries()).map(async ([dir, keep]) => {
 			const prefixes = prefixByDir.get(dir);
-			if (!prefixes) return;
+			const keepStems = keepStemsByDir.get(dir);
+			if (!prefixes || !keepStems) return;
 			const entries = await readdir(dir).catch(() => [] as string[]);
 			await Promise.all(
 				entries.map(async (entryName) => {
 					if (keep.has(entryName)) return;
 					if (!entryName.endsWith('.js') && !entryName.endsWith('.css')) {
+						return;
+					}
+					if (keepStems.has(entryName.replace(/\.[^.]+$/, ''))) {
 						return;
 					}
 					const parts = entryName.split('.');
@@ -2380,6 +2392,94 @@ const handleReactFastPath = async (
 	);
 };
 
+/* Put a failed bundle batch back on its context's pending set and say so in
+ * the terminal — shared by the vue and svelte bundle drive loops. */
+const requeueFailedBundleBatch = (
+	ctx: { pendingFiles: Set<string> },
+	filesSnapshot: string[],
+	framework: string,
+	error: unknown
+) => {
+	for (const file of filesSnapshot) {
+		ctx.pendingFiles.add(file);
+	}
+	console.error(
+		`[hmr] ${framework} bundle rebuild failed — will retry on the next change:`,
+		error instanceof Error ? error.message : error
+	);
+};
+
+/* `<Name>.<hash>.<ext>` → `<Name>`, preferring the artifact's own hash tag
+ * and falling back to a generic peel (chunks/non-entry outputs can carry a
+ * null hash). Mirrors core/build.ts's stripHash. */
+const stripArtifactHash = (fileBase: string, hash: string | null) => {
+	if (hash) {
+		const tag = `.${hash}.`;
+		const idx = fileBase.indexOf(tag);
+		if (idx > 0) return fileBase.slice(0, idx);
+	}
+	const match = fileBase.match(/^(.+)\.[a-z0-9]{8,}\.[^.]+$/i);
+
+	return match ? match[1] : null;
+};
+
+/* Mirror the full build's sibling-CSS pass (core/build.ts): copy each
+ * rebuilt Vue page's hashed CSS bundle next to its SSR JS as
+ * `<Page>.<jshash>.css` and register `<Page>Css` in the manifest — the Vue
+ * page handler and the `.spa.json` route entries resolve page/child CSS
+ * from that FS sibling. The dev bundle rebuild used to skip this, so a
+ * rebuilt SPA page's side manifest pointed at sibling CSS files that were
+ * never written. */
+const copyVueServerSiblingCss = async (
+	state: HMRState,
+	serverResult: Awaited<ReturnType<typeof import('bun').build>> | undefined,
+	cssResult: Awaited<ReturnType<typeof import('bun').build>> | undefined
+) => {
+	if (!serverResult?.success || !cssResult?.success) return;
+	const cssByName = new Map<string, string>();
+	for (const artifact of cssResult.outputs) {
+		if (!artifact.path.endsWith('.css')) continue;
+		const cssName = stripArtifactHash(
+			basename(artifact.path),
+			artifact.hash
+		);
+		if (cssName) cssByName.set(cssName, artifact.path);
+	}
+	if (cssByName.size === 0) return;
+	const { copyFile } = await import('node:fs/promises');
+	await Promise.all(
+		serverResult.outputs.map(async (artifact) => {
+			if (!artifact.path.endsWith('.js')) return;
+			const pascalName = stripArtifactHash(
+				basename(artifact.path),
+				artifact.hash
+			);
+			if (!pascalName) return;
+			const cssBundlePath = cssByName.get(
+				`${toKebab(pascalName)}-compiled`
+			);
+			if (!cssBundlePath) return;
+			const siblingCssPath = artifact.path.replace(/\.js$/, '.css');
+			await copyFile(cssBundlePath, siblingCssPath);
+			state.manifest[`${pascalName}Css`] = siblingCssPath;
+		})
+	);
+};
+
+/* Surface a soft-failed Bun.build (`throw: false`) — these used to be
+ * swallowed entirely, leaving the served bundles silently stale with no
+ * trace in the terminal. */
+const logBundleFailure = (
+	label: string,
+	result: Awaited<ReturnType<typeof import('bun').build>> | undefined
+) => {
+	if (!result || result.success) return;
+	const details = result.logs.map((entry) => String(entry)).join('\n  ');
+	console.error(
+		`[hmr] ${label} bundle rebuild failed — served bundles stay on their previous version:\n  ${details}`
+	);
+};
+
 const handleServerManifestUpdate = (
 	state: HMRState,
 	serverResult: Awaited<ReturnType<typeof import('bun').build>> | undefined
@@ -2603,6 +2703,8 @@ const runSvelteBundleRebuild = async (
 			: undefined
 	]);
 
+	logBundleFailure('svelte server', serverResult);
+	logBundleFailure('svelte client', clientResult);
 	handleServerManifestUpdate(state, serverResult);
 	await handleClientManifestUpdate(state, clientResult, buildDir);
 	await pruneStaleHashedSiblings(serverResult?.outputs);
@@ -2636,6 +2738,22 @@ const scheduleSvelteBundleRebuild = (
 	const ctx = getOrCreateBundleCtx(svelteBundleState, state);
 	for (const file of svelteFiles) ctx.pendingFiles.add(file);
 
+	// A failed rebuild (e.g. a syntax error saved mid-edit) must not eat its
+	// batch — requeue so the next scheduled drive retries these files
+	// alongside whatever changed since. Silently dropping them left the
+	// served bundles stale until the file was edited again.
+	const runBatch = async (filesSnapshot: string[]) => {
+		try {
+			await runSvelteBundleRebuild(state, filesSnapshot, config);
+
+			return true;
+		} catch (error) {
+			requeueFailedBundleBatch(ctx, filesSnapshot, 'svelte', error);
+
+			return false;
+		}
+	};
+
 	const drive = async (): Promise<void> => {
 		try {
 			while (true) {
@@ -2643,8 +2761,8 @@ const scheduleSvelteBundleRebuild = (
 				const filesSnapshot = Array.from(ctx.pendingFiles);
 				ctx.pendingFiles.clear();
 				if (filesSnapshot.length === 0) break;
-				await runSvelteBundleRebuild(state, filesSnapshot, config);
-				if (!ctx.pending) break;
+				const succeeded = await runBatch(filesSnapshot);
+				if (!succeeded || !ctx.pending) break;
 			}
 		} finally {
 			ctx.inFlight = null;
@@ -2940,13 +3058,18 @@ const runVueBundleRebuild = async (
 	const { build: bunBuild } = await import('bun');
 	const clientRoot = await computeClientRoot(state.resolvedPaths);
 
-	const { vueServerPaths, vueIndexPaths, vueClientPaths, vueCssPaths } =
-		await compileVue(
-			vueFiles,
-			vueDir,
-			true,
-			getStyleTransformConfig(state.config)
-		);
+	const {
+		vueServerPaths,
+		vueIndexPaths,
+		vueClientPaths,
+		vueCssPaths,
+		vueSpaRoutesBySource
+	} = await compileVue(
+		vueFiles,
+		vueDir,
+		true,
+		getStyleTransformConfig(state.config)
+	);
 
 	const serverEntries = [...vueServerPaths];
 	const clientEntries = [...vueIndexPaths, ...vueClientPaths];
@@ -3022,12 +3145,40 @@ const runVueBundleRebuild = async (
 			: undefined
 	]);
 
+	logBundleFailure('vue server', serverResult);
+	logBundleFailure('vue client', clientResult);
+	logBundleFailure('vue css', cssResult);
 	handleServerManifestUpdate(state, serverResult);
 	await handleClientManifestUpdate(state, clientResult, buildDir);
 	await handleClientManifestUpdate(state, cssResult, buildDir);
+	await copyVueServerSiblingCss(state, serverResult, cssResult);
 	await pruneStaleHashedSiblings(serverResult?.outputs);
 	await pruneStaleHashedSiblings(clientResult?.outputs);
 	await pruneStaleHashedSiblings(cssResult?.outputs);
+
+	// The rebuilt SPA pages' SSR bundles live under fresh hashes — rewrite
+	// each page's `.spa.json` beside the new bundle (the boot-time copy sits
+	// next to the OLD hashed name) and update the manifest pointer. Children
+	// outside this batch resolve through the live manifest. Then drop the
+	// runtime's side-manifest/CSS caches, which are never re-validated by
+	// design (prod artifacts are immutable) and would otherwise keep serving
+	// boot-time CSS in SSR until the process restarted.
+	if (vueSpaRoutesBySource.size > 0) {
+		const spaManifestEntries = await writeSpaSideManifests(
+			vueSpaRoutesBySource,
+			(pascalName) => {
+				const fromManifest = state.manifest[pascalName];
+
+				return typeof fromManifest === 'string' &&
+					isAbsolute(fromManifest) &&
+					fromManifest.endsWith('.js')
+					? fromManifest
+					: undefined;
+			}
+		);
+		Object.assign(state.manifest, spaManifestEntries);
+	}
+	clearSpaRouteCssCaches();
 
 	// Bandaid for Bun.build not chaining through input inline
 	// sourcemaps (docs/BUN_SOURCEMAP_CHAIN_BUG.md). The intermediate
@@ -3066,6 +3217,22 @@ const scheduleVueBundleRebuild = (
 	const ctx = getOrCreateBundleCtx(vueBundleState, state);
 	for (const file of vueFiles) ctx.pendingFiles.add(file);
 
+	// A failed rebuild (e.g. a syntax error saved mid-edit) must not eat its
+	// batch — requeue so the next scheduled drive retries these files
+	// alongside whatever changed since. Silently dropping them left the
+	// served bundles stale until the file was edited again.
+	const runBatch = async (filesSnapshot: string[]) => {
+		try {
+			await runVueBundleRebuild(state, filesSnapshot, config);
+
+			return true;
+		} catch (error) {
+			requeueFailedBundleBatch(ctx, filesSnapshot, 'vue', error);
+
+			return false;
+		}
+	};
+
 	const drive = async (): Promise<void> => {
 		try {
 			while (true) {
@@ -3073,8 +3240,8 @@ const scheduleVueBundleRebuild = (
 				const filesSnapshot = Array.from(ctx.pendingFiles);
 				ctx.pendingFiles.clear();
 				if (filesSnapshot.length === 0) break;
-				await runVueBundleRebuild(state, filesSnapshot, config);
-				if (!ctx.pending) break;
+				const succeeded = await runBatch(filesSnapshot);
+				if (!succeeded || !ctx.pending) break;
 			}
 		} finally {
 			ctx.inFlight = null;
@@ -4848,6 +5015,11 @@ const performFullRebuild = async (
 		manifest,
 		startTime
 	);
+
+	// Full rebuilds rewrite the SPA side manifests + child CSS on disk (via
+	// core/build), but the SSR runtime caches them in-process forever — drop
+	// them so the next request re-reads the fresh artifacts.
+	clearSpaRouteCssCaches();
 
 	onRebuildComplete({ hmrState: state, manifest });
 

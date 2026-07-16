@@ -27,6 +27,7 @@ import { transformStaticPagesWithIslands } from '../build/staticIslandPages';
 import { outputLogs } from '../build/outputLogs';
 import { scanEntryPoints } from '../build/scanEntryPoints';
 import { scanConventions } from '../build/scanConventions';
+import { writeSpaSideManifests } from '../build/spaSideManifests';
 import { scanRouteRegistrations } from '../build/scanRouteRegistrations';
 import { generateSitemap } from '../utils/generateSitemap';
 import type {
@@ -3020,45 +3021,16 @@ const buildUnlocked = async ({
 	// markup unstyled until the lazy chunk lands. See
 	// `utils/spaRouteCss.ts` for the runtime side.
 	const spaSideManifestPaths: string[] = [];
-	if (vueSpaRoutesBySource && vueSpaRoutesBySource.size > 0) {
-		await Promise.all(
-			[...vueSpaRoutesBySource.entries()].map(
-				async ([source, routes]) => {
-					const parentName = basename(source, '.vue');
-					const parentArtifact = serverJsByPascalName.get(parentName);
-					if (!parentArtifact) return;
-					const sourceDir = dirname(source);
-					const entries = routes.flatMap(({ path, importPath }) => {
-						const childSourcePath = resolve(sourceDir, importPath);
-						const childName = basename(childSourcePath, '.vue');
-						const childArtifact =
-							serverJsByPascalName.get(childName);
-						if (!childArtifact) return [];
-						const absoluteCssPath = childArtifact.path.replace(
-							/\.js$/,
-							'.css'
-						);
-						const cssPath = relative(
-							dirname(parentArtifact.path),
-							absoluteCssPath
-						);
-
-						return [{ cssPath, path }];
-					});
-					if (entries.length === 0) return;
-					const sideManifestPath = parentArtifact.path.replace(
-						/\.js$/,
-						'.spa.json'
-					);
-					await fsPromises.writeFile(
-						sideManifestPath,
-						JSON.stringify(entries)
-					);
-					spaSideManifestPaths.push(sideManifestPath);
-					manifest[`${parentName}SpaManifest`] = sideManifestPath;
-				}
-			)
-		);
+	const spaManifestEntries =
+		vueSpaRoutesBySource && vueSpaRoutesBySource.size > 0
+			? await writeSpaSideManifests(
+					vueSpaRoutesBySource,
+					(pascalName) => serverJsByPascalName.get(pascalName)?.path
+				)
+			: {};
+	for (const [key, sideManifestPath] of Object.entries(spaManifestEntries)) {
+		manifest[key] = sideManifestPath;
+		spaSideManifestPaths.push(sideManifestPath);
 	}
 
 	// Ember server bundles bypass the central serverOutputs pass — they're

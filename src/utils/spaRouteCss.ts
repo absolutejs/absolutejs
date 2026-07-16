@@ -95,6 +95,16 @@ const findMatchingRoute = (routes: SpaRouteEntry[], pathname: string) => {
 
 const childCssCache = new Map<string, string>();
 
+/** Drop every cached side manifest and child-CSS blob. The dev server calls
+ *  this after rebuilding Vue bundles — the caches are keyed by path and
+ *  never re-validated (correct in prod where artifacts are immutable), so
+ *  without this a scoped-style edit under an SPA route kept serving the
+ *  boot-time CSS in SSR until the process restarted. */
+export const clearSpaRouteCssCaches = () => {
+	sideManifestCache.clear();
+	childCssCache.clear();
+};
+
 const readChildCss = async (cssPath: string, sideManifestPath: string) => {
 	if (!cssPath) return '';
 	const resolvedCssPath = isAbsolute(cssPath)

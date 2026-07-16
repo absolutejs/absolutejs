@@ -2,6 +2,7 @@ import { Elysia } from 'elysia';
 import { scopedState } from 'elysia-scoped-state';
 import type * as AngularExamplePage from './angular/pages/angular-example';
 import type SvelteExample from './svelte/pages/SvelteExample.svelte';
+import type SpaShell from './vue/pages/SpaShell.vue';
 import type VueExample from './vue/pages/VueExample.vue';
 import { generateHeadElement } from '../src/utils/generateHeadElement';
 import { ReactExample } from './react/pages/ReactExample';
@@ -64,6 +65,40 @@ export const server = new Elysia()
 			indexPath: asset(manifest, 'VueExampleIndex'),
 			pagePath: asset(manifest, 'VueExample'),
 			props: { initialCount: 0 }
+		})
+	)
+	// SPA shell: one SSR entry serving every child route (the child's compiled
+	// CSS is inlined via the page's .spa.json side manifest — see
+	// utils/spaRouteCss.ts). `request` is forwarded so the handler can match
+	// the URL against the registered child routes.
+	.get('/spashell', ({ request }) =>
+		handleVuePageRequest<typeof SpaShell>({
+			headTag: generateHeadElement({
+				cssPath: [
+					asset(manifest, 'SpaShellCSS'),
+					asset(manifest, 'SpaShellCompiledCSS')
+				],
+				title: 'AbsoluteJS + Vue SPA'
+			}),
+			indexPath: asset(manifest, 'SpaShellIndex'),
+			pagePath: asset(manifest, 'SpaShell'),
+			props: {},
+			request
+		})
+	)
+	.get('/spashell/*', ({ request }) =>
+		handleVuePageRequest<typeof SpaShell>({
+			headTag: generateHeadElement({
+				cssPath: [
+					asset(manifest, 'SpaShellCSS'),
+					asset(manifest, 'SpaShellCompiledCSS')
+				],
+				title: 'AbsoluteJS + Vue SPA'
+			}),
+			indexPath: asset(manifest, 'SpaShellIndex'),
+			pagePath: asset(manifest, 'SpaShell'),
+			props: {},
+			request
 		})
 	)
 	.get('/angular', async () =>

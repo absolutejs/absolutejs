@@ -737,8 +737,45 @@ export const compileVue = async (
 	const buildCache = new Map<string, BuildResult>();
 	const allTsHelperPaths = new Set<string>();
 
+	// SPA entries lazily import sibling route pages (`component: () =>
+	// import('./Child.vue')`), and their compiled intermediates reference the
+	// children's intermediates (`./Child.js`) — so the children MUST compile
+	// in the same pass. Full builds get this for free (every page is an
+	// entry); the dev bundle rebuild passes only the changed subset, and
+	// without this expansion bundling the shell fails with "Could not
+	// resolve ./Child.js" and the served bundles silently stay stale.
+	const expandSpaRouteChildren = async (entries: string[]) => {
+		const expanded = new Set(entries.map((entry) => resolve(entry)));
+		const queue = [...expanded];
+		while (queue.length > 0) {
+			const entryPath = queue.pop();
+			if (!entryPath) continue;
+			let source: string;
+			try {
+				source = await file(entryPath).text();
+			} catch {
+				continue;
+			}
+			const { descriptor } = compiler.parse(source, {
+				filename: entryPath
+			});
+			const routes = parseVueSpaRoutes(descriptor.script?.content ?? '');
+			for (const { importPath } of routes) {
+				const childPath = resolve(dirname(entryPath), importPath);
+				if (expanded.has(childPath) || !existsSync(childPath)) {
+					continue;
+				}
+				expanded.add(childPath);
+				queue.push(childPath);
+			}
+		}
+
+		return [...expanded];
+	};
+	const expandedEntryPoints = await expandSpaRouteChildren(entryPoints);
+
 	const compiledPages = await Promise.all(
-		entryPoints.map(async (entryPath) => {
+		expandedEntryPoints.map(async (entryPath) => {
 			const resolvedEntryPath = resolve(entryPath);
 			const result = await compileVueFile(
 				resolvedEntryPath,
