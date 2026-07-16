@@ -1,15 +1,35 @@
-import { existsSync, readFileSync, rmSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { createHash } from 'node:crypto';
+import {
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	renameSync,
+	rmSync,
+	writeFileSync
+} from 'node:fs';
+import { dirname, resolve } from 'node:path';
 
 const DEFAULT_CACHE_LOCATION = '.absolutejs/eslint-cache';
+const CACHE_CONTRACT_VERSION = '1';
+const CACHE_FINGERPRINT_SUFFIX = '.fingerprint';
 
 /**
  * Override the cache file location via env var. Useful in monorepos /
  * CI to avoid cache collisions across packages, or to relocate the
  * cache off a slow filesystem.
  */
-const getCacheLocation = () =>
-	process.env.ABSOLUTE_ESLINT_CACHE?.trim() || DEFAULT_CACHE_LOCATION;
+const flagValue = (args: string[], flag: string) => {
+	const assignment = args.find((arg) => arg.startsWith(`${flag}=`));
+	if (assignment) return assignment.slice(flag.length + 1);
+	const index = args.indexOf(flag);
+
+	return index < 0 ? undefined : args[index + 1];
+};
+
+export const getCacheLocation = (args: string[]) =>
+	flagValue(args, '--cache-location')?.trim() ||
+	process.env.ABSOLUTE_ESLINT_CACHE?.trim() ||
+	DEFAULT_CACHE_LOCATION;
 
 /**
  * Flat-config files ESLint 9+ accepts. ESLint searches in this order
@@ -83,14 +103,146 @@ const hasUserPositional = (args: string[]) => {
 	return false;
 };
 
-const findConfigPath = () => {
-	const cwd = process.cwd();
+const findConfigPath = (cwd = process.cwd()) => {
 	for (const name of CONFIG_CANDIDATES) {
 		const candidate = resolve(cwd, name);
 		if (existsSync(candidate)) return candidate;
 	}
 
 	return null;
+};
+
+const fingerprintLocation = (cacheLocation: string, cwd: string) => {
+	const absolute = resolve(cwd, cacheLocation);
+
+	return /[\\/]$/.test(cacheLocation)
+		? resolve(absolute, CACHE_FINGERPRINT_SUFFIX.slice(1))
+		: `${absolute}${CACHE_FINGERPRINT_SUFFIX}`;
+};
+
+const addFileToFingerprint = (
+	hash: ReturnType<typeof createHash>,
+	path: string,
+	label: string
+) => {
+	if (!existsSync(path)) return;
+	hash.update(label);
+	hash.update('\0');
+	hash.update(readFileSync(path));
+	hash.update('\0');
+};
+
+const packageNameFor = (specifier: string) => {
+	if (specifier.startsWith('@'))
+		return specifier.split('/').slice(0, 2).join('/');
+	const [name = specifier] = specifier.split('/');
+
+	return name;
+};
+
+const configPackageNames = (configPath: string | null) => {
+	if (!configPath) return [];
+	const source = readFileSync(configPath, 'utf-8');
+	const names = new Set<string>();
+	for (const match of source.matchAll(
+		/(?:from\s+|import\s*(?:\(\s*)?|require\s*\(\s*)(['"])([^'".][^'"]*)\1/g
+	)) {
+		const [, , specifier] = match;
+		if (specifier) names.add(packageNameFor(specifier));
+	}
+
+	return [...names];
+};
+
+const manifestDependencyNames = (manifest: unknown) => {
+	if (manifest === null || typeof manifest !== 'object') return [];
+
+	return Object.entries(manifest).flatMap(([key, value]) => {
+		if (key !== 'dependencies' && key !== 'devDependencies') return [];
+		if (value === null || typeof value !== 'object' || Array.isArray(value))
+			return [];
+
+		return Object.keys(value);
+	});
+};
+
+const lintDependencyNames = (cwd: string, configPath: string | null) => {
+	const manifestPath = resolve(cwd, 'package.json');
+	if (!existsSync(manifestPath)) return configPackageNames(configPath);
+	try {
+		const manifest: unknown = JSON.parse(
+			readFileSync(manifestPath, 'utf-8')
+		);
+		const lintPackages = manifestDependencyNames(manifest).filter((name) =>
+			/eslint|typescript/.test(name)
+		);
+
+		return [
+			...new Set([...lintPackages, ...configPackageNames(configPath)])
+		];
+	} catch {
+		return configPackageNames(configPath);
+	}
+};
+
+const findInstalledManifest = (cwd: string, dependency: string) => {
+	let directory = cwd;
+	while (true) {
+		const candidate = resolve(
+			directory,
+			'node_modules',
+			dependency,
+			'package.json'
+		);
+		if (existsSync(candidate)) return candidate;
+		const parent = dirname(directory);
+		if (parent === directory) return null;
+		directory = parent;
+	}
+};
+
+export const createEslintCacheFingerprint = (cwd = process.cwd()) => {
+	const hash = createHash('sha256');
+	hash.update(`absolute-eslint-cache:${CACHE_CONTRACT_VERSION}\0`);
+	const configPath = findConfigPath(cwd);
+	if (configPath) addFileToFingerprint(hash, configPath, configPath);
+	for (const dependency of lintDependencyNames(cwd, configPath).sort()) {
+		const manifestPath = findInstalledManifest(cwd, dependency);
+		if (manifestPath) addFileToFingerprint(hash, manifestPath, dependency);
+	}
+
+	return hash.digest('hex');
+};
+
+const writeFingerprint = (path: string, fingerprint: string) => {
+	mkdirSync(dirname(path), { recursive: true });
+	const temporary = `${path}.${process.pid}.tmp`;
+	writeFileSync(temporary, `${fingerprint}\n`);
+	renameSync(temporary, path);
+};
+
+type EslintCacheOptions = {
+	cacheLocation: string;
+	cwd?: string;
+	fingerprint?: string;
+};
+
+export const prepareEslintCache = (options: EslintCacheOptions) => {
+	const cwd = options.cwd ?? process.cwd();
+	const cachePath = resolve(cwd, options.cacheLocation);
+	const metadataPath = fingerprintLocation(options.cacheLocation, cwd);
+	const fingerprint =
+		options.fingerprint ?? createEslintCacheFingerprint(cwd);
+	const prior = existsSync(metadataPath)
+		? readFileSync(metadataPath, 'utf-8').trim()
+		: null;
+	if (prior === fingerprint) return false;
+	rmSync(cachePath, { force: true, recursive: true });
+	if (metadataPath !== cachePath)
+		rmSync(metadataPath, { force: true, recursive: true });
+	writeFingerprint(metadataPath, fingerprint);
+
+	return true;
 };
 
 const hasKey = (objectLiteralSource: string, key: string) => {
@@ -265,9 +417,12 @@ const formatDuration = (ms: number) => {
 	return `${minutes}m ${seconds}s`;
 };
 
-const handleClearCache = (cacheLocation: string) => {
+const handleClearCache = (cacheLocation: string, cwd = process.cwd()) => {
 	try {
-		rmSync(cacheLocation, { force: true });
+		const cachePath = resolve(cwd, cacheLocation);
+		const metadataPath = fingerprintLocation(cacheLocation, cwd);
+		rmSync(cachePath, { force: true, recursive: true });
+		rmSync(metadataPath, { force: true, recursive: true });
 		console.log(`\x1b[32m✓\x1b[0m Cleared cache: ${cacheLocation}`);
 	} catch (err) {
 		console.error(
@@ -278,11 +433,40 @@ const handleClearCache = (cacheLocation: string) => {
 	}
 };
 
+export const buildEslintCommand = (args: string[], cacheLocation: string) => {
+	const cacheEnabled = !args.includes('--no-cache');
+	const hasCacheLocation = args.some(
+		(arg) =>
+			arg === '--cache-location' || arg.startsWith('--cache-location=')
+	);
+	const hasCacheStrategy = args.some(
+		(arg) =>
+			arg === '--cache-strategy' || arg.startsWith('--cache-strategy=')
+	);
+
+	return [
+		'bun',
+		'eslint',
+		...(cacheEnabled ? ['--cache'] : []),
+		...(cacheEnabled && !hasCacheLocation
+			? ['--cache-location', cacheLocation]
+			: []),
+		...(cacheEnabled && !hasCacheStrategy
+			? ['--cache-strategy', 'content']
+			: []),
+		...args,
+		...(hasUserPositional(args) ? [] : ['.'])
+	];
+};
+
 /**
  * Run ESLint with sensible absolutejs defaults.
  *
- * - Caching: enabled by default, cache file location overridable via
- *   the `ABSOLUTE_ESLINT_CACHE` env var (default: `.absolutejs/eslint-cache`).
+ * - Caching: enabled by default with ESLint's content strategy, so Git
+ *   operations that alter mtimes don't make unchanged files expensive.
+ *   Installed lint-tool or config changes invalidate the cache automatically.
+ *   The cache location is overridable via `ABSOLUTE_ESLINT_CACHE`
+ *   (default: `.absolutejs/eslint-cache`).
  * - Implicit lint target: `.` is appended only when the user hasn't
  *   supplied a positional path of their own. So `bun lint src/backend/`
  *   lints just that directory — not the whole repo plus `src/backend/`.
@@ -294,7 +478,7 @@ const handleClearCache = (cacheLocation: string) => {
  * spread through to the underlying `bun eslint` invocation.
  */
 export const eslint = async (args: string[]) => {
-	const cacheLocation = getCacheLocation();
+	const cacheLocation = getCacheLocation(args);
 
 	if (args.includes('--clear-cache')) {
 		handleClearCache(cacheLocation);
@@ -313,21 +497,16 @@ export const eslint = async (args: string[]) => {
 	}
 
 	checkForMisplacedIgnores();
-
-	const command = [
-		'bun',
-		'eslint',
-		'--cache',
-		'--cache-location',
-		cacheLocation,
-		...args,
-		...(hasUserPositional(args) ? [] : ['.'])
-	];
+	const cacheEnabled = !args.includes('--no-cache');
+	if (cacheEnabled) prepareEslintCache({ cacheLocation });
+	const command = buildEslintCommand(args, cacheLocation);
 
 	const dim = '\x1b[2m';
 	const reset = '\x1b[0m';
 	console.log(
-		`${dim}cache: ${cacheLocation} (subsequent runs only re-lint changed files)${reset}`
+		cacheEnabled
+			? `${dim}cache: ${cacheLocation} (content-aware; lint-tool changes invalidate automatically)${reset}`
+			: `${dim}cache: disabled${reset}`
 	);
 
 	const startedAt = Date.now();
