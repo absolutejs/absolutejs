@@ -47,6 +47,29 @@ export type BuildOptions = {
 	baseManifest?: Record<string, string>;
 };
 
+/* A single failed bundling pass in a dev/HMR build. In dev, one
+ * unresolvable reference (a bad CSS `@import`, a broken component
+ * import) must NOT abort the whole build — the pass that failed is
+ * recorded here and the build continues with a partial manifest so
+ * every other route keeps serving. Production builds still fail hard
+ * (they never populate this). */
+export type BuildPassError = {
+	/** Internal pass id, e.g. `global-css`, `non-react-client`. */
+	pass: string;
+	/** Human label used in logs/overlay, e.g. `Global CSS`. */
+	label: string;
+	/** Best-effort human-readable message (specifier + referrer when known). */
+	message: string;
+	/** Source file the failure was reported against, if Bun provided it. */
+	file?: string;
+	/** The unresolved import specifier / missing reference, if known. */
+	specifier?: string;
+	line?: number;
+	column?: number;
+	/** Raw Bun build logs for the failing pass (drives the error overlay). */
+	logs?: unknown[];
+};
+
 export type StylesConfig = {
 	path: string;
 	ignore?: string[];

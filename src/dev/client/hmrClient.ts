@@ -31,6 +31,42 @@ import {
 	handleRebuildError
 } from './handlers/rebuild';
 
+/* Lightweight "server disconnected" banner. When the dev server is
+ * genuinely down (process restarting or crashed) the browser would
+ * otherwise show its own blank "site can't be reached" page — this keeps
+ * a branded, self-explanatory notice on screen while the client polls
+ * `/hmr-status` and reloads on recovery. Kept separate from the compile
+ * error overlay so it never clobbers a build-error message. The
+ * `data-hmr-overlay` attribute exempts it from HMR DOM diffing. */
+const CONNECTION_LOST_BANNER_ID = 'absolutejs-connection-lost';
+const showConnectionLostBanner = () => {
+	if (typeof document === 'undefined' || !document.body) return;
+	if (document.getElementById(CONNECTION_LOST_BANNER_ID)) return;
+	const banner = document.createElement('div');
+	banner.id = CONNECTION_LOST_BANNER_ID;
+	banner.setAttribute('data-hmr-overlay', 'true');
+	banner.style.cssText = [
+		'position:fixed',
+		'left:0',
+		'right:0',
+		'bottom:0',
+		'z-index:2147483646',
+		'padding:10px 16px',
+		'font:600 13px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace',
+		'color:#fff',
+		'background:#b91c1c',
+		'text-align:center',
+		'box-shadow:0 -2px 12px rgba(0,0,0,0.3)'
+	].join(';');
+	banner.textContent = 'AbsoluteJS · dev server disconnected — reconnecting…';
+	document.body.appendChild(banner);
+};
+const hideConnectionLostBanner = () => {
+	if (typeof document === 'undefined') return;
+	const banner = document.getElementById(CONNECTION_LOST_BANNER_ID);
+	if (banner && banner.parentNode) banner.parentNode.removeChild(banner);
+};
+
 // Initialize HMR globals
 if (typeof window !== 'undefined') {
 	installAngularRemountGlobal();
@@ -262,6 +298,7 @@ if (!(window.__HMR_WS__ && window.__HMR_WS__.readyState === WebSocket.OPEN)) {
 
 	wsc.onopen = function () {
 		hmrState.isConnected = true;
+		hideConnectionLostBanner();
 		sessionStorage.setItem('__HMR_CONNECTED__', 'true');
 
 		const currentFramework = detectCurrentFramework();
@@ -304,6 +341,7 @@ if (!(window.__HMR_WS__ && window.__HMR_WS__.readyState === WebSocket.OPEN)) {
 		}
 
 		if (event.code !== WEBSOCKET_NORMAL_CLOSURE) {
+			showConnectionLostBanner();
 			let attempts = 0;
 			hmrState.reconnectTimeout = setTimeout(function pollServer() {
 				attempts++;

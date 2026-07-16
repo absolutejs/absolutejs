@@ -67,6 +67,35 @@ export const handleClientConnect = (
 			type: 'connected'
 		})
 	);
+
+	/* If the most recent build degraded on an unresolvable reference (a bad
+	 * CSS `@import`, a missing manifest key), the browser that just connected
+	 * missed the live `rebuild-error` broadcast — replay it so the overlay
+	 * names the offending file/reference instead of the page silently
+	 * rendering without its stylesheet/bundle. */
+	if (state.lastBuildErrors && state.lastBuildErrors.length > 0) {
+		const [first] = state.lastBuildErrors;
+		client.send(
+			JSON.stringify({
+				data: {
+					column: first?.column,
+					error: first?.message,
+					file: first?.file,
+					line: first?.line,
+					passErrors: state.lastBuildErrors.map((passError) => ({
+						file: passError.file,
+						label: passError.label,
+						line: passError.line,
+						message: passError.message,
+						specifier: passError.specifier
+					}))
+				},
+				message: 'Build completed with unresolved references',
+				timestamp: Date.now(),
+				type: 'rebuild-error'
+			})
+		);
+	}
 };
 export const handleClientDisconnect = (
 	state: HMRState,

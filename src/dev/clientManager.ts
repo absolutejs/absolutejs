@@ -5,7 +5,7 @@ import {
 	type ModuleVersions
 } from './moduleVersionTracker';
 import type { HMRWebSocket } from '../../types/websocket';
-import type { BuildConfig } from '../../types/build';
+import type { BuildConfig, BuildPassError } from '../../types/build';
 import { resolveBuildPaths, type ResolvedBuildPaths } from './configResolver';
 
 /* This handles the "tracking clients" problem */
@@ -44,6 +44,13 @@ export type HMRState = {
 	 * updates the directly-edited file's entry. Cleared once a
 	 * recovery build succeeds. */
 	initialBuildFailed?: boolean;
+	/* Bundling passes that failed in the most recent dev build. In dev a
+	 * single unresolvable reference degrades to a partial manifest rather
+	 * than aborting the build; the failures land here so a freshly
+	 * connecting browser (cold start) can be shown the same error overlay
+	 * that mid-session `rebuild-error` broadcasts produce. Cleared on the
+	 * next fully-successful rebuild. */
+	lastBuildErrors?: BuildPassError[];
 	/* Resolved paths of `.svelte` files the surgical fast path already
 	 * broadcast a `svelte-update` for in the current rebuild cycle.
 	 * Consumed by `handleSvelteHMR` to suppress the redundant

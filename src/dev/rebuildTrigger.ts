@@ -4702,6 +4702,56 @@ const performFullRebuild = async (
 
 	const duration = Date.now() - startTime;
 
+	/* Partial build: one or more passes failed on an unresolvable
+	 * reference, but the rest produced a usable manifest. Apply it (so the
+	 * routes that DID rebuild update, and the failed ones keep their
+	 * last-good entries carried over from `baseManifest`), then push the
+	 * error overlay instead of a success message and stop — the
+	 * framework-specific HMR swaps below assume a clean build. */
+	const partialErrors = buildResult.errors ?? [];
+	if (partialErrors.length > 0) {
+		state.lastBuildErrors = partialErrors;
+
+		await populateAssetStore(
+			state.assetStore,
+			manifest,
+			state.resolvedPaths.buildDir
+		);
+		void cleanStaleAssets(
+			state.assetStore,
+			manifest,
+			state.resolvedPaths.buildDir
+		);
+
+		const [first] = partialErrors;
+		broadcastToClients(state, {
+			data: {
+				affectedFrameworks,
+				column: first?.column,
+				error: first?.message,
+				file: first?.file,
+				line: first?.line,
+				manifest,
+				passErrors: partialErrors.map((passError) => ({
+					file: passError.file,
+					label: passError.label,
+					line: passError.line,
+					message: passError.message,
+					specifier: passError.specifier
+				}))
+			},
+			message: 'Rebuild completed with unresolved references',
+			type: 'rebuild-error'
+		});
+
+		onRebuildComplete({ hmrState: state, manifest });
+
+		return manifest;
+	}
+
+	// Fully clean build — clear any overlay a previous partial build left.
+	state.lastBuildErrors = undefined;
+
 	sendTelemetryEvent('hmr:rebuild-complete', {
 		durationMs: duration,
 		fileCount: filesToRebuild?.length ?? 0,
