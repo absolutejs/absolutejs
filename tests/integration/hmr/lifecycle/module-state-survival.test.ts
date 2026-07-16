@@ -52,13 +52,27 @@ describe('Module-level state on globalThis survives reload', () => {
 			)
 		);
 
-		// Wait for Path B reload to apply.
-		await Bun.sleep(3_500);
+		// Wait for Path B to apply — the reload broadcasts
+		// `server-entry-reloaded` once the new entry is live. A fixed
+		// sleep here flaked under load: a slow reload left the route
+		// unregistered and all three fetches 404'd.
+		await client.waitFor('server-entry-reloaded', 15_000);
 
-		// Hit the counter 3 times.
-		const r1 = await fetch(`${server.baseUrl}/test-counter`).then((r) =>
-			r.text()
-		);
+		// Route registration can trail the event by a beat — poll until
+		// the first successful hit (which is also increment #1, so the
+		// poll must consume it as r1 rather than retry past it).
+		let r1: string | null = null;
+		const routeDeadline = Date.now() + 10_000;
+		while (Date.now() < routeDeadline) {
+			const res = await fetch(`${server.baseUrl}/test-counter`);
+			if (res.ok) {
+				r1 = await res.text();
+				break;
+			}
+			await Bun.sleep(200);
+		}
+
+		// Hit the counter twice more.
 		const r2 = await fetch(`${server.baseUrl}/test-counter`).then((r) =>
 			r.text()
 		);
@@ -66,6 +80,7 @@ describe('Module-level state on globalThis survives reload', () => {
 			r.text()
 		);
 		expect([r1, r2, r3]).toEqual(['1', '2', '3']);
+		client.drain();
 
 		// Trigger another Path B reload via a harmless edit.
 		mutateFile(serverEntry, (c) =>
@@ -75,7 +90,17 @@ describe('Module-level state on globalThis survives reload', () => {
 				'.use(absolutejs).get("/test-noop", () => "noop")'
 			)
 		);
-		await Bun.sleep(3_500);
+		await client.waitFor('server-entry-reloaded', 15_000);
+
+		// Confirm the SECOND reload's routes are live by polling the
+		// new no-op route (the counter route already responds, so it
+		// can't distinguish old entry from new).
+		const noopDeadline = Date.now() + 10_000;
+		while (Date.now() < noopDeadline) {
+			const res = await fetch(`${server.baseUrl}/test-noop`);
+			if (res.ok) break;
+			await Bun.sleep(200);
+		}
 
 		// Counter should continue from 4, not reset to 1.
 		const r4 = await fetch(`${server.baseUrl}/test-counter`).then((r) =>

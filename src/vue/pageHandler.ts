@@ -192,6 +192,18 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 	const maybeProps = input.props;
 	const clientMode: 'auto' | 'none' = input.client ?? 'auto';
 	const resolvedIndexPath = input.indexPath;
+	if (clientMode === 'auto' && resolvedIndexPath === '') {
+		// Dev-mode `asset()` soft-returns '' for a manifest key that
+		// hasn't been built yet (or whose build failed). Throw the
+		// manifest-style error so the build-error-recovery plugin
+		// renders the styled error page — the config advice below
+		// would mislead a user whose actual problem is a build error.
+		// Production never reaches this branch: prod `asset()` throws
+		// this same error itself before the handler runs.
+		throw new Error(
+			`Asset "${derivePageName(resolvedPagePath)}Index" not found in manifest.`
+		);
+	}
 	if (clientMode === 'auto' && !resolvedIndexPath) {
 		throw new Error(
 			'handleVuePageRequest: `indexPath` is required when `client` is `"auto"` (the default). Pass `client: "none"` to ship a SSR-only page with no client bundle.'

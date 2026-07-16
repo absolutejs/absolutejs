@@ -32,6 +32,30 @@ const startAndConnect = async () => {
 	return server;
 };
 
+/* `server-entry-reloaded` fires when the new entry is live, but the
+ * route-table swap can trail it by a beat — a single immediate fetch
+ * races the OLD handler under load (the full battery flaked exactly
+ * here). Poll until the body reflects the edit, then let the caller
+ * run its assertions on the settled response. */
+const pollFragment = async (
+	url: string,
+	init: RequestInit | undefined,
+	matches: (body: string, status: number) => boolean
+) => {
+	const deadline = Date.now() + 10_000;
+	let body = '';
+	let status = 0;
+	while (Date.now() < deadline) {
+		const res = await fetch(url, init);
+		({ status } = res);
+		body = await res.text();
+		if (matches(body, status)) break;
+		await Bun.sleep(200);
+	}
+
+	return { body, status };
+};
+
 /* HTMX deeper coverage — pushes the matrix to Angular depth for
  * the HTMX adapter. HTMX is HTML-with-attributes plus Elysia route
  * handlers that respond with HTML fragments. The dev pipeline:
@@ -95,9 +119,12 @@ describe('HTMX deeper coverage', () => {
 			)
 		);
 		await client.waitFor('server-entry-reloaded', 15_000);
-		const res = await fetch(`${srv.baseUrl}/htmx/count`);
-		expect(res.status).toBe(200);
-		const body = await res.text();
+		const { body, status } = await pollFragment(
+			`${srv.baseUrl}/htmx/count`,
+			undefined,
+			(candidate) => candidate === 'HTMX_SWAP_FRAGMENT_OK'
+		);
+		expect(status).toBe(200);
 		expect(body).toBe('HTMX_SWAP_FRAGMENT_OK');
 	}, 60_000);
 
@@ -112,11 +139,12 @@ describe('HTMX deeper coverage', () => {
 			)
 		);
 		await client.waitFor('server-entry-reloaded', 15_000);
-		const res = await fetch(`${srv.baseUrl}/htmx/increment`, {
-			method: 'POST'
-		});
-		expect(res.status).toBe(200);
-		const body = await res.text();
+		const { body, status } = await pollFragment(
+			`${srv.baseUrl}/htmx/increment`,
+			{ method: 'POST' },
+			(candidate) => candidate.includes('OUTER_HTML_SWAP_OK')
+		);
+		expect(status).toBe(200);
 		expect(body).toContain('OUTER_HTML_SWAP_OK');
 		expect(body).toContain('data-outer-swap="true"');
 	}, 60_000);
@@ -132,7 +160,11 @@ describe('HTMX deeper coverage', () => {
 			)
 		);
 		await client.waitFor('server-entry-reloaded', 15_000);
-		const body = await (await fetch(`${srv.baseUrl}/htmx/count`)).text();
+		const { body } = await pollFragment(
+			`${srv.baseUrl}/htmx/count`,
+			undefined,
+			(candidate) => candidate.includes('OOB_SWAP_OK')
+		);
 		expect(body).toContain('hx-swap-oob="true"');
 		expect(body).toContain('OOB_SWAP_OK');
 	}, 60_000);

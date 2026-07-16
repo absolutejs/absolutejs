@@ -1571,6 +1571,22 @@ const hoistExportPastDecorators = (source: string) => {
  *  Inlines templateUrl → template and styleUrls → styles from disk.
  *  Recursively transpiles all local imports so Bun's bundler can resolve them.
  *  ~50-100ms for a tree of ~10 files vs ~500-700ms for AOT. */
+/* Matches the sentinel-bracketed providers block that `compileAngular`'s
+ * injection step appends to page server outputs. Non-global on purpose —
+ * a shared global regex is stateful across `exec` calls. */
+const PROVIDERS_INJECTION_BLOCK_RE =
+	/\n\/\* __ABS_PROVIDERS_INJECTION_START \*\/[\s\S]*?\/\* __ABS_PROVIDERS_INJECTION_END \*\/\n?/;
+
+const readPreservedInjection = async (targetPath: string) => {
+	try {
+		const existing = await fs.readFile(targetPath, 'utf-8');
+
+		return PROVIDERS_INJECTION_BLOCK_RE.exec(existing)?.[0] ?? '';
+	} catch {
+		return '';
+	}
+};
+
 export const compileAngularFileJIT = async (
 	inputPath: string,
 	outDir: string,
@@ -1875,8 +1891,22 @@ export const compileAngularFileJIT = async (
 			// open-issues for the path forward (switch the per-file
 			// transpile to a Bun.build pass so we get its native
 			// sourcemap output).
+			// Preserve a providers-injection block that the bundle pass
+			// appended to the previous output. The JIT transpile only
+			// sees the user's source, so a plain rewrite would strip
+			// `export const providers = [...]` from a page's server
+			// module — SSR then bootstraps without its DI graph until
+			// the next full compile. Every `compileAngular` pass strips
+			// and re-derives the block, so a carried-over copy is at
+			// most one debounced bundle rebuild behind.
+			const preservedInjection =
+				await readPreservedInjection(targetPath);
 			await fs.mkdir(targetDir, { recursive: true });
-			await fs.writeFile(targetPath, processedContent, 'utf-8');
+			await fs.writeFile(
+				targetPath,
+				processedContent + preservedInjection,
+				'utf-8'
+			);
 			jitContentCache.set(cacheKey, contentHash);
 		}
 
