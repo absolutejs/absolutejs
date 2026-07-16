@@ -381,6 +381,7 @@
 		"release:beta": "bun run test && bun run format && bun run build:native && bun run build && ./native/publish.sh --tag beta && bun publish --tag beta",
 		"start": "TELEMETRY_OFF=1 bun run src/cli/index.ts start example/server.ts --outdir example/dist --config example/absolute.config.ts",
 		"test": "bun test tests/unit && bun test --concurrency 1 tests/integration",
+		"test:hmr": "bun run scripts/shardedTests.ts tests/integration/hmr",
 		"typecheck": "bun run src/cli/index.ts typecheck --config example/absolute.config.ts"
 	},
 	"types": "./dist/src/index.d.ts",
