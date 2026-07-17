@@ -6,6 +6,7 @@ import { DEFAULT_PORT } from '../../constants';
 import { loadRawConfig } from '../../utils/loadConfig';
 import { scanListeners } from '../../utils/portScan';
 import { colors } from '../tuiPrimitives';
+import { typeGraphCoherence } from '../typeGraphCoherence';
 import { collectEnvVars } from './env';
 
 type CheckStatus = 'fail' | 'ok' | 'warn';
@@ -123,6 +124,39 @@ const portCheck = async (config: object) => {
 		: check('ok', 'Dev port', `${port} free`);
 };
 
+const typeGraphCheck = () => {
+	const report = typeGraphCoherence.inspectTypeGraph(process.cwd());
+	const duplicates = typeGraphCoherence.duplicateTypeGraphPackages(report);
+	if (report.unresolved.length > 0) {
+		return check(
+			'fail',
+			'Elysia type graph',
+			`unresolved: ${report.unresolved
+				.map((entry) => `${entry.consumer} → ${entry.packageName}`)
+				.join(', ')}`
+		);
+	}
+	if (duplicates.length > 0) {
+		return check(
+			'fail',
+			'Elysia type graph',
+			duplicates
+				.map(
+					(entry) =>
+						`${entry.name}: ${entry.paths.length} physical copies`
+				)
+				.join(', ')
+		);
+	}
+	const consumers = new Set(report.identities.map((entry) => entry.consumer));
+
+	return check(
+		'ok',
+		'Elysia type graph',
+		`${consumers.size} consumer${consumers.size === 1 ? '' : 's'} share one package identity`
+	);
+};
+
 const STATUS_MARK: Record<CheckStatus, string> = {
 	fail: `${colors.red}✗${colors.reset}`,
 	ok: `${colors.green}✓${colors.reset}`,
@@ -163,6 +197,7 @@ const gatherChecks = async () => {
 		checkBun(),
 		checkAbsolute(),
 		checkNative(),
+		typeGraphCheck(),
 		configCheck,
 		...(config === null ? [] : frameworkChecks(config)),
 		env,
@@ -213,6 +248,25 @@ const applyFixes = async () => {
 	const fixes = config ? fixFrameworkDirs(cwd, config) : [];
 	const envFix = await fixEnvExample(cwd);
 	if (envFix) fixes.push(envFix);
+	const report = typeGraphCoherence.inspectTypeGraph(cwd);
+	const graphFixes = typeGraphCoherence.alignTypeGraphOverrides(report);
+	const removedPackages =
+		typeGraphCoherence.removeDuplicateTypeGraphPackages(report);
+	if (graphFixes.length > 0 || removedPackages.length > 0) {
+		const install = Bun.spawnSync(['bun', 'install', '--force'], {
+			cwd: report.installRoot,
+			stderr: 'inherit',
+			stdout: 'inherit'
+		});
+		if (install.exitCode !== 0) {
+			throw new Error(
+				'bun install --force failed while repairing type graph'
+			);
+		}
+		fixes.push(
+			`aligned ${graphFixes.join(', ') || 'existing overrides'}, removed ${removedPackages.length} stale package cop${removedPackages.length === 1 ? 'y' : 'ies'}, and rebuilt bun.lock`
+		);
+	}
 
 	return fixes;
 };

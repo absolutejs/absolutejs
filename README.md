@@ -59,7 +59,7 @@ const manifest = await build({
 	htmlDirectory: 'example/html',
 	htmxDirectory: 'example/htmx',
 	reactDirectory: 'example/react',
-	svelteDirectory: 'example/svelte',
+	svelteDirectory: 'example/svelte'
 });
 
 if (!manifest) throw new Error('Manifest generation failed');
@@ -115,6 +115,32 @@ Absolute JS piggybacks on the [Elysia plugin API](https://elysiajs.com/plugins).
 | ---------------------- | ------------------------------------------------------------------------------------------------- |
 | **`absolute-auth`**    | Full OAuth2 flow configured with 66 providers and allows full customizability with event handlers |
 | **`networkingPlugin`** | Starts your Elysia server with HOST/PORT defaults from environment variables                      |
+
+### Elysia composition contract
+
+This contract is written for application authors and coding agents. It avoids
+the runaway TypeScript instantiation cost that can occur when one inferred
+Elysia application is repeatedly extended and re-aliased.
+
+- Start every independently owned route surface from a named `new Elysia(...)`.
+- Give each surface its shared context and plugins explicitly. Do not create
+  `adminApp` by extending `publicApp`, for example.
+- Prefer one shallow `.use([auth, metrics])` over a long sequence of `.use()`
+  calls. `absolute/elysia-composition-boundaries` enforces this and safely
+  auto-fixes comment-free chains.
+- Mount independent route surfaces at the platform root. Export each real
+  sub-application type for Eden consumers instead of exporting an accumulated
+  server alias.
+- Keep `elysia` and `@sinclair/typebox` on one physical installed identity
+  across the workspace. Run `absolute doctor`; `absolute doctor --fix` aligns
+  root overrides and rebuilds Bun's dependency graph when peer contexts drift.
+
+After a dependency change, measure a cold typecheck once. Warm incremental
+checks can hide an unhealthy graph:
+
+```bash
+/usr/bin/time -v bun run tsc --noEmit --incremental false
+```
 
 ---
 

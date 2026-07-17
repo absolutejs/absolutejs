@@ -195,7 +195,7 @@ if (command === 'dev') {
 		'  db <backup|restore|seed> Backup/restore any Postgres DB (ORM-agnostic, upsert by PK) or run the seed script'
 	);
 	console.error(
-		'  doctor [--fix] [--json] Diagnose the project (bun, config, framework dirs, env, port)'
+		'  doctor [--fix] [--json] Diagnose the project (bun, type graph, config, framework dirs, env, port)'
 	);
 	console.error(
 		'  env [--check] [--json] Report env vars the app reads (getEnv) and which are missing'
