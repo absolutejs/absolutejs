@@ -56,6 +56,7 @@ import {
 	patchRefreshGlobals,
 	rewriteReactImports
 } from '../build/rewriteReactImports';
+import { maskLiterals } from '../build/maskLiterals';
 import { sendTelemetryEvent } from '../cli/telemetryEvent';
 import {
 	getAngularServerVendorPaths,
@@ -214,6 +215,69 @@ const summarizeBuildFailure = (
 		message: detailLines.join('\n'),
 		specifier
 	};
+};
+
+// Bare React vendor specifiers that must never survive in a browser chunk —
+// the browser can't resolve them ("Failed to resolve module specifier
+// 'react/jsx-dev-runtime'") and the app never hydrates. Longest first so the
+// alternation matches `react-dom/client` before `react-dom` before `react`.
+const REACT_VENDOR_SPECIFIERS = [
+	'react-dom/client',
+	'react-refresh/runtime',
+	'react/jsx-dev-runtime',
+	'react/jsx-runtime',
+	'react-dom',
+	'react'
+];
+
+// Bare React vendor specifiers present in a single browser chunk's text, as
+// real imports (not text). Scans the MASKED source so specifiers appearing
+// inside strings/templates/comments (React's dev error messages, rendered code
+// samples) aren't mistaken for imports.
+const findBareReactImports = (path: string, importRegex: RegExp) => {
+	let content: string;
+	try {
+		content = readFileSync(path, 'utf-8');
+	} catch {
+		return [];
+	}
+	if (!content.includes('react')) return [];
+	const { masked } = maskLiterals(content);
+	const specs = [...masked.matchAll(importRegex)]
+		.map((match) => match[1])
+		.filter((spec): spec is string => Boolean(spec));
+
+	return [...new Set(specs)];
+};
+
+/* Production guardrail: after every client rewrite, verify no emitted BROWSER
+ * chunk still imports a bare React vendor specifier. A single un-vendored
+ * specifier in one split/shared chunk (e.g. from a mask-tokenizer desync)
+ * silently breaks hydration at runtime; failing the build makes that
+ * impossible to ship. Not run for HMR/dev builds — those serve modules through
+ * the dev server, not as static browser chunks. */
+const verifyBrowserImportsVendored = (outputPaths: string[]) => {
+	const alt = REACT_VENDOR_SPECIFIERS.map((spec) =>
+		spec.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+	).join('|');
+	const importRegex = new RegExp(
+		`(?:from|import|require)\\s*\\(?\\s*["'](${alt})["']`,
+		'g'
+	);
+	const seenPaths = new Set<string>();
+	const offenders: string[] = [];
+	for (const path of outputPaths) {
+		if (!path.endsWith('.js') || seenPaths.has(path)) continue;
+		seenPaths.add(path);
+		const specs = findBareReactImports(path, importRegex);
+		if (specs.length > 0) offenders.push(`${path} → ${specs.join(', ')}`);
+	}
+	if (offenders.length === 0) return;
+	throw new Error(
+		`Build emitted browser chunk(s) with un-vendored bare React ` +
+			`specifiers — these fail to resolve in the browser and break ` +
+			`hydration:\n${offenders.map((o) => `  • ${o}`).join('\n')}`
+	);
 };
 
 const buildPassError = (
@@ -2773,6 +2837,29 @@ const buildUnlocked = async ({
 		await tracePhase('postprocess/island-vendor-imports', () =>
 			rewriteBuildOutputs(islandClientOutputs, allIslandVendorPaths)
 		);
+	}
+
+	// Production guardrail: every browser chunk (app entries, shared/split
+	// chunks, and the React vendor files) must have its bare React specifiers
+	// vendored. Fail the build if any survive — a single un-vendored chunk
+	// silently breaks hydration. Skipped for HMR/dev builds (served via the
+	// dev module server, not as static chunks).
+	if (!hmr) {
+		const reactVendorDir = join(buildPath, 'react', 'vendor');
+		const vendorChunkPaths = existsSync(reactVendorDir)
+			? [
+					...new Glob('**/*.js').scanSync({
+						absolute: true,
+						cwd: reactVendorDir
+					})
+				]
+			: [];
+		verifyBrowserImportsVendored([
+			...reactClientOutputPaths,
+			...nonReactClientOutputPaths,
+			...islandClientOutputPaths,
+			...vendorChunkPaths
+		]);
 	}
 
 	// Server-side: rewrite bare @angular/* specifiers in SSR outputs to

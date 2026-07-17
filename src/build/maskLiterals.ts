@@ -87,15 +87,32 @@ export const maskLiterals = (src: string): MaskedSource => {
 
 		return j;
 	};
-	// src index just past `${` → index just past the matching `}`
+	// src index just past `${` → index just past the matching `}`.
+	// Tracks the previous significant token (ipChar/ipWord) so a `/` inside the
+	// interpolation is classified as a regex literal vs division. Without regex
+	// handling, a regex that contains a quote — e.g. `${s.replace(/'/g, x)}` —
+	// is misread as a string: `endOfString` runs past the interpolation, the
+	// `{`/`}` depth desyncs, and the enclosing template is mis-masked to (nearly)
+	// EOF, swallowing every real import after it (bare-specifier bug).
 	const endOfInterp = (start: number): number => {
 		let j = start;
 		let depth = 1;
+		let ipChar = '';
+		let ipWord = '';
+		let ipSpace = false;
 		while (j < n && depth > 0) {
-			const c = src[j];
+			const c = src[j] as string; // j < n guarantees a char
 			if (c === '\\') { j += 2; continue; }
-			if (c === '`') { j = endOfTemplate(j); continue; }
-			if (c === '"' || c === "'") { j = endOfString(j); continue; }
+			if (c === '`') {
+				j = endOfTemplate(j);
+				ipChar = ')'; ipWord = ''; ipSpace = false;
+				continue;
+			}
+			if (c === '"' || c === "'") {
+				j = endOfString(j);
+				ipChar = '"'; ipWord = ''; ipSpace = false;
+				continue;
+			}
 			if (c === '/' && src[j + 1] === '/') {
 				const nl = src.indexOf('\n', j);
 				j = nl < 0 ? n : nl;
@@ -106,9 +123,33 @@ export const maskLiterals = (src: string): MaskedSource => {
 				j = e < 0 ? n : e + 2;
 				continue;
 			}
+			if (
+				c === '/' &&
+				(ipChar === '' ||
+					REGEX_OK_AFTER_CHAR.has(ipChar) ||
+					REGEX_OK_AFTER_WORD.has(ipWord))
+			) {
+				const e = endOfRegex(j);
+				if (e > 0) {
+					j = e;
+					ipChar = ')'; ipWord = ''; ipSpace = false;
+					continue;
+				}
+			}
 			if (c === '{') depth++;
 			else if (c === '}') depth--;
 			j++;
+			if (c === ' ' || c === '\t' || c === '\r' || c === '\n') {
+				ipSpace = true;
+				continue;
+			}
+			if (isIdentChar(c)) {
+				ipWord = isIdentChar(ipChar) && !ipSpace ? ipWord + c : c;
+			} else {
+				ipWord = '';
+			}
+			ipChar = c;
+			ipSpace = false;
 		}
 
 		return j;

@@ -84,6 +84,29 @@ describe('rewriteReactImports — every real jsx-runtime import is vendored', ()
 		expect(out).toContain('"/react/vendor/react_jsx-runtime.js"');
 		expect(out).not.toContain('"react/jsx-runtime"');
 	});
+
+	// Regression (beta.1099–1106): a template-literal interpolation containing a
+	// regex with a quote inside — `${s.replace(/'/g, x)}` — desynced the mask
+	// tokenizer, so the enclosing template appeared to run to ~EOF and every
+	// import after it was masked and left bare. In the offending 6.5MB chunk
+	// this left 17 tail imports un-vendored. Imports after such a construct must
+	// still be rewritten.
+	test('import after a template with a regex-in-interpolation is vendored', async () => {
+		const bt = String.fromCharCode(96);
+		const src =
+			'const f = () => ' +
+			bt +
+			"() => { alert('${msg.replace(/'/g, \"\\\\'\")}'); }" +
+			bt +
+			';\nimport { jsxDEV as jsxDEV38 } from "react/jsx-dev-runtime";\nexport const z = 1;\n';
+		const out = await rewrite(src);
+		expect(out).toContain(
+			'from "/react/vendor/react_jsx-dev-runtime.js"'
+		);
+		expect(out).not.toContain('"react/jsx-dev-runtime"');
+		// the template body (with its regex/quotes) is preserved verbatim
+		expect(out).toContain("msg.replace(/'/g,");
+	});
 });
 
 describe('rewriteReactImports — never rewrites specifier TEXT (no false positives)', () => {

@@ -95,6 +95,28 @@ describe('import rewriter — does NOT touch non-code spans', () => {
 		const src = 'const re = /[\'"]/g;\nimport x from "react";';
 		expect(rw(src)).toBe('const re = /[\'"]/g;\nimport x from "/vendor/react.js";');
 	});
+
+	// Regression (beta.1099–1106): a regex containing a quote *inside a template
+	// interpolation* — `${s.replace(/'/g, x)}` — was misread as a string by the
+	// interpolation scanner, desyncing `{`/`}` depth so the template appeared to
+	// run to ~EOF and masked every import after it. In a 6.5MB chunk this left 17
+	// tail imports un-vendored. The template must be preserved and the later
+	// import still rewritten.
+	test('regex-with-quote inside a template interpolation does not swallow a later import', () => {
+		const src =
+			'const gen = ' +
+			BT +
+			"alert('${msg.replace(/'/g, \"x\")}')" +
+			BT +
+			';\nimport React from "react";';
+		expect(rw(src)).toBe(
+			'const gen = ' +
+				BT +
+				"alert('${msg.replace(/'/g, \"x\")}')" +
+				BT +
+				';\nimport React from "/vendor/react.js";'
+		);
+	});
 });
 
 describe('maskLiterals round-trip', () => {
