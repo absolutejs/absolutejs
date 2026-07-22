@@ -15,7 +15,15 @@ import {
 	writeFileSync
 } from 'node:fs';
 import { createRequire } from 'node:module';
-import { basename, dirname, extname, join, relative, resolve } from 'node:path';
+import {
+	basename,
+	dirname,
+	extname,
+	isAbsolute,
+	join,
+	relative,
+	resolve
+} from 'node:path';
 import type { BuildConfig } from '../../../types/build';
 import {
 	DEFAULT_HTTP_IDLE_TIMEOUT_SECONDS,
@@ -63,6 +71,40 @@ const collectFiles = (dir: string) => {
 	}
 
 	return result;
+};
+
+const INLINE_SOURCE_MAP_RE =
+	/sourceMappingURL=data:application\/json(?:;[^,]+)?;base64,([A-Za-z0-9+/=]+)\s*$/;
+
+const rebaseInlineSourceMap = (filePath: string) => {
+	const source = readFileSync(filePath, 'utf-8');
+	const match = source.match(INLINE_SOURCE_MAP_RE);
+	const encoded = match?.[1];
+	if (!encoded) return;
+
+	const map = JSON.parse(
+		Buffer.from(encoded, 'base64').toString('utf-8')
+	) as {
+		sourceRoot?: string;
+		sources?: string[];
+	};
+	if (!Array.isArray(map.sources)) return;
+
+	const sourceRoot = map.sourceRoot ?? '';
+	const bundleDirectory = dirname(filePath);
+	map.sources = map.sources.map((entry) => {
+		if (/^[A-Za-z][A-Za-z0-9+.-]*:/.test(entry)) return entry;
+		if (isAbsolute(entry)) return entry;
+		if (/^[A-Za-z][A-Za-z0-9+.-]*:/.test(sourceRoot)) {
+			return new URL(entry, sourceRoot).href;
+		}
+
+		return resolve(bundleDirectory, sourceRoot, entry);
+	});
+	delete map.sourceRoot;
+
+	const rebased = Buffer.from(JSON.stringify(map)).toString('base64');
+	writeFileSync(filePath, source.replace(encoded, rebased));
 };
 
 const SERVER_RUNTIME_ASSET_RE =
@@ -1511,6 +1553,10 @@ const compileUnlocked = async (
 		entrypoints: [resolve(serverEntry)],
 		external: resolveServerBundleExternals(buildConfig),
 		outdir: resolvedOutdir,
+		// The bundle is extracted to a content-addressed /tmp path at runtime.
+		// Keep its map inline so Bun can report original application source frames
+		// without a second extracted artifact or a deployment-side map lookup.
+		sourcemap: 'inline',
 		plugins: [
 			...(islandRegistryPlugin ? [islandRegistryPlugin] : []),
 			createStubPlugin({
@@ -1627,6 +1673,10 @@ const compileUnlocked = async (
 
 	copyFrameworkRuntimePackages(buildConfig, resolvedOutdir);
 	rewriteRuntimeModuleSpecifiers(resolvedOutdir);
+	// The standalone executable relocates this bundle into a generated /tmp
+	// directory. Make map sources absolute before embedding so runtime stacks
+	// keep their original project paths instead of resolving as /tmp/server.ts.
+	rebaseInlineSourceMap(outputPath);
 
 	// ── Step 4: Generate compile entrypoint ─────────────────────
 	const compileStart = performance.now();

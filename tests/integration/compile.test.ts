@@ -1174,6 +1174,14 @@ describe('compile executable integration', () => {
 
 		await assertCompileStressServer(baseUrl);
 
+		const stackResponse = await fetch(`${baseUrl}/api/error-stack`);
+		expect(stackResponse.status).toBe(200);
+		const stackPayload = (await stackResponse.json()) as { stack?: string };
+		expect(stackPayload.stack).toContain('COMPILE_STACK_PROBE');
+		expect(stackPayload.stack).toContain(join(fixtureRoot, 'server.ts'));
+		const originatingFrame = stackPayload.stack?.split('\n')[1];
+		expect(originatingFrame).not.toContain('absolutejs-compiled-runtime-');
+
 		const post = await fetch(`${baseUrl}/api/echo`, {
 			body: 'hello compile',
 			method: 'POST'

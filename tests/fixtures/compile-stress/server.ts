@@ -33,6 +33,9 @@ export const server = new Elysia()
 		message: query.message ?? 'runtime',
 		ok: true
 	}))
+	.get('/api/error-stack', () => ({
+		stack: new Error('COMPILE_STACK_PROBE').stack
+	}))
 	.get('/api/env', () => ({
 		moduleLoadSecret,
 		ok: true,
