@@ -1051,6 +1051,7 @@ const buildUnlocked = async ({
 	const sveltePagesPath = svelteDir && join(svelteDir, 'pages');
 	const vuePagesPath = vueDir && join(vueDir, 'pages');
 	const htmxPagesPath = htmxDir && join(htmxDir, 'pages');
+	const htmxScriptsPath = htmxDir && join(htmxDir, 'scripts');
 	const angularPagesPath = angularDir && join(angularDir, 'pages');
 	const emberPagesPath = emberDir && join(emberDir, 'pages');
 
@@ -1268,11 +1269,15 @@ const buildUnlocked = async ({
 					scanEntryPoints(reactIndexesPath, '*.tsx')
 				)
 			: [],
-		htmlScriptsPath
-			? tracePhase('scan/html-scripts', () =>
-					scanEntryPoints(htmlScriptsPath, '*.{js,ts}')
-				)
-			: [],
+		tracePhase('scan/html-htmx-scripts', async () => {
+			const entries = await Promise.all(
+				[htmlScriptsPath, htmxScriptsPath]
+					.filter((path): path is string => Boolean(path))
+					.map((path) => scanEntryPoints(path, '*.{js,ts}'))
+			);
+
+			return entries.flat();
+		}),
 		reactPagesPath
 			? tracePhase('scan/react-conventions', () =>
 					scanConventions(reactPagesPath, '*.tsx')
@@ -1465,7 +1470,9 @@ const buildUnlocked = async ({
 			: allReactEntries;
 
 	const htmlEntries =
-		isIncremental && htmlScriptsPath && !shouldIncludeHtmlAssets
+		isIncremental &&
+		(htmlScriptsPath || htmxScriptsPath) &&
+		!shouldIncludeHtmlAssets
 			? filterToIncrementalEntries(allHtmlEntries, (entry) => entry)
 			: allHtmlEntries;
 
