@@ -174,6 +174,7 @@ const EXTERNALS = [
 	'@angular/platform-server',
 	'@angular/ssr',
 	'zone.js',
+	'@tailwindcss/oxide',
 	'typescript',
 	'debug',
 	'sharp',

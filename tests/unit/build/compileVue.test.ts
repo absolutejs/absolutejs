@@ -9,6 +9,52 @@ const writeTempFile = async (path: string, content: string) => {
 };
 
 describe('compileVue', () => {
+	test('resolves inherited props from imported TypeScript interfaces', async () => {
+		const root = await mkdtemp(join(tmpdir(), 'absolutejs-compile-vue-'));
+		const pagePath = join(root, 'ImportedProps.vue');
+
+		try {
+			await Promise.all([
+				writeTempFile(
+					join(root, 'primitiveProps.ts'),
+					`export interface PrimitiveProps {
+	title: string;
+}`
+				),
+				writeTempFile(
+					join(root, 'pageProps.ts'),
+					`import type { PrimitiveProps } from './primitiveProps';
+
+export interface PageProps extends PrimitiveProps {
+	count?: number;
+}`
+				),
+				writeTempFile(
+					pagePath,
+					`<script setup lang="ts">
+import type { PageProps } from './pageProps';
+
+defineProps<PageProps>();
+</script>
+
+<template>
+  <h1>{{ title }}</h1>
+</template>`
+				)
+			]);
+
+			const result = await compileVue([pagePath], root, false);
+
+			expect(
+				result.vueIndexPaths.some((path) =>
+					path.endsWith('ImportedProps.js')
+				)
+			).toBe(true);
+		} finally {
+			await rm(root, { force: true, recursive: true });
+		}
+	});
+
 	test('adds streaming slot hydration pending handling to client bootstrap', async () => {
 		const root = await mkdtemp(join(tmpdir(), 'absolutejs-compile-vue-'));
 		const pagePath = join(root, 'StreamingPage.vue');

@@ -18,6 +18,7 @@ import type {
 } from '@vue/compiler-sfc';
 import { file, write, Transpiler } from 'bun';
 import { toKebab } from '../utils/stringModifiers';
+import { loadVueCompiler } from '../utils/vueCompiler';
 import { getFrameworkGeneratedDir } from '../utils/generatedDir';
 import { resolvePackageImport } from './resolvePackageImport';
 import { buildIslandMetadataExports } from '../islands/sourceMetadata';
@@ -717,7 +718,7 @@ export const compileVue = async (
 	stylePreprocessors?: StylePreprocessorConfig,
 	ssrOnlyEntries?: ReadonlySet<string>
 ) => {
-	const compiler: VueCompiler = await import('@vue/compiler-sfc');
+	const compiler: VueCompiler = await loadVueCompiler();
 
 	// Generated output lives at <projectRoot>/.absolutejs/generated/vue/.
 	// See `src/utils/generatedDir.ts` for rationale (keeps `src/` clean).

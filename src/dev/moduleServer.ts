@@ -5,6 +5,7 @@ import { resolvePackageImport } from '../build/resolvePackageImport';
 import { addAutoRouterSetupApp } from '../build/vueAutoRouterTransform';
 import { buildIslandMetadataExports } from '../islands/sourceMetadata';
 import { toKebab } from '../utils/stringModifiers';
+import { loadVueCompiler } from '../utils/vueCompiler';
 import {
 	compileStyleSource,
 	createSvelteStylePreprocessor
@@ -791,7 +792,7 @@ export const warmCompilers = async (frameworks: {
 }) => {
 	const [svelteModule, vueModule] = await Promise.all([
 		frameworks.svelte ? import('svelte/compiler') : undefined,
-		frameworks.vue ? import('@vue/compiler-sfc') : undefined
+		frameworks.vue ? loadVueCompiler() : undefined
 	]);
 	if (svelteModule) {
 		svelteCompiler = svelteModule;
@@ -1031,7 +1032,7 @@ const transformVueFile = async (
 	const raw = addAutoRouterSetupApp(rawSource);
 
 	if (!vueCompiler) {
-		vueCompiler = await import('@vue/compiler-sfc');
+		vueCompiler = await loadVueCompiler();
 	}
 
 	const fileName = basename(filePath, '.vue');

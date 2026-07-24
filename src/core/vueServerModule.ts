@@ -3,6 +3,7 @@ import { mkdir } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
 import { Transpiler } from 'bun';
 import { BASE_36_RADIX } from '../constants';
+import { loadVueCompiler } from '../utils/vueCompiler';
 
 const ISLAND_COMPONENT_ID_LENGTH = 8;
 
@@ -90,7 +91,7 @@ export const compileVueServerModule = async (sourcePath: string) => {
 	const cachedModulePath = compiledModuleCache.get(sourcePath);
 	if (cachedModulePath) return cachedModulePath;
 
-	const compiler = await import('@vue/compiler-sfc');
+	const compiler = await loadVueCompiler();
 	const source = await Bun.file(sourcePath).text();
 	const { descriptor } = compiler.parse(source, { filename: sourcePath });
 	const componentId = Bun.hash(sourcePath)
