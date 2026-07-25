@@ -91,7 +91,9 @@ const isSkippedFile = (file: string) =>
 	file.includes('node_modules') ||
 	file.includes('/build/') ||
 	file.includes('/dist/') ||
-	file.includes('/indexes/');
+	file.includes('/indexes/') ||
+	file.includes('/__tests__/') ||
+	/\.(?:test|spec)\.[cm]?[jt]sx?$/.test(file);
 
 const isDepSpecifier = (path: string) =>
 	isBareSpecifier(path) &&

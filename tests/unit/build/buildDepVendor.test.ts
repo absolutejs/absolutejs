@@ -36,6 +36,29 @@ const makeFakePkg = (
 };
 
 describe('computeDepVendorPaths', () => {
+	test('does not vendor dependencies imported only by test files', async () => {
+		const dir = mkdtempSync(join(tmpdir(), 'absolute-dep-vendor-'));
+		tempDirs.push(dir);
+		writeFileSync(
+			join(dir, 'entry.ts'),
+			`import { createStore } from 'zustand/vanilla'; void createStore;`
+		);
+		writeFileSync(
+			join(dir, 'entry.test.tsx'),
+			`import { format } from 'prettier'; void format;`
+		);
+		mkdirSync(join(dir, '__tests__'));
+		writeFileSync(
+			join(dir, '__tests__', 'fixture.ts'),
+			`import { format } from 'prettier'; void format;`
+		);
+
+		const paths = await computeDepVendorPaths([dir]);
+
+		expect(paths['zustand/vanilla']).toBe('/vendor/zustand_vanilla.js');
+		expect(paths.prettier).toBeUndefined();
+	});
+
 	test('does not vendor AbsoluteJS package entrypoints', async () => {
 		const dir = mkdtempSync(join(tmpdir(), 'absolute-dep-vendor-'));
 		tempDirs.push(dir);
