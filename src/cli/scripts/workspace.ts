@@ -171,6 +171,16 @@ const isCommandService = (
 const isAbsoluteService = (service: ServiceConfig) =>
 	!isCommandService(service);
 
+export const resolveWorkspaceServicePort = (
+	service: ServiceConfig,
+	env: Record<string, string>
+) => {
+	const configuredPort = (service.port ?? Number(env.PORT ?? '')) || 0;
+	if (configuredPort > 0) return configuredPort;
+
+	return isAbsoluteService(service) ? DEFAULT_PORT : 0;
+};
+
 const getVisibility = (service: ServiceConfig) =>
 	service.visibility ?? 'public';
 
@@ -1086,9 +1096,10 @@ export const workspace = async (
 			throw new Error(`services is missing "${name}"`);
 		}
 		const resolved = resolveService(name, service, workspaceEnv, options);
-		const port =
-			(resolved.service.port ?? Number(resolved.env.PORT ?? '')) ||
-			DEFAULT_PORT;
+		const port = resolveWorkspaceServicePort(
+			resolved.service,
+			resolved.env
+		);
 		killStaleServicePort(port);
 
 		if (
