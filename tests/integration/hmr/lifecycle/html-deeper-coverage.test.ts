@@ -128,7 +128,8 @@ describe('HTML deeper coverage', () => {
 		// — the parent CLI is what would respawn. Inside the
 		// child we just verify the marker fires and no 5xx
 		// happens.
-		await server!.waitForOutput(
+		if (!server) throw new Error('server missing');
+		await server.waitForOutput(
 			/\[abs:restart\]|hmr update.*NewHtmlSentinel\.html/,
 			{ timeoutMs: 30_000 }
 		);
@@ -157,9 +158,9 @@ describe('HTML deeper coverage', () => {
 		if (!client) throw new Error('client missing');
 
 		const manifestMsg = await Promise.race([
-			new Promise<{ manifest?: Record<string, string> }>((res) => {
+			new Promise<{ manifest?: Record<string, string> }>((_resolve) => {
 				// Already consumed by setup — pull from initial state.
-				setTimeout(() => res({}), 50);
+				setTimeout(() => _resolve({}), 50);
 			})
 		]);
 		// We didn't capture the initial manifest, so re-derive
@@ -199,8 +200,11 @@ describe('HTML deeper coverage', () => {
 			/href="(\/indexes\/html-example\.[^"]+\.css)"/
 		);
 		expect(cssAfter?.[1]).toBeTruthy();
+		const cssPath = cssAfter?.[1];
+		if (!cssPath)
+			throw new Error('HTML response did not include a CSS URL');
 		// Fetch the CSS to confirm it's still served (no 404).
-		const cssRes = await fetch(`${srv.baseUrl}${cssAfter![1]}`);
+		const cssRes = await fetch(`${srv.baseUrl}${cssPath}`);
 		expect(cssRes.status).toBe(200);
 	}, 60_000);
 

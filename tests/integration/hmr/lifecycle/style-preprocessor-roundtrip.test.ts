@@ -99,7 +99,9 @@ describe('Style preprocessor round-trip', () => {
 			/href="([^"]*vue-example-compiled\.[^"]*\.css)"/
 		);
 		expect(cssMatch?.[1]).toBeTruthy();
-		const css = await (await fetch(`${srv.baseUrl}${cssMatch![1]}`)).text();
+		const cssPath = cssMatch?.[1];
+		if (!cssPath) throw new Error('Page did not include the Less CSS URL');
+		const css = await (await fetch(`${srv.baseUrl}${cssPath}`)).text();
 		// Less variable `@accent` → `#cb55ee`.
 		expect(css).toContain('#cb55ee');
 		expect(css).toContain('99px');
@@ -121,7 +123,10 @@ describe('Style preprocessor round-trip', () => {
 			/href="([^"]*vue-example-compiled\.[^"]*\.css)"/
 		);
 		expect(cssMatch?.[1]).toBeTruthy();
-		const css = await (await fetch(`${srv.baseUrl}${cssMatch![1]}`)).text();
+		const cssPath = cssMatch?.[1];
+		if (!cssPath)
+			throw new Error('Page did not include the Stylus CSS URL');
+		const css = await (await fetch(`${srv.baseUrl}${cssPath}`)).text();
 		expect(css).toContain('#78aacc');
 		expect(css).toContain('77px');
 	}, 60_000);

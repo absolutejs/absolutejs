@@ -234,7 +234,8 @@ const startCompiledServer = async (
 		throw new Error(
 			`Compiled server did not start: ${
 				error instanceof Error ? error.message : String(error)
-			}\nstdout:\n${stdoutChunks.join('')}\nstderr:\n${stderrChunks.join('')}`
+			}\nstdout:\n${stdoutChunks.join('')}\nstderr:\n${stderrChunks.join('')}`,
+			{ cause: error }
 		);
 	}
 
@@ -282,7 +283,8 @@ const startProductionServer = async (
 		throw new Error(
 			`Production server did not start: ${
 				error instanceof Error ? error.message : String(error)
-			}\n${stdout}\n${stderr}`
+			}\n${stdout}\n${stderr}`,
+			{ cause: error }
 		);
 	}
 
@@ -1468,7 +1470,8 @@ CMD ["/app/compiled-server"]
 			throw new Error(
 				`Docker compiled server did not start: ${
 					error instanceof Error ? error.message : String(error)
-				}\n${logs.stdout}\n${logs.stderr}`
+				}\n${logs.stdout}\n${logs.stderr}`,
+				{ cause: error }
 			);
 		}
 

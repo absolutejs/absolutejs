@@ -29,6 +29,14 @@ const stripWindow = () => {
 	delete (globalThis as { window?: unknown }).window;
 };
 
+type FakeWindow = {
+	history: {
+		pushState: (state: unknown, title: string, url: string) => void;
+		replaceState: (state: unknown, title: string, url: string) => void;
+	};
+	location: { href: string };
+};
+
 const installFakeWindow = () => {
 	const calls: Array<{
 		method: 'pushState' | 'replaceState';
@@ -36,7 +44,7 @@ const installFakeWindow = () => {
 		title: string;
 		url: string;
 	}> = [];
-	const fake = {
+	const fake: FakeWindow = {
 		history: {
 			pushState: (state: unknown, title: string, url: string) => {
 				calls.push({ method: 'pushState', state, title, url });
@@ -86,12 +94,8 @@ describe('pushState — with window', () => {
 	});
 
 	test('pushState resolves a relative URL against window.location.href', () => {
-		installFakeWindow();
-		(
-			globalThis as {
-				window?: { location: { href: string } };
-			}
-		).window!.location.href = 'http://example.test/section/inner';
+		const { fake } = installFakeWindow();
+		fake.location.href = 'http://example.test/section/inner';
 		pushState('sibling', null);
 		expect(page.url.href).toBe('http://example.test/section/sibling');
 	});

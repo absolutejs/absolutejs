@@ -58,7 +58,10 @@ describe('Scoped style block edits propagate to SSR', () => {
 			/href="([^"]*vue-example-compiled\.[^"]*\.css)"/
 		);
 		expect(match?.[1]).toBeTruthy();
-		const css = await (await fetch(`${server.baseUrl}${match![1]}`)).text();
+		const cssPath = match?.[1];
+		if (!cssPath)
+			throw new Error('Page did not include the scoped CSS URL');
+		const css = await (await fetch(`${server.baseUrl}${cssPath}`)).text();
 		expect(css).toContain('#ff0aee');
 
 		// The rebuild wrote the page CSS under a fresh hash — the previous

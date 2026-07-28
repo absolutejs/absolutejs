@@ -96,22 +96,26 @@ const analyzeFile = async (filePath: string): Promise<SpaHost | null> => {
 	return { baseHref, routes: joinedRoutes, sourceFile: filePath };
 };
 
-const walkSvelteFiles = async (dir: string, out: string[]) => {
+const walkSvelteFiles = async (dir: string, files: string[]) => {
 	let items: import('node:fs').Dirent[];
 	try {
 		items = await fs.readdir(dir, { withFileTypes: true });
 	} catch {
 		return;
 	}
+	const directories: string[] = [];
 	for (const item of items) {
 		if (item.name === 'node_modules' || item.name.startsWith('.')) continue;
 		const full = join(dir, item.name);
 		if (item.isDirectory()) {
-			await walkSvelteFiles(full, out);
+			directories.push(full);
 		} else if (item.isFile() && item.name.endsWith('.svelte')) {
-			out.push(full);
+			files.push(full);
 		}
 	}
+	await Promise.all(
+		directories.map((directory) => walkSvelteFiles(directory, files))
+	);
 };
 
 /** Statically scan a Svelte page-source directory for SPA hosts —

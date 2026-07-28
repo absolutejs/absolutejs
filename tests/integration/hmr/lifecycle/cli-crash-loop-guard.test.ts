@@ -30,14 +30,8 @@ afterEach(async () => {
  * prints a single explanatory message and exits with code 1,
  * leaving the user's terminal scrollable to find the original error.
  *
- * Note on crash triggering: `bun --hot` keeps the child process
- * alive even when the entry throws at top-level or has a syntax
- * error — it stays running waiting for file changes. So in
- * practice the crash-loop guard fires for *hard* exit modes (port
- * bind failure, explicit `process.exit(N)`, panics that bun can't
- * recover from). This test uses `process.exit(7)` injected at the
- * top of `server.ts` to deterministically simulate a hard crash on
- * every spawn. */
+ * This test uses `process.exit(7)` injected at the top of `server.ts`
+ * to deterministically simulate a hard crash on every spawn. */
 describe('CLI crash-loop guard refuses to restart after N rapid crashes', () => {
 	test('broken server.ts → CLI respawns until the 10s window guard fires, prints `refusing to restart`, exits', async () => {
 		// Pre-break server.ts to a hard exit. The bun child
@@ -97,18 +91,18 @@ describe('CLI crash-loop guard refuses to restart after N rapid crashes', () => 
 		void drainStream(proc.stderr as ReadableStream<Uint8Array> | null);
 
 		// Wait for the CLI to give up. Allow up to 60s — the
-		// guard wants 6 crashes in any 10s window; bun --hot's
-		// boot + the CLI's spawn machinery means each cycle is
+		// guard wants 6 crashes in any 10s window; Bun's boot +
+		// the CLI's spawn machinery means each cycle is
 		// ~1-3s, so 6 cycles can stretch close to 18s before
 		// the guard fires. Plus the CLI's cleanup. 60s is
 		// generous; the test usually finishes in 15-25s.
-		let exitCode: number | string = 'TIMEOUT';
+		let exitCode: number;
 		try {
 			exitCode = await Promise.race([
 				proc.exited,
-				new Promise<number>((_, rej) =>
+				new Promise<number>((_resolve, reject) =>
 					setTimeout(
-						() => rej(new Error('CLI did not exit in 60s')),
+						() => reject(new Error('CLI did not exit in 60s')),
 						60_000
 					)
 				)

@@ -1,6 +1,6 @@
 import type { HMRState } from './clientManager';
 import { serializeModuleVersions } from './moduleVersionTracker';
-import { type HMRWebSocket, WS_READY_STATE_OPEN } from '../../types/websocket';
+import type { HMRWebSocket } from '../../types/websocket';
 import type { HMRClientMessage } from '../../types/messages';
 import { isValidHMRClientMessage } from '../../types/typeGuards';
 import { logHmrUpdate, logInfo } from '../utils/logger';

@@ -44,9 +44,9 @@ const installAngularHmrShim = () => {
 			const set = listeners.get(event);
 			if (!set) return;
 			// Snapshot before iterating — handlers could remove themselves.
-			for (const cb of [...set]) {
+			for (const callback of [...set]) {
 				try {
-					cb(data);
+					callback(data);
 				} catch (err) {
 					console.error(
 						'[absolutejs] angular HMR listener threw',
@@ -55,16 +55,16 @@ const installAngularHmrShim = () => {
 				}
 			}
 		},
-		off(event, cb) {
-			listeners.get(event)?.delete(cb);
+		off(event, callback) {
+			listeners.get(event)?.delete(callback);
 		},
-		on(event, cb) {
+		on(event, callback) {
 			let set = listeners.get(event);
 			if (!set) {
 				set = new Set();
 				listeners.set(event, set);
 			}
-			set.add(cb);
+			set.add(callback);
 		}
 	};
 

@@ -53,12 +53,11 @@ const resolveRequestPathname = (request: Request | undefined) => {
 // stops reading `globalThis.Element` to decide whether to clear the
 // target's innerHTML. Upstream fix needed in emberjs/ember.js.
 const installSimpleDomGlobals = () => {
-	const g = globalThis as { Element?: unknown; Node?: unknown };
-	if (typeof g.Element === 'undefined') {
-		g.Element = class Element {};
+	if (typeof globalThis.Element === 'undefined') {
+		Reflect.set(globalThis, 'Element', class Element {});
 	}
-	if (typeof g.Node === 'undefined') {
-		g.Node = class Node {};
+	if (typeof globalThis.Node === 'undefined') {
+		Reflect.set(globalThis, 'Node', class Node {});
 	}
 };
 
@@ -125,9 +124,9 @@ export const handleEmberPageRequest = async (input: EmberPageRequestInput) => {
 
 	try {
 		installSimpleDomGlobals();
-		const bundle = (await import(
+		const bundle: EmberServerBundle = await import(
 			buildRuntimeModuleSpecifier(pagePath)
-		)) as EmberServerBundle;
+		);
 		if (typeof bundle.renderToHTML !== 'function') {
 			throw new Error(
 				`Ember page bundle at ${pagePath} does not export renderToHTML(). ` +

@@ -5,6 +5,11 @@ declare global {
 	var __absoluteVersion: string | undefined;
 	var __hmrServerMtime: number | undefined;
 	var __hmrSkipServerRestart: boolean | undefined;
+	/** Whether the dev-only server-entry watcher has installed its filesystem
+	 * watchers and can observe entry/configuration edits. */
+	var __absoluteEntryWatcherReady: boolean | undefined;
+	var __absoluteEntryCopies: Set<string> | undefined;
+	var __absoluteEntryWatcherStarted: boolean | undefined;
 	/** Pinned React module from initial devBuild — used to detect and bridge
 	 *  duplicate React instances after bun install invalidates the module cache. */
 	var __reactModuleRef: unknown;

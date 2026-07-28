@@ -1,8 +1,12 @@
 import { Elysia } from 'elysia';
 import type * as BenchPage from './angular/pages/bench';
-import { asset, generateHeadElement, prepare } from '@absolutejs/absolute';
+import {
+	asset,
+	generateHeadElement,
+	networking,
+	prepare
+} from '@absolutejs/absolute';
 import { handleAngularPageRequest } from '@absolutejs/absolute/angular/server';
-import { networking } from '@absolutejs/absolute';
 
 const { absolutejs, manifest } = await prepare();
 

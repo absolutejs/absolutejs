@@ -1,14 +1,7 @@
-type StartViewTransition = (callback: () => void | Promise<void>) => {
-	finished: Promise<void>;
-};
-
 const supportsViewTransitions = () => {
 	if (typeof document === 'undefined') return false;
 
-	return (
-		typeof (document as { startViewTransition?: StartViewTransition })
-			.startViewTransition === 'function'
-	);
+	return typeof Reflect.get(document, 'startViewTransition') === 'function';
 };
 
 /**
@@ -28,8 +21,25 @@ export const withViewTransition = async (
 	// Call as a method on `document` (NOT as an extracted bare function) —
 	// `document.startViewTransition` requires `this === document` or it
 	// throws "Illegal invocation".
-	const doc = document as Document & {
-		startViewTransition: StartViewTransition;
-	};
-	await doc.startViewTransition(() => mutate()).finished;
+	const startViewTransition: unknown = Reflect.get(
+		document,
+		'startViewTransition'
+	);
+	if (typeof startViewTransition !== 'function') {
+		await mutate();
+
+		return;
+	}
+	const transitionResult: unknown = Reflect.apply(
+		startViewTransition,
+		document,
+		[() => mutate()]
+	);
+	if (
+		typeof transitionResult === 'object' &&
+		transitionResult !== null &&
+		'finished' in transitionResult
+	) {
+		await transitionResult.finished;
+	}
 };

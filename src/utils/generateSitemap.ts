@@ -71,7 +71,7 @@ const SITEMAP_STRING_FIELD_PATTERN =
 const SITEMAP_NUMBER_FIELD_PATTERN = /\bpriority\s*:\s*([+-]?\d+(?:\.\d+)?)/g;
 const SITEMAP_BOOLEAN_FIELD_PATTERN = /\b(exclude)\s*:\s*(true|false)\b/g;
 
-const VALID_CHANGEFREQ = new Set<ChangeFrequency>([
+const VALID_CHANGEFREQ: ReadonlySet<string> = new Set<ChangeFrequency>([
 	'always',
 	'hourly',
 	'daily',
@@ -80,39 +80,40 @@ const VALID_CHANGEFREQ = new Set<ChangeFrequency>([
 	'yearly',
 	'never'
 ]);
+const isChangeFrequency = (value: string): value is ChangeFrequency =>
+	VALID_CHANGEFREQ.has(value);
 
 const extractSitemapMetadataFromHandlerSource = (source: string) => {
 	const block = SITEMAP_BLOCK_PATTERN.exec(source);
 	if (!block) return undefined;
-	const body = block[1];
+	const [, body] = block;
 	if (typeof body !== 'string') return undefined;
 
 	const out: SitemapRouteOverride = {};
 
 	SITEMAP_STRING_FIELD_PATTERN.lastIndex = 0;
-	let m;
-	while ((m = SITEMAP_STRING_FIELD_PATTERN.exec(body)) !== null) {
-		const key = m[1];
-		const value = m[2];
-		if (
-			key === 'changefreq' &&
-			VALID_CHANGEFREQ.has(value as ChangeFrequency)
-		) {
-			out.changefreq = value as ChangeFrequency;
+	let match: RegExpExecArray | null;
+	while ((match = SITEMAP_STRING_FIELD_PATTERN.exec(body)) !== null) {
+		const [, key, value] = match;
+		if (key === 'changefreq' && value && isChangeFrequency(value)) {
+			out.changefreq = value;
 		} else if (key === 'lastmod') {
 			out.lastmod = value;
 		}
 	}
 
 	SITEMAP_NUMBER_FIELD_PATTERN.lastIndex = 0;
-	while ((m = SITEMAP_NUMBER_FIELD_PATTERN.exec(body)) !== null) {
-		const num = parseFloat(m[1]!);
+	while ((match = SITEMAP_NUMBER_FIELD_PATTERN.exec(body)) !== null) {
+		const [, rawPriority] = match;
+		if (!rawPriority) continue;
+		const num = parseFloat(rawPriority);
 		if (!Number.isNaN(num)) out.priority = num;
 	}
 
 	SITEMAP_BOOLEAN_FIELD_PATTERN.lastIndex = 0;
-	while ((m = SITEMAP_BOOLEAN_FIELD_PATTERN.exec(body)) !== null) {
-		if (m[1] === 'exclude') out.exclude = m[2] === 'true';
+	while ((match = SITEMAP_BOOLEAN_FIELD_PATTERN.exec(body)) !== null) {
+		const [, key, value] = match;
+		if (key === 'exclude') out.exclude = value === 'true';
 	}
 
 	return Object.keys(out).length > 0 ? out : undefined;
@@ -311,32 +312,28 @@ export const generateSitemap = async (
 	}
 
 	const analyzerJobs: Promise<SpaHost[]>[] = [];
-	if (pipelineConfig.angularDirectory) {
+	const { angularDirectory, reactDirectory, svelteDirectory, vueDirectory } =
+		pipelineConfig;
+	if (angularDirectory) {
 		analyzerJobs.push(
 			runAnalyzer('Angular', () =>
-				analyzeAngularSpaRoutes(pipelineConfig.angularDirectory!)
+				analyzeAngularSpaRoutes(angularDirectory)
 			)
 		);
 	}
-	if (pipelineConfig.reactDirectory) {
+	if (reactDirectory) {
 		analyzerJobs.push(
-			runAnalyzer('React', () =>
-				analyzeReactSpaRoutes(pipelineConfig.reactDirectory!)
-			)
+			runAnalyzer('React', () => analyzeReactSpaRoutes(reactDirectory))
 		);
 	}
-	if (pipelineConfig.svelteDirectory) {
+	if (svelteDirectory) {
 		analyzerJobs.push(
-			runAnalyzer('Svelte', () =>
-				analyzeSvelteSpaRoutes(pipelineConfig.svelteDirectory!)
-			)
+			runAnalyzer('Svelte', () => analyzeSvelteSpaRoutes(svelteDirectory))
 		);
 	}
-	if (pipelineConfig.vueDirectory) {
+	if (vueDirectory) {
 		analyzerJobs.push(
-			runAnalyzer('Vue', () =>
-				analyzeVueSpaRoutes(pipelineConfig.vueDirectory!)
-			)
+			runAnalyzer('Vue', () => analyzeVueSpaRoutes(vueDirectory))
 		);
 	}
 

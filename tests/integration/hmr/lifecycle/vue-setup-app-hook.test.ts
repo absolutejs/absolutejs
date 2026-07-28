@@ -116,7 +116,7 @@ describe('Vue `setupApp(app, ctx)` page-export hook', () => {
 			}
 			v2 = await (await fetch(`${srv.baseUrl}/vue`)).text();
 			if (v2.includes('VERSION_2')) break;
-			await new Promise((r) => setTimeout(r, 250));
+			await new Promise((_resolve) => setTimeout(_resolve, 250));
 		}
 		expect(v2).toContain('VERSION_2');
 	}, 60_000);

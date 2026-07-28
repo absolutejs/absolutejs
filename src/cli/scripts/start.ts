@@ -435,8 +435,8 @@ export const start = async (
 			'vendor',
 			'server'
 		);
-		const vendorEntries = readdirSync(vendorDir).filter((f) =>
-			f.endsWith('.js')
+		const vendorEntries = readdirSync(vendorDir).filter((fileName) =>
+			fileName.endsWith('.js')
 		);
 		const angularServerVendorPaths: Record<string, string> = {};
 		const { relative: pathRelative, dirname: pathDirname } = await import(

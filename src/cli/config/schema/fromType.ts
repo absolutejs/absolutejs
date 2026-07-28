@@ -8,6 +8,7 @@ import {
 } from 'node:fs';
 import { resolve } from 'node:path';
 import type { FieldNode, FieldSchema } from '../../../../types/config';
+import { isRecord } from '../guards';
 
 const VIRTUAL_NAME = '__absolute_type_introspect__.ts';
 const MAX_DEPTH = 6;
@@ -30,14 +31,16 @@ const compilerOptionsFor = (cwd: string) => {
 		ts.sys.fileExists,
 		'tsconfig.json'
 	);
+	const parseConfigHost: ts.ParseConfigFileHost = {
+		...ts.sys,
+		onUnRecoverableConfigFileDiagnostic: () => {
+			/* shape only — ignore config file errors */
+		}
+	};
 	const base =
 		tsconfigPath &&
-		ts.getParsedCommandLineOfConfigFile(tsconfigPath, {}, {
-			...ts.sys,
-			onUnRecoverableConfigFileDiagnostic: () => {
-				/* shape only — ignore config file errors */
-			}
-		} as ts.ParseConfigFileHost)?.options;
+		ts.getParsedCommandLineOfConfigFile(tsconfigPath, {}, parseConfigHost)
+			?.options;
 
 	// We only read the type's shape — never type-check — so skip lib checking and
 	// auto-included @types/* to make program creation as fast as possible.
@@ -129,11 +132,15 @@ const readDiskCache = (
 	specifier: string
 ) => {
 	try {
-		const cached = JSON.parse(
+		const cached: unknown = JSON.parse(
 			readFileSync(cacheFile(cwd, typeName, specifier), 'utf-8')
 		);
-		if (cached?.signature === signature && Array.isArray(cached.fields)) {
-			return cached.fields as FieldNode[];
+		if (
+			isRecord(cached) &&
+			cached.signature === signature &&
+			Array.isArray(cached.fields)
+		) {
+			return cached.fields;
 		}
 	} catch {
 		/* no/stale cache */
@@ -185,12 +192,17 @@ const literalChoice = (type: ts.Type) => {
 	return null;
 };
 
-const toSchema = (
+const toSchema: (
 	type: ts.Type,
 	checker: ts.TypeChecker,
 	depth: number,
 	seen: Set<ts.Type>
-): FieldSchema => {
+) => FieldSchema = (
+	type: ts.Type,
+	checker: ts.TypeChecker,
+	depth: number,
+	seen: Set<ts.Type>
+) => {
 	const opaque = (): FieldSchema => ({
 		kind: 'opaque',
 		typeText: checker.typeToString(type)
@@ -225,12 +237,17 @@ const toSchema = (
 	return only ? single(only, checker, depth, seen) : opaque();
 };
 
-const single = (
+const single: (
 	type: ts.Type,
 	checker: ts.TypeChecker,
 	depth: number,
 	seen: Set<ts.Type>
-): FieldSchema => {
+) => FieldSchema = (
+	type: ts.Type,
+	checker: ts.TypeChecker,
+	depth: number,
+	seen: Set<ts.Type>
+) => {
 	const opaque = (): FieldSchema => ({
 		kind: 'opaque',
 		typeText: checker.typeToString(type)
@@ -317,7 +334,7 @@ const introspectFrom = (
 	const nodes: FieldNode[] = [];
 	sourceFile.forEachChild((node) => {
 		if (!ts.isVariableStatement(node)) return;
-		const declaration = node.declarationList.declarations[0];
+		const [declaration] = node.declarationList.declarations;
 		if (!declaration) return;
 		const type = checker.getTypeAtLocation(declaration);
 		for (const symbol of checker.getPropertiesOfType(type)) {

@@ -80,7 +80,7 @@ describe('collectStreamingSlots option silences the streaming-slot warning', () 
 		// absence check (the warning would be emitted synchronously
 		// inside SSR, but stream pumping straddles event-loop
 		// ticks; one tick is enough to flush stdout writes).
-		await new Promise<void>((tick) => setImmediate(tick));
+		await new Promise<void>((_resolve) => setImmediate(_resolve));
 
 		const sawWarning = server.outputLines.some((line) =>
 			STREAM_SLOT_WARNING_PATTERN.test(line)

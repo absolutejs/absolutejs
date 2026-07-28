@@ -18,7 +18,6 @@ import { createRequire } from 'node:module';
 import {
 	basename,
 	dirname,
-	extname,
 	isAbsolute,
 	join,
 	relative,
@@ -39,6 +38,7 @@ import { loadConfig } from '../../utils/loadConfig';
 import { formatTimestamp } from '../../utils/startupBanner';
 import { sendTelemetryEvent } from '../telemetryEvent';
 import { findFreePort, killStaleProcesses } from '../utils';
+import { isRecord } from '../config/guards';
 
 // ── Logging ─────────────────────────────────────────────────────
 const cliTag = (color: string, message: string) =>
@@ -82,15 +82,13 @@ const rebaseInlineSourceMap = (filePath: string) => {
 	const encoded = match?.[1];
 	if (!encoded) return;
 
-	const map = JSON.parse(
+	const map: unknown = JSON.parse(
 		Buffer.from(encoded, 'base64').toString('utf-8')
-	) as {
-		sourceRoot?: string;
-		sources?: string[];
-	};
+	);
+	if (!isRecord(map)) return;
 	if (!Array.isArray(map.sources)) return;
 
-	const sourceRoot = map.sourceRoot ?? '';
+	const sourceRoot = typeof map.sourceRoot === 'string' ? map.sourceRoot : '';
 	const bundleDirectory = dirname(filePath);
 	map.sources = map.sources.map((entry) => {
 		if (/^[A-Za-z][A-Za-z0-9+.-]*:/.test(entry)) return entry;
@@ -195,7 +193,7 @@ const copyServerRuntimeAssetReferences = (outdir: string) => {
 		SERVER_RUNTIME_ASSET_RE.lastIndex = 0;
 		let match;
 		while ((match = SERVER_RUNTIME_ASSET_RE.exec(source)) !== null) {
-			const relPath = match[1];
+			const [, relPath] = match;
 			if (!relPath) continue;
 
 			copyReference(filePath, relPath);
@@ -206,7 +204,7 @@ const copyServerRuntimeAssetReferences = (outdir: string) => {
 			(match = SERVER_RUNTIME_IMPORT_META_DIR_JOIN_RE.exec(source)) !==
 			null
 		) {
-			const args = match[1];
+			const [, args] = match;
 			if (!args) continue;
 
 			SERVER_RUNTIME_STRING_ARG_RE.lastIndex = 0;
@@ -214,7 +212,7 @@ const copyServerRuntimeAssetReferences = (outdir: string) => {
 			for (const partMatch of args.matchAll(
 				SERVER_RUNTIME_STRING_ARG_RE
 			)) {
-				const part = partMatch[1];
+				const [, part] = partMatch;
 				if (part) parts.push(part);
 			}
 			const relPath = normalizeServerRuntimeAssetPath(parts);
@@ -376,12 +374,12 @@ const resolveNativeAssetForRuntime = (specifier: string) => {
 };
 
 const resolveCompileNativeAssetEnv = (buildConfig: BuildConfig) => {
-	const env: Record<string, string> = {};
+	const nativeAssetEnv: Record<string, string> = {};
 	for (const asset of resolveCompileNativeAssets(buildConfig)) {
-		env[asset.env] = resolveNativeAssetForRuntime(asset.import);
+		nativeAssetEnv[asset.env] = resolveNativeAssetForRuntime(asset.import);
 	}
 
-	return env;
+	return nativeAssetEnv;
 };
 
 const tryReadNodePackageJson = (packageDir: string) => {
@@ -422,7 +420,7 @@ const copyPackageToBuild = (
 		}
 	});
 
-	const deps = {
+	const deps: Record<string, string> = {
 		...(pkg.dependencies ?? {}),
 		...(pkg.peerDependencies ?? {}),
 		...(pkg.optionalDependencies ?? {})
@@ -506,7 +504,10 @@ const collectRuntimePackageSpecifiers = (distDir: string) => {
 		specifiers.push(entry.name);
 	}
 
-	return specifiers.sort((a, b) => b.length - a.length);
+	return specifiers.sort(
+		(firstSpecifier, secondSpecifier) =>
+			secondSpecifier.length - firstSpecifier.length
+	);
 };
 
 const ensureRelativeModuleSpecifier = (fromFile: string, toFile: string) => {
@@ -517,11 +518,10 @@ const ensureRelativeModuleSpecifier = (fromFile: string, toFile: string) => {
 
 const pickExportEntry = (value: unknown): string | undefined => {
 	if (typeof value === 'string') return value;
-	if (!value || typeof value !== 'object') return undefined;
+	if (!isRecord(value)) return undefined;
 
-	const record = value as Record<string, unknown>;
 	for (const key of ['bun', 'node', 'import', 'module', 'default']) {
-		const entry = pickExportEntry(record[key]);
+		const entry = pickExportEntry(value[key]);
 		if (entry) return entry;
 	}
 
@@ -675,7 +675,7 @@ const copyChunkReferencedPackages = (distDir: string, seen: Set<string>) => {
 		if (resolve(dirname(filePath)) === distRoot) continue;
 		const source = readFileSync(filePath, 'utf-8');
 		for (const match of source.matchAll(MODULE_SPECIFIER_RE)) {
-			const specifier = match[3];
+			const [, , , specifier] = match;
 			if (
 				!specifier ||
 				specifier.startsWith('.') ||
@@ -1422,13 +1422,15 @@ const FRAMEWORK_EXTERNALS = [
 // runtime. Listing such a package here keeps the bare specifier external so the
 // standalone binary resolves the working installed copy at runtime.
 const collectUserServerExternals = (buildConfig: BuildConfig) => {
-	const bunBuild = buildConfig.bunBuild as
-		| { external?: string[]; default?: { external?: string[] } }
-		| undefined;
+	const { bunBuild } = buildConfig;
 	if (!bunBuild) return [];
-	const override = Array.isArray(bunBuild.external) ? bunBuild.external : [];
-	const fromDefault = Array.isArray(bunBuild.default?.external)
-		? bunBuild.default.external
+	const override =
+		'external' in bunBuild && Array.isArray(bunBuild.external)
+			? bunBuild.external
+			: [];
+	const defaultBuild = 'default' in bunBuild ? bunBuild.default : undefined;
+	const fromDefault = Array.isArray(defaultBuild?.external)
+		? defaultBuild.external
 		: [];
 
 	return [...override, ...fromDefault];
@@ -1553,10 +1555,6 @@ const compileUnlocked = async (
 		entrypoints: [resolve(serverEntry)],
 		external: resolveServerBundleExternals(buildConfig),
 		outdir: resolvedOutdir,
-		// The bundle is extracted to a content-addressed /tmp path at runtime.
-		// Keep its map inline so Bun can report original application source frames
-		// without a second extracted artifact or a deployment-side map lookup.
-		sourcemap: 'inline',
 		plugins: [
 			...(islandRegistryPlugin ? [islandRegistryPlugin] : []),
 			createStubPlugin({
@@ -1573,6 +1571,10 @@ const compileUnlocked = async (
 			// Last so user shims see (and can override) Absolute's transforms.
 			...(buildConfig.compile?.plugins ?? [])
 		],
+		// The bundle is extracted to a content-addressed /tmp path at runtime.
+		// Keep its map inline so Bun can report original application source frames
+		// without a second extracted artifact or a deployment-side map lookup.
+		sourcemap: 'inline',
 		target: 'bun',
 		// Mirror start.ts: surface bundle errors as data so the
 		// `if (!serverBundle.success)` branch below can print them.
@@ -1608,8 +1610,8 @@ const compileUnlocked = async (
 			'vendor',
 			'server'
 		);
-		const vendorEntries = readdirSync(vendorDir).filter((f) =>
-			f.endsWith('.js')
+		const vendorEntries = readdirSync(vendorDir).filter((fileName) =>
+			fileName.endsWith('.js')
 		);
 		const angularServerVendorPaths: Record<string, string> = {};
 		for (const file of vendorEntries) {

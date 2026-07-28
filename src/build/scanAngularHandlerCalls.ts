@@ -49,6 +49,7 @@ const SKIP_DIRS = new Set([
 ]);
 
 const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.mts', '.cts']);
+const SERVER_ENTRY_COPY_PREFIX = '.absolutejs-hmr-';
 
 export type AngularHandlerCall = {
 	/** File the call lives in. */
@@ -97,7 +98,11 @@ const collectSourceFiles = (root: string): string[] => {
 				if (SKIP_DIRS.has(entry.name)) continue;
 				if (entry.name.startsWith('.')) continue;
 				stack.push(join(dir, entry.name));
-			} else if (entry.isFile() && hasSourceExtension(entry.name)) {
+			} else if (
+				entry.isFile() &&
+				!entry.name.startsWith(SERVER_ENTRY_COPY_PREFIX) &&
+				hasSourceExtension(entry.name)
+			) {
 				out.push(join(dir, entry.name));
 			}
 		}

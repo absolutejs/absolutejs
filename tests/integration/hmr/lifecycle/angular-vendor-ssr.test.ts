@@ -23,11 +23,6 @@ const pageComponent = resolve(
 	PROJECT_ROOT,
 	'example/angular/pages/angular-example.ts'
 );
-const counterComponent = resolve(
-	PROJECT_ROOT,
-	'example/angular/components/counter.component.ts'
-);
-
 /* Returns { server, client, initialManifest } where initialManifest
  * is the manifest snapshot the dev server pushed in its first
  * `manifest` WebSocket frame. */
@@ -109,8 +104,8 @@ describe('Angular vendor / SSR specifics', () => {
 			PROJECT_ROOT,
 			'example/angular/templates/counter.component.html'
 		);
-		mutateFile(counterTemplate, (c) =>
-			c.replace('count is', 'VENDOR_SSR_SENTINEL')
+		mutateFile(counterTemplate, (content) =>
+			content.replace('count is', 'VENDOR_SSR_SENTINEL')
 		);
 		await waitForBundleAndFetch(c, srv);
 
@@ -125,8 +120,8 @@ describe('Angular vendor / SSR specifics', () => {
 	test('`__ABSOLUTE_PAGE_USES_LEGACY_ANIMATIONS__` is set when the page imports `@angular/animations`', async () => {
 		const { client: c, server: srv } = await startAndConnect();
 
-		mutateFile(pageComponent, (c) =>
-			c.replace(
+		mutateFile(pageComponent, (content) =>
+			content.replace(
 				"import { Component } from '@angular/core';",
 				"import { Component } from '@angular/core';\nimport { trigger } from '@angular/animations';\nconst _unusedTrigger = trigger;"
 			)
@@ -148,12 +143,16 @@ describe('Angular vendor / SSR specifics', () => {
 	test('SSR HTML imports the page index bundle URL from the manifest', async () => {
 		const { initialManifest, server: srv } = await startAndConnect();
 		const indexPath = initialManifest.AngularExampleIndex;
-		expect(indexPath).toBeTruthy();
+		if (!indexPath) {
+			throw new Error(
+				'AngularExampleIndex was missing from the manifest'
+			);
+		}
 
 		const html = await (await fetch(`${srv.baseUrl}/angular`)).text();
 		// The handler appends a `<script>import("...")</script>`
 		// at the end of <body> for client hydration. The URL is
 		// the manifest's index entry.
-		expect(html).toContain(indexPath!);
+		expect(html).toContain(indexPath);
 	}, 30_000);
 });

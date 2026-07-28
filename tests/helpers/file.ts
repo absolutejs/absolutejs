@@ -2,17 +2,32 @@ import {
 	existsSync,
 	mkdirSync,
 	readFileSync,
+	renameSync,
 	rmdirSync,
 	unlinkSync,
 	writeFileSync
 } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 
 type BackupEntry =
 	| { kind: 'mutated'; path: string; content: string }
 	| { kind: 'created'; path: string; createdDirs?: string[] };
 
 const backups: BackupEntry[] = [];
+let atomicWriteSequence = 0;
+
+const replaceFileAtomically = (path: string, content: string) => {
+	const temporaryPath = join(
+		dirname(path),
+		`.${basename(path)}.tmp.${process.pid}.${atomicWriteSequence++}`
+	);
+	try {
+		writeFileSync(temporaryPath, content, 'utf-8');
+		renameSync(temporaryPath, path);
+	} finally {
+		if (existsSync(temporaryPath)) unlinkSync(temporaryPath);
+	}
+};
 
 export const createFile = (filePath: string, content: string) => {
 	const resolved = resolve(filePath);
@@ -51,7 +66,7 @@ export const mutateFile = (
 	const original = readFileSync(resolved, 'utf-8');
 	backups.push({ content: original, kind: 'mutated', path: resolved });
 	const transformed = transform(original);
-	writeFileSync(resolved, transformed, 'utf-8');
+	replaceFileAtomically(resolved, transformed);
 
 	return { original, transformed };
 };
@@ -77,7 +92,7 @@ export const restoreAllFiles = () => {
 		const entry = backups.pop();
 		if (!entry) continue;
 		if (entry.kind === 'mutated') {
-			writeFileSync(entry.path, entry.content, 'utf-8');
+			replaceFileAtomically(entry.path, entry.content);
 		} else {
 			if (existsSync(entry.path)) {
 				unlinkSync(entry.path);
@@ -104,7 +119,7 @@ export const restoreFile = (filePath: string) => {
 	const [entry] = backups.splice(idx, 1);
 	if (!entry) return;
 	if (entry.kind === 'mutated') {
-		writeFileSync(entry.path, entry.content, 'utf-8');
+		replaceFileAtomically(entry.path, entry.content);
 
 		return;
 	}

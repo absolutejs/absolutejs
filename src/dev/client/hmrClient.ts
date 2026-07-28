@@ -31,6 +31,13 @@ import {
 	handleRebuildError
 } from './handlers/rebuild';
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+	typeof value === 'object' && value !== null;
+
+const isStringRecord = (value: unknown): value is Record<string, string> =>
+	isRecord(value) &&
+	Object.values(value).every((entry) => typeof entry === 'string');
+
 /* Lightweight "server disconnected" banner. When the dev server is
  * genuinely down (process restarting or crashed) the browser would
  * otherwise show its own blank "site can't be reached" page — this keeps
@@ -197,16 +204,15 @@ const handleHMRMessage = (message: HMRMessage) => {
 			// `__ng_hmr_load` blocks (see hmrInjectionPlugin.ts)
 			// listen here and re-fetch the applyMetadata module.
 			hideErrorOverlay();
-			const data = message.data as
-				| { id?: string; timestamp?: number }
-				| undefined;
-			if (data && typeof data.id === 'string') {
+			const { data } = message;
+			if (isRecord(data)) {
+				const id = Reflect.get(data, 'id');
+				const timestamp = Reflect.get(data, 'timestamp');
+				if (typeof id !== 'string') break;
 				dispatchAngularComponentUpdate({
-					id: data.id,
+					id,
 					timestamp:
-						typeof data.timestamp === 'number'
-							? data.timestamp
-							: Date.now()
+						typeof timestamp === 'number' ? timestamp : Date.now()
 				});
 			}
 			break;
@@ -220,16 +226,15 @@ const handleHMRMessage = (message: HMRMessage) => {
 			// `__absAngularRemount` global wired in
 			// `installAngularRemountGlobal`.
 			hideErrorOverlay();
-			const data = message.data as
-				| { id?: string; timestamp?: number }
-				| undefined;
-			if (data && typeof data.id === 'string') {
+			const { data } = message;
+			if (isRecord(data)) {
+				const id = Reflect.get(data, 'id');
+				const timestamp = Reflect.get(data, 'timestamp');
+				if (typeof id !== 'string') break;
 				dispatchAngularComponentRemount({
-					id: data.id,
+					id,
 					timestamp:
-						typeof data.timestamp === 'number'
-							? data.timestamp
-							: Date.now()
+						typeof timestamp === 'number' ? timestamp : Date.now()
 				});
 			}
 			break;
@@ -244,17 +249,17 @@ const handleHMRMessage = (message: HMRMessage) => {
 			// to dynamic-import the fresh bundle URL — re-importing
 			// re-runs the destroy + bootstrapApplication block.
 			hideErrorOverlay();
-			const data = message.data as
-				| { manifest?: Record<string, string>; reason?: string }
-				| undefined;
-			if (data?.manifest) {
-				window.__HMR_MANIFEST__ = data.manifest;
+			const { data } = message;
+			if (isRecord(data) && isStringRecord(data.manifest)) {
+				const { manifest } = data;
+				window.__HMR_MANIFEST__ = manifest;
 			}
-			const w = window as Window & {
-				__ABS_ANGULAR_REBOOTSTRAP__?: () => Promise<void>;
-			};
-			if (typeof w.__ABS_ANGULAR_REBOOTSTRAP__ === 'function') {
-				w.__ABS_ANGULAR_REBOOTSTRAP__().catch((err) => {
+			const rebootstrap = Reflect.get(
+				window,
+				'__ABS_ANGULAR_REBOOTSTRAP__'
+			);
+			if (typeof rebootstrap === 'function') {
+				Promise.resolve(rebootstrap()).catch((err) => {
 					console.error(
 						'[absolutejs] angular:rebootstrap failed',
 						err

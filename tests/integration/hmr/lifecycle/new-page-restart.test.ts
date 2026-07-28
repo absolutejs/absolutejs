@@ -1,4 +1,4 @@
-import { describe, expect, test, afterEach } from 'bun:test';
+import { afterEach, describe, expect, test } from 'bun:test';
 import { resolve } from 'node:path';
 import { startDevServer, type DevServer } from '../../../helpers/devServer';
 import { createFile, mutateFile, restoreAllFiles } from '../../../helpers/file';
@@ -15,24 +15,16 @@ afterEach(async () => {
 	restoreAllFiles();
 });
 
-/* Boot-time entry sets are pinned: `svelteEntries`, `vueEntries`,
- * etc. are computed once during the initial dev build and the
- * rebuild plumbing assumes they're stable. Creating a brand-new
- * page file mid-session can't be applied in-place — the new page
- * needs to be in the manifest before the user's server.ts edit
- * (registering a route for it) can compile. The framework's
- * fallback is to emit an `[abs:restart] <path>` stdout marker
- * that the parent CLI picks up and respawns the child against,
- * yielding a fresh boot that scans the new file.
+/* A newly-created page and the server route that mounts it can arrive in
+ * either order. The framework rebuild owns manifest discovery while the
+ * isolated server-entry watcher owns the route swap; both update the same
+ * live runtime without requiring the parent CLI to restart the child.
  *
  * Reproduced by: (1) creating `example/svelte/pages/NewlyAddedPage.svelte`
  * mid-session, (2) editing `server.ts` to mount a route for it
- * (which fails to resolve the manifest key from inside the child),
- * (3) observing the `[abs:restart]` marker on the dev server's
- * stdout. The test doesn't actually respawn — that's the parent
- * CLI's job — it just verifies the marker contract. */
-describe('Adding a new page entry mid-session falls through to [abs:restart]', () => {
-	test('creating a new svelte page + a server route referencing it emits [abs:restart]', async () => {
+ * and (3) waiting until the route serves the new page. */
+describe('Adding a new page entry mid-session converges in place', () => {
+	test('creating a new svelte page + route serves it without a child restart', async () => {
 		server = await startDevServer();
 		const pagePath = resolve(
 			PROJECT_ROOT,
@@ -51,6 +43,14 @@ describe('Adding a new page entry mid-session falls through to [abs:restart]', (
 			)
 		);
 
-		await server.waitForOutput(/\[abs:restart\] .*server\.ts/);
+		const deadline = Date.now() + 20_000;
+		let body = '';
+		while (Date.now() < deadline) {
+			const response = await fetch(`${server.baseUrl}/new-page`);
+			body = await response.text();
+			if (response.ok && body.includes('NEW_PAGE_MARKER')) break;
+			await Bun.sleep(100);
+		}
+		expect(body).toContain('NEW_PAGE_MARKER');
 	}, 30_000);
 });

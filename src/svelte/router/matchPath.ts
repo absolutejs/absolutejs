@@ -12,11 +12,18 @@ type CompiledPattern = {
 	segments: CompiledSegment[];
 	score: number;
 };
+type RouteMatchBuilder = <Path extends string>(
+	params: Record<string, string | undefined>
+) => RouteMatchResult<ExtractRouteParams<Path>>;
 
 const STATIC_SEGMENT_WEIGHT = 100;
 const PARAM_SEGMENT_WEIGHT = 10;
 const WILDCARD_SEGMENT_WEIGHT = 1;
 const OPTIONAL_PENALTY = 1;
+const buildRouteMatch: RouteMatchBuilder = (params) => ({
+	matched: true,
+	params: Object.assign(Object.create(null), params)
+});
 
 const splitPath = (path: string) => {
 	const trimmed = path.replace(/^\/+/, '').replace(/\/+$/, '');
@@ -46,12 +53,12 @@ const compileSegment = (raw: string): CompiledSegment => {
  * Higher score = more specific (longer static prefix beats parameterised).
  */
 export const comparePatterns = (
-	a: { score: number; index: number },
-	b: { score: number; index: number }
+	left: { score: number; index: number },
+	right: { score: number; index: number }
 ) => {
-	if (a.score !== b.score) return b.score - a.score;
+	if (left.score !== right.score) return right.score - left.score;
 
-	return a.index - b.index;
+	return left.index - right.index;
 };
 export const compilePattern = (pattern: string): CompiledPattern => {
 	const segments = splitPath(pattern).map(compileSegment);
@@ -89,21 +96,22 @@ export const matchPattern = <Path extends string>(
 	const pathSegments = splitPath(pathname);
 	const params: Record<string, string | undefined> = {};
 
-	let pi = 0;
-	for (let si = 0; si < pattern.segments.length; si++) {
-		const segment = pattern.segments[si];
+	let pathIndex = 0;
+	for (
+		let segmentIndex = 0;
+		segmentIndex < pattern.segments.length;
+		segmentIndex++
+	) {
+		const segment = pattern.segments[segmentIndex];
 		if (!segment) continue;
 
 		if (segment.kind === 'wildcard') {
-			params['wildcard'] = pathSegments.slice(pi).join('/');
+			params['wildcard'] = pathSegments.slice(pathIndex).join('/');
 
-			return {
-				matched: true,
-				params: params as ExtractRouteParams<Path>
-			};
+			return buildRouteMatch<Path>(params);
 		}
 
-		const candidate = pathSegments[pi];
+		const candidate = pathSegments[pathIndex];
 
 		if (candidate === undefined) {
 			if (segment.kind === 'param' && segment.optional) {
@@ -116,21 +124,18 @@ export const matchPattern = <Path extends string>(
 
 		if (segment.kind === 'static') {
 			if (segment.value !== candidate) return { matched: false };
-			pi++;
+			pathIndex++;
 			continue;
 		}
 
 		// param
 		params[segment.name] = candidate;
-		pi++;
+		pathIndex++;
 	}
 
-	if (pi !== pathSegments.length) {
+	if (pathIndex !== pathSegments.length) {
 		return { matched: false };
 	}
 
-	return {
-		matched: true,
-		params: params as ExtractRouteParams<Path>
-	};
+	return buildRouteMatch<Path>(params);
 };

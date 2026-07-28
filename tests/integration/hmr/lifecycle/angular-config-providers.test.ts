@@ -44,18 +44,34 @@ const startAndConnect = async () => {
 	return server;
 };
 
-const waitForBundleRebuild = async (c: HMRClient) => {
-	// Page edits that flip component shape land at tier-0/1a and
-	// broadcast `angular-tier-zero-ssr-rebuild-complete` when the
-	// debounced bundle finishes. Edits to the `appProviders.ts`
-	// source go through tier-1b rebootstrap (no decorated class
-	// change to extract) and broadcast `angular:rebootstrap` after
-	// the bundle write. Both signal "bundle on disk is fresh"; race
-	// them so the test isn't coupled to the tier decision.
-	await Promise.race([
-		c.waitFor('angular-tier-zero-ssr-rebuild-complete', 30_000),
-		c.waitFor('angular:rebootstrap', 30_000)
-	]);
+const waitForGeneratedContent = async (
+	path: string,
+	predicate: (content: string) => boolean
+) => {
+	const deadline = Date.now() + 30_000;
+	while (Date.now() < deadline) {
+		try {
+			const content = readFileSync(path, 'utf-8');
+			if (predicate(content)) return content;
+		} catch {
+			// The bundler replaces generated files atomically; retry while the
+			// current cycle owns the path.
+		}
+		await Bun.sleep(50);
+	}
+	throw new Error(`Timed out waiting for generated Angular output: ${path}`);
+};
+
+const mutateAndWaitForRebuild = async (c: HMRClient, mutate: () => void) => {
+	c.drain();
+	const rebuildStarted = c.waitFor('rebuild-start', 30_000);
+	// Non-decorated provider edits take the Tier-1 rebootstrap path. That
+	// signal must not be emitted until every serialized bundle cycle has
+	// completed and the generated SSR graph is stable.
+	const rebootstrapCompleted = c.waitFor('angular:rebootstrap', 30_000);
+	mutate();
+	await rebuildStarted;
+	await rebootstrapCompleted;
 };
 
 /* The build's providers-injection step (in `compileAngular.ts`)
@@ -82,37 +98,23 @@ describe('Angular config-driven providers (HMR)', () => {
 		const srv = await startAndConnect();
 		if (!client) throw new Error('client missing');
 
-		// Edit the page itself so the angular watcher fires its fast-path
-		// — that's the codepath whose providers-injection step we want
-		// to verify. The mutation has to actually change a hashable
-		// component shape to reach tier-1b structural rebuild and
-		// trigger a fresh `compileAndBundleAngular` pass.
-		mutateFile(angularExamplePage, (c) =>
-			c.replace(
-				"selector: 'angular-page',",
-				"selector: 'angular-page-providers-test',"
+		// The providers source is an implicit dependency of every Angular
+		// page. Its edit must expand the rebuild set without requiring an
+		// unrelated page mutation to prime the dependency graph.
+		await mutateAndWaitForRebuild(client, () =>
+			mutateFile(appProvidersSource, () =>
+				[
+					"import type { EnvironmentProviders, Provider } from '@angular/core';",
+					"import { InjectionToken } from '@angular/core';",
+					'',
+					"export const FROM_APP_PROVIDERS = new InjectionToken<string>('FROM_APP_PROVIDERS');",
+					'',
+					'export const appProviders: ReadonlyArray<Provider | EnvironmentProviders> = [',
+					"	{ provide: FROM_APP_PROVIDERS, useValue: 'config-providers-flow' }",
+					'];'
+				].join('\n')
 			)
 		);
-		await waitForBundleRebuild(client);
-		// Drain so the providers-source-edit rebuild is the next
-		// `angular-tier-zero-ssr-rebuild-complete` `waitFor` resolves on.
-		// Without this drain the wait can race-match the page-edit's
-		// rebuild and the assertion runs against a tree that hasn't
-		// seen the providers edit yet.
-		client.drain();
-		mutateFile(appProvidersSource, () =>
-			[
-				"import type { EnvironmentProviders, Provider } from '@angular/core';",
-				"import { InjectionToken } from '@angular/core';",
-				'',
-				"export const FROM_APP_PROVIDERS = new InjectionToken<string>('FROM_APP_PROVIDERS');",
-				'',
-				'export const appProviders: ReadonlyArray<Provider | EnvironmentProviders> = [',
-				"	{ provide: FROM_APP_PROVIDERS, useValue: 'config-providers-flow' }",
-				'];'
-			].join('\n')
-		);
-		await waitForBundleRebuild(client);
 
 		const compiled = readFileSync(compiledAngularExample, 'utf-8');
 		// The injection always emits this exact import binding when
@@ -126,7 +128,11 @@ describe('Angular config-driven providers (HMR)', () => {
 		// Sanity-check the page still serves a 200 so the inlined
 		// providers chain didn't break SSR boot.
 		const response = await fetch(`${srv.baseUrl}/angular`);
-		expect(response.status).toBe(200);
+		if (response.status !== 200) {
+			throw new Error(
+				`Angular SSR returned ${response.status}: ${await response.text()}\n\nDev server output:\n${srv.outputLines.slice(-30).join('\n')}`
+			);
+		}
 	}, 60_000);
 
 	test('adding `export const routes` to a page injects provideRouter into its bundle', async () => {
@@ -148,9 +154,13 @@ describe('Angular config-driven providers (HMR)', () => {
 		// at the end of the rebuilt-bundle pass. We need the *second*
 		// one — wait for that specifically so the assertion reads the
 		// freshly re-injected output.
-		await client.waitFor('angular-tier-zero-ssr-rebuild-complete', 30_000);
-
-		const compiled = readFileSync(compiledAngularExample, 'utf-8');
+		const compiled = await waitForGeneratedContent(
+			compiledAngularExample,
+			(content) =>
+				content.includes(
+					'import { provideRouter as __abs_provideRouter'
+				)
+		);
 		// Build appends a router import + a provideRouter() call into
 		// the providers literal when the page exports `routes`.
 		expect(compiled).toContain(
@@ -167,21 +177,39 @@ describe('Angular config-driven providers (HMR)', () => {
 		// AST scan flips the page's basePath from null to '/angular/'
 		// and the injection adds `{ provide: APP_BASE_HREF, useValue:
 		// "/angular/" }` to the providers literal.
+		client.drain();
+		const serverEntryReloaded = client.waitFor(
+			'server-entry-reloaded',
+			15_000
+		);
 		mutateFile(exampleServer, (c) =>
 			c.replace(".get('/angular'", ".get('/angular/*'")
 		);
+		await serverEntryReloaded;
 		// Backend-file edit alone doesn't necessarily kick the angular
-		// rebuild; nudge a page file too so the bundler re-runs over
-		// the angular tree.
-		mutateFile(angularExamplePage, (c) => `${c}\n`);
+		// rebuild. Make a semantic page edit and await its Tier-1 bundle
+		// completion so the assertion cannot observe an intermediate
+		// generated tree.
+		await mutateAndWaitForRebuild(client, () =>
+			mutateFile(angularExamplePage, (c) =>
+				c.replace(
+					"selector: 'angular-page',",
+					"selector: 'angular-page-base-href-test',"
+				)
+			)
+		);
 		// Same race story as the routes test — surgical-update
 		// broadcasts can fire before the bundle rebuild that actually
 		// re-applies the providers injection. Wait specifically for
 		// the post-bundle broadcast so the assertion reads the
 		// rebuilt output.
-		await client.waitFor('angular-tier-zero-ssr-rebuild-complete', 30_000);
-
-		const compiled = readFileSync(compiledAngularExample, 'utf-8');
+		const compiled = await waitForGeneratedContent(
+			compiledAngularExample,
+			(content) =>
+				content.includes(
+					'{ provide: __abs_APP_BASE_HREF, useValue: "/angular/" }'
+				)
+		);
 		expect(compiled).toContain(
 			'import { APP_BASE_HREF as __abs_APP_BASE_HREF } from "@angular/common"'
 		);
@@ -194,41 +222,37 @@ describe('Angular config-driven providers (HMR)', () => {
 		const srv = await startAndConnect();
 		if (!client) throw new Error('client missing');
 
-		// Page edit first (kicks the angular fast-path), then the
-		// providers-source edit (re-runs the providers-injection scan
-		// + compileAngularFileJIT's transitive walk over the chain).
-		// The regression class this guards against was the providers
-		// chain ending up in a different @angular/core instance than
+		// The providers-source edit re-runs the providers-injection scan
+		// and compileAngularFileJIT's transitive walk over the chain.
+		// The regression class this guards against was the providers chain
+		// ending up in a different @angular/core instance than
 		// the page bundle — bootstrapApplication's JIT
 		// resolveJitResources would then iterate a queue populated
 		// from raw `.component.ts` sources whose `templateUrl`s the
 		// default fetch-based resourceResolver can't handle, logging
 		// `ERR_INVALID_URL` on every first request per process.
-		mutateFile(angularExamplePage, (c) =>
-			c.replace(
-				"selector: 'angular-page',",
-				"selector: 'angular-page-transitive-test',"
+		await mutateAndWaitForRebuild(client, () =>
+			mutateFile(appProvidersSource, () =>
+				[
+					"import type { EnvironmentProviders, Provider } from '@angular/core';",
+					"import { InjectionToken } from '@angular/core';",
+					'',
+					"export const TENANT_ID = new InjectionToken<string>('TENANT_ID');",
+					'',
+					'export const appProviders: ReadonlyArray<Provider | EnvironmentProviders> = [',
+					"	{ provide: TENANT_ID, useValue: 'tenant-a' }",
+					'];'
+				].join('\n')
 			)
 		);
-		await waitForBundleRebuild(client);
-		client.drain();
-		mutateFile(appProvidersSource, () =>
-			[
-				"import type { EnvironmentProviders, Provider } from '@angular/core';",
-				"import { InjectionToken } from '@angular/core';",
-				'',
-				"export const TENANT_ID = new InjectionToken<string>('TENANT_ID');",
-				'',
-				'export const appProviders: ReadonlyArray<Provider | EnvironmentProviders> = [',
-				"	{ provide: TENANT_ID, useValue: 'tenant-a' }",
-				'];'
-			].join('\n')
-		);
-		await waitForBundleRebuild(client);
 
 		const beforeLines = srv.outputLines.length;
 		const response = await fetch(`${srv.baseUrl}/angular`);
-		expect(response.status).toBe(200);
+		if (response.status !== 200) {
+			throw new Error(
+				`Angular SSR returned ${response.status}: ${await response.text()}\n\nDev server output:\n${srv.outputLines.slice(-30).join('\n')}`
+			);
+		}
 		// Drain stderr/stdout settled while the request was being
 		// served and assert nothing in the new lines mentions the
 		// regression markers.

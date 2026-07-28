@@ -5,7 +5,6 @@ import { build } from './build';
 import {
 	getAngularVendorPaths,
 	getDevVendorPaths,
-	getEmberVendorPaths,
 	getSvelteVendorPaths,
 	getVueVendorPaths,
 	setDevVendorPaths,

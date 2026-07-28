@@ -18,21 +18,21 @@ export type ResolveDevPortOptions = {
 };
 
 export const isPortFree = (port: number, host = 'localhost') =>
-	new Promise<boolean>((resolvePort) => {
+	new Promise<boolean>((resolve) => {
 		const server = createServer();
 		server.unref();
 		server.once('error', (err: NodeJS.ErrnoException) => {
 			if (err.code === 'EADDRINUSE') {
-				resolvePort(false);
+				resolve(false);
 
 				return;
 			}
 			// Other errors (EACCES, etc.) — treat as "not free" so we
 			// keep probing instead of crashing.
-			resolvePort(false);
+			resolve(false);
 		});
 		server.listen(port, host, () => {
-			server.close(() => resolvePort(true));
+			server.close(() => resolve(true));
 		});
 	});
 

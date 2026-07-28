@@ -29,12 +29,18 @@ const cleanFramework = (
 	if (!skipGenerated) {
 		tasks.push(removeIfExists(getFrameworkGeneratedDir(framework)));
 	}
-	// Legacy `<frameworkDir>/generated/` directory — created by older
-	// builds before the move to `<projectRoot>/.absolutejs/generated/`.
-	// Always clean these so users don't end up with stale intermediate
-	// trees in `src/` after upgrading.
-	if (frameworkDir)
-		tasks.push(removeIfExists(join(frameworkDir, 'generated')));
+	// Legacy directories created before generated framework state moved to
+	// `<projectRoot>/.absolutejs/generated/`. Angular also emitted `compiled`
+	// and `indexes` beside application source. Always remove these reserved
+	// intermediates so upgrades cannot retain stale executable code.
+	if (!frameworkDir) return Promise.all(tasks);
+	tasks.push(removeIfExists(join(frameworkDir, 'generated')));
+	if (framework === 'angular') {
+		tasks.push(
+			removeIfExists(join(frameworkDir, 'compiled')),
+			removeIfExists(join(frameworkDir, 'indexes'))
+		);
+	}
 
 	return Promise.all(tasks);
 };

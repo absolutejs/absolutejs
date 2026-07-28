@@ -41,6 +41,14 @@ import type {
 	WorkspaceConfig
 } from '../../../types/build';
 
+const sourceServerBootstrap = resolve(
+	import.meta.dir,
+	'../../dev/serverBootstrap.ts'
+);
+const serverBootstrap = existsSync(sourceServerBootstrap)
+	? sourceServerBootstrap
+	: resolve(import.meta.dir, '../dev/serverBootstrap.js');
+
 type WorkspaceDevOptions = {
 	configPath?: string;
 	noTui?: boolean;
@@ -780,14 +788,20 @@ const resolveService = (
 
 		Object.assign(
 			envVars,
-			configPath ? { ABSOLUTE_CONFIG: configPath } : {}
+			configPath ? { ABSOLUTE_CONFIG: configPath } : {},
+			{
+				ABSOLUTE_SERVER_ENTRY: resolve(
+					cwd,
+					service.entry ?? DEFAULT_SERVER_ENTRY
+				)
+			}
 		);
 
 		const command = [
 			process.execPath,
 			'--hot',
 			'--no-clear-screen',
-			service.entry ?? DEFAULT_SERVER_ENTRY
+			serverBootstrap
 		];
 
 		return {

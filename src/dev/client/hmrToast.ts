@@ -15,10 +15,8 @@ const VISIBLE_DURATION_MS = 2500;
 const FADE_MS = 220;
 
 const ensureContainer = () => {
-	const existing = document.getElementById(
-		CONTAINER_ID
-	) as HTMLDivElement | null;
-	if (existing) return existing;
+	const existing = document.getElementById(CONTAINER_ID);
+	if (existing instanceof HTMLDivElement) return existing;
 
 	const container = document.createElement('div');
 	container.id = CONTAINER_ID;

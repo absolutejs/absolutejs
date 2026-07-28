@@ -30,7 +30,9 @@ const getTypecheckTargets = async (configPath?: string) => {
 	// config present we fall back to a single framework-less target, so the
 	// check is exactly `tsc --noEmit` over the project's tsconfig.
 	if (!existsSync(resolveConfigPath(configPath))) {
-		return [{} as AbsoluteServiceConfig];
+		const defaultService: AbsoluteServiceConfig = {};
+
+		return [defaultService];
 	}
 
 	const rawConfig = await loadRawConfig(configPath);
@@ -192,12 +194,6 @@ const resolveAbsoluteTypeFile = (fileName: string) => {
 const ABSOLUTE_TYPECHECK_FILES = [
 	resolveAbsoluteTypeFile('style-module-shim.d.ts')
 ];
-
-type TsconfigJson = {
-	exclude?: string[];
-	files?: string[];
-	include?: string[];
-};
 
 const readProjectTsconfig = () => {
 	try {

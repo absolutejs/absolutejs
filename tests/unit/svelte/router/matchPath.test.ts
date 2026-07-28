@@ -6,6 +6,8 @@ import {
 	joinBasepath
 } from '../../../../src/svelte/router/matchPath';
 
+type PatternRank = Parameters<typeof comparePatterns>[0];
+
 describe('compilePattern', () => {
 	test('static-only path scores by static-segment count', () => {
 		expect(compilePattern('/').score).toBe(0);
@@ -187,15 +189,15 @@ describe('matchPattern — wildcards', () => {
 
 describe('comparePatterns — specificity ranking', () => {
 	test('higher score sorts first', () => {
-		const a = { index: 5, score: 200 };
-		const b = { index: 0, score: 100 };
+		const a: PatternRank = { index: 5, score: 200 };
+		const b: PatternRank = { index: 0, score: 100 };
 		expect(comparePatterns(a, b)).toBeLessThan(0);
 		expect(comparePatterns(b, a)).toBeGreaterThan(0);
 	});
 
 	test('equal score: earlier declaration index wins', () => {
-		const a = { index: 0, score: 100 };
-		const b = { index: 5, score: 100 };
+		const a: PatternRank = { index: 0, score: 100 };
+		const b: PatternRank = { index: 5, score: 100 };
 		expect(comparePatterns(a, b)).toBeLessThan(0);
 		expect(comparePatterns(b, a)).toBeGreaterThan(0);
 	});

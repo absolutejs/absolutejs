@@ -47,6 +47,8 @@ const loadTls = () => {
 };
 const tls = loadTls();
 const protocol = tls ? 'https' : 'http';
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+	typeof value === 'object' && value !== null;
 
 // Resolve the HTTP idleTimeout (seconds) passed to Bun.serve. Bun's default is
 // 10s, which silently reaps long-lived/streaming responses (SSE, AI turns, long
@@ -54,7 +56,7 @@ const protocol = tls ? 'https' : 'http';
 // override via ABSOLUTE_IDLE_TIMEOUT. 0 is honored as "disable the timeout";
 // other values clamp to Bun's [1, 255] range so an out-of-range config can't
 // throw at listen() time.
-const resolveHttpIdleTimeout = (): number => {
+const resolveHttpIdleTimeout = () => {
 	const raw = env.ABSOLUTE_IDLE_TIMEOUT;
 	if (raw === undefined || raw.trim() === '') {
 		return DEFAULT_HTTP_IDLE_TIMEOUT_SECONDS;
@@ -64,6 +66,7 @@ const resolveHttpIdleTimeout = (): number => {
 		return DEFAULT_HTTP_IDLE_TIMEOUT_SECONDS;
 	}
 	if (parsed === 0) return 0;
+
 	return Math.min(
 		Math.max(Math.round(parsed), 1),
 		MAX_HTTP_IDLE_TIMEOUT_SECONDS
@@ -166,19 +169,17 @@ export const networking = <A extends AnyElysia>(app: A) => {
 		// `globalThis.__absolutePreviousAppStore`. The first reload
 		// after server start finds the initial store there.
 		const prevStore = globalThis.__absolutePreviousAppStore;
-		if (prevStore && app.store && typeof app.store === 'object') {
-			const newStore = app.store as Record<string, unknown>;
-			const oldStore = prevStore;
+		if (prevStore && isRecord(app.store)) {
+			const newStore = app.store;
 			for (const key of Object.keys(newStore)) {
-				if (key in oldStore) {
-					newStore[key] = oldStore[key];
+				if (key in prevStore) {
+					newStore[key] = prevStore[key];
 				}
 			}
 		}
-		globalThis.__absolutePreviousAppStore = app.store as Record<
-			string,
-			unknown
-		>;
+		globalThis.__absolutePreviousAppStore = isRecord(app.store)
+			? app.store
+			: undefined;
 		try {
 			app.compile();
 		} catch {
@@ -274,10 +275,9 @@ export const networking = <A extends AnyElysia>(app: A) => {
 	// the reload-aware branch above and never reach this point.
 	if (app.server) {
 		globalThis.__absoluteBunServer = app.server;
-		globalThis.__absolutePreviousAppStore = app.store as Record<
-			string,
-			unknown
-		>;
+		globalThis.__absolutePreviousAppStore = isRecord(app.store)
+			? app.store
+			: undefined;
 		// Path B: start the entry-file watcher now that the server is
 		// bound. The watcher triggers cache-busted dynamic re-imports
 		// on entry edits, which hit the reload-aware branch instead of
@@ -285,9 +285,9 @@ export const networking = <A extends AnyElysia>(app: A) => {
 		// early at the top).
 		if (env.NODE_ENV === 'development') {
 			void import('../dev/serverEntryWatcher')
-				.then(({ startServerEntryWatcher }) => {
-					startServerEntryWatcher();
-				})
+				.then(({ startServerEntryWatcher }) =>
+					startServerEntryWatcher()
+				)
 				.catch((err) => {
 					/* dev-only feature; never break the server */
 					console.error(

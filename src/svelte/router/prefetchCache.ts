@@ -11,11 +11,13 @@ const cache = new Map<string, CacheEntry>();
 const isSlowConnection = () => {
 	if (typeof navigator === 'undefined') return false;
 
-	const { connection } = navigator as Navigator & {
-		connection?: { saveData?: boolean };
-	};
+	const connection = Reflect.get(navigator, 'connection');
 
-	return connection?.saveData === true;
+	return (
+		typeof connection === 'object' &&
+		connection !== null &&
+		Reflect.get(connection, 'saveData') === true
+	);
 };
 
 const prefersReducedData = () => {

@@ -86,14 +86,14 @@ const FLAG_VALUE_FLAGS = new Set<string>([
  * the implicit `.` so we don't expand the lint scope past their intent.
  */
 const hasUserPositional = (args: string[]) => {
-	for (let i = 0; i < args.length; i++) {
-		const arg = args[i];
+	for (let index = 0; index < args.length; index++) {
+		const arg = args[index];
 		if (arg === undefined) continue;
 		if (arg.startsWith('-')) {
 			// `--flag=value` is a single arg — handles its own value.
 			if (arg.includes('=')) continue;
 			// `--flag value` — skip the value on the next iteration.
-			if (FLAG_VALUE_FLAGS.has(arg)) i++;
+			if (FLAG_VALUE_FLAGS.has(arg)) index++;
 			continue;
 		}
 
@@ -408,11 +408,11 @@ Detected at: ${configPath}${reset}`
 	);
 };
 
-const formatDuration = (ms: number) => {
-	if (ms < 1000) return `${ms}ms`;
-	if (ms < 60_000) return `${(ms / 1000).toFixed(2)}s`;
-	const minutes = Math.floor(ms / 60_000);
-	const seconds = Math.round((ms % 60_000) / 1000);
+const formatDuration = (durationMs: number) => {
+	if (durationMs < 1000) return `${durationMs}ms`;
+	if (durationMs < 60_000) return `${(durationMs / 1000).toFixed(2)}s`;
+	const minutes = Math.floor(durationMs / 60_000);
+	const seconds = Math.round((durationMs % 60_000) / 1000);
 
 	return `${minutes}m ${seconds}s`;
 };

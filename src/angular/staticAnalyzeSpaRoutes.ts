@@ -11,11 +11,11 @@ const pathHasDynamic = (path: string) =>
 		.some((seg) => DYNAMIC_SEGMENT_PATTERN.test(seg) || seg === '**');
 
 const importsSymbolFrom = (
-	sf: ts.SourceFile,
+	sourceFile: ts.SourceFile,
 	localName: string,
 	moduleSpecifier: string
-): boolean => {
-	for (const statement of sf.statements) {
+) => {
+	for (const statement of sourceFile.statements) {
 		if (!ts.isImportDeclaration(statement)) continue;
 		if (!ts.isStringLiteral(statement.moduleSpecifier)) continue;
 		if (statement.moduleSpecifier.text !== moduleSpecifier) continue;
@@ -29,7 +29,7 @@ const importsSymbolFrom = (
 	return false;
 };
 
-const readStringLiteral = (expression: ts.Expression): string | null => {
+const readStringLiteral = (expression: ts.Expression) => {
 	if (
 		ts.isStringLiteral(expression) ||
 		ts.isNoSubstitutionTemplateLiteral(expression)
@@ -40,9 +40,7 @@ const readStringLiteral = (expression: ts.Expression): string | null => {
 	return null;
 };
 
-const readPropertyKey = (
-	property: ts.ObjectLiteralElementLike
-): string | null => {
+const readPropertyKey = (property: ts.ObjectLiteralElementLike) => {
 	if (ts.isPropertyAssignment(property)) {
 		const { name } = property;
 		if (ts.isIdentifier(name) || ts.isStringLiteral(name)) return name.text;
@@ -55,9 +53,9 @@ const readPropertyKey = (
 };
 
 const findRoutesArrayDeclaration = (
-	sf: ts.SourceFile,
+	sourceFile: ts.SourceFile,
 	identifierName: string
-): ts.ArrayLiteralExpression | null => {
+) => {
 	let found: ts.ArrayLiteralExpression | null = null;
 
 	const visit = (node: ts.Node) => {
@@ -76,14 +74,12 @@ const findRoutesArrayDeclaration = (
 		ts.forEachChild(node, visit);
 	};
 
-	ts.forEachChild(sf, visit);
+	ts.forEachChild(sourceFile, visit);
 
 	return found;
 };
 
-const extractSitemapData = (
-	dataLiteral: ts.ObjectLiteralExpression
-): boolean => {
+const extractSitemapData = (dataLiteral: ts.ObjectLiteralExpression) => {
 	for (const prop of dataLiteral.properties) {
 		const key = readPropertyKey(prop);
 		if (key !== 'sitemap') continue;
@@ -95,7 +91,7 @@ const extractSitemapData = (
 	return false;
 };
 
-const joinSegments = (parent: string, child: string): string => {
+const joinSegments = (parent: string, child: string) => {
 	if (!child) return parent;
 	if (!parent) return child;
 
@@ -103,12 +99,12 @@ const joinSegments = (parent: string, child: string): string => {
 };
 
 const extractRoutePaths = (
-	arr: ts.ArrayLiteralExpression,
+	routeArray: ts.ArrayLiteralExpression,
 	parentPath: string,
 	parentExcluded: boolean,
-	out: SpaRoute[]
-): void => {
-	for (const element of arr.elements) {
+	routes: SpaRoute[]
+) => {
+	for (const element of routeArray.elements) {
 		if (!ts.isObjectLiteralExpression(element)) continue;
 
 		let pathSegment: string | null = null;
@@ -143,14 +139,14 @@ const extractRoutePaths = (
 		const joined = joinSegments(parentPath, pathSegment);
 
 		if (childrenLiteral) {
-			extractRoutePaths(childrenLiteral, joined, sitemapExcluded, out);
+			extractRoutePaths(childrenLiteral, joined, sitemapExcluded, routes);
 			continue;
 		}
 
 		// Empty path with no children isn't a navigable URL.
 		if (joined === '') continue;
 
-		out.push({
+		routes.push({
 			dynamic: pathHasDynamic(joined),
 			path: joined,
 			redirected,
@@ -159,29 +155,29 @@ const extractRoutePaths = (
 	}
 };
 
-const findProvideRouterFirstArg = (sf: ts.SourceFile): ts.Expression | null => {
-	let found: ts.Expression | null = null;
+const findProvideRouterFirstArg = (sourceFile: ts.SourceFile) => {
+	const result: { found: ts.Expression | null } = { found: null };
 
 	const visit = (node: ts.Node) => {
-		if (found) return;
+		if (result.found) return;
 		if (
 			ts.isCallExpression(node) &&
 			ts.isIdentifier(node.expression) &&
 			node.expression.text === 'provideRouter'
 		) {
-			found = node.arguments[0] ?? null;
+			result.found = node.arguments[0] ?? null;
 
 			return;
 		}
 		ts.forEachChild(node, visit);
 	};
 
-	ts.forEachChild(sf, visit);
+	ts.forEachChild(sourceFile, visit);
 
-	return found;
+	return result.found;
 };
 
-const findAppBaseHrefValue = (sf: ts.SourceFile): string | null => {
+const findAppBaseHrefValue = (sourceFile: ts.SourceFile) => {
 	let found: string | null = null;
 
 	const visit = (node: ts.Node) => {
@@ -212,12 +208,12 @@ const findAppBaseHrefValue = (sf: ts.SourceFile): string | null => {
 		ts.forEachChild(node, visit);
 	};
 
-	ts.forEachChild(sf, visit);
+	ts.forEachChild(sourceFile, visit);
 
 	return found;
 };
 
-const analyzeFile = async (filePath: string): Promise<SpaHost | null> => {
+const analyzeFile = async (filePath: string) => {
 	let source: string;
 	try {
 		source = await fs.readFile(filePath, 'utf-8');
@@ -233,7 +229,7 @@ const analyzeFile = async (filePath: string): Promise<SpaHost | null> => {
 		return null;
 	}
 
-	const sf = ts.createSourceFile(
+	const sourceFile = ts.createSourceFile(
 		filePath,
 		source,
 		ts.ScriptTarget.Latest,
@@ -241,18 +237,20 @@ const analyzeFile = async (filePath: string): Promise<SpaHost | null> => {
 		ts.ScriptKind.TS
 	);
 
-	if (!importsSymbolFrom(sf, 'APP_BASE_HREF', '@angular/common')) return null;
-	if (!importsSymbolFrom(sf, 'provideRouter', '@angular/router')) return null;
+	if (!importsSymbolFrom(sourceFile, 'APP_BASE_HREF', '@angular/common'))
+		return null;
+	if (!importsSymbolFrom(sourceFile, 'provideRouter', '@angular/router'))
+		return null;
 
-	const baseHref = findAppBaseHrefValue(sf);
+	const baseHref = findAppBaseHrefValue(sourceFile);
 	if (!baseHref) return null;
 
-	const firstArg = findProvideRouterFirstArg(sf);
+	const firstArg = findProvideRouterFirstArg(sourceFile);
 	if (!firstArg) return null;
 
 	let routesArray: ts.ArrayLiteralExpression | null = null;
 	if (ts.isIdentifier(firstArg)) {
-		routesArray = findRoutesArrayDeclaration(sf, firstArg.text);
+		routesArray = findRoutesArrayDeclaration(sourceFile, firstArg.text);
 	} else if (ts.isArrayLiteralExpression(firstArg)) {
 		routesArray = firstArg;
 	}
@@ -268,27 +266,31 @@ const analyzeFile = async (filePath: string): Promise<SpaHost | null> => {
 	};
 };
 
-const walkTsFiles = async (dir: string, out: string[]): Promise<void> => {
+const walkTsFiles = async (dir: string, files: string[]) => {
 	let items: import('node:fs').Dirent[];
 	try {
 		items = await fs.readdir(dir, { withFileTypes: true });
 	} catch {
 		return;
 	}
+	const directories: string[] = [];
 	for (const item of items) {
 		if (item.name === 'node_modules') continue;
 		if (item.name.startsWith('.')) continue;
 		const full = join(dir, item.name);
 		if (item.isDirectory()) {
-			await walkTsFiles(full, out);
+			directories.push(full);
 		} else if (
 			item.isFile() &&
 			item.name.endsWith('.ts') &&
 			!item.name.endsWith('.d.ts')
 		) {
-			out.push(full);
+			files.push(full);
 		}
 	}
+	await Promise.all(
+		directories.map((directory) => walkTsFiles(directory, files))
+	);
 };
 
 /** Statically scan an Angular page-source directory for SPA hosts —
@@ -296,9 +298,7 @@ const walkTsFiles = async (dir: string, out: string[]): Promise<void> => {
  *  an `APP_BASE_HREF` provider plus a literal `Routes` array. Returns
  *  one entry per host with the mount path and leaf routes. Does not
  *  load or execute user code. */
-export const analyzeAngularSpaRoutes = async (
-	angularDirectory: string
-): Promise<SpaHost[]> => {
+export const analyzeAngularSpaRoutes = async (angularDirectory: string) => {
 	if (!existsSync(angularDirectory)) return [];
 
 	const tsFiles: string[] = [];

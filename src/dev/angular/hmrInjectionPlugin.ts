@@ -95,7 +95,7 @@ const extractAllTopLevelNames = (jsSource: string) => {
 	TOP_LEVEL_DECL_RE.lastIndex = 0;
 	let declMatch: RegExpExecArray | null;
 	while ((declMatch = TOP_LEVEL_DECL_RE.exec(jsSource)) !== null) {
-		const name = declMatch[1];
+		const [, name] = declMatch;
 		if (name) names.add(name);
 	}
 
@@ -280,7 +280,7 @@ export const applyAngularHmrInjection = (
 		ENTITY_DECORATOR_RE.flags
 	);
 	while ((match = re.exec(jsSource)) !== null) {
-		const className = match[1];
+		const [, className] = match;
 		if (className && !seen.has(className)) {
 			seen.add(className);
 			classNames.push(className);

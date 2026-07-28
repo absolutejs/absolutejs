@@ -12,7 +12,11 @@ export const waitForServer = async (
 	maxRetries = DEFAULT_MAX_RETRIES,
 	tlsOptionsOrDelay?:
 		| number
-		| { rejectUnauthorized?: boolean; delayMs?: number }
+		| {
+				rejectUnauthorized?: boolean;
+				delayMs?: number;
+				isReady?: (response: Response) => boolean | Promise<boolean>;
+		  }
 ) => {
 	const delayMs =
 		typeof tlsOptionsOrDelay === 'number'
@@ -30,7 +34,11 @@ export const waitForServer = async (
 	for (let i = 0; i < maxRetries; i++) {
 		try {
 			const res = await fetch(url, fetchInit);
-			if (res.ok) return true;
+			const isReady =
+				typeof tlsOptionsOrDelay === 'object'
+					? tlsOptionsOrDelay.isReady
+					: undefined;
+			if (res.ok && (!isReady || (await isReady(res)))) return true;
 		} catch {
 			// Server not ready yet
 		}

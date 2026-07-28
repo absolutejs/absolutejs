@@ -152,7 +152,7 @@ const collectAngularResourceDirs = (angularDir: string) => {
 				if (match[1]) refs.push(match[1]);
 			}
 			while ((match = stylesArrRe.exec(source)) !== null) {
-				const inner = match[1];
+				const [inner] = match.slice(1);
 				if (!inner) continue;
 				let strMatch: RegExpExecArray | null;
 				const innerRe = new RegExp(literalRe.source, literalRe.flags);
@@ -237,7 +237,6 @@ const collectPositiveWatchRoots = (
 	// `.git`, etc.; we additionally skip dot-directories and the
 	// already-included framework roots.
 	try {
-		const { readdirSync } = require('node:fs') as typeof import('node:fs');
 		const entries = readdirSync(cwd, { withFileTypes: true });
 		for (const entry of entries) {
 			if (!entry.isDirectory()) continue;

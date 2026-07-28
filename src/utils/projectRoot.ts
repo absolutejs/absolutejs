@@ -9,24 +9,29 @@ const CONFIG_CANDIDATES = [
 	'absolute.config.mts',
 	'absolute.config.cts'
 ];
+const hasAbsoluteConfig = (directory: string) =>
+	CONFIG_CANDIDATES.some((name) => existsSync(resolve(directory, name)));
 
 const findProjectRoot = () => {
 	const start = process.cwd();
 	let packageRoot: string | null = null;
-	let dir = start;
+	let directory = start;
 
 	for (;;) {
-		if (CONFIG_CANDIDATES.some((name) => existsSync(resolve(dir, name)))) {
-			return dir;
+		if (hasAbsoluteConfig(directory)) {
+			return directory;
 		}
-		if (packageRoot === null && existsSync(resolve(dir, 'package.json'))) {
-			packageRoot = dir;
+		if (
+			packageRoot === null &&
+			existsSync(resolve(directory, 'package.json'))
+		) {
+			packageRoot = directory;
 		}
-		const parent = dirname(dir);
-		if (parent === dir) {
+		const parent = dirname(directory);
+		if (parent === directory) {
 			return packageRoot ?? start;
 		}
-		dir = parent;
+		directory = parent;
 	}
 };
 

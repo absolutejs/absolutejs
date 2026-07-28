@@ -1,5 +1,5 @@
-import { describe, expect, test, afterEach } from 'bun:test';
-import { resolve, dirname } from 'node:path';
+import { describe, test, afterEach } from 'bun:test';
+import { resolve } from 'node:path';
 import { mkdirSync } from 'node:fs';
 import { startDevServer, type DevServer } from '../../../helpers/devServer';
 import { createFile, mutateFile, restoreAllFiles } from '../../../helpers/file';

@@ -29,6 +29,11 @@ const OTHER_CANDIDATES = [
 // Display order; any category prettier reports beyond these is appended.
 const CATEGORY_ORDER = ['Global', 'Common', 'JavaScript', 'HTML', 'Markdown'];
 
+type PrettierDiscovery = {
+	configPath: string | null;
+	format: PrettierFormat;
+};
+
 // Prettier's metadata is the source of truth — load it from the installed copy
 // (reflecting its version + plugins) rather than maintaining our own catalog.
 // `getSupportInfo()` also lists programmatic/CLI-only options (cursorOffset,
@@ -69,24 +74,44 @@ const discover = (cwd: string) => {
 	for (const name of JSON_CANDIDATES) {
 		const candidate = resolve(cwd, name);
 		if (existsSync(candidate) && readJsonObject(candidate)) {
-			return { configPath: candidate, format: 'json' as PrettierFormat };
+			const discovery: PrettierDiscovery = {
+				configPath: candidate,
+				format: 'json'
+			};
+
+			return discovery;
 		}
 	}
 
 	const pkgPath = resolve(cwd, 'package.json');
 	const pkg = existsSync(pkgPath) ? readJsonObject(pkgPath) : null;
 	if (pkg && isRecord(pkg.prettier)) {
-		return { configPath: pkgPath, format: 'package' as PrettierFormat };
+		const discovery: PrettierDiscovery = {
+			configPath: pkgPath,
+			format: 'package'
+		};
+
+		return discovery;
 	}
 
 	for (const name of OTHER_CANDIDATES) {
 		const candidate = resolve(cwd, name);
 		if (existsSync(candidate)) {
-			return { configPath: candidate, format: 'other' as PrettierFormat };
+			const discovery: PrettierDiscovery = {
+				configPath: candidate,
+				format: 'other'
+			};
+
+			return discovery;
 		}
 	}
 
-	return { configPath: null, format: 'none' as PrettierFormat };
+	const discovery: PrettierDiscovery = {
+		configPath: null,
+		format: 'none'
+	};
+
+	return discovery;
 };
 
 const readCurrent = (

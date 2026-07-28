@@ -27,11 +27,6 @@ const counterTemplate = resolve(
 	PROJECT_ROOT,
 	'example/angular/templates/counter.component.html'
 );
-const dropdownTemplate = resolve(
-	PROJECT_ROOT,
-	'example/angular/templates/dropdown.component.html'
-);
-
 const startAndConnect = async () => {
 	server = await startDevServer();
 	client = await connectHMR(server.port);

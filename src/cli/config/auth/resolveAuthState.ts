@@ -192,10 +192,7 @@ const readFileOrNull = (path: string) => {
 	}
 };
 
-// Return type is annotated because `match` is assigned inside the `visit`
-// closure, which TS's flow analysis ignores when inferring (it would infer
-// `null`) — same reason `findConfigObject` annotates its result.
-const findSetupInFile = (path: string): SetupMatch | null => {
+const findSetupInFile = (path: string) => {
 	const text = readFileOrNull(path);
 	if (text === null || !text.includes(AUTH_PACKAGE)) return null;
 	const sourceFile = ts.createSourceFile(
@@ -207,19 +204,17 @@ const findSetupInFile = (path: string): SetupMatch | null => {
 	const bindings = authBindings(sourceFile);
 	if (bindings.size === 0) return null;
 
-	let match: SetupMatch | null = null;
-	const visit = (node: ts.Node) => {
-		if (match) return;
+	const pending: ts.Node[] = [sourceFile];
+	while (pending.length > 0) {
+		const node = pending.pop();
+		if (!node) continue;
 		if (ts.isCallExpression(node) && isAuthCall(node, bindings)) {
-			match = matchFromCall(node);
-
-			return;
+			return matchFromCall(node);
 		}
-		ts.forEachChild(node, visit);
-	};
-	visit(sourceFile);
+		node.forEachChild((child) => pending.push(child));
+	}
 
-	return match;
+	return null;
 };
 
 const featureStatuses = (keys: Set<string>) =>

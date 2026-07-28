@@ -57,8 +57,7 @@ const parseArgs = (): RunnerArgs => {
 		flagIndex === NOT_FOUND
 			? args
 			: args.filter(
-					(_, index) =>
-						index !== flagIndex && index !== flagIndex + 1
+					(_, index) => index !== flagIndex && index !== flagIndex + 1
 				);
 
 	return { shards, testDir: positional[0] ?? 'tests/integration/hmr' };
@@ -94,8 +93,7 @@ const partition = (files: string[], shardCount: number) => {
 	weighted.forEach((entry, index) => {
 		const round = Math.floor(index / shardCount);
 		const position = index % shardCount;
-		const target =
-			round % 2 === 0 ? position : shardCount - 1 - position;
+		const target = round % 2 === 0 ? position : shardCount - 1 - position;
 		shards[target]?.push(entry.file);
 	});
 
@@ -241,10 +239,9 @@ const main = async () => {
 		printShardFailures(result);
 	}
 
-	const totalMins = (
-		(performance.now() - startedAt) /
-		MS_PER_MINUTE
-	).toFixed(1);
+	const totalMins = ((performance.now() - startedAt) / MS_PER_MINUTE).toFixed(
+		1
+	);
 	console.log(
 		`\nTotal: ${totals.pass} pass, ${totals.fail} fail ` +
 			`across ${files.length} files in ${totalMins}m ` +

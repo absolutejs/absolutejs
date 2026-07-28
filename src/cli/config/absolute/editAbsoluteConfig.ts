@@ -90,22 +90,26 @@ export const applyAbsoluteConfigEdit = (
 				};
 			}
 			const indent = indentBefore(text, last.getStart(sourceFile));
-			let at = last.getEnd();
-			const hasComma = text[at] === ',';
-			if (hasComma) at += 1;
+			let insertionIndex = last.getEnd();
+			const hasComma = text[insertionIndex] === ',';
+			if (hasComma) insertionIndex += 1;
 			const insertion = `${hasComma ? '' : ','}\n${indent}${entry}`;
 			writeFileSync(
 				configPath,
-				text.slice(0, at) + insertion + text.slice(at),
+				text.slice(0, insertionIndex) +
+					insertion +
+					text.slice(insertionIndex),
 				'utf-8'
 			);
 		} else {
-			const at = object.getStart(sourceFile) + 1;
+			const insertionIndex = object.getStart(sourceFile) + 1;
 			const indent = `${indentBefore(text, object.getStart(sourceFile))}\t`;
 			const insertion = `\n${indent}${entry}\n${indentBefore(text, object.getStart(sourceFile))}`;
 			writeFileSync(
 				configPath,
-				text.slice(0, at) + insertion + text.slice(at),
+				text.slice(0, insertionIndex) +
+					insertion +
+					text.slice(insertionIndex),
 				'utf-8'
 			);
 		}

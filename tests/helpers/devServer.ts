@@ -87,21 +87,26 @@ export const startDevServer = async (options?: DevServerOptions | number) => {
 		opts.configPath ?? resolve(PROJECT_ROOT, 'example/absolute.config.ts');
 
 	const httpsEnabled = opts.https === true;
-	const proc = Bun.spawn(['bun', '--hot', '--no-clear-screen', serverEntry], {
-		cwd: PROJECT_ROOT,
-		env: {
-			...process.env,
-			ABSOLUTE_CONFIG: configPath,
-			FORCE_COLOR: '0',
-			NODE_ENV: 'development',
-			PORT: String(resolvedPort),
-			TELEMETRY_OFF: '1',
-			...(httpsEnabled ? { ABSOLUTE_HTTPS: 'true' } : {}),
-			...opts.env
-		},
-		stderr: 'pipe',
-		stdout: 'pipe'
-	});
+	const serverBootstrap = resolve(PROJECT_ROOT, 'src/dev/serverBootstrap.ts');
+	const proc = Bun.spawn(
+		['bun', '--hot', '--no-clear-screen', serverBootstrap],
+		{
+			cwd: PROJECT_ROOT,
+			env: {
+				...process.env,
+				ABSOLUTE_CONFIG: configPath,
+				ABSOLUTE_SERVER_ENTRY: serverEntry,
+				FORCE_COLOR: '0',
+				NODE_ENV: 'development',
+				PORT: String(resolvedPort),
+				TELEMETRY_OFF: '1',
+				...(httpsEnabled ? { ABSOLUTE_HTTPS: 'true' } : {}),
+				...opts.env
+			},
+			stderr: 'pipe',
+			stdout: 'pipe'
+		}
+	);
 
 	const outputLines: string[] = [];
 	const lineWaiters: Array<{
@@ -126,7 +131,17 @@ export const startDevServer = async (options?: DevServerOptions | number) => {
 
 	try {
 		await waitForServer(`${baseUrl}/hmr-status`, opts.bootMaxRetries, {
-			rejectUnauthorized: !httpsEnabled
+			rejectUnauthorized: !httpsEnabled,
+			isReady: async (response) => {
+				const status: unknown = await response.json();
+
+				return (
+					typeof status === 'object' &&
+					status !== null &&
+					'entryWatcherReady' in status &&
+					status.entryWatcherReady === true
+				);
+			}
 		});
 	} catch (err) {
 		proc.kill();
@@ -156,11 +171,13 @@ export const startDevServer = async (options?: DevServerOptions | number) => {
 		const existing = outputLines.find((line) => pattern.test(line));
 		if (existing) return Promise.resolve(existing);
 
-		return new Promise<string>((res, rej) => {
+		return new Promise<string>((_resolve, reject) => {
 			const timer = setTimeout(() => {
-				const idx = lineWaiters.findIndex((w) => w.resolve === res);
+				const idx = lineWaiters.findIndex(
+					(w) => w.resolve === _resolve
+				);
 				if (idx !== -1) lineWaiters.splice(idx, 1);
-				rej(
+				reject(
 					new Error(
 						`Timed out waiting for stdout/stderr line matching ${pattern} after ${timeoutMs}ms. Last 20 lines:\n${outputLines.slice(-20).join('\n')}`
 					)
@@ -170,7 +187,7 @@ export const startDevServer = async (options?: DevServerOptions | number) => {
 				pattern,
 				resolve: (line) => {
 					clearTimeout(timer);
-					res(line);
+					_resolve(line);
 				}
 			});
 		});

@@ -1,4 +1,4 @@
-import type { Snippet } from 'svelte';
+import { SvelteComponent, type Snippet } from 'svelte';
 import type { RouterMode } from '../../../types/svelteRouter';
 
 type RouterProps = {
@@ -11,6 +11,6 @@ type RouterProps = {
 declare const __propDef: { props: RouterProps };
 type Props = typeof __propDef.props;
 
-import { SvelteComponent } from 'svelte';
+class Router extends SvelteComponent<Props> {}
 
-export default class Router extends SvelteComponent<Props> {}
+export { Router as default };

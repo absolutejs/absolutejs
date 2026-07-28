@@ -72,8 +72,8 @@ const isDev = () => process.env.NODE_ENV === 'development';
 const buildErrorProps = (error: unknown): ErrorPageProps => {
 	if (error instanceof Error) {
 		return {
-			name: error.name,
 			message: error.message,
+			name: error.name,
 			...(isDev() && error.stack ? { stack: error.stack } : {})
 		};
 	}
@@ -271,7 +271,7 @@ const tryFrameworkErrorConvention = async (
 		for (const match of error.stack.matchAll(
 			/^\s*at\s+([A-Za-z_$][\w$]*)/gm
 		)) {
-			const candidate = match[1];
+			const [, candidate] = match;
 			if (!candidate) continue;
 
 			conventionPath = resolveErrorConventionPath(framework, candidate);

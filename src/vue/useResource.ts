@@ -30,6 +30,9 @@ export type ResourceOptions = {
 };
 
 export type ResourceMutator<T> = T | null | ((prev: T | null) => T | null);
+const isMutatorFunction = <T>(
+	mutator: ResourceMutator<T>
+): mutator is (previous: T | null) => T | null => typeof mutator === 'function';
 
 export type Resource<T> = {
 	/** Latest resolved value, or `null` before the first successful load. */
@@ -92,6 +95,10 @@ export const useResource = <T>(
 			controller = null;
 		}
 	};
+	const finishRefresh = (next: AbortController) => {
+		if (controller === next) controller = null;
+		if (!next.signal.aborted) loading.value = false;
+	};
 
 	const refresh = async () => {
 		if (destroyed) return;
@@ -108,12 +115,7 @@ export const useResource = <T>(
 			if (next.signal.aborted) return;
 			error.value = cause;
 		} finally {
-			if (controller === next) {
-				controller = null;
-			}
-			if (!next.signal.aborted) {
-				loading.value = false;
-			}
+			finishRefresh(next);
 		}
 	};
 
@@ -122,10 +124,7 @@ export const useResource = <T>(
 		cancel();
 		error.value = null;
 		loading.value = false;
-		const resolved =
-			typeof next === 'function'
-				? (next as (prev: T | null) => T | null)(data.value)
-				: next;
+		const resolved = isMutatorFunction(next) ? next(data.value) : next;
 		data.value = resolved;
 	};
 

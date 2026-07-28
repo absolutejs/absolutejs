@@ -6,6 +6,11 @@ export type BrowserSession = {
 	close: () => Promise<void>;
 };
 
+type OpenPageOptions = {
+	consoleLog?: (message: string) => void;
+	viewport?: { height: number; width: number };
+};
+
 /* Spin up a headless Chromium against the dev-server URL. The
  * returned page is already navigated to `url` and DOMContentLoaded
  * + the `load` event have fired. `close()` shuts the whole browser
@@ -13,10 +18,7 @@ export type BrowserSession = {
  * processes across runs. */
 export const openPage = async (
 	url: string,
-	options: {
-		consoleLog?: (msg: string) => void;
-		viewport?: { width: number; height: number };
-	} = {}
+	options: OpenPageOptions = {}
 ): Promise<BrowserSession> => {
 	const browser = await chromium.launch({
 		args: ['--no-sandbox', '--disable-dev-shm-usage'],
@@ -28,7 +30,8 @@ export const openPage = async (
 	const page = await context.newPage();
 
 	if (options.consoleLog) {
-		page.on('console', (msg) => options.consoleLog!(msg.text()));
+		const { consoleLog } = options;
+		page.on('console', (message) => consoleLog(message.text()));
 	}
 
 	await page.goto(url, { waitUntil: 'load' });
@@ -64,7 +67,9 @@ export const waitForText = async (
 		lastSeen = (await locator.textContent({ timeout: 1000 })) ?? '';
 		if (predicate(lastSeen)) return lastSeen;
 		try {
-			await locator.evaluate(() => new Promise((r) => setTimeout(r, 50)));
+			await locator.evaluate(
+				() => new Promise((resolve) => setTimeout(resolve, 50))
+			);
 		} catch {
 			/* navigation in flight; retry */
 		}

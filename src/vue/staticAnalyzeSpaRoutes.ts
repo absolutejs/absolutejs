@@ -10,7 +10,7 @@ const pathHasDynamic = (path: string) =>
 		.split('/')
 		.some((seg) => DYNAMIC_SEGMENT_PATTERN.test(seg) || seg === '**');
 
-const readStringLiteral = (expression: ts.Expression): string | null => {
+const readStringLiteral = (expression: ts.Expression) => {
 	if (
 		ts.isStringLiteral(expression) ||
 		ts.isNoSubstitutionTemplateLiteral(expression)
@@ -21,9 +21,7 @@ const readStringLiteral = (expression: ts.Expression): string | null => {
 	return null;
 };
 
-const readPropertyKey = (
-	property: ts.ObjectLiteralElementLike
-): string | null => {
+const readPropertyKey = (property: ts.ObjectLiteralElementLike) => {
 	if (ts.isPropertyAssignment(property)) {
 		const { name } = property;
 		if (ts.isIdentifier(name) || ts.isStringLiteral(name)) return name.text;
@@ -36,11 +34,11 @@ const readPropertyKey = (
 };
 
 const importsSymbolFrom = (
-	sf: ts.SourceFile,
+	sourceFile: ts.SourceFile,
 	localName: string,
 	moduleSpecifier: string
-): boolean => {
-	for (const statement of sf.statements) {
+) => {
+	for (const statement of sourceFile.statements) {
 		if (!ts.isImportDeclaration(statement)) continue;
 		if (!ts.isStringLiteral(statement.moduleSpecifier)) continue;
 		if (statement.moduleSpecifier.text !== moduleSpecifier) continue;
@@ -55,9 +53,9 @@ const importsSymbolFrom = (
 };
 
 const findVariableArrayDeclaration = (
-	sf: ts.SourceFile,
+	sourceFile: ts.SourceFile,
 	identifierName: string
-): ts.ArrayLiteralExpression | null => {
+) => {
 	let found: ts.ArrayLiteralExpression | null = null;
 	const visit = (node: ts.Node) => {
 		if (found) return;
@@ -74,12 +72,12 @@ const findVariableArrayDeclaration = (
 		}
 		ts.forEachChild(node, visit);
 	};
-	ts.forEachChild(sf, visit);
+	ts.forEachChild(sourceFile, visit);
 
 	return found;
 };
 
-const joinSegments = (parent: string, child: string): string => {
+const joinSegments = (parent: string, child: string) => {
 	if (!child) return parent;
 	if (!parent) return child;
 
@@ -87,11 +85,11 @@ const joinSegments = (parent: string, child: string): string => {
 };
 
 const extractRouteEntries = (
-	arr: ts.ArrayLiteralExpression,
+	routeArray: ts.ArrayLiteralExpression,
 	parentPath: string,
-	out: SpaRoute[]
-): void => {
-	for (const element of arr.elements) {
+	routes: SpaRoute[]
+) => {
+	for (const element of routeArray.elements) {
 		if (!ts.isObjectLiteralExpression(element)) continue;
 
 		let pathSegment: string | null = null;
@@ -134,20 +132,20 @@ const extractRouteEntries = (
 		const joined = joinSegments(parentPath, pathSegment);
 
 		if (childrenLiteral) {
-			extractRouteEntries(childrenLiteral, joined, out);
+			extractRouteEntries(childrenLiteral, joined, routes);
 			continue;
 		}
 
 		if (joined === '') continue;
 
-		out.push({
+		routes.push({
 			dynamic: pathHasDynamic(joined),
 			path: joined,
 			redirected,
 			sitemapExcluded
 		});
 		if (alias) {
-			out.push({
+			routes.push({
 				dynamic: pathHasDynamic(alias),
 				path: alias,
 				redirected: false,
@@ -157,24 +155,25 @@ const extractRouteEntries = (
 	}
 };
 
-const findDefineRoutesArray = (sf: ts.SourceFile) => {
+const findDefineRoutesArray = (sourceFile: ts.SourceFile) => {
 	let found: ts.ArrayLiteralExpression | null = null;
 	const visit = (node: ts.Node) => {
 		if (found) return;
 		if (
 			ts.isCallExpression(node) &&
 			ts.isIdentifier(node.expression) &&
-			node.expression.text === 'defineRoutes' &&
-			node.arguments[0] &&
-			ts.isArrayLiteralExpression(node.arguments[0])
+			node.expression.text === 'defineRoutes'
 		) {
-			found = node.arguments[0];
+			const [routesArgument] = node.arguments;
+			if (!routesArgument || !ts.isArrayLiteralExpression(routesArgument))
+				return;
+			found = routesArgument;
 
 			return;
 		}
 		ts.forEachChild(node, visit);
 	};
-	ts.forEachChild(sf, visit);
+	ts.forEachChild(sourceFile, visit);
 
 	return found;
 };
@@ -183,34 +182,34 @@ const inferBaseHref = (routes: SpaRoute[]) => {
 	const firstSegments = routes
 		.map((route) => route.path.split('/').filter(Boolean)[0])
 		.filter((segment): segment is string => Boolean(segment));
-	const first = firstSegments[0];
+	const [first] = firstSegments;
 	if (!first || firstSegments.some((segment) => segment !== first))
 		return '/';
 
 	return `/${first}/`;
 };
 
-const findCreateRouterCall = (sf: ts.SourceFile): ts.CallExpression | null => {
-	let found: ts.CallExpression | null = null;
+const findCreateRouterCall = (sourceFile: ts.SourceFile) => {
+	const result: { found: ts.CallExpression | null } = { found: null };
 	const visit = (node: ts.Node) => {
-		if (found) return;
+		if (result.found) return;
 		if (
 			ts.isCallExpression(node) &&
 			ts.isIdentifier(node.expression) &&
 			node.expression.text === 'createRouter'
 		) {
-			found = node;
+			result.found = node;
 
 			return;
 		}
 		ts.forEachChild(node, visit);
 	};
-	ts.forEachChild(sf, visit);
+	ts.forEachChild(sourceFile, visit);
 
-	return found;
+	return result.found;
 };
 
-const findCreateWebHistoryBase = (sf: ts.SourceFile): string | null => {
+const findCreateWebHistoryBase = (sourceFile: ts.SourceFile) => {
 	let found: string | null = null;
 	const visit = (node: ts.Node) => {
 		if (found) return;
@@ -220,7 +219,7 @@ const findCreateWebHistoryBase = (sf: ts.SourceFile): string | null => {
 			(node.expression.text === 'createWebHistory' ||
 				node.expression.text === 'createWebHashHistory')
 		) {
-			const baseArg = node.arguments[0];
+			const [baseArg] = node.arguments;
 			if (baseArg) {
 				const text = readStringLiteral(baseArg);
 				if (text !== null) {
@@ -237,35 +236,38 @@ const findCreateWebHistoryBase = (sf: ts.SourceFile): string | null => {
 		}
 		ts.forEachChild(node, visit);
 	};
-	ts.forEachChild(sf, visit);
+	ts.forEachChild(sourceFile, visit);
 
 	return found;
 };
 
 const readRoutesFromCreateRouterOptions = (
-	sf: ts.SourceFile,
+	sourceFile: ts.SourceFile,
 	optionsExpr: ts.Expression
-): ts.ArrayLiteralExpression | null => {
+) => {
 	if (!ts.isObjectLiteralExpression(optionsExpr)) return null;
 	for (const property of optionsExpr.properties) {
 		const key = readPropertyKey(property);
 		if (key !== 'routes') continue;
 		if (ts.isShorthandPropertyAssignment(property)) {
-			return findVariableArrayDeclaration(sf, property.name.text);
+			return findVariableArrayDeclaration(sourceFile, property.name.text);
 		}
 		if (!ts.isPropertyAssignment(property)) continue;
 		if (ts.isArrayLiteralExpression(property.initializer)) {
 			return property.initializer;
 		}
 		if (ts.isIdentifier(property.initializer)) {
-			return findVariableArrayDeclaration(sf, property.initializer.text);
+			return findVariableArrayDeclaration(
+				sourceFile,
+				property.initializer.text
+			);
 		}
 	}
 
 	return null;
 };
 
-const extractScriptBlockFromVueSfc = (source: string): string | null => {
+const extractScriptBlockFromVueSfc = (source: string) => {
 	// Crude but effective: capture the first `<script setup>` or `<script>` block.
 	const scriptRe = /<script\b[^>]*?(?:setup)?[^>]*>([\s\S]*?)<\/script>/i;
 	const match = scriptRe.exec(source);
@@ -273,7 +275,7 @@ const extractScriptBlockFromVueSfc = (source: string): string | null => {
 	return match ? (match[1] ?? null) : null;
 };
 
-const analyzeFile = async (filePath: string): Promise<SpaHost | null> => {
+const analyzeFile = async (filePath: string) => {
 	let source: string;
 	try {
 		source = await fs.readFile(filePath, 'utf-8');
@@ -294,7 +296,7 @@ const analyzeFile = async (filePath: string): Promise<SpaHost | null> => {
 	)
 		return null;
 
-	const sf = ts.createSourceFile(
+	const sourceFile = ts.createSourceFile(
 		filePath,
 		analysisSource,
 		ts.ScriptTarget.Latest,
@@ -302,36 +304,39 @@ const analyzeFile = async (filePath: string): Promise<SpaHost | null> => {
 		ts.ScriptKind.TS
 	);
 
-	const defineRoutesArray = findDefineRoutesArray(sf);
-	const call = importsSymbolFrom(sf, 'createRouter', 'vue-router')
-		? findCreateRouterCall(sf)
+	const defineRoutesArray = findDefineRoutesArray(sourceFile);
+	const call = importsSymbolFrom(sourceFile, 'createRouter', 'vue-router')
+		? findCreateRouterCall(sourceFile)
 		: null;
-	const optionsArg = call?.arguments[0];
+	const [optionsArg] = call?.arguments ?? [];
 	const routesArray =
 		defineRoutesArray ??
-		(optionsArg ? readRoutesFromCreateRouterOptions(sf, optionsArg) : null);
+		(optionsArg
+			? readRoutesFromCreateRouterOptions(sourceFile, optionsArg)
+			: null);
 	if (!routesArray) return null;
 
 	const routes: SpaRoute[] = [];
 	extractRouteEntries(routesArray, '', routes);
-	const base = findCreateWebHistoryBase(sf) ?? inferBaseHref(routes);
+	const base = findCreateWebHistoryBase(sourceFile) ?? inferBaseHref(routes);
 	const baseHref = base.endsWith('/') ? base : `${base}/`;
 
 	return { baseHref, routes, sourceFile: filePath };
 };
 
-const walkSourceFiles = async (dir: string, out: string[]): Promise<void> => {
+const walkSourceFiles = async (dir: string, files: string[]) => {
 	let items: import('node:fs').Dirent[];
 	try {
 		items = await fs.readdir(dir, { withFileTypes: true });
 	} catch {
 		return;
 	}
+	const directories: string[] = [];
 	for (const item of items) {
 		if (item.name === 'node_modules' || item.name.startsWith('.')) continue;
 		const full = join(dir, item.name);
 		if (item.isDirectory()) {
-			await walkSourceFiles(full, out);
+			directories.push(full);
 		} else if (
 			item.isFile() &&
 			(item.name.endsWith('.ts') ||
@@ -339,9 +344,12 @@ const walkSourceFiles = async (dir: string, out: string[]): Promise<void> => {
 				item.name.endsWith('.vue')) &&
 			!item.name.endsWith('.d.ts')
 		) {
-			out.push(full);
+			files.push(full);
 		}
 	}
+	await Promise.all(
+		directories.map((directory) => walkSourceFiles(directory, files))
+	);
 };
 
 /** Statically scan a Vue page-source directory for SPA hosts — files
@@ -349,9 +357,7 @@ const walkSourceFiles = async (dir: string, out: string[]): Promise<void> => {
  *  from `vue-router`. The `createWebHistory` argument supplies the mount
  *  path; the `routes` option supplies the route table (inline array or
  *  identifier reference). Scans `.vue` SFC script blocks too. */
-export const analyzeVueSpaRoutes = async (
-	vueDirectory: string
-): Promise<SpaHost[]> => {
+export const analyzeVueSpaRoutes = async (vueDirectory: string) => {
 	if (!existsSync(vueDirectory)) return [];
 
 	const files: string[] = [];

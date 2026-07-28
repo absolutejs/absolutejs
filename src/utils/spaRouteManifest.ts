@@ -11,10 +11,15 @@ export const setSpaRouteManifest = (hosts: RuntimeSpaHost[]) => {
 	Reflect.set(globalThis, SPA_ROUTES_KEY, hosts);
 };
 
-const getSpaRouteManifest = (): RuntimeSpaHost[] => {
+const isRuntimeSpaHost = (value: unknown): value is RuntimeSpaHost =>
+	typeof value === 'object' &&
+	value !== null &&
+	typeof Reflect.get(value, 'framework') === 'string';
+
+const getSpaRouteManifest = () => {
 	const value: unknown = Reflect.get(globalThis, SPA_ROUTES_KEY);
 
-	return Array.isArray(value) ? (value as RuntimeSpaHost[]) : [];
+	return Array.isArray(value) ? value.filter(isRuntimeSpaHost) : [];
 };
 
 const normalizePath = (path: string) => {

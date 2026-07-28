@@ -81,8 +81,8 @@ const waitForAngularTier = (c: HMRClient, deadlineMs = 12_000) =>
 describe('Angular tier-0 surgical (cosmetic guts → ɵɵreplaceMetadata)', () => {
 	test('method body change is tier-0', async () => {
 		const { client: c } = await startAndConnect();
-		mutateFile(counterComponent, (c) =>
-			c.replace('this.count++;', 'this.count = this.count + 2;')
+		mutateFile(counterComponent, (content) =>
+			content.replace('this.count++;', 'this.count = this.count + 2;')
 		);
 		const msg = await waitForAngularTier(c);
 		expect(msg.type).toBe('angular:component-update');
@@ -90,15 +90,17 @@ describe('Angular tier-0 surgical (cosmetic guts → ɵɵreplaceMetadata)', () =
 
 	test('external `templateUrl` HTML edit is tier-0', async () => {
 		const { client: c } = await startAndConnect();
-		mutateFile(counterTemplate, (c) => c.replace('count is', 'tally is'));
+		mutateFile(counterTemplate, (content) =>
+			content.replace('count is', 'tally is')
+		);
 		const msg = await waitForAngularTier(c);
 		expect(msg.type).toBe('angular:component-update');
 	}, 30_000);
 
 	test('field initializer value change is tier-0 (name set unchanged)', async () => {
 		const { client: c } = await startAndConnect();
-		mutateFile(counterComponent, (c) =>
-			c.replace('count: number = 0;', 'count: number = 100;')
+		mutateFile(counterComponent, (content) =>
+			content.replace('count: number = 0;', 'count: number = 100;')
 		);
 		const msg = await waitForAngularTier(c);
 		expect(msg.type).toBe('angular:component-update');
@@ -108,8 +110,8 @@ describe('Angular tier-0 surgical (cosmetic guts → ɵɵreplaceMetadata)', () =
 describe('Angular tier-1a remount (public-API / scoping change → createComponent)', () => {
 	test('adding a new `@Input()` field forces remount', async () => {
 		const { client: c } = await startAndConnect();
-		mutateFile(counterComponent, (c) =>
-			c.replace(
+		mutateFile(counterComponent, (content) =>
+			content.replace(
 				'@Input() initialCount: number = 0;',
 				'@Input() initialCount: number = 0;\n\t@Input() multiplier: number = 2;'
 			)
@@ -120,8 +122,8 @@ describe('Angular tier-1a remount (public-API / scoping change → createCompone
 
 	test('switching `ChangeDetectionStrategy` to OnPush forces remount', async () => {
 		const { client: c } = await startAndConnect();
-		mutateFile(counterComponent, (c) =>
-			c
+		mutateFile(counterComponent, (content) =>
+			content
 				.replace(
 					"import { Component, Input } from '@angular/core';",
 					"import { ChangeDetectionStrategy, Component, Input } from '@angular/core';"
@@ -137,8 +139,8 @@ describe('Angular tier-1a remount (public-API / scoping change → createCompone
 
 	test('switching `encapsulation` to ShadowDom forces remount', async () => {
 		const { client: c } = await startAndConnect();
-		mutateFile(appComponent, (c) =>
-			c.replace(
+		mutateFile(appComponent, (content) =>
+			content.replace(
 				'encapsulation: ViewEncapsulation.None,',
 				'encapsulation: ViewEncapsulation.ShadowDom,'
 			)
@@ -149,8 +151,8 @@ describe('Angular tier-1a remount (public-API / scoping change → createCompone
 
 	test('adding `host: {...}` bindings forces remount', async () => {
 		const { client: c } = await startAndConnect();
-		mutateFile(dropdownComponent, (c) =>
-			c.replace(
+		mutateFile(dropdownComponent, (content) =>
+			content.replace(
 				"selector: 'app-dropdown',",
 				"selector: 'app-dropdown',\n\thost: { 'data-test': 'remount-host' },"
 			)
@@ -166,8 +168,8 @@ describe('Angular tier-1b rebootstrap (structural / DI change → full reboot)',
 		// Order-sensitive: reordering counts as a structural change
 		// (the fast extractor hashes the array text). Reordering
 		// here avoids needing a real new component to import.
-		mutateFile(appComponent, (c) =>
-			c.replace(
+		mutateFile(appComponent, (content) =>
+			content.replace(
 				'imports: [CommonModule, CounterComponent],',
 				'imports: [CounterComponent, CommonModule],'
 			)
@@ -178,8 +180,8 @@ describe('Angular tier-1b rebootstrap (structural / DI change → full reboot)',
 
 	test('adding component-level `providers` forces rebootstrap', async () => {
 		const { client: c } = await startAndConnect();
-		mutateFile(counterComponent, (c) =>
-			c.replace(
+		mutateFile(counterComponent, (content) =>
+			content.replace(
 				"selector: 'app-counter',",
 				"selector: 'app-counter',\n\tproviders: [],"
 			)
@@ -190,8 +192,8 @@ describe('Angular tier-1b rebootstrap (structural / DI change → full reboot)',
 
 	test('adding `hostDirectives: []` forces rebootstrap', async () => {
 		const { client: c } = await startAndConnect();
-		mutateFile(dropdownComponent, (c) =>
-			c.replace(
+		mutateFile(dropdownComponent, (content) =>
+			content.replace(
 				'standalone: true,',
 				'standalone: true,\n\thostDirectives: [],'
 			)
@@ -206,8 +208,8 @@ describe('Angular tier-1b rebootstrap (structural / DI change → full reboot)',
 		// extractor fingerprints via `pageExportsSig`. The example
 		// page doesn't export `routes` today, so we add one — the
 		// presence-or-absence of the export is what flips the hash.
-		mutateFile(pageComponent, (c) =>
-			c.replace(
+		mutateFile(pageComponent, (content) =>
+			content.replace(
 				'export class AngularExampleComponent',
 				'export const routes = [];\n\nexport class AngularExampleComponent'
 			)

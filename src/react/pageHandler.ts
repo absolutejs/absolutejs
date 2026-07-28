@@ -47,6 +47,12 @@ export type ReactPageRequestInput<
 } & (keyof Props extends never
 		? { props?: NoInfer<Props> }
 		: { props: NoInfer<Props> });
+type PropsWithUrlBuilder = <Props extends Record<string, unknown>>(
+	props: Props | undefined,
+	url: string
+) => Props;
+const withRequestUrl: PropsWithUrlBuilder = (props, url) =>
+	Object.assign(Object.create(null), props, { url });
 
 const resolveRequestPathname = (request: Request | undefined) => {
 	if (!request) return undefined;
@@ -87,10 +93,7 @@ export const handleReactPageRequest = async <
 	// just by forwarding `request` instead of unwrapping it themselves.
 	const maybeProps =
 		requestPathname !== undefined && (!userProps || !('url' in userProps))
-			? ({
-					...(userProps ?? {}),
-					url: requestPathname
-				} as unknown as Props)
+			? withRequestUrl(userProps, requestPathname)
 			: userProps;
 	const pageName = Page.name || Page.displayName || '';
 

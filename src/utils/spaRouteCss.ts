@@ -138,22 +138,26 @@ export const resolveSpaChildCss = async (
 	if (routes.length === 0) return '';
 	let pathname: string;
 	try {
-		pathname = new URL(requestUrl).pathname;
+		({ pathname } = new URL(requestUrl));
 	} catch {
 		// `requestUrl` may be a bare path in tests — fall back to it as-is.
 		pathname = requestUrl.split('?')[0] ?? requestUrl;
 	}
 	const matched = findMatchingRoute(routes, pathname);
 	if (!matched) return '';
+	const { cssPath: routeCssPath } = matched;
 
 	const cssPaths = [
-		matched.cssPath,
+		routeCssPath,
 		...routes.map((route) => route.cssPath)
 	].filter(
-		(cssPath, index, all) => cssPath && all.indexOf(cssPath) === index
+		(childCssPath, index, all) =>
+			childCssPath && all.indexOf(childCssPath) === index
 	);
 	const chunks = await Promise.all(
-		cssPaths.map((cssPath) => readChildCss(cssPath, sideManifestPath))
+		cssPaths.map((childCssPath) =>
+			readChildCss(childCssPath, sideManifestPath)
+		)
 	);
 
 	return chunks.filter(Boolean).join('\n');

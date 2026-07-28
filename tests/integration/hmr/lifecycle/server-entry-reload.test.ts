@@ -31,6 +31,17 @@ const startAll = async () => {
 	return { client: client, server: server };
 };
 
+const waitForEntryReload = async (c: HMRClient, srv: DevServer) => {
+	try {
+		await c.waitFor('server-entry-reloaded', 15_000);
+	} catch (error) {
+		throw new Error(
+			`${error instanceof Error ? error.message : String(error)}\n\nDev server output:\n${srv.outputLines.slice(-30).join('\n')}`,
+			{ cause: error }
+		);
+	}
+};
+
 /* Path B server-entry reload contract: after editing the user's
  * server.ts, the next request hits the new bytes via Bun.serve's
  * .reload({ fetch, routes: {} }) (called from the freshly-imported
@@ -55,7 +66,7 @@ describe('server-entry reload after edit', () => {
 				'.use(absolutejs).get("/__entry_reload_probe", () => "RELOAD_OK")'
 			)
 		);
-		await c.waitFor('server-entry-reloaded', 15_000);
+		await waitForEntryReload(c, srv);
 
 		const after = await fetch(`${srv.baseUrl}/__entry_reload_probe`);
 		expect(after.status).toBe(200);
@@ -76,7 +87,7 @@ describe('server-entry reload after edit', () => {
 				'.use(absolutejs).ws("/__ws_probe", { message(ws, message) { ws.send(message); } })'
 			)
 		);
-		await c.waitFor('server-entry-reloaded', 15_000);
+		await waitForEntryReload(c, srv);
 
 		const wsUrl = `${srv.baseUrl.replace(/^http/, 'ws')}/__ws_probe`;
 		const echoed = await new Promise<string>((_resolve, _reject) => {

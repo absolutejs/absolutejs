@@ -103,7 +103,23 @@ const isUnsupportedFormatError = (err: unknown) =>
 	typeof err === 'object' &&
 	err !== null &&
 	'code' in err &&
-	(err as { code?: string }).code === 'ERR_IMAGE_FORMAT_UNSUPPORTED';
+	Reflect.get(err, 'code') === 'ERR_IMAGE_FORMAT_UNSUPPORTED';
+
+const optimizeUnsupportedAvif = async (
+	error: unknown,
+	input: Buffer,
+	width: number,
+	quality: number,
+	format: ImageFormat
+) => {
+	// Bun.Image AVIF encode requires macOS Apple Silicon M3+ or Windows with
+	// AV1 Video Extension — falls back to sharp on other platforms.
+	if (format !== 'avif' || !isUnsupportedFormatError(error)) throw error;
+	const sharp = await tryLoadSharp();
+	if (!sharp || !isSharpFactory(sharp)) throw error;
+
+	return optimizeWithSharp(sharp, input, width, quality, format);
+};
 
 // ── Exports (alphabetically sorted) ────────────────────────────────
 
@@ -357,17 +373,7 @@ export const optimizeImage = async (
 	try {
 		return await optimizeWithBunImage(input, width, quality, format);
 	} catch (err) {
-		// Bun.Image AVIF encode requires macOS Apple Silicon M3+ or Windows with
-		// AV1 Video Extension — falls back to sharp on other platforms.
-		if (format === 'avif' && isUnsupportedFormatError(err)) {
-			const sharp = await tryLoadSharp();
-
-			if (sharp && isSharpFactory(sharp)) {
-				return optimizeWithSharp(sharp, input, width, quality, format);
-			}
-		}
-
-		throw err;
+		return optimizeUnsupportedAvif(err, input, width, quality, format);
 	}
 };
 

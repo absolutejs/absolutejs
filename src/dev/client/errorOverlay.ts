@@ -154,7 +154,8 @@ const collectLoadedScripts = () => {
 	const scripts = Array.from(document.querySelectorAll('script[src]'));
 	const urls: string[] = [];
 	for (const script of scripts) {
-		const { src } = script as HTMLScriptElement;
+		if (!(script instanceof HTMLScriptElement)) continue;
+		const { src } = script;
 		if (!src) continue;
 		// Filter to JS we serve — vendor chunks, generated indexes, root
 		// chunk-XXX.js outputs. Skip user-pasted CDN scripts and the like.
@@ -181,8 +182,8 @@ const buildDiagnosticsSection = () => {
 
 	const lines: string[] = [];
 	lines.push(`Page URL: ${window.location.href}`);
-	const ua = navigator.userAgent;
-	lines.push(`User agent: ${ua}`);
+	const { userAgent } = navigator;
+	lines.push(`User agent: ${userAgent}`);
 	const scripts = collectLoadedScripts();
 	if (scripts.length > 0) {
 		lines.push('');
@@ -373,12 +374,12 @@ const renderOverlay = () => {
 		} catch {
 			// Clipboard API requires a user gesture + permissions; fall back
 			// to a textarea + execCommand so the button still does something.
-			const ta = document.createElement('textarea');
-			ta.value = text;
-			ta.style.position = 'fixed';
-			ta.style.opacity = '0';
-			document.body.appendChild(ta);
-			ta.select();
+			const textarea = document.createElement('textarea');
+			textarea.value = text;
+			textarea.style.position = 'fixed';
+			textarea.style.opacity = '0';
+			document.body.appendChild(textarea);
+			textarea.select();
 			try {
 				document.execCommand('copy');
 				copy.textContent = 'Copied';
@@ -388,7 +389,7 @@ const renderOverlay = () => {
 			} catch {
 				copy.textContent = 'Copy failed';
 			}
-			document.body.removeChild(ta);
+			document.body.removeChild(textarea);
 		}
 	};
 	footer.appendChild(copy);

@@ -43,8 +43,8 @@ const rssKb = (pid: number) => {
 };
 
 /* Sibling-copy Path B (serverEntryWatcher.ts) allocates a fresh
- * module record on every entry edit. Bun's `--hot` similarly
- * tracks state per module across edits. A leak in either layer
+ * module record on every entry edit. Bun also tracks runtime state
+ * per module across edits. A leak in either layer
  * would surface over a long-running dev session as steady RSS
  * growth; a loose RSS ratchet test gives us a cheap regression
  * signal before users hit the OOM that ends the 30-minute coding
@@ -89,7 +89,7 @@ describe('dev-server RSS does not grow unboundedly over many HMR cycles', () => 
 		}
 
 		// Settle and snapshot baseline.
-		await new Promise((r) => setTimeout(r, 1_000));
+		await new Promise((_resolve) => setTimeout(_resolve, 1_000));
 		const baselineRss = rssKb(srv.proc.pid);
 
 		// 100 more edits. We don't drain the client every loop —
@@ -107,7 +107,7 @@ describe('dev-server RSS does not grow unboundedly over many HMR cycles', () => 
 			if (i % 10 === 9) c.drain();
 		}
 
-		await new Promise((r) => setTimeout(r, 1_000));
+		await new Promise((_resolve) => setTimeout(_resolve, 1_000));
 		const finalRss = rssKb(srv.proc.pid);
 
 		const ratio = finalRss / baselineRss;

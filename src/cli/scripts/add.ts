@@ -145,7 +145,7 @@ export const runAdd = async (args: string[]) => {
 
 	// Re-importing the just-edited config would hit Bun's module cache (stale),
 	// so inject the new directory into the resolved project directly.
-	const updated = {
+	const updated: Awaited<ReturnType<typeof resolveProject>> = {
 		...project,
 		frameworkDirs: { ...project.frameworkDirs, [framework]: dirAbs }
 	};

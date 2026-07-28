@@ -204,9 +204,10 @@ const RecordField = ({ onChange, schema, value }: EditorProps) => {
 	if (schema.kind !== 'record') return null;
 	const entries = isRecord(value) ? Object.entries(value) : [];
 
-	const rename = (from: string, to: string) => {
+	const rename = (from: string, destination: string) => {
 		const next: Record<string, unknown> = {};
-		for (const [key, val] of entries) next[key === from ? to : key] = val;
+		for (const [key, val] of entries)
+			next[key === from ? destination : key] = val;
 		onChange(next);
 	};
 	const setValue = (key: string, val: unknown) =>

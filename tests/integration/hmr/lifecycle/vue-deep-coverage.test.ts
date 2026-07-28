@@ -324,7 +324,9 @@ describe('Vue deep coverage', () => {
 			/href="([^"]*vue-example-compiled\.[^"]*\.css)"/
 		);
 		expect(match?.[1]).toBeTruthy();
-		const css = await (await fetch(`${srv.baseUrl}${match![1]}`)).text();
+		const cssPath = match?.[1];
+		if (!cssPath) throw new Error('Page did not include the Vue CSS URL');
+		const css = await (await fetch(`${srv.baseUrl}${cssPath}`)).text();
 		expect(css).toContain('#ab3377');
 		expect(css).toMatch(/\[data-v-/);
 	}, 60_000);

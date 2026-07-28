@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { basename, join, relative, resolve } from 'node:path';
+import { basename, join, relative, resolve as resolvePath } from 'node:path';
 import { Elysia } from 'elysia';
 import type { staticPlugin } from '@elysia/static';
 import type { ConventionsMap } from '../../types/conventions';
@@ -27,6 +27,27 @@ const MS_PER_SECOND = 1000;
 const DEFAULT_PORT = 3000;
 const MAX_STATIC_ROUTE_COUNT = Number.MAX_SAFE_INTEGER;
 const STATIC_PLUGIN_RETRY_DELAY_MS = 50;
+const waitForStaticPluginRetry = () =>
+	new Promise((resolve) => {
+		setTimeout(resolve, STATIC_PLUGIN_RETRY_DELAY_MS);
+	});
+
+const retryStaticPlugin = async (
+	createStaticPlugin: typeof staticPlugin,
+	options: Parameters<typeof staticPlugin>[0]
+) => {
+	try {
+		return await createStaticPlugin(options);
+	} catch (error) {
+		logWarn(
+			`Static asset routes were skipped this cycle — a build file was unavailable mid-rebuild: ${
+				error instanceof Error ? error.message : String(error)
+			}`
+		);
+
+		return new Elysia({ name: 'absolutejs-static-fallback' });
+	}
+};
 
 // `@elysia/static` builds its routes by walking `assets` and reading each file
 // up front (we pass `alwaysStatic: true`). In dev the build dir is live, so a
@@ -41,20 +62,9 @@ const mountStaticPlugin = async (
 	try {
 		return await createStaticPlugin(options);
 	} catch {
-		await new Promise((resolveDelay) => {
-			setTimeout(resolveDelay, STATIC_PLUGIN_RETRY_DELAY_MS);
-		});
-		try {
-			return await createStaticPlugin(options);
-		} catch (error) {
-			logWarn(
-				`Static asset routes were skipped this cycle — a build file was unavailable mid-rebuild: ${
-					error instanceof Error ? error.message : String(error)
-				}`
-			);
+		await waitForStaticPluginRetry();
 
-			return new Elysia({ name: 'absolutejs-static-fallback' });
-		}
+		return retryStaticPlugin(createStaticPlugin, options);
 	}
 };
 
@@ -87,7 +97,7 @@ const collectPrewarmFiles = async (prewarmDirs: PrewarmEntry[]) => {
 	for (const { dir, pattern } of prewarmDirs) {
 		const glob = new Glob(pattern);
 		const matches = [
-			...glob.scanSync({ absolute: true, cwd: resolve(dir) })
+			...glob.scanSync({ absolute: true, cwd: resolvePath(dir) })
 		];
 		files.push(...matches);
 	}
@@ -130,7 +140,7 @@ const patchManifestIndexes = (
 		const fileName = resolveDevIndexFileName(manifest[key], baseName);
 		if (!fileName) continue;
 
-		const srcPath = resolve(devIndexDir, fileName);
+		const srcPath = resolvePath(devIndexDir, fileName);
 		if (!existsSync(srcPath)) continue;
 
 		const rel = relative(process.cwd(), srcPath).replace(/\\/g, '/');
@@ -265,7 +275,7 @@ const prepareDev = async (
 	// Override index manifest entries to /@src/ URLs so the initial
 	// page load uses the module server (same module system as HMR).
 	// This ensures page refreshes after HMR load fresh code.
-	const devIndexDir = resolve(buildDir, '_src_indexes');
+	const devIndexDir = resolvePath(buildDir, '_src_indexes');
 	patchManifestIndexes(result.manifest, devIndexDir, SRC_URL_PREFIX);
 	recordStep('configure dev plugins', stepStartedAt);
 
@@ -428,7 +438,7 @@ export const prepare = async (configOrPath?: string) => {
 
 	const nodeEnv = process.env['NODE_ENV'];
 	const isDev = nodeEnv === 'development';
-	const buildDir = resolve(
+	const buildDir = resolvePath(
 		process.env.ABSOLUTE_BUILD_DIR ?? config.buildDirectory ?? 'build'
 	);
 	registerIconVersioning(buildDir);
@@ -489,7 +499,7 @@ export const prepare = async (configOrPath?: string) => {
 	const generatedAssetsPlugin = new Elysia({
 		name: 'absolutejs-generated-assets'
 	}).get('/.absolutejs/*', async ({ params, set }) => {
-		const requestedPath = resolve(generatedAssetsRoot, params['*']);
+		const requestedPath = resolvePath(generatedAssetsRoot, params['*']);
 		if (relative(generatedAssetsRoot, requestedPath).startsWith('..')) {
 			set.status = 404;
 

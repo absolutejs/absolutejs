@@ -30,7 +30,7 @@ afterEach(async () => {
 		await proc.exited.catch(() => undefined);
 		proc = undefined;
 	}
-	// Belt-and-braces: never leave the bun --hot child running on CI even if
+	// Belt-and-braces: never leave the Bun dev child running on CI even if
 	// the assertion under test failed.
 	if (childPid !== undefined && pidAlive(childPid)) {
 		try {
@@ -56,18 +56,18 @@ const findChildPid = async (parentPid: number) => {
 
 /* SIGKILL on the `absolute dev` CLI runs NO handlers — none of the CLI's
  * SIGINT/SIGTERM/exit cleanup, and not its own ppid watcher. Before the
- * dev-child preload gained a parent-death watchdog, the `bun --hot` child
+ * dev-child preload gained a parent-death watchdog, the Bun child
  * survived as an orphan: reparented to init, still bound to the dev port,
  * serving the stale in-memory build forever (edits appear to "not take" no
  * matter how many times the CLI is "restarted"). The preload's watchdog
  * polls the child's own ppid every second and exits when the CLI is gone —
  * this test SIGKILLs the CLI and asserts the child dies on its own. */
-describe('SIGKILLed dev CLI does not orphan the bun --hot child', () => {
+describe('SIGKILLed dev CLI does not orphan the Bun child', () => {
 	test(
 		'kill -9 the CLI → the dev child exits itself within the watchdog window',
 		async () => {
 			const port = await getAvailablePort();
-			proc = Bun.spawn(
+			const spawnedProc = Bun.spawn(
 				[
 					'bun',
 					'run',
@@ -91,12 +91,13 @@ describe('SIGKILLed dev CLI does not orphan the bun --hot child', () => {
 					stdout: 'pipe'
 				}
 			);
+			proc = spawnedProc;
 
 			// Wait until the dev server is actually up ("Local:" banner) so the
-			// bun --hot child exists and is serving.
-			const ready = (async () => {
+			// Bun child exists and is serving.
+			const waitUntilReady = async () => {
 				const reader = (
-					proc!.stdout as ReadableStream<Uint8Array>
+					spawnedProc.stdout as ReadableStream<Uint8Array>
 				).getReader();
 				const decoder = new TextDecoder();
 				let buffer = '';
@@ -106,10 +107,11 @@ describe('SIGKILLed dev CLI does not orphan the bun --hot child', () => {
 					buffer += decoder.decode(value, { stream: true });
 				}
 				reader.releaseLock();
-			})();
+			};
+			const ready = waitUntilReady();
 			await Promise.race([
 				ready,
-				new Promise((_, reject) =>
+				new Promise((_resolve, reject) =>
 					setTimeout(
 						() => reject(new Error('dev server not ready in 90s')),
 						90_000
@@ -117,21 +119,24 @@ describe('SIGKILLed dev CLI does not orphan the bun --hot child', () => {
 				)
 			]);
 
-			childPid = await findChildPid(proc.pid);
+			childPid = await findChildPid(spawnedProc.pid);
 			expect(childPid).toBeDefined();
-			expect(pidAlive(childPid!)).toBe(true);
+			if (childPid === undefined) {
+				throw new Error('Could not find the dev server child process');
+			}
+			expect(pidAlive(childPid)).toBe(true);
 
 			// The scenario under test: the CLI dies with NO chance to clean up.
-			proc.kill('SIGKILL');
-			await proc.exited;
+			spawnedProc.kill('SIGKILL');
+			await spawnedProc.exited;
 
 			// The child's ppid watchdog polls at 1s; give it a few cycles.
 			const deadline = Date.now() + 8000;
-			while (pidAlive(childPid!) && Date.now() < deadline) {
+			while (pidAlive(childPid) && Date.now() < deadline) {
 				await Bun.sleep(250);
 			}
 
-			expect(pidAlive(childPid!)).toBe(false);
+			expect(pidAlive(childPid)).toBe(false);
 		},
 		{ timeout: 120_000 }
 	);

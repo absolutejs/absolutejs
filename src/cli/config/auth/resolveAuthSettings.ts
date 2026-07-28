@@ -28,15 +28,12 @@ const parseSource = (configPath: string, text: string) =>
 	ts.createSourceFile(configPath, text, ts.ScriptTarget.Latest, true);
 
 // Locate the object literal passed to defineAuthSettings({...}) — or a bare default
-// export object — so the reader and the editor work off the same node. Annotated
-// because `found` is assigned inside the nested closure (flow analysis ignores it).
-export const findAuthSettingsObject = (
-	sourceFile: ts.Node
-): ts.ObjectLiteralExpression | null => {
-	let found: ts.ObjectLiteralExpression | null = null;
-
-	const visit = (node: ts.Node) => {
-		if (found) return;
+// export object — so the reader and the editor work off the same node.
+export const findAuthSettingsObject = (sourceFile: ts.Node) => {
+	const pending = [sourceFile];
+	while (pending.length > 0) {
+		const node = pending.pop();
+		if (!node) continue;
 		const [firstArgument] = ts.isCallExpression(node) ? node.arguments : [];
 		if (
 			ts.isCallExpression(node) &&
@@ -45,23 +42,18 @@ export const findAuthSettingsObject = (
 			firstArgument &&
 			ts.isObjectLiteralExpression(firstArgument)
 		) {
-			found = firstArgument;
-
-			return;
+			return firstArgument;
 		}
 		if (
 			ts.isExportAssignment(node) &&
 			ts.isObjectLiteralExpression(node.expression)
 		) {
-			found = node.expression;
-
-			return;
+			return node.expression;
 		}
-		ts.forEachChild(node, visit);
-	};
-	visit(sourceFile);
+		node.forEachChild((child) => pending.push(child));
+	}
 
-	return found;
+	return null;
 };
 
 export const parseAuthSettingsObject = (configPath: string) => {

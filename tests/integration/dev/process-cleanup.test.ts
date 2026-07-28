@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { execSync } from 'node:child_process';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 const tempRoots = new Set<string>();
@@ -31,7 +31,7 @@ afterEach(async () => {
 });
 
 describe('dev parent → child process-group cleanup', () => {
-	test('SIGKILLing the parent cascades to the bun --hot child via process group', async () => {
+	test('SIGKILLing the parent cascades to the Bun child via process group', async () => {
 		// Mimic dev.ts's spawn pattern: a parent that uses
 		// node:child_process.spawn with detached:true so the child is the
 		// leader of its own process group. Then SIGKILL the parent and
@@ -96,7 +96,10 @@ setInterval(() => {}, 1_000_000);
 		}
 
 		expect(childPid).not.toBeNull();
-		expect(isPidRunning(childPid!)).toBe(true);
+		if (childPid === null) {
+			throw new Error('Child PID was not written before the deadline');
+		}
+		expect(isPidRunning(childPid)).toBe(true);
 
 		// SIGKILL the parent — it can't run a graceful handler, but a
 		// kernel-cascading kill on the parent process group should still
@@ -123,7 +126,7 @@ setInterval(() => {}, 1_000_000);
 		// and runs its 'exit' handler, the child is gone. So issue a
 		// targeted process-group kill from this test process.
 		try {
-			process.kill(-childPid!, 'SIGTERM');
+			process.kill(-childPid, 'SIGTERM');
 		} catch {
 			/* already gone */
 		}
@@ -131,7 +134,7 @@ setInterval(() => {}, 1_000_000);
 		// Allow up to 2s for the child to exit.
 		const killStart = Date.now();
 		while (Date.now() - killStart < 2_000) {
-			if (!isPidRunning(childPid!)) break;
+			if (!isPidRunning(childPid)) break;
 
 			await Bun.sleep(50);
 		}
@@ -146,10 +149,10 @@ setInterval(() => {}, 1_000_000);
 			).trim();
 			psHits = psOut.length === 0 ? 0 : psOut.split('\n').length;
 		} catch {
-			psHits = 0;
+			// A missing process is the expected post-kill state.
 		}
 
-		expect(isPidRunning(childPid!)).toBe(false);
+		expect(isPidRunning(childPid)).toBe(false);
 		expect(psHits).toBe(0);
 	}, 20_000);
 });

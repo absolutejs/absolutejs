@@ -39,6 +39,7 @@
 		"src/**/*",
 		"types/**/*",
 		"example/**/*",
+		"benchmarks/**/*",
 		"tests/**/*",
 		"test/**/*",
 		"scripts/**/*"

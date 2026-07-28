@@ -55,14 +55,12 @@ const primeSvelteStream = async <T>(stream: ReadableStream<T>) => {
 };
 
 const restorePrimedStream = <T>(
-	firstChunk: { done: boolean; value?: T },
+	firstChunk: Awaited<ReturnType<ReadableStreamDefaultReader<T>['read']>>,
 	reader: ReadableStreamDefaultReader<T>
 ) =>
 	new ReadableStream<T>({
 		start(controller) {
-			if (!firstChunk.done) {
-				controller.enqueue(firstChunk.value as T);
-			}
+			if (!firstChunk.done) controller.enqueue(firstChunk.value);
 			if (firstChunk.done) {
 				controller.close();
 
@@ -146,11 +144,11 @@ export const handleSveltePageRequest = async <
 	// forwarding `request` instead of unwrapping it themselves.
 	const resolvedProps =
 		requestPathname !== undefined &&
-		(!userProps || !('url' in (userProps as Record<string, unknown>)))
-			? ({
-					...((userProps as Record<string, unknown>) ?? {}),
+		(!isRecord(userProps) || !('url' in userProps))
+			? {
+					...(userProps ?? {}),
 					url: requestPathname
-				} as unknown as SveltePropsOf<Component>)
+				}
 			: userProps;
 
 	try {

@@ -160,9 +160,9 @@ const parseDecoratedClasses = (filePath: string) => {
 			for (const decorator of ts.getDecorators(node) ?? []) {
 				const expr = decorator.expression;
 				if (!ts.isCallExpression(expr)) continue;
-				const fn = expr.expression;
-				if (!ts.isIdentifier(fn)) continue;
-				const kind = ENTITY_DECORATORS[fn.text];
+				const functionNode = expr.expression;
+				if (!ts.isIdentifier(functionNode)) continue;
+				const kind = ENTITY_DECORATORS[functionNode.text];
 				if (!kind) continue;
 
 				/* Capture the heritage clause's first-extends
@@ -173,7 +173,7 @@ const parseDecoratedClasses = (filePath: string) => {
 					if (heritage.token !== ts.SyntaxKind.ExtendsKeyword) {
 						continue;
 					}
-					const first = heritage.types[0];
+					const [first] = heritage.types;
 					if (first && ts.isIdentifier(first.expression)) {
 						extendsName = first.expression.text;
 					}
@@ -187,7 +187,7 @@ const parseDecoratedClasses = (filePath: string) => {
 					styleUrls: [],
 					templateUrls: []
 				};
-				const arg = expr.arguments[0];
+				const [arg] = expr.arguments;
 				if (
 					arg &&
 					ts.isObjectLiteralExpression(arg) &&
@@ -319,7 +319,7 @@ const resolveParentClassFile = (
 	} catch {
 		return null;
 	}
-	const sf = ts.createSourceFile(
+	const sourceFile = ts.createSourceFile(
 		childFilePath,
 		source,
 		ts.ScriptTarget.ES2022,
@@ -327,7 +327,7 @@ const resolveParentClassFile = (
 		ts.ScriptKind.TS
 	);
 	const childDir = dirname(childFilePath);
-	for (const stmt of sf.statements) {
+	for (const stmt of sourceFile.statements) {
 		if (!ts.isImportDeclaration(stmt)) continue;
 		if (!ts.isStringLiteral(stmt.moduleSpecifier)) continue;
 		const clause = stmt.importClause;
@@ -339,9 +339,9 @@ const resolveParentClassFile = (
 			clause.namedBindings &&
 			ts.isNamedImports(clause.namedBindings)
 		) {
-			for (const el of clause.namedBindings.elements) {
-				if (el.isTypeOnly) continue;
-				if (el.name.text === parentName) {
+			for (const element of clause.namedBindings.elements) {
+				if (element.isTypeOnly) continue;
+				if (element.name.text === parentName) {
 					matchesName = true;
 					break;
 				}

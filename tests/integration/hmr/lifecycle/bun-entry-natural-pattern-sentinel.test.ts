@@ -133,7 +133,7 @@ describe('bun#30449 natural-pattern sentinel (workaround tripwire)', () => {
 			'V0'
 		);
 		atomicRenameSentinel(entryPath, 'V0', 'V1');
-		await new Promise((r) => setTimeout(r, 200));
+		await new Promise((_resolve) => setTimeout(_resolve, 200));
 		expect(await (await fetch(`http://localhost:${port}`)).text()).toBe(
 			'V1'
 		);
@@ -150,7 +150,7 @@ describe('bun#30449 natural-pattern sentinel (workaround tripwire)', () => {
 			'V0'
 		);
 		atomicRenameSentinel(entryPath, 'V0', 'V1');
-		await new Promise((r) => setTimeout(r, 500));
+		await new Promise((_resolve) => setTimeout(_resolve, 500));
 		const after = await (await fetch(`http://localhost:${port}`)).text();
 
 		// Snapshot of current --hot behavior on this Bun version.

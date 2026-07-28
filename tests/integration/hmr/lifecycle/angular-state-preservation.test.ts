@@ -1,4 +1,4 @@
-import { describe, expect, test, afterEach } from 'bun:test';
+import { describe, test, afterEach } from 'bun:test';
 import { resolve } from 'node:path';
 import { startDevServer, type DevServer } from '../../../helpers/devServer';
 import { connectHMR, type HMRClient } from '../../../helpers/ws';
@@ -45,6 +45,7 @@ const startAll = async () => {
 	await waitForText(session.page, 'app-counter .counter-value', (t) =>
 		/\d+/.test(t)
 	);
+	await session.page.waitForFunction(() => Boolean(window.__ANGULAR_APP__));
 
 	return { client: client, server: server, session: session };
 };
@@ -68,14 +69,14 @@ describe('Angular state preservation across tier-0 surgical update', () => {
 
 		// Click to count=7 — high enough that a reset-to-zero
 		// outcome would be unambiguous.
-		for (let i = 0; i < 7; i++) {
+		for (let i = 1; i <= 7; i++) {
 			await s.page.click('app-counter button');
+			await waitForText(
+				s.page,
+				'app-counter .counter-value',
+				(t) => t.trim() === String(i)
+			);
 		}
-		await waitForText(
-			s.page,
-			'app-counter .counter-value',
-			(t) => t.trim() === '7'
-		);
 
 		// Mutate the counter's template (cosmetic — `<button>` text
 		// changes around the `<span>` value). This is a tier-0

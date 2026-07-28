@@ -534,12 +534,13 @@ export const createWorkspaceTui = ({
 			const timestamp = formatTimestamp();
 			logEntries.push({ level, message: line, source, timestamp });
 			if (headless) {
-				const levelColor =
-					level === 'error'
-						? colors.red
-						: level === 'warn'
-							? colors.yellow
-							: colors.dim;
+				const levelColors: Record<WorkspaceTuiLogLevel, string> = {
+					error: colors.red,
+					info: colors.dim,
+					success: colors.green,
+					warn: colors.yellow
+				};
+				const levelColor = levelColors[level];
 				process.stdout.write(
 					`${colors.dim}${timestamp}${colors.reset} ${levelColor}${source}${colors.reset} ${line}\n`
 				);

@@ -229,7 +229,9 @@ describe('Vue deeper coverage', () => {
 			/href="([^"]*vue-example-compiled\.[^"]*\.css)"/
 		);
 		expect(cssMatch?.[1]).toBeTruthy();
-		const css = await (await fetch(`${srv.baseUrl}${cssMatch![1]}`)).text();
+		const cssPath = cssMatch?.[1];
+		if (!cssPath) throw new Error('Page did not include the Vue CSS URL');
+		const css = await (await fetch(`${srv.baseUrl}${cssPath}`)).text();
 		expect(css).toContain('#ab44cc');
 		// Scoped + global selectors coexist; the global one has
 		// no `[data-v-…]` attribute.
@@ -320,7 +322,8 @@ describe('Vue deeper coverage', () => {
 			/src="(\/[^"]*\/VueExample\.[^"]+\.js)"/
 		);
 		expect(idxBeforeMatch?.[1]).toBeTruthy();
-		const idxBefore = idxBeforeMatch![1];
+		const [, idxBefore] = idxBeforeMatch ?? [];
+		if (!idxBefore) throw new Error('Initial Vue index URL was missing');
 
 		mutateFile(vuePage, (c) =>
 			c.replace(
@@ -336,7 +339,9 @@ describe('Vue deeper coverage', () => {
 			/src="(\/[^"]*\/VueExample\.[^"]+\.js)"/
 		);
 		expect(idxAfterMatch?.[1]).toBeTruthy();
-		expect(idxAfterMatch![1]).not.toBe(idxBefore);
+		const idxAfter = idxAfterMatch?.[1];
+		if (!idxAfter) throw new Error('Updated Vue index URL was missing');
+		expect(idxAfter).not.toBe(idxBefore);
 	}, 60_000);
 
 	test('Vue SSR HTML carries `data-v-…` scope ids for scoped style attribution', async () => {

@@ -42,7 +42,7 @@ const registerExitHandlersOnce = () => {
 const isAlreadyExistsError = (error: unknown) =>
 	error instanceof Error &&
 	'code' in error &&
-	(error as NodeJS.ErrnoException).code === 'EEXIST';
+	Reflect.get(error, 'code') === 'EEXIST';
 
 /** Lock file path: `<projectRoot>/.absolutejs/build.lock` where
  *  projectRoot is `dirname(buildDirectory)`. Single file (NOT a dir
@@ -124,7 +124,10 @@ const isProcessAlive = (pid: number) => {
 
 		return true;
 	} catch (err) {
-		const { code } = err as NodeJS.ErrnoException;
+		const code =
+			typeof err === 'object' && err !== null
+				? Reflect.get(err, 'code')
+				: undefined;
 		if (code === 'ESRCH') return false; // no such process
 		if (code === 'EPERM') return true; // alive but not ours
 
@@ -245,7 +248,6 @@ export const acquireBuildDirectoryLock = async (
 				// Live holder — back off and retry. Concurrent build
 				// invocations from a CI matrix or shell loop want the
 				// second call to wait, not error.
-				// eslint-disable-next-line no-await-in-loop
 				await Bun.sleep(LOCK_POLL_MS);
 				continue;
 			}
@@ -257,7 +259,8 @@ export const acquireBuildDirectoryLock = async (
 			throw new Error(
 				`AbsoluteJS build lock is held by PID ${existing.pid}${portInfo} (started ${existing.startedAt}).${elapsedNote} ` +
 					`Another process owns ${buildDirectory}. ` +
-					`Run \`kill ${existing.pid}\` (or wait for it to finish) and try again.`
+					`Run \`kill ${existing.pid}\` (or wait for it to finish) and try again.`,
+				{ cause: error }
 			);
 		}
 	}

@@ -23,14 +23,14 @@ export const createHmrImportGenerator = (
 	namespaceMap: Map<string, string>
 ): ImportGenerator<ts.SourceFile, ts.Expression> => ({
 	addImport(request: ImportRequest<ts.SourceFile>) {
-		const ns = namespaceMap.get(request.exportModuleSpecifier);
-		if (!ns) {
+		const namespace = namespaceMap.get(request.exportModuleSpecifier);
+		if (!namespace) {
 			throw new Error(
 				`HMR import generator has no namespace mapping for ${request.exportModuleSpecifier}. ` +
 					`Add it to namespaceDependencies before calling compileHmrUpdateCallback.`
 			);
 		}
-		const namespaceId = ts.factory.createIdentifier(ns);
+		const namespaceId = ts.factory.createIdentifier(namespace);
 		if (request.exportSymbolName === null) {
 			// Whole-namespace import — return the identifier itself.
 			return namespaceId;

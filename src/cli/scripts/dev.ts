@@ -54,6 +54,13 @@ const DEFAULT_PORT_RANGE = 10;
 const RESTART_PARK_POLL_MS = 20;
 const NODE_API_IMPORT_ERROR =
 	'To load Node-API modules, use require() or process.dlopen instead of import.';
+const sourceServerBootstrap = resolve(
+	import.meta.dir,
+	'../../dev/serverBootstrap.ts'
+);
+const serverBootstrap = existsSync(sourceServerBootstrap)
+	? sourceServerBootstrap
+	: resolve(import.meta.dir, '../dev/serverBootstrap.js');
 
 export const formatServerBootDiagnostic = (
 	output: string,
@@ -402,6 +409,8 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 	// owns the dep graph, so it's the authoritative source for "this
 	// file isn't HMR-tracked, restart the process."
 	const RESTART_MARKER = '[abs:restart]';
+	const ANSI_ESCAPE = String.fromCharCode(27);
+	const ANSI_COLOR_SEQUENCE_RE = new RegExp(`${ANSI_ESCAPE}\\[[0-9;]*m`, 'g');
 	let restartScanBuffer = '';
 	const handleChunk = (value: Buffer) => {
 		const text = value.toString('utf8');
@@ -416,7 +425,7 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 			if (markerIdx === -1) continue;
 			const path = line
 				.slice(markerIdx + RESTART_MARKER.length)
-				.replace(/\x1b\[[0-9;]*m/g, '')
+				.replace(ANSI_COLOR_SEQUENCE_RE, '')
 				.trim();
 			scheduleServerRestart(path);
 		}
@@ -461,11 +470,11 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 			const mod = await import(`${cfgPath}?t=${Date.now()}`);
 			const raw = mod.default ?? mod.config;
 			if (!raw || typeof raw !== 'object') return;
-			cfg = raw as typeof cfg;
+			cfg = raw;
 		} catch {
 			return;
 		}
-		const dev = resolveDevConfig(cfg?.dev);
+		const refreshedDevConfig = resolveDevConfig(cfg?.dev);
 		const desiredBuildDir = cfg?.buildDirectory
 			? resolve(process.cwd(), cfg.buildDirectory)
 			: resolve(process.cwd(), 'build');
@@ -482,34 +491,35 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 			);
 		}
 		if (
-			dev.port !== resolvedDev.port ||
-			dev.host !== resolvedDev.host ||
-			dev.portRange !== resolvedDev.portRange ||
-			dev.strictPort !== resolvedDev.strictPort
+			refreshedDevConfig.port !== resolvedDev.port ||
+			refreshedDevConfig.host !== resolvedDev.host ||
+			refreshedDevConfig.portRange !== resolvedDev.portRange ||
+			refreshedDevConfig.strictPort !== resolvedDev.strictPort
 		) {
-			const probe = await resolveDevPort(dev.port, {
-				host: dev.host,
-				portRange: dev.portRange,
-				strictPort: dev.strictPort
+			const probe = await resolveDevPort(refreshedDevConfig.port, {
+				host: refreshedDevConfig.host,
+				portRange: refreshedDevConfig.portRange,
+				strictPort: refreshedDevConfig.strictPort
 			}).catch((err) => {
 				console.error(cliTag('\x1b[31m', String(err.message ?? err)));
 
 				return undefined;
 			});
 			if (probe && probe.port !== port) {
-				const displayHost =
-					dev.host === '0.0.0.0' ? 'localhost' : dev.host;
+				const { port: nextPort } = probe;
+				const { host } = refreshedDevConfig;
+				const displayHost = host === '0.0.0.0' ? 'localhost' : host;
 				console.log(
 					cliTag(
 						'\x1b[36m',
-						`Port changed in config — switching to http://${displayHost}:${probe.port}/`
+						`Port changed in config — switching to http://${displayHost}:${nextPort}/`
 					)
 				);
-				port = probe.port;
+				port = nextPort;
 				updateLockMetadata(buildDirectory, { port });
 				updateInstance(instancePid, { port });
 			}
-			resolvedDev = dev;
+			resolvedDev = refreshedDevConfig;
 		}
 	};
 
@@ -536,10 +546,10 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 			for (const rawLine of text.split('\n')) {
 				const line = rawLine.trim();
 				if (!line || line.startsWith('#')) continue;
-				const eq = line.indexOf('=');
-				if (eq === -1) continue;
-				const key = line.slice(0, eq).trim();
-				let val = line.slice(eq + 1).trim();
+				const equalsIndex = line.indexOf('=');
+				if (equalsIndex === -1) continue;
+				const key = line.slice(0, equalsIndex).trim();
+				let val = line.slice(equalsIndex + 1).trim();
 				// Strip surrounding quotes if present.
 				if (
 					(val.startsWith('"') && val.endsWith('"')) ||
@@ -586,7 +596,7 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 				'--hot',
 				'--no-clear-screen',
 				...(heapSnapshotEnabled ? ['--preload', heapPreloadPath] : []),
-				serverEntry
+				serverBootstrap
 			],
 			{
 				cwd: process.cwd(),
@@ -597,9 +607,10 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 					// The parent CLI owns this server's registry entry, so the
 					// child's runtime (networking plugin) must not self-register.
 					ABSOLUTE_INSTANCE_MANAGED: '1',
+					ABSOLUTE_PORT: String(port),
+					ABSOLUTE_SERVER_ENTRY: resolve(serverEntry),
 					FORCE_COLOR: '1',
 					NODE_ENV: 'development',
-					ABSOLUTE_PORT: String(port),
 					PORT: String(port),
 					...(configPath ? { ABSOLUTE_CONFIG: configPath } : {}),
 					...(httpsEnabled ? { ABSOLUTE_HTTPS: 'true' } : {})
@@ -700,7 +711,7 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 	};
 	try {
 		const { watch } = await import('node:fs');
-		const { dirname, join } = await import('node:path');
+		const { dirname } = await import('node:path');
 		const absServerEntry = resolve(serverEntry);
 		const serverEntryDir = dirname(absServerEntry);
 		// Watch the project root non-recursively. Two things this covers
@@ -798,13 +809,14 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 			for (const entry of entries) {
 				if (!entry.isFile()) continue;
 				if (isAtomicWriteTemp(entry.name)) continue;
-				let st: ReturnType<typeof statSync>;
+				let fileStat: ReturnType<typeof statSync>;
 				try {
-					st = statSync(join(serverEntryDir, entry.name));
+					fileStat = statSync(join(serverEntryDir, entry.name));
 				} catch {
 					continue;
 				}
-				if (now - st.ctimeMs > ATOMIC_RECOVERY_WINDOW_MS) continue;
+				if (now - fileStat.ctimeMs > ATOMIC_RECOVERY_WINDOW_MS)
+					continue;
 				handleCandidate(entry.name);
 			}
 		};
@@ -897,9 +909,9 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 	// a grace window so a restart can never wedge waiting on a stuck child.
 	const FORCE_KILL_GRACE_MS = 2 * MILLISECONDS_IN_A_SECOND;
 	const terminateChild = (proc: ChildProcess) =>
-		new Promise<void>((res) => {
+		new Promise<void>((_resolve) => {
 			if (proc.exitCode !== null || typeof proc.pid !== 'number') {
-				res();
+				_resolve();
 
 				return;
 			}
@@ -908,7 +920,7 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 				if (settled) return;
 				settled = true;
 				clearTimeout(killTimer);
-				res();
+				_resolve();
 			};
 			proc.once('exit', finish);
 			signalChildTree(proc, 'SIGTERM');
@@ -931,13 +943,13 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 		tunnelClient?.close();
 		if (paused) sendSignal('SIGCONT');
 		killChildTree('SIGTERM');
-		await new Promise<void>((res) => {
+		await new Promise<void>((_resolve) => {
 			if (serverProcess.exitCode !== null) {
-				res();
+				_resolve();
 
 				return;
 			}
-			serverProcess.once('exit', () => res());
+			serverProcess.once('exit', () => _resolve());
 			// Last-resort SIGKILL if the child didn't exit in 2s.
 			setTimeout(() => {
 				killChildTree('SIGKILL');
@@ -1158,11 +1170,13 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 			return false;
 		}
 		const now = Date.now();
+		let [oldestCrash] = recentCrashes;
 		while (
-			recentCrashes.length > 0 &&
-			now - recentCrashes[0]! > CRASH_WINDOW_MS
+			oldestCrash !== undefined &&
+			now - oldestCrash > CRASH_WINDOW_MS
 		) {
 			recentCrashes.shift();
+			[oldestCrash] = recentCrashes;
 		}
 		recentCrashes.push(now);
 		if (recentCrashes.length > MAX_CRASHES_PER_WINDOW) {
@@ -1212,13 +1226,13 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 			return;
 		}
 		const current = serverProcess;
-		const exitCode = await new Promise<number | null>((res) => {
+		const exitCode = await new Promise<number | null>((_resolve) => {
 			if (current.exitCode !== null) {
-				res(current.exitCode);
+				_resolve(current.exitCode);
 
 				return;
 			}
-			current.once('exit', (code) => res(code));
+			current.once('exit', (code) => _resolve(code));
 		});
 		// Skip the crash path when this exit was a deliberate restart kill —
 		// park until `restartServer` installs the replacement, then resume

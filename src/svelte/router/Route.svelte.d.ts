@@ -1,4 +1,4 @@
-import type { Snippet } from 'svelte';
+import { SvelteComponent, type Snippet } from 'svelte';
 import type { ExtractRouteParams } from '../../../types/svelteRouter';
 
 type RouteProps<Path extends string> = {
@@ -6,8 +6,8 @@ type RouteProps<Path extends string> = {
 	content: Snippet<[ExtractRouteParams<Path>]>;
 };
 
-import { SvelteComponent } from 'svelte';
+class Route<Path extends string = string> extends SvelteComponent<
+	RouteProps<Path>
+> {}
 
-export default class Route<
-	Path extends string = string
-> extends SvelteComponent<RouteProps<Path>> {}
+export { Route as default };

@@ -18,14 +18,15 @@ import {
 	readFileSync,
 	writeFileSync
 } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { dirname, resolve as resolvePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const PROJECT = resolve(HERE, '..');
+const PROJECT = resolvePath(HERE, '..');
 
 type SizeSpec = { label: string; count: number; port: number };
+type RunOptions = { cwd?: string; env?: NodeJS.ProcessEnv };
 
 const SIZES: SizeSpec[] = [
 	{ count: 3, label: 'small', port: 4331 },
@@ -33,38 +34,30 @@ const SIZES: SizeSpec[] = [
 	{ count: 100, label: 'large', port: 4333 }
 ];
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const sleep = (milliseconds: number) =>
+	new Promise((resolve) => setTimeout(resolve, milliseconds));
 
-const runOnce = (
-	cmd: string,
-	args: string[],
-	opts: { cwd?: string; env?: NodeJS.ProcessEnv } = {}
-): Promise<void> =>
-	new Promise((res, rej) => {
+const runOnce = (cmd: string, args: string[], options: RunOptions = {}) =>
+	new Promise<void>((resolve, reject) => {
 		const child = spawn(cmd, args, {
-			cwd: opts.cwd ?? PROJECT,
-			env: opts.env ?? process.env,
+			cwd: options.cwd ?? PROJECT,
+			env: options.env ?? process.env,
 			stdio: 'inherit'
 		});
 		child.on('exit', (code) => {
-			if (code === 0) res();
-			else rej(new Error(`${cmd} ${args.join(' ')} exited ${code}`));
+			if (code === 0) resolve();
+			else reject(new Error(`${cmd} ${args.join(' ')} exited ${code}`));
 		});
-		child.on('error', rej);
+		child.on('error', reject);
 	});
-
-type DevHandle = {
-	kill: () => Promise<void>;
-	logPath: string;
-};
 
 /* Kill any process listening on the given port. Walks `lsof -ti`
  * and SIGKILLs the matching pids. Used as a sledgehammer to clean
  * up `bun --hot` children that survive `process.kill` of their
  * parent group (Bun's process tree management around `--hot`
  * doesn't cooperate with the parent group's SIGTERM). */
-const killPort = async (port: number): Promise<void> => {
-	await new Promise<void>((res) => {
+const killPort = async (port: number) => {
+	await new Promise<void>((resolve) => {
 		const child = spawn(
 			'sh',
 			['-c', `lsof -ti:${port} | xargs -r kill -9`],
@@ -72,13 +65,41 @@ const killPort = async (port: number): Promise<void> => {
 				stdio: 'ignore'
 			}
 		);
-		child.on('exit', () => res());
-		child.on('error', () => res());
+		child.on('exit', () => resolve());
+		child.on('error', () => resolve());
 	});
 	await sleep(300);
 };
 
-const startDev = async (port: number, logPath: string): Promise<DevHandle> => {
+const waitForDev = async (port: number, logPath: string) => {
+	const deadline = Date.now() + 60_000;
+	while (Date.now() < deadline) {
+		await sleep(500);
+		const log = readFileSync(logPath, 'utf8');
+		if (/ABSOLUTEJS .* ready in/.test(log)) return;
+		if (!/EADDRINUSE|error: /.test(log)) continue;
+
+		await killPort(port);
+		throw new Error(`dev failed to start: ${log.slice(-2000)}`);
+	}
+};
+
+const killProcessGroup = (pid: number) => {
+	try {
+		process.kill(-pid, 'SIGTERM');
+	} catch {
+		/* already gone */
+	}
+};
+
+const terminateDev = async (child: ReturnType<typeof spawn>, port: number) => {
+	if (child.pid !== undefined) killProcessGroup(child.pid);
+	child.kill('SIGTERM');
+	await sleep(700);
+	await killPort(port);
+};
+
+const startDev = async (port: number, logPath: string) => {
 	// Cleanup leftover from a prior run before we even attempt to bind.
 	await killPort(port);
 	if (existsSync(logPath)) await fs.rm(logPath);
@@ -97,34 +118,11 @@ const startDev = async (port: number, logPath: string): Promise<DevHandle> => {
 	child.stdout?.on('data', tail);
 	child.stderr?.on('data', tail);
 
-	const deadline = Date.now() + 60_000;
-	while (Date.now() < deadline) {
-		await sleep(500);
-		const log = readFileSync(logPath, 'utf8');
-		if (/ABSOLUTEJS .* ready in/.test(log)) break;
-		if (/EADDRINUSE|error: /.test(log)) {
-			await killPort(port);
-			throw new Error(`dev failed to start: ${log.slice(-2000)}`);
-		}
-	}
+	await waitForDev(port, logPath);
 
 	return {
-		kill: async () => {
-			// Group SIGTERM to the spawn'd parent process.
-			if (child.pid !== undefined) {
-				try {
-					process.kill(-child.pid, 'SIGTERM');
-				} catch {
-					/* already gone */
-				}
-			}
-			child.kill('SIGTERM');
-			await sleep(700);
-			// `bun --hot` grandchild might still be bound to the
-			// port — SIGKILL by port to guarantee cleanup.
-			await killPort(port);
-		},
-		logPath
+		logPath,
+		kill: () => terminateDev(child, port)
 	};
 };
 
@@ -158,11 +156,11 @@ for (const size of SIZES) {
 	console.log(`\n=== ${size.label} (${size.count} filler components) ===\n`);
 	await runOnce('bun', ['run', 'scripts/grow.ts', String(size.count)]);
 
-	const logPath = resolve(PROJECT, `dev-${size.label}.log`);
+	const logPath = resolvePath(PROJECT, `dev-${size.label}.log`);
 	const dev = await startDev(size.port, logPath);
 	console.log(`dev ready on :${size.port}`);
 
-	const resultsPath = resolve(PROJECT, `bench-${size.label}.json`);
+	const resultsPath = resolvePath(PROJECT, `bench-${size.label}.json`);
 	try {
 		await runOnce('bun', ['run', 'bench.ts'], {
 			env: {
@@ -173,9 +171,10 @@ for (const size of SIZES) {
 				HMR_BENCH_WS_URL: `ws://localhost:${size.port}/hmr`
 			}
 		});
-	} catch (err) {
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
 		console.error(
-			`bench for size=${size.label} exited with error: ${(err as Error).message}`
+			`bench for size=${size.label} exited with error: ${message}`
 		);
 		console.error('continuing with whatever partial results were written');
 	} finally {
@@ -183,9 +182,9 @@ for (const size of SIZES) {
 	}
 
 	if (existsSync(resultsPath)) {
-		const parsed = JSON.parse(
+		const parsed: BenchResult = JSON.parse(
 			readFileSync(resultsPath, 'utf8')
-		) as BenchResult;
+		);
 		allResults.push(parsed);
 	}
 }
@@ -194,18 +193,18 @@ for (const size of SIZES) {
 await runOnce('bun', ['run', 'scripts/grow.ts', '0']);
 
 console.log('\n\n=== aggregate results ===\n');
-const fmt = (n: number | null | undefined) =>
-	n === null || n === undefined ? '—' : n.toFixed(1);
+const fmt = (value: number | null | undefined) =>
+	value === null || value === undefined ? '—' : value.toFixed(1);
 console.log(
 	'| size | cold e2e | cold server | case | warm e2e p50 | warm e2e p95 | warm server p50 | warm server p95 |'
 );
 console.log(
 	'|------|----------|-------------|------|--------------|--------------|------------------|------------------|'
 );
-for (const r of allResults) {
-	for (const c of r.cases) {
+for (const result of allResults) {
+	for (const benchmarkCase of result.cases) {
 		console.log(
-			`| ${r.size} | ${fmt(r.cold?.e2eMs)} | ${fmt(r.cold?.serverMs)} | ${c.name} | ${fmt(c.e2e.p50)} | ${fmt(c.e2e.p95)} | ${fmt(c.server.p50)} | ${fmt(c.server.p95)} |`
+			`| ${result.size} | ${fmt(result.cold?.e2eMs)} | ${fmt(result.cold?.serverMs)} | ${benchmarkCase.name} | ${fmt(benchmarkCase.e2e.p50)} | ${fmt(benchmarkCase.e2e.p95)} | ${fmt(benchmarkCase.server.p50)} | ${fmt(benchmarkCase.server.p95)} |`
 		);
 	}
 }

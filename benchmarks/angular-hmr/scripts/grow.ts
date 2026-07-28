@@ -25,21 +25,21 @@ const GENERATED_DIR = resolve(COMPONENTS_DIR, 'generated');
 const PAGES_DIR = resolve(PROJECT, 'angular/pages');
 const TEMPLATES_DIR = resolve(PROJECT, 'angular/templates');
 
-const N = Number(process.argv[2] ?? '');
-if (!Number.isFinite(N) || N < 0) {
+const componentCount = Number(process.argv[2] ?? '');
+if (!Number.isFinite(componentCount) || componentCount < 0) {
 	console.error(`usage: bun run scripts/grow.ts <count>`);
 	process.exit(2);
 }
 
-const componentSrc = (i: number) =>
+const componentSrc = (componentIndex: number) =>
 	`import { Component, Input } from '@angular/core';
 
 @Component({
-\tselector: 'app-comp-${i}',
+\tselector: 'app-comp-${componentIndex}',
 \tstandalone: true,
-\ttemplate: \`<span class="comp-${i}">{{ label }} #${i}</span>\`
+\ttemplate: \`<span class="comp-${componentIndex}">{{ label }} #${componentIndex}</span>\`
 })
-export class Comp${i} {
+export class Comp${componentIndex} {
 \t@Input() label: string = 'comp';
 }
 `;
@@ -47,11 +47,11 @@ export class Comp${i} {
 const pageSrc = (count: number) => {
 	const importLines: string[] = [];
 	const componentNames: string[] = [];
-	for (let i = 1; i <= count; i++) {
+	for (let componentIndex = 1; componentIndex <= count; componentIndex++) {
 		importLines.push(
-			`import { Comp${i} } from '../components/generated/comp-${i}.component';`
+			`import { Comp${componentIndex} } from '../components/generated/comp-${componentIndex}.component';`
 		);
-		componentNames.push(`Comp${i}`);
+		componentNames.push(`Comp${componentIndex}`);
 	}
 
 	const fillerImports =
@@ -92,8 +92,10 @@ export const page = defineAngularPage<BenchProps>({
 
 const templateSrc = (count: number) => {
 	const fillerLines: string[] = [];
-	for (let i = 1; i <= count; i++) {
-		fillerLines.push(`\t<app-comp-${i}></app-comp-${i}>`);
+	for (let componentIndex = 1; componentIndex <= count; componentIndex++) {
+		fillerLines.push(
+			`\t<app-comp-${componentIndex}></app-comp-${componentIndex}>`
+		);
 	}
 
 	return `<app-header></app-header>
@@ -105,28 +107,35 @@ ${fillerLines.join('\n')}
 `;
 };
 
-await fs.rm(GENERATED_DIR, { recursive: true, force: true });
-if (N > 0) {
+await fs.rm(GENERATED_DIR, { force: true, recursive: true });
+if (componentCount > 0) {
 	await fs.mkdir(GENERATED_DIR, { recursive: true });
-	for (let i = 1; i <= N; i++) {
+	for (
+		let componentIndex = 1;
+		componentIndex <= componentCount;
+		componentIndex++
+	) {
 		await fs.writeFile(
-			resolve(GENERATED_DIR, `comp-${i}.component.ts`),
-			componentSrc(i)
+			resolve(GENERATED_DIR, `comp-${componentIndex}.component.ts`),
+			componentSrc(componentIndex)
 		);
 	}
 }
 
-await fs.writeFile(resolve(PAGES_DIR, 'bench.ts'), pageSrc(N));
-await fs.writeFile(resolve(TEMPLATES_DIR, 'bench.html'), templateSrc(N));
+await fs.writeFile(resolve(PAGES_DIR, 'bench.ts'), pageSrc(componentCount));
+await fs.writeFile(
+	resolve(TEMPLATES_DIR, 'bench.html'),
+	templateSrc(componentCount)
+);
 
 if (existsSync(resolve(PROJECT, 'build'))) {
-	await fs.rm(resolve(PROJECT, 'build'), { recursive: true, force: true });
+	await fs.rm(resolve(PROJECT, 'build'), { force: true, recursive: true });
 }
 if (existsSync(resolve(PROJECT, '.absolutejs'))) {
 	await fs.rm(resolve(PROJECT, '.absolutejs'), {
-		recursive: true,
-		force: true
+		force: true,
+		recursive: true
 	});
 }
 
-console.log(`Grown fixture to ${N} filler components.`);
+console.log(`Grown fixture to ${componentCount} filler components.`);

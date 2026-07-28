@@ -71,46 +71,42 @@ const runSequentially = <Item>(
 	);
 
 const isAlreadyExistsError = (error: unknown) =>
-	error instanceof Error &&
-	'code' in error &&
-	(error as NodeJS.ErrnoException).code === 'EEXIST';
+	error instanceof Error && 'code' in error && error.code === 'EEXIST';
 
-const acquireBuildLock = async () => {
-	const start = Date.now();
+const removeStaleBuildLock = async () => {
+	try {
+		const lockStat = await stat(BUILD_LOCK_DIR);
+		if (Date.now() - lockStat.mtimeMs <= BUILD_LOCK_STALE_MS) return;
+		await rm(BUILD_LOCK_DIR, {
+			force: true,
+			recursive: true
+		});
+	} catch {
+		// The lock was removed between attempts.
+	}
+};
 
-	while (true) {
-		try {
-			await mkdir(BUILD_LOCK_DIR);
-			await writeFile(
-				join(BUILD_LOCK_DIR, 'owner'),
-				`${process.pid}\n${new Date().toISOString()}\n`
+const acquireBuildLock = async (start = Date.now()) => {
+	try {
+		await mkdir(BUILD_LOCK_DIR);
+		await writeFile(
+			join(BUILD_LOCK_DIR, 'owner'),
+			`${process.pid}\n${new Date().toISOString()}\n`
+		);
+	} catch (error) {
+		if (!isAlreadyExistsError(error)) throw error;
+		await removeStaleBuildLock();
+
+		if (Date.now() - start > BUILD_LOCK_TIMEOUT_MS) {
+			throw new Error(
+				`Timed out waiting for build lock: ${BUILD_LOCK_DIR}`,
+				{ cause: error }
 			);
-
-			return;
-		} catch (error) {
-			if (!isAlreadyExistsError(error)) throw error;
-
-			try {
-				const lockStat = await stat(BUILD_LOCK_DIR);
-				if (Date.now() - lockStat.mtimeMs > BUILD_LOCK_STALE_MS) {
-					await rm(BUILD_LOCK_DIR, {
-						force: true,
-						recursive: true
-					});
-					continue;
-				}
-			} catch {
-				// The lock was removed between attempts.
-			}
-
-			if (Date.now() - start > BUILD_LOCK_TIMEOUT_MS) {
-				throw new Error(
-					`Timed out waiting for build lock: ${BUILD_LOCK_DIR}`
-				);
-			}
-
-			await Bun.sleep(250);
 		}
+
+		await Bun.sleep(250);
+
+		await acquireBuildLock(start);
 	}
 };
 
@@ -297,6 +293,18 @@ const build = async () => {
 	if (!cliBuild.success) {
 		console.error('CLI build failed:');
 		for (const log of cliBuild.logs) console.error(log);
+		process.exit(1);
+	}
+
+	console.log('Building dev server bootstrap...');
+	const serverBootstrapBuild = await Bun.build({
+		entrypoints: ['src/dev/serverBootstrap.ts'],
+		outdir: join(DIST, 'dev'),
+		target: 'bun'
+	});
+	if (!serverBootstrapBuild.success) {
+		console.error('Dev server bootstrap build failed:');
+		for (const log of serverBootstrapBuild.logs) console.error(log);
 		process.exit(1);
 	}
 

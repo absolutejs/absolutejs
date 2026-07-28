@@ -28,6 +28,10 @@ describe('isAtomicWriteTemp', () => {
 		expect(isAtomicWriteTemp('.#counter.component.html')).toBe(true);
 	});
 
+	test('matches AbsoluteJS sibling entry copies', () => {
+		expect(isAtomicWriteTemp('.absolutejs-hmr-123-0.ts')).toBe(true);
+	});
+
 	test('matches `sed<random>` (sed -i in-place tmp)', () => {
 		expect(isAtomicWriteTemp('sedABC123def')).toBe(true);
 		expect(isAtomicWriteTemp('sedXYZ789012345')).toBe(true);

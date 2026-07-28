@@ -23,11 +23,6 @@ const pageComponent = resolve(
 	PROJECT_ROOT,
 	'example/angular/pages/angular-example.ts'
 );
-const counterComponent = resolve(
-	PROJECT_ROOT,
-	'example/angular/components/counter.component.ts'
-);
-
 const startAndConnect = async () => {
 	server = await startDevServer();
 	client = await connectHMR(server.port);

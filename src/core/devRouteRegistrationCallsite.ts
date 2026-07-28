@@ -55,6 +55,9 @@ const pageHandlerWrappers = new WeakMap<
 	(...args: unknown[]) => unknown,
 	PageHandlerInfo
 >();
+const isPageHandlerFunction = (
+	value: unknown
+): value is (...args: unknown[]) => unknown => typeof value === 'function';
 
 const handlerSourceMentionsPageHelper = (
 	handler: (...args: unknown[]) => unknown
@@ -65,18 +68,16 @@ const handlerSourceMentionsPageHelper = (
 };
 
 export const getOriginalPageHandlerSource = (handler: unknown) => {
-	if (typeof handler !== 'function') return undefined;
-	const fn = handler as (...args: unknown[]) => unknown;
-	const info = pageHandlerWrappers.get(fn);
+	if (!isPageHandlerFunction(handler)) return undefined;
+	const info = pageHandlerWrappers.get(handler);
 
-	return (info?.originalHandler ?? fn).toString();
+	return (info?.originalHandler ?? handler).toString();
 };
 export const isPageHandler = (handler: unknown) => {
-	if (typeof handler !== 'function') return false;
-	const fn = handler as (...args: unknown[]) => unknown;
-	if (pageHandlerWrappers.has(fn)) return true;
+	if (!isPageHandlerFunction(handler)) return false;
+	if (pageHandlerWrappers.has(handler)) return true;
 
-	return handlerSourceMentionsPageHelper(fn);
+	return handlerSourceMentionsPageHelper(handler);
 };
 
 const isObjectRecord = (value: unknown): value is Record<string, unknown> =>
@@ -187,18 +188,13 @@ const createPatchedRouteMethod = (
 		 * (used to extract literal `sitemap: { ... }` metadata). */
 		if (
 			methodName === 'get' &&
-			typeof handler === 'function' &&
-			typeof wrapped === 'function' &&
-			handlerSourceMentionsPageHelper(
-				handler as (...args: unknown[]) => unknown
-			)
+			isPageHandlerFunction(handler) &&
+			isPageHandlerFunction(wrapped) &&
+			handlerSourceMentionsPageHelper(handler)
 		) {
-			pageHandlerWrappers.set(
-				wrapped as (...args: unknown[]) => unknown,
-				{
-					originalHandler: handler as (...args: unknown[]) => unknown
-				}
-			);
+			pageHandlerWrappers.set(wrapped, {
+				originalHandler: handler
+			});
 		}
 
 		return Reflect.apply(originalMethod, this, [path, wrapped, ...rest]);

@@ -57,7 +57,7 @@ const pickRepresentativeFile = (cwd: string) => {
 	return resolve(cwd, 'src/index.ts');
 };
 
-const normalizeSeverity = (value: unknown): RuleSeverity => {
+const normalizeSeverity: (value: unknown) => RuleSeverity = (value) => {
 	if (value === 0 || value === 'off') return 'off';
 	if (value === 1 || value === 'warn') return 'warn';
 

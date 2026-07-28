@@ -122,7 +122,7 @@ describe('Angular multi-file edits propagate correctly', () => {
 		// component file in a fresh dev session can correctly
 		// classify as tier-0 (vs. silently undershooting to a no-
 		// op because the fingerprint baseline was undefined).
-		const srv = await startAndConnect();
+		await startAndConnect();
 		if (!client) throw new Error('client missing');
 
 		// Counter has not been edited yet in this server's lifetime.

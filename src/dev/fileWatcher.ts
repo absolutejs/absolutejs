@@ -72,7 +72,8 @@ const shouldSkipFilename = (filename: string, isStylesDir: boolean) =>
 	filename.endsWith('.tmp') ||
 	filename.endsWith('~') ||
 	filename.startsWith('.#') ||
-	ATOMIC_WRITE_TEMP_PATTERNS.some((re) => re.test(filename));
+	filename.startsWith('.absolutejs-hmr-') ||
+	ATOMIC_WRITE_TEMP_PATTERNS.some((pattern) => pattern.test(filename));
 
 const setupWatcher = (
 	absolutePath: string,
@@ -91,9 +92,10 @@ const setupWatcher = (
 	// dir for files whose ctime is fresh (last 1s), and synthesize an
 	// onFileChange for each. The temp file itself is filtered upstream;
 	// dir entries we already track separately (recursive watch will
-	// surface them through their own events) get deduplicated.
+	// surface them through their own events) are safely deduplicated by
+	// queueFileChange's content hashes. Do not time-deduplicate by path here:
+	// two real saves can land within the same rebuild window.
 	const ATOMIC_RECOVERY_WINDOW_MS = 1000;
-	const recentlySynthesized = new Map<string, number>();
 	const atomicRecoveryScan = (eventDir: string) => {
 		let entries: string[];
 		try {
@@ -114,9 +116,6 @@ const setupWatcher = (
 			if (!st.isFile()) continue;
 			const age = now - st.ctimeMs;
 			if (age < 0 || age > ATOMIC_RECOVERY_WINDOW_MS) continue;
-			const last = recentlySynthesized.get(child) ?? 0;
-			if (now - last < 100) continue;
-			recentlySynthesized.set(child, now);
 			onFileChange(child);
 			safeAddToGraph(state.dependencyGraph, child);
 		}
@@ -133,6 +132,17 @@ const setupWatcher = (
 						join(absolutePath, filename)
 					).replace(/\\/g, '/');
 					atomicRecoveryScan(eventDir);
+					// IN_MOVED_FROM can be delivered before the matching
+					// destination rename is visible. Recheck after two short
+					// filesystem turns; queueFileChange content-hash dedupes
+					// the common case where the immediate scan already won.
+					for (const delay of [25, 100]) {
+						const timer = setTimeout(
+							() => atomicRecoveryScan(eventDir),
+							delay
+						);
+						timer.unref();
+					}
 				}
 
 				return;

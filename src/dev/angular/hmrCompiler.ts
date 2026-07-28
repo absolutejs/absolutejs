@@ -36,10 +36,10 @@ export const encodeHmrComponentId = (
 };
 export const getApplyMetadataModule = async (encodedId: string) => {
 	const decoded = decodeURIComponent(encodedId);
-	const at = decoded.lastIndexOf('@');
-	if (at === -1) return null;
-	const filePathRel = decoded.slice(0, at);
-	const className = decoded.slice(at + 1);
+	const separatorIndex = decoded.lastIndexOf('@');
+	if (separatorIndex === -1) return null;
+	const filePathRel = decoded.slice(0, separatorIndex);
+	const className = decoded.slice(separatorIndex + 1);
 	const componentFilePath = resolve(process.cwd(), filePathRel);
 
 	// Cache hit path: the dispatcher already compiled this exact

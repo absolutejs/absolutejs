@@ -37,39 +37,31 @@ const parseSource = (configPath: string, text: string) =>
 
 // Locate the object literal passed to defineConfig({...}) — or a bare default
 // export object — so both the reader and the editor work off the same node.
-// Return type is annotated because `found` is assigned inside a nested closure,
-// which TS's flow analysis ignores when inferring (it would infer `null`).
-export const findConfigObject = (
-	sourceFile: ts.Node
-): ts.ObjectLiteralExpression | null => {
-	let found: ts.ObjectLiteralExpression | null = null;
-
-	const visit = (node: ts.Node) => {
-		if (found) return;
+export const findConfigObject = (sourceFile: ts.Node) => {
+	const pending = [sourceFile];
+	while (pending.length > 0) {
+		const node = pending.pop();
+		if (!node) continue;
+		const [firstArgument] = ts.isCallExpression(node) ? node.arguments : [];
 		if (
 			ts.isCallExpression(node) &&
 			ts.isIdentifier(node.expression) &&
 			node.expression.text === 'defineConfig' &&
-			node.arguments[0] &&
-			ts.isObjectLiteralExpression(node.arguments[0])
+			firstArgument &&
+			ts.isObjectLiteralExpression(firstArgument)
 		) {
-			found = node.arguments[0];
-
-			return;
+			return firstArgument;
 		}
 		if (
 			ts.isExportAssignment(node) &&
 			ts.isObjectLiteralExpression(node.expression)
 		) {
-			found = node.expression;
-
-			return;
+			return node.expression;
 		}
-		ts.forEachChild(node, visit);
-	};
-	visit(sourceFile);
+		node.forEachChild((child) => pending.push(child));
+	}
 
-	return found;
+	return null;
 };
 
 export const parseConfigObject = (configPath: string) => {

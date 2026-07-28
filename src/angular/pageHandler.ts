@@ -36,10 +36,8 @@ import {
 	renderAngularApp,
 	resolveSelector
 } from './ssrRender';
-import { resolveAngularRuntimePath } from './resolveAngularPackage';
 import { isProductionRuntime } from '../utils/runtimeMode';
 
-let lastSelector = 'angular-page';
 type AngularPageRenderOptions = StreamingSlotEnhancerOptions & {
 	collectStreamingSlots?: boolean;
 };
@@ -99,25 +97,26 @@ const isAngularComponent = (value: unknown): value is Type<unknown> =>
  *  Matched by selector string rather than class identity so it survives
  *  duplicate `@angular/router` module instances. */
 const componentHostsRouterOutlet = (component: Type<unknown>) => {
-	const componentDef = Reflect.get(component, 'ɵcmp') as
-		| { dependencies?: unknown }
-		| undefined;
-	if (!componentDef) return false;
+	const componentDef: unknown = Reflect.get(component, 'ɵcmp');
+	if (!isRecord(componentDef)) return false;
 
 	const rawDependencies = componentDef.dependencies;
 	const dependencies =
 		typeof rawDependencies === 'function'
-			? (rawDependencies as () => unknown[])()
+			? Reflect.apply(rawDependencies, undefined, [])
 			: rawDependencies;
 	if (!Array.isArray(dependencies)) return false;
 
 	return dependencies.some((dependency) => {
-		const directiveDef =
-			(Reflect.get(dependency as object, 'ɵdir') as
-				| { selectors?: unknown }
-				| undefined) ??
-			(dependency as { selectors?: unknown } | undefined);
-		const selectors = directiveDef?.selectors;
+		if (
+			dependency === null ||
+			(typeof dependency !== 'object' && typeof dependency !== 'function')
+		)
+			return false;
+		const directiveDef: unknown =
+			Reflect.get(dependency, 'ɵdir') ?? dependency;
+		if (!isRecord(directiveDef)) return false;
+		const { selectors } = directiveDef;
 
 		return (
 			Array.isArray(selectors) &&
@@ -397,7 +396,6 @@ export const handleAngularPageRequest = async <Page = unknown>(
 					resolvedPagePath,
 					PageComponent
 				);
-				lastSelector = selector;
 
 				const htmlString = `<!DOCTYPE html><html>${resolvedHeadTag}<body><${selector}></${selector}></body></html>`;
 

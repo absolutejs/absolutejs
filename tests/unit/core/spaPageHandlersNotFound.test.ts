@@ -9,6 +9,13 @@ import {
 } from '../../../src/utils/spaRouteManifest';
 
 const frameworks = ['angular', 'react', 'svelte', 'vue'] as const;
+const sourceExtension = (framework: (typeof frameworks)[number]) => {
+	if (framework === 'react') return 'tsx';
+	if (framework === 'svelte' || framework === 'vue') return framework;
+
+	return 'ts';
+};
+
 const hosts: RuntimeSpaHost[] = frameworks.map((framework) => ({
 	baseHref: '/portal/',
 	framework,
@@ -20,7 +27,7 @@ const hosts: RuntimeSpaHost[] = frameworks.map((framework) => ({
 			sitemapExcluded: false
 		}
 	],
-	sourceFile: `/app/Portal.${framework === 'react' ? 'tsx' : framework === 'svelte' || framework === 'vue' ? framework : 'ts'}`
+	sourceFile: `/app/Portal.${sourceExtension(framework)}`
 }));
 
 describe('SPA page handlers', () => {
@@ -29,9 +36,7 @@ describe('SPA page handlers', () => {
 	test('return HTTP 404 before rendering an unmatched SPA shell', async () => {
 		setSpaRouteManifest(hosts);
 		const request = new Request('https://example.com/portal/missing');
-		function Portal() {
-			return null;
-		}
+		const Portal = () => null;
 
 		const responses = await Promise.all([
 			handleAngularPageRequest({
@@ -40,8 +45,8 @@ describe('SPA page handlers', () => {
 				request
 			}),
 			handleReactPageRequest({
-				Page: Portal,
 				index: '/PortalIndex.js',
+				Page: Portal,
 				request
 			}),
 			handleSveltePageRequest({

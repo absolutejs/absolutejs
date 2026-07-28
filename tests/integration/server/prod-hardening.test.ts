@@ -124,7 +124,9 @@ describe('production bundle hardening', () => {
 			// would defeat content-hash caching.
 			const maxAgeMatch = /max-age=(\d+)/.exec(cacheControl);
 			expect(maxAgeMatch).not.toBeNull();
-			expect(Number(maxAgeMatch![1])).toBeGreaterThanOrEqual(60);
+			const maxAge = maxAgeMatch?.[1];
+			if (!maxAge) throw new Error('Cache-Control max-age was missing');
+			expect(Number(maxAge)).toBeGreaterThanOrEqual(60);
 		}
 	});
 
@@ -133,7 +135,7 @@ describe('production bundle hardening', () => {
 		// is stubbed → no upgrade handler, so a WS handshake here
 		// should NOT succeed.
 		const wsUrl = `ws://localhost:${server.port}/hmr`;
-		const opened = await new Promise<boolean>((res) => {
+		const opened = await new Promise<boolean>((resolve) => {
 			try {
 				const ws = new WebSocket(wsUrl);
 				const timer = setTimeout(() => {
@@ -142,7 +144,7 @@ describe('production bundle hardening', () => {
 					} catch {
 						/* */
 					}
-					res(false);
+					resolve(false);
 				}, 2_000);
 				ws.onopen = () => {
 					clearTimeout(timer);
@@ -151,18 +153,18 @@ describe('production bundle hardening', () => {
 					} catch {
 						/* */
 					}
-					res(true);
+					resolve(true);
 				};
 				ws.onerror = () => {
 					clearTimeout(timer);
-					res(false);
+					resolve(false);
 				};
 				ws.onclose = () => {
 					clearTimeout(timer);
-					res(false);
+					resolve(false);
 				};
 			} catch {
-				res(false);
+				resolve(false);
 			}
 		});
 		expect(opened).toBe(false);

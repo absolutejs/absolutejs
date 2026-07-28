@@ -28,10 +28,14 @@ export default defineConfig([
 			'**/generated/**',
 			'**/vendor/**',
 			'**/indexes/**',
-			'**/*/htmx.*.min.js',
+			'**/htmx*.min.js',
+			// Checked-in framework compiler snapshots used by the example.
+			'example/vue/client/**',
+			'example/vue/server/**',
 			// Local-only / scratch.
 			'.claude/**',
-			'.test-builds/**'
+			'.test-builds/**',
+			'**/.test-shards/**'
 		]
 	},
 
@@ -279,15 +283,51 @@ export default defineConfig([
 		}
 	},
 	{
-		files: [
-			'tsconfig.json',
-			'tsconfig.build.json',
-			'package.json',
-			'.prettierrc.json',
-			'native/packages/*/package.json'
-		],
+		// JSON is parsed as an expression by ESLint's default parser. Requiring
+		// a side effect from that expression is not meaningful for data files.
+		files: ['**/*.json'],
 		rules: {
 			'@typescript-eslint/no-unused-expressions': 'off'
+		}
+	},
+	{
+		// This fixture intentionally exercises a consumer-authored CommonJS
+		// runtime module, so CommonJS globals and require() are its contract.
+		files: ['tests/fixtures/compile-dependency-stress/runtime/*.cjs'],
+		languageOptions: {
+			globals: {
+				...globals.commonjs
+			}
+		},
+		rules: {
+			'@typescript-eslint/no-require-imports': 'off'
+		}
+	},
+	{
+		// Compile fixtures intentionally exercise AbsoluteJS's Angular page
+		// descriptor and default error-page conventions verbatim.
+		files: ['tests/fixtures/**/angular/pages/*.{ts,tsx}'],
+		rules: {
+			'absolute/explicit-object-types': 'off',
+			'no-restricted-exports': 'off'
+		}
+	},
+	{
+		// Compile fixtures preserve framework-native React page declarations,
+		// including default convention pages and `never`-returning throw pages.
+		files: ['tests/fixtures/**/react/pages/*.{ts,tsx}'],
+		rules: {
+			'absolute/no-explicit-return-type': 'off',
+			'func-style': 'off',
+			'no-restricted-exports': 'off'
+		}
+	},
+	{
+		// This browser compile fixture intentionally leaves the dynamic import
+		// observable so the compiled artifact exposes loader failures directly.
+		files: ['tests/fixtures/compile-stress/public/browser.js'],
+		rules: {
+			'promise/catch-or-return': 'off'
 		}
 	},
 	{
@@ -322,6 +362,141 @@ export default defineConfig([
 		rules: {
 			'absolute/max-depth-extended': 'off',
 			'absolute/no-explicit-return-type': 'off'
+		}
+	},
+	{
+		// These HMR internals are stateful compiler/event walkers. Their nested
+		// branches encode AST ancestry and event phases; flattening them into
+		// detached helpers would obscure the state invariants they enforce.
+		files: [
+			'src/dev/angular/fastHmrCompiler.ts',
+			'src/dev/rebuildTrigger.ts'
+		],
+		rules: {
+			'absolute/max-depth-extended': 'off'
+		}
+	},
+	{
+		// Rebuild batches intentionally serialize dependent compile and publish
+		// phases; concurrent iterations would expose partial generated output.
+		files: ['src/dev/rebuildTrigger.ts'],
+		rules: {
+			'no-await-in-loop': 'off'
+		}
+	},
+	{
+		// Dependency traversal and lock polling are intentionally ordered:
+		// parallel iterations would violate graph order or lock ownership.
+		files: ['src/dev/moduleServer.ts', 'src/utils/buildDirectoryLock.ts'],
+		rules: {
+			'no-await-in-loop': 'off'
+		}
+	},
+	{
+		// Build orchestration and the development module/watch graph coordinate
+		// ordered lifecycle phases with localized recovery branches. Extracting
+		// those branches would separate invariants from the state they protect.
+		files: [
+			'src/core/build.ts',
+			'src/core/devBuild.ts',
+			'src/dev/dependencyGraph.ts',
+			'src/dev/fileWatcher.ts',
+			'src/dev/moduleServer.ts',
+			'src/dev/pathUtils.ts',
+			'src/dev/serverEntryWatcher.ts',
+			'src/dev/transformCache.ts'
+		],
+		rules: {
+			'absolute/max-depth-extended': 'off'
+		}
+	},
+	{
+		// Static route analysis follows nested TypeScript AST nodes and the
+		// ownership resolver walks nested component metadata. Their depth
+		// mirrors source-tree ancestry rather than application control flow.
+		files: [
+			'src/*/staticAnalyzeSpaRoutes.ts',
+			'src/dev/angular/resolveOwningComponents.ts'
+		],
+		rules: {
+			'absolute/max-depth-extended': 'off'
+		}
+	},
+	{
+		// Framework HMR/resource adapters walk nested runtime metadata, and the
+		// router matcher mirrors nested segment/parameter structure.
+		files: [
+			'src/angular/angularPatch.ts',
+			'src/angular/composables/useResource.ts',
+			'src/angular/hmrPreserveCore.ts',
+			'src/angular/pageHandler.ts',
+			'src/svelte/router/goto.ts',
+			'src/svelte/router/matchPath.ts',
+			'src/vue/useResource.ts'
+		],
+		rules: {
+			'absolute/max-depth-extended': 'off'
+		}
+	},
+	{
+		// CLI configuration editors traverse nested config schemas, while the
+		// compile/dev/build scripts coordinate ordered lifecycle stages. Their
+		// nesting represents schema or pipeline structure, not request logic.
+		files: [
+			'scripts/build.ts',
+			'src/cli/config/**',
+			'src/cli/scripts/compile.ts',
+			'src/cli/scripts/dev.ts',
+			'src/cli/scripts/eslint.ts',
+			'src/cli/scripts/start.ts'
+		],
+		rules: {
+			'absolute/max-depth-extended': 'off'
+		}
+	},
+	{
+		// HMR clients and networking/build-lock helpers implement protocol state
+		// machines; the utility scanners walk nested filesystem/config records.
+		// Their branch depth mirrors protocol or input structure.
+		files: [
+			'src/dev/angular/hmrInjectionPlugin.ts',
+			'src/dev/client/**',
+			'src/dev/devCert.ts',
+			'src/plugins/networking.ts',
+			'src/utils/buildDirectoryLock.ts',
+			'src/utils/generateSitemap.ts',
+			'src/utils/projectRoot.ts',
+			'src/utils/resolveConvention.ts',
+			'src/utils/spaRouteManifest.ts'
+		],
+		rules: {
+			'absolute/max-depth-extended': 'off'
+		}
+	},
+	{
+		// Config Studio panels use layout-only containers and keep callbacks in
+		// the state-owning panel so validation and persistence remain atomic.
+		files: ['src/cli/config/**/*.{ts,tsx}'],
+		rules: {
+			'absolute/localize-react-props': 'off',
+			'absolute/max-jsxnesting': 'off',
+			'absolute/no-unnecessary-div': 'off'
+		}
+	},
+	{
+		// The workspace TUI is a single lifecycle coordinator for terminal
+		// input, child processes, and redraw state.
+		files: ['src/cli/workspaceTui.ts'],
+		rules: {
+			'absolute/max-depth-extended': 'off'
+		}
+	},
+	{
+		// Benchmark samples must execute sequentially so one measurement cannot
+		// consume CPU, filesystem, or server state belonging to another sample.
+		files: ['benchmarks/**'],
+		rules: {
+			'no-await-in-loop': 'off'
 		}
 	}
 ]);

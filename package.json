@@ -1,17 +1,20 @@
 {
-	"author": "Alex Kahn",
 	"absolutejs": {
 		"runtimePeers": {
 			"@angular/animations": {
 				"artifactImports": [],
-				"artifactReferences": ["@angular/animations"],
+				"artifactReferences": [
+					"@angular/animations"
+				],
 				"buildExternals": [],
 				"optional": true,
 				"range": "^21.0.0",
 				"tested": "21.2.6"
 			},
 			"@angular/common": {
-				"artifactImports": ["@angular/common"],
+				"artifactImports": [
+					"@angular/common"
+				],
 				"artifactReferences": [],
 				"buildExternals": [],
 				"optional": true,
@@ -19,7 +22,9 @@
 				"tested": "21.2.6"
 			},
 			"@angular/compiler": {
-				"artifactImports": ["@angular/compiler"],
+				"artifactImports": [
+					"@angular/compiler"
+				],
 				"artifactReferences": [],
 				"buildExternals": [],
 				"optional": true,
@@ -27,7 +32,9 @@
 				"tested": "21.2.6"
 			},
 			"@angular/compiler-cli": {
-				"artifactImports": ["@angular/compiler-cli"],
+				"artifactImports": [
+					"@angular/compiler-cli"
+				],
 				"artifactReferences": [],
 				"buildExternals": [],
 				"optional": true,
@@ -35,7 +42,10 @@
 				"tested": "21.2.6"
 			},
 			"@angular/core": {
-				"artifactImports": ["@angular/core", "@angular/core/rxjs-interop"],
+				"artifactImports": [
+					"@angular/core",
+					"@angular/core/rxjs-interop"
+				],
 				"artifactReferences": [],
 				"buildExternals": [],
 				"optional": true,
@@ -43,7 +53,9 @@
 				"tested": "21.2.6"
 			},
 			"@angular/platform-browser": {
-				"artifactImports": ["@angular/platform-browser"],
+				"artifactImports": [
+					"@angular/platform-browser"
+				],
 				"artifactReferences": [],
 				"buildExternals": [],
 				"optional": true,
@@ -51,7 +63,9 @@
 				"tested": "21.2.6"
 			},
 			"@angular/platform-server": {
-				"artifactImports": ["@angular/platform-server"],
+				"artifactImports": [
+					"@angular/platform-server"
+				],
 				"artifactReferences": [],
 				"buildExternals": [],
 				"optional": true,
@@ -59,7 +73,9 @@
 				"tested": "21.2.6"
 			},
 			"@angular/router": {
-				"artifactImports": ["@angular/router"],
+				"artifactImports": [
+					"@angular/router"
+				],
 				"artifactReferences": [],
 				"buildExternals": [],
 				"optional": true,
@@ -68,14 +84,18 @@
 			},
 			"@angular/ssr": {
 				"artifactImports": [],
-				"artifactReferences": ["@angular/ssr"],
+				"artifactReferences": [
+					"@angular/ssr"
+				],
 				"buildExternals": [],
 				"optional": true,
 				"range": "^21.0.0",
 				"tested": "21.2.5"
 			},
 			"@vue/compiler-sfc": {
-				"artifactImports": ["@vue/compiler-sfc"],
+				"artifactImports": [
+					"@vue/compiler-sfc"
+				],
 				"artifactReferences": [],
 				"buildExternals": [],
 				"optional": true,
@@ -83,7 +103,10 @@
 				"tested": "3.5.27"
 			},
 			"elysia": {
-				"artifactImports": ["elysia", "elysia/ws"],
+				"artifactImports": [
+					"elysia",
+					"elysia/ws"
+				],
 				"artifactReferences": [],
 				"buildExternals": [],
 				"optional": false,
@@ -92,7 +115,9 @@
 			},
 			"less": {
 				"artifactImports": [],
-				"artifactReferences": ["less"],
+				"artifactReferences": [
+					"less"
+				],
 				"buildExternals": [],
 				"optional": true,
 				"range": "^4.6.0",
@@ -100,14 +125,20 @@
 			},
 			"postcss": {
 				"artifactImports": [],
-				"artifactReferences": ["postcss"],
+				"artifactReferences": [
+					"postcss"
+				],
 				"buildExternals": [],
 				"optional": true,
 				"range": "^8.5.0",
 				"tested": "8.5.3"
 			},
 			"react": {
-				"artifactImports": ["react", "react/jsx-dev-runtime", "react/jsx-runtime"],
+				"artifactImports": [
+					"react",
+					"react/jsx-dev-runtime",
+					"react/jsx-runtime"
+				],
 				"artifactReferences": [],
 				"buildExternals": [],
 				"optional": true,
@@ -115,7 +146,10 @@
 				"tested": "19.2.1"
 			},
 			"react-dom": {
-				"artifactImports": ["react-dom/client", "react-dom/server"],
+				"artifactImports": [
+					"react-dom/client",
+					"react-dom/server"
+				],
 				"artifactReferences": [],
 				"buildExternals": [],
 				"optional": true,
@@ -123,7 +157,9 @@
 				"tested": "19.2.1"
 			},
 			"react-router": {
-				"artifactImports": ["react-router"],
+				"artifactImports": [
+					"react-router"
+				],
 				"artifactReferences": [],
 				"buildExternals": [],
 				"optional": true,
@@ -132,7 +168,9 @@
 			},
 			"rxjs": {
 				"artifactImports": [],
-				"artifactReferences": ["rxjs"],
+				"artifactReferences": [
+					"rxjs"
+				],
 				"buildExternals": [],
 				"optional": true,
 				"range": "^7.8.0",
@@ -140,7 +178,9 @@
 			},
 			"sass": {
 				"artifactImports": [],
-				"artifactReferences": ["sass"],
+				"artifactReferences": [
+					"sass"
+				],
 				"buildExternals": [],
 				"optional": true,
 				"range": "^1.99.0",
@@ -148,7 +188,9 @@
 			},
 			"sharp": {
 				"artifactImports": [],
-				"artifactReferences": ["node_modules/sharp"],
+				"artifactReferences": [
+					"node_modules/sharp"
+				],
 				"buildExternals": [],
 				"optional": true,
 				"range": ">=0.33.0",
@@ -156,14 +198,21 @@
 			},
 			"stylus": {
 				"artifactImports": [],
-				"artifactReferences": ["stylus"],
+				"artifactReferences": [
+					"stylus"
+				],
 				"buildExternals": [],
 				"optional": true,
 				"range": "^0.64.0",
 				"tested": "0.64.0"
 			},
 			"svelte": {
-				"artifactImports": ["svelte", "svelte/compiler", "svelte/internal/client", "svelte/server"],
+				"artifactImports": [
+					"svelte",
+					"svelte/compiler",
+					"svelte/internal/client",
+					"svelte/server"
+				],
 				"artifactReferences": [],
 				"buildExternals": [],
 				"optional": true,
@@ -172,14 +221,18 @@
 			},
 			"tailwindcss": {
 				"artifactImports": [],
-				"artifactReferences": ["tailwindcss"],
+				"artifactReferences": [
+					"tailwindcss"
+				],
 				"buildExternals": [],
 				"optional": true,
 				"range": "^4.1.0",
 				"tested": "4.1.7"
 			},
 			"typescript": {
-				"artifactImports": ["typescript"],
+				"artifactImports": [
+					"typescript"
+				],
 				"artifactReferences": [],
 				"buildExternals": [],
 				"optional": true,
@@ -187,7 +240,10 @@
 				"tested": "5.9.3"
 			},
 			"vue": {
-				"artifactImports": ["vue", "vue/server-renderer"],
+				"artifactImports": [
+					"vue",
+					"vue/server-renderer"
+				],
 				"artifactReferences": [],
 				"buildExternals": [],
 				"optional": true,
@@ -195,7 +251,9 @@
 				"tested": "3.5.27"
 			},
 			"vue-router": {
-				"artifactImports": ["vue-router"],
+				"artifactImports": [
+					"vue-router"
+				],
 				"artifactReferences": [],
 				"buildExternals": [],
 				"optional": true,
@@ -204,8 +262,12 @@
 			}
 		}
 	},
+	"author": "Alex Kahn",
 	"bin": {
 		"absolute": "dist/cli/index.js"
+	},
+	"bugs": {
+		"url": "https://github.com/absolutejs/absolutejs/issues"
 	},
 	"dependencies": {
 		"@elysia/static": "^1.4.11",
@@ -449,6 +511,7 @@
 		"README.md",
 		"THIRD_PARTY_NOTICES.md"
 	],
+	"homepage": "https://github.com/absolutejs/absolutejs",
 	"license": "BSL-1.1",
 	"main": "./dist/index.js",
 	"name": "@absolutejs/absolute",
@@ -569,10 +632,6 @@
 	"repository": {
 		"type": "git",
 		"url": "git+https://github.com/absolutejs/absolutejs.git"
-	},
-	"homepage": "https://github.com/absolutejs/absolutejs",
-	"bugs": {
-		"url": "https://github.com/absolutejs/absolutejs/issues"
 	},
 	"scripts": {
 		"bd": "bun run scripts/build.ts && bun",

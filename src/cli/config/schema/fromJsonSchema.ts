@@ -3,7 +3,7 @@ import type { FieldNode, FieldSchema } from '../../../../types/config';
 
 const MAX_DEPTH = 6;
 
-const opaque = (): FieldSchema => ({ kind: 'opaque', typeText: 'json' });
+const OPAQUE_SCHEMA: FieldSchema = { kind: 'opaque', typeText: 'json' };
 
 // Map a JSON Schema node to our normalized FieldSchema so the recursive
 // FieldEditor can render it (used for ESLint rule options, which ship a schema).
@@ -26,7 +26,7 @@ export const eslintOptionsSchema = (metaSchema: unknown): FieldSchema => {
 	return { kind: 'opaque', typeText: 'options' };
 };
 export const fromJsonSchema = (schema: unknown, depth = 0): FieldSchema => {
-	if (depth > MAX_DEPTH || !isRecord(schema)) return opaque();
+	if (depth > MAX_DEPTH || !isRecord(schema)) return OPAQUE_SCHEMA;
 
 	if (Array.isArray(schema.enum)) {
 		const choices = schema.enum.filter(
@@ -65,7 +65,7 @@ export const fromJsonSchema = (schema: unknown, depth = 0): FieldSchema => {
 		}
 
 		return {
-			item: items ? fromJsonSchema(items, depth + 1) : opaque(),
+			item: items ? fromJsonSchema(items, depth + 1) : OPAQUE_SCHEMA,
 			kind: 'array'
 		};
 	}
@@ -94,11 +94,11 @@ export const fromJsonSchema = (schema: unknown, depth = 0): FieldSchema => {
 			};
 		}
 		if (additional !== false) {
-			return { kind: 'record', value: opaque() };
+			return { kind: 'record', value: OPAQUE_SCHEMA };
 		}
 
 		return { fields: [], kind: 'object' };
 	}
 
-	return opaque();
+	return OPAQUE_SCHEMA;
 };

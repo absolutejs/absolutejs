@@ -15,8 +15,6 @@ type Notice = {
 
 type SaveFn = (value: unknown, remove?: boolean) => void;
 
-const formatValue = (value: unknown) => JSON.stringify(value);
-
 const matchesQuery = (query: string, name: string, description: string) => {
 	if (query === '') return true;
 	const needle = query.toLowerCase();

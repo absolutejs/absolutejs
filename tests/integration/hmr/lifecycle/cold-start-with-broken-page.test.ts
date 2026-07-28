@@ -97,7 +97,7 @@ describe('cold-start with a syntax error recovers to a healthy dev server', () =
 				recovered = true;
 				break;
 			}
-			await new Promise((r) => setTimeout(r, 300));
+			await new Promise((_resolve) => setTimeout(_resolve, 300));
 		}
 		if (!recovered) {
 			console.error(

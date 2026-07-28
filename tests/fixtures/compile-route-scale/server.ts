@@ -10,7 +10,7 @@ const renderPage = (title: string, links = '') =>
 		{ headers: { 'content-type': 'text/html; charset=utf-8' } }
 	);
 
-export const server = new Elysia()
+export const server = new Elysia({ strictPath: true })
 	.get('/', () =>
 		renderPage(
 			'ROUTE_SCALE_HOME',

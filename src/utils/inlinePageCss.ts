@@ -28,11 +28,11 @@ export const clearSiblingCssCache = () => {
 	siblingCssCache.clear();
 };
 
-export const injectInlineCss = <T extends string>(headTag: T, css: string) => {
+export const injectInlineCss = (headTag: string, css: string) => {
 	if (!css) return headTag;
 	const styleBlock = `<style data-absolute-page-css>${css}</style>`;
 
-	return headTag.replace('</head>', `${styleBlock}</head>`) as T;
+	return headTag.replace('</head>', `${styleBlock}</head>`);
 };
 export const readSiblingCss = async (siblingJsPath: string | undefined) => {
 	if (!siblingJsPath) return '';

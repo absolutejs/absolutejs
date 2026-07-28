@@ -16,13 +16,15 @@ export type InstanceKeyMap = WeakMap<object, string>;
 export type RebootFlag = { value: boolean };
 export type RebootStats = { captured: number; restoredKeys: Set<string> };
 
-type PreserveScope = typeof globalThis & {
-	__ABS_HMR_INSTANCE_STATE__?: StateCache;
-	__ABS_HMR_TRACKED_INSTANCES__?: InstanceTracker;
-	__ABS_HMR_INSTANCE_KEYS__?: InstanceKeyMap;
-	__ABS_HMR_REBOOT_IN_PROGRESS__?: RebootFlag;
-	__ABS_HMR_REBOOT_STATS__?: RebootStats;
-};
+const isRebootFlag = (value: unknown): value is RebootFlag =>
+	typeof value === 'object' &&
+	value !== null &&
+	typeof Reflect.get(value, 'value') === 'boolean';
+const isRebootStats = (value: unknown): value is RebootStats =>
+	typeof value === 'object' &&
+	value !== null &&
+	typeof Reflect.get(value, 'captured') === 'number' &&
+	Reflect.get(value, 'restoredKeys') instanceof Set;
 
 export const buildCacheKey = (instance: object, key?: unknown) => {
 	const className = instance.constructor?.name;
@@ -66,7 +68,7 @@ export const captureTrackedInstanceStates = () => {
 
 		const props: Record<string, unknown> = {};
 		for (const prop of Object.keys(instance)) {
-			const value = (instance as Record<string, unknown>)[prop];
+			const value = Reflect.get(instance, prop);
 			if (isPreservable(value)) props[prop] = value;
 		}
 		cache.set(fullKey, props);
@@ -91,7 +93,7 @@ export const endHmrReboot = () => {
 	const stats = getRebootStats();
 	if (stats.captured > 0) {
 		const restored = Array.from(stats.restoredKeys)
-			.map((k) => k.replace(/:$/, ''))
+			.map((cacheKey) => cacheKey.replace(/:$/, ''))
 			.sort();
 		console.info(
 			`[HMR] Full re-bootstrap: restored state for ${restored.length}/${stats.captured} tracked instance(s)${
@@ -101,32 +103,62 @@ export const endHmrReboot = () => {
 	}
 };
 export const getCache = () => {
-	const scope = globalThis as PreserveScope;
+	const current: unknown = Reflect.get(
+		globalThis,
+		'__ABS_HMR_INSTANCE_STATE__'
+	);
+	if (current instanceof Map) return current;
+	const cache: StateCache = new Map();
+	Reflect.set(globalThis, '__ABS_HMR_INSTANCE_STATE__', cache);
 
-	return (scope.__ABS_HMR_INSTANCE_STATE__ ??= new Map());
+	return cache;
 };
 export const getKeyMap = () => {
-	const scope = globalThis as PreserveScope;
+	const current: unknown = Reflect.get(
+		globalThis,
+		'__ABS_HMR_INSTANCE_KEYS__'
+	);
+	if (current instanceof WeakMap) return current;
+	const keyMap: InstanceKeyMap = new WeakMap();
+	Reflect.set(globalThis, '__ABS_HMR_INSTANCE_KEYS__', keyMap);
 
-	return (scope.__ABS_HMR_INSTANCE_KEYS__ ??= new WeakMap());
+	return keyMap;
 };
 export const getRebootFlag = () => {
-	const scope = globalThis as PreserveScope;
+	const current: unknown = Reflect.get(
+		globalThis,
+		'__ABS_HMR_REBOOT_IN_PROGRESS__'
+	);
+	if (isRebootFlag(current)) return current;
+	const flag: RebootFlag = { value: false };
+	Reflect.set(globalThis, '__ABS_HMR_REBOOT_IN_PROGRESS__', flag);
 
-	return (scope.__ABS_HMR_REBOOT_IN_PROGRESS__ ??= { value: false });
+	return flag;
 };
 export const getRebootStats = () => {
-	const scope = globalThis as PreserveScope;
-
-	return (scope.__ABS_HMR_REBOOT_STATS__ ??= {
+	const current: unknown = Reflect.get(
+		globalThis,
+		'__ABS_HMR_REBOOT_STATS__'
+	);
+	if (isRebootStats(current)) return current;
+	const stats: RebootStats = {
 		captured: 0,
 		restoredKeys: new Set()
-	});
+	};
+	Reflect.set(globalThis, '__ABS_HMR_REBOOT_STATS__', stats);
+
+	return stats;
 };
 export const getTracker = () => {
-	const scope = globalThis as PreserveScope;
+	const current: unknown = Reflect.get(
+		globalThis,
+		'__ABS_HMR_TRACKED_INSTANCES__'
+	);
+	if (current instanceof Set) return current;
+	const tracker: InstanceTracker = new Set();
+	Reflect.set(globalThis, '__ABS_HMR_TRACKED_INSTANCES__', tracker);
 
-	return (scope.__ABS_HMR_TRACKED_INSTANCES__ ??= new Set());
+	return tracker;
 };
 export const isHmrPreserveDev = () => {
 	// SSR safety: globalThis on the server is process-wide and shared
@@ -135,29 +167,36 @@ export const isHmrPreserveDev = () => {
 	// presence of a browser `window` *and* a dev signal — neither is
 	// true in a production build, so this is a hard no-op there too.
 	if (typeof window === 'undefined') return false;
-	const scope = globalThis as { __DEV__?: unknown; ngDevMode?: unknown };
 
-	return Boolean(scope.__DEV__) || Boolean(scope.ngDevMode);
+	return (
+		Boolean(Reflect.get(globalThis, '__DEV__')) ||
+		Boolean(Reflect.get(globalThis, 'ngDevMode'))
+	);
 };
 export const isPreservable = (value: unknown, depth = 0): boolean => {
 	if (depth > 8) return false;
 	if (value === null || value === undefined) return true;
-	const t = typeof value;
-	if (t === 'string' || t === 'number' || t === 'boolean' || t === 'bigint')
+	const valueType = typeof value;
+	if (
+		valueType === 'string' ||
+		valueType === 'number' ||
+		valueType === 'boolean' ||
+		valueType === 'bigint'
+	)
 		return true;
-	if (t === 'function' || t === 'symbol') return false;
+	if (valueType === 'function' || valueType === 'symbol') return false;
 	if (Array.isArray(value)) {
 		return value.every((item) => isPreservable(item, depth + 1));
 	}
-	if (t === 'object') {
+	if (valueType === 'object') {
 		const proto = Object.getPrototypeOf(value);
 		// Only POJOs — class instances (HttpClient, BehaviorSubject, Date,
 		// Map, etc.) carry runtime identity that the new instance must
 		// get from its own injector / construction.
 		if (proto !== Object.prototype && proto !== null) return false;
 
-		return Object.values(value as object).every((v) =>
-			isPreservable(v, depth + 1)
+		return Object.values(value).every((nestedValue) =>
+			isPreservable(nestedValue, depth + 1)
 		);
 	}
 
@@ -170,7 +209,7 @@ export const restoreFromCacheCore = (instance: object, key: string) => {
 
 	for (const [prop, value] of Object.entries(stored)) {
 		try {
-			(instance as Record<string, unknown>)[prop] = value;
+			Reflect.set(instance, prop, value);
 		} catch {
 			/* property is non-writable / has a setter that threw — skip */
 		}

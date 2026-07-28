@@ -24,6 +24,7 @@ describe('dev server startup', () => {
 
 		const status = await res.json();
 		expect(status).toHaveProperty('connectedClients');
+		expect(status.entryWatcherReady).toBeTrue();
 		expect(status).toHaveProperty('isRebuilding');
 		expect(status).toHaveProperty('manifestKeys');
 		expect(status).toHaveProperty('timestamp');

@@ -108,11 +108,12 @@ describe('SSR error logging reaches dev-server stderr', () => {
 		expect(body).toContain(sentinel);
 
 		// Give stderr a beat to flush.
-		await new Promise((r) => setTimeout(r, 750));
+		await new Promise((_resolve) => setTimeout(_resolve, 750));
 
 		const block = collectSentinelOutput(srv.outputLines, sentinel, 30);
 		expect(block).not.toBeNull();
-		const trace = block!.join('\n');
+		if (!block) throw new Error('Expected the React stack trace sentinel');
+		const trace = block.join('\n');
 
 		// Visibility contract: the sentinel and at least one
 		// "at <fn> (<path>:<line>:<col>)" frame must appear in
@@ -164,11 +165,12 @@ describe('SSR error logging reaches dev-server stderr', () => {
 		const body = await res.text();
 		expect(body).toContain(sentinel);
 
-		await new Promise((r) => setTimeout(r, 750));
+		await new Promise((_resolve) => setTimeout(_resolve, 750));
 
 		const block = collectSentinelOutput(srv.outputLines, sentinel, 30);
 		expect(block).not.toBeNull();
-		const trace = block!.join('\n');
+		if (!block) throw new Error('Expected the Vue stack trace sentinel');
+		const trace = block.join('\n');
 
 		expect(trace).toContain(sentinel);
 		expect(trace).toMatch(/at\s+\w[\w$]*\s+\([^)]+:\d+:\d+\)/);
@@ -196,15 +198,16 @@ describe('SSR error logging reaches dev-server stderr', () => {
 			const res = await fetch(`${srv.baseUrl}/angular`);
 			body = await res.text();
 			if (body.includes(sentinel)) break;
-			await new Promise((r) => setTimeout(r, 250));
+			await new Promise((_resolve) => setTimeout(_resolve, 250));
 		}
 		expect(body).toContain(sentinel);
 
-		await new Promise((r) => setTimeout(r, 750));
+		await new Promise((_resolve) => setTimeout(_resolve, 750));
 
 		const block = collectSentinelOutput(srv.outputLines, sentinel, 30);
 		expect(block).not.toBeNull();
-		const trace = block!.join('\n');
+		if (!block) throw new Error('Expected the Svelte stack trace sentinel');
+		const trace = block.join('\n');
 
 		expect(trace).toContain(sentinel);
 		expect(trace).toMatch(/at\s+\w[\w$]*\s+\([^)]+:\d+:\d+\)/);

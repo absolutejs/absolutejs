@@ -829,15 +829,15 @@ const sanitizeBunBuildOverride = (
 	extraReservedKeys: Set<string> = new Set()
 ) => {
 	if (!override) return {};
-	const sanitized: Record<string, unknown> = { ...override };
+	const sanitized: BunBuildConfigOverride = { ...override };
 	for (const key of reservedBunBuildConfigKeys) {
-		delete sanitized[key];
+		Reflect.deleteProperty(sanitized, key);
 	}
 	for (const key of extraReservedKeys) {
-		delete sanitized[key];
+		Reflect.deleteProperty(sanitized, key);
 	}
 
-	return sanitized as BunBuildConfigOverride;
+	return sanitized;
 };
 
 export const resolveBunBuildOverride = (
@@ -865,9 +865,9 @@ export const resolveBunBuildOverride = (
  *  source + moved to a private dir by `privatizeClientSourcemaps`. */
 export const resolveClientSourcemap = (
 	sourcemaps: BuildConfig['sourcemaps'],
-	isDev: boolean
-): 'inline' | 'external' | 'none' => {
-	if (isDev) return sourcemaps === false ? 'none' : 'inline';
+	devMode: boolean
+) => {
+	if (devMode) return sourcemaps === false ? 'none' : 'inline';
 	if (sourcemaps === 'external' || sourcemaps === true) return 'external';
 	if (sourcemaps === 'inline') return 'inline';
 
@@ -881,12 +881,12 @@ export const mergeBunBuildConfig = (
 	override: BunBuildConfigOverride
 ) => {
 	const sanitized = sanitizeBunBuildOverride(override);
-	const merged = {
+	const merged: BunBuildOptions = {
 		...base,
 		...sanitized
-	} as BunBuildOptions;
+	};
 
-	return {
+	const result: BunBuildOptions = {
 		...merged,
 		define:
 			base.define || sanitized.define
@@ -900,7 +900,9 @@ export const mergeBunBuildConfig = (
 			...(sanitized.external ?? [])
 		]),
 		plugins: [...(base.plugins ?? []), ...(sanitized.plugins ?? [])]
-	} as BunBuildOptions;
+	};
+
+	return result;
 };
 
 const buildUnlocked = async ({
@@ -931,9 +933,9 @@ const buildUnlocked = async ({
 	const traceEnabled = isBuildTraceEnabled();
 	const traceEvents: BuildTraceEvent[] = [];
 	let traceFrameworkNames: string[] = [];
-	const traceGlobal = globalThis as typeof globalThis & {
+	const traceGlobal: typeof globalThis & {
 		__absoluteBuildTracePhase?: BuildTracePhase;
-	};
+	} = globalThis;
 	const previousTracePhase = traceGlobal.__absoluteBuildTracePhase;
 	const restoreTracePhase = () => {
 		if (previousTracePhase) {
@@ -944,13 +946,13 @@ const buildUnlocked = async ({
 	};
 	const tracePhase: BuildTracePhase = async <T>(
 		name: string,
-		fn: () => Promise<T> | T,
+		runPhase: () => Promise<T> | T,
 		metadata?: Record<string, unknown>
 	) => {
-		if (!traceEnabled) return fn();
+		if (!traceEnabled) return runPhase();
 		const phaseStart = performance.now();
 		try {
-			const result = await fn();
+			const result = await runPhase();
 			traceEvents.push({
 				durationMs: performance.now() - phaseStart,
 				metadata,
@@ -1211,6 +1213,15 @@ const buildUnlocked = async ({
 	// candidates changes — that includes JS/TS/JSX/TSX/Vue/Svelte/HTML and the
 	// other source extensions referenced via `@source`, not only stylesheets.
 	// Without this, classes added to markup never show up in the emitted CSS.
+	const tailwindSourceConfig: BuildConfig = {
+		angularDirectory,
+		emberDirectory,
+		htmlDirectory,
+		htmxDirectory,
+		reactDirectory,
+		svelteDirectory,
+		vueDirectory
+	};
 	const tailwindPromise =
 		tailwind &&
 		(!isIncremental ||
@@ -1220,15 +1231,7 @@ const buildUnlocked = async ({
 						tailwind,
 						buildPath,
 						styleTransformConfig,
-						computeFrameworkTailwindSources({
-							angularDirectory,
-							emberDirectory,
-							htmlDirectory,
-							htmxDirectory,
-							reactDirectory,
-							svelteDirectory,
-							vueDirectory
-						} as BuildConfig),
+						computeFrameworkTailwindSources(tailwindSourceConfig),
 						normalizedIncrementalFiles ?? []
 					)
 				)
@@ -1650,7 +1653,7 @@ const buildUnlocked = async ({
 			vueSpaRoutesBySource
 		},
 		{ clientPaths: angularClientPaths, serverPaths: angularServerPaths },
-		{ clientPaths: emberClientPaths, serverPaths: emberServerPaths },
+		{ serverPaths: emberServerPaths },
 		{ svelteClientPaths: islandSvelteClientPaths },
 		{ vueClientPaths: islandVueClientPaths },
 		{ clientPaths: islandAngularClientPaths }
@@ -1711,10 +1714,10 @@ const buildUnlocked = async ({
 					// circular ESM cycle when a router page exports
 					// `routes`.
 					if (angularAppProvidersSource && angularDir) {
-						const { getFrameworkGeneratedDir } = await import(
-							'../utils/generatedDir'
-						);
-						const compiledRoot = getFrameworkGeneratedDir(
+						const {
+							getFrameworkGeneratedDir: resolveGeneratedDirectory
+						} = await import('../utils/generatedDir');
+						const compiledRoot = resolveGeneratedDirectory(
 							'angular',
 							projectRoot
 						);
@@ -1748,16 +1751,19 @@ const buildUnlocked = async ({
 							const { readdir } = await import(
 								'node:fs/promises'
 							);
-							const { join } = await import('node:path');
+							const { join: joinPath } = await import(
+								'node:path'
+							);
 							const walk = async (dir: string) => {
 								const entries = await readdir(dir, {
 									withFileTypes: true
 								});
 								const out: string[] = [];
+								const directories: string[] = [];
 								for (const entry of entries) {
-									const full = join(dir, entry.name);
+									const full = joinPath(dir, entry.name);
 									if (entry.isDirectory()) {
-										out.push(...(await walk(full)));
+										directories.push(full);
 									} else if (
 										entry.isFile() &&
 										entry.name.endsWith('.ts') &&
@@ -1766,6 +1772,10 @@ const buildUnlocked = async ({
 										out.push(full);
 									}
 								}
+								const nestedFiles = await Promise.all(
+									directories.map(walk)
+								);
+								out.push(...nestedFiles.flat());
 
 								return out;
 							};
@@ -1900,41 +1910,39 @@ const buildUnlocked = async ({
 			rmSync(destDir, { force: true, recursive: true });
 			mkdirSync(destDir, { recursive: true });
 
-			const destPaths: string[] = [];
-			for (let idx = 0; idx < reactConventionSources.length; idx++) {
-				const source = reactConventionSources[idx];
-				if (!source) continue;
+			const destPaths = await Promise.all(
+				reactConventionSources.map(async (source, idx) => {
+					const result = await bunBuild({
+						entrypoints: [source],
+						format: 'esm',
+						jsx: { development: false },
+						minify: !isDev,
+						naming: `${idx}-[name].[ext]`,
+						outdir: destDir,
+						plugins: [stylePreprocessorPlugin],
+						root: dirname(source),
+						target: 'bun',
+						throw: false,
+						tsconfig: './tsconfig.json'
+					});
+					if (!result.success) {
+						outputLogs(result.logs);
+						throw new Error(
+							`Failed to compile React convention: ${source}`
+						);
+					}
 
-				const result = await bunBuild({
-					entrypoints: [source],
-					format: 'esm',
-					jsx: { development: false },
-					minify: !isDev,
-					naming: `${idx}-[name].[ext]`,
-					outdir: destDir,
-					plugins: [stylePreprocessorPlugin],
-					root: dirname(source),
-					target: 'bun',
-					throw: false,
-					tsconfig: './tsconfig.json'
-				});
-				if (!result.success) {
-					outputLogs(result.logs);
-					throw new Error(
-						`Failed to compile React convention: ${source}`
+					const output = result.outputs.find((artifact) =>
+						artifact.path.endsWith('.js')
 					);
-				}
+					if (!output)
+						throw new Error(
+							`React convention did not emit JavaScript: ${source}`
+						);
 
-				const output = result.outputs.find((artifact) =>
-					artifact.path.endsWith('.js')
-				);
-				if (!output)
-					throw new Error(
-						`React convention did not emit JavaScript: ${source}`
-					);
-
-				destPaths.push(output.path);
-			}
+					return output.path;
+				})
+			);
 
 			return destPaths;
 		};
@@ -1995,37 +2003,36 @@ const buildUnlocked = async ({
 			const destDir = join(buildPath, 'conventions', framework);
 			rmSync(destDir, { force: true, recursive: true });
 			mkdirSync(destDir, { recursive: true });
-			const destPaths: string[] = [];
-			for (let idx = 0; idx < compiledPaths.length; idx++) {
-				const compiledPath = compiledPaths[idx];
-				if (!compiledPath) continue;
-				const name = basename(compiledPath).replace(/\.[^.]+$/, '');
-				const result = await bunBuild({
-					entrypoints: [compiledPath],
-					format: 'esm',
-					minify: !isDev,
-					naming: `${idx}-${name}.[ext]`,
-					outdir: destDir,
-					splitting: false,
-					target: 'bun',
-					throw: false
-				});
-				if (!result.success) {
-					outputLogs(result.logs);
-					throw new Error(
-						`Failed to bundle ${framework} convention: ${compiledPath}`
+			const destPaths = await Promise.all(
+				compiledPaths.map(async (compiledPath, idx) => {
+					const name = basename(compiledPath).replace(/\.[^.]+$/, '');
+					const result = await bunBuild({
+						entrypoints: [compiledPath],
+						format: 'esm',
+						minify: !isDev,
+						naming: `${idx}-${name}.[ext]`,
+						outdir: destDir,
+						splitting: false,
+						target: 'bun',
+						throw: false
+					});
+					if (!result.success) {
+						outputLogs(result.logs);
+						throw new Error(
+							`Failed to bundle ${framework} convention: ${compiledPath}`
+						);
+					}
+					const output = result.outputs.find((artifact) =>
+						artifact.path.endsWith('.js')
 					);
-				}
-				const output = result.outputs.find((artifact) =>
-					artifact.path.endsWith('.js')
-				);
-				if (!output)
-					throw new Error(
-						`${framework} convention did not emit JavaScript: ${compiledPath}`
-					);
+					if (!output)
+						throw new Error(
+							`${framework} convention did not emit JavaScript: ${compiledPath}`
+						);
 
-				destPaths.push(output.path);
-			}
+					return output.path;
+				})
+			);
 
 			return destPaths;
 		};
@@ -2687,9 +2694,10 @@ const buildUnlocked = async ({
 		);
 		const sourcemapDir = join(projectRoot, 'sourcemaps');
 		mkdirSync(sourcemapDir, { recursive: true });
-		const mapFiles = (
-			readdirSync(buildPath, { recursive: true }) as string[]
-		)
+		const mapFiles = readdirSync(buildPath, {
+			encoding: 'utf8',
+			recursive: true
+		})
 			.filter(
 				(entry) =>
 					entry.endsWith('.js.map') && !entry.includes('node_modules')
@@ -2700,11 +2708,11 @@ const buildUnlocked = async ({
 			renameSync(mapPath, join(sourcemapDir, basename(mapPath)));
 			const jsPath = mapPath.slice(0, -4); // drop ".map"
 			try {
-				const js = readFileSync(jsPath, 'utf-8').replace(
+				const javascript = readFileSync(jsPath, 'utf-8').replace(
 					/\n?\/\/# sourceMappingURL=[^\n]*\s*$/,
 					'\n'
 				);
-				writeFileSync(jsPath, js);
+				writeFileSync(jsPath, javascript);
 			} catch {
 				// best-effort — a missing/locked JS file must not fail the build
 			}

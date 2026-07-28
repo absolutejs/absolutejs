@@ -3,6 +3,9 @@ import type {
 	RenderNotFoundPage
 } from '../../types/conventions';
 
-export const defineRenderErrorPage = (fn: RenderErrorPage) => fn;
+export const defineRenderErrorPage = (renderErrorPage: RenderErrorPage) =>
+	renderErrorPage;
 
-export const defineRenderNotFoundPage = (fn: RenderNotFoundPage) => fn;
+export const defineRenderNotFoundPage = (
+	renderNotFoundPage: RenderNotFoundPage
+) => renderNotFoundPage;

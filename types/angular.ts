@@ -29,7 +29,7 @@ export type AngularDeps = {
  */
 export type CachedRouteData = {
 	requestContext: unknown;
-	headTag: `<head>${string}</head>`;
+	headTag: string;
 };
 
 /**

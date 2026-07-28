@@ -218,7 +218,8 @@ describe('Svelte 5 deeper coverage', () => {
 			/import\("(\/[^"]*\/SvelteExample[^"]+)"\)/
 		);
 		expect(idxBeforeMatch?.[1]).toBeTruthy();
-		const idxBefore = idxBeforeMatch![1];
+		const [, idxBefore] = idxBeforeMatch ?? [];
+		if (!idxBefore) throw new Error('Initial Svelte index URL was missing');
 
 		mutateFile(sveltePage, (c) =>
 			c.replace(
@@ -239,7 +240,9 @@ describe('Svelte 5 deeper coverage', () => {
 		// through Bun.build which emits a content-hashed name
 		// for the entry. If they match exactly here it would
 		// mean no fresh build happened.
-		expect(idxAfterMatch![1]).not.toBe(idxBefore);
+		const idxAfter = idxAfterMatch?.[1];
+		if (!idxAfter) throw new Error('Updated Svelte index URL was missing');
+		expect(idxAfter).not.toBe(idxBefore);
 	}, 60_000);
 
 	test('Svelte SSR HTML carries the scope class on scoped style consumers', async () => {

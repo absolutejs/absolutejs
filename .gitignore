@@ -48,11 +48,13 @@ dist/
 
 # Generated intermediate build files
 **/generated/
+**/compiled/
 
 /DOCS
 
 # HMR temporary files
 .hmr-temp/
+**/.absolutejs-hmr-*.ts
 
 # Test build artifacts
 /.test-*/

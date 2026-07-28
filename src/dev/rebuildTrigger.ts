@@ -1,5 +1,13 @@
-import { existsSync, rmSync } from 'node:fs';
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { existsSync, readdirSync, rmSync } from 'node:fs';
+import {
+	basename,
+	dirname,
+	isAbsolute,
+	join,
+	relative,
+	resolve as resolvePath,
+	sep
+} from 'node:path';
 import {
 	getFrameworkGeneratedDir,
 	type GeneratedFramework
@@ -126,7 +134,7 @@ const recompileTailwindForFastPath = async (
 		// bytes from the asset store — and the new utility classes
 		// silently never apply.
 		try {
-			const outputPath = resolve(
+			const outputPath = resolvePath(
 				state.resolvedPaths.buildDir,
 				config.tailwind.output
 			);
@@ -301,11 +309,11 @@ const FRAMEWORK_DIR_KEYS_FOR_CLEANUP: Array<{
 const removeStaleGenerated = (state: HMRState, deletedFile: string) => {
 	const { config } = state;
 	const cwd = process.cwd();
-	const absDeleted = resolve(deletedFile).replace(/\\/g, '/');
+	const absDeleted = resolvePath(deletedFile).replace(/\\/g, '/');
 	for (const { configKey, framework } of FRAMEWORK_DIR_KEYS_FOR_CLEANUP) {
 		const dir = config[configKey];
 		if (!dir) continue;
-		const absDir = resolve(cwd, dir).replace(/\\/g, '/');
+		const absDir = resolvePath(cwd, dir).replace(/\\/g, '/');
 		if (!absDeleted.startsWith(`${absDir}/`)) continue;
 		const rel = absDeleted.slice(absDir.length + 1);
 		// Source extensions get rewritten to `.js` in the generated dir.
@@ -343,7 +351,7 @@ const collectDeletedFileAffected = (
 			state.dependencyGraph,
 			filePathInSet
 		);
-		const deletedPathResolved = resolve(filePathInSet);
+		const deletedPathResolved = resolvePath(filePathInSet);
 		affectedFiles.forEach((affectedFile) => {
 			if (
 				isValidDeletedAffectedFile(
@@ -435,7 +443,7 @@ const processChangedFile = (
 		return;
 	}
 
-	const normalizedFilePath = resolve(filePathInSet);
+	const normalizedFilePath = resolvePath(filePathInSet);
 
 	if (!processedFiles.has(normalizedFilePath)) {
 		validFiles.push(normalizedFilePath);
@@ -607,7 +615,7 @@ const enqueueStyleImporters = (state: HMRState, changedStylePath: string) => {
 const enqueueAngularOwningComponentForStyle = (
 	state: HMRState,
 	changedStylePath: string
-): void => {
+) => {
 	const { angularDir } = state.resolvedPaths;
 	if (!angularDir) return;
 	const visited = new Set<string>();
@@ -684,7 +692,7 @@ const drainQueueAndRebuild = async (
 	const userEditedFiles = new Set<string>();
 	state.fileChangeQueue.forEach((filePaths) => {
 		for (const filePath of filePaths) {
-			userEditedFiles.add(resolve(filePath));
+			userEditedFiles.add(resolvePath(filePath));
 		}
 	});
 	state.lastUserEditedFiles = userEditedFiles;
@@ -719,6 +727,14 @@ export const queueFileChange = async (
 		hmrState: HMRState;
 	}) => void
 ) => {
+	// The dedicated serverEntryWatcher owns Bun.main and swaps the live
+	// Bun.serve handler in place. Sending the same edit through the generic
+	// framework queue concurrently emits a restart marker and can race Bun's
+	// entry import with bundle work.
+	const serverEntry = process.env.ABSOLUTE_SERVER_ENTRY ?? Bun.main;
+	if (serverEntry && resolvePath(filePath) === resolvePath(serverEntry))
+		return;
+
 	const framework = detectFramework(filePath, state.resolvedPaths);
 
 	if (framework === 'ignored') {
@@ -759,25 +775,21 @@ export const queueFileChange = async (
 	// `/assets/icons/foo.svg` keep resolving.
 	const { publicDir } = state.resolvedPaths;
 	const { assetsDir } = state.resolvedPaths;
-	const handleStaticMirror = async (
-		sourceDir: string,
-		urlPrefix: string
-	): Promise<boolean> => {
-		const absSource = resolve(filePath);
+	const handleStaticMirror = async (sourceDir: string, urlPrefix: string) => {
+		const absSource = resolvePath(filePath);
 		const normalizedSource = absSource.replace(/\\/g, '/');
 		const normalizedDir = sourceDir.replace(/\\/g, '/');
 		if (!normalizedSource.startsWith(`${normalizedDir}/`)) return false;
 		try {
 			const relFromDir = normalizedSource.slice(normalizedDir.length + 1);
 			const { buildDir } = state.resolvedPaths;
-			const destPath = resolve(
+			const destPath = resolvePath(
 				buildDir,
 				urlPrefix ? `${urlPrefix}/${relFromDir}` : relFromDir
 			);
 			const { mkdir, copyFile, readFile } = await import(
 				'node:fs/promises'
 			);
-			const { dirname } = await import('node:path');
 			await mkdir(dirname(destPath), { recursive: true });
 			await copyFile(absSource, destPath);
 			const bytes = await readFile(destPath);
@@ -822,7 +834,7 @@ export const queueFileChange = async (
 	// exists, fall through to the regular rebuild scheduling
 	// path; otherwise stop after invalidating the cache.
 	if (framework === 'unknown') {
-		invalidateTransformCache(resolve(filePath));
+		invalidateTransformCache(resolvePath(filePath));
 		const relPath = relative(process.cwd(), filePath);
 		logHmrUpdate(relPath);
 
@@ -840,14 +852,14 @@ export const queueFileChange = async (
 		if (angularDir && state.dependencyGraph) {
 			try {
 				const { addFileToGraph } = await import('./dependencyGraph');
-				addFileToGraph(state.dependencyGraph, resolve(filePath));
+				addFileToGraph(state.dependencyGraph, resolvePath(filePath));
 
 				const affected = getAffectedFiles(
 					state.dependencyGraph,
-					resolve(filePath)
+					resolvePath(filePath)
 				);
 				for (const dependent of affected) {
-					if (dependent === resolve(filePath)) continue;
+					if (dependent === resolvePath(filePath)) continue;
 					const dependentFramework = detectFramework(
 						dependent,
 						state.resolvedPaths
@@ -880,7 +892,7 @@ export const queueFileChange = async (
 			// and restarts the bun child so the new values take
 			// effect. Framework-agnostic — covers every project,
 			// no hardcoded filename list.
-			console.log(`[abs:restart] ${resolve(filePath)}`);
+			console.log(`[abs:restart] ${resolvePath(filePath)}`);
 
 			return;
 		}
@@ -890,7 +902,7 @@ export const queueFileChange = async (
 		// emits a per-page copy under
 		// `.absolutejs/generated/angular/<absPathOfHelper>.js` so
 		// SSR + CSR can serve the helper from a single rooted URL.
-		// `invalidateTransformCache(resolve(filePath))` drops the
+		// `invalidateTransformCache(resolvePath(filePath))` drops the
 		// source-side cache, but the dev module server keys its
 		// transform cache by the URL form
 		// (`/@src/.absolutejs/generated/angular/<absPathOfHelper>.js`),
@@ -906,7 +918,7 @@ export const queueFileChange = async (
 				'./moduleServer'
 			);
 			const generatedAngularRoot = getFrameworkGeneratedDir('angular');
-			const sourceAbs = resolve(filePath).replace(/\\/g, '/');
+			const sourceAbs = resolvePath(filePath).replace(/\\/g, '/');
 			const generatedTwin = `${generatedAngularRoot.replace(/\\/g, '/')}${sourceAbs.replace(/\.ts$/, '.js')}`;
 			invalidateModuleServer(generatedTwin);
 		} catch {
@@ -976,7 +988,7 @@ const resolveComponentLookupFile = (
 	// use the dependency graph to find the .ts that references this .html
 	if (!graph) return componentFile;
 
-	const dependents = graph.dependents.get(resolve(componentFile));
+	const dependents = graph.dependents.get(resolvePath(componentFile));
 	if (!dependents) return componentFile;
 
 	for (const dep of dependents) {
@@ -993,7 +1005,8 @@ const resolveAngularPageEntries = (
 ) => {
 	const pageEntries = angularFiles.filter(
 		(file) =>
-			file.endsWith('.ts') && resolve(file).startsWith(angularPagesPath)
+			file.endsWith('.ts') &&
+			resolvePath(file).startsWith(angularPagesPath)
 	);
 
 	if (pageEntries.length > 0 || !state.dependencyGraph) {
@@ -1010,7 +1023,7 @@ const resolveAngularPageEntries = (
 		affected.forEach((file) => {
 			if (
 				file.endsWith('.ts') &&
-				resolve(file).startsWith(angularPagesPath)
+				resolvePath(file).startsWith(angularPagesPath)
 			) {
 				resolvedPages.add(file);
 			}
@@ -1085,8 +1098,8 @@ const computeServerOutPaths = async (
 		const dir = getFrameworkGeneratedDir(framework, projectRoot);
 
 		return {
-			serverOutDir: resolve(resolvedPaths.buildDir, basename(dir)),
-			serverRoot: resolve(dir, 'server')
+			serverOutDir: resolvePath(resolvedPaths.buildDir, basename(dir)),
+			serverRoot: resolvePath(dir, 'server')
 		};
 	}
 
@@ -1135,26 +1148,32 @@ const pruneStaleHashedSiblings = async (
 		const name = basename(artifact.path);
 		const [prefix] = name.split('.');
 		if (!prefix) continue;
-		if (!keepByDir.has(dir)) keepByDir.set(dir, new Set());
-		if (!keepStemsByDir.has(dir)) keepStemsByDir.set(dir, new Set());
-		if (!prefixByDir.has(dir)) prefixByDir.set(dir, new Set());
-		keepByDir.get(dir)!.add(name);
+		const keep = keepByDir.get(dir) ?? new Set<string>();
+		const keepStems = keepStemsByDir.get(dir) ?? new Set<string>();
+		const prefixes = prefixByDir.get(dir) ?? new Set<string>();
+		keepByDir.set(dir, keep);
+		keepStemsByDir.set(dir, keepStems);
+		prefixByDir.set(dir, prefixes);
+		keep.add(name);
 		// `Name.hash` without the extension — the FS-sibling convention pairs
 		// `Page.<hash>.css` with `Page.<hash>.js` (same hash), so a kept JS
 		// artifact must also protect its sibling CSS from the prune.
-		keepStemsByDir.get(dir)?.add(name.replace(/\.[^.]+$/, ''));
-		prefixByDir.get(dir)!.add(prefix);
+		keepStems.add(name.replace(/\.[^.]+$/, ''));
+		prefixes.add(prefix);
 	}
 	await Promise.all(
 		Array.from(keepByDir.entries()).map(async ([dir, keep]) => {
 			const prefixes = prefixByDir.get(dir);
 			const keepStems = keepStemsByDir.get(dir);
 			if (!prefixes || !keepStems) return;
-			const entries = await readdir(dir).catch(() => [] as string[]);
+			const entries = await readdir(dir).catch(() => []);
 			await Promise.all(
 				entries.map(async (entryName) => {
 					if (keep.has(entryName)) return;
-					if (!entryName.endsWith('.js') && !entryName.endsWith('.css')) {
+					if (
+						!entryName.endsWith('.js') &&
+						!entryName.endsWith('.css')
+					) {
 						return;
 					}
 					if (keepStems.has(entryName.replace(/\.[^.]+$/, ''))) {
@@ -1331,7 +1350,7 @@ const USER_FIXABLE_FAST_HMR_REASONS = new Set([
 	'template-resource-not-found',
 	'style-resource-not-found'
 ]);
-const isUserFixableFastHmrReason = (reason: string): boolean =>
+const isUserFixableFastHmrReason = (reason: string) =>
 	USER_FIXABLE_FAST_HMR_REASONS.has(reason);
 
 /* User-fixable parse / resource errors caught by the fast extractor.
@@ -1379,23 +1398,22 @@ type AngularDispatcherModules = {
 	tryFastHmr: typeof import('./angular/fastHmrCompiler').tryFastHmr;
 };
 let angularDispatcherModules: AngularDispatcherModules | null = null;
-const loadAngularDispatcherModules =
-	async (): Promise<AngularDispatcherModules> => {
-		if (angularDispatcherModules) return angularDispatcherModules;
-		const [resolveMod, hmrMod, fastMod] = await Promise.all([
-			import('./angular/resolveOwningComponents'),
-			import('./angular/hmrCompiler'),
-			import('./angular/fastHmrCompiler')
-		]);
-		angularDispatcherModules = {
-			encodeHmrComponentId: hmrMod.encodeHmrComponentId,
-			invalidateResourceIndex: resolveMod.invalidateResourceIndex,
-			resolveOwningComponents: resolveMod.resolveOwningComponents,
-			tryFastHmr: fastMod.tryFastHmr
-		};
-
-		return angularDispatcherModules;
+const loadAngularDispatcherModules = async () => {
+	if (angularDispatcherModules) return angularDispatcherModules;
+	const [resolveMod, hmrMod, fastMod] = await Promise.all([
+		import('./angular/resolveOwningComponents'),
+		import('./angular/hmrCompiler'),
+		import('./angular/fastHmrCompiler')
+	]);
+	angularDispatcherModules = {
+		encodeHmrComponentId: hmrMod.encodeHmrComponentId,
+		invalidateResourceIndex: resolveMod.invalidateResourceIndex,
+		resolveOwningComponents: resolveMod.resolveOwningComponents,
+		tryFastHmr: fastMod.tryFastHmr
 	};
+
+	return angularDispatcherModules;
+};
 
 const decideAngularTier = async (
 	state: HMRState,
@@ -1448,11 +1466,11 @@ const decideAngularTier = async (
 		try {
 			const affected = getAffectedFiles(
 				state.dependencyGraph,
-				resolve(editedFile)
+				resolvePath(editedFile)
 			);
 			const hasAngularConsumer = affected.some(
 				(dep) =>
-					dep !== resolve(editedFile) &&
+					dep !== resolvePath(editedFile) &&
 					detectFramework(dep, state.resolvedPaths) === 'angular'
 			);
 			if (hasAngularConsumer) {
@@ -1550,7 +1568,7 @@ const decideAngularTier = async (
 			// the user-supplied relative form ('angular'), so resolve
 			// to absolute before the prefix check.
 			const normalized = editedFile.replace(/\\/g, '/');
-			const angularDirAbs = resolve(angularDir).replace(/\\/g, '/');
+			const angularDirAbs = resolvePath(angularDir).replace(/\\/g, '/');
 			if (normalized.startsWith(`${angularDirAbs}/`)) {
 				return {
 					kind: 'rebootstrap',
@@ -1607,7 +1625,7 @@ const decideAngularTier = async (
 		}
 	}
 
-	const breakdown = {
+	const breakdown: TierBreakdown = {
 		compileMs: Math.round(totalCompileMs),
 		importsMs: Math.round(importsMs),
 		resolveMs: Math.round(totalResolveMs)
@@ -1635,7 +1653,7 @@ const decideAngularTier = async (
 	return { breakdown, queue, tier: 0 };
 };
 
-const broadcastSurgical = (state: HMRState, queue: SurgicalEntry[]): void => {
+const broadcastSurgical = (state: HMRState, queue: SurgicalEntry[]) => {
 	const timestamp = Date.now();
 	for (const { id } of queue) {
 		broadcastToClients(state, {
@@ -1645,7 +1663,7 @@ const broadcastSurgical = (state: HMRState, queue: SurgicalEntry[]): void => {
 	}
 };
 
-const broadcastRemount = (state: HMRState, queue: SurgicalEntry[]): void => {
+const broadcastRemount = (state: HMRState, queue: SurgicalEntry[]) => {
 	const timestamp = Date.now();
 	for (const { id } of queue) {
 		broadcastToClients(state, {
@@ -1662,7 +1680,7 @@ const broadcastRemount = (state: HMRState, queue: SurgicalEntry[]): void => {
 const broadcastAngularUserError = (
 	state: HMRState,
 	failure: UserFixableHmrFailure
-): void => {
+) => {
 	const message = failure.detail
 		? `${failure.reason}: ${failure.detail}`
 		: failure.reason;
@@ -1681,10 +1699,7 @@ const broadcastAngularUserError = (
 	});
 };
 
-const broadcastRebootstrap = async (
-	state: HMRState,
-	reason: string
-): Promise<void> => {
+const broadcastRebootstrap = async (state: HMRState, reason: string) => {
 	logInfo(`[ng-hmr tier-1 rebootstrap] ${reason}`);
 	broadcastToClients(state, {
 		data: {
@@ -1738,6 +1753,8 @@ type AngularBundleCtx = {
 	debouncedPromise: Promise<void> | null;
 	inFlight: Promise<void> | null;
 	pending: boolean;
+	pageEntries: string[];
+	angularDir: string;
 };
 
 const angularBundleState = new WeakMap<HMRState, AngularBundleCtx>();
@@ -1746,23 +1763,31 @@ const scheduleAngularBundleRebuild = (
 	state: HMRState,
 	pageEntries: string[],
 	angularDir: string
-): ((options?: { immediate?: boolean }) => Promise<void>) => {
+) => {
 	let ctx = angularBundleState.get(state);
 	if (!ctx) {
 		ctx = {
+			angularDir,
 			debouncedPromise: null,
 			debouncedResolve: null,
 			debounceTimer: null,
 			inFlight: null,
+			pageEntries,
 			pending: false
 		};
 		angularBundleState.set(state, ctx);
 	}
+	ctx.pageEntries = pageEntries;
+	ctx.angularDir = angularDir;
 
-	const doOne = async (): Promise<void> => {
-		if (pageEntries.length === 0) return;
+	const doOne = async () => {
+		if (ctx.pageEntries.length === 0) return;
 		try {
-			await compileAndBundleAngular(state, pageEntries, angularDir);
+			await compileAndBundleAngular(
+				state,
+				ctx.pageEntries,
+				ctx.angularDir
+			);
 		} catch (error) {
 			// Keep the drive loop (and ctx.inFlight consumers) alive and say
 			// so in the terminal — the next angular change reschedules with
@@ -1775,7 +1800,7 @@ const scheduleAngularBundleRebuild = (
 		}
 	};
 
-	const drive = async (): Promise<void> => {
+	const drive = async () => {
 		try {
 			while (true) {
 				ctx.pending = false;
@@ -1789,25 +1814,26 @@ const scheduleAngularBundleRebuild = (
 
 	const fire = () => {
 		ctx.debounceTimer = null;
-		const resolve = ctx.debouncedResolve;
+		const resolveDebounce = ctx.debouncedResolve;
 		ctx.debouncedResolve = null;
 		ctx.debouncedPromise = null;
 		if (ctx.inFlight) {
 			ctx.pending = true;
-			ctx.inFlight.finally(() => resolve?.());
+			void ctx.inFlight.then(resolveDebounce, resolveDebounce);
 
 			return;
 		}
 		ctx.inFlight = drive();
-		ctx.inFlight.finally(() => resolve?.());
+		void ctx.inFlight.then(resolveDebounce, resolveDebounce);
 	};
 
 	return ({ immediate = false } = {}) => {
 		if (!ctx.debouncedPromise) {
-			ctx.debouncedPromise = new Promise((res) => {
-				ctx.debouncedResolve = res;
+			ctx.debouncedPromise = new Promise((resolve) => {
+				ctx.debouncedResolve = resolve;
 			});
 		}
+		const scheduled = ctx.debouncedPromise;
 		if (immediate) {
 			// Tier 1b path — browser will dynamic-import the freshly-
 			// rebuilt bundle. Skip the debounce + fire now.
@@ -1823,7 +1849,7 @@ const scheduleAngularBundleRebuild = (
 			ctx.debounceTimer = setTimeout(fire, ANGULAR_BUNDLE_DEBOUNCE_MS);
 		}
 
-		return ctx.debouncedPromise;
+		return scheduled;
 	};
 };
 
@@ -1843,11 +1869,11 @@ const runAngularHmrIncremental = async (
 ) => {
 	const editedFiles = state.lastUserEditedFiles ?? new Set<string>();
 
-	const diskRefreshPromise = (async () => {
+	const refreshDisk = async () => {
 		if (!angularDir || editedFiles.size === 0) return;
-		const angularDirAbs = resolve(angularDir);
+		const angularDirAbs = resolvePath(angularDir);
 		const filesUnderAngular = Array.from(editedFiles).filter((file) => {
-			const abs = resolve(file);
+			const abs = resolvePath(file);
 
 			return abs === angularDirAbs || abs.startsWith(angularDirAbs + sep);
 		});
@@ -1876,7 +1902,7 @@ const runAngularHmrIncremental = async (
 					.match(/\.(ts|tsx|html|css|scss|sass)$/)?.[0];
 				if (!ext) continue;
 				if (ext === '.ts' || ext === '.tsx') {
-					tsFilesToRefresh.add(resolve(file));
+					tsFilesToRefresh.add(resolvePath(file));
 					continue;
 				}
 				const owners = resolveOwningComponents({
@@ -1884,7 +1910,7 @@ const runAngularHmrIncremental = async (
 					userAngularRoot: angularDirAbs
 				});
 				for (const owner of owners) {
-					tsFilesToRefresh.add(resolve(owner.componentFilePath));
+					tsFilesToRefresh.add(resolvePath(owner.componentFilePath));
 				}
 			}
 			if (tsFilesToRefresh.size === 0) return;
@@ -1926,7 +1952,7 @@ const runAngularHmrIncremental = async (
 					const rel = relative(angularDirAbs, tsFile)
 						.replace(/\\/g, '/')
 						.replace(/\.[tj]sx?$/, '.js');
-					const compiledFile = resolve(compiledRoot, rel);
+					const compiledFile = resolvePath(compiledRoot, rel);
 					invalidateModule(compiledFile);
 				}
 			} catch {
@@ -1939,7 +1965,8 @@ const runAngularHmrIncremental = async (
 				}`
 			);
 		}
-	})();
+	};
+	const diskRefreshPromise = refreshDisk();
 
 	await diskRefreshPromise;
 };
@@ -1949,7 +1976,10 @@ const compileAndBundleAngular = async (
 	pageEntries: string[],
 	angularDir: string
 ) => {
-	const { compileAngular } = await import('../build/compileAngular');
+	const { compileAngular, compileAngularFileJIT } = await import(
+		'../build/compileAngular'
+	);
+	const { getFrameworkGeneratedDir } = await import('../utils/generatedDir');
 	// Re-run the providers scan so `compileAngular`'s per-page injection
 	// step sees the current `absolute.config.ts > angular.providers`
 	// binding, current per-page `export const routes`, and current
@@ -1968,16 +1998,16 @@ const compileAndBundleAngular = async (
 	// `runAngularHandlerScan` resolves page paths against the angularDir
 	// it's handed; passing a relative `angularDir` leaves the scan
 	// result's `pageFile` entries relative too, while `compileAngular`
-	// looks them up with absolute `resolve(entry)` — keys would never
+	// looks them up with absolute `resolvePath(entry)` — keys would never
 	// match. Resolve up-front so the map keys line up with what the
 	// compile pass passes in.
-	const resolvedAngularDir = resolve(angularDir);
+	const resolvedAngularDir = resolvePath(angularDir);
 	const providersImport = parseAngularProvidersImport(projectRoot);
 	// Build the injection map regardless of a global `angular.providers`
 	// binding so router pages get `provideRouter` + `APP_BASE_HREF` on HMR
 	// rebuilds too; the global `appProviders` spread is layered on only when
 	// a binding exists.
-	const providersInjection = (() => {
+	const createProvidersInjection = () => {
 		const scan = runAngularHandlerScan(projectRoot, resolvedAngularDir);
 		const basePathByKey = new Map<string, string | null>();
 		for (const call of scan.calls) {
@@ -2004,14 +2034,28 @@ const compileAndBundleAngular = async (
 			appProvidersSource: providersImport?.absolutePath ?? null,
 			pagesByFile
 		};
-	})();
+	};
+	const providersInjection = createProvidersInjection();
+	const styleTransformConfig = getStyleTransformConfig(state.config);
+	const generatedAngularRoot = getFrameworkGeneratedDir('angular');
 	const { clientPaths, serverPaths } = await compileAngular(
 		pageEntries,
 		angularDir,
 		true,
-		getStyleTransformConfig(state.config),
+		styleTransformConfig,
 		providersInjection
 	);
+	// The page compile can replace generated intermediates. Recreate the global
+	// providers module after it so both SSR and the client bundle resolve the
+	// injected import against the current source.
+	if (providersInjection.appProvidersSource) {
+		await compileAngularFileJIT(
+			providersInjection.appProvidersSource,
+			generatedAngularRoot,
+			resolvedAngularDir,
+			styleTransformConfig
+		);
+	}
 
 	// Prime the fast-HMR fingerprint cache for every component / page
 	// .ts file under the user's Angular root. Without this, the first
@@ -2019,13 +2063,12 @@ const compileAndBundleAngular = async (
 	// === undefined`, so changes that should escalate to Tier 1b
 	// (`imports`, `hostDirectives`, `providers`, etc.) silently run
 	// through Tier 0 because there's no baseline to compare against.
-	void (async () => {
+	const primeFingerprints = async () => {
 		try {
 			const { primeComponentFingerprint } = await import(
 				'./angular/fastHmrCompiler'
 			);
 			const { readdir } = await import('node:fs/promises');
-			const { join } = await import('node:path');
 			const walk = async (dir: string): Promise<string[]> => {
 				const entries = await readdir(dir, { withFileTypes: true });
 				const files: string[] = [];
@@ -2051,7 +2094,8 @@ const compileAndBundleAngular = async (
 			// only consequence is the first edit per component falls
 			// through to Tier 0 (the pre-fix behavior).
 		}
-	})();
+	};
+	void primeFingerprints();
 
 	// SSR loads compileAngular's raw output directly because the HMR fast
 	// path skips the bun.build server pass that would normally rewrite
@@ -2093,7 +2137,7 @@ const compileAndBundleAngular = async (
 	serverPaths.forEach((serverPath, idx) => {
 		const fileBase = basename(serverPath, '.js');
 		const ssrPath = ssrPaths[idx] ?? serverPath;
-		state.manifest[toPascal(fileBase)] = resolve(ssrPath);
+		state.manifest[toPascal(fileBase)] = resolvePath(ssrPath);
 	});
 
 	if (clientPaths.length > 0) {
@@ -2104,6 +2148,20 @@ const compileAndBundleAngular = async (
 			angularDir
 		);
 	}
+	// Client bundling and concurrent incremental work may consume or replace
+	// generated intermediates. Re-walk each page's local import graph after the
+	// bundle so every SSR-relative transitive module exists on disk. Unchanged
+	// files remain cache hits; missing outputs are recreated.
+	await Promise.all(
+		pageEntries.map((entry) =>
+			compileAngularFileJIT(
+				entry,
+				generatedAngularRoot,
+				resolvedAngularDir,
+				styleTransformConfig
+			)
+		)
+	);
 
 	broadcastToClients(state, {
 		data: { manifest: state.manifest },
@@ -2126,12 +2184,7 @@ const handleAngularFastPath = async (
 		(file) => detectFramework(file, state.resolvedPaths) === 'angular'
 	);
 
-	// Update hashes so duplicate watcher events are filtered
-	for (const file of angularFiles) {
-		state.fileHashes.set(resolve(file), computeFileHash(file));
-	}
-
-	const angularPagesPath = resolve(angularDir, 'pages');
+	const angularPagesPath = resolvePath(angularDir, 'pages');
 	const initialPageEntries = resolveAngularPageEntries(
 		state,
 		angularFiles,
@@ -2157,36 +2210,33 @@ const handleAngularFastPath = async (
 		providersImport &&
 		angularFiles.some(
 			(file) =>
-				resolve(file) === resolve(providersImport.absolutePath) ||
-				resolve(file).startsWith(`${resolve(angularDir)}/`)
+				resolvePath(file) ===
+					resolvePath(providersImport.absolutePath) ||
+				resolvePath(file).startsWith(`${resolvePath(angularDir)}/`)
 		);
+	const collectAllPages = () => {
+		const allPages: string[] = [];
+		const walk = (dir: string) => {
+			for (const entry of readdirSync(dir, {
+				withFileTypes: true
+			})) {
+				const full = resolvePath(dir, entry.name);
+				if (entry.isDirectory()) walk(full);
+				else if (entry.isFile() && entry.name.endsWith('.ts'))
+					allPages.push(full);
+			}
+		};
+		try {
+			walk(angularPagesPath);
+		} catch {
+			/* pages dir might not exist yet — leave empty */
+		}
+
+		return allPages;
+	};
 	const pageEntries =
 		editedProvidersChain && initialPageEntries.length === 0
-			? (() => {
-					const allPages: string[] = [];
-					const { readdirSync } =
-						require('node:fs') as typeof import('node:fs');
-					const walk = (dir: string) => {
-						for (const entry of readdirSync(dir, {
-							withFileTypes: true
-						})) {
-							const full = resolve(dir, entry.name);
-							if (entry.isDirectory()) walk(full);
-							else if (
-								entry.isFile() &&
-								entry.name.endsWith('.ts')
-							)
-								allPages.push(full);
-						}
-					};
-					try {
-						walk(angularPagesPath);
-					} catch {
-						/* pages dir might not exist yet — leave empty */
-					}
-
-					return allPages;
-				})()
+			? collectAllPages()
 			: initialPageEntries;
 
 	// Decide tier BEFORE bundling. Tier 0 means we can broadcast
@@ -2217,9 +2267,9 @@ const handleAngularFastPath = async (
 		// IR without touching ngc.
 		await runAngularHmrIncremental(state, angularDir, pageEntries);
 		broadcastSurgical(state, verdict.queue);
-		const b = verdict.breakdown;
+		const rightValue = verdict.breakdown;
 		logInfo(
-			`[ng-hmr] tier-0 ${queueDescription(verdict.queue)} (server ${tierMs}ms: imports ${b.importsMs}/resolve ${b.resolveMs}/compile ${b.compileMs}; awaiting client apply)`
+			`[ng-hmr] tier-0 ${queueDescription(verdict.queue)} (server ${tierMs}ms: imports ${rightValue.importsMs}/resolve ${rightValue.resolveMs}/compile ${rightValue.compileMs}; awaiting client apply)`
 		);
 		// Tier 0 surgical updates patch the running browser app
 		// directly but don't rebuild the SSR bundle, so a fresh
@@ -2237,9 +2287,9 @@ const handleAngularFastPath = async (
 		// app's class identities.
 		await runAngularHmrIncremental(state, angularDir, pageEntries);
 		broadcastRemount(state, verdict.queue);
-		const b = verdict.breakdown;
+		const rightValue = verdict.breakdown;
 		logInfo(
-			`[ng-hmr] tier-1a remount ${queueDescription(verdict.queue)} (server ${tierMs}ms: imports ${b.importsMs}/resolve ${b.resolveMs}/compile ${b.compileMs}; awaiting client apply)`
+			`[ng-hmr] tier-1a remount ${queueDescription(verdict.queue)} (server ${tierMs}ms: imports ${rightValue.importsMs}/resolve ${rightValue.resolveMs}/compile ${rightValue.compileMs}; awaiting client apply)`
 		);
 		// The on-disk SSR bundle would otherwise stay frozen at
 		// startup-time bytes after a tier-1a edit (e.g. a fresh
@@ -2305,7 +2355,7 @@ const resolveBroadcastTarget = async (primaryFile: string) => {
 	if (isComponentFile) return primaryFile;
 
 	const { findNearestComponent } = await import('./transformCache');
-	const nearest = findNearestComponent(resolve(primaryFile));
+	const nearest = findNearestComponent(resolvePath(primaryFile));
 
 	return nearest ?? primaryFile;
 };
@@ -2319,11 +2369,6 @@ const handleReactModuleServerPath = async (
 		hmrState: HMRState;
 	}) => void
 ) => {
-	// Update hashes so duplicate watcher events are filtered
-	for (const file of reactFiles) {
-		state.fileHashes.set(resolve(file), computeFileHash(file));
-	}
-
 	const primaryFile =
 		reactFiles.find(
 			(file) => !file.replace(/\\/g, '/').includes('/pages/')
@@ -2622,10 +2667,6 @@ const handleSvelteModuleServerPath = async (
 		hmrState: HMRState;
 	}) => void
 ) => {
-	for (const file of svelteFiles) {
-		state.fileHashes.set(resolve(file), computeFileHash(file));
-	}
-
 	// Record which files the surgical path is about to broadcast for, so a
 	// later full-build pass (triggered when the same save batch also touched
 	// a non-fast-path file) doesn't fire a second `svelte-update` that
@@ -2633,7 +2674,7 @@ const handleSvelteModuleServerPath = async (
 	const surgicallyHandled =
 		state.svelteSurgicallyHandled ?? new Set<string>();
 	for (const file of svelteFiles) {
-		surgicallyHandled.add(resolve(file));
+		surgicallyHandled.add(resolvePath(file));
 	}
 	state.svelteSurgicallyHandled = surgicallyHandled;
 
@@ -2691,7 +2732,7 @@ const vueBundleState = new WeakMap<HMRState, FrameworkBundleCtx>();
 const getOrCreateBundleCtx = (
 	store: WeakMap<HMRState, FrameworkBundleCtx>,
 	state: HMRState
-): FrameworkBundleCtx => {
+) => {
 	let ctx = store.get(state);
 	if (!ctx) {
 		ctx = {
@@ -2712,7 +2753,7 @@ const runSvelteBundleRebuild = async (
 	state: HMRState,
 	svelteFiles: string[],
 	config: BuildConfig
-): Promise<void> => {
+) => {
 	if (svelteFiles.length === 0) return;
 	const svelteDir = config.svelteDirectory ?? '';
 	if (!svelteDir) return;
@@ -2812,7 +2853,7 @@ const scheduleSvelteBundleRebuild = (
 	state: HMRState,
 	svelteFiles: string[],
 	config: BuildConfig
-): (() => Promise<void>) => {
+) => {
 	const ctx = getOrCreateBundleCtx(svelteBundleState, state);
 	for (const file of svelteFiles) ctx.pendingFiles.add(file);
 
@@ -2832,7 +2873,7 @@ const scheduleSvelteBundleRebuild = (
 		}
 	};
 
-	const drive = async (): Promise<void> => {
+	const drive = async () => {
 		try {
 			while (true) {
 				ctx.pending = false;
@@ -2854,18 +2895,18 @@ const scheduleSvelteBundleRebuild = (
 		ctx.debouncedPromise = null;
 		if (ctx.inFlight) {
 			ctx.pending = true;
-			ctx.inFlight.finally(() => resolveFn?.());
+			void ctx.inFlight.then(resolveFn, resolveFn);
 
 			return;
 		}
 		ctx.inFlight = drive();
-		ctx.inFlight.finally(() => resolveFn?.());
+		void ctx.inFlight.then(resolveFn, resolveFn);
 	};
 
 	return () => {
 		if (!ctx.debouncedPromise) {
-			ctx.debouncedPromise = new Promise((res) => {
-				ctx.debouncedResolve = res;
+			ctx.debouncedPromise = new Promise((resolve) => {
+				ctx.debouncedResolve = resolve;
 			});
 		}
 		if (ctx.debounceTimer) clearTimeout(ctx.debounceTimer);
@@ -3076,10 +3117,6 @@ const handleVueModuleServerPath = async (
 		hmrState: HMRState;
 	}) => void
 ) => {
-	for (const file of [...vueFiles, ...nonVueFiles]) {
-		state.fileHashes.set(resolve(file), computeFileHash(file));
-	}
-
 	// Also invalidate non-Vue files (composables) so the module
 	// server serves the fresh version when the component re-imports.
 	await invalidateNonVueModules(nonVueFiles);
@@ -3127,7 +3164,7 @@ const runVueBundleRebuild = async (
 	state: HMRState,
 	vueFiles: string[],
 	config: BuildConfig
-): Promise<void> => {
+) => {
 	if (vueFiles.length === 0) return;
 	const vueDir = config.vueDirectory ?? '';
 	if (!vueDir) return;
@@ -3295,7 +3332,7 @@ const scheduleVueBundleRebuild = (
 	state: HMRState,
 	vueFiles: string[],
 	config: BuildConfig
-): (() => Promise<void>) => {
+) => {
 	const ctx = getOrCreateBundleCtx(vueBundleState, state);
 	for (const file of vueFiles) ctx.pendingFiles.add(file);
 
@@ -3315,7 +3352,7 @@ const scheduleVueBundleRebuild = (
 		}
 	};
 
-	const drive = async (): Promise<void> => {
+	const drive = async () => {
 		try {
 			while (true) {
 				ctx.pending = false;
@@ -3337,18 +3374,18 @@ const scheduleVueBundleRebuild = (
 		ctx.debouncedPromise = null;
 		if (ctx.inFlight) {
 			ctx.pending = true;
-			ctx.inFlight.finally(() => resolveFn?.());
+			void ctx.inFlight.then(resolveFn, resolveFn);
 
 			return;
 		}
 		ctx.inFlight = drive();
-		ctx.inFlight.finally(() => resolveFn?.());
+		void ctx.inFlight.then(resolveFn, resolveFn);
 	};
 
 	return () => {
 		if (!ctx.debouncedPromise) {
-			ctx.debouncedPromise = new Promise((res) => {
-				ctx.debouncedResolve = res;
+			ctx.debouncedPromise = new Promise((resolve) => {
+				ctx.debouncedResolve = resolve;
 			});
 		}
 		if (ctx.debounceTimer) clearTimeout(ctx.debounceTimer);
@@ -3420,7 +3457,7 @@ const collectAllEmberPages = async (emberPagesPath: string) => {
 						entry.name.endsWith(ext)
 					)
 			)
-			.map((entry) => resolve(emberPagesPath, entry.name));
+			.map((entry) => resolvePath(emberPagesPath, entry.name));
 	} catch {
 		return [];
 	}
@@ -3447,11 +3484,6 @@ const handleEmberFastPath = async (
 		return state.manifest;
 	}
 
-	// Update hashes so duplicate watcher events filter cleanly.
-	for (const file of emberFiles) {
-		state.fileHashes.set(resolve(file), computeFileHash(file));
-	}
-
 	// Recompile pages whose bundle includes the edited file. compileEmber
 	// re-emits self-contained server bundles into
 	// <emberDir>/generated/server/<Name>.js (a stable path the manifest
@@ -3463,9 +3495,9 @@ const handleEmberFastPath = async (
 	// component) currently rebuild every page, since Phase 1.5 doesn't
 	// track which page imports which component. Phase 3 will narrow this
 	// via dependency-graph lookup.
-	const emberPagesPath = resolve(emberDir, 'pages');
+	const emberPagesPath = resolvePath(emberDir, 'pages');
 	const directPageEntries = emberFiles.filter((file) =>
-		resolve(file).startsWith(emberPagesPath)
+		resolvePath(file).startsWith(emberPagesPath)
 	);
 	const allPageEntries =
 		directPageEntries.length > 0
@@ -3488,7 +3520,7 @@ const handleEmberFastPath = async (
 
 	for (const serverPath of serverPaths) {
 		const fileBase = basename(serverPath, '.js');
-		state.manifest[toPascal(fileBase)] = resolve(serverPath);
+		state.manifest[toPascal(fileBase)] = resolvePath(serverPath);
 	}
 
 	const { invalidateEmberSsrCache } = await import('../ember');
@@ -3681,11 +3713,11 @@ const resolveIslandDefinitionSource = (
 
 	const sourcePath = buildReference.source.startsWith('file://')
 		? new URL(buildReference.source).pathname
-		: resolve(
+		: resolvePath(
 				dirname(buildInfo.resolvedRegistryPath),
 				buildReference.source
 			);
-	islandFiles.add(resolve(sourcePath));
+	islandFiles.add(resolvePath(sourcePath));
 };
 
 const resolveIslandSourceFiles = async (config: BuildConfig) => {
@@ -3696,7 +3728,7 @@ const resolveIslandSourceFiles = async (config: BuildConfig) => {
 
 	const buildInfo = await loadIslandRegistryBuildInfo(registryPath);
 	const islandFiles = new Set<string>([
-		resolve(buildInfo.resolvedRegistryPath)
+		resolvePath(buildInfo.resolvedRegistryPath)
 	]);
 
 	for (const definition of buildInfo.definitions) {
@@ -3715,7 +3747,7 @@ const didStaticPagesNeedIslandRefresh = async (
 		return false;
 	}
 
-	return filesToRebuild.some((file) => islandFiles.has(resolve(file)));
+	return filesToRebuild.some((file) => islandFiles.has(resolvePath(file)));
 };
 
 const handleIslandSourceReload = async (
@@ -3792,7 +3824,7 @@ const computeOutputPagesDir = (
 		(framework === 'html' ? !config.htmxDirectory : !config.htmlDirectory);
 
 	if (isSingle) {
-		return resolve(state.resolvedPaths.buildDir, 'pages');
+		return resolvePath(state.resolvedPaths.buildDir, 'pages');
 	}
 
 	const dirName =
@@ -3800,7 +3832,7 @@ const computeOutputPagesDir = (
 			? basename(config.htmlDirectory ?? 'html')
 			: basename(config.htmxDirectory ?? 'htmx');
 
-	return resolve(state.resolvedPaths.buildDir, dirName, 'pages');
+	return resolvePath(state.resolvedPaths.buildDir, dirName, 'pages');
 };
 
 const processHtmlPageUpdate = async (
@@ -3875,7 +3907,7 @@ const handleHTMLPageHMR = async (
 
 	await runSequentially(pageFilesToUpdate, async (pageFile) => {
 		const htmlPageName = basename(pageFile);
-		const builtHtmlPagePath = resolve(outputHtmlPages, htmlPageName);
+		const builtHtmlPagePath = resolvePath(outputHtmlPages, htmlPageName);
 		await processHtmlPageUpdate(
 			state,
 			pageFile,
@@ -3992,7 +4024,7 @@ const broadcastVuePageChange = async (
 	const cssUrl = manifest[cssKey] || null;
 
 	const { vueHmrMetadata } = await import('../build/compileVue');
-	const hmrMeta = vueHmrMetadata.get(resolve(vuePagePath));
+	const hmrMeta = vueHmrMetadata.get(resolvePath(vuePagePath));
 	const changeType = hmrMeta?.changeType ?? 'full';
 
 	if (changeType === 'style-only') {
@@ -4198,7 +4230,8 @@ const handleSvelteHMR = (
 	const surgicallyHandled = state.svelteSurgicallyHandled;
 	pagesToUpdate
 		.filter(
-			(sveltePagePath) => !surgicallyHandled?.has(resolve(sveltePagePath))
+			(sveltePagePath) =>
+				!surgicallyHandled?.has(resolvePath(sveltePagePath))
 		)
 		.forEach((sveltePagePath) => {
 			broadcastSveltePageUpdate(
@@ -4208,37 +4241,6 @@ const handleSvelteHMR = (
 				duration
 			);
 		});
-};
-
-const collectAngularAffectedPages = (
-	affected: string[],
-	resolvedPages: Set<string>
-) => {
-	affected.forEach((file) => {
-		if (
-			file.replace(/\\/g, '/').includes('/pages/') &&
-			file.endsWith('.ts')
-		) {
-			resolvedPages.add(file);
-		}
-	});
-};
-
-const resolveAngularPagesFromDependencyGraph = (
-	state: HMRState,
-	angularFiles: string[]
-) => {
-	const resolvedPages = new Set<string>();
-	angularFiles.forEach((componentFile) => {
-		const lookupFile = resolveComponentLookupFile(
-			componentFile,
-			state.dependencyGraph
-		);
-		const affected = getAffectedFiles(state.dependencyGraph, lookupFile);
-		collectAngularAffectedPages(affected, resolvedPages);
-	});
-
-	return Array.from(resolvedPages);
 };
 
 const handleAngularCssOnlyUpdate = (
@@ -4403,7 +4405,7 @@ const handleHTMXPageHMR = async (
 
 	await runSequentially(pageFilesToUpdate, async (htmxPageFile) => {
 		const htmxPageName = basename(htmxPageFile);
-		const builtHtmxPagePath = resolve(outputHtmxPages, htmxPageName);
+		const builtHtmxPagePath = resolvePath(outputHtmxPages, htmxPageName);
 		await processHtmxPageUpdate(
 			state,
 			htmxPageFile,
@@ -4649,7 +4651,7 @@ const processMarkupFileFastPath = async (
 	readFs: (path: string, encoding: 'utf-8') => string,
 	writeFs: (path: string, data: string) => void
 ) => {
-	const destPath = resolve(outputDir, basename(sourceFile));
+	const destPath = resolvePath(outputDir, basename(sourceFile));
 
 	// Save HMR script from existing built file
 	const hmrScript = extractHmrScript(destPath, readFs);
@@ -4872,6 +4874,23 @@ const runFrameworkFastPaths = async (
 		);
 	});
 
+	// `absolute.config.ts` imports configured provider modules, so dependency
+	// expansion adds the config as a dependent when a provider changes. The
+	// Angular fast path already reparses that config before rebuilding pages;
+	// treating the inferred dependent as unhandled would immediately run a
+	// full build after the fast build and clean its generated SSR graph. A
+	// config file that the user actually edited must still take the full path.
+	const configPath = resolvePath(
+		process.env.ABSOLUTE_CONFIG ?? 'absolute.config.ts'
+	);
+	if (
+		affectedFrameworks.includes('angular') &&
+		files.includes(configPath) &&
+		!state.lastUserEditedFiles?.has(configPath)
+	) {
+		handled.add(configPath);
+	}
+
 	// Check if any files weren't handled by a fast path.
 	// CSS/styles and copied assets need the full build so outputs stay in sync.
 	return files.every((f) => handled.has(f));
@@ -5062,7 +5081,7 @@ const performFullRebuild = async (
 		// the fresh CSS off disk and overwrite the cached bytes,
 		// mirroring the fast-path branch's behaviour.
 		try {
-			const outputPath = resolve(
+			const outputPath = resolvePath(
 				state.resolvedPaths.buildDir,
 				config.tailwind.output
 			);
@@ -5174,7 +5193,7 @@ const STYLE_FILE_EXT_RE = /\.(?:css|scss|sass|less|styl|stylus)$/i;
 const hasAngularOwnedStyleEdit = async (
 	state: HMRState,
 	angularDir: string
-): Promise<boolean> => {
+) => {
 	const edited = state.lastUserEditedFiles;
 	if (!edited || edited.size === 0) return false;
 	const styleEdits: string[] = [];

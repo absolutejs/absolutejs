@@ -82,12 +82,14 @@ const readHasIslands = (value: unknown) => {
 
 	return typeof hasIslands === 'boolean' ? hasIslands : false;
 };
+const isVueSetupApp = (value: unknown): value is VueSetupApp =>
+	typeof value === 'function';
 
 const readSetupAppHook = (value: unknown) => {
 	if (!isRecord(value)) return null;
-	const setupApp = value['setupApp'];
+	const { setupApp } = value;
 
-	return typeof setupApp === 'function' ? (setupApp as VueSetupApp) : null;
+	return isVueSetupApp(setupApp) ? setupApp : null;
 };
 
 // A page that exports `routes = defineRoutes([...])` is a SPA shell: the client
@@ -154,14 +156,16 @@ const primeVueStream = async (stream: ReadableStream) => {
  *  the dev server. Production builds never call this path. */
 let cachedSsrOnlyHmrShim: Promise<string> | null = null;
 
+const buildSsrOnlyHmrShim = async () => {
+	const { buildHMRClient } = await import('../dev/buildHMRClient');
+	const bundle = await buildHMRClient();
+
+	return `<script>window.__HMR_FRAMEWORK__="vue";</script><script data-hmr-client>${bundle}</script>`;
+};
+
 const getSsrOnlyHmrShim = () => {
 	if (cachedSsrOnlyHmrShim) return cachedSsrOnlyHmrShim;
-	cachedSsrOnlyHmrShim = (async () => {
-		const { buildHMRClient } = await import('../dev/buildHMRClient');
-		const bundle = await buildHMRClient();
-
-		return `<script>window.__HMR_FRAMEWORK__="vue";</script><script data-hmr-client>${bundle}</script>`;
-	})();
+	cachedSsrOnlyHmrShim = buildSsrOnlyHmrShim();
 
 	return cachedSsrOnlyHmrShim;
 };
@@ -226,11 +230,13 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 		const renderPageResponse = async () => {
 			const resolvePageComponent = async () => {
 				if (isGenericVueComponent(passedPageComponent)) {
+					const setupApp: VueSetupApp | null = null;
+
 					return {
 						component: passedPageComponent,
 						hasIslands: readHasIslands(passedPageComponent),
 						hasSpaRoutes: false,
-						setupApp: null as VueSetupApp | null
+						setupApp
 					};
 				}
 
@@ -281,14 +287,14 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 					isServer: true,
 					router: null,
 					url,
+					setNotFound: () => {
+						pendingNotFound = true;
+					},
 					setRedirect: (location, status) => {
 						pendingRedirect = {
 							location,
 							status: status ?? 302
 						};
-					},
-					setNotFound: () => {
-						pendingNotFound = true;
 					}
 				});
 			}

@@ -75,6 +75,19 @@ type LiveInstance = {
 	tNode: TNode;
 };
 
+const isComponentClass = (value: unknown): value is ComponentClass =>
+	typeof value === 'function';
+
+const isTNode = (value: unknown): value is TNode =>
+	typeof value === 'object' &&
+	value !== null &&
+	typeof Reflect.get(value, 'index') === 'number';
+
+const isTView = (value: unknown): value is TView =>
+	typeof value === 'object' &&
+	value !== null &&
+	typeof Reflect.get(value, 'bindingStartIndex') === 'number';
+
 /* Walk the DOM looking for elements whose component instance is of
  * `Class`. Each match resolves to its parent LView + slot index via
  * the LContext stored on the host element under `__ngContext__`.
@@ -85,31 +98,31 @@ type LiveInstance = {
 const findLiveInstances = (Class: ComponentClass) => {
 	const results: LiveInstance[] = [];
 	const elements = document.querySelectorAll('*');
-	for (const el of Array.from(elements)) {
-		const ctx = (el as unknown as Record<string, unknown>).__ngContext__;
+	for (const element of Array.from(elements)) {
+		const ctx = Reflect.get(element, '__ngContext__');
 		if (typeof ctx !== 'object' || ctx === null) continue;
-		const lContext = ctx as { lView?: LView; nodeIndex?: number };
-		if (!lContext.lView || lContext.nodeIndex === undefined) continue;
+		const lView = Reflect.get(ctx, 'lView');
+		const nodeIndex = Reflect.get(ctx, 'nodeIndex');
+		if (!isLView(lView) || typeof nodeIndex !== 'number') continue;
 
-		const slot = lContext.lView[lContext.nodeIndex];
+		const slot = lView[nodeIndex];
 		if (!isLView(slot)) continue;
-		const ownLView = slot;
-		const instance = ownLView[CONTEXT];
+		const instance = slot[CONTEXT];
 		if (!(instance instanceof Class)) continue;
 
-		const tNode = ownLView[T_HOST] as TNode | null;
-		const host = ownLView[HOST] as Element | null;
-		if (!tNode || !host) continue;
+		const tNode = slot[T_HOST];
+		const host = slot[HOST];
+		if (!isTNode(tNode) || !(host instanceof Element)) continue;
 
 		// Avoid double-recording the same LView (multiple DOM elements
 		// can land in the same component, all sharing __ngContext__)
-		if (results.some((r) => r.oldLView === ownLView)) continue;
+		if (results.some((result) => result.oldLView === slot)) continue;
 
 		results.push({
 			host,
-			oldLView: ownLView,
-			parentLView: lContext.lView,
-			slotIndex: lContext.nodeIndex,
+			oldLView: slot,
+			parentLView: lView,
+			slotIndex: nodeIndex,
 			tNode
 		});
 	}
@@ -129,10 +142,9 @@ const createFreshAt = (
 	newLView: LView;
 	componentRef: ReturnType<AngularCoreNamespace['createComponent']>;
 } | null => {
-	const w = window as unknown as {
-		__ANGULAR_APP__?: { injector: unknown };
-	};
-	const envInjector = w.__ANGULAR_APP__?.injector;
+	const envInjector = window.__ANGULAR_APP__
+		? Reflect.get(window.__ANGULAR_APP__, 'injector')
+		: undefined;
 	if (!envInjector) return null;
 
 	const ref = core.createComponent(Class, {
@@ -176,16 +188,12 @@ const spliceLViewIntoParent = (
 	newLView[T_HOST] = tNode;
 
 	const oldInstance = oldLView[CONTEXT];
-	const tNodeWithDirectiveRange = tNode as TNode & {
-		directiveStart?: number;
-		directiveEnd?: number;
-	};
-	const start = tNodeWithDirectiveRange.directiveStart;
-	const end = tNodeWithDirectiveRange.directiveEnd;
+	const start = Reflect.get(tNode, 'directiveStart');
+	const end = Reflect.get(tNode, 'directiveEnd');
 	if (typeof start === 'number' && typeof end === 'number') {
-		for (let i = start; i < end; i++) {
-			if (parentLView[i] === oldInstance) {
-				parentLView[i] = newInstance;
+		for (let index = start; index < end; index++) {
+			if (parentLView[index] === oldInstance) {
+				parentLView[index] = newInstance;
 			}
 		}
 	}
@@ -196,8 +204,8 @@ const spliceLViewIntoParent = (
  * fire. Then mark the LView as destroyed so any subsequent
  * tree-walk skips it. */
 const teardownOldLView = (oldLView: LView) => {
-	const oldTView = oldLView[TVIEW] as TView | null;
-	if (oldTView) {
+	const oldTView = oldLView[TVIEW];
+	if (isTView(oldTView)) {
 		executeOnDestroys(oldTView, oldLView);
 		processCleanups(oldTView, oldLView);
 	}
@@ -224,20 +232,33 @@ const teardownOldLView = (oldLView: LView) => {
  *   - `{ propName: ['publicName', 'classFieldName', transformFn?] }` */
 const copyInputsFromOldToNew = (oldInstance: unknown, newInstance: unknown) => {
 	if (!oldInstance || !newInstance) return;
-	const def = (newInstance as { constructor?: { ɵcmp?: unknown } })
-		.constructor?.ɵcmp as { inputs?: Record<string, unknown> } | undefined;
-	const inputs = def?.inputs;
-	if (!inputs) return;
+	if (
+		(typeof oldInstance !== 'object' &&
+			typeof oldInstance !== 'function') ||
+		(typeof newInstance !== 'object' && typeof newInstance !== 'function')
+	) {
+		return;
+	}
+	const constructor = Reflect.get(newInstance, 'constructor');
+	const definition =
+		typeof constructor === 'function'
+			? Reflect.get(constructor, 'ɵcmp')
+			: undefined;
+	if (typeof definition !== 'object' || definition === null) return;
+	const inputs = Reflect.get(definition, 'inputs');
+	if (typeof inputs !== 'object' || inputs === null) return;
 
 	// Modern Angular inputs format (since v17ish): the OBJECT KEY is
 	// the class property name; the value is either a string (binding
 	// name) or `[bindingName, flags, transformFn?]`. So the class
 	// field name is just `Object.keys(inputs)`.
 	for (const classField of Object.keys(inputs)) {
-		const oldRec = oldInstance as Record<string, unknown>;
-		const newRec = newInstance as Record<string, unknown>;
-		if (classField in oldRec) {
-			newRec[classField] = oldRec[classField];
+		if (classField in oldInstance) {
+			Reflect.set(
+				newInstance,
+				classField,
+				Reflect.get(oldInstance, classField)
+			);
 		}
 	}
 };
@@ -287,13 +308,15 @@ export const remountComponentClass = async (
 			namespaces,
 			...locals
 		]);
-		if (typeof returned === 'function') {
-			FreshClass = returned as ComponentClass;
+		if (isComponentClass(returned)) {
+			FreshClass = returned;
 		}
 	} catch (err) {
 		return {
 			className,
-			error: `applyMetadata threw: ${(err as Error).message}`,
+			error: `applyMetadata threw: ${
+				err instanceof Error ? err.message : String(err)
+			}`,
 			remounted: 0,
 			skipped: 0
 		};
@@ -341,11 +364,8 @@ export const remountComponentClass = async (
 		// fresh creation. Without this tick, a remounted component
 		// shows default field values until the user interacts and
 		// triggers a stray CD elsewhere.
-		const w = window as unknown as {
-			__ANGULAR_APP__?: { tick?: () => void };
-		};
 		try {
-			w.__ANGULAR_APP__?.tick?.();
+			window.__ANGULAR_APP__?.tick();
 		} catch (err) {
 			console.error(
 				'[absolutejs] post-remount tick threw — partial state',

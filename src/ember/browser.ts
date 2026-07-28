@@ -44,9 +44,9 @@ export const mountEmberPage = async (
 	// resolve `@ember/renderer` at type-check time. The framework
 	// package mustn't require ember-source as a build-time dep.
 	const rendererSpecifier = '@ember/renderer';
-	const rendererModule = (await import(rendererSpecifier)) as {
+	const rendererModule: {
 		renderComponent: RenderComponentApi;
-	};
+	} = await import(rendererSpecifier);
 	const props = window.__INITIAL_PROPS__ ?? {};
 
 	return rendererModule.renderComponent(component, {

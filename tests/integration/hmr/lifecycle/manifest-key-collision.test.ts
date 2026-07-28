@@ -1,4 +1,4 @@
-import { describe, expect, test, afterEach } from 'bun:test';
+import { describe, test, afterEach } from 'bun:test';
 import { resolve } from 'node:path';
 import { startDevServer, type DevServer } from '../../../helpers/devServer';
 import { createFile, restoreAllFiles } from '../../../helpers/file';

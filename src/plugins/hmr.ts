@@ -275,13 +275,8 @@ export const hmr = (
 				const { rewriteImportsInContent } = await import(
 					'../build/rewriteImportsPlugin'
 				);
-				const depVendorPaths =
-					(
-						globalThis as unknown as {
-							__depVendorPaths?: Record<string, string>;
-						}
-					).__depVendorPaths ?? {};
-				const vendorPaths = {
+				const depVendorPaths = globalThis.__depVendorPaths ?? {};
+				const vendorPaths: Record<string, string> = {
 					...(getDevVendorPaths() ?? {}),
 					...(getAngularVendorPaths() ?? {}),
 					...depVendorPaths
@@ -308,6 +303,7 @@ export const hmr = (
 		})
 		.get('/hmr-status', () => ({
 			connectedClients: hmrState.connectedClients.size,
+			entryWatcherReady: globalThis.__absoluteEntryWatcherReady === true,
 			isRebuilding: hmrState.isRebuilding,
 			manifestKeys: Object.keys(manifest),
 			rebuildCount: hmrState.rebuildCount,

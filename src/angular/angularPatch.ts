@@ -147,9 +147,7 @@ export const applyPatches = async () => {
 		const seedDoc = resolveSeedDoc();
 		if (seedDoc) {
 			patchElementLayout(seedDoc);
-			const probe = seedDoc.createElement('div') as Element & {
-				getBoundingClientRect?: () => DOMRect;
-			};
+			const probe = seedDoc.createElement('div');
 			if (typeof probe.getBoundingClientRect !== 'function') {
 				console.warn(
 					'[Angular Patch] Layout shim did not stick on probe element prototype chain'

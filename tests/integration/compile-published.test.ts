@@ -105,7 +105,8 @@ const startCompiledServer = async (
 		throw new Error(
 			`Published beta compiled server did not start: ${
 				error instanceof Error ? error.message : String(error)
-			}\n${stdout}\n${stderr}`
+			}\n${stdout}\n${stderr}`,
+			{ cause: error }
 		);
 	}
 

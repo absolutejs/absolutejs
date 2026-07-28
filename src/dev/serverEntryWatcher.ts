@@ -1,9 +1,10 @@
 /* Path B (framework-owned backend HMR — see
  * docs/ABSOLUTE_CONFIG_TOGGLE_LIMITATION.md): watch the user's entry file
- * (`Bun.main`) AND `absolute.config.ts` from inside the bun child.
+ * (`ABSOLUTE_SERVER_ENTRY`) AND `absolute.config.ts` from inside the bun
+ * child. The framework-owned bootstrap is Bun.main so the original entry is
+ * not also re-evaluated concurrently by Bun's automatic hot loader.
  *
- * Entry edits → cache-busted dynamic import via the natural
- * `delete require_.cache[entryPath]; await import(entryPath)` pattern.
+ * Entry edits → cache-busted dynamic import through a unique sibling copy.
  * The fresh module's `networking` plugin call detects the live
  * `Bun.serve` instance on globalThis and calls
  * `.reload({ fetch, routes: {} })` to swap the handler atomically
@@ -35,17 +36,23 @@
  * serving until the restart kicks in.
  */
 
-import { existsSync, statSync, watch } from 'node:fs';
-import { createRequire } from 'node:module';
+import {
+	copyFileSync,
+	existsSync,
+	readdirSync,
+	readFileSync,
+	statSync,
+	watch
+} from 'node:fs';
+import { createHash } from 'node:crypto';
 import { dirname, join, resolve } from 'node:path';
 import { applyConfigChanges } from '../core/devBuild';
 
-declare global {
-	var __absoluteEntryWatcherStarted: boolean | undefined;
-}
-
 const ATOMIC_RECOVERY_WINDOW_MS = 1000;
 const RELOAD_DEBOUNCE_MS = 80;
+const ENTRY_IMPORT_RETRY_DELAY_MS = 250;
+const MAX_ENTRY_IMPORT_ATTEMPTS = 3;
+const WATCH_FALLBACK_INTERVAL_MS = 250;
 
 const ATOMIC_WRITE_TEMP_PATTERNS: RegExp[] = [/^sed[A-Za-z0-9]{6,}$/, /^4913$/];
 
@@ -66,15 +73,44 @@ export const isAtomicWriteTemp = (filename: string) =>
 	filename.includes('.tmp.') ||
 	filename.endsWith('~') ||
 	filename.startsWith('.#') ||
-	ATOMIC_WRITE_TEMP_PATTERNS.some((re) => re.test(filename));
+	filename.startsWith('.absolutejs-hmr-') ||
+	ATOMIC_WRITE_TEMP_PATTERNS.some((pattern) => pattern.test(filename));
+
+const fileHash = (path: string) => {
+	try {
+		return createHash('sha256').update(readFileSync(path)).digest('hex');
+	} catch {
+		return null;
+	}
+};
+
+export const startFilePollingFallback = (
+	path: string,
+	onChange: () => void,
+	interval = WATCH_FALLBACK_INTERVAL_MS
+) => {
+	let previousHash = fileHash(path);
+	const timer = setInterval(() => {
+		const nextHash = fileHash(path);
+		if (!nextHash || nextHash === previousHash) return;
+		previousHash = nextHash;
+		onChange();
+	}, interval);
+	timer.unref();
+
+	return {
+		close: () => clearInterval(timer)
+	};
+};
 
 export const startServerEntryWatcher = () => {
 	if (globalThis.__absoluteEntryWatcherStarted) return;
-	const { main } = Bun;
-	if (!main || !existsSync(main)) return;
+	const originalEntry = process.env.ABSOLUTE_SERVER_ENTRY ?? Bun.main;
+	if (!originalEntry || !existsSync(originalEntry)) return;
 	globalThis.__absoluteEntryWatcherStarted = true;
+	globalThis.__absoluteEntryWatcherReady = false;
 
-	const entryPath = resolve(main);
+	const entryPath = resolve(originalEntry);
 	const entryDir = dirname(entryPath);
 	const entryBase = entryPath.slice(entryDir.length + 1);
 
@@ -87,30 +123,58 @@ export const startServerEntryWatcher = () => {
 	const recentlyHandled = new Map<string, number>();
 	let entryReloadTimer: ReturnType<typeof setTimeout> | null = null;
 	let configReloadTimer: ReturnType<typeof setTimeout> | null = null;
+	let acceptedEntryHash = fileHash(entryPath);
+	let entryReloadInFlight = false;
+	let pendingEntryCause: string | null = null;
+	let siblingSequence = 0;
 
-	// Bun cache invalidation for the entry path under `bun --hot`.
-	// Use the natural pattern: clear the CommonJS-style cache entry
-	// for the entry path and re-import. On the current Bun version
-	// (verified 1.3.14-canary.1 by
-	// `tests/integration/hmr/lifecycle/bun-entry-natural-pattern-sentinel.test.ts`)
-	// the re-import reads fresh source bytes after an atomic-rename
-	// write — the bun#30447 / bun#30449 chain that previously
-	// pinned the entry record has been resolved upstream. If a
-	// future Bun regresses entry-record reload, the sentinel test
-	// flips and we restore the sibling-copy workaround from git
-	// history (see commit history for `serverEntryWatcher.ts`
-	// 2026-05-12).
-	const require_ = createRequire(import.meta.url);
+	// Bun can intermittently retain or partially instantiate the pinned entry
+	// module under `bun --hot`, even after the source was atomically replaced.
+	// Import a unique same-directory sibling so Bun parses complete fresh bytes
+	// under a new module URL while relative imports keep their original base.
+	const importFreshEntry = async (attempt = 1): Promise<void> => {
+		const siblingPath = join(
+			entryDir,
+			`.absolutejs-hmr-${process.pid}-${siblingSequence++}.ts`
+		);
+		let failure: unknown;
+		try {
+			copyFileSync(entryPath, siblingPath);
+			globalThis.__absoluteEntryCopies?.add(siblingPath);
+			await import(siblingPath);
+		} catch (error) {
+			failure = error;
+		}
+		if (failure === undefined) return;
+		const message =
+			failure instanceof Error ? failure.message : String(failure);
+		if (
+			message.includes('Unexpected end of file') &&
+			attempt < MAX_ENTRY_IMPORT_ATTEMPTS
+		) {
+			await Bun.sleep(ENTRY_IMPORT_RETRY_DELAY_MS);
+
+			await importFreshEntry(attempt + 1);
+
+			return;
+		}
+		throw failure;
+	};
+
 	const triggerEntryReload = async (cause: string) => {
-		const now = Date.now();
-		const last = recentlyHandled.get(`entry:${cause}`) ?? 0;
-		if (now - last < 100) return;
-		recentlyHandled.set(`entry:${cause}`, now);
+		const nextHash = fileHash(entryPath);
+		if (!nextHash || nextHash === acceptedEntryHash) return;
+		if (entryReloadInFlight) {
+			pendingEntryCause = cause;
+
+			return;
+		}
+		entryReloadInFlight = true;
+		acceptedEntryHash = nextHash;
 
 		try {
 			console.log(`[hmr] reloading server entry (${cause})`);
-			delete require_.cache[entryPath];
-			await import(entryPath);
+			await importFreshEntry();
 			// On success, the new module's `networking` plugin call
 			// has already swapped the running Bun.serve's fetch
 			// handler via `app.server.reload({ fetch, routes: {} })`.
@@ -132,6 +196,13 @@ export const startServerEntryWatcher = () => {
 				}`
 			);
 			console.log(`[abs:restart] ${entryPath}`);
+		} finally {
+			entryReloadInFlight = false;
+			if (pendingEntryCause) {
+				const pendingCause = pendingEntryCause;
+				pendingEntryCause = null;
+				void triggerEntryReload(pendingCause);
+			}
 		}
 	};
 
@@ -224,8 +295,6 @@ export const startServerEntryWatcher = () => {
 	const recoveryScan = (dir: string) => {
 		let entries: import('node:fs').Dirent[];
 		try {
-			const { readdirSync } =
-				require('node:fs') as typeof import('node:fs');
 			entries = readdirSync(dir, { withFileTypes: true });
 		} catch {
 			return;
@@ -282,8 +351,21 @@ export const startServerEntryWatcher = () => {
 			handleEvent(configDir, event, file)
 		);
 	}
+	// Directory watches can still miss writes on some filesystems and under
+	// bursty editor/test activity. The stat watcher is a bounded fallback; all
+	// notifications converge through the content-hash gate above, so native
+	// and polling events for the same bytes reload only once.
+	const fallbackWatcher = startFilePollingFallback(entryPath, () =>
+		scheduleEntryReload(entryBase)
+	);
+	const postInstallEntryHash = fileHash(entryPath);
+	if (postInstallEntryHash && postInstallEntryHash !== acceptedEntryHash) {
+		scheduleEntryReload(entryBase);
+	}
+	globalThis.__absoluteEntryWatcherReady = true;
 
 	const closeAll = () => {
+		fallbackWatcher.close();
 		try {
 			entryWatcher.close();
 		} catch {

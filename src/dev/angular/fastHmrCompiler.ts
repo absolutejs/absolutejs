@@ -19,12 +19,12 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, extname, relative, resolve } from 'node:path';
 import type {
-	DeclareFunctionStmt,
 	R3CompiledExpression,
 	R3InputMetadata,
 	R3HmrNamespaceDependency
 } from '@angular/compiler';
 import ts from 'typescript';
+import { compileStyleFileIfNeededSync } from '../../build/stylePreprocessor';
 import { createHmrImportGenerator } from './hmrImportGenerator';
 import type { AngularEntityKind } from './resolveOwningComponents';
 import { translateStatement } from './vendor/translator/typescript_translator';
@@ -279,9 +279,9 @@ const fail = (
 	detail?: string,
 	location?: FailLocation
 ): FastHmrFailure => ({
+	detail,
 	ok: false,
 	reason,
-	detail,
 	...(location ?? {})
 });
 
@@ -313,67 +313,112 @@ const fingerprintCache = new Map<string, ComponentFingerprint>();
  * compile. If the browser somehow fetches twice for the same id, the
  * second fetch falls through to a fresh compile — correct, just slow. */
 const pendingModuleCache = new Map<string, string>();
+const ANGULAR_DECORATOR_NAMES = new Set([
+	'Component',
+	'Directive',
+	'Injectable',
+	'Pipe'
+]);
 
-export const takePendingModule = (id: string): string | undefined => {
+const findAngularDecoratorName = (decorators: readonly ts.Decorator[]) => {
+	for (const decorator of decorators) {
+		if (!ts.isCallExpression(decorator.expression)) continue;
+		const { expression } = decorator.expression;
+		if (!ts.isIdentifier(expression)) continue;
+		if (ANGULAR_DECORATOR_NAMES.has(expression.text)) {
+			return expression.text;
+		}
+	}
+
+	return null;
+};
+
+export const takePendingModule = (id: string) => {
 	const cached = pendingModuleCache.get(id);
 	if (cached !== undefined) pendingModuleCache.delete(id);
 
 	return cached;
 };
 
-const setPendingModule = (id: string, moduleText: string): void => {
+const setPendingModule = (id: string, moduleText: string) => {
 	pendingModuleCache.set(id, moduleText);
 };
 
-const arraysEqual = (a: string[], b: string[]): boolean => {
-	if (a.length !== b.length) return false;
-	for (let i = 0; i < a.length; i++) {
-		if (a[i] !== b[i]) return false;
+const arraysEqual = (a: string[], rightValue: string[]) => {
+	if (a.length !== rightValue.length) return false;
+	for (let index = 0; index < a.length; index++) {
+		if (a[index] !== rightValue[index]) return false;
 	}
 
 	return true;
 };
 
 const fingerprintsEqual = (
-	a: ComponentFingerprint,
-	b: ComponentFingerprint
-): boolean => {
-	if (a.className !== b.className) return false;
-	if (a.selector !== b.selector) return false;
-	if (a.standalone !== b.standalone) return false;
-	if (a.hasProviders !== b.hasProviders) return false;
-	if (a.hasViewProviders !== b.hasViewProviders) return false;
-	if (!arraysEqual(a.ctorParamTypes, b.ctorParamTypes)) return false;
-	if (!arraysEqual(a.inputs, b.inputs)) return false;
-	if (!arraysEqual(a.outputs, b.outputs)) return false;
-	if (!arraysEqual(a.providerImportSig, b.providerImportSig)) return false;
-	if (!arraysEqual(a.arrowFieldSig, b.arrowFieldSig)) return false;
-	if (!arraysEqual(a.memberDecoratorSig, b.memberDecoratorSig)) return false;
-	if (!arraysEqual(a.topLevelImports, b.topLevelImports)) return false;
-	if (!arraysEqual(a.propertyFieldNames, b.propertyFieldNames)) return false;
-	if (a.encapsulation !== b.encapsulation) return false;
-	if (a.changeDetection !== b.changeDetection) return false;
-	if (a.importsArraySig !== b.importsArraySig) return false;
-	if (a.hostDirectivesSig !== b.hostDirectivesSig) return false;
-	if (a.animationsArraySig !== b.animationsArraySig) return false;
-	if (a.providersArraySig !== b.providersArraySig) return false;
-	if (a.viewProvidersArraySig !== b.viewProvidersArraySig) return false;
-	if (a.decoratorInputsArraySig !== b.decoratorInputsArraySig) return false;
-	if (a.decoratorOutputsArraySig !== b.decoratorOutputsArraySig) return false;
-	if (a.hostBindingsSig !== b.hostBindingsSig) return false;
-	if (a.pageExportsSig !== b.pageExportsSig) return false;
-	if (a.schemasSig !== b.schemasSig) return false;
+	leftValue: ComponentFingerprint,
+	rightValue: ComponentFingerprint
+) => {
+	if (leftValue.className !== rightValue.className) return false;
+	if (leftValue.selector !== rightValue.selector) return false;
+	if (leftValue.standalone !== rightValue.standalone) return false;
+	if (leftValue.hasProviders !== rightValue.hasProviders) return false;
+	if (leftValue.hasViewProviders !== rightValue.hasViewProviders)
+		return false;
+	if (!arraysEqual(leftValue.ctorParamTypes, rightValue.ctorParamTypes))
+		return false;
+	if (!arraysEqual(leftValue.inputs, rightValue.inputs)) return false;
+	if (!arraysEqual(leftValue.outputs, rightValue.outputs)) return false;
+	if (!arraysEqual(leftValue.providerImportSig, rightValue.providerImportSig))
+		return false;
+	if (!arraysEqual(leftValue.arrowFieldSig, rightValue.arrowFieldSig))
+		return false;
+	if (
+		!arraysEqual(
+			leftValue.memberDecoratorSig,
+			rightValue.memberDecoratorSig
+		)
+	)
+		return false;
+	if (!arraysEqual(leftValue.topLevelImports, rightValue.topLevelImports))
+		return false;
+	if (
+		!arraysEqual(
+			leftValue.propertyFieldNames,
+			rightValue.propertyFieldNames
+		)
+	)
+		return false;
+	if (leftValue.encapsulation !== rightValue.encapsulation) return false;
+	if (leftValue.changeDetection !== rightValue.changeDetection) return false;
+	if (leftValue.importsArraySig !== rightValue.importsArraySig) return false;
+	if (leftValue.hostDirectivesSig !== rightValue.hostDirectivesSig)
+		return false;
+	if (leftValue.animationsArraySig !== rightValue.animationsArraySig)
+		return false;
+	if (leftValue.providersArraySig !== rightValue.providersArraySig)
+		return false;
+	if (leftValue.viewProvidersArraySig !== rightValue.viewProvidersArraySig)
+		return false;
+	if (
+		leftValue.decoratorInputsArraySig !== rightValue.decoratorInputsArraySig
+	)
+		return false;
+	if (
+		leftValue.decoratorOutputsArraySig !==
+		rightValue.decoratorOutputsArraySig
+	)
+		return false;
+	if (leftValue.hostBindingsSig !== rightValue.hostBindingsSig) return false;
+	if (leftValue.pageExportsSig !== rightValue.pageExportsSig) return false;
+	if (leftValue.schemasSig !== rightValue.schemasSig) return false;
 
 	return true;
 };
 
-export const invalidateFingerprintCache = (): void => {
+export const invalidateFingerprintCache = () => {
 	fingerprintCache.clear();
 	entityFingerprintCache.clear();
 };
-export const primeComponentFingerprint = async (
-	componentFilePath: string
-): Promise<void> => {
+export const primeComponentFingerprint = async (componentFilePath: string) => {
 	let source: string;
 	try {
 		source = await (
@@ -401,23 +446,7 @@ export const primeComponentFingerprint = async (
 		if (!className) continue;
 
 		const decorators = ts.getDecorators(stmt) ?? [];
-		const decoratorName = (() => {
-			for (const d of decorators) {
-				if (!ts.isCallExpression(d.expression)) continue;
-				const expr = d.expression.expression;
-				if (!ts.isIdentifier(expr)) continue;
-				if (
-					expr.text === 'Component' ||
-					expr.text === 'Directive' ||
-					expr.text === 'Pipe' ||
-					expr.text === 'Injectable'
-				) {
-					return expr.text;
-				}
-			}
-
-			return null;
-		})();
+		const decoratorName = findAngularDecoratorName(decorators);
 		if (!decoratorName) continue;
 
 		const projectRel = relative(process.cwd(), componentFilePath).replace(
@@ -434,9 +463,8 @@ export const primeComponentFingerprint = async (
 				return ts.isIdentifier(expr) && expr.text === 'Component';
 			});
 			if (!componentDecorator) continue;
-			const decoratorCall =
-				componentDecorator.expression as ts.CallExpression;
-			const args = decoratorCall.arguments[0];
+			if (!ts.isCallExpression(componentDecorator.expression)) continue;
+			const [args] = componentDecorator.expression.arguments;
 			if (!args || !ts.isObjectLiteralExpression(args)) continue;
 
 			const decoratorMeta = readDecoratorMeta(args);
@@ -477,9 +505,9 @@ export const primeComponentFingerprint = async (
 };
 export const recordFingerprint = (
 	id: string,
-	fp: ComponentFingerprint
-): void => {
-	fingerprintCache.set(id, fp);
+	fingerprint: ComponentFingerprint
+) => {
+	fingerprintCache.set(id, fingerprint);
 };
 
 /* Per-entity fingerprint cache for non-component Angular classes
@@ -508,23 +536,39 @@ type EntityFingerprint = {
 const entityFingerprintCache = new Map<string, EntityFingerprint>();
 
 const entityFingerprintsEqual = (
-	a: EntityFingerprint,
-	b: EntityFingerprint
-): boolean => {
-	if (a.className !== b.className) return false;
-	if (a.decoratorArgsText !== b.decoratorArgsText) return false;
-	if (!arraysEqual(a.ctorParamTypes, b.ctorParamTypes)) return false;
-	if (!arraysEqual(a.topLevelImports, b.topLevelImports)) return false;
-	if (!arraysEqual(a.memberDecoratorSig, b.memberDecoratorSig)) return false;
-	if (!arraysEqual(a.arrowFieldSig, b.arrowFieldSig)) return false;
-	if (!arraysEqual(a.propertyFieldNames, b.propertyFieldNames)) return false;
+	leftValue: EntityFingerprint,
+	rightValue: EntityFingerprint
+) => {
+	if (leftValue.className !== rightValue.className) return false;
+	if (leftValue.decoratorArgsText !== rightValue.decoratorArgsText)
+		return false;
+	if (!arraysEqual(leftValue.ctorParamTypes, rightValue.ctorParamTypes))
+		return false;
+	if (!arraysEqual(leftValue.topLevelImports, rightValue.topLevelImports))
+		return false;
+	if (
+		!arraysEqual(
+			leftValue.memberDecoratorSig,
+			rightValue.memberDecoratorSig
+		)
+	)
+		return false;
+	if (!arraysEqual(leftValue.arrowFieldSig, rightValue.arrowFieldSig))
+		return false;
+	if (
+		!arraysEqual(
+			leftValue.propertyFieldNames,
+			rightValue.propertyFieldNames
+		)
+	)
+		return false;
 
 	return true;
 };
 
 const ENTITY_DECORATOR_NAMES = new Set(['Pipe', 'Directive', 'Injectable']);
 
-const findEntityDecorator = (cls: ts.ClassDeclaration): ts.Decorator | null => {
+const findEntityDecorator = (cls: ts.ClassDeclaration) => {
 	for (const dec of ts.getDecorators(cls) ?? []) {
 		const expr = dec.expression;
 		if (!ts.isCallExpression(expr)) continue;
@@ -543,8 +587,18 @@ const extractEntityFingerprint = (
 	const decorator = findEntityDecorator(cls);
 	let decoratorArgsText = '';
 	if (decorator !== null) {
-		const expr = decorator.expression as ts.CallExpression;
-		const arg = expr.arguments[0];
+		if (!ts.isCallExpression(decorator.expression)) {
+			return {
+				arrowFieldSig: extractArrowFieldSig(cls),
+				className,
+				ctorParamTypes: [],
+				decoratorArgsText,
+				memberDecoratorSig: extractMemberDecoratorSig(cls),
+				propertyFieldNames: extractPropertyFieldNames(cls),
+				topLevelImports: extractTopLevelImports(sourceFile)
+			};
+		}
+		const [arg] = decorator.expression.arguments;
 		if (arg !== undefined) {
 			decoratorArgsText = arg.getText().replace(/\s+/g, ' ').trim();
 		}
@@ -595,10 +649,12 @@ const extractEntityFingerprint = (
 
 /* ─── TS AST helpers ─────────────────────────────────────────── */
 
-const findClassDeclaration = (
+type FindClassDeclaration = (
 	sourceFile: ts.SourceFile,
 	className: string
-): ts.ClassDeclaration | null => {
+) => ts.ClassDeclaration | null;
+
+const findClassDeclaration: FindClassDeclaration = (sourceFile, className) => {
 	let found: ts.ClassDeclaration | null = null;
 	const walk = (node: ts.Node) => {
 		if (found) return;
@@ -614,20 +670,21 @@ const findClassDeclaration = (
 	return found;
 };
 
-const getClassDecorators = (cls: ts.ClassDeclaration): ts.Decorator[] => {
+const getClassDecorators = (cls: ts.ClassDeclaration) => {
 	const modifiers = ts.getDecorators(cls) ?? [];
 
 	return [...modifiers];
 };
 
-const findComponentDecorator = (
-	cls: ts.ClassDeclaration
-): ts.Decorator | null => {
+const findComponentDecorator = (cls: ts.ClassDeclaration) => {
 	for (const decorator of getClassDecorators(cls)) {
 		const expr = decorator.expression;
 		if (ts.isCallExpression(expr)) {
-			const fn = expr.expression;
-			if (ts.isIdentifier(fn) && fn.text === 'Component') {
+			const functionNode = expr.expression;
+			if (
+				ts.isIdentifier(functionNode) &&
+				functionNode.text === 'Component'
+			) {
 				return decorator;
 			}
 		}
@@ -636,21 +693,16 @@ const findComponentDecorator = (
 	return null;
 };
 
-const getDecoratorArgsObject = (
-	decorator: ts.Decorator
-): ts.ObjectLiteralExpression | null => {
+const getDecoratorArgsObject = (decorator: ts.Decorator) => {
 	const call = decorator.expression;
 	if (!ts.isCallExpression(call)) return null;
-	const arg = call.arguments[0];
+	const [arg] = call.arguments;
 	if (!arg || !ts.isObjectLiteralExpression(arg)) return null;
 
 	return arg;
 };
 
-const getProperty = (
-	obj: ts.ObjectLiteralExpression,
-	name: string
-): ts.Expression | null => {
+const getProperty = (obj: ts.ObjectLiteralExpression, name: string) => {
 	for (const prop of obj.properties) {
 		if (
 			ts.isPropertyAssignment(prop) &&
@@ -664,10 +716,7 @@ const getProperty = (
 	return null;
 };
 
-const getStringProperty = (
-	obj: ts.ObjectLiteralExpression,
-	name: string
-): string | null => {
+const getStringProperty = (obj: ts.ObjectLiteralExpression, name: string) => {
 	const expr = getProperty(obj, name);
 	if (!expr) return null;
 	if (ts.isStringLiteral(expr) || ts.isNoSubstitutionTemplateLiteral(expr)) {
@@ -677,10 +726,7 @@ const getStringProperty = (
 	return null;
 };
 
-const getBooleanProperty = (
-	obj: ts.ObjectLiteralExpression,
-	name: string
-): boolean | null => {
+const getBooleanProperty = (obj: ts.ObjectLiteralExpression, name: string) => {
 	const expr = getProperty(obj, name);
 	if (!expr) return null;
 	if (expr.kind === ts.SyntaxKind.TrueKeyword) return true;
@@ -709,13 +755,13 @@ const getBooleanProperty = (
  * matching class declaration has a `@Component` / `@Directive` /
  * `@Pipe` / `@Injectable` decorator. Same-file parents are also
  * checked (no resolution needed). */
-const isAngularDecoratorIdentifier = (name: string): boolean =>
+const isAngularDecoratorIdentifier = (name: string) =>
 	name === 'Component' ||
 	name === 'Directive' ||
 	name === 'Pipe' ||
 	name === 'Injectable';
 
-const classHasAngularDecorator = (cls: ts.ClassDeclaration): boolean => {
+const classHasAngularDecorator = (cls: ts.ClassDeclaration) => {
 	for (const dec of ts.getDecorators(cls) ?? []) {
 		const expr = dec.expression;
 		if (
@@ -731,10 +777,10 @@ const classHasAngularDecorator = (cls: ts.ClassDeclaration): boolean => {
 };
 
 const findClassInSourceFile = (
-	sf: ts.SourceFile,
+	sourceFile: ts.SourceFile,
 	className: string
-): ts.ClassDeclaration | null => {
-	for (const stmt of sf.statements) {
+) => {
+	for (const stmt of sourceFile.statements) {
 		if (ts.isClassDeclaration(stmt) && stmt.name?.text === className) {
 			return stmt;
 		}
@@ -747,8 +793,8 @@ const parentHasAngularDecoratorAcrossFiles = (
 	parentClassName: string,
 	sourceFile: ts.SourceFile,
 	componentDir: string,
-	projectRoot: string
-): boolean => {
+	_projectRoot: string
+) => {
 	const sameFile = findClassInSourceFile(sourceFile, parentClassName);
 	if (sameFile) return classHasAngularDecorator(sameFile);
 
@@ -761,7 +807,7 @@ const parentHasAngularDecoratorAcrossFiles = (
 		const named = clause.namedBindings;
 		if (!named || !ts.isNamedImports(named)) continue;
 		const found = named.elements.find(
-			(el) => el.name.text === parentClassName
+			(element) => element.name.text === parentClassName
 		);
 		if (!found) continue;
 		const spec = stmt.moduleSpecifier.text;
@@ -819,7 +865,7 @@ const inheritsDecoratedClass = (
 	sourceFile: ts.SourceFile,
 	componentDir: string,
 	projectRoot: string
-): boolean => {
+) => {
 	const heritage = cls.heritageClauses ?? [];
 	for (const clause of heritage) {
 		if (clause.token !== ts.SyntaxKind.ExtendsKeyword) continue;
@@ -938,14 +984,12 @@ type ComponentDecoratorMeta = {
  * on co-located directives. */
 const CONTROL_CREATE_METHOD_NAME = 'ɵngControlCreate';
 
-const extractControlCreate = (
-	cls: ts.ClassDeclaration
-): { passThroughInput: string | null } | null => {
+const extractControlCreate = (cls: ts.ClassDeclaration) => {
 	for (const member of cls.members) {
 		if (!ts.isMethodDeclaration(member)) continue;
 		if (
 			member.modifiers?.some(
-				(m) => m.kind === ts.SyntaxKind.StaticKeyword
+				(item) => item.kind === ts.SyntaxKind.StaticKeyword
 			)
 		)
 			continue;
@@ -953,7 +997,7 @@ const extractControlCreate = (
 		if (name === undefined) continue;
 		const nameText = ts.isIdentifier(name) ? name.text : name.getText();
 		if (nameText !== CONTROL_CREATE_METHOD_NAME) continue;
-		const firstParam = member.parameters[0];
+		const [firstParam] = member.parameters;
 		if (
 			firstParam === undefined ||
 			firstParam.type === undefined ||
@@ -965,7 +1009,7 @@ const extractControlCreate = (
 		if (typeArgs === undefined || typeArgs.length !== 1) {
 			return { passThroughInput: null };
 		}
-		const arg = typeArgs[0];
+		const [arg] = typeArgs;
 		if (
 			arg === undefined ||
 			!ts.isLiteralTypeNode(arg) ||
@@ -989,7 +1033,7 @@ const resolveEnumPropertyAccess = (
 	expr: ts.Expression,
 	enumName: string,
 	values: Readonly<Record<string, number>>
-): number | null => {
+) => {
 	if (!ts.isPropertyAccessExpression(expr)) return null;
 	if (!ts.isIdentifier(expr.expression)) return null;
 	if (expr.expression.text !== enumName) return null;
@@ -1029,20 +1073,20 @@ const readDecoratorMeta = (
 
 	const styleUrls: string[] = [];
 	if (styleUrlsExpr && ts.isArrayLiteralExpression(styleUrlsExpr)) {
-		for (const el of styleUrlsExpr.elements) {
-			if (ts.isStringLiteral(el)) styleUrls.push(el.text);
+		for (const element of styleUrlsExpr.elements) {
+			if (ts.isStringLiteral(element)) styleUrls.push(element.text);
 		}
 	}
 
 	const styles: string[] = [];
 	if (stylesExpr) {
 		if (ts.isArrayLiteralExpression(stylesExpr)) {
-			for (const el of stylesExpr.elements) {
+			for (const element of stylesExpr.elements) {
 				if (
-					ts.isStringLiteral(el) ||
-					ts.isNoSubstitutionTemplateLiteral(el)
+					ts.isStringLiteral(element) ||
+					ts.isNoSubstitutionTemplateLiteral(element)
 				) {
-					styles.push(el.text);
+					styles.push(element.text);
 				}
 			}
 		} else if (
@@ -1072,30 +1116,26 @@ const readDecoratorMeta = (
 		: null;
 
 	return {
+		animationsExpr:
+			animationsExpr && ts.isArrayLiteralExpression(animationsExpr)
+				? animationsExpr
+				: null,
 		changeDetection,
 		encapsulation,
 		hasProviders: getProperty(args, 'providers') !== null,
 		hasViewProviders: getProperty(args, 'viewProviders') !== null,
-		importsExpr:
-			importsExpr && ts.isArrayLiteralExpression(importsExpr)
-				? importsExpr
-				: null,
 		hostDirectivesExpr:
 			hostDirectivesExpr &&
 			ts.isArrayLiteralExpression(hostDirectivesExpr)
 				? hostDirectivesExpr
 				: null,
-		animationsExpr:
-			animationsExpr && ts.isArrayLiteralExpression(animationsExpr)
-				? animationsExpr
+		hostExpr:
+			hostExpr && ts.isObjectLiteralExpression(hostExpr)
+				? hostExpr
 				: null,
-		providersExpr:
-			providersExpr && ts.isArrayLiteralExpression(providersExpr)
-				? providersExpr
-				: null,
-		viewProvidersExpr:
-			viewProvidersExpr && ts.isArrayLiteralExpression(viewProvidersExpr)
-				? viewProvidersExpr
+		importsExpr:
+			importsExpr && ts.isArrayLiteralExpression(importsExpr)
+				? importsExpr
 				: null,
 		inputsArrayExpr:
 			inputsArrayExpr && ts.isArrayLiteralExpression(inputsArrayExpr)
@@ -1105,25 +1145,29 @@ const readDecoratorMeta = (
 			outputsArrayExpr && ts.isArrayLiteralExpression(outputsArrayExpr)
 				? outputsArrayExpr
 				: null,
-		hostExpr:
-			hostExpr && ts.isObjectLiteralExpression(hostExpr)
-				? hostExpr
+		preserveWhitespaces:
+			getBooleanProperty(args, 'preserveWhitespaces') ??
+			projectDefaults.preserveWhitespaces ??
+			false,
+		providersExpr:
+			providersExpr && ts.isArrayLiteralExpression(providersExpr)
+				? providersExpr
 				: null,
 		schemasExpr:
 			schemasExpr && ts.isArrayLiteralExpression(schemasExpr)
 				? schemasExpr
 				: null,
-		preserveWhitespaces:
-			getBooleanProperty(args, 'preserveWhitespaces') ??
-			projectDefaults.preserveWhitespaces ??
-			false,
 		selector: getStringProperty(args, 'selector'),
 		standalone: getBooleanProperty(args, 'standalone') ?? true,
+		styles,
 		styleUrl: getStringProperty(args, 'styleUrl'),
 		styleUrls,
-		styles,
 		template: getStringProperty(args, 'template'),
-		templateUrl: getStringProperty(args, 'templateUrl')
+		templateUrl: getStringProperty(args, 'templateUrl'),
+		viewProvidersExpr:
+			viewProvidersExpr && ts.isArrayLiteralExpression(viewProvidersExpr)
+				? viewProvidersExpr
+				: null
 	};
 };
 
@@ -1134,13 +1178,14 @@ const readDecoratorMeta = (
 const extractDecoratorInput = (
 	prop: ts.PropertyDeclaration,
 	compiler: typeof import('@angular/compiler') | null
-): { classPropertyName: string; meta: R3InputMetadata } | null => {
+) => {
 	const decorators = ts.getDecorators(prop) ?? [];
 	for (const decorator of decorators) {
 		const expr = decorator.expression;
 		if (!ts.isCallExpression(expr)) continue;
-		const fn = expr.expression;
-		if (!ts.isIdentifier(fn) || fn.text !== 'Input') continue;
+		const functionNode = expr.expression;
+		if (!ts.isIdentifier(functionNode) || functionNode.text !== 'Input')
+			continue;
 
 		const classPropertyName = prop.name.getText();
 		let bindingPropertyName = classPropertyName;
@@ -1148,7 +1193,7 @@ const extractDecoratorInput = (
 		let transformFunction: import('@angular/compiler').Expression | null =
 			null;
 
-		const arg = expr.arguments[0];
+		const [arg] = expr.arguments;
 		if (arg) {
 			if (ts.isStringLiteral(arg)) {
 				// @Input('alias') name — legacy alias form
@@ -1181,14 +1226,15 @@ const extractDecoratorInput = (
 	return null;
 };
 
-const isInputSignalCall = (init: ts.Expression): boolean => {
+const isInputSignalCall = (init: ts.Expression) => {
 	if (ts.isCallExpression(init)) {
-		const fn = init.expression;
-		if (ts.isIdentifier(fn) && fn.text === 'input') return true;
+		const functionNode = init.expression;
+		if (ts.isIdentifier(functionNode) && functionNode.text === 'input')
+			return true;
 		if (
-			ts.isPropertyAccessExpression(fn) &&
-			ts.isIdentifier(fn.expression) &&
-			fn.expression.text === 'input'
+			ts.isPropertyAccessExpression(functionNode) &&
+			ts.isIdentifier(functionNode.expression) &&
+			functionNode.expression.text === 'input'
 		) {
 			return true;
 		}
@@ -1202,8 +1248,9 @@ const extractSignalInput = (
 	compiler: typeof import('@angular/compiler') | null
 ): { classPropertyName: string; meta: R3InputMetadata } | null => {
 	if (!prop.initializer || !isInputSignalCall(prop.initializer)) return null;
+	if (!ts.isCallExpression(prop.initializer)) return null;
 	const classPropertyName = prop.name.getText();
-	const call = prop.initializer as ts.CallExpression;
+	const call = prop.initializer;
 	let required = false;
 	if (
 		ts.isPropertyAccessExpression(call.expression) &&
@@ -1237,19 +1284,18 @@ const extractSignalInput = (
 	};
 };
 
-const extractDecoratorOutput = (
-	prop: ts.PropertyDeclaration
-): { classPropertyName: string; bindingName: string } | null => {
+const extractDecoratorOutput = (prop: ts.PropertyDeclaration) => {
 	const decorators = ts.getDecorators(prop) ?? [];
 	for (const decorator of decorators) {
 		const expr = decorator.expression;
 		if (!ts.isCallExpression(expr)) continue;
-		const fn = expr.expression;
-		if (!ts.isIdentifier(fn) || fn.text !== 'Output') continue;
+		const functionNode = expr.expression;
+		if (!ts.isIdentifier(functionNode) || functionNode.text !== 'Output')
+			continue;
 
 		const classPropertyName = prop.name.getText();
 		let bindingName = classPropertyName;
-		const arg = expr.arguments[0];
+		const [arg] = expr.arguments;
 		if (arg && ts.isStringLiteral(arg)) bindingName = arg.text;
 
 		return { bindingName, classPropertyName };
@@ -1258,14 +1304,15 @@ const extractDecoratorOutput = (
 	return null;
 };
 
-const isOutputSignalCall = (init: ts.Expression): boolean => {
+const isOutputSignalCall = (init: ts.Expression) => {
 	if (ts.isCallExpression(init)) {
-		const fn = init.expression;
-		if (ts.isIdentifier(fn) && fn.text === 'output') return true;
+		const functionNode = init.expression;
+		if (ts.isIdentifier(functionNode) && functionNode.text === 'output')
+			return true;
 		if (
-			ts.isPropertyAccessExpression(fn) &&
-			ts.isIdentifier(fn.expression) &&
-			fn.expression.text === 'output'
+			ts.isPropertyAccessExpression(functionNode) &&
+			ts.isIdentifier(functionNode.expression) &&
+			functionNode.expression.text === 'output'
 		) {
 			return true;
 		}
@@ -1278,11 +1325,12 @@ const extractSignalOutput = (
 	prop: ts.PropertyDeclaration
 ): { classPropertyName: string; bindingName: string } | null => {
 	if (!prop.initializer || !isOutputSignalCall(prop.initializer)) return null;
+	if (!ts.isCallExpression(prop.initializer)) return null;
 	const classPropertyName = prop.name.getText();
-	const call = prop.initializer as ts.CallExpression;
+	const call = prop.initializer;
 
 	let bindingName = classPropertyName;
-	const optsArg = call.arguments[0];
+	const [optsArg] = call.arguments;
 	if (optsArg && ts.isObjectLiteralExpression(optsArg)) {
 		const aliasNode = getStringProperty(optsArg, 'alias');
 		if (aliasNode !== null) bindingName = aliasNode;
@@ -1385,7 +1433,7 @@ const parseHostObjectInto = (
 	args: ts.ObjectLiteralExpression,
 	hostExprNode: ts.ObjectLiteralExpression | null,
 	compiler: typeof import('@angular/compiler')
-): void => {
+) => {
 	const hostNode = getProperty(args, 'host');
 	if (!hostNode || !ts.isObjectLiteralExpression(hostNode)) {
 		// fall back to the `hostExprNode` arg if provided (callers
@@ -1440,39 +1488,41 @@ const parseHostObjectInto = (
 const mergeMemberHostDecorators = (
 	host: ParsedHost,
 	cls: ts.ClassDeclaration
-): void => {
+) => {
 	for (const member of cls.members) {
 		if (!ts.canHaveDecorators(member)) continue;
 		const decorators = ts.getDecorators(member) ?? [];
 		for (const dec of decorators) {
 			const expr = dec.expression;
 			if (!ts.isCallExpression(expr)) continue;
-			const fn = expr.expression;
-			if (!ts.isIdentifier(fn)) continue;
-			if (fn.text === 'HostBinding') {
+			const functionNode = expr.expression;
+			if (!ts.isIdentifier(functionNode)) continue;
+			if (functionNode.text === 'HostBinding') {
 				if (
 					!ts.isPropertyDeclaration(member) &&
 					!ts.isGetAccessor(member)
 				)
 					continue;
-				const propertyName = (member.name as ts.Identifier).text;
-				const target = expr.arguments[0];
+				if (!ts.isIdentifier(member.name)) continue;
+				const propertyName = member.name.text;
+				const [target] = expr.arguments;
 				const key =
 					target && ts.isStringLiteral(target)
 						? target.text
 						: propertyName;
 				host.properties[key] = propertyName;
-			} else if (fn.text === 'HostListener') {
+			} else if (functionNode.text === 'HostListener') {
 				if (!ts.isMethodDeclaration(member)) continue;
-				const methodName = (member.name as ts.Identifier).text;
-				const eventArg = expr.arguments[0];
+				if (!ts.isIdentifier(member.name)) continue;
+				const methodName = member.name.text;
+				const [eventArg, argsArg] = expr.arguments;
 				if (!eventArg || !ts.isStringLiteral(eventArg)) continue;
 				const event = eventArg.text;
-				const argsArg = expr.arguments[1];
 				const argsList: string[] = [];
 				if (argsArg && ts.isArrayLiteralExpression(argsArg)) {
-					for (const el of argsArg.elements) {
-						if (ts.isStringLiteral(el)) argsList.push(el.text);
+					for (const element of argsArg.elements) {
+						if (ts.isStringLiteral(element))
+							argsList.push(element.text);
 					}
 				}
 				host.listeners[event] = `${methodName}(${argsList.join(', ')})`;
@@ -1500,7 +1550,7 @@ const parseQueryDecoratorOptions = (
 	let static_ = false;
 	let descendants = true;
 	let emitDistinctChangesOnly = true;
-	const opts = args[1];
+	const [, opts] = args;
 	if (opts && ts.isObjectLiteralExpression(opts)) {
 		static_ = getBooleanProperty(opts, 'static') ?? false;
 		descendants = getBooleanProperty(opts, 'descendants') ?? true;
@@ -1520,7 +1570,7 @@ const queryPredicateFromArg = (
 		// list of template ref names.
 		return arg.text
 			.split(',')
-			.map((s) => s.trim())
+			.map((item) => item.trim())
 			.filter(Boolean);
 	}
 
@@ -1547,17 +1597,20 @@ const extractDecoratorQueries = (
 		for (const dec of decorators) {
 			const expr = dec.expression;
 			if (!ts.isCallExpression(expr)) continue;
-			const fn = expr.expression;
-			if (!ts.isIdentifier(fn) || !QUERY_DECORATORS.has(fn.text))
+			const functionNode = expr.expression;
+			if (
+				!ts.isIdentifier(functionNode) ||
+				!QUERY_DECORATORS.has(functionNode.text)
+			)
 				continue;
-			const propertyName = (member.name as ts.Identifier).text;
-			const tokenArg = expr.arguments[0];
+			if (!ts.isIdentifier(member.name)) continue;
+			const propertyName = member.name.text;
+			const [tokenArg, opts] = expr.arguments;
 			if (!tokenArg) continue;
 			const predicate = queryPredicateFromArg(tokenArg, compiler);
 			if (!predicate) continue;
 			const { static_, descendants, emitDistinctChangesOnly } =
 				parseQueryDecoratorOptions(expr.arguments);
-			const opts = expr.arguments[1];
 			let read: import('@angular/compiler').Expression | null = null;
 			if (opts && ts.isObjectLiteralExpression(opts)) {
 				const readNode = getProperty(opts, 'read');
@@ -1568,14 +1621,19 @@ const extractDecoratorQueries = (
 			const meta: import('@angular/compiler').R3QueryMetadata = {
 				descendants,
 				emitDistinctChangesOnly,
-				first: fn.text === 'ViewChild' || fn.text === 'ContentChild',
+				first:
+					functionNode.text === 'ViewChild' ||
+					functionNode.text === 'ContentChild',
 				isSignal: false,
 				predicate,
 				propertyName,
 				read,
 				static: static_
 			};
-			if (fn.text === 'ViewChild' || fn.text === 'ViewChildren') {
+			if (
+				functionNode.text === 'ViewChild' ||
+				functionNode.text === 'ViewChildren'
+			) {
 				viewQueries.push(meta);
 			} else {
 				contentQueries.push(meta);
@@ -1628,15 +1686,15 @@ const extractSignalQueries = (
 		const runtime = SIGNAL_QUERY_TO_RUNTIME[queryName];
 		if (!runtime) continue;
 
-		const propertyName = (member.name as ts.Identifier).text;
-		const tokenArg = init.arguments[0];
+		if (!ts.isIdentifier(member.name)) continue;
+		const propertyName = member.name.text;
+		const [tokenArg, opts] = init.arguments;
 		if (!tokenArg) continue;
 		const predicate = queryPredicateFromArg(tokenArg, compiler);
 		if (!predicate) continue;
 
 		let descendants = true;
 		let read: import('@angular/compiler').Expression | null = null;
-		const opts = init.arguments[1];
 		if (opts && ts.isObjectLiteralExpression(opts)) {
 			descendants = getBooleanProperty(opts, 'descendants') ?? true;
 			const readNode = getProperty(opts, 'read');
@@ -1660,19 +1718,19 @@ const extractSignalQueries = (
 	return { contentQueries, viewQueries };
 };
 
-const extractExportAs = (args: ts.ObjectLiteralExpression): string[] | null => {
+const extractExportAs = (args: ts.ObjectLiteralExpression) => {
 	const node = getProperty(args, 'exportAs');
 	if (!node) return null;
 	if (ts.isStringLiteral(node)) {
 		return node.text
 			.split(',')
-			.map((s) => s.trim())
+			.map((item) => item.trim())
 			.filter(Boolean);
 	}
 	if (ts.isArrayLiteralExpression(node)) {
 		const out: string[] = [];
-		for (const el of node.elements) {
-			if (ts.isStringLiteral(el)) out.push(el.text);
+		for (const element of node.elements) {
+			if (ts.isStringLiteral(element)) out.push(element.text);
 		}
 
 		return out.length > 0 ? out : null;
@@ -1684,16 +1742,16 @@ const extractExportAs = (args: ts.ObjectLiteralExpression): string[] | null => {
 const extractHostDirectives = (
 	args: ts.ObjectLiteralExpression,
 	compiler: typeof import('@angular/compiler')
-): import('@angular/compiler').R3HostDirectiveMetadata[] | null => {
+) => {
 	const node = getProperty(args, 'hostDirectives');
 	if (!node || !ts.isArrayLiteralExpression(node)) return null;
 	const out: import('@angular/compiler').R3HostDirectiveMetadata[] = [];
-	for (const el of node.elements) {
-		if (ts.isIdentifier(el)) {
+	for (const element of node.elements) {
+		if (ts.isIdentifier(element)) {
 			out.push({
 				directive: {
-					type: new compiler.WrappedNodeExpr(el),
-					value: new compiler.WrappedNodeExpr(el)
+					type: new compiler.WrappedNodeExpr(element),
+					value: new compiler.WrappedNodeExpr(element)
 				},
 				inputs: null,
 				isForwardReference: false,
@@ -1701,20 +1759,21 @@ const extractHostDirectives = (
 			});
 			continue;
 		}
-		if (!ts.isObjectLiteralExpression(el)) continue;
-		const directiveNode = getProperty(el, 'directive');
+		if (!ts.isObjectLiteralExpression(element)) continue;
+		const directiveNode = getProperty(element, 'directive');
 		if (!directiveNode) continue;
-		const inputsNode = getProperty(el, 'inputs');
-		const outputsNode = getProperty(el, 'outputs');
-		const collectMap = (
-			n: ts.Expression | null
-		): { [k: string]: string } | null => {
-			if (!n || !ts.isArrayLiteralExpression(n)) return null;
+		const inputsNode = getProperty(element, 'inputs');
+		const outputsNode = getProperty(element, 'outputs');
+		const collectMap = (expression: ts.Expression | null) => {
+			if (!expression || !ts.isArrayLiteralExpression(expression))
+				return null;
 			const map: { [k: string]: string } = {};
-			for (const item of n.elements) {
-				if (!ts.isStringLiteral(item)) continue;
+			for (const mappingElement of expression.elements) {
+				if (!ts.isStringLiteral(mappingElement)) continue;
 				// Format: 'name' or 'name: alias'
-				const [name, alias] = item.text.split(':').map((s) => s.trim());
+				const [name, alias] = mappingElement.text
+					.split(':')
+					.map((segment) => segment.trim());
 				if (name) map[name] = alias ?? name;
 			}
 
@@ -1844,7 +1903,7 @@ const childComponentInfoCache = new Map<
 const getChildComponentInfoFromTsSource = (
 	filePath: string,
 	className: string
-): ChildComponentInfo | null => {
+) => {
 	const cacheKey = `ts:${filePath}:${className}`;
 	let stat: ReturnType<typeof statSync>;
 	try {
@@ -1866,7 +1925,7 @@ const getChildComponentInfoFromTsSource = (
 
 		return null;
 	}
-	const sf = ts.createSourceFile(
+	const sourceFile = ts.createSourceFile(
 		filePath,
 		source,
 		ts.ScriptTarget.Latest,
@@ -1874,7 +1933,7 @@ const getChildComponentInfoFromTsSource = (
 	);
 
 	let info: ChildComponentInfo | null = null;
-	for (const stmt of sf.statements) {
+	for (const stmt of sourceFile.statements) {
 		if (!ts.isClassDeclaration(stmt)) continue;
 		if (!stmt.name || stmt.name.text !== className) continue;
 		const decorator = findComponentDecorator(stmt);
@@ -1904,10 +1963,7 @@ const getChildComponentInfoFromTsSource = (
 	return info;
 };
 
-const getChildComponentInfoFromDts = (
-	dtsPath: string,
-	className: string
-): ChildComponentInfo | null => {
+const getChildComponentInfoFromDts = (dtsPath: string, className: string) => {
 	const cacheKey = `dts:${dtsPath}:${className}`;
 	let stat: ReturnType<typeof statSync>;
 	try {
@@ -1983,17 +2039,18 @@ const getChildComponentInfoFromDts = (
 
 	// Walk balanced braces to extract the inputs object, then the
 	// outputs object (the next `{...}` after the comma).
-	const sliceBalanced = (
-		start: number
-	): { end: number; text: string } | null => {
+	const sliceBalanced = (start: number) => {
 		let depth = 0;
-		for (let i = start; i < content.length; i++) {
-			const ch = content[i];
-			if (ch === '{') depth++;
-			else if (ch === '}') {
+		for (let index = start; index < content.length; index++) {
+			const item = content[index];
+			if (item === '{') depth++;
+			else if (item === '}') {
 				depth--;
 				if (depth === 0)
-					return { end: i, text: content.slice(start, i + 1) };
+					return {
+						end: index,
+						text: content.slice(start, index + 1)
+					};
 			}
 		}
 
@@ -2021,13 +2078,13 @@ const getChildComponentInfoFromDts = (
 		if (outputsSlice) outputsBlock = outputsSlice.text;
 	}
 
-	const aliasNamesFrom = (block: string): Set<string> => {
+	const aliasNamesFrom = (block: string) => {
 		const out = new Set<string>();
-		const re = /"([^"]+)"\s*:\s*\{[^}]*?"alias"\s*:\s*"([^"]*)"/g;
-		let m: RegExpExecArray | null;
-		while ((m = re.exec(block)) !== null) {
-			const propName = m[1] ?? '';
-			const alias = m[2] ?? '';
+		const aliasPattern = /"([^"]+)"\s*:\s*\{[^}]*?"alias"\s*:\s*"([^"]*)"/g;
+		let match: RegExpExecArray | null;
+		while ((match = aliasPattern.exec(block)) !== null) {
+			const propName = match[1] ?? '';
+			const alias = match[2] ?? '';
 			out.add(alias || propName);
 		}
 
@@ -2046,9 +2103,7 @@ const getChildComponentInfoFromDts = (
 	return info;
 };
 
-const buildClassToSpecMap = (
-	sourceFile: ts.SourceFile
-): Map<string, string> => {
+const buildClassToSpecMap = (sourceFile: ts.SourceFile) => {
 	const result = new Map<string, string>();
 	for (const stmt of sourceFile.statements) {
 		if (!ts.isImportDeclaration(stmt)) continue;
@@ -2059,9 +2114,9 @@ const buildClassToSpecMap = (
 		if (clause.name) result.set(clause.name.text, spec);
 		const named = clause.namedBindings;
 		if (named && ts.isNamedImports(named)) {
-			for (const el of named.elements) {
-				if (el.isTypeOnly) continue;
-				result.set(el.name.text, spec);
+			for (const element of named.elements) {
+				if (element.isTypeOnly) continue;
+				result.set(element.name.text, spec);
 			}
 		}
 	}
@@ -2108,10 +2163,10 @@ const findDtsContainingClass = (
 		`export\\s*(?:type)?\\s*\\{([^}]*)\\}\\s*from\\s*["']([^"']+)["']`,
 		'g'
 	);
-	let m: RegExpExecArray | null;
-	while ((m = namedReExportRe.exec(content)) !== null) {
-		const namedList = m[1] || '';
-		const fromPath = m[2] || '';
+	let item: RegExpExecArray | null;
+	while ((item = namedReExportRe.exec(content)) !== null) {
+		const namedList = item[1] || '';
+		const fromPath = item[2] || '';
 		const names = namedList.split(',').map((n) => {
 			const trimmed = n.trim();
 			const asIdx = trimmed.lastIndexOf(' as ');
@@ -2126,8 +2181,8 @@ const findDtsContainingClass = (
 	}
 
 	const starReExportRe = /export\s*\*\s*from\s*["']([^"']+)["']/g;
-	while ((m = starReExportRe.exec(content)) !== null) {
-		const fromPath = m[1] || '';
+	while ((item = starReExportRe.exec(content)) !== null) {
+		const fromPath = item[1] || '';
 		const nextDts = resolveDtsFromSpec(fromPath, dirname(startDtsPath));
 		if (!nextDts) continue;
 		const found = findDtsContainingClass(nextDts, className, visited);
@@ -2137,7 +2192,7 @@ const findDtsContainingClass = (
 	return null;
 };
 
-const resolveDtsFromSpec = (spec: string, fromDir: string): string | null => {
+const resolveDtsFromSpec = (spec: string, fromDir: string) => {
 	// `.d.ts` re-exports often reference siblings with a `.js`
 	// extension (`from './image.component.js'`) for ESM compliance —
 	// the type information lives at the `.d.ts` next to that runtime
@@ -2163,7 +2218,7 @@ const resolveDtsFromSpec = (spec: string, fromDir: string): string | null => {
 /* Read a package's exports/types entry to find the .d.ts path for a
  * given subpath. Falls back to walking common patterns if the
  * package.json lookup doesn't yield a usable path. */
-const findPackageDtsForJs = (jsPath: string): string | null => {
+const findPackageDtsForJs = (jsPath: string) => {
 	// Strategy 1: sibling .d.ts (co-located types).
 	const sibling = jsPath.replace(/\.[mc]?js$/, '.d.ts');
 	if (existsSync(sibling)) return sibling;
@@ -2183,7 +2238,7 @@ const resolveChildComponentInfo = (
 	spec: string,
 	componentDir: string,
 	projectRoot: string
-): ChildComponentInfo | null => {
+) => {
 	if (spec.startsWith('.') || spec.startsWith('/')) {
 		const base = resolve(componentDir, spec);
 		const candidates = [
@@ -2229,15 +2284,15 @@ const buildResolvedImports = (
 	importsExpr: ts.ArrayLiteralExpression | null,
 	componentDir: string,
 	projectRoot: string
-): ResolvedImport[] => {
+) => {
 	const result: ResolvedImport[] = [];
 	if (!importsExpr) return result;
 
 	const classToSpec = buildClassToSpecMap(sourceFile);
 
-	for (const el of importsExpr.elements) {
-		if (!ts.isIdentifier(el)) continue;
-		const className = el.text;
+	for (const element of importsExpr.elements) {
+		if (!ts.isIdentifier(element)) continue;
+		const className = element.text;
 		const spec = classToSpec.get(className);
 		if (!spec) continue;
 		const info = resolveChildComponentInfo(
@@ -2247,7 +2302,7 @@ const buildResolvedImports = (
 			projectRoot
 		);
 		if (!info) continue;
-		result.push({ identifier: el, info });
+		result.push({ identifier: element, info });
 	}
 
 	return result;
@@ -2257,13 +2312,13 @@ const buildResolvedImports = (
  * fingerprints. We just need stable identity across whitespace-
  * insignificant edits and collision rates low enough that two
  * different bodies don't share a hash. djb2 is fine. */
-const djb2Hash = (s: string): string => {
-	let h = 5381;
-	for (let i = 0; i < s.length; i++) {
-		h = (h * 33) ^ s.charCodeAt(i);
+const djb2Hash = (source: string) => {
+	let hash = 5381;
+	for (let index = 0; index < source.length; index++) {
+		hash = (hash * 33) ^ source.charCodeAt(index);
 	}
 
-	return (h >>> 0).toString(36);
+	return (hash >>> 0).toString(36);
 };
 
 /* Walk the class members once, return a sorted `name:hash` list
@@ -2342,8 +2397,8 @@ const initializerShapeIsStructural = (node: ts.Expression): boolean => {
 		return false;
 	}
 	if (ts.isArrayLiteralExpression(node)) {
-		for (const el of node.elements) {
-			if (initializerShapeIsStructural(el)) return true;
+		for (const element of node.elements) {
+			if (initializerShapeIsStructural(element)) return true;
 		}
 
 		return false;
@@ -2352,7 +2407,7 @@ const initializerShapeIsStructural = (node: ts.Expression): boolean => {
 	return false;
 };
 
-const extractArrowFieldSig = (cls: ts.ClassDeclaration): string[] => {
+const extractArrowFieldSig = (cls: ts.ClassDeclaration) => {
 	const entries: string[] = [];
 	for (const member of cls.members) {
 		if (!ts.isPropertyDeclaration(member)) continue;
@@ -2401,7 +2456,7 @@ const extractArrowFieldSig = (cls: ts.ClassDeclaration): string[] => {
  * gap, see docs/ABSOLUTEJS_ANGULAR_HMR.md.) */
 const INPUT_OUTPUT_DECORATORS = new Set(['Input', 'Output']);
 
-const extractMemberDecoratorSig = (cls: ts.ClassDeclaration): string[] => {
+const extractMemberDecoratorSig = (cls: ts.ClassDeclaration) => {
 	const entries: string[] = [];
 	for (const member of cls.members) {
 		if (!ts.canHaveDecorators(member)) continue;
@@ -2417,7 +2472,9 @@ const extractMemberDecoratorSig = (cls: ts.ClassDeclaration): string[] => {
 					decName = expr.expression.text;
 				}
 				if (expr.arguments.length > 0) {
-					argText = expr.arguments.map((a) => a.getText()).join(',');
+					argText = expr.arguments
+						.map((leftValue) => leftValue.getText())
+						.join(',');
 				}
 			} else if (ts.isIdentifier(expr)) {
 				decName = expr.text;
@@ -2449,7 +2506,7 @@ type ProviderProbeCacheEntry = {
 };
 const providerProbeCache = new Map<string, ProviderProbeCacheEntry>();
 
-const fileHasModuleProviders = (filePath: string): boolean => {
+const fileHasModuleProviders = (filePath: string) => {
 	let stat: ReturnType<typeof statSync>;
 	try {
 		stat = statSync(filePath);
@@ -2467,7 +2524,7 @@ const fileHasModuleProviders = (filePath: string): boolean => {
 		return true;
 	}
 
-	const sf = ts.createSourceFile(
+	const sourceFile = ts.createSourceFile(
 		filePath,
 		source,
 		ts.ScriptTarget.ES2022,
@@ -2482,7 +2539,7 @@ const fileHasModuleProviders = (filePath: string): boolean => {
 			for (const decorator of ts.getDecorators(node) ?? []) {
 				const expr = decorator.expression;
 				if (!ts.isCallExpression(expr)) continue;
-				const arg = expr.arguments[0];
+				const [arg] = expr.arguments;
 				if (!arg || !ts.isObjectLiteralExpression(arg)) continue;
 				if (getProperty(arg, 'providers') !== null) {
 					hasProviders = true;
@@ -2493,7 +2550,7 @@ const fileHasModuleProviders = (filePath: string): boolean => {
 		}
 		ts.forEachChild(node, visit);
 	};
-	visit(sf);
+	visit(sourceFile);
 
 	providerProbeCache.set(filePath, {
 		hasProviders,
@@ -2516,7 +2573,7 @@ const resolveImportSource = (
 	identifierName: string,
 	sourceFile: ts.SourceFile,
 	componentDir: string
-): string | null => {
+) => {
 	for (const stmt of sourceFile.statements) {
 		if (!ts.isImportDeclaration(stmt)) continue;
 		const moduleSpec = stmt.moduleSpecifier;
@@ -2531,11 +2588,11 @@ const resolveImportSource = (
 			matches = true;
 		}
 		if (importClause.namedBindings) {
-			const nb = importClause.namedBindings;
-			if (ts.isNamespaceImport(nb)) {
-				if (nb.name.text === identifierName) matches = true;
+			const item = importClause.namedBindings;
+			if (ts.isNamespaceImport(item)) {
+				if (item.name.text === identifierName) matches = true;
 			} else {
-				for (const element of nb.elements) {
+				for (const element of item.elements) {
 					if (element.name.text === identifierName) {
 						matches = true;
 						break;
@@ -2566,7 +2623,7 @@ const extractProviderImportSig = (
 	importsExpr: ts.ArrayLiteralExpression | null,
 	sourceFile: ts.SourceFile,
 	componentDir: string
-): string[] => {
+) => {
 	if (!importsExpr) return [];
 	const sig: string[] = [];
 	for (const entry of importsExpr.elements) {
@@ -2639,7 +2696,19 @@ const extractProviderImportSig = (
  * Constructor parameter properties (`constructor(private foo:
  * T)`) are not iterated here; their addition / removal is
  * captured by `ctorParamTypes`. */
-const extractPropertyFieldNames = (cls: ts.ClassDeclaration): string[] => {
+const getPropertyNameText = (name: ts.PropertyName) => {
+	if (
+		ts.isIdentifier(name) ||
+		ts.isStringLiteral(name) ||
+		ts.isNoSubstitutionTemplateLiteral(name)
+	) {
+		return name.text;
+	}
+
+	return name.getText();
+};
+
+const extractPropertyFieldNames = (cls: ts.ClassDeclaration) => {
 	const names: string[] = [];
 	for (const member of cls.members) {
 		if (
@@ -2652,12 +2721,7 @@ const extractPropertyFieldNames = (cls: ts.ClassDeclaration): string[] => {
 		}
 		const { name } = member;
 		if (name === undefined) continue;
-		const text = ts.isIdentifier(name)
-			? name.text
-			: ts.isStringLiteral(name) ||
-				  ts.isNoSubstitutionTemplateLiteral(name)
-				? name.text
-				: name.getText();
+		const text = getPropertyNameText(name);
 		if (text.length > 0) names.push(text);
 	}
 
@@ -2669,7 +2733,7 @@ const extractPropertyFieldNames = (cls: ts.ClassDeclaration): string[] => {
  * local binding name, not the imported name), and namespace
  * imports. Type-only imports are excluded since they have no runtime
  * binding. */
-const extractTopLevelImports = (sourceFile: ts.SourceFile): string[] => {
+const extractTopLevelImports = (sourceFile: ts.SourceFile) => {
 	const names = new Set<string>();
 	for (const stmt of sourceFile.statements) {
 		if (!ts.isImportDeclaration(stmt)) continue;
@@ -2682,9 +2746,9 @@ const extractTopLevelImports = (sourceFile: ts.SourceFile): string[] => {
 		if (ts.isNamespaceImport(bindings)) {
 			names.add(bindings.name.text);
 		} else if (ts.isNamedImports(bindings)) {
-			for (const el of bindings.elements) {
-				if (el.isTypeOnly) continue;
-				names.add(el.name.text);
+			for (const element of bindings.elements) {
+				if (element.isTypeOnly) continue;
+				names.add(element.name.text);
 			}
 		}
 	}
@@ -2751,10 +2815,10 @@ const extractFingerprint = (
 	// previously a silent no-op since only the class-property name
 	// was in the fingerprint.
 	const inputNames = Object.entries(inputs)
-		.map(([k, m]) => `${k}:${m.bindingPropertyName}`)
+		.map(([item, m]) => `${item}:${m.bindingPropertyName}`)
 		.sort();
 	const outputNames = Object.entries(outputs)
-		.map(([k, v]) => `${k}:${v}`)
+		.map(([item, v]) => `${item}:${v}`)
 		.sort();
 	const arrowFieldSig = extractArrowFieldSig(cls);
 	const memberDecoratorSig = extractMemberDecoratorSig(cls);
@@ -2822,7 +2886,7 @@ const extractFingerprint = (
 	for (const stmt of sourceFile.statements) {
 		if (!ts.isVariableStatement(stmt)) continue;
 		const isExported = stmt.modifiers?.some(
-			(m) => m.kind === ts.SyntaxKind.ExportKeyword
+			(item) => item.kind === ts.SyntaxKind.ExportKeyword
 		);
 		if (!isExported) continue;
 		for (const decl of stmt.declarationList.declarations) {
@@ -2899,7 +2963,7 @@ const extractFingerprint = (
 const buildFreshClassMethodsBlock = (
 	classNode: ts.ClassDeclaration,
 	className: string
-): string | null => {
+) => {
 	const memberSources: string[] = [];
 	let hasStatic = false;
 	const printer = ts.createPrinter({ removeComments: true });
@@ -2946,12 +3010,12 @@ const buildFreshClassMethodsBlock = (
 				ts.factory.updateParameterDeclaration(
 					param,
 					(ts.getModifiers(param) ?? []).filter(
-						(m) =>
-							m.kind !== ts.SyntaxKind.PrivateKeyword &&
-							m.kind !== ts.SyntaxKind.PublicKeyword &&
-							m.kind !== ts.SyntaxKind.ProtectedKeyword &&
-							m.kind !== ts.SyntaxKind.ReadonlyKeyword &&
-							m.kind !== ts.SyntaxKind.OverrideKeyword
+						(item) =>
+							item.kind !== ts.SyntaxKind.PrivateKeyword &&
+							item.kind !== ts.SyntaxKind.PublicKeyword &&
+							item.kind !== ts.SyntaxKind.ProtectedKeyword &&
+							item.kind !== ts.SyntaxKind.ReadonlyKeyword &&
+							item.kind !== ts.SyntaxKind.OverrideKeyword
 					),
 					param.dotDotDotToken,
 					param.name,
@@ -3097,16 +3161,6 @@ ${transpiled}
 
 /* ─── Resource resolution (template + styles) ─────────────────── */
 
-const resolveAndReadResource = (
-	componentDir: string,
-	url: string
-): string | null => {
-	const abs = resolve(componentDir, url);
-	if (!existsSync(abs)) return null;
-
-	return readFileSync(abs, 'utf8');
-};
-
 /* Read a `.css` / `.scss` / `.sass` / `.less` / `.styl` file from
  * disk and preprocess it to plain CSS so it can be inlined into
  * `R3ComponentMetadata.styles` (Angular's runtime applies these
@@ -3126,10 +3180,7 @@ const STYLE_PREPROCESSED_EXT = new Set([
 	'.stylus'
 ]);
 
-const resolveAndReadStyleResource = (
-	componentDir: string,
-	url: string
-): string | null => {
+const resolveAndReadStyleResource = (componentDir: string, url: string) => {
 	const abs = resolve(componentDir, url);
 	if (!existsSync(abs)) return null;
 	const ext = extname(abs).toLowerCase();
@@ -3137,9 +3188,6 @@ const resolveAndReadStyleResource = (
 		return readFileSync(abs, 'utf8');
 	}
 	try {
-		const { compileStyleFileIfNeededSync } =
-			require('../../build/stylePreprocessor') as typeof import('../../build/stylePreprocessor');
-
 		return compileStyleFileIfNeededSync(abs);
 	} catch {
 		// Less / Stylus / missing-sass cases land here. Returning
@@ -3188,7 +3236,7 @@ const collectStyles = (
 const buildSimpleEntityModule = (
 	classNode: ts.ClassDeclaration,
 	className: string
-): string | null => {
+) => {
 	const block = buildFreshClassMethodsBlock(classNode, className);
 	if (!block) {
 		// No methods to patch — nothing surgical to do. The user's
@@ -3249,9 +3297,7 @@ type ProjectAngularCompilerOptions = {
 
 const projectOptionsCache = new Map<string, ProjectAngularCompilerOptions>();
 
-const readProjectAngularCompilerOptions = (
-	projectRoot: string
-): ProjectAngularCompilerOptions => {
+const readProjectAngularCompilerOptions = (projectRoot: string) => {
 	const cached = projectOptionsCache.get(projectRoot);
 	if (cached !== undefined) return cached;
 	const tsconfigPath = resolve(projectRoot, 'tsconfig.json');
@@ -3261,14 +3307,7 @@ const readProjectAngularCompilerOptions = (
 			const text = readFileSync(tsconfigPath, 'utf8');
 			const parsed = ts.parseConfigFileTextToJson(tsconfigPath, text);
 			if (!parsed.error && parsed.config) {
-				const cfg = parsed.config as {
-					angularCompilerOptions?: {
-						preserveWhitespaces?: unknown;
-						enableI18nLegacyMessageIdFormat?: unknown;
-						i18nUseExternalIds?: unknown;
-						i18nNormalizeLineEndingsInICUs?: unknown;
-					};
-				};
+				const cfg = parsed.config;
 				const ang = cfg.angularCompilerOptions ?? {};
 				if (typeof ang.preserveWhitespaces === 'boolean') {
 					opts.preserveWhitespaces = ang.preserveWhitespaces;
@@ -3303,9 +3342,9 @@ export type TryFastHmrParams = {
 	kind?: AngularEntityKind;
 };
 
-export const tryFastHmr = async (
-	params: TryFastHmrParams
-): Promise<FastHmrResult> => {
+type TryFastHmr = (params: TryFastHmrParams) => Promise<FastHmrResult>;
+
+export const tryFastHmr: TryFastHmr = async (params) => {
 	const { componentFilePath, className } = params;
 	const projectRoot = params.projectRoot ?? process.cwd();
 
@@ -3491,7 +3530,7 @@ export const tryFastHmr = async (
 		});
 	}
 	if (parsed.errors && parsed.errors.length > 0) {
-		const first = parsed.errors[0];
+		const [first] = parsed.errors;
 		const span = first?.span;
 		const start = span?.start;
 		const lineIndex = start?.line;
@@ -3503,7 +3542,7 @@ export const tryFastHmr = async (
 
 		return fail(
 			'template-parse-error',
-			parsed.errors.map((e) => e.toString()).join('\n'),
+			parsed.errors.map((entry) => entry.toString()).join('\n'),
 			{
 				column: typeof colIndex === 'number' ? colIndex + 1 : undefined,
 				file: templatePath,
@@ -3630,7 +3669,9 @@ export const tryFastHmr = async (
 	 * escalates to Tier 1, retiring this code path). The lazy form
 	 * is what makes the `__abs_deps` destructure load-bearing
 	 * across the rare-but-possible call. */
-	const declarations: unknown[] = resolvedImports.map((entry) => ({
+	const declarations: Parameters<
+		typeof compiler.compileComponentFromMetadata
+	>[0]['declarations'] = resolvedImports.map((entry) => ({
 		exportAs: entry.info.exportAs,
 		inputs: Array.from(entry.info.inputs),
 		isComponent: entry.info.isComponent,
@@ -3640,7 +3681,7 @@ export const tryFastHmr = async (
 		type: new compiler.WrappedNodeExpr(entry.identifier)
 	}));
 
-	const meta = {
+	const meta: Parameters<typeof compiler.compileComponentFromMetadata>[0] = {
 		animations: advancedMetadata.animations,
 		changeDetection: decoratorMeta.changeDetection,
 		controlCreate: extractControlCreate(classNode),
@@ -3680,11 +3721,11 @@ export const tryFastHmr = async (
 		 * shape. */
 		isSignal:
 			(hasSignalIO ||
-				advancedMetadata.contentQueries.some((q) => q.isSignal) ||
-				advancedMetadata.viewQueries.some((q) => q.isSignal)) &&
+				advancedMetadata.contentQueries.some((item) => item.isSignal) ||
+				advancedMetadata.viewQueries.some((item) => item.isSignal)) &&
 			!hasDecoratorIO &&
-			!advancedMetadata.contentQueries.some((q) => !q.isSignal) &&
-			!advancedMetadata.viewQueries.some((q) => !q.isSignal),
+			!advancedMetadata.contentQueries.some((item) => !item.isSignal) &&
+			!advancedMetadata.viewQueries.some((item) => !item.isSignal),
 		isStandalone: decoratorMeta.standalone,
 		lifecycle: {
 			/* `ngOnChanges` is special: the runtime needs this flag
@@ -3730,9 +3771,7 @@ export const tryFastHmr = async (
 		// recreating it from public exports trips the compiler — we
 		// know the runtime contract. Cast at the boundary.
 		compiled = compiler.compileComponentFromMetadata(
-			meta as unknown as Parameters<
-				typeof compiler.compileComponentFromMetadata
-			>[0],
+			meta,
 			pool,
 			bindingParser
 		);
@@ -3775,7 +3814,13 @@ export const tryFastHmr = async (
 			sourceFile,
 			callback,
 			importGenerator
-		) as ts.FunctionDeclaration;
+		);
+		if (!ts.isFunctionDeclaration(tsFunctionDecl)) {
+			return fail(
+				'unexpected-error',
+				'Angular HMR callback did not translate to a function declaration'
+			);
+		}
 
 		// Add `export default` modifiers — `compileHmrUpdateCallback`
 		// emits a plain function declaration (since output AST has no
@@ -3865,9 +3910,9 @@ export const tryFastHmr = async (
 					clause?.namedBindings &&
 					ts.isNamedImports(clause.namedBindings)
 				) {
-					for (const el of clause.namedBindings.elements) {
-						if (el.isTypeOnly) continue;
-						sourceScopeNames.add(el.name.text);
+					for (const element of clause.namedBindings.elements) {
+						if (element.isTypeOnly) continue;
+						sourceScopeNames.add(element.name.text);
 					}
 				} else if (
 					clause?.namedBindings &&
@@ -3877,12 +3922,8 @@ export const tryFastHmr = async (
 				}
 				continue;
 			}
-			if (
-				ts.isVariableStatement(stmt) ||
-				stmt.kind === ts.SyntaxKind.VariableStatement
-			) {
-				const varStmt = stmt as ts.VariableStatement;
-				for (const decl of varStmt.declarationList.declarations) {
+			if (ts.isVariableStatement(stmt)) {
+				for (const decl of stmt.declarationList.declarations) {
 					if (ts.isIdentifier(decl.name)) {
 						sourceScopeNames.add(decl.name.text);
 					}
@@ -3934,9 +3975,9 @@ export const tryFastHmr = async (
 			if (ts.isNamespaceImport(bindings)) {
 				allImportedNames.add(bindings.name.text);
 			} else {
-				for (const el of bindings.elements) {
-					if (el.isTypeOnly) continue;
-					allImportedNames.add(el.name.text);
+				for (const element of bindings.elements) {
+					if (element.isTypeOnly) continue;
+					allImportedNames.add(element.name.text);
 				}
 			}
 		}

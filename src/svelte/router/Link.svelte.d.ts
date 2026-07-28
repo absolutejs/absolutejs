@@ -1,4 +1,4 @@
-import type { Snippet } from 'svelte';
+import { SvelteComponent, type Snippet } from 'svelte';
 import type { LinkPrefetchMode } from '../../../types/svelteRouter';
 
 type LinkProps = {
@@ -16,6 +16,6 @@ type LinkProps = {
 declare const __propDef: { props: LinkProps };
 type Props = typeof __propDef.props;
 
-import { SvelteComponent } from 'svelte';
+class Link extends SvelteComponent<Props> {}
 
-export default class Link extends SvelteComponent<Props> {}
+export { Link as default };
