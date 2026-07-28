@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { rm } from 'node:fs/promises';
 import { build as bunBuild, Glob, type BunPlugin } from 'bun';
 import { generateVendorEntrySource } from './vendorEntrySource';
+import { isTestSourcePath } from '../utils/isTestSourcePath';
 
 // `@`-scoped packages get an underscore prefix so `@foo/bar` and `foo/bar`
 // produce distinct vendor filenames (both would otherwise collapse to
@@ -92,8 +93,7 @@ const isSkippedFile = (file: string) =>
 	file.includes('/build/') ||
 	file.includes('/dist/') ||
 	file.includes('/indexes/') ||
-	file.includes('/__tests__/') ||
-	/\.(?:test|spec)\.[cm]?[jt]sx?$/.test(file);
+	isTestSourcePath(file);
 
 const isDepSpecifier = (path: string) =>
 	isBareSpecifier(path) &&

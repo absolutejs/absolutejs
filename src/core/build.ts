@@ -94,6 +94,7 @@ import { normalizePath } from '../utils/normalizePath';
 import { toKebab, toPascal } from '../utils/stringModifiers';
 import { validateSafePath } from '../utils/validateSafePath';
 import { setSpaRouteManifest } from '../utils/spaRouteManifest';
+import { isTestSourcePath } from '../utils/isTestSourcePath';
 
 const isDev = env.NODE_ENV === 'development';
 
@@ -425,6 +426,7 @@ const scanWorkerReferencesInDir = async (
 ) => {
 	const glob = new Glob('**/*.{ts,tsx,js,jsx,svelte,vue}');
 	for await (const file of glob.scan({ absolute: true, cwd: dir })) {
+		if (isTestSourcePath(file)) continue;
 		// Skip build-generated directories
 		const relToDir = file.slice(dir.length + 1);
 		const [firstSegment] = relToDir.split('/');
@@ -434,7 +436,7 @@ const scanWorkerReferencesInDir = async (
 	}
 };
 
-const scanWorkerReferences = async (dirs: string[]) => {
+export const scanWorkerReferences = async (dirs: string[]) => {
 	const urlPattern =
 		/new\s+URL\(\s*["'](\.\.?\/[^"']+)["']\s*,\s*import\.meta\.url\s*\)/g;
 	const resolvePattern =
