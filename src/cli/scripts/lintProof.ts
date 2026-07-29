@@ -10,7 +10,7 @@ import {
 	writeFileSync
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, relative, resolve } from 'node:path';
+import { delimiter, dirname, relative, resolve } from 'node:path';
 import { createEslintCacheFingerprint } from './eslint';
 
 const DEFAULT_PROOF_LOCATION = '.absolutejs/lint-proof.json';
@@ -73,7 +73,23 @@ export const createLintSourceTree = (
 		resolve(tmpdir(), 'absolute-lint-proof-')
 	);
 	const temporaryIndex = resolve(temporaryDirectory, 'index');
-	const env = { GIT_INDEX_FILE: temporaryIndex };
+	const temporaryObjects = resolve(temporaryDirectory, 'objects');
+	mkdirSync(temporaryObjects, { recursive: true });
+	const repositoryObjectsPath = runGit(
+		['rev-parse', '--git-path', 'objects'],
+		{ cwd: root }
+	);
+	const repositoryObjects = resolve(root, repositoryObjectsPath);
+	const existingAlternates =
+		process.env.GIT_ALTERNATE_OBJECT_DIRECTORIES?.trim();
+	const env = {
+		GIT_ALTERNATE_OBJECT_DIRECTORIES: [
+			repositoryObjects,
+			...(existingAlternates ? [existingAlternates] : [])
+		].join(delimiter),
+		GIT_INDEX_FILE: temporaryIndex,
+		GIT_OBJECT_DIRECTORY: temporaryObjects
+	};
 
 	try {
 		runGit(['read-tree', '--empty'], { cwd: root, env });

@@ -24,7 +24,7 @@ run:
 
 The proof file itself is excluded from the source digest, so updating its
 timestamp does not invalidate it. The digest uses a temporary Git index and
-does not modify the developer's real index.
+temporary Git object database, so it does not modify the repository.
 
 The default proof path is `.absolutejs/lint-proof.json`. Use `--proof <path>` on
 both commands to choose another location.

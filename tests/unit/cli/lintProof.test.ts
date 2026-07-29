@@ -1,4 +1,11 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import {
+	mkdir,
+	mkdtemp,
+	readFile,
+	readdir,
+	rm,
+	writeFile
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
@@ -76,6 +83,9 @@ describe('lint proof', () => {
 	test('excludes the proof itself from the source tree', async () => {
 		const cwd = await project();
 		const command = ['bun', 'run', 'lint:raw'];
+		const objectsBefore = await readdir(join(cwd, '.git/objects'), {
+			recursive: true
+		});
 		writeLintProof(command, { cwd });
 		const first = JSON.parse(
 			await readFile(join(cwd, '.absolutejs/lint-proof.json'), 'utf-8')
@@ -86,5 +96,8 @@ describe('lint proof', () => {
 		);
 		expect(second.sourceTree).toBe(first.sourceTree);
 		expect(verifyLintProof(command, { cwd }).valid).toBeTrue();
+		expect(
+			await readdir(join(cwd, '.git/objects'), { recursive: true })
+		).toEqual(objectsBefore);
 	});
 });
