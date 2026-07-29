@@ -75,6 +75,10 @@ if (command === 'dev') {
 } else if (command === 'eslint') {
 	sendTelemetryEvent('cli:command', { command });
 	await eslint(args);
+} else if (command === 'lint-proof') {
+	sendTelemetryEvent('cli:command', { command });
+	const { runLintProof } = await import('./scripts/lintProof');
+	process.exitCode = await runLintProof(args);
 } else if (command === 'prettier') {
 	sendTelemetryEvent('cli:command', { command });
 	await prettier(args);
@@ -210,6 +214,9 @@ if (command === 'dev') {
 		'  api [--open] [--json] Show the API surface or open the OpenAPI UI (@elysiajs/openapi)'
 	);
 	console.error('  eslint        Run ESLint (cached)');
+	console.error(
+		'  lint-proof <run|verify> -- <command> Record or verify an exact-source local lint pass'
+	);
 	console.error(
 		'  generate <page|api|component> <name> [--framework <fw>] Scaffold a page, API plugin, or component'
 	);
