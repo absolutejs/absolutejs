@@ -7,7 +7,7 @@ import {
 	rmSync,
 	writeFileSync
 } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { dirname, relative, resolve } from 'node:path';
 
 const DEFAULT_CACHE_LOCATION = '.absolutejs/eslint-cache';
 const CACHE_CONTRACT_VERSION = '1';
@@ -205,7 +205,8 @@ export const createEslintCacheFingerprint = (cwd = process.cwd()) => {
 	const hash = createHash('sha256');
 	hash.update(`absolute-eslint-cache:${CACHE_CONTRACT_VERSION}\0`);
 	const configPath = findConfigPath(cwd);
-	if (configPath) addFileToFingerprint(hash, configPath, configPath);
+	if (configPath)
+		addFileToFingerprint(hash, configPath, relative(cwd, configPath));
 	for (const dependency of lintDependencyNames(cwd, configPath).sort()) {
 		const manifestPath = findInstalledManifest(cwd, dependency);
 		if (manifestPath) addFileToFingerprint(hash, manifestPath, dependency);

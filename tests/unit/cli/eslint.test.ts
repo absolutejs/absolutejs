@@ -162,4 +162,12 @@ describe('ESLint cache contract', () => {
 		await writeFile(join(cwd, 'source.ts'), 'const source = 1;');
 		expect(createEslintCacheFingerprint(cwd)).toBe(first);
 	});
+
+	test('produces portable fingerprints across checkout directories', async () => {
+		const first = await project();
+		const second = await project();
+		expect(createEslintCacheFingerprint(second)).toBe(
+			createEslintCacheFingerprint(first)
+		);
+	});
 });
