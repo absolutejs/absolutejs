@@ -376,10 +376,17 @@ const createStripPureAnnotationsPlugin = (): BunPlugin => ({
 	setup(bld) {
 		bld.onLoad({ filter: /\.(?:m?js|cjs)$/ }, async (args) => {
 			const source = await Bun.file(args.path).text();
-			if (!source.includes('@__PURE__')) return undefined;
 
 			return {
-				contents: source.replace(PURE_ANNOTATION, ''),
+				// Once an onLoad hook reads a module, return that source even
+				// when no annotation needs stripping. Falling through after
+				// reading makes Bun perform a second concurrent read; on
+				// hard-linked package stores this intermittently reports
+				// "Unexpected reading file" and drops otherwise valid vendor
+				// entries (observed with R3F/Drei and UploadThing).
+				contents: source.includes('@__PURE__')
+					? source.replace(PURE_ANNOTATION, '')
+					: source,
 				loader: args.path.endsWith('.cjs') ? 'js' : 'js'
 			};
 		});
