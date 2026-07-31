@@ -9,7 +9,7 @@ const { absolutejs, manifest } = await prepare();
 const moduleLoadSecret = process.env.COMPILE_RUNTIME_SECRET ?? 'missing';
 let runtimeCounter = 0;
 
-export const server = new Elysia()
+const app = new Elysia()
 	.use(absolutejs)
 	.get('/', () =>
 		handleReactPageRequest({
@@ -202,5 +202,6 @@ export const server = new Elysia()
 	.get('/header', ({ headers }) => ({
 		probe: headers['x-compile-probe'] ?? null
 	}))
-	.get('/redirect-me', () => Response.redirect('/linked', 302))
-	.use(networking);
+	.get('/redirect-me', () => Response.redirect('/linked', 302));
+
+export const server = networking(app);

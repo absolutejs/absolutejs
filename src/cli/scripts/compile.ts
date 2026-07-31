@@ -907,7 +907,7 @@ ${mappings.join('\n')}
 };
 
 // ── Embedded build files → source paths ─────────────────────────
-const EMBEDDED_FILES: Array<[string, string]> = [
+const EMBEDDED_FILES: Array<[string, string | Blob]> = [
 ${embeddedMappings.join('\n')}
 ];
 
@@ -1007,7 +1007,10 @@ const materializeRuntimeFiles = async () => {
 		EMBEDDED_FILES.map(async ([rel, source]) => {
 			const target = join(runtimeDir, rel);
 			await mkdir(dirname(target), { recursive: true });
-			await Bun.write(target, Bun.file(source));
+			await Bun.write(
+				target,
+				typeof source === "string" ? Bun.file(source) : source
+			);
 		})
 	);
 	writeFileSync(
