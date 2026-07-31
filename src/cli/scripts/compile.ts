@@ -38,6 +38,7 @@ import { withBuildDirectoryLock } from '../../utils/buildDirectoryLock';
 import { loadConfig } from '../../utils/loadConfig';
 import { formatTimestamp } from '../../utils/startupBanner';
 import { sendTelemetryEvent } from '../telemetryEvent';
+import { resolveServerBundleExternals } from '../serverBundleExternals';
 import { findFreePort, killStaleProcesses } from '../utils';
 import { isRecord } from '../config/guards';
 
@@ -1396,76 +1397,6 @@ const createStubPlugin = (
 		});
 	}
 });
-
-const FRAMEWORK_EXTERNALS = [
-	'react',
-	'react/jsx-runtime',
-	'react-dom',
-	'react-dom/*',
-	'vue',
-	'vue/*',
-	'@vue/compiler-sfc',
-	'@vue/server-renderer',
-	'svelte',
-	'svelte/*',
-	'@angular/compiler',
-	'@angular/compiler-cli',
-	'@angular/core',
-	'@angular/common',
-	'@angular/platform-browser',
-	'@angular/platform-server',
-	'typescript'
-];
-
-// User-declared externals from `bunBuild` (override form `{ external }` or
-// pass-config form `{ default: { external } }`). The compiled server bundle
-// otherwise inlines every node_modules dependency, which breaks heavy server
-// libs whose runtime (native addons, lazy requires, custom HTTP/auth transports)
-// does not survive `bun build --compile` — e.g. `firebase-admin`, whose
-// createSessionCookie hangs when bundled but works loaded from node_modules at
-// runtime. Listing such a package here keeps the bare specifier external so the
-// standalone binary resolves the working installed copy at runtime.
-const collectUserServerExternals = (buildConfig: BuildConfig) => {
-	const { bunBuild } = buildConfig;
-	if (!bunBuild) return [];
-	const override =
-		'external' in bunBuild && Array.isArray(bunBuild.external)
-			? bunBuild.external
-			: [];
-	const defaultBuild = 'default' in bunBuild ? bunBuild.default : undefined;
-	const fromDefault = Array.isArray(defaultBuild?.external)
-		? defaultBuild.external
-		: [];
-
-	return [...override, ...fromDefault];
-};
-
-const resolveServerBundleExternals = (buildConfig: BuildConfig) => [
-	...FRAMEWORK_EXTERNALS.filter((specifier) => {
-		if (
-			buildConfig.reactDirectory &&
-			(specifier === 'react' ||
-				specifier.startsWith('react/') ||
-				specifier.startsWith('react-dom'))
-		)
-			return false;
-		if (
-			buildConfig.vueDirectory &&
-			(specifier === 'vue' ||
-				specifier.startsWith('vue/') ||
-				specifier === '@vue/server-renderer')
-		)
-			return false;
-		if (
-			buildConfig.svelteDirectory &&
-			(specifier === 'svelte' || specifier.startsWith('svelte/'))
-		)
-			return false;
-
-		return true;
-	}),
-	...collectUserServerExternals(buildConfig)
-];
 
 // ── Main compile command ────────────────────────────────────────
 export const compile = async (
