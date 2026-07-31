@@ -643,14 +643,19 @@
 		"db:studio": "drizzle-kit studio",
 		"dev": "TELEMETRY_OFF=1 bun run src/cli/index.ts dev example/server.ts --config example/absolute.config.ts",
 		"format": "bun run src/cli/index.ts prettier --write",
+		"format:check": "bun run src/cli/index.ts prettier --check",
 		"lint": "bun run src/cli/index.ts eslint",
 		"ls": "bun run src/cli/index.ts ls",
-		"release": "bun run test && bun run format && bun run build:native && bun run build && ./native/publish.sh && bun publish",
-		"release:beta": "bun run test && bun run format && bun run build:native && bun run build && ./native/publish.sh --tag beta && bun publish --tag beta",
+		"release": "bun run release:gate && ./native/publish.sh && bun publish",
+		"release:beta": "bun run release:gate && ./native/publish.sh --tag beta && bun publish --tag beta",
+		"release:gate": "bun run scripts/releaseGate.ts",
 		"start": "TELEMETRY_OFF=1 bun run src/cli/index.ts start example/server.ts --outdir example/dist --config example/absolute.config.ts",
-		"test": "bun test tests/unit && bun test --concurrency 1 tests/integration",
+		"test": "bun run test:unit && bun run test:integration",
 		"test:hmr": "bun run scripts/shardedTests.ts tests/integration/hmr",
-		"typecheck": "bun run src/cli/index.ts typecheck --config example/absolute.config.ts"
+		"test:integration": "bun run scripts/shardedTests.ts tests/integration",
+		"test:unit": "bun test tests/unit",
+		"typecheck": "bun run src/cli/index.ts typecheck --config example/absolute.config.ts",
+		"verify:release-versions": "bun run scripts/verifyReleaseVersions.ts"
 	},
 	"types": "./dist/src/index.d.ts",
 	"typesVersions": {

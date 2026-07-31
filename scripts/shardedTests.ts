@@ -20,7 +20,7 @@
  * combined totals are printed at the end.
  */
 import { cpus } from 'node:os';
-import { mkdirSync, existsSync, symlinkSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, statSync, symlinkSync } from 'node:fs';
 import { resolve, relative, join } from 'node:path';
 import { Glob } from 'bun';
 
@@ -30,6 +30,41 @@ const DEFAULT_SHARDS = 4;
 const RESERVED_CORES = 2;
 const MS_PER_MINUTE = 60_000;
 const NOT_FOUND = -1;
+
+// Measured on the full integration inventory. These are scheduling hints,
+// not pass/fail thresholds; unknown files fall back to source size.
+const DURATION_HINTS_MS: Record<string, number> = {
+	'tests/integration/compile.test.ts': 139_473,
+	'tests/integration/hmr/frameworks/svelte-hmr.test.ts': 63_523,
+	'tests/integration/hmr/lifecycle/angular-config-providers.test.ts': 35_980,
+	'tests/integration/hmr/lifecycle/angular-di-injectables.test.ts': 28_872,
+	'tests/integration/hmr/lifecycle/angular-external-resources.test.ts': 40_253,
+	'tests/integration/hmr/lifecycle/angular-modern-template.test.ts': 40_122,
+	'tests/integration/hmr/lifecycle/angular-multifile.test.ts': 33_556,
+	'tests/integration/hmr/lifecycle/angular-tiering.test.ts': 75_134,
+	'tests/integration/hmr/lifecycle/angular-vendor-ssr.test.ts': 39_206,
+	'tests/integration/hmr/lifecycle/cross-cutting-reliability.test.ts': 139_193,
+	'tests/integration/hmr/lifecycle/dev-server-memory-ratchet.test.ts': 134_485,
+	'tests/integration/hmr/lifecycle/hmr-at-scale.test.ts': 71_014,
+	'tests/integration/hmr/lifecycle/html-deeper-coverage.test.ts': 77_784,
+	'tests/integration/hmr/lifecycle/htmx-deeper-coverage.test.ts': 78_932,
+	'tests/integration/hmr/lifecycle/sourcemap-stack-traces.test.ts': 25_784,
+	'tests/integration/hmr/lifecycle/style-preprocessor-roundtrip.test.ts': 29_598,
+	'tests/integration/hmr/lifecycle/svelte-deep-coverage.test.ts': 116_783,
+	'tests/integration/hmr/lifecycle/svelte-deeper-coverage.test.ts': 147_404,
+	'tests/integration/hmr/lifecycle/tailwind-class-discovery.test.ts': 38_694,
+	'tests/integration/hmr/lifecycle/typescript-path-aliases.test.ts': 23_216,
+	'tests/integration/hmr/lifecycle/vue-deep-coverage.test.ts': 108_581,
+	'tests/integration/hmr/lifecycle/vue-deeper-coverage.test.ts': 106_058,
+	'tests/integration/hmr/lifecycle/vue-setup-app-hook.test.ts': 21_776
+};
+
+// This probe intentionally waits for an asynchronous CSS rebuild and becomes
+// nondeterministic when several compiler-heavy shards saturate the host. Keep
+// its assertions unchanged and run it in an isolated lane after the shards.
+const EXCLUSIVE_TEST_FILES = new Set([
+	'tests/integration/hmr/lifecycle/spa-child-style.test.ts'
+]);
 
 type RunnerArgs = { shards: number; testDir: string };
 
@@ -77,25 +112,36 @@ const collectTestFiles = async (testDir: string) => {
 	return files.sort();
 };
 
-/* Longest-processing-time-first without historical timings: file size is
- * a rough proxy for test count/duration, and the known-heavy files (the
- * memory ratchet's 110 sequential edits, at-scale sweeps) are also the
- * largest. Deal the sorted list snake-wise so no shard collects all the
- * heavy files. */
+const schedulingWeight = (file: string) =>
+	DURATION_HINTS_MS[file] ?? statSync(resolve(REPO_ROOT, file)).size;
+
+const lightestShardIndex = (weights: number[]) => {
+	let target = 0;
+	for (let index = 1; index < weights.length; index += 1) {
+		if ((weights[index] ?? 0) >= (weights[target] ?? 0)) continue;
+		target = index;
+	}
+
+	return target;
+};
+
+/* Longest-processing-time-first using measured durations where available and
+ * source size as a fallback. Greedily place each file into the lightest shard
+ * so one memory/build-heavy tail does not determine the entire gate time. */
 const partition = (files: string[], shardCount: number) => {
 	const weighted = files
 		.map((file) => ({
 			file,
-			size: statSync(resolve(REPO_ROOT, file)).size
+			weight: schedulingWeight(file)
 		}))
-		.sort((left, right) => right.size - left.size);
+		.sort((left, right) => right.weight - left.weight);
 	const shards: string[][] = Array.from({ length: shardCount }, () => []);
-	weighted.forEach((entry, index) => {
-		const round = Math.floor(index / shardCount);
-		const position = index % shardCount;
-		const target = round % 2 === 0 ? position : shardCount - 1 - position;
+	const shardWeights = Array.from({ length: shardCount }, () => 0);
+	for (const entry of weighted) {
+		const target = lightestShardIndex(shardWeights);
 		shards[target]?.push(entry.file);
-	});
+		shardWeights[target] = (shardWeights[target] ?? 0) + entry.weight;
+	}
 
 	return shards.filter((shard) => shard.length > 0);
 };
@@ -109,6 +155,10 @@ const partition = (files: string[], shardCount: number) => {
 const prepareShardDir = async (index: number) => {
 	const shardDir = join(SHARD_PARENT, `shard-${index}`);
 	mkdirSync(shardDir, { recursive: true });
+	// Runtime caches contain absolute source paths and test-build locks are
+	// process-local. Never copy or retain either across isolated shards.
+	rmSync(join(shardDir, '.absolutejs'), { force: true, recursive: true });
+	rmSync(join(shardDir, '.test-builds'), { force: true, recursive: true });
 	const rsync = Bun.spawn(
 		[
 			'rsync',
@@ -122,6 +172,10 @@ const prepareShardDir = async (index: number) => {
 			'.test-shards',
 			'--exclude',
 			'.absolutejs/eslint-cache',
+			'--exclude',
+			'.absolutejs',
+			'--exclude',
+			'.test-builds',
 			`${REPO_ROOT}/`,
 			`${shardDir}/`
 		],
@@ -152,7 +206,14 @@ const runShard = async (index: number, files: string[]) => {
 	const startedAt = performance.now();
 	const proc = Bun.spawn(['bun', 'test', ...files], {
 		cwd: shardDir,
-		env: { ...process.env, FORCE_COLOR: '0' },
+		env: {
+			...process.env,
+			// Bun's default transpiler cache is global and content-addressed,
+			// but cached modules can retain checkout-specific absolute paths.
+			BUN_RUNTIME_TRANSPILER_CACHE_PATH: '0',
+			FORCE_COLOR: '0',
+			TELEMETRY_OFF: '1'
+		},
 		stderr: 'pipe',
 		stdout: 'pipe'
 	});
@@ -215,7 +276,13 @@ const main = async () => {
 		process.exit(1);
 	}
 
-	const partitions = partition(files, shardCount);
+	const exclusiveFiles = files.filter((file) =>
+		EXCLUSIVE_TEST_FILES.has(file)
+	);
+	const parallelFiles = files.filter(
+		(file) => !EXCLUSIVE_TEST_FILES.has(file)
+	);
+	const partitions = partition(parallelFiles, shardCount);
 	console.log(
 		`Running ${files.length} test files from ${testDir} across ` +
 			`${partitions.length} shard(s)…`
@@ -225,11 +292,19 @@ const main = async () => {
 	});
 
 	const startedAt = performance.now();
-	const results = await Promise.all(
+	const parallelResults = await Promise.all(
 		partitions.map((shard, shardIndex) =>
 			runShard(shardIndex, shard).then(logShardCompletion)
 		)
 	);
+	const exclusiveResults = exclusiveFiles.length
+		? [
+				await runShard(partitions.length, exclusiveFiles).then(
+					logShardCompletion
+				)
+			]
+		: [];
+	const results = [...parallelResults, ...exclusiveResults];
 
 	const totals: Totals = { fail: 0, pass: 0, skip: 0 };
 	let anyFailed = false;

@@ -6,3 +6,8 @@ build/
 *.min.js
 # Vendored third-party code — keep as faithful upstream/bundled output.
 **/vendor/**
+
+# Compiler-generated Vue fixture output is intentionally checked in verbatim.
+example/vue/client/
+example/vue/indexes/
+example/vue/server/
