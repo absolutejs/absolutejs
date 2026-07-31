@@ -78,6 +78,7 @@ import type {
 	BunBuildPassKey
 } from '../../types/build';
 import { createAngularLinkerPlugin } from '../build/angularLinkerPlugin';
+import { createBunStringRawUnicodePlugin } from '../build/bunStringRawUnicodePlugin';
 import { createExternalAssetPlugin } from '../build/externalAssetPlugin';
 import { createIslandRegistryDefinitionPlugin } from '../build/islandRegistryTransform';
 import { createAngularHmrInjectionPlugin } from '../dev/angular/hmrInjectionPlugin';
@@ -1919,7 +1920,10 @@ const buildUnlocked = async ({
 						minify: !isDev,
 						naming: `${idx}-[name].[ext]`,
 						outdir: destDir,
-						plugins: [stylePreprocessorPlugin],
+						plugins: [
+							stylePreprocessorPlugin,
+							createBunStringRawUnicodePlugin()
+						],
 						root: dirname(source),
 						target: 'bun',
 						throw: false,
@@ -2012,6 +2016,7 @@ const buildUnlocked = async ({
 						minify: !isDev,
 						naming: `${idx}-${name}.[ext]`,
 						outdir: destDir,
+						plugins: [createBunStringRawUnicodePlugin()],
 						splitting: false,
 						target: 'bun',
 						throw: false
@@ -2453,7 +2458,8 @@ const buildUnlocked = async ({
 													allFrameworkDirs
 												)
 											]
-										: [])
+										: []),
+									createBunStringRawUnicodePlugin()
 								],
 								root: serverRoot,
 								// Dev-only inline sourcemaps + post-build

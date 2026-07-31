@@ -1,4 +1,4 @@
-import { rm } from 'node:fs/promises';
+import { lstat, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
 	getFrameworkGeneratedDir,
@@ -17,8 +17,20 @@ type CleanupProps = {
 	preserveAngularGenerated?: boolean;
 };
 
-const removeIfExists = (path: string) =>
-	rm(path, { force: true, recursive: true });
+const isNotFoundError = (error: unknown) =>
+	error instanceof Error &&
+	'code' in error &&
+	Reflect.get(error, 'code') === 'ENOENT';
+
+export const removeIfExists = async (path: string) => {
+	try {
+		await lstat(path);
+	} catch (error) {
+		if (isNotFoundError(error)) return;
+		throw error;
+	}
+	await rm(path, { force: true, recursive: true });
+};
 
 const cleanFramework = (
 	framework: GeneratedFramework,

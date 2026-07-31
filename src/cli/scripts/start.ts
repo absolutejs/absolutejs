@@ -16,6 +16,7 @@ import {
 } from '../../utils/instanceRegistry';
 import { loadIslandRegistryBuildInfo } from '../../build/islandEntries';
 import { createIslandRegistryDefinitionPlugin } from '../../build/islandRegistryTransform';
+import { createBunStringRawUnicodePlugin } from '../../build/bunStringRawUnicodePlugin';
 import { loadConfig } from '../../utils/loadConfig';
 import { formatTimestamp } from '../../utils/startupBanner';
 import { sendTelemetryEvent } from '../telemetryEvent';
@@ -396,9 +397,11 @@ export const start = async (
 			'typescript'
 		],
 		outdir: resolvedOutdir,
-		plugins: islandRegistryPlugin
-			? [islandRegistryPlugin, stubPlugin]
-			: [stubPlugin],
+		plugins: [
+			...(islandRegistryPlugin ? [islandRegistryPlugin] : []),
+			stubPlugin,
+			createBunStringRawUnicodePlugin()
+		],
 		target: 'bun',
 		// Default `throw: true` on newer Bun makes a build error
 		// bubble out as `AggregateError: Bundle failed` with no

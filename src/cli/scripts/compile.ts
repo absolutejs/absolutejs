@@ -3,6 +3,7 @@ import { createExternalAssetPlugin } from '../../build/externalAssetPlugin';
 import { maskLiterals } from '../../build/maskLiterals';
 import { loadIslandRegistryBuildInfo } from '../../build/islandEntries';
 import { createIslandRegistryDefinitionPlugin } from '../../build/islandRegistryTransform';
+import { createBunStringRawUnicodePlugin } from '../../build/bunStringRawUnicodePlugin';
 import {
 	cpSync,
 	existsSync,
@@ -1569,7 +1570,8 @@ const compileUnlocked = async (
 			// an `onLoad` source rewrite here lets the standalone binary embed
 			// packages whose published form the bundler otherwise chokes on.
 			// Last so user shims see (and can override) Absolute's transforms.
-			...(buildConfig.compile?.plugins ?? [])
+			...(buildConfig.compile?.plugins ?? []),
+			createBunStringRawUnicodePlugin()
 		],
 		// The bundle is extracted to a content-addressed /tmp path at runtime.
 		// Keep its map inline so Bun can report original application source frames
@@ -1707,7 +1709,8 @@ const compileUnlocked = async (
 				stubReact: !buildConfig.reactDirectory,
 				stubSvelte: !buildConfig.svelteDirectory,
 				stubVue: !buildConfig.vueDirectory
-			})
+			}),
+			createBunStringRawUnicodePlugin()
 		],
 		target: 'bun'
 	});

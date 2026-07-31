@@ -304,3 +304,41 @@ const r = await Bun.build({
 // r.logs → [warn] invalid @ rule encountered: '@theme'
 //          [warn] invalid @ rule encountered: '@tailwind'
 ```
+
+---
+
+## 6. Bun escapes non-ASCII text inside `String.raw` tagged templates
+
+- **Dependency:** Bun (`bun`)
+- **Status:** confirmed bug, open upstream
+  - **oven-sh/bun#16763** — "Transpiler not respecting String.raw that
+    containing emoji": https://github.com/oven-sh/bun/issues/16763
+
+**Symptom.** A production SSR build can render different text from its browser
+bundle when application source contains a non-ASCII character inside
+`String.raw`. For example, a curly quote in inline CSS becomes the six literal
+characters `\\u201C` on the server while the browser retains `“`. React then
+reports a hydration mismatch even though both bundles came from the same
+source.
+
+**Root cause.** Bun's `target: "bun"` transpiler changes a literal Unicode
+character in a tagged template into a JavaScript Unicode escape. Tagged
+templates expose their source spelling through the template object's `raw`
+array, so `String.raw` returns the newly generated escape text. Normal strings
+decode the escape and are unaffected. Bun's `target: "browser"` and
+`target: "node"` currently preserve the literal character, which is why this
+can present as an SSR-only mismatch.
+
+**Workaround in AbsoluteJS.** `src/build/bunStringRawUnicodePlugin.ts` rewrites
+only `String.raw` tagged templates with non-ASCII raw segments into the
+equivalent ordinary `String.raw({ raw: [...] }, ...substitutions)` call before a
+server-targeted Bun build. Ordinary string escaping then preserves the intended
+runtime characters while retaining raw backslashes and substitutions. The
+plugin is installed on framework SSR, production server, and compiled-server
+build passes. `tests/unit/build/bunStringRawUnicodePlugin.test.ts` locks the
+runtime behavior against Bun's `target: "bun"` transpiler.
+
+**Remove when:** Bun ships a fix for #16763 and AbsoluteJS's minimum Bun version
+includes it. First invert or remove the direct Bun regression assertion, then
+remove `bunStringRawUnicodePlugin.ts` and every
+`createBunStringRawUnicodePlugin()` registration in the same change.
