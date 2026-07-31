@@ -20,6 +20,7 @@ import { createBunStringRawUnicodePlugin } from '../../build/bunStringRawUnicode
 import { loadConfig } from '../../utils/loadConfig';
 import { formatTimestamp } from '../../utils/startupBanner';
 import { sendTelemetryEvent } from '../telemetryEvent';
+import { resolveServerBundleExternals } from '../serverBundleExternals';
 import {
 	COMPOSE_PATH,
 	killStaleProcesses,
@@ -377,25 +378,7 @@ export const start = async (
 	const serverBundle = await Bun.build({
 		define: { 'process.env.NODE_ENV': '"production"' },
 		entrypoints: [resolve(serverEntry)],
-		external: [
-			'react',
-			'react/jsx-runtime',
-			'react-dom',
-			'react-dom/*',
-			'vue',
-			'vue/*',
-			'@vue/compiler-sfc',
-			'@vue/server-renderer',
-			'svelte',
-			'svelte/*',
-			'@angular/compiler',
-			'@angular/compiler-cli',
-			'@angular/core',
-			'@angular/common',
-			'@angular/platform-browser',
-			'@angular/platform-server',
-			'typescript'
-		],
+		external: resolveServerBundleExternals(buildConfig),
 		outdir: resolvedOutdir,
 		plugins: [
 			...(islandRegistryPlugin ? [islandRegistryPlugin] : []),
