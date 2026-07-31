@@ -20,7 +20,7 @@ export const server = new Elysia()
 			}),
 			indexPath: asset(manifest, 'BenchIndex'),
 			pagePath: asset(manifest, 'Bench'),
-			props: { initialCount: 0 }
+			requestContext: { initialCount: 0 }
 		})
 	)
 	.on('error', (error) => {

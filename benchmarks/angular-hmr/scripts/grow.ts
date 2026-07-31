@@ -61,12 +61,12 @@ const pageSrc = (count: number) => {
 
 	return `import { Component } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { defineAngularPage } from '@absolutejs/absolute/angular';
+import { usePageContext } from '../../../../src/angular/composables/usePageContext';
 import { CounterComponent } from '../components/counter.component';
 import { HeaderComponent } from '../components/header.component';
 ${importLines.join('\n')}
 
-type BenchProps = {
+export type Context = {
 \tinitialCount: number;
 };
 
@@ -81,12 +81,9 @@ type BenchProps = {
 \ttemplateUrl: '../templates/bench.html'
 })
 export class BenchPage {
-\tinitialCount: number = 0;
+\tprivate readonly context = usePageContext<Context>();
+\tinitialCount = this.context.initialCount;
 }
-
-export const page = defineAngularPage<BenchProps>({
-\tcomponent: BenchPage
-});
 `;
 };
 

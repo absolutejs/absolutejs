@@ -1,10 +1,10 @@
 import { Component } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { defineAngularPage } from '@absolutejs/absolute/angular';
+import { usePageContext } from '../../../../src/angular/composables/usePageContext';
 import { CounterComponent } from '../components/counter.component';
 import { HeaderComponent } from '../components/header.component';
 
-type BenchProps = {
+export type Context = {
 	initialCount: number;
 };
 
@@ -15,9 +15,6 @@ type BenchProps = {
 	templateUrl: '../templates/bench.html'
 })
 export class BenchPage {
-	initialCount: number = 0;
+	private readonly context = usePageContext<Context>();
+	initialCount = this.context.initialCount;
 }
-
-export const page = defineAngularPage<BenchProps>({
-	component: BenchPage
-});
