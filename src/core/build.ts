@@ -2109,9 +2109,16 @@ const buildUnlocked = async ({
 		...vueIndexPaths,
 		...vueClientPaths,
 		...(skipAngularClientBundle ? [] : angularClientPaths),
-		...(islandBootstrapPath ? [islandBootstrapPath] : []),
-		...urlReferencedFiles
+		...(islandBootstrapPath ? [islandBootstrapPath] : [])
 	];
+	const [onlyWorkerClientEntry] = urlReferencedFiles;
+	const workerClientRoot =
+		urlReferencedFiles.length === 1 && onlyWorkerClientEntry
+			? dirname(onlyWorkerClientEntry)
+			: commonAncestor(
+					urlReferencedFiles.map((file) => dirname(file)),
+					projectRoot
+				);
 	const islandEntryResult = islandBuildInfo
 		? await tracePhase('islands/client-entry-generation', () =>
 				generateIslandEntryPoints({
@@ -2136,6 +2143,7 @@ const buildUnlocked = async ({
 		serverEntryPoints.length === 0 &&
 		reactClientEntryPoints.length === 0 &&
 		nonReactClientEntryPoints.length === 0 &&
+		urlReferencedFiles.length === 0 &&
 		islandClientEntryPoints.length === 0 &&
 		htmxDir === undefined &&
 		htmlDir === undefined
@@ -2427,12 +2435,13 @@ const buildUnlocked = async ({
 		});
 	}
 
-	// Run all 4 Bun.build passes in parallel — they write to different
+	// Run the Bun.build passes in parallel — they write to different
 	// directories and have independent entry points.
 	const [
 		serverResult,
 		reactClientResult,
 		nonReactClientResult,
+		workerClientResult,
 		islandClientResult,
 		globalCssResult,
 		vueCssResult
@@ -2521,6 +2530,37 @@ const buildUnlocked = async ({
 										: [])
 								],
 								root: clientRoot,
+								sourcemap: resolveClientSourcemap(
+									sourcemaps,
+									isDev
+								),
+								splitting: !isDev,
+								target: 'browser',
+								throw: false,
+								tsconfig: './tsconfig.json'
+							},
+							resolveBunBuildOverride(
+								bunBuildConfig,
+								'nonReactClient'
+							)
+						)
+					)
+				)
+			: undefined,
+		urlReferencedFiles.length > 0
+			? tracePhase('bun/worker-client', () =>
+					bunBuild(
+						mergeBunBuildConfig(
+							{
+								conditions: svelteResolveConditions,
+								entrypoints: urlReferencedFiles,
+								external: Object.keys(nonReactExternalPaths),
+								format: 'esm',
+								minify: !isDev,
+								naming: `[dir]/[name].[hash].[ext]`,
+								outdir: buildPath,
+								plugins: [stylePreprocessorPlugin],
+								root: workerClientRoot,
 								sourcemap: resolveClientSourcemap(
 									sourcemaps,
 									isDev
@@ -2767,8 +2807,14 @@ const buildUnlocked = async ({
 		);
 	}
 
-	const nonReactClientLogs = nonReactClientResult?.logs ?? [];
-	const nonReactClientOutputs = nonReactClientResult?.outputs ?? [];
+	const nonReactClientLogs = [
+		...(nonReactClientResult?.logs ?? []),
+		...(workerClientResult?.logs ?? [])
+	];
+	const nonReactClientOutputs = [
+		...(nonReactClientResult?.outputs ?? []),
+		...(workerClientResult?.outputs ?? [])
+	];
 	const nonReactClientOutputPaths = nonReactClientOutputs.map(
 		(artifact) => artifact.path
 	);
@@ -2810,8 +2856,8 @@ const buildUnlocked = async ({
 	}
 
 	if (
-		nonReactClientResult &&
-		!nonReactClientResult.success &&
+		((nonReactClientResult && !nonReactClientResult.success) ||
+			(workerClientResult && !workerClientResult.success)) &&
 		nonReactClientLogs.length > 0
 	) {
 		handlePassFailure(
