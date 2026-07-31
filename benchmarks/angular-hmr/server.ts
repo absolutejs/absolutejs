@@ -1,5 +1,5 @@
 import { Elysia } from 'elysia';
-import type * as BenchPage from './angular/pages/bench';
+import type { Context } from './angular/pages/bench';
 import {
 	asset,
 	generateHeadElement,
@@ -13,7 +13,7 @@ const { absolutejs, manifest } = await prepare();
 export const server = new Elysia()
 	.use(absolutejs)
 	.get('/', async () =>
-		handleAngularPageRequest<typeof BenchPage>({
+		handleAngularPageRequest<Context>({
 			headTag: generateHeadElement({
 				cssPath: asset(manifest, 'BenchCSS'),
 				title: 'AbsoluteJS HMR Bench'
