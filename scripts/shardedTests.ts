@@ -195,17 +195,20 @@ const prepareShardDir = async (index: number) => {
 };
 
 type ShardResult = {
-	index: number;
+	name: string;
 	exitCode: number;
 	output: string;
 	durationMs: number;
 };
 
-const runShard = async (index: number, files: string[]) => {
-	const shardDir = await prepareShardDir(index);
+const runTestProcess = async (
+	name: string,
+	testCwd: string,
+	files: string[]
+) => {
 	const startedAt = performance.now();
 	const proc = Bun.spawn(['bun', 'test', ...files], {
-		cwd: shardDir,
+		cwd: testCwd,
 		env: {
 			...process.env,
 			// Bun's default transpiler cache is global and content-addressed,
@@ -223,17 +226,23 @@ const runShard = async (index: number, files: string[]) => {
 		proc.exited
 	]);
 	const output = `${stdout}\n${stderr}`;
-	await Bun.write(join(SHARD_PARENT, `shard-${index}.log`), output);
+	await Bun.write(join(SHARD_PARENT, `${name}.log`), output);
 
 	const result: ShardResult = {
 		durationMs: performance.now() - startedAt,
 		exitCode,
-		index,
+		name,
 		output
 	};
 
 	return result;
 };
+
+const runShard = async (index: number, files: string[]) =>
+	runTestProcess(`shard-${index}`, await prepareShardDir(index), files);
+
+const runExclusive = (files: string[]) =>
+	runTestProcess('exclusive', REPO_ROOT, files);
 
 const SUMMARY_RE = /^\s*(\d+)\s+(pass|fail|skip)$/gm;
 
@@ -255,14 +264,14 @@ const printShardFailures = (result: ShardResult) => {
 	if (failLines.length === 0) {
 		return;
 	}
-	console.log(`\n--- shard-${result.index} failures ---`);
+	console.log(`\n--- ${result.name} failures ---`);
 	for (const line of failLines) console.log(line);
 };
 
 const logShardCompletion = (result: ShardResult) => {
 	const mins = (result.durationMs / MS_PER_MINUTE).toFixed(1);
 	console.log(
-		`shard-${result.index} finished in ${mins}m (exit ${result.exitCode})`
+		`${result.name} finished in ${mins}m (exit ${result.exitCode})`
 	);
 
 	return result;
@@ -298,11 +307,7 @@ const main = async () => {
 		)
 	);
 	const exclusiveResults = exclusiveFiles.length
-		? [
-				await runShard(partitions.length, exclusiveFiles).then(
-					logShardCompletion
-				)
-			]
+		? [await runExclusive(exclusiveFiles).then(logShardCompletion)]
 		: [];
 	const results = [...parallelResults, ...exclusiveResults];
 
@@ -320,7 +325,7 @@ const main = async () => {
 	console.log(
 		`\nTotal: ${totals.pass} pass, ${totals.fail} fail ` +
 			`across ${files.length} files in ${totalMins}m ` +
-			`(full logs: ${relative(process.cwd(), SHARD_PARENT)}/shard-*.log)`
+			`(full logs: ${relative(process.cwd(), SHARD_PARENT)}/*.log)`
 	);
 	process.exit(anyFailed ? 1 : 0);
 };

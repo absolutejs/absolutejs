@@ -1,6 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { mkdir, symlink } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { lstat, mkdir, readlink, symlink } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { EnvironmentProviders, Provider, Type } from '@angular/core';
@@ -180,43 +179,77 @@ const ensureAngularCompiler = () => {
 const readAngularPageModule = (value: unknown) =>
 	isRecord(value) ? value : null;
 
-const resolveAngularSsrOutDir = () =>
-	process.env.ABSOLUTE_ANGULAR_SSR_OUTDIR ??
-	join(tmpdir(), 'absolutejs', 'generated', 'angular-ssr');
+export const resolveAngularSsrOutDir = (
+	projectRoot = process.cwd(),
+	configuredOutDir = process.env.ABSOLUTE_ANGULAR_SSR_OUTDIR
+) =>
+	configuredOutDir ??
+	join(projectRoot, '.absolutejs', 'runtime', 'angular-ssr');
 
 const createAngularRuntimeCacheBuster = () =>
 	`${Date.now().toString(BASE_36_RADIX)}.${Math.random()
 		.toString(BASE_36_RADIX)
 		.substring(2, RANDOM_ID_END_INDEX)}`;
 
-const ensureAngularSsrNodeModules = async (outDir: string) => {
+const existingNodeModulesLinkMatches = async (
+	nodeModulesLink: string,
+	expectedTarget: string
+) => {
+	try {
+		const stats = await lstat(nodeModulesLink);
+		if (!stats.isSymbolicLink()) {
+			throw new Error(
+				`Refusing non-symlink Angular SSR dependency path: ${nodeModulesLink}`
+			);
+		}
+		const target = resolve(
+			dirname(nodeModulesLink),
+			await readlink(nodeModulesLink)
+		);
+		if (target !== expectedTarget) {
+			throw new Error(
+				`Refusing Angular SSR dependency link outside this project: ${target}`
+			);
+		}
+
+		return true;
+	} catch (error) {
+		if (
+			error instanceof Error &&
+			'code' in error &&
+			error.code === 'ENOENT'
+		) {
+			return false;
+		}
+		throw error;
+	}
+};
+
+export const ensureAngularSsrNodeModules = async (
+	outDir: string,
+	projectRoot = process.cwd(),
+	hasConfiguredOutDir = Boolean(process.env.ABSOLUTE_ANGULAR_SSR_OUTDIR)
+) => {
 	const outRoot = resolve(dirname(dirname(outDir)));
 	const nodeModulesLink = join(outRoot, 'node_modules');
-	if (process.env.ABSOLUTE_ANGULAR_SSR_OUTDIR) {
+	if (hasConfiguredOutDir) {
 		return;
 	}
-	if (nodeModulesLink === resolve(process.cwd(), 'node_modules')) {
+	const expectedTarget = resolve(projectRoot, 'node_modules');
+	if (nodeModulesLink === expectedTarget) {
 		return;
 	}
-	if (await Bun.file(nodeModulesLink).exists()) {
+	if (await existingNodeModulesLinkMatches(nodeModulesLink, expectedTarget)) {
 		return;
 	}
 
 	await mkdir(outRoot, { recursive: true });
 	try {
-		await symlink(
-			resolve(process.cwd(), 'node_modules'),
-			nodeModulesLink,
-			'dir'
-		);
+		await symlink(expectedTarget, nodeModulesLink, 'dir');
 	} catch (error) {
-		if (
-			!(error instanceof Error) ||
-			!('code' in error) ||
-			error.code !== 'EEXIST'
-		) {
-			throw error;
-		}
+		if (!(error instanceof Error) || !('code' in error)) throw error;
+		if (error.code !== 'EEXIST') throw error;
+		await existingNodeModulesLinkMatches(nodeModulesLink, expectedTarget);
 	}
 };
 
