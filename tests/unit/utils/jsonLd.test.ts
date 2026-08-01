@@ -48,12 +48,20 @@ describe('jsonLd', () => {
 		];
 		const data = extractJson(jsonLd(schemas));
 
-		expect(Array.isArray(data)).toBe(true);
-		expect(data).toHaveLength(2);
-		expect(data[0]['@context']).toBe('https://schema.org');
-		expect(data[0]['@type']).toBe('WebSite');
-		expect(data[1]['@context']).toBe('https://schema.org');
-		expect(data[1]['@type']).toBe('Organization');
+		expect(Array.isArray(data)).toBe(false);
+		expect(data['@context']).toBe('https://schema.org');
+		expect(data['@graph']).toHaveLength(2);
+		expect(data['@graph'][0]['@type']).toBe('WebSite');
+		expect(data['@graph'][1]['@type']).toBe('Organization');
+	});
+
+	it('uses a Safari-compatible object for an empty schema array', () => {
+		const data = extractJson(jsonLd([]));
+
+		expect(data).toEqual({
+			'@context': 'https://schema.org',
+			'@graph': []
+		});
 	});
 
 	it('Article with full properties', () => {
@@ -502,13 +510,11 @@ describe('jsonLd', () => {
 		];
 		const data = extractJson(jsonLd(schemas));
 
-		expect(data).toHaveLength(3);
-		expect(data[0]['@type']).toBe('Article');
-		expect(data[1]['@type']).toBe('BreadcrumbList');
-		expect(data[2]['@type']).toBe('Organization');
-		expect(data[0]['@context']).toBe('https://schema.org');
-		expect(data[1]['@context']).toBe('https://schema.org');
-		expect(data[2]['@context']).toBe('https://schema.org');
+		expect(data['@context']).toBe('https://schema.org');
+		expect(data['@graph']).toHaveLength(3);
+		expect(data['@graph'][0]['@type']).toBe('Article');
+		expect(data['@graph'][1]['@type']).toBe('BreadcrumbList');
+		expect(data['@graph'][2]['@type']).toBe('Organization');
 	});
 
 	it('produces valid JSON that can be parsed', () => {
