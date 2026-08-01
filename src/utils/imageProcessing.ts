@@ -220,8 +220,10 @@ export const getAllSizes = (config?: ImageConfig) => {
 	return [...device, ...image].sort((left, right) => left - right);
 };
 
-export const getCacheDir = (buildDir: string) => {
-	const dir = join(buildDir, '.cache', 'images');
+export const getCacheDir = (buildDir: string, cacheDirectory?: string) => {
+	const dir = cacheDirectory
+		? resolve(cacheDirectory)
+		: join(buildDir, '.cache', 'images');
 
 	if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 

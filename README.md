@@ -105,6 +105,26 @@ export const server = new Elysia()
 2. Route handlers (`handleReactPageRequest`, `handleSveltePageRequest`, …) stream HTML and inject scripts/assets based on that manifest.
 3. The static plugin serves all compiled files from `/build`.
 
+### Immutable production images
+
+Build production assets and the server bundle while constructing the image,
+then launch that prepared output without writing to it at runtime:
+
+```bash
+absolute prepare src/server.ts --outdir build
+absolute start src/server.ts --outdir build --prebuilt
+```
+
+If image optimization is enabled in a read-only container, configure its
+runtime cache on a bounded writable filesystem such as a `tmpfs`:
+
+```ts
+export default defineConfig({
+	buildDirectory: 'build',
+	images: { cacheDirectory: '/tmp/absolutejs-image-cache' }
+});
+```
+
 ---
 
 ## Plugin System

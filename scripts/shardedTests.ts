@@ -59,10 +59,12 @@ const DURATION_HINTS_MS: Record<string, number> = {
 	'tests/integration/hmr/lifecycle/vue-setup-app-hook.test.ts': 21_776
 };
 
-// This probe intentionally waits for an asynchronous CSS rebuild and becomes
-// nondeterministic when several compiler-heavy shards saturate the host. Keep
-// its assertions unchanged and run it in an isolated lane after the shards.
+// These browser/compiler probes become nondeterministic when several
+// compiler-heavy shards saturate the host. Keep their assertions unchanged
+// and run them serially in an isolated lane after the shards.
 const EXCLUSIVE_TEST_FILES = new Set([
+	'tests/integration/hmr/lifecycle/angular-state-preservation.test.ts',
+	'tests/integration/hmr/lifecycle/angular-tiering.test.ts',
 	'tests/integration/hmr/lifecycle/spa-child-style.test.ts'
 ]);
 

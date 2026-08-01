@@ -110,6 +110,8 @@ describe('Svelte 5 deep coverage', () => {
 				'return {\n\t\tgetCount,\n\t\tincrement,\n\t\tlabel: () => "MODULE_LABEL_OK"\n\t};'
 			)
 		);
+		await client.waitFor('svelte-tier-zero-ssr-rebuild-complete', 30_000);
+		client.drain();
 		mutateFile(counter, (c) =>
 			c
 				.replace(

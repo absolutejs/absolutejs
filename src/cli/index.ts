@@ -46,9 +46,20 @@ if (command === 'dev') {
 	sendTelemetryEvent('cli:command', { command });
 	const outdir = parseNamedArg('--outdir');
 	const configPath = parseNamedArg('--config');
+	const positionalArgs = stripNamedArgs('--outdir', '--config').filter(
+		(arg) => arg !== '--prebuilt'
+	);
+	const serverEntry = positionalArgs[0] ?? DEFAULT_SERVER_ENTRY;
+	await start(serverEntry, outdir, configPath, {
+		prebuilt: args.includes('--prebuilt')
+	});
+} else if (command === 'prepare') {
+	sendTelemetryEvent('cli:command', { command });
+	const outdir = parseNamedArg('--outdir');
+	const configPath = parseNamedArg('--config');
 	const positionalArgs = stripNamedArgs('--outdir', '--config');
 	const serverEntry = positionalArgs[0] ?? DEFAULT_SERVER_ENTRY;
-	await start(serverEntry, outdir, configPath);
+	await start(serverEntry, outdir, configPath, { prepareOnly: true });
 } else if (command === 'build') {
 	sendTelemetryEvent('cli:command', { command });
 	const outdir = parseNamedArg('--outdir');
@@ -188,7 +199,12 @@ if (command === 'dev') {
 		'  workspace dev [--no-tui] Start multi-service workspace dev'
 	);
 	console.error('  build [--outdir dir] [--profile] Build production assets');
-	console.error('  start [entry] [--outdir dir] Start production server');
+	console.error(
+		'  prepare [entry] [--outdir dir] Build production assets and server without launching'
+	);
+	console.error(
+		'  start [entry] [--outdir dir] [--prebuilt] Start production server'
+	);
 	console.error(
 		'  compile [entry] [--outdir dir] [--outfile path] Compile standalone executable'
 	);

@@ -160,6 +160,25 @@ const resolveJsxDevRuntimeCompatPath = () => {
 
 const jsxDevRuntimeCompatPath = resolveJsxDevRuntimeCompatPath();
 
+type StartOptions = {
+	prebuilt?: boolean;
+	prepareOnly?: boolean;
+};
+
+type RunPreparedServerOptions = {
+	absoluteVersion: string;
+	bundleDurationMs: number;
+	configPath?: string;
+	frameworks: string[];
+	outdir?: string;
+	outputPath: string;
+	port: number;
+	prebuilt: boolean;
+	resolvedOutdir: string;
+	serverEntry: string;
+	totalDuration: number;
+};
+
 const prerenderStaticPages = async (
 	outputPath: string,
 	prerenderPort: number,
@@ -205,11 +224,132 @@ const prerenderStaticPages = async (
 	}
 };
 
+const runPreparedServer = async ({
+	absoluteVersion,
+	bundleDurationMs,
+	configPath,
+	frameworks,
+	outdir,
+	outputPath,
+	port,
+	prebuilt,
+	resolvedOutdir,
+	serverEntry,
+	totalDuration
+}: RunPreparedServerOptions) => {
+	const usesDocker = existsSync(resolve(COMPOSE_PATH));
+	const scripts: DbScripts | null = usesDocker ? await readDbScripts() : null;
+
+	if (scripts) await startDatabase(scripts);
+
+	let cleaning = false;
+	const sessionStart = Date.now();
+	sendTelemetryEvent('start:start', {
+		buildDurationMs: Math.max(
+			0,
+			Math.round(totalDuration) - bundleDurationMs
+		),
+		bundleDurationMs,
+		entry: serverEntry,
+		frameworks,
+		totalDurationMs: Math.round(totalDuration)
+	});
+
+	const serverProcess = Bun.spawn(['bun', 'run', outputPath], {
+		cwd: process.cwd(),
+		env: {
+			...process.env,
+			ABSOLUTE_BUILD_DIR: resolvedOutdir,
+			ABSOLUTE_BUILD_DURATION: String(Math.round(totalDuration)),
+			// The parent CLI owns this server's registry entry, so the child's
+			// runtime (networking plugin) must not self-register.
+			ABSOLUTE_INSTANCE_MANAGED: '1',
+			ABSOLUTE_VERSION: absoluteVersion,
+			FORCE_COLOR: '1',
+			NODE_ENV: 'production',
+			...(configPath ? { ABSOLUTE_CONFIG: configPath } : {})
+		},
+		stderr: 'inherit',
+		stdin: 'inherit',
+		stdout: 'inherit'
+	});
+
+	// Publish the production server to the global registry so `absolute ps`
+	// can see/stop it. The child is `bun run <bundle>`; killing this parent
+	// (controllerPid) tears the child down via the cleanup handler below.
+	const relaunchCommand = [
+		process.execPath,
+		process.argv[1] ?? '',
+		'start',
+		serverEntry,
+		...(outdir ? ['--outdir', outdir] : []),
+		...(configPath ? ['--config', configPath] : []),
+		...(prebuilt ? ['--prebuilt'] : [])
+	].filter((part) => part.length > 0);
+	registerInstance({
+		command: relaunchCommand,
+		configPath: configPath ?? null,
+		controllerPid: process.pid,
+		cwd: process.cwd(),
+		frameworks,
+		host: env.ABSOLUTE_HOST ?? env.HOST ?? 'localhost',
+		https: env.ABSOLUTE_HTTPS === 'true',
+		logFile: null,
+		name: resolveProjectName(process.cwd()),
+		pid: process.pid,
+		port,
+		ppid: process.ppid,
+		source: 'start',
+		startedAt: new Date().toISOString()
+	});
+
+	const cleanup = async (exitCode = 0) => {
+		if (cleaning) return;
+		cleaning = true;
+		deregisterInstance(process.pid);
+		sendTelemetryEvent('start:session-duration', {
+			duration: Math.round(
+				(Date.now() - sessionStart) / MILLISECONDS_IN_A_SECOND
+			),
+			entry: serverEntry
+		});
+		try {
+			serverProcess.kill();
+		} catch {
+			/* process already exited */
+		}
+		await serverProcess.exited;
+		if (scripts) await stopDatabase(scripts);
+		process.exit(exitCode);
+	};
+
+	process.on('SIGINT', () => cleanup(0));
+	process.on('SIGTERM', () => cleanup(0));
+
+	const exitCode = await serverProcess.exited;
+	if (cleaning) return;
+
+	console.error(cliTag('\x1b[31m', `Server exited with code ${exitCode}.`));
+	sendTelemetryEvent('start:server-exit', {
+		entry: serverEntry,
+		exitCode
+	});
+	if (scripts) await stopDatabase(scripts);
+	process.exit(exitCode);
+};
+
 export const start = async (
 	serverEntry: string,
 	outdir?: string,
-	configPath?: string
+	configPath?: string,
+	options: StartOptions = {}
 ) => {
+	if (options.prebuilt && options.prepareOnly) {
+		throw new Error(
+			'A production start cannot be prebuilt and prepare-only.'
+		);
+	}
+
 	const port = Number(env.PORT) || DEFAULT_PORT;
 	killStaleProcesses(port);
 
@@ -221,11 +361,6 @@ export const start = async (
 		resolve(import.meta.dir, '..', '..', '..', 'package.json'),
 		resolve(import.meta.dir, '..', '..', 'package.json')
 	]);
-
-	// ── Run build step ──────────────────────────────────────────────
-	const buildStepStart = performance.now();
-	process.stdout.write(cliTag('\x1b[36m', `Building assets`));
-
 	const buildConfig = await loadConfig(configPath);
 	buildConfig.buildDirectory = resolvedOutdir;
 	buildConfig.mode = 'production';
@@ -238,6 +373,33 @@ export const start = async (
 		buildConfig.vueDirectory && 'vue',
 		buildConfig.angularDirectory && 'angular'
 	].filter((val): val is string => Boolean(val));
+	const outputPath = resolve(resolvedOutdir, `${entryName}.js`);
+
+	if (options.prebuilt) {
+		if (!existsSync(outputPath)) {
+			throw new Error(
+				`Prepared production server not found: ${outputPath}`
+			);
+		}
+
+		return runPreparedServer({
+			absoluteVersion,
+			bundleDurationMs: 0,
+			configPath,
+			frameworks,
+			outdir,
+			outputPath,
+			port,
+			prebuilt: true,
+			resolvedOutdir,
+			serverEntry,
+			totalDuration: 0
+		});
+	}
+
+	// ── Run build step ──────────────────────────────────────────────
+	const buildStepStart = performance.now();
+	process.stdout.write(cliTag('\x1b[36m', `Building assets`));
 
 	try {
 		const build = await resolveBuildModule([
@@ -398,7 +560,6 @@ export const start = async (
 		handleBundleFailure(serverBundle, bundleStart, serverEntry);
 	}
 
-	const outputPath = resolve(resolvedOutdir, `${entryName}.js`);
 	if (!existsSync(outputPath)) {
 		console.error(
 			cliTag('\x1b[31m', `Expected output not found: ${outputPath}`)
@@ -475,105 +636,27 @@ export const start = async (
 			configPath
 		);
 	}
-
-	// ── Run production server ────────────────────────────────────────
-	const usesDocker = existsSync(resolve(COMPOSE_PATH));
-	const scripts: DbScripts | null = usesDocker ? await readDbScripts() : null;
-
-	if (scripts) await startDatabase(scripts);
-
-	let cleaning = false;
-	const sessionStart = Date.now();
 	const totalDuration = performance.now() - buildStepStart;
-	sendTelemetryEvent('start:start', {
-		buildDurationMs:
-			Math.round(performance.now() - buildStepStart) - bundleDurationMs,
-		bundleDurationMs,
-		entry: serverEntry,
-		frameworks,
-		totalDurationMs: Math.round(totalDuration)
-	});
-
-	const serverProcess = Bun.spawn(['bun', 'run', outputPath], {
-		cwd: process.cwd(),
-		env: {
-			...process.env,
-			ABSOLUTE_BUILD_DIR: resolvedOutdir,
-			ABSOLUTE_BUILD_DURATION: String(Math.round(totalDuration)),
-			// The parent CLI owns this server's registry entry, so the child's
-			// runtime (networking plugin) must not self-register.
-			ABSOLUTE_INSTANCE_MANAGED: '1',
-			ABSOLUTE_VERSION: absoluteVersion,
-			FORCE_COLOR: '1',
-			NODE_ENV: 'production',
-			...(configPath ? { ABSOLUTE_CONFIG: configPath } : {})
-		},
-		stderr: 'inherit',
-		stdin: 'inherit',
-		stdout: 'inherit'
-	});
-
-	// Publish the production server to the global registry so `absolute ps`
-	// can see/stop it. The child is `bun run <bundle>`; killing this parent
-	// (controllerPid) tears the child down via the cleanup handler below.
-	const relaunchCommand = [
-		process.execPath,
-		process.argv[1] ?? '',
-		'start',
-		serverEntry,
-		...(outdir ? ['--outdir', outdir] : []),
-		...(configPath ? ['--config', configPath] : [])
-	].filter((part) => part.length > 0);
-	registerInstance({
-		command: relaunchCommand,
-		configPath: configPath ?? null,
-		controllerPid: process.pid,
-		cwd: process.cwd(),
-		frameworks,
-		host: env.ABSOLUTE_HOST ?? env.HOST ?? 'localhost',
-		https: env.ABSOLUTE_HTTPS === 'true',
-		logFile: null,
-		name: resolveProjectName(process.cwd()),
-		pid: process.pid,
-		port,
-		ppid: process.ppid,
-		source: 'start',
-		startedAt: new Date().toISOString()
-	});
-
-	const cleanup = async (exitCode = 0) => {
-		if (cleaning) return;
-		cleaning = true;
-		deregisterInstance(process.pid);
-		sendTelemetryEvent('start:session-duration', {
-			duration: Math.round(
-				(Date.now() - sessionStart) / MILLISECONDS_IN_A_SECOND
-			),
+	if (options.prepareOnly) {
+		sendTelemetryEvent('prepare:complete', {
+			durationMs: Math.round(totalDuration),
 			entry: serverEntry
 		});
-		try {
-			serverProcess.kill();
-		} catch {
-			/* process already exited */
-		}
-		await serverProcess.exited;
-		if (scripts) await stopDatabase(scripts);
-		process.exit(exitCode);
-	};
 
-	process.on('SIGINT', () => cleanup(0));
-	process.on('SIGTERM', () => cleanup(0));
-
-	const exitCode = await serverProcess.exited;
-	if (cleaning) {
-		return;
+		return undefined;
 	}
 
-	console.error(cliTag('\x1b[31m', `Server exited with code ${exitCode}.`));
-	sendTelemetryEvent('start:server-exit', {
-		entry: serverEntry,
-		exitCode
+	return runPreparedServer({
+		absoluteVersion,
+		bundleDurationMs,
+		configPath,
+		frameworks,
+		outdir,
+		outputPath,
+		port,
+		prebuilt: false,
+		resolvedOutdir,
+		serverEntry,
+		totalDuration
 	});
-	if (scripts) await stopDatabase(scripts);
-	process.exit(exitCode);
 };

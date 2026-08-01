@@ -241,7 +241,7 @@ export const imageOptimizer = (
 	const cacheControlHeader = `public, max-age=${Math.ceil(minimumCacheTTL / MS_PER_SECOND)}, must-revalidate`;
 	const configuredFormats: ImageFormat[] = config?.formats ?? ['webp'];
 	const remotePatterns = config?.remotePatterns ?? [];
-	const cacheDir = getCacheDir(buildDir);
+	const cacheDir = getCacheDir(buildDir, config?.cacheDirectory);
 
 	return plugin.get(endpointPath, async ({ query, request }) => {
 		// ── Parse & Validate ────────────────────────────────
