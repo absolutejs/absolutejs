@@ -741,7 +741,13 @@ const assertCompileFilesServer = async (baseUrl: string) => {
 
 	const publicFile = await fetch(`${baseUrl}/public.txt`);
 	expect(publicFile.status).toBe(200);
+	expect(publicFile.headers.get('content-type')).toContain('text/plain');
 	expect(await publicFile.text()).toBe('PUBLIC_FILE_READY\n');
+
+	const xmlFile = await fetch(`${baseUrl}/feed.xml`);
+	expect(xmlFile.status).toBe(200);
+	expect(xmlFile.headers.get('content-type')).toContain('application/xml');
+	expect(await xmlFile.text()).toContain('<feed>COMPILE_XML_READY</feed>');
 };
 
 const assertCompileRouteScaleServer = async (baseUrl: string) => {

@@ -21,7 +21,7 @@ afterAll(async () => {
 /* Verifies the Path B reload preserves the Elysia `app.store`
  * across server-entry edits. Pre-fix, every entry re-eval created
  * a fresh Elysia with a fresh `store: {}`, dropping any state the
- * user (or plugins like `elysia-scoped-state`) had written there.
+ * user (or plugins like `@absolutejs/scoped-state`) had written there.
  *
  * The example/server.ts uses `scopedState({ count: { value: 0 } })`,
  * so we can drive `/htmx/count` (read) and `/htmx/increment`

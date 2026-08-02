@@ -32,7 +32,7 @@ const startAll = async () => {
 };
 
 /* HTMX state lives server-side (in this app: in the `scopedStore`
- * per-session map plumbed through elysia-scoped-state). Path B
+ * per-session map plumbed through @absolutejs/scoped-state). Path B
  * reload (`Bun.serve.reload({ fetch, routes:{} })`) swaps the fetch
  * handler atomically; module-level state on `globalThis` and the
  * scoped-store contents persist across the swap.

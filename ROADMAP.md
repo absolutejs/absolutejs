@@ -935,7 +935,7 @@ bun abs remove svelte
 **Design considerations:**
 - Detect the project structure automatically — if the project uses `src/frontend/` (create-absolutejs default) vs `example/` (the absolutejs repo), adapt paths by reading existing `absolute.config.ts` directory patterns and following the same convention.
 - Version alignment: install the same dependency versions that the current AbsoluteJS version is tested with. Bundle a version manifest with the CLI.
-- If HTMX is added, also install `elysia-scoped-state` and add the HTMX counter endpoints as a starter.
+- If HTMX is added, also install `@absolutejs/scoped-state` and add the HTMX counter endpoints as a starter.
 - If Angular is added, handle the extra complexity — it has the most dependencies and setup of any framework.
 - The scaffolding should work offline (templates are bundled with the CLI) — only `bun add` needs network.
 - Idempotent — running `bun abs add react` when React is already configured prints a message and exits, doesn't break anything.

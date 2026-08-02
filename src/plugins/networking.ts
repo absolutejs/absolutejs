@@ -153,7 +153,7 @@ export const networking = <A extends AnyElysia>(app: A) => {
 		// Backend state HMR: restore the previous Elysia instance's
 		// `app.store` values for keys the new app also declares.
 		// `app.store` holds anything the user (or a plugin like
-		// `elysia-scoped-state`) put there via `.state(...)` — which
+		// `@absolutejs/scoped-state`) put there via `.state(...)` — which
 		// in dev was just `.state({scoped: {}})` initial values, so
 		// without this every entry edit reset all per-session data.
 		//

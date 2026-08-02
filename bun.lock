@@ -13,6 +13,7 @@
       },
       "devDependencies": {
         "@absolutejs/manifest": "0.7.2",
+        "@absolutejs/scoped-state": "0.1.4",
         "@angular/animations": "21.2.6",
         "@angular/cdk": "21.2.6",
         "@angular/common": "21.2.6",
@@ -44,7 +45,6 @@
         "bun-types": "1.3.14",
         "content-tag": "^4.1.1",
         "elysia": "1.4.29",
-        "elysia-scoped-state": "0.1.1",
         "ember-source": "^6.12.0",
         "eslint": "10.0.3",
         "eslint-plugin-absolute": "0.11.16",
@@ -279,6 +279,8 @@
     "@absolutejs/native-windows-arm64": ["@absolutejs/native-windows-arm64@0.19.0-beta.1008", "", { "os": "win32", "cpu": "arm64" }, "sha512-9jmCGG900P1WIKBZf5BwfVrReHkW5g7dxmx05H8llANQry9+kQYHNavvhZOuyYvymAa5DFOaIVHGg7opBi/MDg=="],
 
     "@absolutejs/native-windows-x64": ["@absolutejs/native-windows-x64@0.19.0-beta.1008", "", { "os": "win32", "cpu": "x64" }, "sha512-mXIL6AzV0gznwXz6gF+dtT4DIwxKMriF+WYxcjAPlf4xWD0S3ZS8jafHwQXi0RJn0pIX4TIIOhRz0JnVlka3zA=="],
+
+    "@absolutejs/scoped-state": ["@absolutejs/scoped-state@0.1.4", "", { "dependencies": { "@absolutejs/manifest": "^0.4.0", "@sinclair/typebox": "^0.34.0" } }, "sha512-CPU9CEUAXzyiuQgzmSj8L4OZgX6urPqhHamcGRA3rNsWZv3STE9QXtDdbpKcrSYS8znicZrNw2p+y1SAfCTPBg=="],
 
     "@adobe/css-tools": ["@adobe/css-tools@4.3.3", "", {}, "sha512-rE0Pygv0sEZ4vBWHlAgJLGDU7Pm8xoO6p3wsEceb7GYAjScrOHpEo8KK/eVkAcnSM+slAEtXjA2JpdjLp4fJQQ=="],
 
@@ -926,8 +928,6 @@
 
     "elysia": ["elysia@1.4.29", "", { "dependencies": { "cookie": "^1.1.1", "exact-mirror": "^0.2.7", "fast-decode-uri-component": "^1.0.1", "memoirist": "^0.4.0" }, "peerDependencies": { "@sinclair/typebox": ">= 0.34.0 < 1", "@types/bun": ">= 1.2.0", "file-type": ">= 20.0.0", "openapi-types": ">= 12.0.0", "typescript": ">= 5.0.0" }, "optionalPeers": ["@types/bun", "typescript"] }, "sha512-GwMRGGwSdjfPt+w3LA0fqTuYJtS8uVRJicvoar98/HrO5qdFKDc9CwjIb6Kja+v39lkY+58hr2JvdR9jQzlUuA=="],
 
-    "elysia-scoped-state": ["elysia-scoped-state@0.1.1", "", {}, "sha512-kkkMgnHUOqgODkgKr64JIl6i1dr2X8KxxohfrSF7Q4KQ4hpdIY+FJygvN2tHkYOusH8lm04oxNLmIVutEtN6FA=="],
-
     "ember-cli-babel": ["ember-cli-babel@8.3.1", "", { "dependencies": { "@babel/helper-compilation-targets": "^7.20.7", "@babel/plugin-proposal-decorators": "^7.20.13", "@babel/plugin-transform-class-properties": "^7.16.5", "@babel/plugin-transform-class-static-block": "^7.22.11", "@babel/plugin-transform-modules-amd": "^7.20.11", "@babel/plugin-transform-private-methods": "^7.16.5", "@babel/plugin-transform-private-property-in-object": "^7.20.5", "@babel/plugin-transform-runtime": "^7.13.9", "@babel/plugin-transform-typescript": "^7.20.13", "@babel/preset-env": "^7.20.2", "@babel/runtime": "7.12.18", "amd-name-resolver": "^1.3.1", "babel-plugin-debug-macros": "^0.3.4", "babel-plugin-ember-data-packages-polyfill": "^0.1.2", "babel-plugin-ember-modules-api-polyfill": "^3.5.0", "babel-plugin-module-resolver": "^5.0.0", "broccoli-babel-transpiler": "^8.0.0", "broccoli-debug": "^0.6.4", "broccoli-funnel": "^3.0.8", "broccoli-source": "^3.0.1", "calculate-cache-key-for-tree": "^2.0.0", "clone": "^2.1.2", "ember-cli-babel-plugin-helpers": "^1.1.1", "ember-cli-version-checker": "^5.1.2", "ensure-posix-path": "^1.0.2", "resolve-package-path": "^4.0.3", "semver": "^7.3.8" }, "peerDependencies": { "@babel/core": "^7.12.0" } }, "sha512-Pxm5JP0jQ6fCBlXuh1BFmhrg2/5YXjhf16JI/n8ReOR6Nl+fEbudMpdO69LlqZRsMmTgdjCRmfSxMh26Wsw/rw=="],
 
     "ember-cli-babel-plugin-helpers": ["ember-cli-babel-plugin-helpers@1.1.1", "", {}, "sha512-sKvOiPNHr5F/60NLd7SFzMpYPte/nnGkq/tMIfXejfKHIhaiIkYFqX8Z9UFTKWLLn+V7NOaby6niNPZUdvKCRw=="],
@@ -1483,6 +1483,8 @@
     "zustand": ["zustand@5.0.12", "", { "peerDependencies": { "@types/react": ">=18.0.0", "immer": ">=9.0.6", "react": ">=18.0.0", "use-sync-external-store": ">=1.2.0" }, "optionalPeers": ["@types/react", "immer", "react", "use-sync-external-store"] }, "sha512-i77ae3aZq4dhMlRhJVCYgMLKuSiZAaUPAct2AksxQ+gOtimhGMdXljRT21P5BNpeT4kXlLIckvkPM029OljD7g=="],
 
     "@absolutejs/fixture-compile-dependency-assets/compile-asset-package": ["compile-asset-package@file:tests/fixtures/_packages/compile-asset-package", {}],
+
+    "@absolutejs/scoped-state/@absolutejs/manifest": ["@absolutejs/manifest@0.4.0", "", { "peerDependencies": { "@sinclair/typebox": "^0.34.0" }, "bin": { "absolute-manifest": "dist/cli.js" } }, "sha512-hhgUMB2Q9+m2BxL7D9fITQfCtYJTwA1IC1jZIFFvz6ESUz4FV2OlvR8q95Dk3xn+TVrSihTitia9VIXD2hD5QA=="],
 
     "@babel/core/convert-source-map": ["convert-source-map@2.0.0", "", {}, "sha512-Kvp459HrV2FEJ1CAsi1Ku+MY3kasH19TFykTz2xWmMeq6bk2NU3XXvfJ+Q61m0xktWwt+1HSYf3JZsTms3aRJg=="],
 

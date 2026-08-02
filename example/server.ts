@@ -1,5 +1,5 @@
-import { Elysia } from 'elysia';
-import { scopedState } from 'elysia-scoped-state';
+import { Elysia, type AnyElysia } from 'elysia';
+import { scopedState } from '@absolutejs/scoped-state';
 import type * as AngularExamplePage from './angular/pages/angular-example';
 import type SvelteExample from './svelte/pages/SvelteExample.svelte';
 import type SpaShell from './vue/pages/SpaShell.vue';
@@ -21,7 +21,7 @@ import { handleVuePageRequest } from '../src/vue';
 
 const { absolutejs, manifest } = await prepare();
 
-export const server = new Elysia()
+export const server: AnyElysia = new Elysia()
 	.use(absolutejs)
 	.use(
 		scopedState({
