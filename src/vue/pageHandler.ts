@@ -264,12 +264,17 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 			};
 
 			const resolvedPage = await resolvePageComponent();
-			const { createSSRApp, h } = await import('vue');
+			const { createSSRApp } = await import('vue');
 			const { renderToWebStream } = await import('vue/server-renderer');
 
-			const app = createSSRApp({
-				render: () => h(resolvedPage.component, maybeProps ?? null)
-			});
+			// Match the generated client entry exactly: both sides must use the
+			// page component itself as the app root. Wrapping it in an extra server-
+			// only render component changes Vue's fragment boundaries for multi-root
+			// pages and makes hydration walk into scripts after #root.
+			const app = createSSRApp(
+				resolvedPage.component,
+				maybeProps ?? null
+			);
 
 			let pendingRedirect: { location: string; status: number } | null =
 				null;
