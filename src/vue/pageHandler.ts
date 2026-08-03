@@ -1,8 +1,5 @@
 import type { Component as VueComponent } from 'vue';
-import { readdir } from 'node:fs/promises';
-import { basename, dirname } from 'node:path';
 import type { VuePropsOf, VueSetupApp } from '../../types/vue';
-import { EXCLUDE_LAST_OFFSET } from '../constants';
 import { injectInlineCss, readSiblingCss } from '../utils/inlinePageCss';
 import { resolveSpaChildCss } from '../utils/spaRouteCss';
 import { renderSpaNotFound } from '../utils/spaRouteManifest';
@@ -26,6 +23,7 @@ import {
 	renderFirstNotFound,
 	renderConventionError
 } from '../utils/resolveConvention';
+import { resolveGeneratedVueModulePath } from './resolveGeneratedVueModulePath';
 
 type VuePageRenderOptions = StreamingSlotEnhancerOptions & {
 	collectStreamingSlots?: boolean;
@@ -101,32 +99,6 @@ const readHasSpaRoutes = (value: unknown) =>
 
 const readDefaultExport = (value: unknown) =>
 	isRecord(value) ? value.default : undefined;
-
-const resolveCurrentGeneratedVueModulePath = async (pagePath: string) => {
-	const pageDirectory = dirname(pagePath);
-	const expectedPrefix = `${basename(pagePath, '.js').split('.')[0]}.`;
-
-	try {
-		const pageEntries = await readdir(pageDirectory, {
-			withFileTypes: true
-		});
-		const matchingEntry = pageEntries.find(
-			(entry) =>
-				entry.isFile() &&
-				entry.name.endsWith('.js') &&
-				(entry.name ===
-					`${expectedPrefix.slice(0, EXCLUDE_LAST_OFFSET)}.js` ||
-					entry.name.startsWith(expectedPrefix))
-		);
-		if (!matchingEntry) {
-			return pagePath;
-		}
-
-		return `${pageDirectory}/${matchingEntry.name}`;
-	} catch {
-		return pagePath;
-	}
-};
 
 const resolveRequestRenderUrl = (request: Request | undefined) => {
 	if (!request) return '/';
@@ -241,9 +213,7 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 				}
 
 				const generatedPagePath =
-					await resolveCurrentGeneratedVueModulePath(
-						resolvedPagePath
-					);
+					await resolveGeneratedVueModulePath(resolvedPagePath);
 				const importedPageModule: unknown = await import(
 					generatedPagePath
 				);
