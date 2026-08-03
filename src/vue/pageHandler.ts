@@ -1,4 +1,5 @@
 import type { Component as VueComponent } from 'vue';
+import type { SSRContext } from 'vue/server-renderer';
 import type { VuePropsOf, VueSetupApp } from '../../types/vue';
 import { injectInlineCss, readSiblingCss } from '../utils/inlinePageCss';
 import { resolveSpaChildCss } from '../utils/spaRouteCss';
@@ -24,6 +25,10 @@ import {
 	renderConventionError
 } from '../utils/resolveConvention';
 import { resolveGeneratedVueModulePath } from './resolveGeneratedVueModulePath';
+import {
+	ABSOLUTE_TELEPORT_TARGET,
+	ABSOLUTE_TELEPORT_TARGET_ID
+} from './teleports';
 
 type VuePageRenderOptions = StreamingSlotEnhancerOptions & {
 	collectStreamingSlots?: boolean;
@@ -294,17 +299,26 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 				);
 			}
 
+			const ssrContext: SSRContext = {};
 			const head = `<!DOCTYPE html><html>${resolvedHeadTag}<body><div id="root">`;
 			const ssrOnlyHmrShim =
 				clientMode === 'none' && process.env.NODE_ENV === 'development'
 					? await getSsrOnlyHmrShim()
 					: '';
-			const tail =
-				clientMode === 'none'
-					? `</div>${ssrOnlyHmrShim}</body></html>`
-					: `</div><script>window.__INITIAL_PROPS__=${JSON.stringify(
+			const buildTail = () => {
+				// Vue collects SSR Teleport output separately from the page stream.
+				// A dedicated target outside #root gives hydration an unambiguous
+				// first anchor while preserving streaming for the page body.
+				const teleports =
+					ssrContext.teleports?.[ABSOLUTE_TELEPORT_TARGET] ?? '';
+				const teleportHost = `<div id="${ABSOLUTE_TELEPORT_TARGET_ID}">${teleports}</div>`;
+
+				return clientMode === 'none'
+					? `</div>${teleportHost}${ssrOnlyHmrShim}</body></html>`
+					: `</div>${teleportHost}<script>window.__INITIAL_PROPS__=${JSON.stringify(
 							maybeProps ?? {}
 						)}</script><script type="module" src="${resolvedIndexPath}"></script></body></html>`;
+			};
 
 			// SPA-shell page with a client bundle: ship an EMPTY #root. The client
 			// boots with createApp and renders from scratch, so any SSR body here
@@ -312,12 +326,12 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 			// + client mount). Server-side setupApp already ran above (redirects);
 			// we just skip the throwaway render. Non-SPA pages keep SSR + hydrate.
 			if (resolvedPage.hasSpaRoutes && clientMode === 'auto') {
-				return new Response(`${head}${tail}`, {
+				return new Response(`${head}${buildTail()}`, {
 					headers: { 'Content-Type': 'text/html' }
 				});
 			}
 
-			const bodyStream = renderToWebStream(app);
+			const bodyStream = renderToWebStream(app, ssrContext);
 			const { firstChunk, reader } = await primeVueStream(bodyStream);
 
 			const stream = new ReadableStream({
@@ -327,7 +341,7 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 						controller.enqueue(firstChunk.value);
 					}
 					if (firstChunk.done) {
-						controller.enqueue(tail);
+						controller.enqueue(buildTail());
 						controller.close();
 
 						return;
@@ -337,7 +351,7 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 							.read()
 							.then(({ done, value }) =>
 								done
-									? (controller.enqueue(tail),
+									? (controller.enqueue(buildTail()),
 										controller.close())
 									: (controller.enqueue(value), pumpLoop())
 							)
