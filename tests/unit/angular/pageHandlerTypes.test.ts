@@ -113,5 +113,7 @@ describe('Angular page handler types', () => {
 		`);
 
 		expect(diagnostics).toEqual([]);
-	}, 15_000);
+		// Spawning tsc takes ~10s alone but 16s+ while the release gate runs
+		// its stages in parallel; 15s flaked the gate under that contention.
+	}, 60_000);
 });
