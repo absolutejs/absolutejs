@@ -156,6 +156,26 @@ type ModuleServerConfig = {
 
 const escapeRegex = (str: string) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+/* The rewrite regexes below cannot tell a real import statement from
+   import-looking text inside a string literal (e.g. documentation sites
+   embedding code samples in template literals — any `from 'pkg'` in the
+   sample was rewritten to a /@src/ dev URL, corrupting the displayed code
+   and breaking SSR hydration). Gate every rewrite on the set of specifiers
+   the native parser reports as actual imports of the file: a specifier
+   that only appears inside a string is not in the set and is left alone. */
+const importScanTranspiler = new Bun.Transpiler({ loader: 'tsx' });
+
+const scanRealImportSpecifiers = (code: string) => {
+	try {
+		return new Set(
+			importScanTranspiler.scanImports(code).map((entry) => entry.path)
+		);
+	} catch {
+		// Unparseable content — disable the gate and rewrite as before.
+		return null;
+	}
+};
+
 const buildImportRewriter = (vendorPaths: Record<string, string>) => {
 	const entries = Object.entries(vendorPaths).sort(
 		([a], [b]) => b.length - a.length
@@ -311,6 +331,10 @@ const rewriteImports = (
 ) => {
 	let result = code;
 
+	const realSpecifiers = scanRealImportSpecifiers(code);
+	const isRealImport = (specifier: string) =>
+		realSpecifiers === null || realSpecifiers.has(specifier);
+
 	// Step 1: Rewrite KNOWN vendor specifiers in a single pass.
 	const vendorReplace = (
 		_match: string,
@@ -318,6 +342,7 @@ const rewriteImports = (
 		specifier: string,
 		suffix: string
 	) => {
+		if (!isRealImport(specifier)) return _match;
 		const webPath = rewriter?.lookup.get(specifier);
 
 		return webPath ? `${prefix}${webPath}${suffix}` : _match;
@@ -339,6 +364,8 @@ const rewriteImports = (
 		// Skip if already rewritten to a path
 		if (specifier.startsWith('/') || specifier.startsWith('.'))
 			return _match;
+
+		if (!isRealImport(specifier)) return _match;
 
 		// Try to resolve every bare specifier to a real node_modules path
 		// before falling back to a no-op stub. The stub fallback is for
@@ -377,21 +404,27 @@ const rewriteImports = (
 	result = result.replace(
 		/(from\s*["'])(\.\.?\/[^"']+)(["'])/g,
 		(_match, prefix, relPath, suffix) =>
-			`${prefix}${resolveRelativeImport(relPath, fileDir, projectRoot, IMPORT_EXTENSIONS)}${suffix}`
+			isRealImport(relPath)
+				? `${prefix}${resolveRelativeImport(relPath, fileDir, projectRoot, IMPORT_EXTENSIONS)}${suffix}`
+				: _match
 	);
 
 	// Rewrite dynamic relative imports
 	result = result.replace(
 		/(import\s*\(\s*["'])(\.\.?\/[^"']+)(["']\s*\))/g,
 		(_match, prefix, relPath, suffix) =>
-			`${prefix}${resolveRelativeImport(relPath, fileDir, projectRoot, IMPORT_EXTENSIONS)}${suffix}`
+			isRealImport(relPath)
+				? `${prefix}${resolveRelativeImport(relPath, fileDir, projectRoot, IMPORT_EXTENSIONS)}${suffix}`
+				: _match
 	);
 
 	// Rewrite side-effect relative imports: import './foo'
 	result = result.replace(
 		/(import\s*["'])(\.\.?\/[^"']+)(["']\s*;?)/g,
 		(_match, prefix, relPath, suffix) =>
-			`${prefix}${resolveRelativeImport(relPath, fileDir, projectRoot, SIDE_EFFECT_EXTENSIONS)}${suffix}`
+			isRealImport(relPath)
+				? `${prefix}${resolveRelativeImport(relPath, fileDir, projectRoot, SIDE_EFFECT_EXTENSIONS)}${suffix}`
+				: _match
 	);
 
 	// Rewrite absolute filesystem paths (from generated index files that
