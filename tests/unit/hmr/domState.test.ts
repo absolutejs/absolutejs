@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterAll, afterEach, describe, expect, test } from 'bun:test';
 import { GlobalRegistrator } from '@happy-dom/global-registrator';
 
 // Preserve Bun's native fetch before happy-dom overwrites it
@@ -14,6 +14,10 @@ globalThis.fetch = nativeFetch;
 globalThis.Request = nativeRequest;
 globalThis.Response = nativeResponse;
 globalThis.Headers = nativeHeaders;
+
+// Unregister so later test files (e.g. vue/pageHandlerHydration) can
+// register their own happy-dom instance without a double-register error.
+afterAll(() => GlobalRegistrator.unregister());
 
 import {
 	saveDOMState,
