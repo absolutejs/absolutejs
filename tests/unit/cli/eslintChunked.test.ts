@@ -157,3 +157,18 @@ describe('ruleSummary', () => {
 		expect(summary).toContain('1  no-magic-numbers');
 	});
 });
+
+describe('resolveLintSet via eslintChunked inputs', () => {
+	test('gitVisibleFiles still lists worktree-deleted tracked files (the runner must filter them)', async () => {
+		const repo = await gitRepo();
+		await writeFile(join(repo, 'gone.ts'), 'export const gone = 1;\n');
+		git(repo, ['add', '.']);
+		git(repo, ['commit', '-m', 'seed']);
+		const { rm } = await import('node:fs/promises');
+		await rm(join(repo, 'gone.ts'));
+
+		// Documents the git behaviour the existsSync filter defends against.
+		expect(gitVisibleFiles(repo)).toContain('gone.ts');
+		expect(gitChangedFiles(repo, null).has('gone.ts')).toBe(true);
+	});
+});

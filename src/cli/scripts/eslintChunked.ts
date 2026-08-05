@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { relative, resolve } from 'node:path';
 import {
 	createEslintCacheFingerprint,
@@ -121,7 +122,9 @@ const resolveLintSet = (parsed: ChunkedArgs, cwd: string) => {
 			? visible.filter((file) => LINTABLE_EXTENSIONS.test(file))
 			: visible.filter((file) => matchesAnyGlob(file, parsed.globs));
 
-	return matched.sort();
+	// `ls-files --cached` (and porcelain ` D` lines) still list files deleted
+	// from the worktree — passing those to ESLint is a hard error.
+	return matched.filter((file) => existsSync(resolve(cwd, file))).sort();
 };
 
 const buildShardChunks = (
