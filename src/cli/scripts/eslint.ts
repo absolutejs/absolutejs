@@ -487,6 +487,22 @@ export const eslint = async (args: string[]) => {
 		return;
 	}
 
+	// Chunked orchestration for repos whose type-aware program can't fit in
+	// one ESLint process — fresh per-chunk processes, sharded fingerprinted
+	// caches, optional --changed mode, aggregated report. See eslintChunked.
+	if (args.includes('--chunked')) {
+		if (!existsSync(resolve('node_modules', '.bin', 'eslint'))) {
+			console.error(
+				'\x1b[31m✗\x1b[0m ESLint is not installed in this project. Add it (and a flat `eslint.config.*`): bun add -d eslint'
+			);
+			process.exit(1);
+		}
+		const { eslintChunked } = await import('./eslintChunked');
+		await eslintChunked(args);
+
+		return;
+	}
+
 	// `bun eslint` would otherwise fail with a cryptic `Script not found
 	// "eslint"` when the project hasn't installed ESLint. Surface an
 	// actionable message instead (mirrors the typecheck checker hints).
