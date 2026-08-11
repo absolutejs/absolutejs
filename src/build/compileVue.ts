@@ -166,10 +166,25 @@ export const generateVueHmrId = (sourceFilePath: string, vueRootDir: string) =>
 		.replace(/\\/g, '/')
 		.replace(/\.vue$/, '');
 
-const extractImports = (sourceCode: string) =>
-	Array.from(sourceCode.matchAll(/import\s+[\s\S]+?['"]([^'"]+)['"]/g))
-		.map((match) => match[1])
-		.filter((importPath): importPath is string => importPath !== undefined);
+const extractImports = (sourceCode: string) => {
+	const staticImports = Array.from(
+		sourceCode.matchAll(/import\s+[\s\S]+?['"]([^'"]+)['"]/g)
+	);
+	const dynamicImports = Array.from(
+		sourceCode.matchAll(/\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g)
+	);
+
+	return Array.from(
+		new Set(
+			[...staticImports, ...dynamicImports]
+				.map((match) => match[1])
+				.filter(
+					(importPath): importPath is string =>
+						importPath !== undefined
+				)
+		)
+	);
+};
 
 // Inline `@import "rel.css"` / `@import url("rel.css")` statements in a
 // Vue <style> block by reading the referenced file and embedding its

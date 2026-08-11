@@ -9,6 +9,62 @@ const writeTempFile = async (path: string, content: string) => {
 };
 
 describe('compileVue', () => {
+	test('compiles Vue components referenced only by literal dynamic imports', async () => {
+		const root = await mkdtemp(join(tmpdir(), 'absolutejs-compile-vue-'));
+		const pagePath = join(root, 'LazyPage.vue');
+		const childPath = join(root, 'components', 'LazyPanel.vue');
+
+		try {
+			await Promise.all([
+				writeTempFile(
+					pagePath,
+					`<script setup lang="ts">
+import { defineAsyncComponent } from 'vue';
+
+const LazyPanel = defineAsyncComponent(
+  () => import('./components/LazyPanel.vue'),
+);
+</script>
+
+<template><LazyPanel /></template>`
+				),
+				writeTempFile(
+					childPath,
+					'<template><aside>Loaded lazily</aside></template>'
+				)
+			]);
+
+			const { vueClientPaths, vueServerPaths } = await compileVue(
+				[pagePath],
+				root,
+				false
+			);
+			const clientEntry = vueClientPaths.find((path) =>
+				path.endsWith('LazyPage.js')
+			);
+			const serverEntry = vueServerPaths.find((path) =>
+				path.endsWith('LazyPage.js')
+			);
+			expect(clientEntry).toBeDefined();
+			expect(serverEntry).toBeDefined();
+
+			for (const entry of [clientEntry, serverEntry]) {
+				if (!entry) continue;
+				const entrySource = await Bun.file(entry).text();
+				expect(entrySource).toContain(
+					'import("./components/LazyPanel.js")'
+				);
+				expect(
+					await Bun.file(
+						join(entry, '..', 'components', 'LazyPanel.js')
+					).exists()
+				).toBe(true);
+			}
+		} finally {
+			await rm(root, { force: true, recursive: true });
+		}
+	});
+
 	test('resolves inherited props from imported TypeScript interfaces', async () => {
 		const root = await mkdtemp(join(tmpdir(), 'absolutejs-compile-vue-'));
 		const pagePath = join(root, 'ImportedProps.vue');
