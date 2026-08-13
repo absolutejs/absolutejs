@@ -65,6 +65,46 @@ const tsxTranspiler = new Bun.Transpiler({
 
 const TRANSPILABLE = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs']);
 
+// Prebuilt `.js`/`.mjs` shipped by a dependency is already browser-valid
+// ESM: there is no TypeScript to strip and no JSX to compile, so the only
+// thing it needs from us is import-specifier rewriting.
+//
+// Running it through Bun.Transpiler anyway is not merely wasted work, it is
+// destructive. As of Bun 1.3.14 the transpiler constant-folds
+// `typeof require !== "undefined"` to TRUE — even with `target: 'browser'` —
+// and then drops the dead branches. That rewrites the standard esbuild/Bun
+// `__require` interop shim, which every bundler emits and guards exactly so
+// it is safe in a browser:
+//
+//   var __require = ((x) => typeof require !== "undefined" ? require : …)(…)
+//
+// into an unguarded `var __require = ((x) => require)(…)`, which throws
+// `ReferenceError: require is not defined` the moment the module is
+// evaluated in the browser. `Bun.build` leaves the same shim alone, so this
+// only ever broke the dev server while production bundles were fine.
+// Upstream: oven-sh/bun#38202.
+//
+// The shim reaches a browser bundle in the first place because Bun emits an
+// unused `__require` polyfill for any file containing a dynamic `import()`
+// (oven-sh/bun#12615, fix PR oven-sh/bun#35579). Skipping the transpiler here
+// is the right call regardless of how that lands: prebuilt ESM needs no
+// transform, so the pass was pure downside.
+const NODE_MODULES_SEGMENT = /[/\\]node_modules[/\\]/u;
+const PREBUILT_EXTENSIONS = new Set(['.js', '.mjs']);
+// A top-level `import`/`export` is definitive proof the file is ESM. Files
+// without one (CommonJS, or a bare side-effect script) keep the old path.
+// The character class covers minified output too, where the specifier butts
+// straight against the keyword: `import"./chunk.js";` / `export*from"./x"`.
+const ESM_SYNTAX = /^\s*(?:import|export)[\s{*("']/mu;
+const isPrebuiltDependencyModule = (
+	filePath: string,
+	ext: string,
+	raw: string
+) =>
+	PREBUILT_EXTENSIONS.has(ext) &&
+	NODE_MODULES_SEGMENT.test(filePath) &&
+	ESM_SYNTAX.test(raw);
+
 // Regex to find all export names in original TypeScript source
 const ALL_EXPORTS_RE =
 	/export\s+(?:type|interface|const|let|var|function|class|enum|abstract\s+class)\s+(\w+)/g;
@@ -657,6 +697,13 @@ const transformPlainFile = (
 	const ext = extname(filePath);
 	const isTS = ext === '.ts' || ext === '.tsx';
 	const isTSX = ext === '.tsx' || ext === '.jsx';
+
+	// Serve a dependency's prebuilt ESM verbatim — rewrite its imports and
+	// nothing else. See isPrebuiltDependencyModule for why transpiling it
+	// corrupts interop shims.
+	if (isPrebuiltDependencyModule(filePath, ext, raw)) {
+		return rewriteImports(raw, filePath, projectRoot, rewriter);
+	}
 
 	let transpiler = jsTranspiler;
 	if (isTSX) transpiler = tsxTranspiler;
