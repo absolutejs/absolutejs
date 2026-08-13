@@ -23,10 +23,11 @@ import {
  *    owns its own cache file. Chunks within a shard run sequentially, shards
  *    run in parallel — two processes never write one cache file.
  *  - Every shard cache is guarded by the toolchain fingerprint
- *    (`prepareEslintCache`): config text + the INSTALLED manifests of every
- *    lint-related dependency. Plugin upgrades — or node_modules drifting from
- *    the lockfile — drop the caches instead of silently reusing stale
- *    verdicts.
+ *    (`prepareEslintCache`): the INSTALLED manifests of every lint-related
+ *    dependency. Plugin upgrades — or node_modules drifting from the lockfile
+ *    — drop the caches instead of silently reusing stale verdicts. Config
+ *    edits do not: ESLint's own cache hashes each file's calculated config, so
+ *    it re-lints exactly the files that override touched.
  *  - `--changed` lints only files that differ from the branch's upstream (or
  *    `--changed-base <ref>`) plus anything staged/unstaged/untracked.
  *    Porcelain status lines are parsed per line WITHOUT trimming their
@@ -126,6 +127,15 @@ const resolveLintSet = (parsed: ChunkedArgs, cwd: string) => {
 	// from the worktree — passing those to ESLint is a hard error.
 	return matched.filter((file) => existsSync(resolve(cwd, file))).sort();
 };
+
+/**
+ * The exact set of files an `absolute eslint --chunked` invocation lints,
+ * resolved through the same glob semantics the run itself uses. `--changed` is
+ * deliberately ignored: callers that attest to a run (the lint proof) must
+ * cover the whole lint set, not one diff's slice of it.
+ */
+export const resolveLintTargets = (args: string[], cwd = process.cwd()) =>
+	resolveLintSet(parseChunkedArgs(args), cwd);
 
 const buildShardChunks = (
 	files: string[],

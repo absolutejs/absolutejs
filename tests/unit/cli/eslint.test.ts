@@ -75,7 +75,7 @@ describe('ESLint cache contract', () => {
 		);
 	});
 
-	test('invalidates only when configuration or the lint toolchain changes', async () => {
+	test('invalidates on installed lint toolchain changes', async () => {
 		const cwd = await project();
 		const cacheLocation = '.absolutejs/eslint-cache';
 		prepareEslintCache({ cacheLocation, cwd });
@@ -86,10 +86,37 @@ describe('ESLint cache contract', () => {
 		);
 		expect(prepareEslintCache({ cacheLocation, cwd })).toBeTrue();
 		expect(await Bun.file(join(cwd, cacheLocation)).exists()).toBeFalse();
-		await writeFile(join(cwd, cacheLocation), 'cached-again');
+	});
+
+	// Rule edits are ESLint's job: it stores a hash of each file's CALCULATED
+	// config per cache entry, so it re-lints exactly the files an override
+	// touched. Dropping every shard cache here cost a whole-repo cold lint for
+	// a one-line change. A new plugin import is different — it can introduce
+	// rules — and still resets, via the config's dependency list.
+	test('keeps the cache across rule edits but not new plugin imports', async () => {
+		const cwd = await project();
+		const cacheLocation = '.absolutejs/eslint-cache';
+		prepareEslintCache({ cacheLocation, cwd });
+		await writeFile(join(cwd, cacheLocation), 'cached');
 		await writeFile(
 			join(cwd, 'eslint.config.mjs'),
 			'export default [{ rules: { eqeqeq: "off" } }];'
+		);
+		expect(prepareEslintCache({ cacheLocation, cwd })).toBeFalse();
+		expect(await readFile(join(cwd, cacheLocation), 'utf-8')).toBe(
+			'cached'
+		);
+
+		await mkdir(join(cwd, 'node_modules', 'eslint-plugin-added'), {
+			recursive: true
+		});
+		await writeFile(
+			join(cwd, 'node_modules', 'eslint-plugin-added', 'package.json'),
+			JSON.stringify({ name: 'eslint-plugin-added', version: '1.0.0' })
+		);
+		await writeFile(
+			join(cwd, 'eslint.config.mjs'),
+			'import added from "eslint-plugin-added";\nexport default [added.configs.all];'
 		);
 		expect(prepareEslintCache({ cacheLocation, cwd })).toBeTrue();
 		expect(await Bun.file(join(cwd, cacheLocation)).exists()).toBeFalse();

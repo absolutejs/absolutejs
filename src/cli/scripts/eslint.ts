@@ -103,7 +103,7 @@ const hasUserPositional = (args: string[]) => {
 	return false;
 };
 
-const findConfigPath = (cwd = process.cwd()) => {
+export const findEslintConfigPath = (cwd = process.cwd()) => {
 	for (const name of CONFIG_CANDIDATES) {
 		const candidate = resolve(cwd, name);
 		if (existsSync(candidate)) return candidate;
@@ -201,16 +201,43 @@ const findInstalledManifest = (cwd: string, dependency: string) => {
 	}
 };
 
+/**
+ * Guards the on-disk ESLint cache. Covers the INSTALLED manifests of every
+ * lint-related dependency — plugin and parser implementations are functions,
+ * so they vanish from the config object ESLint itself hashes, and an upgrade
+ * (or node_modules drifting from the lockfile) would otherwise reuse stale
+ * verdicts forever.
+ *
+ * Deliberately NOT the config file's text. ESLint already stores a hash of
+ * each file's *calculated* config in its own cache entry, so editing one
+ * `files:` override re-lints exactly the files whose computed config changed
+ * and leaves the rest hot. Mixing config text in here dropped every cached
+ * verdict in the repo for a one-line edit. The config's import list still
+ * feeds `lintDependencyNames`, so adding a plugin does reset the cache.
+ *
+ * The lint proof must fail closed on any config edit, so it hashes
+ * `createEslintConfigDigest` in on top of this.
+ */
 export const createEslintCacheFingerprint = (cwd = process.cwd()) => {
 	const hash = createHash('sha256');
 	hash.update(`absolute-eslint-cache:${CACHE_CONTRACT_VERSION}\0`);
-	const configPath = findConfigPath(cwd);
-	if (configPath)
-		addFileToFingerprint(hash, configPath, relative(cwd, configPath));
+	const configPath = findEslintConfigPath(cwd);
 	for (const dependency of lintDependencyNames(cwd, configPath).sort()) {
 		const manifestPath = findInstalledManifest(cwd, dependency);
 		if (manifestPath) addFileToFingerprint(hash, manifestPath, dependency);
 	}
+
+	return hash.digest('hex');
+};
+
+/** Digest of the flat-config file itself, for callers that must invalidate on
+ *  any config edit rather than defer to ESLint's per-file config hashing. */
+export const createEslintConfigDigest = (cwd = process.cwd()) => {
+	const hash = createHash('sha256');
+	hash.update(`absolute-eslint-config:${CACHE_CONTRACT_VERSION}\0`);
+	const configPath = findEslintConfigPath(cwd);
+	if (configPath)
+		addFileToFingerprint(hash, configPath, relative(cwd, configPath));
 
 	return hash.digest('hex');
 };
@@ -364,7 +391,7 @@ const extractTopLevelObjectLiterals = (source: string) => {
  *   { files: [...], rules } // one or more focused rule blocks
  */
 const checkForMisplacedIgnores = () => {
-	const configPath = findConfigPath();
+	const configPath = findEslintConfigPath();
 	if (!configPath) return;
 
 	let source: string;
@@ -465,7 +492,8 @@ export const buildEslintCommand = (args: string[], cacheLocation: string) => {
  *
  * - Caching: enabled by default with ESLint's content strategy, so Git
  *   operations that alter mtimes don't make unchanged files expensive.
- *   Installed lint-tool or config changes invalidate the cache automatically.
+ *   Installed lint-tool changes invalidate the cache automatically; config
+ *   edits are left to ESLint's own per-file config hashing.
  *   The cache location is overridable via `ABSOLUTE_ESLINT_CACHE`
  *   (default: `.absolutejs/eslint-cache`).
  * - Implicit lint target: `.` is appended only when the user hasn't

@@ -179,6 +179,61 @@ describe('lint proof', () => {
 		});
 	});
 
+	// The proof gates deploys, so hashing the whole working copy meant a README
+	// or image edit invalidated a green lint and forced a full re-run before
+	// shipping. A recognized `absolute eslint --chunked` command narrows the
+	// attested tree to the files it actually lints, plus the inputs that change
+	// results without being linted (flat config, tsconfig).
+	test('scopes the attested tree to the files the lint command covers', async () => {
+		const cwd = await project();
+		const command = [
+			'absolute',
+			'eslint',
+			'--chunked',
+			'src/**/*.ts',
+			'eslint.config.mjs'
+		];
+		await mkdir(join(cwd, 'src'), { recursive: true });
+		await writeFile(join(cwd, 'src', 'linted.ts'), 'export const a = 1;\n');
+		await writeFile(
+			join(cwd, 'tsconfig.json'),
+			'{ "compilerOptions": {} }\n'
+		);
+		await writeFile(join(cwd, 'README.md'), 'first\n');
+		writeLintProof(command, { cwd });
+
+		await writeFile(join(cwd, 'README.md'), 'second\n');
+		await writeFile(join(cwd, 'docs.txt'), 'unlinted\n');
+		expect(verifyLintProof(command, { cwd }).valid).toBeTrue();
+
+		await writeFile(join(cwd, 'src', 'linted.ts'), 'export const a = 2;\n');
+		expect(verifyLintProof(command, { cwd })).toEqual({
+			reason: 'source tree changed since lint passed',
+			valid: false
+		});
+
+		await writeFile(join(cwd, 'src', 'linted.ts'), 'export const a = 1;\n');
+		await writeFile(
+			join(cwd, 'tsconfig.json'),
+			'{ "compilerOptions": { "strict": true } }\n'
+		);
+		expect(verifyLintProof(command, { cwd })).toEqual({
+			reason: 'source tree changed since lint passed',
+			valid: false
+		});
+	});
+
+	test('still attests the whole tree for an unrecognized lint command', async () => {
+		const cwd = await project();
+		const command = ['bun', 'run', 'lint:raw'];
+		writeLintProof(command, { cwd });
+		await writeFile(join(cwd, 'README.md'), 'unlinted change\n');
+		expect(verifyLintProof(command, { cwd })).toEqual({
+			reason: 'source tree changed since lint passed',
+			valid: false
+		});
+	});
+
 	test('refuses to read a private signing key from the repository', async () => {
 		const cwd = await project();
 		const { privateKey } = generateKeyPairSync('ed25519');

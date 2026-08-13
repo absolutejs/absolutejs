@@ -18,11 +18,21 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, relative, resolve } from 'node:path';
-import { createEslintCacheFingerprint } from './eslint';
+import {
+	createEslintCacheFingerprint,
+	createEslintConfigDigest,
+	findEslintConfigPath
+} from './eslint';
+import { gitVisibleFiles, resolveLintTargets } from './eslintChunked';
 
 const DEFAULT_PROOF_LOCATION = '.absolutejs/lint-proof.json';
-const PROOF_CONTRACT_VERSION = 1;
+const PROOF_CONTRACT_VERSION = 2;
 const FLAG_NOT_FOUND = -1;
+const CHUNKED_FLAG = '--chunked';
+/** `tsconfig.json`, `tsconfig.build.json`, … — type-aware rules read these, so
+ *  they belong in the attested set even though ESLint never lints them. */
+const TSCONFIG_PATTERN = /(?:^|\/)tsconfig[^/]*\.json$/;
+const ABSOLUTE_BINARY = /(?:^|[\\/])absolute(?:\.[cm]?[jt]s|\.exe)?$/;
 
 type LintProofAttestation = {
 	algorithm: 'ed25519';
@@ -154,13 +164,64 @@ const stageFiles = (
 };
 
 /**
- * Build a Git tree from the complete working copy without modifying the real
- * index. Ignored files and the proof itself are excluded. Git performs its
- * normal clean filters, so the digest is stable across checkout platforms.
+ * The `absolute eslint --chunked` args inside a recorded lint command, or null
+ * when the command is anything else. Requires the token before `eslint` to be
+ * an `absolute` binary so an unrelated command that merely mentions ESLint
+ * can't narrow what the proof attests to.
+ */
+const eslintChunkedArgs = (command: string[]) => {
+	const index = command.indexOf('eslint');
+	if (index <= 0) return null;
+	const binary = command[index - 1];
+	if (binary === undefined || !ABSOLUTE_BINARY.test(binary)) return null;
+	const args = command.slice(index + 1);
+
+	return args.includes(CHUNKED_FLAG) ? args : null;
+};
+
+/**
+ * The files a recorded lint command actually inspects: its resolved lint set
+ * plus the inputs that silently change results (the flat config and any
+ * tsconfig feeding type-aware rules). Returns null when the command's file set
+ * can't be derived, so the proof falls back to attesting the whole tree.
+ *
+ * Scoping matters because the proof is the prod gate: hashing the entire
+ * working copy meant editing a README, a migration snapshot, or an image
+ * invalidated a perfectly good lint and forced a full re-run before shipping.
+ */
+const lintScopedFiles = (command: string[], root: string) => {
+	const args = eslintChunkedArgs(command);
+	if (args === null) return null;
+	const auxiliary = gitVisibleFiles(root).filter((file) =>
+		TSCONFIG_PATTERN.test(file)
+	);
+	const configPath = findEslintConfigPath(root);
+	const configRelative =
+		configPath === null
+			? null
+			: relative(root, configPath).replaceAll('\\', '/');
+
+	return [
+		...new Set([
+			...resolveLintTargets(args, root),
+			...auxiliary,
+			...(configRelative === null || configRelative.startsWith('../')
+				? []
+				: [configRelative])
+		])
+	].sort();
+};
+
+/**
+ * Build a Git tree from the files the lint command covers, without modifying
+ * the real index. Ignored files and the proof itself are excluded. Git
+ * performs its normal clean filters, so the digest is stable across checkout
+ * platforms.
  */
 export const createLintSourceTree = (
 	cwd = process.cwd(),
-	proofLocation = DEFAULT_PROOF_LOCATION
+	proofLocation = DEFAULT_PROOF_LOCATION,
+	command: string[] = []
 ) => {
 	const root = gitRoot(cwd);
 	const proofPath = resolve(cwd, proofLocation);
@@ -197,21 +258,29 @@ export const createLintSourceTree = (
 
 	try {
 		runGit(['read-tree', '--empty'], { cwd: root, env });
-		const files = runGit(
-			['ls-files', '--cached', '--others', '--exclude-standard', '-z'],
-			{ cwd: root }
-		)
-			.split('\0')
-			.filter((path) => {
-				if (!path || path === proofRelative) return false;
-				try {
-					lstatSync(resolve(root, path));
+		const scoped = lintScopedFiles(command, root);
+		const visible =
+			scoped ??
+			runGit(
+				[
+					'ls-files',
+					'--cached',
+					'--others',
+					'--exclude-standard',
+					'-z'
+				],
+				{ cwd: root }
+			).split('\0');
+		const files = visible.filter((path) => {
+			if (!path || path === proofRelative) return false;
+			try {
+				lstatSync(resolve(root, path));
 
-					return true;
-				} catch {
-					return false;
-				}
-			});
+				return true;
+			} catch {
+				return false;
+			}
+		});
 		stageFiles(files, root, env);
 
 		return runGit(['write-tree'], { cwd: root, env });
@@ -220,10 +289,18 @@ export const createLintSourceTree = (
 	}
 };
 
+/**
+ * The proof must fail closed on any config edit, so it pairs the cache
+ * fingerprint (installed lint toolchain) with the config file's own digest —
+ * the cache fingerprint deliberately omits config text so one override edit
+ * can't cost a whole-repo re-lint.
+ */
 const proofFingerprint = (cwd: string) =>
 	createHash('sha256')
 		.update(`absolute-lint-proof:${PROOF_CONTRACT_VERSION}\0`)
 		.update(createEslintCacheFingerprint(cwd))
+		.update('\0')
+		.update(createEslintConfigDigest(cwd))
 		.digest('hex');
 
 export const createLintProof = (
@@ -238,7 +315,7 @@ export const createLintProof = (
 		contractVersion: PROOF_CONTRACT_VERSION,
 		createdAt: new Date().toISOString(),
 		lintFingerprint: proofFingerprint(cwd),
-		sourceTree: createLintSourceTree(cwd, proofLocation)
+		sourceTree: createLintSourceTree(cwd, proofLocation, command)
 	};
 };
 
@@ -376,7 +453,7 @@ export const verifyLintProof = (
 			reason: 'ESLint configuration or toolchain changed',
 			valid: false
 		};
-	if (proof.sourceTree !== createLintSourceTree(cwd, proofLocation))
+	if (proof.sourceTree !== createLintSourceTree(cwd, proofLocation, command))
 		return {
 			reason: 'source tree changed since lint passed',
 			valid: false
