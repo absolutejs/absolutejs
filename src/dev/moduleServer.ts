@@ -24,7 +24,31 @@ import {
 
 const SRC_PREFIX = '/@src/';
 
+// Everything this server emits runs in a browser, where `require` is not a
+// global — so pin it to `undefined` for every transpile.
+//
+// Without this, Bun constant-folds `typeof require !== "undefined"` to TRUE
+// no matter what `target` says (oven-sh/bun#38202), then drops the dead
+// branches. That rewrites the standard esbuild/Bun `__require` interop shim,
+// which every bundler emits and guards exactly so it is browser-safe:
+//
+//   var __require = ((x) => typeof require !== "undefined" ? require : …)(…)
+//
+// into an unguarded `var __require = ((x) => require)(…)`, which throws
+// `ReferenceError: require is not defined` the moment the module is evaluated.
+// `Bun.build` leaves that shim alone, so this only ever broke the dev server
+// while production bundles were fine. Defining `require` makes the same guard
+// fold to the browser branch instead, which is what target:'browser' should
+// have done.
+//
+// `define` only substitutes FREE identifiers, so a local
+// `const require = createRequire(…)`, a `require` parameter, and a `.require`
+// property are all left alone.
+type BrowserDefine = { require: string };
+const BROWSER_DEFINE: BrowserDefine = { require: 'undefined' };
+
 const jsTranspiler = new Bun.Transpiler({
+	define: BROWSER_DEFINE,
 	loader: 'js',
 	trimUnusedImports: true
 });
@@ -52,58 +76,20 @@ const legacyDecoratorTsconfig = JSON.stringify({
 // Separate transpilers for .ts and .tsx — using 'tsx' for .ts files
 // causes parse errors on TypeScript generics like <T> (interpreted as JSX).
 const tsTranspiler = new Bun.Transpiler({
+	define: BROWSER_DEFINE,
 	loader: 'ts',
 	trimUnusedImports: true,
 	tsconfig: legacyDecoratorTsconfig
 });
 
 const tsxTranspiler = new Bun.Transpiler({
+	define: BROWSER_DEFINE,
 	loader: 'tsx',
 	trimUnusedImports: true,
 	tsconfig: legacyDecoratorTsconfig
 });
 
 const TRANSPILABLE = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs']);
-
-// Prebuilt `.js`/`.mjs` shipped by a dependency is already browser-valid
-// ESM: there is no TypeScript to strip and no JSX to compile, so the only
-// thing it needs from us is import-specifier rewriting.
-//
-// Running it through Bun.Transpiler anyway is not merely wasted work, it is
-// destructive. As of Bun 1.3.14 the transpiler constant-folds
-// `typeof require !== "undefined"` to TRUE — even with `target: 'browser'` —
-// and then drops the dead branches. That rewrites the standard esbuild/Bun
-// `__require` interop shim, which every bundler emits and guards exactly so
-// it is safe in a browser:
-//
-//   var __require = ((x) => typeof require !== "undefined" ? require : …)(…)
-//
-// into an unguarded `var __require = ((x) => require)(…)`, which throws
-// `ReferenceError: require is not defined` the moment the module is
-// evaluated in the browser. `Bun.build` leaves the same shim alone, so this
-// only ever broke the dev server while production bundles were fine.
-// Upstream: oven-sh/bun#38202.
-//
-// The shim reaches a browser bundle in the first place because Bun emits an
-// unused `__require` polyfill for any file containing a dynamic `import()`
-// (oven-sh/bun#12615, fix PR oven-sh/bun#35579). Skipping the transpiler here
-// is the right call regardless of how that lands: prebuilt ESM needs no
-// transform, so the pass was pure downside.
-const NODE_MODULES_SEGMENT = /[/\\]node_modules[/\\]/u;
-const PREBUILT_EXTENSIONS = new Set(['.js', '.mjs']);
-// A top-level `import`/`export` is definitive proof the file is ESM. Files
-// without one (CommonJS, or a bare side-effect script) keep the old path.
-// The character class covers minified output too, where the specifier butts
-// straight against the keyword: `import"./chunk.js";` / `export*from"./x"`.
-const ESM_SYNTAX = /^\s*(?:import|export)[\s{*("']/mu;
-const isPrebuiltDependencyModule = (
-	filePath: string,
-	ext: string,
-	raw: string
-) =>
-	PREBUILT_EXTENSIONS.has(ext) &&
-	NODE_MODULES_SEGMENT.test(filePath) &&
-	ESM_SYNTAX.test(raw);
 
 // Regex to find all export names in original TypeScript source
 const ALL_EXPORTS_RE =
@@ -590,6 +576,7 @@ type ReactTranspilerOptions = ConstructorParameters<
 };
 
 const reactTranspilerOptions: ReactTranspilerOptions = {
+	define: BROWSER_DEFINE,
 	loader: 'tsx',
 	reactFastRefresh: true,
 	trimUnusedImports: true
@@ -697,13 +684,6 @@ const transformPlainFile = (
 	const ext = extname(filePath);
 	const isTS = ext === '.ts' || ext === '.tsx';
 	const isTSX = ext === '.tsx' || ext === '.jsx';
-
-	// Serve a dependency's prebuilt ESM verbatim — rewrite its imports and
-	// nothing else. See isPrebuiltDependencyModule for why transpiling it
-	// corrupts interop shims.
-	if (isPrebuiltDependencyModule(filePath, ext, raw)) {
-		return rewriteImports(raw, filePath, projectRoot, rewriter);
-	}
 
 	let transpiler = jsTranspiler;
 	if (isTSX) transpiler = tsxTranspiler;
