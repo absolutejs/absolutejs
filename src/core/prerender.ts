@@ -134,6 +134,7 @@ export const rerenderRoute = async (
 		if (!res.ok) return false;
 
 		const html = await res.text();
+		if (!isCompleteHtml(html)) return false;
 		const fileName = routeToFilename(route);
 		const filePath = join(prerenderDir, fileName);
 		await Bun.write(filePath, html);
@@ -175,6 +176,11 @@ const prerenderRoute = async (
 	}
 
 	const html = await res.text();
+	if (!isCompleteHtml(html)) {
+		log?.(`  Failed to pre-render ${route} (incomplete HTML document)`);
+
+		return;
+	}
 	const fileName = routeToFilename(route);
 	const filePath = join(prerenderDir, fileName);
 	await Bun.write(filePath, html);
@@ -247,6 +253,10 @@ const fetchWithTimeout = (url: string, init: RequestInit = {}) =>
 		...init,
 		signal: init.signal ?? AbortSignal.timeout(getFetchTimeoutMs())
 	});
+
+const isCompleteHtml = (html: string) =>
+	!/^(?:\uFEFF)?\s*<!doctype\s+html\b/i.test(html) ||
+	/<\/html>\s*$/i.test(html);
 
 /** Poll the server until it responds or startup timeout elapses */
 const waitForServerReady = async (port: number) => {

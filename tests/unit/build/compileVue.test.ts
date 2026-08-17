@@ -1,7 +1,10 @@
 import { rm, mkdtemp } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { pathToFileURL } from 'node:url';
 import { describe, expect, test } from 'bun:test';
+import { createSSRApp } from 'vue';
+import { renderToString } from 'vue/server-renderer';
 import { compileVue } from '../../../src/build/compileVue';
 
 const writeTempFile = async (path: string, content: string) => {
@@ -60,6 +63,75 @@ const LazyPanel = defineAsyncComponent(
 					).exists()
 				).toBe(true);
 			}
+		} finally {
+			await rm(root, { force: true, recursive: true });
+		}
+	});
+
+	test('SSR-renders setup state from a dynamically imported Vue component after the production server bundle', async () => {
+		const root = await mkdtemp(join(tmpdir(), 'absolutejs-compile-vue-'));
+		const pagePath = join(root, 'LazyPage.vue');
+		const childPath = join(root, 'components', 'LazyPanel.vue');
+
+		try {
+			await Promise.all([
+				writeTempFile(
+					pagePath,
+					`<script setup lang="ts">
+import { defineAsyncComponent } from 'vue';
+
+const LazyPanel = defineAsyncComponent({
+  loader: () => import('./components/LazyPanel.vue'),
+});
+</script>
+
+<template><main><LazyPanel /><footer>complete page</footer></main></template>`
+				),
+				writeTempFile(
+					childPath,
+					`<script setup lang="ts">
+import { ref } from 'vue';
+
+const selectedIndex = ref<number | null>(null);
+const rows = [{ name: 'first row' }];
+</script>
+
+<template>
+  <section>
+    <p>lazy setup rendered</p>
+    <dialog v-if="selectedIndex !== null">{{ rows[selectedIndex].name }}</dialog>
+  </section>
+</template>`
+				)
+			]);
+
+			const { vueServerPaths } = await compileVue([pagePath], root, false);
+			const serverEntry = vueServerPaths.find((path) =>
+				path.endsWith('LazyPage.js')
+			);
+			expect(serverEntry).toBeDefined();
+			if (!serverEntry) return;
+
+			const bundled = await Bun.build({
+				entrypoints: [serverEntry],
+				outdir: join(root, 'bundle'),
+				target: 'bun'
+			});
+			expect(bundled.success).toBe(true);
+			const output = bundled.outputs.find((artifact) =>
+				artifact.path.endsWith('LazyPage.js')
+			);
+			expect(output).toBeDefined();
+			if (!output) return;
+
+			const pageModule = await import(
+				`${pathToFileURL(output.path).href}?test=${Date.now()}`
+			);
+			const html = await renderToString(createSSRApp(pageModule.default));
+
+			expect(html).toContain('lazy setup rendered');
+			expect(html).toContain('<footer>complete page</footer>');
+			expect(html).not.toContain('<dialog');
 		} finally {
 			await rm(root, { force: true, recursive: true });
 		}

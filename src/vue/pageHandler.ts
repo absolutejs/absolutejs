@@ -240,7 +240,9 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 
 			const resolvedPage = await resolvePageComponent();
 			const { createSSRApp } = await import('vue');
-			const { renderToWebStream } = await import('vue/server-renderer');
+			const { renderToString, renderToWebStream } = await import(
+				'vue/server-renderer'
+			);
 
 			// Match the generated client entry exactly: both sides must use the
 			// page component itself as the app root. Wrapping it in an extra server-
@@ -331,6 +333,18 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 				});
 			}
 
+			// Ordinary Vue pages are rendered atomically so an async component or
+			// setup failure is caught by the surrounding error boundary before a
+			// 200 response is committed. Explicit streaming-slot pages keep the
+			// incremental path below because their contract requires patch delivery.
+			if (resolvedOptions?.collectStreamingSlots !== true) {
+				const body = await renderToString(app, ssrContext);
+
+				return new Response(`${head}${body}${buildTail()}`, {
+					headers: streamingPageHeaders()
+				});
+			}
+
 			const bodyStream = renderToWebStream(app, ssrContext);
 			const { firstChunk, reader } = await primeVueStream(bodyStream);
 
@@ -355,7 +369,14 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 										controller.close())
 									: (controller.enqueue(value), pumpLoop())
 							)
-							.catch((err) => controller.error(err));
+							.catch((err) => {
+								console.error(
+									'[SSR] Vue streaming render error:',
+									err
+								);
+								void reader.cancel(err).catch(() => undefined);
+								controller.error(err);
+							});
 					};
 					pumpLoop();
 				}

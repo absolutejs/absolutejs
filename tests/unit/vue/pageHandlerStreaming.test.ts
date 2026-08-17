@@ -1,8 +1,8 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, spyOn, test } from 'bun:test';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { defineComponent, h } from 'vue';
+import { defineAsyncComponent, defineComponent, h } from 'vue';
 import { handleVuePageRequest } from '../../../src/vue';
 import { StreamSlot, SuspenseSlot } from '../../../src/vue/components';
 
@@ -69,6 +69,43 @@ export const setupApp = async (_app, context) => context.setNotFound();`
 			expect(await response.text()).toBe('Not found');
 		} finally {
 			await rm(directory, { force: true, recursive: true });
+		}
+	});
+
+	test('returns a 500 instead of committing a partial document when ordinary SSR fails asynchronously', async () => {
+		const errorSpy = spyOn(console, 'error').mockImplementation(
+			() => undefined
+		);
+		const FailingChild = defineAsyncComponent(async () => {
+			await delay(1);
+
+			return defineComponent({
+				name: 'FailingChild',
+				setup: () => () => {
+					throw new Error('async Vue SSR failed');
+				}
+			});
+		});
+		const FailingPage = defineComponent({
+			name: 'FailingPage',
+			setup: () => () => h('main', [h(FailingChild)])
+		});
+
+		try {
+			const response = await handleVuePageRequest({
+				client: 'none',
+				headTag: '<head><title>Failure</title></head>',
+				Page: FailingPage,
+				pagePath: '/tests/failing.vue'
+			});
+			const html = await response.text();
+
+			expect(response.status).toBe(500);
+			expect(html).toContain('SSR Error - AbsoluteJS');
+			expect(html).toContain('async Vue SSR failed');
+			expect(errorSpy).toHaveBeenCalled();
+		} finally {
+			errorSpy.mockRestore();
 		}
 	});
 

@@ -299,6 +299,43 @@ const mergeVueImports = (code: string) => {
 		: nonVueLines.join('\n');
 };
 
+const wrapServerAsyncComponentLoader = (code: string) => {
+	const vueImportRegex = /import\s+\{([^}]+)\}\s+from\s+['"]vue['"];?/;
+	const match = code.match(vueImportRegex);
+	if (!match?.[1]) return code;
+
+	const specifiers = match[1].split(',').map((specifier) => specifier.trim());
+	const asyncComponentIndex = specifiers.findIndex((specifier) =>
+		/^defineAsyncComponent(?:\s+as\s+[A-Za-z_$][\w$]*)?$/.test(specifier)
+	);
+	if (asyncComponentIndex === -1) return code;
+
+	const asyncComponentSpecifier = specifiers[asyncComponentIndex] ?? '';
+	const localName =
+		asyncComponentSpecifier.match(/\s+as\s+([A-Za-z_$][\w$]*)$/)?.[1] ??
+		'defineAsyncComponent';
+	const importedName = '__absoluteDefineAsyncComponent';
+	specifiers[asyncComponentIndex] = `defineAsyncComponent as ${importedName}`;
+
+	const wrapper = `
+const __absoluteResolveAsyncVueComponent = async (loader) => {
+  const loaded = await loader();
+  return loaded && typeof loaded === "object" && "default" in loaded
+    ? loaded.default
+    : loaded;
+};
+const ${localName} = (source) => ${importedName}(
+  typeof source === "function"
+    ? () => __absoluteResolveAsyncVueComponent(source)
+    : { ...source, loader: () => __absoluteResolveAsyncVueComponent(source.loader) },
+);`;
+
+	return code.replace(
+		vueImportRegex,
+		`import { ${specifiers.join(', ')} } from 'vue';${wrapper}`
+	);
+};
+
 type VueCompiler = {
 	parse: typeof ParseFn;
 	compileScript: typeof CompileScriptFn;
@@ -628,8 +665,9 @@ if (typeof __VUE_HMR_RUNTIME__ !== 'undefined') {
 		assembleModule(generateRenderFunction(false), 'render', true) +
 		islandMetadataExports;
 	const serverCode =
-		assembleModule(generateRenderFunction(true), 'ssrRender', false) +
-		islandMetadataExports;
+		wrapServerAsyncComponentLoader(
+			assembleModule(generateRenderFunction(true), 'ssrRender', false)
+		) + islandMetadataExports;
 
 	const clientOutputPath = join(
 		outputDirs.client,
