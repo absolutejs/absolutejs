@@ -1,7 +1,7 @@
 # AbsoluteJS Mobile Apps: Research and Implementation Plan
 
 Status: Phase 0 React representation/version pipeline operational; Capacitor native identity/transport spike in progress
-Research snapshot: August 19, 2026
+Research snapshot: August 20, 2026
 
 Implementation checkpoint (August 20, 2026): the first React protocol seam now
 includes request-scoped mobile negotiation without route edits, versioned app,
@@ -108,7 +108,7 @@ These are recommendations, not yet final product decisions.
 | Expo | v2 hybrid renderer, not part of the initial Capacitor abstraction |
 | Per-route native UI | v2 route metadata/mapping; not a page-level build switch in v1 |
 | Authentication | Same public auth API; web uses HTTP-only sessions, installed apps use system-browser Authorization Code + PKCE and native credential storage |
-| Development | One `bun dev`/`absolute dev` graph serves web and mobile targets and prints both entry points |
+| Development | One `bun dev`/`absolute dev` graph serves web and mobile targets, opens the browser preview, and boots or reuses the selected native emulator when its toolchain is available |
 | OTA updates | Not in v1; research separately with native-runtime compatibility and store policy controls |
 | Compatibility history | AbsoluteJS owns the format and runtime; `@absolutejs/blob` supplies local/S3-compatible durable storage; `@absolutejs/deploy` orchestrates carry-forward and embeds the selected immutable bundle into each deployment |
 
@@ -1066,11 +1066,17 @@ Behavior:
 
 - Normal `absolute dev` (and therefore a project's `bun dev`) detects mobile config and builds both browser and mobile page entries from one dependency graph. The banner prints the web URL, a mobile-preview URL, the backend URL devices must reach, connection status for running simulators/devices, and a QR/deep link when useful.
 - The mobile preview runs the real mobile router, page-envelope protocol, auth/request adapter in a safe browser simulation, and device mocks. It is not merely responsive viewport emulation.
-- Ordinary `bun dev` remains lightweight: it builds web plus mobile preview and
-  prints native-target status. It does not claim to discover, pair, sync or push to
-  devices. `absolute mobile dev ios|android` explicitly starts native orchestration;
-  ordinary dev should never unexpectedly open heavyweight native IDEs.
+- Normal interactive `bun dev` treats the selected simulator/emulator as a first-
+  class output alongside the browser. Once a developer has chosen a default target,
+  it boots or reuses that target, installs the debug shell when necessary, launches
+  it, streams categorized logs, and attaches it to the same HMR graph. The first run
+  is guided and persists a machine-local choice; non-interactive processes, CI, and
+  `--no-mobile` do not launch a graphical emulator. Native IDEs are never required
+  for the normal loop and are only opened by `mobile open`.
 - `mobile dev` starts or reuses that same graph, resolves a device-reachable URL, creates ephemeral live-reload config, syncs it, launches the requested target, forwards termination, and restores production-safe config.
+- `mobile dev` is also the explicit target-management form: it can override the
+  saved platform/device, run headless, select an OS/API runtime, start more than one
+  target, or connect a physical device without changing application code.
 - `bundle` performs the deterministic embedded shell/UI/asset/route-manifest build without building a native binary.
 - `sync` runs bundle first unless `--no-bundle` is explicitly used, then invokes Capacitor sync.
 - `run` runs bundle + sync + native debug launch by default.
@@ -1086,6 +1092,173 @@ Behavior:
   auth/offline policy, required native capabilities and release blockers.
 
 Every command should print the underlying command at verbose log level and retain a documented `--passthrough`/`--` escape hatch.
+
+### First-class emulator and HMR architecture
+
+The emulator experience is an AbsoluteJS product surface, not an alias for
+`cap run`. Capacitor 8 already supplies useful low-level behavior—target listing,
+native builds and deployment, live-reload URL injection, and Android
+`--forwardPorts`—but it does not provision targets, own readiness and recovery,
+coordinate the Absolute page-envelope build, or make one `bun dev` graph truthful.
+AbsoluteJS should compose those primitives and invoke official platform tools only
+where Capacitor does not expose the required operation.
+
+The default interactive workflow is:
+
+```text
+bun dev
+  |
+  +-- browser: normal AbsoluteJS web app + HMR
+  +-- browser: mobile-shell preview + device mocks + HMR
+  `-- native: saved/default emulator -> local mobile shell + the same HMR graph
+```
+
+On a machine with mobile config but no saved target, the first interactive run asks
+whether to configure Android or iOS, shows installed and installable runtimes, and
+persists only the target preference in ignored machine-local state. It does not
+silently download multi-gigabyte SDKs, accept licenses, create devices, or open an
+IDE. After setup, normal `bun dev` launches the chosen emulator by default. The
+developer can use `--no-mobile`, `mobile.dev.autoStart: false`, or a non-interactive
+environment to suppress graphical launch. `absolute mobile dev` remains the explicit
+form for selecting targets, running multiple devices, using a physical device, or
+running headlessly.
+
+#### Controller state machine
+
+The controller owns one cancellable session and reports every state in the dev
+banner instead of leaving an apparently frozen build:
+
+```text
+discover host tools
+  -> resolve/provision target
+  -> acquire per-target lock
+  -> boot or reuse target
+  -> wait for OS + package manager readiness
+  -> establish dev transport
+  -> sync/build/install shell when its native fingerprint changed
+  -> launch/deep-link entry route
+  -> attach logs, HMR health, screenshots and lifecycle controls
+  -> reconnect/relaunch after recoverable target or server failure
+  -> restore production-safe native config and release locks on shutdown
+```
+
+Every transition must be idempotent and observable. A journal in
+`.absolutejs/mobile/dev/<session-id>.json` records the target, child processes,
+forwarded ports, files temporarily changed, original hashes and cleanup status.
+Startup repairs an incomplete prior session before doing new work. This covers
+SIGKILL, host crashes and power loss, where a signal-only cleanup hook cannot help.
+Source `capacitor.config.ts` is never given `server.url`. The copied native config is
+changed atomically for a dev session and restored from the journal; release doctor
+also rejects any live-reload URL, cleartext setting, HMR client or session marker.
+
+#### HMR transport
+
+The native WebView must load an AbsoluteJS mobile development entry, not the normal
+SSR website. The dev server exposes a reserved mobile-shell endpoint from the same
+compilation graph. It serves the real local router, mobile page-envelope client,
+framework client entries, source maps, error overlay, and a development manifest
+whose backend origin points to the running dev server. Production continues to
+start from embedded files and never sets Capacitor `server.url`.
+
+For Android emulators, the preferred transport is:
+
+```text
+WebView http://127.0.0.1:<dev-port>/__absolute/mobile
+              |
+        adb reverse tcp:<dev-port> tcp:<dev-port>
+              |
+        host AbsoluteJS dev server
+```
+
+This avoids LAN address selection, firewall prompts and the emulator-specific
+`10.0.2.2` address, and it makes the existing location-relative `/hmr` WebSocket and
+`/hmr-status` recovery path work unchanged. The controller scopes `adb` operations
+to the selected serial and verifies both HTTP and WebSocket reachability from the
+app. iOS Simulator uses the Mac host loopback and receives the same URL. A physical
+device uses an explicitly selected LAN address with the server bound to an external
+interface, trusted local HTTPS when required, or an opt-in tunnel; a QR code is a
+pairing convenience, not an authentication mechanism.
+
+The dev endpoint issues a random, short-lived session credential and accepts only
+the selected dev origins/targets. It must not expose privileged production secrets,
+and logs must redact auth headers, codes and tokens. Native auth callbacks and deep
+links still return to the installed app and are then routed to the dev server by the
+normal installed-app transport.
+
+Changes are classified before work is scheduled:
+
+| Change | Action |
+| --- | --- |
+| Page/component/CSS/public web asset | Existing framework HMR or targeted mobile shell reload; no native build |
+| Route/page contract or server handler | Rebuild the dev envelope producer and update the route manifest; preserve the installed shell when compatible |
+| Absolute/mobile config without native projection changes | Restart or refresh the affected dev service only |
+| Capacitor plugin, permission, entitlement, Gradle/Swift package or generated native projection | `cap sync`, native debug rebuild, reinstall and relaunch |
+| User Kotlin/Swift/native resource change | Native debug rebuild, reinstall and relaunch |
+| App identifier, signing identity or platform directory change | Stop with a targeted migration/reinitialization diagnostic |
+
+The controller fingerprints the effective native input graph, not merely
+`package.json`, so unchanged runs skip Gradle/Xcode work. Rebuild requests coalesce;
+the last successful app remains running while compilation errors are shown in both
+the terminal and WebView overlay.
+
+#### Platform providers
+
+Android support uses the official SDK tools and keeps their state visible:
+
+- discover Android Studio and standalone SDK layouts plus `ANDROID_HOME` and
+  `ANDROID_SDK_ROOT`; verify JDK, `sdkmanager`, `avdmanager`, `emulator`, `adb`,
+  platform/build tools and hardware acceleration;
+- list existing AVDs and attached devices, create a namespaced AVD from a pinned
+  device profile/system-image/API/ABI, and ask before SDK downloads or license
+  acceptance;
+- boot with Quick Boot for daily work or cold/wipe-data modes when requested, wait
+  for `adb`, `sys.boot_completed`, boot animation and package manager readiness,
+  then install/launch by selected serial;
+- support windowed and CI/headless modes, snapshots, screenshots/video, logcat,
+  network/location/battery controls, data reset and deterministic parallel ports.
+
+iOS support is available only on macOS and uses the Xcode installation selected by
+`xcode-select`:
+
+- verify Xcode, licenses, command-line tools, required simulator runtimes, CocoaPods
+  or Swift Package Manager, and signing only when a physical-device/release path
+  needs it;
+- use `xcrun simctl` to list/create/boot/bootstatus/install/launch/openurl,
+  screenshots/video, logs, status-bar overrides, privacy grants and data reset;
+- use `xcodebuild` with an isolated DerivedData path and the exact simulator UDID;
+  never infer a target from display name when duplicate runtime versions exist.
+
+Windows, Linux and WSL require separate host adapters rather than path guessing.
+On WSL, the preferred v1 path is a Windows-host Android SDK/emulator broker with
+translated paths and an explicitly discovered `adb.exe`; native Linux KVM is used
+only when `/dev/kvm` and the Linux SDK are actually available. Doctor explains
+which side owns the emulator and tests port reachability across the WSL NAT boundary.
+iOS simulation is never advertised off macOS; Linux/Windows developers can still
+use browser mobile preview, Android, physical-device/cloud workflows, and a remote
+macOS runner.
+
+#### Product-level diagnostics and testing
+
+`absolute mobile doctor` emits machine-readable checks with remediation commands,
+download sizes and whether each action is automatic, guided or manual. It
+distinguishes missing tool, wrong version, missing runtime, unavailable
+virtualization, boot timeout, unauthorized physical device, unreachable dev server,
+failed HMR WebSocket, stale native config and app crash. `absolute mobile targets`
+lists provider, platform, OS/API, architecture, state and stable target ID.
+
+The emulator controller itself is provider-neutral and dependency-injected so its
+state machine, command construction, cancellation and crash recovery are unit-
+testable without an SDK. Integration tests use fake `adb`/`simctl` executables before
+real Android and macOS CI lanes. Native acceptance tests measure first boot, warm
+boot, no-op restart, web-only HMR, CSS HMR, server restart recovery, native-plugin
+rebuild, app crash/relaunch and Ctrl-C/SIGTERM/stale-journal cleanup. A later
+automation adapter may use Maestro if the Capacitor WebView and permission-dialog
+spike passes; emulator orchestration must not be coupled to a test-runner vendor.
+
+The package ownership is deliberate: `@absolutejs/devices` contains app-facing
+runtime capabilities and adapters, while the emulator controller starts in
+AbsoluteJS core/mobile CLI (and may later move to `@absolutejs/mobile-capacitor`).
+Host SDK management must never enter browser, SSR or installed application bundles.
 
 ### Proposed v1 config
 
@@ -1988,7 +2161,13 @@ Exit criteria:
 Deliverables:
 
 - Normal `absolute dev` dual-target build graph, browser/mobile URLs and mobile preview.
-- `mobile dev` launch orchestration, reachable-host detection, emulator/device strategies, temporary live-reload config, cleanup, HMR forwarding.
+- First-class emulator controller used by both normal `absolute dev` and explicit
+  `mobile dev`: toolchain doctor, guided provisioning, persistent target choice,
+  boot readiness, install/launch, logs, screenshots, state reset and headless mode.
+- Reachable-host detection, Android `adb reverse`, iOS Simulator loopback, physical-
+  device LAN/tunnel strategies, temporary live-reload config, cleanup and HMR forwarding.
+- Native-delta classification so web/page/CSS edits use HMR, config/plugin changes
+  sync and rebuild, and native source changes rebuild without restarting the dev server.
 - HTTPS/LAN and Android cleartext development guidance.
 - dev error hints for unreachable server, firewall, wrong host, stale native config, and WebSocket failure.
 
@@ -2090,16 +2269,20 @@ Product feedback has resolved several original questions:
 - Capacitor native projects have several ownership models; the v1 recommendation
   is committed source with structurally maintained generated regions.
 
+The device package decision is resolved: use a public `absolutejs/devices`
+monorepo that publishes the dependency-light `@absolutejs/devices` contract and
+`@absolutejs/devices-capacitor` adapter separately. Reserve the Expo adapter name
+until v2 rather than publishing a placeholder.
+
 The remaining decisions that materially affect the public API are:
 
-1. **Device package shape:** Is the intended package name `@absolutejs/devices`, and is a three-package contract/Capacitor/Expo split acceptable?
-2. **Mobile component layer:** Should v1 include optional mobile-adaptive navigation/layout primitives, or should it initially focus on running existing responsive UI plus native capabilities?
-3. **Expo scope:** Should `engine: 'expo'` initially mean an all-React-native application, selected native replacement routes in a hybrid shell, or both? The plan can support both over time but should stabilize one first.
-4. **Native auth strength:** Should v1 require DPoP/device-bound keys, or ship standards-compliant rotating refresh tokens first and add DPoP after the secure-key spike?
-5. **Build service:** Should AbsoluteJS v1 stop at local/native CI builds, integrate an existing AbsoluteJS cloud build/deploy product, or adopt a third-party service such as Appflow? This plan keeps cloud build provider-neutral.
-6. **Compatibility window:** How many prior app runtime/schema generations must a
+1. **Mobile component layer:** Should v1 include optional mobile-adaptive navigation/layout primitives, or should it initially focus on running existing responsive UI plus native capabilities?
+2. **Expo scope:** Should `engine: 'expo'` initially mean an all-React-native application, selected native replacement routes in a hybrid shell, or both? The plan can support both over time but should stabilize one first.
+3. **Native auth strength:** Should v1 require DPoP/device-bound keys, or ship standards-compliant rotating refresh tokens first and add DPoP after the secure-key spike?
+4. **Build service:** Should AbsoluteJS v1 stop at local/native CI builds, integrate an existing AbsoluteJS cloud build/deploy product, or adopt a third-party service such as Appflow? This plan keeps cloud build provider-neutral.
+5. **Compatibility window:** How many prior app runtime/schema generations must a
    deployed server retain? The feasibility default to test is current plus two.
-7. **HTTP package:** Should the canonical request API publish as
+6. **HTTP package:** Should the canonical request API publish as
    `@absolutejs/http`, or remain a core client subpath until its contract stabilizes?
 
 ## Recommended immediate next step
