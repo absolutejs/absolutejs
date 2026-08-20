@@ -37,4 +37,25 @@ describe('generated React mobile entry', () => {
 		);
 		expect(source).toContain('root = createRoot(container)');
 	});
+
+	test('generates a dev remount hook for Bun builds without Fast Refresh transforms', async () => {
+		const root = await mkdtemp(join(tmpdir(), 'absolute-react-remount-'));
+		temporaryDirectories.push(root);
+		const pages = join(root, 'pages');
+		const indexes = join(root, 'indexes');
+		await mkdir(pages, { recursive: true });
+		await writeFile(
+			join(pages, 'Account.tsx'),
+			'export default function Account() { return <main>Account</main>; }'
+		);
+
+		await generateReactIndexFiles(pages, indexes, true);
+		const source = await readFile(join(indexes, 'Account.tsx'), 'utf8');
+
+		expect(source).toContain('window.__ABS_REACT_REMOUNT__');
+		expect(source).toContain('window.__REACT_ROOT__.render(element)');
+		expect(source).not.toContain(
+			'window.__REACT_ROOT__.unmount();\n\tconst nextRoot'
+		);
+	});
 });

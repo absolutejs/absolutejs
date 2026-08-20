@@ -331,6 +331,22 @@ export const shouldIgnorePath = (
 		);
 		if (styles) return false;
 	}
+	const isInside = (root: string | undefined) => {
+		if (!root) return false;
+		const normalizedRoot = root.replace(/\\/g, '/').replace(/\/$/, '');
+
+		return (
+			normalized === normalizedRoot ||
+			normalized.startsWith(`${normalizedRoot}/`)
+		);
+	};
+	if (
+		isInside(resolved?.buildDir) ||
+		isInside(resolved?.mobileBundleDir) ||
+		isInside(resolved?.mobileNativeDir)
+	) {
+		return true;
+	}
 
 	if (HARD_DENY_PATTERN.test(normalized)) return true;
 	if (normalized.endsWith('.log')) return true;

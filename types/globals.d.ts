@@ -9,6 +9,8 @@ declare global {
 	 * watchers and can observe entry/configuration edits. */
 	var __absoluteEntryWatcherReady: boolean | undefined;
 	var __absoluteEntryCopies: Set<string> | undefined;
+	var __absoluteEntryBootstrapSequence: number | undefined;
+	var __absoluteEntryCleanupRegistered: boolean | undefined;
 	var __absoluteEntryWatcherStarted: boolean | undefined;
 	/** Pinned React module from initial devBuild — used to detect and bridge
 	 *  duplicate React instances after bun install invalidates the module cache. */
@@ -74,6 +76,7 @@ declare global {
 		__ERROR_BOUNDARY__?: { reset: () => void };
 		__INITIAL_PROPS__?: Record<string, unknown>;
 		__ABSOLUTE_PAGE_RENDER_MODE__?: 'client' | 'hydrate';
+		__ABS_REACT_REMOUNT__?: (module: Record<string, unknown>) => void;
 		__REACT_COMPONENT_KEY__?: string;
 		__REACT_ROOT__?: { render: (element: unknown) => void };
 		__SVELTE_COMPONENT__?: Record<string, unknown>;

@@ -6,7 +6,15 @@ import {
 	rm,
 	writeFile
 } from 'node:fs/promises';
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import {
+	dirname,
+	isAbsolute,
+	join,
+	relative,
+	resolve,
+	sep,
+	win32
+} from 'node:path';
 import {
 	ABSOLUTE_ANDROID_AVD_NAME,
 	absoluteManagedAndroidSdkRoot,
@@ -20,10 +28,14 @@ import { writeAbsoluteCapacitorConfig } from './capacitorProject';
 const ANDROID_BOOT_TIMEOUT_MS = 180_000;
 const ANDROID_BOOT_POLL_MS = 1_000;
 const DEV_JOURNAL_FORMAT = 1;
+const HASH_RADIX = 16;
+const CAPACITOR_PROJECT_DIRECTORY_PATTERN =
+	/project\(['"](:[^'"]+)['"]\)\.projectDir\s*=\s*new File\(['"]([^'"]+)['"]\)/gu;
 
 type CommandOptions = {
 	cwd?: string;
 	env?: Record<string, string | undefined>;
+	signal?: AbortSignal;
 };
 
 type CommandResult = {
@@ -35,7 +47,9 @@ type CommandResult = {
 type AndroidDevJournal = {
 	backupPath: string;
 	format: number;
+	manifestBackupPath?: string;
 	nativeConfigPath: string;
+	nativeManifestPath?: string;
 };
 
 export type AbsoluteAndroidDevProject = {
@@ -83,16 +97,34 @@ const pathExists = async (path: string) => {
 	}
 };
 
+const forwardCommandOutput = (
+	stream: ReadableStream<Uint8Array>,
+	destination: NodeJS.WriteStream
+) =>
+	stream.pipeTo(
+		new WritableStream({
+			write: (chunk) => {
+				destination.write(chunk);
+			}
+		})
+	);
+
 const runCommand = async (command: string[], options: CommandOptions = {}) => {
 	const subprocess = Bun.spawn(command, {
 		cwd: options.cwd,
 		env: options.env,
-		stderr: 'inherit',
-		stdin: 'inherit',
-		stdout: 'inherit'
+		signal: options.signal,
+		stderr: 'pipe',
+		stdin: 'ignore',
+		stdout: 'pipe'
 	});
+	const [exitCode] = await Promise.all([
+		subprocess.exited,
+		forwardCommandOutput(subprocess.stdout, process.stdout),
+		forwardCommandOutput(subprocess.stderr, process.stderr)
+	]);
 
-	return subprocess.exited;
+	return exitCode;
 };
 
 const captureCommand = (command: string[], options: CommandOptions = {}) => {
@@ -135,6 +167,7 @@ const requireSuccess = async (
 	options?: CommandOptions
 ) => {
 	const exitCode = await run(command, options);
+	throwIfAborted(options?.signal);
 	if (exitCode !== 0) throw new Error(`${label} failed (exit ${exitCode}).`);
 };
 
@@ -152,6 +185,7 @@ const journalPaths = (projectRoot: string) => {
 	return {
 		backup: join(root, 'capacitor.config.backup.json'),
 		journal: join(root, 'journal.json'),
+		manifestBackup: join(root, 'AndroidManifest.backup.xml'),
 		root
 	};
 };
@@ -176,7 +210,9 @@ const parseJournal = (value: unknown): AndroidDevJournal | null => {
 	if (typeof value !== 'object' || value === null) return null;
 	const backupPath = Reflect.get(value, 'backupPath');
 	const format = Reflect.get(value, 'format');
+	const manifestBackupPath = Reflect.get(value, 'manifestBackupPath');
 	const nativeConfigPath = Reflect.get(value, 'nativeConfigPath');
+	const nativeManifestPath = Reflect.get(value, 'nativeManifestPath');
 	if (
 		typeof backupPath !== 'string' ||
 		format !== DEV_JOURNAL_FORMAT ||
@@ -184,8 +220,22 @@ const parseJournal = (value: unknown): AndroidDevJournal | null => {
 	) {
 		return null;
 	}
+	if (
+		(manifestBackupPath !== undefined ||
+			nativeManifestPath !== undefined) &&
+		(typeof manifestBackupPath !== 'string' ||
+			typeof nativeManifestPath !== 'string')
+	) {
+		return null;
+	}
 
-	return { backupPath, format, nativeConfigPath };
+	return {
+		backupPath,
+		format,
+		manifestBackupPath,
+		nativeConfigPath,
+		nativeManifestPath
+	};
 };
 
 export const repairAbsoluteAndroidDevSession = async (projectRoot: string) => {
@@ -201,7 +251,11 @@ export const repairAbsoluteAndroidDevSession = async (projectRoot: string) => {
 	if (
 		!journal ||
 		!isInside(projectRoot, journal.nativeConfigPath) ||
-		!isInside(paths.root, journal.backupPath)
+		!isInside(paths.root, journal.backupPath) ||
+		(journal.nativeManifestPath !== undefined &&
+			!isInside(projectRoot, journal.nativeManifestPath)) ||
+		(journal.manifestBackupPath !== undefined &&
+			!isInside(paths.root, journal.manifestBackupPath))
 	) {
 		throw new Error(
 			`Refusing unsafe or invalid mobile dev journal at ${paths.journal}.`
@@ -211,20 +265,46 @@ export const repairAbsoluteAndroidDevSession = async (projectRoot: string) => {
 		await mkdir(dirname(journal.nativeConfigPath), { recursive: true });
 		await copyFile(journal.backupPath, journal.nativeConfigPath);
 	}
+	if (
+		journal.manifestBackupPath &&
+		journal.nativeManifestPath &&
+		(await pathExists(journal.manifestBackupPath))
+	) {
+		await mkdir(dirname(journal.nativeManifestPath), { recursive: true });
+		await copyFile(journal.manifestBackupPath, journal.nativeManifestPath);
+	}
 	await rm(paths.root, { force: true, recursive: true });
 
 	return true;
 };
 
+const androidDevelopmentManifest = (source: string, cleartext: boolean) => {
+	if (!cleartext) return source;
+	if (/android:usesCleartextTraffic=["'][^"']*["']/u.test(source)) {
+		return source.replace(
+			/android:usesCleartextTraffic=["'][^"']*["']/u,
+			'android:usesCleartextTraffic="true"'
+		);
+	}
+
+	return source.replace(
+		'<application',
+		'<application\n        android:usesCleartextTraffic="true"'
+	);
+};
+
 const writeDevConfig = async (
 	projectRoot: string,
 	nativeConfigPath: string,
+	nativeManifestPath: string,
 	port: number,
-	https: boolean
+	https: boolean,
+	entry: string
 ) => {
 	const paths = journalPaths(projectRoot);
 	await repairAbsoluteAndroidDevSession(projectRoot);
 	const source = await readFile(nativeConfigPath, 'utf8');
+	const manifestSource = await readFile(nativeManifestPath, 'utf8');
 	const parsed: unknown = JSON.parse(source);
 	if (!isRecord(parsed)) {
 		throw new Error(
@@ -233,10 +313,13 @@ const writeDevConfig = async (
 	}
 	await mkdir(paths.root, { recursive: true });
 	await writeFile(paths.backup, source, { flag: 'wx' });
+	await writeFile(paths.manifestBackup, manifestSource, { flag: 'wx' });
 	const journal: AndroidDevJournal = {
 		backupPath: paths.backup,
 		format: DEV_JOURNAL_FORMAT,
-		nativeConfigPath
+		manifestBackupPath: paths.manifestBackup,
+		nativeConfigPath,
+		nativeManifestPath
 	};
 	await writeFile(paths.journal, `${JSON.stringify(journal, null, '\t')}\n`, {
 		flag: 'wx'
@@ -247,11 +330,15 @@ const writeDevConfig = async (
 			? currentServer
 			: {}),
 		cleartext: !https,
-		url: `${https ? 'https' : 'http'}://localhost:${port}`
+		url: `${https ? 'https' : 'http'}://localhost:${port}${entry}`
 	};
 	await writeFile(
 		nativeConfigPath,
 		`${JSON.stringify(parsed, null, '\t')}\n`
+	);
+	await writeFile(
+		nativeManifestPath,
+		androidDevelopmentManifest(manifestSource, !https)
 	);
 };
 
@@ -351,38 +438,166 @@ const windowsPathFromWsl = (
 	return result.stdout.trim();
 };
 
+type WindowsGradleDependency = {
+	name: string;
+	windowsSource: string;
+};
+
+const mirroredCapacitorDependencies = async (
+	project: AbsoluteAndroidDevProject,
+	capture: NonNullable<StartAbsoluteAndroidDevOptions['capture']>
+) => {
+	const settingsPath = join(
+		project.nativeDirectory,
+		'capacitor.settings.gradle'
+	);
+	const settings = await readFile(settingsPath, 'utf8');
+	const dependencies: WindowsGradleDependency[] = [];
+	const rewrittenSettings = settings.replace(
+		CAPACITOR_PROJECT_DIRECTORY_PATTERN,
+		(_statement, projectName: string, sourcePath: string) => {
+			const name = projectName
+				.slice(1)
+				.replaceAll(/[^a-zA-Z0-9_.-]/gu, '_');
+			const source = resolve(project.nativeDirectory, sourcePath);
+			dependencies.push({
+				name,
+				windowsSource: windowsPathFromWsl(source, capture)
+			});
+
+			return `project('${projectName}').projectDir = new File('./.absolutejs-dependencies/${name}')`;
+		}
+	);
+	if (dependencies.length === 0) {
+		throw new Error(
+			'Capacitor Android settings did not declare any native dependencies.'
+		);
+	}
+
+	return { dependencies, rewrittenSettings };
+};
+
+const encodedWindowsGradleCommand = (
+	windowsSource: string,
+	windowsDirectory: string,
+	windowsAndroidRoot: string,
+	dependencies: WindowsGradleDependency[],
+	rewrittenSettings: string
+) => {
+	const sourceDirectory = Buffer.from(windowsSource, 'utf8').toString(
+		'base64'
+	);
+	const buildDirectory = Buffer.from(windowsDirectory, 'utf8').toString(
+		'base64'
+	);
+	const androidRoot = Buffer.from(windowsAndroidRoot, 'utf8').toString(
+		'base64'
+	);
+	const dependencyData = Buffer.from(
+		JSON.stringify(dependencies),
+		'utf8'
+	).toString('base64');
+	const settingsData = Buffer.from(rewrittenSettings, 'utf8').toString(
+		'base64'
+	);
+	const source = [
+		"$ErrorActionPreference = 'Stop'",
+		`$source = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${sourceDirectory}'))`,
+		`$directory = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${buildDirectory}'))`,
+		`$androidHome = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${androidRoot}'))`,
+		`$dependencies = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${dependencyData}')) | ConvertFrom-Json`,
+		`$settings = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${settingsData}'))`,
+		'$env:ANDROID_HOME = $androidHome',
+		'$env:ANDROID_SDK_ROOT = $androidHome',
+		'New-Item -ItemType Directory -Force -Path $directory | Out-Null',
+		'& robocopy.exe $source $directory /MIR /XD .gradle build /NFL /NDL /NJH /NJS /NP',
+		'$copyExit = $LASTEXITCODE',
+		'if ($copyExit -ge 8) { exit $copyExit }',
+		"foreach ($dependency in @($dependencies)) { $target = Join-Path $directory ('.absolutejs-dependencies\\' + $dependency.name); New-Item -ItemType Directory -Force -Path $target | Out-Null; & robocopy.exe $dependency.windowsSource $target /MIR /XD .gradle build /NFL /NDL /NJH /NJS /NP; if ($LASTEXITCODE -ge 8) { exit $LASTEXITCODE } }",
+		"[IO.File]::WriteAllText((Join-Path $directory 'capacitor.settings.gradle'), $settings)",
+		"$wrapper = Join-Path $directory 'gradlew.bat'",
+		'& $wrapper --no-daemon --console=plain -p $directory assembleDebug',
+		'if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }',
+		'exit 0'
+	].join('; ');
+
+	return Buffer.from(source, 'utf16le').toString('base64');
+};
+
 const buildAndroidDebugApp = async (
 	project: AbsoluteAndroidDevProject,
 	capture: NonNullable<StartAbsoluteAndroidDevOptions['capture']>,
 	run: NonNullable<StartAbsoluteAndroidDevOptions['run']>,
-	env: Record<string, string | undefined>
+	env: Record<string, string | undefined>,
+	signal?: AbortSignal
 ) => {
 	if (project.host === 'wsl') {
-		const windowsDirectory = windowsPathFromWsl(
+		const windowsSource = windowsPathFromWsl(
 			project.nativeDirectory,
 			capture
 		);
+		const buildId = Bun.hash(project.projectRoot).toString(HASH_RADIX);
+		const managedBuildDirectory = resolve(
+			project.androidRoot,
+			'..',
+			'..',
+			'Builds',
+			`${project.config.appId}-${buildId}`
+		);
+		const windowsDirectory = windowsPathFromWsl(
+			managedBuildDirectory,
+			capture
+		);
+		const windowsAndroidRoot = windowsPathFromWsl(
+			project.androidRoot,
+			capture
+		);
+		const { dependencies, rewrittenSettings } =
+			await mirroredCapacitorDependencies(project, capture);
 		await requireSuccess(
 			[
 				'powershell.exe',
 				'-NoProfile',
-				'-Command',
-				'param($directory) Set-Location -LiteralPath $directory; & .\\gradlew.bat assembleDebug; exit $LASTEXITCODE',
-				windowsDirectory
+				'-EncodedCommand',
+				encodedWindowsGradleCommand(
+					windowsSource,
+					windowsDirectory,
+					windowsAndroidRoot,
+					dependencies,
+					rewrittenSettings
+				)
 			],
 			'Android Gradle build',
 			run,
-			{ env }
+			{ env, signal }
 		);
 
-		return;
+		return win32.join(
+			windowsDirectory,
+			'app',
+			'build',
+			'outputs',
+			'apk',
+			'debug',
+			'app-debug.apk'
+		);
 	}
 	const wrapper = project.host === 'windows' ? 'gradlew.bat' : './gradlew';
 	await requireSuccess(
-		[wrapper, 'assembleDebug'],
+		[wrapper, '--no-daemon', '--console=plain', 'assembleDebug'],
 		'Android Gradle build',
 		run,
-		{ cwd: project.nativeDirectory, env }
+		{ cwd: project.nativeDirectory, env, signal }
+	);
+
+	return join(
+		project.nativeDirectory,
+		'app',
+		'build',
+		'outputs',
+		'apk',
+		'debug',
+		'app-debug.apk'
 	);
 };
 
@@ -535,7 +750,7 @@ export const startAbsoluteAndroidDevSession = async (
 		[project.cap, 'sync', 'android'],
 		'Capacitor Android synchronization',
 		run,
-		{ cwd: project.projectRoot, env }
+		{ cwd: project.projectRoot, env, signal: options.signal }
 	);
 	throwIfAborted(options.signal);
 	const nativeConfigPath = join(
@@ -546,13 +761,22 @@ export const startAbsoluteAndroidDevSession = async (
 		'assets',
 		'capacitor.config.json'
 	);
+	const nativeManifestPath = join(
+		project.nativeDirectory,
+		'app',
+		'src',
+		'main',
+		'AndroidManifest.xml'
+	);
 	let connectedSerial: string | undefined;
 	try {
 		await writeDevConfig(
 			project.projectRoot,
 			nativeConfigPath,
+			nativeManifestPath,
 			options.port,
-			options.https === true
+			options.https === true,
+			project.config.entry
 		);
 		throwIfAborted(options.signal);
 		logHttpsCertificateRequirement(options.https, log);
@@ -582,27 +806,22 @@ export const startAbsoluteAndroidDevSession = async (
 			],
 			'ADB reverse port forwarding',
 			run,
-			{ env }
+			{ env, signal: options.signal }
 		);
 		throwIfAborted(options.signal);
-		await buildAndroidDebugApp(project, capture, run, env);
-		throwIfAborted(options.signal);
-		const apk = join(
-			project.nativeDirectory,
-			'app',
-			'build',
-			'outputs',
-			'apk',
-			'debug',
-			'app-debug.apk'
+		const installPath = await buildAndroidDebugApp(
+			project,
+			capture,
+			run,
+			env,
+			options.signal
 		);
-		const installPath =
-			project.host === 'wsl' ? windowsPathFromWsl(apk, capture) : apk;
+		throwIfAborted(options.signal);
 		await requireSuccess(
 			[project.adb, '-s', serial, 'install', '-r', installPath],
 			'Android app installation',
 			run,
-			{ env }
+			{ env, signal: options.signal }
 		);
 		throwIfAborted(options.signal);
 		await requireSuccess(
@@ -620,7 +839,7 @@ export const startAbsoluteAndroidDevSession = async (
 			],
 			'Android app launch',
 			run,
-			{ env }
+			{ env, signal: options.signal }
 		);
 		throwIfAborted(options.signal);
 		log(

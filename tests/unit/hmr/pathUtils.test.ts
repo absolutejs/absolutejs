@@ -15,6 +15,8 @@ const makePaths = (
 	emberDir: '/project/example/ember',
 	htmlDir: '/project/example/html',
 	htmxDir: '/project/example/htmx',
+	mobileBundleDir: undefined,
+	mobileNativeDir: undefined,
 	publicDir: undefined,
 	reactDir: '/project/example/react',
 	stylesDir: '/project/example/styles',
@@ -141,6 +143,25 @@ describe('shouldIgnorePath', () => {
 
 	test('ignores .tmp files', () => {
 		expect(shouldIgnorePath('/project/temp.tmp')).toBe(true);
+	});
+
+	test('ignores configured mobile native and bundle output trees', () => {
+		const paths = makePaths({
+			mobileBundleDir: '/project/mobile-web',
+			mobileNativeDir: '/project/native-app'
+		});
+		expect(
+			shouldIgnorePath(
+				'/project/native-app/android/app/build.gradle',
+				paths
+			)
+		).toBe(true);
+		expect(shouldIgnorePath('/project/mobile-web/index.html', paths)).toBe(
+			true
+		);
+		expect(
+			shouldIgnorePath('/project/native-application/source.ts', paths)
+		).toBe(false);
 	});
 
 	test('allows styles directory when configured', () => {

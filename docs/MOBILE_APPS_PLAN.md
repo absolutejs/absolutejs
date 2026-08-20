@@ -1275,6 +1275,29 @@ stays warm after shutdown for fast subsequent starts. iOS, physical devices,
 mobile-preview UI, native-delta rebuilds, log streaming, and trusted local HTTPS are
 still subsequent slices of Phase 4.
 
+Real WSL2/Windows acceptance established the host boundary more precisely. Gradle
+cannot reliably build a project directly from a `\\wsl.localhost` UNC path, so the
+broker mirrors the generated Android project into a dedicated Windows Local AppData
+build directory, preserves Gradle/build caches between runs, and builds there. It
+also mirrors every native Gradle dependency referenced by
+`capacitor.settings.gradle`, rewrites only the managed mirror's dependency paths,
+and explicitly supplies `ANDROID_HOME`/`ANDROID_SDK_ROOT` inside PowerShell. The
+developer's committed native tree remains the source of truth and is never rewritten
+to Windows paths.
+
+The same acceptance run installed and cold-booted the managed API 36 AVD with WHPX,
+built 93 Gradle tasks, installed and launched a real debug APK, and rendered the
+ordinary dynamic route `/account/Ada` with request-time props. Android HTTP live
+reload temporarily enables cleartext traffic only in the copied native development
+config/manifest; the crash journal restores both files on normal shutdown, startup
+failure, cancellation, or stale-session repair. A normal React page edit then
+updated the already-open WebView without Gradle, reinstall, or relaunch. On Bun
+builds that do not yet implement `Bun.Transpiler` Fast Refresh registrations,
+AbsoluteJS imports the freshly transformed page module and uses a generated React
+root remount hook; patched Bun keeps the state-preserving Fast Refresh path. Native
+output directories are excluded from the web watcher so Capacitor sync and Gradle
+cannot trigger a restart storm.
+
 The implemented Android controller is dependency-injected so its state machine,
 command construction, cancellation and crash recovery are unit-testable without an
 SDK. Its session boundary is designed to sit behind the provider-neutral controller

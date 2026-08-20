@@ -6,8 +6,15 @@
 import { hideErrorOverlay } from '../errorOverlay';
 import { detectCurrentFramework } from '../frameworkDetect';
 
+const reloadReactPage = () => {
+	const url = new URL(window.location.href);
+	url.searchParams.set('__absolute_hmr', Date.now().toString());
+	window.location.replace(url.href);
+};
+
 export const handleReactUpdate = (message: {
 	data: {
+		fastRefreshSupported?: boolean;
 		hasCSSChanges?: boolean;
 		hasComponentChanges?: boolean;
 		manifest?: Record<string, string>;
@@ -21,6 +28,21 @@ export const handleReactUpdate = (message: {
 
 	const hasComponentChanges = message.data.hasComponentChanges !== false;
 	const hasCSSChanges = message.data.hasCSSChanges === true;
+	if (message.data.fastRefreshSupported === false) {
+		const { pageModuleUrl } = message.data;
+		const remount = window.__ABS_REACT_REMOUNT__;
+		if (pageModuleUrl && remount) {
+			applyRemountImport(
+				pageModuleUrl,
+				remount,
+				message.data.serverDuration
+			);
+		} else {
+			reloadReactPage();
+		}
+
+		return;
+	}
 	const cssPath =
 		message.data.manifest && message.data.manifest.ReactExampleCSS;
 
@@ -78,6 +100,28 @@ const applyRefreshImport = (
 				err
 			);
 			window.location.reload();
+		});
+};
+
+const applyRemountImport = (
+	moduleUrl: string,
+	remount: (module: Record<string, unknown>) => void,
+	serverDuration?: number
+) => {
+	const clientStart = performance.now();
+	import(`${moduleUrl}?t=${Date.now()}`)
+		.then((module) => {
+			remount(module);
+			sendTiming(clientStart, serverDuration);
+
+			return undefined;
+		})
+		.catch((err) => {
+			console.warn(
+				'[HMR] React remount failed, falling back to reload:',
+				err
+			);
+			reloadReactPage();
 		});
 };
 

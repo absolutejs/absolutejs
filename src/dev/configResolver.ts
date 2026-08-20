@@ -18,6 +18,14 @@ export const resolveBuildPaths = (config: BuildConfig) => {
 		emberDir: optional(config.emberDirectory),
 		htmlDir: optional(config.htmlDirectory),
 		htmxDir: optional(config.htmxDirectory),
+		mobileBundleDir: optional(
+			config.mobile?.bundleDirectory ??
+				(config.mobile ? '.absolutejs/mobile/web' : undefined)
+		),
+		mobileNativeDir: optional(
+			config.mobile?.nativeProject?.directory ??
+				(config.mobile ? 'mobile' : undefined)
+		),
 		publicDir: optional(config.publicDirectory),
 		reactDir: optional(config.reactDirectory),
 		stylesDir: optional(

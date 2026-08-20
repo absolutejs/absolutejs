@@ -118,7 +118,7 @@ const warmPrewarmDirs = async (
 	for (const file of files) {
 		if (file.includes('/node_modules/')) continue;
 		const rel = relative(process.cwd(), file).replace(/\\/g, '/');
-		warmCache(`${SRC_URL_PREFIX}${rel}`);
+		void warmCache(`${SRC_URL_PREFIX}${rel}`);
 	}
 };
 

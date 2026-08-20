@@ -133,6 +133,7 @@ type HMRMessage = {
 		affectedFrameworks?: string[];
 		column?: number;
 		error?: string;
+		fastRefreshSupported?: boolean;
 		file?: string;
 		framework?: string;
 		hasCSSChanges?: boolean;

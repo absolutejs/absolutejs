@@ -2337,7 +2337,7 @@ const getModuleUrl = async (pageFile: string) => {
 	invalidateModule(pageFile);
 	const rel = relative(process.cwd(), pageFile).replace(/\\/g, '/');
 	const url = `${SRC_URL_PREFIX}${rel}`;
-	warmCache(url);
+	await warmCache(url);
 
 	return url;
 };
@@ -2364,6 +2364,7 @@ const handleReactModuleServerPath = async (
 	state: HMRState,
 	reactFiles: string[],
 	startTime: number,
+	fastRefreshSupported: boolean,
 	onRebuildComplete: (result: {
 		manifest: Record<string, string>;
 		hmrState: HMRState;
@@ -2402,6 +2403,7 @@ const handleReactModuleServerPath = async (
 
 		broadcastToClients(state, {
 			data: {
+				fastRefreshSupported,
 				framework: 'react',
 				hasComponentChanges: true,
 				hasCSSChanges: false,
@@ -2438,9 +2440,9 @@ const handleReactFastPath = async (
 	// swaps the component in place. There is no Bun.build() fallback
 	// here — a full re-bundle on each edit is far too slow for HMR,
 	// and the per-file path is correct on patched Bun (PR #28312).
-	// On stock Bun, reactFastRefresh is silently ignored and the
-	// browser falls back to a full reload; moduleServer logs a
-	// one-shot warning in that case.
+	// On stock Bun, reactFastRefresh is silently ignored and the client
+	// remounts the changed module; moduleServer logs a one-shot warning in that
+	// case.
 	const reactFiles = filesToRebuild.filter(
 		(file) => detectFramework(file, state.resolvedPaths) === 'react'
 	);
@@ -2453,15 +2455,16 @@ const handleReactFastPath = async (
 
 	// Lazy import — keep static imports out of this file (HMR rule) and
 	// avoid paying for the lookup on non-React HMR cycles.
-	const { warnIfReactFastRefreshUnsupported } = await import(
-		'./moduleServer'
-	);
+	const { isReactFastRefreshSupported, warnIfReactFastRefreshUnsupported } =
+		await import('./moduleServer');
 	warnIfReactFastRefreshUnsupported();
+	const fastRefreshSupported = isReactFastRefreshSupported();
 
 	return handleReactModuleServerPath(
 		state,
 		reactFiles,
 		startTime,
+		fastRefreshSupported,
 		onRebuildComplete
 	);
 };

@@ -16,6 +16,15 @@ describe('mobile emulator CLI', () => {
 			],
 			{
 				cwd: ROOT,
+				env: {
+					...process.env,
+					ANDROID_HOME: resolve(ROOT, '.absolutejs-test-missing-sdk'),
+					ANDROID_SDK_ROOT: resolve(
+						ROOT,
+						'.absolutejs-test-missing-sdk'
+					),
+					PATH: ''
+				},
 				stderr: 'pipe',
 				stdin: 'ignore',
 				stdout: 'pipe'

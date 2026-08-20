@@ -27,6 +27,7 @@ const createProject = async (host: 'linux' | 'wsl' = 'linux') => {
 		{
 			appId: 'com.example.product',
 			appName: 'Product',
+			entry: '/account/Ada',
 			platforms: ['android'],
 			server: { productionOrigin: 'https://api.example.com' }
 		},
@@ -50,6 +51,20 @@ const createProject = async (host: 'linux' | 'wsl' = 'linux') => {
 			recursive: true
 		}
 	);
+	await writeFile(
+		join(nativeDirectory, 'capacitor.settings.gradle'),
+		"include ':capacitor-android'\nproject(':capacitor-android').projectDir = new File('../../node_modules/@capacitor/android/capacitor')\n"
+	);
+	const nativeManifestPath = join(
+		nativeDirectory,
+		'app',
+		'src',
+		'main',
+		'AndroidManifest.xml'
+	);
+	const originalManifest =
+		'<manifest xmlns:android="http://schemas.android.com/apk/res/android"><application android:label="Product" /></manifest>\n';
+	await writeFile(nativeManifestPath, originalManifest);
 	const originalConfig = `${JSON.stringify({ appId: config.appId, server: { allowNavigation: ['api.example.com'] } }, null, '\t')}\n`;
 	await writeFile(nativeConfigPath, originalConfig);
 	const project: AbsoluteAndroidDevProject = {
@@ -63,7 +78,13 @@ const createProject = async (host: 'linux' | 'wsl' = 'linux') => {
 		projectRoot
 	};
 
-	return { nativeConfigPath, originalConfig, project };
+	return {
+		nativeConfigPath,
+		nativeManifestPath,
+		originalConfig,
+		originalManifest,
+		project
+	};
 };
 
 const readyCapture = (command: string[]) => {
@@ -101,8 +122,13 @@ describe('Android emulator development controller', () => {
 	});
 
 	test('connects an existing managed emulator and restores native config', async () => {
-		const { nativeConfigPath, originalConfig, project } =
-			await createProject();
+		const {
+			nativeConfigPath,
+			nativeManifestPath,
+			originalConfig,
+			originalManifest,
+			project
+		} = await createProject();
 		const commands: string[][] = [];
 		const session = await startAbsoluteAndroidDevSession({
 			capture: readyCapture,
@@ -122,8 +148,11 @@ describe('Android emulator development controller', () => {
 		expect(developmentConfig.server).toEqual({
 			allowNavigation: ['api.example.com'],
 			cleartext: true,
-			url: 'http://localhost:3030'
+			url: 'http://localhost:3030/account/Ada'
 		});
+		expect(await readFile(nativeManifestPath, 'utf8')).toContain(
+			'android:usesCleartextTraffic="true"'
+		);
 		expect(commands.some((command) => command.includes('reverse'))).toBe(
 			true
 		);
@@ -137,6 +166,9 @@ describe('Android emulator development controller', () => {
 		await session.close();
 
 		expect(await readFile(nativeConfigPath, 'utf8')).toBe(originalConfig);
+		expect(await readFile(nativeManifestPath, 'utf8')).toBe(
+			originalManifest
+		);
 		expect(await repairAbsoluteAndroidDevSession(project.projectRoot)).toBe(
 			false
 		);
@@ -156,8 +188,29 @@ describe('Android emulator development controller', () => {
 			}
 		});
 
-		expect(commands.some(([command]) => command === 'powershell.exe')).toBe(
-			true
+		const powershell = commands.find(
+			([command]) => command === 'powershell.exe'
+		);
+		expect(powershell?.slice(0, 3)).toEqual([
+			'powershell.exe',
+			'-NoProfile',
+			'-EncodedCommand'
+		]);
+		const encodedCommand = powershell?.at(-1);
+		expect(encodedCommand).toBeString();
+		const decodedCommand = Buffer.from(
+			encodedCommand ?? '',
+			'base64'
+		).toString('utf16le');
+		expect(decodedCommand).toContain("$ErrorActionPreference = 'Stop'");
+		expect(decodedCommand).toContain('robocopy.exe');
+		expect(decodedCommand).toContain('/MIR /XD .gradle build');
+		expect(decodedCommand).toContain('$env:ANDROID_HOME = $androidHome');
+		expect(decodedCommand).toContain('.absolutejs-dependencies');
+		expect(decodedCommand).toContain('capacitor.settings.gradle');
+		expect(decodedCommand).toContain("Join-Path $directory 'gradlew.bat'");
+		expect(decodedCommand).toContain(
+			'--no-daemon --console=plain -p $directory assembleDebug'
 		);
 		const install = commands.find((command) => command.includes('install'));
 		expect(install?.at(-1)?.startsWith('C:\\absolute')).toBe(true);
@@ -166,8 +219,13 @@ describe('Android emulator development controller', () => {
 	});
 
 	test('restores production-safe native config when startup fails', async () => {
-		const { nativeConfigPath, originalConfig, project } =
-			await createProject();
+		const {
+			nativeConfigPath,
+			nativeManifestPath,
+			originalConfig,
+			originalManifest,
+			project
+		} = await createProject();
 		const commands: string[][] = [];
 
 		await expect(
@@ -183,6 +241,9 @@ describe('Android emulator development controller', () => {
 			})
 		).rejects.toThrow('Android app installation failed');
 		expect(await readFile(nativeConfigPath, 'utf8')).toBe(originalConfig);
+		expect(await readFile(nativeManifestPath, 'utf8')).toBe(
+			originalManifest
+		);
 		expect(commands.some((command) => command.includes('--remove'))).toBe(
 			true
 		);

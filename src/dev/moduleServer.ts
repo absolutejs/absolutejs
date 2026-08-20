@@ -606,6 +606,8 @@ const probeReactFastRefresh = () => {
 
 const reactFastRefreshSupported = probeReactFastRefresh();
 
+export const isReactFastRefreshSupported = () => reactFastRefreshSupported;
+
 let reactFastRefreshWarningEmitted = false;
 // Exported so the HMR pipeline can fire this on the FIRST real React edit
 // rather than during dev-startup cache pre-warming. Without that gate, a
@@ -620,8 +622,8 @@ export const warnIfReactFastRefreshUnsupported = () => {
 			'cannot be preserved across edits. Tracking ' +
 			'https://github.com/oven-sh/bun/pull/28312 — if it still has ' +
 			'not merged, leave a 👍 on the PR so the Bun team knows it ' +
-			'is blocking you. Until then, React edits trigger a full ' +
-			'reload instead of a fast refresh.'
+			'is blocking you. Until then, React edits trigger a targeted ' +
+			'page remount instead of a state-preserving fast refresh.'
 	);
 };
 
@@ -1792,11 +1794,11 @@ export const invalidateModule = (filePath: string) => {
 
 // Pre-transpile a /@src/ URL and cache the result so the browser
 // fetch is instant. Called before sending the WebSocket HMR message.
-export const warmCache = (pathname: string) => {
+export const warmCache = async (pathname: string) => {
 	if (!pathname.startsWith(SRC_PREFIX)) return;
 	if (!globalModuleServer) return;
 	// Trigger the handler — the result is cached by setTransformed
-	globalModuleServer(pathname);
+	await globalModuleServer(pathname);
 };
 
 // Store the module server handler globally so warmCache can access it

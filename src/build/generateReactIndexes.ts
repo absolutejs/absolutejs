@@ -287,6 +287,23 @@ export const generateReactIndexFiles = async (
 			`if (!container) {`,
 			`\tthrow new Error('React root container not found: document is null');`,
 			`}\n`,
+			...(isDev
+				? [
+						`// Stock Bun cannot emit Fast Refresh registrations yet. Give the dev client`,
+						`// a deterministic remount path that still imports only the changed module.`,
+						`window.__ABS_REACT_REMOUNT__ = (nextModule) => {`,
+						`\tconst NextPageComponent = resolvePageComponent(nextModule, ['default', '${pascalComponentName}', '${componentName}']);`,
+						`\tconst element = createElement(ErrorBoundary, null, createElement(NextPageComponent, mergedProps));`,
+						`\tif (window.__REACT_ROOT__) {`,
+						`\t\twindow.__REACT_ROOT__.render(element);`,
+						`\t\treturn;`,
+						`\t}`,
+						`\tconst nextRoot = createRoot(container);`,
+						`\tnextRoot.render(element);`,
+						`\twindow.__REACT_ROOT__ = nextRoot;`,
+						`};\n`
+					]
+				: []),
 			`// Guard: only hydrate on first load. During HMR re-imports, skip hydration`,
 			`// so React Fast Refresh can swap components in-place and preserve state.`,
 			`if (!window.__REACT_ROOT__) {`,
