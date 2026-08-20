@@ -11,7 +11,7 @@ import {
 	WEBSOCKET_NORMAL_CLOSURE
 } from './constants';
 import { detectCurrentFramework } from './frameworkDetect';
-import { absoluteHmrClientTarget } from './hmrTiming';
+import { absoluteHmrClientTarget, sendAbsoluteHmrTiming } from './hmrTiming';
 import { hideErrorOverlay, showErrorOverlay } from './errorOverlay';
 import {
 	dispatchAngularComponentRemount,
@@ -120,6 +120,7 @@ const hmrUpdateTypes = new Set([
 	'angular:component-update',
 	'angular:component-remount',
 	'angular:rebootstrap',
+	'angular-update',
 	'react-update',
 	'html-update',
 	'htmx-update',
@@ -153,6 +154,19 @@ type HMRMessage = {
 	};
 	timestamp?: number;
 	type: string;
+};
+
+const handleStylesheetUpdate = (message: HMRMessage) => {
+	const clientStart = performance.now();
+	void reloadCSSStylesheets(message.data.manifest ?? {}).then((applied) => {
+		sendAbsoluteHmrTiming({
+			clientStart,
+			kind: 'css',
+			outcome: applied ? 'applied' : 'failed',
+			serverMs: message.data.serverDuration,
+			updateId: message.timestamp
+		});
+	});
 };
 
 const handleHMRMessage = (message: HMRMessage) => {
@@ -283,12 +297,17 @@ const handleHMRMessage = (message: HMRMessage) => {
 			handleRebuildError(message);
 			break;
 		case 'full-reload':
-			handleFullReload();
+			handleFullReload(message);
 			break;
 		case 'pong':
 			break;
 		case 'style-update':
-			reloadCSSStylesheets(message.data.manifest ?? {});
+			handleStylesheetUpdate(message);
+			break;
+		case 'angular-update':
+			if (detectCurrentFramework() === 'angular') {
+				handleStylesheetUpdate(message);
+			}
 			break;
 		default:
 			break;

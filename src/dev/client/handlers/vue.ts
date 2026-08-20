@@ -4,6 +4,7 @@ import type { VueComponentInstance, VueVNode } from '../../../../types/vue';
 import { saveDOMState, restoreDOMState } from '../domState';
 import { detectCurrentFramework, findIndexPath } from '../frameworkDetect';
 import { sendAbsoluteHmrTiming } from '../hmrTiming';
+import { swapCSSStylesheet } from '../cssUtils';
 
 /* Collect reactive value from a setup state entry into the target record */
 const collectSetupValue = (
@@ -65,38 +66,6 @@ const extractChildComponentState = (
 	if (!instance || !instance.subTree) return;
 
 	walkVNode(instance.subTree, state);
-};
-
-/* Find an existing stylesheet link matching the given base name */
-const findMatchingStylesheetLink = (cssBaseName: string) => {
-	let found: HTMLLinkElement | null = null;
-	document
-		.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]')
-		.forEach((link) => {
-			const href = link.getAttribute('href') ?? '';
-			if (cssBaseName && href.includes(cssBaseName)) {
-				found = link;
-			}
-		});
-
-	return found;
-};
-
-/* Swap a stylesheet link with a new one, removing the old on load */
-const swapStylesheet = (cssUrl: string, cssBaseName: string) => {
-	const existingLink = findMatchingStylesheetLink(cssBaseName);
-	if (!existingLink) return;
-
-	const capturedExisting: HTMLLinkElement = existingLink;
-	const newLink = document.createElement('link');
-	newLink.rel = 'stylesheet';
-	newLink.href = `${cssUrl}?t=${Date.now()}`;
-	newLink.onload = function () {
-		if (capturedExisting && capturedExisting.parentNode) {
-			capturedExisting.remove();
-		}
-	};
-	document.head.appendChild(newLink);
 };
 
 /* Extract Vue reactive state from app instance */
@@ -169,7 +138,20 @@ export const handleVueUpdate = (message: {
 	if (vueFrameworkCheck !== 'vue') return;
 
 	if (message.data.updateType === 'css-only' && message.data.cssUrl) {
-		swapStylesheet(message.data.cssUrl, message.data.cssBaseName || '');
+		const clientStart = performance.now();
+		const cssBaseName = message.data.cssBaseName || '';
+		void swapCSSStylesheet(
+			message.data.cssUrl,
+			(href) => Boolean(cssBaseName) && href.includes(cssBaseName)
+		).then((applied) => {
+			sendAbsoluteHmrTiming({
+				clientStart,
+				kind: 'css',
+				outcome: applied ? 'applied' : 'failed',
+				serverMs: message.data.serverDuration,
+				updateId: message.timestamp
+			});
+		});
 
 		return;
 	}
@@ -228,6 +210,7 @@ export const handleVueUpdate = (message: {
 				if (message.data.serverDuration !== undefined) {
 					sendAbsoluteHmrTiming({
 						clientStart,
+						kind: 'component',
 						serverMs: message.data.serverDuration,
 						updateId: message.timestamp
 					});
@@ -238,6 +221,13 @@ export const handleVueUpdate = (message: {
 			.catch((err: unknown) => {
 				console.warn('[HMR] Vue HMR failed, reloading:', err);
 				sessionStorage.removeItem('__HMR_ACTIVE__');
+				sendAbsoluteHmrTiming({
+					clientStart,
+					kind: 'component',
+					outcome: 'reloaded',
+					serverMs: message.data.serverDuration,
+					updateId: message.timestamp
+				});
 				window.location.reload();
 			});
 
@@ -246,7 +236,11 @@ export const handleVueUpdate = (message: {
 
 	/* CSS pre-update: swap stylesheet BEFORE unmounting to prevent FOUC */
 	if (message.data.cssUrl) {
-		swapStylesheet(message.data.cssUrl, message.data.cssBaseName || '');
+		const cssBaseName = message.data.cssBaseName || '';
+		void swapCSSStylesheet(
+			message.data.cssUrl,
+			(href) => Boolean(cssBaseName) && href.includes(cssBaseName)
+		);
 	}
 
 	/* Unmount old Vue app but keep DOM visually intact during async import.

@@ -280,4 +280,61 @@ describe('handleHMRMessage', () => {
 		}
 		expect(logged).toBe(false);
 	});
+
+	test('logs native fallback reload outcomes without client error details', () => {
+		const state = createHMRState(makeConfig());
+		state.lastHmrFramework = 'html';
+		state.lastHmrPath = '/html/pages/Example.html';
+		const client = makeMockClient();
+		const lines: string[] = [];
+		const originalLog = console.log;
+		console.log = (message?: unknown) => lines.push(String(message));
+		try {
+			handleHMRMessage(
+				state,
+				client,
+				JSON.stringify({
+					clientMs: 7,
+					duration: 19,
+					kind: 'html',
+					outcome: 'reloaded',
+					serverMs: 12,
+					target: 'capacitor-android',
+					type: 'hmr-timing'
+				})
+			);
+		} finally {
+			console.log = originalLog;
+		}
+		expect(
+			lines.some((line) =>
+				line.includes('falling back to reload after 19ms')
+			)
+		).toBe(true);
+		expect(lines.join('\n')).not.toContain('error');
+	});
+
+	test('rejects unknown HMR application outcomes', () => {
+		const state = createHMRState(makeConfig());
+		const client = makeMockClient();
+		const originalLog = console.log;
+		let logged = false;
+		console.log = () => {
+			logged = true;
+		};
+		try {
+			handleHMRMessage(
+				state,
+				client,
+				JSON.stringify({
+					duration: 10,
+					outcome: 'exploded',
+					type: 'hmr-timing'
+				})
+			);
+		} finally {
+			console.log = originalLog;
+		}
+		expect(logged).toBe(false);
+	});
 });

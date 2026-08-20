@@ -4,7 +4,11 @@
  */
 
 import { formatTimestamp, startupBanner } from './startupBanner';
-import type { HMRClientTarget } from '../../types/messages';
+import type {
+	HMRApplyKind,
+	HMRApplyOutcome,
+	HMRClientTarget
+} from '../../types/messages';
 
 export { formatTimestamp };
 
@@ -131,7 +135,9 @@ export const logHmrClientUpdate = (
 	duration: number,
 	target: HMRClientTarget,
 	serverMs?: number,
-	clientMs?: number
+	clientMs?: number,
+	outcome: HMRApplyOutcome = 'applied',
+	kind?: HMRApplyKind
 ) => {
 	const timestamp = `${colors.dim}${formatTimestamp()}${colors.reset}`;
 	const targetLabel = target.startsWith('capacitor-')
@@ -143,8 +149,12 @@ export const logHmrClientUpdate = (
 		serverMs === undefined || clientMs === undefined
 			? ''
 			: `; server ${serverMs}ms, client ${clientMs}ms`;
+	let action = 'failed after';
+	if (outcome === 'applied') action = 'applied in';
+	else if (outcome === 'reloaded') action = 'falling back to reload after';
+	const kindLabel = kind ? `${kind} ` : '';
 	console.log(
-		`${timestamp} ${tag} ${framework ?? 'update'} ${pathColor}${formatPath(path)}${colors.reset} ${colors.dim}applied in ${duration}ms${breakdown}${colors.reset}`
+		`${timestamp} ${tag} ${framework ?? 'update'} ${kindLabel}${pathColor}${formatPath(path)}${colors.reset} ${colors.dim}${action} ${duration}ms${breakdown}${colors.reset}`
 	);
 };
 

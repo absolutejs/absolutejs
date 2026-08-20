@@ -9,41 +9,10 @@ import {
 } from '../domState';
 import { detectCurrentFramework, findIndexPath } from '../frameworkDetect';
 import { sendAbsoluteHmrTiming } from '../hmrTiming';
+import { swapCSSStylesheet } from '../cssUtils';
 
 type SvelteHmrWindow = Window & {
 	__SVELTE_HMR_ACCEPT__?: Record<string, (mod: unknown) => void>;
-};
-
-/* Swap a stylesheet link by matching cssBaseName or framework name */
-const swapStylesheet = (
-	cssUrl: string,
-	cssBaseName: string,
-	framework: string
-) => {
-	let existingLink: HTMLLinkElement | null = null;
-	document
-		.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]')
-		.forEach((link) => {
-			const href = link.getAttribute('href') ?? '';
-			if (href.includes(cssBaseName) || href.includes(framework)) {
-				existingLink = link;
-			}
-		});
-
-	if (!existingLink) {
-		return;
-	}
-
-	const capturedExisting: HTMLLinkElement = existingLink;
-	const newLink = document.createElement('link');
-	newLink.rel = 'stylesheet';
-	newLink.href = `${cssUrl}?t=${Date.now()}`;
-	newLink.onload = () => {
-		if (capturedExisting && capturedExisting.parentNode) {
-			capturedExisting.remove();
-		}
-	};
-	document.head.appendChild(newLink);
 };
 
 const extractCountFromDOM = () => {
@@ -229,11 +198,20 @@ export const handleSvelteUpdate = (message: {
 
 	/* CSS-only update: hot-swap stylesheet, no remount needed */
 	if (message.data.updateType === 'css-only' && message.data.cssUrl) {
-		swapStylesheet(
+		const clientStart = performance.now();
+		const cssBaseName = message.data.cssBaseName || '';
+		void swapCSSStylesheet(
 			message.data.cssUrl,
-			message.data.cssBaseName || '',
-			'svelte'
-		);
+			(href) => href.includes(cssBaseName) || href.includes('svelte')
+		).then((applied) => {
+			sendAbsoluteHmrTiming({
+				clientStart,
+				kind: 'css',
+				outcome: applied ? 'applied' : 'failed',
+				serverMs: message.data.serverDuration,
+				updateId: message.timestamp
+			});
+		});
 
 		return;
 	}
@@ -256,10 +234,10 @@ export const handleSvelteUpdate = (message: {
 
 	/* CSS pre-update: swap stylesheet BEFORE importing to prevent FOUC */
 	if (message.data.cssUrl) {
-		swapStylesheet(
+		const cssBaseName = message.data.cssBaseName || '';
+		void swapCSSStylesheet(
 			message.data.cssUrl,
-			message.data.cssBaseName || '',
-			'svelte'
+			(href) => href.includes(cssBaseName) || href.includes('svelte')
 		);
 	}
 
@@ -344,6 +322,7 @@ export const handleSvelteUpdate = (message: {
 				if (message.data.serverDuration !== undefined) {
 					sendAbsoluteHmrTiming({
 						clientStart,
+						kind: 'component',
 						serverMs: message.data.serverDuration,
 						updateId: message.timestamp
 					});
@@ -353,6 +332,13 @@ export const handleSvelteUpdate = (message: {
 			})
 			.catch((err: unknown) => {
 				console.warn('[HMR] Svelte HMR failed, reloading:', err);
+				sendAbsoluteHmrTiming({
+					clientStart,
+					kind: 'component',
+					outcome: 'reloaded',
+					serverMs: message.data.serverDuration,
+					updateId: message.timestamp
+				});
 				window.location.reload();
 			});
 

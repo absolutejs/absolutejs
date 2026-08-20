@@ -338,6 +338,8 @@ Pre-compile AST scan resolves the user's `angular.providers` binding to its sour
 | Rapid concurrent edits converge on last-edit state | [`lifecycle/cross-cutting-reliability.test.ts`](tests/integration/hmr/lifecycle/cross-cutting-reliability.test.ts) |
 | Build-error recovery — syntax error → fix → SSR recovers, dev server still healthy | [`lifecycle/cross-cutting-reliability.test.ts`](tests/integration/hmr/lifecycle/cross-cutting-reliability.test.ts) |
 | HMR client disconnect → reconnect preserves server state | [`lifecycle/cross-cutting-reliability.test.ts`](tests/integration/hmr/lifecycle/cross-cutting-reliability.test.ts) |
+| Capacitor Android target applies Angular, React, Vue, Svelte, HTML, HTMX and CSS updates with correlated timing; Ember reports its explicit reload fallback | [`multiframework/native-target-conformance.test.ts`](tests/integration/hmr/multiframework/native-target-conformance.test.ts) |
+| Capacitor Android target clears a runtime-error overlay on the next valid HMR edit | [`multiframework/native-target-conformance.test.ts`](tests/integration/hmr/multiframework/native-target-conformance.test.ts) |
 | 10 Angular template edits don't corrupt or grow the manifest | [`lifecycle/cross-cutting-reliability.test.ts`](tests/integration/hmr/lifecycle/cross-cutting-reliability.test.ts) |
 | `/@src/` module-server URL serves source files (not 404 from staticPlugin) | [`lifecycle/cross-cutting-reliability.test.ts`](tests/integration/hmr/lifecycle/cross-cutting-reliability.test.ts) |
 | Same-basename pages in html/ + htmx/ fire collision warning at boot | [`lifecycle/manifest-key-collision.test.ts`](tests/integration/hmr/lifecycle/manifest-key-collision.test.ts) (#223) |

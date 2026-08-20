@@ -32,8 +32,8 @@ afterEach(async () => {
  *
  * This test uses `process.exit(7)` injected at the top of `server.ts`
  * to deterministically simulate a hard crash on every spawn. */
-describe('CLI crash-loop guard refuses to restart after N rapid crashes', () => {
-	test('broken server.ts → CLI respawns until the 10s window guard fires, prints `refusing to restart`, exits', async () => {
+describe('CLI crash-loop guard refuses to restart after consecutive crashes', () => {
+	test('broken server.ts → CLI respawns until the healthy-uptime guard fires, prints `refusing to restart`, exits', async () => {
 		// Pre-break server.ts to a hard exit. The bun child
 		// will `process.exit(7)` on every spawn; the CLI will
 		// catch the exit, respawn, exit, repeat — until the
@@ -90,12 +90,9 @@ describe('CLI crash-loop guard refuses to restart after N rapid crashes', () => 
 		void drainStream(proc.stdout as ReadableStream<Uint8Array> | null);
 		void drainStream(proc.stderr as ReadableStream<Uint8Array> | null);
 
-		// Wait for the CLI to give up. Allow up to 60s — the
-		// guard wants 6 crashes in any 10s window; Bun's boot +
-		// the CLI's spawn machinery means each cycle is
-		// ~1-3s, so 6 cycles can stretch close to 18s before
-		// the guard fires. Plus the CLI's cleanup. 60s is
-		// generous; the test usually finishes in 15-25s.
+		// Wait for the CLI to give up. The guard wants 6 consecutive
+		// short-lived children; Bun's boot + the CLI's spawn machinery
+		// means each cycle is ~1-3s. Allow extra time for a busy host.
 		let exitCode: number;
 		try {
 			exitCode = await Promise.race([

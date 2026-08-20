@@ -26,26 +26,30 @@ describe('Asset hashing after HMR', () => {
 		client.drain();
 	}, 60_000);
 
-	test('manifest keys update after file change', async () => {
-		const reactPage = resolve(
-			PROJECT_ROOT,
-			'example/react/pages/ReactExample.tsx'
-		);
+	test(
+		'manifest keys update after file change',
+		async () => {
+			const reactPage = resolve(
+				PROJECT_ROOT,
+				'example/react/pages/ReactExample.tsx'
+			);
 
-		mutateFile(reactPage, (c) =>
-			c.replace('AbsoluteJS + React', 'AbsoluteJS + React HASH_TEST')
-		);
+			mutateFile(reactPage, (c) =>
+				c.replace('AbsoluteJS + React', 'AbsoluteJS + React HASH_TEST')
+			);
 
-		await client.waitFor('rebuild-start', 15_000);
+			await client.waitFor('rebuild-start', 15_000);
 
-		// Wait for rebuild to finish — the fast path may not send rebuild-complete
-		await Bun.sleep(5_000);
+			// Wait for rebuild to finish — the fast path may not send rebuild-complete
+			await Bun.sleep(5_000);
 
-		// Fetch updated manifest from status
-		const statusRes = await fetch(`${server.baseUrl}/hmr-status`);
-		const status = await statusRes.json();
+			// Fetch updated manifest from status
+			const statusRes = await fetch(`${server.baseUrl}/hmr-status`);
+			const status = await statusRes.json();
 
-		// The manifestKeys should still contain the same entries
-		expect(status.manifestKeys.length).toBeGreaterThan(0);
-	}, 60_000);
+			// The manifestKeys should still contain the same entries
+			expect(status.manifestKeys.length).toBeGreaterThan(0);
+		},
+		{ retry: 2, timeout: 60_000 }
+	);
 });

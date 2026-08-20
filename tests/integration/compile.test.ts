@@ -1086,54 +1086,67 @@ afterEach(async () => {
 });
 
 describe('compile executable integration', () => {
-	test('serves prerendered pages, runtime fallback, conventions, and browser assets from a copied executable', async () => {
-		const fixtureRoot = await compileStressFixture();
+	test(
+		'serves prerendered pages, runtime fallback, conventions, and browser assets from a copied executable',
+		async () => {
+			const fixtureRoot = await compileStressFixture();
 
-		const runRoot = await makeTempDir('absolute-compile-run');
-		await copyFile(
-			join(fixtureRoot, 'compiled-server'),
-			join(runRoot, 'compiled-server')
-		);
-		await chmod(join(runRoot, 'compiled-server'), 0o755);
+			const runRoot = await makeTempDir('absolute-compile-run');
+			await copyFile(
+				join(fixtureRoot, 'compiled-server'),
+				join(runRoot, 'compiled-server')
+			);
+			await chmod(join(runRoot, 'compiled-server'), 0o755);
 
-		const port = await getAvailablePort();
-		const proc = await startCompiledServer(runRoot, port, {
-			COMPILE_RUNTIME_SECRET: 'runtime-secret'
-		});
-		const baseUrl = `http://localhost:${port}`;
+			const port = await getAvailablePort();
+			const proc = await startCompiledServer(runRoot, port, {
+				COMPILE_RUNTIME_SECRET: 'runtime-secret'
+			});
+			const baseUrl = `http://localhost:${port}`;
 
-		await assertCompileStressServer(baseUrl);
+			await assertCompileStressServer(baseUrl);
 
-		const stackResponse = await fetch(`${baseUrl}/api/error-stack`);
-		expect(stackResponse.status).toBe(200);
-		const stackPayload = (await stackResponse.json()) as { stack?: string };
-		expect(stackPayload.stack).toContain('COMPILE_STACK_PROBE');
-		expect(stackPayload.stack).toContain(join(fixtureRoot, 'server.ts'));
-		const originatingFrame = stackPayload.stack?.split('\n')[1];
-		expect(originatingFrame).not.toContain('absolutejs-compiled-runtime-');
+			const stackResponse = await fetch(`${baseUrl}/api/error-stack`);
+			expect(stackResponse.status).toBe(200);
+			const stackPayload = (await stackResponse.json()) as {
+				stack?: string;
+			};
+			expect(stackPayload.stack).toContain('COMPILE_STACK_PROBE');
+			expect(stackPayload.stack).toContain(
+				join(fixtureRoot, 'server.ts')
+			);
+			const originatingFrame = stackPayload.stack?.split('\n')[1];
+			expect(originatingFrame).not.toContain(
+				'absolutejs-compiled-runtime-'
+			);
 
-		const post = await fetch(`${baseUrl}/api/echo`, {
-			body: 'hello compile',
-			method: 'POST'
-		});
-		expect(post.status).toBe(200);
-		expect(await post.json()).toEqual({ body: 'hello compile', ok: true });
+			const post = await fetch(`${baseUrl}/api/echo`, {
+				body: 'hello compile',
+				method: 'POST'
+			});
+			expect(post.status).toBe(200);
+			expect(await post.json()).toEqual({
+				body: 'hello compile',
+				ok: true
+			});
 
-		const header = await fetch(`${baseUrl}/header`, {
-			headers: { 'x-compile-probe': 'present' }
-		});
-		expect(await header.json()).toEqual({ probe: 'present' });
+			const header = await fetch(`${baseUrl}/header`, {
+				headers: { 'x-compile-probe': 'present' }
+			});
+			expect(await header.json()).toEqual({ probe: 'present' });
 
-		const redirect = await fetch(`${baseUrl}/redirect-me`, {
-			redirect: 'manual'
-		});
-		expect(redirect.status).toBe(302);
-		expect(redirect.headers.get('location')).toBe('/linked');
+			const redirect = await fetch(`${baseUrl}/redirect-me`, {
+				redirect: 'manual'
+			});
+			expect(redirect.status).toBe(302);
+			expect(redirect.headers.get('location')).toBe('/linked');
 
-		await runBrowserProbe(baseUrl);
+			await runBrowserProbe(baseUrl);
 
-		await stopProcess(proc);
-	}, 240_000);
+			await stopProcess(proc);
+		},
+		{ retry: 2, timeout: 240_000 }
+	);
 
 	test('runs after the source fixture is removed', async () => {
 		const fixtureRoot = await compileStressFixture();

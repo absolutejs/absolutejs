@@ -61,11 +61,20 @@ const DURATION_HINTS_MS: Record<string, number> = {
 
 // These browser/compiler probes become nondeterministic when several
 // compiler-heavy shards saturate the host. Keep their assertions unchanged
-// and run them serially in an isolated lane after the shards.
+// and run them serially from clean runtime state before the parallel shards.
 const EXCLUSIVE_TEST_FILES = new Set([
+	'tests/integration/hmr/multiframework/native-target-conformance.test.ts',
+	'tests/integration/hmr/assets/asset-hashing.test.ts',
+	'tests/integration/hmr/lifecycle/cli-crash-loop-guard.test.ts',
+	'tests/integration/hmr/lifecycle/htmx-deeper-coverage.test.ts',
 	'tests/integration/hmr/lifecycle/angular-state-preservation.test.ts',
+	'tests/integration/hmr/lifecycle/svelte-state-preservation.test.ts',
+	'tests/integration/hmr/lifecycle/vue-state-preservation.test.ts',
+	'tests/integration/hmr/lifecycle/spa-child-style.test.ts',
 	'tests/integration/hmr/lifecycle/angular-tiering.test.ts',
-	'tests/integration/hmr/lifecycle/spa-child-style.test.ts'
+	'tests/integration/server/prod-hardening.test.ts',
+	'tests/integration/server/prod-startup.test.ts',
+	'tests/integration/server/prod-ssr.test.ts'
 ]);
 
 type RunnerArgs = { shards: number; testDir: string };
@@ -161,6 +170,10 @@ const prepareShardDir = async (index: number) => {
 	// process-local. Never copy or retain either across isolated shards.
 	rmSync(join(shardDir, '.absolutejs'), { force: true, recursive: true });
 	rmSync(join(shardDir, '.test-builds'), { force: true, recursive: true });
+	rmSync(join(shardDir, 'example', 'build'), {
+		force: true,
+		recursive: true
+	});
 	const rsync = Bun.spawn(
 		[
 			'rsync',
@@ -178,6 +191,8 @@ const prepareShardDir = async (index: number) => {
 			'.absolutejs',
 			'--exclude',
 			'.test-builds',
+			'--exclude',
+			'example/build',
 			`${REPO_ROOT}/`,
 			`${shardDir}/`
 		],
@@ -243,14 +258,28 @@ const runTestProcess = async (
 const runShard = async (index: number, files: string[]) =>
 	runTestProcess(`shard-${index}`, await prepareShardDir(index), files);
 
+const cleanExclusiveRuntimeArtifacts = () => {
+	rmSync(join(REPO_ROOT, '.absolutejs'), { force: true, recursive: true });
+	rmSync(join(REPO_ROOT, '.test-builds'), { force: true, recursive: true });
+	rmSync(join(REPO_ROOT, 'example', 'build'), {
+		force: true,
+		recursive: true
+	});
+};
+
 const runExclusive = (files: string[]) =>
 	files.reduce<Promise<ShardResult[]>>(
-		async (pendingResults, file, index) => [
-			...(await pendingResults),
-			await runTestProcess(`exclusive-${index}`, REPO_ROOT, [file]).then(
-				logShardCompletion
-			)
-		],
+		async (pendingResults, file, index) => {
+			const results = await pendingResults;
+			cleanExclusiveRuntimeArtifacts();
+
+			return [
+				...results,
+				await runTestProcess(`exclusive-${index}`, REPO_ROOT, [
+					file
+				]).then(logShardCompletion)
+			];
+		},
 		Promise.resolve([])
 	);
 
@@ -295,8 +324,8 @@ const main = async () => {
 		process.exit(1);
 	}
 
-	const exclusiveFiles = files.filter((file) =>
-		EXCLUSIVE_TEST_FILES.has(file)
+	const exclusiveFiles = [...EXCLUSIVE_TEST_FILES].filter((file) =>
+		files.includes(file)
 	);
 	const parallelFiles = files.filter(
 		(file) => !EXCLUSIVE_TEST_FILES.has(file)
@@ -311,14 +340,14 @@ const main = async () => {
 	});
 
 	const startedAt = performance.now();
+	const exclusiveResults = exclusiveFiles.length
+		? await runExclusive(exclusiveFiles)
+		: [];
 	const parallelResults = await Promise.all(
 		partitions.map((shard, shardIndex) =>
 			runShard(shardIndex, shard).then(logShardCompletion)
 		)
 	);
-	const exclusiveResults = exclusiveFiles.length
-		? await runExclusive(exclusiveFiles)
-		: [];
 	const results = [...parallelResults, ...exclusiveResults];
 
 	const totals: Totals = { fail: 0, pass: 0, skip: 0 };

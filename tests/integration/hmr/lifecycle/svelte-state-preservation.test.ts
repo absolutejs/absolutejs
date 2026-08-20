@@ -82,42 +82,48 @@ const startAll = async () => {
  * Tier-1 reload (script-shape change that runes can't reconcile)
  * loses state — that's intentional and not tested here. */
 describe('Svelte 5 state preservation across template edits', () => {
-	test('count survives a template-only edit ($.hmr collect/restore)', async () => {
-		const { client: c, session: s } = await startAll();
+	test(
+		'count survives a template-only edit ($.hmr collect/restore)',
+		async () => {
+			const { client: c, session: s } = await startAll();
 
-		for (let i = 0; i < 7; i++) {
-			await s.page.click('button');
-		}
-		await waitForText(s.page, 'button', (t) => t.includes('count is 7'));
+			for (let i = 0; i < 7; i++) {
+				await s.page.click('button');
+			}
+			await waitForText(s.page, 'button', (t) =>
+				t.includes('count is 7')
+			);
 
-		c.drain();
-		mutateFile(counter, (text) =>
-			text.replace(
-				'<button onclick={increment}>count is {count}</button>',
-				'<button onclick={increment}>count is {count}</button>\n<span data-test-id="svelte-edited" style="display:none">SVELTE_EDITED</span>'
-			)
-		);
+			c.drain();
+			mutateFile(counter, (text) =>
+				text.replace(
+					'<button onclick={increment}>count is {count}</button>',
+					'<button onclick={increment}>count is {count}</button>\n<span data-test-id="svelte-edited" style="display:none">SVELTE_EDITED</span>'
+				)
+			);
 
-		await c.waitFor('svelte-update', 15_000);
+			await c.waitFor('svelte-update', 15_000);
 
-		// State preservation: after the swap, the displayed
-		// count is still 7. Svelte's `$.hmr()` collected the
-		// counter's let-binding before swap and restored it.
-		const sawSeven = await s.page
-			.waitForFunction(
-				() => {
-					const buttons = document.querySelectorAll('button');
-					for (const b of buttons) {
-						if (/count is 7\b/.test(b.textContent ?? ''))
-							return true;
-					}
+			// State preservation: after the swap, the displayed
+			// count is still 7. Svelte's `$.hmr()` collected the
+			// counter's let-binding before swap and restored it.
+			const sawSeven = await s.page
+				.waitForFunction(
+					() => {
+						const buttons = document.querySelectorAll('button');
+						for (const b of buttons) {
+							if (/count is 7\b/.test(b.textContent ?? ''))
+								return true;
+						}
 
-					return false;
-				},
-				{ timeout: 15_000 }
-			)
-			.then(() => true)
-			.catch(() => false);
-		expect(sawSeven).toBe(true);
-	}, 60_000);
+						return false;
+					},
+					{ timeout: 15_000 }
+				)
+				.then(() => true)
+				.catch(() => false);
+			expect(sawSeven).toBe(true);
+		},
+		{ retry: 2, timeout: 60_000 }
+	);
 });

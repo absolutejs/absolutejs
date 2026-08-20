@@ -7,6 +7,16 @@ export type HMRClientTarget =
 	| 'capacitor-native'
 	| 'web';
 
+export type HMRApplyKind =
+	| 'component'
+	| 'css'
+	| 'full-reload'
+	| 'html'
+	| 'htmx'
+	| 'script';
+
+export type HMRApplyOutcome = 'applied' | 'failed' | 'reloaded';
+
 export type PingMessage = {
 	type: 'ping';
 };
@@ -34,6 +44,8 @@ export type HMRTimingMessage = {
 	type: 'hmr-timing';
 	clientMs?: number;
 	duration: number;
+	kind?: HMRApplyKind;
+	outcome?: HMRApplyOutcome;
 	serverMs?: number;
 	target?: HMRClientTarget;
 	updateId?: number;

@@ -1,3 +1,5 @@
+import type { HMRApplyKind, HMRApplyOutcome } from '../../../types/messages';
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === 'object' && value !== null;
 
@@ -33,6 +35,8 @@ export const absoluteHmrClientTarget = () => {
 
 type SendHmrTimingOptions = {
 	clientStart: number;
+	kind?: HMRApplyKind;
+	outcome?: HMRApplyOutcome;
 	serverMs?: number;
 	updateId?: number;
 };
@@ -45,6 +49,8 @@ export const sendAbsoluteHmrTiming = (options: SendHmrTimingOptions) => {
 		JSON.stringify({
 			clientMs,
 			duration: serverMs + clientMs,
+			kind: options.kind,
+			outcome: options.outcome ?? 'applied',
 			serverMs,
 			target: absoluteHmrClientTarget(),
 			type: 'hmr-timing',

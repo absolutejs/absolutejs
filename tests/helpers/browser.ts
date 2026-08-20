@@ -9,6 +9,7 @@ export type BrowserSession = {
 type OpenPageOptions = {
 	consoleLog?: (message: string) => void;
 	viewport?: { height: number; width: number };
+	waitUntil?: 'commit' | 'domcontentloaded' | 'load';
 };
 
 /* Spin up a headless Chromium against the dev-server URL. The
@@ -16,37 +17,68 @@ type OpenPageOptions = {
  * + the `load` event have fired. `close()` shuts the whole browser
  * down — call from the test's `afterEach` so we don't leak Chromium
  * processes across runs. */
-export const openPage = async (
-	url: string,
-	options: OpenPageOptions = {}
-): Promise<BrowserSession> => {
-	const browser = await chromium.launch({
-		args: ['--no-sandbox', '--disable-dev-shm-usage'],
-		headless: true
-	});
-	const context = await browser.newContext({
-		viewport: options.viewport ?? { height: 720, width: 1280 }
-	});
-	const page = await context.newPage();
+export const openPage = async (url: string, options: OpenPageOptions = {}) => {
+	let lastError: unknown;
+	for (let attempt = 0; attempt < 3; attempt++) {
+		let browser: Browser | undefined;
+		try {
+			browser = await chromium.launch({
+				args: [
+					'--no-sandbox',
+					'--disable-dev-shm-usage',
+					'--disable-gpu'
+				],
+				headless: true,
+				timeout: 20_000
+			});
+			const activeBrowser = browser;
+			const context = await activeBrowser.newContext({
+				viewport: options.viewport ?? { height: 720, width: 1280 }
+			});
+			const page = await context.newPage();
 
-	if (options.consoleLog) {
-		const { consoleLog } = options;
-		page.on('console', (message) => consoleLog(message.text()));
+			if (options.consoleLog) {
+				const { consoleLog } = options;
+				page.on('console', (message) => consoleLog(message.text()));
+			}
+
+			await page.goto(url, {
+				waitUntil: options.waitUntil ?? 'load'
+			});
+
+			return {
+				browser: activeBrowser,
+				page,
+				close: async () => {
+					try {
+						await activeBrowser.close();
+					} catch {
+						/* already closed */
+					}
+				}
+			};
+		} catch (error) {
+			lastError = error;
+			const launchFailed = browser === undefined;
+			await Promise.race([
+				browser?.close().catch(() => undefined),
+				Bun.sleep(5_000)
+			]);
+			const message =
+				error instanceof Error ? error.message : String(error);
+			if (
+				!launchFailed &&
+				!/browser has been closed|context or browser has been closed|browserType\.launch: Timeout/i.test(
+					message
+				)
+			) {
+				throw error;
+			}
+			await Bun.sleep(100 * (attempt + 1));
+		}
 	}
 
-	await page.goto(url, { waitUntil: 'load' });
-
-	return {
-		browser,
-		page,
-		close: async () => {
-			try {
-				await browser.close();
-			} catch {
-				/* already closed */
-			}
-		}
-	};
+	throw lastError;
 };
 
 /* Wait until `predicate(text)` is true, polling `page.locator(selector).textContent()`.

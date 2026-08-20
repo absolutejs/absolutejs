@@ -1,6 +1,6 @@
 # AbsoluteJS Mobile Apps: Research and Implementation Plan
 
-Status: Phase 0 React representation/version pipeline operational; Capacitor native identity/transport spike in progress
+Status: Android Capacitor development loop operational; all-framework native-target HMR conformance implemented
 Research snapshot: August 20, 2026
 
 Implementation checkpoint (August 20, 2026): the first React protocol seam now
@@ -1304,6 +1304,27 @@ The corresponding opt-in telemetry records target/framework and numeric phase
 durations or cache status only; it excludes route URLs, source paths, application
 IDs, device serials, signing data and log contents. Real API 36 acceptance measured
 a 2.04 second warm Android connection with Gradle and APK installation skipped.
+
+The native-target HMR contract now covers every AbsoluteJS page family rather than
+only React. Angular, React, Vue, Svelte, HTML and HTMX acknowledge successful
+application from the WebView with target, update ID, update kind, outcome, server
+time and client time. Ember explicitly acknowledges its current full-page reload
+fallback, so the terminal and telemetry distinguish a reload from an in-place
+apply instead of reporting a false success. CSS swaps retain the old stylesheet
+until the replacement loads, ignore unrelated cross-origin stylesheets, and no
+longer let the generic `rebuild-complete` path reload `styles`, `assets`, or
+Tailwind changes before their update arrives. Development-only Ember SSR responses
+now receive the same target-aware HMR client; production responses do not.
+
+Browser conformance runs the real generated clients with
+`__absolute_target=capacitor-android`, changes each framework source, verifies the
+visible result, and enforces a bounded native acknowledgement. It also verifies
+that a runtime error uses the branded overlay and that the next valid edit clears
+the overlay without restarting the dev server. The harness uses one dev graph and
+isolated browser contexts, matching the intended multi-route `bun dev` workflow
+while preventing framework runtimes from contaminating one another. Real Android
+acceptance remains the transport/device gate; this matrix is the fast deterministic
+framework gate that runs without an SDK.
 
 Real WSL2/Windows acceptance established the host boundary more precisely. Gradle
 cannot reliably build a project directly from a `\\wsl.localhost` UNC path, so the

@@ -221,14 +221,19 @@ const handleParsedMessage = (
 				data.duration,
 				normalizedHmrTarget(data.target),
 				data.serverMs,
-				data.clientMs
+				data.clientMs,
+				data.outcome,
+				data.kind
 			);
 			sendTelemetryEvent('hmr:client-applied', {
 				clientMs: data.clientMs,
 				durationMs: data.duration,
 				framework:
 					update?.framework ?? state.lastHmrFramework ?? 'unknown',
+				kind: data.kind,
+				outcome: data.outcome ?? 'applied',
 				serverMs: data.serverMs,
+				success: (data.outcome ?? 'applied') === 'applied',
 				target: normalizedHmrTarget(data.target)
 			});
 			break;

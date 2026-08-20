@@ -36,6 +36,7 @@ describe('HMR client timing', () => {
 		Reflect.set(globalThis, 'window', { __HMR_WS__: { send } });
 		sendAbsoluteHmrTiming({
 			clientStart: performance.now(),
+			kind: 'html',
 			serverMs: 18,
 			updateId: 123
 		});
@@ -44,6 +45,8 @@ describe('HMR client timing', () => {
 		const payload = JSON.parse(String(call?.[0]));
 		expect(payload.target).toBe('capacitor-android');
 		expect(payload.serverMs).toBe(18);
+		expect(payload.kind).toBe('html');
+		expect(payload.outcome).toBe('applied');
 		expect(payload.duration).toBeGreaterThanOrEqual(18);
 		expect(payload.updateId).toBe(123);
 		expect(payload).not.toHaveProperty('appId');

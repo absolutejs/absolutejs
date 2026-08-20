@@ -53,5 +53,6 @@ describe('HTMX HMR', () => {
 		expect(data.framework).toBe('htmx');
 		expect(data.manifest).toBeDefined();
 		expect(data.html).toBeDefined();
+		expect(data.serverDuration).toBeNumber();
 	});
 });

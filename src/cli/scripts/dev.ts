@@ -1387,17 +1387,17 @@ export const dev = async (
 
 	printHint();
 
-	// Crash-loop rate limit. A persistently-crashing child (e.g. a
-	// syntax error in `server.ts` that doesn't get fixed) would
-	// otherwise respawn forever, spamming the terminal. Track recent
-	// crash timestamps in a rolling window; once `MAX` crashes happen
-	// within `WINDOW_MS`, give up with a clear message instead of
-	// respawning. The user sees the *real* error from the last crash
-	// at the bottom of their log instead of the same trace flickering
-	// past hundreds of times.
-	const CRASH_WINDOW_MS = 10_000;
-	const MAX_CRASHES_PER_WINDOW = 5;
-	const recentCrashes: number[] = [];
+	// Crash-loop rate limit. A persistently-crashing child (e.g. a syntax
+	// error in `server.ts` that doesn't get fixed) would otherwise respawn
+	// forever, spamming the terminal. Count consecutive short-lived children,
+	// resetting only after one survives long enough to be considered healthy.
+	// This remains deterministic when compilation makes each failed boot take
+	// several seconds; a rolling wall-clock window could otherwise restart a
+	// broken server forever on a busy machine.
+	const HEALTHY_CHILD_UPTIME_MS = 10_000;
+	const MAX_CONSECUTIVE_CRASHES = 5;
+	let consecutiveCrashes = 0;
+	let serverSpawnedAt = Date.now();
 
 	const handleServerExit = async (exitCode: number | null) => {
 		if (exitCode === SIGINT_EXIT_CODE || exitCode === SIGTERM_EXIT_CODE) {
@@ -1405,29 +1405,24 @@ export const dev = async (
 
 			return false;
 		}
-		const now = Date.now();
-		let [oldestCrash] = recentCrashes;
-		while (
-			oldestCrash !== undefined &&
-			now - oldestCrash > CRASH_WINDOW_MS
-		) {
-			recentCrashes.shift();
-			[oldestCrash] = recentCrashes;
+		const childUptimeMs = Date.now() - serverSpawnedAt;
+		if (childUptimeMs >= HEALTHY_CHILD_UPTIME_MS) {
+			consecutiveCrashes = 0;
 		}
-		recentCrashes.push(now);
-		if (recentCrashes.length > MAX_CRASHES_PER_WINDOW) {
+		consecutiveCrashes++;
+		if (consecutiveCrashes > MAX_CONSECUTIVE_CRASHES) {
 			console.error(
 				cliTag(
 					'\x1b[31m',
-					`Server has crashed ${recentCrashes.length} times in the last ${Math.round(
-						CRASH_WINDOW_MS / 1000
+					`Server has crashed ${consecutiveCrashes} consecutive times without remaining healthy for ${Math.round(
+						HEALTHY_CHILD_UPTIME_MS / 1000
 					)}s — refusing to restart. Fix the error above and run \`absolute dev\` again.`
 				)
 			);
 			sendTelemetryEvent('dev:server-crash-loop', {
-				crashes: recentCrashes.length,
+				crashes: consecutiveCrashes,
 				entry: serverEntry,
-				windowMs: CRASH_WINDOW_MS
+				windowMs: HEALTHY_CHILD_UPTIME_MS
 			});
 			await cleanup(1);
 
@@ -1444,6 +1439,7 @@ export const dev = async (
 			exitCode: exitCode ?? -1
 		});
 		serverProcess = await spawnServer();
+		serverSpawnedAt = Date.now();
 
 		return true;
 	};

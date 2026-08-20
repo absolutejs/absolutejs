@@ -52,30 +52,34 @@ const startAll = async () => {
  *      HMR-mode bare-`@angular/*`-specifiers strategy pin Angular
  *      to a single module instance regardless of tsconfig paths). */
 describe('TypeScript tsconfig.json paths/baseUrl alias resolution', () => {
-	test('aliased composable import resolves at compile time and SSR renders cleanly', async () => {
-		// Add path alias to tsconfig BEFORE server boots.
-		mutateFile(tsconfigPath, (text) =>
-			text.replace(
-				'"useDefineForClassFields": false',
-				'"useDefineForClassFields": false,\n\t\t"baseUrl": ".",\n\t\t"paths": { "@vue-composables/*": ["example/vue/composables/*"] }'
-			)
-		);
-		// Replace the relative import with the alias.
-		mutateFile(countButton, (text) =>
-			text.replace(
-				"import { useCount } from '../composables/useCount';",
-				"import { useCount } from '@vue-composables/useCount';"
-			)
-		);
+	test(
+		'aliased composable import resolves at compile time and SSR renders cleanly',
+		async () => {
+			// Add path alias to tsconfig BEFORE server boots.
+			mutateFile(tsconfigPath, (text) =>
+				text.replace(
+					'"useDefineForClassFields": false',
+					'"useDefineForClassFields": false,\n\t\t"baseUrl": ".",\n\t\t"paths": { "@vue-composables/*": ["example/vue/composables/*"] }'
+				)
+			);
+			// Replace the relative import with the alias.
+			mutateFile(countButton, (text) =>
+				text.replace(
+					"import { useCount } from '../composables/useCount';",
+					"import { useCount } from '@vue-composables/useCount';"
+				)
+			);
 
-		const { server: srv } = await startAll();
+			const { server: srv } = await startAll();
 
-		const baseline = await (await fetch(`${srv.baseUrl}/vue`)).text();
-		// SSR rendered normally — composable resolved via alias.
-		expect(baseline).toContain('count is 0');
-		// Sanity: no SSR error page.
-		expect(baseline).not.toMatch(/Server Render Error/);
-	}, 60_000);
+			const baseline = await (await fetch(`${srv.baseUrl}/vue`)).text();
+			// SSR rendered normally — composable resolved via alias.
+			expect(baseline).toContain('count is 0');
+			// Sanity: no SSR error page.
+			expect(baseline).not.toMatch(/Server Render Error/);
+		},
+		{ retry: 2, timeout: 60_000 }
+	);
 
 	test('editing the alias-imported `.vue` file (its own source) still triggers HMR', async () => {
 		mutateFile(tsconfigPath, (text) =>

@@ -6,6 +6,7 @@
 import { hideErrorOverlay } from '../errorOverlay';
 import { detectCurrentFramework } from '../frameworkDetect';
 import { sendAbsoluteHmrTiming } from '../hmrTiming';
+import { swapCSSStylesheet } from '../cssUtils';
 
 const reloadReactPage = () => {
 	const url = new URL(window.location.href);
@@ -30,6 +31,22 @@ export const handleReactUpdate = (message: {
 
 	const hasComponentChanges = message.data.hasComponentChanges !== false;
 	const hasCSSChanges = message.data.hasCSSChanges === true;
+	const cssPath =
+		message.data.manifest && message.data.manifest.ReactExampleCSS;
+	if (!hasComponentChanges && hasCSSChanges && cssPath) {
+		const clientStart = performance.now();
+		void reloadReactCSS(cssPath).then((applied) => {
+			sendAbsoluteHmrTiming({
+				clientStart,
+				kind: 'css',
+				outcome: applied ? 'applied' : 'failed',
+				serverMs: message.data.serverDuration,
+				updateId: message.timestamp
+			});
+		});
+
+		return;
+	}
 	if (message.data.fastRefreshSupported === false) {
 		const { pageModuleUrl } = message.data;
 		const remount = window.__ABS_REACT_REMOUNT__;
@@ -41,20 +58,19 @@ export const handleReactUpdate = (message: {
 				message.timestamp
 			);
 		} else {
+			const clientStart = performance.now();
+			sendAbsoluteHmrTiming({
+				clientStart,
+				kind: 'component',
+				outcome: 'reloaded',
+				serverMs: message.data.serverDuration,
+				updateId: message.timestamp
+			});
 			reloadReactPage();
 		}
 
 		return;
 	}
-	const cssPath =
-		message.data.manifest && message.data.manifest.ReactExampleCSS;
-
-	if (!hasComponentChanges && hasCSSChanges && cssPath) {
-		reloadReactCSS(cssPath);
-
-		return;
-	}
-
 	const refreshRuntime = window.$RefreshRuntime$;
 	const { serverDuration } = message.data;
 	const { pageModuleUrl } = message.data;
@@ -71,6 +87,14 @@ export const handleReactUpdate = (message: {
 	}
 
 	// No module URL — shouldn't happen, but reload as safety fallback
+	const clientStart = performance.now();
+	sendAbsoluteHmrTiming({
+		clientStart,
+		kind: 'component',
+		outcome: 'reloaded',
+		serverMs: message.data.serverDuration,
+		updateId: message.timestamp
+	});
 	window.location.reload();
 };
 
@@ -81,14 +105,14 @@ const finishUpdate = (
 ) => {
 	sendAbsoluteHmrTiming({
 		clientStart,
+		kind: 'component',
 		serverMs: serverDuration,
 		updateId
 	});
 	if (window.__ERROR_BOUNDARY__) {
 		window.__ERROR_BOUNDARY__.reset();
-	} else {
-		hideErrorOverlay();
 	}
+	hideErrorOverlay();
 };
 
 const applyRefreshImport = (
@@ -110,6 +134,13 @@ const applyRefreshImport = (
 				'[HMR] React Fast Refresh failed, falling back to reload:',
 				err
 			);
+			sendAbsoluteHmrTiming({
+				clientStart,
+				kind: 'component',
+				outcome: 'reloaded',
+				serverMs: serverDuration,
+				updateId
+			});
 			window.location.reload();
 		});
 };
@@ -133,31 +164,26 @@ const applyRemountImport = (
 				'[HMR] React remount failed, falling back to reload:',
 				err
 			);
+			sendAbsoluteHmrTiming({
+				clientStart,
+				kind: 'component',
+				outcome: 'reloaded',
+				serverMs: serverDuration,
+				updateId
+			});
 			reloadReactPage();
 		});
 };
 
-const reloadReactCSS = (cssPath: string) => {
-	const existingCSSLinks = document.head.querySelectorAll<HTMLLinkElement>(
-		'link[rel="stylesheet"]'
-	);
-	existingCSSLinks.forEach((link) => {
-		const href = link.getAttribute('href');
-		if (!href) {
-			return;
-		}
+const reloadReactCSS = (cssPath: string) =>
+	swapCSSStylesheet(cssPath, (href) => {
 		const hrefBase = (href.split('?')[0] ?? '').split('/').pop() ?? '';
 		const cssPathBase =
 			(cssPath.split('?')[0] ?? '').split('/').pop() ?? '';
-		if (
+
+		return (
 			hrefBase === cssPathBase ||
 			href.includes('react-example') ||
 			cssPathBase.includes(hrefBase)
-		) {
-			const newHref = `${
-				cssPath + (cssPath.includes('?') ? '&' : '?')
-			}t=${Date.now()}`;
-			link.href = newHref;
-		}
+		);
 	});
-};

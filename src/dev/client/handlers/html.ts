@@ -16,6 +16,7 @@ import { detectCurrentFramework } from '../frameworkDetect';
 import type { ScriptInfo } from '../../../../types/client';
 import { restoreDOMChanges, snapshotDOMChanges } from '../domTracker';
 import { hmrState } from '../hmrState';
+import { sendAbsoluteHmrTiming } from '../hmrTiming';
 
 const parseHTMLMessage = (
 	html: string | { body?: string; head?: string } | null | undefined
@@ -56,11 +57,10 @@ const handleHTMLBodyWithHead = (
 
 	const cssResult = processCSSLinks(htmlHead);
 
-	const updateBodyAfterCSS = () => {
+	const updateBodyAfterCSS = () =>
 		updateHTMLBody(htmlBody, htmlDomState, document.body);
-	};
 
-	waitForCSSAndUpdate(cssResult, updateBodyAfterCSS);
+	return waitForCSSAndUpdate(cssResult, updateBodyAfterCSS);
 };
 
 const handleHTMLBodyWithoutHead = (
@@ -71,17 +71,21 @@ const handleHTMLBodyWithoutHead = (
 	if (!container) {
 		sessionStorage.removeItem('__HMR_ACTIVE__');
 
-		return;
+		return Promise.resolve();
 	}
 
-	updateHTMLBodyDirect(htmlBody, htmlDomState, container);
+	const updated = updateHTMLBodyDirect(htmlBody, htmlDomState, container);
 	restoreDOMState(container, htmlDomState);
+
+	return updated;
 };
 
 export const handleHTMLUpdate = (message: {
 	data: {
 		html?: string | { body?: string; head?: string } | null;
+		serverDuration?: number;
 	};
+	timestamp?: number;
 }) => {
 	const htmlFrameworkCheck = detectCurrentFramework();
 	if (htmlFrameworkCheck !== 'html') {
@@ -93,6 +97,7 @@ export const handleHTMLUpdate = (message: {
 	}
 
 	sessionStorage.setItem('__HMR_ACTIVE__', 'true');
+	const clientStart = performance.now();
 
 	const htmlDomState = saveDOMState(document.body);
 	const { body: htmlBody, head: htmlHead } = parseHTMLMessage(
@@ -101,18 +106,48 @@ export const handleHTMLUpdate = (message: {
 
 	if (!htmlBody) {
 		sessionStorage.removeItem('__HMR_ACTIVE__');
+		sendAbsoluteHmrTiming({
+			clientStart,
+			kind: 'html',
+			outcome: 'failed',
+			serverMs: message.data.serverDuration,
+			updateId: message.timestamp
+		});
 
 		return;
 	}
 
-	if (htmlHead) {
-		handleHTMLBodyWithHead(htmlBody, htmlHead, htmlDomState);
-	} else {
-		handleHTMLBodyWithoutHead(htmlBody, htmlDomState);
-	}
+	const update = htmlHead
+		? handleHTMLBodyWithHead(htmlBody, htmlHead, htmlDomState)
+		: handleHTMLBodyWithoutHead(htmlBody, htmlDomState);
+	void update.then(
+		() => {
+			sendAbsoluteHmrTiming({
+				clientStart,
+				kind: 'html',
+				serverMs: message.data.serverDuration,
+				updateId: message.timestamp
+			});
+		},
+		() => {
+			sendAbsoluteHmrTiming({
+				clientStart,
+				kind: 'html',
+				outcome: 'reloaded',
+				serverMs: message.data.serverDuration,
+				updateId: message.timestamp
+			});
+			window.location.reload();
+		}
+	);
 };
 export const handleScriptUpdate = (message: {
-	data: { framework?: string; scriptPath?: string };
+	data: {
+		framework?: string;
+		scriptPath?: string;
+		serverDuration?: number;
+	};
+	timestamp?: number;
 }) => {
 	const scriptFramework = message.data.framework;
 	const currentFw = detectCurrentFramework();
@@ -138,13 +173,30 @@ export const handleScriptUpdate = (message: {
 	});
 
 	const cacheBustedPath = `${scriptPath}?t=${Date.now()}`;
+	const clientStart = performance.now();
 	import(cacheBustedPath)
-		.then(() => true)
+		.then(() => {
+			sendAbsoluteHmrTiming({
+				clientStart,
+				kind: 'script',
+				serverMs: message.data.serverDuration,
+				updateId: message.timestamp
+			});
+
+			return true;
+		})
 		.catch((err: unknown) => {
 			console.error(
 				'[HMR] Script hot-reload failed, falling back to page reload:',
 				err
 			);
+			sendAbsoluteHmrTiming({
+				clientStart,
+				kind: 'script',
+				outcome: 'reloaded',
+				serverMs: message.data.serverDuration,
+				updateId: message.timestamp
+			});
 			window.location.reload();
 		});
 };
@@ -171,8 +223,9 @@ const updateHTMLBody = (
 	container: HTMLElement
 ) => {
 	if (!container) {
-		return;
+		return Promise.resolve();
 	}
+	const { promise, resolve } = Promise.withResolvers<void>();
 
 	const savedState = saveHTMLState();
 	const domSnapshot = snapshotDOMChanges(container);
@@ -221,8 +274,11 @@ const updateHTMLBody = (
 			}
 			reExecuteScripts(container, newScripts, oldInlineScripts);
 		}
+		sessionStorage.removeItem('__HMR_ACTIVE__');
+		resolve();
 	});
-	sessionStorage.removeItem('__HMR_ACTIVE__');
+
+	return promise;
 };
 
 const replaceInlineScript = (script: Element) => {
@@ -244,6 +300,7 @@ const updateHTMLBodyDirect = (
 	htmlDomState: ReturnType<typeof saveDOMState>,
 	container: HTMLElement
 ) => {
+	const { promise, resolve } = Promise.withResolvers<void>();
 	const savedState = saveHTMLState();
 	const domSnapshot = snapshotDOMChanges(container);
 
@@ -281,8 +338,11 @@ const updateHTMLBodyDirect = (
 		});
 
 		reExecuteInlineScripts(container, oldInlineScripts);
+		sessionStorage.removeItem('__HMR_ACTIVE__');
+		resolve();
 	});
-	sessionStorage.removeItem('__HMR_ACTIVE__');
+
+	return promise;
 };
 
 /* Shared helpers for HTML body updates */

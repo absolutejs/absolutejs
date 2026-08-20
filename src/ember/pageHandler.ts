@@ -95,7 +95,8 @@ const buildHtmlShell = (
 	headTag: string,
 	bodyContent: string,
 	indexPath: string,
-	props: Record<string, unknown> | undefined
+	props: Record<string, unknown> | undefined,
+	hmrShim: string
 ) => {
 	const propsScript = `window.__INITIAL_PROPS__=${JSON.stringify(props ?? {})};`;
 	const indexImport = indexPath
@@ -105,8 +106,23 @@ const buildHtmlShell = (
 	return (
 		`<!DOCTYPE html><html>${headTag}<body>` +
 		`<div id="ember-root">${bodyContent}</div>` +
-		`<script>${propsScript}</script>${indexImport}</body></html>`
+		`<script>${propsScript}</script>${indexImport}${hmrShim}</body></html>`
 	);
+};
+
+let cachedEmberHmrShim: Promise<string> | null = null;
+
+const getEmberHmrShim = () => {
+	if (cachedEmberHmrShim) return cachedEmberHmrShim;
+	cachedEmberHmrShim = import('../dev/buildHMRClient').then(
+		async ({ buildHMRClient }) => {
+			const bundle = await buildHMRClient();
+
+			return `<script>window.__HMR_FRAMEWORK__="ember";</script><script data-hmr-client>${bundle}</script>`;
+		}
+	);
+
+	return cachedEmberHmrShim;
 };
 
 export const handleEmberPageRequest = async (input: EmberPageRequestInput) => {
@@ -135,6 +151,10 @@ export const handleEmberPageRequest = async (input: EmberPageRequestInput) => {
 		}
 
 		const innerHtml = bundle.renderToHTML(props ?? {});
+		const hmrShim =
+			!indexPath && process.env.NODE_ENV === 'development'
+				? await getEmberHmrShim()
+				: '';
 
 		const html = buildHtmlShell(
 			resolvedHeadTag,
@@ -142,7 +162,8 @@ export const handleEmberPageRequest = async (input: EmberPageRequestInput) => {
 			// div so we don't double-wrap inside #ember-root.
 			innerHtml.replace(/^<div>|<\/div>$/g, ''),
 			indexPath,
-			props
+			props,
+			hmrShim
 		);
 
 		return withPageCacheHeaders(

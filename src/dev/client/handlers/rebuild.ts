@@ -6,8 +6,20 @@ import {
 	isRuntimeErrorOverlay,
 	showErrorOverlay
 } from '../errorOverlay';
+import { sendAbsoluteHmrTiming } from '../hmrTiming';
 
-export const handleFullReload = () => {
+export const handleFullReload = (message?: {
+	data: { serverDuration?: number };
+	timestamp?: number;
+}) => {
+	const clientStart = performance.now();
+	sendAbsoluteHmrTiming({
+		clientStart,
+		kind: 'full-reload',
+		outcome: 'reloaded',
+		serverMs: message?.data.serverDuration,
+		updateId: message?.timestamp
+	});
 	setTimeout(() => {
 		window.location.reload();
 	}, REBUILD_RELOAD_DELAY_MS);
@@ -32,7 +44,18 @@ export const handleManifest = (message: {
 	window.__HMR_MODULE_UPDATES__ = [];
 };
 
-const HMR_FRAMEWORKS = ['angular', 'react', 'vue', 'svelte', 'html', 'htmx'];
+const HMR_FRAMEWORKS = [
+	'angular',
+	'assets',
+	'ember',
+	'html',
+	'htmx',
+	'react',
+	'styles',
+	'svelte',
+	'tailwind',
+	'vue'
+];
 
 const mergeRecord = (
 	source: Record<string, string | number>,
@@ -114,12 +137,9 @@ export const handleRebuildComplete = (message: {
 
 	if (
 		message.data.affectedFrameworks &&
-		!message.data.affectedFrameworks.includes('angular') &&
-		!message.data.affectedFrameworks.includes('react') &&
-		!message.data.affectedFrameworks.includes('html') &&
-		!message.data.affectedFrameworks.includes('htmx') &&
-		!message.data.affectedFrameworks.includes('vue') &&
-		!message.data.affectedFrameworks.includes('svelte')
+		!message.data.affectedFrameworks.some((framework) =>
+			HMR_FRAMEWORKS.includes(framework)
+		)
 	) {
 		const url = new URL(window.location.href);
 		url.searchParams.set('_cb', Date.now().toString());

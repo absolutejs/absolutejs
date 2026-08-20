@@ -15,6 +15,7 @@ import { patchHeadInPlace } from '../headPatch';
 import { detectCurrentFramework } from '../frameworkDetect';
 import { type HTMXSavedState, type ScriptInfo } from '../../../../types/client';
 import { hmrState } from '../hmrState';
+import { sendAbsoluteHmrTiming } from '../hmrTiming';
 
 const parseHTMXMessage = (
 	html: string | { body?: string; head?: string } | null | undefined
@@ -51,23 +52,26 @@ const handleHTMXBodyUpdate = (
 	htmxHead: string | null,
 	htmxDomState: ReturnType<typeof saveDOMState>
 ) => {
-	const updateHTMXBodyAfterCSS = () => {
+	const updateHTMXBodyAfterCSS = () =>
 		updateHTMXBody(htmxBody, htmxDomState, document.body);
-	};
 
 	if (htmxHead) {
 		applyHeadPatch(htmxHead);
+
 		const cssResult = processCSSLinks(htmxHead);
-		waitForCSSAndUpdate(cssResult, updateHTMXBodyAfterCSS);
-	} else {
-		updateHTMXBodyAfterCSS();
+
+		return waitForCSSAndUpdate(cssResult, updateHTMXBodyAfterCSS);
 	}
+
+	return updateHTMXBodyAfterCSS();
 };
 
 export const handleHTMXUpdate = (message: {
 	data: {
 		html?: string | { body?: string; head?: string } | null;
+		serverDuration?: number;
 	};
+	timestamp?: number;
 }) => {
 	const htmxFrameworkCheck = detectCurrentFramework();
 	if (htmxFrameworkCheck !== 'htmx') return;
@@ -77,6 +81,7 @@ export const handleHTMXUpdate = (message: {
 	}
 
 	sessionStorage.setItem('__HMR_ACTIVE__', 'true');
+	const clientStart = performance.now();
 
 	const htmxDomState = saveDOMState(document.body);
 	const { body: htmxBody, head: htmxHead } = parseHTMXMessage(
@@ -85,11 +90,37 @@ export const handleHTMXUpdate = (message: {
 
 	if (!htmxBody) {
 		sessionStorage.removeItem('__HMR_ACTIVE__');
+		sendAbsoluteHmrTiming({
+			clientStart,
+			kind: 'htmx',
+			outcome: 'failed',
+			serverMs: message.data.serverDuration,
+			updateId: message.timestamp
+		});
 
 		return;
 	}
 
-	handleHTMXBodyUpdate(htmxBody, htmxHead, htmxDomState);
+	void handleHTMXBodyUpdate(htmxBody, htmxHead, htmxDomState).then(
+		() => {
+			sendAbsoluteHmrTiming({
+				clientStart,
+				kind: 'htmx',
+				serverMs: message.data.serverDuration,
+				updateId: message.timestamp
+			});
+		},
+		() => {
+			sendAbsoluteHmrTiming({
+				clientStart,
+				kind: 'htmx',
+				outcome: 'reloaded',
+				serverMs: message.data.serverDuration,
+				updateId: message.timestamp
+			});
+			window.location.reload();
+		}
+	);
 };
 
 const cloneHmrListenerElements = (container: HTMLElement) => {
@@ -168,7 +199,8 @@ const updateHTMXBody = (
 	htmxDomState: ReturnType<typeof saveDOMState>,
 	container: HTMLElement
 ) => {
-	if (!container) return;
+	if (!container) return Promise.resolve();
+	const { promise, resolve } = Promise.withResolvers<void>();
 
 	const countSpan = container.querySelector('#count');
 	const countValue = countSpan
@@ -217,8 +249,11 @@ const updateHTMXBody = (
 		if (window.htmx) {
 			window.htmx.process(container);
 		}
+		sessionStorage.removeItem('__HMR_ACTIVE__');
+		resolve();
 	});
-	sessionStorage.removeItem('__HMR_ACTIVE__');
+
+	return promise;
 };
 
 /* Shared helpers */

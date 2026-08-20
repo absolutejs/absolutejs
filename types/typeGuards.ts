@@ -22,9 +22,26 @@ export const isValidHMRClientMessage = (
 		case 'hmr-timing':
 			return (
 				typeof Reflect.get(data, 'duration') === 'number' &&
-				Number.isFinite(Reflect.get(data, 'duration'))
+				Number.isFinite(Reflect.get(data, 'duration')) &&
+				isOptionalHmrApplyKind(Reflect.get(data, 'kind')) &&
+				isOptionalHmrApplyOutcome(Reflect.get(data, 'outcome'))
 			);
 		default:
 			return false;
 	}
 };
+
+const isOptionalHmrApplyKind = (value: unknown) =>
+	value === undefined ||
+	value === 'component' ||
+	value === 'css' ||
+	value === 'full-reload' ||
+	value === 'html' ||
+	value === 'htmx' ||
+	value === 'script';
+
+const isOptionalHmrApplyOutcome = (value: unknown) =>
+	value === undefined ||
+	value === 'applied' ||
+	value === 'failed' ||
+	value === 'reloaded';

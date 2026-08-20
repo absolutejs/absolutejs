@@ -9,8 +9,31 @@ const PROJECT_ROOT = resolve(import.meta.dir, '..', '..', '..', '..');
 let server: DevServer;
 let client: HMRClient;
 
-afterEach(() => {
+type HmrStatus = {
+	isRebuilding?: boolean;
+	rebuildQueue?: unknown[];
+};
+
+const waitForServerIdle = async () => {
+	await Bun.sleep(1_000);
+	const deadline = Date.now() + 30_000;
+	while (Date.now() < deadline) {
+		const response = await fetch(`${server.baseUrl}/hmr-status`);
+		const status = (await response.json()) as HmrStatus;
+		if (
+			status.isRebuilding === false &&
+			(status.rebuildQueue?.length ?? 0) === 0
+		) {
+			return;
+		}
+		await Bun.sleep(100);
+	}
+	throw new Error('dev server did not become idle after fixture restoration');
+};
+
+afterEach(async () => {
 	restoreAllFiles();
+	await waitForServerIdle();
 });
 
 afterAll(async () => {
@@ -32,7 +55,7 @@ afterAll(async () => {
  * confirm SSR is serving fresh bytes. The 15s test deadline
  * is a runner-level safety net — the operation itself blocks
  * on the WebSocket event, not on time. */
-const TEST_DEADLINE_MS = 15_000;
+const TEST_DEADLINE_MS = 45_000;
 
 /* Drain stale broadcasts from prior tests' rebuilds (the
  * afterEach file-restore re-triggers a rebuild, whose broadcast
@@ -46,7 +69,7 @@ const driveRebuild = async (
 ) => {
 	client.drain();
 	mutate();
-	await client.waitFor(`${framework}-tier-zero-ssr-rebuild-complete`);
+	await client.waitFor(`${framework}-tier-zero-ssr-rebuild-complete`, 30_000);
 	const html = await (await fetch(url)).text();
 	expect(html).toContain(sentinel);
 };

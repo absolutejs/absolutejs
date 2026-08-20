@@ -53,6 +53,7 @@ describe('HTML HMR', () => {
 		expect(data.framework).toBe('html');
 		expect(data.manifest).toBeDefined();
 		expect(data.html).toBeDefined();
+		expect(data.serverDuration).toBeNumber();
 	});
 
 	test('html update contains body content with changes', async () => {

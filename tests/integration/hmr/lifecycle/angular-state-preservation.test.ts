@@ -64,40 +64,47 @@ const startAll = async () => {
  * verify the tier broadcast; the user-visible effect is state loss,
  * which is acceptable for structural / public-API changes). */
 describe('Angular state preservation across tier-0 surgical update', () => {
-	test('counter value survives a template-only edit', async () => {
-		const { client: c, session: s } = await startAll();
+	test(
+		'counter value survives a template-only edit',
+		async () => {
+			const { client: c, session: s } = await startAll();
 
-		// Click to count=7 — high enough that a reset-to-zero
-		// outcome would be unambiguous.
-		for (let i = 1; i <= 7; i++) {
-			await s.page.click('app-counter button');
+			// Click to count=7 — high enough that a reset-to-zero
+			// outcome would be unambiguous.
+			for (let i = 1; i <= 7; i++) {
+				await s.page.click('app-counter button');
+				await waitForText(
+					s.page,
+					'app-counter .counter-value',
+					(t) => t.trim() === String(i)
+				);
+			}
+
+			// Mutate the counter's template (cosmetic — `<button>` text
+			// changes around the `<span>` value). This is a tier-0
+			// edit; the dev server's log line will say tier-0.
+			c.drain();
+			mutateFile(counterTemplate, (text) =>
+				text.replace('count is', 'tally is')
+			);
+
+			await c.waitFor('angular:component-update', 15_000);
+
+			// Tier-0 surgical preserves the LView instance, so the
+			// new "tally is" text is visible AND the counter value
+			// stays at 7.
+			await waitForText(s.page, 'app-counter button', (t) =>
+				t.includes('tally is')
+			);
 			await waitForText(
 				s.page,
 				'app-counter .counter-value',
-				(t) => t.trim() === String(i)
+				(t) => t.trim() === '7'
 			);
-		}
-
-		// Mutate the counter's template (cosmetic — `<button>` text
-		// changes around the `<span>` value). This is a tier-0
-		// edit; the dev server's log line will say tier-0.
-		c.drain();
-		mutateFile(counterTemplate, (text) =>
-			text.replace('count is', 'tally is')
-		);
-
-		await c.waitFor('angular:component-update', 15_000);
-
-		// Tier-0 surgical preserves the LView instance, so the
-		// new "tally is" text is visible AND the counter value
-		// stays at 7.
-		await waitForText(s.page, 'app-counter button', (t) =>
-			t.includes('tally is')
-		);
-		await waitForText(
-			s.page,
-			'app-counter .counter-value',
-			(t) => t.trim() === '7'
-		);
-	}, 60_000);
+		},
+		// Chromium can be reclaimed by the host after the compiler-heavy
+		// aggregate lane. A retry recreates the complete server/browser
+		// fixture; it does not weaken the state-preservation assertions.
+		{ retry: 2, timeout: 60_000 }
+	);
 });

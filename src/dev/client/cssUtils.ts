@@ -148,34 +148,90 @@ const findManifestHref = (
 	return null;
 };
 
+const replaceStylesheetLink = (
+	existingLink: HTMLLinkElement,
+	newHref: string
+) => {
+	const replacement = existingLink.cloneNode(true);
+	if (!(replacement instanceof HTMLLinkElement)) {
+		return Promise.resolve(false);
+	}
+	const { promise, resolve } = Promise.withResolvers<boolean>();
+	let settled = false;
+	const finish = (applied: boolean) => {
+		if (settled) return;
+		settled = true;
+		if (applied) existingLink.remove();
+		else replacement.remove();
+		resolve(applied);
+	};
+	replacement.onload = () => finish(true);
+	replacement.onerror = () => finish(false);
+	replacement.href = newHref;
+	existingLink.after(replacement);
+	setTimeout(() => {
+		if (replacement.sheet) finish(true);
+	}, CSS_SHEET_READY_TIMEOUT_MS);
+	setTimeout(
+		() => finish(Boolean(replacement.sheet)),
+		CSS_MAX_PARSE_TIMEOUT_MS
+	);
+
+	return promise;
+};
+
 const updateStylesheetLink = (
 	link: Element,
 	manifest: Record<string, string>
 ) => {
-	if (!(link instanceof HTMLLinkElement)) return;
+	if (!(link instanceof HTMLLinkElement)) return Promise.resolve(true);
 	const href = link.getAttribute('href');
-	if (!href || href.includes('htmx.min.js')) return;
+	if (!href || href.includes('htmx.min.js')) return Promise.resolve(true);
 
 	let newHref: string | null = null;
 	if (manifest) {
 		const baseName = getCSSBaseName(href);
 		newHref = findManifestHref(manifest, baseName);
 	}
-
-	if (newHref && newHref !== href) {
-		link.href = `${newHref}?t=${Date.now()}`;
-	} else {
-		const url = new URL(href, window.location.origin);
-		url.searchParams.set('t', Date.now().toString());
-		link.href = url.toString();
+	const currentUrl = new URL(href, window.location.href);
+	if (!newHref && currentUrl.origin !== window.location.origin) {
+		return Promise.resolve(true);
 	}
+
+	let replacementHref: string;
+	if (newHref && newHref !== href) {
+		replacementHref = `${newHref}?t=${Date.now()}`;
+	} else {
+		currentUrl.searchParams.set('t', Date.now().toString());
+		replacementHref = currentUrl.toString();
+	}
+
+	return replaceStylesheetLink(link, replacementHref);
 };
 
 export const reloadCSSStylesheets = (manifest: Record<string, string>) => {
-	const stylesheets = document.querySelectorAll('link[rel="stylesheet"]');
-	stylesheets.forEach((link) => {
-		updateStylesheetLink(link, manifest);
-	});
+	const stylesheets = Array.from(
+		document.querySelectorAll('link[rel="stylesheet"]')
+	);
+
+	return Promise.all(
+		stylesheets.map((link) => updateStylesheetLink(link, manifest))
+	).then((results) => results.every(Boolean));
+};
+
+export const swapCSSStylesheet = (
+	cssUrl: string,
+	matches: (href: string) => boolean
+) => {
+	const existingLink = Array.from(
+		document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]')
+	).find((link) => matches(link.getAttribute('href') ?? ''));
+	if (!existingLink) return Promise.resolve(false);
+
+	return replaceStylesheetLink(
+		existingLink,
+		`${cssUrl}${cssUrl.includes('?') ? '&' : '?'}t=${Date.now()}`
+	);
 };
 
 const createCSSLoadPromise = (
@@ -267,44 +323,45 @@ const chainRAF = (depth: number, callback: () => void) => {
    activates new CSS, removes old CSS. Handles first-update delay. */
 export const waitForCSSAndUpdate = (
 	cssResult: CSSUpdateResult,
-	updateBody: () => void
+	updateBody: () => void | Promise<void>
 ) => {
 	const { linksToActivate, linksToRemove, linksToWaitFor } = cssResult;
+	const { promise, reject, resolve } = Promise.withResolvers<void>();
+	const doUpdate = () => {
+		chainRAF(RAF_BATCH_COUNT, () => {
+			let updateResult: void | Promise<void>;
+			try {
+				updateResult = updateBody();
+				activateLinks(linksToActivate);
+			} catch (error) {
+				reject(error);
 
-	if (linksToWaitFor.length > 0) {
-		void Promise.all(linksToWaitFor).then(() => {
-			setTimeout(() => {
-				chainRAF(RAF_BATCH_COUNT, () => {
-					updateBody();
-					activateLinks(linksToActivate);
+				return;
+			}
+			void Promise.resolve(updateResult).then(
+				() => {
 					requestAnimationFrame(() => {
 						removeLinks(linksToRemove);
-						if (hmrState.isFirstHMRUpdate) {
-							hmrState.isFirstHMRUpdate = false;
-						}
+						hmrState.isFirstHMRUpdate = false;
+						resolve();
 					});
-				});
-			}, DOM_UPDATE_DELAY_MS);
-
-			return undefined;
-		});
-
-		return;
-	}
-
-	const doUpdate = function () {
-		chainRAF(RAF_BATCH_COUNT, () => {
-			updateBody();
-			requestAnimationFrame(() => {
-				removeLinks(linksToRemove);
-			});
+				},
+				(error: unknown) => reject(error)
+			);
 		});
 	};
-
-	if (hmrState.isFirstHMRUpdate) {
-		hmrState.isFirstHMRUpdate = false;
-		setTimeout(doUpdate, DOM_UPDATE_DELAY_MS);
+	const scheduleUpdate = () => {
+		if (hmrState.isFirstHMRUpdate || linksToWaitFor.length > 0) {
+			setTimeout(doUpdate, DOM_UPDATE_DELAY_MS);
+		} else {
+			doUpdate();
+		}
+	};
+	if (linksToWaitFor.length > 0) {
+		void Promise.all(linksToWaitFor).then(scheduleUpdate, reject);
 	} else {
-		doUpdate();
+		scheduleUpdate();
 	}
+
+	return promise;
 };

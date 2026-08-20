@@ -113,6 +113,7 @@ const recompileTailwindForFastPath = async (
 	if (!config.tailwind) return;
 	if (!files.some(isTailwindCandidate)) return;
 
+	const startedAt = performance.now();
 	try {
 		const { computeFrameworkTailwindSources } = await import(
 			'../build/compileTailwind'
@@ -150,7 +151,8 @@ const recompileTailwindForFastPath = async (
 			data: {
 				cause: files.filter(isTailwindCandidate),
 				framework: 'tailwind',
-				manifest: state.manifest
+				manifest: state.manifest,
+				serverDuration: Math.round(performance.now() - startedAt)
 			},
 			message: 'Tailwind utilities recompiled',
 			type: 'style-update'
@@ -776,6 +778,7 @@ export const queueFileChange = async (
 	const { publicDir } = state.resolvedPaths;
 	const { assetsDir } = state.resolvedPaths;
 	const handleStaticMirror = async (sourceDir: string, urlPrefix: string) => {
+		const startedAt = performance.now();
 		const absSource = resolvePath(filePath);
 		const normalizedSource = absSource.replace(/\\/g, '/');
 		const normalizedDir = sourceDir.replace(/\\/g, '/');
@@ -802,7 +805,9 @@ export const queueFileChange = async (
 			broadcastToClients(state, {
 				data: {
 					framework: urlPrefix || 'public',
-					manifest: state.manifest
+					manifest: state.manifest,
+					serverDuration: Math.round(performance.now() - startedAt),
+					sourceFile: absSource
 				},
 				message: `${urlPrefix || 'Public'} asset updated`,
 				type: 'style-update'
@@ -3551,7 +3556,10 @@ const handleEmberFastPath = async (
 	broadcastToClients(state, {
 		data: {
 			affectedPages: allPageEntries,
-			manifest: state.manifest
+			framework: 'ember',
+			manifest: state.manifest,
+			serverDuration: duration,
+			sourceFile: primary
 		},
 		type: 'full-reload'
 	});
@@ -3697,6 +3705,7 @@ const handleScriptUpdate = (
 			framework,
 			manifest,
 			scriptPath,
+			serverDuration: duration,
 			sourceFile: scriptFile
 		},
 		type: 'script-update'
@@ -3763,7 +3772,8 @@ const handleIslandSourceReload = async (
 	state: HMRState,
 	config: BuildConfig,
 	filesToRebuild: string[],
-	manifest: Record<string, string>
+	manifest: Record<string, string>,
+	serverDuration: number
 ) => {
 	const shouldReload = await didStaticPagesNeedIslandRefresh(
 		config,
@@ -3781,7 +3791,10 @@ const handleIslandSourceReload = async (
 	broadcastToClients(state, {
 		data: {
 			affectedPages,
-			manifest
+			framework: 'islands',
+			manifest,
+			serverDuration,
+			sourceFile: filesToRebuild[0]
 		},
 		type: 'full-reload'
 	});
@@ -3865,6 +3878,7 @@ const processHtmlPageUpdate = async (
 				framework: 'html',
 				html: newHTML,
 				manifest,
+				serverDuration: duration,
 				sourceFile: builtHtmlPagePath
 			},
 			type: 'html-update'
@@ -3950,6 +3964,7 @@ const handleVueCssOnlyUpdate = (
 			cssUrl,
 			framework: 'vue',
 			manifest,
+			serverDuration: duration,
 			sourceFile: cssFile,
 			updateType: 'css-only'
 		},
@@ -3975,6 +3990,7 @@ const broadcastVueStyleOnly = (
 			framework: 'vue',
 			hmrId,
 			manifest,
+			serverDuration: duration,
 			sourceFile: vuePagePath,
 			updateType: 'css-only'
 		},
@@ -4152,6 +4168,7 @@ const handleSvelteCssOnlyUpdate = (
 			cssUrl,
 			framework: 'svelte',
 			manifest,
+			serverDuration: duration,
 			sourceFile: cssFile,
 			updateType: 'css-only'
 		},
@@ -4277,6 +4294,7 @@ const handleAngularCssOnlyUpdate = (
 			cssUrl,
 			framework: 'angular',
 			manifest,
+			serverDuration: duration,
 			sourceFile: cssFile,
 			updateType: 'style'
 		},
@@ -4365,6 +4383,7 @@ const processHtmxPageUpdate = async (
 				framework: 'htmx',
 				html: newHTML,
 				manifest,
+				serverDuration: duration,
 				sourceFile: builtHtmxPagePath
 			},
 			type: 'htmx-update'
@@ -4586,7 +4605,12 @@ const broadcastSingleFrameworkUpdate = (
 	broadcastToClients(state, {
 		data: {
 			framework,
-			manifest
+			manifest,
+			serverDuration: Date.now() - startTime,
+			sourceFile: filesToRebuild?.find(
+				(file) =>
+					detectFramework(file, state.resolvedPaths) === framework
+			)
 		},
 		message: `${framework} framework updated`,
 		type
@@ -5106,7 +5130,8 @@ const performFullRebuild = async (
 			data: {
 				cause: filesToRebuild?.filter(isTailwindCandidate) ?? [],
 				framework: 'tailwind',
-				manifest
+				manifest,
+				serverDuration: duration
 			},
 			message: 'Tailwind utilities recompiled',
 			type: 'style-update'
@@ -5119,7 +5144,8 @@ const performFullRebuild = async (
 				state,
 				config,
 				filesToRebuild,
-				manifest
+				manifest,
+				duration
 			)
 		: false;
 
