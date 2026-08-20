@@ -1272,8 +1272,23 @@ the Windows SDK/emulator and a PowerShell Gradle broker. Live-reload changes to 
 copied native Capacitor config are journaled and restored on normal shutdown,
 startup failure, cancellation, or the next run after a crash. The managed emulator
 stays warm after shutdown for fast subsequent starts. iOS, physical devices,
-mobile-preview UI, native-delta rebuilds, and trusted local HTTPS are still
+mobile-preview UI, in-process native-delta rebuilds, and trusted local HTTPS are still
 subsequent slices of Phase 4.
+
+Android startup now implements the persisted native-delta fast path. After sync and
+temporary development transport projection, AbsoluteJS content-hashes the effective
+Android project plus every native dependency resolved from
+`capacitor.settings.gradle`. Gradle/build outputs and the live web bundle are
+excluded; manifests, generated plugin registration, Gradle inputs, native source,
+resources, dependency source, and the effective development server config are not.
+The cache is accepted only when that fingerprint and Android's current installed
+package identity both match the last successful install for the selected device.
+An uninstall, external replacement, plugin edit, native customization, port/entry
+change, malformed cache, or unavailable package metadata therefore fails closed and
+rebuilds. Ordinary restarts and web-only edits skip both Gradle and `adb install`,
+while still running the cheap Capacitor projection check and launching the app.
+Cache records live under `.absolutejs/mobile/cache`, outside the crash-recovery
+journal, and are replaced atomically only after installation succeeds.
 
 Real WSL2/Windows acceptance established the host boundary more precisely. Gradle
 cannot reliably build a project directly from a `\\wsl.localhost` UNC path, so the

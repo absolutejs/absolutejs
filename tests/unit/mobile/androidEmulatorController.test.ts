@@ -7,6 +7,7 @@ import {
 	parseAbsoluteAndroidLogLine,
 	redactAbsoluteAndroidLog,
 	repairAbsoluteAndroidDevSession,
+	fingerprintAbsoluteAndroidNativeProject,
 	startAbsoluteAndroidDevSession,
 	type AbsoluteAndroidDevState,
 	type AbsoluteAndroidNativeLogEntry,
@@ -58,6 +59,37 @@ const createProject = async (host: 'linux' | 'wsl' = 'linux') => {
 	await writeFile(
 		join(nativeDirectory, 'capacitor.settings.gradle'),
 		"include ':capacitor-android'\nproject(':capacitor-android').projectDir = new File('../../node_modules/@capacitor/android/capacitor')\n"
+	);
+	await mkdir(
+		join(
+			nativeDirectory,
+			'..',
+			'..',
+			'node_modules',
+			'@capacitor',
+			'android',
+			'capacitor',
+			'src',
+			'main'
+		),
+		{ recursive: true }
+	);
+	await writeFile(
+		join(
+			nativeDirectory,
+			'..',
+			'..',
+			'node_modules',
+			'@capacitor',
+			'android',
+			'capacitor',
+			'build.gradle'
+		),
+		'plugins { id "com.android.library" }\n'
+	);
+	await writeFile(
+		join(nativeDirectory, 'app', 'build.gradle'),
+		'plugins { id "com.android.application" }\n'
 	);
 	const nativeManifestPath = join(
 		nativeDirectory,
@@ -119,11 +151,190 @@ const readyCapture = (command: string[]) => {
 			stdout: 'package:com.example.product uid:10123\n'
 		};
 	}
+	if (command.includes('dumpsys')) {
+		return {
+			exitCode: 0,
+			stderr: '',
+			stdout: 'Package [com.example.product]\n  codePath=/data/app/absolute/product\n  lastUpdateTime=2026-08-20 12:00:00\n'
+		};
+	}
 
 	return { exitCode: 0, stderr: '', stdout: '' };
 };
 
 describe('Android emulator development controller', () => {
+	test('fingerprints native inputs while excluding the live web bundle', async () => {
+		const { project } = await createProject();
+		const initial = await fingerprintAbsoluteAndroidNativeProject(project);
+		const publicDirectory = join(
+			project.nativeDirectory,
+			'app',
+			'src',
+			'main',
+			'assets',
+			'public'
+		);
+		await mkdir(publicDirectory, { recursive: true });
+		await writeFile(join(publicDirectory, 'page.js'), 'web change\n');
+		expect(await fingerprintAbsoluteAndroidNativeProject(project)).toBe(
+			initial
+		);
+		await writeFile(
+			join(project.nativeDirectory, 'app', 'build.gradle'),
+			'plugins { id "com.android.application" }\n// native change\n'
+		);
+		expect(await fingerprintAbsoluteAndroidNativeProject(project)).not.toBe(
+			initial
+		);
+	});
+
+	test('invalidates when a resolved Capacitor native dependency changes', async () => {
+		const { project } = await createProject();
+		const initial = await fingerprintAbsoluteAndroidNativeProject(project);
+		await writeFile(
+			join(
+				project.nativeDirectory,
+				'..',
+				'..',
+				'node_modules',
+				'@capacitor',
+				'android',
+				'capacitor',
+				'src',
+				'main',
+				'Bridge.java'
+			),
+			'class Bridge {}\n'
+		);
+		expect(await fingerprintAbsoluteAndroidNativeProject(project)).not.toBe(
+			initial
+		);
+	});
+
+	test('skips Gradle and installation only for the matching installed native app', async () => {
+		const { project } = await createProject();
+		const firstCommands: string[][] = [];
+		const first = await startAbsoluteAndroidDevSession({
+			capture: readyCapture,
+			port: 3029,
+			project,
+			run: async (command) => {
+				firstCommands.push(command);
+
+				return 0;
+			}
+		});
+		await first.close();
+		expect(
+			firstCommands.some((command) => command.includes('install'))
+		).toBe(true);
+		const publicDirectory = join(
+			project.nativeDirectory,
+			'app',
+			'src',
+			'main',
+			'assets',
+			'public'
+		);
+		await mkdir(publicDirectory, { recursive: true });
+		await writeFile(join(publicDirectory, 'hmr.js'), 'web-only edit\n');
+
+		const cachedCommands: string[][] = [];
+		const logs: string[] = [];
+		const cached = await startAbsoluteAndroidDevSession({
+			capture: readyCapture,
+			port: 3029,
+			project,
+			log: (message) => logs.push(message),
+			run: async (command) => {
+				cachedCommands.push(command);
+
+				return 0;
+			}
+		});
+		expect(
+			cachedCommands.some((command) => command.includes('install'))
+		).toBe(false);
+		expect(
+			cachedCommands.some((command) => command.includes('assembleDebug'))
+		).toBe(false);
+		expect(logs.some((message) => message.includes('skipped Gradle'))).toBe(
+			true
+		);
+		await cached.close();
+		const transportCommands: string[][] = [];
+		const changedTransport = await startAbsoluteAndroidDevSession({
+			capture: readyCapture,
+			port: 3030,
+			project,
+			run: async (command) => {
+				transportCommands.push(command);
+
+				return 0;
+			}
+		});
+		expect(
+			transportCommands.some((command) => command.includes('install'))
+		).toBe(true);
+		await changedTransport.close();
+
+		await writeFile(
+			join(project.nativeDirectory, 'app', 'build.gradle'),
+			'plugins { id "com.android.application" }\n// changed\n'
+		);
+		const changedCommands: string[][] = [];
+		const changed = await startAbsoluteAndroidDevSession({
+			capture: readyCapture,
+			port: 3030,
+			project,
+			run: async (command) => {
+				changedCommands.push(command);
+
+				return 0;
+			}
+		});
+		expect(
+			changedCommands.some((command) => command.includes('install'))
+		).toBe(true);
+		await changed.close();
+	});
+
+	test('rebuilds when the package was replaced outside AbsoluteJS', async () => {
+		const { project } = await createProject();
+		let installedIdentity = 'first';
+		const capture = (command: string[]) => {
+			if (!command.includes('dumpsys')) return readyCapture(command);
+
+			return {
+				exitCode: 0,
+				stderr: '',
+				stdout: `codePath=/data/app/${installedIdentity}\nlastUpdateTime=${installedIdentity}\n`
+			};
+		};
+		const first = await startAbsoluteAndroidDevSession({
+			capture,
+			port: 3028,
+			project,
+			run: async () => 0
+		});
+		await first.close();
+		installedIdentity = 'replacement';
+		const commands: string[][] = [];
+		const replacement = await startAbsoluteAndroidDevSession({
+			capture,
+			port: 3028,
+			project,
+			run: async (command) => {
+				commands.push(command);
+
+				return 0;
+			}
+		});
+		expect(commands.some((command) => command.includes('install'))).toBe(
+			true
+		);
+		await replacement.close();
+	});
 	test('categorizes logcat lines and redacts auth material', () => {
 		expect(
 			parseAbsoluteAndroidLogLine(

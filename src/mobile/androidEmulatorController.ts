@@ -1,11 +1,17 @@
 import {
 	access,
 	copyFile,
+	lstat,
 	mkdir,
 	readFile,
+	readdir,
+	readlink,
+	realpath,
+	rename,
 	rm,
 	writeFile
 } from 'node:fs/promises';
+import { createHash, randomUUID } from 'node:crypto';
 import {
 	dirname,
 	isAbsolute,
@@ -28,7 +34,10 @@ import { writeAbsoluteCapacitorConfig } from './capacitorProject';
 const ANDROID_BOOT_TIMEOUT_MS = 180_000;
 const ANDROID_BOOT_POLL_MS = 1_000;
 const DEV_JOURNAL_FORMAT = 1;
+const NATIVE_CACHE_FORMAT = 1;
 const HASH_RADIX = 16;
+const EXECUTABLE_MODE_MASK = 0o111;
+const NATIVE_PUBLIC_PATH_SEGMENTS = 5;
 const CAPACITOR_PROJECT_DIRECTORY_PATTERN =
 	/project\(['"](:[^'"]+)['"]\)\.projectDir\s*=\s*new File\(['"]([^'"]+)['"]\)/gu;
 
@@ -54,6 +63,7 @@ export type AbsoluteAndroidDevState =
 	| 'failed'
 	| 'forwarding'
 	| 'installing'
+	| 'checking-native'
 	| 'launching'
 	| 'ready'
 	| 'streaming-logs'
@@ -75,6 +85,13 @@ type AndroidDevJournal = {
 	manifestBackupPath?: string;
 	nativeConfigPath: string;
 	nativeManifestPath?: string;
+};
+
+type AndroidNativeCache = {
+	appId: string;
+	fingerprint: string;
+	format: number;
+	installations: Record<string, string>;
 };
 
 export type AbsoluteAndroidDevProject = {
@@ -385,6 +402,214 @@ const isInside = (root: string, path: string) => {
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const nativeCachePath = (projectRoot: string) =>
+	join(projectRoot, '.absolutejs', 'mobile', 'cache', 'android-debug.json');
+
+const parseNativeCache = (value: unknown): AndroidNativeCache | null => {
+	if (!isRecord(value)) return null;
+	const { appId, fingerprint, format, installations } = value;
+	if (
+		format !== NATIVE_CACHE_FORMAT ||
+		typeof appId !== 'string' ||
+		typeof fingerprint !== 'string' ||
+		!isRecord(installations) ||
+		!Object.values(installations).every(
+			(identity) => typeof identity === 'string'
+		)
+	) {
+		return null;
+	}
+
+	return {
+		appId,
+		fingerprint,
+		format,
+		installations: Object.fromEntries(
+			Object.entries(installations).map(([serial, identity]) => [
+				serial,
+				String(identity)
+			])
+		)
+	};
+};
+
+const readNativeCache = async (projectRoot: string) =>
+	readFile(nativeCachePath(projectRoot), 'utf8')
+		.then((source) => parseNativeCache(JSON.parse(source)))
+		.catch(() => null);
+
+const writeNativeCache = async (
+	projectRoot: string,
+	cache: AndroidNativeCache
+) => {
+	const destination = nativeCachePath(projectRoot);
+	const temporary = `${destination}.${process.pid}.${randomUUID()}.tmp`;
+	await mkdir(dirname(destination), { recursive: true });
+	try {
+		await writeFile(temporary, `${JSON.stringify(cache, null, '\t')}\n`, {
+			flag: 'wx'
+		});
+		await rename(temporary, destination);
+	} finally {
+		await rm(temporary, { force: true }).catch(() => undefined);
+	}
+};
+
+const nativeDependencySources = async (nativeDirectory: string) => {
+	const settings = await readFile(
+		join(nativeDirectory, 'capacitor.settings.gradle'),
+		'utf8'
+	);
+	const pattern = new RegExp(
+		CAPACITOR_PROJECT_DIRECTORY_PATTERN.source,
+		CAPACITOR_PROJECT_DIRECTORY_PATTERN.flags
+	);
+	const dependencies = [...settings.matchAll(pattern)].map((match) => ({
+		name: (match[1] ?? '').slice(1).replaceAll(/[^a-zA-Z0-9_.-]/gu, '_'),
+		source: resolve(nativeDirectory, match[2] ?? '')
+	}));
+	if (dependencies.length === 0) {
+		throw new Error(
+			'Capacitor Android settings did not declare any native dependencies.'
+		);
+	}
+
+	return { dependencies, settings };
+};
+
+const shouldIgnoreNativePath = (
+	relativePath: string,
+	ignorePublicBundle: boolean
+) => {
+	const parts = relativePath.split(sep);
+	if (
+		parts.includes('.gradle') ||
+		parts.includes('build') ||
+		parts.includes('.absolutejs-dependencies')
+	) {
+		return true;
+	}
+
+	return (
+		ignorePublicBundle &&
+		parts.slice(0, NATIVE_PUBLIC_PATH_SEGMENTS).join('/') ===
+			'app/src/main/assets/public'
+	);
+};
+
+type NativeDirectoryCollector = (
+	root: string,
+	label: string,
+	directory: string,
+	ignorePublicBundle: boolean
+) => Promise<string[]>;
+
+const collectNativePath = async (
+	root: string,
+	label: string,
+	path: string,
+	isDirectory: boolean,
+	isFile: boolean,
+	isSymbolicLink: boolean,
+	ignorePublicBundle: boolean
+) => {
+	const relativePath = relative(root, path);
+	if (shouldIgnoreNativePath(relativePath, ignorePublicBundle)) return [];
+	const identity = `${label}:${relativePath.split(sep).join('/')}\0`;
+	if (isDirectory) {
+		return collectNativeDirectory(root, label, path, ignorePublicBundle);
+	}
+	if (isSymbolicLink) {
+		return [`link\0${identity}${await readlink(path)}\0`];
+	}
+	if (!isFile) return [];
+	const [metadata, contents] = await Promise.all([
+		lstat(path),
+		readFile(path)
+	]);
+	const contentDigest = createHash('sha256').update(contents).digest('hex');
+
+	return [
+		`file\0${identity}${metadata.mode & EXECUTABLE_MODE_MASK}\0${contentDigest}\0`
+	];
+};
+
+const collectNativeDirectory: NativeDirectoryCollector = async (
+	root,
+	label,
+	directory,
+	ignorePublicBundle
+) => {
+	const entries = await readdir(directory, { withFileTypes: true });
+	entries.sort((left, right) => left.name.localeCompare(right.name));
+	const records = await Promise.all(
+		entries.map((entry) =>
+			collectNativePath(
+				root,
+				label,
+				join(directory, entry.name),
+				entry.isDirectory(),
+				entry.isFile(),
+				entry.isSymbolicLink(),
+				ignorePublicBundle
+			)
+		)
+	);
+
+	return records.flat();
+};
+
+const hashNativeTree = async (
+	root: string,
+	label: string,
+	ignorePublicBundle: boolean
+) => {
+	const resolvedRoot = await realpath(root);
+	const records = await collectNativeDirectory(
+		resolvedRoot,
+		label,
+		resolvedRoot,
+		ignorePublicBundle
+	);
+
+	return createHash('sha256').update(records.join('')).digest('hex');
+};
+
+type NativeFingerprintRoot = {
+	ignorePublicBundle: boolean;
+	label: string;
+	source: string;
+};
+
+export const fingerprintAbsoluteAndroidNativeProject = async (
+	project: AbsoluteAndroidDevProject
+) => {
+	const { dependencies } = await nativeDependencySources(
+		project.nativeDirectory
+	);
+	const roots: NativeFingerprintRoot[] = [
+		{
+			ignorePublicBundle: true,
+			label: 'android',
+			source: project.nativeDirectory
+		},
+		...dependencies
+			.sort((left, right) => left.name.localeCompare(right.name))
+			.map((dependency) => ({
+				ignorePublicBundle: false,
+				label: `dependency:${dependency.name}`,
+				source: dependency.source
+			}))
+	];
+	const treeDigests = await Promise.all(
+		roots.map((root) =>
+			hashNativeTree(root.source, root.label, root.ignorePublicBundle)
+		)
+	);
+
+	return createHash('sha256').update(treeDigests.join('\0')).digest('hex');
+};
 
 const parseJournal = (value: unknown): AndroidDevJournal | null => {
 	if (typeof value !== 'object' || value === null) return null;
@@ -781,6 +1006,101 @@ const buildAndroidDebugApp = async (
 	);
 };
 
+type EnsureAndroidDebugAppOptions = {
+	cache: AndroidNativeCache | null;
+	capture: NonNullable<StartAbsoluteAndroidDevOptions['capture']>;
+	env: Record<string, string | undefined>;
+	fingerprint: string;
+	log: NonNullable<StartAbsoluteAndroidDevOptions['log']>;
+	project: AbsoluteAndroidDevProject;
+	run: NonNullable<StartAbsoluteAndroidDevOptions['run']>;
+	serial: string;
+	signal?: AbortSignal;
+	transition: (state: AbsoluteAndroidDevState) => void;
+};
+
+const persistInstalledAndroidNativeCache = async (
+	options: EnsureAndroidDebugAppOptions
+) => {
+	const identity = androidInstalledPackageIdentity(
+		options.project,
+		options.serial,
+		options.capture,
+		options.env
+	);
+	if (!identity) {
+		options.log(
+			'Android package identity was unavailable; the next session will rebuild safely.'
+		);
+
+		return;
+	}
+	const installations =
+		options.cache?.appId === options.project.config.appId &&
+		options.cache.fingerprint === options.fingerprint
+			? { ...options.cache.installations }
+			: {};
+	installations[options.serial] = identity;
+	await writeNativeCache(options.project.projectRoot, {
+		appId: options.project.config.appId,
+		fingerprint: options.fingerprint,
+		format: NATIVE_CACHE_FORMAT,
+		installations
+	}).catch((error) => {
+		options.log(
+			`Android native cache could not be saved: ${error instanceof Error ? error.message : String(error)}`
+		);
+	});
+};
+
+const ensureAndroidDebugApp = async (options: EnsureAndroidDebugAppOptions) => {
+	const installedIdentity = androidInstalledPackageIdentity(
+		options.project,
+		options.serial,
+		options.capture,
+		options.env
+	);
+	const cacheHit =
+		options.cache?.appId === options.project.config.appId &&
+		options.cache.fingerprint === options.fingerprint &&
+		installedIdentity !== undefined &&
+		options.cache.installations[options.serial] === installedIdentity;
+	if (cacheHit) {
+		options.log(
+			`Android native app is unchanged on ${options.serial}; skipped Gradle build and APK install.`
+		);
+
+		return;
+	}
+	options.log(
+		'Android native inputs changed or the installed app is stale; rebuilding.'
+	);
+	options.transition('building');
+	const installPath = await buildAndroidDebugApp(
+		options.project,
+		options.capture,
+		options.run,
+		options.env,
+		options.signal
+	);
+	throwIfAborted(options.signal);
+	options.transition('installing');
+	await requireSuccess(
+		[
+			options.project.adb,
+			'-s',
+			options.serial,
+			'install',
+			'-r',
+			installPath
+		],
+		'Android app installation',
+		options.run,
+		{ env: options.env, signal: options.signal }
+	);
+	await persistInstalledAndroidNativeCache(options);
+};
+
 const startManagedEmulatorIfNeeded = (
 	project: AbsoluteAndroidDevProject,
 	capture: NonNullable<StartAbsoluteAndroidDevOptions['capture']>,
@@ -877,6 +1197,34 @@ const androidPackageUid = (
 	);
 
 	return match?.[1];
+};
+
+const androidInstalledPackageIdentity = (
+	project: AbsoluteAndroidDevProject,
+	serial: string,
+	capture: NonNullable<StartAbsoluteAndroidDevOptions['capture']>,
+	env: Record<string, string | undefined>
+) => {
+	const result = capture(
+		[
+			project.adb,
+			'-s',
+			serial,
+			'shell',
+			'dumpsys',
+			'package',
+			project.config.appId
+		],
+		{ env }
+	);
+	if (result.exitCode !== 0) return undefined;
+	const codePath = /^\s*codePath=(.+)$/mu.exec(result.stdout)?.[1]?.trim();
+	const lastUpdateTime = /^\s*lastUpdateTime=(.+)$/mu
+		.exec(result.stdout)?.[1]
+		?.trim();
+	if (!codePath || !lastUpdateTime) return undefined;
+
+	return `${codePath}\0${lastUpdateTime}`;
 };
 
 const attachAndroidNativeLogs = (
@@ -1064,6 +1412,10 @@ export const startAbsoluteAndroidDevSession = async (
 		);
 		throwIfAborted(options.signal);
 		logHttpsCertificateRequirement(options.https, log);
+		transition('checking-native');
+		const nativeFingerprint =
+			await fingerprintAbsoluteAndroidNativeProject(project);
+		throwIfAborted(options.signal);
 		transition('booting');
 		const startedEmulator = startManagedEmulatorIfNeeded(
 			project,
@@ -1096,22 +1448,20 @@ export const startAbsoluteAndroidDevSession = async (
 			{ env, signal: options.signal }
 		);
 		throwIfAborted(options.signal);
-		transition('building');
-		const installPath = await buildAndroidDebugApp(
-			project,
+		transition('checking-native');
+		const cache = await readNativeCache(project.projectRoot);
+		await ensureAndroidDebugApp({
+			cache,
 			capture,
-			run,
 			env,
-			options.signal
-		);
-		throwIfAborted(options.signal);
-		transition('installing');
-		await requireSuccess(
-			[project.adb, '-s', serial, 'install', '-r', installPath],
-			'Android app installation',
+			fingerprint: nativeFingerprint,
+			log,
+			project,
 			run,
-			{ env, signal: options.signal }
-		);
+			serial,
+			signal: options.signal,
+			transition
+		});
 		throwIfAborted(options.signal);
 		transition('launching');
 		await requireSuccess(
