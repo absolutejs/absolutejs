@@ -5,6 +5,10 @@ import { writeAbsoluteCapacitorConfig } from '../../mobile/capacitorProject';
 import { normalizeAbsoluteMobileConfig } from '../../mobile/config';
 import { applyAbsoluteNativeDeepLinks } from '../../mobile/nativeDeepLinks';
 import {
+	inspectAbsoluteMobileToolchain,
+	type AbsoluteMobileDoctorCheck
+} from '../../mobile/emulatorDoctor';
+import {
 	materializeAbsoluteMobileAssociationFiles,
 	verifyAbsoluteMobileAssociationFiles
 } from '../../mobile/associationFiles';
@@ -153,6 +157,38 @@ const associations = async (args: string[]) => {
 	);
 };
 
+const doctorMark = (status: AbsoluteMobileDoctorCheck['status']) => {
+	if (status === 'pass') return '\x1b[32m✓\x1b[0m';
+	if (status === 'fail') return '\x1b[31m✗\x1b[0m';
+	if (status === 'warn') return '\x1b[33m!\x1b[0m';
+
+	return '\x1b[2m-\x1b[0m';
+};
+
+const doctor = async (args: string[]) => {
+	const checks = await inspectAbsoluteMobileToolchain();
+	const platform = args.find(
+		(value) => value === 'android' || value === 'ios'
+	);
+	const selected = platform
+		? checks.filter(
+				(check) =>
+					check.platform === 'host' || check.platform === platform
+			)
+		: checks;
+	if (args.includes('--json')) {
+		console.log(JSON.stringify({ checks: selected }, null, 2));
+
+		return;
+	}
+	for (const check of selected) {
+		console.log(
+			`${doctorMark(check.status)} ${check.label}${check.path ? ` (${check.path})` : ''}`
+		);
+		if (check.remediation) console.log(`  ${check.remediation}`);
+	}
+};
+
 export const runMobile = async (args: string[]) => {
 	const [command] = args;
 	if (command === 'init') {
@@ -170,8 +206,13 @@ export const runMobile = async (args: string[]) => {
 
 		return;
 	}
+	if (command === 'doctor') {
+		await doctor(args.slice(1));
+
+		return;
+	}
 
 	throw new TypeError(
-		'Usage: absolute mobile <init [--no-native] [--force] | sync [ios|android] | associations [--outdir dir] [--verify]> [--config path]'
+		'Usage: absolute mobile <init [--no-native] [--force] | sync [ios|android] | associations [--outdir dir] [--verify] | doctor [ios|android] [--json]> [--config path]'
 	);
 };
