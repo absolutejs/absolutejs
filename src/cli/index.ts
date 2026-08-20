@@ -174,6 +174,12 @@ if (command === 'dev') {
 	const serverEntry = positionalArgs[0] ?? DEFAULT_SERVER_ENTRY;
 	const { compile } = await import('./scripts/compile');
 	await compile(serverEntry, outdir, outfile, configPath);
+} else if (command === 'mobile') {
+	sendTelemetryEvent('cli:command', {
+		command: `mobile:${workspaceCommand ?? 'unknown'}`
+	});
+	const { runMobile } = await import('./scripts/mobile');
+	await runMobile(args);
 } else if (command === 'typecheck') {
 	sendTelemetryEvent('cli:command', { command });
 	const configPath = parseNamedArg('--config');
@@ -207,6 +213,9 @@ if (command === 'dev') {
 	);
 	console.error(
 		'  compile [entry] [--outdir dir] [--outfile path] Compile standalone executable'
+	);
+	console.error(
+		'  mobile <init|sync> Generate or synchronize Capacitor native projects'
 	);
 	console.error(
 		'  config [--port n] Open the unified config UI (ESLint, tsconfig, Prettier)'

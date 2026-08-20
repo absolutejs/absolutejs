@@ -285,3 +285,42 @@ export const materializeAbsoluteMobileCompatibilityBundle = async (
 
 	return index;
 };
+
+export const readAbsoluteMobileMaterializedReleases = async (root: string) => {
+	const resolvedRoot = resolvePath(root);
+	try {
+		const serialized = await readFile(
+			join(resolvedRoot, CURRENT_BUNDLE_FILE),
+			'utf8'
+		);
+		const parsed: unknown = JSON.parse(serialized);
+		const index = parseBundleIndex(parsed);
+		const bundleRoot = join(
+			resolvedRoot,
+			BUNDLES_DIRECTORY,
+			index.bundleId
+		);
+
+		return Promise.all(
+			index.releases.map(async (artifact) => {
+				const producer = Bun.file(
+					join(
+						bundleRoot,
+						artifact.releaseId,
+						artifact.producer.module
+					)
+				);
+				await verifyAbsoluteMobileCompatibilityProducer({
+					artifact,
+					producer
+				});
+
+				return { artifact, producer };
+			})
+		);
+	} catch (error) {
+		if (errorHasCode(error, 'ENOENT')) return [];
+
+		throw error;
+	}
+};

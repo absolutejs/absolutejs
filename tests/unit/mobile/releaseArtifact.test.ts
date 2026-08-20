@@ -19,6 +19,7 @@ const artifactInput = (
 	pages: [
 		{
 			bundleHash: `account-bundle-${generation}`,
+			bundlePath: `/pages/account-${generation}.js`,
 			contract: `account@${generation}`,
 			framework: 'react',
 			pageId: 'Account',
@@ -52,6 +53,7 @@ describe('mobile compatibility release artifacts', () => {
 			pages: [
 				{
 					bundleHash: 'settings-bundle-3',
+					bundlePath: '/pages/settings-3.js',
 					contract: 'settings@3',
 					framework: 'vue',
 					pageId: 'Settings',

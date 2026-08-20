@@ -17,6 +17,8 @@ import {
 import { loadIslandRegistryBuildInfo } from '../../build/islandEntries';
 import { createIslandRegistryDefinitionPlugin } from '../../build/islandRegistryTransform';
 import { createBunStringRawUnicodePlugin } from '../../build/bunStringRawUnicodePlugin';
+import { finalizeAbsoluteMobileCompatibilityBuild } from '../../mobile/buildPipeline';
+import { createAbsoluteMobileRouteMetadataPlugin } from '../../mobile/routeMetadataTransform';
 import { loadConfig } from '../../utils/loadConfig';
 import { formatTimestamp } from '../../utils/startupBanner';
 import { sendTelemetryEvent } from '../telemetryEvent';
@@ -545,6 +547,13 @@ export const start = async (
 		outdir: resolvedOutdir,
 		plugins: [
 			...(islandRegistryPlugin ? [islandRegistryPlugin] : []),
+			...(buildConfig.mobile
+				? [
+						createAbsoluteMobileRouteMetadataPlugin({
+							entry: resolve(serverEntry)
+						})
+					]
+				: []),
 			createElysiaOpenApiTypeboxPlugin(),
 			stubPlugin,
 			createBunStringRawUnicodePlugin()
@@ -616,6 +625,15 @@ export const start = async (
 			);
 			await rewriteImports([outputPath], angularServerVendorPaths);
 		}
+	}
+
+	if (buildConfig.mobile) {
+		await finalizeAbsoluteMobileCompatibilityBuild({
+			buildDirectory: resolvedOutdir,
+			mobile: buildConfig.mobile,
+			producerPath: outputPath,
+			projectRoot: process.cwd()
+		});
 	}
 
 	const bundleDurationMs = Math.round(performance.now() - bundleStart);

@@ -153,6 +153,7 @@ describe('mobile page protocol', () => {
 			{
 				page: {
 					bundleHash: 'account-bundle-n',
+					bundlePath: '/pages/account-n.js',
 					contract: 'account@1',
 					framework: 'react',
 					pageId: 'Account',

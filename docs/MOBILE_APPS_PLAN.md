@@ -1,9 +1,9 @@
 # AbsoluteJS Mobile Apps: Research and Implementation Plan
 
-Status: Phase 0 representation/version spike in progress
+Status: Phase 0 React representation/version pipeline operational; Capacitor local-shell/transport spike in progress
 Research snapshot: August 19, 2026
 
-Implementation checkpoint (August 19, 2026): the first React protocol seam now
+Implementation checkpoint (August 20, 2026): the first React protocol seam now
 includes request-scoped mobile negotiation without route edits, versioned app,
 runtime, page, bundle, and contract headers, typed update/error envelopes, a
 validated client activator, and generated React client-render mode. The first
@@ -21,12 +21,35 @@ then materializes immutable producer bundles behind an atomic pointer. Productio
 Archived execution now uses a cross-bundle async context: nested compatibility
 dispatch is bypassed without a spoofable request header, and the old producer
 emits the exact page contract already validated by the outer dispatcher.
-Build-time route/schema extraction and archived producer compilation remain to be
-connected. Adoption of Elysia 2.0 beta.6 changed that design: AbsoluteJS
-should consume Elysia's finalized route graph and compose with its official AOT
-build capture, while retaining an Absolute-owned TypeScript transform only for
-page identity and component-prop contracts that Elysia cannot observe. No
-Capacitor project or native runtime has been added yet.
+Build-time route/schema extraction and archived producer compilation are now
+connected for recognized React page handlers. A TypeScript build transform derives
+stable component identity and a canonical prop-schema fingerprint, attaches that
+private metadata to the page call and Elysia route detail, and then consumes Elysia
+2's finalized `app.routes` graph so prefixes and plugin composition are
+authoritative. Mobile-enabled `absolute start` and `absolute compile` hash the
+actual client bundle and compiled server producer, derive app builds and
+generations automatically, carry forward current plus two, and atomically
+materialize the compatibility bundle already mounted by `prepare()`. Unchanged
+builds reuse their generation; a typed prop or executable bundle change advances
+it without application declarations. The production fixture proves a prefixed
+unchanged route through the generated envelope and generation 1→2 retention. The
+transform/conformance matrix still needs to expand beyond React.
+
+The next transport checkpoint is also operational. Mobile config now owns the app
+identity/name, HTTPS production origin, entry route, platforms, local web bundle,
+native source directory, and deep-link allowlist. Production prepare/compile emits
+an atomic Capacitor `webDir` containing only the local shell, signed client page
+bundles, and a route/page manifest; it does not copy the server producer. The shell
+uses a canonical origin-locked page transport, selects routes locally, client-renders
+the server envelope, intercepts same-app navigation, and consumes launch/live deep
+links through the official Capacitor App plugin. `absolute mobile init` generates a
+reviewable `capacitor.config.ts` with local assets and editable iOS/Android source
+paths, while `absolute mobile sync` delegates copying and native dependency updates
+to Capacitor. A disposable Capacitor 8.5 probe successfully generated real Android
+and iOS source projects from that config. This is not yet the completed identity
+spike: native association-file/entitlement automation, PKCE/secure credential
+storage, authenticated API/Sync transport, and real simulator/device conformance
+remain next.
 
 Revision note: the initial draft assumed an explicit list of statically exported
 mobile routes. Product feedback rejected that constraint. This revision makes the
@@ -2061,11 +2084,10 @@ The remaining decisions that materially affect the public API are:
 
 ## Recommended immediate next step
 
-Review the revised data/render/auth/local-first model and answer the remaining
-product questions, then approve only the sequential Phase 0 spikes. The first code
-should prove one recognized unchanged route, a data-only version-negotiated envelope,
-an embedded client render, and binary N versus servers N+1/N+2. Only then prove the
-real Capacitor auth/transport path and hostile-content boundary. Cross-framework
-expansion and the independent Sync v3 crash-safety track follow those gates. Do not
-begin the public CLI, broad device API, or Expo runtime until the relevant spikes
-validate the architectural assumptions.
+Finish the real-app identity/transport gate on Android and iOS: apply and verify
+native deep-link declarations, run the generated local shell in simulators/devices,
+complete public-client Authorization Code + S256 PKCE with Keychain/Keystore-backed
+credentials, and prove authenticated page/API plus Sync socket-ticket calls without
+cookies or URL credentials. Then run the hostile-content gate before expanding the
+framework matrix or broad device APIs. Expo remains out of scope until the Capacitor
+security and lifetime boundaries pass.

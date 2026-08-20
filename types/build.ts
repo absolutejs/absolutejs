@@ -47,6 +47,39 @@ export type BuildOptions = {
 	baseManifest?: Record<string, string>;
 };
 
+export type MobilePlatform = 'android' | 'ios';
+
+export type MobileConfig = {
+	/** Capacitor is the universal v1 engine. Expo remains a future React-only engine. */
+	engine?: 'capacitor';
+	/** Native application identifier, for example `com.example.app`. */
+	appId: string;
+	/** Human-facing native application name. */
+	appName: string;
+	/** Initial canonical application route. Defaults to `/`. */
+	entry?: string;
+	/** Native projects generated and synchronized by AbsoluteJS. */
+	platforms?: readonly MobilePlatform[];
+	server: {
+		/** Deployed AbsoluteJS origin used for page envelopes and API calls. */
+		productionOrigin: string;
+	};
+	/** Capacitor webDir output. Defaults to `.absolutejs/mobile/web`. */
+	bundleDirectory?: string;
+	nativeProject?: {
+		/** v1 keeps native projects as committed, editable source. */
+		mode?: 'source';
+		/** Parent directory for generated iOS and Android projects. */
+		directory?: string;
+	};
+	deepLinks?: {
+		/** Optional custom URL scheme in addition to HTTPS app/universal links. */
+		scheme?: string;
+		/** HTTPS hosts that may enter the local AbsoluteJS router. */
+		hosts?: readonly string[];
+	};
+};
+
 /* A single failed bundling pass in a dev/HMR build. In dev, one
  * unresolvable reference (a bad CSS `@import`, a broken component
  * import) must NOT abort the whole build — the pass that failed is
@@ -265,6 +298,8 @@ export type BaseBuildConfig = {
 	emberDirectory?: string;
 	htmlDirectory?: string;
 	htmxDirectory?: string;
+	/** Build metadata and retained server producers for installed applications. */
+	mobile?: MobileConfig;
 	stylesConfig?: string | StylesConfig;
 	stylePreprocessors?: StylePreprocessorConfig;
 	postcss?: PostCSSConfig;

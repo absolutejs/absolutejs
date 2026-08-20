@@ -32,6 +32,11 @@
 		"@angular/router": "21.2.6",
 		"@angular/ssr": "21.2.5",
 		"@babel/preset-typescript": "^7.28.5",
+		"@capacitor/android": "8.5.0",
+		"@capacitor/app": "8.1.1",
+		"@capacitor/cli": "8.5.0",
+		"@capacitor/core": "8.5.0",
+		"@capacitor/ios": "8.5.0",
 		"@embroider/macros": "^1.20.2",
 		"@eslint/js": "^10.0.1",
 		"@glimmer/component": "^2.1.1",
@@ -284,6 +289,11 @@
 		"@angular/platform-server": "^21.0.0",
 		"@angular/router": "^21.0.0",
 		"@angular/ssr": "^21.0.0",
+		"@capacitor/android": "^8.5.0",
+		"@capacitor/app": "^8.1.1",
+		"@capacitor/cli": "^8.5.0",
+		"@capacitor/core": "^8.5.0",
+		"@capacitor/ios": "^8.5.0",
 		"@vue/compiler-sfc": "^3.5.27",
 		"elysia": "^2.0.0-beta.6",
 		"less": "^4.6.0",
@@ -327,6 +337,21 @@
 			"optional": true
 		},
 		"@angular/ssr": {
+			"optional": true
+		},
+		"@capacitor/android": {
+			"optional": true
+		},
+		"@capacitor/app": {
+			"optional": true
+		},
+		"@capacitor/cli": {
+			"optional": true
+		},
+		"@capacitor/core": {
+			"optional": true
+		},
+		"@capacitor/ios": {
 			"optional": true
 		},
 		"@vue/compiler-sfc": {

@@ -4,6 +4,8 @@ import { maskLiterals } from '../../build/maskLiterals';
 import { loadIslandRegistryBuildInfo } from '../../build/islandEntries';
 import { createIslandRegistryDefinitionPlugin } from '../../build/islandRegistryTransform';
 import { createBunStringRawUnicodePlugin } from '../../build/bunStringRawUnicodePlugin';
+import { finalizeAbsoluteMobileCompatibilityBuild } from '../../mobile/buildPipeline';
+import { createAbsoluteMobileRouteMetadataPlugin } from '../../mobile/routeMetadataTransform';
 import {
 	cpSync,
 	existsSync,
@@ -1529,6 +1531,13 @@ export default server;
 		outdir: resolvedOutdir,
 		plugins: [
 			...(islandRegistryPlugin ? [islandRegistryPlugin] : []),
+			...(buildConfig.mobile
+				? [
+						createAbsoluteMobileRouteMetadataPlugin({
+							entry: resolve(serverEntry)
+						})
+					]
+				: []),
 			createElysiaOpenApiTypeboxPlugin(),
 			createStubPlugin({
 				stubAngular: !buildConfig.angularDirectory,
@@ -1654,6 +1663,14 @@ export default server;
 	// directory. Make map sources absolute before embedding so runtime stacks
 	// keep their original project paths instead of resolving as /tmp/server.ts.
 	rebaseInlineSourceMap(outputPath);
+	if (buildConfig.mobile) {
+		await finalizeAbsoluteMobileCompatibilityBuild({
+			buildDirectory: resolvedOutdir,
+			mobile: buildConfig.mobile,
+			producerPath: outputPath,
+			projectRoot: process.cwd()
+		});
+	}
 
 	// ── Step 4: Generate compile entrypoint ─────────────────────
 	const compileStart = performance.now();

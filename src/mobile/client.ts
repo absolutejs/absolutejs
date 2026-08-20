@@ -25,7 +25,7 @@ export type AbsoluteMobilePageActivation =
 	  }
 	| AbsoluteMobileUpgradeRequiredResult;
 
-type AbsoluteMobilePageActivationOptions = {
+export type AbsoluteMobilePageActivationOptions = {
 	loadPage: AbsoluteMobilePageLoader;
 	target?: AbsoluteMobileClientTarget;
 };

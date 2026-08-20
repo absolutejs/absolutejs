@@ -26,6 +26,7 @@ const RESERVED_TOP_LEVEL_KEYS = new Set([
 	'islands',
 	'kind',
 	'mode',
+	'mobile',
 	'options',
 	'port',
 	'postcss',

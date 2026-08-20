@@ -6,6 +6,7 @@ import {
 	ABSOLUTE_MOBILE_PAGE_PROTOCOL_VERSION,
 	finalizeAbsoluteMobilePage
 } from '../mobile/pageProtocol';
+import type { AbsoluteMobileBuildPageMetadata } from '../mobile/buildMetadata';
 import {
 	streamingPageHeaders,
 	withPageCacheHeaders
@@ -37,6 +38,8 @@ type ReactPageRenderOptions = StreamingSlotEnhancerOptions & {
 export type ReactPageRequestInput<
 	Props extends Record<string, unknown> = Record<never, never>
 > = ReactPageRenderOptions & {
+	/** @internal Build-generated mobile identity. Application code must not set this. */
+	__absoluteMobile?: AbsoluteMobileBuildPageMetadata;
 	Page: ReactComponent<Props>;
 	index: string;
 	/** The incoming Elysia request. When provided, the request's pathname
@@ -102,8 +105,11 @@ export const handleReactPageRequest = async <
 			? withRequestUrl(userProps, requestPathname)
 			: userProps;
 	const pageName = Page.name || Page.displayName || '';
-	const pageId = pageName || resolvedIndex;
-	const currentContract = `react:${pageId}:${ABSOLUTE_MOBILE_PAGE_PROTOCOL_VERSION}`;
+	const pageId =
+		input.__absoluteMobile?.pageId ?? (pageName || resolvedIndex);
+	const currentContract =
+		input.__absoluteMobile?.contract ??
+		`react:${pageId}:${ABSOLUTE_MOBILE_PAGE_PROTOCOL_VERSION}`;
 	const mobileResponse = finalizeAbsoluteMobilePage({
 		compatibility: {
 			framework: 'react',

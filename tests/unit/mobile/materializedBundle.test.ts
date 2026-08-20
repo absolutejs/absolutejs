@@ -31,6 +31,7 @@ const releaseFor = (
 		pages: [
 			{
 				bundleHash: `page-${generation}`,
+				bundlePath: `/pages/account-${generation}.js`,
 				contract: `account@${generation}`,
 				framework: 'react',
 				pageId: 'Account',

@@ -10,6 +10,7 @@ export const ABSOLUTE_MOBILE_RETAINED_GENERATIONS = 3;
 
 export type AbsoluteMobileCompatibilityPage = {
 	bundleHash: string;
+	bundlePath: string;
 	contract: string;
 	framework: AbsoluteMobilePageFramework;
 	pageId: string;
@@ -187,6 +188,7 @@ const parseCompatibilityPage = (value: unknown) => {
 
 	return {
 		bundleHash: readString(value.bundleHash, 'page.bundleHash'),
+		bundlePath: readString(value.bundlePath, 'page.bundlePath'),
 		contract: readString(value.contract, 'page.contract'),
 		framework: value.framework,
 		pageId: readString(value.pageId, 'page.pageId'),
@@ -247,6 +249,7 @@ const normalizePage = (
 	page: AbsoluteMobileCompatibilityPage
 ): AbsoluteMobileCompatibilityPage => ({
 	bundleHash: requireNonEmpty(page.bundleHash, 'page.bundleHash'),
+	bundlePath: requireNonEmpty(page.bundlePath, 'page.bundlePath'),
 	contract: requireNonEmpty(page.contract, 'page.contract'),
 	framework: page.framework,
 	pageId: requireNonEmpty(page.pageId, 'page.pageId'),

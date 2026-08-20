@@ -14,6 +14,7 @@ import {
 	getCurrentAbsoluteMobileProducerContext,
 	runWithAbsoluteMobileProducer
 } from './producerContext';
+import { matchesAbsoluteMobileRoutePattern } from './routeMatcher';
 
 export type AbsoluteMobileCompatibilityProducerHandler = {
 	handle: (request: Request) => Promise<Response> | Response;
@@ -29,22 +30,6 @@ export type AbsoluteMobileCompatibilityDispatcherOptions = {
 	loadProducer: AbsoluteMobileCompatibilityProducerLoader;
 };
 
-const REGEXP_SPECIAL_CHARACTERS = /[.*+?^${}()|[\]\\]/g;
-
-const routeSegmentPattern = (segment: string) => {
-	if (segment === '*') return '.*';
-	if (segment.startsWith(':') && segment.endsWith('?')) return '[^/]*';
-	if (segment.startsWith(':')) return '[^/]+';
-
-	return segment.replace(REGEXP_SPECIAL_CHARACTERS, '\\$&');
-};
-
-const matchesRoutePattern = (pattern: string, pathname: string) => {
-	const expression = pattern.split('/').map(routeSegmentPattern).join('/');
-
-	return new RegExp(`^${expression}/?$`).test(pathname);
-};
-
 const artifactOwnsRequest = (
 	artifact: AbsoluteMobileCompatibilityArtifact,
 	pageId: string,
@@ -56,7 +41,7 @@ const artifactOwnsRequest = (
 		(route) =>
 			route.pageId === pageId &&
 			route.method === request.method &&
-			matchesRoutePattern(route.pattern, pathname)
+			matchesAbsoluteMobileRoutePattern(route.pattern, pathname)
 	);
 };
 
