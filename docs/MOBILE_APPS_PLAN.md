@@ -51,9 +51,14 @@ Android, plus optional URL-scheme registration, associated-domains entitlements,
 and Xcode target wiring on iOS. Existing custom iOS entitlement wiring is rejected
 instead of overwritten. A disposable Capacitor 8.5 probe successfully generated
 real Android and iOS source projects and applied both native configurations twice
-without drift. Hosted AASA/assetlinks deployment, PKCE/secure credential storage,
-authenticated API/Sync transport, and real simulator/device conformance remain
-next.
+without drift. Association publication is now implemented too: production
+`prepare()` serves the extensionless AASA and Android `assetlinks.json` endpoints,
+and `absolute mobile associations` atomically generates an ownership-protected,
+per-host `.well-known` tree for Absolute Deployments or another host. Signing
+identities are normalized and release publication fails when a configured platform
+is missing them. Deploying those files with real signing identities, PKCE/secure
+credential storage, authenticated API/Sync transport, and real simulator/device
+conformance remain next.
 
 Revision note: the initial draft assumed an explicit list of statically exported
 mobile routes. Product feedback rejected that constraint. This revision makes the
@@ -1114,7 +1119,15 @@ export default defineConfig({
     },
     deepLinks: {
       scheme: 'product',
-      hosts: ['example.com']
+      hosts: ['example.com'],
+      apple: {
+        // Application Identifier Prefix; often, but not always, the Team ID.
+        appIdPrefix: 'ABCDE12345'
+      },
+      android: {
+        // Include the Play App Signing fingerprint for Play-distributed builds.
+        sha256CertificateFingerprints: ['14:6D:...:E5']
+      }
     },
     capacitor: {
       // Typed, deliberately narrow passthrough. AbsoluteJS owns webDir and
@@ -1152,6 +1165,8 @@ type CapacitorMobileConfig = {
   deepLinks?: {
     scheme?: string;
     hosts?: readonly string[];
+    apple?: { appIdPrefix: string };
+    android?: { sha256CertificateFingerprints: readonly string[] };
   };
   capacitor?: AbsoluteCapacitorOverrides;
 };
@@ -1162,6 +1177,7 @@ Rules:
 - The server route graph is discovered automatically. There is no required route list and dynamic parameters are resolved normally at request time.
 - `entry` only selects the initial URL; it does not limit which routes are available.
 - `productionOrigin` is the deployed AbsoluteJS origin for page envelopes and relative API/form/HTMX requests. Environment-specific public configuration may override it without rebuilding application source.
+- Production serves `/.well-known/apple-app-site-association` and `/.well-known/assetlinks.json` directly with JSON content types and no redirects. `absolute mobile associations [--outdir dir]` emits the same files once per configured host for deployment systems that publish static well-known files separately; `absolute mobile associations --verify` fetches every configured HTTPS endpoint without following redirects and verifies its content type and exact signing identity.
 - Offline application data is configured through top-level Sync definitions and packs, not under `mobile`. `shell.offlineFallback` is presentation for a page that cannot be satisfied; it is not a data-sync policy.
 - Only expose `nativeProject.mode: 'source'` in v1. Add `managed` or `external` after their respective lifecycle contracts and tests ship.
 - Reserve `webDir`, `server.url`, `server.cleartext`, and `server.allowNavigation` for the orchestrator. Provide an explicitly named experimental escape hatch only after threat review.
@@ -2088,10 +2104,11 @@ The remaining decisions that materially affect the public API are:
 
 ## Recommended immediate next step
 
-Finish the real-app identity/transport gate on Android and iOS: deploy and validate
-the hosted AASA/assetlinks association files, run the generated local shell in
-simulators/devices, complete public-client Authorization Code + S256 PKCE with
-Keychain/Keystore-backed credentials, and prove authenticated page/API plus Sync
-socket-ticket calls without cookies or URL credentials. Then run the hostile-content
-gate before expanding the framework matrix or broad device APIs. Expo remains out
-of scope until the Capacitor security and lifetime boundaries pass.
+Finish the real-app identity/transport gate on Android and iOS: configure actual
+Apple/Play signing identities, publish and externally validate the generated
+association files, run the generated local shell in simulators/devices, complete
+public-client Authorization Code + S256 PKCE with Keychain/Keystore-backed
+credentials, and prove authenticated page/API plus Sync socket-ticket calls without
+cookies or URL credentials. Then run the hostile-content gate before expanding the
+framework matrix or broad device APIs. Expo remains out of scope until the Capacitor
+security and lifetime boundaries pass.

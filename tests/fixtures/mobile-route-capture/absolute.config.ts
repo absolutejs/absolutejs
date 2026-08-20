@@ -6,6 +6,14 @@ export default defineConfig({
 		appId: 'com.absolute.fixture',
 		appName: 'Absolute Mobile Fixture',
 		bundleDirectory: '.absolutejs/mobile-fixture-web',
+		deepLinks: {
+			android: {
+				sha256CertificateFingerprints: [
+					'AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA'
+				]
+			},
+			apple: { appIdPrefix: 'ABCDE12345' }
+		},
 		entry: '/v1/account/Ada',
 		server: { productionOrigin: 'https://example.test' }
 	},

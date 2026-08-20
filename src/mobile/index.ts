@@ -1,4 +1,5 @@
 export * from './artifactStore';
+export * from './associationFiles';
 export * from './buildMetadata';
 export * from './buildPipeline';
 export * from './buildRelease';

@@ -1,9 +1,13 @@
 import { access } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import type { MobileConfig } from '../../../types/build';
 import { writeAbsoluteCapacitorConfig } from '../../mobile/capacitorProject';
 import { normalizeAbsoluteMobileConfig } from '../../mobile/config';
 import { applyAbsoluteNativeDeepLinks } from '../../mobile/nativeDeepLinks';
+import {
+	materializeAbsoluteMobileAssociationFiles,
+	verifyAbsoluteMobileAssociationFiles
+} from '../../mobile/associationFiles';
 import { loadConfig } from '../../utils/loadConfig';
 
 const NOT_FOUND = -1;
@@ -116,6 +120,39 @@ const sync = async (args: string[]) => {
 	await applyAbsoluteNativeDeepLinks(mobile, platforms);
 };
 
+const associations = async (args: string[]) => {
+	const { mobile, projectRoot } = await loadMobile(
+		valueAfter(args, '--config')
+	);
+	const outputDirectory = resolve(
+		projectRoot,
+		valueAfter(args, '--outdir') ?? '.absolutejs/mobile/associations'
+	);
+	if (args.includes('--verify')) {
+		const result = await verifyAbsoluteMobileAssociationFiles(mobile);
+		console.log(
+			`Verified ${result.results.length} hosted association files`
+		);
+
+		return;
+	}
+	if (
+		outputDirectory !== projectRoot &&
+		!outputDirectory.startsWith(`${projectRoot}/`)
+	) {
+		throw new TypeError(
+			'mobile associations --outdir must remain inside the project.'
+		);
+	}
+	const result = await materializeAbsoluteMobileAssociationFiles(
+		mobile,
+		outputDirectory
+	);
+	console.log(
+		`Generated ${result.written.length} association files in ${result.root}`
+	);
+};
+
 export const runMobile = async (args: string[]) => {
 	const [command] = args;
 	if (command === 'init') {
@@ -128,8 +165,13 @@ export const runMobile = async (args: string[]) => {
 
 		return;
 	}
+	if (command === 'associations') {
+		await associations(args.slice(1));
+
+		return;
+	}
 
 	throw new TypeError(
-		'Usage: absolute mobile <init [--no-native] [--force] | sync [ios|android]> [--config path]'
+		'Usage: absolute mobile <init [--no-native] [--force] | sync [ios|android] | associations [--outdir dir] [--verify]> [--config path]'
 	);
 };

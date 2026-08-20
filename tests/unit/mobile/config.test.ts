@@ -7,14 +7,25 @@ describe('mobile config normalization', () => {
 			{
 				appId: 'com.example.product',
 				appName: 'Product',
-				deepLinks: { hosts: ['APP.EXAMPLE.COM'], scheme: 'Product' },
+				deepLinks: {
+					android: {
+						sha256CertificateFingerprints: ['aa'.repeat(32)]
+					},
+					apple: { appIdPrefix: 'abcde12345' },
+					hosts: ['APP.EXAMPLE.COM'],
+					scheme: 'Product'
+				},
 				server: { productionOrigin: 'https://api.example.com' }
 			},
 			'/workspace'
 		);
 
 		expect(config).toMatchObject({
+			androidCertificateFingerprints: [
+				'AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA'
+			],
 			appId: 'com.example.product',
+			appleAppIdPrefix: 'ABCDE12345',
 			appName: 'Product',
 			bundleDirectory: '/workspace/.absolutejs/mobile/web',
 			deepLinkHosts: ['api.example.com', 'app.example.com'],
@@ -47,5 +58,34 @@ describe('mobile config normalization', () => {
 				'/workspace'
 			)
 		).toThrow('HTTPS');
+	});
+
+	test('rejects unsafe hosts and malformed signing identities', () => {
+		expect(() =>
+			normalizeAbsoluteMobileConfig(
+				{
+					appId: 'com.example.product',
+					appName: 'Product',
+					deepLinks: { hosts: ['../outside'] },
+					server: { productionOrigin: 'https://example.com' }
+				},
+				'/workspace'
+			)
+		).toThrow('valid hostnames');
+		expect(() =>
+			normalizeAbsoluteMobileConfig(
+				{
+					appId: 'com.example.product',
+					appName: 'Product',
+					deepLinks: {
+						android: {
+							sha256CertificateFingerprints: ['not-a-certificate']
+						}
+					},
+					server: { productionOrigin: 'https://example.com' }
+				},
+				'/workspace'
+			)
+		).toThrow('SHA-256');
 	});
 });

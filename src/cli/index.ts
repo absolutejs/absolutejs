@@ -215,7 +215,7 @@ if (command === 'dev') {
 		'  compile [entry] [--outdir dir] [--outfile path] Compile standalone executable'
 	);
 	console.error(
-		'  mobile <init|sync> Generate or synchronize Capacitor native projects'
+		'  mobile <init|sync|associations> Manage Capacitor projects and hosted deep-link files'
 	);
 	console.error(
 		'  config [--port n] Open the unified config UI (ESLint, tsconfig, Prettier)'

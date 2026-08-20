@@ -77,6 +77,14 @@ export type MobileConfig = {
 		scheme?: string;
 		/** HTTPS hosts that may enter the local AbsoluteJS router. */
 		hosts?: readonly string[];
+		apple?: {
+			/** Apple Application Identifier Prefix, commonly the ten-character Team ID. */
+			appIdPrefix: string;
+		};
+		android?: {
+			/** SHA-256 fingerprints for every certificate that signs an installed build. */
+			sha256CertificateFingerprints: readonly string[];
+		};
 	};
 };
 

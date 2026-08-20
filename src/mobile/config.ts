@@ -4,6 +4,8 @@ import type { MobileConfig, MobilePlatform } from '../../types/build';
 export type NormalizedAbsoluteMobileConfig = {
 	appId: string;
 	appName: string;
+	androidCertificateFingerprints: string[];
+	appleAppIdPrefix?: string;
 	bundleDirectory: string;
 	deepLinkHosts: string[];
 	deepLinkScheme?: string;
@@ -16,6 +18,10 @@ export type NormalizedAbsoluteMobileConfig = {
 
 const APP_ID_PATTERN = /^[A-Za-z][\w]*(?:\.[A-Za-z][\w]*)+$/;
 const SCHEME_PATTERN = /^[a-z][a-z0-9+.-]*$/;
+const APPLE_APP_ID_PREFIX_PATTERN = /^[A-Z0-9]{10}$/;
+const CERTIFICATE_FINGERPRINT_PATTERN = /^[0-9A-F]{64}$/;
+const HOSTNAME_PATTERN =
+	/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*$/;
 
 const resolveProjectPath = (
 	projectRoot: string,
@@ -92,19 +98,66 @@ const normalizeHosts = (
 	hosts: readonly string[] | undefined,
 	productionOrigin: string
 ) => {
-	const normalized = new Set<string>([new URL(productionOrigin).hostname]);
-	for (const host of hosts ?? []) {
-		const value = requireText(host, 'mobile.deepLinks.hosts');
-		if (value.includes('/') || value.includes(':')) {
+	const normalizeHostname = (host: string) => {
+		const value = requireText(host, 'mobile.deepLinks.hosts').toLowerCase();
+		if (!HOSTNAME_PATTERN.test(value)) {
 			throw new TypeError(
-				'mobile.deepLinks.hosts entries must be hostnames without ports or paths.'
+				'mobile.deepLinks.hosts entries must be valid hostnames without ports, wildcards, or paths.'
 			);
 		}
-		normalized.add(value.toLowerCase());
+
+		return value;
+	};
+	const normalized = new Set<string>([
+		normalizeHostname(new URL(productionOrigin).hostname)
+	]);
+	for (const host of hosts ?? []) {
+		normalized.add(normalizeHostname(host));
 	}
 
 	return [...normalized].sort();
 };
+
+const normalizeAppleAppIdPrefix = (value: string | undefined) => {
+	if (value === undefined) return undefined;
+	const normalized = requireText(
+		value,
+		'mobile.deepLinks.apple.appIdPrefix'
+	).toUpperCase();
+	if (!APPLE_APP_ID_PREFIX_PATTERN.test(normalized)) {
+		throw new TypeError(
+			'mobile.deepLinks.apple.appIdPrefix must contain ten letters or digits.'
+		);
+	}
+
+	return normalized;
+};
+
+const normalizeCertificateFingerprints = (
+	values: readonly string[] | undefined
+) =>
+	[
+		...new Set(
+			(values ?? [])
+				.map((value) =>
+					requireText(
+						value,
+						'mobile.deepLinks.android.sha256CertificateFingerprints'
+					)
+						.replaceAll(':', '')
+						.toUpperCase()
+				)
+				.map((value) => {
+					if (!CERTIFICATE_FINGERPRINT_PATTERN.test(value)) {
+						throw new TypeError(
+							'mobile.deepLinks.android.sha256CertificateFingerprints entries must be SHA-256 certificate fingerprints.'
+						);
+					}
+
+					return value.match(/.{2}/g)?.join(':') ?? value;
+				})
+		)
+	].sort();
 
 export const normalizeAbsoluteMobileConfig = (
 	config: MobileConfig,
@@ -127,7 +180,13 @@ export const normalizeAbsoluteMobileConfig = (
 	}
 
 	return {
+		androidCertificateFingerprints: normalizeCertificateFingerprints(
+			config.deepLinks?.android?.sha256CertificateFingerprints
+		),
 		appId,
+		appleAppIdPrefix: normalizeAppleAppIdPrefix(
+			config.deepLinks?.apple?.appIdPrefix
+		),
 		appName: requireText(config.appName, 'mobile.appName'),
 		bundleDirectory: resolveProjectPath(
 			projectRoot,

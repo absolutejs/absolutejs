@@ -11,6 +11,7 @@ import { setIconVersionResolver } from '../utils/iconVersion';
 import { setCurrentIslandManifest } from './islandPageContext';
 import { absoluteRequestContext } from './requestContext';
 import { createAbsoluteMobileCompatibilityDispatcher } from '../mobile/compatibilityDispatcher';
+import { createAbsoluteMobileAssociationPlugin } from '../mobile/associationFiles';
 import { loadAbsoluteMobileMaterializedBundle } from '../mobile/materializedBundle';
 import { loadIslandRegistry } from './loadIslandRegistry';
 import { setCurrentIslandRegistry } from './currentIslandRegistry';
@@ -298,6 +299,10 @@ const prepareDev = async (
 	const { imageOptimizer } = await import('../plugins/imageOptimizer');
 	const { requestInspector } = await import('../dev/requestInspector');
 	const { serverTiming } = await import('@elysia/server-timing');
+	const mobileAssociationPlugin = createAbsoluteMobileAssociationPlugin(
+		config.mobile,
+		process.cwd()
+	);
 	const absolutejs = new Elysia({ name: 'absolutejs-runtime' })
 		// Must be first: the inspector's global request/afterResponse hooks
 		// only reach routes compiled after them, so it has to precede the
@@ -317,6 +322,7 @@ const prepareDev = async (
 			})
 		)
 		.use(imageOptimizer(config.images, buildDir))
+		.use(mobileAssociationPlugin)
 		.use(
 			await mountStaticPlugin(staticPlugin, {
 				alwaysStatic: true,
@@ -575,6 +581,11 @@ export const prepare = async (configOrPath?: string) => {
 	const prerenderMap = loadPrerenderMap(prerenderDir);
 	const mobileCompatibilityPlugin =
 		await loadMobileCompatibilityPlugin(buildDir);
+	const mobileAssociationPlugin = createAbsoluteMobileAssociationPlugin(
+		config.mobile,
+		process.cwd(),
+		{ requireAll: true }
+	);
 	recordStep('load prerender map', stepStartedAt);
 
 	if (prerenderMap.size > 0) {
@@ -628,6 +639,7 @@ export const prepare = async (configOrPath?: string) => {
 		const { imageOptimizer } = await import('../plugins/imageOptimizer');
 		const absolutejs = new Elysia({ name: 'absolutejs-runtime' })
 			.use(absoluteRequestContext)
+			.use(mobileAssociationPlugin)
 			.use(mobileCompatibilityPlugin)
 			.use(assetCachePlugin)
 			.use(imageOptimizer(config.images, buildDir))
@@ -647,6 +659,7 @@ export const prepare = async (configOrPath?: string) => {
 	const { imageOptimizer } = await import('../plugins/imageOptimizer');
 	const absolutejs = new Elysia({ name: 'absolutejs-runtime' })
 		.use(absoluteRequestContext)
+		.use(mobileAssociationPlugin)
 		.use(mobileCompatibilityPlugin)
 		.use(assetCachePlugin)
 		.use(imageOptimizer(config.images, buildDir))
