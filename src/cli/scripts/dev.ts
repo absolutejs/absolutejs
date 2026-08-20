@@ -10,6 +10,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import type { DbScripts, InteractiveHandler } from '../../../types/cli';
+import type { MobileConfig } from '../../../types/build';
 import {
 	ANSI_ESCAPE_CODE,
 	DEFAULT_PORT,
@@ -35,6 +36,19 @@ import {
 import { loadConfig } from '../../utils/loadConfig';
 import { scanListeners } from '../../utils/portScan';
 import { resolveDevPort } from '../../utils/resolveDevPort';
+import { normalizeAbsoluteMobileConfig } from '../../mobile/config';
+import {
+	prepareAbsoluteAndroidDevProject,
+	repairAbsoluteAndroidDevSession,
+	startAbsoluteAndroidDevSession,
+	type AbsoluteAndroidDevProject,
+	type AbsoluteAndroidDevSession
+} from '../../mobile/androidEmulatorController';
+import {
+	inspectAbsoluteMobileToolchain,
+	type AbsoluteMobileDoctorCheck
+} from '../../mobile/emulatorDoctor';
+import { fixAbsoluteMobileEmulatorToolchain } from '../../mobile/emulatorInstaller';
 import {
 	COMPOSE_PATH,
 	isWSLEnvironment,
@@ -249,12 +263,29 @@ const resolveDevConfig = (
 	};
 };
 
-export const dev = async (serverEntry: string, configPath?: string) => {
+export type AbsoluteDevOptions = {
+	mobile?: boolean;
+};
+
+const androidToolchainReady = (checks: AbsoluteMobileDoctorCheck[]) =>
+	checks.every(
+		(check) =>
+			check.platform !== 'android' ||
+			(check.status !== 'fail' && check.status !== 'warn')
+	);
+
+export const dev = async (
+	serverEntry: string,
+	configPath?: string,
+	options: AbsoluteDevOptions = {}
+) => {
 	let httpsEnabled = false;
 	let resolvedDev: ResolvedDevConfig;
 	let buildDirectory = resolve(process.cwd(), 'build');
+	let mobileConfig: MobileConfig | undefined;
 	try {
 		const config = await loadConfig(configPath);
+		mobileConfig = config?.mobile;
 		resolvedDev = resolveDevConfig(config?.dev);
 		httpsEnabled = resolvedDev.https;
 		if (config?.buildDirectory) {
@@ -265,6 +296,70 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 		// config load failed, fall back to env-only defaults
 		resolvedDev = resolveDevConfig(undefined);
 		httpsEnabled = resolvedDev.https;
+	}
+
+	let androidDevProject: AbsoluteAndroidDevProject | null = null;
+	const mobileInteractive =
+		options.mobile !== false &&
+		process.env.ABSOLUTE_NO_MOBILE !== '1' &&
+		process.stdin.isTTY === true &&
+		process.stdout.isTTY === true;
+	if (mobileConfig && mobileInteractive) {
+		try {
+			const normalized = normalizeAbsoluteMobileConfig(
+				mobileConfig,
+				process.cwd()
+			);
+			if (normalized.platforms.includes('android')) {
+				let ready = androidToolchainReady(
+					await inspectAbsoluteMobileToolchain()
+				);
+				if (!ready) {
+					const install = await confirmPrompt(
+						'Android emulation is not configured. Install it now?'
+					);
+					if (install) {
+						await fixAbsoluteMobileEmulatorToolchain('android');
+						ready = androidToolchainReady(
+							await inspectAbsoluteMobileToolchain()
+						);
+					} else {
+						console.log(
+							cliTag(
+								'\x1b[33m',
+								'Mobile emulator skipped. Run `absolute mobile doctor android --fix` when ready.'
+							)
+						);
+					}
+				}
+				if (ready) {
+					const nativeDirectory = join(
+						normalized.nativeProjectDirectory,
+						'android'
+					);
+					let createNativeProject = false;
+					if (!existsSync(nativeDirectory)) {
+						createNativeProject = await confirmPrompt(
+							'Create the managed Capacitor Android project now?'
+						);
+					}
+					if (existsSync(nativeDirectory) || createNativeProject) {
+						androidDevProject =
+							await prepareAbsoluteAndroidDevProject(normalized, {
+								createNativeProject,
+								projectRoot: process.cwd()
+							});
+					}
+				}
+			}
+		} catch (error) {
+			console.error(
+				cliTag(
+					'\x1b[33m',
+					`Mobile emulator unavailable: ${error instanceof Error ? error.message : String(error)}`
+				)
+			);
+		}
 	}
 
 	// §1.2 — acquire the build-directory lock as early as possible, so an
@@ -337,7 +432,8 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 		process.argv[1] ?? '',
 		'dev',
 		serverEntry,
-		...(configPath ? ['--config', configPath] : [])
+		...(configPath ? ['--config', configPath] : []),
+		...(options.mobile === false ? ['--no-mobile'] : [])
 	].filter((part) => part.length > 0);
 	registerInstance({
 		command: relaunchCommand,
@@ -375,6 +471,44 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 
 	let serverReady = false;
 	let tunnelClient: { close(): void } | null = null;
+	let androidDevSession: AbsoluteAndroidDevSession | null = null;
+	let androidDevStart: Promise<void> | null = null;
+	const androidDevAbort = new AbortController();
+	const startAndroidDev = () => {
+		if (!androidDevProject || androidDevStart) return;
+		androidDevStart = startAbsoluteAndroidDevSession({
+			https: httpsEnabled,
+			port,
+			project: androidDevProject,
+			signal: androidDevAbort.signal,
+			log: (message) => console.log(cliTag('\x1b[36m', message))
+		})
+			.then(async (session) => {
+				if (cleaning) {
+					await session.close();
+
+					return undefined;
+				}
+				androidDevSession = session;
+
+				return undefined;
+			})
+			.catch((error) => {
+				if (
+					cleaning &&
+					error instanceof Error &&
+					error.name === 'AbortError'
+				) {
+					return;
+				}
+				console.error(
+					cliTag(
+						'\x1b[31m',
+						`Android emulator failed: ${error instanceof Error ? error.message : String(error)}`
+					)
+				);
+			});
+	};
 
 	// Once the dev server is up, dial the reverse-tunnel relay (if configured)
 	// so public webhooks reach this machine. Started once; survives HMR.
@@ -396,6 +530,7 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 		if (!chunk.includes('Local:')) return;
 		serverReady = true;
 		startTunnelIfConfigured();
+		startAndroidDev();
 		interactive?.showPrompt();
 	};
 
@@ -941,6 +1076,14 @@ export const dev = async (serverEntry: string, configPath?: string) => {
 		});
 		if (interactive) interactive.dispose();
 		tunnelClient?.close();
+		androidDevAbort.abort();
+		if (androidDevSession) {
+			await androidDevSession.close();
+		} else if (androidDevProject) {
+			await repairAbsoluteAndroidDevSession(
+				androidDevProject.projectRoot
+			).catch(() => undefined);
+		}
 		if (paused) sendSignal('SIGCONT');
 		killChildTree('SIGTERM');
 		await new Promise<void>((_resolve) => {

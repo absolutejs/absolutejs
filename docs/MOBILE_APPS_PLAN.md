@@ -1261,10 +1261,25 @@ incompatible with `--fix`. On macOS, `doctor ios --fix` uses Xcode's supported
 platform-runtime downloader after Xcode itself is present; other hosts fail with a
 clear platform requirement.
 
-The emulator controller itself is provider-neutral and dependency-injected so its
-state machine, command construction, cancellation and crash recovery are unit-
-testable without an SDK. Integration tests use fake `adb`/`simctl` executables before
-real Android and macOS CI lanes. Native acceptance tests measure first boot, warm
+The first implemented unified-development slice now connects configured Android
+apps to normal interactive `absolute dev`/`bun dev`. Once the web server is ready,
+the CLI reuses or boots the managed `AbsoluteJS_API_36` AVD, runs Capacitor sync,
+establishes `adb reverse` loopback forwarding, builds and installs the debug APK,
+and launches the app against the same HMR server. The first run offers the existing
+guided toolchain installer and managed native-project creation; `--no-mobile`,
+`ABSOLUTE_NO_MOBILE=1`, CI, and other non-interactive runs remain web-only. WSL uses
+the Windows SDK/emulator and a PowerShell Gradle broker. Live-reload changes to the
+copied native Capacitor config are journaled and restored on normal shutdown,
+startup failure, cancellation, or the next run after a crash. The managed emulator
+stays warm after shutdown for fast subsequent starts. iOS, physical devices,
+mobile-preview UI, native-delta rebuilds, log streaming, and trusted local HTTPS are
+still subsequent slices of Phase 4.
+
+The implemented Android controller is dependency-injected so its state machine,
+command construction, cancellation and crash recovery are unit-testable without an
+SDK. Its session boundary is designed to sit behind the provider-neutral controller
+that will also coordinate iOS and later providers. Integration tests use fake
+`adb`/`simctl` executables before real Android and macOS CI lanes. Native acceptance tests measure first boot, warm
 boot, no-op restart, web-only HMR, CSS HMR, server restart recovery, native-plugin
 rebuild, app crash/relaunch and Ctrl-C/SIGTERM/stale-journal cleanup. A later
 automation adapter may use Maestro if the Capacitor WebView and permission-dialog

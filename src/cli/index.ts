@@ -39,9 +39,13 @@ const stripNamedArgs = (...flags: string[]) =>
 if (command === 'dev') {
 	sendTelemetryEvent('cli:command', { command });
 	const configPath = parseNamedArg('--config');
-	const positionalArgs = stripNamedArgs('--config');
+	const positionalArgs = stripNamedArgs('--config').filter(
+		(arg) => arg !== '--no-mobile'
+	);
 	const serverEntry = positionalArgs[0] ?? DEFAULT_SERVER_ENTRY;
-	await dev(serverEntry, configPath);
+	await dev(serverEntry, configPath, {
+		mobile: !args.includes('--no-mobile')
+	});
 } else if (command === 'start') {
 	sendTelemetryEvent('cli:command', { command });
 	const outdir = parseNamedArg('--outdir');
@@ -200,7 +204,9 @@ if (command === 'dev') {
 	console.error(message);
 	console.error('Usage: absolute <command>');
 	console.error('Commands:');
-	console.error('  dev [entry]   Start development server');
+	console.error(
+		'  dev [entry] [--no-mobile] Start web and configured mobile development'
+	);
 	console.error(
 		'  workspace dev [--no-tui] Start multi-service workspace dev'
 	);
