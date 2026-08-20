@@ -8,6 +8,7 @@ export * from './config';
 export * from './client';
 export * from './compatibilityDispatcher';
 export * from './materializedBundle';
+export * from './nativeDeepLinks';
 export * from './pageProtocol';
 export * from './producerContext';
 export * from './releaseArtifact';

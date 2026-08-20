@@ -1,6 +1,6 @@
 # AbsoluteJS Mobile Apps: Research and Implementation Plan
 
-Status: Phase 0 React representation/version pipeline operational; Capacitor local-shell/transport spike in progress
+Status: Phase 0 React representation/version pipeline operational; Capacitor native identity/transport spike in progress
 Research snapshot: August 19, 2026
 
 Implementation checkpoint (August 20, 2026): the first React protocol seam now
@@ -45,11 +45,15 @@ the server envelope, intercepts same-app navigation, and consumes launch/live de
 links through the official Capacitor App plugin. `absolute mobile init` generates a
 reviewable `capacitor.config.ts` with local assets and editable iOS/Android source
 paths, while `absolute mobile sync` delegates copying and native dependency updates
-to Capacitor. A disposable Capacitor 8.5 probe successfully generated real Android
-and iOS source projects from that config. This is not yet the completed identity
-spike: native association-file/entitlement automation, PKCE/secure credential
-storage, authenticated API/Sync transport, and real simulator/device conformance
-remain next.
+to Capacitor. Init and sync now also apply idempotent, AbsoluteJS-owned native
+deep-link regions: verified HTTPS App Link filters and an optional custom scheme on
+Android, plus optional URL-scheme registration, associated-domains entitlements,
+and Xcode target wiring on iOS. Existing custom iOS entitlement wiring is rejected
+instead of overwritten. A disposable Capacitor 8.5 probe successfully generated
+real Android and iOS source projects and applied both native configurations twice
+without drift. Hosted AASA/assetlinks deployment, PKCE/secure credential storage,
+authenticated API/Sync transport, and real simulator/device conformance remain
+next.
 
 Revision note: the initial draft assumed an explicit list of statically exported
 mobile routes. Product feedback rejected that constraint. This revision makes the
@@ -2084,10 +2088,10 @@ The remaining decisions that materially affect the public API are:
 
 ## Recommended immediate next step
 
-Finish the real-app identity/transport gate on Android and iOS: apply and verify
-native deep-link declarations, run the generated local shell in simulators/devices,
-complete public-client Authorization Code + S256 PKCE with Keychain/Keystore-backed
-credentials, and prove authenticated page/API plus Sync socket-ticket calls without
-cookies or URL credentials. Then run the hostile-content gate before expanding the
-framework matrix or broad device APIs. Expo remains out of scope until the Capacitor
-security and lifetime boundaries pass.
+Finish the real-app identity/transport gate on Android and iOS: deploy and validate
+the hosted AASA/assetlinks association files, run the generated local shell in
+simulators/devices, complete public-client Authorization Code + S256 PKCE with
+Keychain/Keystore-backed credentials, and prove authenticated page/API plus Sync
+socket-ticket calls without cookies or URL credentials. Then run the hostile-content
+gate before expanding the framework matrix or broad device APIs. Expo remains out
+of scope until the Capacitor security and lifetime boundaries pass.
