@@ -17,6 +17,16 @@ describe('repository ESLint configuration', () => {
 			)
 		).toBeTrue();
 		expect(
+			await eslint.isPathIgnored(
+				resolve(projectRoot, '.agents/runtime/generated.ts')
+			)
+		).toBeTrue();
+		expect(
+			await eslint.isPathIgnored(
+				resolve(projectRoot, '.codex/runtime/generated.ts')
+			)
+		).toBeTrue();
+		expect(
 			await eslint.isPathIgnored(resolve(projectRoot, 'src/index.ts'))
 		).toBeFalse();
 	});

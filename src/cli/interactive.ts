@@ -5,6 +5,7 @@ import { ANSI_ESCAPE_LENGTH, ASCII_SPACE, UNFOUND_INDEX } from '../constants';
 
 const SHORTCUTS: Record<string, keyof Omit<Actions, 'shell'>> = {
 	c: 'clear',
+	d: 'device',
 	h: 'help',
 	m: 'heapSnapshot',
 	o: 'open',
@@ -15,11 +16,13 @@ const SHORTCUTS: Record<string, keyof Omit<Actions, 'shell'>> = {
 
 const WORD_COMMANDS: Record<string, keyof Omit<Actions, 'shell'>> = {
 	clear: 'clear',
+	device: 'device',
 	heap: 'heapSnapshot',
 	help: 'help',
 	open: 'open',
 	pause: 'pause',
 	quit: 'quit',
+	relaunch: 'relaunchDevice',
 	restart: 'restart',
 	resume: 'pause',
 	snapshot: 'heapSnapshot'
@@ -140,8 +143,8 @@ export const createInteractiveHandler = (
 		}
 
 		const wordAction = WORD_COMMANDS[trimmed.toLowerCase()];
-		if (wordAction) {
-			await actions[wordAction]();
+		if (wordAction && actions[wordAction]) {
+			await actions[wordAction]?.();
 			handleActionResult(wordAction, renderLine, setNeedsPrompt);
 
 			return;
@@ -157,7 +160,7 @@ export const createInteractiveHandler = (
 		}
 
 		const shortcutAction = SHORTCUTS[trimmed];
-		if (!shortcutAction) {
+		if (!shortcutAction || !actions[shortcutAction]) {
 			console.log(
 				`\x1b[31mUnknown command: ${trimmed}\x1b[0m (press h + enter for help)`
 			);
@@ -166,7 +169,7 @@ export const createInteractiveHandler = (
 			return;
 		}
 
-		await actions[shortcutAction]();
+		await actions[shortcutAction]?.();
 		handleActionResult(shortcutAction, renderLine, setNeedsPrompt);
 	};
 

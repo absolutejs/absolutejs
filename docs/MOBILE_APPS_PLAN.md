@@ -1272,8 +1272,8 @@ the Windows SDK/emulator and a PowerShell Gradle broker. Live-reload changes to 
 copied native Capacitor config are journaled and restored on normal shutdown,
 startup failure, cancellation, or the next run after a crash. The managed emulator
 stays warm after shutdown for fast subsequent starts. iOS, physical devices,
-mobile-preview UI, native-delta rebuilds, log streaming, and trusted local HTTPS are
-still subsequent slices of Phase 4.
+mobile-preview UI, native-delta rebuilds, and trusted local HTTPS are still
+subsequent slices of Phase 4.
 
 Real WSL2/Windows acceptance established the host boundary more precisely. Gradle
 cannot reliably build a project directly from a `\\wsl.localhost` UNC path, so the
@@ -1297,6 +1297,21 @@ AbsoluteJS imports the freshly transformed page module and uses a generated Reac
 root remount hook; patched Bun keeps the state-preserving Fast Refresh path. Native
 output directories are excluded from the web watcher so Capacitor sync and Gradle
 cannot trigger a restart storm.
+
+The Android session now remains observable after launch instead of becoming a
+fire-and-forget child process. It publishes typed lifecycle states through sync,
+configuration, boot, transport, build, install, launch, log attachment, readiness,
+failure and cleanup. Normal interactive `bun dev` exposes `d`/`device` to report the
+selected serial, state and HMR port, plus `relaunch` to bring the installed app back
+to the foreground without rebuilding it. Native logs stream into the same terminal
+and session log with an `[android]` category and parsed Android severity/tag. The
+controller scopes `logcat` to the installed package UID so unrelated device logs are
+excluded and the stream survives app process replacement. The default filter keeps
+all Capacitor/JavaScript console output and Chromium information while suppressing
+unrelated verbose/debug chatter below warning severity. ANSI/control sequences,
+authorization credentials, cookies, OAuth codes and common token/password fields
+are redacted before output. The log process is owned by the cancellable session and
+is stopped before reverse-port and native-config cleanup.
 
 The implemented Android controller is dependency-injected so its state machine,
 command construction, cancellation and crash recovery are unit-testable without an

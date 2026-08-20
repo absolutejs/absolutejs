@@ -41,6 +41,8 @@ import {
 	prepareAbsoluteAndroidDevProject,
 	repairAbsoluteAndroidDevSession,
 	startAbsoluteAndroidDevSession,
+	type AbsoluteAndroidDevState,
+	type AbsoluteAndroidNativeLogEntry,
 	type AbsoluteAndroidDevProject,
 	type AbsoluteAndroidDevSession
 } from '../../mobile/androidEmulatorController';
@@ -61,6 +63,21 @@ import {
 
 const cliTag = (color: string, message: string) =>
 	`\x1b[2m${formatTimestamp()}\x1b[0m ${color}[cli]\x1b[0m ${color}${message}\x1b[0m`;
+
+const androidLogColor = (level: AbsoluteAndroidNativeLogEntry['level']) => {
+	if (level === 'fatal' || level === 'error') return '\x1b[31m';
+	if (level === 'warn') return '\x1b[33m';
+	if (level === 'debug' || level === 'verbose') return '\x1b[90m';
+
+	return '\x1b[36m';
+};
+
+const ANDROID_LOG_LEVEL_WIDTH = 7;
+const androidLogTag = (entry: AbsoluteAndroidNativeLogEntry) => {
+	const color = androidLogColor(entry.level);
+
+	return `\x1b[2m${formatTimestamp()}\x1b[0m ${color}[android]\x1b[0m ${color}${entry.level.padEnd(ANDROID_LOG_LEVEL_WIDTH)} ${entry.tag}: ${entry.message}\x1b[0m`;
+};
 
 const DEFAULT_PORT_RANGE = 10;
 // Poll cadence while the exit monitor parks for an in-flight intentional
@@ -473,7 +490,15 @@ export const dev = async (
 	let tunnelClient: { close(): void } | null = null;
 	let androidDevSession: AbsoluteAndroidDevSession | null = null;
 	let androidDevStart: Promise<void> | null = null;
+	let androidDevState: AbsoluteAndroidDevState | 'waiting-for-server' =
+		'waiting-for-server';
 	const androidDevAbort = new AbortController();
+	const printAndroidOutput = (output: string) => {
+		interactive?.clearPrompt();
+		console.log(output);
+		writeInstanceLog(`${output}\n`);
+		interactive?.showPrompt();
+	};
 	const startAndroidDev = () => {
 		if (!androidDevProject || androidDevStart) return;
 		androidDevStart = startAbsoluteAndroidDevSession({
@@ -481,7 +506,15 @@ export const dev = async (
 			port,
 			project: androidDevProject,
 			signal: androidDevAbort.signal,
-			log: (message) => console.log(cliTag('\x1b[36m', message))
+			log: (message) => printAndroidOutput(cliTag('\x1b[36m', message)),
+			nativeLog: (entry) => printAndroidOutput(androidLogTag(entry)),
+			onStateChange: (state) => {
+				androidDevState = state;
+				if (state === 'ready' || state === 'closed') return;
+				printAndroidOutput(
+					cliTag('\x1b[36m', `Android emulator: ${state}.`)
+				);
+			}
 		})
 			.then(async (session) => {
 				if (cleaning) {
@@ -494,6 +527,7 @@ export const dev = async (
 				return undefined;
 			})
 			.catch((error) => {
+				androidDevState = 'failed';
 				if (
 					cleaning &&
 					error instanceof Error &&
@@ -1244,8 +1278,36 @@ export const dev = async (
 		heapSnapshot: () => {
 			triggerHeapSnapshot();
 		},
+		...(androidDevProject
+			? {
+					device: () => {
+						const target = androidDevSession
+							? `${androidDevSession.serial}, ${androidDevSession.state}`
+							: androidDevState;
+						console.log(
+							cliTag(
+								'\x1b[36m',
+								`Android target: ${target}; HMR port ${port}.`
+							)
+						);
+					},
+					relaunchDevice: async () => {
+						if (!androidDevSession) {
+							console.log(
+								cliTag(
+									'\x1b[33m',
+									`Android target is not ready (${androidDevState}).`
+								)
+							);
+
+							return;
+						}
+						await androidDevSession.relaunch();
+					}
+				}
+			: {}),
 		help: () => {
-			printHelp();
+			printHelp('server', androidDevProject !== null);
 		},
 		open: () => openInBrowser(),
 		pause: () => {

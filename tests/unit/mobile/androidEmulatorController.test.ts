@@ -4,8 +4,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
 	parseAdbDevices,
+	parseAbsoluteAndroidLogLine,
+	redactAbsoluteAndroidLog,
 	repairAbsoluteAndroidDevSession,
 	startAbsoluteAndroidDevSession,
+	type AbsoluteAndroidDevState,
+	type AbsoluteAndroidNativeLogEntry,
 	type AbsoluteAndroidDevProject
 } from '../../../src/mobile/androidEmulatorController';
 import { normalizeAbsoluteMobileConfig } from '../../../src/mobile/config';
@@ -108,11 +112,42 @@ const readyCapture = (command: string[]) => {
 	if (command.includes('avd')) {
 		return { exitCode: 0, stderr: '', stdout: 'AbsoluteJS_API_36\nOK\n' };
 	}
+	if (command.includes('packages')) {
+		return {
+			exitCode: 0,
+			stderr: '',
+			stdout: 'package:com.example.product uid:10123\n'
+		};
+	}
 
 	return { exitCode: 0, stderr: '', stdout: '' };
 };
 
 describe('Android emulator development controller', () => {
+	test('categorizes logcat lines and redacts auth material', () => {
+		expect(
+			parseAbsoluteAndroidLogLine(
+				'08-20 12:34:56.789 123 456 W Capacitor/Console: Authorization: Bearer secret-token'
+			)
+		).toEqual({
+			level: 'warn',
+			message: 'Authorization: [REDACTED]',
+			tag: 'Capacitor/Console'
+		});
+		expect(
+			redactAbsoluteAndroidLog(
+				'https://example.test/callback?code=secret&token=also-secret "access_token":"third-secret"'
+			)
+		).toBe(
+			'https://example.test/callback?code=[REDACTED]&token=[REDACTED] "access_token":[REDACTED]'
+		);
+		expect(
+			redactAbsoluteAndroidLog(
+				'Cookie: session=secret; refresh=also-secret'
+			)
+		).toBe('Cookie: [REDACTED]');
+	});
+
 	test('only selects ADB devices that are ready', () => {
 		expect(
 			parseAdbDevices(
@@ -130,14 +165,32 @@ describe('Android emulator development controller', () => {
 			project
 		} = await createProject();
 		const commands: string[][] = [];
+		const logCommands: string[][] = [];
+		const logEntries: AbsoluteAndroidNativeLogEntry[] = [];
+		const states: AbsoluteAndroidDevState[] = [];
+		let logStreamClosed = false;
 		const session = await startAbsoluteAndroidDevSession({
 			capture: readyCapture,
 			port: 3030,
 			project,
+			nativeLog: (entry) => logEntries.push(entry),
+			onStateChange: (state) => states.push(state),
 			run: async (command) => {
 				commands.push(command);
 
 				return 0;
+			},
+			startNativeLogs: (command, _options, onLine) => {
+				logCommands.push(command);
+				onLine(
+					'08-20 12:34:56.789 123 456 I Capacitor/Console: access_token=secret'
+				);
+
+				return {
+					close: async () => {
+						logStreamClosed = true;
+					}
+				};
 			}
 		});
 		const developmentConfig = JSON.parse(
@@ -145,6 +198,19 @@ describe('Android emulator development controller', () => {
 		);
 
 		expect(session.startedEmulator).toBe(false);
+		expect(session.state).toBe('ready');
+		expect(states).toContain('building');
+		expect(states).toContain('streaming-logs');
+		expect(logCommands[0]).toContain('--uid=10123');
+		expect(logCommands[0]).toContain('*:W');
+		expect(logCommands[0]).toContain('Capacitor/Console:V');
+		expect(logEntries).toEqual([
+			{
+				level: 'info',
+				message: 'access_token=[REDACTED]',
+				tag: 'Capacitor/Console'
+			}
+		]);
 		expect(developmentConfig.server).toEqual({
 			allowNavigation: ['api.example.com'],
 			cleartext: true,
@@ -162,9 +228,15 @@ describe('Android emulator development controller', () => {
 		expect(commands.some((command) => command.includes('monkey'))).toBe(
 			true
 		);
+		await session.relaunch();
+		expect(
+			commands.filter((command) => command.includes('monkey')).length
+		).toBe(2);
 
 		await session.close();
 
+		expect(session.state).toBe('closed');
+		expect(logStreamClosed).toBe(true);
 		expect(await readFile(nativeConfigPath, 'utf8')).toBe(originalConfig);
 		expect(await readFile(nativeManifestPath, 'utf8')).toBe(
 			originalManifest
@@ -204,7 +276,9 @@ describe('Android emulator development controller', () => {
 		).toString('utf16le');
 		expect(decodedCommand).toContain("$ErrorActionPreference = 'Stop'");
 		expect(decodedCommand).toContain('robocopy.exe');
-		expect(decodedCommand).toContain('/MIR /XD .gradle build');
+		expect(decodedCommand).toContain(
+			'/MIR /XD .gradle build .absolutejs-dependencies'
+		);
 		expect(decodedCommand).toContain('$env:ANDROID_HOME = $androidHome');
 		expect(decodedCommand).toContain('.absolutejs-dependencies');
 		expect(decodedCommand).toContain('capacitor.settings.gradle');

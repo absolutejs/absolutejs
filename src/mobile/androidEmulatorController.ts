@@ -44,6 +44,31 @@ type CommandResult = {
 	stdout: string;
 };
 
+export type AbsoluteAndroidDevState =
+	| 'booting'
+	| 'building'
+	| 'closed'
+	| 'closing'
+	| 'configuring'
+	| 'connecting'
+	| 'failed'
+	| 'forwarding'
+	| 'installing'
+	| 'launching'
+	| 'ready'
+	| 'streaming-logs'
+	| 'syncing';
+
+export type AbsoluteAndroidNativeLogEntry = {
+	level: 'debug' | 'error' | 'fatal' | 'info' | 'verbose' | 'warn';
+	message: string;
+	tag: string;
+};
+
+type AbsoluteAndroidLogStream = {
+	close: () => Promise<void>;
+};
+
 type AndroidDevJournal = {
 	backupPath: string;
 	format: number;
@@ -65,7 +90,9 @@ export type AbsoluteAndroidDevProject = {
 
 export type AbsoluteAndroidDevSession = {
 	close: () => Promise<void>;
+	relaunch: () => Promise<void>;
 	serial: string;
+	state: AbsoluteAndroidDevState;
 	startedEmulator: boolean;
 };
 
@@ -78,6 +105,8 @@ export type PrepareAbsoluteAndroidDevOptions = {
 export type StartAbsoluteAndroidDevOptions = {
 	capture?: (command: string[], options?: CommandOptions) => CommandResult;
 	log?: (message: string) => void;
+	nativeLog?: (entry: AbsoluteAndroidNativeLogEntry) => void;
+	onStateChange?: (state: AbsoluteAndroidDevState) => void;
 	https?: boolean;
 	port: number;
 	project: AbsoluteAndroidDevProject;
@@ -85,6 +114,11 @@ export type StartAbsoluteAndroidDevOptions = {
 	signal?: AbortSignal;
 	sleep?: (milliseconds: number) => Promise<void>;
 	spawn?: (command: string[], options?: CommandOptions) => void;
+	startNativeLogs?: (
+		command: string[],
+		options: CommandOptions,
+		onLine: (line: string) => void
+	) => AbsoluteAndroidLogStream;
 };
 
 const pathExists = async (path: string) => {
@@ -158,6 +192,152 @@ const spawnCommand = (command: string[], options: CommandOptions = {}) => {
 		stdin: 'ignore',
 		stdout: 'ignore'
 	});
+};
+
+const LOGCAT_LINE_PATTERN =
+	/^\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d+\s+\d+\s+\d+\s+([VDIWEF])\s+([^:]+):\s?(.*)$/u;
+const ASCII_CONTROL_END = 31;
+const ASCII_DELETE = 127;
+const ASCII_ESCAPE = 27;
+const ASCII_HORIZONTAL_TAB = 9;
+const LOGCAT_MESSAGE_CAPTURE = 3;
+const UNFOUND_INDEX = -1;
+const ANSI_SEQUENCE_PATTERN = new RegExp(
+	`${String.fromCharCode(ASCII_ESCAPE)}(?:\\[[0-?]*[ -/]*[@-~]|[@-_])`,
+	'gu'
+);
+const AUTHORIZATION_SECRET_PATTERN =
+	/(["']?(?:authorization|proxy-authorization)["']?\s*[:=]\s*)(?:Bearer|Basic)\s+[^\s,;]+/giu;
+const BEARER_SECRET_PATTERN = /\b(Bearer)\s+[^\s,;]+/giu;
+const COOKIE_SECRET_PATTERN =
+	/(["']?(?:cookie|set-cookie)["']?\s*[:=]\s*).*/giu;
+const NAMED_SECRET_PATTERN =
+	/(["']?(?:access_token|refresh_token|id_token|client_secret|password|code|token)["']?\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s&,;]+)/giu;
+const QUERY_SECRET_PATTERN = /([?&](?:code|token)=)[^&\s]+/giu;
+
+export const redactAbsoluteAndroidLog = (value: string) =>
+	value
+		.replace(ANSI_SEQUENCE_PATTERN, '')
+		.split('')
+		.filter((character) => {
+			const code = character.charCodeAt(0);
+
+			return (
+				code === ASCII_HORIZONTAL_TAB ||
+				(code > ASCII_CONTROL_END && code !== ASCII_DELETE)
+			);
+		})
+		.join('')
+		.replace(AUTHORIZATION_SECRET_PATTERN, '$1[REDACTED]')
+		.replace(BEARER_SECRET_PATTERN, '$1 [REDACTED]')
+		.replace(COOKIE_SECRET_PATTERN, '$1[REDACTED]')
+		.replace(NAMED_SECRET_PATTERN, '$1[REDACTED]')
+		.replace(QUERY_SECRET_PATTERN, '$1[REDACTED]');
+
+const androidLogLevel = (level: string) => {
+	if (level === 'V') return 'verbose';
+	if (level === 'D') return 'debug';
+	if (level === 'W') return 'warn';
+	if (level === 'E') return 'error';
+	if (level === 'F') return 'fatal';
+
+	return 'info';
+};
+
+const emitCompleteLogLines = (
+	value: string,
+	onLine: (line: string) => void
+) => {
+	let buffered = value;
+	let newlineIndex = buffered.indexOf('\n');
+	while (newlineIndex !== UNFOUND_INDEX) {
+		onLine(buffered.slice(0, newlineIndex).replace(/\r$/u, ''));
+		buffered = buffered.slice(newlineIndex + 1);
+		newlineIndex = buffered.indexOf('\n');
+	}
+
+	return buffered;
+};
+
+const decodeLogStream = () => {
+	const decoder = new TextDecoder();
+
+	return new TransformStream<Uint8Array, string>({
+		flush: (controller) => {
+			const remaining = decoder.decode();
+			if (remaining) controller.enqueue(remaining);
+		},
+		transform: (chunk, controller) => {
+			const decoded = decoder.decode(chunk, { stream: true });
+			if (decoded) controller.enqueue(decoded);
+		}
+	});
+};
+
+export const parseAbsoluteAndroidLogLine = (
+	line: string
+): AbsoluteAndroidNativeLogEntry | null => {
+	const sanitized = redactAbsoluteAndroidLog(line).trim();
+	if (!sanitized) return null;
+	const match = LOGCAT_LINE_PATTERN.exec(sanitized);
+	if (!match) {
+		return { level: 'info', message: sanitized, tag: 'logcat' };
+	}
+
+	return {
+		level: androidLogLevel(match[1] ?? 'I'),
+		message: match[LOGCAT_MESSAGE_CAPTURE] ?? '',
+		tag: match[2]?.trim() || 'android'
+	};
+};
+
+const consumeLogLines = async (
+	stream: ReadableStream<Uint8Array>,
+	onLine: (line: string) => void
+) => {
+	let buffered = '';
+	await stream.pipeThrough(decodeLogStream()).pipeTo(
+		new WritableStream({
+			write: (chunk) => {
+				buffered = emitCompleteLogLines(buffered + chunk, onLine);
+			}
+		})
+	);
+	if (buffered) {
+		onLine(buffered.replace(/\r$/u, ''));
+	}
+};
+
+const startNativeLogStream = (
+	command: string[],
+	options: CommandOptions,
+	onLine: (line: string) => void
+): AbsoluteAndroidLogStream => {
+	const subprocess = Bun.spawn(command, {
+		env: options.env,
+		stderr: 'pipe',
+		stdin: 'ignore',
+		stdout: 'pipe'
+	});
+	const output = Promise.all([
+		consumeLogLines(subprocess.stdout, onLine),
+		consumeLogLines(subprocess.stderr, onLine)
+	]);
+	void output.catch(() => undefined);
+
+	return {
+		close: async () => {
+			try {
+				subprocess.kill();
+			} catch {
+				/* logcat already exited */
+			}
+			await Promise.all([
+				subprocess.exited.catch(() => undefined),
+				output.catch(() => undefined)
+			]);
+		}
+	};
 };
 
 const requireSuccess = async (
@@ -510,7 +690,7 @@ const encodedWindowsGradleCommand = (
 		'$env:ANDROID_HOME = $androidHome',
 		'$env:ANDROID_SDK_ROOT = $androidHome',
 		'New-Item -ItemType Directory -Force -Path $directory | Out-Null',
-		'& robocopy.exe $source $directory /MIR /XD .gradle build /NFL /NDL /NJH /NJS /NP',
+		'& robocopy.exe $source $directory /MIR /XD .gradle build .absolutejs-dependencies /NFL /NDL /NJH /NJS /NP',
 		'$copyExit = $LASTEXITCODE',
 		'if ($copyExit -ge 8) { exit $copyExit }',
 		"foreach ($dependency in @($dependencies)) { $target = Join-Path $directory ('.absolutejs-dependencies\\' + $dependency.name); New-Item -ItemType Directory -Force -Path $target | Out-Null; & robocopy.exe $dependency.windowsSource $target /MIR /XD .gradle build /NFL /NDL /NJH /NJS /NP; if ($LASTEXITCODE -ge 8) { exit $LASTEXITCODE } }",
@@ -650,6 +830,97 @@ const removeAdbReverse = async (
 	).catch(() => undefined);
 };
 
+const androidLaunchCommand = (
+	project: AbsoluteAndroidDevProject,
+	serial: string
+) => [
+	project.adb,
+	'-s',
+	serial,
+	'shell',
+	'monkey',
+	'-p',
+	project.config.appId,
+	'-c',
+	'android.intent.category.LAUNCHER',
+	'1'
+];
+
+const androidPackageUid = (
+	project: AbsoluteAndroidDevProject,
+	serial: string,
+	capture: NonNullable<StartAbsoluteAndroidDevOptions['capture']>,
+	env: Record<string, string | undefined>
+) => {
+	const result = capture(
+		[
+			project.adb,
+			'-s',
+			serial,
+			'shell',
+			'cmd',
+			'package',
+			'list',
+			'packages',
+			'-U',
+			project.config.appId
+		],
+		{ env }
+	);
+	if (result.exitCode !== 0) return undefined;
+	const escapedAppId = project.config.appId.replace(
+		/[.*+?^${}()|[\]\\]/gu,
+		'\\$&'
+	);
+	const match = new RegExp(`package:${escapedAppId}\\s+uid:(\\d+)`, 'u').exec(
+		result.stdout
+	);
+
+	return match?.[1];
+};
+
+const attachAndroidNativeLogs = (
+	project: AbsoluteAndroidDevProject,
+	serial: string,
+	capture: NonNullable<StartAbsoluteAndroidDevOptions['capture']>,
+	env: Record<string, string | undefined>,
+	options: StartAbsoluteAndroidDevOptions
+) => {
+	if (!options.nativeLog) return null;
+	const uid = androidPackageUid(project, serial, capture, env);
+	if (!uid) {
+		options.log?.(
+			`Android app logs unavailable: could not resolve the package UID for ${project.config.appId}.`
+		);
+
+		return null;
+	}
+	const onLine = (line: string) => {
+		const entry = parseAbsoluteAndroidLogLine(line);
+		if (entry) options.nativeLog?.(entry);
+	};
+
+	return (options.startNativeLogs ?? startNativeLogStream)(
+		[
+			project.adb,
+			'-s',
+			serial,
+			'logcat',
+			`--uid=${uid}`,
+			'-v',
+			'threadtime',
+			'-T',
+			'1',
+			'*:W',
+			'Capacitor:V',
+			'Capacitor/Console:V',
+			'chromium:I'
+		],
+		{ env },
+		onLine
+	);
+};
+
 export const prepareAbsoluteAndroidDevProject = async (
 	config: NormalizedAbsoluteMobileConfig,
 	options: PrepareAbsoluteAndroidDevOptions
@@ -731,6 +1002,11 @@ export const startAbsoluteAndroidDevSession = async (
 	options: StartAbsoluteAndroidDevOptions
 ) => {
 	const { project } = options;
+	let state: AbsoluteAndroidDevState = 'syncing';
+	const transition = (next: AbsoluteAndroidDevState) => {
+		state = next;
+		options.onStateChange?.(next);
+	};
 	const capture = options.capture ?? captureCommand;
 	const run = options.run ?? runCommand;
 	const sleep = options.sleep ?? Bun.sleep;
@@ -744,6 +1020,7 @@ export const startAbsoluteAndroidDevSession = async (
 		...process.env,
 		ANDROID_HOME: androidHome
 	};
+	transition('syncing');
 	await repairAbsoluteAndroidDevSession(project.projectRoot);
 	throwIfAborted(options.signal);
 	await requireSuccess(
@@ -753,6 +1030,7 @@ export const startAbsoluteAndroidDevSession = async (
 		{ cwd: project.projectRoot, env, signal: options.signal }
 	);
 	throwIfAborted(options.signal);
+	transition('configuring');
 	const nativeConfigPath = join(
 		project.nativeDirectory,
 		'app',
@@ -769,6 +1047,12 @@ export const startAbsoluteAndroidDevSession = async (
 		'AndroidManifest.xml'
 	);
 	let connectedSerial: string | undefined;
+	let nativeLogs: AbsoluteAndroidLogStream | null = null;
+	const closeNativeLogs = async () => {
+		const stream = nativeLogs;
+		nativeLogs = null;
+		await stream?.close().catch(() => undefined);
+	};
 	try {
 		await writeDevConfig(
 			project.projectRoot,
@@ -780,6 +1064,7 @@ export const startAbsoluteAndroidDevSession = async (
 		);
 		throwIfAborted(options.signal);
 		logHttpsCertificateRequirement(options.https, log);
+		transition('booting');
 		const startedEmulator = startManagedEmulatorIfNeeded(
 			project,
 			capture,
@@ -787,6 +1072,7 @@ export const startAbsoluteAndroidDevSession = async (
 			log,
 			env
 		);
+		transition('connecting');
 		const serial = await waitForManagedEmulator(
 			project,
 			capture,
@@ -795,6 +1081,7 @@ export const startAbsoluteAndroidDevSession = async (
 			options.signal
 		);
 		connectedSerial = serial;
+		transition('forwarding');
 		await requireSuccess(
 			[
 				project.adb,
@@ -809,6 +1096,7 @@ export const startAbsoluteAndroidDevSession = async (
 			{ env, signal: options.signal }
 		);
 		throwIfAborted(options.signal);
+		transition('building');
 		const installPath = await buildAndroidDebugApp(
 			project,
 			capture,
@@ -817,6 +1105,7 @@ export const startAbsoluteAndroidDevSession = async (
 			options.signal
 		);
 		throwIfAborted(options.signal);
+		transition('installing');
 		await requireSuccess(
 			[project.adb, '-s', serial, 'install', '-r', installPath],
 			'Android app installation',
@@ -824,24 +1113,23 @@ export const startAbsoluteAndroidDevSession = async (
 			{ env, signal: options.signal }
 		);
 		throwIfAborted(options.signal);
+		transition('launching');
 		await requireSuccess(
-			[
-				project.adb,
-				'-s',
-				serial,
-				'shell',
-				'monkey',
-				'-p',
-				project.config.appId,
-				'-c',
-				'android.intent.category.LAUNCHER',
-				'1'
-			],
+			androidLaunchCommand(project, serial),
 			'Android app launch',
 			run,
 			{ env, signal: options.signal }
 		);
 		throwIfAborted(options.signal);
+		if (options.nativeLog) transition('streaming-logs');
+		nativeLogs = attachAndroidNativeLogs(
+			project,
+			serial,
+			capture,
+			env,
+			options
+		);
+		transition('ready');
 		log(
 			`Android emulator connected (${serial}) with HMR on port ${options.port}.`
 		);
@@ -853,11 +1141,39 @@ export const startAbsoluteAndroidDevSession = async (
 			close: async () => {
 				if (closed) return;
 				closed = true;
+				transition('closing');
+				await closeNativeLogs();
 				await removeAdbReverse(project, serial, options.port, run, env);
 				await repairAbsoluteAndroidDevSession(project.projectRoot);
+				transition('closed');
+			},
+			relaunch: async () => {
+				if (closed) {
+					throw new Error('Android development session is closed.');
+				}
+				transition('launching');
+				try {
+					await requireSuccess(
+						androidLaunchCommand(project, serial),
+						'Android app relaunch',
+						run,
+						{ env, signal: options.signal }
+					);
+					transition('ready');
+					log(`Android app relaunched on ${serial}.`);
+				} catch (error) {
+					transition('failed');
+
+					throw error;
+				}
+			},
+			get state() {
+				return state;
 			}
 		};
 	} catch (error) {
+		transition('failed');
+		await closeNativeLogs();
 		await removeAdbReverse(
 			project,
 			connectedSerial,

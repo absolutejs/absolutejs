@@ -16,6 +16,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 export default defineConfig([
 	{
 		ignores: [
+			// Agent runtime mounts can appear/disappear while ESLint is walking.
+			'.agents/',
+			'.codex/',
 			// Dependencies (incl. nested, e.g. benchmark apps).
 			'**/node_modules/**',
 			// Build / compile output.

@@ -2,11 +2,13 @@ export type Action = () => void | Promise<void>;
 
 export type Actions = {
 	clear: Action;
+	device?: Action;
 	heapSnapshot: Action;
 	help: Action;
 	open: Action;
 	pause: Action;
 	quit: Action;
+	relaunchDevice?: Action;
 	restart: Action;
 	shell: (command: string) => Promise<void>;
 };

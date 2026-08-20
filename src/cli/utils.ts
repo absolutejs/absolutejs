@@ -109,7 +109,7 @@ export const openUrlInBrowser = (
 	}
 };
 
-export const printHelp = (subject = 'server') => {
+export const printHelp = (subject = 'server', mobile = false) => {
 	const title = subject === 'workspace' ? 'workspace' : subject;
 	console.log('');
 	console.log('\x1b[1mShortcuts:\x1b[0m');
@@ -118,6 +118,12 @@ export const printHelp = (subject = 'server') => {
 	console.log('  \x1b[36mo\x1b[0m / open     — Open in browser');
 	console.log('  \x1b[36mc\x1b[0m / clear    — Clear terminal');
 	console.log('  \x1b[36mm\x1b[0m / heap     — Write a heap snapshot');
+	if (mobile) {
+		console.log(
+			'  \x1b[36md\x1b[0m / device   — Show mobile target status'
+		);
+		console.log('      relaunch — Relaunch the mobile app');
+	}
 	console.log('  \x1b[36mq\x1b[0m / quit     — Graceful shutdown');
 	console.log('  \x1b[36mh\x1b[0m / help     — Show this help');
 	console.log('  \x1b[36m$\x1b[0m            — Run a shell command');
