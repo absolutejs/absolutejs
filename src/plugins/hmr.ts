@@ -1,5 +1,9 @@
 import Elysia from 'elysia';
-import { UNFOUND_INDEX } from '../constants';
+import { websocket } from 'elysia/websocket';
+import {
+	DEFAULT_WEBSOCKET_IDLE_TIMEOUT_SECONDS,
+	UNFOUND_INDEX
+} from '../constants';
 import type { HMRState } from '../dev/clientManager';
 import { getMimeType, lookupAsset } from '../dev/assetStore';
 import { bridgeReactInternals } from '../react/bridgeInternals';
@@ -10,6 +14,7 @@ import {
 } from '../dev/webSocket';
 
 const STORE_KEY = '__elysiaStore';
+const restoredStores = new WeakSet<object>();
 
 /* Preserve Elysia store across bun --hot reloads.
    globalThis survives re-evaluation, so we save the store reference
@@ -17,15 +22,17 @@ const STORE_KEY = '__elysiaStore';
 const getGlobalValue = (key: string) => Reflect.get(globalThis, key);
 
 const restoreStore = (store: unknown) => {
+	if (!store || typeof store !== 'object') return;
+	if (restoredStores.has(store)) return;
+
 	const saved = getGlobalValue(STORE_KEY);
 
 	if (saved && typeof saved === 'object') {
 		restoreSavedStoreValues(store, saved);
 	}
 
-	if (store && typeof store === 'object') {
-		Reflect.set(globalThis, STORE_KEY, store);
-	}
+	Reflect.set(globalThis, STORE_KEY, store);
+	restoredStores.add(store);
 };
 
 const restoreSavedStoreValues = (store: unknown, saved: object) => {
@@ -184,19 +191,23 @@ export const hmr = (
 	) => Promise<Response | undefined> | Response | undefined
 ) =>
 	new Elysia({ name: 'absolutejs-hmr' })
-		.onStart(({ store }) => {
-			restoreStore(store);
-		})
+		.use(
+			websocket({
+				idleTimeout: DEFAULT_WEBSOCKET_IDLE_TIMEOUT_SECONDS,
+				sendPings: true
+			})
+		)
 		// In HTTP/2 mode, WebSocket is handled by the http2Bridge
 		// so we skip Elysia's .ws() registration
-		// `onRequest` (not `onBeforeHandle`) is required: HMR-emitted chunks
+		// `request` (not `beforeHandle`) is required: HMR-emitted chunks
 		// like /generated/indexes/<hash>.js have no matching Elysia route
 		// (the upstream `staticPlugin({ alwaysStatic })` only registers
 		// files that existed at server start, so anything emitted by HMR
-		// later is unrouted). `onBeforeHandle` only fires when a route
-		// matches, so it would never see those requests; `onRequest` fires
+		// later is unrouted). `beforeHandle` only fires when a route
+		// matches, so it would never see those requests; `request` fires
 		// before routing and lets us serve them from the asset store.
-		.onRequest(async ({ request }) => {
+		.request(async ({ request, store }) => {
+			restoreStore(store);
 			// Bridge React internals if bun install created a duplicate instance.
 			// Runs before any route handler so page handlers stay clean.
 			if (globalThis.__reactModuleRef) {

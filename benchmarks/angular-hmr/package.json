@@ -1,6 +1,6 @@
 {
 	"dependencies": {
-		"@absolutejs/absolute": "0.19.0-beta.926",
+		"@absolutejs/absolute": "0.20.0-beta.0",
 		"@angular/common": "^21.0.0",
 		"@angular/compiler": "^21.0.0",
 		"@angular/compiler-cli": "^21.0.0",

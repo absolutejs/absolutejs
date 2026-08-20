@@ -23,36 +23,47 @@ const fixture = async (duplicate: boolean) => {
 	temporaryDirectories.push(directory);
 	await writeFile(join(directory, 'bun.lock'), 'lock-v1');
 	await writePackage(directory, {
-		dependencies: { elysia: '1.4.29', plugin: '1.0.0' },
+		dependencies: { elysia: '2.0.0-beta.6', plugin: '1.0.0' },
 		name: 'fixture',
 		version: '1.0.0'
 	});
 	await writePackage(join(directory, 'node_modules', 'elysia'), {
-		dependencies: { '@sinclair/typebox': '0.34.52' },
 		name: 'elysia',
-		version: '1.4.29'
+		peerDependencies: { 'exact-mirror': '>=1.2.2', typebox: '>=1.3.0' },
+		version: '2.0.0-beta.6'
 	});
-	await writePackage(
-		join(directory, 'node_modules', '@sinclair', 'typebox'),
-		{ name: '@sinclair/typebox', version: '0.34.52' }
-	);
+	await writePackage(join(directory, 'node_modules', 'typebox'), {
+		name: 'typebox',
+		version: '1.3.16'
+	});
+	await writePackage(join(directory, 'node_modules', 'exact-mirror'), {
+		name: 'exact-mirror',
+		version: '1.2.4'
+	});
 	const pluginDirectory = join(directory, 'node_modules', 'plugin');
 	await writePackage(pluginDirectory, {
 		name: 'plugin',
-		peerDependencies: { elysia: '^1.4.0' },
+		peerDependencies: { elysia: '^2.0.0-beta.6' },
 		version: '1.0.0'
 	});
 	if (duplicate) {
 		const nestedElysia = join(pluginDirectory, 'node_modules', 'elysia');
 		await writePackage(nestedElysia, {
-			dependencies: { '@sinclair/typebox': '0.34.50' },
 			name: 'elysia',
-			version: '1.4.18'
+			peerDependencies: {
+				'exact-mirror': '>=1.2.2',
+				typebox: '>=1.3.0'
+			},
+			version: '2.0.0-beta.5'
 		});
-		await writePackage(
-			join(nestedElysia, 'node_modules', '@sinclair', 'typebox'),
-			{ name: '@sinclair/typebox', version: '0.34.50' }
-		);
+		await writePackage(join(nestedElysia, 'node_modules', 'typebox'), {
+			name: 'typebox',
+			version: '1.3.15'
+		});
+		await writePackage(join(nestedElysia, 'node_modules', 'exact-mirror'), {
+			name: 'exact-mirror',
+			version: '1.2.2'
+		});
 	}
 
 	return directory;
@@ -86,7 +97,7 @@ describe('Elysia type graph coherence', () => {
 		});
 		const application = join(directory, 'apps', 'site');
 		await writePackage(application, {
-			dependencies: { elysia: '1.4.29', plugin: '1.0.0' },
+			dependencies: { elysia: '2.0.0-beta.6', plugin: '1.0.0' },
 			name: 'site',
 			version: '1.0.0'
 		});
@@ -109,19 +120,21 @@ describe('Elysia type graph coherence', () => {
 			typeGraphCoherence
 				.duplicateTypeGraphPackages(report)
 				.map((entry) => entry.name)
-		).toEqual(['elysia', '@sinclair/typebox']);
+		).toEqual(['elysia', 'typebox', 'exact-mirror']);
 		expect(typeGraphCoherence.alignTypeGraphOverrides(report)).toEqual([
-			'elysia@1.4.29',
-			'@sinclair/typebox@0.34.52'
+			'elysia@2.0.0-beta.6',
+			'typebox@1.3.16',
+			'exact-mirror@1.2.4'
 		]);
 		const manifest = await Bun.file(join(directory, 'package.json')).json();
 		expect(manifest.overrides).toEqual({
-			'@sinclair/typebox': '0.34.52',
-			elysia: '1.4.29'
+			elysia: '2.0.0-beta.6',
+			'exact-mirror': '1.2.4',
+			typebox: '1.3.16'
 		});
 		expect(
 			typeGraphCoherence.removeDuplicateTypeGraphPackages(report)
-		).toHaveLength(2);
+		).toHaveLength(3);
 		expect(
 			await Bun.file(
 				join(

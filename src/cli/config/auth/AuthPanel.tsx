@@ -337,7 +337,7 @@ export const AuthPanel = ({ state: initial }: AuthPanelProps) => {
 					</div>
 					<p className="rule-desc">
 						Signing your own API/service tokens (not user login)?
-						See <code>@elysiajs/jwt</code> in the{' '}
+						See <code>@elysia/jwt</code> in the{' '}
 						<a className="auth-link" href="/integrations">
 							Integrations panel
 						</a>

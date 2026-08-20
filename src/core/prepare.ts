@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { basename, join, relative, resolve as resolvePath } from 'node:path';
-import { Elysia } from 'elysia';
+import { Elysia, NotFound } from 'elysia';
 import type { staticPlugin } from '@elysia/static';
 import type { ConventionsMap } from '../../types/conventions';
 import { withOpenApi } from '../plugins/openApiPlugin';
@@ -9,6 +9,9 @@ import { withTelemetry } from '../plugins/telemetryPlugin';
 import { loadConfig } from '../utils/loadConfig';
 import { setIconVersionResolver } from '../utils/iconVersion';
 import { setCurrentIslandManifest } from './islandPageContext';
+import { absoluteRequestContext } from './requestContext';
+import { createAbsoluteMobileCompatibilityDispatcher } from '../mobile/compatibilityDispatcher';
+import { loadAbsoluteMobileMaterializedBundle } from '../mobile/materializedBundle';
 import { loadIslandRegistry } from './loadIslandRegistry';
 import { setCurrentIslandRegistry } from './currentIslandRegistry';
 import {
@@ -294,12 +297,13 @@ const prepareDev = async (
 	stepStartedAt = performance.now();
 	const { imageOptimizer } = await import('../plugins/imageOptimizer');
 	const { requestInspector } = await import('../dev/requestInspector');
-	const { serverTiming } = await import('@elysiajs/server-timing');
+	const { serverTiming } = await import('@elysia/server-timing');
 	const absolutejs = new Elysia({ name: 'absolutejs-runtime' })
-		// Must be first: the inspector's global onRequest/onAfterResponse hooks
+		// Must be first: the inspector's global request/afterResponse hooks
 		// only reach routes compiled after them, so it has to precede the
 		// page/static/user routes (which mount after `.use(absolutejs)`).
 		.use(requestInspector)
+		.use(absoluteRequestContext)
 		// Server-Timing per lifecycle phase (dev only) — powers the per-phase
 		// timing breakdown in `absolute inspect`.
 		.use(serverTiming())
@@ -360,11 +364,21 @@ const loadPrerenderMap = (prerenderDir: string) => {
 	return map;
 };
 
+const loadMobileCompatibilityPlugin = async (buildDir: string) => {
+	const root = join(buildDir, '.absolutejs', 'mobile-compatibility');
+	if (!existsSync(join(root, 'current.json'))) {
+		return new Elysia({ name: 'absolutejs-mobile-compatibility-empty' });
+	}
+	const options = await loadAbsoluteMobileMaterializedBundle(root);
+
+	return createAbsoluteMobileCompatibilityDispatcher(options);
+};
+
 const createNotFoundPlugin = () =>
-	new Elysia({ name: 'absolutejs-not-found' }).onError(
-		{ as: 'global' },
-		async ({ code }) => {
-			if (code !== 'NOT_FOUND') return undefined;
+	new Elysia({ name: 'absolutejs-not-found' }).error(
+		'global',
+		NotFound,
+		async () => {
 			const response = await renderFirstNotFound();
 			if (response) return response;
 
@@ -384,8 +398,8 @@ const createNotFoundPlugin = () =>
  * instead of `undefined`. The plugin returns `undefined` for any
  * other error so the default chain still runs. */
 const createBuildErrorRecoveryPlugin = () =>
-	new Elysia({ name: 'absolutejs-build-error-recovery' }).onError(
-		{ as: 'global' },
+	new Elysia({ name: 'absolutejs-build-error-recovery' }).error(
+		'global',
 		async ({ error }) => {
 			const message =
 				error instanceof Error ? error.message : String(error);
@@ -526,7 +540,7 @@ export const prepare = async (configOrPath?: string) => {
 	// `tailwind.generated.css`, vendor bundles like `vue.js`, user assets) must
 	// revalidate, or a deploy's CSS/asset changes never reach returning visitors
 	// (their URL never changes but `immutable` tells the browser never to check).
-	// Without this, @elysiajs/static + the generated-assets handler apply one
+	// Without this, @elysia/static + the generated-assets handler apply one
 	// blanket policy and stale non-hashed assets get pinned for up to a year.
 	// A content-hashed filename always mixes letters AND digits in its hash
 	// segment (e.g. `a1b2c3d4`); dictionary-word segments (`generated`, `vue`,
@@ -540,14 +554,14 @@ export const prepare = async (configOrPath?: string) => {
 	};
 	const assetCachePlugin = new Elysia({
 		name: 'absolutejs-asset-cache'
-	}).onAfterHandle({ as: 'global' }, ({ request, response }) => {
-		if (!(response instanceof Response)) return;
+	}).afterHandle('global', ({ request, responseValue }) => {
+		if (!(responseValue instanceof Response)) return;
 		if (request.method !== 'GET' && request.method !== 'HEAD') return;
 		const { pathname } = new URL(request.url);
 		// Only touch real static files (have an extension) — never pages/APIs.
 		if (pathname.endsWith('/') || !/\.[0-9a-z]+$/i.test(pathname)) return;
-		// Replace (not append) whatever blanket policy @elysiajs/static set.
-		response.headers.set(
+		// Replace (not append) whatever blanket policy @elysia/static set.
+		responseValue.headers.set(
 			'cache-control',
 			isFingerprintedAsset(pathname)
 				? 'public, max-age=31536000, immutable'
@@ -559,6 +573,8 @@ export const prepare = async (configOrPath?: string) => {
 	stepStartedAt = performance.now();
 	const prerenderDir = join(buildDir, '_prerendered');
 	const prerenderMap = loadPrerenderMap(prerenderDir);
+	const mobileCompatibilityPlugin =
+		await loadMobileCompatibilityPlugin(buildDir);
 	recordStep('load prerender map', stepStartedAt);
 
 	if (prerenderMap.size > 0) {
@@ -575,7 +591,7 @@ export const prepare = async (configOrPath?: string) => {
 
 		const prerenderPlugin = new Elysia({
 			name: 'prerendered-pages'
-		}).onRequest(({ request }) => {
+		}).request(({ request }) => {
 			const url = new URL(request.url);
 
 			// Allow bypass for ISR re-render requests
@@ -611,6 +627,8 @@ export const prepare = async (configOrPath?: string) => {
 		stepStartedAt = performance.now();
 		const { imageOptimizer } = await import('../plugins/imageOptimizer');
 		const absolutejs = new Elysia({ name: 'absolutejs-runtime' })
+			.use(absoluteRequestContext)
+			.use(mobileCompatibilityPlugin)
 			.use(assetCachePlugin)
 			.use(imageOptimizer(config.images, buildDir))
 			.use(prerenderPlugin)
@@ -628,6 +646,8 @@ export const prepare = async (configOrPath?: string) => {
 	stepStartedAt = performance.now();
 	const { imageOptimizer } = await import('../plugins/imageOptimizer');
 	const absolutejs = new Elysia({ name: 'absolutejs-runtime' })
+		.use(absoluteRequestContext)
+		.use(mobileCompatibilityPlugin)
 		.use(assetCachePlugin)
 		.use(imageOptimizer(config.images, buildDir))
 		.use(staticFiles)

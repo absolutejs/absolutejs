@@ -46,7 +46,7 @@ const app = new Elysia()
 
 		return { count: runtimeCounter, ok: true };
 	})
-	.post('/api/json', async ({ request }) => {
+	.post('/api/json', { parse: 'none' }, async ({ request }) => {
 		const body = (await request.json()) as { value?: string };
 		const url = new URL(request.url);
 
@@ -56,7 +56,7 @@ const app = new Elysia()
 			value: body.value ?? null
 		};
 	})
-	.post('/api/form', async ({ request }) => {
+	.post('/api/form', { parse: 'none' }, async ({ request }) => {
 		const form = await request.formData();
 		const file = form.get('file');
 
@@ -67,7 +67,7 @@ const app = new Elysia()
 			value: form.get('value')
 		};
 	})
-	.post('/api/clone', async ({ request }) => {
+	.post('/api/clone', { parse: 'none' }, async ({ request }) => {
 		const cloned = request.clone();
 
 		return {
@@ -95,7 +95,7 @@ const app = new Elysia()
 			type: blob.type
 		};
 	})
-	.post('/api/array-buffer', async ({ request }) => {
+	.post('/api/array-buffer', { parse: 'none' }, async ({ request }) => {
 		const bytes = new Uint8Array(await request.arrayBuffer());
 
 		return {
@@ -126,7 +126,7 @@ const app = new Elysia()
 				}
 			})
 	)
-	.put('/api/method/:id', async ({ params, request }) => ({
+	.put('/api/method/:id', { parse: 'none' }, async ({ params, request }) => ({
 		body: await request.text(),
 		id: params.id,
 		method: request.method,
@@ -195,7 +195,7 @@ const app = new Elysia()
 				{ headers: { 'content-type': 'text/html; charset=utf-8' } }
 			)
 	)
-	.post('/api/echo', async ({ request }) => ({
+	.post('/api/echo', { parse: 'none' }, async ({ request }) => ({
 		body: await request.text(),
 		ok: true
 	}))

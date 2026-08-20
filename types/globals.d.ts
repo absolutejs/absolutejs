@@ -45,18 +45,8 @@ declare global {
 	 *  instead of re-binding the port. Stays unset outside dev. */
 	var __absoluteBunServer: import('bun').Server | null | undefined;
 
-	/** Snapshot of the previous Elysia instance's `app.store` reference,
-	 *  captured by the `networking` plugin at first listen and refreshed
-	 *  on each Path B reload. Used to carry user state (anything from
-	 *  `.state(...)`) across in-place server-entry reloads — without
-	 *  this, every edit reset all per-session data, scopedState records,
-	 *  request counters, etc. The reload-aware branch in `networking`
-	 *  copies values from this store back into the new app's store for
-	 *  every key the new app declares. Stays unset outside dev. */
-	var __absolutePreviousAppStore: Record<string, unknown> | undefined;
-
 	/** Dev-only request inspector ring buffer, filled by the global
-	 *  onRequest/onAfterResponse hooks in `requestInspector` and served at
+	 *  request/afterResponse hooks in `requestInspector` and served at
 	 *  `/__absolute/requests` for `absolute inspect`. On globalThis so it
 	 *  survives Path B server-entry HMR. Stays unset outside dev. */
 	var __absoluteRequestLog: import('./cli').RequestRecord[] | undefined;
@@ -83,6 +73,7 @@ declare global {
 		__HMR_WS__?: WebSocket;
 		__ERROR_BOUNDARY__?: { reset: () => void };
 		__INITIAL_PROPS__?: Record<string, unknown>;
+		__ABSOLUTE_PAGE_RENDER_MODE__?: 'client' | 'hydrate';
 		__REACT_COMPONENT_KEY__?: string;
 		__REACT_ROOT__?: { render: (element: unknown) => void };
 		__SVELTE_COMPONENT__?: Record<string, unknown>;

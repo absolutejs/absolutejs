@@ -3,12 +3,12 @@ import { join } from 'node:path';
 import type { AnyElysia } from 'elysia';
 import type { BuildConfig } from '../../types/build';
 
-// Opt-in OpenTelemetry via @elysiajs/opentelemetry. It pulls the heavy OTel SDK,
+// Opt-in OpenTelemetry via @elysia/opentelemetry. It pulls the heavy OTel SDK,
 // so it's NOT a dependency — when `config.telemetry` is set we dynamically import
 // it (variable specifier keeps TS from requiring it) and warn to install it if
 // it's missing. Production distributed tracing; complements `absolute inspect`.
 
-const OTEL_PACKAGE = '@elysiajs/opentelemetry';
+const OTEL_PACKAGE = '@elysia/opentelemetry';
 
 const readPackageName = (cwd: string) => {
 	const path = join(cwd, 'package.json');

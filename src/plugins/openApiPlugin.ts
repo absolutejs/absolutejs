@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import type { AnyElysia } from 'elysia';
 import type { BuildConfig, OpenApiConfig } from '../../types/build';
 
-// Wires @elysiajs/openapi into the runtime so the app gets a Scalar/Swagger UI
+// Wires @elysia/openapi into the runtime so the app gets a Scalar/Swagger UI
 // at /openapi derived from the route schemas AbsoluteJS already types — no
 // annotation. On by default in dev; opt-in (truthy `openapi`) for production.
 
@@ -35,7 +35,7 @@ const createOpenApiPlugin = async (config: BuildConfig, cwd: string) => {
 	const setting = config.openapi;
 	const options: OpenApiConfig = typeof setting === 'object' ? setting : {};
 	const info = projectInfo(cwd);
-	const { openapi } = await import('@elysiajs/openapi');
+	const { openapi } = await import('@elysia/openapi');
 
 	return openapi({
 		documentation: {
@@ -78,7 +78,7 @@ export const withOpenApi = async (
 	} catch (error) {
 		const detail = error instanceof Error ? error.message : String(error);
 		console.warn(
-			`[absolute] OpenAPI docs disabled — install @elysiajs/openapi (${detail})`
+			`[absolute] OpenAPI docs disabled — install @elysia/openapi (${detail})`
 		);
 
 		return app;

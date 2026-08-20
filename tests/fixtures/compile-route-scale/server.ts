@@ -72,6 +72,7 @@ export const server = new Elysia({ strictPath: true })
 	}))
 	.get(
 		'/page-:id',
+		{ params: t.Object({ id: t.String() }) },
 		({ params }) => {
 			const id = Number(params.id);
 			if (!Number.isInteger(id) || id < 0 || id >= scalePageCount) {
@@ -79,7 +80,6 @@ export const server = new Elysia({ strictPath: true })
 			}
 
 			return renderPage(`ROUTE_SCALE_PAGE_${id}`);
-		},
-		{ params: t.Object({ id: t.String() }) }
+		}
 	)
 	.use(networking);

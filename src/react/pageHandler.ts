@@ -1,6 +1,11 @@
 import type { ComponentType as ReactComponent } from 'react';
 import { injectIslandPageContextStream } from '../core/islandPageContext';
 import { getCurrentRouteRegistrationCallsite } from '../core/devRouteRegistrationCallsite';
+import { getCurrentAbsoluteRequest } from '../core/requestContext';
+import {
+	ABSOLUTE_MOBILE_PAGE_PROTOCOL_VERSION,
+	finalizeAbsoluteMobilePage
+} from '../mobile/pageProtocol';
 import {
 	streamingPageHeaders,
 	withPageCacheHeaders
@@ -87,7 +92,8 @@ export const handleReactPageRequest = async <
 	const resolvedIndex = input.index;
 	const options = input;
 	const userProps = input.props;
-	const requestPathname = resolveRequestPathname(input.request);
+	const request = input.request ?? getCurrentAbsoluteRequest();
+	const requestPathname = resolveRequestPathname(request);
 	// Auto-inject `url` from the request when the caller didn't already
 	// pass one in props. Lets users wire <StaticRouter location={url}>
 	// just by forwarding `request` instead of unwrapping it themselves.
@@ -96,15 +102,25 @@ export const handleReactPageRequest = async <
 			? withRequestUrl(userProps, requestPathname)
 			: userProps;
 	const pageName = Page.name || Page.displayName || '';
+	const pageId = pageName || resolvedIndex;
+	const currentContract = `react:${pageId}:${ABSOLUTE_MOBILE_PAGE_PROTOCOL_VERSION}`;
+	const mobileResponse = finalizeAbsoluteMobilePage({
+		compatibility: {
+			framework: 'react',
+			pageId,
+			representations: [
+				{ contract: currentContract, mapProps: (props) => props }
+			],
+			runtimes: [String(ABSOLUTE_MOBILE_PAGE_PROTOCOL_VERSION)]
+		},
+		props: maybeProps ?? Object.create(null),
+		request
+	});
+	if (mobileResponse) return mobileResponse;
 
 	try {
-		const spaNotFound = await renderSpaNotFound(
-			'react',
-			pageName,
-			input.request
-		);
-		if (spaNotFound)
-			return withPageCacheHeaders(spaNotFound, input.request);
+		const spaNotFound = await renderSpaNotFound('react', pageName, request);
+		if (spaNotFound) return withPageCacheHeaders(spaNotFound, request);
 		const handlerCallsite =
 			options?.collectStreamingSlots === true
 				? undefined
@@ -161,7 +177,7 @@ export const handleReactPageRequest = async <
 			{ handlerCallsite }
 		);
 
-		return withPageCacheHeaders(pageResponse, input.request, {
+		return withPageCacheHeaders(pageResponse, request, {
 			bufferStreamForEtag: input.bufferStreamForEtag
 		});
 	} catch (error) {
@@ -173,7 +189,7 @@ export const handleReactPageRequest = async <
 			error
 		);
 		if (conventionResponse) {
-			return withPageCacheHeaders(conventionResponse, input.request);
+			return withPageCacheHeaders(conventionResponse, request);
 		}
 
 		return withPageCacheHeaders(
@@ -181,7 +197,7 @@ export const handleReactPageRequest = async <
 				headers: { 'Content-Type': 'text/html' },
 				status: 500
 			}),
-			input.request
+			request
 		);
 	}
 };

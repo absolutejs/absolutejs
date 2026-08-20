@@ -150,7 +150,7 @@ export const pathColumnWidth = (totalWidth: number) => {
 	return Math.max(MIN_PATH_WIDTH, totalWidth - fixed - gaps);
 };
 
-// Parse the Server-Timing header (@elysiajs/server-timing) into per-phase
+// Parse the Server-Timing header (@elysia/server-timing) into per-phase
 // durations so the inspector can show where a request's time actually went.
 const parseTiming = (headers: Record<string, string>) => {
 	const key = Object.keys(headers).find(

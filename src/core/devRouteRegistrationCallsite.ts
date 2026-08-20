@@ -11,6 +11,7 @@ const ROUTE_CALLSITE_STORAGE_KEY = Symbol.for(
 const ROUTE_CALLSITE_PATCHED_KEY = Symbol.for(
 	'absolutejs.devRouteRegistrationCallsitePatched'
 );
+const NODE_ENV_KEY = 'NODE_ENV';
 
 const ROUTE_METHOD_NAMES = [
 	'all',
@@ -172,9 +173,13 @@ const createPatchedRouteMethod = (
 	function patchedRouteMethod(
 		this: unknown,
 		path: unknown,
-		handler: unknown,
-		...rest: unknown[]
+		...routeArguments: unknown[]
 	) {
+		// Elysia 2 route overloads are `(path, handler)` and
+		// `(path, hooks, handler)`. The handler is therefore the second route
+		// argument only when a hooks argument is present.
+		const handlerIndex = routeArguments.length >= 2 ? 1 : 0;
+		const handler = routeArguments[handlerIndex];
 		const callsite = captureRouteRegistrationCallsite();
 		const wrapped = wrapRouteHandlerWithCallsite(handler, callsite);
 
@@ -197,13 +202,15 @@ const createPatchedRouteMethod = (
 			});
 		}
 
-		return Reflect.apply(originalMethod, this, [path, wrapped, ...rest]);
+		routeArguments[handlerIndex] = wrapped;
+
+		return Reflect.apply(originalMethod, this, [path, ...routeArguments]);
 	};
 
 export const getCurrentRouteRegistrationCallsite = () =>
 	getRouteCallsiteStorage()?.getStore()?.callsite;
 export const patchElysiaRouteRegistrationCallsites = () => {
-	if (process.env.NODE_ENV === 'production') {
+	if (process.env[NODE_ENV_KEY] === 'production') {
 		return;
 	}
 

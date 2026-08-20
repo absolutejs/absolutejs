@@ -2,7 +2,7 @@ import { findServer } from '../inspectData';
 import { colors, padLine } from '../tuiPrimitives';
 import { openUrlInBrowser } from '../utils';
 
-// Bridges to @elysiajs/openapi: reads the spec the plugin generates from your
+// Bridges to @elysia/openapi: reads the spec the plugin generates from your
 // route schemas (/openapi/json) and renders the surface, or opens the Scalar UI.
 // No spec is generated here — the official plugin owns that.
 

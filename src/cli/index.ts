@@ -227,7 +227,7 @@ if (command === 'dev') {
 		'  analyze [--save] [--json] Bundle size breakdown + diff vs a saved baseline'
 	);
 	console.error(
-		'  api [--open] [--json] Show the API surface or open the OpenAPI UI (@elysiajs/openapi)'
+		'  api [--open] [--json] Show the API surface or open the OpenAPI UI (@elysia/openapi)'
 	);
 	console.error('  eslint        Run ESLint (cached)');
 	console.error(

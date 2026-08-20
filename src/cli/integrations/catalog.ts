@@ -30,16 +30,16 @@ export const INTEGRATIONS: IntegrationMeta[] = [
 		blurb: 'Production distributed tracing via OpenTelemetry (complements `absolute inspect`).',
 		id: 'telemetry',
 		label: 'OpenTelemetry',
-		packages: ['@elysiajs/opentelemetry'],
+		packages: ['@elysia/opentelemetry'],
 		wiring: { field: 'telemetry', kind: 'config' }
 	},
 	{
 		blurb: 'Cross-origin resource sharing (CORS) headers.',
 		id: 'cors',
-		label: '@elysiajs/cors',
-		packages: ['@elysiajs/cors'],
+		label: '@elysia/cors',
+		packages: ['@elysia/cors'],
 		wiring: {
-			importLine: "import { cors } from '@elysiajs/cors';",
+			importLine: "import { cors } from '@elysia/cors';",
 			kind: 'use',
 			useLine: '.use(cors())'
 		}
@@ -47,11 +47,11 @@ export const INTEGRATIONS: IntegrationMeta[] = [
 	{
 		blurb: 'Sign and verify your own JWTs — custom API/service tokens.',
 		id: 'jwt',
-		label: '@elysiajs/jwt',
+		label: '@elysia/jwt',
 		note: 'Not for user login. For authentication (OAuth2, SSO, MFA, passkeys, sessions) use the Auth panel + @absolutejs/auth.',
-		packages: ['@elysiajs/jwt'],
+		packages: ['@elysia/jwt'],
 		wiring: {
-			importLine: "import { jwt } from '@elysiajs/jwt';",
+			importLine: "import { jwt } from '@elysia/jwt';",
 			kind: 'use',
 			useLine: ".use(jwt({ name: 'jwt', secret: getEnv('JWT_SECRET') }))"
 		}
@@ -59,10 +59,10 @@ export const INTEGRATIONS: IntegrationMeta[] = [
 	{
 		blurb: 'Scheduled jobs on a cron pattern.',
 		id: 'cron',
-		label: '@elysiajs/cron',
-		packages: ['@elysiajs/cron'],
+		label: '@elysia/cron',
+		packages: ['@elysia/cron'],
 		wiring: {
-			importLine: "import { cron } from '@elysiajs/cron';",
+			importLine: "import { cron } from '@elysia/cron';",
 			kind: 'use',
 			useLine:
 				".use(cron({ name: 'heartbeat', pattern: '0 */6 * * *', run() {} }))"

@@ -16,7 +16,7 @@ const DEPENDENCY_FIELDS = [
 	'peerDependencies'
 ] as const;
 
-const TYPE_GRAPH_PACKAGES = ['elysia', '@sinclair/typebox'] as const;
+const TYPE_GRAPH_PACKAGES = ['elysia', 'typebox', 'exact-mirror'] as const;
 
 type Manifest = Record<string, unknown>;
 type PackageRequire = ReturnType<typeof createRequire>;

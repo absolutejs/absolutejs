@@ -244,7 +244,15 @@ const runShard = async (index: number, files: string[]) =>
 	runTestProcess(`shard-${index}`, await prepareShardDir(index), files);
 
 const runExclusive = (files: string[]) =>
-	runTestProcess('exclusive', REPO_ROOT, files);
+	files.reduce<Promise<ShardResult[]>>(
+		async (pendingResults, file, index) => [
+			...(await pendingResults),
+			await runTestProcess(`exclusive-${index}`, REPO_ROOT, [file]).then(
+				logShardCompletion
+			)
+		],
+		Promise.resolve([])
+	);
 
 const SUMMARY_RE = /^\s*(\d+)\s+(pass|fail|skip)$/gm;
 
@@ -309,7 +317,7 @@ const main = async () => {
 		)
 	);
 	const exclusiveResults = exclusiveFiles.length
-		? [await runExclusive(exclusiveFiles).then(logShardCompletion)]
+		? await runExclusive(exclusiveFiles)
 		: [];
 	const results = [...parallelResults, ...exclusiveResults];
 

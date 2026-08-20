@@ -38,6 +38,7 @@ import { withBuildDirectoryLock } from '../../utils/buildDirectoryLock';
 import { loadConfig } from '../../utils/loadConfig';
 import { formatTimestamp } from '../../utils/startupBanner';
 import { sendTelemetryEvent } from '../telemetryEvent';
+import { createElysiaOpenApiTypeboxPlugin } from '../elysiaOpenApiTypeboxPlugin';
 import { resolveServerBundleExternals } from '../serverBundleExternals';
 import { findFreePort, killStaleProcesses } from '../utils';
 import { isRecord } from '../config/guards';
@@ -882,7 +883,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 // Elysia's WebSocket dispatcher (stateless: routes every event through
 // ws.data.*). Wiring it into Bun.serve below is what lets compiled servers
 // serve .ws() routes — without it every upgrade falls through to a 404.
-import { websocket as elysiaWebsocket } from "elysia/ws";
+import { buildGlobalWSHandler } from "elysia/ws";
 
 const SERVER_MODULE = (runtimeDir: string) => import(pathToFileURL(join(runtimeDir, ${JSON.stringify(serverBundleName)})).href);
 const RUNTIME_BUILD_ID = ${JSON.stringify(runtimeBuildId)};
@@ -1107,15 +1108,15 @@ const server = Bun.serve({
 	// idleTimeout + sendPings keep long-lived sockets (voice intake, referee,
 	// realtime sync) alive through greeting playback / silent listening. The
 	// compiled runtime builds its own Bun.serve and never reads the app's
-	// config.websocket, so without these a quiet caller was killed at Bun's small
+	// WebSocket capability config, so without these a quiet caller was killed at Bun's small
 	// fallback (~60s) with INACTIVE_CLIENT. sendPings (Bun default, explicit here)
 	// is protocol-level keepalive the browser answers without JS — so a throttled
-	// background tab still responds. elysiaWebsocket has no idleTimeout/sendPings,
-	// so spreading it last keeps the dispatcher without clobbering these.
+	// background tab still responds. The low-level Elysia 2 dispatcher is public
+	// and carries no Bun keepalive options, so these remain Absolute-owned.
 	websocket: {
 		idleTimeout: ${DEFAULT_WEBSOCKET_IDLE_TIMEOUT_SECONDS},
 		sendPings: true,
-		...elysiaWebsocket
+		...buildGlobalWSHandler()
 	},
 	async fetch(request) {
 		const url = new URL(request.url);
@@ -1486,14 +1487,49 @@ const compileUnlocked = async (
 				await loadIslandRegistryBuildInfo(resolve(islandRegistrySpec))
 			)
 		: undefined;
+	const serverBundleEntryDirectory = join(
+		resolvedOutdir,
+		'.absolutejs-server-entry'
+	);
+	mkdirSync(serverBundleEntryDirectory, { recursive: true });
+	const typeboxSetupEntry = join(
+		serverBundleEntryDirectory,
+		'_typebox_setup.ts'
+	);
+	const serverBundleEntry = join(
+		serverBundleEntryDirectory,
+		basename(serverEntry)
+	);
+	writeFileSync(
+		typeboxSetupEntry,
+		`import { setupTypebox } from 'elysia';
+import * as compile from 'typebox/compile';
+import * as schema from 'typebox/schema';
+import * as system from 'typebox/system';
+import * as type from 'typebox/type';
+import * as value from 'typebox/value';
+
+setupTypebox({ typebox: { compile, schema, system, type, value } });
+`
+	);
+	writeFileSync(
+		serverBundleEntry,
+		`import './_typebox_setup';
+import * as serverModule from ${JSON.stringify(resolve(serverEntry))};
+
+export const server = serverModule.server ?? serverModule.app ?? serverModule.default;
+export default server;
+`
+	);
 
 	const serverBundle = await Bun.build({
 		define: { 'process.env.NODE_ENV': '"production"' },
-		entrypoints: [resolve(serverEntry)],
+		entrypoints: [serverBundleEntry],
 		external: resolveServerBundleExternals(buildConfig),
 		outdir: resolvedOutdir,
 		plugins: [
 			...(islandRegistryPlugin ? [islandRegistryPlugin] : []),
+			createElysiaOpenApiTypeboxPlugin(),
 			createStubPlugin({
 				stubAngular: !buildConfig.angularDirectory,
 				stubReact: !buildConfig.reactDirectory,
@@ -1520,6 +1556,7 @@ const compileUnlocked = async (
 		// `AggregateError: Bundle failed`.
 		throw: false
 	});
+	rmSync(serverBundleEntryDirectory, { force: true, recursive: true });
 
 	if (!serverBundle.success) {
 		serverBundle.logs.forEach((log) => console.error(log));

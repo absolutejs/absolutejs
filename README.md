@@ -39,7 +39,7 @@ bun add @absolutejs/absolute
 
 ```ts
 // example/server.ts
-import { staticPlugin } from '@elysiajs/static';
+import { staticPlugin } from '@elysia/static';
 import { Elysia } from 'elysia';
 import { file } from 'bun';
 import { build } from 'absolutejs/core/build';

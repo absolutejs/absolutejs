@@ -55,7 +55,16 @@ const reportResult = (result: CommandResult) => {
 
 const runStage = async (name: string, commands: GateCommand[]) => {
 	console.log(`\n[release-gate] ${name}`);
-	const results = await Promise.all(commands.map(runCommand));
+	// Release checks share generated output, native artifacts, and lint caches.
+	// Running them concurrently makes a clean release depend on timing (for
+	// example, package build replaces dist while unit tests execute its CLI).
+	const results = await commands.reduce<Promise<CommandResult[]>>(
+		async (pendingResults, command) => [
+			...(await pendingResults),
+			await runCommand(command)
+		],
+		Promise.resolve([])
+	);
 	results.forEach(reportResult);
 	const failures = results.filter((result) => result.exitCode !== 0);
 	if (failures.length === 0) return;

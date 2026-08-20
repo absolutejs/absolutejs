@@ -20,6 +20,7 @@ import { createBunStringRawUnicodePlugin } from '../../build/bunStringRawUnicode
 import { loadConfig } from '../../utils/loadConfig';
 import { formatTimestamp } from '../../utils/startupBanner';
 import { sendTelemetryEvent } from '../telemetryEvent';
+import { createElysiaOpenApiTypeboxPlugin } from '../elysiaOpenApiTypeboxPlugin';
 import { resolveServerBundleExternals } from '../serverBundleExternals';
 import {
 	COMPOSE_PATH,
@@ -544,6 +545,7 @@ export const start = async (
 		outdir: resolvedOutdir,
 		plugins: [
 			...(islandRegistryPlugin ? [islandRegistryPlugin] : []),
+			createElysiaOpenApiTypeboxPlugin(),
 			stubPlugin,
 			createBunStringRawUnicodePlugin()
 		],

@@ -1,6 +1,6 @@
 import { Elysia } from 'elysia';
 
-// Dev-only request inspector. A named plugin whose onRequest/onAfterResponse
+// Dev-only request inspector. A named plugin whose request/afterResponse
 // hooks are cast to GLOBAL scope via `.as('global')` — the only form that makes
 // Elysia fire them for every route across all instances (the per-hook
 // `{ as: 'global' }` argument form is unsupported here and throws). Wired in by
@@ -63,13 +63,13 @@ export const requestInspector = new Elysia({
 	name: 'absolute-request-inspector'
 })
 	.get('/__absolute/requests', () => requestLog())
-	.onRequest(({ request }) => {
+	.request(({ request }) => {
 		pending.set(request, {
 			headers: toHeaderRecord(Object.fromEntries(request.headers)),
 			start: performance.now()
 		});
 	})
-	.onAfterResponse(({ request, set, responseValue }) => {
+	.afterResponse(({ request, set, responseValue }) => {
 		const path = pathOf(request.url);
 		// Skip the inspector's own introspection traffic (observer effect).
 		if (path.startsWith('/__absolute')) return;

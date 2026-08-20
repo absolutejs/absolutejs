@@ -130,6 +130,8 @@ const SERVER_ENTRY_POINTS = [
 	'src/client/index.ts',
 	'src/islands/browser.ts',
 	'src/islands/index.ts',
+	'src/mobile/browser.ts',
+	'src/mobile/index.ts',
 	'src/react/index.ts',
 	'src/react/browser.ts',
 	'src/react/server.ts',
@@ -161,6 +163,9 @@ const EXTERNALS = [
 	'svelte/compiler',
 	'svelte/server',
 	'elysia',
+	'elysia/*',
+	'@elysia/openapi',
+	'@elysia/server-timing',
 	'@elysia/static',
 	'@angular/compiler-cli',
 	'@angular/compiler',
@@ -286,6 +291,7 @@ const build = async () => {
 	// bundler leaves it out of this lean main chunk automatically.
 	const cliBuild = await Bun.build({
 		entrypoints: ['src/cli/index.ts'],
+		external: EXTERNALS,
 		outdir: join(DIST, 'cli'),
 		target: 'bun'
 	});

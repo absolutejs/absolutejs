@@ -14,6 +14,7 @@ import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { ensureDistBuild } from '../helpers/ensureDistBuild';
+import { openPage } from '../helpers/browser';
 import { fetchPage, waitForServer } from '../helpers/http';
 import { getAvailablePort } from '../helpers/ports';
 
@@ -792,8 +793,11 @@ const assertCompileRouteScaleServer = async (baseUrl: string) => {
 	expect(lastPage.html).toContain('ROUTE_SCALE_PAGE_47');
 
 	const missingPage = await fetch(`${baseUrl}/page-48`);
-	expect(missingPage.status).toBe(404);
-	expect(await missingPage.text()).toBe('missing scale page');
+	const missingPageText = await missingPage.text();
+	expect({ status: missingPage.status, text: missingPageText }).toEqual({
+		status: 404,
+		text: 'missing scale page'
+	});
 
 	const runtime = await fetch(`${baseUrl}/runtime/abc?mode=fallback`);
 	expect(runtime.status).toBe(200);
@@ -903,73 +907,32 @@ const waitForEvaluate = async <T>(
 
 const runBrowserProbe = async (baseUrl: string) => {
 	const browserBaseUrl = baseUrl.replace('localhost', '127.0.0.1');
-	const { WebView } = Bun as unknown as {
-		WebView?: new (options: Record<string, unknown>) => {
-			addEventListener?: (
-				type: string,
-				listener: (event: { data?: unknown }) => void
-			) => void;
-			cdp?: (
-				method: string,
-				params?: Record<string, unknown>
-			) => Promise<unknown>;
-			click: (
-				selector: string,
-				options?: Record<string, unknown>
-			) => Promise<void>;
-			close: () => void;
-			evaluate: <T = unknown>(script: string) => Promise<T>;
-			navigate: (url: string) => Promise<void>;
-		};
-	};
-	if (!WebView) return;
-
 	const consoleErrors: unknown[] = [];
 	const failedRequests: unknown[] = [];
 	const isImplicitBrowserRequest = (url?: string) =>
 		url ? new URL(url).pathname === '/favicon.ico' : false;
-	let view: InstanceType<NonNullable<typeof WebView>> | undefined;
-	try {
-		view = new WebView({
-			backend: 'chrome',
-			height: 720,
-			width: 1280,
-			console: (type: string, ...args: unknown[]) => {
-				if (type === 'error') consoleErrors.push(args);
-			}
-		});
-		await view.navigate('about:blank');
-		if (view.cdp && view.addEventListener) {
-			await view.cdp('Network.enable');
-			view.addEventListener('Network.loadingFailed', (event) => {
-				failedRequests.push(event.data);
+	const session = await openPage('about:blank');
+	const { page: view } = session;
+	view.on('console', (message) => {
+		if (message.type() === 'error') consoleErrors.push(message.text());
+	});
+	view.on('requestfailed', (request) => {
+		if (!isImplicitBrowserRequest(request.url()))
+			failedRequests.push(request.failure());
+	});
+	view.on('response', (response) => {
+		if (
+			response.status() >= 400 &&
+			!isImplicitBrowserRequest(response.url())
+		)
+			failedRequests.push({
+				status: response.status(),
+				url: response.url()
 			});
-			view.addEventListener('Network.responseReceived', (event) => {
-				const data = event.data as
-					| { response?: { status?: number; url?: string } }
-					| undefined;
-				const status = data?.response?.status;
-				if (
-					status &&
-					status >= 400 &&
-					!isImplicitBrowserRequest(data?.response?.url)
-				)
-					failedRequests.push(data);
-			});
-		}
-	} catch (error) {
-		console.warn(
-			`Skipping Bun.WebView compile probe: ${
-				error instanceof Error ? error.message : String(error)
-			}`
-		);
-		view?.close();
-
-		return;
-	}
+	});
 
 	try {
-		await view.navigate(`${browserBaseUrl}/browser`);
+		await view.goto(`${browserBaseUrl}/browser`, { waitUntil: 'load' });
 		expect(
 			await waitForEvaluate(
 				view,
@@ -1004,7 +967,7 @@ const runBrowserProbe = async (baseUrl: string) => {
 			(value) => String(value).includes('1')
 		);
 
-		await view.navigate(`${browserBaseUrl}/`);
+		await view.goto(`${browserBaseUrl}/`, { waitUntil: 'load' });
 		expect(
 			await waitForEvaluate(
 				view,
@@ -1029,7 +992,7 @@ const runBrowserProbe = async (baseUrl: string) => {
 		expect(consoleErrors).toEqual([]);
 		expect(failedRequests).toEqual([]);
 	} finally {
-		view.close();
+		await session.close();
 	}
 };
 
@@ -1046,73 +1009,32 @@ const runFrameworkHydrationProbe = async (
 	}
 ) => {
 	const browserBaseUrl = baseUrl.replace('localhost', '127.0.0.1');
-	const { WebView } = Bun as unknown as {
-		WebView?: new (options: Record<string, unknown>) => {
-			addEventListener?: (
-				type: string,
-				listener: (event: { data?: unknown }) => void
-			) => void;
-			cdp?: (
-				method: string,
-				params?: Record<string, unknown>
-			) => Promise<unknown>;
-			click: (
-				selector: string,
-				options?: Record<string, unknown>
-			) => Promise<void>;
-			close: () => void;
-			evaluate: <T = unknown>(script: string) => Promise<T>;
-			navigate: (url: string) => Promise<void>;
-		};
-	};
-	if (!WebView) return;
-
 	const consoleErrors: unknown[] = [];
 	const failedRequests: unknown[] = [];
 	const isImplicitBrowserRequest = (url?: string) =>
 		url ? new URL(url).pathname === '/favicon.ico' : false;
-	let view: InstanceType<NonNullable<typeof WebView>> | undefined;
-	try {
-		view = new WebView({
-			backend: 'chrome',
-			height: 720,
-			width: 1280,
-			console: (type: string, ...args: unknown[]) => {
-				if (type === 'error') consoleErrors.push(args);
-			}
-		});
-		await view.navigate('about:blank');
-		if (view.cdp && view.addEventListener) {
-			await view.cdp('Network.enable');
-			view.addEventListener('Network.loadingFailed', (event) => {
-				failedRequests.push(event.data);
+	const session = await openPage('about:blank');
+	const { page: view } = session;
+	view.on('console', (message) => {
+		if (message.type() === 'error') consoleErrors.push(message.text());
+	});
+	view.on('requestfailed', (request) => {
+		if (!isImplicitBrowserRequest(request.url()))
+			failedRequests.push(request.failure());
+	});
+	view.on('response', (response) => {
+		if (
+			response.status() >= 400 &&
+			!isImplicitBrowserRequest(response.url())
+		)
+			failedRequests.push({
+				status: response.status(),
+				url: response.url()
 			});
-			view.addEventListener('Network.responseReceived', (event) => {
-				const data = event.data as
-					| { response?: { status?: number; url?: string } }
-					| undefined;
-				const status = data?.response?.status;
-				if (
-					status &&
-					status >= 400 &&
-					!isImplicitBrowserRequest(data?.response?.url)
-				)
-					failedRequests.push(data);
-			});
-		}
-	} catch (error) {
-		console.warn(
-			`Skipping Bun.WebView framework compile probe: ${
-				error instanceof Error ? error.message : String(error)
-			}`
-		);
-		view?.close();
-
-		return;
-	}
+	});
 
 	try {
-		await view.navigate(`${browserBaseUrl}/`);
+		await view.goto(`${browserBaseUrl}/`, { waitUntil: 'load' });
 		expect(
 			await waitForEvaluate(
 				view,
@@ -1143,7 +1065,7 @@ const runFrameworkHydrationProbe = async (
 		expect(consoleErrors).toEqual([]);
 		expect(failedRequests).toEqual([]);
 	} finally {
-		view.close();
+		await session.close();
 	}
 };
 

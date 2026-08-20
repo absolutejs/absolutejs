@@ -1,7 +1,8 @@
 import { argv } from 'node:process';
 import { env } from 'bun';
 import { type AnyElysia } from 'elysia';
-import { websocket as elysiaWebSocketHandler } from 'elysia/ws';
+import { websocket } from 'elysia/websocket';
+import { buildGlobalWSHandler } from 'elysia/ws';
 import {
 	DEFAULT_HTTP_IDLE_TIMEOUT_SECONDS,
 	DEFAULT_WEBSOCKET_IDLE_TIMEOUT_SECONDS,
@@ -47,9 +48,6 @@ const loadTls = () => {
 };
 const tls = loadTls();
 const protocol = tls ? 'https' : 'http';
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-	typeof value === 'object' && value !== null;
-
 // Resolve the HTTP idleTimeout (seconds) passed to Bun.serve. Bun's default is
 // 10s, which silently reaps long-lived/streaming responses (SSE, AI turns, long
 // polls). We default high (DEFAULT_HTTP_IDLE_TIMEOUT_SECONDS) and let a consumer
@@ -105,24 +103,15 @@ const selfRegisterInstance = () => {
 // context (e.g. auth's `protectRoute` derive) does not have to satisfy the
 // empty base singleton — checking that against a big chain trips TS2589 at the
 // call site. The bound is what's widened, never the return.
-// Apply framework keepalive defaults to the app's WebSocket config without
-// clobbering anything the consumer set explicitly (their values win via the
-// trailing spread). `app.config.websocket` is what both the reload branch and
-// `app.listen()` below hand to Bun.serve, so mutating it once here covers every
-// dev path. The compiled runtime takes a parallel default in compile.ts (it
-// builds its own Bun.serve and returns early below).
-const applyWebSocketKeepaliveDefaults = (app: AnyElysia) => {
-	app.config.websocket = {
-		idleTimeout: DEFAULT_WEBSOCKET_IDLE_TIMEOUT_SECONDS,
-		sendPings: true,
-		...(app.config.websocket ?? {})
-	};
-};
-
 export const networking = <A extends AnyElysia>(app: A) => {
 	if (env.ABSOLUTE_COMPILED_RUNTIME === '1') return app;
 
-	applyWebSocketKeepaliveDefaults(app);
+	app.use(
+		websocket({
+			idleTimeout: DEFAULT_WEBSOCKET_IDLE_TIMEOUT_SECONDS,
+			sendPings: true
+		})
+	);
 
 	// Dev-only route introspection for `absolute routes` — reads the live route
 	// table at request time. (The request inspector for `absolute inspect` is
@@ -150,36 +139,9 @@ export const networking = <A extends AnyElysia>(app: A) => {
 	// Outside dev, this branch never runs (the global is unset).
 	const liveServer = globalThis.__absoluteBunServer;
 	if (liveServer && typeof liveServer.reload === 'function') {
-		// Backend state HMR: restore the previous Elysia instance's
-		// `app.store` values for keys the new app also declares.
-		// `app.store` holds anything the user (or a plugin like
-		// `@absolutejs/scoped-state`) put there via `.state(...)` — which
-		// in dev was just `.state({scoped: {}})` initial values, so
-		// without this every entry edit reset all per-session data.
-		//
-		// Behavior, mirroring frontend HMR semantics:
-		// - Same key in both: restore previous live value (preserves
-		//   per-user state, request counters, etc. across edits).
-		// - Key only in the new app: keep its fresh initial (added
-		//   state plugins or new `.state(...)` calls).
-		// - Key only in the previous app: drop it (state the user
-		//   removed; new code shouldn't see it).
-		//
-		// Captured in the listen branch below as
-		// `globalThis.__absolutePreviousAppStore`. The first reload
-		// after server start finds the initial store there.
-		const prevStore = globalThis.__absolutePreviousAppStore;
-		if (prevStore && isRecord(app.store)) {
-			const newStore = app.store;
-			for (const key of Object.keys(newStore)) {
-				if (key in prevStore) {
-					newStore[key] = prevStore[key];
-				}
-			}
-		}
-		globalThis.__absolutePreviousAppStore = isRecord(app.store)
-			? app.store
-			: undefined;
+		// Elysia 2 removed the public app.store getter. The dev HMR plugin
+		// restores the composed request-context store on the first request
+		// through the newly imported app instead.
 		try {
 			app.compile();
 		} catch {
@@ -194,9 +156,7 @@ export const networking = <A extends AnyElysia>(app: A) => {
 		// Re-pass `websocket` too, mirroring what Elysia's own BunAdapter
 		// reload does (it spreads the full serve config). Elysia's handler is
 		// a stateless singleton that dispatches via `ws.data`, but the new
-		// app's `config.websocket` (idleTimeout, maxPayloadLength, etc. — which
-		// matter for long-lived voice/referee sockets) only takes effect if we
-		// re-apply it here.
+		// framework keepalive defaults are applied to this persistent Bun server.
 		//
 		// Critically, wire the live Bun server onto the new app instance. A WS
 		// upgrade runs through `app.fetch`, where Elysia does
@@ -209,8 +169,9 @@ export const networking = <A extends AnyElysia>(app: A) => {
 		liveServer.reload({
 			routes: {},
 			websocket: {
-				...(app.config.websocket ?? {}),
-				...elysiaWebSocketHandler
+				idleTimeout: DEFAULT_WEBSOCKET_IDLE_TIMEOUT_SECONDS,
+				sendPings: true,
+				...buildGlobalWSHandler()
 			},
 			fetch: (request: Request) => app.fetch(request)
 		});
@@ -275,9 +236,6 @@ export const networking = <A extends AnyElysia>(app: A) => {
 	// the reload-aware branch above and never reach this point.
 	if (app.server) {
 		globalThis.__absoluteBunServer = app.server;
-		globalThis.__absolutePreviousAppStore = isRecord(app.store)
-			? app.store
-			: undefined;
 		// Path B: start the entry-file watcher now that the server is
 		// bound. The watcher triggers cache-busted dynamic re-imports
 		// on entry edits, which hit the reload-aware branch instead of
