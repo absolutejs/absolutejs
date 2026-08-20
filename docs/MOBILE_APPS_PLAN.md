@@ -1290,6 +1290,21 @@ while still running the cheap Capacitor projection check and launching the app.
 Cache records live under `.absolutejs/mobile/cache`, outside the crash-recovery
 journal, and are replaced atomically only after installation succeeds.
 
+Native development now reports both startup and live-update latency as first-class
+AbsoluteJS diagnostics. Android startup prints the total time and an ordered phase
+breakdown for Capacitor sync, temporary config, fingerprinting, emulator readiness,
+ADB forwarding, package validation, Gradle, install, launch and log attachment;
+fingerprinting overlaps emulator readiness, and the controller reuses the selected
+serial and installed-package UID instead of repeating ADB discovery. Framework HMR
+acknowledgements carry a monotonic update ID plus the client target, so delayed
+responses remain correlated with the source edit that produced them. Native terminal
+lines are distinct from browser lines and show total, server and client application
+time, for example `[hmr:android] ... applied in 63ms; server 19ms, client 44ms`.
+The corresponding opt-in telemetry records target/framework and numeric phase
+durations or cache status only; it excludes route URLs, source paths, application
+IDs, device serials, signing data and log contents. Real API 36 acceptance measured
+a 2.04 second warm Android connection with Gradle and APK installation skipped.
+
 Real WSL2/Windows acceptance established the host boundary more precisely. Gradle
 cannot reliably build a project directly from a `\\wsl.localhost` UNC path, so the
 broker mirrors the generated Android project into a dedicated Windows Local AppData

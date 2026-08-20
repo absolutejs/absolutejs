@@ -133,7 +133,7 @@ const buildHmrTail = (className: string, encodedIdLiteral: string) => `
   // Send a server-side ack so the dev terminal can log the
   // full HMR latency (server compile + WS hop + client apply +
   // CD pulse) rather than just the server-side compile time.
-  const __ng_hmr_ack = (tier, applyMs, error) => {
+  const __ng_hmr_ack = (tier, applyMs, error, updateId) => {
     try {
       const ws = globalThis.__HMR_WS__;
       if (ws && ws.readyState === 1) {
@@ -143,7 +143,9 @@ const buildHmrTail = (className: string, encodedIdLiteral: string) => `
           className: ${JSON.stringify(className)},
           tier,
           applyMs,
-          error
+          error,
+          target: globalThis.__ABS_HMR_TARGET__ || 'web',
+          updateId
         }));
       }
     } catch {}
@@ -167,16 +169,16 @@ const buildHmrTail = (className: string, encodedIdLiteral: string) => `
           import.meta,
           __ng_hmr_id
         );
-        __ng_hmr_ack('tier-0', performance.now() - t0);
+        __ng_hmr_ack('tier-0', performance.now() - t0, undefined, t);
       } catch (err) {
         console.error('[abs-hmr] ɵɵreplaceMetadata threw for ${className}:', err);
-        __ng_hmr_ack('tier-0', performance.now() - t0, String(err && err.message || err));
+        __ng_hmr_ack('tier-0', performance.now() - t0, String(err && err.message || err), t);
       }
     } else {
       // Non-component entity (pipe / directive / service) — no
       // LView tree to walk, just apply the prototype patch.
       u.default(${className}, [core]);
-      __ng_hmr_ack('tier-0', performance.now() - t0);
+      __ng_hmr_ack('tier-0', performance.now() - t0, undefined, t);
     }
   };
   // Tier 1 remount: structural changes (new ctor params / new field
@@ -208,10 +210,10 @@ const buildHmrTail = (className: string, encodedIdLiteral: string) => `
           ${JSON.stringify(className)}
         );
         if (mySeq !== __ng_hmr_seq) return; // newer event arrived during remount
-        __ng_hmr_ack('tier-1a', performance.now() - t0);
+        __ng_hmr_ack('tier-1a', performance.now() - t0, undefined, t);
       } catch (err) {
         console.error('[abs-hmr] remount threw for ${className}:', err);
-        __ng_hmr_ack('tier-1a', performance.now() - t0, String(err && err.message || err));
+        __ng_hmr_ack('tier-1a', performance.now() - t0, String(err && err.message || err), t);
       }
     } else {
       // No remount helper installed (older absolutejs runtime, or

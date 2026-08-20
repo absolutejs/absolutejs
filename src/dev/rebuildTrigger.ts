@@ -3654,6 +3654,7 @@ const handleReactHMR = (
 				hasCSSChanges: hasCSSChanges,
 				manifest,
 				primarySource,
+				serverDuration: duration,
 				sourceFiles
 			},
 			type: 'react-update'
@@ -4003,6 +4004,7 @@ const broadcastVueFullUpdate = (
 			hmrId,
 			html: null,
 			manifest,
+			serverDuration: duration,
 			sourceFile: vuePagePath,
 			updateType: 'full'
 		},
@@ -4178,6 +4180,7 @@ const broadcastSveltePageUpdate = (
 				framework: 'svelte',
 				html: null,
 				manifest,
+				serverDuration: duration,
 				sourceFile: sveltePagePath,
 				updateType: 'full'
 			},

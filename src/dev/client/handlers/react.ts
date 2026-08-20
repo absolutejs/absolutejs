@@ -5,6 +5,7 @@
 
 import { hideErrorOverlay } from '../errorOverlay';
 import { detectCurrentFramework } from '../frameworkDetect';
+import { sendAbsoluteHmrTiming } from '../hmrTiming';
 
 const reloadReactPage = () => {
 	const url = new URL(window.location.href);
@@ -22,6 +23,7 @@ export const handleReactUpdate = (message: {
 		primarySource?: string;
 		serverDuration?: number;
 	};
+	timestamp?: number;
 }) => {
 	const currentFramework = detectCurrentFramework();
 	if (currentFramework !== 'react') return;
@@ -35,7 +37,8 @@ export const handleReactUpdate = (message: {
 			applyRemountImport(
 				pageModuleUrl,
 				remount,
-				message.data.serverDuration
+				message.data.serverDuration,
+				message.timestamp
 			);
 		} else {
 			reloadReactPage();
@@ -57,7 +60,12 @@ export const handleReactUpdate = (message: {
 	const { pageModuleUrl } = message.data;
 
 	if (pageModuleUrl && refreshRuntime) {
-		applyRefreshImport(pageModuleUrl, refreshRuntime, serverDuration);
+		applyRefreshImport(
+			pageModuleUrl,
+			refreshRuntime,
+			serverDuration,
+			message.timestamp
+		);
 
 		return;
 	}
@@ -66,14 +74,16 @@ export const handleReactUpdate = (message: {
 	window.location.reload();
 };
 
-const sendTiming = (clientStart: number, serverDuration?: number) => {
-	if (window.__HMR_WS__) {
-		const clientMs = Math.round(performance.now() - clientStart);
-		const total = (serverDuration ?? 0) + clientMs;
-		window.__HMR_WS__.send(
-			JSON.stringify({ duration: total, type: 'hmr-timing' })
-		);
-	}
+const finishUpdate = (
+	clientStart: number,
+	serverDuration?: number,
+	updateId?: number
+) => {
+	sendAbsoluteHmrTiming({
+		clientStart,
+		serverMs: serverDuration,
+		updateId
+	});
 	if (window.__ERROR_BOUNDARY__) {
 		window.__ERROR_BOUNDARY__.reset();
 	} else {
@@ -84,13 +94,14 @@ const sendTiming = (clientStart: number, serverDuration?: number) => {
 const applyRefreshImport = (
 	moduleUrl: string,
 	refreshRuntime: { performReactRefresh: () => unknown },
-	serverDuration?: number
+	serverDuration?: number,
+	updateId?: number
 ) => {
 	const clientStart = performance.now();
 	import(`${moduleUrl}?t=${Date.now()}`)
 		.then(() => {
 			refreshRuntime.performReactRefresh();
-			sendTiming(clientStart, serverDuration);
+			finishUpdate(clientStart, serverDuration, updateId);
 
 			return undefined;
 		})
@@ -106,13 +117,14 @@ const applyRefreshImport = (
 const applyRemountImport = (
 	moduleUrl: string,
 	remount: (module: Record<string, unknown>) => void,
-	serverDuration?: number
+	serverDuration?: number,
+	updateId?: number
 ) => {
 	const clientStart = performance.now();
 	import(`${moduleUrl}?t=${Date.now()}`)
 		.then((module) => {
 			remount(module);
-			sendTiming(clientStart, serverDuration);
+			finishUpdate(clientStart, serverDuration, updateId);
 
 			return undefined;
 		})

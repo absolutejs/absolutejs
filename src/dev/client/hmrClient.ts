@@ -11,6 +11,7 @@ import {
 	WEBSOCKET_NORMAL_CLOSURE
 } from './constants';
 import { detectCurrentFramework } from './frameworkDetect';
+import { absoluteHmrClientTarget } from './hmrTiming';
 import { hideErrorOverlay, showErrorOverlay } from './errorOverlay';
 import {
 	dispatchAngularComponentRemount,
@@ -76,6 +77,7 @@ const hideConnectionLostBanner = () => {
 
 // Initialize HMR globals
 if (typeof window !== 'undefined') {
+	window.__ABS_HMR_TARGET__ = absoluteHmrClientTarget();
 	installAngularRemountGlobal();
 	if (!window.__HMR_MANIFEST__) {
 		window.__HMR_MANIFEST__ = {};
@@ -149,6 +151,7 @@ type HMRMessage = {
 		serverDuration?: number;
 		serverVersions?: Record<string, number>;
 	};
+	timestamp?: number;
 	type: string;
 };
 
@@ -208,12 +211,13 @@ const handleHMRMessage = (message: HMRMessage) => {
 			const { data } = message;
 			if (isRecord(data)) {
 				const id = Reflect.get(data, 'id');
-				const timestamp = Reflect.get(data, 'timestamp');
 				if (typeof id !== 'string') break;
 				dispatchAngularComponentUpdate({
 					id,
 					timestamp:
-						typeof timestamp === 'number' ? timestamp : Date.now()
+						typeof message.timestamp === 'number'
+							? message.timestamp
+							: Date.now()
 				});
 			}
 			break;
@@ -230,12 +234,13 @@ const handleHMRMessage = (message: HMRMessage) => {
 			const { data } = message;
 			if (isRecord(data)) {
 				const id = Reflect.get(data, 'id');
-				const timestamp = Reflect.get(data, 'timestamp');
 				if (typeof id !== 'string') break;
 				dispatchAngularComponentRemount({
 					id,
 					timestamp:
-						typeof timestamp === 'number' ? timestamp : Date.now()
+						typeof message.timestamp === 'number'
+							? message.timestamp
+							: Date.now()
 				});
 			}
 			break;
@@ -311,6 +316,7 @@ if (!(window.__HMR_WS__ && window.__HMR_WS__.readyState === WebSocket.OPEN)) {
 		wsc.send(
 			JSON.stringify({
 				framework: currentFramework,
+				target: absoluteHmrClientTarget(),
 				type: 'ready'
 			})
 		);

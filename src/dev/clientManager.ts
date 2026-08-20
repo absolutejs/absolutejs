@@ -8,6 +8,11 @@ import type { HMRWebSocket } from '../../types/websocket';
 import type { BuildConfig, BuildPassError } from '../../types/build';
 import { resolveBuildPaths, type ResolvedBuildPaths } from './configResolver';
 
+type HMRUpdateMetadata = {
+	framework?: string;
+	path?: string;
+};
+
 /* This handles the "tracking clients" problem */
 export type HMRState = {
 	connectedClients: Set<HMRWebSocket>;
@@ -30,6 +35,8 @@ export type HMRState = {
 	rebuildCount: number; // Incremented after each successful rebuild
 	lastHmrPath?: string;
 	lastHmrFramework?: string;
+	lastBroadcastTimestamp: number;
+	hmrUpdates: Map<number, HMRUpdateMetadata>;
 	// Set captured at the start of each rebuild cycle: the user's actual
 	// edited files BEFORE the dependency graph adds transitive dependents
 	// to `filesToRebuild`. Consumed by Angular's HMR classifier so it
@@ -70,7 +77,9 @@ export const createHMRState = (config: BuildConfig): HMRState => ({
 	dependencyGraph: emptyDependencyGraph,
 	fileChangeQueue: new Map(),
 	fileHashes: new Map(),
+	hmrUpdates: new Map(),
 	isRebuilding: false,
+	lastBroadcastTimestamp: 0,
 	manifest: {}, // Current build manifest (populated after initial build),
 	moduleVersions: createModuleVersionTracker(),
 	rebuildCount: 0,

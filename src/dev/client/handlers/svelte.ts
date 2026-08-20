@@ -8,6 +8,7 @@ import {
 	restoreScrollState
 } from '../domState';
 import { detectCurrentFramework, findIndexPath } from '../frameworkDetect';
+import { sendAbsoluteHmrTiming } from '../hmrTiming';
 
 type SvelteHmrWindow = Window & {
 	__SVELTE_HMR_ACCEPT__?: Record<string, (mod: unknown) => void>;
@@ -221,6 +222,7 @@ export const handleSvelteUpdate = (message: {
 		sourceFile?: string;
 		updateType?: string;
 	};
+	timestamp?: number;
 }) => {
 	const svelteFrameworkCheck = detectCurrentFramework();
 	if (svelteFrameworkCheck !== 'svelte') return;
@@ -339,17 +341,12 @@ export const handleSvelteUpdate = (message: {
 				}
 				window.__HMR_PRESERVED_STATE__ = undefined;
 
-				if (
-					window.__HMR_WS__ &&
-					message.data.serverDuration !== undefined
-				) {
-					const clientMs = Math.round(
-						performance.now() - clientStart
-					);
-					const total = (message.data.serverDuration ?? 0) + clientMs;
-					window.__HMR_WS__.send(
-						JSON.stringify({ duration: total, type: 'hmr-timing' })
-					);
+				if (message.data.serverDuration !== undefined) {
+					sendAbsoluteHmrTiming({
+						clientStart,
+						serverMs: message.data.serverDuration,
+						updateId: message.timestamp
+					});
 				}
 
 				return undefined;

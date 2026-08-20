@@ -255,6 +255,8 @@ describe('Android emulator development controller', () => {
 		expect(
 			cachedCommands.some((command) => command.includes('install'))
 		).toBe(false);
+		expect(cached.nativeCacheHit).toBe(true);
+		expect(cached.timings.building).toBeUndefined();
 		expect(
 			cachedCommands.some((command) => command.includes('assembleDebug'))
 		).toBe(false);
@@ -409,7 +411,10 @@ describe('Android emulator development controller', () => {
 		);
 
 		expect(session.startedEmulator).toBe(false);
+		expect(session.nativeCacheHit).toBe(false);
 		expect(session.state).toBe('ready');
+		expect(session.timings.total).toBeGreaterThan(0);
+		expect(session.timings.syncing).toBeGreaterThanOrEqual(0);
 		expect(states).toContain('building');
 		expect(states).toContain('streaming-logs');
 		expect(logCommands[0]).toContain('--uid=10123');
@@ -425,7 +430,7 @@ describe('Android emulator development controller', () => {
 		expect(developmentConfig.server).toEqual({
 			allowNavigation: ['api.example.com'],
 			cleartext: true,
-			url: 'http://localhost:3030/account/Ada'
+			url: 'http://localhost:3030/account/Ada?__absolute_target=capacitor-android'
 		});
 		expect(await readFile(nativeManifestPath, 'utf8')).toContain(
 			'android:usesCleartextTraffic="true"'

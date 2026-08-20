@@ -186,4 +186,98 @@ describe('handleHMRMessage', () => {
 			handleHMRMessage(state, client, JSON.stringify({ type: 'ready' }))
 		).not.toThrow();
 	});
+
+	test('labels native HMR application timing with its server/client split', () => {
+		const state = createHMRState(makeConfig());
+		state.lastHmrFramework = 'react';
+		state.lastHmrPath = '/app/react/pages/Account.tsx';
+		const client = makeMockClient();
+		const lines: string[] = [];
+		const originalLog = console.log;
+		console.log = (message?: unknown) => lines.push(String(message));
+		try {
+			handleHMRMessage(
+				state,
+				client,
+				JSON.stringify({
+					clientMs: 43,
+					duration: 61,
+					serverMs: 18,
+					target: 'capacitor-android',
+					type: 'hmr-timing',
+					updateId: 123
+				})
+			);
+		} finally {
+			console.log = originalLog;
+		}
+		expect(lines.some((line) => line.includes('[hmr:android]'))).toBe(true);
+		expect(
+			lines.some((line) =>
+				line.includes('applied in 61ms; server 18ms, client 43ms')
+			)
+		).toBe(true);
+	});
+
+	test('correlates delayed client timing with the update that produced it', () => {
+		const state = createHMRState(makeConfig());
+		const client = makeMockClient();
+		state.connectedClients.add(client);
+		state.lastHmrFramework = 'react';
+		state.lastHmrPath = '/react/pages/Current.tsx';
+		broadcastToClients(state, {
+			data: {
+				framework: 'react',
+				primarySource: '/react/pages/Original.tsx'
+			},
+			type: 'react-update'
+		});
+		const sendFn = client.send as ReturnType<typeof mock>;
+		const [broadcastCall] = sendFn.mock.calls;
+		if (!broadcastCall) return;
+		const update = JSON.parse(String(broadcastCall[0]));
+		state.lastHmrPath = '/react/pages/Newer.tsx';
+
+		const lines: string[] = [];
+		const originalLog = console.log;
+		console.log = (message?: unknown) => lines.push(String(message));
+		try {
+			handleHMRMessage(
+				state,
+				client,
+				JSON.stringify({
+					clientMs: 9,
+					duration: 14,
+					serverMs: 5,
+					target: 'capacitor-android',
+					type: 'hmr-timing',
+					updateId: update.timestamp
+				})
+			);
+		} finally {
+			console.log = originalLog;
+		}
+		expect(lines.some((line) => line.includes('Original.tsx'))).toBe(true);
+		expect(lines.some((line) => line.includes('Newer.tsx'))).toBe(false);
+	});
+
+	test('ignores malformed HMR application timing', () => {
+		const state = createHMRState(makeConfig());
+		const client = makeMockClient();
+		const originalLog = console.log;
+		let logged = false;
+		console.log = () => {
+			logged = true;
+		};
+		try {
+			handleHMRMessage(
+				state,
+				client,
+				JSON.stringify({ duration: 'fast', type: 'hmr-timing' })
+			);
+		} finally {
+			console.log = originalLog;
+		}
+		expect(logged).toBe(false);
+	});
 });

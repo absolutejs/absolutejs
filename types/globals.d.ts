@@ -73,6 +73,7 @@ declare global {
 		__HMR_SERVER_VERSIONS__?: Record<string, number>;
 		__HMR_UPDATE_COUNT__?: number;
 		__HMR_WS__?: WebSocket;
+		__ABS_HMR_TARGET__?: import('./messages').HMRClientTarget;
 		__ERROR_BOUNDARY__?: { reset: () => void };
 		__INITIAL_PROPS__?: Record<string, unknown>;
 		__ABSOLUTE_PAGE_RENDER_MODE__?: 'client' | 'hydrate';

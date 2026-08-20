@@ -1,6 +1,12 @@
 /* HMR message types for client-server communication */
 
 /* Client-to-server message types */
+export type HMRClientTarget =
+	| 'capacitor-android'
+	| 'capacitor-ios'
+	| 'capacitor-native'
+	| 'web';
+
 export type PingMessage = {
 	type: 'ping';
 };
@@ -8,6 +14,7 @@ export type PingMessage = {
 export type ReadyMessage = {
 	type: 'ready';
 	framework?: string | null;
+	target?: HMRClientTarget;
 };
 
 export type RequestRebuildMessage = {
@@ -25,7 +32,11 @@ export type HydrationErrorMessage = {
 
 export type HMRTimingMessage = {
 	type: 'hmr-timing';
+	clientMs?: number;
 	duration: number;
+	serverMs?: number;
+	target?: HMRClientTarget;
+	updateId?: number;
 };
 
 export type AngularHmrAckMessage = {
@@ -35,6 +46,8 @@ export type AngularHmrAckMessage = {
 	tier: 'tier-0' | 'tier-1a';
 	applyMs: number;
 	error?: string;
+	target?: HMRClientTarget;
+	updateId?: number;
 };
 
 export type HMRClientMessage =

@@ -3,7 +3,54 @@ import { serializeModuleVersions } from './moduleVersionTracker';
 import type { HMRWebSocket } from '../../types/websocket';
 import type { HMRClientMessage } from '../../types/messages';
 import { isValidHMRClientMessage } from '../../types/typeGuards';
-import { logHmrUpdate, logInfo } from '../utils/logger';
+import { sendTelemetryEvent } from '../cli/telemetryEvent';
+import { logHmrClientUpdate, logInfo } from '../utils/logger';
+
+const MAX_RETAINED_HMR_UPDATES = 100;
+
+const normalizedHmrTarget = (value: unknown) => {
+	if (value === 'capacitor-android') return value;
+	if (value === 'capacitor-ios') return value;
+	if (value === 'capacitor-native') return value;
+
+	return 'web';
+};
+
+const hmrMessageMetadata = (
+	state: HMRState,
+	message: { type: string; [key: string]: unknown }
+) => {
+	const data = Reflect.get(message, 'data');
+	const framework =
+		typeof data === 'object' &&
+		data !== null &&
+		typeof Reflect.get(data, 'framework') === 'string'
+			? String(Reflect.get(data, 'framework'))
+			: state.lastHmrFramework;
+	const source =
+		typeof data === 'object' && data !== null
+			? (Reflect.get(data, 'primarySource') ??
+				Reflect.get(data, 'sourceFile'))
+			: undefined;
+
+	return {
+		framework,
+		path: typeof source === 'string' ? source : state.lastHmrPath
+	};
+};
+
+const retainHmrUpdate = (
+	state: HMRState,
+	updateId: number,
+	message: { type: string; [key: string]: unknown }
+) => {
+	const metadata = hmrMessageMetadata(state, message);
+	if (!metadata.framework && !metadata.path) return;
+	state.hmrUpdates.set(updateId, metadata);
+	if (state.hmrUpdates.size <= MAX_RETAINED_HMR_UPDATES) return;
+	const oldest = state.hmrUpdates.keys().next().value;
+	if (typeof oldest === 'number') state.hmrUpdates.delete(oldest);
+};
 
 const trySendMessage = (client: HMRWebSocket, messageStr: string) => {
 	try {
@@ -19,9 +66,12 @@ export const broadcastToClients = (
 	state: HMRState,
 	message: { type: string; [key: string]: unknown }
 ) => {
+	const timestamp = Math.max(Date.now(), state.lastBroadcastTimestamp + 1);
+	state.lastBroadcastTimestamp = timestamp;
+	retainHmrUpdate(state, timestamp, message);
 	const messageStr = JSON.stringify({
 		...message,
-		timestamp: Date.now()
+		timestamp
 	});
 
 	const shouldRemove = (client: HMRWebSocket) =>
@@ -160,20 +210,45 @@ const handleParsedMessage = (
 			}
 			break;
 
-		case 'hmr-timing':
-			logHmrUpdate(
-				state.lastHmrPath ?? '',
-				state.lastHmrFramework,
-				data.duration
+		case 'hmr-timing': {
+			const update =
+				typeof data.updateId === 'number'
+					? state.hmrUpdates.get(data.updateId)
+					: undefined;
+			logHmrClientUpdate(
+				update?.path ?? state.lastHmrPath ?? '',
+				update?.framework ?? state.lastHmrFramework,
+				data.duration,
+				normalizedHmrTarget(data.target),
+				data.serverMs,
+				data.clientMs
 			);
+			sendTelemetryEvent('hmr:client-applied', {
+				clientMs: data.clientMs,
+				durationMs: data.duration,
+				framework:
+					update?.framework ?? state.lastHmrFramework ?? 'unknown',
+				serverMs: data.serverMs,
+				target: normalizedHmrTarget(data.target)
+			});
 			break;
+		}
 
 		case 'angular:hmr-ack': {
 			const tag = data.tier === 'tier-0' ? 'tier-0' : 'tier-1a';
 			const suffix = data.error
 				? ` FAILED — ${data.error}`
 				: ` applied in ${data.applyMs.toFixed(0)}ms`;
-			logInfo(`[ng-hmr] ${tag} ${data.className}${suffix}`);
+			const target = normalizedHmrTarget(data.target);
+			logInfo(`[ng-hmr:${target}] ${tag} ${data.className}${suffix}`);
+			sendTelemetryEvent('hmr:client-applied', {
+				clientMs: data.applyMs,
+				durationMs: data.applyMs,
+				framework: 'angular',
+				success: data.error === undefined,
+				target,
+				tier: data.tier
+			});
 			break;
 		}
 	}

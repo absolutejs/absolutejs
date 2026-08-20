@@ -3,6 +3,7 @@
 import type { VueComponentInstance, VueVNode } from '../../../../types/vue';
 import { saveDOMState, restoreDOMState } from '../domState';
 import { detectCurrentFramework, findIndexPath } from '../frameworkDetect';
+import { sendAbsoluteHmrTiming } from '../hmrTiming';
 
 /* Collect reactive value from a setup state entry into the target record */
 const collectSetupValue = (
@@ -162,6 +163,7 @@ export const handleVueUpdate = (message: {
 		sourceFile?: string;
 		updateType?: string;
 	};
+	timestamp?: number;
 }) => {
 	const vueFrameworkCheck = detectCurrentFramework();
 	if (vueFrameworkCheck !== 'vue') return;
@@ -223,17 +225,12 @@ export const handleVueUpdate = (message: {
 				}
 				sessionStorage.removeItem('__HMR_ACTIVE__');
 
-				if (
-					window.__HMR_WS__ &&
-					message.data.serverDuration !== undefined
-				) {
-					const clientMs = Math.round(
-						performance.now() - clientStart
-					);
-					const total = (message.data.serverDuration ?? 0) + clientMs;
-					window.__HMR_WS__.send(
-						JSON.stringify({ duration: total, type: 'hmr-timing' })
-					);
+				if (message.data.serverDuration !== undefined) {
+					sendAbsoluteHmrTiming({
+						clientStart,
+						serverMs: message.data.serverDuration,
+						updateId: message.timestamp
+					});
 				}
 
 				return undefined;

@@ -4,6 +4,7 @@
  */
 
 import { formatTimestamp, startupBanner } from './startupBanner';
+import type { HMRClientTarget } from '../../types/messages';
 
 export { formatTimestamp };
 
@@ -124,6 +125,29 @@ export const logError = (message: string, error?: Error | string) => {
  * HMR update message
  * Format: "10:30:45 AM [hmr] hmr update /pages/App.tsx"
  */
+export const logHmrClientUpdate = (
+	path: string,
+	framework: string | undefined,
+	duration: number,
+	target: HMRClientTarget,
+	serverMs?: number,
+	clientMs?: number
+) => {
+	const timestamp = `${colors.dim}${formatTimestamp()}${colors.reset}`;
+	const targetLabel = target.startsWith('capacitor-')
+		? target.slice('capacitor-'.length)
+		: target;
+	const tag = `${colors.cyan}[hmr:${targetLabel}]${colors.reset}`;
+	const pathColor = framework ? getFrameworkColor(framework) : colors.white;
+	const breakdown =
+		serverMs === undefined || clientMs === undefined
+			? ''
+			: `; server ${serverMs}ms, client ${clientMs}ms`;
+	console.log(
+		`${timestamp} ${tag} ${framework ?? 'update'} ${pathColor}${formatPath(path)}${colors.reset} ${colors.dim}applied in ${duration}ms${breakdown}${colors.reset}`
+	);
+};
+
 export const logHmrUpdate = (
 	path: string,
 	framework?: string,

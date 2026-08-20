@@ -490,6 +490,7 @@ export const dev = async (
 	let tunnelClient: { close(): void } | null = null;
 	let androidDevSession: AbsoluteAndroidDevSession | null = null;
 	let androidDevStart: Promise<void> | null = null;
+	const androidPhaseTimings: Record<string, number> = {};
 	let androidDevState: AbsoluteAndroidDevState | 'waiting-for-server' =
 		'waiting-for-server';
 	const androidDevAbort = new AbortController();
@@ -500,14 +501,19 @@ export const dev = async (
 		interactive?.showPrompt();
 	};
 	const startAndroidDev = () => {
-		if (!androidDevProject || androidDevStart) return;
+		const androidProject = androidDevProject;
+		if (!androidProject || androidDevStart) return;
 		androidDevStart = startAbsoluteAndroidDevSession({
 			https: httpsEnabled,
 			port,
-			project: androidDevProject,
+			project: androidProject,
 			signal: androidDevAbort.signal,
 			log: (message) => printAndroidOutput(cliTag('\x1b[36m', message)),
 			nativeLog: (entry) => printAndroidOutput(androidLogTag(entry)),
+			onPhaseTiming: ({ durationMs, phase }) => {
+				androidPhaseTimings[phase] =
+					(androidPhaseTimings[phase] ?? 0) + durationMs;
+			},
 			onStateChange: (state) => {
 				androidDevState = state;
 				if (state === 'ready' || state === 'closed') return;
@@ -523,6 +529,24 @@ export const dev = async (
 					return undefined;
 				}
 				androidDevSession = session;
+				sendTelemetryEvent('mobile:android-dev-ready', {
+					cacheHit: session.nativeCacheHit,
+					host: androidProject.host,
+					platform: 'android',
+					provider: 'capacitor',
+					startedEmulator: session.startedEmulator,
+					timings: session.timings
+				});
+				if (session.timings.building !== undefined) {
+					sendTelemetryEvent('mobile:native-build', {
+						buildMs: session.timings.building,
+						host: androidProject.host,
+						installMs: session.timings.installing,
+						platform: 'android',
+						provider: 'capacitor',
+						success: true
+					});
+				}
 
 				return undefined;
 			})
@@ -535,6 +559,13 @@ export const dev = async (
 				) {
 					return;
 				}
+				sendTelemetryEvent('mobile:android-dev-failed', {
+					host: androidProject.host,
+					phase: androidDevState,
+					platform: 'android',
+					provider: 'capacitor',
+					timings: androidPhaseTimings
+				});
 				console.error(
 					cliTag(
 						'\x1b[31m',

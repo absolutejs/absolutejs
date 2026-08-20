@@ -30,6 +30,7 @@ import {
 } from './emulatorDoctor';
 import type { NormalizedAbsoluteMobileConfig } from './config';
 import { writeAbsoluteCapacitorConfig } from './capacitorProject';
+import { getDurationString } from '../utils/getDurationString';
 
 const ANDROID_BOOT_TIMEOUT_MS = 180_000;
 const ANDROID_BOOT_POLL_MS = 1_000;
@@ -94,6 +95,11 @@ type AndroidNativeCache = {
 	installations: Record<string, string>;
 };
 
+type AndroidInstalledPackage = {
+	identity: string;
+	uid?: string;
+};
+
 export type AbsoluteAndroidDevProject = {
 	adb: string;
 	androidRoot: string;
@@ -107,11 +113,43 @@ export type AbsoluteAndroidDevProject = {
 
 export type AbsoluteAndroidDevSession = {
 	close: () => Promise<void>;
+	nativeCacheHit: boolean;
 	relaunch: () => Promise<void>;
 	serial: string;
 	state: AbsoluteAndroidDevState;
 	startedEmulator: boolean;
+	timings: Record<string, number>;
 };
+
+export type AbsoluteAndroidDevPhaseTiming = {
+	durationMs: number;
+	phase: AbsoluteAndroidDevState;
+	totalMs: number;
+};
+
+const ANDROID_TIMING_PHASES: Array<[string, string]> = [
+	['syncing', 'Capacitor sync'],
+	['configuring', 'dev config'],
+	['fingerprinting', 'fingerprint'],
+	['booting', 'emulator'],
+	['connecting', 'device ready'],
+	['forwarding', 'ADB reverse'],
+	['checking-native', 'package check'],
+	['building', 'Gradle'],
+	['installing', 'install'],
+	['launching', 'launch'],
+	['streaming-logs', 'logs']
+];
+
+const androidTimingSummary = (timings: Record<string, number>) =>
+	ANDROID_TIMING_PHASES.map(([phase, label]) => {
+		const duration = timings[phase];
+		if (duration === undefined || label === undefined) return null;
+
+		return `${label} ${getDurationString(duration)}`;
+	})
+		.filter((value): value is string => value !== null)
+		.join(', ');
 
 export type PrepareAbsoluteAndroidDevOptions = {
 	createNativeProject: boolean;
@@ -123,6 +161,7 @@ export type StartAbsoluteAndroidDevOptions = {
 	capture?: (command: string[], options?: CommandOptions) => CommandResult;
 	log?: (message: string) => void;
 	nativeLog?: (entry: AbsoluteAndroidNativeLogEntry) => void;
+	onPhaseTiming?: (timing: AbsoluteAndroidDevPhaseTiming) => void;
 	onStateChange?: (state: AbsoluteAndroidDevState) => void;
 	https?: boolean;
 	port: number;
@@ -730,12 +769,16 @@ const writeDevConfig = async (
 		flag: 'wx'
 	});
 	const currentServer = parsed.server;
+	const developmentUrl = new URL(
+		`${https ? 'https' : 'http'}://localhost:${port}${entry}`
+	);
+	developmentUrl.searchParams.set('__absolute_target', 'capacitor-android');
 	parsed.server = {
 		...(typeof currentServer === 'object' && currentServer !== null
 			? currentServer
 			: {}),
 		cleartext: !https,
-		url: `${https ? 'https' : 'http'}://localhost:${port}${entry}`
+		url: developmentUrl.href
 	};
 	await writeFile(
 		nativeConfigPath,
@@ -806,17 +849,38 @@ const completedBootSerial = (
 		: undefined;
 };
 
+const preferredCompletedBootSerial = (
+	project: AbsoluteAndroidDevProject,
+	serial: string,
+	capture: NonNullable<StartAbsoluteAndroidDevOptions['capture']>,
+	env: Record<string, string | undefined>
+) => {
+	const booted = capture(
+		[project.adb, '-s', serial, 'shell', 'getprop', 'sys.boot_completed'],
+		{ env }
+	);
+
+	return booted.exitCode === 0 && booted.stdout.trim() === '1'
+		? serial
+		: undefined;
+};
+
 const waitForManagedEmulator = async (
 	project: AbsoluteAndroidDevProject,
 	capture: NonNullable<StartAbsoluteAndroidDevOptions['capture']>,
 	sleep: NonNullable<StartAbsoluteAndroidDevOptions['sleep']>,
 	env: Record<string, string | undefined>,
-	signal?: AbortSignal
+	signal?: AbortSignal,
+	preferredSerial?: string
 ) => {
 	const deadline = Date.now() + ANDROID_BOOT_TIMEOUT_MS;
+	let firstSerial = preferredSerial;
 	const poll = async () => {
 		throwIfAborted(signal);
-		const serial = completedBootSerial(project, capture, env);
+		const serial = firstSerial
+			? preferredCompletedBootSerial(project, firstSerial, capture, env)
+			: completedBootSerial(project, capture, env);
+		firstSerial = undefined;
 		if (serial) return serial;
 		if (Date.now() >= deadline) {
 			throw new Error(
@@ -1020,15 +1084,10 @@ type EnsureAndroidDebugAppOptions = {
 };
 
 const persistInstalledAndroidNativeCache = async (
-	options: EnsureAndroidDebugAppOptions
+	options: EnsureAndroidDebugAppOptions,
+	installed: AndroidInstalledPackage | undefined
 ) => {
-	const identity = androidInstalledPackageIdentity(
-		options.project,
-		options.serial,
-		options.capture,
-		options.env
-	);
-	if (!identity) {
+	if (!installed) {
 		options.log(
 			'Android package identity was unavailable; the next session will rebuild safely.'
 		);
@@ -1040,7 +1099,7 @@ const persistInstalledAndroidNativeCache = async (
 		options.cache.fingerprint === options.fingerprint
 			? { ...options.cache.installations }
 			: {};
-	installations[options.serial] = identity;
+	installations[options.serial] = installed.identity;
 	await writeNativeCache(options.project.projectRoot, {
 		appId: options.project.config.appId,
 		fingerprint: options.fingerprint,
@@ -1054,7 +1113,7 @@ const persistInstalledAndroidNativeCache = async (
 };
 
 const ensureAndroidDebugApp = async (options: EnsureAndroidDebugAppOptions) => {
-	const installedIdentity = androidInstalledPackageIdentity(
+	const installed = androidInstalledPackageIdentity(
 		options.project,
 		options.serial,
 		options.capture,
@@ -1063,14 +1122,14 @@ const ensureAndroidDebugApp = async (options: EnsureAndroidDebugAppOptions) => {
 	const cacheHit =
 		options.cache?.appId === options.project.config.appId &&
 		options.cache.fingerprint === options.fingerprint &&
-		installedIdentity !== undefined &&
-		options.cache.installations[options.serial] === installedIdentity;
+		installed !== undefined &&
+		options.cache.installations[options.serial] === installed.identity;
 	if (cacheHit) {
 		options.log(
 			`Android native app is unchanged on ${options.serial}; skipped Gradle build and APK install.`
 		);
 
-		return;
+		return { nativeCacheHit: true, uid: installed.uid };
 	}
 	options.log(
 		'Android native inputs changed or the installed app is stale; rebuilding.'
@@ -1098,7 +1157,15 @@ const ensureAndroidDebugApp = async (options: EnsureAndroidDebugAppOptions) => {
 		options.run,
 		{ env: options.env, signal: options.signal }
 	);
-	await persistInstalledAndroidNativeCache(options);
+	const updated = androidInstalledPackageIdentity(
+		options.project,
+		options.serial,
+		options.capture,
+		options.env
+	);
+	await persistInstalledAndroidNativeCache(options, updated);
+
+	return { nativeCacheHit: false, uid: updated?.uid };
 };
 
 const startManagedEmulatorIfNeeded = (
@@ -1108,7 +1175,8 @@ const startManagedEmulatorIfNeeded = (
 	log: NonNullable<StartAbsoluteAndroidDevOptions['log']>,
 	env: Record<string, string | undefined>
 ) => {
-	if (managedEmulatorSerial(project.adb, capture, env)) return false;
+	const serial = managedEmulatorSerial(project.adb, capture, env);
+	if (serial) return { serial, started: false };
 	log(`Starting Android emulator ${ABSOLUTE_ANDROID_AVD_NAME}...`);
 	spawn(
 		[
@@ -1123,7 +1191,7 @@ const startManagedEmulatorIfNeeded = (
 		{ env }
 	);
 
-	return true;
+	return { serial: undefined, started: true };
 };
 
 const logHttpsCertificateRequirement = (
@@ -1223,8 +1291,9 @@ const androidInstalledPackageIdentity = (
 		.exec(result.stdout)?.[1]
 		?.trim();
 	if (!codePath || !lastUpdateTime) return undefined;
+	const uid = /^\s*appId=(\d+)$/mu.exec(result.stdout)?.[1];
 
-	return `${codePath}\0${lastUpdateTime}`;
+	return { identity: `${codePath}\0${lastUpdateTime}`, uid };
 };
 
 const attachAndroidNativeLogs = (
@@ -1232,10 +1301,11 @@ const attachAndroidNativeLogs = (
 	serial: string,
 	capture: NonNullable<StartAbsoluteAndroidDevOptions['capture']>,
 	env: Record<string, string | undefined>,
-	options: StartAbsoluteAndroidDevOptions
+	options: StartAbsoluteAndroidDevOptions,
+	knownUid?: string
 ) => {
 	if (!options.nativeLog) return null;
-	const uid = androidPackageUid(project, serial, capture, env);
+	const uid = knownUid ?? androidPackageUid(project, serial, capture, env);
 	if (!uid) {
 		options.log?.(
 			`Android app logs unavailable: could not resolve the package UID for ${project.config.appId}.`
@@ -1350,9 +1420,26 @@ export const startAbsoluteAndroidDevSession = async (
 	options: StartAbsoluteAndroidDevOptions
 ) => {
 	const { project } = options;
+	const startupStartedAt = performance.now();
+	let phaseStartedAt = performance.now();
+	const phaseDurations: Record<string, number> = {};
 	let state: AbsoluteAndroidDevState = 'syncing';
 	const transition = (next: AbsoluteAndroidDevState) => {
+		if (next === state) {
+			options.onStateChange?.(next);
+
+			return;
+		}
+		const now = performance.now();
+		const durationMs = now - phaseStartedAt;
+		phaseDurations[state] = (phaseDurations[state] ?? 0) + durationMs;
+		options.onPhaseTiming?.({
+			durationMs,
+			phase: state,
+			totalMs: now - startupStartedAt
+		});
 		state = next;
+		phaseStartedAt = now;
 		options.onStateChange?.(next);
 	};
 	const capture = options.capture ?? captureCommand;
@@ -1412,25 +1499,33 @@ export const startAbsoluteAndroidDevSession = async (
 		);
 		throwIfAborted(options.signal);
 		logHttpsCertificateRequirement(options.https, log);
-		transition('checking-native');
-		const nativeFingerprint =
-			await fingerprintAbsoluteAndroidNativeProject(project);
-		throwIfAborted(options.signal);
+		const fingerprintStartedAt = performance.now();
+		const nativeFingerprintPromise =
+			fingerprintAbsoluteAndroidNativeProject(project).then(
+				(fingerprint) => {
+					phaseDurations.fingerprinting =
+						performance.now() - fingerprintStartedAt;
+
+					return fingerprint;
+				}
+			);
 		transition('booting');
-		const startedEmulator = startManagedEmulatorIfNeeded(
+		const emulator = startManagedEmulatorIfNeeded(
 			project,
 			capture,
 			spawn,
 			log,
 			env
 		);
+		const { started: startedEmulator } = emulator;
 		transition('connecting');
 		const serial = await waitForManagedEmulator(
 			project,
 			capture,
 			sleep,
 			env,
-			options.signal
+			options.signal,
+			emulator.serial
 		);
 		connectedSerial = serial;
 		transition('forwarding');
@@ -1448,9 +1543,11 @@ export const startAbsoluteAndroidDevSession = async (
 			{ env, signal: options.signal }
 		);
 		throwIfAborted(options.signal);
+		const nativeFingerprint = await nativeFingerprintPromise;
+		throwIfAborted(options.signal);
 		transition('checking-native');
 		const cache = await readNativeCache(project.projectRoot);
-		await ensureAndroidDebugApp({
+		const installedApp = await ensureAndroidDebugApp({
 			cache,
 			capture,
 			env,
@@ -1462,6 +1559,7 @@ export const startAbsoluteAndroidDevSession = async (
 			signal: options.signal,
 			transition
 		});
+		const { nativeCacheHit, uid } = installedApp;
 		throwIfAborted(options.signal);
 		transition('launching');
 		await requireSuccess(
@@ -1477,17 +1575,22 @@ export const startAbsoluteAndroidDevSession = async (
 			serial,
 			capture,
 			env,
-			options
+			options,
+			uid
 		);
 		transition('ready');
+		phaseDurations.total = performance.now() - startupStartedAt;
 		log(
-			`Android emulator connected (${serial}) with HMR on port ${options.port}.`
+			`Android emulator connected (${serial}) with HMR on port ${options.port} in ${getDurationString(phaseDurations.total)} (${nativeCacheHit ? 'native cache hit' : 'native build installed'}).`
 		);
+		log(`Android startup: ${androidTimingSummary(phaseDurations)}.`);
 		let closed = false;
 
 		return {
+			nativeCacheHit,
 			serial,
 			startedEmulator,
+			timings: { ...phaseDurations },
 			close: async () => {
 				if (closed) return;
 				closed = true;
