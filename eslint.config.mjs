@@ -24,6 +24,7 @@ export default defineConfig([
 			'**/compiled/**',
 			// Generated, cached, and vendored code — not authored by us.
 			'**/.absolutejs/**',
+			'**/.absolutejs-hmr-*.ts',
 			'**/.cache/**',
 			'**/generated/**',
 			'**/vendor/**',

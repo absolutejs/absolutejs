@@ -5,6 +5,8 @@ import { connectHMR, type HMRClient } from '../../../helpers/ws';
 import { mutateFile, renameFile, restoreAllFiles } from '../../../helpers/file';
 
 const PROJECT_ROOT = resolve(import.meta.dir, '..', '..', '..', '..');
+const RENAME_CONVERGENCE_TIMEOUT_MS = 30_000;
+const RENAME_POLL_INTERVAL_MS = 100;
 
 let server: DevServer;
 let client: HMRClient;
@@ -70,13 +72,25 @@ describe('Page rename + import update → page recovers', () => {
 				)
 		);
 
-		await client.waitFor('svelte-tier-zero-ssr-rebuild-complete');
-		const html = await (await fetch(`${server.baseUrl}/svelte`)).text();
+		await client.waitFor(
+			'svelte-tier-zero-ssr-rebuild-complete',
+			RENAME_CONVERGENCE_TIMEOUT_MS
+		);
+		// A rename is observed as create + delete + importer update. The watcher
+		// may split those events across two valid debounced bundles, so the first
+		// completion can describe the intermediate component-only batch. Assert
+		// eventual SSR convergence instead of coupling the test to event grouping.
+		const deadline = Date.now() + RENAME_CONVERGENCE_TIMEOUT_MS;
+		let html = await (await fetch(`${server.baseUrl}/svelte`)).text();
+		while (!html.includes('RENAME_OK') && Date.now() < deadline) {
+			await Bun.sleep(RENAME_POLL_INTERVAL_MS);
+			html = await (await fetch(`${server.baseUrl}/svelte`)).text();
+		}
 		// Two assertions: (a) the page rendered at all (no
 		// module-not-found from the dangling import), and
 		// (b) the renamed component's compiled output is what
 		// SSR loaded (the sentinel proves the import is wired).
 		expect(html).toContain('RENAME_OK');
 		expect(html).toContain('count is 0');
-	}, 20_000);
+	}, 60_000);
 });

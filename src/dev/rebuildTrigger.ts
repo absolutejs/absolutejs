@@ -2754,7 +2754,12 @@ const runSvelteBundleRebuild = async (
 	svelteFiles: string[],
 	config: BuildConfig
 ) => {
-	if (svelteFiles.length === 0) return;
+	// Rename batches include the deleted source path as well as the new path and
+	// its importer. Passing the now-missing path to compileSvelte rejects the
+	// whole catch-up build, requeues that impossible input forever, and leaves
+	// fresh SSR requests on the old bundle even though browser HMR succeeded.
+	const existingSvelteFiles = svelteFiles.filter((file) => existsSync(file));
+	if (existingSvelteFiles.length === 0) return;
 	const svelteDir = config.svelteDirectory ?? '';
 	if (!svelteDir) return;
 	const { buildDir } = state.resolvedPaths;
@@ -2764,7 +2769,7 @@ const runSvelteBundleRebuild = async (
 
 	const { svelteServerPaths, svelteIndexPaths, svelteClientPaths } =
 		await compileSvelte(
-			svelteFiles,
+			existingSvelteFiles,
 			svelteDir,
 			new Map(),
 			true,
