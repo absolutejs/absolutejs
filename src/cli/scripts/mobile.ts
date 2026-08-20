@@ -1,5 +1,6 @@
 import { access } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import { createInterface } from 'node:readline/promises';
 import type { MobileConfig } from '../../../types/build';
 import { writeAbsoluteCapacitorConfig } from '../../mobile/capacitorProject';
 import { normalizeAbsoluteMobileConfig } from '../../mobile/config';
@@ -8,6 +9,10 @@ import {
 	inspectAbsoluteMobileToolchain,
 	type AbsoluteMobileDoctorCheck
 } from '../../mobile/emulatorDoctor';
+import {
+	fixAbsoluteMobileEmulatorToolchain,
+	planAbsoluteMobileEmulatorInstall
+} from '../../mobile/emulatorInstaller';
 import {
 	materializeAbsoluteMobileAssociationFiles,
 	verifyAbsoluteMobileAssociationFiles
@@ -165,6 +170,39 @@ const doctorMark = (status: AbsoluteMobileDoctorCheck['status']) => {
 	return '\x1b[2m-\x1b[0m';
 };
 
+const confirmInstall = async (message: string) => {
+	if (process.stdin.isTTY !== true || process.stdout.isTTY !== true) {
+		console.error(
+			'Cannot prompt for emulator installation without a TTY. Re-run with --yes to approve the displayed installation plan, or omit --fix.'
+		);
+		process.exitCode = 1;
+
+		return null;
+	}
+	const prompt = createInterface({
+		input: process.stdin,
+		output: process.stdout
+	});
+	try {
+		const answer = (await prompt.question(`${message} [Y/n] `))
+			.trim()
+			.toLowerCase();
+
+		return answer === '' || answer === 'y' || answer === 'yes';
+	} finally {
+		prompt.close();
+	}
+};
+
+const printDoctorChecks = (checks: AbsoluteMobileDoctorCheck[]) => {
+	for (const check of checks) {
+		console.log(
+			`${doctorMark(check.status)} ${check.label}${check.path ? ` (${check.path})` : ''}`
+		);
+		if (check.remediation) console.log(`  ${check.remediation}`);
+	}
+};
+
 const doctor = async (args: string[]) => {
 	const checks = await inspectAbsoluteMobileToolchain();
 	const platform = args.find(
@@ -177,16 +215,56 @@ const doctor = async (args: string[]) => {
 			)
 		: checks;
 	if (args.includes('--json')) {
+		if (args.includes('--fix')) {
+			throw new TypeError(
+				'mobile doctor --json cannot be combined with --fix.'
+			);
+		}
 		console.log(JSON.stringify({ checks: selected }, null, 2));
 
 		return;
 	}
-	for (const check of selected) {
-		console.log(
-			`${doctorMark(check.status)} ${check.label}${check.path ? ` (${check.path})` : ''}`
-		);
-		if (check.remediation) console.log(`  ${check.remediation}`);
+	printDoctorChecks(selected);
+	if (!args.includes('--fix')) return;
+	const installPlatform = platform ?? 'android';
+	const relevantFailures = selected.filter(
+		(check) =>
+			check.platform === installPlatform &&
+			(check.status === 'fail' || check.status === 'warn')
+	);
+	if (relevantFailures.length === 0) {
+		console.log(`\n${installPlatform} emulator prerequisites are ready.`);
+
+		return;
 	}
+	const plan = planAbsoluteMobileEmulatorInstall(installPlatform);
+	console.log(`\nAbsoluteJS can configure ${installPlatform} emulation:`);
+	for (const [index, step] of plan.steps.entries()) {
+		console.log(`  ${index + 1}. ${step.label}`);
+		console.log(`     ${step.detail}`);
+	}
+	const approved =
+		args.includes('--yes') ||
+		(await confirmInstall(
+			`Install and configure ${installPlatform} emulator prerequisites now?`
+		));
+	if (approved === null) return;
+	if (!approved) {
+		console.log('Installation skipped. No machine changes were made.');
+
+		return;
+	}
+	console.log('');
+	const result = await fixAbsoluteMobileEmulatorToolchain(installPlatform, {
+		acceptLicenses: args.includes('--yes')
+	});
+	console.log('\nEmulator setup verification:');
+	printDoctorChecks(
+		result.checks.filter(
+			(check) =>
+				check.platform === 'host' || check.platform === installPlatform
+		)
+	);
 };
 
 export const runMobile = async (args: string[]) => {
@@ -213,6 +291,6 @@ export const runMobile = async (args: string[]) => {
 	}
 
 	throw new TypeError(
-		'Usage: absolute mobile <init [--no-native] [--force] | sync [ios|android] | associations [--outdir dir] [--verify] | doctor [ios|android] [--json]> [--config path]'
+		'Usage: absolute mobile <init [--no-native] [--force] | sync [ios|android] | associations [--outdir dir] [--verify] | doctor [ios|android] [--json|--fix [--yes]]> [--config path]'
 	);
 };

@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import {
 	detectAbsoluteMobileHost,
-	inspectAbsoluteMobileToolchain
+	inspectAbsoluteMobileToolchain,
+	type InspectAbsoluteMobileToolchainOptions
 } from '../../../src/mobile/emulatorDoctor';
 
 describe('mobile emulator doctor', () => {
@@ -24,6 +25,7 @@ describe('mobile emulator doctor', () => {
 		const checks = await inspectAbsoluteMobileToolchain({
 			env: { ANDROID_HOME: root },
 			host: 'linux',
+			capture: () => ({ exitCode: 0, stdout: 'AbsoluteJS_API_36\n' }),
 			exists: async (path) => available.has(path),
 			which: (command) => (command === 'java' ? '/usr/bin/java' : null)
 		});
@@ -40,6 +42,7 @@ describe('mobile emulator doctor', () => {
 
 	test('recognizes a Windows-host adb bridge from WSL', async () => {
 		const checks = await inspectAbsoluteMobileToolchain({
+			androidRoot: null,
 			env: {},
 			host: 'wsl',
 			exists: async () => false,
@@ -56,6 +59,7 @@ describe('mobile emulator doctor', () => {
 
 	test('reports actionable missing tool failures', async () => {
 		const checks = await inspectAbsoluteMobileToolchain({
+			androidRoot: null,
 			env: {},
 			host: 'macos',
 			exists: async () => false,
@@ -68,5 +72,36 @@ describe('mobile emulator doctor', () => {
 		expect(checks.find((check) => check.id === 'ios.xcrun')).toMatchObject({
 			status: 'fail'
 		});
+	});
+
+	test('requires an available iOS Simulator runtime, not only Xcode', async () => {
+		const base: InspectAbsoluteMobileToolchainOptions = {
+			androidRoot: null,
+			env: {},
+			host: 'macos',
+			exists: async () => false,
+			which: (command: string) =>
+				command === 'xcrun' || command === 'xcodebuild'
+					? `/usr/bin/${command}`
+					: null
+		};
+		const missing = await inspectAbsoluteMobileToolchain({
+			...base,
+			capture: () => ({ exitCode: 0, stdout: '{"runtimes":[]}' })
+		});
+		const available = await inspectAbsoluteMobileToolchain({
+			...base,
+			capture: () => ({
+				exitCode: 0,
+				stdout: '{"runtimes":[{"identifier":"com.apple.CoreSimulator.SimRuntime.iOS-26-0","isAvailable":true}]}'
+			})
+		});
+
+		expect(
+			missing.find((check) => check.id === 'ios.runtime')?.status
+		).toBe('fail');
+		expect(
+			available.find((check) => check.id === 'ios.runtime')?.status
+		).toBe('pass');
 	});
 });

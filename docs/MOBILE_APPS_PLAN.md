@@ -1058,6 +1058,7 @@ absolute mobile run <ios|android>
 absolute mobile open <ios|android>
 absolute mobile build <ios|android>
 absolute mobile doctor [ios|android]
+absolute mobile doctor [ios|android] --fix [--yes]
 absolute mobile doctor --release [ios|android]
 absolute mobile explain <route>
 ```
@@ -1245,6 +1246,20 @@ distinguishes missing tool, wrong version, missing runtime, unavailable
 virtualization, boot timeout, unauthorized physical device, unreachable dev server,
 failed HMR WebSocket, stale native config and app crash. `absolute mobile targets`
 lists provider, platform, OS/API, architecture, state and stable target ID.
+
+The implemented guided setup form is `absolute mobile doctor android --fix`. It
+prints the complete machine-change plan before asking for confirmation, refuses to
+prompt without a TTY, and supports explicit `--yes` for automation. Android setup
+downloads a pinned Google command-line-tools archive, verifies its published
+SHA-256 checksum, installs the SDK/emulator/API packages, presents SDK licenses for
+acceptance (or accepts them only under `--yes`), and idempotently creates an
+`AbsoluteJS_API_36` AVD. The managed SDK is isolated under `.absolutejs` in the
+user profile. WSL deliberately installs the Windows toolchain under Windows Local
+AppData and invokes its `.exe`/`.bat` tools through interop; it does not silently
+create an unusable Linux emulator without KVM. `--json` remains read-only and is
+incompatible with `--fix`. On macOS, `doctor ios --fix` uses Xcode's supported
+platform-runtime downloader after Xcode itself is present; other hosts fail with a
+clear platform requirement.
 
 The emulator controller itself is provider-neutral and dependency-injected so its
 state machine, command construction, cancellation and crash recovery are unit-
