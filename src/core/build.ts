@@ -3371,7 +3371,13 @@ const buildUnlocked = async ({
 	await tracePhase('cleanup/generated', () =>
 		cleanup({
 			angularDir,
-			preserveAngularGenerated: skipAngularClientBundle,
+			// The dev module server and tiered Angular HMR both execute the
+			// stable generated graph. An incremental dependency-only build can
+			// legitimately have zero Angular client entries; deleting the graph
+			// in that pass races a just-completed `angular:rebootstrap` and leaves
+			// its page imports missing. Deleted source twins are already removed
+			// precisely by rebuildTrigger's stale-generated cleanup.
+			preserveAngularGenerated: hmr && angularDir !== undefined,
 			reactDir,
 			svelteDir,
 			vueDir

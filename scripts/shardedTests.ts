@@ -63,6 +63,7 @@ const DURATION_HINTS_MS: Record<string, number> = {
 // compiler-heavy shards saturate the host. Keep their assertions unchanged
 // and run them serially from clean runtime state before the parallel shards.
 const EXCLUSIVE_TEST_FILES = new Set([
+	'tests/integration/compile.test.ts',
 	'tests/integration/hmr/multiframework/native-target-conformance.test.ts',
 	'tests/integration/hmr/assets/asset-hashing.test.ts',
 	'tests/integration/hmr/lifecycle/cli-crash-loop-guard.test.ts',
@@ -224,16 +225,21 @@ const runTestProcess = async (
 	files: string[]
 ) => {
 	const startedAt = performance.now();
+	const testEnv: Record<string, string | undefined> = {
+		...process.env,
+		// Bun loads the repository's .env for `bun run`, but `bun test` files
+		// allocate their own isolated ports. Do not let a developer's local
+		// server port become a global fixed port for every shard child.
+		// Disable Bun's global transpiler cache too: cached modules can retain
+		// checkout-specific absolute paths.
+		BUN_RUNTIME_TRANSPILER_CACHE_PATH: '0',
+		COMPILE_PORT: '0',
+		FORCE_COLOR: '0',
+		TELEMETRY_OFF: '1'
+	};
 	const proc = Bun.spawn(['bun', 'test', ...files], {
 		cwd: testCwd,
-		env: {
-			...process.env,
-			// Bun's default transpiler cache is global and content-addressed,
-			// but cached modules can retain checkout-specific absolute paths.
-			BUN_RUNTIME_TRANSPILER_CACHE_PATH: '0',
-			FORCE_COLOR: '0',
-			TELEMETRY_OFF: '1'
-		},
+		env: testEnv,
 		stderr: 'pipe',
 		stdout: 'pipe'
 	});

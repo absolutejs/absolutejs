@@ -136,6 +136,20 @@ const buildHmrTail = (className: string, encodedIdLiteral: string) => `
   const __ng_hmr_ack = (tier, applyMs, error, updateId) => {
     try {
       const ws = globalThis.__HMR_WS__;
+      const target = globalThis.__ABS_HMR_TARGET__ || 'web';
+      const timing = {
+        clientMs: Math.round(applyMs),
+        duration: Math.round(applyMs),
+        kind: 'component',
+        outcome: error ? 'failed' : 'applied',
+        serverMs: 0,
+        target,
+        updateId
+      };
+      globalThis.__ABS_HMR_LAST_APPLY__ = timing;
+      const applies = globalThis.__ABS_HMR_APPLIES__ || (globalThis.__ABS_HMR_APPLIES__ = []);
+      applies.push(timing);
+      if (applies.length > 50) applies.splice(0, applies.length - 50);
       if (ws && ws.readyState === 1) {
         ws.send(JSON.stringify({
           type: 'angular:hmr-ack',
@@ -144,7 +158,7 @@ const buildHmrTail = (className: string, encodedIdLiteral: string) => `
           tier,
           applyMs,
           error,
-          target: globalThis.__ABS_HMR_TARGET__ || 'web',
+          target,
           updateId
         }));
       }

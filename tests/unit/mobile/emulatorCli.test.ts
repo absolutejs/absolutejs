@@ -67,4 +67,37 @@ describe('mobile emulator CLI', () => {
 		expect(exitCode).toBe(0);
 		expect(JSON.parse(stdout).checks).toBeArray();
 	});
+
+	test('validates an Android conformance port before inspecting the SDK', async () => {
+		const subprocess = Bun.spawn(
+			[
+				process.execPath,
+				resolve(ROOT, 'src/cli/index.ts'),
+				'mobile',
+				'test',
+				'android',
+				'--config',
+				resolve(
+					ROOT,
+					'tests/fixtures/mobile-native-conformance/absolute.config.ts'
+				),
+				'--port',
+				'0'
+			],
+			{
+				cwd: ROOT,
+				stderr: 'pipe',
+				stdin: 'ignore',
+				stdout: 'pipe'
+			}
+		);
+		const [exitCode, stderr] = await Promise.all([
+			subprocess.exited,
+			new Response(subprocess.stderr).text()
+		]);
+
+		expect(exitCode).toBe(1);
+		expect(stderr).toContain('must be a valid TCP port');
+		expect(stderr).not.toContain('TypeError:');
+	});
 });

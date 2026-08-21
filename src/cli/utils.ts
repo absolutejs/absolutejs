@@ -1,6 +1,7 @@
 import { $ } from 'bun';
 import { execSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
+import { createServer } from 'node:net';
 import { resolve } from 'node:path';
 import type { DbScripts } from '../../types/cli';
 import { MILLISECONDS_IN_A_SECOND } from '../constants';
@@ -30,16 +31,30 @@ const safeKill = (pid: number) => {
 // `DEFAULT_PORT + 1` is frequently occupied on CI runners, and the `lsof`-based
 // stale-process cleanup is a no-op on minimal images where `lsof` isn't installed —
 // together those produced an EADDRINUSE that failed every runner compile.
-export const findFreePort = () => {
-	const server = Bun.serve({ port: 0, fetch: () => new Response() });
-	const { port } = server;
-	server.stop(true);
-	if (port === undefined) {
-		throw new Error('Failed to allocate a free port');
-	}
+export const findFreePort = () =>
+	new Promise<number>((_resolve, reject) => {
+		const server = createServer();
+		server.unref();
+		server.once('error', reject);
+		server.listen(0, '127.0.0.1', () => {
+			const address = server.address();
+			if (!address || typeof address === 'string') {
+				server.close();
+				reject(new Error('Failed to allocate a free port'));
 
-	return port;
-};
+				return;
+			}
+
+			server.close((error) => {
+				if (error) {
+					reject(error);
+
+					return;
+				}
+				_resolve(address.port);
+			});
+		});
+	});
 
 export const killStaleProcesses = (
 	port: number,

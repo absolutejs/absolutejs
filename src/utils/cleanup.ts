@@ -10,10 +10,10 @@ type CleanupProps = {
 	reactDir?: string;
 	svelteDir?: string;
 	vueDir?: string;
-	// In dev with `skipAngularClientBundle`, the Angular hydration TS
-	// files in `.absolutejs/generated/angular/indexes/` are served live
-	// by `moduleServer` at `/@src/...`. Wiping them at the end of the
-	// build would 500 every Angular page load until the next rebuild.
+	// In dev, Angular hydration indexes and the JIT dependency graph under
+	// `.absolutejs/generated/angular/` are served live by `moduleServer`.
+	// Incremental dependency-only builds may contain no Angular entrypoints,
+	// but still must not wipe the graph used by the current manifest.
 	preserveAngularGenerated?: boolean;
 };
 

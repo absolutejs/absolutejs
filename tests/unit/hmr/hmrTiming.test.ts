@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test';
 import {
 	absoluteHmrClientTarget,
+	restoreAbsoluteHmrApply,
 	sendAbsoluteHmrTiming
 } from '../../../src/dev/client/hmrTiming';
 
@@ -51,5 +52,74 @@ describe('HMR client timing', () => {
 		expect(payload.updateId).toBe(123);
 		expect(payload).not.toHaveProperty('appId');
 		expect(payload).not.toHaveProperty('path');
+		expect((globalThis.window as Window).__ABS_HMR_LAST_APPLY__).toEqual({
+			clientMs: payload.clientMs,
+			duration: payload.duration,
+			kind: 'html',
+			outcome: 'applied',
+			serverMs: 18,
+			target: 'capacitor-android',
+			updateId: 123
+		});
+		const applies = (globalThis.window as Window).__ABS_HMR_APPLIES__;
+		expect(applies).toHaveLength(1);
+		expect(applies?.[0]).toEqual(
+			(globalThis.window as Window).__ABS_HMR_LAST_APPLY__
+		);
+	});
+
+	test('records an apply for deterministic automation without a websocket', () => {
+		Reflect.set(globalThis, 'window', {});
+		sendAbsoluteHmrTiming({
+			clientStart: performance.now(),
+			kind: 'css',
+			updateId: 456
+		});
+		expect(
+			(globalThis.window as Window).__ABS_HMR_LAST_APPLY__
+		).toMatchObject({
+			kind: 'css',
+			outcome: 'applied',
+			target: 'web',
+			updateId: 456
+		});
+	});
+
+	test('retains a bounded history so overlapping applies remain observable', () => {
+		Reflect.set(globalThis, 'window', {});
+		for (let updateId = 1; updateId <= 55; updateId += 1) {
+			sendAbsoluteHmrTiming({ clientStart: performance.now(), updateId });
+		}
+		const applies = (globalThis.window as Window).__ABS_HMR_APPLIES__ ?? [];
+		expect(applies).toHaveLength(50);
+		expect(applies[0]?.updateId).toBe(6);
+		expect(applies.at(-1)?.updateId).toBe(55);
+	});
+
+	test('restores an apply after a same-tab fallback reload', () => {
+		const values = new Map<string, string>();
+		const sessionStorage: Pick<Storage, 'getItem' | 'setItem'> = {
+			getItem: (key: string) => values.get(key) ?? null,
+			setItem: (key: string, value: string) => values.set(key, value)
+		};
+		Reflect.set(globalThis, 'window', { sessionStorage });
+		sendAbsoluteHmrTiming({
+			clientStart: performance.now(),
+			kind: 'component',
+			outcome: 'reloaded',
+			updateId: 789
+		});
+		Reflect.set(globalThis, 'window', { sessionStorage });
+		restoreAbsoluteHmrApply();
+		expect(
+			(globalThis.window as Window).__ABS_HMR_LAST_APPLY__
+		).toMatchObject({
+			kind: 'component',
+			outcome: 'reloaded',
+			updateId: 789
+		});
+		expect((globalThis.window as Window).__ABS_HMR_APPLIES__).toHaveLength(
+			1
+		);
 	});
 });

@@ -74,6 +74,16 @@ declare global {
 		__HMR_UPDATE_COUNT__?: number;
 		__HMR_WS__?: WebSocket;
 		__ABS_HMR_TARGET__?: import('./messages').HMRClientTarget;
+		__ABS_HMR_LAST_APPLY__?: {
+			clientMs: number;
+			duration: number;
+			kind?: import('./messages').HMRApplyKind;
+			outcome: import('./messages').HMRApplyOutcome;
+			serverMs: number;
+			target: import('./messages').HMRClientTarget;
+			updateId?: number;
+		};
+		__ABS_HMR_APPLIES__?: NonNullable<Window['__ABS_HMR_LAST_APPLY__']>[];
 		__ERROR_BOUNDARY__?: { reset: () => void };
 		__INITIAL_PROPS__?: Record<string, unknown>;
 		__ABSOLUTE_PAGE_RENDER_MODE__?: 'client' | 'hydrate';

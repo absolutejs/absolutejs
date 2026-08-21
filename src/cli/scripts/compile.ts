@@ -1423,12 +1423,19 @@ const compileUnlocked = async (
 	outfile?: string,
 	configPath?: string
 ) => {
-	// Pick a guaranteed-free port for the pre-render server. An explicit
-	// COMPILE_PORT/PORT still wins; otherwise grab an OS-assigned free port rather
-	// than the old DEFAULT_PORT+1 guess (which collides on CI runners and can't be
-	// cleared there because the lsof-based killStaleProcesses no-ops without lsof).
+	// Pick a guaranteed-free port for the pre-render server. A positive explicit
+	// COMPILE_PORT/PORT still wins; COMPILE_PORT=0 explicitly requests an
+	// OS-assigned port even when an ambient PORT exists. This avoids the old
+	// DEFAULT_PORT+1 guess, which collides on CI runners and can't be cleared there
+	// when the lsof-based killStaleProcesses no-ops without lsof.
+	const configuredPrerenderPort =
+		env.COMPILE_PORT === undefined
+			? Number(env.PORT)
+			: Number(env.COMPILE_PORT);
 	const prerenderPort =
-		Number(env.COMPILE_PORT) || Number(env.PORT) || findFreePort();
+		configuredPrerenderPort > 0
+			? configuredPrerenderPort
+			: await findFreePort();
 	killStaleProcesses(prerenderPort);
 
 	const entryName = basename(serverEntry).replace(/\.[^.]+$/, '');

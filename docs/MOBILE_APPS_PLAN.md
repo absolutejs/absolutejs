@@ -1,6 +1,6 @@
 # AbsoluteJS Mobile Apps: Research and Implementation Plan
 
-Status: Android Capacitor development loop operational; all-framework native-target HMR conformance implemented
+Status: Android Capacitor development loop operational; real API 36 all-framework HMR conformance passing
 Research snapshot: August 20, 2026
 
 Implementation checkpoint (August 20, 2026): the first React protocol seam now
@@ -1326,6 +1326,26 @@ while preventing framework runtimes from contaminating one another. Real Android
 acceptance remains the transport/device gate; this matrix is the fast deterministic
 framework gate that runs without an SDK.
 
+That transport/device gate is now implemented too. The opt-in
+`bun run test:native:android` suite boots or reuses AbsoluteJS's managed API 36
+emulator, builds and installs the actual Capacitor application, attaches directly
+to its WebView through ADB's Chrome DevTools socket, and exercises ten behavioral
+cases: Angular, React, Vue, Svelte, HTML, HTMX, Ember's explicit reload fallback,
+CSS, overlay recovery, and background/relaunch. All ten pass in one native session.
+The fixed default test port preserves the native fingerprint across reruns; the
+measured warm run reached a ready emulator in 3.62 seconds with Gradle and APK
+installation skipped, then completed the matrix in 49.32 seconds. This suite is
+deliberately opt-in so ordinary unit/integration inventories never require an SDK.
+
+The same CDP bridge is available interactively as
+`absolute mobile test android`. Repeating `--route /path` checks any set of real
+routes in the installed app, while `--wait-for-hmr` waits for a source save and
+requires a correlated client-apply acknowledgement. `--json` produces a machine
+report; failures preserve redacted diagnostics plus a WebView screenshot under
+`.absolutejs/mobile/test-artifacts`. Its telemetry contains only provider,
+platform, duration, route count, success, and whether HMR was requested—never app
+identity, route, device serial, or source content.
+
 Real WSL2/Windows acceptance established the host boundary more precisely. Gradle
 cannot reliably build a project directly from a `\\wsl.localhost` UNC path, so the
 broker mirrors the generated Android project into a dedicated Windows Local AppData
@@ -2293,6 +2313,8 @@ Deliverables:
 Exit criteria:
 
 - Code/CSS updates work for representative pages in all frameworks.
+- The real Android WebView conformance gate passes all supported page families,
+  CSS, error recovery, and lifecycle relaunch in one app session.
 - Interrupts and crashes cannot leave production-unsafe config behind.
 - Release doctor catches intentionally leaked dev configuration.
 

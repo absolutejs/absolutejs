@@ -2167,6 +2167,21 @@ const compileAndBundleAngular = async (
 			)
 		)
 	);
+	// The providers module is not part of the page's source import graph: its
+	// import is appended to generated page output by the injection transform.
+	// Client bundling may consume or replace generated intermediates, so the
+	// page re-walk above cannot recreate a missing appProviders.js on its own.
+	// Re-emit the provider chain last, before publishing the completion event,
+	// so a reload/SSR request can never observe a manifest whose injected
+	// dependency is absent.
+	if (providersInjection.appProvidersSource) {
+		await compileAngularFileJIT(
+			providersInjection.appProvidersSource,
+			generatedAngularRoot,
+			resolvedAngularDir,
+			styleTransformConfig
+		);
+	}
 
 	broadcastToClients(state, {
 		data: { manifest: state.manifest },

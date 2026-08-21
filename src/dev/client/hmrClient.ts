@@ -11,7 +11,11 @@ import {
 	WEBSOCKET_NORMAL_CLOSURE
 } from './constants';
 import { detectCurrentFramework } from './frameworkDetect';
-import { absoluteHmrClientTarget, sendAbsoluteHmrTiming } from './hmrTiming';
+import {
+	absoluteHmrClientTarget,
+	restoreAbsoluteHmrApply,
+	sendAbsoluteHmrTiming
+} from './hmrTiming';
 import { hideErrorOverlay, showErrorOverlay } from './errorOverlay';
 import {
 	dispatchAngularComponentRemount,
@@ -38,6 +42,8 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const isStringRecord = (value: unknown): value is Record<string, string> =>
 	isRecord(value) &&
 	Object.values(value).every((entry) => typeof entry === 'string');
+
+restoreAbsoluteHmrApply();
 
 /* Lightweight "server disconnected" banner. When the dev server is
  * genuinely down (process restarting or crashed) the browser would

@@ -183,7 +183,12 @@ if (command === 'dev') {
 		command: `mobile:${workspaceCommand ?? 'unknown'}`
 	});
 	const { runMobile } = await import('./scripts/mobile');
-	await runMobile(args);
+	try {
+		await runMobile(args);
+	} catch (error) {
+		console.error(error instanceof Error ? error.message : String(error));
+		process.exitCode = 1;
+	}
 } else if (command === 'typecheck') {
 	sendTelemetryEvent('cli:command', { command });
 	const configPath = parseNamedArg('--config');
@@ -221,7 +226,7 @@ if (command === 'dev') {
 		'  compile [entry] [--outdir dir] [--outfile path] Compile standalone executable'
 	);
 	console.error(
-		'  mobile <init|sync|associations|doctor> Manage Capacitor projects, guided emulator setup, and deep links'
+		'  mobile <init|sync|associations|doctor|test> Manage Capacitor projects, emulator conformance, guided setup, and deep links'
 	);
 	console.error(
 		'  config [--port n] Open the unified config UI (ESLint, tsconfig, Prettier)'

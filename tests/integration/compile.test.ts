@@ -1321,10 +1321,13 @@ export default defineConfig({
 		const fixtureRoot = await compileStressFixture();
 
 		const startPort = await getAvailablePort();
-		const compiledPort = await getAvailablePort();
 		const startProc = await startProductionServer(fixtureRoot, startPort, {
 			COMPILE_RUNTIME_SECRET: 'runtime-secret'
 		});
+		// Bind the first server before asking the kernel for another ephemeral
+		// port. Two consecutive unbound reservations may legitimately return the
+		// same port and leave the second server waiting forever.
+		const compiledPort = await getAvailablePort();
 		const compiledProc = await startCompiledServer(
 			fixtureRoot,
 			compiledPort,
