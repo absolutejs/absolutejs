@@ -69,13 +69,16 @@ const EXCLUSIVE_TEST_FILES = new Set([
 	'tests/integration/hmr/lifecycle/cli-crash-loop-guard.test.ts',
 	'tests/integration/hmr/lifecycle/htmx-deeper-coverage.test.ts',
 	'tests/integration/hmr/lifecycle/angular-state-preservation.test.ts',
+	'tests/integration/hmr/lifecycle/angular-config-providers.test.ts',
+	'tests/integration/hmr/lifecycle/hmr-at-scale.test.ts',
 	'tests/integration/hmr/lifecycle/svelte-state-preservation.test.ts',
 	'tests/integration/hmr/lifecycle/vue-state-preservation.test.ts',
 	'tests/integration/hmr/lifecycle/spa-child-style.test.ts',
 	'tests/integration/hmr/lifecycle/angular-tiering.test.ts',
 	'tests/integration/server/prod-hardening.test.ts',
 	'tests/integration/server/prod-startup.test.ts',
-	'tests/integration/server/prod-ssr.test.ts'
+	'tests/integration/server/prod-ssr.test.ts',
+	'tests/integration/images/optimization.test.ts'
 ]);
 
 type RunnerArgs = { shards: number; testDir: string };

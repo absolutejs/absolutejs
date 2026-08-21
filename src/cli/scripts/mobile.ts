@@ -28,6 +28,7 @@ import {
 	type AbsoluteAndroidRouteCheck
 } from '../../mobile/androidConformance';
 import { sendTelemetryEvent } from '../telemetryEvent';
+import { inspectAbsoluteMobileRelease } from '../../mobile/releaseDoctor';
 
 const NOT_FOUND = -1;
 
@@ -242,7 +243,39 @@ const printDoctorChecks = (checks: AbsoluteMobileDoctorCheck[]) => {
 	}
 };
 
+const runReleaseDoctor = async (args: string[]) => {
+	const { mobile, projectRoot } = await loadMobile(
+		valueAfter(args, '--config')
+	);
+	const result = await inspectAbsoluteMobileRelease(mobile, projectRoot);
+	if (args.includes('--json')) {
+		console.log(JSON.stringify(result, null, 2));
+	} else {
+		result.checks.forEach((check) => {
+			console.log(
+				`${doctorMark(check.status)} ${check.detail}${check.path ? ` (${check.path})` : ''}`
+			);
+			if (check.remediation) console.log(`  ${check.remediation}`);
+		});
+		console.log(
+			result.ready
+				? '\nMobile release transport checks passed.'
+				: '\nMobile release transport checks failed.'
+		);
+	}
+	if (!result.ready) {
+		throw new TypeError(
+			'Mobile release validation failed. Resolve every failed check before signing or publishing the app.'
+		);
+	}
+};
+
 const doctor = async (args: string[]) => {
+	if (args.includes('release')) {
+		await runReleaseDoctor(args);
+
+		return;
+	}
 	const checks = await inspectAbsoluteMobileToolchain();
 	const platform = args.find(
 		(value) => value === 'android' || value === 'ios'
@@ -617,6 +650,6 @@ export const runMobile = async (args: string[]) => {
 	}
 
 	throw new TypeError(
-		'Usage: absolute mobile <init [--no-native] [--force] | sync [ios|android] | associations [--outdir dir] [--verify] | doctor [ios|android] [--json|--fix [--yes]] | test android [--route path] [--wait-for-hmr] [--timeout ms] [--port n] [--serial id] [--artifacts dir] [--json]> [--config path]'
+		'Usage: absolute mobile <init [--no-native] [--force] | sync [ios|android] | associations [--outdir dir] [--verify] | doctor [ios|android|release] [--json|--fix [--yes]] | test android [--route path] [--wait-for-hmr] [--timeout ms] [--port n] [--serial id] [--artifacts dir] [--json]> [--config path]'
 	);
 };

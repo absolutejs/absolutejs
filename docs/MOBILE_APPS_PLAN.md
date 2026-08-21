@@ -1059,7 +1059,7 @@ absolute mobile open <ios|android>
 absolute mobile build <ios|android>
 absolute mobile doctor [ios|android]
 absolute mobile doctor [ios|android] --fix [--yes]
-absolute mobile doctor --release [ios|android]
+absolute mobile doctor release [--json]
 absolute mobile explain <route>
 ```
 
@@ -1272,8 +1272,7 @@ the Windows SDK/emulator and a PowerShell Gradle broker. Live-reload changes to 
 copied native Capacitor config are journaled and restored on normal shutdown,
 startup failure, cancellation, or the next run after a crash. The managed emulator
 stays warm after shutdown for fast subsequent starts. iOS, physical devices,
-mobile-preview UI, in-process native-delta rebuilds, and trusted local HTTPS are still
-subsequent slices of Phase 4.
+mobile-preview UI, and trusted local HTTPS are still subsequent slices of Phase 4.
 
 Android startup now implements the persisted native-delta fast path. After sync and
 temporary development transport projection, AbsoluteJS content-hashes the effective
@@ -1383,6 +1382,43 @@ unrelated verbose/debug chatter below warning severity. ANSI/control sequences,
 authorization credentials, cookies, OAuth codes and common token/password fields
 are redacted before output. The log process is owned by the cancellable session and
 is stopped before reverse-port and native-config cleanup.
+
+Android lifecycle/rebuild hardening is now implemented as a second native
+conformance layer. A debounced watcher fingerprints the effective native graph;
+page, CSS and public-asset changes remain on the HMR path and never invoke Gradle,
+while native source, plugin/dependency, Capacitor config, Absolute config, package
+manifest or lockfile changes close the temporary projection, sync, rebuild/install
+when the fingerprint requires it, and relaunch without restarting the Bun server.
+Changes arriving during a rebuild are coalesced, and a failed rebuild is retryable
+by the next native edit instead of leaving the dev process wedged. Successful and
+failed native rebuild telemetry contains only host/provider/platform, cache status,
+timings and whether a root input changed; source paths are never transmitted.
+
+The opt-in lifecycle suite now proves server kill/restart and WebSocket recovery,
+Android process death plus relaunch/reattachment, a real watched Java edit through
+Gradle/install/relaunch with the same Bun PID, and a no-op native rebuild that skips
+Gradle and installation. It enforces configurable cold, warm, reconnect and native
+rebuild budgets. The first API 36 hardening run passed all five cases: no-op session
+replacement took 2.21 seconds, server reconnect 7.64 seconds, process-death recovery
+14.23 seconds, and the watched native rebuild session 32.74 seconds (45.6 seconds
+end-to-end including observation). `bun run test:native:android` runs this lifecycle
+suite before the ten-case framework HMR suite; the HMR suite runs second so its
+restored sources leave the persisted native fingerprint clean.
+
+`absolute mobile doctor release [--json]` now fails closed when an Android dev
+journal is active, the packaged Capacitor config contains a server URL, cleartext
+transport or navigation allowlist, the manifest explicitly permits cleartext, or
+packaged assets contain an HMR client marker. It passes only after dev cleanup has
+restored the production projection. Platforms without implemented release checks
+also fail closed rather than receiving a misleading green result.
+
+Capacitor 8's SystemBars plugin legitimately owns native safe-area variables on
+the document root. Absolute's browser JSX runtime now marks `<html>` hydration as
+safe only when Capacitor reports a native platform, retaining full hydration
+diagnostics on the web and requiring no page-author changes. Android log streaming
+filters only Capacitor's known pre-DOM null diagnostic while retaining SystemBars;
+disabling inset handling is not used because it changes edge-to-edge layout on
+modern Android.
 
 The implemented Android controller is dependency-injected so its state machine,
 command construction, cancellation and crash recovery are unit-testable without an

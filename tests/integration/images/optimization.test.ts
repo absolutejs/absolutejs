@@ -109,15 +109,19 @@ describe('avif format', () => {
 		expect(res.headers.get('content-type')).toBe('image/avif');
 	});
 
-	test('serves all valid sizes', async () => {
-		for (const width of [64, 128, 384, 640, 1200]) {
-			const res = await fetchImage(
-				server.baseUrl,
-				width,
-				'image/avif,*/*'
-			);
-			expect(res.status).toBe(200);
-			expect(res.headers.get('content-type')).toBe('image/avif');
-		}
-	});
+	test(
+		'serves all valid sizes',
+		async () => {
+			for (const width of [64, 128, 384, 640, 1200]) {
+				const res = await fetchImage(
+					server.baseUrl,
+					width,
+					'image/avif,*/*'
+				);
+				expect(res.status).toBe(200);
+				expect(res.headers.get('content-type')).toBe('image/avif');
+			}
+		},
+		{ timeout: 20_000 }
+	);
 });

@@ -154,6 +154,10 @@ const withNativePage = async (
 			}
 			await Promise.race([session?.close(), Bun.sleep(5_000)]);
 			session = undefined;
+			if (readinessTimeout) {
+				await server?.kill();
+				server = await startConformanceServer();
+			}
 			await Bun.sleep(100);
 		}
 	}

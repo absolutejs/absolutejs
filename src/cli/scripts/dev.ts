@@ -52,6 +52,10 @@ import {
 } from '../../mobile/emulatorDoctor';
 import { fixAbsoluteMobileEmulatorToolchain } from '../../mobile/emulatorInstaller';
 import {
+	createAbsoluteAndroidNativeWatcher,
+	type AbsoluteAndroidNativeWatcher
+} from '../../mobile/androidNativeWatcher';
+import {
 	COMPOSE_PATH,
 	isWSLEnvironment,
 	printHelp,
@@ -490,6 +494,7 @@ export const dev = async (
 	let tunnelClient: { close(): void } | null = null;
 	let androidDevSession: AbsoluteAndroidDevSession | null = null;
 	let androidDevStart: Promise<void> | null = null;
+	let androidNativeWatcher: AbsoluteAndroidNativeWatcher | null = null;
 	const androidPhaseTimings: Record<string, number> = {};
 	let androidDevState: AbsoluteAndroidDevState | 'waiting-for-server' =
 		'waiting-for-server';
@@ -500,10 +505,30 @@ export const dev = async (
 		writeInstanceLog(`${output}\n`);
 		interactive?.showPrompt();
 	};
-	const startAndroidDev = () => {
-		const androidProject = androidDevProject;
-		if (!androidProject || androidDevStart) return;
-		androidDevStart = startAbsoluteAndroidDevSession({
+	const publishAndroidReady = (
+		session: AbsoluteAndroidDevSession,
+		androidProject: AbsoluteAndroidDevProject
+	) => {
+		sendTelemetryEvent('mobile:android-dev-ready', {
+			cacheHit: session.nativeCacheHit,
+			host: androidProject.host,
+			platform: 'android',
+			provider: 'capacitor',
+			startedEmulator: session.startedEmulator,
+			timings: session.timings
+		});
+		if (session.timings.building === undefined) return;
+		sendTelemetryEvent('mobile:native-build', {
+			buildMs: session.timings.building,
+			host: androidProject.host,
+			installMs: session.timings.installing,
+			platform: 'android',
+			provider: 'capacitor',
+			success: true
+		});
+	};
+	const openAndroidDevSession = (androidProject: AbsoluteAndroidDevProject) =>
+		startAbsoluteAndroidDevSession({
 			https: httpsEnabled,
 			port,
 			project: androidProject,
@@ -521,7 +546,67 @@ export const dev = async (
 					cliTag('\x1b[36m', `Android emulator: ${state}.`)
 				);
 			}
-		})
+		});
+	const ensureAndroidNativeWatcher = async (
+		androidProject: AbsoluteAndroidDevProject
+	) => {
+		if (androidNativeWatcher) return;
+		androidNativeWatcher = await createAbsoluteAndroidNativeWatcher({
+			project: androidProject,
+			signal: androidDevAbort.signal,
+			onChange: async (change) => {
+				if (cleaning) return;
+				printAndroidOutput(
+					cliTag(
+						'\x1b[36m',
+						`Android native inputs changed (${change.paths.length} path${change.paths.length === 1 ? '' : 's'}); syncing and rebuilding…`
+					)
+				);
+				const current = androidDevSession;
+				androidDevSession = null;
+				// A failed rebuild closes its projection before throwing. The next
+				// native edit opens a fresh session instead of wedging `bun dev`.
+				const replacement = current
+					? await current.rebuild()
+					: await openAndroidDevSession(androidProject);
+				if (cleaning) {
+					await replacement.close();
+
+					return;
+				}
+				androidDevSession = replacement;
+				publishAndroidReady(replacement, androidProject);
+				sendTelemetryEvent('mobile:native-rebuild', {
+					cacheHit: replacement.nativeCacheHit,
+					host: androidProject.host,
+					platform: 'android',
+					provider: 'capacitor',
+					rootInputChanged: change.rootInputChanged,
+					success: true,
+					timings: replacement.timings
+				});
+			},
+			onError: (error) => {
+				androidDevState = 'failed';
+				printAndroidOutput(
+					cliTag(
+						'\x1b[31m',
+						`Android native rebuild failed: ${error instanceof Error ? error.message : String(error)}`
+					)
+				);
+				sendTelemetryEvent('mobile:native-rebuild', {
+					host: androidProject.host,
+					platform: 'android',
+					provider: 'capacitor',
+					success: false
+				});
+			}
+		});
+	};
+	const startAndroidDev = () => {
+		const androidProject = androidDevProject;
+		if (!androidProject || androidDevStart || androidDevSession) return;
+		androidDevStart = openAndroidDevSession(androidProject)
 			.then(async (session) => {
 				if (cleaning) {
 					await session.close();
@@ -529,24 +614,8 @@ export const dev = async (
 					return undefined;
 				}
 				androidDevSession = session;
-				sendTelemetryEvent('mobile:android-dev-ready', {
-					cacheHit: session.nativeCacheHit,
-					host: androidProject.host,
-					platform: 'android',
-					provider: 'capacitor',
-					startedEmulator: session.startedEmulator,
-					timings: session.timings
-				});
-				if (session.timings.building !== undefined) {
-					sendTelemetryEvent('mobile:native-build', {
-						buildMs: session.timings.building,
-						host: androidProject.host,
-						installMs: session.timings.installing,
-						platform: 'android',
-						provider: 'capacitor',
-						success: true
-					});
-				}
+				publishAndroidReady(session, androidProject);
+				await ensureAndroidNativeWatcher(androidProject);
 
 				return undefined;
 			})
@@ -572,6 +641,9 @@ export const dev = async (
 						`Android emulator failed: ${error instanceof Error ? error.message : String(error)}`
 					)
 				);
+			})
+			.finally(() => {
+				androidDevStart = null;
 			});
 	};
 
@@ -1142,6 +1214,7 @@ export const dev = async (
 		if (interactive) interactive.dispose();
 		tunnelClient?.close();
 		androidDevAbort.abort();
+		androidNativeWatcher?.close();
 		if (androidDevSession) {
 			await androidDevSession.close();
 		} else if (androidDevProject) {

@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+	isIgnorableAbsoluteAndroidLog,
 	parseAdbDevices,
 	parseAbsoluteAndroidLogLine,
 	redactAbsoluteAndroidLog,
@@ -337,6 +338,41 @@ describe('Android emulator development controller', () => {
 		);
 		await replacement.close();
 	});
+
+	test('rebuilds native inputs without restarting the dev server controller', async () => {
+		const { project } = await createProject();
+		const commands: string[][] = [];
+		const logs: string[] = [];
+		const session = await startAbsoluteAndroidDevSession({
+			capture: readyCapture,
+			port: 3029,
+			project,
+			log: (message) => logs.push(message),
+			run: async (command) => {
+				commands.push(command);
+
+				return 0;
+			}
+		});
+		await writeFile(
+			join(project.nativeDirectory, 'app', 'build.gradle'),
+			'plugins { id "com.android.application" }\n// live native edit\n'
+		);
+		const replacement = await session.rebuild();
+
+		expect(session.state).toBe('closed');
+		expect(replacement.state).toBe('ready');
+		expect(replacement.nativeCacheHit).toBe(false);
+		expect(
+			commands.filter((command) => command.includes('install'))
+		).toHaveLength(2);
+		expect(
+			logs.some((message) =>
+				message.includes('without restarting the dev server')
+			)
+		).toBe(true);
+		await replacement.close();
+	});
 	test('categorizes logcat lines and redacts auth material', () => {
 		expect(
 			parseAbsoluteAndroidLogLine(
@@ -359,6 +395,21 @@ describe('Android emulator development controller', () => {
 				'Cookie: session=secret; refresh=also-secret'
 			)
 		).toBe('Cookie: [REDACTED]');
+		expect(
+			isIgnorableAbsoluteAndroidLog({
+				level: 'error',
+				message:
+					"Error injecting safe area CSS: TypeError: Cannot read properties of null (reading 'style')",
+				tag: 'Capacitor/Console'
+			})
+		).toBe(true);
+		expect(
+			isIgnorableAbsoluteAndroidLog({
+				level: 'error',
+				message: 'Application safe-area calculation failed',
+				tag: 'Capacitor/Console'
+			})
+		).toBe(false);
 	});
 
 	test('only selects ADB devices that are ready', () => {

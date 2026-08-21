@@ -424,7 +424,9 @@
 		"test": "bun run test:unit && bun run test:integration",
 		"test:hmr": "bun run scripts/shardedTests.ts tests/integration/hmr",
 		"test:integration": "bun run scripts/shardedTests.ts tests/integration",
-		"test:native:android": "ABSOLUTE_TEST_NATIVE_ANDROID=1 bun test tests/native/android-hmr-conformance.test.ts",
+		"test:native:android": "bun run test:native:android:lifecycle && bun run test:native:android:hmr",
+		"test:native:android:hmr": "ABSOLUTE_TEST_NATIVE_ANDROID=1 bun test tests/native/android-hmr-conformance.test.ts",
+		"test:native:android:lifecycle": "ABSOLUTE_TEST_NATIVE_ANDROID=1 bun test tests/native/android-lifecycle-conformance.test.ts",
 		"test:unit": "bun test tests/unit",
 		"typecheck": "bun run src/cli/index.ts typecheck --config example/absolute.config.ts",
 		"verify:release-versions": "bun run scripts/verifyReleaseVersions.ts"

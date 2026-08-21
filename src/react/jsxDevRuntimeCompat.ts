@@ -1,4 +1,4 @@
-import { Fragment, jsx, jsxs } from 'react/jsx-runtime';
+import { Fragment, jsx, jsxs } from './jsxRuntimeCompat';
 
 type JSXType = Parameters<typeof jsx>[0];
 type JSXKey = Parameters<typeof jsx>[2];

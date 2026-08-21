@@ -11,21 +11,23 @@ import {
 
 const temporaryDirectories: string[] = [];
 
-const runEslint = async (cwd: string, args: string[]) => {
+const runEslint = (cwd: string, args: string[]) => {
 	const cacheLocation = '.absolutejs/eslint-cache';
 	prepareEslintCache({ cacheLocation, cwd });
 	const command = [
 		resolve(process.cwd(), 'node_modules/.bin/eslint'),
 		...buildEslintCommand(args, cacheLocation).slice(2)
 	];
-	const proc = Bun.spawn(command, { cwd, stderr: 'pipe', stdout: 'pipe' });
-	const [exitCode, stdout, stderr] = await Promise.all([
-		proc.exited,
-		new Response(proc.stdout).text(),
-		new Response(proc.stderr).text()
-	]);
+	const proc = Bun.spawnSync(command, {
+		cwd,
+		stderr: 'pipe',
+		stdout: 'pipe'
+	});
 
-	return { exitCode, output: `${stdout}${stderr}` };
+	return {
+		exitCode: proc.exitCode,
+		output: `${proc.stdout.toString()}${proc.stderr.toString()}`
+	};
 };
 
 const project = async () => {

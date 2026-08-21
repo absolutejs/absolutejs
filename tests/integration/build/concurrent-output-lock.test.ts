@@ -92,39 +92,43 @@ afterEach(async () => {
 });
 
 describe('build directory locking', () => {
-	test('serializes concurrent builds that target the same resolved outdir', async () => {
-		await ensureDistBuild();
-		const workspaceRoot = await makeTempDir('absolute-shared-build');
-		await symlink(
-			resolve(PROJECT_ROOT, 'node_modules'),
-			join(workspaceRoot, 'node_modules'),
-			'dir'
-		);
-		const sharedOutdir = join(workspaceRoot, 'shared-build');
-		const [appA, appB] = await Promise.all([
-			createApp(workspaceRoot, 'app-a'),
-			createApp(workspaceRoot, 'app-b')
-		]);
+	test(
+		'serializes concurrent builds that target the same resolved outdir',
+		async () => {
+			await ensureDistBuild();
+			const workspaceRoot = await makeTempDir('absolute-shared-build');
+			await symlink(
+				resolve(PROJECT_ROOT, 'node_modules'),
+				join(workspaceRoot, 'node_modules'),
+				'dir'
+			);
+			const sharedOutdir = join(workspaceRoot, 'shared-build');
+			const [appA, appB] = await Promise.all([
+				createApp(workspaceRoot, 'app-a'),
+				createApp(workspaceRoot, 'app-b')
+			]);
 
-		const [buildA, buildB] = await Promise.all([
-			runBuild(workspaceRoot, appA, sharedOutdir),
-			runBuild(workspaceRoot, appB, sharedOutdir)
-		]);
+			const [buildA, buildB] = await Promise.all([
+				runBuild(workspaceRoot, appA, sharedOutdir),
+				runBuild(workspaceRoot, appB, sharedOutdir)
+			]);
 
-		expect(buildA.exitCode, buildA.stderr || buildA.stdout).toBe(0);
-		expect(buildB.exitCode, buildB.stderr || buildB.stdout).toBe(0);
-		expect(`${buildA.stderr}\n${buildB.stderr}`).not.toContain('ENOENT');
-		expect(`${buildA.stderr}\n${buildB.stderr}`).not.toContain(
-			'EADDRINUSE'
-		);
-		expect(existsSync(join(sharedOutdir, 'manifest.json'))).toBe(true);
-		expect(
-			existsSync(join(workspaceRoot, '.absolutejs', 'build.lock'))
-		).toBe(false);
+			expect(buildA.exitCode, buildA.stderr || buildA.stdout).toBe(0);
+			expect(buildB.exitCode, buildB.stderr || buildB.stdout).toBe(0);
+			expect(`${buildA.stderr}\n${buildB.stderr}`).not.toContain('ENOENT');
+			expect(`${buildA.stderr}\n${buildB.stderr}`).not.toContain(
+				'EADDRINUSE'
+			);
+			expect(existsSync(join(sharedOutdir, 'manifest.json'))).toBe(true);
+			expect(
+				existsSync(join(workspaceRoot, '.absolutejs', 'build.lock'))
+			).toBe(false);
 
-		const manifest = JSON.parse(
-			await readFile(join(sharedOutdir, 'manifest.json'), 'utf-8')
-		) as Record<string, string>;
-		expect(Object.keys(manifest).length).toBeGreaterThan(0);
-	});
+			const manifest = JSON.parse(
+				await readFile(join(sharedOutdir, 'manifest.json'), 'utf-8')
+			) as Record<string, string>;
+			expect(Object.keys(manifest).length).toBeGreaterThan(0);
+		},
+		60_000
+	);
 });

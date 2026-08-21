@@ -74,6 +74,21 @@ type ScaleProbe = {
 	maxEditMs: number;
 };
 
+const waitForScaleRebuild = async (edit: string) => {
+	try {
+		return await client?.waitFor(
+			'vue-tier-zero-ssr-rebuild-complete',
+			60_000
+		);
+	} catch (error) {
+		throw new Error(
+			`${edit}: ${error instanceof Error ? error.message : String(error)}\n` +
+				`Last dev-server output:\n${server?.outputLines.slice(-30).join('\n') ?? '(server unavailable)'}`,
+			{ cause: error }
+		);
+	}
+};
+
 const probeScale = async (n: number): Promise<ScaleProbe> => {
 	generateScaleComponents(n);
 	mutateFile(vuePage, (text) => importAllInPage(text, n));
@@ -90,12 +105,11 @@ const probeScale = async (n: number): Promise<ScaleProbe> => {
 	if (!initialRender.includes('scale-comp-0')) {
 		throw new Error(`N=${n}: page did not render scale components`);
 	}
-
 	const firstEditStart = performance.now();
 	mutateFile(componentPath(0), (text) =>
 		text.replace("'scale-comp-0'", "'scale-comp-0-EDIT-A'")
 	);
-	await client.waitFor('vue-tier-zero-ssr-rebuild-complete', 60_000);
+	await waitForScaleRebuild('first edit');
 	const firstEditMs = performance.now() - firstEditStart;
 
 	const editLatencies: number[] = [];
@@ -109,7 +123,7 @@ const probeScale = async (n: number): Promise<ScaleProbe> => {
 				`'scale-comp-${compIdx}-EDIT-${i}'`
 			)
 		);
-		await client.waitFor('vue-tier-zero-ssr-rebuild-complete', 60_000);
+		await waitForScaleRebuild(`edit ${i} (component ${compIdx})`);
 		editLatencies.push(performance.now() - start);
 	}
 	const avgEditMs =

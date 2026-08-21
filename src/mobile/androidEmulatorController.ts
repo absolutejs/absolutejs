@@ -114,6 +114,7 @@ export type AbsoluteAndroidDevProject = {
 export type AbsoluteAndroidDevSession = {
 	close: () => Promise<void>;
 	nativeCacheHit: boolean;
+	rebuild: () => Promise<AbsoluteAndroidDevSession>;
 	relaunch: () => Promise<void>;
 	serial: string;
 	state: AbsoluteAndroidDevState;
@@ -330,6 +331,12 @@ const decodeLogStream = () => {
 	});
 };
 
+export const isIgnorableAbsoluteAndroidLog = (
+	entry: AbsoluteAndroidNativeLogEntry
+) =>
+	entry.tag === 'Capacitor/Console' &&
+	entry.message.includes('Error injecting safe area CSS:') &&
+	entry.message.includes("Cannot read properties of null (reading 'style')");
 export const parseAbsoluteAndroidLogLine = (
 	line: string
 ): AbsoluteAndroidNativeLogEntry | null => {
@@ -1315,7 +1322,13 @@ const attachAndroidNativeLogs = (
 	}
 	const onLine = (line: string) => {
 		const entry = parseAbsoluteAndroidLogLine(line);
-		if (entry) options.nativeLog?.(entry);
+		// Capacitor 8 SystemBars can run before documentElement exists. A later
+		// inset pass applies the values; keep the plugin enabled because disabling
+		// it breaks edge-to-edge layout on Android 16. Remove this narrow filter
+		// when https://github.com/ionic-team/capacitor/issues/8530 is fixed.
+		if (entry && !isIgnorableAbsoluteAndroidLog(entry)) {
+			options.nativeLog?.(entry);
+		}
 	};
 
 	return (options.startNativeLogs ?? startNativeLogStream)(
@@ -1585,20 +1598,32 @@ export const startAbsoluteAndroidDevSession = async (
 		);
 		log(`Android startup: ${androidTimingSummary(phaseDurations)}.`);
 		let closed = false;
+		const close = async () => {
+			if (closed) return;
+			closed = true;
+			transition('closing');
+			await closeNativeLogs();
+			await removeAdbReverse(project, serial, options.port, run, env);
+			await repairAbsoluteAndroidDevSession(project.projectRoot);
+			transition('closed');
+		};
 
 		return {
+			close,
 			nativeCacheHit,
 			serial,
 			startedEmulator,
 			timings: { ...phaseDurations },
-			close: async () => {
-				if (closed) return;
-				closed = true;
-				transition('closing');
-				await closeNativeLogs();
-				await removeAdbReverse(project, serial, options.port, run, env);
-				await repairAbsoluteAndroidDevSession(project.projectRoot);
-				transition('closed');
+			rebuild: async () => {
+				if (closed) {
+					throw new Error('Android development session is closed.');
+				}
+				log(
+					'Android native inputs changed; rebuilding without restarting the dev server.'
+				);
+				await close();
+
+				return startAbsoluteAndroidDevSession(options);
 			},
 			relaunch: async () => {
 				if (closed) {

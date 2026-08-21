@@ -47,6 +47,11 @@ const resolveJsxDevRuntimeCompatPath = () => {
 
 const jsxDevRuntimeCompatPath = resolveJsxDevRuntimeCompatPath();
 
+const jsxRuntimeCompatPath = jsxDevRuntimeCompatPath.replace(
+	'jsxDevRuntimeCompat',
+	'jsxRuntimeCompat'
+);
+
 /** Bare specifiers that need stable vendor builds */
 const reactSpecifiers = [
 	'react',
@@ -84,6 +89,9 @@ export const computeVendorPaths = () => {
  *  CJS module — `export * from 'react'` can't statically determine the
  *  export names, so Bun produces an empty re-export. */
 const generateEntrySource = async (specifier: string) => {
+	if (specifier === 'react/jsx-runtime') {
+		return `export { Fragment, jsx, jsxs } from '${jsxRuntimeCompatPath}';\n`;
+	}
 	if (specifier === 'react/jsx-dev-runtime') {
 		return `export { Fragment, jsxDEV } from '${jsxDevRuntimeCompatPath}';\n`;
 	}
