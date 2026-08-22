@@ -84,6 +84,10 @@ import { createIslandRegistryDefinitionPlugin } from '../build/islandRegistryTra
 import { createAngularHmrInjectionPlugin } from '../dev/angular/hmrInjectionPlugin';
 import { cleanStaleOutputs } from '../utils/cleanStaleOutputs';
 import { cleanup } from '../utils/cleanup';
+import {
+	resolveBuildDevelopmentMode,
+	resolveVueFeatureFlags
+} from '../build/resolveBuildMode';
 import { commonAncestor } from '../utils/commonAncestor';
 import {
 	getFrameworkGeneratedDir,
@@ -96,8 +100,6 @@ import { toKebab, toPascal } from '../utils/stringModifiers';
 import { validateSafePath } from '../utils/validateSafePath';
 import { setSpaRouteManifest } from '../utils/spaRouteManifest';
 import { isTestSourcePath } from '../utils/isTestSourcePath';
-
-const isDev = env.NODE_ENV === 'development';
 
 type BuildTraceEvent = {
 	durationMs: number;
@@ -777,12 +779,6 @@ const rewriteUrlReferences = (
 	}
 };
 
-const vueFeatureFlags: Record<string, string> = {
-	__VUE_OPTIONS_API__: 'true',
-	__VUE_PROD_DEVTOOLS__: isDev ? 'true' : 'false',
-	__VUE_PROD_HYDRATION_MISMATCH_DETAILS__: isDev ? 'true' : 'false'
-};
-
 const bunBuildPassKeys: BunBuildPassKey[] = [
 	'server',
 	'reactClient',
@@ -930,6 +926,11 @@ const buildUnlocked = async ({
 	sourcemaps
 }: BuildConfig) => {
 	const buildStart = performance.now();
+	// `absolute build` and `absolute compile` explicitly request production.
+	// Do not let a builder module first imported under NODE_ENV=development
+	// silently turn those invocations into development bundles.
+	const isDev = resolveBuildDevelopmentMode(mode, env.NODE_ENV);
+	const vueFeatureFlags = resolveVueFeatureFlags(isDev);
 	const projectRoot = cwd();
 	const traceEnabled = isBuildTraceEnabled();
 	const traceEvents: BuildTraceEvent[] = [];
