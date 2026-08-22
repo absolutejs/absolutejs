@@ -11,6 +11,7 @@ export type NormalizedAbsoluteMobileConfig = {
 	deepLinkScheme?: string;
 	engine: 'capacitor';
 	entry: string;
+	iosVersion?: string;
 	nativeProjectDirectory: string;
 	platforms: MobilePlatform[];
 	productionOrigin: string;
@@ -133,6 +134,18 @@ const normalizeAppleAppIdPrefix = (value: string | undefined) => {
 	return normalized;
 };
 
+const normalizeIosVersion = (value: string | undefined) => {
+	if (value === undefined) return undefined;
+	const normalized = requireText(value, 'mobile.ios.version');
+	if (!/^\d+(?:\.\d+){0,2}$/u.test(normalized)) {
+		throw new TypeError(
+			'mobile.ios.version must contain one to three dot-separated integer components, for example 1.4.0.'
+		);
+	}
+
+	return normalized;
+};
+
 const normalizeCertificateFingerprints = (
 	values: readonly string[] | undefined
 ) =>
@@ -200,6 +213,7 @@ export const normalizeAbsoluteMobileConfig = (
 		deepLinkScheme,
 		engine: 'capacitor',
 		entry: normalizeEntry(config.entry),
+		iosVersion: normalizeIosVersion(config.ios?.version),
 		nativeProjectDirectory: resolveProjectPath(
 			projectRoot,
 			config.nativeProject?.directory ?? 'mobile',

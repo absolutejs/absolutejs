@@ -1541,6 +1541,62 @@ permissions in Play Console. The adapter uses Application Default Credentials
 and the `androidpublisher` OAuth scope; it never accepts credential material on
 CLI flags.
 
+Implementation checkpoint (August 22, 2026): the iOS counterpart produces a
+signed App Store IPA with `absolute mobile build ios` and publishes it with
+`absolute mobile publish ios`. Applications declare the human-facing marketing
+version once as `mobile.ios.version`; AbsoluteJS derives a complete build identity
+from the embedded web build, source-owned iOS fingerprint, and that version, then
+asks the App Store Connect adapter for a stable monotonically increasing integer
+build number. Page and route code remains unchanged.
+
+```ts
+// absolutejs.config.ts
+export default {
+	mobile: {
+		appId: 'com.example.product',
+		appName: 'Product',
+		ios: { version: '1.4.0' },
+		server: { productionOrigin: 'https://api.example.com' }
+	}
+};
+```
+
+The source-owned Capacitor workspace is archived with Release configuration for
+a generic iOS device. AbsoluteJS injects `MARKETING_VERSION` and
+`CURRENT_PROJECT_VERSION`, verifies the archived application with `codesign`,
+exports with Xcode's `app-store-connect` method, hashes the IPA, and installs it
+immutably as
+`.absolutejs/mobile/releases/ios/amobile_ios_<sha256>/App.ipa`. Release doctor
+fails before signing if the generated Capacitor config still points at a dev
+server, packaged assets contain HMR, Info.plist permits arbitrary network loads,
+or the marketing version is absent.
+
+The App Store Connect adapter uses Apple's direct Build Upload API rather than a
+Transporter subprocess. It creates or reconciles the exact build upload, uploads
+Apple-provided byte ranges, commits the source SHA-256, waits for a valid processed
+build, writes localized What-to-Test text, and assigns the build to requested
+TestFlight groups. Integrity-checked receipts retain build-upload, file, and build
+IDs across crashes, but never retain Apple's time-limited signed upload URLs.
+
+```sh
+# Registry only or an internal TestFlight group
+absolute mobile publish ios --channel internal
+absolute mobile publish ios --testflight-group Employees
+
+# External beta: review is always explicit
+absolute mobile publish ios \
+	--testflight-group 'External Beta' \
+	--testflight-notes 'en-US=Test offline sync and sign-in' \
+	--testflight-submit-review
+```
+
+App Store Connect API credentials live in the project release module or its
+secret provider, never CLI flags. Adding an external group alone does not submit
+review. `--testflight-submit-review` is separate because Apple requires beta app
+metadata, allows only one build of a version in review at once, and limits beta
+review submissions. As with Play, CI must serialize publication for one app
+because Apple exposes monotonic build history but no atomic number reservation.
+
 Capacitor 8's SystemBars plugin legitimately owns native safe-area variables on
 the document root. Absolute's browser JSX runtime now marks `<html>` hydration as
 safe only when Capacitor reports a native platform, retaining full hydration

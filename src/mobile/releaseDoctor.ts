@@ -242,6 +242,111 @@ const inspectAndroidRelease = async (
 	}));
 };
 
+const inspectIosRelease = async (
+	config: NormalizedAbsoluteMobileConfig,
+	projectRoot: string
+) => {
+	const iosAppRoot = join(config.nativeProjectDirectory, 'ios', 'App', 'App');
+	const nativeConfigPath = join(iosAppRoot, 'capacitor.config.json');
+	const infoPath = join(iosAppRoot, 'Info.plist');
+	const publicRoot = join(iosAppRoot, 'public');
+	const checks: AbsoluteMobileReleaseCheck[] = [];
+	if (!config.iosVersion) {
+		checks.push(
+			fail(
+				'ios.marketing-version',
+				'iOS has no explicit App Store marketing version.',
+				projectRoot,
+				'Add mobile.ios.version to absolutejs.config.ts, for example 1.0.0.'
+			)
+		);
+	} else {
+		checks.push(
+			pass(
+				'ios.marketing-version',
+				`The iOS marketing version is ${config.iosVersion}.`
+			)
+		);
+	}
+	if (!(await pathExists(nativeConfigPath))) {
+		checks.push(
+			fail(
+				'ios.capacitor-config',
+				'The generated iOS Capacitor config is missing.',
+				nativeConfigPath,
+				'Run `absolute mobile sync ios` before release validation.'
+			)
+		);
+	} else if (
+		isUnsafeCapacitorConfig(await readFile(nativeConfigPath, 'utf8'))
+	) {
+		checks.push(
+			fail(
+				'ios.capacitor-config',
+				'iOS Capacitor config contains a development server URL, cleartext transport, navigation allowlist, or invalid JSON.',
+				nativeConfigPath,
+				'Run `absolute mobile sync ios`; do not ship development transport overrides.'
+			)
+		);
+	} else {
+		checks.push(
+			pass(
+				'ios.capacitor-config',
+				'iOS Capacitor config contains no development transport overrides.',
+				nativeConfigPath
+			)
+		);
+	}
+	if (!(await pathExists(infoPath))) {
+		checks.push(
+			fail(
+				'ios.transport-security',
+				'The iOS Info.plist is missing.',
+				infoPath,
+				'Run `absolute mobile sync ios` before release validation.'
+			)
+		);
+	} else {
+		const info = await readFile(infoPath, 'utf8');
+		checks.push(
+			/<key>NSAllowsArbitraryLoads<\/key>\s*<true\s*\/>/u.test(info)
+				? fail(
+						'ios.transport-security',
+						'iOS App Transport Security permits arbitrary network loads.',
+						infoPath,
+						'Remove NSAllowsArbitraryLoads from the release Info.plist.'
+					)
+				: pass(
+						'ios.transport-security',
+						'iOS App Transport Security does not permit arbitrary loads.',
+						infoPath
+					)
+		);
+	}
+	const hmrAsset = await findHmrAsset(publicRoot);
+	checks.push(
+		hmrAsset
+			? fail(
+					'ios.hmr-assets',
+					'A packaged iOS asset contains the development HMR client.',
+					hmrAsset,
+					'Rebuild the production mobile bundle and run Capacitor sync again.'
+				)
+			: pass(
+					'ios.hmr-assets',
+					'Packaged iOS assets contain no development HMR markers.',
+					publicRoot
+				)
+	);
+
+	return checks.map((check) => ({
+		...check,
+		path: check.path
+			? relative(projectRoot, check.path).replaceAll('\\', '/') || '.'
+			: undefined
+	}));
+};
+
 export const inspectAbsoluteMobileRelease = async (
 	config: NormalizedAbsoluteMobileConfig,
 	projectRoot: string
@@ -252,14 +357,7 @@ export const inspectAbsoluteMobileRelease = async (
 		? await inspectAndroidRelease(config, projectRoot)
 		: [];
 	if (config.platforms.includes('ios')) {
-		checks.push(
-			fail(
-				'ios.release-validation',
-				'iOS release validation is not available in this Android phase.',
-				config.nativeProjectDirectory,
-				'Do not treat this result as release-ready until the iOS release checks ship.'
-			)
-		);
+		checks.push(...(await inspectIosRelease(config, projectRoot)));
 	}
 
 	return {

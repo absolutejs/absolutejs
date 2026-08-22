@@ -72,6 +72,10 @@ export type MobileConfig = {
 		/** Parent directory for generated iOS and Android projects. */
 		directory?: string;
 	};
+	ios?: {
+		/** App Store marketing version written to CFBundleShortVersionString. */
+		version: string;
+	};
 	deepLinks?: {
 		/** Optional custom URL scheme in addition to HTTPS app/universal links. */
 		scheme?: string;

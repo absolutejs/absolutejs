@@ -2,6 +2,7 @@ import { access } from 'node:fs/promises';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { AbsoluteAndroidReleaseMetadata } from './androidRelease';
+import type { AbsoluteIosReleaseMetadata } from './iosRelease';
 
 export type AbsoluteGooglePlayReleaseTarget = {
 	changesNotSentForReview?: boolean;
@@ -14,13 +15,19 @@ export type AbsoluteGooglePlayReleaseTarget = {
 	userFraction?: number;
 };
 
+export type AbsoluteAppStoreConnectReleaseTarget = {
+	groups?: readonly string[];
+	submitForReview?: boolean;
+	whatsNew?: readonly { locale: string; text: string }[];
+};
+
 export type AbsoluteNativeReleasePublication = {
 	channel?: {
 		channel: string;
 		releaseId: string;
 	};
 	record: {
-		metadata: AbsoluteAndroidReleaseMetadata;
+		metadata: AbsoluteAndroidReleaseMetadata | AbsoluteIosReleaseMetadata;
 	};
 	reused: boolean;
 	googlePlay?: {
@@ -35,6 +42,20 @@ export type AbsoluteNativeReleasePublication = {
 		};
 		reused: boolean;
 	};
+	appStoreConnect?: {
+		receipt: {
+			appleAppId: string;
+			buildId?: string;
+			buildNumber: number;
+			intent: { groups: string[]; submitForReview: boolean };
+			marketingVersion: string;
+			provider: 'app-store-connect';
+			releaseId: string;
+			sha256: string;
+			stage: string;
+		};
+		reused: boolean;
+	};
 };
 
 export type AbsoluteNativeReleasePublisher = {
@@ -44,13 +65,44 @@ export type AbsoluteNativeReleasePublisher = {
 		packageName: string;
 		signal?: AbortSignal;
 	}) => Promise<{ versionCode?: number }>;
+	prepareIosRelease?: (options: {
+		buildIdentity: string;
+		bundleId: string;
+		marketingVersion: string;
+		signal?: AbortSignal;
+	}) => Promise<{ buildNumber: number }>;
 	publish: (options: {
 		allowUnsigned?: boolean;
+		appStoreConnect?: AbsoluteAppStoreConnectReleaseTarget;
 		channel?: string;
 		googlePlay?: AbsoluteGooglePlayReleaseTarget;
 		releaseRoot: string;
 		signal?: AbortSignal;
 	}) => Promise<AbsoluteNativeReleasePublication>;
+};
+
+export const prepareAbsoluteIosRelease = async (
+	publisher: AbsoluteNativeReleasePublisher,
+	options: {
+		buildIdentity: string;
+		bundleId: string;
+		marketingVersion: string;
+		signal?: AbortSignal;
+	}
+) => {
+	if (typeof publisher.prepareIosRelease !== 'function') {
+		throw new TypeError(
+			'App Store Connect publishing requires a registry module created with @absolutejs/deploy/app-store-connect.'
+		);
+	}
+	const { buildNumber } = await publisher.prepareIosRelease(options);
+	if (!Number.isSafeInteger(buildNumber) || buildNumber < 1) {
+		throw new TypeError(
+			'App Store Connect publisher returned an invalid iOS build number.'
+		);
+	}
+
+	return buildNumber;
 };
 
 type PrepareAbsoluteAndroidReleaseOptions = {
@@ -201,6 +253,86 @@ export const publishAbsoluteAndroidRelease = async (
 		) {
 			throw new TypeError(
 				'Native release publisher did not commit the requested Google Play release.'
+			);
+		}
+	}
+
+	return publication;
+};
+
+export const publishAbsoluteIosRelease = async (options: {
+	allowUnsigned?: boolean;
+	appStoreConnect?: AbsoluteAppStoreConnectReleaseTarget;
+	channel?: string;
+	modulePath: string;
+	projectRoot: string;
+	release: {
+		metadata: AbsoluteIosReleaseMetadata;
+		releaseRoot: string;
+	};
+	signal?: AbortSignal;
+}) => {
+	const publisher = await loadAbsoluteNativeReleasePublisher(
+		options.projectRoot,
+		options.modulePath
+	);
+	const publication = await publisher.publish({
+		allowUnsigned: options.allowUnsigned,
+		appStoreConnect: options.appStoreConnect,
+		channel: options.channel,
+		releaseRoot: options.release.releaseRoot,
+		signal: options.signal
+	});
+	const expected = options.release.metadata;
+	const actual = publication.record?.metadata;
+	if (
+		!actual ||
+		actual.appId !== expected.appId ||
+		actual.platform !== 'ios' ||
+		actual.releaseId !== expected.releaseId ||
+		actual.sha256 !== expected.sha256 ||
+		actual.signed !== expected.signed ||
+		actual.buildNumber !== expected.buildNumber ||
+		actual.marketingVersion !== expected.marketingVersion ||
+		typeof publication.reused !== 'boolean'
+	) {
+		throw new TypeError(
+			'Native release registry returned a different iOS release identity.'
+		);
+	}
+	if (
+		options.channel !== undefined &&
+		(publication.channel?.channel !== options.channel ||
+			publication.channel.releaseId !== expected.releaseId)
+	) {
+		throw new TypeError(
+			'Native release registry did not promote the requested channel.'
+		);
+	}
+	if (options.appStoreConnect) {
+		const distributed = publication.appStoreConnect;
+		if (
+			!expected.buildNumber ||
+			!distributed ||
+			distributed.receipt.provider !== 'app-store-connect' ||
+			distributed.receipt.releaseId !== expected.releaseId ||
+			distributed.receipt.sha256 !== expected.sha256 ||
+			distributed.receipt.buildNumber !== expected.buildNumber ||
+			distributed.receipt.marketingVersion !==
+				expected.marketingVersion ||
+			!['distributed', 'review-submitted'].includes(
+				distributed.receipt.stage
+			) ||
+			JSON.stringify([...distributed.receipt.intent.groups].sort()) !==
+				JSON.stringify(
+					[...(options.appStoreConnect.groups ?? [])].sort()
+				) ||
+			distributed.receipt.intent.submitForReview !==
+				(options.appStoreConnect.submitForReview ?? false) ||
+			typeof distributed.reused !== 'boolean'
+		) {
+			throw new TypeError(
+				'Native release publisher did not complete the requested App Store Connect release.'
 			);
 		}
 	}

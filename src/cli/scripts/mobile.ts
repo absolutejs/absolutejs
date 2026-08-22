@@ -33,10 +33,14 @@ import {
 import { sendTelemetryEvent } from '../telemetryEvent';
 import { inspectAbsoluteMobileRelease } from '../../mobile/releaseDoctor';
 import { buildAbsoluteAndroidRelease } from '../../mobile/androidRelease';
+import { buildAbsoluteIosRelease } from '../../mobile/iosRelease';
 import {
 	loadAbsoluteNativeReleasePublisher,
 	prepareAbsoluteAndroidRelease,
+	prepareAbsoluteIosRelease,
 	publishAbsoluteAndroidRelease,
+	publishAbsoluteIosRelease,
+	type AbsoluteAppStoreConnectReleaseTarget,
 	type AbsoluteGooglePlayReleaseTarget,
 	type AbsoluteNativeReleasePublication
 } from '../../mobile/releasePublisher';
@@ -296,6 +300,8 @@ const mobileBuildServerEntry = (args: string[]) => {
 		'--play-track',
 		'--play-update-priority',
 		'--registry',
+		'--testflight-group',
+		'--testflight-notes',
 		'--web-outdir'
 	]);
 	const skipped = new Set<number>();
@@ -323,6 +329,62 @@ const requireValueAfter = (args: string[], flag: string) => {
 	}
 
 	return value;
+};
+
+const requireIosValueAfter = (args: string[], flag: string) => {
+	const value = valueAfter(args, flag);
+	if (!value || value.startsWith('-')) {
+		throw new TypeError(`mobile publish ios requires ${flag} <value>.`);
+	}
+
+	return value;
+};
+
+const appStoreConnectTarget = (
+	args: string[]
+): AbsoluteAppStoreConnectReleaseTarget | undefined => {
+	const testFlightFlags = args.filter((value) =>
+		value.startsWith('--testflight-')
+	);
+	if (testFlightFlags.length === 0) return undefined;
+	if (
+		args.some(
+			(value, index) =>
+				(value === '--testflight-group' ||
+					value === '--testflight-notes') &&
+				(!args[index + 1] || args[index + 1]?.startsWith('-'))
+		)
+	) {
+		throw new TypeError(
+			'mobile publish ios requires a value after every TestFlight group or notes flag.'
+		);
+	}
+	const groups = valuesAfter(args, '--testflight-group');
+	const submitForReview = args.includes('--testflight-submit-review');
+	if (submitForReview && groups.length === 0) {
+		throw new TypeError(
+			'mobile publish ios --testflight-submit-review requires at least one --testflight-group.'
+		);
+	}
+	const whatsNew = valuesAfter(args, '--testflight-notes').map((note) => {
+		const separator = note.indexOf('=');
+		if (separator < 1 || separator === note.length - 1) {
+			throw new TypeError(
+				'mobile publish ios --testflight-notes must use locale=text.'
+			);
+		}
+
+		return {
+			locale: note.slice(0, separator),
+			text: note.slice(separator + 1)
+		};
+	});
+
+	return {
+		...(groups.length === 0 ? {} : { groups }),
+		submitForReview,
+		...(whatsNew.length === 0 ? {} : { whatsNew })
+	};
 };
 
 const googlePlayTarget = (
@@ -527,6 +589,18 @@ const printGooglePlayPublication = (
 	);
 };
 
+const printAppStoreConnectPublication = (
+	publication: NonNullable<
+		AbsoluteNativeReleasePublication['appStoreConnect']
+	>
+) => {
+	const { receipt } = publication;
+
+	console.log(
+		`${publication.reused ? 'Reused' : 'Uploaded'} App Store Connect build ${receipt.marketingVersion} (${receipt.buildNumber}); ${receipt.stage}.`
+	);
+};
+
 const publishAndroid = async (args: string[]) => {
 	const registryModule = args.includes('--registry')
 		? requireValueAfter(args, '--registry')
@@ -583,6 +657,151 @@ const publishAndroid = async (args: string[]) => {
 			reused,
 			success,
 			type: 'aab',
+			unsignedAllowed: args.includes('--unsigned')
+		});
+	}
+};
+
+const requireIosReleaseReady = async (
+	mobile: Awaited<ReturnType<typeof loadMobile>>['mobile'],
+	projectRoot: string
+) => {
+	const releaseCheck = await inspectAbsoluteMobileRelease(
+		{ ...mobile, platforms: ['ios'] },
+		projectRoot
+	);
+	if (releaseCheck.ready) return;
+	printDoctorChecks(
+		releaseCheck.checks.map((check) => ({
+			id: check.id,
+			label: check.detail,
+			path: check.path,
+			platform: 'ios',
+			remediation: check.remediation,
+			status: check.status
+		}))
+	);
+	throw new TypeError('iOS release validation failed before Xcode signing.');
+};
+
+const buildIos = async (
+	args: string[],
+	prepareBuildNumber?: (buildIdentity: string) => Promise<number>
+) => {
+	const configPath = valueAfter(args, '--config');
+	const { mobile, projectRoot } = await loadMobile(configPath);
+	if (!mobile.platforms.includes('ios')) {
+		throw new TypeError(
+			'mobile build ios requires ios in mobile.platforms.'
+		);
+	}
+	const startedAt = performance.now();
+	let success = false;
+	try {
+		await start(
+			mobileBuildServerEntry(args),
+			valueAfter(args, '--web-outdir'),
+			configPath,
+			{ prepareOnly: true }
+		);
+		await writeAbsoluteCapacitorConfig(mobile, { projectRoot });
+		await runCapacitorForPlatforms(projectRoot, 'sync', ['ios']);
+		await applyAbsoluteNativeDeepLinks(mobile, ['ios']);
+		await requireIosReleaseReady(mobile, projectRoot);
+		const release = await buildAbsoluteIosRelease({
+			allowUnsigned: args.includes('--unsigned'),
+			config: mobile,
+			outputDirectory: valueAfter(args, '--outdir'),
+			...(prepareBuildNumber === undefined ? {} : { prepareBuildNumber }),
+			projectRoot
+		});
+		success = true;
+		const durationMs = Math.round(performance.now() - startedAt);
+		console.log(
+			`Built ${release.metadata.signed ? 'signed' : 'unsigned'} iOS IPA ${release.metadata.marketingVersion}${release.metadata.buildNumber ? ` (${release.metadata.buildNumber})` : ''} in ${getDurationString(durationMs)}.`
+		);
+		console.log(`Artifact: ${release.artifactPath}`);
+		console.log(`Metadata: ${join(release.releaseRoot, 'release.json')}`);
+
+		return release;
+	} finally {
+		sendTelemetryEvent('mobile:ios-release-build', {
+			durationMs: Math.round(performance.now() - startedAt),
+			engine: 'capacitor',
+			platform: 'ios',
+			success,
+			type: 'ipa',
+			unsignedAllowed: args.includes('--unsigned')
+		});
+	}
+};
+
+const publishIos = async (args: string[]) => {
+	const registryModule = args.includes('--registry')
+		? requireIosValueAfter(args, '--registry')
+		: 'mobile.release.ts';
+	const channel = args.includes('--channel')
+		? requireIosValueAfter(args, '--channel')
+		: undefined;
+	const configPath = valueAfter(args, '--config');
+	const appStoreConnect = appStoreConnectTarget(args);
+	const { mobile, projectRoot } = await loadMobile(configPath);
+	const startedAt = performance.now();
+	let reused = false;
+	let success = false;
+	try {
+		const publisher = await loadAbsoluteNativeReleasePublisher(
+			projectRoot,
+			registryModule
+		);
+		const release = await buildIos(
+			args,
+			appStoreConnect
+				? (buildIdentity) => {
+						if (!mobile.iosVersion)
+							throw new TypeError(
+								'iOS publishing requires mobile.ios.version.'
+							);
+
+						return prepareAbsoluteIosRelease(publisher, {
+							buildIdentity,
+							bundleId: mobile.appId,
+							marketingVersion: mobile.iosVersion
+						});
+					}
+				: undefined
+		);
+		const publication = await publishAbsoluteIosRelease({
+			allowUnsigned: args.includes('--unsigned'),
+			appStoreConnect,
+			channel,
+			modulePath: registryModule,
+			projectRoot,
+			release
+		});
+		const {
+			appStoreConnect: appStoreConnectPublication,
+			reused: publicationReused
+		} = publication;
+
+		reused = publicationReused;
+		success = true;
+		console.log(
+			`${publication.reused ? 'Reused' : 'Published'} iOS release ${release.metadata.releaseId}${publication.channel ? ` on ${publication.channel.channel}` : ''}.`
+		);
+		if (appStoreConnectPublication)
+			printAppStoreConnectPublication(appStoreConnectPublication);
+
+		return publication;
+	} finally {
+		sendTelemetryEvent('mobile:ios-release-publish', {
+			durationMs: Math.round(performance.now() - startedAt),
+			engine: 'capacitor',
+			platform: 'ios',
+			provider: appStoreConnect ? 'app-store-connect' : 'registry-module',
+			reused,
+			success,
+			type: 'ipa',
 			unsignedAllowed: args.includes('--unsigned')
 		});
 	}
@@ -971,13 +1190,23 @@ export const runMobile = async (args: string[]) => {
 
 		return;
 	}
+	if (command === 'build' && args[1] === 'ios') {
+		await buildIos(args.slice(2));
+
+		return;
+	}
 	if (command === 'publish' && args[1] === 'android') {
 		await publishAndroid(args.slice(2));
 
 		return;
 	}
+	if (command === 'publish' && args[1] === 'ios') {
+		await publishIos(args.slice(2));
+
+		return;
+	}
 
 	throw new TypeError(
-		'Usage: absolute mobile <init [--no-native] [--force] | sync [ios|android] | associations [--outdir dir] [--verify] | doctor [ios|android|release] [--json|--fix [--yes]] | build android [server-entry] [--outdir dir] [--web-outdir dir] [--unsigned] | publish android [server-entry] [--registry module] [--channel name] [--play-track track] [--play-status completed|draft|halted|in-progress] [--play-rollout fraction] [--play-name name] [--play-notes language=text] [--play-update-priority 0..5] [--play-hold-review] [--play-cancel-existing-review] [--outdir dir] [--web-outdir dir] [--unsigned] | test android [--route path] [--wait-for-hmr] [--timeout ms] [--port n] [--serial id] [--artifacts dir] [--json]> [--config path]'
+		'Usage: absolute mobile <init [--no-native] [--force] | sync [ios|android] | associations [--outdir dir] [--verify] | doctor [ios|android|release] [--json|--fix [--yes]] | build <android|ios> [server-entry] [--outdir dir] [--web-outdir dir] [--unsigned] | publish android [server-entry] [--registry module] [--channel name] [--play-track track] [--play-status completed|draft|halted|in-progress] [--play-rollout fraction] [--play-name name] [--play-notes language=text] [--play-update-priority 0..5] [--play-hold-review] [--play-cancel-existing-review] [--outdir dir] [--web-outdir dir] [--unsigned] | publish ios [server-entry] [--registry module] [--channel name] [--testflight-group name-or-id] [--testflight-notes locale=text] [--testflight-submit-review] [--outdir dir] [--web-outdir dir] [--unsigned] | test android [--route path] [--wait-for-hmr] [--timeout ms] [--port n] [--serial id] [--artifacts dir] [--json]> [--config path]'
 	);
 };

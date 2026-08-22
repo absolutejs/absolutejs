@@ -3,7 +3,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
 import type { AbsoluteAndroidReleaseMetadata } from '../../../src/mobile/androidRelease';
-import { publishAbsoluteAndroidRelease } from '../../../src/mobile/releasePublisher';
+import type { AbsoluteIosReleaseMetadata } from '../../../src/mobile/iosRelease';
+import {
+	prepareAbsoluteIosRelease,
+	publishAbsoluteAndroidRelease,
+	publishAbsoluteIosRelease
+} from '../../../src/mobile/releasePublisher';
 
 const roots: string[] = [];
 
@@ -39,6 +44,71 @@ const metadata = (sha256 = 'a'.repeat(64)) =>
 	}) satisfies AbsoluteAndroidReleaseMetadata;
 
 describe('native release publisher modules', () => {
+	test('prepares and verifies an App Store Connect TestFlight release', async () => {
+		const projectRoot = await temporaryRoot();
+		const sha256 = 'c'.repeat(64);
+		const expected: AbsoluteIosReleaseMetadata = {
+			appBuild: 'ambuild_ios',
+			appId: 'com.example.absolute',
+			artifact: 'App.ipa',
+			buildNumber: 12,
+			bytes: 42,
+			engine: 'capacitor',
+			format: 1,
+			marketingVersion: '1.4.0',
+			platform: 'ios',
+			releaseId: `amobile_ios_${sha256}`,
+			runtime: '1',
+			sha256,
+			signed: true,
+			type: 'ipa'
+		};
+		await writeFile(
+			join(projectRoot, 'ios.ts'),
+			`export default {
+	prepareIosRelease: async () => ({ buildNumber: 12 }),
+	publish: async () => ({
+		appStoreConnect: {
+			receipt: {
+				appleAppId: 'apple-1', buildId: 'build-1', buildNumber: 12,
+				intent: { groups: ['External'], submitForReview: true },
+				marketingVersion: '1.4.0', provider: 'app-store-connect',
+				releaseId: ${JSON.stringify(expected.releaseId)}, sha256: ${JSON.stringify(sha256)},
+				stage: 'review-submitted'
+			},
+			reused: false
+		},
+		record: { metadata: ${JSON.stringify(expected)} }, reused: false
+	})
+};\n`
+		);
+		const publisher = await import(
+			`${new URL(`file://${join(projectRoot, 'ios.ts')}`).href}`
+		);
+		expect(
+			await prepareAbsoluteIosRelease(publisher.default, {
+				buildIdentity: 'identity',
+				bundleId: expected.appId,
+				marketingVersion: expected.marketingVersion
+			})
+		).toBe(12);
+		const publication = await publishAbsoluteIosRelease({
+			appStoreConnect: {
+				groups: ['External'],
+				submitForReview: true
+			},
+			modulePath: './ios.ts',
+			projectRoot,
+			release: {
+				metadata: expected,
+				releaseRoot: join(projectRoot, 'release')
+			}
+		});
+		expect(publication.appStoreConnect?.receipt.stage).toBe(
+			'review-submitted'
+		);
+	});
+
 	test('publishes the exact Android release through a project-local registry', async () => {
 		const projectRoot = await temporaryRoot();
 		const capturePath = join(projectRoot, 'capture.json');

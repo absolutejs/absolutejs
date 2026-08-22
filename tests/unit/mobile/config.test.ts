@@ -15,6 +15,7 @@ describe('mobile config normalization', () => {
 					hosts: ['APP.EXAMPLE.COM'],
 					scheme: 'Product'
 				},
+				ios: { version: '1.4.0' },
 				server: { productionOrigin: 'https://api.example.com' }
 			},
 			'/workspace'
@@ -31,10 +32,25 @@ describe('mobile config normalization', () => {
 			deepLinkHosts: ['api.example.com', 'app.example.com'],
 			deepLinkScheme: 'product',
 			entry: '/',
+			iosVersion: '1.4.0',
 			nativeProjectDirectory: '/workspace/mobile',
 			platforms: ['ios', 'android'],
 			productionOrigin: 'https://api.example.com'
 		});
+	});
+
+	test('validates the explicit iOS marketing version', () => {
+		expect(() =>
+			normalizeAbsoluteMobileConfig(
+				{
+					appId: 'com.example.product',
+					appName: 'Product',
+					ios: { version: 'v1' },
+					server: { productionOrigin: 'https://example.com' }
+				},
+				'/workspace'
+			)
+		).toThrow('mobile.ios.version');
 	});
 
 	test('rejects a remote production WebView and ambiguous app identity', () => {

@@ -102,13 +102,46 @@ describe('mobile release doctor', () => {
 		]);
 	});
 
-	test('fails closed when a configured platform is not validated yet', async () => {
+	test('validates iOS production transport and rejects leaked development settings', async () => {
 		const { config, projectRoot } = await fixture();
 		config.platforms.push('ios');
-		const result = await inspectAbsoluteMobileRelease(config, projectRoot);
+		config.iosVersion = '1.0.0';
+		const iosApp = join(config.nativeProjectDirectory, 'ios', 'App', 'App');
+		await mkdir(join(iosApp, 'public'), { recursive: true });
+		await writeFile(
+			join(iosApp, 'capacitor.config.json'),
+			`${JSON.stringify({ appId: config.appId })}\n`
+		);
+		await writeFile(join(iosApp, 'Info.plist'), '<plist><dict /></plist>');
+		await writeFile(
+			join(iosApp, 'public', 'index.html'),
+			'<main>Safe</main>'
+		);
+		const safe = await inspectAbsoluteMobileRelease(config, projectRoot);
+		expect(safe.ready).toBe(true);
+		expect(
+			safe.checks.filter(({ id }) => id.startsWith('ios.'))
+		).toHaveLength(4);
 
-		expect(result.ready).toBe(false);
-		expect(result.checks.at(-1)?.id).toBe('ios.release-validation');
-		expect(result.checks.at(-1)?.status).toBe('fail');
+		await writeFile(
+			join(iosApp, 'Info.plist'),
+			'<plist><dict><key>NSAllowsArbitraryLoads</key><true/></dict></plist>'
+		);
+		await writeFile(
+			join(iosApp, 'public', 'index.html'),
+			'<script>window.__HMR_WS__ = true</script>'
+		);
+		const unsafe = await inspectAbsoluteMobileRelease(config, projectRoot);
+		expect(unsafe.ready).toBe(false);
+		expect(
+			unsafe.checks
+				.filter((check) => check.status === 'fail')
+				.map((check) => check.id)
+		).toContain('ios.transport-security');
+		expect(
+			unsafe.checks
+				.filter((check) => check.status === 'fail')
+				.map((check) => check.id)
+		).toContain('ios.hmr-assets');
 	});
 });
