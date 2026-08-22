@@ -1,4 +1,5 @@
 export * from './artifactStore';
+export * from './androidRelease';
 export * from './associationFiles';
 export * from './buildMetadata';
 export * from './buildPipeline';

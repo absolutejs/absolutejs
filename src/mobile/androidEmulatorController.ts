@@ -42,13 +42,13 @@ const NATIVE_PUBLIC_PATH_SEGMENTS = 5;
 const CAPACITOR_PROJECT_DIRECTORY_PATTERN =
 	/project\(['"](:[^'"]+)['"]\)\.projectDir\s*=\s*new File\(['"]([^'"]+)['"]\)/gu;
 
-type CommandOptions = {
+export type AbsoluteAndroidCommandOptions = {
 	cwd?: string;
 	env?: Record<string, string | undefined>;
 	signal?: AbortSignal;
 };
 
-type CommandResult = {
+export type AbsoluteAndroidCommandResult = {
 	exitCode: number;
 	stderr: string;
 	stdout: string;
@@ -155,11 +155,17 @@ const androidTimingSummary = (timings: Record<string, number>) =>
 export type PrepareAbsoluteAndroidDevOptions = {
 	createNativeProject: boolean;
 	projectRoot: string;
-	run?: (command: string[], options?: CommandOptions) => Promise<number>;
+	run?: (
+		command: string[],
+		options?: AbsoluteAndroidCommandOptions
+	) => Promise<number>;
 };
 
 export type StartAbsoluteAndroidDevOptions = {
-	capture?: (command: string[], options?: CommandOptions) => CommandResult;
+	capture?: (
+		command: string[],
+		options?: AbsoluteAndroidCommandOptions
+	) => AbsoluteAndroidCommandResult;
 	log?: (message: string) => void;
 	nativeLog?: (entry: AbsoluteAndroidNativeLogEntry) => void;
 	onPhaseTiming?: (timing: AbsoluteAndroidDevPhaseTiming) => void;
@@ -167,13 +173,19 @@ export type StartAbsoluteAndroidDevOptions = {
 	https?: boolean;
 	port: number;
 	project: AbsoluteAndroidDevProject;
-	run?: (command: string[], options?: CommandOptions) => Promise<number>;
+	run?: (
+		command: string[],
+		options?: AbsoluteAndroidCommandOptions
+	) => Promise<number>;
 	signal?: AbortSignal;
 	sleep?: (milliseconds: number) => Promise<void>;
-	spawn?: (command: string[], options?: CommandOptions) => void;
+	spawn?: (
+		command: string[],
+		options?: AbsoluteAndroidCommandOptions
+	) => void;
 	startNativeLogs?: (
 		command: string[],
-		options: CommandOptions,
+		options: AbsoluteAndroidCommandOptions,
 		onLine: (line: string) => void
 	) => AbsoluteAndroidLogStream;
 };
@@ -200,7 +212,10 @@ const forwardCommandOutput = (
 		})
 	);
 
-const runCommand = async (command: string[], options: CommandOptions = {}) => {
+const runCommand = async (
+	command: string[],
+	options: AbsoluteAndroidCommandOptions = {}
+) => {
 	const subprocess = Bun.spawn(command, {
 		cwd: options.cwd,
 		env: options.env,
@@ -218,7 +233,10 @@ const runCommand = async (command: string[], options: CommandOptions = {}) => {
 	return exitCode;
 };
 
-const captureCommand = (command: string[], options: CommandOptions = {}) => {
+const captureCommand = (
+	command: string[],
+	options: AbsoluteAndroidCommandOptions = {}
+) => {
 	try {
 		const result = Bun.spawnSync(command, {
 			cwd: options.cwd,
@@ -241,7 +259,10 @@ const captureCommand = (command: string[], options: CommandOptions = {}) => {
 	}
 };
 
-const spawnCommand = (command: string[], options: CommandOptions = {}) => {
+const spawnCommand = (
+	command: string[],
+	options: AbsoluteAndroidCommandOptions = {}
+) => {
 	Bun.spawn(command, {
 		cwd: options.cwd,
 		env: options.env,
@@ -373,7 +394,7 @@ const consumeLogLines = async (
 
 const startNativeLogStream = (
 	command: string[],
-	options: CommandOptions,
+	options: AbsoluteAndroidCommandOptions,
 	onLine: (line: string) => void
 ): AbsoluteAndroidLogStream => {
 	const subprocess = Bun.spawn(command, {
@@ -407,7 +428,7 @@ const requireSuccess = async (
 	command: string[],
 	label: string,
 	run: NonNullable<StartAbsoluteAndroidDevOptions['run']>,
-	options?: CommandOptions
+	options?: AbsoluteAndroidCommandOptions
 ) => {
 	const exitCode = await run(command, options);
 	throwIfAborted(options?.signal);
@@ -920,7 +941,7 @@ type WindowsGradleDependency = {
 };
 
 const mirroredCapacitorDependencies = async (
-	project: AbsoluteAndroidDevProject,
+	project: Pick<AbsoluteAndroidDevProject, 'nativeDirectory'>,
 	capture: NonNullable<StartAbsoluteAndroidDevOptions['capture']>
 ) => {
 	const settingsPath = join(
@@ -958,7 +979,8 @@ const encodedWindowsGradleCommand = (
 	windowsDirectory: string,
 	windowsAndroidRoot: string,
 	dependencies: WindowsGradleDependency[],
-	rewrittenSettings: string
+	rewrittenSettings: string,
+	task: AbsoluteAndroidGradleTask
 ) => {
 	const sourceDirectory = Buffer.from(windowsSource, 'utf8').toString(
 		'base64'
@@ -992,7 +1014,7 @@ const encodedWindowsGradleCommand = (
 		"foreach ($dependency in @($dependencies)) { $target = Join-Path $directory ('.absolutejs-dependencies\\' + $dependency.name); New-Item -ItemType Directory -Force -Path $target | Out-Null; & robocopy.exe $dependency.windowsSource $target /MIR /XD .gradle build /NFL /NDL /NJH /NJS /NP; if ($LASTEXITCODE -ge 8) { exit $LASTEXITCODE } }",
 		"[IO.File]::WriteAllText((Join-Path $directory 'capacitor.settings.gradle'), $settings)",
 		"$wrapper = Join-Path $directory 'gradlew.bat'",
-		'& $wrapper --no-daemon --console=plain -p $directory assembleDebug',
+		`& $wrapper --no-daemon --console=plain -p $directory ${task}`,
 		'if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }',
 		'exit 0'
 	].join('; ');
@@ -1000,13 +1022,90 @@ const encodedWindowsGradleCommand = (
 	return Buffer.from(source, 'utf16le').toString('base64');
 };
 
-const buildAndroidDebugApp = async (
-	project: AbsoluteAndroidDevProject,
-	capture: NonNullable<StartAbsoluteAndroidDevOptions['capture']>,
-	run: NonNullable<StartAbsoluteAndroidDevOptions['run']>,
-	env: Record<string, string | undefined>,
-	signal?: AbortSignal
+export type AbsoluteAndroidGradleTask =
+	| 'assembleDebug'
+	| 'assembleRelease'
+	| 'bundleRelease';
+
+export type BuildAbsoluteAndroidGradleOptions = {
+	capture?: NonNullable<StartAbsoluteAndroidDevOptions['capture']>;
+	env?: Record<string, string | undefined>;
+	project: Pick<
+		AbsoluteAndroidDevProject,
+		'androidRoot' | 'config' | 'host' | 'nativeDirectory' | 'projectRoot'
+	>;
+	run?: NonNullable<StartAbsoluteAndroidDevOptions['run']>;
+	signal?: AbortSignal;
+	task: AbsoluteAndroidGradleTask;
+};
+
+const gradleArtifactPath = (
+	nativeDirectory: string,
+	task: AbsoluteAndroidGradleTask,
+	windows = false
 ) => {
+	const pathJoin = windows ? win32.join : join;
+	if (task === 'assembleDebug') {
+		return pathJoin(
+			nativeDirectory,
+			'app',
+			'build',
+			'outputs',
+			'apk',
+			'debug',
+			'app-debug.apk'
+		);
+	}
+	if (task === 'assembleRelease') {
+		return pathJoin(
+			nativeDirectory,
+			'app',
+			'build',
+			'outputs',
+			'apk',
+			'release',
+			'app-release.apk'
+		);
+	}
+
+	return pathJoin(
+		nativeDirectory,
+		'app',
+		'build',
+		'outputs',
+		'bundle',
+		'release',
+		'app-release.aab'
+	);
+};
+
+const resolveGradleArtifactPath = async (
+	nativeDirectory: string,
+	task: AbsoluteAndroidGradleTask
+) => {
+	const primary = gradleArtifactPath(nativeDirectory, task);
+	if (task !== 'assembleRelease' || (await pathExists(primary))) {
+		return primary;
+	}
+
+	return join(
+		nativeDirectory,
+		'app',
+		'build',
+		'outputs',
+		'apk',
+		'release',
+		'app-release-unsigned.apk'
+	);
+};
+
+export const buildAbsoluteAndroidGradleArtifact = async (
+	options: BuildAbsoluteAndroidGradleOptions
+) => {
+	const { project, task } = options;
+	const capture = options.capture ?? captureCommand;
+	const run = options.run ?? runCommand;
+	const env = options.env ?? process.env;
 	if (project.host === 'wsl') {
 		const windowsSource = windowsPathFromWsl(
 			project.nativeDirectory,
@@ -1040,42 +1139,69 @@ const buildAndroidDebugApp = async (
 					windowsDirectory,
 					windowsAndroidRoot,
 					dependencies,
-					rewrittenSettings
+					rewrittenSettings,
+					task
 				)
 			],
 			'Android Gradle build',
 			run,
-			{ env, signal }
+			{ env, signal: options.signal }
 		);
 
-		return win32.join(
-			windowsDirectory,
-			'app',
-			'build',
-			'outputs',
-			'apk',
-			'debug',
-			'app-debug.apk'
+		const artifactPath = await resolveGradleArtifactPath(
+			managedBuildDirectory,
+			task
 		);
+		const unsigned = artifactPath.endsWith('-unsigned.apk');
+
+		return {
+			artifactPath,
+			installPath: unsigned
+				? win32.join(
+						windowsDirectory,
+						'app',
+						'build',
+						'outputs',
+						'apk',
+						'release',
+						'app-release-unsigned.apk'
+					)
+				: gradleArtifactPath(windowsDirectory, task, true)
+		};
 	}
 	const wrapper = project.host === 'windows' ? 'gradlew.bat' : './gradlew';
 	await requireSuccess(
-		[wrapper, '--no-daemon', '--console=plain', 'assembleDebug'],
+		[wrapper, '--no-daemon', '--console=plain', task],
 		'Android Gradle build',
 		run,
-		{ cwd: project.nativeDirectory, env, signal }
+		{ cwd: project.nativeDirectory, env, signal: options.signal }
 	);
 
-	return join(
+	const artifactPath = await resolveGradleArtifactPath(
 		project.nativeDirectory,
-		'app',
-		'build',
-		'outputs',
-		'apk',
-		'debug',
-		'app-debug.apk'
+		task
 	);
+
+	return { artifactPath, installPath: artifactPath };
 };
+
+const buildAndroidDebugApp = async (
+	project: AbsoluteAndroidDevProject,
+	capture: NonNullable<StartAbsoluteAndroidDevOptions['capture']>,
+	run: NonNullable<StartAbsoluteAndroidDevOptions['run']>,
+	env: Record<string, string | undefined>,
+	signal?: AbortSignal
+) =>
+	(
+		await buildAbsoluteAndroidGradleArtifact({
+			capture,
+			env,
+			project,
+			run,
+			signal,
+			task: 'assembleDebug'
+		})
+	).installPath;
 
 type EnsureAndroidDebugAppOptions = {
 	cache: AndroidNativeCache | null;

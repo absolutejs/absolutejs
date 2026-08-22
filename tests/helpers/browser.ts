@@ -12,6 +12,11 @@ type OpenPageOptions = {
 	waitUntil?: 'commit' | 'domcontentloaded' | 'load';
 };
 
+type ReadyPageOptions = OpenPageOptions & {
+	attempts?: number;
+	retryDelayMs?: number;
+};
+
 /* Spin up a headless Chromium against the dev-server URL. The
  * returned page is already navigated to `url` and DOMContentLoaded
  * + the `load` event have fired. `close()` shuts the whole browser
@@ -75,6 +80,49 @@ export const openPage = async (url: string, options: OpenPageOptions = {}) => {
 				throw error;
 			}
 			await Bun.sleep(100 * (attempt + 1));
+		}
+	}
+
+	throw lastError;
+};
+
+const isClosedBrowserError = (error: unknown) =>
+	/browser has been closed|context or browser has been closed|target page, context or browser has been closed/iu.test(
+		error instanceof Error ? error.message : String(error)
+	);
+
+/**
+ * Open a page and prove its framework-specific hydration boundary before handing
+ * the session to a test. Long aggregate lanes can have Chromium reclaimed after
+ * navigation but before hydration; that is a browser-lifetime failure, not an HMR
+ * assertion, so recreate only that session with bounded backoff.
+ */
+export const openReadyPage = async (
+	url: string,
+	ready: (page: Page) => Promise<void>,
+	options: ReadyPageOptions = {}
+) => {
+	const attempts = options.attempts ?? 3;
+	const retryDelayMs = options.retryDelayMs ?? 500;
+	let lastError: unknown;
+	for (let attempt = 0; attempt < attempts; attempt++) {
+		const session = await openPage(url, options);
+		try {
+			await ready(session.page);
+			if (session.page.isClosed() || !session.browser.isConnected()) {
+				throw new Error(
+					'Target page, context or browser has been closed during readiness.'
+				);
+			}
+
+			return session;
+		} catch (error) {
+			lastError = error;
+			await session.close();
+			if (!isClosedBrowserError(error) || attempt === attempts - 1) {
+				throw error;
+			}
+			await Bun.sleep(retryDelayMs * (attempt + 1));
 		}
 	}
 

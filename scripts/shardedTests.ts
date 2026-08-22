@@ -7,9 +7,9 @@
  * constraint without changing a single test: it copies the repo into N
  * shard directories (node_modules symlinked, so each copy is ~92MB and
  * takes ~1s), deals the test files across them, and runs N `bun test`
- * processes concurrently. Each file keeps its own dev server and its own
- * fixture tree — exactly as hermetic as the serial run, same tests, same
- * assertions, ~N× the wall-clock speed.
+ * processes concurrently. Files are serialized inside each copied fixture
+ * tree while the copies run in parallel — the same isolation as the serial
+ * run, with the same tests and assertions at roughly N× the throughput.
  *
  * Usage:
  *   bun run scripts/shardedTests.ts [testDir] [--shards N]
@@ -30,6 +30,13 @@ const DEFAULT_SHARDS = 4;
 const RESERVED_CORES = 2;
 const MS_PER_MINUTE = 60_000;
 const NOT_FOUND = -1;
+const MAX_BROWSER_PROCESS_ATTEMPTS = 3;
+const BROWSER_RETRY_DELAY_MS = 500;
+// A long compiler/browser lane can occasionally have headless Chromium
+// reclaimed by the host. Retry only that explicit infrastructure failure in a
+// new Bun process; assertion, build, server, and framework failures stay red.
+const CLOSED_BROWSER_RE =
+	/target page, context or browser has been closed|browser has been closed/iu;
 
 // Measured on the full integration inventory. These are scheduling hints,
 // not pass/fail thresholds; unknown files fall back to source size.
@@ -222,10 +229,16 @@ type ShardResult = {
 	durationMs: number;
 };
 
+type RunTestProcessOptions = {
+	beforeBrowserRetry?: () => void;
+	retryClosedBrowser?: boolean;
+};
+
 const runTestProcess = async (
 	name: string,
 	testCwd: string,
-	files: string[]
+	files: string[],
+	options: RunTestProcessOptions = {}
 ) => {
 	const startedAt = performance.now();
 	const testEnv: Record<string, string | undefined> = {
@@ -240,18 +253,47 @@ const runTestProcess = async (
 		FORCE_COLOR: '0',
 		TELEMETRY_OFF: '1'
 	};
-	const proc = Bun.spawn(['bun', 'test', ...files], {
-		cwd: testCwd,
-		env: testEnv,
-		stderr: 'pipe',
-		stdout: 'pipe'
-	});
-	const [stdout, stderr, exitCode] = await Promise.all([
-		new Response(proc.stdout).text(),
-		new Response(proc.stderr).text(),
-		proc.exited
-	]);
-	const output = `${stdout}\n${stderr}`;
+	// Every shard owns one copied fixture/build tree. Bun otherwise executes up
+	// to 20 tests concurrently, allowing files inside the same shard to mutate
+	// that tree at the same time. Serialize within each copy; the shard processes
+	// still provide N-way parallelism across genuinely isolated worktrees.
+	const runAttempt = async (
+		attempt: number
+	): Promise<{ exitCode: number; output: string }> => {
+		const proc = Bun.spawn(
+			['bun', 'test', '--max-concurrency=1', ...files],
+			{
+				cwd: testCwd,
+				env: testEnv,
+				stderr: 'pipe',
+				stdout: 'pipe'
+			}
+		);
+		const [stdout, stderr, attemptExitCode] = await Promise.all([
+			new Response(proc.stdout).text(),
+			new Response(proc.stderr).text(),
+			proc.exited
+		]);
+		const output = `${stdout}\n${stderr}`;
+		const canRecoverBrowser =
+			options.retryClosedBrowser === true &&
+			attemptExitCode !== 0 &&
+			CLOSED_BROWSER_RE.test(output) &&
+			attempt < MAX_BROWSER_PROCESS_ATTEMPTS;
+		if (!canRecoverBrowser) {
+			return { exitCode: attemptExitCode, output };
+		}
+
+		console.log(
+			`${name} lost Chromium; retrying in a fresh test process ` +
+				`(${attempt + 1}/${MAX_BROWSER_PROCESS_ATTEMPTS})`
+		);
+		options.beforeBrowserRetry?.();
+		await Bun.sleep(BROWSER_RETRY_DELAY_MS * attempt);
+
+		return runAttempt(attempt + 1);
+	};
+	const { exitCode, output } = await runAttempt(1);
 	await Bun.write(join(SHARD_PARENT, `${name}.log`), output);
 
 	const result: ShardResult = {
@@ -284,9 +326,10 @@ const runExclusive = (files: string[]) =>
 
 			return [
 				...results,
-				await runTestProcess(`exclusive-${index}`, REPO_ROOT, [
-					file
-				]).then(logShardCompletion)
+				await runTestProcess(`exclusive-${index}`, REPO_ROOT, [file], {
+					beforeBrowserRetry: cleanExclusiveRuntimeArtifacts,
+					retryClosedBrowser: true
+				}).then(logShardCompletion)
 			];
 		},
 		Promise.resolve([])

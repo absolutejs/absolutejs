@@ -1,6 +1,6 @@
 # AbsoluteJS Mobile Apps: Research and Implementation Plan
 
-Status: Android Capacitor development loop operational; real API 36 all-framework HMR conformance passing
+Status: Android Capacitor development and production AAB pipelines operational; real API 36 all-framework HMR conformance passing
 Research snapshot: August 20, 2026
 
 Implementation checkpoint (August 20, 2026): the first React protocol seam now
@@ -1411,6 +1411,27 @@ transport or navigation allowlist, the manifest explicitly permits cleartext, or
 packaged assets contain an HMR client marker. It passes only after dev cleanup has
 restored the production projection. Platforms without implemented release checks
 also fail closed rather than receiving a misleading green result.
+
+`absolute mobile build android [server-entry]` now owns the complete production
+Android path. It repairs an interrupted development projection, runs the same
+production assets/server/route-contract preparation as `absolute prepare`, writes
+and verifies the generated Capacitor configuration, synchronizes Android, applies
+native deep-link declarations, runs Android-scoped release transport checks, and
+invokes Gradle `bundleRelease`. The normal result must pass `jarsigner` verification;
+`--unsigned` is an explicit non-publishable escape hatch, not a signing mode.
+Signing remains in the committed Android Gradle project or injected Gradle/CI
+properties, so passwords and keystore paths never enter Absolute config, shell
+arguments, telemetry, or release metadata.
+
+Each AAB is copied into
+`.absolutejs/mobile/releases/android/amobile_android_<sha256>/app-release.aab`
+with an immutable `release.json`. Its secret-free metadata links the native bytes
+and SHA-256 release identity to the embedded `appBuild`, runtime, application ID,
+engine, platform, artifact type, size, and verified signing state. This intentionally
+matches the content-addressed `{ releaseId, sha256, bytes }` vocabulary used by
+`@absolutejs/deploy` without treating a native binary as a server source archive.
+`--outdir` can relocate this release store within the project, while
+`--web-outdir` independently selects the production Absolute build directory.
 
 Capacitor 8's SystemBars plugin legitimately owns native safe-area variables on
 the document root. Absolute's browser JSX runtime now marks `<html>` hydration as

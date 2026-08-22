@@ -4,7 +4,7 @@ import { startDevServer, type DevServer } from '../../../helpers/devServer';
 import { connectHMR, type HMRClient } from '../../../helpers/ws';
 import { mutateFile, restoreAllFiles } from '../../../helpers/file';
 import {
-	openPage,
+	openReadyPage,
 	type BrowserSession,
 	waitForText
 } from '../../../helpers/browser';
@@ -40,21 +40,19 @@ const startAll = async () => {
 	await client.waitFor('manifest');
 	await client.waitFor('connected');
 	client.drain();
-	session = await openPage(`${server.baseUrl}/vue`);
-	// Wait for Vue hydration to mount the counter button. The
-	// SSR'd `<button data-v-count-button>count is 0</button>`
-	// stays in the DOM during hydration; we wait for the
-	// post-hydration interactive state by polling textContent on
-	// the page.
-	await session.page.waitForSelector('button[data-v-count-button]', {
-		timeout: 15_000
+	session = await openReadyPage(`${server.baseUrl}/vue`, async (page) => {
+		// Wait for Vue hydration to mount the counter button. The SSR'd
+		// button remains in the DOM while the interactive state attaches.
+		await page.waitForSelector('button[data-v-count-button]', {
+			timeout: 15_000
+		});
+		await waitForText(
+			page,
+			'button[data-v-count-button]',
+			(text) => /count is \d+/.test(text),
+			15_000
+		);
 	});
-	await waitForText(
-		session.page,
-		'button[data-v-count-button]',
-		(t) => /count is \d+/.test(t),
-		15_000
-	);
 
 	return { client: client, server: server, session: session };
 };

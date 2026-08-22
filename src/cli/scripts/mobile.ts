@@ -19,7 +19,10 @@ import {
 } from '../../mobile/associationFiles';
 import { loadConfig } from '../../utils/loadConfig';
 import { listLiveInstances } from '../../utils/instanceRegistry';
-import { parseAdbDevices } from '../../mobile/androidEmulatorController';
+import {
+	parseAdbDevices,
+	repairAbsoluteAndroidDevSession
+} from '../../mobile/androidEmulatorController';
 import { attachAbsoluteAndroidWebView } from '../../mobile/androidWebView';
 import {
 	inspectAbsoluteAndroidRoute,
@@ -29,6 +32,10 @@ import {
 } from '../../mobile/androidConformance';
 import { sendTelemetryEvent } from '../telemetryEvent';
 import { inspectAbsoluteMobileRelease } from '../../mobile/releaseDoctor';
+import { buildAbsoluteAndroidRelease } from '../../mobile/androidRelease';
+import { start } from './start';
+import { DEFAULT_SERVER_ENTRY } from '../utils';
+import { getDurationString } from '../../utils/getDurationString';
 
 const NOT_FOUND = -1;
 
@@ -267,6 +274,99 @@ const runReleaseDoctor = async (args: string[]) => {
 		throw new TypeError(
 			'Mobile release validation failed. Resolve every failed check before signing or publishing the app.'
 		);
+	}
+};
+
+const mobileBuildServerEntry = (args: string[]) => {
+	const valueFlags = new Set(['--config', '--outdir', '--web-outdir']);
+	const skipped = new Set<number>();
+	args.forEach((value, index) => {
+		if (valueFlags.has(value)) {
+			skipped.add(index);
+			skipped.add(index + 1);
+		}
+	});
+
+	return (
+		args.find(
+			(value, index) =>
+				!skipped.has(index) &&
+				value !== '--unsigned' &&
+				!value.startsWith('-')
+		) ?? DEFAULT_SERVER_ENTRY
+	);
+};
+
+const requireAndroidReleaseReady = async (
+	mobile: Awaited<ReturnType<typeof loadMobile>>['mobile'],
+	projectRoot: string
+) => {
+	const releaseCheck = await inspectAbsoluteMobileRelease(
+		{ ...mobile, platforms: ['android'] },
+		projectRoot
+	);
+	if (releaseCheck.ready) return;
+	printDoctorChecks(
+		releaseCheck.checks.map((check) => ({
+			id: check.id,
+			label: check.detail,
+			path: check.path,
+			platform: 'android',
+			remediation: check.remediation,
+			status: check.status
+		}))
+	);
+	throw new TypeError(
+		'Android release validation failed before Gradle signing.'
+	);
+};
+
+const buildAndroid = async (args: string[]) => {
+	const configPath = valueAfter(args, '--config');
+	const { mobile, projectRoot } = await loadMobile(configPath);
+	if (!mobile.platforms.includes('android')) {
+		throw new TypeError(
+			'mobile build android requires android in mobile.platforms.'
+		);
+	}
+	const startedAt = performance.now();
+	let success = false;
+	try {
+		await repairAbsoluteAndroidDevSession(projectRoot);
+		await start(
+			mobileBuildServerEntry(args),
+			valueAfter(args, '--web-outdir'),
+			configPath,
+			{ prepareOnly: true }
+		);
+		await writeAbsoluteCapacitorConfig(mobile, { projectRoot });
+		await runCapacitorForPlatforms(projectRoot, 'sync', ['android']);
+		await applyAbsoluteNativeDeepLinks(mobile, ['android']);
+		await requireAndroidReleaseReady(mobile, projectRoot);
+		const release = await buildAbsoluteAndroidRelease({
+			allowUnsigned: args.includes('--unsigned'),
+			config: mobile,
+			outputDirectory: valueAfter(args, '--outdir'),
+			projectRoot
+		});
+		success = true;
+		const durationMs = Math.round(performance.now() - startedAt);
+		console.log(
+			`Built ${release.metadata.signed ? 'signed' : 'unsigned'} Android App Bundle in ${getDurationString(durationMs)}.`
+		);
+		console.log(`Artifact: ${release.artifactPath}`);
+		console.log(`Metadata: ${join(release.releaseRoot, 'release.json')}`);
+
+		return release;
+	} finally {
+		sendTelemetryEvent('mobile:android-release-build', {
+			durationMs: Math.round(performance.now() - startedAt),
+			engine: 'capacitor',
+			platform: 'android',
+			success,
+			type: 'aab',
+			unsignedAllowed: args.includes('--unsigned')
+		});
 	}
 };
 
@@ -648,8 +748,13 @@ export const runMobile = async (args: string[]) => {
 
 		return;
 	}
+	if (command === 'build' && args[1] === 'android') {
+		await buildAndroid(args.slice(2));
+
+		return;
+	}
 
 	throw new TypeError(
-		'Usage: absolute mobile <init [--no-native] [--force] | sync [ios|android] | associations [--outdir dir] [--verify] | doctor [ios|android|release] [--json|--fix [--yes]] | test android [--route path] [--wait-for-hmr] [--timeout ms] [--port n] [--serial id] [--artifacts dir] [--json]> [--config path]'
+		'Usage: absolute mobile <init [--no-native] [--force] | sync [ios|android] | associations [--outdir dir] [--verify] | doctor [ios|android|release] [--json|--fix [--yes]] | build android [server-entry] [--outdir dir] [--web-outdir dir] [--unsigned] | test android [--route path] [--wait-for-hmr] [--timeout ms] [--port n] [--serial id] [--artifacts dir] [--json]> [--config path]'
 	);
 };

@@ -16,6 +16,8 @@ type HmrStatus = {
 
 const waitForServerIdle = async () => {
 	await Bun.sleep(1_000);
+	const earliestReturn = Date.now() + 2_000;
+	let stableChecks = 0;
 	const deadline = Date.now() + 30_000;
 	while (Date.now() < deadline) {
 		const response = await fetch(`${server.baseUrl}/hmr-status`);
@@ -24,7 +26,14 @@ const waitForServerIdle = async () => {
 			status.isRebuilding === false &&
 			(status.rebuildQueue?.length ?? 0) === 0
 		) {
-			return;
+			stableChecks++;
+			if (stableChecks >= 5 && Date.now() >= earliestReturn) {
+				client.drain();
+
+				return;
+			}
+		} else {
+			stableChecks = 0;
 		}
 		await Bun.sleep(100);
 	}

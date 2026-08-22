@@ -4,7 +4,7 @@ import { startDevServer, type DevServer } from '../../../helpers/devServer';
 import { connectHMR, type HMRClient } from '../../../helpers/ws';
 import { mutateFile, restoreAllFiles } from '../../../helpers/file';
 import {
-	openPage,
+	openReadyPage,
 	type BrowserSession,
 	waitForText
 } from '../../../helpers/browser';
@@ -40,12 +40,13 @@ const startAll = async () => {
 	await client.waitFor('manifest');
 	await client.waitFor('connected');
 	client.drain();
-	session = await openPage(`${server.baseUrl}/angular`);
-	// Wait for Angular hydration to attach to the counter button.
-	await waitForText(session.page, 'app-counter .counter-value', (t) =>
-		/\d+/.test(t)
-	);
-	await session.page.waitForFunction(() => Boolean(window.__ANGULAR_APP__));
+	session = await openReadyPage(`${server.baseUrl}/angular`, async (page) => {
+		// Wait for Angular hydration to attach to the counter button.
+		await waitForText(page, 'app-counter .counter-value', (text) =>
+			/\d+/.test(text)
+		);
+		await page.waitForFunction(() => Boolean(window.__ANGULAR_APP__));
+	});
 
 	return { client: client, server: server, session: session };
 };
