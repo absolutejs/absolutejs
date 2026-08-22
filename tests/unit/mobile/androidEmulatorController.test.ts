@@ -551,7 +551,7 @@ describe('Android emulator development controller', () => {
 		expect(decodedCommand).toContain('capacitor.settings.gradle');
 		expect(decodedCommand).toContain("Join-Path $directory 'gradlew.bat'");
 		expect(decodedCommand).toContain(
-			'--no-daemon --console=plain -p $directory assembleDebug'
+			'--no-daemon --console=plain -p $directory @gradleArguments assembleDebug'
 		);
 		const install = commands.find((command) => command.includes('install'));
 		expect(install?.at(-1)?.startsWith('C:\\absolute')).toBe(true);

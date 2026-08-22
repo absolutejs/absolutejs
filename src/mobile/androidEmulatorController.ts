@@ -650,7 +650,7 @@ type NativeFingerprintRoot = {
 };
 
 export const fingerprintAbsoluteAndroidNativeProject = async (
-	project: AbsoluteAndroidDevProject
+	project: Pick<AbsoluteAndroidDevProject, 'nativeDirectory'>
 ) => {
 	const { dependencies } = await nativeDependencySources(
 		project.nativeDirectory
@@ -980,7 +980,8 @@ const encodedWindowsGradleCommand = (
 	windowsAndroidRoot: string,
 	dependencies: WindowsGradleDependency[],
 	rewrittenSettings: string,
-	task: AbsoluteAndroidGradleTask
+	task: AbsoluteAndroidGradleTask,
+	gradleArguments: readonly string[]
 ) => {
 	const sourceDirectory = Buffer.from(windowsSource, 'utf8').toString(
 		'base64'
@@ -998,6 +999,10 @@ const encodedWindowsGradleCommand = (
 	const settingsData = Buffer.from(rewrittenSettings, 'utf8').toString(
 		'base64'
 	);
+	const argumentsData = Buffer.from(
+		JSON.stringify(gradleArguments),
+		'utf8'
+	).toString('base64');
 	const source = [
 		"$ErrorActionPreference = 'Stop'",
 		`$source = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${sourceDirectory}'))`,
@@ -1005,6 +1010,7 @@ const encodedWindowsGradleCommand = (
 		`$androidHome = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${androidRoot}'))`,
 		`$dependencies = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${dependencyData}')) | ConvertFrom-Json`,
 		`$settings = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${settingsData}'))`,
+		`$gradleArguments = @([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${argumentsData}')) | ConvertFrom-Json)`,
 		'$env:ANDROID_HOME = $androidHome',
 		'$env:ANDROID_SDK_ROOT = $androidHome',
 		'New-Item -ItemType Directory -Force -Path $directory | Out-Null',
@@ -1014,7 +1020,7 @@ const encodedWindowsGradleCommand = (
 		"foreach ($dependency in @($dependencies)) { $target = Join-Path $directory ('.absolutejs-dependencies\\' + $dependency.name); New-Item -ItemType Directory -Force -Path $target | Out-Null; & robocopy.exe $dependency.windowsSource $target /MIR /XD .gradle build /NFL /NDL /NJH /NJS /NP; if ($LASTEXITCODE -ge 8) { exit $LASTEXITCODE } }",
 		"[IO.File]::WriteAllText((Join-Path $directory 'capacitor.settings.gradle'), $settings)",
 		"$wrapper = Join-Path $directory 'gradlew.bat'",
-		`& $wrapper --no-daemon --console=plain -p $directory ${task}`,
+		`& $wrapper --no-daemon --console=plain -p $directory @gradleArguments ${task}`,
 		'if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }',
 		'exit 0'
 	].join('; ');
@@ -1030,6 +1036,7 @@ export type AbsoluteAndroidGradleTask =
 export type BuildAbsoluteAndroidGradleOptions = {
 	capture?: NonNullable<StartAbsoluteAndroidDevOptions['capture']>;
 	env?: Record<string, string | undefined>;
+	gradleArguments?: readonly string[];
 	project: Pick<
 		AbsoluteAndroidDevProject,
 		'androidRoot' | 'config' | 'host' | 'nativeDirectory' | 'projectRoot'
@@ -1106,6 +1113,7 @@ export const buildAbsoluteAndroidGradleArtifact = async (
 	const capture = options.capture ?? captureCommand;
 	const run = options.run ?? runCommand;
 	const env = options.env ?? process.env;
+	const gradleArguments = options.gradleArguments ?? [];
 	if (project.host === 'wsl') {
 		const windowsSource = windowsPathFromWsl(
 			project.nativeDirectory,
@@ -1140,7 +1148,8 @@ export const buildAbsoluteAndroidGradleArtifact = async (
 					windowsAndroidRoot,
 					dependencies,
 					rewrittenSettings,
-					task
+					task,
+					gradleArguments
 				)
 			],
 			'Android Gradle build',
@@ -1171,7 +1180,7 @@ export const buildAbsoluteAndroidGradleArtifact = async (
 	}
 	const wrapper = project.host === 'windows' ? 'gradlew.bat' : './gradlew';
 	await requireSuccess(
-		[wrapper, '--no-daemon', '--console=plain', task],
+		[wrapper, '--no-daemon', '--console=plain', ...gradleArguments, task],
 		'Android Gradle build',
 		run,
 		{ cwd: project.nativeDirectory, env, signal: options.signal }

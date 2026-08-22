@@ -1473,6 +1473,74 @@ that code to a track, validates the edit, and commits it. The adapter must persi
 a receipt by `{ releaseId, provider, package, track }` before automatic retries so
 a successful commit cannot be followed by an unsafe duplicate upload.
 
+Implementation checkpoint (August 22, 2026): `@absolutejs/deploy` 0.23 adds the
+Google Play provider adapter and `absolute mobile publish android` accepts an
+explicit Play distribution intent. The project module composes the same native
+registry and BlobStore used in the preceding checkpoint:
+
+```ts
+// mobile.release.ts
+import { createGooglePlayReleasePublisher } from '@absolutejs/deploy/google-play';
+import { createNativeReleaseRegistry } from '@absolutejs/deploy/native-release';
+import { s3BlobStore } from '@absolutejs/blob/s3';
+
+const store = s3BlobStore({ client, bucket: process.env.RELEASE_BUCKET! });
+
+export default createGooglePlayReleasePublisher({
+	receiptStore: store,
+	registry: createNativeReleaseRegistry({ store })
+});
+```
+
+The Play-aware module performs a short preflight edit, finds the highest bundle
+version known to Play, and returns the next `versionCode`. That allocation is
+persisted against a full build identity derived from the web `appBuild` and the
+source-owned Android/native dependency fingerprint. A retry therefore rebuilds
+the exact same app with the same code, while either web or native source changes
+allocate a new one; promoting that same binary to another track also retains its
+code. AbsoluteJS injects the result through Android Gradle Plugin's version-code
+property and signs it into `release.json`; the adapter then requires the upload
+response to return that exact embedded code. Applications never edit
+`build.gradle` merely to ship their next update. Publication for one package is
+serialized in CI because Play exposes monotonic codes but no reservation API.
+
+```sh
+# Complete internal release
+absolute mobile publish android --play-track internal
+
+# Start and later increase a production staged rollout
+absolute mobile publish android --play-track production --play-rollout 0.1
+absolute mobile publish android --play-track production --play-rollout 0.5
+
+# Halt, resume, then complete the same retained AAB without re-uploading it
+absolute mobile publish android --play-track production --play-status halted --play-rollout 0.5
+absolute mobile publish android --play-track production --play-status in-progress --play-rollout 0.5
+absolute mobile publish android --play-track production --play-status completed
+```
+
+Optional release controls are `--play-name`, repeatable
+`--play-notes language=text`, `--play-update-priority 0..5`, and
+`--play-hold-review`. Commits default to Google's `ERROR_IF_IN_REVIEW` behavior;
+only the explicit `--play-cancel-existing-review` flag permits cancellation of
+an existing review. This prevents unattended CI from silently replacing work
+already under review.
+
+The adapter persists integrity-checked `editing`, `uploading`, `commit-pending`,
+and `committed` receipts before the corresponding effects. It reuses an
+unexpired edit and resumable upload session after interruption. If the commit
+response is lost, it opens a fresh edit and reconciles the bundle SHA-256,
+embedded version code, and track intent before declaring success. A resumed
+uncommitted edit is deliberately not treated as provider state, closing the
+classic crash-after-track-update hole. Track and package identity are hashed in
+receipt keys; credentials, edit IDs, upload-session URLs, package names, tracks,
+release IDs, rollout fractions, and version codes are excluded from telemetry.
+
+Google setup remains an external account prerequisite: enable the Google Play
+Developer API, create a service account, and grant only the required app release
+permissions in Play Console. The adapter uses Application Default Credentials
+and the `androidpublisher` OAuth scope; it never accepts credential material on
+CLI flags.
+
 Capacitor 8's SystemBars plugin legitimately owns native safe-area variables on
 the document root. Absolute's browser JSX runtime now marks `<html>` hydration as
 safe only when Capacitor reports a native platform, retaining full hydration

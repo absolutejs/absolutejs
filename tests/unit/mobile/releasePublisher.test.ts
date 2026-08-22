@@ -122,4 +122,60 @@ describe('native release publisher modules', () => {
 			})
 		).rejects.toThrow('different Android release identity');
 	});
+
+	test('forwards and verifies a committed Google Play release intent', async () => {
+		const projectRoot = await temporaryRoot();
+		const capturePath = join(projectRoot, 'play-capture.json');
+		const expected: AbsoluteAndroidReleaseMetadata = {
+			...metadata(),
+			versionCode: 42
+		};
+		await writeFile(
+			join(projectRoot, 'play.ts'),
+			`export default {
+	async publish(options: Record<string, unknown>) {
+		await Bun.write(${JSON.stringify(capturePath)}, JSON.stringify(options));
+		return {
+			googlePlay: {
+				receipt: {
+					intent: { track: 'production' },
+					packageName: ${JSON.stringify(expected.appId)},
+					provider: 'google-play',
+					releaseId: ${JSON.stringify(expected.releaseId)},
+					sha256: ${JSON.stringify(expected.sha256)},
+					stage: 'committed',
+					versionCode: '42'
+				},
+				reused: false
+			},
+			record: { metadata: ${JSON.stringify(expected)} },
+			reused: false
+		};
+	}
+};
+`
+		);
+		const publication = await publishAbsoluteAndroidRelease({
+			googlePlay: {
+				status: 'inProgress',
+				track: 'production',
+				userFraction: 0.1
+			},
+			modulePath: './play.ts',
+			projectRoot,
+			release: {
+				metadata: expected,
+				releaseRoot: join(projectRoot, 'release')
+			}
+		});
+
+		expect(publication.googlePlay?.receipt.versionCode).toBe('42');
+		expect(JSON.parse(await readFile(capturePath, 'utf8'))).toMatchObject({
+			googlePlay: {
+				status: 'inProgress',
+				track: 'production',
+				userFraction: 0.1
+			}
+		});
+	});
 });

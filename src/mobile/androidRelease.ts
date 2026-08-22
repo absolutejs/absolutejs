@@ -18,6 +18,7 @@ import {
 } from './emulatorDoctor';
 import {
 	buildAbsoluteAndroidGradleArtifact,
+	fingerprintAbsoluteAndroidNativeProject,
 	type AbsoluteAndroidCommandOptions,
 	type AbsoluteAndroidCommandResult
 } from './androidEmulatorController';
@@ -38,6 +39,7 @@ export type AbsoluteAndroidReleaseMetadata = {
 	sha256: string;
 	signed: boolean;
 	type: 'aab';
+	versionCode?: number;
 };
 
 type MobileClientManifest = {
@@ -62,6 +64,8 @@ export type BuildAbsoluteAndroidReleaseOptions = {
 		command: string[],
 		options?: AbsoluteAndroidCommandOptions
 	) => Promise<number>;
+	prepareVersionCode?: (buildIdentity: string) => Promise<number>;
+	versionCode?: number;
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -245,6 +249,21 @@ const requireManifestIdentity = (
 export const buildAbsoluteAndroidRelease = async (
 	options: BuildAbsoluteAndroidReleaseOptions
 ) => {
+	if (options.versionCode !== undefined && options.prepareVersionCode) {
+		throw new TypeError(
+			'Android release versionCode and prepareVersionCode cannot be combined.'
+		);
+	}
+	if (
+		options.versionCode !== undefined &&
+		(!Number.isSafeInteger(options.versionCode) ||
+			options.versionCode < 1 ||
+			options.versionCode > 2_100_000_000)
+	) {
+		throw new TypeError(
+			'Android versionCode must be an integer from 1 through 2100000000.'
+		);
+	}
 	const projectRoot = resolve(options.projectRoot);
 	const host = options.host ?? detectAbsoluteMobileHost();
 	const androidRoot =
@@ -256,8 +275,48 @@ export const buildAbsoluteAndroidRelease = async (
 		options.config.nativeProjectDirectory,
 		'android'
 	);
+	const manifest = requireManifest(
+		JSON.parse(
+			await readFile(
+				join(
+					options.config.bundleDirectory,
+					'absolute-mobile-manifest.json'
+				),
+				'utf8'
+			)
+		)
+	);
+	if (manifest.appId !== options.config.appId) {
+		throw new TypeError(
+			'Embedded mobile manifest appId does not match mobile.appId.'
+		);
+	}
+	let { versionCode } = options;
+	if (options.prepareVersionCode) {
+		const nativeFingerprint = await fingerprintAbsoluteAndroidNativeProject(
+			{ nativeDirectory }
+		);
+		const buildIdentity = createHash('sha256')
+			.update(`${manifest.appBuild}\0${nativeFingerprint}`)
+			.digest('hex');
+		versionCode = await options.prepareVersionCode(buildIdentity);
+	}
+	if (
+		versionCode !== undefined &&
+		(!Number.isSafeInteger(versionCode) ||
+			versionCode < 1 ||
+			versionCode > 2_100_000_000)
+	) {
+		throw new TypeError(
+			'Android versionCode must be an integer from 1 through 2100000000.'
+		);
+	}
 	const { artifactPath } = await buildAbsoluteAndroidGradleArtifact({
 		capture: options.capture,
+		gradleArguments:
+			versionCode === undefined
+				? []
+				: [`-Pandroid.injected.version.code=${versionCode}`],
 		project: {
 			androidRoot,
 			config: options.config,
@@ -285,22 +344,6 @@ export const buildAbsoluteAndroidRelease = async (
 			'Android Gradle produced an unsigned App Bundle. Configure the release signingConfig in the source-owned Android project (prefer external Gradle properties), or pass --unsigned only for a non-publishable build.'
 		);
 	}
-	const manifest = requireManifest(
-		JSON.parse(
-			await readFile(
-				join(
-					options.config.bundleDirectory,
-					'absolute-mobile-manifest.json'
-				),
-				'utf8'
-			)
-		)
-	);
-	if (manifest.appId !== options.config.appId) {
-		throw new TypeError(
-			'Embedded mobile manifest appId does not match mobile.appId.'
-		);
-	}
 	const [bytes, sha256] = await Promise.all([
 		stat(artifactPath).then(({ size }) => size),
 		sha256File(artifactPath)
@@ -317,7 +360,8 @@ export const buildAbsoluteAndroidRelease = async (
 		runtime: manifest.runtime,
 		sha256,
 		signed: signed === true,
-		type: 'aab'
+		type: 'aab',
+		...(versionCode === undefined ? {} : { versionCode })
 	} satisfies Omit<AbsoluteAndroidReleaseMetadata, 'artifact'>;
 
 	return installRelease(

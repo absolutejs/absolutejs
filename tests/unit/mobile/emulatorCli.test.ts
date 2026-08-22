@@ -127,4 +127,32 @@ describe('mobile emulator CLI', () => {
 		expect(stderr).toContain('requires --registry <value>');
 		expect(stderr).not.toContain('TypeError:');
 	});
+
+	test('requires an explicit Google Play track before building Android', async () => {
+		const subprocess = Bun.spawn(
+			[
+				process.execPath,
+				resolve(ROOT, 'src/cli/index.ts'),
+				'mobile',
+				'publish',
+				'android',
+				'--play-rollout',
+				'0.1'
+			],
+			{
+				cwd: ROOT,
+				stderr: 'pipe',
+				stdin: 'ignore',
+				stdout: 'pipe'
+			}
+		);
+		const [exitCode, stderr] = await Promise.all([
+			subprocess.exited,
+			new Response(subprocess.stderr).text()
+		]);
+
+		expect(exitCode).toBe(1);
+		expect(stderr).toContain('requires --play-track <track>');
+		expect(stderr).not.toContain('TypeError:');
+	});
 });

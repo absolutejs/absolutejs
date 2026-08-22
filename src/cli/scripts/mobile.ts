@@ -35,7 +35,10 @@ import { inspectAbsoluteMobileRelease } from '../../mobile/releaseDoctor';
 import { buildAbsoluteAndroidRelease } from '../../mobile/androidRelease';
 import {
 	loadAbsoluteNativeReleasePublisher,
-	publishAbsoluteAndroidRelease
+	prepareAbsoluteAndroidRelease,
+	publishAbsoluteAndroidRelease,
+	type AbsoluteGooglePlayReleaseTarget,
+	type AbsoluteNativeReleasePublication
 } from '../../mobile/releasePublisher';
 import { start } from './start';
 import { DEFAULT_SERVER_ENTRY } from '../utils';
@@ -286,6 +289,12 @@ const mobileBuildServerEntry = (args: string[]) => {
 		'--channel',
 		'--config',
 		'--outdir',
+		'--play-name',
+		'--play-notes',
+		'--play-rollout',
+		'--play-status',
+		'--play-track',
+		'--play-update-priority',
 		'--registry',
 		'--web-outdir'
 	]);
@@ -316,6 +325,123 @@ const requireValueAfter = (args: string[], flag: string) => {
 	return value;
 };
 
+const googlePlayTarget = (
+	args: string[]
+): AbsoluteGooglePlayReleaseTarget | undefined => {
+	const playFlags = args.filter((value) => value.startsWith('--play-'));
+	if (playFlags.length === 0) return undefined;
+	if (!args.includes('--play-track')) {
+		throw new TypeError(
+			'mobile publish android requires --play-track <track> when using Google Play options.'
+		);
+	}
+	const track = requireValueAfter(args, '--play-track');
+	const rolloutValue = args.includes('--play-rollout')
+		? requireValueAfter(args, '--play-rollout')
+		: undefined;
+	const userFraction =
+		rolloutValue === undefined ? undefined : Number(rolloutValue);
+	if (
+		userFraction !== undefined &&
+		(!Number.isFinite(userFraction) ||
+			userFraction <= 0 ||
+			userFraction >= 1)
+	) {
+		throw new TypeError(
+			'mobile publish android --play-rollout must be greater than 0 and less than 1.'
+		);
+	}
+	const requestedStatus = args.includes('--play-status')
+		? requireValueAfter(args, '--play-status')
+		: undefined;
+	const statuses = {
+		completed: 'completed',
+		draft: 'draft',
+		halted: 'halted',
+		'in-progress': 'inProgress'
+	} as const;
+	if (requestedStatus !== undefined && !(requestedStatus in statuses)) {
+		throw new TypeError(
+			'mobile publish android --play-status must be completed, draft, halted, or in-progress.'
+		);
+	}
+	let status: (typeof statuses)[keyof typeof statuses];
+	if (requestedStatus === undefined) {
+		status = userFraction === undefined ? 'completed' : 'inProgress';
+	} else if (requestedStatus === 'in-progress') {
+		status = statuses['in-progress'];
+	} else if (requestedStatus === 'completed') {
+		status = statuses.completed;
+	} else if (requestedStatus === 'draft') {
+		status = statuses.draft;
+	} else {
+		status = statuses.halted;
+	}
+	if (
+		userFraction === undefined
+			? status === 'inProgress' || status === 'halted'
+			: status !== 'inProgress' && status !== 'halted'
+	) {
+		throw new TypeError(
+			'mobile publish android staged statuses require --play-rollout, and other statuses forbid it.'
+		);
+	}
+	const priorityValue = args.includes('--play-update-priority')
+		? requireValueAfter(args, '--play-update-priority')
+		: undefined;
+	const inAppUpdatePriority =
+		priorityValue === undefined ? undefined : Number(priorityValue);
+	if (
+		inAppUpdatePriority !== undefined &&
+		(!Number.isInteger(inAppUpdatePriority) ||
+			inAppUpdatePriority < 0 ||
+			inAppUpdatePriority > 5)
+	) {
+		throw new TypeError(
+			'mobile publish android --play-update-priority must be an integer from 0 through 5.'
+		);
+	}
+	if (
+		args.some(
+			(value, index) =>
+				value === '--play-notes' &&
+				(!args[index + 1] || args[index + 1]?.startsWith('-'))
+		)
+	) {
+		throw new TypeError(
+			'mobile publish android requires --play-notes <language=text>.'
+		);
+	}
+	const releaseNotes = valuesAfter(args, '--play-notes').map((note) => {
+		const separator = note.indexOf('=');
+		if (separator < 1 || separator === note.length - 1) {
+			throw new TypeError(
+				'mobile publish android --play-notes must use language=text.'
+			);
+		}
+
+		return {
+			language: note.slice(0, separator),
+			text: note.slice(separator + 1)
+		};
+	});
+
+	return {
+		changesNotSentForReview: args.includes('--play-hold-review'),
+		...(inAppUpdatePriority === undefined ? {} : { inAppUpdatePriority }),
+		...(args.includes('--play-name')
+			? { name: requireValueAfter(args, '--play-name') }
+			: {}),
+		...(releaseNotes.length === 0 ? {} : { releaseNotes }),
+		reviewBehavior: args.includes('--play-cancel-existing-review')
+			? 'CANCEL_IN_REVIEW_AND_SUBMIT'
+			: 'ERROR_IF_IN_REVIEW',
+		status,
+		track,
+		...(userFraction === undefined ? {} : { userFraction })
+	};
+};
+
 const requireAndroidReleaseReady = async (
 	mobile: Awaited<ReturnType<typeof loadMobile>>['mobile'],
 	projectRoot: string
@@ -340,7 +466,10 @@ const requireAndroidReleaseReady = async (
 	);
 };
 
-const buildAndroid = async (args: string[]) => {
+const buildAndroid = async (
+	args: string[],
+	prepareVersionCode?: (buildIdentity: string) => Promise<number>
+) => {
 	const configPath = valueAfter(args, '--config');
 	const { mobile, projectRoot } = await loadMobile(configPath);
 	if (!mobile.platforms.includes('android')) {
@@ -366,7 +495,8 @@ const buildAndroid = async (args: string[]) => {
 			allowUnsigned: args.includes('--unsigned'),
 			config: mobile,
 			outputDirectory: valueAfter(args, '--outdir'),
-			projectRoot
+			projectRoot,
+			...(prepareVersionCode === undefined ? {} : { prepareVersionCode })
 		});
 		success = true;
 		const durationMs = Math.round(performance.now() - startedAt);
@@ -389,6 +519,14 @@ const buildAndroid = async (args: string[]) => {
 	}
 };
 
+const printGooglePlayPublication = (
+	googlePlay: NonNullable<AbsoluteNativeReleasePublication['googlePlay']>
+) => {
+	console.log(
+		`${googlePlay.reused ? 'Reused' : 'Committed'} Google Play version ${googlePlay.receipt.versionCode} on ${googlePlay.receipt.intent.track}.`
+	);
+};
+
 const publishAndroid = async (args: string[]) => {
 	const registryModule = args.includes('--registry')
 		? requireValueAfter(args, '--registry')
@@ -397,16 +535,31 @@ const publishAndroid = async (args: string[]) => {
 		? requireValueAfter(args, '--channel')
 		: undefined;
 	const configPath = valueAfter(args, '--config');
-	const { projectRoot } = await loadMobile(configPath);
+	const googlePlay = googlePlayTarget(args);
+	const { mobile, projectRoot } = await loadMobile(configPath);
 	const startedAt = performance.now();
 	let reused = false;
 	let success = false;
 	try {
-		await loadAbsoluteNativeReleasePublisher(projectRoot, registryModule);
-		const release = await buildAndroid(args);
+		const publisher = await loadAbsoluteNativeReleasePublisher(
+			projectRoot,
+			registryModule
+		);
+		const release = await buildAndroid(
+			args,
+			googlePlay
+				? (buildIdentity) =>
+						prepareAbsoluteAndroidRelease(publisher, {
+							buildIdentity,
+							googlePlay,
+							packageName: mobile.appId
+						})
+				: undefined
+		);
 		const publication = await publishAbsoluteAndroidRelease({
 			allowUnsigned: args.includes('--unsigned'),
 			channel,
+			googlePlay,
 			modulePath: registryModule,
 			projectRoot,
 			release
@@ -417,6 +570,8 @@ const publishAndroid = async (args: string[]) => {
 		console.log(
 			`${publication.reused ? 'Reused' : 'Published'} Android release ${release.metadata.releaseId}${publication.channel ? ` on ${publication.channel.channel}` : ''}.`
 		);
+		if (publication.googlePlay)
+			printGooglePlayPublication(publication.googlePlay);
 
 		return publication;
 	} finally {
@@ -424,7 +579,7 @@ const publishAndroid = async (args: string[]) => {
 			durationMs: Math.round(performance.now() - startedAt),
 			engine: 'capacitor',
 			platform: 'android',
-			provider: 'registry-module',
+			provider: googlePlay ? 'google-play' : 'registry-module',
 			reused,
 			success,
 			type: 'aab',
@@ -823,6 +978,6 @@ export const runMobile = async (args: string[]) => {
 	}
 
 	throw new TypeError(
-		'Usage: absolute mobile <init [--no-native] [--force] | sync [ios|android] | associations [--outdir dir] [--verify] | doctor [ios|android|release] [--json|--fix [--yes]] | build android [server-entry] [--outdir dir] [--web-outdir dir] [--unsigned] | publish android [server-entry] [--registry module] [--channel name] [--outdir dir] [--web-outdir dir] [--unsigned] | test android [--route path] [--wait-for-hmr] [--timeout ms] [--port n] [--serial id] [--artifacts dir] [--json]> [--config path]'
+		'Usage: absolute mobile <init [--no-native] [--force] | sync [ios|android] | associations [--outdir dir] [--verify] | doctor [ios|android|release] [--json|--fix [--yes]] | build android [server-entry] [--outdir dir] [--web-outdir dir] [--unsigned] | publish android [server-entry] [--registry module] [--channel name] [--play-track track] [--play-status completed|draft|halted|in-progress] [--play-rollout fraction] [--play-name name] [--play-notes language=text] [--play-update-priority 0..5] [--play-hold-review] [--play-cancel-existing-review] [--outdir dir] [--web-outdir dir] [--unsigned] | test android [--route path] [--wait-for-hmr] [--timeout ms] [--port n] [--serial id] [--artifacts dir] [--json]> [--config path]'
 	);
 };
