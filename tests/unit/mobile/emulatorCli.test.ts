@@ -100,4 +100,31 @@ describe('mobile emulator CLI', () => {
 		expect(stderr).toContain('must be a valid TCP port');
 		expect(stderr).not.toContain('TypeError:');
 	});
+
+	test('validates native release module flags before building Android', async () => {
+		const subprocess = Bun.spawn(
+			[
+				process.execPath,
+				resolve(ROOT, 'src/cli/index.ts'),
+				'mobile',
+				'publish',
+				'android',
+				'--registry'
+			],
+			{
+				cwd: ROOT,
+				stderr: 'pipe',
+				stdin: 'ignore',
+				stdout: 'pipe'
+			}
+		);
+		const [exitCode, stderr] = await Promise.all([
+			subprocess.exited,
+			new Response(subprocess.stderr).text()
+		]);
+
+		expect(exitCode).toBe(1);
+		expect(stderr).toContain('requires --registry <value>');
+		expect(stderr).not.toContain('TypeError:');
+	});
 });

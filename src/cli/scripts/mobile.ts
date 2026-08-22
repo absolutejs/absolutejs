@@ -33,6 +33,10 @@ import {
 import { sendTelemetryEvent } from '../telemetryEvent';
 import { inspectAbsoluteMobileRelease } from '../../mobile/releaseDoctor';
 import { buildAbsoluteAndroidRelease } from '../../mobile/androidRelease';
+import {
+	loadAbsoluteNativeReleasePublisher,
+	publishAbsoluteAndroidRelease
+} from '../../mobile/releasePublisher';
 import { start } from './start';
 import { DEFAULT_SERVER_ENTRY } from '../utils';
 import { getDurationString } from '../../utils/getDurationString';
@@ -278,7 +282,13 @@ const runReleaseDoctor = async (args: string[]) => {
 };
 
 const mobileBuildServerEntry = (args: string[]) => {
-	const valueFlags = new Set(['--config', '--outdir', '--web-outdir']);
+	const valueFlags = new Set([
+		'--channel',
+		'--config',
+		'--outdir',
+		'--registry',
+		'--web-outdir'
+	]);
 	const skipped = new Set<number>();
 	args.forEach((value, index) => {
 		if (valueFlags.has(value)) {
@@ -295,6 +305,15 @@ const mobileBuildServerEntry = (args: string[]) => {
 				!value.startsWith('-')
 		) ?? DEFAULT_SERVER_ENTRY
 	);
+};
+
+const requireValueAfter = (args: string[], flag: string) => {
+	const value = valueAfter(args, flag);
+	if (!value || value.startsWith('-')) {
+		throw new TypeError(`mobile publish android requires ${flag} <value>.`);
+	}
+
+	return value;
 };
 
 const requireAndroidReleaseReady = async (
@@ -363,6 +382,50 @@ const buildAndroid = async (args: string[]) => {
 			durationMs: Math.round(performance.now() - startedAt),
 			engine: 'capacitor',
 			platform: 'android',
+			success,
+			type: 'aab',
+			unsignedAllowed: args.includes('--unsigned')
+		});
+	}
+};
+
+const publishAndroid = async (args: string[]) => {
+	const registryModule = args.includes('--registry')
+		? requireValueAfter(args, '--registry')
+		: 'mobile.release.ts';
+	const channel = args.includes('--channel')
+		? requireValueAfter(args, '--channel')
+		: undefined;
+	const configPath = valueAfter(args, '--config');
+	const { projectRoot } = await loadMobile(configPath);
+	const startedAt = performance.now();
+	let reused = false;
+	let success = false;
+	try {
+		await loadAbsoluteNativeReleasePublisher(projectRoot, registryModule);
+		const release = await buildAndroid(args);
+		const publication = await publishAbsoluteAndroidRelease({
+			allowUnsigned: args.includes('--unsigned'),
+			channel,
+			modulePath: registryModule,
+			projectRoot,
+			release
+		});
+		const { reused: publicationReused } = publication;
+		reused = publicationReused;
+		success = true;
+		console.log(
+			`${publication.reused ? 'Reused' : 'Published'} Android release ${release.metadata.releaseId}${publication.channel ? ` on ${publication.channel.channel}` : ''}.`
+		);
+
+		return publication;
+	} finally {
+		sendTelemetryEvent('mobile:android-release-publish', {
+			durationMs: Math.round(performance.now() - startedAt),
+			engine: 'capacitor',
+			platform: 'android',
+			provider: 'registry-module',
+			reused,
 			success,
 			type: 'aab',
 			unsignedAllowed: args.includes('--unsigned')
@@ -753,8 +816,13 @@ export const runMobile = async (args: string[]) => {
 
 		return;
 	}
+	if (command === 'publish' && args[1] === 'android') {
+		await publishAndroid(args.slice(2));
+
+		return;
+	}
 
 	throw new TypeError(
-		'Usage: absolute mobile <init [--no-native] [--force] | sync [ios|android] | associations [--outdir dir] [--verify] | doctor [ios|android|release] [--json|--fix [--yes]] | build android [server-entry] [--outdir dir] [--web-outdir dir] [--unsigned] | test android [--route path] [--wait-for-hmr] [--timeout ms] [--port n] [--serial id] [--artifacts dir] [--json]> [--config path]'
+		'Usage: absolute mobile <init [--no-native] [--force] | sync [ios|android] | associations [--outdir dir] [--verify] | doctor [ios|android|release] [--json|--fix [--yes]] | build android [server-entry] [--outdir dir] [--web-outdir dir] [--unsigned] | publish android [server-entry] [--registry module] [--channel name] [--outdir dir] [--web-outdir dir] [--unsigned] | test android [--route path] [--wait-for-hmr] [--timeout ms] [--port n] [--serial id] [--artifacts dir] [--json]> [--config path]'
 	);
 };

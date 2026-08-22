@@ -1433,6 +1433,46 @@ matches the content-addressed `{ releaseId, sha256, bytes }` vocabulary used by
 `--outdir` can relocate this release store within the project, while
 `--web-outdir` independently selects the production Absolute build directory.
 
+Implementation checkpoint (August 22, 2026): `@absolutejs/deploy` 0.22 adds a
+provider-neutral native release registry over the structural `@absolutejs/blob`
+contract. It re-hashes the local AAB, fails closed on unsigned builds by default,
+streams content-addressed artifacts once, and manages `internal`, `beta`,
+`production`, or application-defined channels as small mutable pointers. Channel
+rollback changes only the pointer and never rebuilds or copies the retained AAB.
+Application IDs are hashed in object keys, while release records retain the full
+identity required for validation.
+
+`absolute mobile publish android [--registry ./mobile.release.ts] [--channel name]`
+now composes the complete workflow: production build, signing verification,
+immutable local installation, remote registry publication, and optional channel
+promotion. The project-local module default-exports a Deploy native release
+registry and may construct any local/S3-compatible Blob adapter from environment
+credentials. AbsoluteJS validates that the module stays inside the project and
+that its result is the exact release just built. Credentials, registry module
+paths, application IDs, release IDs, object keys, and channel names are excluded
+from telemetry.
+
+The conventional module name is `mobile.release.ts`, so `--registry` is needed
+only when an application keeps deployment wiring elsewhere.
+
+```ts
+// mobile.release.ts
+import { createNativeReleaseRegistry } from '@absolutejs/deploy/native-release';
+import { s3BlobStore } from '@absolutejs/blob/s3';
+
+export default createNativeReleaseRegistry({
+	store: s3BlobStore({ client, bucket: process.env.RELEASE_BUCKET! })
+});
+```
+
+This same command is the CI primitive; CI supplies Gradle signing properties and
+Blob credentials through its secret store rather than generating a second build
+workflow. Google Play remains a provider adapter above the registry. The Android
+Publisher edit flow uploads the AAB, returns its embedded `versionCode`, assigns
+that code to a track, validates the edit, and commits it. The adapter must persist
+a receipt by `{ releaseId, provider, package, track }` before automatic retries so
+a successful commit cannot be followed by an unsafe duplicate upload.
+
 Capacitor 8's SystemBars plugin legitimately owns native safe-area variables on
 the document root. Absolute's browser JSX runtime now marks `<html>` hydration as
 safe only when Capacitor reports a native platform, retaining full hydration
