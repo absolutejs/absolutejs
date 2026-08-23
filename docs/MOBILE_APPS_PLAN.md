@@ -2566,6 +2566,18 @@ Exit criteria:
 
 ### Phase 5: devices core and shell integration
 
+Implementation checkpoint (August 22, 2026): the public
+`@absolutejs/devices@0.0.1` foundation is published from
+`absolutejs/devices@f8d50d3`. It provides normalized capability and permission
+contracts, platform/lifecycle/resume/restored-operation/network/link/back/storage
+facades, separate web and SSR entry points, deterministic test adapters, and a
+shared adapter conformance harness. Secure storage is deliberately a distinct
+provider capability rather than a `localStorage` alias. The release passes 18
+contract/runtime/web/SSR/conformance tests, builds every public entry point, and
+passes an import test against the exact npm tarball. The Capacitor package remains
+unpublished until the real macOS simulator report can inform its lifecycle and
+restoration integration instead of freezing assumptions into its first release.
+
 Deliverables:
 
 - `@absolutejs/devices` core/web/SSR/test package.
