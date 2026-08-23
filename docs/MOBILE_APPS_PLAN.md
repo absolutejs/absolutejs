@@ -2578,6 +2578,21 @@ passes an import test against the exact npm tarball. The Capacitor package remai
 unpublished until the real macOS simulator report can inform its lifecycle and
 restoration integration instead of freezing assumptions into its first release.
 
+Implementation checkpoint (August 23, 2026):
+`absolutejs/devices@4070df0` contains the unpublished
+`@absolutejs/devices-capacitor@0.0.1` release candidate. It normalizes Capacitor
+App lifecycle/resume/restored results, launch and inbound links, Android hardware
+back, Network state, Browser opening, and namespaced Preferences behind the core
+facades. External URLs are audited, listener cleanup is idempotent, provider
+failures become typed device errors, browser previews retain the web adapter, and
+Preferences can neither clear unrelated keys nor masquerade as secure storage.
+The adapter and core pass 26 tests/74 assertions plus type, build, and distribution
+gates. `@absolutejs/devices@0.0.2` is published with the required realm-scoped
+adapter registry; a test builds two physically independent runtime bundles and
+proves the shell installation is visible to page code. The Capacitor tarball and
+native-only bootstrap API are ready, but the adapter and its final AbsoluteJS
+shell dependency remain unpublished until real iOS acceptance.
+
 Deliverables:
 
 - `@absolutejs/devices` core/web/SSR/test package.
