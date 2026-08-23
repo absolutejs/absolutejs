@@ -121,7 +121,16 @@ describe('mobile release doctor', () => {
 		expect(safe.ready).toBe(true);
 		expect(
 			safe.checks.filter(({ id }) => id.startsWith('ios.'))
-		).toHaveLength(4);
+		).toHaveLength(5);
+
+		const iosJournal = join(
+			projectRoot,
+			'.absolutejs',
+			'mobile',
+			'ios-dev-session'
+		);
+		await mkdir(iosJournal, { recursive: true });
+		await writeFile(join(iosJournal, 'journal.json'), '{}');
 
 		await writeFile(
 			join(iosApp, 'Info.plist'),
@@ -143,5 +152,10 @@ describe('mobile release doctor', () => {
 				.filter((check) => check.status === 'fail')
 				.map((check) => check.id)
 		).toContain('ios.hmr-assets');
+		expect(
+			unsafe.checks
+				.filter((check) => check.status === 'fail')
+				.map((check) => check.id)
+		).toContain('ios.dev-journal');
 	});
 });

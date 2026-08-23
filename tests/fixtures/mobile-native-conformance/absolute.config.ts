@@ -17,7 +17,7 @@ export default defineConfig({
 		nativeProject: {
 			directory: '.absolutejs/mobile-native-conformance/native'
 		},
-		platforms: ['android'],
+		platforms: ['android', 'ios'],
 		server: { productionOrigin: 'https://conformance.absolutejs.com' }
 	},
 	publicDirectory: 'example/public',

@@ -48,6 +48,7 @@ import {
 } from '../../mobile/androidEmulatorController';
 import {
 	inspectAbsoluteMobileToolchain,
+	detectAbsoluteMobileHost,
 	type AbsoluteMobileDoctorCheck
 } from '../../mobile/emulatorDoctor';
 import { fixAbsoluteMobileEmulatorToolchain } from '../../mobile/emulatorInstaller';
@@ -55,6 +56,19 @@ import {
 	createAbsoluteAndroidNativeWatcher,
 	type AbsoluteAndroidNativeWatcher
 } from '../../mobile/androidNativeWatcher';
+import {
+	prepareAbsoluteIosDevProject,
+	repairAbsoluteIosDevSession,
+	startAbsoluteIosDevSession,
+	type AbsoluteIosDevProject,
+	type AbsoluteIosDevSession,
+	type AbsoluteIosDevState,
+	type AbsoluteIosNativeLogEntry
+} from '../../mobile/iosSimulatorController';
+import {
+	createAbsoluteIosNativeWatcher,
+	type AbsoluteIosNativeWatcher
+} from '../../mobile/iosNativeWatcher';
 import {
 	COMPOSE_PATH,
 	isWSLEnvironment,
@@ -81,6 +95,21 @@ const androidLogTag = (entry: AbsoluteAndroidNativeLogEntry) => {
 	const color = androidLogColor(entry.level);
 
 	return `\x1b[2m${formatTimestamp()}\x1b[0m ${color}[android]\x1b[0m ${color}${entry.level.padEnd(ANDROID_LOG_LEVEL_WIDTH)} ${entry.tag}: ${entry.message}\x1b[0m`;
+};
+
+const iosLogColor = (level: AbsoluteIosNativeLogEntry['level']) => {
+	if (level === 'fault' || level === 'error') return '\x1b[31m';
+	if (level === 'notice') return '\x1b[33m';
+	if (level === 'debug') return '\x1b[90m';
+
+	return '\x1b[35m';
+};
+
+const IOS_LOG_LEVEL_WIDTH = 6;
+const iosLogTag = (entry: AbsoluteIosNativeLogEntry) => {
+	const color = iosLogColor(entry.level);
+
+	return `\x1b[2m${formatTimestamp()}\x1b[0m ${color}[ios]\x1b[0m ${color}${entry.level.padEnd(IOS_LOG_LEVEL_WIDTH)} ${entry.tag}: ${entry.message}\x1b[0m`;
 };
 
 const DEFAULT_PORT_RANGE = 10;
@@ -295,6 +324,13 @@ const androidToolchainReady = (checks: AbsoluteMobileDoctorCheck[]) =>
 			(check.status !== 'fail' && check.status !== 'warn')
 	);
 
+const iosToolchainReady = (checks: AbsoluteMobileDoctorCheck[]) =>
+	checks.every(
+		(check) =>
+			check.platform !== 'ios' ||
+			(check.status !== 'fail' && check.status !== 'warn')
+	);
+
 export const dev = async (
 	serverEntry: string,
 	configPath?: string,
@@ -320,6 +356,7 @@ export const dev = async (
 	}
 
 	let androidDevProject: AbsoluteAndroidDevProject | null = null;
+	let iosDevProject: AbsoluteIosDevProject | null = null;
 	const mobileInteractive =
 		options.mobile !== false &&
 		process.env.ABSOLUTE_NO_MOBILE !== '1' &&
@@ -370,6 +407,62 @@ export const dev = async (
 								createNativeProject,
 								projectRoot: process.cwd()
 							});
+					}
+				}
+			}
+			if (normalized.platforms.includes('ios')) {
+				if (detectAbsoluteMobileHost() !== 'macos') {
+					console.log(
+						cliTag(
+							'\x1b[33m',
+							'iOS simulator skipped because it requires macOS and Xcode.'
+						)
+					);
+				} else {
+					let ready = iosToolchainReady(
+						await inspectAbsoluteMobileToolchain()
+					);
+					if (!ready) {
+						const install = await confirmPrompt(
+							'iOS simulation is not configured. Install the missing simulator runtime now?'
+						);
+						if (install) {
+							await fixAbsoluteMobileEmulatorToolchain('ios');
+							ready = iosToolchainReady(
+								await inspectAbsoluteMobileToolchain()
+							);
+						} else {
+							console.log(
+								cliTag(
+									'\x1b[33m',
+									'Mobile simulator skipped. Run `absolute mobile doctor ios --fix` when ready.'
+								)
+							);
+						}
+					}
+					if (ready) {
+						const nativeDirectory = join(
+							normalized.nativeProjectDirectory,
+							'ios'
+						);
+						let createNativeProject = false;
+						if (!existsSync(nativeDirectory)) {
+							createNativeProject = await confirmPrompt(
+								'Create the managed Capacitor iOS project now?'
+							);
+						}
+						if (
+							existsSync(nativeDirectory) ||
+							createNativeProject
+						) {
+							iosDevProject = await prepareAbsoluteIosDevProject(
+								normalized,
+								{
+									createNativeProject,
+									projectRoot: process.cwd()
+								}
+							);
+						}
 					}
 				}
 			}
@@ -495,11 +588,14 @@ export const dev = async (
 	let androidDevSession: AbsoluteAndroidDevSession | null = null;
 	let androidDevStart: Promise<void> | null = null;
 	let androidNativeWatcher: AbsoluteAndroidNativeWatcher | null = null;
+	let iosDevSession: AbsoluteIosDevSession | null = null;
+	let iosDevStart: Promise<void> | null = null;
+	let iosNativeWatcher: AbsoluteIosNativeWatcher | null = null;
 	const androidPhaseTimings: Record<string, number> = {};
 	let androidDevState: AbsoluteAndroidDevState | 'waiting-for-server' =
 		'waiting-for-server';
 	const androidDevAbort = new AbortController();
-	const printAndroidOutput = (output: string) => {
+	const printNativeOutput = (output: string) => {
 		interactive?.clearPrompt();
 		console.log(output);
 		writeInstanceLog(`${output}\n`);
@@ -533,8 +629,8 @@ export const dev = async (
 			port,
 			project: androidProject,
 			signal: androidDevAbort.signal,
-			log: (message) => printAndroidOutput(cliTag('\x1b[36m', message)),
-			nativeLog: (entry) => printAndroidOutput(androidLogTag(entry)),
+			log: (message) => printNativeOutput(cliTag('\x1b[36m', message)),
+			nativeLog: (entry) => printNativeOutput(androidLogTag(entry)),
 			onPhaseTiming: ({ durationMs, phase }) => {
 				androidPhaseTimings[phase] =
 					(androidPhaseTimings[phase] ?? 0) + durationMs;
@@ -542,7 +638,7 @@ export const dev = async (
 			onStateChange: (state) => {
 				androidDevState = state;
 				if (state === 'ready' || state === 'closed') return;
-				printAndroidOutput(
+				printNativeOutput(
 					cliTag('\x1b[36m', `Android emulator: ${state}.`)
 				);
 			}
@@ -556,7 +652,7 @@ export const dev = async (
 			signal: androidDevAbort.signal,
 			onChange: async (change) => {
 				if (cleaning) return;
-				printAndroidOutput(
+				printNativeOutput(
 					cliTag(
 						'\x1b[36m',
 						`Android native inputs changed (${change.paths.length} path${change.paths.length === 1 ? '' : 's'}); syncing and rebuilding…`
@@ -588,7 +684,7 @@ export const dev = async (
 			},
 			onError: (error) => {
 				androidDevState = 'failed';
-				printAndroidOutput(
+				printNativeOutput(
 					cliTag(
 						'\x1b[31m',
 						`Android native rebuild failed: ${error instanceof Error ? error.message : String(error)}`
@@ -646,6 +742,145 @@ export const dev = async (
 				androidDevStart = null;
 			});
 	};
+	const iosPhaseTimings: Record<string, number> = {};
+	let iosDevState: AbsoluteIosDevState | 'waiting-for-server' =
+		'waiting-for-server';
+	const iosDevAbort = new AbortController();
+	const publishIosReady = (session: AbsoluteIosDevSession) => {
+		sendTelemetryEvent('mobile:ios-dev-ready', {
+			cacheHit: session.nativeCacheHit,
+			host: 'macos',
+			platform: 'ios',
+			provider: 'capacitor',
+			startedSimulator: session.startedSimulator,
+			timings: session.timings
+		});
+		if (session.timings.building === undefined) return;
+		sendTelemetryEvent('mobile:native-build', {
+			buildMs: session.timings.building,
+			host: 'macos',
+			installMs: session.timings.installing,
+			platform: 'ios',
+			provider: 'capacitor',
+			success: true
+		});
+	};
+	const openIosDevSession = (iosProject: AbsoluteIosDevProject) =>
+		startAbsoluteIosDevSession({
+			https: httpsEnabled,
+			port,
+			project: iosProject,
+			signal: iosDevAbort.signal,
+			log: (message) => printNativeOutput(cliTag('\x1b[35m', message)),
+			nativeLog: (entry) => printNativeOutput(iosLogTag(entry)),
+			onPhaseTiming: ({ durationMs, phase }) => {
+				iosPhaseTimings[phase] =
+					(iosPhaseTimings[phase] ?? 0) + durationMs;
+			},
+			onStateChange: (state) => {
+				iosDevState = state;
+				if (state === 'ready' || state === 'closed') return;
+				printNativeOutput(
+					cliTag('\x1b[35m', `iOS simulator: ${state}.`)
+				);
+			}
+		});
+	const ensureIosNativeWatcher = async (
+		iosProject: AbsoluteIosDevProject
+	) => {
+		if (iosNativeWatcher) return;
+		iosNativeWatcher = await createAbsoluteIosNativeWatcher({
+			project: iosProject,
+			signal: iosDevAbort.signal,
+			onChange: async (change) => {
+				if (cleaning) return;
+				printNativeOutput(
+					cliTag(
+						'\x1b[35m',
+						`iOS native inputs changed (${change.paths.length} path${change.paths.length === 1 ? '' : 's'}); syncing and rebuilding…`
+					)
+				);
+				const current = iosDevSession;
+				iosDevSession = null;
+				const replacement = current
+					? await current.rebuild()
+					: await openIosDevSession(iosProject);
+				if (cleaning) {
+					await replacement.close();
+
+					return;
+				}
+				iosDevSession = replacement;
+				publishIosReady(replacement);
+				sendTelemetryEvent('mobile:native-rebuild', {
+					cacheHit: replacement.nativeCacheHit,
+					host: 'macos',
+					platform: 'ios',
+					provider: 'capacitor',
+					rootInputChanged: change.rootInputChanged,
+					success: true,
+					timings: replacement.timings
+				});
+			},
+			onError: (error) => {
+				iosDevState = 'failed';
+				printNativeOutput(
+					cliTag(
+						'\x1b[31m',
+						`iOS native rebuild failed: ${error instanceof Error ? error.message : String(error)}`
+					)
+				);
+				sendTelemetryEvent('mobile:native-rebuild', {
+					host: 'macos',
+					platform: 'ios',
+					provider: 'capacitor',
+					success: false
+				});
+			}
+		});
+	};
+	const startIosDev = () => {
+		const iosProject = iosDevProject;
+		if (!iosProject || iosDevStart || iosDevSession) return;
+		iosDevStart = openIosDevSession(iosProject)
+			.then(async (session) => {
+				if (cleaning) {
+					await session.close();
+
+					return undefined;
+				}
+				iosDevSession = session;
+				publishIosReady(session);
+				await ensureIosNativeWatcher(iosProject);
+
+				return undefined;
+			})
+			.catch((error) => {
+				iosDevState = 'failed';
+				if (
+					cleaning &&
+					error instanceof Error &&
+					error.name === 'AbortError'
+				)
+					return;
+				sendTelemetryEvent('mobile:ios-dev-failed', {
+					host: 'macos',
+					phase: iosDevState,
+					platform: 'ios',
+					provider: 'capacitor',
+					timings: iosPhaseTimings
+				});
+				console.error(
+					cliTag(
+						'\x1b[31m',
+						`iOS simulator failed: ${error instanceof Error ? error.message : String(error)}`
+					)
+				);
+			})
+			.finally(() => {
+				iosDevStart = null;
+			});
+	};
 
 	// Once the dev server is up, dial the reverse-tunnel relay (if configured)
 	// so public webhooks reach this machine. Started once; survives HMR.
@@ -668,6 +903,7 @@ export const dev = async (
 		serverReady = true;
 		startTunnelIfConfigured();
 		startAndroidDev();
+		startIosDev();
 		interactive?.showPrompt();
 	};
 
@@ -1215,12 +1451,21 @@ export const dev = async (
 		tunnelClient?.close();
 		androidDevAbort.abort();
 		androidNativeWatcher?.close();
+		iosDevAbort.abort();
+		iosNativeWatcher?.close();
 		if (androidDevSession) {
 			await androidDevSession.close();
 		} else if (androidDevProject) {
 			await repairAbsoluteAndroidDevSession(
 				androidDevProject.projectRoot
 			).catch(() => undefined);
+		}
+		if (iosDevSession) {
+			await iosDevSession.close();
+		} else if (iosDevProject) {
+			await repairAbsoluteIosDevSession(iosDevProject.projectRoot).catch(
+				() => undefined
+			);
 		}
 		if (paused) sendSignal('SIGCONT');
 		killChildTree('SIGTERM');
@@ -1382,36 +1627,61 @@ export const dev = async (
 		heapSnapshot: () => {
 			triggerHeapSnapshot();
 		},
-		...(androidDevProject
+		...(androidDevProject || iosDevProject
 			? {
 					device: () => {
-						const target = androidDevSession
-							? `${androidDevSession.serial}, ${androidDevSession.state}`
-							: androidDevState;
-						console.log(
-							cliTag(
-								'\x1b[36m',
-								`Android target: ${target}; HMR port ${port}.`
-							)
-						);
+						if (androidDevProject) {
+							const target = androidDevSession
+								? `${androidDevSession.serial}, ${androidDevSession.state}`
+								: androidDevState;
+							console.log(
+								cliTag(
+									'\x1b[36m',
+									`Android target: ${target}; HMR port ${port}.`
+								)
+							);
+						}
+						if (iosDevProject) {
+							const target = iosDevSession
+								? `${iosDevSession.udid}, ${iosDevSession.state}`
+								: iosDevState;
+							console.log(
+								cliTag(
+									'\x1b[35m',
+									`iOS target: ${target}; HMR port ${port}.`
+								)
+							);
+						}
 					},
 					relaunchDevice: async () => {
-						if (!androidDevSession) {
+						if (androidDevProject && !androidDevSession) {
 							console.log(
 								cliTag(
 									'\x1b[33m',
 									`Android target is not ready (${androidDevState}).`
 								)
 							);
-
-							return;
+						} else if (androidDevSession) {
+							await androidDevSession.relaunch();
 						}
-						await androidDevSession.relaunch();
+						if (iosDevProject && !iosDevSession) {
+							console.log(
+								cliTag(
+									'\x1b[33m',
+									`iOS target is not ready (${iosDevState}).`
+								)
+							);
+						} else if (iosDevSession) {
+							await iosDevSession.relaunch();
+						}
 					}
 				}
 			: {}),
 		help: () => {
-			printHelp('server', androidDevProject !== null);
+			printHelp(
+				'server',
+				androidDevProject !== null || iosDevProject !== null
+			);
 		},
 		open: () => openInBrowser(),
 		pause: () => {

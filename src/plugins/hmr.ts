@@ -314,6 +314,19 @@ export const hmr = (
 		})
 		.get('/hmr-status', () => ({
 			connectedClients: hmrState.connectedClients.size,
+			connectedTargets: Object.fromEntries(
+				[
+					'web',
+					'capacitor-android',
+					'capacitor-ios',
+					'capacitor-native'
+				].map((target) => [
+					target,
+					[...hmrState.clientTargets.values()].filter(
+						(value) => value === target
+					).length
+				])
+			),
 			entryWatcherReady: globalThis.__absoluteEntryWatcherReady === true,
 			isRebuilding: hmrState.isRebuilding,
 			manifestKeys: Object.keys(manifest),

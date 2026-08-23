@@ -35,6 +35,15 @@ import { inspectAbsoluteMobileRelease } from '../../mobile/releaseDoctor';
 import { buildAbsoluteAndroidRelease } from '../../mobile/androidRelease';
 import { buildAbsoluteIosRelease } from '../../mobile/iosRelease';
 import {
+	ABSOLUTE_IOS_SIMULATOR_NAME,
+	parseIosSimulators,
+	repairAbsoluteIosDevSession
+} from '../../mobile/iosSimulatorController';
+import {
+	waitForAbsoluteIosHmrLog,
+	type AbsoluteIosHmrApply
+} from '../../mobile/iosConformance';
+import {
 	loadAbsoluteNativeReleasePublisher,
 	prepareAbsoluteAndroidRelease,
 	prepareAbsoluteIosRelease,
@@ -49,6 +58,9 @@ import { DEFAULT_SERVER_ENTRY } from '../utils';
 import { getDurationString } from '../../utils/getDurationString';
 
 const NOT_FOUND = -1;
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+	typeof value === 'object' && value !== null && !Array.isArray(value);
 
 type AndroidSession = Awaited<ReturnType<typeof attachAbsoluteAndroidWebView>>;
 
@@ -70,6 +82,19 @@ type AndroidFailureArtifactOptions = {
 	port: number;
 	serial: string;
 	session?: AndroidSession;
+};
+
+type IosTestReport = {
+	appId: string;
+	durationMs: number;
+	hmrConnected: true;
+	hmrApply?: AbsoluteIosHmrApply;
+	platform: 'ios';
+	port: number;
+	provider: 'capacitor';
+	screenshot: string;
+	status: 'pass';
+	udid: string;
 };
 
 const CAPACITOR_PACKAGES = [
@@ -183,6 +208,10 @@ const sync = async (args: string[]) => {
 		(value) => value === 'android' || value === 'ios'
 	);
 	const platforms = platform ? [platform] : mobile.platforms;
+	if (platforms.includes('android'))
+		await repairAbsoluteAndroidDevSession(projectRoot);
+	if (platforms.includes('ios'))
+		await repairAbsoluteIosDevSession(projectRoot);
 	await runCapacitorForPlatforms(projectRoot, 'sync', platforms);
 	await applyAbsoluteNativeDeepLinks(mobile, platforms);
 };
@@ -698,6 +727,7 @@ const buildIos = async (
 	const startedAt = performance.now();
 	let success = false;
 	try {
+		await repairAbsoluteIosDevSession(projectRoot);
 		await start(
 			mobileBuildServerEntry(args),
 			valueAfter(args, '--web-outdir'),
@@ -1158,6 +1188,334 @@ const testAndroid = async (args: string[]) => {
 	}
 };
 
+const requireIosTestContext = (args: string[], projectRoot: string) => {
+	const explicit = valueAfter(args, '--port');
+	if (explicit !== undefined) {
+		const port = Number(explicit);
+		if (!Number.isInteger(port) || port < 1 || port > 65_535)
+			throw new TypeError('mobile test --port must be a valid TCP port.');
+		const instance = listLiveInstances().find(
+			(candidate) =>
+				resolve(candidate.cwd) === resolve(projectRoot) &&
+				candidate.source === 'dev' &&
+				candidate.port === port
+		);
+
+		return {
+			https: instance?.https ?? args.includes('--https'),
+			instance,
+			port
+		};
+	}
+	const instances = listLiveInstances().filter(
+		(instance) =>
+			resolve(instance.cwd) === resolve(projectRoot) &&
+			instance.source === 'dev' &&
+			instance.port !== null
+	);
+	if (instances.length !== 1)
+		throw new TypeError(
+			instances.length === 0
+				? 'No running AbsoluteJS dev server was found for this project. Start `bun dev`, wait for iOS to report ready, then run `absolute mobile test ios`.'
+				: 'Multiple dev servers are running for this project. Select one with mobile test ios --port <port>.'
+		);
+	const [instance] = instances;
+	if (!instance || instance.port === null)
+		throw new TypeError('The selected dev server has no resolved port.');
+
+	return { https: instance.https, instance, port: instance.port };
+};
+
+const waitForIosHmrClient = async (options: {
+	https: boolean;
+	port: number;
+	timeoutMs: number;
+}) => {
+	const deadline = Date.now() + options.timeoutMs;
+	const statusUrl = `${options.https ? 'https' : 'http'}://localhost:${options.port}/hmr-status`;
+	const poll = async (): Promise<void> => {
+		if (Date.now() > deadline)
+			throw new Error(
+				`The iOS app did not establish its native HMR connection within ${options.timeoutMs}ms.`
+			);
+		const response = await fetch(statusUrl, { cache: 'no-store' }).catch(
+			() => undefined
+		);
+		const status: unknown = response?.ok
+			? await response.json().catch(() => null)
+			: null;
+		const targets =
+			isRecord(status) && isRecord(status.connectedTargets)
+				? status.connectedTargets
+				: undefined;
+		if (
+			targets &&
+			typeof targets['capacitor-ios'] === 'number' &&
+			targets['capacitor-ios'] > 0
+		)
+			return;
+		await Bun.sleep(100);
+		await poll();
+	};
+
+	await poll();
+};
+
+const waitForRequestedIosHmr = async (
+	args: string[],
+	instance: ReturnType<typeof listLiveInstances>[number] | undefined,
+	timeoutMs: number
+) => {
+	if (!args.includes('--wait-for-hmr')) return undefined;
+	if (!instance?.logFile)
+		throw new TypeError(
+			'The selected dev server has no session log. Run `bun dev` normally before requesting --wait-for-hmr.'
+		);
+	if (!args.includes('--json'))
+		console.log(
+			'iOS simulator is ready. Save a source edit now; waiting for a native HMR acknowledgement…'
+		);
+
+	return waitForAbsoluteIosHmrLog({
+		logPath: instance.logFile,
+		timeoutMs
+	});
+};
+
+const printIosTestReport = (report: IosTestReport, asJson: boolean) => {
+	if (asJson) {
+		console.log(JSON.stringify(report, null, 2));
+
+		return;
+	}
+	console.log(
+		`✓ iOS simulator ${report.udid}: ${report.appId} launched; screenshot ${report.screenshot}.`
+	);
+	if (!report.hmrApply) return;
+	const timing =
+		report.hmrApply.serverMs === undefined
+			? ''
+			: ` (server ${report.hmrApply.serverMs}ms, client ${report.hmrApply.clientMs}ms)`;
+	console.log(
+		`✓ Native iOS HMR ${report.hmrApply.outcome} in ${report.hmrApply.duration}ms${timing}.`
+	);
+};
+
+const requireIosXcrun = async () => {
+	const checks = await inspectAbsoluteMobileToolchain();
+	const xcrun = checks.find(
+		(check) => check.id === 'ios.xcrun' && check.status === 'pass'
+	)?.path;
+	if (!xcrun)
+		throw new TypeError(
+			'iOS simulator tools are unavailable. Run this command on macOS after `absolute mobile doctor ios --fix`.'
+		);
+
+	return xcrun;
+};
+
+const selectIosSimulator = (
+	xcrun: string,
+	explicitUdid: string | undefined
+) => {
+	const result = captureCommand([
+		xcrun,
+		'simctl',
+		'list',
+		'devices',
+		'available',
+		'-j'
+	]);
+	if (result.exitCode !== 0)
+		throw new Error(
+			`Could not list iOS simulators: ${result.stderr.trim() || result.stdout.trim()}`
+		);
+	const devices = parseIosSimulators(result.stdout).filter(
+		(device) => device.isAvailable
+	);
+	if (explicitUdid) {
+		const explicit = devices.find((device) => device.udid === explicitUdid);
+		if (!explicit || explicit.state !== 'Booted')
+			throw new TypeError(
+				`iOS simulator ${explicitUdid} is not booted and ready.`
+			);
+
+		return explicit;
+	}
+	const selected = devices.find(
+		(device) =>
+			device.name === ABSOLUTE_IOS_SIMULATOR_NAME &&
+			device.state === 'Booted'
+	);
+	if (!selected)
+		throw new TypeError(
+			'No ready AbsoluteJS iOS simulator was found. Start `bun dev` and wait for the iOS target to become ready.'
+		);
+
+	return selected;
+};
+
+const requireCapturedIosCommand = (command: string[], label: string) => {
+	const result = captureCommand(command);
+	if (result.exitCode !== 0)
+		throw new Error(
+			`${label} failed: ${result.stderr.trim() || result.stdout.trim() || `status ${result.exitCode}`}`
+		);
+
+	return result;
+};
+
+const writeIosFailureArtifacts = async (options: {
+	appId: string;
+	artifactRoot: string;
+	error: unknown;
+	port: number;
+	udid: string;
+	xcrun: string;
+}) => {
+	await mkdir(options.artifactRoot, { recursive: true });
+	const screenshot = join(options.artifactRoot, 'ios-failure.png');
+	const screenshotResult = captureCommand([
+		options.xcrun,
+		'simctl',
+		'io',
+		options.udid,
+		'screenshot',
+		screenshot
+	]);
+	const diagnosticPath = join(options.artifactRoot, 'ios-failure.json');
+	await writeFile(
+		diagnosticPath,
+		`${JSON.stringify(
+			{
+				appId: options.appId,
+				error:
+					options.error instanceof Error
+						? options.error.message
+						: String(options.error),
+				platform: 'ios',
+				port: options.port,
+				screenshot:
+					screenshotResult.exitCode === 0 ? screenshot : undefined,
+				status: 'fail',
+				udid: options.udid
+			},
+			null,
+			2
+		)}\n`
+	);
+
+	return {
+		diagnosticPath,
+		screenshot: screenshotResult.exitCode === 0 ? screenshot : undefined
+	};
+};
+
+const testIos = async (args: string[]) => {
+	const { mobile, projectRoot } = await loadMobile(
+		valueAfter(args, '--config')
+	);
+	const { https, instance, port } = requireIosTestContext(args, projectRoot);
+	if (!mobile.platforms.includes('ios'))
+		throw new TypeError(
+			'mobile test ios requires ios in mobile.platforms.'
+		);
+	if (args.includes('--route'))
+		throw new TypeError(
+			'iOS simulator route selection is not exposed through simctl; configure mobile.entry for the native route matrix.'
+		);
+	const timeoutMs = androidTestTimeout(args);
+	const xcrun = await requireIosXcrun();
+	const simulator = selectIosSimulator(
+		xcrun,
+		valueAfter(args, '--udid') ?? valueAfter(args, '--serial')
+	);
+	const artifactRoot = safeArtifactRoot(
+		projectRoot,
+		valueAfter(args, '--artifacts')
+	);
+	const startedAt = performance.now();
+	try {
+		requireCapturedIosCommand(
+			[
+				xcrun,
+				'simctl',
+				'get_app_container',
+				simulator.udid,
+				mobile.appId,
+				'app'
+			],
+			'iOS installed-app inspection'
+		);
+		requireCapturedIosCommand(
+			[
+				xcrun,
+				'simctl',
+				'launch',
+				'--terminate-running-process',
+				simulator.udid,
+				mobile.appId
+			],
+			'iOS app launch'
+		);
+		await waitForIosHmrClient({ https, port, timeoutMs });
+		await mkdir(artifactRoot, { recursive: true });
+		const screenshot = join(artifactRoot, 'ios-simulator.png');
+		requireCapturedIosCommand(
+			[xcrun, 'simctl', 'io', simulator.udid, 'screenshot', screenshot],
+			'iOS simulator screenshot'
+		);
+		const hmrApply = await waitForRequestedIosHmr(
+			args,
+			instance,
+			timeoutMs
+		);
+		const report: IosTestReport = {
+			appId: mobile.appId,
+			durationMs: Math.round(performance.now() - startedAt),
+			...(hmrApply ? { hmrApply } : {}),
+			hmrConnected: true,
+			platform: 'ios',
+			port,
+			provider: 'capacitor',
+			screenshot,
+			status: 'pass',
+			udid: simulator.udid
+		};
+		sendTelemetryEvent('mobile:ios-conformance', {
+			durationMs: report.durationMs,
+			platform: report.platform,
+			provider: report.provider,
+			success: true,
+			waitedForHmr: args.includes('--wait-for-hmr')
+		});
+		printIosTestReport(report, args.includes('--json'));
+
+		return report;
+	} catch (error) {
+		const durationMs = Math.round(performance.now() - startedAt);
+		sendTelemetryEvent('mobile:ios-conformance', {
+			durationMs,
+			platform: 'ios',
+			provider: 'capacitor',
+			success: false,
+			waitedForHmr: args.includes('--wait-for-hmr')
+		});
+		const { diagnosticPath, screenshot } = await writeIosFailureArtifacts({
+			appId: mobile.appId,
+			artifactRoot,
+			error,
+			port,
+			udid: simulator.udid,
+			xcrun
+		});
+		throw new Error(
+			`${error instanceof Error ? error.message : String(error)} Failure diagnostics: ${diagnosticPath}${screenshot ? `; screenshot: ${screenshot}` : ''}`,
+			{ cause: error }
+		);
+	}
+};
+
 export const runMobile = async (args: string[]) => {
 	const [command] = args;
 	if (command === 'init') {
@@ -1185,6 +1543,11 @@ export const runMobile = async (args: string[]) => {
 
 		return;
 	}
+	if (command === 'test' && args[1] === 'ios') {
+		await testIos(args.slice(2));
+
+		return;
+	}
 	if (command === 'build' && args[1] === 'android') {
 		await buildAndroid(args.slice(2));
 
@@ -1207,6 +1570,6 @@ export const runMobile = async (args: string[]) => {
 	}
 
 	throw new TypeError(
-		'Usage: absolute mobile <init [--no-native] [--force] | sync [ios|android] | associations [--outdir dir] [--verify] | doctor [ios|android|release] [--json|--fix [--yes]] | build <android|ios> [server-entry] [--outdir dir] [--web-outdir dir] [--unsigned] | publish android [server-entry] [--registry module] [--channel name] [--play-track track] [--play-status completed|draft|halted|in-progress] [--play-rollout fraction] [--play-name name] [--play-notes language=text] [--play-update-priority 0..5] [--play-hold-review] [--play-cancel-existing-review] [--outdir dir] [--web-outdir dir] [--unsigned] | publish ios [server-entry] [--registry module] [--channel name] [--testflight-group name-or-id] [--testflight-notes locale=text] [--testflight-submit-review] [--outdir dir] [--web-outdir dir] [--unsigned] | test android [--route path] [--wait-for-hmr] [--timeout ms] [--port n] [--serial id] [--artifacts dir] [--json]> [--config path]'
+		'Usage: absolute mobile <init [--no-native] [--force] | sync [ios|android] | associations [--outdir dir] [--verify] | doctor [ios|android|release] [--json|--fix [--yes]] | build <android|ios> [server-entry] [--outdir dir] [--web-outdir dir] [--unsigned] | publish android [server-entry] [--registry module] [--channel name] [--play-track track] [--play-status completed|draft|halted|in-progress] [--play-rollout fraction] [--play-name name] [--play-notes language=text] [--play-update-priority 0..5] [--play-hold-review] [--play-cancel-existing-review] [--outdir dir] [--web-outdir dir] [--unsigned] | publish ios [server-entry] [--registry module] [--channel name] [--testflight-group name-or-id] [--testflight-notes locale=text] [--testflight-submit-review] [--outdir dir] [--web-outdir dir] [--unsigned] | test android [--route path] [--wait-for-hmr] [--timeout ms] [--port n] [--serial id] [--artifacts dir] [--json] | test ios [--wait-for-hmr] [--timeout ms] [--port n] [--udid id] [--artifacts dir] [--json]> [--config path]'
 	);
 };

@@ -5,6 +5,7 @@ import {
 	type ModuleVersions
 } from './moduleVersionTracker';
 import type { HMRWebSocket } from '../../types/websocket';
+import type { HMRClientTarget } from '../../types/messages';
 import type { BuildConfig, BuildPassError } from '../../types/build';
 import { resolveBuildPaths, type ResolvedBuildPaths } from './configResolver';
 
@@ -16,6 +17,7 @@ type HMRUpdateMetadata = {
 /* This handles the "tracking clients" problem */
 export type HMRState = {
 	connectedClients: Set<HMRWebSocket>;
+	clientTargets: Map<HMRWebSocket, HMRClientTarget>;
 	activeFrameworks: Set<string>; // Frameworks with active browser clients
 	dependencyGraph: DependencyGraph;
 	isRebuilding: boolean;
@@ -70,7 +72,8 @@ export type HMRState = {
 /* Initialize HMR state */
 export const createHMRState = (config: BuildConfig): HMRState => ({
 	activeFrameworks: new Set(), // Frameworks with active browser clients
-	assetStore: new Map(), // In-memory client asset store for dev mode,,
+	assetStore: new Map(), // In-memory client asset store for dev mode
+	clientTargets: new Map<HMRWebSocket, HMRClientTarget>(),
 	config,
 	connectedClients: new Set<HMRWebSocket>(),
 	debounceTimeout: null,
@@ -80,14 +83,14 @@ export const createHMRState = (config: BuildConfig): HMRState => ({
 	hmrUpdates: new Map(),
 	isRebuilding: false,
 	lastBroadcastTimestamp: 0,
-	manifest: {}, // Current build manifest (populated after initial build),
+	manifest: {}, // Current build manifest (populated after initial build)
 	moduleVersions: createModuleVersionTracker(),
 	rebuildCount: 0,
 	rebuildQueue: new Set(),
 	rebuildTimeout: null,
-	resolvedPaths: resolveBuildPaths(config), // Track versions for source files to bypass Bun's cache,
+	resolvedPaths: resolveBuildPaths(config), // Track versions for source files to bypass Bun's cache
 	sourceFileVersions: new Map(),
-	vueChangeTypes: new Map(), // Vue HMR change type tracking,
+	vueChangeTypes: new Map(), // Vue HMR change type tracking
 	watchers: []
 });
 

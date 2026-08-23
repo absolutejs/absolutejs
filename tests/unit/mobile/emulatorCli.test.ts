@@ -101,6 +101,39 @@ describe('mobile emulator CLI', () => {
 		expect(stderr).not.toContain('TypeError:');
 	});
 
+	test('validates an iOS conformance port before inspecting Xcode', async () => {
+		const subprocess = Bun.spawn(
+			[
+				process.execPath,
+				resolve(ROOT, 'src/cli/index.ts'),
+				'mobile',
+				'test',
+				'ios',
+				'--config',
+				resolve(
+					ROOT,
+					'tests/fixtures/mobile-native-conformance/absolute.config.ts'
+				),
+				'--port',
+				'0'
+			],
+			{
+				cwd: ROOT,
+				stderr: 'pipe',
+				stdin: 'ignore',
+				stdout: 'pipe'
+			}
+		);
+		const [exitCode, stderr] = await Promise.all([
+			subprocess.exited,
+			new Response(subprocess.stderr).text()
+		]);
+
+		expect(exitCode).toBe(1);
+		expect(stderr).toContain('must be a valid TCP port');
+		expect(stderr).not.toContain('TypeError:');
+	});
+
 	test('validates native release module flags before building Android', async () => {
 		const subprocess = Bun.spawn(
 			[

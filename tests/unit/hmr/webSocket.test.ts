@@ -76,10 +76,12 @@ describe('handleClientDisconnect', () => {
 		const state = createHMRState(makeConfig());
 		const client = makeMockClient();
 		state.connectedClients.add(client);
+		state.clientTargets.set(client, 'capacitor-ios');
 		expect(state.connectedClients.size).toBe(1);
 
 		handleClientDisconnect(state, client);
 		expect(state.connectedClients.size).toBe(0);
+		expect(state.clientTargets.has(client)).toBe(false);
 	});
 
 	test('handles disconnect for non-connected client', () => {
@@ -185,6 +187,17 @@ describe('handleHMRMessage', () => {
 		expect(() =>
 			handleHMRMessage(state, client, JSON.stringify({ type: 'ready' }))
 		).not.toThrow();
+	});
+
+	test('tracks the declared native client target for diagnostics', () => {
+		const state = createHMRState(makeConfig());
+		const client = makeMockClient();
+		handleHMRMessage(
+			state,
+			client,
+			JSON.stringify({ target: 'capacitor-ios', type: 'ready' })
+		);
+		expect(state.clientTargets.get(client)).toBe('capacitor-ios');
 	});
 
 	test('labels native HMR application timing with its server/client split', () => {

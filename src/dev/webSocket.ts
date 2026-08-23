@@ -89,6 +89,7 @@ export const broadcastToClients = (
 
 	clientsToRemove.forEach((client) => {
 		state.connectedClients.delete(client);
+		state.clientTargets.delete(client);
 	});
 };
 export const handleClientConnect = (
@@ -152,6 +153,7 @@ export const handleClientDisconnect = (
 	client: HMRWebSocket
 ) => {
 	state.connectedClients.delete(client);
+	state.clientTargets.delete(client);
 };
 
 const parseJsonSafe = (raw: string) => JSON.parse(raw);
@@ -205,12 +207,14 @@ const handleParsedMessage = (
 			break;
 
 		case 'ready':
+			state.clientTargets.set(client, normalizedHmrTarget(data.target));
 			if (data.framework) {
 				state.activeFrameworks.add(data.framework);
 			}
 			break;
 
 		case 'hmr-timing': {
+			state.clientTargets.set(client, normalizedHmrTarget(data.target));
 			const update =
 				typeof data.updateId === 'number'
 					? state.hmrUpdates.get(data.updateId)

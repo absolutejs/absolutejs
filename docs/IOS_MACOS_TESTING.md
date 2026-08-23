@@ -1,7 +1,7 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.2` and
+`@absolutejs/absolute@0.20.0-beta.3` and
 `@absolutejs/deploy@0.24.0`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
 
@@ -64,7 +64,7 @@ still requires the developer team setup described below.
 From the root of the AbsoluteJS application:
 
 ```sh
-bun add @absolutejs/absolute@0.20.0-beta.2 \
+bun add @absolutejs/absolute@0.20.0-beta.3 \
   @absolutejs/deploy@0.24.0 \
   @absolutejs/blob@0.5.2 \
   @capacitor/core@8.5.0 \
@@ -146,6 +146,89 @@ the same explicit App ID. Create an internal TestFlight group—for example,
 `AbsoluteJS Internal`—and add the tester to it.
 
 ## 6. Run the preflight and signed-IPA test
+
+### First-class simulator and HMR acceptance
+
+Before building the signed IPA, verify the normal development loop. Start the
+application in an interactive terminal:
+
+```sh
+bun dev
+```
+
+When iOS is configured and Xcode is available, AbsoluteJS should:
+
+1. Reuse or create the managed `AbsoluteJS iPhone` simulator on the newest
+   installed iOS runtime.
+2. Synchronize Capacitor and apply a temporary localhost development URL.
+3. Boot the exact simulator by UDID.
+4. Build into an isolated, persistent DerivedData directory.
+5. Install and launch the app.
+6. Stream redacted `[ios]` native logs into the AbsoluteJS terminal.
+7. Print the total startup time and the Capacitor, simulator, Xcode, install,
+   launch, and logging phase timings.
+
+The first run may download a runtime or perform a full Xcode build. Stop and
+restart `bun dev` without changing native inputs. The warm run should say
+`native cache hit` and skip both Xcode and installation.
+
+At the AbsoluteJS interactive prompt:
+
+- Enter `d` or `device` to print the simulator UDID, lifecycle state, and HMR
+  port.
+- Enter `relaunch` to terminate and relaunch the installed application without
+  rebuilding it.
+
+In a second terminal, run:
+
+```sh
+bunx absolute mobile test ios
+```
+
+This verifies that the app is installed and launchable, confirms the native iOS
+HMR client is connected through `/hmr-status`, and saves a simulator screenshot
+under `.absolutejs/mobile/test-artifacts`.
+
+Then run the correlated HMR timing test:
+
+```sh
+bunx absolute mobile test ios --wait-for-hmr
+```
+
+After it prints that it is waiting, make and save a harmless visible page or CSS
+edit. Success prints the end-to-end iOS HMR duration together with server and
+client time. The normal `bun dev` terminal should also print a line beginning
+with `[hmr:ios]`. Telemetry records only platform/provider, success, cache state,
+and timings—not the app ID, route, simulator UDID, source path, or source text.
+
+Next, make a harmless edit to Swift, an entitlement, native resource, Capacitor
+plugin/dependency, `package.json`, or the lockfile. AbsoluteJS should keep the Bun
+server running while it synchronizes, incrementally rebuilds with Xcode,
+reinstalls, and relaunches the app. Revert the edit and confirm the same flow
+returns the native project to its original state.
+
+Finally verify lifecycle recovery:
+
+1. Quit the app in the simulator and enter `relaunch` in the dev terminal.
+2. Restart the dev server and confirm the app reconnects to HMR.
+3. Interrupt `bun dev` with Ctrl-C.
+4. Confirm the source-owned `mobile/ios/App/App/capacitor.config.json` and
+   `Info.plist` no longer contain the temporary localhost URL or
+   `NSAllowsArbitraryLoads` override.
+5. Run `bunx absolute mobile doctor release`; it must pass the iOS development
+   journal and transport-safety checks.
+
+When testing the AbsoluteJS framework repository itself rather than an
+application, the opt-in real simulator gate automates cold/warm startup, HMR,
+relaunch, server reconnect, native rebuild, and screenshots:
+
+```sh
+bun run test:native:ios
+```
+
+This gate intentionally runs only on macOS with Xcode and can take several
+minutes on its first build. Preserve `.absolutejs/mobile-native-conformance`
+between runs so the warm-cache measurement is meaningful.
 
 ```sh
 bunx absolute mobile doctor ios
@@ -389,7 +472,7 @@ source change and build a new content-addressed release instead.
 - Mac architecture:
 - Xcode version:
 - Bun version:
-- AbsoluteJS version: 0.20.0-beta.2
+- AbsoluteJS version: 0.20.0-beta.3
 - Deploy version: 0.24.0
 - App bundle ID (non-secret):
 - Marketing version:

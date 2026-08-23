@@ -78,16 +78,19 @@ const fail = (
 	status: 'fail'
 });
 
-const journalReleaseCheck = async (journalPath: string) =>
+const journalReleaseCheck = async (
+	journalPath: string,
+	platform: 'android' | 'ios'
+) =>
 	(await pathExists(journalPath))
 		? fail(
-				'android.dev-journal',
+				`${platform}.dev-journal`,
 				'A live-reload recovery journal is still active.',
 				journalPath,
 				'Close the development session or run mobile doctor again after stale-session repair.'
 			)
 		: pass(
-				'android.dev-journal',
+				`${platform}.dev-journal`,
 				'No live-reload recovery journal is active.',
 				journalPath
 			);
@@ -228,7 +231,7 @@ const inspectAndroidRelease = async (
 		'journal.json'
 	);
 	const checks = await Promise.all([
-		journalReleaseCheck(journalPath),
+		journalReleaseCheck(journalPath, 'android'),
 		capacitorConfigReleaseCheck(nativeConfigPath),
 		manifestReleaseCheck(manifestPath),
 		hmrAssetsReleaseCheck(publicRoot)
@@ -250,7 +253,16 @@ const inspectIosRelease = async (
 	const nativeConfigPath = join(iosAppRoot, 'capacitor.config.json');
 	const infoPath = join(iosAppRoot, 'Info.plist');
 	const publicRoot = join(iosAppRoot, 'public');
-	const checks: AbsoluteMobileReleaseCheck[] = [];
+	const journalPath = join(
+		projectRoot,
+		'.absolutejs',
+		'mobile',
+		'ios-dev-session',
+		'journal.json'
+	);
+	const checks: AbsoluteMobileReleaseCheck[] = [
+		await journalReleaseCheck(journalPath, 'ios')
+	];
 	if (!config.iosVersion) {
 		checks.push(
 			fail(

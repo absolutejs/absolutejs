@@ -1,6 +1,6 @@
 # AbsoluteJS Mobile Apps: Research and Implementation Plan
 
-Status: Android Capacitor development and production AAB pipelines operational; real API 36 all-framework HMR conformance passing
+Status: Android Capacitor development and production AAB pipelines operational; iOS simulator/HMR controller implemented pending real macOS acceptance; real API 36 all-framework HMR conformance passing
 Research snapshot: August 20, 2026
 
 Implementation checkpoint (August 20, 2026): the first React protocol seam now
@@ -1411,6 +1411,31 @@ transport or navigation allowlist, the manifest explicitly permits cleartext, or
 packaged assets contain an HMR client marker. It passes only after dev cleanup has
 restored the production projection. Platforms without implemented release checks
 also fail closed rather than receiving a misleading green result.
+
+Implementation checkpoint (August 22, 2026): the iOS development provider now
+mirrors the Android lifecycle behind native platform-specific commands. On macOS,
+normal interactive `bun dev` reuses or creates an `AbsoluteJS iPhone` on the newest
+installed iOS runtime, synchronizes Capacitor, journals a temporary localhost
+configuration and ATS development exception, boots the exact target by UDID,
+incrementally builds into persistent isolated DerivedData, installs, launches, and
+streams redacted native logs. Its fingerprint excludes copied web assets so page
+and CSS edits stay on HMR while Swift, entitlement, native resource, plugin,
+configuration, package, and lockfile changes coalesce into sync/build/install/
+relaunch without restarting Bun. Warm sessions validate the installed app
+container and skip both Xcode and installation.
+
+The server now counts connected HMR clients by normalized target without retaining
+application identity. `absolute mobile test ios` uses that public development
+status plus `simctl` launch/screenshots; `--wait-for-hmr` correlates the existing
+client acknowledgement with the server log and reports the same server/client
+timing split as Android. Startup, build, install, rebuild, HMR, success, and cache
+telemetry remain provider/platform/timing-only. An opt-in
+`bun run test:native:ios` gate exercises cold/warm startup, React and CSS HMR,
+termination/relaunch, server reconnect, native rebuild, cleanup, and screenshots.
+The controller, crash repair, caching, command construction, target parsing,
+redaction, watchers, and HMR correlation are covered with fake Xcode/`simctl` on
+non-macOS CI; the real gate must pass on the partner macOS machine before this
+checkpoint is called operational.
 
 `absolute mobile build android [server-entry]` now owns the complete production
 Android path. It repairs an interrupted development projection, runs the same
