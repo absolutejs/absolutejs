@@ -3,7 +3,7 @@ import { createServer } from 'net';
 export const getAvailablePort = () =>
 	new Promise<number>((resolve, reject) => {
 		const server = createServer();
-		server.listen(0, () => {
+		server.listen(0, '127.0.0.1', () => {
 			const addr = server.address();
 			if (!addr || typeof addr === 'string') {
 				server.close();

@@ -897,7 +897,10 @@ export const startAbsoluteRemoteIosDevSession = async (
 		},
 		screenshot: async (destination) => {
 			const result = (await request('screenshot')) as { data: string };
-			const target = resolvePath(options.project.projectRoot, destination);
+			const target = resolvePath(
+				options.project.projectRoot,
+				destination
+			);
 			const targetRelative = relative(
 				options.project.projectRoot,
 				target
