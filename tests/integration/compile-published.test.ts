@@ -126,7 +126,7 @@ const writeAcceptanceApp = async (root: string) => {
 				dependencies: {
 					'@absolutejs/absolute': 'beta',
 					'@vitejs/plugin-react': 'latest',
-					elysia: 'latest',
+					elysia: '^2.0.0-beta.6',
 					react: 'latest',
 					'react-dom': 'latest'
 				},
