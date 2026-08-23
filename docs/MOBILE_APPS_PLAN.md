@@ -2579,19 +2579,31 @@ unpublished until the real macOS simulator report can inform its lifecycle and
 restoration integration instead of freezing assumptions into its first release.
 
 Implementation checkpoint (August 23, 2026):
-`absolutejs/devices@4070df0` contains the unpublished
+`absolutejs/devices@04f7641` contains the unpublished
 `@absolutejs/devices-capacitor@0.0.1` release candidate. It normalizes Capacitor
 App lifecycle/resume/restored results, launch and inbound links, Android hardware
 back, Network state, Browser opening, and namespaced Preferences behind the core
 facades. External URLs are audited, listener cleanup is idempotent, provider
 failures become typed device errors, browser previews retain the web adapter, and
 Preferences can neither clear unrelated keys nor masquerade as secure storage.
-The adapter and core pass 26 tests/74 assertions plus type, build, and distribution
+The adapter and core pass 26 tests/75 assertions plus type, build, and distribution
 gates. `@absolutejs/devices@0.0.2` is published with the required realm-scoped
 adapter registry; a test builds two physically independent runtime bundles and
 proves the shell installation is visible to page code. The Capacitor tarball and
 native-only bootstrap API are ready, but the adapter and its final AbsoluteJS
 shell dependency remain unpublished until real iOS acceptance.
+
+The exact unpublished adapter tarball has also passed an Android API 36 emulator
+smoke through AbsoluteJS's real native controller and WebView debugging path. The
+installed app reported the Capacitor Android runtime, native lifecycle/resume and
+Network events, Android back capability, namespaced Preferences, and unavailable
+secure storage as designed. Preferences survived an `am force-stop` process death
+and direct activity relaunch, and the unchanged native app used the Gradle/APK
+cache path to reconnect with HMR in 1.80 seconds. Registering a back listener now
+explicitly enables Capacitor's Android back handler and rolls back cleanly if that
+native call fails. The test emulator's degraded System UI did not deliver either
+synthetic key or edge-swipe Back input, so callback delivery remains an explicit
+healthy-emulator/physical-device acceptance item rather than a claimed pass.
 
 Deliverables:
 
