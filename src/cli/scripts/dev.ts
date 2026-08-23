@@ -60,11 +60,17 @@ import {
 	prepareAbsoluteIosDevProject,
 	repairAbsoluteIosDevSession,
 	startAbsoluteIosDevSession,
-	type AbsoluteIosDevProject,
 	type AbsoluteIosDevSession,
 	type AbsoluteIosDevState,
-	type AbsoluteIosNativeLogEntry
+	type AbsoluteIosNativeLogEntry,
+	type StartAbsoluteIosDevOptions
 } from '../../mobile/iosSimulatorController';
+import {
+	createAbsoluteRemoteIosDevProject,
+	getAbsoluteRemoteMacProfile,
+	startAbsoluteRemoteIosDevSession,
+	type AbsoluteIosDevelopmentProject
+} from '../../mobile/remoteMacProtocol';
 import {
 	createAbsoluteIosNativeWatcher,
 	type AbsoluteIosNativeWatcher
@@ -356,7 +362,7 @@ export const dev = async (
 	}
 
 	let androidDevProject: AbsoluteAndroidDevProject | null = null;
-	let iosDevProject: AbsoluteIosDevProject | null = null;
+	let iosDevProject: AbsoluteIosDevelopmentProject | null = null;
 	const mobileInteractive =
 		options.mobile !== false &&
 		process.env.ABSOLUTE_NO_MOBILE !== '1' &&
@@ -412,12 +418,40 @@ export const dev = async (
 			}
 			if (normalized.platforms.includes('ios')) {
 				if (detectAbsoluteMobileHost() !== 'macos') {
-					console.log(
-						cliTag(
-							'\x1b[33m',
-							'iOS simulator skipped because it requires macOS and Xcode.'
-						)
-					);
+					const remote = await getAbsoluteRemoteMacProfile();
+					if (!remote) {
+						console.log(
+							cliTag(
+								'\x1b[33m',
+								'iOS simulator skipped. Pair a Mac with `absolute mobile pair mac <name> <user@host>`.'
+							)
+						);
+					} else {
+						const nativeDirectory = join(
+							normalized.nativeProjectDirectory,
+							'ios'
+						);
+						if (!existsSync(nativeDirectory)) {
+							console.log(
+								cliTag(
+									'\x1b[33m',
+									'The iOS project is missing. Run `absolute mobile init` before remote development.'
+								)
+							);
+						} else {
+							iosDevProject = createAbsoluteRemoteIosDevProject(
+								normalized,
+								process.cwd(),
+								remote
+							);
+							console.log(
+								cliTag(
+									'\x1b[35m',
+									`Using remote Mac ${remote.name} for iOS development.`
+								)
+							);
+						}
+					}
 				} else {
 					let ready = iosToolchainReady(
 						await inspectAbsoluteMobileToolchain()
@@ -746,10 +780,15 @@ export const dev = async (
 	let iosDevState: AbsoluteIosDevState | 'waiting-for-server' =
 		'waiting-for-server';
 	const iosDevAbort = new AbortController();
-	const publishIosReady = (session: AbsoluteIosDevSession) => {
+	const iosTelemetryHost = (project: AbsoluteIosDevelopmentProject) =>
+		project.remote ? 'remote-macos' : 'macos';
+	const publishIosReady = (
+		session: AbsoluteIosDevSession,
+		project: AbsoluteIosDevelopmentProject
+	) => {
 		sendTelemetryEvent('mobile:ios-dev-ready', {
 			cacheHit: session.nativeCacheHit,
-			host: 'macos',
+			host: iosTelemetryHost(project),
 			platform: 'ios',
 			provider: 'capacitor',
 			startedSimulator: session.startedSimulator,
@@ -758,35 +797,53 @@ export const dev = async (
 		if (session.timings.building === undefined) return;
 		sendTelemetryEvent('mobile:native-build', {
 			buildMs: session.timings.building,
-			host: 'macos',
+			host: iosTelemetryHost(project),
 			installMs: session.timings.installing,
 			platform: 'ios',
 			provider: 'capacitor',
 			success: true
 		});
 	};
-	const openIosDevSession = (iosProject: AbsoluteIosDevProject) =>
-		startAbsoluteIosDevSession({
+	const openIosDevSession = (iosProject: AbsoluteIosDevelopmentProject) => {
+		const sessionOptions: Omit<StartAbsoluteIosDevOptions, 'project'> = {
 			https: httpsEnabled,
 			port,
-			project: iosProject,
 			signal: iosDevAbort.signal,
-			log: (message) => printNativeOutput(cliTag('\x1b[35m', message)),
-			nativeLog: (entry) => printNativeOutput(iosLogTag(entry)),
-			onPhaseTiming: ({ durationMs, phase }) => {
+			log: (message: string) =>
+				printNativeOutput(cliTag('\x1b[35m', message)),
+			nativeLog: (entry: AbsoluteIosNativeLogEntry) =>
+				printNativeOutput(iosLogTag(entry)),
+			onPhaseTiming: ({
+				durationMs,
+				phase
+			}: {
+				durationMs: number;
+				phase: AbsoluteIosDevState;
+			}) => {
 				iosPhaseTimings[phase] =
 					(iosPhaseTimings[phase] ?? 0) + durationMs;
 			},
-			onStateChange: (state) => {
+			onStateChange: (state: AbsoluteIosDevState) => {
 				iosDevState = state;
 				if (state === 'ready' || state === 'closed') return;
 				printNativeOutput(
 					cliTag('\x1b[35m', `iOS simulator: ${state}.`)
 				);
 			}
+		};
+		if (iosProject.remote)
+			return startAbsoluteRemoteIosDevSession({
+				...sessionOptions,
+				project: iosProject
+			});
+
+		return startAbsoluteIosDevSession({
+			...sessionOptions,
+			project: iosProject
 		});
+	};
 	const ensureIosNativeWatcher = async (
-		iosProject: AbsoluteIosDevProject
+		iosProject: AbsoluteIosDevelopmentProject
 	) => {
 		if (iosNativeWatcher) return;
 		iosNativeWatcher = await createAbsoluteIosNativeWatcher({
@@ -811,10 +868,10 @@ export const dev = async (
 					return;
 				}
 				iosDevSession = replacement;
-				publishIosReady(replacement);
+				publishIosReady(replacement, iosProject);
 				sendTelemetryEvent('mobile:native-rebuild', {
 					cacheHit: replacement.nativeCacheHit,
-					host: 'macos',
+					host: iosTelemetryHost(iosProject),
 					platform: 'ios',
 					provider: 'capacitor',
 					rootInputChanged: change.rootInputChanged,
@@ -831,7 +888,7 @@ export const dev = async (
 					)
 				);
 				sendTelemetryEvent('mobile:native-rebuild', {
-					host: 'macos',
+					host: iosTelemetryHost(iosProject),
 					platform: 'ios',
 					provider: 'capacitor',
 					success: false
@@ -850,7 +907,7 @@ export const dev = async (
 					return undefined;
 				}
 				iosDevSession = session;
-				publishIosReady(session);
+				publishIosReady(session, iosProject);
 				await ensureIosNativeWatcher(iosProject);
 
 				return undefined;
@@ -864,7 +921,7 @@ export const dev = async (
 				)
 					return;
 				sendTelemetryEvent('mobile:ios-dev-failed', {
-					host: 'macos',
+					host: iosTelemetryHost(iosProject),
 					phase: iosDevState,
 					platform: 'ios',
 					provider: 'capacitor',
@@ -1463,9 +1520,10 @@ export const dev = async (
 		if (iosDevSession) {
 			await iosDevSession.close();
 		} else if (iosDevProject) {
-			await repairAbsoluteIosDevSession(iosDevProject.projectRoot).catch(
-				() => undefined
-			);
+			if (!iosDevProject.remote)
+				await repairAbsoluteIosDevSession(
+					iosDevProject.projectRoot
+				).catch(() => undefined);
 		}
 		if (paused) sendSignal('SIGCONT');
 		killChildTree('SIGTERM');

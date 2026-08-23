@@ -303,6 +303,19 @@ const build = async () => {
 		process.exit(1);
 	}
 
+	console.log('Building remote Mac agent...');
+	const remoteMacAgentBuild = await Bun.build({
+		entrypoints: ['src/mobile/remoteMacAgentEntry.ts'],
+		minify: true,
+		outdir: join(DIST, 'mobile'),
+		target: 'bun'
+	});
+	if (!remoteMacAgentBuild.success) {
+		console.error('Remote Mac agent build failed:');
+		for (const log of remoteMacAgentBuild.logs) console.error(log);
+		process.exit(1);
+	}
+
 	console.log('Building dev server bootstrap...');
 	const serverBootstrapBuild = await Bun.build({
 		entrypoints: ['src/dev/serverBootstrap.ts'],

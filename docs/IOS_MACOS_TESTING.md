@@ -230,6 +230,46 @@ This gate intentionally runs only on macOS with Xcode and can take several
 minutes on its first build. Preserve `.absolutejs/mobile-native-conformance`
 between runs so the warm-cache measurement is meaningful.
 
+### Remote-Mac acceptance from Windows or Linux
+
+This test is optional for the signing/TestFlight report, but required to accept
+the bring-your-own-Mac development protocol. On the Mac, enable **Remote Login**
+under **System Settings → General → Sharing**, allow public-key SSH and TCP
+forwarding, and make sure the tester can run `bun` and `xcodebuild` over a
+non-interactive SSH connection.
+
+From a second Windows or Linux computer containing the same application
+checkout, first connect manually and verify the Mac's displayed SSH host-key
+fingerprint. Then run:
+
+```sh
+bunx absolute mobile pair mac test-mac builder@my-mac.local
+bunx absolute mobile remotes
+bunx absolute mobile doctor ios --remote test-mac
+bun dev
+```
+
+The application must already contain the committed `mobile/ios` source project.
+Expected behavior:
+
+1. Doctor verifies the remote Mac, Bun, and Xcode without storing SSH credentials.
+2. `bun dev` selects `test-mac`, uploads or reuses a SHA-256-verified AbsoluteJS
+   agent, synchronizes the project, and opens the real Simulator on the Mac.
+3. The terminal on Windows/Linux receives iOS lifecycle, timing, and redacted
+   native-log output.
+4. A page or CSS edit follows normal HMR without synchronizing the native project
+   or invoking Xcode.
+5. A Swift, entitlement, native resource, Capacitor plugin, package, or lockfile
+   edit synchronizes and incrementally rebuilds the native app while the Bun
+   server stays running.
+6. `d`, `relaunch`, and Ctrl-C have the same lifecycle behavior as local macOS
+   development; a subsequent warm start reports a native cache hit.
+
+Direct interaction with the remote Simulator currently uses the Mac screen or a
+trusted remote-desktop connection. The protocol itself carries screenshots and
+conformance artifacts. Full setup, security boundaries, and troubleshooting are
+documented in `docs/REMOTE_IOS_DEVELOPMENT.md`.
+
 ```sh
 bunx absolute mobile doctor ios
 bunx absolute mobile sync ios
@@ -482,6 +522,9 @@ source change and build a new content-addressed release instead.
 - App Store upload and processing: PASS / FAIL
 - TestFlight assignment: PASS / FAIL
 - Physical-device install and cold launch: PASS / FAIL
+- Remote Mac doctor from Windows/Linux: PASS / FAIL / NOT RUN
+- Remote Mac HMR and native rebuild: PASS / FAIL / NOT RUN
+- Remote Mac warm-cache restart: PASS / FAIL / NOT RUN
 - Exact retry reused the release/build: PASS / FAIL
 - Web-only update allocated the next build and appeared on-device: PASS / FAIL
 - Authentication/deep links/offline reconnect result:

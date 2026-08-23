@@ -4,6 +4,7 @@ export * from './iosRelease';
 export * from './iosConformance';
 export * from './iosSimulatorController';
 export * from './iosNativeWatcher';
+export * from './remoteMacProtocol';
 export * from './associationFiles';
 export * from './buildMetadata';
 export * from './buildPipeline';

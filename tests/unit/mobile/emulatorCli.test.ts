@@ -4,6 +4,37 @@ import { resolve } from 'node:path';
 const ROOT = resolve(import.meta.dir, '..', '..', '..');
 
 describe('mobile emulator CLI', () => {
+	test('lists remote Macs without requiring a project config', async () => {
+		const subprocess = Bun.spawn(
+			[
+				process.execPath,
+				resolve(ROOT, 'src/cli/index.ts'),
+				'mobile',
+				'remotes',
+				'--json'
+			],
+			{
+				cwd: ROOT,
+				env: {
+					...process.env,
+					ABSOLUTE_REMOTE_MAC_PROFILE_PATH: resolve(
+						ROOT,
+						'.absolutejs-test-missing-remote-profiles.json'
+					)
+				},
+				stderr: 'pipe',
+				stdin: 'ignore',
+				stdout: 'pipe'
+			}
+		);
+		const [exitCode, stdout] = await Promise.all([
+			subprocess.exited,
+			new Response(subprocess.stdout).text()
+		]);
+		expect(exitCode).toBe(0);
+		expect(JSON.parse(stdout)).toEqual({ profiles: [] });
+	});
+
 	test('refuses a guided install without a TTY or explicit approval', async () => {
 		const subprocess = Bun.spawn(
 			[

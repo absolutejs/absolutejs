@@ -56,6 +56,14 @@ import {
 import { start } from './start';
 import { DEFAULT_SERVER_ENTRY } from '../utils';
 import { getDurationString } from '../../utils/getDurationString';
+import {
+	listAbsoluteRemoteMacProfiles,
+	getAbsoluteRemoteMacProfile,
+	inspectAbsoluteRemoteMac,
+	pairAbsoluteRemoteMac,
+	removeAbsoluteRemoteMacProfile,
+	type AbsoluteRemoteMacProfile
+} from '../../mobile/remoteMacProtocol';
 
 const NOT_FOUND = -1;
 
@@ -182,6 +190,67 @@ const loadMobile = async (configPath: string | undefined) => {
 	);
 
 	return { mobile, projectRoot };
+};
+
+const remoteProfilePath = () =>
+	process.env.ABSOLUTE_REMOTE_MAC_PROFILE_PATH || undefined;
+
+const pairRemoteMac = async (args: string[]) => {
+	if (args[0] !== 'mac' || !args[1] || !args[2])
+		throw new TypeError(
+			'Usage: absolute mobile pair mac <name> <user@host> [--port n] [--workspace path]'
+		);
+	const portValue = valueAfter(args, '--port');
+	const port = portValue === undefined ? undefined : Number(portValue);
+	const profile = await pairAbsoluteRemoteMac({
+		destination: args[2],
+		name: args[1],
+		...(port === undefined ? {} : { port }),
+		profilePath: remoteProfilePath(),
+		workspaceRoot: valueAfter(args, '--workspace')
+	});
+	sendTelemetryEvent('mobile:remote-mac-paired', {
+		platform: 'ios',
+		provider: 'ssh'
+	});
+	console.log(
+		`Paired remote Mac ${profile.name} (${profile.xcodeVersion}) and selected it as the default iOS development host.`
+	);
+};
+
+const listRemoteMacs = async (args: string[]) => {
+	const result = await listAbsoluteRemoteMacProfiles(remoteProfilePath());
+	if (args.includes('--json')) {
+		console.log(JSON.stringify(result, null, 2));
+
+		return;
+	}
+	if (result.profiles.length === 0) {
+		console.log(
+			'No remote Macs are paired. Run `absolute mobile pair mac <name> <user@host>`.'
+		);
+
+		return;
+	}
+	for (const profile of result.profiles) {
+		console.log(
+			`${profile.name === result.defaultProfile ? '* ' : '  '}${profile.name}  ${profile.destination}  ${profile.xcodeVersion}`
+		);
+	}
+};
+
+const unpairRemoteMac = async (args: string[]) => {
+	if (args[0] !== 'mac' || !args[1])
+		throw new TypeError('Usage: absolute mobile unpair mac <name>');
+	const removed = await removeAbsoluteRemoteMacProfile(
+		args[1],
+		remoteProfilePath()
+	);
+	console.log(
+		removed
+			? `Removed remote Mac profile ${args[1]}.`
+			: `Remote Mac profile ${args[1]} was not found.`
+	);
 };
 
 const initialize = async (args: string[]) => {
@@ -837,16 +906,78 @@ const publishIos = async (args: string[]) => {
 	}
 };
 
+const inspectRemoteMacForDoctor = async (profile: AbsoluteRemoteMacProfile) => {
+	try {
+		const inspection = await inspectAbsoluteRemoteMac(profile.destination, {
+			port: profile.port
+		});
+
+		return [
+			{
+				id: 'ios.remote-ssh',
+				label: `Remote Mac ${profile.name} is reachable`,
+				platform: 'ios',
+				status: 'pass'
+			},
+			{
+				id: 'ios.remote-bun',
+				label: `Remote Bun ${inspection.bunPath}`,
+				path: inspection.bunPath,
+				platform: 'ios',
+				status: 'pass'
+			},
+			{
+				id: 'ios.remote-xcode',
+				label: inspection.xcodeVersion,
+				platform: 'ios',
+				status: 'pass'
+			}
+		] satisfies AbsoluteMobileDoctorCheck[];
+	} catch (error) {
+		return [
+			{
+				id: 'ios.remote-ssh',
+				label: `Remote Mac ${profile.name} is unavailable`,
+				platform: 'ios',
+				remediation:
+					error instanceof Error ? error.message : String(error),
+				status: 'fail'
+			}
+		] satisfies AbsoluteMobileDoctorCheck[];
+	}
+};
+
 const doctor = async (args: string[]) => {
 	if (args.includes('release')) {
 		await runReleaseDoctor(args);
 
 		return;
 	}
-	const checks = await inspectAbsoluteMobileToolchain();
 	const platform = args.find(
 		(value) => value === 'android' || value === 'ios'
 	);
+	const requestedRemote = valueAfter(args, '--remote');
+	const remoteProfile =
+		platform === 'ios' &&
+		(requestedRemote !== undefined || process.platform !== 'darwin')
+			? await getAbsoluteRemoteMacProfile(
+					requestedRemote,
+					remoteProfilePath()
+				)
+			: undefined;
+	if (remoteProfile) {
+		if (args.includes('--fix'))
+			throw new TypeError(
+				'Remote Mac doctor is read-only. Configure Xcode or Bun on the Mac, then rerun doctor.'
+			);
+		const selected = await inspectRemoteMacForDoctor(remoteProfile);
+		if (args.includes('--json'))
+			console.log(JSON.stringify({ checks: selected }, null, 2));
+		else printDoctorChecks(selected);
+
+		return;
+	}
+	const checks = await inspectAbsoluteMobileToolchain();
 	const selected = platform
 		? checks.filter(
 				(check) =>
@@ -1518,6 +1649,21 @@ const testIos = async (args: string[]) => {
 
 export const runMobile = async (args: string[]) => {
 	const [command] = args;
+	if (command === 'pair') {
+		await pairRemoteMac(args.slice(1));
+
+		return;
+	}
+	if (command === 'remotes') {
+		await listRemoteMacs(args.slice(1));
+
+		return;
+	}
+	if (command === 'unpair') {
+		await unpairRemoteMac(args.slice(1));
+
+		return;
+	}
 	if (command === 'init') {
 		await initialize(args.slice(1));
 
@@ -1570,6 +1716,6 @@ export const runMobile = async (args: string[]) => {
 	}
 
 	throw new TypeError(
-		'Usage: absolute mobile <init [--no-native] [--force] | sync [ios|android] | associations [--outdir dir] [--verify] | doctor [ios|android|release] [--json|--fix [--yes]] | build <android|ios> [server-entry] [--outdir dir] [--web-outdir dir] [--unsigned] | publish android [server-entry] [--registry module] [--channel name] [--play-track track] [--play-status completed|draft|halted|in-progress] [--play-rollout fraction] [--play-name name] [--play-notes language=text] [--play-update-priority 0..5] [--play-hold-review] [--play-cancel-existing-review] [--outdir dir] [--web-outdir dir] [--unsigned] | publish ios [server-entry] [--registry module] [--channel name] [--testflight-group name-or-id] [--testflight-notes locale=text] [--testflight-submit-review] [--outdir dir] [--web-outdir dir] [--unsigned] | test android [--route path] [--wait-for-hmr] [--timeout ms] [--port n] [--serial id] [--artifacts dir] [--json] | test ios [--wait-for-hmr] [--timeout ms] [--port n] [--udid id] [--artifacts dir] [--json]> [--config path]'
+		'Usage: absolute mobile <pair mac <name> <user@host> [--port n] [--workspace path] | remotes [--json] | unpair mac <name> | init [--no-native] [--force] | sync [ios|android] | associations [--outdir dir] [--verify] | doctor [ios|android|release] [--remote name] [--json|--fix [--yes]] | build <android|ios> [server-entry] [--outdir dir] [--web-outdir dir] [--unsigned] | publish android [server-entry] [--registry module] [--channel name] [--play-track track] [--play-status completed|draft|halted|in-progress] [--play-rollout fraction] [--play-name name] [--play-notes language=text] [--play-update-priority 0..5] [--play-hold-review] [--play-cancel-existing-review] [--outdir dir] [--web-outdir dir] [--unsigned] | publish ios [server-entry] [--registry module] [--channel name] [--testflight-group name-or-id] [--testflight-notes locale=text] [--testflight-submit-review] [--outdir dir] [--web-outdir dir] [--unsigned] | test android [--route path] [--wait-for-hmr] [--timeout ms] [--port n] [--serial id] [--artifacts dir] [--json] | test ios [--wait-for-hmr] [--timeout ms] [--port n] [--udid id] [--artifacts dir] [--json]> [--config path]'
 	);
 };

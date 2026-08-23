@@ -1234,9 +1234,18 @@ On WSL, the preferred v1 path is a Windows-host Android SDK/emulator broker with
 translated paths and an explicitly discovered `adb.exe`; native Linux KVM is used
 only when `/dev/kvm` and the Linux SDK are actually available. Doctor explains
 which side owns the emulator and tests port reachability across the WSL NAT boundary.
-iOS simulation is never advertised off macOS; Linux/Windows developers can still
+Local iOS simulation is never advertised off macOS; Linux/Windows developers can
 use browser mobile preview, Android, physical-device/cloud workflows, and a remote
-macOS runner.
+macOS runner. The implemented bring-your-own-Mac protocol pairs a user-controlled
+SSH host without storing credentials, synchronizes atomic project snapshots,
+preserves Mac-owned dependency/DerivedData/native caches, and carries the existing
+iOS controller over a versioned JSON-lines channel. One reverse SSH tunnel makes
+the remote Simulator's loopback HMR connection reach the developer's local Bun
+server. The exact local AbsoluteJS remote-agent bundle is uploaded into a
+protocol-versioned, content-addressed cache and SHA-256 verified before execution;
+it never locates AbsoluteJS through the application's `node_modules` tree. This
+provider boundary is intentionally independent of the future metered hosted-Mac
+adapter in AbsoluteJS PaaS.
 
 #### Product-level diagnostics and testing
 
