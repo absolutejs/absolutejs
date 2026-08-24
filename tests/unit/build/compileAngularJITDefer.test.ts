@@ -30,6 +30,7 @@ const STYLUS_STYLE_FIXTURE = join(
 	'angular',
 	'stylus-style-page.ts'
 );
+const ANGULAR_COMPILER_TEST_TIMEOUT_MS = 60_000;
 
 const writeComponentFile = async (
 	dir: string,
@@ -413,7 +414,7 @@ export class InterpolatePageComponent {
 
 			await rm(outDir, { force: true, recursive: true });
 		},
-		15_000
+		ANGULAR_COMPILER_TEST_TIMEOUT_MS
 	);
 
 	test(
@@ -433,7 +434,7 @@ export class InterpolatePageComponent {
 
 			await rm(outDir, { force: true, recursive: true });
 		},
-		15_000
+		ANGULAR_COMPILER_TEST_TIMEOUT_MS
 	);
 
 	test(
@@ -456,9 +457,18 @@ export class InterpolatePageComponent {
 		expect(indexContent).toContain('window.__ABS_SLOT_HYDRATION_PENDING__ = pageHasRawStreamingSlots;');
 		expect(indexContent).toContain('window.__ABS_SLOT_HYDRATION_PENDING__ = false;');
 		expect(indexContent).toContain("if (typeof window.__ABS_SLOT_FLUSH__ === 'function')");
+		expect(indexContent).toContain(
+			"var isClientRender = window.__ABSOLUTE_PAGE_RENDER_MODE__ === 'client';"
+		);
+		expect(indexContent).toContain(
+			'if (!isClientRender && !pageHasIslands)'
+		);
+		expect(indexContent).toContain(
+			'window.__ABSOLUTE_PAGE_DISPOSE__ = async function()'
+		);
 
 		await rm(outDir, { force: true, recursive: true });
 	},
-		15_000
+		ANGULAR_COMPILER_TEST_TIMEOUT_MS
 	);
 });

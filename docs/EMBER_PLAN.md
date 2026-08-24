@@ -523,6 +523,35 @@ This is the second-biggest work item after compile. References:
   out-of-order streaming.
 - [ ] Update `example/index.ts` server config to register the Ember dir.
 
+### 2.16 Mobile and Capacitor integration
+
+**Status**: explicitly deferred until the Ember adapter completes its pages,
+streaming/islands, and dev/HMR phases. AbsoluteJS must not advertise Ember as a
+supported mobile page framework merely because the mobile protocol can encode an
+`ember` framework identifier.
+
+Once the core Ember implementation is stable:
+
+- [ ] Teach the production mobile bundle pipeline to emit and retain an Ember
+  client-render entry for every captured Ember page and generated props contract.
+- [ ] Define an Ember mobile mount/dispose contract compatible with the
+  framework-neutral AbsoluteJS mobile shell. Navigation away must destroy the
+  Glimmer render tree, listeners, services, portals and framework-owned DOM.
+- [ ] Add React → Ember → React and Ember → Vue/Svelte/Angular navigation
+  conformance, including repeated A → B → A transitions.
+- [ ] Verify mobile client rendering from the typed page envelope without Bun,
+  Elysia, server secrets, or SSR globals in the native bundle.
+- [ ] Verify CSS ownership, focus, scroll, form state, timers, back navigation,
+  deep links, process relaunch and device-adapter access through the same shell
+  contracts used by the completed frameworks.
+- [ ] Add Capacitor browser-preview, Android WebView and iOS Simulator tests plus
+  startup, memory and bundle-size baselines.
+- [ ] Add Ember to the published mobile support matrix only after the production
+  bundle and real native conformance gates pass.
+
+This work follows Ember Phase 3. It is not part of the current React/Vue/Svelte/
+Angular and restricted HTML/HTMX mobile expansion.
+
 ## 3. Open research items
 
 These are questions whose answers shape the build, not just the

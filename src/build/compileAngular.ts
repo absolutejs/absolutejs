@@ -1666,10 +1666,7 @@ export const compileAngularFileJIT = async (
 		// inside the generated tree through `compileAngularFileJIT`, but
 		// the default `baseDir + relativeDir` math would double-nest
 		// the path if any future caller did, so handle it here.
-		if (
-			inputDir === outDir ||
-			inputDir.startsWith(`${outDir}${sep}`)
-		) {
+		if (inputDir === outDir || inputDir.startsWith(`${outDir}${sep}`)) {
 			return join(inputDir, fileBase);
 		}
 
@@ -1701,7 +1698,7 @@ export const compileAngularFileJIT = async (
 			prefix: string,
 			specifier: string,
 			suffix: string
-	) => {
+		) => {
 			const rewritten = importRewrites.get(specifier);
 			if (rewritten) {
 				return `${prefix}${withCacheBuster(rewritten)}${suffix}`;
@@ -1867,10 +1864,11 @@ export const compileAngularFileJIT = async (
 		const isEntry = resolve(actualPath) === resolve(entryPath);
 		const contentHash = Bun.hash(sourceCode).toString(BASE_36_RADIX);
 		const cacheKey = actualPath;
-		const shouldWriteFile = cacheBuster && isEntry
-			? true
-			: jitContentCache.get(cacheKey) !== contentHash ||
-				!existsSync(targetPath);
+		const shouldWriteFile =
+			cacheBuster && isEntry
+				? true
+				: jitContentCache.get(cacheKey) !== contentHash ||
+					!existsSync(targetPath);
 		if (shouldWriteFile) {
 			const processedContent = transpileAndRewrite(
 				sourceCode,
@@ -1899,8 +1897,7 @@ export const compileAngularFileJIT = async (
 			// the next full compile. Every `compileAngular` pass strips
 			// and re-derives the block, so a carried-over copy is at
 			// most one debounced bundle rebuild behind.
-			const preservedInjection =
-				await readPreservedInjection(targetPath);
+			const preservedInjection = await readPreservedInjection(targetPath);
 			await fs.mkdir(targetDir, { recursive: true });
 			await fs.writeFile(
 				targetPath,
@@ -1954,10 +1951,7 @@ export type AngularProvidersInjection = {
 	 *  global `appProviders` spread is simply omitted. */
 	appProvidersSource: string | null;
 	/** Source `.ts` path → page metadata for every page the scanner saw. */
-	pagesByFile: Map<
-		string,
-		{ hasRoutes: boolean; basePath: string | null }
-	>;
+	pagesByFile: Map<string, { hasRoutes: boolean; basePath: string | null }>;
 };
 
 export const compileAngular = async (
@@ -2075,8 +2069,7 @@ export const compileAngular = async (
 			// (e.g. `src/types/admin/admin.ts`).
 			let candidate = normalizedCandidates.find(
 				(file) =>
-					existsSync(file) &&
-					file.endsWith(`${sep}${relativeEntry}`)
+					existsSync(file) && file.endsWith(`${sep}${relativeEntry}`)
 			);
 			if (!candidate) {
 				candidate = normalizedCandidates.find(
@@ -2193,9 +2186,8 @@ export const compileAngular = async (
 		// declaration needs to re-emit. Without this the cache short-
 		// circuits and the rebuilt page module ships a stale providers
 		// array on the next request.
-		const pageInjectionForHash = providersInjection?.pagesByFile.get(
-			resolvedEntry
-		);
+		const pageInjectionForHash =
+			providersInjection?.pagesByFile.get(resolvedEntry);
 		const providersHashInput = providersInjection
 			? (() => {
 					let providersSourceContent = '';
@@ -2280,9 +2272,8 @@ export const compileAngular = async (
 		// `provideRouter` captured it. The inline form runs *after*
 		// the page's `export const routes` declaration and references
 		// the live binding directly. */
-		const pageInjection = providersInjection?.pagesByFile.get(
-			resolvedEntry
-		);
+		const pageInjection =
+			providersInjection?.pagesByFile.get(resolvedEntry);
 		// Strip any providers-injection block left over from a previous
 		// compile cycle before appending the fresh one. The injection
 		// is bracketed by sentinel comments so the regex match is
@@ -2371,7 +2362,7 @@ export const compileAngular = async (
 			? relativePath
 			: `./${relativePath}`;
 
-// Angular HMR Runtime Layer (Level 3) — Import runtime before HMR client
+		// Angular HMR Runtime Layer (Level 3) — Import runtime before HMR client
 		const hmrPreamble = hmr
 			? `window.__HMR_FRAMEWORK__ = "angular";\nimport "${hmrClientPath}";\n`
 			: '';
@@ -2394,6 +2385,7 @@ var requestContext = Object.prototype.hasOwnProperty.call(window, '__ABS_ANGULAR
 var pageHasIslands = Boolean(pageModule.__ABSOLUTE_PAGE_HAS_ISLANDS__) || Boolean(document.querySelector('[data-island="true"]'));
 var pageHasRawStreamingSlots = Boolean(document.querySelector('[data-absolute-raw-slot="true"]'));
 var pageHasStreamingSlots = Boolean(document.querySelector('[data-absolute-slot="true"]'));
+var isClientRender = window.__ABSOLUTE_PAGE_RENDER_MODE__ === 'client';
 var contextProviders = [{ provide: REQUEST_CONTEXT, useValue: requestContext }];
 // Page-level providers are injected directly into the page module's
 // server output by \`compileAngular\`'s providers-injection step
@@ -2444,13 +2436,14 @@ if (!document.querySelector(_sel)) {
 }
 
 var providers = [provideZonelessChangeDetection()];
-if (!window.__HMR_SKIP_HYDRATION__ && !pageHasIslands) {
+if (!isClientRender && !window.__HMR_SKIP_HYDRATION__ && !pageHasIslands) {
     providers.push(provideClientHydration(withHttpTransferCacheOptions(absoluteHttpTransferCacheOptions)));
 }
 delete window.__HMR_SKIP_HYDRATION__;
 providers.push.apply(providers, pageProviders);
 providers.push.apply(providers, contextProviders);
 window.__ABS_SLOT_HYDRATION_PENDING__ = pageHasRawStreamingSlots;
+var absolutePageReady = Promise.resolve();
 
 if (pageHasRawStreamingSlots) {
     window.__ABS_SLOT_HYDRATION_PENDING__ = false;
@@ -2460,7 +2453,7 @@ if (pageHasRawStreamingSlots) {
         });
     }
 } else {
-    bootstrapApplication(${componentClassName}, {
+    absolutePageReady = bootstrapApplication(${componentClassName}, {
         providers: providers
     }).then(function (appRef) {
         window.__ANGULAR_APP__ = appRef;
@@ -2470,8 +2463,17 @@ if (pageHasRawStreamingSlots) {
                 window.__ABS_SLOT_FLUSH__();
             });
         }
+        return appRef;
     });
 }
+window.__ABSOLUTE_PAGE_READY__ = absolutePageReady;
+window.__ABSOLUTE_PAGE_DISPOSE__ = async function() {
+    await absolutePageReady;
+    if (window.__ANGULAR_APP__) {
+        window.__ANGULAR_APP__.destroy();
+        window.__ANGULAR_APP__ = null;
+    }
+};
 `.trim()
 			: `
 import '@angular/compiler';
@@ -2491,6 +2493,7 @@ var requestContext = Object.prototype.hasOwnProperty.call(window, '__ABS_ANGULAR
 var pageHasIslands = Boolean(pageModule.__ABSOLUTE_PAGE_HAS_ISLANDS__) || Boolean(document.querySelector('[data-island="true"]'));
 var pageHasRawStreamingSlots = Boolean(document.querySelector('[data-absolute-raw-slot="true"]'));
 var pageHasStreamingSlots = Boolean(document.querySelector('[data-absolute-slot="true"]'));
+var isClientRender = window.__ABSOLUTE_PAGE_RENDER_MODE__ === 'client';
 var contextProviders = [{ provide: REQUEST_CONTEXT, useValue: requestContext }];
 // Page-level providers are injected directly into the page module's
 // server output by \`compileAngular\`'s providers-injection step
@@ -2511,10 +2514,11 @@ var absoluteHttpTransferCacheOptions = {
 enableProdMode();
 
 var providers = [provideZonelessChangeDetection()].concat(pageProviders).concat(contextProviders);
-if (!pageHasIslands) {
+if (!isClientRender && !pageHasIslands) {
     providers.unshift(provideClientHydration(withHttpTransferCacheOptions(absoluteHttpTransferCacheOptions)));
 }
 window.__ABS_SLOT_HYDRATION_PENDING__ = pageHasRawStreamingSlots;
+var absolutePageReady = Promise.resolve();
 
 if (pageHasRawStreamingSlots) {
     window.__ABS_SLOT_HYDRATION_PENDING__ = false;
@@ -2524,7 +2528,7 @@ if (pageHasRawStreamingSlots) {
         });
     }
 } else {
-    bootstrapApplication(${componentClassName}, {
+    absolutePageReady = bootstrapApplication(${componentClassName}, {
         providers: providers
     }).then(function (appRef) {
         window.__ANGULAR_APP__ = appRef;
@@ -2534,8 +2538,17 @@ if (pageHasRawStreamingSlots) {
                 window.__ABS_SLOT_FLUSH__();
             });
         }
+        return appRef;
     });
 }
+window.__ABSOLUTE_PAGE_READY__ = absolutePageReady;
+window.__ABSOLUTE_PAGE_DISPOSE__ = async function() {
+    await absolutePageReady;
+    if (window.__ANGULAR_APP__) {
+        window.__ANGULAR_APP__.destroy();
+        window.__ANGULAR_APP__ = null;
+    }
+};
 `.trim();
 
 		// Angular HMR Optimization — Hash index content to detect if bundling

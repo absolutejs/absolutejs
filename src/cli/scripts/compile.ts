@@ -1673,6 +1673,7 @@ export default server;
 	if (buildConfig.mobile) {
 		await finalizeAbsoluteMobileCompatibilityBuild({
 			buildDirectory: resolvedOutdir,
+			...(configPath ? { configPath } : {}),
 			mobile: buildConfig.mobile,
 			producerPath: outputPath,
 			projectRoot: process.cwd()

@@ -630,6 +630,7 @@ export const start = async (
 	if (buildConfig.mobile) {
 		await finalizeAbsoluteMobileCompatibilityBuild({
 			buildDirectory: resolvedOutdir,
+			...(configPath ? { configPath } : {}),
 			mobile: buildConfig.mobile,
 			producerPath: outputPath,
 			projectRoot: process.cwd()

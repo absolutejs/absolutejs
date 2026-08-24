@@ -13,6 +13,14 @@ export default defineConfig({
 		appId: 'com.absolutejs.conformance',
 		appName: 'AbsoluteJS Conformance',
 		bundleDirectory: '.absolutejs/mobile-native-conformance/web',
+		deepLinks: {
+			android: {
+				sha256CertificateFingerprints: [
+					'AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA'
+				]
+			},
+			apple: { appIdPrefix: 'ABCDE12345' }
+		},
 		entry: '/react',
 		nativeProject: {
 			directory: '.absolutejs/mobile-native-conformance/native'

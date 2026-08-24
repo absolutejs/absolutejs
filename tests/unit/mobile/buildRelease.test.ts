@@ -25,7 +25,7 @@ afterEach(async () => {
 
 describe('automatic mobile compatibility release build', () => {
 	test(
-		'uses the finalized Elysia route and generated React contract',
+		'uses the finalized Elysia route and generated framework contracts',
 		async () => {
 			const output = await mkdtemp(
 				join(tmpdir(), 'absolute-mobile-release-')
@@ -33,7 +33,19 @@ describe('automatic mobile compatibility release build', () => {
 			temporaryDirectories.push(output);
 			const build = await Bun.build({
 				entrypoints: [fixture],
-				external: ['react', 'react-dom/*'],
+				external: [
+					'@angular/*',
+					'@vue/*',
+					'react',
+					'react-dom/*',
+					'rxjs',
+					'rxjs/*',
+					'svelte',
+					'svelte/*',
+					'vue',
+					'vue/*',
+					'zone.js'
+				],
 				outdir: output,
 				plugins: [
 					createAbsoluteMobileRouteMetadataPlugin({ entry: fixture })
@@ -45,18 +57,35 @@ describe('automatic mobile compatibility release build', () => {
 			const loaded: { app: Elysia } = await import(
 				`${pathToFileURL(producerPath).href}?test=${crypto.randomUUID()}`
 			);
-			const clientPath = join(output, 'account-client.js');
-			await writeFile(clientPath, 'export const generation = 1;');
+			const clientPaths: Record<string, string> = {
+				AccountIndex: join(output, 'account-client.js'),
+				AngularAccountIndex: join(output, 'angular-account-client.js'),
+				SvelteAccountIndex: join(output, 'svelte-account-client.js'),
+				VueAccountIndex: join(output, 'vue-account-client.js')
+			};
+			const vueStylePath = join(output, 'vue-account.css');
+			const releaseManifest: Record<string, string> = {
+				...clientPaths,
+				VueAccountBundledCSS: vueStylePath
+			};
+			await Promise.all(
+				Object.values(clientPaths).map((path) =>
+					writeFile(path, 'export const generation = 1;')
+				)
+			);
+			await writeFile(vueStylePath, '.vue-account{color:green}');
 			const release = await buildAbsoluteMobileCompatibilityRelease({
 				app: loaded.app,
 				appId: 'com.absolute.fixture',
 				buildDirectory: output,
-				manifest: { AccountIndex: clientPath },
+				manifest: releaseManifest,
 				producerExport: 'app',
 				producerPath,
 				runtime: '1'
 			});
-			const [page] = release.artifact.pages;
+			const page = release.artifact.pages.find(
+				({ framework }) => framework === 'react'
+			);
 			if (!page) throw new Error('Expected a captured mobile page.');
 			const request = new Request('https://example.test/v1/account/Ada', {
 				headers: {
@@ -82,19 +111,22 @@ describe('automatic mobile compatibility release build', () => {
 				app: loaded.app,
 				appId: 'com.absolute.fixture',
 				buildDirectory: output,
-				manifest: { AccountIndex: clientPath },
+				manifest: releaseManifest,
 				previousArtifacts: [release.artifact],
 				producerExport: 'app',
 				producerPath,
 				runtime: '1'
 			});
 			expect(unchanged.artifact).toEqual(release.artifact);
-			await writeFile(clientPath, 'export const generation = 2;');
+			await writeFile(
+				clientPaths.AccountIndex,
+				'export const generation = 2;'
+			);
 			const next = await buildAbsoluteMobileCompatibilityRelease({
 				app: loaded.app,
 				appId: 'com.absolute.fixture',
 				buildDirectory: output,
-				manifest: { AccountIndex: clientPath },
+				manifest: releaseManifest,
 				previousArtifacts: [release.artifact],
 				producerExport: 'app',
 				producerPath,
@@ -102,23 +134,69 @@ describe('automatic mobile compatibility release build', () => {
 			});
 			expect(next.artifact.generation).toBe(2);
 			expect(next.artifact.appBuild).not.toBe(release.artifact.appBuild);
-			expect(release.artifact.routes).toEqual([
-				{
-					method: 'GET',
-					pageId: page.pageId,
-					pattern: '/v1/account/:id'
-				},
-				{
-					method: 'GET',
-					pageId: page.pageId,
-					pattern: '/v1/profile/:id'
-				}
+			expect(
+				release.artifact.pages.map(({ framework }) => framework).sort()
+			).toEqual(['angular', 'react', 'svelte', 'vue']);
+			expect(
+				release.artifact.routes.map(({ pattern }) => pattern).sort()
+			).toEqual([
+				'/v1/account/:id',
+				'/v1/angular/:id',
+				'/v1/profile/:id',
+				'/v1/svelte/:id',
+				'/v1/vue/:id'
 			]);
 			expect(page).toMatchObject({
 				contract: expect.stringContaining('react:'),
 				framework: 'react',
 				pageId: 'tests/fixtures/mobile-route-capture/react/pages/Account.tsx#Account'
 			});
+			for (const framework of ['angular', 'svelte', 'vue'] as const) {
+				const frameworkPage = release.artifact.pages.find(
+					(candidate) => candidate.framework === framework
+				);
+				if (!frameworkPage) {
+					throw new Error(`Expected a captured ${framework} page.`);
+				}
+				if (framework === 'vue') {
+					expect(frameworkPage.styleBundlePath).toBe(
+						'/vue-account.css'
+					);
+					expect(frameworkPage.styleBundleHash).toHaveLength(64);
+				}
+				const frameworkResponse = await loaded.app.handle(
+					new Request(`https://example.test/v1/${framework}/Ada`, {
+						headers: {
+							accept: ABSOLUTE_MOBILE_PAGE_MEDIA_TYPE,
+							[MOBILE_PAGE_REQUEST_HEADERS.appBuild]:
+								release.artifact.appBuild,
+							[MOBILE_PAGE_REQUEST_HEADERS.pageBundle]:
+								frameworkPage.bundleHash,
+							[MOBILE_PAGE_REQUEST_HEADERS.pageContracts]:
+								frameworkPage.contract,
+							[MOBILE_PAGE_REQUEST_HEADERS.pageId]:
+								frameworkPage.pageId,
+							[MOBILE_PAGE_REQUEST_HEADERS.protocol]: '1',
+							[MOBILE_PAGE_REQUEST_HEADERS.runtime]: '1'
+						}
+					})
+				);
+				const frameworkEnvelope = await frameworkResponse.json();
+				expect(frameworkEnvelope.response).toMatchObject({
+					contract: frameworkPage.contract,
+					framework,
+					kind: 'page',
+					pageId: frameworkPage.pageId,
+					props: {
+						...(framework === 'svelte'
+							? {}
+							: { displayName: 'Ada' }),
+						...(framework === 'svelte'
+							? { url: `/v1/${framework}/Ada` }
+							: {})
+					}
+				});
+			}
 		},
 		COMPILER_TEST_TIMEOUT_MS
 	);

@@ -2447,6 +2447,26 @@ network compatibility and every required migration in the published support matr
 
 ### Phase 1: canonical routes, page protocol, and mobile bundle
 
+Implementation checkpoint (August 24, 2026): the production Capacitor
+compatibility path now discovers unchanged Elysia routes backed by React, Vue,
+Svelte, and Angular page handlers. The generated native shell embeds each
+framework's client-render entry, supplies the same typed route props as the web
+handler, waits for framework startup, and invokes a common disposal contract
+before a cross-framework document reset. Production finalization preserves
+custom `--config` resolution without starting the bundled application's network
+listener. Content-addressed page JavaScript and generated CSS are signed into the
+compatibility artifact; referenced `assets/` and `indexes/` files are copied into
+the local Capacitor bundle.
+
+The real multi-framework example now passes `absolute prepare` and produces one
+local manifest containing Angular, React, Svelte, and Vue routes and bundles.
+Focused conformance covers generated client mount/dispose behavior, repeated
+A→B→A framework disposal, finalized Elysia route capture, styles, dependency
+copying, and rejection of unsupported Ember pages. HTML/HTMX still require the
+restricted local-document representation and hostile-content gate described in
+this plan; they are not silently advertised as supported. Ember mobile work is
+explicitly deferred to the adapter milestones in `EMBER_PLAN.md`.
+
 Deliverables:
 
 - Typed config and normalization.
@@ -2722,11 +2742,11 @@ The remaining decisions that materially affect the public API are:
 
 ## Recommended immediate next step
 
-Finish the real-app identity/transport gate on Android and iOS: configure actual
-Apple/Play signing identities, publish and externally validate the generated
-association files, run the generated local shell in simulators/devices, complete
-public-client Authorization Code + S256 PKCE with Keychain/Keystore-backed
-credentials, and prove authenticated page/API plus Sync socket-ticket calls without
-cookies or URL credentials. Then run the hostile-content gate before expanding the
-framework matrix or broad device APIs. Expo remains out of scope until the Capacitor
-security and lifetime boundaries pass.
+Finish the restricted HTML/HTMX representation and hostile-content gate without
+embedding arbitrary remote executable markup. Then run the four-framework local
+bundle on Android and the partner's macOS/iOS acceptance path, including repeated
+cross-framework navigation and process relaunch. In parallel with that device
+evidence, complete public-client Authorization Code + S256 PKCE with
+Keychain/Keystore-backed credentials and prove authenticated page/API plus Sync
+socket-ticket calls without cookies or URL credentials. Expo remains out of scope
+until the Capacitor security and lifetime boundaries pass.

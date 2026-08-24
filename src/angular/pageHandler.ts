@@ -18,6 +18,12 @@ import { buildRouterRedirectProviders } from './routerRedirectProviders';
 import { renderSpaNotFound } from '../utils/spaRouteManifest';
 import { lowerAngularServerIslands } from './lowerServerIslands';
 import { getCurrentRouteRegistrationCallsite } from '../core/devRouteRegistrationCallsite';
+import { getCurrentAbsoluteRequest } from '../core/requestContext';
+import type { AbsoluteMobileBuildPageMetadata } from '../mobile/buildMetadata';
+import {
+	ABSOLUTE_MOBILE_PAGE_PROTOCOL_VERSION,
+	finalizeAbsoluteMobilePage
+} from '../mobile/pageProtocol';
 import { getSsrSanitizer, resetSsrSanitizer } from './ssrSanitizer';
 import { withPageCacheHeaders } from '../core/pageResponseCache';
 import {
@@ -51,6 +57,8 @@ type HasNoRequiredContextKeys<Ctx> = keyof Ctx extends never
 		: false;
 export type AngularPageRequestInput<Ctx = unknown> =
 	AngularPageRenderOptions & {
+		/** @internal Build-generated mobile identity. Application code must not set this. */
+		__absoluteMobile?: AbsoluteMobileBuildPageMetadata;
 		headTag?: `<head>${string}</head>`;
 		indexPath: string;
 		pagePath: string;
@@ -351,15 +359,36 @@ export const handleAngularPageRequest = async <Page = unknown>(
 	input: AngularPageRequestInput<Page>
 ) => {
 	const requestId = `angular_${Date.now()}_${Math.random().toString(BASE_36_RADIX).substring(2, RANDOM_ID_END_INDEX)}`;
+	const request = input.request ?? getCurrentAbsoluteRequest();
+	const pageId =
+		input.__absoluteMobile?.pageId ?? derivePageName(input.pagePath);
+	const currentContract =
+		input.__absoluteMobile?.contract ??
+		`angular:${pageId}:${ABSOLUTE_MOBILE_PAGE_PROTOCOL_VERSION}`;
+	const mobileResponse = finalizeAbsoluteMobilePage({
+		compatibility: {
+			framework: 'angular',
+			pageId,
+			representations: [
+				{ contract: currentContract, mapProps: (props) => props }
+			],
+			runtimes: [String(ABSOLUTE_MOBILE_PAGE_PROTOCOL_VERSION)]
+		},
+		props: isRecord(input.requestContext)
+			? input.requestContext
+			: Object.create(null),
+		request,
+		status: input.responseInit?.status
+	});
+	if (mobileResponse) return mobileResponse;
 
 	return angularSsrContext.run(requestId, async () => {
 		const spaNotFound = await renderSpaNotFound(
 			'angular',
 			derivePageName(input.pagePath),
-			input.request
+			request
 		);
-		if (spaNotFound)
-			return withPageCacheHeaders(spaNotFound, input.request);
+		if (spaNotFound) return withPageCacheHeaders(spaNotFound, request);
 		await ensureAngularCompiler();
 
 		const userHeadTag = input.headTag ?? '<head></head>';
@@ -368,7 +397,7 @@ export const handleAngularPageRequest = async <Page = unknown>(
 		const resolvedPagePath = input.pagePath;
 		const maybeRequestContext = input.requestContext;
 		const responseInit = input.responseInit ?? {};
-		const resolvedUrl = resolveRequestRenderUrl(input.request);
+		const resolvedUrl = resolveRequestRenderUrl(request);
 
 		// Inline per-page compiled CSS so scoped component styles ship in
 		// the SSR head instead of loading after client hydration. Bun's
@@ -475,7 +504,7 @@ export const handleAngularPageRequest = async <Page = unknown>(
 				const providers = buildProviders(
 					deps,
 					sanitizer,
-					input.request,
+					request,
 					maybeRequestContext,
 					responseInit,
 					combinedProviders
@@ -518,7 +547,7 @@ export const handleAngularPageRequest = async <Page = unknown>(
 				{ handlerCallsite }
 			);
 
-			return withPageCacheHeaders(pageResponse, input.request);
+			return withPageCacheHeaders(pageResponse, request);
 		} catch (error) {
 			console.error('[SSR] Angular render error:', error);
 
@@ -529,7 +558,7 @@ export const handleAngularPageRequest = async <Page = unknown>(
 				error
 			);
 			if (conventionResponse) {
-				return withPageCacheHeaders(conventionResponse, input.request);
+				return withPageCacheHeaders(conventionResponse, request);
 			}
 
 			return withPageCacheHeaders(
@@ -537,7 +566,7 @@ export const handleAngularPageRequest = async <Page = unknown>(
 					headers: { 'Content-Type': 'text/html' },
 					status: 500
 				}),
-				input.request
+				request
 			);
 		}
 	});

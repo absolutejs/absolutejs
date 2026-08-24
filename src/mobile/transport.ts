@@ -17,6 +17,7 @@ export const ABSOLUTE_MOBILE_CLIENT_MANIFEST_FORMAT = 1 as const;
 
 export type AbsoluteMobileClientPage = AbsoluteMobileCompatibilityPage & {
 	localBundlePath: string;
+	localStylePath?: string;
 };
 
 export type AbsoluteMobileClientManifest = {

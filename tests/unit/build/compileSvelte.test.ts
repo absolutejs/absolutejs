@@ -70,11 +70,15 @@ describe('compileSvelte', () => {
 				: '';
 
 			expect(awaitIndex).toContain(
-				'var shouldHydrate = typeof window === "undefined" ? false : false;'
+				'var shouldHydrate = typeof window === "undefined" || isClientRender ? false : false;'
 			);
+			expect(awaitIndex).toContain('} else if (isClientRender) {');
 			expect(awaitIndex).toContain('} else if (!shouldHydrate) {');
 			expect(plainIndex).toContain(
-				'var shouldHydrate = typeof window === "undefined" ? false : true;'
+				'var shouldHydrate = typeof window === "undefined" || isClientRender ? false : true;'
+			);
+			expect(plainIndex).toContain(
+				'window.__ABSOLUTE_PAGE_DISPOSE__ = function()'
 			);
 		} finally {
 			await rm(root, { force: true, recursive: true });

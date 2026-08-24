@@ -535,8 +535,9 @@ import { hydrate, mount, unmount } from "svelte";
 var initialProps = (typeof window !== "undefined" && window.__INITIAL_PROPS__) ? window.__INITIAL_PROPS__ : {};
 var isHMR = typeof window !== "undefined" && window.__SVELTE_COMPONENT__ !== undefined;
 var isSsrDirty = typeof window !== "undefined" && window.__SSR_DIRTY__;
+var isClientRender = typeof window !== "undefined" && window.__ABSOLUTE_PAGE_RENDER_MODE__ === "client";
 var hasIslandHtml = false;
-var shouldHydrate = typeof window === "undefined" ? false : ${
+var shouldHydrate = typeof window === "undefined" || isClientRender ? false : ${
 				hasAwaitSlot ? 'false' : 'true'
 			};
 var component;
@@ -569,6 +570,8 @@ if (isHMR) {
   }
   component = mount(Component, { target, props: mergedProps });
   window.__HMR_PRESERVED_STATE__ = undefined;
+} else if (isClientRender) {
+  component = mount(Component, { target, props: initialProps });
 } else if (!shouldHydrate) {
   component = undefined;
 } else if (isSsrDirty || hasIslandHtml) {
@@ -580,6 +583,13 @@ if (isHMR) {
 if (typeof window !== "undefined") {
   window.__SVELTE_COMPONENT__ = component;
   window.__SVELTE_UNMOUNT__ = function() { if (component) { unmount(component); } };
+  window.__ABSOLUTE_PAGE_READY__ = Promise.resolve();
+  window.__ABSOLUTE_PAGE_DISPOSE__ = function() {
+    if (component) { unmount(component); }
+    component = undefined;
+    window.__SVELTE_COMPONENT__ = undefined;
+    window.__SVELTE_UNMOUNT__ = undefined;
+  };
   window.__SVELTE_REMOUNT__ = function(props) {
     if (typeof window.__SVELTE_UNMOUNT__ === "function") {
       try { window.__SVELTE_UNMOUNT__(); } catch (err) { /* ignore */ }

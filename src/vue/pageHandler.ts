@@ -6,6 +6,12 @@ import { resolveSpaChildCss } from '../utils/spaRouteCss';
 import { renderSpaNotFound } from '../utils/spaRouteManifest';
 import { injectIslandPageContextStream } from '../core/islandPageContext';
 import { getCurrentRouteRegistrationCallsite } from '../core/devRouteRegistrationCallsite';
+import { getCurrentAbsoluteRequest } from '../core/requestContext';
+import type { AbsoluteMobileBuildPageMetadata } from '../mobile/buildMetadata';
+import {
+	ABSOLUTE_MOBILE_PAGE_PROTOCOL_VERSION,
+	finalizeAbsoluteMobilePage
+} from '../mobile/pageProtocol';
 import {
 	streamingPageHeaders,
 	withPageCacheHeaders
@@ -57,6 +63,8 @@ type VuePageClientMode =
 export type VuePageRequestInput<Component extends VueComponent> =
 	VuePageRenderOptions &
 		VuePageClientMode & {
+			/** @internal Build-generated mobile identity. Application code must not set this. */
+			__absoluteMobile?: AbsoluteMobileBuildPageMetadata;
 			headTag?: `<head>${string}</head>`;
 			pagePath: string;
 			Page?: Component;
@@ -151,6 +159,25 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 	input: VuePageRequestInput<Component>
 ) => {
 	const passedPageComponent = input.Page;
+	const request = input.request ?? getCurrentAbsoluteRequest();
+	const pageId =
+		input.__absoluteMobile?.pageId ?? derivePageName(input.pagePath);
+	const currentContract =
+		input.__absoluteMobile?.contract ??
+		`vue:${pageId}:${ABSOLUTE_MOBILE_PAGE_PROTOCOL_VERSION}`;
+	const mobileResponse = finalizeAbsoluteMobilePage({
+		compatibility: {
+			framework: 'vue',
+			pageId,
+			representations: [
+				{ contract: currentContract, mapProps: (props) => props }
+			],
+			runtimes: [String(ABSOLUTE_MOBILE_PAGE_PROTOCOL_VERSION)]
+		},
+		props: input.props ?? Object.create(null),
+		request
+	});
+	if (mobileResponse) return mobileResponse;
 	const userHeadTag = input.headTag ?? '<head></head>';
 	const resolvedOptions = input;
 	const resolvedPagePath = input.pagePath;
@@ -164,7 +191,7 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 	// in core/build.ts, lists every child route's compiled CSS path.
 	const [siblingCss, spaChildCss] = await Promise.all([
 		readSiblingCss(resolvedPagePath),
-		resolveSpaChildCss(resolvedPagePath, input.request?.url)
+		resolveSpaChildCss(resolvedPagePath, request?.url)
 	]);
 	const resolvedHeadTag = injectInlineCss(
 		injectInlineCss(userHeadTag, siblingCss),
@@ -195,10 +222,9 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 		const spaNotFound = await renderSpaNotFound(
 			'vue',
 			derivePageName(resolvedPagePath),
-			input.request
+			request
 		);
-		if (spaNotFound)
-			return withPageCacheHeaders(spaNotFound, input.request);
+		if (spaNotFound) return withPageCacheHeaders(spaNotFound, request);
 		const handlerCallsite =
 			resolvedOptions?.collectStreamingSlots === true
 				? undefined
@@ -257,7 +283,7 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 				null;
 			let pendingNotFound = false;
 			if (resolvedPage.setupApp) {
-				const url = resolveRequestRenderUrl(input.request);
+				const url = resolveRequestRenderUrl(request);
 				// `router` is null here — when the page exports `routes`, the
 				// auto-wrapper compileVue injects creates the router using the
 				// page's bundled vue-router and rebinds ctx.router before
@@ -401,7 +427,7 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 			{ handlerCallsite }
 		);
 
-		return withPageCacheHeaders(pageResponse, input.request, {
+		return withPageCacheHeaders(pageResponse, request, {
 			bufferStreamForEtag: input.bufferStreamForEtag
 		});
 	} catch (error) {
@@ -414,7 +440,7 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 			error
 		);
 		if (conventionResponse) {
-			return withPageCacheHeaders(conventionResponse, input.request);
+			return withPageCacheHeaders(conventionResponse, request);
 		}
 
 		return withPageCacheHeaders(
@@ -422,7 +448,7 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 				headers: { 'Content-Type': 'text/html' },
 				status: 500
 			}),
-			input.request
+			request
 		);
 	}
 };

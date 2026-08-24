@@ -15,6 +15,7 @@ import { retainAbsoluteMobileCompatibilityArtifacts } from './releaseArtifact';
 
 export type FinalizeAbsoluteMobileBuildOptions = {
 	buildDirectory: string;
+	configPath?: string;
 	mobile: MobileConfig;
 	producerPath: string;
 	projectRoot: string;
@@ -49,13 +50,15 @@ const serverExportName = (loaded: ServerModule, app: unknown) => {
 	return 'default';
 };
 
-const restoreBuildDirectory = (previous: string | undefined) => {
-	if (previous !== undefined) {
-		process.env.ABSOLUTE_BUILD_DIR = previous;
-
-		return;
-	}
-	delete process.env.ABSOLUTE_BUILD_DIR;
+const restoreEnvironmentVariable = (
+	name:
+		| 'ABSOLUTE_BUILD_DIR'
+		| 'ABSOLUTE_COMPILED_RUNTIME'
+		| 'ABSOLUTE_CONFIG',
+	previous: string | undefined
+) => {
+	if (previous !== undefined) process.env[name] = previous;
+	else delete process.env[name];
 };
 
 const requireRelease = <T>(releases: Map<string, T>, releaseId: string) => {
@@ -103,12 +106,29 @@ export const finalizeAbsoluteMobileCompatibilityBuild = async (
 		);
 	}
 	const previousBuildDirectory = process.env.ABSOLUTE_BUILD_DIR;
+	const previousCompiledRuntime = process.env.ABSOLUTE_COMPILED_RUNTIME;
+	const previousConfigPath = process.env.ABSOLUTE_CONFIG;
 	process.env.ABSOLUTE_BUILD_DIR = buildDirectory;
+	process.env.ABSOLUTE_COMPILED_RUNTIME = '1';
+	if (options.configPath) {
+		process.env.ABSOLUTE_CONFIG = resolve(
+			options.projectRoot,
+			options.configPath
+		);
+	}
 	let loaded: Awaited<ReturnType<typeof loadServerApp>>;
 	try {
 		loaded = await loadServerApp(resolve(options.producerPath));
 	} finally {
-		restoreBuildDirectory(previousBuildDirectory);
+		restoreEnvironmentVariable(
+			'ABSOLUTE_BUILD_DIR',
+			previousBuildDirectory
+		);
+		restoreEnvironmentVariable(
+			'ABSOLUTE_COMPILED_RUNTIME',
+			previousCompiledRuntime
+		);
+		restoreEnvironmentVariable('ABSOLUTE_CONFIG', previousConfigPath);
 	}
 	const current = await buildAbsoluteMobileCompatibilityRelease({
 		app: loaded.app,

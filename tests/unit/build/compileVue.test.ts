@@ -208,7 +208,10 @@ defineProps<PageProps>();
 				: '';
 
 			expect(indexContent).toContain(
-				'const shouldHydrate = typeof window === "undefined" ? false : !(isHMR || isSsrDirty || hasSpaRoutes);'
+				'const shouldHydrate = typeof window === "undefined" ? false : !(isHMR || isSsrDirty || hasSpaRoutes || isClientRender);'
+			);
+			expect(indexContent).toContain(
+				'window.__ABSOLUTE_PAGE_DISPOSE__ = async function()'
 			);
 			expect(indexContent).toContain('window.__ABS_SLOT_HYDRATION_PENDING__ = shouldHydrate;');
 			expect(indexContent).toContain(
@@ -263,7 +266,7 @@ export const routes = defineRoutes([
 				'const hasSpaRoutes = Array.isArray(Reflect.get(PageModule, "routes"));'
 			);
 			expect(indexContent).toContain(
-				'const shouldHydrate = typeof window === "undefined" ? false : !(isHMR || isSsrDirty || hasSpaRoutes);'
+				'const shouldHydrate = typeof window === "undefined" ? false : !(isHMR || isSsrDirty || hasSpaRoutes || isClientRender);'
 			);
 		} finally {
 			await rm(root, { force: true, recursive: true });

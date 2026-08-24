@@ -36,6 +36,8 @@ describe('generated React mobile entry', () => {
 			'if (window.__SSR_DIRTY__ || shouldClientRender)'
 		);
 		expect(source).toContain('root = createRoot(container)');
+		expect(source).toContain("document.getElementById('root')");
+		expect(source).toContain('window.__ABSOLUTE_PAGE_DISPOSE__');
 	});
 
 	test('generates a dev remount hook for Bun builds without Fast Refresh transforms', async () => {

@@ -5,7 +5,10 @@ import {
 	resolveAbsoluteMobileDeepLink,
 	type AbsoluteMobileClientManifest
 } from './transport';
-import { activateAbsoluteMobilePage } from './client';
+import {
+	activateAbsoluteMobilePage,
+	disposeAbsoluteMobilePage
+} from './client';
 
 const MANIFEST_PATH = './absolute-mobile-manifest.json';
 const STATUS_ID = 'absolute-mobile-status';
@@ -35,6 +38,14 @@ const renderStatus = (message: string) => {
 	if (status) status.textContent = message;
 };
 
+const renderPageTarget = () => {
+	document.open();
+	document.write(
+		'<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>AbsoluteJS</title></head><body><div id="root"></div></body></html>'
+	);
+	document.close();
+};
+
 const localBundleUrl = (
 	manifest: AbsoluteMobileClientManifest,
 	pageId: string,
@@ -58,16 +69,38 @@ const localBundleUrl = (
 	return url.href;
 };
 
+const installLocalPageStyle = (
+	manifest: AbsoluteMobileClientManifest,
+	pageId: string,
+	contract: string
+) => {
+	const page = manifest.pages.find(
+		(candidate) =>
+			candidate.pageId === pageId && candidate.contract === contract
+	);
+	if (!page?.localStylePath) return;
+	const link = document.createElement('link');
+	link.rel = 'stylesheet';
+	link.href = new URL(page.localStylePath, document.baseURI).href;
+	link.dataset.absoluteMobilePageStyle = page.bundleHash;
+	document.head.appendChild(link);
+};
+
 const navigate = async (
 	manifest: AbsoluteMobileClientManifest,
 	path: string,
 	pushHistory: boolean
 ) => {
+	await disposeAbsoluteMobilePage();
 	renderStatus('Loading…');
 	const envelope = await fetchAbsoluteMobilePage(manifest, path);
+	renderPageTarget();
 	const activation = await activateAbsoluteMobilePage(envelope, {
-		loadPage: ({ contract, pageId }) =>
-			import(localBundleUrl(manifest, pageId, contract))
+		loadPage: ({ contract, pageId }) => {
+			installLocalPageStyle(manifest, pageId, contract);
+
+			return import(localBundleUrl(manifest, pageId, contract));
+		}
 	});
 	if (activation.kind === 'upgrade-required') {
 		renderStatus('This app version must be updated to continue.');

@@ -59,8 +59,24 @@ const pageFor = async (
 		);
 	}
 	const resolvedAssetPath = resolveAssetPath(buildDirectory, assetPath);
-	const bytes = await readFile(resolvedAssetPath);
+	const pageAssetKey = metadata.bundleKey.replace(/Index$/u, '');
+	const styleAssetPath = [
+		`${pageAssetKey}BundledCSS`,
+		`${pageAssetKey}CompiledCSS`
+	]
+		.map((key) => manifest[key])
+		.find((path): path is string => typeof path === 'string');
+	const resolvedStylePath = styleAssetPath
+		? resolveAssetPath(buildDirectory, styleAssetPath)
+		: undefined;
+	const [bytes, styleBytes] = await Promise.all([
+		readFile(resolvedAssetPath),
+		resolvedStylePath ? readFile(resolvedStylePath) : undefined
+	]);
 	const bundlePath = `/${relative(resolve(buildDirectory), resolvedAssetPath).replaceAll('\\', '/')}`;
+	const styleBundlePath = resolvedStylePath
+		? `/${relative(resolve(buildDirectory), resolvedStylePath).replaceAll('\\', '/')}`
+		: undefined;
 
 	return {
 		bundleHash: sha256(bytes),
@@ -68,7 +84,13 @@ const pageFor = async (
 		contract: metadata.contract,
 		framework: metadata.framework,
 		pageId: metadata.pageId,
-		propsSchemaHash: metadata.propsSchemaHash
+		propsSchemaHash: metadata.propsSchemaHash,
+		...(styleBytes && styleBundlePath
+			? {
+					styleBundleHash: sha256(styleBytes),
+					styleBundlePath
+				}
+			: {})
 	} satisfies AbsoluteMobileCompatibilityPage;
 };
 
@@ -104,11 +126,21 @@ export const buildAbsoluteMobileCompatibilityRelease = async (
 		new TextEncoder().encode(
 			JSON.stringify({
 				pages: pages.map(
-					({ bundleHash, bundlePath, contract, pageId }) => ({
+					({
 						bundleHash,
 						bundlePath,
 						contract,
-						pageId
+						pageId,
+						styleBundleHash,
+						styleBundlePath
+					}) => ({
+						bundleHash,
+						bundlePath,
+						contract,
+						pageId,
+						...(styleBundleHash && styleBundlePath
+							? { styleBundleHash, styleBundlePath }
+							: {})
 					})
 				),
 				producerHash,

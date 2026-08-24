@@ -1,4 +1,5 @@
 import {
+	cp,
 	copyFile,
 	mkdir,
 	mkdtemp,
@@ -31,6 +32,15 @@ const BOOTSTRAP_FILE = 'absolute-mobile-bootstrap.js';
 const INDEX_FILE = 'index.html';
 const CLIENT_IMPORT_PATTERN =
 	/(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s*)["'](\/[^"']+)["']/gu;
+const CLIENT_CSS_DEPENDENCY_PATTERN =
+	/(?:@import\s+(?:url\(\s*)?|url\(\s*)["']?(\/[^"')\s]+)["']?\s*\)?/gu;
+const CAPACITOR_CLIENT_FRAMEWORKS = new Set([
+	'angular',
+	'react',
+	'svelte',
+	'vue'
+]);
+const CLIENT_ASSET_DIRECTORIES = ['assets', 'indexes'] as const;
 
 const errorHasCode = (error: unknown, code: string) =>
 	typeof error === 'object' &&
@@ -142,9 +152,9 @@ const copyClientPage = async (
 	staging: string,
 	copiedDependencies: Set<string>
 ) => {
-	if (page.framework !== 'react') {
+	if (!CAPACITOR_CLIENT_FRAMEWORKS.has(page.framework)) {
 		throw new TypeError(
-			`Capacitor spike currently supports React pages; ${page.pageId} is ${page.framework}.`
+			`Capacitor client rendering does not yet support ${page.framework} page ${page.pageId}.`
 		);
 	}
 	const extension = extname(page.bundlePath) || '.js';
@@ -158,13 +168,40 @@ const copyClientPage = async (
 		copiedDependencies
 	);
 
-	return { ...page, localBundlePath };
+	let localStylePath: string | undefined;
+	if (page.styleBundlePath && page.styleBundleHash) {
+		const styleExtension = extname(page.styleBundlePath) || '.css';
+		localStylePath = `./styles/${page.styleBundleHash}${styleExtension}`;
+		const styleSource = sourceAssetPath(
+			buildDirectory,
+			page.styleBundlePath
+		);
+		await mkdir(dirname(join(staging, localStylePath)), {
+			recursive: true
+		});
+		await copyFile(styleSource, join(staging, localStylePath));
+		await copyAbsoluteClientDependencies(
+			styleSource,
+			buildDirectory,
+			staging,
+			copiedDependencies
+		);
+	}
+
+	return {
+		...page,
+		localBundlePath,
+		...(localStylePath ? { localStylePath } : {})
+	};
 };
 
 const absoluteClientImports = async (sourcePath: string) => {
 	const source = await readFile(sourcePath, 'utf8');
 
-	return [...source.matchAll(CLIENT_IMPORT_PATTERN)].flatMap((match) => {
+	return [
+		...source.matchAll(CLIENT_IMPORT_PATTERN),
+		...source.matchAll(CLIENT_CSS_DEPENDENCY_PATTERN)
+	].flatMap((match) => {
 		const [specifier] = match.slice(1);
 
 		return specifier ? [specifier.split(/[?#]/u, 1)[0] ?? specifier] : [];
@@ -231,6 +268,16 @@ export const materializeAbsoluteCapacitorWebBundle = async (
 	try {
 		const pageDirectory = join(staging, 'pages');
 		await mkdir(pageDirectory, { recursive: true });
+		await Promise.all(
+			CLIENT_ASSET_DIRECTORIES.map((directory) => ({
+				destination: join(staging, directory),
+				source: join(options.buildDirectory, directory)
+			}))
+				.filter(({ source }) => existsSync(source))
+				.map(({ destination: assetDestination, source }) =>
+					cp(source, assetDestination, { recursive: true })
+				)
+		);
 		const copiedDependencies = new Set<string>();
 		const pages = await Promise.all(
 			options.artifact.pages.map((page) =>

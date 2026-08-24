@@ -3,6 +3,12 @@ import type { SveltePropsOf } from '../../types/svelte';
 import { compileSvelteServerModule } from '../core/svelteServerModule';
 import { injectIslandPageContextStream } from '../core/islandPageContext';
 import { getCurrentRouteRegistrationCallsite } from '../core/devRouteRegistrationCallsite';
+import { getCurrentAbsoluteRequest } from '../core/requestContext';
+import type { AbsoluteMobileBuildPageMetadata } from '../mobile/buildMetadata';
+import {
+	ABSOLUTE_MOBILE_PAGE_PROTOCOL_VERSION,
+	finalizeAbsoluteMobilePage
+} from '../mobile/pageProtocol';
 import {
 	streamingPageHeaders,
 	withPageCacheHeaders
@@ -102,6 +108,8 @@ export type SveltePageRequestInput<
 		Record<never, never>
 	>
 > = SveltePageRenderOptions & {
+	/** @internal Build-generated mobile identity. Application code must not set this. */
+	__absoluteMobile?: AbsoluteMobileBuildPageMetadata;
 	indexPath: string;
 	pagePath: string;
 	/** The incoming Elysia request. When provided, the request's pathname
@@ -138,7 +146,8 @@ export const handleSveltePageRequest = async <
 	const resolvedOptions = input;
 	const resolvedPagePath = input.pagePath;
 	const userProps = input.props;
-	const requestPathname = resolveRequestPathname(input.request);
+	const request = input.request ?? getCurrentAbsoluteRequest();
+	const requestPathname = resolveRequestPathname(request);
 	// Auto-inject `url` from the request when the caller didn't already
 	// pass one in props. Lets users wire `<Router url={url}>` just by
 	// forwarding `request` instead of unwrapping it themselves.
@@ -150,15 +159,32 @@ export const handleSveltePageRequest = async <
 					url: requestPathname
 				}
 			: userProps;
+	const pageId =
+		input.__absoluteMobile?.pageId ?? derivePageName(resolvedPagePath);
+	const currentContract =
+		input.__absoluteMobile?.contract ??
+		`svelte:${pageId}:${ABSOLUTE_MOBILE_PAGE_PROTOCOL_VERSION}`;
+	const mobileResponse = finalizeAbsoluteMobilePage({
+		compatibility: {
+			framework: 'svelte',
+			pageId,
+			representations: [
+				{ contract: currentContract, mapProps: (props) => props }
+			],
+			runtimes: [String(ABSOLUTE_MOBILE_PAGE_PROTOCOL_VERSION)]
+		},
+		props: resolvedProps ?? Object.create(null),
+		request
+	});
+	if (mobileResponse) return mobileResponse;
 
 	try {
 		const spaNotFound = await renderSpaNotFound(
 			'svelte',
 			derivePageName(resolvedPagePath),
-			input.request
+			request
 		);
-		if (spaNotFound)
-			return withPageCacheHeaders(spaNotFound, input.request);
+		if (spaNotFound) return withPageCacheHeaders(spaNotFound, request);
 		const handlerCallsite =
 			resolvedOptions?.collectStreamingSlots === true
 				? undefined
@@ -267,7 +293,7 @@ export const handleSveltePageRequest = async <
 			{ handlerCallsite }
 		);
 
-		return withPageCacheHeaders(pageResponse, input.request, {
+		return withPageCacheHeaders(pageResponse, request, {
 			bufferStreamForEtag: input.bufferStreamForEtag
 		});
 	} catch (error) {
@@ -280,7 +306,7 @@ export const handleSveltePageRequest = async <
 			error
 		);
 		if (conventionResponse) {
-			return withPageCacheHeaders(conventionResponse, input.request);
+			return withPageCacheHeaders(conventionResponse, request);
 		}
 
 		return withPageCacheHeaders(
@@ -288,7 +314,7 @@ export const handleSveltePageRequest = async <
 				headers: { 'Content-Type': 'text/html' },
 				status: 500
 			}),
-			input.request
+			request
 		);
 	}
 };

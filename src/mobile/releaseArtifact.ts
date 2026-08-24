@@ -15,6 +15,8 @@ export type AbsoluteMobileCompatibilityPage = {
 	framework: AbsoluteMobilePageFramework;
 	pageId: string;
 	propsSchemaHash: string;
+	styleBundleHash?: string;
+	styleBundlePath?: string;
 };
 
 export type AbsoluteMobileCompatibilityRoute = {
@@ -186,6 +188,20 @@ const parseCompatibilityPage = (value: unknown) => {
 		throw new TypeError('Compatibility artifact contains an invalid page.');
 	}
 
+	const styleBundleHash =
+		typeof value.styleBundleHash === 'string'
+			? value.styleBundleHash
+			: undefined;
+	const styleBundlePath =
+		typeof value.styleBundlePath === 'string'
+			? value.styleBundlePath
+			: undefined;
+	if (Boolean(styleBundleHash) !== Boolean(styleBundlePath)) {
+		throw new TypeError(
+			'Compatibility page style hash and path must be provided together.'
+		);
+	}
+
 	return {
 		bundleHash: readString(value.bundleHash, 'page.bundleHash'),
 		bundlePath: readString(value.bundlePath, 'page.bundlePath'),
@@ -195,7 +211,10 @@ const parseCompatibilityPage = (value: unknown) => {
 		propsSchemaHash: readString(
 			value.propsSchemaHash,
 			'page.propsSchemaHash'
-		)
+		),
+		...(styleBundleHash && styleBundlePath
+			? { styleBundleHash, styleBundlePath }
+			: {})
 	} satisfies AbsoluteMobileCompatibilityPage;
 };
 
@@ -247,17 +266,37 @@ const validateProducerModule = (module: string) => {
 
 const normalizePage = (
 	page: AbsoluteMobileCompatibilityPage
-): AbsoluteMobileCompatibilityPage => ({
-	bundleHash: requireNonEmpty(page.bundleHash, 'page.bundleHash'),
-	bundlePath: requireNonEmpty(page.bundlePath, 'page.bundlePath'),
-	contract: requireNonEmpty(page.contract, 'page.contract'),
-	framework: page.framework,
-	pageId: requireNonEmpty(page.pageId, 'page.pageId'),
-	propsSchemaHash: requireNonEmpty(
-		page.propsSchemaHash,
-		'page.propsSchemaHash'
-	)
-});
+): AbsoluteMobileCompatibilityPage => {
+	if (Boolean(page.styleBundleHash) !== Boolean(page.styleBundlePath)) {
+		throw new TypeError(
+			'Compatibility page style hash and path must be provided together.'
+		);
+	}
+
+	return {
+		bundleHash: requireNonEmpty(page.bundleHash, 'page.bundleHash'),
+		bundlePath: requireNonEmpty(page.bundlePath, 'page.bundlePath'),
+		contract: requireNonEmpty(page.contract, 'page.contract'),
+		framework: page.framework,
+		pageId: requireNonEmpty(page.pageId, 'page.pageId'),
+		propsSchemaHash: requireNonEmpty(
+			page.propsSchemaHash,
+			'page.propsSchemaHash'
+		),
+		...(page.styleBundleHash && page.styleBundlePath
+			? {
+					styleBundleHash: requireNonEmpty(
+						page.styleBundleHash,
+						'page.styleBundleHash'
+					),
+					styleBundlePath: requireNonEmpty(
+						page.styleBundlePath,
+						'page.styleBundlePath'
+					)
+				}
+			: {})
+	};
+};
 
 const normalizeRoute = (
 	route: AbsoluteMobileCompatibilityRoute

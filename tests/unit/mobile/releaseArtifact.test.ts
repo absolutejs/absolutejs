@@ -3,6 +3,7 @@ import {
 	ABSOLUTE_MOBILE_RETAINED_GENERATIONS,
 	createAbsoluteMobileCompatibilityArtifact,
 	hashAbsoluteMobilePropsSchema,
+	parseAbsoluteMobileCompatibilityArtifact,
 	resolveAbsoluteMobileCompatibilityRelease,
 	retainAbsoluteMobileCompatibilityArtifacts,
 	type AbsoluteMobileCompatibilityArtifact,
@@ -159,5 +160,29 @@ describe('mobile compatibility release artifacts', () => {
 			kind: 'upgrade-required',
 			result: { pageId: 'Account', reason: 'page-contract' }
 		});
+	});
+
+	test('round-trips optional page styles and rejects incomplete style metadata', () => {
+		const input = artifactInput(2);
+		const artifact = createAbsoluteMobileCompatibilityArtifact({
+			...input,
+			pages: input.pages.map((page) => ({
+				...page,
+				styleBundleHash: 'account-style-2',
+				styleBundlePath: '/assets/account-2.css'
+			}))
+		});
+
+		expect(parseAbsoluteMobileCompatibilityArtifact(artifact)).toEqual(
+			artifact
+		);
+		expect(() =>
+			parseAbsoluteMobileCompatibilityArtifact({
+				...artifact,
+				pages: artifact.pages.map(
+					({ styleBundlePath: _style, ...page }) => page
+				)
+			})
+		).toThrow('style hash and path must be provided together');
 	});
 });

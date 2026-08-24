@@ -27,13 +27,23 @@ describe('Capacitor local web bundle', () => {
 		const pageSource =
 			'import "/react/vendor/react.js"; globalThis.__MOBILE_PAGE_LOADED__ = true;';
 		const pagePath = join(buildDirectory, 'generated', 'Account.js');
+		const styleSource = '.account{background:url("/assets/account.png")}';
+		const stylePath = join(buildDirectory, 'generated', 'Account.css');
 		await Bun.write(pagePath, pageSource);
+		await Bun.write(stylePath, styleSource);
+		await Bun.write(
+			join(buildDirectory, 'assets', 'account.png'),
+			new Uint8Array([1, 2, 3])
+		);
 		await Bun.write(
 			join(buildDirectory, 'react', 'vendor', 'react.js'),
 			'globalThis.__REACT_VENDOR_LOADED__ = true;'
 		);
 		const bundleHash = createHash('sha256')
 			.update(pageSource)
+			.digest('hex');
+		const styleBundleHash = createHash('sha256')
+			.update(styleSource)
 			.digest('hex');
 		const artifact = createAbsoluteMobileCompatibilityArtifact({
 			appBuild: 'build-1',
@@ -46,7 +56,9 @@ describe('Capacitor local web bundle', () => {
 					contract: 'account@1',
 					framework: 'react',
 					pageId: 'Account',
-					propsSchemaHash: 'schema-account'
+					propsSchemaHash: 'schema-account',
+					styleBundleHash,
+					styleBundlePath: '/generated/Account.css'
 				}
 			],
 			producer: {
@@ -88,13 +100,132 @@ describe('Capacitor local web bundle', () => {
 			join(root, 'mobile-web', 'react', 'vendor', 'react.js'),
 			'utf8'
 		);
+		const localStylePath = manifest.pages[0]?.localStylePath;
 
 		expect(embedded).toBe(pageSource);
+		expect(localStylePath).toBeDefined();
+		expect(
+			await Bun.file(
+				join(root, 'mobile-web', localStylePath ?? '')
+			).text()
+		).toBe(styleSource);
+		expect(
+			await Bun.file(
+				join(root, 'mobile-web', 'assets', 'account.png')
+			).exists()
+		).toBe(true);
 		expect(vendor).toContain('__REACT_VENDOR_LOADED__');
 		expect(bootstrap).toContain('appUrlOpen');
+		expect(bootstrap).toContain('absoluteMobilePageStyle');
 		expect(bootstrap).not.toContain('server-producer-hash');
 		expect(
 			await Bun.file(join(root, 'mobile-web', 'index.html')).exists()
 		).toBe(true);
+	});
+
+	test('embeds every completed client framework and defers Ember', async () => {
+		const root = await mkdtemp(
+			join(tmpdir(), 'absolute-capacitor-frameworks-')
+		);
+		temporaryDirectories.push(root);
+		const buildDirectory = join(root, 'build');
+		const frameworks = ['angular', 'react', 'svelte', 'vue'] as const;
+		const pages = await Promise.all(
+			frameworks.map(async (framework) => {
+				const source = `globalThis.__${framework.toUpperCase()}_MOBILE__ = true;`;
+				const bundlePath = `/generated/${framework}.js`;
+				await Bun.write(join(buildDirectory, bundlePath), source);
+
+				return {
+					bundleHash: createHash('sha256')
+						.update(source)
+						.digest('hex'),
+					bundlePath,
+					contract: `${framework}@1`,
+					framework,
+					pageId: framework,
+					propsSchemaHash: `schema-${framework}`
+				};
+			})
+		);
+		const artifact = createAbsoluteMobileCompatibilityArtifact({
+			appBuild: 'build-frameworks',
+			appId: 'com.example.frameworks',
+			generation: 1,
+			pages,
+			producer: {
+				bundleHash: 'producer',
+				bytes: 1,
+				exportName: 'app',
+				module: 'producer.js'
+			},
+			routes: frameworks.map((framework) => ({
+				method: 'GET' as const,
+				pageId: framework,
+				pattern: `/${framework}`
+			})),
+			runtime: '1'
+		});
+		const config = normalizeAbsoluteMobileConfig(
+			{
+				appId: 'com.example.frameworks',
+				appName: 'Frameworks',
+				bundleDirectory: 'mobile-web',
+				entry: '/react',
+				server: { productionOrigin: 'https://api.example.com' }
+			},
+			root
+		);
+
+		const manifest = await materializeAbsoluteCapacitorWebBundle({
+			artifact,
+			buildDirectory,
+			config
+		});
+
+		expect(manifest.pages.map(({ framework }) => framework).sort()).toEqual(
+			[...frameworks].sort()
+		);
+		for (const page of manifest.pages) {
+			expect(
+				await Bun.file(
+					join(root, 'mobile-web', page.localBundlePath)
+				).exists()
+			).toBe(true);
+		}
+
+		const [firstPage] = pages;
+		if (!firstPage) throw new Error('Expected a framework page.');
+		const emberArtifact = createAbsoluteMobileCompatibilityArtifact({
+			...artifact,
+			appBuild: 'build-ember',
+			pages: [
+				{
+					...firstPage,
+					contract: 'ember@1',
+					framework: 'ember',
+					pageId: 'ember'
+				}
+			],
+			routes: [{ method: 'GET', pageId: 'ember', pattern: '/ember' }]
+		});
+		await expect(
+			materializeAbsoluteCapacitorWebBundle({
+				artifact: emberArtifact,
+				buildDirectory,
+				config: normalizeAbsoluteMobileConfig(
+					{
+						appId: 'com.example.frameworks',
+						appName: 'Frameworks',
+						bundleDirectory: 'mobile-ember',
+						entry: '/ember',
+						server: {
+							productionOrigin: 'https://api.example.com'
+						}
+					},
+					root
+				)
+			})
+		).rejects.toThrow('does not yet support ember');
 	});
 });

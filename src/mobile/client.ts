@@ -8,7 +8,10 @@ import {
 } from './pageProtocol';
 
 type AbsoluteMobileClientTarget = {
+	__ABSOLUTE_PAGE_DISPOSE__?: () => Promise<void> | void;
+	__ABSOLUTE_PAGE_READY__?: Promise<unknown>;
 	__ABSOLUTE_PAGE_RENDER_MODE__?: 'client' | 'hydrate';
+	__ABS_ANGULAR_REQUEST_CONTEXT__?: Record<string, unknown>;
 	__INITIAL_PROPS__?: Record<string, unknown>;
 };
 
@@ -46,6 +49,15 @@ export class AbsoluteMobilePageProtocolError extends Error {
 		this.code = code;
 	}
 }
+
+export const disposeAbsoluteMobilePage = async (
+	target: AbsoluteMobileClientTarget = window
+) => {
+	const dispose = target.__ABSOLUTE_PAGE_DISPOSE__;
+	target.__ABSOLUTE_PAGE_DISPOSE__ = undefined;
+	target.__ABSOLUTE_PAGE_READY__ = undefined;
+	if (dispose) await dispose();
+};
 
 const frameworks = new Set<string>([
 	'angular',
@@ -148,13 +160,18 @@ export const activateAbsoluteMobilePage = async (
 		);
 	}
 
-	const target = options.target ?? window;
+	const target: AbsoluteMobileClientTarget = options.target ?? window;
+	await disposeAbsoluteMobilePage(target);
 	target.__INITIAL_PROPS__ = envelope.response.props;
+	target.__ABS_ANGULAR_REQUEST_CONTEXT__ = envelope.response.props;
 	target.__ABSOLUTE_PAGE_RENDER_MODE__ = 'client';
 	await options.loadPage({
 		contract: envelope.response.contract,
 		pageId: envelope.response.pageId
 	});
+	if (target.__ABSOLUTE_PAGE_READY__) {
+		await target.__ABSOLUTE_PAGE_READY__;
+	}
 
 	return {
 		contract: envelope.response.contract,

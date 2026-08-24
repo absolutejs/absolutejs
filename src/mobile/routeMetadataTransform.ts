@@ -25,6 +25,14 @@ type AnalyzedFile = {
 	byRouteCall: Map<string, AnalyzedPageCall>;
 };
 
+type PageHandlerDefinition = {
+	bundleProperty: 'index' | 'indexPath';
+	framework: AbsoluteMobileBuildPageMetadata['framework'];
+	pageProperty?: 'Page';
+	propsProperty: 'props' | 'requestContext';
+	sourceProperty?: 'pagePath';
+};
+
 type AssetKeyResolver = (
 	expression: ts.Expression | undefined,
 	checker: ts.TypeChecker,
@@ -33,7 +41,44 @@ type AssetKeyResolver = (
 
 const ROUTE_METHODS = new Set(['get', 'head']);
 const SOURCE_FILTER = /\.[cm]?[jt]sx?$/;
-const PAGE_HANDLER = 'handleReactPageRequest';
+const PAGE_HANDLERS = new Map<string, PageHandlerDefinition>([
+	[
+		'handleAngularPageRequest',
+		{
+			bundleProperty: 'indexPath',
+			framework: 'angular',
+			propsProperty: 'requestContext',
+			sourceProperty: 'pagePath'
+		}
+	],
+	[
+		'handleReactPageRequest',
+		{
+			bundleProperty: 'index',
+			framework: 'react',
+			pageProperty: 'Page',
+			propsProperty: 'props'
+		}
+	],
+	[
+		'handleSveltePageRequest',
+		{
+			bundleProperty: 'indexPath',
+			framework: 'svelte',
+			propsProperty: 'props',
+			sourceProperty: 'pagePath'
+		}
+	],
+	[
+		'handleVuePageRequest',
+		{
+			bundleProperty: 'indexPath',
+			framework: 'vue',
+			propsProperty: 'props',
+			sourceProperty: 'pagePath'
+		}
+	]
+]);
 
 const posixPath = (value: string) => value.replace(/\\/g, '/');
 
@@ -253,16 +298,160 @@ const assetKey: AssetKeyResolver = (
 	return key && ts.isStringLiteralLike(key) ? key.text : undefined;
 };
 
+const staticString = (
+	expression: ts.Expression,
+	bindings: ReadonlyMap<string, string>
+): string | undefined => {
+	if (ts.isStringLiteralLike(expression)) return expression.text;
+	if (ts.isIdentifier(expression)) return bindings.get(expression.text);
+	if (ts.isNoSubstitutionTemplateLiteral(expression)) return expression.text;
+	if (!ts.isTemplateExpression(expression)) return undefined;
+	let value = expression.head.text;
+	for (const span of expression.templateSpans) {
+		const substitution = staticString(span.expression, bindings);
+		if (substitution === undefined) return undefined;
+		value += substitution + span.literal.text;
+	}
+
+	return value;
+};
+
+const assetKeyWithBindings = (
+	expression: ts.Expression | undefined,
+	checker: ts.TypeChecker,
+	bindings: ReadonlyMap<string, string> = new Map()
+) => {
+	if (!expression) return undefined;
+	if (
+		ts.isCallExpression(expression) &&
+		ts.isIdentifier(expression.expression) &&
+		expression.expression.text === 'asset'
+	) {
+		const [, key] = expression.arguments;
+
+		return key ? staticString(key, bindings) : undefined;
+	}
+
+	return assetKey(expression, checker);
+};
+
+const callableObject = (call: ts.CallExpression, checker: ts.TypeChecker) => {
+	const symbol = checker.getSymbolAtLocation(call.expression);
+	const resolved = symbol ? resolveAlias(symbol, checker) : undefined;
+	const declaration =
+		resolved?.valueDeclaration ?? resolved?.declarations?.[0];
+	let callable:
+		| ts.ArrowFunction
+		| ts.FunctionDeclaration
+		| ts.FunctionExpression
+		| undefined;
+	if (declaration && ts.isFunctionDeclaration(declaration)) {
+		callable = declaration;
+	} else if (
+		declaration &&
+		ts.isVariableDeclaration(declaration) &&
+		declaration.initializer &&
+		(ts.isArrowFunction(declaration.initializer) ||
+			ts.isFunctionExpression(declaration.initializer))
+	) {
+		callable = declaration.initializer;
+	}
+	if (!callable) return undefined;
+	const bindings = new Map<string, string>();
+	callable.parameters.forEach((parameter, index) => {
+		if (!ts.isIdentifier(parameter.name)) return;
+		const argument = call.arguments[index];
+		if (!argument) return;
+		const value = staticString(argument, new Map());
+		if (value !== undefined) bindings.set(parameter.name.text, value);
+	});
+	const { body } = callable;
+	if (!body) return undefined;
+	const expressionBody = ts.isParenthesizedExpression(body)
+		? body.expression
+		: body;
+	if (ts.isObjectLiteralExpression(expressionBody)) {
+		return { bindings, object: expressionBody };
+	}
+	if (ts.isBlock(body)) {
+		const returned = body.statements.find(ts.isReturnStatement)?.expression;
+		if (returned && ts.isObjectLiteralExpression(returned)) {
+			return { bindings, object: returned };
+		}
+	}
+
+	return undefined;
+};
+
+const spreadObject = (
+	expression: ts.Expression,
+	checker: ts.TypeChecker,
+	bindings: ReadonlyMap<string, string>
+) => {
+	if (ts.isObjectLiteralExpression(expression)) {
+		return { bindings, object: expression };
+	}
+	if (!ts.isCallExpression(expression)) return undefined;
+
+	return callableObject(expression, checker);
+};
+
+const objectAssetKey = (
+	object: ts.ObjectLiteralExpression,
+	name: string,
+	checker: ts.TypeChecker,
+	bindings: ReadonlyMap<string, string> = new Map()
+): string | undefined => {
+	for (const property of [...object.properties].reverse()) {
+		if (
+			propertyName(property) === name &&
+			ts.isShorthandPropertyAssignment(property)
+		) {
+			return assetKeyWithBindings(property.name, checker, bindings);
+		}
+		if (
+			propertyName(property) === name &&
+			ts.isPropertyAssignment(property)
+		) {
+			return assetKeyWithBindings(
+				property.initializer,
+				checker,
+				bindings
+			);
+		}
+		if (!ts.isSpreadAssignment(property)) continue;
+		const nestedObject = spreadObject(
+			property.expression,
+			checker,
+			bindings
+		);
+		if (!nestedObject) continue;
+		const nested = objectAssetKey(
+			nestedObject.object,
+			name,
+			checker,
+			nestedObject.bindings
+		);
+		if (nested) return nested;
+	}
+
+	return undefined;
+};
+
 const findPageCall = (nodes: readonly ts.Node[]) => {
-	let found: ts.CallExpression | undefined;
+	let found:
+		| { definition: PageHandlerDefinition; node: ts.CallExpression }
+		| undefined;
 	const visit = (candidate: ts.Node) => {
 		if (found) return;
 		if (
 			ts.isCallExpression(candidate) &&
 			ts.isIdentifier(candidate.expression) &&
-			candidate.expression.text === PAGE_HANDLER
+			PAGE_HANDLERS.has(candidate.expression.text)
 		) {
-			found = candidate;
+			const definition = PAGE_HANDLERS.get(candidate.expression.text);
+			if (!definition) return;
+			found = { definition, node: candidate };
 
 			return;
 		}
@@ -293,24 +482,39 @@ const analyzeRouteCall = (
 	if (!ROUTE_METHODS.has(callee.name.text)) return undefined;
 	const [routePath] = node.arguments;
 	if (!routePath || !ts.isStringLiteralLike(routePath)) return undefined;
-	const pageCall = findPageCall(node.arguments.slice(1));
+	const foundPageCall = findPageCall(node.arguments.slice(1));
+	const pageCall = foundPageCall?.node;
+	const definition = foundPageCall?.definition;
 	const [input] = pageCall?.arguments ?? [];
 	if (!pageCall || !input || !ts.isObjectLiteralExpression(input)) {
 		return undefined;
 	}
-	const page = objectPropertyExpression(input, 'Page');
-	if (!page) return undefined;
-	const props = objectPropertyExpression(input, 'props');
-	const index = objectPropertyExpression(input, 'index');
-	const bundleKey = assetKey(index, checker);
+	if (!definition) return undefined;
+	const page = definition.pageProperty
+		? objectPropertyExpression(input, definition.pageProperty)
+		: undefined;
+	const source = definition.sourceProperty
+		? objectAssetKey(input, definition.sourceProperty, checker)
+		: undefined;
+	if (definition.pageProperty && !page) return undefined;
+	if (definition.sourceProperty && !source) return undefined;
+	const props = objectPropertyExpression(input, definition.propsProperty);
+	const bundleKey = objectAssetKey(input, definition.bundleProperty, checker);
 	if (!bundleKey) return undefined;
-	const pageId = resolvePageIdentity(page, sourceFile, checker, projectRoot);
-	const schema = serializeType(pagePropsType(page, props, checker), checker);
+	const pageId = page
+		? resolvePageIdentity(page, sourceFile, checker, projectRoot)
+		: `${definition.framework}:${source}`;
+	let propsType: ts.Type | undefined;
+	if (page) propsType = pagePropsType(page, props, checker);
+	else if (props) propsType = checker.getTypeAtLocation(props);
+	const schema = propsType
+		? serializeType(propsType, checker)
+		: { properties: {}, type: 'object' };
 	const propsSchemaHash = hashAbsoluteMobilePropsSchema(schema);
 	const metadata: AbsoluteMobileBuildPageMetadata = {
 		bundleKey,
-		contract: `react:${pageId}:${propsSchemaHash}`,
-		framework: 'react',
+		contract: `${definition.framework}:${pageId}:${propsSchemaHash}`,
+		framework: definition.framework,
 		pageId,
 		propsSchemaHash
 	};
