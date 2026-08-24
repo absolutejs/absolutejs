@@ -2513,6 +2513,15 @@ var absoluteHttpTransferCacheOptions = {
 
 enableProdMode();
 
+// Production mobile/client-only activation starts from AbsoluteJS's empty
+// #root shell rather than server-rendered Angular markup. Create the page's
+// actual Angular host from its compiled selector so application authors do
+// not need framework-specific mobile configuration.
+var _sel = ${componentClassName}.ɵcmp?.selectors?.[0]?.[0] || 'ng-app';
+if (!document.querySelector(_sel)) {
+    (document.getElementById('root') || document.body).appendChild(document.createElement(_sel));
+}
+
 var providers = [provideZonelessChangeDetection()].concat(pageProviders).concat(contextProviders);
 if (!isClientRender && !pageHasIslands) {
     providers.unshift(provideClientHydration(withHttpTransferCacheOptions(absoluteHttpTransferCacheOptions)));

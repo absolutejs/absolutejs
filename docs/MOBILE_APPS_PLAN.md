@@ -1,6 +1,6 @@
 # AbsoluteJS Mobile Apps: Research and Implementation Plan
 
-Status: Android Capacitor development and production AAB pipelines operational; iOS simulator/HMR controller implemented pending real macOS acceptance; real API 36 all-framework HMR conformance passing
+Status: Android Capacitor development, embedded production bundle, and production AAB pipelines operational; iOS simulator/HMR controller implemented pending real macOS acceptance; real API 36 all-framework HMR and embedded-bundle conformance passing
 Research snapshot: August 20, 2026
 
 Implementation checkpoint (August 20, 2026): the first React protocol seam now
@@ -2463,6 +2463,18 @@ the local Capacitor bundle.
 The real multi-framework example now passes `absolute prepare` and produces one
 local manifest containing Angular, HTML, HTMX, React, Svelte, and Vue routes and
 bundles.
+Real Android API 36 acceptance now installs that production bundle into an actual
+Capacitor APK with no `server.url`, boots from embedded assets, and traverses
+React, Angular, Vue, Svelte, HTML, HTMX, and back to React through ordinary links.
+The same gate proves repeat execution of content-addressed HTML modules and HTMX
+requests against the configured backend, including an origin-locked CORS bridge
+and sanitization of downloaded scripts, handlers, privileged elements, and
+cross-origin actions. Angular's production client entry derives and creates its
+compiled host selector automatically. Recursive syntax-aware dependency copying
+includes split framework chunks without treating strings as imports. Embedded
+asset changes invalidate the native APK fingerprint; unchanged launches preserve
+the fast native cache path. Android launches force-stop the old Activity first so
+cached relaunches cannot restore a stale WebView document.
 Focused conformance covers generated client mount/dispose behavior, repeated
 A→B→A framework disposal, finalized Elysia route capture, styles, dependency
 copying, and rejection of unsupported Ember pages. HTML and HTMX routes retain
@@ -2748,10 +2760,11 @@ The remaining decisions that materially affect the public API are:
 
 ## Recommended immediate next step
 
-Run the six-framework local bundle on Android and the partner's macOS/iOS
-acceptance path, including HTML/HTMX network-fragment behavior, repeated
-cross-framework navigation, and process relaunch. In parallel with that device
-evidence, complete public-client Authorization Code + S256 PKCE with
+The six-framework embedded production bundle and HTML/HTMX boundary now pass on
+Android API 36. Run the equivalent partner macOS/iOS acceptance path, including
+HTML/HTMX network-fragment behavior, repeated cross-framework navigation, and
+process relaunch. In parallel with that remaining iOS evidence, complete
+public-client Authorization Code + S256 PKCE with
 Keychain/Keystore-backed credentials and prove authenticated page/API plus Sync
 socket-ticket calls without cookies or URL credentials. Expo remains out of scope
 until the Capacitor security and lifetime boundaries pass.

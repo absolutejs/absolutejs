@@ -77,12 +77,14 @@ describe('Vue state preservation across template edits', () => {
 			// Click to count=7 — the CountButton uses `useCount()`
 			// composable which holds a `ref(initialCount)`. Each
 			// click bumps the ref.
-			for (let i = 0; i < 7; i++) {
+			for (let i = 1; i <= 7; i++) {
 				await s.page.click('button[data-v-count-button]');
+				await waitForText(
+					s.page,
+					'button[data-v-count-button]',
+					(text) => text.includes(`count is ${i}`)
+				);
 			}
-			await waitForText(s.page, 'button[data-v-count-button]', (t) =>
-				t.includes('count is 7')
-			);
 
 			c.drain();
 			mutateFile(countButton, (text) =>

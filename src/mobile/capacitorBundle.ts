@@ -9,7 +9,7 @@ import {
 	writeFile
 } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { basename, dirname, extname, join, resolve } from 'node:path';
+import { basename, dirname, extname, join, relative, resolve } from 'node:path';
 import type { NormalizedAbsoluteMobileConfig } from './config';
 import type {
 	AbsoluteMobileCompatibilityArtifact,
@@ -30,12 +30,10 @@ export type AbsoluteCapacitorBundleOptions = {
 const MANIFEST_FILE = 'absolute-mobile-manifest.json';
 const BOOTSTRAP_FILE = 'absolute-mobile-bootstrap.js';
 const INDEX_FILE = 'index.html';
-const CLIENT_IMPORT_PATTERN =
-	/(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s*)["'](\/[^"']+)["']/gu;
 const CLIENT_CSS_DEPENDENCY_PATTERN =
-	/(?:@import\s+(?:url\(\s*)?|url\(\s*)["']?(\/[^"')\s]+)["']?\s*\)?/gu;
+	/(?:@import\s+(?:url\(\s*)?|url\(\s*)["']?((?:\/|\.\.\/|\.\/)[^"')\s]+)["']?\s*\)?/gu;
 const CLIENT_MARKUP_DEPENDENCY_PATTERN =
-	/<(?:script\b[^>]*\bsrc|link\b[^>]*\bhref|img\b[^>]*\bsrc|source\b[^>]*\bsrcset)\s*=\s*["'](\/[^"',\s]+)/giu;
+	/<(?:script\b[^>]*\bsrc|link\b[^>]*\bhref|img\b[^>]*\bsrc|source\b[^>]*\bsrcset)\s*=\s*["']((?:\/|\.\.\/|\.\/)[^"',\s]+)/giu;
 const CAPACITOR_CLIENT_FRAMEWORKS = new Set([
 	'angular',
 	'html',
@@ -199,18 +197,59 @@ const copyClientPage = async (
 	};
 };
 
-const absoluteClientImports = async (sourcePath: string) => {
+const absoluteClientImports = async (
+	sourcePath: string,
+	buildDirectory: string
+) => {
 	const source = await readFile(sourcePath, 'utf8');
+	const extension = extname(sourcePath).toLowerCase();
+	let scriptLoader: 'js' | 'jsx' | 'ts' | 'tsx' | undefined;
+	if (extension === '.tsx') scriptLoader = 'tsx';
+	else if (extension === '.ts') scriptLoader = 'ts';
+	else if (extension === '.jsx') scriptLoader = 'jsx';
+	else if (['.js', '.mjs', '.cjs'].includes(extension)) scriptLoader = 'js';
+	const scriptImports = scriptLoader
+		? new Bun.Transpiler({ loader: scriptLoader })
+				.scanImports(source)
+				.map(({ path }) => path)
+		: [];
+	const cssImports =
+		extension === '.css'
+			? [...source.matchAll(CLIENT_CSS_DEPENDENCY_PATTERN)].flatMap(
+					(match) => match[1] ?? []
+				)
+			: [];
+	const markupImports =
+		extension === '.html'
+			? [...source.matchAll(CLIENT_MARKUP_DEPENDENCY_PATTERN)].flatMap(
+					(match) => match[1] ?? []
+				)
+			: [];
 
-	return [
-		...source.matchAll(CLIENT_IMPORT_PATTERN),
-		...source.matchAll(CLIENT_CSS_DEPENDENCY_PATTERN),
-		...source.matchAll(CLIENT_MARKUP_DEPENDENCY_PATTERN)
-	].flatMap((match) => {
-		const [specifier] = match.slice(1);
+	return [...scriptImports, ...cssImports, ...markupImports].flatMap(
+		(specifier) => {
+			if (!specifier) return [];
+			if (
+				!specifier.startsWith('/') &&
+				!specifier.startsWith('./') &&
+				!specifier.startsWith('../')
+			) {
+				return [];
+			}
+			const clean = specifier.split(/[?#]/u, 1)[0] ?? specifier;
+			if (clean.startsWith('/')) return [clean];
+			const resolved = resolve(dirname(sourcePath), clean);
+			const root = resolve(buildDirectory);
+			const relativePath = relative(root, resolved).replaceAll('\\', '/');
+			if (relativePath === '..' || relativePath.startsWith('../')) {
+				throw new TypeError(
+					`Mobile client dependency escaped the build directory: ${specifier}`
+				);
+			}
 
-		return specifier ? [specifier.split(/[?#]/u, 1)[0] ?? specifier] : [];
-	});
+			return [`/${relativePath}`];
+		}
+	);
 };
 
 const copyAbsoluteClientDependency = async (
@@ -239,7 +278,10 @@ const copyAbsoluteClientDependencies = async (
 	staging: string,
 	copied: Set<string>
 ) => {
-	const dependencies = await absoluteClientImports(sourcePath);
+	const dependencies = await absoluteClientImports(
+		sourcePath,
+		buildDirectory
+	);
 	await Promise.all(
 		dependencies.map((specifier) =>
 			copyAbsoluteClientDependency(

@@ -39,11 +39,31 @@ describe('CSS HMR completion', () => {
 		document.head.innerHTML = '';
 		const original = stylesheet('http://localhost/indexes/example.css');
 		const pending = reloadCSSStylesheets({});
-		const links = document.head.querySelectorAll('link[rel="stylesheet"]');
-		links[1]?.dispatchEvent(new Event('error'));
+		document
+			.querySelectorAll('link[rel="stylesheet"]')[1]
+			?.dispatchEvent(new Event('error'));
+		document
+			.querySelectorAll('link[rel="stylesheet"]')[1]
+			?.dispatchEvent(new Event('error'));
 		expect(await pending).toBe(false);
 		expect(original.isConnected).toBe(true);
-		expect(links[1]?.isConnected).toBe(false);
+		expect(document.querySelectorAll('link[rel="stylesheet"]').length).toBe(
+			1
+		);
+	});
+
+	test('retries one transient stylesheet loading failure', async () => {
+		document.head.innerHTML = '';
+		const original = stylesheet('http://localhost/indexes/example.css');
+		const pending = reloadCSSStylesheets({});
+		document
+			.querySelectorAll('link[rel="stylesheet"]')[1]
+			?.dispatchEvent(new Event('error'));
+		const retry = document.querySelectorAll('link[rel="stylesheet"]')[1];
+		expect(retry?.getAttribute('href')).toContain('retry=');
+		retry?.dispatchEvent(new Event('load'));
+		expect(await pending).toBe(true);
+		expect(original.isConnected).toBe(false);
 	});
 
 	test('does not refetch unrelated cross-origin stylesheets', async () => {

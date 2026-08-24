@@ -26,7 +26,11 @@ export default defineConfig({
 			directory: '.absolutejs/mobile-native-conformance/native'
 		},
 		platforms: ['android', 'ios'],
-		server: { productionOrigin: 'https://conformance.absolutejs.com' }
+		server: {
+			productionOrigin:
+				process.env.ABSOLUTE_NATIVE_CONFORMANCE_ORIGIN ??
+				'https://conformance.absolutejs.com'
+		}
 	},
 	publicDirectory: 'example/public',
 	reactDirectory: 'example/react',

@@ -31,21 +31,19 @@ const readManifest = async () => {
 };
 
 const renderStatus = (message: string) => {
-	document.open();
-	document.write(
-		`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>AbsoluteJS</title></head><body><main id="${STATUS_ID}" role="status"></main></body></html>`
-	);
-	document.close();
+	document.title = 'AbsoluteJS';
+	document.head.innerHTML =
+		'<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">';
+	document.body.innerHTML = `<main id="${STATUS_ID}" role="status"></main>`;
 	const status = document.getElementById(STATUS_ID);
 	if (status) status.textContent = message;
 };
 
 const renderPageTarget = () => {
-	document.open();
-	document.write(
-		'<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>AbsoluteJS</title></head><body><div id="root"></div></body></html>'
-	);
-	document.close();
+	document.title = 'AbsoluteJS';
+	document.head.innerHTML =
+		'<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">';
+	document.body.innerHTML = '<div id="root"></div>';
 };
 
 const localBundleUrl = (
@@ -133,7 +131,7 @@ const installAnchorNavigation = (
 	manifest: AbsoluteMobileClientManifest,
 	onNavigate: (path: string) => void
 ) => {
-	addEventListener('click', (event) => {
+	const handleClick = (event: MouseEvent) => {
 		if (!(event.target instanceof Element)) return;
 		const anchor = event.target.closest('a[href]');
 		if (!(anchor instanceof HTMLAnchorElement) || anchor.target) return;
@@ -149,7 +147,10 @@ const installAnchorNavigation = (
 		} catch {
 			// Invalid author-provided links keep their normal browser behavior.
 		}
-	});
+	};
+	addEventListener('click', handleClick);
+
+	return () => removeEventListener('click', handleClick);
 };
 
 const navigateDeepLink = (
@@ -188,30 +189,56 @@ const installDeepLinks = async (
 	return listener;
 };
 
-const navigateWithFailureState = (
+const navigateWithFailureState = async (
 	manifest: AbsoluteMobileClientManifest,
-	path: string
+	path: string,
+	pushHistory: boolean,
+	reinstallBrowserNavigation: () => void
 ) => {
-	void navigate(manifest, path, true).catch((error: unknown) => {
+	try {
+		await navigate(manifest, path, pushHistory);
+	} catch (error) {
 		console.error('[Absolute Mobile] Navigation failed:', error);
 		renderStatus(
 			'Unable to load this page. Check your connection and retry.'
 		);
-	});
+	} finally {
+		// Trusted HTML/HTMX documents use document.open(), which clears window
+		// event listeners. Rebind after every activation and failure state.
+		reinstallBrowserNavigation();
+	}
 };
 
 export const startAbsoluteMobileShell = async () => {
 	const manifest = await readManifest();
-	const onNavigate = (path: string) =>
-		navigateWithFailureState(manifest, path);
-	installAnchorNavigation(manifest, onNavigate);
-	addEventListener('popstate', () => {
-		void navigate(
+	let removeAnchorNavigation: () => void = () => undefined;
+	const handlePopState = () => {
+		void navigateWithFailureState(
 			manifest,
 			`${location.pathname}${location.search}${location.hash}`,
-			false
+			false,
+			reinstallBrowserNavigation
 		);
-	});
+	};
+	const reinstallBrowserNavigation = () => {
+		removeAnchorNavigation();
+		removeEventListener('popstate', handlePopState);
+		removeAnchorNavigation = installAnchorNavigation(manifest, onNavigate);
+		addEventListener('popstate', handlePopState);
+	};
+	const onNavigate = (path: string) => {
+		void navigateWithFailureState(
+			manifest,
+			path,
+			true,
+			reinstallBrowserNavigation
+		);
+	};
+	await navigateWithFailureState(
+		manifest,
+		manifest.entry,
+		false,
+		reinstallBrowserNavigation
+	);
 	await installDeepLinks(manifest, onNavigate);
-	await navigate(manifest, manifest.entry, false);
 };

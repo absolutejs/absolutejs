@@ -76,6 +76,35 @@ describe('mobile config normalization', () => {
 		).toThrow('HTTPS');
 	});
 
+	test('allows HTTP only for an emulator loopback backend', () => {
+		for (const productionOrigin of [
+			'http://localhost:39080',
+			'http://127.0.0.1:39080',
+			'http://[::1]:39080'
+		]) {
+			expect(
+				normalizeAbsoluteMobileConfig(
+					{
+						appId: 'com.example.product',
+						appName: 'Product',
+						server: { productionOrigin }
+					},
+					'/workspace'
+				).productionOrigin
+			).toBe(productionOrigin);
+		}
+		expect(() =>
+			normalizeAbsoluteMobileConfig(
+				{
+					appId: 'com.example.product',
+					appName: 'Product',
+					server: { productionOrigin: 'http://192.168.1.20:39080' }
+				},
+				'/workspace'
+			)
+		).toThrow('HTTPS');
+	});
+
 	test('rejects unsafe hosts and malformed signing identities', () => {
 		expect(() =>
 			normalizeAbsoluteMobileConfig(

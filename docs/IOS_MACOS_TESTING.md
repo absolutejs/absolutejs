@@ -189,6 +189,16 @@ This verifies that the app is installed and launchable, confirms the native iOS
 HMR client is connected through `/hmr-status`, and saves a simulator screenshot
 under `.absolutejs/mobile/test-artifacts`.
 
+Before moving on, traverse the example application's ordinary links in this
+order: React → Angular → Vue → Svelte → HTML → HTMX → React. Confirm that each
+page renders without opening Safari or restarting the native app. Visit HTML a
+second time and click its counter to confirm the embedded page module executes
+again. On HTMX, click the counter and confirm its request reaches the AbsoluteJS
+backend. Repeat the traversal after `relaunch`; the app must start from its entry
+route rather than restoring a stale intermediate WebView document. Include any
+failed page, screenshot, and Xcode/WebView console output in the report template
+at the end of this file.
+
 Then run the correlated HMR timing test:
 
 ```sh

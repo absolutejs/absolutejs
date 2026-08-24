@@ -464,6 +464,12 @@ export class InterpolatePageComponent {
 			'if (!isClientRender && !pageHasIslands)'
 		);
 		expect(indexContent).toContain(
+			"var _sel = AngularStreamingTestPage.ɵcmp?.selectors?.[0]?.[0] || 'ng-app';"
+		);
+		expect(indexContent).toContain(
+			"(document.getElementById('root') || document.body).appendChild(document.createElement(_sel));"
+		);
+		expect(indexContent).toContain(
 			'window.__ABSOLUTE_PAGE_DISPOSE__ = async function()'
 		);
 

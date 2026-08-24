@@ -6,12 +6,22 @@ import {
 	isRuntimeErrorOverlay,
 	showErrorOverlay
 } from '../errorOverlay';
+import { detectCurrentFramework } from '../frameworkDetect';
 import { sendAbsoluteHmrTiming } from '../hmrTiming';
 
 export const handleFullReload = (message?: {
-	data: { serverDuration?: number };
+	data: { affectedFrameworks?: string[]; serverDuration?: number };
 	timestamp?: number;
 }) => {
+	const affectedFrameworks = message?.data.affectedFrameworks;
+	const currentFramework = detectCurrentFramework();
+	if (
+		affectedFrameworks?.length &&
+		currentFramework &&
+		!affectedFrameworks.includes(currentFramework)
+	) {
+		return;
+	}
 	const clientStart = performance.now();
 	sendAbsoluteHmrTiming({
 		clientStart,

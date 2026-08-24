@@ -3,6 +3,7 @@ import {
 	createAbsoluteMobileInvalidRequestResponse,
 	createAbsoluteMobilePageErrorResponse,
 	createAbsoluteMobileUpgradeResponse,
+	MOBILE_PAGE_REQUEST_HEADERS,
 	parseAbsoluteMobilePageRequest
 } from './pageProtocol';
 import {
@@ -28,6 +29,73 @@ export type AbsoluteMobileCompatibilityDispatcherOptions = {
 	artifacts: readonly AbsoluteMobileCompatibilityArtifact[];
 	currentReleaseId: string;
 	loadProducer: AbsoluteMobileCompatibilityProducerLoader;
+};
+
+const MOBILE_WEBVIEW_ORIGINS = new Set([
+	'capacitor://localhost',
+	'http://localhost',
+	'https://localhost'
+]);
+const MOBILE_REQUEST_HEADER_NAMES = Object.values(MOBILE_PAGE_REQUEST_HEADERS);
+const MOBILE_CORS_ALLOW_HEADERS = [
+	'accept',
+	'content-type',
+	'authorization',
+	'hx-current-url',
+	'hx-request',
+	'hx-target',
+	'hx-trigger',
+	'hx-trigger-name',
+	...MOBILE_REQUEST_HEADER_NAMES
+].join(', ');
+const MOBILE_CORS_METHODS = new Set([
+	'DELETE',
+	'GET',
+	'HEAD',
+	'OPTIONS',
+	'PATCH',
+	'POST',
+	'PUT'
+]);
+
+const mobileWebViewOrigin = (request: Request) => {
+	const origin = request.headers.get('origin');
+
+	return origin && MOBILE_WEBVIEW_ORIGINS.has(origin) ? origin : undefined;
+};
+
+const applyMobileCorsHeaders = (response: Response, origin: string) => {
+	response.headers.set('access-control-allow-credentials', 'true');
+	response.headers.set('access-control-allow-origin', origin);
+	response.headers.append('vary', 'Origin');
+
+	return response;
+};
+
+const mobilePreflightResponse = (request: Request) => {
+	if (request.method !== 'OPTIONS') return undefined;
+	const origin = mobileWebViewOrigin(request);
+	if (!origin) return undefined;
+	const requestedHeaders = request.headers.get(
+		'access-control-request-headers'
+	);
+	const requestedMethod =
+		request.headers.get('access-control-request-method')?.toUpperCase() ??
+		'';
+	if (!MOBILE_CORS_METHODS.has(requestedMethod)) return undefined;
+
+	return new Response(null, {
+		headers: {
+			'access-control-allow-credentials': 'true',
+			'access-control-allow-headers':
+				requestedHeaders || MOBILE_CORS_ALLOW_HEADERS,
+			'access-control-allow-methods': [...MOBILE_CORS_METHODS].join(', '),
+			'access-control-allow-origin': origin,
+			'access-control-max-age': '600',
+			vary: 'Origin, Access-Control-Request-Headers'
+		},
+		status: 204
+	});
 };
 
 const artifactOwnsRequest = (
@@ -88,6 +156,8 @@ export const createAbsoluteMobileCompatibilityDispatcher = (
 	return new Elysia({ name: 'absolutejs-mobile-compatibility-dispatcher' })
 		.request(async ({ request }) => {
 			if (getCurrentAbsoluteMobileProducerContext()) return undefined;
+			const preflight = mobilePreflightResponse(request);
+			if (preflight) return preflight;
 			const parsed = parseAbsoluteMobilePageRequest(request);
 			if (parsed.kind !== 'mobile') return undefined;
 
@@ -133,6 +203,12 @@ export const createAbsoluteMobileCompatibilityDispatcher = (
 					parsed.client.pageId
 				);
 			}
+		})
+		.afterHandle('global', ({ request, responseValue }) => {
+			const origin = mobileWebViewOrigin(request);
+			if (!origin || !(responseValue instanceof Response)) return;
+
+			applyMobileCorsHeaders(responseValue, origin);
 		})
 		.as('global');
 };

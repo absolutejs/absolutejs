@@ -3631,7 +3631,7 @@ const collectAllModuleUpdates = (
 	return allModuleUpdates;
 };
 
-const handleReactHMR = (
+const handleReactHMR = async (
 	state: HMRState,
 	affectedFrameworks: string[],
 	filesToRebuild: string[],
@@ -3660,21 +3660,25 @@ const handleReactHMR = (
 	const [primarySource] = sourceFiles;
 
 	try {
-		const hasComponentChanges = reactFiles.some(
-			(file) =>
-				file.endsWith('.tsx') ||
-				file.endsWith('.ts') ||
-				file.endsWith('.jsx')
+		const {
+			isReactFastRefreshSupported,
+			warnIfReactFastRefreshUnsupported
+		} = await import('./moduleServer');
+		warnIfReactFastRefreshUnsupported();
+		await handleReactModuleServerPath(
+			state,
+			reactFiles,
+			Date.now() - duration,
+			isReactFastRefreshSupported(),
+			() => undefined
 		);
-		const hasCSSChanges = reactFiles.some(isStylePath);
-
+	} catch (err) {
 		logHmrUpdate(primarySource ?? reactFiles[0] ?? '', 'react', duration);
-
 		broadcastToClients(state, {
 			data: {
 				framework: 'react',
-				hasComponentChanges: hasComponentChanges,
-				hasCSSChanges: hasCSSChanges,
+				hasComponentChanges: true,
+				hasCSSChanges: reactFiles.some(isStylePath),
 				manifest,
 				primarySource,
 				serverDuration: duration,
@@ -3682,7 +3686,6 @@ const handleReactHMR = (
 			},
 			type: 'react-update'
 		});
-	} catch (err) {
 		console.error(
 			'[hmr] react live update failed:',
 			err instanceof Error ? err.message : err
@@ -3802,9 +3805,22 @@ const handleIslandSourceReload = async (
 	const affectedPages = filesToRebuild.flatMap((file) =>
 		getPagesUsingIslandSource(file)
 	);
+	// Registry membership alone does not mean a static page renders this
+	// island. The component may instead be imported normally by its framework
+	// page; in that case the post-build surgical path below is sufficient and
+	// no browser should receive a full reload.
+	if (affectedPages.length === 0) return true;
+	const affectedFrameworks = [
+		...new Set(
+			affectedPages
+				.map((page) => detectFramework(page, state.resolvedPaths))
+				.filter((framework) => framework !== 'ignored')
+		)
+	];
 
 	broadcastToClients(state, {
 		data: {
+			affectedFrameworks,
 			affectedPages,
 			framework: 'islands',
 			manifest,
@@ -4558,7 +4574,7 @@ const handleFullBuildHMR = async (
 		state
 	);
 
-	handleReactHMR(
+	await handleReactHMR(
 		state,
 		affectedFrameworks,
 		filesToRebuild,
@@ -5119,10 +5135,14 @@ const performFullRebuild = async (
 
 	// `build()` already rebuilt the Tailwind output if a candidate changed;
 	// trigger a CSS reload so the browser picks up the new utilities.
+	const hasDedicatedStyleUpdate = affectedFrameworks.some(
+		(framework) => framework === 'styles' || framework === 'assets'
+	);
 	if (
 		config.tailwind &&
 		filesToRebuild &&
-		filesToRebuild.some(isTailwindCandidate)
+		filesToRebuild.some(isTailwindCandidate) &&
+		!hasDedicatedStyleUpdate
 	) {
 		// `populateAssetStore` only refreshes manifest entries —
 		// the Tailwind output URL is a fixed path that isn't in
@@ -5165,6 +5185,20 @@ const performFullRebuild = async (
 		: false;
 
 	if (didReloadForIslandChange) {
+		// An island source can simultaneously be the live component of its own
+		// framework page. The full build above must finish first because it
+		// replaces generated artifacts; only then invalidate and broadcast the
+		// surgical module URL. Static island consumers receive the targeted
+		// reload above, while (for example) an active React page remounts the
+		// now-stable changed module without navigating through transient SSR.
+		await runFrameworkFastPaths(
+			state,
+			config,
+			affectedFrameworks,
+			filesToRebuild ?? [],
+			startTime,
+			onRebuildComplete
+		);
 		onRebuildComplete({ hmrState: state, manifest });
 
 		return manifest;

@@ -432,6 +432,14 @@ export const devBuild = async (config: BuildConfig) => {
 		return cached;
 	}
 
+	// Pin the server-side React instance before Bun.build can invalidate or
+	// replace package modules. Page components are imported before prepare(),
+	// so this reference shares their hook dispatcher and is the canonical side
+	// of bridgeReactInternals() throughout the dev session.
+	if (config.reactDirectory && !globalThis.__reactModuleRef) {
+		globalThis.__reactModuleRef = await import('react');
+	}
+
 	const startupSteps: Array<{ label: string; durationMs: number }> = [];
 	const recordStep = (label: string, startedAt: number) => {
 		const durationMs = performance.now() - startedAt;
@@ -783,9 +791,6 @@ export const devBuild = async (config: BuildConfig) => {
 			: Promise.resolve(),
 		loadVendorFiles(state.assetStore, depVendorDir, 'vendor')
 	]);
-	if (config.reactDirectory && !globalThis.__reactModuleRef) {
-		globalThis.__reactModuleRef = await import('react');
-	}
 	recordStep('load vendor files', stepStartedAt);
 
 	// Pre-warm framework compilers so the first HMR edit is fast.

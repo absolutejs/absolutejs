@@ -60,6 +60,12 @@ let android: AbsoluteAndroidDevSession;
 let webview: AbsoluteAndroidWebViewSession;
 let originalCapacitorConfig: string | undefined;
 
+const mobileConfig = () => {
+	if (!config.mobile) throw new Error('Native mobile fixture is invalid.');
+
+	return normalizeAbsoluteMobileConfig(config.mobile, PROJECT_ROOT);
+};
+
 const waitForServerIdle = async () => {
 	await Bun.sleep(1_000);
 	const deadline = Date.now() + 30_000;
@@ -125,6 +131,30 @@ const nativeTest = (name: string, fn: () => Promise<void>) =>
 			} catch (error) {
 				await mkdir(ARTIFACT_ROOT, { recursive: true });
 				const slug = name.toLowerCase().replaceAll(/[^a-z0-9]+/gu, '-');
+				const diagnostics = await webview
+					?.evaluate(
+						`({
+						bodyText: document.body?.innerText,
+						errorOverlay: document.querySelector('#absolutejs-error-overlay')?.textContent,
+						hmrApplies: window.__ABS_HMR_APPLIES__,
+						hmrLastApply: window.__ABS_HMR_LAST_APPLY__,
+						hmrTarget: window.__ABS_HMR_TARGET__,
+						location: location.href,
+						webSocketState: window.__HMR_WS__?.readyState
+					})`
+					)
+					.catch(() => undefined);
+				await writeFile(
+					resolve(ARTIFACT_ROOT, `${slug}.json`),
+					JSON.stringify(
+						{
+							diagnostics,
+							serverOutput: server?.outputLines.slice(-100)
+						},
+						null,
+						2
+					)
+				).catch(() => undefined);
 				await webview
 					?.screenshot(resolve(ARTIFACT_ROOT, `${slug}.png`))
 					.catch(() => undefined);
@@ -140,16 +170,11 @@ describeNative('real Capacitor Android HMR conformance', () => {
 			CAPACITOR_CONFIG_PATH,
 			'utf8'
 		).catch(() => undefined);
-		if (!config.mobile)
-			throw new Error('Native mobile fixture is invalid.');
 		server = await startDevServer({
 			configPath: CONFIG_PATH,
 			port: NATIVE_TEST_PORT
 		});
-		const mobile = normalizeAbsoluteMobileConfig(
-			config.mobile,
-			PROJECT_ROOT
-		);
+		const mobile = mobileConfig();
 		project = await prepareAbsoluteAndroidDevProject(mobile, {
 			createNativeProject: true,
 			projectRoot: PROJECT_ROOT
@@ -369,7 +394,14 @@ describeNative('real Capacitor Android HMR conformance', () => {
 			'KEYCODE_HOME'
 		]);
 		expect(home.exitCode).toBe(0);
+		await webview.close().catch(() => undefined);
 		await android.relaunch();
+		webview = await attachAbsoluteAndroidWebView({
+			adb: project.adb,
+			appId: mobileConfig().appId,
+			serial: android.serial,
+			timeoutMs: 60_000
+		});
 		await webview.waitFor<boolean>(
 			`document.visibilityState === 'visible'`,
 			{ timeoutMs: 30_000 }

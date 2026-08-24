@@ -49,6 +49,14 @@ const mobileRequest = (generation: number) =>
 		}
 	});
 
+const nativeMobileRequest = (generation: number) => {
+	const request = mobileRequest(generation);
+	const headers = new Headers(request.headers);
+	headers.set('origin', 'http://localhost');
+
+	return new Request(request, { headers });
+};
+
 describe('mobile compatibility dispatcher', () => {
 	test('dispatches a retained client to its archived producer', async () => {
 		const current = createAbsoluteMobileCompatibilityArtifact(
@@ -101,6 +109,85 @@ describe('mobile compatibility dispatcher', () => {
 		expect(await (await app.handle(mobileRequest(3))).text()).toBe(
 			'current'
 		);
+	});
+
+	test('owns Capacitor backend CORS without opening arbitrary origins', async () => {
+		const current = createAbsoluteMobileCompatibilityArtifact(
+			artifactInput(3)
+		);
+		const dispatcher = createAbsoluteMobileCompatibilityDispatcher({
+			artifacts: [current],
+			currentReleaseId: current.releaseId,
+			loadProducer: async () => {
+				throw new Error('The current producer must not be loaded.');
+			}
+		});
+		const app = new Elysia()
+			.use(dispatcher)
+			.get('/account', () => new Response('current'));
+		const response = await app.handle(nativeMobileRequest(3));
+		expect(response.headers.get('access-control-allow-origin')).toBe(
+			'http://localhost'
+		);
+		expect(response.headers.get('access-control-allow-credentials')).toBe(
+			'true'
+		);
+		const preflight = await app.handle(
+			new Request('https://example.test/account', {
+				headers: {
+					'access-control-request-headers':
+						'x-absolute-mobile-protocol, x-absolute-mobile-page-id',
+					'access-control-request-method': 'GET',
+					origin: 'capacitor://localhost'
+				},
+				method: 'OPTIONS'
+			})
+		);
+		expect(preflight.status).toBe(204);
+		expect(preflight.headers.get('access-control-allow-origin')).toBe(
+			'capacitor://localhost'
+		);
+		expect(preflight.headers.get('access-control-allow-headers')).toContain(
+			MOBILE_PAGE_REQUEST_HEADERS.protocol
+		);
+		const htmxPreflight = await app.handle(
+			new Request('https://example.test/account', {
+				headers: {
+					'access-control-request-headers':
+						'hx-request, hx-current-url',
+					'access-control-request-method': 'POST',
+					origin: 'https://localhost'
+				},
+				method: 'OPTIONS'
+			})
+		);
+		expect(htmxPreflight.status).toBe(204);
+		expect(
+			htmxPreflight.headers.get('access-control-allow-methods')
+		).toContain('POST');
+		expect(htmxPreflight.headers.get('access-control-allow-headers')).toBe(
+			'hx-request, hx-current-url'
+		);
+		const ordinaryNativeResponse = await app.handle(
+			new Request('https://example.test/account', {
+				headers: { origin: 'https://localhost' }
+			})
+		);
+		expect(
+			ordinaryNativeResponse.headers.get('access-control-allow-origin')
+		).toBe('https://localhost');
+		const rejected = await app.handle(
+			new Request('https://example.test/account', {
+				headers: {
+					'access-control-request-headers':
+						'x-absolute-mobile-protocol',
+					'access-control-request-method': 'GET',
+					origin: 'https://evil.example'
+				},
+				method: 'OPTIONS'
+			})
+		);
+		expect(rejected.headers.has('access-control-allow-origin')).toBe(false);
 	});
 
 	test('returns an update envelope after a client leaves retention', async () => {

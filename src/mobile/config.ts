@@ -60,9 +60,14 @@ const normalizeProductionOrigin = (value: string) => {
 	const parsed = new URL(
 		requireText(value, 'mobile.server.productionOrigin')
 	);
-	if (parsed.protocol !== 'https:') {
+	const isLoopbackHttp =
+		parsed.protocol === 'http:' &&
+		(parsed.hostname === 'localhost' ||
+			parsed.hostname === '127.0.0.1' ||
+			parsed.hostname === '[::1]');
+	if (parsed.protocol !== 'https:' && !isLoopbackHttp) {
 		throw new TypeError(
-			'mobile.server.productionOrigin must use HTTPS in production.'
+			'mobile.server.productionOrigin must use HTTPS, except for a loopback development origin.'
 		);
 	}
 	if (
@@ -109,9 +114,14 @@ const normalizeHosts = (
 
 		return value;
 	};
-	const normalized = new Set<string>([
-		normalizeHostname(new URL(productionOrigin).hostname)
-	]);
+	const productionHostname = new URL(productionOrigin).hostname;
+	// IPv6 loopback is valid for a local backend preview but cannot be an
+	// Android App Link or Apple Universal Link hostname.
+	const normalized = new Set<string>(
+		productionHostname === '[::1]'
+			? []
+			: [normalizeHostname(productionHostname)]
+	);
 	for (const host of hosts ?? []) {
 		normalized.add(normalizeHostname(host));
 	}

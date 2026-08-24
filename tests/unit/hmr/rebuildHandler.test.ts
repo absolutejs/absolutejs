@@ -1,6 +1,9 @@
-import { afterAll, describe, expect, test } from 'bun:test';
+import { afterAll, describe, expect, spyOn, test } from 'bun:test';
 import { GlobalRegistrator } from '@happy-dom/global-registrator';
-import { handleRebuildComplete } from '../../../src/dev/client/handlers/rebuild';
+import {
+	handleFullReload,
+	handleRebuildComplete
+} from '../../../src/dev/client/handlers/rebuild';
 
 GlobalRegistrator.register({ url: 'http://localhost/react' });
 
@@ -17,4 +20,17 @@ describe('rebuild-complete client routing', () => {
 			expect(window.location.href).toBe(before);
 		}
 	);
+});
+
+describe('island full-reload client routing', () => {
+	test('does not reload a framework outside the affected page set', () => {
+		window.__HMR_FRAMEWORK__ = 'react';
+		const timeout = spyOn(globalThis, 'setTimeout');
+		handleFullReload({
+			data: { affectedFrameworks: ['html', 'htmx'] }
+		});
+		expect(timeout).not.toHaveBeenCalled();
+		timeout.mockRestore();
+		window.__HMR_FRAMEWORK__ = undefined;
+	});
 });

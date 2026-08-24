@@ -150,7 +150,8 @@ const findManifestHref = (
 
 const replaceStylesheetLink = (
 	existingLink: HTMLLinkElement,
-	newHref: string
+	newHref: string,
+	attempt = 0
 ) => {
 	const replacement = existingLink.cloneNode(true);
 	if (!(replacement instanceof HTMLLinkElement)) {
@@ -166,7 +167,20 @@ const replaceStylesheetLink = (
 		resolve(applied);
 	};
 	replacement.onload = () => finish(true);
-	replacement.onerror = () => finish(false);
+	replacement.onerror = () => {
+		if (attempt >= 1) {
+			finish(false);
+
+			return;
+		}
+		replacement.remove();
+		settled = true;
+		void replaceStylesheetLink(
+			existingLink,
+			`${newHref}${newHref.includes('?') ? '&' : '?'}retry=${Date.now()}`,
+			attempt + 1
+		).then(resolve);
+	};
 	replacement.href = newHref;
 	existingLink.after(replacement);
 	setTimeout(() => {

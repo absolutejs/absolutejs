@@ -35,7 +35,8 @@ const registerExitHandlersOnce = () => {
 	});
 	process.on('uncaughtException', (err) => {
 		releaseAllSync();
-		throw err;
+		console.error(err);
+		process.exit(1);
 	});
 };
 

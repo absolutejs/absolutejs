@@ -171,6 +171,9 @@ export type StartAbsoluteAndroidDevOptions = {
 	onPhaseTiming?: (timing: AbsoluteAndroidDevPhaseTiming) => void;
 	onStateChange?: (state: AbsoluteAndroidDevState) => void;
 	https?: boolean;
+	/** Launch the locally embedded production web bundle while forwarding
+	 * `port` only for its configured backend. No dev-server URL is written. */
+	embeddedBundle?: boolean;
 	port: number;
 	project: AbsoluteAndroidDevProject;
 	run?: (
@@ -650,14 +653,15 @@ type NativeFingerprintRoot = {
 };
 
 export const fingerprintAbsoluteAndroidNativeProject = async (
-	project: Pick<AbsoluteAndroidDevProject, 'nativeDirectory'>
+	project: Pick<AbsoluteAndroidDevProject, 'nativeDirectory'>,
+	options: { includePublicBundle?: boolean } = {}
 ) => {
 	const { dependencies } = await nativeDependencySources(
 		project.nativeDirectory
 	);
 	const roots: NativeFingerprintRoot[] = [
 		{
-			ignorePublicBundle: true,
+			ignorePublicBundle: options.includePublicBundle !== true,
 			label: 'android',
 			source: project.nativeDirectory
 		},
@@ -771,7 +775,8 @@ const writeDevConfig = async (
 	nativeManifestPath: string,
 	port: number,
 	https: boolean,
-	entry: string
+	entry: string,
+	embeddedBundle: boolean
 ) => {
 	const paths = journalPaths(projectRoot);
 	await repairAbsoluteAndroidDevSession(projectRoot);
@@ -796,18 +801,23 @@ const writeDevConfig = async (
 	await writeFile(paths.journal, `${JSON.stringify(journal, null, '\t')}\n`, {
 		flag: 'wx'
 	});
-	const currentServer = parsed.server;
-	const developmentUrl = new URL(
-		`${https ? 'https' : 'http'}://localhost:${port}${entry}`
-	);
-	developmentUrl.searchParams.set('__absolute_target', 'capacitor-android');
-	parsed.server = {
-		...(typeof currentServer === 'object' && currentServer !== null
-			? currentServer
-			: {}),
-		cleartext: !https,
-		url: developmentUrl.href
-	};
+	if (!embeddedBundle) {
+		const currentServer = parsed.server;
+		const developmentUrl = new URL(
+			`${https ? 'https' : 'http'}://localhost:${port}${entry}`
+		);
+		developmentUrl.searchParams.set(
+			'__absolute_target',
+			'capacitor-android'
+		);
+		parsed.server = {
+			...(typeof currentServer === 'object' && currentServer !== null
+				? currentServer
+				: {}),
+			cleartext: !https,
+			url: developmentUrl.href
+		};
+	}
 	await writeFile(
 		nativeConfigPath,
 		`${JSON.stringify(parsed, null, '\t')}\n`
@@ -1376,6 +1386,43 @@ const androidLaunchCommand = (
 	'1'
 ];
 
+const stopAndroidAppCommand = (
+	project: AbsoluteAndroidDevProject,
+	serial: string
+) => [
+	project.adb,
+	'-s',
+	serial,
+	'shell',
+	'am',
+	'force-stop',
+	project.config.appId
+];
+
+const launchAndroidApp = async (
+	project: AbsoluteAndroidDevProject,
+	serial: string,
+	description: string,
+	run: NonNullable<StartAbsoluteAndroidDevOptions['run']>,
+	options: {
+		env: Record<string, string | undefined>;
+		signal?: AbortSignal;
+	}
+) => {
+	await requireSuccess(
+		stopAndroidAppCommand(project, serial),
+		`${description} reset`,
+		run,
+		options
+	);
+	await requireSuccess(
+		androidLaunchCommand(project, serial),
+		description,
+		run,
+		options
+	);
+};
+
 const androidPackageUid = (
 	project: AbsoluteAndroidDevProject,
 	serial: string,
@@ -1643,20 +1690,21 @@ export const startAbsoluteAndroidDevSession = async (
 			nativeManifestPath,
 			options.port,
 			options.https === true,
-			project.config.entry
+			project.config.entry,
+			options.embeddedBundle === true
 		);
 		throwIfAborted(options.signal);
 		logHttpsCertificateRequirement(options.https, log);
 		const fingerprintStartedAt = performance.now();
 		const nativeFingerprintPromise =
-			fingerprintAbsoluteAndroidNativeProject(project).then(
-				(fingerprint) => {
-					phaseDurations.fingerprinting =
-						performance.now() - fingerprintStartedAt;
+			fingerprintAbsoluteAndroidNativeProject(project, {
+				includePublicBundle: options.embeddedBundle === true
+			}).then((fingerprint) => {
+				phaseDurations.fingerprinting =
+					performance.now() - fingerprintStartedAt;
 
-					return fingerprint;
-				}
-			);
+				return fingerprint;
+			});
 		transition('booting');
 		const emulator = startManagedEmulatorIfNeeded(
 			project,
@@ -1710,12 +1758,10 @@ export const startAbsoluteAndroidDevSession = async (
 		const { nativeCacheHit, uid } = installedApp;
 		throwIfAborted(options.signal);
 		transition('launching');
-		await requireSuccess(
-			androidLaunchCommand(project, serial),
-			'Android app launch',
-			run,
-			{ env, signal: options.signal }
-		);
+		await launchAndroidApp(project, serial, 'Android app launch', run, {
+			env,
+			signal: options.signal
+		});
 		throwIfAborted(options.signal);
 		if (options.nativeLog) transition('streaming-logs');
 		nativeLogs = attachAndroidNativeLogs(
@@ -1729,7 +1775,9 @@ export const startAbsoluteAndroidDevSession = async (
 		transition('ready');
 		phaseDurations.total = performance.now() - startupStartedAt;
 		log(
-			`Android emulator connected (${serial}) with HMR on port ${options.port} in ${getDurationString(phaseDurations.total)} (${nativeCacheHit ? 'native cache hit' : 'native build installed'}).`
+			options.embeddedBundle === true
+				? `Android emulator connected (${serial}) with the embedded bundle and backend on port ${options.port} in ${getDurationString(phaseDurations.total)} (${nativeCacheHit ? 'native cache hit' : 'native build installed'}).`
+				: `Android emulator connected (${serial}) with HMR on port ${options.port} in ${getDurationString(phaseDurations.total)} (${nativeCacheHit ? 'native cache hit' : 'native build installed'}).`
 		);
 		log(`Android startup: ${androidTimingSummary(phaseDurations)}.`);
 		let closed = false;
@@ -1766,8 +1814,9 @@ export const startAbsoluteAndroidDevSession = async (
 				}
 				transition('launching');
 				try {
-					await requireSuccess(
-						androidLaunchCommand(project, serial),
+					await launchAndroidApp(
+						project,
+						serial,
 						'Android app relaunch',
 						run,
 						{ env, signal: options.signal }

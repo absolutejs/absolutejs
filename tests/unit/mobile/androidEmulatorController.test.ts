@@ -189,6 +189,29 @@ describe('Android emulator development controller', () => {
 		);
 	});
 
+	test('includes the embedded web bundle in production-preview fingerprints', async () => {
+		const { project } = await createProject();
+		const publicDirectory = join(
+			project.nativeDirectory,
+			'app',
+			'src',
+			'main',
+			'assets',
+			'public'
+		);
+		await mkdir(publicDirectory, { recursive: true });
+		await writeFile(join(publicDirectory, 'page.js'), 'generation one\n');
+		const initial = await fingerprintAbsoluteAndroidNativeProject(project, {
+			includePublicBundle: true
+		});
+		await writeFile(join(publicDirectory, 'page.js'), 'generation two\n');
+		expect(
+			await fingerprintAbsoluteAndroidNativeProject(project, {
+				includePublicBundle: true
+			})
+		).not.toBe(initial);
+	});
+
 	test('invalidates when a resolved Capacitor native dependency changes', async () => {
 		const { project } = await createProject();
 		const initial = await fingerprintAbsoluteAndroidNativeProject(project);
@@ -492,6 +515,9 @@ describe('Android emulator development controller', () => {
 		expect(commands.some((command) => command.includes('install'))).toBe(
 			true
 		);
+		expect(commands.some((command) => command.includes('force-stop'))).toBe(
+			true
+		);
 		expect(commands.some((command) => command.includes('monkey'))).toBe(
 			true
 		);
@@ -510,6 +536,47 @@ describe('Android emulator development controller', () => {
 		);
 		expect(await repairAbsoluteAndroidDevSession(project.projectRoot)).toBe(
 			false
+		);
+	});
+
+	test('launches an embedded bundle without replacing its Capacitor URL', async () => {
+		const {
+			nativeConfigPath,
+			nativeManifestPath,
+			originalConfig,
+			originalManifest,
+			project
+		} = await createProject();
+		const commands: string[][] = [];
+		const session = await startAbsoluteAndroidDevSession({
+			capture: readyCapture,
+			embeddedBundle: true,
+			port: 3033,
+			project,
+			run: async (command) => {
+				commands.push(command);
+
+				return 0;
+			}
+		});
+		const embeddedConfig = JSON.parse(
+			await readFile(nativeConfigPath, 'utf8')
+		);
+		expect(embeddedConfig).toEqual(JSON.parse(originalConfig));
+		expect(embeddedConfig.server).toEqual({
+			allowNavigation: ['api.example.com']
+		});
+		expect(await readFile(nativeManifestPath, 'utf8')).toContain(
+			'android:usesCleartextTraffic="true"'
+		);
+		expect(commands.some((command) => command.includes('reverse'))).toBe(
+			true
+		);
+
+		await session.close();
+		expect(await readFile(nativeConfigPath, 'utf8')).toBe(originalConfig);
+		expect(await readFile(nativeManifestPath, 'utf8')).toBe(
+			originalManifest
 		);
 	});
 

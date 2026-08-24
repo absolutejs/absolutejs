@@ -37,7 +37,15 @@ describe('Capacitor local web bundle', () => {
 		);
 		await Bun.write(
 			join(buildDirectory, 'react', 'vendor', 'react.js'),
-			'globalThis.__REACT_VENDOR_LOADED__ = true;'
+			'import "./chunk-react.js"; const diagnostic = `from "./NotAnImport.js"`; globalThis.__REACT_VENDOR_LOADED__ = diagnostic;'
+		);
+		await Bun.write(
+			join(buildDirectory, 'react', 'vendor', 'chunk-react.js'),
+			'import "./chunk-shared.js"; globalThis.__REACT_CHUNK_LOADED__ = true;'
+		);
+		await Bun.write(
+			join(buildDirectory, 'react', 'vendor', 'chunk-shared.js'),
+			'globalThis.__REACT_SHARED_CHUNK_LOADED__ = true;'
 		);
 		const bundleHash = createHash('sha256')
 			.update(pageSource)
@@ -115,6 +123,11 @@ describe('Capacitor local web bundle', () => {
 			).exists()
 		).toBe(true);
 		expect(vendor).toContain('__REACT_VENDOR_LOADED__');
+		expect(
+			await Bun.file(
+				join(root, 'mobile-web', 'react', 'vendor', 'chunk-shared.js')
+			).exists()
+		).toBe(true);
 		expect(bootstrap).toContain('appUrlOpen');
 		expect(bootstrap).toContain('absoluteMobilePageStyle');
 		expect(bootstrap).not.toContain('server-producer-hash');

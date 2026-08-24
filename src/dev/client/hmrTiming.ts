@@ -46,14 +46,14 @@ const getSessionStorage = () => {
 	return storage;
 };
 
-const persistHmrApply = (timing: HmrApply) => {
+const persistHmrApplies = (timings: HmrApply[]) => {
 	try {
 		const storage = getSessionStorage();
 		const setItem = storage && Reflect.get(storage, 'setItem');
 		if (typeof setItem !== 'function') return;
 		Reflect.apply(setItem, storage, [
 			HMR_APPLY_STORAGE_KEY,
-			JSON.stringify(timing)
+			JSON.stringify(timings)
 		]);
 	} catch {
 		// Storage may be unavailable in sandboxed or privacy-restricted documents.
@@ -99,10 +99,17 @@ export const restoreAbsoluteHmrApply = () => {
 			HMR_APPLY_STORAGE_KEY
 		]);
 		if (typeof serialized !== 'string') return;
-		const timing: unknown = JSON.parse(serialized);
-		if (!isHmrApply(timing)) return;
-		window.__ABS_HMR_LAST_APPLY__ = timing;
-		window.__ABS_HMR_APPLIES__ = [timing];
+		const stored: unknown = JSON.parse(serialized);
+		let timings: HmrApply[] = [];
+		if (Array.isArray(stored)) {
+			timings = stored
+				.filter(isHmrApply)
+				.slice(-MAX_RETAINED_HMR_APPLIES);
+		} else if (isHmrApply(stored)) timings = [stored];
+		const last = timings.at(-1);
+		if (!last) return;
+		window.__ABS_HMR_LAST_APPLY__ = last;
+		window.__ABS_HMR_APPLIES__ = timings;
 	} catch {
 		// A malformed or inaccessible entry should never affect HMR startup.
 	}
@@ -134,7 +141,7 @@ export const sendAbsoluteHmrTiming = (options: SendHmrTimingOptions) => {
 	if (applies.length > MAX_RETAINED_HMR_APPLIES) {
 		applies.splice(0, applies.length - MAX_RETAINED_HMR_APPLIES);
 	}
-	persistHmrApply(timing);
+	persistHmrApplies(applies);
 	if (!window.__HMR_WS__) return;
 	window.__HMR_WS__.send(JSON.stringify({ ...timing, type: 'hmr-timing' }));
 };

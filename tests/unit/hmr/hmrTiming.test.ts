@@ -96,7 +96,7 @@ describe('HMR client timing', () => {
 		expect(applies.at(-1)?.updateId).toBe(55);
 	});
 
-	test('restores an apply after a same-tab fallback reload', () => {
+	test('restores bounded apply history after a same-tab fallback reload', () => {
 		const values = new Map<string, string>();
 		const sessionStorage: Pick<Storage, 'getItem' | 'setItem'> = {
 			getItem: (key: string) => values.get(key) ?? null,
@@ -109,17 +109,47 @@ describe('HMR client timing', () => {
 			outcome: 'reloaded',
 			updateId: 789
 		});
+		sendAbsoluteHmrTiming({
+			clientStart: performance.now(),
+			kind: 'css',
+			outcome: 'failed',
+			updateId: 790
+		});
 		Reflect.set(globalThis, 'window', { sessionStorage });
 		restoreAbsoluteHmrApply();
 		expect(
 			(globalThis.window as Window).__ABS_HMR_LAST_APPLY__
 		).toMatchObject({
-			kind: 'component',
-			outcome: 'reloaded',
-			updateId: 789
+			kind: 'css',
+			outcome: 'failed',
+			updateId: 790
 		});
-		expect((globalThis.window as Window).__ABS_HMR_APPLIES__).toHaveLength(
-			1
+		expect((globalThis.window as Window).__ABS_HMR_APPLIES__).toMatchObject(
+			[
+				{ kind: 'component', outcome: 'reloaded', updateId: 789 },
+				{ kind: 'css', outcome: 'failed', updateId: 790 }
+			]
 		);
+	});
+
+	test('restores the legacy single-apply storage representation', () => {
+		const timing: NonNullable<Window['__ABS_HMR_LAST_APPLY__']> = {
+			clientMs: 2,
+			duration: 5,
+			kind: 'html',
+			outcome: 'applied',
+			serverMs: 3,
+			target: 'web',
+			updateId: 791
+		};
+		const sessionStorage: Pick<Storage, 'getItem' | 'setItem'> = {
+			getItem: () => JSON.stringify(timing),
+			setItem: () => undefined
+		};
+		Reflect.set(globalThis, 'window', { sessionStorage });
+		restoreAbsoluteHmrApply();
+		expect((globalThis.window as Window).__ABS_HMR_APPLIES__).toEqual([
+			timing
+		]);
 	});
 });
