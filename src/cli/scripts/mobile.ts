@@ -2,6 +2,7 @@ import { access, mkdir, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import type { MobileConfig } from '../../../types/build';
+import { installPackages } from '../add/dependencies';
 import { writeAbsoluteCapacitorConfig } from '../../mobile/capacitorProject';
 import { normalizeAbsoluteMobileConfig } from '../../mobile/config';
 import { applyAbsoluteNativeDeepLinks } from '../../mobile/nativeDeepLinks';
@@ -108,9 +109,27 @@ type IosTestReport = {
 const CAPACITOR_PACKAGES = [
 	'@capacitor/core',
 	'@capacitor/app',
+	'@capacitor/browser',
+	'@capacitor/network',
+	'@capacitor/preferences',
 	'@capacitor/cli',
 	'@capacitor/android',
-	'@capacitor/ios'
+	'@capacitor/ios',
+	'@absolutejs/devices',
+	'@absolutejs/devices-capacitor'
+];
+
+const CAPACITOR_PACKAGE_SPECS = [
+	'@capacitor/core@8.5.0',
+	'@capacitor/app@8.1.1',
+	'@capacitor/browser@8.0.4',
+	'@capacitor/network@8.0.1',
+	'@capacitor/preferences@8.0.1',
+	'@capacitor/cli@8.5.0',
+	'@capacitor/android@8.5.0',
+	'@capacitor/ios@8.5.0',
+	'@absolutejs/devices@0.0.2',
+	'@absolutejs/devices-capacitor@0.1.0'
 ];
 
 const valueAfter = (args: string[], flag: string) => {
@@ -257,6 +276,23 @@ const initialize = async (args: string[]) => {
 	const { mobile, projectRoot } = await loadMobile(
 		valueAfter(args, '--config')
 	);
+	try {
+		await access(join(projectRoot, 'node_modules', '.bin', 'cap'));
+	} catch {
+		const approved =
+			args.includes('--yes') ||
+			(await confirmInstall(
+				'Capacitor and the AbsoluteJS native device adapter are missing. Install the tested mobile toolchain now?'
+			));
+		if (!approved)
+			throw new TypeError(
+				`Mobile initialization requires: bun add ${CAPACITOR_PACKAGE_SPECS.join(' ')}`
+			);
+		if (!installPackages(projectRoot, CAPACITOR_PACKAGE_SPECS))
+			throw new TypeError(
+				'Failed to install the AbsoluteJS mobile toolchain.'
+			);
+	}
 	const generated = await writeAbsoluteCapacitorConfig(mobile, {
 		force: args.includes('--force'),
 		projectRoot

@@ -93,8 +93,15 @@ describe('Capacitor local web bundle', () => {
 
 		const manifest = await materializeAbsoluteCapacitorWebBundle({
 			artifact,
+			auth: {
+				clientId: 'absolutejs-native:com.example.product',
+				issuer: 'https://api.example.com',
+				redirectUri: 'com.example.product://auth/callback',
+				scopes: ['openid', 'profile']
+			},
 			buildDirectory,
-			config
+			config,
+			sync: true
 		});
 		const embedded = await readFile(
 			join(root, 'mobile-web', manifest.pages[0]?.localBundlePath ?? ''),
@@ -129,11 +136,21 @@ describe('Capacitor local web bundle', () => {
 			).exists()
 		).toBe(true);
 		expect(bootstrap).toContain('appUrlOpen');
+		expect(bootstrap).toContain('AbsoluteSecureStorage');
+		expect(bootstrap).toContain('oidc.refresh');
+		expect(bootstrap).toContain('client-runtime-transport');
 		expect(bootstrap).toContain('absoluteMobilePageStyle');
 		expect(bootstrap).not.toContain('server-producer-hash');
 		expect(
 			await Bun.file(join(root, 'mobile-web', 'index.html')).exists()
 		).toBe(true);
+		expect(manifest.auth).toEqual({
+			clientId: 'absolutejs-native:com.example.product',
+			issuer: 'https://api.example.com',
+			redirectUri: 'com.example.product://auth/callback',
+			scopes: ['openid', 'profile']
+		});
+		expect(manifest.sync).toEqual({ socketTickets: true });
 	});
 
 	test('embeds every completed client framework and defers Ember', async () => {

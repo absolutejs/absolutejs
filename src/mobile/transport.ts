@@ -12,8 +12,14 @@ import type {
 	AbsoluteMobileCompatibilityRoute
 } from './releaseArtifact';
 import { resolveAbsoluteMobileRoute } from './routeMatcher';
+import type { AbsoluteMobileAuthManifest } from './nativeAuth';
 
 export const ABSOLUTE_MOBILE_CLIENT_MANIFEST_FORMAT = 1 as const;
+
+export type AbsoluteMobileFetch = (
+	input: RequestInfo | URL,
+	init?: RequestInit
+) => Promise<Response>;
 
 export type AbsoluteMobileClientPage = AbsoluteMobileCompatibilityPage & {
 	localBundlePath: string;
@@ -21,6 +27,7 @@ export type AbsoluteMobileClientPage = AbsoluteMobileCompatibilityPage & {
 };
 
 export type AbsoluteMobileClientManifest = {
+	auth?: AbsoluteMobileAuthManifest;
 	appBuild: string;
 	appId: string;
 	appName: string;
@@ -32,10 +39,11 @@ export type AbsoluteMobileClientManifest = {
 	productionOrigin: string;
 	routes: AbsoluteMobileCompatibilityRoute[];
 	runtime: string;
+	sync?: { socketTickets: true };
 };
 
 export type AbsoluteMobileTransportOptions = {
-	fetch?: typeof globalThis.fetch;
+	fetch?: AbsoluteMobileFetch;
 	headers?: HeadersInit;
 };
 

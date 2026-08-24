@@ -1862,6 +1862,19 @@ Universal Links/App Links require hosted association files, entitlements/manifes
 
 ## Universal authentication architecture
 
+> Implementation status (August 2026): the Capacitor v1 baseline described in
+> this section is implemented. A project that declares `@absolutejs/auth`
+> automatically receives a deterministic public client derived from
+> `mobile.appId`; no `mobile.auth` block is required. The generated shell uses
+> the system browser, S256 PKCE, rotating refresh-token families with replay
+> revocation, Keychain/AndroidKeyStore storage, and bearer page/API requests.
+> Existing `createAuthClient()` calls select the scoped native transport through
+> an explicitly installed package runtime registry. If the project also declares
+> `@absolutejs/sync`, existing `createSyncClient({ url })` calls obtain a new
+> hashed, audience-bound, single-use socket ticket for each connection and
+> reconnect. Explicit application transports always take precedence; web and
+> server runtimes do not install either registry.
+
 Authentication is a required v1 workstream, not an application-level workaround.
 Repository inspection shows that `@absolutejs/auth` currently provides a good
 framework-neutral client, but defaults it to same-origin fetch and protects most
@@ -1921,7 +1934,7 @@ and the App API delivers inbound links ([Browser plugin](https://capacitorjs.com
 its AuthSession equivalent, whose PKCE behavior is already designed for this model
 ([Expo AuthSession](https://docs.expo.dev/versions/latest/sdk/auth-session/)).
 
-### Required `@absolutejs/auth` changes
+### Implemented `@absolutejs/auth` foundation and remaining hardening
 
 The inspected Auth server already supplies the difficult standards substrate:
 mandatory PKCE, public clients, single-use authorization codes, rotating refresh

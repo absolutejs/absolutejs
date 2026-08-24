@@ -7,6 +7,11 @@ import { createBunStringRawUnicodePlugin } from '../../build/bunStringRawUnicode
 import { finalizeAbsoluteMobileCompatibilityBuild } from '../../mobile/buildPipeline';
 import { createAbsoluteMobileRouteMetadataPlugin } from '../../mobile/routeMetadataTransform';
 import {
+	ABSOLUTE_NATIVE_AUTH_CLIENTS_ENV,
+	installAbsoluteMobileAuthEnvironment
+} from '../../mobile/nativeAuth';
+import { normalizeAbsoluteMobileConfig } from '../../mobile/config';
+import {
 	cpSync,
 	existsSync,
 	mkdirSync,
@@ -892,6 +897,7 @@ const RUNTIME_BUILD_ID = ${JSON.stringify(runtimeBuildId)};
 const RUNTIME_CONFIG_SOURCE = ${JSON.stringify(runtimeConfigSource)};
 const ORIGINAL_BUILD_DIR = ${JSON.stringify(resolve(distDir))};
 const ORIGINAL_BUILD_DIR_NORMALIZED = ORIGINAL_BUILD_DIR.replace(/\\\\/g, "/");
+const EMBEDDED_NATIVE_AUTH_CLIENTS = ${JSON.stringify(process.env[ABSOLUTE_NATIVE_AUTH_CLIENTS_ENV])};
 
 const resolveNativeAssetPath = (assetPath: string) => {
 	try {
@@ -1068,6 +1074,8 @@ const resolveRuntimeFetch = async () => {
 		process.env[envName] = assetPath;
 	}
 	process.env.ABSOLUTE_BUILD_DIR = runtimeDir;
+	if (EMBEDDED_NATIVE_AUTH_CLIENTS)
+		process.env.ABSOLUTE_AUTH_NATIVE_CLIENTS = EMBEDDED_NATIVE_AUTH_CLIENTS;
 	process.env.ABSOLUTE_CONFIG = configPath;
 	process.env.ABSOLUTE_COMPILED_RUNTIME = "1";
 	process.env.ABSOLUTE_VERSION = process.env.ABSOLUTE_VERSION || "${version}";
@@ -1457,6 +1465,11 @@ const compileUnlocked = async (
 	const buildConfig = await loadConfig(configPath);
 	buildConfig.buildDirectory = resolvedOutdir;
 	buildConfig.mode = 'production';
+	if (buildConfig.mobile)
+		installAbsoluteMobileAuthEnvironment(
+			process.cwd(),
+			normalizeAbsoluteMobileConfig(buildConfig.mobile, process.cwd())
+		);
 
 	try {
 		const build = await resolveBuildModule([

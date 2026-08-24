@@ -20,11 +20,14 @@ import {
 	ABSOLUTE_MOBILE_CLIENT_MANIFEST_FORMAT,
 	type AbsoluteMobileClientManifest
 } from './transport';
+import type { AbsoluteMobileAuthManifest } from './nativeAuth';
 
 export type AbsoluteCapacitorBundleOptions = {
 	artifact: AbsoluteMobileCompatibilityArtifact;
+	auth?: AbsoluteMobileAuthManifest;
 	buildDirectory: string;
 	config: NormalizedAbsoluteMobileConfig;
+	sync?: boolean;
 };
 
 const MANIFEST_FILE = 'absolute-mobile-manifest.json';
@@ -60,6 +63,24 @@ const shellBootstrapModule = () => {
 	throw new TypeError('AbsoluteJS mobile shell bootstrap module is missing.');
 };
 
+const shellAuthModule = () => {
+	const candidate = ['js', 'ts']
+		.map((extension) => join(import.meta.dir, `shellAuth.${extension}`))
+		.find(existsSync);
+	if (candidate) return candidate;
+
+	throw new TypeError('AbsoluteJS mobile auth shell module is missing.');
+};
+
+const shellSyncModule = () => {
+	const candidate = ['js', 'ts']
+		.map((extension) => join(import.meta.dir, `shellSync.${extension}`))
+		.find(existsSync);
+	if (candidate) return candidate;
+
+	throw new TypeError('AbsoluteJS mobile Sync shell module is missing.');
+};
+
 const escapeHtml = (value: string) =>
 	value
 		.replaceAll('&', '&amp;')
@@ -92,12 +113,25 @@ const sourceAssetPath = (buildDirectory: string, bundlePath: string) => {
 	return asset;
 };
 
-const buildShellBootstrap = async (staging: string) => {
+const buildShellBootstrap = async (
+	staging: string,
+	auth: boolean,
+	sync: boolean
+) => {
 	const modulePath = shellBootstrapModule();
+	const authImport = auth
+		? `import { createAbsoluteMobileShellAuth } from ${JSON.stringify(shellAuthModule())};\n`
+		: '';
+	const options = auth
+		? `{ createAuth: createAbsoluteMobileShellAuth${sync ? ', installSync: installAbsoluteMobileShellSync' : ''} }`
+		: '';
+	const syncImport = sync
+		? `import { installAbsoluteMobileShellSync } from ${JSON.stringify(shellSyncModule())};\n`
+		: '';
 	const entryPath = join(staging, '.absolute-mobile-entry.ts');
 	await writeFile(
 		entryPath,
-		`import { startAbsoluteMobileShell } from ${JSON.stringify(modulePath)};\nvoid startAbsoluteMobileShell();\n`
+		`import { startAbsoluteMobileShell } from ${JSON.stringify(modulePath)};\n${authImport}${syncImport}void startAbsoluteMobileShell(${options});\n`
 	);
 	const build = await Bun.build({
 		entrypoints: [entryPath],
@@ -338,6 +372,7 @@ export const materializeAbsoluteCapacitorWebBundle = async (
 		);
 		const manifest = {
 			appBuild: options.artifact.appBuild,
+			...(options.auth ? { auth: options.auth } : {}),
 			appId: options.config.appId,
 			appName: options.config.appName,
 			deepLinkHosts: options.config.deepLinkHosts,
@@ -347,7 +382,8 @@ export const materializeAbsoluteCapacitorWebBundle = async (
 			pages,
 			productionOrigin: options.config.productionOrigin,
 			routes: options.artifact.routes,
-			runtime: options.artifact.runtime
+			runtime: options.artifact.runtime,
+			...(options.sync ? { sync: { socketTickets: true as const } } : {})
 		} satisfies AbsoluteMobileClientManifest;
 		await Promise.all([
 			writeFile(
@@ -358,7 +394,11 @@ export const materializeAbsoluteCapacitorWebBundle = async (
 				join(staging, INDEX_FILE),
 				indexHtml(options.config.appName)
 			),
-			buildShellBootstrap(staging)
+			buildShellBootstrap(
+				staging,
+				options.auth !== undefined,
+				options.auth !== undefined && options.sync === true
+			)
 		]);
 		await installBundle(staging, destination);
 

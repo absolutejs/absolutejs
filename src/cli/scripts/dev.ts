@@ -37,6 +37,7 @@ import { loadConfig } from '../../utils/loadConfig';
 import { scanListeners } from '../../utils/portScan';
 import { resolveDevPort } from '../../utils/resolveDevPort';
 import { normalizeAbsoluteMobileConfig } from '../../mobile/config';
+import { installAbsoluteMobileAuthEnvironment } from '../../mobile/nativeAuth';
 import {
 	prepareAbsoluteAndroidDevProject,
 	repairAbsoluteAndroidDevSession,
@@ -349,6 +350,11 @@ export const dev = async (
 	try {
 		const config = await loadConfig(configPath);
 		mobileConfig = config?.mobile;
+		if (mobileConfig)
+			installAbsoluteMobileAuthEnvironment(
+				process.cwd(),
+				normalizeAbsoluteMobileConfig(mobileConfig, process.cwd())
+			);
 		resolvedDev = resolveDevConfig(config?.dev);
 		httpsEnabled = resolvedDev.https;
 		if (config?.buildDirectory) {

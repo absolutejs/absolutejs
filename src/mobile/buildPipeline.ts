@@ -12,6 +12,10 @@ import {
 } from './materializedBundle';
 import { ABSOLUTE_MOBILE_PAGE_PROTOCOL_VERSION } from './pageProtocol';
 import { retainAbsoluteMobileCompatibilityArtifacts } from './releaseArtifact';
+import {
+	projectUsesAbsoluteSync,
+	resolveAbsoluteMobileAuthManifest
+} from './nativeAuth';
 
 export type FinalizeAbsoluteMobileBuildOptions = {
 	buildDirectory: string;
@@ -140,6 +144,19 @@ export const finalizeAbsoluteMobileCompatibilityBuild = async (
 		producerPath: resolve(options.producerPath),
 		runtime: String(ABSOLUTE_MOBILE_PAGE_PROTOCOL_VERSION)
 	});
+	const auth = resolveAbsoluteMobileAuthManifest(options.projectRoot, mobile);
+	const sync =
+		auth !== undefined && projectUsesAbsoluteSync(options.projectRoot);
+	if (
+		auth &&
+		!loaded.app.routes.some(
+			(route) => route.path === '/.well-known/openid-configuration'
+		)
+	) {
+		throw new TypeError(
+			'@absolutejs/auth is installed, but its OIDC provider is not mounted. Native authentication requires the auth oidc configuration so AbsoluteJS can provision a public PKCE client.'
+		);
+	}
 	const releasesById = new Map(
 		[current, ...previous].map((release) => [
 			release.artifact.releaseId,
@@ -158,8 +175,10 @@ export const finalizeAbsoluteMobileCompatibilityBuild = async (
 	});
 	await materializeAbsoluteCapacitorWebBundle({
 		artifact: current.artifact,
+		...(auth ? { auth } : {}),
 		buildDirectory,
-		config: mobile
+		config: mobile,
+		...(sync ? { sync: true } : {})
 	});
 
 	return current.artifact;

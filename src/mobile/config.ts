@@ -195,7 +195,9 @@ export const normalizeAbsoluteMobileConfig = (
 	const productionOrigin = normalizeProductionOrigin(
 		config.server.productionOrigin
 	);
-	const deepLinkScheme = config.deepLinks?.scheme?.trim().toLowerCase();
+	const deepLinkScheme = (config.deepLinks?.scheme ?? appId)
+		.trim()
+		.toLowerCase();
 	if (deepLinkScheme && !SCHEME_PATTERN.test(deepLinkScheme)) {
 		throw new TypeError(
 			'mobile.deepLinks.scheme is not a valid URL scheme.'

@@ -19,6 +19,8 @@ import { createIslandRegistryDefinitionPlugin } from '../../build/islandRegistry
 import { createBunStringRawUnicodePlugin } from '../../build/bunStringRawUnicodePlugin';
 import { finalizeAbsoluteMobileCompatibilityBuild } from '../../mobile/buildPipeline';
 import { createAbsoluteMobileRouteMetadataPlugin } from '../../mobile/routeMetadataTransform';
+import { installAbsoluteMobileAuthEnvironment } from '../../mobile/nativeAuth';
+import { normalizeAbsoluteMobileConfig } from '../../mobile/config';
 import { loadConfig } from '../../utils/loadConfig';
 import { formatTimestamp } from '../../utils/startupBanner';
 import { sendTelemetryEvent } from '../telemetryEvent';
@@ -367,6 +369,11 @@ export const start = async (
 	const buildConfig = await loadConfig(configPath);
 	buildConfig.buildDirectory = resolvedOutdir;
 	buildConfig.mode = 'production';
+	if (buildConfig.mobile)
+		installAbsoluteMobileAuthEnvironment(
+			process.cwd(),
+			normalizeAbsoluteMobileConfig(buildConfig.mobile, process.cwd())
+		);
 
 	const frameworks = [
 		buildConfig.reactDirectory && 'react',

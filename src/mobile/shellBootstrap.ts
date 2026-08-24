@@ -4,6 +4,7 @@ import {
 	fetchAbsoluteMobilePage,
 	resolveAbsoluteMobileDeepLink,
 	resolveAbsoluteMobileNavigation,
+	type AbsoluteMobileFetch,
 	type AbsoluteMobileClientManifest
 } from './transport';
 import {
@@ -14,6 +15,19 @@ import { installAbsoluteMobileStaticDocument } from './staticDocument';
 
 const MANIFEST_PATH = './absolute-mobile-manifest.json';
 const STATUS_ID = 'absolute-mobile-status';
+
+export type AbsoluteMobileShellAuthRuntime = {
+	fetch: AbsoluteMobileFetch;
+	redirectUri: string;
+	socketTicket: (audience?: string) => Promise<string>;
+};
+
+export type AbsoluteMobileShellOptions = {
+	createAuth?: (
+		config: NonNullable<AbsoluteMobileClientManifest['auth']>
+	) => Promise<AbsoluteMobileShellAuthRuntime>;
+	installSync?: (auth: AbsoluteMobileShellAuthRuntime) => void;
+};
 
 let navigationGeneration = 0;
 
@@ -89,11 +103,14 @@ const installLocalPageStyle = (
 const navigate = async (
 	manifest: AbsoluteMobileClientManifest,
 	path: string,
-	pushHistory: boolean
+	pushHistory: boolean,
+	fetchImpl?: AbsoluteMobileFetch
 ) => {
 	await disposeAbsoluteMobilePage();
 	renderStatus('Loading…');
-	const envelope = await fetchAbsoluteMobilePage(manifest, path);
+	const envelope = await fetchAbsoluteMobilePage(manifest, path, {
+		...(fetchImpl ? { fetch: fetchImpl } : {})
+	});
 	const activation = await activateAbsoluteMobilePage(envelope, {
 		loadPage: ({ contract, pageId }) => {
 			const page = manifest.pages.find(
@@ -156,32 +173,45 @@ const installAnchorNavigation = (
 const navigateDeepLink = (
 	manifest: AbsoluteMobileClientManifest,
 	onNavigate: (path: string) => void,
-	url: string | undefined
+	url: string | undefined,
+	authRedirectUri?: string
 ) => {
 	if (!url) return;
+	if (authRedirectUri) {
+		const actual = new URL(url);
+		const redirect = new URL(authRedirectUri);
+		if (
+			actual.protocol === redirect.protocol &&
+			actual.host === redirect.host &&
+			actual.pathname === redirect.pathname
+		)
+			return;
+	}
 	onNavigate(resolveAbsoluteMobileDeepLink(manifest, url));
 };
 
 const deepLinkListener =
 	(
 		manifest: AbsoluteMobileClientManifest,
-		onNavigate: (path: string) => void
+		onNavigate: (path: string) => void,
+		authRedirectUri?: string
 	) =>
 	({ url }: { url: string }) =>
-		navigateDeepLink(manifest, onNavigate, url);
+		navigateDeepLink(manifest, onNavigate, url, authRedirectUri);
 
 const installDeepLinks = async (
 	manifest: AbsoluteMobileClientManifest,
-	onNavigate: (path: string) => void
+	onNavigate: (path: string) => void,
+	authRedirectUri?: string
 ) => {
 	let listener: PluginListenerHandle | undefined;
 	try {
 		listener = await App.addListener(
 			'appUrlOpen',
-			deepLinkListener(manifest, onNavigate)
+			deepLinkListener(manifest, onNavigate, authRedirectUri)
 		);
 		const launch = await App.getLaunchUrl();
-		navigateDeepLink(manifest, onNavigate, launch?.url);
+		navigateDeepLink(manifest, onNavigate, launch?.url, authRedirectUri);
 	} catch {
 		// The web preview has no native App plugin. Navigation still works.
 	}
@@ -193,10 +223,11 @@ const navigateWithFailureState = async (
 	manifest: AbsoluteMobileClientManifest,
 	path: string,
 	pushHistory: boolean,
-	reinstallBrowserNavigation: () => void
+	reinstallBrowserNavigation: () => void,
+	fetchImpl?: AbsoluteMobileFetch
 ) => {
 	try {
-		await navigate(manifest, path, pushHistory);
+		await navigate(manifest, path, pushHistory, fetchImpl);
 	} catch (error) {
 		console.error('[Absolute Mobile] Navigation failed:', error);
 		renderStatus(
@@ -209,15 +240,23 @@ const navigateWithFailureState = async (
 	}
 };
 
-export const startAbsoluteMobileShell = async () => {
+export const startAbsoluteMobileShell = async (
+	options: AbsoluteMobileShellOptions = {}
+) => {
 	const manifest = await readManifest();
+	const auth =
+		manifest.auth && options.createAuth
+			? await options.createAuth(manifest.auth)
+			: undefined;
+	if (auth && manifest.sync?.socketTickets) options.installSync?.(auth);
 	let removeAnchorNavigation: () => void = () => undefined;
 	const handlePopState = () => {
 		void navigateWithFailureState(
 			manifest,
 			`${location.pathname}${location.search}${location.hash}`,
 			false,
-			reinstallBrowserNavigation
+			reinstallBrowserNavigation,
+			auth?.fetch
 		);
 	};
 	const reinstallBrowserNavigation = () => {
@@ -231,14 +270,16 @@ export const startAbsoluteMobileShell = async () => {
 			manifest,
 			path,
 			true,
-			reinstallBrowserNavigation
+			reinstallBrowserNavigation,
+			auth?.fetch
 		);
 	};
 	await navigateWithFailureState(
 		manifest,
 		manifest.entry,
 		false,
-		reinstallBrowserNavigation
+		reinstallBrowserNavigation,
+		auth?.fetch
 	);
-	await installDeepLinks(manifest, onNavigate);
+	await installDeepLinks(manifest, onNavigate, auth?.redirectUri);
 };

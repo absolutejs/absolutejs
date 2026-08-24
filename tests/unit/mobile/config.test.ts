@@ -53,6 +53,19 @@ describe('mobile config normalization', () => {
 		).toThrow('mobile.ios.version');
 	});
 
+	test('derives a native callback scheme from appId', () => {
+		expect(
+			normalizeAbsoluteMobileConfig(
+				{
+					appId: 'com.Example.Product',
+					appName: 'Product',
+					server: { productionOrigin: 'https://example.com' }
+				},
+				'/workspace'
+			).deepLinkScheme
+		).toBe('com.example.product');
+	});
+
 	test('rejects a remote production WebView and ambiguous app identity', () => {
 		expect(() =>
 			normalizeAbsoluteMobileConfig(

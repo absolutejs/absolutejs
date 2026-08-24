@@ -64,14 +64,26 @@ still requires the developer team setup described below.
 From the root of the AbsoluteJS application:
 
 ```sh
-bun add @absolutejs/absolute@0.20.0-beta.4 \
+bun add @absolutejs/absolute@0.20.0-beta.5 \
   @absolutejs/deploy@0.24.0 \
   @absolutejs/blob@0.5.2 \
   @capacitor/core@8.5.0 \
   @capacitor/app@8.1.1 \
+  @capacitor/browser@8.0.4 \
+  @capacitor/network@8.0.1 \
+  @capacitor/preferences@8.0.1 \
   @capacitor/cli@8.5.0 \
-  @capacitor/ios@8.5.0
+  @capacitor/ios@8.5.0 \
+  @absolutejs/devices@0.0.2 \
+  @absolutejs/devices-capacitor@0.1.0
 ```
+
+`absolute mobile init` now offers to install this tested Capacitor/device
+toolchain when it is missing; pass `--yes` in automation. When the application
+declares `@absolutejs/auth`, the same build automatically provisions native
+OAuth. Auth-enabled apps must mount the package's OIDC provider, and Sync apps
+should configure the Auth socket-ticket store/consumer before exercising
+authenticated reconnects.
 
 Keep the existing compatible versions if the application deliberately pins
 newer versions. Record `bun --version` and `xcodebuild -version` for the test
