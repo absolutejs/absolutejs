@@ -7,10 +7,47 @@ import {
 	type StreamingSlotEnhancerOptions,
 	withStreamingSlots
 } from './responseEnhancers';
+import { getCurrentAbsoluteRequest } from './requestContext';
+import type { AbsoluteMobileBuildPageMetadata } from '../mobile/buildMetadata';
+import {
+	ABSOLUTE_MOBILE_PAGE_PROTOCOL_VERSION,
+	finalizeAbsoluteMobilePage,
+	type AbsoluteMobilePageFramework
+} from '../mobile/pageProtocol';
 
 export type StaticPageRequestOptions = StreamingSlotEnhancerOptions;
 
-export type HTMLPageRequestOptions = StaticPageRequestOptions;
+export type HTMLPageRequestOptions = StaticPageRequestOptions & {
+	/** @internal Build-generated mobile identity. Application code must not set this. */
+	__absoluteMobile?: AbsoluteMobileBuildPageMetadata;
+};
+
+type HTMXPageRequestOptions = {
+	/** @internal Build-generated mobile identity. Application code must not set this. */
+	__absoluteMobile?: AbsoluteMobileBuildPageMetadata;
+};
+
+const finalizeStaticMobilePage = (
+	framework: Extract<AbsoluteMobilePageFramework, 'html' | 'htmx'>,
+	pagePath: string,
+	metadata: AbsoluteMobileBuildPageMetadata | undefined
+) => {
+	const pageId = metadata?.pageId ?? `${framework}:${pagePath}`;
+	const contract =
+		metadata?.contract ??
+		`${framework}:${pageId}:${ABSOLUTE_MOBILE_PAGE_PROTOCOL_VERSION}`;
+
+	return finalizeAbsoluteMobilePage({
+		compatibility: {
+			framework,
+			pageId,
+			representations: [{ contract, mapProps: () => ({}) }],
+			runtimes: [String(ABSOLUTE_MOBILE_PAGE_PROTOCOL_VERSION)]
+		},
+		props: {},
+		request: getCurrentAbsoluteRequest()
+	});
+};
 
 const handleStaticPageRequest = async (
 	pagePath: string,
@@ -43,6 +80,12 @@ export const handleHTMLPageRequest = (
 	pagePath: string,
 	options?: HTMLPageRequestOptions
 ) => {
+	const mobileResponse = finalizeStaticMobilePage(
+		'html',
+		pagePath,
+		options?.__absoluteMobile
+	);
+	if (mobileResponse) return Promise.resolve(mobileResponse);
 	const htmlFile = file(pagePath);
 
 	return htmlFile.text().then((html) => {
@@ -58,7 +101,16 @@ export const handleHTMLPageRequest = (
 	});
 };
 
-export const handleHTMXPageRequest = async (pagePath: string) => {
+export const handleHTMXPageRequest = async (
+	pagePath: string,
+	options: HTMXPageRequestOptions = {}
+) => {
+	const mobileResponse = finalizeStaticMobilePage(
+		'htmx',
+		pagePath,
+		options.__absoluteMobile
+	);
+	if (mobileResponse) return mobileResponse;
 	const html = await file(pagePath).text();
 	if (extractStaticStreamingTags(html).length > 0) {
 		throw new Error(

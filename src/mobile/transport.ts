@@ -140,3 +140,21 @@ export const resolveAbsoluteMobileDeepLink = (
 
 	return `${url.pathname || '/'}${url.search}${url.hash}`;
 };
+
+export const resolveAbsoluteMobileNavigation = (
+	manifest: AbsoluteMobileClientManifest,
+	value: string,
+	localOrigin: string
+) => {
+	const url = new URL(value, `${localOrigin}/`);
+	const local = new URL(localOrigin);
+	const production = new URL(manifest.productionOrigin);
+	const matches = (candidate: URL, allowed: URL) =>
+		candidate.protocol === allowed.protocol &&
+		candidate.host === allowed.host;
+	if (!matches(url, local) && !matches(url, production)) {
+		return undefined;
+	}
+
+	return `${url.pathname}${url.search}${url.hash}`;
+};

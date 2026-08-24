@@ -3,12 +3,19 @@ import { handleAngularPageRequest } from '../../../src/angular/pageHandler';
 import { handleReactPageRequest } from '../../../src/react/pageHandler';
 import { handleSveltePageRequest } from '../../../src/svelte/pageHandler';
 import { handleVuePageRequest } from '../../../src/vue/pageHandler';
+import {
+	handleHTMLPageRequest,
+	handleHTMXPageRequest
+} from '../../../src/core/pageHandlers';
+import { absoluteRequestContext } from '../../../src/core/requestContext';
 import { Account } from './react/pages/Account';
 
 const manifest: Record<string, string> = {
 	AccountIndex: '/account-client.js',
 	AngularAccount: '/angular-account-server.js',
 	AngularAccountIndex: '/angular-account-client.js',
+	HTMLAccount: '/html-account.html',
+	HTMXAccount: '/htmx-account.html',
 	SvelteAccount: '/svelte-account-server.js',
 	SvelteAccountIndex: '/svelte-account-client.js',
 	VueAccount: '/vue-account-server.js',
@@ -54,6 +61,12 @@ const pages = new Elysia({ prefix: '/v1' })
 			requestContext: { displayName: params.id }
 		})
 	)
+	.get('/html/:id', () =>
+		handleHTMLPageRequest(asset(manifest, 'HTMLAccount'))
+	)
+	.get('/htmx/:id', () =>
+		handleHTMXPageRequest(asset(manifest, 'HTMXAccount'))
+	)
 	.get('/svelte/:id', ({ request }) =>
 		handleSveltePageRequest({
 			indexPath: asset(manifest, 'SvelteAccountIndex'),
@@ -69,4 +82,4 @@ const pages = new Elysia({ prefix: '/v1' })
 		})
 	);
 
-export const app = new Elysia().use(pages);
+export const app = new Elysia().use(absoluteRequestContext).use(pages);

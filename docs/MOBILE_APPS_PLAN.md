@@ -404,8 +404,10 @@ explain <route>`:
    embedded compatible page code and versioned data envelope.
 2. **Universal network:** traffic through Absolute HTTP/Auth/Sync APIs and the
    maintained HTMX extension.
-3. **Restricted HTML/HTMX:** local audited scripts and sanitized server fragments;
-   no arbitrary remote script execution.
+3. **Trusted HTML/HTMX:** first-class unchanged AbsoluteJS routes with signed,
+   embedded documents and local application scripts; AbsoluteJS sends HTMX
+   requests to the configured backend and sanitizes network fragments before a
+   swap. Arbitrary downloaded scripts never execute.
 4. **Web-only:** opaque responses or browser behavior for which safe mobile behavior
    cannot be proven.
 5. **Native replacement:** separately authored Expo React Native UI that reuses
@@ -2459,13 +2461,17 @@ compatibility artifact; referenced `assets/` and `indexes/` files are copied int
 the local Capacitor bundle.
 
 The real multi-framework example now passes `absolute prepare` and produces one
-local manifest containing Angular, React, Svelte, and Vue routes and bundles.
+local manifest containing Angular, HTML, HTMX, React, Svelte, and Vue routes and
+bundles.
 Focused conformance covers generated client mount/dispose behavior, repeated
 A→B→A framework disposal, finalized Elysia route capture, styles, dependency
-copying, and rejection of unsupported Ember pages. HTML/HTMX still require the
-restricted local-document representation and hostile-content gate described in
-this plan; they are not silently advertised as supported. Ember mobile work is
-explicitly deferred to the adapter milestones in `EMBER_PLAN.md`.
+copying, and rejection of unsupported Ember pages. HTML and HTMX routes retain
+their normal authoring model: their production documents and scripts are hashed
+and embedded, root-relative HTMX requests are targeted at `productionOrigin`, and
+network fragments lose scripts, active event handlers, privileged elements, and
+cross-origin action URLs before HTMX swaps them. This trust policy belongs to
+AbsoluteJS rather than application code. Ember mobile work is explicitly deferred
+to the adapter milestones in `EMBER_PLAN.md`.
 
 Deliverables:
 
@@ -2742,10 +2748,9 @@ The remaining decisions that materially affect the public API are:
 
 ## Recommended immediate next step
 
-Finish the restricted HTML/HTMX representation and hostile-content gate without
-embedding arbitrary remote executable markup. Then run the four-framework local
-bundle on Android and the partner's macOS/iOS acceptance path, including repeated
-cross-framework navigation and process relaunch. In parallel with that device
+Run the six-framework local bundle on Android and the partner's macOS/iOS
+acceptance path, including HTML/HTMX network-fragment behavior, repeated
+cross-framework navigation, and process relaunch. In parallel with that device
 evidence, complete public-client Authorization Code + S256 PKCE with
 Keychain/Keystore-backed credentials and prove authenticated page/API plus Sync
 socket-ticket calls without cookies or URL credentials. Expo remains out of scope

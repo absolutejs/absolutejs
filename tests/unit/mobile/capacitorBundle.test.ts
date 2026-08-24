@@ -129,11 +129,32 @@ describe('Capacitor local web bundle', () => {
 		);
 		temporaryDirectories.push(root);
 		const buildDirectory = join(root, 'build');
-		const frameworks = ['angular', 'react', 'svelte', 'vue'] as const;
+		const frameworks = [
+			'angular',
+			'html',
+			'htmx',
+			'react',
+			'svelte',
+			'vue'
+		] as const;
+		const sourceFor = (framework: (typeof frameworks)[number]) => {
+			if (framework === 'html') {
+				return '<script type="module" src="/example/html/app.js"></script>';
+			}
+			if (framework === 'htmx') {
+				return '<script src="/htmx/htmx.min.js"></script>';
+			}
+
+			return `globalThis.__${framework.toUpperCase()}_MOBILE__ = true;`;
+		};
 		const pages = await Promise.all(
 			frameworks.map(async (framework) => {
-				const source = `globalThis.__${framework.toUpperCase()}_MOBILE__ = true;`;
-				const bundlePath = `/generated/${framework}.js`;
+				const source = sourceFor(framework);
+				const extension =
+					framework === 'html' || framework === 'htmx'
+						? 'html'
+						: 'js';
+				const bundlePath = `/generated/${framework}.${extension}`;
 				await Bun.write(join(buildDirectory, bundlePath), source);
 
 				return {
@@ -147,6 +168,14 @@ describe('Capacitor local web bundle', () => {
 					propsSchemaHash: `schema-${framework}`
 				};
 			})
+		);
+		await Bun.write(
+			join(buildDirectory, 'example', 'html', 'app.js'),
+			'globalThis.__HTML_MOBILE__ = true;'
+		);
+		await Bun.write(
+			join(buildDirectory, 'htmx', 'htmx.min.js'),
+			'globalThis.htmx = {};'
 		);
 		const artifact = createAbsoluteMobileCompatibilityArtifact({
 			appBuild: 'build-frameworks',
@@ -193,6 +222,16 @@ describe('Capacitor local web bundle', () => {
 				).exists()
 			).toBe(true);
 		}
+		expect(
+			await Bun.file(
+				join(root, 'mobile-web', 'example', 'html', 'app.js')
+			).exists()
+		).toBe(true);
+		expect(
+			await Bun.file(
+				join(root, 'mobile-web', 'htmx', 'htmx.min.js')
+			).exists()
+		).toBe(true);
 
 		const [firstPage] = pages;
 		if (!firstPage) throw new Error('Expected a framework page.');

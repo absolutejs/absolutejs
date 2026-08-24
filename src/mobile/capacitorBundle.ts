@@ -34,13 +34,17 @@ const CLIENT_IMPORT_PATTERN =
 	/(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s*)["'](\/[^"']+)["']/gu;
 const CLIENT_CSS_DEPENDENCY_PATTERN =
 	/(?:@import\s+(?:url\(\s*)?|url\(\s*)["']?(\/[^"')\s]+)["']?\s*\)?/gu;
+const CLIENT_MARKUP_DEPENDENCY_PATTERN =
+	/<(?:script\b[^>]*\bsrc|link\b[^>]*\bhref|img\b[^>]*\bsrc|source\b[^>]*\bsrcset)\s*=\s*["'](\/[^"',\s]+)/giu;
 const CAPACITOR_CLIENT_FRAMEWORKS = new Set([
 	'angular',
+	'html',
+	'htmx',
 	'react',
 	'svelte',
 	'vue'
 ]);
-const CLIENT_ASSET_DIRECTORIES = ['assets', 'indexes'] as const;
+const CLIENT_ASSET_DIRECTORIES = ['assets', 'html', 'htmx', 'indexes'] as const;
 
 const errorHasCode = (error: unknown, code: string) =>
 	typeof error === 'object' &&
@@ -200,7 +204,8 @@ const absoluteClientImports = async (sourcePath: string) => {
 
 	return [
 		...source.matchAll(CLIENT_IMPORT_PATTERN),
-		...source.matchAll(CLIENT_CSS_DEPENDENCY_PATTERN)
+		...source.matchAll(CLIENT_CSS_DEPENDENCY_PATTERN),
+		...source.matchAll(CLIENT_MARKUP_DEPENDENCY_PATTERN)
 	].flatMap((match) => {
 		const [specifier] = match.slice(1);
 

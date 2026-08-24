@@ -15,6 +15,7 @@ type MobileRouteTransformOptions = {
 };
 
 type AnalyzedPageCall = {
+	inputKind: 'object' | 'static';
 	metadata: AbsoluteMobileBuildPageMetadata;
 	pageCallStart: number;
 	routeCallSpan: string;
@@ -26,8 +27,9 @@ type AnalyzedFile = {
 };
 
 type PageHandlerDefinition = {
-	bundleProperty: 'index' | 'indexPath';
+	bundleProperty?: 'index' | 'indexPath';
 	framework: AbsoluteMobileBuildPageMetadata['framework'];
+	inputKind?: 'static';
 	pageProperty?: 'Page';
 	propsProperty: 'props' | 'requestContext';
 	sourceProperty?: 'pagePath';
@@ -42,6 +44,14 @@ type AssetKeyResolver = (
 const ROUTE_METHODS = new Set(['get', 'head']);
 const SOURCE_FILTER = /\.[cm]?[jt]sx?$/;
 const PAGE_HANDLERS = new Map<string, PageHandlerDefinition>([
+	[
+		'handleHTMLPageRequest',
+		{ framework: 'html', inputKind: 'static', propsProperty: 'props' }
+	],
+	[
+		'handleHTMXPageRequest',
+		{ framework: 'htmx', inputKind: 'static', propsProperty: 'props' }
+	],
 	[
 		'handleAngularPageRequest',
 		{
@@ -486,10 +496,35 @@ const analyzeRouteCall = (
 	const pageCall = foundPageCall?.node;
 	const definition = foundPageCall?.definition;
 	const [input] = pageCall?.arguments ?? [];
-	if (!pageCall || !input || !ts.isObjectLiteralExpression(input)) {
+	if (!pageCall || !input) {
 		return undefined;
 	}
 	if (!definition) return undefined;
+	if (definition.inputKind === 'static') {
+		const bundleKey = assetKey(input, checker);
+		if (!bundleKey) return undefined;
+		const pageId = `${definition.framework}:${bundleKey}`;
+		const propsSchemaHash = hashAbsoluteMobilePropsSchema({
+			properties: {},
+			type: 'object'
+		});
+
+		return {
+			inputKind: 'static',
+			metadata: {
+				bundleKey,
+				contract: `${definition.framework}:${pageId}:${propsSchemaHash}`,
+				framework: definition.framework,
+				pageId,
+				propsSchemaHash
+			},
+			pageCallStart: pageCall.getStart(sourceFile),
+			routeCallSpan: `${node.getStart(sourceFile)}:${node.end}`
+		} satisfies AnalyzedPageCall;
+	}
+	if (!ts.isObjectLiteralExpression(input) || !definition.bundleProperty) {
+		return undefined;
+	}
 	const page = definition.pageProperty
 		? objectPropertyExpression(input, definition.pageProperty)
 		: undefined;
@@ -519,6 +554,7 @@ const analyzeRouteCall = (
 		propsSchemaHash
 	};
 	const result: AnalyzedPageCall = {
+		inputKind: 'object',
 		metadata,
 		pageCallStart: pageCall.getStart(sourceFile),
 		routeCallSpan: `${node.getStart(sourceFile)}:${node.end}`
@@ -618,6 +654,26 @@ const transformPageCall = (
 	page: AnalyzedPageCall | undefined
 ) => {
 	if (!page) return undefined;
+	if (page.inputKind === 'static') {
+		const [pagePath, existingOptions, ...rest] = node.arguments;
+		if (!pagePath) return undefined;
+		const options = ts.factory.createObjectLiteralExpression([
+			...(existingOptions
+				? [ts.factory.createSpreadAssignment(existingOptions)]
+				: []),
+			ts.factory.createPropertyAssignment(
+				'__absoluteMobile',
+				metadataExpression(page.metadata)
+			)
+		]);
+
+		return ts.factory.updateCallExpression(
+			node,
+			node.expression,
+			node.typeArguments,
+			[pagePath, options, ...rest]
+		);
+	}
 	const [input] = node.arguments;
 	if (!input || !ts.isObjectLiteralExpression(input)) return undefined;
 

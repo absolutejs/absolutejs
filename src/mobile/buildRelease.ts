@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
-import { join, relative, resolve } from 'node:path';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { basename, dirname, extname, join, relative, resolve } from 'node:path';
 import type { Elysia } from 'elysia';
 import {
 	ABSOLUTE_MOBILE_ROUTE_DETAIL,
@@ -14,6 +14,7 @@ import {
 	type AbsoluteMobileCompatibilityRoute
 } from './releaseArtifact';
 import type { AbsoluteMobileStoredCompatibilityRelease } from './artifactStore';
+import { toPascal } from '../utils/stringModifiers';
 
 export type AbsoluteMobileBuildReleaseOptions = {
 	app: Pick<Elysia, 'compile' | 'modules' | 'routes'>;
@@ -29,6 +30,24 @@ export type AbsoluteMobileBuildReleaseOptions = {
 
 const sha256 = (bytes: Uint8Array) =>
 	createHash('sha256').update(bytes).digest('hex');
+
+const STATIC_SCRIPT_PATTERN =
+	/(<script\b[^>]*?\bsrc\s*=\s*["'])(\/[^"']+\.(?:js|ts))(["'][^>]*>)/giu;
+
+const rewriteStaticScriptPaths = (
+	source: string,
+	manifest: Record<string, string>
+) =>
+	source.replace(
+		STATIC_SCRIPT_PATTERN,
+		(match, prefix: string, path: string, suffix: string) => {
+			if (path.endsWith('/htmx.min.js')) return match;
+			const key = toPascal(basename(path, extname(path)));
+			const builtPath = manifest[key];
+
+			return builtPath ? `${prefix}${builtPath}${suffix}` : match;
+		}
+	);
 
 const readPageMetadata = (route: {
 	hooks?: { detail?: Record<string, unknown> };
@@ -58,7 +77,20 @@ const pageFor = async (
 			`Mobile page ${metadata.pageId} references missing manifest asset ${metadata.bundleKey}.`
 		);
 	}
-	const resolvedAssetPath = resolveAssetPath(buildDirectory, assetPath);
+	let resolvedAssetPath = resolveAssetPath(buildDirectory, assetPath);
+	if (metadata.framework === 'html' || metadata.framework === 'htmx') {
+		const source = await readFile(resolvedAssetPath, 'utf8');
+		const rewritten = rewriteStaticScriptPaths(source, manifest);
+		const documentHash = sha256(new TextEncoder().encode(rewritten));
+		resolvedAssetPath = join(
+			buildDirectory,
+			'.absolutejs',
+			'mobile-pages',
+			`${documentHash}.html`
+		);
+		await mkdir(dirname(resolvedAssetPath), { recursive: true });
+		await writeFile(resolvedAssetPath, rewritten);
+	}
 	const pageAssetKey = metadata.bundleKey.replace(/Index$/u, '');
 	const styleAssetPath = [
 		`${pageAssetKey}BundledCSS`,

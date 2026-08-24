@@ -550,7 +550,7 @@ Once the core Ember implementation is stable:
   bundle and real native conformance gates pass.
 
 This work follows Ember Phase 3. It is not part of the current React/Vue/Svelte/
-Angular and restricted HTML/HTMX mobile expansion.
+Angular and trusted-document HTML/HTMX mobile expansion.
 
 ## 3. Open research items
 

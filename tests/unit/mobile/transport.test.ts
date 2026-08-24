@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import {
 	createAbsoluteMobilePageRequest,
 	resolveAbsoluteMobileDeepLink,
+	resolveAbsoluteMobileNavigation,
 	type AbsoluteMobileClientManifest
 } from '../../../src/mobile/transport';
 import { MOBILE_PAGE_REQUEST_HEADERS } from '../../../src/mobile/pageProtocol';
@@ -71,5 +72,29 @@ describe('mobile canonical transport', () => {
 				'https://attacker.example/account/Ada'
 			)
 		).toThrow('outside');
+	});
+
+	test('routes embedded and production-origin links without capturing external links', () => {
+		expect(
+			resolveAbsoluteMobileNavigation(
+				manifest,
+				'capacitor://localhost/vue?tab=one#title',
+				'capacitor://localhost'
+			)
+		).toBe('/vue?tab=one#title');
+		expect(
+			resolveAbsoluteMobileNavigation(
+				manifest,
+				'https://api.example.com/react',
+				'capacitor://localhost'
+			)
+		).toBe('/react');
+		expect(
+			resolveAbsoluteMobileNavigation(
+				manifest,
+				'https://evil.example/phish',
+				'capacitor://localhost'
+			)
+		).toBeUndefined();
 	});
 });

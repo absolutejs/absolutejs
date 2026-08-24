@@ -3,12 +3,14 @@ import type { PluginListenerHandle } from '@capacitor/core';
 import {
 	fetchAbsoluteMobilePage,
 	resolveAbsoluteMobileDeepLink,
+	resolveAbsoluteMobileNavigation,
 	type AbsoluteMobileClientManifest
 } from './transport';
 import {
 	activateAbsoluteMobilePage,
 	disposeAbsoluteMobilePage
 } from './client';
+import { installAbsoluteMobileStaticDocument } from './staticDocument';
 
 const MANIFEST_PATH = './absolute-mobile-manifest.json';
 const STATUS_ID = 'absolute-mobile-status';
@@ -94,9 +96,26 @@ const navigate = async (
 	await disposeAbsoluteMobilePage();
 	renderStatus('Loading…');
 	const envelope = await fetchAbsoluteMobilePage(manifest, path);
-	renderPageTarget();
 	const activation = await activateAbsoluteMobilePage(envelope, {
 		loadPage: ({ contract, pageId }) => {
+			const page = manifest.pages.find(
+				(candidate) =>
+					candidate.pageId === pageId &&
+					candidate.contract === contract
+			);
+			if (!page) {
+				throw new TypeError(
+					`The embedded app does not contain ${pageId} contract ${contract}.`
+				);
+			}
+			if (page.framework === 'html' || page.framework === 'htmx') {
+				return installAbsoluteMobileStaticDocument(
+					manifest,
+					page,
+					localBundleUrl(manifest, pageId, contract)
+				);
+			}
+			renderPageTarget();
 			installLocalPageStyle(manifest, pageId, contract);
 
 			return import(localBundleUrl(manifest, pageId, contract));
@@ -119,10 +138,14 @@ const installAnchorNavigation = (
 		const anchor = event.target.closest('a[href]');
 		if (!(anchor instanceof HTMLAnchorElement) || anchor.target) return;
 		try {
-			const url = new URL(anchor.href);
-			if (url.origin !== manifest.productionOrigin) return;
+			const path = resolveAbsoluteMobileNavigation(
+				manifest,
+				anchor.href,
+				location.origin
+			);
+			if (!path) return;
 			event.preventDefault();
-			onNavigate(`${url.pathname}${url.search}${url.hash}`);
+			onNavigate(path);
 		} catch {
 			// Invalid author-provided links keep their normal browser behavior.
 		}

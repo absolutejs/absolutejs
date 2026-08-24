@@ -57,9 +57,18 @@ describe('automatic mobile compatibility release build', () => {
 			const loaded: { app: Elysia } = await import(
 				`${pathToFileURL(producerPath).href}?test=${crypto.randomUUID()}`
 			);
-			const clientPaths: Record<string, string> = {
+			const clientPaths: {
+				AccountIndex: string;
+				AngularAccountIndex: string;
+				HTMLAccount: string;
+				HTMXAccount: string;
+				SvelteAccountIndex: string;
+				VueAccountIndex: string;
+			} = {
 				AccountIndex: join(output, 'account-client.js'),
 				AngularAccountIndex: join(output, 'angular-account-client.js'),
+				HTMLAccount: join(output, 'html-account.html'),
+				HTMXAccount: join(output, 'htmx-account.html'),
 				SvelteAccountIndex: join(output, 'svelte-account-client.js'),
 				VueAccountIndex: join(output, 'vue-account-client.js')
 			};
@@ -136,12 +145,14 @@ describe('automatic mobile compatibility release build', () => {
 			expect(next.artifact.appBuild).not.toBe(release.artifact.appBuild);
 			expect(
 				release.artifact.pages.map(({ framework }) => framework).sort()
-			).toEqual(['angular', 'react', 'svelte', 'vue']);
+			).toEqual(['angular', 'html', 'htmx', 'react', 'svelte', 'vue']);
 			expect(
 				release.artifact.routes.map(({ pattern }) => pattern).sort()
 			).toEqual([
 				'/v1/account/:id',
 				'/v1/angular/:id',
+				'/v1/html/:id',
+				'/v1/htmx/:id',
 				'/v1/profile/:id',
 				'/v1/svelte/:id',
 				'/v1/vue/:id'
@@ -194,6 +205,39 @@ describe('automatic mobile compatibility release build', () => {
 						...(framework === 'svelte'
 							? { url: `/v1/${framework}/Ada` }
 							: {})
+					}
+				});
+			}
+			for (const framework of ['html', 'htmx'] as const) {
+				const staticPage = release.artifact.pages.find(
+					(candidate) => candidate.framework === framework
+				);
+				if (!staticPage) {
+					throw new Error(`Expected a captured ${framework} page.`);
+				}
+				const staticResponse = await loaded.app.handle(
+					new Request(`https://example.test/v1/${framework}/Ada`, {
+						headers: {
+							accept: ABSOLUTE_MOBILE_PAGE_MEDIA_TYPE,
+							[MOBILE_PAGE_REQUEST_HEADERS.appBuild]:
+								release.artifact.appBuild,
+							[MOBILE_PAGE_REQUEST_HEADERS.pageBundle]:
+								staticPage.bundleHash,
+							[MOBILE_PAGE_REQUEST_HEADERS.pageContracts]:
+								staticPage.contract,
+							[MOBILE_PAGE_REQUEST_HEADERS.pageId]:
+								staticPage.pageId,
+							[MOBILE_PAGE_REQUEST_HEADERS.protocol]: '1',
+							[MOBILE_PAGE_REQUEST_HEADERS.runtime]: '1'
+						}
+					})
+				);
+				expect(await staticResponse.json()).toMatchObject({
+					response: {
+						framework,
+						kind: 'page',
+						pageId: staticPage.pageId,
+						props: {}
 					}
 				});
 			}
