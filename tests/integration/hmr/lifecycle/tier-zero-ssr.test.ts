@@ -78,7 +78,27 @@ const driveRebuild = async (
 ) => {
 	client.drain();
 	mutate();
-	await client.waitFor(`${framework}-tier-zero-ssr-rebuild-complete`, 30_000);
+	const waitForFreshSsr = async () => {
+		const deadline = Date.now() + 30_000;
+		while (Date.now() < deadline) {
+			try {
+				const response = await fetch(url);
+				if ((await response.text()).includes(sentinel)) return;
+			} catch {
+				// The atomic bundle/manifest swap may briefly overlap this probe.
+			}
+			await Bun.sleep(100);
+		}
+		throw new Error(`SSR did not converge on ${sentinel} within 30000ms`);
+	};
+	// The WebSocket diagnostic is the fast path, while the observable SSR
+	// result is authoritative. A heavily loaded all-up run can lose the
+	// diagnostic when its client reconnects even though the atomic bundle swap
+	// completed; accepting either signal removes that transport-only flake.
+	await Promise.any([
+		client.waitFor(`${framework}-tier-zero-ssr-rebuild-complete`, 30_000),
+		waitForFreshSsr()
+	]);
 	const html = await (await fetch(url)).text();
 	expect(html).toContain(sentinel);
 };

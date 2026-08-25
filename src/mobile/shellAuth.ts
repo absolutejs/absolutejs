@@ -10,12 +10,14 @@ import type { AbsoluteMobileAuthManifest } from './nativeAuth';
 import type { AbsoluteMobileFetch } from './transport';
 
 export type AbsoluteMobileShellAuth = {
+	clientId: string;
 	fetch: AbsoluteMobileFetch;
 	onPrincipalChange: (
 		listener: (principal: MobileAuthPrincipal | null) => void
 	) => () => void;
 	principal: MobileAuthPrincipal | null;
 	redirectUri: string;
+	issuer: string;
 	socketTicket: (audience?: string) => Promise<string>;
 };
 
@@ -48,7 +50,9 @@ export const createAbsoluteMobileShellAuth = async (
 	);
 
 	return {
+		clientId: config.clientId,
 		fetch: client.fetchOptional,
+		issuer: config.issuer,
 		onPrincipalChange: client.onPrincipalChange,
 		principal,
 		redirectUri: config.redirectUri,

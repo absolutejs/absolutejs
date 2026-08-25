@@ -12,10 +12,13 @@ test('provisions account-bound native durability and lifecycle without page wiri
 	let lifecycleRemoved = 0;
 	let reloads = 0;
 	const statuses: unknown[] = [];
+	let backgroundConfiguration: unknown;
 	const store = createMemorySyncLocalStore();
 	const dispose = installAbsoluteMobileShellSync(
 		{
+			clientId: 'native-client',
 			fetch,
+			issuer: 'https://app.example',
 			principal: { namespace: 'principal-a' },
 			redirectUri: 'com.example.app://auth/callback',
 			onPrincipalChange: (listener) => {
@@ -28,6 +31,16 @@ test('provisions account-bound native durability and lifecycle without page wiri
 			socketTicket: async () => 'ticket'
 		},
 		{
+			background: {
+				endpoint: 'https://app.example/__absolute/sync/background',
+				intervalMinutes: 15
+			},
+			socketTickets: true
+		},
+		{
+			configureBackground: async (configuration) => {
+				backgroundConfiguration = configuration;
+			},
 			createStore: () => store,
 			installLifecycle: async () => () => {
 				lifecycleRemoved += 1;
@@ -44,6 +57,13 @@ test('provisions account-bound native durability and lifecycle without page wiri
 		store
 	});
 	expect(await runtime?.socketTicket()).toBe('ticket');
+	expect(backgroundConfiguration).toEqual({
+		clientId: 'native-client',
+		endpoint: 'https://app.example/__absolute/sync/background',
+		intervalMinutes: 15,
+		issuer: 'https://app.example',
+		namespace: 'principal-a'
+	});
 	let statusListenerRemoved = 0;
 	const removeClient = runtime?.registerClient?.({
 		flush: async () => ({ deadLetters: 0, pending: 0, timedOut: false }),
@@ -79,17 +99,30 @@ test('provisions account-bound native durability and lifecycle without page wiri
 	expect(principalListenerRemoved).toBe(1);
 });
 
-test('does not expose a locked partition while signed out', () => {
+test('does not expose a locked partition and clears native work while signed out', async () => {
 	let createdStore = 0;
+	let backgroundClears = 0;
 	const dispose = installAbsoluteMobileShellSync(
 		{
+			clientId: 'native-client',
 			fetch,
+			issuer: 'https://app.example',
 			principal: null,
 			redirectUri: 'com.example.app://auth/callback',
 			onPrincipalChange: () => () => undefined,
 			socketTicket: async () => 'ticket'
 		},
 		{
+			background: {
+				endpoint: 'https://app.example/__absolute/sync/background',
+				intervalMinutes: 15
+			},
+			socketTickets: true
+		},
+		{
+			clearBackground: async () => {
+				backgroundClears += 1;
+			},
 			createStore: () => {
 				createdStore += 1;
 
@@ -101,5 +134,7 @@ test('does not expose a locked partition while signed out', () => {
 	);
 	expect(createdStore).toBe(0);
 	expect(getSyncClientRuntimeTransport()?.durable).toBeUndefined();
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	expect(backgroundClears).toBe(1);
 	dispose();
 });

@@ -17,12 +17,14 @@ const MANIFEST_PATH = './absolute-mobile-manifest.json';
 const STATUS_ID = 'absolute-mobile-status';
 
 export type AbsoluteMobileShellAuthRuntime = {
+	clientId: string;
 	fetch: AbsoluteMobileFetch;
 	onPrincipalChange: (
 		listener: (principal: AbsoluteMobileShellPrincipal | null) => void
 	) => () => void;
 	principal: AbsoluteMobileShellPrincipal | null;
 	redirectUri: string;
+	issuer: string;
 	socketTicket: (audience?: string) => Promise<string>;
 };
 
@@ -34,7 +36,10 @@ export type AbsoluteMobileShellOptions = {
 	createAuth?: (
 		config: NonNullable<AbsoluteMobileClientManifest['auth']>
 	) => Promise<AbsoluteMobileShellAuthRuntime>;
-	installSync?: (auth: AbsoluteMobileShellAuthRuntime) => void | (() => void);
+	installSync?: (
+		auth: AbsoluteMobileShellAuthRuntime,
+		config: NonNullable<AbsoluteMobileClientManifest['sync']>
+	) => void | (() => void);
 };
 
 let navigationGeneration = 0;
@@ -256,7 +261,8 @@ export const startAbsoluteMobileShell = async (
 		manifest.auth && options.createAuth
 			? await options.createAuth(manifest.auth)
 			: undefined;
-	if (auth && manifest.sync?.socketTickets) options.installSync?.(auth);
+	if (auth && manifest.sync?.socketTickets)
+		options.installSync?.(auth, manifest.sync);
 	let removeAnchorNavigation: () => void = () => undefined;
 	const handlePopState = () => {
 		void navigateWithFailureState(

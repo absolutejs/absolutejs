@@ -383,7 +383,20 @@ export const materializeAbsoluteCapacitorWebBundle = async (
 			productionOrigin: options.config.productionOrigin,
 			routes: options.artifact.routes,
 			runtime: options.artifact.runtime,
-			...(options.sync ? { sync: { socketTickets: true as const } } : {})
+			...(options.sync
+				? {
+						sync: {
+							background: {
+								endpoint: new URL(
+									'/__absolute/sync/background',
+									options.config.productionOrigin
+								).href,
+								intervalMinutes: 15
+							},
+							socketTickets: true as const
+						}
+					}
+				: {})
 		} satisfies AbsoluteMobileClientManifest;
 		await Promise.all([
 			writeFile(

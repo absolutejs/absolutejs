@@ -1,12 +1,15 @@
 import { lifecycle, network } from '@absolutejs/devices';
 import {
 	createCapacitorSyncLocalStore,
+	AbsoluteBackgroundSync,
+	configureCapacitorBackgroundSync,
 	installCapacitorSyncLifecycle,
 	type CapacitorSyncLifecycleOptions
 } from '@absolutejs/sync-capacitor';
 import type { SyncClientStatus, SyncLocalStore } from '@absolutejs/sync/client';
 import { installSyncClientRuntimeTransport } from '@absolutejs/sync/client/runtime';
 import type { AbsoluteMobileShellAuthRuntime } from './shellBootstrap';
+import type { AbsoluteMobileClientManifest } from './transport';
 
 export type AbsoluteMobileShellSyncOptions = {
 	createStore?: () => SyncLocalStore;
@@ -15,6 +18,8 @@ export type AbsoluteMobileShellSyncOptions = {
 	) => Promise<() => void>;
 	reload?: () => void;
 	reportStatus?: (status: SyncClientStatus) => void;
+	configureBackground?: typeof configureCapacitorBackgroundSync;
+	clearBackground?: () => Promise<void>;
 };
 
 const reloadShell = () => globalThis.location.reload();
@@ -31,6 +36,7 @@ const reportShellStatus = (status: SyncClientStatus) =>
  */
 export const installAbsoluteMobileShellSync = (
 	auth: AbsoluteMobileShellAuthRuntime,
+	config?: NonNullable<AbsoluteMobileClientManifest['sync']>,
 	options: AbsoluteMobileShellSyncOptions = {}
 ) => {
 	const namespace = auth.principal?.namespace;
@@ -40,6 +46,26 @@ export const installAbsoluteMobileShellSync = (
 	const installLifecycle =
 		options.installLifecycle ?? installCapacitorSyncLifecycle;
 	const reportStatus = options.reportStatus ?? reportShellStatus;
+	const configureBackground =
+		options.configureBackground ?? configureCapacitorBackgroundSync;
+	const clearBackground =
+		options.clearBackground ?? (() => AbsoluteBackgroundSync.clear());
+	if (namespace && config) {
+		void configureBackground({
+			clientId: auth.clientId,
+			endpoint: config.background.endpoint,
+			intervalMinutes: config.background.intervalMinutes,
+			issuer: auth.issuer,
+			namespace
+		}).catch((error) =>
+			console.error(
+				'[Absolute Mobile] Background Sync configuration failed:',
+				error
+			)
+		);
+	} else {
+		void clearBackground().catch(() => undefined);
+	}
 	const removeTransport = installSyncClientRuntimeTransport({
 		...(namespace && store ? { durable: { namespace, store } } : {}),
 		socketTicket: auth.socketTicket,

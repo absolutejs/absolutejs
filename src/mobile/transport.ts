@@ -39,7 +39,10 @@ export type AbsoluteMobileClientManifest = {
 	productionOrigin: string;
 	routes: AbsoluteMobileCompatibilityRoute[];
 	runtime: string;
-	sync?: { socketTickets: true };
+	sync?: {
+		socketTickets: true;
+		background: { endpoint: string; intervalMinutes: number };
+	};
 };
 
 export type AbsoluteMobileTransportOptions = {

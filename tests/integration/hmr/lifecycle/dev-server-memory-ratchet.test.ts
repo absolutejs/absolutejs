@@ -42,6 +42,57 @@ const rssKb = (pid: number) => {
 	return Number(match[1]);
 };
 
+const extractVueMarker = (text: string) =>
+	text.match(/<h1>AbsoluteJS \+ Vue ([^<]+)<\/h1>/)?.[1] ?? '<missing>';
+
+const waitForVueMarker = async (srv: DevServer, marker: string) => {
+	const deadline = Date.now() + 30_000;
+	let lastRender = '';
+	while (Date.now() < deadline) {
+		try {
+			const response = await fetch(`${srv.baseUrl}/vue`);
+			lastRender = await response.text();
+			if (lastRender.includes(marker)) return;
+		} catch {
+			// The atomic server bundle swap may briefly overlap this probe.
+		}
+		await Bun.sleep(50);
+	}
+
+	let hmrStatus = '<unavailable>';
+	try {
+		hmrStatus = await (await fetch(`${srv.baseUrl}/hmr-status`)).text();
+	} catch {
+		// Best-effort timeout diagnostics.
+	}
+	const source = readFileSync(vuePage, 'utf8');
+	throw new Error(
+		[
+			`Vue SSR did not converge on ${marker} within 30000ms`,
+			`source marker: ${extractVueMarker(source)}`,
+			`rendered marker: ${extractVueMarker(lastRender)}`,
+			`hmr status: ${hmrStatus}`,
+			`last server output:\n${srv.outputLines.slice(-60).join('\n')}`
+		].join('\n')
+	);
+};
+
+const waitForVueCycle = async (
+	c: HMRClient,
+	srv: DevServer,
+	marker: string
+) => {
+	try {
+		// The surgical client update is the operation this ratchet stresses and
+		// normally arrives in milliseconds. A loaded integration shard can drop a
+		// diagnostic socket frame; in that case, fall back to the authoritative
+		// rendered SSR result instead of failing a healthy rebuild.
+		await c.waitFor('vue-update', 5_000);
+	} catch {
+		await waitForVueMarker(srv, marker);
+	}
+};
+
 /* Sibling-copy Path B (serverEntryWatcher.ts) allocates a fresh
  * module record on every entry edit. Bun also tracks runtime state
  * per module across edits. A leak in either layer
@@ -84,7 +135,7 @@ describe('dev-server RSS does not grow unboundedly over many HMR cycles', () => 
 					`<h1>AbsoluteJS + Vue ${marker}</h1>`
 				)
 			);
-			await c.waitFor('vue-tier-zero-ssr-rebuild-complete', 15_000);
+			await waitForVueCycle(c, srv, marker);
 			c.drain();
 		}
 
@@ -92,9 +143,10 @@ describe('dev-server RSS does not grow unboundedly over many HMR cycles', () => 
 		await new Promise((_resolve) => setTimeout(_resolve, 1_000));
 		const baselineRss = rssKb(srv.proc.pid);
 
-		// 100 more edits. We don't drain the client every loop —
-		// some events may pile up in the WS buffer, but waitFor's
-		// snapshot/skip semantics keep that bounded.
+		// 100 more edits. The rendered SSR result is authoritative; the
+		// WebSocket event is diagnostic and can be lost when a loaded shard
+		// reconnects. Drain diagnostics every cycle so they cannot influence the
+		// server RSS measurement.
 		for (let i = 0; i < 100; i++) {
 			const marker = `RATCHET_${i}`;
 			mutateFile(vuePage, (text) =>
@@ -103,8 +155,8 @@ describe('dev-server RSS does not grow unboundedly over many HMR cycles', () => 
 					`<h1>AbsoluteJS + Vue ${marker}</h1>`
 				)
 			);
-			await c.waitFor('vue-tier-zero-ssr-rebuild-complete', 15_000);
-			if (i % 10 === 9) c.drain();
+			await waitForVueCycle(c, srv, marker);
+			c.drain();
 		}
 
 		await new Promise((_resolve) => setTimeout(_resolve, 1_000));
@@ -120,13 +172,10 @@ describe('dev-server RSS does not grow unboundedly over many HMR cycles', () => 
 		// drift would not.
 		expect(ratio).toBeLessThan(3);
 
-		// SSR must still work — a leak that leaves the server
-		// alive but unable to render is also a regression. Vue's
-		// SSR import cache can lag the final HMR cycle by a
-		// beat, so we accept the last few markers as evidence
-		// the pipeline is still alive.
+		// SSR must converge on the exact final edit too — a fast client pipeline
+		// that leaves new requests on stale server bytes is still broken.
+		await waitForVueMarker(srv, 'RATCHET_99');
 		const finalRender = await (await fetch(`${srv.baseUrl}/vue`)).text();
-		const sawRecentMarker = /RATCHET_(?:9[5-9])/.test(finalRender);
-		expect(sawRecentMarker).toBe(true);
+		expect(finalRender).toContain('RATCHET_99');
 	}, 300_000);
 });

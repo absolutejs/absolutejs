@@ -1,7 +1,7 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.8` and
+`@absolutejs/absolute@0.20.0-beta.9` and
 `@absolutejs/deploy@0.24.0`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
 
@@ -64,10 +64,10 @@ still requires the developer team setup described below.
 From the root of the AbsoluteJS application:
 
 ```sh
-bun add @absolutejs/absolute@0.20.0-beta.8 \
-  @absolutejs/auth@0.70.0 \
-  @absolutejs/sync@2.22.2 \
-  @absolutejs/sync-capacitor@0.2.0 \
+bun add @absolutejs/absolute@0.20.0-beta.9 \
+  @absolutejs/auth@0.71.0 \
+  @absolutejs/sync@2.23.0 \
+  @absolutejs/sync-capacitor@0.3.0 \
   @absolutejs/deploy@0.24.0 \
   @absolutejs/blob@0.5.2 \
   @capacitor/core@8.5.0 \
@@ -78,8 +78,8 @@ bun add @absolutejs/absolute@0.20.0-beta.8 \
   @capacitor/preferences@8.0.1 \
   @capacitor/cli@8.5.0 \
   @capacitor/ios@8.5.0 \
-  @absolutejs/devices@0.0.2 \
-  @absolutejs/devices-capacitor@0.1.2
+  @absolutejs/devices@0.0.3 \
+  @absolutejs/devices-capacitor@0.1.3
 ```
 
 `absolute mobile init` now offers to install this tested Capacitor/device
@@ -230,7 +230,10 @@ This acceptance is required for the handoff. Use an application route that uses
 the ordinary, type-safe `createAuthClient()` and `createSyncClient()` APIs. The
 route must not import `@capacitor/*`, `@absolutejs/devices-capacitor`, or contain
 an iOS-specific branch. Its server must mount the `@absolutejs/auth` OIDC
-provider and configure the package's socket-ticket store and consumer for Sync.
+provider with a socket-ticket store, then mount that Auth application before
+`syncSocket({ engine })`. Sync automatically mounts the finite authenticated
+background route and consumes Auth's typed bridge; do not add a second HTTP
+route or manually pass tokens to Sync.
 Use a staging identity; do not send its password in the report.
 
 Run `bunx absolute mobile sync ios` once, then start `bun dev` and perform this
@@ -275,6 +278,60 @@ sequence in the managed simulator:
     `conflict` dead letter, and it does not retry forever. Explicitly retry or
     discard it through the app's Sync diagnostics and confirm the retained
     SQLite record follows that choice.
+
+### Managed iOS background-Sync acceptance
+
+This part requires a physical iPhone or iPad for the authoritative result.
+Simulator and `runNow()` checks validate the finite worker, but iOS does not
+promise real `BGProcessingTask` scheduling in Simulator. Connect a development
+device to Xcode, select it as the App scheme destination, and run the app once.
+
+Before launching, verify the generated project—not application source—contains:
+
+- `BGTaskSchedulerPermittedIdentifiers` with
+  `<mobile.appId>.absolutejs.background-sync`.
+- `UIBackgroundModes` containing `processing` while preserving any existing
+  modes such as `audio`.
+- an AppDelegate registration call before application launch completes.
+
+Sign in, open every collection that should be available offline, and create one
+serializable optimistic mutation. Let the foreground app reach Sync-ready, then
+background it. In Xcode's debug console, simulate the registered processing
+task using the bundle-specific identifier shown above:
+
+```text
+e -l objc -- (void)[[BGTaskScheduler sharedScheduler] _simulateLaunchForTaskWithIdentifier:@"com.example.product.staging.absolutejs.background-sync"]
+```
+
+This selector is an Apple development/debugging aid; never call it from shipped
+application code. Confirm the server receives exactly one authenticated
+`POST /__absolute/sync/background`, the mutation is acknowledged once, and the
+same account's SQLite rows advance. No WebView or page JavaScript should need to
+run. Bring the app foreground and confirm the ordinary collection reflects the
+background result without duplicate business effects.
+
+Repeat once with the access token expired but the rotating refresh credential
+still valid. Foreground Auth and native background work must serialize refresh
+rotation: the session remains valid, the refresh-token family is not revoked,
+and neither worker overwrites a newer credential. Then sign out while a run is
+being induced and verify a late worker cannot recreate the removed credential
+or unlock the signed-out partition.
+
+Finally test the network boundary with a disposable staging configuration:
+
+1. A same-origin discovery document and an issuer-advertised HTTPS token
+   endpoint may receive the refresh exchange.
+2. Only the exact configured AbsoluteJS origin may receive the Bearer token,
+   collection parameters, mutation arguments, or returned Sync data.
+3. Redirect the Sync endpoint or change its origin. The worker must fail closed
+   without following the redirect or sending credentials/payloads onward.
+4. Restore the correct endpoint and induce another run; the retained outbox
+   must converge normally.
+
+Record the task identifier, device/iOS model, `lastRunAt`, acknowledged/pulled
+counts, and sanitized server request metadata. Do not include tokens, mutation
+arguments, collection parameters, returned rows, database files, or Keychain
+contents in the report.
 
 Inspect the redacted `[ios]`, Auth-provider, and Sync-server logs while running
 the sequence. A passing result has all of these properties:
@@ -621,12 +678,12 @@ source change and build a new content-addressed release instead.
 - Mac architecture:
 - Xcode version:
 - Bun version:
-- AbsoluteJS version: 0.20.0-beta.8
-- Auth version: 0.70.0
-- Sync version: 2.22.2
-- Sync Capacitor version: 0.2.0
+- AbsoluteJS version: 0.20.0-beta.9
+- Auth version: 0.71.0
+- Sync version: 2.23.0
+- Sync Capacitor version: 0.3.0
 - Capacitor SQLite version: 8.1.1
-- Devices Capacitor version: 0.1.2
+- Devices Capacitor version: 0.1.3
 - Deploy version: 0.24.0
 - App bundle ID (non-secret):
 - Marketing version:

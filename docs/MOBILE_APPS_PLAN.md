@@ -2849,13 +2849,37 @@ The remaining decisions that materially affect the public API are:
 6. **HTTP package:** Should the canonical request API publish as
    `@absolutejs/http`, or remain a core client subpath until its contract stabilizes?
 
+## Current native background-sync checkpoint
+
+The Capacitor v1 implementation now includes the finite v1 push/pull protocol,
+principal-partitioned IndexedDB/SQLite stores, durable mutation receipts,
+bounded retries/dead letters, managed Android WorkManager and iOS
+BGProcessingTask workers, and a Keychain/Keystore vault shared with foreground
+Auth. Refresh-token rotation is serialized across foreground and native work;
+sign-out invalidates an in-flight lease so a late worker cannot recreate the
+credential.
+
+`syncSocket()` now mounts `/__absolute/sync/background` automatically. When an
+Absolute Auth application is mounted first, bearer requests and first-frame
+single-use socket tickets resolve through a capability bridge to the same typed
+`{ authPrincipal, user }` context. Custom auth supplies
+`headless.resolveContext`; missing authentication fails closed. The native
+worker sends refresh credentials only to the issuer-advertised HTTPS token
+endpoint and sends bearer credentials, collection parameters, mutation
+arguments, and returned Sync data only to the exact configured AbsoluteJS
+origin. Redirects and cross-origin changes fail closed.
+
+All TypeScript, source-contract, package, security-boundary, and Linux-hosted
+Android tests are automated. The remaining platform evidence is native Swift
+compilation and real BGProcessingTask behavior on the partner's Mac and physical
+iOS device, using `IOS_MACOS_TESTING.md`. Correctness never depends on the OS
+scheduler; foreground/resume Sync remains authoritative.
+
 ## Recommended immediate next step
 
-The six-framework embedded production bundle and HTML/HTMX boundary now pass on
-Android API 36. Run the equivalent partner macOS/iOS acceptance path, including
-HTML/HTMX network-fragment behavior, repeated cross-framework navigation, and
-process relaunch. In parallel with that remaining iOS evidence, complete
-public-client Authorization Code + S256 PKCE with
-Keychain/Keystore-backed credentials and prove authenticated page/API plus Sync
-socket-ticket calls without cookies or URL credentials. Expo remains out of scope
-until the Capacitor security and lifetime boundaries pass.
+Publish the coordinated Auth, Sync, Devices, Sync Capacitor, and AbsoluteJS beta
+versions, then hand `IOS_MACOS_TESTING.md` to the macOS partner. While that
+independent iOS acceptance runs, implement the PWA/service-worker bridge over
+the same finite protocol and transactional store. Expo remains out of scope
+until the Capacitor security, background, and lifetime boundaries pass on a
+physical iOS device.

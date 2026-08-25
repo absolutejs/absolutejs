@@ -154,7 +154,13 @@ describe('Capacitor local web bundle', () => {
 			redirectUri: 'com.example.product://auth/callback',
 			scopes: ['openid', 'profile']
 		});
-		expect(manifest.sync).toEqual({ socketTickets: true });
+		expect(manifest.sync).toEqual({
+			background: {
+				endpoint: 'https://api.example.com/__absolute/sync/background',
+				intervalMinutes: 15
+			},
+			socketTickets: true
+		});
 	});
 
 	test('embeds every completed client framework and defers Ember', async () => {
