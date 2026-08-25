@@ -2585,6 +2585,27 @@ Exit criteria:
   retry eventually syncs.
 - The same pack test suite passes against IndexedDB and Capacitor SQLite adapters.
 
+Implementation checkpoint (August 25, 2026): Phase 2A now has its additive
+protocol and storage foundation in `@absolutejs/sync` 2.16.0. Mutate frames can
+carry a stable string operation ID while retaining their legacy numeric
+correlation ID. The engine's server-owned durable-mutation runner derives the
+receipt namespace from authenticated context and gives a database adapter one
+atomic boundary for table writes, the receipt, and the stored result. A lost ack
+can therefore replay the committed result without executing the handler or
+emitting its diff twice. Effects outside that database boundary must still use a
+transactional outbox.
+
+The client package now defines one principal-namespaced `SyncLocalStore`
+transaction for installation identity, confirmed rows, cursor, and serializable
+optimistic/inverse outbox records. Its in-memory reference adapter and conformance
+tests prove atomic rollback, account isolation, readonly enforcement, and stable
+installation-prefixed operation IDs. Existing numeric frames and current
+`createSyncCollection` storage/cache options remain backward-compatible. This is
+the foundation checkpoint, not completion of Phase 2A: the next slices are the
+IndexedDB implementation and multiplexed-client integration, then Capacitor
+SQLite, auth-driven namespace lifecycle, conflict/dead-letter state, and headless
+orchestration.
+
 ### Phase 3: Capacitor project and CLI lifecycle
 
 Deliverables:
