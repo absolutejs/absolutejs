@@ -2606,6 +2606,21 @@ IndexedDB implementation and multiplexed-client integration, then Capacitor
 SQLite, auth-driven namespace lifecycle, conflict/dead-letter state, and headless
 orchestration.
 
+Implementation checkpoint (August 25, 2026, second Phase 2A slice):
+`@absolutejs/sync` 2.17.0 now implements the web/PWA side of that contract with
+IndexedDB and wires it into the recommended multiplexed client as an additive
+durable profile. Cached rows and cursors hydrate before subscription; one server
+frame persists every affected collection in one local transaction; serialized
+insert/update/delete optimism and its automatically captured inverse survive
+process death; and the same installation-prefixed operation ID replays until the
+server echoes that exact identity. Missing/mismatched operation identity fails
+closed instead of silently accepting an acknowledgment from a legacy server.
+Existing callback optimism remains the explicit process-local tier, and the
+non-durable client path is unchanged. The same conformance suite passes against
+the in-memory reference and IndexedDB adapters. Remaining Phase 2A work starts
+with the Capacitor SQLite implementation and Absolute/Auth namespace
+provisioning, followed by conflict/dead-letter policy and headless orchestration.
+
 ### Phase 3: Capacitor project and CLI lifecycle
 
 Deliverables:
