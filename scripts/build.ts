@@ -252,6 +252,46 @@ const build = async () => {
 		process.exit(1);
 	}
 
+	console.log('Building mobile shell modules...');
+	const mobileShellBuild = await Bun.build({
+		entrypoints: [
+			'src/mobile/shellBootstrap.ts',
+			'src/mobile/shellAuth.ts',
+			'src/mobile/shellSync.ts'
+		],
+		external: [
+			'@absolutejs/auth/*',
+			'@absolutejs/devices',
+			'@absolutejs/devices-capacitor',
+			'@absolutejs/sync/*',
+			'@absolutejs/sync-capacitor',
+			'@capacitor/*',
+			'@capacitor-community/sqlite'
+		],
+		outdir: join(DIST, 'mobile'),
+		target: 'browser'
+	});
+
+	if (!mobileShellBuild.success) {
+		console.error('Mobile shell module build failed:');
+		for (const log of mobileShellBuild.logs) console.error(log);
+		process.exit(1);
+	}
+	const missingMobileShell = (
+		await Promise.all(
+			['shellBootstrap.js', 'shellAuth.js', 'shellSync.js'].map(
+				async (name) => ({
+					exists: await Bun.file(join(DIST, 'mobile', name)).exists(),
+					name
+				})
+			)
+		)
+	).find(({ exists }) => !exists);
+	if (missingMobileShell)
+		throw new Error(
+			`Mobile shell build did not emit ${missingMobileShell.name}.`
+		);
+
 	console.log('Building image client (browser target)...');
 	const imageBuild = await Bun.build({
 		entrypoints: ['src/utils/imageClient.ts'],

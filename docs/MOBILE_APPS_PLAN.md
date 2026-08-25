@@ -2621,6 +2621,29 @@ the in-memory reference and IndexedDB adapters. Remaining Phase 2A work starts
 with the Capacitor SQLite implementation and Absolute/Auth namespace
 provisioning, followed by conflict/dead-letter policy and headless orchestration.
 
+Implementation checkpoint (August 25, 2026, third Phase 2A slice):
+`@absolutejs/sync` 2.18.0 extracted a public adapter conformance contract;
+2.19.0 added immediate reconnect with a fresh socket ticket; 2.20.0 made
+durability runtime-provisionable for unchanged page code; and 2.21.0 added host
+lifecycle enrollment for every ordinary multiplexed client. `@absolutejs/auth`
+0.70.0 now resolves a verified mobile principal and derives an opaque namespace
+from issuer, public client ID, and subject, with an optional server-owned
+partition claim. `@absolutejs/sync-capacitor` 0.1.0 passes that shared contract
+with transactional native SQLite and reconnects clients on resume/connectivity.
+
+AbsoluteJS 0.20.0-beta.7 composes these pieces automatically whenever an app
+already declares Auth and Sync: page code continues to call the normal Auth and
+Sync APIs, while the native shell provisions SQLite, ticket Auth, and lifecycle
+handling. Identity changes reload the shell before another partition can be
+selected, destroying page-held clients and in-memory rows. Logout follows
+locked retention: the opaque partition remains on-device for offline recovery
+by the same verified account but is unavailable while signed out or signed in
+as another account. Mobile init/sync offers to install the tested SQLite plugin
+and adapter as direct application dependencies so Capacitor can discover the
+native plugin. Remaining Phase 2A work is conflict/dead-letter policy, bounded
+headless orchestration, quota/migrations/encryption policy, and richer status
+and devtools surfaces.
+
 ### Phase 3: Capacitor project and CLI lifecycle
 
 Deliverables:

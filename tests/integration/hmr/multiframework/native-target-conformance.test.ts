@@ -130,6 +130,11 @@ const withNativePage = async (
 				{ timeout: 10_000 }
 			);
 			await session.page.waitForFunction(
+				() => window.__ABS_HMR_TARGET__ === 'capacitor-android',
+				undefined,
+				{ timeout: 10_000 }
+			);
+			await session.page.waitForFunction(
 				() => document.readyState !== 'loading',
 				undefined,
 				{ timeout: 10_000 }

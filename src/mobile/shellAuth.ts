@@ -3,13 +3,18 @@ import { installCapacitorDeviceAdapter } from '@absolutejs/devices-capacitor';
 import {
 	createMobileAuthClient,
 	createMobileAuthTransport,
-	installAuthClientRuntimeTransport
+	installAuthClientRuntimeTransport,
+	type MobileAuthPrincipal
 } from '@absolutejs/auth/client/mobile';
 import type { AbsoluteMobileAuthManifest } from './nativeAuth';
 import type { AbsoluteMobileFetch } from './transport';
 
 export type AbsoluteMobileShellAuth = {
 	fetch: AbsoluteMobileFetch;
+	onPrincipalChange: (
+		listener: (principal: MobileAuthPrincipal | null) => void
+	) => () => void;
+	principal: MobileAuthPrincipal | null;
 	redirectUri: string;
 	socketTicket: (audience?: string) => Promise<string>;
 };
@@ -37,12 +42,15 @@ export const createAbsoluteMobileShellAuth = async (
 		storage: secureStorage
 	});
 	await client.start();
+	const principal = await client.principal();
 	installAuthClientRuntimeTransport(
 		createMobileAuthTransport(client, { baseUrl: config.issuer })
 	);
 
 	return {
 		fetch: client.fetchOptional,
+		onPrincipalChange: client.onPrincipalChange,
+		principal,
 		redirectUri: config.redirectUri,
 		socketTicket: client.socketTicket
 	};

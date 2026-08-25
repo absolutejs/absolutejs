@@ -1,7 +1,7 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.6` and
+`@absolutejs/absolute@0.20.0-beta.7` and
 `@absolutejs/deploy@0.24.0`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
 
@@ -64,14 +64,16 @@ still requires the developer team setup described below.
 From the root of the AbsoluteJS application:
 
 ```sh
-bun add @absolutejs/absolute@0.20.0-beta.6 \
-  @absolutejs/auth@0.69.6 \
-  @absolutejs/sync@2.15.1 \
+bun add @absolutejs/absolute@0.20.0-beta.7 \
+  @absolutejs/auth@0.70.0 \
+  @absolutejs/sync@2.21.0 \
+  @absolutejs/sync-capacitor@0.1.0 \
   @absolutejs/deploy@0.24.0 \
   @absolutejs/blob@0.5.2 \
   @capacitor/core@8.5.0 \
   @capacitor/app@8.1.1 \
   @capacitor/browser@8.0.4 \
+  @capacitor-community/sqlite@8.1.1 \
   @capacitor/network@8.0.1 \
   @capacitor/preferences@8.0.1 \
   @capacitor/cli@8.5.0 \
@@ -81,17 +83,19 @@ bun add @absolutejs/absolute@0.20.0-beta.6 \
 ```
 
 `absolute mobile init` now offers to install this tested Capacitor/device
-toolchain when it is missing; pass `--yes` in automation. When the application
-declares `@absolutejs/auth`, the same build automatically provisions native
-OAuth. Auth-enabled apps must mount the package's OIDC provider, and Sync apps
-should configure the Auth socket-ticket store/consumer before exercising
-authenticated reconnects.
+toolchain when it is missing; `mobile init` and `mobile sync` also offer the
+SQLite plugin and adapter when the application declares `@absolutejs/sync`.
+Pass `--yes` in automation. When the application declares `@absolutejs/auth`,
+the same build automatically provisions native OAuth. Auth-enabled apps must
+mount the package's OIDC provider, and Sync apps should configure the Auth
+socket-ticket store/consumer before exercising authenticated reconnects.
 
 Application pages continue to import the normal `@absolutejs/auth/client` and
 `@absolutejs/sync/client` APIs. Do not add Capacitor imports, branch on iOS, or
 manually edit `Info.plist` for authentication. AbsoluteJS provisions the public
 PKCE client, native browser transport, Keychain storage, callback URL scheme,
-and authenticated Sync ticket transport from the existing packages and mobile
+authenticated Sync ticket transport, account-isolated SQLite cache/outbox, and
+resume/connectivity handling from the existing packages and mobile
 configuration.
 
 Keep the existing compatible versions if the application deliberately pins
@@ -250,8 +254,21 @@ sequence in the managed simulator:
    page recovers when the backend returns rather than remaining permanently
    stale. If practical, repeat this on a physical device by disabling and
    restoring Wi-Fi.
-7. Sign out and relaunch. The previous account must not return, proving that
-   native credentials were removed.
+7. While signed in and Sync is ready, disable network access. Make a supported
+   serializable optimistic mutation, quit the app, and relaunch while still
+   offline. Confirm the last confirmed rows and pending optimistic change are
+   visible from SQLite without a server connection.
+8. Restore the network. Sync must reconnect immediately with a fresh ticket,
+   deliver the same stable operation ID, converge on the server result, and
+   remove the outbox record. Verify in server/database logs that the business
+   effect executed exactly once even if the acknowledgment was interrupted.
+9. Sign out and relaunch. The previous account must not return, proving that
+   native credentials were removed and its offline partition is locked. Sign in
+   as a different staging account and confirm none of the previous account's
+   cached rows or pending mutations are visible or replayed.
+10. Sign back in as the original verified account. Its retained partition may
+    become available again; it must be the same converged data, not an exposed
+    raw subject identifier or a newly mixed account partition.
 
 Inspect the redacted `[ios]`, Auth-provider, and Sync-server logs while running
 the sequence. A passing result has all of these properties:
@@ -598,9 +615,11 @@ source change and build a new content-addressed release instead.
 - Mac architecture:
 - Xcode version:
 - Bun version:
-- AbsoluteJS version: 0.20.0-beta.6
-- Auth version: 0.69.6
-- Sync version: 2.15.1
+- AbsoluteJS version: 0.20.0-beta.7
+- Auth version: 0.70.0
+- Sync version: 2.21.0
+- Sync Capacitor version: 0.1.0
+- Capacitor SQLite version: 8.1.1
 - Devices Capacitor version: 0.1.2
 - Deploy version: 0.24.0
 - App bundle ID (non-secret):
@@ -617,6 +636,9 @@ source change and build a new content-addressed release instead.
 - First authenticated Sync snapshot: PASS / FAIL
 - Sync disconnect/reconnect with a fresh ticket: PASS / FAIL
 - Backend restart/offline recovery: PASS / FAIL
+- Offline process-death cache/outbox recovery: PASS / FAIL
+- Exactly-once replay after reconnect: PASS / FAIL
+- Cross-account local partition isolation: PASS / FAIL
 - Sign-in return / first Sync / reconnect / relaunch timings:
 - Remote Mac doctor from Windows/Linux: PASS / FAIL / NOT RUN
 - Remote Mac HMR and native rebuild: PASS / FAIL / NOT RUN

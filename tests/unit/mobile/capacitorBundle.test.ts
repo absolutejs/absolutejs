@@ -139,6 +139,9 @@ describe('Capacitor local web bundle', () => {
 		expect(bootstrap).toContain('AbsoluteSecureStorage');
 		expect(bootstrap).toContain('oidc.refresh');
 		expect(bootstrap).toContain('client-runtime-transport');
+		expect(bootstrap).toContain('absolute_sync_metadata');
+		expect(bootstrap).toContain('registerClient');
+		expect(bootstrap).toContain('networkStatusChange');
 		expect(bootstrap).toContain('absoluteMobilePageStyle');
 		expect(bootstrap).not.toContain('server-producer-hash');
 		expect(

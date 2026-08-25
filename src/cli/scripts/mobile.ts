@@ -1,4 +1,4 @@
-import { access, mkdir, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import type { MobileConfig } from '../../../types/build';
@@ -65,6 +65,7 @@ import {
 	removeAbsoluteRemoteMacProfile,
 	type AbsoluteRemoteMacProfile
 } from '../../mobile/remoteMacProtocol';
+import { projectUsesAbsoluteSync } from '../../mobile/nativeAuth';
 
 const NOT_FOUND = -1;
 
@@ -131,6 +132,57 @@ const CAPACITOR_PACKAGE_SPECS = [
 	'@absolutejs/devices@0.0.2',
 	'@absolutejs/devices-capacitor@0.1.2'
 ];
+
+const CAPACITOR_SYNC_PACKAGE_SPECS = [
+	'@absolutejs/sync-capacitor@0.1.0',
+	'@capacitor-community/sqlite@8.1.1'
+];
+
+const packageNameFromSpec = (spec: string) =>
+	spec.slice(0, spec.lastIndexOf('@'));
+
+const directProjectPackages = async (projectRoot: string) => {
+	const manifest: unknown = JSON.parse(
+		await readFile(join(projectRoot, 'package.json'), 'utf8')
+	);
+	if (!isRecord(manifest))
+		throw new TypeError('Application package.json must contain an object.');
+	const names = new Set<string>();
+	for (const field of ['dependencies', 'devDependencies']) {
+		const dependencies = Reflect.get(manifest, field);
+		if (isRecord(dependencies))
+			for (const name of Object.keys(dependencies)) names.add(name);
+	}
+
+	return names;
+};
+
+const ensureCapacitorPackages = async (projectRoot: string, args: string[]) => {
+	const specs = [
+		...CAPACITOR_PACKAGE_SPECS,
+		...(projectUsesAbsoluteSync(projectRoot)
+			? CAPACITOR_SYNC_PACKAGE_SPECS
+			: [])
+	];
+	const installed = await directProjectPackages(projectRoot);
+	const missing = specs.filter(
+		(spec) => !installed.has(packageNameFromSpec(spec))
+	);
+	if (missing.length === 0) return;
+	const approved =
+		args.includes('--yes') ||
+		(await confirmInstall(
+			'Capacitor and the AbsoluteJS native adapters are missing. Install the tested mobile toolchain now?'
+		));
+	if (!approved)
+		throw new TypeError(
+			`Mobile initialization requires: bun add ${missing.join(' ')}`
+		);
+	if (!installPackages(projectRoot, missing))
+		throw new TypeError(
+			'Failed to install the AbsoluteJS mobile toolchain.'
+		);
+};
 
 const valueAfter = (args: string[], flag: string) => {
 	const index = args.indexOf(flag);
@@ -276,23 +328,7 @@ const initialize = async (args: string[]) => {
 	const { mobile, projectRoot } = await loadMobile(
 		valueAfter(args, '--config')
 	);
-	try {
-		await access(join(projectRoot, 'node_modules', '.bin', 'cap'));
-	} catch {
-		const approved =
-			args.includes('--yes') ||
-			(await confirmInstall(
-				'Capacitor and the AbsoluteJS native device adapter are missing. Install the tested mobile toolchain now?'
-			));
-		if (!approved)
-			throw new TypeError(
-				`Mobile initialization requires: bun add ${CAPACITOR_PACKAGE_SPECS.join(' ')}`
-			);
-		if (!installPackages(projectRoot, CAPACITOR_PACKAGE_SPECS))
-			throw new TypeError(
-				'Failed to install the AbsoluteJS mobile toolchain.'
-			);
-	}
+	await ensureCapacitorPackages(projectRoot, args);
 	const generated = await writeAbsoluteCapacitorConfig(mobile, {
 		force: args.includes('--force'),
 		projectRoot
@@ -309,6 +345,7 @@ const sync = async (args: string[]) => {
 	const { mobile, projectRoot } = await loadMobile(
 		valueAfter(args, '--config')
 	);
+	await ensureCapacitorPackages(projectRoot, args);
 	const platform = args.find(
 		(value) => value === 'android' || value === 'ios'
 	);

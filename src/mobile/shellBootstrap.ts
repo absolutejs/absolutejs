@@ -18,15 +18,23 @@ const STATUS_ID = 'absolute-mobile-status';
 
 export type AbsoluteMobileShellAuthRuntime = {
 	fetch: AbsoluteMobileFetch;
+	onPrincipalChange: (
+		listener: (principal: AbsoluteMobileShellPrincipal | null) => void
+	) => () => void;
+	principal: AbsoluteMobileShellPrincipal | null;
 	redirectUri: string;
 	socketTicket: (audience?: string) => Promise<string>;
+};
+
+export type AbsoluteMobileShellPrincipal = {
+	namespace: string;
 };
 
 export type AbsoluteMobileShellOptions = {
 	createAuth?: (
 		config: NonNullable<AbsoluteMobileClientManifest['auth']>
 	) => Promise<AbsoluteMobileShellAuthRuntime>;
-	installSync?: (auth: AbsoluteMobileShellAuthRuntime) => void;
+	installSync?: (auth: AbsoluteMobileShellAuthRuntime) => void | (() => void);
 };
 
 let navigationGeneration = 0;
