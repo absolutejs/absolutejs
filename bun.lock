@@ -22,8 +22,8 @@
       "devDependencies": {
         "@absolutejs/manifest": "0.9.0",
         "@absolutejs/scoped-state": "0.2.2",
-        "@absolutejs/sync": "2.21.0",
-        "@absolutejs/sync-capacitor": "0.1.0",
+        "@absolutejs/sync": "2.22.2",
+        "@absolutejs/sync-capacitor": "0.2.0",
         "@angular/animations": "21.2.6",
         "@angular/cdk": "21.2.6",
         "@angular/common": "21.2.6",
@@ -92,15 +92,15 @@
         "vue-tsc": "^3.2.5",
       },
       "optionalDependencies": {
-        "@absolutejs/native-darwin-arm64": "0.20.0-beta.7",
-        "@absolutejs/native-darwin-x64": "0.20.0-beta.7",
-        "@absolutejs/native-linux-arm64": "0.20.0-beta.7",
-        "@absolutejs/native-linux-x64": "0.20.0-beta.7",
-        "@absolutejs/native-windows-arm64": "0.20.0-beta.7",
-        "@absolutejs/native-windows-x64": "0.20.0-beta.7",
+        "@absolutejs/native-darwin-arm64": "0.20.0-beta.8",
+        "@absolutejs/native-darwin-x64": "0.20.0-beta.8",
+        "@absolutejs/native-linux-arm64": "0.20.0-beta.8",
+        "@absolutejs/native-linux-x64": "0.20.0-beta.8",
+        "@absolutejs/native-windows-arm64": "0.20.0-beta.8",
+        "@absolutejs/native-windows-x64": "0.20.0-beta.8",
       },
       "peerDependencies": {
-        "@absolutejs/sync": ">=2.21.0 <3",
+        "@absolutejs/sync": ">=2.22.2 <3",
         "@angular/animations": "^21.0.0",
         "@angular/common": "^21.0.0",
         "@angular/compiler": "^21.0.0",
@@ -310,9 +310,9 @@
 
     "@absolutejs/scoped-state": ["@absolutejs/scoped-state@0.2.2", "", { "dependencies": { "@absolutejs/manifest": "^0.9.0", "@sinclair/typebox": "^0.34.0" }, "peerDependencies": { "elysia": "^2.0.0-beta.6" } }, "sha512-Z5MdenEWVrOR9C9X9zeJJEY7NUNJu1yPLVnJOxE9wXxTtsgOod5pcg2WZQVOK+Pkm6kGYI3F13K12pdO59TZXQ=="],
 
-    "@absolutejs/sync": ["@absolutejs/sync@2.21.0", "", { "dependencies": { "@absolutejs/manifest": "^0.9.0", "@absolutejs/telemetry": ">=0.2.0 <0.4.0", "@sinclair/typebox": "^0.34.0" }, "peerDependencies": { "@absolutejs/isolated-jsc": ">=0.12.2 <0.13.0", "@angular/core": ">=21.2.18 <22", "@elysia/cron": "^2.0.0-beta.1", "@modelcontextprotocol/sdk": ">=1.29.0 <2", "@tanstack/db": ">=0.6.16 <0.7", "drizzle-orm": ">=1.0.0-rc.4 <2", "elysia": "^2.0.0-beta.6", "react": ">=19.2.8 <20", "svelte": ">=5.56.7 <6", "vue": ">=3.5.40 <4" }, "optionalPeers": ["@absolutejs/isolated-jsc", "@angular/core", "@elysia/cron", "@modelcontextprotocol/sdk", "@tanstack/db", "drizzle-orm", "elysia", "react", "svelte", "vue"] }, "sha512-6dIHSFyCWTET3n0v+9apIc0VQC1dr+8dgqIVPaNo/RSSNHEZBQ9Y1p+rQQ3qRnlr+QioAfv2w7ht7DPGXdHUjA=="],
+    "@absolutejs/sync": ["@absolutejs/sync@2.22.2", "", { "dependencies": { "@absolutejs/manifest": "^0.9.0", "@absolutejs/telemetry": ">=0.2.0 <0.4.0", "@sinclair/typebox": "^0.34.0" }, "peerDependencies": { "@absolutejs/isolated-jsc": ">=0.12.2 <0.13.0", "@angular/core": ">=21.2.18 <22", "@elysia/cron": "^2.0.0-beta.1", "@modelcontextprotocol/sdk": ">=1.29.0 <2", "@tanstack/db": ">=0.6.16 <0.7", "drizzle-orm": ">=1.0.0-rc.4 <2", "elysia": "^2.0.0-beta.6", "react": ">=19.2.8 <20", "svelte": ">=5.56.7 <6", "vue": ">=3.5.40 <4" }, "optionalPeers": ["@absolutejs/isolated-jsc", "@angular/core", "@elysia/cron", "@modelcontextprotocol/sdk", "@tanstack/db", "drizzle-orm", "elysia", "react", "svelte", "vue"] }, "sha512-bhjNPRNKSMErRaR8KeE7UJJ2fuGBOw5+QX+6XoJHV3Qq7+BerEp9px3wf5YY05+HD07w+qk/BtvzjBjKrpN24A=="],
 
-    "@absolutejs/sync-capacitor": ["@absolutejs/sync-capacitor@0.1.0", "", { "peerDependencies": { "@absolutejs/devices": ">=0.0.2 <0.1.0", "@absolutejs/sync": ">=2.20.0 <3", "@capacitor-community/sqlite": ">=8.1.1 <9" } }, "sha512-GsabxhRXD3rMHHVVjbQEyngHtLl6oYAbYvyULgz2Ap6GsSipKK23wPaS1GZ+1N1mc6y33BBAMw3PwglU99r53w=="],
+    "@absolutejs/sync-capacitor": ["@absolutejs/sync-capacitor@0.2.0", "", { "peerDependencies": { "@absolutejs/devices": ">=0.0.2 <0.1.0", "@absolutejs/sync": ">=2.22.0 <3", "@capacitor-community/sqlite": ">=8.1.1 <9" } }, "sha512-iouRGpxhTyDIt9QLirb/S+zdcdjX1vjlJV6DQXmy53p01ubFLVdZEeIxScLIGsDIwfcKtpXW9EZhzoDm4xxGyA=="],
 
     "@absolutejs/telemetry": ["@absolutejs/telemetry@0.3.1", "", { "dependencies": { "@absolutejs/handoff": "0.1.0" }, "peerDependencies": { "drizzle-orm": ">=1.0.0-rc.4 <2" }, "optionalPeers": ["drizzle-orm"] }, "sha512-Apd/FfS1BbDyeMDwoWsSx8ql5MeLjLY7MQn0yAHz1T1wxqpnQgFTdYKbvqcfAJ6/hpQLTHw4EY/QkihwtQuPjQ=="],
 

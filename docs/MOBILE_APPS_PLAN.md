@@ -2644,6 +2644,25 @@ native plugin. Remaining Phase 2A work is conflict/dead-letter policy, bounded
 headless orchestration, quota/migrations/encryption policy, and richer status
 and devtools surfaces.
 
+Implementation checkpoint (August 25, 2026, fourth Phase 2A slice):
+`@absolutejs/sync` 2.22.2 adds typed `conflict`, `permanent`, and `retryable`
+mutation outcomes. Durable clients retain conflicts/permanent failures as
+principal-scoped dead letters, bound explicitly retryable delivery to five
+attempts by default, and expose status, finite `flush()`, list, retry, and
+discard APIs without a framework dependency. Acknowledgments and rejections no
+longer settle the in-memory operation if the corresponding durable store update
+fails. `@absolutejs/sync-capacitor` 0.2.0 passes the expanded store contract and
+runs a finite outbox flush after resume or restored connectivity.
+
+AbsoluteJS 0.20.0-beta.8 automatically forwards every unchanged native Sync
+client through that lifecycle and emits its redacted counters/timestamps as the
+`absolute:sync-status` browser event for shell diagnostics. This slice does not
+claim operating-system background guarantees: the remaining orchestration work
+is a finite HTTP push/pull protocol usable in a separate Background Runner or
+service-worker context. Remaining Phase 2A work also includes storage schema
+migrations, quota/eviction and encryption policy, pack-declared conflict
+reducers, and full devtools remediation UI.
+
 ### Phase 3: Capacitor project and CLI lifecycle
 
 Deliverables:

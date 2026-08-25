@@ -1,7 +1,7 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.7` and
+`@absolutejs/absolute@0.20.0-beta.8` and
 `@absolutejs/deploy@0.24.0`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
 
@@ -64,10 +64,10 @@ still requires the developer team setup described below.
 From the root of the AbsoluteJS application:
 
 ```sh
-bun add @absolutejs/absolute@0.20.0-beta.7 \
+bun add @absolutejs/absolute@0.20.0-beta.8 \
   @absolutejs/auth@0.70.0 \
-  @absolutejs/sync@2.21.0 \
-  @absolutejs/sync-capacitor@0.1.0 \
+  @absolutejs/sync@2.22.2 \
+  @absolutejs/sync-capacitor@0.2.0 \
   @absolutejs/deploy@0.24.0 \
   @absolutejs/blob@0.5.2 \
   @capacitor/core@8.5.0 \
@@ -269,6 +269,12 @@ sequence in the managed simulator:
 10. Sign back in as the original verified account. Its retained partition may
     become available again; it must be the same converged data, not an exposed
     raw subject identifier or a newly mixed account partition.
+11. If the staging app exposes a conflict fixture, make an offline edit and
+    advance the same server row from another client before reconnecting. Confirm
+    the optimistic overlay rolls back, the operation appears as one typed
+    `conflict` dead letter, and it does not retry forever. Explicitly retry or
+    discard it through the app's Sync diagnostics and confirm the retained
+    SQLite record follows that choice.
 
 Inspect the redacted `[ios]`, Auth-provider, and Sync-server logs while running
 the sequence. A passing result has all of these properties:
@@ -615,10 +621,10 @@ source change and build a new content-addressed release instead.
 - Mac architecture:
 - Xcode version:
 - Bun version:
-- AbsoluteJS version: 0.20.0-beta.7
+- AbsoluteJS version: 0.20.0-beta.8
 - Auth version: 0.70.0
-- Sync version: 2.21.0
-- Sync Capacitor version: 0.1.0
+- Sync version: 2.22.2
+- Sync Capacitor version: 0.2.0
 - Capacitor SQLite version: 8.1.1
 - Devices Capacitor version: 0.1.2
 - Deploy version: 0.24.0
@@ -639,6 +645,7 @@ source change and build a new content-addressed release instead.
 - Offline process-death cache/outbox recovery: PASS / FAIL
 - Exactly-once replay after reconnect: PASS / FAIL
 - Cross-account local partition isolation: PASS / FAIL
+- Conflict dead-letter retention/remediation: PASS / FAIL / NOT RUN
 - Sign-in return / first Sync / reconnect / relaunch timings:
 - Remote Mac doctor from Windows/Linux: PASS / FAIL / NOT RUN
 - Remote Mac HMR and native rebuild: PASS / FAIL / NOT RUN

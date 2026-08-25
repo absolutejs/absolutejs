@@ -11,6 +11,7 @@ test('provisions account-bound native durability and lifecycle without page wiri
 	let principalListenerRemoved = 0;
 	let lifecycleRemoved = 0;
 	let reloads = 0;
+	const statuses: unknown[] = [];
 	const store = createMemorySyncLocalStore();
 	const dispose = installAbsoluteMobileShellSync(
 		{
@@ -33,7 +34,8 @@ test('provisions account-bound native durability and lifecycle without page wiri
 			},
 			reload: () => {
 				reloads += 1;
-			}
+			},
+			reportStatus: (status) => statuses.push(status)
 		}
 	);
 	const runtime = getSyncClientRuntimeTransport();
@@ -42,12 +44,30 @@ test('provisions account-bound native durability and lifecycle without page wiri
 		store
 	});
 	expect(await runtime?.socketTicket()).toBe('ticket');
+	let statusListenerRemoved = 0;
 	const removeClient = runtime?.registerClient?.({
-		reconnect: () => undefined
+		flush: async () => ({ deadLetters: 0, pending: 0, timedOut: false }),
+		reconnect: () => undefined,
+		status: () => ({
+			connection: 'online',
+			deadLetters: 1,
+			pending: 0
+		}),
+		subscribeStatus: (listener) => {
+			listener({ connection: 'online', deadLetters: 1, pending: 0 });
+
+			return () => {
+				statusListenerRemoved += 1;
+			};
+		}
 	});
+	expect(statuses).toEqual([
+		{ connection: 'online', deadLetters: 1, pending: 0 }
+	]);
 	removeClient?.();
 	await new Promise((resolve) => setTimeout(resolve, 0));
 	expect(lifecycleRemoved).toBe(1);
+	expect(statusListenerRemoved).toBe(1);
 
 	principalListener?.({ namespace: 'principal-a' });
 	expect(reloads).toBe(0);

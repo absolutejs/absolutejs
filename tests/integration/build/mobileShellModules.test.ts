@@ -38,4 +38,5 @@ void startAbsoluteMobileShell({ createAuth: createAbsoluteMobileShellAuth, insta
 	const source = await Bun.file(result.outputs[0]?.path ?? '').text();
 	expect(source).toContain('absolute_sync_metadata');
 	expect(source).toContain('networkStatusChange');
+	expect(source).toContain('absolute:sync-status');
 });

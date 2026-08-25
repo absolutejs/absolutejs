@@ -142,6 +142,7 @@ describe('Capacitor local web bundle', () => {
 		expect(bootstrap).toContain('absolute_sync_metadata');
 		expect(bootstrap).toContain('registerClient');
 		expect(bootstrap).toContain('networkStatusChange');
+		expect(bootstrap).toContain('absolute:sync-status');
 		expect(bootstrap).toContain('absoluteMobilePageStyle');
 		expect(bootstrap).not.toContain('server-producer-hash');
 		expect(
