@@ -7,9 +7,9 @@
 		"url": "https://github.com/absolutejs/absolutejs/issues"
 	},
 	"dependencies": {
-		"@absolutejs/auth": "0.69.3",
+		"@absolutejs/auth": "0.69.6",
 		"@absolutejs/devices": "0.0.2",
-		"@absolutejs/devices-capacitor": "0.1.0",
+		"@absolutejs/devices-capacitor": "0.1.2",
 		"@capacitor/browser": "8.0.4",
 		"@capacitor/network": "8.0.1",
 		"@capacitor/preferences": "8.0.1",
@@ -24,7 +24,7 @@
 	"description": "A fullstack meta-framework for building web applications with TypeScript",
 	"devDependencies": {
 		"@absolutejs/manifest": "0.9.0",
-		"@absolutejs/scoped-state": "0.2.0",
+		"@absolutejs/scoped-state": "0.2.2",
 		"@absolutejs/sync": "2.15.1",
 		"@angular/animations": "21.2.6",
 		"@angular/cdk": "21.2.6",
@@ -272,12 +272,12 @@
 	"main": "./dist/index.js",
 	"name": "@absolutejs/absolute",
 	"optionalDependencies": {
-		"@absolutejs/native-darwin-arm64": "0.20.0-beta.5",
-		"@absolutejs/native-darwin-x64": "0.20.0-beta.5",
-		"@absolutejs/native-linux-arm64": "0.20.0-beta.5",
-		"@absolutejs/native-linux-x64": "0.20.0-beta.5",
-		"@absolutejs/native-windows-arm64": "0.20.0-beta.5",
-		"@absolutejs/native-windows-x64": "0.20.0-beta.5"
+		"@absolutejs/native-darwin-arm64": "0.20.0-beta.6",
+		"@absolutejs/native-darwin-x64": "0.20.0-beta.6",
+		"@absolutejs/native-linux-arm64": "0.20.0-beta.6",
+		"@absolutejs/native-linux-x64": "0.20.0-beta.6",
+		"@absolutejs/native-windows-arm64": "0.20.0-beta.6",
+		"@absolutejs/native-windows-x64": "0.20.0-beta.6"
 	},
 	"overrides": {
 		"@sinclair/typebox": "0.34.52",
@@ -488,7 +488,7 @@
 			]
 		}
 	},
-	"version": "0.20.0-beta.5",
+	"version": "0.20.0-beta.6",
 	"workspaces": [
 		"tests/fixtures/*",
 		"tests/fixtures/_packages/*"

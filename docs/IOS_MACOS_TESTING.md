@@ -1,7 +1,7 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.4` and
+`@absolutejs/absolute@0.20.0-beta.6` and
 `@absolutejs/deploy@0.24.0`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
 
@@ -64,7 +64,9 @@ still requires the developer team setup described below.
 From the root of the AbsoluteJS application:
 
 ```sh
-bun add @absolutejs/absolute@0.20.0-beta.5 \
+bun add @absolutejs/absolute@0.20.0-beta.6 \
+  @absolutejs/auth@0.69.6 \
+  @absolutejs/sync@2.15.1 \
   @absolutejs/deploy@0.24.0 \
   @absolutejs/blob@0.5.2 \
   @capacitor/core@8.5.0 \
@@ -75,7 +77,7 @@ bun add @absolutejs/absolute@0.20.0-beta.5 \
   @capacitor/cli@8.5.0 \
   @capacitor/ios@8.5.0 \
   @absolutejs/devices@0.0.2 \
-  @absolutejs/devices-capacitor@0.1.0
+  @absolutejs/devices-capacitor@0.1.2
 ```
 
 `absolute mobile init` now offers to install this tested Capacitor/device
@@ -84,6 +86,13 @@ declares `@absolutejs/auth`, the same build automatically provisions native
 OAuth. Auth-enabled apps must mount the package's OIDC provider, and Sync apps
 should configure the Auth socket-ticket store/consumer before exercising
 authenticated reconnects.
+
+Application pages continue to import the normal `@absolutejs/auth/client` and
+`@absolutejs/sync/client` APIs. Do not add Capacitor imports, branch on iOS, or
+manually edit `Info.plist` for authentication. AbsoluteJS provisions the public
+PKCE client, native browser transport, Keychain storage, callback URL scheme,
+and authenticated Sync ticket transport from the existing packages and mobile
+configuration.
 
 Keep the existing compatible versions if the application deliberately pins
 newer versions. Record `bun --version` and `xcodebuild -version` for the test
@@ -210,6 +219,61 @@ backend. Repeat the traversal after `relaunch`; the app must start from its entr
 route rather than restoring a stale intermediate WebView document. Include any
 failed page, screenshot, and Xcode/WebView console output in the report template
 at the end of this file.
+
+### Native Auth and authenticated Sync acceptance
+
+This acceptance is required for the handoff. Use an application route that uses
+the ordinary, type-safe `createAuthClient()` and `createSyncClient()` APIs. The
+route must not import `@capacitor/*`, `@absolutejs/devices-capacitor`, or contain
+an iOS-specific branch. Its server must mount the `@absolutejs/auth` OIDC
+provider and configure the package's socket-ticket store and consumer for Sync.
+Use a staging identity; do not send its password in the report.
+
+Run `bunx absolute mobile sync ios` once, then start `bun dev` and perform this
+sequence in the managed simulator:
+
+1. Open the Auth/Sync route and start sign-in. Authentication must open the
+   system authentication browser, not render a password form inside the app's
+   WebView.
+2. Complete sign-in. The callback URL must return directly to the same app and
+   show the expected user without manual URL copying or native-project edits.
+3. Confirm Sync reaches ready state and receives its first authenticated
+   snapshot.
+4. Force the Sync connection to disconnect, then reconnect it. Confirm it
+   reaches ready state again and catches up without another login prompt. The
+   server must issue and consume a new single-use socket ticket for the second
+   connection.
+5. Enter `relaunch` in the `bun dev` terminal. Reopen the route and confirm the
+   authenticated user is restored from iOS Keychain without entering
+   credentials again. Sync must reconnect with another fresh ticket.
+6. Stop and restart the backend while leaving the app installed. Confirm the
+   page recovers when the backend returns rather than remaining permanently
+   stale. If practical, repeat this on a physical device by disabling and
+   restoring Wi-Fi.
+7. Sign out and relaunch. The previous account must not return, proving that
+   native credentials were removed.
+
+Inspect the redacted `[ios]`, Auth-provider, and Sync-server logs while running
+the sequence. A passing result has all of these properties:
+
+- The callback exactly matches `<mobile appId in lowercase>://auth/callback`,
+  unless `mobile.deepLinks.scheme` deliberately overrides the scheme.
+- Authorization uses code flow with PKCE and a public native client; no client
+  secret is shipped in the application.
+- Authorization codes, access/refresh tokens, socket tickets, passwords, and
+  cookies do not appear in URLs, screenshots, terminal logs, telemetry, or the
+  report.
+- Refresh credentials persist in iOS Keychain, not Capacitor Preferences,
+  `localStorage`, or ordinary WebView cookies.
+- Every Sync connection consumes one short-lived, single-use ticket. Reusing a
+  consumed ticket is rejected.
+- The same page source still works in a normal browser, where Auth and storage
+  use their web implementations.
+
+Record time from tapping sign-in to return, first Sync-ready time, reconnect
+time, relaunch-to-restored-user time, and whether the run used the simulator or
+a physical device. Attach a sanitized screenshot of the completed state and
+the failure state if any step fails.
 
 Then run the correlated HMR timing test:
 
@@ -534,7 +598,10 @@ source change and build a new content-addressed release instead.
 - Mac architecture:
 - Xcode version:
 - Bun version:
-- AbsoluteJS version: 0.20.0-beta.4
+- AbsoluteJS version: 0.20.0-beta.6
+- Auth version: 0.69.6
+- Sync version: 2.15.1
+- Devices Capacitor version: 0.1.2
 - Deploy version: 0.24.0
 - App bundle ID (non-secret):
 - Marketing version:
@@ -544,6 +611,13 @@ source change and build a new content-addressed release instead.
 - App Store upload and processing: PASS / FAIL
 - TestFlight assignment: PASS / FAIL
 - Physical-device install and cold launch: PASS / FAIL
+- System-browser PKCE sign-in and callback: PASS / FAIL
+- Keychain session restored after relaunch: PASS / FAIL
+- Sign-out cleared the native session: PASS / FAIL
+- First authenticated Sync snapshot: PASS / FAIL
+- Sync disconnect/reconnect with a fresh ticket: PASS / FAIL
+- Backend restart/offline recovery: PASS / FAIL
+- Sign-in return / first Sync / reconnect / relaunch timings:
 - Remote Mac doctor from Windows/Linux: PASS / FAIL / NOT RUN
 - Remote Mac HMR and native rebuild: PASS / FAIL / NOT RUN
 - Remote Mac warm-cache restart: PASS / FAIL / NOT RUN

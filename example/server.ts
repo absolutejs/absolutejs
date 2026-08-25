@@ -1,11 +1,21 @@
 import { Elysia, type AnyElysia } from 'elysia';
 import { scopedState } from '@absolutejs/scoped-state';
+import {
+	auth,
+	createInMemoryAuthorizationCodeStore,
+	createInMemoryAuthSessionStore,
+	createInMemoryOAuthClientStore,
+	createInMemoryOidcRefreshTokenStore,
+	createInMemorySocketTicketStore,
+	generateSigningKey
+} from '@absolutejs/auth';
 import type * as AngularExamplePage from './angular/pages/angular-example';
 import type SvelteExample from './svelte/pages/SvelteExample.svelte';
 import type SpaShell from './vue/pages/SpaShell.vue';
 import type VueExample from './vue/pages/VueExample.vue';
 import { generateHeadElement } from '../src/utils/generateHeadElement';
 import { ReactExample } from './react/pages/ReactExample';
+import { NativeAuthSyncAcceptance } from './react/pages/NativeAuthSyncAcceptance';
 import {
 	asset,
 	handleHTMLPageRequest,
@@ -20,9 +30,27 @@ import { handleSveltePageRequest } from '../src/svelte';
 import { handleVuePageRequest } from '../src/vue';
 
 const { absolutejs, manifest } = await prepare();
+const nativeOidcIssuer =
+	process.env.ABSOLUTE_NATIVE_CONFORMANCE_ORIGIN ?? 'http://localhost:3000';
+const nativeOidc = await auth<{ sub: string }>({
+	authSessionStore: createInMemoryAuthSessionStore(),
+	oidc: {
+		authorizationCodeStore: createInMemoryAuthorizationCodeStore(),
+		clientStore: createInMemoryOAuthClientStore([]),
+		issuer: nativeOidcIssuer,
+		refreshTokenStore: createInMemoryOidcRefreshTokenStore(),
+		signingKey: await generateSigningKey(),
+		socketTicketStore: createInMemorySocketTicketStore(),
+		getClaims: () => ({}),
+		getUserId: ({ sub }) => sub
+	},
+	providersConfiguration: {},
+	getUser: (sub) => ({ sub })
+});
 
 export const server: AnyElysia = new Elysia()
 	.use(absolutejs)
+	.use(nativeOidc)
 	.use(
 		scopedState({
 			count: { value: 0 }
@@ -40,6 +68,22 @@ export const server: AnyElysia = new Elysia()
 			props: {
 				cssPath,
 				initialCount: 0
+			}
+		});
+	})
+	.get('/native-auth-sync', () => {
+		const origin =
+			process.env.ABSOLUTE_NATIVE_CONFORMANCE_ORIGIN ??
+			'http://localhost:39080';
+		const syncUrl = new URL('/__absolute/native-sync', origin);
+		syncUrl.protocol = syncUrl.protocol === 'https:' ? 'wss:' : 'ws:';
+
+		return handleReactPageRequest({
+			index: asset(manifest, 'NativeAuthSyncAcceptanceIndex'),
+			Page: NativeAuthSyncAcceptance,
+			props: {
+				email: 'native-conformance@absolutejs.com',
+				syncUrl: syncUrl.href
 			}
 		});
 	})

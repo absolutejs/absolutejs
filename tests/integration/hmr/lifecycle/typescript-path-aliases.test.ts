@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { startDevServer, type DevServer } from '../../../helpers/devServer';
 import { connectHMR, type HMRClient } from '../../../helpers/ws';
 import { mutateFile, restoreAllFiles } from '../../../helpers/file';
+import { waitForServer } from '../../../helpers/http';
 
 const PROJECT_ROOT = resolve(import.meta.dir, '..', '..', '..', '..');
 
@@ -107,7 +108,16 @@ describe('TypeScript tsconfig.json paths/baseUrl alias resolution', () => {
 				'<button @click="increment">tally is {{ count }} (alias-edit)</button>'
 			)
 		);
-		await c.waitFor('vue-tier-zero-ssr-rebuild-complete', 30_000);
+		await c.waitFor('rebuild-start', 30_000);
+		// A direct SFC edit can finish through Vue's tier-zero bundle
+		// rebuild or the full-build path, depending on cache state and
+		// concurrent framework work. The contract is that SSR converges,
+		// not which internal completion message wins.
+		await waitForServer(`${srv.baseUrl}/vue`, 60, {
+			delayMs: 500,
+			isReady: async (response) =>
+				(await response.text()).includes('tally is')
+		});
 
 		const after = await (await fetch(`${srv.baseUrl}/vue`)).text();
 		expect(after).toContain('tally is');

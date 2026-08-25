@@ -129,7 +129,7 @@ const CAPACITOR_PACKAGE_SPECS = [
 	'@capacitor/android@8.5.0',
 	'@capacitor/ios@8.5.0',
 	'@absolutejs/devices@0.0.2',
-	'@absolutejs/devices-capacitor@0.1.0'
+	'@absolutejs/devices-capacitor@0.1.2'
 ];
 
 const valueAfter = (args: string[], flag: string) => {
