@@ -2877,9 +2877,9 @@ scheduler; foreground/resume Sync remains authoritative.
 
 ## Recommended immediate next step
 
-Publish the coordinated Auth, Sync, Devices, Sync Capacitor, and AbsoluteJS beta
-versions, then hand `IOS_MACOS_TESTING.md` to the macOS partner. While that
-independent iOS acceptance runs, implement the PWA/service-worker bridge over
-the same finite protocol and transactional store. Expo remains out of scope
-until the Capacitor security, background, and lifetime boundaries pass on a
-physical iOS device.
+The coordinated Auth, Sync, Devices, Sync Capacitor, native binary, and
+AbsoluteJS beta versions are published. Hand `IOS_MACOS_TESTING.md` to the
+macOS partner for physical-device acceptance. While that independent iOS run is
+in progress, implement the PWA/service-worker bridge over the same finite
+protocol and transactional store. Expo remains out of scope until the Capacitor
+security, background, and lifetime boundaries pass on a physical iOS device.
