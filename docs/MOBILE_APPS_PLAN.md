@@ -2875,9 +2875,9 @@ compilation and real BGProcessingTask behavior on the partner's Mac and physical
 iOS device, using `IOS_MACOS_TESTING.md`. Correctness never depends on the OS
 scheduler; foreground/resume Sync remains authoritative.
 
-## Recommended immediate next step
+## Current PWA checkpoint
 
-The framework-agnostic PWA bridge is now published in `@absolutejs/pwa@0.9.1`,
+The framework-agnostic PWA bridge is now published in `@absolutejs/pwa@0.9.2`,
 backed by `@absolutejs/auth@0.72.0`, `@absolutejs/sync@2.24.0`, and
 `@absolutejs/sync-capacitor@0.4.0`. It bundles the real finite Sync runner into
 the generated worker, provisions only an opaque Auth namespace through a strict
@@ -2893,8 +2893,20 @@ island builds, runs before generated page entries, preserves user Bun banners,
 and is reused during incremental HMR. Build telemetry records PWA and PWA-Sync
 adoption while the existing `pwa/materialize` trace isolates generation cost.
 
-The next PWA phase is real Chromium offline/restart/account-switch conformance,
-including explicit update activation and runtime Sync duration/result telemetry.
+Runtime Sync outcomes are now available to the application as a typed listener,
+a latched latest value, and the `absolute:pwa-sync-result` DOM event. The browser
+boundary accepts only status, duration, trigger, and aggregate counts; it drops
+namespaces, endpoints, credentials, arguments, and rows. This is a local
+application signal, not an automatic analytics channel.
+
+Real persistent-profile Chromium conformance now proves offline fallback after
+a full browser restart with the origin unavailable, opaque account A/B worker
+reconfiguration, IndexedDB namespace isolation, cookie/principal re-resolution,
+logout clearing, and the sanitized telemetry contract. Account refreshes are
+latest-wins, old work is aborted before replacement, and worker configuration
+events are serialized so network latency cannot restore an older principal.
+
+The remaining PWA acceptance item is explicit waiting-worker update activation.
 In parallel, the macOS partner should continue physical iOS acceptance using
 `IOS_MACOS_TESTING.md`. Expo remains out of scope until the Capacitor security,
 background, and lifetime boundaries pass on a physical iOS device.

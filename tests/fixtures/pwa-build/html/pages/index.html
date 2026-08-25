@@ -3,6 +3,12 @@
 	<head>
 		<meta charset="utf-8" />
 		<title>PWA fixture</title>
+		<script>
+			globalThis.__PWA_SYNC_RESULTS__ = [];
+			globalThis.addEventListener('absolute:pwa-sync-result', (event) => {
+				globalThis.__PWA_SYNC_RESULTS__.push(event.detail);
+			});
+		</script>
 	</head>
 	<body>
 		<p>Installable everywhere.</p>

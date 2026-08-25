@@ -150,6 +150,13 @@ browser offers it, while online/focus/visibility resume remains the correctness
 path. Native Capacitor clients continue to use their Bearer and SQLite
 transport; no web cookie or token is copied into the worker.
 
+`@absolutejs/pwa/client` also exposes `onPwaSyncResult()` and
+`getLastPwaSyncResult()` (plus the `absolute:pwa-sync-result` DOM event) for
+application-owned diagnostics. Results contain only success, duration, trigger,
+and aggregate counts—never credentials, namespaces, endpoints, arguments, or
+rows. Account changes are re-resolved before focus/online/visible Sync and the
+old worker run is aborted and cleared before the new namespace can run.
+
 ### Immutable production images
 
 Build production assets and the server bundle while constructing the image,

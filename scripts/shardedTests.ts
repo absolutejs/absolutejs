@@ -71,6 +71,7 @@ const DURATION_HINTS_MS: Record<string, number> = {
 // and run them serially from clean runtime state before the parallel shards.
 const EXCLUSIVE_TEST_FILES = new Set([
 	'tests/integration/compile.test.ts',
+	'tests/integration/pwa/runtimeConformance.test.ts',
 	'tests/integration/hmr/multiframework/native-target-conformance.test.ts',
 	'tests/integration/hmr/assets/asset-hashing.test.ts',
 	'tests/integration/hmr/lifecycle/cli-crash-loop-guard.test.ts',
@@ -81,6 +82,7 @@ const EXCLUSIVE_TEST_FILES = new Set([
 	'tests/integration/hmr/lifecycle/hmr-at-scale.test.ts',
 	'tests/integration/hmr/lifecycle/svelte-deep-coverage.test.ts',
 	'tests/integration/hmr/lifecycle/svelte-deeper-coverage.test.ts',
+	'tests/integration/hmr/lifecycle/ssr-mid-rebuild-race.test.ts',
 	'tests/integration/hmr/lifecycle/svelte-state-preservation.test.ts',
 	'tests/integration/hmr/lifecycle/vue-deep-coverage.test.ts',
 	'tests/integration/hmr/lifecycle/vue-deeper-coverage.test.ts',
