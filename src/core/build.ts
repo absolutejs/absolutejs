@@ -100,6 +100,7 @@ import { toKebab, toPascal } from '../utils/stringModifiers';
 import { validateSafePath } from '../utils/validateSafePath';
 import { setSpaRouteManifest } from '../utils/spaRouteManifest';
 import { isTestSourcePath } from '../utils/isTestSourcePath';
+import { injectPwaBootstrapHtml, materializeAbsolutePwa } from '../build/pwa';
 
 type BuildTraceEvent = {
 	durationMs: number;
@@ -885,6 +886,9 @@ export const mergeBunBuildConfig = (
 
 	const result: BunBuildOptions = {
 		...merged,
+		banner:
+			[base.banner, sanitized.banner].filter(Boolean).join('\n') ||
+			undefined,
 		define:
 			base.define || sanitized.define
 				? {
@@ -912,6 +916,7 @@ const buildUnlocked = async ({
 	htmxDirectory,
 	angularDirectory,
 	emberDirectory,
+	pwa,
 	svelteDirectory,
 	vueDirectory,
 	stylesConfig,
@@ -1086,6 +1091,8 @@ const buildUnlocked = async ({
 		framework: frameworkNames[0],
 		frameworks: frameworkNames,
 		mode: mode ?? (isDev ? 'development' : 'production'),
+		pwa: Boolean(pwa),
+		pwaSync: Boolean(pwa?.sync),
 		tailwind: Boolean(tailwind)
 	});
 
@@ -1162,6 +1169,17 @@ const buildUnlocked = async ({
 		await tracePhase('public/copy', () =>
 			cpSync(publicPath, buildPath, { force: true, recursive: true })
 		);
+
+	const pwaArtifacts = pwa
+		? await tracePhase('pwa/materialize', () =>
+				materializeAbsolutePwa({
+					buildPath,
+					config: pwa,
+					generatedRoot,
+					write: !isIncremental
+				})
+			)
+		: undefined;
 
 	// Helper to find matching entry points for incremental files
 	// The dependency graph already includes all dependent files in incrementalFiles
@@ -2387,6 +2405,7 @@ const buildUnlocked = async ({
 		reactClientEntryPoints.length > 0
 			? mergeBunBuildConfig(
 					{
+						banner: pwaArtifacts?.bootstrapBanner,
 						entrypoints: reactClientEntryPoints,
 						...(Object.keys(reactExternalPaths).length > 0
 							? { external: Object.keys(reactExternalPaths) }
@@ -2494,6 +2513,7 @@ const buildUnlocked = async ({
 					bunBuild(
 						mergeBunBuildConfig(
 							{
+								banner: pwaArtifacts?.bootstrapBanner,
 								conditions: svelteResolveConditions,
 								define: vueDirectory
 									? vueFeatureFlags
@@ -2584,6 +2604,7 @@ const buildUnlocked = async ({
 					bunBuild(
 						mergeBunBuildConfig(
 							{
+								banner: pwaArtifacts?.bootstrapBanner,
 								conditions: svelteResolveConditions,
 								define: vueDirectory
 									? vueFeatureFlags
@@ -3273,6 +3294,10 @@ const buildUnlocked = async ({
 		);
 		for (const htmlFile of htmlPageFiles) {
 			if (hmr) injectHMRIntoHTMLFile(htmlFile, 'html');
+			if (pwaArtifacts) {
+				const source = readFileSync(htmlFile, 'utf8');
+				writeFileSync(htmlFile, injectPwaBootstrapHtml(source));
+			}
 			const fileName = basename(htmlFile, '.html');
 			if (manifest[fileName] && manifest[fileName] !== htmlFile) {
 				warnManifestKeyCollision(
@@ -3318,6 +3343,10 @@ const buildUnlocked = async ({
 		);
 		for (const htmxFile of htmxPageFiles) {
 			if (hmr) injectHMRIntoHTMLFile(htmxFile, 'htmx');
+			if (pwaArtifacts) {
+				const source = readFileSync(htmxFile, 'utf8');
+				writeFileSync(htmxFile, injectPwaBootstrapHtml(source));
+			}
 			const fileName = basename(htmxFile, '.html');
 			if (manifest[fileName] && manifest[fileName] !== htmxFile) {
 				warnManifestKeyCollision(
@@ -3392,7 +3421,9 @@ const buildUnlocked = async ({
 	sendTelemetryEvent('build:complete', {
 		durationMs: Math.round(performance.now() - buildStart),
 		frameworks: frameworkNames,
-		mode: mode ?? (isDev ? 'development' : 'production')
+		mode: mode ?? (isDev ? 'development' : 'production'),
+		pwa: Boolean(pwa),
+		pwaSync: Boolean(pwa?.sync)
 	});
 
 	const [reactSpaHosts, svelteSpaHosts, vueSpaHosts, angularSpaHosts] =

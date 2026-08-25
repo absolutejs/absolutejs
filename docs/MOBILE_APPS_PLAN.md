@@ -2877,7 +2877,7 @@ scheduler; foreground/resume Sync remains authoritative.
 
 ## Recommended immediate next step
 
-The framework-agnostic PWA bridge is now published in `@absolutejs/pwa@0.9.0`,
+The framework-agnostic PWA bridge is now published in `@absolutejs/pwa@0.9.1`,
 backed by `@absolutejs/auth@0.72.0`, `@absolutejs/sync@2.24.0`, and
 `@absolutejs/sync-capacitor@0.4.0`. It bundles the real finite Sync runner into
 the generated worker, provisions only an opaque Auth namespace through a strict
@@ -2885,13 +2885,16 @@ same-origin session POST, discovers safe persisted collection descriptors, and
 uses Background Sync only as an acceleration over foreground/resume
 correctness. Native Bearer authentication is unchanged.
 
-The next root-framework phase is config-driven PWA generation and bootstrap so
-AbsoluteJS applications can opt into the worker once in
-`absolutejs.config.ts`, without per-route or per-framework code. That phase must
-cover React, Vue, Svelte, Angular, HTML, and HTMX, avoid duplicate bootstrap in
-island bundles, retain explicit update activation, expose Sync timing through
-the existing telemetry boundary, and run real Chromium offline/restart/account-
-switch conformance. In parallel, the macOS partner should continue physical iOS
-acceptance using `IOS_MACOS_TESTING.md`. Expo remains out of scope until the
-Capacitor security, background, and lifetime boundaries pass on a physical iOS
-device.
+The root-framework config phase is complete. Applications now opt in once with
+`pwa` in `absolutejs.config.ts`; AbsoluteJS generates the manifest, finite Sync
+worker, and a single shared browser bootstrap without route or framework code.
+The bootstrap is injected across React, Vue, Svelte, Angular, HTML, HTMX, and
+island builds, runs before generated page entries, preserves user Bun banners,
+and is reused during incremental HMR. Build telemetry records PWA and PWA-Sync
+adoption while the existing `pwa/materialize` trace isolates generation cost.
+
+The next PWA phase is real Chromium offline/restart/account-switch conformance,
+including explicit update activation and runtime Sync duration/result telemetry.
+In parallel, the macOS partner should continue physical iOS acceptance using
+`IOS_MACOS_TESTING.md`. Expo remains out of scope until the Capacitor security,
+background, and lifetime boundaries pass on a physical iOS device.

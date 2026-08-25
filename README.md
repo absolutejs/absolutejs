@@ -105,6 +105,51 @@ export const server = new Elysia()
 2. Route handlers (`handleReactPageRequest`, `handleSveltePageRequest`, …) stream HTML and inject scripts/assets based on that manifest.
 3. The static plugin serves all compiled files from `/build`.
 
+### Installable PWA and offline Sync
+
+Enable the web-app shell once in `absolutejs.config.ts`. AbsoluteJS generates a
+single shared browser bootstrap, service worker, and optional manifest, then
+wires them into React, Vue, Svelte, Angular, HTML, HTMX, and island client
+entries. Route and page code does not change.
+
+```ts
+import { defineConfig } from '@absolutejs/absolute';
+
+export default defineConfig({
+	// Existing framework directories and build settings...
+	pwa: {
+		manifest: {
+			name: 'Acme',
+			shortName: 'Acme',
+			themeColor: '#111827',
+			icons: [
+				{
+					src: '/icons/app-512.png',
+					sizes: '512x512',
+					type: 'image/png'
+				}
+			]
+		},
+		serviceWorker: {
+			offline: {
+				fallback: '/offline.html',
+				assetPrefix: '/assets/'
+			}
+		},
+		// With @absolutejs/auth + syncSocket(), this provisions the existing
+		// HTTP-only web session and durable IndexedDB transport automatically.
+		sync: true
+	}
+});
+```
+
+The default outputs are `/sw.js`, `/manifest.webmanifest`, and the internal
+shared bootstrap at `/__absolute/pwa/bootstrap.js`. Put referenced icons and the
+offline fallback in `publicDirectory`. The worker uses Background Sync when the
+browser offers it, while online/focus/visibility resume remains the correctness
+path. Native Capacitor clients continue to use their Bearer and SQLite
+transport; no web cookie or token is copied into the worker.
+
 ### Immutable production images
 
 Build production assets and the server bundle while constructing the image,

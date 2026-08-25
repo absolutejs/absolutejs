@@ -49,6 +49,22 @@ export type BuildOptions = {
 
 export type MobilePlatform = 'android' | 'ios';
 
+export type PwaConfig = {
+	/** Optional web-app manifest. `path` defaults to `/manifest.webmanifest`. */
+	manifest?: import('@absolutejs/pwa').WebAppManifestConfig & {
+		path?: string;
+	};
+	/** Service-worker behavior. Sync is controlled by the sibling `sync` field. */
+	serviceWorker?: Omit<
+		import('@absolutejs/pwa').ServiceWorkerOptions,
+		'sync'
+	>;
+	/** Public worker URL. Defaults to `/sw.js`. */
+	serviceWorkerPath?: string;
+	/** Provision Auth-aware IndexedDB/background Sync without page-level code. */
+	sync?: boolean | import('@absolutejs/pwa/client').PwaSyncOptions;
+};
+
 export type MobileConfig = {
 	/** Capacitor is the universal v1 engine. Expo remains a future React-only engine. */
 	engine?: 'capacitor';
@@ -312,6 +328,8 @@ export type BaseBuildConfig = {
 	htmxDirectory?: string;
 	/** Build metadata and retained server producers for installed applications. */
 	mobile?: MobileConfig;
+	/** Generate and bootstrap one framework-agnostic installable web app. */
+	pwa?: PwaConfig;
 	stylesConfig?: string | StylesConfig;
 	stylePreprocessors?: StylePreprocessorConfig;
 	postcss?: PostCSSConfig;

@@ -9,6 +9,10 @@ export type DevServer = {
 	baseUrl: string;
 	proc: ReturnType<typeof Bun.spawn>;
 	kill: () => Promise<void>;
+	/** Waits until the HMR rebuild flag and queue remain empty long enough for
+	 * watcher debounce to settle. Use this before mutating a fixture that an
+	 * earlier test just restored. */
+	waitForIdle: (options?: { timeoutMs?: number }) => Promise<void>;
 	/** Resolves when a line matching `pattern` is observed on the
 	 *  dev server's stdout/stderr. Useful for asserting on the
 	 *  `[abs:restart] <path>` stdout marker that the framework
@@ -50,6 +54,14 @@ type DevServerOptions = {
 };
 
 const DEFAULT_OUTPUT_TIMEOUT_MS = 10_000;
+const DEFAULT_IDLE_TIMEOUT_MS = 15_000;
+const IDLE_POLL_INTERVAL_MS = 50;
+const IDLE_STABILITY_MS = 500;
+
+type HmrStatus = {
+	isRebuilding?: unknown;
+	rebuildQueue?: unknown;
+};
 
 const drainStream = (
 	stream: ReadableStream<Uint8Array> | null,
@@ -192,12 +204,38 @@ export const startDevServer = async (options?: DevServerOptions | number) => {
 			});
 		});
 	};
+	const waitForIdle = async ({
+		timeoutMs = DEFAULT_IDLE_TIMEOUT_MS
+	} = {}) => {
+		const deadline = Date.now() + timeoutMs;
+		let idleSince: number | undefined;
+		while (Date.now() < deadline) {
+			const response = await fetch(`${baseUrl}/hmr-status`);
+			const status = (await response.json()) as HmrStatus;
+			const isIdle =
+				status.isRebuilding === false &&
+				Array.isArray(status.rebuildQueue) &&
+				status.rebuildQueue.length === 0;
+			if (!isIdle) {
+				idleSince = undefined;
+			} else {
+				idleSince ??= Date.now();
+				if (Date.now() - idleSince >= IDLE_STABILITY_MS) return;
+			}
+			await Bun.sleep(IDLE_POLL_INTERVAL_MS);
+		}
+
+		throw new Error(
+			`HMR did not remain idle for ${IDLE_STABILITY_MS}ms within ${timeoutMs}ms. Last 20 lines:\n${outputLines.slice(-20).join('\n')}`
+		);
+	};
 
 	return {
 		baseUrl,
 		kill,
 		port: resolvedPort,
 		proc,
+		waitForIdle,
 		waitForOutput,
 		get outputLines() {
 			return outputLines;

@@ -56,7 +56,8 @@ test('provisions account-bound native durability and lifecycle without page wiri
 		namespace: 'principal-a',
 		store
 	});
-	expect(await runtime?.socketTicket()).toBe('ticket');
+	expect(runtime?.socketTicket).toBeDefined();
+	expect(await runtime?.socketTicket?.()).toBe('ticket');
 	expect(backgroundConfiguration).toEqual({
 		clientId: 'native-client',
 		endpoint: 'https://app.example/__absolute/sync/background',

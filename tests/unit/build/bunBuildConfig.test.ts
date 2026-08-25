@@ -81,11 +81,12 @@ describe('bunBuild config overrides', () => {
 		expect(override.throw).toBeUndefined();
 	});
 
-	test('merges plugins, external, and define without dropping Absolute-owned values', () => {
+	test('merges plugins, external, banner, and define without dropping Absolute-owned values', () => {
 		const internalPlugin = plugin('absolute-internal');
 		const userPlugin = plugin('user-plugin');
 		const merged = mergeBunBuildConfig(
 			{
+				banner: 'await absoluteBootstrap();',
 				define: {
 					__USER_FLAG__: '"internal"',
 					__VUE_OPTIONS_API__: 'true'
@@ -98,6 +99,7 @@ describe('bunBuild config overrides', () => {
 				target: 'browser'
 			},
 			{
+				banner: 'userPrelude();',
 				define: {
 					__USER_FLAG__: '"user"',
 					__VUE_OPTIONS_API__: 'false'
@@ -108,6 +110,9 @@ describe('bunBuild config overrides', () => {
 		);
 
 		expect(merged.external).toEqual(['react', 'vue', 'svelte']);
+		expect(merged.banner).toBe(
+			'await absoluteBootstrap();\nuserPrelude();'
+		);
 		expect(merged.plugins).toEqual([internalPlugin, userPlugin]);
 		expect(merged.define).toEqual({
 			__USER_FLAG__: '"internal"',

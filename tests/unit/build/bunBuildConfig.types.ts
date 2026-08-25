@@ -19,6 +19,19 @@ const validOverride: BunBuildConfigOverride = {
 const validSingleServiceConfig = defineConfig({
 	entry: 'src/backend/server.ts',
 	reactDirectory: 'src/react',
+	pwa: {
+		manifest: {
+			icons: [
+				{ src: '/icon.svg', sizes: 'any', type: 'image/svg+xml' }
+			],
+			name: 'Absolute App',
+			shortName: 'Absolute'
+		},
+		serviceWorker: {
+			offline: { fallback: '/offline.html' }
+		},
+		sync: true
+	},
 	bunBuild: validOverride
 });
 

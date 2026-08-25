@@ -177,6 +177,8 @@ const EXTERNALS = [
 	'@angular/ssr',
 	'zone.js',
 	'@tailwindcss/oxide',
+	'@absolutejs/pwa',
+	'@absolutejs/pwa/*',
 	'typescript',
 	'debug',
 	'sharp',
