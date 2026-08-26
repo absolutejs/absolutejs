@@ -2906,7 +2906,11 @@ logout clearing, and the sanitized telemetry contract. Account refreshes are
 latest-wins, old work is aborted before replacement, and worker configuration
 events are serialized so network latency cannot restore an older principal.
 
-The remaining PWA acceptance item is explicit waiting-worker update activation.
-In parallel, the macOS partner should continue physical iOS acceptance using
+Real Chromium update conformance now also proves that a changed worker installs
+into `waiting`, passive discovery emits a latched update without reload, the old
+worker remains in control, and explicit `applyUpdate()` activation reloads once
+under the new worker. The planned PWA runtime acceptance matrix is complete.
+
+The macOS partner should continue physical iOS acceptance using
 `IOS_MACOS_TESTING.md`. Expo remains out of scope until the Capacitor security,
 background, and lifetime boundaries pass on a physical iOS device.

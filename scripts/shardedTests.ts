@@ -72,6 +72,7 @@ const DURATION_HINTS_MS: Record<string, number> = {
 const EXCLUSIVE_TEST_FILES = new Set([
 	'tests/integration/compile.test.ts',
 	'tests/integration/pwa/runtimeConformance.test.ts',
+	'tests/integration/pwa/updateActivationConformance.test.ts',
 	'tests/integration/hmr/multiframework/native-target-conformance.test.ts',
 	'tests/integration/hmr/assets/asset-hashing.test.ts',
 	'tests/integration/hmr/lifecycle/cli-crash-loop-guard.test.ts',

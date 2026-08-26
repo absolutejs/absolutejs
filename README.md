@@ -157,6 +157,11 @@ and aggregate counts—never credentials, namespaces, endpoints, arguments, or
 rows. Account changes are re-resolved before focus/online/visible Sync and the
 old worker run is aborted and cleared before the new namespace can run.
 
+App updates are consent-driven: `onUpdateAvailable()` latches a waiting worker
+for late UI subscribers, `checkForUpdate()` performs a passive check, and
+`applyUpdate()` activates and reloads only after the user accepts. AbsoluteJS
+does not silently replace a running application session.
+
 ### Immutable production images
 
 Build production assets and the server bundle while constructing the image,
