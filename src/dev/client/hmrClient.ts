@@ -17,6 +17,7 @@ import {
 	sendAbsoluteHmrTiming
 } from './hmrTiming';
 import { hideErrorOverlay, showErrorOverlay } from './errorOverlay';
+import { installAbsoluteNativeSyncDevtools } from './syncDevtools';
 import {
 	dispatchAngularComponentRemount,
 	dispatchAngularComponentUpdate
@@ -44,6 +45,10 @@ const isStringRecord = (value: unknown): value is Record<string, string> =>
 	Object.values(value).every((entry) => typeof entry === 'string');
 
 restoreAbsoluteHmrApply();
+const removeNativeSyncDevtools =
+	absoluteHmrClientTarget() === 'web'
+		? () => undefined
+		: installAbsoluteNativeSyncDevtools();
 
 /* Lightweight "server disconnected" banner. When the dev server is
  * genuinely down (process restarting or crashed) the browser would
@@ -164,15 +169,15 @@ type HMRMessage = {
 
 const handleStylesheetUpdate = (message: HMRMessage) => {
 	const clientStart = performance.now();
-	void reloadCSSStylesheets(message.data.manifest ?? {}).then((applied) => {
+	void reloadCSSStylesheets(message.data.manifest ?? {}).then((applied) =>
 		sendAbsoluteHmrTiming({
 			clientStart,
 			kind: 'css',
 			outcome: applied ? 'applied' : 'failed',
 			serverMs: message.data.serverDuration,
 			updateId: message.timestamp
-		});
-	});
+		})
+	);
 };
 
 const handleHMRMessage = (message: HMRMessage) => {
@@ -412,6 +417,7 @@ if (!(window.__HMR_WS__ && window.__HMR_WS__.readyState === WebSocket.OPEN)) {
 	};
 
 	window.addEventListener('beforeunload', () => {
+		removeNativeSyncDevtools();
 		if (hmrState.isHMRUpdating) {
 			if (hmrState.pingInterval) clearInterval(hmrState.pingInterval);
 			if (hmrState.reconnectTimeout)

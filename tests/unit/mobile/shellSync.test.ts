@@ -82,15 +82,27 @@ test('provisions account-bound native durability and lifecycle without page wiri
 	});
 	let statusListenerRemoved = 0;
 	const removeClient = runtime?.registerClient?.({
+		discardDeadLetter: async () => undefined,
 		flush: async () => ({ deadLetters: 0, pending: 0, timedOut: false }),
+		listDeadLetters: async () => [],
+		rebaseDeadLetter: async () => 'rebased',
 		reconnect: () => undefined,
+		retryDeadLetter: async () => undefined,
 		status: () => ({
+			automaticResolutions: 0,
+			conflicts: 1,
 			connection: 'online',
 			deadLetters: 1,
 			pending: 0
 		}),
 		subscribeStatus: (listener) => {
-			listener({ connection: 'online', deadLetters: 1, pending: 0 });
+			listener({
+				automaticResolutions: 0,
+				conflicts: 1,
+				connection: 'online',
+				deadLetters: 1,
+				pending: 0
+			});
 
 			return () => {
 				statusListenerRemoved += 1;
@@ -98,7 +110,13 @@ test('provisions account-bound native durability and lifecycle without page wiri
 		}
 	});
 	expect(statuses).toEqual([
-		{ connection: 'online', deadLetters: 1, pending: 0 }
+		{
+			automaticResolutions: 0,
+			conflicts: 1,
+			connection: 'online',
+			deadLetters: 1,
+			pending: 0
+		}
 	]);
 	removeClient?.();
 	await new Promise((resolve) => setTimeout(resolve, 0));

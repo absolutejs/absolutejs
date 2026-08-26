@@ -4,6 +4,7 @@ import {
 	resolveSyncLocalSchemaComponents,
 	type SyncLocalCollectionMigrationOperation,
 	type SyncLocalCollectionPolicy,
+	type SyncLocalConflictPolicy,
 	type SyncLocalDataPolicy,
 	type SyncLocalJsonValue,
 	type SyncLocalMutationPolicy,
@@ -345,6 +346,7 @@ const localDataPolicy = (value: unknown, id: string): SyncLocalDataPolicy => {
 					`localData.mutations[${index}] must be an object.`
 				);
 				const allowedRuleKeys = new Set([
+					'conflict',
 					'match',
 					'onProtectionUnavailable',
 					'persistence',
@@ -366,6 +368,56 @@ const localDataPolicy = (value: unknown, id: string): SyncLocalDataPolicy => {
 					rule,
 					'onProtectionUnavailable'
 				);
+				const declaredConflict = unknownField(rule, 'conflict');
+				let conflict: SyncLocalConflictPolicy | undefined;
+				if (declaredConflict !== undefined) {
+					const conflictRecord = requireObject(
+						declaredConflict,
+						id,
+						`localData.mutations[${index}].conflict must be an object.`
+					);
+					const unsupportedConflictKey = Object.keys(
+						conflictRecord
+					).find(
+						(key) => key !== 'maxAttempts' && key !== 'strategy'
+					);
+					if (unsupportedConflictKey)
+						throw metadataError(
+							id,
+							`localData.mutations[${index}].conflict.${unsupportedConflictKey} is not supported.`
+						);
+					const strategy = unknownField(conflictRecord, 'strategy');
+					if (
+						strategy !== 'client-wins' &&
+						strategy !== 'manual' &&
+						strategy !== 'server-wins'
+					)
+						throw metadataError(
+							id,
+							`localData.mutations[${index}].conflict.strategy is invalid.`
+						);
+					const maxAttempts = unknownField(
+						conflictRecord,
+						'maxAttempts'
+					);
+					if (maxAttempts !== undefined && strategy !== 'client-wins')
+						throw metadataError(
+							id,
+							`localData.mutations[${index}].conflict.maxAttempts requires client-wins.`
+						);
+					conflict = {
+						strategy,
+						...(maxAttempts === undefined
+							? {}
+							: {
+									maxAttempts: positiveVersion(
+										maxAttempts,
+										id,
+										`localData.mutations[${index}].conflict.maxAttempts`
+									)
+								})
+					};
+				}
 				if (
 					protection !== undefined &&
 					protection !== 'none' &&
@@ -410,6 +462,7 @@ const localDataPolicy = (value: unknown, id: string): SyncLocalDataPolicy => {
 						id,
 						`localData.mutations[${index}].match`
 					),
+					...(conflict ? { conflict } : {}),
 					...(sensitivity ? { sensitivity } : {}),
 					...(onProtectionUnavailable
 						? { onProtectionUnavailable }

@@ -219,10 +219,26 @@ const syncSchemaReleaseCheck = (projectRoot: string) => {
 				rule.persistence === 'memory-only' ||
 				rule.onProtectionUnavailable === 'memory-only'
 		).length;
+		type ConflictCounts = {
+			clientWins: number;
+			manual: number;
+			serverWins: number;
+		};
+		const conflictCounts: ConflictCounts = {
+			clientWins: mutationRules.filter(
+				(rule) => rule.conflict?.strategy === 'client-wins'
+			).length,
+			manual: mutationRules.filter(
+				(rule) => rule.conflict?.strategy === 'manual'
+			).length,
+			serverWins: mutationRules.filter(
+				(rule) => rule.conflict?.strategy === 'server-wins'
+			).length
+		};
 		const quotas = schema.components
 			.map((component) => component.localData?.maxBytesPerNamespace)
 			.filter((value): value is number => value !== undefined);
-		const policy = `${collectionRules.length} collection rule(s), ${mutationRules.length} mutation rule(s), ${protectedCount} encryption-required, ${memoryOnlyCount} memory-only fallback(s)${quotas.length > 0 ? `, ${Math.min(...quotas)}-byte effective quota` : ', no logical quota'}`;
+		const policy = `${collectionRules.length} collection rule(s), ${mutationRules.length} mutation rule(s), ${protectedCount} encryption-required, ${memoryOnlyCount} memory-only fallback(s), conflicts ${conflictCounts.clientWins} client-wins/${conflictCounts.serverWins} server-wins/${conflictCounts.manual} manual${quotas.length > 0 ? `, ${Math.min(...quotas)}-byte effective quota` : ', no logical quota'}`;
 
 		return pass(
 			'sync.storage-schema',

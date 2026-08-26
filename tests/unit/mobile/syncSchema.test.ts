@@ -61,6 +61,10 @@ describe('generated AbsoluteJS Sync schema metadata', () => {
 							maxBytesPerNamespace: 1048576,
 							mutations: [
 								{
+									conflict: {
+										maxAttempts: 2,
+										strategy: 'client-wins'
+									},
 									match: 'account:*',
 									onProtectionUnavailable: 'memory-only',
 									protection: 'required',
@@ -125,6 +129,10 @@ describe('generated AbsoluteJS Sync schema metadata', () => {
 					maxBytesPerNamespace: 1048576,
 					mutations: [
 						{
+							conflict: {
+								maxAttempts: 2,
+								strategy: 'client-wins'
+							},
 							match: 'account:*',
 							onProtectionUnavailable: 'memory-only',
 							protection: 'required'

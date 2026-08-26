@@ -12,6 +12,7 @@ import type { SyncClientStatus, SyncLocalStore } from '@absolutejs/sync/client';
 import { installSyncClientRuntimeTransport } from '@absolutejs/sync/client/runtime';
 import type { AbsoluteMobileShellAuthRuntime } from './shellBootstrap';
 import type { AbsoluteMobileClientManifest } from './transport';
+import { installAbsoluteMobileSyncRemediation } from './syncRemediation';
 
 export type AbsoluteMobileShellSyncOptions = {
 	createStore?: (options?: CapacitorSyncLocalStoreOptions) => SyncLocalStore;
@@ -104,6 +105,7 @@ export const installAbsoluteMobileShellSync = (
 			};
 		}
 	});
+	const removeRemediation = installAbsoluteMobileSyncRemediation();
 	const reload = options.reload ?? reloadShell;
 	const removePrincipalListener = auth.onPrincipalChange((principal) => {
 		if (principal?.namespace !== namespace) reload();
@@ -114,6 +116,7 @@ export const installAbsoluteMobileShellSync = (
 		if (!active) return;
 		active = false;
 		removePrincipalListener();
+		removeRemediation();
 		removeTransport();
 	};
 };

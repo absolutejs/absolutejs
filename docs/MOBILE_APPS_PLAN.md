@@ -2888,9 +2888,9 @@ scheduler; foreground/resume Sync remains authoritative.
 
 ## Current PWA checkpoint
 
-The framework-agnostic PWA bridge is now published in `@absolutejs/pwa@0.12.0`,
-backed by `@absolutejs/auth@0.72.0`, `@absolutejs/sync@2.28.0`, and
-`@absolutejs/sync-capacitor@0.7.0`. It bundles the real finite Sync runner into
+The framework-agnostic PWA bridge is now published in `@absolutejs/pwa@0.13.0`,
+backed by `@absolutejs/auth@0.72.0`, `@absolutejs/sync@2.29.0`, and
+`@absolutejs/sync-capacitor@0.8.0`. It bundles the real finite Sync runner into
 the generated worker, provisions only an opaque Auth namespace through a strict
 same-origin session POST, discovers safe persisted collection descriptors, and
 uses Background Sync only as an acceleration over foreground/resume
@@ -2949,7 +2949,7 @@ background, and lifetime boundaries pass on a physical iOS device.
 
 ## Current local-data policy checkpoint
 
-`@absolutejs/sync` 2.28.0 adds one declarative policy to the existing generated
+`@absolutejs/sync` 2.29.0 adds declarative policies to the existing generated
 schema components: collection/mutation sensitivity, durable versus memory-only
 persistence, encryption requirements, browser memory-only fallback,
 whole-projection maximum age, eviction priority, and a per-principal logical
@@ -2960,7 +2960,7 @@ that exceeds the ceiling fails and rolls back instead of losing intent.
 
 IndexedDB accepts an audited synchronous record protector and otherwise fails
 closed or uses an explicitly declared collection/mutation memory-only fallback.
-AbsoluteJS native provisions `@absolutejs/sync-capacitor` 0.7.0 automatically:
+AbsoluteJS native provisions `@absolutejs/sync-capacitor` 0.8.0 automatically:
 a random AES-256-GCM
 key lives in the existing Keychain/Keystore vault, payloads are authenticated to
 their principal/kind/name, and only ciphertext is written to SQLite. Android
@@ -2973,3 +2973,29 @@ on native and fall back to live memory/online-only behavior on an unprotected
 browser; presence is always ephemeral; derived counters and digest cursors are
 disposable; favorites, notifications, and triage are last-evicted critical
 caches. The server-only utils pack intentionally declares no client storage.
+
+The conflict/remediation slice is now implemented. Mutation policy metadata can
+declare `manual`, `server-wins`, or bounded `client-wins` behavior. The selected
+rule is captured inside each protected outbox record, so WebSocket foreground,
+PWA/headless HTTP, Android WorkManager, and iOS BGProcessingTask execution make
+the same deterministic decision. An unchanged retry preserves its durable
+operation ID because rejected server transactions commit no receipt; an
+argument-changing rebase atomically creates a new intent and records the
+superseded ID. A realm-shared runtime inspector aggregates pending/dead-letter
+counts, oldest ages, last successful push/pull, public rejection codes/messages,
+and automatic resolutions without exposing arguments or rejection details.
+AbsoluteJS installs the remediation bridge once in the native shell so every
+framework can inspect, retry, discard, or explicitly rebase without page wiring.
+
+During Android/iOS development, the existing native HMR client now installs a
+Shadow-DOM Sync panel automatically. It displays only the redacted aggregate and
+dead-letter projection, badges retained failures, and provides retry, confirmed
+discard, and JSON-plus-confirmation rebase controls. It is selected by the same
+deterministic native target marker as HMR and is absent from production assets.
+
+Official pack defaults are conservative: comments and favorite toggle operations
+remain manual; idempotent favorites, mentions, notifications, and triage receive
+one client-wins retry; ephemeral presence accepts the server view. Release doctor
+prints the effective strategy counts. Application-facing merge UI remains an
+app/product concern, but it can consume the same typed remediation bridge without
+depending on Capacitor, React, or the development panel.

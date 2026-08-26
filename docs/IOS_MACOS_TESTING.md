@@ -1,7 +1,7 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.16` and
+`@absolutejs/absolute@0.20.0-beta.17` and
 `@absolutejs/deploy@0.24.0`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
 
@@ -64,10 +64,10 @@ still requires the developer team setup described below.
 From the root of the AbsoluteJS application:
 
 ```sh
-bun add @absolutejs/absolute@0.20.0-beta.16 \
+bun add @absolutejs/absolute@0.20.0-beta.17 \
   @absolutejs/auth@0.72.0 \
-  @absolutejs/sync@2.28.0 \
-  @absolutejs/sync-capacitor@0.7.0 \
+  @absolutejs/sync@2.29.0 \
+  @absolutejs/sync-capacitor@0.8.0 \
   @absolutejs/deploy@0.24.0 \
   @absolutejs/blob@0.5.2 \
   @capacitor/core@8.5.0 \
@@ -214,6 +214,14 @@ This verifies that the app is installed and launchable, confirms the native iOS
 HMR client is connected through `/hmr-status`, and saves a simulator screenshot
 under `.absolutejs/mobile/test-artifacts`.
 
+Native development also shows an AbsoluteJS `Sync` button in the lower-right
+safe area. It is injected by the native HMR client only; it is not included in
+release assets. Open it to inspect redacted pending/conflict counts and retained
+dead letters. `Retry unchanged` preserves the original operation ID, `Discard`
+requires confirmation, and `Rebase with new args` requires valid JSON plus a
+second confirmation because it creates a new operation intent. The panel must
+never display cached rows, mutation arguments, credentials, or namespaces.
+
 Before moving on, traverse the example application's ordinary links in this
 order: React → Angular → Vue → Svelte → HTML → HTMX → React. Confirm that each
 page renders without opening Safari or restarting the native app. Visit HTML a
@@ -275,9 +283,11 @@ sequence in the managed simulator:
 11. If the staging app exposes a conflict fixture, make an offline edit and
     advance the same server row from another client before reconnecting. Confirm
     the optimistic overlay rolls back, the operation appears as one typed
-    `conflict` dead letter, and it does not retry forever. Explicitly retry or
-    discard it through the app's Sync diagnostics and confirm the retained
-    SQLite record follows that choice.
+    `conflict` dead letter, and it does not retry forever. Open the development
+    `Sync` panel and retry it unchanged; confirm the original operation ID is
+    preserved. Repeat the fixture, choose `Rebase with new args`, and confirm a
+    new operation ID supersedes the old one. Finally repeat and discard it;
+    confirm SQLite follows each explicit choice.
 12. Use a fixture whose generated `localData` marks one collection and mutation
     `sensitivity: "private"` with `protection: "required"`. After foreground
     Sync writes them, inspect the app's SQLite `record_json` values from Xcode or
@@ -699,10 +709,10 @@ source change and build a new content-addressed release instead.
 - Mac architecture:
 - Xcode version:
 - Bun version:
-- AbsoluteJS version: 0.20.0-beta.16
+- AbsoluteJS version: 0.20.0-beta.17
 - Auth version: 0.72.0
-- Sync version: 2.28.0
-- Sync Capacitor version: 0.7.0
+- Sync version: 2.29.0
+- Sync Capacitor version: 0.8.0
 - Capacitor SQLite version: 8.1.1
 - Devices Capacitor version: 0.1.3
 - Deploy version: 0.24.0
@@ -724,6 +734,7 @@ source change and build a new content-addressed release instead.
 - Exactly-once replay after reconnect: PASS / FAIL
 - Cross-account local partition isolation: PASS / FAIL
 - Conflict dead-letter retention/remediation: PASS / FAIL / NOT RUN
+- Native Sync devtools redaction/retry/rebase/discard: PASS / FAIL / NOT RUN
 - Sign-in return / first Sync / reconnect / relaunch timings:
 - Remote Mac doctor from Windows/Linux: PASS / FAIL / NOT RUN
 - Remote Mac HMR and native rebuild: PASS / FAIL / NOT RUN
