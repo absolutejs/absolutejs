@@ -7,9 +7,9 @@
 		"url": "https://github.com/absolutejs/absolutejs/issues"
 	},
 	"dependencies": {
-		"@absolutejs/auth": "0.72.0",
-		"@absolutejs/devices": "0.5.0",
-		"@absolutejs/devices-capacitor": "0.6.1",
+		"@absolutejs/auth": "0.74.0",
+		"@absolutejs/devices": "0.6.0",
+		"@absolutejs/devices-capacitor": "0.7.1",
 		"@absolutejs/pwa": "0.13.0",
 		"@capacitor/browser": "8.0.4",
 		"@capacitor/network": "8.0.1",
@@ -24,6 +24,7 @@
 	},
 	"description": "A fullstack meta-framework for building web applications with TypeScript",
 	"devDependencies": {
+		"@absolutejs/dispatch": "0.8.0",
 		"@absolutejs/manifest": "0.9.0",
 		"@absolutejs/scoped-state": "0.2.2",
 		"@absolutejs/sync": "2.29.0",
@@ -54,6 +55,7 @@
 		"@capacitor/haptics": "8.0.2",
 		"@capacitor/ios": "8.5.0",
 		"@capacitor/local-notifications": "8.2.1",
+		"@capacitor/push-notifications": "8.1.2",
 		"@capacitor/share": "8.0.1",
 		"@embroider/macros": "^1.20.2",
 		"@eslint/js": "^10.0.1",
@@ -499,7 +501,7 @@
 			]
 		}
 	},
-	"version": "0.20.0-beta.24",
+	"version": "0.20.0-beta.25",
 	"workspaces": [
 		"tests/fixtures/*",
 		"tests/fixtures/_packages/*"

@@ -1,6 +1,10 @@
 import { Elysia, type AnyElysia } from 'elysia';
 import { scopedState } from '@absolutejs/scoped-state';
 import {
+	createPushLifecycle,
+	memoryPushSubscriptionStore
+} from '@absolutejs/dispatch';
+import {
 	auth,
 	createInMemoryAuthorizationCodeStore,
 	createInMemoryAuthSessionStore,
@@ -19,6 +23,7 @@ import { NativeAuthSyncAcceptance } from './react/pages/NativeAuthSyncAcceptance
 import { NativeLocationAcceptance } from './react/pages/NativeLocationAcceptance';
 import { NativeDocumentsAcceptance } from './react/pages/NativeDocumentsAcceptance';
 import { NativeNotificationsAcceptance } from './react/pages/NativeNotificationsAcceptance';
+import { NativePushAcceptance } from './react/pages/NativePushAcceptance';
 import {
 	asset,
 	handleHTMLPageRequest,
@@ -35,8 +40,23 @@ import { handleVuePageRequest } from '../src/vue';
 const { absolutejs, manifest } = await prepare();
 const nativeOidcIssuer =
 	process.env.ABSOLUTE_NATIVE_CONFORMANCE_ORIGIN ?? 'http://localhost:3000';
+const nativePushLifecycle = createPushLifecycle({
+	store: memoryPushSubscriptionStore(),
+	adapterFor: () => ({
+		name: 'absolutejs-acceptance',
+		send: async () => ({
+			at: Date.now(),
+			provider: 'absolutejs-acceptance'
+		})
+	})
+});
 const nativeOidc = await auth<{ sub: string }>({
 	authSessionStore: createInMemoryAuthSessionStore(),
+	nativePush: {
+		registrar: nativePushLifecycle,
+		tenant: 'absolutejs-acceptance',
+		topics: () => ['absolutejs-mobile-acceptance']
+	},
 	oidc: {
 		authorizationCodeStore: createInMemoryAuthorizationCodeStore(),
 		clientStore: createInMemoryOAuthClientStore([]),
@@ -108,6 +128,13 @@ export const server: AnyElysia = new Elysia()
 		handleReactPageRequest({
 			index: asset(manifest, 'NativeNotificationsAcceptanceIndex'),
 			Page: NativeNotificationsAcceptance,
+			props: {}
+		})
+	)
+	.get('/native-push', () =>
+		handleReactPageRequest({
+			index: asset(manifest, 'NativePushAcceptanceIndex'),
+			Page: NativePushAcceptance,
 			props: {}
 		})
 	)

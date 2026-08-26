@@ -121,6 +121,24 @@ const localNotificationsPlan: AbsoluteDeviceCapabilityPlan = {
 	requiredPackages: ['@capacitor/local-notifications@8.2.1']
 };
 
+const pushNotificationsPlan: AbsoluteDeviceCapabilityPlan = {
+	capabilities: ['pushNotifications'],
+	providers: {
+		pushNotifications: {
+			factory: 'createCapacitorPushNotificationsCapability',
+			module: '@absolutejs/devices-capacitor/push-notifications',
+			native: {
+				android: {
+					permissions: ['android.permission.POST_NOTIFICATIONS']
+				},
+				ios: { pushNotifications: true }
+			},
+			packages: ['@capacitor/push-notifications@8.1.2']
+		}
+	},
+	requiredPackages: ['@capacitor/push-notifications@8.1.2']
+};
+
 const iosProject = `// !$*UTF8*$!
 {
 objects = {
@@ -149,6 +167,137 @@ objects = {
 `;
 
 describe('native device capability projection', () => {
+	test('provisions native push plumbing and validates the Firebase application identity', async () => {
+		const root = await mkdtemp(join(tmpdir(), 'absolute-native-push-'));
+		temporaryDirectories.push(root);
+		const ios = join(root, 'mobile/ios/App/App');
+		const android = join(root, 'mobile/android/app/src/main');
+		await Promise.all([
+			mkdir(ios, { recursive: true }),
+			mkdir(android, { recursive: true })
+		]);
+		await Promise.all([
+			writeFile(
+				join(ios, 'Info.plist'),
+				'<plist>\n<dict>\n</dict>\n</plist>\n'
+			),
+			writeFile(
+				join(ios, 'AppDelegate.swift'),
+				'import UIKit\nimport Capacitor\nclass AppDelegate {\n}\n'
+			),
+			writeFile(
+				join(root, 'mobile/ios/App/AbsoluteJS.entitlements'),
+				'<plist>\n<dict>\n</dict>\n</plist>\n'
+			),
+			writeFile(
+				join(android, 'AndroidManifest.xml'),
+				'<manifest>\n    <application />\n</manifest>\n'
+			),
+			writeFile(
+				join(root, 'google-services.json'),
+				JSON.stringify({
+					client: [
+						{
+							client_info: {
+								android_client_info: {
+									package_name: 'com.example.push'
+								}
+							}
+						}
+					]
+				})
+			)
+		]);
+		const config = normalizeAbsoluteMobileConfig(
+			{
+				appId: 'com.example.push',
+				appName: 'Push',
+				server: { productionOrigin: 'https://api.example.com' }
+			},
+			root
+		);
+
+		const first = await applyAbsoluteNativeDeviceCapabilities(
+			root,
+			config,
+			config.platforms,
+			pushNotificationsPlan
+		);
+		const second = await applyAbsoluteNativeDeviceCapabilities(
+			root,
+			config,
+			config.platforms,
+			pushNotificationsPlan
+		);
+		const entitlements = await readFile(
+			join(root, 'mobile/ios/App/AbsoluteJS.entitlements'),
+			'utf8'
+		);
+		const delegate = await readFile(join(ios, 'AppDelegate.swift'), 'utf8');
+		const firebase = await readFile(
+			join(root, 'mobile/android/app/google-services.json'),
+			'utf8'
+		);
+
+		expect(first.changed).toEqual(['ios', 'android']);
+		expect(second.changed).toEqual([]);
+		expect(entitlements).toContain('<key>aps-environment</key>');
+		expect(delegate).toContain(
+			'.capacitorDidRegisterForRemoteNotifications'
+		);
+		expect(delegate).toContain(
+			'.capacitorDidFailToRegisterForRemoteNotifications'
+		);
+		expect(JSON.parse(firebase).client).toHaveLength(1);
+	});
+
+	test('rejects a Firebase config for a different Android application before projection', async () => {
+		const root = await mkdtemp(
+			join(tmpdir(), 'absolute-native-push-wrong-')
+		);
+		temporaryDirectories.push(root);
+		const android = join(root, 'mobile/android/app/src/main');
+		await mkdir(android, { recursive: true });
+		const manifest = '<manifest>\n    <application />\n</manifest>\n';
+		await Promise.all([
+			writeFile(join(android, 'AndroidManifest.xml'), manifest),
+			writeFile(
+				join(root, 'google-services.json'),
+				JSON.stringify({
+					client: [
+						{
+							client_info: {
+								android_client_info: {
+									package_name: 'com.example.other'
+								}
+							}
+						}
+					]
+				})
+			)
+		]);
+		const config = normalizeAbsoluteMobileConfig(
+			{
+				appId: 'com.example.push',
+				appName: 'Push',
+				platforms: ['android'],
+				server: { productionOrigin: 'https://api.example.com' }
+			},
+			root
+		);
+
+		await expect(
+			applyAbsoluteNativeDeviceCapabilities(
+				root,
+				config,
+				config.platforms,
+				pushNotificationsPlan
+			)
+		).rejects.toThrow('does not contain package com.example.push');
+		expect(
+			await readFile(join(android, 'AndroidManifest.xml'), 'utf8')
+		).toBe(manifest);
+	});
 	test('generates idempotent iOS descriptions without unnecessary Android permissions', async () => {
 		const root = await mkdtemp(join(tmpdir(), 'absolute-native-devices-'));
 		temporaryDirectories.push(root);

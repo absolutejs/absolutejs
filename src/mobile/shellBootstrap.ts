@@ -40,8 +40,11 @@ export type AbsoluteMobileShellPrincipal = {
 
 export type AbsoluteMobileShellOptions = {
 	createAuth?: (
-		config: NonNullable<AbsoluteMobileClientManifest['auth']>
+		config: NonNullable<AbsoluteMobileClientManifest['auth']>,
+		options?: { beforeSignOut?: () => Promise<void> | void }
 	) => Promise<AbsoluteMobileShellAuthRuntime>;
+	beforeSignOut?: () => Promise<void> | void;
+	connectPush?: (auth: AbsoluteMobileShellAuthRuntime) => void;
 	installSync?: (
 		auth: AbsoluteMobileShellAuthRuntime,
 		config: NonNullable<AbsoluteMobileClientManifest['sync']>
@@ -265,8 +268,11 @@ export const startAbsoluteMobileShell = async (
 	const manifest = await readManifest();
 	const auth =
 		manifest.auth && options.createAuth
-			? await options.createAuth(manifest.auth)
+			? await options.createAuth(manifest.auth, {
+					beforeSignOut: options.beforeSignOut
+				})
 			: undefined;
+	if (auth) options.connectPush?.(auth);
 	if (auth && manifest.sync?.socketTickets)
 		options.installSync?.(auth, manifest.sync);
 	let removeAnchorNavigation: () => void = () => undefined;

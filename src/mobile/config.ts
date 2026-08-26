@@ -15,6 +15,7 @@ export type NormalizedAbsoluteMobileConfig = {
 	nativeProjectDirectory: string;
 	platforms: MobilePlatform[];
 	productionOrigin: string;
+	pushAndroidGoogleServicesFile: string;
 };
 
 const APP_ID_PATTERN = /^[A-Za-z][\w]*(?:\.[A-Za-z][\w]*)+$/;
@@ -232,6 +233,12 @@ export const normalizeAbsoluteMobileConfig = (
 			'mobile.nativeProject.directory'
 		),
 		platforms: normalizePlatforms(config.platforms),
-		productionOrigin
+		productionOrigin,
+		pushAndroidGoogleServicesFile: resolveProjectPath(
+			projectRoot,
+			config.pushNotifications?.android?.googleServicesFile ??
+				'google-services.json',
+			'mobile.pushNotifications.android.googleServicesFile'
+		)
 	};
 };

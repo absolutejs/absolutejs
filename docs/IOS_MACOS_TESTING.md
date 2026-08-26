@@ -1,7 +1,7 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.24` and
+`@absolutejs/absolute@0.20.0-beta.25` and
 `@absolutejs/deploy@0.24.0`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
 
@@ -53,6 +53,8 @@ actual result, sanitized logs, and artifact or screenshot path in section 13.
 - [ ] `CAP-01` Complete automatic device-capability provisioning.
 - [ ] `FILES-01` through `FILES-08` Complete the Documents checklist.
 - [ ] `NOTIF-01` through `NOTIF-08` Complete the Local Notifications checklist.
+- [ ] `PUSH-01` through `PUSH-08` Complete the native Push Notifications
+  checklist.
 - [ ] `LOC-01` through `LOC-14` Complete the foreground-location checklist.
 - [ ] `AUTH-01` Complete system-browser sign-in and callback.
 - [ ] `SYNC-01` Complete online, offline, reconnect, isolation, and conflict tests.
@@ -92,8 +94,9 @@ still requires the developer team setup described below.
 From the root of the AbsoluteJS application:
 
 ```sh
-bun add @absolutejs/absolute@0.20.0-beta.24 \
-  @absolutejs/auth@0.72.0 \
+bun add @absolutejs/absolute@0.20.0-beta.25 \
+  @absolutejs/auth@0.74.0 \
+  @absolutejs/dispatch@0.8.0 \
   @absolutejs/sync@2.29.0 \
   @absolutejs/sync-capacitor@0.9.1 \
   @absolutejs/deploy@0.24.0 \
@@ -107,8 +110,8 @@ bun add @absolutejs/absolute@0.20.0-beta.24 \
   @capacitor/local-notifications@8.2.1 \
   @capacitor/cli@8.5.0 \
   @capacitor/ios@8.5.0 \
-  @absolutejs/devices@0.5.0 \
-  @absolutejs/devices-capacitor@0.6.1
+  @absolutejs/devices@0.6.0 \
+  @absolutejs/devices-capacitor@0.7.1
 ```
 
 `absolute mobile init` now offers to install this tested Capacitor/device
@@ -132,7 +135,7 @@ Do not add them to the initial command: the capability acceptance route below
 must prove that `absolute mobile sync ios` detects and offers only the plugins it
 needs. The tested mappings in this release are Camera 8.2.3, Clipboard 8.0.1,
 File Viewer 2.0.2, Filesystem 8.1.3, Geolocation 8.2.2, Haptics 8.0.2, and Share
-8.0.1.
+8.0.1, Local Notifications 8.2.1, and Push Notifications 8.1.2.
 
 Keep the existing compatible versions if the application deliberately pins
 newer versions. Record `bun --version` and `xcodebuild -version` for the test
@@ -437,6 +440,57 @@ The provider is pinned to the complete official Capacitor 8.2.1 artifact. The
 newer 8.3.x line changed permission behavior and is outside this tested
 contract. AbsoluteJS projects Android display permission but deliberately does
 not add `SCHEDULE_EXACT_ALARM` or `USE_EXACT_ALARM`.
+
+### Provider-neutral native Push Notifications acceptance checklist
+
+Use this repository's `/native-push` route. It imports only
+`pushNotifications` from `@absolutejs/devices` and offers separate Query,
+Request permission, Enable, and Disable controls plus sanitized received/action
+events. It never displays, logs, returns, or persists an APNs token. Do not
+import Capacitor or edit the native project by hand. The example's trusted
+server mounts `auth({ nativePush: ... })` with the Dispatch push lifecycle;
+user, tenant, and topics are derived there.
+
+- [ ] `PUSH-01` Run `bunx absolute mobile sync ios`. Confirm it discovers
+  `pushNotifications`, offers exactly
+  `@capacitor/push-notifications@8.1.2`, and does not prompt again after an
+  approved idempotent rerun.
+- [ ] `PUSH-02` Inspect the generated project. Confirm
+  `AbsoluteJS.entitlements` contains the APNs environment entitlement, the app
+  target references that file, and AppDelegate forwards successful and failed
+  remote-notification registration to Capacitor. Rerun sync and confirm those
+  managed regions do not duplicate.
+- [ ] `PUSH-03` Open the page before signing in. Query must not prompt. Enable
+  must not expose a provider token and must not create an anonymous server
+  installation. Only Request permission may open the iOS permission prompt.
+- [ ] `PUSH-04` Sign in through the existing system-browser PKCE flow, request
+  permission explicitly, then Enable. Confirm the Auth route returns an opaque
+  installation ID and Dispatch stores exactly one subscription under the
+  server-derived user, tenant, and topics. Evidence must redact the APNs token.
+- [ ] `PUSH-05` Relaunch and Enable again. Confirm token rotation updates the
+  same installation instead of creating a duplicate. Sign out and confirm the
+  authenticated removal happens before credentials are cleared and the native
+  provider registration is disabled.
+- [ ] `PUSH-06` Simulate failed sign-out cleanup by making the server
+  temporarily unreachable, sign out, restore the server, and sign in as a
+  different disposable account. Confirm the server rejects ownership of the
+  stale installation, the shell retries once as a new installation, and no
+  subscription moves between users.
+- [ ] `PUSH-07` Send a disposable APNs notification through the configured
+  Dispatch adapter while the physical app is foregrounded. Confirm one
+  normalized received event containing notification data but no provider token.
+  Background the app, send again, tap it, and confirm one normalized action
+  event resumes or opens the app.
+- [ ] `PUSH-08` Terminate the app, send again, and tap the delivered system
+  notification. Confirm cold-launch routing works, no duplicate listeners fire,
+  and an invalid/uninstalled provider token is retired by Dispatch. Record only
+  sanitized subscription counts, provider message IDs, and timings.
+
+Real APNs delivery requires a physical device, an App ID/provisioning profile
+with Push Notifications enabled, and server-side APNs credentials. Those
+credentials belong only in the Dispatch adapter's server environment. Never
+place an APNs signing key in `absolutejs.config.ts`, the generated shell, the
+native project, a report, or a screenshot.
 
 ### Foreground-location acceptance checklist
 
@@ -984,13 +1038,15 @@ source change and build a new content-addressed release instead.
 - Mac architecture:
 - Xcode version:
 - Bun version:
-- AbsoluteJS version: 0.20.0-beta.24
-- Auth version: 0.72.0
+- AbsoluteJS version: 0.20.0-beta.25
+- Auth version: 0.74.0
+- Dispatch version: 0.8.0
 - Sync version: 2.29.0
 - Sync Capacitor version: 0.9.1
 - Capacitor SQLite version: 8.1.1
-- Devices version: 0.5.0
-- Devices Capacitor version: 0.6.1
+- Devices version: 0.6.0
+- Devices Capacitor version: 0.7.1
+- Push Notifications version: 8.1.2
 - Local Notifications version: 8.2.1
 - File Viewer version: 2.0.2
 - Filesystem version: 8.1.3
@@ -1031,6 +1087,14 @@ versus expected behavior. Do not report exact coordinates.
 | NOTIF-06 |  | pending count / cancel result: |  |
 | NOTIF-07 |  | tap event / duplicate count / no exact entitlement: |  |
 | NOTIF-08 |  | physical device process-death/display/tap/cancel: |  |
+| PUSH-01 |  | discovered package / idempotent sync: |  |
+| PUSH-02 |  | entitlement / AppDelegate forwarding / target membership: |  |
+| PUSH-03 |  | unsigned query / explicit prompt / anonymous rejection: |  |
+| PUSH-04 |  | opaque installation / derived ownership and topics: |  |
+| PUSH-05 |  | rotation count / sign-out removal / native disable: |  |
+| PUSH-06 |  | offline cleanup / account switch / ownership recovery: |  |
+| PUSH-07 |  | foreground receipt / background action / duplicates: |  |
+| PUSH-08 |  | cold launch / invalid-token retirement / sanitized timing: |  |
 | LOC-01 |  | capability: / initial permission: |  |
 | LOC-02 |  | error code: |  |
 | LOC-03 |  | permission: / precision: |  |
@@ -1077,6 +1141,7 @@ versus expected behavior. Do not report exact coordinates.
 - Scoped photo picker without broad prompt: PASS / FAIL
 - Provider-neutral Documents web/iOS behavior and cache cleanup: PASS / FAIL
 - Provider-neutral Local Notifications permission/schedule/cancel/tap: PASS / FAIL
+- Provider-neutral native Push registration/rotation/removal/receipt/action: PASS / FAIL
 - Foreground location provisioning and generated iOS descriptions: PASS / FAIL
 - Foreground location permission/current/watch/cleanup: PASS / FAIL
 - Foreground location denial/settings/lifecycle recovery: PASS / FAIL

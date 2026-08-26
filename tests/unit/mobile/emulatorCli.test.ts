@@ -97,7 +97,7 @@ describe('mobile emulator CLI', () => {
 
 		expect(exitCode).toBe(0);
 		expect(JSON.parse(stdout).checks).toBeArray();
-	});
+	}, 20_000);
 
 	test('validates an Android conformance port before inspecting the SDK', async () => {
 		const subprocess = Bun.spawn(

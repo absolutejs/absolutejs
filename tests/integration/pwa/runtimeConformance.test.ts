@@ -14,6 +14,8 @@ const CHROMIUM_ARGS = [
 	'--disable-gpu'
 ];
 const BROWSER_CLOSE_TIMEOUT_MS = 10_000;
+const BROWSER_LAUNCH_ATTEMPTS = 3;
+const BROWSER_LAUNCH_RETRY_MS = 1_000;
 
 let buildDirectory = '';
 let profileDirectory = '';
@@ -114,13 +116,28 @@ const accountFrom = (request: Request) =>
 		.find((part) => part.startsWith('pwa-account='))
 		?.slice('pwa-account='.length);
 
-const launch = () =>
+const launchOnce = () =>
 	chromium.launchPersistentContext(profileDirectory, {
 		args: CHROMIUM_ARGS,
 		headless: true,
 		timeout: 20_000,
 		viewport: { height: 720, width: 1280 }
 	});
+
+const launch = async () => {
+	let lastError: unknown;
+	for (let attempt = 1; attempt <= BROWSER_LAUNCH_ATTEMPTS; attempt += 1) {
+		try {
+			return await launchOnce();
+		} catch (error) {
+			lastError = error;
+			if (attempt < BROWSER_LAUNCH_ATTEMPTS)
+				await Bun.sleep(BROWSER_LAUNCH_RETRY_MS);
+		}
+	}
+
+	throw lastError;
+};
 
 const closeContext = async () => {
 	const current = context;

@@ -15,7 +15,13 @@ const noDeviceCapabilities: AbsoluteDeviceCapabilityPlan = {
 	requiredPackages: []
 };
 const optionalDeviceCapabilities: AbsoluteDeviceCapabilityPlan = {
-	capabilities: ['camera', 'clipboard', 'location', 'photos'],
+	capabilities: [
+		'camera',
+		'clipboard',
+		'location',
+		'photos',
+		'pushNotifications'
+	],
 	providers: {
 		camera: {
 			factory: 'createCapacitorCameraCapability',
@@ -36,12 +42,24 @@ const optionalDeviceCapabilities: AbsoluteDeviceCapabilityPlan = {
 			factory: 'createCapacitorPhotosCapability',
 			module: '@absolutejs/devices-capacitor/camera',
 			packages: ['@capacitor/camera@8.2.3']
+		},
+		pushNotifications: {
+			factory: 'createCapacitorPushNotificationsCapability',
+			module: '@absolutejs/devices-capacitor/push-notifications',
+			native: {
+				android: {
+					permissions: ['android.permission.POST_NOTIFICATIONS']
+				},
+				ios: { pushNotifications: true }
+			},
+			packages: ['@capacitor/push-notifications@8.1.2']
 		}
 	},
 	requiredPackages: [
 		'@capacitor/camera@8.2.3',
 		'@capacitor/clipboard@8.0.1',
-		'@capacitor/geolocation@8.2.2'
+		'@capacitor/geolocation@8.2.2',
+		'@capacitor/push-notifications@8.1.2'
 	]
 };
 const packageProjectRoot = resolve(import.meta.dir, '../../..');
@@ -167,7 +185,8 @@ describe('Capacitor local web bundle', () => {
 			'camera',
 			'clipboard',
 			'location',
-			'photos'
+			'photos',
+			'pushNotifications'
 		]);
 		expect(localStylePath).toBeDefined();
 		expect(
@@ -198,6 +217,9 @@ describe('Capacitor local web bundle', () => {
 		expect(bootstrap).toContain('registerClient');
 		expect(bootstrap).toContain('networkStatusChange');
 		expect(bootstrap).toContain('absolute:sync-status');
+		expect(bootstrap).toContain('/auth/mobile/push');
+		expect(bootstrap).toContain('onRegistration');
+		expect(bootstrap).toContain('beforeSignOut');
 		expect(bootstrap).toContain('absoluteMobilePageStyle');
 		expect(bootstrap).not.toContain('server-producer-hash');
 		expect(

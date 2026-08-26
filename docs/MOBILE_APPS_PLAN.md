@@ -1,7 +1,26 @@
 # AbsoluteJS Mobile Apps: Research and Implementation Plan
 
-Status: Capacitor Android development/release, all-framework embedded bundles, universal native Auth/Sync, background Sync, automatic device provisioning, and Android conformance are operational; iOS development/release automation is shipped and awaiting real macOS/physical-device acceptance
+Status: Capacitor Android development/release, all-framework embedded bundles, universal native Auth/Sync, background Sync, automatic device provisioning, provider-neutral native push registration, and Android conformance are operational; iOS development/release automation is shipped and awaiting real macOS/physical-device acceptance
 Research snapshot: August 26, 2026
+
+Implementation checkpoint (August 26, 2026): the provider-neutral native push
+boundary is implemented across Devices, Auth, Dispatch, and the generated
+Capacitor shell. Application code imports `pushNotifications` from
+`@absolutejs/devices`; it can explicitly query/request permission, enable or
+disable delivery, and subscribe to normalized receipt/action events, but no
+public contract exposes an APNs or FCM token. The generated shell alone receives
+that token and sends it to the fixed bearer-authenticated
+`/auth/mobile/push` route. Auth derives user, tenant, and authorized topics on
+the trusted server. Dispatch issues an opaque installation identity, verifies
+ownership during rotation/removal, fans out through provider adapters, and
+retires invalid tokens. Failed sign-out cleanup cannot strand a later account:
+the server returns a safe ownership conflict and the shell retries once as a
+new installation. iOS entitlement/AppDelegate plumbing and Android Firebase
+configuration projection are generated idempotently. Permission prompts remain
+explicit; sign-in only re-enables delivery when permission was already granted.
+This slice ships in AbsoluteJS `0.20.0-beta.25` with
+`@absolutejs/auth@0.74.0`, `@absolutejs/dispatch@0.8.0`,
+`@absolutejs/devices@0.6.0`, and `@absolutejs/devices-capacitor@0.7.1`.
 
 Implementation checkpoint (August 26, 2026): AbsoluteJS
 `0.20.0-beta.24` includes the beta 23 native evidence/Documents work and adds

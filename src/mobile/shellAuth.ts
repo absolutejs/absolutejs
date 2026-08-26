@@ -21,10 +21,12 @@ export type AbsoluteMobileShellAuth = {
 };
 
 export const createAbsoluteMobileShellAuth = async (
-	config: AbsoluteMobileAuthManifest
+	config: AbsoluteMobileAuthManifest,
+	options: { beforeSignOut?: () => Promise<void> | void } = {}
 ): Promise<AbsoluteMobileShellAuth> => {
 	const client = createMobileAuthClient({
 		allowedOrigins: [config.issuer],
+		beforeSignOut: options.beforeSignOut,
 		clientId: config.clientId,
 		issuer: config.issuer,
 		lifecycle,

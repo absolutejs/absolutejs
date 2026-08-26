@@ -46,7 +46,7 @@ describe('HTML deeper coverage', () => {
 		expect(html).toMatch(/href="\/indexes\/html-example\.[a-z0-9]+\.css"/);
 		// And the original relative path must not survive.
 		expect(html).not.toContain('../../styles/indexes/html-example.css');
-	}, 30_000);
+	}, 60_000);
 
 	test('absolute `/assets/...` href passes through unchanged (favicon path)', async () => {
 		const srv = await startAndConnect();

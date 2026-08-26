@@ -97,6 +97,13 @@ export type MobileConfig = {
 		/** App Store marketing version written to CFBundleShortVersionString. */
 		version: string;
 	};
+	/** Provider setup for portable push notifications. Page code still uses @absolutejs/devices. */
+	pushNotifications?: {
+		android?: {
+			/** Firebase config copied into the native app module. Defaults to `google-services.json`. */
+			googleServicesFile?: string;
+		};
+	};
 	deepLinks?: {
 		/** Optional custom URL scheme in addition to HTTPS app/universal links. */
 		scheme?: string;

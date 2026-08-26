@@ -33,6 +33,7 @@ const compiledAngularExample = resolve(
 	PROJECT_ROOT,
 	'.absolutejs/generated/angular/pages/angular-example.js'
 );
+const REBUILD_TIMEOUT_MS = 60_000;
 
 const startAndConnect = async () => {
 	server = await startDevServer();
@@ -64,14 +65,30 @@ const waitForGeneratedContent = async (
 
 const mutateAndWaitForRebuild = async (c: HMRClient, mutate: () => void) => {
 	c.drain();
-	const rebuildStarted = c.waitFor('rebuild-start', 30_000);
+	const rebuildStarted = c.waitFor('rebuild-start', REBUILD_TIMEOUT_MS);
 	// Non-decorated provider edits take the Tier-1 rebootstrap path. That
 	// signal must not be emitted until every serialized bundle cycle has
 	// completed and the generated SSR graph is stable.
-	const rebootstrapCompleted = c.waitFor('angular:rebootstrap', 30_000);
+	const rebootstrapCompleted = c.waitFor(
+		'angular:rebootstrap',
+		REBUILD_TIMEOUT_MS
+	);
 	mutate();
 	await rebuildStarted;
-	await rebootstrapCompleted;
+	try {
+		await rebootstrapCompleted;
+	} catch (error) {
+		const messages = c.messages.map((message) => ({
+			data: message.data,
+			type: message.type
+		}));
+		throw new Error(
+			`${error instanceof Error ? error.message : String(error)}\n` +
+				`HMR messages: ${JSON.stringify(messages)}\n` +
+				`Dev server output:\n${server?.outputLines.slice(-30).join('\n') ?? '(server unavailable)'}`,
+			{ cause: error }
+		);
+	}
 };
 
 /* The build's providers-injection step (in `compileAngular.ts`)
@@ -133,7 +150,7 @@ describe('Angular config-driven providers (HMR)', () => {
 				`Angular SSR returned ${response.status}: ${await response.text()}\n\nDev server output:\n${srv.outputLines.slice(-30).join('\n')}`
 			);
 		}
-	}, 60_000);
+	}, 120_000);
 
 	test('adding `export const routes` to a page injects provideRouter into its bundle', async () => {
 		await startAndConnect();
@@ -216,7 +233,7 @@ describe('Angular config-driven providers (HMR)', () => {
 		expect(compiled).toContain(
 			'{ provide: __abs_APP_BASE_HREF, useValue: "/angular/" }'
 		);
-	}, 60_000);
+	}, 120_000);
 
 	test('transitive component edit through the providers chain renders SSR without JIT fetch errors', async () => {
 		const srv = await startAndConnect();

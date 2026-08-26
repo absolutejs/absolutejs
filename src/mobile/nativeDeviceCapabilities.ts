@@ -14,6 +14,8 @@ const END_MARKER = '<!-- absolutejs:device-capabilities:end -->';
 const NOT_FOUND = -1;
 const IOS_PRIVACY_FILE_REFERENCE = 'A85D0C000000000000000001';
 const IOS_PRIVACY_BUILD_FILE = 'A85D0C000000000000000002';
+const PUSH_START_MARKER = 'absolutejs:push-notifications:start';
+const PUSH_END_MARKER = 'absolutejs:push-notifications:end';
 
 const escapeXml = (value: string) =>
 	value
@@ -31,6 +33,18 @@ const writeChangedFile = async (path: string, source: string) => {
 	await rename(temporary, path);
 
 	return true;
+};
+
+const writeOptionalChangedFile = async (path: string, source: string) => {
+	const current = await optionalSource(path);
+	if (current === source) return false;
+	if (current === null) {
+		await writeFile(path, source, { flag: 'wx' });
+
+		return true;
+	}
+
+	return writeChangedFile(path, source);
 };
 
 const optionalSource = async (path: string) => {
@@ -287,12 +301,107 @@ const configureIos = async (
 	);
 	const privacyCurrent = await optionalSource(privacyPath);
 	const privacySource = privacyManifestSource(privacyCurrent, requirements);
-	const [privacyChanged, projectChanged] = await Promise.all([
+	const [privacyChanged, projectChanged, pushChanged] = await Promise.all([
 		writeIosPrivacyManifest(privacyPath, privacyCurrent, privacySource),
-		configureIosPrivacyProject(config, requirements)
+		configureIosPrivacyProject(config, requirements),
+		configureIosPushNotifications(config, requirements.iosPushNotifications)
 	]);
 
-	return infoChanged || privacyChanged || projectChanged;
+	return infoChanged || privacyChanged || projectChanged || pushChanged;
+};
+
+const configureIosPushNotifications = async (
+	config: NormalizedAbsoluteMobileConfig,
+	enabled: boolean
+) => {
+	const entitlementsPath = join(
+		config.nativeProjectDirectory,
+		'ios/App/AbsoluteJS.entitlements'
+	);
+	const entitlements = await optionalSource(entitlementsPath);
+	if (entitlements === null && !enabled) return false;
+	if (entitlements === null)
+		throw new TypeError(
+			'AbsoluteJS iOS entitlements are missing. Run native deep-link projection before device capabilities.'
+		);
+	const entitlementRegion = enabled
+		? `\t<!-- ${PUSH_START_MARKER} -->\n\t<key>aps-environment</key>\n\t<string>development</string>\n\t<!-- ${PUSH_END_MARKER} -->\n`
+		: '';
+	const nextEntitlements = replacePushRegion(
+		entitlements,
+		entitlementRegion,
+		entitlements.lastIndexOf('</dict>')
+	);
+	const delegatePath = join(
+		config.nativeProjectDirectory,
+		'ios/App/App/AppDelegate.swift'
+	);
+	const delegate = await optionalSource(delegatePath);
+	if (delegate === null && !enabled) return false;
+	if (delegate === null)
+		throw new TypeError(
+			'Capacitor AppDelegate.swift is missing for iOS push notifications.'
+		);
+	const hasSuccess = delegate.includes(
+		'didRegisterForRemoteNotificationsWithDeviceToken'
+	);
+	const hasFailure = delegate.includes(
+		'didFailToRegisterForRemoteNotificationsWithError'
+	);
+	if (
+		enabled &&
+		hasSuccess !== hasFailure &&
+		!delegate.includes(PUSH_START_MARKER)
+	)
+		throw new TypeError(
+			'iOS AppDelegate has a partial custom remote-notification registration implementation.'
+		);
+	const alreadyForwarded =
+		enabled &&
+		hasSuccess &&
+		hasFailure &&
+		delegate.includes('capacitorDidRegisterForRemoteNotifications') &&
+		delegate.includes('capacitorDidFailToRegisterForRemoteNotifications');
+	const swiftRegion =
+		enabled && !alreadyForwarded
+			? `\n    // ${PUSH_START_MARKER}\n    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {\n        NotificationCenter.default.post(name: .capacitorDidRegisterForRemoteNotifications, object: deviceToken)\n    }\n\n    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {\n        NotificationCenter.default.post(name: .capacitorDidFailToRegisterForRemoteNotifications, object: error)\n    }\n    // ${PUSH_END_MARKER}\n`
+			: '';
+	const nextDelegate = alreadyForwarded
+		? delegate
+		: replacePushRegion(delegate, swiftRegion, delegate.lastIndexOf('}'));
+	const changed = await Promise.all([
+		writeChangedFile(entitlementsPath, nextEntitlements),
+		writeChangedFile(delegatePath, nextDelegate)
+	]);
+
+	return changed.some(Boolean);
+};
+
+const replacePushRegion = (
+	source: string,
+	region: string,
+	insertion: number
+) => {
+	const start = source.indexOf(PUSH_START_MARKER);
+	const end = source.indexOf(PUSH_END_MARKER);
+	if (start < 0 !== end < 0 || (start >= 0 && end < start))
+		throw new TypeError(
+			'AbsoluteJS push-notification ownership markers are malformed.'
+		);
+	if (start >= 0) {
+		const lineStart = source.lastIndexOf('\n', start) + 1;
+		const nextLine = source.indexOf('\n', end + PUSH_END_MARKER.length);
+		const lineEnd = nextLine < 0 ? source.length : nextLine + 1;
+
+		return `${source.slice(0, lineStart)}${region}${source.slice(lineEnd)}`;
+	}
+	if (!region) return source;
+	if (insertion < 0)
+		throw new TypeError(
+			'Could not find a safe native project location for push notifications.'
+		);
+
+	return `${source.slice(0, insertion)}${region}${source.slice(insertion)}`;
 };
 
 const configureAndroid = async (
@@ -321,7 +430,62 @@ const configureAndroid = async (
 			? NOT_FOUND
 			: source.lastIndexOf('\n', application) + 1;
 
-	return writeChangedFile(path, managed(source, region, insertion));
+	const nextManifest = managed(source, region, insertion);
+	if (!plan.capabilities.includes('pushNotifications'))
+		return writeChangedFile(path, nextManifest);
+	const firebaseSource = await optionalSource(
+		config.pushAndroidGoogleServicesFile
+	);
+	if (firebaseSource === null)
+		throw new TypeError(
+			`Push notifications require Firebase config at ${config.pushAndroidGoogleServicesFile}. Set mobile.pushNotifications.android.googleServicesFile to override it.`
+		);
+	let firebase: unknown;
+	try {
+		firebase = JSON.parse(firebaseSource);
+	} catch (error) {
+		throw new TypeError('Android google-services.json is invalid JSON.', {
+			cause: error
+		});
+	}
+	const clients =
+		typeof firebase === 'object' && firebase !== null
+			? Reflect.get(firebase, 'client')
+			: undefined;
+	const matchesApp =
+		Array.isArray(clients) &&
+		clients.some((client) => {
+			const info =
+				typeof client === 'object' && client !== null
+					? Reflect.get(client, 'client_info')
+					: undefined;
+			const android =
+				typeof info === 'object' && info !== null
+					? Reflect.get(info, 'android_client_info')
+					: undefined;
+
+			return (
+				typeof android === 'object' &&
+				android !== null &&
+				Reflect.get(android, 'package_name') === config.appId
+			);
+		});
+	if (!matchesApp)
+		throw new TypeError(
+			`Android google-services.json does not contain package ${config.appId}.`
+		);
+	const [manifestChanged, firebaseChanged] = await Promise.all([
+		writeChangedFile(path, nextManifest),
+		writeOptionalChangedFile(
+			join(
+				config.nativeProjectDirectory,
+				'android/app/google-services.json'
+			),
+			firebaseSource
+		)
+	]);
+
+	return manifestChanged || firebaseChanged;
 };
 
 export const applyAbsoluteNativeDeviceCapabilities = async (

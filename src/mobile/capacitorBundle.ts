@@ -86,6 +86,15 @@ const shellSyncModule = () => {
 	throw new TypeError('AbsoluteJS mobile Sync shell module is missing.');
 };
 
+const shellPushModule = () => {
+	const candidate = ['js', 'ts']
+		.map((extension) => join(import.meta.dir, `shellPush.${extension}`))
+		.find(existsSync);
+	if (candidate) return candidate;
+
+	throw new TypeError('AbsoluteJS mobile push shell module is missing.');
+};
+
 const escapeHtml = (value: string) =>
 	value
 		.replaceAll('&', '&amp;')
@@ -176,6 +185,12 @@ const buildShellBootstrap = async (
 	const syncImport = sync
 		? `import { installAbsoluteMobileShellSync } from ${JSON.stringify(shellSyncModule())};\n`
 		: '';
+	const pushIndex =
+		deviceCapabilities.capabilities.indexOf('pushNotifications');
+	const push = pushIndex !== -1;
+	const pushImport = push
+		? `import { createAbsoluteMobileShellPush } from ${JSON.stringify(shellPushModule())};\n`
+		: '';
 	const capabilityImports = (
 		await Promise.all(
 			deviceCapabilities.capabilities.map(async (name, index) => {
@@ -189,10 +204,13 @@ const buildShellBootstrap = async (
 			})
 		)
 	).join('\n');
+	const pushSetup = push
+		? `const absoluteMobilePush = createAbsoluteMobileShellPush();\nconst absoluteMobilePushCapability = absoluteDeviceCapability${pushIndex}(absoluteMobilePush.capabilityOptions);\n`
+		: '';
 	const capabilityOptions = deviceCapabilities.capabilities
 		.map(
 			(name, index) =>
-				`${JSON.stringify(name)}: absoluteDeviceCapability${index}()`
+				`${JSON.stringify(name)}: ${name === 'pushNotifications' ? 'absoluteMobilePushCapability' : `absoluteDeviceCapability${index}()`}`
 		)
 		.join(', ');
 	const entryPath = join(staging, '.absolute-mobile-entry.ts');
@@ -202,7 +220,7 @@ const buildShellBootstrap = async (
 	);
 	await writeFile(
 		entryPath,
-		`import { startAbsoluteMobileShell } from ${JSON.stringify(modulePath)};\nimport { installCapacitorDeviceAdapterIfNative } from ${JSON.stringify(baseAdapterModule)};\n${authImport}${syncImport}${capabilityImports}\ninstallCapacitorDeviceAdapterIfNative({ storagePrefix: ${JSON.stringify(storagePrefix)}${capabilityOptions ? `, ${capabilityOptions}` : ''} });\nvoid startAbsoluteMobileShell(${options});\n`
+		`import { startAbsoluteMobileShell } from ${JSON.stringify(modulePath)};\nimport { installCapacitorDeviceAdapterIfNative } from ${JSON.stringify(baseAdapterModule)};\n${authImport}${syncImport}${pushImport}${capabilityImports}\n${pushSetup}installCapacitorDeviceAdapterIfNative({ storagePrefix: ${JSON.stringify(storagePrefix)}${capabilityOptions ? `, ${capabilityOptions}` : ''} });\nvoid startAbsoluteMobileShell(${push ? `{ createAuth: (config, options) => createAbsoluteMobileShellAuth(config, options), beforeSignOut: absoluteMobilePush.beforeSignOut, connectPush: (auth) => absoluteMobilePush.connect(auth, absoluteMobilePushCapability)${sync ? ', installSync: installAbsoluteMobileShellSync' : ''} }` : options});\n`
 	);
 	const build = await Bun.build({
 		entrypoints: [entryPath],
