@@ -16,6 +16,12 @@ import { installAbsoluteMobileStaticDocument } from './staticDocument';
 const MANIFEST_PATH = './absolute-mobile-manifest.json';
 const STATUS_ID = 'absolute-mobile-status';
 
+const initialNavigationPath = (entry: string) => {
+	const current = `${location.pathname}${location.search}${location.hash}`;
+
+	return current === '/' || current === '/index.html' ? entry : current;
+};
+
 export type AbsoluteMobileShellAuthRuntime = {
 	clientId: string;
 	fetch: AbsoluteMobileFetch;
@@ -290,7 +296,7 @@ export const startAbsoluteMobileShell = async (
 	};
 	await navigateWithFailureState(
 		manifest,
-		manifest.entry,
+		initialNavigationPath(manifest.entry),
 		false,
 		reinstallBrowserNavigation,
 		auth?.fetch

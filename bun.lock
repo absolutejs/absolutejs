@@ -97,12 +97,12 @@
         "vue-tsc": "^3.2.5",
       },
       "optionalDependencies": {
-        "@absolutejs/native-darwin-arm64": "0.20.0-beta.19",
-        "@absolutejs/native-darwin-x64": "0.20.0-beta.19",
-        "@absolutejs/native-linux-arm64": "0.20.0-beta.19",
-        "@absolutejs/native-linux-x64": "0.20.0-beta.19",
-        "@absolutejs/native-windows-arm64": "0.20.0-beta.19",
-        "@absolutejs/native-windows-x64": "0.20.0-beta.19",
+        "@absolutejs/native-darwin-arm64": "0.20.0-beta.20",
+        "@absolutejs/native-darwin-x64": "0.20.0-beta.20",
+        "@absolutejs/native-linux-arm64": "0.20.0-beta.20",
+        "@absolutejs/native-linux-x64": "0.20.0-beta.20",
+        "@absolutejs/native-windows-arm64": "0.20.0-beta.20",
+        "@absolutejs/native-windows-x64": "0.20.0-beta.20",
       },
       "peerDependencies": {
         "@absolutejs/sync": ">=2.29.0 <3",

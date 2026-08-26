@@ -1,4 +1,11 @@
-import { describe, expect, test, afterAll, afterEach } from 'bun:test';
+import {
+	afterAll,
+	afterEach,
+	beforeAll,
+	describe,
+	expect,
+	test
+} from 'bun:test';
 import { resolve } from 'node:path';
 import { startDevServer, type DevServer } from '../../../helpers/devServer';
 import { connectHMR, type HMRClient } from '../../../helpers/ws';
@@ -16,7 +23,15 @@ afterEach(() => {
 afterAll(async () => {
 	client?.close();
 	await server?.kill();
-});
+}, 20_000);
+
+beforeAll(async () => {
+	server = await startDevServer();
+	client = await connectHMR(server.port);
+	await client.waitFor('manifest');
+	await client.waitFor('connected');
+	client.drain();
+}, 120_000);
 
 const POLL_INTERVAL_MS = 500;
 
@@ -31,14 +46,6 @@ const fetchSpaPage = async () =>
  * runtime cached both the manifest and the CSS text forever, and a
  * failed bundle rebuild silently dropped its file batch. */
 describe('SPA child route style edits reach SSR', () => {
-	test('setup: start server and connect', async () => {
-		server = await startDevServer();
-		client = await connectHMR(server.port);
-		await client.waitFor('manifest');
-		await client.waitFor('connected');
-		client.drain();
-	}, 60_000);
-
 	test('child scoped-style edit lands in a fresh SSR response', async () => {
 		const child = resolve(PROJECT_ROOT, 'example/vue/pages/SpaOne.vue');
 

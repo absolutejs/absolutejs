@@ -13,6 +13,7 @@ const CHROMIUM_ARGS = [
 	'--disable-dev-shm-usage',
 	'--disable-gpu'
 ];
+const BROWSER_CLOSE_TIMEOUT_MS = 10_000;
 
 let buildDirectory = '';
 let profileDirectory = '';
@@ -117,8 +118,31 @@ const launch = () =>
 	chromium.launchPersistentContext(profileDirectory, {
 		args: CHROMIUM_ARGS,
 		headless: true,
+		timeout: 20_000,
 		viewport: { height: 720, width: 1280 }
 	});
+
+const closeContext = async () => {
+	const current = context;
+	context = undefined;
+	if (!current) return;
+	const closed = await Promise.race([
+		current
+			.close()
+			.then(() => true)
+			.catch(() => true),
+		Bun.sleep(BROWSER_CLOSE_TIMEOUT_MS).then(() => false)
+	]);
+	if (!closed) {
+		throw new Error(
+			'Browser has been closed: persistent Chromium context did not terminate.'
+		);
+	}
+	// Playwright can resolve context.close() just before Chromium releases the
+	// persistent profile. Relaunching that profile immediately may attach to the
+	// exiting process and then lose the new page underneath the assertion.
+	await Bun.sleep(500);
+};
 
 const waitForNamespace = (page: Page, namespace?: string) =>
 	page.waitForFunction(
@@ -154,7 +178,7 @@ const waitForNamespace = (page: Page, namespace?: string) =>
 	);
 
 afterAll(async () => {
-	await context?.close().catch(() => undefined);
+	await closeContext().catch(() => undefined);
 	server?.stop(true);
 	if (buildDirectory)
 		await rm(buildDirectory, { force: true, recursive: true });
@@ -304,9 +328,27 @@ describe('PWA runtime conformance', () => {
 			})
 		).toBeUndefined();
 
+		const resultsBeforeAccountSwitch = await page.evaluate(
+			() =>
+				(
+					globalThis as typeof globalThis & {
+						__PWA_SYNC_RESULTS__?: unknown[];
+					}
+				).__PWA_SYNC_RESULTS__?.length ?? 0
+		);
 		await page.evaluate(() => fetch('/session/b', { method: 'POST' }));
 		await page.evaluate(() => globalThis.dispatchEvent(new Event('focus')));
 		await waitForNamespace(page, 'principal-b');
+		await page.waitForFunction(
+			(previous) =>
+				((
+					globalThis as typeof globalThis & {
+						__PWA_SYNC_RESULTS__?: unknown[];
+					}
+				).__PWA_SYNC_RESULTS__?.length ?? 0) > previous,
+			resultsBeforeAccountSwitch,
+			{ timeout: 15_000 }
+		);
 		await page.evaluate(putCollection, {
 			collection: 'b-only',
 			key: 'account-data',
@@ -381,8 +423,7 @@ describe('PWA runtime conformance', () => {
 		await waitForNamespace(page, undefined);
 		expect(await page.evaluate(activeWorkerNamespace)).toBeUndefined();
 
-		await context.close();
-		context = undefined;
+		await closeContext();
 		context = await launch();
 		await context.setOffline(true);
 		server.stop(true);

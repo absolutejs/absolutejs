@@ -1,6 +1,6 @@
 import { createAuthClient } from '@absolutejs/auth/client';
 import { createSyncClient } from '@absolutejs/sync/client';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 type NativeAuthSyncAcceptanceProps = {
 	email: string;
@@ -27,6 +27,66 @@ export const NativeAuthSyncAcceptance = ({
 	const [detail, setDetail] = useState('Ready');
 	const [state, setState] = useState<AcceptanceState>('idle');
 	const running = useRef(false);
+	const beginSync = () => {
+		setState('syncing');
+		setDetail('Native auth authenticated; connecting sync');
+
+		const sync = createSyncClient({
+			maxReconnectMs: 100,
+			reconnectMs: 50,
+			url: syncUrl
+		});
+		const collection = sync.collection<NativeSyncRow>({
+			collection: 'native-acceptance'
+		});
+		let readyCount = 0;
+		const unsubscribe = collection.subscribe((snapshot) => {
+			if (
+				snapshot.status !== 'ready' ||
+				snapshot.data[0]?.label !== 'native-authenticated-sync'
+			) {
+				return;
+			}
+			readyCount += 1;
+			if (readyCount === 1) {
+				setState('reconnecting');
+				setDetail('Native sync ready; forcing reconnect');
+				setTimeout(() => sync.disconnect(), RECONNECT_DELAY_MS);
+
+				return;
+			}
+			setState('complete');
+			setDetail('Native auth + sync complete');
+			unsubscribe();
+			collection.close();
+			sync.close();
+		});
+	};
+
+	useEffect(() => {
+		let active = true;
+		const restoreAuthenticatedSync = async () => {
+			const status = await createAuthClient().status();
+			if (!active || status.error || running.current) return;
+			const { user } = status.data;
+			if (
+				typeof user !== 'object' ||
+				user === null ||
+				Reflect.get(user, 'sub') !== 'native-conformance-user'
+			) {
+				return;
+			}
+			running.current = true;
+			setState('authenticated');
+			setDetail('Native auth restored after app resume');
+			beginSync();
+		};
+		void restoreAuthenticatedSync();
+
+		return () => {
+			active = false;
+		};
+	}, [syncUrl]);
 
 	const run = async () => {
 		if (running.current) return;
@@ -51,39 +111,7 @@ export const NativeAuthSyncAcceptance = ({
 			}
 			setState('authenticated');
 			setDetail('Native auth authenticated');
-			setState('syncing');
-			setDetail('Native auth authenticated; connecting sync');
-
-			const sync = createSyncClient({
-				maxReconnectMs: 100,
-				reconnectMs: 50,
-				url: syncUrl
-			});
-			const collection = sync.collection<NativeSyncRow>({
-				collection: 'native-acceptance'
-			});
-			let readyCount = 0;
-			const unsubscribe = collection.subscribe((snapshot) => {
-				if (
-					snapshot.status !== 'ready' ||
-					snapshot.data[0]?.label !== 'native-authenticated-sync'
-				) {
-					return;
-				}
-				readyCount += 1;
-				if (readyCount === 1) {
-					setState('reconnecting');
-					setDetail('Native sync ready; forcing reconnect');
-					setTimeout(() => sync.disconnect(), RECONNECT_DELAY_MS);
-
-					return;
-				}
-				setState('complete');
-				setDetail('Native auth + sync complete');
-				unsubscribe();
-				collection.close();
-				sync.close();
-			});
+			beginSync();
 		} catch (error) {
 			setState('failed');
 			setDetail(error instanceof Error ? error.message : String(error));

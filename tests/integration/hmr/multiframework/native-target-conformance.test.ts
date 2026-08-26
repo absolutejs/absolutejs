@@ -1,7 +1,7 @@
 import {
 	afterAll,
 	afterEach,
-	beforeAll,
+	beforeEach,
 	describe,
 	expect,
 	test
@@ -31,40 +31,17 @@ const SVELTE_RUNE_COUNTER = `<script lang="ts">
 let server: DevServer | undefined;
 let session: BrowserSession | undefined;
 
-const waitForServerIdle = async () => {
-	if (!server) return;
-	// Atomic fixture restoration reaches the recursive watcher after its
-	// platform debounce. Do not declare the graph idle before that event can
-	// enter the rebuild queue.
-	await Bun.sleep(1_000);
-	let stableChecks = 0;
-	const deadline = Date.now() + 15_000;
-	while (Date.now() < deadline) {
-		const status = (await (
-			await fetch(`${server.baseUrl}/hmr-status`)
-		).json()) as { isRebuilding?: boolean; rebuildQueue?: unknown[] };
-		if (
-			status.isRebuilding === false &&
-			(status.rebuildQueue?.length ?? 0) === 0
-		) {
-			stableChecks++;
-			if (stableChecks >= 3) return;
-		} else {
-			stableChecks = 0;
-		}
-		await Bun.sleep(100);
-	}
-	throw new Error('dev server did not become idle after fixture restoration');
+const closeSession = async () => {
+	const current = session;
+	session = undefined;
+	await current?.close();
 };
 
 afterEach(async () => {
+	await closeSession();
 	restoreAllFiles();
-	try {
-		await waitForServerIdle();
-	} catch {
-		await server?.kill();
-		server = await startConformanceServer();
-	}
+	await server?.kill();
+	server = undefined;
 }, 150_000);
 
 const startConformanceServer = async () => {
@@ -80,15 +57,14 @@ const startConformanceServer = async () => {
 	throw lastError;
 };
 
-beforeAll(async () => {
+beforeEach(async () => {
 	server = await startConformanceServer();
 }, 150_000);
 
 afterAll(async () => {
 	restoreAllFiles();
-	await Promise.race([session?.close(), Bun.sleep(5_000)]);
+	await closeSession();
 	await server?.kill();
-	session = undefined;
 	server = undefined;
 }, 30_000);
 
@@ -116,8 +92,7 @@ const withNativePage = async (
 	for (let attempt = 0; attempt < 3; attempt++) {
 		let actionStarted = false;
 		try {
-			await Promise.race([session?.close(), Bun.sleep(5_000)]);
-			session = undefined;
+			await closeSession();
 			session = await openPage(nativeUrl(route), {
 				waitUntil: 'commit'
 			});
@@ -157,8 +132,7 @@ const withNativePage = async (
 			if (attempt >= 2 || (!browserClosed && !readinessTimeout)) {
 				throw error;
 			}
-			await Promise.race([session?.close(), Bun.sleep(5_000)]);
-			session = undefined;
+			await closeSession();
 			if (readinessTimeout) {
 				await server?.kill();
 				server = await startConformanceServer();
@@ -364,6 +338,8 @@ describe('native-target all-framework HMR conformance', () => {
 		mutateFile(SVELTE_COUNTER, () => SVELTE_RUNE_COUNTER);
 		await setupClient.waitFor('svelte-update', 30_000);
 		setupClient.close();
+		await server.kill();
+		server = await startConformanceServer();
 		await withNativePage('/svelte', 'h1', async (page) => {
 			await page.waitForFunction(
 				() => window.__SVELTE_COMPONENT__ !== undefined,

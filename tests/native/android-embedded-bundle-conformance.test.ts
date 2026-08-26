@@ -75,6 +75,7 @@ type SigningJwk = JsonWebKey & {
 
 const authorizationCodes = new Map<string, AuthorizationTransaction>();
 const accessTokens = new Set<string>();
+const refreshTokens = new Set<string>();
 const socketTickets = new Set<string>();
 
 const prepareSystemBrowser = (adb: string, serial: string) => {
@@ -228,6 +229,35 @@ const nativeAuthResponse = async (request: Request) => {
 	if (url.pathname === '/__absolute/native-token') {
 		nativeAuthTokenRequests += 1;
 		const body = new URLSearchParams(await request.text());
+		if (body.get('grant_type') === 'refresh_token') {
+			const refreshToken = body.get('refresh_token') ?? '';
+			if (
+				body.get('client_id') !==
+					'absolutejs-native:com.absolutejs.conformance' ||
+				!refreshTokens.delete(refreshToken)
+			) {
+				return jsonResponse(
+					{ error: 'invalid_grant' },
+					{ status: 400 }
+				);
+			}
+			const accessToken = `access-${crypto.randomUUID()}`;
+			const rotatedRefreshToken = `refresh-${crypto.randomUUID()}`;
+			accessTokens.add(accessToken);
+			refreshTokens.add(rotatedRefreshToken);
+
+			return jsonResponse({
+				access_token: accessToken,
+				expires_in: 300,
+				id_token: await signIdToken(
+					'absolutejs-native:com.absolutejs.conformance',
+					''
+				),
+				refresh_token: rotatedRefreshToken,
+				scope: 'openid profile',
+				token_type: 'Bearer'
+			});
+		}
 		const code = body.get('code') ?? '';
 		const transaction = authorizationCodes.get(code);
 		const verifier = body.get('code_verifier') ?? '';
@@ -245,7 +275,9 @@ const nativeAuthResponse = async (request: Request) => {
 		}
 		authorizationCodes.delete(code);
 		const accessToken = `access-${crypto.randomUUID()}`;
+		const refreshToken = `refresh-${crypto.randomUUID()}`;
 		accessTokens.add(accessToken);
+		refreshTokens.add(refreshToken);
 
 		return jsonResponse({
 			access_token: accessToken,
@@ -254,7 +286,7 @@ const nativeAuthResponse = async (request: Request) => {
 				transaction.clientId,
 				transaction.nonce
 			),
-			refresh_token: `refresh-${crypto.randomUUID()}`,
+			refresh_token: refreshToken,
 			scope: 'openid profile',
 			token_type: 'Bearer'
 		});
@@ -698,7 +730,7 @@ describeNative('real Capacitor Android embedded-bundle conformance', () => {
 			);
 			expect(state).toBe('complete');
 			expect(nativeAuthAuthorizationRequests).toBe(1);
-			expect(nativeAuthTokenRequests).toBe(1);
+			expect(nativeAuthTokenRequests).toBeGreaterThanOrEqual(1);
 			expect(nativeAuthUserInfoRequests).toBeGreaterThanOrEqual(1);
 			expect(nativeSyncConnections).toBeGreaterThanOrEqual(2);
 			expect(nativeSyncTicketsIssued).toBeGreaterThanOrEqual(2);
