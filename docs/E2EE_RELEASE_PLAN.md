@@ -8,24 +8,34 @@ Research snapshot: August 26, 2026
 - Published `@absolutejs/e2ee@0.1.0` and the interchangeable experimental
   `@absolutejs/e2ee-webcrypto@0.1.0` envelope provider from the public
   `absolutejs/e2ee` and `absolutejs/e2ee-providers` repositories.
-- Published `@absolutejs/agent-exchange@0.1.0` with exact Agency action binding,
+- Published `@absolutejs/agent-exchange@0.2.0` with exact Agency action binding,
   single-use leases, recipient consent, authenticated E2EE envelopes, replay
-  protection, deterministic source/sink boundaries, safe receipts, and an opaque
-  A2A reference format.
-- Published `@absolutejs/agent@0.26.2` with the discoverable
+  protection, deterministic source/sink boundaries, safe receipts, an opaque A2A
+  reference format, and an explicit weakest-link assurance model for approval,
+  credential, and execution.
+- Published `@absolutejs/agent@0.27.0` with the discoverable
   `@absolutejs/agent/exchange` facade export.
+- Published request-bound WebAuthn support in `@absolutejs/auth@0.73.1`, including
+  server-side enforcement of required user verification.
 - Published `@absolutejs/email@0.3.1` with fail-closed Gmail and Microsoft Graph
   verification lookup in a browser-safe entry point, plus an explicit server-only
   IMAP entry point. Retrieval now requires a mailbox-trusted RFC 8601 authserv-id
   and an exactly aligned DMARC pass, uses provider receipt timestamps, bounds
   windows/body/candidate/header sizes, rejects duplicate code occurrences, and
   fails closed on incomplete provider fetches.
-- Published `@absolutejs/agent-exchange-email@0.2.1` from the public
+- Published `@absolutejs/agent-exchange-email@0.3.0` from the public
   `absolutejs/agent-exchange-sources` monorepo. It binds the email retrieval layer
   to `SensitiveValueSource`, requires challenge-text correlation by default,
   gates temporal-only correlation behind explicit profile and runtime opt-ins,
   defaults future clock skew to zero, and does not add email to the Agent Exchange
-  core or register a model-facing secret tool.
+  core or register a model-facing secret tool. It now rejects any request that
+  describes an email OTP as stronger than `policy + bearer + purpose-bound`.
+- Created the public `absolutejs/agent-exchange-providers` monorepo and published
+  `@absolutejs/agent-exchange-webauthn@0.1.0` and
+  `@absolutejs/agent-exchange-oauth@0.1.0`. The WebAuthn provider binds approval
+  to the exact exchange digest, verifier origin, RP ID, user, credential, UV flag,
+  and signature counter. The OAuth provider requires PAR, S256 PKCE, exact issuer
+  and resource binding, RAR, one-time state/grants, and DPoP token redemption.
 - Upgraded `examples/e2ee` from an architecture simulation to a browser-executed
   Agent Exchange flow and verified the submitted receipt in a headless browser.
 - Added canary tests for direct, hexadecimal, base64, and base64url secret leaks;
@@ -662,8 +672,10 @@ not a public security promise until every applicable exit gate passes.
   default. The initial receiver intentionally rejects weaker processing modes.
 - [ ] Expand redaction/canary tests across A2A, inbox, prompts, memory, traces, logs,
   analytics, notifications, audit, exceptions, and retries.
-- [ ] Ship safer OAuth/passkey variants. The paired-user verification-code example
-  is implemented and browser-tested.
+- [x] Ship request-bound WebAuthn approval and a hardened OAuth grant variant using
+  PAR, S256 PKCE, issuer identification, resource indicators, RAR, and DPoP.
+  The paired-user verification-code example is implemented, browser-tested, and
+  explicitly labeled confidential rather than phishing-resistant.
 
 ### Phase 7 — framework, browser, PWA, and native integration
 
@@ -793,6 +805,11 @@ Primary standards and security guidance:
 - [RFC 9750: MLS Architecture](https://datatracker.ietf.org/doc/html/rfc9750)
 - [RFC 9180: Hybrid Public Key Encryption](https://datatracker.ietf.org/doc/html/rfc9180)
 - [RFC 8693: OAuth 2.0 Token Exchange](https://datatracker.ietf.org/doc/html/rfc8693)
+- [RFC 9700: OAuth 2.0 Security Best Current Practice](https://datatracker.ietf.org/doc/html/rfc9700)
+- [RFC 7636: Proof Key for Code Exchange](https://datatracker.ietf.org/doc/html/rfc7636)
+- [RFC 9126: Pushed Authorization Requests](https://datatracker.ietf.org/doc/html/rfc9126)
+- [RFC 9207: Authorization Server Issuer Identification](https://datatracker.ietf.org/doc/html/rfc9207)
+- [RFC 8707: Resource Indicators for OAuth 2.0](https://datatracker.ietf.org/doc/html/rfc8707)
 - [RFC 9396: Rich Authorization Requests](https://datatracker.ietf.org/doc/html/rfc9396)
 - [RFC 9449: OAuth DPoP](https://datatracker.ietf.org/doc/html/rfc9449)
 - [RFC 9421: HTTP Message Signatures](https://datatracker.ietf.org/doc/html/rfc9421)
