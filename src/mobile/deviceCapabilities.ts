@@ -14,6 +14,8 @@ export type AbsoluteDeviceCapabilityProvider = {
 
 export type AbsoluteIosUsageDescription =
 	| 'camera'
+	| 'location-always'
+	| 'location-when-in-use'
 	| 'photo-library'
 	| 'photo-library-add';
 
@@ -45,6 +47,8 @@ const CAPACITOR_PACKAGE_PATTERN =
 const ANDROID_PERMISSION_PATTERN = /^android\.permission\.[A-Z][A-Z0-9_]*$/u;
 const IOS_USAGE_DESCRIPTIONS: ReadonlySet<string> = new Set([
 	'camera',
+	'location-always',
+	'location-when-in-use',
 	'photo-library',
 	'photo-library-add'
 ]);

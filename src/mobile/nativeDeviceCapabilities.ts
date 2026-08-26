@@ -59,6 +59,8 @@ const managed = (source: string, region: string, insertion: number) => {
 
 const IOS_KEYS: Record<AbsoluteIosUsageDescription, string> = {
 	camera: 'NSCameraUsageDescription',
+	'location-always': 'NSLocationAlwaysAndWhenInUseUsageDescription',
+	'location-when-in-use': 'NSLocationWhenInUseUsageDescription',
 	'photo-library': 'NSPhotoLibraryUsageDescription',
 	'photo-library-add': 'NSPhotoLibraryAddUsageDescription'
 };
@@ -71,6 +73,10 @@ const iosDescription = (
 		return `${appName} uses your camera when you choose to take a photo.`;
 	if (purpose === 'photo-library')
 		return `${appName} accesses your photo library only for photo actions you choose.`;
+	if (purpose === 'location-when-in-use')
+		return `${appName} uses your location only while you are using the app and request a location-based action.`;
+	if (purpose === 'location-always')
+		return `${appName} does not track location in the background; this description supports the foreground location provider required by the native runtime.`;
 
 	return `${appName} adds to your photo library only for photo actions you choose.`;
 };

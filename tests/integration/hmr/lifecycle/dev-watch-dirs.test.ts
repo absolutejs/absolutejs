@@ -52,6 +52,10 @@ describe('dev.watchDirs extra paths fire HMR', () => {
 		);
 
 		server = await startDevServer();
+		// The HTTP endpoint can become ready while startup work is still draining
+		// under a saturated sharded run. Mutating immediately can overlap that
+		// work and make this watcher assertion depend on machine load.
+		await server.waitForIdle({ timeoutMs: 30_000 });
 
 		// Mutate the watched file. The watcher emits an `hmr update`
 		// log line on stdout for every detected file change inside
@@ -65,5 +69,5 @@ describe('dev.watchDirs extra paths fire HMR', () => {
 		);
 
 		await server.waitForOutput(/hmr update.*sentinel\.ts/);
-	}, 30_000);
+	}, 60_000);
 });

@@ -57,6 +57,25 @@ const fixture = async () => {
 							module: '@absolutejs/devices-capacitor/haptics',
 							packages: ['@capacitor/haptics@8.0.2']
 						},
+						location: {
+							factory: 'createCapacitorLocationCapability',
+							module: '@absolutejs/devices-capacitor/location',
+							native: {
+								android: {
+									permissions: [
+										'android.permission.ACCESS_COARSE_LOCATION',
+										'android.permission.ACCESS_FINE_LOCATION'
+									]
+								},
+								ios: {
+									usageDescriptions: [
+										'location-always',
+										'location-when-in-use'
+									]
+								}
+							},
+							packages: ['@capacitor/geolocation@8.2.2']
+						},
 						share: {
 							factory: 'createCapacitorShareCapability',
 							module: '@absolutejs/devices-capacitor/share',
@@ -80,7 +99,7 @@ describe('device capability discovery', () => {
 			join(root, 'page.ts'),
 			`import { clipboard as copy, type DeviceShareContent } from '@absolutejs/devices';
 import * as device from '@absolutejs/devices';
-void copy.writeText('x'); void device.haptics.impact();`
+void copy.writeText('x'); void device.haptics.impact(); void device.location.current();`
 		);
 		await writeFile(
 			join(root, 'feature.ts'),
@@ -101,11 +120,13 @@ void copy.writeText('x'); void device.haptics.impact();`
 		expect(discoverAbsoluteDeviceCapabilities(root, providers)).toEqual([
 			'clipboard',
 			'haptics',
+			'location',
 			'share'
 		]);
 		const plan = resolveAbsoluteDeviceCapabilityPlan(root);
 		expect(plan.requiredPackages).toEqual([
 			'@capacitor/clipboard@8.0.1',
+			'@capacitor/geolocation@8.2.2',
 			'@capacitor/haptics@8.0.2',
 			'@capacitor/share@8.0.1'
 		]);
@@ -114,7 +135,11 @@ void copy.writeText('x'); void device.haptics.impact();`
 				plan,
 				new Set(['@capacitor/clipboard'])
 			)
-		).toEqual(['@capacitor/haptics@8.0.2', '@capacitor/share@8.0.1']);
+		).toEqual([
+			'@capacitor/geolocation@8.2.2',
+			'@capacitor/haptics@8.0.2',
+			'@capacitor/share@8.0.1'
+		]);
 	});
 
 	test('ignores type-only imports and test sources', async () => {
@@ -206,6 +231,17 @@ void copy.writeText('x'); void device.haptics.impact();`
 			'camera',
 			'photo-library'
 		]);
+		expect(providers.location?.native).toEqual({
+			android: {
+				permissions: [
+					'android.permission.ACCESS_COARSE_LOCATION',
+					'android.permission.ACCESS_FINE_LOCATION'
+				]
+			},
+			ios: {
+				usageDescriptions: ['location-always', 'location-when-in-use']
+			}
+		});
 		const value = JSON.parse(await Bun.file(path).text());
 		value.absolutejs.devices.capabilities.camera.native.ios.usageDescriptions =
 			['contacts'];

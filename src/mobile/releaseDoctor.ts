@@ -265,6 +265,8 @@ const syncSchemaReleaseCheck = (projectRoot: string) => {
 
 const IOS_USAGE_KEYS: Record<AbsoluteIosUsageDescription, string> = {
 	camera: 'NSCameraUsageDescription',
+	'location-always': 'NSLocationAlwaysAndWhenInUseUsageDescription',
+	'location-when-in-use': 'NSLocationWhenInUseUsageDescription',
 	'photo-library': 'NSPhotoLibraryUsageDescription',
 	'photo-library-add': 'NSPhotoLibraryAddUsageDescription'
 };

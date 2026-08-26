@@ -15,7 +15,7 @@ const noDeviceCapabilities: AbsoluteDeviceCapabilityPlan = {
 	requiredPackages: []
 };
 const optionalDeviceCapabilities: AbsoluteDeviceCapabilityPlan = {
-	capabilities: ['camera', 'clipboard', 'photos'],
+	capabilities: ['camera', 'clipboard', 'location', 'photos'],
 	providers: {
 		camera: {
 			factory: 'createCapacitorCameraCapability',
@@ -27,13 +27,22 @@ const optionalDeviceCapabilities: AbsoluteDeviceCapabilityPlan = {
 			module: '@absolutejs/devices-capacitor/clipboard',
 			packages: ['@capacitor/clipboard@8.0.1']
 		},
+		location: {
+			factory: 'createCapacitorLocationCapability',
+			module: '@absolutejs/devices-capacitor/location',
+			packages: ['@capacitor/geolocation@8.2.2']
+		},
 		photos: {
 			factory: 'createCapacitorPhotosCapability',
 			module: '@absolutejs/devices-capacitor/camera',
 			packages: ['@capacitor/camera@8.2.3']
 		}
 	},
-	requiredPackages: ['@capacitor/camera@8.2.3', '@capacitor/clipboard@8.0.1']
+	requiredPackages: [
+		'@capacitor/camera@8.2.3',
+		'@capacitor/clipboard@8.0.1',
+		'@capacitor/geolocation@8.2.2'
+	]
 };
 const packageProjectRoot = resolve(import.meta.dir, '../../..');
 
@@ -157,6 +166,7 @@ describe('Capacitor local web bundle', () => {
 		expect(manifest.deviceCapabilities).toEqual([
 			'camera',
 			'clipboard',
+			'location',
 			'photos'
 		]);
 		expect(localStylePath).toBeDefined();
@@ -179,6 +189,8 @@ describe('Capacitor local web bundle', () => {
 		expect(bootstrap).toContain('appUrlOpen');
 		expect(bootstrap).toContain('takePhoto');
 		expect(bootstrap).toContain('chooseFromGallery');
+		expect(bootstrap).toContain('getCurrentPosition');
+		expect(bootstrap).toContain('watchPosition');
 		expect(bootstrap).toContain('AbsoluteSecureStorage');
 		expect(bootstrap).toContain('oidc.refresh');
 		expect(bootstrap).toContain('client-runtime-transport');

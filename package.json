@@ -8,8 +8,8 @@
 	},
 	"dependencies": {
 		"@absolutejs/auth": "0.72.0",
-		"@absolutejs/devices": "0.2.0",
-		"@absolutejs/devices-capacitor": "0.3.1",
+		"@absolutejs/devices": "0.3.0",
+		"@absolutejs/devices-capacitor": "0.4.0",
 		"@absolutejs/pwa": "0.13.0",
 		"@capacitor/browser": "8.0.4",
 		"@capacitor/network": "8.0.1",
@@ -27,7 +27,7 @@
 		"@absolutejs/manifest": "0.9.0",
 		"@absolutejs/scoped-state": "0.2.2",
 		"@absolutejs/sync": "2.29.0",
-		"@absolutejs/sync-capacitor": "0.9.0",
+		"@absolutejs/sync-capacitor": "0.9.1",
 		"@angular/animations": "21.2.6",
 		"@angular/cdk": "21.2.6",
 		"@angular/common": "21.2.6",
@@ -48,6 +48,7 @@
 		"@capacitor/cli": "8.5.0",
 		"@capacitor/clipboard": "8.0.1",
 		"@capacitor/core": "8.5.0",
+		"@capacitor/geolocation": "8.2.2",
 		"@capacitor/haptics": "8.0.2",
 		"@capacitor/ios": "8.5.0",
 		"@capacitor/share": "8.0.1",
@@ -279,12 +280,12 @@
 	"main": "./dist/index.js",
 	"name": "@absolutejs/absolute",
 	"optionalDependencies": {
-		"@absolutejs/native-darwin-arm64": "0.20.0-beta.20",
-		"@absolutejs/native-darwin-x64": "0.20.0-beta.20",
-		"@absolutejs/native-linux-arm64": "0.20.0-beta.20",
-		"@absolutejs/native-linux-x64": "0.20.0-beta.20",
-		"@absolutejs/native-windows-arm64": "0.20.0-beta.20",
-		"@absolutejs/native-windows-x64": "0.20.0-beta.20"
+		"@absolutejs/native-darwin-arm64": "0.20.0-beta.21",
+		"@absolutejs/native-darwin-x64": "0.20.0-beta.21",
+		"@absolutejs/native-linux-arm64": "0.20.0-beta.21",
+		"@absolutejs/native-linux-x64": "0.20.0-beta.21",
+		"@absolutejs/native-windows-arm64": "0.20.0-beta.21",
+		"@absolutejs/native-windows-x64": "0.20.0-beta.21"
 	},
 	"overrides": {
 		"@sinclair/typebox": "0.34.52",
@@ -495,7 +496,7 @@
 			]
 		}
 	},
-	"version": "0.20.0-beta.20",
+	"version": "0.20.0-beta.21",
 	"workspaces": [
 		"tests/fixtures/*",
 		"tests/fixtures/_packages/*"

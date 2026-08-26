@@ -16,6 +16,7 @@ import type VueExample from './vue/pages/VueExample.vue';
 import { generateHeadElement } from '../src/utils/generateHeadElement';
 import { ReactExample } from './react/pages/ReactExample';
 import { NativeAuthSyncAcceptance } from './react/pages/NativeAuthSyncAcceptance';
+import { NativeLocationAcceptance } from './react/pages/NativeLocationAcceptance';
 import {
 	asset,
 	handleHTMLPageRequest,
@@ -87,6 +88,13 @@ export const server: AnyElysia = new Elysia()
 			}
 		});
 	})
+	.get('/native-location', () =>
+		handleReactPageRequest({
+			index: asset(manifest, 'NativeLocationAcceptanceIndex'),
+			Page: NativeLocationAcceptance,
+			props: {}
+		})
+	)
 	.get('/svelte', () =>
 		handleSveltePageRequest<typeof SvelteExample>({
 			indexPath: asset(manifest, 'SvelteExampleIndex'),

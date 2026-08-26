@@ -15,6 +15,7 @@ import {
 } from '../../src/mobile/androidWebView';
 import { normalizeAbsoluteMobileConfig } from '../../src/mobile/config';
 import { applyAbsoluteNativeDeepLinks } from '../../src/mobile/nativeDeepLinks';
+import { applyAbsoluteNativeDeviceCapabilities } from '../../src/mobile/nativeDeviceCapabilities';
 import { findFreePort } from '../../src/cli/utils';
 
 const ENABLED = process.env.ABSOLUTE_TEST_NATIVE_ANDROID === '1';
@@ -574,6 +575,9 @@ describeNative('real Capacitor Android embedded-bundle conformance', () => {
 			projectRoot: PROJECT_ROOT
 		});
 		await applyAbsoluteNativeDeepLinks(mobile, ['android']);
+		await applyAbsoluteNativeDeviceCapabilities(PROJECT_ROOT, mobile, [
+			'android'
+		]);
 		android = await startAbsoluteAndroidDevSession({
 			embeddedBundle: true,
 			port: PORT,
@@ -701,6 +705,133 @@ describeNative('real Capacitor Android embedded-bundle conformance', () => {
 				scriptExecuted: false,
 				unsafeAction: null
 			});
+		}
+	);
+
+	nativeTest(
+		'uses the provider-neutral foreground location contract and cleans up watches',
+		async () => {
+			const opened = await webview.evaluate<boolean>(`(() => {
+				const anchor = document.createElement('a');
+				anchor.href = '/native-location';
+				anchor.textContent = 'Native location';
+				document.body.appendChild(anchor);
+				anchor.click();
+				return true;
+			})()`);
+			expect(opened).toBe(true);
+			await waitForText('AbsoluteJS Foreground Location');
+			const click = async (selector: string) => {
+				const clicked = await webview.evaluate<boolean>(`(() => {
+					const button = document.querySelector(${JSON.stringify(selector)});
+					if (!(button instanceof HTMLButtonElement)) return false;
+					button.click();
+					return true;
+				})()`);
+				expect(clicked).toBe(true);
+			};
+
+			await click('#location-query');
+			await webview.waitFor<boolean>(
+				`document.querySelector('#location-detail')?.textContent === 'Location capability and permission queried'`,
+				{ timeoutMs: TIMEOUT_MS }
+			);
+			expect(
+				await webview.evaluate<string | null>(
+					`document.querySelector('[data-capability]')?.getAttribute('data-capability') ?? null`
+				)
+			).toBe('native');
+
+			await click('#location-current');
+			await webview.waitFor<boolean>(
+				`document.querySelector('[data-error]')?.getAttribute('data-error') === 'permission-required'`,
+				{ timeoutMs: TIMEOUT_MS }
+			);
+
+			for (const permission of [
+				'android.permission.ACCESS_COARSE_LOCATION',
+				'android.permission.ACCESS_FINE_LOCATION'
+			]) {
+				const granted = Bun.spawnSync([
+					project.adb,
+					'-s',
+					android.serial,
+					'shell',
+					'pm',
+					'grant',
+					'com.absolutejs.conformance',
+					permission
+				]);
+				expect(granted.exitCode).toBe(0);
+			}
+			const setLocation = (longitude: number, latitude: number) => {
+				const located = Bun.spawnSync([
+					project.adb,
+					'-s',
+					android.serial,
+					'emu',
+					'geo',
+					'fix',
+					String(longitude),
+					String(latitude)
+				]);
+				expect(located.exitCode).toBe(0);
+			};
+			await click('#location-query');
+			await webview.waitFor<boolean>(
+				`document.querySelector('[data-permission]')?.getAttribute('data-permission') === 'granted'`,
+				{ timeoutMs: TIMEOUT_MS }
+			);
+			await click('#location-watch');
+			await webview.waitFor<boolean>(
+				`document.querySelector('[data-active]')?.getAttribute('data-active') === 'true'`,
+				{ timeoutMs: TIMEOUT_MS }
+			);
+			setLocation(-122.084, 37.422);
+			await webview.waitFor<boolean>(
+				`Number(document.querySelector('[data-updates]')?.getAttribute('data-updates') ?? '0') > 0`,
+				{ timeoutMs: TIMEOUT_MS }
+			);
+			await click('#location-stop');
+			await webview.waitFor<boolean>(
+				`document.querySelector('[data-active]')?.getAttribute('data-active') === 'false'`,
+				{ timeoutMs: TIMEOUT_MS }
+			);
+			await click('#location-current');
+			await webview.waitFor<boolean>(
+				`document.querySelector('#location-detail')?.textContent === 'Current location received'`,
+				{ timeoutMs: TIMEOUT_MS }
+			);
+
+			const initialUpdates = await webview.evaluate<number>(
+				`Number(document.querySelector('[data-updates]')?.getAttribute('data-updates') ?? '0')`
+			);
+			await click('#location-watch');
+			await webview.waitFor<boolean>(
+				`document.querySelector('[data-active]')?.getAttribute('data-active') === 'true'`,
+				{ timeoutMs: TIMEOUT_MS }
+			);
+			setLocation(-122.085, 37.423);
+			await webview.waitFor<boolean>(
+				`Number(document.querySelector('[data-updates]')?.getAttribute('data-updates') ?? '0') > ${initialUpdates}`,
+				{ timeoutMs: TIMEOUT_MS }
+			);
+			await click('#location-stop');
+			await webview.waitFor<boolean>(
+				`document.querySelector('[data-active]')?.getAttribute('data-active') === 'false'`,
+				{ timeoutMs: TIMEOUT_MS }
+			);
+			const stoppedCount = await webview.evaluate<number>(
+				`Number(document.querySelector('[data-updates]')?.getAttribute('data-updates') ?? '0')`
+			);
+			setLocation(-122.086, 37.424);
+			await Bun.sleep(2_000);
+			expect(
+				await webview.evaluate<number>(
+					`Number(document.querySelector('[data-updates]')?.getAttribute('data-updates') ?? '0')`
+				)
+			).toBe(stoppedCount);
+			await click('#location-stop');
 		}
 	);
 

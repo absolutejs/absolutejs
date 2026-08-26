@@ -2069,10 +2069,11 @@ Wave 1, high-value cross-platform APIs:
 - push notification registration/token/events
 - keyboard and system/status bar controls
 
-Clipboard, share sheet, haptics, camera capture, and scoped photo selection are
-the completed Wave 1 foundation. They ship in `@absolutejs/devices@0.2.0` with
+Clipboard, share sheet, haptics, camera capture, scoped photo selection, and
+foreground location/current/watch are the completed Wave 1 foundation. They
+ship in `@absolutejs/devices@0.3.0` with
 web/SSR/test behavior and isolated Capacitor provider entries in
-`@absolutejs/devices-capacitor@0.3.1`. AbsoluteJS discovers
+`@absolutejs/devices-capacitor@0.4.0`. AbsoluteJS discovers
 named value imports with its TypeScript AST, ignores type-only/test imports,
 validates declarative provider metadata, installs exact tested plugins only after
 approval, generates adapter wiring, records the effective graph in the mobile
@@ -2085,6 +2086,12 @@ not require broad library access. The provider metadata also declares native
 permission purposes, which AbsoluteJS projects into owned iOS Info.plist entries
 and validates in the release doctor without adding unnecessary Android
 camera/storage permissions.
+Location follows the same explicit-permission boundary, normalizes coarse versus
+precise access and provider errors, and returns idempotent watch cleanup. Its
+declarative provider metadata installs Geolocation 8.2.2 and projects Android
+coarse/fine permissions plus the provider-required iOS usage descriptions.
+This contract is foreground-only; background tracking remains a separate future
+privacy, battery, native-lifecycle, and store-review design.
 
 Wave 2, after focused design:
 

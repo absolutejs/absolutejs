@@ -51,6 +51,32 @@ const cameraPlan: AbsoluteDeviceCapabilityPlan = {
 	requiredPackages: ['@capacitor/camera@8.2.3']
 };
 
+const locationPlan: AbsoluteDeviceCapabilityPlan = {
+	capabilities: ['location'],
+	providers: {
+		location: {
+			factory: 'createCapacitorLocationCapability',
+			module: '@absolutejs/devices-capacitor/location',
+			native: {
+				android: {
+					permissions: [
+						'android.permission.ACCESS_COARSE_LOCATION',
+						'android.permission.ACCESS_FINE_LOCATION'
+					]
+				},
+				ios: {
+					usageDescriptions: [
+						'location-always',
+						'location-when-in-use'
+					]
+				}
+			},
+			packages: ['@capacitor/geolocation@8.2.2']
+		}
+	},
+	requiredPackages: ['@capacitor/geolocation@8.2.2']
+};
+
 describe('native device capability projection', () => {
 	test('generates idempotent iOS descriptions without unnecessary Android permissions', async () => {
 		const root = await mkdtemp(join(tmpdir(), 'absolute-native-devices-'));
@@ -106,5 +132,61 @@ describe('native device capability projection', () => {
 		expect(manifest).not.toContain(
 			'android.permission.READ_EXTERNAL_STORAGE'
 		);
+	});
+
+	test('projects foreground location requirements idempotently on both platforms', async () => {
+		const root = await mkdtemp(join(tmpdir(), 'absolute-native-location-'));
+		temporaryDirectories.push(root);
+		const ios = join(root, 'mobile/ios/App/App');
+		const android = join(root, 'mobile/android/app/src/main');
+		await Promise.all([
+			mkdir(ios, { recursive: true }),
+			mkdir(android, { recursive: true })
+		]);
+		await writeFile(
+			join(ios, 'Info.plist'),
+			'<plist>\n<dict>\n</dict>\n</plist>\n'
+		);
+		await writeFile(
+			join(android, 'AndroidManifest.xml'),
+			'<manifest>\n    <application />\n</manifest>\n'
+		);
+		const config = normalizeAbsoluteMobileConfig(
+			{
+				appId: 'com.example.location',
+				appName: 'Location Example',
+				server: { productionOrigin: 'https://api.example.com' }
+			},
+			root
+		);
+
+		const first = await applyAbsoluteNativeDeviceCapabilities(
+			root,
+			config,
+			config.platforms,
+			locationPlan
+		);
+		const second = await applyAbsoluteNativeDeviceCapabilities(
+			root,
+			config,
+			config.platforms,
+			locationPlan
+		);
+		const info = await readFile(join(ios, 'Info.plist'), 'utf8');
+		const manifest = await readFile(
+			join(android, 'AndroidManifest.xml'),
+			'utf8'
+		);
+
+		expect(first.changed).toEqual(['ios', 'android']);
+		expect(second.changed).toEqual([]);
+		expect(info).toContain(
+			'<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>'
+		);
+		expect(info).toContain(
+			'<key>NSLocationWhenInUseUsageDescription</key>'
+		);
+		expect(manifest).toContain('android.permission.ACCESS_COARSE_LOCATION');
+		expect(manifest).toContain('android.permission.ACCESS_FINE_LOCATION');
 	});
 });

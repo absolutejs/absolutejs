@@ -1,7 +1,7 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.20` and
+`@absolutejs/absolute@0.20.0-beta.21` and
 `@absolutejs/deploy@0.24.0`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
 
@@ -36,6 +36,32 @@ The signing identity and the App Store Connect API key are separate:
 
 Never send either credential in a bug report or commit it to Git.
 
+### How to use this runbook
+
+Work from top to bottom and check each box only after observing the stated
+result. Use `SKIPPED` only where a step explicitly says it is optional. If a
+step fails, keep going only when it is safe to do so and record its test ID,
+actual result, sanitized logs, and artifact or screenshot path in section 13.
+
+- [ ] `SETUP-01` Record the Mac, Xcode, Bun, device, and package versions.
+- [ ] `SETUP-02` Complete Xcode setup and confirm an iOS runtime is installed.
+- [ ] `SETUP-03` Install the exact packages in section 3.
+- [ ] `SETUP-04` Configure the staging bundle ID and production server origin.
+- [ ] `SETUP-05` Generate or synchronize iOS and resolve Xcode signing warnings.
+- [ ] `DEV-01` Complete the cold and warm `bun dev` simulator runs.
+- [ ] `DEV-02` Complete route traversal, HMR timing, relaunch, and recovery.
+- [ ] `CAP-01` Complete automatic device-capability provisioning.
+- [ ] `LOC-01` through `LOC-14` Complete the foreground-location checklist.
+- [ ] `AUTH-01` Complete system-browser sign-in and callback.
+- [ ] `SYNC-01` Complete online, offline, reconnect, isolation, and conflict tests.
+- [ ] `BGSYNC-01` Complete physical-device background Sync acceptance.
+- [ ] `REMOTE-01` Complete remote-Mac acceptance, or mark it `SKIPPED`.
+- [ ] `BUILD-01` Pass release doctor and produce a signed IPA.
+- [ ] `SHIP-01` Upload, process, assign, and install the TestFlight build.
+- [ ] `UPDATE-01` Prove retry reuse and a subsequent web-only update.
+- [ ] `REPORT-01` Fill every report row in section 13 with `PASS`, `FAIL`, or
+  `SKIPPED`; attach sanitized evidence for every failure.
+
 ## 2. Prepare Xcode
 
 Install Xcode from the Mac App Store, launch it once, sign in to the correct Apple
@@ -64,10 +90,10 @@ still requires the developer team setup described below.
 From the root of the AbsoluteJS application:
 
 ```sh
-bun add @absolutejs/absolute@0.20.0-beta.20 \
+bun add @absolutejs/absolute@0.20.0-beta.21 \
   @absolutejs/auth@0.72.0 \
   @absolutejs/sync@2.29.0 \
-  @absolutejs/sync-capacitor@0.9.0 \
+  @absolutejs/sync-capacitor@0.9.1 \
   @absolutejs/deploy@0.24.0 \
   @absolutejs/blob@0.5.2 \
   @capacitor/core@8.5.0 \
@@ -78,8 +104,8 @@ bun add @absolutejs/absolute@0.20.0-beta.20 \
   @capacitor/preferences@8.0.1 \
   @capacitor/cli@8.5.0 \
   @capacitor/ios@8.5.0 \
-  @absolutejs/devices@0.2.0 \
-  @absolutejs/devices-capacitor@0.3.1
+  @absolutejs/devices@0.3.0 \
+  @absolutejs/devices-capacitor@0.4.0
 ```
 
 `absolute mobile init` now offers to install this tested Capacitor/device
@@ -101,8 +127,8 @@ configuration.
 Optional native plugins are derived from named `@absolutejs/devices` imports.
 Do not add them to the initial command: the capability acceptance route below
 must prove that `absolute mobile sync ios` detects and offers only the plugins it
-needs. The tested mappings in this release are Clipboard 8.0.1, Haptics 8.0.2,
-and Share 8.0.1.
+needs. The tested mappings in this release are Camera 8.2.3, Clipboard 8.0.1,
+Geolocation 8.2.2, Haptics 8.0.2, and Share 8.0.1.
 
 Keep the existing compatible versions if the application deliberately pins
 newer versions. Record `bun --version` and `xcodebuild -version` for the test
@@ -243,7 +269,14 @@ at the end of this file.
 Add an application page using the provider-neutral surface only:
 
 ```ts
-import { camera, clipboard, haptics, photos, share } from '@absolutejs/devices';
+import {
+	camera,
+	clipboard,
+	haptics,
+	location,
+	photos,
+	share
+} from '@absolutejs/devices';
 
 await clipboard.writeText('AbsoluteJS native capability test');
 await haptics.impact('light');
@@ -258,17 +291,25 @@ if (permission.state === 'granted') {
 }
 const chosen = await photos.pick({ limit: 1 });
 console.log(chosen[0]?.webPath);
+
+const locationPermission = await location.requestPermission({
+	precision: 'precise'
+});
+if (locationPermission.state === 'granted') {
+	console.log(await location.current({ timeoutMs: 10_000 }));
+}
 ```
 
 Expose each call behind a separate user-initiated button. Do not import
 `@capacitor/*`, import `@absolutejs/devices-capacitor`, edit Swift, or edit the
 Xcode project. Run `bunx absolute mobile sync ios` and confirm AbsoluteJS names
-`camera`, `clipboard`, `haptics`, `photos`, and `share`, then offers to install exactly these tested
-packages:
+`camera`, `clipboard`, `haptics`, `location`, `photos`, and `share`, then offers
+to install exactly these tested packages:
 
 ```text
 @capacitor/clipboard@8.0.1
 @capacitor/camera@8.2.3
+@capacitor/geolocation@8.2.2
 @capacitor/haptics@8.0.2
 @capacitor/share@8.0.1
 ```
@@ -277,7 +318,12 @@ Run sync again and confirm it does not prompt again. Run
 `bunx absolute mobile doctor release`; `mobile.device-capabilities` must pass.
 Confirm `Info.plist` contains `NSCameraUsageDescription`,
 `NSPhotoLibraryUsageDescription`, and `NSPhotoLibraryAddUsageDescription`, all
-inside the AbsoluteJS-owned device-capabilities region. Do not add them by hand.
+inside the AbsoluteJS-owned device-capabilities region. It must also contain
+`NSLocationWhenInUseUsageDescription` and
+`NSLocationAlwaysAndWhenInUseUsageDescription`, as required by the Capacitor
+provider. Do not add any of them by hand. The second location key does not mean
+this release supports background tracking; `@absolutejs/devices` location is
+foreground-only.
 In the web preview, confirm clipboard and sharing use browser behavior when the
 browser permits it and that haptics safely degrades when vibration is absent. In
 the iOS Simulator, confirm clipboard write and the native share sheet. A
@@ -291,11 +337,71 @@ provide a real camera feed, so prove capture on the physical TestFlight device.
 Confirm `photos.pick()` opens Apple's scoped picker without first asking for
 broad library access, and that neither result exposes EXIF data.
 
-Finally remove the `share`, `camera`, and `photos` imports and their usage;
-remove `@capacitor/share` and `@capacitor/camera` from the application
+### Foreground-location acceptance checklist
+
+Use a separate button for permission, current position, start watch, and stop
+watch. Display the normalized permission, precision, last position, update
+count, last error code, and whether a watch is active on the page so screenshots
+contain useful evidence. Never print the raw provider payload. The same page
+source must run in the browser and iOS app without a runtime branch.
+When testing this repository's example, open `/native-location`; it already
+implements those controls entirely through `@absolutejs/devices`.
+
+- [ ] `LOC-01` Before requesting permission, call `location.capability()` and
+  `location.permission()`. Confirm neither call opens an iOS prompt and record
+  both normalized results.
+- [ ] `LOC-02` Tap the current-position button before granting permission.
+  Confirm the facade rejects with normalized code `permission-required` and does
+  not open a prompt.
+- [ ] `LOC-03` Tap the permission button, choose **Allow While Using App**, and
+  confirm state `granted`. On a device that exposes the choice, enable Precise
+  Location and confirm normalized precision `precise`.
+- [ ] `LOC-04` Set Simulator **Features > Location > Apple** (or another fixed
+  location), tap current position, and confirm finite latitude/longitude,
+  non-negative accuracy, and a timestamp. Record the selected simulation.
+- [ ] `LOC-05` Tap start watch, change Simulator **Features > Location** to a
+  different preset, and confirm the update count increases and the displayed
+  coordinates change.
+- [ ] `LOC-06` Tap stop watch, change the simulated location again, wait at least
+  the configured watch interval, and confirm the update count does not increase.
+  Tap stop a second time and confirm cleanup remains safe.
+- [ ] `LOC-07` Start a watch, background the app for 15 seconds, and change the
+  simulated location. Confirm the app makes no background-tracking claim. Bring
+  it foreground, stop the old watch, start a new one, and confirm updates resume
+  without duplicate callbacks.
+- [ ] `LOC-08` In iOS Settings, disable Precise Location for the test app, return
+  to it, query permission again, and confirm granted/coarse behavior is reported
+  without another prompt. Confirm current position still succeeds.
+- [ ] `LOC-09` Reset the app's location permission with Simulator **Device >
+  Erase All Content and Settings** or reinstall the disposable test app. Request
+  permission, choose **Don't Allow**, and confirm `permission-denied` from
+  current and watch without an implicit second prompt.
+- [ ] `LOC-10` Change the app permission to **While Using the App** in iOS
+  Settings, return to the app, and confirm a new permission query observes the
+  change and current position recovers without reinstalling.
+- [ ] `LOC-11` Temporarily disable Location Services in iOS Settings. Confirm
+  current/watch fail with a normalized, non-sensitive device error and the app
+  remains responsive. Re-enable services and confirm recovery.
+- [ ] `LOC-12` With permission granted, terminate and relaunch the app. Confirm
+  no watch is falsely shown as active, permission can be queried, and a newly
+  started watch delivers exactly one callback stream.
+- [ ] `LOC-13` Run the equivalent page in the normal web preview. Confirm it uses
+  the browser permission and Geolocation APIs, preserves the explicit prompt
+  boundary, and safely reports unavailable when geolocation is absent.
+- [ ] `LOC-14` Repeat `LOC-03` through `LOC-06` on the physical TestFlight device.
+  Record iPhone/iPad model, iOS version, precise/coarse result, current-position
+  accuracy, and watch/cleanup result. Do not include the tester's exact
+  coordinates in the report; use `coordinates sane: yes/no`.
+
+`LOC-07` verifies foreground lifecycle recovery only. Persistent background
+location is intentionally out of scope and must not be reported as supported.
+
+Finally remove the `share`, `camera`, `location`, and `photos` imports and their
+usage; remove `@capacitor/share`, `@capacitor/camera`, and
+`@capacitor/geolocation` from the application
 dependencies; run sync; and confirm the release doctor still passes while the
 generated mobile manifest lists only `clipboard` and `haptics` and the owned iOS
-camera/photo usage-description region is removed.
+camera/photo/location usage-description region is removed.
 AbsoluteJS does not automatically uninstall a dependency because it may be used
 outside discoverable application source; this removal is intentionally explicit.
 
@@ -776,18 +882,56 @@ source change and build a new content-addressed release instead.
 - Mac architecture:
 - Xcode version:
 - Bun version:
-- AbsoluteJS version: 0.20.0-beta.20
+- AbsoluteJS version: 0.20.0-beta.21
 - Auth version: 0.72.0
 - Sync version: 2.29.0
-- Sync Capacitor version: 0.9.0
+- Sync Capacitor version: 0.9.1
 - Capacitor SQLite version: 8.1.1
-- Devices version: 0.2.0
-- Devices Capacitor version: 0.3.1
+- Devices version: 0.3.0
+- Devices Capacitor version: 0.4.0
+- Geolocation version: 8.2.2
 - Deploy version: 0.24.0
 - App bundle ID (non-secret):
 - Marketing version:
 - Allocated build number:
 - Internal TestFlight group:
+
+Use only `PASS`, `FAIL`, or `SKIPPED` in Result. A failure's Evidence cell must
+name a sanitized log, screenshot, or artifact path and briefly state actual
+versus expected behavior. Do not report exact coordinates.
+
+| Test ID | Result | Observed result / timing | Evidence or failure details |
+| --- | --- | --- | --- |
+| SETUP-01 |  |  |  |
+| SETUP-02 |  |  |  |
+| SETUP-03 |  |  |  |
+| SETUP-04 |  |  |  |
+| SETUP-05 |  |  |  |
+| DEV-01 |  | cold: / warm: |  |
+| DEV-02 |  | HMR: / relaunch: |  |
+| CAP-01 |  | discovered: / installed: |  |
+| LOC-01 |  | capability: / initial permission: |  |
+| LOC-02 |  | error code: |  |
+| LOC-03 |  | permission: / precision: |  |
+| LOC-04 |  | coordinates sane: / accuracy: |  |
+| LOC-05 |  | update count before/after: |  |
+| LOC-06 |  | count after stop: / second stop safe: |  |
+| LOC-07 |  | foreground recovery / duplicate callbacks: |  |
+| LOC-08 |  | approximate permission/current: |  |
+| LOC-09 |  | denial error / no second prompt: |  |
+| LOC-10 |  | Settings recovery: |  |
+| LOC-11 |  | disabled-services error / recovery: |  |
+| LOC-12 |  | relaunch state / callback streams: |  |
+| LOC-13 |  | browser behavior: |  |
+| LOC-14 |  | device model/iOS / coordinates sane / accuracy / cleanup: |  |
+| AUTH-01 |  | sign-in return: / relaunch restore: |  |
+| SYNC-01 |  | first ready: / reconnect: / offline result: |  |
+| BGSYNC-01 |  | acknowledged/pulled counts: |  |
+| REMOTE-01 |  | doctor/HMR/rebuild/cache: |  |
+| BUILD-01 |  | IPA path / release doctor: |  |
+| SHIP-01 |  | build number / processing / install: |  |
+| UPDATE-01 |  | retry reuse / next build: |  |
+
 - Signed IPA build: PASS / FAIL
 - App Store upload and processing: PASS / FAIL
 - TestFlight assignment: PASS / FAIL
@@ -810,6 +954,11 @@ source change and build a new content-addressed release instead.
 - Explicit camera permission denial/grant: PASS / FAIL
 - Physical-device camera capture: PASS / FAIL
 - Scoped photo picker without broad prompt: PASS / FAIL
+- Foreground location provisioning and generated iOS descriptions: PASS / FAIL
+- Foreground location permission/current/watch/cleanup: PASS / FAIL
+- Foreground location denial/settings/lifecycle recovery: PASS / FAIL
+- Browser location behavior: PASS / FAIL
+- Physical-device location result (no exact coordinates): PASS / FAIL
 - Sign-in return / first Sync / reconnect / relaunch timings:
 - Remote Mac doctor from Windows/Linux: PASS / FAIL / NOT RUN
 - Remote Mac HMR and native rebuild: PASS / FAIL / NOT RUN
