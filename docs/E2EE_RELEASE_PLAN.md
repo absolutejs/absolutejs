@@ -31,13 +31,30 @@ Research snapshot: August 26, 2026
   core or register a model-facing secret tool. It now rejects any request that
   describes an email OTP as stronger than `policy + bearer + purpose-bound`.
 - Created the public `absolutejs/agent-exchange-providers` monorepo and published
-  `@absolutejs/agent-exchange-webauthn@0.1.0` and
-  `@absolutejs/agent-exchange-oauth@0.1.1`. The WebAuthn provider binds approval
+  `@absolutejs/agent-exchange-webauthn@0.2.0`,
+  `@absolutejs/agent-exchange-oauth@0.2.0`,
+  `@absolutejs/agent-exchange-provider-conformance@0.1.0`,
+  `@absolutejs/agent-exchange-oauth-webcrypto@0.1.0`, and
+  `@absolutejs/agent-exchange-oauth-stores@0.1.0`. The WebAuthn provider binds approval
   to the exact exchange digest, verifier origin, RP ID, user, credential, UV flag,
   and signature counter. The OAuth provider requires PAR, S256 PKCE, exact issuer
-  and resource binding, RAR, one-time state/grants, and DPoP token redemption.
+  and resource binding, RAR, one-time state/grants, and DPoP token redemption. The
+  WebCrypto signer uses a non-exportable P-256 key, and the durable Redis/PostgreSQL
+  session adapters require encryption at rest and atomic consume semantics.
+- Published BYO capability profiles `@absolutejs/agent-exchange-google@0.1.0` and
+  `@absolutejs/agent-exchange-microsoft@0.1.0`. Their machine-readable conformance
+  reports fail closed for the strict profile: neither vendor's documented public
+  flow currently supplies the complete PAR + RAR + resource-indicator +
+  sender-constrained access-token combination. They may be used behind a trusted,
+  token-confined broker without being mislabeled phishing-resistant.
 - Upgraded `examples/e2ee` from an architecture simulation to a browser-executed
   Agent Exchange flow and verified the submitted receipt in a headless browser.
+- Added `examples/agent-exchange-phishing-resistant`, which runs a real WebAuthn
+  ceremony and the complete Agent Exchange, HPKE, PAR, RAR, S256 PKCE, issuer,
+  resource-indicator, DPoP nonce, `ath`, and one-time protected-resource path.
+  Its in-process authorization server is explicitly a standards-complete test
+  provider, not a claim about Google or Microsoft. Only the safe receipt crosses
+  the agent-visible boundary.
 - Added canary tests for direct, hexadecimal, base64, and base64url secret leaks;
   tests currently cover package-owned A2A data, source/sink failures, receipts,
   request stores, and Agency inspection. Cross-package prompt, memory, trace, log,
@@ -676,6 +693,15 @@ not a public security promise until every applicable exit gate passes.
   PAR, S256 PKCE, issuer identification, resource indicators, RAR, and DPoP.
   The paired-user verification-code example is implemented, browser-tested, and
   explicitly labeled confidential rather than phishing-resistant.
+- [x] Publish a shared, fail-closed OAuth provider conformance package and concrete
+  Google/Microsoft BYO profiles with capability gaps represented as data rather
+  than normalized away.
+- [x] Publish non-exportable WebCrypto DPoP signing plus memory, Redis, and
+  PostgreSQL authorization-session adapters with one-time consume semantics.
+- [x] Add a separate phishing-resistant example using an actual passkey ceremony
+  and a standards-complete in-process authorization/resource server. Its automated
+  test covers PAR, PKCE, the DPoP nonce retry, token/key binding, `ath`, one-time
+  use, and the public-output leakage canary.
 
 ### Phase 7 — framework, browser, PWA, and native integration
 
