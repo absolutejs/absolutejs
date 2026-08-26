@@ -13,6 +13,7 @@ const manifest: AbsoluteMobileClientManifest = {
 	appName: 'Product',
 	deepLinkHosts: ['example.com'],
 	deepLinkScheme: 'product',
+	deviceCapabilities: [],
 	entry: '/',
 	format: 1,
 	pages: [

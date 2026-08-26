@@ -202,6 +202,31 @@ for late UI subscribers, `checkForUpdate()` performs a passive check, and
 `applyUpdate()` activates and reloads only after the user accepts. AbsoluteJS
 does not silently replace a running application session.
 
+### Native device capabilities
+
+Application code uses one provider-neutral API in web pages and Capacitor apps:
+
+```ts
+import { clipboard, haptics, share } from '@absolutejs/devices';
+
+await clipboard.writeText('Copied everywhere');
+await share.share({ text: 'Shared everywhere', url: 'https://absolutejs.com' });
+await haptics.impact('light');
+```
+
+`absolute mobile init` and `absolute mobile sync` discover these named value
+imports, read the tested mappings published by `@absolutejs/devices-capacitor`,
+and offer to install only the exact Capacitor plugins in use. The generated
+shell wires them into the shared device facade; users do not import Capacitor,
+edit Swift/Kotlin, or maintain native bootstrap code. Type-only imports and test
+sources do not provision plugins. `absolute mobile doctor release` rejects a
+missing or mismatched plugin before release.
+
+Clipboard and Share use browser standards on the web and fail with normalized
+errors when unavailable. Haptics uses vibration where supported and otherwise
+safely becomes a no-op, because tactile feedback must never be required to
+complete an action.
+
 ### Immutable production images
 
 Build production assets and the server bundle while constructing the image,

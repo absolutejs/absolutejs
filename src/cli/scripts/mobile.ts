@@ -68,6 +68,7 @@ import {
 } from '../../mobile/remoteMacProtocol';
 import { projectUsesAbsoluteSync } from '../../mobile/nativeAuth';
 import { discoverAbsoluteSyncSchema } from '../../mobile/syncSchema';
+import { resolveAbsoluteDeviceCapabilityPlan } from '../../mobile/deviceCapabilities';
 
 const NOT_FOUND = -1;
 
@@ -131,8 +132,8 @@ const CAPACITOR_PACKAGE_SPECS = [
 	'@capacitor/cli@8.5.0',
 	'@capacitor/android@8.5.0',
 	'@capacitor/ios@8.5.0',
-	'@absolutejs/devices@0.0.3',
-	'@absolutejs/devices-capacitor@0.1.3'
+	'@absolutejs/devices@0.1.0',
+	'@absolutejs/devices-capacitor@0.2.0'
 ];
 
 const CAPACITOR_SYNC_PACKAGE_SPECS = [
@@ -159,6 +160,68 @@ const directProjectPackages = async (projectRoot: string) => {
 	return names;
 };
 
+const resolvedPackageVersion = async (
+	projectRoot: string,
+	packageName: string
+) => {
+	try {
+		const manifest: unknown = JSON.parse(
+			await readFile(
+				join(projectRoot, 'node_modules', packageName, 'package.json'),
+				'utf8'
+			)
+		);
+
+		return isRecord(manifest) && typeof manifest.version === 'string'
+			? manifest.version
+			: undefined;
+	} catch {
+		return undefined;
+	}
+};
+
+const exactVersionFromSpec = (spec: string) =>
+	spec.slice(spec.lastIndexOf('@') + 1);
+
+const installApprovedPackages = async (
+	projectRoot: string,
+	args: string[],
+	message: string,
+	specs: string[]
+) => {
+	if (specs.length === 0) return;
+	const approved = args.includes('--yes') || (await confirmInstall(message));
+	if (!approved)
+		throw new TypeError(
+			`Mobile initialization requires: bun add ${specs.join(' ')}`
+		);
+	if (!installPackages(projectRoot, specs))
+		throw new TypeError(
+			'Failed to install the AbsoluteJS mobile toolchain.'
+		);
+};
+
+const packagesNeedingExactInstall = async (
+	projectRoot: string,
+	specs: string[],
+	installed: ReadonlySet<string>,
+	exactPackages: ReadonlySet<string>
+) =>
+	(
+		await Promise.all(
+			specs.map(async (spec) => {
+				const name = packageNameFromSpec(spec);
+				const needsInstall =
+					!installed.has(name) ||
+					(exactPackages.has(name) &&
+						(await resolvedPackageVersion(projectRoot, name)) !==
+							exactVersionFromSpec(spec));
+
+				return needsInstall ? spec : undefined;
+			})
+		)
+	).filter((spec): spec is string => spec !== undefined);
+
 const ensureCapacitorPackages = async (projectRoot: string, args: string[]) => {
 	const specs = [
 		...CAPACITOR_PACKAGE_SPECS,
@@ -167,23 +230,32 @@ const ensureCapacitorPackages = async (projectRoot: string, args: string[]) => {
 			: [])
 	];
 	const installed = await directProjectPackages(projectRoot);
-	const missing = specs.filter(
-		(spec) => !installed.has(packageNameFromSpec(spec))
+	const missing = await packagesNeedingExactInstall(
+		projectRoot,
+		specs,
+		installed,
+		new Set(['@absolutejs/devices', '@absolutejs/devices-capacitor'])
 	);
-	if (missing.length === 0) return;
-	const approved =
-		args.includes('--yes') ||
-		(await confirmInstall(
-			'Capacitor and the AbsoluteJS native adapters are missing. Install the tested mobile toolchain now?'
-		));
-	if (!approved)
-		throw new TypeError(
-			`Mobile initialization requires: bun add ${missing.join(' ')}`
-		);
-	if (!installPackages(projectRoot, missing))
-		throw new TypeError(
-			'Failed to install the AbsoluteJS mobile toolchain.'
-		);
+	await installApprovedPackages(
+		projectRoot,
+		args,
+		'Capacitor and the AbsoluteJS native adapters are missing or outdated. Install the tested mobile toolchain now?',
+		missing
+	);
+	const capabilityPlan = resolveAbsoluteDeviceCapabilityPlan(projectRoot);
+	const directCapabilityPackages = await directProjectPackages(projectRoot);
+	const capabilityPackages = await packagesNeedingExactInstall(
+		projectRoot,
+		capabilityPlan.requiredPackages,
+		directCapabilityPackages,
+		new Set(capabilityPlan.requiredPackages.map(packageNameFromSpec))
+	);
+	await installApprovedPackages(
+		projectRoot,
+		args,
+		`AbsoluteJS detected native device capabilities (${capabilityPlan.capabilities.join(', ')}). Install only their required Capacitor plugins now?`,
+		capabilityPackages
+	);
 };
 
 const valueAfter = (args: string[], flag: string) => {

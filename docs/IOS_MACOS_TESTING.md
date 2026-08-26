@@ -1,7 +1,7 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.17` and
+`@absolutejs/absolute@0.20.0-beta.18` and
 `@absolutejs/deploy@0.24.0`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
 
@@ -64,7 +64,7 @@ still requires the developer team setup described below.
 From the root of the AbsoluteJS application:
 
 ```sh
-bun add @absolutejs/absolute@0.20.0-beta.17 \
+bun add @absolutejs/absolute@0.20.0-beta.18 \
   @absolutejs/auth@0.72.0 \
   @absolutejs/sync@2.29.0 \
   @absolutejs/sync-capacitor@0.8.0 \
@@ -78,8 +78,8 @@ bun add @absolutejs/absolute@0.20.0-beta.17 \
   @capacitor/preferences@8.0.1 \
   @capacitor/cli@8.5.0 \
   @capacitor/ios@8.5.0 \
-  @absolutejs/devices@0.0.3 \
-  @absolutejs/devices-capacitor@0.1.3
+  @absolutejs/devices@0.1.0 \
+  @absolutejs/devices-capacitor@0.2.0
 ```
 
 `absolute mobile init` now offers to install this tested Capacitor/device
@@ -97,6 +97,12 @@ PKCE client, native browser transport, Keychain storage, callback URL scheme,
 authenticated Sync ticket transport, account-isolated SQLite cache/outbox, and
 resume/connectivity handling from the existing packages and mobile
 configuration.
+
+Optional native plugins are derived from named `@absolutejs/devices` imports.
+Do not add them to the initial command: the capability acceptance route below
+must prove that `absolute mobile sync ios` detects and offers only the plugins it
+needs. The tested mappings in this release are Clipboard 8.0.1, Haptics 8.0.2,
+and Share 8.0.1.
 
 Keep the existing compatible versions if the application deliberately pins
 newer versions. Record `bun --version` and `xcodebuild -version` for the test
@@ -231,6 +237,47 @@ backend. Repeat the traversal after `relaunch`; the app must start from its entr
 route rather than restoring a stale intermediate WebView document. Include any
 failed page, screenshot, and Xcode/WebView console output in the report template
 at the end of this file.
+
+### Automatic device-capability provisioning acceptance
+
+Add an application page using the provider-neutral surface only:
+
+```ts
+import { clipboard, haptics, share } from '@absolutejs/devices';
+
+await clipboard.writeText('AbsoluteJS native capability test');
+await haptics.impact('light');
+await share.share({
+	text: 'AbsoluteJS native capability test',
+	url: 'https://absolutejs.com'
+});
+```
+
+Expose each call behind a separate user-initiated button. Do not import
+`@capacitor/*`, import `@absolutejs/devices-capacitor`, edit Swift, or edit the
+Xcode project. Run `bunx absolute mobile sync ios` and confirm AbsoluteJS names
+`clipboard`, `haptics`, and `share`, then offers to install exactly these tested
+packages:
+
+```text
+@capacitor/clipboard@8.0.1
+@capacitor/haptics@8.0.2
+@capacitor/share@8.0.1
+```
+
+Run sync again and confirm it does not prompt again. Run
+`bunx absolute mobile doctor release`; `mobile.device-capabilities` must pass.
+In the web preview, confirm clipboard and sharing use browser behavior when the
+browser permits it and that haptics safely degrades when vibration is absent. In
+the iOS Simulator, confirm clipboard write and the native share sheet. A
+Simulator cannot prove physical vibration, so confirm haptics on the TestFlight
+device and record that result separately.
+
+Finally remove the `share` import and its usage, remove `@capacitor/share` from
+the application dependencies, run sync, and confirm the release doctor still
+passes while the generated mobile manifest lists only `clipboard` and `haptics`.
+AbsoluteJS does not automatically uninstall a dependency because it may be used
+outside discoverable application source; this removal is intentionally explicit.
 
 ### Native Auth and authenticated Sync acceptance
 
@@ -709,12 +756,13 @@ source change and build a new content-addressed release instead.
 - Mac architecture:
 - Xcode version:
 - Bun version:
-- AbsoluteJS version: 0.20.0-beta.17
+- AbsoluteJS version: 0.20.0-beta.18
 - Auth version: 0.72.0
 - Sync version: 2.29.0
 - Sync Capacitor version: 0.8.0
 - Capacitor SQLite version: 8.1.1
-- Devices Capacitor version: 0.1.3
+- Devices version: 0.1.0
+- Devices Capacitor version: 0.2.0
 - Deploy version: 0.24.0
 - App bundle ID (non-secret):
 - Marketing version:
@@ -735,6 +783,10 @@ source change and build a new content-addressed release instead.
 - Cross-account local partition isolation: PASS / FAIL
 - Conflict dead-letter retention/remediation: PASS / FAIL / NOT RUN
 - Native Sync devtools redaction/retry/rebase/discard: PASS / FAIL / NOT RUN
+- Device capability auto-discovery/install: PASS / FAIL
+- Clipboard web/iOS behavior: PASS / FAIL
+- Native share sheet: PASS / FAIL
+- Physical-device haptics: PASS / FAIL
 - Sign-in return / first Sync / reconnect / relaunch timings:
 - Remote Mac doctor from Windows/Linux: PASS / FAIL / NOT RUN
 - Remote Mac HMR and native rebuild: PASS / FAIL / NOT RUN

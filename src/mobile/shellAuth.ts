@@ -1,5 +1,4 @@
 import { lifecycle, links, secureStorage } from '@absolutejs/devices';
-import { installCapacitorDeviceAdapter } from '@absolutejs/devices-capacitor';
 import {
 	createMobileAuthClient,
 	createMobileAuthTransport,
@@ -21,17 +20,9 @@ export type AbsoluteMobileShellAuth = {
 	socketTicket: (audience?: string) => Promise<string>;
 };
 
-let installed = false;
-
 export const createAbsoluteMobileShellAuth = async (
 	config: AbsoluteMobileAuthManifest
 ): Promise<AbsoluteMobileShellAuth> => {
-	if (!installed) {
-		installCapacitorDeviceAdapter({
-			storagePrefix: `absolutejs.${config.clientId}.`
-		});
-		installed = true;
-	}
 	const client = createMobileAuthClient({
 		allowedOrigins: [config.issuer],
 		clientId: config.clientId,

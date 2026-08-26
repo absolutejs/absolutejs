@@ -72,6 +72,7 @@ describe('mobile static documents', () => {
 			appId: 'com.example.app',
 			appName: 'Example',
 			deepLinkHosts: [],
+			deviceCapabilities: [],
 			entry: '/',
 			format: 1,
 			pages: [page],

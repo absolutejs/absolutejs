@@ -2,12 +2,30 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { materializeAbsoluteCapacitorWebBundle } from '../../../src/mobile/capacitorBundle';
 import { normalizeAbsoluteMobileConfig } from '../../../src/mobile/config';
+import type { AbsoluteDeviceCapabilityPlan } from '../../../src/mobile/deviceCapabilities';
 import { createAbsoluteMobileCompatibilityArtifact } from '../../../src/mobile/releaseArtifact';
 
 const temporaryDirectories: string[] = [];
+const noDeviceCapabilities: AbsoluteDeviceCapabilityPlan = {
+	capabilities: [],
+	providers: {},
+	requiredPackages: []
+};
+const clipboardDeviceCapabilities: AbsoluteDeviceCapabilityPlan = {
+	capabilities: ['clipboard'],
+	providers: {
+		clipboard: {
+			factory: 'createCapacitorClipboardCapability',
+			module: '@absolutejs/devices-capacitor/clipboard',
+			packages: ['@capacitor/clipboard@8.0.1']
+		}
+	},
+	requiredPackages: ['@capacitor/clipboard@8.0.1']
+};
+const packageProjectRoot = resolve(import.meta.dir, '../../..');
 
 afterEach(async () => {
 	await Promise.all(
@@ -101,6 +119,8 @@ describe('Capacitor local web bundle', () => {
 			},
 			buildDirectory,
 			config,
+			deviceCapabilities: clipboardDeviceCapabilities,
+			projectRoot: packageProjectRoot,
 			sync: true,
 			syncSchema: {
 				components: [
@@ -124,6 +144,7 @@ describe('Capacitor local web bundle', () => {
 		const localStylePath = manifest.pages[0]?.localStylePath;
 
 		expect(embedded).toBe(pageSource);
+		expect(manifest.deviceCapabilities).toEqual(['clipboard']);
 		expect(localStylePath).toBeDefined();
 		expect(
 			await Bun.file(
@@ -261,7 +282,9 @@ describe('Capacitor local web bundle', () => {
 		const manifest = await materializeAbsoluteCapacitorWebBundle({
 			artifact,
 			buildDirectory,
-			config
+			config,
+			deviceCapabilities: noDeviceCapabilities,
+			projectRoot: packageProjectRoot
 		});
 
 		expect(manifest.pages.map(({ framework }) => framework).sort()).toEqual(
@@ -315,7 +338,9 @@ describe('Capacitor local web bundle', () => {
 						}
 					},
 					root
-				)
+				),
+				deviceCapabilities: noDeviceCapabilities,
+				projectRoot: packageProjectRoot
 			})
 		).rejects.toThrow('does not yet support ember');
 	});

@@ -34,6 +34,7 @@ export type AbsoluteMobileClientManifest = {
 	appName: string;
 	deepLinkHosts: string[];
 	deepLinkScheme?: string;
+	deviceCapabilities: string[];
 	entry: string;
 	format: typeof ABSOLUTE_MOBILE_CLIENT_MANIFEST_FORMAT;
 	pages: AbsoluteMobileClientPage[];

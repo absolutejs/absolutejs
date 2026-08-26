@@ -17,6 +17,10 @@ import {
 	resolveAbsoluteMobileAuthManifest
 } from './nativeAuth';
 import { discoverAbsoluteSyncSchema } from './syncSchema';
+import {
+	assertAbsoluteDeviceCapabilityPackages,
+	resolveAbsoluteDeviceCapabilityPlan
+} from './deviceCapabilities';
 
 export type FinalizeAbsoluteMobileBuildOptions = {
 	buildDirectory: string;
@@ -151,6 +155,13 @@ export const finalizeAbsoluteMobileCompatibilityBuild = async (
 	const syncSchema = sync
 		? discoverAbsoluteSyncSchema(options.projectRoot)
 		: undefined;
+	const deviceCapabilities = resolveAbsoluteDeviceCapabilityPlan(
+		options.projectRoot
+	);
+	assertAbsoluteDeviceCapabilityPackages(
+		options.projectRoot,
+		deviceCapabilities
+	);
 	if (
 		auth &&
 		!loaded.app.routes.some(
@@ -182,6 +193,8 @@ export const finalizeAbsoluteMobileCompatibilityBuild = async (
 		...(auth ? { auth } : {}),
 		buildDirectory,
 		config: mobile,
+		deviceCapabilities,
+		projectRoot: options.projectRoot,
 		...(sync ? { sync: true } : {}),
 		...(syncSchema
 			? { syncSchema: { components: syncSchema.components } }

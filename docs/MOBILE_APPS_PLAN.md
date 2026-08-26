@@ -2069,6 +2069,16 @@ Wave 1, high-value cross-platform APIs:
 - push notification registration/token/events
 - keyboard and system/status bar controls
 
+Clipboard, share sheet, and haptics are the completed Wave 1 pilot. They ship in
+`@absolutejs/devices@0.1.0` with web/SSR/test behavior and isolated Capacitor
+provider entries in `@absolutejs/devices-capacitor@0.2.0`. AbsoluteJS discovers
+named value imports with its TypeScript AST, ignores type-only/test imports,
+validates declarative provider metadata, installs exact tested plugins only after
+approval, generates adapter wiring, records the effective graph in the mobile
+manifest, and checks it in the release doctor. The base adapter has a distribution
+gate proving it does not import the optional plugins. Automatic removal remains
+explicit because a dependency may be consumed outside the discoverable app graph.
+
 Wave 2, after focused design:
 
 - biometrics
@@ -2741,6 +2751,16 @@ adapter registry; a test builds two physically independent runtime bundles and
 proves the shell installation is visible to page code. The Capacitor tarball and
 native-only bootstrap API are ready, but the adapter and its final AbsoluteJS
 shell dependency remain unpublished until real iOS acceptance.
+
+Implementation checkpoint (August 26, 2026):
+`@absolutejs/devices@0.1.0` and `@absolutejs/devices-capacitor@0.2.0` are now
+published. The core/provider suite passes 36 tests/117 assertions plus type,
+build, public-entry, package, and optional-plugin isolation gates. Clipboard,
+Share, and Haptics are separate Capacitor entry points backed by declarative,
+exact-version provisioning metadata. AbsoluteJS beta 18 consumes that metadata,
+discovers application imports, installs on approval, generates the adapter, and
+fails release doctor when a used provider is absent or mismatched. The real iOS
+behavior remains an explicit macOS/physical-device handoff item.
 
 The exact unpublished adapter tarball has also passed an Android API 36 emulator
 smoke through AbsoluteJS's real native controller and WebView debugging path. The

@@ -12,6 +12,7 @@ export * from './buildRelease';
 export * from './capacitorBundle';
 export * from './syncSchema';
 export * from './syncRemediation';
+export * from './deviceCapabilities';
 export * from './capacitorProject';
 export * from './config';
 export * from './client';

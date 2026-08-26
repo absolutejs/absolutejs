@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { normalizeAbsoluteMobileConfig } from '../../../src/mobile/config';
 import { inspectAbsoluteMobileRelease } from '../../../src/mobile/releaseDoctor';
 
@@ -50,6 +50,25 @@ const fixture = async () => {
 		join(assets, 'public', 'index.html'),
 		'<main>Release</main>'
 	);
+	const providerManifest = join(
+		projectRoot,
+		'node_modules/@absolutejs/devices-capacitor/package.json'
+	);
+	await mkdir(dirname(providerManifest), { recursive: true });
+	await writeFile(
+		providerManifest,
+		await readFile(
+			join(
+				import.meta.dir,
+				'../../../node_modules/@absolutejs/devices-capacitor/package.json'
+			),
+			'utf8'
+		)
+	);
+	await writeFile(
+		join(projectRoot, 'package.json'),
+		JSON.stringify({ name: 'release-fixture' })
+	);
 
 	return { assets, config, main, projectRoot };
 };
@@ -59,9 +78,26 @@ describe('mobile release doctor', () => {
 		const { config, projectRoot } = await fixture();
 		const result = await inspectAbsoluteMobileRelease(config, projectRoot);
 		expect(result.ready).toBe(true);
-		expect(result.checks).toHaveLength(4);
+		expect(result.checks).toHaveLength(5);
 		expect(result.checks.every((check) => check.status === 'pass')).toBe(
 			true
+		);
+	});
+
+	test('rejects an unprovisioned native capability', async () => {
+		const { config, projectRoot } = await fixture();
+		await writeFile(
+			join(projectRoot, 'page.ts'),
+			`import { clipboard } from '@absolutejs/devices'; void clipboard.readText();`
+		);
+		const result = await inspectAbsoluteMobileRelease(config, projectRoot);
+		expect(result.ready).toBe(false);
+		expect(result.checks.at(-1)).toMatchObject({
+			id: 'mobile.device-capabilities',
+			status: 'fail'
+		});
+		expect(result.checks.at(-1)?.detail).toContain(
+			'@capacitor/clipboard@8.0.1'
 		);
 	});
 
@@ -121,7 +157,9 @@ describe('mobile release doctor', () => {
 		);
 		const result = await inspectAbsoluteMobileRelease(config, projectRoot);
 		expect(result.ready).toBe(false);
-		expect(result.checks.at(-1)).toMatchObject({
+		expect(
+			result.checks.find((check) => check.id === 'sync.storage-schema')
+		).toMatchObject({
 			id: 'sync.storage-schema',
 			status: 'fail'
 		});

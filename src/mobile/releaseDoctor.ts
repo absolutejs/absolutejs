@@ -3,6 +3,10 @@ import { extname, join, relative } from 'node:path';
 import type { NormalizedAbsoluteMobileConfig } from './config';
 import { projectUsesAbsoluteSync } from './nativeAuth';
 import { discoverAbsoluteSyncSchema } from './syncSchema';
+import {
+	assertAbsoluteDeviceCapabilityPackages,
+	resolveAbsoluteDeviceCapabilityPlan
+} from './deviceCapabilities';
 
 export type AbsoluteMobileReleaseCheck = {
 	detail: string;
@@ -257,6 +261,31 @@ const syncSchemaReleaseCheck = (projectRoot: string) => {
 	}
 };
 
+const deviceCapabilityReleaseCheck = (projectRoot: string) => {
+	const manifestPath = join(projectRoot, 'package.json');
+	try {
+		const plan = resolveAbsoluteDeviceCapabilityPlan(projectRoot);
+		assertAbsoluteDeviceCapabilityPackages(projectRoot, plan);
+
+		return pass(
+			'mobile.device-capabilities',
+			plan.capabilities.length > 0
+				? `Native provider packages match detected capabilities: ${plan.capabilities.join(', ')}.`
+				: 'No optional native device capabilities are used.',
+			manifestPath
+		);
+	} catch (error) {
+		return fail(
+			'mobile.device-capabilities',
+			error instanceof Error
+				? error.message
+				: 'Native device capability provisioning is invalid.',
+			manifestPath,
+			'Run `absolute mobile sync` and approve the exact capability plugins before releasing.'
+		);
+	}
+};
+
 const inspectAndroidRelease = async (
 	config: NormalizedAbsoluteMobileConfig,
 	projectRoot: string
@@ -445,6 +474,16 @@ export const inspectAbsoluteMobileRelease = async (
 				: undefined
 		});
 	}
+	const deviceCapabilities = deviceCapabilityReleaseCheck(projectRoot);
+	checks.push({
+		...deviceCapabilities,
+		path: deviceCapabilities.path
+			? relative(projectRoot, deviceCapabilities.path).replaceAll(
+					'\\',
+					'/'
+				) || '.'
+			: undefined
+	});
 
 	return {
 		checks,
