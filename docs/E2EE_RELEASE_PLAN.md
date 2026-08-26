@@ -1,7 +1,27 @@
 # AbsoluteJS E2EE, Secure Transfer, and Verified Agent Exchange: Release Plan
 
-Status: proposed total-release architecture and implementation plan
+Status: implementation in progress; foundational `0.x` packages and Agent Exchange milestone published
 Research snapshot: August 26, 2026
+
+## Implementation checkpoint — August 26, 2026
+
+- Published `@absolutejs/e2ee@0.1.0` and the interchangeable experimental
+  `@absolutejs/e2ee-webcrypto@0.1.0` envelope provider from the public
+  `absolutejs/e2ee` and `absolutejs/e2ee-providers` repositories.
+- Published `@absolutejs/agent-exchange@0.1.0` with exact Agency action binding,
+  single-use leases, recipient consent, authenticated E2EE envelopes, replay
+  protection, deterministic source/sink boundaries, safe receipts, and an opaque
+  A2A reference format.
+- Published `@absolutejs/agent@0.26.2` with the discoverable
+  `@absolutejs/agent/exchange` facade export.
+- Upgraded `examples/e2ee` from an architecture simulation to a browser-executed
+  Agent Exchange flow and verified the submitted receipt in a headless browser.
+- Added canary tests for direct, hexadecimal, base64, and base64url secret leaks;
+  tests currently cover package-owned A2A data, source/sink failures, receipts,
+  request stores, and Agency inspection. Cross-package prompt, memory, trace, log,
+  analytics, notification, inbox, audit, and retry canaries remain release work.
+- All new public TypeScript contracts use type aliases; a source-level regression
+  test rejects `interface` declarations.
 
 ## Executive summary
 
@@ -615,14 +635,18 @@ not a public security promise until every applicable exit gate passes.
 
 ### Phase 6 — verified agent exchange
 
-- Create `@absolutejs/agent-exchange` and A2A extension/media types.
-- Add Agency action schemas, risk classes, exact-origin rules, approvals,
-  single-use leases, receipts, revocation, and kill switches.
-- Add deterministic email verification retrieval for supported providers.
-- Implement trusted source and recipient tool APIs with `tool-confined` default.
-- Build redaction/canary tests across A2A, inbox, prompts, memory, traces, logs,
+- [x] Create `@absolutejs/agent-exchange` and A2A extension/media types.
+- [x] Add Agency action schemas, risk classes, exact-origin rules, approvals,
+  single-use leases, and receipts; revocation and kill switches are enforced by
+  the composed Agency runtime.
+- [ ] Add deterministic email verification retrieval adapters for supported
+  providers; the package currently exposes the strict source contract.
+- [x] Implement trusted source and recipient tool APIs with `tool-confined`
+  default. The initial receiver intentionally rejects weaker processing modes.
+- [ ] Expand redaction/canary tests across A2A, inbox, prompts, memory, traces, logs,
   analytics, notifications, audit, exceptions, and retries.
-- Ship the paired-user verification-code example plus safer OAuth/passkey variants.
+- [ ] Ship safer OAuth/passkey variants. The paired-user verification-code example
+  is implemented and browser-tested.
 
 ### Phase 7 — framework, browser, PWA, and native integration
 
