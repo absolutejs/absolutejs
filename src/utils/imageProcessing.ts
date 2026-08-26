@@ -139,6 +139,25 @@ export type CacheMeta = {
 
 export const formatToMime = (format: ImageFormat) => MIME_MAP[format];
 
+/** The MIME type an image buffer actually is, from its magic bytes — used
+ *  when optimization fails and the original must be served as itself. */
+export const sniffImageMime = (buffer: Buffer): string | null => {
+	if (buffer.length < 12) return null;
+	if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e)
+		return 'image/png';
+	if (buffer[0] === 0xff && buffer[1] === 0xd8) return 'image/jpeg';
+	if (buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46)
+		return 'image/gif';
+	if (
+		buffer.toString('ascii', 0, 4) === 'RIFF' &&
+		buffer.toString('ascii', 8, 12) === 'WEBP'
+	)
+		return 'image/webp';
+	if (buffer.toString('ascii', 4, 12) === 'ftypavif') return 'image/avif';
+
+	return null;
+};
+
 export const generateBlurDataURL = async (buffer: Buffer | ArrayBuffer) => {
 	const tiny = await new Bun.Image(toBuffer(buffer))
 		.resize(BLUR_SIZE, BLUR_SIZE, { fit: 'inside' })

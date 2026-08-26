@@ -9,6 +9,7 @@ import {
 	DEFAULT_QUALITY,
 	OPTIMIZATION_ENDPOINT,
 	formatToMime,
+	sniffImageMime,
 	getCacheDir,
 	getCacheKey,
 	isCacheStale,
@@ -257,7 +258,7 @@ export const imageOptimizer = (
 		// ── Content Negotiation ─────────────────────────────
 		const acceptHeader = request.headers.get('Accept') ?? '';
 		const format = negotiateFormat(acceptHeader, configuredFormats);
-		const mime = formatToMime(format);
+		let mime = formatToMime(format);
 
 		// ── Cache Lookup ────────────────────────────────────
 		const cacheKey = getCacheKey(url, width, quality, format);
@@ -316,8 +317,11 @@ export const imageOptimizer = (
 				format
 			);
 		} catch {
-			// Graceful degradation: serve original
+			// Graceful degradation: serve the original — under its own type,
+			// not the negotiated one, or the browser gets (say) webp bytes
+			// labelled image/jpeg and shows a broken image.
 			optimizedBuffer = sourceBuffer;
+			mime = sniffImageMime(sourceBuffer) ?? mime;
 		}
 
 		// ── Cache Write ─────────────────────────────────────
