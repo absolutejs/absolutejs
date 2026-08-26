@@ -14,6 +14,14 @@ Research snapshot: August 26, 2026
   A2A reference format.
 - Published `@absolutejs/agent@0.26.2` with the discoverable
   `@absolutejs/agent/exchange` facade export.
+- Published `@absolutejs/email@0.2.1` with fail-closed Gmail and Microsoft Graph
+  verification lookup in a browser-safe entry point, plus an explicit server-only
+  IMAP entry point. Retrieval profiles bind exact origins, providers, senders,
+  subject/body markers, code length, and time windows, and reject ambiguity.
+- Published `@absolutejs/agent-exchange-email@0.1.1` from the public
+  `absolutejs/agent-exchange-sources` monorepo. It binds the email retrieval layer
+  to `SensitiveValueSource` without adding email to the Agent Exchange core or
+  registering a model-facing secret tool.
 - Upgraded `examples/e2ee` from an architecture simulation to a browser-executed
   Agent Exchange flow and verified the submitted receipt in a headless browser.
 - Added canary tests for direct, hexadecimal, base64, and base64url secret leaks;
@@ -639,8 +647,9 @@ not a public security promise until every applicable exit gate passes.
 - [x] Add Agency action schemas, risk classes, exact-origin rules, approvals,
   single-use leases, and receipts; revocation and kill switches are enforced by
   the composed Agency runtime.
-- [ ] Add deterministic email verification retrieval adapters for supported
-  providers; the package currently exposes the strict source contract.
+- [x] Add deterministic email verification retrieval adapters for Gmail,
+  Microsoft Graph, and IMAP through `@absolutejs/email`, then bind them through
+  the interchangeable `@absolutejs/agent-exchange-email` source package.
 - [x] Implement trusted source and recipient tool APIs with `tool-confined`
   default. The initial receiver intentionally rejects weaker processing modes.
 - [ ] Expand redaction/canary tests across A2A, inbox, prompts, memory, traces, logs,
