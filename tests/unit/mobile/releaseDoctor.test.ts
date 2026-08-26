@@ -115,7 +115,7 @@ describe('mobile release doctor', () => {
 						}
 					}
 				},
-				dependencies: { '@absolutejs/sync': '2.27.0' },
+				dependencies: { '@absolutejs/sync': '2.28.0' },
 				name: 'release-fixture'
 			})}\n`
 		);
@@ -148,6 +148,7 @@ describe('mobile release doctor', () => {
 								mutations: [
 									{
 										match: 'account:*',
+										onProtectionUnavailable: 'memory-only',
 										protection: 'required',
 										sensitivity: 'private'
 									}
@@ -157,7 +158,7 @@ describe('mobile release doctor', () => {
 						}
 					}
 				},
-				dependencies: { '@absolutejs/sync': '2.27.0' },
+				dependencies: { '@absolutejs/sync': '2.28.0' },
 				name: 'release-policy-fixture'
 			})}\n`
 		);
@@ -170,7 +171,7 @@ describe('mobile release doctor', () => {
 		expect(policy?.detail).toContain('1 collection rule(s)');
 		expect(policy?.detail).toContain('1 mutation rule(s)');
 		expect(policy?.detail).toContain('2 encryption-required');
-		expect(policy?.detail).toContain('1 memory-only fallback(s)');
+		expect(policy?.detail).toContain('2 memory-only fallback(s)');
 		expect(policy?.detail).toContain('65536-byte effective quota');
 	});
 

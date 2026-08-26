@@ -1,7 +1,7 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.15` and
+`@absolutejs/absolute@0.20.0-beta.16` and
 `@absolutejs/deploy@0.24.0`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
 
@@ -64,9 +64,9 @@ still requires the developer team setup described below.
 From the root of the AbsoluteJS application:
 
 ```sh
-bun add @absolutejs/absolute@0.20.0-beta.15 \
+bun add @absolutejs/absolute@0.20.0-beta.16 \
   @absolutejs/auth@0.72.0 \
-  @absolutejs/sync@2.27.0 \
+  @absolutejs/sync@2.28.0 \
   @absolutejs/sync-capacitor@0.7.0 \
   @absolutejs/deploy@0.24.0 \
   @absolutejs/blob@0.5.2 \
@@ -699,9 +699,9 @@ source change and build a new content-addressed release instead.
 - Mac architecture:
 - Xcode version:
 - Bun version:
-- AbsoluteJS version: 0.20.0-beta.15
+- AbsoluteJS version: 0.20.0-beta.16
 - Auth version: 0.72.0
-- Sync version: 2.27.0
+- Sync version: 2.28.0
 - Sync Capacitor version: 0.7.0
 - Capacitor SQLite version: 8.1.1
 - Devices Capacitor version: 0.1.3

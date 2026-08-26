@@ -58,7 +58,15 @@ describe('generated AbsoluteJS Sync schema metadata', () => {
 									sensitivity: 'private'
 								}
 							],
-							maxBytesPerNamespace: 1048576
+							maxBytesPerNamespace: 1048576,
+							mutations: [
+								{
+									match: 'account:*',
+									onProtectionUnavailable: 'memory-only',
+									protection: 'required',
+									sensitivity: 'private'
+								}
+							]
 						},
 						migrations: [
 							{ operations: [], toVersion: 2 },
@@ -114,7 +122,14 @@ describe('generated AbsoluteJS Sync schema metadata', () => {
 					collections: [
 						{ match: 'account:*', protection: 'required' }
 					],
-					maxBytesPerNamespace: 1048576
+					maxBytesPerNamespace: 1048576,
+					mutations: [
+						{
+							match: 'account:*',
+							onProtectionUnavailable: 'memory-only',
+							protection: 'required'
+						}
+					]
 				},
 				minimumCompatibleVersion: 1,
 				version: 3

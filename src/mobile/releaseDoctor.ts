@@ -214,7 +214,7 @@ const syncSchemaReleaseCheck = (projectRoot: string) => {
 		const protectedCount = [...collectionRules, ...mutationRules].filter(
 			(rule) => rule.protection === 'required'
 		).length;
-		const memoryOnlyCount = collectionRules.filter(
+		const memoryOnlyCount = [...collectionRules, ...mutationRules].filter(
 			(rule) =>
 				rule.persistence === 'memory-only' ||
 				rule.onProtectionUnavailable === 'memory-only'

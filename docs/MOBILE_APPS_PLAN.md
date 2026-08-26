@@ -2888,8 +2888,8 @@ scheduler; foreground/resume Sync remains authoritative.
 
 ## Current PWA checkpoint
 
-The framework-agnostic PWA bridge is now published in `@absolutejs/pwa@0.11.0`,
-backed by `@absolutejs/auth@0.72.0`, `@absolutejs/sync@2.27.0`, and
+The framework-agnostic PWA bridge is now published in `@absolutejs/pwa@0.12.0`,
+backed by `@absolutejs/auth@0.72.0`, `@absolutejs/sync@2.28.0`, and
 `@absolutejs/sync-capacitor@0.7.0`. It bundles the real finite Sync runner into
 the generated worker, provisions only an opaque Auth namespace through a strict
 same-origin session POST, discovers safe persisted collection descriptors, and
@@ -2949,7 +2949,7 @@ background, and lifetime boundaries pass on a physical iOS device.
 
 ## Current local-data policy checkpoint
 
-`@absolutejs/sync` 2.27.0 adds one declarative policy to the existing generated
+`@absolutejs/sync` 2.28.0 adds one declarative policy to the existing generated
 schema components: collection/mutation sensitivity, durable versus memory-only
 persistence, encryption requirements, browser memory-only fallback,
 whole-projection maximum age, eviction priority, and a per-principal logical
@@ -2959,12 +2959,17 @@ deterministic oldest-first order and never drops an outbox operation; an outbox
 that exceeds the ceiling fails and rolls back instead of losing intent.
 
 IndexedDB accepts an audited synchronous record protector and otherwise fails
-closed or uses an explicitly declared memory-only fallback. AbsoluteJS native
-provisions `@absolutejs/sync-capacitor` 0.7.0 automatically: a random AES-256-GCM
+closed or uses an explicitly declared collection/mutation memory-only fallback.
+AbsoluteJS native provisions `@absolutejs/sync-capacitor` 0.7.0 automatically:
+a random AES-256-GCM
 key lives in the existing Keychain/Keystore vault, payloads are authenticated to
 their principal/kind/name, and only ciphertext is written to SQLite. Android
 WorkManager and iOS BGProcessingTask workers read and write the same versioned
 envelope. Plain legacy records remain readable and are protected on their next
 write. Release doctor reports generated rule, protection, fallback, and quota
-counts. Pack declarations remain the final part of this checkpoint while the
-pre-existing `sync-packs` manifest edits are resolved with their owner.
+counts. The eight stateful official Sync packs now declare policies against
+their real configurable-prefix names: private durable caches/outboxes encrypt
+on native and fall back to live memory/online-only behavior on an unprotected
+browser; presence is always ephemeral; derived counters and digest cursors are
+disposable; favorites, notifications, and triage are last-evicted critical
+caches. The server-only utils pack intentionally declares no client storage.

@@ -346,6 +346,7 @@ const localDataPolicy = (value: unknown, id: string): SyncLocalDataPolicy => {
 				);
 				const allowedRuleKeys = new Set([
 					'match',
+					'onProtectionUnavailable',
 					'persistence',
 					'protection',
 					'sensitivity'
@@ -361,6 +362,10 @@ const localDataPolicy = (value: unknown, id: string): SyncLocalDataPolicy => {
 				const protection = unknownField(rule, 'protection');
 				const sensitivity = unknownField(rule, 'sensitivity');
 				const persistence = unknownField(rule, 'persistence');
+				const onProtectionUnavailable = unknownField(
+					rule,
+					'onProtectionUnavailable'
+				);
 				if (
 					protection !== undefined &&
 					protection !== 'none' &&
@@ -381,6 +386,15 @@ const localDataPolicy = (value: unknown, id: string): SyncLocalDataPolicy => {
 						`localData.mutations[${index}].sensitivity is invalid.`
 					);
 				if (
+					onProtectionUnavailable !== undefined &&
+					onProtectionUnavailable !== 'error' &&
+					onProtectionUnavailable !== 'memory-only'
+				)
+					throw metadataError(
+						id,
+						`localData.mutations[${index}].onProtectionUnavailable is invalid.`
+					);
+				if (
 					persistence !== undefined &&
 					persistence !== 'durable' &&
 					persistence !== 'memory-only'
@@ -397,6 +411,9 @@ const localDataPolicy = (value: unknown, id: string): SyncLocalDataPolicy => {
 						`localData.mutations[${index}].match`
 					),
 					...(sensitivity ? { sensitivity } : {}),
+					...(onProtectionUnavailable
+						? { onProtectionUnavailable }
+						: {}),
 					...(persistence
 						? {
 								persistence: persistence
