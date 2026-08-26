@@ -1,7 +1,7 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.21` and
+`@absolutejs/absolute@0.20.0-beta.22` and
 `@absolutejs/deploy@0.24.0`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
 
@@ -90,7 +90,7 @@ still requires the developer team setup described below.
 From the root of the AbsoluteJS application:
 
 ```sh
-bun add @absolutejs/absolute@0.20.0-beta.21 \
+bun add @absolutejs/absolute@0.20.0-beta.22 \
   @absolutejs/auth@0.72.0 \
   @absolutejs/sync@2.29.0 \
   @absolutejs/sync-capacitor@0.9.1 \
@@ -239,12 +239,24 @@ At the AbsoluteJS interactive prompt:
 In a second terminal, run:
 
 ```sh
-bunx absolute mobile test ios
+bunx absolute mobile test ios --report
 ```
 
 This verifies that the app is installed and launchable, confirms the native iOS
 HMR client is connected through `/hmr-status`, and saves a simulator screenshot
-under `.absolutejs/mobile/test-artifacts`.
+with `report.md` and `report.json` in a timestamped directory under
+`.absolutejs/mobile/test-reports`. The terminal prints the exact directory to
+return. Automated rows are filled from observed results and timings; every
+interaction, physical-device, signing, Auth, Sync, and TestFlight row remains
+`NOT_RUN` until the tester completes it. To choose a repository-local output
+directory, pass `--report .absolutejs/mobile/my-ios-report`.
+
+The command never uploads the report. It redacts recognized credentials, URL
+query values, and exact coordinates from captured text. Before returning the
+directory, visually inspect its screenshots because an application can render
+private information that a text redactor cannot see. Do not add credentials,
+signing material, private Sync data, or exact coordinates while completing the
+Markdown checklist.
 
 Native development also shows an AbsoluteJS `Sync` button in the lower-right
 safe area. It is injected by the native HMR client only; it is not included in
@@ -555,7 +567,7 @@ the failure state if any step fails.
 Then run the correlated HMR timing test:
 
 ```sh
-bunx absolute mobile test ios --wait-for-hmr
+bunx absolute mobile test ios --report --wait-for-hmr
 ```
 
 After it prints that it is waiting, make and save a harmless visible page or CSS
@@ -882,7 +894,7 @@ source change and build a new content-addressed release instead.
 - Mac architecture:
 - Xcode version:
 - Bun version:
-- AbsoluteJS version: 0.20.0-beta.21
+- AbsoluteJS version: 0.20.0-beta.22
 - Auth version: 0.72.0
 - Sync version: 2.29.0
 - Sync Capacitor version: 0.9.1

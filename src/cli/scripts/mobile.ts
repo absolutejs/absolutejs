@@ -47,6 +47,13 @@ import {
 	type AbsoluteIosHmrApply
 } from '../../mobile/iosConformance';
 import {
+	createAbsoluteIosPartnerReport,
+	readPackageVersionForIosReport,
+	sanitizeIosReportText,
+	writeAbsoluteIosPartnerReport,
+	type AbsoluteIosAutomatedResult
+} from '../../mobile/iosTestReport';
+import {
 	loadAbsoluteNativeReleasePublisher,
 	prepareAbsoluteAndroidRelease,
 	prepareAbsoluteIosRelease,
@@ -1733,6 +1740,73 @@ const writeIosFailureArtifacts = async (options: {
 	};
 };
 
+const iosReportRoot = (args: string[], projectRoot: string) => {
+	const index = args.indexOf('--report');
+	if (index === NOT_FOUND) return undefined;
+	const candidate = args[index + 1];
+	const explicit = candidate?.startsWith('--') ? undefined : candidate;
+	const timestamp = new Date().toISOString().replaceAll(':', '-');
+
+	return safeArtifactRoot(
+		projectRoot,
+		explicit ?? `.absolutejs/mobile/test-reports/ios-${timestamp}`
+	);
+};
+
+const iosReportMetadata = async (xcrun: string) => {
+	const xcodebuildPath = requireCapturedIosCommand(
+		[xcrun, '--find', 'xcodebuild'],
+		'Xcode version inspection'
+	).stdout.trim();
+	const xcodeVersion = requireCapturedIosCommand(
+		[xcodebuildPath, '-version'],
+		'Xcode version inspection'
+	).stdout.trim();
+	const macosVersion = requireCapturedIosCommand(
+		['/usr/bin/sw_vers', '-productVersion'],
+		'macOS version inspection'
+	).stdout.trim();
+	let absolutejsVersion = process.env.ABSOLUTE_VERSION ?? 'unknown';
+	for (const candidate of [
+		resolve(import.meta.dir, '..', '..', 'package.json'),
+		resolve(import.meta.dir, '..', '..', '..', 'package.json')
+	]) {
+		const version = await readPackageVersionForIosReport(candidate).catch(
+			() => 'unknown'
+		);
+		if (version === 'unknown') continue;
+		absolutejsVersion = version;
+		break;
+	}
+
+	return {
+		absolutejsVersion,
+		bunVersion: Bun.version,
+		macosVersion,
+		xcodeVersion
+	};
+};
+
+const writeRequestedIosReport = async (options: {
+	args: string[];
+	projectRoot: string;
+	run: AbsoluteIosAutomatedResult;
+	xcrun: string;
+}) => {
+	const reportRoot = iosReportRoot(options.args, options.projectRoot);
+	if (!reportRoot) return undefined;
+	const metadata = await iosReportMetadata(options.xcrun);
+	const paths = await writeAbsoluteIosPartnerReport(
+		reportRoot,
+		createAbsoluteIosPartnerReport({ ...metadata, run: options.run })
+	);
+	const print = options.args.includes('--json') ? console.error : console.log;
+	print(`iOS partner report: ${paths.markdownPath}`);
+	print(`Return this report directory: ${paths.directory}`);
+
+	return paths;
+};
+
 const testIos = async (args: string[]) => {
 	const { mobile, projectRoot } = await loadMobile(
 		valueAfter(args, '--config')
@@ -1752,10 +1826,10 @@ const testIos = async (args: string[]) => {
 		xcrun,
 		valueAfter(args, '--udid') ?? valueAfter(args, '--serial')
 	);
-	const artifactRoot = safeArtifactRoot(
-		projectRoot,
-		valueAfter(args, '--artifacts')
-	);
+	const reportRoot = iosReportRoot(args, projectRoot);
+	const artifactRoot =
+		reportRoot ??
+		safeArtifactRoot(projectRoot, valueAfter(args, '--artifacts'));
 	const startedAt = performance.now();
 	try {
 		requireCapturedIosCommand(
@@ -1812,6 +1886,34 @@ const testIos = async (args: string[]) => {
 			waitedForHmr: args.includes('--wait-for-hmr')
 		});
 		printIosTestReport(report, args.includes('--json'));
+		await writeRequestedIosReport({
+			args,
+			projectRoot,
+			run: {
+				appId: report.appId,
+				durationMs: report.durationMs,
+				...(report.hmrApply
+					? {
+							hmr: {
+								...(report.hmrApply.clientMs === undefined
+									? {}
+									: { clientMs: report.hmrApply.clientMs }),
+								durationMs: report.hmrApply.duration,
+								outcome: report.hmrApply.outcome,
+								...(report.hmrApply.serverMs === undefined
+									? {}
+									: { serverMs: report.hmrApply.serverMs })
+							}
+						}
+					: {}),
+				hmrConnected: report.hmrConnected,
+				port: report.port,
+				screenshot: report.screenshot,
+				status: report.status,
+				udid: report.udid
+			},
+			xcrun
+		});
 
 		return report;
 	} catch (error) {
@@ -1829,6 +1931,23 @@ const testIos = async (args: string[]) => {
 			error,
 			port,
 			udid: simulator.udid,
+			xcrun
+		});
+		await writeRequestedIosReport({
+			args,
+			projectRoot,
+			run: {
+				appId: mobile.appId,
+				durationMs,
+				error: sanitizeIosReportText(
+					error instanceof Error ? error.message : String(error)
+				),
+				hmrConnected: false,
+				port,
+				...(screenshot ? { screenshot } : {}),
+				status: 'fail',
+				udid: simulator.udid
+			},
 			xcrun
 		});
 		throw new Error(
@@ -1907,6 +2026,6 @@ export const runMobile = async (args: string[]) => {
 	}
 
 	throw new TypeError(
-		'Usage: absolute mobile <pair mac <name> <user@host> [--port n] [--workspace path] | remotes [--json] | unpair mac <name> | init [--no-native] [--force] | sync [ios|android] | associations [--outdir dir] [--verify] | doctor [ios|android|release] [--remote name] [--json|--fix [--yes]] | build <android|ios> [server-entry] [--outdir dir] [--web-outdir dir] [--unsigned] | publish android [server-entry] [--registry module] [--channel name] [--play-track track] [--play-status completed|draft|halted|in-progress] [--play-rollout fraction] [--play-name name] [--play-notes language=text] [--play-update-priority 0..5] [--play-hold-review] [--play-cancel-existing-review] [--outdir dir] [--web-outdir dir] [--unsigned] | publish ios [server-entry] [--registry module] [--channel name] [--testflight-group name-or-id] [--testflight-notes locale=text] [--testflight-submit-review] [--outdir dir] [--web-outdir dir] [--unsigned] | test android [--route path] [--wait-for-hmr] [--timeout ms] [--port n] [--serial id] [--artifacts dir] [--json] | test ios [--wait-for-hmr] [--timeout ms] [--port n] [--udid id] [--artifacts dir] [--json]> [--config path]'
+		'Usage: absolute mobile <pair mac <name> <user@host> [--port n] [--workspace path] | remotes [--json] | unpair mac <name> | init [--no-native] [--force] | sync [ios|android] | associations [--outdir dir] [--verify] | doctor [ios|android|release] [--remote name] [--json|--fix [--yes]] | build <android|ios> [server-entry] [--outdir dir] [--web-outdir dir] [--unsigned] | publish android [server-entry] [--registry module] [--channel name] [--play-track track] [--play-status completed|draft|halted|in-progress] [--play-rollout fraction] [--play-name name] [--play-notes language=text] [--play-update-priority 0..5] [--play-hold-review] [--play-cancel-existing-review] [--outdir dir] [--web-outdir dir] [--unsigned] | publish ios [server-entry] [--registry module] [--channel name] [--testflight-group name-or-id] [--testflight-notes locale=text] [--testflight-submit-review] [--outdir dir] [--web-outdir dir] [--unsigned] | test android [--route path] [--wait-for-hmr] [--timeout ms] [--port n] [--serial id] [--artifacts dir] [--json] | test ios [--wait-for-hmr] [--report [dir]] [--timeout ms] [--port n] [--udid id] [--artifacts dir] [--json]> [--config path]'
 	);
 };
