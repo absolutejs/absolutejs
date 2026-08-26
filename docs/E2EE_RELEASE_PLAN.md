@@ -14,13 +14,13 @@ Research snapshot: August 26, 2026
   A2A reference format.
 - Published `@absolutejs/agent@0.26.2` with the discoverable
   `@absolutejs/agent/exchange` facade export.
-- Published `@absolutejs/email@0.3.0` with fail-closed Gmail and Microsoft Graph
+- Published `@absolutejs/email@0.3.1` with fail-closed Gmail and Microsoft Graph
   verification lookup in a browser-safe entry point, plus an explicit server-only
   IMAP entry point. Retrieval now requires a mailbox-trusted RFC 8601 authserv-id
   and an exactly aligned DMARC pass, uses provider receipt timestamps, bounds
   windows/body/candidate/header sizes, rejects duplicate code occurrences, and
   fails closed on incomplete provider fetches.
-- Published `@absolutejs/agent-exchange-email@0.2.0` from the public
+- Published `@absolutejs/agent-exchange-email@0.2.1` from the public
   `absolutejs/agent-exchange-sources` monorepo. It binds the email retrieval layer
   to `SensitiveValueSource`, requires challenge-text correlation by default,
   gates temporal-only correlation behind explicit profile and runtime opt-ins,
