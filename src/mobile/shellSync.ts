@@ -1,6 +1,7 @@
 import { lifecycle, network } from '@absolutejs/devices';
 import {
 	createCapacitorSyncLocalStore,
+	createCapacitorSyncProtection,
 	AbsoluteBackgroundSync,
 	configureCapacitorBackgroundSync,
 	installCapacitorSyncLifecycle,
@@ -42,8 +43,12 @@ export const installAbsoluteMobileShellSync = (
 ) => {
 	const namespace = auth.principal?.namespace;
 	const store = namespace
-		? (options.createStore?.({ storageSchema: config?.storageSchema }) ??
+		? (options.createStore?.({
+				protection: createCapacitorSyncProtection(),
+				storageSchema: config?.storageSchema
+			}) ??
 			createCapacitorSyncLocalStore({
+				protection: createCapacitorSyncProtection(),
 				storageSchema: config?.storageSchema
 			}))
 		: undefined;

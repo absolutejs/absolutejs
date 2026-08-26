@@ -205,10 +205,28 @@ const syncSchemaReleaseCheck = (projectRoot: string) => {
 		const versions = schema.components
 			.map((component) => `${component.id}@${component.version}`)
 			.join(', ');
+		const collectionRules = schema.components.flatMap(
+			(component) => component.localData?.collections ?? []
+		);
+		const mutationRules = schema.components.flatMap(
+			(component) => component.localData?.mutations ?? []
+		);
+		const protectedCount = [...collectionRules, ...mutationRules].filter(
+			(rule) => rule.protection === 'required'
+		).length;
+		const memoryOnlyCount = collectionRules.filter(
+			(rule) =>
+				rule.persistence === 'memory-only' ||
+				rule.onProtectionUnavailable === 'memory-only'
+		).length;
+		const quotas = schema.components
+			.map((component) => component.localData?.maxBytesPerNamespace)
+			.filter((value): value is number => value !== undefined);
+		const policy = `${collectionRules.length} collection rule(s), ${mutationRules.length} mutation rule(s), ${protectedCount} encryption-required, ${memoryOnlyCount} memory-only fallback(s)${quotas.length > 0 ? `, ${Math.min(...quotas)}-byte effective quota` : ', no logical quota'}`;
 
 		return pass(
 			'sync.storage-schema',
-			`Generated offline schema is compatible: ${versions}.`,
+			`Generated offline schema is compatible: ${versions}; ${policy}.`,
 			manifestPath
 		);
 	} catch (error) {

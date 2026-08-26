@@ -1,7 +1,7 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.14` and
+`@absolutejs/absolute@0.20.0-beta.15` and
 `@absolutejs/deploy@0.24.0`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
 
@@ -64,10 +64,10 @@ still requires the developer team setup described below.
 From the root of the AbsoluteJS application:
 
 ```sh
-bun add @absolutejs/absolute@0.20.0-beta.14 \
+bun add @absolutejs/absolute@0.20.0-beta.15 \
   @absolutejs/auth@0.72.0 \
-  @absolutejs/sync@2.25.0 \
-  @absolutejs/sync-capacitor@0.6.1 \
+  @absolutejs/sync@2.27.0 \
+  @absolutejs/sync-capacitor@0.7.0 \
   @absolutejs/deploy@0.24.0 \
   @absolutejs/blob@0.5.2 \
   @capacitor/core@8.5.0 \
@@ -278,6 +278,20 @@ sequence in the managed simulator:
     `conflict` dead letter, and it does not retry forever. Explicitly retry or
     discard it through the app's Sync diagnostics and confirm the retained
     SQLite record follows that choice.
+12. Use a fixture whose generated `localData` marks one collection and mutation
+    `sensitivity: "private"` with `protection: "required"`. After foreground
+    Sync writes them, inspect the app's SQLite `record_json` values from Xcode or
+    a copied container. They must contain `__absoluteSyncProtected` and must not
+    contain a distinctive fixture secret, row payload, or mutation argument.
+13. Relaunch offline and confirm the protected rows/outbox still hydrate. Run
+    the finite background task and confirm its pull/settlement remains readable
+    afterward, proving Swift uses the foreground codec and Keychain key.
+14. Tamper with one ciphertext byte in a disposable test installation. Reading
+    it must fail closed; it must never return partial/plain data or silently
+    replace the record. Delete/reinstall the test app after recording the result.
+15. Exercise a very small test quota with disposable and critical projections.
+    Confirm the complete disposable projection disappears first, the critical
+    projection is never partially truncated, and a pending mutation remains.
 
 ### Managed iOS background-Sync acceptance
 
@@ -685,10 +699,10 @@ source change and build a new content-addressed release instead.
 - Mac architecture:
 - Xcode version:
 - Bun version:
-- AbsoluteJS version: 0.20.0-beta.14
+- AbsoluteJS version: 0.20.0-beta.15
 - Auth version: 0.72.0
-- Sync version: 2.25.0
-- Sync Capacitor version: 0.5.0
+- Sync version: 2.27.0
+- Sync Capacitor version: 0.7.0
 - Capacitor SQLite version: 8.1.1
 - Devices Capacitor version: 0.1.3
 - Deploy version: 0.24.0

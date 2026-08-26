@@ -3,7 +3,10 @@ import { dirname, join, resolve } from 'node:path';
 import {
 	resolveSyncLocalSchemaComponents,
 	type SyncLocalCollectionMigrationOperation,
+	type SyncLocalCollectionPolicy,
+	type SyncLocalDataPolicy,
 	type SyncLocalJsonValue,
+	type SyncLocalMutationPolicy,
 	type SyncLocalStoreMigration,
 	type SyncLocalStoreSchemaBundle,
 	type SyncLocalStoreSchemaComponent
@@ -84,6 +87,9 @@ const requireObject = (value: unknown, id: string, detail: string) => {
 
 	return value;
 };
+
+const unknownField = (record: Record<string, unknown>, key: string) =>
+	record[key];
 
 const normalizeJsonValue: (
 	value: unknown,
@@ -202,12 +208,228 @@ const migration: (
 	};
 };
 
+const localDataPolicy = (value: unknown, id: string): SyncLocalDataPolicy => {
+	const record = requireObject(value, id, 'localData must be an object.');
+	const allowed = new Set([
+		'collections',
+		'maxBytesPerNamespace',
+		'mutations'
+	]);
+	const unsupported = Object.keys(record).find((key) => !allowed.has(key));
+	if (unsupported)
+		throw metadataError(id, `localData.${unsupported} is not supported.`);
+	const collectionRules = Reflect.get(record, 'collections');
+	const mutationRules = Reflect.get(record, 'mutations');
+	if (collectionRules !== undefined && !Array.isArray(collectionRules))
+		throw metadataError(id, 'localData.collections must be an array.');
+	if (mutationRules !== undefined && !Array.isArray(mutationRules))
+		throw metadataError(id, 'localData.mutations must be an array.');
+	const collections: SyncLocalCollectionPolicy[] | undefined = Array.isArray(
+		collectionRules
+	)
+		? collectionRules.map((entry, index) => {
+				const rule = requireObject(
+					entry,
+					id,
+					`localData.collections[${index}] must be an object.`
+				);
+				const allowedRuleKeys = new Set([
+					'evictionPriority',
+					'match',
+					'maxAgeMs',
+					'onProtectionUnavailable',
+					'persistence',
+					'protection',
+					'sensitivity'
+				]);
+				const unsupportedRuleKey = Object.keys(rule).find(
+					(key) => !allowedRuleKeys.has(key)
+				);
+				if (unsupportedRuleKey)
+					throw metadataError(
+						id,
+						`localData.collections[${index}].${unsupportedRuleKey} is not supported.`
+					);
+				const match = nonEmpty(
+					Reflect.get(rule, 'match'),
+					id,
+					`localData.collections[${index}].match`
+				);
+				const persistence = unknownField(rule, 'persistence');
+				const sensitivity = unknownField(rule, 'sensitivity');
+				const protection = unknownField(rule, 'protection');
+				const onProtectionUnavailable = unknownField(
+					rule,
+					'onProtectionUnavailable'
+				);
+				const evictionPriority = unknownField(rule, 'evictionPriority');
+				const maxAge = unknownField(rule, 'maxAgeMs');
+				if (
+					persistence !== undefined &&
+					persistence !== 'durable' &&
+					persistence !== 'memory-only'
+				)
+					throw metadataError(
+						id,
+						`localData.collections[${index}].persistence is invalid.`
+					);
+				if (
+					sensitivity !== undefined &&
+					sensitivity !== 'public' &&
+					sensitivity !== 'private' &&
+					sensitivity !== 'secret'
+				)
+					throw metadataError(
+						id,
+						`localData.collections[${index}].sensitivity is invalid.`
+					);
+				if (
+					protection !== undefined &&
+					protection !== 'none' &&
+					protection !== 'required'
+				)
+					throw metadataError(
+						id,
+						`localData.collections[${index}].protection is invalid.`
+					);
+				if (
+					onProtectionUnavailable !== undefined &&
+					onProtectionUnavailable !== 'error' &&
+					onProtectionUnavailable !== 'memory-only'
+				)
+					throw metadataError(
+						id,
+						`localData.collections[${index}].onProtectionUnavailable is invalid.`
+					);
+				if (
+					evictionPriority !== undefined &&
+					evictionPriority !== 'critical' &&
+					evictionPriority !== 'normal' &&
+					evictionPriority !== 'disposable'
+				)
+					throw metadataError(
+						id,
+						`localData.collections[${index}].evictionPriority is invalid.`
+					);
+
+				return {
+					match,
+					...(sensitivity ? { sensitivity } : {}),
+					...(persistence ? { persistence } : {}),
+					...(protection ? { protection } : {}),
+					...(onProtectionUnavailable
+						? {
+								onProtectionUnavailable: onProtectionUnavailable
+							}
+						: {}),
+					...(evictionPriority ? { evictionPriority } : {}),
+					...(maxAge === undefined
+						? {}
+						: {
+								maxAgeMs: positiveVersion(
+									maxAge,
+									id,
+									`localData.collections[${index}].maxAgeMs`
+								)
+							})
+				};
+			})
+		: undefined;
+	const mutations: SyncLocalMutationPolicy[] | undefined = Array.isArray(
+		mutationRules
+	)
+		? mutationRules.map((entry, index) => {
+				const rule = requireObject(
+					entry,
+					id,
+					`localData.mutations[${index}] must be an object.`
+				);
+				const allowedRuleKeys = new Set([
+					'match',
+					'persistence',
+					'protection',
+					'sensitivity'
+				]);
+				const unsupportedRuleKey = Object.keys(rule).find(
+					(key) => !allowedRuleKeys.has(key)
+				);
+				if (unsupportedRuleKey)
+					throw metadataError(
+						id,
+						`localData.mutations[${index}].${unsupportedRuleKey} is not supported.`
+					);
+				const protection = unknownField(rule, 'protection');
+				const sensitivity = unknownField(rule, 'sensitivity');
+				const persistence = unknownField(rule, 'persistence');
+				if (
+					protection !== undefined &&
+					protection !== 'none' &&
+					protection !== 'required'
+				)
+					throw metadataError(
+						id,
+						`localData.mutations[${index}].protection is invalid.`
+					);
+				if (
+					sensitivity !== undefined &&
+					sensitivity !== 'public' &&
+					sensitivity !== 'private' &&
+					sensitivity !== 'secret'
+				)
+					throw metadataError(
+						id,
+						`localData.mutations[${index}].sensitivity is invalid.`
+					);
+				if (
+					persistence !== undefined &&
+					persistence !== 'durable' &&
+					persistence !== 'memory-only'
+				)
+					throw metadataError(
+						id,
+						`localData.mutations[${index}].persistence is invalid.`
+					);
+
+				return {
+					match: nonEmpty(
+						Reflect.get(rule, 'match'),
+						id,
+						`localData.mutations[${index}].match`
+					),
+					...(sensitivity ? { sensitivity } : {}),
+					...(persistence
+						? {
+								persistence: persistence
+							}
+						: {}),
+					...(protection ? { protection: protection } : {})
+				};
+			})
+		: undefined;
+	const quota = Reflect.get(record, 'maxBytesPerNamespace');
+
+	return {
+		...(collections ? { collections } : {}),
+		...(mutations ? { mutations } : {}),
+		...(quota === undefined
+			? {}
+			: {
+					maxBytesPerNamespace: positiveVersion(
+						quota,
+						id,
+						'localData.maxBytesPerNamespace'
+					)
+				})
+	};
+};
+
 const component: (
 	id: string,
 	value: unknown
 ) => SyncLocalStoreSchemaComponent = (id, value) => {
 	const record = requireObject(value, id, 'localSchema must be an object.');
 	const allowed = new Set([
+		'localData',
 		'migrations',
 		'minimumCompatibleVersion',
 		'version'
@@ -226,6 +448,7 @@ const component: (
 			? Math.max(1, version - 2)
 			: positiveVersion(declaredMinimum, id, 'minimumCompatibleVersion');
 	const declaredMigrations = Reflect.get(record, 'migrations');
+	const declaredLocalData = Reflect.get(record, 'localData');
 	if (declaredMigrations !== undefined && !Array.isArray(declaredMigrations))
 		throw metadataError(id, 'migrations must be an array.');
 	const migrations = Array.isArray(declaredMigrations)
@@ -234,6 +457,9 @@ const component: (
 
 	return {
 		id,
+		...(declaredLocalData === undefined
+			? {}
+			: { localData: localDataPolicy(declaredLocalData, id) }),
 		minimumCompatibleVersion,
 		...(Array.isArray(migrations)
 			? {

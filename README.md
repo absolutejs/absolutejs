@@ -189,6 +189,13 @@ owns persisted data declares its JSON-safe evolution in `package.json`:
 Absolute derives stable component IDs from package names, keeps independent
 version ledgers, validates migration gaps during build/doctor, and applies the
 same transaction atomically in IndexedDB or Capacitor SQLite before Sync starts.
+The same `localSchema` object can declare `localData` rules for sensitivity,
+encryption, memory-only fallback, whole-cache retention, eviction priority, and
+per-principal quota. Absolute mobile stores record payloads as AES-256-GCM
+ciphertext using a random key held by Keychain/Keystore; native background Sync
+uses the identical authenticated format. Browsers without an audited key
+provider either keep a declared fallback in memory only or fail closed. Pending
+mutations are never evicted to satisfy quota.
 
 App updates are consent-driven: `onUpdateAvailable()` latches a waiting worker
 for late UI subscribers, `checkForUpdate()` performs a passive check, and

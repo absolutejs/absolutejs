@@ -10,7 +10,7 @@
 		"@absolutejs/auth": "0.72.0",
 		"@absolutejs/devices": "0.0.3",
 		"@absolutejs/devices-capacitor": "0.1.3",
-		"@absolutejs/pwa": "0.10.1",
+		"@absolutejs/pwa": "0.11.0",
 		"@capacitor/browser": "8.0.4",
 		"@capacitor/network": "8.0.1",
 		"@capacitor/preferences": "8.0.1",
@@ -26,8 +26,8 @@
 	"devDependencies": {
 		"@absolutejs/manifest": "0.9.0",
 		"@absolutejs/scoped-state": "0.2.2",
-		"@absolutejs/sync": "2.26.1",
-		"@absolutejs/sync-capacitor": "0.6.1",
+		"@absolutejs/sync": "2.27.0",
+		"@absolutejs/sync-capacitor": "0.7.0",
 		"@angular/animations": "21.2.6",
 		"@angular/cdk": "21.2.6",
 		"@angular/common": "21.2.6",
@@ -275,12 +275,12 @@
 	"main": "./dist/index.js",
 	"name": "@absolutejs/absolute",
 	"optionalDependencies": {
-		"@absolutejs/native-darwin-arm64": "0.20.0-beta.14",
-		"@absolutejs/native-darwin-x64": "0.20.0-beta.14",
-		"@absolutejs/native-linux-arm64": "0.20.0-beta.14",
-		"@absolutejs/native-linux-x64": "0.20.0-beta.14",
-		"@absolutejs/native-windows-arm64": "0.20.0-beta.14",
-		"@absolutejs/native-windows-x64": "0.20.0-beta.14"
+		"@absolutejs/native-darwin-arm64": "0.20.0-beta.15",
+		"@absolutejs/native-darwin-x64": "0.20.0-beta.15",
+		"@absolutejs/native-linux-arm64": "0.20.0-beta.15",
+		"@absolutejs/native-linux-x64": "0.20.0-beta.15",
+		"@absolutejs/native-windows-arm64": "0.20.0-beta.15",
+		"@absolutejs/native-windows-x64": "0.20.0-beta.15"
 	},
 	"overrides": {
 		"@sinclair/typebox": "0.34.52",
@@ -290,7 +290,7 @@
 		"typebox": "1.3.16"
 	},
 	"peerDependencies": {
-		"@absolutejs/sync": ">=2.26.1 <3",
+		"@absolutejs/sync": ">=2.27.0 <3",
 		"@angular/animations": "^21.0.0",
 		"@angular/common": "^21.0.0",
 		"@angular/compiler": "^21.0.0",
@@ -491,7 +491,7 @@
 			]
 		}
 	},
-	"version": "0.20.0-beta.14",
+	"version": "0.20.0-beta.15",
 	"workspaces": [
 		"tests/fixtures/*",
 		"tests/fixtures/_packages/*"

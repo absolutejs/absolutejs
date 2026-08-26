@@ -136,7 +136,7 @@ const CAPACITOR_PACKAGE_SPECS = [
 ];
 
 const CAPACITOR_SYNC_PACKAGE_SPECS = [
-	'@absolutejs/sync-capacitor@0.6.1',
+	'@absolutejs/sync-capacitor@0.7.0',
 	'@capacitor-community/sqlite@8.1.1'
 ];
 

@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 import { createMemorySyncLocalStore } from '@absolutejs/sync/client';
 import { getSyncClientRuntimeTransport } from '@absolutejs/sync/client/runtime';
+import type { CapacitorSyncLocalStoreOptions } from '@absolutejs/sync-capacitor';
 import type { AbsoluteMobileShellPrincipal } from '../../../src/mobile/shellBootstrap';
 import { installAbsoluteMobileShellSync } from '../../../src/mobile/shellSync';
 
@@ -13,7 +14,7 @@ test('provisions account-bound native durability and lifecycle without page wiri
 	let reloads = 0;
 	const statuses: unknown[] = [];
 	let backgroundConfiguration: unknown;
-	let storeOptions: unknown;
+	let storeOptions: CapacitorSyncLocalStoreOptions | undefined;
 	const store = createMemorySyncLocalStore();
 	const dispose = installAbsoluteMobileShellSync(
 		{
@@ -65,11 +66,12 @@ test('provisions account-bound native durability and lifecycle without page wiri
 		store
 	});
 	expect(runtime?.socketTicket).toBeDefined();
-	expect(storeOptions).toEqual({
+	expect(storeOptions).toMatchObject({
 		storageSchema: {
 			components: [{ id: '@absolutejs/app', version: 1 }]
 		}
 	});
+	expect(storeOptions?.protection?.prepare).toBeFunction();
 	expect(await runtime?.socketTicket?.()).toBe('ticket');
 	expect(backgroundConfiguration).toEqual({
 		clientId: 'native-client',

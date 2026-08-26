@@ -115,7 +115,7 @@ describe('mobile release doctor', () => {
 						}
 					}
 				},
-				dependencies: { '@absolutejs/sync': '2.26.1' },
+				dependencies: { '@absolutejs/sync': '2.27.0' },
 				name: 'release-fixture'
 			})}\n`
 		);
@@ -125,6 +125,53 @@ describe('mobile release doctor', () => {
 			id: 'sync.storage-schema',
 			status: 'fail'
 		});
+	});
+
+	test('reports the effective local data protection policy', async () => {
+		const { config, projectRoot } = await fixture();
+		await writeFile(
+			join(projectRoot, 'package.json'),
+			`${JSON.stringify({
+				absolutejs: {
+					sync: {
+						localSchema: {
+							localData: {
+								collections: [
+									{
+										match: 'account:*',
+										onProtectionUnavailable: 'memory-only',
+										protection: 'required',
+										sensitivity: 'private'
+									}
+								],
+								maxBytesPerNamespace: 65_536,
+								mutations: [
+									{
+										match: 'account:*',
+										protection: 'required',
+										sensitivity: 'private'
+									}
+								]
+							},
+							version: 1
+						}
+					}
+				},
+				dependencies: { '@absolutejs/sync': '2.27.0' },
+				name: 'release-policy-fixture'
+			})}\n`
+		);
+
+		const result = await inspectAbsoluteMobileRelease(config, projectRoot);
+		const policy = result.checks.find(
+			(check) => check.id === 'sync.storage-schema'
+		);
+		expect(policy).toMatchObject({ status: 'pass' });
+		expect(policy?.detail).toContain('1 collection rule(s)');
+		expect(policy?.detail).toContain('1 mutation rule(s)');
+		expect(policy?.detail).toContain('2 encryption-required');
+		expect(policy?.detail).toContain('1 memory-only fallback(s)');
+		expect(policy?.detail).toContain('65536-byte effective quota');
 	});
 
 	test('validates iOS production transport and rejects leaked development settings', async () => {

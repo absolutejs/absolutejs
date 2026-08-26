@@ -48,6 +48,18 @@ describe('generated AbsoluteJS Sync schema metadata', () => {
 			absolutejs: {
 				sync: {
 					localSchema: {
+						localData: {
+							collections: [
+								{
+									evictionPriority: 'critical',
+									match: 'account:*',
+									onProtectionUnavailable: 'memory-only',
+									protection: 'required',
+									sensitivity: 'private'
+								}
+							],
+							maxBytesPerNamespace: 1048576
+						},
 						migrations: [
 							{ operations: [], toVersion: 2 },
 							{ operations: [], toVersion: 3 }
@@ -96,7 +108,17 @@ describe('generated AbsoluteJS Sync schema metadata', () => {
 			'@example/tasks-pack'
 		]);
 		expect(discovered.components).toMatchObject([
-			{ id: '@absolutejs/app', minimumCompatibleVersion: 1, version: 3 },
+			{
+				id: '@absolutejs/app',
+				localData: {
+					collections: [
+						{ match: 'account:*', protection: 'required' }
+					],
+					maxBytesPerNamespace: 1048576
+				},
+				minimumCompatibleVersion: 1,
+				version: 3
+			},
 			{
 				id: '@example/tasks-pack',
 				minimumCompatibleVersion: 2,
@@ -132,6 +154,54 @@ describe('generated AbsoluteJS Sync schema metadata', () => {
 
 		expect(() => discoverAbsoluteSyncSchema(root)).toThrow(
 			'not declarative metadata'
+		);
+	});
+
+	test('rejects unknown policy fields and unprotected private data', async () => {
+		const unknownRoot = await mkdtemp(
+			join(tmpdir(), 'absolute-sync-schema-policy-unknown-')
+		);
+		roots.push(unknownRoot);
+		await writeManifest(unknownRoot, {
+			absolutejs: {
+				sync: {
+					localSchema: {
+						localData: {
+							collections: [
+								{ encryption: 'required', match: 'tasks:*' }
+							]
+						},
+						version: 1
+					}
+				}
+			},
+			name: 'unknown-policy-fixture'
+		});
+		expect(() => discoverAbsoluteSyncSchema(unknownRoot)).toThrow(
+			'localData.collections[0].encryption is not supported'
+		);
+
+		const unsafeRoot = await mkdtemp(
+			join(tmpdir(), 'absolute-sync-schema-policy-unsafe-')
+		);
+		roots.push(unsafeRoot);
+		await writeManifest(unsafeRoot, {
+			absolutejs: {
+				sync: {
+					localSchema: {
+						localData: {
+							mutations: [
+								{ match: 'tasks:*', sensitivity: 'private' }
+							]
+						},
+						version: 1
+					}
+				}
+			},
+			name: 'unsafe-policy-fixture'
+		});
+		expect(() => discoverAbsoluteSyncSchema(unsafeRoot)).toThrow(
+			'declares private arguments without required protection'
 		);
 	});
 });
