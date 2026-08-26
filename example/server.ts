@@ -18,6 +18,7 @@ import { ReactExample } from './react/pages/ReactExample';
 import { NativeAuthSyncAcceptance } from './react/pages/NativeAuthSyncAcceptance';
 import { NativeLocationAcceptance } from './react/pages/NativeLocationAcceptance';
 import { NativeDocumentsAcceptance } from './react/pages/NativeDocumentsAcceptance';
+import { NativeNotificationsAcceptance } from './react/pages/NativeNotificationsAcceptance';
 import {
 	asset,
 	handleHTMLPageRequest,
@@ -100,6 +101,13 @@ export const server: AnyElysia = new Elysia()
 		handleReactPageRequest({
 			index: asset(manifest, 'NativeDocumentsAcceptanceIndex'),
 			Page: NativeDocumentsAcceptance,
+			props: {}
+		})
+	)
+	.get('/native-notifications', () =>
+		handleReactPageRequest({
+			index: asset(manifest, 'NativeNotificationsAcceptanceIndex'),
+			Page: NativeNotificationsAcceptance,
 			props: {}
 		})
 	)

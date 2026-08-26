@@ -836,6 +836,87 @@ describeNative('real Capacitor Android embedded-bundle conformance', () => {
 	);
 
 	nativeTest(
+		'uses provider-neutral local notifications without implicit permission or exact alarms',
+		async () => {
+			const opened = await webview.evaluate<boolean>(`(() => {
+				const anchor = document.createElement('a');
+				anchor.href = '/native-notifications';
+				anchor.textContent = 'Native notifications';
+				document.body.appendChild(anchor);
+				anchor.click();
+				return true;
+			})()`);
+			expect(opened).toBe(true);
+			await waitForText('AbsoluteJS Local Notifications');
+			const click = async (selector: string) => {
+				const clicked = await webview.evaluate<boolean>(`(() => {
+					const button = document.querySelector(${JSON.stringify(selector)});
+					if (!(button instanceof HTMLButtonElement)) return false;
+					button.click();
+					return true;
+				})()`);
+				expect(clicked).toBe(true);
+			};
+
+			await click('#notifications-query');
+			await webview.waitFor<boolean>(
+				`document.querySelector('[data-capability]')?.getAttribute('data-capability') === 'native'`,
+				{ timeoutMs: TIMEOUT_MS }
+			);
+			await click('#notifications-schedule');
+			await webview.waitFor<boolean>(
+				`document.querySelector('[data-error]')?.getAttribute('data-error') === 'permission-required'`,
+				{ timeoutMs: TIMEOUT_MS }
+			);
+			const granted = Bun.spawnSync([
+				project.adb,
+				'-s',
+				android.serial,
+				'shell',
+				'pm',
+				'grant',
+				'com.absolutejs.conformance',
+				'android.permission.POST_NOTIFICATIONS'
+			]);
+			expect(granted.exitCode).toBe(0);
+			await click('#notifications-query');
+			await webview.waitFor<boolean>(
+				`document.querySelector('[data-permission]')?.getAttribute('data-permission') === 'granted'`,
+				{ timeoutMs: TIMEOUT_MS }
+			);
+
+			await click('#notifications-schedule');
+			await click('#notifications-pending');
+			await webview.waitFor<boolean>(
+				`document.querySelector('[data-pending]')?.getAttribute('data-pending') === '1'`,
+				{ timeoutMs: TIMEOUT_MS }
+			);
+			await click('#notifications-cancel');
+			await click('#notifications-pending');
+			await webview.waitFor<boolean>(
+				`document.querySelector('[data-pending]')?.getAttribute('data-pending') === '0'`,
+				{ timeoutMs: TIMEOUT_MS }
+			);
+
+			await click('#notifications-schedule');
+			await webview.waitFor<boolean>(
+				`document.querySelector('[data-event]')?.getAttribute('data-event') === 'received:20260826'`,
+				{ timeoutMs: 30_000 }
+			);
+			const manifest = await readFile(
+				resolve(
+					PROJECT_ROOT,
+					'.absolutejs/mobile-native-conformance/native/android/app/src/main/AndroidManifest.xml'
+				),
+				'utf8'
+			);
+			expect(manifest).toContain('android.permission.POST_NOTIFICATIONS');
+			expect(manifest).not.toContain('SCHEDULE_EXACT_ALARM');
+			expect(manifest).not.toContain('USE_EXACT_ALARM');
+		}
+	);
+
+	nativeTest(
 		'provisions native Auth and authenticated Sync without page-specific native code',
 		async () => {
 			const clickedRoute = await webview.evaluate<boolean>(`(() => {

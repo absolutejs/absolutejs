@@ -8,8 +8,8 @@
 	},
 	"dependencies": {
 		"@absolutejs/auth": "0.72.0",
-		"@absolutejs/devices": "0.4.0",
-		"@absolutejs/devices-capacitor": "0.5.0",
+		"@absolutejs/devices": "0.5.0",
+		"@absolutejs/devices-capacitor": "0.6.1",
 		"@absolutejs/pwa": "0.13.0",
 		"@capacitor/browser": "8.0.4",
 		"@capacitor/network": "8.0.1",
@@ -53,6 +53,7 @@
 		"@capacitor/geolocation": "8.2.2",
 		"@capacitor/haptics": "8.0.2",
 		"@capacitor/ios": "8.5.0",
+		"@capacitor/local-notifications": "8.2.1",
 		"@capacitor/share": "8.0.1",
 		"@embroider/macros": "^1.20.2",
 		"@eslint/js": "^10.0.1",
@@ -498,7 +499,7 @@
 			]
 		}
 	},
-	"version": "0.20.0-beta.23",
+	"version": "0.20.0-beta.24",
 	"workspaces": [
 		"tests/fixtures/*",
 		"tests/fixtures/_packages/*"

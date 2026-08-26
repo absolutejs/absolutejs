@@ -4,7 +4,20 @@ Status: Capacitor Android development/release, all-framework embedded bundles, u
 Research snapshot: August 26, 2026
 
 Implementation checkpoint (August 26, 2026): AbsoluteJS
-`0.20.0-beta.23` generalizes the local-only native evidence workflow and adds
+`0.20.0-beta.24` includes the beta 23 native evidence/Documents work and adds
+the first provider-neutral Local Notifications slice. Applications import
+`localNotifications` from `@absolutejs/devices@0.5.0`; AbsoluteJS discovers the
+named import, provisions `@absolutejs/devices-capacitor@0.6.1` and the complete
+official `@capacitor/local-notifications@8.2.1` artifact, generates adapter
+wiring, and projects Android display permission without exact-alarm access.
+Permission queries and scheduling never prompt implicitly. The shared contract
+covers one-time best-effort schedule, pending, cancel, receipt, and tap/action
+events across web, SSR, tests, and Capacitor. Repeats, exact alarms, critical
+alerts, and push delivery remain separately gated. The example acceptance route,
+Android/iOS report rows, and eight-step macOS/physical-device checklist ship in
+the same release.
+
+`0.20.0-beta.23` generalized the local-only native evidence workflow and added
 `absolute mobile test android --report` parity with iOS. Machine-observed
 emulator/launch/HMR/timing results populate matching Markdown and JSON; manual,
 physical-device, Auth, Sync, signing, and store checks remain explicitly
@@ -2096,11 +2109,12 @@ Wave 1, high-value cross-platform APIs:
 - push notification registration/token/events
 - keyboard and system/status bar controls
 
-Clipboard, share sheet, haptics, camera capture, scoped photo selection, and
-foreground location/current/watch are the completed Wave 1 foundation. They
-ship in `@absolutejs/devices@0.3.0` with
+Clipboard, share sheet, haptics, camera capture, scoped photo selection,
+Documents, foreground location/current/watch, and one-time Local Notifications
+are the completed Wave 1 foundation. They
+ship in `@absolutejs/devices@0.5.0` with
 web/SSR/test behavior and isolated Capacitor provider entries in
-`@absolutejs/devices-capacitor@0.4.0`. AbsoluteJS discovers
+`@absolutejs/devices-capacitor@0.6.1`. AbsoluteJS discovers
 named value imports with its TypeScript AST, ignores type-only/test imports,
 validates declarative provider metadata, installs exact tested plugins only after
 approval, generates adapter wiring, records the effective graph in the mobile

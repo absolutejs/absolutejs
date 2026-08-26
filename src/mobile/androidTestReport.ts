@@ -29,6 +29,14 @@ const MANUAL_CHECKS = [
 		'FILES-01',
 		'Complete provider-neutral file pick, export, open, and cleanup checks.'
 	],
+	...Array.from(
+		{ length: 6 },
+		(_, index) =>
+			[
+				`NOTIF-${String(index + 1).padStart(2, '0')}`,
+				`Complete provider-neutral Local Notifications check NOTIF-${String(index + 1).padStart(2, '0')}.`
+			] as const
+	),
 	[
 		'AUTH-01',
 		'Complete system-browser sign-in, callback, restore, and sign-out checks.'

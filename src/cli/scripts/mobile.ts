@@ -145,8 +145,8 @@ const CAPACITOR_PACKAGE_SPECS = [
 	'@capacitor/cli@8.5.0',
 	'@capacitor/android@8.5.0',
 	'@capacitor/ios@8.5.0',
-	'@absolutejs/devices@0.4.0',
-	'@absolutejs/devices-capacitor@0.5.0'
+	'@absolutejs/devices@0.5.0',
+	'@absolutejs/devices-capacitor@0.6.1'
 ];
 
 const CAPACITOR_SYNC_PACKAGE_SPECS = [

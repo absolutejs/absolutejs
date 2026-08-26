@@ -74,6 +74,19 @@ const fixture = async () => {
 							module: '@absolutejs/devices-capacitor/haptics',
 							packages: ['@capacitor/haptics@8.0.2']
 						},
+						localNotifications: {
+							factory:
+								'createCapacitorLocalNotificationsCapability',
+							module: '@absolutejs/devices-capacitor/local-notifications',
+							native: {
+								android: {
+									permissions: [
+										'android.permission.POST_NOTIFICATIONS'
+									]
+								}
+							},
+							packages: ['@capacitor/local-notifications@8.2.1']
+						},
 						location: {
 							factory: 'createCapacitorLocationCapability',
 							module: '@absolutejs/devices-capacitor/location',
@@ -116,7 +129,7 @@ describe('device capability discovery', () => {
 			join(root, 'page.ts'),
 			`import { clipboard as copy, type DeviceShareContent } from '@absolutejs/devices';
 import * as device from '@absolutejs/devices';
-void copy.writeText('x'); void device.documents.pick(); void device.haptics.impact(); void device.location.current();`
+void copy.writeText('x'); void device.documents.pick(); void device.haptics.impact(); void device.localNotifications.pending(); void device.location.current();`
 		);
 		await writeFile(
 			join(root, 'feature.ts'),
@@ -138,6 +151,7 @@ void copy.writeText('x'); void device.documents.pick(); void device.haptics.impa
 			'clipboard',
 			'documents',
 			'haptics',
+			'localNotifications',
 			'location',
 			'share'
 		]);
@@ -148,6 +162,7 @@ void copy.writeText('x'); void device.documents.pick(); void device.haptics.impa
 			'@capacitor/filesystem@8.1.3',
 			'@capacitor/geolocation@8.2.2',
 			'@capacitor/haptics@8.0.2',
+			'@capacitor/local-notifications@8.2.1',
 			'@capacitor/share@8.0.1'
 		]);
 		expect(
@@ -160,6 +175,7 @@ void copy.writeText('x'); void device.documents.pick(); void device.haptics.impa
 			'@capacitor/filesystem@8.1.3',
 			'@capacitor/geolocation@8.2.2',
 			'@capacitor/haptics@8.0.2',
+			'@capacitor/local-notifications@8.2.1',
 			'@capacitor/share@8.0.1'
 		]);
 	});
@@ -262,6 +278,11 @@ void copy.writeText('x'); void device.documents.pick(); void device.haptics.impa
 			},
 			ios: {
 				usageDescriptions: ['location-always', 'location-when-in-use']
+			}
+		});
+		expect(providers.localNotifications?.native).toEqual({
+			android: {
+				permissions: ['android.permission.POST_NOTIFICATIONS']
 			}
 		});
 		expect(providers.documents?.native?.ios?.privacyAccessedApis).toEqual({

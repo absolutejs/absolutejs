@@ -5,7 +5,7 @@ import { renderAbsoluteNativeTestReport } from '../../../src/mobile/nativeTestRe
 describe('Android native test report', () => {
 	test('uses the shared report contract without fabricating manual results', () => {
 		const report = createAbsoluteAndroidTestReport({
-			absolutejsVersion: '0.20.0-beta.23',
+			absolutejsVersion: '0.20.0-beta.24',
 			adbVersion: 'Android Debug Bridge version 1.0.41',
 			bunVersion: '1.3.14',
 			generatedAt: '2026-08-26T12:00:00.000Z',
@@ -29,6 +29,11 @@ describe('Android native test report', () => {
 		expect(
 			report.manualChecks.every(({ result }) => result === 'NOT_RUN')
 		).toBe(true);
+		expect(
+			report.manualChecks.find(({ id }) => id === 'NOTIF-06')
+		).toMatchObject({
+			result: 'NOT_RUN'
+		});
 		expect(renderAbsoluteNativeTestReport(report)).toContain(
 			'Routes: /react, /vue.'
 		);
@@ -36,7 +41,7 @@ describe('Android native test report', () => {
 
 	test('classifies a physical target and preserves a sanitized failure', () => {
 		const report = createAbsoluteAndroidTestReport({
-			absolutejsVersion: '0.20.0-beta.23',
+			absolutejsVersion: '0.20.0-beta.24',
 			adbVersion: 'adb',
 			bunVersion: '1.3.14',
 			host: 'darwin-arm64',

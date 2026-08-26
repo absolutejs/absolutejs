@@ -44,6 +44,14 @@ const MANUAL_CHECKS = [
 			] as const
 	),
 	...Array.from(
+		{ length: 8 },
+		(_, index) =>
+			[
+				`NOTIF-${String(index + 1).padStart(2, '0')}`,
+				`Complete provider-neutral Local Notifications runbook check NOTIF-${String(index + 1).padStart(2, '0')}.`
+			] as const
+	),
+	...Array.from(
 		{ length: 14 },
 		(_, index) =>
 			[

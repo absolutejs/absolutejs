@@ -1,7 +1,7 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.23` and
+`@absolutejs/absolute@0.20.0-beta.24` and
 `@absolutejs/deploy@0.24.0`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
 
@@ -52,6 +52,7 @@ actual result, sanitized logs, and artifact or screenshot path in section 13.
 - [ ] `DEV-02` Complete route traversal, HMR timing, relaunch, and recovery.
 - [ ] `CAP-01` Complete automatic device-capability provisioning.
 - [ ] `FILES-01` through `FILES-08` Complete the Documents checklist.
+- [ ] `NOTIF-01` through `NOTIF-08` Complete the Local Notifications checklist.
 - [ ] `LOC-01` through `LOC-14` Complete the foreground-location checklist.
 - [ ] `AUTH-01` Complete system-browser sign-in and callback.
 - [ ] `SYNC-01` Complete online, offline, reconnect, isolation, and conflict tests.
@@ -91,7 +92,7 @@ still requires the developer team setup described below.
 From the root of the AbsoluteJS application:
 
 ```sh
-bun add @absolutejs/absolute@0.20.0-beta.23 \
+bun add @absolutejs/absolute@0.20.0-beta.24 \
   @absolutejs/auth@0.72.0 \
   @absolutejs/sync@2.29.0 \
   @absolutejs/sync-capacitor@0.9.1 \
@@ -103,10 +104,11 @@ bun add @absolutejs/absolute@0.20.0-beta.23 \
   @capacitor-community/sqlite@8.1.1 \
   @capacitor/network@8.0.1 \
   @capacitor/preferences@8.0.1 \
+  @capacitor/local-notifications@8.2.1 \
   @capacitor/cli@8.5.0 \
   @capacitor/ios@8.5.0 \
-  @absolutejs/devices@0.4.0 \
-  @absolutejs/devices-capacitor@0.5.0
+  @absolutejs/devices@0.5.0 \
+  @absolutejs/devices-capacitor@0.6.1
 ```
 
 `absolute mobile init` now offers to install this tested Capacitor/device
@@ -394,6 +396,47 @@ The default per-document ceiling is 64 MiB and applications may set a smaller
 or larger positive `maximumBytes` explicitly. Filename validation rejects path
 separators, control characters, `.` and `..`; unit coverage proves these failure
 paths. This acceptance run must use disposable, non-sensitive fixtures.
+
+### Provider-neutral Local Notifications acceptance checklist
+
+Use this repository's `/native-notifications` route. It imports only
+`localNotifications` from `@absolutejs/devices`; do not import Capacitor, add a
+runtime branch, or edit Xcode. The first portable contract intentionally covers
+best-effort one-time notifications, not repeating schedules, critical alerts,
+or exact delivery.
+
+- [ ] `NOTIF-01` Run `bunx absolute mobile sync ios`. Confirm it discovers
+  `localNotifications`, offers exactly
+  `@capacitor/local-notifications@8.2.1`, and does not prompt again after an
+  approved idempotent rerun.
+- [ ] `NOTIF-02` Open `/native-notifications` in the web preview. Query must
+  report `emulated`; the permission query must not prompt. Tap Schedule before
+  permission and confirm `permission-required` with no browser prompt.
+- [ ] `NOTIF-03` In the iOS Simulator, Query must not prompt. Tap Schedule
+  before permission and confirm `permission-required`. Only the separate
+  Request permission button may open the system prompt.
+- [ ] `NOTIF-04` Deny the first permission request. Confirm the normalized
+  denial, no second surprise prompt from Schedule, and recovery guidance through
+  iOS Settings. Then grant notification permission in Settings and return.
+- [ ] `NOTIF-05` Tap Schedule, immediately background the app, and wait at least
+  eight seconds. Confirm one notification with the expected disposable title
+  and body appears. Record approximate timing only; delivery is best-effort.
+- [ ] `NOTIF-06` Schedule again, tap List pending before delivery, and confirm
+  one matching numeric ID. Tap Cancel, list again, and confirm zero; no
+  notification may appear after the original delivery time.
+- [ ] `NOTIF-07` Schedule again, background the app, and tap the delivered
+  notification. Confirm the existing app opens or resumes and reports
+  `tap:20260826` without duplicate action listeners. Inspect the generated
+  project and confirm there is no exact-alarm or critical-alert entitlement.
+- [ ] `NOTIF-08` Repeat schedule, process termination before delivery, display,
+  tap/resume, pending, and cancellation on the physical TestFlight device.
+  Notification content and attached evidence must contain no credentials,
+  tokens, private records, or customer data.
+
+The provider is pinned to the complete official Capacitor 8.2.1 artifact. The
+newer 8.3.x line changed permission behavior and is outside this tested
+contract. AbsoluteJS projects Android display permission but deliberately does
+not add `SCHEDULE_EXACT_ALARM` or `USE_EXACT_ALARM`.
 
 ### Foreground-location acceptance checklist
 
@@ -941,13 +984,14 @@ source change and build a new content-addressed release instead.
 - Mac architecture:
 - Xcode version:
 - Bun version:
-- AbsoluteJS version: 0.20.0-beta.23
+- AbsoluteJS version: 0.20.0-beta.24
 - Auth version: 0.72.0
 - Sync version: 2.29.0
 - Sync Capacitor version: 0.9.1
 - Capacitor SQLite version: 8.1.1
-- Devices version: 0.4.0
-- Devices Capacitor version: 0.5.0
+- Devices version: 0.5.0
+- Devices Capacitor version: 0.6.1
+- Local Notifications version: 8.2.1
 - File Viewer version: 2.0.2
 - Filesystem version: 8.1.3
 - Geolocation version: 8.2.2
@@ -979,6 +1023,14 @@ versus expected behavior. Do not report exact coordinates.
 | FILES-06 |  | Save to Files / cancel recovery: |  |
 | FILES-07 |  | native preview / cache cleanup: |  |
 | FILES-08 |  | physical device pick / export / open: |  |
+| NOTIF-01 |  | discovered package / idempotent sync: |  |
+| NOTIF-02 |  | web query / no implicit prompt: |  |
+| NOTIF-03 |  | iOS query / explicit prompt only: |  |
+| NOTIF-04 |  | denial / no surprise prompt / Settings recovery: |  |
+| NOTIF-05 |  | best-effort display / approximate timing: |  |
+| NOTIF-06 |  | pending count / cancel result: |  |
+| NOTIF-07 |  | tap event / duplicate count / no exact entitlement: |  |
+| NOTIF-08 |  | physical device process-death/display/tap/cancel: |  |
 | LOC-01 |  | capability: / initial permission: |  |
 | LOC-02 |  | error code: |  |
 | LOC-03 |  | permission: / precision: |  |
@@ -1024,6 +1076,7 @@ versus expected behavior. Do not report exact coordinates.
 - Physical-device camera capture: PASS / FAIL
 - Scoped photo picker without broad prompt: PASS / FAIL
 - Provider-neutral Documents web/iOS behavior and cache cleanup: PASS / FAIL
+- Provider-neutral Local Notifications permission/schedule/cancel/tap: PASS / FAIL
 - Foreground location provisioning and generated iOS descriptions: PASS / FAIL
 - Foreground location permission/current/watch/cleanup: PASS / FAIL
 - Foreground location denial/settings/lifecycle recovery: PASS / FAIL

@@ -104,6 +104,23 @@ const documentsPlan: AbsoluteDeviceCapabilityPlan = {
 	]
 };
 
+const localNotificationsPlan: AbsoluteDeviceCapabilityPlan = {
+	capabilities: ['localNotifications'],
+	providers: {
+		localNotifications: {
+			factory: 'createCapacitorLocalNotificationsCapability',
+			module: '@absolutejs/devices-capacitor/local-notifications',
+			native: {
+				android: {
+					permissions: ['android.permission.POST_NOTIFICATIONS']
+				}
+			},
+			packages: ['@capacitor/local-notifications@8.2.1']
+		}
+	},
+	requiredPackages: ['@capacitor/local-notifications@8.2.1']
+};
+
 const iosProject = `// !$*UTF8*$!
 {
 objects = {
@@ -242,6 +259,50 @@ describe('native device capability projection', () => {
 		);
 		expect(manifest).toContain('android.permission.ACCESS_COARSE_LOCATION');
 		expect(manifest).toContain('android.permission.ACCESS_FINE_LOCATION');
+	});
+
+	test('projects notification display permission without exact-alarm access', async () => {
+		const root = await mkdtemp(
+			join(tmpdir(), 'absolute-native-notifications-')
+		);
+		temporaryDirectories.push(root);
+		const android = join(root, 'mobile/android/app/src/main');
+		await mkdir(android, { recursive: true });
+		await writeFile(
+			join(android, 'AndroidManifest.xml'),
+			'<manifest>\n    <application />\n</manifest>\n'
+		);
+		const config = normalizeAbsoluteMobileConfig(
+			{
+				appId: 'com.example.notifications',
+				appName: 'Notifications Example',
+				server: { productionOrigin: 'https://api.example.com' }
+			},
+			root
+		);
+
+		const first = await applyAbsoluteNativeDeviceCapabilities(
+			root,
+			config,
+			['android'],
+			localNotificationsPlan
+		);
+		const second = await applyAbsoluteNativeDeviceCapabilities(
+			root,
+			config,
+			['android'],
+			localNotificationsPlan
+		);
+		const manifest = await readFile(
+			join(android, 'AndroidManifest.xml'),
+			'utf8'
+		);
+
+		expect(first.changed).toEqual(['android']);
+		expect(second.changed).toEqual([]);
+		expect(manifest).toContain('android.permission.POST_NOTIFICATIONS');
+		expect(manifest).not.toContain('SCHEDULE_EXACT_ALARM');
+		expect(manifest).not.toContain('USE_EXACT_ALARM');
 	});
 
 	test('generates and targets the required iOS privacy manifest idempotently', async () => {

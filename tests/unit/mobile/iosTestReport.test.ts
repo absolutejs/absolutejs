@@ -44,7 +44,7 @@ describe('iOS partner test report', () => {
 
 	test('keeps manual checks incomplete instead of fabricating passes', () => {
 		const report = createAbsoluteIosPartnerReport({
-			absolutejsVersion: '0.20.0-beta.23',
+			absolutejsVersion: '0.20.0-beta.24',
 			bunVersion: '1.3.0',
 			generatedAt: '2026-08-26T12:00:00.000Z',
 			macosVersion: '15.6',
@@ -52,12 +52,15 @@ describe('iOS partner test report', () => {
 			xcodeVersion: 'Xcode 16.4'
 		});
 		expect(report.overallResult).toBe('INCOMPLETE');
-		expect(report.manualChecks).toHaveLength(38);
+		expect(report.manualChecks).toHaveLength(46);
 		expect(
 			report.manualChecks.find(({ id }) => id === 'FILES-08')
 		).toMatchObject({
 			result: 'NOT_RUN'
 		});
+		expect(
+			report.manualChecks.find(({ id }) => id === 'NOTIF-08')
+		).toMatchObject({ result: 'NOT_RUN' });
 		expect(
 			report.manualChecks.every(({ result }) => result === 'NOT_RUN')
 		).toBe(true);
@@ -73,7 +76,7 @@ describe('iOS partner test report', () => {
 		const directory = await mkdtemp(join(tmpdir(), 'absolute-ios-report-'));
 		temporaryDirectories.push(directory);
 		const report = createAbsoluteIosPartnerReport({
-			absolutejsVersion: '0.20.0-beta.23',
+			absolutejsVersion: '0.20.0-beta.24',
 			bunVersion: '1.3.0',
 			macosVersion: '15.6',
 			run: {
@@ -94,6 +97,7 @@ describe('iOS partner test report', () => {
 		]);
 		expect(markdown).toContain('| AUTO-HMR-01 | PASS |');
 		expect(markdown).toContain('| LOC-14 | NOT_RUN |');
+		expect(markdown).toContain('| NOTIF-08 | NOT_RUN |');
 		expect(markdown).toContain(
 			'This report is local and is never uploaded'
 		);
