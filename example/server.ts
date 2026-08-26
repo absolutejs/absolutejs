@@ -17,6 +17,7 @@ import { generateHeadElement } from '../src/utils/generateHeadElement';
 import { ReactExample } from './react/pages/ReactExample';
 import { NativeAuthSyncAcceptance } from './react/pages/NativeAuthSyncAcceptance';
 import { NativeLocationAcceptance } from './react/pages/NativeLocationAcceptance';
+import { NativeDocumentsAcceptance } from './react/pages/NativeDocumentsAcceptance';
 import {
 	asset,
 	handleHTMLPageRequest,
@@ -92,6 +93,13 @@ export const server: AnyElysia = new Elysia()
 		handleReactPageRequest({
 			index: asset(manifest, 'NativeLocationAcceptanceIndex'),
 			Page: NativeLocationAcceptance,
+			props: {}
+		})
+	)
+	.get('/native-documents', () =>
+		handleReactPageRequest({
+			index: asset(manifest, 'NativeDocumentsAcceptanceIndex'),
+			Page: NativeDocumentsAcceptance,
 			props: {}
 		})
 	)

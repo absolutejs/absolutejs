@@ -52,6 +52,23 @@ const fixture = async () => {
 							module: '@absolutejs/devices-capacitor/clipboard',
 							packages: ['@capacitor/clipboard@8.0.1']
 						},
+						documents: {
+							factory: 'createCapacitorDocumentsCapability',
+							module: '@absolutejs/devices-capacitor/documents',
+							native: {
+								ios: {
+									privacyAccessedApis: {
+										NSPrivacyAccessedAPICategoryFileTimestamp:
+											['C617.1']
+									}
+								}
+							},
+							packages: [
+								'@capacitor/file-viewer@2.0.2',
+								'@capacitor/filesystem@8.1.3',
+								'@capacitor/share@8.0.1'
+							]
+						},
 						haptics: {
 							factory: 'createCapacitorHapticsCapability',
 							module: '@absolutejs/devices-capacitor/haptics',
@@ -99,7 +116,7 @@ describe('device capability discovery', () => {
 			join(root, 'page.ts'),
 			`import { clipboard as copy, type DeviceShareContent } from '@absolutejs/devices';
 import * as device from '@absolutejs/devices';
-void copy.writeText('x'); void device.haptics.impact(); void device.location.current();`
+void copy.writeText('x'); void device.documents.pick(); void device.haptics.impact(); void device.location.current();`
 		);
 		await writeFile(
 			join(root, 'feature.ts'),
@@ -119,6 +136,7 @@ void copy.writeText('x'); void device.haptics.impact(); void device.location.cur
 		const providers = loadAbsoluteDeviceCapabilityProviders(root);
 		expect(discoverAbsoluteDeviceCapabilities(root, providers)).toEqual([
 			'clipboard',
+			'documents',
 			'haptics',
 			'location',
 			'share'
@@ -126,6 +144,8 @@ void copy.writeText('x'); void device.haptics.impact(); void device.location.cur
 		const plan = resolveAbsoluteDeviceCapabilityPlan(root);
 		expect(plan.requiredPackages).toEqual([
 			'@capacitor/clipboard@8.0.1',
+			'@capacitor/file-viewer@2.0.2',
+			'@capacitor/filesystem@8.1.3',
 			'@capacitor/geolocation@8.2.2',
 			'@capacitor/haptics@8.0.2',
 			'@capacitor/share@8.0.1'
@@ -136,6 +156,8 @@ void copy.writeText('x'); void device.haptics.impact(); void device.location.cur
 				new Set(['@capacitor/clipboard'])
 			)
 		).toEqual([
+			'@capacitor/file-viewer@2.0.2',
+			'@capacitor/filesystem@8.1.3',
 			'@capacitor/geolocation@8.2.2',
 			'@capacitor/haptics@8.0.2',
 			'@capacitor/share@8.0.1'
@@ -242,12 +264,26 @@ void copy.writeText('x'); void device.haptics.impact(); void device.location.cur
 				usageDescriptions: ['location-always', 'location-when-in-use']
 			}
 		});
+		expect(providers.documents?.native?.ios?.privacyAccessedApis).toEqual({
+			NSPrivacyAccessedAPICategoryFileTimestamp: ['C617.1']
+		});
 		const value = JSON.parse(await Bun.file(path).text());
 		value.absolutejs.devices.capabilities.camera.native.ios.usageDescriptions =
 			['contacts'];
 		await writeFile(path, JSON.stringify(value));
 		expect(() => loadAbsoluteDeviceCapabilityProviders(root)).toThrow(
 			'unsupported purpose'
+		);
+
+		value.absolutejs.devices.capabilities.camera.native.ios.usageDescriptions =
+			['camera'];
+		value.absolutejs.devices.capabilities.documents.native.ios.privacyAccessedApis =
+			{
+				NSPrivacyAccessedAPICategoryFileTimestamp: ['tracking']
+			};
+		await writeFile(path, JSON.stringify(value));
+		expect(() => loadAbsoluteDeviceCapabilityProviders(root)).toThrow(
+			'unsupported API or reason'
 		);
 	});
 });

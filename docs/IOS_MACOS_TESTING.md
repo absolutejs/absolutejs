@@ -1,7 +1,7 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.22` and
+`@absolutejs/absolute@0.20.0-beta.23` and
 `@absolutejs/deploy@0.24.0`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
 
@@ -51,6 +51,7 @@ actual result, sanitized logs, and artifact or screenshot path in section 13.
 - [ ] `DEV-01` Complete the cold and warm `bun dev` simulator runs.
 - [ ] `DEV-02` Complete route traversal, HMR timing, relaunch, and recovery.
 - [ ] `CAP-01` Complete automatic device-capability provisioning.
+- [ ] `FILES-01` through `FILES-08` Complete the Documents checklist.
 - [ ] `LOC-01` through `LOC-14` Complete the foreground-location checklist.
 - [ ] `AUTH-01` Complete system-browser sign-in and callback.
 - [ ] `SYNC-01` Complete online, offline, reconnect, isolation, and conflict tests.
@@ -90,7 +91,7 @@ still requires the developer team setup described below.
 From the root of the AbsoluteJS application:
 
 ```sh
-bun add @absolutejs/absolute@0.20.0-beta.22 \
+bun add @absolutejs/absolute@0.20.0-beta.23 \
   @absolutejs/auth@0.72.0 \
   @absolutejs/sync@2.29.0 \
   @absolutejs/sync-capacitor@0.9.1 \
@@ -104,8 +105,8 @@ bun add @absolutejs/absolute@0.20.0-beta.22 \
   @capacitor/preferences@8.0.1 \
   @capacitor/cli@8.5.0 \
   @capacitor/ios@8.5.0 \
-  @absolutejs/devices@0.3.0 \
-  @absolutejs/devices-capacitor@0.4.0
+  @absolutejs/devices@0.4.0 \
+  @absolutejs/devices-capacitor@0.5.0
 ```
 
 `absolute mobile init` now offers to install this tested Capacitor/device
@@ -128,7 +129,8 @@ Optional native plugins are derived from named `@absolutejs/devices` imports.
 Do not add them to the initial command: the capability acceptance route below
 must prove that `absolute mobile sync ios` detects and offers only the plugins it
 needs. The tested mappings in this release are Camera 8.2.3, Clipboard 8.0.1,
-Geolocation 8.2.2, Haptics 8.0.2, and Share 8.0.1.
+File Viewer 2.0.2, Filesystem 8.1.3, Geolocation 8.2.2, Haptics 8.0.2, and Share
+8.0.1.
 
 Keep the existing compatible versions if the application deliberately pins
 newer versions. Record `bun --version` and `xcodebuild -version` for the test
@@ -316,7 +318,8 @@ Expose each call behind a separate user-initiated button. Do not import
 `@capacitor/*`, import `@absolutejs/devices-capacitor`, edit Swift, or edit the
 Xcode project. Run `bunx absolute mobile sync ios` and confirm AbsoluteJS names
 `camera`, `clipboard`, `haptics`, `location`, `photos`, and `share`, then offers
-to install exactly these tested packages:
+to install exactly the tested packages used by those imports. The Documents
+checklist below adds its three packages separately.
 
 ```text
 @capacitor/clipboard@8.0.1
@@ -348,6 +351,49 @@ denial as well as a grant. The Simulator can exercise the picker but may not
 provide a real camera feed, so prove capture on the physical TestFlight device.
 Confirm `photos.pick()` opens Apple's scoped picker without first asking for
 broad library access, and that neither result exposes EXIF data.
+
+### Provider-neutral Documents acceptance checklist
+
+Use this repository's `/native-documents` route. It imports only `documents`
+from `@absolutejs/devices`; do not add `@capacitor/*` imports, a runtime branch,
+or a native-project edit. The page has separate Query, Pick, Export, and Open
+buttons and displays only filename, MIME type, and byte size—never document
+content or a path.
+
+- [ ] `FILES-01` Run `bunx absolute mobile sync ios`. Confirm it discovers
+  `documents` and offers exactly `@capacitor/file-viewer@2.0.2`,
+  `@capacitor/filesystem@8.1.3`, and `@capacitor/share@8.0.1`. Approve, rerun
+  sync, and confirm there is no second prompt.
+- [ ] `FILES-02` Confirm `mobile/ios/App/App/PrivacyInfo.xcprivacy` contains
+  `NSPrivacyAccessedAPICategoryFileTimestamp` with reason `C617.1`. In Xcode,
+  confirm the file appears in the App group and under **Build Phases > Copy
+  Bundle Resources**. Do not add or edit it manually.
+- [ ] `FILES-03` Open `/native-documents` in the normal web preview. Query must
+  report `web`; Pick must use the browser picker; Export must download
+  `absolutejs-document-test.txt`; Open must use a browser preview. The same page
+  source must be used for iOS.
+- [ ] `FILES-04` In the iOS Simulator, tap Pick and cancel. Confirm normalized
+  error `cancelled`, no crash, and no permission prompt. Tap Pick again, choose
+  one `.txt`, `.csv`, or PDF document, and confirm only safe metadata appears.
+- [ ] `FILES-05` Pick two permitted documents in one operation. Confirm no more
+  than the requested limit of two is returned and the result exposes Blob
+  content for application upload but no `path`, `uri`, security-scoped URL, or
+  raw provider object in application-visible metadata.
+- [ ] `FILES-06` Tap Export, choose **Save to Files**, save the text fixture,
+  open it from Files, and confirm its content. Cancel a second export and confirm
+  the app remains responsive with a normalized cancellation/failure result.
+- [ ] `FILES-07` Tap Open and confirm the native document viewer displays the
+  text fixture and returns to the app. Repeat Export and Open three times, then
+  inspect the app container in Xcode. The `absolutejs-documents` cache directory
+  must contain no staged fixture after each sheet/viewer closes.
+- [ ] `FILES-08` Repeat Pick, Export, and Open on the physical TestFlight device.
+  Record the device/iOS version and PASS/FAIL only. Do not attach selected file
+  contents, private filenames, or screenshots containing private documents.
+
+The default per-document ceiling is 64 MiB and applications may set a smaller
+or larger positive `maximumBytes` explicitly. Filename validation rejects path
+separators, control characters, `.` and `..`; unit coverage proves these failure
+paths. This acceptance run must use disposable, non-sensitive fixtures.
 
 ### Foreground-location acceptance checklist
 
@@ -408,9 +454,10 @@ implements those controls entirely through `@absolutejs/devices`.
 `LOC-07` verifies foreground lifecycle recovery only. Persistent background
 location is intentionally out of scope and must not be reported as supported.
 
-Finally remove the `share`, `camera`, `location`, and `photos` imports and their
-usage; remove `@capacitor/share`, `@capacitor/camera`, and
-`@capacitor/geolocation` from the application
+Finally remove the `share`, `camera`, `documents`, `location`, and `photos`
+imports and their usage; remove `@capacitor/share`, `@capacitor/camera`,
+`@capacitor/file-viewer`, `@capacitor/filesystem`, and `@capacitor/geolocation`
+from the application
 dependencies; run sync; and confirm the release doctor still passes while the
 generated mobile manifest lists only `clipboard` and `haptics` and the owned iOS
 camera/photo/location usage-description region is removed.
@@ -894,13 +941,15 @@ source change and build a new content-addressed release instead.
 - Mac architecture:
 - Xcode version:
 - Bun version:
-- AbsoluteJS version: 0.20.0-beta.22
+- AbsoluteJS version: 0.20.0-beta.23
 - Auth version: 0.72.0
 - Sync version: 2.29.0
 - Sync Capacitor version: 0.9.1
 - Capacitor SQLite version: 8.1.1
-- Devices version: 0.3.0
-- Devices Capacitor version: 0.4.0
+- Devices version: 0.4.0
+- Devices Capacitor version: 0.5.0
+- File Viewer version: 2.0.2
+- Filesystem version: 8.1.3
 - Geolocation version: 8.2.2
 - Deploy version: 0.24.0
 - App bundle ID (non-secret):
@@ -922,6 +971,14 @@ versus expected behavior. Do not report exact coordinates.
 | DEV-01 |  | cold: / warm: |  |
 | DEV-02 |  | HMR: / relaunch: |  |
 | CAP-01 |  | discovered: / installed: |  |
+| FILES-01 |  | discovered packages / idempotent sync: |  |
+| FILES-02 |  | manifest reason / target membership: |  |
+| FILES-03 |  | web pick / download / preview: |  |
+| FILES-04 |  | iOS cancel / selected metadata: |  |
+| FILES-05 |  | multi-select limit / path-free result: |  |
+| FILES-06 |  | Save to Files / cancel recovery: |  |
+| FILES-07 |  | native preview / cache cleanup: |  |
+| FILES-08 |  | physical device pick / export / open: |  |
 | LOC-01 |  | capability: / initial permission: |  |
 | LOC-02 |  | error code: |  |
 | LOC-03 |  | permission: / precision: |  |
@@ -966,6 +1023,7 @@ versus expected behavior. Do not report exact coordinates.
 - Explicit camera permission denial/grant: PASS / FAIL
 - Physical-device camera capture: PASS / FAIL
 - Scoped photo picker without broad prompt: PASS / FAIL
+- Provider-neutral Documents web/iOS behavior and cache cleanup: PASS / FAIL
 - Foreground location provisioning and generated iOS descriptions: PASS / FAIL
 - Foreground location permission/current/watch/cleanup: PASS / FAIL
 - Foreground location denial/settings/lifecycle recovery: PASS / FAIL

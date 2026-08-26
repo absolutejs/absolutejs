@@ -7,7 +7,12 @@ export type AbsoluteDeviceCapabilityProvider = {
 	module: string;
 	native?: {
 		android?: { permissions: string[] };
-		ios?: { usageDescriptions: AbsoluteIosUsageDescription[] };
+		ios?: {
+			privacyAccessedApis?: Partial<
+				Record<AbsoluteIosPrivacyAccessedApi, string[]>
+			>;
+			usageDescriptions?: AbsoluteIosUsageDescription[];
+		};
 	};
 	packages: string[];
 };
@@ -18,6 +23,9 @@ export type AbsoluteIosUsageDescription =
 	| 'location-when-in-use'
 	| 'photo-library'
 	| 'photo-library-add';
+
+export type AbsoluteIosPrivacyAccessedApi =
+	'NSPrivacyAccessedAPICategoryFileTimestamp';
 
 export type AbsoluteDeviceCapabilityPlan = {
 	capabilities: string[];
@@ -52,6 +60,14 @@ const IOS_USAGE_DESCRIPTIONS: ReadonlySet<string> = new Set([
 	'photo-library',
 	'photo-library-add'
 ]);
+const IOS_PRIVACY_ACCESSED_API_REASONS: Readonly<
+	Record<AbsoluteIosPrivacyAccessedApi, ReadonlySet<string>>
+> = {
+	NSPrivacyAccessedAPICategoryFileTimestamp: new Set(['C617.1'])
+};
+const IOS_PRIVACY_ACCESSED_APIS: readonly AbsoluteIosPrivacyAccessedApi[] = [
+	'NSPrivacyAccessedAPICategoryFileTimestamp'
+];
 
 const object = (value: unknown): value is Record<string, unknown> =>
 	typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -89,23 +105,65 @@ const androidPermissions = (value: unknown, field: string) => {
 	return [...permissions];
 };
 
-const iosUsageDescriptions = (value: unknown, field: string) => {
+const iosPrivacyAccessedApis = (value: unknown, field: string) => {
 	if (value === undefined) return undefined;
 	if (!object(value)) throw new TypeError(`${field} must be an object.`);
-	const { usageDescriptions } = value;
-	if (
-		!Array.isArray(usageDescriptions) ||
-		!usageDescriptions.every(
-			(purpose): purpose is AbsoluteIosUsageDescription =>
-				typeof purpose === 'string' &&
-				IOS_USAGE_DESCRIPTIONS.has(purpose)
+	const privacy: Partial<Record<AbsoluteIosPrivacyAccessedApi, string[]>> =
+		{};
+	for (const api of IOS_PRIVACY_ACCESSED_APIS) {
+		const reasons = value[api];
+		if (reasons === undefined) continue;
+		const supported = IOS_PRIVACY_ACCESSED_API_REASONS[api];
+		if (
+			!Array.isArray(reasons) ||
+			reasons.length === 0 ||
+			!reasons.every(
+				(reason): reason is string =>
+					typeof reason === 'string' && supported.has(reason)
+			)
 		)
+			throw new TypeError(
+				`${field} contains an unsupported API or reason.`
+			);
+		privacy[api] = [...reasons];
+	}
+	if (
+		Object.keys(value).some(
+			(api) => !IOS_PRIVACY_ACCESSED_APIS.some((known) => known === api)
+		)
+	)
+		throw new TypeError(`${field} contains an unsupported API or reason.`);
+
+	return privacy;
+};
+
+const iosNativeRequirements = (value: unknown, field: string) => {
+	if (value === undefined) return undefined;
+	if (!object(value)) throw new TypeError(`${field} must be an object.`);
+	const { privacyAccessedApis, usageDescriptions } = value;
+	if (
+		usageDescriptions !== undefined &&
+		(!Array.isArray(usageDescriptions) ||
+			!usageDescriptions.every(
+				(purpose): purpose is AbsoluteIosUsageDescription =>
+					typeof purpose === 'string' &&
+					IOS_USAGE_DESCRIPTIONS.has(purpose)
+			))
 	)
 		throw new TypeError(
 			`${field}.usageDescriptions contains an unsupported purpose.`
 		);
+	const privacy = iosPrivacyAccessedApis(
+		privacyAccessedApis,
+		`${field}.privacyAccessedApis`
+	);
 
-	return [...usageDescriptions];
+	return {
+		...(privacy === undefined ? {} : { privacyAccessedApis: privacy }),
+		...(usageDescriptions === undefined
+			? {}
+			: { usageDescriptions: [...usageDescriptions] })
+	};
 };
 
 const parseProvider = (
@@ -144,15 +202,13 @@ const parseProvider = (
 			android,
 			`${name}.native.android`
 		);
-		const usageDescriptions = iosUsageDescriptions(
+		const iosRequirements = iosNativeRequirements(
 			ios,
 			`${name}.native.ios`
 		);
 		native = {
 			...(permissions === undefined ? {} : { android: { permissions } }),
-			...(usageDescriptions === undefined
-				? {}
-				: { ios: { usageDescriptions } })
+			...(iosRequirements === undefined ? {} : { ios: iosRequirements })
 		};
 	}
 
@@ -166,24 +222,48 @@ const parseProvider = (
 
 export const absoluteDeviceNativeRequirements = (
 	plan: AbsoluteDeviceCapabilityPlan
-) => ({
-	androidPermissions: [
-		...new Set(
-			plan.capabilities.flatMap(
-				(name) =>
-					plan.providers[name]?.native?.android?.permissions ?? []
+) => {
+	const privacy = plan.capabilities.reduce<
+		Partial<Record<AbsoluteIosPrivacyAccessedApi, Set<string>>>
+	>((requirements, name) => {
+		for (const api of IOS_PRIVACY_ACCESSED_APIS) {
+			const reasons =
+				plan.providers[name]?.native?.ios?.privacyAccessedApis?.[api] ??
+				[];
+			if (reasons.length === 0) continue;
+			const current = requirements[api] ?? new Set<string>();
+			for (const reason of reasons) current.add(reason);
+			requirements[api] = current;
+		}
+
+		return requirements;
+	}, {});
+
+	return {
+		androidPermissions: [
+			...new Set(
+				plan.capabilities.flatMap(
+					(name) =>
+						plan.providers[name]?.native?.android?.permissions ?? []
+				)
 			)
-		)
-	].sort(),
-	iosUsageDescriptions: [
-		...new Set(
-			plan.capabilities.flatMap(
-				(name) =>
-					plan.providers[name]?.native?.ios?.usageDescriptions ?? []
+		].sort(),
+		iosPrivacyAccessedApis: IOS_PRIVACY_ACCESSED_APIS.flatMap((api) => {
+			const reasons = privacy[api];
+
+			return reasons ? [{ api, reasons: [...reasons].sort() }] : [];
+		}),
+		iosUsageDescriptions: [
+			...new Set(
+				plan.capabilities.flatMap(
+					(name) =>
+						plan.providers[name]?.native?.ios?.usageDescriptions ??
+						[]
+				)
 			)
-		)
-	].sort()
-});
+		].sort()
+	};
+};
 
 export const loadAbsoluteDeviceCapabilityProviders = (projectRoot: string) => {
 	const path = join(

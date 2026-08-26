@@ -53,6 +53,11 @@ import {
 	writeAbsoluteIosPartnerReport,
 	type AbsoluteIosAutomatedResult
 } from '../../mobile/iosTestReport';
+import { createAbsoluteAndroidTestReport } from '../../mobile/androidTestReport';
+import {
+	sanitizeNativeReportText,
+	writeAbsoluteNativeTestReport
+} from '../../mobile/nativeTestReport';
 import {
 	loadAbsoluteNativeReleasePublisher,
 	prepareAbsoluteAndroidRelease,
@@ -140,8 +145,8 @@ const CAPACITOR_PACKAGE_SPECS = [
 	'@capacitor/cli@8.5.0',
 	'@capacitor/android@8.5.0',
 	'@capacitor/ios@8.5.0',
-	'@absolutejs/devices@0.3.0',
-	'@absolutejs/devices-capacitor@0.4.0'
+	'@absolutejs/devices@0.4.0',
+	'@absolutejs/devices-capacitor@0.5.0'
 ];
 
 const CAPACITOR_SYNC_PACKAGE_SPECS = [
@@ -1442,10 +1447,10 @@ const testAndroid = async (args: string[]) => {
 	const serial = selectAndroidSerial(adb, valueAfter(args, '--serial'));
 	const routes = valuesAfter(args, '--route');
 	if (routes.length === 0) routes.push(mobile.entry);
-	const artifactRoot = safeArtifactRoot(
-		projectRoot,
-		valueAfter(args, '--artifacts')
-	);
+	const reportRoot = nativeReportRoot(args, projectRoot, 'android');
+	const artifactRoot =
+		reportRoot ??
+		safeArtifactRoot(projectRoot, valueAfter(args, '--artifacts'));
 	const startedAt = performance.now();
 	let session: AndroidSession | undefined;
 	try {
@@ -1488,6 +1493,36 @@ const testAndroid = async (args: string[]) => {
 		if (args.includes('--json'))
 			console.log(JSON.stringify(report, null, 2));
 		else printAndroidTestReport(report);
+		const screenshot = reportRoot
+			? await session.screenshot(
+					join(artifactRoot, 'android-emulator.png')
+				)
+			: undefined;
+		await writeRequestedAndroidReport({
+			adb,
+			args,
+			projectRoot,
+			run: {
+				appId: mobile.appId,
+				durationMs: report.durationMs,
+				...(hmrApply
+					? {
+							hmr: {
+								clientMs: hmrApply.clientMs,
+								durationMs: hmrApply.duration,
+								outcome: hmrApply.outcome,
+								serverMs: hmrApply.serverMs
+							}
+						}
+					: {}),
+				hmrConnected: true,
+				port,
+				routes: checks.map(({ route }) => route),
+				...(screenshot ? { screenshot } : {}),
+				serial,
+				status: 'pass'
+			}
+		});
 
 		return report;
 	} catch (error) {
@@ -1508,6 +1543,24 @@ const testAndroid = async (args: string[]) => {
 				serial,
 				session
 			});
+		await writeRequestedAndroidReport({
+			adb,
+			args,
+			projectRoot,
+			run: {
+				appId: mobile.appId,
+				durationMs,
+				error: sanitizeNativeReportText(
+					error instanceof Error ? error.message : String(error)
+				),
+				hmrConnected: false,
+				port,
+				routes,
+				...(screenshot ? { screenshot } : {}),
+				serial,
+				status: 'fail'
+			}
+		});
 		throw new Error(
 			`${error instanceof Error ? error.message : String(error)} Failure diagnostics: ${diagnosticPath}${screenshot ? `; screenshot: ${screenshot}` : ''}`,
 			{ cause: error }
@@ -1684,7 +1737,7 @@ const selectIosSimulator = (
 	return selected;
 };
 
-const requireCapturedIosCommand = (command: string[], label: string) => {
+const requireCapturedCommand = (command: string[], label: string) => {
 	const result = captureCommand(command);
 	if (result.exitCode !== 0)
 		throw new Error(
@@ -1740,7 +1793,11 @@ const writeIosFailureArtifacts = async (options: {
 	};
 };
 
-const iosReportRoot = (args: string[], projectRoot: string) => {
+const nativeReportRoot = (
+	args: string[],
+	projectRoot: string,
+	platform: 'android' | 'ios'
+) => {
 	const index = args.indexOf('--report');
 	if (index === NOT_FOUND) return undefined;
 	const candidate = args[index + 1];
@@ -1749,38 +1806,76 @@ const iosReportRoot = (args: string[], projectRoot: string) => {
 
 	return safeArtifactRoot(
 		projectRoot,
-		explicit ?? `.absolutejs/mobile/test-reports/ios-${timestamp}`
+		explicit ?? `.absolutejs/mobile/test-reports/${platform}-${timestamp}`
 	);
 };
 
-const iosReportMetadata = async (xcrun: string) => {
-	const xcodebuildPath = requireCapturedIosCommand(
-		[xcrun, '--find', 'xcodebuild'],
-		'Xcode version inspection'
-	).stdout.trim();
-	const xcodeVersion = requireCapturedIosCommand(
-		[xcodebuildPath, '-version'],
-		'Xcode version inspection'
-	).stdout.trim();
-	const macosVersion = requireCapturedIosCommand(
-		['/usr/bin/sw_vers', '-productVersion'],
-		'macOS version inspection'
-	).stdout.trim();
+const absolutejsVersionForReport = async () => {
 	let absolutejsVersion = process.env.ABSOLUTE_VERSION ?? 'unknown';
-	for (const candidate of [
-		resolve(import.meta.dir, '..', '..', 'package.json'),
-		resolve(import.meta.dir, '..', '..', '..', 'package.json')
-	]) {
-		const version = await readPackageVersionForIosReport(candidate).catch(
-			() => 'unknown'
-		);
+	const versions = await Promise.all(
+		[
+			resolve(import.meta.dir, '..', '..', 'package.json'),
+			resolve(import.meta.dir, '..', '..', '..', 'package.json')
+		].map((candidate) =>
+			readPackageVersionForIosReport(candidate).catch(() => 'unknown')
+		)
+	);
+	for (const version of versions) {
 		if (version === 'unknown') continue;
 		absolutejsVersion = version;
 		break;
 	}
 
+	return absolutejsVersion;
+};
+
+const writeRequestedAndroidReport = async (options: {
+	adb: string;
+	args: string[];
+	projectRoot: string;
+	run: Parameters<typeof createAbsoluteAndroidTestReport>[0]['run'];
+}) => {
+	const reportRoot = nativeReportRoot(
+		options.args,
+		options.projectRoot,
+		'android'
+	);
+	if (!reportRoot) return undefined;
+	const adbVersion = requireCapturedCommand(
+		[options.adb, 'version'],
+		'ADB version inspection'
+	).stdout.trim();
+	const report = createAbsoluteAndroidTestReport({
+		absolutejsVersion: await absolutejsVersionForReport(),
+		adbVersion,
+		bunVersion: Bun.version,
+		host: `${process.platform}-${process.arch}`,
+		run: options.run
+	});
+	const paths = await writeAbsoluteNativeTestReport(reportRoot, report);
+	const print = options.args.includes('--json') ? console.error : console.log;
+	print(`Android test report: ${paths.markdownPath}`);
+	print(`Return this report directory: ${paths.directory}`);
+
+	return paths;
+};
+
+const iosReportMetadata = async (xcrun: string) => {
+	const xcodebuildPath = requireCapturedCommand(
+		[xcrun, '--find', 'xcodebuild'],
+		'Xcode version inspection'
+	).stdout.trim();
+	const xcodeVersion = requireCapturedCommand(
+		[xcodebuildPath, '-version'],
+		'Xcode version inspection'
+	).stdout.trim();
+	const macosVersion = requireCapturedCommand(
+		['/usr/bin/sw_vers', '-productVersion'],
+		'macOS version inspection'
+	).stdout.trim();
+
 	return {
-		absolutejsVersion,
+		absolutejsVersion: await absolutejsVersionForReport(),
 		bunVersion: Bun.version,
 		macosVersion,
 		xcodeVersion
@@ -1793,7 +1888,11 @@ const writeRequestedIosReport = async (options: {
 	run: AbsoluteIosAutomatedResult;
 	xcrun: string;
 }) => {
-	const reportRoot = iosReportRoot(options.args, options.projectRoot);
+	const reportRoot = nativeReportRoot(
+		options.args,
+		options.projectRoot,
+		'ios'
+	);
 	if (!reportRoot) return undefined;
 	const metadata = await iosReportMetadata(options.xcrun);
 	const paths = await writeAbsoluteIosPartnerReport(
@@ -1826,13 +1925,13 @@ const testIos = async (args: string[]) => {
 		xcrun,
 		valueAfter(args, '--udid') ?? valueAfter(args, '--serial')
 	);
-	const reportRoot = iosReportRoot(args, projectRoot);
+	const reportRoot = nativeReportRoot(args, projectRoot, 'ios');
 	const artifactRoot =
 		reportRoot ??
 		safeArtifactRoot(projectRoot, valueAfter(args, '--artifacts'));
 	const startedAt = performance.now();
 	try {
-		requireCapturedIosCommand(
+		requireCapturedCommand(
 			[
 				xcrun,
 				'simctl',
@@ -1843,7 +1942,7 @@ const testIos = async (args: string[]) => {
 			],
 			'iOS installed-app inspection'
 		);
-		requireCapturedIosCommand(
+		requireCapturedCommand(
 			[
 				xcrun,
 				'simctl',
@@ -1857,7 +1956,7 @@ const testIos = async (args: string[]) => {
 		await waitForIosHmrClient({ https, port, timeoutMs });
 		await mkdir(artifactRoot, { recursive: true });
 		const screenshot = join(artifactRoot, 'ios-simulator.png');
-		requireCapturedIosCommand(
+		requireCapturedCommand(
 			[xcrun, 'simctl', 'io', simulator.udid, 'screenshot', screenshot],
 			'iOS simulator screenshot'
 		);
@@ -2026,6 +2125,6 @@ export const runMobile = async (args: string[]) => {
 	}
 
 	throw new TypeError(
-		'Usage: absolute mobile <pair mac <name> <user@host> [--port n] [--workspace path] | remotes [--json] | unpair mac <name> | init [--no-native] [--force] | sync [ios|android] | associations [--outdir dir] [--verify] | doctor [ios|android|release] [--remote name] [--json|--fix [--yes]] | build <android|ios> [server-entry] [--outdir dir] [--web-outdir dir] [--unsigned] | publish android [server-entry] [--registry module] [--channel name] [--play-track track] [--play-status completed|draft|halted|in-progress] [--play-rollout fraction] [--play-name name] [--play-notes language=text] [--play-update-priority 0..5] [--play-hold-review] [--play-cancel-existing-review] [--outdir dir] [--web-outdir dir] [--unsigned] | publish ios [server-entry] [--registry module] [--channel name] [--testflight-group name-or-id] [--testflight-notes locale=text] [--testflight-submit-review] [--outdir dir] [--web-outdir dir] [--unsigned] | test android [--route path] [--wait-for-hmr] [--timeout ms] [--port n] [--serial id] [--artifacts dir] [--json] | test ios [--wait-for-hmr] [--report [dir]] [--timeout ms] [--port n] [--udid id] [--artifacts dir] [--json]> [--config path]'
+		'Usage: absolute mobile <pair mac <name> <user@host> [--port n] [--workspace path] | remotes [--json] | unpair mac <name> | init [--no-native] [--force] | sync [ios|android] | associations [--outdir dir] [--verify] | doctor [ios|android|release] [--remote name] [--json|--fix [--yes]] | build <android|ios> [server-entry] [--outdir dir] [--web-outdir dir] [--unsigned] | publish android [server-entry] [--registry module] [--channel name] [--play-track track] [--play-status completed|draft|halted|in-progress] [--play-rollout fraction] [--play-name name] [--play-notes language=text] [--play-update-priority 0..5] [--play-hold-review] [--play-cancel-existing-review] [--outdir dir] [--web-outdir dir] [--unsigned] | publish ios [server-entry] [--registry module] [--channel name] [--testflight-group name-or-id] [--testflight-notes locale=text] [--testflight-submit-review] [--outdir dir] [--web-outdir dir] [--unsigned] | test android [--route path] [--wait-for-hmr] [--report [dir]] [--timeout ms] [--port n] [--serial id] [--artifacts dir] [--json] | test ios [--wait-for-hmr] [--report [dir]] [--timeout ms] [--port n] [--udid id] [--artifacts dir] [--json]> [--config path]'
 	);
 };

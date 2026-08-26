@@ -1,7 +1,26 @@
 # AbsoluteJS Mobile Apps: Research and Implementation Plan
 
-Status: Android Capacitor development, embedded production bundle, and production AAB pipelines operational; iOS simulator/HMR controller implemented pending real macOS acceptance; real API 36 all-framework HMR and embedded-bundle conformance passing
-Research snapshot: August 20, 2026
+Status: Capacitor Android development/release, all-framework embedded bundles, universal native Auth/Sync, background Sync, automatic device provisioning, and Android conformance are operational; iOS development/release automation is shipped and awaiting real macOS/physical-device acceptance
+Research snapshot: August 26, 2026
+
+Implementation checkpoint (August 26, 2026): AbsoluteJS
+`0.20.0-beta.23` generalizes the local-only native evidence workflow and adds
+`absolute mobile test android --report` parity with iOS. Machine-observed
+emulator/launch/HMR/timing results populate matching Markdown and JSON; manual,
+physical-device, Auth, Sync, signing, and store checks remain explicitly
+`NOT_RUN`, and captured text is redacted.
+
+The provider-neutral Documents slice is now published in
+`@absolutejs/devices@0.4.0` and `@absolutejs/devices-capacitor@0.5.0`.
+Applications use `documents.pick`, `documents.export`, and `documents.open`
+without runtime branches or paths. Web and WebView selection is Blob-backed;
+native export/open stage bounded content in the app cache, call official
+Capacitor Share/File Viewer plugins, and erase it afterward. Named-import
+discovery installs exact plugin versions and projects the Filesystem plugin's
+Apple required-reason API declaration into an automatically targeted
+`PrivacyInfo.xcprivacy`. The example route, unit/adapter coverage, Android
+report row, and eight-step macOS/iOS partner checklist are included. Expo
+remains gated on physical iOS acceptance.
 
 Implementation checkpoint (August 20, 2026): the first React protocol seam now
 includes request-scoped mobile negotiation without route edits, versioned app,
@@ -1355,6 +1374,14 @@ report; failures preserve redacted diagnostics plus a WebView screenshot under
 `.absolutejs/mobile/test-artifacts`. Its telemetry contains only provider,
 platform, duration, route count, success, and whether HMR was requested—never app
 identity, route, device serial, or source content.
+
+`absolute mobile test android --report` now uses the same versioned native-test
+report contract as iOS. It captures the checked route set, target/tool versions,
+launch and optional correlated HMR timings, a screenshot, and matching Markdown
+and JSON in a timestamped project-local directory. Interactive capability, Auth,
+Sync, background, signing, and store rows remain `NOT_RUN` until a tester performs
+them; AbsoluteJS never promotes an automated WebView observation into a broader
+manual pass.
 
 Real WSL2/Windows acceptance established the host boundary more precisely. Gradle
 cannot reliably build a project directly from a `\\wsl.localhost` UNC path, so the
