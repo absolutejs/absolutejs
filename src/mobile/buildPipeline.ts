@@ -16,6 +16,7 @@ import {
 	projectUsesAbsoluteSync,
 	resolveAbsoluteMobileAuthManifest
 } from './nativeAuth';
+import { discoverAbsoluteSyncSchema } from './syncSchema';
 
 export type FinalizeAbsoluteMobileBuildOptions = {
 	buildDirectory: string;
@@ -147,6 +148,9 @@ export const finalizeAbsoluteMobileCompatibilityBuild = async (
 	const auth = resolveAbsoluteMobileAuthManifest(options.projectRoot, mobile);
 	const sync =
 		auth !== undefined && projectUsesAbsoluteSync(options.projectRoot);
+	const syncSchema = sync
+		? discoverAbsoluteSyncSchema(options.projectRoot)
+		: undefined;
 	if (
 		auth &&
 		!loaded.app.routes.some(
@@ -178,7 +182,10 @@ export const finalizeAbsoluteMobileCompatibilityBuild = async (
 		...(auth ? { auth } : {}),
 		buildDirectory,
 		config: mobile,
-		...(sync ? { sync: true } : {})
+		...(sync ? { sync: true } : {}),
+		...(syncSchema
+			? { syncSchema: { components: syncSchema.components } }
+			: {})
 	});
 
 	return current.artifact;

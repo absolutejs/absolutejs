@@ -4,7 +4,8 @@ import {
 	AbsoluteBackgroundSync,
 	configureCapacitorBackgroundSync,
 	installCapacitorSyncLifecycle,
-	type CapacitorSyncLifecycleOptions
+	type CapacitorSyncLifecycleOptions,
+	type CapacitorSyncLocalStoreOptions
 } from '@absolutejs/sync-capacitor';
 import type { SyncClientStatus, SyncLocalStore } from '@absolutejs/sync/client';
 import { installSyncClientRuntimeTransport } from '@absolutejs/sync/client/runtime';
@@ -12,7 +13,7 @@ import type { AbsoluteMobileShellAuthRuntime } from './shellBootstrap';
 import type { AbsoluteMobileClientManifest } from './transport';
 
 export type AbsoluteMobileShellSyncOptions = {
-	createStore?: () => SyncLocalStore;
+	createStore?: (options?: CapacitorSyncLocalStoreOptions) => SyncLocalStore;
 	installLifecycle?: (
 		options: CapacitorSyncLifecycleOptions
 	) => Promise<() => void>;
@@ -41,7 +42,10 @@ export const installAbsoluteMobileShellSync = (
 ) => {
 	const namespace = auth.principal?.namespace;
 	const store = namespace
-		? (options.createStore?.() ?? createCapacitorSyncLocalStore())
+		? (options.createStore?.({ storageSchema: config?.storageSchema }) ??
+			createCapacitorSyncLocalStore({
+				storageSchema: config?.storageSchema
+			}))
 		: undefined;
 	const installLifecycle =
 		options.installLifecycle ?? installCapacitorSyncLifecycle;

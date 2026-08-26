@@ -102,6 +102,31 @@ describe('mobile release doctor', () => {
 		]);
 	});
 
+	test('rejects an invalid generated offline schema plan', async () => {
+		const { config, projectRoot } = await fixture();
+		await writeFile(
+			join(projectRoot, 'package.json'),
+			`${JSON.stringify({
+				absolutejs: {
+					sync: {
+						localSchema: {
+							migrations: [{ operations: [], toVersion: 3 }],
+							version: 3
+						}
+					}
+				},
+				dependencies: { '@absolutejs/sync': '2.26.1' },
+				name: 'release-fixture'
+			})}\n`
+		);
+		const result = await inspectAbsoluteMobileRelease(config, projectRoot);
+		expect(result.ready).toBe(false);
+		expect(result.checks.at(-1)).toMatchObject({
+			id: 'sync.storage-schema',
+			status: 'fail'
+		});
+	});
+
 	test('validates iOS production transport and rejects leaked development settings', async () => {
 		const { config, projectRoot } = await fixture();
 		config.platforms.push('ios');

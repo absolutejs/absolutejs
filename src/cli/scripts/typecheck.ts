@@ -235,7 +235,7 @@ const getProjectTypecheckExcludes = () => {
 	];
 };
 
-const buildVueTscCheck = (cacheDir: string) => {
+const buildVueTscCheck = async (cacheDir: string) => {
 	const vueTscBin = findBin('vue-tsc');
 	if (!vueTscBin) {
 		console.error(
@@ -246,7 +246,7 @@ const buildVueTscCheck = (cacheDir: string) => {
 
 	const vueTsconfigPath = join(cacheDir, 'tsconfig.vue-check.json');
 
-	return writeFile(
+	await writeFile(
 		vueTsconfigPath,
 		JSON.stringify(
 			{
@@ -260,18 +260,23 @@ const buildVueTscCheck = (cacheDir: string) => {
 			null,
 			'\t'
 		)
-	).then(() =>
-		run('vue-tsc', [
-			vueTscBin,
-			'--noEmit',
-			'--project',
-			resolve(vueTsconfigPath),
-			'--incremental',
-			'--tsBuildInfoFile',
-			join(cacheDir, 'vue-tsc.tsbuildinfo'),
-			'--pretty'
-		])
 	);
+	const base = [
+		vueTscBin,
+		'--noEmit',
+		'--project',
+		resolve(vueTsconfigPath),
+		'--pretty'
+	];
+	const cached = await run('vue-tsc', [
+		...base,
+		'--incremental',
+		'--tsBuildInfoFile',
+		join(cacheDir, 'vue-tsc.tsbuildinfo')
+	]);
+	if (cached.exitCode === 0 || cached.output.length > 0) return cached;
+
+	return run('vue-tsc', base);
 };
 
 const buildAngularCheck = async (cacheDir: string, angularDir: string) => {

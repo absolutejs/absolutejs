@@ -2888,9 +2888,9 @@ scheduler; foreground/resume Sync remains authoritative.
 
 ## Current PWA checkpoint
 
-The framework-agnostic PWA bridge is now published in `@absolutejs/pwa@0.9.2`,
-backed by `@absolutejs/auth@0.72.0`, `@absolutejs/sync@2.25.0`, and
-`@absolutejs/sync-capacitor@0.5.0`. It bundles the real finite Sync runner into
+The framework-agnostic PWA bridge is now published in `@absolutejs/pwa@0.10.1`,
+backed by `@absolutejs/auth@0.72.0`, `@absolutejs/sync@2.26.1`, and
+`@absolutejs/sync-capacitor@0.6.1`. It bundles the real finite Sync runner into
 the generated worker, provisions only an opaque Auth namespace through a strict
 same-origin session POST, discovers safe persisted collection descriptors, and
 uses Background Sync only as an acceleration over foreground/resume
@@ -2921,6 +2921,27 @@ Real Chromium update conformance now also proves that a changed worker installs
 into `waiting`, passive discovery emits a latched update without reload, the old
 worker remains in control, and explicit `applyUpdate()` activation reloads once
 under the new worker. The planned PWA runtime acceptance matrix is complete.
+
+## Current generated offline-schema checkpoint
+
+AbsoluteJS now composes one JSON-safe local-storage plan from the application
+and every direct dependency that declares `absolutejs.sync.localSchema` in its
+`package.json`. Component IDs come from package names, ordering is
+deterministic, and an undeclared application begins as `@absolutejs/app@1`.
+The default compatibility window is the current schema plus two prior versions;
+packages can explicitly retain a longer window.
+
+Metadata supports declarative collection deletion, field removal, field rename,
+and default insertion. Executable callbacks, malformed JSON values, duplicate
+components, gaps, downgrades, and unsupported versions fail the build. The same
+generated bundle is embedded in the Capacitor manifest and PWA bootstrap, then
+applied transactionally by SQLite or IndexedDB before foreground or background
+Sync can read cached rows or flush mutations. Each app/pack ledger advances
+independently and removed pack ledgers remain visible as orphan diagnostics.
+
+Pack authors declare only their persisted-data evolution. Application route and
+page code remains unchanged. `absolute mobile doctor release` validates and
+prints the exact generated component/version set when Sync is installed.
 
 The macOS partner should continue physical iOS acceptance using
 `IOS_MACOS_TESTING.md`. Expo remains out of scope until the Capacitor security,

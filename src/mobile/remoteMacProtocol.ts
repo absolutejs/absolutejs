@@ -30,6 +30,7 @@ export {
 } from './remoteMacWire';
 
 const PROFILE_FORMAT = 1;
+const REMOTE_STDIN_FLUSH_ATTEMPTS = 3;
 const PROFILE_NAME = /^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$/u;
 const SSH_DESTINATION = /^(?:[A-Za-z0-9._-]+@)?[A-Za-z0-9._:-]+$/u;
 
@@ -853,9 +854,25 @@ export const startAbsoluteRemoteIosDevSession = async (
 		process.stdin.write(
 			`${JSON.stringify({ command: commandName, id, v: 1 })}\n`
 		);
-		process.stdin.flush();
+		const flush = async () => {
+			for (
+				let attempt = 0;
+				attempt < REMOTE_STDIN_FLUSH_ATTEMPTS;
+				attempt++
+			) {
+				try {
+					await process.stdin.flush();
 
-		return response;
+					return;
+				} catch {
+					// Bun can transiently report EPERM for a subprocess pipe. Retrying
+					// the same sink flush cannot duplicate the already queued frame.
+					await Promise.resolve();
+				}
+			}
+		};
+
+		return flush().then(() => response);
 	};
 	let closed = false;
 	const close = async () => {

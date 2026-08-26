@@ -13,6 +13,7 @@ test('provisions account-bound native durability and lifecycle without page wiri
 	let reloads = 0;
 	const statuses: unknown[] = [];
 	let backgroundConfiguration: unknown;
+	let storeOptions: unknown;
 	const store = createMemorySyncLocalStore();
 	const dispose = installAbsoluteMobileShellSync(
 		{
@@ -35,13 +36,20 @@ test('provisions account-bound native durability and lifecycle without page wiri
 				endpoint: 'https://app.example/__absolute/sync/background',
 				intervalMinutes: 15
 			},
-			socketTickets: true
+			socketTickets: true,
+			storageSchema: {
+				components: [{ id: '@absolutejs/app', version: 1 }]
+			}
 		},
 		{
 			configureBackground: async (configuration) => {
 				backgroundConfiguration = configuration;
 			},
-			createStore: () => store,
+			createStore: (options) => {
+				storeOptions = options;
+
+				return store;
+			},
 			installLifecycle: async () => () => {
 				lifecycleRemoved += 1;
 			},
@@ -57,6 +65,11 @@ test('provisions account-bound native durability and lifecycle without page wiri
 		store
 	});
 	expect(runtime?.socketTicket).toBeDefined();
+	expect(storeOptions).toEqual({
+		storageSchema: {
+			components: [{ id: '@absolutejs/app', version: 1 }]
+		}
+	});
 	expect(await runtime?.socketTicket?.()).toBe('ticket');
 	expect(backgroundConfiguration).toEqual({
 		clientId: 'native-client',
@@ -118,7 +131,10 @@ test('does not expose a locked partition and clears native work while signed out
 				endpoint: 'https://app.example/__absolute/sync/background',
 				intervalMinutes: 15
 			},
-			socketTickets: true
+			socketTickets: true,
+			storageSchema: {
+				components: [{ id: '@absolutejs/app', version: 1 }]
+			}
 		},
 		{
 			clearBackground: async () => {

@@ -1,6 +1,7 @@
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type { PwaConfig } from '../../types/build';
+import { discoverAbsoluteSyncSchema } from '../mobile/syncSchema';
 
 const BOOTSTRAP_PUBLIC_PATH = '/__absolute/pwa/bootstrap.js';
 const BOOTSTRAP_MARKER = 'data-absolute-pwa';
@@ -59,7 +60,7 @@ const bootstrapEntrySource = ({
 	clientModule: string;
 	manifestPath?: string;
 	serviceWorkerPath: string;
-	sync: PwaConfig['sync'];
+	sync?: false | import('@absolutejs/pwa/client').PwaSyncOptions;
 }) => `import { registerServiceWorker } from ${JSON.stringify(clientModule)};
 ${
 	manifestPath
@@ -73,7 +74,7 @@ if (!manifest.isConnected) document.head.append(manifest);
 	deferUntilLoad: false${
 		sync
 			? `,
-	sync: ${JSON.stringify(sync === true ? {} : sync)}`
+	sync: ${JSON.stringify(sync)}`
 			: ''
 	}
 });
@@ -106,11 +107,13 @@ export const materializeAbsolutePwa = async ({
 	buildPath,
 	config,
 	generatedRoot,
+	projectRoot,
 	write = true
 }: {
 	buildPath: string;
 	config: PwaConfig;
 	generatedRoot: string;
+	projectRoot: string;
 	/** Incremental HMR builds reuse the stable artifacts from the full build. */
 	write?: boolean;
 }): Promise<AbsolutePwaBuildArtifacts> => {
@@ -138,6 +141,9 @@ export const materializeAbsolutePwa = async ({
 		serviceWorkerPath
 	};
 	if (!write) return artifacts;
+	const syncSchema = config.sync
+		? discoverAbsoluteSyncSchema(projectRoot)
+		: undefined;
 	const { createWebAppManifest, pushServiceWorker } = await import(
 		'@absolutejs/pwa'
 	);
@@ -174,6 +180,13 @@ export const materializeAbsolutePwa = async ({
 			manifestPath,
 			serviceWorkerPath,
 			sync: config.sync
+				? {
+						...(config.sync === true ? {} : config.sync),
+						storageSchema: {
+							components: syncSchema?.components ?? []
+						}
+					}
+				: config.sync
 		})
 	);
 	const browserDirectory = destinationFor(buildPath, '/__absolute/pwa');

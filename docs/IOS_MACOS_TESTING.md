@@ -1,7 +1,7 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.13` and
+`@absolutejs/absolute@0.20.0-beta.14` and
 `@absolutejs/deploy@0.24.0`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
 
@@ -64,10 +64,10 @@ still requires the developer team setup described below.
 From the root of the AbsoluteJS application:
 
 ```sh
-bun add @absolutejs/absolute@0.20.0-beta.13 \
+bun add @absolutejs/absolute@0.20.0-beta.14 \
   @absolutejs/auth@0.72.0 \
   @absolutejs/sync@2.25.0 \
-  @absolutejs/sync-capacitor@0.5.0 \
+  @absolutejs/sync-capacitor@0.6.1 \
   @absolutejs/deploy@0.24.0 \
   @absolutejs/blob@0.5.2 \
   @capacitor/core@8.5.0 \
@@ -443,6 +443,13 @@ bunx absolute mobile doctor release
 bunx absolute mobile build ios
 ```
 
+For a Sync-enabled app, also open
+`.absolutejs/mobile/web/absolute-mobile-manifest.json` and confirm
+`sync.storageSchema.components` contains `@absolutejs/app` plus every installed
+package that declares `absolutejs.sync.localSchema`. No route or page code should
+be needed to provision it. The release doctor must print a passing
+`sync.storage-schema` check with those component versions.
+
 Do not pass `--unsigned`. A successful command prints output similar to:
 
 ```text
@@ -678,7 +685,7 @@ source change and build a new content-addressed release instead.
 - Mac architecture:
 - Xcode version:
 - Bun version:
-- AbsoluteJS version: 0.20.0-beta.13
+- AbsoluteJS version: 0.20.0-beta.14
 - Auth version: 0.72.0
 - Sync version: 2.25.0
 - Sync Capacitor version: 0.5.0

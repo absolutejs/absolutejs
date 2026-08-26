@@ -17,10 +17,25 @@ afterEach(async () => {
 const fixture = async () => {
 	const root = await mkdtemp(join(tmpdir(), 'absolute-pwa-'));
 	roots.push(root);
+	await writeFile(
+		join(root, 'package.json'),
+		`${JSON.stringify({
+			absolutejs: {
+				sync: {
+					localSchema: {
+						migrations: [{ toVersion: 2 }],
+						version: 2
+					}
+				}
+			},
+			name: 'pwa-fixture'
+		})}\n`
+	);
 
 	return {
 		buildPath: join(root, 'build'),
-		generatedRoot: join(root, '.absolutejs', 'generated')
+		generatedRoot: join(root, '.absolutejs', 'generated'),
+		projectRoot: root
 	};
 };
 
@@ -69,6 +84,7 @@ describe('AbsoluteJS PWA build integration', () => {
 		expect(browserBootstrap).toContain('/manifest.webmanifest');
 		expect(browserBootstrap).toContain('/sw.js');
 		expect(browserBootstrap).toContain('__absolute/sync/background');
+		expect(browserBootstrap).toContain('@absolutejs/app');
 		expect(artifacts.bootstrapBanner).toContain('await import(new URL');
 		expect(artifacts.bootstrapBanner).toContain(
 			'/__absolute/pwa/bootstrap.js'

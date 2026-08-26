@@ -1,6 +1,8 @@
 import { access, readFile, readdir } from 'node:fs/promises';
 import { extname, join, relative } from 'node:path';
 import type { NormalizedAbsoluteMobileConfig } from './config';
+import { projectUsesAbsoluteSync } from './nativeAuth';
+import { discoverAbsoluteSyncSchema } from './syncSchema';
 
 export type AbsoluteMobileReleaseCheck = {
 	detail: string;
@@ -195,6 +197,32 @@ const hmrAssetsReleaseCheck = async (publicRoot: string) => {
 			);
 };
 
+const syncSchemaReleaseCheck = (projectRoot: string) => {
+	if (!projectUsesAbsoluteSync(projectRoot)) return undefined;
+	const manifestPath = join(projectRoot, 'package.json');
+	try {
+		const schema = discoverAbsoluteSyncSchema(projectRoot);
+		const versions = schema.components
+			.map((component) => `${component.id}@${component.version}`)
+			.join(', ');
+
+		return pass(
+			'sync.storage-schema',
+			`Generated offline schema is compatible: ${versions}.`,
+			manifestPath
+		);
+	} catch (error) {
+		return fail(
+			'sync.storage-schema',
+			error instanceof Error
+				? error.message
+				: 'Generated offline schema metadata is invalid.',
+			manifestPath,
+			'Fix absolutejs.sync.localSchema metadata in the named app or package before releasing.'
+		);
+	}
+};
+
 const inspectAndroidRelease = async (
 	config: NormalizedAbsoluteMobileConfig,
 	projectRoot: string
@@ -370,6 +398,18 @@ export const inspectAbsoluteMobileRelease = async (
 		: [];
 	if (config.platforms.includes('ios')) {
 		checks.push(...(await inspectIosRelease(config, projectRoot)));
+	}
+	const syncSchema = syncSchemaReleaseCheck(projectRoot);
+	if (syncSchema) {
+		checks.push({
+			...syncSchema,
+			path: syncSchema.path
+				? relative(projectRoot, syncSchema.path).replaceAll(
+						'\\',
+						'/'
+					) || '.'
+				: undefined
+		});
 	}
 
 	return {

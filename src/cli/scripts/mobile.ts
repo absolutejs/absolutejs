@@ -67,6 +67,7 @@ import {
 	type AbsoluteRemoteMacProfile
 } from '../../mobile/remoteMacProtocol';
 import { projectUsesAbsoluteSync } from '../../mobile/nativeAuth';
+import { discoverAbsoluteSyncSchema } from '../../mobile/syncSchema';
 
 const NOT_FOUND = -1;
 
@@ -135,7 +136,7 @@ const CAPACITOR_PACKAGE_SPECS = [
 ];
 
 const CAPACITOR_SYNC_PACKAGE_SPECS = [
-	'@absolutejs/sync-capacitor@0.5.0',
+	'@absolutejs/sync-capacitor@0.6.1',
 	'@capacitor-community/sqlite@8.1.1'
 ];
 
@@ -1027,6 +1028,34 @@ const inspectRemoteMacForDoctor = async (profile: AbsoluteRemoteMacProfile) => {
 	}
 };
 
+const appendSyncSchemaDoctorCheck = (
+	checks: AbsoluteMobileDoctorCheck[],
+	projectRoot: string
+) => {
+	if (!projectUsesAbsoluteSync(projectRoot)) return;
+	try {
+		const schema = discoverAbsoluteSyncSchema(projectRoot);
+		checks.push({
+			id: 'sync.storage-schema',
+			label: `Offline schema ${schema.components
+				.map((component) => `${component.id}@${component.version}`)
+				.join(', ')}`,
+			path: join(projectRoot, 'package.json'),
+			platform: 'host',
+			status: 'pass'
+		});
+	} catch (error) {
+		checks.push({
+			id: 'sync.storage-schema',
+			label: 'Offline schema metadata is invalid',
+			path: join(projectRoot, 'package.json'),
+			platform: 'host',
+			remediation: error instanceof Error ? error.message : String(error),
+			status: 'fail'
+		});
+	}
+};
+
 const doctor = async (args: string[]) => {
 	if (args.includes('release')) {
 		await runReleaseDoctor(args);
@@ -1058,6 +1087,7 @@ const doctor = async (args: string[]) => {
 		return;
 	}
 	const checks = await inspectAbsoluteMobileToolchain();
+	appendSyncSchemaDoctorCheck(checks, process.cwd());
 	const selected = platform
 		? checks.filter(
 				(check) =>

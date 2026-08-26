@@ -10,6 +10,7 @@ export * from './buildMetadata';
 export * from './buildPipeline';
 export * from './buildRelease';
 export * from './capacitorBundle';
+export * from './syncSchema';
 export * from './capacitorProject';
 export * from './config';
 export * from './client';

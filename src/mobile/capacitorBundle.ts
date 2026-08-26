@@ -21,6 +21,7 @@ import {
 	type AbsoluteMobileClientManifest
 } from './transport';
 import type { AbsoluteMobileAuthManifest } from './nativeAuth';
+import type { SyncLocalStoreSchemaBundle } from '@absolutejs/sync/client';
 
 export type AbsoluteCapacitorBundleOptions = {
 	artifact: AbsoluteMobileCompatibilityArtifact;
@@ -28,6 +29,7 @@ export type AbsoluteCapacitorBundleOptions = {
 	buildDirectory: string;
 	config: NormalizedAbsoluteMobileConfig;
 	sync?: boolean;
+	syncSchema?: SyncLocalStoreSchemaBundle;
 };
 
 const MANIFEST_FILE = 'absolute-mobile-manifest.json';
@@ -393,7 +395,12 @@ export const materializeAbsoluteCapacitorWebBundle = async (
 								).href,
 								intervalMinutes: 15
 							},
-							socketTickets: true as const
+							socketTickets: true as const,
+							storageSchema: options.syncSchema ?? {
+								components: [
+									{ id: '@absolutejs/app', version: 1 }
+								]
+							}
 						}
 					}
 				: {})

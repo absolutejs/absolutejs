@@ -1176,6 +1176,7 @@ const buildUnlocked = async ({
 					buildPath,
 					config: pwa,
 					generatedRoot,
+					projectRoot,
 					write: !isIncremental
 				})
 			)

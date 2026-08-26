@@ -13,6 +13,7 @@ import type {
 } from './releaseArtifact';
 import { resolveAbsoluteMobileRoute } from './routeMatcher';
 import type { AbsoluteMobileAuthManifest } from './nativeAuth';
+import type { SyncLocalStoreSchemaBundle } from '@absolutejs/sync/client';
 
 export const ABSOLUTE_MOBILE_CLIENT_MANIFEST_FORMAT = 1 as const;
 
@@ -42,6 +43,7 @@ export type AbsoluteMobileClientManifest = {
 	sync?: {
 		socketTickets: true;
 		background: { endpoint: string; intervalMinutes: number };
+		storageSchema: SyncLocalStoreSchemaBundle;
 	};
 };
 

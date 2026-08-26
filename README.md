@@ -157,6 +157,39 @@ and aggregate counts—never credentials, namespaces, endpoints, arguments, or
 rows. Account changes are re-resolved before focus/online/visible Sync and the
 old worker run is aborted and cleared before the new namespace can run.
 
+AbsoluteJS also generates one local-storage migration bundle for web and native
+from the app plus installed Sync packs. Routes stay unchanged. A package that
+owns persisted data declares its JSON-safe evolution in `package.json`:
+
+```json
+{
+	"absolutejs": {
+		"sync": {
+			"localSchema": {
+				"version": 2,
+				"migrations": [
+					{
+						"toVersion": 2,
+						"operations": [
+							{
+								"type": "set-default",
+								"collection": "tasks",
+								"field": "completed",
+								"value": false
+							}
+						]
+					}
+				]
+			}
+		}
+	}
+}
+```
+
+Absolute derives stable component IDs from package names, keeps independent
+version ledgers, validates migration gaps during build/doctor, and applies the
+same transaction atomically in IndexedDB or Capacitor SQLite before Sync starts.
+
 App updates are consent-driven: `onUpdateAvailable()` latches a waiting worker
 for late UI subscribers, `checkForUpdate()` performs a passive check, and
 `applyUpdate()` activates and reloads only after the user accepts. AbsoluteJS

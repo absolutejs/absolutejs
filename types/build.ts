@@ -62,7 +62,12 @@ export type PwaConfig = {
 	/** Public worker URL. Defaults to `/sw.js`. */
 	serviceWorkerPath?: string;
 	/** Provision Auth-aware IndexedDB/background Sync without page-level code. */
-	sync?: boolean | import('@absolutejs/pwa/client').PwaSyncOptions;
+	sync?:
+		| boolean
+		| Omit<
+				import('@absolutejs/pwa/client').PwaSyncOptions,
+				'storageSchema'
+		  >;
 };
 
 export type MobileConfig = {

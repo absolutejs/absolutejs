@@ -101,7 +101,13 @@ describe('Capacitor local web bundle', () => {
 			},
 			buildDirectory,
 			config,
-			sync: true
+			sync: true,
+			syncSchema: {
+				components: [
+					{ id: '@absolutejs/app', version: 1 },
+					{ id: '@example/tasks-pack', version: 1 }
+				]
+			}
 		});
 		const embedded = await readFile(
 			join(root, 'mobile-web', manifest.pages[0]?.localBundlePath ?? ''),
@@ -159,7 +165,13 @@ describe('Capacitor local web bundle', () => {
 				endpoint: 'https://api.example.com/__absolute/sync/background',
 				intervalMinutes: 15
 			},
-			socketTickets: true
+			socketTickets: true,
+			storageSchema: {
+				components: [
+					{ id: '@absolutejs/app', version: 1 },
+					{ id: '@example/tasks-pack', version: 1 }
+				]
+			}
 		});
 	});
 
