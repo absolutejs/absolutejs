@@ -2659,9 +2659,20 @@ client through that lifecycle and emits its redacted counters/timestamps as the
 `absolute:sync-status` browser event for shell diagnostics. This slice does not
 claim operating-system background guarantees: the remaining orchestration work
 is a finite HTTP push/pull protocol usable in a separate Background Runner or
-service-worker context. Remaining Phase 2A work also includes storage schema
-migrations, quota/eviction and encryption policy, pack-declared conflict
-reducers, and full devtools remediation UI.
+service-worker context. Remaining Phase 2A work also includes quota/eviction and
+encryption policy, pack-declared conflict reducers, and full devtools remediation
+UI.
+
+Implementation checkpoint (August 25, 2026, installed-data upgrade slice):
+`@absolutejs/sync` 2.25.0 now owns one logical `SyncLocalStoreSchema` plan for
+web and native persistence. Ordered transforms migrate every principal partition
+and the schema marker in one IndexedDB transaction, reject missing compatibility
+steps and downgrades with typed errors, and forbid rewriting stable operation IDs.
+`@absolutejs/sync-capacitor` 0.5.0 applies the identical plan inside one SQLite
+transaction. Both adapters prove multi-account upgrades and simulated crash
+rollback. The next migration slice is Absolute-generated plans from application
+and pack metadata, followed by doctor/release compatibility diagnostics; quota,
+eviction, encryption policy, pack conflict reducers, and remediation UI remain.
 
 ### Phase 3: Capacitor project and CLI lifecycle
 
@@ -2878,8 +2889,8 @@ scheduler; foreground/resume Sync remains authoritative.
 ## Current PWA checkpoint
 
 The framework-agnostic PWA bridge is now published in `@absolutejs/pwa@0.9.2`,
-backed by `@absolutejs/auth@0.72.0`, `@absolutejs/sync@2.24.0`, and
-`@absolutejs/sync-capacitor@0.4.0`. It bundles the real finite Sync runner into
+backed by `@absolutejs/auth@0.72.0`, `@absolutejs/sync@2.25.0`, and
+`@absolutejs/sync-capacitor@0.5.0`. It bundles the real finite Sync runner into
 the generated worker, provisions only an opaque Auth namespace through a strict
 same-origin session POST, discovers safe persisted collection descriptors, and
 uses Background Sync only as an acceleration over foreground/resume
