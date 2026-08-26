@@ -14,16 +14,26 @@ const noDeviceCapabilities: AbsoluteDeviceCapabilityPlan = {
 	providers: {},
 	requiredPackages: []
 };
-const clipboardDeviceCapabilities: AbsoluteDeviceCapabilityPlan = {
-	capabilities: ['clipboard'],
+const optionalDeviceCapabilities: AbsoluteDeviceCapabilityPlan = {
+	capabilities: ['camera', 'clipboard', 'photos'],
 	providers: {
+		camera: {
+			factory: 'createCapacitorCameraCapability',
+			module: '@absolutejs/devices-capacitor/camera',
+			packages: ['@capacitor/camera@8.2.3']
+		},
 		clipboard: {
 			factory: 'createCapacitorClipboardCapability',
 			module: '@absolutejs/devices-capacitor/clipboard',
 			packages: ['@capacitor/clipboard@8.0.1']
+		},
+		photos: {
+			factory: 'createCapacitorPhotosCapability',
+			module: '@absolutejs/devices-capacitor/camera',
+			packages: ['@capacitor/camera@8.2.3']
 		}
 	},
-	requiredPackages: ['@capacitor/clipboard@8.0.1']
+	requiredPackages: ['@capacitor/camera@8.2.3', '@capacitor/clipboard@8.0.1']
 };
 const packageProjectRoot = resolve(import.meta.dir, '../../..');
 
@@ -119,7 +129,7 @@ describe('Capacitor local web bundle', () => {
 			},
 			buildDirectory,
 			config,
-			deviceCapabilities: clipboardDeviceCapabilities,
+			deviceCapabilities: optionalDeviceCapabilities,
 			projectRoot: packageProjectRoot,
 			sync: true,
 			syncSchema: {
@@ -144,7 +154,11 @@ describe('Capacitor local web bundle', () => {
 		const localStylePath = manifest.pages[0]?.localStylePath;
 
 		expect(embedded).toBe(pageSource);
-		expect(manifest.deviceCapabilities).toEqual(['clipboard']);
+		expect(manifest.deviceCapabilities).toEqual([
+			'camera',
+			'clipboard',
+			'photos'
+		]);
 		expect(localStylePath).toBeDefined();
 		expect(
 			await Bun.file(
@@ -163,6 +177,8 @@ describe('Capacitor local web bundle', () => {
 			).exists()
 		).toBe(true);
 		expect(bootstrap).toContain('appUrlOpen');
+		expect(bootstrap).toContain('takePhoto');
+		expect(bootstrap).toContain('chooseFromGallery');
 		expect(bootstrap).toContain('AbsoluteSecureStorage');
 		expect(bootstrap).toContain('oidc.refresh');
 		expect(bootstrap).toContain('client-runtime-transport');

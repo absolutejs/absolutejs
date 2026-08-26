@@ -4,8 +4,10 @@ import type { NormalizedAbsoluteMobileConfig } from './config';
 import { projectUsesAbsoluteSync } from './nativeAuth';
 import { discoverAbsoluteSyncSchema } from './syncSchema';
 import {
+	absoluteDeviceNativeRequirements,
 	assertAbsoluteDeviceCapabilityPackages,
-	resolveAbsoluteDeviceCapabilityPlan
+	resolveAbsoluteDeviceCapabilityPlan,
+	type AbsoluteIosUsageDescription
 } from './deviceCapabilities';
 
 export type AbsoluteMobileReleaseCheck = {
@@ -261,16 +263,83 @@ const syncSchemaReleaseCheck = (projectRoot: string) => {
 	}
 };
 
-const deviceCapabilityReleaseCheck = (projectRoot: string) => {
+const IOS_USAGE_KEYS: Record<AbsoluteIosUsageDescription, string> = {
+	camera: 'NSCameraUsageDescription',
+	'photo-library': 'NSPhotoLibraryUsageDescription',
+	'photo-library-add': 'NSPhotoLibraryAddUsageDescription'
+};
+
+const androidDevicePermissionCheck = async (
+	config: NormalizedAbsoluteMobileConfig,
+	permissions: string[]
+) => {
+	if (!config.platforms.includes('android') || permissions.length === 0)
+		return undefined;
+	const path = join(
+		config.nativeProjectDirectory,
+		'android/app/src/main/AndroidManifest.xml'
+	);
+	const source = await readFile(path, 'utf8');
+	const missing = permissions.filter(
+		(permission) =>
+			!source.includes(`android:name="${permission}"`) &&
+			!source.includes(`android:name='${permission}'`)
+	);
+	if (missing.length === 0) return undefined;
+
+	return fail(
+		'mobile.device-capabilities',
+		`Android is missing native declarations for: ${missing.join(', ')}.`,
+		path,
+		'Run `absolute mobile sync android` to regenerate detected device permissions.'
+	);
+};
+
+const iosDevicePermissionCheck = async (
+	config: NormalizedAbsoluteMobileConfig,
+	purposes: AbsoluteIosUsageDescription[]
+) => {
+	if (!config.platforms.includes('ios') || purposes.length === 0)
+		return undefined;
+	const path = join(config.nativeProjectDirectory, 'ios/App/App/Info.plist');
+	const source = await readFile(path, 'utf8');
+	const missing = purposes.filter(
+		(purpose) => !source.includes(`<key>${IOS_USAGE_KEYS[purpose]}</key>`)
+	);
+	if (missing.length === 0) return undefined;
+
+	return fail(
+		'mobile.device-capabilities',
+		`iOS is missing usage descriptions for: ${missing.join(', ')}.`,
+		path,
+		'Run `absolute mobile sync ios` to regenerate detected device usage descriptions.'
+	);
+};
+
+const deviceCapabilityReleaseCheck = async (
+	config: NormalizedAbsoluteMobileConfig,
+	projectRoot: string
+) => {
 	const manifestPath = join(projectRoot, 'package.json');
 	try {
 		const plan = resolveAbsoluteDeviceCapabilityPlan(projectRoot);
 		assertAbsoluteDeviceCapabilityPackages(projectRoot, plan);
+		const requirements = absoluteDeviceNativeRequirements(plan);
+		const androidCheck = await androidDevicePermissionCheck(
+			config,
+			requirements.androidPermissions
+		);
+		if (androidCheck) return androidCheck;
+		const iosCheck = await iosDevicePermissionCheck(
+			config,
+			requirements.iosUsageDescriptions
+		);
+		if (iosCheck) return iosCheck;
 
 		return pass(
 			'mobile.device-capabilities',
 			plan.capabilities.length > 0
-				? `Native provider packages match detected capabilities: ${plan.capabilities.join(', ')}.`
+				? `Native provider packages and permission declarations match detected capabilities: ${plan.capabilities.join(', ')}.`
 				: 'No optional native device capabilities are used.',
 			manifestPath
 		);
@@ -474,7 +543,10 @@ export const inspectAbsoluteMobileRelease = async (
 				: undefined
 		});
 	}
-	const deviceCapabilities = deviceCapabilityReleaseCheck(projectRoot);
+	const deviceCapabilities = await deviceCapabilityReleaseCheck(
+		config,
+		projectRoot
+	);
 	checks.push({
 		...deviceCapabilities,
 		path: deviceCapabilities.path

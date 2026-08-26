@@ -34,6 +34,19 @@ const fixture = async () => {
 			absolutejs: {
 				devices: {
 					capabilities: {
+						camera: {
+							factory: 'createCapacitorCameraCapability',
+							module: '@absolutejs/devices-capacitor/camera',
+							native: {
+								ios: {
+									usageDescriptions: [
+										'camera',
+										'photo-library'
+									]
+								}
+							},
+							packages: ['@capacitor/camera@8.2.3']
+						},
 						clipboard: {
 							factory: 'createCapacitorClipboardCapability',
 							module: '@absolutejs/devices-capacitor/clipboard',
@@ -179,6 +192,26 @@ void copy.writeText('x'); void device.haptics.impact();`
 
 		expect(() => loadAbsoluteDeviceCapabilityProviders(root)).toThrow(
 			'exact official Capacitor package versions'
+		);
+	});
+
+	test('parses declarative native requirements and rejects unknown purposes', async () => {
+		const root = await fixture();
+		const path = join(
+			root,
+			'node_modules/@absolutejs/devices-capacitor/package.json'
+		);
+		const providers = loadAbsoluteDeviceCapabilityProviders(root);
+		expect(providers.camera?.native?.ios?.usageDescriptions).toEqual([
+			'camera',
+			'photo-library'
+		]);
+		const value = JSON.parse(await Bun.file(path).text());
+		value.absolutejs.devices.capabilities.camera.native.ios.usageDescriptions =
+			['contacts'];
+		await writeFile(path, JSON.stringify(value));
+		expect(() => loadAbsoluteDeviceCapabilityProviders(root)).toThrow(
+			'unsupported purpose'
 		);
 	});
 });

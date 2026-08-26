@@ -207,11 +207,17 @@ does not silently replace a running application session.
 Application code uses one provider-neutral API in web pages and Capacitor apps:
 
 ```ts
-import { clipboard, haptics, share } from '@absolutejs/devices';
+import { camera, clipboard, haptics, photos, share } from '@absolutejs/devices';
 
 await clipboard.writeText('Copied everywhere');
 await share.share({ text: 'Shared everywhere', url: 'https://absolutejs.com' });
 await haptics.impact('light');
+const permission = await camera.requestPermission();
+if (permission.state === 'granted') {
+	const capture = await camera.takePhoto();
+	image.src = capture.webPath;
+}
+const chosen = await photos.pick({ limit: 1 });
 ```
 
 `absolute mobile init` and `absolute mobile sync` discover these named value
@@ -221,6 +227,13 @@ shell wires them into the shared device facade; users do not import Capacitor,
 edit Swift/Kotlin, or maintain native bootstrap code. Type-only imports and test
 sources do not provision plugins. `absolute mobile doctor release` rejects a
 missing or mismatched plugin before release.
+
+Camera capture requires an explicit `camera.requestPermission()` call from an
+intentional user action. `photos.pick()` uses the item-scoped system picker
+without requesting broad library access. AbsoluteJS generates the required iOS
+usage descriptions from the same audited capability metadata; this first slice
+does not expose EXIF metadata or save captures into the gallery, and Android does
+not receive unnecessary camera/storage permissions.
 
 Clipboard and Share use browser standards on the web and fail with normalized
 errors when unavailable. Haptics uses vibration where supported and otherwise

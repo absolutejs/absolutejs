@@ -5,8 +5,17 @@ import ts from 'typescript';
 export type AbsoluteDeviceCapabilityProvider = {
 	factory: string;
 	module: string;
+	native?: {
+		android?: { permissions: string[] };
+		ios?: { usageDescriptions: AbsoluteIosUsageDescription[] };
+	};
 	packages: string[];
 };
+
+export type AbsoluteIosUsageDescription =
+	| 'camera'
+	| 'photo-library'
+	| 'photo-library-add';
 
 export type AbsoluteDeviceCapabilityPlan = {
 	capabilities: string[];
@@ -33,6 +42,12 @@ const CAPACITOR_MODULE_PATTERN =
 	/^@absolutejs\/devices-capacitor\/[a-z][a-z0-9-]*$/u;
 const CAPACITOR_PACKAGE_PATTERN =
 	/^@capacitor\/[a-z][a-z0-9-]*@\d+\.\d+\.\d+$/u;
+const ANDROID_PERMISSION_PATTERN = /^android\.permission\.[A-Z][A-Z0-9_]*$/u;
+const IOS_USAGE_DESCRIPTIONS: ReadonlySet<string> = new Set([
+	'camera',
+	'photo-library',
+	'photo-library-add'
+]);
 
 const object = (value: unknown): value is Record<string, unknown> =>
 	typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -49,6 +64,44 @@ const text = (value: unknown, field: string) => {
 		throw new TypeError(`${field} must be a non-empty string.`);
 
 	return value;
+};
+
+const androidPermissions = (value: unknown, field: string) => {
+	if (value === undefined) return undefined;
+	if (!object(value)) throw new TypeError(`${field} must be an object.`);
+	const { permissions } = value;
+	if (
+		!Array.isArray(permissions) ||
+		!permissions.every(
+			(permission): permission is string =>
+				typeof permission === 'string' &&
+				ANDROID_PERMISSION_PATTERN.test(permission)
+		)
+	)
+		throw new TypeError(
+			`${field}.permissions must contain Android permission names.`
+		);
+
+	return [...permissions];
+};
+
+const iosUsageDescriptions = (value: unknown, field: string) => {
+	if (value === undefined) return undefined;
+	if (!object(value)) throw new TypeError(`${field} must be an object.`);
+	const { usageDescriptions } = value;
+	if (
+		!Array.isArray(usageDescriptions) ||
+		!usageDescriptions.every(
+			(purpose): purpose is AbsoluteIosUsageDescription =>
+				typeof purpose === 'string' &&
+				IOS_USAGE_DESCRIPTIONS.has(purpose)
+		)
+	)
+		throw new TypeError(
+			`${field}.usageDescriptions contains an unsupported purpose.`
+		);
+
+	return [...usageDescriptions];
 };
 
 const parseProvider = (
@@ -77,9 +130,56 @@ const parseProvider = (
 		throw new TypeError(
 			`${name}.packages must contain exact official Capacitor package versions.`
 		);
+	let native: AbsoluteDeviceCapabilityProvider['native'];
+	const { native: nativeMetadata } = value;
+	if (nativeMetadata !== undefined) {
+		if (!object(nativeMetadata))
+			throw new TypeError(`${name}.native must be an object.`);
+		const { android, ios } = nativeMetadata;
+		const permissions = androidPermissions(
+			android,
+			`${name}.native.android`
+		);
+		const usageDescriptions = iosUsageDescriptions(
+			ios,
+			`${name}.native.ios`
+		);
+		native = {
+			...(permissions === undefined ? {} : { android: { permissions } }),
+			...(usageDescriptions === undefined
+				? {}
+				: { ios: { usageDescriptions } })
+		};
+	}
 
-	return { factory, module, packages: [...value.packages] };
+	return {
+		factory,
+		module,
+		...(native === undefined ? {} : { native }),
+		packages: [...value.packages]
+	};
 };
+
+export const absoluteDeviceNativeRequirements = (
+	plan: AbsoluteDeviceCapabilityPlan
+) => ({
+	androidPermissions: [
+		...new Set(
+			plan.capabilities.flatMap(
+				(name) =>
+					plan.providers[name]?.native?.android?.permissions ?? []
+			)
+		)
+	].sort(),
+	iosUsageDescriptions: [
+		...new Set(
+			plan.capabilities.flatMap(
+				(name) =>
+					plan.providers[name]?.native?.ios?.usageDescriptions ?? []
+			)
+		)
+	].sort()
+});
 
 export const loadAbsoluteDeviceCapabilityProviders = (projectRoot: string) => {
 	const path = join(

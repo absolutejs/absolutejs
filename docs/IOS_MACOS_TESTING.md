@@ -1,7 +1,7 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.18` and
+`@absolutejs/absolute@0.20.0-beta.19` and
 `@absolutejs/deploy@0.24.0`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
 
@@ -64,10 +64,10 @@ still requires the developer team setup described below.
 From the root of the AbsoluteJS application:
 
 ```sh
-bun add @absolutejs/absolute@0.20.0-beta.18 \
+bun add @absolutejs/absolute@0.20.0-beta.19 \
   @absolutejs/auth@0.72.0 \
   @absolutejs/sync@2.29.0 \
-  @absolutejs/sync-capacitor@0.8.0 \
+  @absolutejs/sync-capacitor@0.9.0 \
   @absolutejs/deploy@0.24.0 \
   @absolutejs/blob@0.5.2 \
   @capacitor/core@8.5.0 \
@@ -78,8 +78,8 @@ bun add @absolutejs/absolute@0.20.0-beta.18 \
   @capacitor/preferences@8.0.1 \
   @capacitor/cli@8.5.0 \
   @capacitor/ios@8.5.0 \
-  @absolutejs/devices@0.1.0 \
-  @absolutejs/devices-capacitor@0.2.0
+  @absolutejs/devices@0.2.0 \
+  @absolutejs/devices-capacitor@0.3.1
 ```
 
 `absolute mobile init` now offers to install this tested Capacitor/device
@@ -243,7 +243,7 @@ at the end of this file.
 Add an application page using the provider-neutral surface only:
 
 ```ts
-import { clipboard, haptics, share } from '@absolutejs/devices';
+import { camera, clipboard, haptics, photos, share } from '@absolutejs/devices';
 
 await clipboard.writeText('AbsoluteJS native capability test');
 await haptics.impact('light');
@@ -251,31 +251,51 @@ await share.share({
 	text: 'AbsoluteJS native capability test',
 	url: 'https://absolutejs.com'
 });
+const permission = await camera.requestPermission();
+if (permission.state === 'granted') {
+	const capture = await camera.takePhoto({ direction: 'rear' });
+	console.log(capture.webPath);
+}
+const chosen = await photos.pick({ limit: 1 });
+console.log(chosen[0]?.webPath);
 ```
 
 Expose each call behind a separate user-initiated button. Do not import
 `@capacitor/*`, import `@absolutejs/devices-capacitor`, edit Swift, or edit the
 Xcode project. Run `bunx absolute mobile sync ios` and confirm AbsoluteJS names
-`clipboard`, `haptics`, and `share`, then offers to install exactly these tested
+`camera`, `clipboard`, `haptics`, `photos`, and `share`, then offers to install exactly these tested
 packages:
 
 ```text
 @capacitor/clipboard@8.0.1
+@capacitor/camera@8.2.3
 @capacitor/haptics@8.0.2
 @capacitor/share@8.0.1
 ```
 
 Run sync again and confirm it does not prompt again. Run
 `bunx absolute mobile doctor release`; `mobile.device-capabilities` must pass.
+Confirm `Info.plist` contains `NSCameraUsageDescription`,
+`NSPhotoLibraryUsageDescription`, and `NSPhotoLibraryAddUsageDescription`, all
+inside the AbsoluteJS-owned device-capabilities region. Do not add them by hand.
 In the web preview, confirm clipboard and sharing use browser behavior when the
 browser permits it and that haptics safely degrades when vibration is absent. In
 the iOS Simulator, confirm clipboard write and the native share sheet. A
 Simulator cannot prove physical vibration, so confirm haptics on the TestFlight
 device and record that result separately.
 
-Finally remove the `share` import and its usage, remove `@capacitor/share` from
-the application dependencies, run sync, and confirm the release doctor still
-passes while the generated mobile manifest lists only `clipboard` and `haptics`.
+For Camera, confirm `takePhoto()` fails without implicitly opening a permission
+prompt, then call `requestPermission()` from its button and take a photo. Test a
+denial as well as a grant. The Simulator can exercise the picker but may not
+provide a real camera feed, so prove capture on the physical TestFlight device.
+Confirm `photos.pick()` opens Apple's scoped picker without first asking for
+broad library access, and that neither result exposes EXIF data.
+
+Finally remove the `share`, `camera`, and `photos` imports and their usage;
+remove `@capacitor/share` and `@capacitor/camera` from the application
+dependencies; run sync; and confirm the release doctor still passes while the
+generated mobile manifest lists only `clipboard` and `haptics` and the owned iOS
+camera/photo usage-description region is removed.
 AbsoluteJS does not automatically uninstall a dependency because it may be used
 outside discoverable application source; this removal is intentionally explicit.
 
@@ -756,13 +776,13 @@ source change and build a new content-addressed release instead.
 - Mac architecture:
 - Xcode version:
 - Bun version:
-- AbsoluteJS version: 0.20.0-beta.18
+- AbsoluteJS version: 0.20.0-beta.19
 - Auth version: 0.72.0
 - Sync version: 2.29.0
-- Sync Capacitor version: 0.8.0
+- Sync Capacitor version: 0.9.0
 - Capacitor SQLite version: 8.1.1
-- Devices version: 0.1.0
-- Devices Capacitor version: 0.2.0
+- Devices version: 0.2.0
+- Devices Capacitor version: 0.3.1
 - Deploy version: 0.24.0
 - App bundle ID (non-secret):
 - Marketing version:
@@ -787,6 +807,9 @@ source change and build a new content-addressed release instead.
 - Clipboard web/iOS behavior: PASS / FAIL
 - Native share sheet: PASS / FAIL
 - Physical-device haptics: PASS / FAIL
+- Explicit camera permission denial/grant: PASS / FAIL
+- Physical-device camera capture: PASS / FAIL
+- Scoped photo picker without broad prompt: PASS / FAIL
 - Sign-in return / first Sync / reconnect / relaunch timings:
 - Remote Mac doctor from Windows/Linux: PASS / FAIL / NOT RUN
 - Remote Mac HMR and native rebuild: PASS / FAIL / NOT RUN

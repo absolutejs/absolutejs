@@ -6,6 +6,7 @@ import { installPackages } from '../add/dependencies';
 import { writeAbsoluteCapacitorConfig } from '../../mobile/capacitorProject';
 import { normalizeAbsoluteMobileConfig } from '../../mobile/config';
 import { applyAbsoluteNativeDeepLinks } from '../../mobile/nativeDeepLinks';
+import { applyAbsoluteNativeDeviceCapabilities } from '../../mobile/nativeDeviceCapabilities';
 import { applyAbsoluteNativeBackgroundSync } from '../../mobile/nativeBackgroundSync';
 import {
 	inspectAbsoluteMobileToolchain,
@@ -132,12 +133,12 @@ const CAPACITOR_PACKAGE_SPECS = [
 	'@capacitor/cli@8.5.0',
 	'@capacitor/android@8.5.0',
 	'@capacitor/ios@8.5.0',
-	'@absolutejs/devices@0.1.0',
-	'@absolutejs/devices-capacitor@0.2.0'
+	'@absolutejs/devices@0.2.0',
+	'@absolutejs/devices-capacitor@0.3.1'
 ];
 
 const CAPACITOR_SYNC_PACKAGE_SPECS = [
-	'@absolutejs/sync-capacitor@0.8.0',
+	'@absolutejs/sync-capacitor@0.9.0',
 	'@capacitor-community/sqlite@8.1.1'
 ];
 
@@ -413,6 +414,7 @@ const initialize = async (args: string[]) => {
 	if (args.includes('--no-native')) return;
 	await runCapacitorForPlatforms(projectRoot, 'add', mobile.platforms);
 	await applyAbsoluteNativeDeepLinks(mobile);
+	await applyAbsoluteNativeDeviceCapabilities(projectRoot, mobile);
 	await applyAbsoluteNativeBackgroundSync(projectRoot, mobile);
 };
 
@@ -431,6 +433,7 @@ const sync = async (args: string[]) => {
 		await repairAbsoluteIosDevSession(projectRoot);
 	await runCapacitorForPlatforms(projectRoot, 'sync', platforms);
 	await applyAbsoluteNativeDeepLinks(mobile, platforms);
+	await applyAbsoluteNativeDeviceCapabilities(projectRoot, mobile, platforms);
 	await applyAbsoluteNativeBackgroundSync(projectRoot, mobile, platforms);
 };
 
@@ -799,6 +802,9 @@ const buildAndroid = async (
 		await writeAbsoluteCapacitorConfig(mobile, { projectRoot });
 		await runCapacitorForPlatforms(projectRoot, 'sync', ['android']);
 		await applyAbsoluteNativeDeepLinks(mobile, ['android']);
+		await applyAbsoluteNativeDeviceCapabilities(projectRoot, mobile, [
+			'android'
+		]);
 		await applyAbsoluteNativeBackgroundSync(projectRoot, mobile, [
 			'android'
 		]);
@@ -958,6 +964,9 @@ const buildIos = async (
 		await writeAbsoluteCapacitorConfig(mobile, { projectRoot });
 		await runCapacitorForPlatforms(projectRoot, 'sync', ['ios']);
 		await applyAbsoluteNativeDeepLinks(mobile, ['ios']);
+		await applyAbsoluteNativeDeviceCapabilities(projectRoot, mobile, [
+			'ios'
+		]);
 		await applyAbsoluteNativeBackgroundSync(projectRoot, mobile, ['ios']);
 		await requireIosReleaseReady(mobile, projectRoot);
 		const release = await buildAbsoluteIosRelease({

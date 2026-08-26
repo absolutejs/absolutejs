@@ -2069,15 +2069,22 @@ Wave 1, high-value cross-platform APIs:
 - push notification registration/token/events
 - keyboard and system/status bar controls
 
-Clipboard, share sheet, and haptics are the completed Wave 1 pilot. They ship in
-`@absolutejs/devices@0.1.0` with web/SSR/test behavior and isolated Capacitor
-provider entries in `@absolutejs/devices-capacitor@0.2.0`. AbsoluteJS discovers
+Clipboard, share sheet, haptics, camera capture, and scoped photo selection are
+the completed Wave 1 foundation. They ship in `@absolutejs/devices@0.2.0` with
+web/SSR/test behavior and isolated Capacitor provider entries in
+`@absolutejs/devices-capacitor@0.3.1`. AbsoluteJS discovers
 named value imports with its TypeScript AST, ignores type-only/test imports,
 validates declarative provider metadata, installs exact tested plugins only after
 approval, generates adapter wiring, records the effective graph in the mobile
 manifest, and checks it in the release doctor. The base adapter has a distribution
 gate proving it does not import the optional plugins. Automatic removal remains
 explicit because a dependency may be consumed outside the discoverable app graph.
+Camera permission is an explicit application action; capture never prompts
+implicitly. Photo selection uses the OS item-scoped picker, omits EXIF, and does
+not require broad library access. The provider metadata also declares native
+permission purposes, which AbsoluteJS projects into owned iOS Info.plist entries
+and validates in the release doctor without adding unnecessary Android
+camera/storage permissions.
 
 Wave 2, after focused design:
 
@@ -2761,6 +2768,14 @@ exact-version provisioning metadata. AbsoluteJS beta 18 consumes that metadata,
 discovers application imports, installs on approval, generates the adapter, and
 fails release doctor when a used provider is absent or mismatched. The real iOS
 behavior remains an explicit macOS/physical-device handoff item.
+
+The next checkpoint publishes the permission-bearing slice as
+`@absolutejs/devices@0.2.0`, `@absolutejs/devices-capacitor@0.3.1`, and
+`@absolutejs/sync-capacitor@0.9.0`. The correction from Capacitor adapter 0.3.0
+to 0.3.1 keeps optional Camera types out of the base entry so Sync-only apps do
+not acquire an accidental Camera peer. AbsoluteJS beta 19 consumes the live
+packages, generates camera/photo wiring and iOS descriptions, and includes the
+new physical-device acceptance in the macOS handoff.
 
 The exact unpublished adapter tarball has also passed an Android API 36 emulator
 smoke through AbsoluteJS's real native controller and WebView debugging path. The
