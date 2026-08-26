@@ -32,7 +32,7 @@ Research snapshot: August 26, 2026
   describes an email OTP as stronger than `policy + bearer + purpose-bound`.
 - Created the public `absolutejs/agent-exchange-providers` monorepo and published
   `@absolutejs/agent-exchange-webauthn@0.1.0` and
-  `@absolutejs/agent-exchange-oauth@0.1.0`. The WebAuthn provider binds approval
+  `@absolutejs/agent-exchange-oauth@0.1.1`. The WebAuthn provider binds approval
   to the exact exchange digest, verifier origin, RP ID, user, credential, UV flag,
   and signature counter. The OAuth provider requires PAR, S256 PKCE, exact issuer
   and resource binding, RAR, one-time state/grants, and DPoP token redemption.
