@@ -578,7 +578,9 @@ const attachSocket = async (
 	const targets = await readTargets(fetcher, hostPort).catch((error) =>
 		failForward(error, options, capture, hostPort)
 	);
-	const target = selectTarget(targets);
+	const target = selectTarget(
+		targets.filter((candidate) => targetScore(candidate) >= 2)
+	);
 	if (!target) {
 		removeForward(options.adb, options.serial, hostPort, capture);
 

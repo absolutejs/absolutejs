@@ -8,12 +8,40 @@ const openServers = new Set<Server>();
 const occupyPort = (port: number) =>
 	new Promise<Server>((resolve, reject) => {
 		const server = createServer();
-		server.once('error', reject);
+		server.once('error', (error) => {
+			server.close();
+			reject(error);
+		});
 		server.listen(port, 'localhost', () => {
 			openServers.add(server);
 			resolve(server);
 		});
 	});
+
+const occupyContiguousPorts = async (range: number) => {
+	for (let attempt = 0; attempt < 20; attempt += 1) {
+		const start = await getAvailablePort();
+		const claimed: Server[] = [];
+		try {
+			for (let offset = 0; offset < range; offset += 1)
+				claimed.push(await occupyPort(start + offset));
+
+			return start;
+		} catch {
+			await Promise.all(
+				claimed.map(
+					(server) =>
+						new Promise<void>((resolve) => {
+							openServers.delete(server);
+							server.close(() => resolve());
+						})
+				)
+			);
+		}
+	}
+
+	throw new Error('Could not reserve a contiguous test port range.');
+};
 
 afterEach(async () => {
 	await Promise.all(
@@ -66,12 +94,9 @@ describe('resolveDevPort — Vite-style port fallback', () => {
 	});
 
 	test('throws when no free port exists within the range', async () => {
-		const start = await getAvailablePort();
 		// Occupy a small contiguous block.
 		const range = 3;
-		for (let offset = 0; offset < range; offset += 1) {
-			await occupyPort(start + offset);
-		}
+		const start = await occupyContiguousPorts(range);
 
 		await expect(
 			resolveDevPort(start, { portRange: range, strictPort: false })

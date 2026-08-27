@@ -75,6 +75,14 @@ const MANUAL_CHECKS = [
 		'Complete online, offline, reconnect, isolation, and conflict checks.'
 	],
 	['BGSYNC-01', 'Complete WorkManager background Sync acceptance.'],
+	[
+		'UPGRADE-01',
+		'Install the next APK in place and confirm Auth, Sync SQLite, and pending operations survive.'
+	],
+	[
+		'COMPAT-01',
+		'Confirm installed app N works with retained N+1/N+2 producers, shows typed update-required at N+3, and recovers after server rollback.'
+	],
 	['BUILD-01', 'Pass release doctor and produce a signed AAB.'],
 	[
 		'REPORT-01',

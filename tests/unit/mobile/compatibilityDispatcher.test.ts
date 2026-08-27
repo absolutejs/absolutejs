@@ -212,6 +212,10 @@ describe('mobile compatibility dispatcher', () => {
 			kind: 'upgrade-required',
 			reason: 'app-release'
 		});
+		const nativeResponse = await app.handle(nativeMobileRequest(0));
+		expect(nativeResponse.headers.get('access-control-allow-origin')).toBe(
+			'http://localhost'
+		);
 	});
 
 	test('does not dispatch a valid page bundle onto an unrelated URL', async () => {

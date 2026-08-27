@@ -42,9 +42,56 @@ describe('Android native test report', () => {
 		expect(
 			report.manualChecks.filter(({ id }) => id.startsWith('SYSUI-'))
 		).toHaveLength(8);
+		expect(
+			report.manualChecks.find(({ id }) => id === 'UPGRADE-01')
+		).toBeDefined();
 		expect(renderAbsoluteNativeTestReport(report)).toContain(
 			'Routes: /react, /vue.'
 		);
+	});
+
+	test('records sanitized installed-upgrade and compatibility evidence', () => {
+		const report = createAbsoluteAndroidTestReport({
+			absolutejsVersion: '0.20.0-beta.29',
+			adbVersion: 'adb',
+			bunVersion: '1.3.14',
+			host: 'linux-x64',
+			run: {
+				appId: 'com.absolutejs.example',
+				durationMs: 100,
+				hmrConnected: true,
+				port: 3000,
+				serial: 'emulator-5554',
+				status: 'pass',
+				upgrade: {
+					after: { appId: 'com.absolutejs.example', versionCode: 12 },
+					before: {
+						appId: 'com.absolutejs.example',
+						versionCode: 11
+					},
+					compatibility: {
+						nPlusOne: 'compatible',
+						nPlusThree: 'upgrade-required',
+						nPlusTwo: 'compatible',
+						rollback: 'compatible'
+					},
+					durationMs: 90,
+					installMs: 70,
+					outcome: 'pass',
+					state: {
+						authCredential: true,
+						pendingOperations: true,
+						syncDatabase: true
+					}
+				}
+			}
+		});
+		expect(
+			report.automatedChecks.find(({ id }) => id === 'AUTO-UPGRADE-01')
+		).toMatchObject({ result: 'PASS' });
+		expect(
+			report.automatedChecks.find(({ id }) => id === 'AUTO-COMPAT-01')
+		).toMatchObject({ result: 'PASS' });
 	});
 
 	test('classifies a physical target and preserves a sanitized failure', () => {

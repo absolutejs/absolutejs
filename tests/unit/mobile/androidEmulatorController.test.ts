@@ -621,6 +621,7 @@ describe('Android emulator development controller', () => {
 			'--no-daemon --console=plain -p $directory @gradleArguments assembleDebug'
 		);
 		const install = commands.find((command) => command.includes('install'));
+		expect(install).toContain('-d');
 		expect(install?.at(-1)?.startsWith('C:\\absolute')).toBe(true);
 
 		await session.close();

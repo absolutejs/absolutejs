@@ -1,5 +1,8 @@
 import { createAuthClient } from '@absolutejs/auth/client';
-import { createSyncClient } from '@absolutejs/sync/client';
+import {
+	createSyncClient,
+	type SyncCollectionHandle
+} from '@absolutejs/sync/client';
 import { useEffect, useRef, useState } from 'react';
 
 type NativeAuthSyncAcceptanceProps = {
@@ -25,8 +28,12 @@ export const NativeAuthSyncAcceptance = ({
 	syncUrl
 }: NativeAuthSyncAcceptanceProps) => {
 	const [detail, setDetail] = useState('Ready');
+	const [pending, setPending] = useState(0);
 	const [state, setState] = useState<AcceptanceState>('idle');
 	const running = useRef(false);
+	const collectionRef = useRef<SyncCollectionHandle<NativeSyncRow> | null>(
+		null
+	);
 	const beginSync = () => {
 		setState('syncing');
 		setDetail('Native auth authenticated; connecting sync');
@@ -39,6 +46,8 @@ export const NativeAuthSyncAcceptance = ({
 		const collection = sync.collection<NativeSyncRow>({
 			collection: 'native-acceptance'
 		});
+		collectionRef.current = collection;
+		sync.subscribeStatus((status) => setPending(status.pending));
 		let readyCount = 0;
 		const unsubscribe = collection.subscribe((snapshot) => {
 			if (
@@ -58,8 +67,20 @@ export const NativeAuthSyncAcceptance = ({
 			setState('complete');
 			setDetail('Native auth + sync complete');
 			unsubscribe();
-			collection.close();
-			sync.close();
+		});
+	};
+	const queueOfflineMutation = () => {
+		const collection = collectionRef.current;
+		if (!collection) return;
+		void collection.mutate({
+			args: { id: 'native-upgrade-pending' },
+			name: 'native-upgrade-pending',
+			optimisticOperations: [
+				{
+					row: { id: 2, label: 'native-upgrade-pending' },
+					type: 'insert'
+				}
+			]
 		});
 	};
 
@@ -122,11 +143,18 @@ export const NativeAuthSyncAcceptance = ({
 	return (
 		<main>
 			<h1>AbsoluteJS Native Auth + Sync</h1>
-			<p data-state={state} id="native-auth-sync-status">
+			<p
+				data-pending={pending}
+				data-state={state}
+				id="native-auth-sync-status"
+			>
 				{detail}
 			</p>
 			<button id="native-auth-sync-start" onClick={() => void run()}>
 				Run native acceptance
+			</button>
+			<button id="native-sync-queue" onClick={queueOfflineMutation}>
+				Queue offline mutation
 			</button>
 		</main>
 	);

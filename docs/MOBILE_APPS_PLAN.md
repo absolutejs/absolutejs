@@ -5,7 +5,7 @@ Research snapshot: August 26, 2026
 
 Implementation checkpoint (August 26, 2026): the remaining Wave 1 system-UI
 surface is implemented in `@absolutejs/devices@0.7.0`,
-`@absolutejs/devices-capacitor@0.8.0`, and AbsoluteJS `0.20.0-beta.27`.
+`@absolutejs/devices-capacitor@0.8.0`, and AbsoluteJS `0.20.0-beta.29`.
 Application code imports `keyboard` and `systemBars` without provider branches.
 Keyboard exposes visibility, CSS-pixel height, dismissal, and cleanup-safe
 events through VisualViewport on web and the exact Capacitor Keyboard 8.0.5
@@ -1428,6 +1428,30 @@ Sync, background, signing, and store rows remain `NOT_RUN` until a tester perfor
 them; AbsoluteJS never promotes an automated WebView observation into a broader
 manual pass.
 
+Implementation checkpoint (August 27, 2026, installed Android upgrade slice):
+the production embedded-app fixture now performs a real state-preserving
+`adb install -r` from versionCode N to N+1. Before replacement it provisions
+native PKCE Auth, an account-isolated Sync SQLite snapshot, and one deliberately
+unacknowledged durable mutation. After replacement and process relaunch it proves
+silent credential restore, SQLite-backed Sync restore, and recovery of the same
+pending outbox record without inspecting or recording any secret or application
+payload. The same run exercises compatible N+1 and N+2 server states, the typed
+N+3 update-required screen, and an atomic server rollback back to a renderable
+state. It writes a sanitized timing/outcome artifact and the shared native report
+contract now has automated upgrade/state/compatibility rows plus explicit manual
+UPGRADE and COMPAT checks.
+
+The reusable conformance guard compares Android UID, data directory, first-install
+timestamp, and increasing versionCode, so uninstall/reinstall cannot masquerade as
+an upgrade. Android debug development installs permit version downgrades so a test
+or local version bump cannot wedge the next `bun dev`; production release installs
+remain monotonic. WebView discovery now waits through transient `about:blank`
+targets created during Activity replacement. Run the focused gate with
+`bun run test:native:android:upgrade`; the aggregate Android native suite includes
+the same case through its embedded-bundle file. A real generated SQLite schema
+migration across two APKs remains the next installed-data conformance slice; this
+checkpoint proves database/outbox continuity with the current schema.
+
 Real WSL2/Windows acceptance established the host boundary more precisely. Gradle
 cannot reliably build a project directly from a `\\wsl.localhost` UNC path, so the
 broker mirrors the generated Android project into a dedicated Windows Local AppData
@@ -2383,6 +2407,13 @@ Minimum CI/release matrix:
 - camera/location permission grant, denial, block, later settings change
 - network transitions and expired authentication
 - upgrade from the previous published app/runtime version
+	- Android automated gate: `bun run test:native:android:upgrade`; inspect
+	  `.absolutejs/mobile-native-conformance/embedded-artifacts/android-upgrade-conformance.json`
+	  for sanitized package/version and timing evidence
+	- require stable UID, data directory, and first-install time across APK replacement
+	- require Auth restore, Sync SQLite restore, and pending-outbox restore after relaunch
+	- require N+1/N+2 compatibility, typed N+3 update-required, and rollback recovery
+	- separately advance the generated Sync schema and prove transactional migration
 
 Use Playwright for the mobile browser-preview/envelope runtime, then a native automation layer such as Maestro or Detox after a spike. Do not choose the native runner until it proves reliable with Capacitor WebViews and permission dialogs.
 

@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import type { AbsoluteAndroidUpgradeConformanceResult } from './androidUpgradeConformance';
 
 export type AbsoluteNativeReportResult =
 	| 'FAIL'
@@ -34,6 +35,7 @@ export type AbsoluteNativeAutomatedRun = {
 	status: 'fail' | 'pass';
 	targetId: string;
 	targetKind: 'device' | 'emulator' | 'simulator';
+	upgrade?: AbsoluteAndroidUpgradeConformanceResult;
 };
 
 export type AbsoluteNativeTestReport = {
@@ -95,7 +97,7 @@ export const createAbsoluteNativeAutomatedChecks = (
 		? ` Routes: ${run.routes.join(', ')}.`
 		: '';
 
-	return [
+	const checks: AbsoluteNativeReportCheck[] = [
 		{
 			details: `Captured host, toolchain, Bun, and AbsoluteJS metadata for ${target}.`,
 			id: 'AUTO-SETUP-01',
@@ -125,7 +127,38 @@ export const createAbsoluteNativeAutomatedChecks = (
 			id: 'AUTO-ARTIFACT-01',
 			result: run.screenshot ? 'PASS' : 'FAIL'
 		}
-	] satisfies AbsoluteNativeReportCheck[];
+	];
+	if (run.upgrade) {
+		const { upgrade } = run;
+		checks.push(
+			{
+				details: `Android APK replacement ${upgrade.outcome === 'pass' ? 'preserved package identity' : 'failed conformance'} in ${upgrade.installMs}ms. versionCode ${upgrade.before.versionCode ?? 'unknown'} -> ${upgrade.after.versionCode ?? 'unknown'}.`,
+				id: 'AUTO-UPGRADE-01',
+				result: upgrade.outcome === 'pass' ? 'PASS' : 'FAIL'
+			},
+			{
+				details: `Auth credential: ${upgrade.state.authCredential ? 'preserved' : 'missing'}; Sync database: ${upgrade.state.syncDatabase ? 'preserved' : 'missing'}; pending operations: ${upgrade.state.pendingOperations ? 'preserved' : 'missing'}.`,
+				id: 'AUTO-UPGRADE-02',
+				result: Object.values(upgrade.state).every(Boolean)
+					? 'PASS'
+					: 'FAIL'
+			}
+		);
+		if (upgrade.compatibility)
+			checks.push({
+				details: `N+1 ${upgrade.compatibility.nPlusOne}; N+2 ${upgrade.compatibility.nPlusTwo}; N+3 ${upgrade.compatibility.nPlusThree}; rollback ${upgrade.compatibility.rollback}.`,
+				id: 'AUTO-COMPAT-01',
+				result:
+					upgrade.compatibility.nPlusOne === 'compatible' &&
+					upgrade.compatibility.nPlusTwo === 'compatible' &&
+					upgrade.compatibility.nPlusThree === 'upgrade-required' &&
+					upgrade.compatibility.rollback === 'compatible'
+						? 'PASS'
+						: 'FAIL'
+			});
+	}
+
+	return checks;
 };
 
 export const createAbsoluteNativeTestReport = (

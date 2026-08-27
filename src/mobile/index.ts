@@ -1,5 +1,6 @@
 export * from './artifactStore';
 export * from './androidRelease';
+export * from './androidUpgradeConformance';
 export * from './iosRelease';
 export * from './iosConformance';
 export * from './iosSimulatorController';

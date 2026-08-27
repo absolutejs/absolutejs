@@ -1303,6 +1303,7 @@ const ensureAndroidDebugApp = async (options: EnsureAndroidDebugAppOptions) => {
 			options.serial,
 			'install',
 			'-r',
+			'-d',
 			installPath
 		],
 		'Android app installation',

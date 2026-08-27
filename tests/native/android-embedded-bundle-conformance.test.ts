@@ -4,19 +4,31 @@ import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 import config from '../fixtures/mobile-native-conformance/absolute.config';
 import {
+	buildAbsoluteAndroidGradleArtifact,
 	prepareAbsoluteAndroidDevProject,
 	startAbsoluteAndroidDevSession,
 	type AbsoluteAndroidDevProject,
 	type AbsoluteAndroidDevSession
 } from '../../src/mobile/androidEmulatorController';
 import {
+	inspectAbsoluteAndroidInstalledApp,
+	runAbsoluteAndroidUpgradeConformance,
+	type AbsoluteAndroidUpgradeCommandResult
+} from '../../src/mobile/androidUpgradeConformance';
+import {
 	attachAbsoluteAndroidWebView,
 	type AbsoluteAndroidWebViewSession
 } from '../../src/mobile/androidWebView';
 import { normalizeAbsoluteMobileConfig } from '../../src/mobile/config';
+import { createAbsoluteMobileCompatibilityDispatcher } from '../../src/mobile/compatibilityDispatcher';
 import { applyAbsoluteNativeDeepLinks } from '../../src/mobile/nativeDeepLinks';
 import { applyAbsoluteNativeDeviceCapabilities } from '../../src/mobile/nativeDeviceCapabilities';
 import { findFreePort } from '../../src/cli/utils';
+import {
+	createAbsoluteMobileCompatibilityArtifact,
+	parseAbsoluteMobileCompatibilityArtifact,
+	type AbsoluteMobileCompatibilityArtifact
+} from '../../src/mobile/releaseArtifact';
 
 const ENABLED = process.env.ABSOLUTE_TEST_NATIVE_ANDROID === '1';
 const describeNative = ENABLED ? describe : describe.skip;
@@ -51,6 +63,15 @@ let nativeAuthUserInfoRequests = 0;
 let nativeSyncConnections = 0;
 let nativeSyncTicketsIssued = 0;
 let nativeSyncTicketsConsumed = 0;
+type CompatibilityGeneration = 'current' | 'n+1' | 'n+2' | 'n+3' | 'rollback';
+
+let compatibilityGeneration: CompatibilityGeneration = 'current';
+let compatibilityDispatchers: Partial<
+	Record<
+		Exclude<CompatibilityGeneration, 'current'>,
+		ReturnType<typeof createAbsoluteMobileCompatibilityDispatcher>
+	>
+> = {};
 
 type AuthorizationTransaction = {
 	challenge: string;
@@ -78,6 +99,94 @@ const authorizationCodes = new Map<string, AuthorizationTransaction>();
 const accessTokens = new Set<string>();
 const refreshTokens = new Set<string>();
 const socketTickets = new Set<string>();
+
+const nextCompatibilityArtifact = (
+	base: AbsoluteMobileCompatibilityArtifact,
+	generation: number
+) =>
+	createAbsoluteMobileCompatibilityArtifact({
+		appBuild: `native-conformance-build-${generation}`,
+		appId: base.appId,
+		generation,
+		pages: base.pages,
+		producer: base.producer,
+		routes: base.routes,
+		runtime: `native-conformance-runtime-${generation}`
+	});
+
+const proxyCompiledBackend = async (request: Request) => {
+	const target = new URL(request.url);
+	target.hostname = '127.0.0.1';
+	target.port = String(compiledPort);
+
+	const response = await fetch(new Request(target, request));
+	const headers = new Headers(response.headers);
+	headers.set('access-control-allow-origin', '*');
+
+	return new Response(response.body, {
+		headers,
+		status: response.status,
+		statusText: response.statusText
+	});
+};
+
+const prepareCompatibilityDispatchers = async () => {
+	const rawIndex: unknown = JSON.parse(
+		await readFile(
+			resolve(
+				BUILD_DIRECTORY,
+				'.absolutejs/mobile-compatibility/current.json'
+			),
+			'utf8'
+		)
+	);
+	if (typeof rawIndex !== 'object' || rawIndex === null) {
+		throw new Error('The native compatibility index is invalid.');
+	}
+	const releases = Reflect.get(rawIndex, 'releases');
+	if (!Array.isArray(releases))
+		throw new Error('The native compatibility index is invalid.');
+	const [release] = releases;
+	const generationN = parseAbsoluteMobileCompatibilityArtifact(release);
+	const generationNPlusOne = nextCompatibilityArtifact(
+		generationN,
+		generationN.generation + 1
+	);
+	const generationNPlusTwo = nextCompatibilityArtifact(
+		generationN,
+		generationN.generation + 2
+	);
+	const generationNPlusThree = nextCompatibilityArtifact(
+		generationN,
+		generationN.generation + 3
+	);
+	const dispatcher = (
+		artifacts: AbsoluteMobileCompatibilityArtifact[],
+		current: AbsoluteMobileCompatibilityArtifact
+	) =>
+		createAbsoluteMobileCompatibilityDispatcher({
+			artifacts,
+			currentReleaseId: current.releaseId,
+			loadProducer: async () => ({ handle: proxyCompiledBackend })
+		});
+	const nPlusOne = dispatcher(
+		[generationNPlusOne, generationN],
+		generationNPlusOne
+	);
+	const nPlusTwo = dispatcher(
+		[generationNPlusTwo, generationNPlusOne, generationN],
+		generationNPlusTwo
+	);
+	compatibilityDispatchers = {
+		'n+1': nPlusOne,
+		'n+2': nPlusTwo,
+		'n+3': dispatcher(
+			[generationNPlusThree, generationNPlusTwo, generationNPlusOne],
+			generationNPlusThree
+		),
+		rollback: nPlusTwo
+	};
+};
 
 const prepareSystemBrowser = (adb: string, serial: string) => {
 	const commandLine = Bun.spawnSync([
@@ -140,6 +249,19 @@ const clearAppData = (adb: string, serial: string, appId: string) => {
 			`Failed to clear Android acceptance app data: ${cleared.stderr.toString().trim() || cleared.stdout.toString().trim()}`
 		);
 	}
+};
+
+const captureUpgradeCommand = async (
+	command: string[]
+): Promise<AbsoluteAndroidUpgradeCommandResult> => {
+	const process = Bun.spawn(command, { stderr: 'pipe', stdout: 'pipe' });
+	const [exitCode, stderr, stdout] = await Promise.all([
+		process.exited,
+		new Response(process.stderr).text(),
+		new Response(process.stdout).text()
+	]);
+
+	return { exitCode, stderr, stdout };
 };
 
 let signingKey: CryptoKey;
@@ -432,6 +554,27 @@ const openNativeRoute = async (path: string, expectedText: string) => {
 	await waitForText(expectedText);
 };
 
+const ensureNativeAuthSyncAcceptance = async () => {
+	await openNativeRoute('/native-auth-sync', 'AbsoluteJS Native Auth + Sync');
+	const state = await webview.evaluate<string | null>(
+		`document.querySelector('#native-auth-sync-status')?.getAttribute('data-state') ?? null`
+	);
+	if (state !== 'complete') {
+		const clickedStart = await webview.evaluate<boolean>(`(() => {
+			const button = document.querySelector('#native-auth-sync-start');
+			if (!(button instanceof HTMLButtonElement)) return false;
+			button.click();
+			return true;
+		})()`);
+		expect(clickedStart).toBe(true);
+		await waitForText('Native auth + sync complete');
+	}
+	const completed = await webview.evaluate<string | null>(
+		`document.querySelector('#native-auth-sync-status')?.getAttribute('data-state') ?? null`
+	);
+	expect(completed).toBe('complete');
+};
+
 const requireAdbShell = (...args: string[]) => {
 	let failure = '';
 	for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -612,6 +755,7 @@ describeNative('real Capacitor Android embedded-bundle conformance', () => {
 		await runPrepare();
 		compiledPort = await findFreePort();
 		await startCompiledBackend();
+		await prepareCompatibilityDispatchers();
 		backend = Bun.serve<NativeSyncSocketData>({
 			hostname: '127.0.0.1',
 			port: PORT,
@@ -659,6 +803,19 @@ describeNative('real Capacitor Android embedded-bundle conformance', () => {
 			},
 			fetch: async (request, server) => {
 				const url = new URL(request.url);
+				const mobilePageId = request.headers.get(
+					'x-absolute-mobile-page-id'
+				);
+				if (compatibilityGeneration !== 'current' && mobilePageId) {
+					const dispatcher =
+						compatibilityDispatchers[compatibilityGeneration];
+					if (!dispatcher)
+						throw new Error(
+							`Missing ${compatibilityGeneration} compatibility dispatcher.`
+						);
+
+					return dispatcher.handle(request);
+				}
 				if (url.pathname === '/__absolute/native-sync') {
 					const upgraded = server.upgrade(request, {
 						data: { authenticated: false }
@@ -682,19 +839,8 @@ describeNative('real Capacitor Android embedded-bundle conformance', () => {
 						}
 					);
 				}
-				const target = new URL(request.url);
-				target.hostname = '127.0.0.1';
-				target.port = String(compiledPort);
 
-				const response = await fetch(new Request(target, request));
-				const headers = new Headers(response.headers);
-				headers.set('access-control-allow-origin', '*');
-
-				return new Response(response.body, {
-					headers,
-					status: response.status,
-					statusText: response.statusText
-				});
+				return proxyCompiledBackend(request);
 			}
 		});
 		if (!config.mobile)
@@ -1267,34 +1413,130 @@ describeNative('real Capacitor Android embedded-bundle conformance', () => {
 	nativeTest(
 		'provisions native Auth and authenticated Sync without page-specific native code',
 		async () => {
-			const clickedRoute = await webview.evaluate<boolean>(`(() => {
-				const anchor = document.createElement('a');
-				anchor.href = '/native-auth-sync';
-				anchor.textContent = 'Native Auth + Sync';
-				document.body.appendChild(anchor);
-				anchor.click();
-				return true;
-			})()`);
-			expect(clickedRoute).toBe(true);
-			await waitForText('AbsoluteJS Native Auth + Sync');
-			const clickedStart = await webview.evaluate<boolean>(`(() => {
-				const button = document.querySelector('#native-auth-sync-start');
-				if (!(button instanceof HTMLButtonElement)) return false;
-				button.click();
-				return true;
-			})()`);
-			expect(clickedStart).toBe(true);
-			await waitForText('Native auth + sync complete');
-			const state = await webview.evaluate<string | null>(
-				`document.querySelector('#native-auth-sync-status')?.getAttribute('data-state') ?? null`
-			);
-			expect(state).toBe('complete');
+			await ensureNativeAuthSyncAcceptance();
 			expect(nativeAuthAuthorizationRequests).toBe(1);
 			expect(nativeAuthTokenRequests).toBeGreaterThanOrEqual(1);
 			expect(nativeAuthUserInfoRequests).toBeGreaterThanOrEqual(1);
 			expect(nativeSyncConnections).toBeGreaterThanOrEqual(2);
 			expect(nativeSyncTicketsIssued).toBeGreaterThanOrEqual(2);
 			expect(nativeSyncTicketsConsumed).toBeGreaterThanOrEqual(2);
+		}
+	);
+
+	nativeTest(
+		'preserves Auth, Sync SQLite, and the durable outbox across an installed APK upgrade',
+		async () => {
+			await ensureNativeAuthSyncAcceptance();
+			const queued = await webview.evaluate<boolean>(`(() => {
+				const button = document.querySelector('#native-sync-queue');
+				if (!(button instanceof HTMLButtonElement)) return false;
+				button.click();
+				return true;
+			})()`);
+			expect(queued).toBe(true);
+			await webview.waitFor<boolean>(
+				`Number(document.querySelector('#native-auth-sync-status')?.getAttribute('data-pending') ?? 0) > 0`,
+				{ timeoutMs: TIMEOUT_MS }
+			);
+
+			compatibilityGeneration = 'n+1';
+			await openNativeRoute('/react', 'AbsoluteJS + React');
+			compatibilityGeneration = 'n+2';
+			await openNativeRoute('/vue', 'AbsoluteJS + Vue');
+			compatibilityGeneration = 'n+3';
+			await openNativeRoute(
+				'/react',
+				'This app version must be updated to continue.'
+			);
+			compatibilityGeneration = 'rollback';
+			await openNativeRoute('/react', 'AbsoluteJS + React');
+
+			const installed = await inspectAbsoluteAndroidInstalledApp(
+				project.adb,
+				android.serial,
+				project.config.appId,
+				captureUpgradeCommand
+			);
+			if (installed.versionCode === undefined)
+				throw new Error(
+					'The installed Android versionCode is unavailable.'
+				);
+			const nextVersionCode = installed.versionCode + 1;
+			const appGradlePath = resolve(
+				project.nativeDirectory,
+				'app/build.gradle'
+			);
+			const appGradle = await readFile(appGradlePath, 'utf8');
+			const upgradedGradle = appGradle.replace(
+				/\bversionCode\s+\d+/u,
+				`versionCode ${nextVersionCode}`
+			);
+			if (upgradedGradle === appGradle)
+				throw new Error(
+					'Could not advance the Android fixture versionCode.'
+				);
+			await writeFile(appGradlePath, upgradedGradle);
+			let authRestored = false;
+			let syncRestored = false;
+			let pendingRestored = false;
+			const buildAndVerifyUpgrade = async () => {
+				const built = await buildAbsoluteAndroidGradleArtifact({
+					project,
+					task: 'assembleDebug'
+				});
+
+				return runAbsoluteAndroidUpgradeConformance({
+					adb: project.adb,
+					apkPath: built.installPath,
+					appId: project.config.appId,
+					compatibility: {
+						nPlusOne: 'compatible',
+						nPlusThree: 'upgrade-required',
+						nPlusTwo: 'compatible',
+						rollback: 'compatible'
+					},
+					run: captureUpgradeCommand,
+					serial: android.serial,
+					afterInstall: async () => {
+						await webview.close();
+						await android.relaunch();
+						webview = await attachAbsoluteAndroidWebView({
+							adb: project.adb,
+							appId: project.config.appId,
+							serial: android.serial,
+							timeoutMs: TIMEOUT_MS
+						});
+						await waitForText('AbsoluteJS + React');
+						await openNativeRoute(
+							'/native-auth-sync',
+							'AbsoluteJS Native Auth + Sync'
+						);
+						await waitForText('Native auth + sync complete');
+						authRestored = true;
+						syncRestored = true;
+						await webview.waitFor<boolean>(
+							`Number(document.querySelector('#native-auth-sync-status')?.getAttribute('data-pending') ?? 0) > 0`,
+							{ timeoutMs: TIMEOUT_MS }
+						);
+						pendingRestored = true;
+					},
+					verifyState: async () => ({
+						authCredential: authRestored,
+						pendingOperations: pendingRestored,
+						syncDatabase: syncRestored
+					})
+				});
+			};
+			const result = await buildAndVerifyUpgrade().finally(async () =>
+				writeFile(appGradlePath, appGradle)
+			);
+			expect(result.outcome).toBe('pass');
+			expect(result.after.versionCode).toBe(nextVersionCode);
+			await mkdir(ARTIFACT_ROOT, { recursive: true });
+			await writeFile(
+				resolve(ARTIFACT_ROOT, 'android-upgrade-conformance.json'),
+				`${JSON.stringify(result, null, 2)}\n`
+			);
 		}
 	);
 });

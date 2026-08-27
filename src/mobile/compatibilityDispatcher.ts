@@ -72,6 +72,12 @@ const applyMobileCorsHeaders = (response: Response, origin: string) => {
 	return response;
 };
 
+const finalizeMobileResponse = (request: Request, response: Response) => {
+	const origin = mobileWebViewOrigin(request);
+
+	return origin ? applyMobileCorsHeaders(response, origin) : response;
+};
+
 const mobilePreflightResponse = (request: Request) => {
 	if (request.method !== 'OPTIONS') return undefined;
 	const origin = mobileWebViewOrigin(request);
@@ -166,7 +172,10 @@ export const createAbsoluteMobileCompatibilityDispatcher = (
 				artifacts
 			);
 			if (resolved.kind === 'upgrade-required') {
-				return createAbsoluteMobileUpgradeResponse(resolved.result);
+				return finalizeMobileResponse(
+					request,
+					createAbsoluteMobileUpgradeResponse(resolved.result)
+				);
 			}
 			if (
 				!artifactOwnsRequest(
@@ -175,8 +184,11 @@ export const createAbsoluteMobileCompatibilityDispatcher = (
 					request
 				)
 			) {
-				return createAbsoluteMobileInvalidRequestResponse(
-					'The requested URL is not assigned to this mobile page.'
+				return finalizeMobileResponse(
+					request,
+					createAbsoluteMobileInvalidRequestResponse(
+						'The requested URL is not assigned to this mobile page.'
+					)
 				);
 			}
 			if (resolved.artifact.releaseId === options.currentReleaseId) {
@@ -186,21 +198,24 @@ export const createAbsoluteMobileCompatibilityDispatcher = (
 			try {
 				const producer = await resolveProducer(resolved.artifact);
 
-				return runWithAbsoluteMobileProducer(
+				const response = await runWithAbsoluteMobileProducer(
 					{
 						page: resolved.page,
 						releaseId: resolved.artifact.releaseId
 					},
 					() => producer.handle(request)
 				);
+
+				return finalizeMobileResponse(request, response);
 			} catch (error) {
 				console.error(
 					`[Mobile] Failed to load retained producer ${resolved.artifact.releaseId}:`,
 					error
 				);
 
-				return createAbsoluteMobilePageErrorResponse(
-					parsed.client.pageId
+				return finalizeMobileResponse(
+					request,
+					createAbsoluteMobilePageErrorResponse(parsed.client.pageId)
 				);
 			}
 		})
