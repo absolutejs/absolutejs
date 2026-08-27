@@ -303,6 +303,18 @@ const prepareDev = async (
 		config.mobile,
 		process.cwd()
 	);
+	const nativeMobileConfig = config.mobile;
+	let nativeDevAdapterBundle: Promise<string> | undefined;
+	const getNativeDevAdapterBundle = () =>
+		(nativeDevAdapterBundle ??= nativeMobileConfig
+			? import('../mobile/devDeviceAdapter').then(
+					({ buildAbsoluteNativeDevAdapter }) =>
+						buildAbsoluteNativeDevAdapter(
+							process.cwd(),
+							nativeMobileConfig
+						)
+				)
+			: Promise.resolve('export {};'));
 	const absolutejs = new Elysia({ name: 'absolutejs-runtime' })
 		// Must be first: the inspector's global request/afterResponse hooks
 		// only reach routes compiled after them, so it has to precede the
@@ -323,6 +335,16 @@ const prepareDev = async (
 		)
 		.use(imageOptimizer(config.images, buildDir))
 		.use(mobileAssociationPlugin)
+		.get(
+			'/__absolute/native-device-adapter.js',
+			async () =>
+				new Response(await getNativeDevAdapterBundle(), {
+					headers: {
+						'Cache-Control': 'no-store',
+						'Content-Type': 'text/javascript; charset=utf-8'
+					}
+				})
+		)
 		.use(
 			await mountStaticPlugin(staticPlugin, {
 				alwaysStatic: true,

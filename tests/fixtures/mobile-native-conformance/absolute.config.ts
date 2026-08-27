@@ -26,6 +26,12 @@ export default defineConfig({
 			directory: '.absolutejs/mobile-native-conformance/native'
 		},
 		platforms: ['android', 'ios'],
+		pushNotifications: {
+			android: {
+				googleServicesFile:
+					'tests/fixtures/mobile-native-conformance/google-services.json'
+			}
+		},
 		server: {
 			productionOrigin:
 				process.env.ABSOLUTE_NATIVE_CONFORMANCE_ORIGIN ??

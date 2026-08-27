@@ -53,6 +53,21 @@ export type AbsoluteMobileShellOptions = {
 
 let navigationGeneration = 0;
 
+const notifyCapacitorSystemBarsDomReady = () => {
+	const provider = Reflect.get(
+		globalThis,
+		'CapacitorSystemBarsAndroidInterface'
+	);
+	if (typeof provider !== 'object' || provider === null) return;
+	const onDOMReady = Reflect.get(provider, 'onDOMReady');
+	if (typeof onDOMReady !== 'function') return;
+	try {
+		onDOMReady.call(provider);
+	} catch {
+		// A stale or incompatible Android bridge must not block shell startup.
+	}
+};
+
 const readManifest = async () => {
 	const response = await fetch(MANIFEST_PATH, { cache: 'no-store' });
 	if (!response.ok) {
@@ -265,6 +280,7 @@ const navigateWithFailureState = async (
 export const startAbsoluteMobileShell = async (
 	options: AbsoluteMobileShellOptions = {}
 ) => {
+	notifyCapacitorSystemBarsDomReady();
 	const manifest = await readManifest();
 	const auth =
 		manifest.auth && options.createAuth

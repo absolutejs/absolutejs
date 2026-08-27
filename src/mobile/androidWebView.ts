@@ -44,6 +44,7 @@ export type AbsoluteAndroidWebViewSession = {
 	screenshot: (path: string) => Promise<string>;
 	serial: string;
 	socket: string;
+	tap: (x: number, y: number) => Promise<void>;
 	target: CdpTarget;
 	waitFor: <T>(
 		expression: string,
@@ -527,6 +528,26 @@ const createSession = (
 			await writeFile(absolutePath, Buffer.from(data, 'base64'));
 
 			return absolutePath;
+		},
+		tap: async (coordinateX: number, coordinateY: number) => {
+			if (
+				!Number.isFinite(coordinateX) ||
+				!Number.isFinite(coordinateY) ||
+				coordinateX < 0 ||
+				coordinateY < 0
+			) {
+				throw new TypeError(
+					'Android WebView tap coordinates must be finite non-negative numbers.'
+				);
+			}
+			await connection.command('Input.dispatchTouchEvent', {
+				touchPoints: [{ x: coordinateX, y: coordinateY }],
+				type: 'touchStart'
+			});
+			await connection.command('Input.dispatchTouchEvent', {
+				touchPoints: [],
+				type: 'touchEnd'
+			});
 		}
 	};
 };

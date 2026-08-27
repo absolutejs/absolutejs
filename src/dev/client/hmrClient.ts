@@ -45,6 +45,29 @@ const isStringRecord = (value: unknown): value is Record<string, string> =>
 	Object.values(value).every((entry) => typeof entry === 'string');
 
 restoreAbsoluteHmrApply();
+const nativeDeviceAdapterPath = '/__absolute/native-device-adapter.js';
+const nativeDeviceAdapterReady =
+	absoluteHmrClientTarget() === 'web'
+		? Promise.resolve()
+		: import(nativeDeviceAdapterPath).then(() => undefined);
+Reflect.set(
+	globalThis,
+	'__ABS_NATIVE_DEVICES_READY__',
+	nativeDeviceAdapterReady
+);
+Reflect.set(globalThis, '__ABS_NATIVE_DEVICES_READY_STATE__', 'loading');
+void nativeDeviceAdapterReady.then(
+	() => {
+		Reflect.set(globalThis, '__ABS_NATIVE_DEVICES_READY_STATE__', 'ready');
+	},
+	(error) => {
+		Reflect.set(globalThis, '__ABS_NATIVE_DEVICES_READY_STATE__', 'failed');
+		console.error(
+			'[Absolute Mobile] Native device adapter failed to load:',
+			error
+		);
+	}
+);
 const removeNativeSyncDevtools =
 	absoluteHmrClientTarget() === 'web'
 		? () => undefined

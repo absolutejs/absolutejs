@@ -27,7 +27,32 @@ const MANUAL_CHECKS = [
 	['CAP-01', 'Complete automatic device-capability provisioning checks.'],
 	[
 		'SYSUI-01',
-		'Complete keyboard and modern edge-to-edge system-bars checks.'
+		'Confirm Keyboard and System Bars are provisioned automatically.'
+	],
+	[
+		'SYSUI-02',
+		'Confirm the web fallback reports provider-neutral capabilities.'
+	],
+	['SYSUI-03', 'Confirm the real WebView selects the native adapters.'],
+	[
+		'SYSUI-04',
+		'Open and dismiss the native keyboard five times without stale state.'
+	],
+	[
+		'SYSUI-05',
+		'Confirm light and dark foreground choices reach both Android system bars.'
+	],
+	[
+		'SYSUI-06',
+		'Hide and restore system bars and confirm restored content remains inside the safe area.'
+	],
+	[
+		'SYSUI-07',
+		'Rotate and relaunch while preserving the route and native adapters.'
+	],
+	[
+		'SYSUI-08',
+		'Apply a System UI component edit through native HMR and record its timing.'
 	],
 	[
 		'FILES-01',

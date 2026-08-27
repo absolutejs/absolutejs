@@ -15,16 +15,25 @@ export const NativeSystemUiAcceptance = () => {
 	const [detail, setDetail] = useState('Ready');
 	const [error, setError] = useState('none');
 	const [keyboardState, setKeyboardState] = useState('hidden:0');
+	const [keyboardEvents, setKeyboardEvents] = useState({
+		hidden: 0,
+		visible: 0
+	});
 
 	useEffect(() => {
 		let active = true;
 		let remove: (() => void | Promise<void>) | undefined;
 		void keyboard
 			.onChange(({ heightPx, visible }) => {
-				if (active)
+				if (active) {
 					setKeyboardState(
 						`${visible ? 'visible' : 'hidden'}:${heightPx}`
 					);
+					setKeyboardEvents((current) => ({
+						hidden: current.hidden + (visible ? 0 : 1),
+						visible: current.visible + (visible ? 1 : 0)
+					}));
+				}
 			})
 			.then((subscription) => {
 				remove = subscription;
@@ -58,7 +67,13 @@ export const NativeSystemUiAcceptance = () => {
 			<p id="system-ui-detail">{detail}</p>
 			<dl id="system-ui-status">
 				<dt>Keyboard</dt>
-				<dd data-keyboard={keyboardState}>{keyboardState}</dd>
+				<dd
+					data-keyboard={keyboardState}
+					data-keyboard-hidden-events={keyboardEvents.hidden}
+					data-keyboard-visible-events={keyboardEvents.visible}
+				>
+					{keyboardState}
+				</dd>
 				<dt>System bars</dt>
 				<dd data-system-bars={bars}>{bars}</dd>
 				<dt>Error</dt>

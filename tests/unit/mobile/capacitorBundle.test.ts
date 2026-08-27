@@ -228,6 +228,7 @@ describe('Capacitor local web bundle', () => {
 		expect(bootstrap).toContain('watchPosition');
 		expect(bootstrap).toContain('keyboardDidShow');
 		expect(bootstrap).toContain('SystemBars');
+		expect(bootstrap).toContain('CapacitorSystemBarsAndroidInterface');
 		expect(bootstrap).toContain('AbsoluteSecureStorage');
 		expect(bootstrap).toContain('oidc.refresh');
 		expect(bootstrap).toContain('client-runtime-transport');

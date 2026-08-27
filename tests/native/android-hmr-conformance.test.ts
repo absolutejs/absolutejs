@@ -45,6 +45,10 @@ const SVELTE_COUNTER = resolve(
 	PROJECT_ROOT,
 	'example/svelte/components/Counter.svelte'
 );
+const SYSTEM_UI_COMPONENT = resolve(
+	PROJECT_ROOT,
+	'example/react/components/NativeSystemUiAcceptance.tsx'
+);
 const SVELTE_RUNE_COUNTER = `<script lang="ts">
 	let { initialCount } = $props<{ initialCount: number }>();
 	let count = $state(initialCount);
@@ -99,12 +103,51 @@ const currentUpdateId = () =>
 		'window.__ABS_HMR_LAST_APPLY__?.updateId'
 	);
 
-const route = (path: string) =>
-	inspectAbsoluteAndroidRoute(webview, {
-		port: server.port,
-		route: path,
-		timeoutMs: 45_000
+const reconnectWebView = async () => {
+	await webview?.close().catch(() => undefined);
+	const stopped = Bun.spawnSync([
+		project.adb,
+		'-s',
+		android.serial,
+		'shell',
+		'am',
+		'force-stop',
+		mobileConfig().appId
+	]);
+	if (stopped.exitCode !== 0) {
+		throw new Error(
+			`Failed to stop Android HMR fixture: ${stopped.stderr.toString().trim() || stopped.stdout.toString().trim()}`
+		);
+	}
+	await android.relaunch();
+	webview = await attachAbsoluteAndroidWebView({
+		adb: project.adb,
+		appId: mobileConfig().appId,
+		serial: android.serial,
+		timeoutMs: 60_000
 	});
+};
+
+const route = async (path: string) => {
+	try {
+		return await inspectAbsoluteAndroidRoute(webview, {
+			port: server.port,
+			route: path,
+			timeoutMs: 45_000
+		});
+	} catch (firstError) {
+		console.warn(
+			`[native-test] Android route ${path} did not settle; relaunching once: ${firstError instanceof Error ? firstError.message : String(firstError)}`
+		);
+		await reconnectWebView();
+
+		return inspectAbsoluteAndroidRoute(webview, {
+			port: server.port,
+			route: path,
+			timeoutMs: 45_000
+		});
+	}
+};
 
 const expectHmr = async (
 	kind: Parameters<typeof waitForAbsoluteAndroidHmrApply>[1]['kind'],
@@ -200,6 +243,9 @@ describeNative('real Capacitor Android HMR conformance', () => {
 	afterEach(async () => {
 		restoreAllFiles();
 		await waitForServerIdle();
+		// Keep restore HMR from the previous framework out of the next case and
+		// discard WebView cache state left by full-page fallback reloads.
+		await reconnectWebView();
 	}, 60_000);
 
 	afterAll(async () => {
@@ -245,6 +291,63 @@ describeNative('real Capacitor Android HMR conformance', () => {
 		await waitForBodyText('AbsoluteJS + React Android Native');
 		await expectHmr('component', baseline);
 	});
+
+	nativeTest(
+		'applies portable system-UI HMR without losing the native adapter',
+		async () => {
+			await route('/native-system-ui');
+			await webview.waitFor<boolean>(
+				`window.__ABS_NATIVE_DEVICES_READY_STATE__ === 'ready'`,
+				{ timeoutMs: 30_000 }
+			);
+			const queried = await webview.evaluate<boolean>(`(() => {
+				const button = document.querySelector('#system-ui-query');
+				if (!(button instanceof HTMLButtonElement)) return false;
+				button.click();
+				return true;
+			})()`);
+			expect(queried).toBe(true);
+			await webview.waitFor<boolean>(
+				`document.querySelector('[data-system-bars]')?.getAttribute('data-system-bars') === 'native'`,
+				{ timeoutMs: 30_000 }
+			);
+			const baseline = await currentUpdateId();
+			mutateFile(SYSTEM_UI_COMPONENT, (source) =>
+				source.replace(
+					'AbsoluteJS System UI</h1>',
+					'AbsoluteJS System UI Android HMR</h1>'
+				)
+			);
+			await waitForBodyText('AbsoluteJS System UI Android HMR');
+			await expectHmr('component', baseline);
+			await webview.waitFor<boolean>(
+				`window.__ABS_NATIVE_DEVICES_READY_STATE__ === 'ready'`,
+				{ timeoutMs: 30_000 }
+			);
+			const requeried = await webview.evaluate<boolean>(`(() => {
+				const button = document.querySelector('#system-ui-query');
+				if (!(button instanceof HTMLButtonElement)) return false;
+				button.click();
+				return true;
+			})()`);
+			expect(requeried).toBe(true);
+			await webview.waitFor<boolean>(
+				`document.querySelector('[data-system-bars]')?.getAttribute('data-system-bars') === 'native'`,
+				{ timeoutMs: 30_000 }
+			);
+			const clicked = await webview.evaluate<boolean>(`(() => {
+				const button = document.querySelector('#system-ui-dark');
+				if (!(button instanceof HTMLButtonElement)) return false;
+				button.click();
+				return true;
+			})()`);
+			expect(clicked).toBe(true);
+			await webview.waitFor<boolean>(
+				`document.querySelector('#system-ui-detail')?.textContent === 'Dark foreground applied'`,
+				{ timeoutMs: 30_000 }
+			);
+		}
+	);
 
 	nativeTest('applies Vue component HMR in the real WebView', async () => {
 		await route('/vue');
@@ -395,13 +498,7 @@ describeNative('real Capacitor Android HMR conformance', () => {
 		]);
 		expect(home.exitCode).toBe(0);
 		await webview.close().catch(() => undefined);
-		await android.relaunch();
-		webview = await attachAbsoluteAndroidWebView({
-			adb: project.adb,
-			appId: mobileConfig().appId,
-			serial: android.serial,
-			timeoutMs: 60_000
-		});
+		await reconnectWebView();
 		await webview.waitFor<boolean>(
 			`document.visibilityState === 'visible'`,
 			{ timeoutMs: 30_000 }

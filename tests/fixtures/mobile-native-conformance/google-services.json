@@ -1,0 +1,29 @@
+{
+	"client": [
+		{
+			"api_key": [
+				{
+					"current_key": "SYNTHETIC_NATIVE_CONFORMANCE_KEY_NOT_A_SECRET"
+				}
+			],
+			"client_info": {
+				"android_client_info": {
+					"package_name": "com.absolutejs.conformance"
+				},
+				"mobilesdk_app_id": "1:100000000001:android:0000000000000000000000"
+			},
+			"oauth_client": [],
+			"services": {
+				"appinvite_service": {
+					"other_platform_oauth_client": []
+				}
+			}
+		}
+	],
+	"configuration_version": "1",
+	"project_info": {
+		"project_id": "absolutejs-native-conformance",
+		"project_number": "100000000001",
+		"storage_bucket": "absolutejs-native-conformance.invalid"
+	}
+}

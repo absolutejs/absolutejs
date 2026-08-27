@@ -109,6 +109,20 @@ const prepareSystemBrowser = (adb: string, serial: string) => {
 };
 
 const clearAppData = (adb: string, serial: string, appId: string) => {
+	const stopped = Bun.spawnSync([
+		adb,
+		'-s',
+		serial,
+		'shell',
+		'am',
+		'force-stop',
+		appId
+	]);
+	if (stopped.exitCode !== 0) {
+		throw new Error(
+			`Failed to stop Android acceptance app: ${stopped.stderr.toString().trim() || stopped.stdout.toString().trim()}`
+		);
+	}
 	const cleared = Bun.spawnSync([
 		adb,
 		'-s',
@@ -405,6 +419,128 @@ const navigate = async (path: string, expectedText: string) => {
 	await waitForText(expectedText);
 };
 
+const openNativeRoute = async (path: string, expectedText: string) => {
+	const opened = await webview.evaluate<boolean>(`(() => {
+		const anchor = document.createElement('a');
+		anchor.href = ${JSON.stringify(path)};
+		anchor.textContent = ${JSON.stringify(expectedText)};
+		document.body.appendChild(anchor);
+		anchor.click();
+		return true;
+	})()`);
+	expect(opened).toBe(true);
+	await waitForText(expectedText);
+};
+
+const requireAdbShell = (...args: string[]) => {
+	let failure = '';
+	for (let attempt = 0; attempt < 3; attempt += 1) {
+		const result = Bun.spawnSync([
+			project.adb,
+			'-s',
+			android.serial,
+			'shell',
+			...args
+		]);
+		if (result.exitCode === 0) return result.stdout.toString().trim();
+		failure =
+			result.stderr.toString().trim() || result.stdout.toString().trim();
+	}
+
+	throw new Error(`ADB shell ${args.join(' ')} failed: ${failure}`);
+};
+
+const inputMethodIsVisible = () =>
+	/InsetsSource id=3 type=ime[^\n]* visible=true/u.test(
+		requireAdbShell('dumpsys', 'activity', 'activities')
+	);
+
+const waitForInputMethod = async (visible: boolean) => {
+	const deadline = Date.now() + 8_000;
+	while (Date.now() < deadline) {
+		if (inputMethodIsVisible() === visible) return;
+		await Bun.sleep(500);
+	}
+
+	throw new Error(
+		`Android IME did not become ${visible ? 'visible' : 'hidden'} within 8 seconds.`
+	);
+};
+
+const statusBarIsVisible = () =>
+	/InsetsSource id=[^ ]+ type=statusBars[^\n]* visible=true/u.test(
+		requireAdbShell('dumpsys', 'activity', 'activities')
+	);
+
+const waitForStatusBar = async (visible: boolean) => {
+	const deadline = Date.now() + 8_000;
+	while (Date.now() < deadline) {
+		if (statusBarIsVisible() === visible) return;
+		await Bun.sleep(500);
+	}
+
+	throw new Error(
+		`Android status bar did not become ${visible ? 'visible' : 'hidden'} within 8 seconds.`
+	);
+};
+
+const androidWebViewBounds = () => {
+	const path = '/data/local/tmp/absolutejs-system-ui.xml';
+	requireAdbShell('uiautomator', 'dump', path);
+	const hierarchy = requireAdbShell('cat', path);
+	const bounds = hierarchy.match(
+		/class="android\.webkit\.WebView"[^>]* bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/u
+	);
+	if (!bounds)
+		throw new Error('Android accessibility hierarchy omitted the WebView.');
+
+	return {
+		bottom: Number(bounds[4]),
+		left: Number(bounds[1]),
+		right: Number(bounds[3]),
+		top: Number(bounds[2])
+	};
+};
+
+const clickSystemUi = async (selector: string) => {
+	const clicked = await webview.evaluate<boolean>(`(() => {
+		const button = document.querySelector(${JSON.stringify(selector)});
+		if (!(button instanceof HTMLButtonElement)) return false;
+		button.click();
+		return true;
+	})()`);
+	expect(clicked).toBe(true);
+};
+
+const appWindowAppearance = () => {
+	const output = requireAdbShell('dumpsys', 'window', 'windows');
+	const lines = output.split(/\r?\n/u);
+	const start = lines.findIndex(
+		(line) =>
+			line.includes('Window{') &&
+			line.includes('com.absolutejs.conformance')
+	);
+	if (start < 0)
+		throw new Error('Android window diagnostics did not contain the app.');
+	const block = lines.slice(start, start + 100);
+	const appearance = block.find(
+		(line) => line.includes('appearance=') || line.includes('apr=')
+	);
+	if (!appearance) {
+		throw new Error(
+			`Android window diagnostics did not expose system-bar appearance: ${block.join('\n')}`
+		);
+	}
+
+	return {
+		forcedLightNavigationBars: appearance.includes(
+			'FORCE_LIGHT_NAVIGATION_BARS'
+		),
+		lightNavigationBars: appearance.includes('LIGHT_NAVIGATION_BARS'),
+		lightStatusBars: appearance.includes('LIGHT_STATUS_BARS')
+	};
+};
+
 const nativeTest = (name: string, operation: () => Promise<void>) =>
 	test(
 		name,
@@ -671,9 +807,221 @@ describeNative('real Capacitor Android embedded-bundle conformance', () => {
 	);
 
 	nativeTest(
+		'uses portable keyboard and modern system bars in the real WebView',
+		async () => {
+			await openNativeRoute('/native-system-ui', 'AbsoluteJS System UI');
+			const originalHardwareKeyboardIme = requireAdbShell(
+				'settings',
+				'get',
+				'secure',
+				'show_ime_with_hard_keyboard'
+			);
+			requireAdbShell(
+				'settings',
+				'put',
+				'secure',
+				'show_ime_with_hard_keyboard',
+				'1'
+			);
+			await clickSystemUi('#system-ui-query');
+			await webview.waitFor<boolean>(
+				`document.querySelector('#system-ui-detail')?.textContent === 'System UI queried'`,
+				{ timeoutMs: TIMEOUT_MS }
+			);
+			expect(
+				await webview.evaluate<string | null>(
+					`document.querySelector('[data-system-bars]')?.getAttribute('data-system-bars') ?? null`
+				)
+			).toBe('native');
+			await clickSystemUi('#system-ui-dismiss');
+			await webview.waitFor<boolean>(
+				`document.querySelector('#system-ui-detail')?.textContent === 'Keyboard dismissed'`,
+				{ timeoutMs: TIMEOUT_MS }
+			);
+
+			const exerciseKeyboard = async () => {
+				const point = await webview.evaluate<{
+					x: number;
+					y: number;
+				} | null>(`(() => {
+					const input = document.querySelector('#system-ui-input');
+					if (!(input instanceof HTMLInputElement)) return null;
+					input.blur();
+					const rect = input.getBoundingClientRect();
+					return {
+						x: rect.left + rect.width / 2,
+						y: rect.top + rect.height / 2
+					};
+				})()`);
+				expect(point).not.toBeNull();
+				await webview.tap(point?.x ?? -1, point?.y ?? -1);
+				await waitForInputMethod(true);
+				requireAdbShell('input', 'keyevent', '4');
+				await waitForInputMethod(false);
+				await webview.close();
+				await android.relaunch();
+				webview = await attachAbsoluteAndroidWebView({
+					adb: project.adb,
+					appId: 'com.absolutejs.conformance',
+					serial: android.serial,
+					timeoutMs: TIMEOUT_MS
+				});
+				await openNativeRoute(
+					'/native-system-ui',
+					'AbsoluteJS System UI'
+				);
+			};
+
+			try {
+				for (let attempt = 0; attempt < 5; attempt += 1) {
+					await exerciseKeyboard();
+				}
+			} finally {
+				if (originalHardwareKeyboardIme === 'null') {
+					requireAdbShell(
+						'settings',
+						'delete',
+						'secure',
+						'show_ime_with_hard_keyboard'
+					);
+				} else {
+					requireAdbShell(
+						'settings',
+						'put',
+						'secure',
+						'show_ime_with_hard_keyboard',
+						originalHardwareKeyboardIme
+					);
+				}
+			}
+
+			await clickSystemUi('#system-ui-query');
+			await webview.waitFor<boolean>(
+				`document.querySelector('[data-system-bars]')?.getAttribute('data-system-bars') === 'native'`,
+				{ timeoutMs: TIMEOUT_MS }
+			);
+			await clickSystemUi('#system-ui-light');
+			await webview.waitFor<boolean>(
+				`document.querySelector('#system-ui-detail')?.textContent === 'Light foreground applied'`,
+				{ timeoutMs: TIMEOUT_MS }
+			);
+			expect(appWindowAppearance()).toEqual({
+				forcedLightNavigationBars: true,
+				lightNavigationBars: true,
+				lightStatusBars: false
+			});
+			await clickSystemUi('#system-ui-dark');
+			await webview.waitFor<boolean>(
+				`document.querySelector('#system-ui-detail')?.textContent === 'Dark foreground applied'`,
+				{ timeoutMs: TIMEOUT_MS }
+			);
+			expect(appWindowAppearance()).toEqual({
+				forcedLightNavigationBars: true,
+				lightNavigationBars: true,
+				lightStatusBars: true
+			});
+
+			await clickSystemUi('#system-ui-hide-status');
+			await webview.waitFor<boolean>(
+				`document.querySelector('#system-ui-detail')?.textContent === 'Status bar hidden'`,
+				{ timeoutMs: TIMEOUT_MS }
+			);
+			await waitForStatusBar(false);
+			await clickSystemUi('#system-ui-show');
+			await webview.waitFor<boolean>(
+				`document.querySelector('#system-ui-detail')?.textContent === 'System bars shown'`,
+				{ timeoutMs: TIMEOUT_MS }
+			);
+			await waitForStatusBar(true);
+			const shownLayout = await webview.evaluate<{
+				envTop: number;
+				insetTop: number;
+			}>(`(() => {
+				const probe = document.createElement('div');
+				probe.style.paddingTop = 'env(safe-area-inset-top, 0px)';
+				document.body.append(probe);
+				const envTop = parseFloat(getComputedStyle(probe).paddingTop) || 0;
+				probe.remove();
+				return {
+					envTop,
+					insetTop: parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--safe-area-inset-top')) || 0
+				};
+			})()`);
+			const shownWebViewBounds = androidWebViewBounds();
+			expect(
+				shownLayout.envTop > 0 ||
+					shownLayout.insetTop > 0 ||
+					shownWebViewBounds.top > 0
+			).toBe(true);
+
+			const originalRotation = Number(
+				requireAdbShell('settings', 'get', 'system', 'user_rotation')
+			);
+			const targetRotation = originalRotation % 2 === 0 ? 1 : 0;
+			try {
+				requireAdbShell(
+					'settings',
+					'put',
+					'system',
+					'accelerometer_rotation',
+					'0'
+				);
+				requireAdbShell(
+					'settings',
+					'put',
+					'system',
+					'user_rotation',
+					String(targetRotation)
+				);
+				await webview.waitFor<boolean>(
+					targetRotation % 2 === 1
+						? 'innerWidth > innerHeight'
+						: 'innerHeight > innerWidth',
+					{ timeoutMs: TIMEOUT_MS }
+				);
+				expect(
+					await webview.evaluate<string | null>(
+						`document.querySelector('[data-system-bars]')?.getAttribute('data-system-bars') ?? null`
+					)
+				).toBe('native');
+			} finally {
+				requireAdbShell(
+					'settings',
+					'put',
+					'system',
+					'user_rotation',
+					String(originalRotation)
+				);
+				requireAdbShell(
+					'settings',
+					'put',
+					'system',
+					'accelerometer_rotation',
+					'1'
+				);
+			}
+
+			await webview.close();
+			await android.relaunch();
+			webview = await attachAbsoluteAndroidWebView({
+				adb: project.adb,
+				appId: 'com.absolutejs.conformance',
+				serial: android.serial,
+				timeoutMs: TIMEOUT_MS
+			});
+			await openNativeRoute('/native-system-ui', 'AbsoluteJS System UI');
+			await clickSystemUi('#system-ui-query');
+			await webview.waitFor<boolean>(
+				`document.querySelector('[data-system-bars]')?.getAttribute('data-system-bars') === 'native'`,
+				{ timeoutMs: TIMEOUT_MS }
+			);
+		}
+	);
+
+	nativeTest(
 		'routes HTMX to the backend and sanitizes returned fragments',
 		async () => {
-			await navigate('/htmx', 'AbsoluteJS + HTMX');
+			await openNativeRoute('/htmx', 'AbsoluteJS + HTMX');
 			await webview.waitFor<boolean>(
 				`document.querySelector('#count')?.textContent?.trim() === '0'`,
 				{ timeoutMs: TIMEOUT_MS }

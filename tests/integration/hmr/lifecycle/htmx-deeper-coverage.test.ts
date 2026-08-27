@@ -21,6 +21,10 @@ afterEach(async () => {
 
 const htmxPage = resolve(PROJECT_ROOT, 'example/htmx/pages/HTMXExample.html');
 const serverEntry = resolve(PROJECT_ROOT, 'example/server.ts');
+// Dev startup is allowed up to 60 seconds by startDevServer. Keep simple
+// boot-and-fetch cases above that ceiling so Bun never abandons their startup
+// promise mid-flight and lets it leak into the next test under a loaded host.
+const SERVER_BOOT_TEST_TIMEOUT_MS = 90_000;
 
 const startAndConnect = async () => {
 	server = await startDevServer();
@@ -69,20 +73,26 @@ const pollFragment = async (
  *
  * Each test exercises one HTMX-specific surface. */
 describe('HTMX deeper coverage', () => {
-	test('hx-* attributes round-trip through SSR unchanged', async () => {
-		const srv = await startAndConnect();
-		const html = await (await fetch(`${srv.baseUrl}/htmx`)).text();
-		// The example uses a dozen hx-* attributes — verify
-		// the ones that exercise different attribute parser
-		// branches all survived.
-		expect(html).toContain('hx-post="/htmx/reset"');
-		expect(html).toContain('hx-trigger="beforeunload from:window once"');
-		expect(html).toContain('hx-swap="none"');
-		expect(html).toContain('hx-target="#count"');
-		expect(html).toContain('hx-swap="innerHTML"');
-		expect(html).toContain('hx-get="/htmx/count"');
-		expect(html).toContain('hx-trigger="load"');
-	}, 30_000);
+	test(
+		'hx-* attributes round-trip through SSR unchanged',
+		async () => {
+			const srv = await startAndConnect();
+			const html = await (await fetch(`${srv.baseUrl}/htmx`)).text();
+			// The example uses a dozen hx-* attributes — verify
+			// the ones that exercise different attribute parser
+			// branches all survived.
+			expect(html).toContain('hx-post="/htmx/reset"');
+			expect(html).toContain(
+				'hx-trigger="beforeunload from:window once"'
+			);
+			expect(html).toContain('hx-swap="none"');
+			expect(html).toContain('hx-target="#count"');
+			expect(html).toContain('hx-swap="innerHTML"');
+			expect(html).toContain('hx-get="/htmx/count"');
+			expect(html).toContain('hx-trigger="load"');
+		},
+		SERVER_BOOT_TEST_TIMEOUT_MS
+	);
 
 	test('HTMX page edit propagates via `htmx-update` HMR broadcast', async () => {
 		const srv = await startAndConnect();
@@ -95,15 +105,19 @@ describe('HTMX deeper coverage', () => {
 		expect(html).toContain('HTMX_EDIT_OK');
 	}, 60_000);
 
-	test('HMR client is injected with the correct framework marker (`htmx`)', async () => {
-		const srv = await startAndConnect();
-		const html = await (await fetch(`${srv.baseUrl}/htmx`)).text();
-		// Same shape as HTML's injection but with `"htmx"`.
-		expect(html).toContain(
-			'<script>window.__HMR_FRAMEWORK__="htmx";</script>'
-		);
-		expect(html).toContain('data-hmr-client');
-	}, 30_000);
+	test(
+		'HMR client is injected with the correct framework marker (`htmx`)',
+		async () => {
+			const srv = await startAndConnect();
+			const html = await (await fetch(`${srv.baseUrl}/htmx`)).text();
+			// Same shape as HTML's injection but with `"htmx"`.
+			expect(html).toContain(
+				'<script>window.__HMR_FRAMEWORK__="htmx";</script>'
+			);
+			expect(html).toContain('data-hmr-client');
+		},
+		SERVER_BOOT_TEST_TIMEOUT_MS
+	);
 
 	test('fragment endpoint `hx-get` returns a plain text body when edited', async () => {
 		const srv = await startAndConnect();
@@ -169,14 +183,18 @@ describe('HTMX deeper coverage', () => {
 		expect(body).toContain('OOB_SWAP_OK');
 	}, 60_000);
 
-	test('`/htmx/htmx.min.js` vendor file is served with non-empty JS payload', async () => {
-		const srv = await startAndConnect();
-		const res = await fetch(`${srv.baseUrl}/htmx/htmx.min.js`);
-		expect(res.status).toBe(200);
-		const body = await res.text();
-		expect(body.length).toBeGreaterThan(1000);
-		expect(body).toMatch(/htmx/i);
-	}, 30_000);
+	test(
+		'`/htmx/htmx.min.js` vendor file is served with non-empty JS payload',
+		async () => {
+			const srv = await startAndConnect();
+			const res = await fetch(`${srv.baseUrl}/htmx/htmx.min.js`);
+			expect(res.status).toBe(200);
+			const body = await res.text();
+			expect(body.length).toBeGreaterThan(1000);
+			expect(body).toMatch(/htmx/i);
+		},
+		SERVER_BOOT_TEST_TIMEOUT_MS
+	);
 
 	test('multiple route mutations in one save apply atomically (in-flight requests safe)', async () => {
 		const srv = await startAndConnect();
@@ -217,21 +235,29 @@ describe('HTMX deeper coverage', () => {
 		void srv;
 	}, 60_000);
 
-	test('manifest key for HTMX page is the basename (no "Page" suffix)', async () => {
-		const srv = await startAndConnect();
-		const hmr = (await (
-			await fetch(`${srv.baseUrl}/hmr-status`)
-		).json()) as { manifestKeys?: string[] };
-		expect(hmr.manifestKeys).toContain('HTMXExample');
-		expect(hmr.manifestKeys).not.toContain('HTMXExamplePage');
-	}, 30_000);
+	test(
+		'manifest key for HTMX page is the basename (no "Page" suffix)',
+		async () => {
+			const srv = await startAndConnect();
+			const hmr = (await (
+				await fetch(`${srv.baseUrl}/hmr-status`)
+			).json()) as { manifestKeys?: string[] };
+			expect(hmr.manifestKeys).toContain('HTMXExample');
+			expect(hmr.manifestKeys).not.toContain('HTMXExamplePage');
+		},
+		SERVER_BOOT_TEST_TIMEOUT_MS
+	);
 
-	test('absolute `/assets/...` and `/htmx/...` paths pass through unchanged', async () => {
-		const srv = await startAndConnect();
-		const html = await (await fetch(`${srv.baseUrl}/htmx`)).text();
-		expect(html).toContain('href="/assets/ico/favicon.ico"');
-		expect(html).toContain('src="/htmx/htmx.min.js"');
-	}, 30_000);
+	test(
+		'absolute `/assets/...` and `/htmx/...` paths pass through unchanged',
+		async () => {
+			const srv = await startAndConnect();
+			const html = await (await fetch(`${srv.baseUrl}/htmx`)).text();
+			expect(html).toContain('href="/assets/ico/favicon.ico"');
+			expect(html).toContain('src="/htmx/htmx.min.js"');
+		},
+		SERVER_BOOT_TEST_TIMEOUT_MS
+	);
 
 	test('fragment endpoint that returns JSON still survives Path B reload (no content-type rewrite)', async () => {
 		const srv = await startAndConnect();

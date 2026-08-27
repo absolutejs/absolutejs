@@ -51,14 +51,18 @@ const FRAMEWORK_DIR_KEYS = [
 	'angularDirectory'
 ] as const;
 
-const collectDepVendorSourceDirs = (config: BuildConfig) => {
+export const collectDepVendorSourceDirs = (config: BuildConfig) => {
 	const configuredDirs = [
 		config.reactDirectory,
 		config.svelteDirectory,
 		config.vueDirectory,
 		config.angularDirectory,
 		config.htmlDirectory,
-		config.htmxDirectory
+		config.htmxDirectory,
+		// The browser HMR runtime has its own package imports (for example
+		// Sync diagnostics). Include them in the same vendor/rewrite graph as
+		// application imports so split dev chunks never leak bare specifiers.
+		resolve(import.meta.dir, '../dev/client')
 	].filter((dir): dir is string => Boolean(dir));
 
 	// Only scan the configured framework directories themselves. Including the

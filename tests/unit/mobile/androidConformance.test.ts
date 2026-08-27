@@ -18,7 +18,8 @@ const fakeSession = (
 	close: async () => undefined,
 	evaluate: async () => undefined as never,
 	navigate: async () => undefined,
-	screenshot: async (path) => path
+	screenshot: async (path) => path,
+	tap: async () => undefined
 });
 
 describe('Android native conformance', () => {
