@@ -57,7 +57,7 @@ export type PwaConfig = {
 	/** Service-worker behavior. Sync is controlled by the sibling `sync` field. */
 	serviceWorker?: Omit<
 		import('@absolutejs/pwa').ServiceWorkerOptions,
-		'sync'
+		'resubscribe' | 'sync'
 	>;
 	/** Public worker URL. Defaults to `/sw.js`. */
 	serviceWorkerPath?: string;
@@ -68,6 +68,16 @@ export type PwaConfig = {
 				import('@absolutejs/pwa/client').PwaSyncOptions,
 				'storageSchema'
 		  >;
+	/** Provision provider-neutral Web Push behind @absolutejs/devices. This is
+	 * automatic when pushNotifications is imported; set false to opt out. The
+	 * public VAPID key defaults to VAPID_PUBLIC_KEY at build time. */
+	push?:
+		| boolean
+		| {
+				applicationServerKey?: string;
+				/** Root-relative trusted Auth route. Defaults to /auth/push. */
+				route?: string;
+		  };
 };
 
 export type MobileConfig = {

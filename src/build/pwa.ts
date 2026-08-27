@@ -1,6 +1,7 @@
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type { PwaConfig } from '../../types/build';
+import { projectImportsAbsoluteDeviceCapability } from '../mobile/deviceCapabilities';
 import { discoverAbsoluteSyncSchema } from '../mobile/syncSchema';
 
 const BOOTSTRAP_PUBLIC_PATH = '/__absolute/pwa/bootstrap.js';
@@ -54,11 +55,13 @@ const destinationFor = (buildPath: string, publicPath: string) =>
 const bootstrapEntrySource = ({
 	clientModule,
 	manifestPath,
+	push,
 	serviceWorkerPath,
 	sync
 }: {
 	clientModule: string;
 	manifestPath?: string;
+	push?: false | import('@absolutejs/pwa/client').PwaPushOptions;
 	serviceWorkerPath: string;
 	sync?: false | import('@absolutejs/pwa/client').PwaSyncOptions;
 }) => `import { registerServiceWorker } from ${JSON.stringify(clientModule)};
@@ -77,6 +80,12 @@ if (!manifest.isConnected) document.head.append(manifest);
 	sync: ${JSON.stringify(sync)}`
 			: ''
 	}
+${
+	push
+		? `,
+	push: ${JSON.stringify(push)}`
+		: ''
+}
 });
 `;
 
@@ -141,6 +150,28 @@ export const materializeAbsolutePwa = async ({
 		serviceWorkerPath
 	};
 	if (!write) return artifacts;
+	const pushRequested =
+		config.push !== false &&
+		(config.push !== undefined ||
+			projectImportsAbsoluteDeviceCapability(
+				projectRoot,
+				'pushNotifications'
+			));
+	const configuredPush =
+		typeof config.push === 'object' ? config.push : undefined;
+	const pushRoute = pushRequested
+		? publicFilePath(configuredPush?.route, '/auth/push', 'pwa.push.route')
+		: undefined;
+	const pushApplicationServerKey = pushRequested
+		? (
+				configuredPush?.applicationServerKey ??
+				process.env.VAPID_PUBLIC_KEY
+			)?.trim()
+		: undefined;
+	if (pushRequested && !pushApplicationServerKey)
+		throw new TypeError(
+			'Web Push is used, but no public VAPID key is configured. Set VAPID_PUBLIC_KEY for the build or pwa.push.applicationServerKey.'
+		);
 	const syncSchema = config.sync
 		? discoverAbsoluteSyncSchema(projectRoot)
 		: undefined;
@@ -153,6 +184,14 @@ export const materializeAbsolutePwa = async ({
 		workerDestination,
 		`${pushServiceWorker({
 			...(config.serviceWorker ?? {}),
+			...(pushRequested && pushApplicationServerKey && pushRoute
+				? {
+						resubscribe: {
+							applicationServerKey: pushApplicationServerKey,
+							subscribePath: pushRoute
+						}
+					}
+				: {}),
 			sync: Boolean(config.sync)
 		})}\n`
 	);
@@ -178,6 +217,13 @@ export const materializeAbsolutePwa = async ({
 		bootstrapEntrySource({
 			clientModule,
 			manifestPath,
+			push:
+				pushRequested && pushApplicationServerKey && pushRoute
+					? {
+							applicationServerKey: pushApplicationServerKey,
+							endpoint: pushRoute
+						}
+					: false,
 			serviceWorkerPath,
 			sync: config.sync
 				? {

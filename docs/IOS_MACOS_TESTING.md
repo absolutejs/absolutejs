@@ -448,7 +448,7 @@ Use this repository's `/native-push` route. It imports only
 Request permission, Enable, and Disable controls plus sanitized received/action
 events. It never displays, logs, returns, or persists an APNs token. Do not
 import Capacitor or edit the native project by hand. The example's trusted
-server mounts `auth({ nativePush: ... })` with the Dispatch push lifecycle;
+server mounts `auth({ push: ... })` with the Dispatch push lifecycle;
 user, tenant, and topics are derived there.
 
 - [ ] `PUSH-01` Run `bunx absolute mobile sync ios`. Confirm it discovers

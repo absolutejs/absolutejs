@@ -132,6 +132,47 @@ describe('AbsoluteJS PWA build integration', () => {
 		).rejects.toThrow('root-level');
 	});
 
+	test('auto-provisions trusted Web Push when the portable capability is imported', async () => {
+		const paths = await fixture();
+		await writeFile(
+			join(paths.projectRoot, 'page.ts'),
+			"import { pushNotifications } from '@absolutejs/devices';\nvoid pushNotifications;\n"
+		);
+		const previousKey = process.env.VAPID_PUBLIC_KEY;
+		process.env.VAPID_PUBLIC_KEY = 'AQID';
+		try {
+			await materializeAbsolutePwa({ ...paths, config: {} });
+		} finally {
+			if (previousKey === undefined) delete process.env.VAPID_PUBLIC_KEY;
+			else process.env.VAPID_PUBLIC_KEY = previousKey;
+		}
+
+		const worker = await readFile(join(paths.buildPath, 'sw.js'), 'utf8');
+		expect(worker).toContain('pushsubscriptionchange');
+		expect(worker).toContain('PWA_SUBSCRIBE_PATH = "/auth/push"');
+		expect(worker).toContain("platform: 'webpush'");
+		const bootstrap = await readFile(
+			join(paths.buildPath, '__absolute', 'pwa', 'bootstrap.js'),
+			'utf8'
+		);
+		expect(bootstrap).toContain('/auth/push');
+		expect(bootstrap).toContain('AQID');
+	});
+
+	test('fails the build with setup guidance instead of silently disabling Web Push', async () => {
+		const paths = await fixture();
+		const previousKey = process.env.VAPID_PUBLIC_KEY;
+		delete process.env.VAPID_PUBLIC_KEY;
+		try {
+			await expect(
+				materializeAbsolutePwa({ ...paths, config: { push: true } })
+			).rejects.toThrow('VAPID_PUBLIC_KEY');
+		} finally {
+			if (previousKey !== undefined)
+				process.env.VAPID_PUBLIC_KEY = previousKey;
+		}
+	});
+
 	test('injects the static-page bootstrap once before head closes', () => {
 		const once = injectPwaBootstrapHtml(
 			'<!doctype html><html><head><title>App</title></head><body></body></html>'

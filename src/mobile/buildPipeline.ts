@@ -166,10 +166,14 @@ export const finalizeAbsoluteMobileCompatibilityBuild = async (
 		);
 	if (
 		usesPush &&
-		!loaded.app.routes.some((route) => route.path === '/auth/mobile/push')
+		!loaded.app.routes.some(
+			(route) =>
+				route.path === '/auth/push' ||
+				route.path === '/auth/mobile/push'
+		)
 	)
 		throw new TypeError(
-			'@absolutejs/devices pushNotifications is used, but Auth nativePush is not configured. Pass a server-side registrar to auth({ nativePush: ... }).'
+			'@absolutejs/devices pushNotifications is used, but Auth push is not configured. Pass a trusted server-side registrar to auth({ push: ... }).'
 		);
 	assertAbsoluteDeviceCapabilityPackages(
 		options.projectRoot,

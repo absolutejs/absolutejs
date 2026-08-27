@@ -9,7 +9,7 @@ import type {
 import type { AbsoluteMobileShellAuthRuntime } from './shellBootstrap';
 
 const INSTALLATION_KEY = 'absolutejs.push.installation-id';
-export const ABSOLUTE_NATIVE_PUSH_ROUTE = '/auth/mobile/push' as const;
+export const ABSOLUTE_PUSH_ROUTE = '/auth/push' as const;
 
 type RegistrationResponse = {
 	installationId: string;
@@ -76,7 +76,7 @@ export const createAbsoluteMobileShellPush = ({
 			const client = requireAuth();
 			const currentInstallation = await installationId();
 			const register = (knownInstallation?: string | null) =>
-				client.fetch(ABSOLUTE_NATIVE_PUSH_ROUTE, {
+				client.fetch(ABSOLUTE_PUSH_ROUTE, {
 					body: JSON.stringify({
 						...(knownInstallation
 							? { installationId: knownInstallation }
@@ -105,16 +105,13 @@ export const createAbsoluteMobileShellPush = ({
 		onUnregistration: async () => {
 			const currentInstallation = await installationId();
 			if (!currentInstallation) return;
-			const response = await requireAuth().fetch(
-				ABSOLUTE_NATIVE_PUSH_ROUTE,
-				{
-					body: JSON.stringify({
-						installationId: currentInstallation
-					}),
-					headers: { 'content-type': 'application/json' },
-					method: 'DELETE'
-				}
-			);
+			const response = await requireAuth().fetch(ABSOLUTE_PUSH_ROUTE, {
+				body: JSON.stringify({
+					installationId: currentInstallation
+				}),
+				headers: { 'content-type': 'application/json' },
+				method: 'DELETE'
+			});
 			await requireResponse(response, 'removal');
 			await storage.remove(INSTALLATION_KEY);
 		}

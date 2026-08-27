@@ -138,7 +138,10 @@ export default defineConfig({
 		},
 		// With @absolutejs/auth + syncSocket(), this provisions the existing
 		// HTTP-only web session and durable IndexedDB transport automatically.
-		sync: true
+		sync: true,
+		// Optional: importing pushNotifications enables this automatically.
+		// The public key defaults to VAPID_PUBLIC_KEY at build time.
+		push: true
 	}
 });
 ```
@@ -149,6 +152,14 @@ offline fallback in `publicDirectory`. The worker uses Background Sync when the
 browser offers it, while online/focus/visibility resume remains the correctness
 path. Native Capacitor clients continue to use their Bearer and SQLite
 transport; no web cookie or token is copied into the worker.
+
+Portable push uses the same `pushNotifications` API in the browser and a
+Capacitor shell. AbsoluteJS generates Web Push registration and subscription
+rotation against the same-origin `/auth/push` route. Configure the trusted
+server once with `auth({ push: { registrar, tenant, topics } })`; Auth derives
+identity, tenant, and authorized topics, while page code never receives APNs,
+FCM, or Web Push credentials. Only the public VAPID key enters browser output;
+keep `VAPID_PRIVATE_KEY` in the server-side Dispatch sender.
 
 `@absolutejs/pwa/client` also exposes `onPwaSyncResult()` and
 `getLastPwaSyncResult()` (plus the `absolute:pwa-sync-result` DOM event) for

@@ -10,7 +10,7 @@ Capacitor shell. Application code imports `pushNotifications` from
 disable delivery, and subscribe to normalized receipt/action events, but no
 public contract exposes an APNs or FCM token. The generated shell alone receives
 that token and sends it to the fixed bearer-authenticated
-`/auth/mobile/push` route. Auth derives user, tenant, and authorized topics on
+`/auth/push` route (`/auth/mobile/push` remains an installed-client alias). Auth derives user, tenant, and authorized topics on
 the trusted server. Dispatch issues an opaque installation identity, verifies
 ownership during rotation/removal, fans out through provider adapters, and
 retires invalid tokens. Failed sign-out cleanup cannot strand a later account:
@@ -3101,3 +3101,24 @@ one client-wins retry; ephemeral presence accepts the server view. Release docto
 prints the effective strategy counts. Application-facing merge UI remains an
 app/product concern, but it can consume the same typed remediation bridge without
 depending on Capacitor, React, or the development panel.
+
+## Current cross-platform push checkpoint
+
+Portable push now has one additive contract across web and installed apps.
+`@absolutejs/auth@0.75.0` mounts canonical cookie-or-bearer `/auth/push`
+registration while retaining `/auth/mobile/push` for installed beta clients;
+the trusted server derives principal, tenant, and topics. `@absolutejs/dispatch`
+0.9.0 models APNs/FCM tokens and structured Web Push subscriptions without
+flattening browser credentials. `@absolutejs/dispatch-push-postgres@0.2.0`
+applies an additive native-to-Web-Push schema migration and rotates credentials
+atomically by stable installation identity.
+
+`@absolutejs/pwa@0.14.0` installs a web implementation behind the existing
+`@absolutejs/devices` `pushNotifications` facade, keeps the opaque installation
+identity in page/service-worker shared IndexedDB, re-registers browser-rotated
+subscriptions while no page is open, and exposes only normalized receipt/action
+events to application code. Registration endpoints and notification action
+requests are constrained to the exact origin. AbsoluteJS discovers the portable
+capability without requiring Capacitor metadata, reads only the public VAPID key
+from `VAPID_PUBLIC_KEY` at build time, and fails with setup guidance if it is
+missing. Private VAPID material remains solely in the trusted server sender.

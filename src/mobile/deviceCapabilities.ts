@@ -448,6 +448,26 @@ export const missingAbsoluteDeviceCapabilityPackages = (
 		return !directPackages.has(packageName);
 	});
 
+/** Framework-agnostic capability discovery used by web/PWA builds. This does
+ * not load a native provider manifest, so Web Push never requires Capacitor. */
+export const projectImportsAbsoluteDeviceCapability = (
+	projectRoot: string,
+	capability: string
+) => {
+	const root = resolve(projectRoot);
+	for (const path of SOURCE_GLOB.scanSync({ cwd: root })) {
+		const portable = relative(root, resolve(root, path)).replaceAll(
+			'\\',
+			'/'
+		);
+		if (isIgnored(portable)) continue;
+		const source = readFileSync(resolve(root, portable), 'utf8');
+		if (importedCapabilities(source, portable).has(capability)) return true;
+	}
+
+	return false;
+};
+
 export const resolveAbsoluteDeviceCapabilityPlan = (
 	projectRoot: string
 ): AbsoluteDeviceCapabilityPlan => {

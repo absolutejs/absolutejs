@@ -217,7 +217,7 @@ describe('Capacitor local web bundle', () => {
 		expect(bootstrap).toContain('registerClient');
 		expect(bootstrap).toContain('networkStatusChange');
 		expect(bootstrap).toContain('absolute:sync-status');
-		expect(bootstrap).toContain('/auth/mobile/push');
+		expect(bootstrap).toContain('/auth/push');
 		expect(bootstrap).toContain('onRegistration');
 		expect(bootstrap).toContain('beforeSignOut');
 		expect(bootstrap).toContain('absoluteMobilePageStyle');

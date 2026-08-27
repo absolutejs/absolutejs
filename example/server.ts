@@ -40,7 +40,7 @@ import { handleVuePageRequest } from '../src/vue';
 const { absolutejs, manifest } = await prepare();
 const nativeOidcIssuer =
 	process.env.ABSOLUTE_NATIVE_CONFORMANCE_ORIGIN ?? 'http://localhost:3000';
-const nativePushLifecycle = createPushLifecycle({
+const pushLifecycle = createPushLifecycle({
 	store: memoryPushSubscriptionStore(),
 	adapterFor: () => ({
 		name: 'absolutejs-acceptance',
@@ -52,11 +52,6 @@ const nativePushLifecycle = createPushLifecycle({
 });
 const nativeOidc = await auth<{ sub: string }>({
 	authSessionStore: createInMemoryAuthSessionStore(),
-	nativePush: {
-		registrar: nativePushLifecycle,
-		tenant: 'absolutejs-acceptance',
-		topics: () => ['absolutejs-mobile-acceptance']
-	},
 	oidc: {
 		authorizationCodeStore: createInMemoryAuthorizationCodeStore(),
 		clientStore: createInMemoryOAuthClientStore([]),
@@ -68,6 +63,11 @@ const nativeOidc = await auth<{ sub: string }>({
 		getUserId: ({ sub }) => sub
 	},
 	providersConfiguration: {},
+	push: {
+		registrar: pushLifecycle,
+		tenant: 'absolutejs-acceptance',
+		topics: () => ['absolutejs-mobile-acceptance']
+	},
 	getUser: (sub) => ({ sub })
 });
 
