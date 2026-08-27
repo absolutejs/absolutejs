@@ -12,6 +12,7 @@ export type AbsoluteDeviceCapabilityProvider = {
 				Record<AbsoluteIosPrivacyAccessedApi, string[]>
 			>;
 			pushNotifications?: true;
+			systemBars?: true;
 			usageDescriptions?: AbsoluteIosUsageDescription[];
 		};
 	};
@@ -141,9 +142,16 @@ const iosPrivacyAccessedApis = (value: unknown, field: string) => {
 const iosNativeRequirements = (value: unknown, field: string) => {
 	if (value === undefined) return undefined;
 	if (!object(value)) throw new TypeError(`${field} must be an object.`);
-	const { privacyAccessedApis, pushNotifications, usageDescriptions } = value;
+	const {
+		privacyAccessedApis,
+		pushNotifications,
+		systemBars,
+		usageDescriptions
+	} = value;
 	if (pushNotifications !== undefined && pushNotifications !== true)
 		throw new TypeError(`${field}.pushNotifications must be true.`);
+	if (systemBars !== undefined && systemBars !== true)
+		throw new TypeError(`${field}.systemBars must be true.`);
 	if (
 		usageDescriptions !== undefined &&
 		(!Array.isArray(usageDescriptions) ||
@@ -166,6 +174,7 @@ const iosNativeRequirements = (value: unknown, field: string) => {
 		...(pushNotifications === true
 			? { pushNotifications: true as const }
 			: {}),
+		...(systemBars === true ? { systemBars: true as const } : {}),
 		...(usageDescriptions === undefined
 			? {}
 			: { usageDescriptions: [...usageDescriptions] })
@@ -262,6 +271,9 @@ export const absoluteDeviceNativeRequirements = (
 		iosPushNotifications: plan.capabilities.some(
 			(name) =>
 				plan.providers[name]?.native?.ios?.pushNotifications === true
+		),
+		iosSystemBars: plan.capabilities.some(
+			(name) => plan.providers[name]?.native?.ios?.systemBars === true
 		),
 		iosUsageDescriptions: [
 			...new Set(

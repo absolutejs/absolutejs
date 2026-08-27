@@ -26,6 +26,10 @@ const MANUAL_CHECKS = [
 	['DEV-02', 'Complete route traversal, HMR, relaunch, and recovery checks.'],
 	['CAP-01', 'Complete automatic device-capability provisioning checks.'],
 	[
+		'SYSUI-01',
+		'Complete keyboard and modern edge-to-edge system-bars checks.'
+	],
+	[
 		'FILES-01',
 		'Complete provider-neutral file pick, export, open, and cleanup checks.'
 	],

@@ -51,6 +51,8 @@ actual result, sanitized logs, and artifact or screenshot path in section 13.
 - [ ] `DEV-01` Complete the cold and warm `bun dev` simulator runs.
 - [ ] `DEV-02` Complete route traversal, HMR timing, relaunch, and recovery.
 - [ ] `CAP-01` Complete automatic device-capability provisioning.
+- [ ] `SYSUI-01` through `SYSUI-08` Complete the Keyboard and System Bars
+  checklist.
 - [ ] `FILES-01` through `FILES-08` Complete the Documents checklist.
 - [ ] `NOTIF-01` through `NOTIF-08` Complete the Local Notifications checklist.
 - [ ] `PUSH-01` through `PUSH-08` Complete the native Push Notifications
@@ -94,9 +96,9 @@ still requires the developer team setup described below.
 From the root of the AbsoluteJS application:
 
 ```sh
-bun add @absolutejs/absolute@0.20.0-beta.25 \
-  @absolutejs/auth@0.74.0 \
-  @absolutejs/dispatch@0.8.0 \
+bun add @absolutejs/absolute@0.20.0-beta.27 \
+  @absolutejs/auth@0.75.0 \
+  @absolutejs/dispatch@0.9.0 \
   @absolutejs/sync@2.29.0 \
   @absolutejs/sync-capacitor@0.9.1 \
   @absolutejs/deploy@0.24.0 \
@@ -107,11 +109,12 @@ bun add @absolutejs/absolute@0.20.0-beta.25 \
   @capacitor-community/sqlite@8.1.1 \
   @capacitor/network@8.0.1 \
   @capacitor/preferences@8.0.1 \
+  @capacitor/keyboard@8.0.5 \
   @capacitor/local-notifications@8.2.1 \
   @capacitor/cli@8.5.0 \
   @capacitor/ios@8.5.0 \
-  @absolutejs/devices@0.6.0 \
-  @absolutejs/devices-capacitor@0.7.1
+  @absolutejs/devices@0.7.0 \
+  @absolutejs/devices-capacitor@0.8.0
 ```
 
 `absolute mobile init` now offers to install this tested Capacitor/device
@@ -349,6 +352,37 @@ browser permits it and that haptics safely degrades when vibration is absent. In
 the iOS Simulator, confirm clipboard write and the native share sheet. A
 Simulator cannot prove physical vibration, so confirm haptics on the TestFlight
 device and record that result separately.
+
+### Provider-neutral Keyboard and System Bars acceptance checklist
+
+Use this repository's `/native-system-ui` route. It imports only `keyboard` and
+`systemBars` from `@absolutejs/devices`; do not import Capacitor, edit Xcode, or
+branch on iOS. `light` and `dark` describe the system icon/text foreground, not
+the application background.
+
+- [ ] `SYSUI-01` Run `bunx absolute mobile sync ios`. Confirm it discovers
+  `keyboard` and `systemBars`, offers exactly `@capacitor/keyboard@8.0.5`, and
+  does not offer a separate Status Bar plugin. Rerun sync and confirm no prompt.
+- [ ] `SYSUI-02` Inspect `Info.plist`. Confirm the AbsoluteJS-owned region sets
+  `UIViewControllerBasedStatusBarAppearance` to `true` exactly once. Release
+  doctor must pass without a manual Xcode edit.
+- [ ] `SYSUI-03` Open `/native-system-ui` in the web preview. Query must report
+  browser keyboard support when `VisualViewport` exists and emulated bar
+  appearance. Visibility control must report `unsupported`, not a false pass.
+- [ ] `SYSUI-04` In the iOS Simulator, focus the fixture input. Confirm exactly
+  one visible event with a positive CSS-pixel height. Dismiss through the
+  portable button and confirm one hidden event with height zero.
+- [ ] `SYSUI-05` Repeat focus/dismiss five times and navigate away/back twice.
+  Confirm there are no duplicate events or retained listeners.
+- [ ] `SYSUI-06` Apply light and dark foreground appearances. Confirm status and
+  navigation/gesture content remain legible against the acceptance page, then
+  restore `automatic` by reloading the app.
+- [ ] `SYSUI-07` Hide only the status bar, then show all bars. Confirm the app
+  remains interactive, safe-area content is not clipped, and Android-only
+  legacy background/overlay controls are absent from the generated project.
+- [ ] `SYSUI-08` Repeat keyboard focus/dismiss, appearance, hide/show, rotation,
+  background/resume, and process-death relaunch on the physical TestFlight
+  device. Record sanitized timings and screenshots containing no typed secrets.
 
 For Camera, confirm `takePhoto()` fails without implicitly opening a permission
 prompt, then call `requestPermission()` from its button and take a photo. Test a
@@ -1038,14 +1072,15 @@ source change and build a new content-addressed release instead.
 - Mac architecture:
 - Xcode version:
 - Bun version:
-- AbsoluteJS version: 0.20.0-beta.25
-- Auth version: 0.74.0
-- Dispatch version: 0.8.0
+- AbsoluteJS version: 0.20.0-beta.27
+- Auth version: 0.75.0
+- Dispatch version: 0.9.0
 - Sync version: 2.29.0
 - Sync Capacitor version: 0.9.1
 - Capacitor SQLite version: 8.1.1
-- Devices version: 0.6.0
-- Devices Capacitor version: 0.7.1
+- Devices version: 0.7.0
+- Devices Capacitor version: 0.8.0
+- Keyboard version: 8.0.5
 - Push Notifications version: 8.1.2
 - Local Notifications version: 8.2.1
 - File Viewer version: 2.0.2
@@ -1071,6 +1106,14 @@ versus expected behavior. Do not report exact coordinates.
 | DEV-01 |  | cold: / warm: |  |
 | DEV-02 |  | HMR: / relaunch: |  |
 | CAP-01 |  | discovered: / installed: |  |
+| SYSUI-01 |  | discovered / exact package / idempotent sync: |  |
+| SYSUI-02 |  | Info.plist value / release doctor: |  |
+| SYSUI-03 |  | web keyboard / appearance / visibility boundary: |  |
+| SYSUI-04 |  | visible height / hidden event: |  |
+| SYSUI-05 |  | repetitions / duplicate listener count: |  |
+| SYSUI-06 |  | light / dark / automatic legibility: |  |
+| SYSUI-07 |  | targeted hide / restore / safe area: |  |
+| SYSUI-08 |  | physical lifecycle / rotation / relaunch: |  |
 | FILES-01 |  | discovered packages / idempotent sync: |  |
 | FILES-02 |  | manifest reason / target membership: |  |
 | FILES-03 |  | web pick / download / preview: |  |

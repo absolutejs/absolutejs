@@ -8,10 +8,11 @@
 	},
 	"dependencies": {
 		"@absolutejs/auth": "0.75.0",
-		"@absolutejs/devices": "0.6.0",
-		"@absolutejs/devices-capacitor": "0.7.1",
+		"@absolutejs/devices": "0.7.0",
+		"@absolutejs/devices-capacitor": "0.8.0",
 		"@absolutejs/pwa": "0.14.0",
 		"@capacitor/browser": "8.0.4",
+		"@capacitor/keyboard": "8.0.5",
 		"@capacitor/network": "8.0.1",
 		"@capacitor/preferences": "8.0.1",
 		"@elysia/openapi": "2.0.0-beta.1",
@@ -453,7 +454,7 @@
 		"test:native:android:hmr": "ABSOLUTE_TEST_NATIVE_ANDROID=1 bun test tests/native/android-hmr-conformance.test.ts",
 		"test:native:android:lifecycle": "ABSOLUTE_TEST_NATIVE_ANDROID=1 bun test tests/native/android-lifecycle-conformance.test.ts",
 		"test:native:ios": "ABSOLUTE_TEST_NATIVE_IOS=1 bun test tests/native/ios-lifecycle-conformance.test.ts",
-		"test:unit": "bun test tests/unit",
+		"test:unit": "bun test --max-concurrency 1 tests/unit",
 		"typecheck": "bun run src/cli/index.ts typecheck --config example/absolute.config.ts",
 		"verify:release-versions": "bun run scripts/verifyReleaseVersions.ts"
 	},
@@ -501,7 +502,7 @@
 			]
 		}
 	},
-	"version": "0.20.0-beta.26",
+	"version": "0.20.0-beta.27",
 	"workspaces": [
 		"tests/fixtures/*",
 		"tests/fixtures/_packages/*"

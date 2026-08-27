@@ -34,6 +34,11 @@ describe('Android native test report', () => {
 		).toMatchObject({
 			result: 'NOT_RUN'
 		});
+		expect(
+			report.manualChecks.find(({ id }) => id === 'SYSUI-01')
+		).toMatchObject({
+			result: 'NOT_RUN'
+		});
 		expect(renderAbsoluteNativeTestReport(report)).toContain(
 			'Routes: /react, /vue.'
 		);

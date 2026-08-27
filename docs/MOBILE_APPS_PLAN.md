@@ -3,6 +3,19 @@
 Status: Capacitor Android development/release, all-framework embedded bundles, universal native Auth/Sync, background Sync, automatic device provisioning, provider-neutral native push registration, and Android conformance are operational; iOS development/release automation is shipped and awaiting real macOS/physical-device acceptance
 Research snapshot: August 26, 2026
 
+Implementation checkpoint (August 26, 2026): the remaining Wave 1 system-UI
+surface is implemented in `@absolutejs/devices@0.7.0`,
+`@absolutejs/devices-capacitor@0.8.0`, and AbsoluteJS `0.20.0-beta.27`.
+Application code imports `keyboard` and `systemBars` without provider branches.
+Keyboard exposes visibility, CSS-pixel height, dismissal, and cleanup-safe
+events through VisualViewport on web and the exact Capacitor Keyboard 8.0.5
+plugin on native. System bars use Capacitor 8's bundled modern edge-to-edge API,
+not the legacy Status Bar controls disabled by Android 16 enforcement. AbsoluteJS
+discovers both imports, installs only Keyboard, generates the provider wiring,
+and owns the required iOS view-controller status-bar setting. The example route,
+unit/provider/projection coverage, and eight-step macOS/physical-device checklist
+are included; physical iOS behavior remains partner-gated.
+
 Implementation checkpoint (August 26, 2026): the provider-neutral native push
 boundary is implemented across Devices, Auth, Dispatch, and the generated
 Capacitor shell. Application code imports `pushNotifications` from

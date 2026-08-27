@@ -39,6 +39,14 @@ const MANUAL_CHECKS = [
 		{ length: 8 },
 		(_, index) =>
 			[
+				`SYSUI-${String(index + 1).padStart(2, '0')}`,
+				`Complete provider-neutral Keyboard and System Bars runbook check SYSUI-${String(index + 1).padStart(2, '0')}.`
+			] as const
+	),
+	...Array.from(
+		{ length: 8 },
+		(_, index) =>
+			[
 				`FILES-${String(index + 1).padStart(2, '0')}`,
 				`Complete provider-neutral Documents runbook check FILES-${String(index + 1).padStart(2, '0')}.`
 			] as const
@@ -49,6 +57,14 @@ const MANUAL_CHECKS = [
 			[
 				`NOTIF-${String(index + 1).padStart(2, '0')}`,
 				`Complete provider-neutral Local Notifications runbook check NOTIF-${String(index + 1).padStart(2, '0')}.`
+			] as const
+	),
+	...Array.from(
+		{ length: 8 },
+		(_, index) =>
+			[
+				`PUSH-${String(index + 1).padStart(2, '0')}`,
+				`Complete provider-neutral Push Notifications runbook check PUSH-${String(index + 1).padStart(2, '0')}.`
 			] as const
 	),
 	...Array.from(

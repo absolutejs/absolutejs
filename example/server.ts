@@ -24,6 +24,7 @@ import { NativeLocationAcceptance } from './react/pages/NativeLocationAcceptance
 import { NativeDocumentsAcceptance } from './react/pages/NativeDocumentsAcceptance';
 import { NativeNotificationsAcceptance } from './react/pages/NativeNotificationsAcceptance';
 import { NativePushAcceptance } from './react/pages/NativePushAcceptance';
+import { NativeSystemUiAcceptance } from './react/pages/NativeSystemUiAcceptance';
 import {
 	asset,
 	handleHTMLPageRequest,
@@ -135,6 +136,13 @@ export const server: AnyElysia = new Elysia()
 		handleReactPageRequest({
 			index: asset(manifest, 'NativePushAcceptanceIndex'),
 			Page: NativePushAcceptance,
+			props: {}
+		})
+	)
+	.get('/native-system-ui', () =>
+		handleReactPageRequest({
+			index: asset(manifest, 'NativeSystemUiAcceptanceIndex'),
+			Page: NativeSystemUiAcceptance,
 			props: {}
 		})
 	)

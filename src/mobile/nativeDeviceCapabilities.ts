@@ -281,11 +281,38 @@ const configureIos = async (
 	const path = join(config.nativeProjectDirectory, 'ios/App/App/Info.plist');
 	const source = await readFile(path, 'utf8');
 	const requirements = absoluteDeviceNativeRequirements(plan);
-	const content = requirements.iosUsageDescriptions
+	const existingSystemBars = source.match(
+		/<key>UIViewControllerBasedStatusBarAppearance<\/key>\s*<(true|false)\s*\/>/u
+	);
+	const ownedStart = source.indexOf(START_MARKER);
+	const ownedEnd = source.indexOf(END_MARKER);
+	const ownsSystemBars =
+		ownedStart >= 0 &&
+		ownedEnd > ownedStart &&
+		source
+			.slice(ownedStart, ownedEnd)
+			.includes('UIViewControllerBasedStatusBarAppearance');
+	if (
+		requirements.iosSystemBars &&
+		existingSystemBars?.[1] === 'false' &&
+		!ownsSystemBars
+	)
+		throw new TypeError(
+			'iOS system bars require UIViewControllerBasedStatusBarAppearance to be true.'
+		);
+	const usageContent = requirements.iosUsageDescriptions
 		.map(
 			(purpose) =>
 				`\t<key>${IOS_KEYS[purpose]}</key>\n\t<string>${escapeXml(iosDescription(config.appName, purpose))}</string>`
 		)
+		.join('\n');
+	const systemBarsContent =
+		requirements.iosSystemBars &&
+		(existingSystemBars === null || ownsSystemBars)
+			? '\t<key>UIViewControllerBasedStatusBarAppearance</key>\n\t<true/>'
+			: '';
+	const content = [usageContent, systemBarsContent]
+		.filter(Boolean)
 		.join('\n');
 	const region = content
 		? `\t${START_MARKER}\n${content}\n\t${END_MARKER}\n`

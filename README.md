@@ -218,11 +218,26 @@ does not silently replace a running application session.
 Application code uses one provider-neutral API in web pages and Capacitor apps:
 
 ```ts
-import { camera, clipboard, haptics, photos, share } from '@absolutejs/devices';
+import {
+	camera,
+	clipboard,
+	haptics,
+	keyboard,
+	photos,
+	share,
+	systemBars
+} from '@absolutejs/devices';
 
 await clipboard.writeText('Copied everywhere');
 await share.share({ text: 'Shared everywhere', url: 'https://absolutejs.com' });
 await haptics.impact('light');
+const removeKeyboard = await keyboard.onChange(({ visible, heightPx }) => {
+	document.documentElement.style.setProperty(
+		'--keyboard-height',
+		visible ? `${heightPx}px` : '0px'
+	);
+});
+await systemBars.setAppearance('light', 'status');
 const permission = await camera.requestPermission();
 if (permission.state === 'granted') {
 	const capture = await camera.takePhoto();
@@ -238,6 +253,12 @@ shell wires them into the shared device facade; users do not import Capacitor,
 edit Swift/Kotlin, or maintain native bootstrap code. Type-only imports and test
 sources do not provision plugins. `absolute mobile doctor release` rejects a
 missing or mismatched plugin before release.
+
+`keyboard` provides portable visibility, CSS-pixel height, dismissal, and
+cleanup-safe change events. `systemBars` controls modern edge-to-edge status and
+navigation bar foreground appearance/visibility through Capacitor 8 core. Its
+`light` and `dark` values name the icon/text foreground. Web appearance uses
+best-effort `color-scheme`; browser chrome visibility reports unsupported.
 
 Camera capture requires an explicit `camera.requestPermission()` call from an
 intentional user action. `photos.pick()` uses the item-scoped system picker

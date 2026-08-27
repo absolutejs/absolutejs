@@ -139,6 +139,19 @@ const pushNotificationsPlan: AbsoluteDeviceCapabilityPlan = {
 	requiredPackages: ['@capacitor/push-notifications@8.1.2']
 };
 
+const systemBarsPlan: AbsoluteDeviceCapabilityPlan = {
+	capabilities: ['systemBars'],
+	providers: {
+		systemBars: {
+			factory: 'createCapacitorSystemBarsCapability',
+			module: '@absolutejs/devices-capacitor/system-bars',
+			native: { ios: { systemBars: true } },
+			packages: []
+		}
+	},
+	requiredPackages: []
+};
+
 const iosProject = `// !$*UTF8*$!
 {
 objects = {
@@ -167,6 +180,78 @@ objects = {
 `;
 
 describe('native device capability projection', () => {
+	test('projects the modern iOS system-bars controller setting idempotently', async () => {
+		const root = await mkdtemp(
+			join(tmpdir(), 'absolute-native-system-bars-')
+		);
+		temporaryDirectories.push(root);
+		const ios = join(root, 'mobile/ios/App/App');
+		await mkdir(ios, { recursive: true });
+		await writeFile(
+			join(ios, 'Info.plist'),
+			'<plist>\n<dict>\n</dict>\n</plist>\n'
+		);
+		const config = normalizeAbsoluteMobileConfig(
+			{
+				appId: 'com.example.systemui',
+				appName: 'System UI',
+				platforms: ['ios'],
+				server: { productionOrigin: 'https://api.example.com' }
+			},
+			root
+		);
+
+		const first = await applyAbsoluteNativeDeviceCapabilities(
+			root,
+			config,
+			['ios'],
+			systemBarsPlan
+		);
+		const second = await applyAbsoluteNativeDeviceCapabilities(
+			root,
+			config,
+			['ios'],
+			systemBarsPlan
+		);
+		const info = await readFile(join(ios, 'Info.plist'), 'utf8');
+
+		expect(first.changed).toEqual(['ios']);
+		expect(second.changed).toEqual([]);
+		expect(info).toContain(
+			'<key>UIViewControllerBasedStatusBarAppearance</key>\n\t<true/>'
+		);
+	});
+
+	test('rejects an incompatible user-owned iOS status-bar setting', async () => {
+		const root = await mkdtemp(
+			join(tmpdir(), 'absolute-native-system-bars-custom-')
+		);
+		temporaryDirectories.push(root);
+		const ios = join(root, 'mobile/ios/App/App');
+		await mkdir(ios, { recursive: true });
+		await writeFile(
+			join(ios, 'Info.plist'),
+			'<plist>\n<dict>\n\t<key>UIViewControllerBasedStatusBarAppearance</key>\n\t<false/>\n</dict>\n</plist>\n'
+		);
+		const config = normalizeAbsoluteMobileConfig(
+			{
+				appId: 'com.example.systemui',
+				appName: 'System UI',
+				platforms: ['ios'],
+				server: { productionOrigin: 'https://api.example.com' }
+			},
+			root
+		);
+
+		await expect(
+			applyAbsoluteNativeDeviceCapabilities(
+				root,
+				config,
+				['ios'],
+				systemBarsPlan
+			)
+		).rejects.toThrow('UIViewControllerBasedStatusBarAppearance');
+	});
 	test('provisions native push plumbing and validates the Firebase application identity', async () => {
 		const root = await mkdtemp(join(tmpdir(), 'absolute-native-push-'));
 		temporaryDirectories.push(root);

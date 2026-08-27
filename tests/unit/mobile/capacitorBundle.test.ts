@@ -18,9 +18,11 @@ const optionalDeviceCapabilities: AbsoluteDeviceCapabilityPlan = {
 	capabilities: [
 		'camera',
 		'clipboard',
+		'keyboard',
 		'location',
 		'photos',
-		'pushNotifications'
+		'pushNotifications',
+		'systemBars'
 	],
 	providers: {
 		camera: {
@@ -32,6 +34,11 @@ const optionalDeviceCapabilities: AbsoluteDeviceCapabilityPlan = {
 			factory: 'createCapacitorClipboardCapability',
 			module: '@absolutejs/devices-capacitor/clipboard',
 			packages: ['@capacitor/clipboard@8.0.1']
+		},
+		keyboard: {
+			factory: 'createCapacitorKeyboardCapability',
+			module: '@absolutejs/devices-capacitor/keyboard',
+			packages: ['@capacitor/keyboard@8.0.5']
 		},
 		location: {
 			factory: 'createCapacitorLocationCapability',
@@ -53,12 +60,19 @@ const optionalDeviceCapabilities: AbsoluteDeviceCapabilityPlan = {
 				ios: { pushNotifications: true }
 			},
 			packages: ['@capacitor/push-notifications@8.1.2']
+		},
+		systemBars: {
+			factory: 'createCapacitorSystemBarsCapability',
+			module: '@absolutejs/devices-capacitor/system-bars',
+			native: { ios: { systemBars: true } },
+			packages: []
 		}
 	},
 	requiredPackages: [
 		'@capacitor/camera@8.2.3',
 		'@capacitor/clipboard@8.0.1',
 		'@capacitor/geolocation@8.2.2',
+		'@capacitor/keyboard@8.0.5',
 		'@capacitor/push-notifications@8.1.2'
 	]
 };
@@ -184,9 +198,11 @@ describe('Capacitor local web bundle', () => {
 		expect(manifest.deviceCapabilities).toEqual([
 			'camera',
 			'clipboard',
+			'keyboard',
 			'location',
 			'photos',
-			'pushNotifications'
+			'pushNotifications',
+			'systemBars'
 		]);
 		expect(localStylePath).toBeDefined();
 		expect(
@@ -210,6 +226,8 @@ describe('Capacitor local web bundle', () => {
 		expect(bootstrap).toContain('chooseFromGallery');
 		expect(bootstrap).toContain('getCurrentPosition');
 		expect(bootstrap).toContain('watchPosition');
+		expect(bootstrap).toContain('keyboardDidShow');
+		expect(bootstrap).toContain('SystemBars');
 		expect(bootstrap).toContain('AbsoluteSecureStorage');
 		expect(bootstrap).toContain('oidc.refresh');
 		expect(bootstrap).toContain('client-runtime-transport');

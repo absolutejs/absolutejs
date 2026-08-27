@@ -52,7 +52,7 @@ describe('iOS partner test report', () => {
 			xcodeVersion: 'Xcode 16.4'
 		});
 		expect(report.overallResult).toBe('INCOMPLETE');
-		expect(report.manualChecks).toHaveLength(46);
+		expect(report.manualChecks).toHaveLength(62);
 		expect(
 			report.manualChecks.find(({ id }) => id === 'FILES-08')
 		).toMatchObject({
@@ -60,6 +60,12 @@ describe('iOS partner test report', () => {
 		});
 		expect(
 			report.manualChecks.find(({ id }) => id === 'NOTIF-08')
+		).toMatchObject({ result: 'NOT_RUN' });
+		expect(
+			report.manualChecks.find(({ id }) => id === 'SYSUI-08')
+		).toMatchObject({ result: 'NOT_RUN' });
+		expect(
+			report.manualChecks.find(({ id }) => id === 'PUSH-08')
 		).toMatchObject({ result: 'NOT_RUN' });
 		expect(
 			report.manualChecks.every(({ result }) => result === 'NOT_RUN')
@@ -98,6 +104,8 @@ describe('iOS partner test report', () => {
 		expect(markdown).toContain('| AUTO-HMR-01 | PASS |');
 		expect(markdown).toContain('| LOC-14 | NOT_RUN |');
 		expect(markdown).toContain('| NOTIF-08 | NOT_RUN |');
+		expect(markdown).toContain('| SYSUI-08 | NOT_RUN |');
+		expect(markdown).toContain('| PUSH-08 | NOT_RUN |');
 		expect(markdown).toContain(
 			'This report is local and is never uploaded'
 		);
