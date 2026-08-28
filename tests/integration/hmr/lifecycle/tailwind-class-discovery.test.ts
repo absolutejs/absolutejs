@@ -44,6 +44,10 @@ const startAndConnect = async () => {
 	await client.waitFor('manifest');
 	await client.waitFor('connected');
 	client.drain();
+	// A WebSocket can connect while the initial Tailwind/compiler work is still
+	// draining under a saturated shard. Wait for stable HMR idle so the first
+	// fixture mutation cannot be coalesced with startup or an entry reload.
+	await server.waitForIdle({ timeoutMs: 30_000 });
 
 	return server;
 };
@@ -56,7 +60,7 @@ const driveTailwindRegenFor = async (
 ) => {
 	const resolvedExpected = resolve(expectedFile);
 	while (true) {
-		const msg = await c.waitFor('style-update', 30_000);
+		const msg = await c.waitFor('style-update', 45_000);
 		const cause =
 			(msg.data as { cause?: string[] })?.cause?.map((f) => resolve(f)) ??
 			[];

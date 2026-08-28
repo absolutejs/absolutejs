@@ -1,7 +1,7 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.30` and
+`@absolutejs/absolute@0.20.0-beta.31` and
 `@absolutejs/deploy@0.24.0`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
 
@@ -59,6 +59,8 @@ actual result, sanitized logs, and artifact or screenshot path in section 13.
   checklist.
 - [ ] `LOC-01` through `LOC-14` Complete the foreground-location checklist.
 - [ ] `AUTH-01` Complete system-browser sign-in and callback.
+- [ ] `HTTP-01` Confirm universal HTTP uses native Auth only for the trusted
+  AbsoluteJS origin.
 - [ ] `SYNC-01` Complete online, offline, reconnect, isolation, and conflict tests.
 - [ ] `BGSYNC-01` Complete physical-device background Sync acceptance.
 - [ ] `MIGRATE-01` Complete the generated v1-to-v2 installed-schema upgrade.
@@ -617,35 +619,43 @@ sequence in the managed simulator:
    WebView.
 2. Complete sign-in. The callback URL must return directly to the same app and
    show the expected user without manual URL copying or native-project edits.
-3. Confirm Sync reaches ready state and receives its first authenticated
+3. Confirm the acceptance route reports `data-http="pass"`. It calls the
+   protected `/__absolute/native-http` endpoint through the ordinary
+   `@absolutejs/http` import. The route must receive the authenticated staging
+   principal without importing Capacitor, reading a token, or supplying an
+   `Authorization` header. In Safari Web Inspector, also attempt the same client
+   call with an absolute URL on a different origin; it must fail with the typed
+   `origin` code before any request reaches that destination. Record this as
+   `HTTP-01` without recording credentials or response data.
+4. Confirm Sync reaches ready state and receives its first authenticated
    snapshot.
-4. Force the Sync connection to disconnect, then reconnect it. Confirm it
+5. Force the Sync connection to disconnect, then reconnect it. Confirm it
    reaches ready state again and catches up without another login prompt. The
    server must issue and consume a new single-use socket ticket for the second
    connection.
-5. Enter `relaunch` in the `bun dev` terminal. Reopen the route and confirm the
+6. Enter `relaunch` in the `bun dev` terminal. Reopen the route and confirm the
    authenticated user is restored from iOS Keychain without entering
    credentials again. Sync must reconnect with another fresh ticket.
-6. Stop and restart the backend while leaving the app installed. Confirm the
+7. Stop and restart the backend while leaving the app installed. Confirm the
    page recovers when the backend returns rather than remaining permanently
    stale. If practical, repeat this on a physical device by disabling and
    restoring Wi-Fi.
-7. While signed in and Sync is ready, disable network access. Make a supported
+8. While signed in and Sync is ready, disable network access. Make a supported
    serializable optimistic mutation, quit the app, and relaunch while still
    offline. Confirm the last confirmed rows and pending optimistic change are
    visible from SQLite without a server connection.
-8. Restore the network. Sync must reconnect immediately with a fresh ticket,
+9. Restore the network. Sync must reconnect immediately with a fresh ticket,
    deliver the same stable operation ID, converge on the server result, and
    remove the outbox record. Verify in server/database logs that the business
    effect executed exactly once even if the acknowledgment was interrupted.
-9. Sign out and relaunch. The previous account must not return, proving that
+10. Sign out and relaunch. The previous account must not return, proving that
    native credentials were removed and its offline partition is locked. Sign in
    as a different staging account and confirm none of the previous account's
    cached rows or pending mutations are visible or replayed.
-10. Sign back in as the original verified account. Its retained partition may
+11. Sign back in as the original verified account. Its retained partition may
     become available again; it must be the same converged data, not an exposed
     raw subject identifier or a newly mixed account partition.
-11. If the staging app exposes a conflict fixture, make an offline edit and
+12. If the staging app exposes a conflict fixture, make an offline edit and
     advance the same server row from another client before reconnecting. Confirm
     the optimistic overlay rolls back, the operation appears as one typed
     `conflict` dead letter, and it does not retry forever. Open the development
@@ -653,18 +663,18 @@ sequence in the managed simulator:
     preserved. Repeat the fixture, choose `Rebase with new args`, and confirm a
     new operation ID supersedes the old one. Finally repeat and discard it;
     confirm SQLite follows each explicit choice.
-12. Use a fixture whose generated `localData` marks one collection and mutation
+13. Use a fixture whose generated `localData` marks one collection and mutation
     `sensitivity: "private"` with `protection: "required"`. After foreground
     Sync writes them, inspect the app's SQLite `record_json` values from Xcode or
     a copied container. They must contain `__absoluteSyncProtected` and must not
     contain a distinctive fixture secret, row payload, or mutation argument.
-13. Relaunch offline and confirm the protected rows/outbox still hydrate. Run
+14. Relaunch offline and confirm the protected rows/outbox still hydrate. Run
     the finite background task and confirm its pull/settlement remains readable
     afterward, proving Swift uses the foreground codec and Keychain key.
-14. Tamper with one ciphertext byte in a disposable test installation. Reading
+15. Tamper with one ciphertext byte in a disposable test installation. Reading
     it must fail closed; it must never return partial/plain data or silently
     replace the record. Delete/reinstall the test app after recording the result.
-15. Exercise a very small test quota with disposable and critical projections.
+16. Exercise a very small test quota with disposable and critical projections.
     Confirm the complete disposable projection disappears first, the critical
     projection is never partially truncated, and a pending mutation remains.
 
@@ -1222,6 +1232,7 @@ versus expected behavior. Do not report exact coordinates.
 | LOC-13 |  | browser behavior: |  |
 | LOC-14 |  | device model/iOS / coordinates sane / accuracy / cleanup: |  |
 | AUTH-01 |  | sign-in return: / relaunch restore: |  |
+| HTTP-01 |  | trusted principal: / cross-origin rejection: |  |
 | SYNC-01 |  | first ready: / reconnect: / offline result: |  |
 | BGSYNC-01 |  | acknowledged/pulled counts: |  |
 | MIGRATE-01 |  | failed build / typed code: |  |
@@ -1238,6 +1249,8 @@ versus expected behavior. Do not report exact coordinates.
 - System-browser PKCE sign-in and callback: PASS / FAIL
 - Keychain session restored after relaunch: PASS / FAIL
 - Sign-out cleared the native session: PASS / FAIL
+- Universal HTTP trusted-origin/native-Auth request: PASS / FAIL
+- Universal HTTP cross-origin rejection before provider fetch: PASS / FAIL
 - First authenticated Sync snapshot: PASS / FAIL
 - Sync disconnect/reconnect with a fresh ticket: PASS / FAIL
 - Backend restart/offline recovery: PASS / FAIL

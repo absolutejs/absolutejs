@@ -28,4 +28,5 @@ export * from './releaseArtifact';
 export * from './releasePublisher';
 export * from './routeMetadataTransform';
 export * from './routeMatcher';
+export * from './shellHttp';
 export * from './transport';

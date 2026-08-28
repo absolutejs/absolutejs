@@ -8,6 +8,7 @@
         "@absolutejs/auth": "0.75.0",
         "@absolutejs/devices": "0.7.0",
         "@absolutejs/devices-capacitor": "0.8.0",
+        "@absolutejs/http": "0.0.1",
         "@absolutejs/pwa": "0.14.0",
         "@capacitor/browser": "8.0.4",
         "@capacitor/keyboard": "8.0.5",
@@ -317,6 +318,8 @@
     "@absolutejs/fixture-compile-vue": ["@absolutejs/fixture-compile-vue@workspace:tests/fixtures/compile-vue"],
 
     "@absolutejs/handoff": ["@absolutejs/handoff@0.1.0", "", { "dependencies": { "@absolutejs/manifest": "0.7.2", "@sinclair/typebox": "0.34.52" } }, "sha512-P9Wr2oyYBcj7mriCV4h9zRlLGijee/7DW8USVkl/m4ovql7zpITy547jy6j8+HC5v5Ocs+TVcMYmrROEEBupNg=="],
+
+    "@absolutejs/http": ["@absolutejs/http@0.0.1", "", {}, "sha512-RDdLerIjSDlFcNAsAJR7C7cXnSpVGBtls1+ieaPyW98SmLEgayeCHwn73oFvy7pY0KG2WwiyApgwMWGuvugBug=="],
 
     "@absolutejs/linked-providers": ["@absolutejs/linked-providers@0.0.6", "", {}, "sha512-mk9vZLqUowxHo4dGuKjOU+MwI4/PxwlR9SehMdkivQv2QzoIYOO0vnIfPhc3TdNy+8YFQJggxk3UyErujrAu2A=="],
 

@@ -36,7 +36,7 @@ const BROWSER_RETRY_DELAY_MS = 500;
 // reclaimed by the host. Retry only that explicit infrastructure failure in a
 // new Bun process; assertion, build, server, and framework failures stay red.
 const CLOSED_BROWSER_RE =
-	/target page, context or browser has been closed|browser has been closed/iu;
+	/target page, context or browser has been closed|browser has been closed|Failed to connect[\s\S]*code:\s*"ENOENT"/iu;
 
 // Measured on the full integration inventory. These are scheduling hints,
 // not pass/fail thresholds; unknown files fall back to source size.
@@ -52,6 +52,7 @@ const DURATION_HINTS_MS: Record<string, number> = {
 	'tests/integration/hmr/lifecycle/angular-vendor-ssr.test.ts': 39_206,
 	'tests/integration/hmr/lifecycle/cross-cutting-reliability.test.ts': 139_193,
 	'tests/integration/hmr/lifecycle/dev-server-memory-ratchet.test.ts': 134_485,
+	'tests/integration/hmr/lifecycle/dev-watch-dirs.test.ts': 24_000,
 	'tests/integration/hmr/lifecycle/hmr-at-scale.test.ts': 71_014,
 	'tests/integration/hmr/lifecycle/html-deeper-coverage.test.ts': 77_784,
 	'tests/integration/hmr/lifecycle/htmx-deeper-coverage.test.ts': 78_932,
@@ -81,6 +82,12 @@ const EXCLUSIVE_TEST_FILES = new Set([
 	'tests/integration/hmr/lifecycle/htmx-deeper-coverage.test.ts',
 	'tests/integration/hmr/lifecycle/angular-state-preservation.test.ts',
 	'tests/integration/hmr/lifecycle/angular-config-providers.test.ts',
+	// This case deliberately expands the watched root at runtime. Under a
+	// compiler-saturated parallel shard, Bun --hot can independently re-evaluate
+	// the bootstrap while AbsoluteJS is processing that watcher event, racing a
+	// second listen against the still-live socket. Keep the product assertion
+	// strict and remove only the artificial cross-shard compiler pressure.
+	'tests/integration/hmr/lifecycle/dev-watch-dirs.test.ts',
 	'tests/integration/hmr/lifecycle/hmr-at-scale.test.ts',
 	'tests/integration/hmr/lifecycle/svelte-deep-coverage.test.ts',
 	'tests/integration/hmr/lifecycle/svelte-deeper-coverage.test.ts',

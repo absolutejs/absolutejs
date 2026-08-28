@@ -111,6 +111,12 @@ export const server: AnyElysia = new Elysia()
 			}
 		});
 	})
+	.get('/__absolute/native-http', ({ protectRoute }) =>
+		protectRoute(({ sub }) => ({
+			sub,
+			transport: 'absolute-http' as const
+		}))
+	)
 	.get('/native-location', () =>
 		handleReactPageRequest({
 			index: asset(manifest, 'NativeLocationAcceptanceIndex'),

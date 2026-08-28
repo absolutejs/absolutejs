@@ -129,11 +129,21 @@ const withNativePage = async (
 				!actionStarted &&
 				error instanceof Error &&
 				error.name === 'TimeoutError';
-			if (attempt >= 2 || (!browserClosed && !readinessTimeout)) {
+			const browserLaunchUnavailable =
+				!actionStarted && /Failed to connect|ENOENT/iu.test(message);
+			const serverNotReady =
+				!actionStarted && /net::ERR_CONNECTION_REFUSED/iu.test(message);
+			if (
+				attempt >= 2 ||
+				(!browserClosed &&
+					!readinessTimeout &&
+					!browserLaunchUnavailable &&
+					!serverNotReady)
+			) {
 				throw error;
 			}
 			await closeSession();
-			if (readinessTimeout) {
+			if (readinessTimeout || serverNotReady) {
 				await server?.kill();
 				server = await startConformanceServer();
 			}

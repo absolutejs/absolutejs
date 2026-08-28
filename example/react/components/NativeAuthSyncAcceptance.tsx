@@ -1,4 +1,5 @@
 import { createAuthClient } from '@absolutejs/auth/client';
+import { http } from '@absolutejs/http';
 import {
 	createSyncClient,
 	type SyncCollectionHandle
@@ -11,6 +12,10 @@ type NativeAuthSyncAcceptanceProps = {
 };
 
 type NativeSyncRow = { id: number; label: string };
+type NativeHttpAcceptance = {
+	sub: string;
+	transport: 'absolute-http';
+};
 
 const RECONNECT_DELAY_MS = 50;
 
@@ -28,6 +33,7 @@ export const NativeAuthSyncAcceptance = ({
 	syncUrl
 }: NativeAuthSyncAcceptanceProps) => {
 	const [detail, setDetail] = useState('Ready');
+	const [httpState, setHttpState] = useState<'idle' | 'pass'>('idle');
 	const [pending, setPending] = useState(0);
 	const [state, setState] = useState<AcceptanceState>('idle');
 	const running = useRef(false);
@@ -69,6 +75,17 @@ export const NativeAuthSyncAcceptance = ({
 			unsubscribe();
 		});
 	};
+	const verifyTrustedHttp = async () => {
+		const result = await http.get<NativeHttpAcceptance>(
+			'/__absolute/native-http'
+		);
+		if (
+			result.sub !== 'native-conformance-user' ||
+			result.transport !== 'absolute-http'
+		)
+			throw new Error('Native HTTP returned an unexpected principal.');
+		setHttpState('pass');
+	};
 	const queueOfflineMutation = () => {
 		const collection = collectionRef.current;
 		if (!collection) return;
@@ -87,20 +104,31 @@ export const NativeAuthSyncAcceptance = ({
 	useEffect(() => {
 		let active = true;
 		const restoreAuthenticatedSync = async () => {
-			const status = await createAuthClient().status();
-			if (!active || status.error || running.current) return;
-			const { user } = status.data;
-			if (
-				typeof user !== 'object' ||
-				user === null ||
-				Reflect.get(user, 'sub') !== 'native-conformance-user'
-			) {
-				return;
+			try {
+				const status = await createAuthClient().status();
+				if (!active || status.error || running.current) return;
+				const { user } = status.data;
+				if (
+					typeof user !== 'object' ||
+					user === null ||
+					Reflect.get(user, 'sub') !== 'native-conformance-user'
+				) {
+					return;
+				}
+				running.current = true;
+				setState('authenticated');
+				setDetail('Native auth restored after app resume');
+				await verifyTrustedHttp();
+				if (!active) return;
+				beginSync();
+			} catch (error) {
+				if (!active) return;
+				setState('failed');
+				setDetail(
+					error instanceof Error ? error.message : String(error)
+				);
+				running.current = false;
 			}
-			running.current = true;
-			setState('authenticated');
-			setDetail('Native auth restored after app resume');
-			beginSync();
 		};
 		void restoreAuthenticatedSync();
 
@@ -132,6 +160,7 @@ export const NativeAuthSyncAcceptance = ({
 			}
 			setState('authenticated');
 			setDetail('Native auth authenticated');
+			await verifyTrustedHttp();
 			beginSync();
 		} catch (error) {
 			setState('failed');
@@ -144,6 +173,7 @@ export const NativeAuthSyncAcceptance = ({
 		<main>
 			<h1>AbsoluteJS Native Auth + Sync</h1>
 			<p
+				data-http={httpState}
 				data-pending={pending}
 				data-state={state}
 				id="native-auth-sync-status"

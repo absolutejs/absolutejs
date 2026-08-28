@@ -78,6 +78,11 @@ const waitForAngularTier = (c: HMRClient, deadlineMs = 12_000) =>
 		c.waitFor('angular:rebootstrap', deadlineMs)
 	]);
 
+// Angular's first dev-server boot can exceed 30 seconds when the full release
+// inventory is compiling other framework fixtures on the same host. Keep the
+// message deadline strict while allowing the compiler boot the same 60-second
+// envelope used by the other Angular HMR integration suites.
+
 describe('Angular tier-0 surgical (cosmetic guts → ɵɵreplaceMetadata)', () => {
 	test('method body change is tier-0', async () => {
 		const { client: c } = await startAndConnect();
@@ -86,7 +91,7 @@ describe('Angular tier-0 surgical (cosmetic guts → ɵɵreplaceMetadata)', () =
 		);
 		const msg = await waitForAngularTier(c);
 		expect(msg.type).toBe('angular:component-update');
-	}, 30_000);
+	}, 60_000);
 
 	test('external `templateUrl` HTML edit is tier-0', async () => {
 		const { client: c } = await startAndConnect();
@@ -95,7 +100,7 @@ describe('Angular tier-0 surgical (cosmetic guts → ɵɵreplaceMetadata)', () =
 		);
 		const msg = await waitForAngularTier(c);
 		expect(msg.type).toBe('angular:component-update');
-	}, 30_000);
+	}, 60_000);
 
 	test('field initializer value change is tier-0 (name set unchanged)', async () => {
 		const { client: c } = await startAndConnect();
@@ -104,7 +109,7 @@ describe('Angular tier-0 surgical (cosmetic guts → ɵɵreplaceMetadata)', () =
 		);
 		const msg = await waitForAngularTier(c);
 		expect(msg.type).toBe('angular:component-update');
-	}, 30_000);
+	}, 60_000);
 });
 
 describe('Angular tier-1a remount (public-API / scoping change → createComponent)', () => {
@@ -118,7 +123,7 @@ describe('Angular tier-1a remount (public-API / scoping change → createCompone
 		);
 		const msg = await waitForAngularTier(c);
 		expect(msg.type).toBe('angular:component-remount');
-	}, 30_000);
+	}, 60_000);
 
 	test('switching `ChangeDetectionStrategy` to OnPush forces remount', async () => {
 		const { client: c } = await startAndConnect();
@@ -135,7 +140,7 @@ describe('Angular tier-1a remount (public-API / scoping change → createCompone
 		);
 		const msg = await waitForAngularTier(c);
 		expect(msg.type).toBe('angular:component-remount');
-	}, 30_000);
+	}, 60_000);
 
 	test('switching `encapsulation` to ShadowDom forces remount', async () => {
 		const { client: c } = await startAndConnect();
@@ -147,7 +152,7 @@ describe('Angular tier-1a remount (public-API / scoping change → createCompone
 		);
 		const msg = await waitForAngularTier(c);
 		expect(msg.type).toBe('angular:component-remount');
-	}, 30_000);
+	}, 60_000);
 
 	test('adding `host: {...}` bindings forces remount', async () => {
 		const { client: c } = await startAndConnect();
@@ -159,7 +164,7 @@ describe('Angular tier-1a remount (public-API / scoping change → createCompone
 		);
 		const msg = await waitForAngularTier(c);
 		expect(msg.type).toBe('angular:component-remount');
-	}, 30_000);
+	}, 60_000);
 });
 
 describe('Angular tier-1b rebootstrap (structural / DI change → full reboot)', () => {
@@ -176,7 +181,7 @@ describe('Angular tier-1b rebootstrap (structural / DI change → full reboot)',
 		);
 		const msg = await waitForAngularTier(c);
 		expect(msg.type).toBe('angular:rebootstrap');
-	}, 30_000);
+	}, 60_000);
 
 	test('adding component-level `providers` forces rebootstrap', async () => {
 		const { client: c } = await startAndConnect();
@@ -188,7 +193,7 @@ describe('Angular tier-1b rebootstrap (structural / DI change → full reboot)',
 		);
 		const msg = await waitForAngularTier(c);
 		expect(msg.type).toBe('angular:rebootstrap');
-	}, 30_000);
+	}, 60_000);
 
 	test('adding `hostDirectives: []` forces rebootstrap', async () => {
 		const { client: c } = await startAndConnect();
@@ -200,7 +205,7 @@ describe('Angular tier-1b rebootstrap (structural / DI change → full reboot)',
 		);
 		const msg = await waitForAngularTier(c);
 		expect(msg.type).toBe('angular:rebootstrap');
-	}, 30_000);
+	}, 60_000);
 
 	test('editing a `routes` page-level export forces rebootstrap (pageExportsSig)', async () => {
 		const { client: c } = await startAndConnect();
@@ -216,5 +221,5 @@ describe('Angular tier-1b rebootstrap (structural / DI change → full reboot)',
 		);
 		const msg = await waitForAngularTier(c);
 		expect(msg.type).toBe('angular:rebootstrap');
-	}, 30_000);
+	}, 60_000);
 });

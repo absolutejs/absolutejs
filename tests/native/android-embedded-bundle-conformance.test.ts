@@ -446,6 +446,18 @@ const nativeAuthResponse = async (request: Request) => {
 				})
 			: jsonResponse({ error: 'invalid_token' }, { status: 401 });
 	}
+	if (url.pathname === '/__absolute/native-http') {
+		const token = request.headers
+			.get('authorization')
+			?.replace('Bearer ', '');
+
+		return accessTokens.has(token ?? '')
+			? jsonResponse({
+					sub: 'native-conformance-user',
+					transport: 'absolute-http'
+				})
+			: jsonResponse({ error: 'invalid_token' }, { status: 401 });
+	}
 	if (url.pathname === '/__absolute/native-socket-ticket') {
 		const token = request.headers
 			.get('authorization')
@@ -598,6 +610,10 @@ const ensureNativeAuthSyncAcceptance = async () => {
 		`document.querySelector('#native-auth-sync-status')?.getAttribute('data-state') ?? null`
 	);
 	expect(completed).toBe('complete');
+	const httpState = await webview.evaluate<string | null>(
+		`document.querySelector('#native-auth-sync-status')?.getAttribute('data-http') ?? null`
+	);
+	expect(httpState).toBe('pass');
 };
 
 const requireAdbShell = (...args: string[]) => {

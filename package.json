@@ -10,6 +10,7 @@
 		"@absolutejs/auth": "0.75.0",
 		"@absolutejs/devices": "0.7.0",
 		"@absolutejs/devices-capacitor": "0.8.0",
+		"@absolutejs/http": "0.0.1",
 		"@absolutejs/pwa": "0.14.0",
 		"@capacitor/browser": "8.0.4",
 		"@capacitor/keyboard": "8.0.5",
@@ -503,7 +504,7 @@
 			]
 		}
 	},
-	"version": "0.20.0-beta.30",
+	"version": "0.20.0-beta.31",
 	"workspaces": [
 		"tests/fixtures/*",
 		"tests/fixtures/_packages/*"

@@ -41,6 +41,11 @@ const startAndConnect = async () => {
 	await client.waitFor('manifest');
 	await client.waitFor('connected');
 	client.drain();
+	// WebSocket readiness can precede the last generated Angular bundle work on
+	// a loaded host. Mutating provider configuration during that window lets two
+	// generated-output cycles overlap and can expose an incomplete module to the
+	// compiler. Require stable HMR idle before every fixture edit.
+	await server.waitForIdle({ timeoutMs: 30_000 });
 
 	return server;
 };

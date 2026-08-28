@@ -12,6 +12,7 @@ import {
 	disposeAbsoluteMobilePage
 } from './client';
 import { installAbsoluteMobileStaticDocument } from './staticDocument';
+import { installAbsoluteMobileShellHttp } from './shellHttp';
 
 const MANIFEST_PATH = './absolute-mobile-manifest.json';
 const STATUS_ID = 'absolute-mobile-status';
@@ -288,6 +289,10 @@ export const startAbsoluteMobileShell = async (
 					beforeSignOut: options.beforeSignOut
 				})
 			: undefined;
+	installAbsoluteMobileShellHttp(
+		manifest.productionOrigin,
+		auth?.fetch ?? globalThis.fetch
+	);
 	if (auth) options.connectPush?.(auth);
 	if (auth && manifest.sync?.socketTickets)
 		options.installSync?.(auth, manifest.sync);

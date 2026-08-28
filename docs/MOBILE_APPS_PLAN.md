@@ -3,6 +3,20 @@
 Status: Capacitor Android development/release, all-framework embedded bundles, universal native Auth/Sync, background Sync, automatic device provisioning, provider-neutral native push registration, and Android conformance are operational; iOS development/release automation is shipped and awaiting real macOS/physical-device acceptance
 Research snapshot: August 26, 2026
 
+Implementation checkpoint (August 27, 2026): `@absolutejs/http@0.0.1` is now
+published as the application-facing connected transport. Application code uses
+one `http` client across web, PWA, SSR with an explicit request-scoped provider,
+and Capacitor. Requests are locked to the configured AbsoluteJS origin, require
+HTTPS outside loopback development, reject application-supplied credential
+headers, disable redirect forwarding, and keep private error bodies out of
+automatic diagnostics. Browser requests retain same-origin HTTP-only cookies;
+the generated Capacitor shell installs the existing native Auth fetch, so bearer
+refresh and one retry on `401` remain inside `@absolutejs/auth` and tokens never
+enter page code. A realm-stable runtime registry allows independently bundled
+framework pages to see the shell provider. Unit/provider conformance and the
+installed Android Auth/Sync acceptance now require a successful protected HTTP
+request before Sync begins; `HTTP-01` is added to the macOS/iOS handoff.
+
 Implementation checkpoint (August 26, 2026): the remaining Wave 1 system-UI
 surface is implemented in `@absolutejs/devices@0.7.0`,
 `@absolutejs/devices-capacitor@0.8.0`, and AbsoluteJS `0.20.0-beta.30`.

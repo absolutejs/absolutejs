@@ -71,6 +71,10 @@ const MANUAL_CHECKS = [
 		'Complete system-browser sign-in, callback, restore, and sign-out checks.'
 	],
 	[
+		'HTTP-01',
+		'Confirm @absolutejs/http reaches the trusted server with native Auth and rejects a cross-origin request.'
+	],
+	[
 		'SYNC-01',
 		'Complete online, offline, reconnect, isolation, and conflict checks.'
 	],
