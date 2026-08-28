@@ -12,6 +12,7 @@ import { setCurrentIslandManifest } from './islandPageContext';
 import { absoluteRequestContext } from './requestContext';
 import { createAbsoluteMobileCompatibilityDispatcher } from '../mobile/compatibilityDispatcher';
 import { createAbsoluteMobileAssociationPlugin } from '../mobile/associationFiles';
+import { createAbsoluteMobilePreviewPlugin } from '../mobile/mobilePreview';
 import { loadAbsoluteMobileMaterializedBundle } from '../mobile/materializedBundle';
 import { loadIslandRegistry } from './loadIslandRegistry';
 import { setCurrentIslandRegistry } from './currentIslandRegistry';
@@ -303,6 +304,9 @@ const prepareDev = async (
 		config.mobile,
 		process.cwd()
 	);
+	const mobilePreviewPlugin = createAbsoluteMobilePreviewPlugin(
+		config.mobile
+	);
 	const nativeMobileConfig = config.mobile;
 	let nativeDevAdapterBundle: Promise<string> | undefined;
 	const getNativeDevAdapterBundle = () =>
@@ -335,6 +339,7 @@ const prepareDev = async (
 		)
 		.use(imageOptimizer(config.images, buildDir))
 		.use(mobileAssociationPlugin)
+		.use(mobilePreviewPlugin)
 		.get(
 			'/__absolute/native-device-adapter.js',
 			async () =>

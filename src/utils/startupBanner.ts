@@ -44,6 +44,7 @@ export const startupBanner = (options: {
 	port: string | number;
 	host: string;
 	networkUrl?: string;
+	mobilePreviewUrl?: string;
 	protocol?: string;
 }) => {
 	const {
@@ -53,6 +54,7 @@ export const startupBanner = (options: {
 		port,
 		host,
 		networkUrl,
+		mobilePreviewUrl,
 		protocol = 'http'
 	} = options;
 	const name = `${colors.cyan}${colors.bold}ABSOLUTEJS${colors.reset}`;
@@ -71,6 +73,11 @@ export const startupBanner = (options: {
 	if (networkUrl) {
 		console.log(
 			`  ${colors.green}➜${colors.reset}  ${colors.bold}Network:${colors.reset} ${networkUrl}`
+		);
+	}
+	if (mobilePreviewUrl) {
+		console.log(
+			`  ${colors.green}➜${colors.reset}  ${colors.bold}Mobile:${colors.reset}  ${mobilePreviewUrl}`
 		);
 	}
 	console.log('');

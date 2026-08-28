@@ -200,6 +200,17 @@ describe('handleHMRMessage', () => {
 		expect(state.clientTargets.get(client)).toBe('capacitor-ios');
 	});
 
+	test('tracks mobile preview separately from ordinary browser clients', () => {
+		const state = createHMRState(makeConfig());
+		const client = makeMockClient();
+		handleHMRMessage(
+			state,
+			client,
+			JSON.stringify({ target: 'mobile-preview', type: 'ready' })
+		);
+		expect(state.clientTargets.get(client)).toBe('mobile-preview');
+	});
+
 	test('labels native HMR application timing with its server/client split', () => {
 		const state = createHMRState(makeConfig());
 		state.lastHmrFramework = 'react';
@@ -228,6 +239,39 @@ describe('handleHMRMessage', () => {
 		expect(
 			lines.some((line) =>
 				line.includes('applied in 61ms; server 18ms, client 43ms')
+			)
+		).toBe(true);
+	});
+
+	test('labels preview HMR timing independently from web and native devices', () => {
+		const state = createHMRState(makeConfig());
+		state.lastHmrFramework = 'react';
+		state.lastHmrPath = '/app/react/pages/Preview.tsx';
+		const client = makeMockClient();
+		const lines: string[] = [];
+		const originalLog = console.log;
+		console.log = (message?: unknown) => lines.push(String(message));
+		try {
+			handleHMRMessage(
+				state,
+				client,
+				JSON.stringify({
+					clientMs: 12,
+					duration: 20,
+					serverMs: 8,
+					target: 'mobile-preview',
+					type: 'hmr-timing'
+				})
+			);
+		} finally {
+			console.log = originalLog;
+		}
+		expect(
+			lines.some((line) => line.includes('[hmr:mobile-preview]'))
+		).toBe(true);
+		expect(
+			lines.some((line) =>
+				line.includes('applied in 20ms; server 8ms, client 12ms')
 			)
 		).toBe(true);
 	});

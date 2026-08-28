@@ -77,6 +77,19 @@ const EXCLUSIVE_TEST_FILES = new Set([
 	'tests/integration/pwa/updateActivationConformance.test.ts',
 	'tests/integration/hmr/multiframework/native-target-conformance.test.ts',
 	'tests/integration/hmr/assets/asset-hashing.test.ts',
+	// These tests deliberately assert prompt filesystem-watch delivery. Running
+	// several framework compilers beside them can starve the host watcher and
+	// produce rebuild-error/timeouts even though each strict test passes from a
+	// clean runtime. Keep the product timeouts strict and remove cross-shard
+	// compiler contention from the measurement.
+	'tests/integration/hmr/assets/css-hmr.test.ts',
+	'tests/integration/hmr/components/component-hmr.test.ts',
+	'tests/integration/hmr/frameworks/html-hmr.test.ts',
+	'tests/integration/hmr/frameworks/htmx-hmr.test.ts',
+	'tests/integration/hmr/frameworks/react-hmr.test.ts',
+	'tests/integration/hmr/lifecycle/angular-external-resources.test.ts',
+	'tests/integration/hmr/lifecycle/style-preprocessor-roundtrip.test.ts',
+	'tests/integration/hmr/lifecycle/tailwind-class-discovery.test.ts',
 	'tests/integration/hmr/lifecycle/cli-crash-loop-guard.test.ts',
 	'tests/integration/hmr/lifecycle/html-deeper-coverage.test.ts',
 	'tests/integration/hmr/lifecycle/htmx-deeper-coverage.test.ts',

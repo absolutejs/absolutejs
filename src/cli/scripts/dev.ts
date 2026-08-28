@@ -1180,6 +1180,7 @@ export const dev = async (
 					ABSOLUTE_INSTANCE_MANAGED: '1',
 					ABSOLUTE_PORT: String(port),
 					ABSOLUTE_SERVER_ENTRY: resolve(serverEntry),
+					...(mobileConfig ? { ABSOLUTE_MOBILE_PREVIEW: '1' } : {}),
 					FORCE_COLOR: '1',
 					NODE_ENV: 'development',
 					PORT: String(port),

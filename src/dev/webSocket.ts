@@ -12,6 +12,7 @@ const normalizedHmrTarget = (value: unknown) => {
 	if (value === 'capacitor-android') return value;
 	if (value === 'capacitor-ios') return value;
 	if (value === 'capacitor-native') return value;
+	if (value === 'mobile-preview') return value;
 
 	return 'web';
 };

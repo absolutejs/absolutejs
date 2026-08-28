@@ -5,6 +5,7 @@ export type HMRClientTarget =
 	| 'capacitor-android'
 	| 'capacitor-ios'
 	| 'capacitor-native'
+	| 'mobile-preview'
 	| 'web';
 
 export type HMRApplyKind =

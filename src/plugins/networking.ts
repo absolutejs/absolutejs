@@ -218,6 +218,10 @@ export const networking = <A extends AnyElysia>(app: A) => {
 			startupBanner({
 				buildDuration,
 				host,
+				mobilePreviewUrl:
+					env.ABSOLUTE_MOBILE_PREVIEW === '1'
+						? `${protocol}://${host === '0.0.0.0' ? 'localhost' : host}:${port}/__absolute/mobile-preview`
+						: undefined,
 				networkUrl: hostFlag
 					? `${protocol}://${localIP}:${port}/`
 					: undefined,

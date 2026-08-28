@@ -19,6 +19,7 @@ export * from './config';
 export * from './client';
 export * from './compatibilityDispatcher';
 export * from './materializedBundle';
+export * from './mobilePreview';
 export * from './nativeDeepLinks';
 export * from './nativeDeviceCapabilities';
 export * from './nativeAuth';

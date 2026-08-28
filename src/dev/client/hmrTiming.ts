@@ -14,6 +14,7 @@ const isHmrTarget = (value: unknown): value is HMRClientTarget =>
 	value === 'capacitor-android' ||
 	value === 'capacitor-ios' ||
 	value === 'capacitor-native' ||
+	value === 'mobile-preview' ||
 	value === 'web';
 
 const isHmrKind = (value: unknown): value is HMRApplyKind =>
@@ -68,6 +69,7 @@ export const absoluteHmrClientTarget = () => {
 			const marker = new URLSearchParams(search).get('__absolute_target');
 			if (marker === 'capacitor-android') return marker;
 			if (marker === 'capacitor-ios') return marker;
+			if (marker === 'mobile-preview') return marker;
 		}
 	}
 	const capacitor = Reflect.get(globalThis, 'Capacitor');

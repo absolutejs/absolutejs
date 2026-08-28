@@ -28,6 +28,13 @@ describe('HMR client timing', () => {
 		expect(absoluteHmrClientTarget()).toBe('capacitor-ios');
 	});
 
+	test('identifies the browser mobile preview independently from web', () => {
+		Reflect.set(globalThis, 'location', {
+			search: '?__absolute_target=mobile-preview'
+		});
+		expect(absoluteHmrClientTarget()).toBe('mobile-preview');
+	});
+
 	test('reports target and server/client timing without application identity', () => {
 		Reflect.set(globalThis, 'Capacitor', {
 			getPlatform: () => 'android',

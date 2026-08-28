@@ -1,7 +1,7 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.31` and
+`@absolutejs/absolute@0.20.0-beta.32` and
 `@absolutejs/deploy@0.24.0`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
 
@@ -100,7 +100,7 @@ still requires the developer team setup described below.
 From the root of the AbsoluteJS application:
 
 ```sh
-bun add @absolutejs/absolute@0.20.0-beta.30 \
+bun add @absolutejs/absolute@0.20.0-beta.32 \
   @absolutejs/auth@0.75.0 \
   @absolutejs/dispatch@0.9.0 \
   @absolutejs/sync@2.29.0 \

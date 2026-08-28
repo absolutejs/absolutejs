@@ -3,6 +3,25 @@
 Status: Capacitor Android development/release, all-framework embedded bundles, universal native Auth/Sync, background Sync, automatic device provisioning, provider-neutral native push registration, and Android conformance are operational; iOS development/release automation is shipped and awaiting real macOS/physical-device acceptance
 Research snapshot: August 26, 2026
 
+Implementation checkpoint (August 28, 2026): mobile-enabled `bun dev` now
+prints and serves a first-class browser target at
+`/__absolute/mobile-preview`. It runs the same live multi-framework page and HMR
+graph as installed development targets with a distinct `mobile-preview` HMR
+identity, startup/HMR timing telemetry, and a realm-shared provider layer
+installed before application modules evaluate. The control surface switches
+iOS/Android platform and safe-area identity and emits Network, lifecycle,
+deep-link, hardware-Back, keyboard, and permission state through
+`@absolutejs/devices`. Offline mode also rejects application `fetch` and
+`@absolutejs/http` requests while preserving HMR infrastructure. The endpoint
+exists only in development for mobile-configured applications. Real Chromium
+conformance covers boot, HTTP isolation, Network/lifecycle/permission controls,
+and platform switching; unit/server conformance covers distinct HMR timing and
+telemetry. This SDK-free target does not claim WebView/native rendering, native
+Auth/secure storage, push, signing, store, OS scheduling, or process-death
+parity; those remain simulator/physical-device gates. Production embedded-shell
+and page-envelope compatibility behavior remains covered by installed-app
+conformance.
+
 Implementation checkpoint (August 27, 2026): `@absolutejs/http@0.0.1` is now
 published as the application-facing connected transport. Application code uses
 one `http` client across web, PWA, SSR with an explicit request-scoped provider,
@@ -1360,8 +1379,10 @@ guided toolchain installer and managed native-project creation; `--no-mobile`,
 the Windows SDK/emulator and a PowerShell Gradle broker. Live-reload changes to the
 copied native Capacitor config are journaled and restored on normal shutdown,
 startup failure, cancellation, or the next run after a crash. The managed emulator
-stays warm after shutdown for fast subsequent starts. iOS, physical devices,
-mobile-preview UI, and trusted local HTTPS are still subsequent slices of Phase 4.
+stays warm after shutdown for fast subsequent starts. iOS physical devices and
+trusted local HTTPS are still subsequent slices of Phase 4. The SDK-free
+mobile-preview UI is now implemented with the explicitly documented platform
+limitations above.
 
 Android startup now implements the persisted native-delta fast path. After sync and
 temporary development transport projection, AbsoluteJS content-hashes the effective

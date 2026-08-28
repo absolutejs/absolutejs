@@ -18,6 +18,7 @@ import {
 } from './hmrTiming';
 import { hideErrorOverlay, showErrorOverlay } from './errorOverlay';
 import { installAbsoluteNativeSyncDevtools } from './syncDevtools';
+import { installAbsoluteMobilePreview } from '../../mobile/mobilePreviewClient';
 import {
 	dispatchAngularComponentRemount,
 	dispatchAngularComponentUpdate
@@ -46,8 +47,10 @@ const isStringRecord = (value: unknown): value is Record<string, string> =>
 
 restoreAbsoluteHmrApply();
 const nativeDeviceAdapterPath = '/__absolute/native-device-adapter.js';
+const hmrClientTarget = absoluteHmrClientTarget();
+if (hmrClientTarget === 'mobile-preview') installAbsoluteMobilePreview();
 const nativeDeviceAdapterReady =
-	absoluteHmrClientTarget() === 'web'
+	hmrClientTarget === 'web' || hmrClientTarget === 'mobile-preview'
 		? Promise.resolve()
 		: import(nativeDeviceAdapterPath).then(() => undefined);
 Reflect.set(
@@ -69,7 +72,7 @@ void nativeDeviceAdapterReady.then(
 	}
 );
 const removeNativeSyncDevtools =
-	absoluteHmrClientTarget() === 'web'
+	hmrClientTarget === 'web'
 		? () => undefined
 		: installAbsoluteNativeSyncDevtools();
 
