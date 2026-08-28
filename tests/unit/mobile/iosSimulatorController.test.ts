@@ -329,6 +329,107 @@ describe('iOS simulator development controller', () => {
 		await session.close();
 	});
 
+	test('builds, installs, launches, logs, and restores a physical device over LAN HTTPS', async () => {
+		const { nativeConfigPath, originalConfig, project } = await fixture();
+		const commands: string[][] = [];
+		const logs: string[] = [];
+		let enrollmentClosed = false;
+		let installed = false;
+		const capture = (command: string[]): AbsoluteIosCommandResult => {
+			commands.push(command);
+			if (command.includes('details'))
+				return {
+					exitCode: 0,
+					stderr: '',
+					stdout: 'Developer Mode enabled'
+				};
+			if (command.includes('apps'))
+				return {
+					exitCode: 0,
+					stderr: '',
+					stdout: installed ? project.config.appId : ''
+				};
+
+			return { exitCode: 0, stderr: '', stdout: '' };
+		};
+		const run = async (command: string[]) => {
+			commands.push(command);
+			if (command[0] === project.xcodebuild) {
+				const derivedData =
+					command[command.indexOf('-derivedDataPath') + 1];
+				if (!derivedData) return 1;
+				await mkdir(
+					join(derivedData, 'Build/Products/Debug-iphoneos/App.app'),
+					{ recursive: true }
+				);
+			}
+			if (command.includes('install')) installed = true;
+
+			return 0;
+		};
+		const session = await startAbsoluteIosDevSession({
+			capture,
+			certificateAuthorityPath: join(project.projectRoot, 'dev-ca.pem'),
+			deviceIdentifier: 'PHYSICAL-UDID',
+			https: true,
+			port: 3443,
+			project,
+			run,
+			serverHost: '192.168.1.24',
+			log: (message) => logs.push(message),
+			nativeLog: () => undefined,
+			startCaEnrollmentServer: async () => ({
+				url: 'http://192.168.1.24:49152/session/ca.cer',
+				close: async () => {
+					enrollmentClosed = true;
+				}
+			}),
+			startNativeLogs: (command) => {
+				commands.push(command);
+
+				return { close: async () => undefined };
+			}
+		});
+		expect(session.targetKind).toBe('device');
+		expect(session.startedSimulator).toBe(false);
+		expect(session.nativeCacheHit).toBe(false);
+		expect(commands.some((command) => command.includes('simctl'))).toBe(
+			false
+		);
+		expect(commands).toContainEqual(
+			expect.arrayContaining([
+				'devicectl',
+				'device',
+				'install',
+				'app',
+				'--device',
+				'PHYSICAL-UDID'
+			])
+		);
+		expect(commands).toContainEqual([
+			project.xcrun,
+			'devicectl',
+			'device',
+			'process',
+			'launch',
+			'--console',
+			'--terminate-existing',
+			'--device',
+			'PHYSICAL-UDID',
+			project.config.appId
+		]);
+		expect(logs.join('\n')).toContain('Certificate Trust Settings');
+		expect(await readFile(nativeConfigPath, 'utf8')).toContain(
+			'https://192.168.1.24:3443/account/Ada'
+		);
+		await expect(
+			session.screenshot('.absolutejs/mobile/device.png')
+		).rejects.toThrow('Xcode Device Hub');
+		await session.close();
+		expect(enrollmentClosed).toBe(true);
+		expect(await readFile(nativeConfigPath, 'utf8')).toBe(originalConfig);
+	});
+
 	test('redacts credentials and parses native severity', () => {
 		expect(
 			redactAbsoluteIosLog(

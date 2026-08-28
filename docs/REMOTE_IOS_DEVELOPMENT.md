@@ -13,7 +13,7 @@ AbsoluteJS owns the connection and development lifecycle around those tools:
 ```text
 developer computer                         paired Mac
 ------------------                         ----------
-source editor + Bun dev server             Xcode + iOS Simulator
+source editor + Bun dev server             Xcode + iOS Simulator/device
 page/CSS compilation             SSH       Capacitor native project
 HMR server                     <------>     native build/install/launch
 terminal logs and timings                  persistent native caches
@@ -23,6 +23,12 @@ The SSH connection creates a reverse loopback tunnel. The application inside
 the remote Simulator loads `localhost:<dev-port>`, but SSH carries that traffic
 back to the developer computer. AbsoluteJS page and CSS updates therefore keep
 the normal HMR path and do not synchronize or rebuild the native project.
+
+For an explicitly selected physical device, the agent exposes a raw TCP relay
+only on the Remote Mac's LAN port and connects it to a separately bound SSH
+loopback tunnel. TLS, WebSocket HMR, and application traffic remain end-to-end
+between the device and the developer's AbsoluteJS server; the relay does not
+terminate or inspect them.
 
 ## Mac prerequisites
 
@@ -34,6 +40,10 @@ On the Mac:
    environment does not add it to `PATH`.
 3. Enable **Remote Login** in macOS **System Settings → General → Sharing**.
 4. Allow SSH public-key authentication and TCP forwarding.
+
+For a physical iPhone or iPad, also pair it in Xcode Device Hub, enable Developer
+Mode, keep it on the Remote Mac's LAN, and configure the generated workspace's
+Development Team and automatic signing once.
 
 From the developer computer, establish and verify SSH first:
 
@@ -122,9 +132,25 @@ package, or lockfile changes trigger another atomic synchronization and native
 rebuild. Page, component, CSS, and ordinary public-asset changes remain on the
 normal HMR transport.
 
+Select a physical device from the developer computer with the same public CLI:
+
+```bash
+bunx absolute dev --ios-device DEVICE_IDENTIFIER
+```
+
+AbsoluteJS discovers the Remote Mac's LAN address over the paired SSH profile,
+adds that identity to the existing `dev.https` certificate when required, and
+passes only the public CA to the remote agent. The agent prints a random,
+session-only HTTP certificate URL reachable by the device. Open it in device
+Safari, approve the profile, and enable it under **Settings > General > About >
+Certificate Trust Settings**. The main HTTPS/HMR connection uses the LAN relay;
+the CA private key and dev server remain on the developer computer. Ctrl-C closes
+the certificate endpoint, relay, agent, and SSH tunnel.
+
 The normal interactive development commands continue to work:
 
-- `d` / `device` reports the remote Simulator UDID and state.
+- `d` / `device` reports the remote Simulator or physical-device identifier and
+  state.
 - `relaunch` terminates and launches the installed iOS application again.
 - Ctrl-C closes native logs, restores the temporary development projection, and
   removes the SSH tunnel. It leaves the Simulator and native caches warm.
@@ -138,6 +164,8 @@ The normal interactive development commands continue to work:
 - Project snapshots are isolated by a non-reversible project identity rather
   than exposing the developer's local path.
 - Signing certificates and Keychain items stay on the Mac.
+- Physical-device traffic is relayed as opaque TCP; the Remote Mac receives only
+  the public development CA and never the CA private key.
 - Native logs use the existing AbsoluteJS credential and token redaction.
 - Telemetry reports provider/platform/timings and cache outcomes, never the SSH
   destination, account name, workspace, source paths, app identity, or device
@@ -160,6 +188,10 @@ coupled to this bring-your-own-Mac protocol.
   the corresponding local `known_hosts` entry; do not disable verification.
 - **Remote forwarding failed:** enable TCP forwarding in the Mac's SSH service or
   choose a development port not already reserved on the Mac.
+- **Remote Mac LAN discovery failed:** connect the Mac to the device's network or
+  configure a working `en0`/`en1` network interface before starting physical mode.
+- **Device unavailable:** unlock and pair it in Xcode Device Hub, trust the Mac,
+  enable Developer Mode, and rerun `xcrun devicectl list devices` on the Mac.
 - **Bun missing:** install Bun for the paired user at `~/.bun/bin/bun` or expose it
   in the non-interactive SSH environment.
 - **Xcode missing:** install full Xcode, run `xcode-select`, accept the license,

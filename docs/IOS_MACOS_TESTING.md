@@ -1,7 +1,7 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.33` and
+`@absolutejs/absolute@0.20.0-beta.34` and
 `@absolutejs/deploy@0.24.0`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
 
@@ -53,6 +53,8 @@ actual result, sanitized logs, and artifact or screenshot path in section 13.
 - [ ] `DEV-01` Complete the cold and warm `bun dev` simulator runs.
 - [ ] `DEV-02` Complete route traversal, HMR timing, relaunch, and recovery.
 - [ ] `HTTPS-01` Complete trusted local HTTPS and HMR in the iOS Simulator.
+- [ ] `DEVICEDEV-01` through `DEVICEDEV-10` Complete first-class physical-device
+  development, HTTPS enrollment, warm-cache, HMR, relaunch, cleanup, and recovery.
 - [ ] `CAP-01` Complete automatic device-capability provisioning.
 - [ ] `SYSUI-01` through `SYSUI-08` Complete the Keyboard and System Bars
   checklist.
@@ -103,7 +105,7 @@ still requires the developer team setup described below.
 From the root of the AbsoluteJS application:
 
 ```sh
-bun add @absolutejs/absolute@0.20.0-beta.33 \
+bun add @absolutejs/absolute@0.20.0-beta.34 \
   @absolutejs/auth@0.75.0 \
   @absolutejs/dispatch@0.9.0 \
   @absolutejs/sync@2.29.0 \
@@ -299,6 +301,64 @@ At the AbsoluteJS interactive prompt:
   port.
 - Enter `relaunch` to terminate and relaunch the installed application without
   rebuilding it.
+
+### First-class physical-device development acceptance
+
+Keep the Mac and device on the same local network. In Xcode Device Hub, pair the
+unlocked iPhone or iPad, tap **Trust** when prompted, and enable Developer Mode.
+In the generated `mobile/ios/App/App.xcworkspace`, enable automatic signing and
+select the test Development Team once. Then list the device selectors Xcode
+accepts:
+
+```sh
+xcrun devicectl list devices
+```
+
+- [ ] `DEVICEDEV-01` With `dev.https: true`, run
+  `bunx absolute dev --ios-device DEVICE_IDENTIFIER`. Confirm AbsoluteJS selects
+  the physical target without creating, booting, or requiring an iOS Simulator.
+- [ ] `DEVICEDEV-02` On a first or stale-native run, confirm Xcode produces a
+  signed `Debug-iphoneos` app, `devicectl` installs it, and the app launches. If
+  Xcode requests account, team, device-registration, or provisioning action,
+  complete it in Xcode and rerun the same command; do not copy signing material
+  into AbsoluteJS configuration.
+- [ ] `DEVICEDEV-03` Open the session-only CA URL printed by AbsoluteJS in Safari
+  on the device. Install the downloaded AbsoluteJS development CA profile, then
+  enable full trust under **Settings > General > About > Certificate Trust
+  Settings**. Confirm the URL contains no app ID, route, device identifier, or
+  credential and becomes unavailable after `bun dev` stops.
+- [ ] `DEVICEDEV-04` Return to the app and confirm the configured route loads over
+  HTTPS without an SSL/ATS error. Save one visible page or CSS edit and record the
+  `[hmr:capacitor-ios]` timing. Confirm the app updates without Xcode rebuilding.
+- [ ] `DEVICEDEV-05` Confirm `[ios]` console entries appear in the same terminal,
+  recognized secrets are redacted, and `d` reports a physical `device` target and
+  ready state. Do not paste raw device logs into the report.
+- [ ] `DEVICEDEV-06` Enter `relaunch`. Confirm the physical app terminates,
+  launches again through `devicectl --console`, reconnects to HMR, and preserves
+  the expected Auth/Sync state.
+- [ ] `DEVICEDEV-07` Stop `bun dev` and start the identical command again without
+  native changes. Confirm `native cache hit` appears and both Xcode build and app
+  installation are skipped. Make one harmless Swift/native-resource edit and
+  confirm exactly one native synchronization, rebuild, install, and relaunch.
+- [ ] `DEVICEDEV-08` Disable Wi-Fi briefly, make a web edit, restore Wi-Fi, and
+  confirm HMR reconnects and applies the latest valid state. Repeat with one
+  temporary source error and confirm the branded overlay clears after correction.
+- [ ] `DEVICEDEV-09` Terminate with Ctrl-C during a native rebuild, start the same
+  command again, and confirm crash recovery restores the prior production-safe
+  Capacitor config and Info.plist before projecting a fresh development URL. Stop
+  normally and confirm `bunx absolute mobile doctor release` reports no leaked
+  development URL or trust override.
+- [ ] `DEVICEDEV-10` If Remote Mac testing is available, run the same command from
+  the paired Windows/Linux developer host. Confirm the CA URL uses the Remote
+  Mac's LAN address, the device reaches HMR through the LAN-to-SSH relay, and Ctrl-C
+  closes both relay and SSH tunnel. Otherwise record `SKIPPED — no Remote Mac
+  physical-device setup`. Capture any device screenshot manually in Xcode Device
+  Hub; AbsoluteJS intentionally does not capture physical screens automatically.
+
+The installed development CA remains under the tester's control because iOS
+requires explicit profile and full-trust approval. Keep it only on a dedicated
+development device while repeated testing continues. At the end of the entire
+test cycle, disable full trust and remove the AbsoluteJS development CA profile.
 
 In a second terminal, run:
 
@@ -1201,7 +1261,7 @@ source change and build a new content-addressed release instead.
 - Mac architecture:
 - Xcode version:
 - Bun version:
-- AbsoluteJS version: 0.20.0-beta.33
+- AbsoluteJS version: 0.20.0-beta.34
 - Auth version: 0.75.0
 - Dispatch version: 0.9.0
 - Sync version: 2.29.0
@@ -1243,6 +1303,16 @@ versus expected behavior. Do not report exact coordinates.
 | DEV-01 |  | cold: / warm: |  |
 | DEV-02 |  | HMR: / relaunch: |  |
 | HTTPS-01 |  | mkcert / CA trust / load / HMR: |  |
+| DEVICEDEV-01 |  | selected physical target / no Simulator dependency: |  |
+| DEVICEDEV-02 |  | signed build / install / launch: |  |
+| DEVICEDEV-03 |  | CA enrollment / full trust / endpoint cleanup: |  |
+| DEVICEDEV-04 |  | HTTPS load / HMR timing / no native build: |  |
+| DEVICEDEV-05 |  | redacted console / device state: |  |
+| DEVICEDEV-06 |  | relaunch / HMR reconnect / state restore: |  |
+| DEVICEDEV-07 |  | warm cache / native edit rebuild count: |  |
+| DEVICEDEV-08 |  | network loss / latest HMR / overlay recovery: |  |
+| DEVICEDEV-09 |  | interrupted rebuild / projection repair / doctor: |  |
+| DEVICEDEV-10 |  | Remote Mac relay or reason skipped: |  |
 | CAP-01 |  | discovered: / installed: |  |
 | SYSUI-01 |  | discovered / exact package / idempotent sync: |  |
 | SYSUI-02 |  | Info.plist value / release doctor: |  |

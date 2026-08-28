@@ -80,3 +80,30 @@ loopback. With HTTPS enabled, AbsoluteJS uses `simctl keychain` to install the
 same existing development CA into the selected iOS Simulator trust store. A
 remote Mac receives only the public CA certificate over the already paired SSH
 session; the CA private key never leaves the development host.
+
+## Physical iOS development and HTTPS
+
+Pair the unlocked iPhone or iPad in Xcode Device Hub, enable Developer Mode, and
+configure automatic signing plus a Development Team in the generated Xcode
+workspace once. Xcode accepts a device UDID, name, DNS name, serial number, or
+other identifier supported by `devicectl`:
+
+```sh
+xcrun devicectl list devices
+bunx absolute dev --ios-device DEVICE_IDENTIFIER
+```
+
+AbsoluteJS synchronizes Capacitor, temporarily selects the device-reachable LAN
+URL, builds the signed `Debug-iphoneos` app, installs it, launches it, and streams
+its redacted console into the normal `[ios]` log channel. Warm starts validate
+the installed bundle and native fingerprint before skipping Xcode and
+installation. `d` reports target state and `relaunch` restarts the app without
+restarting the server. Production-safe Capacitor and Info.plist contents are
+restored on shutdown, failure, and next-start crash recovery.
+
+With `dev.https: true`, the CLI prints an unguessable, session-only HTTP URL for
+the public development CA. Open it on the device, approve the downloaded
+profile, then enable it under **Settings > General > About > Certificate Trust
+Settings**. The private CA key is never served or copied, the endpoint closes
+with `bun dev`, and the app reconnects to HMR after trust is enabled. AbsoluteJS
+does not bypass iOS trust prompts or weaken production transport security.

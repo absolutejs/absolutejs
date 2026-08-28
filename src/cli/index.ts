@@ -40,6 +40,7 @@ if (command === 'dev') {
 	sendTelemetryEvent('cli:command', { command });
 	const configPath = parseNamedArg('--config');
 	const androidDevice = parseNamedArg('--android-device');
+	const iosDevice = parseNamedArg('--ios-device');
 	if (args.includes('--android-device') && !androidDevice) {
 		throw new TypeError('--android-device requires an ADB device serial.');
 	}
@@ -48,13 +49,25 @@ if (command === 'dev') {
 			'--android-device cannot be combined with --no-mobile.'
 		);
 	}
+	if (args.includes('--ios-device') && !iosDevice) {
+		throw new TypeError(
+			'--ios-device requires an Xcode device identifier or name.'
+		);
+	}
+	if (iosDevice && args.includes('--no-mobile')) {
+		throw new TypeError(
+			'--ios-device cannot be combined with --no-mobile.'
+		);
+	}
 	const positionalArgs = stripNamedArgs(
 		'--config',
-		'--android-device'
+		'--android-device',
+		'--ios-device'
 	).filter((arg) => arg !== '--no-mobile');
 	const serverEntry = positionalArgs[0] ?? DEFAULT_SERVER_ENTRY;
 	await dev(serverEntry, configPath, {
 		androidDevice,
+		iosDevice,
 		mobile: !args.includes('--no-mobile')
 	});
 } else if (command === 'start') {
@@ -221,7 +234,7 @@ if (command === 'dev') {
 	console.error('Usage: absolute <command>');
 	console.error('Commands:');
 	console.error(
-		'  dev [entry] [--no-mobile] [--android-device serial] Start web and configured mobile development'
+		'  dev [entry] [--no-mobile] [--android-device serial] [--ios-device identifier] Start web and configured mobile development'
 	);
 	console.error(
 		'  workspace dev [--no-tui] Start multi-service workspace dev'
@@ -237,7 +250,7 @@ if (command === 'dev') {
 		'  compile [entry] [--outdir dir] [--outfile path] Compile standalone executable'
 	);
 	console.error(
-		'  mobile <init|sync|pair|remotes|doctor|test> Manage Capacitor projects, local or remote simulators, guided setup, and deep links'
+		'  mobile <init|sync|pair|remotes|doctor|test> Manage Capacitor projects, simulators, physical devices, Remote Macs, guided setup, and deep links'
 	);
 	console.error(
 		'  config [--port n] Open the unified config UI (ESLint, tsconfig, Prettier)'

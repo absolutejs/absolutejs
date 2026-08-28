@@ -12,6 +12,7 @@ import {
 	type AbsoluteIosDevSession,
 	type StartAbsoluteIosDevOptions
 } from './iosSimulatorController';
+import { startAbsoluteIosTcpRelay } from './iosPhysicalDeviceTransport';
 import {
 	ABSOLUTE_REMOTE_MAC_EVENT_PREFIX,
 	ABSOLUTE_REMOTE_MAC_PROTOCOL_VERSION
@@ -44,6 +45,16 @@ const parsePort = (args: string[]) => {
 	const port = Number(valueAfter(args, '--port'));
 	if (!Number.isInteger(port) || port < 1 || port > 65_535)
 		throw new TypeError('Remote iOS agent requires a valid --port.');
+
+	return port;
+};
+
+const parseOptionalPort = (args: string[], flag: string) => {
+	const value = valueAfter(args, flag);
+	if (value === undefined) return undefined;
+	const port = Number(value);
+	if (!Number.isInteger(port) || port < 1 || port > 65_535)
+		throw new TypeError(`Remote iOS agent requires a valid ${flag}.`);
 
 	return port;
 };
@@ -132,6 +143,7 @@ const capture = (
 const readyShape = (session: AbsoluteIosDevSession) => ({
 	nativeCacheHit: session.nativeCacheHit,
 	startedSimulator: session.startedSimulator,
+	targetKind: session.targetKind,
 	timings: session.timings,
 	type: 'ready',
 	udid: session.udid
@@ -148,6 +160,13 @@ export const runAbsoluteRemoteMacAgent = async (args: string[]) => {
 		projectRoot
 	);
 	const port = parsePort(args);
+	const deviceIdentifier = valueAfter(args, '--ios-device');
+	const serverHost = valueAfter(args, '--server-host');
+	const relayPort = parseOptionalPort(args, '--relay-port');
+	if (deviceIdentifier && (!serverHost || relayPort === undefined))
+		throw new TypeError(
+			'Remote physical iOS development requires --server-host and --relay-port.'
+		);
 	const encodedCertificateAuthority = valueAfter(
 		args,
 		'--certificate-authority'
@@ -172,15 +191,24 @@ export const runAbsoluteRemoteMacAgent = async (args: string[]) => {
 	const project = await prepareAbsoluteIosDevProject(config, {
 		createNativeProject: false,
 		projectRoot,
-		run
+		run,
+		target: deviceIdentifier ? 'device' : 'simulator'
 	});
+	const relay = deviceIdentifier
+		? await startAbsoluteIosTcpRelay({
+				listenPort: port,
+				targetPort: relayPort ?? 0
+			})
+		: undefined;
 	const sessionOptions: StartAbsoluteIosDevOptions = {
 		capture,
 		certificateAuthorityPath,
+		deviceIdentifier,
 		https: args.includes('--https'),
 		port,
 		project,
 		run,
+		serverHost,
 		log: (message: string) => emit({ message, type: 'log' }),
 		nativeLog: (entry: unknown) => emit({ entry, type: 'native-log' }),
 		onPhaseTiming: (timing: AbsoluteIosDevPhaseTiming) =>
@@ -201,6 +229,7 @@ export const runAbsoluteRemoteMacAgent = async (args: string[]) => {
 	try {
 		session = await startAbsoluteIosDevSession(sessionOptions);
 	} catch (error) {
+		await relay?.close().catch(() => undefined);
 		if (certificateAuthorityPath)
 			await rm(certificateAuthorityPath, { force: true });
 
@@ -250,6 +279,7 @@ export const runAbsoluteRemoteMacAgent = async (args: string[]) => {
 	} finally {
 		input.close();
 		await session.close().catch(() => undefined);
+		await relay?.close().catch(() => undefined);
 		if (certificateAuthorityPath)
 			await rm(certificateAuthorityPath, { force: true });
 	}

@@ -2,6 +2,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { chmod, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
+import { isIP } from 'node:net';
 import {
 	dirname,
 	isAbsolute,
@@ -98,6 +99,7 @@ export type AbsoluteRemoteMacTransport = {
 export type AbsoluteRemoteIosOptions = {
 	certificateAuthorityPath?: string;
 	https?: boolean;
+	deviceIdentifier?: string;
 	log?: (message: string) => void;
 	nativeLog?: (entry: AbsoluteIosNativeLogEntry) => void;
 	onPhaseTiming?: (timing: AbsoluteIosDevPhaseTiming) => void;
@@ -105,6 +107,7 @@ export type AbsoluteRemoteIosOptions = {
 	port: number;
 	project: AbsoluteRemoteIosDevProject;
 	signal?: AbortSignal;
+	serverHost?: string;
 	installAgent?: (
 		project: AbsoluteRemoteIosDevProject
 	) => Promise<{ remotePath: string; uploaded?: boolean }>;
@@ -129,6 +132,7 @@ type RemoteEvent =
 	| {
 			nativeCacheHit: boolean;
 			startedSimulator: boolean;
+			targetKind: 'device' | 'simulator';
 			timings: Record<string, number>;
 			type: 'ready';
 			udid: string;
@@ -346,6 +350,30 @@ export const inspectAbsoluteRemoteMac = async (
 		);
 
 	return { bunPath, home, os: operatingSystem, xcodeVersion };
+};
+
+export const inspectAbsoluteRemoteMacLanHost = async (
+	profile: AbsoluteRemoteMacProfile,
+	transport?: Pick<AbsoluteRemoteMacTransport, 'capture'>
+) => {
+	const capture = transport?.capture ?? defaultTransport.capture;
+	const script =
+		'default_interface="$(/sbin/route -n get default 2>/dev/null | /usr/bin/awk \'/interface:/{print $2; exit}\')"; for interface in "$default_interface" en0 en1; do [ -n "$interface" ] || continue; address="$(/usr/sbin/ipconfig getifaddr "$interface" 2>/dev/null || true)"; if [ -n "$address" ]; then printf \'%s\\n\' "$address"; exit 0; fi; done; exit 1';
+	const result = await capture([
+		...absoluteRemoteMacSshBase(profile),
+		'/bin/sh -lc',
+		shellQuote(script)
+	]);
+	const host = requireRemoteSuccess(
+		result,
+		'Remote Mac LAN address discovery'
+	).trim();
+	if (isIP(host) === 0)
+		throw new Error(
+			'The Remote Mac did not report a device-reachable LAN address.'
+		);
+
+	return host;
 };
 export const listAbsoluteRemoteMacProfiles = async (profilePath?: string) => {
 	const store = await loadStore(profilePath);
@@ -729,6 +757,17 @@ export const startAbsoluteRemoteIosDevSession = async (
 				'base64url'
 			)
 		: undefined;
+	const physicalDevice = options.deviceIdentifier !== undefined;
+	let relayPort: number | undefined;
+	if (physicalDevice)
+		relayPort =
+			options.port <= 49_151
+				? options.port + 16_384
+				: options.port - 16_384;
+	if (physicalDevice && !options.serverHost)
+		throw new Error(
+			'Remote physical iOS development requires the Remote Mac LAN host.'
+		);
 	const remoteCommand = [
 		`cd ${shellQuote(options.project.remoteProjectRoot)}`,
 		'&&',
@@ -745,14 +784,26 @@ export const startAbsoluteRemoteIosDevSession = async (
 					shellQuote(encodedCertificateAuthority)
 				]
 			: []),
-		...(options.https ? ['--https'] : [])
+		...(options.https ? ['--https'] : []),
+		...(options.deviceIdentifier
+			? [
+					'--ios-device',
+					shellQuote(options.deviceIdentifier),
+					'--server-host',
+					shellQuote(options.serverHost ?? ''),
+					'--relay-port',
+					String(relayPort)
+				]
+			: [])
 	].join(' ');
 	const command = [
 		...absoluteRemoteMacSshBase(options.project.profile),
 		'-o',
 		'ExitOnForwardFailure=yes',
 		'-R',
-		`${options.port}:127.0.0.1:${options.port}`,
+		physicalDevice
+			? `127.0.0.1:${relayPort}:127.0.0.1:${options.port}`
+			: `${options.port}:127.0.0.1:${options.port}`,
 		'/bin/sh -lc',
 		shellQuote(remoteCommand)
 	];
@@ -898,6 +949,7 @@ export const startAbsoluteRemoteIosDevSession = async (
 		close,
 		nativeCacheHit: currentReady.nativeCacheHit,
 		startedSimulator: currentReady.startedSimulator,
+		targetKind: currentReady.targetKind,
 		timings: currentReady.timings,
 		udid: currentReady.udid,
 		rebuild: async () => {

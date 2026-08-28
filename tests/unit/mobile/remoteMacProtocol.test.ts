@@ -7,6 +7,7 @@ import {
 	ABSOLUTE_REMOTE_MAC_EVENT_PREFIX,
 	absoluteRemoteProjectSyncCommands,
 	createAbsoluteRemoteIosDevProject,
+	inspectAbsoluteRemoteMacLanHost,
 	listAbsoluteRemoteMacProfiles,
 	materializeAbsoluteRemoteMacAgent,
 	pairAbsoluteRemoteMac,
@@ -35,6 +36,33 @@ const temporaryRoot = async () => {
 };
 
 describe('remote Mac protocol', () => {
+	test('discovers the Remote Mac LAN address without persisting it', async () => {
+		const commands: string[][] = [];
+		const host = await inspectAbsoluteRemoteMacLanHost(
+			{
+				bunPath: '/Users/builder/.bun/bin/bun',
+				createdAt: '2026-08-28T00:00:00.000Z',
+				destination: 'builder@mac',
+				name: 'mac',
+				workspaceRoot: '/Users/builder/.absolutejs/remote-ios',
+				xcodeVersion: 'Xcode 26.4'
+			},
+			{
+				capture: async (command) => {
+					commands.push(command);
+
+					return {
+						exitCode: 0,
+						stderr: '',
+						stdout: '192.168.50.8\n'
+					};
+				}
+			}
+		);
+		expect(host).toBe('192.168.50.8');
+		expect(commands[0]?.join(' ')).toContain('ipconfig getifaddr');
+	});
+
 	test('pairs a verified Mac without storing credentials', async () => {
 		const root = await temporaryRoot();
 		const profilePath = join(root, 'profiles.json');
@@ -215,7 +243,7 @@ describe('remote Mac protocol', () => {
 		const prefix = JSON.stringify(ABSOLUTE_REMOTE_MAC_EVENT_PREFIX);
 		const fakeAgent = `
 const prefix = ${prefix};
-const ready = { nativeCacheHit: true, startedSimulator: false, timings: { total: 12 }, type: "ready", udid: "REMOTE-UDID", v: 1 };
+const ready = { nativeCacheHit: true, startedSimulator: false, targetKind: "simulator", timings: { total: 12 }, type: "ready", udid: "REMOTE-UDID", v: 1 };
 console.log(prefix + JSON.stringify(ready));
 let buffered = "";
 process.stdin.setEncoding("utf8");
@@ -273,5 +301,37 @@ setInterval(() => {}, 1000);`;
 		expect(syncs).toBe(2);
 		expect(rebuilt.udid).toBe('REMOTE-UDID');
 		await rebuilt.close();
+
+		const physical = await startAbsoluteRemoteIosDevSession({
+			certificateAuthorityPath,
+			deviceIdentifier: 'PHONE-UDID',
+			https: true,
+			port: 43124,
+			project,
+			serverHost: '192.168.50.8',
+			transport: {
+				capture: async () => ({ exitCode: 0, stderr: '', stdout: '' }),
+				spawn: (command, options) => {
+					spawned.push(command);
+
+					return Bun.spawn([process.execPath, '-e', fakeAgent], {
+						signal: options.signal,
+						stderr: 'pipe',
+						stdin: 'pipe',
+						stdout: 'pipe'
+					}) as ReturnType<AbsoluteRemoteMacTransport['spawn']>;
+				}
+			},
+			installAgent: async () => ({ remotePath: '/remote/agent.js' }),
+			syncProject: async () => undefined
+		});
+		const physicalCommand = spawned.at(-1) ?? [];
+		expect(physicalCommand).toContain('127.0.0.1:59508:127.0.0.1:43124');
+		expect(physicalCommand.join(' ')).toContain('--ios-device');
+		expect(physicalCommand.join(' ')).toContain('PHONE-UDID');
+		expect(physicalCommand.join(' ')).toContain('--server-host');
+		expect(physicalCommand.join(' ')).toContain('192.168.50.8');
+		expect(physicalCommand.join(' ')).toContain('--relay-port');
+		await physical.close();
 	});
 });

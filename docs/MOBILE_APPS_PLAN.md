@@ -1379,14 +1379,22 @@ guided toolchain installer and managed native-project creation; `--no-mobile`,
 the Windows SDK/emulator and a PowerShell Gradle broker. Live-reload changes to the
 copied native Capacitor config are journaled and restored on normal shutdown,
 startup failure, cancellation, or the next run after a crash. The managed emulator
-stays warm after shutdown for fast subsequent starts. iOS physical devices remain
-a subsequent slice of Phase 4. Trusted local HTTPS now reuses `dev.https`:
+stays warm after shutdown for fast subsequent starts. Physical iOS development is
+now a first-class Phase 4 target through
+`absolute dev --ios-device <identifier>`: AbsoluteJS uses Xcode automatic signing,
+`devicectl` validation/install/console launch, a device-reachable LAN origin,
+native fingerprint/install caching, redacted logs, timing telemetry, relaunch,
+and the existing projection repair journal. Trusted local HTTPS reuses `dev.https`:
 certificates are regenerated only when a required LAN identity is absent, Android
 debug builds receive an app-scoped debug-only CA projection, and local or remote
 iOS Simulators receive the public CA through `simctl keychain`. Explicit
 `absolute dev --android-device <serial>` development uses the selected LAN address
 without changing application code, while the normal managed emulator retains its
-faster `adb reverse` loopback path. The SDK-free
+faster `adb reverse` loopback path. Physical iOS sessions expose only the public
+CA through an unguessable ephemeral enrollment URL and retain Apple's required
+on-device profile and full-trust approvals. A physical device attached to a paired
+Remote Mac uses a remote LAN TCP relay into a separately bound SSH reverse tunnel;
+the dev server and private CA key remain on the developer host. The SDK-free
 mobile-preview UI is now implemented with the explicitly documented platform
 limitations above.
 

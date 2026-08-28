@@ -70,8 +70,10 @@ import {
 import {
 	createAbsoluteRemoteIosDevProject,
 	getAbsoluteRemoteMacProfile,
+	inspectAbsoluteRemoteMacLanHost,
 	startAbsoluteRemoteIosDevSession,
-	type AbsoluteIosDevelopmentProject
+	type AbsoluteIosDevelopmentProject,
+	type AbsoluteRemoteMacProfile
 } from '../../mobile/remoteMacProtocol';
 import {
 	createAbsoluteIosNativeWatcher,
@@ -342,6 +344,7 @@ const resolveDevConfig = (
 
 export type AbsoluteDevOptions = {
 	androidDevice?: string;
+	iosDevice?: string;
 	mobile?: boolean;
 };
 
@@ -364,10 +367,14 @@ const androidToolchainReady = (
 	);
 };
 
-const iosToolchainReady = (checks: AbsoluteMobileDoctorCheck[]) =>
+const iosToolchainReady = (
+	checks: AbsoluteMobileDoctorCheck[],
+	target: 'device' | 'simulator' = 'simulator'
+) =>
 	checks.every(
 		(check) =>
 			check.platform !== 'ios' ||
+			(target === 'device' && check.id === 'ios.runtime') ||
 			(check.status !== 'fail' && check.status !== 'warn')
 	);
 
@@ -381,6 +388,8 @@ export const dev = async (
 	let resolvedDev: ResolvedDevConfig;
 	let buildDirectory = resolve(process.cwd(), 'build');
 	let mobileConfig: MobileConfig | undefined;
+	let iosPhysicalServerHost: string | undefined;
+	let selectedRemoteMacProfile: AbsoluteRemoteMacProfile | undefined;
 	try {
 		const config = await loadConfig(configPath);
 		mobileConfig = config?.mobile;
@@ -400,20 +409,15 @@ export const dev = async (
 		httpsEnabled = resolvedDev.https;
 	}
 	if (
-		options.androidDevice &&
+		(options.androidDevice ||
+			(options.iosDevice && detectAbsoluteMobileHost() === 'macos')) &&
 		['localhost', '127.0.0.1', '::1'].includes(resolvedDev.host)
 	) {
 		resolvedDev.host = '0.0.0.0';
 	}
-	if (httpsEnabled)
-		devCertificateAuthorityPath = await setupHttpsCert(
-			options.androidDevice
-				? [mobileReachableHost(resolvedDev.host)]
-				: [resolvedDev.host]
-		);
-	if (options.androidDevice && !mobileConfig) {
+	if ((options.androidDevice || options.iosDevice) && !mobileConfig) {
 		throw new TypeError(
-			'--android-device requires an absolute.config.ts mobile configuration.'
+			'Physical-device development requires an absolute.config.ts mobile configuration.'
 		);
 	}
 	if (
@@ -423,6 +427,38 @@ export const dev = async (
 	) {
 		throw new TypeError(
 			'--android-device requires android in mobile.platforms.'
+		);
+	}
+	if (
+		options.iosDevice &&
+		mobileConfig?.platforms &&
+		!mobileConfig.platforms.includes('ios')
+	) {
+		throw new TypeError('--ios-device requires ios in mobile.platforms.');
+	}
+	if (options.iosDevice) {
+		if (detectAbsoluteMobileHost() === 'macos')
+			iosPhysicalServerHost = mobileReachableHost(resolvedDev.host);
+		else {
+			selectedRemoteMacProfile = await getAbsoluteRemoteMacProfile();
+			if (!selectedRemoteMacProfile)
+				throw new Error(
+					'--ios-device requires macOS or a paired Remote Mac.'
+				);
+			iosPhysicalServerHost = await inspectAbsoluteRemoteMacLanHost(
+				selectedRemoteMacProfile
+			);
+		}
+	}
+	if (httpsEnabled) {
+		const certificateHosts = [
+			...(options.androidDevice
+				? [mobileReachableHost(resolvedDev.host)]
+				: []),
+			...(iosPhysicalServerHost ? [iosPhysicalServerHost] : [])
+		];
+		devCertificateAuthorityPath = await setupHttpsCert(
+			certificateHosts.length > 0 ? certificateHosts : [resolvedDev.host]
 		);
 	}
 
@@ -489,12 +525,14 @@ export const dev = async (
 			}
 			if (normalized.platforms.includes('ios')) {
 				if (detectAbsoluteMobileHost() !== 'macos') {
-					const remote = await getAbsoluteRemoteMacProfile();
+					const remote =
+						selectedRemoteMacProfile ??
+						(await getAbsoluteRemoteMacProfile());
 					if (!remote) {
 						console.log(
 							cliTag(
 								'\x1b[33m',
-								'iOS simulator skipped. Pair a Mac with `absolute mobile pair mac <name> <user@host>`.'
+								'iOS target skipped. Pair a Mac with `absolute mobile pair mac <name> <user@host>`.'
 							)
 						);
 					} else {
@@ -524,17 +562,24 @@ export const dev = async (
 						}
 					}
 				} else {
+					const iosTarget = options.iosDevice
+						? 'device'
+						: 'simulator';
 					let ready = iosToolchainReady(
-						await inspectAbsoluteMobileToolchain()
+						await inspectAbsoluteMobileToolchain(),
+						iosTarget
 					);
 					if (!ready) {
 						const install = await confirmPrompt(
-							'iOS simulation is not configured. Install the missing simulator runtime now?'
+							options.iosDevice
+								? 'Physical iOS development is not configured. Open the guided Xcode setup now?'
+								: 'iOS simulation is not configured. Install the missing simulator runtime now?'
 						);
 						if (install) {
 							await fixAbsoluteMobileEmulatorToolchain('ios');
 							ready = iosToolchainReady(
-								await inspectAbsoluteMobileToolchain()
+								await inspectAbsoluteMobileToolchain(),
+								iosTarget
 							);
 						} else {
 							console.log(
@@ -564,7 +609,8 @@ export const dev = async (
 								normalized,
 								{
 									createNativeProject,
-									projectRoot: process.cwd()
+									projectRoot: process.cwd(),
+									target: iosTarget
 								}
 							);
 						}
@@ -655,7 +701,8 @@ export const dev = async (
 		...(options.mobile === false ? ['--no-mobile'] : []),
 		...(options.androidDevice
 			? ['--android-device', options.androidDevice]
-			: [])
+			: []),
+		...(options.iosDevice ? ['--ios-device', options.iosDevice] : [])
 	].filter((part) => part.length > 0);
 	registerInstance({
 		command: relaunchCommand,
@@ -872,6 +919,7 @@ export const dev = async (
 			platform: 'ios',
 			provider: 'capacitor',
 			startedSimulator: session.startedSimulator,
+			target: session.targetKind,
 			timings: session.timings
 		});
 		if (session.timings.building === undefined) return;
@@ -881,14 +929,17 @@ export const dev = async (
 			installMs: session.timings.installing,
 			platform: 'ios',
 			provider: 'capacitor',
-			success: true
+			success: true,
+			target: session.targetKind
 		});
 	};
 	const openIosDevSession = (iosProject: AbsoluteIosDevelopmentProject) => {
 		const sessionOptions: Omit<StartAbsoluteIosDevOptions, 'project'> = {
 			certificateAuthorityPath: devCertificateAuthorityPath ?? undefined,
+			deviceIdentifier: options.iosDevice,
 			https: httpsEnabled,
 			port,
+			serverHost: iosPhysicalServerHost,
 			signal: iosDevAbort.signal,
 			log: (message: string) =>
 				printNativeOutput(cliTag('\x1b[35m', message)),
@@ -908,7 +959,10 @@ export const dev = async (
 				iosDevState = state;
 				if (state === 'ready' || state === 'closed') return;
 				printNativeOutput(
-					cliTag('\x1b[35m', `iOS simulator: ${state}.`)
+					cliTag(
+						'\x1b[35m',
+						`iOS ${options.iosDevice ? 'device' : 'simulator'}: ${state}.`
+					)
 				);
 			}
 		};
@@ -957,6 +1011,7 @@ export const dev = async (
 					provider: 'capacitor',
 					rootInputChanged: change.rootInputChanged,
 					success: true,
+					target: replacement.targetKind,
 					timings: replacement.timings
 				});
 			},
@@ -972,7 +1027,8 @@ export const dev = async (
 					host: iosTelemetryHost(iosProject),
 					platform: 'ios',
 					provider: 'capacitor',
-					success: false
+					success: false,
+					target: options.iosDevice ? 'device' : 'simulator'
 				});
 			}
 		});
@@ -1006,12 +1062,13 @@ export const dev = async (
 					phase: iosDevState,
 					platform: 'ios',
 					provider: 'capacitor',
+					target: options.iosDevice ? 'device' : 'simulator',
 					timings: iosPhaseTimings
 				});
 				console.error(
 					cliTag(
 						'\x1b[31m',
-						`iOS simulator failed: ${error instanceof Error ? error.message : String(error)}`
+						`iOS ${options.iosDevice ? 'device' : 'simulator'} failed: ${error instanceof Error ? error.message : String(error)}`
 					)
 				);
 			})

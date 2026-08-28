@@ -8,6 +8,7 @@ import {
 	rm,
 	writeFile
 } from 'node:fs/promises';
+import { isIP } from 'node:net';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { NormalizedAbsoluteMobileConfig } from './config';
 import {
@@ -16,6 +17,12 @@ import {
 } from './emulatorDoctor';
 import { writeAbsoluteCapacitorConfig } from './capacitorProject';
 import { fingerprintAbsoluteIosNativeProject } from './iosRelease';
+import {
+	normalizeAbsoluteIosDeviceHost,
+	normalizeAbsoluteIosDeviceIdentifier,
+	startAbsoluteIosCaEnrollmentServer,
+	type AbsoluteIosCaEnrollmentServer
+} from './iosPhysicalDeviceTransport';
 import { getDurationString } from '../utils/getDurationString';
 
 export const ABSOLUTE_IOS_SIMULATOR_NAME = 'AbsoluteJS iPhone';
@@ -45,6 +52,7 @@ export type AbsoluteIosDevState =
 	| 'closing'
 	| 'configuring'
 	| 'connecting'
+	| 'enrolling-trust'
 	| 'failed'
 	| 'installing'
 	| 'launching'
@@ -77,6 +85,7 @@ export type AbsoluteIosDevSession = {
 	screenshot: (destination: string) => Promise<string>;
 	startedSimulator: boolean;
 	state: AbsoluteIosDevState;
+	targetKind: 'device' | 'simulator';
 	timings: Record<string, number>;
 	udid: string;
 };
@@ -94,6 +103,7 @@ export type PrepareAbsoluteIosDevOptions = {
 		command: string[],
 		options?: AbsoluteIosCommandOptions
 	) => Promise<number>;
+	target?: 'device' | 'simulator';
 };
 
 export type StartAbsoluteIosDevOptions = {
@@ -103,6 +113,8 @@ export type StartAbsoluteIosDevOptions = {
 		command: string[],
 		options?: AbsoluteIosCommandOptions
 	) => AbsoluteIosCommandResult;
+	/** Xcode device identifier or name. Omit to use the managed Simulator. */
+	deviceIdentifier?: string;
 	https?: boolean;
 	log?: (message: string) => void;
 	nativeLog?: (entry: AbsoluteIosNativeLogEntry) => void;
@@ -114,6 +126,8 @@ export type StartAbsoluteIosDevOptions = {
 		command: string[],
 		options?: AbsoluteIosCommandOptions
 	) => Promise<number>;
+	/** Hostname or LAN address embedded into a physical-device dev URL. */
+	serverHost?: string;
 	signal?: AbortSignal;
 	sleep?: (milliseconds: number) => Promise<void>;
 	spawn?: (command: string[], options?: AbsoluteIosCommandOptions) => void;
@@ -122,6 +136,10 @@ export type StartAbsoluteIosDevOptions = {
 		options: AbsoluteIosCommandOptions,
 		onLine: (line: string) => void
 	) => AbsoluteIosLogStream;
+	startCaEnrollmentServer?: (options: {
+		certificateAuthorityPath: string;
+		displayHost: string;
+	}) => Promise<AbsoluteIosCaEnrollmentServer>;
 };
 
 type IosRuntime = {
@@ -314,6 +332,32 @@ const trustIosSimulatorDevelopmentCa = async (
 		'Installed the AbsoluteJS development CA into this iOS Simulator trust store.'
 	);
 };
+
+const iosLaunchCommand = (
+	project: AbsoluteIosDevProject,
+	udid: string,
+	physical: boolean
+) =>
+	physical
+		? [
+				project.xcrun,
+				'devicectl',
+				'device',
+				'process',
+				'launch',
+				'--terminate-existing',
+				'--device',
+				udid,
+				project.config.appId
+			]
+		: [
+				project.xcrun,
+				'simctl',
+				'launch',
+				'--terminate-running-process',
+				udid,
+				project.config.appId
+			];
 
 const requireCapturedSuccess = (
 	result: AbsoluteIosCommandResult,
@@ -553,7 +597,8 @@ const iosDevelopmentInfoPlist = (source: string, cleartext: boolean) => {
 const writeDevProjection = async (
 	project: AbsoluteIosDevProject,
 	port: number,
-	https: boolean
+	https: boolean,
+	serverHost = 'localhost'
 ) => {
 	const paths = journalPaths(project.projectRoot);
 	await repairAbsoluteIosDevSession(project.projectRoot);
@@ -591,6 +636,8 @@ const writeDevProjection = async (
 	const developmentUrl = new URL(
 		`${https ? 'https' : 'http'}://localhost:${port}${project.config.entry}`
 	);
+	developmentUrl.hostname =
+		isIP(serverHost) === 6 ? `[${serverHost}]` : serverHost;
 	developmentUrl.searchParams.set('__absolute_target', 'capacitor-ios');
 	const existingServer = parsed.server;
 	parsed.server = {
@@ -792,6 +839,46 @@ const installedAppIdentity = (
 		: undefined;
 };
 
+const validatePhysicalIosDevice = (
+	project: AbsoluteIosDevProject,
+	identifier: string,
+	capture: NonNullable<StartAbsoluteIosDevOptions['capture']>
+) => {
+	const result = capture([
+		project.xcrun,
+		'devicectl',
+		'device',
+		'info',
+		'details',
+		'--device',
+		identifier
+	]);
+	if (result.exitCode !== 0)
+		throw new Error(
+			`Physical iOS device ${JSON.stringify(identifier)} is unavailable: ${result.stderr.trim() || result.stdout.trim() || 'pair it in Xcode Device Hub, trust this Mac, unlock it, and enable Developer Mode.'}`
+		);
+};
+
+const physicalIosAppIsInstalled = (
+	project: AbsoluteIosDevProject,
+	identifier: string,
+	capture: NonNullable<StartAbsoluteIosDevOptions['capture']>
+) => {
+	const result = capture([
+		project.xcrun,
+		'devicectl',
+		'device',
+		'info',
+		'apps',
+		'--device',
+		identifier
+	]);
+
+	return (
+		result.exitCode === 0 && result.stdout.includes(project.config.appId)
+	);
+};
+
 const buildIosDebugApp = async (
 	project: AbsoluteIosDevProject,
 	udid: string,
@@ -842,6 +929,132 @@ const buildIosDebugApp = async (
 		);
 
 	return appPath;
+};
+
+const buildPhysicalIosDebugApp = async (
+	project: AbsoluteIosDevProject,
+	identifier: string,
+	run: NonNullable<StartAbsoluteIosDevOptions['run']>,
+	signal?: AbortSignal
+) => {
+	const derivedDataPath = join(
+		project.projectRoot,
+		'.absolutejs',
+		'mobile',
+		'ios-derived-data',
+		createHash('sha256')
+			.update(project.config.appId)
+			.digest('hex')
+			.slice(0, 16)
+	);
+	await mkdir(derivedDataPath, { recursive: true });
+	await requireSuccess(
+		[
+			project.xcodebuild,
+			'-workspace',
+			join(project.nativeDirectory, 'App', 'App.xcworkspace'),
+			'-scheme',
+			'App',
+			'-configuration',
+			'Debug',
+			'-destination',
+			`platform=iOS,id=${identifier}`,
+			'-derivedDataPath',
+			derivedDataPath,
+			'-allowProvisioningUpdates',
+			'build'
+		],
+		'iOS physical-device build (configure automatic signing and a Development Team in Xcode if this is the first run)',
+		run,
+		{ cwd: project.nativeDirectory, signal }
+	);
+	const appPath = join(
+		derivedDataPath,
+		'Build',
+		'Products',
+		'Debug-iphoneos',
+		'App.app'
+	);
+	if (!(await pathExists(appPath)))
+		throw new Error(
+			`Xcode did not produce the physical-device app at ${appPath}.`
+		);
+
+	return appPath;
+};
+
+const ensurePhysicalIosDebugApp = async (options: {
+	cache: IosNativeCache | null;
+	capture: NonNullable<StartAbsoluteIosDevOptions['capture']>;
+	fingerprint: string;
+	identifier: string;
+	log: NonNullable<StartAbsoluteIosDevOptions['log']>;
+	project: AbsoluteIosDevProject;
+	run: NonNullable<StartAbsoluteIosDevOptions['run']>;
+	signal?: AbortSignal;
+	transition: (state: AbsoluteIosDevState) => void;
+}) => {
+	const cacheHit =
+		options.cache?.appId === options.project.config.appId &&
+		options.cache.fingerprint === options.fingerprint &&
+		options.cache.installations[options.identifier] ===
+			options.fingerprint &&
+		physicalIosAppIsInstalled(
+			options.project,
+			options.identifier,
+			options.capture
+		);
+	if (cacheHit) {
+		options.log(
+			`iOS native app is unchanged on the selected physical device; skipped Xcode build and install.`
+		);
+
+		return true;
+	}
+	options.log(
+		'iOS native inputs changed or the physical-device install is stale; rebuilding.'
+	);
+	options.transition('building');
+	const appPath = await buildPhysicalIosDebugApp(
+		options.project,
+		options.identifier,
+		options.run,
+		options.signal
+	);
+	throwIfAborted(options.signal);
+	options.transition('installing');
+	await requireSuccess(
+		[
+			options.project.xcrun,
+			'devicectl',
+			'device',
+			'install',
+			'app',
+			'--device',
+			options.identifier,
+			appPath
+		],
+		'iOS physical-device app installation',
+		options.run,
+		{ signal: options.signal }
+	);
+	await writeNativeCache(options.project.projectRoot, {
+		appId: options.project.config.appId,
+		fingerprint: options.fingerprint,
+		format: NATIVE_CACHE_FORMAT,
+		installations: {
+			...(options.cache?.appId === options.project.config.appId
+				? options.cache.installations
+				: {}),
+			[options.identifier]: options.fingerprint
+		}
+	}).catch((error) =>
+		options.log(
+			`iOS native cache could not be saved: ${error instanceof Error ? error.message : String(error)}`
+		)
+	);
+
+	return false;
 };
 
 const ensureIosDebugApp = async (options: {
@@ -959,28 +1172,38 @@ const attachNativeLogs = (
 ) => {
 	if (!options.nativeLog) return null;
 	const start = options.startNativeLogs ?? defaultStartNativeLogs;
+	const command = options.deviceIdentifier
+		? [
+				project.xcrun,
+				'devicectl',
+				'device',
+				'process',
+				'launch',
+				'--console',
+				'--terminate-existing',
+				'--device',
+				udid,
+				project.config.appId
+			]
+		: [
+				project.xcrun,
+				'simctl',
+				'spawn',
+				udid,
+				'log',
+				'stream',
+				'--style',
+				'compact',
+				'--level',
+				'debug',
+				'--predicate',
+				'process == "App"'
+			];
 
-	return start(
-		[
-			project.xcrun,
-			'simctl',
-			'spawn',
-			udid,
-			'log',
-			'stream',
-			'--style',
-			'compact',
-			'--level',
-			'debug',
-			'--predicate',
-			'process == "App"'
-		],
-		{ signal: options.signal },
-		(line) => {
-			const entry = parseAbsoluteIosLogLine(line);
-			if (entry) options.nativeLog?.(entry);
-		}
-	);
+	return start(command, { signal: options.signal }, (line) => {
+		const entry = parseAbsoluteIosLogLine(line);
+		if (entry) options.nativeLog?.(entry);
+	});
 };
 
 const IOS_TIMING_PHASES: Array<[string, string]> = [
@@ -989,6 +1212,7 @@ const IOS_TIMING_PHASES: Array<[string, string]> = [
 	['fingerprinting', 'fingerprint'],
 	['booting', 'simulator'],
 	['connecting', 'device ready'],
+	['enrolling-trust', 'HTTPS trust'],
 	['checking-native', 'app check'],
 	['building', 'Xcode'],
 	['installing', 'install'],
@@ -1012,17 +1236,19 @@ export const prepareAbsoluteIosDevProject = async (
 	options: PrepareAbsoluteIosDevOptions
 ): Promise<AbsoluteIosDevProject> => {
 	if (detectAbsoluteMobileHost() !== 'macos')
-		throw new Error('iOS simulation requires macOS and Xcode.');
+		throw new Error('iOS development requires macOS and Xcode.');
+	const target = options.target ?? 'simulator';
 	const projectRoot = resolve(options.projectRoot);
 	const checks = await inspectAbsoluteMobileToolchain({ host: 'macos' });
 	const failed = checks.filter(
 		(check) =>
 			check.platform === 'ios' &&
+			!(target === 'device' && check.id === 'ios.runtime') &&
 			(check.status === 'fail' || check.status === 'warn')
 	);
 	if (failed.length > 0)
 		throw new Error(
-			`iOS simulation is not ready: ${failed.map(({ label }) => label).join(', ')}.`
+			`iOS ${target} development is not ready: ${failed.map(({ label }) => label).join(', ')}.`
 		);
 	const xcrun = checks.find((check) => check.id === 'ios.xcrun')?.path;
 	const xcodebuild = checks.find(
@@ -1062,10 +1288,111 @@ export const prepareAbsoluteIosDevProject = async (
 	};
 };
 
+const preparePhysicalIosTarget = async (options: {
+	capture: NonNullable<StartAbsoluteIosDevOptions['capture']>;
+	deviceIdentifier: string;
+	log: NonNullable<StartAbsoluteIosDevOptions['log']>;
+	project: AbsoluteIosDevProject;
+	serverHost: string;
+	startOptions: StartAbsoluteIosDevOptions;
+	transition: (state: AbsoluteIosDevState) => void;
+}) => {
+	options.transition('connecting');
+	validatePhysicalIosDevice(
+		options.project,
+		options.deviceIdentifier,
+		options.capture
+	);
+	if (!options.startOptions.https)
+		return {
+			caEnrollmentServer: null,
+			startedSimulator: false,
+			udid: options.deviceIdentifier
+		};
+	if (!options.startOptions.certificateAuthorityPath)
+		throw new Error(
+			'Physical iOS HTTPS development requires the AbsoluteJS development CA certificate.'
+		);
+	options.transition('enrolling-trust');
+	const startEnrollment =
+		options.startOptions.startCaEnrollmentServer ??
+		startAbsoluteIosCaEnrollmentServer;
+	const caEnrollmentServer = await startEnrollment({
+		certificateAuthorityPath: options.startOptions.certificateAuthorityPath,
+		displayHost: options.serverHost
+	});
+	options.log(
+		`On the iOS device, open ${caEnrollmentServer.url}, install the AbsoluteJS development CA profile, then enable it under Settings > General > About > Certificate Trust Settings. This public CA endpoint exists only for this dev session.`
+	);
+
+	return {
+		caEnrollmentServer,
+		startedSimulator: false,
+		udid: options.deviceIdentifier
+	};
+};
+
+const prepareIosSimulatorTarget = async (options: {
+	capture: NonNullable<StartAbsoluteIosDevOptions['capture']>;
+	log: NonNullable<StartAbsoluteIosDevOptions['log']>;
+	project: AbsoluteIosDevProject;
+	run: NonNullable<StartAbsoluteIosDevOptions['run']>;
+	sleep: NonNullable<StartAbsoluteIosDevOptions['sleep']>;
+	spawn: NonNullable<StartAbsoluteIosDevOptions['spawn']>;
+	startOptions: StartAbsoluteIosDevOptions;
+	transition: (state: AbsoluteIosDevState) => void;
+}) => {
+	options.transition('booting');
+	const managed = await ensureManagedSimulator(
+		options.project,
+		options.capture
+	);
+	const { device } = managed;
+	const startedSimulator = managed.created || device.state !== 'Booted';
+	bootSimulator(options.project, device, options.capture);
+	options.spawn([
+		'open',
+		'-a',
+		'Simulator',
+		'--args',
+		'-CurrentDeviceUDID',
+		device.udid
+	]);
+	options.transition('connecting');
+	await waitForBootedSimulator(
+		options.project,
+		device.udid,
+		options.capture,
+		options.sleep,
+		options.startOptions.signal
+	);
+	await requireSuccess(
+		[options.project.xcrun, 'simctl', 'bootstatus', device.udid, '-b'],
+		'iOS simulator boot readiness',
+		options.run,
+		{ signal: options.startOptions.signal }
+	);
+	await trustIosSimulatorDevelopmentCa(
+		options.startOptions,
+		device.udid,
+		options.run,
+		options.log
+	);
+
+	return { caEnrollmentServer: null, startedSimulator, udid: device.udid };
+};
+
 export const startAbsoluteIosDevSession = async (
 	options: StartAbsoluteIosDevOptions
 ): Promise<AbsoluteIosDevSession> => {
 	const { project } = options;
+	const deviceIdentifier = options.deviceIdentifier
+		? normalizeAbsoluteIosDeviceIdentifier(options.deviceIdentifier)
+		: undefined;
+	const targetKind = deviceIdentifier ? 'device' : 'simulator';
+	const serverHost = deviceIdentifier
+		? normalizeAbsoluteIosDeviceHost(options.serverHost ?? '')
+		: 'localhost';
 	const capture = options.capture ?? defaultCapture;
 	const run = options.run ?? defaultRun;
 	const sleep = options.sleep ?? Bun.sleep;
@@ -1094,10 +1421,25 @@ export const startAbsoluteIosDevSession = async (
 		options.onStateChange?.(next);
 	};
 	let nativeLogs: AbsoluteIosLogStream | null = null;
+	let caEnrollmentServer: AbsoluteIosCaEnrollmentServer | null = null;
 	const closeLogs = async () => {
 		const stream = nativeLogs;
 		nativeLogs = null;
 		await stream?.close().catch(() => undefined);
+	};
+	const relaunchTarget = async (udid: string) => {
+		if (deviceIdentifier && options.nativeLog) {
+			await closeLogs();
+			nativeLogs = attachNativeLogs(project, udid, options);
+
+			return;
+		}
+		await requireSuccess(
+			iosLaunchCommand(project, udid, deviceIdentifier !== undefined),
+			'iOS app relaunch',
+			run,
+			{ signal: options.signal }
+		);
 	};
 	try {
 		await repairAbsoluteIosDevSession(project.projectRoot);
@@ -1110,7 +1452,12 @@ export const startAbsoluteIosDevSession = async (
 			{ cwd: project.projectRoot, signal: options.signal }
 		);
 		transition('configuring');
-		await writeDevProjection(project, options.port, options.https === true);
+		await writeDevProjection(
+			project,
+			options.port,
+			options.https === true,
+			serverHost
+		);
 		throwIfAborted(options.signal);
 		const fingerprintStartedAt = performance.now();
 		const fingerprintPromise = fingerprintAbsoluteIosDevProject(
@@ -1120,70 +1467,73 @@ export const startAbsoluteIosDevSession = async (
 
 			return fingerprint;
 		});
-		transition('booting');
-		const { created, device } = await ensureManagedSimulator(
-			project,
-			capture
-		);
-		const startedSimulator = created || device.state !== 'Booted';
-		bootSimulator(project, device, capture);
-		spawn([
-			'open',
-			'-a',
-			'Simulator',
-			'--args',
-			'-CurrentDeviceUDID',
-			device.udid
-		]);
-		transition('connecting');
-		await waitForBootedSimulator(
-			project,
-			device.udid,
-			capture,
-			sleep,
-			options.signal
-		);
-		await requireSuccess(
-			[project.xcrun, 'simctl', 'bootstatus', device.udid, '-b'],
-			'iOS simulator boot readiness',
-			run,
-			{ signal: options.signal }
-		);
-		await trustIosSimulatorDevelopmentCa(options, device.udid, run, log);
+		const target = deviceIdentifier
+			? await preparePhysicalIosTarget({
+					capture,
+					deviceIdentifier,
+					log,
+					project,
+					serverHost,
+					startOptions: options,
+					transition
+				})
+			: await prepareIosSimulatorTarget({
+					capture,
+					log,
+					project,
+					run,
+					sleep,
+					spawn,
+					startOptions: options,
+					transition
+				});
+		const {
+			caEnrollmentServer: targetCaEnrollmentServer,
+			startedSimulator,
+			udid
+		} = target;
+		caEnrollmentServer = targetCaEnrollmentServer;
 		const fingerprint = await fingerprintPromise;
 		transition('checking-native');
-		const nativeCacheHit = await ensureIosDebugApp({
-			cache: await readNativeCache(project.projectRoot),
-			capture,
-			fingerprint,
-			log,
-			project,
-			run,
-			signal: options.signal,
-			transition,
-			udid: device.udid
-		});
+		const cache = await readNativeCache(project.projectRoot);
+		const nativeCacheHit = deviceIdentifier
+			? await ensurePhysicalIosDebugApp({
+					cache,
+					capture,
+					fingerprint,
+					identifier: deviceIdentifier,
+					log,
+					project,
+					run,
+					signal: options.signal,
+					transition
+				})
+			: await ensureIosDebugApp({
+					cache,
+					capture,
+					fingerprint,
+					log,
+					project,
+					run,
+					signal: options.signal,
+					transition,
+					udid
+				});
 		throwIfAborted(options.signal);
 		if (options.nativeLog) transition('streaming-logs');
-		nativeLogs = attachNativeLogs(project, device.udid, options);
+		nativeLogs = attachNativeLogs(project, udid, options);
 		transition('launching');
-		await requireSuccess(
-			[
-				project.xcrun,
-				'simctl',
-				'launch',
-				'--terminate-running-process',
-				device.udid,
-				project.config.appId
-			],
-			'iOS app launch',
-			run,
-			{ signal: options.signal }
-		);
+		if (!deviceIdentifier || !nativeLogs)
+			await requireSuccess(
+				iosLaunchCommand(project, udid, deviceIdentifier !== undefined),
+				'iOS app launch',
+				run,
+				{ signal: options.signal }
+			);
 		transition('ready');
 		timings.total = performance.now() - startedAt;
 		log(
-			`iOS simulator connected (${device.udid}) with HMR on port ${options.port} in ${getDurationString(timings.total)} (${nativeCacheHit ? 'native cache hit' : 'native build installed'}).`
+			`iOS ${targetKind} connected with HMR on port ${options.port} in ${getDurationString(timings.total)} (${nativeCacheHit ? 'native cache hit' : 'native build installed'}).`
 		);
 		log(`iOS startup: ${timingSummary(timings)}.`);
 		let closed = false;
@@ -1192,6 +1542,8 @@ export const startAbsoluteIosDevSession = async (
 			closed = true;
 			transition('closing');
 			await closeLogs();
+			await caEnrollmentServer?.close().catch(() => undefined);
+			caEnrollmentServer = null;
 			await repairAbsoluteIosDevSession(project.projectRoot);
 			transition('closed');
 		};
@@ -1200,8 +1552,9 @@ export const startAbsoluteIosDevSession = async (
 			close,
 			nativeCacheHit,
 			startedSimulator,
+			targetKind,
 			timings: { ...timings },
-			udid: device.udid,
+			udid,
 			rebuild: async () => {
 				if (closed)
 					throw new Error('iOS development session is closed.');
@@ -1217,21 +1570,9 @@ export const startAbsoluteIosDevSession = async (
 					throw new Error('iOS development session is closed.');
 				transition('launching');
 				try {
-					await requireSuccess(
-						[
-							project.xcrun,
-							'simctl',
-							'launch',
-							'--terminate-running-process',
-							device.udid,
-							project.config.appId
-						],
-						'iOS app relaunch',
-						run,
-						{ signal: options.signal }
-					);
+					await relaunchTarget(udid);
 					transition('ready');
-					log(`iOS app relaunched on ${device.udid}.`);
+					log(`iOS app relaunched on the selected ${targetKind}.`);
 				} catch (error) {
 					transition('failed');
 
@@ -1239,6 +1580,10 @@ export const startAbsoluteIosDevSession = async (
 				}
 			},
 			screenshot: async (destination) => {
+				if (deviceIdentifier)
+					throw new Error(
+						'Physical iOS screenshots are captured in Xcode Device Hub; the CLI never records a device screen automatically.'
+					);
 				const resolved = resolve(project.projectRoot, destination);
 				if (!isInside(project.projectRoot, resolved))
 					throw new Error(
@@ -1250,7 +1595,7 @@ export const startAbsoluteIosDevSession = async (
 						project.xcrun,
 						'simctl',
 						'io',
-						device.udid,
+						udid,
 						'screenshot',
 						resolved
 					],
@@ -1268,6 +1613,7 @@ export const startAbsoluteIosDevSession = async (
 	} catch (error) {
 		transition('failed');
 		await closeLogs();
+		await caEnrollmentServer?.close().catch(() => undefined);
 		await repairAbsoluteIosDevSession(project.projectRoot);
 
 		throw error;
