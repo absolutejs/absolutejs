@@ -22,6 +22,31 @@ export type AbsoluteNativeHmrResult = {
 	serverMs?: number;
 };
 
+export type AbsoluteNativeSyncMigrationResult = {
+	durationMs: number;
+	failedAttempt: {
+		code:
+			| 'INVALID_PLAN'
+			| 'MIGRATION_MISSING'
+			| 'SCHEMA_TOO_NEW'
+			| 'SCHEMA_TOO_OLD'
+			| 'UNKNOWN';
+		storedVersion?: number;
+		targetVersion?: number;
+	};
+	outcome: 'fail' | 'pass';
+	recovery: {
+		storedVersion: number;
+		targetVersion: number;
+	};
+	state: {
+		authCredential: boolean;
+		pendingOperations: boolean;
+		rollbackPreserved: boolean;
+		schemaAdvanced: boolean;
+	};
+};
+
 export type AbsoluteNativeAutomatedRun = {
 	appId: string;
 	durationMs: number;
@@ -33,6 +58,7 @@ export type AbsoluteNativeAutomatedRun = {
 	routes?: string[];
 	screenshot?: string;
 	status: 'fail' | 'pass';
+	syncMigration?: AbsoluteNativeSyncMigrationResult;
 	targetId: string;
 	targetKind: 'device' | 'emulator' | 'simulator';
 	upgrade?: AbsoluteAndroidUpgradeConformanceResult;
@@ -71,9 +97,11 @@ const secretPattern =
 const bearerPattern = /bearer\s+[^\s,;]+/giu;
 const coordinatePattern =
 	/\b(latitude|longitude|lat|lng)(\s*[=:]\s*)-?\d+(?:\.\d+)?/giu;
+const nativeCredentialPattern = /\b(?:access|refresh|ticket)-[a-z0-9-]+\b/giu;
 
 export const sanitizeNativeReportText = (value: string) =>
 	value
+		.replace(nativeCredentialPattern, '[REDACTED]')
 		.replace(bearerPattern, 'Bearer [REDACTED]')
 		.replace(secretPattern, '$1$2[REDACTED]')
 		.replace(coordinatePattern, '$1$2[REDACTED]')
@@ -156,6 +184,23 @@ export const createAbsoluteNativeAutomatedChecks = (
 						? 'PASS'
 						: 'FAIL'
 			});
+	}
+	if (run.syncMigration) {
+		const { syncMigration } = run;
+		checks.push(
+			{
+				details: `Generated SQLite migration deliberately failed with ${syncMigration.failedAttempt.code}, then reached schema ${syncMigration.recovery.storedVersion}/${syncMigration.recovery.targetVersion} after correction in ${syncMigration.durationMs}ms.`,
+				id: 'AUTO-MIGRATE-01',
+				result: syncMigration.outcome === 'pass' ? 'PASS' : 'FAIL'
+			},
+			{
+				details: `Transaction rollback: ${syncMigration.state.rollbackPreserved ? 'preserved' : 'not preserved'}; corrected schema advancement: ${syncMigration.state.schemaAdvanced ? 'observed' : 'missing'}; Auth credential: ${syncMigration.state.authCredential ? 'preserved' : 'missing'}; pending operations: ${syncMigration.state.pendingOperations ? 'preserved' : 'missing'}.`,
+				id: 'AUTO-MIGRATE-02',
+				result: Object.values(syncMigration.state).every(Boolean)
+					? 'PASS'
+					: 'FAIL'
+			}
+		);
 	}
 
 	return checks;

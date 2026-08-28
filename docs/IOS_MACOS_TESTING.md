@@ -1,7 +1,7 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.29` and
+`@absolutejs/absolute@0.20.0-beta.30` and
 `@absolutejs/deploy@0.24.0`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
 
@@ -61,6 +61,8 @@ actual result, sanitized logs, and artifact or screenshot path in section 13.
 - [ ] `AUTH-01` Complete system-browser sign-in and callback.
 - [ ] `SYNC-01` Complete online, offline, reconnect, isolation, and conflict tests.
 - [ ] `BGSYNC-01` Complete physical-device background Sync acceptance.
+- [ ] `MIGRATE-01` Complete the generated v1-to-v2 installed-schema upgrade.
+- [ ] `MIGRATE-02` Complete failed-migration rollback and corrected-build recovery.
 - [ ] `REMOTE-01` Complete remote-Mac acceptance, or mark it `SKIPPED`.
 - [ ] `BUILD-01` Pass release doctor and produce a signed IPA.
 - [ ] `SHIP-01` Upload, process, assign, and install the TestFlight build.
@@ -96,11 +98,11 @@ still requires the developer team setup described below.
 From the root of the AbsoluteJS application:
 
 ```sh
-bun add @absolutejs/absolute@0.20.0-beta.29 \
+bun add @absolutejs/absolute@0.20.0-beta.30 \
   @absolutejs/auth@0.75.0 \
   @absolutejs/dispatch@0.9.0 \
   @absolutejs/sync@2.29.0 \
-  @absolutejs/sync-capacitor@0.9.1 \
+  @absolutejs/sync-capacitor@0.9.2 \
   @absolutejs/deploy@0.24.0 \
   @absolutejs/blob@0.5.2 \
   @capacitor/core@8.5.0 \
@@ -742,6 +744,73 @@ time, relaunch-to-restored-user time, and whether the run used the simulator or
 a physical device. Attach a sanitized screenshot of the completed state and
 the failure state if any step fails.
 
+### Generated Sync schema migration and rollback acceptance
+
+Run this after `AUTH-01` and `SYNC-01` on a disposable staging installation.
+Keep the bundle ID unchanged and never uninstall, clear app data, or delete the
+app container between builds. Each replacement must use a higher iOS build
+number. Save the original `package.json` first and restore it after the test.
+
+1. With no application schema metadata (the generated app baseline is v1), sign
+   in, receive a confirmed `tasks` row shaped like `{ id, label }`, create one
+   deliberately unacknowledged serializable mutation, and relaunch. Record that
+   Auth, the confirmed row, and pending count all restore.
+2. Add this temporary application metadata to `package.json`:
+
+   ```json
+   {
+     "absolutejs": {
+       "sync": {
+         "localSchema": {
+           "version": 2,
+           "migrations": [
+             {
+               "toVersion": 2,
+               "operations": [
+                 {
+                   "type": "rename-field",
+                   "collection": "tasks",
+                   "from": "label",
+                   "to": "id"
+                 }
+               ]
+             }
+           ]
+         }
+       }
+     }
+   }
+   ```
+
+3. Run `bunx absolute mobile sync ios`, build with a higher build number, and
+   install it over v1. In Safari Web Inspector evaluate:
+
+   ```js
+   Reflect.get(
+     globalThis,
+     Symbol.for('absolutejs.mobile.sync.schema-state')
+   )
+   ```
+
+   `MIGRATE-01` expects `{ state: 'failed', code: 'INVALID_PLAN' }`. Version
+   fields may be absent for a row-level collision. Do not record error messages,
+   rows, database contents, credentials, or field payloads.
+4. Change only the migration target from `"id"` to `"title"`. Synchronize,
+   increment the build number again, and install over the failed build without
+   clearing data.
+5. The same inspector expression must reach `state: 'ready'` with
+   `storedVersion: 2` and `targetVersion: 2`. Reopen the ordinary Auth/Sync route
+   and confirm Auth restores and the pending operation is still present. This is
+   `MIGRATE-02`: the corrected migration could not succeed if the failed
+   transaction had advanced the ledger or partially renamed the persisted row.
+6. Restore the original `package.json`, run Sync again, and do not ship either
+   temporary migration fixture. Keep the app installed until the report is
+   complete in case sanitized follow-up evidence is needed.
+
+Report the three build numbers, the typed failure code, the final stored/target
+versions, restored Auth result, and pending count. Never attach the SQLite file,
+Keychain contents, raw Web Inspector console, or application rows.
+
 Then run the correlated HMR timing test:
 
 ```sh
@@ -1072,11 +1141,11 @@ source change and build a new content-addressed release instead.
 - Mac architecture:
 - Xcode version:
 - Bun version:
-- AbsoluteJS version: 0.20.0-beta.29
+- AbsoluteJS version: 0.20.0-beta.30
 - Auth version: 0.75.0
 - Dispatch version: 0.9.0
 - Sync version: 2.29.0
-- Sync Capacitor version: 0.9.1
+- Sync Capacitor version: 0.9.2
 - Capacitor SQLite version: 8.1.1
 - Devices version: 0.7.0
 - Devices Capacitor version: 0.8.0
@@ -1155,6 +1224,8 @@ versus expected behavior. Do not report exact coordinates.
 | AUTH-01 |  | sign-in return: / relaunch restore: |  |
 | SYNC-01 |  | first ready: / reconnect: / offline result: |  |
 | BGSYNC-01 |  | acknowledged/pulled counts: |  |
+| MIGRATE-01 |  | failed build / typed code: |  |
+| MIGRATE-02 |  | corrected build / schema versions / Auth / pending: |  |
 | REMOTE-01 |  | doctor/HMR/rebuild/cache: |  |
 | BUILD-01 |  | IPA path / release doctor: |  |
 | SHIP-01 |  | build number / processing / install: |  |
@@ -1175,6 +1246,8 @@ versus expected behavior. Do not report exact coordinates.
 - Cross-account local partition isolation: PASS / FAIL
 - Conflict dead-letter retention/remediation: PASS / FAIL / NOT RUN
 - Native Sync devtools redaction/retry/rebase/discard: PASS / FAIL / NOT RUN
+- Generated Sync v1-to-v2 installed migration: PASS / FAIL
+- Failed migration rollback and corrected-build recovery: PASS / FAIL
 - Device capability auto-discovery/install: PASS / FAIL
 - Clipboard web/iOS behavior: PASS / FAIL
 - Native share sheet: PASS / FAIL

@@ -8,7 +8,11 @@ import {
 	type CapacitorSyncLifecycleOptions,
 	type CapacitorSyncLocalStoreOptions
 } from '@absolutejs/sync-capacitor';
-import type { SyncClientStatus, SyncLocalStore } from '@absolutejs/sync/client';
+import type {
+	SyncClientStatus,
+	SyncLocalStore,
+	SyncLocalStoreSchemaStatus
+} from '@absolutejs/sync/client';
 import { installSyncClientRuntimeTransport } from '@absolutejs/sync/client/runtime';
 import type { AbsoluteMobileShellAuthRuntime } from './shellBootstrap';
 import type { AbsoluteMobileClientManifest } from './transport';
@@ -21,12 +25,93 @@ export type AbsoluteMobileShellSyncOptions = {
 	) => Promise<() => void>;
 	reload?: () => void;
 	reportStatus?: (status: SyncClientStatus) => void;
+	reportSchemaState?: (state: AbsoluteMobileSyncSchemaState) => void;
 	configureBackground?: typeof configureCapacitorBackgroundSync;
 	clearBackground?: () => Promise<void>;
 };
 
 const reloadShell = () => globalThis.location.reload();
+export const ABSOLUTE_MOBILE_SYNC_SCHEMA_EVENT = 'absolute:sync-schema';
+export const ABSOLUTE_MOBILE_SYNC_SCHEMA_STATE_KEY =
+	'absolutejs.mobile.sync.schema-state';
 export const ABSOLUTE_MOBILE_SYNC_STATUS_EVENT = 'absolute:sync-status';
+
+export type AbsoluteMobileSyncSchemaFailureCode =
+	| 'INVALID_PLAN'
+	| 'MIGRATION_MISSING'
+	| 'SCHEMA_TOO_NEW'
+	| 'SCHEMA_TOO_OLD'
+	| 'UNKNOWN';
+
+export type AbsoluteMobileSyncSchemaState =
+	| { state: 'preparing' }
+	| SyncLocalStoreSchemaStatus
+	| {
+			code: AbsoluteMobileSyncSchemaFailureCode;
+			state: 'failed';
+			storedVersion?: number;
+			targetVersion?: number;
+	  };
+
+const schemaStateSymbol = () =>
+	Symbol.for(ABSOLUTE_MOBILE_SYNC_SCHEMA_STATE_KEY);
+
+export const readAbsoluteMobileSyncSchemaState = () => {
+	const value: unknown = Reflect.get(globalThis, schemaStateSymbol());
+	if (typeof value !== 'object' || value === null) return undefined;
+	const state = Reflect.get(value, 'state');
+	if (state === 'preparing') return { state };
+	if (state === 'failed') return schemaFailureState(value);
+	const minimumCompatibleVersion = Reflect.get(
+		value,
+		'minimumCompatibleVersion'
+	);
+	const storedVersion = Reflect.get(value, 'storedVersion');
+	const targetVersion = Reflect.get(value, 'targetVersion');
+	if (
+		state !== 'ready' ||
+		typeof minimumCompatibleVersion !== 'number' ||
+		typeof storedVersion !== 'number' ||
+		typeof targetVersion !== 'number'
+	)
+		return undefined;
+
+	return {
+		minimumCompatibleVersion,
+		state,
+		storedVersion,
+		targetVersion
+	};
+};
+
+const reportShellSchemaState = (state: AbsoluteMobileSyncSchemaState) => {
+	Reflect.set(globalThis, schemaStateSymbol(), state);
+	globalThis.dispatchEvent(
+		new CustomEvent(ABSOLUTE_MOBILE_SYNC_SCHEMA_EVENT, { detail: state })
+	);
+};
+
+const schemaFailureState = (error: unknown): AbsoluteMobileSyncSchemaState => {
+	if (typeof error !== 'object' || error === null)
+		return { code: 'UNKNOWN', state: 'failed' };
+	const rawCode = Reflect.get(error, 'code');
+	const code: AbsoluteMobileSyncSchemaFailureCode =
+		rawCode === 'INVALID_PLAN' ||
+		rawCode === 'MIGRATION_MISSING' ||
+		rawCode === 'SCHEMA_TOO_NEW' ||
+		rawCode === 'SCHEMA_TOO_OLD'
+			? rawCode
+			: 'UNKNOWN';
+	const storedVersion = Reflect.get(error, 'storedVersion');
+	const targetVersion = Reflect.get(error, 'targetVersion');
+
+	return {
+		code,
+		state: 'failed',
+		...(typeof storedVersion === 'number' ? { storedVersion } : {}),
+		...(typeof targetVersion === 'number' ? { targetVersion } : {})
+	};
+};
 const reportShellStatus = (status: SyncClientStatus) =>
 	globalThis.dispatchEvent(
 		new CustomEvent(ABSOLUTE_MOBILE_SYNC_STATUS_EVENT, { detail: status })
@@ -56,10 +141,19 @@ export const installAbsoluteMobileShellSync = (
 	const installLifecycle =
 		options.installLifecycle ?? installCapacitorSyncLifecycle;
 	const reportStatus = options.reportStatus ?? reportShellStatus;
+	const reportSchemaState =
+		options.reportSchemaState ?? reportShellSchemaState;
 	const configureBackground =
 		options.configureBackground ?? configureCapacitorBackgroundSync;
 	const clearBackground =
 		options.clearBackground ?? (() => AbsoluteBackgroundSync.clear());
+	if (store?.getSchemaStatus) {
+		reportSchemaState({ state: 'preparing' });
+		void store
+			.getSchemaStatus()
+			.then(reportSchemaState)
+			.catch((error) => reportSchemaState(schemaFailureState(error)));
+	}
 	if (namespace && config) {
 		void configureBackground({
 			clientId: auth.clientId,

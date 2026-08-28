@@ -26,7 +26,7 @@
         "@absolutejs/manifest": "0.9.0",
         "@absolutejs/scoped-state": "0.2.2",
         "@absolutejs/sync": "2.29.0",
-        "@absolutejs/sync-capacitor": "0.9.1",
+        "@absolutejs/sync-capacitor": "0.9.2",
         "@angular/animations": "21.2.6",
         "@angular/cdk": "21.2.6",
         "@angular/common": "21.2.6",
@@ -328,7 +328,7 @@
 
     "@absolutejs/sync": ["@absolutejs/sync@2.29.0", "", { "dependencies": { "@absolutejs/manifest": "^0.9.0", "@absolutejs/telemetry": ">=0.2.0 <0.4.0", "@sinclair/typebox": "^0.34.0" }, "peerDependencies": { "@absolutejs/isolated-jsc": ">=0.12.2 <0.13.0", "@angular/core": ">=21.2.18 <22", "@elysia/cron": "^2.0.0-beta.1", "@modelcontextprotocol/sdk": ">=1.29.0 <2", "@tanstack/db": ">=0.6.16 <0.7", "drizzle-orm": ">=1.0.0-rc.4 <2", "elysia": "^2.0.0-beta.6", "react": ">=19.2.8 <20", "svelte": ">=5.56.7 <6", "vue": ">=3.5.40 <4" }, "optionalPeers": ["@absolutejs/isolated-jsc", "@angular/core", "@elysia/cron", "@modelcontextprotocol/sdk", "@tanstack/db", "drizzle-orm", "elysia", "react", "svelte", "vue"] }, "sha512-N+xGHxRMuR/pLbIPK3eWG6JcdU312lNBIBiM72jyCKilxFoIoyOnVqWrwHn+lFYf3HggXko8tLGwxMg7nGpBJA=="],
 
-    "@absolutejs/sync-capacitor": ["@absolutejs/sync-capacitor@0.9.1", "", { "dependencies": { "@noble/ciphers": "^2.3.0" }, "peerDependencies": { "@absolutejs/devices": ">=0.2.0 <0.4.0", "@absolutejs/devices-capacitor": ">=0.3.1 <0.5.0", "@absolutejs/sync": ">=2.29.0 <3", "@capacitor-community/sqlite": ">=8.1.1 <9", "@capacitor/core": ">=8 <9" } }, "sha512-qZC93WNxcv2fZ9gR7sLklp/vPHL7wN9wRgYfQnqFWIv4f6W6HHTdn+uaoE3Iq6JXZaLo8pXGyB+56zJldrX2BA=="],
+    "@absolutejs/sync-capacitor": ["@absolutejs/sync-capacitor@0.9.2", "", { "dependencies": { "@noble/ciphers": "^2.3.0" }, "peerDependencies": { "@absolutejs/devices": ">=0.2.0 <0.4.0", "@absolutejs/devices-capacitor": ">=0.3.1 <0.5.0", "@absolutejs/sync": ">=2.29.0 <3", "@capacitor-community/sqlite": ">=8.1.1 <9", "@capacitor/core": ">=8 <9" } }, "sha512-S6PXXWmDgr+gOTxKd9qAx3Uoj2OTt8m/m4TumY3M/Cpz8kTw4xzWnRfT0CpvL5fjwMshOtwhI7v7slzqCrKY7Q=="],
 
     "@absolutejs/telemetry": ["@absolutejs/telemetry@0.2.1", "", { "dependencies": { "@absolutejs/handoff": "0.1.0" } }, "sha512-F3xGrKQ9d9MILlTw3glURAaMWzYTq7zo3XPvIdybWS7tv0KTRXqrC73I0AB5hjwj3k3zYCEWf0IgHPtBU2sMhA=="],
 

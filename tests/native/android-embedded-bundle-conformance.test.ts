@@ -29,6 +29,10 @@ import {
 	parseAbsoluteMobileCompatibilityArtifact,
 	type AbsoluteMobileCompatibilityArtifact
 } from '../../src/mobile/releaseArtifact';
+import {
+	sanitizeNativeReportText,
+	type AbsoluteNativeSyncMigrationResult
+} from '../../src/mobile/nativeTestReport';
 
 const ENABLED = process.env.ABSOLUTE_TEST_NATIVE_ANDROID === '1';
 const describeNative = ENABLED ? describe : describe.skip;
@@ -46,6 +50,7 @@ const ARTIFACT_ROOT = resolve(
 	'.absolutejs/mobile-native-conformance/embedded-artifacts'
 );
 const CAPACITOR_CONFIG_PATH = resolve(PROJECT_ROOT, 'capacitor.config.ts');
+const PACKAGE_JSON_PATH = resolve(PROJECT_ROOT, 'package.json');
 const PORT = Number(process.env.ABSOLUTE_NATIVE_BUNDLE_TEST_PORT) || 39_080;
 const PRODUCTION_ORIGIN = `http://localhost:${PORT}`;
 const TIMEOUT_MS = 60_000;
@@ -521,6 +526,26 @@ const startCompiledBackend = async () => {
 	throw new Error('Compiled conformance backend did not become ready.');
 };
 
+const stopCompiledBackend = async () => {
+	const process = compiledBackend;
+	compiledBackend = undefined;
+	process?.kill();
+	await process?.exited.catch(() => undefined);
+};
+
+const syncAndroidEmbeddedBundle = async () => {
+	const process = Bun.spawn([project.cap, 'sync', 'android'], {
+		cwd: PROJECT_ROOT,
+		stderr: 'inherit',
+		stdout: 'inherit'
+	});
+	const exitCode = await process.exited;
+	if (exitCode !== 0)
+		throw new Error(
+			`Capacitor Android synchronization failed (${exitCode}).`
+		);
+};
+
 const waitForText = (text: string) =>
 	webview.waitFor<boolean>(
 		`document.body?.innerText?.includes(${JSON.stringify(text)}) === true`,
@@ -684,7 +709,11 @@ const appWindowAppearance = () => {
 	};
 };
 
-const nativeTest = (name: string, operation: () => Promise<void>) =>
+const nativeTest = (
+	name: string,
+	operation: () => Promise<void>,
+	timeoutMs = 300_000
+) =>
 	test(
 		name,
 		async () => {
@@ -714,7 +743,14 @@ const nativeTest = (name: string, operation: () => Promise<void>) =>
 					resolve(ARTIFACT_ROOT, `${slug}.json`),
 					`${JSON.stringify(
 						{
-							diagnostics: webview?.diagnostics ?? [],
+							diagnostics: (webview?.diagnostics ?? [])
+								.filter(({ level }) => level !== 'info')
+								.map((entry) => ({
+									...entry,
+									message: sanitizeNativeReportText(
+										entry.message
+									)
+								})),
 							document: documentState,
 							error:
 								error instanceof Error
@@ -731,7 +767,7 @@ const nativeTest = (name: string, operation: () => Promise<void>) =>
 				throw error;
 			}
 		},
-		300_000
+		timeoutMs
 	);
 
 describeNative('real Capacitor Android embedded-bundle conformance', () => {
@@ -876,6 +912,11 @@ describeNative('real Capacitor Android embedded-bundle conformance', () => {
 			timeoutMs: TIMEOUT_MS
 		});
 		try {
+			await webview.evaluate(`Promise.all([
+				'absolutejs.auth.',
+				'absolutejs.sync.'
+			].map((prefix) => globalThis.Capacitor.Plugins.AbsoluteSecureStorage.clear({ prefix })))`);
+			await webview.evaluate(`location.replace('/react')`);
 			await waitForText('AbsoluteJS + React');
 		} catch (error) {
 			await mkdir(ARTIFACT_ROOT, { recursive: true });
@@ -896,7 +937,12 @@ describeNative('real Capacitor Android embedded-bundle conformance', () => {
 				resolve(ARTIFACT_ROOT, 'startup.json'),
 				`${JSON.stringify(
 					{
-						diagnostics: webview.diagnostics,
+						diagnostics: webview.diagnostics
+							.filter(({ level }) => level !== 'info')
+							.map((entry) => ({
+								...entry,
+								message: sanitizeNativeReportText(entry.message)
+							})),
 						document: documentState,
 						error:
 							error instanceof Error
@@ -1538,5 +1584,231 @@ describeNative('real Capacitor Android embedded-bundle conformance', () => {
 				`${JSON.stringify(result, null, 2)}\n`
 			);
 		}
+	);
+
+	nativeTest(
+		'rolls back and recovers a failed generated Sync schema migration across an installed APK upgrade',
+		async () => {
+			await ensureNativeAuthSyncAcceptance();
+			const pendingBefore = await webview.evaluate<number>(
+				`Number(document.querySelector('#native-auth-sync-status')?.getAttribute('data-pending') ?? 0)`
+			);
+			if (pendingBefore === 0) {
+				const queued = await webview.evaluate<boolean>(`(() => {
+					const button = document.querySelector('#native-sync-queue');
+					if (!(button instanceof HTMLButtonElement)) return false;
+					button.click();
+					return true;
+				})()`);
+				expect(queued).toBe(true);
+				await webview.waitFor<boolean>(
+					`Number(document.querySelector('#native-auth-sync-status')?.getAttribute('data-pending') ?? 0) > 0`,
+					{ timeoutMs: TIMEOUT_MS }
+				);
+			}
+			await webview.close();
+			await android.relaunch();
+			webview = await attachAbsoluteAndroidWebView({
+				adb: project.adb,
+				appId: project.config.appId,
+				serial: android.serial,
+				timeoutMs: TIMEOUT_MS
+			});
+			await openNativeRoute(
+				'/native-auth-sync',
+				'AbsoluteJS Native Auth + Sync'
+			);
+			await waitForText('Native auth + sync complete');
+			await webview.waitFor<boolean>(
+				`Number(document.querySelector('#native-auth-sync-status')?.getAttribute('data-pending') ?? 0) > 0`,
+				{ timeoutMs: TIMEOUT_MS }
+			);
+
+			const installed = await inspectAbsoluteAndroidInstalledApp(
+				project.adb,
+				android.serial,
+				project.config.appId,
+				captureUpgradeCommand
+			);
+			if (installed.versionCode === undefined)
+				throw new Error(
+					'The installed Android versionCode is unavailable.'
+				);
+			const packageJson = await readFile(PACKAGE_JSON_PATH, 'utf8');
+			const appGradlePath = resolve(
+				project.nativeDirectory,
+				'app/build.gradle'
+			);
+			const appGradle = await readFile(appGradlePath, 'utf8');
+			const startedAt = performance.now();
+			const writeSchema = async (operation: {
+				collection: string;
+				from: string;
+				to: string;
+				type: 'rename-field';
+			}) => {
+				const manifest = JSON.parse(packageJson) as Record<
+					string,
+					unknown
+				>;
+				await writeFile(
+					PACKAGE_JSON_PATH,
+					`${JSON.stringify(
+						{
+							...manifest,
+							absolutejs: {
+								sync: {
+									localSchema: {
+										migrations: [
+											{
+												operations: [operation],
+												toVersion: 2
+											}
+										],
+										version: 2
+									}
+								}
+							}
+						},
+						null,
+						2
+					)}\n`
+				);
+				await stopCompiledBackend();
+				await runPrepare();
+				await syncAndroidEmbeddedBundle();
+				await startCompiledBackend();
+			};
+			const buildVersion = async (versionCode: number) => {
+				const versioned = appGradle.replace(
+					/\bversionCode\s+\d+/u,
+					`versionCode ${versionCode}`
+				);
+				if (versioned === appGradle)
+					throw new Error(
+						'Could not advance the Android fixture versionCode.'
+					);
+				await writeFile(appGradlePath, versioned);
+
+				return buildAbsoluteAndroidGradleArtifact({
+					project,
+					task: 'assembleDebug'
+				});
+			};
+			const installAndRelaunch = async (apkPath: string) => {
+				const result = await captureUpgradeCommand([
+					project.adb,
+					'-s',
+					android.serial,
+					'install',
+					'-r',
+					apkPath
+				]);
+				if (result.exitCode !== 0 || !result.stdout.includes('Success'))
+					throw new Error(
+						`Android in-place migration upgrade failed: ${result.stderr.trim() || result.stdout.trim()}`
+					);
+				await webview.close();
+				compatibilityGeneration = 'current';
+				let attachError: unknown;
+				for (let attempt = 0; attempt < 2; attempt += 1) {
+					await android.relaunch();
+					try {
+						webview = await attachAbsoluteAndroidWebView({
+							adb: project.adb,
+							appId: project.config.appId,
+							serial: android.serial,
+							timeoutMs: TIMEOUT_MS
+						});
+
+						return;
+					} catch (error) {
+						attachError = error;
+					}
+				}
+				throw attachError;
+			};
+
+			try {
+				await writeSchema({
+					collection: 'native-acceptance',
+					from: 'label',
+					to: 'id',
+					type: 'rename-field'
+				});
+				const badBuild = await buildVersion(installed.versionCode + 1);
+				await installAndRelaunch(badBuild.installPath);
+				await webview.waitFor<boolean>(
+					`Reflect.get(globalThis, Symbol.for('absolutejs.mobile.sync.schema-state'))?.state === 'failed'`,
+					{ timeoutMs: TIMEOUT_MS }
+				);
+				const failedAttempt = await webview.evaluate<{
+					code: string;
+					state: string;
+					storedVersion?: number;
+					targetVersion?: number;
+				}>(
+					`Reflect.get(globalThis, Symbol.for('absolutejs.mobile.sync.schema-state'))`
+				);
+				expect(failedAttempt).toEqual({
+					code: 'INVALID_PLAN',
+					state: 'failed'
+				});
+
+				await writeSchema({
+					collection: 'native-acceptance',
+					from: 'label',
+					to: 'title',
+					type: 'rename-field'
+				});
+				const recoveredBuild = await buildVersion(
+					installed.versionCode + 2
+				);
+				await installAndRelaunch(recoveredBuild.installPath);
+				await webview.waitFor<boolean>(
+					`(() => {
+						const status = Reflect.get(globalThis, Symbol.for('absolutejs.mobile.sync.schema-state'));
+						return status?.state === 'ready' && status.storedVersion === 2 && status.targetVersion === 2;
+					})()`,
+					{ timeoutMs: TIMEOUT_MS }
+				);
+				await waitForText('AbsoluteJS + React');
+				await openNativeRoute(
+					'/native-auth-sync',
+					'AbsoluteJS Native Auth + Sync'
+				);
+				await waitForText('Native auth + sync complete');
+				await webview.waitFor<boolean>(
+					`Number(document.querySelector('#native-auth-sync-status')?.getAttribute('data-pending') ?? 0) > 0`,
+					{ timeoutMs: TIMEOUT_MS }
+				);
+				const result: AbsoluteNativeSyncMigrationResult = {
+					durationMs: Math.round(performance.now() - startedAt),
+					failedAttempt: {
+						code: 'INVALID_PLAN'
+					},
+					outcome: 'pass',
+					recovery: { storedVersion: 2, targetVersion: 2 },
+					state: {
+						authCredential: true,
+						pendingOperations: true,
+						rollbackPreserved: true,
+						schemaAdvanced: true
+					}
+				};
+				await mkdir(ARTIFACT_ROOT, { recursive: true });
+				await writeFile(
+					resolve(
+						ARTIFACT_ROOT,
+						'android-sync-migration-conformance.json'
+					),
+					`${JSON.stringify(result, null, 2)}\n`
+				);
+			} finally {
+				await writeFile(PACKAGE_JSON_PATH, packageJson);
+				await writeFile(appGradlePath, appGradle);
+			}
+		},
+		900_000
 	);
 });

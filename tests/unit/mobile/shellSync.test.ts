@@ -13,6 +13,7 @@ test('provisions account-bound native durability and lifecycle without page wiri
 	let lifecycleRemoved = 0;
 	let reloads = 0;
 	const statuses: unknown[] = [];
+	const schemaStates: unknown[] = [];
 	let backgroundConfiguration: unknown;
 	let storeOptions: CapacitorSyncLocalStoreOptions | undefined;
 	const store = createMemorySyncLocalStore();
@@ -57,6 +58,7 @@ test('provisions account-bound native durability and lifecycle without page wiri
 			reload: () => {
 				reloads += 1;
 			},
+			reportSchemaState: (state) => schemaStates.push(state),
 			reportStatus: (status) => statuses.push(status)
 		}
 	);
@@ -80,6 +82,16 @@ test('provisions account-bound native durability and lifecycle without page wiri
 		issuer: 'https://app.example',
 		namespace: 'principal-a'
 	});
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	expect(schemaStates).toEqual([
+		{ state: 'preparing' },
+		{
+			minimumCompatibleVersion: 1,
+			state: 'ready',
+			storedVersion: 1,
+			targetVersion: 1
+		}
+	]);
 	let statusListenerRemoved = 0;
 	const removeClient = runtime?.registerClient?.({
 		discardDeadLetter: async () => undefined,
@@ -131,6 +143,48 @@ test('provisions account-bound native durability and lifecycle without page wiri
 	dispose();
 	dispose();
 	expect(principalListenerRemoved).toBe(1);
+});
+
+test('reports only typed schema failure evidence from native migration errors', async () => {
+	const schemaStates: unknown[] = [];
+	const store = createMemorySyncLocalStore();
+	store.getSchemaStatus = async () =>
+		Promise.reject({
+			code: 'INVALID_PLAN',
+			message: 'secret row and field detail',
+			storedVersion: 1,
+			targetVersion: 2
+		});
+	const dispose = installAbsoluteMobileShellSync(
+		{
+			clientId: 'native-client',
+			fetch,
+			issuer: 'https://app.example',
+			principal: { namespace: 'principal-a' },
+			redirectUri: 'com.example.app://auth/callback',
+			onPrincipalChange: () => () => undefined,
+			socketTicket: async () => 'ticket'
+		},
+		undefined,
+		{
+			clearBackground: async () => undefined,
+			createStore: () => store,
+			installLifecycle: async () => () => undefined,
+			reportSchemaState: (state) => schemaStates.push(state)
+		}
+	);
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	expect(schemaStates).toEqual([
+		{ state: 'preparing' },
+		{
+			code: 'INVALID_PLAN',
+			state: 'failed',
+			storedVersion: 1,
+			targetVersion: 2
+		}
+	]);
+	expect(JSON.stringify(schemaStates)).not.toContain('secret');
+	dispose();
 });
 
 test('does not expose a locked partition and clears native work while signed out', async () => {

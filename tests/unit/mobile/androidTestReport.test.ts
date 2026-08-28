@@ -1,8 +1,19 @@
 import { describe, expect, test } from 'bun:test';
 import { createAbsoluteAndroidTestReport } from '../../../src/mobile/androidTestReport';
-import { renderAbsoluteNativeTestReport } from '../../../src/mobile/nativeTestReport';
+import {
+	renderAbsoluteNativeTestReport,
+	sanitizeNativeReportText
+} from '../../../src/mobile/nativeTestReport';
 
 describe('Android native test report', () => {
+	test('redacts native credential-shaped values from local evidence', () => {
+		expect(
+			sanitizeNativeReportText(
+				'{"value":"refresh-123e4567-e89b-12d3-a456-426614174000"}'
+			)
+		).toBe('{"value":"[REDACTED]"}');
+	});
+
 	test('uses the shared report contract without fabricating manual results', () => {
 		const report = createAbsoluteAndroidTestReport({
 			absolutejsVersion: '0.20.0-beta.24',
@@ -45,9 +56,52 @@ describe('Android native test report', () => {
 		expect(
 			report.manualChecks.find(({ id }) => id === 'UPGRADE-01')
 		).toBeDefined();
+		expect(
+			report.manualChecks.find(({ id }) => id === 'MIGRATE-02')
+		).toBeDefined();
 		expect(renderAbsoluteNativeTestReport(report)).toContain(
 			'Routes: /react, /vue.'
 		);
+	});
+
+	test('records generated schema failure, rollback, and recovery evidence', () => {
+		const report = createAbsoluteAndroidTestReport({
+			absolutejsVersion: '0.20.0-beta.30',
+			adbVersion: 'adb',
+			bunVersion: '1.3.14',
+			host: 'linux-x64',
+			run: {
+				appId: 'com.absolutejs.example',
+				durationMs: 100,
+				hmrConnected: true,
+				port: 3000,
+				serial: 'emulator-5554',
+				status: 'pass',
+				syncMigration: {
+					durationMs: 80,
+					failedAttempt: {
+						code: 'INVALID_PLAN',
+						storedVersion: 1,
+						targetVersion: 2
+					},
+					outcome: 'pass',
+					recovery: { storedVersion: 2, targetVersion: 2 },
+					state: {
+						authCredential: true,
+						pendingOperations: true,
+						rollbackPreserved: true,
+						schemaAdvanced: true
+					}
+				}
+			}
+		});
+		expect(
+			report.automatedChecks.find(({ id }) => id === 'AUTO-MIGRATE-01')
+		).toMatchObject({ result: 'PASS' });
+		expect(
+			report.automatedChecks.find(({ id }) => id === 'AUTO-MIGRATE-02')
+		).toMatchObject({ result: 'PASS' });
+		expect(JSON.stringify(report)).not.toContain('row and field');
 	});
 
 	test('records sanitized installed-upgrade and compatibility evidence', () => {

@@ -5,7 +5,7 @@ Research snapshot: August 26, 2026
 
 Implementation checkpoint (August 26, 2026): the remaining Wave 1 system-UI
 surface is implemented in `@absolutejs/devices@0.7.0`,
-`@absolutejs/devices-capacitor@0.8.0`, and AbsoluteJS `0.20.0-beta.29`.
+`@absolutejs/devices-capacitor@0.8.0`, and AbsoluteJS `0.20.0-beta.30`.
 Application code imports `keyboard` and `systemBars` without provider branches.
 Keyboard exposes visibility, CSS-pixel height, dismissal, and cleanup-safe
 events through VisualViewport on web and the exact Capacitor Keyboard 8.0.5
@@ -1448,9 +1448,29 @@ or local version bump cannot wedge the next `bun dev`; production release instal
 remain monotonic. WebView discovery now waits through transient `about:blank`
 targets created during Activity replacement. Run the focused gate with
 `bun run test:native:android:upgrade`; the aggregate Android native suite includes
-the same case through its embedded-bundle file. A real generated SQLite schema
-migration across two APKs remains the next installed-data conformance slice; this
-checkpoint proves database/outbox continuity with the current schema.
+the same case through its embedded-bundle file.
+
+Implementation checkpoint (August 27, 2026, generated SQLite migration slice):
+the installed-APK gate now starts from a genuinely fresh encrypted database,
+persists a confirmed row and pending intent, proves both survive a v1 process
+restart, then builds migration plans from temporary application
+`absolutejs.sync.localSchema` metadata. APK N+1 deliberately attempts
+`rename-field label -> id` against a row that already owns `id`; the shell reports
+only sanitized `INVALID_PLAN` state and SQLite rolls the transaction back. APK
+N+2 corrects the same v2 step to `label -> title`. Without clearing app data it
+reaches stored/target schema 2, restores Auth, and retains the pending outbox.
+That recovery would be impossible if the failed transaction had advanced the
+ledger or partially changed the row. The test writes a sanitized
+`android-sync-migration-conformance.json` artifact and native reports include
+automated/manual migration and rollback rows.
+
+The gate also exposed and fixed fresh native schema initialization:
+`@absolutejs/sync-capacitor` 0.9.2 sends each idempotent DDL statement through
+Capacitor SQLite separately, with a regression test for a truly empty database.
+AbsoluteJS proactively prepares schema state in the shell and exposes only
+`preparing`, ready versions, or a typed failure code through a realm-stable symbol
+and `absolute:sync-schema` event. Diagnostic artifacts discard verbose native
+plugin console traffic and redact credential-shaped values.
 
 Real WSL2/Windows acceptance established the host boundary more precisely. Gradle
 cannot reliably build a project directly from a `\\wsl.localhost` UNC path, so the
@@ -2798,9 +2818,9 @@ and the schema marker in one IndexedDB transaction, reject missing compatibility
 steps and downgrades with typed errors, and forbid rewriting stable operation IDs.
 `@absolutejs/sync-capacitor` 0.5.0 applies the identical plan inside one SQLite
 transaction. Both adapters prove multi-account upgrades and simulated crash
-rollback. The next migration slice is Absolute-generated plans from application
-and pack metadata, followed by doctor/release compatibility diagnostics; quota,
-eviction, encryption policy, pack conflict reducers, and remediation UI remain.
+rollback. Absolute-generated plans from application and pack metadata, doctor
+diagnostics, and real installed-APK failure/recovery conformance are now complete;
+the current implementation state is summarized in the checkpoints below.
 
 ### Phase 3: Capacitor project and CLI lifecycle
 

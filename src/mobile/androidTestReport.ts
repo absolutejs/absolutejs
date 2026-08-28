@@ -83,6 +83,14 @@ const MANUAL_CHECKS = [
 		'COMPAT-01',
 		'Confirm installed app N works with retained N+1/N+2 producers, shows typed update-required at N+3, and recovers after server rollback.'
 	],
+	[
+		'MIGRATE-01',
+		'Install a generated local-schema upgrade in place and confirm cached rows, Auth, and pending operations survive.'
+	],
+	[
+		'MIGRATE-02',
+		'Confirm a failed local-schema migration rolls back atomically and a corrected forward build recovers without clearing app data.'
+	],
 	['BUILD-01', 'Pass release doctor and produce a signed AAB.'],
 	[
 		'REPORT-01',
