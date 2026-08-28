@@ -443,6 +443,89 @@ describe('Android emulator development controller', () => {
 		).toEqual(['emulator-5554']);
 	});
 
+	test('uses LAN HTTPS for a selected physical device and restores debug trust', async () => {
+		const {
+			nativeConfigPath,
+			nativeManifestPath,
+			originalConfig,
+			project
+		} = await createProject();
+		const originalManifest =
+			'<manifest xmlns:android="http://schemas.android.com/apk/res/android"><application android:networkSecurityConfig="@xml/product_network_security" android:label="Product" /></manifest>\n';
+		await writeFile(nativeManifestPath, originalManifest);
+		const productNetworkConfigPath = join(
+			project.nativeDirectory,
+			'app/src/main/res/xml/product_network_security.xml'
+		);
+		const originalNetworkConfig =
+			'<?xml version="1.0" encoding="utf-8"?>\n<network-security-config>\n\t<domain-config cleartextTrafficPermitted="false"><domain>api.example.com</domain></domain-config>\n</network-security-config>\n';
+		await mkdir(join(productNetworkConfigPath, '..'), { recursive: true });
+		await writeFile(productNetworkConfigPath, originalNetworkConfig);
+		const certificateAuthorityPath = join(
+			project.projectRoot,
+			'dev-ca.pem'
+		);
+		await writeFile(
+			certificateAuthorityPath,
+			'-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----\n'
+		);
+		const commands: string[][] = [];
+		const session = await startAbsoluteAndroidDevSession({
+			certificateAuthorityPath,
+			deviceSerial: 'R58M123',
+			https: true,
+			port: 3040,
+			project,
+			serverHost: '192.168.1.40',
+			capture: (command) => {
+				if (command.includes('devices'))
+					return {
+						exitCode: 0,
+						stderr: '',
+						stdout: 'List of devices attached\nR58M123\tdevice\n'
+					};
+
+				return readyCapture(command);
+			},
+			run: async (command) => {
+				commands.push(command);
+
+				return 0;
+			}
+		});
+		expect(await readFile(nativeConfigPath, 'utf8')).toContain(
+			'https://192.168.1.40:3040'
+		);
+		expect(await readFile(nativeManifestPath, 'utf8')).toContain(
+			'@xml/product_network_security'
+		);
+		expect(await readFile(productNetworkConfigPath, 'utf8')).toContain(
+			'<debug-overrides>'
+		);
+		expect(await readFile(productNetworkConfigPath, 'utf8')).toContain(
+			'api.example.com'
+		);
+		expect(commands.some((command) => command.includes('reverse'))).toBe(
+			false
+		);
+		await session.close();
+		expect(await readFile(nativeConfigPath, 'utf8')).toBe(originalConfig);
+		expect(await readFile(nativeManifestPath, 'utf8')).toBe(
+			originalManifest
+		);
+		expect(await readFile(productNetworkConfigPath, 'utf8')).toBe(
+			originalNetworkConfig
+		);
+		expect(
+			await Bun.file(
+				join(
+					project.nativeDirectory,
+					'app/src/main/res/raw/absolutejs_dev_ca.pem'
+				)
+			).exists()
+		).toBe(false);
+	});
+
 	test('connects an existing managed emulator and restores native config', async () => {
 		const {
 			nativeConfigPath,

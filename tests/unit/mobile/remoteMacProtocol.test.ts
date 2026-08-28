@@ -208,6 +208,8 @@ describe('remote Mac protocol', () => {
 			workspaceRoot: '/Users/builder/.absolutejs/remote-ios',
 			xcodeVersion: 'Xcode 26.4'
 		});
+		const certificateAuthorityPath = join(root, 'dev-ca.pem');
+		await writeFile(certificateAuthorityPath, 'PUBLIC DEVELOPMENT CA');
 		const spawned: string[][] = [];
 		let syncs = 0;
 		const prefix = JSON.stringify(ABSOLUTE_REMOTE_MAC_EVENT_PREFIX);
@@ -230,6 +232,8 @@ process.stdin.on("data", (chunk) => {
 });
 setInterval(() => {}, 1000);`;
 		const session = await startAbsoluteRemoteIosDevSession({
+			certificateAuthorityPath,
+			https: true,
 			port: 43123,
 			project,
 			transport: {
@@ -258,6 +262,9 @@ setInterval(() => {}, 1000);`;
 		expect(syncs).toBe(1);
 		expect(spawned[0]).toContain('43123:127.0.0.1:43123');
 		expect(spawned[0]?.join(' ')).toContain('/remote/agent.js');
+		expect(spawned[0]?.join(' ')).toContain('--certificate-authority');
+		expect(spawned[0]?.join(' ')).toContain('--https');
+		expect(spawned[0]?.join(' ')).not.toContain('PUBLIC DEVELOPMENT CA');
 		expect(spawned[0]?.join(' ')).not.toContain(
 			'node_modules/.bin/absolute'
 		);

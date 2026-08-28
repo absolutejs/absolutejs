@@ -96,6 +96,7 @@ export type AbsoluteRemoteMacTransport = {
 };
 
 export type AbsoluteRemoteIosOptions = {
+	certificateAuthorityPath?: string;
 	https?: boolean;
 	log?: (message: string) => void;
 	nativeLog?: (entry: AbsoluteIosNativeLogEntry) => void;
@@ -723,6 +724,11 @@ export const startAbsoluteRemoteIosDevSession = async (
 	const encodedConfig = Buffer.from(
 		JSON.stringify(portableMobileConfig(options.project))
 	).toString('base64url');
+	const encodedCertificateAuthority = options.certificateAuthorityPath
+		? (await readFile(options.certificateAuthorityPath)).toString(
+				'base64url'
+			)
+		: undefined;
 	const remoteCommand = [
 		`cd ${shellQuote(options.project.remoteProjectRoot)}`,
 		'&&',
@@ -733,6 +739,12 @@ export const startAbsoluteRemoteIosDevSession = async (
 		String(options.port),
 		'--mobile-config',
 		shellQuote(encodedConfig),
+		...(encodedCertificateAuthority
+			? [
+					'--certificate-authority',
+					shellQuote(encodedCertificateAuthority)
+				]
+			: []),
 		...(options.https ? ['--https'] : [])
 	].join(' ');
 	const command = [

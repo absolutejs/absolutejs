@@ -36,6 +36,7 @@ import {
 import { loadConfig } from '../../utils/loadConfig';
 import { scanListeners } from '../../utils/portScan';
 import { resolveDevPort } from '../../utils/resolveDevPort';
+import { getLocalIPAddress } from '../../utils/networking';
 import { normalizeAbsoluteMobileConfig } from '../../mobile/config';
 import { installAbsoluteMobileAuthEnvironment } from '../../mobile/nativeAuth';
 import {
@@ -241,38 +242,45 @@ const confirmPrompt = (message: string, defaultYes = true) => {
 };
 
 const setupCertWithPrompt = async (
-	ensureDevCert: () => void,
-	setupMkcert: () => void
+	ensureDevCert: (hosts?: readonly string[]) => void,
+	setupMkcert: (hosts?: readonly string[]) => void,
+	hosts: readonly string[]
 ) => {
 	const install = await confirmPrompt(
 		'Install mkcert for trusted HTTPS? (no browser warning)'
 	);
 
 	if (install) {
-		setupMkcert();
+		setupMkcert(hosts);
 	} else {
-		ensureDevCert();
+		ensureDevCert(hosts);
 	}
 };
 
-const setupHttpsCert = async () => {
-	const { hasCert, hasMkcert, ensureDevCert, setupMkcert } = await import(
-		'../../dev/devCert'
-	);
+const setupHttpsCert = async (hosts: readonly string[] = []) => {
+	const {
+		getDevCertificateAuthorityPath,
+		hasCert,
+		hasMkcert,
+		ensureDevCert,
+		setupMkcert
+	} = await import('../../dev/devCert');
 
-	if (hasCert()) {
-		ensureDevCert();
+	if (hasCert(hosts)) {
+		ensureDevCert(hosts);
 
-		return;
+		return getDevCertificateAuthorityPath();
 	}
 
 	if (hasMkcert()) {
-		ensureDevCert();
+		ensureDevCert(hosts);
 
-		return;
+		return getDevCertificateAuthorityPath();
 	}
 
-	await setupCertWithPrompt(ensureDevCert, setupMkcert);
+	await setupCertWithPrompt(ensureDevCert, setupMkcert, hosts);
+
+	return getDevCertificateAuthorityPath();
 };
 
 type ResolvedDevConfig = {
@@ -282,6 +290,18 @@ type ResolvedDevConfig = {
 	host: string;
 	https: boolean;
 	tunnel?: { relay: string; token: string };
+};
+
+const mobileReachableHost = (host: string) => {
+	if (host !== '0.0.0.0' && host !== '::') return host;
+	const address = getLocalIPAddress();
+	if (address === 'localhost') {
+		throw new Error(
+			'No LAN address is available for the selected physical device. Connect this computer to the device network or set dev.host explicitly.'
+		);
+	}
+
+	return address;
 };
 
 /** Resolve dev-server settings with env-var precedence over config file.
@@ -321,15 +341,28 @@ const resolveDevConfig = (
 };
 
 export type AbsoluteDevOptions = {
+	androidDevice?: string;
 	mobile?: boolean;
 };
 
-const androidToolchainReady = (checks: AbsoluteMobileDoctorCheck[]) =>
-	checks.every(
+const androidToolchainReady = (
+	checks: AbsoluteMobileDoctorCheck[],
+	target: 'device' | 'emulator' = 'emulator'
+) => {
+	const deviceOnlyChecks = new Set([
+		'android.avd',
+		'android.avdmanager',
+		'android.emulator',
+		'android.virtualization'
+	]);
+
+	return checks.every(
 		(check) =>
 			check.platform !== 'android' ||
+			(target === 'device' && deviceOnlyChecks.has(check.id)) ||
 			(check.status !== 'fail' && check.status !== 'warn')
 	);
+};
 
 const iosToolchainReady = (checks: AbsoluteMobileDoctorCheck[]) =>
 	checks.every(
@@ -344,6 +377,7 @@ export const dev = async (
 	options: AbsoluteDevOptions = {}
 ) => {
 	let httpsEnabled = false;
+	let devCertificateAuthorityPath: string | null = null;
 	let resolvedDev: ResolvedDevConfig;
 	let buildDirectory = resolve(process.cwd(), 'build');
 	let mobileConfig: MobileConfig | undefined;
@@ -360,11 +394,36 @@ export const dev = async (
 		if (config?.buildDirectory) {
 			buildDirectory = resolve(process.cwd(), config.buildDirectory);
 		}
-		if (httpsEnabled) await setupHttpsCert();
 	} catch {
 		// config load failed, fall back to env-only defaults
 		resolvedDev = resolveDevConfig(undefined);
 		httpsEnabled = resolvedDev.https;
+	}
+	if (
+		options.androidDevice &&
+		['localhost', '127.0.0.1', '::1'].includes(resolvedDev.host)
+	) {
+		resolvedDev.host = '0.0.0.0';
+	}
+	if (httpsEnabled)
+		devCertificateAuthorityPath = await setupHttpsCert(
+			options.androidDevice
+				? [mobileReachableHost(resolvedDev.host)]
+				: [resolvedDev.host]
+		);
+	if (options.androidDevice && !mobileConfig) {
+		throw new TypeError(
+			'--android-device requires an absolute.config.ts mobile configuration.'
+		);
+	}
+	if (
+		options.androidDevice &&
+		mobileConfig?.platforms &&
+		!mobileConfig.platforms.includes('android')
+	) {
+		throw new TypeError(
+			'--android-device requires android in mobile.platforms.'
+		);
 	}
 
 	let androidDevProject: AbsoluteAndroidDevProject | null = null;
@@ -381,23 +440,28 @@ export const dev = async (
 				process.cwd()
 			);
 			if (normalized.platforms.includes('android')) {
+				const androidTarget = options.androidDevice
+					? 'device'
+					: 'emulator';
 				let ready = androidToolchainReady(
-					await inspectAbsoluteMobileToolchain()
+					await inspectAbsoluteMobileToolchain(),
+					androidTarget
 				);
 				if (!ready) {
 					const install = await confirmPrompt(
-						'Android emulation is not configured. Install it now?'
+						'Android development is not configured. Install the tested toolchain now?'
 					);
 					if (install) {
 						await fixAbsoluteMobileEmulatorToolchain('android');
 						ready = androidToolchainReady(
-							await inspectAbsoluteMobileToolchain()
+							await inspectAbsoluteMobileToolchain(),
+							androidTarget
 						);
 					} else {
 						console.log(
 							cliTag(
 								'\x1b[33m',
-								'Mobile emulator skipped. Run `absolute mobile doctor android --fix` when ready.'
+								'Android target skipped. Run `absolute mobile doctor android --fix` when ready.'
 							)
 						);
 					}
@@ -417,7 +481,8 @@ export const dev = async (
 						androidDevProject =
 							await prepareAbsoluteAndroidDevProject(normalized, {
 								createNativeProject,
-								projectRoot: process.cwd()
+								projectRoot: process.cwd(),
+								target: androidTarget
 							});
 					}
 				}
@@ -587,7 +652,10 @@ export const dev = async (
 		'dev',
 		serverEntry,
 		...(configPath ? ['--config', configPath] : []),
-		...(options.mobile === false ? ['--no-mobile'] : [])
+		...(options.mobile === false ? ['--no-mobile'] : []),
+		...(options.androidDevice
+			? ['--android-device', options.androidDevice]
+			: [])
 	].filter((part) => part.length > 0);
 	registerInstance({
 		command: relaunchCommand,
@@ -651,6 +719,7 @@ export const dev = async (
 			platform: 'android',
 			provider: 'capacitor',
 			startedEmulator: session.startedEmulator,
+			target: options.androidDevice ? 'device' : 'emulator',
 			timings: session.timings
 		});
 		if (session.timings.building === undefined) return;
@@ -665,9 +734,14 @@ export const dev = async (
 	};
 	const openAndroidDevSession = (androidProject: AbsoluteAndroidDevProject) =>
 		startAbsoluteAndroidDevSession({
+			certificateAuthorityPath: devCertificateAuthorityPath ?? undefined,
+			deviceSerial: options.androidDevice,
 			https: httpsEnabled,
 			port,
 			project: androidProject,
+			serverHost: options.androidDevice
+				? mobileReachableHost(resolvedDev.host)
+				: 'localhost',
 			signal: androidDevAbort.signal,
 			log: (message) => printNativeOutput(cliTag('\x1b[36m', message)),
 			nativeLog: (entry) => printNativeOutput(androidLogTag(entry)),
@@ -812,6 +886,7 @@ export const dev = async (
 	};
 	const openIosDevSession = (iosProject: AbsoluteIosDevelopmentProject) => {
 		const sessionOptions: Omit<StartAbsoluteIosDevOptions, 'project'> = {
+			certificateAuthorityPath: devCertificateAuthorityPath ?? undefined,
 			https: httpsEnabled,
 			port,
 			signal: iosDevAbort.signal,
@@ -1046,6 +1121,12 @@ export const dev = async (
 			return;
 		}
 		const refreshedDevConfig = resolveDevConfig(cfg?.dev);
+		if (
+			options.androidDevice &&
+			['localhost', '127.0.0.1', '::1'].includes(refreshedDevConfig.host)
+		) {
+			refreshedDevConfig.host = '0.0.0.0';
+		}
 		const desiredBuildDir = cfg?.buildDirectory
 			? resolve(process.cwd(), cfg.buildDirectory)
 			: resolve(process.cwd(), 'build');
@@ -1175,6 +1256,7 @@ export const dev = async (
 				env: {
 					...process.env,
 					...readDotenvFiles(),
+					ABSOLUTE_HOST: resolvedDev.host,
 					// The parent CLI owns this server's registry entry, so the
 					// child's runtime (networking plugin) must not self-register.
 					ABSOLUTE_INSTANCE_MANAGED: '1',

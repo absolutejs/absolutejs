@@ -5,6 +5,8 @@ import {
 	readFileSync,
 	rmSync
 } from 'node:fs';
+import { X509Certificate } from 'node:crypto';
+import { isIP } from 'node:net';
 import { platform } from 'node:os';
 import { join } from 'node:path';
 
@@ -12,6 +14,9 @@ const CERT_DIR = join(process.cwd(), '.absolutejs');
 const CERT_PATH = join(CERT_DIR, 'cert.pem');
 const KEY_PATH = join(CERT_DIR, 'key.pem');
 const CERT_VALIDITY_DAYS = 365;
+const DEFAULT_CERTIFICATE_HOSTS = ['localhost', '127.0.0.1', '::1'];
+const CERTIFICATE_HOSTNAME_PATTERN =
+	/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*$/u;
 
 // Neutral log that doesn't use [hmr] tag
 const devLog = (msg: string) =>
@@ -26,19 +31,35 @@ const devWarn = (msg: string) =>
 
 const certFilesExist = () => existsSync(CERT_PATH) && existsSync(KEY_PATH);
 
-const isCertExpired = () => {
+export const normalizeDevCertificateHosts = (hosts: readonly string[] = []) => {
+	const normalized = new Set(DEFAULT_CERTIFICATE_HOSTS);
+	for (const host of hosts) {
+		const value = host.trim().toLowerCase();
+		if (!value || value === '0.0.0.0' || value === '::') continue;
+		if (isIP(value) === 0 && !CERTIFICATE_HOSTNAME_PATTERN.test(value)) {
+			throw new TypeError(
+				`Invalid development certificate host: ${host}`
+			);
+		}
+		normalized.add(value);
+	}
+
+	return [...normalized];
+};
+
+const certificateIsUsable = (hosts: readonly string[]) => {
 	try {
 		const certPem = readFileSync(CERT_PATH, 'utf-8');
-		const proc = Bun.spawnSync(['openssl', 'x509', '-enddate', '-noout'], {
-			stdin: new TextEncoder().encode(certPem)
-		});
-		const output = new TextDecoder().decode(proc.stdout).trim();
-		const dateStr = output.replace('notAfter=', '');
-		const expiryDate = new Date(dateStr);
+		const certificate = new X509Certificate(certPem);
+		if (new Date(certificate.validTo).getTime() <= Date.now()) return false;
 
-		return expiryDate.getTime() < Date.now();
+		return normalizeDevCertificateHosts(hosts).every((host) =>
+			isIP(host)
+				? certificate.checkIP(host) !== undefined
+				: certificate.checkHost(host) !== undefined
+		);
 	} catch {
-		return true;
+		return false;
 	}
 };
 
@@ -55,7 +76,7 @@ export const hasMkcert = () => {
 	}
 };
 
-const generateWithMkcert = () => {
+const generateWithMkcert = (hosts: readonly string[] = []) => {
 	const result = Bun.spawnSync(
 		[
 			'mkcert',
@@ -63,9 +84,7 @@ const generateWithMkcert = () => {
 			CERT_PATH,
 			'-key-file',
 			KEY_PATH,
-			'localhost',
-			'127.0.0.1',
-			'::1'
+			...normalizeDevCertificateHosts(hosts)
 		],
 		{ stderr: 'pipe', stdout: 'pipe' }
 	);
@@ -76,7 +95,10 @@ const generateWithMkcert = () => {
 	}
 };
 
-const generateSelfSigned = () => {
+const generateSelfSigned = (hosts: readonly string[] = []) => {
+	const subjectAlternativeNames = normalizeDevCertificateHosts(hosts)
+		.map((host) => `${isIP(host) ? 'IP' : 'DNS'}:${host}`)
+		.join(',');
 	const proc = Bun.spawnSync(
 		[
 			'openssl',
@@ -96,7 +118,7 @@ const generateSelfSigned = () => {
 			'-subj',
 			'/CN=localhost',
 			'-addext',
-			'subjectAltName=DNS:localhost,IP:127.0.0.1,IP:::1'
+			`subjectAltName=${subjectAlternativeNames}`
 		],
 		{ stderr: 'pipe', stdout: 'pipe' }
 	);
@@ -111,29 +133,31 @@ const generateSelfSigned = () => {
 	);
 };
 
-const generateCert = () => {
+const generateCert = (hosts: readonly string[] = []) => {
 	if (hasMkcert()) {
-		generateWithMkcert();
+		generateWithMkcert(hosts);
 	} else {
-		generateSelfSigned();
+		generateSelfSigned(hosts);
 	}
 };
 
-export const ensureDevCert = () => {
+export const ensureDevCert = (hosts: readonly string[] = []) => {
 	mkdirSync(CERT_DIR, { recursive: true });
 
 	// Cert exists and valid — reuse silently
-	if (hasCert()) {
+	if (hasCert(hosts)) {
 		return { cert: CERT_PATH, key: KEY_PATH };
 	}
 
 	// Expired — regenerate silently
 	if (certFilesExist()) {
-		devLog('Certificate expired, regenerating...');
+		devLog(
+			'Certificate is expired or missing a required host, regenerating...'
+		);
 	}
 
 	try {
-		generateCert();
+		generateCert(hosts);
 	} catch (err) {
 		devWarn(
 			`Failed to generate certificate: ${err instanceof Error ? err.message : err}`
@@ -144,9 +168,10 @@ export const ensureDevCert = () => {
 
 	return { cert: CERT_PATH, key: KEY_PATH };
 };
-export const hasCert = () => certFilesExist() && !isCertExpired();
-export const loadDevCert = () => {
-	const paths = ensureDevCert();
+export const hasCert = (hosts: readonly string[] = []) =>
+	certFilesExist() && certificateIsUsable(hosts);
+export const loadDevCert = (hosts: readonly string[] = []) => {
+	const paths = ensureDevCert(hosts);
 	if (!paths) return null;
 
 	try {
@@ -305,6 +330,14 @@ const runCapture = (cmd: string[]) => {
 };
 
 const mkcertCaRoot = () => runCapture(['mkcert', '-CAROOT']);
+export const getDevCertificateAuthorityPath = () => {
+	const caRoot = hasMkcert() ? mkcertCaRoot() : null;
+	const rootCertificate = caRoot ? join(caRoot, 'rootCA.pem') : null;
+	if (rootCertificate && existsSync(rootCertificate)) return rootCertificate;
+	if (certFilesExist()) return CERT_PATH;
+
+	return null;
+};
 const toWindowsPath = (linuxPath: string) =>
 	runCapture(['wslpath', '-w', linuxPath]);
 const windowsTempDir = () => {
@@ -359,7 +392,7 @@ const trustCaOnWindows = () => {
 };
 
 // CLI command: install mkcert, set up CA, regenerate cert
-export const setupMkcert = () => {
+export const setupMkcert = (hosts: readonly string[] = []) => {
 	if (!ensureMkcert()) return false;
 
 	// Install the local CA (adds to system trust store)
@@ -404,7 +437,7 @@ export const setupMkcert = () => {
 
 	// Generate new trusted cert
 	mkdirSync(CERT_DIR, { recursive: true });
-	generateWithMkcert();
+	generateWithMkcert(hosts);
 	console.log('');
 	devLog('mkcert installed — HTTPS certificates are now locally trusted');
 

@@ -1379,8 +1379,14 @@ guided toolchain installer and managed native-project creation; `--no-mobile`,
 the Windows SDK/emulator and a PowerShell Gradle broker. Live-reload changes to the
 copied native Capacitor config are journaled and restored on normal shutdown,
 startup failure, cancellation, or the next run after a crash. The managed emulator
-stays warm after shutdown for fast subsequent starts. iOS physical devices and
-trusted local HTTPS are still subsequent slices of Phase 4. The SDK-free
+stays warm after shutdown for fast subsequent starts. iOS physical devices remain
+a subsequent slice of Phase 4. Trusted local HTTPS now reuses `dev.https`:
+certificates are regenerated only when a required LAN identity is absent, Android
+debug builds receive an app-scoped debug-only CA projection, and local or remote
+iOS Simulators receive the public CA through `simctl keychain`. Explicit
+`absolute dev --android-device <serial>` development uses the selected LAN address
+without changing application code, while the normal managed emulator retains its
+faster `adb reverse` loopback path. The SDK-free
 mobile-preview UI is now implemented with the explicitly documented platform
 limitations above.
 

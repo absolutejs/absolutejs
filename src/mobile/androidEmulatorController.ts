@@ -86,6 +86,10 @@ type AndroidDevJournal = {
 	manifestBackupPath?: string;
 	nativeConfigPath: string;
 	nativeManifestPath?: string;
+	projectedFiles?: Array<{
+		backupPath?: string;
+		path: string;
+	}>;
 };
 
 type AndroidNativeCache = {
@@ -105,7 +109,7 @@ export type AbsoluteAndroidDevProject = {
 	androidRoot: string;
 	cap: string;
 	config: NormalizedAbsoluteMobileConfig;
-	emulator: string;
+	emulator?: string;
 	host: AbsoluteMobileHost;
 	nativeDirectory: string;
 	projectRoot: string;
@@ -142,12 +146,20 @@ const ANDROID_TIMING_PHASES: Array<[string, string]> = [
 	['streaming-logs', 'logs']
 ];
 
-const androidTimingSummary = (timings: Record<string, number>) =>
+const androidTimingSummary = (
+	timings: Record<string, number>,
+	physicalDevice = false
+) =>
 	ANDROID_TIMING_PHASES.map(([phase, label]) => {
 		const duration = timings[phase];
 		if (duration === undefined || label === undefined) return null;
+		let phaseLabel = label;
+		if (physicalDevice && phase === 'booting')
+			phaseLabel = 'device selection';
+		if (physicalDevice && phase === 'forwarding')
+			phaseLabel = 'LAN transport';
 
-		return `${label} ${getDurationString(duration)}`;
+		return `${phaseLabel} ${getDurationString(duration)}`;
 	})
 		.filter((value): value is string => value !== null)
 		.join(', ');
@@ -155,6 +167,7 @@ const androidTimingSummary = (timings: Record<string, number>) =>
 export type PrepareAbsoluteAndroidDevOptions = {
 	createNativeProject: boolean;
 	projectRoot: string;
+	target?: 'device' | 'emulator';
 	run?: (
 		command: string[],
 		options?: AbsoluteAndroidCommandOptions
@@ -174,8 +187,14 @@ export type StartAbsoluteAndroidDevOptions = {
 	/** Launch the locally embedded production web bundle while forwarding
 	 * `port` only for its configured backend. No dev-server URL is written. */
 	embeddedBundle?: boolean;
+	/** A connected physical device selected explicitly by ADB serial. */
+	deviceSerial?: string;
+	/** CA certificate temporarily trusted only by this development app. */
+	certificateAuthorityPath?: string;
 	port: number;
 	project: AbsoluteAndroidDevProject;
+	/** Hostname or LAN address loaded by the physical device. */
+	serverHost?: string;
 	run?: (
 		command: string[],
 		options?: AbsoluteAndroidCommandOptions
@@ -451,8 +470,13 @@ const journalPaths = (projectRoot: string) => {
 
 	return {
 		backup: join(root, 'capacitor.config.backup.json'),
+		caBackup: join(root, 'absolutejs_dev_ca.backup.pem'),
 		journal: join(root, 'journal.json'),
 		manifestBackup: join(root, 'AndroidManifest.backup.xml'),
+		networkConfigBackup: join(
+			root,
+			'absolutejs_dev_network_security.backup.xml'
+		),
 		root
 	};
 };
@@ -689,6 +713,7 @@ const parseJournal = (value: unknown): AndroidDevJournal | null => {
 	const manifestBackupPath = Reflect.get(value, 'manifestBackupPath');
 	const nativeConfigPath = Reflect.get(value, 'nativeConfigPath');
 	const nativeManifestPath = Reflect.get(value, 'nativeManifestPath');
+	const projectedFiles = Reflect.get(value, 'projectedFiles');
 	if (
 		typeof backupPath !== 'string' ||
 		format !== DEV_JOURNAL_FORMAT ||
@@ -704,14 +729,40 @@ const parseJournal = (value: unknown): AndroidDevJournal | null => {
 	) {
 		return null;
 	}
+	if (
+		projectedFiles !== undefined &&
+		(!Array.isArray(projectedFiles) ||
+			!projectedFiles.every(
+				(file) =>
+					isRecord(file) &&
+					typeof file.path === 'string' &&
+					(file.backupPath === undefined ||
+						typeof file.backupPath === 'string')
+			))
+	) {
+		return null;
+	}
 
 	return {
 		backupPath,
 		format,
 		manifestBackupPath,
 		nativeConfigPath,
-		nativeManifestPath
+		nativeManifestPath,
+		projectedFiles
 	};
+};
+
+const restoreAndroidProjectedFile = async (
+	file: NonNullable<AndroidDevJournal['projectedFiles']>[number]
+) => {
+	if (!file.backupPath || !(await pathExists(file.backupPath))) {
+		await rm(file.path, { force: true });
+
+		return;
+	}
+	await mkdir(dirname(file.path), { recursive: true });
+	await copyFile(file.backupPath, file.path);
 };
 
 export const repairAbsoluteAndroidDevSession = async (projectRoot: string) => {
@@ -731,7 +782,13 @@ export const repairAbsoluteAndroidDevSession = async (projectRoot: string) => {
 		(journal.nativeManifestPath !== undefined &&
 			!isInside(projectRoot, journal.nativeManifestPath)) ||
 		(journal.manifestBackupPath !== undefined &&
-			!isInside(paths.root, journal.manifestBackupPath))
+			!isInside(paths.root, journal.manifestBackupPath)) ||
+		journal.projectedFiles?.some(
+			(file) =>
+				!isInside(projectRoot, file.path) ||
+				(file.backupPath !== undefined &&
+					!isInside(paths.root, file.backupPath))
+		)
 	) {
 		throw new Error(
 			`Refusing unsafe or invalid mobile dev journal at ${paths.journal}.`
@@ -749,23 +806,84 @@ export const repairAbsoluteAndroidDevSession = async (projectRoot: string) => {
 		await mkdir(dirname(journal.nativeManifestPath), { recursive: true });
 		await copyFile(journal.manifestBackupPath, journal.nativeManifestPath);
 	}
+	await Promise.all(
+		(journal.projectedFiles ?? []).map(restoreAndroidProjectedFile)
+	);
 	await rm(paths.root, { force: true, recursive: true });
 
 	return true;
 };
 
-const androidDevelopmentManifest = (source: string, cleartext: boolean) => {
-	if (!cleartext) return source;
+const setAndroidApplicationAttribute = (
+	source: string,
+	attribute: string,
+	value: string
+) => {
+	const pattern = new RegExp(`android:${attribute}=["'][^"']*["']`, 'u');
+	if (pattern.test(source))
+		return source.replace(pattern, `android:${attribute}="${value}"`);
+
+	return source.replace(
+		'<application',
+		`<application\n        android:${attribute}="${value}"`
+	);
+};
+
+const androidDevelopmentManifest = (
+	source: string,
+	cleartext: boolean,
+	developmentNetworkConfig?: string
+) => {
+	let projected = source;
+	if (developmentNetworkConfig) {
+		projected = setAndroidApplicationAttribute(
+			projected,
+			'networkSecurityConfig',
+			`@xml/${developmentNetworkConfig}`
+		);
+	}
+	if (!cleartext) return projected;
 	if (/android:usesCleartextTraffic=["'][^"']*["']/u.test(source)) {
-		return source.replace(
+		return projected.replace(
 			/android:usesCleartextTraffic=["'][^"']*["']/u,
 			'android:usesCleartextTraffic="true"'
 		);
 	}
 
+	return setAndroidApplicationAttribute(
+		projected,
+		'usesCleartextTraffic',
+		'true'
+	);
+};
+
+const withAndroidDebugCertificateAuthority = (source: string) => {
+	if (source.includes('@raw/absolutejs_dev_ca')) return source;
+	const debugOverrides =
+		/<debug-overrides(?:\s[^>]*)?>([\s\S]*?)<\/debug-overrides>/u;
+	const match = source.match(debugOverrides);
+	if (match) {
+		const [block] = match;
+		const trustAnchors = /<trust-anchors(?:\s[^>]*)?>/u;
+		const projectedBlock = trustAnchors.test(block)
+			? block.replace(
+					trustAnchors,
+					'$&\n\t\t\t<certificates src="@raw/absolutejs_dev_ca" />'
+				)
+			: block.replace(
+					'</debug-overrides>',
+					'\t<trust-anchors>\n\t\t\t<certificates src="@raw/absolutejs_dev_ca" />\n\t\t</trust-anchors>\n\t</debug-overrides>'
+				);
+
+		return source.replace(block, projectedBlock);
+	}
+	if (!source.includes('</network-security-config>')) {
+		throw new Error('Android Network Security Configuration is invalid.');
+	}
+
 	return source.replace(
-		'<application',
-		'<application\n        android:usesCleartextTraffic="true"'
+		'</network-security-config>',
+		'\t<debug-overrides>\n\t\t<trust-anchors>\n\t\t\t<certificates src="@raw/absolutejs_dev_ca" />\n\t\t</trust-anchors>\n\t</debug-overrides>\n</network-security-config>'
 	);
 };
 
@@ -776,7 +894,9 @@ const writeDevConfig = async (
 	port: number,
 	https: boolean,
 	entry: string,
-	embeddedBundle: boolean
+	embeddedBundle: boolean,
+	serverHost: string,
+	certificateAuthorityPath?: string
 ) => {
 	const paths = journalPaths(projectRoot);
 	await repairAbsoluteAndroidDevSession(projectRoot);
@@ -791,12 +911,45 @@ const writeDevConfig = async (
 	await mkdir(paths.root, { recursive: true });
 	await writeFile(paths.backup, source, { flag: 'wx' });
 	await writeFile(paths.manifestBackup, manifestSource, { flag: 'wx' });
+	const resourceRoot = join(dirname(nativeManifestPath), 'res');
+	const caPath = join(resourceRoot, 'raw', 'absolutejs_dev_ca.pem');
+	const existingNetworkConfig = manifestSource.match(
+		/android:networkSecurityConfig=["']@xml\/([a-z0-9_]+)["']/u
+	)?.[1];
+	const networkConfigName =
+		existingNetworkConfig ?? 'absolutejs_dev_network_security';
+	const networkConfigPath = join(
+		resourceRoot,
+		'xml',
+		`${networkConfigName}.xml`
+	);
+	const backupProjectedFile = async ([path, backupPath]: readonly [
+		string,
+		string
+	]) => {
+		if (!(await pathExists(path))) return { path };
+		await copyFile(path, backupPath);
+
+		return { backupPath, path };
+	};
+	const projectedFiles: AndroidDevJournal['projectedFiles'] =
+		https && certificateAuthorityPath
+			? await Promise.all(
+					(
+						[
+							[caPath, paths.caBackup],
+							[networkConfigPath, paths.networkConfigBackup]
+						] as const
+					).map(backupProjectedFile)
+				)
+			: [];
 	const journal: AndroidDevJournal = {
 		backupPath: paths.backup,
 		format: DEV_JOURNAL_FORMAT,
 		manifestBackupPath: paths.manifestBackup,
 		nativeConfigPath,
-		nativeManifestPath
+		nativeManifestPath,
+		projectedFiles
 	};
 	await writeFile(paths.journal, `${JSON.stringify(journal, null, '\t')}\n`, {
 		flag: 'wx'
@@ -804,7 +957,7 @@ const writeDevConfig = async (
 	if (!embeddedBundle) {
 		const currentServer = parsed.server;
 		const developmentUrl = new URL(
-			`${https ? 'https' : 'http'}://localhost:${port}${entry}`
+			`${https ? 'https' : 'http'}://${serverHost}:${port}${entry}`
 		);
 		developmentUrl.searchParams.set(
 			'__absolute_target',
@@ -822,9 +975,29 @@ const writeDevConfig = async (
 		nativeConfigPath,
 		`${JSON.stringify(parsed, null, '\t')}\n`
 	);
+	if (https && certificateAuthorityPath) {
+		await Promise.all([
+			mkdir(dirname(caPath), { recursive: true }),
+			mkdir(dirname(networkConfigPath), { recursive: true })
+		]);
+		await copyFile(certificateAuthorityPath, caPath);
+		const existingNetworkConfigSource = existingNetworkConfig
+			? await readFile(networkConfigPath, 'utf8')
+			: '<?xml version="1.0" encoding="utf-8"?>\n<network-security-config>\n</network-security-config>\n';
+		await writeFile(
+			networkConfigPath,
+			withAndroidDebugCertificateAuthority(existingNetworkConfigSource)
+		);
+	}
 	await writeFile(
 		nativeManifestPath,
-		androidDevelopmentManifest(manifestSource, !https)
+		androidDevelopmentManifest(
+			manifestSource,
+			!https,
+			https && certificateAuthorityPath !== undefined
+				? networkConfigName
+				: undefined
+		)
 	);
 };
 
@@ -870,6 +1043,23 @@ const managedEmulatorSerial = (
 	);
 };
 
+const requireConnectedAndroidDevice = (
+	adb: string,
+	serial: string,
+	capture: NonNullable<StartAbsoluteAndroidDevOptions['capture']>,
+	env: Record<string, string | undefined>
+) => {
+	const devices = capture([adb, 'devices'], { env });
+	if (
+		devices.exitCode !== 0 ||
+		!parseAdbDevices(devices.stdout).includes(serial)
+	) {
+		throw new Error(
+			`Android device ${serial} is not connected and authorized. Confirm the USB debugging prompt, then retry.`
+		);
+	}
+};
+
 const completedBootSerial = (
 	project: AbsoluteAndroidDevProject,
 	capture: NonNullable<StartAbsoluteAndroidDevOptions['capture']>,
@@ -912,17 +1102,20 @@ const waitForManagedEmulator = async (
 	preferredSerial?: string
 ) => {
 	const deadline = Date.now() + ANDROID_BOOT_TIMEOUT_MS;
-	let firstSerial = preferredSerial;
 	const poll = async () => {
 		throwIfAborted(signal);
-		const serial = firstSerial
-			? preferredCompletedBootSerial(project, firstSerial, capture, env)
+		const serial = preferredSerial
+			? preferredCompletedBootSerial(
+					project,
+					preferredSerial,
+					capture,
+					env
+				)
 			: completedBootSerial(project, capture, env);
-		firstSerial = undefined;
 		if (serial) return serial;
 		if (Date.now() >= deadline) {
 			throw new Error(
-				`Android emulator ${ABSOLUTE_ANDROID_AVD_NAME} did not finish booting within ${ANDROID_BOOT_TIMEOUT_MS / ANDROID_BOOT_POLL_MS}s.`
+				`Android ${preferredSerial ? `target ${preferredSerial}` : `emulator ${ABSOLUTE_ANDROID_AVD_NAME}`} did not finish booting within ${ANDROID_BOOT_TIMEOUT_MS / ANDROID_BOOT_POLL_MS}s.`
 			);
 		}
 		await sleep(ANDROID_BOOT_POLL_MS);
@@ -1328,6 +1521,11 @@ const startManagedEmulatorIfNeeded = (
 	log: NonNullable<StartAbsoluteAndroidDevOptions['log']>,
 	env: Record<string, string | undefined>
 ) => {
+	if (!project.emulator) {
+		throw new Error(
+			'Android Emulator is unavailable. Select a physical device or run `absolute mobile doctor android --fix`.'
+		);
+	}
 	const serial = managedEmulatorSerial(project.adb, capture, env);
 	if (serial) return { serial, started: false };
 	log(`Starting Android emulator ${ABSOLUTE_ANDROID_AVD_NAME}...`);
@@ -1353,7 +1551,7 @@ const logHttpsCertificateRequirement = (
 ) => {
 	if (https !== true) return;
 	log(
-		'Android HMR is using HTTPS; the emulator must trust the local development certificate authority.'
+		'Android HMR is using HTTPS; AbsoluteJS is projecting the local development CA into this debug app only.'
 	);
 };
 
@@ -1546,21 +1744,28 @@ export const prepareAbsoluteAndroidDevProject = async (
 		process.env.ANDROID_SDK_ROOT ??
 		absoluteManagedAndroidSdkRoot(host);
 	const checks = await inspectAbsoluteMobileToolchain({ androidRoot, host });
+	const deviceOnlyChecks = new Set([
+		'android.avd',
+		'android.avdmanager',
+		'android.emulator',
+		'android.virtualization'
+	]);
 	const failed = checks.filter(
 		(check) =>
 			check.platform === 'android' &&
-			(check.status === 'fail' || check.status === 'warn')
+			(check.status === 'fail' || check.status === 'warn') &&
+			(options.target !== 'device' || !deviceOnlyChecks.has(check.id))
 	);
 	if (failed.length > 0) {
 		throw new Error(
-			`Android emulation is not ready: ${failed.map(({ label }) => label).join(', ')}.`
+			`Android ${options.target === 'device' ? 'device development' : 'emulation'} is not ready: ${failed.map(({ label }) => label).join(', ')}.`
 		);
 	}
 	const adb = checks.find((check) => check.id === 'android.adb')?.path;
 	const emulator = checks.find(
 		(check) => check.id === 'android.emulator'
 	)?.path;
-	if (!adb || !emulator) {
+	if (!adb || (options.target !== 'device' && !emulator)) {
 		throw new Error(
 			'Android SDK tools disappeared after readiness checks.'
 		);
@@ -1605,7 +1810,7 @@ export const prepareAbsoluteAndroidDevProject = async (
 		androidRoot,
 		cap,
 		config,
-		emulator,
+		...(emulator ? { emulator } : {}),
 		host,
 		nativeDirectory,
 		projectRoot
@@ -1685,6 +1890,12 @@ export const startAbsoluteAndroidDevSession = async (
 		await stream?.close().catch(() => undefined);
 	};
 	try {
+		const physicalDevice = options.deviceSerial !== undefined;
+		if (options.https && !options.certificateAuthorityPath) {
+			throw new Error(
+				'Android HTTPS development requires the AbsoluteJS development CA certificate.'
+			);
+		}
 		await writeDevConfig(
 			project.projectRoot,
 			nativeConfigPath,
@@ -1692,7 +1903,9 @@ export const startAbsoluteAndroidDevSession = async (
 			options.port,
 			options.https === true,
 			project.config.entry,
-			options.embeddedBundle === true
+			options.embeddedBundle === true,
+			options.serverHost ?? 'localhost',
+			options.certificateAuthorityPath
 		);
 		throwIfAborted(options.signal);
 		logHttpsCertificateRequirement(options.https, log);
@@ -1707,13 +1920,16 @@ export const startAbsoluteAndroidDevSession = async (
 				return fingerprint;
 			});
 		transition('booting');
-		const emulator = startManagedEmulatorIfNeeded(
-			project,
-			capture,
-			spawn,
-			log,
-			env
-		);
+		if (options.deviceSerial)
+			requireConnectedAndroidDevice(
+				project.adb,
+				options.deviceSerial,
+				capture,
+				env
+			);
+		const emulator = options.deviceSerial
+			? { serial: options.deviceSerial, started: false }
+			: startManagedEmulatorIfNeeded(project, capture, spawn, log, env);
 		const { started: startedEmulator } = emulator;
 		transition('connecting');
 		const serial = await waitForManagedEmulator(
@@ -1726,19 +1942,20 @@ export const startAbsoluteAndroidDevSession = async (
 		);
 		connectedSerial = serial;
 		transition('forwarding');
-		await requireSuccess(
-			[
-				project.adb,
-				'-s',
-				serial,
-				'reverse',
-				`tcp:${options.port}`,
-				`tcp:${options.port}`
-			],
-			'ADB reverse port forwarding',
-			run,
-			{ env, signal: options.signal }
-		);
+		if (!physicalDevice)
+			await requireSuccess(
+				[
+					project.adb,
+					'-s',
+					serial,
+					'reverse',
+					`tcp:${options.port}`,
+					`tcp:${options.port}`
+				],
+				'ADB reverse port forwarding',
+				run,
+				{ env, signal: options.signal }
+			);
 		throwIfAborted(options.signal);
 		const nativeFingerprint = await nativeFingerprintPromise;
 		throwIfAborted(options.signal);
@@ -1777,17 +1994,20 @@ export const startAbsoluteAndroidDevSession = async (
 		phaseDurations.total = performance.now() - startupStartedAt;
 		log(
 			options.embeddedBundle === true
-				? `Android emulator connected (${serial}) with the embedded bundle and backend on port ${options.port} in ${getDurationString(phaseDurations.total)} (${nativeCacheHit ? 'native cache hit' : 'native build installed'}).`
-				: `Android emulator connected (${serial}) with HMR on port ${options.port} in ${getDurationString(phaseDurations.total)} (${nativeCacheHit ? 'native cache hit' : 'native build installed'}).`
+				? `Android ${physicalDevice ? 'device' : 'emulator'} connected (${serial}) with the embedded bundle and backend on port ${options.port} in ${getDurationString(phaseDurations.total)} (${nativeCacheHit ? 'native cache hit' : 'native build installed'}).`
+				: `Android ${physicalDevice ? 'device' : 'emulator'} connected (${serial}) with HMR on port ${options.port} in ${getDurationString(phaseDurations.total)} (${nativeCacheHit ? 'native cache hit' : 'native build installed'}).`
 		);
-		log(`Android startup: ${androidTimingSummary(phaseDurations)}.`);
+		log(
+			`Android startup: ${androidTimingSummary(phaseDurations, physicalDevice)}.`
+		);
 		let closed = false;
 		const close = async () => {
 			if (closed) return;
 			closed = true;
 			transition('closing');
 			await closeNativeLogs();
-			await removeAdbReverse(project, serial, options.port, run, env);
+			if (!physicalDevice)
+				await removeAdbReverse(project, serial, options.port, run, env);
 			await repairAbsoluteAndroidDevSession(project.projectRoot);
 			transition('closed');
 		};
@@ -1837,13 +2057,14 @@ export const startAbsoluteAndroidDevSession = async (
 	} catch (error) {
 		transition('failed');
 		await closeNativeLogs();
-		await removeAdbReverse(
-			project,
-			connectedSerial,
-			options.port,
-			run,
-			env
-		);
+		if (!options.deviceSerial)
+			await removeAdbReverse(
+				project,
+				connectedSerial,
+				options.port,
+				run,
+				env
+			);
 		await repairAbsoluteAndroidDevSession(project.projectRoot);
 
 		throw error;

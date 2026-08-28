@@ -54,3 +54,29 @@ The current preview deliberately matches AbsoluteJS's unified live-development
 path. Production Capacitor builds still launch the embedded local shell and use
 the versioned page-envelope protocol; their compatibility and upgrade behavior
 is covered by the installed-app conformance suites.
+
+## Physical Android development and HTTPS
+
+The same `dev.https` setting used by the web target also applies to Capacitor;
+there is no separate native HTTPS configuration. To select an authorized
+physical Android device explicitly:
+
+```sh
+adb devices
+bunx absolute dev --android-device DEVICE_SERIAL
+```
+
+AbsoluteJS binds the configured dev server to the LAN, regenerates its existing
+development certificate only when the selected LAN identity is missing, and
+loads the physical app from that HTTPS origin. It temporarily projects the CA
+into Android's debug-only Network Security Configuration, then restores any
+pre-existing manifest/resources—or removes generated ones—when the session
+closes or crash recovery runs. It never installs the CA system-wide on the
+phone, and release doctor rejects a leaked AbsoluteJS development trust
+reference.
+
+Managed Android emulators keep using `adb reverse` and iOS Simulator keeps using
+loopback. With HTTPS enabled, AbsoluteJS uses `simctl keychain` to install the
+same existing development CA into the selected iOS Simulator trust store. A
+remote Mac receives only the public CA certificate over the already paired SSH
+session; the CA private key never leaves the development host.

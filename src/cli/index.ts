@@ -39,11 +39,22 @@ const stripNamedArgs = (...flags: string[]) =>
 if (command === 'dev') {
 	sendTelemetryEvent('cli:command', { command });
 	const configPath = parseNamedArg('--config');
-	const positionalArgs = stripNamedArgs('--config').filter(
-		(arg) => arg !== '--no-mobile'
-	);
+	const androidDevice = parseNamedArg('--android-device');
+	if (args.includes('--android-device') && !androidDevice) {
+		throw new TypeError('--android-device requires an ADB device serial.');
+	}
+	if (androidDevice && args.includes('--no-mobile')) {
+		throw new TypeError(
+			'--android-device cannot be combined with --no-mobile.'
+		);
+	}
+	const positionalArgs = stripNamedArgs(
+		'--config',
+		'--android-device'
+	).filter((arg) => arg !== '--no-mobile');
 	const serverEntry = positionalArgs[0] ?? DEFAULT_SERVER_ENTRY;
 	await dev(serverEntry, configPath, {
+		androidDevice,
 		mobile: !args.includes('--no-mobile')
 	});
 } else if (command === 'start') {
@@ -210,7 +221,7 @@ if (command === 'dev') {
 	console.error('Usage: absolute <command>');
 	console.error('Commands:');
 	console.error(
-		'  dev [entry] [--no-mobile] Start web and configured mobile development'
+		'  dev [entry] [--no-mobile] [--android-device serial] Start web and configured mobile development'
 	);
 	console.error(
 		'  workspace dev [--no-tui] Start multi-service workspace dev'

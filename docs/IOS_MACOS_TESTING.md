@@ -1,7 +1,7 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.32` and
+`@absolutejs/absolute@0.20.0-beta.33` and
 `@absolutejs/deploy@0.24.0`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
 
@@ -48,8 +48,11 @@ actual result, sanitized logs, and artifact or screenshot path in section 13.
 - [ ] `SETUP-03` Install the exact packages in section 3.
 - [ ] `SETUP-04` Configure the staging bundle ID and production server origin.
 - [ ] `SETUP-05` Generate or synchronize iOS and resolve Xcode signing warnings.
+- [ ] `PREVIEW-01` through `PREVIEW-08` Complete the SDK-free mobile-preview
+  checklist.
 - [ ] `DEV-01` Complete the cold and warm `bun dev` simulator runs.
 - [ ] `DEV-02` Complete route traversal, HMR timing, relaunch, and recovery.
+- [ ] `HTTPS-01` Complete trusted local HTTPS and HMR in the iOS Simulator.
 - [ ] `CAP-01` Complete automatic device-capability provisioning.
 - [ ] `SYSUI-01` through `SYSUI-08` Complete the Keyboard and System Bars
   checklist.
@@ -100,7 +103,7 @@ still requires the developer team setup described below.
 From the root of the AbsoluteJS application:
 
 ```sh
-bun add @absolutejs/absolute@0.20.0-beta.32 \
+bun add @absolutejs/absolute@0.20.0-beta.33 \
   @absolutejs/auth@0.75.0 \
   @absolutejs/dispatch@0.9.0 \
   @absolutejs/sync@2.29.0 \
@@ -218,6 +221,39 @@ the same explicit App ID. Create an internal TestFlight group—for example,
 
 ## 6. Run the preflight and signed-IPA test
 
+### Browser mobile-preview acceptance
+
+Start `bun dev`, copy the printed **Mobile** URL ending in
+`/__absolute/mobile-preview`, and open it in Safari or Chrome on the Mac. This
+preview is the application running against AbsoluteJS's mobile provider
+contracts; it is not only a resized web viewport. Complete every step and record
+the observed value or failure in section 13:
+
+- [ ] `PREVIEW-01` Open the Mobile URL. Confirm the preview controls and the
+  application's configured entry route both render, with no console error.
+- [ ] `PREVIEW-02` Switch from iOS to Android and back. Confirm the displayed
+  platform and safe-area treatment change without a full `bun dev` restart.
+- [ ] `PREVIEW-03` Enter an ordinary application route and open it normally,
+  then emit the same route as a deep link. Confirm both reach the same local
+  AbsoluteJS route.
+- [ ] `PREVIEW-04` Select Wi-Fi, cellular, and offline in turn. Confirm the
+  application's `@absolutejs/devices` network state follows each selection and
+  an application request fails while offline. Confirm the preview controls and
+  HMR remain connected while the simulated app is offline.
+- [ ] `PREVIEW-05` Emit active, inactive, background, and active again. Confirm
+  the application observes each lifecycle transition once, without duplicate
+  listeners after returning active.
+- [ ] `PREVIEW-06` Emit hardware Back and keyboard show/hide, then set camera,
+  location, and notification permission states. Confirm application code sees
+  the provider-neutral values and does not open a real native prompt.
+- [ ] `PREVIEW-07` Edit visible page text or CSS. Record the
+  `[hmr:mobile-preview]` server/client timing and confirm state is preserved when
+  that framework's normal HMR contract permits it.
+- [ ] `PREVIEW-08` Introduce a temporary syntax/runtime error, confirm the
+  branded overlay appears, fix it, and confirm the overlay clears on the next
+  update. Reload the ordinary web URL afterward and confirm preview mocks did
+  not leak into the web target.
+
 ### First-class simulator and HMR acceptance
 
 Before building the signed IPA, verify the normal development loop. Start the
@@ -242,6 +278,20 @@ When iOS is configured and Xcode is available, AbsoluteJS should:
 The first run may download a runtime or perform a full Xcode build. Stop and
 restart `bun dev` without changing native inputs. The warm run should say
 `native cache hit` and skip both Xcode and installation.
+
+To validate the existing AbsoluteJS HTTPS configuration, set `dev.https: true`
+in `absolute.config.ts` and start `bun dev` again. Accept the one-time mkcert
+setup prompt if this Mac has not configured it yet. AbsoluteJS must reuse that
+same certificate system, add the required development identity when necessary,
+and print that it installed the development CA into the managed Simulator trust
+store. The app must load without an SSL error, and a page/CSS edit must still
+produce an `[hmr:capacitor-ios]` timing without rebuilding the native app.
+
+- [ ] `HTTPS-01` Record whether mkcert setup was needed, whether Simulator CA
+  trust succeeded, whether the initial HTTPS page loaded, and the first HTTPS
+  HMR timing. After stopping `bun dev`, confirm
+  `bunx absolute mobile doctor release` does not report a leaked development
+  URL or trust override.
 
 At the AbsoluteJS interactive prompt:
 
@@ -1151,7 +1201,7 @@ source change and build a new content-addressed release instead.
 - Mac architecture:
 - Xcode version:
 - Bun version:
-- AbsoluteJS version: 0.20.0-beta.30
+- AbsoluteJS version: 0.20.0-beta.33
 - Auth version: 0.75.0
 - Dispatch version: 0.9.0
 - Sync version: 2.29.0
@@ -1182,8 +1232,17 @@ versus expected behavior. Do not report exact coordinates.
 | SETUP-03 |  |  |  |
 | SETUP-04 |  |  |  |
 | SETUP-05 |  |  |  |
+| PREVIEW-01 |  | controls / entry route: |  |
+| PREVIEW-02 |  | iOS / Android / safe areas: |  |
+| PREVIEW-03 |  | normal route / deep link: |  |
+| PREVIEW-04 |  | Wi-Fi / cellular / offline / HMR: |  |
+| PREVIEW-05 |  | lifecycle sequence / duplicate count: |  |
+| PREVIEW-06 |  | Back / keyboard / permissions: |  |
+| PREVIEW-07 |  | HMR server / client / state: |  |
+| PREVIEW-08 |  | overlay / recovery / web isolation: |  |
 | DEV-01 |  | cold: / warm: |  |
 | DEV-02 |  | HMR: / relaunch: |  |
+| HTTPS-01 |  | mkcert / CA trust / load / HMR: |  |
 | CAP-01 |  | discovered: / installed: |  |
 | SYSUI-01 |  | discovered / exact package / idempotent sync: |  |
 | SYSUI-02 |  | Info.plist value / release doctor: |  |

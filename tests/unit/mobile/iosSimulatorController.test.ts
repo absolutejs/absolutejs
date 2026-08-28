@@ -278,6 +278,57 @@ describe('iOS simulator development controller', () => {
 		await session.close();
 	});
 
+	test('installs the existing development CA for HTTPS', async () => {
+		const { project } = await fixture();
+		const certificateAuthorityPath = join(
+			project.projectRoot,
+			'dev-ca.pem'
+		);
+		await writeFile(certificateAuthorityPath, 'development CA');
+		const commands: string[][] = [];
+		const session = await startAbsoluteIosDevSession({
+			certificateAuthorityPath,
+			https: true,
+			port: 3041,
+			project,
+			capture: (command) => {
+				if (command.includes('runtimes'))
+					return { exitCode: 0, stderr: '', stdout: runtimes };
+				if (command.includes('devices'))
+					return { exitCode: 0, stderr: '', stdout: inventory };
+
+				return { exitCode: 1, stderr: 'missing', stdout: '' };
+			},
+			run: async (command) => {
+				commands.push(command);
+				if (command[0] === project.xcodebuild) {
+					const derivedData =
+						command[command.indexOf('-derivedDataPath') + 1];
+					if (!derivedData) return 1;
+					await mkdir(
+						join(
+							derivedData,
+							'Build/Products/Debug-iphonesimulator/App.app'
+						),
+						{ recursive: true }
+					);
+				}
+
+				return 0;
+			},
+			spawn: () => undefined
+		});
+		expect(commands).toContainEqual([
+			project.xcrun,
+			'simctl',
+			'keychain',
+			'IOS-UDID-1',
+			'add-root-cert',
+			certificateAuthorityPath
+		]);
+		await session.close();
+	});
+
 	test('redacts credentials and parses native severity', () => {
 		expect(
 			redactAbsoluteIosLog(

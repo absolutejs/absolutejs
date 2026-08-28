@@ -97,6 +97,8 @@ export type PrepareAbsoluteIosDevOptions = {
 };
 
 export type StartAbsoluteIosDevOptions = {
+	/** CA certificate installed into this simulator's trusted root store. */
+	certificateAuthorityPath?: string;
 	capture?: (
 		command: string[],
 		options?: AbsoluteIosCommandOptions
@@ -281,6 +283,36 @@ const requireSuccess = async (
 	const exitCode = await run(command, options);
 	if (exitCode !== 0)
 		throw new Error(`${label} failed with status ${exitCode}.`);
+};
+
+const trustIosSimulatorDevelopmentCa = async (
+	options: StartAbsoluteIosDevOptions,
+	udid: string,
+	run: NonNullable<StartAbsoluteIosDevOptions['run']>,
+	log: NonNullable<StartAbsoluteIosDevOptions['log']>
+) => {
+	if (!options.https) return;
+	if (!options.certificateAuthorityPath) {
+		throw new Error(
+			'iOS Simulator HTTPS requires the AbsoluteJS development CA certificate.'
+		);
+	}
+	await requireSuccess(
+		[
+			options.project.xcrun,
+			'simctl',
+			'keychain',
+			udid,
+			'add-root-cert',
+			options.certificateAuthorityPath
+		],
+		'iOS Simulator development CA trust',
+		run,
+		{ signal: options.signal }
+	);
+	log(
+		'Installed the AbsoluteJS development CA into this iOS Simulator trust store.'
+	);
 };
 
 const requireCapturedSuccess = (
@@ -1117,6 +1149,7 @@ export const startAbsoluteIosDevSession = async (
 			run,
 			{ signal: options.signal }
 		);
+		await trustIosSimulatorDevelopmentCa(options, device.udid, run, log);
 		const fingerprint = await fingerprintPromise;
 		transition('checking-native');
 		const nativeCacheHit = await ensureIosDebugApp({

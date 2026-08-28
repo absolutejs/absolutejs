@@ -31,9 +31,9 @@ const args = argv;
 const hostFlag = args.includes('--host');
 
 if (hostFlag) {
-	localIP = getLocalIPAddress();
 	host = '0.0.0.0';
 }
+if (host === '0.0.0.0' || host === '::') localIP = getLocalIPAddress();
 
 // TLS is enabled via ABSOLUTE_HTTPS env var set by the config loader
 const loadTls = () => {

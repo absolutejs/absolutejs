@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/consistent-type-assertions, absolute/max-depth-extended, no-await-in-loop -- This file is a sequential, validated JSON-lines protocol state machine. */
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { MobileConfig } from '../../types/build';
@@ -148,6 +148,27 @@ export const runAbsoluteRemoteMacAgent = async (args: string[]) => {
 		projectRoot
 	);
 	const port = parsePort(args);
+	const encodedCertificateAuthority = valueAfter(
+		args,
+		'--certificate-authority'
+	);
+	const certificateAuthorityPath = encodedCertificateAuthority
+		? join(
+				projectRoot,
+				'.absolutejs',
+				'mobile',
+				`remote-dev-ca-${process.pid}.pem`
+			)
+		: undefined;
+	if (certificateAuthorityPath && encodedCertificateAuthority) {
+		await mkdir(join(projectRoot, '.absolutejs', 'mobile'), {
+			recursive: true
+		});
+		await writeFile(
+			certificateAuthorityPath,
+			Buffer.from(encodedCertificateAuthority, 'base64url')
+		);
+	}
 	const project = await prepareAbsoluteIosDevProject(config, {
 		createNativeProject: false,
 		projectRoot,
@@ -155,6 +176,7 @@ export const runAbsoluteRemoteMacAgent = async (args: string[]) => {
 	});
 	const sessionOptions: StartAbsoluteIosDevOptions = {
 		capture,
+		certificateAuthorityPath,
 		https: args.includes('--https'),
 		port,
 		project,
@@ -175,7 +197,15 @@ export const runAbsoluteRemoteMacAgent = async (args: string[]) => {
 			});
 		}
 	};
-	let session = await startAbsoluteIosDevSession(sessionOptions);
+	let session: AbsoluteIosDevSession;
+	try {
+		session = await startAbsoluteIosDevSession(sessionOptions);
+	} catch (error) {
+		if (certificateAuthorityPath)
+			await rm(certificateAuthorityPath, { force: true });
+
+		throw error;
+	}
 	emit(readyShape(session));
 	const input = createInterface({ input: process.stdin, terminal: false });
 	try {
@@ -220,6 +250,8 @@ export const runAbsoluteRemoteMacAgent = async (args: string[]) => {
 	} finally {
 		input.close();
 		await session.close().catch(() => undefined);
+		if (certificateAuthorityPath)
+			await rm(certificateAuthorityPath, { force: true });
 	}
 };
 

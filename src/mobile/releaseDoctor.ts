@@ -1,5 +1,5 @@
 import { access, readFile, readdir } from 'node:fs/promises';
-import { extname, join, relative } from 'node:path';
+import { dirname, extname, join, relative } from 'node:path';
 import type { NormalizedAbsoluteMobileConfig } from './config';
 import { projectUsesAbsoluteSync } from './nativeAuth';
 import { discoverAbsoluteSyncSchema } from './syncSchema';
@@ -171,13 +171,33 @@ const manifestReleaseCheck = async (manifestPath: string) => {
 		);
 	}
 	const source = await readFile(manifestPath, 'utf8');
+	const cleartext = /android:usesCleartextTraffic=["']true["']/u.test(source);
+	const networkConfigName = source.match(
+		/android:networkSecurityConfig=["']@xml\/([a-z0-9_]+)["']/u
+	)?.[1];
+	const networkConfigPath = networkConfigName
+		? join(dirname(manifestPath), 'res', 'xml', `${networkConfigName}.xml`)
+		: undefined;
+	const developmentTrustReference =
+		/android:networkSecurityConfig=["']@xml\/absolutejs_dev_network_security["']/u.test(
+			source
+		);
+	const developmentTrustContents = networkConfigPath
+		? await readFile(networkConfigPath, 'utf8')
+				.then((value) => value.includes('@raw/absolutejs_dev_ca'))
+				.catch(() => false)
+		: false;
+	const developmentTrust =
+		developmentTrustReference || developmentTrustContents;
 
-	return /android:usesCleartextTraffic=["']true["']/u.test(source)
+	return cleartext || developmentTrust
 		? fail(
 				'android.cleartext',
-				'Android explicitly permits cleartext traffic.',
+				developmentTrust
+					? 'Android still references the AbsoluteJS development certificate authority.'
+					: 'Android explicitly permits cleartext traffic.',
 				manifestPath,
-				'Remove usesCleartextTraffic="true" from the release manifest.'
+				'Run `absolute mobile sync android`; do not ship development transport or trust overrides.'
 			)
 		: pass(
 				'android.cleartext',
