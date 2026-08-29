@@ -3,6 +3,17 @@
 Status: Capacitor Android development/release, all-framework embedded bundles, universal native Auth/Sync, background Sync, automatic device provisioning, provider-neutral native push registration, and Android conformance are operational; iOS development/release automation is shipped and awaiting real macOS/physical-device acceptance
 Research snapshot: August 26, 2026
 
+Implementation checkpoint (August 29, 2026): the planned read-only
+`absolute mobile inspect` command is now implemented. Human and JSON output
+inventory the effective config, project-relative native/bundle paths, runtime
+package versions, source-discovered capabilities and exact plugin requirements,
+native-project presence, release-doctor status IDs, and a structurally validated
+embedded manifest with build/runtime, framework, route/page, Auth/Sync, entry,
+asset, and capability-drift checks. Shareable JSON omits credentials,
+environment values, certificate fingerprints, device/account identifiers,
+absolute paths, and release-doctor detail strings. Inspection never builds,
+syncs, launches, contacts the application server, or mutates the project.
+
 Implementation checkpoint (August 29, 2026): iOS now has production
 embedded-bundle conformance parity for the core installed-app lifecycle. The iOS
 controller has an explicit embedded mode that never projects a development
@@ -2536,7 +2547,10 @@ Set budgets from the prototype baseline rather than inventing numbers now. Fail 
 - Forward AbsoluteJS browser errors with engine/platform/app-build/mobile-manifest metadata, excluding device identifiers by default.
 - Symbolicate mobile web bundles using the existing private sourcemap direction.
 - Preserve console/HMR overlay behavior during live reload.
-- Add `absolute mobile inspect` later to print the effective config, runtime/provider versions, native plugin list, route manifest, origins, and last bundle validation.
+- `absolute mobile inspect` prints the redacted effective config,
+  runtime/provider versions, native plugin list, route/framework summary,
+  origins, native-project state, release projection, and embedded-bundle
+  validation in human or JSON form.
 - Capture native crash reports through platform-native tooling; web error reporting is not a substitute.
 - Log lifecycle, deep-link, permission, and adapter failures behind an opt-in debug namespace.
 

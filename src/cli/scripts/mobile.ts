@@ -85,6 +85,10 @@ import {
 import { projectUsesAbsoluteSync } from '../../mobile/nativeAuth';
 import { discoverAbsoluteSyncSchema } from '../../mobile/syncSchema';
 import { resolveAbsoluteDeviceCapabilityPlan } from '../../mobile/deviceCapabilities';
+import {
+	inspectAbsoluteMobileProject,
+	renderAbsoluteMobileProjectInspection
+} from '../../mobile/mobileInspect';
 
 const NOT_FOUND = -1;
 
@@ -352,6 +356,23 @@ const loadMobile = async (configPath: string | undefined) => {
 	);
 
 	return { mobile, projectRoot };
+};
+
+const inspectMobile = async (args: string[]) => {
+	const { mobile, projectRoot } = await loadMobile(
+		valueAfter(args, '--config')
+	);
+	const report = await inspectAbsoluteMobileProject(mobile, projectRoot, {
+		absolutejsVersion: await absolutejsVersionForReport()
+	});
+	if (args.includes('--json')) {
+		console.log(JSON.stringify(report, null, 2));
+
+		return report;
+	}
+	console.log(renderAbsoluteMobileProjectInspection(report).trimEnd());
+
+	return report;
 };
 
 const remoteProfilePath = () =>
@@ -2354,6 +2375,11 @@ export const runMobile = async (args: string[]) => {
 
 		return;
 	}
+	if (command === 'inspect') {
+		await inspectMobile(args.slice(1));
+
+		return;
+	}
 	if (command === 'test' && args[1] === 'android') {
 		await testAndroid(args.slice(2));
 
@@ -2386,6 +2412,6 @@ export const runMobile = async (args: string[]) => {
 	}
 
 	throw new TypeError(
-		'Usage: absolute mobile <pair mac <name> <user@host> [--port n] [--workspace path] | remotes [--json] | unpair mac <name> | init [--no-native] [--force] | sync [ios|android] | associations [--outdir dir] [--verify] | doctor [ios|android|release] [--remote name] [--json|--fix [--yes]] | build <android|ios> [server-entry] [--outdir dir] [--web-outdir dir] [--unsigned] | publish android [server-entry] [--registry module] [--channel name] [--play-track track] [--play-status completed|draft|halted|in-progress] [--play-rollout fraction] [--play-name name] [--play-notes language=text] [--play-update-priority 0..5] [--play-hold-review] [--play-cancel-existing-review] [--outdir dir] [--web-outdir dir] [--unsigned] | publish ios [server-entry] [--registry module] [--channel name] [--testflight-group name-or-id] [--testflight-notes locale=text] [--testflight-submit-review] [--outdir dir] [--web-outdir dir] [--unsigned] | test android [--route path] [--wait-for-hmr] [--report [dir]] [--timeout ms] [--port n] [--serial id] [--artifacts dir] [--json] | test ios [--device identifier [--remote name] | --udid id] [--wait-for-hmr] [--report [dir]] [--timeout ms] [--port n] [--artifacts dir] [--json]> [--config path]'
+		'Usage: absolute mobile <pair mac <name> <user@host> [--port n] [--workspace path] | remotes [--json] | unpair mac <name> | init [--no-native] [--force] | sync [ios|android] | inspect [--json] | associations [--outdir dir] [--verify] | doctor [ios|android|release] [--remote name] [--json|--fix [--yes]] | build <android|ios> [server-entry] [--outdir dir] [--web-outdir dir] [--unsigned] | publish android [server-entry] [--registry module] [--channel name] [--play-track track] [--play-status completed|draft|halted|in-progress] [--play-rollout fraction] [--play-name name] [--play-notes language=text] [--play-update-priority 0..5] [--play-hold-review] [--play-cancel-existing-review] [--outdir dir] [--web-outdir dir] [--unsigned] | publish ios [server-entry] [--registry module] [--channel name] [--testflight-group name-or-id] [--testflight-notes locale=text] [--testflight-submit-review] [--outdir dir] [--web-outdir dir] [--unsigned] | test android [--route path] [--wait-for-hmr] [--report [dir]] [--timeout ms] [--port n] [--serial id] [--artifacts dir] [--json] | test ios [--device identifier [--remote name] | --udid id] [--wait-for-hmr] [--report [dir]] [--timeout ms] [--port n] [--artifacts dir] [--json]> [--config path]'
 	);
 };

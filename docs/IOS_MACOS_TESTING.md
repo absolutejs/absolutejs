@@ -1,7 +1,7 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.36` and
+`@absolutejs/absolute@0.20.0-beta.37` and
 `@absolutejs/deploy@0.24.0`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
 
@@ -103,8 +103,22 @@ done
 
 If `application root: OK` is not printed, stop: this is the wrong directory. If
 the config or server-entry path differs from the examples below, substitute the
-paths supplied with the staging application. Sections 3–5 install beta.36,
+paths supplied with the staging application. Sections 3–5 install beta.37,
 configure mobile, generate `mobile/ios`, and complete Xcode signing.
+
+Before changing anything, capture a read-only, redacted inventory from this
+same application root:
+
+```sh
+cd /absolute/path/to/the/staging-application
+bunx absolute mobile inspect --config absolute.config.ts --json
+```
+
+Return this JSON with the Track B report. `bundle.status: "missing"` is expected
+if the application has not been prepared yet; rerun the same command after the
+production build. The report contains public app/origin/package metadata but no
+credentials, environment values, certificate fingerprints, Apple account data,
+device identifiers, absolute paths, or detailed release-doctor messages.
 
 For Simulator development, Terminal 1 runs:
 
@@ -248,7 +262,7 @@ still requires the developer team setup described below.
 From the root of the AbsoluteJS application:
 
 ```sh
-bun add @absolutejs/absolute@0.20.0-beta.36 \
+bun add @absolutejs/absolute@0.20.0-beta.37 \
   @absolutejs/auth@0.75.0 \
   @absolutejs/dispatch@0.9.0 \
   @absolutejs/sync@2.29.0 \
@@ -1490,7 +1504,7 @@ source change and build a new content-addressed release instead.
 - Mac architecture:
 - Xcode version:
 - Bun version:
-- AbsoluteJS version: 0.20.0-beta.36
+- AbsoluteJS version: 0.20.0-beta.37
 - Auth version: 0.75.0
 - Dispatch version: 0.9.0
 - Sync version: 2.29.0

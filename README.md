@@ -254,6 +254,13 @@ edit Swift/Kotlin, or maintain native bootstrap code. Type-only imports and test
 sources do not provision plugins. `absolute mobile doctor release` rejects a
 missing or mismatched plugin before release.
 
+Run `absolute mobile inspect` from an application root for a read-only summary
+of the effective mobile config, runtime package versions, discovered
+capabilities/plugins, native-project state, embedded routes/frameworks, bundle
+validation, and release projection. Add `--json` for a redacted CI or support
+artifact; it omits credentials, device/account identifiers, absolute paths, and
+detailed doctor messages. See [mobile project inspection](docs/MOBILE_INSPECT.md).
+
 `keyboard` provides portable visibility, CSS-pixel height, dismissal, and
 cleanup-safe change events. `systemBars` controls modern edge-to-edge status and
 navigation bar foreground appearance/visibility through Capacitor 8 core. Its
