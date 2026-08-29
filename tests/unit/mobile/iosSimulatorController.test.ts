@@ -124,11 +124,20 @@ describe('iOS simulator development controller', () => {
 	test('fingerprints native inputs but excludes copied web assets', async () => {
 		const { project } = await fixture();
 		const initial = await fingerprintAbsoluteIosDevProject(project);
+		const embeddedInitial = await fingerprintAbsoluteIosDevProject(
+			project,
+			{ includePublicBundle: true }
+		);
 		await writeFile(
 			join(project.nativeDirectory, 'App', 'App', 'public', 'page.js'),
 			'web two\n'
 		);
 		expect(await fingerprintAbsoluteIosDevProject(project)).toBe(initial);
+		expect(
+			await fingerprintAbsoluteIosDevProject(project, {
+				includePublicBundle: true
+			})
+		).not.toBe(embeddedInitial);
 		await writeFile(
 			join(project.nativeDirectory, 'App', 'App', 'AppDelegate.swift'),
 			'import UIKit\n// native edit\n'
@@ -136,6 +145,81 @@ describe('iOS simulator development controller', () => {
 		expect(await fingerprintAbsoluteIosDevProject(project)).not.toBe(
 			initial
 		);
+	});
+
+	test('launches and invalidates an embedded bundle without projecting a development URL', async () => {
+		const { nativeConfigPath, originalConfig, project } = await fixture();
+		let installed = false;
+		let builds = 0;
+		let installs = 0;
+		const capture = (command: string[]): AbsoluteIosCommandResult => {
+			if (command.includes('runtimes'))
+				return { exitCode: 0, stderr: '', stdout: runtimes };
+			if (command.includes('devices'))
+				return { exitCode: 0, stderr: '', stdout: inventory };
+			if (command.includes('get_app_container'))
+				return installed
+					? {
+							exitCode: 0,
+							stderr: '',
+							stdout: '/sim/Containers/Bundle/Application/App.app\n'
+						}
+					: { exitCode: 1, stderr: 'not installed', stdout: '' };
+
+			return { exitCode: 0, stderr: '', stdout: '' };
+		};
+		const run = async (command: string[]) => {
+			if (command[0] === project.xcodebuild) {
+				builds += 1;
+				const derivedData =
+					command[command.indexOf('-derivedDataPath') + 1];
+				if (!derivedData) return 1;
+				await mkdir(
+					join(
+						derivedData,
+						'Build/Products/Debug-iphonesimulator/App.app'
+					),
+					{ recursive: true }
+				);
+			}
+			if (command.includes('install')) {
+				installs += 1;
+				installed = true;
+			}
+
+			return 0;
+		};
+		const first = await startAbsoluteIosDevSession({
+			capture,
+			embeddedBundle: true,
+			port: 3034,
+			project,
+			run,
+			spawn: () => undefined
+		});
+		expect(first.nativeCacheHit).toBe(false);
+		expect(await readFile(nativeConfigPath, 'utf8')).toBe(originalConfig);
+		expect(builds).toBe(1);
+		expect(installs).toBe(1);
+		await first.close();
+
+		await writeFile(
+			join(project.nativeDirectory, 'App', 'App', 'public', 'page.js'),
+			'embedded web two\n'
+		);
+		const second = await startAbsoluteIosDevSession({
+			capture,
+			embeddedBundle: true,
+			port: 3034,
+			project,
+			run,
+			spawn: () => undefined
+		});
+		expect(second.nativeCacheHit).toBe(false);
+		expect(builds).toBe(2);
+		expect(installs).toBe(2);
+		expect(await readFile(nativeConfigPath, 'utf8')).toBe(originalConfig);
+		await second.close();
 	});
 
 	test('builds, installs, launches, caches, and restores the dev projection', async () => {

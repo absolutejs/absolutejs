@@ -455,7 +455,9 @@
 		"test:native:android:hmr": "ABSOLUTE_TEST_NATIVE_ANDROID=1 bun test tests/native/android-hmr-conformance.test.ts",
 		"test:native:android:lifecycle": "ABSOLUTE_TEST_NATIVE_ANDROID=1 bun test tests/native/android-lifecycle-conformance.test.ts",
 		"test:native:android:upgrade": "ABSOLUTE_TEST_NATIVE_ANDROID=1 bun test tests/native/android-embedded-bundle-conformance.test.ts -t 'installed APK upgrade'",
-		"test:native:ios": "ABSOLUTE_TEST_NATIVE_IOS=1 bun test tests/native/ios-lifecycle-conformance.test.ts",
+		"test:native:ios": "bun run test:native:ios:lifecycle && bun run test:native:ios:bundle",
+		"test:native:ios:bundle": "ABSOLUTE_TEST_NATIVE_IOS=1 bun test tests/native/ios-embedded-bundle-conformance.test.ts",
+		"test:native:ios:lifecycle": "ABSOLUTE_TEST_NATIVE_IOS=1 bun test tests/native/ios-lifecycle-conformance.test.ts",
 		"test:unit": "bun test --max-concurrency 1 tests/unit",
 		"typecheck": "bun run src/cli/index.ts typecheck --config example/absolute.config.ts",
 		"verify:release-versions": "bun run scripts/verifyReleaseVersions.ts"
@@ -504,7 +506,7 @@
 			]
 		}
 	},
-	"version": "0.20.0-beta.35",
+	"version": "0.20.0-beta.36",
 	"workspaces": [
 		"tests/fixtures/*",
 		"tests/fixtures/_packages/*"

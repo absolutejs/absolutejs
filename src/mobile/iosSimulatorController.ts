@@ -115,6 +115,9 @@ export type StartAbsoluteIosDevOptions = {
 	) => AbsoluteIosCommandResult;
 	/** Xcode device identifier or name. Omit to use the managed Simulator. */
 	deviceIdentifier?: string;
+	/** Launch the locally embedded production web bundle. `port` remains the
+	 * configured backend port and no temporary development URL is projected. */
+	embeddedBundle?: boolean;
 	https?: boolean;
 	log?: (message: string) => void;
 	nativeLog?: (entry: AbsoluteIosNativeLogEntry) => void;
@@ -698,8 +701,9 @@ const writeNativeCache = async (projectRoot: string, cache: IosNativeCache) => {
 };
 
 export const fingerprintAbsoluteIosDevProject = async (
-	project: Pick<AbsoluteIosDevProject, 'nativeDirectory'>
-) => fingerprintAbsoluteIosNativeProject(project.nativeDirectory);
+	project: Pick<AbsoluteIosDevProject, 'nativeDirectory'>,
+	options: { includePublicBundle?: boolean } = {}
+) => fingerprintAbsoluteIosNativeProject(project.nativeDirectory, options);
 
 const simulatorInventory = (
 	xcrun: string,
@@ -1452,17 +1456,18 @@ export const startAbsoluteIosDevSession = async (
 			{ cwd: project.projectRoot, signal: options.signal }
 		);
 		transition('configuring');
-		await writeDevProjection(
-			project,
-			options.port,
-			options.https === true,
-			serverHost
-		);
+		if (options.embeddedBundle !== true)
+			await writeDevProjection(
+				project,
+				options.port,
+				options.https === true,
+				serverHost
+			);
 		throwIfAborted(options.signal);
 		const fingerprintStartedAt = performance.now();
-		const fingerprintPromise = fingerprintAbsoluteIosDevProject(
-			project
-		).then((fingerprint) => {
+		const fingerprintPromise = fingerprintAbsoluteIosDevProject(project, {
+			includePublicBundle: options.embeddedBundle === true
+		}).then((fingerprint) => {
 			timings.fingerprinting = performance.now() - fingerprintStartedAt;
 
 			return fingerprint;
@@ -1533,7 +1538,9 @@ export const startAbsoluteIosDevSession = async (
 		transition('ready');
 		timings.total = performance.now() - startedAt;
 		log(
-			`iOS ${targetKind} connected with HMR on port ${options.port} in ${getDurationString(timings.total)} (${nativeCacheHit ? 'native cache hit' : 'native build installed'}).`
+			options.embeddedBundle === true
+				? `iOS ${targetKind} connected with the embedded bundle and backend on port ${options.port} in ${getDurationString(timings.total)} (${nativeCacheHit ? 'native cache hit' : 'native build installed'}).`
+				: `iOS ${targetKind} connected with HMR on port ${options.port} in ${getDurationString(timings.total)} (${nativeCacheHit ? 'native cache hit' : 'native build installed'}).`
 		);
 		log(`iOS startup: ${timingSummary(timings)}.`);
 		let closed = false;

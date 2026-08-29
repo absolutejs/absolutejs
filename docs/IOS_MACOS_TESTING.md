@@ -56,18 +56,24 @@ bun run test:native:ios
 ```
 
 Do not run Track A from the directory containing this downloaded Markdown file,
-from `mobile/ios`, from `App.xcworkspace`, or from another application. A normal
-successful result ends with six passing lifecycle tests covering cold/warm
-native startup, React HMR, CSS HMR, relaunch, server reconnect, and a native
-rebuild. The first run can take several minutes while Xcode builds the app.
+from `mobile/ios`, from `App.xcworkspace`, or from another application. The
+command runs two suites. A normal successful result ends with ten passing tests:
+six development-lifecycle checks covering cold/warm native startup, React HMR,
+CSS HMR, relaunch, server reconnect, and a native rebuild; then four production
+bundle checks covering ordinary-link traversal across React, Angular, Vue,
+Svelte, HTML, and HTMX, the hashed local HTML script, termination/relaunch, and
+an installed embedded-bundle upgrade that retains application data. The first
+run can take several minutes while Xcode builds each app.
 
 Return these Track A results:
 
 - [ ] The complete terminal output from `bun run test:native:ios`.
 - [ ] The output of `bun --version` and `xcodebuild -version`.
 - [ ] If a test fails, the test name and the files under
-  `.absolutejs/mobile-native-conformance/ios-artifacts`. Do not return signing
-  credentials, Apple account details, device identifiers, or unrelated logs.
+  `.absolutejs/mobile-native-conformance/ios-artifacts` or
+  `.absolutejs/mobile-native-conformance/ios-embedded-artifacts`. Do not return
+  signing credentials, Apple account details, device identifiers, or unrelated
+  logs.
 
 After Track A, continue with Track B only if the staging application checkout
 and Apple access were supplied.
@@ -1179,16 +1185,21 @@ Finally verify lifecycle recovery:
    journal and transport-safety checks.
 
 When testing the AbsoluteJS framework repository itself rather than an
-application, the opt-in real simulator gate automates cold/warm startup, HMR,
-relaunch, server reconnect, native rebuild, and screenshots:
+application, the opt-in real simulator gate runs both the development lifecycle
+and embedded production-bundle suites:
 
 ```sh
 bun run test:native:ios
 ```
 
-This gate intentionally runs only on macOS with Xcode and can take several
-minutes on its first build. Preserve `.absolutejs/mobile-native-conformance`
-between runs so the warm-cache measurement is meaningful.
+To rerun only one suite while diagnosing a failure, use
+`bun run test:native:ios:lifecycle` or `bun run test:native:ios:bundle`. The
+production suite uses a bounded test-only reporter inside the generated fixture
+bundle to observe the real Capacitor WebView; that reporter is never added to
+application or published runtime code. The gate intentionally runs only on
+macOS with Xcode and can take several minutes on its first build. Preserve
+`.absolutejs/mobile-native-conformance` between runs so the warm-cache
+measurement is meaningful.
 
 ### Remote-Mac acceptance from Windows or Linux
 

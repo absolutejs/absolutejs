@@ -3,6 +3,21 @@
 Status: Capacitor Android development/release, all-framework embedded bundles, universal native Auth/Sync, background Sync, automatic device provisioning, provider-neutral native push registration, and Android conformance are operational; iOS development/release automation is shipped and awaiting real macOS/physical-device acceptance
 Research snapshot: August 26, 2026
 
+Implementation checkpoint (August 29, 2026): iOS now has production
+embedded-bundle conformance parity for the core installed-app lifecycle. The iOS
+controller has an explicit embedded mode that never projects a development
+`server.url`, includes copied production web assets in its native cache
+fingerprint, and therefore reinstalls when an embedded bundle changes. The real
+Simulator gate drives ordinary in-app links across React, Angular, Vue, Svelte,
+HTML, HTMX, and back, executes the hashed local HTML script, terminates and
+relaunches from local assets, and installs a build-number/bundle upgrade while
+proving application storage survives. A bounded reporter is injected only into
+the generated conformance fixture and communicates only with its loopback test
+backend; it is absent from product/application bundles. `test:native:ios` now
+runs both the six-case development lifecycle and four-case production bundle
+suite. Linux unit/type coverage proves embedded config isolation and bundle
+fingerprint invalidation; real Xcode execution remains the partner Mac gate.
+
 Implementation checkpoint (August 28, 2026): mobile-enabled `bun dev` now
 prints and serves a first-class browser target at
 `/__absolute/mobile-preview`. It runs the same live multi-framework page and HMR

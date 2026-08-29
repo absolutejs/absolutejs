@@ -135,7 +135,8 @@ const ignoredFingerprintDirectories = new Set([
 
 const fingerprintFiles = async (
 	root: string,
-	current = root
+	current = root,
+	options: { includePublicBundle?: boolean } = {}
 ): Promise<string[]> => {
 	const entries = await readdir(current, { withFileTypes: true });
 	const nested = await Promise.all(
@@ -150,9 +151,11 @@ const fingerprintFiles = async (
 				const ignored =
 					entry.isDirectory() &&
 					(ignoredFingerprintDirectories.has(entry.name) ||
-						projectRelative === 'App/App/public');
+						(projectRelative === 'App/App/public' &&
+							options.includePublicBundle !== true));
 				if (ignored) return [];
-				if (entry.isDirectory()) return fingerprintFiles(root, path);
+				if (entry.isDirectory())
+					return fingerprintFiles(root, path, options);
 
 				return entry.isFile() ? [path] : [];
 			})
@@ -162,10 +165,15 @@ const fingerprintFiles = async (
 };
 
 export const fingerprintAbsoluteIosNativeProject = async (
-	nativeDirectory: string
+	nativeDirectory: string,
+	options: { includePublicBundle?: boolean } = {}
 ) => {
 	const hasher = createHash('sha256');
-	const files = await fingerprintFiles(nativeDirectory);
+	const files = await fingerprintFiles(
+		nativeDirectory,
+		nativeDirectory,
+		options
+	);
 	const contents = await Promise.all(files.map((file) => readFile(file)));
 	files.forEach((file, index) => {
 		hasher.update(relative(nativeDirectory, file).replaceAll('\\', '/'));
