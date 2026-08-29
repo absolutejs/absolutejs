@@ -23,6 +23,7 @@ export type HMRState = {
 	isRebuilding: boolean;
 	rebuildQueue: Set<string>;
 	rebuildTimeout: NodeJS.Timeout | null;
+	pendingBundleRebuilds: Set<'angular' | 'svelte' | 'vue'>;
 	fileChangeQueue: Map<string, string[]>;
 	debounceTimeout: NodeJS.Timeout | null;
 	fileHashes: Map<string, number>; // filename -> Bun.hash (Wyhash) value
@@ -85,6 +86,7 @@ export const createHMRState = (config: BuildConfig): HMRState => ({
 	lastBroadcastTimestamp: 0,
 	manifest: {}, // Current build manifest (populated after initial build)
 	moduleVersions: createModuleVersionTracker(),
+	pendingBundleRebuilds: new Set(),
 	rebuildCount: 0,
 	rebuildQueue: new Set(),
 	rebuildTimeout: null,

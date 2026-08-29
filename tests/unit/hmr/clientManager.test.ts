@@ -19,6 +19,8 @@ describe('createHMRState', () => {
 		expect(state.dependencyGraph.dependents).toBeInstanceOf(Map);
 		expect(state.dependencyGraph.dependencies).toBeInstanceOf(Map);
 		expect(state.isRebuilding).toBe(false);
+		expect(state.pendingBundleRebuilds).toBeInstanceOf(Set);
+		expect(state.pendingBundleRebuilds.size).toBe(0);
 		expect(state.rebuildQueue).toBeInstanceOf(Set);
 		expect(state.rebuildQueue.size).toBe(0);
 		expect(state.fileHashes).toBeInstanceOf(Map);

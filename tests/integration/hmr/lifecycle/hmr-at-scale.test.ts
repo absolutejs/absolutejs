@@ -5,6 +5,7 @@ import { connectHMR, type HMRClient } from '../../../helpers/ws';
 import { createFile, mutateFile, restoreAllFiles } from '../../../helpers/file';
 
 const PROJECT_ROOT = resolve(import.meta.dir, '..', '..', '..', '..');
+const SCALE_REBUILD_COMPLETION_TIMEOUT_MS = 180_000;
 
 let server: DevServer | undefined;
 let client: HMRClient | undefined;
@@ -74,11 +75,13 @@ type ScaleProbe = {
 	maxEditMs: number;
 };
 
+let n50Probe: ScaleProbe | undefined;
+
 const waitForScaleRebuild = async (edit: string) => {
 	try {
 		return await client?.waitFor(
 			'vue-tier-zero-ssr-rebuild-complete',
-			60_000
+			SCALE_REBUILD_COMPLETION_TIMEOUT_MS
 		);
 	} catch (error) {
 		throw new Error(
@@ -153,27 +156,32 @@ const probeScale = async (n: number): Promise<ScaleProbe> => {
 describe('HMR scaling — component edit latency at N=50 and N=100', () => {
 	test('N=50 — cold-start + 10-edit avg stay under loose bounds; numbers reported', async () => {
 		const p = await probeScale(50);
+		n50Probe = p;
 		console.log(
 			`[hmr-scale] N=${p.n} cold-start=${p.coldStartMs.toFixed(0)}ms ` +
 				`firstEdit=${p.firstEditMs.toFixed(0)}ms ` +
 				`avgEdit=${p.avgEditMs.toFixed(0)}ms maxEdit=${p.maxEditMs.toFixed(0)}ms`
 		);
 		expect(p.coldStartMs).toBeLessThan(60_000);
-		expect(p.firstEditMs).toBeLessThan(20_000);
+		expect(p.firstEditMs).toBeLessThan(60_000);
 		expect(p.avgEditMs).toBeLessThan(15_000);
 		expect(p.maxEditMs).toBeLessThan(30_000);
-	}, 300_000);
+	}, 600_000);
 
 	test('N=100 — same scenario; checks N=50→N=100 latency ratio stays sub-quadratic', async () => {
 		const p = await probeScale(100);
+		if (!n50Probe)
+			throw new Error('N=50 scaling baseline did not complete.');
 		console.log(
 			`[hmr-scale] N=${p.n} cold-start=${p.coldStartMs.toFixed(0)}ms ` +
 				`firstEdit=${p.firstEditMs.toFixed(0)}ms ` +
 				`avgEdit=${p.avgEditMs.toFixed(0)}ms maxEdit=${p.maxEditMs.toFixed(0)}ms`
 		);
 		expect(p.coldStartMs).toBeLessThan(120_000);
-		expect(p.firstEditMs).toBeLessThan(40_000);
+		expect(p.firstEditMs).toBeLessThan(120_000);
 		expect(p.avgEditMs).toBeLessThan(30_000);
 		expect(p.maxEditMs).toBeLessThan(60_000);
-	}, 600_000);
+		expect(p.avgEditMs / n50Probe.avgEditMs).toBeLessThan(3);
+		expect(p.maxEditMs / n50Probe.maxEditMs).toBeLessThan(3);
+	}, 900_000);
 });

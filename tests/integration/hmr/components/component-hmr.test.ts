@@ -28,7 +28,7 @@ describe('Component-level HMR', () => {
 	}, 60_000);
 
 	test('react child component change triggers react-update', async () => {
-		await server.waitForIdle();
+		await server.waitForIdle({ timeoutMs: 90_000 });
 		client.drain();
 		const reactComponent = resolve(
 			PROJECT_ROOT,
@@ -50,7 +50,7 @@ describe('Component-level HMR', () => {
 	}, 60_000);
 
 	test('svelte child component change triggers svelte-update', async () => {
-		await server.waitForIdle();
+		await server.waitForIdle({ timeoutMs: 90_000 });
 		client.drain();
 
 		const svelteComponent = resolve(
@@ -73,7 +73,7 @@ describe('Component-level HMR', () => {
 	}, 60_000);
 
 	test('vue child component change triggers vue-update', async () => {
-		await server.waitForIdle();
+		await server.waitForIdle({ timeoutMs: 90_000 });
 		client.drain();
 
 		const vueComponent = resolve(
@@ -96,7 +96,7 @@ describe('Component-level HMR', () => {
 	test('angular child component change triggers angular:component-update', async () => {
 		// Wait for restoreAllFiles from the prior test to pass through watcher
 		// debounce and the rebuild queue before applying the Angular edit.
-		await server.waitForIdle();
+		await server.waitForIdle({ timeoutMs: 90_000 });
 		client.drain();
 
 		const angularComponent = resolve(

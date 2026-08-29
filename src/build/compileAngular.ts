@@ -25,6 +25,23 @@ type BuildTracePhase = <T>(
 	metadata?: Record<string, unknown>
 ) => Promise<T>;
 
+let atomicWriteSequence = 0;
+
+/** Generated Angular modules are consumed by concurrent SSR and bundle work.
+ * A plain write truncates the destination before its replacement bytes land,
+ * allowing another phase to parse an incomplete JavaScript module. Publish
+ * complete files with a same-directory rename so readers observe either the
+ * previous version or the next version, never an in-progress write. */
+const writeTextFileAtomically = async (path: string, content: string) => {
+	const temporaryPath = `${path}.tmp.${process.pid}.${atomicWriteSequence++}`;
+	try {
+		await fs.writeFile(temporaryPath, content, 'utf-8');
+		await fs.rename(temporaryPath, path);
+	} finally {
+		await fs.rm(temporaryPath, { force: true });
+	}
+};
+
 const traceAngularPhase: BuildTracePhase = async (name, fn, metadata) => {
 	const tracePhase = (
 		globalThis as typeof globalThis & {
@@ -482,13 +499,12 @@ const readResourceCacheFile = async (cachePath: string) => {
 
 const writeResourceCacheFile = async (cachePath: string, source: string) => {
 	await fs.mkdir(dirname(cachePath), { recursive: true });
-	await fs.writeFile(
+	await writeTextFileAtomically(
 		cachePath,
 		JSON.stringify({
 			source,
 			version: 1
-		} satisfies AotResourceTransformCacheEntry),
-		'utf-8'
+		} satisfies AotResourceTransformCacheEntry)
 	);
 };
 
@@ -906,7 +922,7 @@ export const compileAngularFiles = async (
 			Promise.all(
 				entries.map(async ({ target, content }) => {
 					await fs.mkdir(dirname(target), { recursive: true });
-					await fs.writeFile(target, content, 'utf-8');
+					await writeTextFileAtomically(target, content);
 				})
 			),
 		{ outputs: entries.length }
@@ -1899,10 +1915,9 @@ export const compileAngularFileJIT = async (
 			// most one debounced bundle rebuild behind.
 			const preservedInjection = await readPreservedInjection(targetPath);
 			await fs.mkdir(targetDir, { recursive: true });
-			await fs.writeFile(
+			await writeTextFileAtomically(
 				targetPath,
-				processedContent + preservedInjection,
-				'utf-8'
+				processedContent + preservedInjection
 			);
 			jitContentCache.set(cacheKey, contentHash);
 		}
@@ -1928,7 +1943,7 @@ export const compileAngularFileJIT = async (
 			? `${withoutLegacyFlag}\nexport const __ABSOLUTE_PAGE_USES_LEGACY_ANIMATIONS__ = true;\n`
 			: withoutLegacyFlag;
 		if (nextEntryOutput !== entryOutput) {
-			await fs.writeFile(entryOutputPath, nextEntryOutput, 'utf-8');
+			await writeTextFileAtomically(entryOutputPath, nextEntryOutput);
 		}
 	}
 
@@ -2347,7 +2362,7 @@ export const compileAngular = async (
 
 		await traceAngularPhase(
 			'wrapper/write-server-output',
-			() => fs.writeFile(rawServerFile, rewritten, 'utf-8'),
+			() => writeTextFileAtomically(rawServerFile, rewritten),
 			{ entry: resolvedEntry }
 		);
 
@@ -2567,7 +2582,7 @@ window.__ABSOLUTE_PAGE_DISPOSE__ = async function() {
 
 		await traceAngularPhase(
 			'wrapper/write-client-index',
-			() => fs.writeFile(clientFile, hydration, 'utf-8'),
+			() => writeTextFileAtomically(clientFile, hydration),
 			{ entry: resolvedEntry }
 		);
 

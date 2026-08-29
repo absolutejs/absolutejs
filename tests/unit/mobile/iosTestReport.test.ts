@@ -27,7 +27,8 @@ const passingRun: AbsoluteIosAutomatedResult = {
 	port: 3000,
 	screenshot: '/project/report/ios-simulator.png',
 	status: 'pass',
-	udid: 'SAFE-SIMULATOR-ID'
+	targetId: 'SAFE-SIMULATOR-ID',
+	targetKind: 'simulator'
 };
 
 describe('iOS partner test report', () => {
@@ -52,7 +53,7 @@ describe('iOS partner test report', () => {
 			xcodeVersion: 'Xcode 16.4'
 		});
 		expect(report.overallResult).toBe('INCOMPLETE');
-		expect(report.manualChecks).toHaveLength(63);
+		expect(report.manualChecks).toHaveLength(73);
 		expect(
 			report.manualChecks.find(({ id }) => id === 'FILES-08')
 		).toMatchObject({
@@ -76,6 +77,39 @@ describe('iOS partner test report', () => {
 		expect(
 			report.automatedChecks.find(({ id }) => id === 'AUTO-HMR-01')
 		).toMatchObject({ result: 'NOT_RUN' });
+	});
+
+	test('records observable physical checks without retaining a device identifier', () => {
+		const report = createAbsoluteIosPartnerReport({
+			absolutejsVersion: '0.20.0-beta.35',
+			bunVersion: '1.3.0',
+			macosVersion: '15.6',
+			run: {
+				...passingRun,
+				deviceAcceptance: {
+					https: true,
+					relaunchMs: 180,
+					remote: true
+				},
+				screenshot: undefined,
+				targetId: 'physical-device',
+				targetKind: 'device'
+			},
+			xcodeVersion: 'Xcode 16.4'
+		});
+		expect(report.run.targetId).toBe('physical-device');
+		expect(
+			report.manualChecks.find(({ id }) => id === 'DEVICEDEV-01')
+		).toMatchObject({ result: 'PASS' });
+		expect(
+			report.manualChecks.find(({ id }) => id === 'DEVICEDEV-03')
+		).toMatchObject({ result: 'NOT_RUN' });
+		expect(
+			report.automatedChecks.find(({ id }) => id === 'AUTO-DEVICE-01')
+		).toMatchObject({ result: 'PASS' });
+		expect(
+			report.automatedChecks.find(({ id }) => id === 'AUTO-ARTIFACT-01')
+		).toMatchObject({ result: 'SKIPPED' });
 	});
 
 	test('writes matching Markdown and machine-readable reports', async () => {

@@ -96,9 +96,11 @@ const setupWatcher = (
 	// queueFileChange's content hashes. Do not time-deduplicate by path here:
 	// two real saves can land within the same rebuild window.
 	// Watch callbacks share the dev-server event loop with framework
-	// compilation. A large rebuild can delay delivery well beyond one second;
-	// content-hash deduplication in queueFileChange makes the wider scan safe.
-	const ATOMIC_RECOVERY_WINDOW_MS = 5000;
+	// compilation. A loaded, sharded build can delay the scheduled recovery
+	// turn by tens of seconds. Keep a full minute of candidates so the scan does
+	// not discard the very atomic rename that scheduled it; content-hash
+	// deduplication in queueFileChange makes the wider scan safe.
+	const ATOMIC_RECOVERY_WINDOW_MS = 60_000;
 	const atomicRecoveryScan = (eventDir: string) => {
 		let entries: string[];
 		try {

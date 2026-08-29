@@ -712,6 +712,9 @@ export const dev = async (
 		frameworks: [],
 		host: resolvedDev.host,
 		https: httpsEnabled,
+		...(selectedRemoteMacProfile
+			? { iosRemoteMac: selectedRemoteMacProfile.name }
+			: {}),
 		logFile: instanceLogFile,
 		name: resolveProjectName(process.cwd()),
 		pid: instancePid,

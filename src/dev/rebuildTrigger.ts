@@ -973,6 +973,7 @@ export const queueFileChange = async (
 
 	const DEBOUNCE_MS = config.options?.hmr?.debounceMs ?? DEFAULT_DEBOUNCE_MS;
 	state.rebuildTimeout = setTimeout(() => {
+		state.rebuildTimeout = null;
 		void drainQueueAndRebuild(state, config, onRebuildComplete);
 	}, DEBOUNCE_MS);
 };
@@ -1769,6 +1770,7 @@ const scheduleAngularBundleRebuild = (
 	pageEntries: string[],
 	angularDir: string
 ) => {
+	state.pendingBundleRebuilds.add('angular');
 	let ctx = angularBundleState.get(state);
 	if (!ctx) {
 		ctx = {
@@ -1814,6 +1816,8 @@ const scheduleAngularBundleRebuild = (
 			}
 		} finally {
 			ctx.inFlight = null;
+			if (!ctx.debounceTimer && !ctx.debouncedPromise && !ctx.pending)
+				state.pendingBundleRebuilds.delete('angular');
 		}
 	};
 
@@ -2882,6 +2886,7 @@ const scheduleSvelteBundleRebuild = (
 	svelteFiles: string[],
 	config: BuildConfig
 ) => {
+	state.pendingBundleRebuilds.add('svelte');
 	const ctx = getOrCreateBundleCtx(svelteBundleState, state);
 	for (const file of svelteFiles) ctx.pendingFiles.add(file);
 
@@ -2913,6 +2918,13 @@ const scheduleSvelteBundleRebuild = (
 			}
 		} finally {
 			ctx.inFlight = null;
+			if (
+				!ctx.debounceTimer &&
+				!ctx.debouncedPromise &&
+				!ctx.pending &&
+				ctx.pendingFiles.size === 0
+			)
+				state.pendingBundleRebuilds.delete('svelte');
 		}
 	};
 
@@ -3361,6 +3373,7 @@ const scheduleVueBundleRebuild = (
 	vueFiles: string[],
 	config: BuildConfig
 ) => {
+	state.pendingBundleRebuilds.add('vue');
 	const ctx = getOrCreateBundleCtx(vueBundleState, state);
 	for (const file of vueFiles) ctx.pendingFiles.add(file);
 
@@ -3392,6 +3405,13 @@ const scheduleVueBundleRebuild = (
 			}
 		} finally {
 			ctx.inFlight = null;
+			if (
+				!ctx.debounceTimer &&
+				!ctx.debouncedPromise &&
+				!ctx.pending &&
+				ctx.pendingFiles.size === 0
+			)
+				state.pendingBundleRebuilds.delete('vue');
 		}
 	};
 
@@ -5264,6 +5284,7 @@ export const drainPendingQueue = (
 
 	if (state.rebuildTimeout) clearTimeout(state.rebuildTimeout);
 	state.rebuildTimeout = setTimeout(() => {
+		state.rebuildTimeout = null;
 		void drainQueueAndRebuild(state, config, onRebuildComplete);
 	}, REBUILD_BATCH_DELAY_MS);
 };

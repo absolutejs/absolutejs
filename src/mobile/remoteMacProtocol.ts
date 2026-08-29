@@ -295,6 +295,32 @@ const requireRemoteSuccess = (
 	return result.stdout.trim();
 };
 
+/** Run a non-interactive command on an already paired Mac.
+ *
+ * Arguments are quoted independently before crossing SSH. This is intended for
+ * small, read-only inspections and lifecycle commands that do not need the
+ * long-running remote development agent.
+ */
+export const captureAbsoluteRemoteMacCommand = async (
+	profile: AbsoluteRemoteMacProfile,
+	command: string[],
+	transport?: Pick<AbsoluteRemoteMacTransport, 'capture'>
+) => {
+	if (command.length === 0)
+		throw new TypeError('A Remote Mac command cannot be empty.');
+	if (command.some((argument) => /[\r\n\0]/u.test(argument)))
+		throw new TypeError(
+			'Remote Mac command arguments cannot contain controls.'
+		);
+	const capture = transport?.capture ?? defaultTransport.capture;
+
+	return capture([
+		...absoluteRemoteMacSshBase(profile),
+		'/bin/sh -lc',
+		shellQuote(command.map((argument) => shellQuote(argument)).join(' '))
+	]);
+};
+
 export const getAbsoluteRemoteMacProfile = async (
 	name?: string,
 	profilePath?: string
@@ -375,6 +401,7 @@ export const inspectAbsoluteRemoteMacLanHost = async (
 
 	return host;
 };
+
 export const listAbsoluteRemoteMacProfiles = async (profilePath?: string) => {
 	const store = await loadStore(profilePath);
 

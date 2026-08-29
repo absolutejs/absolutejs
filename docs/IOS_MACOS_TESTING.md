@@ -360,20 +360,101 @@ requires explicit profile and full-trust approval. Keep it only on a dedicated
 development device while repeated testing continues. At the end of the entire
 test cycle, disable full trust and remove the AbsoluteJS development CA profile.
 
-In a second terminal, run:
+### Automated physical-device acceptance and report
+
+Leave the physical-device `bun dev` session running. In a second terminal at
+the same project root, use the exact selector from `--ios-device`:
+
+```sh
+bunx absolute mobile test ios --device DEVICE_IDENTIFIER --report
+```
+
+For a paired Remote Mac, run the command on the Windows or Linux development
+host. The default paired Mac is selected automatically; name a non-default
+profile explicitly when needed:
+
+```sh
+bunx absolute mobile test ios --device DEVICE_IDENTIFIER --remote MAC_PROFILE --report
+```
+
+The command performs these steps in order:
+
+- [ ] Confirms the selected `bun dev` instance was started with the identical
+  `--ios-device` value. It refuses to test a different device accidentally.
+- [ ] Requires `dev.https: true`; a physical HMR connection over HTTPS is the
+  machine-observable proof that this launched app accepted the active
+  development certificate path.
+- [ ] Uses `devicectl` on the local or paired Remote Mac to confirm that the
+  device is paired, available, unlocked for development, and exposes its app
+  inventory.
+- [ ] Confirms the configured bundle ID is installed, terminates the existing
+  app process, launches it again, and waits for the `capacitor-ios` client to
+  reconnect through `/hmr-status`.
+- [ ] Records relaunch/reconnect timing and emits the
+  `mobile:ios-device-conformance` telemetry event when telemetry is enabled.
+- [ ] Writes `report.md` and `report.json` beneath
+  `.absolutejs/mobile/test-reports`. The report uses the generic target
+  `physical-device`; it does not retain the selector, UDID, device inventory,
+  signing output, device logs, or a physical-device screenshot.
+
+For the strongest HMR acceptance, add `--wait-for-hmr`, wait until the second
+terminal asks for an edit, then save one visible page or CSS change:
+
+```sh
+bunx absolute mobile test ios --device DEVICE_IDENTIFIER --report --wait-for-hmr
+```
+
+This adds the correlated server/client HMR result and timing to the report.
+AbsoluteJS intentionally does not mutate application or native source files to
+manufacture this check. The tester controls the harmless edit and can verify the
+visible result on the device.
+
+Expected automated results in `report.md` are:
+
+- [ ] `AUTO-SETUP-01`, `AUTO-DEV-01`, `AUTO-DEVICE-01`, and
+  `AUTO-DEVICE-HTTPS-01` are `PASS`.
+- [ ] `AUTO-HMR-01` is `PASS` when `--wait-for-hmr` was used; otherwise it is
+  `NOT_RUN`.
+- [ ] `AUTO-DEVICE-REMOTE-01` is `PASS` for a Remote Mac run and `SKIPPED` for a
+  local Mac run.
+- [ ] `AUTO-ARTIFACT-01` is `SKIPPED` because physical screen capture is
+  intentionally manual; do not change it by scripting a screen capture.
+- [ ] `DEVICEDEV-01` is prefilled `PASS` from the observed physical target.
+  Complete `DEVICEDEV-02` through `DEVICEDEV-10` manually because each contains
+  at least one signing UI, trust UI, visible rendering, Auth/Sync state, network
+  interruption, native-edit, or cleanup assertion the CLI cannot honestly infer.
+
+If the command fails before a report is written, fix the named preflight and
+rerun it. Common fixes are unlocking the device, accepting Trust, enabling
+Developer Mode, completing automatic signing in Xcode, starting `bun dev` with
+the same selector, or installing/enabling full trust for the session CA. Do not
+paste raw `devicectl`, Xcode, or device-console output into the report.
+
+When the report succeeds:
+
+- [ ] Open the printed `report.md` path and complete each remaining `NOT_RUN`
+  row with `PASS`, `FAIL`, or `SKIPPED` plus sanitized evidence.
+- [ ] Complete `DEVICEDEV-03` through `DEVICEDEV-10` using the detailed steps
+  above. Do not mark a mixed row `PASS` unless every assertion in it passed.
+- [ ] Visually inspect every file in the printed report directory.
+- [ ] Confirm it contains no selector/UDID, credentials, signing material,
+  private Sync data, exact coordinates, routes containing private data, or
+  screenshots.
+- [ ] Return the complete printed directory, not only `report.md`, and state the
+  exact IDs of any `FAIL` or `SKIPPED` rows in the handoff message.
+
+Simulator acceptance remains available in a second terminal with:
 
 ```sh
 bunx absolute mobile test ios --report
 ```
 
-This verifies that the app is installed and launchable, confirms the native iOS
-HMR client is connected through `/hmr-status`, and saves a simulator screenshot
-with `report.md` and `report.json` in a timestamped directory under
+The simulator command verifies that the app is installed and launchable,
+confirms the native iOS HMR client through `/hmr-status`, and saves a simulator
+screenshot with `report.md` and `report.json` in a timestamped directory under
 `.absolutejs/mobile/test-reports`. The terminal prints the exact directory to
-return. Automated rows are filled from observed results and timings; every
-interaction, physical-device, signing, Auth, Sync, and TestFlight row remains
-`NOT_RUN` until the tester completes it. To choose a repository-local output
-directory, pass `--report .absolutejs/mobile/my-ios-report`.
+return. To choose a repository-local output directory for either target, pass
+`--report .absolutejs/mobile/my-ios-report`.
 
 The command never uploads the report. It redacts recognized credentials, URL
 query values, and exact coordinates from captured text. Before returning the

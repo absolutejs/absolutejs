@@ -42,6 +42,8 @@ import {
 	parseIosSimulators,
 	repairAbsoluteIosDevSession
 } from '../../mobile/iosSimulatorController';
+import { normalizeAbsoluteIosDeviceIdentifier } from '../../mobile/iosPhysicalDeviceTransport';
+import { testAbsoluteIosPhysicalDevice } from '../../mobile/iosDeviceAcceptance';
 import {
 	waitForAbsoluteIosHmrLog,
 	type AbsoluteIosHmrApply
@@ -75,6 +77,7 @@ import {
 	listAbsoluteRemoteMacProfiles,
 	getAbsoluteRemoteMacProfile,
 	inspectAbsoluteRemoteMac,
+	captureAbsoluteRemoteMacCommand,
 	pairAbsoluteRemoteMac,
 	removeAbsoluteRemoteMacProfile,
 	type AbsoluteRemoteMacProfile
@@ -118,9 +121,10 @@ type IosTestReport = {
 	platform: 'ios';
 	port: number;
 	provider: 'capacitor';
-	screenshot: string;
+	screenshot?: string;
 	status: 'pass';
-	udid: string;
+	target: 'device' | 'simulator';
+	targetId: string;
 };
 
 const CAPACITOR_PACKAGES = [
@@ -1655,7 +1659,7 @@ const waitForRequestedIosHmr = async (
 		);
 	if (!args.includes('--json'))
 		console.log(
-			'iOS simulator is ready. Save a source edit now; waiting for a native HMR acknowledgement…'
+			'iOS app is ready. Save a source edit now; waiting for a native HMR acknowledgement…'
 		);
 
 	return waitForAbsoluteIosHmrLog({
@@ -1671,7 +1675,9 @@ const printIosTestReport = (report: IosTestReport, asJson: boolean) => {
 		return;
 	}
 	console.log(
-		`✓ iOS simulator ${report.udid}: ${report.appId} launched; screenshot ${report.screenshot}.`
+		report.target === 'device'
+			? `✓ Physical iOS app ${report.appId} relaunched and reconnected to HMR; no device identifier or screenshot was recorded.`
+			: `✓ iOS simulator ${report.targetId}: ${report.appId} launched; screenshot ${report.screenshot}.`
 	);
 	if (!report.hmrApply) return;
 	const timing =
@@ -1694,6 +1700,70 @@ const requireIosXcrun = async () => {
 		);
 
 	return xcrun;
+};
+
+const runningIosDevice = (
+	instance: ReturnType<typeof listLiveInstances>[number] | undefined
+) => {
+	if (!instance) return undefined;
+	const index = instance.command.indexOf('--ios-device');
+
+	return index === NOT_FOUND ? undefined : instance.command[index + 1];
+};
+
+const physicalIosCapture = async (options: {
+	args: string[];
+	instance: ReturnType<typeof listLiveInstances>[number];
+}) => {
+	const remoteName = valueAfter(options.args, '--remote');
+	if (
+		remoteName &&
+		options.instance.iosRemoteMac &&
+		remoteName !== options.instance.iosRemoteMac
+	)
+		throw new TypeError(
+			'--remote must match the Remote Mac used by the running bun dev session.'
+		);
+	const selectedRemoteName = remoteName ?? options.instance.iosRemoteMac;
+	const remote =
+		process.platform === 'darwin' && !selectedRemoteName
+			? undefined
+			: await getAbsoluteRemoteMacProfile(selectedRemoteName);
+	if (process.platform !== 'darwin' && !remote)
+		throw new TypeError(
+			'Physical iOS acceptance requires macOS or a paired Remote Mac.'
+		);
+	if (remote) {
+		const macos = await captureAbsoluteRemoteMacCommand(remote, [
+			'/usr/bin/sw_vers',
+			'-productVersion'
+		]);
+		if (macos.exitCode !== 0)
+			throw new Error('Remote Mac version inspection failed.');
+
+		return {
+			macosVersion: macos.stdout.trim(),
+			remote: true,
+			xcodeVersion: remote.xcodeVersion,
+			xcrun: '/usr/bin/xcrun',
+			capture: (command: string[]) =>
+				captureAbsoluteRemoteMacCommand(remote, command)
+		};
+	}
+
+	return {
+		macosVersion: requireCapturedCommand(
+			['/usr/bin/sw_vers', '-productVersion'],
+			'macOS version inspection'
+		).stdout.trim(),
+		remote: false,
+		xcodeVersion: requireCapturedCommand(
+			['/usr/bin/xcodebuild', '-version'],
+			'Xcode version inspection'
+		).stdout.trim(),
+		xcrun: '/usr/bin/xcrun',
+		capture: async (command: string[]) => captureCommand(command)
+	};
 };
 
 const selectIosSimulator = (
@@ -1884,9 +1954,10 @@ const iosReportMetadata = async (xcrun: string) => {
 
 const writeRequestedIosReport = async (options: {
 	args: string[];
+	metadata?: Awaited<ReturnType<typeof iosReportMetadata>>;
 	projectRoot: string;
 	run: AbsoluteIosAutomatedResult;
-	xcrun: string;
+	xcrun?: string;
 }) => {
 	const reportRoot = nativeReportRoot(
 		options.args,
@@ -1894,7 +1965,11 @@ const writeRequestedIosReport = async (options: {
 		'ios'
 	);
 	if (!reportRoot) return undefined;
-	const metadata = await iosReportMetadata(options.xcrun);
+	const metadata =
+		options.metadata ??
+		(options.xcrun ? await iosReportMetadata(options.xcrun) : undefined);
+	if (!metadata)
+		throw new Error('iOS report metadata could not be inspected.');
 	const paths = await writeAbsoluteIosPartnerReport(
 		reportRoot,
 		createAbsoluteIosPartnerReport({ ...metadata, run: options.run })
@@ -1904,6 +1979,142 @@ const writeRequestedIosReport = async (options: {
 	print(`Return this report directory: ${paths.directory}`);
 
 	return paths;
+};
+
+type PhysicalIosTestOptions = {
+	args: string[];
+	device: string;
+	https: boolean;
+	instance: NonNullable<ReturnType<typeof listLiveInstances>[number]>;
+	mobile: ReturnType<typeof normalizeAbsoluteMobileConfig>;
+	port: number;
+	projectRoot: string;
+	timeoutMs: number;
+};
+
+const testPhysicalIos = async (options: PhysicalIosTestOptions) => {
+	const {
+		args,
+		device,
+		https,
+		instance,
+		mobile,
+		port,
+		projectRoot,
+		timeoutMs
+	} = options;
+	const transport = await physicalIosCapture({ args, instance });
+	const reportRoot = nativeReportRoot(args, projectRoot, 'ios');
+	const startedAt = performance.now();
+	try {
+		const acceptance = await testAbsoluteIosPhysicalDevice({
+			appId: mobile.appId,
+			capture: transport.capture,
+			device,
+			xcrun: transport.xcrun,
+			waitForHmr: () => waitForIosHmrClient({ https, port, timeoutMs })
+		});
+		const hmrApply = await waitForRequestedIosHmr(
+			args,
+			instance,
+			timeoutMs
+		);
+		const report: IosTestReport = {
+			appId: mobile.appId,
+			durationMs: Math.round(performance.now() - startedAt),
+			...(hmrApply ? { hmrApply } : {}),
+			hmrConnected: true,
+			platform: 'ios',
+			port,
+			provider: 'capacitor',
+			status: 'pass',
+			target: 'device',
+			targetId: 'physical-device'
+		};
+		sendTelemetryEvent('mobile:ios-device-conformance', {
+			durationMs: report.durationMs,
+			platform: report.platform,
+			provider: report.provider,
+			remote: transport.remote,
+			success: true,
+			waitedForHmr: args.includes('--wait-for-hmr')
+		});
+		printIosTestReport(report, args.includes('--json'));
+		await writeRequestedIosReport({
+			args,
+			metadata: {
+				absolutejsVersion: await absolutejsVersionForReport(),
+				bunVersion: Bun.version,
+				macosVersion: transport.macosVersion,
+				xcodeVersion: transport.xcodeVersion
+			},
+			projectRoot,
+			run: {
+				appId: report.appId,
+				deviceAcceptance: {
+					https: true,
+					relaunchMs: acceptance.relaunchMs,
+					remote: transport.remote
+				},
+				durationMs: report.durationMs,
+				...(hmrApply
+					? {
+							hmr: {
+								durationMs: hmrApply.duration,
+								outcome: hmrApply.outcome,
+								...(hmrApply.clientMs === undefined
+									? {}
+									: { clientMs: hmrApply.clientMs }),
+								...(hmrApply.serverMs === undefined
+									? {}
+									: { serverMs: hmrApply.serverMs })
+							}
+						}
+					: {}),
+				hmrConnected: true,
+				port,
+				status: 'pass',
+				targetId: 'physical-device',
+				targetKind: 'device'
+			}
+		});
+
+		return report;
+	} catch (error) {
+		const durationMs = Math.round(performance.now() - startedAt);
+		sendTelemetryEvent('mobile:ios-device-conformance', {
+			durationMs,
+			platform: 'ios',
+			provider: 'capacitor',
+			remote: transport.remote,
+			success: false,
+			waitedForHmr: args.includes('--wait-for-hmr')
+		});
+		if (reportRoot)
+			await writeRequestedIosReport({
+				args,
+				metadata: {
+					absolutejsVersion: await absolutejsVersionForReport(),
+					bunVersion: Bun.version,
+					macosVersion: transport.macosVersion,
+					xcodeVersion: transport.xcodeVersion
+				},
+				projectRoot,
+				run: {
+					appId: mobile.appId,
+					durationMs,
+					error: sanitizeIosReportText(
+						error instanceof Error ? error.message : String(error)
+					),
+					hmrConnected: false,
+					port,
+					status: 'fail',
+					targetId: 'physical-device',
+					targetKind: 'device'
+				}
+			});
+		throw error;
+	}
 };
 
 const testIos = async (args: string[]) => {
@@ -1920,6 +2131,53 @@ const testIos = async (args: string[]) => {
 			'iOS simulator route selection is not exposed through simctl; configure mobile.entry for the native route matrix.'
 		);
 	const timeoutMs = androidTestTimeout(args);
+	const requestedDevice = valueAfter(args, '--device');
+	if (args.includes('--device') && !requestedDevice)
+		throw new TypeError(
+			'mobile test ios --device requires a device identifier or name.'
+		);
+	if (
+		requestedDevice &&
+		(valueAfter(args, '--udid') || valueAfter(args, '--serial'))
+	)
+		throw new TypeError(
+			'mobile test ios --device cannot be combined with a simulator selector.'
+		);
+	if (!requestedDevice && args.includes('--remote'))
+		throw new TypeError(
+			'mobile test ios --remote is available only with --device.'
+		);
+	if (requestedDevice) {
+		const device = normalizeAbsoluteIosDeviceIdentifier(requestedDevice);
+		const activeDevice = runningIosDevice(instance);
+		if (!activeDevice)
+			throw new TypeError(
+				'The selected dev server is not running a physical iOS session. Start bun dev with --ios-device first.'
+			);
+		if (activeDevice !== device)
+			throw new TypeError(
+				'--device must match the --ios-device value used by the running bun dev session.'
+			);
+		if (!https)
+			throw new TypeError(
+				'Physical iOS acceptance requires dev.https: true so the report can prove the native trust path.'
+			);
+		if (!instance)
+			throw new TypeError(
+				'Physical iOS acceptance requires a registered bun dev session.'
+			);
+
+		return testPhysicalIos({
+			args,
+			device,
+			https,
+			instance,
+			mobile,
+			port,
+			projectRoot,
+			timeoutMs
+		});
+	}
 	const xcrun = await requireIosXcrun();
 	const simulator = selectIosSimulator(
 		xcrun,
@@ -1975,7 +2233,8 @@ const testIos = async (args: string[]) => {
 			provider: 'capacitor',
 			screenshot,
 			status: 'pass',
-			udid: simulator.udid
+			target: 'simulator',
+			targetId: simulator.udid
 		};
 		sendTelemetryEvent('mobile:ios-conformance', {
 			durationMs: report.durationMs,
@@ -2009,7 +2268,8 @@ const testIos = async (args: string[]) => {
 				port: report.port,
 				screenshot: report.screenshot,
 				status: report.status,
-				udid: report.udid
+				targetId: report.targetId,
+				targetKind: report.target
 			},
 			xcrun
 		});
@@ -2045,7 +2305,8 @@ const testIos = async (args: string[]) => {
 				port,
 				...(screenshot ? { screenshot } : {}),
 				status: 'fail',
-				udid: simulator.udid
+				targetId: simulator.udid,
+				targetKind: 'simulator'
 			},
 			xcrun
 		});
@@ -2125,6 +2386,6 @@ export const runMobile = async (args: string[]) => {
 	}
 
 	throw new TypeError(
-		'Usage: absolute mobile <pair mac <name> <user@host> [--port n] [--workspace path] | remotes [--json] | unpair mac <name> | init [--no-native] [--force] | sync [ios|android] | associations [--outdir dir] [--verify] | doctor [ios|android|release] [--remote name] [--json|--fix [--yes]] | build <android|ios> [server-entry] [--outdir dir] [--web-outdir dir] [--unsigned] | publish android [server-entry] [--registry module] [--channel name] [--play-track track] [--play-status completed|draft|halted|in-progress] [--play-rollout fraction] [--play-name name] [--play-notes language=text] [--play-update-priority 0..5] [--play-hold-review] [--play-cancel-existing-review] [--outdir dir] [--web-outdir dir] [--unsigned] | publish ios [server-entry] [--registry module] [--channel name] [--testflight-group name-or-id] [--testflight-notes locale=text] [--testflight-submit-review] [--outdir dir] [--web-outdir dir] [--unsigned] | test android [--route path] [--wait-for-hmr] [--report [dir]] [--timeout ms] [--port n] [--serial id] [--artifacts dir] [--json] | test ios [--wait-for-hmr] [--report [dir]] [--timeout ms] [--port n] [--udid id] [--artifacts dir] [--json]> [--config path]'
+		'Usage: absolute mobile <pair mac <name> <user@host> [--port n] [--workspace path] | remotes [--json] | unpair mac <name> | init [--no-native] [--force] | sync [ios|android] | associations [--outdir dir] [--verify] | doctor [ios|android|release] [--remote name] [--json|--fix [--yes]] | build <android|ios> [server-entry] [--outdir dir] [--web-outdir dir] [--unsigned] | publish android [server-entry] [--registry module] [--channel name] [--play-track track] [--play-status completed|draft|halted|in-progress] [--play-rollout fraction] [--play-name name] [--play-notes language=text] [--play-update-priority 0..5] [--play-hold-review] [--play-cancel-existing-review] [--outdir dir] [--web-outdir dir] [--unsigned] | publish ios [server-entry] [--registry module] [--channel name] [--testflight-group name-or-id] [--testflight-notes locale=text] [--testflight-submit-review] [--outdir dir] [--web-outdir dir] [--unsigned] | test android [--route path] [--wait-for-hmr] [--report [dir]] [--timeout ms] [--port n] [--serial id] [--artifacts dir] [--json] | test ios [--device identifier [--remote name] | --udid id] [--wait-for-hmr] [--report [dir]] [--timeout ms] [--port n] [--artifacts dir] [--json]> [--config path]'
 	);
 };

@@ -330,7 +330,12 @@ export const hmr = (
 			entryWatcherReady: globalThis.__absoluteEntryWatcherReady === true,
 			isRebuilding: hmrState.isRebuilding,
 			manifestKeys: Object.keys(manifest),
+			pendingBundleRebuilds: Array.from(hmrState.pendingBundleRebuilds),
+			pendingFileChanges: Array.from(
+				hmrState.fileChangeQueue.values()
+			).reduce((total, files) => total + files.length, 0),
 			rebuildCount: hmrState.rebuildCount,
 			rebuildQueue: Array.from(hmrState.rebuildQueue),
+			rebuildScheduled: hmrState.rebuildTimeout !== null,
 			timestamp: Date.now()
 		}));

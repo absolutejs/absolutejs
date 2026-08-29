@@ -6,6 +6,7 @@ import {
 	absoluteRemoteMacSshBase,
 	ABSOLUTE_REMOTE_MAC_EVENT_PREFIX,
 	absoluteRemoteProjectSyncCommands,
+	captureAbsoluteRemoteMacCommand,
 	createAbsoluteRemoteIosDevProject,
 	inspectAbsoluteRemoteMacLanHost,
 	listAbsoluteRemoteMacProfiles,
@@ -36,6 +37,30 @@ const temporaryRoot = async () => {
 };
 
 describe('remote Mac protocol', () => {
+	test('quotes every one-shot remote command argument', async () => {
+		let captured: string[] = [];
+		await captureAbsoluteRemoteMacCommand(
+			{
+				bunPath: '/Users/builder/.bun/bin/bun',
+				createdAt: '2026-08-28T00:00:00.000Z',
+				destination: 'builder@mac',
+				name: 'mac',
+				workspaceRoot: '/Users/builder/.absolutejs/remote-ios',
+				xcodeVersion: 'Xcode 26.4'
+			},
+			['/usr/bin/xcrun', 'devicectl', 'name with spaces; touch /tmp/no'],
+			{
+				capture: async (command) => {
+					captured = command;
+
+					return { exitCode: 0, stderr: '', stdout: '' };
+				}
+			}
+		);
+		expect(captured.at(-2)).toBe('/bin/sh -lc');
+		expect(captured.at(-1)).toContain("'name with spaces; touch /tmp/no'");
+	});
+
 	test('discovers the Remote Mac LAN address without persisting it', async () => {
 		const commands: string[][] = [];
 		const host = await inspectAbsoluteRemoteMacLanHost(
@@ -333,5 +358,5 @@ setInterval(() => {}, 1000);`;
 		expect(physicalCommand.join(' ')).toContain('192.168.50.8');
 		expect(physicalCommand.join(' ')).toContain('--relay-port');
 		await physical.close();
-	});
+	}, 15_000);
 });

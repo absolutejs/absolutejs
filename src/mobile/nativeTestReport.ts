@@ -49,6 +49,11 @@ export type AbsoluteNativeSyncMigrationResult = {
 
 export type AbsoluteNativeAutomatedRun = {
 	appId: string;
+	deviceAcceptance?: {
+		https: boolean;
+		relaunchMs: number;
+		remote: boolean;
+	};
 	durationMs: number;
 	error?: string;
 	hmr?: AbsoluteNativeHmrResult;
@@ -88,6 +93,7 @@ type CreateAbsoluteNativeTestReportOptions = {
 	automatedChecks?: AbsoluteNativeReportCheck[];
 	generatedAt?: string;
 	manualChecks: readonly AbsoluteNativeManualCheckDefinition[];
+	manualCheckResults?: Record<string, AbsoluteNativeReportCheck>;
 	metadata: AbsoluteNativeTestReport['metadata'];
 	run: AbsoluteNativeAutomatedRun;
 };
@@ -124,6 +130,17 @@ export const createAbsoluteNativeAutomatedChecks = (
 	const routeDetails = run.routes?.length
 		? ` Routes: ${run.routes.join(', ')}.`
 		: '';
+	let artifactDetails = 'No target screenshot was captured.';
+	let artifactResult: AbsoluteNativeReportResult = 'FAIL';
+	if (run.screenshot) {
+		artifactDetails =
+			'A target screenshot was captured. Visually review it before sharing this directory.';
+		artifactResult = 'PASS';
+	} else if (run.targetKind === 'device') {
+		artifactDetails =
+			'Physical-device screen capture was intentionally skipped; use Xcode Device Hub for manual visual evidence.';
+		artifactResult = 'SKIPPED';
+	}
 
 	const checks: AbsoluteNativeReportCheck[] = [
 		{
@@ -148,12 +165,10 @@ export const createAbsoluteNativeAutomatedChecks = (
 			result: hmrResult
 		},
 		{
-			details: run.screenshot
-				? 'A target screenshot was captured. Visually review it before sharing this directory.'
-				: 'No target screenshot was captured.',
+			details: artifactDetails,
 			...(evidence ? { evidence } : {}),
 			id: 'AUTO-ARTIFACT-01',
-			result: run.screenshot ? 'PASS' : 'FAIL'
+			result: artifactResult
 		}
 	];
 	if (run.upgrade) {
@@ -202,6 +217,29 @@ export const createAbsoluteNativeAutomatedChecks = (
 			}
 		);
 	}
+	if (run.deviceAcceptance) {
+		checks.push(
+			{
+				details: `The installed physical-device app relaunched and reconnected to native HMR in ${run.deviceAcceptance.relaunchMs}ms.`,
+				id: 'AUTO-DEVICE-01',
+				result: 'PASS'
+			},
+			{
+				details: run.deviceAcceptance.https
+					? 'The physical app reached the HTTPS development server and established native HMR; this proves the active app session accepted the development trust path.'
+					: 'Physical-device acceptance did not use HTTPS.',
+				id: 'AUTO-DEVICE-HTTPS-01',
+				result: run.deviceAcceptance.https ? 'PASS' : 'FAIL'
+			},
+			{
+				details: run.deviceAcceptance.remote
+					? 'The lifecycle commands ran on the paired Remote Mac and HMR returned through the active relay.'
+					: 'The acceptance run used the local Mac.',
+				id: 'AUTO-DEVICE-REMOTE-01',
+				result: run.deviceAcceptance.remote ? 'PASS' : 'SKIPPED'
+			}
+		);
+	}
 
 	return checks;
 };
@@ -213,11 +251,14 @@ export const createAbsoluteNativeTestReport = (
 		options.automatedChecks ??
 		createAbsoluteNativeAutomatedChecks(options.run),
 	generatedAt: options.generatedAt ?? new Date().toISOString(),
-	manualChecks: options.manualChecks.map(([id, details]) => ({
-		details,
-		id,
-		result: 'NOT_RUN' as const
-	})),
+	manualChecks: options.manualChecks.map(
+		([id, details]) =>
+			options.manualCheckResults?.[id] ?? {
+				details,
+				id,
+				result: 'NOT_RUN' as const
+			}
+	),
 	metadata: options.metadata,
 	overallResult: options.run.status === 'fail' ? 'FAIL' : 'INCOMPLETE',
 	platform: options.run.platform,

@@ -11,7 +11,7 @@ import {
 export type AbsoluteIosAutomatedResult = Omit<
 	AbsoluteNativeAutomatedRun,
 	'platform' | 'targetId' | 'targetKind'
-> & { udid: string };
+> & { targetId: string; targetKind: 'device' | 'simulator' };
 export type AbsoluteIosPartnerReport = AbsoluteNativeTestReport;
 
 type CreateAbsoluteIosPartnerReportOptions = {
@@ -34,6 +34,14 @@ const MANUAL_CHECKS = [
 	['SETUP-05', 'Confirm generated iOS project signing and Xcode warnings.'],
 	['DEV-01', 'Record cold and warm bun dev startup timings.'],
 	['DEV-02', 'Complete route traversal, HMR, relaunch, and recovery checks.'],
+	...Array.from(
+		{ length: 10 },
+		(_, index) =>
+			[
+				`DEVICEDEV-${String(index + 1).padStart(2, '0')}`,
+				`Complete physical-device development runbook check DEVICEDEV-${String(index + 1).padStart(2, '0')}.`
+			] as const
+	),
 	['CAP-01', 'Complete automatic device-capability provisioning checks.'],
 	...Array.from(
 		{ length: 8 },
@@ -109,11 +117,23 @@ export const writeAbsoluteIosPartnerReport = writeAbsoluteNativeTestReport;
 export const createAbsoluteIosPartnerReport = (
 	options: CreateAbsoluteIosPartnerReportOptions
 ) => {
-	const { udid, ...run } = options.run;
+	const { targetId, targetKind, ...run } = options.run;
+	const physicalResults =
+		targetKind === 'device' && run.deviceAcceptance
+			? {
+					'DEVICEDEV-01': {
+						details:
+							'AbsoluteJS selected a physical target from the running development session without using Simulator.',
+						id: 'DEVICEDEV-01',
+						result: 'PASS' as const
+					}
+				}
+			: undefined;
 
 	return createAbsoluteNativeTestReport({
 		...(options.generatedAt ? { generatedAt: options.generatedAt } : {}),
 		manualChecks: MANUAL_CHECKS,
+		...(physicalResults ? { manualCheckResults: physicalResults } : {}),
 		metadata: {
 			absolutejsVersion: options.absolutejsVersion,
 			bunVersion: options.bunVersion,
@@ -124,8 +144,8 @@ export const createAbsoluteIosPartnerReport = (
 		run: {
 			...run,
 			platform: 'ios',
-			targetId: udid,
-			targetKind: 'simulator'
+			targetId,
+			targetKind
 		}
 	});
 };

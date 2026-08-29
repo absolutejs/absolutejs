@@ -1613,6 +1613,22 @@ redaction, watchers, and HMR correlation are covered with fake Xcode/`simctl` on
 non-macOS CI; the real gate must pass on the partner macOS machine before this
 checkpoint is called operational.
 
+Implementation checkpoint (August 28, 2026): physical-device acceptance is now
+first class through
+`absolute mobile test ios --device DEVICE_IDENTIFIER --report`. It binds the
+test to the identical selector stored by the running `bun dev --ios-device`
+session, requires trusted local HTTPS, validates device availability and the
+installed bundle through `devicectl`, terminates and relaunches the app, and waits
+for the native HMR client to reconnect. The same command executes lifecycle
+inspection on the exact paired Remote Mac recorded by the dev instance, while
+HMR returns through the existing relay. `--wait-for-hmr` adds a tester-controlled
+page/CSS edit and correlated timing without mutating application source. Reports
+use only the generic `physical-device` target and retain no selector, UDID,
+inventory, signing output, device logs, or screenshot. Machine-observable checks
+are filled automatically; signing/trust UI, visible rendering, Auth/Sync state,
+network interruption, native edits, crash cleanup, and physical screenshots
+remain explicit partner checklist work.
+
 `absolute mobile build android [server-entry]` now owns the complete production
 Android path. It repairs an interrupted development projection, runs the same
 production assets/server/route-contract preparation as `absolute prepare`, writes

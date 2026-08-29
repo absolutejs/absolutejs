@@ -7,6 +7,7 @@ export * from './iosSimulatorController';
 export * from './iosPhysicalDeviceTransport';
 export * from './iosNativeWatcher';
 export * from './remoteMacProtocol';
+export * from './iosDeviceAcceptance';
 export * from './associationFiles';
 export * from './buildMetadata';
 export * from './buildPipeline';

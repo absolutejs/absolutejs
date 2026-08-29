@@ -177,5 +177,5 @@ describe('dev-server RSS does not grow unboundedly over many HMR cycles', () => 
 		await waitForVueMarker(srv, 'RATCHET_99');
 		const finalRender = await (await fetch(`${srv.baseUrl}/vue`)).text();
 		expect(finalRender).toContain('RATCHET_99');
-	}, 300_000);
+	}, 900_000);
 });

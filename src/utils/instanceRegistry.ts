@@ -110,6 +110,9 @@ const coerceRecord = (parsed: ReturnType<typeof readJsonFile>) => {
 		frameworks: toStringArray(parsed.frameworks),
 		host: typeof parsed.host === 'string' ? parsed.host : 'localhost',
 		https: parsed.https === true,
+		...(typeof parsed.iosRemoteMac === 'string'
+			? { iosRemoteMac: parsed.iosRemoteMac }
+			: {}),
 		logFile: typeof parsed.logFile === 'string' ? parsed.logFile : null,
 		name: typeof parsed.name === 'string' ? parsed.name : 'unknown',
 		pid: parsed.pid,

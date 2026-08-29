@@ -88,6 +88,7 @@ const EXCLUSIVE_TEST_FILES = new Set([
 	'tests/integration/hmr/frameworks/htmx-hmr.test.ts',
 	'tests/integration/hmr/frameworks/react-hmr.test.ts',
 	'tests/integration/hmr/lifecycle/angular-external-resources.test.ts',
+	'tests/integration/hmr/lifecycle/midrebuild-edit.test.ts',
 	'tests/integration/hmr/lifecycle/style-preprocessor-roundtrip.test.ts',
 	'tests/integration/hmr/lifecycle/tailwind-class-discovery.test.ts',
 	'tests/integration/hmr/lifecycle/cli-crash-loop-guard.test.ts',

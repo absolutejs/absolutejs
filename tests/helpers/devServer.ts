@@ -60,7 +60,10 @@ const IDLE_STABILITY_MS = 500;
 
 type HmrStatus = {
 	isRebuilding?: unknown;
+	pendingBundleRebuilds?: unknown;
+	pendingFileChanges?: unknown;
 	rebuildQueue?: unknown;
+	rebuildScheduled?: unknown;
 };
 
 const drainStream = (
@@ -214,6 +217,10 @@ export const startDevServer = async (options?: DevServerOptions | number) => {
 			const status = (await response.json()) as HmrStatus;
 			const isIdle =
 				status.isRebuilding === false &&
+				status.rebuildScheduled === false &&
+				status.pendingFileChanges === 0 &&
+				Array.isArray(status.pendingBundleRebuilds) &&
+				status.pendingBundleRebuilds.length === 0 &&
 				Array.isArray(status.rebuildQueue) &&
 				status.rebuildQueue.length === 0;
 			if (!isIdle) {

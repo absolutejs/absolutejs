@@ -26,6 +26,7 @@ export type InstanceRecord = {
 	frameworks: string[];
 	host: string;
 	https: boolean;
+	iosRemoteMac?: string;
 	logFile: string | null;
 	name: string;
 	pid: number;
