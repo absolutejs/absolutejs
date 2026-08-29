@@ -1,7 +1,7 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.34` and
+`@absolutejs/absolute@0.20.0-beta.35` and
 `@absolutejs/deploy@0.24.0`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
 
@@ -9,7 +9,144 @@ Use a staging App Store Connect application if possible. Uploading a build
 creates durable Apple-side records even when the build is only used by internal
 testers.
 
-## 1. What the tester needs
+## Partner handoff: start here
+
+There are two different test tracks in this document. Do not mix their working
+directories or commands:
+
+1. **AbsoluteJS framework simulator gate:** clone the public AbsoluteJS
+   repository and run its self-contained iOS fixture. This is the first test we
+   need from the partner and does not require an application repository,
+   App Store Connect app, or physical iPhone.
+2. **Application, physical-device, signing, and TestFlight acceptance:** run
+   from the root of a real mobile-enabled AbsoluteJS staging application. This
+   requires that application's source repository, server entry, AbsoluteJS
+   config, staging origin, bundle ID, Apple team, and App Store Connect access.
+
+If you were sent only this Markdown file and were not sent a staging
+application repository plus its non-secret configuration values, complete Track
+A only. Do not invent an application, bundle ID, server origin, or Apple team.
+
+### Track A — run this first from the AbsoluteJS repository
+
+Track A requires Git, Bun, Xcode, and an installed iOS Simulator runtime, but it
+does not require a paid Apple developer account. Open Terminal on the Mac and
+run these commands exactly. Every command after `cd absolutejs` runs from the
+cloned repository root, which contains this repository's `package.json`,
+`bun.lock`, `src`, `tests`, and `example` directories.
+
+```sh
+git clone https://github.com/absolutejs/absolutejs.git
+cd absolutejs
+git checkout 10310e067cc0541984c4e6d4a68bb4ac2334a512
+bun install --frozen-lockfile
+xcodebuild -version
+xcrun simctl list runtimes
+bun run test:native:ios
+```
+
+If the repository was already cloned, use this instead:
+
+```sh
+cd /absolute/path/to/the/absolutejs-clone
+git fetch origin
+git checkout 10310e067cc0541984c4e6d4a68bb4ac2334a512
+bun install --frozen-lockfile
+bun run test:native:ios
+```
+
+Do not run Track A from the directory containing this downloaded Markdown file,
+from `mobile/ios`, from `App.xcworkspace`, or from another application. A normal
+successful result ends with six passing lifecycle tests covering cold/warm
+native startup, React HMR, CSS HMR, relaunch, server reconnect, and a native
+rebuild. The first run can take several minutes while Xcode builds the app.
+
+Return these Track A results:
+
+- [ ] The complete terminal output from `bun run test:native:ios`.
+- [ ] The output of `bun --version` and `xcodebuild -version`.
+- [ ] If a test fails, the test name and the files under
+  `.absolutejs/mobile-native-conformance/ios-artifacts`. Do not return signing
+  credentials, Apple account details, device identifiers, or unrelated logs.
+
+After Track A, continue with Track B only if the staging application checkout
+and Apple access were supplied.
+
+### Track B — run from the staging application root
+
+For this track, **application root** or **project root** always means the one
+directory containing all of the following:
+
+- the staging application's `package.json`;
+- its `absolute.config.ts` or other explicitly supplied AbsoluteJS config;
+- its server entry, normally `src/backend/server.ts`; and
+- its committed or generated `mobile/ios` directory after `mobile init`.
+
+It does not mean the AbsoluteJS framework clone, the `mobile/ios` directory, the
+Xcode workspace directory, or your home directory. Open Terminal 1, change to
+the supplied application root, and verify it before doing anything else:
+
+```sh
+cd /absolute/path/to/the/staging-application
+pwd
+test -f package.json && echo "application root: OK"
+for file in absolute.config.ts absolutejs.config.ts; do
+	test -f "$file" && echo "config: $file"
+done
+```
+
+If `application root: OK` is not printed, stop: this is the wrong directory. If
+the config or server-entry path differs from the examples below, substitute the
+paths supplied with the staging application. Sections 3–5 install beta.35,
+configure mobile, generate `mobile/ios`, and complete Xcode signing.
+
+For Simulator development, Terminal 1 runs:
+
+```sh
+cd /absolute/path/to/the/staging-application
+bunx absolute dev src/backend/server.ts --config absolute.config.ts
+```
+
+Leave Terminal 1 running. Open Terminal 2 and return to the exact same
+application root:
+
+```sh
+cd /absolute/path/to/the/staging-application
+bunx absolute mobile test ios --report --wait-for-hmr
+```
+
+When Terminal 2 asks for an edit, save one harmless visible page-text or CSS
+change in the staging application, visually confirm it in the Simulator, and
+then revert that edit.
+
+For a physical device, obtain the selector first:
+
+```sh
+xcrun devicectl list devices
+```
+
+Then use the same quoted selector in both terminals. Terminal 1 runs:
+
+```sh
+cd /absolute/path/to/the/staging-application
+bunx absolute dev src/backend/server.ts --config absolute.config.ts --ios-device "DEVICE_IDENTIFIER"
+```
+
+Leave it running. Terminal 2 runs:
+
+```sh
+cd /absolute/path/to/the/staging-application
+bunx absolute mobile test ios --device "DEVICE_IDENTIFIER" --report --wait-for-hmr
+```
+
+The physical-device command requires `dev.https: true` in the supplied config.
+Do not use a device name in one terminal and a UDID in the other; the values must
+be character-for-character identical. Complete the certificate-trust steps when
+Terminal 1 prints them. At the end, Terminal 2 prints the exact report directory
+under `.absolutejs/mobile/test-reports`. Complete the remaining manual rows and
+return that entire directory as described below.
+
+## 1. What the tester needs for Track B
 
 - A Mac with a currently supported Xcode release. Apple currently requires iOS
   apps uploaded to App Store Connect to be built with Xcode 16 or newer.
@@ -105,7 +242,7 @@ still requires the developer team setup described below.
 From the root of the AbsoluteJS application:
 
 ```sh
-bun add @absolutejs/absolute@0.20.0-beta.34 \
+bun add @absolutejs/absolute@0.20.0-beta.35 \
   @absolutejs/auth@0.75.0 \
   @absolutejs/dispatch@0.9.0 \
   @absolutejs/sync@2.29.0 \
@@ -1342,7 +1479,7 @@ source change and build a new content-addressed release instead.
 - Mac architecture:
 - Xcode version:
 - Bun version:
-- AbsoluteJS version: 0.20.0-beta.34
+- AbsoluteJS version: 0.20.0-beta.35
 - Auth version: 0.75.0
 - Dispatch version: 0.9.0
 - Sync version: 2.29.0
