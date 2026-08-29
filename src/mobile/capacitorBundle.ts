@@ -102,12 +102,31 @@ const escapeHtml = (value: string) =>
 		.replaceAll('>', '&gt;')
 		.replaceAll('"', '&quot;');
 
-const indexHtml = (appName: string) => `<!doctype html>
+const contentSecurityPolicy = (productionOrigin: string) => {
+	const backend = new URL(productionOrigin);
+	const socketOrigin = `${backend.protocol === 'https:' ? 'wss:' : 'ws:'}//${backend.host}`;
+
+	return [
+		"default-src 'self' data: blob: https:",
+		"base-uri 'none'",
+		"object-src 'none'",
+		"script-src 'self'",
+		"style-src 'self' 'unsafe-inline'",
+		`connect-src 'self' ${backend.origin} ${socketOrigin}`,
+		"form-action 'none'"
+	].join('; ');
+};
+
+const indexHtml = (
+	appName: string,
+	productionOrigin: string
+) => `<!doctype html>
 <html>
 	<head>
 		<meta charset="utf-8">
 		<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 		<meta name="color-scheme" content="light dark">
+		<meta http-equiv="Content-Security-Policy" content="${escapeHtml(contentSecurityPolicy(productionOrigin))}">
 		<title>${escapeHtml(appName)}</title>
 	</head>
 	<body>
@@ -500,7 +519,10 @@ export const materializeAbsoluteCapacitorWebBundle = async (
 			),
 			writeFile(
 				join(staging, INDEX_FILE),
-				indexHtml(options.config.appName)
+				indexHtml(
+					options.config.appName,
+					options.config.productionOrigin
+				)
 			),
 			buildShellBootstrap(
 				staging,

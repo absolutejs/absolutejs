@@ -3,6 +3,20 @@
 Status: Capacitor Android development/release, all-framework embedded bundles, universal native Auth/Sync, background Sync, automatic device provisioning, provider-neutral native push registration, and Android conformance are operational; iOS development/release automation is shipped and awaiting real macOS/physical-device acceptance
 Research snapshot: August 26, 2026
 
+Implementation checkpoint (August 29, 2026): the Phase 6 release-security
+baseline is implemented. `absolute mobile doctor release` now validates exact
+and aligned Capacitor core/CLI/platform packages, a committed dependency lock,
+HTTPS production transport, platform association identities, packaged app
+identity, supported runtime/manifest/route structure, SHA-256 integrity for
+every embedded page/style, generated CSP, native deep-link projection, Android
+exports/debugging, iOS debugging, privacy-manifest reasons/target membership,
+usage descriptions, system UI, push forwarding, Sync schema/policy, and exact
+capability plugins. Human output retains local remediation; `--json` emits only
+public app facts, check IDs/statuses, totals, and explicit manual-review classes.
+Adversarial coverage mutates assets, dependency pins, native debugging, exports,
+privacy projection, live transport, HMR, and cleartext settings. The formal
+boundary and residual risks are in `MOBILE_SECURITY_THREAT_MODEL.md`.
+
 Implementation checkpoint (August 29, 2026): the planned read-only
 `absolute mobile inspect` command is now implemented. Human and JSON output
 inventory the effective config, project-relative native/bundle paths, runtime
@@ -2445,7 +2459,7 @@ Expo v2 should use CNG by default and ignore generated native directories, which
 
 ## Security, privacy, and compliance gates
 
-The initial release needs a threat model covering:
+The implemented baseline threat model covers:
 
 - local WebView origins, navigation allowlists, and external URL handling
 - API CORS and CSRF from iOS/Android origins
@@ -2462,7 +2476,13 @@ The initial release needs a threat model covering:
 - iOS privacy manifests/usage descriptions and Google Play data-safety declarations
 - permission minimization and removal when capabilities are unused
 
-Release doctor should fail on production `server.url`, cleartext, wildcard navigation, HMR scripts, missing permission text, incompatible native/runtime manifest versions, unresolved local assets, or an HTTP API origin.
+Release doctor fails on production `server.url`, cleartext, wildcard navigation,
+HMR scripts, missing permission/privacy projection, incompatible native/runtime
+manifest versions, modified or unresolved local assets, dependency drift, unsafe
+debug settings, mismatched native links, or an HTTP API origin. Android exported
+components require explicit warning review. Store questionnaires, final-binary
+signing inspection, native-SDK data practices, and physical devices remain human
+gates.
 
 ## Testing strategy
 

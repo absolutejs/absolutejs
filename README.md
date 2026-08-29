@@ -261,6 +261,15 @@ validation, and release projection. Add `--json` for a redacted CI or support
 artifact; it omits credentials, device/account identifiers, absolute paths, and
 detailed doctor messages. See [mobile project inspection](docs/MOBILE_INSPECT.md).
 
+Before signing, run `absolute mobile doctor release`. It validates pinned and
+aligned Capacitor packages, dependency locking, HTTPS and signed-link identity,
+packaged app identity, SHA-256 page/style integrity, runtime compatibility, CSP,
+native deep-link projections, privacy/permission projections, debug residue,
+and Sync/device policy. Its `--json` output is a redacted format-versioned CI
+artifact containing public app facts, check IDs/statuses, totals, and explicit
+manual-review categories—never local paths or detailed failure text. See the
+[Capacitor mobile threat model](docs/MOBILE_SECURITY_THREAT_MODEL.md).
+
 `keyboard` provides portable visibility, CSS-pixel height, dismissal, and
 cleanup-safe change events. `systemBars` controls modern edge-to-edge status and
 navigation bar foreground appearance/visibility through Capacitor 8 core. Its

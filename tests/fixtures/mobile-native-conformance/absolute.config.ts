@@ -22,6 +22,7 @@ export default defineConfig({
 			apple: { appIdPrefix: 'ABCDE12345' }
 		},
 		entry: '/react',
+		ios: { version: '1.0.0' },
 		nativeProject: {
 			directory: '.absolutejs/mobile-native-conformance/native'
 		},

@@ -99,6 +99,44 @@ describe('mobile emulator CLI', () => {
 		expect(JSON.parse(stdout).checks).toBeArray();
 	}, 20_000);
 
+	test('prints only the redacted release compliance contract in JSON mode', async () => {
+		const subprocess = Bun.spawn(
+			[
+				process.execPath,
+				resolve(ROOT, 'src/cli/index.ts'),
+				'mobile',
+				'doctor',
+				'release',
+				'--config',
+				resolve(
+					ROOT,
+					'tests/fixtures/mobile-native-conformance/absolute.config.ts'
+				),
+				'--json'
+			],
+			{
+				cwd: ROOT,
+				stderr: 'pipe',
+				stdin: 'ignore',
+				stdout: 'pipe'
+			}
+		);
+		const [exitCode, stdout] = await Promise.all([
+			subprocess.exited,
+			new Response(subprocess.stdout).text()
+		]);
+		const report = JSON.parse(stdout);
+
+		expect(exitCode).toBe(1);
+		expect(report).toMatchObject({ format: 1, ready: false });
+		expect(report.checks).toBeArray();
+		expect(report.manualReview).toBeArray();
+		expect(stdout).not.toContain(ROOT);
+		expect(stdout).not.toContain('detail');
+		expect(stdout).not.toContain('remediation');
+		expect(stdout).not.toContain('sha256CertificateFingerprints');
+	});
+
 	test('validates an Android conformance port before inspecting the SDK', async () => {
 		const subprocess = Bun.spawn(
 			[

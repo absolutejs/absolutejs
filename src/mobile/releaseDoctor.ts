@@ -1,6 +1,7 @@
 import { access, readFile, readdir } from 'node:fs/promises';
 import { dirname, extname, join, relative } from 'node:path';
 import type { NormalizedAbsoluteMobileConfig } from './config';
+import { inspectAbsoluteMobileBundle } from './mobileBundleInspection';
 import { projectUsesAbsoluteSync } from './nativeAuth';
 import { discoverAbsoluteSyncSchema } from './syncSchema';
 import {
@@ -15,7 +16,7 @@ export type AbsoluteMobileReleaseCheck = {
 	id: string;
 	path?: string;
 	remediation?: string;
-	status: 'fail' | 'pass';
+	status: 'fail' | 'pass' | 'warn';
 };
 
 export type AbsoluteMobileReleaseDoctorResult = {
@@ -23,9 +24,44 @@ export type AbsoluteMobileReleaseDoctorResult = {
 	ready: boolean;
 };
 
+export const ABSOLUTE_MOBILE_COMPLIANCE_REPORT_FORMAT = 1 as const;
+
+export type AbsoluteMobileComplianceReport = {
+	app: {
+		appId: string;
+		engine: 'capacitor';
+		platforms: string[];
+		productionOrigin: string;
+	};
+	checks: Array<{
+		id: string;
+		status: AbsoluteMobileReleaseCheck['status'];
+	}>;
+	format: typeof ABSOLUTE_MOBILE_COMPLIANCE_REPORT_FORMAT;
+	manualReview: string[];
+	ready: boolean;
+	summary: { failed: number; passed: number; warnings: number };
+};
+
 const HMR_ASSET_PATTERN =
 	/(?:__HMR_WS__|hmr-timing|__absolute_target|absolutejs-error-overlay)/u;
 const RELEASE_ASSET_EXTENSIONS = new Set(['.html', '.js', '.mjs']);
+const EXACT_VERSION_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u;
+const NOT_FOUND = -1;
+const LOCK_FILES = [
+	'bun.lock',
+	'bun.lockb',
+	'package-lock.json',
+	'pnpm-lock.yaml',
+	'yarn.lock'
+];
+const MANUAL_REVIEW = [
+	'physical-device',
+	'store-privacy-questionnaire',
+	'privacy-policy',
+	'signing-key-custody',
+	'native-sdk-data-practices'
+];
 type HmrAssetFinder = (root: string) => Promise<string | undefined>;
 
 const pathExists = async (path: string) => {
@@ -85,6 +121,167 @@ const fail = (
 	remediation,
 	status: 'fail'
 });
+
+const warn = (
+	id: string,
+	detail: string,
+	path?: string,
+	remediation?: string
+): AbsoluteMobileReleaseCheck => ({
+	detail,
+	id,
+	path,
+	remediation,
+	status: 'warn'
+});
+
+const readJsonObject = async (path: string) => {
+	const value: unknown = JSON.parse(await readFile(path, 'utf8'));
+	if (typeof value !== 'object' || value === null || Array.isArray(value))
+		throw new TypeError('JSON root must be an object.');
+
+	return Object.fromEntries(Object.entries(value));
+};
+
+const packageDeclarations = (manifest: Record<string, unknown>) => {
+	const declarations = new Map<string, string>();
+	for (const field of ['dependencies', 'devDependencies']) {
+		const value = manifest[field];
+		if (typeof value !== 'object' || value === null || Array.isArray(value))
+			continue;
+		for (const [name, version] of Object.entries(value))
+			if (typeof version === 'string') declarations.set(name, version);
+	}
+
+	return declarations;
+};
+
+const versionCore = (version: string) =>
+	version.split('-')[0]?.split('.').slice(0, 2).join('.');
+
+const capacitorVersionCheck = async (
+	config: NormalizedAbsoluteMobileConfig,
+	projectRoot: string
+) => {
+	const manifestPath = join(projectRoot, 'package.json');
+	try {
+		const manifest = await readJsonObject(manifestPath);
+		const declarations = packageDeclarations(manifest);
+		const names = [
+			'@capacitor/core',
+			'@capacitor/cli',
+			...config.platforms.map((platform) => `@capacitor/${platform}`)
+		];
+		const versions = await Promise.all(
+			names.map(async (name) => {
+				const declared = declarations.get(name);
+				if (!declared || !EXACT_VERSION_PATTERN.test(declared))
+					throw new TypeError(
+						`${name} must be a direct exact dependency.`
+					);
+				const installed = await readJsonObject(
+					join(projectRoot, 'node_modules', name, 'package.json')
+				);
+				if (installed.version !== declared)
+					throw new TypeError(
+						`${name} does not match its installed version.`
+					);
+
+				return declared;
+			})
+		);
+		const lines = new Set(versions.map(versionCore));
+		if (lines.size !== 1)
+			throw new TypeError(
+				'Capacitor core, CLI, and platform packages must use one major/minor line.'
+			);
+
+		return pass(
+			'mobile.capacitor-versions',
+			`Capacitor core, CLI, and configured platforms are pinned and aligned on ${versions[0]}.`,
+			manifestPath
+		);
+	} catch (error) {
+		return fail(
+			'mobile.capacitor-versions',
+			error instanceof Error
+				? error.message
+				: 'Capacitor package versions could not be validated.',
+			manifestPath,
+			'Pin @capacitor/core, @capacitor/cli, and each configured platform to exact versions on the same major/minor line, then reinstall.'
+		);
+	}
+};
+
+const dependencyLockCheck = async (projectRoot: string) => {
+	const present = (
+		await Promise.all(
+			LOCK_FILES.map(async (name) => ({
+				exists: await pathExists(join(projectRoot, name)),
+				name
+			}))
+		)
+	).find(({ exists }) => exists);
+
+	return present
+		? pass(
+				'mobile.dependency-lock',
+				`Dependency graph is locked by ${present.name}.`,
+				join(projectRoot, present.name)
+			)
+		: fail(
+				'mobile.dependency-lock',
+				'No supported dependency lockfile is present.',
+				projectRoot,
+				'Install dependencies with the project package manager and commit its lockfile before release.'
+			);
+};
+
+const productionOriginCheck = (
+	config: NormalizedAbsoluteMobileConfig,
+	projectRoot: string
+) => {
+	const origin = new URL(config.productionOrigin);
+
+	return origin.protocol === 'https:'
+		? pass(
+				'mobile.production-origin',
+				'Production transport uses an HTTPS origin.'
+			)
+		: fail(
+				'mobile.production-origin',
+				'A loopback development origin cannot be used for a signed release.',
+				projectRoot,
+				'Configure mobile.server.productionOrigin with the deployed HTTPS origin.'
+			);
+};
+
+const associationIdentityCheck = (
+	config: NormalizedAbsoluteMobileConfig,
+	projectRoot: string
+) => {
+	const missing = [
+		...(config.platforms.includes('ios') && !config.appleAppIdPrefix
+			? ['mobile.deepLinks.apple.appIdPrefix']
+			: []),
+		...(config.platforms.includes('android') &&
+		config.androidCertificateFingerprints.length === 0
+			? ['mobile.deepLinks.android.sha256CertificateFingerprints']
+			: [])
+	];
+
+	return missing.length === 0
+		? pass(
+				'mobile.association-identities',
+				'Deep-link association identities are configured for every release platform.'
+			)
+		: fail(
+				'mobile.association-identities',
+				`Release association identity is missing: ${missing.join(', ')}.`,
+				projectRoot,
+				'Configure the Apple application prefix and every Android signing-certificate SHA-256 fingerprint used for release.'
+			);
+};
 
 const journalReleaseCheck = async (
 	journalPath: string,
@@ -161,6 +358,35 @@ const capacitorConfigReleaseCheck = async (nativeConfigPath: string) => {
 			);
 };
 
+const capacitorIdentityCheck = async (
+	config: NormalizedAbsoluteMobileConfig,
+	platform: 'android' | 'ios',
+	nativeConfigPath: string
+) => {
+	try {
+		const parsed = await readJsonObject(nativeConfigPath);
+		if (parsed.appId !== config.appId || parsed.appName !== config.appName)
+			throw new TypeError(
+				`${platform} packaged application identity does not match mobile config.`
+			);
+
+		return pass(
+			`${platform}.app-identity`,
+			`Packaged ${platform} application identity matches mobile config.`,
+			nativeConfigPath
+		);
+	} catch (error) {
+		return fail(
+			`${platform}.app-identity`,
+			error instanceof Error
+				? error.message
+				: `${platform} application identity could not be validated.`,
+			nativeConfigPath,
+			`Run \`absolute mobile sync ${platform}\` and review the generated Capacitor config.`
+		);
+	}
+};
+
 const manifestReleaseCheck = async (manifestPath: string) => {
 	if (!(await pathExists(manifestPath))) {
 		return fail(
@@ -221,6 +447,296 @@ const hmrAssetsReleaseCheck = async (publicRoot: string) => {
 				'Packaged Android assets contain no development HMR markers.',
 				publicRoot
 			);
+};
+
+const embeddedBundleReleaseCheck = async (
+	config: NormalizedAbsoluteMobileConfig,
+	projectRoot: string,
+	platform: 'android' | 'ios',
+	publicRoot: string
+) => {
+	const inspection = await inspectAbsoluteMobileBundle(
+		{ ...config, bundleDirectory: publicRoot },
+		projectRoot
+	);
+	if (inspection.status === 'valid')
+		return pass(
+			`${platform}.bundle-integrity`,
+			`Packaged mobile manifest, runtime, routes, and ${inspection.pageCount ?? 0} page asset(s) passed structural and SHA-256 validation.`,
+			join(publicRoot, 'absolute-mobile-manifest.json')
+		);
+
+	return fail(
+		`${platform}.bundle-integrity`,
+		inspection.status === 'missing'
+			? 'The packaged mobile manifest is missing.'
+			: `The packaged mobile bundle is invalid: ${inspection.issue ?? 'unknown validation error'}`,
+		join(publicRoot, 'absolute-mobile-manifest.json'),
+		'Rebuild the production mobile bundle and run Capacitor sync for this platform.'
+	);
+};
+
+const contentSecurityPolicyCheck = async (
+	config: NormalizedAbsoluteMobileConfig,
+	platform: 'android' | 'ios',
+	publicRoot: string
+) => {
+	const path = join(publicRoot, 'index.html');
+	try {
+		const source = await readFile(path, 'utf8');
+		const requirements = [
+			'Content-Security-Policy',
+			"default-src 'self'",
+			"base-uri 'none'",
+			"object-src 'none'",
+			"script-src 'self'",
+			"form-action 'none'",
+			config.productionOrigin
+		];
+		const missing = requirements.filter((value) => !source.includes(value));
+		if (missing.length > 0)
+			throw new TypeError(
+				'Packaged shell CSP is missing a required AbsoluteJS directive or backend origin.'
+			);
+
+		return pass(
+			`${platform}.content-security-policy`,
+			'Packaged shell CSP restricts scripts, objects, base URLs, forms, and backend connections.',
+			path
+		);
+	} catch (error) {
+		return fail(
+			`${platform}.content-security-policy`,
+			error instanceof Error
+				? error.message
+				: 'Packaged shell CSP could not be validated.',
+			path,
+			'Rebuild the production mobile bundle with the AbsoluteJS-generated shell.'
+		);
+	}
+};
+
+const sourceFiles = async (root: string, extensions: Set<string>) => {
+	if (!(await pathExists(root))) return [];
+	const files = await Array.fromAsync(
+		new Bun.Glob('**/*').scan({ cwd: root, onlyFiles: true })
+	);
+
+	return files
+		.filter((file) => extensions.has(extname(file)))
+		.map((file) => join(root, file));
+};
+
+const containsPattern = async (paths: string[], pattern: RegExp) => {
+	const sources = await Promise.all(
+		paths.map((path) => readFile(path, 'utf8'))
+	);
+	const index = sources.findIndex((source) => pattern.test(source));
+
+	return index === NOT_FOUND ? undefined : paths[index];
+};
+
+const androidNativeSecurityCheck = async (androidRoot: string) => {
+	const manifestPath = join(androidRoot, 'app/src/main/AndroidManifest.xml');
+	try {
+		const manifest = await readFile(manifestPath, 'utf8');
+		if (/android:debuggable=["']true["']/u.test(manifest))
+			throw new TypeError(
+				'Android release manifest explicitly enables application debugging.'
+			);
+		const sources = await sourceFiles(
+			join(androidRoot, 'app/src/main'),
+			new Set(['.java', '.kt'])
+		);
+		const debugSource = await containsPattern(
+			sources,
+			/setWebContentsDebuggingEnabled\s*\(\s*true\s*\)/u
+		);
+		if (debugSource)
+			return fail(
+				'android.native-debugging',
+				'Android application source unconditionally enables WebView debugging.',
+				debugSource,
+				'Remove the unconditional WebView debugging call; use the platform debug-build behavior during development.'
+			);
+
+		return pass(
+			'android.native-debugging',
+			'Android does not explicitly enable app or WebView debugging in release source.',
+			manifestPath
+		);
+	} catch (error) {
+		return fail(
+			'android.native-debugging',
+			error instanceof Error
+				? error.message
+				: 'Android native debugging configuration could not be validated.',
+			manifestPath,
+			'Remove explicit release debugging settings and rerun mobile sync.'
+		);
+	}
+};
+
+const androidExportedComponentsCheck = async (manifestPath: string) => {
+	const source = await readFile(manifestPath, 'utf8').catch(() => '');
+	const exported = [
+		...source.matchAll(
+			/<(?:activity|activity-alias|provider|receiver|service)\b[^>]*>/giu
+		)
+	]
+		.map(([tag]) => tag)
+		.filter((tag) => /android:exported=["']true["']/iu.test(tag))
+		.map((tag) => tag.match(/android:name=["']([^"']+)["']/iu)?.[1])
+		.filter(
+			(name): name is string => Boolean(name) && name !== '.MainActivity'
+		);
+
+	return exported.length === 0
+		? pass(
+				'android.exported-components',
+				'No non-launcher Android component is explicitly exported.',
+				manifestPath
+			)
+		: warn(
+				'android.exported-components',
+				`${exported.length} non-launcher Android component(s) are exported and require manual authorization review.`,
+				manifestPath,
+				'Confirm each exported component is intentional, permission-protected where appropriate, and documented in the mobile threat model review.'
+			);
+};
+
+const androidDeepLinkProjectionCheck = async (
+	config: NormalizedAbsoluteMobileConfig,
+	manifestPath: string
+) => {
+	try {
+		const source = await readFile(manifestPath, 'utf8');
+		const required = [
+			'android:autoVerify="true"',
+			'android.intent.category.BROWSABLE',
+			...config.deepLinkHosts.map(
+				(host) => `android:scheme="https" android:host="${host}"`
+			),
+			...(config.deepLinkScheme
+				? [`android:scheme="${config.deepLinkScheme}"`]
+				: [])
+		];
+		if (required.some((value) => !source.includes(value)))
+			throw new TypeError(
+				'Android App Link or custom-scheme projection does not match mobile config.'
+			);
+
+		return pass(
+			'android.deep-links',
+			'Android verified links and custom scheme match the effective mobile config.',
+			manifestPath
+		);
+	} catch (error) {
+		return fail(
+			'android.deep-links',
+			error instanceof Error
+				? error.message
+				: 'Android deep-link projection could not be validated.',
+			manifestPath,
+			'Run `absolute mobile sync android` and review the AbsoluteJS-owned deep-link region.'
+		);
+	}
+};
+
+const iosNativeSecurityCheck = async (iosRoot: string) => {
+	const entitlementsPath = join(iosRoot, 'App/AbsoluteJS.entitlements');
+	const entitlements = await readFile(entitlementsPath, 'utf8').catch(
+		() => ''
+	);
+	if (
+		/<key>get-task-allow<\/key>\s*<true\s*\/>/u.test(entitlements) ||
+		/<key>com\.apple\.security\.get-task-allow<\/key>\s*<true\s*\/>/u.test(
+			entitlements
+		)
+	)
+		return fail(
+			'ios.native-debugging',
+			'iOS source entitlements explicitly permit debugger attachment.',
+			entitlementsPath,
+			'Remove get-task-allow from source entitlements; Xcode supplies development entitlements only to debug builds.'
+		);
+	const sources = await sourceFiles(
+		join(iosRoot, 'App'),
+		new Set(['.m', '.mm', '.swift'])
+	);
+	const debugSource = await containsPattern(
+		sources,
+		/\.isInspectable\s*=\s*true|setInspectable\s*\(\s*true\s*\)/u
+	);
+	if (debugSource)
+		return fail(
+			'ios.native-debugging',
+			'iOS application source unconditionally enables WebView inspection.',
+			debugSource,
+			'Remove unconditional WebView inspection from release source.'
+		);
+
+	return pass(
+		'ios.native-debugging',
+		'iOS source does not enable release debugger attachment or WebView inspection.',
+		entitlementsPath
+	);
+};
+
+const iosDeepLinkProjectionCheck = async (
+	config: NormalizedAbsoluteMobileConfig,
+	iosRoot: string
+) => {
+	const infoPath = join(iosRoot, 'App/App/Info.plist');
+	const entitlementsPath = join(iosRoot, 'App/AbsoluteJS.entitlements');
+	const projectPath = join(iosRoot, 'App/App.xcodeproj/project.pbxproj');
+	try {
+		const [info, entitlements, project] = await Promise.all([
+			readFile(infoPath, 'utf8'),
+			readFile(entitlementsPath, 'utf8'),
+			readFile(projectPath, 'utf8')
+		]);
+		if (
+			config.deepLinkScheme &&
+			(!info.includes('<key>CFBundleURLTypes</key>') ||
+				!info.includes(`<string>${config.deepLinkScheme}</string>`))
+		)
+			throw new TypeError(
+				'iOS custom URL scheme does not match mobile config.'
+			);
+		if (
+			config.deepLinkHosts.some(
+				(host) =>
+					!entitlements.includes(`<string>applinks:${host}</string>`)
+			)
+		)
+			throw new TypeError(
+				'iOS associated domains do not match mobile config.'
+			);
+		if (
+			!project.includes(
+				'CODE_SIGN_ENTITLEMENTS = App/AbsoluteJS.entitlements;'
+			)
+		)
+			throw new TypeError(
+				'iOS target does not sign the AbsoluteJS entitlements file.'
+			);
+
+		return pass(
+			'ios.deep-links',
+			'iOS universal links, custom scheme, and signed entitlements match mobile config.',
+			entitlementsPath
+		);
+	} catch (error) {
+		return fail(
+			'ios.deep-links',
+			error instanceof Error
+				? error.message
+				: 'iOS deep-link projection could not be validated.',
+			entitlementsPath,
+			'Run `absolute mobile sync ios` and review the AbsoluteJS-owned deep-link and entitlement projection.'
+		);
+	}
 };
 
 const syncSchemaReleaseCheck = (projectRoot: string) => {
@@ -338,6 +854,79 @@ const iosDevicePermissionCheck = async (
 	);
 };
 
+const iosCapabilityProjectionCheck = async (
+	config: NormalizedAbsoluteMobileConfig,
+	requirements: ReturnType<typeof absoluteDeviceNativeRequirements>
+) => {
+	if (!config.platforms.includes('ios')) return undefined;
+	const appRoot = join(config.nativeProjectDirectory, 'ios/App/App');
+	const infoPath = join(appRoot, 'Info.plist');
+	const info = await readFile(infoPath, 'utf8').catch(() => '');
+	if (
+		requirements.iosSystemBars &&
+		!/<key>UIViewControllerBasedStatusBarAppearance<\/key>\s*<true\s*\/>/u.test(
+			info
+		)
+	)
+		return fail(
+			'mobile.device-capabilities',
+			'iOS system-bar capability is missing its required view-controller setting.',
+			infoPath,
+			'Run `absolute mobile sync ios` to regenerate native capability settings.'
+		);
+	if (requirements.iosPrivacyAccessedApis.length > 0) {
+		const privacyPath = join(appRoot, 'PrivacyInfo.xcprivacy');
+		const projectPath = join(
+			config.nativeProjectDirectory,
+			'ios/App/App.xcodeproj/project.pbxproj'
+		);
+		const [privacy, project] = await Promise.all([
+			readFile(privacyPath, 'utf8').catch(() => ''),
+			readFile(projectPath, 'utf8').catch(() => '')
+		]);
+		const missing = requirements.iosPrivacyAccessedApis.some(
+			({ api, reasons }) =>
+				!privacy.includes(`<string>${api}</string>`) ||
+				reasons.some(
+					(reason) => !privacy.includes(`<string>${reason}</string>`)
+				)
+		);
+		if (missing || !project.includes('PrivacyInfo.xcprivacy in Resources'))
+			return fail(
+				'mobile.device-capabilities',
+				'iOS privacy manifest or target membership does not match detected native capabilities.',
+				privacyPath,
+				'Run `absolute mobile sync ios` to regenerate and target PrivacyInfo.xcprivacy.'
+			);
+	}
+	if (requirements.iosPushNotifications) {
+		const entitlementsPath = join(
+			config.nativeProjectDirectory,
+			'ios/App/AbsoluteJS.entitlements'
+		);
+		const delegatePath = join(appRoot, 'AppDelegate.swift');
+		const [entitlements, delegate] = await Promise.all([
+			readFile(entitlementsPath, 'utf8').catch(() => ''),
+			readFile(delegatePath, 'utf8').catch(() => '')
+		]);
+		if (
+			!entitlements.includes('<key>aps-environment</key>') ||
+			!delegate.includes('capacitorDidRegisterForRemoteNotifications') ||
+			!delegate.includes(
+				'capacitorDidFailToRegisterForRemoteNotifications'
+			)
+		)
+			return fail(
+				'mobile.device-capabilities',
+				'iOS push entitlement or AppDelegate forwarding does not match detected capabilities.',
+				entitlementsPath,
+				'Run `absolute mobile sync ios` to regenerate native push integration.'
+			);
+	}
+
+	return undefined;
+};
+
 const deviceCapabilityReleaseCheck = async (
 	config: NormalizedAbsoluteMobileConfig,
 	projectRoot: string
@@ -357,6 +946,11 @@ const deviceCapabilityReleaseCheck = async (
 			requirements.iosUsageDescriptions
 		);
 		if (iosCheck) return iosCheck;
+		const iosProjectionCheck = await iosCapabilityProjectionCheck(
+			config,
+			requirements
+		);
+		if (iosProjectionCheck) return iosProjectionCheck;
 
 		return pass(
 			'mobile.device-capabilities',
@@ -415,8 +1009,14 @@ const inspectAndroidRelease = async (
 	const checks = await Promise.all([
 		journalReleaseCheck(journalPath, 'android'),
 		capacitorConfigReleaseCheck(nativeConfigPath),
+		capacitorIdentityCheck(config, 'android', nativeConfigPath),
 		manifestReleaseCheck(manifestPath),
-		hmrAssetsReleaseCheck(publicRoot)
+		hmrAssetsReleaseCheck(publicRoot),
+		embeddedBundleReleaseCheck(config, projectRoot, 'android', publicRoot),
+		contentSecurityPolicyCheck(config, 'android', publicRoot),
+		androidNativeSecurityCheck(androidRoot),
+		androidExportedComponentsCheck(manifestPath),
+		androidDeepLinkProjectionCheck(config, manifestPath)
 	]);
 
 	return checks.map((check) => ({
@@ -491,6 +1091,7 @@ const inspectIosRelease = async (
 			)
 		);
 	}
+	checks.push(await capacitorIdentityCheck(config, 'ios', nativeConfigPath));
 	if (!(await pathExists(infoPath))) {
 		checks.push(
 			fail(
@@ -532,6 +1133,22 @@ const inspectIosRelease = async (
 					publicRoot
 				)
 	);
+	checks.push(
+		await embeddedBundleReleaseCheck(
+			config,
+			projectRoot,
+			'ios',
+			publicRoot
+		),
+		await contentSecurityPolicyCheck(config, 'ios', publicRoot),
+		await iosNativeSecurityCheck(
+			join(config.nativeProjectDirectory, 'ios')
+		),
+		await iosDeepLinkProjectionCheck(
+			config,
+			join(config.nativeProjectDirectory, 'ios')
+		)
+	);
 
 	return checks.map((check) => ({
 		...check,
@@ -541,15 +1158,49 @@ const inspectIosRelease = async (
 	}));
 };
 
+export const createAbsoluteMobileComplianceReport = (
+	config: NormalizedAbsoluteMobileConfig,
+	result: AbsoluteMobileReleaseDoctorResult
+): AbsoluteMobileComplianceReport => {
+	const summary: AbsoluteMobileComplianceReport['summary'] = {
+		failed: result.checks.filter(({ status }) => status === 'fail').length,
+		passed: result.checks.filter(({ status }) => status === 'pass').length,
+		warnings: result.checks.filter(({ status }) => status === 'warn').length
+	};
+
+	return {
+		app: {
+			appId: config.appId,
+			engine: config.engine,
+			platforms: [...config.platforms],
+			productionOrigin: config.productionOrigin
+		},
+		checks: result.checks.map(({ id, status }) => ({ id, status })),
+		format: ABSOLUTE_MOBILE_COMPLIANCE_REPORT_FORMAT,
+		manualReview: [...MANUAL_REVIEW],
+		ready: result.ready,
+		summary
+	};
+};
+
 export const inspectAbsoluteMobileRelease = async (
 	config: NormalizedAbsoluteMobileConfig,
 	projectRoot: string
 ): Promise<AbsoluteMobileReleaseDoctorResult> => {
-	const checks: AbsoluteMobileReleaseCheck[] = config.platforms.includes(
-		'android'
-	)
-		? await inspectAndroidRelease(config, projectRoot)
-		: [];
+	const globalChecks = await Promise.all([
+		Promise.resolve(productionOriginCheck(config, projectRoot)),
+		Promise.resolve(associationIdentityCheck(config, projectRoot)),
+		dependencyLockCheck(projectRoot),
+		capacitorVersionCheck(config, projectRoot)
+	]);
+	const checks: AbsoluteMobileReleaseCheck[] = globalChecks.map((check) => ({
+		...check,
+		path: check.path
+			? relative(projectRoot, check.path).replaceAll('\\', '/') || '.'
+			: undefined
+	}));
+	if (config.platforms.includes('android'))
+		checks.push(...(await inspectAndroidRelease(config, projectRoot)));
 	if (config.platforms.includes('ios')) {
 		checks.push(...(await inspectIosRelease(config, projectRoot)));
 	}
@@ -583,6 +1234,6 @@ export const inspectAbsoluteMobileRelease = async (
 		checks,
 		ready:
 			checks.length > 0 &&
-			checks.every((check) => check.status === 'pass')
+			checks.every((check) => check.status !== 'fail')
 	};
 };

@@ -1,7 +1,7 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.37` and
+`@absolutejs/absolute@0.20.0-beta.38` and
 `@absolutejs/deploy@0.24.0`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
 
@@ -103,7 +103,7 @@ done
 
 If `application root: OK` is not printed, stop: this is the wrong directory. If
 the config or server-entry path differs from the examples below, substitute the
-paths supplied with the staging application. Sections 3–5 install beta.37,
+paths supplied with the staging application. Sections 3–5 install beta.38,
 configure mobile, generate `mobile/ios`, and complete Xcode signing.
 
 Before changing anything, capture a read-only, redacted inventory from this
@@ -262,7 +262,7 @@ still requires the developer team setup described below.
 From the root of the AbsoluteJS application:
 
 ```sh
-bun add @absolutejs/absolute@0.20.0-beta.37 \
+bun add @absolutejs/absolute@0.20.0-beta.38 \
   @absolutejs/auth@0.75.0 \
   @absolutejs/dispatch@0.9.0 \
   @absolutejs/sync@2.29.0 \
@@ -1259,8 +1259,18 @@ documented in `docs/REMOTE_IOS_DEVELOPMENT.md`.
 bunx absolute mobile doctor ios
 bunx absolute mobile sync ios
 bunx absolute mobile doctor release
+bunx absolute mobile doctor release --json > absolute-mobile-compliance.json
 bunx absolute mobile build ios
 ```
+
+Run these commands from the staging application root identified in Track B,
+not from the AbsoluteJS framework checkout. Return
+`absolute-mobile-compliance.json` with the partner report. It intentionally
+contains no local paths, detailed failure text, credentials, signing
+fingerprints, account/device identifiers, or environment values. A passing
+report still lists manual review for physical-device behavior, store privacy
+questionnaires, policy, signing-key custody, and third-party native SDK data
+practices.
 
 For a Sync-enabled app, also open
 `.absolutejs/mobile/web/absolute-mobile-manifest.json` and confirm
@@ -1504,7 +1514,7 @@ source change and build a new content-addressed release instead.
 - Mac architecture:
 - Xcode version:
 - Bun version:
-- AbsoluteJS version: 0.20.0-beta.37
+- AbsoluteJS version: 0.20.0-beta.38
 - Auth version: 0.75.0
 - Dispatch version: 0.9.0
 - Sync version: 2.29.0

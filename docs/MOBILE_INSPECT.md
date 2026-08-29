@@ -60,6 +60,19 @@ synchronized. Run the detailed doctor locally for remediation:
 bunx absolute mobile doctor release --config absolute.config.ts
 ```
 
+For a redacted CI release-compliance artifact, use:
+
+```sh
+bunx absolute mobile doctor release --config absolute.config.ts --json
+```
+
+Unlike the detailed human doctor, this JSON contains no paths, details, or
+remediation text. It reports public app identity/origin/platform facts,
+format-versioned check IDs and statuses, aggregate totals, and the manual review
+categories that static analysis cannot prove. The enforced boundary and each
+manual obligation are documented in
+[`MOBILE_SECURITY_THREAT_MODEL.md`](MOBILE_SECURITY_THREAT_MODEL.md).
+
 ## Safe sharing boundary
 
 The JSON report intentionally excludes credentials, environment values,
@@ -68,4 +81,3 @@ release-doctor detail strings, and absolute filesystem paths. Application IDs,
 package versions, configured public origins, deep-link hosts/schemes, routes,
 and project-relative paths are not treated as secrets. Review those public
 identifiers before sharing if the project itself is confidential.
-

@@ -34,7 +34,10 @@ import {
 	type AbsoluteAndroidRouteCheck
 } from '../../mobile/androidConformance';
 import { sendTelemetryEvent } from '../telemetryEvent';
-import { inspectAbsoluteMobileRelease } from '../../mobile/releaseDoctor';
+import {
+	createAbsoluteMobileComplianceReport,
+	inspectAbsoluteMobileRelease
+} from '../../mobile/releaseDoctor';
 import { buildAbsoluteAndroidRelease } from '../../mobile/androidRelease';
 import { buildAbsoluteIosRelease } from '../../mobile/iosRelease';
 import {
@@ -554,7 +557,13 @@ const runReleaseDoctor = async (args: string[]) => {
 	);
 	const result = await inspectAbsoluteMobileRelease(mobile, projectRoot);
 	if (args.includes('--json')) {
-		console.log(JSON.stringify(result, null, 2));
+		console.log(
+			JSON.stringify(
+				createAbsoluteMobileComplianceReport(mobile, result),
+				null,
+				2
+			)
+		);
 	} else {
 		result.checks.forEach((check) => {
 			console.log(
@@ -564,8 +573,8 @@ const runReleaseDoctor = async (args: string[]) => {
 		});
 		console.log(
 			result.ready
-				? '\nMobile release transport checks passed.'
-				: '\nMobile release transport checks failed.'
+				? '\nMobile release security and compliance checks passed.'
+				: '\nMobile release security and compliance checks failed.'
 		);
 	}
 	if (!result.ready) {
