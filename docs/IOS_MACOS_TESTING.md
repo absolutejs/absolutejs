@@ -1,7 +1,7 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.35` and
+`@absolutejs/absolute@0.20.0-beta.36` and
 `@absolutejs/deploy@0.24.0`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
 
@@ -38,7 +38,7 @@ cloned repository root, which contains this repository's `package.json`,
 ```sh
 git clone https://github.com/absolutejs/absolutejs.git
 cd absolutejs
-git checkout 10310e067cc0541984c4e6d4a68bb4ac2334a512
+git checkout a3edb8295b3fcf30efa707e1e5dcffcaf50968e6
 bun install --frozen-lockfile
 xcodebuild -version
 xcrun simctl list runtimes
@@ -50,7 +50,7 @@ If the repository was already cloned, use this instead:
 ```sh
 cd /absolute/path/to/the/absolutejs-clone
 git fetch origin
-git checkout 10310e067cc0541984c4e6d4a68bb4ac2334a512
+git checkout a3edb8295b3fcf30efa707e1e5dcffcaf50968e6
 bun install --frozen-lockfile
 bun run test:native:ios
 ```
@@ -103,7 +103,7 @@ done
 
 If `application root: OK` is not printed, stop: this is the wrong directory. If
 the config or server-entry path differs from the examples below, substitute the
-paths supplied with the staging application. Sections 3–5 install beta.35,
+paths supplied with the staging application. Sections 3–5 install beta.36,
 configure mobile, generate `mobile/ios`, and complete Xcode signing.
 
 For Simulator development, Terminal 1 runs:
@@ -248,7 +248,7 @@ still requires the developer team setup described below.
 From the root of the AbsoluteJS application:
 
 ```sh
-bun add @absolutejs/absolute@0.20.0-beta.35 \
+bun add @absolutejs/absolute@0.20.0-beta.36 \
   @absolutejs/auth@0.75.0 \
   @absolutejs/dispatch@0.9.0 \
   @absolutejs/sync@2.29.0 \
@@ -1490,7 +1490,7 @@ source change and build a new content-addressed release instead.
 - Mac architecture:
 - Xcode version:
 - Bun version:
-- AbsoluteJS version: 0.20.0-beta.35
+- AbsoluteJS version: 0.20.0-beta.36
 - Auth version: 0.75.0
 - Dispatch version: 0.9.0
 - Sync version: 2.29.0
