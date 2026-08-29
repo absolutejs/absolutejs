@@ -250,7 +250,7 @@ if (command === 'dev') {
 		'  compile [entry] [--outdir dir] [--outfile path] Compile standalone executable'
 	);
 	console.error(
-		'  mobile <init|sync|inspect|pair|remotes|doctor|test> Manage Capacitor projects, simulators, physical devices, Remote Macs, guided setup, and deep links'
+		'  mobile <init|sync|inspect|ci|pair|remotes|doctor|test> Manage Capacitor projects, CI, simulators, physical devices, Remote Macs, guided setup, and deep links'
 	);
 	console.error(
 		'  config [--port n] Open the unified config UI (ESLint, tsconfig, Prettier)'

@@ -162,6 +162,50 @@ describe('Android production releases', () => {
 		expect(release.metadata.signed).toBe(false);
 	});
 
+	test('signs CI output without putting passwords in command arguments', async () => {
+		const { config, projectRoot, run } = await fixture();
+		const commands: string[][] = [];
+		let signed = false;
+		const capture = (command: string[]) => {
+			commands.push(command);
+			if (command.includes('-verify'))
+				return {
+					exitCode: signed ? 0 : 1,
+					stderr: '',
+					stdout: signed ? 'jar verified.\n' : ''
+				};
+			signed = true;
+
+			return { exitCode: 0, stderr: '', stdout: '' };
+		};
+		const release = await buildAbsoluteAndroidRelease({
+			androidRoot: '/sdk',
+			capture,
+			config,
+			host: 'linux',
+			jarsigner: '/jdk/bin/jarsigner',
+			projectRoot,
+			run,
+			signing: {
+				keyAlias: 'upload',
+				keyPasswordEnvironment: 'ABSOLUTE_ANDROID_KEY_PASSWORD',
+				keystorePath: '/runner/absolute-release.jks',
+				storePasswordEnvironment: 'ABSOLUTE_ANDROID_KEYSTORE_PASSWORD'
+			}
+		});
+		const signCommand = commands.find(
+			(command) => !command.includes('-verify')
+		);
+
+		expect(release.metadata.signed).toBe(true);
+		expect(signCommand).toContain('-storepass:env');
+		expect(signCommand).toContain('ABSOLUTE_ANDROID_KEYSTORE_PASSWORD');
+		expect(signCommand).toContain('-keypass:env');
+		expect(signCommand).toContain('ABSOLUTE_ANDROID_KEY_PASSWORD');
+		expect(commands.flat().join(' ')).not.toContain('store-secret');
+		expect(commands.flat().join(' ')).not.toContain('key-secret');
+	});
+
 	test('injects an automatically prepared Google Play version code into Gradle and metadata', async () => {
 		const { artifactPath, config, projectRoot } = await fixture();
 		const commands: string[][] = [];

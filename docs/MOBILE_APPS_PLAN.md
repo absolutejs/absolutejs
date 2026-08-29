@@ -17,6 +17,18 @@ Adversarial coverage mutates assets, dependency pins, native debugging, exports,
 privacy projection, live transport, HMR, and cleartext settings. The formal
 boundary and residual risks are in `MOBILE_SECURITY_THREAT_MODEL.md`.
 
+Implementation checkpoint (August 29, 2026, generated CI slice):
+`absolute mobile ci github` derives a deterministic GitHub Actions workflow from
+the effective mobile config. Pull requests perform a secret-free production
+bundle build with SHA-256 and capability enforcement. Protected manual jobs
+import ephemeral Android/iOS signing material, build and re-audit one selected
+platform, optionally create provenance attestations, retain immutable artifacts,
+and compose the existing Google Play/TestFlight publishers. Jobs are serialized
+per repository and never interpolate workflow inputs as shell source. Android CI
+can sign an otherwise unsigned AAB through AbsoluteJS using `jarsigner` password
+environment references, so ordinary applications need no CI-specific Gradle
+edit. The setup and rotation contract is in [MOBILE_CI.md](./MOBILE_CI.md).
+
 Implementation checkpoint (August 29, 2026): the planned read-only
 `absolute mobile inspect` command is now implemented. Human and JSON output
 inventory the effective config, project-relative native/bundle paths, runtime
@@ -3067,7 +3079,12 @@ Exit criteria:
 
 ### Phase 7: Expo v2 R&D and experimental release
 
-Start only after Capacitor v1 is stable. Follow the Expo milestones above and ship behind `engine: 'expo'` with an experimental warning until bridge, route ownership, and lifecycle gates pass.
+Expo R&D may start while real iOS Capacitor acceptance is pending because it is
+a separate renderer and shell experiment. It must remain behind `engine: 'expo'`
+with an experimental warning. Capacitor's real iOS findings become shared bridge
+regression requirements, and Expo cannot be called production-ready until Auth,
+Sync, deep links, lifecycle, signing, upgrade, and physical-device gates pass for
+both shells.
 
 ## Documentation set
 

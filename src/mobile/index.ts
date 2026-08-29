@@ -19,6 +19,7 @@ export * from './deviceCapabilities';
 export * from './capacitorProject';
 export * from './config';
 export * from './client';
+export * from './ciWorkflow';
 export * from './compatibilityDispatcher';
 export * from './materializedBundle';
 export * from './mobilePreview';

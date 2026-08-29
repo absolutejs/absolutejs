@@ -1,10 +1,12 @@
-import { access, readFile, stat } from 'node:fs/promises';
+import { access, readFile } from 'node:fs/promises';
 import { join, relative, resolve } from 'node:path';
 import type { NormalizedAbsoluteMobileConfig } from './config';
 import { resolveAbsoluteDeviceCapabilityPlan } from './deviceCapabilities';
 import { inspectAbsoluteMobileRelease } from './releaseDoctor';
-import type { AbsoluteMobileCompatibilityRoute } from './releaseArtifact';
-import { resolveAbsoluteMobileRoute } from './routeMatcher';
+import {
+	inspectAbsoluteMobileBundle,
+	type MobileBundleInspection
+} from './mobileBundleInspection';
 
 export const ABSOLUTE_MOBILE_INSPECTION_FORMAT = 1 as const;
 
@@ -14,21 +16,6 @@ type MobilePackageInspection = {
 	declared: string;
 	installed?: string;
 	name: string;
-};
-
-type MobileBundleInspection = {
-	appBuild?: string;
-	auth?: boolean;
-	capabilities?: string[];
-	entryResolved?: boolean;
-	frameworks?: string[];
-	issue?: string;
-	manifest: string;
-	pageCount?: number;
-	routeCount?: number;
-	runtime?: string;
-	status: 'invalid' | 'missing' | 'valid';
-	sync?: boolean;
 };
 
 export type AbsoluteMobileProjectInspection = {
@@ -71,11 +58,6 @@ export type InspectAbsoluteMobileProjectOptions = {
 	inspectRelease?: typeof inspectAbsoluteMobileRelease;
 };
 
-type InspectBundle = (
-	config: NormalizedAbsoluteMobileConfig,
-	projectRoot: string
-) => Promise<MobileBundleInspection>;
-
 const MOBILE_PACKAGE_NAMES = new Set([
 	'@absolutejs/absolute',
 	'@absolutejs/auth',
@@ -87,16 +69,6 @@ const MOBILE_PACKAGE_NAMES = new Set([
 	'@absolutejs/sync-capacitor',
 	'@capacitor-community/sqlite'
 ]);
-const MOBILE_FRAMEWORKS = new Set([
-	'angular',
-	'ember',
-	'html',
-	'htmx',
-	'react',
-	'svelte',
-	'vue'
-]);
-
 const isObject = (value: unknown): value is JsonObject =>
 	typeof value === 'object' && value !== null && !Array.isArray(value);
 
@@ -124,167 +96,6 @@ const readObject = async (path: string) => {
 	if (!isObject(value)) throw new TypeError('JSON root must be an object.');
 
 	return value;
-};
-
-const requireString = (value: unknown, field: string) => {
-	if (typeof value !== 'string' || value.length === 0)
-		throw new TypeError(`${field} must be a non-empty string.`);
-
-	return value;
-};
-
-const requireStringArray = (value: unknown, field: string) => {
-	if (
-		!Array.isArray(value) ||
-		!value.every((item): item is string => typeof item === 'string')
-	)
-		throw new TypeError(`${field} must be a string array.`);
-
-	return value;
-};
-
-const requireBundleFile = async (
-	root: string,
-	value: unknown,
-	field: string
-) => {
-	const portable = requireString(value, field);
-	const path = resolve(root, portable);
-	const normalizedRoot = resolve(root);
-	if (path === normalizedRoot || !path.startsWith(`${normalizedRoot}/`))
-		throw new TypeError(`${field} must remain inside the mobile bundle.`);
-	if (!(await stat(path).catch(() => undefined))?.isFile())
-		throw new TypeError(`${field} does not exist in the mobile bundle.`);
-
-	return portable;
-};
-
-const inspectBundle: InspectBundle = async (
-	config: NormalizedAbsoluteMobileConfig,
-	projectRoot: string
-) => {
-	const manifestPath = join(
-		config.bundleDirectory,
-		'absolute-mobile-manifest.json'
-	);
-	const manifest = portablePath(projectRoot, manifestPath);
-	if (!(await pathExists(manifestPath)))
-		return { manifest, status: 'missing' };
-
-	try {
-		const value = await readObject(manifestPath);
-		if (value.format !== 1)
-			throw new TypeError('format is not supported by this runtime.');
-		if (requireString(value.appId, 'appId') !== config.appId)
-			throw new TypeError(
-				'appId does not match the effective mobile config.'
-			);
-		if (
-			requireString(value.productionOrigin, 'productionOrigin') !==
-			config.productionOrigin
-		)
-			throw new TypeError(
-				'productionOrigin does not match the effective mobile config.'
-			);
-		const appBuild = requireString(value.appBuild, 'appBuild');
-		const runtime = requireString(value.runtime, 'runtime');
-		const capabilities = requireStringArray(
-			value.deviceCapabilities,
-			'deviceCapabilities'
-		).sort();
-		if (!Array.isArray(value.pages) || !Array.isArray(value.routes))
-			throw new TypeError('pages and routes must be arrays.');
-		const pageIds = new Set<string>();
-		const frameworks = new Set<string>();
-		await Promise.all(
-			value.pages.map(async (candidate) => {
-				if (!isObject(candidate))
-					throw new TypeError('pages contains an invalid entry.');
-				const pageId = requireString(candidate.pageId, 'page.pageId');
-				if (pageIds.has(pageId))
-					throw new TypeError('page.pageId values must be unique.');
-				pageIds.add(pageId);
-				const framework = requireString(
-					candidate.framework,
-					'page.framework'
-				);
-				if (!MOBILE_FRAMEWORKS.has(framework))
-					throw new TypeError('page.framework is unsupported.');
-				frameworks.add(framework);
-				requireString(candidate.bundleHash, 'page.bundleHash');
-				requireString(candidate.contract, 'page.contract');
-				requireString(
-					candidate.propsSchemaHash,
-					'page.propsSchemaHash'
-				);
-				await requireBundleFile(
-					config.bundleDirectory,
-					candidate.localBundlePath,
-					'page.localBundlePath'
-				);
-				if (candidate.localStylePath !== undefined)
-					await requireBundleFile(
-						config.bundleDirectory,
-						candidate.localStylePath,
-						'page.localStylePath'
-					);
-			})
-		);
-		const routes = value.routes.map<AbsoluteMobileCompatibilityRoute>(
-			(candidate) => {
-				if (!isObject(candidate))
-					throw new TypeError('routes contains an invalid entry.');
-				const { method } = candidate;
-				if (method !== 'GET' && method !== 'HEAD')
-					throw new TypeError('route.method must be GET or HEAD.');
-				const pageId = requireString(candidate.pageId, 'route.pageId');
-				if (!pageIds.has(pageId))
-					throw new TypeError(
-						'route.pageId references a missing page.'
-					);
-
-				return {
-					method,
-					pageId,
-					pattern: requireString(candidate.pattern, 'route.pattern')
-				};
-			}
-		);
-		await Promise.all(
-			['index.html', 'absolute-mobile-bootstrap.js'].map((file) =>
-				requireBundleFile(config.bundleDirectory, file, file)
-			)
-		);
-		const entryPath = new URL(config.entry, 'https://absolute.invalid')
-			.pathname;
-		const entryResolved =
-			resolveAbsoluteMobileRoute(routes, entryPath) !== undefined;
-		if (!entryResolved)
-			throw new TypeError('entry is not owned by an embedded route.');
-
-		return {
-			appBuild,
-			auth: isObject(value.auth),
-			capabilities,
-			entryResolved,
-			frameworks: [...frameworks].sort(),
-			manifest,
-			pageCount: value.pages.length,
-			routeCount: value.routes.length,
-			runtime,
-			status: 'valid',
-			sync: isObject(value.sync)
-		};
-	} catch (error) {
-		return {
-			issue:
-				error instanceof Error
-					? error.message
-					: 'The embedded mobile manifest is invalid.',
-			manifest,
-			status: 'invalid'
-		};
-	}
 };
 
 const addPackageDeclarations = (
@@ -336,7 +147,7 @@ export const inspectAbsoluteMobileProject = async (
 	projectRoot: string,
 	options: InspectAbsoluteMobileProjectOptions = {}
 ) => {
-	const bundle = await inspectBundle(config, projectRoot);
+	const bundle = await inspectAbsoluteMobileBundle(config, projectRoot);
 	let currentCapabilities: string[] = [];
 	let capabilityIssue: string | undefined;
 	let plugins: string[] = [];

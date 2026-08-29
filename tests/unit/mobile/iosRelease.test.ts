@@ -66,6 +66,7 @@ describe('iOS production releases', () => {
 		const identities: string[] = [];
 		const release = await buildAbsoluteIosRelease({
 			config,
+			developmentTeam: 'abcde12345',
 			host: 'macos',
 			projectRoot,
 			run,
@@ -79,6 +80,7 @@ describe('iOS production releases', () => {
 		expect(identities[0]).toMatch(/^[a-f0-9]{64}$/u);
 		expect(commands[0]).toContain('MARKETING_VERSION=1.4.0');
 		expect(commands[0]).toContain('CURRENT_PROJECT_VERSION=8');
+		expect(commands[0]).toContain('DEVELOPMENT_TEAM=ABCDE12345');
 		expect(commands[1]).toContain('-exportArchive');
 		expect(release.metadata).toMatchObject({
 			appId: 'com.example.release',
@@ -99,6 +101,15 @@ describe('iOS production releases', () => {
 
 	test('requires macOS, a marketing version, and signing by default', async () => {
 		const { config, projectRoot, run } = await fixture();
+		await expect(
+			buildAbsoluteIosRelease({
+				config,
+				developmentTeam: 'unsafe-team',
+				host: 'macos',
+				projectRoot,
+				run
+			})
+		).rejects.toThrow('development team');
 		await expect(
 			buildAbsoluteIosRelease({ config, host: 'linux', projectRoot, run })
 		).rejects.toThrow('require macOS');

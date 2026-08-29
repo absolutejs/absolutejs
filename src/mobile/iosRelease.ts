@@ -52,12 +52,24 @@ export type BuildAbsoluteIosReleaseOptions = {
 	allowUnsigned?: boolean;
 	capture?: (command: string[], options?: CommandOptions) => CommandResult;
 	config: NormalizedAbsoluteMobileConfig;
+	developmentTeam?: string;
 	host?: AbsoluteMobileHost;
 	outputDirectory?: string;
 	prepareBuildNumber?: (buildIdentity: string) => Promise<number>;
 	projectRoot: string;
 	run?: (command: string[], options?: CommandOptions) => Promise<number>;
 	buildNumber?: number;
+};
+
+const developmentTeamArgument = (value: string | undefined) => {
+	if (value === undefined) return undefined;
+	const team = value.trim().toUpperCase();
+	if (!/^[A-Z0-9]{10}$/u.test(team))
+		throw new TypeError(
+			'iOS development team must contain ten letters or digits.'
+		);
+
+	return `DEVELOPMENT_TEAM=${team}`;
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -367,8 +379,12 @@ export const buildAbsoluteIosRelease = async (
 	await writeFile(exportPlist, exportOptions());
 	const run = options.run ?? defaultRun;
 	try {
+		const developmentTeam = developmentTeamArgument(
+			options.developmentTeam
+		);
 		const versionArguments = [
 			`MARKETING_VERSION=${marketingVersion}`,
+			...(developmentTeam ? [developmentTeam] : []),
 			...(buildNumber === undefined
 				? []
 				: [`CURRENT_PROJECT_VERSION=${buildNumber}`])

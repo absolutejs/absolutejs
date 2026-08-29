@@ -1,5 +1,5 @@
 import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import type { MobileConfig } from '../../../types/build';
 import { installPackages } from '../add/dependencies';
@@ -92,6 +92,7 @@ import {
 	inspectAbsoluteMobileProject,
 	renderAbsoluteMobileProjectInspection
 } from '../../mobile/mobileInspect';
+import { writeAbsoluteMobileGithubWorkflow } from '../../mobile/ciWorkflow';
 
 const NOT_FOUND = -1;
 
@@ -132,6 +133,15 @@ type IosTestReport = {
 	status: 'pass';
 	target: 'device' | 'simulator';
 	targetId: string;
+};
+
+type MobileCiPublicResult = {
+	changed: boolean;
+	format: number;
+	path: string;
+	platforms: ('android' | 'ios')[];
+	publishing: boolean;
+	requiredSecrets: string[];
 };
 
 const CAPACITOR_PACKAGES = [
@@ -368,12 +378,25 @@ const inspectMobile = async (args: string[]) => {
 	const report = await inspectAbsoluteMobileProject(mobile, projectRoot, {
 		absolutejsVersion: await absolutejsVersionForReport()
 	});
+	const requireBundle = () => {
+		if (!args.includes('--require-bundle')) return;
+		if (
+			report.bundle.status !== 'valid' ||
+			report.capabilities.issue ||
+			report.capabilities.embeddedMatchesCurrent !== true
+		)
+			throw new TypeError(
+				'Mobile bundle validation failed. Regenerate the production bundle and resolve capability drift.'
+			);
+	};
 	if (args.includes('--json')) {
 		console.log(JSON.stringify(report, null, 2));
+		requireBundle();
 
 		return report;
 	}
 	console.log(renderAbsoluteMobileProjectInspection(report).trimEnd());
+	requireBundle();
 
 	return report;
 };
@@ -510,6 +533,80 @@ const associations = async (args: string[]) => {
 	);
 };
 
+const mobileCiServerEntry = (args: string[]) => {
+	const valueFlags = new Set([
+		'--config',
+		'--output',
+		'--registry',
+		'--secret-env'
+	]);
+	const skipped = new Set<number>();
+	args.forEach((value, index) => {
+		if (!valueFlags.has(value)) return;
+		skipped.add(index);
+		skipped.add(index + 1);
+	});
+
+	return (
+		args.find(
+			(value, index) =>
+				!skipped.has(index) &&
+				value !== 'github' &&
+				!value.startsWith('-')
+		) ?? DEFAULT_SERVER_ENTRY
+	);
+};
+
+const generateGithubCi = async (args: string[]) => {
+	if (args[0] !== 'github')
+		throw new TypeError(
+			'Usage: absolute mobile ci github [server-entry] [--publish] [--registry module] [--secret-env NAME] [--output path] [--force] [--json] [--config path]'
+		);
+	const configPath = valueAfter(args, '--config');
+	const { mobile, projectRoot } = await loadMobile(configPath);
+	const result = await writeAbsoluteMobileGithubWorkflow({
+		config: mobile,
+		configPath,
+		force: args.includes('--force'),
+		includePublishing: args.includes('--publish'),
+		outputPath: valueAfter(args, '--output'),
+		projectRoot,
+		registryModule: valueAfter(args, '--registry'),
+		secretEnvironment: valuesAfter(args, '--secret-env'),
+		serverEntry: mobileCiServerEntry(args)
+	});
+	sendTelemetryEvent('mobile:ci-generated', {
+		platformCount: result.platforms.length,
+		provider: 'github-actions',
+		publishing: result.publishing
+	});
+	const publicResult: MobileCiPublicResult = {
+		changed: result.changed,
+		format: result.format,
+		path: relative(projectRoot, result.path).replaceAll('\\', '/'),
+		platforms: result.platforms,
+		publishing: result.publishing,
+		requiredSecrets: result.requiredSecrets
+	};
+	if (args.includes('--json')) {
+		console.log(JSON.stringify(publicResult, null, 2));
+
+		return publicResult;
+	}
+	console.log(
+		`${result.changed ? 'Generated' : 'Verified'} ${publicResult.path} for ${result.platforms.join(' and ')}.`
+	);
+	console.log(
+		'Create a protected GitHub environment named absolute-mobile-release, then add these secrets:'
+	);
+	result.requiredSecrets.forEach((name) => console.log(`  ${name}`));
+	console.log(
+		'Pull requests run the secret-free release audit. Signed builds and optional publishing run only through manual workflow dispatch.'
+	);
+
+	return publicResult;
+};
+
 const doctorMark = (status: AbsoluteMobileDoctorCheck['status']) => {
 	if (status === 'pass') return '\x1b[32m✓\x1b[0m';
 	if (status === 'fail') return '\x1b[31m✗\x1b[0m';
@@ -555,11 +652,20 @@ const runReleaseDoctor = async (args: string[]) => {
 	const { mobile, projectRoot } = await loadMobile(
 		valueAfter(args, '--config')
 	);
-	const result = await inspectAbsoluteMobileRelease(mobile, projectRoot);
+	const platform = args.find(
+		(value) => value === 'android' || value === 'ios'
+	);
+	const effectiveMobile = platform
+		? { ...mobile, platforms: [platform] }
+		: mobile;
+	const result = await inspectAbsoluteMobileRelease(
+		effectiveMobile,
+		projectRoot
+	);
 	if (args.includes('--json')) {
 		console.log(
 			JSON.stringify(
-				createAbsoluteMobileComplianceReport(mobile, result),
+				createAbsoluteMobileComplianceReport(effectiveMobile, result),
 				null,
 				2
 			)
@@ -824,6 +930,31 @@ const requireAndroidReleaseReady = async (
 	);
 };
 
+const androidCiSigning = () => {
+	const keyAlias = process.env.ABSOLUTE_ANDROID_KEY_ALIAS;
+	const keyPassword = process.env.ABSOLUTE_ANDROID_KEY_PASSWORD;
+	const keystorePath = process.env.ABSOLUTE_ANDROID_KEYSTORE_PATH;
+	const storePassword = process.env.ABSOLUTE_ANDROID_KEYSTORE_PASSWORD;
+	const supplied = [
+		keyAlias,
+		keyPassword,
+		keystorePath,
+		storePassword
+	].filter((value) => value !== undefined && value !== '').length;
+	if (supplied === 0) return undefined;
+	if (!keyAlias || !keyPassword || !keystorePath || !storePassword)
+		throw new TypeError(
+			'AbsoluteJS CI signing requires ABSOLUTE_ANDROID_KEYSTORE_PATH, ABSOLUTE_ANDROID_KEYSTORE_PASSWORD, ABSOLUTE_ANDROID_KEY_ALIAS, and ABSOLUTE_ANDROID_KEY_PASSWORD together.'
+		);
+
+	return {
+		keyAlias,
+		keyPasswordEnvironment: 'ABSOLUTE_ANDROID_KEY_PASSWORD',
+		keystorePath,
+		storePasswordEnvironment: 'ABSOLUTE_ANDROID_KEYSTORE_PASSWORD'
+	};
+};
+
 const buildAndroid = async (
 	args: string[],
 	prepareVersionCode?: (buildIdentity: string) => Promise<number>
@@ -860,6 +991,7 @@ const buildAndroid = async (
 			config: mobile,
 			outputDirectory: valueAfter(args, '--outdir'),
 			projectRoot,
+			signing: androidCiSigning(),
 			...(prepareVersionCode === undefined ? {} : { prepareVersionCode })
 		});
 		success = true;
@@ -1018,6 +1150,7 @@ const buildIos = async (
 		const release = await buildAbsoluteIosRelease({
 			allowUnsigned: args.includes('--unsigned'),
 			config: mobile,
+			developmentTeam: process.env.ABSOLUTE_IOS_DEVELOPMENT_TEAM,
 			outputDirectory: valueAfter(args, '--outdir'),
 			...(prepareBuildNumber === undefined ? {} : { prepareBuildNumber }),
 			projectRoot
@@ -2379,6 +2512,11 @@ export const runMobile = async (args: string[]) => {
 
 		return;
 	}
+	if (command === 'ci') {
+		await generateGithubCi(args.slice(1));
+
+		return;
+	}
 	if (command === 'doctor') {
 		await doctor(args.slice(1));
 
@@ -2421,6 +2559,6 @@ export const runMobile = async (args: string[]) => {
 	}
 
 	throw new TypeError(
-		'Usage: absolute mobile <pair mac <name> <user@host> [--port n] [--workspace path] | remotes [--json] | unpair mac <name> | init [--no-native] [--force] | sync [ios|android] | inspect [--json] | associations [--outdir dir] [--verify] | doctor [ios|android|release] [--remote name] [--json|--fix [--yes]] | build <android|ios> [server-entry] [--outdir dir] [--web-outdir dir] [--unsigned] | publish android [server-entry] [--registry module] [--channel name] [--play-track track] [--play-status completed|draft|halted|in-progress] [--play-rollout fraction] [--play-name name] [--play-notes language=text] [--play-update-priority 0..5] [--play-hold-review] [--play-cancel-existing-review] [--outdir dir] [--web-outdir dir] [--unsigned] | publish ios [server-entry] [--registry module] [--channel name] [--testflight-group name-or-id] [--testflight-notes locale=text] [--testflight-submit-review] [--outdir dir] [--web-outdir dir] [--unsigned] | test android [--route path] [--wait-for-hmr] [--report [dir]] [--timeout ms] [--port n] [--serial id] [--artifacts dir] [--json] | test ios [--device identifier [--remote name] | --udid id] [--wait-for-hmr] [--report [dir]] [--timeout ms] [--port n] [--artifacts dir] [--json]> [--config path]'
+		'Usage: absolute mobile <pair mac <name> <user@host> [--port n] [--workspace path] | remotes [--json] | unpair mac <name> | init [--no-native] [--force] | sync [ios|android] | inspect [--json] [--require-bundle] | associations [--outdir dir] [--verify] | ci github [server-entry] [--publish] [--registry module] [--secret-env NAME] [--output path] [--force] [--json] | doctor [ios|android|release [ios|android]] [--remote name] [--json|--fix [--yes]] | build <android|ios> [server-entry] [--outdir dir] [--web-outdir dir] [--unsigned] | publish android [server-entry] [--registry module] [--channel name] [--play-track track] [--play-status completed|draft|halted|in-progress] [--play-rollout fraction] [--play-name name] [--play-notes language=text] [--play-update-priority 0..5] [--play-hold-review] [--play-cancel-existing-review] [--outdir dir] [--web-outdir dir] [--unsigned] | publish ios [server-entry] [--registry module] [--channel name] [--testflight-group name-or-id] [--testflight-notes locale=text] [--testflight-submit-review] [--outdir dir] [--web-outdir dir] [--unsigned] | test android [--route path] [--wait-for-hmr] [--report [dir]] [--timeout ms] [--port n] [--serial id] [--artifacts dir] [--json] | test ios [--device identifier [--remote name] | --udid id] [--wait-for-hmr] [--report [dir]] [--timeout ms] [--port n] [--artifacts dir] [--json]> [--config path]'
 	);
 };

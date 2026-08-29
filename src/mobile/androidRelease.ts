@@ -65,6 +65,12 @@ export type BuildAbsoluteAndroidReleaseOptions = {
 		options?: AbsoluteAndroidCommandOptions
 	) => Promise<number>;
 	prepareVersionCode?: (buildIdentity: string) => Promise<number>;
+	signing?: {
+		keyAlias: string;
+		keyPasswordEnvironment: string;
+		keystorePath: string;
+		storePasswordEnvironment: string;
+	};
 	versionCode?: number;
 };
 
@@ -142,6 +148,29 @@ const verifyAabSignature = (
 	]);
 
 	return result.exitCode === 0 && /jar verified/iu.test(result.stdout);
+};
+
+const signAab = (
+	artifactPath: string,
+	capture: NonNullable<BuildAbsoluteAndroidReleaseOptions['capture']>,
+	jarsigner: string,
+	signing: NonNullable<BuildAbsoluteAndroidReleaseOptions['signing']>
+) => {
+	const result = capture([
+		jarsigner,
+		'-keystore',
+		signing.keystorePath,
+		'-storepass:env',
+		signing.storePasswordEnvironment,
+		'-keypass:env',
+		signing.keyPasswordEnvironment,
+		artifactPath,
+		signing.keyAlias
+	]);
+	if (result.exitCode !== 0)
+		throw new TypeError(
+			'jarsigner could not sign the Android App Bundle with the configured CI identity.'
+		);
 };
 
 const sha256File = async (path: string) =>
@@ -333,7 +362,23 @@ export const buildAbsoluteAndroidRelease = async (
 		);
 	}
 	const capture = options.capture ?? defaultCapture;
-	const signed = verifyAabSignature(artifactPath, capture, options.jarsigner);
+	const jarsigner =
+		options.jarsigner === undefined
+			? Bun.which('jarsigner')
+			: options.jarsigner;
+	let signed = verifyAabSignature(artifactPath, capture, jarsigner);
+	if (signed === false && options.signing) {
+		if (!jarsigner)
+			throw new TypeError(
+				'Could not sign the Android App Bundle because jarsigner is unavailable.'
+			);
+		signAab(artifactPath, capture, jarsigner, options.signing);
+		signed = verifyAabSignature(artifactPath, capture, jarsigner);
+		if (!signed)
+			throw new TypeError(
+				'Android App Bundle signature verification failed after CI signing.'
+			);
+	}
 	if (signed === null && !options.allowUnsigned) {
 		throw new TypeError(
 			'Could not verify the Android App Bundle signature because jarsigner is unavailable. Install a JDK, or use --unsigned only for a non-publishable build.'

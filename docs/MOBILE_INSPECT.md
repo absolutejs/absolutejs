@@ -14,6 +14,19 @@ For a stable report that can be attached to an issue or CI artifact, use JSON:
 bunx absolute mobile inspect --config absolute.config.ts --json
 ```
 
+CI can require the generated bundle to pass route, runtime, capability, and
+SHA-256 validation:
+
+```sh
+bunx absolute mobile inspect \
+  --config absolute.config.ts \
+  --json \
+  --require-bundle
+```
+
+`absolute mobile ci github` uses this secret-free pull-request gate, then runs
+the complete platform-scoped release doctor after a signed native build.
+
 `mobile inspect` is read-only. It does not generate a bundle, synchronize
 Capacitor, launch an emulator, contact the production server, or modify native
 projects.

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
+import { createHash } from 'node:crypto';
 import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -89,6 +90,9 @@ const fixture = async () => {
 		join(config.bundleDirectory, 'pages/react.js'),
 		'export default {};'
 	);
+	const bundleHash = createHash('sha256')
+		.update('export default {};')
+		.digest('hex');
 	await writeJson(
 		join(config.bundleDirectory, 'absolute-mobile-manifest.json'),
 		{
@@ -102,7 +106,7 @@ const fixture = async () => {
 			format: 1,
 			pages: [
 				{
-					bundleHash: 'react-hash',
+					bundleHash,
 					bundlePath: '/indexes/react.js',
 					contract: 'react:index:1',
 					framework: 'react',
@@ -204,5 +208,19 @@ describe('mobile project inspection', () => {
 		);
 		expect(invalid.bundle.status).toBe('invalid');
 		expect(invalid.bundle.issue).toBe('appId must be a non-empty string.');
+	});
+
+	test('rejects an embedded page modified after the manifest was signed', async () => {
+		const { config, projectRoot } = await fixture();
+		await writeFile(
+			join(config.bundleDirectory, 'pages/react.js'),
+			'export default { tampered: true };'
+		);
+		const report = await inspectAbsoluteMobileProject(config, projectRoot, {
+			inspectRelease: releaseInspection
+		});
+
+		expect(report.bundle.status).toBe('invalid');
+		expect(report.bundle.issue).toContain('SHA-256 integrity check');
 	});
 });

@@ -270,6 +270,17 @@ artifact containing public app facts, check IDs/statuses, totals, and explicit
 manual-review categories—never local paths or detailed failure text. See the
 [Capacitor mobile threat model](docs/MOBILE_SECURITY_THREAT_MODEL.md).
 
+Generate protected GitHub Actions for cryptographic pull-request validation,
+signed AAB/IPA builds, and optional Google Play/TestFlight publication:
+
+```sh
+bunx absolute mobile ci github server.ts --publish
+```
+
+The generated workflow keeps signing and provider credentials behind the
+`absolute-mobile-release` GitHub environment. See
+[mobile CI and store releases](docs/MOBILE_CI.md).
+
 `keyboard` provides portable visibility, CSS-pixel height, dismissal, and
 cleanup-safe change events. `systemBars` controls modern edge-to-edge status and
 navigation bar foreground appearance/visibility through Capacitor 8 core. Its
