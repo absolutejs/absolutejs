@@ -18,14 +18,22 @@ test('published build ships linkable native shell modules', async () => {
 	const root = await mkdtemp(join(tmpdir(), 'absolute-mobile-shell-'));
 	temporaryDirectories.push(root);
 	const mobile = join(PROJECT_ROOT, 'dist', 'mobile');
-	for (const name of ['shellBootstrap.js', 'shellAuth.js', 'shellSync.js'])
+	for (const name of [
+		'shellBootstrap.js',
+		'shellAuth.js',
+		'shellExpoDevices.js',
+		'shellSync.js'
+	])
 		expect(await Bun.file(join(mobile, name)).exists()).toBe(true);
 	const entry = join(root, 'entry.ts');
 	await Bun.write(
 		entry,
 		`import { startAbsoluteMobileShell } from ${JSON.stringify(join(mobile, 'shellBootstrap.js'))};
 import { createAbsoluteMobileShellAuth } from ${JSON.stringify(join(mobile, 'shellAuth.js'))};
+import { createAbsoluteExpoBridgeFetch, installAbsoluteExpoWebDeviceAdapter } from ${JSON.stringify(join(mobile, 'shellExpoDevices.js'))};
 import { installAbsoluteMobileShellSync } from ${JSON.stringify(join(mobile, 'shellSync.js'))};
+installAbsoluteExpoWebDeviceAdapter();
+void createAbsoluteExpoBridgeFetch;
 void startAbsoluteMobileShell({ createAuth: createAbsoluteMobileShellAuth, installSync: installAbsoluteMobileShellSync });
 `
 	);

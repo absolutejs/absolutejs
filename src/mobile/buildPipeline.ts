@@ -21,6 +21,10 @@ import {
 	assertAbsoluteDeviceCapabilityPackages,
 	resolveAbsoluteDeviceCapabilityPlan
 } from './deviceCapabilities';
+import {
+	syncAbsoluteExpoWebAssets,
+	writeAbsoluteExpoProject
+} from './expoProject';
 
 export type FinalizeAbsoluteMobileBuildOptions = {
 	buildDirectory: string;
@@ -150,6 +154,11 @@ export const finalizeAbsoluteMobileCompatibilityBuild = async (
 		runtime: String(ABSOLUTE_MOBILE_PAGE_PROTOCOL_VERSION)
 	});
 	const auth = resolveAbsoluteMobileAuthManifest(options.projectRoot, mobile);
+	if (mobile.engine === 'expo' && auth) {
+		throw new TypeError(
+			"Expo mobile Auth is not released yet. The experimental Expo shell cannot safely substitute Capacitor credentials; remove engine: 'expo' or wait for @absolutejs/auth-expo."
+		);
+	}
 	const sync =
 		auth !== undefined && projectUsesAbsoluteSync(options.projectRoot);
 	const syncSchema = sync
@@ -160,6 +169,16 @@ export const finalizeAbsoluteMobileCompatibilityBuild = async (
 	);
 	const usesPush =
 		deviceCapabilities.capabilities.includes('pushNotifications');
+	if (
+		mobile.engine === 'expo' &&
+		deviceCapabilities.capabilities.some(
+			(capability) => capability !== 'haptics'
+		)
+	) {
+		throw new TypeError(
+			'Experimental Expo builds currently bridge only @absolutejs/devices haptics. Other detected device capabilities require their Expo adapters.'
+		);
+	}
 	if (usesPush && !auth)
 		throw new TypeError(
 			'Portable push notifications require @absolutejs/auth so provider tokens can be registered without exposing identity controls to page code.'
@@ -175,10 +194,12 @@ export const finalizeAbsoluteMobileCompatibilityBuild = async (
 		throw new TypeError(
 			'@absolutejs/devices pushNotifications is used, but Auth push is not configured. Pass a trusted server-side registrar to auth({ push: ... }).'
 		);
-	assertAbsoluteDeviceCapabilityPackages(
-		options.projectRoot,
-		deviceCapabilities
-	);
+	if (mobile.engine === 'capacitor') {
+		assertAbsoluteDeviceCapabilityPackages(
+			options.projectRoot,
+			deviceCapabilities
+		);
+	}
 	if (
 		auth &&
 		!loaded.app.routes.some(
@@ -217,6 +238,12 @@ export const finalizeAbsoluteMobileCompatibilityBuild = async (
 			? { syncSchema: { components: syncSchema.components } }
 			: {})
 	});
+	if (mobile.engine === 'expo') {
+		await writeAbsoluteExpoProject(mobile, {
+			projectRoot: options.projectRoot
+		});
+		await syncAbsoluteExpoWebAssets(mobile);
+	}
 
 	return current.artifact;
 };

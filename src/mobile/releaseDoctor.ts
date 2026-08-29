@@ -29,7 +29,7 @@ export const ABSOLUTE_MOBILE_COMPLIANCE_REPORT_FORMAT = 1 as const;
 export type AbsoluteMobileComplianceReport = {
 	app: {
 		appId: string;
-		engine: 'capacitor';
+		engine: 'capacitor' | 'expo';
 		platforms: string[];
 		productionOrigin: string;
 	};

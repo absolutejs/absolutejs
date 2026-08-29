@@ -4,6 +4,10 @@ import { createInterface } from 'node:readline/promises';
 import type { MobileConfig } from '../../../types/build';
 import { installPackages } from '../add/dependencies';
 import { writeAbsoluteCapacitorConfig } from '../../mobile/capacitorProject';
+import {
+	syncAbsoluteExpoWebAssets,
+	writeAbsoluteExpoProject
+} from '../../mobile/expoProject';
 import { normalizeAbsoluteMobileConfig } from '../../mobile/config';
 import { applyAbsoluteNativeDeepLinks } from '../../mobile/nativeDeepLinks';
 import { applyAbsoluteNativeDeviceCapabilities } from '../../mobile/nativeDeviceCapabilities';
@@ -360,6 +364,62 @@ const runCapacitorForPlatforms = (
 		Promise.resolve()
 	);
 
+const expoExecutable = async (project: string) => {
+	const executable = join(project, 'node_modules', '.bin', 'expo');
+	try {
+		await access(executable);
+
+		return executable;
+	} catch {
+		throw new TypeError(
+			'Expo dependencies are not installed in the generated shell. Run `absolute mobile init --yes`.'
+		);
+	}
+};
+
+const runExpo = async (project: string, args: string[]) => {
+	const executable = await expoExecutable(project);
+	const process = Bun.spawn([executable, ...args], {
+		cwd: project,
+		stderr: 'inherit',
+		stdin: 'inherit',
+		stdout: 'inherit'
+	});
+	const exitCode = await process.exited;
+	if (exitCode !== 0)
+		throw new TypeError(`Expo exited with status ${exitCode}.`);
+};
+
+const ensureExpoPackages = async (project: string, args: string[]) => {
+	try {
+		await access(join(project, 'node_modules', 'expo', 'package.json'));
+
+		return;
+	} catch {
+		// The generated shell has its own dependency tree.
+	}
+	const approved =
+		args.includes('--yes') ||
+		(await confirmInstall(
+			'The experimental Expo shell dependencies are missing. Install the pinned Expo SDK 57 toolchain now?'
+		));
+	if (!approved)
+		throw new TypeError(
+			`Expo initialization requires running \`bun install\` in ${project}.`
+		);
+	const process = Bun.spawn(['bun', 'install'], {
+		cwd: project,
+		stderr: 'inherit',
+		stdin: 'inherit',
+		stdout: 'inherit'
+	});
+	const exitCode = await process.exited;
+	if (exitCode !== 0)
+		throw new TypeError(
+			`Expo dependency installation exited with status ${exitCode}.`
+		);
+};
+
 const loadMobile = async (configPath: string | undefined) => {
 	const projectRoot = process.cwd();
 	const config = await loadConfig(configPath);
@@ -371,10 +431,21 @@ const loadMobile = async (configPath: string | undefined) => {
 	return { mobile, projectRoot };
 };
 
+const requireCapacitorEngine = (
+	mobile: Awaited<ReturnType<typeof loadMobile>>['mobile'],
+	command: string
+) => {
+	if (mobile.engine === 'capacitor') return;
+	throw new TypeError(
+		`${command} is not available for the experimental Expo engine yet. Use mobile init/sync and Expo CLI from the generated shell; Capacitor remains the release-capable engine.`
+	);
+};
+
 const inspectMobile = async (args: string[]) => {
 	const { mobile, projectRoot } = await loadMobile(
 		valueAfter(args, '--config')
 	);
+	requireCapacitorEngine(mobile, 'mobile inspect');
 	const report = await inspectAbsoluteMobileProject(mobile, projectRoot, {
 		absolutejsVersion: await absolutejsVersionForReport()
 	});
@@ -466,6 +537,30 @@ const initialize = async (args: string[]) => {
 	const { mobile, projectRoot } = await loadMobile(
 		valueAfter(args, '--config')
 	);
+	if (mobile.engine === 'expo') {
+		console.warn(
+			'Experimental: Expo Auth, Sync, release publishing, and physical-device acceptance are not complete.'
+		);
+		const generated = await writeAbsoluteExpoProject(mobile, {
+			force: args.includes('--force'),
+			projectRoot
+		});
+		console.log(
+			`${generated.changed > 0 ? 'Generated' : 'Verified'} Expo shell ${generated.path}`
+		);
+		await ensureExpoPackages(generated.path, args);
+		if (args.includes('--no-native')) return;
+		await runExpo(generated.path, [
+			'prebuild',
+			'--no-install',
+			'--platform',
+			mobile.platforms.length === 2
+				? 'all'
+				: (mobile.platforms[0] ?? 'all')
+		]);
+
+		return;
+	}
 	await ensureCapacitorPackages(projectRoot, args);
 	const generated = await writeAbsoluteCapacitorConfig(mobile, {
 		force: args.includes('--force'),
@@ -485,6 +580,32 @@ const sync = async (args: string[]) => {
 	const { mobile, projectRoot } = await loadMobile(
 		valueAfter(args, '--config')
 	);
+	if (mobile.engine === 'expo') {
+		console.warn(
+			'Experimental: syncing the Expo CNG shell and embedded AbsoluteJS bundle.'
+		);
+		await writeAbsoluteExpoProject(mobile, {
+			force: args.includes('--force'),
+			projectRoot
+		});
+		await ensureExpoPackages(mobile.nativeProjectDirectory, args);
+		const assets = await syncAbsoluteExpoWebAssets(mobile);
+		console.log(
+			`Synced ${assets.assets} embedded AbsoluteJS assets for ${assets.appBuild}.`
+		);
+		const platform = args.find(
+			(value) => value === 'android' || value === 'ios'
+		);
+		const platforms = platform ? [platform] : mobile.platforms;
+		await runExpo(mobile.nativeProjectDirectory, [
+			'prebuild',
+			'--no-install',
+			'--platform',
+			platforms.length === 2 ? 'all' : (platforms[0] ?? 'all')
+		]);
+
+		return;
+	}
 	await ensureCapacitorPackages(projectRoot, args);
 	const platform = args.find(
 		(value) => value === 'android' || value === 'ios'
@@ -564,6 +685,7 @@ const generateGithubCi = async (args: string[]) => {
 		);
 	const configPath = valueAfter(args, '--config');
 	const { mobile, projectRoot } = await loadMobile(configPath);
+	requireCapacitorEngine(mobile, 'mobile ci github');
 	const result = await writeAbsoluteMobileGithubWorkflow({
 		config: mobile,
 		configPath,
@@ -652,6 +774,7 @@ const runReleaseDoctor = async (args: string[]) => {
 	const { mobile, projectRoot } = await loadMobile(
 		valueAfter(args, '--config')
 	);
+	requireCapacitorEngine(mobile, 'mobile doctor release');
 	const platform = args.find(
 		(value) => value === 'android' || value === 'ios'
 	);
@@ -961,6 +1084,7 @@ const buildAndroid = async (
 ) => {
 	const configPath = valueAfter(args, '--config');
 	const { mobile, projectRoot } = await loadMobile(configPath);
+	requireCapacitorEngine(mobile, 'mobile build android');
 	if (!mobile.platforms.includes('android')) {
 		throw new TypeError(
 			'mobile build android requires android in mobile.platforms.'
@@ -1045,6 +1169,7 @@ const publishAndroid = async (args: string[]) => {
 	const configPath = valueAfter(args, '--config');
 	const googlePlay = googlePlayTarget(args);
 	const { mobile, projectRoot } = await loadMobile(configPath);
+	requireCapacitorEngine(mobile, 'mobile publish android');
 	const startedAt = performance.now();
 	let reused = false;
 	let success = false;
@@ -1124,6 +1249,7 @@ const buildIos = async (
 ) => {
 	const configPath = valueAfter(args, '--config');
 	const { mobile, projectRoot } = await loadMobile(configPath);
+	requireCapacitorEngine(mobile, 'mobile build ios');
 	if (!mobile.platforms.includes('ios')) {
 		throw new TypeError(
 			'mobile build ios requires ios in mobile.platforms.'
@@ -1186,6 +1312,7 @@ const publishIos = async (args: string[]) => {
 	const configPath = valueAfter(args, '--config');
 	const appStoreConnect = appStoreConnectTarget(args);
 	const { mobile, projectRoot } = await loadMobile(configPath);
+	requireCapacitorEngine(mobile, 'mobile publish ios');
 	const startedAt = performance.now();
 	let reused = false;
 	let success = false;
@@ -1603,6 +1730,7 @@ const testAndroid = async (args: string[]) => {
 	const { mobile, projectRoot } = await loadMobile(
 		valueAfter(args, '--config')
 	);
+	requireCapacitorEngine(mobile, 'mobile test android');
 	if (!mobile.platforms.includes('android')) {
 		throw new TypeError(
 			'mobile test android requires android in mobile.platforms.'
@@ -2284,6 +2412,7 @@ const testIos = async (args: string[]) => {
 	const { mobile, projectRoot } = await loadMobile(
 		valueAfter(args, '--config')
 	);
+	requireCapacitorEngine(mobile, 'mobile test ios');
 	const { https, instance, port } = requireIosTestContext(args, projectRoot);
 	if (!mobile.platforms.includes('ios'))
 		throw new TypeError(

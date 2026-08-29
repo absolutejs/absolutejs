@@ -80,9 +80,7 @@ export type PwaConfig = {
 		  };
 };
 
-export type MobileConfig = {
-	/** Capacitor is the universal v1 engine. Expo remains a future React-only engine. */
-	engine?: 'capacitor';
+type MobileSharedConfig = {
 	/** Native application identifier, for example `com.example.app`. */
 	appId: string;
 	/** Human-facing native application name. */
@@ -129,6 +127,29 @@ export type MobileConfig = {
 		};
 	};
 };
+
+export type CapacitorMobileConfig = MobileSharedConfig & {
+	/** Capacitor is the default, universal all-framework mobile engine. */
+	engine?: 'capacitor';
+};
+
+export type ExpoMobileConfig = MobileSharedConfig & {
+	/** Experimental hybrid Expo Router shell. Capacitor remains the default. */
+	engine: 'expo';
+	/** Explicit route ownership for React Native replacement screens. */
+	routes?: {
+		/** Unclaimed routes remain ordinary AbsoluteJS web routes. */
+		default?: 'web';
+		/** Absolute route path to a React Native module, relative to the app root. */
+		native?: Readonly<Record<string, string>>;
+	};
+	expo?: {
+		/** Expo SDK line used by the generated shell. Currently only 57 is supported. */
+		sdkVersion?: 57;
+	};
+};
+
+export type MobileConfig = CapacitorMobileConfig | ExpoMobileConfig;
 
 /* A single failed bundling pass in a dev/HMR build. In dev, one
  * unresolvable reference (a bad CSS `@import`, a broken component

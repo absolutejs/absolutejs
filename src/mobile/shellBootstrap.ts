@@ -18,9 +18,52 @@ const MANIFEST_PATH = './absolute-mobile-manifest.json';
 const STATUS_ID = 'absolute-mobile-status';
 
 const initialNavigationPath = (entry: string) => {
+	const expoPath = new URLSearchParams(location.search).get('absolutePath');
+	if (expoPath?.startsWith('/') && !expoPath.startsWith('//'))
+		return expoPath;
 	const current = `${location.pathname}${location.search}${location.hash}`;
 
 	return current === '/' || current === '/index.html' ? entry : current;
+};
+
+const currentNavigationPath = () => {
+	const expoPath = new URLSearchParams(location.search).get('absolutePath');
+
+	return expoPath?.startsWith('/') && !expoPath.startsWith('//')
+		? expoPath
+		: `${location.pathname}${location.search}${location.hash}`;
+};
+
+const pushNavigationHistory = (path: string) => {
+	if (!Reflect.get(globalThis, '__absoluteExpoBridge')) {
+		history.pushState({ absoluteMobile: true }, '', path);
+
+		return;
+	}
+	const url = new URL(location.href);
+	url.search = '';
+	url.hash = '';
+	url.searchParams.set('absolutePath', path);
+	history.pushState({ absoluteMobile: true }, '', url.href);
+	const bridge: unknown = Reflect.get(globalThis, '__absoluteExpoBridge');
+	if (
+		typeof bridge === 'object' &&
+		bridge !== null &&
+		typeof Reflect.get(bridge, 'setPath') === 'function'
+	) {
+		Reflect.get(bridge, 'setPath').call(bridge, path);
+	}
+};
+
+const notifyExpoNavigationPath = (path: string) => {
+	const bridge: unknown = Reflect.get(globalThis, '__absoluteExpoBridge');
+	if (
+		typeof bridge === 'object' &&
+		bridge !== null &&
+		typeof Reflect.get(bridge, 'setPath') === 'function'
+	) {
+		Reflect.get(bridge, 'setPath').call(bridge, path);
+	}
 };
 
 export type AbsoluteMobileShellAuthRuntime = {
@@ -40,6 +83,9 @@ export type AbsoluteMobileShellPrincipal = {
 };
 
 export type AbsoluteMobileShellOptions = {
+	createFetch?: (
+		manifest: AbsoluteMobileClientManifest
+	) => AbsoluteMobileFetch;
 	createAuth?: (
 		config: NonNullable<AbsoluteMobileClientManifest['auth']>,
 		options?: { beforeSignOut?: () => Promise<void> | void }
@@ -179,7 +225,7 @@ const navigate = async (
 
 		return;
 	}
-	if (pushHistory) history.pushState({ absoluteMobile: true }, '', path);
+	if (pushHistory) pushNavigationHistory(path);
 };
 
 const installAnchorNavigation = (
@@ -289,21 +335,22 @@ export const startAbsoluteMobileShell = async (
 					beforeSignOut: options.beforeSignOut
 				})
 			: undefined;
-	installAbsoluteMobileShellHttp(
-		manifest.productionOrigin,
-		auth?.fetch ?? globalThis.fetch
-	);
+	const applicationFetch =
+		auth?.fetch ?? options.createFetch?.(manifest) ?? globalThis.fetch;
+	installAbsoluteMobileShellHttp(manifest.productionOrigin, applicationFetch);
 	if (auth) options.connectPush?.(auth);
 	if (auth && manifest.sync?.socketTickets)
 		options.installSync?.(auth, manifest.sync);
 	let removeAnchorNavigation: () => void = () => undefined;
 	const handlePopState = () => {
+		const path = currentNavigationPath();
+		notifyExpoNavigationPath(path);
 		void navigateWithFailureState(
 			manifest,
-			`${location.pathname}${location.search}${location.hash}`,
+			path,
 			false,
 			reinstallBrowserNavigation,
-			auth?.fetch
+			applicationFetch
 		);
 	};
 	const reinstallBrowserNavigation = () => {
@@ -318,7 +365,7 @@ export const startAbsoluteMobileShell = async (
 			path,
 			true,
 			reinstallBrowserNavigation,
-			auth?.fetch
+			applicationFetch
 		);
 	};
 	await navigateWithFailureState(
@@ -326,7 +373,7 @@ export const startAbsoluteMobileShell = async (
 		initialNavigationPath(manifest.entry),
 		false,
 		reinstallBrowserNavigation,
-		auth?.fetch
+		applicationFetch
 	);
 	await installDeepLinks(manifest, onNavigate, auth?.redirectUri);
 };

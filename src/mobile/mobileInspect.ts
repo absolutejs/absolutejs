@@ -32,7 +32,7 @@ export type AbsoluteMobileProjectInspection = {
 		bundleDirectory: string;
 		deepLinkHosts: string[];
 		deepLinkScheme?: string;
-		engine: 'capacitor';
+		engine: 'capacitor' | 'expo';
 		entry: string;
 		iosVersion?: string;
 		nativeProjectDirectory: string;

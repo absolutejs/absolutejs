@@ -16,6 +16,8 @@ export * from './capacitorBundle';
 export * from './syncSchema';
 export * from './syncRemediation';
 export * from './deviceCapabilities';
+export * from './expoBridge';
+export * from './expoProject';
 export * from './capacitorProject';
 export * from './config';
 export * from './client';

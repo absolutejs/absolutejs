@@ -259,12 +259,15 @@ const build = async () => {
 		entrypoints: [
 			'src/mobile/shellBootstrap.ts',
 			'src/mobile/shellAuth.ts',
+			'src/mobile/shellExpoDevices.ts',
 			'src/mobile/shellSync.ts'
 		],
 		external: [
 			'@absolutejs/auth/*',
 			'@absolutejs/devices',
 			'@absolutejs/devices-capacitor',
+			'@absolutejs/devices/runtime',
+			'@absolutejs/devices/web',
 			'@absolutejs/sync/*',
 			'@absolutejs/sync-capacitor',
 			'@capacitor/*',
@@ -281,12 +284,15 @@ const build = async () => {
 	}
 	const missingMobileShell = (
 		await Promise.all(
-			['shellBootstrap.js', 'shellAuth.js', 'shellSync.js'].map(
-				async (name) => ({
-					exists: await Bun.file(join(DIST, 'mobile', name)).exists(),
-					name
-				})
-			)
+			[
+				'shellBootstrap.js',
+				'shellAuth.js',
+				'shellExpoDevices.js',
+				'shellSync.js'
+			].map(async (name) => ({
+				exists: await Bun.file(join(DIST, 'mobile', name)).exists(),
+				name
+			}))
 		)
 	).find(({ exists }) => !exists);
 	if (missingMobileShell)

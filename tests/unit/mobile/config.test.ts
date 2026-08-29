@@ -146,4 +146,55 @@ describe('mobile config normalization', () => {
 			)
 		).toThrow('SHA-256');
 	});
+
+	test('normalizes the experimental Expo shell and explicit native routes', () => {
+		const config = normalizeAbsoluteMobileConfig(
+			{
+				appId: 'com.example.product',
+				appName: 'Product',
+				engine: 'expo',
+				routes: { native: { '/scanner': 'mobile/native/scanner.tsx' } },
+				server: { productionOrigin: 'https://example.com' }
+			},
+			'/workspace'
+		);
+
+		expect(config).toMatchObject({
+			engine: 'expo',
+			expoNativeRoutes: {
+				'/scanner': '/workspace/mobile/native/scanner.tsx'
+			},
+			expoSdkVersion: 57,
+			nativeProjectDirectory: '/workspace/.absolutejs/mobile/expo'
+		});
+	});
+
+	test('rejects unsafe Expo native route ownership', () => {
+		expect(() =>
+			normalizeAbsoluteMobileConfig(
+				{
+					appId: 'com.example.product',
+					appName: 'Product',
+					engine: 'expo',
+					routes: {
+						native: { '/__absolute/native': 'native.tsx' }
+					},
+					server: { productionOrigin: 'https://example.com' }
+				},
+				'/workspace'
+			)
+		).toThrow('reserves /__absolute/native');
+		expect(() =>
+			normalizeAbsoluteMobileConfig(
+				{
+					appId: 'com.example.product',
+					appName: 'Product',
+					engine: 'expo',
+					routes: { native: { '/account/:id': 'native.tsx' } },
+					server: { productionOrigin: 'https://example.com' }
+				},
+				'/workspace'
+			)
+		).toThrow('must be static');
+	});
 });

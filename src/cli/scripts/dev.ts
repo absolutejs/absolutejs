@@ -475,7 +475,14 @@ export const dev = async (
 				mobileConfig,
 				process.cwd()
 			);
-			if (normalized.platforms.includes('android')) {
+			if (normalized.engine === 'expo') {
+				console.log(
+					cliTag(
+						'\x1b[35m',
+						'Expo hybrid support is experimental. AbsoluteJS web development is running; start Metro from .absolutejs/mobile/expo for the native shell.'
+					)
+				);
+			} else if (normalized.platforms.includes('android')) {
 				const androidTarget = options.androidDevice
 					? 'device'
 					: 'emulator';
@@ -523,7 +530,10 @@ export const dev = async (
 					}
 				}
 			}
-			if (normalized.platforms.includes('ios')) {
+			if (
+				normalized.engine === 'capacitor' &&
+				normalized.platforms.includes('ios')
+			) {
 				if (detectAbsoluteMobileHost() !== 'macos') {
 					const remote =
 						selectedRemoteMacProfile ??

@@ -9,8 +9,10 @@ export type NormalizedAbsoluteMobileConfig = {
 	bundleDirectory: string;
 	deepLinkHosts: string[];
 	deepLinkScheme?: string;
-	engine: 'capacitor';
+	engine: 'capacitor' | 'expo';
 	entry: string;
+	expoNativeRoutes: Record<string, string>;
+	expoSdkVersion?: 57;
 	iosVersion?: string;
 	nativeProjectDirectory: string;
 	platforms: MobilePlatform[];
@@ -183,6 +185,48 @@ const normalizeCertificateFingerprints = (
 		)
 	].sort();
 
+const normalizeExpoNativeRoutes = (
+	config: MobileConfig,
+	projectRoot: string
+) => {
+	if (config.engine !== 'expo') return {};
+	const routes = config.routes?.native ?? {};
+	const normalized: Record<string, string> = {};
+	for (const [route, module] of Object.entries(routes)) {
+		const path = normalizeEntry(route);
+		if (
+			path.includes('?') ||
+			path.includes('#') ||
+			(path !== '/' && path.endsWith('/'))
+		) {
+			throw new TypeError(
+				`mobile.routes.native route ${path} must be a canonical path without a query, fragment, or trailing slash.`
+			);
+		}
+		if (path === '/__absolute/native') {
+			throw new TypeError(
+				'mobile.routes.native reserves /__absolute/native for the Expo diagnostic screen.'
+			);
+		}
+		if (path.includes('*') || path.includes(':')) {
+			throw new TypeError(
+				`mobile.routes.native route ${path} must be static during the Expo experiment; parameters and wildcards are not supported yet.`
+			);
+		}
+		normalized[path] = resolveProjectPath(
+			projectRoot,
+			requireText(module, `mobile.routes.native[${path}]`),
+			`mobile.routes.native[${path}]`
+		);
+	}
+
+	return Object.fromEntries(
+		Object.entries(normalized).sort(([left], [right]) =>
+			left.localeCompare(right)
+		)
+	);
+};
+
 export const normalizeAbsoluteMobileConfig = (
 	config: MobileConfig,
 	projectRoot: string
@@ -224,12 +268,19 @@ export const normalizeAbsoluteMobileConfig = (
 			productionOrigin
 		),
 		deepLinkScheme,
-		engine: 'capacitor',
+		engine: config.engine ?? 'capacitor',
 		entry: normalizeEntry(config.entry),
+		expoNativeRoutes: normalizeExpoNativeRoutes(config, projectRoot),
+		...(config.engine === 'expo'
+			? { expoSdkVersion: config.expo?.sdkVersion ?? 57 }
+			: {}),
 		iosVersion: normalizeIosVersion(config.ios?.version),
 		nativeProjectDirectory: resolveProjectPath(
 			projectRoot,
-			config.nativeProject?.directory ?? 'mobile',
+			config.nativeProject?.directory ??
+				(config.engine === 'expo'
+					? '.absolutejs/mobile/expo'
+					: 'mobile'),
 			'mobile.nativeProject.directory'
 		),
 		platforms: normalizePlatforms(config.platforms),

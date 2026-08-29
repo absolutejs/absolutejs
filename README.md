@@ -281,6 +281,12 @@ The generated workflow keeps signing and provider credentials behind the
 `absolute-mobile-release` GitHub environment. See
 [mobile CI and store releases](docs/MOBILE_CI.md).
 
+An experimental Expo Router hybrid is also available behind
+`mobile.engine: 'expo'`. Explicit React Native routes use native UI while every
+unclaimed AbsoluteJS route remains an embedded, signed web route regardless of
+framework. Capacitor is still the default and production-ready path. See the
+[Expo hybrid experiment](docs/MOBILE_EXPO_EXPERIMENT.md).
+
 `keyboard` provides portable visibility, CSS-pixel height, dismissal, and
 cleanup-safe change events. `systemBars` controls modern edge-to-edge status and
 navigation bar foreground appearance/visibility through Capacitor 8 core. Its
