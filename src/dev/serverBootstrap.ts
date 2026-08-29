@@ -1,5 +1,6 @@
 import { copyFileSync, existsSync, readdirSync, unlinkSync } from 'node:fs';
 import { dirname, extname, join, resolve } from 'node:path';
+import { isStaleAbsoluteServerEntryCopy } from './serverEntryCopies';
 
 const originalEntry = process.env.ABSOLUTE_SERVER_ENTRY;
 if (!originalEntry) {
@@ -26,16 +27,19 @@ const removeEntryCopy = (path: string) => {
 };
 
 // A hard-killed prior dev process cannot run exit cleanup. Remove only
-// framework-owned sibling entry copies from this exact source directory on a
-// cold process start. During `bun --hot`, this module can be re-evaluated while
-// Bun is still loading an earlier copy; deleting that live copy races Bun's
-// module loader and leaves both browser and WebView HMR stuck on stale code.
+// framework-owned sibling entry copies whose owning process is no longer
+// alive. Several dev servers can legitimately share a source directory (for
+// example separate web/native sessions and integration workers), so deleting
+// every matching sibling would race another server's active module import.
+// During `bun --hot`, this module can also be re-evaluated while Bun is still
+// loading an earlier copy; the cold-start guard preserves those live copies.
 const isHotReevaluation = globalThis.__absoluteEntryCopies !== undefined;
 if (!isHotReevaluation) {
 	for (const name of readdirSync(entryDir)) {
 		if (!name.startsWith(copyPrefix) || !name.endsWith(entryExtension)) {
 			continue;
 		}
+		if (!isStaleAbsoluteServerEntryCopy(name)) continue;
 		removeEntryCopy(join(entryDir, name));
 	}
 }

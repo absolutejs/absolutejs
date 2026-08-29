@@ -1498,6 +1498,7 @@ export const dev = async (
 		// no restart fires. Same pattern as `fileWatcher.ts` /
 		// `serverEntryWatcher.ts`.
 		const ATOMIC_RECOVERY_WINDOW_MS = 1000;
+		const ATOMIC_RECOVERY_DELAY_MS = 25;
 		const recentlyHandled = new Map<string, number>();
 		const handleCandidate = (filename: string) => {
 			if (filename.includes('/') || filename.includes('\\')) return;
@@ -1534,15 +1535,25 @@ export const dev = async (
 				handleCandidate(entry.name);
 			}
 		};
+		let atomicRecoveryTimer: ReturnType<typeof setTimeout> | undefined;
+		const scheduleAtomicRecovery = () => {
+			if (atomicRecoveryTimer) clearTimeout(atomicRecoveryTimer);
+			// fs.watch can report creation of the temporary inode before the
+			// synchronous rename lands. Scan after the short event burst settles
+			// so the destination's new ctime is observable even when Linux drops
+			// the corresponding IN_MOVED_TO event.
+			atomicRecoveryTimer = setTimeout(() => {
+				atomicRecoveryTimer = undefined;
+				void recoveryScan();
+			}, ATOMIC_RECOVERY_DELAY_MS);
+		};
 		const watcher = watch(
 			serverEntryDir,
 			{ recursive: false },
 			(event, filename) => {
 				if (!filename) return;
 				if (isAtomicWriteTemp(filename)) {
-					if (event === 'rename') {
-						void recoveryScan();
-					}
+					if (event === 'rename') scheduleAtomicRecovery();
 
 					return;
 				}
@@ -1551,6 +1562,7 @@ export const dev = async (
 		);
 		// Stop watcher on parent exit so we don't leak the inotify fd.
 		const closeWatcher = () => {
+			if (atomicRecoveryTimer) clearTimeout(atomicRecoveryTimer);
 			try {
 				watcher.close();
 			} catch {
