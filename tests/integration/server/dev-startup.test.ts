@@ -9,7 +9,7 @@ const DEVTOOLS_ENDPOINT = '/.well-known/appspecific/com.chrome.devtools.json';
 afterAll(async () => {
 	hmrClient?.close();
 	await server?.kill();
-});
+}, 20_000);
 
 describe('dev server startup', () => {
 	test('server starts and becomes ready', async () => {

@@ -14,8 +14,10 @@
  * Usage:
  *   bun run scripts/shardedTests.ts [testDir] [--shards N]
  *
- * Defaults: testDir=tests/integration/hmr, shards=4 (each shard peaks at
- * roughly 0.5-1GB: a bun test process plus one dev server mid-build).
+ * Defaults: testDir=tests/integration/hmr, shards=2 (each shard peaks at
+ * roughly 0.5-1GB plus compiler children; more lanes can starve strict
+ * filesystem-watch assertions even when CPU and memory have not exhausted).
+ * Larger CI hosts can opt into more lanes with --shards.
  * Exit code is non-zero if any shard fails; all `(fail)` lines and the
  * combined totals are printed at the end.
  */
@@ -26,7 +28,7 @@ import { Glob } from 'bun';
 
 const REPO_ROOT = resolve(import.meta.dir, '..');
 const SHARD_PARENT = resolve(REPO_ROOT, '.test-shards');
-const DEFAULT_SHARDS = 4;
+const DEFAULT_SHARDS = 2;
 const RESERVED_CORES = 2;
 const MS_PER_MINUTE = 60_000;
 const NOT_FOUND = -1;
@@ -91,6 +93,7 @@ const EXCLUSIVE_TEST_FILES = new Set([
 	'tests/integration/hmr/lifecycle/midrebuild-edit.test.ts',
 	'tests/integration/hmr/lifecycle/style-preprocessor-roundtrip.test.ts',
 	'tests/integration/hmr/lifecycle/tailwind-class-discovery.test.ts',
+	'tests/integration/hmr/lifecycle/typescript-path-aliases.test.ts',
 	'tests/integration/hmr/lifecycle/cli-crash-loop-guard.test.ts',
 	'tests/integration/hmr/lifecycle/html-deeper-coverage.test.ts',
 	'tests/integration/hmr/lifecycle/htmx-deeper-coverage.test.ts',

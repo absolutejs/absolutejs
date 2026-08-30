@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { startDevServer, type DevServer } from '../../../helpers/devServer';
 import { connectHMR, type HMRClient } from '../../../helpers/ws';
 import { mutateFile, restoreAllFiles } from '../../../helpers/file';
+import { waitForServer } from '../../../helpers/http';
 
 const PROJECT_ROOT = resolve(import.meta.dir, '..', '..', '..', '..');
 
@@ -71,6 +72,12 @@ describe('HTTPS dev server / WSS HMR', () => {
 			)
 		);
 		await client.waitFor('vue-tier-zero-ssr-rebuild-complete', 30_000);
+		await waitForServer(`${server.baseUrl}/vue`, 60, {
+			delayMs: 250,
+			rejectUnauthorized: false,
+			isReady: async (response) =>
+				(await response.text()).includes(sentinel)
+		});
 
 		const after = await fetch(`${server.baseUrl}/vue`, {
 			tls: { rejectUnauthorized: false }

@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { MobileConfig } from '../../types/build';
@@ -7,8 +7,12 @@ import { resolveAbsoluteDeviceCapabilityPlan } from './deviceCapabilities';
 export const absoluteNativeDevAdapterSource = (
 	projectRoot: string,
 	mobile: MobileConfig,
-	resolveModule: (specifier: string) => string = (specifier) => specifier
+	resolveModule: (specifier: string) => string = (specifier) => specifier,
+	expoAdapterModule = '@absolutejs/absolute/mobile/expo-devices'
 ) => {
+	if ((mobile.engine ?? 'capacitor') === 'expo') {
+		return `import { installAbsoluteExpoWebDeviceAdapter } from ${JSON.stringify(expoAdapterModule)};\ninstallAbsoluteExpoWebDeviceAdapter();`;
+	}
 	const plan = resolveAbsoluteDeviceCapabilityPlan(projectRoot);
 	const imports = plan.capabilities.map((name, index) => {
 		const provider = plan.providers[name];
@@ -31,6 +35,24 @@ export const absoluteNativeDevAdapterSource = (
 	].join('\n');
 };
 
+const expoAdapterPath = async () => {
+	const candidates = await Promise.all(
+		['ts', 'js'].map(async (extension) => {
+			const path = join(import.meta.dir, `shellExpoDevices.${extension}`);
+			try {
+				await access(path);
+
+				return path;
+			} catch {
+				return undefined;
+			}
+		})
+	);
+	const path = candidates.find((candidate) => candidate !== undefined);
+	if (path) return path;
+	throw new TypeError('The AbsoluteJS Expo development adapter is missing.');
+};
+
 export const buildAbsoluteNativeDevAdapter = async (
 	projectRoot: string,
 	mobile: MobileConfig
@@ -42,8 +64,11 @@ export const buildAbsoluteNativeDevAdapter = async (
 	try {
 		await writeFile(
 			entry,
-			absoluteNativeDevAdapterSource(projectRoot, mobile, (specifier) =>
-				Bun.resolveSync(specifier, projectRoot)
+			absoluteNativeDevAdapterSource(
+				projectRoot,
+				mobile,
+				(specifier) => Bun.resolveSync(specifier, projectRoot),
+				await expoAdapterPath()
 			)
 		);
 		const result = await Bun.build({

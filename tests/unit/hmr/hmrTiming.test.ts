@@ -28,6 +28,17 @@ describe('HMR client timing', () => {
 		expect(absoluteHmrClientTarget()).toBe('capacitor-ios');
 	});
 
+	test('identifies Expo WebView targets independently from Capacitor', () => {
+		Reflect.set(globalThis, 'location', {
+			search: '?__absolute_target=expo-android'
+		});
+		expect(absoluteHmrClientTarget()).toBe('expo-android');
+		Reflect.set(globalThis, 'location', {
+			search: '?__absolute_target=expo-ios'
+		});
+		expect(absoluteHmrClientTarget()).toBe('expo-ios');
+	});
+
 	test('identifies the browser mobile preview independently from web', () => {
 		Reflect.set(globalThis, 'location', {
 			search: '?__absolute_target=mobile-preview'

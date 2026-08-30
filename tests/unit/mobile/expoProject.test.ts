@@ -51,21 +51,31 @@ describe('experimental Expo project', () => {
 			projectRoot: root
 		});
 		const project = config.nativeProjectDirectory;
-		const [appConfig, nativeRoute, webHost] = await Promise.all([
-			readFile(join(project, 'app.json'), 'utf8'),
-			readFile(join(project, 'app', 'scanner', 'index.tsx'), 'utf8'),
-			readFile(
-				join(project, 'src', 'generated', 'AbsoluteWebHost.tsx'),
-				'utf8'
-			)
-		]);
+		const [appConfig, nativeRoute, packageSource, webAssets, webHost] =
+			await Promise.all([
+				readFile(join(project, 'app.json'), 'utf8'),
+				readFile(join(project, 'app', 'scanner', 'index.tsx'), 'utf8'),
+				readFile(join(project, 'package.json'), 'utf8'),
+				readFile(
+					join(project, 'src', 'generated', 'webAssets.ts'),
+					'utf8'
+				),
+				readFile(
+					join(project, 'src', 'generated', 'AbsoluteWebHost.tsx'),
+					'utf8'
+				)
+			]);
 
 		expect(first.changed).toBeGreaterThan(0);
 		expect(second.changed).toBe(0);
 		expect(appConfig).toContain('applinks:app.example.com');
 		expect(appConfig).toContain('"scheme": "product"');
 		expect(nativeRoute).toContain('mobile/native/scanner');
+		expect(packageSource).toContain('expo-dev-client');
+		expect(webAssets).toContain('absolute prepare');
 		expect(webHost).toContain('devices.haptics.impact');
+		expect(webHost).toContain('EXPO_PUBLIC_ABSOLUTE_DEV_ANDROID_ORIGIN');
+		expect(webHost).toContain("'expo-android'");
 		expect(webHost).toContain('"/__absolute/native"');
 		expect(
 			await readFile(join(project, 'app', '[...absolute].tsx'), 'utf8')

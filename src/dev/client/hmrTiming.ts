@@ -14,6 +14,8 @@ const isHmrTarget = (value: unknown): value is HMRClientTarget =>
 	value === 'capacitor-android' ||
 	value === 'capacitor-ios' ||
 	value === 'capacitor-native' ||
+	value === 'expo-android' ||
+	value === 'expo-ios' ||
 	value === 'mobile-preview' ||
 	value === 'web';
 
@@ -69,6 +71,8 @@ export const absoluteHmrClientTarget = () => {
 			const marker = new URLSearchParams(search).get('__absolute_target');
 			if (marker === 'capacitor-android') return marker;
 			if (marker === 'capacitor-ios') return marker;
+			if (marker === 'expo-android') return marker;
+			if (marker === 'expo-ios') return marker;
 			if (marker === 'mobile-preview') return marker;
 		}
 	}

@@ -1,6 +1,7 @@
 # AbsoluteJS Expo hybrid experiment
 
-Introduced experimentally in `@absolutejs/absolute@0.20.0-beta.40`.
+Introduced experimentally in `@absolutejs/absolute@0.20.0-beta.40`; the
+first-class combined development loop was added in `0.20.0-beta.41`.
 
 AbsoluteJS can generate an experimental Expo Router shell in which explicitly
 selected routes render React Native UI and all other routes remain ordinary
@@ -29,7 +30,12 @@ Implemented in the first spike:
 - page-envelope GET transport through the native bridge so the server never has
   to trust an opaque `file://` origin;
 - `@absolutejs/devices` haptics from embedded web routes through that bridge;
-- a generated native diagnostic screen at `/__absolute/native`.
+- a generated native diagnostic screen at `/__absolute/native`;
+- an Expo SDK 57 development client managed by `bun dev`;
+- one Metro process plus configured Android/iOS local builds and launch;
+- native React Fast Refresh alongside framework-aware AbsoluteJS page HMR;
+- distinct `expo-android` and `expo-ios` timing logs and redacted telemetry;
+- live-history bridge synchronization across SPA navigation.
 
 Not implemented, and therefore not claimed:
 
@@ -37,9 +43,9 @@ Not implemented, and therefore not claimed:
   or shared durable state between the native and web JavaScript engines;
 - device capabilities other than haptics;
 - dynamic or wildcard native route ownership;
-- one-command combined AbsoluteJS/Metro HMR;
 - Expo release, signing, store publishing, EAS Update, rollback, process-death,
   physical-device, accessibility, or performance acceptance;
+- local HTTPS development CA projection and Expo execution through Remote Mac;
 - Expo production support.
 
 An Expo build fails rather than substituting Capacitor Auth, Sync, or device
@@ -104,6 +110,39 @@ only if the application uses a different path.
 
 ```sh
 cd /absolute/path/to/the/application
+bun dev
+```
+
+Run that command from the application root, not from the generated Expo
+directory. If the project does not expose `bun dev`, run its equivalent
+directly:
+
+```sh
+bunx absolute dev src/backend/server.ts --config absolute.config.ts
+```
+
+On the first run AbsoluteJS generates the shell, offers to install its pinned
+SDK 57 development-client dependencies, checks the configured Android/iOS
+toolchains, starts Bun and Metro, and builds/launches each locally supported
+target. A non-macOS host runs Android and explains that Expo iOS requires local
+macOS until the existing Remote Mac protocol gains an Expo executor.
+
+Each development session regenerates the disposable Android/iOS directories
+with clean Expo CNG before compiling the development client. This guarantees
+that configuration and native dependency changes are projected without asking
+the application author to edit generated native code. Once connected, ordinary
+route edits stay on Metro Fast Refresh or AbsoluteJS HMR and do not repeat CNG,
+Gradle, or Xcode compilation.
+
+Development currently requires `dev.https: false`. This applies only to the
+local live WebView; `mobile.server.productionOrigin` remains HTTPS and the
+embedded production transport remains locked to that exact origin. AbsoluteJS
+fails explicitly instead of bypassing certificate validation while debug-only
+Expo CA projection is unfinished.
+
+For production-bundle/CNG inspection, the lower-level commands remain:
+
+```sh
 bunx absolute mobile init --no-native --yes --config absolute.config.ts
 bunx absolute prepare src/backend/server.ts --config absolute.config.ts
 bunx absolute mobile sync --yes --config absolute.config.ts
@@ -120,31 +159,12 @@ The generated Expo project defaults to
 files. A custom non-empty `mobile.nativeProject.directory` is not adopted unless
 the first generation explicitly uses `--force`.
 
-To run Android, open a second terminal:
-
-```sh
-cd /absolute/path/to/the/application/.absolutejs/mobile/expo
-bun run android
-```
-
-On macOS, run iOS from the same generated project directory:
-
-```sh
-cd /absolute/path/to/the/application/.absolutejs/mobile/expo
-bun run ios
-```
-
-After the first native build, native TypeScript edits use Metro Fast Refresh:
-
-```sh
-cd /absolute/path/to/the/application/.absolutejs/mobile/expo
-bun run start
-```
-
-Changes to ordinary AbsoluteJS pages currently require rerunning `absolute
-prepare` from the application root and reloading the Expo app. Combined
-AbsoluteJS HMR is a separate milestone and remains a requirement before an
-experimental release.
+After connection, edits to application-owned native route modules use Metro
+Fast Refresh. Edits to React DOM, Vue, Svelte, Angular, HTML, HTMX, CSS, and
+other ordinary AbsoluteJS routes stay on the existing Bun HMR graph and do not
+run Gradle or Xcode. The terminal prints Metro/native build phases and the
+existing HMR log includes the Expo target plus server, client, and total apply
+time. `d` displays both ports and target state from the AbsoluteJS dev prompt.
 
 ## Bridge and security model
 

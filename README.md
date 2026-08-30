@@ -286,6 +286,9 @@ An experimental Expo Router hybrid is also available behind
 unclaimed AbsoluteJS route remains an embedded, signed web route regardless of
 framework. Capacitor is still the default and production-ready path. See the
 [Expo hybrid experiment](docs/MOBILE_EXPO_EXPERIMENT.md).
+For Expo development, `bun dev` now owns the Bun server, Metro development
+client, configured emulator/simulator builds, categorized logs, and both native
+Fast Refresh and framework-aware AbsoluteJS HMR from the application root.
 
 `keyboard` provides portable visibility, CSS-pixel height, dismissal, and
 cleanup-safe change events. `systemBars` controls modern edge-to-edge status and

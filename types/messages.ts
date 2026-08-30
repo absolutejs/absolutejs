@@ -5,6 +5,8 @@ export type HMRClientTarget =
 	| 'capacitor-android'
 	| 'capacitor-ios'
 	| 'capacitor-native'
+	| 'expo-android'
+	| 'expo-ios'
 	| 'mobile-preview'
 	| 'web';
 

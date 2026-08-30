@@ -66,6 +66,7 @@ const expoPackage = () => ({
 		expo: '~57.0.9',
 		'expo-asset': '~57.0.15',
 		'expo-constants': '~57.0.16',
+		'expo-dev-client': '~57.0.16',
 		'expo-file-system': '~57.0.6',
 		'expo-haptics': '~57.0.2',
 		'expo-linking': '~57.0.8',
@@ -111,7 +112,10 @@ const expoAppConfig = (config: NormalizedAbsoluteMobileConfig) => ({
 			...(config.iosVersion ? { buildNumber: config.iosVersion } : {})
 		},
 		name: config.appName,
-		plugins: ['expo-router'],
+		plugins: [
+			'expo-router',
+			['expo-dev-client', { launchMode: 'most-recent' }]
+		],
 		runtimeVersion: { policy: 'appVersion' },
 		scheme: config.deepLinkScheme,
 		slug: config.appId.toLowerCase().replaceAll('.', '-'),
@@ -185,7 +189,7 @@ const webHostSource = (config: NormalizedAbsoluteMobileConfig) => {
 import * as Linking from 'expo-linking';
 import { router, usePathname } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, BackHandler, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, BackHandler, Platform, StyleSheet, View } from 'react-native';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import { materializeAbsoluteWebBundle } from './webAssets';
 
@@ -194,11 +198,19 @@ const MAX_MESSAGE_BYTES = 64 * 1024;
 const MAX_HTTP_BODY_BYTES = 48 * 1024;
 const NATIVE_ROUTES = new Set(${JSON.stringify(nativeRoutes)});
 const PRODUCTION_ORIGIN = ${JSON.stringify(config.productionOrigin)};
+const DEV_ORIGIN = Platform.OS === 'android'
+	? process.env.EXPO_PUBLIC_ABSOLUTE_DEV_ANDROID_ORIGIN
+	: process.env.EXPO_PUBLIC_ABSOLUTE_DEV_IOS_ORIGIN;
+const HMR_TARGET = Platform.OS === 'android' ? 'expo-android' : 'expo-ios';
 
-const bridgeBootstrap = (path: string) => \`(() => {
+const bridgeBootstrap = (path: string) => {
+	const initialPath = DEV_ORIGIN
+		? 'location.pathname + location.search + location.hash'
+		: JSON.stringify(path);
+	return \`(() => {
 	const pending = new Map();
 	let sequence = 0;
-	let currentPath = \${JSON.stringify(path)};
+	let currentPath = \${initialPath};
 	const send = value => {
 		const source = JSON.stringify(value);
 		if (new TextEncoder().encode(source).byteLength > 65536) throw new Error('Expo bridge message exceeds 64 KiB.');
@@ -229,6 +241,24 @@ const bridgeBootstrap = (path: string) => \`(() => {
 			send({ format: 1, kind: 'event', event: 'navigation', path });
 		}
 	};
+	if (\${DEV_ORIGIN ? 'true' : 'false'}) {
+		const publishPath = () => {
+			const path = location.pathname + location.search + location.hash;
+			if (path === currentPath) return;
+			currentPath = path;
+			send({ format: 1, kind: 'event', event: 'navigation', path });
+		};
+		for (const method of ['pushState', 'replaceState']) {
+			const original = history[method];
+			history[method] = function(...args) {
+				const result = original.apply(this, args);
+				publishPath();
+				return result;
+			};
+		}
+		addEventListener('popstate', publishPath);
+		addEventListener('hashchange', publishPath);
+	}
 	document.addEventListener('click', event => {
 		const anchor = event.target instanceof Element ? event.target.closest('a[href]') : null;
 		if (!anchor) return;
@@ -237,8 +267,9 @@ const bridgeBootstrap = (path: string) => \`(() => {
 		event.preventDefault();
 		send({ format: 1, kind: 'event', event: 'navigation', path: url.pathname + url.search + url.hash });
 	}, true);
-	send({ format: 1, kind: 'event', event: 'ready', path: \${JSON.stringify(path)} });
+	send({ format: 1, kind: 'event', event: 'ready', path: currentPath });
 })(); true;\`;
+};
 
 const impact = async (params: Record<string, unknown>) => {
 	const style = params.style;
@@ -280,7 +311,15 @@ export function AbsoluteWebHost() {
 	const [canGoBack, setCanGoBack] = useState(false);
 	const activeWebPath = useRef(pathname);
 
-	useEffect(() => { void materializeAbsoluteWebBundle().then(setIndexUri); }, []);
+	useEffect(() => {
+		if (DEV_ORIGIN) {
+			const target = new URL(pathname, DEV_ORIGIN);
+			target.searchParams.set('__absolute_target', HMR_TARGET);
+			setIndexUri(target.href);
+			return;
+		}
+		void materializeAbsoluteWebBundle().then(uri => setIndexUri(uri + '?absolutePath=' + encodeURIComponent(pathname)));
+	}, [pathname]);
 	useEffect(() => {
 		const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
 			if (!canGoBack) return false;
@@ -294,6 +333,9 @@ export function AbsoluteWebHost() {
 		const source = JSON.stringify(message).replaceAll('\\u2028', '\\\\u2028').replaceAll('\\u2029', '\\\\u2029');
 		if (new TextEncoder().encode(source).byteLength > MAX_MESSAGE_BYTES) throw new Error('Expo bridge response exceeds 64 KiB.');
 		webView.current?.injectJavaScript(\`globalThis.__absoluteExpoReceive(\${JSON.stringify(source)}); true;\`);
+	};
+	const hasOrigin = (source: string, origin: string) => {
+		try { return new URL(source).origin === origin; } catch { return false; }
 	};
 	const onMessage = async (event: WebViewMessageEvent) => {
 		const source = event.nativeEvent.data;
@@ -336,12 +378,12 @@ export function AbsoluteWebHost() {
 		onMessage={onMessage}
 		onNavigationStateChange={state => setCanGoBack(state.canGoBack)}
 		onShouldStartLoadWithRequest={request => {
-			if (request.url.startsWith('file:') || request.url.startsWith(PRODUCTION_ORIGIN)) return true;
+			if (request.url.startsWith('file:') || hasOrigin(request.url, PRODUCTION_ORIGIN) || DEV_ORIGIN && hasOrigin(request.url, DEV_ORIGIN)) return true;
 			void Linking.openURL(request.url);
 			return false;
 		}}
 		ref={webView}
-		source={{ uri: indexUri + '?absolutePath=' + encodeURIComponent(pathname) }}
+		source={{ uri: indexUri }}
 		style={styles.web}
 	/>;
 }
@@ -403,6 +445,11 @@ const writeManagedFile = async (
 
 const jsonSource = (value: unknown) => `${JSON.stringify(value, null, '\t')}\n`;
 
+const emptyWebAssetsSource = `${EXPO_GENERATED_HEADER}export const materializeAbsoluteWebBundle = async () => {
+	throw new Error('The embedded AbsoluteJS bundle is unavailable. Run absolute prepare before a production Expo build.');
+};
+`;
+
 export const writeAbsoluteExpoProject = async (
 	config: NormalizedAbsoluteMobileConfig,
 	options: WriteAbsoluteExpoProjectOptions
@@ -460,6 +507,10 @@ export const writeAbsoluteExpoProject = async (
 			webHostSource(config)
 		]
 	]);
+	const webAssetsPath = join(project, 'src', 'generated', 'webAssets.ts');
+	if (!(await exists(webAssetsPath))) {
+		files.set(webAssetsPath, emptyWebAssetsSource);
+	}
 	if (!config.expoNativeRoutes['/']) {
 		files.set(join(project, 'app', 'index.tsx'), webRouteSource);
 	}

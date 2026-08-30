@@ -8,7 +8,7 @@ import {
 	writeFileSync
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, resolve as resolvePath } from 'node:path';
 import type { DbScripts, InteractiveHandler } from '../../../types/cli';
 import type { MobileConfig } from '../../../types/build';
 import {
@@ -38,6 +38,14 @@ import { scanListeners } from '../../utils/portScan';
 import { resolveDevPort } from '../../utils/resolveDevPort';
 import { getLocalIPAddress } from '../../utils/networking';
 import { normalizeAbsoluteMobileConfig } from '../../mobile/config';
+import { writeAbsoluteExpoProject } from '../../mobile/expoProject';
+import {
+	absoluteExpoExecutable,
+	startAbsoluteExpoDevSession,
+	type AbsoluteExpoDevPlatform,
+	type AbsoluteExpoDevSession,
+	type AbsoluteExpoDevState
+} from '../../mobile/expoDevController';
 import { installAbsoluteMobileAuthEnvironment } from '../../mobile/nativeAuth';
 import {
 	prepareAbsoluteAndroidDevProject,
@@ -81,6 +89,7 @@ import {
 } from '../../mobile/iosNativeWatcher';
 import {
 	COMPOSE_PATH,
+	findFreePort,
 	isWSLEnvironment,
 	printHelp,
 	printHint,
@@ -128,13 +137,13 @@ const DEFAULT_PORT_RANGE = 10;
 const RESTART_PARK_POLL_MS = 20;
 const NODE_API_IMPORT_ERROR =
 	'To load Node-API modules, use require() or process.dlopen instead of import.';
-const sourceServerBootstrap = resolve(
+const sourceServerBootstrap = resolvePath(
 	import.meta.dir,
 	'../../dev/serverBootstrap.ts'
 );
 const serverBootstrap = existsSync(sourceServerBootstrap)
 	? sourceServerBootstrap
-	: resolve(import.meta.dir, '../dev/serverBootstrap.js');
+	: resolvePath(import.meta.dir, '../dev/serverBootstrap.js');
 
 export const formatServerBootDiagnostic = (
 	output: string,
@@ -386,10 +395,17 @@ export const dev = async (
 	let httpsEnabled = false;
 	let devCertificateAuthorityPath: string | null = null;
 	let resolvedDev: ResolvedDevConfig;
-	let buildDirectory = resolve(process.cwd(), 'build');
+	let buildDirectory = resolvePath(process.cwd(), 'build');
 	let mobileConfig: MobileConfig | undefined;
 	let iosPhysicalServerHost: string | undefined;
 	let selectedRemoteMacProfile: AbsoluteRemoteMacProfile | undefined;
+	let expoDevProject:
+		| {
+				executable: string;
+				mobile: ReturnType<typeof normalizeAbsoluteMobileConfig>;
+				platforms: AbsoluteExpoDevPlatform[];
+		  }
+		| undefined;
 	try {
 		const config = await loadConfig(configPath);
 		mobileConfig = config?.mobile;
@@ -401,7 +417,7 @@ export const dev = async (
 		resolvedDev = resolveDevConfig(config?.dev);
 		httpsEnabled = resolvedDev.https;
 		if (config?.buildDirectory) {
-			buildDirectory = resolve(process.cwd(), config.buildDirectory);
+			buildDirectory = resolvePath(process.cwd(), config.buildDirectory);
 		}
 	} catch {
 		// config load failed, fall back to env-only defaults
@@ -437,6 +453,14 @@ export const dev = async (
 		throw new TypeError('--ios-device requires ios in mobile.platforms.');
 	}
 	if (options.iosDevice) {
+		if (
+			mobileConfig?.engine === 'expo' &&
+			detectAbsoluteMobileHost() !== 'macos'
+		) {
+			throw new Error(
+				'Expo physical iOS development currently requires local macOS; Expo Remote Mac execution is the next adapter milestone.'
+			);
+		}
 		if (detectAbsoluteMobileHost() === 'macos')
 			iosPhysicalServerHost = mobileReachableHost(resolvedDev.host);
 		else {
@@ -476,12 +500,124 @@ export const dev = async (
 				process.cwd()
 			);
 			if (normalized.engine === 'expo') {
-				console.log(
-					cliTag(
-						'\x1b[35m',
-						'Expo hybrid support is experimental. AbsoluteJS web development is running; start Metro from .absolutejs/mobile/expo for the native shell.'
-					)
-				);
+				if (httpsEnabled) {
+					throw new TypeError(
+						'Combined Expo development currently requires dev.https: false while debug-only CA projection is completed; productionOrigin remains HTTPS.'
+					);
+				}
+				const generated = await writeAbsoluteExpoProject(normalized, {
+					projectRoot: process.cwd()
+				});
+				const dependenciesReady =
+					existsSync(
+						join(
+							generated.path,
+							'node_modules',
+							'expo',
+							'package.json'
+						)
+					) &&
+					existsSync(
+						join(
+							generated.path,
+							'node_modules',
+							'expo-dev-client',
+							'package.json'
+						)
+					);
+				if (!dependenciesReady) {
+					const install = await confirmPrompt(
+						'Expo development dependencies are missing. Install the pinned SDK 57 development client now?'
+					);
+					if (!install) {
+						throw new TypeError(
+							'Expo target skipped. Run `absolute mobile init --yes` when ready.'
+						);
+					}
+					const installProcess = nodeSpawn('bun', ['install'], {
+						cwd: generated.path,
+						stdio: 'inherit'
+					});
+					const installExit = await new Promise<number>((resolve) =>
+						installProcess.once('exit', (code) =>
+							resolve(code ?? 1)
+						)
+					);
+					if (installExit !== 0) {
+						throw new TypeError(
+							`Expo dependency installation exited with status ${installExit}.`
+						);
+					}
+				}
+				const platforms: AbsoluteExpoDevPlatform[] = [];
+				if (normalized.platforms.includes('android')) {
+					const target = options.androidDevice
+						? 'device'
+						: 'emulator';
+					let ready = androidToolchainReady(
+						await inspectAbsoluteMobileToolchain(),
+						target
+					);
+					if (!ready) {
+						const install = await confirmPrompt(
+							'Android development is not configured. Install the tested toolchain now?'
+						);
+						if (install) {
+							await fixAbsoluteMobileEmulatorToolchain('android');
+							ready = androidToolchainReady(
+								await inspectAbsoluteMobileToolchain(),
+								target
+							);
+						}
+					}
+					if (ready) platforms.push('android');
+				}
+				if (normalized.platforms.includes('ios')) {
+					if (detectAbsoluteMobileHost() !== 'macos') {
+						console.log(
+							cliTag(
+								'\x1b[33m',
+								'Expo iOS target skipped on this host; Expo Remote Mac execution is the next adapter milestone.'
+							)
+						);
+					} else {
+						const target = options.iosDevice
+							? 'device'
+							: 'simulator';
+						let ready = iosToolchainReady(
+							await inspectAbsoluteMobileToolchain(),
+							target
+						);
+						if (!ready) {
+							const install = await confirmPrompt(
+								'iOS development is not configured. Open the guided Xcode setup now?'
+							);
+							if (install) {
+								await fixAbsoluteMobileEmulatorToolchain('ios');
+								ready = iosToolchainReady(
+									await inspectAbsoluteMobileToolchain(),
+									target
+								);
+							}
+						}
+						if (ready) platforms.push('ios');
+					}
+				}
+				if (platforms.length > 0) {
+					expoDevProject = {
+						executable: await absoluteExpoExecutable(
+							generated.path
+						),
+						mobile: normalized,
+						platforms
+					};
+					console.log(
+						cliTag(
+							'\x1b[35m',
+							`Expo development build queued for ${platforms.join(' + ')}; Metro and native launch will start with the Bun server.`
+						)
+					);
+				}
 			} else if (normalized.platforms.includes('android')) {
 				const androidTarget = options.androidDevice
 					? 'device'
@@ -742,7 +878,7 @@ export const dev = async (
 		}
 	};
 
-	const usesDocker = existsSync(resolve(COMPOSE_PATH));
+	const usesDocker = existsSync(resolvePath(COMPOSE_PATH));
 	const scripts: DbScripts | null = usesDocker ? await readDbScripts() : null;
 
 	if (scripts) await startDatabase(scripts);
@@ -759,6 +895,12 @@ export const dev = async (
 	let iosDevSession: AbsoluteIosDevSession | null = null;
 	let iosDevStart: Promise<void> | null = null;
 	let iosNativeWatcher: AbsoluteIosNativeWatcher | null = null;
+	let expoDevSession: AbsoluteExpoDevSession | null = null;
+	let expoDevStart: Promise<void> | null = null;
+	let expoDevState: AbsoluteExpoDevState | 'waiting-for-server' =
+		'waiting-for-server';
+	const expoDevAbort = new AbortController();
+	const expoMetroPort = expoDevProject ? await findFreePort() : undefined;
 	const androidPhaseTimings: Record<string, number> = {};
 	let androidDevState: AbsoluteAndroidDevState | 'waiting-for-server' =
 		'waiting-for-server';
@@ -880,14 +1022,11 @@ export const dev = async (
 			.then(async (session) => {
 				if (cleaning) {
 					await session.close();
-
-					return undefined;
+				} else {
+					androidDevSession = session;
+					publishAndroidReady(session, androidProject);
+					await ensureAndroidNativeWatcher(androidProject);
 				}
-				androidDevSession = session;
-				publishAndroidReady(session, androidProject);
-				await ensureAndroidNativeWatcher(androidProject);
-
-				return undefined;
 			})
 			.catch((error) => {
 				androidDevState = 'failed';
@@ -1089,6 +1228,111 @@ export const dev = async (
 				iosDevStart = null;
 			});
 	};
+	const absoluteDevOrigin = (host: string) => {
+		const url = new URL(`${httpsEnabled ? 'https' : 'http'}://localhost`);
+		url.hostname = host;
+		url.port = String(port);
+
+		return url.origin;
+	};
+	const expoTelemetryPlatform = (phase: AbsoluteExpoDevState) => {
+		if (phase.endsWith('android')) return 'android';
+		if (phase.endsWith('ios')) return 'ios';
+
+		return 'shared';
+	};
+	const startExpoDev = () => {
+		const project = expoDevProject;
+		if (
+			!project ||
+			expoMetroPort === undefined ||
+			expoDevStart ||
+			expoDevSession
+		) {
+			return;
+		}
+		const androidHost = options.androidDevice
+			? mobileReachableHost(resolvedDev.host)
+			: '10.0.2.2';
+		const iosHost = options.iosDevice
+			? mobileReachableHost(resolvedDev.host)
+			: 'localhost';
+		expoDevStart = startAbsoluteExpoDevSession({
+			androidDevice: options.androidDevice,
+			androidOrigin: project.platforms.includes('android')
+				? absoluteDevOrigin(androidHost)
+				: undefined,
+			config: project.mobile,
+			executable: project.executable,
+			iosDevice: options.iosDevice,
+			iosOrigin: project.platforms.includes('ios')
+				? absoluteDevOrigin(iosHost)
+				: undefined,
+			metroPort: expoMetroPort,
+			platforms: project.platforms,
+			signal: expoDevAbort.signal,
+			log: (message) =>
+				printNativeOutput(cliTag('\x1b[35m', `Expo ${message}`)),
+			onPhaseTiming: ({ durationMs, phase }) => {
+				sendTelemetryEvent('mobile:expo-dev-phase', {
+					durationMs: Math.round(durationMs),
+					phase,
+					platform: expoTelemetryPlatform(phase),
+					provider: 'expo'
+				});
+			},
+			onStateChange: (state) => {
+				expoDevState = state;
+				if (state === 'ready' || state === 'closed') return;
+				printNativeOutput(
+					cliTag('\x1b[35m', `Expo development: ${state}.`)
+				);
+			}
+		})
+			.then(async (session) => {
+				if (cleaning) {
+					await session.close();
+				} else {
+					expoDevSession = session;
+					sendTelemetryEvent('mobile:expo-dev-ready', {
+						metroPort: session.metroPort,
+						platforms: session.platforms,
+						provider: 'expo',
+						timings: session.timings
+					});
+					printNativeOutput(
+						cliTag(
+							'\x1b[35m',
+							`Expo ${session.platforms.join(' + ')} connected; native Fast Refresh uses Metro on ${session.metroPort}, and AbsoluteJS pages use HMR on ${port}.`
+						)
+					);
+				}
+			})
+			.catch((error) => {
+				expoDevState = 'failed';
+				if (
+					cleaning &&
+					error instanceof Error &&
+					error.name === 'AbortError'
+				) {
+					return;
+				}
+				sendTelemetryEvent('mobile:expo-dev-failed', {
+					phase: expoDevState,
+					platforms: project.platforms,
+					provider: 'expo'
+				});
+				console.error(
+					cliTag(
+						'\x1b[31m',
+						`Expo development failed: ${error instanceof Error ? error.message : String(error)}`
+					)
+				);
+			})
+			.finally(() => {
+				expoDevStart = null;
+			});
+	};
 
 	// Once the dev server is up, dial the reverse-tunnel relay (if configured)
 	// so public webhooks reach this machine. Started once; survives HMR.
@@ -1112,6 +1356,7 @@ export const dev = async (
 		startTunnelIfConfigured();
 		startAndroidDev();
 		startIosDev();
+		startExpoDev();
 		interactive?.showPrompt();
 	};
 
@@ -1178,7 +1423,7 @@ export const dev = async (
 		// by resolved URL; without a cache-busting query param we'd see
 		// the same in-memory module on every spawn and silently ignore
 		// the user's edit.
-		const cfgPath = resolve(
+		const cfgPath = resolvePath(
 			configPath ?? process.env.ABSOLUTE_CONFIG ?? 'absolute.config.ts'
 		);
 		let cfg: Awaited<ReturnType<typeof loadConfig>>;
@@ -1198,8 +1443,8 @@ export const dev = async (
 			refreshedDevConfig.host = '0.0.0.0';
 		}
 		const desiredBuildDir = cfg?.buildDirectory
-			? resolve(process.cwd(), cfg.buildDirectory)
-			: resolve(process.cwd(), 'build');
+			? resolvePath(process.cwd(), cfg.buildDirectory)
+			: resolvePath(process.cwd(), 'build');
 		if (
 			desiredBuildDir !== buildDirectory &&
 			desiredBuildDir !== lastBuildDirectoryWarned
@@ -1261,7 +1506,7 @@ export const dev = async (
 		for (const name of candidates) {
 			let text: string;
 			try {
-				text = readFileSync(resolve(process.cwd(), name), 'utf8');
+				text = readFileSync(resolvePath(process.cwd(), name), 'utf8');
 			} catch {
 				continue;
 			}
@@ -1331,7 +1576,7 @@ export const dev = async (
 					// child's runtime (networking plugin) must not self-register.
 					ABSOLUTE_INSTANCE_MANAGED: '1',
 					ABSOLUTE_PORT: String(port),
-					ABSOLUTE_SERVER_ENTRY: resolve(serverEntry),
+					ABSOLUTE_SERVER_ENTRY: resolvePath(serverEntry),
 					...(mobileConfig ? { ABSOLUTE_MOBILE_PREVIEW: '1' } : {}),
 					FORCE_COLOR: '1',
 					NODE_ENV: 'development',
@@ -1436,7 +1681,7 @@ export const dev = async (
 	try {
 		const { watch } = await import('node:fs');
 		const { dirname } = await import('node:path');
-		const absServerEntry = resolve(serverEntry);
+		const absServerEntry = resolvePath(serverEntry);
 		const serverEntryDir = dirname(absServerEntry);
 		// Watch the project root non-recursively. Two things this covers
 		// that the bun child's internal watchers don't:
@@ -1681,6 +1926,8 @@ export const dev = async (
 		androidNativeWatcher?.close();
 		iosDevAbort.abort();
 		iosNativeWatcher?.close();
+		expoDevAbort.abort();
+		if (expoDevStart) await expoDevStart.catch(() => undefined);
 		if (androidDevSession) {
 			await androidDevSession.close();
 		} else if (androidDevProject) {
@@ -1696,6 +1943,7 @@ export const dev = async (
 					iosDevProject.projectRoot
 				).catch(() => undefined);
 		}
+		if (expoDevSession) await expoDevSession.close();
 		if (paused) sendSignal('SIGCONT');
 		killChildTree('SIGTERM');
 		await new Promise<void>((_resolve) => {
@@ -1856,7 +2104,7 @@ export const dev = async (
 		heapSnapshot: () => {
 			triggerHeapSnapshot();
 		},
-		...(androidDevProject || iosDevProject
+		...(androidDevProject || iosDevProject || expoDevProject
 			? {
 					device: () => {
 						if (androidDevProject) {
@@ -1878,6 +2126,14 @@ export const dev = async (
 								cliTag(
 									'\x1b[35m',
 									`iOS target: ${target}; HMR port ${port}.`
+								)
+							);
+						}
+						if (expoDevProject) {
+							console.log(
+								cliTag(
+									'\x1b[35m',
+									`Expo targets: ${expoDevProject.platforms.join(', ')}; state ${expoDevState}; Metro ${expoMetroPort ?? 'not allocated'}; AbsoluteJS HMR ${port}.`
 								)
 							);
 						}
@@ -1903,13 +2159,23 @@ export const dev = async (
 						} else if (iosDevSession) {
 							await iosDevSession.relaunch();
 						}
+						if (expoDevProject) {
+							console.log(
+								cliTag(
+									'\x1b[33m',
+									'Expo relaunch uses the development-client menu for now; native builds relaunch automatically.'
+								)
+							);
+						}
 					}
 				}
 			: {}),
 		help: () => {
 			printHelp(
 				'server',
-				androidDevProject !== null || iosDevProject !== null
+				androidDevProject !== null ||
+					iosDevProject !== null ||
+					expoDevProject !== undefined
 			);
 		},
 		open: () => openInBrowser(),

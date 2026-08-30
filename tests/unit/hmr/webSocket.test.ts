@@ -200,6 +200,17 @@ describe('handleHMRMessage', () => {
 		expect(state.clientTargets.get(client)).toBe('capacitor-ios');
 	});
 
+	test('tracks Expo native WebViews without collapsing them into web', () => {
+		const state = createHMRState(makeConfig());
+		const client = makeMockClient();
+		handleHMRMessage(
+			state,
+			client,
+			JSON.stringify({ target: 'expo-ios', type: 'ready' })
+		);
+		expect(state.clientTargets.get(client)).toBe('expo-ios');
+	});
+
 	test('tracks mobile preview separately from ordinary browser clients', () => {
 		const state = createHMRState(makeConfig());
 		const client = makeMockClient();

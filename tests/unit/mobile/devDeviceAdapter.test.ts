@@ -32,4 +32,22 @@ describe('native development device adapter', () => {
 			'from"@absolutejs/devices-capacitor/system-bars"'
 		);
 	}, 15_000);
+
+	test('uses the Expo bridge provider without importing Capacitor', () => {
+		const source = absoluteNativeDevAdapterSource(
+			'/tmp/absolute-expo-empty-project',
+			{
+				appId: 'com.example.expo',
+				appName: 'Expo',
+				engine: 'expo',
+				server: { productionOrigin: 'https://api.example.com' }
+			},
+			(specifier) => specifier,
+			'/absolute/shellExpoDevices.js'
+		);
+
+		expect(source).toContain('installAbsoluteExpoWebDeviceAdapter');
+		expect(source).toContain('/absolute/shellExpoDevices.js');
+		expect(source).not.toContain('Capacitor');
+	});
 });

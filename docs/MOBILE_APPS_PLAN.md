@@ -3,8 +3,8 @@
 Status: Capacitor Android development/release, all-framework embedded bundles, universal native Auth/Sync, background Sync, automatic device provisioning, provider-neutral native push registration, and Android conformance are operational; iOS development/release automation is shipped and awaiting real macOS/physical-device acceptance
 Research snapshot: August 26, 2026
 
-Implementation checkpoint (August 29, 2026, Expo Phase 7 spike):
-AbsoluteJS `0.20.0-beta.40` makes `mobile.engine: 'expo'` select a separate,
+Implementation checkpoint (August 29, 2026, Expo Phase 7 development loop):
+AbsoluteJS `0.20.0-beta.40` made `mobile.engine: 'expo'` select a separate,
 explicitly experimental Expo SDK
 57/Expo Router shell while Capacitor remains the default. AbsoluteJS generates
 CNG configuration, a native diagnostic screen, static native-route wrappers,
@@ -14,8 +14,15 @@ with stable relative paths. Expo Router owns deep links and native transitions;
 the WebView retains web history. Bridge format 1 enforces a 64 KiB maximum,
 bounded IDs/paths, request timeouts, current-page identity, and a method
 allowlist; the first provider-neutral proof is `@absolutejs/devices` haptics.
-Full Auth/Sync adapters, other device APIs, combined HMR, release tooling, and
-physical-device acceptance remain explicit gates. See
+`0.20.0-beta.41` adds an Expo development-client dependency and makes `bun dev`
+own one Metro server plus configured local Android/iOS builds. Native React
+routes use Metro Fast Refresh; every web route loads the live Bun origin with
+an `expo-android` or `expo-ios` identity and uses the existing framework HMR,
+timing logs, and redacted telemetry. The bridge tracks live browser history so
+its current-route authorization remains correct across SPA navigation. Full
+Auth/Sync adapters, other device APIs, HTTPS development CA projection, remote
+Expo iOS execution, release tooling, and physical-device acceptance remain
+explicit gates. See
 [MOBILE_EXPO_EXPERIMENT.md](./MOBILE_EXPO_EXPERIMENT.md).
 
 Implementation checkpoint (August 29, 2026): the Phase 6 release-security
