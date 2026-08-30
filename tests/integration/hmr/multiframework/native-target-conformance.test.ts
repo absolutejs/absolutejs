@@ -15,6 +15,7 @@ import { connectHMR } from '../../../helpers/ws';
 const PROJECT_ROOT = resolve(import.meta.dir, '..', '..', '..', '..');
 const NATIVE_TARGET = '__absolute_target=capacitor-android';
 const MAX_NATIVE_APPLY_MS = 2_000;
+const NATIVE_HMR_CONVERGENCE_TIMEOUT_MS = 60_000;
 const SVELTE_COUNTER = resolve(
 	PROJECT_ROOT,
 	'example/svelte/components/Counter.svelte'
@@ -76,7 +77,9 @@ const expectBoundedNativeApply = async (
 	maxDurationMs = MAX_NATIVE_APPLY_MS
 ) => {
 	if (!server) throw new Error('dev server missing');
-	const line = await server.waitForOutput(pattern, { timeoutMs: 30_000 });
+	const line = await server.waitForOutput(pattern, {
+		timeoutMs: NATIVE_HMR_CONVERGENCE_TIMEOUT_MS
+	});
 	const duration = /(?:applied in|reload after) ([\d.]+)ms/.exec(line)?.[1];
 	expect(duration).toBeDefined();
 	expect(Number(duration)).toBeLessThan(maxDurationMs);
@@ -96,6 +99,7 @@ const withNativePage = async (
 			session = await openPage(nativeUrl(route), {
 				waitUntil: 'commit'
 			});
+			session.page.setDefaultTimeout(NATIVE_HMR_CONVERGENCE_TIMEOUT_MS);
 			await session.page.waitForSelector(readySelector, {
 				timeout: 10_000
 			});
@@ -114,6 +118,13 @@ const withNativePage = async (
 				undefined,
 				{ timeout: 10_000 }
 			);
+			if (!server) throw new Error('dev server missing');
+			// Page hydration can finish while its initial framework compilation is
+			// still draining. Mutating in that window makes this conformance edit
+			// compete with boot work instead of testing a steady-state HMR cycle.
+			await server.waitForIdle({
+				timeoutMs: NATIVE_HMR_CONVERGENCE_TIMEOUT_MS
+			});
 			actionStarted = true;
 			await action(session.page);
 
@@ -125,6 +136,7 @@ const withNativePage = async (
 				/page, context or browser has been closed|target page, context or browser has been closed/i.test(
 					message
 				);
+			const retryableBrowserClosed = !actionStarted && browserClosed;
 			const readinessTimeout =
 				!actionStarted &&
 				error instanceof Error &&
@@ -135,7 +147,7 @@ const withNativePage = async (
 				!actionStarted && /net::ERR_CONNECTION_REFUSED/iu.test(message);
 			if (
 				attempt >= 2 ||
-				(!browserClosed &&
+				(!retryableBrowserClosed &&
 					!readinessTimeout &&
 					!browserLaunchUnavailable &&
 					!serverNotReady)

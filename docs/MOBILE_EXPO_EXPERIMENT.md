@@ -134,11 +134,15 @@ the application author to edit generated native code. Once connected, ordinary
 route edits stay on Metro Fast Refresh or AbsoluteJS HMR and do not repeat CNG,
 Gradle, or Xcode compilation.
 
-Development currently requires `dev.https: false`. This applies only to the
-local live WebView; `mobile.server.productionOrigin` remains HTTPS and the
-embedded production transport remains locked to that exact origin. AbsoluteJS
-fails explicitly instead of bypassing certificate validation while debug-only
-Expo CA projection is unfinished.
+Expo development uses the same `dev.https` setting as the web and Capacitor
+targets. For Android, AbsoluteJS projects its local CA through Android's
+debug-only Network Security Configuration while CNG generates the disposable
+native project. For an iOS Simulator it installs the CA into that simulator's
+trusted-root store and relaunches the app. A physical iOS device receives the
+same short-lived, tokenized enrollment URL used by Capacitor and prints the
+exact profile-install and trust steps. AbsoluteJS never disables certificate
+validation, and a clean production prebuild cannot include the development CA
+plugin because it is activated only by the Expo development environment.
 
 For production-bundle/CNG inspection, the lower-level commands remain:
 

@@ -55,6 +55,7 @@ type DevServerOptions = {
 
 const DEFAULT_OUTPUT_TIMEOUT_MS = 10_000;
 const DEFAULT_IDLE_TIMEOUT_MS = 15_000;
+const PROCESS_EXIT_TIMEOUT_MS = 5_000;
 const IDLE_POLL_INTERVAL_MS = 50;
 const IDLE_STABILITY_MS = 500;
 
@@ -172,9 +173,19 @@ export const startDevServer = async (options?: DevServerOptions | number) => {
 
 	const kill = async () => {
 		try {
-			proc.kill();
+			proc.kill('SIGTERM');
 		} catch {
 			// already exited
+		}
+		const exited = await Promise.race([
+			proc.exited.then(() => true),
+			Bun.sleep(PROCESS_EXIT_TIMEOUT_MS).then(() => false)
+		]);
+		if (exited) return;
+		try {
+			proc.kill('SIGKILL');
+		} catch {
+			// already exited between the timeout and escalation
 		}
 		await proc.exited;
 	};

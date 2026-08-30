@@ -51,24 +51,36 @@ describe('experimental Expo project', () => {
 			projectRoot: root
 		});
 		const project = config.nativeProjectDirectory;
-		const [appConfig, nativeRoute, packageSource, webAssets, webHost] =
-			await Promise.all([
-				readFile(join(project, 'app.json'), 'utf8'),
-				readFile(join(project, 'app', 'scanner', 'index.tsx'), 'utf8'),
-				readFile(join(project, 'package.json'), 'utf8'),
-				readFile(
-					join(project, 'src', 'generated', 'webAssets.ts'),
-					'utf8'
-				),
-				readFile(
-					join(project, 'src', 'generated', 'AbsoluteWebHost.tsx'),
-					'utf8'
-				)
-			]);
+		const [
+			appConfig,
+			dynamicConfig,
+			nativeRoute,
+			packageSource,
+			plugin,
+			webAssets,
+			webHost
+		] = await Promise.all([
+			readFile(join(project, 'app.json'), 'utf8'),
+			readFile(join(project, 'app.config.js'), 'utf8'),
+			readFile(join(project, 'app', 'scanner', 'index.tsx'), 'utf8'),
+			readFile(join(project, 'package.json'), 'utf8'),
+			readFile(
+				join(project, 'plugins', 'withAbsoluteDevelopmentCa.js'),
+				'utf8'
+			),
+			readFile(join(project, 'src', 'generated', 'webAssets.ts'), 'utf8'),
+			readFile(
+				join(project, 'src', 'generated', 'AbsoluteWebHost.tsx'),
+				'utf8'
+			)
+		]);
 
 		expect(first.changed).toBeGreaterThan(0);
 		expect(second.changed).toBe(0);
 		expect(appConfig).toContain('applinks:app.example.com');
+		expect(dynamicConfig).toContain('ABSOLUTE_EXPO_DEVELOPMENT_CA_PATH');
+		expect(plugin).toContain('<debug-overrides>');
+		expect(plugin).toContain('android:networkSecurityConfig');
 		expect(appConfig).toContain('"scheme": "product"');
 		expect(nativeRoute).toContain('mobile/native/scanner');
 		expect(packageSource).toContain('expo-dev-client');

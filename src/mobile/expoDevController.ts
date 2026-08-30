@@ -2,12 +2,17 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { access } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { NormalizedAbsoluteMobileConfig } from './config';
+import {
+	startAbsoluteIosCaEnrollmentServer,
+	type AbsoluteIosCaEnrollmentServer
+} from './iosPhysicalDeviceTransport';
 
 export type AbsoluteExpoDevPlatform = 'android' | 'ios';
 export type AbsoluteExpoDevState =
 	| 'building-android'
 	| 'building-ios'
 	| 'closed'
+	| 'enrolling-trust'
 	| 'failed'
 	| 'preparing-native'
 	| 'ready'
@@ -29,6 +34,7 @@ export type AbsoluteExpoDevPlan = {
 export type PlanAbsoluteExpoDevOptions = {
 	androidDevice?: string;
 	androidOrigin?: string;
+	certificateAuthorityPath?: string;
 	iosDevice?: string;
 	iosOrigin?: string;
 	metroPort: number;
@@ -46,6 +52,7 @@ export type StartAbsoluteExpoDevOptions = PlanAbsoluteExpoDevOptions & {
 	onStateChange?: (state: AbsoluteExpoDevState) => void;
 	signal?: AbortSignal;
 	spawnProcess?: typeof spawn;
+	startCaEnrollmentServer?: typeof startAbsoluteIosCaEnrollmentServer;
 };
 
 export type AbsoluteExpoDevSession = {
@@ -60,6 +67,12 @@ const PROCESS_CLOSE_TIMEOUT_MS = 2_000;
 
 const commandEnvironment = (options: PlanAbsoluteExpoDevOptions) => ({
 	ABSOLUTE_EXPO_DEVELOPMENT: '1',
+	...(options.certificateAuthorityPath
+		? {
+				ABSOLUTE_EXPO_DEVELOPMENT_CA_PATH:
+					options.certificateAuthorityPath
+			}
+		: {}),
 	...(options.androidOrigin
 		? { EXPO_PUBLIC_ABSOLUTE_DEV_ANDROID_ORIGIN: options.androidOrigin }
 		: {}),
@@ -90,6 +103,13 @@ export const planAbsoluteExpoDevSession = (
 	if (options.platforms.length === 0)
 		throw new TypeError(
 			'Expo development requires a local target platform.'
+		);
+	const secureOrigin = [options.androidOrigin, options.iosOrigin].some(
+		(origin) => origin && new URL(origin).protocol === 'https:'
+	);
+	if (secureOrigin && !options.certificateAuthorityPath)
+		throw new TypeError(
+			'Expo HTTPS development requires the AbsoluteJS development CA certificate.'
 		);
 	const env = commandEnvironment(options);
 	const metro: AbsoluteExpoDevCommand = {
@@ -192,6 +212,33 @@ const waitForExit = (process: ChildProcess) =>
 		process.once('exit', (code) => resolve(code ?? 1));
 	});
 
+type ExpoUtilityCommandOptions = {
+	cwd: string;
+	signal?: AbortSignal;
+	log: (message: string) => void;
+};
+
+const runUtilityCommand = async (
+	run: typeof spawn,
+	command: string,
+	args: string[],
+	options: ExpoUtilityCommandOptions
+) => {
+	const child = run(command, args, {
+		cwd: options.cwd,
+		env: process.env,
+		stdio: ['ignore', 'pipe', 'pipe']
+	});
+	forwardLines(child, options.log);
+	const abort = () => void stopProcess(child);
+	options.signal?.addEventListener('abort', abort, { once: true });
+	const exitCode = await waitForExit(child);
+	options.signal?.removeEventListener('abort', abort);
+	if (options.signal?.aborted) throw abortError();
+
+	return exitCode;
+};
+
 export const startAbsoluteExpoDevSession = async (
 	options: StartAbsoluteExpoDevOptions
 ) => {
@@ -201,6 +248,16 @@ export const startAbsoluteExpoDevSession = async (
 	const run = options.spawnProcess ?? spawn;
 	const log = options.log ?? (() => undefined);
 	const timings: Partial<Record<AbsoluteExpoDevState, number>> = {};
+	let caEnrollmentServer: AbsoluteIosCaEnrollmentServer | null = null;
+	const closeEnrollmentServer = async () => {
+		const server = caEnrollmentServer;
+		caEnrollmentServer = null;
+		await server?.close();
+	};
+	const publishTiming = (phase: AbsoluteExpoDevState, durationMs: number) => {
+		timings[phase] = (timings[phase] ?? 0) + durationMs;
+		options.onPhaseTiming?.({ durationMs, phase });
+	};
 	const setState = (state: AbsoluteExpoDevState) => {
 		options.onStateChange?.(state);
 	};
@@ -313,6 +370,57 @@ export const startAbsoluteExpoDevSession = async (
 				`Expo ${platform} development build exited with status ${exitCode}.`
 			);
 		}
+		if (
+			platform === 'ios' &&
+			options.certificateAuthorityPath &&
+			options.iosOrigin &&
+			new URL(options.iosOrigin).protocol === 'https:' &&
+			!options.iosDevice
+		) {
+			setState('enrolling-trust');
+			const trustStarted = performance.now();
+			const utilityOptions: ExpoUtilityCommandOptions = {
+				cwd: plan.project,
+				signal: options.signal,
+				log: (line: string) => line && log(`[ios-trust] ${line}`)
+			};
+			const trustExit = await runUtilityCommand(
+				run,
+				'xcrun',
+				[
+					'simctl',
+					'keychain',
+					'booted',
+					'add-root-cert',
+					options.certificateAuthorityPath
+				],
+				utilityOptions
+			);
+			if (trustExit !== 0)
+				throw new Error(
+					`Expo iOS Simulator development CA trust exited with status ${trustExit}.`
+				);
+			await runUtilityCommand(
+				run,
+				'xcrun',
+				['simctl', 'terminate', 'booted', options.config.appId],
+				utilityOptions
+			);
+			const launchExit = await runUtilityCommand(
+				run,
+				'xcrun',
+				['simctl', 'launch', 'booted', options.config.appId],
+				utilityOptions
+			);
+			if (launchExit !== 0)
+				throw new Error(
+					`Expo iOS Simulator relaunch exited with status ${launchExit}.`
+				);
+			log(
+				'Installed the AbsoluteJS development CA into the Expo iOS Simulator and relaunched the app.'
+			);
+			publishTiming('enrolling-trust', performance.now() - trustStarted);
+		}
 		const durationMs = performance.now() - started;
 		timings[state] = durationMs;
 		options.onPhaseTiming?.({ durationMs, phase: state });
@@ -325,7 +433,31 @@ export const startAbsoluteExpoDevSession = async (
 		await runNativeCommand(command);
 		await runNativeCommands(remaining);
 	};
+	const startPhysicalIosEnrollment = async () => {
+		if (
+			!options.iosDevice ||
+			!options.certificateAuthorityPath ||
+			!options.iosOrigin ||
+			new URL(options.iosOrigin).protocol !== 'https:'
+		) {
+			return;
+		}
+		setState('enrolling-trust');
+		const trustStarted = performance.now();
+		const startEnrollment =
+			options.startCaEnrollmentServer ??
+			startAbsoluteIosCaEnrollmentServer;
+		caEnrollmentServer = await startEnrollment({
+			certificateAuthorityPath: options.certificateAuthorityPath,
+			displayHost: new URL(options.iosOrigin).hostname
+		});
+		log(
+			`On the iOS device, open ${caEnrollmentServer.url}, install the AbsoluteJS development CA profile, then enable it under Settings > General > About > Certificate Trust Settings. This public CA endpoint exists only for this dev session.`
+		);
+		publishTiming('enrolling-trust', performance.now() - trustStarted);
+	};
 	try {
+		await startPhysicalIosEnrollment();
 		await metroPromise;
 		const metroMs = performance.now() - metroStarted;
 		timings['starting-metro'] = metroMs;
@@ -343,12 +475,14 @@ export const startAbsoluteExpoDevSession = async (
 			close: async () => {
 				options.signal?.removeEventListener('abort', abort);
 				await stopProcess(metro);
+				await closeEnrollmentServer();
 				setState('closed');
 			}
 		};
 	} catch (error) {
 		options.signal?.removeEventListener('abort', abort);
 		await stopProcess(metro);
+		await closeEnrollmentServer();
 		setState('failed');
 		throw error;
 	}

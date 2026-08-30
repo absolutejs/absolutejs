@@ -397,6 +397,9 @@ export const dev = async (
 	let resolvedDev: ResolvedDevConfig;
 	let buildDirectory = resolvePath(process.cwd(), 'build');
 	let mobileConfig: MobileConfig | undefined;
+	let normalizedMobileConfig:
+		| ReturnType<typeof normalizeAbsoluteMobileConfig>
+		| undefined;
 	let iosPhysicalServerHost: string | undefined;
 	let selectedRemoteMacProfile: AbsoluteRemoteMacProfile | undefined;
 	let expoDevProject:
@@ -409,11 +412,16 @@ export const dev = async (
 	try {
 		const config = await loadConfig(configPath);
 		mobileConfig = config?.mobile;
-		if (mobileConfig)
+		if (mobileConfig) {
+			normalizedMobileConfig = normalizeAbsoluteMobileConfig(
+				mobileConfig,
+				process.cwd()
+			);
 			installAbsoluteMobileAuthEnvironment(
 				process.cwd(),
-				normalizeAbsoluteMobileConfig(mobileConfig, process.cwd())
+				normalizedMobileConfig
 			);
+		}
 		resolvedDev = resolveDevConfig(config?.dev);
 		httpsEnabled = resolvedDev.https;
 		if (config?.buildDirectory) {
@@ -476,6 +484,11 @@ export const dev = async (
 	}
 	if (httpsEnabled) {
 		const certificateHosts = [
+			...(normalizedMobileConfig?.engine === 'expo' &&
+			!options.androidDevice &&
+			normalizedMobileConfig.platforms.includes('android')
+				? ['10.0.2.2']
+				: []),
 			...(options.androidDevice
 				? [mobileReachableHost(resolvedDev.host)]
 				: []),
@@ -493,18 +506,10 @@ export const dev = async (
 		process.env.ABSOLUTE_NO_MOBILE !== '1' &&
 		process.stdin.isTTY === true &&
 		process.stdout.isTTY === true;
-	if (mobileConfig && mobileInteractive) {
+	if (normalizedMobileConfig && mobileInteractive) {
 		try {
-			const normalized = normalizeAbsoluteMobileConfig(
-				mobileConfig,
-				process.cwd()
-			);
+			const normalized = normalizedMobileConfig;
 			if (normalized.engine === 'expo') {
-				if (httpsEnabled) {
-					throw new TypeError(
-						'Combined Expo development currently requires dev.https: false while debug-only CA projection is completed; productionOrigin remains HTTPS.'
-					);
-				}
 				const generated = await writeAbsoluteExpoProject(normalized, {
 					projectRoot: process.cwd()
 				});
@@ -1237,7 +1242,7 @@ export const dev = async (
 	};
 	const expoTelemetryPlatform = (phase: AbsoluteExpoDevState) => {
 		if (phase.endsWith('android')) return 'android';
-		if (phase.endsWith('ios')) return 'ios';
+		if (phase.endsWith('ios') || phase === 'enrolling-trust') return 'ios';
 
 		return 'shared';
 	};
@@ -1262,6 +1267,7 @@ export const dev = async (
 			androidOrigin: project.platforms.includes('android')
 				? absoluteDevOrigin(androidHost)
 				: undefined,
+			certificateAuthorityPath: devCertificateAuthorityPath ?? undefined,
 			config: project.mobile,
 			executable: project.executable,
 			iosDevice: options.iosDevice,

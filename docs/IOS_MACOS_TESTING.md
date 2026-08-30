@@ -1,7 +1,7 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.39` and
+`@absolutejs/absolute@0.20.0-beta.42` and
 `@absolutejs/deploy@0.24.0`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
 
@@ -22,6 +22,9 @@ directories or commands:
    from the root of a real mobile-enabled AbsoluteJS staging application. This
    requires that application's source repository, server entry, AbsoluteJS
    config, staging origin, bundle ID, Apple team, and App Store Connect access.
+3. **Expo development-client acceptance:** use the same staging application on
+   a temporary branch, switch `mobile.engine` to `expo`, and complete the Expo
+   checklist below. This track does not replace the Capacitor release gate.
 
 If you were sent only this Markdown file and were not sent a staging
 application repository plus its non-secret configuration values, complete Track
@@ -210,6 +213,8 @@ actual result, sanitized logs, and artifact or screenshot path in section 13.
 - [ ] `DEV-01` Complete the cold and warm `bun dev` simulator runs.
 - [ ] `DEV-02` Complete route traversal, HMR timing, relaunch, and recovery.
 - [ ] `HTTPS-01` Complete trusted local HTTPS and HMR in the iOS Simulator.
+- [ ] `EXPO-01` through `EXPO-06` Complete Expo CNG, HTTPS, web HMR, native Fast
+  Refresh, cleanup, and physical-device enrollment acceptance.
 - [ ] `DEVICEDEV-01` through `DEVICEDEV-10` Complete first-class physical-device
   development, HTTPS enrollment, warm-cache, HMR, relaunch, cleanup, and recovery.
 - [ ] `CAP-01` Complete automatic device-capability provisioning.
@@ -262,7 +267,7 @@ still requires the developer team setup described below.
 From the root of the AbsoluteJS application:
 
 ```sh
-bun add @absolutejs/absolute@0.20.0-beta.39 \
+bun add @absolutejs/absolute@0.20.0-beta.42 \
   @absolutejs/auth@0.75.0 \
   @absolutejs/dispatch@0.9.0 \
   @absolutejs/sync@2.29.0 \
@@ -516,6 +521,72 @@ The installed development CA remains under the tester's control because iOS
 requires explicit profile and full-trust approval. Keep it only on a dedicated
 development device while repeated testing continues. At the end of the entire
 test cycle, disable full trust and remove the AbsoluteJS development CA profile.
+
+### Expo development-client acceptance
+
+Run this only from the staging application root described in Track B, on a
+temporary branch where changing the mobile engine is safe. In
+`absolute.config.ts`, retain the existing app ID, routes, production origin,
+platforms, and `dev.https: true`, but set:
+
+```ts
+mobile: {
+	// Keep the application's other existing mobile fields here.
+	engine: 'expo'
+}
+```
+
+Do not create or edit `.absolutejs/mobile/expo/android` or `ios` yourself.
+AbsoluteJS owns those disposable CNG directories. In Terminal 1, from the
+application root, run:
+
+```sh
+cd /absolute/path/to/the/staging-application
+bunx absolute dev src/backend/server.ts --config absolute.config.ts
+```
+
+Accept the pinned Expo dependency installation if prompted. The first run must
+say that it is preparing native code, start Metro, build the iOS development
+client, install the AbsoluteJS CA into the booted Simulator, relaunch the app,
+and finally report that Expo iOS is connected. Keep Terminal 1 running while
+performing these checks:
+
+- [ ] `EXPO-01` Confirm `.absolutejs/mobile/expo/app.config.js` and
+  `plugins/withAbsoluteDevelopmentCa.js` were generated, and the generated
+  `ios` directory was recreated by `expo prebuild --clean`. Do not edit them.
+- [ ] `EXPO-02` Confirm an ordinary AbsoluteJS route loads over local HTTPS in
+  the Expo WebView with no certificate or ATS error. Record the CA-install log
+  and initial native-build time.
+- [ ] `EXPO-03` Save one visible edit to an ordinary AbsoluteJS page. Confirm
+  `[hmr:expo-ios]` appears and the page updates without another Expo Prebuild or
+  Xcode build; record the HMR time.
+- [ ] `EXPO-04` Open `/__absolute/native`, edit its generated source only for
+  this test, and confirm Metro Fast Refresh updates the React Native screen.
+  Restore the file by stopping and restarting `bun dev`; confirm CNG regenerates
+  it from AbsoluteJS ownership.
+- [ ] `EXPO-05` Stop `bun dev`, run
+  `bunx absolute mobile sync --yes --config absolute.config.ts` without manually
+  exporting any `ABSOLUTE_EXPO_*` environment variable, and confirm the fresh
+  production Android manifest/config does not reference
+  `absolutejs_dev_ca` or `absolutejs_dev_network_security`. On this iOS-only Mac
+  run, it is acceptable for Android to be absent. To inspect the resolved Expo
+  config, run the following from the application root and confirm its `plugins`
+  output omits `withAbsoluteDevelopmentCa`:
+
+  ```sh
+  cd /absolute/path/to/the/staging-application/.absolutejs/mobile/expo
+  bunx expo config --type prebuild
+  ```
+- [ ] `EXPO-06` Optional physical-device check: rerun Terminal 1 with
+  `--ios-device "DEVICE_IDENTIFIER"`, open the printed tokenized CA URL on the
+  device, install and fully trust the profile, and confirm the HTTPS route and
+  `[hmr:expo-ios]` update work. Stop the command and verify that the enrollment
+  URL no longer responds. Record `SKIPPED — no dedicated iOS development
+  device` if unavailable.
+
+Return the sanitized Terminal 1 output and the six result rows. Never return
+the CA private key, Apple credentials, provisioning profiles, raw device logs,
+or the contents of environment files.
 
 ### Automated physical-device acceptance and report
 
@@ -1514,7 +1585,7 @@ source change and build a new content-addressed release instead.
 - Mac architecture:
 - Xcode version:
 - Bun version:
-- AbsoluteJS version: 0.20.0-beta.39
+- AbsoluteJS version: 0.20.0-beta.42
 - Auth version: 0.75.0
 - Dispatch version: 0.9.0
 - Sync version: 2.29.0
@@ -1556,6 +1627,12 @@ versus expected behavior. Do not report exact coordinates.
 | DEV-01 |  | cold: / warm: |  |
 | DEV-02 |  | HMR: / relaunch: |  |
 | HTTPS-01 |  | mkcert / CA trust / load / HMR: |  |
+| EXPO-01 |  | generated CNG ownership / clean prebuild: |  |
+| EXPO-02 |  | Simulator CA trust / HTTPS load / native build: |  |
+| EXPO-03 |  | web HMR timing / no native rebuild: |  |
+| EXPO-04 |  | Metro Fast Refresh / regeneration: |  |
+| EXPO-05 |  | production prebuild trust isolation: |  |
+| EXPO-06 |  | physical CA enrollment / HTTPS HMR / cleanup or skipped: |  |
 | DEVICEDEV-01 |  | selected physical target / no Simulator dependency: |  |
 | DEVICEDEV-02 |  | signed build / install / launch: |  |
 | DEVICEDEV-03 |  | CA enrollment / full trust / endpoint cleanup: |  |

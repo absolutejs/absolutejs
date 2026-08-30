@@ -123,6 +123,59 @@ const expoAppConfig = (config: NormalizedAbsoluteMobileConfig) => ({
 	}
 });
 
+const expoDynamicAppConfig = `${EXPO_GENERATED_HEADER}const config = require('./app.json');
+
+if (process.env.ABSOLUTE_EXPO_DEVELOPMENT === '1' && process.env.ABSOLUTE_EXPO_DEVELOPMENT_CA_PATH) {
+	config.expo.plugins = [
+		...config.expo.plugins,
+		'./plugins/withAbsoluteDevelopmentCa'
+	];
+}
+
+module.exports = config;
+`;
+
+const expoDevelopmentCaPlugin = `${EXPO_GENERATED_HEADER}const { AndroidConfig, withAndroidManifest, withDangerousMod } = require('expo/config-plugins');
+const { copyFile, mkdir } = require('node:fs/promises');
+const path = require('node:path');
+
+const NETWORK_CONFIG = [
+	'<?xml version="1.0" encoding="utf-8"?>',
+	'<network-security-config>',
+	'\t<debug-overrides>',
+	'\t\t<trust-anchors>',
+	'\t\t\t<certificates src="@raw/absolutejs_dev_ca" />',
+	'\t\t</trust-anchors>',
+	'\t</debug-overrides>',
+	'</network-security-config>',
+	''
+].join('\\n');
+
+const withAbsoluteDevelopmentCa = config => {
+	config = withAndroidManifest(config, value => {
+		const application = AndroidConfig.Manifest.getMainApplicationOrThrow(value.modResults);
+		application.$['android:networkSecurityConfig'] = '@xml/absolutejs_dev_network_security';
+		return value;
+	});
+	return withDangerousMod(config, ['android', async value => {
+		const certificate = process.env.ABSOLUTE_EXPO_DEVELOPMENT_CA_PATH;
+		if (!certificate) throw new Error('AbsoluteJS Expo HTTPS development requires its development CA path.');
+		const resources = path.join(value.modRequest.platformProjectRoot, 'app', 'src', 'main', 'res');
+		await Promise.all([
+			mkdir(path.join(resources, 'raw'), { recursive: true }),
+			mkdir(path.join(resources, 'xml'), { recursive: true })
+		]);
+		await Promise.all([
+			copyFile(certificate, path.join(resources, 'raw', 'absolutejs_dev_ca.pem')),
+			require('node:fs/promises').writeFile(path.join(resources, 'xml', 'absolutejs_dev_network_security.xml'), NETWORK_CONFIG)
+		]);
+		return value;
+	}]);
+};
+
+module.exports = withAbsoluteDevelopmentCa;
+`;
+
 const metroConfig = (projectRoot: string) =>
 	`${EXPO_GENERATED_HEADER}const { getDefaultConfig } = require('expo/metro-config');
 const path = require('node:path');
@@ -491,8 +544,13 @@ export const writeAbsoluteExpoProject = async (
 			'.expo/\nandroid/\nios/\nnode_modules/\n'
 		],
 		[join(project, 'app.json'), jsonSource(expoAppConfig(config))],
+		[join(project, 'app.config.js'), expoDynamicAppConfig],
 		[join(project, 'package.json'), jsonSource(expoPackage())],
 		[join(project, 'metro.config.js'), metroConfig(projectRoot)],
+		[
+			join(project, 'plugins', 'withAbsoluteDevelopmentCa.js'),
+			expoDevelopmentCaPlugin
+		],
 		[
 			join(project, 'tsconfig.json'),
 			jsonSource(expoTsConfig(projectRoot, project))

@@ -72,14 +72,14 @@ describe('Angular state preservation across tier-0 surgical update', () => {
 
 			// Click to count=7 — high enough that a reset-to-zero
 			// outcome would be unambiguous.
-			for (let i = 1; i <= 7; i++) {
-				await s.page.click('app-counter button');
-				await waitForText(
-					s.page,
-					'app-counter .counter-value',
-					(t) => t.trim() === String(i)
-				);
-			}
+			await s.page.locator('app-counter button').evaluate((button) => {
+				for (let i = 0; i < 7; i++) (button as HTMLElement).click();
+			});
+			await waitForText(
+				s.page,
+				'app-counter .counter-value',
+				(t) => t.trim() === '7'
+			);
 
 			// Mutate the counter's template (cosmetic — `<button>` text
 			// changes around the `<span>` value). This is a tier-0
@@ -94,13 +94,23 @@ describe('Angular state preservation across tier-0 surgical update', () => {
 			// Tier-0 surgical preserves the LView instance, so the
 			// new "tally is" text is visible AND the counter value
 			// stays at 7.
-			await waitForText(s.page, 'app-counter button', (t) =>
-				t.includes('tally is')
-			);
-			await waitForText(
-				s.page,
-				'app-counter .counter-value',
-				(t) => t.trim() === '7'
+			// Observe the new template and retained value atomically. Separate
+			// locator polls leave a needless browser round trip between the two
+			// halves of the invariant in compiler-heavy aggregate runs.
+			await s.page.waitForFunction(
+				() => {
+					const button = document.querySelector('app-counter button');
+					const value = document.querySelector(
+						'app-counter .counter-value'
+					);
+
+					return (
+						button?.textContent?.includes('tally is') === true &&
+						value?.textContent?.trim() === '7'
+					);
+				},
+				undefined,
+				{ timeout: 15_000 }
 			);
 		},
 		// Chromium can be reclaimed by the host after the compiler-heavy

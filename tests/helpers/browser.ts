@@ -17,6 +17,15 @@ type ReadyPageOptions = OpenPageOptions & {
 	retryDelayMs?: number;
 };
 
+const BROWSER_CLOSE_TIMEOUT_MS = 5_000;
+
+const closeBrowser = async (browser: Browser) => {
+	await Promise.race([
+		browser.close().catch(() => undefined),
+		Bun.sleep(BROWSER_CLOSE_TIMEOUT_MS)
+	]);
+};
+
 /* Spin up a headless Chromium against the dev-server URL. The
  * returned page is already navigated to `url` and DOMContentLoaded
  * + the `load` event have fired. `close()` shuts the whole browser
@@ -54,21 +63,12 @@ export const openPage = async (url: string, options: OpenPageOptions = {}) => {
 			return {
 				browser: activeBrowser,
 				page,
-				close: async () => {
-					try {
-						await activeBrowser.close();
-					} catch {
-						/* already closed */
-					}
-				}
+				close: () => closeBrowser(activeBrowser)
 			};
 		} catch (error) {
 			lastError = error;
 			const launchFailed = browser === undefined;
-			await Promise.race([
-				browser?.close().catch(() => undefined),
-				Bun.sleep(5_000)
-			]);
+			if (browser) await closeBrowser(browser);
 			const message =
 				error instanceof Error ? error.message : String(error);
 			if (
