@@ -73,14 +73,14 @@ const requireBridge = () => {
 export const createAbsoluteExpoBridgeFetch =
 	() => async (input: RequestInfo | URL, init?: RequestInit) => {
 		const request = new Request(input, init);
-		if (request.method !== 'GET') {
-			throw new TypeError(
-				'The experimental Expo envelope bridge currently supports GET only.'
-			);
-		}
+		const body =
+			request.method === 'GET' || request.method === 'DELETE'
+				? undefined
+				: await request.text();
 		const headers = Object.fromEntries(request.headers);
 		const result = parseFetchResult(
 			await requireBridge().request('http.fetch', {
+				...(body === undefined ? {} : { body }),
 				headers,
 				method: request.method,
 				url: request.url

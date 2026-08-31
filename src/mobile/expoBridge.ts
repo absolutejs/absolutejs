@@ -1,9 +1,12 @@
-export const ABSOLUTE_EXPO_BRIDGE_FORMAT = 1 as const;
+export const ABSOLUTE_EXPO_BRIDGE_FORMAT = 2 as const;
 export const ABSOLUTE_EXPO_BRIDGE_MAX_BYTES = 64 * 1024;
 
 export const ABSOLUTE_EXPO_BRIDGE_METHODS = [
 	'devices.haptics.impact',
-	'http.fetch'
+	'http.fetch',
+	'auth.signIn',
+	'auth.signOut',
+	'auth.status'
 ] as const;
 
 export type AbsoluteExpoBridgeMethod =
@@ -29,7 +32,7 @@ export type AbsoluteExpoBridgeResponse = {
 export type AbsoluteExpoBridgeEvent = {
 	format: typeof ABSOLUTE_EXPO_BRIDGE_FORMAT;
 	kind: 'event';
-	event: 'ready' | 'navigation';
+	event: 'ready' | 'navigation' | 'auth.principal';
 	path: string;
 	payload?: Record<string, unknown>;
 };
@@ -105,20 +108,57 @@ const parseRequest = (value: Record<string, unknown>) => {
 				url.hostname === '[::1]');
 		if (url.protocol !== 'https:' && !loopbackHttp)
 			throw new TypeError('Expo bridge HTTP URL must use HTTPS.');
-		if (value.params.method !== 'GET')
+		if (
+			typeof value.params.method !== 'string' ||
+			!['DELETE', 'GET', 'PATCH', 'POST', 'PUT'].includes(
+				value.params.method
+			)
+		)
 			throw new TypeError('Expo bridge HTTP method is not allowed.');
+		if (
+			value.params.body !== undefined &&
+			typeof value.params.body !== 'string'
+		)
+			throw new TypeError('Expo bridge HTTP body is invalid.');
+		if (
+			typeof value.params.body === 'string' &&
+			new TextEncoder().encode(value.params.body).byteLength > 48 * 1024
+		)
+			throw new TypeError('Expo bridge HTTP body exceeds 48 KiB.');
+		if (
+			(value.params.method === 'GET' ||
+				value.params.method === 'DELETE') &&
+			value.params.body !== undefined
+		)
+			throw new TypeError(
+				'Expo bridge HTTP method cannot contain a body.'
+			);
 		if (!isRecord(value.params.headers))
 			throw new TypeError('Expo bridge HTTP headers must be an object.');
 		const headersAllowed = Object.entries(value.params.headers).every(
 			([name, header]) =>
 				typeof header === 'string' &&
 				(name.toLowerCase() === 'accept' ||
+					name.toLowerCase() === 'content-type' ||
 					name.toLowerCase().startsWith('x-absolute-mobile-'))
 		);
 		if (!headersAllowed) {
 			throw new TypeError('Expo bridge HTTP header is not allowed.');
 		}
 	}
+	if (method === 'auth.signIn') {
+		if (
+			typeof value.params.email !== 'string' ||
+			value.params.email.length > 320 ||
+			typeof value.params.signup !== 'boolean'
+		)
+			throw new TypeError('Expo bridge Auth sign-in params are invalid.');
+	}
+	if (
+		(method === 'auth.signOut' || method === 'auth.status') &&
+		Object.keys(value.params).length !== 0
+	)
+		throw new TypeError('Expo bridge Auth params must be empty.');
 
 	return {
 		format: ABSOLUTE_EXPO_BRIDGE_FORMAT,
@@ -168,7 +208,11 @@ const parseResponse = (value: Record<string, unknown>) => {
 };
 
 const parseEvent = (value: Record<string, unknown>) => {
-	if (value.event !== 'ready' && value.event !== 'navigation') {
+	if (
+		value.event !== 'ready' &&
+		value.event !== 'navigation' &&
+		value.event !== 'auth.principal'
+	) {
 		throw new TypeError('Expo bridge event is not allowed.');
 	}
 	if (typeof value.path !== 'string' || !validPath(value.path))

@@ -215,6 +215,8 @@ actual result, sanitized logs, and artifact or screenshot path in section 13.
 - [ ] `HTTPS-01` Complete trusted local HTTPS and HMR in the iOS Simulator.
 - [ ] `EXPO-01` through `EXPO-06` Complete Expo CNG, HTTPS, web HMR, native Fast
   Refresh, cleanup, and physical-device enrollment acceptance.
+- [ ] `EXPO-AUTH-01` through `EXPO-AUTH-08` Complete Expo system-browser Auth,
+  secure restore, native/web parity, and credential-boundary acceptance.
 - [ ] `EXPO-REMOTE-01` through `EXPO-REMOTE-08` Complete the two-computer Expo
   Remote Mac workflow, or mark all eight `SKIPPED — no second developer host`.
 - [ ] `DEVICEDEV-01` through `DEVICEDEV-10` Complete first-class physical-device
@@ -589,6 +591,54 @@ performing these checks:
 Return the sanitized Terminal 1 output and the six result rows. Never return
 the CA private key, Apple credentials, provisioning profiles, raw device logs,
 or the contents of environment files.
+
+#### Expo Auth acceptance
+
+Run these checks from the same application root as `EXPO-01`; do not run them
+from `.absolutejs/mobile/expo`. The staging application must depend on
+`@absolutejs/auth`, mount its OIDC provider, and expose an ordinary route plus an
+application-owned native React route that both call `createAuthClient()`.
+Neither route may import `@absolutejs/auth-expo`, Expo WebBrowser/SecureStore, or
+read an Authorization header. Start the application from Terminal 1:
+
+```sh
+cd /absolute/path/to/the/staging-application
+bunx absolute dev src/backend/server.ts --config absolute.config.ts
+```
+
+- [ ] `EXPO-AUTH-01` Confirm the generated Expo `package.json` contains exact
+  `@absolutejs/auth@0.75.6` and `@absolutejs/auth-expo@0.0.2` dependencies plus
+  Expo SecureStore and WebBrowser. Confirm `app.json` includes the SecureStore
+  config plugin. Do not edit either generated file.
+- [ ] `EXPO-AUTH-02` From an ordinary embedded AbsoluteJS route, initiate sign-in
+  through `createAuthClient().signIn.email(...)`. Confirm the system browser
+  opens and no password form or credential is submitted inside the WebView.
+- [ ] `EXPO-AUTH-03` Complete sign-in. Confirm the custom-scheme callback returns
+  to the same app, the route reports the expected user, and no URL is copied
+  manually. Cancel a second sign-in and confirm the UI receives a bounded error
+  instead of remaining pending.
+- [ ] `EXPO-AUTH-04` Call a protected same-origin endpoint through ordinary
+  `@absolutejs/http` with GET and a small JSON POST. Confirm both succeed. Attempt
+  another origin and an application-supplied Authorization header; both must
+  fail before that destination receives a request.
+- [ ] `EXPO-AUTH-05` Open the application-owned native React route and call the
+  same `createAuthClient().status()` API. Confirm it reports the same principal
+  without importing the Expo adapter or opening another sign-in screen.
+- [ ] `EXPO-AUTH-06` Enter `relaunch` in Terminal 1, reopen both routes, and
+  confirm the authenticated user restores from native secure storage. Inspect
+  WebView storage and bridge messages only for this disposable account; confirm
+  no access token, refresh token, or Authorization header is present. Never put
+  captured storage or messages in the returned report.
+- [ ] `EXPO-AUTH-07` Expire or revoke only the access token in the staging
+  backend, then make one protected request. Confirm native refresh rotates once,
+  the request retries once after `401`, and both routes remain signed in.
+- [ ] `EXPO-AUTH-08` Sign out from either route. Confirm both routes observe the
+  null principal, the renewable credential is revoked/removed, relaunch remains
+  signed out, and a later sign-in can use a different staging account safely.
+
+Return only PASS/FAIL, sanitized timings, HTTP status classes, and whether the
+native/embedded principals matched. Never return credentials, callback query
+values, tokens, SecureStore contents, bridge payloads, or user profile data.
 
 #### Expo Remote Mac acceptance from Windows or Linux
 
@@ -1704,6 +1754,14 @@ versus expected behavior. Do not report exact coordinates.
 | EXPO-04 |  | Metro Fast Refresh / regeneration: |  |
 | EXPO-05 |  | production prebuild trust isolation: |  |
 | EXPO-06 |  | physical CA enrollment / HTTPS HMR / cleanup or skipped: |  |
+| EXPO-AUTH-01 |  | exact packages / CNG plugin: |  |
+| EXPO-AUTH-02 |  | system browser / no WebView credential entry: |  |
+| EXPO-AUTH-03 |  | callback / cancellation recovery: |  |
+| EXPO-AUTH-04 |  | authenticated GET+POST / origin+header rejection: |  |
+| EXPO-AUTH-05 |  | native route / matching principal: |  |
+| EXPO-AUTH-06 |  | relaunch restore / no credential bridge exposure: |  |
+| EXPO-AUTH-07 |  | refresh rotation / one 401 retry: |  |
+| EXPO-AUTH-08 |  | cross-engine sign-out / account switch: |  |
 | EXPO-REMOTE-01 |  | pair / remote doctor: |  |
 | EXPO-REMOTE-02 |  | cold sync / build / trust / timings: |  |
 | EXPO-REMOTE-03 |  | HTTPS route / expo-ios connection: |  |

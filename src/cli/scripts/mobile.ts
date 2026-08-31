@@ -539,7 +539,7 @@ const initialize = async (args: string[]) => {
 	);
 	if (mobile.engine === 'expo') {
 		console.warn(
-			'Experimental: Expo Auth, Sync, release publishing, and physical-device acceptance are not complete.'
+			'Experimental: Expo Auth and authenticated HTTP are available; Sync, release publishing, and physical-device acceptance are not complete.'
 		);
 		const generated = await writeAbsoluteExpoProject(mobile, {
 			force: args.includes('--force'),

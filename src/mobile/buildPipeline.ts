@@ -154,13 +154,13 @@ export const finalizeAbsoluteMobileCompatibilityBuild = async (
 		runtime: String(ABSOLUTE_MOBILE_PAGE_PROTOCOL_VERSION)
 	});
 	const auth = resolveAbsoluteMobileAuthManifest(options.projectRoot, mobile);
-	if (mobile.engine === 'expo' && auth) {
-		throw new TypeError(
-			"Expo mobile Auth is not released yet. The experimental Expo shell cannot safely substitute Capacitor credentials; remove engine: 'expo' or wait for @absolutejs/auth-expo."
-		);
-	}
 	const sync =
 		auth !== undefined && projectUsesAbsoluteSync(options.projectRoot);
+	if (mobile.engine === 'expo' && sync) {
+		throw new TypeError(
+			'Expo mobile Sync is not released yet. Auth and authenticated HTTP are available, but @absolutejs/sync requires @absolutejs/sync-expo for shared durable state.'
+		);
+	}
 	const syncSchema = sync
 		? discoverAbsoluteSyncSchema(options.projectRoot)
 		: undefined;

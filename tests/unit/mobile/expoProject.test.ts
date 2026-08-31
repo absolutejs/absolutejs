@@ -18,13 +18,19 @@ afterEach(async () => {
 	);
 });
 
-const fixture = async () => {
+const fixture = async (auth = false) => {
 	const root = await mkdtemp(join(tmpdir(), 'absolute-expo-project-'));
 	temporaryDirectories.push(root);
 	await mkdir(join(root, 'mobile', 'native'), { recursive: true });
 	await writeFile(
 		join(root, 'mobile', 'native', 'scanner.tsx'),
 		'export default function Scanner() { return null; }\n'
+	);
+	await writeFile(
+		join(root, 'package.json'),
+		JSON.stringify({
+			dependencies: auth ? { '@absolutejs/auth': '0.75.6' } : {}
+		})
 	);
 	const config = normalizeAbsoluteMobileConfig(
 		{
@@ -128,6 +134,53 @@ describe('experimental Expo project', () => {
 		expect(source).toContain('pages/app.js');
 		expect(source).toContain('.absasset');
 		expect(source).toContain("new File(root, 'index.html').uri");
+	});
+
+	test('automatically provisions native-owned Expo Auth and secure HTTP', async () => {
+		const { config, root } = await fixture(true);
+		await writeAbsoluteExpoProject(config, { projectRoot: root });
+		const project = config.nativeProjectDirectory;
+		const [
+			appConfig,
+			authSource,
+			layout,
+			packageSource,
+			tsconfig,
+			webHost
+		] = await Promise.all([
+			readFile(join(project, 'app.json'), 'utf8'),
+			readFile(
+				join(project, 'src', 'generated', 'AbsoluteAuth.ts'),
+				'utf8'
+			),
+			readFile(join(project, 'app', '_layout.tsx'), 'utf8'),
+			readFile(join(project, 'package.json'), 'utf8'),
+			readFile(join(project, 'tsconfig.json'), 'utf8'),
+			readFile(
+				join(project, 'src', 'generated', 'AbsoluteWebHost.tsx'),
+				'utf8'
+			)
+		]);
+
+		expect(packageSource).toContain('@absolutejs/auth-expo');
+		expect(packageSource).toContain('expo-secure-store');
+		expect(packageSource).toContain('expo-web-browser');
+		expect(appConfig).toContain('expo-secure-store');
+		expect(authSource).toContain('absolutejs-native:com.example.product');
+		expect(authSource).toContain('product://auth/callback');
+		expect(authSource).toContain('installAuthClientRuntimeTransport');
+		expect(authSource).not.toContain('refreshToken');
+		expect(layout).toContain('startAbsoluteExpoAuth');
+		expect(tsconfig).toContain('@absolutejs/auth/*');
+		expect(webHost).toContain('absoluteExpoAuth.fetchOptional');
+		expect(webHost).toContain("message.method === 'auth.signIn'");
+		expect(webHost).not.toContain('authorization:');
+		await expect(
+			new Bun.Transpiler({ loader: 'tsx' }).transform(webHost)
+		).resolves.toBeString();
+		await expect(
+			new Bun.Transpiler({ loader: 'ts' }).transform(authSource)
+		).resolves.toBeString();
 	});
 
 	test('does not adopt a populated custom directory without force', async () => {

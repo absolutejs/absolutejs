@@ -49,7 +49,7 @@ describe('Expo bridge protocol', () => {
 
 	test('creates mutually exclusive success and error responses', () => {
 		expect(createAbsoluteExpoBridgeResponse('request_1', null)).toEqual({
-			format: 1,
+			format: 2,
 			id: 'request_1',
 			kind: 'response',
 			result: null
@@ -63,7 +63,7 @@ describe('Expo bridge protocol', () => {
 		expect(
 			parseAbsoluteExpoBridgeMessage(
 				JSON.stringify({
-					format: 1,
+					format: 2,
 					id: 'http_1',
 					kind: 'request',
 					method: 'http.fetch',
@@ -82,7 +82,7 @@ describe('Expo bridge protocol', () => {
 		expect(() =>
 			parseAbsoluteExpoBridgeMessage(
 				JSON.stringify({
-					format: 1,
+					format: 2,
 					id: 'http_2',
 					kind: 'request',
 					method: 'http.fetch',
@@ -95,5 +95,49 @@ describe('Expo bridge protocol', () => {
 				})
 			)
 		).toThrow('header is not allowed');
+	});
+
+	test('allows bounded authenticated HTTP and typed Auth operations', () => {
+		expect(
+			parseAbsoluteExpoBridgeMessage(
+				JSON.stringify({
+					format: 2,
+					id: 'http_post',
+					kind: 'request',
+					method: 'http.fetch',
+					params: {
+						body: '{"name":"Ada"}',
+						headers: { 'content-type': 'application/json' },
+						method: 'POST',
+						url: 'https://api.example.com/account'
+					},
+					path: '/account'
+				})
+			)
+		).toMatchObject({ method: 'http.fetch' });
+		expect(
+			parseAbsoluteExpoBridgeMessage(
+				JSON.stringify({
+					format: 2,
+					id: 'auth_sign_in',
+					kind: 'request',
+					method: 'auth.signIn',
+					params: { email: 'ada@example.com', signup: false },
+					path: '/account'
+				})
+			)
+		).toMatchObject({ method: 'auth.signIn' });
+		expect(() =>
+			parseAbsoluteExpoBridgeMessage(
+				JSON.stringify({
+					format: 2,
+					id: 'auth_bad',
+					kind: 'request',
+					method: 'auth.signIn',
+					params: { password: 'must-not-cross' },
+					path: '/account'
+				})
+			)
+		).toThrow('sign-in params are invalid');
 	});
 });

@@ -11,7 +11,7 @@ CNG configuration, a native diagnostic screen, static native-route wrappers,
 and a WebView catch-all for all unclaimed framework routes. The existing signed
 page bundle is transported through Metro as opaque assets and reconstructed
 with stable relative paths. Expo Router owns deep links and native transitions;
-the WebView retains web history. Bridge format 1 enforces a 64 KiB maximum,
+the WebView retains web history. The original bridge format enforces a 64 KiB maximum,
 bounded IDs/paths, request timeouts, current-page identity, and a method
 allowlist; the first provider-neutral proof is `@absolutejs/devices` haptics.
 `0.20.0-beta.41` adds an Expo development-client dependency and makes `bun dev`
@@ -24,10 +24,24 @@ versioned Remote Mac protocol with an Expo executor: Metro remains on the
 developer computer, the disposable iOS CNG shell and Xcode build run on the
 paired Mac, and independent SSH tunnels/physical-device relays carry Bun and
 Metro traffic. The bridge tracks live browser history so its current-route
-authorization remains correct across SPA navigation. Full Auth/Sync adapters,
+authorization remains correct across SPA navigation. Full Sync adapters,
 other device APIs, release tooling, and physical-device acceptance remain
 explicit gates. See
 [MOBILE_EXPO_EXPERIMENT.md](./MOBILE_EXPO_EXPERIMENT.md).
+
+Implementation checkpoint (August 31, 2026, Expo Auth slice): AbsoluteJS
+`0.20.0-beta.44` automatically provisions `@absolutejs/auth-expo@0.0.2` and
+the exact compatible Auth runtime when an Expo application already uses
+`@absolutejs/auth`. Expo WebBrowser owns system-browser S256 PKCE and
+cold/warm callbacks; Expo SecureStore retains only renewable credentials with
+device-only after-first-unlock protection. Native React routes install the same
+provider-neutral Auth transport at the root layout, while embedded routes use
+bridge format 2 for typed sign-in/sign-up/sign-out/status/principal events and
+bounded exact-origin HTTP. Bearer injection,
+refresh rotation, and the `401` retry remain in the native runtime; passwords,
+access tokens, and refresh tokens cannot cross the WebView bridge. The generated
+SDK 57 shell passes package install, TypeScript, CNG prebuild, and Metro export.
+Expo Sync remains fail-closed pending `@absolutejs/sync-expo`.
 
 Implementation checkpoint (August 29, 2026): the Phase 6 release-security
 baseline is implemented. `absolute mobile doctor release` now validates exact

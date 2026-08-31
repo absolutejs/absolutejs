@@ -5,6 +5,7 @@ import {
 	absoluteNativeDevAdapterSource,
 	buildAbsoluteNativeDevAdapter
 } from '../../../src/mobile/devDeviceAdapter';
+import type { ExpoMobileConfig } from '../../../types/build';
 
 const projectRoot = resolve(import.meta.dir, '../../..');
 const { mobile } = config;
@@ -50,4 +51,34 @@ describe('native development device adapter', () => {
 		expect(source).toContain('/absolute/shellExpoDevices.js');
 		expect(source).not.toContain('Capacitor');
 	});
+
+	test('automatically installs Expo Auth in live WebView routes', async () => {
+		const expoMobile: ExpoMobileConfig = {
+			appId: 'com.example.expo',
+			appName: 'Expo',
+			deepLinks: { scheme: 'product' },
+			engine: 'expo',
+			server: { productionOrigin: 'https://api.example.com' }
+		};
+		const source = absoluteNativeDevAdapterSource(
+			projectRoot,
+			expoMobile,
+			(specifier) => specifier,
+			'/absolute/shellExpoDevices.js',
+			'/absolute/shellExpoAuth.js'
+		);
+
+		expect(source).toContain('createAbsoluteExpoShellAuth');
+		expect(source).toContain('/absolute/shellExpoAuth.js');
+		expect(source).toContain('absolutejs-native:com.example.expo');
+		expect(source).toContain('product://auth/callback');
+		expect(source).not.toContain('refreshToken');
+		const bundle = await buildAbsoluteNativeDevAdapter(
+			projectRoot,
+			expoMobile
+		);
+		expect(bundle.length).toBeGreaterThan(1_000);
+		expect(bundle).toContain('auth.signIn');
+		expect(bundle).not.toContain('must-not-cross');
+	}, 15_000);
 });

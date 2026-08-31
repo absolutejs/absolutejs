@@ -2,7 +2,8 @@
 
 Introduced experimentally in `@absolutejs/absolute@0.20.0-beta.40`; the
 first-class combined development loop was added in `0.20.0-beta.41`, HTTPS in
-`0.20.0-beta.42`, and Remote Mac iOS execution in `0.20.0-beta.43`.
+`0.20.0-beta.42`, Remote Mac iOS execution in `0.20.0-beta.43`, and native-owned
+Auth plus authenticated HTTP in `0.20.0-beta.44`.
 
 AbsoluteJS can generate an experimental Expo Router shell in which explicitly
 selected routes render React Native UI and all other routes remain ordinary
@@ -40,20 +41,34 @@ Implemented in the first spike:
 - Expo iOS development through a paired developer-owned Remote Mac, including
   separate Bun and Metro tunnels and physical-device LAN relays;
 - live-history bridge synchronization across SPA navigation.
+- automatic `@absolutejs/auth-expo@0.0.2` provisioning whenever the application
+  depends on `@absolutejs/auth`;
+- system-browser S256 PKCE through Expo WebBrowser, cold/warm callback handling,
+  and refresh-on-resume;
+- refresh credentials held only in Expo SecureStore with device-only,
+  after-first-unlock semantics;
+- one native Auth owner shared by native React routes and embedded web routes;
+- typed sign-in, sign-up, sign-out, status, principal-event, and
+  authenticated HTTP bridge operations without exposing access/refresh tokens;
+- exact-origin HTTP with native bearer injection, serialized refresh and one
+  retry on `401`, bounded bodies, forbidden application Authorization headers,
+  and rejected redirects.
 
 Not implemented, and therefore not claimed:
 
-- `@absolutejs/auth-expo`, `@absolutejs/sync-expo`, secure credential sharing,
-  or shared durable state between the native and web JavaScript engines;
+- `@absolutejs/sync-expo` or shared durable Sync state between the native and
+  web JavaScript engines;
 - device capabilities other than haptics;
 - dynamic or wildcard native route ownership;
 - Expo release, signing, store publishing, EAS Update, rollback, process-death,
   physical-device, accessibility, or performance acceptance;
 - Expo production support.
 
-An Expo build fails rather than substituting Capacitor Auth, Sync, or device
-providers. This is deliberate: the two JavaScript engines do not share globals,
-and long-lived credentials must never be copied into WebView storage.
+An Expo build with Sync still fails rather than substituting Capacitor storage,
+and unsupported device capabilities still fail rather than silently degrading.
+The two JavaScript engines do not share globals: Auth state crosses only through
+the versioned bridge, while long-lived credentials remain in the native runtime
+and never enter WebView storage.
 
 ## Configure it
 
@@ -177,17 +192,19 @@ time. `d` displays both ports and target state from the AbsoluteJS dev prompt.
 ## Bridge and security model
 
 The WebView can send JSON only through the generated bridge. Messages use
-format `1`, have a maximum encoded size of 64 KiB, require bounded request IDs
+format `2`, have a maximum encoded size of 64 KiB, require bounded request IDs
 and application paths, and dispatch only explicit method names. The first
-allowlisted methods are `devices.haptics.impact` and a GET-only `http.fetch`.
-HTTP is locked to the exact configured `productionOrigin`, permits only the
-generated envelope headers, rejects redirects, strips response headers other
-than content type/cache policy, and currently caps response bodies at 48 KiB.
+allowlisted methods are `devices.haptics.impact`, `http.fetch`, `auth.signIn`,
+`auth.signOut`, and `auth.status`. HTTP is locked to the
+exact configured `productionOrigin`, accepts only bounded GET/POST/PUT/PATCH/
+DELETE requests and audited headers, rejects caller-supplied Authorization and
+redirects, strips response headers other than content type/cache policy, and
+currently caps request and response bodies at 48 KiB.
 Requests time out after ten seconds. The native host verifies that a request
 identifies the currently owned web path. External navigation opens through the
 operating system instead of being loaded into the application WebView.
 
 No arbitrary JavaScript method, raw Expo module, bearer token, refresh token,
-or Sync database is exposed to embedded page code. Auth and Sync will use
-separate Expo adapters plus typed shell events after their threat model and
-cross-engine conformance tests exist.
+or Sync database is exposed to embedded page code. Auth uses its separate Expo
+adapter plus typed shell events. Sync remains blocked until its separate adapter,
+threat model, and cross-engine crash/conformance suite exist.

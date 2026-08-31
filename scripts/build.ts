@@ -259,6 +259,7 @@ const build = async () => {
 		entrypoints: [
 			'src/mobile/shellBootstrap.ts',
 			'src/mobile/shellAuth.ts',
+			'src/mobile/shellExpoAuth.ts',
 			'src/mobile/shellExpoDevices.ts',
 			'src/mobile/shellSync.ts'
 		],
@@ -287,6 +288,7 @@ const build = async () => {
 			[
 				'shellBootstrap.js',
 				'shellAuth.js',
+				'shellExpoAuth.js',
 				'shellExpoDevices.js',
 				'shellSync.js'
 			].map(async (name) => ({

@@ -77,6 +77,15 @@ const shellAuthModule = () => {
 	throw new TypeError('AbsoluteJS mobile auth shell module is missing.');
 };
 
+const shellExpoAuthModule = () => {
+	const candidate = ['js', 'ts']
+		.map((extension) => join(import.meta.dir, `shellExpoAuth.${extension}`))
+		.find(existsSync);
+	if (candidate) return candidate;
+
+	throw new TypeError('AbsoluteJS Expo auth bridge module is missing.');
+};
+
 const shellSyncModule = () => {
 	const candidate = ['js', 'ts']
 		.map((extension) => join(import.meta.dir, `shellSync.${extension}`))
@@ -209,11 +218,14 @@ const buildShellBootstrap = async (
 	const capacitor = engine !== 'expo';
 	const shellCapabilities = capacitor ? deviceCapabilities.capabilities : [];
 	const modulePath = shellBootstrapModule();
+	const authFactory = capacitor
+		? 'createAbsoluteMobileShellAuth'
+		: 'createAbsoluteExpoShellAuth';
 	const authImport = auth
-		? `import { createAbsoluteMobileShellAuth } from ${JSON.stringify(shellAuthModule())};\n`
+		? `import { ${authFactory} } from ${JSON.stringify(capacitor ? shellAuthModule() : shellExpoAuthModule())};\n`
 		: '';
 	const options = auth
-		? `{ createAuth: createAbsoluteMobileShellAuth${sync ? ', installSync: installAbsoluteMobileShellSync' : ''} }`
+		? `{ createAuth: ${authFactory}${sync ? ', installSync: installAbsoluteMobileShellSync' : ''} }`
 		: '';
 	const syncImport = sync
 		? `import { installAbsoluteMobileShellSync } from ${JSON.stringify(shellSyncModule())};\n`
@@ -258,7 +270,9 @@ const buildShellBootstrap = async (
 	const adapterInstall = capacitor
 		? `installCapacitorDeviceAdapterIfNative({ storagePrefix: ${JSON.stringify(storagePrefix)}${capabilityOptions ? `, ${capabilityOptions}` : ''} });`
 		: 'installAbsoluteExpoWebDeviceAdapter();';
-	let shellOptions = '{ createFetch: createAbsoluteExpoBridgeFetch }';
+	let shellOptions = auth
+		? options
+		: '{ createFetch: createAbsoluteExpoBridgeFetch }';
 	if (capacitor) shellOptions = options;
 	if (push) {
 		shellOptions = `{ createAuth: (config, options) => createAbsoluteMobileShellAuth(config, options), beforeSignOut: absoluteMobilePush.beforeSignOut, connectPush: (auth) => absoluteMobilePush.connect(auth, absoluteMobilePushCapability)${sync ? ', installSync: installAbsoluteMobileShellSync' : ''} }`;

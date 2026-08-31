@@ -2,16 +2,32 @@ import { access, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { MobileConfig } from '../../types/build';
+import { normalizeAbsoluteMobileConfig } from './config';
 import { resolveAbsoluteDeviceCapabilityPlan } from './deviceCapabilities';
+import {
+	projectUsesAbsoluteAuth,
+	resolveAbsoluteMobileAuthManifest
+} from './nativeAuth';
 
 export const absoluteNativeDevAdapterSource = (
 	projectRoot: string,
 	mobile: MobileConfig,
 	resolveModule: (specifier: string) => string = (specifier) => specifier,
-	expoAdapterModule = '@absolutejs/absolute/mobile/expo-devices'
+	expoAdapterModule = '@absolutejs/absolute/mobile/expo-devices',
+	expoAuthModule = '@absolutejs/absolute/mobile/expo-auth'
 ) => {
 	if ((mobile.engine ?? 'capacitor') === 'expo') {
-		return `import { installAbsoluteExpoWebDeviceAdapter } from ${JSON.stringify(expoAdapterModule)};\ninstallAbsoluteExpoWebDeviceAdapter();`;
+		const auth = projectUsesAbsoluteAuth(projectRoot)
+			? resolveAbsoluteMobileAuthManifest(
+					projectRoot,
+					normalizeAbsoluteMobileConfig(mobile, projectRoot)
+				)
+			: undefined;
+
+		return `import { installAbsoluteExpoWebDeviceAdapter } from ${JSON.stringify(expoAdapterModule)};
+${auth ? `import { createAbsoluteExpoShellAuth } from ${JSON.stringify(expoAuthModule)};` : ''}
+installAbsoluteExpoWebDeviceAdapter();
+${auth ? `void createAbsoluteExpoShellAuth(${JSON.stringify(auth)}).catch(error => console.error('[Absolute Mobile] Expo Auth initialization failed:', error));` : ''}`;
 	}
 	const plan = resolveAbsoluteDeviceCapabilityPlan(projectRoot);
 	const imports = plan.capabilities.map((name, index) => {
@@ -53,6 +69,26 @@ const expoAdapterPath = async () => {
 	throw new TypeError('The AbsoluteJS Expo development adapter is missing.');
 };
 
+const expoAuthPath = async () => {
+	const candidates = await Promise.all(
+		['ts', 'js'].map(async (extension) => {
+			const path = join(import.meta.dir, `shellExpoAuth.${extension}`);
+			try {
+				await access(path);
+
+				return path;
+			} catch {
+				return undefined;
+			}
+		})
+	);
+	const path = candidates.find((candidate) => candidate !== undefined);
+	if (path) return path;
+	throw new TypeError(
+		'The AbsoluteJS Expo Auth development adapter is missing.'
+	);
+};
+
 export const buildAbsoluteNativeDevAdapter = async (
 	projectRoot: string,
 	mobile: MobileConfig
@@ -68,7 +104,8 @@ export const buildAbsoluteNativeDevAdapter = async (
 				projectRoot,
 				mobile,
 				(specifier) => Bun.resolveSync(specifier, projectRoot),
-				await expoAdapterPath()
+				await expoAdapterPath(),
+				await expoAuthPath()
 			)
 		);
 		const result = await Bun.build({
