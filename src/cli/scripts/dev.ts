@@ -76,11 +76,14 @@ import {
 	type StartAbsoluteIosDevOptions
 } from '../../mobile/iosSimulatorController';
 import {
+	createAbsoluteRemoteExpoIosDevProject,
 	createAbsoluteRemoteIosDevProject,
 	getAbsoluteRemoteMacProfile,
 	inspectAbsoluteRemoteMacLanHost,
+	startAbsoluteRemoteExpoIosDevSession,
 	startAbsoluteRemoteIosDevSession,
 	type AbsoluteIosDevelopmentProject,
+	type AbsoluteRemoteExpoIosDevProject,
 	type AbsoluteRemoteMacProfile
 } from '../../mobile/remoteMacProtocol';
 import {
@@ -407,6 +410,7 @@ export const dev = async (
 				executable: string;
 				mobile: ReturnType<typeof normalizeAbsoluteMobileConfig>;
 				platforms: AbsoluteExpoDevPlatform[];
+				remoteIos?: AbsoluteRemoteExpoIosDevProject;
 		  }
 		| undefined;
 	try {
@@ -461,14 +465,6 @@ export const dev = async (
 		throw new TypeError('--ios-device requires ios in mobile.platforms.');
 	}
 	if (options.iosDevice) {
-		if (
-			mobileConfig?.engine === 'expo' &&
-			detectAbsoluteMobileHost() !== 'macos'
-		) {
-			throw new Error(
-				'Expo physical iOS development currently requires local macOS; Expo Remote Mac execution is the next adapter milestone.'
-			);
-		}
 		if (detectAbsoluteMobileHost() === 'macos')
 			iosPhysicalServerHost = mobileReachableHost(resolvedDev.host);
 		else {
@@ -555,6 +551,7 @@ export const dev = async (
 					}
 				}
 				const platforms: AbsoluteExpoDevPlatform[] = [];
+				let remoteIos: AbsoluteRemoteExpoIosDevProject | undefined;
 				if (normalized.platforms.includes('android')) {
 					const target = options.androidDevice
 						? 'device'
@@ -579,12 +576,30 @@ export const dev = async (
 				}
 				if (normalized.platforms.includes('ios')) {
 					if (detectAbsoluteMobileHost() !== 'macos') {
-						console.log(
-							cliTag(
-								'\x1b[33m',
-								'Expo iOS target skipped on this host; Expo Remote Mac execution is the next adapter milestone.'
-							)
-						);
+						const remote =
+							selectedRemoteMacProfile ??
+							(await getAbsoluteRemoteMacProfile());
+						if (!remote) {
+							console.log(
+								cliTag(
+									'\x1b[33m',
+									'Expo iOS target skipped. Pair a Mac with `absolute mobile pair mac <name> <user@host>`.'
+								)
+							);
+						} else {
+							selectedRemoteMacProfile = remote;
+							remoteIos = createAbsoluteRemoteExpoIosDevProject(
+								normalized,
+								process.cwd(),
+								remote
+							);
+							console.log(
+								cliTag(
+									'\x1b[35m',
+									`Using remote Mac ${remote.name} for Expo iOS development.`
+								)
+							);
+						}
 					} else {
 						const target = options.iosDevice
 							? 'device'
@@ -608,18 +623,24 @@ export const dev = async (
 						if (ready) platforms.push('ios');
 					}
 				}
-				if (platforms.length > 0) {
+				if (platforms.length > 0 || remoteIos) {
 					expoDevProject = {
 						executable: await absoluteExpoExecutable(
 							generated.path
 						),
 						mobile: normalized,
-						platforms
+						platforms,
+						...(remoteIos ? { remoteIos } : {})
 					};
 					console.log(
 						cliTag(
 							'\x1b[35m',
-							`Expo development build queued for ${platforms.join(' + ')}; Metro and native launch will start with the Bun server.`
+							`Expo development build queued for ${[
+								...platforms,
+								...(remoteIos ? ['ios (Remote Mac)'] : [])
+							].join(
+								' + '
+							)}; Metro and native launch will start with the Bun server.`
 						)
 					);
 				}
@@ -1260,50 +1281,168 @@ export const dev = async (
 			? mobileReachableHost(resolvedDev.host)
 			: '10.0.2.2';
 		const iosHost = options.iosDevice
-			? mobileReachableHost(resolvedDev.host)
+			? (iosPhysicalServerHost ?? mobileReachableHost(resolvedDev.host))
 			: 'localhost';
-		expoDevStart = startAbsoluteExpoDevSession({
-			androidDevice: options.androidDevice,
-			androidOrigin: project.platforms.includes('android')
-				? absoluteDevOrigin(androidHost)
-				: undefined,
+		const androidOrigin = project.platforms.includes('android')
+			? absoluteDevOrigin(androidHost)
+			: undefined;
+		const iosOrigin =
+			project.platforms.includes('ios') || project.remoteIos
+				? absoluteDevOrigin(iosHost)
+				: undefined;
+		let metroSession: AbsoluteExpoDevSession | undefined;
+		let localNativeSession: AbsoluteExpoDevSession | undefined;
+		let remoteSession: AbsoluteExpoDevSession | undefined;
+		const metroStart = startAbsoluteExpoDevSession({
+			androidOrigin,
 			certificateAuthorityPath: devCertificateAuthorityPath ?? undefined,
 			config: project.mobile,
 			executable: project.executable,
-			iosDevice: options.iosDevice,
-			iosOrigin: project.platforms.includes('ios')
-				? absoluteDevOrigin(iosHost)
-				: undefined,
+			iosOrigin,
 			metroPort: expoMetroPort,
-			platforms: project.platforms,
+			platforms: [],
 			signal: expoDevAbort.signal,
 			log: (message) =>
 				printNativeOutput(cliTag('\x1b[35m', `Expo ${message}`)),
 			onPhaseTiming: ({ durationMs, phase }) => {
 				sendTelemetryEvent('mobile:expo-dev-phase', {
 					durationMs: Math.round(durationMs),
+					host: detectAbsoluteMobileHost(),
 					phase,
 					platform: expoTelemetryPlatform(phase),
 					provider: 'expo'
 				});
 			},
 			onStateChange: (state) => {
-				expoDevState = state;
 				if (state === 'ready' || state === 'closed') return;
+				expoDevState = state;
 				printNativeOutput(
 					cliTag('\x1b[35m', `Expo development: ${state}.`)
 				);
 			}
-		})
-			.then(async (session) => {
+		}).then((session) => {
+			metroSession = session;
+
+			return session;
+		});
+		const localNativeStart = metroStart.then(async () => {
+			if (project.platforms.length === 0) return undefined;
+			const session = await startAbsoluteExpoDevSession({
+				androidDevice: options.androidDevice,
+				androidOrigin,
+				certificateAuthorityPath:
+					devCertificateAuthorityPath ?? undefined,
+				config: project.mobile,
+				executable: project.executable,
+				iosDevice: options.iosDevice,
+				iosOrigin,
+				metro: 'external',
+				metroPort: expoMetroPort,
+				platforms: project.platforms,
+				signal: expoDevAbort.signal,
+				log: (message) =>
+					printNativeOutput(cliTag('\x1b[35m', `Expo ${message}`)),
+				onPhaseTiming: ({ durationMs, phase }) => {
+					sendTelemetryEvent('mobile:expo-dev-phase', {
+						durationMs: Math.round(durationMs),
+						host: detectAbsoluteMobileHost(),
+						phase,
+						platform: expoTelemetryPlatform(phase),
+						provider: 'expo'
+					});
+				},
+				onStateChange: (state) => {
+					if (state === 'ready' || state === 'closed') return;
+					expoDevState = state;
+					printNativeOutput(
+						cliTag('\x1b[35m', `Expo development: ${state}.`)
+					);
+				}
+			});
+			localNativeSession = session;
+
+			return session;
+		});
+		const remoteIosProject = project.remoteIos;
+		const remoteStart = remoteIosProject
+			? metroStart.then(async () => {
+					const session = await startAbsoluteRemoteExpoIosDevSession({
+						certificateAuthorityPath:
+							devCertificateAuthorityPath ?? undefined,
+						deviceIdentifier: options.iosDevice,
+						https: httpsEnabled,
+						metroPort: expoMetroPort,
+						port,
+						project: remoteIosProject,
+						serverHost: options.iosDevice
+							? iosPhysicalServerHost
+							: undefined,
+						signal: expoDevAbort.signal,
+						log: (message) =>
+							printNativeOutput(
+								cliTag(
+									'\x1b[35m',
+									`Expo [remote-ios] ${message}`
+								)
+							),
+						onPhaseTiming: ({ durationMs, phase }) => {
+							sendTelemetryEvent('mobile:expo-dev-phase', {
+								durationMs: Math.round(durationMs),
+								host: 'remote-macos',
+								phase,
+								platform: expoTelemetryPlatform(phase),
+								provider: 'expo'
+							});
+						},
+						onStateChange: (state) => {
+							if (state === 'ready' || state === 'closed') return;
+							expoDevState = state;
+							printNativeOutput(
+								cliTag(
+									'\x1b[35m',
+									`Expo Remote Mac iOS: ${state}.`
+								)
+							);
+						}
+					});
+					remoteSession = session;
+
+					return session;
+				})
+			: Promise.resolve(undefined);
+		expoDevStart = Promise.all([metroStart, localNativeStart, remoteStart])
+			.then(async ([metro, localNative, remote]) => {
+				const session: AbsoluteExpoDevSession = {
+					metroPort: metro.metroPort,
+					platforms: [
+						...new Set<AbsoluteExpoDevPlatform>([
+							...(localNative?.platforms ?? []),
+							...(remote?.platforms ?? [])
+						])
+					],
+					timings: {
+						...metro.timings,
+						...localNative?.timings,
+						...remote?.timings
+					},
+					close: async () => {
+						await Promise.all([
+							metro.close(),
+							localNative?.close(),
+							remote?.close()
+						]);
+					}
+				};
 				if (cleaning) {
 					await session.close();
 				} else {
 					expoDevSession = session;
+					expoDevState = 'ready';
 					sendTelemetryEvent('mobile:expo-dev-ready', {
 						metroPort: session.metroPort,
 						platforms: session.platforms,
 						provider: 'expo',
+						remoteIos: project.remoteIos !== undefined,
 						timings: session.timings
 					});
 					printNativeOutput(
@@ -1315,6 +1454,12 @@ export const dev = async (
 				}
 			})
 			.catch((error) => {
+				expoDevAbort.abort();
+				void Promise.all([
+					metroSession?.close().catch(() => undefined),
+					localNativeSession?.close().catch(() => undefined),
+					remoteSession?.close().catch(() => undefined)
+				]);
 				expoDevState = 'failed';
 				if (
 					cleaning &&
@@ -1325,7 +1470,10 @@ export const dev = async (
 				}
 				sendTelemetryEvent('mobile:expo-dev-failed', {
 					phase: expoDevState,
-					platforms: project.platforms,
+					platforms: [
+						...project.platforms,
+						...(project.remoteIos ? ['ios'] : [])
+					],
 					provider: 'expo'
 				});
 				console.error(
@@ -2139,7 +2287,14 @@ export const dev = async (
 							console.log(
 								cliTag(
 									'\x1b[35m',
-									`Expo targets: ${expoDevProject.platforms.join(', ')}; state ${expoDevState}; Metro ${expoMetroPort ?? 'not allocated'}; AbsoluteJS HMR ${port}.`
+									`Expo targets: ${[
+										...expoDevProject.platforms,
+										...(expoDevProject.remoteIos
+											? ['ios (Remote Mac)']
+											: [])
+									].join(
+										', '
+									)}; state ${expoDevState}; Metro ${expoMetroPort ?? 'not allocated'}; AbsoluteJS HMR ${port}.`
 								)
 							);
 						}

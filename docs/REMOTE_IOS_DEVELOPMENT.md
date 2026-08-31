@@ -14,19 +14,22 @@ AbsoluteJS owns the connection and development lifecycle around those tools:
 developer computer                         paired Mac
 ------------------                         ----------
 source editor + Bun dev server             Xcode + iOS Simulator/device
-page/CSS compilation             SSH       Capacitor native project
-HMR server                     <------>     native build/install/launch
+page/CSS compilation             SSH       Capacitor or Expo CNG project
+HMR + Expo Metro               <------>     native build/install/launch
 terminal logs and timings                  persistent native caches
 ```
 
-The SSH connection creates a reverse loopback tunnel. The application inside
+The SSH connection creates a reverse loopback tunnel for Bun. Expo sessions
+create a second independently bound tunnel for the developer computer's Metro
+server. The application inside
 the remote Simulator loads `localhost:<dev-port>`, but SSH carries that traffic
 back to the developer computer. AbsoluteJS page and CSS updates therefore keep
 the normal HMR path and do not synchronize or rebuild the native project.
 
-For an explicitly selected physical device, the agent exposes a raw TCP relay
-only on the Remote Mac's LAN port and connects it to a separately bound SSH
-loopback tunnel. TLS, WebSocket HMR, and application traffic remain end-to-end
+For an explicitly selected physical device, the agent exposes raw TCP relays
+only on the Remote Mac's LAN ports and connects them to separately bound SSH
+loopback tunnels. Expo uses one relay for Bun and another for Metro. TLS,
+WebSocket HMR, Fast Refresh, and application traffic remain end-to-end
 between the device and the developer's AbsoluteJS server; the relay does not
 terminate or inspect them.
 
@@ -102,10 +105,17 @@ delete a remote workspace.
 
 ## Development
 
-The application must have an initialized, committed Capacitor iOS project:
+For Capacitor, the application must have an initialized, committed iOS project:
 
 ```bash
 absolute mobile init
+bun dev
+```
+
+Expo uses its generated CNG shell and requires no committed native directory:
+
+```bash
+# absolute.config.ts contains mobile.engine: 'expo'
 bun dev
 ```
 
@@ -117,10 +127,13 @@ first use it:
 3. Verifies its SHA-256 digest before execution.
 4. Synchronizes an atomic project snapshot, excluding `.git`, `node_modules`,
    local build output, and local `.absolutejs` state.
-5. Preserves the Mac's `node_modules`, DerivedData, native fingerprint, and
-   installed-app caches across snapshots.
+5. Preserves the Mac's `node_modules`, `.absolutejs` generated state,
+   DerivedData, native fingerprint, and installed-app caches across snapshots.
 6. Runs a frozen Bun dependency installation for the remote project.
 7. Starts the iOS controller and reverse HMR tunnel over one SSH connection.
+   Expo regenerates its Mac-local CNG shell, installs its pinned SDK only when
+   absent, and adds the Metro tunnel while keeping Metro beside the source
+   editor on the developer computer.
 
 The remote agent is supplied by the local AbsoluteJS installation. It never
 discovers or executes AbsoluteJS through the application's
@@ -129,8 +142,10 @@ Capacitor packages and plugins.
 
 Native Swift, Xcode project, entitlement, plugin, Capacitor configuration,
 package, or lockfile changes trigger another atomic synchronization and native
-rebuild. Page, component, CSS, and ordinary public-asset changes remain on the
-normal HMR transport.
+rebuild. Expo CNG output is disposable and is regenerated from AbsoluteJS
+configuration; it must not be edited remotely. Page, component, CSS, ordinary
+public-asset, and Expo native-route edits stay on local AbsoluteJS HMR or Metro
+Fast Refresh and do not synchronize the whole project.
 
 Select a physical device from the developer computer with the same public CLI:
 
@@ -200,3 +215,9 @@ coupled to this bring-your-own-Mac protocol.
   make every referenced dependency reachable from the Mac.
 - **iOS project missing:** run `absolute mobile init` and commit the generated
   source-owned native project before starting remote development.
+- **Remote Expo dependency install failed:** verify the paired Mac can reach the
+  package registry. AbsoluteJS installs the pinned generated-shell dependencies
+  on first use and reuses that cache afterward.
+- **Expo app opens but Fast Refresh cannot connect:** verify both reverse
+  forwards are allowed. A Remote Expo session needs the Bun port and its printed
+  Metro port; physical devices additionally need both Remote Mac LAN ports.

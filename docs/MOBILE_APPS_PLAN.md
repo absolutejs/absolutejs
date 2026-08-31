@@ -3,7 +3,7 @@
 Status: Capacitor Android development/release, all-framework embedded bundles, universal native Auth/Sync, background Sync, automatic device provisioning, provider-neutral native push registration, and Android conformance are operational; iOS development/release automation is shipped and awaiting real macOS/physical-device acceptance
 Research snapshot: August 26, 2026
 
-Implementation checkpoint (August 29, 2026, Expo Phase 7 development loop):
+Implementation checkpoint (August 30, 2026, Expo Phase 7 development loop):
 AbsoluteJS `0.20.0-beta.40` made `mobile.engine: 'expo'` select a separate,
 explicitly experimental Expo SDK
 57/Expo Router shell while Capacitor remains the default. AbsoluteJS generates
@@ -18,10 +18,14 @@ allowlist; the first provider-neutral proof is `@absolutejs/devices` haptics.
 own one Metro server plus configured local Android/iOS builds. Native React
 routes use Metro Fast Refresh; every web route loads the live Bun origin with
 an `expo-android` or `expo-ios` identity and uses the existing framework HMR,
-timing logs, and redacted telemetry. The bridge tracks live browser history so
-its current-route authorization remains correct across SPA navigation. Full
-Auth/Sync adapters, other device APIs, HTTPS development CA projection, remote
-Expo iOS execution, release tooling, and physical-device acceptance remain
+timing logs, and redacted telemetry. `0.20.0-beta.42` projects the local HTTPS
+CA without disabling transport validation. `0.20.0-beta.43` extends the
+versioned Remote Mac protocol with an Expo executor: Metro remains on the
+developer computer, the disposable iOS CNG shell and Xcode build run on the
+paired Mac, and independent SSH tunnels/physical-device relays carry Bun and
+Metro traffic. The bridge tracks live browser history so its current-route
+authorization remains correct across SPA navigation. Full Auth/Sync adapters,
+other device APIs, release tooling, and physical-device acceptance remain
 explicit gates. See
 [MOBILE_EXPO_EXPERIMENT.md](./MOBILE_EXPO_EXPERIMENT.md).
 

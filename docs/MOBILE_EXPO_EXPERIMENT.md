@@ -1,7 +1,8 @@
 # AbsoluteJS Expo hybrid experiment
 
 Introduced experimentally in `@absolutejs/absolute@0.20.0-beta.40`; the
-first-class combined development loop was added in `0.20.0-beta.41`.
+first-class combined development loop was added in `0.20.0-beta.41`, HTTPS in
+`0.20.0-beta.42`, and Remote Mac iOS execution in `0.20.0-beta.43`.
 
 AbsoluteJS can generate an experimental Expo Router shell in which explicitly
 selected routes render React Native UI and all other routes remain ordinary
@@ -35,6 +36,9 @@ Implemented in the first spike:
 - one Metro process plus configured Android/iOS local builds and launch;
 - native React Fast Refresh alongside framework-aware AbsoluteJS page HMR;
 - distinct `expo-android` and `expo-ios` timing logs and redacted telemetry;
+- local HTTPS CA projection for Android, iOS Simulator, and physical iOS;
+- Expo iOS development through a paired developer-owned Remote Mac, including
+  separate Bun and Metro tunnels and physical-device LAN relays;
 - live-history bridge synchronization across SPA navigation.
 
 Not implemented, and therefore not claimed:
@@ -45,7 +49,6 @@ Not implemented, and therefore not claimed:
 - dynamic or wildcard native route ownership;
 - Expo release, signing, store publishing, EAS Update, rollback, process-death,
   physical-device, accessibility, or performance acceptance;
-- local HTTPS development CA projection and Expo execution through Remote Mac;
 - Expo production support.
 
 An Expo build fails rather than substituting Capacitor Auth, Sync, or device
@@ -124,8 +127,9 @@ bunx absolute dev src/backend/server.ts --config absolute.config.ts
 On the first run AbsoluteJS generates the shell, offers to install its pinned
 SDK 57 development-client dependencies, checks the configured Android/iOS
 toolchains, starts Bun and Metro, and builds/launches each locally supported
-target. A non-macOS host runs Android and explains that Expo iOS requires local
-macOS until the existing Remote Mac protocol gains an Expo executor.
+target. A non-macOS host runs Android locally and, when a Remote Mac is paired,
+builds and launches Expo iOS there. Without a paired Mac it explains the exact
+pairing command and continues with locally supported targets.
 
 Each development session regenerates the disposable Android/iOS directories
 with clean Expo CNG before compiling the development client. This guarantees

@@ -21,6 +21,11 @@ import type {
 	AbsoluteIosDevState,
 	AbsoluteIosNativeLogEntry
 } from './iosSimulatorController';
+import type {
+	AbsoluteExpoDevPhaseTiming,
+	AbsoluteExpoDevSession,
+	AbsoluteExpoDevState
+} from './expoDevController';
 import {
 	ABSOLUTE_REMOTE_MAC_EVENT_PREFIX,
 	ABSOLUTE_REMOTE_MAC_PROTOCOL_VERSION
@@ -32,6 +37,7 @@ export {
 
 const PROFILE_FORMAT = 1;
 const REMOTE_STDIN_FLUSH_ATTEMPTS = 3;
+const REMOTE_SESSION_CLOSE_TIMEOUT_MS = 2_000;
 const PROFILE_NAME = /^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$/u;
 const SSH_DESTINATION = /^(?:[A-Za-z0-9._-]+@)?[A-Za-z0-9._:-]+$/u;
 
@@ -68,6 +74,10 @@ export type AbsoluteRemoteIosDevProject = {
 	remote: true;
 	xcodebuild: string;
 	xcrun: string;
+};
+
+export type AbsoluteRemoteExpoIosDevProject = AbsoluteRemoteIosDevProject & {
+	config: NormalizedAbsoluteMobileConfig & { engine: 'expo' };
 };
 
 export type AbsoluteIosDevelopmentProject =
@@ -115,28 +125,61 @@ export type AbsoluteRemoteIosOptions = {
 	transport?: AbsoluteRemoteMacTransport;
 };
 
+type AbsoluteRemoteDevOptions = AbsoluteRemoteIosOptions & {
+	metroPort?: number;
+	onExpoPhaseTiming?: (timing: AbsoluteExpoDevPhaseTiming) => void;
+	onExpoStateChange?: (state: AbsoluteExpoDevState) => void;
+};
+
+export type AbsoluteRemoteExpoIosOptions = {
+	certificateAuthorityPath?: string;
+	deviceIdentifier?: string;
+	https?: boolean;
+	log?: (message: string) => void;
+	metroPort: number;
+	onPhaseTiming?: (timing: AbsoluteExpoDevPhaseTiming) => void;
+	onStateChange?: (state: AbsoluteExpoDevState) => void;
+	port: number;
+	project: AbsoluteRemoteExpoIosDevProject;
+	serverHost?: string;
+	signal?: AbortSignal;
+	installAgent?: (
+		project: AbsoluteRemoteIosDevProject
+	) => Promise<{ remotePath: string; uploaded?: boolean }>;
+	syncProject?: (project: AbsoluteRemoteIosDevProject) => Promise<void>;
+	transport?: AbsoluteRemoteMacTransport;
+};
+
 type RemoteEvent =
-	| { entry: AbsoluteIosNativeLogEntry; type: 'native-log'; v: 1 }
-	| { error: string; type: 'fatal'; v: 1 }
-	| { message: string; type: 'log'; v: 1 }
-	| { state: AbsoluteIosDevState; type: 'state'; v: 1 }
-	| ({ type: 'timing'; v: 1 } & AbsoluteIosDevPhaseTiming)
+	| { entry: AbsoluteIosNativeLogEntry; type: 'native-log'; v: number }
+	| { error: string; type: 'fatal'; v: number }
+	| { message: string; type: 'log'; v: number }
+	| {
+			state: AbsoluteIosDevState | AbsoluteExpoDevState;
+			type: 'state';
+			v: number;
+	  }
+	| ({ type: 'timing'; v: number } & (
+			| AbsoluteIosDevPhaseTiming
+			| AbsoluteExpoDevPhaseTiming
+	  ))
 	| {
 			id: string;
 			ok: boolean;
 			result?: unknown;
 			error?: string;
 			type: 'response';
-			v: 1;
+			v: number;
 	  }
 	| {
+			engine: 'capacitor' | 'expo';
 			nativeCacheHit: boolean;
 			startedSimulator: boolean;
 			targetKind: 'device' | 'simulator';
 			timings: Record<string, number>;
 			type: 'ready';
 			udid: string;
-			v: 1;
+			v: number;
 	  };
 
 const defaultProfilePath = () =>
@@ -478,6 +521,22 @@ const projectIdentity = (projectRoot: string, appId: string) =>
 		.digest('hex')
 		.slice(0, 20);
 
+export const createAbsoluteRemoteExpoIosDevProject = (
+	config: NormalizedAbsoluteMobileConfig,
+	projectRoot: string,
+	profile: AbsoluteRemoteMacProfile
+) => {
+	if (config.engine !== 'expo')
+		throw new TypeError(
+			'Remote Expo execution requires mobile.engine: expo.'
+		);
+
+	return createAbsoluteRemoteIosDevProject(
+		config,
+		projectRoot,
+		profile
+	) as AbsoluteRemoteExpoIosDevProject;
+};
 export const createAbsoluteRemoteIosDevProject = (
 	config: NormalizedAbsoluteMobileConfig,
 	projectRoot: string,
@@ -632,6 +691,7 @@ const portableMobileConfig = (
 		project.projectRoot,
 		project.config.bundleDirectory
 	),
+	engine: project.config.engine,
 	...(project.config.deepLinkScheme ||
 	project.config.deepLinkHosts.length > 1 ||
 	project.config.appleAppIdPrefix
@@ -652,6 +712,25 @@ const portableMobileConfig = (
 			}
 		: {}),
 	entry: project.config.entry,
+	...(project.config.engine === 'expo'
+		? {
+				expo: { sdkVersion: project.config.expoSdkVersion ?? 57 },
+				routes: {
+					default: 'web' as const,
+					native: Object.fromEntries(
+						Object.entries(project.config.expoNativeRoutes).map(
+							([route, module]) => [
+								route,
+								portableRelativePath(
+									project.projectRoot,
+									module
+								)
+							]
+						)
+					)
+				}
+			}
+		: {}),
 	...(project.config.iosVersion
 		? { ios: { version: project.config.iosVersion } }
 		: {}),
@@ -763,8 +842,38 @@ const consumeLines = async (
 	}
 };
 
-export const startAbsoluteRemoteIosDevSession = async (
+export const startAbsoluteRemoteExpoIosDevSession = async (
+	options: AbsoluteRemoteExpoIosOptions
+): Promise<AbsoluteExpoDevSession> => {
+	const session = await startAbsoluteRemoteDevSession({
+		certificateAuthorityPath: options.certificateAuthorityPath,
+		deviceIdentifier: options.deviceIdentifier,
+		https: options.https,
+		installAgent: options.installAgent,
+		log: options.log,
+		metroPort: options.metroPort,
+		onExpoPhaseTiming: options.onPhaseTiming,
+		onExpoStateChange: options.onStateChange,
+		port: options.port,
+		project: options.project,
+		serverHost: options.serverHost,
+		signal: options.signal,
+		syncProject: options.syncProject,
+		transport: options.transport
+	});
+
+	return {
+		close: session.close,
+		metroPort: options.metroPort,
+		platforms: ['ios'],
+		timings: session.timings
+	};
+};
+export const startAbsoluteRemoteIosDevSession = (
 	options: AbsoluteRemoteIosOptions
+) => startAbsoluteRemoteDevSession(options);
+const startAbsoluteRemoteDevSession = async (
+	options: AbsoluteRemoteDevOptions
 ) => {
 	const startedAt = performance.now();
 	const transport = options.transport ?? defaultTransport;
@@ -785,12 +894,35 @@ export const startAbsoluteRemoteIosDevSession = async (
 			)
 		: undefined;
 	const physicalDevice = options.deviceIdentifier !== undefined;
-	let relayPort: number | undefined;
-	if (physicalDevice)
-		relayPort =
-			options.port <= 49_151
-				? options.port + 16_384
-				: options.port - 16_384;
+	const expo = options.project.config.engine === 'expo';
+	if (expo && options.metroPort === undefined)
+		throw new TypeError('Remote Expo execution requires a Metro port.');
+	if (options.metroPort === options.port)
+		throw new TypeError(
+			'Expo Metro and AbsoluteJS must use different ports.'
+		);
+	const translatedRelayPort = (sourcePort: number) =>
+		sourcePort <= 49_151 ? sourcePort + 16_384 : sourcePort - 16_384;
+	const occupiedRemotePorts = new Set(
+		[options.port, options.metroPort].filter(
+			(value): value is number => value !== undefined
+		)
+	);
+	const reserveRelayPort = (sourcePort: number) => {
+		let candidate = translatedRelayPort(sourcePort);
+		while (occupiedRemotePorts.has(candidate))
+			candidate = candidate === 65_535 ? 1_024 : candidate + 1;
+		occupiedRemotePorts.add(candidate);
+
+		return candidate;
+	};
+	const relayPort = physicalDevice
+		? reserveRelayPort(options.port)
+		: undefined;
+	const metroRelayPort =
+		physicalDevice && options.metroPort !== undefined
+			? reserveRelayPort(options.metroPort)
+			: undefined;
 	if (physicalDevice && !options.serverHost)
 		throw new Error(
 			'Remote physical iOS development requires the Remote Mac LAN host.'
@@ -805,6 +937,9 @@ export const startAbsoluteRemoteIosDevSession = async (
 		String(options.port),
 		'--mobile-config',
 		shellQuote(encodedConfig),
+		...(expo && options.metroPort !== undefined
+			? ['--metro-port', String(options.metroPort)]
+			: []),
 		...(encodedCertificateAuthority
 			? [
 					'--certificate-authority',
@@ -819,7 +954,10 @@ export const startAbsoluteRemoteIosDevSession = async (
 					'--server-host',
 					shellQuote(options.serverHost ?? ''),
 					'--relay-port',
-					String(relayPort)
+					String(relayPort),
+					...(expo && metroRelayPort !== undefined
+						? ['--metro-relay-port', String(metroRelayPort)]
+						: [])
 				]
 			: [])
 	].join(' ');
@@ -831,6 +969,14 @@ export const startAbsoluteRemoteIosDevSession = async (
 		physicalDevice
 			? `127.0.0.1:${relayPort}:127.0.0.1:${options.port}`
 			: `${options.port}:127.0.0.1:${options.port}`,
+		...(expo && options.metroPort !== undefined
+			? [
+					'-R',
+					physicalDevice
+						? `127.0.0.1:${metroRelayPort}:127.0.0.1:${options.metroPort}`
+						: `${options.metroPort}:127.0.0.1:${options.metroPort}`
+				]
+			: []),
 		'/bin/sh -lc',
 		shellQuote(remoteCommand)
 	];
@@ -858,10 +1004,22 @@ export const startAbsoluteRemoteIosDevSession = async (
 		if (event.type === 'log') options.log?.(event.message);
 		if (event.type === 'native-log') options.nativeLog?.(event.entry);
 		if (event.type === 'state') {
-			({ state } = event);
-			options.onStateChange?.(state);
+			if (expo)
+				options.onExpoStateChange?.(
+					event.state as AbsoluteExpoDevState
+				);
+			else {
+				state = event.state as AbsoluteIosDevState;
+				options.onStateChange?.(state);
+			}
 		}
-		if (event.type === 'timing') options.onPhaseTiming?.(event);
+		if (event.type === 'timing') {
+			if (expo)
+				options.onExpoPhaseTiming?.(
+					event as AbsoluteExpoDevPhaseTiming
+				);
+			else options.onPhaseTiming?.(event as AbsoluteIosDevPhaseTiming);
+		}
 		if (event.type === 'ready') {
 			ready = event;
 			resolveReady();
@@ -917,8 +1075,24 @@ export const startAbsoluteRemoteIosDevSession = async (
 
 		return undefined;
 	});
-	await readyPromise;
+	try {
+		await readyPromise;
+	} catch (error) {
+		process.stdin.end();
+		process.kill();
+		await process.exited.catch(() => undefined);
+
+		throw error;
+	}
 	if (!ready) throw fatal ?? new Error('Remote Mac did not become ready.');
+	if (ready.engine !== options.project.config.engine) {
+		process.stdin.end();
+		process.kill();
+		await process.exited.catch(() => undefined);
+		throw new Error(
+			'Remote Mac executor returned the wrong mobile engine.'
+		);
+	}
 	const totalDuration = performance.now() - startedAt;
 	let currentReady: Extract<RemoteEvent, { type: 'ready' }> = {
 		...ready,
@@ -931,7 +1105,7 @@ export const startAbsoluteRemoteIosDevSession = async (
 		}
 	};
 	options.log?.(
-		`Remote Mac connected (${options.project.profile.name}); agent ${agent.uploaded ? 'uploaded' : 'cache hit'}, project synced, and iOS ready in ${totalDuration.toFixed(2)}ms.`
+		`Remote Mac connected (${options.project.profile.name}); agent ${agent.uploaded ? 'uploaded' : 'cache hit'}, project synced, and ${expo ? 'Expo ' : ''}iOS ready in ${totalDuration.toFixed(2)}ms.`
 	);
 
 	const request = (
@@ -942,7 +1116,7 @@ export const startAbsoluteRemoteIosDevSession = async (
 			pending.set(id, { reject, resolve })
 		);
 		process.stdin.write(
-			`${JSON.stringify({ command: commandName, id, v: 1 })}\n`
+			`${JSON.stringify({ command: commandName, id, v: ABSOLUTE_REMOTE_MAC_PROTOCOL_VERSION })}\n`
 		);
 		const flush = async () => {
 			for (
@@ -968,9 +1142,28 @@ export const startAbsoluteRemoteIosDevSession = async (
 	const close = async () => {
 		if (closed) return;
 		closed = true;
-		await request('close').catch(() => undefined);
+		const timeout = () =>
+			new Promise<'timeout'>((resolve) =>
+				setTimeout(
+					() => resolve('timeout'),
+					REMOTE_SESSION_CLOSE_TIMEOUT_MS
+				)
+			);
+		await Promise.race([
+			request('close').catch(() => undefined),
+			timeout()
+		]);
 		process.stdin.end();
-		await process.exited.catch(() => undefined);
+		const exit = await Promise.race([
+			process.exited
+				.then(() => 'exited' as const)
+				.catch(() => 'exited' as const),
+			timeout()
+		]);
+		if (exit === 'timeout') {
+			process.kill();
+			await process.exited.catch(() => undefined);
+		}
 	};
 	const makeSession = (): AbsoluteIosDevSession => ({
 		close,

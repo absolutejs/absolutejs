@@ -215,6 +215,8 @@ actual result, sanitized logs, and artifact or screenshot path in section 13.
 - [ ] `HTTPS-01` Complete trusted local HTTPS and HMR in the iOS Simulator.
 - [ ] `EXPO-01` through `EXPO-06` Complete Expo CNG, HTTPS, web HMR, native Fast
   Refresh, cleanup, and physical-device enrollment acceptance.
+- [ ] `EXPO-REMOTE-01` through `EXPO-REMOTE-08` Complete the two-computer Expo
+  Remote Mac workflow, or mark all eight `SKIPPED — no second developer host`.
 - [ ] `DEVICEDEV-01` through `DEVICEDEV-10` Complete first-class physical-device
   development, HTTPS enrollment, warm-cache, HMR, relaunch, cleanup, and recovery.
 - [ ] `CAP-01` Complete automatic device-capability provisioning.
@@ -587,6 +589,75 @@ performing these checks:
 Return the sanitized Terminal 1 output and the six result rows. Never return
 the CA private key, Apple credentials, provisioning profiles, raw device logs,
 or the contents of environment files.
+
+#### Expo Remote Mac acceptance from Windows or Linux
+
+This is a separate two-computer test. The **developer computer** is Windows,
+WSL, or Linux and contains the staging application/source editor. The **Remote
+Mac** runs Xcode and the Simulator; it does not need a manual application
+checkout. If no second developer computer is available, mark `EXPO-REMOTE-01`
+through `EXPO-REMOTE-08` as `SKIPPED — no second developer host`.
+
+On the Remote Mac, enable Remote Login and verify full Xcode, a bootable iOS
+Simulator runtime, and Bun are installed. Leave the Mac signed into its normal
+desktop session so Simulator can launch. On the developer computer, open a
+terminal in the staging application root—the directory containing
+`package.json` and `absolute.config.ts`—and run:
+
+```sh
+cd /absolute/path/to/the/staging-application
+ssh builder@REMOTE_MAC_HOST
+bunx absolute mobile pair mac expo-test builder@REMOTE_MAC_HOST
+bunx absolute mobile doctor ios --remote expo-test
+```
+
+Exit the interactive SSH shell after confirming it connects. Do not run the
+remaining commands inside SSH and do not `cd` into `.absolutejs/mobile/expo`.
+Keep `mobile.engine: 'expo'`, `mobile.platforms: ['ios']`, and `dev.https: true`
+in the staging configuration. From the same developer-computer application
+root, run:
+
+```sh
+ABSOLUTE_IOS_REMOTE=expo-test bunx absolute dev src/backend/server.ts \
+  --config absolute.config.ts
+```
+
+Accept the local pinned Expo dependency installation if prompted. The expected
+ownership is explicit: Bun, Metro, source watching, and both HMR logs run on the
+developer computer; Expo CNG, Xcode, Simulator install, and launch run on the
+Remote Mac.
+
+- [ ] `EXPO-REMOTE-01` Pairing and `mobile doctor ios --remote expo-test` pass.
+  Record only the profile name and Xcode version, never the SSH destination.
+- [ ] `EXPO-REMOTE-02` The first development run reports a project sync, a
+  content-addressed agent upload or hit, local Metro startup, remote Expo CNG,
+  Xcode build/install, CA trust enrollment, and `Expo ios connected`. Record the
+  total and `building-ios` timings.
+- [ ] `EXPO-REMOTE-03` An ordinary AbsoluteJS web route loads over HTTPS in the
+  Remote Mac Simulator. Confirm the terminal receives an `expo-ios` client and
+  no certificate, ATS, or SSH-forward error appears.
+- [ ] `EXPO-REMOTE-04` Edit an ordinary web route on the developer computer.
+  Confirm `[hmr:expo-ios]` updates the remote Simulator without project sync,
+  Expo Prebuild, or Xcode build. Record the HMR time.
+- [ ] `EXPO-REMOTE-05` Edit an application-owned module listed in
+  `mobile.routes.native`. Confirm Metro Fast Refresh updates the remote native
+  screen without project sync or Xcode build. Do not edit generated CNG files.
+- [ ] `EXPO-REMOTE-06` Stop the command with Ctrl-C, confirm both the Bun and
+  Metro SSH forwards close, then rerun the identical command. Confirm the agent
+  and Expo dependency caches report hits and record the warm-start time.
+- [ ] `EXPO-REMOTE-07` During the warm run, disconnect SSH or temporarily stop
+  Remote Login. Confirm the developer terminal reports failure, does not leave
+  a false `ready` state, and Ctrl-C exits cleanly. Restore SSH and confirm the
+  next run recovers without deleting either workspace.
+- [ ] `EXPO-REMOTE-08` Optional physical-device run: append
+  `--ios-device "DEVICE_IDENTIFIER"`, keep the device and Mac on the same LAN,
+  enroll the printed CA, and confirm HTTPS web HMR plus native Fast Refresh use
+  the two LAN relays. Otherwise record `SKIPPED — no dedicated device` for this
+  row only.
+
+Return the eight completed result rows plus sanitized developer-terminal logs.
+Do not return SSH hostnames, usernames, source paths, UDIDs, CA material, Apple
+credentials, or provisioning information.
 
 ### Automated physical-device acceptance and report
 
@@ -1633,6 +1704,14 @@ versus expected behavior. Do not report exact coordinates.
 | EXPO-04 |  | Metro Fast Refresh / regeneration: |  |
 | EXPO-05 |  | production prebuild trust isolation: |  |
 | EXPO-06 |  | physical CA enrollment / HTTPS HMR / cleanup or skipped: |  |
+| EXPO-REMOTE-01 |  | pair / remote doctor: |  |
+| EXPO-REMOTE-02 |  | cold sync / build / trust / timings: |  |
+| EXPO-REMOTE-03 |  | HTTPS route / expo-ios connection: |  |
+| EXPO-REMOTE-04 |  | web HMR / no remote rebuild: |  |
+| EXPO-REMOTE-05 |  | native Fast Refresh / no remote rebuild: |  |
+| EXPO-REMOTE-06 |  | tunnel cleanup / warm cache timing: |  |
+| EXPO-REMOTE-07 |  | interrupted SSH failure / recovery: |  |
+| EXPO-REMOTE-08 |  | physical dual relay or skipped: |  |
 | DEVICEDEV-01 |  | selected physical target / no Simulator dependency: |  |
 | DEVICEDEV-02 |  | signed build / install / launch: |  |
 | DEVICEDEV-03 |  | CA enrollment / full trust / endpoint cleanup: |  |

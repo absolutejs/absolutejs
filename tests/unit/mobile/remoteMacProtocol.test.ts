@@ -14,6 +14,9 @@ import {
 	pairAbsoluteRemoteMac,
 	removeAbsoluteRemoteMacProfile,
 	startAbsoluteRemoteIosDevSession,
+	startAbsoluteRemoteExpoIosDevSession,
+	createAbsoluteRemoteExpoIosDevProject,
+	ABSOLUTE_REMOTE_MAC_PROTOCOL_VERSION,
 	validateAbsoluteSshDestination,
 	type AbsoluteRemoteMacTransport
 } from '../../../src/mobile/remoteMacProtocol';
@@ -268,7 +271,7 @@ describe('remote Mac protocol', () => {
 		const prefix = JSON.stringify(ABSOLUTE_REMOTE_MAC_EVENT_PREFIX);
 		const fakeAgent = `
 const prefix = ${prefix};
-const ready = { nativeCacheHit: true, startedSimulator: false, targetKind: "simulator", timings: { total: 12 }, type: "ready", udid: "REMOTE-UDID", v: 1 };
+const ready = { engine: "capacitor", nativeCacheHit: true, startedSimulator: false, targetKind: "simulator", timings: { total: 12 }, type: "ready", udid: "REMOTE-UDID", v: ${ABSOLUTE_REMOTE_MAC_PROTOCOL_VERSION} };
 console.log(prefix + JSON.stringify(ready));
 let buffered = "";
 process.stdin.setEncoding("utf8");
@@ -279,7 +282,7 @@ process.stdin.on("data", (chunk) => {
   for (const line of lines) {
     const request = JSON.parse(line);
     const result = request.command === "rebuild" ? ready : undefined;
-    console.log(prefix + JSON.stringify({ id: request.id, ok: true, result, type: "response", v: 1 }));
+    console.log(prefix + JSON.stringify({ id: request.id, ok: true, result, type: "response", v: ${ABSOLUTE_REMOTE_MAC_PROTOCOL_VERSION} }));
     if (request.command === "close") process.exit(0);
   }
 });
@@ -357,6 +360,100 @@ setInterval(() => {}, 1000);`;
 		expect(physicalCommand.join(' ')).toContain('--server-host');
 		expect(physicalCommand.join(' ')).toContain('192.168.50.8');
 		expect(physicalCommand.join(' ')).toContain('--relay-port');
+		await physical.close();
+	}, 15_000);
+
+	test('drives Expo iOS through the shared agent with Bun and Metro tunnels', async () => {
+		const root = await temporaryRoot();
+		const config = normalizeAbsoluteMobileConfig(
+			{
+				appId: 'com.example.expo.remote',
+				appName: 'Remote Expo',
+				engine: 'expo',
+				platforms: ['ios'],
+				server: { productionOrigin: 'https://example.com' }
+			},
+			root
+		);
+		const project = createAbsoluteRemoteExpoIosDevProject(config, root, {
+			bunPath: '/Users/builder/.bun/bin/bun',
+			createdAt: '2026-08-30T00:00:00.000Z',
+			destination: 'builder@mac',
+			name: 'mac',
+			workspaceRoot: '/Users/builder/.absolutejs/remote-ios',
+			xcodeVersion: 'Xcode 26.4'
+		});
+		const spawned: string[][] = [];
+		const prefix = JSON.stringify(ABSOLUTE_REMOTE_MAC_EVENT_PREFIX);
+		const fakeAgent = `
+const prefix = ${prefix};
+console.log(prefix + JSON.stringify({ engine: "expo", nativeCacheHit: true, startedSimulator: false, targetKind: "simulator", timings: { "building-ios": 15 }, type: "ready", udid: "booted", v: ${ABSOLUTE_REMOTE_MAC_PROTOCOL_VERSION} }));
+let buffered = "";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", chunk => {
+  buffered += chunk;
+  const lines = buffered.split(/\\r?\\n/);
+  buffered = lines.pop() || "";
+  for (const line of lines) {
+    const request = JSON.parse(line);
+    console.log(prefix + JSON.stringify({ id: request.id, ok: true, type: "response", v: ${ABSOLUTE_REMOTE_MAC_PROTOCOL_VERSION} }));
+    process.exit(0);
+  }
+});
+setInterval(() => {}, 1000);`;
+		const session = await startAbsoluteRemoteExpoIosDevSession({
+			metroPort: 48123,
+			port: 43123,
+			project,
+			transport: {
+				capture: async () => ({ exitCode: 0, stderr: '', stdout: '' }),
+				spawn: (command, options) => {
+					spawned.push(command);
+
+					return Bun.spawn([process.execPath, '-e', fakeAgent], {
+						signal: options.signal,
+						stderr: 'pipe',
+						stdin: 'pipe',
+						stdout: 'pipe'
+					}) as ReturnType<AbsoluteRemoteMacTransport['spawn']>;
+				}
+			},
+			installAgent: async () => ({ remotePath: '/remote/agent.js' }),
+			syncProject: async () => undefined
+		});
+		expect(session.platforms).toEqual(['ios']);
+		expect(session.metroPort).toBe(48123);
+		expect(spawned[0]).toContain('43123:127.0.0.1:43123');
+		expect(spawned[0]).toContain('48123:127.0.0.1:48123');
+		expect(spawned[0]?.join(' ')).toContain('--metro-port');
+		await session.close();
+
+		const physical = await startAbsoluteRemoteExpoIosDevSession({
+			deviceIdentifier: 'PHONE-UDID',
+			metroPort: 48124,
+			port: 43124,
+			project,
+			serverHost: '192.168.50.8',
+			transport: {
+				capture: async () => ({ exitCode: 0, stderr: '', stdout: '' }),
+				spawn: (command, options) => {
+					spawned.push(command);
+
+					return Bun.spawn([process.execPath, '-e', fakeAgent], {
+						signal: options.signal,
+						stderr: 'pipe',
+						stdin: 'pipe',
+						stdout: 'pipe'
+					}) as ReturnType<AbsoluteRemoteMacTransport['spawn']>;
+				}
+			},
+			installAgent: async () => ({ remotePath: '/remote/agent.js' }),
+			syncProject: async () => undefined
+		});
+		const physicalCommand = spawned.at(-1) ?? [];
+		expect(physicalCommand).toContain('127.0.0.1:59508:127.0.0.1:43124');
+		expect(physicalCommand).toContain('127.0.0.1:64508:127.0.0.1:48124');
+		expect(physicalCommand.join(' ')).toContain('--metro-relay-port');
 		await physical.close();
 	}, 15_000);
 });

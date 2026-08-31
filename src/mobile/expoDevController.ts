@@ -37,18 +37,23 @@ export type PlanAbsoluteExpoDevOptions = {
 	certificateAuthorityPath?: string;
 	iosDevice?: string;
 	iosOrigin?: string;
+	metroHost?: string;
 	metroPort: number;
+	/** The caller owns Metro, for example through a Remote Mac tunnel. */
+	metro?: 'external' | 'managed';
 	platforms: AbsoluteExpoDevPlatform[];
+};
+
+export type AbsoluteExpoDevPhaseTiming = {
+	durationMs: number;
+	phase: AbsoluteExpoDevState;
 };
 
 export type StartAbsoluteExpoDevOptions = PlanAbsoluteExpoDevOptions & {
 	config: NormalizedAbsoluteMobileConfig;
 	executable?: string;
 	log?: (message: string) => void;
-	onPhaseTiming?: (timing: {
-		durationMs: number;
-		phase: AbsoluteExpoDevState;
-	}) => void;
+	onPhaseTiming?: (timing: AbsoluteExpoDevPhaseTiming) => void;
 	onStateChange?: (state: AbsoluteExpoDevState) => void;
 	signal?: AbortSignal;
 	spawnProcess?: typeof spawn;
@@ -78,6 +83,9 @@ const commandEnvironment = (options: PlanAbsoluteExpoDevOptions) => ({
 		: {}),
 	...(options.iosOrigin
 		? { EXPO_PUBLIC_ABSOLUTE_DEV_IOS_ORIGIN: options.iosOrigin }
+		: {}),
+	...(options.metroHost
+		? { REACT_NATIVE_PACKAGER_HOSTNAME: options.metroHost }
 		: {})
 });
 
@@ -100,9 +108,9 @@ export const planAbsoluteExpoDevSession = (
 ): AbsoluteExpoDevPlan => {
 	if (config.engine !== 'expo')
 		throw new TypeError('The Expo development controller requires Expo.');
-	if (options.platforms.length === 0)
+	if (options.platforms.length === 0 && options.metro === 'external')
 		throw new TypeError(
-			'Expo development requires a local target platform.'
+			'External Expo execution requires a target platform.'
 		);
 	const secureOrigin = [options.androidOrigin, options.iosOrigin].some(
 		(origin) => origin && new URL(origin).protocol === 'https:'
@@ -124,19 +132,22 @@ export const planAbsoluteExpoDevSession = (
 		env,
 		role: 'metro'
 	};
-	const prepare: AbsoluteExpoDevCommand = {
-		args: [
-			'prebuild',
-			'--clean',
-			'--no-install',
-			'--platform',
-			options.platforms.length === 2
-				? 'all'
-				: (options.platforms[0] ?? 'all')
-		],
-		env,
-		role: 'native-prepare'
-	};
+	const prepare: AbsoluteExpoDevCommand | undefined =
+		options.platforms.length === 0
+			? undefined
+			: {
+					args: [
+						'prebuild',
+						'--clean',
+						'--no-install',
+						'--platform',
+						options.platforms.length === 2
+							? 'all'
+							: (options.platforms[0] ?? 'all')
+					],
+					env,
+					role: 'native-prepare'
+				};
 	const native = options.platforms.map((platform) => {
 		const device =
 			platform === 'android' ? options.androidDevice : options.iosDevice;
@@ -157,7 +168,11 @@ export const planAbsoluteExpoDevSession = (
 	});
 
 	return {
-		commands: [prepare, metro, ...native],
+		commands: [
+			...(prepare ? [prepare] : []),
+			...(options.metro === 'external' ? [] : [metro]),
+			...native
+		],
 		metroPort: options.metroPort,
 		project: config.nativeProjectDirectory
 	};
@@ -271,46 +286,49 @@ export const startAbsoluteExpoDevSession = async (
 	const nativeCommands = plan.commands.filter(
 		(command) => command.role === 'native-build'
 	);
-	if (!prepareCommand)
-		throw new TypeError('Expo native preparation command is missing.');
-	if (!metroCommand) throw new TypeError('Expo Metro command is missing.');
-	setState('preparing-native');
-	const prepareStarted = performance.now();
-	const prepareProcess = run(executable, prepareCommand.args, {
-		cwd: plan.project,
-		env: { ...process.env, ...prepareCommand.env },
-		stdio: ['ignore', 'pipe', 'pipe']
-	});
-	forwardLines(prepareProcess, (line) => {
-		if (line) log(`[prebuild] ${line}`);
-	});
-	const abortPrepare = () => void stopProcess(prepareProcess);
-	options.signal?.addEventListener('abort', abortPrepare, { once: true });
-	const prepareExit = await waitForExit(prepareProcess);
-	options.signal?.removeEventListener('abort', abortPrepare);
-	if (options.signal?.aborted) throw abortError();
-	if (prepareExit !== 0) {
-		setState('failed');
-		throw new Error(
-			`Expo native preparation exited with status ${prepareExit}.`
-		);
-	}
-	const prepareMs = performance.now() - prepareStarted;
-	timings['preparing-native'] = prepareMs;
-	options.onPhaseTiming?.({
-		durationMs: prepareMs,
-		phase: 'preparing-native'
-	});
-	setState('starting-metro');
+	const runPrepareCommand = async (command: AbsoluteExpoDevCommand) => {
+		setState('preparing-native');
+		const prepareStarted = performance.now();
+		const prepareProcess = run(executable, command.args, {
+			cwd: plan.project,
+			env: { ...process.env, ...command.env },
+			stdio: ['ignore', 'pipe', 'pipe']
+		});
+		forwardLines(prepareProcess, (line) => {
+			if (line) log(`[prebuild] ${line}`);
+		});
+		const abortPrepare = () => void stopProcess(prepareProcess);
+		options.signal?.addEventListener('abort', abortPrepare, { once: true });
+		const prepareExit = await waitForExit(prepareProcess);
+		options.signal?.removeEventListener('abort', abortPrepare);
+		if (options.signal?.aborted) throw abortError();
+		if (prepareExit !== 0) {
+			setState('failed');
+			throw new Error(
+				`Expo native preparation exited with status ${prepareExit}.`
+			);
+		}
+		publishTiming('preparing-native', performance.now() - prepareStarted);
+	};
+	if (prepareCommand) await runPrepareCommand(prepareCommand);
+	const managedMetro = metroCommand !== undefined;
+	if (managedMetro) setState('starting-metro');
 	const metroStarted = performance.now();
-	const metro = run(executable, metroCommand.args, {
-		cwd: plan.project,
-		env: { ...process.env, ...metroCommand.env },
-		stdio: ['ignore', 'pipe', 'pipe']
-	});
+	const metro = metroCommand
+		? run(executable, metroCommand.args, {
+				cwd: plan.project,
+				env: { ...process.env, ...metroCommand.env },
+				stdio: ['ignore', 'pipe', 'pipe']
+			})
+		: undefined;
 	let metroReady = false;
 	let resolveMetro: (() => void) | undefined;
 	const metroPromise = new Promise<void>((resolve, reject) => {
+		if (!metro) {
+			resolve();
+
+			return;
+		}
 		const timeout = setTimeout(() => {
 			reject(
 				new Error('Expo Metro did not become ready within 60 seconds.')
@@ -329,17 +347,20 @@ export const startAbsoluteExpoDevSession = async (
 			}
 		});
 	});
-	forwardLines(metro, (line) => {
-		if (line) log(`[metro] ${line}`);
-		if (
-			!metroReady &&
-			/(?:Waiting on|Metro waiting on|Dev server ready)/iu.test(line)
-		) {
-			metroReady = true;
-			resolveMetro?.();
-		}
-	});
-	const abort = () => void stopProcess(metro);
+	if (metro)
+		forwardLines(metro, (line) => {
+			if (line) log(`[metro] ${line}`);
+			if (
+				!metroReady &&
+				/(?:Waiting on|Metro waiting on|Dev server ready)/iu.test(line)
+			) {
+				metroReady = true;
+				resolveMetro?.();
+			}
+		});
+	const abort = () => {
+		if (metro) void stopProcess(metro);
+	};
 	options.signal?.addEventListener('abort', abort, { once: true });
 	const runNativeCommand = async (command: AbsoluteExpoDevCommand) => {
 		if (options.signal?.aborted) throw abortError();
@@ -459,12 +480,8 @@ export const startAbsoluteExpoDevSession = async (
 	try {
 		await startPhysicalIosEnrollment();
 		await metroPromise;
-		const metroMs = performance.now() - metroStarted;
-		timings['starting-metro'] = metroMs;
-		options.onPhaseTiming?.({
-			durationMs: metroMs,
-			phase: 'starting-metro'
-		});
+		if (managedMetro)
+			publishTiming('starting-metro', performance.now() - metroStarted);
 		await runNativeCommands(nativeCommands);
 		setState('ready');
 
@@ -474,14 +491,14 @@ export const startAbsoluteExpoDevSession = async (
 			timings,
 			close: async () => {
 				options.signal?.removeEventListener('abort', abort);
-				await stopProcess(metro);
+				if (metro) await stopProcess(metro);
 				await closeEnrollmentServer();
 				setState('closed');
 			}
 		};
 	} catch (error) {
 		options.signal?.removeEventListener('abort', abort);
-		await stopProcess(metro);
+		if (metro) await stopProcess(metro);
 		await closeEnrollmentServer();
 		setState('failed');
 		throw error;

@@ -121,13 +121,61 @@ describe('Expo development controller', () => {
 		).toThrow('development CA certificate');
 	});
 
-	test('requires an explicit locally supported target', () => {
+	test('can own Metro while native iOS executes on a Remote Mac', () => {
+		const plan = planAbsoluteExpoDevSession(config, {
+			metroPort: 8081,
+			platforms: []
+		});
+		expect(plan.commands).toHaveLength(1);
+		expect(plan.commands[0]?.role).toBe('metro');
 		expect(() =>
 			planAbsoluteExpoDevSession(config, {
+				metro: 'external',
 				metroPort: 8081,
 				platforms: []
 			})
-		).toThrow('local target platform');
+		).toThrow('requires a target platform');
+	});
+
+	test('uses an externally tunneled Metro without starting a second server', () => {
+		const plan = planAbsoluteExpoDevSession(config, {
+			iosOrigin: 'http://localhost:3000',
+			metro: 'external',
+			metroHost: 'macbook.local',
+			metroPort: 8123,
+			platforms: ['ios']
+		});
+		expect(plan.commands.map((command) => command.role)).toEqual([
+			'native-prepare',
+			'native-build'
+		]);
+		expect(plan.commands[0]?.env.REACT_NATIVE_PACKAGER_HOSTNAME).toBe(
+			'macbook.local'
+		);
+	});
+
+	test('builds and closes against an externally managed Metro session', async () => {
+		const harness = processHarness();
+		const session = await startAbsoluteExpoDevSession({
+			config,
+			executable: '/workspace/expo',
+			iosOrigin: 'http://localhost:3000',
+			metro: 'external',
+			metroPort: 8123,
+			platforms: ['ios'],
+			spawnProcess: harness.spawnProcess
+		});
+		expect(harness.commands.some((command) => command[1] === 'start')).toBe(
+			false
+		);
+		expect(harness.commands).toContainEqual([
+			'/workspace/expo',
+			'run:ios',
+			'--no-bundler',
+			'--port',
+			'8123'
+		]);
+		await session.close();
 	});
 
 	test('trusts and relaunches the booted iOS Simulator for HTTPS', async () => {

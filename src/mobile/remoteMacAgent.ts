@@ -5,6 +5,13 @@ import { createInterface } from 'node:readline';
 import type { MobileConfig } from '../../types/build';
 import { normalizeAbsoluteMobileConfig } from './config';
 import {
+	absoluteExpoExecutable,
+	startAbsoluteExpoDevSession,
+	type AbsoluteExpoDevPhaseTiming,
+	type AbsoluteExpoDevSession
+} from './expoDevController';
+import { writeAbsoluteExpoProject } from './expoProject';
+import {
 	prepareAbsoluteIosDevProject,
 	startAbsoluteIosDevSession,
 	type AbsoluteIosCommandOptions,
@@ -21,7 +28,7 @@ import {
 type AgentRequest = {
 	command: 'close' | 'rebuild' | 'relaunch' | 'screenshot';
 	id: string;
-	v: 1;
+	v: number;
 };
 
 const emit = (event: Record<string, unknown>) =>
@@ -141,6 +148,7 @@ const capture = (
 };
 
 const readyShape = (session: AbsoluteIosDevSession) => ({
+	engine: 'capacitor',
 	nativeCacheHit: session.nativeCacheHit,
 	startedSimulator: session.startedSimulator,
 	targetKind: session.targetKind,
@@ -148,6 +156,136 @@ const readyShape = (session: AbsoluteIosDevSession) => ({
 	type: 'ready',
 	udid: session.udid
 });
+
+const runAbsoluteRemoteExpoAgent = async (options: {
+	args: string[];
+	certificateAuthorityPath?: string;
+	config: ReturnType<typeof normalizeAbsoluteMobileConfig>;
+	deviceIdentifier?: string;
+	port: number;
+	relayPort?: number;
+	serverHost?: string;
+}) => {
+	if (options.config.engine !== 'expo')
+		throw new TypeError(
+			'The remote Expo executor requires Expo configuration.'
+		);
+	const metroPort = parseOptionalPort(options.args, '--metro-port');
+	if (metroPort === undefined)
+		throw new TypeError('Remote Expo execution requires --metro-port.');
+	const metroRelayPort = parseOptionalPort(
+		options.args,
+		'--metro-relay-port'
+	);
+	if (options.deviceIdentifier && metroRelayPort === undefined)
+		throw new TypeError(
+			'Remote physical Expo execution requires --metro-relay-port.'
+		);
+	const generated = await writeAbsoluteExpoProject(options.config, {
+		projectRoot: process.cwd()
+	});
+	const dependencyCacheHit = await Bun.file(
+		join(generated.path, 'node_modules', 'expo', 'package.json')
+	).exists();
+	if (!dependencyCacheHit) {
+		emit({ state: 'preparing-native', type: 'state' });
+		const installStarted = performance.now();
+		const installExit = await run([process.execPath, 'install'], {
+			cwd: generated.path
+		});
+		if (installExit !== 0)
+			throw new Error(
+				`Remote Expo dependency installation exited with status ${installExit}.`
+			);
+		emit({
+			durationMs: performance.now() - installStarted,
+			phase: 'preparing-native',
+			type: 'timing'
+		});
+	}
+	let serverRelay:
+		| Awaited<ReturnType<typeof startAbsoluteIosTcpRelay>>
+		| undefined;
+	let metroRelay:
+		| Awaited<ReturnType<typeof startAbsoluteIosTcpRelay>>
+		| undefined;
+	let session: AbsoluteExpoDevSession | undefined;
+	try {
+		serverRelay = options.deviceIdentifier
+			? await startAbsoluteIosTcpRelay({
+					listenPort: options.port,
+					targetPort: options.relayPort ?? 0
+				})
+			: undefined;
+		metroRelay = options.deviceIdentifier
+			? await startAbsoluteIosTcpRelay({
+					listenPort: metroPort,
+					targetPort: metroRelayPort ?? 0
+				})
+			: undefined;
+		session = await startAbsoluteExpoDevSession({
+			certificateAuthorityPath: options.certificateAuthorityPath,
+			config: options.config,
+			executable: await absoluteExpoExecutable(generated.path),
+			iosDevice: options.deviceIdentifier,
+			iosOrigin: `${options.args.includes('--https') ? 'https' : 'http'}://${options.serverHost ?? 'localhost'}:${options.port}`,
+			metro: 'external',
+			metroHost: options.serverHost ?? 'localhost',
+			metroPort,
+			platforms: ['ios'],
+			log: (message) => emit({ message, type: 'log' }),
+			onPhaseTiming: (timing: AbsoluteExpoDevPhaseTiming) =>
+				emit({ ...timing, type: 'timing' }),
+			onStateChange: (state) => emit({ state, type: 'state' })
+		});
+		emit({
+			engine: 'expo',
+			nativeCacheHit: dependencyCacheHit,
+			startedSimulator: false,
+			targetKind: options.deviceIdentifier ? 'device' : 'simulator',
+			timings: session.timings,
+			type: 'ready',
+			udid: options.deviceIdentifier ?? 'booted'
+		});
+		const input = createInterface({
+			input: process.stdin,
+			terminal: false
+		});
+		try {
+			for await (const line of input) {
+				let request: AgentRequest | undefined;
+				try {
+					request = JSON.parse(line) as AgentRequest;
+					if (
+						request.v !== ABSOLUTE_REMOTE_MAC_PROTOCOL_VERSION ||
+						typeof request.id !== 'string' ||
+						request.command !== 'close'
+					)
+						throw new Error('Invalid remote Expo request.');
+					await session.close();
+					emit({ id: request.id, ok: true, type: 'response' });
+
+					return;
+				} catch (error) {
+					emit({
+						error: errorMessage(error),
+						id: request?.id ?? '',
+						ok: false,
+						type: 'response'
+					});
+				}
+			}
+		} finally {
+			input.close();
+		}
+	} finally {
+		await session?.close().catch(() => undefined);
+		await Promise.all([
+			serverRelay?.close().catch(() => undefined),
+			metroRelay?.close().catch(() => undefined)
+		]);
+	}
+};
 
 export const runAbsoluteRemoteMacAgent = async (args: string[]) => {
 	if (process.platform !== 'darwin')
@@ -187,6 +325,24 @@ export const runAbsoluteRemoteMacAgent = async (args: string[]) => {
 			certificateAuthorityPath,
 			Buffer.from(encodedCertificateAuthority, 'base64url')
 		);
+	}
+	if (config.engine === 'expo') {
+		try {
+			await runAbsoluteRemoteExpoAgent({
+				args,
+				certificateAuthorityPath,
+				config,
+				deviceIdentifier,
+				port,
+				relayPort,
+				serverHost
+			});
+		} finally {
+			if (certificateAuthorityPath)
+				await rm(certificateAuthorityPath, { force: true });
+		}
+
+		return;
 	}
 	const project = await prepareAbsoluteIosDevProject(config, {
 		createNativeProject: false,

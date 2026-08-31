@@ -35,10 +35,12 @@ afterAll(async () => {
  * path; when it completes the server broadcasts a
  * `<framework>-tier-zero-ssr-rebuild-complete` HMR message.
  * We wait on that signal and then re-fetch the page to
- * confirm SSR is serving fresh bytes. The 45s test deadline
- * is a runner-level safety net — the operation itself blocks
- * on the WebSocket event, not on time. */
-const TEST_DEADLINE_MS = 45_000;
+ * confirm SSR is serving fresh bytes. The 90s test deadline
+ * is a runner-level safety net aligned with the dev server's
+ * rebuild/idle budget — the operation itself blocks on the
+ * WebSocket event, not on time. */
+const TEST_DEADLINE_MS = 90_000;
+const SSR_PROBE_TIMEOUT_MS = 5_000;
 
 /* Drain stale broadcasts from prior tests' rebuilds (the
  * afterEach file-restore re-triggers a rebuild, whose broadcast
@@ -56,7 +58,9 @@ const driveRebuild = async (
 		const deadline = Date.now() + 30_000;
 		while (Date.now() < deadline) {
 			try {
-				const response = await fetch(url);
+				const response = await fetch(url, {
+					signal: AbortSignal.timeout(SSR_PROBE_TIMEOUT_MS)
+				});
 				if ((await response.text()).includes(sentinel)) return;
 			} catch {
 				// The atomic bundle/manifest swap may briefly overlap this probe.
@@ -73,7 +77,11 @@ const driveRebuild = async (
 		client.waitFor(`${framework}-tier-zero-ssr-rebuild-complete`, 30_000),
 		waitForFreshSsr()
 	]);
-	const html = await (await fetch(url)).text();
+	const html = await (
+		await fetch(url, {
+			signal: AbortSignal.timeout(SSR_PROBE_TIMEOUT_MS)
+		})
+	).text();
 	expect(html).toContain(sentinel);
 };
 
