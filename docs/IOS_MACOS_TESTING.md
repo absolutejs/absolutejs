@@ -1,7 +1,7 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.42` and
+`@absolutejs/absolute@0.20.0-beta.48` and
 `@absolutejs/deploy@0.24.0`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
 
@@ -41,7 +41,7 @@ cloned repository root, which contains this repository's `package.json`,
 ```sh
 git clone https://github.com/absolutejs/absolutejs.git
 cd absolutejs
-git checkout a3edb8295b3fcf30efa707e1e5dcffcaf50968e6
+git checkout 54d00755a093806438da92555bc5cc8a0e2c52fb
 bun install --frozen-lockfile
 xcodebuild -version
 xcrun simctl list runtimes
@@ -53,7 +53,7 @@ If the repository was already cloned, use this instead:
 ```sh
 cd /absolute/path/to/the/absolutejs-clone
 git fetch origin
-git checkout a3edb8295b3fcf30efa707e1e5dcffcaf50968e6
+git checkout 54d00755a093806438da92555bc5cc8a0e2c52fb
 bun install --frozen-lockfile
 bun run test:native:ios
 ```
@@ -216,6 +216,8 @@ actual result, sanitized logs, and artifact or screenshot path in section 13.
 - [ ] `EXPO-01` through `EXPO-08` Complete Expo CNG, HTTPS, web HMR, native Fast
   Refresh, patterned native routing, cleanup, and physical-device enrollment
   acceptance.
+- [ ] `EXPO-DATA-01` through `EXPO-DATA-08` Complete automatic typed page-props,
+  Auth, query/reload, failure recovery, and production-contract acceptance.
 - [ ] `EXPO-DEVICES-01` through `EXPO-DEVICES-12` Complete provider-neutral
   capabilities, privacy, bridge, push, and rebuild-boundary acceptance.
 - [ ] `EXPO-AUTH-01` through `EXPO-AUTH-08` Complete Expo system-browser Auth,
@@ -274,10 +276,10 @@ still requires the developer team setup described below.
 From the root of the AbsoluteJS application:
 
 ```sh
-bun add @absolutejs/absolute@0.20.0-beta.42 \
-  @absolutejs/auth@0.75.0 \
+bun add @absolutejs/absolute@0.20.0-beta.48 \
+  @absolutejs/auth@0.75.6 \
   @absolutejs/dispatch@0.9.0 \
-  @absolutejs/sync@2.29.0 \
+  @absolutejs/sync@2.31.0 \
   @absolutejs/sync-capacitor@0.9.2 \
   @absolutejs/deploy@0.24.0 \
   @absolutejs/blob@0.5.2 \
@@ -590,14 +592,14 @@ performing these checks:
   `[hmr:expo-ios]` update work. Stop the command and verify that the enrollment
   URL no longer responds. Record `SKIPPED — no dedicated iOS development
   device` if unavailable.
-- [ ] `EXPO-07` In the application-owned config, map
+- [ ] `EXPO-07` In the application-owned config, map existing ordinary page URLs
   `/products/:productId` and `/files/*` to disposable native React modules under
-  the application root. In those modules, read parameters with Expo Router's
-  `useLocalSearchParams`. Restart Terminal 1, follow ordinary AbsoluteJS links
-  to `/products/test-product`, `/files/one`, and `/files/one/two`, and confirm
-  all three render native UI with the expected sanitized parameter shape. Also
-  open the product URL through the configured custom scheme and confirm cold
-  deep-link ownership selects the same native route.
+  the application root. Type those modules with `AbsoluteNativeRouteProps` as
+  shown in the next section. Restart Terminal 1, follow ordinary AbsoluteJS
+  links to `/products/test-product`, `/files/one`, and `/files/one/two`, and
+  confirm all three render native UI with the expected sanitized `params`.
+  Also open the product URL through the configured custom scheme and confirm
+  cold deep-link ownership selects the same native route.
 - [ ] `EXPO-08` Remove only `/products/:productId` from
   `mobile.routes.native`, restart Terminal 1, and confirm its generated
   `.absolutejs/mobile/expo/app/products/[productId]/index.tsx` wrapper is gone.
@@ -608,6 +610,87 @@ performing these checks:
 Return the sanitized Terminal 1 output and the eight result rows. Never return
 the CA private key, Apple credentials, provisioning profiles, raw device logs,
 or the contents of environment files.
+
+#### Expo typed page-props acceptance
+
+Run these checks from the same staging application root and Terminal 1 session
+as `EXPO-01`. Choose a disposable existing AbsoluteJS GET page route that has
+visible, non-secret server props and export that page's existing props type. Do
+not create a second JSON endpoint. Do not put a bearer token, cookie, refresh
+credential, or manual `fetch` call in the native module.
+
+Create an application-owned native module using the application's real type and
+path names. This example assumes the ordinary page exports `ProductPageProps`:
+
+```tsx
+import type { AbsoluteNativeRouteProps } from '@absolutejs/absolute/mobile';
+import type { ProductPageProps } from '../../src/pages/Product';
+import { Pressable, Text, View } from 'react-native';
+
+type ProductParams = { productId: string; view?: string };
+
+export default function ProductNative({
+  pageProps,
+  params,
+  reload
+}: AbsoluteNativeRouteProps<ProductPageProps, ProductParams>) {
+  return (
+    <View>
+      <Text testID="server-title">{pageProps.title}</Text>
+      <Text testID="route-id">{params.productId}</Text>
+      <Text testID="query-view">{params.view ?? 'default'}</Text>
+      <Pressable testID="reload" onPress={reload}>
+        <Text>Reload</Text>
+      </Pressable>
+    </View>
+  );
+}
+```
+
+Map that module to the same URL in `mobile.routes.native`, restart `bun dev`,
+and complete each item. If the staging route uses different prop fields, change
+only the JSX field names to match its existing exported type.
+
+- [ ] `EXPO-DATA-01` From the application root run `bunx absolute mobile init
+  --no-native --yes --config absolute.config.ts`, then run `bunx tsc --noEmit`
+  from `.absolutejs/mobile/expo`. Confirm the generated wrapper and the
+  application-owned module compile without a local duplicate props interface.
+- [ ] `EXPO-DATA-02` Open `/products/test-product?view=compact` in the running
+  development client. Confirm native UI shows the exact server-produced title,
+  `test-product`, and `compact`; confirm the ordinary page handler logs exactly
+  one GET for the load.
+- [ ] `EXPO-DATA-03` Change a harmless server-produced title value, save, and tap
+  **Reload**. Confirm the native screen receives the new value without editing
+  the native module, running Expo Prebuild, or rebuilding with Xcode. Record the
+  elapsed reload time.
+- [ ] `EXPO-DATA-04` Temporarily rename the rendered `title` field in the
+  existing exported page-props type and ordinary page producer, but do not
+  update the native JSX. Confirm TypeScript identifies the stale native field
+  access. Revert this disposable change after recording the compiler result.
+- [ ] `EXPO-DATA-05` If the route is protected, sign in through the ordinary
+  Expo Auth flow and open both the web and native renderers. Confirm both show
+  the same disposable principal and that the native module contains no Auth
+  adapter import or token handling. If Auth is not configured, record
+  `SKIPPED — no protected staging route`.
+- [ ] `EXPO-DATA-06` Stop the staging server, open or reload the native route,
+  and confirm the generated error UI appears without exposing a response body
+  or credential. Restart the server, tap **Try again**, and confirm recovery
+  without remounting or rebuilding the app.
+- [ ] `EXPO-DATA-07` From the application root run `bunx absolute prepare
+  src/backend/server.ts --config absolute.config.ts`, then `bunx absolute mobile
+  sync --yes --config absolute.config.ts`. Confirm generated
+  `src/generated/webAssets.ts` contains only the expected public production
+  origin plus release/page identifiers and contains no tokens, cookies,
+  environment values, or page-props data.
+- [ ] `EXPO-DATA-08` From `.absolutejs/mobile/expo`, run `bunx tsc --noEmit` and
+  `bunx expo export --platform ios --output-dir dist-data-acceptance`. Confirm
+  both succeed. Return to the application root before continuing with any other
+  AbsoluteJS command; remove only the disposable export directory afterward.
+
+Return the eight `EXPO-DATA` rows with PASS/FAIL/SKIPPED, the sanitized server
+request count, reload timing, TypeScript diagnostic from the deliberate change,
+and the final two command summaries. Do not return props containing personal or
+secret staging data.
 
 #### Expo device-capability acceptance
 
@@ -1884,10 +1967,10 @@ source change and build a new content-addressed release instead.
 - Mac architecture:
 - Xcode version:
 - Bun version:
-- AbsoluteJS version: 0.20.0-beta.47
-- Auth version: 0.75.0
+- AbsoluteJS version: 0.20.0-beta.48
+- Auth version: 0.75.6
 - Dispatch version: 0.9.0
-- Sync version: 2.29.0
+- Sync version: 2.31.0
 - Sync Capacitor version: 0.9.2
 - Capacitor SQLite version: 8.1.1
 - Devices version: 0.7.0
@@ -1935,6 +2018,14 @@ versus expected behavior. Do not report exact coordinates.
 | EXPO-06 |  | physical CA enrollment / HTTPS HMR / cleanup or skipped: |  |
 | EXPO-07 |  | parameter/wildcard link + deep-link ownership: |  |
 | EXPO-08 |  | stale-wrapper pruning / web fallback / source preservation: |  |
+| EXPO-DATA-01 |  | generated + application TypeScript: |  |
+| EXPO-DATA-02 |  | server props / path / query / GET count: |  |
+| EXPO-DATA-03 |  | reload timing / no native rebuild: |  |
+| EXPO-DATA-04 |  | shared props-type diagnostic: |  |
+| EXPO-DATA-05 |  | matching Auth principal / no token code or skipped: |  |
+| EXPO-DATA-06 |  | bounded error / retry recovery: |  |
+| EXPO-DATA-07 |  | embedded public release metadata / no secrets: |  |
+| EXPO-DATA-08 |  | TypeScript / iOS Metro export: |  |
 | EXPO-DEVICES-01 |  | exact packages / generated CNG policy: |  |
 | EXPO-DEVICES-02 |  | Expo dependency check: |  |
 | EXPO-DEVICES-03 |  | clipboard / haptics / keyboard / bars / share: |  |

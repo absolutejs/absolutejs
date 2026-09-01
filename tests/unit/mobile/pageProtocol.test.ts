@@ -1,12 +1,20 @@
-import { describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, test } from 'bun:test';
 import {
 	ABSOLUTE_MOBILE_PAGE_MEDIA_TYPE,
+	ABSOLUTE_NATIVE_ROUTE_DATA_MEDIA_TYPE,
 	finalizeAbsoluteMobilePage,
 	MOBILE_PAGE_REQUEST_HEADERS,
 	parseAbsoluteMobilePageRequest,
 	type AbsoluteMobilePageCompatibility
 } from '../../../src/mobile/pageProtocol';
 import { runWithAbsoluteMobileProducer } from '../../../src/mobile/producerContext';
+
+const originalNodeEnvironment = process.env.NODE_ENV;
+
+afterEach(() => {
+	if (originalNodeEnvironment === undefined) delete process.env.NODE_ENV;
+	else process.env.NODE_ENV = originalNodeEnvironment;
+});
 
 const mobileRequest = (overrides: Record<string, string> = {}) =>
 	new Request('https://example.test/account/42', {
@@ -57,6 +65,49 @@ describe('mobile page protocol', () => {
 		expect(parseAbsoluteMobilePageRequest(request)).toEqual({
 			kind: 'not-mobile'
 		});
+	});
+
+	test('serves current typed props to native routes only in development', async () => {
+		process.env.NODE_ENV = 'development';
+		const response = finalizeAbsoluteMobilePage({
+			compatibility,
+			props: { displayName: 'Ada' },
+			request: new Request('https://example.test/account/42', {
+				headers: {
+					accept: ABSOLUTE_NATIVE_ROUTE_DATA_MEDIA_TYPE,
+					[MOBILE_PAGE_REQUEST_HEADERS.protocol]: '1'
+				}
+			})
+		});
+		const envelope = await response?.json();
+
+		expect(response?.status).toBe(200);
+		expect(envelope.response).toEqual({
+			contract: 'account@3',
+			framework: 'react',
+			kind: 'page',
+			pageId: 'Account',
+			props: { displayName: 'Ada' },
+			status: 200
+		});
+	});
+
+	test('fails closed on the header-light native representation in production', async () => {
+		process.env.NODE_ENV = 'production';
+		const response = finalizeAbsoluteMobilePage({
+			compatibility,
+			props: { displayName: 'Ada' },
+			request: new Request('https://example.test/account/42', {
+				headers: {
+					accept: ABSOLUTE_NATIVE_ROUTE_DATA_MEDIA_TYPE,
+					[MOBILE_PAGE_REQUEST_HEADERS.protocol]: '1'
+				}
+			})
+		});
+		const envelope = await response?.json();
+
+		expect(response?.status).toBe(400);
+		expect(envelope.response).toMatchObject({ kind: 'invalid-request' });
 	});
 
 	test('selects the newest server representation understood by an older app', async () => {

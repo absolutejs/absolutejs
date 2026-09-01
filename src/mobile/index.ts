@@ -29,6 +29,7 @@ export * from './mobilePreview';
 export * from './nativeDeepLinks';
 export * from './nativeDeviceCapabilities';
 export * from './nativeAuth';
+export * from './nativeRoute';
 export * from './pageProtocol';
 export * from './producerContext';
 export * from './releaseArtifact';

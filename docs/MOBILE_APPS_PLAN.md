@@ -1,6 +1,18 @@
 # AbsoluteJS Mobile Apps: Research and Implementation Plan
 
 Status: Capacitor Android development/release, all-framework embedded bundles, universal native Auth/Sync, Expo hybrid native Auth/Sync, background Sync, automatic device provisioning, provider-neutral native push registration, and Android conformance are operational; iOS development/release automation is shipped and awaiting real macOS/physical-device acceptance
+
+Implementation checkpoint (August 31, 2026, Expo typed-data slice):
+`0.20.0-beta.48` makes application-owned Expo React routes a typed renderer for
+the same ordinary AbsoluteJS server route. Generated wrappers supply
+`pageProps`, path/query `params`, and `reload`; developers reuse their existing
+page-props type and write no fetch, token, loading, or compatibility code.
+Development requests are explicitly development-only. Prepared applications
+embed a minimal trusted release manifest and negotiate the full versioned page
+protocol, including retained server representations for older installed apps.
+Native Auth owns authenticated requests, so credentials never enter application
+route code. Real macOS/physical-device acceptance remains tracked in
+[IOS_MACOS_TESTING.md](./IOS_MACOS_TESTING.md).
 Research snapshot: August 26, 2026
 
 Implementation checkpoint (August 30, 2026, Expo Phase 7 development loop):

@@ -72,6 +72,7 @@ describe('experimental Expo project', () => {
 			nativeRoute,
 			packageSource,
 			plugin,
+			nativeRouteRuntime,
 			webAssets,
 			webHost
 		] = await Promise.all([
@@ -81,6 +82,10 @@ describe('experimental Expo project', () => {
 			readFile(join(project, 'package.json'), 'utf8'),
 			readFile(
 				join(project, 'plugins', 'withAbsoluteDevelopmentCa.js'),
+				'utf8'
+			),
+			readFile(
+				join(project, 'src', 'generated', 'AbsoluteNativeRoute.tsx'),
 				'utf8'
 			),
 			readFile(join(project, 'src', 'generated', 'webAssets.ts'), 'utf8'),
@@ -98,6 +103,13 @@ describe('experimental Expo project', () => {
 		expect(plugin).toContain('android:networkSecurityConfig');
 		expect(appConfig).toContain('"scheme": "product"');
 		expect(nativeRoute).toContain('mobile/native/scanner');
+		expect(nativeRoute).toContain('createAbsoluteNativeRoute');
+		expect(nativeRouteRuntime).toContain(
+			'application/vnd.absolute.native-route+json'
+		);
+		expect(nativeRouteRuntime).toContain('x-absolute-mobile-app-build');
+		expect(nativeRouteRuntime).toContain('ABSOLUTE_MOBILE_MANIFEST');
+		expect(nativeRouteRuntime).not.toContain('absoluteExpoAuth');
 		expect(packageSource).toContain('expo-dev-client');
 		expect(webAssets).toContain('absolute prepare');
 		expect(webHost).toContain('createExpoDevicesBridgeHost');
@@ -162,7 +174,30 @@ describe('experimental Expo project', () => {
 			),
 			writeFile(
 				join(config.bundleDirectory, 'absolute-mobile-manifest.json'),
-				JSON.stringify({ appBuild: 'ambuild_test' })
+				JSON.stringify({
+					appBuild: 'ambuild_test',
+					internalSigningMaterial: 'must-not-be-embedded',
+					pages: [
+						{
+							bundleHash: 'bundle-product',
+							contract: 'react:Product:schema-product',
+							pageId: 'Product'
+						}
+					],
+					productionOrigin: 'https://api.example.com',
+					routes: [
+						{
+							method: 'GET',
+							pageId: 'Product',
+							pattern: '/products/:productId'
+						},
+						{
+							method: 'POST',
+							pattern: '/products'
+						}
+					],
+					runtime: '1'
+				})
 			),
 			writeFile(
 				join(config.bundleDirectory, 'pages', 'app.js'),
@@ -185,6 +220,10 @@ describe('experimental Expo project', () => {
 		expect(source).toContain('pages/app.js');
 		expect(source).toContain('.absasset');
 		expect(source).toContain("new File(root, 'index.html').uri");
+		expect(source).toContain('ABSOLUTE_MOBILE_MANIFEST');
+		expect(source).toContain('react:Product:schema-product');
+		expect(source).not.toContain('"method":"POST"');
+		expect(source).not.toContain('must-not-be-embedded');
 	});
 
 	test('provisions detected provider-neutral device capabilities and Expo plugins', async () => {
@@ -224,6 +263,7 @@ describe('experimental Expo project', () => {
 			appConfig,
 			authSource,
 			layout,
+			nativeRouteRuntime,
 			packageSource,
 			tsconfig,
 			webHost
@@ -234,6 +274,10 @@ describe('experimental Expo project', () => {
 				'utf8'
 			),
 			readFile(join(project, 'app', '_layout.tsx'), 'utf8'),
+			readFile(
+				join(project, 'src', 'generated', 'AbsoluteNativeRoute.tsx'),
+				'utf8'
+			),
 			readFile(join(project, 'package.json'), 'utf8'),
 			readFile(join(project, 'tsconfig.json'), 'utf8'),
 			readFile(
@@ -251,12 +295,17 @@ describe('experimental Expo project', () => {
 		expect(authSource).toContain('installAuthClientRuntimeTransport');
 		expect(authSource).not.toContain('refreshToken');
 		expect(layout).toContain('startAbsoluteExpoAuth');
+		expect(nativeRouteRuntime).toContain('absoluteExpoAuth.fetchOptional');
+		expect(nativeRouteRuntime).not.toContain("headers.set('authorization'");
 		expect(tsconfig).toContain('@absolutejs/auth/*');
 		expect(webHost).toContain('absoluteExpoAuth.fetchOptional');
 		expect(webHost).toContain("message.method === 'auth.signIn'");
 		expect(webHost).not.toContain('authorization:');
 		await expect(
 			new Bun.Transpiler({ loader: 'tsx' }).transform(webHost)
+		).resolves.toBeString();
+		await expect(
+			new Bun.Transpiler({ loader: 'tsx' }).transform(nativeRouteRuntime)
 		).resolves.toBeString();
 		await expect(
 			new Bun.Transpiler({ loader: 'ts' }).transform(authSource)

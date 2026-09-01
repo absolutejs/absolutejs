@@ -6,6 +6,8 @@ import {
 export const ABSOLUTE_MOBILE_PAGE_MEDIA_TYPE =
 	'application/vnd.absolute.page+json';
 export const ABSOLUTE_MOBILE_PAGE_PROTOCOL_VERSION = 1 as const;
+export const ABSOLUTE_NATIVE_ROUTE_DATA_MEDIA_TYPE =
+	'application/vnd.absolute.native-route+json';
 const BAD_REQUEST_STATUS = 400;
 const OK_STATUS = 200;
 const SERVER_ERROR_STATUS = 500;
@@ -123,6 +125,19 @@ export const acceptsAbsoluteMobilePage = (request: Request | undefined) => {
 		.split(',')
 		.some(
 			(value) => parseMediaType(value) === ABSOLUTE_MOBILE_PAGE_MEDIA_TYPE
+		);
+};
+
+export const acceptsAbsoluteNativeRouteData = (
+	request: Request | undefined
+) => {
+	if (!request) return false;
+
+	return (request.headers.get('accept') ?? '')
+		.split(',')
+		.some(
+			(value) =>
+				parseMediaType(value) === ABSOLUTE_NATIVE_ROUTE_DATA_MEDIA_TYPE
 		);
 };
 
@@ -326,6 +341,58 @@ const finalizeArchivedMobilePage = <Props>(
 	}
 };
 
+const finalizeAbsoluteNativeRouteDevelopmentPage = <Props>(
+	input: FinalizeAbsoluteMobilePageInput<Props>
+) => {
+	if (process.env.NODE_ENV !== 'development') {
+		return createAbsoluteMobileInvalidRequestResponse(
+			'The native-route development representation is disabled outside development.'
+		);
+	}
+	if (input.request?.method !== 'GET') {
+		return createAbsoluteMobileInvalidRequestResponse(
+			'Native-route data requests must use GET.'
+		);
+	}
+	if (
+		input.request.headers.get(MOBILE_PAGE_REQUEST_HEADERS.protocol) !==
+		String(ABSOLUTE_MOBILE_PAGE_PROTOCOL_VERSION)
+	) {
+		return createAbsoluteMobileInvalidRequestResponse(
+			`Native-route data requires protocol ${ABSOLUTE_MOBILE_PAGE_PROTOCOL_VERSION}.`
+		);
+	}
+	const [representation] = input.compatibility.representations;
+	if (!representation) {
+		return createAbsoluteMobilePageErrorResponse(
+			input.compatibility.pageId
+		);
+	}
+
+	try {
+		return envelopeResponse(
+			{
+				contract: representation.contract,
+				framework: input.compatibility.framework,
+				kind: 'page',
+				pageId: input.compatibility.pageId,
+				props: normalizeJsonValue(representation.mapProps(input.props)),
+				status: input.status ?? OK_STATUS
+			},
+			input.status ?? OK_STATUS
+		);
+	} catch (error) {
+		console.error(
+			`[Mobile] Failed to produce development native route ${input.compatibility.pageId}:`,
+			error
+		);
+
+		return createAbsoluteMobilePageErrorResponse(
+			input.compatibility.pageId
+		);
+	}
+};
+
 export const createAbsoluteMobileInvalidRequestResponse = (message: string) =>
 	envelopeResponse({ kind: 'invalid-request', message }, BAD_REQUEST_STATUS);
 
@@ -347,6 +414,9 @@ export const createAbsoluteMobileUpgradeResponse = (
 export const finalizeAbsoluteMobilePage = <Props>(
 	input: FinalizeAbsoluteMobilePageInput<Props>
 ) => {
+	if (acceptsAbsoluteNativeRouteData(input.request)) {
+		return finalizeAbsoluteNativeRouteDevelopmentPage(input);
+	}
 	const parsed = parseAbsoluteMobilePageRequest(input.request);
 	if (parsed.kind === 'not-mobile') return undefined;
 	if (parsed.kind === 'invalid') {

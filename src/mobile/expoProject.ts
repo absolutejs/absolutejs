@@ -36,6 +36,20 @@ const EXPO_GENERATED_HEADER =
 const EXPO_ASSET_EXTENSION = '.absasset';
 const EXPO_PROJECT_MARKER = '.absolutejs-expo-project';
 
+type AbsoluteExpoNativeDataManifest = {
+	appBuild: string;
+	pages: {
+		bundleHash: string;
+		contract: string;
+		pageId: string;
+	}[];
+	productionOrigin: string;
+	routes: { method: 'GET'; pageId: string; pattern: string }[];
+	runtime: string;
+};
+
+type AbsoluteExpoAssetEntry = { asset: string; path: string };
+
 export type WriteAbsoluteExpoProjectOptions = {
 	force?: boolean;
 	projectRoot: string;
@@ -49,6 +63,67 @@ const exists = async (path: string) => {
 	} catch {
 		return false;
 	}
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+	typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const requireManifestString = (value: unknown, field: string) => {
+	if (typeof value !== 'string' || !value) {
+		throw new TypeError(`AbsoluteJS mobile manifest ${field} is invalid.`);
+	}
+
+	return value;
+};
+
+const expoNativeDataManifest = (
+	value: unknown
+): AbsoluteExpoNativeDataManifest => {
+	if (
+		!isRecord(value) ||
+		!Array.isArray(value.pages) ||
+		!Array.isArray(value.routes)
+	) {
+		throw new TypeError('AbsoluteJS mobile manifest is invalid.');
+	}
+	const pages = value.pages.map((page) => {
+		if (!isRecord(page))
+			throw new TypeError('AbsoluteJS mobile manifest page is invalid.');
+
+		return {
+			bundleHash: requireManifestString(
+				page.bundleHash,
+				'page.bundleHash'
+			),
+			contract: requireManifestString(page.contract, 'page.contract'),
+			pageId: requireManifestString(page.pageId, 'page.pageId')
+		};
+	});
+	const routes = value.routes.flatMap((route) => {
+		if (!isRecord(route) || typeof route.method !== 'string') {
+			throw new TypeError('AbsoluteJS mobile manifest route is invalid.');
+		}
+		if (route.method !== 'GET') return [];
+
+		return [
+			{
+				method: 'GET' as const,
+				pageId: requireManifestString(route.pageId, 'route.pageId'),
+				pattern: requireManifestString(route.pattern, 'route.pattern')
+			}
+		];
+	});
+
+	return {
+		appBuild: requireManifestString(value.appBuild, 'appBuild'),
+		pages,
+		productionOrigin: requireManifestString(
+			value.productionOrigin,
+			'productionOrigin'
+		),
+		routes,
+		runtime: requireManifestString(value.runtime, 'runtime')
+	};
 };
 
 const portableRelative = (from: string, destination: string) => {
@@ -980,8 +1055,142 @@ const catchAllRouteSource = `${EXPO_GENERATED_HEADER}import { AbsoluteWebHost } 
 export default AbsoluteWebHost;
 `;
 
-const nativeWrapperSource = (wrapper: string, module: string) =>
-	`${EXPO_GENERATED_HEADER}export { default } from ${JSON.stringify(portableRelative(dirname(wrapper), module).replace(/\.(?:[cm]?[jt]sx?)$/u, ''))};
+const nativeRouteRuntimeSource = (auth: boolean) =>
+	`${EXPO_GENERATED_HEADER}import { useLocalSearchParams, usePathname } from 'expo-router';
+import { type ComponentType, useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ABSOLUTE_MOBILE_MANIFEST } from './webAssets';
+${auth ? "import { absoluteExpoAuth } from './AbsoluteAuth';" : ''}
+
+const PAGE_MEDIA_TYPE = 'application/vnd.absolute.page+json';
+const NATIVE_DATA_MEDIA_TYPE = 'application/vnd.absolute.native-route+json';
+const PROTOCOL = 1;
+const MAX_DATA_BYTES = 1024 * 1024;
+const DEV_ORIGIN = Platform.OS === 'android'
+	? process.env.EXPO_PUBLIC_ABSOLUTE_DEV_ANDROID_ORIGIN
+	: process.env.EXPO_PUBLIC_ABSOLUTE_DEV_IOS_ORIGIN;
+
+type RouteParams = Record<string, string | string[] | undefined>;
+type NativeRouteProps<PageProps extends object, Params extends object> = {
+	pageProps: Readonly<PageProps>;
+	params: Readonly<Params>;
+	reload: () => void;
+};
+type NativeRouteState<PageProps> =
+	| { kind: 'loading' }
+	| { kind: 'ready'; pageProps: PageProps }
+	| { kind: 'error' };
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+	typeof value === 'object' && value !== null && !Array.isArray(value);
+const routeSegmentPattern = (segment: string) => {
+	if (segment === '*') return '.*';
+	if (segment.startsWith(':') && segment.endsWith('?')) return '[^/]*';
+	if (segment.startsWith(':')) return '[^/]+';
+	return segment.replace(/[.*+?^\${}()|[\\]\\\\]/g, '\\\\$&');
+};
+const matchesRoute = (pattern: string, pathname: string) =>
+	new RegExp('^' + pattern.split('/').map(routeSegmentPattern).join('/') + '/?$').test(pathname);
+const requestPathFor = (pathname: string, params: RouteParams, pattern: string) => {
+	const pathNames = new Set(pattern.split('/').filter(segment => segment.startsWith(':')).map(segment => segment.replace(/^:/, '').replace(/\\?$/, '')));
+	if (pattern.endsWith('/*')) pathNames.add('absoluteWildcard');
+	const query = new URLSearchParams();
+	for (const [name, value] of Object.entries(params).sort(([left], [right]) => left.localeCompare(right))) {
+		if (pathNames.has(name) || name === '#' || value === undefined) continue;
+		for (const item of Array.isArray(value) ? value : [value]) query.append(name, item);
+	}
+	const search = query.toString();
+	return pathname + (search ? '?' + search : '');
+};
+const productionPage = (pathname: string) => {
+	if (!ABSOLUTE_MOBILE_MANIFEST) throw new Error('AbsoluteJS native route data is not prepared for production.');
+	const route = ABSOLUTE_MOBILE_MANIFEST.routes.find(candidate => candidate.method === 'GET' && matchesRoute(candidate.pattern, pathname));
+	if (!route) throw new Error('No trusted AbsoluteJS page route owns this native URL.');
+	const page = ABSOLUTE_MOBILE_MANIFEST.pages.find(candidate => candidate.pageId === route.pageId);
+	if (!page) throw new Error('The embedded AbsoluteJS page contract is incomplete.');
+	return page;
+};
+const createDataRequest = (path: string) => {
+	const development = typeof DEV_ORIGIN === 'string' && DEV_ORIGIN.length > 0;
+	const origin = development ? DEV_ORIGIN : ABSOLUTE_MOBILE_MANIFEST?.productionOrigin;
+	if (!origin) throw new Error('AbsoluteJS native route data has no trusted server origin.');
+	const url = new URL(path, origin);
+	if (url.origin !== new URL(origin).origin) throw new Error('AbsoluteJS native route data left its trusted origin.');
+	const headers = new Headers();
+	headers.set('accept', development ? NATIVE_DATA_MEDIA_TYPE : PAGE_MEDIA_TYPE);
+	headers.set('x-absolute-mobile-protocol', String(PROTOCOL));
+	let page: ReturnType<typeof productionPage> | undefined;
+	if (!development) {
+		page = productionPage(url.pathname);
+		headers.set('x-absolute-mobile-app-build', ABSOLUTE_MOBILE_MANIFEST!.appBuild);
+		headers.set('x-absolute-mobile-page-bundle', page.bundleHash);
+		headers.set('x-absolute-mobile-page-contracts', page.contract);
+		headers.set('x-absolute-mobile-page-id', page.pageId);
+		headers.set('x-absolute-mobile-runtime', ABSOLUTE_MOBILE_MANIFEST!.runtime);
+	}
+	return { page, request: new Request(url, { headers, method: 'GET' }) };
+};
+const requestData = async <PageProps extends object>(path: string, signal: AbortSignal) => {
+	const { page, request } = createDataRequest(path);
+	const response = await ${auth ? 'absoluteExpoAuth.fetchOptional' : 'fetch'}(request, { redirect: 'manual', signal });
+	if (new URL(response.url || request.url).origin !== new URL(request.url).origin || response.status >= 300 && response.status < 400) throw new Error('AbsoluteJS native route data redirected outside its contract.');
+	const source = await response.text();
+	if (new TextEncoder().encode(source).byteLength > MAX_DATA_BYTES) throw new Error('AbsoluteJS native route data exceeded 1 MiB.');
+	let envelope: unknown;
+	try { envelope = JSON.parse(source); } catch { throw new Error('The server did not return an AbsoluteJS page envelope.'); }
+	if (!isRecord(envelope) || envelope.protocol !== PROTOCOL || !isRecord(envelope.response)) throw new Error('The server returned an invalid AbsoluteJS page envelope.');
+	const result = envelope.response;
+	if (result.kind === 'upgrade-required') throw new Error('This app version must be updated before opening this screen.');
+	if (result.kind !== 'page' || !isRecord(result.props) || typeof result.pageId !== 'string' || typeof result.contract !== 'string') throw new Error('The server did not produce native route page props.');
+	if (page && (result.pageId !== page.pageId || result.contract !== page.contract)) throw new Error('The server returned a different page contract than this app contains.');
+	return result.props as PageProps;
+};
+
+export const createAbsoluteNativeRoute = <
+	PageProps extends object,
+	Params extends object = RouteParams
+>(Component: ComponentType<NativeRouteProps<PageProps, Params>>, pattern: string) => {
+	function AbsoluteNativeRouteScreen() {
+		const pathname = usePathname() || '/';
+		const params = useLocalSearchParams() as RouteParams;
+		const parameterKey = JSON.stringify(params);
+		const requestPath = useMemo(() => requestPathFor(pathname, params, pattern), [parameterKey, pathname]);
+		const [revision, setRevision] = useState(0);
+		const [state, setState] = useState<NativeRouteState<PageProps>>({ kind: 'loading' });
+		useEffect(() => {
+			const controller = new AbortController();
+			setState({ kind: 'loading' });
+			void requestData<PageProps>(requestPath, controller.signal).then(
+				pageProps => { if (!controller.signal.aborted) setState({ kind: 'ready', pageProps }); },
+				() => { if (!controller.signal.aborted) setState({ kind: 'error' }); }
+			);
+			return () => controller.abort();
+		}, [requestPath, revision]);
+		const reload = () => setRevision(value => value + 1);
+		if (state.kind === 'loading') return <View style={styles.center}><ActivityIndicator accessibilityLabel="Loading screen" /></View>;
+		if (state.kind === 'error') return <View style={styles.center}><Text accessibilityRole="alert" style={styles.error}>This screen could not load.</Text><Pressable accessibilityRole="button" onPress={reload} style={styles.button}><Text>Try again</Text></Pressable></View>;
+		return <Component pageProps={state.pageProps} params={params as Params} reload={reload} />;
+	}
+	return AbsoluteNativeRouteScreen;
+};
+
+const styles = StyleSheet.create({
+	button: { backgroundColor: '#e2e8f0', borderRadius: 10, paddingHorizontal: 16, paddingVertical: 12 },
+	center: { alignItems: 'center', flex: 1, gap: 16, justifyContent: 'center', padding: 24 },
+	error: { color: '#b91c1c', fontSize: 16, textAlign: 'center' }
+});
+`;
+
+const nativeWrapperSource = (
+	wrapper: string,
+	module: string,
+	runtime: string,
+	route: string
+) =>
+	`${EXPO_GENERATED_HEADER}import ApplicationNativeRoute from ${JSON.stringify(portableRelative(dirname(wrapper), module).replace(/\.(?:[cm]?[jt]sx?)$/u, ''))};
+import { createAbsoluteNativeRoute } from ${JSON.stringify(portableRelative(dirname(wrapper), runtime).replace(/\.(?:[cm]?[jt]sx?)$/u, ''))};
+
+export default createAbsoluteNativeRoute(ApplicationNativeRoute, ${JSON.stringify(route)});
 `;
 
 const expoTsConfig = (
@@ -1078,9 +1287,20 @@ const pruneStaleManagedExpoRoutes = async (
 
 const jsonSource = (value: unknown) => `${JSON.stringify(value, null, '\t')}\n`;
 
-const emptyWebAssetsSource = `${EXPO_GENERATED_HEADER}export const materializeAbsoluteWebBundle = async () => {
+const nativeDataManifestTypeSource = `type AbsoluteMobileManifest = {
+	appBuild: string;
+	pages: readonly { bundleHash: string; contract: string; pageId: string }[];
+	productionOrigin: string;
+	routes: readonly { method: 'GET'; pageId: string; pattern: string }[];
+	runtime: string;
+};
+`;
+
+const emptyWebAssetsSource = `${EXPO_GENERATED_HEADER}${nativeDataManifestTypeSource}
+export const materializeAbsoluteWebBundle = async () => {
 	throw new Error('The embedded AbsoluteJS bundle is unavailable. Run absolute prepare before a production Expo build.');
 };
+export const ABSOLUTE_MOBILE_MANIFEST: AbsoluteMobileManifest | undefined = undefined;
 `;
 
 export const writeAbsoluteExpoProject = async (
@@ -1163,6 +1383,10 @@ export const writeAbsoluteExpoProject = async (
 			devicesRuntimeSource(config, devices, authEnabled)
 		],
 		[
+			join(project, 'src', 'generated', 'AbsoluteNativeRoute.tsx'),
+			nativeRouteRuntimeSource(authEnabled)
+		],
+		[
 			join(project, 'src', 'generated', 'AbsoluteWebHost.tsx'),
 			webHostSource(config, auth, syncEnabled)
 		]
@@ -1187,12 +1411,21 @@ export const writeAbsoluteExpoProject = async (
 		files.set(join(project, 'app', 'index.tsx'), webRouteSource);
 	}
 	files.set(join(project, 'app', '[...absolute].tsx'), catchAllRouteSource);
+	const nativeRouteRuntime = join(
+		project,
+		'src',
+		'generated',
+		'AbsoluteNativeRoute.tsx'
+	);
 	for (const [route, module] of routeModules) {
 		const wrapper =
 			route === '/'
 				? join(project, 'app', 'index.tsx')
 				: routeFile(project, route);
-		files.set(wrapper, nativeWrapperSource(wrapper, module));
+		files.set(
+			wrapper,
+			nativeWrapperSource(wrapper, module, nativeRouteRuntime, route)
+		);
 	}
 	const removed = await pruneStaleManagedExpoRoutes(
 		project,
@@ -1256,13 +1489,16 @@ const installStagedDirectory = async (staging: string, destination: string) => {
 };
 
 const assetModuleSource = (
-	assets: { asset: string; path: string }[],
-	bundleId: string
+	assets: AbsoluteExpoAssetEntry[],
+	bundleId: string,
+	manifest: AbsoluteExpoNativeDataManifest
 ) => `${EXPO_GENERATED_HEADER}import { Asset } from 'expo-asset';
 import { Directory, File, Paths } from 'expo-file-system';
 
+${nativeDataManifestTypeSource}
 declare const require: (path: string) => number;
 const BUNDLE_ID = ${JSON.stringify(bundleId)};
+export const ABSOLUTE_MOBILE_MANIFEST: AbsoluteMobileManifest = ${JSON.stringify(manifest)};
 const ASSETS = [
 ${assets.map(({ asset, path }) => `\t{ module: require(${JSON.stringify(asset)}), path: ${JSON.stringify(path)} }`).join(',\n')}
 ] as const;
@@ -1303,14 +1539,8 @@ export const syncAbsoluteExpoWebAssets = async (
 		'absolute-mobile-manifest.json'
 	);
 	const manifest: unknown = JSON.parse(await readFile(manifestPath, 'utf8'));
-	const appBuild =
-		typeof manifest === 'object' &&
-		manifest !== null &&
-		typeof Reflect.get(manifest, 'appBuild') === 'string'
-			? String(Reflect.get(manifest, 'appBuild'))
-			: undefined;
-	if (!appBuild)
-		throw new TypeError('AbsoluteJS mobile manifest has no appBuild.');
+	const nativeDataManifest = expoNativeDataManifest(manifest);
+	const { appBuild } = nativeDataManifest;
 	const files = await walkFiles(config.bundleDirectory);
 	const bundleHash = createHash('sha256');
 	const filesWithContents = await Promise.all(
@@ -1334,7 +1564,7 @@ export const syncAbsoluteExpoWebAssets = async (
 	const staging = await mkdtemp(
 		join(dirname(destination), `.${basename(destination)}.stage-`)
 	);
-	let assets: { asset: string; path: string }[];
+	let assets: AbsoluteExpoAssetEntry[];
 	try {
 		assets = await Promise.all(
 			files.map(async (source, index) => {
@@ -1366,7 +1596,7 @@ export const syncAbsoluteExpoWebAssets = async (
 	);
 	await writeManagedFile(
 		generated,
-		assetModuleSource(assets, bundleId),
+		assetModuleSource(assets, bundleId, nativeDataManifest),
 		true
 	);
 

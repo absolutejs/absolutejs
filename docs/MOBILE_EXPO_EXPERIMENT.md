@@ -7,7 +7,8 @@ Auth plus authenticated HTTP in `0.20.0-beta.44`. Native-owned durable Sync is
 added in `0.20.0-beta.45`. Provider-neutral Expo device capabilities are added
 in `0.20.0-beta.46` through `@absolutejs/devices-expo@0.0.2`.
 Parameterized and terminal-wildcard native route ownership is added in
-`0.20.0-beta.47`.
+`0.20.0-beta.47`. Automatic typed server page-props delivery to native routes
+is added in `0.20.0-beta.48`.
 
 AbsoluteJS can generate an experimental Expo Router shell in which explicitly
 selected routes render React Native UI and all other routes remain ordinary
@@ -133,30 +134,61 @@ export default defineConfig({
 });
 ```
 
-The native module is ordinary application-owned source:
+The native module is ordinary application-owned source. Reuse the page-props
+type already owned by the corresponding AbsoluteJS page; the generated route
+loader runs that same server route and supplies its result automatically:
 
 ```tsx
-import { Link, useLocalSearchParams } from 'expo-router';
-import { SafeAreaView, Text } from 'react-native';
+import type { AbsoluteNativeRouteProps } from '@absolutejs/absolute/mobile';
+import type { ProductPageProps } from '../../src/pages/Product';
+import { Pressable, SafeAreaView, Text } from 'react-native';
 
-export default function Product() {
-  const { productId } = useLocalSearchParams<{ productId: string }>();
+type ProductParams = { productId: string };
+
+export default function Product({
+  pageProps,
+  params,
+  reload
+}: AbsoluteNativeRouteProps<ProductPageProps, ProductParams>) {
   return (
     <SafeAreaView>
-      <Text>Native product {productId}</Text>
-      <Link href="/">Back to the AbsoluteJS app</Link>
+      <Text>{pageProps.name}</Text>
+      <Text>Native product {params.productId}</Text>
+      <Pressable onPress={reload}>
+        <Text>Refresh</Text>
+      </Pressable>
     </SafeAreaView>
   );
 }
 ```
 
-Named `:params` claim exactly one path segment and are exposed by Expo Router's
-`useLocalSearchParams`. A final `*` claims one or more remaining segments. A
-root `/*`, repeated/invalid parameter names, equivalent patterns such as
-`/users/:id` plus `/users/:name`, and Expo/Metro reserved paths are rejected at
-config load. Existing page routes require no edits and must not be repeated in
-the config. Removing a route from config prunes only its AbsoluteJS-managed
-wrapper; application-owned native modules remain untouched.
+`pageProps` is not a second client-side API contract. It is the JSON-safe props
+produced by the ordinary framework page handler for the same URL, after its
+normal server code and Auth checks run. Changing `ProductPageProps` therefore
+checks both renderers at compile time. AbsoluteJS owns the loading, retry,
+same-origin request, envelope, size, page-identity, and release-compatibility
+logic. Application code does not fetch its own page props or handle an access
+token. When `@absolutejs/auth` is installed, the generated native Auth runtime
+adds and refreshes authorization without exposing credentials to the route.
+
+Named `:params` claim exactly one path segment and arrive in `params`. A final
+`*` claims one or more remaining segments and arrives as
+`params.absoluteWildcard`. Query parameters are included too. A root `/*`,
+repeated/invalid parameter names, equivalent patterns such as `/users/:id`
+plus `/users/:name`, and Expo/Metro reserved paths are rejected at config load.
+The server page route itself requires no edit; `mobile.routes.native` only
+declares that Expo should render that existing URL with the application-owned
+native module. Removing the mapping prunes only its AbsoluteJS-managed wrapper;
+application-owned native modules remain untouched.
+
+During development, the generated loader requests the current page-props
+contract so server edits and Metro Fast Refresh remain immediate. This
+header-light representation is rejected outside `NODE_ENV=development`. A
+prepared production shell instead embeds the signed release's origin, runtime,
+page identity, bundle hash, and contract, then uses the full compatibility
+protocol. That lets the server retain an older app's matching representation
+without asking developers to write version checks or migrations in the native
+screen.
 
 ## Generate and run it
 
