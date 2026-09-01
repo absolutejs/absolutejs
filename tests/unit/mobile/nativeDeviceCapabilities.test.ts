@@ -271,7 +271,7 @@ describe('native device capability projection', () => {
 				'import UIKit\nimport Capacitor\nclass AppDelegate {\n}\n'
 			),
 			writeFile(
-				join(root, 'mobile/ios/App/AbsoluteJS.entitlements'),
+				join(ios, 'AbsoluteJS.entitlements'),
 				'<plist>\n<dict>\n</dict>\n</plist>\n'
 			),
 			writeFile(
@@ -315,7 +315,7 @@ describe('native device capability projection', () => {
 			pushNotificationsPlan
 		);
 		const entitlements = await readFile(
-			join(root, 'mobile/ios/App/AbsoluteJS.entitlements'),
+			join(ios, 'AbsoluteJS.entitlements'),
 			'utf8'
 		);
 		const delegate = await readFile(join(ios, 'AppDelegate.swift'), 'utf8');

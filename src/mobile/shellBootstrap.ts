@@ -17,6 +17,10 @@ import { installAbsoluteMobileShellHttp } from './shellHttp';
 const MANIFEST_PATH = './absolute-mobile-manifest.json';
 const STATUS_ID = 'absolute-mobile-status';
 
+/** How a navigation updates the address bar. `none` is for popstate, which has
+ *  already moved history before the shell renders anything. */
+type AbsoluteMobileHistoryMode = 'none' | 'push' | 'replace';
+
 const initialNavigationPath = (entry: string) => {
 	const expoPath = new URLSearchParams(location.search).get('absolutePath');
 	if (expoPath?.startsWith('/') && !expoPath.startsWith('//'))
@@ -34,9 +38,16 @@ const currentNavigationPath = () => {
 		: `${location.pathname}${location.search}${location.hash}`;
 };
 
-const pushNavigationHistory = (path: string) => {
+const writeNavigationHistory = (
+	path: string,
+	mode: AbsoluteMobileHistoryMode
+) => {
+	// The shell always boots at "/" (index.html) and renders the manifest entry
+	// route, so the first navigation replaces that URL instead of pushing a
+	// second entry the user could go "back" to.
+	const write = mode === 'push' ? history.pushState : history.replaceState;
 	if (!Reflect.get(globalThis, '__absoluteExpoBridge')) {
-		history.pushState({ absoluteMobile: true }, '', path);
+		write.call(history, { absoluteMobile: true }, '', path);
 
 		return;
 	}
@@ -44,7 +55,7 @@ const pushNavigationHistory = (path: string) => {
 	url.search = '';
 	url.hash = '';
 	url.searchParams.set('absolutePath', path);
-	history.pushState({ absoluteMobile: true }, '', url.href);
+	write.call(history, { absoluteMobile: true }, '', url.href);
 	const bridge: unknown = Reflect.get(globalThis, '__absoluteExpoBridge');
 	if (
 		typeof bridge === 'object' &&
@@ -187,7 +198,7 @@ const installLocalPageStyle = (
 const navigate = async (
 	manifest: AbsoluteMobileClientManifest,
 	path: string,
-	pushHistory: boolean,
+	historyMode: AbsoluteMobileHistoryMode,
 	fetchImpl?: AbsoluteMobileFetch
 ) => {
 	await disposeAbsoluteMobilePage();
@@ -225,7 +236,7 @@ const navigate = async (
 
 		return;
 	}
-	if (pushHistory) pushNavigationHistory(path);
+	if (historyMode !== 'none') writeNavigationHistory(path, historyMode);
 };
 
 const installAnchorNavigation = (
@@ -306,12 +317,12 @@ const installDeepLinks = async (
 const navigateWithFailureState = async (
 	manifest: AbsoluteMobileClientManifest,
 	path: string,
-	pushHistory: boolean,
+	historyMode: AbsoluteMobileHistoryMode,
 	reinstallBrowserNavigation: () => void,
 	fetchImpl?: AbsoluteMobileFetch
 ) => {
 	try {
-		await navigate(manifest, path, pushHistory, fetchImpl);
+		await navigate(manifest, path, historyMode, fetchImpl);
 	} catch (error) {
 		console.error('[Absolute Mobile] Navigation failed:', error);
 		renderStatus(
@@ -348,7 +359,7 @@ export const startAbsoluteMobileShell = async (
 		void navigateWithFailureState(
 			manifest,
 			path,
-			false,
+			'none',
 			reinstallBrowserNavigation,
 			applicationFetch
 		);
@@ -363,7 +374,7 @@ export const startAbsoluteMobileShell = async (
 		void navigateWithFailureState(
 			manifest,
 			path,
-			true,
+			'push',
 			reinstallBrowserNavigation,
 			applicationFetch
 		);
@@ -371,7 +382,7 @@ export const startAbsoluteMobileShell = async (
 	await navigateWithFailureState(
 		manifest,
 		initialNavigationPath(manifest.entry),
-		false,
+		'replace',
 		reinstallBrowserNavigation,
 		applicationFetch
 	);

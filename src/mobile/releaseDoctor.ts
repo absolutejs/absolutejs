@@ -644,7 +644,7 @@ const androidDeepLinkProjectionCheck = async (
 };
 
 const iosNativeSecurityCheck = async (iosRoot: string) => {
-	const entitlementsPath = join(iosRoot, 'App/AbsoluteJS.entitlements');
+	const entitlementsPath = join(iosRoot, 'App/App/AbsoluteJS.entitlements');
 	const entitlements = await readFile(entitlementsPath, 'utf8').catch(
 		() => ''
 	);
@@ -688,7 +688,7 @@ const iosDeepLinkProjectionCheck = async (
 	iosRoot: string
 ) => {
 	const infoPath = join(iosRoot, 'App/App/Info.plist');
-	const entitlementsPath = join(iosRoot, 'App/AbsoluteJS.entitlements');
+	const entitlementsPath = join(iosRoot, 'App/App/AbsoluteJS.entitlements');
 	const projectPath = join(iosRoot, 'App/App.xcodeproj/project.pbxproj');
 	try {
 		const [info, entitlements, project] = await Promise.all([
@@ -902,7 +902,7 @@ const iosCapabilityProjectionCheck = async (
 	if (requirements.iosPushNotifications) {
 		const entitlementsPath = join(
 			config.nativeProjectDirectory,
-			'ios/App/AbsoluteJS.entitlements'
+			'ios/App/App/AbsoluteJS.entitlements'
 		);
 		const delegatePath = join(appRoot, 'AppDelegate.swift');
 		const [entitlements, delegate] = await Promise.all([

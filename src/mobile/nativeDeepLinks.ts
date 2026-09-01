@@ -5,6 +5,10 @@ import type { NormalizedAbsoluteMobileConfig } from './config';
 
 const START_MARKER = '<!-- absolutejs:deep-links:start -->';
 const END_MARKER = '<!-- absolutejs:deep-links:end -->';
+// CODE_SIGN_ENTITLEMENTS resolves against SRCROOT (the directory holding
+// App.xcodeproj), so this points at ios/App/App/AbsoluteJS.entitlements — the
+// same directory as Info.plist. Keep it in step with the paths the entitlements
+// readers and writers build from nativeProjectDirectory.
 const IOS_ENTITLEMENTS = 'App/AbsoluteJS.entitlements';
 const NOT_FOUND = -1;
 
@@ -131,7 +135,7 @@ const configureIosEntitlements = async (
 ) => {
 	const path = join(
 		config.nativeProjectDirectory,
-		'ios/App/AbsoluteJS.entitlements'
+		'ios/App/App/AbsoluteJS.entitlements'
 	);
 	let current = '';
 	try {

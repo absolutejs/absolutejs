@@ -444,12 +444,7 @@ describe('mobile release doctor', () => {
 		);
 		await writeReleaseBundle(join(iosApp, 'public'), config);
 		await writeFile(
-			join(
-				config.nativeProjectDirectory,
-				'ios',
-				'App',
-				'AbsoluteJS.entitlements'
-			),
+			join(iosApp, 'AbsoluteJS.entitlements'),
 			'<plist><dict><key>com.apple.developer.associated-domains</key><array><string>applinks:api.example.com</string></array></dict></plist>'
 		);
 		const projectPath = join(
