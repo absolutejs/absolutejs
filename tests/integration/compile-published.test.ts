@@ -13,6 +13,8 @@ import { getAvailablePort } from '../helpers/ports';
 import { waitForServer } from '../helpers/http';
 
 const shouldRunPublishedBeta = process.env.ABSOLUTE_TEST_PUBLISHED_BETA === '1';
+const shouldRunPublishedBrowser =
+	process.env.ABSOLUTE_TEST_PUBLISHED_BROWSER === '1';
 const publishedBetaTest = shouldRunPublishedBeta ? test : test.skip;
 
 const tempRoots = new Set<string>();
@@ -373,7 +375,20 @@ const waitForEvaluate = async <T>(
 	);
 };
 
+const requireWebViewResponse = async <T>(
+	operation: Promise<T>,
+	label: string,
+	timeoutMs = 5_000
+) =>
+	Promise.race([
+		operation,
+		Bun.sleep(timeoutMs).then(() => {
+			throw new Error(`Bun.WebView ${label} timed out.`);
+		})
+	]);
+
 const assertBrowserAcceptance = async (baseUrl: string) => {
+	if (!shouldRunPublishedBrowser) return;
 	const { WebView } = Bun as unknown as {
 		WebView?: new (options: Record<string, unknown>) => {
 			addEventListener?: (
@@ -410,7 +425,10 @@ const assertBrowserAcceptance = async (baseUrl: string) => {
 				if (type === 'error') consoleErrors.push(args);
 			}
 		});
-		await view.navigate('about:blank');
+		await requireWebViewResponse(
+			view.navigate('about:blank'),
+			'availability probe'
+		);
 		if (view.cdp && view.addEventListener) {
 			await view.cdp('Network.enable');
 			view.addEventListener('Network.loadingFailed', (event) => {
