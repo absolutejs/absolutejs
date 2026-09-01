@@ -1931,6 +1931,20 @@ developer computer; signing identities stay on the Mac. A protocol handshake
 lets the local adapter allocate the stable build number from the remote native
 fingerprint without exposing either credential set.
 
+Reliability checkpoint (September 1, 2026): Remote Mac releases now acquire an
+atomic project-scoped lease before either source snapshot changes. A random
+owner token protects 15-second heartbeats and cleanup; a missed two-minute
+window allows the next command to quarantine and replace the stale lease
+atomically. Concurrent releases therefore fail before synchronization or Xcode,
+while SIGINT/SIGTERM cancels SSH/Xcode and releases ownership. Unique native
+staging directories and the existing hash-verified immutable stores remain the
+artifact transaction boundary. `mobile remotes inspect` reports redacted cache
+and lease totals, and explicit `mobile remotes clean --yes` removes only
+abandoned staging directories older than one day. Unit coverage exercises busy
+owners, stale recovery commands, token-guarded heartbeat/release, cancellation,
+and safe cleanup; real sleep/disconnect/Xcode acceptance is added to the partner
+macOS checklist.
+
 ```ts
 // absolutejs.config.ts
 export default {

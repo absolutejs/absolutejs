@@ -51,6 +51,8 @@ export {
 const PROFILE_FORMAT = 1;
 const REMOTE_STDIN_FLUSH_ATTEMPTS = 3;
 const REMOTE_SESSION_CLOSE_TIMEOUT_MS = 2_000;
+const REMOTE_RELEASE_LEASE_HEARTBEAT_MS = 15_000;
+const REMOTE_RELEASE_LEASE_STALE_SECONDS = 120;
 const PROFILE_NAME = /^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$/u;
 const SSH_DESTINATION = /^(?:[A-Za-z0-9._-]+@)?[A-Za-z0-9._:-]+$/u;
 
@@ -164,6 +166,10 @@ export type AbsoluteRemoteExpoIosOptions = {
 };
 
 export type BuildAbsoluteRemoteIosReleaseOptions = {
+	acquireLease?: (
+		project: AbsoluteRemoteIosDevProject,
+		signal?: AbortSignal
+	) => Promise<AbsoluteRemoteMacLease>;
 	allowUnsigned?: boolean;
 	developmentTeam?: string;
 	installAgent?: (
@@ -181,7 +187,25 @@ export type BuildAbsoluteRemoteIosReleaseOptions = {
 	) => Promise<Awaited<ReturnType<typeof installAbsoluteIosRelease>>>;
 	syncReleaseInputs?: (project: AbsoluteRemoteIosDevProject) => Promise<void>;
 	syncProject?: (project: AbsoluteRemoteIosDevProject) => Promise<void>;
-	transport?: Pick<AbsoluteRemoteMacTransport, 'spawn'>;
+	signal?: AbortSignal;
+	transport?: Pick<AbsoluteRemoteMacTransport, 'capture' | 'spawn'>;
+};
+
+export type AbsoluteRemoteMacLease = {
+	heartbeat: () => Promise<void>;
+	path: string;
+	recovered: boolean;
+	release: () => Promise<void>;
+	token: string;
+};
+
+export type AbsoluteRemoteMacWorkspaceInspection = {
+	agentCount: number;
+	bytes: number;
+	leaseCount: number;
+	profile: string;
+	projectCount: number;
+	workspaceRoot: string;
 };
 
 type RemoteEvent =
@@ -602,6 +626,167 @@ export const createAbsoluteRemoteIosDevProject = (
 	xcodebuild: 'remote:xcodebuild',
 	xcrun: 'remote:xcrun'
 });
+
+const releaseLeasePath = (project: AbsoluteRemoteIosDevProject) =>
+	posix.join(posix.dirname(project.remoteProjectRoot), '.release-lease');
+
+/** Acquire the project-scoped release lease before changing shared remote state.
+ *
+ * `mkdir` and the stale-directory rename are atomic on the Remote Mac. The
+ * random token prevents an expired owner from touching or releasing a newer
+ * owner's lease after a delayed SSH command completes.
+ */
+export const acquireAbsoluteRemoteMacReleaseLease = async (
+	project: AbsoluteRemoteIosDevProject,
+	options: {
+		signal?: AbortSignal;
+		staleSeconds?: number;
+		transport?: Pick<AbsoluteRemoteMacTransport, 'capture'>;
+	} = {}
+): Promise<AbsoluteRemoteMacLease> => {
+	options.signal?.throwIfAborted();
+	const token = randomUUID();
+	const path = releaseLeasePath(project);
+	const stalePath = `${path}.stale-${token}`;
+	const staleSeconds =
+		options.staleSeconds ?? REMOTE_RELEASE_LEASE_STALE_SECONDS;
+	if (!Number.isSafeInteger(staleSeconds) || staleSeconds < 30)
+		throw new TypeError(
+			'Remote Mac release lease expiry must be at least 30 seconds.'
+		);
+	const owner = JSON.stringify({
+		acquiredAt: new Date().toISOString(),
+		appId: project.config.appId,
+		host: process.env.HOSTNAME ?? 'unknown',
+		pid: process.pid,
+		token
+	});
+	const script = [
+		'set -eu',
+		'umask 077',
+		`mkdir -p ${shellQuote(posix.dirname(path))}`,
+		`if mkdir ${shellQuote(path)} 2>/dev/null; then status=ACQUIRED; else now=$(date +%s); modified=$(stat -f %m ${shellQuote(path)} 2>/dev/null || printf '0'); age=$((now-modified)); if [ "$age" -le ${staleSeconds} ]; then printf 'BUSY\\n'; cat ${shellQuote(posix.join(path, 'owner.json'))} 2>/dev/null || true; exit 73; fi; if mv ${shellQuote(path)} ${shellQuote(stalePath)} 2>/dev/null && mkdir ${shellQuote(path)} 2>/dev/null; then status=RECOVERED; rm -rf ${shellQuote(stalePath)}; else printf 'BUSY\\n'; exit 73; fi; fi`,
+		`printf '%s\\n' ${shellQuote(token)} > ${shellQuote(posix.join(path, 'token'))}`,
+		`printf '%s\\n' ${shellQuote(owner)} > ${shellQuote(posix.join(path, 'owner.json'))}`,
+		`touch ${shellQuote(path)}`,
+		`printf '%s\\n' "$status"`
+	].join('; ');
+	const capture = options.transport?.capture ?? defaultTransport.capture;
+	const result = await capture([
+		...absoluteRemoteMacSshBase(project.profile),
+		'/bin/sh -lc',
+		shellQuote(script)
+	]);
+	if (result.exitCode !== 0) {
+		if (result.exitCode === 73 || result.stdout.startsWith('BUSY'))
+			throw new Error(
+				`Remote Mac ${project.profile.name} is already building ${project.config.appId}. Wait for that release to finish; a crashed lease recovers automatically after ${staleSeconds} seconds.${result.stdout.split('\n').slice(1).join(' ').trim() ? ` Owner: ${result.stdout.split('\n').slice(1).join(' ').trim()}` : ''}`
+			);
+		requireRemoteSuccess(result, 'Remote Mac release lease acquisition');
+	}
+	const recovered =
+		result.stdout.trim().split(/\r?\n/u).at(-1) === 'RECOVERED';
+	const runOwned = async (action: string) => {
+		const ownedScript =
+			`test -f ${shellQuote(posix.join(path, 'token'))} && ` +
+			`test "$(cat ${shellQuote(posix.join(path, 'token'))})" = ${shellQuote(token)} && ${action}`;
+		const owned = await capture([
+			...absoluteRemoteMacSshBase(project.profile),
+			'/bin/sh -lc',
+			shellQuote(ownedScript)
+		]);
+		requireRemoteSuccess(owned, 'Remote Mac release lease ownership check');
+	};
+
+	return {
+		path,
+		recovered,
+		token,
+		heartbeat: () => runOwned(`touch ${shellQuote(path)}`),
+		release: () => runOwned(`rm -rf ${shellQuote(path)}`)
+	};
+};
+
+const inspectAbsoluteRemoteMacWorkspace = async (
+	profile: AbsoluteRemoteMacProfile,
+	transport?: Pick<AbsoluteRemoteMacTransport, 'capture'>
+): Promise<AbsoluteRemoteMacWorkspaceInspection> => {
+	const root = profile.workspaceRoot;
+	const script = [
+		'set -eu',
+		`mkdir -p ${shellQuote(root)}`,
+		`bytes=$(du -sk ${shellQuote(root)} 2>/dev/null | awk '{print $1 * 1024}')`,
+		`projects=$(find ${shellQuote(posix.join(root, 'projects'))} -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')`,
+		`agents=$(find ${shellQuote(posix.join(root, 'agents'))} -mindepth 2 -maxdepth 2 -type d 2>/dev/null | wc -l | tr -d ' ')`,
+		`leases=$(find ${shellQuote(posix.join(root, 'projects'))} -mindepth 2 -maxdepth 2 -type d -name .release-lease 2>/dev/null | wc -l | tr -d ' ')`,
+		`printf '%s\\n%s\\n%s\\n%s\\n' "${'$'}{bytes:-0}" "${'$'}{projects:-0}" "${'$'}{agents:-0}" "${'$'}{leases:-0}"`
+	].join('; ');
+	const result = await (transport?.capture ?? defaultTransport.capture)([
+		...absoluteRemoteMacSshBase(profile),
+		'/bin/sh -lc',
+		shellQuote(script)
+	]);
+	const [bytes, projectCount, agentCount, leaseCount] = requireRemoteSuccess(
+		result,
+		'Remote Mac workspace inspection'
+	)
+		.split(/\r?\n/u)
+		.map(Number);
+	if (
+		[bytes, projectCount, agentCount, leaseCount].some(
+			(value) =>
+				typeof value !== 'number' ||
+				!Number.isSafeInteger(value) ||
+				value < 0
+		)
+	)
+		throw new TypeError(
+			'Remote Mac returned invalid workspace statistics.'
+		);
+
+	return {
+		agentCount: agentCount ?? 0,
+		bytes: bytes ?? 0,
+		leaseCount: leaseCount ?? 0,
+		profile: profile.name,
+		projectCount: projectCount ?? 0,
+		workspaceRoot: root
+	};
+};
+
+/** Remove only abandoned staging directories. Project dependency/native caches,
+ * immutable releases, and active leases are deliberately retained.
+ */
+const cleanAbsoluteRemoteMacWorkspace = async (
+	profile: AbsoluteRemoteMacProfile,
+	transport?: Pick<AbsoluteRemoteMacTransport, 'capture'>
+) => {
+	const root = profile.workspaceRoot;
+	const projects = posix.join(root, 'projects');
+	const script = [
+		'set -eu',
+		`mkdir -p ${shellQuote(root)}`,
+		`project_staging=$(find ${shellQuote(projects)} -mindepth 2 -maxdepth 2 -type d \\( -name '.incoming-*' -o -name '.previous' -o -name '.release-lease.stale-*' \\) -mtime +0 -prune -print 2>/dev/null | wc -l | tr -d ' ')`,
+		`mobile_staging=$(find ${shellQuote(projects)} -type d \\( -path '*/current/.absolutejs/mobile/.ios-build-*' -o -path '*/current/.absolutejs/mobile/.ios-stage-*' -o -path '*/current/.absolutejs/mobile/*.incoming-*' \\) -mtime +0 -prune -print 2>/dev/null | wc -l | tr -d ' ')`,
+		`count=$((project_staging+mobile_staging))`,
+		`find ${shellQuote(projects)} -mindepth 2 -maxdepth 2 -type d \\( -name '.incoming-*' -o -name '.previous' -o -name '.release-lease.stale-*' \\) -mtime +0 -prune -exec rm -rf {} + 2>/dev/null || true`,
+		`find ${shellQuote(projects)} -type d \\( -path '*/current/.absolutejs/mobile/.ios-build-*' -o -path '*/current/.absolutejs/mobile/.ios-stage-*' -o -path '*/current/.absolutejs/mobile/*.incoming-*' \\) -mtime +0 -prune -exec rm -rf {} + 2>/dev/null || true`,
+		`printf '%s\\n' "$count"`
+	].join('; ');
+	const result = await (transport?.capture ?? defaultTransport.capture)([
+		...absoluteRemoteMacSshBase(profile),
+		'/bin/sh -lc',
+		shellQuote(script)
+	]);
+	const removed = Number(
+		requireRemoteSuccess(result, 'Remote Mac workspace cleanup')
+	);
+	if (!Number.isSafeInteger(removed) || removed < 0)
+		throw new TypeError('Remote Mac returned an invalid cleanup result.');
+
+	return { profile: profile.name, removed, workspaceRoot: root };
+};
+export { cleanAbsoluteRemoteMacWorkspace, inspectAbsoluteRemoteMacWorkspace };
 export const installAbsoluteRemoteMacAgent = async (
 	project: AbsoluteRemoteIosDevProject
 ) => {
@@ -838,14 +1023,18 @@ export const absoluteRemoteProjectSyncCommands = (
 };
 
 export const syncAbsoluteRemoteMacProject = async (
-	project: AbsoluteRemoteIosDevProject
+	project: AbsoluteRemoteIosDevProject,
+	options: { signal?: AbortSignal } = {}
 ) => {
+	options.signal?.throwIfAborted();
 	const commands = absoluteRemoteProjectSyncCommands(project);
 	const archive = Bun.spawn(commands.tar, {
+		signal: options.signal,
 		stderr: 'pipe',
 		stdout: 'pipe'
 	});
 	const upload = Bun.spawn(commands.remote, {
+		signal: options.signal,
 		stderr: 'pipe',
 		stdin: archive.stdout,
 		stdout: 'pipe'
@@ -919,14 +1108,18 @@ export const absoluteRemoteReleaseInputSyncCommands = (
 };
 
 export const syncAbsoluteRemoteMacReleaseInputs = async (
-	project: AbsoluteRemoteIosDevProject
+	project: AbsoluteRemoteIosDevProject,
+	options: { signal?: AbortSignal } = {}
 ) => {
+	options.signal?.throwIfAborted();
 	const commands = absoluteRemoteReleaseInputSyncCommands(project);
 	const archive = Bun.spawn(commands.tar, {
+		signal: options.signal,
 		stderr: 'pipe',
 		stdout: 'pipe'
 	});
 	const upload = Bun.spawn(commands.remote, {
+		signal: options.signal,
 		stderr: 'pipe',
 		stdin: archive.stdout,
 		stdout: 'pipe'
@@ -1063,167 +1256,243 @@ export const buildAbsoluteRemoteIosRelease = async (
 	options: BuildAbsoluteRemoteIosReleaseOptions
 ) => {
 	const startedAt = performance.now();
-	const syncStartedAt = performance.now();
-	await (options.syncProject ?? syncAbsoluteRemoteMacProject)(
-		options.project
-	);
-	await (options.syncReleaseInputs ?? syncAbsoluteRemoteMacReleaseInputs)(
-		options.project
-	);
-	const syncDuration = performance.now() - syncStartedAt;
-	options.onPhaseTiming?.({
-		durationMs: syncDuration,
-		phase: 'remote-release-sync'
-	});
-	const agentStartedAt = performance.now();
-	const agent = await (options.installAgent ?? installAbsoluteRemoteMacAgent)(
-		options.project
-	);
-	const agentDuration = performance.now() - agentStartedAt;
-	const encodedConfig = Buffer.from(
-		JSON.stringify(portableMobileConfig(options.project))
-	).toString('base64url');
-	const remoteCommand = [
-		`cd ${shellQuote(options.project.remoteProjectRoot)}`,
-		'&&',
-		'exec',
-		shellQuote(options.project.profile.bunPath),
-		shellQuote(agent.remotePath),
-		'--release-ios',
-		'--mobile-config',
-		shellQuote(encodedConfig),
-		...(options.allowUnsigned ? ['--unsigned'] : []),
-		...(options.prepareBuildNumber ? ['--request-build-number'] : []),
-		...(options.developmentTeam
-			? ['--development-team', shellQuote(options.developmentTeam)]
-			: [])
-	].join(' ');
-	const process = (options.transport?.spawn ?? defaultTransport.spawn)(
-		[
-			...absoluteRemoteMacSshBase(options.project.profile),
-			'/bin/sh -lc',
-			shellQuote(remoteCommand)
-		],
-		{}
-	);
-	let failure: Error | undefined;
-	let metadata: AbsoluteIosReleaseMetadata | undefined;
-	const responses: Promise<void>[] = [];
-	const stdoutDone = consumeLines(process.stdout, (line) => {
-		if (!line.startsWith(ABSOLUTE_REMOTE_MAC_EVENT_PREFIX)) return;
-		try {
-			const event = JSON.parse(
-				line.slice(ABSOLUTE_REMOTE_MAC_EVENT_PREFIX.length)
-			) as RemoteEvent;
-			if (event.v !== ABSOLUTE_REMOTE_MAC_PROTOCOL_VERSION)
-				throw new Error('Remote Mac protocol version mismatch.');
-			if (event.type === 'log') options.log?.(event.message);
-			if (event.type === 'timing') {
-				const durationMs = Reflect.get(event, 'durationMs');
-				const phase = Reflect.get(event, 'phase');
-				if (typeof durationMs === 'number' && typeof phase === 'string')
-					options.onPhaseTiming?.({ durationMs, phase });
-			}
-			if (event.type === 'fatal') failure = new Error(event.error);
-			if (event.type === 'release')
-				metadata = requireAbsoluteIosReleaseMetadata(event.metadata);
-			if (event.type === 'build-number-request') {
-				if (
-					!options.prepareBuildNumber ||
-					!/^[a-f0-9]{64}$/u.test(event.buildIdentity) ||
-					!event.id
-				)
-					throw new TypeError(
-						'Remote Mac requested an invalid iOS build number.'
-					);
-				responses.push(
-					options
-						.prepareBuildNumber(event.buildIdentity)
-						.then(async (buildNumber) => {
-							if (
-								!Number.isSafeInteger(buildNumber) ||
-								buildNumber < 1
-							)
-								throw new TypeError(
-									'iOS release publisher returned an invalid build number.'
-								);
-							process.stdin.write(
-								`${JSON.stringify({ buildNumber, command: 'build-number', id: event.id, v: ABSOLUTE_REMOTE_MAC_PROTOCOL_VERSION })}\n`
-							);
-							for (
-								let attempt = 0;
-								attempt < REMOTE_STDIN_FLUSH_ATTEMPTS;
-								attempt++
-							) {
-								try {
-									await process.stdin.flush();
-
-									break;
-								} catch {
-									await Promise.resolve();
-								}
-							}
-						})
-						.catch((error: unknown) => {
-							failure =
-								error instanceof Error
-									? error
-									: new Error(
-											'Failed to allocate an iOS build number.'
-										);
-							process.kill();
-
-							return undefined;
-						})
-				);
-			}
-		} catch (error) {
-			failure =
-				error instanceof Error
-					? error
-					: new Error('Remote Mac emitted an invalid release event.');
-			process.kill();
-		}
-	});
-	const stderrDone = consumeLines(process.stderr, (line) =>
-		options.log?.(`[remote] ${line}`)
-	);
-	const exitCode = await process.exited;
-	try {
-		process.stdin.end();
-	} catch {
-		// The one-shot agent has already closed its input pipe.
-	}
-	await Promise.all([stdoutDone, stderrDone, ...responses]);
-	if (failure) throw failure;
-	if (exitCode !== 0)
-		throw new Error(
-			`Remote iOS release agent exited with status ${exitCode}.`
+	options.signal?.throwIfAborted();
+	const operation = new AbortController();
+	const abort = () =>
+		operation.abort(
+			options.signal?.reason ?? new Error('Remote iOS release cancelled.')
 		);
-	if (!metadata)
-		throw new Error('Remote iOS release agent did not return an IPA.');
-	const downloadStartedAt = performance.now();
-	const release = await (
-		options.retrieveRelease ?? retrieveAbsoluteRemoteIosRelease
-	)(options.project, metadata, options.outputDirectory);
-	const downloadDuration = performance.now() - downloadStartedAt;
-	options.onPhaseTiming?.({
-		durationMs: downloadDuration,
-		phase: 'remote-release-download'
-	});
-	options.log?.(
-		`Remote Mac ${options.project.profile.name} built and verified iOS release ${metadata.releaseId} in ${(performance.now() - startedAt).toFixed(2)}ms (agent ${agent.uploaded ? 'uploaded' : 'cache hit'}).`
-	);
+	options.signal?.addEventListener('abort', abort, { once: true });
+	let lease: AbsoluteRemoteMacLease;
+	const leaseStartedAt = performance.now();
+	try {
+		lease = await (
+			options.acquireLease ??
+			((project, signal) =>
+				acquireAbsoluteRemoteMacReleaseLease(project, {
+					signal,
+					transport: options.transport
+				}))
+		)(options.project, operation.signal);
+	} catch (error) {
+		options.signal?.removeEventListener('abort', abort);
 
-	return {
-		...release,
-		timings: {
-			'remote-agent': agentDuration,
-			'remote-release-download': downloadDuration,
-			'remote-release-sync': syncDuration,
-			total: performance.now() - startedAt
+		throw error;
+	}
+	options.log?.(
+		`${lease.recovered ? 'Recovered stale' : 'Acquired'} Remote Mac release lease for ${options.project.config.appId}.`
+	);
+	const leaseDuration = performance.now() - leaseStartedAt;
+	options.onPhaseTiming?.({
+		durationMs: leaseDuration,
+		phase: 'remote-release-lease'
+	});
+	let heartbeat: Promise<void> | undefined;
+	const heartbeatTimer = setInterval(() => {
+		if (heartbeat) return;
+		heartbeat = lease
+			.heartbeat()
+			.catch((error: unknown) => operation.abort(error))
+			.finally(() => {
+				heartbeat = undefined;
+			});
+	}, REMOTE_RELEASE_LEASE_HEARTBEAT_MS);
+	heartbeatTimer.unref();
+	try {
+		const syncStartedAt = performance.now();
+		if (options.syncProject) await options.syncProject(options.project);
+		else
+			await syncAbsoluteRemoteMacProject(options.project, {
+				signal: operation.signal
+			});
+		operation.signal.throwIfAborted();
+		if (options.syncReleaseInputs)
+			await options.syncReleaseInputs(options.project);
+		else
+			await syncAbsoluteRemoteMacReleaseInputs(options.project, {
+				signal: operation.signal
+			});
+		operation.signal.throwIfAborted();
+		const syncDuration = performance.now() - syncStartedAt;
+		options.onPhaseTiming?.({
+			durationMs: syncDuration,
+			phase: 'remote-release-sync'
+		});
+		const agentStartedAt = performance.now();
+		const agent = await (
+			options.installAgent ?? installAbsoluteRemoteMacAgent
+		)(options.project);
+		operation.signal.throwIfAborted();
+		const agentDuration = performance.now() - agentStartedAt;
+		const encodedConfig = Buffer.from(
+			JSON.stringify(portableMobileConfig(options.project))
+		).toString('base64url');
+		const remoteCommand = [
+			`cd ${shellQuote(options.project.remoteProjectRoot)}`,
+			'&&',
+			'exec',
+			shellQuote(options.project.profile.bunPath),
+			shellQuote(agent.remotePath),
+			'--release-ios',
+			'--mobile-config',
+			shellQuote(encodedConfig),
+			...(options.allowUnsigned ? ['--unsigned'] : []),
+			...(options.prepareBuildNumber ? ['--request-build-number'] : []),
+			...(options.developmentTeam
+				? ['--development-team', shellQuote(options.developmentTeam)]
+				: [])
+		].join(' ');
+		const process = (options.transport?.spawn ?? defaultTransport.spawn)(
+			[
+				...absoluteRemoteMacSshBase(options.project.profile),
+				'/bin/sh -lc',
+				shellQuote(remoteCommand)
+			],
+			{ signal: operation.signal }
+		);
+		const killOnAbort = () => process.kill();
+		operation.signal.addEventListener('abort', killOnAbort, { once: true });
+		let failure: Error | undefined;
+		let metadata: AbsoluteIosReleaseMetadata | undefined;
+		const responses: Promise<void>[] = [];
+		const stdoutDone = consumeLines(process.stdout, (line) => {
+			if (!line.startsWith(ABSOLUTE_REMOTE_MAC_EVENT_PREFIX)) return;
+			try {
+				const event = JSON.parse(
+					line.slice(ABSOLUTE_REMOTE_MAC_EVENT_PREFIX.length)
+				) as RemoteEvent;
+				if (event.v !== ABSOLUTE_REMOTE_MAC_PROTOCOL_VERSION)
+					throw new Error('Remote Mac protocol version mismatch.');
+				if (event.type === 'log') options.log?.(event.message);
+				if (event.type === 'timing') {
+					const durationMs = Reflect.get(event, 'durationMs');
+					const phase = Reflect.get(event, 'phase');
+					if (
+						typeof durationMs === 'number' &&
+						typeof phase === 'string'
+					)
+						options.onPhaseTiming?.({ durationMs, phase });
+				}
+				if (event.type === 'fatal') failure = new Error(event.error);
+				if (event.type === 'release')
+					metadata = requireAbsoluteIosReleaseMetadata(
+						event.metadata
+					);
+				if (event.type === 'build-number-request') {
+					if (
+						!options.prepareBuildNumber ||
+						!/^[a-f0-9]{64}$/u.test(event.buildIdentity) ||
+						!event.id
+					)
+						throw new TypeError(
+							'Remote Mac requested an invalid iOS build number.'
+						);
+					responses.push(
+						options
+							.prepareBuildNumber(event.buildIdentity)
+							.then(async (buildNumber) => {
+								if (
+									!Number.isSafeInteger(buildNumber) ||
+									buildNumber < 1
+								)
+									throw new TypeError(
+										'iOS release publisher returned an invalid build number.'
+									);
+								process.stdin.write(
+									`${JSON.stringify({ buildNumber, command: 'build-number', id: event.id, v: ABSOLUTE_REMOTE_MAC_PROTOCOL_VERSION })}\n`
+								);
+								for (
+									let attempt = 0;
+									attempt < REMOTE_STDIN_FLUSH_ATTEMPTS;
+									attempt++
+								) {
+									try {
+										await process.stdin.flush();
+
+										break;
+									} catch {
+										await Promise.resolve();
+									}
+								}
+							})
+							.catch((error: unknown) => {
+								failure =
+									error instanceof Error
+										? error
+										: new Error(
+												'Failed to allocate an iOS build number.'
+											);
+								process.kill();
+
+								return undefined;
+							})
+					);
+				}
+			} catch (error) {
+				failure =
+					error instanceof Error
+						? error
+						: new Error(
+								'Remote Mac emitted an invalid release event.'
+							);
+				process.kill();
+			}
+		});
+		const stderrDone = consumeLines(process.stderr, (line) =>
+			options.log?.(`[remote] ${line}`)
+		);
+		const exitCode = await process.exited;
+		operation.signal.removeEventListener('abort', killOnAbort);
+		try {
+			process.stdin.end();
+		} catch {
+			// The one-shot agent has already closed its input pipe.
 		}
-	};
+		await Promise.all([stdoutDone, stderrDone, ...responses]);
+		operation.signal.throwIfAborted();
+		if (failure) throw failure;
+		if (exitCode !== 0)
+			throw new Error(
+				`Remote iOS release agent exited with status ${exitCode}.`
+			);
+		if (!metadata)
+			throw new Error('Remote iOS release agent did not return an IPA.');
+		const downloadStartedAt = performance.now();
+		const release = await (
+			options.retrieveRelease ?? retrieveAbsoluteRemoteIosRelease
+		)(options.project, metadata, options.outputDirectory);
+		const downloadDuration = performance.now() - downloadStartedAt;
+		options.onPhaseTiming?.({
+			durationMs: downloadDuration,
+			phase: 'remote-release-download'
+		});
+		options.log?.(
+			`Remote Mac ${options.project.profile.name} built and verified iOS release ${metadata.releaseId} in ${(performance.now() - startedAt).toFixed(2)}ms (agent ${agent.uploaded ? 'uploaded' : 'cache hit'}).`
+		);
+
+		return {
+			...release,
+			timings: {
+				'remote-agent': agentDuration,
+				'remote-release-download': downloadDuration,
+				'remote-release-lease': leaseDuration,
+				'remote-release-sync': syncDuration,
+				total: performance.now() - startedAt
+			}
+		};
+	} finally {
+		clearInterval(heartbeatTimer);
+		await heartbeat?.catch(() => undefined);
+		options.signal?.removeEventListener('abort', abort);
+		try {
+			await lease.release();
+			options.log?.('Released Remote Mac release lease.');
+		} catch (error) {
+			options.log?.(
+				`Remote Mac release lease cleanup failed and will recover after expiry: ${error instanceof Error ? error.message : String(error)}`
+			);
+		}
+	}
 };
 
 export const startAbsoluteRemoteExpoIosDevSession = async (

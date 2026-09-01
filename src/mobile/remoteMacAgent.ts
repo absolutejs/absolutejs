@@ -206,15 +206,18 @@ const requestBuildNumber = async (buildIdentity: string) => {
 };
 
 const prepareAbsoluteRemoteIosRelease = async (
-	config: ReturnType<typeof normalizeAbsoluteMobileConfig>
+	config: ReturnType<typeof normalizeAbsoluteMobileConfig>,
+	signal?: AbortSignal
 ) => {
+	signal?.throwIfAborted();
 	if (config.engine === 'expo') {
 		const generated = await writeAbsoluteExpoProject(config, {
 			projectRoot: process.cwd()
 		});
 		await syncAbsoluteExpoWebAssets(config);
 		const installExit = await run([process.execPath, 'install'], {
-			cwd: generated.path
+			cwd: generated.path,
+			signal
 		});
 		if (installExit !== 0)
 			throw new Error(
@@ -228,7 +231,7 @@ const prepareAbsoluteRemoteIosRelease = async (
 				'--platform',
 				'ios'
 			],
-			{ cwd: generated.path, env: productionEnvironment() }
+			{ cwd: generated.path, env: productionEnvironment(), signal }
 		);
 		if (prebuildExit !== 0)
 			throw new Error(
@@ -240,7 +243,7 @@ const prepareAbsoluteRemoteIosRelease = async (
 		});
 		const syncExit = await run(
 			[await capacitorExecutable(), 'sync', 'ios'],
-			{ cwd: process.cwd() }
+			{ cwd: process.cwd(), signal }
 		);
 		if (syncExit !== 0)
 			throw new Error(
@@ -266,33 +269,52 @@ const runAbsoluteRemoteIosReleaseAgent = async (options: {
 	args: string[];
 	config: ReturnType<typeof normalizeAbsoluteMobileConfig>;
 }) => {
-	const prepareStarted = performance.now();
-	await prepareAbsoluteRemoteIosRelease(options.config);
-	emit({
-		durationMs: performance.now() - prepareStarted,
-		phase: 'remote-release-prepare',
-		type: 'timing'
-	});
-	const buildStarted = performance.now();
-	const release = await buildAbsoluteIosRelease({
-		allowUnsigned: options.args.includes('--unsigned'),
-		config: options.config,
-		developmentTeam: valueAfter(options.args, '--development-team'),
-		...(options.config.engine === 'expo'
-			? { env: productionEnvironment() }
-			: {}),
-		...(options.args.includes('--request-build-number')
-			? { prepareBuildNumber: requestBuildNumber }
-			: {}),
-		projectRoot: process.cwd(),
-		run
-	});
-	emit({
-		durationMs: performance.now() - buildStarted,
-		phase: 'remote-release-xcode',
-		type: 'timing'
-	});
-	emit({ metadata: release.metadata, type: 'release' });
+	const cancellation = new AbortController();
+	const cancel = () =>
+		cancellation.abort(new Error('Remote iOS release connection closed.'));
+	process.once('SIGHUP', cancel);
+	process.once('SIGINT', cancel);
+	process.once('SIGTERM', cancel);
+	try {
+		const prepareStarted = performance.now();
+		await prepareAbsoluteRemoteIosRelease(
+			options.config,
+			cancellation.signal
+		);
+		emit({
+			durationMs: performance.now() - prepareStarted,
+			phase: 'remote-release-prepare',
+			type: 'timing'
+		});
+		const buildStarted = performance.now();
+		const release = await buildAbsoluteIosRelease({
+			allowUnsigned: options.args.includes('--unsigned'),
+			config: options.config,
+			developmentTeam: valueAfter(options.args, '--development-team'),
+			...(options.config.engine === 'expo'
+				? { env: productionEnvironment() }
+				: {}),
+			...(options.args.includes('--request-build-number')
+				? { prepareBuildNumber: requestBuildNumber }
+				: {}),
+			projectRoot: process.cwd(),
+			run: (command, runOptions = {}) =>
+				run(command, {
+					...runOptions,
+					signal: cancellation.signal
+				})
+		});
+		emit({
+			durationMs: performance.now() - buildStarted,
+			phase: 'remote-release-xcode',
+			type: 'timing'
+		});
+		emit({ metadata: release.metadata, type: 'release' });
+	} finally {
+		process.removeListener('SIGHUP', cancel);
+		process.removeListener('SIGINT', cancel);
+		process.removeListener('SIGTERM', cancel);
+	}
 };
 
 const readyShape = (session: AbsoluteIosDevSession) => ({

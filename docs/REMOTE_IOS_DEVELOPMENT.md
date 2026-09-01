@@ -96,12 +96,28 @@ Inspect or remove profiles with:
 ```bash
 absolute mobile remotes
 absolute mobile remotes --json
+absolute mobile remotes inspect personal-mac
+absolute mobile remotes inspect personal-mac --json
 absolute mobile doctor ios --remote personal-mac
 absolute mobile unpair mac personal-mac
 ```
 
 Unpairing removes only local connection metadata. It deliberately does not
 delete a remote workspace.
+
+The inspection reports workspace bytes, reusable project and agent caches, and
+active release leases without returning source paths or lease-owner metadata.
+After an interrupted build, safely remove abandoned staging directories older
+than one day with:
+
+```bash
+absolute mobile remotes clean personal-mac --yes
+```
+
+Cleanup retains current project snapshots, dependency/native caches, immutable
+releases, content-addressed agents, and active leases. It is not required for
+recovery; it exists to reclaim incomplete temporary work after the cause has
+been investigated.
 
 ## Development
 
@@ -221,7 +237,22 @@ keys and release-registry credentials are never sent to the Mac. Apple signing
 certificates and provisioning material remain in the paired Mac's Keychain and
 Xcode configuration.
 
-Release logs include `remote-release-sync`, `remote-release-prepare`,
+Before synchronizing release inputs, AbsoluteJS takes an atomic project-scoped
+lease on the Mac. A second build for the same local-project identity fails fast
+with non-secret owner/time diagnostics instead of racing source snapshots,
+native generation, or Xcode. The owner refreshes the lease every 15 seconds. If
+the initiating computer sleeps, crashes, or loses SSH long enough to miss the
+two-minute expiry, the next build atomically quarantines and replaces the stale
+lease. Every heartbeat and release checks an unguessable owner token, so a late
+command from the old build cannot touch a newer lease.
+
+Ctrl-C and SIGTERM cancel the local bundle/release operation, terminate SSH and
+Xcode through the agent process boundary, await stream shutdown, and release
+the lease. Xcode already builds in a unique `.ios-build-*` directory and the IPA
+enters both remote and local immutable stores only through atomic promotion, so
+an interrupted archive is never mistaken for a completed artifact.
+
+Release logs include `remote-release-lease`, `remote-release-sync`, `remote-release-prepare`,
 `remote-release-xcode`, and `remote-release-download` timings. Telemetry records
 only those phase durations, engine, platform, and `remote-mac` provider; it does
 not record the profile name, SSH destination, paths, app identity, artifact
@@ -235,6 +266,8 @@ hash, build number, or credentials.
 - The remote agent is protocol-versioned, content-addressed, and SHA-256 verified.
 - Project snapshots are isolated by a non-reversible project identity rather
   than exposing the developer's local path.
+- Project-scoped leases serialize releases, recover stale owners, and require
+  the current random token for heartbeat or cleanup.
 - Signing certificates and Keychain items stay on the Mac.
 - App Store Connect, release-registry, and PaaS credentials stay on the
   developer computer; only the allocated integer build number crosses SSH.
@@ -286,6 +319,14 @@ coupled to this bring-your-own-Mac protocol.
 - **Retrieved IPA is rejected:** do not copy artifacts manually. Resolve stale
   or modified remote release state and rerun the command; AbsoluteJS refuses an
   IPA whose local byte count or SHA-256 differs from `release.json`.
+- **Another build owns the release workspace:** allow the named build to finish.
+  If its computer crashed or disconnected, wait two minutes and rerun; stale
+  recovery is automatic. Use `absolute mobile remotes inspect <name>` to confirm
+  whether any release lease remains. Do not manually delete an active lease.
+- **Interrupted build left temporary data:** rerun the release first. If it no
+  longer needs the old staging data, run
+  `absolute mobile remotes clean <name> --yes`; the command only removes
+  abandoned staging directories older than one day.
 - **Expo app opens but Fast Refresh cannot connect:** verify both reverse
   forwards are allowed. A Remote Expo session needs the Bun port and its printed
   Metro port; physical devices additionally need both Remote Mac LAN ports.

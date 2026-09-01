@@ -1822,7 +1822,7 @@ bunx absolute mobile build ios src/backend/server.ts \
 ```
 
 - [ ] `REMOTE-RELEASE-01` The command prints `remote-release-sync`,
-  `remote-release-prepare`, `remote-release-xcode`, and
+  `remote-release-lease`, `remote-release-prepare`, `remote-release-xcode`, and
   `remote-release-download` timings.
 - [ ] `REMOTE-RELEASE-02` Xcode signing happens under the paired macOS user and
   no certificate, provisioning profile, Keychain item, or App Store credential
@@ -1854,6 +1854,25 @@ If staging access is unavailable, record
 remain required. Return only the local `release.json`, sanitized timing lines,
 and non-secret App Store receipt state. Do not return the IPA, SSH configuration,
 profile paths, signing material, API keys, or environment dumps.
+
+- [ ] `REMOTE-RELEASE-06` While one release is archiving, start the exact build
+  from a second terminal on the same Windows/Linux checkout. It must fail fast
+  with “already building”; it must not synchronize, invoke a second Xcode
+  archive, delete the first lease, or expose credentials/source paths.
+- [ ] `REMOTE-RELEASE-07` Start another disposable build, interrupt it with
+  Ctrl-C during Xcode archive, and confirm SSH/Xcode stops and a subsequent
+  build starts normally. If the initiating computer is forcibly disconnected,
+  wait at least two minutes; the next run must print that it recovered a stale
+  lease and complete without manual Mac edits.
+- [ ] `REMOTE-RELEASE-08` Run the following and confirm inspection reports cache
+  totals and active-lease count without source or credential data. Cleanup must
+  retain current projects, releases, agents, and active leases:
+
+```sh
+bunx absolute mobile remotes inspect test-mac
+bunx absolute mobile remotes inspect test-mac --json
+bunx absolute mobile remotes clean test-mac --yes
+```
 
 Direct interaction with the remote Simulator currently uses the Mac screen or a
 trusted remote-desktop connection. The protocol itself carries screenshots and

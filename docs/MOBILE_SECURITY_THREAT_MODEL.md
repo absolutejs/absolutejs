@@ -186,6 +186,16 @@ store-generated signing evidence.
   local `.absolutejs` state, `.git`, and dependency directories are excluded
   from the source snapshot. Applications must not place secrets in ordinary
   source files.
+- An atomic, project-scoped remote lease serializes source synchronization,
+  native generation, signing, and artifact retrieval. The owner heartbeats
+  every 15 seconds; a two-minute expiry is recovered through an atomic rename.
+  Heartbeat and release require the random owner token, preventing a delayed
+  command from a crashed build from deleting its successor's lease.
+- SIGINT/SIGTERM propagates to SSH/Xcode and release cleanup. Native archives and
+  downloaded IPAs remain staging-only until hash-verified atomic promotion.
+- Workspace cleanup matches only abandoned staging directory classes older
+  than one day and retains active leases, source/cache roots, immutable
+  releases, and content-addressed agents.
 - Apple signing identities and provisioning profiles remain in the Mac's
   Keychain/Xcode configuration. App Store Connect and release-registry
   credentials remain on the initiating computer; only the non-secret team ID

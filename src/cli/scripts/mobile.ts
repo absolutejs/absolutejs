@@ -89,6 +89,8 @@ import {
 	createAbsoluteRemoteIosDevProject,
 	getAbsoluteRemoteMacProfile,
 	inspectAbsoluteRemoteMac,
+	inspectAbsoluteRemoteMacWorkspace,
+	cleanAbsoluteRemoteMacWorkspace,
 	captureAbsoluteRemoteMacCommand,
 	pairAbsoluteRemoteMac,
 	removeAbsoluteRemoteMacProfile,
@@ -571,6 +573,51 @@ const pairRemoteMac = async (args: string[]) => {
 };
 
 const listRemoteMacs = async (args: string[]) => {
+	if (args[0] === 'inspect') {
+		const requested = args[1]?.startsWith('-') ? undefined : args[1];
+		const profile = await getAbsoluteRemoteMacProfile(
+			requested,
+			remoteProfilePath()
+		);
+		if (!profile)
+			throw new TypeError(
+				'No Remote Mac is selected. Pair one before inspecting its workspace.'
+			);
+		const inspection = await inspectAbsoluteRemoteMacWorkspace(profile);
+		console.log(
+			args.includes('--json')
+				? JSON.stringify(inspection, null, 2)
+				: [
+						`Remote Mac: ${inspection.profile}`,
+						`Workspace: ${inspection.workspaceRoot}`,
+						`Cache: ${(inspection.bytes / 1_048_576).toFixed(1)} MiB across ${inspection.projectCount} project(s) and ${inspection.agentCount} agent artifact(s)`,
+						`Active release leases: ${inspection.leaseCount}`
+					].join('\n')
+		);
+
+		return;
+	}
+	if (args[0] === 'clean') {
+		if (!args.includes('--yes'))
+			throw new TypeError(
+				'Remote Mac cleanup requires --yes. It removes only abandoned staging directories older than one day.'
+			);
+		const requested = args[1]?.startsWith('-') ? undefined : args[1];
+		const profile = await getAbsoluteRemoteMacProfile(
+			requested,
+			remoteProfilePath()
+		);
+		if (!profile)
+			throw new TypeError(
+				'No Remote Mac is selected. Pair one before cleaning its workspace.'
+			);
+		const result = await cleanAbsoluteRemoteMacWorkspace(profile);
+		console.log(
+			`Removed ${result.removed} abandoned Remote Mac staging director${result.removed === 1 ? 'y' : 'ies'}; project caches, releases, and active leases were retained.`
+		);
+
+		return;
+	}
 	const result = await listAbsoluteRemoteMacProfiles(remoteProfilePath());
 	if (args.includes('--json')) {
 		console.log(JSON.stringify(result, null, 2));
@@ -1410,6 +1457,21 @@ const buildLocalIosRelease = async (options: BuildLocalIosReleaseOptions) => {
 	});
 };
 
+const listenForRemoteReleaseCancellation = (
+	cancellation: AbortController | undefined
+) => {
+	if (!cancellation) return () => undefined;
+	const cancel = () =>
+		cancellation.abort(new Error('Remote iOS release interrupted.'));
+	process.once('SIGINT', cancel);
+	process.once('SIGTERM', cancel);
+
+	return () => {
+		process.removeListener('SIGINT', cancel);
+		process.removeListener('SIGTERM', cancel);
+	};
+};
+
 const buildIos = async (
 	args: string[],
 	prepareBuildNumber?: (buildIdentity: string) => Promise<number>
@@ -1440,6 +1502,8 @@ const buildIos = async (
 			'iOS release builds require macOS or a paired Remote Mac. Run `absolute mobile pair mac <name> <user@host>`.'
 		);
 	let success = false;
+	const cancellation = remoteProfile ? new AbortController() : undefined;
+	let stopListeningForCancellation: () => void = () => undefined;
 	try {
 		if (!remoteProfile && mobile.engine === 'capacitor')
 			await repairAbsoluteIosDevSession(projectRoot);
@@ -1449,6 +1513,8 @@ const buildIos = async (
 			configPath,
 			{ prepareOnly: true }
 		);
+		stopListeningForCancellation =
+			listenForRemoteReleaseCancellation(cancellation);
 		const release = remoteProfile
 			? await buildAbsoluteRemoteIosRelease({
 					allowUnsigned: args.includes('--unsigned'),
@@ -1474,7 +1540,8 @@ const buildIos = async (
 						mobile,
 						projectRoot,
 						remoteProfile
-					)
+					),
+					signal: cancellation?.signal
 				})
 			: await buildLocalIosRelease({
 					args,
@@ -1494,6 +1561,7 @@ const buildIos = async (
 
 		return release;
 	} finally {
+		stopListeningForCancellation();
 		sendTelemetryEvent('mobile:ios-release-build', {
 			durationMs: Math.round(performance.now() - startedAt),
 			engine: mobile.engine,
@@ -2891,6 +2959,6 @@ export const runMobile = async (args: string[]) => {
 	}
 
 	throw new TypeError(
-		'Usage: absolute mobile <pair mac <name> <user@host> [--port n] [--workspace path] | remotes [--json] | unpair mac <name> | init [--no-native] [--force] | sync [ios|android] | inspect [--json] [--require-bundle] | associations [--outdir dir] [--verify] | ci github [server-entry] [--publish] [--registry module] [--secret-env NAME] [--output path] [--force] [--json] | doctor [ios|android|release [ios|android]] [--remote name] [--json|--fix [--yes]] | build <android|ios> [server-entry] [--remote name] [--outdir dir] [--web-outdir dir] [--unsigned] | publish android [server-entry] [--registry module] [--channel name] [--play-track track] [--play-status completed|draft|halted|in-progress] [--play-rollout fraction] [--play-name name] [--play-notes language=text] [--play-update-priority 0..5] [--play-hold-review] [--play-cancel-existing-review] [--outdir dir] [--web-outdir dir] [--unsigned] | publish ios [server-entry] [--remote name] [--registry module] [--channel name] [--testflight-group name-or-id] [--testflight-notes locale=text] [--testflight-submit-review] [--outdir dir] [--web-outdir dir] [--unsigned] | test android [--route path] [--wait-for-hmr] [--report [dir]] [--timeout ms] [--port n] [--serial id] [--artifacts dir] [--json] | test ios [--device identifier [--remote name] | --udid id] [--wait-for-hmr] [--report [dir]] [--timeout ms] [--port n] [--artifacts dir] [--json]> [--config path]'
+		'Usage: absolute mobile <pair mac <name> <user@host> [--port n] [--workspace path] | remotes [inspect [name] [--json] | clean [name] --yes | --json] | unpair mac <name> | init [--no-native] [--force] | sync [ios|android] | inspect [--json] [--require-bundle] | associations [--outdir dir] [--verify] | ci github [server-entry] [--publish] [--registry module] [--secret-env NAME] [--output path] [--force] [--json] | doctor [ios|android|release [ios|android]] [--remote name] [--json|--fix [--yes]] | build <android|ios> [server-entry] [--remote name] [--outdir dir] [--web-outdir dir] [--unsigned] | publish android [server-entry] [--registry module] [--channel name] [--play-track track] [--play-status completed|draft|halted|in-progress] [--play-rollout fraction] [--play-name name] [--play-notes language=text] [--play-update-priority 0..5] [--play-hold-review] [--play-cancel-existing-review] [--outdir dir] [--web-outdir dir] [--unsigned] | publish ios [server-entry] [--remote name] [--registry module] [--channel name] [--testflight-group name-or-id] [--testflight-notes locale=text] [--testflight-submit-review] [--outdir dir] [--web-outdir dir] [--unsigned] | test android [--route path] [--wait-for-hmr] [--report [dir]] [--timeout ms] [--port n] [--serial id] [--artifacts dir] [--json] | test ios [--device identifier [--remote name] | --udid id] [--wait-for-hmr] [--report [dir]] [--timeout ms] [--port n] [--artifacts dir] [--json]> [--config path]'
 	);
 };

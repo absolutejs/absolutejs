@@ -7,10 +7,13 @@ import {
 	ABSOLUTE_REMOTE_MAC_EVENT_PREFIX,
 	absoluteRemoteProjectSyncCommands,
 	absoluteRemoteReleaseInputSyncCommands,
+	acquireAbsoluteRemoteMacReleaseLease,
 	buildAbsoluteRemoteIosRelease,
 	captureAbsoluteRemoteMacCommand,
+	cleanAbsoluteRemoteMacWorkspace,
 	createAbsoluteRemoteIosDevProject,
 	inspectAbsoluteRemoteMacLanHost,
+	inspectAbsoluteRemoteMacWorkspace,
 	listAbsoluteRemoteMacProfiles,
 	materializeAbsoluteRemoteMacAgent,
 	pairAbsoluteRemoteMac,
@@ -20,6 +23,7 @@ import {
 	createAbsoluteRemoteExpoIosDevProject,
 	ABSOLUTE_REMOTE_MAC_PROTOCOL_VERSION,
 	validateAbsoluteSshDestination,
+	type AbsoluteRemoteMacProfile,
 	type AbsoluteRemoteMacTransport
 } from '../../../src/mobile/remoteMacProtocol';
 import { normalizeAbsoluteMobileConfig } from '../../../src/mobile/config';
@@ -352,6 +356,7 @@ describe('remote Mac protocol', () => {
 		expect(artifact.bytes).toBeGreaterThan(10_000);
 		expect(source).not.toContain('./node_modules/.bin/absolute');
 		expect(source).not.toContain('pairAbsoluteRemoteMac');
+		expect(source).toContain('SIGHUP');
 	});
 
 	test('allocates build numbers locally and retrieves remote releases through the agent protocol', async () => {
@@ -397,6 +402,11 @@ describe('remote Mac protocol', () => {
 		const release = await buildAbsoluteRemoteIosRelease({
 			project,
 			transport: {
+				capture: async () => ({
+					exitCode: 0,
+					stderr: '',
+					stdout: 'ACQUIRED\n'
+				}),
 				spawn: () =>
 					fakeProtocolProcess({
 						initial: [
@@ -440,6 +450,170 @@ describe('remote Mac protocol', () => {
 		expect(release.metadata).toEqual(metadata);
 		expect(phases).toContain('remote-release-sync');
 		expect(phases).toContain('remote-release-download');
+	});
+
+	test('coordinates release ownership with token-guarded leases', async () => {
+		const root = await temporaryRoot();
+		const config = normalizeAbsoluteMobileConfig(
+			{
+				appId: 'com.example.lease',
+				appName: 'Lease',
+				platforms: ['ios'],
+				server: { productionOrigin: 'https://example.com' }
+			},
+			root
+		);
+		const project = createAbsoluteRemoteIosDevProject(config, root, {
+			bunPath: '/Users/builder/.bun/bin/bun',
+			createdAt: '2026-09-01T00:00:00.000Z',
+			destination: 'builder@mac',
+			name: 'mac',
+			workspaceRoot: '/Users/builder/.absolutejs/remote-ios',
+			xcodeVersion: 'Xcode 26.4'
+		});
+		const commands: string[][] = [];
+		const lease = await acquireAbsoluteRemoteMacReleaseLease(project, {
+			transport: {
+				capture: async (command) => {
+					commands.push(command);
+
+					return {
+						exitCode: 0,
+						stderr: '',
+						stdout: commands.length === 1 ? 'RECOVERED\n' : ''
+					};
+				}
+			}
+		});
+		expect(lease.recovered).toBe(true);
+		expect(lease.token).toMatch(/^[a-f0-9-]{36}$/u);
+		await lease.heartbeat();
+		await lease.release();
+		expect(commands).toHaveLength(3);
+		expect(commands[0]?.join(' ')).toContain('mkdir');
+		expect(commands[0]?.join(' ')).toContain('stat -f %m');
+		expect(commands[1]?.join(' ')).toContain('touch');
+		expect(commands[2]?.join(' ')).toContain('rm -rf');
+		expect(commands[1]?.join(' ')).toContain(lease.token);
+		expect(commands[2]?.join(' ')).toContain(lease.token);
+
+		await expect(
+			acquireAbsoluteRemoteMacReleaseLease(project, {
+				transport: {
+					capture: async () => ({
+						exitCode: 73,
+						stderr: '',
+						stdout: 'BUSY\n{"host":"other-host","pid":42}\n'
+					})
+				}
+			})
+		).rejects.toThrow('already building');
+	});
+
+	test('inspects caches and cleans only abandoned staging state', async () => {
+		const profile: AbsoluteRemoteMacProfile = {
+			bunPath: '/Users/builder/.bun/bin/bun',
+			createdAt: '2026-09-01T00:00:00.000Z',
+			destination: 'builder@mac',
+			name: 'mac',
+			workspaceRoot: '/Users/builder/.absolutejs/remote-ios',
+			xcodeVersion: 'Xcode 26.4'
+		};
+		const commands: string[][] = [];
+		const inspection = await inspectAbsoluteRemoteMacWorkspace(profile, {
+			capture: async (command) => {
+				commands.push(command);
+
+				return {
+					exitCode: 0,
+					stderr: '',
+					stdout: '1048576\n2\n3\n1\n'
+				};
+			}
+		});
+		expect(inspection).toMatchObject({
+			agentCount: 3,
+			bytes: 1_048_576,
+			leaseCount: 1,
+			projectCount: 2
+		});
+		const cleaned = await cleanAbsoluteRemoteMacWorkspace(profile, {
+			capture: async (command) => {
+				commands.push(command);
+
+				return { exitCode: 0, stderr: '', stdout: '4\n' };
+			}
+		});
+		expect(cleaned.removed).toBe(4);
+		const cleanupCommand = commands.at(-1)?.join(' ') ?? '';
+		expect(cleanupCommand).toContain('-mtime +0');
+		expect(cleanupCommand).toContain('.ios-build-*');
+		expect(cleanupCommand).not.toContain("-name 'current'");
+		expect(cleanupCommand).not.toContain("-name '.release-lease'");
+	});
+
+	test('releases ownership and kills the remote process when cancelled', async () => {
+		const root = await temporaryRoot();
+		const config = normalizeAbsoluteMobileConfig(
+			{
+				appId: 'com.example.cancel',
+				appName: 'Cancel',
+				ios: { version: '1.0.0' },
+				platforms: ['ios'],
+				server: { productionOrigin: 'https://example.com' }
+			},
+			root
+		);
+		const project = createAbsoluteRemoteIosDevProject(config, root, {
+			bunPath: '/Users/builder/.bun/bin/bun',
+			createdAt: '2026-09-01T00:00:00.000Z',
+			destination: 'builder@mac',
+			name: 'mac',
+			workspaceRoot: '/Users/builder/.absolutejs/remote-ios',
+			xcodeVersion: 'Xcode 26.4'
+		});
+		const cancellation = new AbortController();
+		let released = 0;
+		let killed = 0;
+		const result = buildAbsoluteRemoteIosRelease({
+			project,
+			signal: cancellation.signal,
+			transport: {
+				capture: async () => ({ exitCode: 0, stderr: '', stdout: '' }),
+				spawn: () => {
+					const process = fakeProtocolProcess({
+						initial: [],
+						onRequest: () => undefined
+					});
+					const { kill } = process;
+
+					return {
+						...process,
+						kill: () => {
+							killed++;
+							kill();
+						}
+					};
+				}
+			},
+			acquireLease: async () => ({
+				path: '/remote/lease',
+				recovered: false,
+				token: 'lease-token',
+				heartbeat: async () => undefined,
+				release: async () => {
+					released++;
+				}
+			}),
+			installAgent: async () => ({ remotePath: '/remote/agent.js' }),
+			syncProject: async () => undefined,
+			syncReleaseInputs: async () => undefined
+		});
+		await Bun.sleep(1);
+		cancellation.abort(new Error('test cancellation'));
+		await expect(result).rejects.toThrow('test cancellation');
+		expect(killed).toBe(1);
+		expect(released).toBe(1);
 	});
 
 	test('drives a remote session over the versioned event stream and reverse tunnel', async () => {
