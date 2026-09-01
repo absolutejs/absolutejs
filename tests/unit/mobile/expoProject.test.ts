@@ -18,7 +18,7 @@ afterEach(async () => {
 	);
 });
 
-const fixture = async (auth = false) => {
+const fixture = async (auth = false, sync = false) => {
 	const root = await mkdtemp(join(tmpdir(), 'absolute-expo-project-'));
 	temporaryDirectories.push(root);
 	await mkdir(join(root, 'mobile', 'native'), { recursive: true });
@@ -29,7 +29,10 @@ const fixture = async (auth = false) => {
 	await writeFile(
 		join(root, 'package.json'),
 		JSON.stringify({
-			dependencies: auth ? { '@absolutejs/auth': '0.75.6' } : {}
+			dependencies: {
+				...(auth ? { '@absolutejs/auth': '0.75.6' } : {}),
+				...(sync ? { '@absolutejs/sync': '2.31.0' } : {})
+			}
 		})
 	);
 	const config = normalizeAbsoluteMobileConfig(
@@ -180,6 +183,47 @@ describe('experimental Expo project', () => {
 		).resolves.toBeString();
 		await expect(
 			new Bun.Transpiler({ loader: 'ts' }).transform(authSource)
+		).resolves.toBeString();
+	});
+
+	test('provisions one native-owned Sync store for WebView, native routes, and background work', async () => {
+		const { config, root } = await fixture(true, true);
+		await writeAbsoluteExpoProject(config, { projectRoot: root });
+		const project = config.nativeProjectDirectory;
+		const [appConfig, layout, packageSource, syncSource, webHost] =
+			await Promise.all([
+				readFile(join(project, 'app.json'), 'utf8'),
+				readFile(join(project, 'app', '_layout.tsx'), 'utf8'),
+				readFile(join(project, 'package.json'), 'utf8'),
+				readFile(
+					join(project, 'src', 'generated', 'AbsoluteSync.ts'),
+					'utf8'
+				),
+				readFile(
+					join(project, 'src', 'generated', 'AbsoluteWebHost.tsx'),
+					'utf8'
+				)
+			]);
+
+		expect(packageSource).toContain('@absolutejs/sync-expo');
+		expect(packageSource).toContain('expo-background-task');
+		expect(packageSource).toContain('expo-sqlite');
+		expect(appConfig).toContain('expo-background-task');
+		expect(layout).toContain('startAbsoluteExpoSync');
+		expect(syncSource).toContain('createExpoSyncLocalStore');
+		expect(syncSource).toContain('defineExpoSyncBackgroundTask');
+		expect(syncSource).toContain('runHeadlessSync');
+		expect(syncSource).toContain('createAbsoluteExpoSyncBridge');
+		expect(syncSource).toContain('absoluteExpoAuth.socketTicket');
+		expect(syncSource).not.toContain('native-secret-ticket');
+		expect(webHost).toContain("message.method.startsWith('sync.')");
+		expect(webHost).toContain('const BRIDGE_FORMAT = 3');
+		expect(webHost).not.toContain('socketTicket');
+		await expect(
+			new Bun.Transpiler({ loader: 'tsx' }).transform(webHost)
+		).resolves.toBeString();
+		await expect(
+			new Bun.Transpiler({ loader: 'ts' }).transform(syncSource)
 		).resolves.toBeString();
 	});
 

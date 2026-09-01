@@ -6,6 +6,9 @@ export const ABSOLUTE_AUTH_PACKAGE = '@absolutejs/auth' as const;
 export const ABSOLUTE_EXPO_AUTH_CORE_VERSION = '0.75.6' as const;
 export const ABSOLUTE_EXPO_AUTH_PACKAGE = '@absolutejs/auth-expo' as const;
 export const ABSOLUTE_EXPO_AUTH_VERSION = '0.0.2' as const;
+export const ABSOLUTE_EXPO_SYNC_CORE_VERSION = '2.31.0' as const;
+export const ABSOLUTE_EXPO_SYNC_PACKAGE = '@absolutejs/sync-expo' as const;
+export const ABSOLUTE_EXPO_SYNC_VERSION = '0.0.2' as const;
 export const ABSOLUTE_NATIVE_AUTH_CLIENTS_ENV =
 	'ABSOLUTE_AUTH_NATIVE_CLIENTS' as const;
 export const ABSOLUTE_NATIVE_AUTH_SCOPES = ['openid', 'profile'] as const;

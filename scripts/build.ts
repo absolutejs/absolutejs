@@ -260,6 +260,7 @@ const build = async () => {
 			'src/mobile/shellBootstrap.ts',
 			'src/mobile/shellAuth.ts',
 			'src/mobile/shellExpoAuth.ts',
+			'src/mobile/shellExpoSync.ts',
 			'src/mobile/shellExpoDevices.ts',
 			'src/mobile/shellSync.ts'
 		],
@@ -270,6 +271,7 @@ const build = async () => {
 			'@absolutejs/devices/runtime',
 			'@absolutejs/devices/web',
 			'@absolutejs/sync/*',
+			'@absolutejs/sync-expo/*',
 			'@absolutejs/sync-capacitor',
 			'@capacitor/*',
 			'@capacitor-community/sqlite'
@@ -289,6 +291,7 @@ const build = async () => {
 				'shellBootstrap.js',
 				'shellAuth.js',
 				'shellExpoAuth.js',
+				'shellExpoSync.js',
 				'shellExpoDevices.js',
 				'shellSync.js'
 			].map(async (name) => ({

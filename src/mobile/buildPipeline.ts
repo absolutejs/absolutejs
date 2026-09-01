@@ -156,11 +156,6 @@ export const finalizeAbsoluteMobileCompatibilityBuild = async (
 	const auth = resolveAbsoluteMobileAuthManifest(options.projectRoot, mobile);
 	const sync =
 		auth !== undefined && projectUsesAbsoluteSync(options.projectRoot);
-	if (mobile.engine === 'expo' && sync) {
-		throw new TypeError(
-			'Expo mobile Sync is not released yet. Auth and authenticated HTTP are available, but @absolutejs/sync requires @absolutejs/sync-expo for shared durable state.'
-		);
-	}
 	const syncSchema = sync
 		? discoverAbsoluteSyncSchema(options.projectRoot)
 		: undefined;

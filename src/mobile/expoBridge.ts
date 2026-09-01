@@ -1,4 +1,4 @@
-export const ABSOLUTE_EXPO_BRIDGE_FORMAT = 2 as const;
+export const ABSOLUTE_EXPO_BRIDGE_FORMAT = 3 as const;
 export const ABSOLUTE_EXPO_BRIDGE_MAX_BYTES = 64 * 1024;
 
 export const ABSOLUTE_EXPO_BRIDGE_METHODS = [
@@ -6,7 +6,24 @@ export const ABSOLUTE_EXPO_BRIDGE_METHODS = [
 	'http.fetch',
 	'auth.signIn',
 	'auth.signOut',
-	'auth.status'
+	'auth.status',
+	'sync.store.begin',
+	'sync.store.deleteNamespace',
+	'sync.store.end',
+	'sync.store.schema',
+	'sync.tx.deleteCollection',
+	'sync.tx.deleteMutation',
+	'sync.tx.getCollection',
+	'sync.tx.getInstallationId',
+	'sync.tx.getMutation',
+	'sync.tx.listCollections',
+	'sync.tx.listMutations',
+	'sync.tx.putCollection',
+	'sync.tx.putMutation',
+	'sync.tx.setInstallationId',
+	'sync.socket.close',
+	'sync.socket.open',
+	'sync.socket.sendChunk'
 ] as const;
 
 export type AbsoluteExpoBridgeMethod =
@@ -32,7 +49,12 @@ export type AbsoluteExpoBridgeResponse = {
 export type AbsoluteExpoBridgeEvent = {
 	format: typeof ABSOLUTE_EXPO_BRIDGE_FORMAT;
 	kind: 'event';
-	event: 'ready' | 'navigation' | 'auth.principal';
+	event:
+		| 'ready'
+		| 'navigation'
+		| 'auth.principal'
+		| 'sync.socket'
+		| 'sync.wake';
 	path: string;
 	payload?: Record<string, unknown>;
 };
@@ -211,7 +233,9 @@ const parseEvent = (value: Record<string, unknown>) => {
 	if (
 		value.event !== 'ready' &&
 		value.event !== 'navigation' &&
-		value.event !== 'auth.principal'
+		value.event !== 'auth.principal' &&
+		value.event !== 'sync.socket' &&
+		value.event !== 'sync.wake'
 	) {
 		throw new TypeError('Expo bridge event is not allowed.');
 	}

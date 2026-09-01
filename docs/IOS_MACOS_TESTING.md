@@ -640,6 +640,97 @@ Return only PASS/FAIL, sanitized timings, HTTP status classes, and whether the
 native/embedded principals matched. Never return credentials, callback query
 values, tokens, SecureStore contents, bridge payloads, or user profile data.
 
+#### Expo Sync acceptance
+
+Run every command in this section from the **staging application root**—the
+directory containing its `package.json`, `absolute.config.ts`, and server
+entry. Do not run these commands from `.absolutejs/mobile/expo`. The staging
+application must depend on `@absolutejs/auth@0.75.6` and
+`@absolutejs/sync@2.31.0`, mount Auth's OIDC provider and `syncSocket()`, and
+have one ordinary embedded route plus one application-owned native React route
+that use the normal `@absolutejs/sync` API. Neither route should import
+`@absolutejs/sync-expo`.
+
+In Terminal 1 on the Mac, run:
+
+```sh
+cd /absolute/path/to/the/staging-application
+bunx absolute dev src/backend/server.ts --config absolute.config.ts
+```
+
+Accept the pinned generated dependency installation when prompted. Leave this
+terminal running for `EXPO-SYNC-02` through `EXPO-SYNC-09`. Use a disposable
+staging account and non-sensitive fixture rows only.
+
+- [ ] `EXPO-SYNC-01` Confirm
+  `.absolutejs/mobile/expo/package.json` contains exact
+  `@absolutejs/sync@2.31.0` and `@absolutejs/sync-expo@0.0.2`, plus Expo SQLite,
+  Network, BackgroundTask, TaskManager, SecureStore, and Updates. Confirm
+  `.absolutejs/mobile/expo/app.json` lists the SQLite, BackgroundTask, and
+  TaskManager config plugins. Do not edit either generated file.
+- [ ] `EXPO-SYNC-02` Sign in, open the ordinary embedded route, create one
+  fixture row while online, and confirm its Sync status reaches online with no
+  pending mutation. Navigate to the native React route and confirm the same row
+  is loaded through the ordinary provider-neutral Sync API.
+- [ ] `EXPO-SYNC-03` Disable the Mac network, create a second fixture row in the
+  embedded route, and confirm it remains visible with one pending mutation.
+  Navigate to the native route and confirm the row restores from the shared
+  native store. Navigate back and confirm it remains present. No server request
+  should be required for these route transitions.
+- [ ] `EXPO-SYNC-04` With the network still disabled, use Terminal 1's
+  `relaunch` command. Reopen both routes and confirm the offline row and pending
+  mutation survive process restart. Restore the network and confirm resume or
+  connectivity recovery sends the mutation once, clears pending state, and
+  does not duplicate the business effect.
+- [ ] `EXPO-SYNC-05` Start a live collection in the embedded route and make a
+  server-side fixture change. Confirm the native-owned socket connects and the
+  route receives the update. Inspect only the names/shapes of bridge messages:
+  confirm no bearer token, refresh token, socket ticket, Authorization header,
+  or Auth query value crosses the WebView bridge. Do not save or return raw
+  bridge payloads.
+- [ ] `EXPO-SYNC-06` Queue a mutation, force the staging server to return one
+  retryable failure, and then recover it. Confirm retry metadata survives route
+  changes and relaunch, the mutation eventually settles once, and the UI never
+  silently discards the write. Repeat with a controlled permanent/conflict
+  response and confirm the app exposes its dead-letter/remediation state.
+- [ ] `EXPO-SYNC-07` Sign out, sign in as a second disposable staging account,
+  and confirm the first account's rows and pending mutations are not visible in
+  either route. Switch back and confirm the original partition restores. Record
+  only whether isolation passed; do not report principal identifiers.
+- [ ] `EXPO-SYNC-08` Put the app in the background for at least 20 seconds,
+  restore it, and toggle connectivity once. Confirm foreground/resume and
+  reachable-network wake-ups reconnect and perform a bounded flush without
+  duplicate sends. This is the correctness test; do not claim that the OS ran a
+  scheduled background task.
+- [ ] `EXPO-SYNC-09` On a physical iOS device, leave one pending disposable
+  mutation and background the app for at least 15 minutes while power/network
+  conditions permit background work. Confirm a best-effort headless request may
+  settle it and that foreground resume settles it if iOS does not schedule the
+  task. Record `SKIPPED — no physical iOS device` when unavailable; iOS
+  Simulator cannot validate BackgroundTask execution.
+- [ ] `EXPO-SYNC-10` Stop Terminal 1. From the staging application root run the
+  following inspection commands, then return to the application root when they
+  finish:
+
+  ```sh
+  cd /absolute/path/to/the/staging-application
+  cd .absolutejs/mobile/expo
+  bunx tsc --noEmit
+  bunx expo prebuild --no-install --clean --platform ios
+  cd /absolute/path/to/the/staging-application
+  ```
+
+  Confirm TypeScript and clean iOS CNG succeed, then confirm the generated
+  `Info.plist` contains `BGTaskSchedulerPermittedIdentifiers` and
+  `UIBackgroundModes` values for `fetch` and `processing`. Do not hand-edit the
+  plist. Because `prebuild --clean` recreates generated native directories,
+  rerun the normal `bunx absolute dev ...` command before additional testing.
+
+Return the ten `EXPO-SYNC` report rows with PASS/FAIL/SKIPPED, sanitized timing,
+pending/dead-letter counts, and whether native/embedded views matched. Never
+return database contents, encryption keys, SecureStore values, credentials,
+tokens, tickets, raw bridge frames, or personal account data.
+
 #### Expo Remote Mac acceptance from Windows or Linux
 
 This is a separate two-computer test. The **developer computer** is Windows,
@@ -1762,6 +1853,16 @@ versus expected behavior. Do not report exact coordinates.
 | EXPO-AUTH-06 |  | relaunch restore / no credential bridge exposure: |  |
 | EXPO-AUTH-07 |  | refresh rotation / one 401 retry: |  |
 | EXPO-AUTH-08 |  | cross-engine sign-out / account switch: |  |
+| EXPO-SYNC-01 |  | exact packages / CNG plugins: |  |
+| EXPO-SYNC-02 |  | online embedded/native row match: |  |
+| EXPO-SYNC-03 |  | offline shared store / pending count: |  |
+| EXPO-SYNC-04 |  | restart durability / reconnect settlement: |  |
+| EXPO-SYNC-05 |  | live socket / secret-free bridge: |  |
+| EXPO-SYNC-06 |  | retry / conflict remediation / duplicates: |  |
+| EXPO-SYNC-07 |  | account partition isolation: |  |
+| EXPO-SYNC-08 |  | resume / connectivity wake / duplicates: |  |
+| EXPO-SYNC-09 |  | physical background acceleration or skipped: |  |
+| EXPO-SYNC-10 |  | TypeScript / clean iOS CNG / plist: |  |
 | EXPO-REMOTE-01 |  | pair / remote doctor: |  |
 | EXPO-REMOTE-02 |  | cold sync / build / trust / timings: |  |
 | EXPO-REMOTE-03 |  | HTTPS route / expo-ios connection: |  |

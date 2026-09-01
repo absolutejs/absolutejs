@@ -29,8 +29,9 @@
 		"@absolutejs/dispatch": "0.9.0",
 		"@absolutejs/manifest": "0.9.0",
 		"@absolutejs/scoped-state": "0.2.2",
-		"@absolutejs/sync": "2.29.0",
+		"@absolutejs/sync": "2.31.0",
 		"@absolutejs/sync-capacitor": "0.9.2",
+		"@absolutejs/sync-expo": "0.0.2",
 		"@angular/animations": "21.2.6",
 		"@angular/cdk": "21.2.6",
 		"@angular/common": "21.2.6",
@@ -506,7 +507,7 @@
 			]
 		}
 	},
-	"version": "0.20.0-beta.44",
+	"version": "0.20.0-beta.45",
 	"workspaces": [
 		"tests/fixtures/*",
 		"tests/fixtures/_packages/*"

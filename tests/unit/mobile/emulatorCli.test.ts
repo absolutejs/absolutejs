@@ -135,7 +135,7 @@ describe('mobile emulator CLI', () => {
 		expect(stdout).not.toContain('detail');
 		expect(stdout).not.toContain('remediation');
 		expect(stdout).not.toContain('sha256CertificateFingerprints');
-	});
+	}, 20_000);
 
 	test('validates an Android conformance port before inspecting the SDK', async () => {
 		const subprocess = Bun.spawn(

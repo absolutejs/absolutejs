@@ -1,6 +1,6 @@
 # AbsoluteJS Mobile Apps: Research and Implementation Plan
 
-Status: Capacitor Android development/release, all-framework embedded bundles, universal native Auth/Sync, background Sync, automatic device provisioning, provider-neutral native push registration, and Android conformance are operational; iOS development/release automation is shipped and awaiting real macOS/physical-device acceptance
+Status: Capacitor Android development/release, all-framework embedded bundles, universal native Auth/Sync, Expo hybrid native Auth/Sync, background Sync, automatic device provisioning, provider-neutral native push registration, and Android conformance are operational; iOS development/release automation is shipped and awaiting real macOS/physical-device acceptance
 Research snapshot: August 26, 2026
 
 Implementation checkpoint (August 30, 2026, Expo Phase 7 development loop):
@@ -24,8 +24,8 @@ versioned Remote Mac protocol with an Expo executor: Metro remains on the
 developer computer, the disposable iOS CNG shell and Xcode build run on the
 paired Mac, and independent SSH tunnels/physical-device relays carry Bun and
 Metro traffic. The bridge tracks live browser history so its current-route
-authorization remains correct across SPA navigation. Full Sync adapters,
-other device APIs, release tooling, and physical-device acceptance remain
+authorization remains correct across SPA navigation. Other device APIs,
+release tooling, and physical-device acceptance remain
 explicit gates. See
 [MOBILE_EXPO_EXPERIMENT.md](./MOBILE_EXPO_EXPERIMENT.md).
 
@@ -41,7 +41,20 @@ bounded exact-origin HTTP. Bearer injection,
 refresh rotation, and the `401` retry remain in the native runtime; passwords,
 access tokens, and refresh tokens cannot cross the WebView bridge. The generated
 SDK 57 shell passes package install, TypeScript, CNG prebuild, and Metro export.
-Expo Sync remains fail-closed pending `@absolutejs/sync-expo`.
+Expo Sync is completed in the next checkpoint below.
+
+Implementation checkpoint (August 31, 2026, Expo Sync slice): AbsoluteJS
+`0.20.0-beta.45` provisions `@absolutejs/sync@2.31.0` and
+`@absolutejs/sync-expo@0.0.2`. Native React routes use the generated encrypted
+Expo SQLite store directly; all ordinary framework routes use the same typed
+store through bridge format 3. Native Auth chooses the principal partition and
+owns one-time socket tickets, so neither value crosses into page-controlled
+JavaScript. Native sockets chunk frames across the 64 KiB bridge boundary.
+Expo AppState/Network recovery is authoritative and BackgroundTask performs
+only bounded best-effort headless push/pull. Store, bridge, migration,
+process-restart, account-isolation, package-install, TypeScript, Android/iOS
+CNG, and Android Metro export gates pass; real iOS runtime and physical
+background acceptance remain partner gates.
 
 Implementation checkpoint (August 29, 2026): the Phase 6 release-security
 baseline is implemented. `absolute mobile doctor release` now validates exact
@@ -456,7 +469,7 @@ API stable:
 | `@absolutejs/auth-capacitor` | Capacitor system-browser, redirect, credential/key and lifecycle implementation | v1 foundation |
 | `@absolutejs/sync-capacitor` | SQLite-backed transactional cache/outbox, lifecycle/connectivity triggers and optional headless runner | v1 local-first phase |
 | `@absolutejs/mobile-expo` | Expo Router shell, route generator, WebView bridge and CNG config plugin | v2 experimental |
-| `@absolutejs/devices-expo`, `@absolutejs/auth-expo`, `@absolutejs/sync-expo` | Expo-native implementations of the same contracts | v2 experimental |
+| `@absolutejs/devices-expo`, `@absolutejs/auth-expo`, `@absolutejs/sync-expo` | Expo-native implementations of the same contracts; Auth and Sync shipped, remaining device waves pending | v2 experimental |
 | `@absolutejs/mobile-ui` | Optional universal React component primitives that render DOM on web/Capacitor and React Native in Expo | Post-v2; do not block mobile support on a design system |
 
 Feature adapters may be separate packages when they pull large native SDKs or add
@@ -2666,6 +2679,7 @@ Expo Router (source of native navigation)
                            +-- navigation bridge
                            +-- device-action bridge
                            +-- auth/session bridge
+                           +-- native-owned Sync store/socket bridge
 ```
 
 This preserves all-framework compatibility for web-rendered routes while permitting selected React Native screens. It does not claim that the non-React routes use native UI controls.
@@ -2711,6 +2725,7 @@ The Expo WebView host must define versioned messages for:
 - request/response device actions with cancellation and timeouts
 - lifecycle and network events
 - auth token/session changes without exposing long-lived secrets to page storage
+- atomic Sync transactions, native socket frames, and lifecycle wake events
 - theme, locale, safe-area, and accessibility settings
 - structured errors and telemetry correlation
 

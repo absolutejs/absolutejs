@@ -6,28 +6,44 @@ import { normalizeAbsoluteMobileConfig } from './config';
 import { resolveAbsoluteDeviceCapabilityPlan } from './deviceCapabilities';
 import {
 	projectUsesAbsoluteAuth,
+	projectUsesAbsoluteSync,
 	resolveAbsoluteMobileAuthManifest
 } from './nativeAuth';
+import { discoverAbsoluteSyncSchema } from './syncSchema';
 
 export const absoluteNativeDevAdapterSource = (
 	projectRoot: string,
 	mobile: MobileConfig,
 	resolveModule: (specifier: string) => string = (specifier) => specifier,
 	expoAdapterModule = '@absolutejs/absolute/mobile/expo-devices',
-	expoAuthModule = '@absolutejs/absolute/mobile/expo-auth'
+	expoAuthModule = '@absolutejs/absolute/mobile/expo-auth',
+	expoSyncModule = '@absolutejs/absolute/mobile/expo-sync'
 ) => {
 	if ((mobile.engine ?? 'capacitor') === 'expo') {
+		const normalized = normalizeAbsoluteMobileConfig(mobile, projectRoot);
 		const auth = projectUsesAbsoluteAuth(projectRoot)
-			? resolveAbsoluteMobileAuthManifest(
-					projectRoot,
-					normalizeAbsoluteMobileConfig(mobile, projectRoot)
-				)
+			? resolveAbsoluteMobileAuthManifest(projectRoot, normalized)
+			: undefined;
+		const sync = Boolean(auth && projectUsesAbsoluteSync(projectRoot));
+		const syncConfig = sync
+			? {
+					background: {
+						endpoint: new URL(
+							'/__absolute/sync/background',
+							normalized.productionOrigin
+						).href,
+						intervalMinutes: 15
+					},
+					socketTickets: true as const,
+					storageSchema: discoverAbsoluteSyncSchema(projectRoot)
+				}
 			: undefined;
 
 		return `import { installAbsoluteExpoWebDeviceAdapter } from ${JSON.stringify(expoAdapterModule)};
 ${auth ? `import { createAbsoluteExpoShellAuth } from ${JSON.stringify(expoAuthModule)};` : ''}
+${sync ? `import { installAbsoluteExpoShellSync } from ${JSON.stringify(expoSyncModule)};` : ''}
 installAbsoluteExpoWebDeviceAdapter();
-${auth ? `void createAbsoluteExpoShellAuth(${JSON.stringify(auth)}).catch(error => console.error('[Absolute Mobile] Expo Auth initialization failed:', error));` : ''}`;
+${auth ? `void createAbsoluteExpoShellAuth(${JSON.stringify(auth)}).then(auth => { ${sync ? `installAbsoluteExpoShellSync(auth, ${JSON.stringify(syncConfig)});` : ''} }).catch(error => console.error('[Absolute Mobile] Expo runtime initialization failed:', error));` : ''}`;
 	}
 	const plan = resolveAbsoluteDeviceCapabilityPlan(projectRoot);
 	const imports = plan.capabilities.map((name, index) => {
@@ -89,6 +105,26 @@ const expoAuthPath = async () => {
 	);
 };
 
+const expoSyncPath = async () => {
+	const candidates = await Promise.all(
+		['ts', 'js'].map(async (extension) => {
+			const path = join(import.meta.dir, `shellExpoSync.${extension}`);
+			try {
+				await access(path);
+
+				return path;
+			} catch {
+				return undefined;
+			}
+		})
+	);
+	const path = candidates.find((candidate) => candidate !== undefined);
+	if (path) return path;
+	throw new TypeError(
+		'The AbsoluteJS Expo Sync development adapter is missing.'
+	);
+};
+
 export const buildAbsoluteNativeDevAdapter = async (
 	projectRoot: string,
 	mobile: MobileConfig
@@ -105,7 +141,8 @@ export const buildAbsoluteNativeDevAdapter = async (
 				mobile,
 				(specifier) => Bun.resolveSync(specifier, projectRoot),
 				await expoAdapterPath(),
-				await expoAuthPath()
+				await expoAuthPath(),
+				await expoSyncPath()
 			)
 		);
 		const result = await Bun.build({

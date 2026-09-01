@@ -23,6 +23,33 @@ describe('Expo bridge protocol', () => {
 		).toMatchObject({ method: 'devices.haptics.impact' });
 	});
 
+	test('accepts typed Sync bridge methods only on format 3', () => {
+		expect(
+			parseAbsoluteExpoBridgeMessage(
+				JSON.stringify({
+					format: ABSOLUTE_EXPO_BRIDGE_FORMAT,
+					id: 'sync_1',
+					kind: 'request',
+					method: 'sync.store.begin',
+					params: { mode: 'readwrite' },
+					path: '/tasks'
+				})
+			)
+		).toMatchObject({ method: 'sync.store.begin' });
+		expect(() =>
+			parseAbsoluteExpoBridgeMessage(
+				JSON.stringify({
+					format: 2,
+					id: 'sync_1',
+					kind: 'request',
+					method: 'sync.store.begin',
+					params: { mode: 'readwrite' },
+					path: '/tasks'
+				})
+			)
+		).toThrow('format is unsupported');
+	});
+
 	test('rejects unknown methods, origins disguised as paths, and oversized data', () => {
 		const request: Record<string, unknown> = {
 			format: ABSOLUTE_EXPO_BRIDGE_FORMAT,
@@ -49,7 +76,7 @@ describe('Expo bridge protocol', () => {
 
 	test('creates mutually exclusive success and error responses', () => {
 		expect(createAbsoluteExpoBridgeResponse('request_1', null)).toEqual({
-			format: 2,
+			format: ABSOLUTE_EXPO_BRIDGE_FORMAT,
 			id: 'request_1',
 			kind: 'response',
 			result: null
@@ -63,7 +90,7 @@ describe('Expo bridge protocol', () => {
 		expect(
 			parseAbsoluteExpoBridgeMessage(
 				JSON.stringify({
-					format: 2,
+					format: ABSOLUTE_EXPO_BRIDGE_FORMAT,
 					id: 'http_1',
 					kind: 'request',
 					method: 'http.fetch',
@@ -82,7 +109,7 @@ describe('Expo bridge protocol', () => {
 		expect(() =>
 			parseAbsoluteExpoBridgeMessage(
 				JSON.stringify({
-					format: 2,
+					format: ABSOLUTE_EXPO_BRIDGE_FORMAT,
 					id: 'http_2',
 					kind: 'request',
 					method: 'http.fetch',
@@ -101,7 +128,7 @@ describe('Expo bridge protocol', () => {
 		expect(
 			parseAbsoluteExpoBridgeMessage(
 				JSON.stringify({
-					format: 2,
+					format: ABSOLUTE_EXPO_BRIDGE_FORMAT,
 					id: 'http_post',
 					kind: 'request',
 					method: 'http.fetch',
@@ -118,7 +145,7 @@ describe('Expo bridge protocol', () => {
 		expect(
 			parseAbsoluteExpoBridgeMessage(
 				JSON.stringify({
-					format: 2,
+					format: ABSOLUTE_EXPO_BRIDGE_FORMAT,
 					id: 'auth_sign_in',
 					kind: 'request',
 					method: 'auth.signIn',
@@ -130,7 +157,7 @@ describe('Expo bridge protocol', () => {
 		expect(() =>
 			parseAbsoluteExpoBridgeMessage(
 				JSON.stringify({
-					format: 2,
+					format: ABSOLUTE_EXPO_BRIDGE_FORMAT,
 					id: 'auth_bad',
 					kind: 'request',
 					method: 'auth.signIn',

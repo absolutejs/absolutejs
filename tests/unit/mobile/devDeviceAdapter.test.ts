@@ -70,6 +70,8 @@ describe('native development device adapter', () => {
 
 		expect(source).toContain('createAbsoluteExpoShellAuth');
 		expect(source).toContain('/absolute/shellExpoAuth.js');
+		expect(source).toContain('installAbsoluteExpoShellSync');
+		expect(source).toContain('@absolutejs/absolute/mobile/expo-sync');
 		expect(source).toContain('absolutejs-native:com.example.expo');
 		expect(source).toContain('product://auth/callback');
 		expect(source).not.toContain('refreshToken');
