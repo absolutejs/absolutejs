@@ -16,7 +16,10 @@ import {
 	inspectAbsoluteMobileToolchain
 } from './emulatorDoctor';
 import { writeAbsoluteCapacitorConfig } from './capacitorProject';
-import { fingerprintAbsoluteIosNativeProject } from './iosRelease';
+import {
+	fingerprintAbsoluteIosNativeProject,
+	resolveAbsoluteIosXcodeTarget
+} from './iosRelease';
 import {
 	normalizeAbsoluteIosDeviceHost,
 	normalizeAbsoluteIosDeviceIdentifier,
@@ -904,8 +907,7 @@ const buildIosDebugApp = async (
 	await requireSuccess(
 		[
 			project.xcodebuild,
-			'-workspace',
-			join(project.nativeDirectory, 'App', 'App.xcworkspace'),
+			...(await resolveAbsoluteIosXcodeTarget(project.nativeDirectory)),
 			'-scheme',
 			'App',
 			'-configuration',
@@ -955,8 +957,7 @@ const buildPhysicalIosDebugApp = async (
 	await requireSuccess(
 		[
 			project.xcodebuild,
-			'-workspace',
-			join(project.nativeDirectory, 'App', 'App.xcworkspace'),
+			...(await resolveAbsoluteIosXcodeTarget(project.nativeDirectory)),
 			'-scheme',
 			'App',
 			'-configuration',

@@ -102,6 +102,23 @@ const pathExists = async (path: string) => {
 	}
 };
 
+// CocoaPods projects must build through App.xcworkspace; Capacitor 8 defaults to
+// Swift Package Manager, which only ever produces App.xcodeproj.
+export const resolveAbsoluteIosXcodeTarget = async (nativeDirectory: string) => {
+	const workspacePath = join(nativeDirectory, 'App', 'App.xcworkspace');
+	if (await pathExists(workspacePath)) return ['-workspace', workspacePath];
+
+	const projectPath = join(nativeDirectory, 'App', 'App.xcodeproj');
+	if (await pathExists(projectPath)) return ['-project', projectPath];
+
+	throw new TypeError(
+		`Neither App.xcworkspace nor App.xcodeproj exists under ${join(
+			nativeDirectory,
+			'App'
+		)}. Generate the native project with "absolute mobile sync ios".`
+	);
+};
+
 const defaultRun = async (command: string[], options: CommandOptions = {}) => {
 	const process = Bun.spawn(command, {
 		cwd: options.cwd,
@@ -392,8 +409,7 @@ export const buildAbsoluteIosRelease = async (
 		const archiveExit = await run(
 			[
 				'xcodebuild',
-				'-workspace',
-				join(nativeDirectory, 'App', 'App.xcworkspace'),
+				...(await resolveAbsoluteIosXcodeTarget(nativeDirectory)),
 				'-scheme',
 				'App',
 				'-configuration',

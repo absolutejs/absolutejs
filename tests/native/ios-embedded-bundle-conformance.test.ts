@@ -121,7 +121,7 @@ const startCompiledBackend = async () => {
 				`Compiled iOS conformance backend exited (${compiledBackend.exitCode}).`
 			);
 		const response = await fetch(
-			`http://127.0.0.1:${compiledPort}/react`
+			`http://localhost:${compiledPort}/react`
 		).catch(() => undefined);
 		if (response?.ok) return;
 		await Bun.sleep(100);
@@ -143,7 +143,7 @@ const corsJson = (value: unknown, status = 200) =>
 
 const proxyCompiledBackend = async (request: Request) => {
 	const target = new URL(request.url);
-	target.hostname = '127.0.0.1';
+	target.hostname = 'localhost';
 	target.port = String(compiledPort);
 	const response = await fetch(new Request(target, request));
 	const headers = new Headers(response.headers);
