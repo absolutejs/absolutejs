@@ -15,6 +15,10 @@ import {
 import { logInfo } from '../utils/logger';
 
 const MAX_HMR_DEBUG_LENGTH = 300;
+const HMR_DEBUG = process.env.ABSOLUTE_HMR_DEBUG === '1';
+// The test harness polls these every 100ms; logging them would bury the
+// requests that matter (page loads and module fetches).
+const QUIET_DEBUG_PATHS = new Set(['/hmr-debug', '/hmr-status']);
 
 const describeHmrDebugBody = (body: unknown) => {
 	let text: string;
@@ -228,6 +232,11 @@ export const hmr = (
 		// matches, so it would never see those requests; `request` fires
 		// before routing and lets us serve them from the asset store.
 		.request(async ({ request, store }) => {
+			if (HMR_DEBUG) {
+				const pathname = resolveRequestPathname(request);
+				if (!QUIET_DEBUG_PATHS.has(pathname))
+					logInfo(`[hmr:debug] request ${request.method} ${pathname}`);
+			}
 			restoreStore(store);
 			// Bridge React internals if bun install created a duplicate instance.
 			// Runs before any route handler so page handlers stay clean.
