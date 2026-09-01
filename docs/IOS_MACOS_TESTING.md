@@ -1,7 +1,7 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.48` and
+`@absolutejs/absolute@0.20.0-beta.49` and
 `@absolutejs/deploy@0.24.0`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
 
@@ -218,6 +218,8 @@ actual result, sanitized logs, and artifact or screenshot path in section 13.
   acceptance.
 - [ ] `EXPO-DATA-01` through `EXPO-DATA-08` Complete automatic typed page-props,
   Auth, query/reload, failure recovery, and production-contract acceptance.
+- [ ] `EXPO-RELEASE-01` through `EXPO-RELEASE-06` Complete the real Expo Android
+  CNG/AAB, release-doctor, immutable metadata, and CI-generation acceptance.
 - [ ] `EXPO-DEVICES-01` through `EXPO-DEVICES-12` Complete provider-neutral
   capabilities, privacy, bridge, push, and rebuild-boundary acceptance.
 - [ ] `EXPO-AUTH-01` through `EXPO-AUTH-08` Complete Expo system-browser Auth,
@@ -276,7 +278,7 @@ still requires the developer team setup described below.
 From the root of the AbsoluteJS application:
 
 ```sh
-bun add @absolutejs/absolute@0.20.0-beta.48 \
+bun add @absolutejs/absolute@0.20.0-beta.49 \
   @absolutejs/auth@0.75.6 \
   @absolutejs/dispatch@0.9.0 \
   @absolutejs/sync@2.31.0 \
@@ -691,6 +693,47 @@ Return the eight `EXPO-DATA` rows with PASS/FAIL/SKIPPED, the sanitized server
 request count, reload timing, TypeScript diagnostic from the deliberate change,
 and the final two command summaries. Do not return props containing personal or
 secret staging data.
+
+#### Expo Android production-release acceptance
+
+These commands validate the new release path on a real Android toolchain. Run
+all AbsoluteJS commands from the staging application root. Ensure the config has
+`mobile.engine: 'expo'` and includes `android` in `mobile.platforms`. The
+generated `.absolutejs/mobile/expo` directory is output, not the working
+directory.
+
+- [ ] `EXPO-RELEASE-01` From the application root run `bunx absolute mobile
+  build android src/backend/server.ts --unsigned --config absolute.config.ts`.
+  Confirm clean Expo Prebuild and Gradle `bundleRelease` complete and the CLI
+  prints AAB and `release.json` paths below
+  `.absolutejs/mobile/releases/android/`.
+- [ ] `EXPO-RELEASE-02` Run `bunx absolute mobile doctor release android --json
+  --config absolute.config.ts`. Confirm `ready` is `true`, including passing
+  `mobile.expo-versions`, `expo.app-config`, and `expo.bundle-projection` rows.
+  Attach the redacted JSON; do not attach native signing files.
+- [ ] `EXPO-RELEASE-03` Inspect `release.json`. Confirm `engine` is `expo`,
+  `type` is `aab`, `signed` is `false` for this explicit unsigned run, and the
+  AAB SHA-256 matches metadata. Do not edit either file.
+- [ ] `EXPO-RELEASE-04` Search generated production Android files and the AAB
+  build logs for the local Bun/Metro origin, `ABSOLUTE_EXPO_DEVELOPMENT`, and
+  `absolutejs_dev_network_security`. Confirm none is embedded. Record only the
+  search result, not private hostnames.
+- [ ] `EXPO-RELEASE-05` Run `bunx absolute mobile ci github
+  src/backend/server.ts --publish --config absolute.config.ts --output
+  .github/workflows/absolute-mobile-expo-acceptance.yml`. Confirm the generated
+  workflow has Android signing, release doctor, AAB attestation/upload, and
+  optional Google Play publication, with no Expo iOS job. Remove this disposable
+  workflow afterward if the application already owns another mobile workflow.
+- [ ] `EXPO-RELEASE-06` Repeat `EXPO-RELEASE-01` without source/config changes.
+  Confirm the same content produces the same immutable release identity and no
+  metadata conflict. Then make one harmless web-page change, rebuild, and
+  confirm a new `appBuild`/release identity is produced without editing Expo or
+  Android code.
+
+If no Android SDK is installed on the Mac, record these six rows as
+`SKIPPED — Android toolchain unavailable`; do not treat that as an iOS failure.
+Return the six report rows, command summaries, AAB byte size/hash, and redacted
+doctor output.
 
 #### Expo device-capability acceptance
 
@@ -1967,7 +2010,7 @@ source change and build a new content-addressed release instead.
 - Mac architecture:
 - Xcode version:
 - Bun version:
-- AbsoluteJS version: 0.20.0-beta.48
+- AbsoluteJS version: 0.20.0-beta.49
 - Auth version: 0.75.6
 - Dispatch version: 0.9.0
 - Sync version: 2.31.0
@@ -2026,6 +2069,12 @@ versus expected behavior. Do not report exact coordinates.
 | EXPO-DATA-06 |  | bounded error / retry recovery: |  |
 | EXPO-DATA-07 |  | embedded public release metadata / no secrets: |  |
 | EXPO-DATA-08 |  | TypeScript / iOS Metro export: |  |
+| EXPO-RELEASE-01 |  | clean CNG / AAB path: |  |
+| EXPO-RELEASE-02 |  | doctor ready / required rows: |  |
+| EXPO-RELEASE-03 |  | engine / signed / SHA-256: |  |
+| EXPO-RELEASE-04 |  | development-residue search: |  |
+| EXPO-RELEASE-05 |  | Android CI / no Expo iOS job: |  |
+| EXPO-RELEASE-06 |  | repeat identity / changed identity: |  |
 | EXPO-DEVICES-01 |  | exact packages / generated CNG policy: |  |
 | EXPO-DEVICES-02 |  | Expo dependency check: |  |
 | EXPO-DEVICES-03 |  | clipboard / haptics / keyboard / bars / share: |  |

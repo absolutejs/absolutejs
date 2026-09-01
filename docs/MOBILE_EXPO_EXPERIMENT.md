@@ -9,11 +9,14 @@ in `0.20.0-beta.46` through `@absolutejs/devices-expo@0.0.2`.
 Parameterized and terminal-wildcard native route ownership is added in
 `0.20.0-beta.47`. Automatic typed server page-props delivery to native routes
 is added in `0.20.0-beta.48`.
+Expo Android production builds, release auditing, immutable AAB retention,
+generated CI, and Google Play publishing are added in `0.20.0-beta.49`.
 
 AbsoluteJS can generate an experimental Expo Router shell in which explicitly
 selected routes render React Native UI and all other routes remain ordinary
-AbsoluteJS pages. Capacitor remains the default mobile engine and the supported
-production path.
+AbsoluteJS pages. Capacitor remains the default mobile engine. Expo Android is
+now a supported experimental production path; Expo iOS release automation
+remains incomplete.
 
 This experiment does not convert HTML, React DOM, Vue, Svelte, Angular, Ember,
 or HTMX into React Native. It embeds their existing signed AbsoluteJS page
@@ -85,14 +88,19 @@ Implemented in the first spike:
   Expo BackgroundTask push/pull acceleration;
 - process-restart durability, transactional migration rollback, schema
   downgrade rejection, readonly enforcement, quota/policy enforcement, and
-  account-isolation conformance coverage.
+  account-isolation conformance coverage;
+- clean production Android CNG, signed or explicitly unsigned AAB builds,
+  immutable content-addressed release metadata, automatic Google Play version
+  codes, release-doctor enforcement, generated protected CI, and the existing
+  resumable Google Play publisher.
 
 Not implemented, and therefore not claimed:
 
 - Android process-death restoration of an in-flight Expo image picker result;
-- Expo release, signing, store publishing, EAS Update, rollback, process-death,
-  physical-device, accessibility, or performance acceptance;
-- Expo production support.
+- Expo iOS release/signing/store publishing, EAS Update, rollback,
+  process-death, physical-device, accessibility, or performance acceptance;
+- Expo Android production builds from WSL. Use generated Linux CI or native
+  Windows/Linux/macOS for this checkpoint.
 
 Unsupported device capabilities still fail rather than silently degrading. The
 two JavaScript engines do not share globals: Auth and Sync cross only through
@@ -244,6 +252,31 @@ bunx absolute mobile sync --yes --config absolute.config.ts
 `prepare` creates the signed compatibility bundle and automatically stages it
 for Expo. `mobile sync` runs Expo Prebuild after synchronizing the CNG config and
 embedded assets.
+
+## Build, audit, and publish Android
+
+Run these from the application root, never from `.absolutejs/mobile/expo`:
+
+```sh
+bunx absolute mobile build android src/backend/server.ts
+bunx absolute mobile doctor release android
+bunx absolute mobile ci github src/backend/server.ts --publish
+```
+
+`mobile build android` prepares the ordinary AbsoluteJS application, regenerates
+Android through clean Expo CNG, installs the pinned generated-shell packages,
+embeds the compatibility bundle, and runs Gradle `bundleRelease`. Development
+origins, development CA configuration, and development-mode flags are removed
+from both Prebuild and Metro/Gradle environments. The release doctor verifies
+the generated app configuration, installed SDK versions and lockfile, one-to-one
+opaque asset projection, bundle hashes, CSP, deep links, native debugging,
+cleartext/development trust, Sync policy, and detected device packages.
+
+The immutable AAB and `release.json` are written beneath
+`.absolutejs/mobile/releases/android/`. Existing `mobile.release.ts` registry
+publication and `--play-track internal|alpha|beta|production` work unchanged.
+CI intentionally generates only the Android job for Expo configs, even if iOS
+is also configured, until the Expo iOS release contract is implemented.
 
 The generated Expo project defaults to
 `.absolutejs/mobile/expo`. AbsoluteJS owns that entire directory; edit

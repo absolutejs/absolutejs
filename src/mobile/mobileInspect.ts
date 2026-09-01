@@ -152,7 +152,10 @@ export const inspectAbsoluteMobileProject = async (
 	let capabilityIssue: string | undefined;
 	let plugins: string[] = [];
 	try {
-		const plan = resolveAbsoluteDeviceCapabilityPlan(projectRoot);
+		const plan = resolveAbsoluteDeviceCapabilityPlan(
+			projectRoot,
+			config.engine
+		);
 		currentCapabilities = plan.capabilities;
 		plugins = plan.requiredPackages;
 	} catch {

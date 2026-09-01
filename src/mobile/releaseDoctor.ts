@@ -135,6 +135,9 @@ const warn = (
 	status: 'warn'
 });
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+	typeof value === 'object' && value !== null && !Array.isArray(value);
+
 const readJsonObject = async (path: string) => {
 	const value: unknown = JSON.parse(await readFile(path, 'utf8'));
 	if (typeof value !== 'object' || value === null || Array.isArray(value))
@@ -209,6 +212,79 @@ const capacitorVersionCheck = async (
 				: 'Capacitor package versions could not be validated.',
 			manifestPath,
 			'Pin @capacitor/core, @capacitor/cli, and each configured platform to exact versions on the same major/minor line, then reinstall.'
+		);
+	}
+};
+
+const satisfiesGeneratedVersion = (declared: string, installed: string) => {
+	if (EXACT_VERSION_PATTERN.test(declared)) return declared === installed;
+	if (!declared.startsWith('~')) return false;
+	const expected = declared.slice(1).split('.').map(Number);
+	const actual = installed.split('.').map(Number);
+
+	return (
+		actual[0] === expected[0] &&
+		actual[1] === expected[1] &&
+		(actual[2] ?? NOT_FOUND) >= (expected[2] ?? 0)
+	);
+};
+
+const expoVersionCheck = async (config: NormalizedAbsoluteMobileConfig) => {
+	const manifestPath = join(config.nativeProjectDirectory, 'package.json');
+	try {
+		const manifest = await readJsonObject(manifestPath);
+		const declarations = packageDeclarations(manifest);
+		const required = ['expo', 'expo-router', 'react', 'react-native'];
+		const missingRequired = required.find(
+			(name) => !declarations.has(name)
+		);
+		if (missingRequired)
+			throw new TypeError(
+				`Generated Expo project is missing ${missingRequired}.`
+			);
+		const installedVersions = await Promise.all(
+			[...declarations].map(async ([name, declared]) => ({
+				declared,
+				installed: await readJsonObject(
+					join(
+						config.nativeProjectDirectory,
+						'node_modules',
+						name,
+						'package.json'
+					)
+				),
+				name
+			}))
+		);
+		const mismatch = installedVersions.find(
+			({ declared, installed }) =>
+				typeof installed.version !== 'string' ||
+				!satisfiesGeneratedVersion(declared, installed.version)
+		);
+		if (mismatch)
+			throw new TypeError(
+				`Generated Expo dependency ${mismatch.name}@${mismatch.declared} does not match its installed version.`
+			);
+		if (
+			!(await pathExists(join(config.nativeProjectDirectory, 'bun.lock')))
+		)
+			throw new TypeError(
+				'Generated Expo dependency lockfile is missing.'
+			);
+
+		return pass(
+			'mobile.expo-versions',
+			`Generated Expo SDK dependencies are pinned, installed, and locked (${declarations.get('expo')}).`,
+			manifestPath
+		);
+	} catch (error) {
+		return fail(
+			'mobile.expo-versions',
+			error instanceof Error
+				? error.message
+				: 'Generated Expo dependency versions could not be validated.',
+			manifestPath,
+			'Run `absolute mobile init --yes`, then rebuild the production Expo project.'
 		);
 	}
 };
@@ -516,6 +592,152 @@ const contentSecurityPolicyCheck = async (
 	}
 };
 
+const expoApplicationConfigCheck = async (
+	config: NormalizedAbsoluteMobileConfig
+) => {
+	const path = join(config.nativeProjectDirectory, 'app.json');
+	try {
+		const root = await readJsonObject(path);
+		if (!isRecord(root.expo))
+			throw new TypeError(
+				'Generated Expo application config is invalid.'
+			);
+		const { expo } = root;
+		if (
+			expo.name !== config.appName ||
+			!isRecord(expo.android) ||
+			expo.android.package !== config.appId
+		) {
+			throw new TypeError(
+				'Generated Expo Android identity does not match mobile config.'
+			);
+		}
+		if (
+			!isRecord(expo.runtimeVersion) ||
+			expo.runtimeVersion.policy !== 'appVersion'
+		) {
+			throw new TypeError(
+				'Generated Expo runtimeVersion must follow the native app version.'
+			);
+		}
+		if (
+			Array.isArray(expo.plugins) &&
+			expo.plugins.some(
+				(plugin) =>
+					typeof plugin === 'string' &&
+					plugin.includes('withAbsoluteDevelopmentCa')
+			)
+		) {
+			throw new TypeError(
+				'Generated Expo production config includes the development CA plugin.'
+			);
+		}
+
+		return pass(
+			'expo.app-config',
+			'Expo application identity and runtime policy match the production mobile config.',
+			path
+		);
+	} catch (error) {
+		return fail(
+			'expo.app-config',
+			error instanceof Error
+				? error.message
+				: 'Generated Expo application config could not be validated.',
+			path,
+			'Run `absolute mobile build android`; do not edit the generated Expo project.'
+		);
+	}
+};
+
+const expoEmbeddedAssetsCheck = async (
+	config: NormalizedAbsoluteMobileConfig
+) => {
+	const generated = join(
+		config.nativeProjectDirectory,
+		'src',
+		'generated',
+		'webAssets.ts'
+	);
+	const assetsRoot = join(
+		config.nativeProjectDirectory,
+		'assets',
+		'absolute'
+	);
+	try {
+		const [source, manifest] = await Promise.all([
+			readFile(generated, 'utf8'),
+			readJsonObject(
+				join(config.bundleDirectory, 'absolute-mobile-manifest.json')
+			)
+		]);
+		if (
+			source.includes('embedded AbsoluteJS bundle is unavailable') ||
+			typeof manifest.appBuild !== 'string' ||
+			!source.includes(JSON.stringify(manifest.appBuild)) ||
+			!source.includes(JSON.stringify(config.productionOrigin))
+		) {
+			throw new TypeError(
+				'Generated Expo assets do not contain the prepared production release identity.'
+			);
+		}
+		const sourceFiles = (
+			await Array.fromAsync(
+				new Bun.Glob('**/*').scan({
+					cwd: config.bundleDirectory,
+					onlyFiles: true
+				})
+			)
+		).sort();
+		const embeddedFiles = (
+			await Array.fromAsync(
+				new Bun.Glob('*.absasset').scan({
+					cwd: assetsRoot,
+					onlyFiles: true
+				})
+			)
+		).sort();
+		if (
+			sourceFiles.length === 0 ||
+			sourceFiles.length !== embeddedFiles.length
+		)
+			throw new TypeError(
+				'Generated Expo asset count does not match the prepared mobile bundle.'
+			);
+		const matches = await Promise.all(
+			sourceFiles.map(async (path, index) => {
+				const embedded = embeddedFiles[index];
+				if (!embedded) return false;
+				const [left, right] = await Promise.all([
+					readFile(join(config.bundleDirectory, path)),
+					readFile(join(assetsRoot, embedded))
+				]);
+
+				return left.equals(right);
+			})
+		);
+		if (matches.some((value) => !value))
+			throw new TypeError(
+				'Generated Expo asset bytes differ from the prepared mobile bundle.'
+			);
+
+		return pass(
+			'expo.bundle-projection',
+			`Expo embeds the complete signed mobile bundle as ${embeddedFiles.length} opaque asset(s).`,
+			generated
+		);
+	} catch (error) {
+		return fail(
+			'expo.bundle-projection',
+			error instanceof Error
+				? error.message
+				: 'Generated Expo assets could not be validated.',
+			generated,
+			'Run `absolute mobile build android` to regenerate and verify the production asset projection.'
+		);
+	}
+};
+
 const sourceFiles = async (root: string, extensions: Set<string>) => {
 	if (!(await pathExists(root))) return [];
 	const files = await Array.fromAsync(
@@ -611,17 +833,19 @@ const androidDeepLinkProjectionCheck = async (
 ) => {
 	try {
 		const source = await readFile(manifestPath, 'utf8');
-		const required = [
-			'android:autoVerify="true"',
-			'android.intent.category.BROWSABLE',
-			...config.deepLinkHosts.map(
-				(host) => `android:scheme="https" android:host="${host}"`
-			),
-			...(config.deepLinkScheme
-				? [`android:scheme="${config.deepLinkScheme}"`]
-				: [])
-		];
-		if (required.some((value) => !source.includes(value)))
+		const hasWebHost = (host: string) =>
+			[...source.matchAll(/<data\b[^>]*>/giu)].some(
+				([tag]) =>
+					tag.includes('android:scheme="https"') &&
+					tag.includes(`android:host="${host}"`)
+			);
+		if (
+			!source.includes('android:autoVerify="true"') ||
+			!source.includes('android.intent.category.BROWSABLE') ||
+			config.deepLinkHosts.some((host) => !hasWebHost(host)) ||
+			(config.deepLinkScheme &&
+				!source.includes(`android:scheme="${config.deepLinkScheme}"`))
+		)
 			throw new TypeError(
 				'Android App Link or custom-scheme projection does not match mobile config.'
 			);
@@ -933,8 +1157,36 @@ const deviceCapabilityReleaseCheck = async (
 ) => {
 	const manifestPath = join(projectRoot, 'package.json');
 	try {
-		const plan = resolveAbsoluteDeviceCapabilityPlan(projectRoot);
-		assertAbsoluteDeviceCapabilityPackages(projectRoot, plan);
+		const plan = resolveAbsoluteDeviceCapabilityPlan(
+			projectRoot,
+			config.engine
+		);
+		const assertPackages = async () => {
+			if (config.engine === 'capacitor')
+				return assertAbsoluteDeviceCapabilityPackages(
+					projectRoot,
+					plan
+				);
+			const generated = await readJsonObject(
+				join(config.nativeProjectDirectory, 'package.json')
+			);
+			const declarations = packageDeclarations(generated);
+			const missing = plan.requiredPackages.filter((spec) => {
+				const separator = spec.lastIndexOf('@');
+
+				return (
+					declarations.get(spec.slice(0, separator)) !==
+					spec.slice(separator + 1)
+				);
+			});
+			if (missing.length > 0)
+				throw new TypeError(
+					`Generated Expo project is missing detected capability packages: ${missing.join(', ')}.`
+				);
+
+			return undefined;
+		};
+		await assertPackages();
 		const requirements = absoluteDeviceNativeRequirements(plan);
 		const androidCheck = await androidDevicePermissionCheck(
 			config,
@@ -1014,6 +1266,51 @@ const inspectAndroidRelease = async (
 		hmrAssetsReleaseCheck(publicRoot),
 		embeddedBundleReleaseCheck(config, projectRoot, 'android', publicRoot),
 		contentSecurityPolicyCheck(config, 'android', publicRoot),
+		androidNativeSecurityCheck(androidRoot),
+		androidExportedComponentsCheck(manifestPath),
+		androidDeepLinkProjectionCheck(config, manifestPath)
+	]);
+
+	return checks.map((check) => ({
+		...check,
+		path: check.path
+			? relative(projectRoot, check.path).replaceAll('\\', '/') || '.'
+			: undefined
+	}));
+};
+
+const inspectExpoAndroidRelease = async (
+	config: NormalizedAbsoluteMobileConfig,
+	projectRoot: string
+) => {
+	const androidRoot = join(config.nativeProjectDirectory, 'android');
+	const manifestPath = join(
+		androidRoot,
+		'app',
+		'src',
+		'main',
+		'AndroidManifest.xml'
+	);
+	const journalPath = join(
+		projectRoot,
+		'.absolutejs',
+		'mobile',
+		'expo-dev-session',
+		'journal.json'
+	);
+	const checks = await Promise.all([
+		journalReleaseCheck(journalPath, 'android'),
+		expoApplicationConfigCheck(config),
+		expoEmbeddedAssetsCheck(config),
+		manifestReleaseCheck(manifestPath),
+		hmrAssetsReleaseCheck(config.bundleDirectory),
+		embeddedBundleReleaseCheck(
+			config,
+			projectRoot,
+			'android',
+			config.bundleDirectory
+		),
+		contentSecurityPolicyCheck(config, 'android', config.bundleDirectory),
 		androidNativeSecurityCheck(androidRoot),
 		androidExportedComponentsCheck(manifestPath),
 		androidDeepLinkProjectionCheck(config, manifestPath)
@@ -1191,7 +1488,9 @@ export const inspectAbsoluteMobileRelease = async (
 		Promise.resolve(productionOriginCheck(config, projectRoot)),
 		Promise.resolve(associationIdentityCheck(config, projectRoot)),
 		dependencyLockCheck(projectRoot),
-		capacitorVersionCheck(config, projectRoot)
+		config.engine === 'expo'
+			? expoVersionCheck(config)
+			: capacitorVersionCheck(config, projectRoot)
 	]);
 	const checks: AbsoluteMobileReleaseCheck[] = globalChecks.map((check) => ({
 		...check,
@@ -1200,10 +1499,24 @@ export const inspectAbsoluteMobileRelease = async (
 			: undefined
 	}));
 	if (config.platforms.includes('android'))
-		checks.push(...(await inspectAndroidRelease(config, projectRoot)));
-	if (config.platforms.includes('ios')) {
-		checks.push(...(await inspectIosRelease(config, projectRoot)));
-	}
+		checks.push(
+			...(config.engine === 'expo'
+				? await inspectExpoAndroidRelease(config, projectRoot)
+				: await inspectAndroidRelease(config, projectRoot))
+		);
+	if (config.platforms.includes('ios'))
+		checks.push(
+			...(config.engine === 'expo'
+				? [
+						fail(
+							'expo.ios-release',
+							'Expo iOS production release automation is not implemented yet.',
+							config.nativeProjectDirectory,
+							'Build Android independently or wait for the Expo iOS signing checkpoint.'
+						)
+					]
+				: await inspectIosRelease(config, projectRoot))
+		);
 	const syncSchema = syncSchemaReleaseCheck(projectRoot);
 	if (syncSchema) {
 		checks.push({

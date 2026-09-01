@@ -15,7 +15,7 @@ afterEach(async () => {
 	);
 });
 
-const fixture = async () => {
+const fixture = async (engine: 'capacitor' | 'expo' = 'capacitor') => {
 	const projectRoot = await mkdtemp(
 		join(tmpdir(), 'absolute-android-release-')
 	);
@@ -24,6 +24,7 @@ const fixture = async () => {
 		{
 			appId: 'com.example.release',
 			appName: 'Release',
+			engine,
 			platforms: ['android'],
 			server: { productionOrigin: 'https://api.example.com' }
 		},
@@ -132,6 +133,86 @@ describe('Android production releases', () => {
 				run
 			})
 		).rejects.toThrow('artifact is missing or modified');
+	});
+
+	test('builds Expo output with the same immutable release contract and production environment', async () => {
+		const { artifactPath, config, projectRoot } = await fixture('expo');
+		let buildEnvironment: Record<string, string | undefined> | undefined;
+		const release = await buildAbsoluteAndroidRelease({
+			allowUnsigned: true,
+			androidRoot: '/sdk',
+			config,
+			env: {
+				BABEL_ENV: 'production',
+				NODE_ENV: 'production'
+			},
+			host: 'linux',
+			jarsigner: null,
+			projectRoot,
+			capture: () => ({ exitCode: 1, stderr: '', stdout: '' }),
+			run: async (command, options) => {
+				expect(command).toContain('bundleRelease');
+				buildEnvironment = options?.env;
+				await mkdir(dirname(artifactPath), { recursive: true });
+				await writeFile(artifactPath, 'expo-app-bundle');
+
+				return 0;
+			}
+		});
+
+		expect(release.metadata).toMatchObject({
+			appBuild: 'ambuild_fixture',
+			engine: 'expo',
+			platform: 'android',
+			type: 'aab'
+		});
+		expect(buildEnvironment).toEqual({
+			BABEL_ENV: 'production',
+			NODE_ENV: 'production'
+		});
+	});
+
+	test('fingerprints an Expo Android project for automatic version codes', async () => {
+		const { artifactPath, config, projectRoot } = await fixture('expo');
+		const identities: string[] = [];
+		await buildAbsoluteAndroidRelease({
+			allowUnsigned: true,
+			androidRoot: '/sdk',
+			config,
+			host: 'linux',
+			jarsigner: null,
+			projectRoot,
+			capture: () => ({ exitCode: 1, stderr: '', stdout: '' }),
+			prepareVersionCode: async (identity) => {
+				identities.push(identity);
+
+				return 44;
+			},
+			run: async () => {
+				await mkdir(dirname(artifactPath), { recursive: true });
+				await writeFile(artifactPath, 'versioned-expo-app-bundle');
+
+				return 0;
+			}
+		});
+
+		expect(identities).toHaveLength(1);
+		expect(identities[0]).toMatch(/^[a-f0-9]{64}$/u);
+	});
+
+	test('rejects Expo production builds from WSL with an actionable path', async () => {
+		const { config, projectRoot, run } = await fixture('expo');
+		await expect(
+			buildAbsoluteAndroidRelease({
+				allowUnsigned: true,
+				androidRoot: '/sdk',
+				config,
+				host: 'wsl',
+				jarsigner: null,
+				projectRoot,
+				run
+			})
+		).rejects.toThrow('generated CI workflow on Linux');
 	});
 
 	test('rejects unsigned output by default and labels an explicit unsigned build', async () => {

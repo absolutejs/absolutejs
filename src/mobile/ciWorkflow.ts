@@ -535,8 +535,16 @@ export const createAbsoluteMobileGithubWorkflow = (
 	options: AbsoluteMobileGithubWorkflowOptions
 ) => {
 	const platforms: ('android' | 'ios')[] = [
-		...options.config.platforms
+		...(options.config.engine === 'expo'
+			? options.config.platforms.filter(
+					(platform): platform is 'android' => platform === 'android'
+				)
+			: options.config.platforms)
 	].sort();
+	if (platforms.length === 0)
+		throw new TypeError(
+			'Generated Expo production CI currently requires android in mobile.platforms; Expo iOS release automation is the next checkpoint.'
+		);
 	const includePublishing = options.includePublishing === true;
 	const customSecrets = normalizeSecretEnvironment(options.secretEnvironment);
 	const serverEntry = projectPath(
@@ -644,7 +652,13 @@ export const writeAbsoluteMobileGithubWorkflow = async (
 		changed: previous !== generated.workflow,
 		format: ABSOLUTE_MOBILE_CI_WORKFLOW_FORMAT,
 		path,
-		platforms: [...options.config.platforms].sort(),
+		platforms:
+			options.config.engine === 'expo'
+				? options.config.platforms.filter(
+						(platform): platform is 'android' =>
+							platform === 'android'
+					)
+				: [...options.config.platforms].sort(),
 		publishing: options.includePublishing === true,
 		requiredSecrets: generated.requiredSecrets
 	};

@@ -5,6 +5,7 @@ import {
 	mkdir,
 	mkdtemp,
 	readFile,
+	realpath,
 	rename,
 	rm,
 	stat,
@@ -31,7 +32,7 @@ export type AbsoluteAndroidReleaseMetadata = {
 	appId: string;
 	artifact: string;
 	bytes: number;
-	engine: 'capacitor';
+	engine: 'capacitor' | 'expo';
 	format: typeof ABSOLUTE_ANDROID_RELEASE_FORMAT;
 	platform: 'android';
 	releaseId: string;
@@ -56,6 +57,7 @@ export type BuildAbsoluteAndroidReleaseOptions = {
 		options?: AbsoluteAndroidCommandOptions
 	) => AbsoluteAndroidCommandResult;
 	config: NormalizedAbsoluteMobileConfig;
+	env?: Record<string, string | undefined>;
 	host?: AbsoluteMobileHost;
 	jarsigner?: string | null;
 	outputDirectory?: string;
@@ -178,6 +180,29 @@ const sha256File = async (path: string) =>
 		.update(await readFile(path))
 		.digest('hex');
 
+const fingerprintExpoAndroidProject = async (nativeDirectory: string) => {
+	const root = await realpath(nativeDirectory);
+	const files = await Array.fromAsync(
+		new Bun.Glob('**/*').scan({ cwd: root, onlyFiles: true })
+	);
+	const records = await Promise.all(
+		files
+			.filter((path) => {
+				const parts = path.replaceAll('\\', '/').split('/');
+
+				return !parts.includes('.gradle') && !parts.includes('build');
+			})
+			.sort()
+			.map(async (path) => {
+				const contents = await readFile(join(root, path));
+
+				return `${path.replaceAll('\\', '/')}\0${createHash('sha256').update(contents).digest('hex')}\0`;
+			})
+	);
+
+	return createHash('sha256').update(records.join('')).digest('hex');
+};
+
 const safeOutputDirectory = (projectRoot: string, requested?: string) => {
 	const root = resolve(projectRoot);
 	const output = resolve(
@@ -295,6 +320,11 @@ export const buildAbsoluteAndroidRelease = async (
 	}
 	const projectRoot = resolve(options.projectRoot);
 	const host = options.host ?? detectAbsoluteMobileHost();
+	if (options.config.engine === 'expo' && host === 'wsl') {
+		throw new TypeError(
+			'Expo Android production builds from WSL are not available yet. Run the generated CI workflow on Linux or build from native Windows while the WSL projection is completed.'
+		);
+	}
 	const androidRoot =
 		options.androidRoot ??
 		process.env.ANDROID_HOME ??
@@ -322,9 +352,12 @@ export const buildAbsoluteAndroidRelease = async (
 	}
 	let { versionCode } = options;
 	if (options.prepareVersionCode) {
-		const nativeFingerprint = await fingerprintAbsoluteAndroidNativeProject(
-			{ nativeDirectory }
-		);
+		const nativeFingerprint =
+			options.config.engine === 'expo'
+				? await fingerprintExpoAndroidProject(nativeDirectory)
+				: await fingerprintAbsoluteAndroidNativeProject({
+						nativeDirectory
+					});
 		const buildIdentity = createHash('sha256')
 			.update(`${manifest.appBuild}\0${nativeFingerprint}`)
 			.digest('hex');
@@ -342,6 +375,7 @@ export const buildAbsoluteAndroidRelease = async (
 	}
 	const { artifactPath } = await buildAbsoluteAndroidGradleArtifact({
 		capture: options.capture,
+		env: options.env,
 		gradleArguments:
 			versionCode === undefined
 				? []
@@ -398,7 +432,7 @@ export const buildAbsoluteAndroidRelease = async (
 		appBuild: manifest.appBuild,
 		appId: manifest.appId,
 		bytes,
-		engine: 'capacitor',
+		engine: options.config.engine,
 		format: ABSOLUTE_ANDROID_RELEASE_FORMAT,
 		platform: 'android',
 		releaseId,

@@ -1,6 +1,7 @@
 # AbsoluteJS mobile CI and store releases
 
-Status: generated GitHub Actions workflow for Capacitor Android and iOS.
+Status: generated GitHub Actions workflow for Capacitor Android/iOS and Expo
+Android. Expo iOS release automation remains a separate checkpoint.
 
 Run this command from the application root—the directory containing
 `package.json`, the server entry, and `absolute.config.ts`:
@@ -12,6 +13,12 @@ bunx absolute mobile ci github server.ts
 It creates `.github/workflows/absolute-mobile.yml`. Generation is deterministic
 and idempotent; AbsoluteJS refuses to replace a different file unless `--force`
 is explicit.
+
+For `mobile.engine: 'expo'`, the generator emits Android validation, signing,
+release-doctor, attestation, retention, registry, and optional Google Play jobs.
+If the config also lists iOS, iOS is omitted rather than generating a job that
+cannot yet satisfy the Expo iOS release contract. An Expo iOS-only config is
+rejected with an actionable error.
 
 The generated workflow has two trust levels:
 

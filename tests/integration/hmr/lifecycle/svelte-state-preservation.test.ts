@@ -4,7 +4,7 @@ import { startDevServer, type DevServer } from '../../../helpers/devServer';
 import { connectHMR, type HMRClient } from '../../../helpers/ws';
 import { mutateFile, restoreAllFiles } from '../../../helpers/file';
 import {
-	openPage,
+	openReadyPage,
 	type BrowserSession,
 	waitForText
 } from '../../../helpers/browser';
@@ -54,21 +54,22 @@ const startAll = async () => {
 	await client.waitFor('manifest');
 	await client.waitFor('connected');
 	client.drain();
-	session = await openPage(`${server.baseUrl}/svelte`);
-	await session.page.waitForFunction(
-		() =>
-			typeof window !== 'undefined' &&
-			(window as { __SVELTE_COMPONENT__?: unknown })
-				.__SVELTE_COMPONENT__ !== undefined,
-		{ timeout: 15_000 }
-	);
-	await session.page.waitForSelector('button', { timeout: 15_000 });
-	await waitForText(
-		session.page,
-		'button',
-		(t) => /count is \d+/.test(t),
-		15_000
-	);
+	session = await openReadyPage(`${server.baseUrl}/svelte`, async (page) => {
+		await page.waitForFunction(
+			() =>
+				typeof window !== 'undefined' &&
+				(window as { __SVELTE_COMPONENT__?: unknown })
+					.__SVELTE_COMPONENT__ !== undefined,
+			{ timeout: 15_000 }
+		);
+		await page.waitForSelector('button', { timeout: 15_000 });
+		await waitForText(
+			page,
+			'button',
+			(t) => /count is \d+/.test(t),
+			15_000
+		);
+	});
 
 	return { client: client, server: server, session: session };
 };

@@ -12,6 +12,10 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { normalizeAbsoluteMobileConfig } from '../../../src/mobile/config';
 import {
+	syncAbsoluteExpoWebAssets,
+	writeAbsoluteExpoProject
+} from '../../../src/mobile/expoProject';
+import {
 	createAbsoluteMobileComplianceReport,
 	inspectAbsoluteMobileRelease
 } from '../../../src/mobile/releaseDoctor';
@@ -159,7 +163,136 @@ const fixture = async () => {
 	return { assets, config, main, projectRoot };
 };
 
+const expoFixture = async () => {
+	const projectRoot = await mkdtemp(
+		join(tmpdir(), 'absolute-expo-release-doctor-')
+	);
+	temporaryDirectories.push(projectRoot);
+	const config = normalizeAbsoluteMobileConfig(
+		{
+			appId: 'com.example.expo.release',
+			appName: 'Expo Release',
+			deepLinks: {
+				android: {
+					sha256CertificateFingerprints: [ANDROID_FINGERPRINT]
+				}
+			},
+			engine: 'expo',
+			platforms: ['android'],
+			server: { productionOrigin: 'https://api.example.com' }
+		},
+		projectRoot
+	);
+	await writeFile(
+		join(projectRoot, 'package.json'),
+		JSON.stringify({ name: 'expo-release-fixture' })
+	);
+	await writeFile(join(projectRoot, 'bun.lock'), '');
+	const providerManifest = join(
+		projectRoot,
+		'node_modules/@absolutejs/devices-expo/package.json'
+	);
+	await mkdir(dirname(providerManifest), { recursive: true });
+	await writeFile(
+		providerManifest,
+		await readFile(
+			join(
+				import.meta.dir,
+				'../../../node_modules/@absolutejs/devices-expo/package.json'
+			),
+			'utf8'
+		)
+	);
+	await writeReleaseBundle(config.bundleDirectory, config);
+	await writeAbsoluteExpoProject(config, { projectRoot });
+	const generatedManifest = JSON.parse(
+		await readFile(
+			join(config.nativeProjectDirectory, 'package.json'),
+			'utf8'
+		)
+	) as {
+		dependencies: Record<string, string>;
+		devDependencies: Record<string, string>;
+	};
+	await writeFile(join(config.nativeProjectDirectory, 'bun.lock'), '');
+	await Promise.all(
+		Object.entries({
+			...generatedManifest.dependencies,
+			...generatedManifest.devDependencies
+		}).map(([name, declared]) =>
+			installPackageManifest(
+				config.nativeProjectDirectory,
+				name,
+				declared.startsWith('~') ? declared.slice(1) : declared
+			)
+		)
+	);
+	await syncAbsoluteExpoWebAssets(config);
+	const main = join(
+		config.nativeProjectDirectory,
+		'android',
+		'app',
+		'src',
+		'main'
+	);
+	await mkdir(main, { recursive: true });
+	await writeFile(
+		join(main, 'AndroidManifest.xml'),
+		`<manifest><application><activity android:name=".MainActivity" android:exported="true"><intent-filter android:autoVerify="true"><action android:name="android.intent.action.VIEW"/><category android:name="android.intent.category.DEFAULT"/><category android:name="android.intent.category.BROWSABLE"/><data android:host="api.example.com" android:scheme="https"/></intent-filter><intent-filter><data android:scheme="com.example.expo.release"/></intent-filter></activity></application></manifest>\n`
+	);
+
+	return { config, main, projectRoot };
+};
+
 describe('mobile release doctor', () => {
+	test('passes a production-safe Expo Android projection', async () => {
+		const { config, projectRoot } = await expoFixture();
+		const result = await inspectAbsoluteMobileRelease(config, projectRoot);
+
+		expect(result.ready).toBe(true);
+		expect(
+			result.checks.find(({ id }) => id === 'mobile.expo-versions')
+		).toMatchObject({ status: 'pass' });
+		expect(
+			result.checks.find(({ id }) => id === 'expo.bundle-projection')
+		).toMatchObject({ status: 'pass' });
+	});
+
+	test('rejects a modified Expo embedded asset', async () => {
+		const { config, projectRoot } = await expoFixture();
+		const assetDirectory = join(
+			config.nativeProjectDirectory,
+			'assets',
+			'absolute'
+		);
+		const [asset] = await readdir(assetDirectory);
+		if (!asset) throw new Error('Expo release fixture asset is missing.');
+		await writeFile(join(assetDirectory, asset), 'tampered\n');
+
+		const result = await inspectAbsoluteMobileRelease(config, projectRoot);
+		expect(
+			result.checks.find(({ id }) => id === 'expo.bundle-projection')
+		).toMatchObject({ status: 'fail' });
+	});
+
+	test('rejects Expo Android release manifests containing development trust', async () => {
+		const { config, main, projectRoot } = await expoFixture();
+		const manifestPath = join(main, 'AndroidManifest.xml');
+		const manifest = await readFile(manifestPath, 'utf8');
+		await writeFile(
+			manifestPath,
+			manifest.replace(
+				'<application>',
+				'<application android:networkSecurityConfig="@xml/absolutejs_dev_network_security">'
+			)
+		);
+
+		const result = await inspectAbsoluteMobileRelease(config, projectRoot);
+		expect(
+			result.checks.find(({ id }) => id === 'android.cleartext')
+		).toMatchObject({ status: 'fail' });
+	});
+
 	test('passes a production-safe Android projection', async () => {
 		const { config, projectRoot } = await fixture();
 		const result = await inspectAbsoluteMobileRelease(config, projectRoot);
