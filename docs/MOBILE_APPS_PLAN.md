@@ -2001,6 +2001,16 @@ filters only Capacitor's known pre-DOM null diagnostic while retaining SystemBar
 disabling inset handling is not used because it changes edge-to-edge layout on
 modern Android.
 
+The first framework-neutral adaptive-shell layer is now implemented. Every
+embedded framework receives normalized safe-area, keyboard, viewport, network,
+platform, form-factor, and reduced-motion state through root CSS variables/data
+attributes and `absolute:adaptive-shell-change`. Keyboard and System Bars are
+implicit shell capabilities, so mobile sync provisions them without page imports.
+Expo forwards native safe-area changes into the same contract. The shell restores
+the contract after HTML/HTMX document replacement, coordinates automatic system-
+bar appearance, and owns accessible loading/offline announcements. It does not
+apply padding or restyle author content. See `docs/MOBILE_ADAPTIVE_SHELL.md`.
+
 The implemented Android controller is dependency-injected so its state machine,
 command construction, cancellation and crash recovery are unit-testable without an
 SDK. Its session boundary is designed to sit behind the provider-neutral controller

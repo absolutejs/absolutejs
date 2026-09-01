@@ -737,6 +737,7 @@ const webHostSource = (
 import { router, usePathname } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, BackHandler, Platform, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import { materializeAbsoluteWebBundle } from './webAssets';
 import { createExpoDevicesBridgeHost } from '@absolutejs/devices-expo/bridge';
@@ -769,7 +770,10 @@ const isNativeRoute = (pathname: string) => {
 	});
 };
 
-const bridgeBootstrap = (path: string) => {
+const hostMetricsScript = (safeAreaInsets: { bottom: number; left: number; right: number; top: number }) =>
+	\`globalThis.__absoluteNativeHostMetrics = \${JSON.stringify({ safeAreaInsets })}; dispatchEvent(new CustomEvent('absolute:native-host-metrics', { detail: globalThis.__absoluteNativeHostMetrics })); true;\`;
+
+const bridgeBootstrap = (path: string, safeAreaInsets: { bottom: number; left: number; right: number; top: number }) => {
 	const initialPath = DEV_ORIGIN
 		? 'location.pathname + location.search + location.hash'
 		: JSON.stringify(path);
@@ -778,6 +782,7 @@ const bridgeBootstrap = (path: string) => {
 	const listeners = new Map();
 	let sequence = 0;
 	let currentPath = \${initialPath};
+	globalThis.__absoluteNativeHostMetrics = \${JSON.stringify({ safeAreaInsets })};
 	const send = value => {
 		const source = JSON.stringify(value);
 		if (new TextEncoder().encode(source).byteLength > 65536) throw new Error('Expo bridge message exceeds 64 KiB.');
@@ -886,6 +891,7 @@ const authStatus = async () => {
 
 export function AbsoluteWebHost() {
 	const pathname = usePathname() || '/';
+	const safeAreaInsets = useSafeAreaInsets();
 	const webView = useRef<WebView>(null);
 	const devicesBridge = useRef<{ close(): void | Promise<void>; request(method: string, params: Record<string, unknown>): Promise<unknown> } | undefined>(undefined);
 	const syncBridge = useRef<{ close(): void | Promise<void>; request(method: string, params: Record<string, unknown>): Promise<unknown> } | undefined>(undefined);
@@ -936,6 +942,9 @@ export function AbsoluteWebHost() {
 		}
 		void materializeAbsoluteWebBundle().then(uri => setIndexUri(uri + '?absolutePath=' + encodeURIComponent(pathname)));
 	}, [pathname]);
+	useEffect(() => {
+		webView.current?.injectJavaScript(hostMetricsScript(safeAreaInsets));
+	}, [safeAreaInsets.bottom, safeAreaInsets.left, safeAreaInsets.right, safeAreaInsets.top]);
 	useEffect(() => {
 		const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
 			if (!canGoBack) return false;
@@ -1027,7 +1036,7 @@ export function AbsoluteWebHost() {
 		allowFileAccessFromFileURLs
 		allowUniversalAccessFromFileURLs={false}
 		allowingReadAccessToURL={indexUri.slice(0, indexUri.lastIndexOf('/') + 1)}
-		injectedJavaScriptBeforeContentLoaded={bridgeBootstrap(pathname)}
+		injectedJavaScriptBeforeContentLoaded={bridgeBootstrap(pathname, safeAreaInsets)}
 		onMessage={onMessage}
 		onNavigationStateChange={state => setCanGoBack(state.canGoBack)}
 		onShouldStartLoadWithRequest={request => {

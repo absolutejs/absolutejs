@@ -101,7 +101,7 @@ const fixture = async () => {
 			appName: config.appName,
 			deepLinkHosts: config.deepLinkHosts,
 			deepLinkScheme: config.deepLinkScheme,
-			deviceCapabilities: ['clipboard'],
+			deviceCapabilities: ['clipboard', 'keyboard', 'systemBars'],
 			entry: '/',
 			format: 1,
 			pages: [
@@ -152,9 +152,12 @@ describe('mobile project inspection', () => {
 				status: 'valid'
 			},
 			capabilities: {
-				current: ['clipboard'],
+				current: ['clipboard', 'keyboard', 'systemBars'],
 				embeddedMatchesCurrent: true,
-				plugins: ['@capacitor/clipboard@8.0.1']
+				plugins: [
+					'@capacitor/clipboard@8.0.1',
+					'@capacitor/keyboard@8.0.5'
+				]
 			},
 			nativeProjects: [
 				{

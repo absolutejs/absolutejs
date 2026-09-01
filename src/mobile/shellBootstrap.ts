@@ -13,6 +13,10 @@ import {
 } from './client';
 import { installAbsoluteMobileStaticDocument } from './staticDocument';
 import { installAbsoluteMobileShellHttp } from './shellHttp';
+import {
+	installAbsoluteMobileAdaptiveShell,
+	type AbsoluteMobileAdaptiveShell
+} from './adaptiveShell';
 
 const MANIFEST_PATH = './absolute-mobile-manifest.json';
 const STATUS_ID = 'absolute-mobile-status';
@@ -99,6 +103,7 @@ export type AbsoluteMobileShellOptions = {
 };
 
 let navigationGeneration = 0;
+let adaptiveShell: AbsoluteMobileAdaptiveShell | undefined;
 
 const notifyCapacitorSystemBarsDomReady = () => {
 	const provider = Reflect.get(
@@ -128,13 +133,17 @@ const readManifest = async () => {
 	return manifest;
 };
 
-const renderStatus = (message: string) => {
+const renderStatus = (
+	message: string,
+	kind: 'error' | 'loading' | 'update' = 'loading'
+) => {
 	document.title = 'AbsoluteJS';
 	document.head.innerHTML =
 		'<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">';
-	document.body.innerHTML = `<main id="${STATUS_ID}" role="status"></main>`;
+	document.body.innerHTML = `<main id="${STATUS_ID}" data-absolute-mobile-status="${kind}" role="status" aria-atomic="true" aria-live="polite"></main>`;
 	const status = document.getElementById(STATUS_ID);
 	if (status) status.textContent = message;
+	adaptiveShell?.refreshDocument();
 };
 
 const renderPageTarget = () => {
@@ -142,6 +151,7 @@ const renderPageTarget = () => {
 	document.head.innerHTML =
 		'<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">';
 	document.body.innerHTML = '<div id="root"></div>';
+	adaptiveShell?.refreshDocument();
 };
 
 const localBundleUrl = (
@@ -221,10 +231,11 @@ const navigate = async (
 		}
 	});
 	if (activation.kind === 'upgrade-required') {
-		renderStatus('This app version must be updated to continue.');
+		renderStatus('This app version must be updated to continue.', 'update');
 
 		return;
 	}
+	adaptiveShell?.refreshDocument();
 	if (pushHistory) pushNavigationHistory(path);
 };
 
@@ -315,7 +326,10 @@ const navigateWithFailureState = async (
 	} catch (error) {
 		console.error('[Absolute Mobile] Navigation failed:', error);
 		renderStatus(
-			'Unable to load this page. Check your connection and retry.'
+			document.documentElement.dataset.absoluteNetwork === 'offline'
+				? 'You are offline. Reconnect to load this page.'
+				: 'Unable to load this page. Check your connection and retry.',
+			'error'
 		);
 	} finally {
 		// Trusted HTML/HTMX documents use document.open(), which clears window
@@ -328,6 +342,8 @@ export const startAbsoluteMobileShell = async (
 	options: AbsoluteMobileShellOptions = {}
 ) => {
 	notifyCapacitorSystemBarsDomReady();
+	await adaptiveShell?.dispose();
+	adaptiveShell = await installAbsoluteMobileAdaptiveShell();
 	const manifest = await readManifest();
 	const auth =
 		manifest.auth && options.createAuth

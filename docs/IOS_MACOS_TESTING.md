@@ -1,7 +1,7 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.51` and
+`@absolutejs/absolute@0.20.0-beta.56` and
 `@absolutejs/deploy@0.24.0`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
 
@@ -1201,6 +1201,51 @@ route rather than restoring a stale intermediate WebView document. Include any
 failed page, screenshot, and Xcode/WebView console output in the report template
 at the end of this file.
 
+### Adaptive-shell acceptance
+
+Run these checks while Terminal 1 is still running the staging application from
+the application root. No page should import an adaptive-shell helper. In Safari
+on the Mac, enable **Safari → Settings → Advanced → Show features for web
+developers**, then open **Develop → Simulator → the staging app**. Select the
+`<html>` element in the Web Inspector and run this in its Console:
+
+```js
+const root = document.documentElement;
+const css = getComputedStyle(root);
+({
+	availableHeight: css.getPropertyValue('--absolute-available-height'),
+	keyboardHeight: css.getPropertyValue('--absolute-keyboard-height'),
+	network: root.dataset.absoluteNetwork,
+	platform: root.dataset.absolutePlatform,
+	runtime: root.dataset.absoluteRuntime,
+	safeBottom: css.getPropertyValue('--absolute-safe-area-inset-bottom'),
+	safeTop: css.getPropertyValue('--absolute-safe-area-inset-top')
+});
+```
+
+- [ ] `ADAPT-01` Follow ordinary links through React → Angular → Vue → Svelte →
+  HTML → HTMX. Run the Console expression on every page. The runtime remains
+  `capacitor`, platform remains `ios`, every value is present, and author content
+  does not gain a second safe-area padding.
+- [ ] `ADAPT-02` Focus a text input, record `keyboardHeight` and
+  `availableHeight`, rotate with **Device → Rotate Left**, dismiss the keyboard,
+  and rotate back. Keyboard height becomes positive while visible and returns to
+  `0px`; available height and safe areas update without clipping controls.
+- [ ] `ADAPT-03` Open the Mobile Preview URL printed by Terminal 1 in Safari,
+  choose **Offline**, and rerun the expression inside the previewed app frame.
+  `network` becomes `offline`; VoiceOver announces “You are offline.” Choose
+  **Wi-Fi** and confirm `online` plus “Connection restored.” This preview check
+  does not require disabling the Mac's network.
+- [ ] `ADAPT-04` Switch the Simulator between light and dark appearance. System-
+  bar foreground remains legible, the route remains interactive, and application
+  layout/classes remain unchanged. Record a screenshot in the generated report
+  directory for light and dark mode.
+
+If **Develop → Simulator** has no staging-app entry, confirm Web Inspector is
+enabled in the simulated device's Safari advanced settings, relaunch the app,
+and retry. Record a `FAIL` rather than guessing values if inspection remains
+unavailable.
+
 ### Automatic device-capability provisioning acceptance
 
 Add an application page using the provider-neutral surface only:
@@ -2138,7 +2183,7 @@ source change and build a new content-addressed release instead.
 - Mac architecture:
 - Xcode version:
 - Bun version:
-- AbsoluteJS version: 0.20.0-beta.51
+- AbsoluteJS version: 0.20.0-beta.56
 - Auth version: 0.75.6
 - Dispatch version: 0.9.0
 - Sync version: 2.31.0
@@ -2180,6 +2225,10 @@ versus expected behavior. Do not report exact coordinates.
 | PREVIEW-08 |  | overlay / recovery / web isolation: |  |
 | DEV-01 |  | cold: / warm: |  |
 | DEV-02 |  | HMR: / relaunch: |  |
+| ADAPT-01 |  | frameworks / CSS contract: |  |
+| ADAPT-02 |  | keyboard / rotation / available height: |  |
+| ADAPT-03 |  | offline / reconnect / announcements: |  |
+| ADAPT-04 |  | light / dark / unchanged layout: |  |
 | HTTPS-01 |  | mkcert / CA trust / load / HMR: |  |
 | EXPO-01 |  | generated CNG ownership / clean prebuild: |  |
 | EXPO-02 |  | Simulator CA trust / HTTPS load / native build: |  |

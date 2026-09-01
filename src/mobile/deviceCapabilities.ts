@@ -38,6 +38,10 @@ export type AbsoluteDeviceCapabilityPlan = {
 };
 
 const DEVICES_PACKAGE = '@absolutejs/devices';
+export const ABSOLUTE_MOBILE_SHELL_DEVICE_CAPABILITIES = [
+	'keyboard',
+	'systemBars'
+] as const;
 export type AbsoluteDeviceProvider = 'capacitor' | 'expo';
 const ADAPTERS: Record<AbsoluteDeviceProvider, string> = {
 	capacitor: '@absolutejs/devices-capacitor',
@@ -531,6 +535,11 @@ export const resolveAbsoluteDeviceCapabilityPlan = (
 		projectRoot,
 		allProviders
 	);
+	for (const capability of ABSOLUTE_MOBILE_SHELL_DEVICE_CAPABILITIES) {
+		if (allProviders[capability] && !capabilities.includes(capability))
+			capabilities.push(capability);
+	}
+	capabilities.sort();
 	const providers: Record<string, AbsoluteDeviceCapabilityProvider> = {};
 	for (const name of capabilities) {
 		const capabilityProvider = allProviders[name];

@@ -24,6 +24,22 @@ const MANUAL_CHECKS = [
 	],
 	['DEV-01', 'Record cold and warm native startup timings.'],
 	['DEV-02', 'Complete route traversal, HMR, relaunch, and recovery checks.'],
+	[
+		'ADAPT-01',
+		'Confirm safe-area variables and platform attributes on every embedded framework.'
+	],
+	[
+		'ADAPT-02',
+		'Rotate with the keyboard open and confirm viewport and available-height variables update without double padding.'
+	],
+	[
+		'ADAPT-03',
+		'Go offline and reconnect; confirm the root state and accessibility announcement update.'
+	],
+	[
+		'ADAPT-04',
+		'Confirm automatic system-bar appearance and unchanged author layout.'
+	],
 	['CAP-01', 'Complete automatic device-capability provisioning checks.'],
 	[
 		'SYSUI-01',

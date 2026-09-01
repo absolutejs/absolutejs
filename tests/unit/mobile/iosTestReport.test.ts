@@ -53,7 +53,15 @@ describe('iOS partner test report', () => {
 			xcodeVersion: 'Xcode 16.4'
 		});
 		expect(report.overallResult).toBe('INCOMPLETE');
-		expect(report.manualChecks).toHaveLength(73);
+		expect(report.manualChecks).toHaveLength(77);
+		expect(report.manualChecks.map(({ id }) => id)).toEqual(
+			expect.arrayContaining([
+				'ADAPT-01',
+				'ADAPT-02',
+				'ADAPT-03',
+				'ADAPT-04'
+			])
+		);
 		expect(
 			report.manualChecks.find(({ id }) => id === 'FILES-08')
 		).toMatchObject({

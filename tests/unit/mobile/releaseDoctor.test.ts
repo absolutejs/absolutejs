@@ -54,7 +54,7 @@ const writeReleaseBundle = async (
 				appName: config.appName,
 				deepLinkHosts: config.deepLinkHosts,
 				deepLinkScheme: config.deepLinkScheme,
-				deviceCapabilities: [],
+				deviceCapabilities: ['keyboard', 'systemBars'],
 				entry: '/',
 				format: 1,
 				pages: [
@@ -150,7 +150,8 @@ const fixture = async () => {
 		'@capacitor/android': CAPACITOR_VERSION,
 		'@capacitor/cli': CAPACITOR_VERSION,
 		'@capacitor/core': CAPACITOR_VERSION,
-		'@capacitor/ios': CAPACITOR_VERSION
+		'@capacitor/ios': CAPACITOR_VERSION,
+		'@capacitor/keyboard': '8.0.5'
 	};
 	await writeFile(
 		join(projectRoot, 'package.json'),
@@ -462,8 +463,15 @@ describe('mobile release doctor', () => {
 		const plugins: Record<string, string> = {
 			'@capacitor/file-viewer': '2.0.2',
 			'@capacitor/filesystem': '8.1.3',
+			'@capacitor/keyboard': '8.0.5',
 			'@capacitor/share': '8.0.1'
 		};
+		const iosApp = join(config.nativeProjectDirectory, 'ios', 'App', 'App');
+		await mkdir(iosApp, { recursive: true });
+		await writeFile(
+			join(iosApp, 'Info.plist'),
+			'<plist><dict><key>UIViewControllerBasedStatusBarAppearance</key><true/></dict></plist>'
+		);
 		await Promise.all(
 			Object.entries(plugins).map(([name, version]) =>
 				installPackageManifest(projectRoot, name, version)
@@ -626,7 +634,7 @@ describe('mobile release doctor', () => {
 		);
 		await writeFile(
 			join(iosApp, 'Info.plist'),
-			'<plist><dict><key>CFBundleURLTypes</key><array><dict><key>CFBundleURLSchemes</key><array><string>com.example.release</string></array></dict></array></dict></plist>'
+			'<plist><dict><key>UIViewControllerBasedStatusBarAppearance</key><true/><key>CFBundleURLTypes</key><array><dict><key>CFBundleURLSchemes</key><array><string>com.example.release</string></array></dict></array></dict></plist>'
 		);
 		await writeReleaseBundle(join(iosApp, 'public'), config);
 		await writeFile(

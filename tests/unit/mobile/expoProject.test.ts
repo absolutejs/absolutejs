@@ -113,6 +113,9 @@ describe('experimental Expo project', () => {
 		expect(packageSource).toContain('expo-dev-client');
 		expect(webAssets).toContain('absolute prepare');
 		expect(webHost).toContain('createExpoDevicesBridgeHost');
+		expect(webHost).toContain('useSafeAreaInsets');
+		expect(webHost).toContain('absolute:native-host-metrics');
+		expect(webHost).toContain('bridgeBootstrap(pathname, safeAreaInsets)');
 		expect(webHost).toContain("message.method.startsWith('devices.')");
 		expect(webHost).toContain('EXPO_PUBLIC_ABSOLUTE_DEV_ANDROID_ORIGIN');
 		expect(webHost).toContain("'expo-android'");

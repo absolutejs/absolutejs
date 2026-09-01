@@ -207,9 +207,10 @@ void copy.writeText('x'); void device.documents.pick(); void device.haptics.impa
 			`import { clipboard } from '@absolutejs/devices';`
 		);
 
-		expect(resolveAbsoluteDeviceCapabilityPlan(root).capabilities).toEqual(
-			[]
-		);
+		expect(resolveAbsoluteDeviceCapabilityPlan(root).capabilities).toEqual([
+			'keyboard',
+			'systemBars'
+		]);
 	});
 
 	test('discovers imports inside Vue and Svelte script blocks', async () => {
@@ -225,7 +226,9 @@ void copy.writeText('x'); void device.documents.pick(); void device.haptics.impa
 
 		expect(resolveAbsoluteDeviceCapabilityPlan(root).capabilities).toEqual([
 			'haptics',
-			'share'
+			'keyboard',
+			'share',
+			'systemBars'
 		]);
 	});
 
