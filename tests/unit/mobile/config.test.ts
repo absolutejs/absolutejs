@@ -169,6 +169,29 @@ describe('mobile config normalization', () => {
 		});
 	});
 
+	test('normalizes parameterized and terminal-wildcard Expo native routes', () => {
+		const config = normalizeAbsoluteMobileConfig(
+			{
+				appId: 'com.example.product',
+				appName: 'Product',
+				engine: 'expo',
+				routes: {
+					native: {
+						'/files/*': 'mobile/native/files.tsx',
+						'/products/:productId': 'mobile/native/product.tsx'
+					}
+				},
+				server: { productionOrigin: 'https://example.com' }
+			},
+			'/workspace'
+		);
+
+		expect(config.expoNativeRoutes).toEqual({
+			'/files/*': '/workspace/mobile/native/files.tsx',
+			'/products/:productId': '/workspace/mobile/native/product.tsx'
+		});
+	});
+
 	test('rejects unsafe Expo native route ownership', () => {
 		expect(() =>
 			normalizeAbsoluteMobileConfig(
@@ -190,11 +213,54 @@ describe('mobile config normalization', () => {
 					appId: 'com.example.product',
 					appName: 'Product',
 					engine: 'expo',
-					routes: { native: { '/account/:id': 'native.tsx' } },
+					routes: { native: { '/*': 'native.tsx' } },
 					server: { productionOrigin: 'https://example.com' }
 				},
 				'/workspace'
 			)
-		).toThrow('must be static');
+		).toThrow('final segment after');
+		expect(() =>
+			normalizeAbsoluteMobileConfig(
+				{
+					appId: 'com.example.product',
+					appName: 'Product',
+					engine: 'expo',
+					routes: {
+						native: {
+							'/account/:id': 'account.tsx',
+							'/account/:name': 'other-account.tsx'
+						}
+					},
+					server: { productionOrigin: 'https://example.com' }
+				},
+				'/workspace'
+			)
+		).toThrow('claim the same Expo route pattern');
+		expect(() =>
+			normalizeAbsoluteMobileConfig(
+				{
+					appId: 'com.example.product',
+					appName: 'Product',
+					engine: 'expo',
+					routes: {
+						native: { '/account/:bad-name': 'account.tsx' }
+					},
+					server: { productionOrigin: 'https://example.com' }
+				},
+				'/workspace'
+			)
+		).toThrow('invalid parameter');
+		expect(() =>
+			normalizeAbsoluteMobileConfig(
+				{
+					appId: 'com.example.product',
+					appName: 'Product',
+					engine: 'expo',
+					routes: { native: { '/assets/:id': 'asset.tsx' } },
+					server: { productionOrigin: 'https://example.com' }
+				},
+				'/workspace'
+			)
+		).toThrow('reserved path');
 	});
 });

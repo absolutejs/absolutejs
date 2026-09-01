@@ -41,7 +41,13 @@ const fixture = async (auth = false, sync = false) => {
 			appName: 'Product',
 			deepLinks: { hosts: ['app.example.com'], scheme: 'product' },
 			engine: 'expo',
-			routes: { native: { '/scanner': 'mobile/native/scanner.tsx' } },
+			routes: {
+				native: {
+					'/files/*': 'mobile/native/scanner.tsx',
+					'/products/:productId': 'mobile/native/scanner.tsx',
+					'/scanner': 'mobile/native/scanner.tsx'
+				}
+			},
 			server: { productionOrigin: 'https://api.example.com' }
 		},
 		root
@@ -98,10 +104,51 @@ describe('experimental Expo project', () => {
 		expect(webHost).toContain("message.method.startsWith('devices.')");
 		expect(webHost).toContain('EXPO_PUBLIC_ABSOLUTE_DEV_ANDROID_ORIGIN');
 		expect(webHost).toContain("'expo-android'");
-		expect(webHost).toContain('"/__absolute/native"');
+		expect(webHost).toContain('["__absolute","native"]');
+		expect(webHost).toContain('NATIVE_ROUTE_PATTERNS');
+		expect(webHost).toContain("expected === '*'");
 		expect(
 			await readFile(join(project, 'app', '[...absolute].tsx'), 'utf8')
 		).toContain('AbsoluteWebHost');
+		expect(
+			await readFile(
+				join(project, 'app', 'products', '[productId]', 'index.tsx'),
+				'utf8'
+			)
+		).toContain('mobile/native/scanner');
+		expect(
+			await readFile(
+				join(
+					project,
+					'app',
+					'files',
+					'[...absoluteWildcard]',
+					'index.tsx'
+				),
+				'utf8'
+			)
+		).toContain('mobile/native/scanner');
+	});
+
+	test('prunes only stale AbsoluteJS-managed native route wrappers', async () => {
+		const { config, root } = await fixture();
+		await writeAbsoluteExpoProject(config, { projectRoot: root });
+		const project = config.nativeProjectDirectory;
+		const stale = join(project, 'app', 'scanner', 'index.tsx');
+		const applicationOwned = join(project, 'app', 'application-owned.tsx');
+		await writeFile(
+			applicationOwned,
+			'export default function Owned() { return null; }\n'
+		);
+		delete config.expoNativeRoutes['/scanner'];
+
+		const result = await writeAbsoluteExpoProject(config, {
+			projectRoot: root
+		});
+
+		expect(result.changed).toBe(2);
+		await expect(readFile(stale, 'utf8')).rejects.toThrow();
+		expect(await readFile(applicationOwned, 'utf8')).toContain('Owned');
 	});
 
 	test('materializes a Metro-safe opaque asset map preserving web paths', async () => {

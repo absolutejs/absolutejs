@@ -21,9 +21,9 @@ const bridge = () => {
 			event: string,
 			listener: (payload: Record<string, unknown>) => void
 		) => {
-			const on: unknown = Reflect.get(value, 'on');
-			if (typeof on !== 'function') return () => undefined;
-			const subscription: unknown = Reflect.apply(on, value, [
+			const eventRegistrar: unknown = Reflect.get(value, 'on');
+			if (typeof eventRegistrar !== 'function') return () => undefined;
+			const subscription: unknown = Reflect.apply(eventRegistrar, value, [
 				event,
 				listener
 			]);

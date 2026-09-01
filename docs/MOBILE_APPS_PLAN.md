@@ -66,6 +66,15 @@ concurrency/size/lifetime, strips native-only values, and keeps APNs/FCM tokens
 behind native Auth. Package, TypeScript, Expo compatibility, and clean Android
 CNG gates pass; real iOS runtime and process-death picker recovery remain gates.
 
+Implementation checkpoint (August 31, 2026, Expo route-pattern slice):
+AbsoluteJS `0.20.0-beta.47` makes native replacement ownership practical for
+data-driven applications. `mobile.routes.native` accepts named `:params` and a
+terminal `*`, generates the corresponding Expo Router directories, and uses the
+same deterministic matcher for WebView links and bridge navigation. Config load
+rejects equivalent parameter patterns, malformed or repeated parameters, root
+wildcards, and Expo/Metro reserved paths. Regeneration removes stale
+AbsoluteJS-managed wrappers while preserving every application-owned module.
+
 Implementation checkpoint (August 29, 2026): the Phase 6 release-security
 baseline is implemented. `absolute mobile doctor release` now validates exact
 and aligned Capacitor core/CLI/platform packages, a committed dependency lock,
@@ -2705,7 +2714,9 @@ mobile: {
     default: 'web',
     native: {
       '/scanner': './mobile/native/scanner.tsx',
-      '/map': './mobile/native/map.tsx'
+      '/map': './mobile/native/map.tsx',
+      '/products/:productId': './mobile/native/product.tsx',
+      '/files/*': './mobile/native/files.tsx'
     }
   },
   expo: {
@@ -2757,7 +2768,9 @@ Every message needs schema validation, allowed-origin/source validation, a reque
 1. R&D spike: one Expo Router shell, one native React screen, one envelope-rendered AbsoluteJS web page, back/deep link, and one bridged device call.
 2. Formalize bridge protocol and conformance tests.
 3. Add Expo config generation, CNG config plugin, dev-client workflow, and EAS-optional builds.
-4. Add route code generation and conflict validation.
+4. Add route code generation and conflict validation. **Operational:** static,
+   named-parameter, and terminal-wildcard ownership generate deterministic Expo
+   Router wrappers and reject ambiguous or reserved patterns.
 5. Add auth/state/theme/accessibility bridges.
 6. Test WebView lifecycle, memory, process death, OTA compatibility, and store review posture.
 7. Mark experimental only after the all-framework demo works; stable only after production upgrade/rollback tests.

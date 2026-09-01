@@ -26,6 +26,16 @@ const APPLE_APP_ID_PREFIX_PATTERN = /^[A-Z0-9]{10}$/;
 const CERTIFICATE_FINGERPRINT_PATTERN = /^[0-9A-F]{64}$/;
 const HOSTNAME_PATTERN =
 	/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*$/;
+const EXPO_RESERVED_ROUTE_PREFIXES = new Set([
+	'_expo',
+	'_flight',
+	'_sitemap',
+	'assets',
+	'expo-dev-plugins',
+	'inspector',
+	'manifest',
+	'public'
+]);
 
 const resolveProjectPath = (
 	projectRoot: string,
@@ -185,6 +195,42 @@ const normalizeCertificateFingerprints = (
 		)
 	].sort();
 
+const validateExpoNativeRouteSegment = (
+	path: string,
+	segment: string,
+	index: number,
+	count: number,
+	parameters: Set<string>
+) => {
+	if (segment === '*' && (index !== count - 1 || count === 1)) {
+		throw new TypeError(
+			`mobile.routes.native route ${path} must use * once, as the final segment after a static or parameterized prefix.`
+		);
+	}
+	if (segment === '*') return;
+	if (
+		!segment.startsWith(':') &&
+		(segment.includes('*') || segment.includes(':'))
+	) {
+		throw new TypeError(
+			`mobile.routes.native route ${path} contains invalid segment ${segment}.`
+		);
+	}
+	if (!segment.startsWith(':')) return;
+	const name = segment.slice(1);
+	if (!/^[A-Za-z][A-Za-z0-9_]*$/u.test(name)) {
+		throw new TypeError(
+			`mobile.routes.native route ${path} has invalid parameter ${segment}.`
+		);
+	}
+	if (parameters.has(name)) {
+		throw new TypeError(
+			`mobile.routes.native route ${path} repeats parameter ${segment}.`
+		);
+	}
+	parameters.add(name);
+};
+
 const normalizeExpoNativeRoutes = (
 	config: MobileConfig,
 	projectRoot: string
@@ -192,6 +238,7 @@ const normalizeExpoNativeRoutes = (
 	if (config.engine !== 'expo') return {};
 	const routes = config.routes?.native ?? {};
 	const normalized: Record<string, string> = {};
+	const ownership = new Map<string, string>();
 	for (const [route, module] of Object.entries(routes)) {
 		const path = normalizeEntry(route);
 		if (
@@ -208,11 +255,32 @@ const normalizeExpoNativeRoutes = (
 				'mobile.routes.native reserves /__absolute/native for the Expo diagnostic screen.'
 			);
 		}
-		if (path.includes('*') || path.includes(':')) {
+		const segments = path.split('/').filter(Boolean);
+		if (segments[0] && EXPO_RESERVED_ROUTE_PREFIXES.has(segments[0])) {
 			throw new TypeError(
-				`mobile.routes.native route ${path} must be static during the Expo experiment; parameters and wildcards are not supported yet.`
+				`mobile.routes.native route ${path} conflicts with an Expo Router or Metro reserved path.`
 			);
 		}
+		const parameters = new Set<string>();
+		segments.forEach((segment, index) =>
+			validateExpoNativeRouteSegment(
+				path,
+				segment,
+				index,
+				segments.length,
+				parameters
+			)
+		);
+		const signature = segments
+			.map((segment) => (segment.startsWith(':') ? ':' : segment))
+			.join('/');
+		const existing = ownership.get(signature);
+		if (existing) {
+			throw new TypeError(
+				`mobile.routes.native routes ${existing} and ${path} claim the same Expo route pattern.`
+			);
+		}
+		ownership.set(signature, path);
 		normalized[path] = resolveProjectPath(
 			projectRoot,
 			requireText(module, `mobile.routes.native[${path}]`),

@@ -213,8 +213,9 @@ actual result, sanitized logs, and artifact or screenshot path in section 13.
 - [ ] `DEV-01` Complete the cold and warm `bun dev` simulator runs.
 - [ ] `DEV-02` Complete route traversal, HMR timing, relaunch, and recovery.
 - [ ] `HTTPS-01` Complete trusted local HTTPS and HMR in the iOS Simulator.
-- [ ] `EXPO-01` through `EXPO-06` Complete Expo CNG, HTTPS, web HMR, native Fast
-  Refresh, cleanup, and physical-device enrollment acceptance.
+- [ ] `EXPO-01` through `EXPO-08` Complete Expo CNG, HTTPS, web HMR, native Fast
+  Refresh, patterned native routing, cleanup, and physical-device enrollment
+  acceptance.
 - [ ] `EXPO-DEVICES-01` through `EXPO-DEVICES-12` Complete provider-neutral
   capabilities, privacy, bridge, push, and rebuild-boundary acceptance.
 - [ ] `EXPO-AUTH-01` through `EXPO-AUTH-08` Complete Expo system-browser Auth,
@@ -589,8 +590,22 @@ performing these checks:
   `[hmr:expo-ios]` update work. Stop the command and verify that the enrollment
   URL no longer responds. Record `SKIPPED — no dedicated iOS development
   device` if unavailable.
+- [ ] `EXPO-07` In the application-owned config, map
+  `/products/:productId` and `/files/*` to disposable native React modules under
+  the application root. In those modules, read parameters with Expo Router's
+  `useLocalSearchParams`. Restart Terminal 1, follow ordinary AbsoluteJS links
+  to `/products/test-product`, `/files/one`, and `/files/one/two`, and confirm
+  all three render native UI with the expected sanitized parameter shape. Also
+  open the product URL through the configured custom scheme and confirm cold
+  deep-link ownership selects the same native route.
+- [ ] `EXPO-08` Remove only `/products/:productId` from
+  `mobile.routes.native`, restart Terminal 1, and confirm its generated
+  `.absolutejs/mobile/expo/app/products/[productId]/index.tsx` wrapper is gone.
+  Confirm the application-owned module still exists and `/products/test-product`
+  now falls back to the ordinary AbsoluteJS web route. Restore the config after
+  recording the result.
 
-Return the sanitized Terminal 1 output and the six result rows. Never return
+Return the sanitized Terminal 1 output and the eight result rows. Never return
 the CA private key, Apple credentials, provisioning profiles, raw device logs,
 or the contents of environment files.
 
@@ -1869,7 +1884,7 @@ source change and build a new content-addressed release instead.
 - Mac architecture:
 - Xcode version:
 - Bun version:
-- AbsoluteJS version: 0.20.0-beta.46
+- AbsoluteJS version: 0.20.0-beta.47
 - Auth version: 0.75.0
 - Dispatch version: 0.9.0
 - Sync version: 2.29.0
@@ -1918,6 +1933,8 @@ versus expected behavior. Do not report exact coordinates.
 | EXPO-04 |  | Metro Fast Refresh / regeneration: |  |
 | EXPO-05 |  | production prebuild trust isolation: |  |
 | EXPO-06 |  | physical CA enrollment / HTTPS HMR / cleanup or skipped: |  |
+| EXPO-07 |  | parameter/wildcard link + deep-link ownership: |  |
+| EXPO-08 |  | stale-wrapper pruning / web fallback / source preservation: |  |
 | EXPO-DEVICES-01 |  | exact packages / generated CNG policy: |  |
 | EXPO-DEVICES-02 |  | Expo dependency check: |  |
 | EXPO-DEVICES-03 |  | clipboard / haptics / keyboard / bars / share: |  |

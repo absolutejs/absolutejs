@@ -140,7 +140,10 @@ export type ExpoMobileConfig = MobileSharedConfig & {
 	routes?: {
 		/** Unclaimed routes remain ordinary AbsoluteJS web routes. */
 		default?: 'web';
-		/** Absolute route path to a React Native module, relative to the app root. */
+		/**
+		 * Absolute route pattern to a React Native module, relative to the app root.
+		 * Named `:params` match one segment; a final `*` matches one or more.
+		 */
 		native?: Readonly<Record<string, string>>;
 	};
 	expo?: {

@@ -10,7 +10,7 @@ import {
 	writeFile
 } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
-import { basename, dirname, join, relative, resolve } from 'node:path';
+import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import type { NormalizedAbsoluteMobileConfig } from './config';
 import {
 	ABSOLUTE_EXPO_AUTH_PACKAGE,
@@ -57,24 +57,26 @@ const portableRelative = (from: string, destination: string) => {
 	return value.startsWith('.') ? value : `./${value}`;
 };
 
-const routeSegments = (route: string) =>
-	route
-		.split('/')
-		.filter(Boolean)
-		.map((segment) => {
-			if (segment.startsWith(':')) return `[${segment.slice(1)}]`;
-			if (
-				segment === '.' ||
-				segment === '..' ||
-				!/^[A-Za-z0-9._~-]+$/u.test(segment)
-			) {
-				throw new TypeError(
-					`Expo native route ${route} contains an unsupported segment ${segment}.`
-				);
-			}
+const routeSegments = (route: string) => {
+	const segments = route.split('/').filter(Boolean);
 
-			return segment;
-		});
+	return segments.map((segment, index) => {
+		if (segment.startsWith(':')) return `[${segment.slice(1)}]`;
+		if (segment === '*' && index === segments.length - 1)
+			return '[...absoluteWildcard]';
+		if (
+			segment === '.' ||
+			segment === '..' ||
+			!/^[A-Za-z0-9._~-]+$/u.test(segment)
+		) {
+			throw new TypeError(
+				`Expo native route ${route} contains an unsupported segment ${segment}.`
+			);
+		}
+
+		return segment;
+	});
+};
 
 const routeFile = (project: string, route: string) =>
 	join(project, 'app', ...routeSegments(route), 'index.tsx');
@@ -652,6 +654,9 @@ const webHostSource = (
 		'/__absolute/native',
 		...Object.keys(config.expoNativeRoutes)
 	];
+	const nativeRoutePatterns = nativeRoutes.map((route) =>
+		route.split('/').filter(Boolean)
+	);
 
 	return `${EXPO_GENERATED_HEADER}import * as Linking from 'expo-linking';
 import { router, usePathname } from 'expo-router';
@@ -667,7 +672,7 @@ ${sync ? "import { createAbsoluteExpoSyncBridge, startAbsoluteExpoSync } from '.
 const BRIDGE_FORMAT = 3;
 const MAX_MESSAGE_BYTES = 64 * 1024;
 const MAX_HTTP_BODY_BYTES = 48 * 1024;
-const NATIVE_ROUTES = new Set(${JSON.stringify(nativeRoutes)});
+const NATIVE_ROUTE_PATTERNS = ${JSON.stringify(nativeRoutePatterns)};
 const PRODUCTION_ORIGIN = ${JSON.stringify(config.productionOrigin)};
 const DEV_ORIGIN = Platform.OS === 'android'
 	? process.env.EXPO_PUBLIC_ABSOLUTE_DEV_ANDROID_ORIGIN
@@ -675,6 +680,19 @@ const DEV_ORIGIN = Platform.OS === 'android'
 const HMR_TARGET = Platform.OS === 'android' ? 'expo-android' : 'expo-ios';
 const AUTH_ENABLED = ${auth ? 'true' : 'false'};
 const SYNC_ENABLED = ${sync ? 'true' : 'false'};
+
+const isNativeRoute = (pathname: string) => {
+	const segments = pathname.split('/').filter(Boolean);
+	return NATIVE_ROUTE_PATTERNS.some(pattern => {
+		for (let index = 0; index < pattern.length; index += 1) {
+			const expected = pattern[index]!;
+			if (expected === '*') return segments.length > index;
+			if (segments[index] === undefined) return false;
+			if (!expected.startsWith(':') && expected !== segments[index]) return false;
+		}
+		return segments.length === pattern.length;
+	});
+};
 
 const bridgeBootstrap = (path: string) => {
 	const initialPath = DEV_ORIGIN
@@ -751,7 +769,7 @@ const bridgeBootstrap = (path: string) => {
 		const anchor = event.target instanceof Element ? event.target.closest('a[href]') : null;
 		if (!anchor) return;
 		const url = new URL(anchor.href, location.href);
-		if (!${JSON.stringify(nativeRoutes)}.includes(url.pathname)) return;
+		if (!isNativeRoute(url.pathname)) return;
 		event.preventDefault();
 		send({ format: 3, kind: 'event', event: 'navigation', path: url.pathname + url.search + url.hash });
 	}, true);
@@ -886,7 +904,7 @@ export function AbsoluteWebHost() {
 		if (message.kind === 'event' && (message.event === 'navigation' || message.event === 'ready')) {
 			const target = new URL(message.path, PRODUCTION_ORIGIN);
 			if (target.origin !== PRODUCTION_ORIGIN) return;
-			if (NATIVE_ROUTES.has(target.pathname)) router.push(message.path as never);
+			if (isNativeRoute(target.pathname)) router.push(message.path as never);
 			else activeWebPath.current = message.path;
 			return;
 		}
@@ -1034,6 +1052,30 @@ const writeManagedFile = async (
 	return true;
 };
 
+const pruneStaleManagedExpoRoutes = async (
+	project: string,
+	expected: ReadonlySet<string>
+) => {
+	const appDirectory = join(project, 'app');
+	if (!(await exists(appDirectory))) return 0;
+	const files = await walkFiles(appDirectory);
+	const stale = (
+		await Promise.all(
+			files.map(async (path) => ({
+				managed:
+					path.endsWith('.tsx') &&
+					(await readFile(path, 'utf8')).startsWith(
+						EXPO_GENERATED_HEADER
+					),
+				path
+			}))
+		)
+	).filter(({ managed, path }) => managed && !expected.has(path));
+	await Promise.all(stale.map(({ path }) => rm(path, { force: true })));
+
+	return stale.length;
+};
+
 const jsonSource = (value: unknown) => `${JSON.stringify(value, null, '\t')}\n`;
 
 const emptyWebAssetsSource = `${EXPO_GENERATED_HEADER}export const materializeAbsoluteWebBundle = async () => {
@@ -1152,10 +1194,18 @@ export const writeAbsoluteExpoProject = async (
 				: routeFile(project, route);
 		files.set(wrapper, nativeWrapperSource(wrapper, module));
 	}
+	const removed = await pruneStaleManagedExpoRoutes(
+		project,
+		new Set(
+			[...files.keys()].filter((path) =>
+				path.startsWith(`${join(project, 'app')}${sep}`)
+			)
+		)
+	);
 	const changes = await Promise.all(
 		[...files].map(([path, source]) => writeManagedFile(path, source, true))
 	);
-	const changed = changes.filter(Boolean).length;
+	const changed = removed + changes.filter(Boolean).length;
 
 	return { changed, path: project, written: [...files.keys()] };
 };

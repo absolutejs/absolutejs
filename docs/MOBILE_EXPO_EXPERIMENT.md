@@ -6,6 +6,8 @@ first-class combined development loop was added in `0.20.0-beta.41`, HTTPS in
 Auth plus authenticated HTTP in `0.20.0-beta.44`. Native-owned durable Sync is
 added in `0.20.0-beta.45`. Provider-neutral Expo device capabilities are added
 in `0.20.0-beta.46` through `@absolutejs/devices-expo@0.0.2`.
+Parameterized and terminal-wildcard native route ownership is added in
+`0.20.0-beta.47`.
 
 AbsoluteJS can generate an experimental Expo Router shell in which explicitly
 selected routes render React Native UI and all other routes remain ordinary
@@ -24,7 +26,8 @@ Implemented in the first spike:
 - Expo SDK 57 and Expo Router shell generation;
 - CNG app configuration for the application ID, custom scheme, Android App
   Links, and iOS Universal Links;
-- explicit, conflict-free ownership of static native routes;
+- explicit, conflict-free ownership of static, parameterized, and
+  terminal-wildcard native routes;
 - a WebView catch-all for every unclaimed AbsoluteJS route;
 - content-addressed embedded web assets copied through Metro as opaque assets
   and restored with their original paths on the device;
@@ -86,7 +89,6 @@ Implemented in the first spike:
 Not implemented, and therefore not claimed:
 
 - Android process-death restoration of an in-flight Expo image picker result;
-- dynamic or wildcard native route ownership;
 - Expo release, signing, store publishing, EAS Update, rollback, process-death,
   physical-device, accessibility, or performance acceptance;
 - Expo production support.
@@ -122,7 +124,9 @@ export default defineConfig({
     routes: {
       default: 'web',
       native: {
-        '/scanner': './mobile/native/scanner.tsx'
+        '/scanner': './mobile/native/scanner.tsx',
+        '/products/:productId': './mobile/native/product.tsx',
+        '/files/*': './mobile/native/files.tsx'
       }
     }
   }
@@ -132,21 +136,27 @@ export default defineConfig({
 The native module is ordinary application-owned source:
 
 ```tsx
-import { Link } from 'expo-router';
+import { Link, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView, Text } from 'react-native';
 
-export default function Scanner() {
+export default function Product() {
+  const { productId } = useLocalSearchParams<{ productId: string }>();
   return (
     <SafeAreaView>
-      <Text>Native scanner screen</Text>
+      <Text>Native product {productId}</Text>
       <Link href="/">Back to the AbsoluteJS app</Link>
     </SafeAreaView>
   );
 }
 ```
 
-Native routes must currently be static paths. Existing page routes require no
-edits and must not be repeated in the config.
+Named `:params` claim exactly one path segment and are exposed by Expo Router's
+`useLocalSearchParams`. A final `*` claims one or more remaining segments. A
+root `/*`, repeated/invalid parameter names, equivalent patterns such as
+`/users/:id` plus `/users/:name`, and Expo/Metro reserved paths are rejected at
+config load. Existing page routes require no edits and must not be repeated in
+the config. Removing a route from config prunes only its AbsoluteJS-managed
+wrapper; application-owned native modules remain untouched.
 
 ## Generate and run it
 
