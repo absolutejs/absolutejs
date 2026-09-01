@@ -2417,29 +2417,32 @@ const handleReactModuleServerPath = async (
 	const broadcastTarget = await resolveBroadcastTarget(primaryFile);
 	const pageModuleUrl = await getReactModuleUrl(broadcastTarget);
 
-	if (pageModuleUrl) {
-		const serverDuration = Date.now() - startTime;
-		state.lastHmrPath = relative(process.cwd(), primaryFile).replace(
-			/\\/g,
-			'/'
-		);
-		state.lastHmrFramework = 'react';
+	const serverDuration = Date.now() - startTime;
+	state.lastHmrPath = relative(process.cwd(), primaryFile).replace(/\\/g, '/');
+	state.lastHmrFramework = 'react';
 
-		broadcastToClients(state, {
-			data: {
-				fastRefreshSupported,
-				framework: 'react',
-				hasComponentChanges: true,
-				hasCSSChanges: false,
-				manifest: state.manifest,
-				pageModuleUrl,
-				primarySource: primaryFile,
-				serverDuration,
-				sourceFiles: reactFiles
-			},
-			type: 'react-update'
-		});
-	}
+	// A resolved module URL is expected here, but never swallow the edit if one
+	// is missing: broadcast anyway so the client takes its full-reload fallback
+	// (handlers/react.ts) instead of the page silently freezing on stale code.
+	if (!pageModuleUrl)
+		logWarn(
+			`React HMR could not resolve a module URL for ${state.lastHmrPath}; the client will full-reload.`
+		);
+
+	broadcastToClients(state, {
+		data: {
+			fastRefreshSupported,
+			framework: 'react',
+			hasComponentChanges: true,
+			hasCSSChanges: false,
+			manifest: state.manifest,
+			pageModuleUrl,
+			primarySource: primaryFile,
+			serverDuration,
+			sourceFiles: reactFiles
+		},
+		type: 'react-update'
+	});
 
 	onRebuildComplete({
 		hmrState: state,
