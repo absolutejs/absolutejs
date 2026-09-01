@@ -1,6 +1,5 @@
 import { file } from 'bun';
 import { transformCurrentStaticPageHtml } from '../build/staticIslandPages';
-import { injectIslandPageContext } from './islandPageContext';
 import { withPageCacheHeaders } from './pageResponseCache';
 import { extractStaticStreamingTags } from './staticStreaming';
 import {
@@ -14,6 +13,11 @@ import {
 	finalizeAbsoluteMobilePage,
 	type AbsoluteMobilePageFramework
 } from '../mobile/pageProtocol';
+import {
+	htmlContainsIslands,
+	injectIslandPageContext
+} from './islandPageContext';
+import { injectBrowserTranslationBaseline } from './browserTranslation';
 
 export type StaticPageRequestOptions = StreamingSlotEnhancerOptions;
 
@@ -62,10 +66,13 @@ const handleStaticPageRequest = async (
 		html,
 		settings
 	);
+	const htmlWithTranslationBaseline = htmlContainsIslands(transformedHtml)
+		? injectBrowserTranslationBaseline(transformedHtml)
+		: transformedHtml;
 
 	return withPageCacheHeaders(
 		await withStreamingSlots(
-			new Response(injectIslandPageContext(transformedHtml), {
+			new Response(injectIslandPageContext(htmlWithTranslationBaseline), {
 				headers: { 'Content-Type': 'text/html' }
 			}),
 			{

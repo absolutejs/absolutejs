@@ -94,4 +94,22 @@ describe('static page handlers', () => {
 			'HTMX page'
 		);
 	});
+
+	for (const [name, handle] of [
+		['HTML', handleHTMLPageRequest],
+		['HTMX', handleHTMXPageRequest]
+	] as const) {
+		test(`${name} pages snapshot SSR text before lazy islands hydrate`, async () => {
+			const pagePath = await writeTempPage(
+				'<!DOCTYPE html><html><head></head><body><div data-island="true" data-framework="react" data-component="Card" data-hydrate="visible" data-props="{}"><p>Server text</p></div></body></html>'
+			);
+			const response = await handle(pagePath);
+			const html = await response.text();
+
+			expect(html).toContain('__ABSOLUTE_SSR_TEXT_BASELINES__');
+			expect(
+				html.indexOf('__ABSOLUTE_SSR_TEXT_BASELINES__')
+			).toBeLessThan(html.indexOf('</body>'));
+		});
+	}
 });

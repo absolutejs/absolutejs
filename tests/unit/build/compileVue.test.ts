@@ -211,6 +211,13 @@ defineProps<PageProps>();
 				'const shouldHydrate = typeof window === "undefined" ? false : !(isHMR || isSsrDirty || hasSpaRoutes || isClientRender);'
 			);
 			expect(indexContent).toContain(
+				'import { prepareBrowserTranslationHydration } from "@absolutejs/absolute/vue";'
+			);
+			expect(indexContent).toContain(
+				'prepareBrowserTranslationHydration(document.querySelector("#root"))'
+			);
+			expect(indexContent).toContain('restoreBrowserTranslation();');
+			expect(indexContent).toContain(
 				'window.__ABSOLUTE_PAGE_DISPOSE__ = async function()'
 			);
 			expect(indexContent).toContain('window.__ABS_SLOT_HYDRATION_PENDING__ = shouldHydrate;');

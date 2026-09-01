@@ -181,6 +181,10 @@ describe('handleAngularPageRequest streaming', () => {
 		expect(html).toContain(
 			'<script>import("/angular-test-index.js");</script>'
 		);
+		expect(html).toContain('__ABSOLUTE_SSR_TEXT_BASELINES__');
+		expect(html.indexOf('__ABSOLUTE_SSR_TEXT_BASELINES__')).toBeLessThan(
+			html.indexOf('import("/angular-test-index.js")')
+		);
 		expect(html).toContain('angular fast resolved');
 		expect(html).toContain('angular slow resolved');
 		expect(fastPatchIndex).toBeGreaterThan(-1);

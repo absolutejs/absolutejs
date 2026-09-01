@@ -39,6 +39,10 @@ describe('handleSveltePageRequest streaming', () => {
 		expect(html).toContain('id="svelte-slow"');
 		expect(html).toContain('svelte fast resolved');
 		expect(html).toContain('svelte slow resolved');
+		expect(html).toContain('__ABSOLUTE_SSR_TEXT_BASELINES__');
+		expect(html.indexOf('__ABSOLUTE_SSR_TEXT_BASELINES__')).toBeLessThan(
+			html.indexOf('/svelte-test-index.js')
+		);
 		expect(fastPatchIndex).toBeGreaterThan(-1);
 		expect(slowPatchIndex).toBeGreaterThan(-1);
 		expect(fastPatchIndex).toBeLessThan(slowPatchIndex);

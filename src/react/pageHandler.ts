@@ -26,6 +26,7 @@ import {
 	renderConventionError,
 	resolveErrorConventionPath
 } from '../utils/resolveConvention';
+import { BROWSER_TRANSLATION_BASELINE_SCRIPT } from '../core/browserTranslation';
 
 type ReactPageRenderOptions = StreamingSlotEnhancerOptions & {
 	collectStreamingSlots?: boolean;
@@ -153,7 +154,10 @@ export const handleReactPageRequest = async <
 
 			const stream = await renderToReadableStream(element, {
 				bootstrapModules: [resolvedIndex],
-				bootstrapScriptContent: propsScript + refreshSetup || undefined,
+				bootstrapScriptContent:
+					BROWSER_TRANSLATION_BASELINE_SCRIPT +
+					propsScript +
+					refreshSetup,
 				onError(error: unknown) {
 					console.error('[SSR] React streaming error:', error);
 				}

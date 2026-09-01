@@ -472,6 +472,13 @@ export class InterpolatePageComponent {
 		expect(indexContent).toContain(
 			'window.__ABSOLUTE_PAGE_DISPOSE__ = async function()'
 		);
+		expect(indexContent).toContain(
+			"import { prepareBrowserTranslationHydration } from '@absolutejs/absolute/client'"
+		);
+		expect(indexContent).toContain(
+			'restoreTranslation = prepareBrowserTranslationHydration(document.querySelector(_sel))'
+		);
+		expect(indexContent).toContain('}).finally(restoreTranslation)');
 
 		await rm(outDir, { force: true, recursive: true });
 	},

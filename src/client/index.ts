@@ -8,3 +8,7 @@ export {
 	subscribeIslandStore
 } from './islandStore';
 export { startIslands } from './islandRuntime';
+export {
+	captureSsrTextBaselines,
+	prepareBrowserTranslationHydration
+} from './browserTranslation';

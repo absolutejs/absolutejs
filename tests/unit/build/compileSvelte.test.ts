@@ -80,6 +80,12 @@ describe('compileSvelte', () => {
 			expect(plainIndex).toContain(
 				'window.__ABSOLUTE_PAGE_DISPOSE__ = function()'
 			);
+			expect(plainIndex).toContain(
+				'import { prepareBrowserTranslationHydration } from "@absolutejs/absolute/client"'
+			);
+			expect(plainIndex).toContain(
+				'var restoreTranslation = prepareBrowserTranslationHydration(target)'
+			);
 		} finally {
 			await rm(root, { force: true, recursive: true });
 		}

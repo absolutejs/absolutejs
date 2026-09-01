@@ -35,6 +35,7 @@ import {
 	ABSOLUTE_TELEPORT_TARGET,
 	ABSOLUTE_TELEPORT_TARGET_ID
 } from './teleports';
+import { BROWSER_TRANSLATION_BASELINE_SCRIPT } from '../core/browserTranslation';
 
 type VuePageRenderOptions = StreamingSlotEnhancerOptions & {
 	collectStreamingSlots?: boolean;
@@ -343,7 +344,7 @@ export const handleVuePageRequest = async <Component extends VueComponent>(
 
 				return clientMode === 'none'
 					? `</div>${teleportHost}${ssrOnlyHmrShim}</body></html>`
-					: `</div>${teleportHost}<script>window.__INITIAL_PROPS__=${JSON.stringify(
+					: `</div>${teleportHost}<script>${BROWSER_TRANSLATION_BASELINE_SCRIPT}window.__INITIAL_PROPS__=${JSON.stringify(
 							maybeProps ?? {}
 						)}</script><script type="module" src="${resolvedIndexPath}"></script></body></html>`;
 			};

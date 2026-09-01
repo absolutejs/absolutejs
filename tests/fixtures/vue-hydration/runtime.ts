@@ -22,6 +22,8 @@ Object.assign(globalThis, nativeWebGlobals);
 try {
 	const { createSSRApp, defineComponent, h, Teleport } = await import('vue');
 	const { handleVuePageRequest } = await import('../../../src/vue');
+	const { captureSsrTextBaselines, prepareBrowserTranslationHydration } =
+		await import('../../../src/vue/browserTranslation');
 	const { ABSOLUTE_TELEPORT_TARGET } = await import(
 		'../../../src/vue/teleports'
 	);
@@ -53,13 +55,24 @@ try {
 	);
 	document.head.innerHTML = parsed.head.innerHTML;
 	document.body.innerHTML = parsed.body.innerHTML;
+	const root = document.querySelector<HTMLElement>('#root');
+	const main = document.querySelector<HTMLElement>('main');
+	if (root === null || main === null) throw new Error('SSR fixture missing');
+	captureSsrTextBaselines(root);
+	main.textContent = '翻訳されたコンテンツ';
 	const warnings: string[] = [];
 	const originalWarn = console.warn;
 	console.warn = (...args: unknown[]) =>
 		warnings.push(args.map((value) => String(value)).join(' '));
 
 	try {
-		createSSRApp(TeleportPage).mount('#root');
+		const restoreBrowserTranslation =
+			prepareBrowserTranslationHydration(root);
+		try {
+			createSSRApp(TeleportPage).mount(root);
+		} finally {
+			restoreBrowserTranslation();
+		}
 	} finally {
 		console.warn = originalWarn;
 	}
@@ -68,6 +81,7 @@ try {
 		JSON.stringify({
 			teleported:
 				document.querySelector('#teleported-dialog')?.textContent,
+			translated: main.textContent,
 			warnings: warnings.filter((warning) => /hydration/i.test(warning))
 		})
 	);

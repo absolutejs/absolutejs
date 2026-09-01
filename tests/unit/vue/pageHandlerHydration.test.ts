@@ -25,6 +25,7 @@ describe('handleVuePageRequest hydration', () => {
 		expect(exitCode).toBe(0);
 		expect(JSON.parse(stdout)).toEqual({
 			teleported: 'Teleported content',
+			translated: '翻訳されたコンテンツ',
 			warnings: []
 		});
 	});

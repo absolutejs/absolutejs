@@ -28,6 +28,7 @@ import {
 	derivePageName,
 	renderConventionError
 } from '../utils/resolveConvention';
+import { BROWSER_TRANSLATION_BASELINE_SCRIPT } from '../core/browserTranslation';
 
 type GenericSvelteComponent = SvelteComponent<Record<string, unknown>>;
 type ResolvedSveltePage = {
@@ -264,7 +265,7 @@ export const handleSveltePageRequest = async <
 				resolvedProps,
 				{
 					bodyContent: resolvedOptions?.bodyContent,
-					bootstrapScriptContent: `window.__ABS_SLOT_HYDRATION_PENDING__=true;window.__INITIAL_PROPS__=${JSON.stringify(
+					bootstrapScriptContent: `${BROWSER_TRANSLATION_BASELINE_SCRIPT}window.__ABS_SLOT_HYDRATION_PENDING__=true;window.__INITIAL_PROPS__=${JSON.stringify(
 						resolvedProps
 					)};${resolvedIndexPath ? `import(${JSON.stringify(resolvedIndexPath)});` : ''}`,
 					headContent: composedHeadContent

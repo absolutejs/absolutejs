@@ -11,6 +11,11 @@ export type {
 export { Island } from './Island';
 export { createTypedIsland } from './createIsland';
 export { useIslandStore } from './useIslandStore';
+export {
+	captureSsrTextBaselines,
+	prepareBrowserTranslationHydration,
+	preserveBrowserTranslation
+} from './browserTranslation';
 export { Image } from './components/Image';
 export { StreamSlot, SuspenseSlot } from './components';
 export { useResource } from './useResource';

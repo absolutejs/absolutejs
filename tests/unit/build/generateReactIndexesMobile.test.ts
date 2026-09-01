@@ -38,6 +38,15 @@ describe('generated React mobile entry', () => {
 		expect(source).toContain('root = createRoot(container)');
 		expect(source).toContain("document.getElementById('root')");
 		expect(source).toContain('window.__ABSOLUTE_PAGE_DISPOSE__');
+		expect(source).toContain(
+			"import { prepareBrowserTranslationHydration } from '@absolutejs/absolute/client'"
+		);
+		expect(source).toContain(
+			'const restoreTranslation = prepareBrowserTranslationHydration(container)'
+		);
+		expect(source).toContain(
+			'if (restoreTranslation.hasTranslation) flushSync(startHydration)'
+		);
 	});
 
 	test('generates a dev remount hook for Bun builds without Fast Refresh transforms', async () => {

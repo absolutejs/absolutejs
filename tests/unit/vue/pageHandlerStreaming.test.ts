@@ -48,6 +48,27 @@ const VueStreamingTestPage = defineComponent({
 });
 
 describe('handleVuePageRequest streaming', () => {
+	test('captures SSR text before loading the Vue client module', async () => {
+		const response = await handleVuePageRequest({
+			indexPath: '/vue-translation-index.js',
+			Page: defineComponent({
+				setup: () => () => h('h1', 'AI Matching')
+			}),
+			pagePath: '/tests/translation.vue'
+		});
+		const html = await response.text();
+		const baselineIndex = html.indexOf(
+			'window.__ABSOLUTE_SSR_TEXT_BASELINES__=new WeakMap()'
+		);
+		const moduleIndex = html.indexOf(
+			'<script type="module" src="/vue-translation-index.js">'
+		);
+
+		expect(html).toContain('<h1>AI Matching</h1>');
+		expect(baselineIndex).toBeGreaterThan(-1);
+		expect(moduleIndex).toBeGreaterThan(baselineIndex);
+	});
+
 	test('returns a 404 when an SPA router marks the request as unmatched', async () => {
 		const directory = await mkdtemp(join(tmpdir(), 'absolute-vue-404-'));
 		const pagePath = join(directory, 'Portal.js');

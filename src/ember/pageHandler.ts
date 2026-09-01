@@ -1,6 +1,7 @@
 import { pathToFileURL } from 'node:url';
 import { withPageCacheHeaders } from '../core/pageResponseCache';
 import { ssrErrorPage } from '../utils/ssrErrorPage';
+import { injectBrowserTranslationBaseline } from '../core/browserTranslation';
 
 /**
  * Phase 1 Ember page handler.
@@ -103,10 +104,10 @@ const buildHtmlShell = (
 		? `<script type="module" src="${indexPath}"></script>`
 		: '';
 
-	return (
+	return injectBrowserTranslationBaseline(
 		`<!DOCTYPE html><html>${headTag}<body>` +
-		`<div id="ember-root">${bodyContent}</div>` +
-		`<script>${propsScript}</script>${indexImport}${hmrShim}</body></html>`
+			`<div id="ember-root">${bodyContent}</div>` +
+			`<script>${propsScript}</script>${indexImport}${hmrShim}</body></html>`
 	);
 };
 

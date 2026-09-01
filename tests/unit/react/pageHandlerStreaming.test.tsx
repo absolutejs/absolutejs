@@ -63,6 +63,10 @@ describe('handleReactPageRequest streaming', () => {
 		expect(html).toContain('id="react-slow"');
 		expect(html).toContain('fast resolved');
 		expect(html).toContain('slow resolved');
+		expect(html).toContain('__ABSOLUTE_SSR_TEXT_BASELINES__');
+		expect(html.indexOf('__ABSOLUTE_SSR_TEXT_BASELINES__')).toBeLessThan(
+			html.lastIndexOf('/react-test-index.js')
+		);
 		expect(fastPatchIndex).toBeGreaterThan(UNFOUND_INDEX);
 		expect(slowPatchIndex).toBeGreaterThan(UNFOUND_INDEX);
 		expect(fastPatchIndex).toBeLessThan(slowPatchIndex);

@@ -5,6 +5,7 @@ import {
 	getAndClearClientScripts,
 	generateClientScriptCode
 } from '../utils/registerClientScript';
+import { browserTranslationBaselineTag } from '../core/browserTranslation';
 import { buildAbsoluteHttpTransferCacheOptions } from './httpTransferCache';
 import { buildRequestProviders } from './requestProviders';
 
@@ -85,7 +86,7 @@ export const injectSsrScripts = (
 	indexPath: string,
 	requestContext?: unknown
 ) => {
-	let result = html;
+	let result = injectBeforeClose(html, browserTranslationBaselineTag());
 
 	const registeredScripts = getAndClearClientScripts(requestId);
 	if (registeredScripts.length > 0) {

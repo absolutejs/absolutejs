@@ -127,11 +127,15 @@ export const generateReactIndexFiles = async (
 		const reactImports = isDev
 			? [
 					`import { hydrateRoot, createRoot } from 'react-dom/client';`,
-					`import { createElement, Component } from 'react';`
+					`import { flushSync } from 'react-dom';`,
+					`import { createElement, Component } from 'react';`,
+					`import { prepareBrowserTranslationHydration } from '@absolutejs/absolute/client';`
 				]
 			: [
 					`import { hydrateRoot, createRoot } from 'react-dom/client';`,
-					`import { createElement } from 'react';`
+					`import { flushSync } from 'react-dom';`,
+					`import { createElement } from 'react';`,
+					`import { prepareBrowserTranslationHydration } from '@absolutejs/absolute/client';`
 				];
 
 		const errorBoundaryDef = isDev
@@ -315,8 +319,10 @@ export const generateReactIndexFiles = async (
 			`\t\troot.render(${isDev ? `createElement(ErrorBoundary, null, createElement(PageComponent, mergedProps))` : `createElement(PageComponent, mergedProps)`});`,
 			`\t\twindow.__REACT_ROOT__ = root;`,
 			`\t} else {`,
+			`\tconst restoreTranslation = prepareBrowserTranslationHydration(container);`,
 			`\ttry {`,
 			`\t\t// Use onRecoverableError to catch hydration errors (React 19)`,
+			`\t\tconst startHydration = () => {`,
 			`\t\troot = hydrateRoot(`,
 			`\t\t\tcontainer,`,
 			`\t\t\t${isDev ? `createElement(ErrorBoundary, null, createElement(PageComponent, mergedProps))` : `createElement(PageComponent, mergedProps)`},`,
@@ -353,8 +359,13 @@ export const generateReactIndexFiles = async (
 			`\t\t\t\t}`,
 			`\t\t\t}`,
 			`\t\t);`,
+			`\t\t};`,
+			`\t\tif (restoreTranslation.hasTranslation) flushSync(startHydration);`,
+			`\t\telse startHydration();`,
+			`\t\trestoreTranslation();`,
 			`\t\twindow.__REACT_ROOT__ = root;`,
 			`\t} catch (error) {`,
+			`\t\trestoreTranslation();`,
 			`\t\t// Catch synchronous errors (shouldn't happen with hydrateRoot, but safety net)`,
 			`\t\tif (isDev && isHydrationError(error)) {`,
 			`\t\t\thandleHydrationFallback(error);`,

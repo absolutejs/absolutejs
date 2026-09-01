@@ -1,6 +1,11 @@
 export { Island } from './Island.browser';
 export { createTypedIsland } from './createIsland.browser';
 export { useIslandStore } from './useIslandStore';
+export {
+	captureSsrTextBaselines,
+	prepareBrowserTranslationHydration,
+	preserveBrowserTranslation
+} from './browserTranslation';
 // Identity helpers — safe to import from page modules that run in both
 // SSR and browser contexts (both are `(x) => x` at runtime).
 export { defineRoutes, defineVueSetupApp } from './defineVuePage';

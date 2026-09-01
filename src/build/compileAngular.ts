@@ -2388,6 +2388,7 @@ import { bootstrapApplication } from '@angular/platform-browser';
 import { provideClientHydration } from '@angular/platform-browser';
 import { withHttpTransferCacheOptions } from '@angular/platform-browser';
 import { provideZonelessChangeDetection, REQUEST_CONTEXT } from '@angular/core';
+import { prepareBrowserTranslationHydration } from '@absolutejs/absolute/client';
 import * as pageModule from '${normalizedImportPath}';
 var ${componentClassName} = pageModule.default;
 // REQUEST_CONTEXT is hydrated from the SSR-serialized payload so client-side
@@ -2451,8 +2452,10 @@ if (!document.querySelector(_sel)) {
 }
 
 var providers = [provideZonelessChangeDetection()];
+var restoreTranslation = function() {};
 if (!isClientRender && !window.__HMR_SKIP_HYDRATION__ && !pageHasIslands) {
     providers.push(provideClientHydration(withHttpTransferCacheOptions(absoluteHttpTransferCacheOptions)));
+    restoreTranslation = prepareBrowserTranslationHydration(document.querySelector(_sel));
 }
 delete window.__HMR_SKIP_HYDRATION__;
 providers.push.apply(providers, pageProviders);
@@ -2479,7 +2482,7 @@ if (pageHasRawStreamingSlots) {
             });
         }
         return appRef;
-    });
+    }).finally(restoreTranslation);
 }
 window.__ABSOLUTE_PAGE_READY__ = absolutePageReady;
 window.__ABSOLUTE_PAGE_DISPOSE__ = async function() {
@@ -2496,6 +2499,7 @@ import { bootstrapApplication } from '@angular/platform-browser';
 import { provideClientHydration } from '@angular/platform-browser';
 import { withHttpTransferCacheOptions } from '@angular/platform-browser';
 import { enableProdMode, provideZonelessChangeDetection, REQUEST_CONTEXT } from '@angular/core';
+import { prepareBrowserTranslationHydration } from '@absolutejs/absolute/client';
 import * as pageModule from '${normalizedImportPath}';
 var ${componentClassName} = pageModule.default;
 // REQUEST_CONTEXT is hydrated from the SSR-serialized payload so client-side
@@ -2538,8 +2542,10 @@ if (!document.querySelector(_sel)) {
 }
 
 var providers = [provideZonelessChangeDetection()].concat(pageProviders).concat(contextProviders);
+var restoreTranslation = function() {};
 if (!isClientRender && !pageHasIslands) {
     providers.unshift(provideClientHydration(withHttpTransferCacheOptions(absoluteHttpTransferCacheOptions)));
+    restoreTranslation = prepareBrowserTranslationHydration(document.querySelector(_sel));
 }
 window.__ABS_SLOT_HYDRATION_PENDING__ = pageHasRawStreamingSlots;
 var absolutePageReady = Promise.resolve();
@@ -2563,7 +2569,7 @@ if (pageHasRawStreamingSlots) {
             });
         }
         return appRef;
-    });
+    }).finally(restoreTranslation);
 }
 window.__ABSOLUTE_PAGE_READY__ = absolutePageReady;
 window.__ABSOLUTE_PAGE_DISPOSE__ = async function() {

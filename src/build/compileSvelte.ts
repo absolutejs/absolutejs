@@ -531,6 +531,7 @@ export const compileSvelte = async (
 				: '';
 			const bootstrap = `${hmrImports}import Component from "${importPath}";
 import { hydrate, mount, unmount } from "svelte";
+import { prepareBrowserTranslationHydration } from "@absolutejs/absolute/client";
 
 var initialProps = (typeof window !== "undefined" && window.__INITIAL_PROPS__) ? window.__INITIAL_PROPS__ : {};
 var isHMR = typeof window !== "undefined" && window.__SVELTE_COMPONENT__ !== undefined;
@@ -577,7 +578,12 @@ if (isHMR) {
 } else if (isSsrDirty || hasIslandHtml) {
   component = mount(Component, { target, props: initialProps });
 } else {
-  component = hydrate(Component, { target, props: initialProps });
+  var restoreTranslation = prepareBrowserTranslationHydration(target);
+  try {
+    component = hydrate(Component, { target, props: initialProps });
+  } finally {
+    restoreTranslation();
+  }
 }
 
 if (typeof window !== "undefined") {

@@ -1,6 +1,7 @@
 import type { IslandFramework } from '../../types/island';
 import { getIslandComponent, parseIslandProps } from '../core/islands';
 import { initializeIslandMarkupSnapshot } from './preserveIslandMarkup';
+import { prepareBrowserTranslationHydration } from './browserTranslation';
 
 initializeIslandMarkupSnapshot();
 
@@ -48,6 +49,18 @@ const isIslandElement = (value: EventTarget | null): value is IslandElement =>
 const observedRoots = new WeakSet<Node>();
 const hydratingIslands = new WeakSet<HTMLElement>();
 
+const hydratePreservingBrowserTranslation = async (
+	element: HTMLElement,
+	hydrate: () => unknown | Promise<unknown>
+) => {
+	const restoreTranslation = prepareBrowserTranslationHydration(element);
+	try {
+		await hydrate();
+	} finally {
+		restoreTranslation();
+	}
+};
+
 // Framework-specific hydrators are dynamic-imported on first use so the
 // island runtime never statically pulls in a framework's runtime (and its
 // transitive deps) the consumer doesn't actually use. Without this, a
@@ -91,7 +104,9 @@ const hydrateByFramework = async (
 			getIslandComponent(registry.svelte?.[componentName]);
 		if (!isSvelteComponent(resolvedComponent)) return;
 
-		hydrateSvelteIsland(resolvedComponent, element, propsRecord);
+		await hydratePreservingBrowserTranslation(element, () =>
+			hydrateSvelteIsland(resolvedComponent, element, propsRecord)
+		);
 		element.dataset.hydrated = 'true';
 
 		return;
@@ -106,7 +121,9 @@ const hydrateByFramework = async (
 			getIslandComponent(registry.vue?.[componentName]);
 		if (!isVueComponent(resolvedComponent)) return;
 
-		hydrateVueIsland(resolvedComponent, element, propsRecord);
+		await hydratePreservingBrowserTranslation(element, () =>
+			hydrateVueIsland(resolvedComponent, element, propsRecord)
+		);
 		element.dataset.hydrated = 'true';
 
 		return;
@@ -122,11 +139,13 @@ const hydrateByFramework = async (
 		const { islandId } = element.dataset;
 		if (!isAngularComponent(resolvedComponent) || !islandId) return;
 
-		await mountAngularIsland(
-			resolvedComponent,
-			element,
-			propsRecord ?? {},
-			islandId
+		await hydratePreservingBrowserTranslation(element, () =>
+			mountAngularIsland(
+				resolvedComponent,
+				element,
+				propsRecord ?? {},
+				islandId
+			)
 		);
 		element.dataset.hydrated = 'true';
 	}

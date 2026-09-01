@@ -14,6 +14,7 @@
  * than the bare specifier — only the user's bundle pass knows which
  * mapping to apply.
  */
+import { prepareBrowserTranslationHydration } from '../client/browserTranslation';
 
 declare global {
 	// eslint-disable-next-line @typescript-eslint/consistent-type-definitions -- Window augmentation requires interface merging
@@ -48,10 +49,14 @@ export const mountEmberPage = async (
 		renderComponent: RenderComponentApi;
 	} = await import(rendererSpecifier);
 	const props = window.__INITIAL_PROPS__ ?? {};
-
-	return rendererModule.renderComponent(component, {
-		args: props,
-		into: root,
-		owner: {}
-	});
+	const restoreTranslation = prepareBrowserTranslationHydration(root);
+	try {
+		return rendererModule.renderComponent(component, {
+			args: props,
+			into: root,
+			owner: {}
+		});
+	} finally {
+		restoreTranslation();
+	}
 };

@@ -1,5 +1,7 @@
-import { type ComponentType, createElement } from 'react';
+import { type ComponentType, createElement, type ReactNode } from 'react';
 import { hydrateRoot, type Root as ReactRoot } from 'react-dom/client';
+import { flushSync } from 'react-dom';
+import { prepareBrowserTranslationHydration } from '../browserTranslation';
 
 const reactIslandRoots = new WeakMap<HTMLElement, ReactRoot>();
 
@@ -51,20 +53,28 @@ export const hydrateReactIsland = (
 	}
 
 	detachFromHostReactRoot(element);
+	const restoreTranslation = prepareBrowserTranslationHydration(element);
+	const hydrate = (elementToHydrate: ReactNode) => {
+		let root: ReactRoot | undefined;
+		const startHydration = () => {
+			root = hydrateRoot(element, elementToHydrate);
+		};
+		try {
+			if (restoreTranslation.hasTranslation) flushSync(startHydration);
+			else startHydration();
+		} finally {
+			restoreTranslation();
+		}
+		if (root !== undefined) reactIslandRoots.set(element, root);
+	};
 
 	if (!isPropsRecord(props)) {
-		reactIslandRoots.set(
-			element,
-			hydrateRoot(element, createElement(component))
-		);
+		hydrate(createElement(component));
 
 		return;
 	}
 
-	reactIslandRoots.set(
-		element,
-		hydrateRoot(element, createElement(component, props))
-	);
+	hydrate(createElement(component, props));
 };
 export const isReactComponent = (
 	value: unknown
