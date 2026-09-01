@@ -42,7 +42,7 @@ cloned repository root, which contains this repository's `package.json`,
 ```sh
 git clone https://github.com/absolutejs/absolutejs.git
 cd absolutejs
-git checkout 2738f664a4b435acedf583f8589ea6f6b3c8d2a5
+git checkout f7e9034690878ef1295cb0a238fe97830dc9e38f
 bun install --frozen-lockfile
 xcodebuild -version
 xcrun simctl list runtimes
@@ -54,7 +54,7 @@ If the repository was already cloned, use this instead:
 ```sh
 cd /absolute/path/to/the/absolutejs-clone
 git fetch origin
-git checkout 2738f664a4b435acedf583f8589ea6f6b3c8d2a5
+git checkout f7e9034690878ef1295cb0a238fe97830dc9e38f
 bun install --frozen-lockfile
 bun run test:native:ios
 ```
