@@ -15,6 +15,7 @@ import { waitForServer } from '../helpers/http';
 const shouldRunPublishedBeta = process.env.ABSOLUTE_TEST_PUBLISHED_BETA === '1';
 const shouldRunPublishedBrowser =
 	process.env.ABSOLUTE_TEST_PUBLISHED_BROWSER === '1';
+const publishedPackageSpec = process.env.ABSOLUTE_TEST_PACKAGE_SPEC ?? 'beta';
 const publishedBetaTest = shouldRunPublishedBeta ? test : test.skip;
 
 const tempRoots = new Set<string>();
@@ -126,7 +127,7 @@ const writeAcceptanceApp = async (root: string) => {
 		`${JSON.stringify(
 			{
 				dependencies: {
-					'@absolutejs/absolute': 'beta',
+					'@absolutejs/absolute': publishedPackageSpec,
 					'@vitejs/plugin-react': 'latest',
 					elysia: '^2.0.0-beta.6',
 					react: 'latest',
@@ -525,10 +526,19 @@ describe('published beta compile acceptance', () => {
 			const appRoot = await makeTempDir('absolute-compile-published-app');
 			await writeAcceptanceApp(appRoot);
 
-			await runProcess(['bun', 'install'], {
-				cwd: appRoot,
-				timeoutMs: 120_000
-			});
+			await runProcess(
+				[
+					'bun',
+					'install',
+					...(process.env.ABSOLUTE_TEST_OMIT_OPTIONAL === '1'
+						? ['--omit', 'optional']
+						: [])
+				],
+				{
+					cwd: appRoot,
+					timeoutMs: 120_000
+				}
+			);
 			await runProcess(['bun', 'run', 'compile'], {
 				cwd: appRoot,
 				timeoutMs: 180_000

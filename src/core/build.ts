@@ -2357,6 +2357,7 @@ const buildUnlocked = async ({
 		...(vendorPaths ?? {}),
 		...depVendorPaths
 	};
+	const optionalFrameworkClientExternals = buildServerBundleExternals();
 	const nonReactExternalPaths: Record<string, string> = {
 		...reactExternalPaths,
 		...(angularVendorPaths ?? {}),
@@ -2408,9 +2409,12 @@ const buildUnlocked = async ({
 					{
 						banner: pwaArtifacts?.bootstrapBanner,
 						entrypoints: reactClientEntryPoints,
-						...(Object.keys(reactExternalPaths).length > 0
-							? { external: Object.keys(reactExternalPaths) }
-							: {}),
+						external: [
+							...new Set([
+								...Object.keys(reactExternalPaths),
+								...optionalFrameworkClientExternals
+							])
+						],
 						format: 'esm',
 						minify: !isDev,
 						naming: `[dir]/[name].[hash].[ext]`,

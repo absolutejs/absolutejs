@@ -127,7 +127,6 @@ const SERVER_ENTRY_POINTS = [
 	'src/angular/index.ts',
 	'src/angular/browser.ts',
 	'src/angular/server.ts',
-	'src/client/index.ts',
 	'src/islands/browser.ts',
 	'src/islands/index.ts',
 	'src/mobile/browser.ts',
@@ -251,6 +250,33 @@ const build = async () => {
 	if (!serverBuild.success) {
 		console.error('Server build failed:');
 		for (const log of serverBuild.logs) console.error(log);
+		process.exit(1);
+	}
+
+	// Keep framework hydrators behind real browser chunks. The client runtime
+	// dynamically imports each hydrator on first use, but bundling this entry
+	// without splitting flattens those imports and leaves every optional peer
+	// (`svelte`, `vue`, Angular, React) as a static import in client/index.js.
+	// A React-only consumer would then need Svelte installed just to compile.
+	console.log('Building split client runtime...');
+	const clientRuntimeBuild = await Bun.build({
+		entrypoints: ['src/client/index.ts'],
+		external: EXTERNALS,
+		format: 'esm',
+		naming: {
+			chunk: 'client/chunks/[name]-[hash].[ext]',
+			entry: '[dir]/[name].[ext]'
+		},
+		outdir: DIST,
+		root: 'src',
+		sourcemap: 'linked',
+		splitting: true,
+		target: 'browser'
+	});
+
+	if (!clientRuntimeBuild.success) {
+		console.error('Split client runtime build failed:');
+		for (const log of clientRuntimeBuild.logs) console.error(log);
 		process.exit(1);
 	}
 

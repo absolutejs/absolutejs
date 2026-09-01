@@ -98,6 +98,10 @@ await runStage('quality and builds', [
 	{ command: ['bun', 'run', 'test:unit'], name: 'unit tests' },
 	{ command: ['bun', 'run', 'build'], name: 'package build' },
 	{
+		command: ['bun', 'run', 'verify:client-bundle'],
+		name: 'published client bundle isolation'
+	},
+	{
 		command: ['bun', 'run', 'build:native'],
 		name: 'six-platform native build'
 	}
@@ -115,6 +119,10 @@ await runStage('isolated integration inventory', [
 ]);
 
 await runStage('package verification', [
+	{
+		command: ['bun', 'run', 'test:packed-compile'],
+		name: 'fresh local package compile acceptance'
+	},
 	{
 		command: ['npm', 'pack', '--dry-run', '--json'],
 		name: 'root package'
