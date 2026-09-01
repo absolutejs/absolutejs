@@ -33,6 +33,7 @@ import {
 	computeEmberVendorPaths
 } from '../build/buildEmberVendor';
 import { createHMRState } from '../dev/clientManager';
+import { patchDevIndexManifest } from '../dev/devIndexManifest';
 import { resolveBuildPaths } from '../dev/configResolver';
 import { buildInitialDependencyGraph } from '../dev/dependencyGraph';
 import { addFileWatchers, startFileWatching } from '../dev/fileWatcher';
@@ -518,10 +519,21 @@ export const devBuild = async (config: BuildConfig) => {
 	// route's `asset(...)` call still throws "not found." After a
 	// successful recovery build, clear the flag and fall back to the
 	// fast path for subsequent edits.
+	// `SRC_URL_PREFIX` is a stable constant; capture it once so the sync
+	// rebuild callback can re-point index entries at the module server.
+	const { SRC_URL_PREFIX } = await import('../dev/moduleServer');
+	const devIndexDir = resolve(state.resolvedPaths.buildDir, '_src_indexes');
 	const onWatcherRebuildComplete = (newBuildResult: {
 		manifest: Record<string, string>;
 	}) => {
 		Object.assign(manifest, newBuildResult.manifest);
+		// Every rebuild path re-emits hashed `…/indexes/Page.<hash>.js` values
+		// for `*Index` keys, clobbering the `/@src/` module-server URLs the
+		// startup patch installed. Restore them so a full page load after this
+		// rebuild (an app relaunch, a manual refresh) still gets the
+		// module-server index that carries the HMR client — otherwise the
+		// reloaded page renders fine but silently loses hot reload.
+		patchDevIndexManifest(manifest, devIndexDir, SRC_URL_PREFIX);
 		state.manifest = manifest;
 	};
 	const settleRecoveryQueue = () => {

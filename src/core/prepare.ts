@@ -9,6 +9,7 @@ import { withTelemetry } from '../plugins/telemetryPlugin';
 import { loadConfig } from '../utils/loadConfig';
 import { setIconVersionResolver } from '../utils/iconVersion';
 import { setCurrentIslandManifest } from './islandPageContext';
+import { patchDevIndexManifest } from '../dev/devIndexManifest';
 import { absoluteRequestContext } from './requestContext';
 import { createAbsoluteMobileCompatibilityDispatcher } from '../mobile/compatibilityDispatcher';
 import { createAbsoluteMobileAssociationPlugin } from '../mobile/associationFiles';
@@ -120,36 +121,6 @@ const warmPrewarmDirs = async (
 		if (file.includes('/node_modules/')) continue;
 		const rel = relative(process.cwd(), file).replace(/\\/g, '/');
 		void warmCache(`${SRC_URL_PREFIX}${rel}`);
-	}
-};
-
-const resolveDevIndexFileName = (manifestValue: string, baseName: string) => {
-	if (manifestValue.includes('/react/')) return `${baseName}.tsx`;
-	if (manifestValue.includes('/svelte/')) return `${baseName}.svelte.js`;
-	if (manifestValue.includes('/vue/')) return `${baseName}.vue.js`;
-
-	return null;
-};
-
-const patchManifestIndexes = (
-	manifest: Record<string, string>,
-	devIndexDir: string,
-	SRC_URL_PREFIX: string
-) => {
-	for (const key of Object.keys(manifest)) {
-		if (!key.endsWith('Index')) continue;
-		if (typeof manifest[key] !== 'string') continue;
-		if (!manifest[key].includes('/indexes/')) continue;
-
-		const baseName = key.replace(/Index$/, '');
-		const fileName = resolveDevIndexFileName(manifest[key], baseName);
-		if (!fileName) continue;
-
-		const srcPath = resolvePath(devIndexDir, fileName);
-		if (!existsSync(srcPath)) continue;
-
-		const rel = relative(process.cwd(), srcPath).replace(/\\/g, '/');
-		manifest[key] = `${SRC_URL_PREFIX}${rel}`;
 	}
 };
 
@@ -281,7 +252,7 @@ const prepareDev = async (
 	// page load uses the module server (same module system as HMR).
 	// This ensures page refreshes after HMR load fresh code.
 	const devIndexDir = resolvePath(buildDir, '_src_indexes');
-	patchManifestIndexes(result.manifest, devIndexDir, SRC_URL_PREFIX);
+	patchDevIndexManifest(result.manifest, devIndexDir, SRC_URL_PREFIX);
 	recordStep('configure dev plugins', stepStartedAt);
 
 	// Load convention files (error/loading/not-found) into the runtime registry
