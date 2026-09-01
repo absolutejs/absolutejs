@@ -5,7 +5,7 @@
 
 import { hideErrorOverlay } from '../errorOverlay';
 import { detectCurrentFramework } from '../frameworkDetect';
-import { sendAbsoluteHmrTiming } from '../hmrTiming';
+import { absoluteHmrDebug, sendAbsoluteHmrTiming } from '../hmrTiming';
 import { swapCSSStylesheet } from '../cssUtils';
 
 const reloadReactPage = () => {
@@ -27,6 +27,14 @@ export const handleReactUpdate = (message: {
 	timestamp?: number;
 }) => {
 	const currentFramework = detectCurrentFramework();
+	absoluteHmrDebug('handleReactMessage', {
+		currentFramework,
+		fastRefreshSupported: message.data.fastRefreshSupported,
+		hasComponentChanges: message.data.hasComponentChanges,
+		hasCSSChanges: message.data.hasCSSChanges,
+		hasPageModuleUrl: Boolean(message.data.pageModuleUrl),
+		hasRemount: Boolean(window.__ABS_REACT_REMOUNT__)
+	});
 	if (currentFramework !== 'react') return;
 
 	const hasComponentChanges = message.data.hasComponentChanges !== false;

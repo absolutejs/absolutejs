@@ -332,11 +332,9 @@ describe('handleHMRMessage', () => {
 	test('ignores malformed HMR application timing', () => {
 		const state = createHMRState(makeConfig());
 		const client = makeMockClient();
+		const lines: string[] = [];
 		const originalLog = console.log;
-		let logged = false;
-		console.log = () => {
-			logged = true;
-		};
+		console.log = (message?: unknown) => lines.push(String(message));
 		try {
 			handleHMRMessage(
 				state,
@@ -346,7 +344,12 @@ describe('handleHMRMessage', () => {
 		} finally {
 			console.log = originalLog;
 		}
-		expect(logged).toBe(false);
+		expect(lines.some((line) => line.includes('applied in'))).toBe(false);
+		expect(
+			lines.some((line) =>
+				line.includes('Ignored a malformed HMR client message')
+			)
+		).toBe(true);
 	});
 
 	test('logs native fallback reload outcomes without client error details', () => {
@@ -385,11 +388,9 @@ describe('handleHMRMessage', () => {
 	test('rejects unknown HMR application outcomes', () => {
 		const state = createHMRState(makeConfig());
 		const client = makeMockClient();
+		const lines: string[] = [];
 		const originalLog = console.log;
-		let logged = false;
-		console.log = () => {
-			logged = true;
-		};
+		console.log = (message?: unknown) => lines.push(String(message));
 		try {
 			handleHMRMessage(
 				state,
@@ -403,6 +404,11 @@ describe('handleHMRMessage', () => {
 		} finally {
 			console.log = originalLog;
 		}
-		expect(logged).toBe(false);
+		expect(lines.some((line) => line.includes('applied in'))).toBe(false);
+		expect(
+			lines.some((line) =>
+				line.includes('Ignored a malformed HMR client message')
+			)
+		).toBe(true);
 	});
 });

@@ -12,6 +12,22 @@ import {
 	handleClientDisconnect,
 	handleHMRMessage
 } from '../dev/webSocket';
+import { logInfo } from '../utils/logger';
+
+const MAX_HMR_DEBUG_LENGTH = 300;
+
+const describeHmrDebugBody = (body: unknown) => {
+	let text: string;
+	try {
+		text = typeof body === 'string' ? body : JSON.stringify(body) ?? '';
+	} catch {
+		text = String(body);
+	}
+
+	return text.length > MAX_HMR_DEBUG_LENGTH
+		? `${text.slice(0, MAX_HMR_DEBUG_LENGTH)}…`
+		: text;
+};
 
 const STORE_KEY = '__elysiaStore';
 const restoredStores = new WeakSet<object>();
@@ -190,7 +206,12 @@ export const hmr = (
 		pathname: string
 	) => Promise<Response | undefined> | Response | undefined
 ) =>
-	new Elysia({ name: 'absolutejs-hmr' })
+	(process.env.ABSOLUTE_HMR_DEBUG === '1'
+		? console.log(
+				`[hmr:debug] hmr() plugin built from ${import.meta.url} with state=${hmrState.stateId}`
+			)
+		: undefined,
+	new Elysia({ name: 'absolutejs-hmr' }))
 		.use(
 			websocket({
 				idleTimeout: DEFAULT_WEBSOCKET_IDLE_TIMEOUT_SECONDS,
@@ -337,5 +358,15 @@ export const hmr = (
 			rebuildCount: hmrState.rebuildCount,
 			rebuildQueue: Array.from(hmrState.rebuildQueue),
 			rebuildScheduled: hmrState.rebuildTimeout !== null,
+			stateId: hmrState.stateId,
 			timestamp: Date.now()
-		}));
+		}))
+		// Diagnostic sink for clients that cannot be inspected from the host —
+		// notably the iOS WKWebView, whose JavaScript runs in a separate
+		// WebContent process and never reaches the device log. Only clients
+		// loaded with `__absolute_hmr_debug` post here.
+		.post('/hmr-debug', ({ body }) => {
+			logInfo(`[hmr:debug] ${describeHmrDebugBody(body)}`);
+
+			return { received: true };
+		});

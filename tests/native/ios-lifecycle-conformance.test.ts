@@ -9,13 +9,18 @@ import {
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import config from '../fixtures/mobile-native-conformance/absolute.config';
-import { startDevServer, type DevServer } from '../helpers/devServer';
+import {
+	startDevServer,
+	type DevServer,
+	type DevServerOptions
+} from '../helpers/devServer';
 import { mutateFile, restoreAllFiles } from '../helpers/file';
 import {
 	prepareAbsoluteIosDevProject,
 	startAbsoluteIosDevSession,
 	type AbsoluteIosDevProject,
-	type AbsoluteIosDevSession
+	type AbsoluteIosDevSession,
+	type AbsoluteIosNativeLogEntry
 } from '../../src/mobile/iosSimulatorController';
 import { normalizeAbsoluteMobileConfig } from '../../src/mobile/config';
 
@@ -40,6 +45,29 @@ const COLD_START_BUDGET_MS =
 const HMR_BUDGET_MS =
 	Number(process.env.ABSOLUTE_NATIVE_IOS_HMR_BUDGET_MS) || 45_000;
 
+// The HMR assertions read server.outputLines, which is never printed. Echoing
+// it makes a timed-out acknowledgement diagnosable from the run log alone,
+// without re-running a multi-minute simulator suite to see what the dev server
+// actually logged.
+const devServerOptions: DevServerOptions = {
+	configPath: CONFIG_PATH,
+	port: NATIVE_TEST_PORT,
+	onLine: (line: string) => console.log(`[dev] ${line}`)
+};
+
+/** Capacitor forwards WebView `console.log` into the iOS device log behind a
+ *  "⚡️" prefix, which is the only window into what the HMR client is doing
+ *  inside the WKWebView — iOS has no JS-eval channel like Android's. Filtered
+ *  to HMR-relevant output so the run log stays readable. */
+const logNativeEntry = ({ level, message, tag }: AbsoluteIosNativeLogEntry) => {
+	// Match only Capacitor's console bridge and explicit HMR output. Anything
+	// broader (an `absolute` substring, or a bare level check) matches the
+	// bundle id `com.absolutejs.conformance` in routine OS chatter and buries
+	// the run log under thousands of CFPrefs lines.
+	if (!/⚡️|\[hmr/iu.test(message)) return;
+	console.log(`[webview:${level}] ${tag} ${message}`);
+};
+
 let server: DevServer;
 let project: AbsoluteIosDevProject;
 let ios: AbsoluteIosDevSession | undefined;
@@ -51,25 +79,49 @@ const mobileConfig = () => {
 	return normalizeAbsoluteMobileConfig(config.mobile, PROJECT_ROOT);
 };
 
+/** Live count of iOS WebViews the dev server still holds an HMR socket for.
+ *  The server drops a client from `clientTargets` as soon as its socket
+ *  closes, so this doubles as a liveness probe: a WebView that has silently
+ *  lost its socket reads as 0 here while the app itself keeps running. */
+const iosClientCount = async () => {
+	const response = await fetch(`${server.baseUrl}/hmr-status`).catch(
+		() => undefined
+	);
+	if (!response?.ok) return 0;
+	const status: unknown = await response.json();
+	const targets =
+		typeof status === 'object' && status !== null
+			? Reflect.get(status, 'connectedTargets')
+			: undefined;
+	if (typeof targets !== 'object' || targets === null) return 0;
+
+	return Number(Reflect.get(targets, 'capacitor-ios')) || 0;
+};
+
+/** `clientTargets` (what `iosClientCount` reads) and `connectedClients` (what
+ *  `broadcastToClients` iterates) are separate collections. A client present in
+ *  the first but missing from the second is registered yet unreachable, which
+ *  looks identical to a healthy client from the outside. */
+const broadcastReach = async () => {
+	const response = await fetch(`${server.baseUrl}/hmr-status`).catch(
+		() => undefined
+	);
+	if (!response?.ok) return 'unreachable';
+	const status: unknown = await response.json();
+	if (typeof status !== 'object' || status === null) return 'unreadable';
+	const targets = Reflect.get(status, 'connectedTargets');
+	const iosTargets =
+		typeof targets === 'object' && targets !== null
+			? Number(Reflect.get(targets, 'capacitor-ios')) || 0
+			: 0;
+
+	return `state=${String(Reflect.get(status, 'stateId'))} connectedClients=${Number(Reflect.get(status, 'connectedClients')) || 0} capacitor-ios=${iosTargets}`;
+};
+
 const waitForIosClient = async () => {
 	const deadline = Date.now() + HMR_BUDGET_MS;
 	while (Date.now() < deadline) {
-		const response = await fetch(`${server.baseUrl}/hmr-status`).catch(
-			() => undefined
-		);
-		if (response?.ok) {
-			const status: unknown = await response.json();
-			const targets =
-				typeof status === 'object' && status !== null
-					? Reflect.get(status, 'connectedTargets')
-					: undefined;
-			if (
-				typeof targets === 'object' &&
-				targets !== null &&
-				Number(Reflect.get(targets, 'capacitor-ios')) > 0
-			)
-				return;
-		}
+		if ((await iosClientCount()) > 0) return;
 		await Bun.sleep(100);
 	}
 	throw new Error('The real iOS WebView did not connect to native HMR.');
@@ -89,8 +141,10 @@ const waitForIosHmrOutput = async (outputStart: number, kind: string) => {
 		if (line) return line;
 		await Bun.sleep(100);
 	}
+	// Distinguishes "the WebView is connected but never acknowledged" from
+	// "its socket was already gone before the edit landed".
 	throw new Error(
-		`No iOS ${kind} HMR acknowledgement was observed within ${HMR_BUDGET_MS}ms.`
+		`No iOS ${kind} HMR acknowledgement was observed within ${HMR_BUDGET_MS}ms. At timeout: ${await broadcastReach()}.`
 	);
 };
 
@@ -118,15 +172,13 @@ describeNative('real Capacitor iOS simulator lifecycle conformance', () => {
 			CAPACITOR_CONFIG_PATH,
 			'utf8'
 		).catch(() => undefined);
-		server = await startDevServer({
-			configPath: CONFIG_PATH,
-			port: NATIVE_TEST_PORT
-		});
+		server = await startDevServer(devServerOptions);
 		project = await prepareAbsoluteIosDevProject(mobileConfig(), {
 			createNativeProject: true,
 			projectRoot: PROJECT_ROOT
 		});
 		ios = await startAbsoluteIosDevSession({
+			nativeLog: logNativeEntry,
 			port: server.port,
 			project,
 			log: (message) => console.log(`[native-ios] ${message}`)
@@ -161,6 +213,9 @@ describeNative('real Capacitor iOS simulator lifecycle conformance', () => {
 
 	nativeTest('applies React component HMR in the iOS WebView', async () => {
 		const outputStart = server.outputLines.length;
+		console.log(
+			`[probe] before component edit: ${await broadcastReach()}`
+		);
 		mutateFile(
 			resolve(PROJECT_ROOT, 'example/react/components/App.tsx'),
 			(source) =>
@@ -177,6 +232,9 @@ describeNative('real Capacitor iOS simulator lifecycle conformance', () => {
 		if (!ios) throw new Error('iOS lifecycle session is not running.');
 		const outputStart = server.outputLines.length;
 		const originalUdid = ios.udid;
+		console.log(
+			`[probe] before css edit: ${await broadcastReach()}`
+		);
 		mutateFile(
 			resolve(PROJECT_ROOT, 'example/styles/indexes/react-example.css'),
 			(source) => `${source}\n/* real-ios-css-conformance */\n`
@@ -199,10 +257,7 @@ describeNative('real Capacitor iOS simulator lifecycle conformance', () => {
 	nativeTest('reconnects after the dev server restarts', async () => {
 		const previousPid = server.proc.pid;
 		await server.kill();
-		server = await startDevServer({
-			configPath: CONFIG_PATH,
-			port: NATIVE_TEST_PORT
-		});
+		server = await startDevServer(devServerOptions);
 		expect(server.proc.pid).not.toBe(previousPid);
 		await waitForIosClient();
 	});

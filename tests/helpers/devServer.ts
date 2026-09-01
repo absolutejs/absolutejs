@@ -28,7 +28,7 @@ export type DevServer = {
 	readonly outputLines: readonly string[];
 };
 
-type DevServerOptions = {
+export type DevServerOptions = {
 	port?: number;
 	serverEntry?: string;
 	configPath?: string;

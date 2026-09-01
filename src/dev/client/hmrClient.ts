@@ -4,15 +4,14 @@
 import { hmrState } from './hmrState';
 import {
 	HMR_UPDATE_TIMEOUT_MS,
-	MAX_RECONNECT_ATTEMPTS,
 	PING_INTERVAL_MS,
 	RECONNECT_INITIAL_DELAY_MS,
-	RECONNECT_POLL_INTERVAL_MS,
-	WEBSOCKET_NORMAL_CLOSURE
+	RECONNECT_POLL_INTERVAL_MS
 } from './constants';
 import { detectCurrentFramework } from './frameworkDetect';
 import {
 	absoluteHmrClientTarget,
+	absoluteHmrDebug,
 	restoreAbsoluteHmrApply,
 	sendAbsoluteHmrTiming
 } from './hmrTiming';
@@ -394,13 +393,26 @@ if (!(window.__HMR_WS__ && window.__HMR_WS__.readyState === WebSocket.OPEN)) {
 		try {
 			message = JSON.parse(event.data);
 		} catch {
+			absoluteHmrDebug('onmessage:unparseable');
+
 			return;
 		}
-
-		handleHMRMessage(message);
+		absoluteHmrDebug('onmessage', {
+			socketId: message?.socketId,
+			type: message?.type
+		});
+		try {
+			handleHMRMessage(message);
+		} catch (error) {
+			absoluteHmrDebug('onmessage:threw', {
+				error: error instanceof Error ? error.message : String(error),
+				type: message?.type
+			});
+			throw error;
+		}
 	};
 
-	wsc.onclose = function (event: CloseEvent) {
+	wsc.onclose = function (_event: CloseEvent) {
 		hmrState.isConnected = false;
 
 		if (hmrState.pingInterval) {
@@ -408,34 +420,34 @@ if (!(window.__HMR_WS__ && window.__HMR_WS__.readyState === WebSocket.OPEN)) {
 			hmrState.pingInterval = null;
 		}
 
-		if (event.code !== WEBSOCKET_NORMAL_CLOSURE) {
-			showConnectionLostBanner();
-			let attempts = 0;
-			hmrState.reconnectTimeout = setTimeout(function pollServer() {
-				attempts++;
-				if (attempts > MAX_RECONNECT_ATTEMPTS) return;
-
-				fetch('/hmr-status', { cache: 'no-store' })
-					.then((res) => {
-						if (res.ok) {
-							window.location.reload();
-						} else {
-							hmrState.reconnectTimeout = setTimeout(
-								pollServer,
-								RECONNECT_POLL_INTERVAL_MS
-							);
-						}
-
-						return undefined;
-					})
-					.catch(() => {
+		// Reconnect on EVERY close, whatever the code. A dev client's job is
+		// to come back: gating on the close code left pages permanently
+		// socketless after a graceful (1000) server-side close — observed on
+		// the iOS WKWebView, whose socket drops during a native rebuild — and
+		// a poll cap did the same once the attempts ran out. The poll is
+		// cheap, the banner shows the state, and a fresh page load resets it.
+		showConnectionLostBanner();
+		hmrState.reconnectTimeout = setTimeout(function pollServer() {
+			fetch('/hmr-status', { cache: 'no-store' })
+				.then((res) => {
+					if (res.ok) {
+						window.location.reload();
+					} else {
 						hmrState.reconnectTimeout = setTimeout(
 							pollServer,
 							RECONNECT_POLL_INTERVAL_MS
 						);
-					});
-			}, RECONNECT_INITIAL_DELAY_MS);
-		}
+					}
+
+					return undefined;
+				})
+				.catch(() => {
+					hmrState.reconnectTimeout = setTimeout(
+						pollServer,
+						RECONNECT_POLL_INTERVAL_MS
+					);
+				});
+		}, RECONNECT_INITIAL_DELAY_MS);
 	};
 
 	wsc.onerror = function () {

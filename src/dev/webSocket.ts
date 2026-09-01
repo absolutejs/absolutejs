@@ -4,9 +4,12 @@ import type { HMRWebSocket } from '../../types/websocket';
 import type { HMRClientMessage } from '../../types/messages';
 import { isValidHMRClientMessage } from '../../types/typeGuards';
 import { sendTelemetryEvent } from '../cli/telemetryEvent';
-import { logHmrClientUpdate, logInfo } from '../utils/logger';
+import { logError, logHmrClientUpdate, logInfo, logWarn } from '../utils/logger';
 
 const MAX_RETAINED_HMR_UPDATES = 100;
+// Server half of the opt-in HMR diagnostic; see `absoluteHmrDebug` on the client.
+const HMR_DEBUG = process.env.ABSOLUTE_HMR_DEBUG === '1';
+const MAX_LOGGED_MESSAGE_LENGTH = 200;
 
 const normalizedHmrTarget = (value: unknown) => {
 	if (value === 'capacitor-android') return value;
@@ -55,11 +58,53 @@ const retainHmrUpdate = (
 	if (typeof oldest === 'number') state.hmrUpdates.delete(oldest);
 };
 
+const isHmrSocket = (value: unknown): value is HMRWebSocket =>
+	typeof value === 'object' &&
+	value !== null &&
+	typeof Reflect.get(value, 'send') === 'function' &&
+	typeof Reflect.get(value, 'close') === 'function';
+
+/** Elysia hands a different ElysiaWS wrapper to each event callback for the
+ *  same connection, so object identity cannot key connection state: a
+ *  close-time `delete` misses the open-time entry, dead sockets leak forever,
+ *  and `clientTargets` lookups miss during broadcast. The underlying Bun
+ *  `ServerWebSocket` (`wrapper.raw`) IS stable across events — normalize to it
+ *  at every entry point so registration, targeting, sending, and cleanup agree
+ *  on one handle. Falls back to the given object for transports and test mocks
+ *  that already pass the raw socket. */
+const canonicalClient = (client: HMRWebSocket) => {
+	const raw = Reflect.get(client, 'raw');
+
+	return isHmrSocket(raw) ? raw : client;
+};
+
+/** Per-socket identity for the opt-in HMR diagnostic. Lets the broadcast log
+ *  and the client-side beacon be joined on a stable id, distinguishing a send
+ *  that reached the live page from one that went to a stale socket Bun still
+ *  reports as writable. */
+const socketIds = new WeakMap<HMRWebSocket, string>();
+const socketId = (client: HMRWebSocket) => {
+	const existing = socketIds.get(client);
+	if (existing) return existing;
+	const created = Math.random().toString(36).slice(2, 8);
+	socketIds.set(client, created);
+
+	return created;
+};
+
+const describeSocket = (state: HMRState, client: HMRWebSocket) =>
+	`${socketId(client)}:${state.clientTargets.get(client) ?? '?'}@rs${String(Reflect.get(client, 'readyState') ?? '?')}`;
+
 const trySendMessage = (client: HMRWebSocket, messageStr: string) => {
 	try {
-		client.send(messageStr);
+		const result: unknown = client.send(messageStr);
 
-		return true;
+		// Bun's raw ServerWebSocket.send returns 0 when the message was
+		// dropped because the socket is closed (-1 means queued under
+		// backpressure). Wrapper sends return undefined; treat that and any
+		// byte count as delivered, so closed sockets finally get pruned
+		// instead of counting as reachable forever.
+		return result !== 0;
 	} catch {
 		return false;
 	}
@@ -90,6 +135,16 @@ export const broadcastToClients = (
 		if (shouldRemove(client)) clientsToRemove.push(client);
 	});
 
+	if (HMR_DEBUG) {
+		const recipients =
+			[...state.connectedClients]
+				.map((client) => describeSocket(state, client))
+				.join(',') || 'none';
+		logInfo(
+			`[hmr:debug] broadcast ${message.type} state=${state.stateId} → [${recipients}], dropped ${clientsToRemove.length}`
+		);
+	}
+
 	clientsToRemove.forEach((client) => {
 		state.connectedClients.delete(client);
 		state.clientTargets.delete(client);
@@ -97,10 +152,15 @@ export const broadcastToClients = (
 };
 export const handleClientConnect = (
 	state: HMRState,
-	client: HMRWebSocket,
+	socket: HMRWebSocket,
 	manifest: Record<string, string>
 ) => {
+	const client = canonicalClient(socket);
 	state.connectedClients.add(client);
+	if (HMR_DEBUG)
+		logInfo(
+			`[hmr:debug] socket ${socketId(client)} connected (${state.connectedClients.size} registered)`
+		);
 
 	const serverVersions = serializeModuleVersions(state.moduleVersions);
 	client.send(
@@ -117,6 +177,7 @@ export const handleClientConnect = (
 	client.send(
 		JSON.stringify({
 			message: 'HMR client connected successfully',
+			socketId: socketId(client),
 			timestamp: Date.now(),
 			type: 'connected'
 		})
@@ -153,8 +214,11 @@ export const handleClientConnect = (
 };
 export const handleClientDisconnect = (
 	state: HMRState,
-	client: HMRWebSocket
+	socket: HMRWebSocket
 ) => {
+	const client = canonicalClient(socket);
+	if (HMR_DEBUG)
+		logInfo(`[hmr:debug] socket ${socketId(client)} disconnected`);
 	state.connectedClients.delete(client);
 	state.clientTargets.delete(client);
 };
@@ -210,6 +274,10 @@ const handleParsedMessage = (
 			break;
 
 		case 'ready':
+			if (HMR_DEBUG)
+				logInfo(
+					`[hmr:debug] socket ${socketId(client)} ready target=${String(data.target)}`
+				);
 			state.clientTargets.set(client, normalizedHmrTarget(data.target));
 			if (data.framework) {
 				state.activeFrameworks.add(data.framework);
@@ -263,26 +331,78 @@ const handleParsedMessage = (
 			});
 			break;
 		}
+		default:
+			// `hydration-error` passes the type guard but has no handler here,
+			// so it lands in this branch rather than disappearing.
+			logWarn(
+				`Ignored an unhandled HMR client message type: ${describeClientMessage(data)}`
+			);
+	}
+};
+
+/** Stringifies a client payload without letting a circular or exotic value
+ *  throw inside the error path that is reporting it. */
+const stringifyClientMessage = (message: unknown) => {
+	if (typeof message === 'string') return message;
+	try {
+		return JSON.stringify(message) ?? String(message);
+	} catch {
+		return String(message);
+	}
+};
+
+const describeClientMessage = (message: unknown) => {
+	const text = stringifyClientMessage(message)
+		.replaceAll(/\s+/gu, ' ')
+		.trim();
+
+	return text.length > MAX_LOGGED_MESSAGE_LENGTH
+		? `${text.slice(0, MAX_LOGGED_MESSAGE_LENGTH)}…`
+		: text;
+};
+
+/** `parseMessage` delegates to `JSON.parse`, which throws on malformed input.
+ *  Narrowing that to null keeps the caller's early exits flat. */
+const parseClientMessage = (message: unknown) => {
+	try {
+		return parseMessage(message);
+	} catch {
+		return null;
 	}
 };
 
 export const handleHMRMessage = (
 	state: HMRState,
-	client: HMRWebSocket,
+	socket: HMRWebSocket,
 	message: unknown
 ) => {
+	const client = canonicalClient(socket);
+	// A dropped client message used to be indistinguishable from one that was
+	// never sent, which hides real client bugs — an `hmr-timing` ack with a NaN
+	// duration, say, fails the type guard and would otherwise vanish silently.
+	const parsedData = parseClientMessage(message);
+	if (parsedData === null) {
+		logWarn(
+			`Ignored an unparseable HMR client message: ${describeClientMessage(message)}`
+		);
+
+		return;
+	}
+
+	if (!isValidHMRClientMessage(parsedData)) {
+		logWarn(
+			`Ignored a malformed HMR client message: ${describeClientMessage(parsedData)}`
+		);
+
+		return;
+	}
+
 	try {
-		const parsedData = parseMessage(message);
-		if (parsedData === null) {
-			return;
-		}
-
-		if (!isValidHMRClientMessage(parsedData)) {
-			return;
-		}
-
 		handleParsedMessage(state, client, parsedData);
-	} catch {
-		/* ignored */
+	} catch (error) {
+		logError(
+			'Failed to handle an HMR client message',
+			error instanceof Error ? error : String(error)
+		);
 	}
 };

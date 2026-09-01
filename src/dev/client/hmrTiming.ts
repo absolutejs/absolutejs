@@ -95,7 +95,27 @@ export const absoluteHmrClientTarget = () => {
 
 	return 'web';
 };
-
+/** Reports apply-path progress to the dev server for clients that cannot be
+ *  inspected from the host — the iOS WKWebView runs JavaScript in a separate
+ *  WebContent process, so its console never reaches the device log. Opt-in via
+ *  `?__absolute_hmr_debug` on the document URL; a no-op otherwise. */
+export const absoluteHmrDebug = (stage: string, detail?: unknown) => {
+	const currentLocation = Reflect.get(globalThis, 'location');
+	if (typeof currentLocation !== 'object' || currentLocation === null) return;
+	const search = Reflect.get(currentLocation, 'search');
+	if (typeof search !== 'string') return;
+	if (!new URLSearchParams(search).has('__absolute_hmr_debug')) return;
+	try {
+		void fetch('/hmr-debug', {
+			body: JSON.stringify({ detail, stage }),
+			headers: { 'content-type': 'application/json' },
+			keepalive: true,
+			method: 'POST'
+		}).catch(() => undefined);
+	} catch {
+		// A diagnostic must never break the apply path it is observing.
+	}
+};
 export const restoreAbsoluteHmrApply = () => {
 	try {
 		const storage = getSessionStorage();
@@ -148,6 +168,13 @@ export const sendAbsoluteHmrTiming = (options: SendHmrTimingOptions) => {
 		applies.splice(0, applies.length - MAX_RETAINED_HMR_APPLIES);
 	}
 	persistHmrApplies(applies);
+	absoluteHmrDebug('sendAbsoluteHmrTiming', {
+		kind: timing.kind,
+		outcome: timing.outcome,
+		readyState: window.__HMR_WS__?.readyState,
+		socket: Boolean(window.__HMR_WS__),
+		target: timing.target
+	});
 	if (!window.__HMR_WS__) return;
 	window.__HMR_WS__.send(JSON.stringify({ ...timing, type: 'hmr-timing' }));
 };

@@ -645,6 +645,11 @@ const writeDevProjection = async (
 	developmentUrl.hostname =
 		isIP(serverHost) === 6 ? `[${serverHost}]` : serverHost;
 	developmentUrl.searchParams.set('__absolute_target', 'capacitor-ios');
+	// The WKWebView's JavaScript runs in a separate WebContent process, so its
+	// console never reaches the device log. This opts the HMR client into
+	// posting apply-path progress back to the dev server instead.
+	if (process.env.ABSOLUTE_HMR_DEBUG === '1')
+		developmentUrl.searchParams.set('__absolute_hmr_debug', '1');
 	const existingServer = parsed.server;
 	parsed.server = {
 		...(isRecord(existingServer) ? existingServer : {}),
