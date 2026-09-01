@@ -605,11 +605,15 @@ const expoApplicationConfigCheck = async (
 		const { expo } = root;
 		if (
 			expo.name !== config.appName ||
-			!isRecord(expo.android) ||
-			expo.android.package !== config.appId
+			(config.platforms.includes('android') &&
+				(!isRecord(expo.android) ||
+					expo.android.package !== config.appId)) ||
+			(config.platforms.includes('ios') &&
+				(!isRecord(expo.ios) ||
+					expo.ios.bundleIdentifier !== config.appId))
 		) {
 			throw new TypeError(
-				'Generated Expo Android identity does not match mobile config.'
+				'Generated Expo application identity does not match mobile config.'
 			);
 		}
 		if (
@@ -645,7 +649,7 @@ const expoApplicationConfigCheck = async (
 				? error.message
 				: 'Generated Expo application config could not be validated.',
 			path,
-			'Run `absolute mobile build android`; do not edit the generated Expo project.'
+			'Run `absolute mobile build <platform>`; do not edit the generated Expo project.'
 		);
 	}
 };
@@ -733,7 +737,7 @@ const expoEmbeddedAssetsCheck = async (
 				? error.message
 				: 'Generated Expo assets could not be validated.',
 			generated,
-			'Run `absolute mobile build android` to regenerate and verify the production asset projection.'
+			'Run `absolute mobile build <platform>` to regenerate and verify the production asset projection.'
 		);
 	}
 };
@@ -868,26 +872,28 @@ const androidDeepLinkProjectionCheck = async (
 };
 
 const iosNativeSecurityCheck = async (iosRoot: string) => {
-	const entitlementsPath = join(iosRoot, 'App/AbsoluteJS.entitlements');
-	const entitlements = await readFile(entitlementsPath, 'utf8').catch(
-		() => ''
+	const applicationFiles = async (extensions: Set<string>) =>
+		(await sourceFiles(iosRoot, extensions)).filter(
+			(path) =>
+				!relative(iosRoot, path)
+					.split(/[\\/]/u)
+					.some((part) =>
+						['Pods', 'DerivedData', 'build'].includes(part)
+					)
+		);
+	const entitlementPaths = await applicationFiles(new Set(['.entitlements']));
+	const unsafeEntitlements = await containsPattern(
+		entitlementPaths,
+		/<key>(?:com\.apple\.security\.)?get-task-allow<\/key>\s*<true\s*\/>/u
 	);
-	if (
-		/<key>get-task-allow<\/key>\s*<true\s*\/>/u.test(entitlements) ||
-		/<key>com\.apple\.security\.get-task-allow<\/key>\s*<true\s*\/>/u.test(
-			entitlements
-		)
-	)
+	if (unsafeEntitlements)
 		return fail(
 			'ios.native-debugging',
 			'iOS source entitlements explicitly permit debugger attachment.',
-			entitlementsPath,
+			unsafeEntitlements,
 			'Remove get-task-allow from source entitlements; Xcode supplies development entitlements only to debug builds.'
 		);
-	const sources = await sourceFiles(
-		join(iosRoot, 'App'),
-		new Set(['.m', '.mm', '.swift'])
-	);
+	const sources = await applicationFiles(new Set(['.m', '.mm', '.swift']));
 	const debugSource = await containsPattern(
 		sources,
 		/\.isInspectable\s*=\s*true|setInspectable\s*\(\s*true\s*\)/u
@@ -903,7 +909,7 @@ const iosNativeSecurityCheck = async (iosRoot: string) => {
 	return pass(
 		'ios.native-debugging',
 		'iOS source does not enable release debugger attachment or WebView inspection.',
-		entitlementsPath
+		entitlementPaths[0] ?? iosRoot
 	);
 };
 
@@ -1063,7 +1069,11 @@ const iosDevicePermissionCheck = async (
 ) => {
 	if (!config.platforms.includes('ios') || purposes.length === 0)
 		return undefined;
-	const path = join(config.nativeProjectDirectory, 'ios/App/App/Info.plist');
+	const iosRoot = join(config.nativeProjectDirectory, 'ios');
+	const path =
+		config.engine === 'expo'
+			? await uniqueExpoIosFile(iosRoot, '**/Info.plist', 'Info.plist')
+			: join(iosRoot, 'App/App/Info.plist');
 	const source = await readFile(path, 'utf8');
 	const missing = purposes.filter(
 		(purpose) => !source.includes(`<key>${IOS_USAGE_KEYS[purpose]}</key>`)
@@ -1078,11 +1088,85 @@ const iosDevicePermissionCheck = async (
 	);
 };
 
+const expoIosPrivacyCapabilityCheck = async (
+	iosRoot: string,
+	project: string,
+	requirements: ReturnType<typeof absoluteDeviceNativeRequirements>
+) => {
+	if (requirements.iosPrivacyAccessedApis.length === 0) return undefined;
+	const privacyPath = await uniqueExpoIosFile(
+		iosRoot,
+		'**/PrivacyInfo.xcprivacy',
+		'privacy manifest'
+	);
+	const privacy = await readFile(privacyPath, 'utf8');
+	const missing = requirements.iosPrivacyAccessedApis.some(
+		({ api, reasons }) =>
+			!privacy.includes(`<string>${api}</string>`) ||
+			reasons.some(
+				(reason) => !privacy.includes(`<string>${reason}</string>`)
+			)
+	);
+	if (!missing && project.includes(privacyPath.split(/[\\/]/u).at(-1) ?? ''))
+		return undefined;
+
+	return fail(
+		'mobile.device-capabilities',
+		'Expo iOS privacy manifest or target membership does not match detected capabilities.',
+		privacyPath,
+		'Run `absolute mobile build ios` to regenerate detected Expo privacy declarations.'
+	);
+};
+
+const expoIosPushCapabilityCheck = async (
+	iosRoot: string,
+	requirements: ReturnType<typeof absoluteDeviceNativeRequirements>
+) => {
+	if (!requirements.iosPushNotifications) return undefined;
+	const entitlementsPath = await uniqueExpoIosFile(
+		iosRoot,
+		'**/*.entitlements',
+		'entitlements'
+	);
+	const entitlements = await readFile(entitlementsPath, 'utf8');
+	if (entitlements.includes('<key>aps-environment</key>')) return undefined;
+
+	return fail(
+		'mobile.device-capabilities',
+		'Expo iOS push entitlement does not match detected capabilities.',
+		entitlementsPath,
+		'Run `absolute mobile build ios` to regenerate native push integration.'
+	);
+};
+
+const expoIosCapabilityProjectionCheck = async (
+	config: NormalizedAbsoluteMobileConfig,
+	requirements: ReturnType<typeof absoluteDeviceNativeRequirements>
+) => {
+	const iosRoot = join(config.nativeProjectDirectory, 'ios');
+	const projectPath = await uniqueExpoIosFile(
+		iosRoot,
+		'**/*.xcodeproj/project.pbxproj',
+		'Xcode project'
+	);
+	const project = await readFile(projectPath, 'utf8');
+	const privacy = await expoIosPrivacyCapabilityCheck(
+		iosRoot,
+		project,
+		requirements
+	);
+	if (privacy) return privacy;
+
+	return expoIosPushCapabilityCheck(iosRoot, requirements);
+};
+
 const iosCapabilityProjectionCheck = async (
 	config: NormalizedAbsoluteMobileConfig,
 	requirements: ReturnType<typeof absoluteDeviceNativeRequirements>
 ) => {
 	if (!config.platforms.includes('ios')) return undefined;
+	if (config.engine === 'expo')
+		return expoIosCapabilityProjectionCheck(config, requirements);
 	const appRoot = join(config.nativeProjectDirectory, 'ios/App/App');
 	const infoPath = join(appRoot, 'Info.plist');
 	const info = await readFile(infoPath, 'utf8').catch(() => '');
@@ -1324,6 +1408,152 @@ const inspectExpoAndroidRelease = async (
 	}));
 };
 
+const uniqueExpoIosFile = async (
+	iosRoot: string,
+	pattern: string,
+	label: string
+) => {
+	const paths = (
+		await Array.fromAsync(
+			new Bun.Glob(pattern).scan({ cwd: iosRoot, onlyFiles: true })
+		)
+	).filter(
+		(path) =>
+			!path
+				.split(/[\\/]/u)
+				.some((part) => ['Pods', 'DerivedData', 'build'].includes(part))
+	);
+	if (paths.length !== 1)
+		throw new TypeError(
+			paths.length === 0
+				? `Generated Expo iOS project is missing its ${label}.`
+				: `Generated Expo iOS project contains ambiguous ${label} files.`
+		);
+
+	const [path] = paths;
+	if (!path)
+		throw new TypeError(
+			`Generated Expo iOS project is missing its ${label}.`
+		);
+
+	return join(iosRoot, path);
+};
+
+const expoIosNativeProjectionCheck = async (
+	config: NormalizedAbsoluteMobileConfig,
+	iosRoot: string
+) => {
+	try {
+		const [infoPath, entitlementsPath, projectPath] = await Promise.all([
+			uniqueExpoIosFile(iosRoot, '**/Info.plist', 'Info.plist'),
+			uniqueExpoIosFile(iosRoot, '**/*.entitlements', 'entitlements'),
+			uniqueExpoIosFile(
+				iosRoot,
+				'**/*.xcodeproj/project.pbxproj',
+				'Xcode project'
+			)
+		]);
+		const [info, entitlements, project] = await Promise.all([
+			readFile(infoPath, 'utf8'),
+			readFile(entitlementsPath, 'utf8'),
+			readFile(projectPath, 'utf8')
+		]);
+		if (/<key>NSAllowsArbitraryLoads<\/key>\s*<true\s*\/>/u.test(info))
+			throw new TypeError(
+				'Expo iOS App Transport Security permits arbitrary network loads.'
+			);
+		if (
+			config.deepLinkScheme &&
+			(!info.includes('<key>CFBundleURLTypes</key>') ||
+				!info.includes(`<string>${config.deepLinkScheme}</string>`))
+		)
+			throw new TypeError(
+				'Expo iOS custom URL scheme does not match mobile config.'
+			);
+		if (
+			config.deepLinkHosts.some(
+				(host) =>
+					!entitlements.includes(`<string>applinks:${host}</string>`)
+			)
+		)
+			throw new TypeError(
+				'Expo iOS associated domains do not match mobile config.'
+			);
+		if (!project.includes(entitlementsPath.split(/[\\/]/u).at(-1) ?? ''))
+			throw new TypeError(
+				'Expo iOS target does not sign its generated entitlements file.'
+			);
+
+		return pass(
+			'ios.expo-native-projection',
+			'Expo iOS transport security, URL schemes, universal links, and signed entitlements match mobile config.',
+			entitlementsPath
+		);
+	} catch (error) {
+		return fail(
+			'ios.expo-native-projection',
+			error instanceof Error
+				? error.message
+				: 'Expo iOS native projection could not be validated.',
+			iosRoot,
+			'Run `absolute mobile build ios` to regenerate the production Expo CNG project.'
+		);
+	}
+};
+
+const inspectExpoIosRelease = async (
+	config: NormalizedAbsoluteMobileConfig,
+	projectRoot: string
+) => {
+	const iosRoot = join(config.nativeProjectDirectory, 'ios');
+	const journalPath = join(
+		projectRoot,
+		'.absolutejs',
+		'mobile',
+		'expo-dev-session',
+		'journal.json'
+	);
+	const checks: AbsoluteMobileReleaseCheck[] = [
+		await journalReleaseCheck(journalPath, 'ios')
+	];
+	checks.push(
+		config.iosVersion
+			? pass(
+					'ios.marketing-version',
+					`The iOS marketing version is ${config.iosVersion}.`
+				)
+			: fail(
+					'ios.marketing-version',
+					'iOS has no explicit App Store marketing version.',
+					projectRoot,
+					'Add mobile.ios.version to absolutejs.config.ts, for example 1.0.0.'
+				)
+	);
+	checks.push(
+		...(await Promise.all([
+			expoApplicationConfigCheck(config),
+			expoEmbeddedAssetsCheck(config),
+			hmrAssetsReleaseCheck(config.bundleDirectory),
+			embeddedBundleReleaseCheck(
+				config,
+				projectRoot,
+				'ios',
+				config.bundleDirectory
+			),
+			contentSecurityPolicyCheck(config, 'ios', config.bundleDirectory),
+			expoIosNativeProjectionCheck(config, iosRoot),
+			iosNativeSecurityCheck(iosRoot)
+		]))
+	);
+
+	return checks.map((check) => ({
+		...check,
+		path: check.path
+			? relative(projectRoot, check.path).replaceAll('\\', '/') || '.'
+			: undefined
+	}));
+};
+
 const inspectIosRelease = async (
 	config: NormalizedAbsoluteMobileConfig,
 	projectRoot: string
@@ -1507,14 +1737,7 @@ export const inspectAbsoluteMobileRelease = async (
 	if (config.platforms.includes('ios'))
 		checks.push(
 			...(config.engine === 'expo'
-				? [
-						fail(
-							'expo.ios-release',
-							'Expo iOS production release automation is not implemented yet.',
-							config.nativeProjectDirectory,
-							'Build Android independently or wait for the Expo iOS signing checkpoint.'
-						)
-					]
+				? await inspectExpoIosRelease(config, projectRoot)
 				: await inspectIosRelease(config, projectRoot))
 		);
 	const syncSchema = syncSchemaReleaseCheck(projectRoot);

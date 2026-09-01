@@ -1,7 +1,7 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.49` and
+`@absolutejs/absolute@0.20.0-beta.50` and
 `@absolutejs/deploy@0.24.0`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
 
@@ -22,9 +22,10 @@ directories or commands:
    from the root of a real mobile-enabled AbsoluteJS staging application. This
    requires that application's source repository, server entry, AbsoluteJS
    config, staging origin, bundle ID, Apple team, and App Store Connect access.
-3. **Expo development-client acceptance:** use the same staging application on
-   a temporary branch, switch `mobile.engine` to `expo`, and complete the Expo
-   checklist below. This track does not replace the Capacitor release gate.
+3. **Expo development-client and production-release acceptance:** use the same
+   staging application on a temporary branch, switch `mobile.engine` to `expo`,
+   and complete the Expo checklists below. This track does not replace the
+   Capacitor release gate.
 
 If you were sent only this Markdown file and were not sent a staging
 application repository plus its non-secret configuration values, complete Track
@@ -220,6 +221,8 @@ actual result, sanitized logs, and artifact or screenshot path in section 13.
   Auth, query/reload, failure recovery, and production-contract acceptance.
 - [ ] `EXPO-RELEASE-01` through `EXPO-RELEASE-06` Complete the real Expo Android
   CNG/AAB, release-doctor, immutable metadata, and CI-generation acceptance.
+- [ ] `EXPO-IOS-RELEASE-01` through `EXPO-IOS-RELEASE-08` Complete the real Expo
+  iOS CNG/IPA, signing, release-doctor, CI, and optional TestFlight acceptance.
 - [ ] `EXPO-DEVICES-01` through `EXPO-DEVICES-12` Complete provider-neutral
   capabilities, privacy, bridge, push, and rebuild-boundary acceptance.
 - [ ] `EXPO-AUTH-01` through `EXPO-AUTH-08` Complete Expo system-browser Auth,
@@ -278,7 +281,7 @@ still requires the developer team setup described below.
 From the root of the AbsoluteJS application:
 
 ```sh
-bun add @absolutejs/absolute@0.20.0-beta.49 \
+bun add @absolutejs/absolute@0.20.0-beta.50 \
   @absolutejs/auth@0.75.6 \
   @absolutejs/dispatch@0.9.0 \
   @absolutejs/sync@2.31.0 \
@@ -722,8 +725,9 @@ directory.
   src/backend/server.ts --publish --config absolute.config.ts --output
   .github/workflows/absolute-mobile-expo-acceptance.yml`. Confirm the generated
   workflow has Android signing, release doctor, AAB attestation/upload, and
-  optional Google Play publication, with no Expo iOS job. Remove this disposable
-  workflow afterward if the application already owns another mobile workflow.
+  optional Google Play publication. If iOS is configured, confirm the protected
+  Expo iOS job is also present. Remove this disposable workflow afterward if the
+  application already owns another mobile workflow.
 - [ ] `EXPO-RELEASE-06` Repeat `EXPO-RELEASE-01` without source/config changes.
   Confirm the same content produces the same immutable release identity and no
   metadata conflict. Then make one harmless web-page change, rebuild, and
@@ -734,6 +738,69 @@ If no Android SDK is installed on the Mac, record these six rows as
 `SKIPPED — Android toolchain unavailable`; do not treat that as an iOS failure.
 Return the six report rows, command summaries, AAB byte size/hash, and redacted
 doctor output.
+
+#### Expo iOS production-release acceptance
+
+Run this from the staging application root on macOS—not from
+`.absolutejs/mobile/expo` or an Xcode directory. Keep `mobile.engine: 'expo'`,
+include `ios` in `mobile.platforms`, configure `mobile.ios.version`, and retain
+the supplied Apple application-ID prefix/deep-link identity. Use only a staging
+bundle ID that the tester is authorized to sign.
+
+Before the first command, provision signing in the same way as the Capacitor
+Track B release and export the ten-character team ID only in this terminal:
+
+```sh
+cd /absolute/path/to/the/staging-application
+export ABSOLUTE_IOS_DEVELOPMENT_TEAM='ABCDE12345'
+bunx absolute mobile build ios src/backend/server.ts --config absolute.config.ts
+```
+
+- [ ] `EXPO-IOS-RELEASE-01` Confirm AbsoluteJS installs/validates the generated
+  Expo shell dependencies, runs clean production `expo prebuild --platform
+  ios`, discovers the generated app-named workspace and shared scheme, and
+  completes Xcode archive/export without asking for edits under
+  `.absolutejs/mobile/expo/ios`.
+- [ ] `EXPO-IOS-RELEASE-02` Confirm the CLI prints `App.ipa` and `release.json`
+  paths under `.absolutejs/mobile/releases/ios/amobile_ios_<sha256>/`, and
+  independently verify the IPA SHA-256 equals `release.json.sha256`.
+- [ ] `EXPO-IOS-RELEASE-03` Inspect only the secret-free `release.json`. Confirm
+  `engine` is `expo`, `platform` is `ios`, `type` is `ipa`, `signed` is `true`,
+  `appId` and `marketingVersion` match config, and no signing identity,
+  provisioning profile, credential, or absolute path is present.
+- [ ] `EXPO-IOS-RELEASE-04` Run `bunx absolute mobile doctor release ios --json
+  --config absolute.config.ts`. Confirm `ready` is `true`, including passing
+  `mobile.expo-versions`, `expo.app-config`, `expo.bundle-projection`,
+  `ios.expo-native-projection`, `ios.native-debugging`, bundle-integrity, CSP,
+  Sync-policy, and device-capability checks. Return this redacted JSON.
+- [ ] `EXPO-IOS-RELEASE-05` Search the generated iOS project and sanitized build
+  log for the local Bun/Metro origin, `ABSOLUTE_EXPO_DEVELOPMENT`, the
+  development CA plugin, arbitrary ATS loads, and unconditional WebView
+  inspection. Confirm none is present in the production projection. Do not
+  return private hostnames or certificate material.
+- [ ] `EXPO-IOS-RELEASE-06` Run `bunx absolute mobile ci github
+  src/backend/server.ts --publish --config absolute.config.ts --output
+  .github/workflows/absolute-mobile-expo-acceptance.yml`. Confirm the generated
+  workflow contains a protected `macos-latest` iOS signing job, release doctor,
+  IPA attestation/upload, registry publication, and optional TestFlight inputs.
+  If Android is configured, confirm both platform jobs exist. Remove only this
+  disposable workflow after recording the result.
+- [ ] `EXPO-IOS-RELEASE-07` If App Store Connect staging access was supplied,
+  follow Sections 8–9 to configure `mobile.release.ts` and API-key environment,
+  then run `bunx absolute mobile publish ios src/backend/server.ts --registry
+  mobile.release.ts --channel expo-ios-smoke --testflight-group
+  INTERNAL_GROUP --config absolute.config.ts`. Confirm automatic build-number
+  allocation, processing, group assignment, and installation through
+  TestFlight. Otherwise record `SKIPPED — no App Store Connect staging access`.
+- [ ] `EXPO-IOS-RELEASE-08` Make one harmless ordinary web-page change and
+  rebuild. Confirm `appBuild` changes and a new immutable IPA directory is
+  created without editing React Native, Expo, or Xcode code. Restore the source
+  change afterward; never edit an existing release directory.
+
+Return all eight rows with PASS/FAIL/SKIPPED, sanitized command summaries, the
+IPA byte size/hash, redacted doctor JSON, and—when run—the non-secret TestFlight
+build number/stage. Never return certificates, provisioning profiles, `.p8`
+contents, passwords, Apple account identifiers, or environment files.
 
 #### Expo device-capability acceptance
 
@@ -2010,7 +2077,7 @@ source change and build a new content-addressed release instead.
 - Mac architecture:
 - Xcode version:
 - Bun version:
-- AbsoluteJS version: 0.20.0-beta.49
+- AbsoluteJS version: 0.20.0-beta.50
 - Auth version: 0.75.6
 - Dispatch version: 0.9.0
 - Sync version: 2.31.0
@@ -2073,8 +2140,16 @@ versus expected behavior. Do not report exact coordinates.
 | EXPO-RELEASE-02 |  | doctor ready / required rows: |  |
 | EXPO-RELEASE-03 |  | engine / signed / SHA-256: |  |
 | EXPO-RELEASE-04 |  | development-residue search: |  |
-| EXPO-RELEASE-05 |  | Android CI / no Expo iOS job: |  |
+| EXPO-RELEASE-05 |  | Android CI / Expo iOS job when configured: |  |
 | EXPO-RELEASE-06 |  | repeat identity / changed identity: |  |
+| EXPO-IOS-RELEASE-01 |  | clean CNG / workspace / scheme / Xcode export: |  |
+| EXPO-IOS-RELEASE-02 |  | IPA path / bytes / SHA-256: |  |
+| EXPO-IOS-RELEASE-03 |  | Expo signed metadata / no secrets: |  |
+| EXPO-IOS-RELEASE-04 |  | doctor ready / required rows: |  |
+| EXPO-IOS-RELEASE-05 |  | development-residue search: |  |
+| EXPO-IOS-RELEASE-06 |  | protected iOS CI / both jobs if configured: |  |
+| EXPO-IOS-RELEASE-07 |  | TestFlight build / stage or skipped: |  |
+| EXPO-IOS-RELEASE-08 |  | changed appBuild / new immutable release: |  |
 | EXPO-DEVICES-01 |  | exact packages / generated CNG policy: |  |
 | EXPO-DEVICES-02 |  | Expo dependency check: |  |
 | EXPO-DEVICES-03 |  | clipboard / haptics / keyboard / bars / share: |  |

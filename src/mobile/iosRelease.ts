@@ -26,7 +26,7 @@ export type AbsoluteIosReleaseMetadata = {
 	artifact: 'App.ipa';
 	buildNumber?: number;
 	bytes: number;
-	engine: 'capacitor';
+	engine: 'capacitor' | 'expo';
 	format: typeof ABSOLUTE_IOS_RELEASE_FORMAT;
 	marketingVersion: string;
 	platform: 'ios';
@@ -53,12 +53,15 @@ export type BuildAbsoluteIosReleaseOptions = {
 	capture?: (command: string[], options?: CommandOptions) => CommandResult;
 	config: NormalizedAbsoluteMobileConfig;
 	developmentTeam?: string;
+	env?: Record<string, string | undefined>;
 	host?: AbsoluteMobileHost;
 	outputDirectory?: string;
 	prepareBuildNumber?: (buildIdentity: string) => Promise<number>;
 	projectRoot: string;
 	run?: (command: string[], options?: CommandOptions) => Promise<number>;
 	buildNumber?: number;
+	scheme?: string;
+	workspacePath?: string;
 };
 
 const developmentTeamArgument = (value: string | undefined) => {
@@ -244,6 +247,83 @@ const findByExtension = async (
 	return matches.find((match) => match !== undefined);
 };
 
+const findAllByExtension = async (
+	root: string,
+	extension: string,
+	options: { excludedDirectories?: ReadonlySet<string> } = {}
+): Promise<string[]> => {
+	if (!(await pathExists(root))) return [];
+	const entries = await readdir(root, { withFileTypes: true });
+	const matches = await Promise.all(
+		entries.map(async (entry) => {
+			const path = join(root, entry.name);
+			if (entry.name.endsWith(extension)) return [path];
+			if (
+				!entry.isDirectory() ||
+				options.excludedDirectories?.has(entry.name)
+			)
+				return [];
+
+			return findAllByExtension(path, extension, options);
+		})
+	);
+
+	return matches.flat().sort();
+};
+
+export const resolveAbsoluteIosXcodeProject = async (
+	nativeDirectory: string,
+	options: { scheme?: string; workspacePath?: string } = {}
+) => {
+	const requestedWorkspace = options.workspacePath
+		? resolve(nativeDirectory, options.workspacePath)
+		: undefined;
+	if (requestedWorkspace) {
+		const requestedRelative = relative(nativeDirectory, requestedWorkspace);
+		if (
+			requestedRelative === '..' ||
+			requestedRelative.startsWith(`..${sep}`) ||
+			isAbsolute(requestedRelative)
+		)
+			throw new TypeError(
+				'iOS release workspacePath must remain inside the native iOS project.'
+			);
+	}
+	const workspaces = requestedWorkspace
+		? [requestedWorkspace]
+		: await findAllByExtension(nativeDirectory, '.xcworkspace', {
+				excludedDirectories: new Set(['Pods', 'DerivedData', 'build'])
+			});
+	if (workspaces.length !== 1)
+		throw new TypeError(
+			workspaces.length > 1
+				? `iOS release found multiple Xcode workspaces: ${workspaces.map((path) => relative(nativeDirectory, path)).join(', ')}. Pass an explicit workspacePath.`
+				: 'iOS release could not find an Xcode workspace.'
+		);
+	const [workspacePath] = workspaces;
+	if (!workspacePath || !(await pathExists(workspacePath)))
+		throw new TypeError('iOS release could not find an Xcode workspace.');
+	if (options.scheme) return { scheme: options.scheme, workspacePath };
+	const schemeFiles = await findAllByExtension(nativeDirectory, '.xcscheme', {
+		excludedDirectories: new Set(['Pods', 'DerivedData', 'build'])
+	});
+	const schemes = [
+		...new Set(
+			schemeFiles.map((path) =>
+				path.slice(path.lastIndexOf(sep) + 1, -'.xcscheme'.length)
+			)
+		)
+	];
+	if (schemes.length !== 1 || !schemes[0])
+		throw new TypeError(
+			schemes.length > 1
+				? `iOS release found multiple shared Xcode schemes: ${schemes.join(', ')}. Pass an explicit scheme.`
+				: 'iOS release could not find a shared Xcode scheme.'
+		);
+
+	return { scheme: schemes[0], workspacePath };
+};
+
 const exportOptions = () => `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
@@ -356,6 +436,10 @@ export const buildAbsoluteIosRelease = async (
 			'Embedded mobile manifest appId does not match mobile.appId.'
 		);
 	const nativeDirectory = join(options.config.nativeProjectDirectory, 'ios');
+	const xcode = await resolveAbsoluteIosXcodeProject(nativeDirectory, {
+		scheme: options.scheme,
+		workspacePath: options.workspacePath
+	});
 	let buildNumber = requireBuildNumber(options.buildNumber);
 	if (options.prepareBuildNumber) {
 		const nativeFingerprint =
@@ -393,9 +477,9 @@ export const buildAbsoluteIosRelease = async (
 			[
 				'xcodebuild',
 				'-workspace',
-				join(nativeDirectory, 'App', 'App.xcworkspace'),
+				xcode.workspacePath,
 				'-scheme',
-				'App',
+				xcode.scheme,
 				'-configuration',
 				'Release',
 				'-destination',
@@ -405,7 +489,7 @@ export const buildAbsoluteIosRelease = async (
 				...versionArguments,
 				'archive'
 			],
-			{ cwd: nativeDirectory }
+			{ cwd: nativeDirectory, env: options.env }
 		);
 		if (archiveExit !== 0)
 			throw new TypeError('Xcode failed to archive the iOS app.');
@@ -438,7 +522,7 @@ export const buildAbsoluteIosRelease = async (
 				'-exportOptionsPlist',
 				exportPlist
 			],
-			{ cwd: nativeDirectory }
+			{ cwd: nativeDirectory, env: options.env }
 		);
 		if (exportExit !== 0)
 			throw new TypeError('Xcode failed to export the App Store IPA.');
@@ -458,7 +542,7 @@ export const buildAbsoluteIosRelease = async (
 				appId: manifest.appId,
 				...(buildNumber === undefined ? {} : { buildNumber }),
 				bytes,
-				engine: 'capacitor',
+				engine: options.config.engine,
 				format: 1,
 				marketingVersion,
 				platform: 'ios',

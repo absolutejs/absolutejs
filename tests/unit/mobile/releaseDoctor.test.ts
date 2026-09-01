@@ -10,7 +10,10 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { normalizeAbsoluteMobileConfig } from '../../../src/mobile/config';
+import {
+	normalizeAbsoluteMobileConfig,
+	type NormalizedAbsoluteMobileConfig
+} from '../../../src/mobile/config';
 import {
 	syncAbsoluteExpoWebAssets,
 	writeAbsoluteExpoProject
@@ -256,6 +259,56 @@ describe('mobile release doctor', () => {
 		expect(
 			result.checks.find(({ id }) => id === 'expo.bundle-projection')
 		).toMatchObject({ status: 'pass' });
+	});
+
+	test('passes a production-safe Expo iOS CNG projection', async () => {
+		const expo = await expoFixture();
+		const config: NormalizedAbsoluteMobileConfig = {
+			...expo.config,
+			appleAppIdPrefix: 'ABCDE12345',
+			iosVersion: '1.2.0',
+			platforms: ['ios']
+		};
+		await writeAbsoluteExpoProject(config, {
+			projectRoot: expo.projectRoot
+		});
+		const iosRoot = join(config.nativeProjectDirectory, 'ios');
+		const appRoot = join(iosRoot, 'ExpoRelease');
+		await mkdir(join(iosRoot, 'ExpoRelease.xcodeproj'), {
+			recursive: true
+		});
+		await mkdir(appRoot, { recursive: true });
+		await Promise.all([
+			writeFile(
+				join(appRoot, 'Info.plist'),
+				`<plist><dict><key>CFBundleURLTypes</key><array><dict><key>CFBundleURLSchemes</key><array><string>${config.deepLinkScheme}</string></array></dict></array></dict></plist>\n`
+			),
+			writeFile(
+				join(appRoot, 'ExpoRelease.entitlements'),
+				`<plist><dict><key>com.apple.developer.associated-domains</key><array><string>applinks:api.example.com</string></array></dict></plist>\n`
+			),
+			writeFile(
+				join(iosRoot, 'ExpoRelease.xcodeproj', 'project.pbxproj'),
+				'CODE_SIGN_ENTITLEMENTS = ExpoRelease/ExpoRelease.entitlements;\n'
+			),
+			writeFile(
+				join(appRoot, 'AppDelegate.swift'),
+				'final class AppDelegate {}\n'
+			)
+		]);
+
+		const result = await inspectAbsoluteMobileRelease(
+			config,
+			expo.projectRoot
+		);
+
+		expect(result.ready).toBe(true);
+		expect(
+			result.checks.find(({ id }) => id === 'ios.expo-native-projection')
+		).toMatchObject({ status: 'pass' });
+		expect(result.checks.some(({ id }) => id === 'expo.ios-release')).toBe(
+			false
+		);
 	});
 
 	test('rejects a modified Expo embedded asset', async () => {

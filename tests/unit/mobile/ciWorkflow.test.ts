@@ -78,7 +78,7 @@ const fixture = async (
 };
 
 describe('mobile GitHub Actions workflow', () => {
-	test('generates Android-only build and publishing CI for Expo', async () => {
+	test('generates Android and iOS build and publishing CI for Expo', async () => {
 		const { config, projectRoot } = await fixture(
 			['android', 'ios'],
 			'expo'
@@ -90,25 +90,33 @@ describe('mobile GitHub Actions workflow', () => {
 		});
 
 		expect(result.workflow).toContain('  android:');
-		expect(result.workflow).not.toContain('  ios:');
+		expect(result.workflow).toContain('  ios:');
 		expect(result.workflow).toContain('mobile build android');
 		expect(result.workflow).toContain('mobile publish android');
+		expect(result.workflow).toContain('mobile build ios');
+		expect(result.workflow).toContain('mobile publish ios');
 		expect(result.workflow).toContain('mobile doctor release android');
-		expect(result.workflow).not.toContain('mobile doctor release ios');
+		expect(result.workflow).toContain('mobile doctor release ios');
 		expect(result.requiredSecrets).toContain(
 			'ABSOLUTE_ANDROID_KEYSTORE_BASE64'
 		);
-		expect(result.requiredSecrets).not.toContain(
+		expect(result.requiredSecrets).toContain(
 			'ABSOLUTE_IOS_CERTIFICATE_BASE64'
 		);
 	});
 
-	test('rejects Expo CI when Android is not configured', async () => {
+	test('generates Expo iOS-only CI when Android is not configured', async () => {
 		const { config, projectRoot } = await fixture(['ios'], 'expo');
+		const result = createAbsoluteMobileGithubWorkflow({
+			config,
+			projectRoot
+		});
 
-		expect(() =>
-			createAbsoluteMobileGithubWorkflow({ config, projectRoot })
-		).toThrow('requires android');
+		expect(result.workflow).toContain('  ios:');
+		expect(result.workflow).not.toContain('  android:');
+		expect(result.requiredSecrets).toContain(
+			'ABSOLUTE_IOS_CERTIFICATE_BASE64'
+		);
 	});
 
 	test('generates parseable, protected build and publishing jobs', async () => {

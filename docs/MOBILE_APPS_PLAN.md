@@ -2,7 +2,7 @@
 
 Status: Capacitor Android development/release, all-framework embedded bundles, universal native Auth/Sync, Expo hybrid native Auth/Sync, background Sync, automatic device provisioning, provider-neutral native push registration, and Android conformance are operational; iOS development/release automation is shipped and awaiting real macOS/physical-device acceptance
 
-Implementation checkpoint (September 1, 2026, Expo Android release slice):
+Implementation checkpoint (September 1, 2026, Expo Android/iOS release slice):
 `0.20.0-beta.49` makes Expo Android a production-capable experimental provider.
 The ordinary `mobile build android`, release doctor, immutable release registry,
 automatic Play version-code allocation, `mobile publish android`, and generated
@@ -11,8 +11,11 @@ clean CNG, pinned generated-shell dependencies, and a production-only
 Prebuild/Metro/Gradle environment. The doctor verifies app config, SDK/lockfile
 alignment, byte-for-byte opaque asset projection, bundle integrity, transport,
 deep links, debug residue, Sync policy, and provider-specific device packages.
-Expo iOS release automation and Expo-on-WSL production projection remain the
-next engine-specific release checkpoints.
+`0.20.0-beta.50` extends that provider-neutral release surface to Expo iOS:
+clean production CNG, generated workspace/scheme discovery, signed immutable
+IPA output, App Store build-number allocation, TestFlight publishing, and
+protected macOS CI. Expo-on-WSL production projection remains an
+engine-specific checkpoint.
 
 Implementation checkpoint (August 31, 2026, Expo typed-data slice):
 `0.20.0-beta.48` makes application-owned Expo React routes a typed renderer for

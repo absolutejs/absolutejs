@@ -1161,6 +1161,41 @@ const prepareExpoAndroidReleaseProject = async (
 	);
 };
 
+const prepareExpoIosReleaseProject = async (
+	mobile: NormalizedAbsoluteMobileConfig,
+	projectRoot: string,
+	args: string[]
+) => {
+	await writeAbsoluteExpoProject(mobile, { projectRoot });
+	await ensureExpoPackages(mobile.nativeProjectDirectory, [...args, '--yes']);
+	await syncAbsoluteExpoWebAssets(mobile);
+	await runExpo(
+		mobile.nativeProjectDirectory,
+		['prebuild', '--clean', '--platform', 'ios'],
+		{ production: true }
+	);
+};
+
+const prepareCapacitorIosReleaseProject = async (
+	mobile: NormalizedAbsoluteMobileConfig,
+	projectRoot: string
+) => {
+	await writeAbsoluteCapacitorConfig(mobile, { projectRoot });
+	await runCapacitorForPlatforms(projectRoot, 'sync', ['ios']);
+	await applyAbsoluteNativeDeepLinks(mobile, ['ios']);
+	await applyAbsoluteNativeDeviceCapabilities(projectRoot, mobile, ['ios']);
+	await applyAbsoluteNativeBackgroundSync(projectRoot, mobile, ['ios']);
+};
+
+const prepareIosReleaseProject = (
+	mobile: NormalizedAbsoluteMobileConfig,
+	projectRoot: string,
+	args: string[]
+) =>
+	mobile.engine === 'expo'
+		? prepareExpoIosReleaseProject(mobile, projectRoot, args)
+		: prepareCapacitorIosReleaseProject(mobile, projectRoot);
+
 const prepareCapacitorAndroidReleaseProject = async (
 	mobile: NormalizedAbsoluteMobileConfig,
 	projectRoot: string
@@ -1309,7 +1344,7 @@ const publishAndroid = async (args: string[]) => {
 	} finally {
 		sendTelemetryEvent('mobile:android-release-publish', {
 			durationMs: Math.round(performance.now() - startedAt),
-			engine: 'capacitor',
+			engine: mobile.engine,
 			platform: 'android',
 			provider: googlePlay ? 'google-play' : 'registry-module',
 			reused,
@@ -1348,7 +1383,6 @@ const buildIos = async (
 ) => {
 	const configPath = valueAfter(args, '--config');
 	const { mobile, projectRoot } = await loadMobile(configPath);
-	requireCapacitorEngine(mobile, 'mobile build ios');
 	if (!mobile.platforms.includes('ios')) {
 		throw new TypeError(
 			'mobile build ios requires ios in mobile.platforms.'
@@ -1357,25 +1391,23 @@ const buildIos = async (
 	const startedAt = performance.now();
 	let success = false;
 	try {
-		await repairAbsoluteIosDevSession(projectRoot);
+		if (mobile.engine === 'capacitor')
+			await repairAbsoluteIosDevSession(projectRoot);
 		await start(
 			mobileBuildServerEntry(args),
 			valueAfter(args, '--web-outdir'),
 			configPath,
 			{ prepareOnly: true }
 		);
-		await writeAbsoluteCapacitorConfig(mobile, { projectRoot });
-		await runCapacitorForPlatforms(projectRoot, 'sync', ['ios']);
-		await applyAbsoluteNativeDeepLinks(mobile, ['ios']);
-		await applyAbsoluteNativeDeviceCapabilities(projectRoot, mobile, [
-			'ios'
-		]);
-		await applyAbsoluteNativeBackgroundSync(projectRoot, mobile, ['ios']);
+		await prepareIosReleaseProject(mobile, projectRoot, args);
 		await requireIosReleaseReady(mobile, projectRoot);
 		const release = await buildAbsoluteIosRelease({
 			allowUnsigned: args.includes('--unsigned'),
 			config: mobile,
 			developmentTeam: process.env.ABSOLUTE_IOS_DEVELOPMENT_TEAM,
+			...(mobile.engine === 'expo'
+				? { env: expoProductionEnvironment() }
+				: {}),
 			outputDirectory: valueAfter(args, '--outdir'),
 			...(prepareBuildNumber === undefined ? {} : { prepareBuildNumber }),
 			projectRoot
@@ -1392,7 +1424,7 @@ const buildIos = async (
 	} finally {
 		sendTelemetryEvent('mobile:ios-release-build', {
 			durationMs: Math.round(performance.now() - startedAt),
-			engine: 'capacitor',
+			engine: mobile.engine,
 			platform: 'ios',
 			success,
 			type: 'ipa',
@@ -1411,7 +1443,6 @@ const publishIos = async (args: string[]) => {
 	const configPath = valueAfter(args, '--config');
 	const appStoreConnect = appStoreConnectTarget(args);
 	const { mobile, projectRoot } = await loadMobile(configPath);
-	requireCapacitorEngine(mobile, 'mobile publish ios');
 	const startedAt = performance.now();
 	let reused = false;
 	let success = false;
@@ -1462,7 +1493,7 @@ const publishIos = async (args: string[]) => {
 	} finally {
 		sendTelemetryEvent('mobile:ios-release-publish', {
 			durationMs: Math.round(performance.now() - startedAt),
-			engine: 'capacitor',
+			engine: mobile.engine,
 			platform: 'ios',
 			provider: appStoreConnect ? 'app-store-connect' : 'registry-module',
 			reused,

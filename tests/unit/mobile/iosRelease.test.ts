@@ -2,8 +2,14 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildAbsoluteIosRelease } from '../../../src/mobile/iosRelease';
-import { normalizeAbsoluteMobileConfig } from '../../../src/mobile/config';
+import {
+	buildAbsoluteIosRelease,
+	resolveAbsoluteIosXcodeProject
+} from '../../../src/mobile/iosRelease';
+import {
+	normalizeAbsoluteMobileConfig,
+	type NormalizedAbsoluteMobileConfig
+} from '../../../src/mobile/config';
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -34,6 +40,21 @@ const fixture = async () => {
 	);
 	const iosRoot = join(config.nativeProjectDirectory, 'ios');
 	await mkdir(join(iosRoot, 'App', 'App.xcworkspace'), { recursive: true });
+	await mkdir(
+		join(iosRoot, 'App', 'App.xcodeproj', 'xcshareddata', 'xcschemes'),
+		{ recursive: true }
+	);
+	await writeFile(
+		join(
+			iosRoot,
+			'App',
+			'App.xcodeproj',
+			'xcshareddata',
+			'xcschemes',
+			'App.xcscheme'
+		),
+		'<Scheme />\n'
+	);
 	await writeFile(join(iosRoot, 'App', 'Podfile.lock'), 'Capacitor 8\n');
 	const commands: string[][] = [];
 	const run = async (command: string[]) => {
@@ -122,5 +143,64 @@ describe('iOS production releases', () => {
 				capture: () => ({ exitCode: 1, stderr: '', stdout: '' })
 			})
 		).rejects.toThrow('unsigned iOS archive');
+	});
+
+	test('discovers Expo CNG workspaces and schemes without Capacitor paths', async () => {
+		const {
+			config: capacitor,
+			projectRoot,
+			run,
+			commands
+		} = await fixture();
+		const config: NormalizedAbsoluteMobileConfig = {
+			...capacitor,
+			engine: 'expo'
+		};
+		const iosRoot = join(config.nativeProjectDirectory, 'ios');
+		await rm(join(iosRoot, 'App'), { force: true, recursive: true });
+		await mkdir(join(iosRoot, 'ExpoRelease.xcworkspace'), {
+			recursive: true
+		});
+		await mkdir(
+			join(iosRoot, 'ExpoRelease.xcodeproj', 'xcshareddata', 'xcschemes'),
+			{ recursive: true }
+		);
+		await writeFile(
+			join(
+				iosRoot,
+				'ExpoRelease.xcodeproj',
+				'xcshareddata',
+				'xcschemes',
+				'ExpoRelease.xcscheme'
+			),
+			'<Scheme />\n'
+		);
+		const release = await buildAbsoluteIosRelease({
+			allowUnsigned: true,
+			config,
+			host: 'macos',
+			projectRoot,
+			run,
+			capture: () => ({ exitCode: 0, stderr: '', stdout: '' })
+		});
+
+		expect(commands[0]).toContain(join(iosRoot, 'ExpoRelease.xcworkspace'));
+		expect(commands[0]).toContain('ExpoRelease');
+		expect(release.metadata.engine).toBe('expo');
+	});
+
+	test('rejects ambiguous or out-of-project Xcode selection', async () => {
+		const { config } = await fixture();
+		const iosRoot = join(config.nativeProjectDirectory, 'ios');
+		await mkdir(join(iosRoot, 'Other.xcworkspace'), { recursive: true });
+
+		await expect(resolveAbsoluteIosXcodeProject(iosRoot)).rejects.toThrow(
+			'multiple Xcode workspaces'
+		);
+		await expect(
+			resolveAbsoluteIosXcodeProject(iosRoot, {
+				workspacePath: '../../outside.xcworkspace'
+			})
+		).rejects.toThrow('must remain inside');
 	});
 });
