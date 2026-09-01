@@ -1,7 +1,11 @@
 import { resolve } from 'node:path';
 
 const REPO_ROOT = resolve(import.meta.dir, '..');
-type NativeManifest = { name?: unknown; version?: unknown };
+type NativeManifest = {
+	name?: unknown;
+	optionalDependencies?: Record<string, unknown>;
+	version?: unknown;
+};
 const rootPackage: NativeManifest = await Bun.file(
 	resolve(REPO_ROOT, 'package.json')
 ).json();
@@ -47,4 +51,21 @@ if (mismatches.length > 0) {
 	);
 }
 
-console.log(`All package manifests match ${rootPackage.version}.`);
+const optionalMismatches = nativePackages
+	.filter(
+		(manifest) =>
+			rootPackage.optionalDependencies?.[manifest.name] !==
+			rootPackage.version
+	)
+	.map(
+		(manifest) =>
+			`${manifest.name}: ${String(rootPackage.optionalDependencies?.[manifest.name] ?? 'missing')}`
+	);
+if (optionalMismatches.length > 0)
+	throw new Error(
+		`Root optional native dependencies must match ${rootPackage.version}: ${optionalMismatches.join(', ')}`
+	);
+
+console.log(
+	`All package manifests and root native dependency pins match ${rootPackage.version}.`
+);
