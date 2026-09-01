@@ -6,6 +6,8 @@ import {
 	absoluteRemoteMacSshBase,
 	ABSOLUTE_REMOTE_MAC_EVENT_PREFIX,
 	absoluteRemoteProjectSyncCommands,
+	absoluteRemoteReleaseInputSyncCommands,
+	buildAbsoluteRemoteIosRelease,
 	captureAbsoluteRemoteMacCommand,
 	createAbsoluteRemoteIosDevProject,
 	inspectAbsoluteRemoteMacLanHost,
@@ -21,6 +23,7 @@ import {
 	type AbsoluteRemoteMacTransport
 } from '../../../src/mobile/remoteMacProtocol';
 import { normalizeAbsoluteMobileConfig } from '../../../src/mobile/config';
+import type { AbsoluteIosReleaseMetadata } from '../../../src/mobile/iosRelease';
 
 const temporaryDirectories: string[] = [];
 
@@ -37,6 +40,103 @@ const temporaryRoot = async () => {
 	temporaryDirectories.push(root);
 
 	return root;
+};
+
+type FakeProtocolRequest = {
+	buildNumber?: number;
+	command: string;
+	id: string;
+	v: number;
+};
+
+type FakeReadyEvent = {
+	engine: 'capacitor' | 'expo';
+	nativeCacheHit: boolean;
+	startedSimulator: boolean;
+	targetKind: 'simulator';
+	timings: Record<string, number>;
+	type: 'ready';
+	udid: string;
+};
+
+type FakeProtocolProcessOptions = {
+	initial: Record<string, unknown>[];
+	onRequest: (
+		request: FakeProtocolRequest,
+		controls: {
+			emit: (event: Record<string, unknown>) => void;
+			exit: (code?: number) => void;
+		}
+	) => void;
+};
+
+const fakeProtocolProcess = (options: FakeProtocolProcessOptions) => {
+	let stdoutController!: ReadableStreamDefaultController<Uint8Array>;
+	let stderrController!: ReadableStreamDefaultController<Uint8Array>;
+	let resolveExit!: (code: number) => void;
+	let exited = false;
+	let buffered = '';
+	const encoder = new TextEncoder();
+	const stdout = new ReadableStream<Uint8Array>({
+		start: (controller) => {
+			stdoutController = controller;
+		}
+	});
+	const stderr = new ReadableStream<Uint8Array>({
+		start: (controller) => {
+			stderrController = controller;
+		}
+	});
+	const exitedPromise = new Promise<number>((resolve) => {
+		resolveExit = resolve;
+	});
+	const emit = (event: Record<string, unknown>) =>
+		stdoutController.enqueue(
+			encoder.encode(
+				`${ABSOLUTE_REMOTE_MAC_EVENT_PREFIX}${JSON.stringify({ ...event, v: ABSOLUTE_REMOTE_MAC_PROTOCOL_VERSION })}\n`
+			)
+		);
+	const exit = (code = 0) => {
+		if (exited) return;
+		exited = true;
+		stdoutController.close();
+		stderrController.close();
+		resolveExit(code);
+	};
+	options.initial.forEach(emit);
+	const stdin = {
+		end: () => 0,
+		flush: () => 0,
+		ref: () => undefined,
+		start: () => undefined,
+		unref: () => undefined,
+		write: (chunk: string | ArrayBufferView | ArrayBuffer) => {
+			buffered +=
+				typeof chunk === 'string'
+					? chunk
+					: new TextDecoder().decode(chunk as BufferSource);
+			const lines = buffered.split(/\r?\n/u);
+			buffered = lines.pop() ?? '';
+			lines.filter(Boolean).forEach((line) =>
+				options.onRequest(JSON.parse(line) as FakeProtocolRequest, {
+					emit,
+					exit
+				})
+			);
+
+			return typeof chunk === 'string'
+				? Buffer.byteLength(chunk)
+				: chunk.byteLength;
+		}
+	} as ReturnType<AbsoluteRemoteMacTransport['spawn']>['stdin'];
+
+	return {
+		exited: exitedPromise,
+		stderr,
+		stdin,
+		stdout,
+		kill: () => exit(143)
+	} satisfies ReturnType<AbsoluteRemoteMacTransport['spawn']>;
 };
 
 describe('remote Mac protocol', () => {
@@ -230,9 +330,18 @@ describe('remote Mac protocol', () => {
 		const commands = absoluteRemoteProjectSyncCommands(project);
 		expect(commands.tar).toContain('--exclude=node_modules');
 		expect(commands.tar).toContain('--exclude=.absolutejs');
+		expect(commands.tar).toContain('--exclude=.env');
+		expect(commands.tar).toContain('--exclude=*.p8');
+		expect(commands.tar).toContain('--exclude=*.mobileprovision');
 		expect(commands.remote.join(' ')).toContain('node_modules');
 		expect(commands.remote.join(' ')).toContain('.absolutejs');
 		expect(commands.remote.join(' ')).not.toContain(root);
+		const releaseCommands = absoluteRemoteReleaseInputSyncCommands(project);
+		expect(releaseCommands.tar).toContain(config.bundleDirectory);
+		expect(releaseCommands.remote.join(' ')).toContain(
+			'.absolutejs/mobile/web'
+		);
+		expect(releaseCommands.remote.join(' ')).not.toContain(root);
 	});
 
 	test('builds a self-contained content-addressable agent artifact', async () => {
@@ -243,6 +352,94 @@ describe('remote Mac protocol', () => {
 		expect(artifact.bytes).toBeGreaterThan(10_000);
 		expect(source).not.toContain('./node_modules/.bin/absolute');
 		expect(source).not.toContain('pairAbsoluteRemoteMac');
+	});
+
+	test('allocates build numbers locally and retrieves remote releases through the agent protocol', async () => {
+		const root = await temporaryRoot();
+		const config = normalizeAbsoluteMobileConfig(
+			{
+				appId: 'com.example.remote.release',
+				appName: 'Remote Release',
+				ios: { version: '2.1.0' },
+				platforms: ['ios'],
+				server: { productionOrigin: 'https://example.com' }
+			},
+			root
+		);
+		const project = createAbsoluteRemoteIosDevProject(config, root, {
+			bunPath: '/Users/builder/.bun/bin/bun',
+			createdAt: '2026-09-01T00:00:00.000Z',
+			destination: 'builder@mac',
+			name: 'mac',
+			workspaceRoot: '/Users/builder/.absolutejs/remote-ios',
+			xcodeVersion: 'Xcode 26.4'
+		});
+		const sha256 = 'a'.repeat(64);
+		const buildIdentity = 'b'.repeat(64);
+		const metadata: AbsoluteIosReleaseMetadata = {
+			appBuild: 'ambuild_remote',
+			appId: config.appId,
+			artifact: 'App.ipa' as const,
+			buildNumber: 23,
+			bytes: 123,
+			engine: 'capacitor' as const,
+			format: 1 as const,
+			marketingVersion: '2.1.0',
+			platform: 'ios' as const,
+			releaseId: `amobile_ios_${sha256}`,
+			runtime: '1',
+			sha256,
+			signed: true,
+			type: 'ipa' as const
+		};
+		const identities: string[] = [];
+		const phases: string[] = [];
+		const release = await buildAbsoluteRemoteIosRelease({
+			project,
+			transport: {
+				spawn: () =>
+					fakeProtocolProcess({
+						initial: [
+							{
+								buildIdentity,
+								id: 'build-number',
+								type: 'build-number-request'
+							}
+						],
+						onRequest: (request, { emit, exit }) => {
+							if (
+								request.command !== 'build-number' ||
+								request.id !== 'build-number' ||
+								request.buildNumber !== 23
+							) {
+								exit(2);
+
+								return;
+							}
+							emit({ metadata, type: 'release' });
+							exit();
+						}
+					})
+			},
+			installAgent: async () => ({ remotePath: '/remote/agent.js' }),
+			onPhaseTiming: ({ phase }) => phases.push(phase),
+			prepareBuildNumber: async (identity) => {
+				identities.push(identity);
+
+				return 23;
+			},
+			retrieveRelease: async (_project, received) => ({
+				artifactPath: join(root, 'App.ipa'),
+				metadata: received,
+				releaseRoot: join(root, received.releaseId)
+			}),
+			syncProject: async () => undefined,
+			syncReleaseInputs: async () => undefined
+		});
+		expect(identities).toEqual([buildIdentity]);
+		expect(release.metadata).toEqual(metadata);
+		expect(phases).toContain('remote-release-sync');
+		expect(phases).toContain('remote-release-download');
 	});
 
 	test('drives a remote session over the versioned event stream and reverse tunnel', async () => {
@@ -268,42 +465,41 @@ describe('remote Mac protocol', () => {
 		await writeFile(certificateAuthorityPath, 'PUBLIC DEVELOPMENT CA');
 		const spawned: string[][] = [];
 		let syncs = 0;
-		const prefix = JSON.stringify(ABSOLUTE_REMOTE_MAC_EVENT_PREFIX);
-		const fakeAgent = `
-const prefix = ${prefix};
-const ready = { engine: "capacitor", nativeCacheHit: true, startedSimulator: false, targetKind: "simulator", timings: { total: 12 }, type: "ready", udid: "REMOTE-UDID", v: ${ABSOLUTE_REMOTE_MAC_PROTOCOL_VERSION} };
-console.log(prefix + JSON.stringify(ready));
-let buffered = "";
-process.stdin.setEncoding("utf8");
-process.stdin.on("data", (chunk) => {
-  buffered += chunk;
-  const lines = buffered.split(/\\r?\\n/);
-  buffered = lines.pop() || "";
-  for (const line of lines) {
-    const request = JSON.parse(line);
-    const result = request.command === "rebuild" ? ready : undefined;
-    console.log(prefix + JSON.stringify({ id: request.id, ok: true, result, type: "response", v: ${ABSOLUTE_REMOTE_MAC_PROTOCOL_VERSION} }));
-    if (request.command === "close") process.exit(0);
-  }
-});
-setInterval(() => {}, 1000);`;
+		const ready: FakeReadyEvent = {
+			engine: 'capacitor',
+			nativeCacheHit: true,
+			startedSimulator: false,
+			targetKind: 'simulator',
+			timings: { total: 12 },
+			type: 'ready',
+			udid: 'REMOTE-UDID'
+		};
+		const spawnAgent = (command: string[]) => {
+			spawned.push(command);
+
+			return fakeProtocolProcess({
+				initial: [ready],
+				onRequest: (request, { emit, exit }) => {
+					emit({
+						id: request.id,
+						ok: true,
+						...(request.command === 'rebuild'
+							? { result: ready }
+							: {}),
+						type: 'response'
+					});
+					if (request.command === 'close') exit();
+				}
+			});
+		};
 		const session = await startAbsoluteRemoteIosDevSession({
 			certificateAuthorityPath,
 			https: true,
 			port: 43123,
 			project,
 			transport: {
-				capture: async () => ({ exitCode: 0, stderr: '', stdout: '' }),
-				spawn: (command, options) => {
-					spawned.push(command);
-
-					return Bun.spawn([process.execPath, '-e', fakeAgent], {
-						signal: options.signal,
-						stderr: 'pipe',
-						stdin: 'pipe',
-						stdout: 'pipe'
-					}) as ReturnType<AbsoluteRemoteMacTransport['spawn']>;
-				}
+				spawn: spawnAgent,
+				capture: async () => ({ exitCode: 0, stderr: '', stdout: '' })
 			},
 			installAgent: async () => ({ remotePath: '/remote/agent.js' }),
 			syncProject: async () => {
@@ -338,17 +534,8 @@ setInterval(() => {}, 1000);`;
 			project,
 			serverHost: '192.168.50.8',
 			transport: {
-				capture: async () => ({ exitCode: 0, stderr: '', stdout: '' }),
-				spawn: (command, options) => {
-					spawned.push(command);
-
-					return Bun.spawn([process.execPath, '-e', fakeAgent], {
-						signal: options.signal,
-						stderr: 'pipe',
-						stdin: 'pipe',
-						stdout: 'pipe'
-					}) as ReturnType<AbsoluteRemoteMacTransport['spawn']>;
-				}
+				spawn: spawnAgent,
+				capture: async () => ({ exitCode: 0, stderr: '', stdout: '' })
 			},
 			installAgent: async () => ({ remotePath: '/remote/agent.js' }),
 			syncProject: async () => undefined
@@ -384,39 +571,33 @@ setInterval(() => {}, 1000);`;
 			xcodeVersion: 'Xcode 26.4'
 		});
 		const spawned: string[][] = [];
-		const prefix = JSON.stringify(ABSOLUTE_REMOTE_MAC_EVENT_PREFIX);
-		const fakeAgent = `
-const prefix = ${prefix};
-console.log(prefix + JSON.stringify({ engine: "expo", nativeCacheHit: true, startedSimulator: false, targetKind: "simulator", timings: { "building-ios": 15 }, type: "ready", udid: "booted", v: ${ABSOLUTE_REMOTE_MAC_PROTOCOL_VERSION} }));
-let buffered = "";
-process.stdin.setEncoding("utf8");
-process.stdin.on("data", chunk => {
-  buffered += chunk;
-  const lines = buffered.split(/\\r?\\n/);
-  buffered = lines.pop() || "";
-  for (const line of lines) {
-    const request = JSON.parse(line);
-    console.log(prefix + JSON.stringify({ id: request.id, ok: true, type: "response", v: ${ABSOLUTE_REMOTE_MAC_PROTOCOL_VERSION} }));
-    process.exit(0);
-  }
-});
-setInterval(() => {}, 1000);`;
+		const ready: FakeReadyEvent = {
+			engine: 'expo',
+			nativeCacheHit: true,
+			startedSimulator: false,
+			targetKind: 'simulator',
+			timings: { 'building-ios': 15 },
+			type: 'ready',
+			udid: 'booted'
+		};
+		const spawnAgent = (command: string[]) => {
+			spawned.push(command);
+
+			return fakeProtocolProcess({
+				initial: [ready],
+				onRequest: (request, { emit, exit }) => {
+					emit({ id: request.id, ok: true, type: 'response' });
+					if (request.command === 'close') exit();
+				}
+			});
+		};
 		const session = await startAbsoluteRemoteExpoIosDevSession({
 			metroPort: 48123,
 			port: 43123,
 			project,
 			transport: {
-				capture: async () => ({ exitCode: 0, stderr: '', stdout: '' }),
-				spawn: (command, options) => {
-					spawned.push(command);
-
-					return Bun.spawn([process.execPath, '-e', fakeAgent], {
-						signal: options.signal,
-						stderr: 'pipe',
-						stdin: 'pipe',
-						stdout: 'pipe'
-					}) as ReturnType<AbsoluteRemoteMacTransport['spawn']>;
-				}
+				spawn: spawnAgent,
+				capture: async () => ({ exitCode: 0, stderr: '', stdout: '' })
 			},
 			installAgent: async () => ({ remotePath: '/remote/agent.js' }),
 			syncProject: async () => undefined
@@ -435,17 +616,8 @@ setInterval(() => {}, 1000);`;
 			project,
 			serverHost: '192.168.50.8',
 			transport: {
-				capture: async () => ({ exitCode: 0, stderr: '', stdout: '' }),
-				spawn: (command, options) => {
-					spawned.push(command);
-
-					return Bun.spawn([process.execPath, '-e', fakeAgent], {
-						signal: options.signal,
-						stderr: 'pipe',
-						stdin: 'pipe',
-						stdout: 'pipe'
-					}) as ReturnType<AbsoluteRemoteMacTransport['spawn']>;
-				}
+				spawn: spawnAgent,
+				capture: async () => ({ exitCode: 0, stderr: '', stdout: '' })
 			},
 			installAgent: async () => ({ remotePath: '/remote/agent.js' }),
 			syncProject: async () => undefined

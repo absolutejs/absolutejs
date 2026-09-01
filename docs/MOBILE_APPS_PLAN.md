@@ -11,7 +11,9 @@ clean CNG, pinned generated-shell dependencies, and a production-only
 Prebuild/Metro/Gradle environment. The doctor verifies app config, SDK/lockfile
 alignment, byte-for-byte opaque asset projection, bundle integrity, transport,
 deep links, debug residue, Sync policy, and provider-specific device packages.
-`0.20.0-beta.50` extends that provider-neutral release surface to Expo iOS:
+`0.20.0-beta.51` extends that provider-neutral release surface through paired
+Remote Mac production builds while retaining the Expo iOS work introduced in
+the prior beta:
 clean production CNG, generated workspace/scheme discovery, signed immutable
 IPA output, App Store build-number allocation, TestFlight publishing, and
 protected macOS CI. Expo-on-WSL production projection remains an
@@ -1916,6 +1918,18 @@ version once as `mobile.ios.version`; AbsoluteJS derives a complete build identi
 from the embedded web build, source-owned iOS fingerprint, and that version, then
 asks the App Store Connect adapter for a stable monotonically increasing integer
 build number. Page and route code remains unchanged.
+
+Implementation checkpoint (September 1, 2026): the same iOS build and publish
+commands now use the default paired Remote Mac automatically on Windows/Linux,
+or an explicit host through `--remote <profile>` on any platform. AbsoluteJS
+syncs source and the generated web bundle separately, regenerates either the
+Capacitor or Expo native layer on the Mac, performs release validation and Xcode
+export through the content-addressed agent, and streams the IPA back for an
+independent local byte-count/SHA-256 check before immutable installation. The
+release adapter, App Store credentials, and TestFlight upload stay on the
+developer computer; signing identities stay on the Mac. A protocol handshake
+lets the local adapter allocate the stable build number from the remote native
+fingerprint without exposing either credential set.
 
 ```ts
 // absolutejs.config.ts

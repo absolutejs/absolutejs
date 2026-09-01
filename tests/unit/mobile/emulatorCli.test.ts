@@ -203,6 +203,38 @@ describe('mobile emulator CLI', () => {
 		expect(stderr).not.toContain('TypeError:');
 	});
 
+	test('requires a Remote Mac profile name before preparing an iOS release', async () => {
+		const subprocess = Bun.spawn(
+			[
+				process.execPath,
+				resolve(ROOT, 'src/cli/index.ts'),
+				'mobile',
+				'build',
+				'ios',
+				'--config',
+				resolve(
+					ROOT,
+					'tests/fixtures/mobile-native-conformance/absolute.config.ts'
+				),
+				'--remote'
+			],
+			{
+				cwd: ROOT,
+				stderr: 'pipe',
+				stdin: 'ignore',
+				stdout: 'pipe'
+			}
+		);
+		const [exitCode, stderr] = await Promise.all([
+			subprocess.exited,
+			new Response(subprocess.stderr).text()
+		]);
+
+		expect(exitCode).toBe(1);
+		expect(stderr).toContain('requires --remote <name>');
+		expect(stderr).not.toContain('TypeError:');
+	});
+
 	test('validates native release module flags before building Android', async () => {
 		const subprocess = Bun.spawn(
 			[

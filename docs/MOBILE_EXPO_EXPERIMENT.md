@@ -12,7 +12,7 @@ is added in `0.20.0-beta.48`.
 Expo Android production builds, release auditing, immutable AAB retention,
 generated CI, and Google Play publishing are added in `0.20.0-beta.49`.
 Expo iOS production builds, release auditing, immutable IPA retention,
-generated CI, and TestFlight publishing are added in `0.20.0-beta.50`.
+generated CI, and TestFlight publishing are available in `0.20.0-beta.51`.
 
 AbsoluteJS can generate an experimental Expo Router shell in which explicitly
 selected routes render React Native UI and all other routes remain ordinary
@@ -282,12 +282,16 @@ The immutable AAB and `release.json` are written beneath
 publication and `--play-track internal|alpha|beta|production` work unchanged.
 
 For iOS, run the corresponding commands on macOS with Xcode and signing
-configured:
+configured, or from Windows/Linux through a paired Mac:
 
 ```sh
 bunx absolute mobile build ios src/backend/server.ts
 bunx absolute mobile doctor release ios
 bunx absolute mobile publish ios src/backend/server.ts --registry mobile.release.ts --testflight-group internal-testers
+
+# Windows/Linux (the --remote flag is optional when a default Mac is paired)
+bunx absolute mobile build ios src/backend/server.ts --remote personal-mac
+bunx absolute mobile publish ios src/backend/server.ts --remote personal-mac --registry mobile.release.ts --testflight-group internal-testers
 ```
 
 AbsoluteJS regenerates iOS through clean Expo CNG, discovers the single

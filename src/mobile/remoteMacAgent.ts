@@ -10,7 +10,16 @@ import {
 	type AbsoluteExpoDevPhaseTiming,
 	type AbsoluteExpoDevSession
 } from './expoDevController';
-import { writeAbsoluteExpoProject } from './expoProject';
+import {
+	syncAbsoluteExpoWebAssets,
+	writeAbsoluteExpoProject
+} from './expoProject';
+import { writeAbsoluteCapacitorConfig } from './capacitorProject';
+import { applyAbsoluteNativeBackgroundSync } from './nativeBackgroundSync';
+import { applyAbsoluteNativeDeepLinks } from './nativeDeepLinks';
+import { applyAbsoluteNativeDeviceCapabilities } from './nativeDeviceCapabilities';
+import { inspectAbsoluteMobileRelease } from './releaseDoctor';
+import { buildAbsoluteIosRelease } from './iosRelease';
 import {
 	prepareAbsoluteIosDevProject,
 	startAbsoluteIosDevSession,
@@ -26,9 +35,32 @@ import {
 } from './remoteMacWire';
 
 type AgentRequest = {
-	command: 'close' | 'rebuild' | 'relaunch' | 'screenshot';
+	buildNumber?: number;
+	command: 'build-number' | 'close' | 'rebuild' | 'relaunch' | 'screenshot';
 	id: string;
 	v: number;
+};
+
+const productionEnvironment = () => {
+	const env: Record<string, string | undefined> = { ...process.env };
+	delete env.ABSOLUTE_EXPO_DEVELOPMENT;
+	delete env.ABSOLUTE_EXPO_DEVELOPMENT_CA_PATH;
+	delete env.EXPO_PUBLIC_ABSOLUTE_DEV_ANDROID_ORIGIN;
+	delete env.EXPO_PUBLIC_ABSOLUTE_DEV_IOS_ORIGIN;
+	env.BABEL_ENV = 'production';
+	env.NODE_ENV = 'production';
+
+	return env;
+};
+
+const capacitorExecutable = async () => {
+	const executable = join(process.cwd(), 'node_modules', '.bin', 'cap');
+	if (!(await Bun.file(executable).exists()))
+		throw new Error(
+			"Remote iOS release requires the application's pinned Capacitor CLI dependency."
+		);
+
+	return executable;
 };
 
 const emit = (event: Record<string, unknown>) =>
@@ -145,6 +177,122 @@ const capture = (
 	} catch (error) {
 		return { exitCode: 1, stderr: errorMessage(error), stdout: '' };
 	}
+};
+
+const requestBuildNumber = async (buildIdentity: string) => {
+	const id = crypto.randomUUID();
+	emit({ buildIdentity, id, type: 'build-number-request' });
+	const input = createInterface({ input: process.stdin, terminal: false });
+	try {
+		for await (const line of input) {
+			const request = JSON.parse(line) as AgentRequest;
+			if (
+				request.v !== ABSOLUTE_REMOTE_MAC_PROTOCOL_VERSION ||
+				request.id !== id ||
+				request.command !== 'build-number' ||
+				!Number.isSafeInteger(request.buildNumber) ||
+				(request.buildNumber ?? 0) < 1
+			)
+				throw new TypeError(
+					'Remote iOS agent received an invalid build number response.'
+				);
+
+			return request.buildNumber as number;
+		}
+	} finally {
+		input.close();
+	}
+	throw new Error('Remote iOS build-number channel closed unexpectedly.');
+};
+
+const prepareAbsoluteRemoteIosRelease = async (
+	config: ReturnType<typeof normalizeAbsoluteMobileConfig>
+) => {
+	if (config.engine === 'expo') {
+		const generated = await writeAbsoluteExpoProject(config, {
+			projectRoot: process.cwd()
+		});
+		await syncAbsoluteExpoWebAssets(config);
+		const installExit = await run([process.execPath, 'install'], {
+			cwd: generated.path
+		});
+		if (installExit !== 0)
+			throw new Error(
+				`Remote Expo dependency installation exited with status ${installExit}.`
+			);
+		const prebuildExit = await run(
+			[
+				await absoluteExpoExecutable(generated.path),
+				'prebuild',
+				'--clean',
+				'--platform',
+				'ios'
+			],
+			{ cwd: generated.path, env: productionEnvironment() }
+		);
+		if (prebuildExit !== 0)
+			throw new Error(
+				`Remote Expo prebuild exited with status ${prebuildExit}.`
+			);
+	} else {
+		await writeAbsoluteCapacitorConfig(config, {
+			projectRoot: process.cwd()
+		});
+		const syncExit = await run(
+			[await capacitorExecutable(), 'sync', 'ios'],
+			{ cwd: process.cwd() }
+		);
+		if (syncExit !== 0)
+			throw new Error(
+				`Remote Capacitor synchronization exited with status ${syncExit}.`
+			);
+		await applyAbsoluteNativeDeepLinks(config, ['ios']);
+		await applyAbsoluteNativeDeviceCapabilities(process.cwd(), config, [
+			'ios'
+		]);
+		await applyAbsoluteNativeBackgroundSync(process.cwd(), config, ['ios']);
+	}
+	const inspection = await inspectAbsoluteMobileRelease(
+		{ ...config, platforms: ['ios'] },
+		process.cwd()
+	);
+	if (!inspection.ready)
+		throw new TypeError(
+			'Remote iOS release validation failed before Xcode signing.'
+		);
+};
+
+const runAbsoluteRemoteIosReleaseAgent = async (options: {
+	args: string[];
+	config: ReturnType<typeof normalizeAbsoluteMobileConfig>;
+}) => {
+	const prepareStarted = performance.now();
+	await prepareAbsoluteRemoteIosRelease(options.config);
+	emit({
+		durationMs: performance.now() - prepareStarted,
+		phase: 'remote-release-prepare',
+		type: 'timing'
+	});
+	const buildStarted = performance.now();
+	const release = await buildAbsoluteIosRelease({
+		allowUnsigned: options.args.includes('--unsigned'),
+		config: options.config,
+		developmentTeam: valueAfter(options.args, '--development-team'),
+		...(options.config.engine === 'expo'
+			? { env: productionEnvironment() }
+			: {}),
+		...(options.args.includes('--request-build-number')
+			? { prepareBuildNumber: requestBuildNumber }
+			: {}),
+		projectRoot: process.cwd(),
+		run
+	});
+	emit({
+		durationMs: performance.now() - buildStarted,
+		phase: 'remote-release-xcode',
+		type: 'timing'
+	});
+	emit({ metadata: release.metadata, type: 'release' });
 };
 
 const readyShape = (session: AbsoluteIosDevSession) => ({
@@ -297,6 +445,11 @@ export const runAbsoluteRemoteMacAgent = async (args: string[]) => {
 		parseMobileConfig(args),
 		projectRoot
 	);
+	if (args.includes('--release-ios')) {
+		await runAbsoluteRemoteIosReleaseAgent({ args, config });
+
+		return;
+	}
 	const port = parsePort(args);
 	const deviceIdentifier = valueAfter(args, '--ios-device');
 	const serverHost = valueAfter(args, '--server-host');

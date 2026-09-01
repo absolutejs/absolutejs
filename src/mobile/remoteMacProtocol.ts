@@ -1,6 +1,14 @@
 /* eslint-disable @typescript-eslint/consistent-type-assertions, absolute/max-depth-extended, no-await-in-loop -- This module validates persisted/remote input and consumes protocol streams sequentially. */
 import { createHash, randomUUID } from 'node:crypto';
-import { chmod, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import {
+	chmod,
+	mkdir,
+	mkdtemp,
+	readFile,
+	rename,
+	rm,
+	writeFile
+} from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { isIP } from 'node:net';
 import {
@@ -15,6 +23,11 @@ import {
 import type { MobileConfig } from '../../types/build';
 import type { FileSink } from 'bun';
 import type { NormalizedAbsoluteMobileConfig } from './config';
+import {
+	installAbsoluteIosRelease,
+	requireAbsoluteIosReleaseMetadata,
+	type AbsoluteIosReleaseMetadata
+} from './iosRelease';
 import type {
 	AbsoluteIosDevPhaseTiming,
 	AbsoluteIosDevSession,
@@ -150,10 +163,42 @@ export type AbsoluteRemoteExpoIosOptions = {
 	transport?: AbsoluteRemoteMacTransport;
 };
 
+export type BuildAbsoluteRemoteIosReleaseOptions = {
+	allowUnsigned?: boolean;
+	developmentTeam?: string;
+	installAgent?: (
+		project: AbsoluteRemoteIosDevProject
+	) => Promise<{ remotePath: string; uploaded?: boolean }>;
+	log?: (message: string) => void;
+	onPhaseTiming?: (timing: { durationMs: number; phase: string }) => void;
+	outputDirectory?: string;
+	prepareBuildNumber?: (buildIdentity: string) => Promise<number>;
+	project: AbsoluteRemoteIosDevProject;
+	retrieveRelease?: (
+		project: AbsoluteRemoteIosDevProject,
+		metadata: AbsoluteIosReleaseMetadata,
+		outputDirectory?: string
+	) => Promise<Awaited<ReturnType<typeof installAbsoluteIosRelease>>>;
+	syncReleaseInputs?: (project: AbsoluteRemoteIosDevProject) => Promise<void>;
+	syncProject?: (project: AbsoluteRemoteIosDevProject) => Promise<void>;
+	transport?: Pick<AbsoluteRemoteMacTransport, 'spawn'>;
+};
+
 type RemoteEvent =
 	| { entry: AbsoluteIosNativeLogEntry; type: 'native-log'; v: number }
 	| { error: string; type: 'fatal'; v: number }
 	| { message: string; type: 'log'; v: number }
+	| {
+			buildIdentity: string;
+			id: string;
+			type: 'build-number-request';
+			v: number;
+	  }
+	| {
+			metadata: AbsoluteIosReleaseMetadata;
+			type: 'release';
+			v: number;
+	  }
 	| {
 			state: AbsoluteIosDevState | AbsoluteExpoDevState;
 			type: 'state';
@@ -773,6 +818,13 @@ export const absoluteRemoteProjectSyncCommands = (
 		tar: [
 			'tar',
 			'--exclude=.git',
+			'--exclude=.env',
+			'--exclude=.env.*',
+			'--exclude=*.jks',
+			'--exclude=*.keystore',
+			'--exclude=*.mobileprovision',
+			'--exclude=*.p12',
+			'--exclude=*.p8',
 			'--exclude=node_modules',
 			'--exclude=build',
 			'--exclude=.absolutejs',
@@ -819,6 +871,171 @@ export const syncAbsoluteRemoteMacProject = async (
 	requireRemoteSuccess(install, 'Remote Mac dependency installation');
 };
 
+const requireRemoteProjectRelativePath = (
+	project: AbsoluteRemoteIosDevProject,
+	path: string
+) => {
+	const value = portableRelativePath(project.projectRoot, path);
+	if (
+		!value ||
+		value === '..' ||
+		value.startsWith('../') ||
+		posix.isAbsolute(value)
+	)
+		throw new TypeError(
+			'Remote iOS release inputs must remain inside the project.'
+		);
+
+	return value;
+};
+
+export const absoluteRemoteReleaseInputSyncCommands = (
+	project: AbsoluteRemoteIosDevProject
+) => {
+	const relativeBundle = requireRemoteProjectRelativePath(
+		project,
+		project.config.bundleDirectory
+	);
+	const destination = posix.join(project.remoteProjectRoot, relativeBundle);
+	const staging = `${destination}.incoming-${randomUUID()}`;
+	const script = [
+		'set -eu',
+		`rm -rf ${shellQuote(staging)}`,
+		`mkdir -p ${shellQuote(staging)}`,
+		`tar -xf - -C ${shellQuote(staging)}`,
+		`rm -rf ${shellQuote(destination)}`,
+		`mkdir -p ${shellQuote(posix.dirname(destination))}`,
+		`mv ${shellQuote(staging)} ${shellQuote(destination)}`
+	].join('; ');
+
+	return {
+		remote: [
+			...absoluteRemoteMacSshBase(project.profile),
+			'/bin/sh -lc',
+			shellQuote(script)
+		],
+		tar: ['tar', '-cf', '-', '-C', project.config.bundleDirectory, '.']
+	};
+};
+
+export const syncAbsoluteRemoteMacReleaseInputs = async (
+	project: AbsoluteRemoteIosDevProject
+) => {
+	const commands = absoluteRemoteReleaseInputSyncCommands(project);
+	const archive = Bun.spawn(commands.tar, {
+		stderr: 'pipe',
+		stdout: 'pipe'
+	});
+	const upload = Bun.spawn(commands.remote, {
+		stderr: 'pipe',
+		stdin: archive.stdout,
+		stdout: 'pipe'
+	});
+	const [archiveExit, uploadExit, archiveError, uploadError] =
+		await Promise.all([
+			archive.exited,
+			upload.exited,
+			new Response(archive.stderr).text(),
+			new Response(upload.stderr).text()
+		]);
+	if (archiveExit !== 0 || uploadExit !== 0)
+		throw new Error(
+			`Remote iOS release input synchronization failed: ${(archiveError || uploadError).trim()}`
+		);
+};
+
+const writeRemoteArtifact = async (
+	path: string,
+	stream: ReadableStream<Uint8Array>
+) => {
+	const sink = Bun.file(path).writer();
+	const reader = stream.getReader();
+	try {
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			sink.write(value);
+		}
+		await sink.end();
+	} catch (error) {
+		await Promise.resolve(sink.end()).catch(() => undefined);
+
+		throw error;
+	} finally {
+		reader.releaseLock();
+	}
+};
+
+const retrieveAbsoluteRemoteIosRelease = async (
+	project: AbsoluteRemoteIosDevProject,
+	metadata: AbsoluteIosReleaseMetadata,
+	outputDirectory?: string
+) => {
+	const releaseRoot = posix.join(
+		project.remoteProjectRoot,
+		'.absolutejs',
+		'mobile',
+		'releases',
+		'ios',
+		metadata.releaseId
+	);
+	const stagingParent = join(project.projectRoot, '.absolutejs', 'mobile');
+	await mkdir(stagingParent, { recursive: true });
+	const staging = await mkdtemp(join(stagingParent, '.remote-ios-'));
+	try {
+		const remoteMetadata = requireRemoteSuccess(
+			await defaultTransport.capture([
+				...absoluteRemoteMacSshBase(project.profile),
+				'/bin/sh -lc',
+				shellQuote(
+					`cat ${shellQuote(posix.join(releaseRoot, 'release.json'))}`
+				)
+			]),
+			'Remote iOS release metadata retrieval'
+		);
+		const downloadedMetadata: unknown = JSON.parse(remoteMetadata);
+		if (
+			JSON.stringify(
+				requireAbsoluteIosReleaseMetadata(downloadedMetadata)
+			) !== JSON.stringify(metadata)
+		)
+			throw new TypeError(
+				'Remote iOS release metadata changed during retrieval.'
+			);
+		const artifactPath = join(staging, 'App.ipa');
+		const download = Bun.spawn(
+			[
+				...absoluteRemoteMacSshBase(project.profile),
+				'/bin/sh -lc',
+				shellQuote(
+					`cat ${shellQuote(posix.join(releaseRoot, 'App.ipa'))}`
+				)
+			],
+			{ stderr: 'pipe', stdout: 'pipe' }
+		);
+		const [downloadExit, downloadError] = await Promise.all([
+			download.exited,
+			new Response(download.stderr).text(),
+			writeRemoteArtifact(artifactPath, download.stdout)
+		]);
+		if (downloadExit !== 0)
+			throw new Error(
+				`Remote iOS release retrieval failed: ${downloadError.trim()}`
+			);
+
+		return await installAbsoluteIosRelease({
+			artifactPath,
+			metadata,
+			outputDirectory,
+			projectRoot: project.projectRoot
+		});
+	} finally {
+		await rm(staging, { force: true, recursive: true }).catch(
+			() => undefined
+		);
+	}
+};
+
 const consumeLines = async (
 	stream: ReadableStream<Uint8Array>,
 	onLine: (line: string) => void
@@ -840,6 +1057,173 @@ const consumeLines = async (
 	} finally {
 		reader.releaseLock();
 	}
+};
+
+export const buildAbsoluteRemoteIosRelease = async (
+	options: BuildAbsoluteRemoteIosReleaseOptions
+) => {
+	const startedAt = performance.now();
+	const syncStartedAt = performance.now();
+	await (options.syncProject ?? syncAbsoluteRemoteMacProject)(
+		options.project
+	);
+	await (options.syncReleaseInputs ?? syncAbsoluteRemoteMacReleaseInputs)(
+		options.project
+	);
+	const syncDuration = performance.now() - syncStartedAt;
+	options.onPhaseTiming?.({
+		durationMs: syncDuration,
+		phase: 'remote-release-sync'
+	});
+	const agentStartedAt = performance.now();
+	const agent = await (options.installAgent ?? installAbsoluteRemoteMacAgent)(
+		options.project
+	);
+	const agentDuration = performance.now() - agentStartedAt;
+	const encodedConfig = Buffer.from(
+		JSON.stringify(portableMobileConfig(options.project))
+	).toString('base64url');
+	const remoteCommand = [
+		`cd ${shellQuote(options.project.remoteProjectRoot)}`,
+		'&&',
+		'exec',
+		shellQuote(options.project.profile.bunPath),
+		shellQuote(agent.remotePath),
+		'--release-ios',
+		'--mobile-config',
+		shellQuote(encodedConfig),
+		...(options.allowUnsigned ? ['--unsigned'] : []),
+		...(options.prepareBuildNumber ? ['--request-build-number'] : []),
+		...(options.developmentTeam
+			? ['--development-team', shellQuote(options.developmentTeam)]
+			: [])
+	].join(' ');
+	const process = (options.transport?.spawn ?? defaultTransport.spawn)(
+		[
+			...absoluteRemoteMacSshBase(options.project.profile),
+			'/bin/sh -lc',
+			shellQuote(remoteCommand)
+		],
+		{}
+	);
+	let failure: Error | undefined;
+	let metadata: AbsoluteIosReleaseMetadata | undefined;
+	const responses: Promise<void>[] = [];
+	const stdoutDone = consumeLines(process.stdout, (line) => {
+		if (!line.startsWith(ABSOLUTE_REMOTE_MAC_EVENT_PREFIX)) return;
+		try {
+			const event = JSON.parse(
+				line.slice(ABSOLUTE_REMOTE_MAC_EVENT_PREFIX.length)
+			) as RemoteEvent;
+			if (event.v !== ABSOLUTE_REMOTE_MAC_PROTOCOL_VERSION)
+				throw new Error('Remote Mac protocol version mismatch.');
+			if (event.type === 'log') options.log?.(event.message);
+			if (event.type === 'timing') {
+				const durationMs = Reflect.get(event, 'durationMs');
+				const phase = Reflect.get(event, 'phase');
+				if (typeof durationMs === 'number' && typeof phase === 'string')
+					options.onPhaseTiming?.({ durationMs, phase });
+			}
+			if (event.type === 'fatal') failure = new Error(event.error);
+			if (event.type === 'release')
+				metadata = requireAbsoluteIosReleaseMetadata(event.metadata);
+			if (event.type === 'build-number-request') {
+				if (
+					!options.prepareBuildNumber ||
+					!/^[a-f0-9]{64}$/u.test(event.buildIdentity) ||
+					!event.id
+				)
+					throw new TypeError(
+						'Remote Mac requested an invalid iOS build number.'
+					);
+				responses.push(
+					options
+						.prepareBuildNumber(event.buildIdentity)
+						.then(async (buildNumber) => {
+							if (
+								!Number.isSafeInteger(buildNumber) ||
+								buildNumber < 1
+							)
+								throw new TypeError(
+									'iOS release publisher returned an invalid build number.'
+								);
+							process.stdin.write(
+								`${JSON.stringify({ buildNumber, command: 'build-number', id: event.id, v: ABSOLUTE_REMOTE_MAC_PROTOCOL_VERSION })}\n`
+							);
+							for (
+								let attempt = 0;
+								attempt < REMOTE_STDIN_FLUSH_ATTEMPTS;
+								attempt++
+							) {
+								try {
+									await process.stdin.flush();
+
+									break;
+								} catch {
+									await Promise.resolve();
+								}
+							}
+						})
+						.catch((error: unknown) => {
+							failure =
+								error instanceof Error
+									? error
+									: new Error(
+											'Failed to allocate an iOS build number.'
+										);
+							process.kill();
+
+							return undefined;
+						})
+				);
+			}
+		} catch (error) {
+			failure =
+				error instanceof Error
+					? error
+					: new Error('Remote Mac emitted an invalid release event.');
+			process.kill();
+		}
+	});
+	const stderrDone = consumeLines(process.stderr, (line) =>
+		options.log?.(`[remote] ${line}`)
+	);
+	const exitCode = await process.exited;
+	try {
+		process.stdin.end();
+	} catch {
+		// The one-shot agent has already closed its input pipe.
+	}
+	await Promise.all([stdoutDone, stderrDone, ...responses]);
+	if (failure) throw failure;
+	if (exitCode !== 0)
+		throw new Error(
+			`Remote iOS release agent exited with status ${exitCode}.`
+		);
+	if (!metadata)
+		throw new Error('Remote iOS release agent did not return an IPA.');
+	const downloadStartedAt = performance.now();
+	const release = await (
+		options.retrieveRelease ?? retrieveAbsoluteRemoteIosRelease
+	)(options.project, metadata, options.outputDirectory);
+	const downloadDuration = performance.now() - downloadStartedAt;
+	options.onPhaseTiming?.({
+		durationMs: downloadDuration,
+		phase: 'remote-release-download'
+	});
+	options.log?.(
+		`Remote Mac ${options.project.profile.name} built and verified iOS release ${metadata.releaseId} in ${(performance.now() - startedAt).toFixed(2)}ms (agent ${agent.uploaded ? 'uploaded' : 'cache hit'}).`
+	);
+
+	return {
+		...release,
+		timings: {
+			'remote-agent': agentDuration,
+			'remote-release-download': downloadDuration,
+			'remote-release-sync': syncDuration,
+			total: performance.now() - startedAt
+		}
+	};
 };
 
 export const startAbsoluteRemoteExpoIosDevSession = async (
@@ -1078,7 +1462,11 @@ const startAbsoluteRemoteDevSession = async (
 	try {
 		await readyPromise;
 	} catch (error) {
-		process.stdin.end();
+		try {
+			process.stdin.end();
+		} catch {
+			// The agent may close immediately after acknowledging the close frame.
+		}
 		process.kill();
 		await process.exited.catch(() => undefined);
 
@@ -1149,11 +1537,15 @@ const startAbsoluteRemoteDevSession = async (
 					REMOTE_SESSION_CLOSE_TIMEOUT_MS
 				)
 			);
-		await Promise.race([
-			request('close').catch(() => undefined),
-			timeout()
-		]);
-		process.stdin.end();
+		const id = randomUUID();
+		process.stdin.write(
+			`${JSON.stringify({ command: 'close', id, v: ABSOLUTE_REMOTE_MAC_PROTOCOL_VERSION })}\n`
+		);
+		try {
+			process.stdin.end();
+		} catch {
+			// The agent may close immediately after acknowledging the close frame.
+		}
 		const exit = await Promise.race([
 			process.exited
 				.then(() => 'exited' as const)

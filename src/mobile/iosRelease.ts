@@ -64,6 +64,13 @@ export type BuildAbsoluteIosReleaseOptions = {
 	workspacePath?: string;
 };
 
+type InstallAbsoluteIosReleaseOptions = {
+	artifactPath: string;
+	metadata: unknown;
+	outputDirectory?: string;
+	projectRoot: string;
+};
+
 const developmentTeamArgument = (value: string | undefined) => {
 	if (value === undefined) return undefined;
 	const team = value.trim().toUpperCase();
@@ -343,6 +350,55 @@ const requireBuildNumber = (value: number | undefined) => {
 	return value;
 };
 
+export const requireAbsoluteIosReleaseMetadata = (value: unknown) => {
+	if (
+		!isRecord(value) ||
+		value.artifact !== 'App.ipa' ||
+		typeof value.appBuild !== 'string' ||
+		typeof value.appId !== 'string' ||
+		typeof value.bytes !== 'number' ||
+		!Number.isSafeInteger(value.bytes) ||
+		value.bytes < 1 ||
+		(value.engine !== 'capacitor' && value.engine !== 'expo') ||
+		value.format !== ABSOLUTE_IOS_RELEASE_FORMAT ||
+		typeof value.marketingVersion !== 'string' ||
+		value.platform !== 'ios' ||
+		typeof value.releaseId !== 'string' ||
+		typeof value.runtime !== 'string' ||
+		typeof value.sha256 !== 'string' ||
+		typeof value.signed !== 'boolean' ||
+		value.type !== 'ipa' ||
+		(value.buildNumber !== undefined &&
+			(typeof value.buildNumber !== 'number' ||
+				!Number.isSafeInteger(value.buildNumber) ||
+				value.buildNumber < 1)) ||
+		!/^amobile_ios_[a-f0-9]{64}$/u.test(value.releaseId) ||
+		!/^[a-f0-9]{64}$/u.test(value.sha256) ||
+		value.releaseId !== `amobile_ios_${value.sha256}`
+	) {
+		throw new TypeError('Invalid AbsoluteJS iOS release metadata.');
+	}
+
+	return {
+		appBuild: value.appBuild,
+		appId: value.appId,
+		artifact: value.artifact,
+		...(typeof value.buildNumber === 'number'
+			? { buildNumber: value.buildNumber }
+			: {}),
+		bytes: value.bytes,
+		engine: value.engine,
+		format: value.format,
+		marketingVersion: value.marketingVersion,
+		platform: value.platform,
+		releaseId: value.releaseId,
+		runtime: value.runtime,
+		sha256: value.sha256,
+		signed: value.signed,
+		type: value.type
+	} satisfies AbsoluteIosReleaseMetadata;
+};
+
 const installRelease = async (
 	artifactPath: string,
 	metadata: Omit<AbsoluteIosReleaseMetadata, 'artifact'>,
@@ -406,6 +462,11 @@ const installRelease = async (
 	}
 };
 
+/** Import an IPA produced by a trusted AbsoluteJS build host.
+ *
+ * The artifact is hashed and sized locally before it enters the immutable
+ * release store. Remote metadata is never trusted as proof of its contents.
+ */
 export const buildAbsoluteIosRelease = async (
 	options: BuildAbsoluteIosReleaseOptions
 ) => {
@@ -559,4 +620,25 @@ export const buildAbsoluteIosRelease = async (
 			() => undefined
 		);
 	}
+};
+export const installAbsoluteIosRelease = async (
+	options: InstallAbsoluteIosReleaseOptions
+) => {
+	const metadata = requireAbsoluteIosReleaseMetadata(options.metadata);
+	const [bytes, sha256] = await Promise.all([
+		stat(options.artifactPath).then(({ size }) => size),
+		sha256File(options.artifactPath)
+	]);
+	if (bytes !== metadata.bytes || sha256 !== metadata.sha256)
+		throw new TypeError(
+			'Remote iOS release artifact does not match its signed metadata.'
+		);
+
+	const { artifact: _artifact, ...releaseMetadata } = metadata;
+
+	return installRelease(
+		options.artifactPath,
+		releaseMetadata,
+		safeOutputDirectory(options.projectRoot, options.outputDirectory)
+	);
 };

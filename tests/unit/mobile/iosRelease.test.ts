@@ -1,9 +1,12 @@
 import { afterEach, describe, expect, test } from 'bun:test';
+import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
 	buildAbsoluteIosRelease,
+	installAbsoluteIosRelease,
+	requireAbsoluteIosReleaseMetadata,
 	resolveAbsoluteIosXcodeProject
 } from '../../../src/mobile/iosRelease';
 import {
@@ -203,4 +206,49 @@ describe('iOS production releases', () => {
 			})
 		).rejects.toThrow('must remain inside');
 	});
+
+	test('verifies remotely produced IPAs before immutable import', async () => {
+		const root = await temporaryRootForImport();
+		const artifactPath = join(root, 'remote.ipa');
+		const contents = 'remote-signed-ios-ipa';
+		await writeFile(artifactPath, contents);
+		const sha256 = createHash('sha256').update(contents).digest('hex');
+		const metadata = requireAbsoluteIosReleaseMetadata({
+			appBuild: 'ambuild_remote',
+			appId: 'com.example.remote',
+			artifact: 'App.ipa',
+			buildNumber: 19,
+			bytes: Buffer.byteLength(contents),
+			engine: 'expo',
+			format: 1,
+			marketingVersion: '2.0.0',
+			platform: 'ios',
+			releaseId: `amobile_ios_${sha256}`,
+			runtime: '1',
+			sha256,
+			signed: true,
+			type: 'ipa'
+		});
+		const release = await installAbsoluteIosRelease({
+			artifactPath,
+			metadata,
+			projectRoot: root
+		});
+		expect(await readFile(release.artifactPath, 'utf8')).toBe(contents);
+		await writeFile(artifactPath, 'substituted');
+		await expect(
+			installAbsoluteIosRelease({
+				artifactPath,
+				metadata,
+				projectRoot: root
+			})
+		).rejects.toThrow('does not match');
+	});
 });
+
+const temporaryRootForImport = async () => {
+	const root = await mkdtemp(join(tmpdir(), 'absolute-ios-import-'));
+	roots.push(root);
+
+	return root;
+};

@@ -175,6 +175,31 @@ Residual risk: compiler/signing systems can inject configuration after source
 inspection. Validate the final archive/AAB/APK with platform tooling and retain
 store-generated signing evidence.
 
+### Paired Remote Mac release hosts
+
+- OpenSSH authenticates and pins the developer-owned Mac. AbsoluteJS stores no
+  SSH password or private key and rejects option/shell injection in profiles.
+- A protocol-versioned, content-addressed agent is SHA-256 verified before it
+  prepares Capacitor or Expo, runs release doctor, and invokes Xcode.
+- Source and the public embedded web bundle are synchronized atomically into an
+  app-isolated workspace. Recognized environment/signing credential files,
+  local `.absolutejs` state, `.git`, and dependency directories are excluded
+  from the source snapshot. Applications must not place secrets in ordinary
+  source files.
+- Apple signing identities and provisioning profiles remain in the Mac's
+  Keychain/Xcode configuration. App Store Connect and release-registry
+  credentials remain on the initiating computer; only the non-secret team ID
+  and allocated integer build number cross SSH.
+- The returned IPA is written to a local staging file, then its byte length and
+  SHA-256 are recomputed before immutable installation. Remote paths are derived
+  from validated app/release identities and are never accepted from an event.
+
+Residual risk: a paired Mac is a trusted build host and can compile malicious
+native code or use a compromised signing identity. Restrict SSH access, patch
+macOS/Xcode, protect its Keychain, audit custom native dependencies, and verify
+store-side signing/build evidence. Artifact hashing detects transfer and stale
+workspace substitution; it does not make an untrusted compiler trustworthy.
+
 ## Release-doctor contract
 
 Run from the application root after a production bundle and native sync:

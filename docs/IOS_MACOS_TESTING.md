@@ -1,7 +1,7 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.50` and
+`@absolutejs/absolute@0.20.0-beta.51` and
 `@absolutejs/deploy@0.24.0`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
 
@@ -281,7 +281,7 @@ still requires the developer team setup described below.
 From the root of the AbsoluteJS application:
 
 ```sh
-bun add @absolutejs/absolute@0.20.0-beta.50 \
+bun add @absolutejs/absolute@0.20.0-beta.51 \
   @absolutejs/auth@0.75.6 \
   @absolutejs/dispatch@0.9.0 \
   @absolutejs/sync@2.31.0 \
@@ -1813,6 +1813,48 @@ Expected behavior:
 6. `d`, `relaunch`, and Ctrl-C have the same lifecycle behavior as local macOS
    development; a subsequent warm start reports a native cache hit.
 
+Then, still from the Windows/Linux application root, test the production path:
+
+```sh
+bunx absolute mobile build ios src/backend/server.ts \
+  --config absolute.config.ts \
+  --remote test-mac
+```
+
+- [ ] `REMOTE-RELEASE-01` The command prints `remote-release-sync`,
+  `remote-release-prepare`, `remote-release-xcode`, and
+  `remote-release-download` timings.
+- [ ] `REMOTE-RELEASE-02` Xcode signing happens under the paired macOS user and
+  no certificate, provisioning profile, Keychain item, or App Store credential
+  appears on Windows/Linux or in terminal output.
+- [ ] `REMOTE-RELEASE-03` The returned `App.ipa` and `release.json` are beneath
+  the Windows/Linux application's `.absolutejs/mobile/releases/ios/` directory;
+  `releaseId` equals `amobile_ios_<sha256>` and the recorded byte length and
+  SHA-256 match the local IPA.
+- [ ] `REMOTE-RELEASE-04` Rerunning the exact command never overwrites an
+  existing immutable release; if Xcode reproduces the same IPA hash it is
+  reused, and if signing metadata changes the command installs a distinct,
+  independently verified release. Changing a page creates a new app build.
+- [ ] `REMOTE-RELEASE-05` If staging App Store access is available, run the
+  following from the Windows/Linux application root and confirm build-number
+  allocation and upload occur through the local release adapter while only
+  Xcode build/sign/export occurs on the Mac:
+
+```sh
+bunx absolute mobile publish ios src/backend/server.ts \
+  --config absolute.config.ts \
+  --remote test-mac \
+  --registry mobile.release.ts \
+  --channel remote-mac-smoke \
+  --testflight-group 'AbsoluteJS Internal'
+```
+
+If staging access is unavailable, record
+`SKIPPED — no App Store Connect staging access`; the signed remote build checks
+remain required. Return only the local `release.json`, sanitized timing lines,
+and non-secret App Store receipt state. Do not return the IPA, SSH configuration,
+profile paths, signing material, API keys, or environment dumps.
+
 Direct interaction with the remote Simulator currently uses the Mac screen or a
 trusted remote-desktop connection. The protocol itself carries screenshots and
 conformance artifacts. Full setup, security boundaries, and troubleshooting are
@@ -2077,7 +2119,7 @@ source change and build a new content-addressed release instead.
 - Mac architecture:
 - Xcode version:
 - Bun version:
-- AbsoluteJS version: 0.20.0-beta.50
+- AbsoluteJS version: 0.20.0-beta.51
 - Auth version: 0.75.6
 - Dispatch version: 0.9.0
 - Sync version: 2.31.0
@@ -2294,6 +2336,8 @@ versus expected behavior. Do not report exact coordinates.
 - Remote Mac doctor from Windows/Linux: PASS / FAIL / NOT RUN
 - Remote Mac HMR and native rebuild: PASS / FAIL / NOT RUN
 - Remote Mac warm-cache restart: PASS / FAIL / NOT RUN
+- Remote Mac signed build and verified IPA retrieval: PASS / FAIL / NOT RUN
+- Remote Mac local-adapter TestFlight publish: PASS / FAIL / NOT RUN
 - Exact retry reused the release/build: PASS / FAIL
 - Web-only update allocated the next build and appeared on-device: PASS / FAIL
 - Authentication/deep links/offline reconnect result:

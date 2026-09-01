@@ -85,6 +85,8 @@ import { DEFAULT_SERVER_ENTRY } from '../utils';
 import { getDurationString } from '../../utils/getDurationString';
 import {
 	listAbsoluteRemoteMacProfiles,
+	buildAbsoluteRemoteIosRelease,
+	createAbsoluteRemoteIosDevProject,
 	getAbsoluteRemoteMacProfile,
 	inspectAbsoluteRemoteMac,
 	captureAbsoluteRemoteMacCommand,
@@ -893,6 +895,7 @@ const mobileBuildServerEntry = (args: string[]) => {
 		'--play-track',
 		'--play-update-priority',
 		'--registry',
+		'--remote',
 		'--testflight-group',
 		'--testflight-notes',
 		'--web-outdir'
@@ -1377,6 +1380,36 @@ const requireIosReleaseReady = async (
 	throw new TypeError('iOS release validation failed before Xcode signing.');
 };
 
+type BuildLocalIosReleaseOptions = {
+	args: string[];
+	mobile: NormalizedAbsoluteMobileConfig;
+	prepareBuildNumber?: (buildIdentity: string) => Promise<number>;
+	projectRoot: string;
+};
+
+const buildLocalIosRelease = async (options: BuildLocalIosReleaseOptions) => {
+	await prepareIosReleaseProject(
+		options.mobile,
+		options.projectRoot,
+		options.args
+	);
+	await requireIosReleaseReady(options.mobile, options.projectRoot);
+
+	return buildAbsoluteIosRelease({
+		allowUnsigned: options.args.includes('--unsigned'),
+		config: options.mobile,
+		developmentTeam: process.env.ABSOLUTE_IOS_DEVELOPMENT_TEAM,
+		...(options.mobile.engine === 'expo'
+			? { env: expoProductionEnvironment() }
+			: {}),
+		outputDirectory: valueAfter(options.args, '--outdir'),
+		...(options.prepareBuildNumber === undefined
+			? {}
+			: { prepareBuildNumber: options.prepareBuildNumber }),
+		projectRoot: options.projectRoot
+	});
+};
+
 const buildIos = async (
 	args: string[],
 	prepareBuildNumber?: (buildIdentity: string) => Promise<number>
@@ -1389,9 +1422,26 @@ const buildIos = async (
 		);
 	}
 	const startedAt = performance.now();
+	const requestedRemote = valueAfter(args, '--remote');
+	if (
+		args.includes('--remote') &&
+		(!requestedRemote || requestedRemote.startsWith('-'))
+	)
+		throw new TypeError('mobile build ios requires --remote <name>.');
+	const remoteProfile =
+		requestedRemote !== undefined || process.platform !== 'darwin'
+			? await getAbsoluteRemoteMacProfile(
+					requestedRemote,
+					remoteProfilePath()
+				)
+			: undefined;
+	if (process.platform !== 'darwin' && !remoteProfile)
+		throw new TypeError(
+			'iOS release builds require macOS or a paired Remote Mac. Run `absolute mobile pair mac <name> <user@host>`.'
+		);
 	let success = false;
 	try {
-		if (mobile.engine === 'capacitor')
+		if (!remoteProfile && mobile.engine === 'capacitor')
 			await repairAbsoluteIosDevSession(projectRoot);
 		await start(
 			mobileBuildServerEntry(args),
@@ -1399,19 +1449,41 @@ const buildIos = async (
 			configPath,
 			{ prepareOnly: true }
 		);
-		await prepareIosReleaseProject(mobile, projectRoot, args);
-		await requireIosReleaseReady(mobile, projectRoot);
-		const release = await buildAbsoluteIosRelease({
-			allowUnsigned: args.includes('--unsigned'),
-			config: mobile,
-			developmentTeam: process.env.ABSOLUTE_IOS_DEVELOPMENT_TEAM,
-			...(mobile.engine === 'expo'
-				? { env: expoProductionEnvironment() }
-				: {}),
-			outputDirectory: valueAfter(args, '--outdir'),
-			...(prepareBuildNumber === undefined ? {} : { prepareBuildNumber }),
-			projectRoot
-		});
+		const release = remoteProfile
+			? await buildAbsoluteRemoteIosRelease({
+					allowUnsigned: args.includes('--unsigned'),
+					developmentTeam: process.env.ABSOLUTE_IOS_DEVELOPMENT_TEAM,
+					outputDirectory: valueAfter(args, '--outdir'),
+					log: (message) => console.log(`[remote] ${message}`),
+					onPhaseTiming: ({ durationMs, phase }) => {
+						console.log(
+							`[mobile:ios-release] ${phase} ${getDurationString(durationMs)}`
+						);
+						sendTelemetryEvent('mobile:ios-release-phase', {
+							durationMs: Math.round(durationMs),
+							engine: mobile.engine,
+							phase,
+							platform: 'ios',
+							provider: 'remote-mac'
+						});
+					},
+					...(prepareBuildNumber === undefined
+						? {}
+						: { prepareBuildNumber }),
+					project: createAbsoluteRemoteIosDevProject(
+						mobile,
+						projectRoot,
+						remoteProfile
+					)
+				})
+			: await buildLocalIosRelease({
+					args,
+					mobile,
+					...(prepareBuildNumber === undefined
+						? {}
+						: { prepareBuildNumber }),
+					projectRoot
+				});
 		success = true;
 		const durationMs = Math.round(performance.now() - startedAt);
 		console.log(
@@ -1426,6 +1498,7 @@ const buildIos = async (
 			durationMs: Math.round(performance.now() - startedAt),
 			engine: mobile.engine,
 			platform: 'ios',
+			remote: remoteProfile !== undefined,
 			success,
 			type: 'ipa',
 			unsignedAllowed: args.includes('--unsigned')
@@ -2818,6 +2891,6 @@ export const runMobile = async (args: string[]) => {
 	}
 
 	throw new TypeError(
-		'Usage: absolute mobile <pair mac <name> <user@host> [--port n] [--workspace path] | remotes [--json] | unpair mac <name> | init [--no-native] [--force] | sync [ios|android] | inspect [--json] [--require-bundle] | associations [--outdir dir] [--verify] | ci github [server-entry] [--publish] [--registry module] [--secret-env NAME] [--output path] [--force] [--json] | doctor [ios|android|release [ios|android]] [--remote name] [--json|--fix [--yes]] | build <android|ios> [server-entry] [--outdir dir] [--web-outdir dir] [--unsigned] | publish android [server-entry] [--registry module] [--channel name] [--play-track track] [--play-status completed|draft|halted|in-progress] [--play-rollout fraction] [--play-name name] [--play-notes language=text] [--play-update-priority 0..5] [--play-hold-review] [--play-cancel-existing-review] [--outdir dir] [--web-outdir dir] [--unsigned] | publish ios [server-entry] [--registry module] [--channel name] [--testflight-group name-or-id] [--testflight-notes locale=text] [--testflight-submit-review] [--outdir dir] [--web-outdir dir] [--unsigned] | test android [--route path] [--wait-for-hmr] [--report [dir]] [--timeout ms] [--port n] [--serial id] [--artifacts dir] [--json] | test ios [--device identifier [--remote name] | --udid id] [--wait-for-hmr] [--report [dir]] [--timeout ms] [--port n] [--artifacts dir] [--json]> [--config path]'
+		'Usage: absolute mobile <pair mac <name> <user@host> [--port n] [--workspace path] | remotes [--json] | unpair mac <name> | init [--no-native] [--force] | sync [ios|android] | inspect [--json] [--require-bundle] | associations [--outdir dir] [--verify] | ci github [server-entry] [--publish] [--registry module] [--secret-env NAME] [--output path] [--force] [--json] | doctor [ios|android|release [ios|android]] [--remote name] [--json|--fix [--yes]] | build <android|ios> [server-entry] [--remote name] [--outdir dir] [--web-outdir dir] [--unsigned] | publish android [server-entry] [--registry module] [--channel name] [--play-track track] [--play-status completed|draft|halted|in-progress] [--play-rollout fraction] [--play-name name] [--play-notes language=text] [--play-update-priority 0..5] [--play-hold-review] [--play-cancel-existing-review] [--outdir dir] [--web-outdir dir] [--unsigned] | publish ios [server-entry] [--remote name] [--registry module] [--channel name] [--testflight-group name-or-id] [--testflight-notes locale=text] [--testflight-submit-review] [--outdir dir] [--web-outdir dir] [--unsigned] | test android [--route path] [--wait-for-hmr] [--report [dir]] [--timeout ms] [--port n] [--serial id] [--artifacts dir] [--json] | test ios [--device identifier [--remote name] | --udid id] [--wait-for-hmr] [--report [dir]] [--timeout ms] [--port n] [--artifacts dir] [--json]> [--config path]'
 	);
 };

@@ -126,7 +126,8 @@ first use it:
 2. Uploads it into a content-addressed directory under the paired workspace.
 3. Verifies its SHA-256 digest before execution.
 4. Synchronizes an atomic project snapshot, excluding `.git`, `node_modules`,
-   local build output, and local `.absolutejs` state.
+   local build output, local `.absolutejs` state, environment files, private
+   signing keys/profiles, and Android keystores.
 5. Preserves the Mac's `node_modules`, `.absolutejs` generated state,
    DerivedData, native fingerprint, and installed-app caches across snapshots.
 6. Runs a frozen Bun dependency installation for the remote project.
@@ -170,6 +171,62 @@ The normal interactive development commands continue to work:
 - Ctrl-C closes native logs, restores the temporary development projection, and
   removes the SSH tunnel. It leaves the Simulator and native caches warm.
 
+## Production builds and TestFlight
+
+Run release commands from the application root—the directory containing the
+application's `package.json`, lockfile, and `absolute.config.ts`—not from the
+AbsoluteJS framework repository and not from the Remote Mac workspace:
+
+```bash
+# Windows, Linux, or macOS; explicit profile
+bunx absolute mobile build ios src/backend/server.ts \
+  --config absolute.config.ts \
+  --remote personal-mac
+
+# Uses the default paired Mac on Windows/Linux
+bunx absolute mobile publish ios src/backend/server.ts \
+  --config absolute.config.ts \
+  --registry mobile.release.ts \
+  --channel internal \
+  --testflight-group 'Internal Testers'
+```
+
+Before the first signed build, open the generated workspace on the paired Mac,
+select the Apple Development Team, enable automatic signing, and confirm that
+the paired macOS user can access the required signing identity and provisioning
+profile. `ABSOLUTE_IOS_DEVELOPMENT_TEAM` may be set on the developer computer;
+the ten-character, non-secret team identifier is sent to Xcode on the Mac.
+
+The release path is intentionally split across the trust boundary:
+
+```text
+developer computer                         paired Mac
+------------------                         ----------
+build AbsoluteJS web/mobile bundle   SSH   atomic source + bundle snapshot
+load release registry/adapters       --->  regenerate Capacitor/Expo native UI
+allocate stable Apple build number   <-->  fingerprint native project
+retain App Store API credentials           archive + sign + export with Xcode
+verify IPA SHA-256 and byte length    <---  immutable IPA + release metadata
+publish registry/TestFlight                retain signing keys in Keychain
+```
+
+The content-addressed AbsoluteJS agent performs native preparation, release
+doctor validation, Xcode archive, signature verification, and export. It does
+not invoke a project-local AbsoluteJS executable. The generated IPA is streamed
+back to a local staging file, re-hashed, checked against strict protocol
+metadata, and only then atomically installed under
+`.absolutejs/mobile/releases/ios/amobile_ios_<sha256>/`. Publication continues
+locally through the normal `mobile.release.ts` adapter, so App Store Connect API
+keys and release-registry credentials are never sent to the Mac. Apple signing
+certificates and provisioning material remain in the paired Mac's Keychain and
+Xcode configuration.
+
+Release logs include `remote-release-sync`, `remote-release-prepare`,
+`remote-release-xcode`, and `remote-release-download` timings. Telemetry records
+only those phase durations, engine, platform, and `remote-mac` provider; it does
+not record the profile name, SSH destination, paths, app identity, artifact
+hash, build number, or credentials.
+
 ## Security properties
 
 - OpenSSH owns authentication, host-key pinning, SSH agent use, and private keys.
@@ -179,6 +236,8 @@ The normal interactive development commands continue to work:
 - Project snapshots are isolated by a non-reversible project identity rather
   than exposing the developer's local path.
 - Signing certificates and Keychain items stay on the Mac.
+- App Store Connect, release-registry, and PaaS credentials stay on the
+  developer computer; only the allocated integer build number crosses SSH.
 - Physical-device traffic is relayed as opaque TCP; the Remote Mac receives only
   the public development CA and never the CA private key.
 - Native logs use the existing AbsoluteJS credential and token redaction.
@@ -218,6 +277,15 @@ coupled to this bring-your-own-Mac protocol.
 - **Remote Expo dependency install failed:** verify the paired Mac can reach the
   package registry. AbsoluteJS installs the pinned generated-shell dependencies
   on first use and reuses that cache afterward.
+- **Signed release fails before archive:** open the generated Xcode workspace as
+  the paired macOS user, choose the correct team, enable automatic signing, and
+  confirm the distribution identity and provisioning profile are accessible.
+- **No Remote Mac selected on Windows/Linux:** pair a Mac, select it with
+  `--remote <name>`, set `ABSOLUTE_IOS_REMOTE=<name>`, or pair it last to make it
+  the default.
+- **Retrieved IPA is rejected:** do not copy artifacts manually. Resolve stale
+  or modified remote release state and rerun the command; AbsoluteJS refuses an
+  IPA whose local byte count or SHA-256 differs from `release.json`.
 - **Expo app opens but Fast Refresh cannot connect:** verify both reverse
   forwards are allowed. A Remote Expo session needs the Bun port and its printed
   Metro port; physical devices additionally need both Remote Mac LAN ports.
