@@ -141,7 +141,7 @@ export const broadcastToClients = (
 				.map((client) => describeSocket(state, client))
 				.join(',') || 'none';
 		logInfo(
-			`[hmr:debug] broadcast ${message.type} state=${state.stateId} → [${recipients}], dropped ${clientsToRemove.length}`
+			`[hmr:debug] broadcast ${message.type} → [${recipients}], dropped ${clientsToRemove.length}`
 		);
 	}
 

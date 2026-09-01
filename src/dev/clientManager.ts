@@ -16,9 +16,6 @@ type HMRUpdateMetadata = {
 
 /* This handles the "tracking clients" problem */
 export type HMRState = {
-	/** Identity tag for the opt-in HMR diagnostic: lets the WebSocket plugin
-	 *  and the rebuild pipeline prove they hold the same state object. */
-	stateId: string;
 	connectedClients: Set<HMRWebSocket>;
 	clientTargets: Map<HMRWebSocket, HMRClientTarget>;
 	activeFrameworks: Set<string>; // Frameworks with active browser clients
@@ -74,15 +71,6 @@ export type HMRState = {
 };
 
 /* Initialize HMR state */
-const debugStateOrigin = (id: string) => {
-	if (process.env.ABSOLUTE_HMR_DEBUG !== '1') return id;
-	console.log(
-		`[hmr:debug] createHMRState ${id} from ${import.meta.url}\n${new Error('origin').stack}`
-	);
-
-	return id;
-};
-
 export const createHMRState = (config: BuildConfig): HMRState => ({
 	activeFrameworks: new Set(), // Frameworks with active browser clients,
 	assetStore: new Map(), // In-memory client asset store for dev mode,
@@ -104,7 +92,6 @@ export const createHMRState = (config: BuildConfig): HMRState => ({
 	rebuildTimeout: null,
 	resolvedPaths: resolveBuildPaths(config), // Track versions for source files to bypass Bun's cache,
 	sourceFileVersions: new Map(),
-	stateId: debugStateOrigin(Math.random().toString(36).slice(2, 8)),
 	vueChangeTypes: new Map(), // Vue HMR change type tracking,
 	watchers: []
 });

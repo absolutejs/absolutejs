@@ -210,12 +210,7 @@ export const hmr = (
 		pathname: string
 	) => Promise<Response | undefined> | Response | undefined
 ) =>
-	(process.env.ABSOLUTE_HMR_DEBUG === '1'
-		? console.log(
-				`[hmr:debug] hmr() plugin built from ${import.meta.url} with state=${hmrState.stateId}`
-			)
-		: undefined,
-	new Elysia({ name: 'absolutejs-hmr' }))
+	new Elysia({ name: 'absolutejs-hmr' })
 		.use(
 			websocket({
 				idleTimeout: DEFAULT_WEBSOCKET_IDLE_TIMEOUT_SECONDS,
@@ -367,7 +362,6 @@ export const hmr = (
 			rebuildCount: hmrState.rebuildCount,
 			rebuildQueue: Array.from(hmrState.rebuildQueue),
 			rebuildScheduled: hmrState.rebuildTimeout !== null,
-			stateId: hmrState.stateId,
 			timestamp: Date.now()
 		}))
 		// Diagnostic sink for clients that cannot be inspected from the host —

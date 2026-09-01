@@ -115,7 +115,7 @@ const broadcastReach = async () => {
 			? Number(Reflect.get(targets, 'capacitor-ios')) || 0
 			: 0;
 
-	return `state=${String(Reflect.get(status, 'stateId'))} connectedClients=${Number(Reflect.get(status, 'connectedClients')) || 0} capacitor-ios=${iosTargets}`;
+	return `connectedClients=${Number(Reflect.get(status, 'connectedClients')) || 0} capacitor-ios=${iosTargets}`;
 };
 
 const waitForIosClient = async () => {
