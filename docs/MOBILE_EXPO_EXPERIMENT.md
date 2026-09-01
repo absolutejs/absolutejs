@@ -4,7 +4,8 @@ Introduced experimentally in `@absolutejs/absolute@0.20.0-beta.40`; the
 first-class combined development loop was added in `0.20.0-beta.41`, HTTPS in
 `0.20.0-beta.42`, Remote Mac iOS execution in `0.20.0-beta.43`, and native-owned
 Auth plus authenticated HTTP in `0.20.0-beta.44`. Native-owned durable Sync is
-added in `0.20.0-beta.45`.
+added in `0.20.0-beta.45`. Provider-neutral Expo device capabilities are added
+in `0.20.0-beta.46` through `@absolutejs/devices-expo@0.0.2`.
 
 AbsoluteJS can generate an experimental Expo Router shell in which explicitly
 selected routes render React Native UI and all other routes remain ordinary
@@ -32,7 +33,18 @@ Implemented in the first spike:
 - a versioned, size-bounded, allowlisted request/response bridge;
 - page-envelope GET transport through the native bridge so the server never has
   to trust an opaque `file://` origin;
-- `@absolutejs/devices` haptics from embedded web routes through that bridge;
+- automatic source-level discovery of ordinary `@absolutejs/devices` imports;
+- generated Expo SDK packages, CNG plugins, Android permissions, iOS privacy
+  descriptions, and privacy-manifest entries for only detected capabilities;
+- camera and scoped photo picking, clipboard, bounded document pick/export/open,
+  haptics, keyboard, foreground location, local notifications, native APNs/FCM
+  push, share, and system-bar controls from ordinary embedded routes;
+- the same provider-neutral device facade in application-owned React Native
+  routes, with no raw Expo imports required;
+- native-owned push installation registration through provisioned AbsoluteJS
+  Auth without exposing a provider token to WebView code;
+- 24 KiB chunked binary transfers, 64 MiB object limits, bounded concurrency,
+  expiry cleanup, and stripping of native-only fields at the bridge;
 - a generated native diagnostic screen at `/__absolute/native`;
 - an Expo SDK 57 development client managed by `bun dev`;
 - one Metro process plus configured Android/iOS local builds and launch;
@@ -73,7 +85,7 @@ Implemented in the first spike:
 
 Not implemented, and therefore not claimed:
 
-- device capabilities other than haptics;
+- Android process-death restoration of an in-flight Expo image picker result;
 - dynamic or wildcard native route ownership;
 - Expo release, signing, store publishing, EAS Update, rollback, process-death,
   physical-device, accessibility, or performance acceptance;
@@ -208,20 +220,43 @@ time. `d` displays both ports and target state from the AbsoluteJS dev prompt.
 
 The WebView can send JSON only through the generated bridge. Messages use
 format `3`, have a maximum encoded size of 64 KiB, require bounded request IDs
-and application paths, and dispatch only explicit method names. The first
-allowlisted method families are `devices.haptics`, `http`, `auth`, and the typed
+and application paths, and dispatch only explicit method names. The
+allowlisted method families are `devices`, `http`, `auth`, and the typed
 `sync.store`, `sync.tx`, and `sync.socket` operations. HTTP is locked to the
 exact configured `productionOrigin`, accepts only bounded GET/POST/PUT/PATCH/
 DELETE requests and audited headers, rejects caller-supplied Authorization and
 redirects, strips response headers other than content type/cache policy, and
 currently caps request and response bodies at 48 KiB.
-Requests time out after ten seconds. The native host verifies that a request
-identifies the currently owned web path. External navigation opens through the
-operating system instead of being loaded into the application WebView.
+Ordinary operations time out after 30 seconds; user-driven pickers and
+permission prompts allow up to five minutes. The native host verifies that a
+request identifies the currently owned web path. External navigation opens
+through the operating system instead of loading into the application WebView.
 
 No arbitrary JavaScript method, raw Expo module, bearer token, refresh token,
 socket ticket, native namespace selector, or raw Sync database is exposed to
 embedded page code.
+
+## Provider-neutral devices
+
+Application code does not select or import an Expo adapter. It keeps using the
+same facade as web and Capacitor code:
+
+```ts
+import { camera, documents, location, share } from '@absolutejs/devices';
+```
+
+AbsoluteJS discovers value imports in JavaScript, TypeScript, React, Vue, and
+Svelte source, reads the declarative catalog from `@absolutejs/devices-expo`,
+and regenerates the owned Expo project. The next `bun dev` or
+`absolute mobile sync` offers to install newly required pinned SDK packages.
+Do not edit `app.json`, `package.json`, Android, iOS, or bridge code under
+`.absolutejs/mobile/expo`.
+
+Web previews continue to use standards APIs. Capacitor builds use
+`@absolutejs/devices-capacitor`; Expo native and embedded routes use
+`@absolutejs/devices-expo`. Push is deliberately different: the raw APNs/FCM
+token remains native and is registered with the trusted `/auth/push` route
+provisioned by `@absolutejs/auth`.
 
 ## Sync ownership and limits
 

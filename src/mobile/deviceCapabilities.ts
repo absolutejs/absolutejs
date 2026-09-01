@@ -1,10 +1,12 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { extname, join, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 
 export type AbsoluteDeviceCapabilityProvider = {
 	factory: string;
 	module: string;
+	plugins?: string[];
 	native?: {
 		android?: { permissions: string[] };
 		ios?: {
@@ -36,7 +38,11 @@ export type AbsoluteDeviceCapabilityPlan = {
 };
 
 const DEVICES_PACKAGE = '@absolutejs/devices';
-const CAPACITOR_ADAPTER = '@absolutejs/devices-capacitor';
+export type AbsoluteDeviceProvider = 'capacitor' | 'expo';
+const ADAPTERS: Record<AbsoluteDeviceProvider, string> = {
+	capacitor: '@absolutejs/devices-capacitor',
+	expo: '@absolutejs/devices-expo'
+};
 const SOURCE_GLOB = new Bun.Glob('**/*.{js,jsx,ts,tsx,svelte,vue}');
 const IGNORED_DIRECTORIES = new Set([
 	'.absolutejs',
@@ -50,10 +56,14 @@ const IGNORED_DIRECTORIES = new Set([
 	'tests'
 ]);
 const IDENTIFIER_PATTERN = /^[A-Za-z_$][\w$]*$/u;
-const CAPACITOR_MODULE_PATTERN =
-	/^@absolutejs\/devices-capacitor\/[a-z][a-z0-9-]*$/u;
-const CAPACITOR_PACKAGE_PATTERN =
-	/^@capacitor\/[a-z][a-z0-9-]*@\d+\.\d+\.\d+$/u;
+const providerModulePattern = (provider: AbsoluteDeviceProvider) =>
+	new RegExp(`^@absolutejs/devices-${provider}/[a-z][a-z0-9-]*$`, 'u');
+const providerPackagePattern = (provider: AbsoluteDeviceProvider) =>
+	provider === 'capacitor'
+		? /^@capacitor\/[a-z][a-z0-9-]*@\d+\.\d+\.\d+$/u
+		: /^(?:expo-[a-z][a-z0-9-]*|@react-native-[a-z0-9-]+\/[a-z][a-z0-9-]*)@\d+\.\d+\.\d+$/u;
+const providerLabel = (provider: AbsoluteDeviceProvider) =>
+	provider === 'capacitor' ? 'Capacitor' : 'Expo';
 const ANDROID_PERMISSION_PATTERN = /^android\.permission\.[A-Z][A-Z0-9_]*$/u;
 const IOS_USAGE_DESCRIPTIONS: ReadonlySet<string> = new Set([
 	'camera',
@@ -183,7 +193,8 @@ const iosNativeRequirements = (value: unknown, field: string) => {
 
 const parseProvider = (
 	name: string,
-	value: unknown
+	value: unknown,
+	providerName: AbsoluteDeviceProvider
 ): AbsoluteDeviceCapabilityProvider => {
 	if (!IDENTIFIER_PATTERN.test(name))
 		throw new TypeError('Device capability names must be identifiers.');
@@ -193,19 +204,33 @@ const parseProvider = (
 	const module = text(value.module, `${name}.module`);
 	if (!IDENTIFIER_PATTERN.test(factory))
 		throw new TypeError(`${name}.factory must be a JavaScript identifier.`);
-	if (!CAPACITOR_MODULE_PATTERN.test(module))
+	if (!providerModulePattern(providerName).test(module))
 		throw new TypeError(
-			`${name}.module must be an official devices-capacitor subpath.`
+			`${name}.module must be an official devices-${providerName} subpath.`
 		);
 	if (
 		!Array.isArray(value.packages) ||
 		!value.packages.every(
 			(spec): spec is string =>
-				typeof spec === 'string' && CAPACITOR_PACKAGE_PATTERN.test(spec)
+				typeof spec === 'string' &&
+				providerPackagePattern(providerName).test(spec)
 		)
 	)
 		throw new TypeError(
-			`${name}.packages must contain exact official Capacitor package versions.`
+			`${name}.packages must contain exact official ${providerLabel(providerName)} package versions.`
+		);
+	const { plugins } = value;
+	if (
+		plugins !== undefined &&
+		(!Array.isArray(plugins) ||
+			!plugins.every(
+				(plugin): plugin is string =>
+					typeof plugin === 'string' &&
+					/^expo-[a-z][a-z0-9-]*$/u.test(plugin)
+			))
+	)
+		throw new TypeError(
+			`${name}.plugins must contain Expo config plugin names.`
 		);
 	let native: AbsoluteDeviceCapabilityProvider['native'];
 	const { native: nativeMetadata } = value;
@@ -231,6 +256,7 @@ const parseProvider = (
 		factory,
 		module,
 		...(native === undefined ? {} : { native }),
+		...(plugins === undefined ? {} : { plugins: [...plugins] }),
 		packages: [...value.packages]
 	};
 };
@@ -287,37 +313,49 @@ export const absoluteDeviceNativeRequirements = (
 	};
 };
 
-export const loadAbsoluteDeviceCapabilityProviders = (projectRoot: string) => {
-	const path = join(
+export const loadAbsoluteDeviceCapabilityProviders = (
+	projectRoot: string,
+	provider: AbsoluteDeviceProvider = 'capacitor'
+) => {
+	const adapter = ADAPTERS[provider];
+	let path = join(
 		resolve(projectRoot),
 		'node_modules',
-		CAPACITOR_ADAPTER,
+		adapter,
 		'package.json'
 	);
+	try {
+		readFileSync(path, 'utf8');
+	} catch {
+		path = fileURLToPath(import.meta.resolve(`${adapter}/package.json`));
+	}
 	const manifest = readJson(path);
 	const { absolutejs } = manifest;
 	const devices = object(absolutejs) ? absolutejs.devices : undefined;
 	if (
 		!object(devices) ||
 		devices.format !== 1 ||
-		devices.provider !== 'capacitor' ||
+		devices.provider !== provider ||
 		!object(devices.capabilities)
 	)
 		throw new TypeError(
-			`${CAPACITOR_ADAPTER} does not publish supported capability metadata.`
+			`${adapter} does not publish supported capability metadata.`
 		);
 
 	const entries = Object.entries(devices.capabilities).map(
-		([name, provider]) => ({
+		([name, capability]) => ({
 			name,
-			provider: parseProvider(name, provider)
+			provider: parseProvider(name, capability, provider)
 		})
 	);
 
 	return Object.fromEntries(
 		entries
 			.sort((left, right) => left.name.localeCompare(right.name))
-			.map(({ name, provider }) => [name, provider])
+			.map(({ name, provider: capabilityProvider }) => [
+				name,
+				capabilityProvider
+			])
 	);
 };
 
@@ -434,6 +472,7 @@ export const discoverAbsoluteDeviceCapabilities = (
 	providers = loadAbsoluteDeviceCapabilityProviders(projectRoot)
 ) => {
 	const root = resolve(projectRoot);
+	if (!existsSync(root)) return [];
 	const known = new Set(Object.keys(providers));
 	const capabilities = new Set<string>();
 	for (const path of SOURCE_GLOB.scanSync({ cwd: root })) {
@@ -481,17 +520,21 @@ export const projectImportsAbsoluteDeviceCapability = (
 };
 
 export const resolveAbsoluteDeviceCapabilityPlan = (
-	projectRoot: string
+	projectRoot: string,
+	provider: AbsoluteDeviceProvider = 'capacitor'
 ): AbsoluteDeviceCapabilityPlan => {
-	const allProviders = loadAbsoluteDeviceCapabilityProviders(projectRoot);
+	const allProviders = loadAbsoluteDeviceCapabilityProviders(
+		projectRoot,
+		provider
+	);
 	const capabilities = discoverAbsoluteDeviceCapabilities(
 		projectRoot,
 		allProviders
 	);
 	const providers: Record<string, AbsoluteDeviceCapabilityProvider> = {};
 	for (const name of capabilities) {
-		const provider = allProviders[name];
-		if (provider) providers[name] = provider;
+		const capabilityProvider = allProviders[name];
+		if (capabilityProvider) providers[name] = capabilityProvider;
 	}
 
 	return {

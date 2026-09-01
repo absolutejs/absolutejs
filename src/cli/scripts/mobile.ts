@@ -392,7 +392,57 @@ const runExpo = async (project: string, args: string[]) => {
 
 const ensureExpoPackages = async (project: string, args: string[]) => {
 	try {
-		await access(join(project, 'node_modules', 'expo', 'package.json'));
+		const manifest: unknown = JSON.parse(
+			await readFile(join(project, 'package.json'), 'utf8')
+		);
+		const dependencies =
+			typeof manifest === 'object' && manifest !== null
+				? Reflect.get(manifest, 'dependencies')
+				: undefined;
+		if (
+			typeof dependencies !== 'object' ||
+			dependencies === null ||
+			Array.isArray(dependencies)
+		)
+			throw new TypeError('Generated Expo dependencies are invalid.');
+		await Promise.all(
+			Object.entries(dependencies).map(async ([name, expected]) => {
+				if (typeof expected !== 'string')
+					throw new TypeError(
+						'Generated Expo dependency version is invalid.'
+					);
+				const installed: unknown = JSON.parse(
+					await readFile(
+						join(project, 'node_modules', name, 'package.json'),
+						'utf8'
+					)
+				);
+				const actual =
+					typeof installed === 'object' && installed !== null
+						? Reflect.get(installed, 'version')
+						: undefined;
+				if (typeof actual !== 'string')
+					throw new TypeError(
+						'Installed Expo dependency version is invalid.'
+					);
+				if (/^\d+\.\d+\.\d+$/u.test(expected) && actual !== expected)
+					throw new TypeError(
+						'Installed Expo dependency is outdated.'
+					);
+				if (expected.startsWith('~')) {
+					const wanted = expected.slice(1).split('.').map(Number);
+					const found = actual.split('.').map(Number);
+					if (
+						found[0] !== wanted[0] ||
+						found[1] !== wanted[1] ||
+						(found[2] ?? -1) < (wanted[2] ?? 0)
+					)
+						throw new TypeError(
+							'Installed Expo dependency is outdated.'
+						);
+				}
+			})
+		);
 
 		return;
 	} catch {

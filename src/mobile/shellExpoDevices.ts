@@ -1,5 +1,4 @@
-import { createWebDeviceAdapter } from '@absolutejs/devices/web';
-import { installDeviceAdapter } from '@absolutejs/devices/runtime';
+import { installExpoWebViewDeviceAdapter } from '@absolutejs/devices-expo/bridge';
 
 type ExpoFetchResult = {
 	body: string;
@@ -18,6 +17,22 @@ const bridge = () => {
 	}
 
 	return {
+		on: (
+			event: string,
+			listener: (payload: Record<string, unknown>) => void
+		) => {
+			const on: unknown = Reflect.get(value, 'on');
+			if (typeof on !== 'function') return () => undefined;
+			const subscription: unknown = Reflect.apply(on, value, [
+				event,
+				listener
+			]);
+			if (typeof subscription !== 'function') return () => undefined;
+
+			return async () => {
+				await Reflect.apply(subscription, undefined, []);
+			};
+		},
 		request: (method: string, params: Record<string, unknown>) =>
 			Promise.resolve(
 				Reflect.apply(Reflect.get(value, 'request'), value, [
@@ -69,7 +84,6 @@ const requireBridge = () => {
 	return provider;
 };
 
-/** Installs only capabilities implemented by the versioned Expo WebView bridge. */
 export const createAbsoluteExpoBridgeFetch =
 	() => async (input: RequestInfo | URL, init?: RequestInit) => {
 		const request = new Request(input, init);
@@ -92,46 +106,7 @@ export const createAbsoluteExpoBridgeFetch =
 			status: result.status
 		});
 	};
-export const installAbsoluteExpoWebDeviceAdapter = () => {
-	const web = createWebDeviceAdapter();
-
-	return installDeviceAdapter({
-		...web,
-		haptics: {
-			capability: async () =>
-				bridge()
-					? ({
-							available: true,
-							fidelity: 'native',
-							native: true
-						} as const)
-					: ({
-							available: false,
-							message: 'The Expo WebView bridge is unavailable.',
-							reason: 'unavailable'
-						} as const),
-			impact: async (style) => {
-				await requireBridge().request('devices.haptics.impact', {
-					style
-				});
-			},
-			notification: async (style) => {
-				await requireBridge().request('devices.haptics.impact', {
-					style
-				});
-			},
-			selectionChanged: async () => {
-				await requireBridge().request('devices.haptics.impact', {
-					style: 'selection'
-				});
-			},
-			vibrate: async (durationMs) => {
-				await requireBridge().request('devices.haptics.impact', {
-					durationMs,
-					style: 'vibrate'
-				});
-			}
-		},
-		runtime: 'expo'
-	});
-};
+/** Installs the provider-neutral adapter backed by the generated native host. */
+export const installAbsoluteExpoWebDeviceAdapter = (
+	capabilities: readonly string[] = []
+) => installExpoWebViewDeviceAdapter(requireBridge(), capabilities);

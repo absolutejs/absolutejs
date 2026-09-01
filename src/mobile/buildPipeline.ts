@@ -160,20 +160,11 @@ export const finalizeAbsoluteMobileCompatibilityBuild = async (
 		? discoverAbsoluteSyncSchema(options.projectRoot)
 		: undefined;
 	const deviceCapabilities = resolveAbsoluteDeviceCapabilityPlan(
-		options.projectRoot
+		options.projectRoot,
+		mobile.engine
 	);
 	const usesPush =
 		deviceCapabilities.capabilities.includes('pushNotifications');
-	if (
-		mobile.engine === 'expo' &&
-		deviceCapabilities.capabilities.some(
-			(capability) => capability !== 'haptics'
-		)
-	) {
-		throw new TypeError(
-			'Experimental Expo builds currently bridge only @absolutejs/devices haptics. Other detected device capabilities require their Expo adapters.'
-		);
-	}
 	if (usesPush && !auth)
 		throw new TypeError(
 			'Portable push notifications require @absolutejs/auth so provider tokens can be registered without exposing identity controls to page code.'

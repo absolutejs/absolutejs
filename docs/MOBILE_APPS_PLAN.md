@@ -13,7 +13,7 @@ page bundle is transported through Metro as opaque assets and reconstructed
 with stable relative paths. Expo Router owns deep links and native transitions;
 the WebView retains web history. The original bridge format enforces a 64 KiB maximum,
 bounded IDs/paths, request timeouts, current-page identity, and a method
-allowlist; the first provider-neutral proof is `@absolutejs/devices` haptics.
+allowlist; the first provider-neutral proof was `@absolutejs/devices` haptics.
 `0.20.0-beta.41` adds an Expo development-client dependency and makes `bun dev`
 own one Metro server plus configured local Android/iOS builds. Native React
 routes use Metro Fast Refresh; every web route loads the live Bun origin with
@@ -24,9 +24,8 @@ versioned Remote Mac protocol with an Expo executor: Metro remains on the
 developer computer, the disposable iOS CNG shell and Xcode build run on the
 paired Mac, and independent SSH tunnels/physical-device relays carry Bun and
 Metro traffic. The bridge tracks live browser history so its current-route
-authorization remains correct across SPA navigation. Other device APIs,
-release tooling, and physical-device acceptance remain
-explicit gates. See
+authorization remains correct across SPA navigation. Release tooling and
+physical-device acceptance remain explicit gates. See
 [MOBILE_EXPO_EXPERIMENT.md](./MOBILE_EXPO_EXPERIMENT.md).
 
 Implementation checkpoint (August 31, 2026, Expo Auth slice): AbsoluteJS
@@ -55,6 +54,17 @@ only bounded best-effort headless push/pull. Store, bridge, migration,
 process-restart, account-isolation, package-install, TypeScript, Android/iOS
 CNG, and Android Metro export gates pass; real iOS runtime and physical
 background acceptance remain partner gates.
+
+Implementation checkpoint (August 31, 2026, Expo Devices slice): AbsoluteJS
+`0.20.0-beta.46` provisions `@absolutejs/devices-expo@0.0.2` from ordinary
+provider-neutral imports. Camera/photos, clipboard, documents, haptics,
+keyboard, location, local/push notifications, share, and system bars work in
+native routes and embedded routes without application-owned native wiring.
+Generated CNG owns exact SDK packages, plugins, scoped permissions, iOS usage
+descriptions, and privacy manifests. The bridge chunks binary data, bounds
+concurrency/size/lifetime, strips native-only values, and keeps APNs/FCM tokens
+behind native Auth. Package, TypeScript, Expo compatibility, and clean Android
+CNG gates pass; real iOS runtime and process-death picker recovery remain gates.
 
 Implementation checkpoint (August 29, 2026): the Phase 6 release-security
 baseline is implemented. `absolute mobile doctor release` now validates exact
@@ -469,7 +479,7 @@ API stable:
 | `@absolutejs/auth-capacitor` | Capacitor system-browser, redirect, credential/key and lifecycle implementation | v1 foundation |
 | `@absolutejs/sync-capacitor` | SQLite-backed transactional cache/outbox, lifecycle/connectivity triggers and optional headless runner | v1 local-first phase |
 | `@absolutejs/mobile-expo` | Expo Router shell, route generator, WebView bridge and CNG config plugin | v2 experimental |
-| `@absolutejs/devices-expo`, `@absolutejs/auth-expo`, `@absolutejs/sync-expo` | Expo-native implementations of the same contracts; Auth and Sync shipped, remaining device waves pending | v2 experimental |
+| `@absolutejs/devices-expo`, `@absolutejs/auth-expo`, `@absolutejs/sync-expo` | Shipped Expo-native implementations of device, Auth, and Sync contracts | v2 experimental |
 | `@absolutejs/mobile-ui` | Optional universal React component primitives that render DOM on web/Capacitor and React Native in Expo | Post-v2; do not block mobile support on a design system |
 
 Feature adapters may be separate packages when they pull large native SDKs or add
@@ -2299,7 +2309,7 @@ Recommended packages:
 
 - `@absolutejs/devices`: contracts, normalized types/errors, web and SSR adapters, test adapter, and public feature entry points.
 - `@absolutejs/devices-capacitor`: Capacitor adapter and narrowly scoped optional plugin integrations.
-- `@absolutejs/devices-expo`: future Expo/React Native adapter; do not create until v2.
+- `@absolutejs/devices-expo`: Expo/React Native adapter plus bounded WebView bridge, published independently from Capacitor.
 
 If release management favors a monorepo, these may be workspaces in `~/abs/devices`; they should still publish separately so Capacitor dependencies never enter the web/Expo bundle and Expo dependencies never enter the Capacitor bundle.
 

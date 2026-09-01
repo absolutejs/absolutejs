@@ -281,7 +281,7 @@ const buildShellBootstrap = async (
 		: `import { createAbsoluteExpoBridgeFetch, installAbsoluteExpoWebDeviceAdapter } from ${JSON.stringify(baseAdapterModule)};`;
 	const adapterInstall = capacitor
 		? `installCapacitorDeviceAdapterIfNative({ storagePrefix: ${JSON.stringify(storagePrefix)}${capabilityOptions ? `, ${capabilityOptions}` : ''} });`
-		: 'installAbsoluteExpoWebDeviceAdapter();';
+		: `installAbsoluteExpoWebDeviceAdapter(${JSON.stringify(deviceCapabilities.capabilities)});`;
 	let shellOptions = auth
 		? options
 		: '{ createFetch: createAbsoluteExpoBridgeFetch }';

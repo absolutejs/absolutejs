@@ -131,6 +131,18 @@ const installPreviewFetch = () => {
 	globalThis.fetch = previewFetch;
 };
 
+let removePreviewHttpTransport: (() => void) | undefined;
+const installPreviewHttpTransport = () => {
+	removePreviewHttpTransport?.();
+	removePreviewHttpTransport = installAbsoluteHttpTransport(
+		createAbsoluteHttpTransport({
+			fetch: previewFetch,
+			origin: location.origin,
+			runtime: 'web'
+		})
+	);
+};
+
 installPreviewFetch();
 
 const postState = (
@@ -194,6 +206,7 @@ const handlePreviewMessage = (
 		// Reassert the raw-fetch simulation whenever connectivity changes;
 		// @absolutejs/http remains pinned to this provider independently.
 		installPreviewFetch();
+		installPreviewHttpTransport();
 		controller.emitNetwork({
 			connected: message.connected,
 			connectionType: message.connectionType
@@ -220,13 +233,7 @@ export const installAbsoluteMobilePreview = () => {
 		}
 	});
 	installDeviceAdapter(controller.adapter);
-	installAbsoluteHttpTransport(
-		createAbsoluteHttpTransport({
-			fetch: previewFetch,
-			origin: location.origin,
-			runtime: 'web'
-		})
-	);
+	installPreviewHttpTransport();
 	Reflect.set(globalThis, '__ABS_MOBILE_PREVIEW__', controller);
 	addEventListener('message', (event: MessageEvent<unknown>) => {
 		if (event.origin !== location.origin || event.source !== window.parent)

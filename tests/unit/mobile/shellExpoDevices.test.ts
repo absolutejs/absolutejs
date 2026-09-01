@@ -21,7 +21,7 @@ describe('Expo embedded-web providers', () => {
 		Reflect.set(globalThis, '__absoluteExpoBridge', {
 			request: async (...args: unknown[]) => requests.push(args)
 		});
-		removals.push(installAbsoluteExpoWebDeviceAdapter());
+		removals.push(installAbsoluteExpoWebDeviceAdapter(['haptics']));
 
 		const { haptics } = getDeviceAdapter();
 		if (!haptics) throw new TypeError('Expected the haptics capability.');
@@ -51,11 +51,7 @@ describe('Expo embedded-web providers', () => {
 	});
 
 	test('does not silently fall back when the native bridge is absent', async () => {
-		removals.push(installAbsoluteExpoWebDeviceAdapter());
-
-		const { haptics } = getDeviceAdapter();
-		if (!haptics) throw new TypeError('Expected the haptics capability.');
-		await expect(haptics.impact('medium')).rejects.toThrow(
+		expect(() => installAbsoluteExpoWebDeviceAdapter(['haptics'])).toThrow(
 			'bridge is unavailable'
 		);
 	});

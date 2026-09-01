@@ -20,6 +20,7 @@ export const absoluteNativeDevAdapterSource = (
 	expoSyncModule = '@absolutejs/absolute/mobile/expo-sync'
 ) => {
 	if ((mobile.engine ?? 'capacitor') === 'expo') {
+		const plan = resolveAbsoluteDeviceCapabilityPlan(projectRoot, 'expo');
 		const normalized = normalizeAbsoluteMobileConfig(mobile, projectRoot);
 		const auth = projectUsesAbsoluteAuth(projectRoot)
 			? resolveAbsoluteMobileAuthManifest(projectRoot, normalized)
@@ -42,10 +43,10 @@ export const absoluteNativeDevAdapterSource = (
 		return `import { installAbsoluteExpoWebDeviceAdapter } from ${JSON.stringify(expoAdapterModule)};
 ${auth ? `import { createAbsoluteExpoShellAuth } from ${JSON.stringify(expoAuthModule)};` : ''}
 ${sync ? `import { installAbsoluteExpoShellSync } from ${JSON.stringify(expoSyncModule)};` : ''}
-installAbsoluteExpoWebDeviceAdapter();
+installAbsoluteExpoWebDeviceAdapter(${JSON.stringify(plan.capabilities)});
 ${auth ? `void createAbsoluteExpoShellAuth(${JSON.stringify(auth)}).then(auth => { ${sync ? `installAbsoluteExpoShellSync(auth, ${JSON.stringify(syncConfig)});` : ''} }).catch(error => console.error('[Absolute Mobile] Expo runtime initialization failed:', error));` : ''}`;
 	}
-	const plan = resolveAbsoluteDeviceCapabilityPlan(projectRoot);
+	const plan = resolveAbsoluteDeviceCapabilityPlan(projectRoot, 'capacitor');
 	const imports = plan.capabilities.map((name, index) => {
 		const provider = plan.providers[name];
 		if (!provider)

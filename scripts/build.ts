@@ -268,6 +268,7 @@ const build = async () => {
 			'@absolutejs/auth/*',
 			'@absolutejs/devices',
 			'@absolutejs/devices-capacitor',
+			'@absolutejs/devices-expo/*',
 			'@absolutejs/devices/runtime',
 			'@absolutejs/devices/web',
 			'@absolutejs/sync/*',

@@ -94,7 +94,8 @@ describe('experimental Expo project', () => {
 		expect(nativeRoute).toContain('mobile/native/scanner');
 		expect(packageSource).toContain('expo-dev-client');
 		expect(webAssets).toContain('absolute prepare');
-		expect(webHost).toContain('devices.haptics.impact');
+		expect(webHost).toContain('createExpoDevicesBridgeHost');
+		expect(webHost).toContain("message.method.startsWith('devices.')");
 		expect(webHost).toContain('EXPO_PUBLIC_ABSOLUTE_DEV_ANDROID_ORIGIN');
 		expect(webHost).toContain("'expo-android'");
 		expect(webHost).toContain('"/__absolute/native"');
@@ -137,6 +138,35 @@ describe('experimental Expo project', () => {
 		expect(source).toContain('pages/app.js');
 		expect(source).toContain('.absasset');
 		expect(source).toContain("new File(root, 'index.html').uri");
+	});
+
+	test('provisions detected provider-neutral device capabilities and Expo plugins', async () => {
+		const { config, root } = await fixture();
+		await writeFile(
+			join(root, 'device-page.ts'),
+			`import { camera, clipboard, documents, location, share } from '@absolutejs/devices'; void camera; void clipboard; void documents; void location; void share;`
+		);
+		await writeAbsoluteExpoProject(config, { projectRoot: root });
+		const project = config.nativeProjectDirectory;
+		const [app, manifest, devices] = await Promise.all([
+			readFile(join(project, 'app.json'), 'utf8'),
+			readFile(join(project, 'package.json'), 'utf8'),
+			readFile(
+				join(project, 'src', 'generated', 'AbsoluteDevices.ts'),
+				'utf8'
+			)
+		]);
+		expect(app).toContain('expo-image-picker');
+		expect(app).toContain('expo-document-picker');
+		expect(app).toContain('expo-location');
+		expect(manifest).toContain('"@absolutejs/devices-expo": "0.0.2"');
+		expect(manifest).toContain('"expo-image-manipulator": "57.0.14"');
+		expect(devices).toContain('createExpoCameraCapability');
+		expect(devices).toContain('createExpoClipboardCapability');
+		expect(devices).toContain('createExpoDocumentsCapability');
+		expect(devices).toContain('createExpoLocationCapability');
+		expect(devices).toContain('createExpoShareCapability');
+		expect(devices).toContain('installDeviceAdapter(absoluteExpoDevices)');
 	});
 
 	test('automatically provisions native-owned Expo Auth and secure HTTP', async () => {
@@ -184,6 +214,31 @@ describe('experimental Expo project', () => {
 		await expect(
 			new Bun.Transpiler({ loader: 'ts' }).transform(authSource)
 		).resolves.toBeString();
+	});
+
+	test('provisions Expo push registration only through native Auth', async () => {
+		const { config, root } = await fixture(true);
+		await writeFile(
+			join(root, 'push-page.ts'),
+			`import { pushNotifications } from '@absolutejs/devices'; void pushNotifications;`
+		);
+		await writeAbsoluteExpoProject(config, { projectRoot: root });
+		const devices = await readFile(
+			join(
+				config.nativeProjectDirectory,
+				'src',
+				'generated',
+				'AbsoluteDevices.ts'
+			),
+			'utf8'
+		);
+		expect(devices).toContain('createExpoPushNotificationsCapability');
+		expect(devices).toContain("absoluteExpoAuth.fetch('/auth/push'");
+		expect(devices).toContain('absolutejs.push.installation-id');
+		expect(devices).toContain('beforeAbsoluteExpoDeviceSignOut');
+		expect(devices).toContain('installation-ownership');
+		expect(devices).toContain('onPrincipalChange');
+		expect(devices).not.toContain('getExpoPushTokenAsync');
 	});
 
 	test('provisions one native-owned Sync store for WebView, native routes, and background work', async () => {

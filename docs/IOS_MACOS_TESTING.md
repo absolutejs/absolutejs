@@ -215,6 +215,8 @@ actual result, sanitized logs, and artifact or screenshot path in section 13.
 - [ ] `HTTPS-01` Complete trusted local HTTPS and HMR in the iOS Simulator.
 - [ ] `EXPO-01` through `EXPO-06` Complete Expo CNG, HTTPS, web HMR, native Fast
   Refresh, cleanup, and physical-device enrollment acceptance.
+- [ ] `EXPO-DEVICES-01` through `EXPO-DEVICES-12` Complete provider-neutral
+  capabilities, privacy, bridge, push, and rebuild-boundary acceptance.
 - [ ] `EXPO-AUTH-01` through `EXPO-AUTH-08` Complete Expo system-browser Auth,
   secure restore, native/web parity, and credential-boundary acceptance.
 - [ ] `EXPO-REMOTE-01` through `EXPO-REMOTE-08` Complete the two-computer Expo
@@ -591,6 +593,76 @@ performing these checks:
 Return the sanitized Terminal 1 output and the six result rows. Never return
 the CA private key, Apple credentials, provisioning profiles, raw device logs,
 or the contents of environment files.
+
+#### Expo device-capability acceptance
+
+Run every command below from the staging application root, not from
+`.absolutejs/mobile/expo`. Add a disposable ordinary AbsoluteJS test route that
+imports capabilities from `@absolutejs/devices`; do not import
+`@absolutejs/devices-expo` or any `expo-*` module. Give the route separate
+buttons so permission requests occur only after a tap.
+
+```ts
+import {
+  camera, clipboard, documents, haptics, keyboard, localNotifications,
+  location, photos, pushNotifications, share, systemBars
+} from '@absolutejs/devices';
+```
+
+From Terminal 1:
+
+```sh
+cd /absolute/path/to/the/staging-application
+bunx absolute dev src/backend/server.ts --config absolute.config.ts
+```
+
+Accept the generated dependency installation if prompted. Keep Terminal 1
+running and use only disposable text, files, and accounts.
+
+- [ ] `EXPO-DEVICES-01` Confirm the generated package contains exact
+  `@absolutejs/devices@0.7.0` and `@absolutejs/devices-expo@0.0.2`, plus only
+  Expo modules needed by imports. Confirm `app.json` has corresponding CNG
+  plugins and human-readable iOS descriptions.
+- [ ] `EXPO-DEVICES-02` From `.absolutejs/mobile/expo`, run
+  `bunx expo install --check`; confirm dependencies are up to date, then return
+  to the application root.
+- [ ] `EXPO-DEVICES-03` In the embedded route, write/read clipboard, invoke
+  haptics, dismiss the keyboard, change system-bar appearance, and open Share.
+  Confirm the same route still uses standards fallbacks as a web page.
+- [ ] `EXPO-DEVICES-04` Query camera permission with no prompt, then request it
+  by tap and observe one prompt. Take a photo where supported; otherwise report
+  `SKIPPED — Simulator camera` and test scoped photo selection. Confirm the
+  picker does not request full-library permission.
+- [ ] `EXPO-DEVICES-05` Pick a disposable text/PDF file, export a generated
+  document, and preview/open one. Confirm names, MIME types, and byte counts;
+  confirm no native file path appears in the page or logs.
+- [ ] `EXPO-DEVICES-06` Query location permission with no prompt, request by
+  tap, read one position, and start/stop a watch. Confirm no event after stop.
+  Report only accuracy class and event count, never coordinates.
+- [ ] `EXPO-DEVICES-07` Query notification permission with no prompt, request
+  by tap, schedule/cancel a local notification, and confirm received/action
+  events are delivered once.
+- [ ] `EXPO-DEVICES-08` With disposable Auth configured, enable push. On iOS
+  Simulator report `SKIPPED — remote push requires physical device`; on a
+  physical device confirm registration reaches the trusted server and the page
+  never receives an APNs/FCM token. Sign out and confirm installation removal.
+- [ ] `EXPO-DEVICES-09` Relaunch signed in with push permission granted. Confirm
+  native registration refreshes without another prompt or duplicate server row.
+- [ ] `EXPO-DEVICES-10` Save an ordinary route edit and record
+  `[hmr:expo-ios]`; confirm no CNG, CocoaPods, or Xcode rebuild. Add one new
+  device capability import, restart once, accept its package, and confirm one
+  CNG/native rebuild.
+- [ ] `EXPO-DEVICES-11` Leave a photo/document picker open longer than ten
+  seconds before choosing; confirm completion. Cancel one and confirm a bounded
+  cancellation result rather than a hung request.
+- [ ] `EXPO-DEVICES-12` Inspect sanitized bridge traffic and confirm binary
+  data is chunked, native diagnostic objects/paths do not cross, and an unknown
+  `devices.*` method fails closed. Do not return raw payloads.
+
+Return the twelve report rows with PASS/FAIL/SKIPPED and sanitized timing or
+event-count evidence. Redact coordinates, provider tokens, payload contents,
+file contents, and personal data. A physical-device-only skip does not block
+the Simulator handoff.
 
 #### Expo Auth acceptance
 
@@ -1797,7 +1869,7 @@ source change and build a new content-addressed release instead.
 - Mac architecture:
 - Xcode version:
 - Bun version:
-- AbsoluteJS version: 0.20.0-beta.42
+- AbsoluteJS version: 0.20.0-beta.46
 - Auth version: 0.75.0
 - Dispatch version: 0.9.0
 - Sync version: 2.29.0
@@ -1805,6 +1877,7 @@ source change and build a new content-addressed release instead.
 - Capacitor SQLite version: 8.1.1
 - Devices version: 0.7.0
 - Devices Capacitor version: 0.8.0
+- Devices Expo version: 0.0.2
 - Keyboard version: 8.0.5
 - Push Notifications version: 8.1.2
 - Local Notifications version: 8.2.1
@@ -1845,6 +1918,18 @@ versus expected behavior. Do not report exact coordinates.
 | EXPO-04 |  | Metro Fast Refresh / regeneration: |  |
 | EXPO-05 |  | production prebuild trust isolation: |  |
 | EXPO-06 |  | physical CA enrollment / HTTPS HMR / cleanup or skipped: |  |
+| EXPO-DEVICES-01 |  | exact packages / generated CNG policy: |  |
+| EXPO-DEVICES-02 |  | Expo dependency check: |  |
+| EXPO-DEVICES-03 |  | clipboard / haptics / keyboard / bars / share: |  |
+| EXPO-DEVICES-04 |  | explicit camera permission / scoped picker: |  |
+| EXPO-DEVICES-05 |  | document transfer / no path exposure: |  |
+| EXPO-DEVICES-06 |  | location permission / watch cleanup: |  |
+| EXPO-DEVICES-07 |  | local notification / action count: |  |
+| EXPO-DEVICES-08 |  | push registration / sign-out teardown: |  |
+| EXPO-DEVICES-09 |  | relaunch registration / duplicate count: |  |
+| EXPO-DEVICES-10 |  | web HMR / capability-add native rebuild: |  |
+| EXPO-DEVICES-11 |  | long picker / cancellation recovery: |  |
+| EXPO-DEVICES-12 |  | bounded bridge / field stripping / deny: |  |
 | EXPO-AUTH-01 |  | exact packages / CNG plugin: |  |
 | EXPO-AUTH-02 |  | system browser / no WebView credential entry: |  |
 | EXPO-AUTH-03 |  | callback / cancellation recovery: |  |
