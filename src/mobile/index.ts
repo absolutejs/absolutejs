@@ -39,3 +39,4 @@ export * from './routeMetadataTransform';
 export * from './routeMatcher';
 export * from './shellHttp';
 export * from './transport';
+export * from './uiPrimitives';

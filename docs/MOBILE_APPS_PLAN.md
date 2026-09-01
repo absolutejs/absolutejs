@@ -518,7 +518,7 @@ API stable:
 | `@absolutejs/sync-capacitor` | SQLite-backed transactional cache/outbox, lifecycle/connectivity triggers and optional headless runner | v1 local-first phase |
 | `@absolutejs/mobile-expo` | Expo Router shell, route generator, WebView bridge and CNG config plugin | v2 experimental |
 | `@absolutejs/devices-expo`, `@absolutejs/auth-expo`, `@absolutejs/sync-expo` | Shipped Expo-native implementations of device, Auth, and Sync contracts | v2 experimental |
-| `@absolutejs/mobile-ui` | Optional universal React component primitives that render DOM on web/Capacitor and React Native in Expo | Post-v2; do not block mobile support on a design system |
+| `@absolutejs/absolute/mobile/ui` | Shipped framework-neutral semantic-HTML app-shell, navigation-stack, tab-bar, sheet, back, and mobile-link primitives for web-rendered routes | Native Expo replacement screens remain real React Native UI; do not hide that renderer boundary behind fake universal components |
 
 Feature adapters may be separate packages when they pull large native SDKs or add
 sensitive permissions—for example maps, biometrics, payments, health or advanced
@@ -3291,7 +3291,7 @@ until v2 rather than publishing a placeholder.
 
 The remaining decisions that materially affect the public API are:
 
-1. **Mobile component layer:** Should v1 include optional mobile-adaptive navigation/layout primitives, or should it initially focus on running existing responsive UI plus native capabilities?
+1. **Mobile component layer (resolved):** v1 includes optional semantic-HTML navigation/layout primitives from `@absolutejs/absolute/mobile/ui`; the native shell installs them automatically without restyling pages that do not opt in.
 2. **Expo scope:** Should `engine: 'expo'` initially mean an all-React-native application, selected native replacement routes in a hybrid shell, or both? The plan can support both over time but should stabilize one first.
 3. **Native auth strength:** Should v1 require DPoP/device-bound keys, or ship standards-compliant rotating refresh tokens first and add DPoP after the secure-key spike?
 4. **Build service:** Should AbsoluteJS v1 stop at local/native CI builds, integrate an existing AbsoluteJS cloud build/deploy product, or adopt a third-party service such as Appflow? This plan keeps cloud build provider-neutral.

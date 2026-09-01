@@ -152,6 +152,10 @@
 			"import": "./dist/mobile/index.js",
 			"types": "./dist/src/mobile/index.d.ts"
 		},
+		"./mobile/ui": {
+			"import": "./dist/mobile/uiPrimitives.js",
+			"types": "./dist/src/mobile/uiPrimitives.d.ts"
+		},
 		"./react": {
 			"browser": "./dist/react/browser.js",
 			"import": "./dist/react/index.js",
@@ -289,12 +293,12 @@
 	"main": "./dist/index.js",
 	"name": "@absolutejs/absolute",
 	"optionalDependencies": {
-		"@absolutejs/native-darwin-arm64": "0.20.0-beta.57",
-		"@absolutejs/native-darwin-x64": "0.20.0-beta.57",
-		"@absolutejs/native-linux-arm64": "0.20.0-beta.57",
-		"@absolutejs/native-linux-x64": "0.20.0-beta.57",
-		"@absolutejs/native-windows-arm64": "0.20.0-beta.57",
-		"@absolutejs/native-windows-x64": "0.20.0-beta.57"
+		"@absolutejs/native-darwin-arm64": "0.20.0-beta.58",
+		"@absolutejs/native-darwin-x64": "0.20.0-beta.58",
+		"@absolutejs/native-linux-arm64": "0.20.0-beta.58",
+		"@absolutejs/native-linux-x64": "0.20.0-beta.58",
+		"@absolutejs/native-windows-arm64": "0.20.0-beta.58",
+		"@absolutejs/native-windows-x64": "0.20.0-beta.58"
 	},
 	"overrides": {
 		"@sinclair/typebox": "0.34.52",
@@ -510,7 +514,7 @@
 			]
 		}
 	},
-	"version": "0.20.0-beta.57",
+	"version": "0.20.0-beta.58",
 	"workspaces": [
 		"tests/fixtures/*",
 		"tests/fixtures/_packages/*"

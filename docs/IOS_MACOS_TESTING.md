@@ -1,7 +1,7 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.57` and
+`@absolutejs/absolute@0.20.0-beta.58` and
 `@absolutejs/deploy@0.24.0`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
 
@@ -1246,6 +1246,32 @@ enabled in the simulated device's Safari advanced settings, relaunch the app,
 and retry. Record a `FAIL` rather than guessing values if inspection remains
 unavailable.
 
+### Framework-neutral mobile UI acceptance
+
+Open `/native-ui` in the staging app. The page uses ordinary React-rendered
+`div`, `nav`, `dialog`, and `a` elements; it does not import a framework-specific
+mobile component.
+
+- [ ] `MOBILE-UI-01` Confirm the header clears the status area, the main region
+  scrolls within the available viewport, and the tab bar clears the home
+  indicator in portrait and landscape. There must be no doubled safe-area
+  padding.
+- [ ] `MOBILE-UI-02` Confirm **Mobile UI** has `aria-current="page"`. Follow the
+  React tab and return using the browser/app history. The entering content moves
+  in the appropriate forward/back direction, while Reduce Motion disables the
+  movement.
+- [ ] `MOBILE-UI-03` Choose **Open sheet**. Confirm focus moves to **Done** and
+  the background is modal. Close it separately with Done, Escape, a backdrop
+  click, and Android Back when running the Android counterpart. Focus must
+  return to **Open sheet** every time.
+- [ ] `MOBILE-UI-04` Open the sheet, type a distinct value in the input, and use
+  the Back link. The first back request closes the sheet without leaving the
+  route or losing the input. The next Back request returns to the prior route.
+- [ ] `MOBILE-UI-05` Choose **Open AbsoluteJS externally**. Capacitor must open
+  the system browser and Expo must hand the URL to its host; the application
+  WebView must not become an external website. Return to the app and confirm the
+  route remains interactive.
+
 ### Automatic device-capability provisioning acceptance
 
 Add an application page using the provider-neutral surface only:
@@ -2183,7 +2209,7 @@ source change and build a new content-addressed release instead.
 - Mac architecture:
 - Xcode version:
 - Bun version:
-- AbsoluteJS version: 0.20.0-beta.57
+- AbsoluteJS version: 0.20.0-beta.58
 - Auth version: 0.75.6
 - Dispatch version: 0.9.0
 - Sync version: 2.31.0
@@ -2229,6 +2255,11 @@ versus expected behavior. Do not report exact coordinates.
 | ADAPT-02 |  | keyboard / rotation / available height: |  |
 | ADAPT-03 |  | offline / reconnect / announcements: |  |
 | ADAPT-04 |  | light / dark / unchanged layout: |  |
+| MOBILE-UI-01 |  | portrait / landscape / safe areas: |  |
+| MOBILE-UI-02 |  | active tab / forward / back / reduced motion: |  |
+| MOBILE-UI-03 |  | focus / Done / Escape / backdrop / Android Back: |  |
+| MOBILE-UI-04 |  | sheet-first Back / route Back / input state: |  |
+| MOBILE-UI-05 |  | Capacitor / Expo external browser handoff: |  |
 | HTTPS-01 |  | mkcert / CA trust / load / HMR: |  |
 | EXPO-01 |  | generated CNG ownership / clean prebuild: |  |
 | EXPO-02 |  | Simulator CA trust / HTTPS load / native build: |  |

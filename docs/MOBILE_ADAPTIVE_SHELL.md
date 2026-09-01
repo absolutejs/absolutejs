@@ -70,5 +70,6 @@ normalized platform, network, keyboard, viewport, and available-height state.
 - Existing responsive sites keep their layout. Only code that opts into the
   published variables or attributes changes its application UI.
 
-The next UI milestone builds optional app-shell, navigation, tab-bar, stack,
-sheet, and mobile-aware link primitives on this contract.
+Optional app-shell, navigation, tab-bar, stack, sheet, and mobile-aware link
+primitives now build on this contract. See
+[MOBILE_UI_PRIMITIVES.md](./MOBILE_UI_PRIMITIVES.md).

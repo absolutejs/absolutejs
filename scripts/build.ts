@@ -284,6 +284,7 @@ const build = async () => {
 	const mobileShellBuild = await Bun.build({
 		entrypoints: [
 			'src/mobile/shellBootstrap.ts',
+			'src/mobile/uiPrimitives.ts',
 			'src/mobile/shellAuth.ts',
 			'src/mobile/shellExpoAuth.ts',
 			'src/mobile/shellExpoSync.ts',
@@ -316,6 +317,7 @@ const build = async () => {
 		await Promise.all(
 			[
 				'shellBootstrap.js',
+				'uiPrimitives.js',
 				'shellAuth.js',
 				'shellExpoAuth.js',
 				'shellExpoSync.js',

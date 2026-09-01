@@ -1015,6 +1015,35 @@ describeNative('real Capacitor Android embedded-bundle conformance', () => {
 	);
 
 	nativeTest(
+		'enhances framework-neutral app shell, tabs, sheet, and back behavior',
+		async () => {
+			await openNativeRoute('/native-ui', 'AbsoluteJS mobile UI');
+			expect(
+				await webview.evaluate<boolean>(`(() => {
+			const shell = document.querySelector('#mobile-ui-shell');
+			const active = document.querySelector('#mobile-ui-tabs a[href="/native-ui"]');
+			const style = document.querySelector('#absolute-mobile-ui-primitives');
+			return Boolean(shell && style && active?.getAttribute('aria-current') === 'page');
+		})()`)
+			).toBe(true);
+			expect(
+				await webview.evaluate<boolean>(`(() => {
+			const opener = document.querySelector('#open-sheet');
+			if (!(opener instanceof HTMLButtonElement)) return false;
+			opener.click();
+			return document.querySelector('#mobile-ui-sheet')?.hasAttribute('open') === true;
+		})()`)
+			).toBe(true);
+			expect(
+				await webview.evaluate<boolean>(`(() => {
+			const handled = !dispatchEvent(new CustomEvent('absolute:back-request', { cancelable: true }));
+			return handled && document.querySelector('#mobile-ui-sheet')?.hasAttribute('open') === false && document.activeElement?.id === 'open-sheet';
+		})()`)
+			).toBe(true);
+		}
+	);
+
+	nativeTest(
 		'uses portable keyboard and modern system bars in the real WebView',
 		async () => {
 			await openNativeRoute('/native-system-ui', 'AbsoluteJS System UI');

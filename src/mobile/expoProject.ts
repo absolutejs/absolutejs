@@ -827,6 +827,11 @@ const bridgeBootstrap = (path: string, safeAreaInsets: { bottom: number; left: n
 			send({ format: 3, kind: 'event', event: 'navigation', path });
 		}
 	};
+	globalThis.__absoluteRequestBack = () => {
+		const event = new CustomEvent('absolute:back-request', { cancelable: true });
+		if (!dispatchEvent(event)) return;
+		send({ format: 3, kind: 'event', event: 'back-unhandled', path: currentPath });
+	};
 	if (\${DEV_ORIGIN ? 'true' : 'false'}) {
 		const publishPath = () => {
 			const path = location.pathname + location.search + location.hash;
@@ -947,12 +952,12 @@ export function AbsoluteWebHost() {
 	}, [safeAreaInsets.bottom, safeAreaInsets.left, safeAreaInsets.right, safeAreaInsets.top]);
 	useEffect(() => {
 		const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
-			if (!canGoBack) return false;
-			webView.current?.goBack();
+			if (!indexUri) return false;
+			webView.current?.injectJavaScript('globalThis.__absoluteRequestBack?.(); true;');
 			return true;
 		});
 		return () => subscription.remove();
-	}, [canGoBack]);
+	}, [indexUri]);
 
 	const respond = (message: Record<string, unknown>) => {
 		const source = JSON.stringify(message).replaceAll('\\u2028', '\\\\u2028').replaceAll('\\u2029', '\\\\u2029');
@@ -990,6 +995,11 @@ export function AbsoluteWebHost() {
 			if (target.origin !== PRODUCTION_ORIGIN) return;
 			if (isNativeRoute(target.pathname)) router.push(message.path as never);
 			else activeWebPath.current = message.path;
+			return;
+		}
+		if (message.kind === 'event' && message.event === 'back-unhandled') {
+			if (canGoBack) webView.current?.goBack();
+			else BackHandler.exitApp();
 			return;
 		}
 		if (message.kind !== 'request' || typeof message.id !== 'string' || message.path !== activeWebPath.current) return;

@@ -20,6 +20,7 @@ test('published build ships linkable native shell modules', async () => {
 	const mobile = join(PROJECT_ROOT, 'dist', 'mobile');
 	for (const name of [
 		'shellBootstrap.js',
+		'uiPrimitives.js',
 		'shellAuth.js',
 		'shellExpoDevices.js',
 		'shellExpoAuth.js',

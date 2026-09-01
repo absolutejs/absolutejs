@@ -51,6 +51,14 @@ const MANUAL_CHECKS = [
 		'Confirm automatic system-bar appearance and unchanged author layout.'
 	],
 	...Array.from(
+		{ length: 5 },
+		(_, index) =>
+			[
+				`MOBILE-UI-${String(index + 1).padStart(2, '0')}`,
+				`Complete framework-neutral mobile UI runbook check MOBILE-UI-${String(index + 1).padStart(2, '0')}.`
+			] as const
+	),
+	...Array.from(
 		{ length: 10 },
 		(_, index) =>
 			[

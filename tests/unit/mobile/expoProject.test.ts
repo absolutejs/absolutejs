@@ -115,6 +115,9 @@ describe('experimental Expo project', () => {
 		expect(webHost).toContain('createExpoDevicesBridgeHost');
 		expect(webHost).toContain('useSafeAreaInsets');
 		expect(webHost).toContain('absolute:native-host-metrics');
+		expect(webHost).toContain("new CustomEvent('absolute:back-request'");
+		expect(webHost).toContain('globalThis.__absoluteRequestBack?.()');
+		expect(webHost).toContain("message.event === 'back-unhandled'");
 		expect(webHost).toContain('bridgeBootstrap(pathname, safeAreaInsets)');
 		expect(webHost).toContain("message.method.startsWith('devices.')");
 		expect(webHost).toContain('EXPO_PUBLIC_ABSOLUTE_DEV_ANDROID_ORIGIN');
