@@ -1431,6 +1431,17 @@ const compileUnlocked = async (
 	outfile?: string,
 	configPath?: string
 ) => {
+	// Runtime packages copied for a previous standalone build are not regular
+	// build outputs, so core build cleanup does not remove them. Leaving them in
+	// place makes Bun see the same package both as an embedded `type: "file"`
+	// asset and as a JavaScript dependency of the generated compile entrypoint.
+	// Start each compile with an empty runtime-package tree so incremental local
+	// compiles have the same module graph as clean release builds.
+	rmSync(join(resolvedOutdir, 'node_modules'), {
+		force: true,
+		recursive: true
+	});
+
 	// Pick a guaranteed-free port for the pre-render server. A positive explicit
 	// COMPILE_PORT/PORT still wins; COMPILE_PORT=0 explicitly requests an
 	// OS-assigned port even when an ambient PORT exists. This avoids the old
