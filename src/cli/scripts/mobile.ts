@@ -1483,6 +1483,7 @@ const prepareCapacitorAndroidReleaseProject = async (
 		'android'
 	]);
 	await applyAbsoluteNativeBackgroundSync(projectRoot, mobile, ['android']);
+	await applyAbsoluteNativeUpdates(mobile, ['android']);
 };
 
 const prepareAndroidReleaseProject = (

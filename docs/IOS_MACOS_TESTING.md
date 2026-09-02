@@ -1,7 +1,7 @@
 # AbsoluteJS iOS and TestFlight macOS test runbook
 
 This runbook validates the iOS release path shipped in
-`@absolutejs/absolute@0.20.0-beta.60` and
+`@absolutejs/absolute@0.20.0-beta.61` and
 `@absolutejs/deploy@0.24.0`. It covers a signed local IPA, an internal
 TestFlight upload, retry behavior, and installation on an iPhone or iPad.
 
@@ -2238,7 +2238,7 @@ source change and build a new content-addressed release instead.
 - Mac architecture:
 - Xcode version:
 - Bun version:
-- AbsoluteJS version: 0.20.0-beta.60
+- AbsoluteJS version: 0.20.0-beta.61
 - Auth version: 0.75.6
 - Dispatch version: 0.9.0
 - Sync version: 2.31.0
@@ -2444,6 +2444,8 @@ versus expected behavior. Do not report exact coordinates.
 | OTA-10 |  | embedded-bundle rollback: |  |
 | OTA-11 |  | missing-snapshot recovery: |  |
 | OTA-12 |  | request fields / credential exclusion: |  |
+| OTA-13 |  | automatic watchdog rollback / duration / quarantine: |  |
+| OTA-14 |  | interrupted-boot recovery before Capacitor load: |  |
 
 - Signed IPA build: PASS / FAIL
 - App Store upload and processing: PASS / FAIL
@@ -2505,8 +2507,20 @@ repository, `mobile/ios`, Xcode's project directory, or `.absolutejs/mobile`.
 
 Before starting, follow `MOBILE_UPDATES.md` to configure a test-only ECDSA P-256
 public key and the trusted update handler. Keep the private PEM outside every
-repository and report archive. Start with a store-style build containing version
-N of the application and the configured public key:
+repository and report archive. For this disposable acceptance build, set
+`mobile.updates.bootTimeoutMs: 5000` before building version N; changing it later
+changes the native-runtime fingerprint and correctly requires another store build.
+Add this temporary observer to the healthy N/N+1 client page so its sanitized
+result can be copied into the report:
+
+```ts
+addEventListener('absolute:mobile-update', (event) => {
+	console.info('OTA acceptance', (event as CustomEvent).detail);
+});
+```
+
+Do not log Preferences, filesystem paths, Auth state, or the downloaded manifest.
+Start with a store-style build containing version N and the configured public key:
 
 ```bash
 pwd
@@ -2535,6 +2549,13 @@ bunx absolute mobile update publish ABSOLUTE_PRINTED_RELEASE_PATH \
   --registry mobile.release.ts --rollout 1
 ```
 
+For `OTA-08` and `OTA-14`, create a new page-only update by temporarily throwing
+`new Error('OTA watchdog acceptance')` at the top of the initial route's client
+module, then run the same `update build` and `update publish` commands. This makes
+a correctly signed but non-bootable web bundle; do not modify `update.json` or its
+files after signing. Restore the client module before building the next healthy
+release.
+
 Complete this checklist and include the IDs verbatim in the report:
 
 - [ ] `OTA-01` The original store build opens and shows version N before an update is published.
@@ -2544,11 +2565,13 @@ Complete this checklist and include the IDs verbatim in the report:
 - [ ] `OTA-05` Auth restores, the current Sync principal/rows remain available, and no account-switch or pending-outbox data crosses principals after activation.
 - [ ] `OTA-06` Publish a file with one byte changed after signing. The app reports a failed update, remains on N+1, and does not partially activate it.
 - [ ] `OTA-07` Build an update after adding a native capability or changing the generated Sync schema. The installed N runtime receives no update; the CLI/registry reports a runtime mismatch requiring a store build.
-- [ ] `OTA-08` Publish a valid test bundle whose bootstrap throws before the first page can render. The failed launch is not persisted; terminate and reopen the app and confirm N+1 returns automatically.
+- [ ] `OTA-08` Publish a valid test bundle whose bootstrap throws before the first page can render. Without terminating or reopening the app, confirm the native watchdog restores N+1 within the configured `mobile.updates.bootTimeoutMs` window.
 - [ ] `OTA-09` Promote a valid N+2 update to 100%, confirm it, then run `bunx absolute mobile update rollback --release amu_N_PLUS_1 --registry mobile.release.ts`. Reopen and confirm N+1.
 - [ ] `OTA-10` Run `bunx absolute mobile update rollback --registry mobile.release.ts`, reinstall/reopen as directed, and confirm the embedded store bundle N is the final recovery image.
 - [ ] `OTA-11` On a migrated/restored test device or by removing the confirmed snapshot only in a disposable test install, verify the generated iOS startup guard clears the dangling path and opens embedded N instead of a blank WebView.
 - [ ] `OTA-12` Confirm update requests send only app ID, channel, current release, anonymous installation UUID, and runtime fingerprint. They must not send cookies, bearer/refresh tokens, Sync data, page props, or a user identifier.
+- [ ] `OTA-13` After `OTA-08`, confirm the `absolute:mobile-update` detail contains only `kind: 'rolled-back'`, reason `boot-timeout`, the failed `amu_…` identity, and a numeric duration. Reopen while the same failed release remains published and confirm it is reported as quarantined without downloading its files or attempting activation again.
+- [ ] `OTA-14` Start another disposable failing update and fully terminate the app after activation begins but before first render. Reopen it and confirm the prior healthy release appears directly, the recovery reason is `boot-interrupted`, and the failed release remains quarantined.
 
 For every row record: pass/fail, device model, iOS version, app build/version,
 embedded runtime fingerprint, previous and selected `amu_…` IDs, classification,

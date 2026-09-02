@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { createHash } from 'node:crypto';
+import { createHash, generateKeyPairSync } from 'node:crypto';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -122,6 +122,9 @@ describe('Capacitor local web bundle', () => {
 		const styleBundleHash = createHash('sha256')
 			.update(styleSource)
 			.digest('hex');
+		const { publicKey } = generateKeyPairSync('ec', {
+			namedCurve: 'prime256v1'
+		});
 		const artifact = createAbsoluteMobileCompatibilityArtifact({
 			appBuild: 'build-1',
 			appId: 'com.example.product',
@@ -155,7 +158,14 @@ describe('Capacitor local web bundle', () => {
 				appName: 'Product',
 				bundleDirectory: 'mobile-web',
 				entry: '/account/Ada',
-				server: { productionOrigin: 'https://api.example.com' }
+				server: { productionOrigin: 'https://api.example.com' },
+				updates: {
+					publicKeys: {
+						key: publicKey
+							.export({ format: 'der', type: 'spki' })
+							.toString('base64')
+					}
+				}
 			},
 			root
 		);
@@ -223,6 +233,8 @@ describe('Capacitor local web bundle', () => {
 			).exists()
 		).toBe(true);
 		expect(bootstrap).toContain('appUrlOpen');
+		expect(bootstrap).toContain('AbsoluteMobileUpdateWatchdog');
+		expect(manifest.updates?.bootTimeoutMs).toBe(20_000);
 		expect(bootstrap).toContain('takePhoto');
 		expect(bootstrap).toContain('chooseFromGallery');
 		expect(bootstrap).toContain('getCurrentPosition');

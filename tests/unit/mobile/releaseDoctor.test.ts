@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { createHash } from 'node:crypto';
+import { createHash, generateKeyPairSync } from 'node:crypto';
 import {
 	mkdir,
 	mkdtemp,
@@ -22,6 +22,7 @@ import {
 	createAbsoluteMobileComplianceReport,
 	inspectAbsoluteMobileRelease
 } from '../../../src/mobile/releaseDoctor';
+import { applyAbsoluteNativeUpdates } from '../../../src/mobile/nativeUpdates';
 
 const temporaryDirectories: string[] = [];
 const CAPACITOR_VERSION = '8.5.0';
@@ -71,7 +72,8 @@ const writeReleaseBundle = async (
 				],
 				productionOrigin: config.productionOrigin,
 				routes: [{ method: 'GET', pageId: 'release', pattern: '/' }],
-				runtime: '1'
+				runtime: '1',
+				...(config.updates ? { updates: config.updates } : {})
 			})}\n`
 		)
 	]);
@@ -356,6 +358,54 @@ describe('mobile release doctor', () => {
 		expect(result.checks.every((check) => check.status === 'pass')).toBe(
 			true
 		);
+	});
+
+	test('verifies the generated Android update watchdog against release config', async () => {
+		const release = await fixture();
+		const { publicKey } = generateKeyPairSync('ec', {
+			namedCurve: 'prime256v1'
+		});
+		const config = normalizeAbsoluteMobileConfig(
+			{
+				appId: release.config.appId,
+				appName: release.config.appName,
+				deepLinks: {
+					android: {
+						sha256CertificateFingerprints: [ANDROID_FINGERPRINT]
+					}
+				},
+				platforms: ['android'],
+				server: { productionOrigin: release.config.productionOrigin },
+				updates: {
+					bootTimeoutMs: 7000,
+					publicKeys: {
+						key: publicKey
+							.export({ format: 'der', type: 'spki' })
+							.toString('base64')
+					}
+				}
+			},
+			release.projectRoot
+		);
+		const activityPath = join(
+			release.main,
+			'java/com/example/release/MainActivity.java'
+		);
+		await mkdir(dirname(activityPath), { recursive: true });
+		await writeFile(
+			activityPath,
+			'package com.example.release; import com.getcapacitor.BridgeActivity; public class MainActivity extends BridgeActivity {}\n'
+		);
+		await writeReleaseBundle(join(release.assets, 'public'), config);
+		await applyAbsoluteNativeUpdates(config, ['android']);
+
+		const result = await inspectAbsoluteMobileRelease(
+			config,
+			release.projectRoot
+		);
+		expect(
+			result.checks.find(({ id }) => id === 'android.update-watchdog')
+		).toMatchObject({ status: 'pass' });
 	});
 
 	test('rejects an unprovisioned native capability', async () => {

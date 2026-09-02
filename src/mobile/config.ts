@@ -20,6 +20,7 @@ export type NormalizedAbsoluteMobileConfig = {
 	productionOrigin: string;
 	pushAndroidGoogleServicesFile: string;
 	updates?: {
+		bootTimeoutMs: number;
 		channel: string;
 		manifestUrl: string;
 		publicKeys: Record<string, string>;
@@ -32,6 +33,9 @@ const APPLE_APP_ID_PREFIX_PATTERN = /^[A-Z0-9]{10}$/;
 const CERTIFICATE_FINGERPRINT_PATTERN = /^[0-9A-F]{64}$/;
 const UPDATE_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u;
 const UPDATE_PUBLIC_KEY_PATTERN = /^[A-Za-z0-9+/]+={0,2}$/u;
+const DEFAULT_UPDATE_BOOT_TIMEOUT_MS = 20_000;
+const MINIMUM_UPDATE_BOOT_TIMEOUT_MS = 5_000;
+const MAXIMUM_UPDATE_BOOT_TIMEOUT_MS = 120_000;
 const HOSTNAME_PATTERN =
 	/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*$/;
 const EXPO_RESERVED_ROUTE_PREFIXES = new Set([
@@ -208,6 +212,16 @@ const normalizeUpdates = (
 	productionOrigin: string
 ): NormalizedAbsoluteMobileConfig['updates'] => {
 	if (!config.updates) return undefined;
+	const bootTimeoutMs =
+		config.updates.bootTimeoutMs ?? DEFAULT_UPDATE_BOOT_TIMEOUT_MS;
+	if (
+		!Number.isSafeInteger(bootTimeoutMs) ||
+		bootTimeoutMs < MINIMUM_UPDATE_BOOT_TIMEOUT_MS ||
+		bootTimeoutMs > MAXIMUM_UPDATE_BOOT_TIMEOUT_MS
+	)
+		throw new TypeError(
+			'mobile.updates.bootTimeoutMs must be an integer from 5000 through 120000.'
+		);
 	const channel = requireText(
 		config.updates.channel ?? 'production',
 		'mobile.updates.channel'
@@ -288,7 +302,12 @@ const normalizeUpdates = (
 		})
 	);
 
-	return { channel, manifestUrl: manifestUrl.href, publicKeys };
+	return {
+		bootTimeoutMs,
+		channel,
+		manifestUrl: manifestUrl.href,
+		publicKeys
+	};
 };
 
 const validateExpoNativeRouteSegment = (

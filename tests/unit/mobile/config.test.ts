@@ -21,6 +21,7 @@ describe('mobile config normalization', () => {
 		);
 
 		expect(config.updates).toEqual({
+			bootTimeoutMs: 20_000,
 			channel: 'production',
 			manifestUrl:
 				'https://api.example.com/__absolute/mobile/updates/production/update.json',
@@ -37,6 +38,20 @@ describe('mobile config normalization', () => {
 				'/workspace'
 			)
 		).toThrow('at least one key');
+		expect(() =>
+			normalizeAbsoluteMobileConfig(
+				{
+					appId: 'com.example.product',
+					appName: 'Product',
+					server: { productionOrigin: 'https://api.example.com' },
+					updates: {
+						bootTimeoutMs: 4999,
+						publicKeys: { 'production-2026': encoded }
+					}
+				},
+				'/workspace'
+			)
+		).toThrow('bootTimeoutMs');
 	});
 	test('normalizes the Capacitor app without a route list', () => {
 		const config = normalizeAbsoluteMobileConfig(

@@ -103,4 +103,41 @@ describe('mobile update client', () => {
 		);
 		expect(aborted).toEqual([manifest.releaseId]);
 	});
+
+	test('does not redownload a release quarantined by the native watchdog', async () => {
+		const calls: string[] = [];
+		const client = createAbsoluteMobileUpdateClient({
+			config: {
+				appId: manifest.appId,
+				blockedReleaseIds: [manifest.releaseId],
+				channel: manifest.channel,
+				currentReleaseId: 'embedded',
+				installationId: '11111111-1111-4111-8111-111111111111',
+				manifestUrl: 'https://updates.example.com/update.json',
+				runtimeFingerprint: manifest.runtimeFingerprint
+			},
+			fetch: (async (input: RequestInfo | URL) => {
+				calls.push(String(input));
+
+				return Response.json(manifest);
+			}) as typeof fetch,
+			store: {
+				abort: async () => void calls.push('abort'),
+				activate: async () => {},
+				begin: async () => void calls.push('begin'),
+				commit: async () => {},
+				write: async () => {}
+			},
+			verifier: {
+				digest: async () => 'a'.repeat(64),
+				verify: async () => true
+			}
+		});
+
+		expect(await client.download()).toEqual({
+			kind: 'quarantined',
+			releaseId: manifest.releaseId
+		});
+		expect(calls).toEqual(['https://updates.example.com/update.json']);
+	});
 });

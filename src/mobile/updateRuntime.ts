@@ -5,7 +5,7 @@ import type { AbsoluteMobileAuthManifest } from './nativeAuth';
 import type { SyncLocalStoreSchemaBundle } from '@absolutejs/sync/client';
 import { canonicalizeAbsoluteMobileUpdate } from './updateProtocol';
 
-export const ABSOLUTE_MOBILE_SHELL_ABI = 1 as const;
+export const ABSOLUTE_MOBILE_SHELL_ABI = 2 as const;
 export const ABSOLUTE_MOBILE_UPDATE_RUNTIME_FORMAT = 1 as const;
 
 export type AbsoluteMobileUpdateRuntimeDescriptor = {

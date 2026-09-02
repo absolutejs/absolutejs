@@ -43,6 +43,7 @@ export type AbsoluteMobileClientManifest = {
 	routes: AbsoluteMobileCompatibilityRoute[];
 	runtime: string;
 	updates?: {
+		bootTimeoutMs: number;
 		channel: string;
 		manifestUrl: string;
 		publicKeys: Record<string, string>;

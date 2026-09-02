@@ -55,7 +55,10 @@ signed immutable manifest ---- immutable, individually hashed files
                   /                     \
        first page renders          boot cannot complete
               |                           |
-       persist new root           next launch uses previous
+       cancel watchdog            native deadline expires
+       persist new root           restore previous root now
+                                          |
+                                quarantine failed release
 ```
 
 The signing private key is never put in application config, a mobile bundle, the
@@ -94,6 +97,8 @@ export default {
     appName: 'Product',
     server: { productionOrigin: 'https://api.example.com' },
     updates: {
+      // Optional; defaults to 20 seconds and accepts 5–120 seconds.
+      bootTimeoutMs: 20_000,
       channel: 'production',
       publicKeys: {
         'production-2026': 'BASE64_ECDSA_P256_SPKI_DER'
@@ -106,7 +111,9 @@ export default {
 The default manifest endpoint is
 `https://api.example.com/__absolute/mobile/updates/production/update.json`.
 `mobile init` and `mobile sync` offer to install the exact Capacitor Filesystem
-plugin only when updates are configured.
+plugin only when updates are configured. They also generate a native Android/iOS
+boot watchdog. `absolute mobile doctor release` verifies that the generated
+watchdog and its deadline match this config before a store build can ship.
 
 Run these commands from the application root—the directory containing
 `package.json` and `absolute.config.ts`:
@@ -203,18 +210,22 @@ CORS.
   oversized file, truncated file, or SHA-256 mismatch aborts and removes staging.
 - A runtime mismatch is treated as no compatible update; create a store build.
 - The new root is not persisted until its first route has loaded and rendered.
-- If activation cannot boot, the next process launch uses the prior confirmed root.
+- Activation arms native code before switching the WebView root. If the first route
+  does not commit and paint within `bootTimeoutMs`, Android or iOS restores the exact
+  previous root immediately. A process killed during activation is repaired before
+  Capacitor loads on the next launch.
+- A release recovered by the watchdog is quarantined on that installation and is
+  not downloaded again. A different immutable release remains eligible, and a
+  successfully confirmed release clears the old quarantine.
 - A confirmed update is stored in `Library/NoCloud`/app-private storage. Generated
   iOS startup code clears a dangling Capacitor snapshot pointer after device
   migration so the embedded bundle remains the final recovery image.
-- Telemetry and the `absolute:mobile-update` DOM event contain only status and
-  release identity—never URLs, keys, page data, Auth state, or downloaded bytes.
+- The `absolute:mobile-update` DOM event reports sanitized `boot-timeout` or
+  `boot-interrupted` recovery reason, release identity, and duration. It never
+  includes URLs, keys, paths, page data, Auth state, or downloaded bytes.
 
 ## Current limitations
 
-- Activation recovery is next-launch based; a bundle that cannot execute may show
-  a failed launch until the user restarts the app. A native watchdog can shorten
-  that window later without changing the signed protocol.
 - Delta transfer is not implemented. Immutable files are fetched independently,
   which already avoids an archive/unzip dependency and permits CDN caching.
 - Expo remains on its runtime-version/EAS-compatible adapter track. Expo updates

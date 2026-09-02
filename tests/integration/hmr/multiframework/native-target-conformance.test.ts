@@ -136,7 +136,6 @@ const withNativePage = async (
 				/page, context or browser has been closed|target page, context or browser has been closed/i.test(
 					message
 				);
-			const retryableBrowserClosed = !actionStarted && browserClosed;
 			const readinessTimeout =
 				!actionStarted &&
 				error instanceof Error &&
@@ -147,7 +146,7 @@ const withNativePage = async (
 				!actionStarted && /net::ERR_CONNECTION_REFUSED/iu.test(message);
 			if (
 				attempt >= 2 ||
-				(!retryableBrowserClosed &&
+				(!browserClosed &&
 					!readinessTimeout &&
 					!browserLaunchUnavailable &&
 					!serverNotReady)
@@ -155,7 +154,14 @@ const withNativePage = async (
 				throw error;
 			}
 			await closeSession();
-			if (readinessTimeout || serverNotReady) {
+			if (browserClosed && actionStarted) {
+				restoreAllFiles();
+			}
+			if (
+				readinessTimeout ||
+				serverNotReady ||
+				(browserClosed && actionStarted)
+			) {
 				await server?.kill();
 				server = await startConformanceServer();
 			}
@@ -165,7 +171,7 @@ const withNativePage = async (
 };
 
 const nativeTest = (label: string, fn: () => void | Promise<unknown>) =>
-	test(label, fn, { retry: 2, timeout: 150_000 });
+	test(label, fn, { timeout: 150_000 });
 
 describe('native-target all-framework HMR conformance', () => {
 	nativeTest(
@@ -215,6 +221,9 @@ describe('native-target all-framework HMR conformance', () => {
 		'Ember reports its explicit native reload fallback',
 		async () => {
 			await withNativePage('/ember', 'h1', async (page) => {
+				const previousApplyCount = await page.evaluate(
+					() => window.__ABS_HMR_APPLIES__?.length ?? 0
+				);
 				mutateFile(
 					resolve(
 						PROJECT_ROOT,
@@ -225,6 +234,20 @@ describe('native-target all-framework HMR conformance', () => {
 							'AbsoluteJS + Ember</h1>',
 							'AbsoluteJS + Ember Native Target</h1>'
 						)
+				);
+				await page.waitForFunction(
+					(count) => {
+						const applies = window.__ABS_HMR_APPLIES__ ?? [];
+						const last = applies.at(-1);
+
+						return (
+							applies.length > count &&
+							last?.kind === 'full-reload' &&
+							last.outcome === 'reloaded'
+						);
+					},
+					previousApplyCount,
+					{ timeout: NATIVE_HMR_CONVERGENCE_TIMEOUT_MS }
 				);
 				await expectBoundedNativeApply(
 					/\[hmr:android\].*ember.*full-reload.*reload after/,
@@ -301,12 +324,25 @@ describe('native-target all-framework HMR conformance', () => {
 
 	nativeTest('CSS applies without discarding the active page', async () => {
 		await withNativePage('/react', 'h1', async (page) => {
+			const previousApplyCount = await page.evaluate(
+				() => window.__ABS_HMR_APPLIES__?.length ?? 0
+			);
 			mutateFile(
 				resolve(
 					PROJECT_ROOT,
 					'example/styles/indexes/react-example.css'
 				),
 				(source) => `${source}\n/* native-css-conformance */\n`
+			);
+			await page.waitForFunction(
+				(count) => {
+					const applies = window.__ABS_HMR_APPLIES__ ?? [];
+					const last = applies.at(-1);
+
+					return applies.length > count && last?.kind === 'css';
+				},
+				previousApplyCount,
+				{ timeout: NATIVE_HMR_CONVERGENCE_TIMEOUT_MS }
 			);
 			await expectBoundedNativeApply(/\[hmr:android\].*css.*applied in/);
 			expect(await page.locator('h1').count()).toBeGreaterThan(0);

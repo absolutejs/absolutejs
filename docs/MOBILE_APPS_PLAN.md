@@ -3501,6 +3501,17 @@ therefore restores the previously confirmed bundle on the next app launch.
 Generated iOS startup recovery also clears a persisted Capacitor snapshot path
 that disappeared during device migration.
 
+The native boot-watchdog slice is now implemented on Android and iOS. AbsoluteJS
+arms native code before every non-persistent root switch and confirms it only after
+the initial route commits and paints. The default 20-second deadline is configurable
+from 5–120 seconds and is part of the native-runtime fingerprint. A timeout restores
+the exact prior root without a user restart; process death is repaired before
+Capacitor boots. Failed immutable releases are deleted and quarantined locally so
+they cannot create a crash loop, while a different release remains eligible.
+Recovery telemetry is restricted to reason, release identity, and duration. Release
+doctor validates the platform projection, and shell ABI 2 prevents pre-watchdog
+store binaries from accepting watchdog-era updates.
+
 `@absolutejs/deploy` owns the adjacent immutable BlobStore registry, staged
 channel/fallback state, anonymous cohort selection, compatible-runtime
 resolution, CORS-constrained HTTP delivery, promotion, and rollback. The core

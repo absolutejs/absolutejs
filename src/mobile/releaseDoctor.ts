@@ -871,6 +871,73 @@ const androidDeepLinkProjectionCheck = async (
 	}
 };
 
+const nativeUpdateWatchdogCheck = async (
+	config: NormalizedAbsoluteMobileConfig,
+	platform: 'android' | 'ios'
+) => {
+	if (!config.updates) return undefined;
+	const timeout = String(config.updates.bootTimeoutMs);
+	if (platform === 'ios') {
+		const path = join(
+			config.nativeProjectDirectory,
+			'ios/App/App/AppDelegate.swift'
+		);
+		const configPath = join(
+			config.nativeProjectDirectory,
+			'ios/App/App/capacitor.config.json'
+		);
+		const [source, nativeConfig] = await Promise.all([
+			readFile(path, 'utf8').catch(() => ''),
+			readFile(configPath, 'utf8').catch(() => '')
+		]);
+
+		return source.includes('AbsoluteMobileUpdateWatchdogPlugin') &&
+			source.includes('recoverInterruptedBoot()') &&
+			source.includes(`.milliseconds(${timeout})`) &&
+			source.includes('quarantinedReleases') &&
+			nativeConfig.includes('AbsoluteMobileUpdateWatchdogPlugin')
+			? pass(
+					'ios.update-watchdog',
+					`The native update boot watchdog is projected with a ${timeout}ms deadline.`,
+					path
+				)
+			: fail(
+					'ios.update-watchdog',
+					'The iOS update boot watchdog does not match mobile config.',
+					path,
+					'Run `absolute mobile sync ios` before building the release.'
+				);
+	}
+	const sourceRoot = join(
+		config.nativeProjectDirectory,
+		'android/app/src/main'
+	);
+	const sources = await sourceFiles(sourceRoot, new Set(['.java', '.kt']));
+	const [activity, plugin] = await Promise.all([
+		containsPattern(sources, /recoverInterruptedBoot\s*\(\s*this\s*\)/u),
+		containsPattern(
+			sources,
+			new RegExp(
+				`handler\\.postDelayed\\(deadline,\\s*${timeout}L\\)`,
+				'u'
+			)
+		)
+	]);
+
+	return activity && plugin
+		? pass(
+				'android.update-watchdog',
+				`The native update boot watchdog is projected with a ${timeout}ms deadline.`,
+				plugin
+			)
+		: fail(
+				'android.update-watchdog',
+				'The Android update boot watchdog does not match mobile config.',
+				plugin ?? sourceRoot,
+				'Run `absolute mobile sync android` before building the release.'
+			);
+};
+
 const iosNativeSecurityCheck = async (iosRoot: string) => {
 	const applicationFiles = async (extensions: Set<string>) =>
 		(await sourceFiles(iosRoot, extensions)).filter(
@@ -1352,15 +1419,18 @@ const inspectAndroidRelease = async (
 		contentSecurityPolicyCheck(config, 'android', publicRoot),
 		androidNativeSecurityCheck(androidRoot),
 		androidExportedComponentsCheck(manifestPath),
-		androidDeepLinkProjectionCheck(config, manifestPath)
+		androidDeepLinkProjectionCheck(config, manifestPath),
+		nativeUpdateWatchdogCheck(config, 'android')
 	]);
 
-	return checks.map((check) => ({
-		...check,
-		path: check.path
-			? relative(projectRoot, check.path).replaceAll('\\', '/') || '.'
-			: undefined
-	}));
+	return checks
+		.filter((check) => check !== undefined)
+		.map((check) => ({
+			...check,
+			path: check.path
+				? relative(projectRoot, check.path).replaceAll('\\', '/') || '.'
+				: undefined
+		}));
 };
 
 const inspectExpoAndroidRelease = async (
@@ -1572,6 +1642,9 @@ const inspectIosRelease = async (
 	const checks: AbsoluteMobileReleaseCheck[] = [
 		await journalReleaseCheck(journalPath, 'ios')
 	];
+	const updateWatchdog = config.updates
+		? await nativeUpdateWatchdogCheck(config, 'ios')
+		: undefined;
 	if (!config.iosVersion) {
 		checks.push(
 			fail(
@@ -1676,6 +1749,7 @@ const inspectIosRelease = async (
 			join(config.nativeProjectDirectory, 'ios')
 		)
 	);
+	if (updateWatchdog) checks.push(updateWatchdog);
 
 	return checks.map((check) => ({
 		...check,

@@ -95,6 +95,8 @@ type MobileSharedConfig = {
 	};
 	/** Signed over-the-air web-bundle updates. Native capability changes still require a store build. */
 	updates?: {
+		/** Maximum time an activated bundle may take to render its first page before native rollback. Defaults to 20 seconds. */
+		bootTimeoutMs?: number;
 		/** Release channel. Defaults to `production`. */
 		channel?: string;
 		/** Exact signed-manifest URL. Defaults to the AbsoluteJS production origin. */

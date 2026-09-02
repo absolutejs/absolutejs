@@ -7,6 +7,7 @@ import {
 
 export type AbsoluteMobileUpdateClientConfig = {
 	appId: string;
+	blockedReleaseIds?: readonly string[];
 	channel: string;
 	currentReleaseId: string;
 	installationId: string;
@@ -37,6 +38,7 @@ export type AbsoluteMobileUpdateClientOptions = {
 export type AbsoluteMobileUpdateCheckResult =
 	| { kind: 'current' }
 	| { kind: 'downloaded'; manifest: AbsoluteMobileUpdateManifest }
+	| { kind: 'quarantined'; releaseId: string }
 	| { kind: 'update-available'; manifest: AbsoluteMobileUpdateManifest };
 
 const exactManifestUrl = (value: string) => {
@@ -221,6 +223,8 @@ export const createAbsoluteMobileUpdateClient = (
 			throw new TypeError('Mobile update signature verification failed.');
 		if (manifest.releaseId === options.config.currentReleaseId)
 			return { kind: 'current' };
+		if (options.config.blockedReleaseIds?.includes(manifest.releaseId))
+			return { kind: 'quarantined', releaseId: manifest.releaseId };
 		if (!download) return { kind: 'update-available', manifest };
 
 		await options.store.begin(manifest);

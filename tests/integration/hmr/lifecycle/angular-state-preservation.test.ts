@@ -15,7 +15,7 @@ let server: DevServer | undefined;
 let client: HMRClient | undefined;
 let session: BrowserSession | undefined;
 
-afterEach(async () => {
+const stopAll = async () => {
 	if (session) {
 		await session.close();
 		session = undefined;
@@ -27,6 +27,10 @@ afterEach(async () => {
 		server = undefined;
 	}
 	restoreAllFiles();
+};
+
+afterEach(async () => {
+	await stopAll();
 });
 
 const counterTemplate = resolve(
@@ -68,54 +72,78 @@ describe('Angular state preservation across tier-0 surgical update', () => {
 	test(
 		'counter value survives a template-only edit',
 		async () => {
-			const { client: c, session: s } = await startAll();
+			let lastBrowserError: unknown;
+			for (let attempt = 0; attempt < 3; attempt++) {
+				try {
+					const { client: c, session: s } = await startAll();
 
-			// Click to count=7 — high enough that a reset-to-zero
-			// outcome would be unambiguous.
-			await s.page.locator('app-counter button').evaluate((button) => {
-				for (let i = 0; i < 7; i++) (button as HTMLElement).click();
-			});
-			await waitForText(
-				s.page,
-				'app-counter .counter-value',
-				(t) => t.trim() === '7'
-			);
-
-			// Mutate the counter's template (cosmetic — `<button>` text
-			// changes around the `<span>` value). This is a tier-0
-			// edit; the dev server's log line will say tier-0.
-			c.drain();
-			mutateFile(counterTemplate, (text) =>
-				text.replace('count is', 'tally is')
-			);
-
-			await c.waitFor('angular:component-update', 15_000);
-
-			// Tier-0 surgical preserves the LView instance, so the
-			// new "tally is" text is visible AND the counter value
-			// stays at 7.
-			// Observe the new template and retained value atomically. Separate
-			// locator polls leave a needless browser round trip between the two
-			// halves of the invariant in compiler-heavy aggregate runs.
-			await s.page.waitForFunction(
-				() => {
-					const button = document.querySelector('app-counter button');
-					const value = document.querySelector(
-						'app-counter .counter-value'
+					// Click to count=7 — high enough that a reset-to-zero
+					// outcome would be unambiguous.
+					await s.page
+						.locator('app-counter button')
+						.evaluate((button) => {
+							for (let i = 0; i < 7; i++)
+								(button as HTMLElement).click();
+						});
+					await waitForText(
+						s.page,
+						'app-counter .counter-value',
+						(t) => t.trim() === '7'
 					);
 
-					return (
-						button?.textContent?.includes('tally is') === true &&
-						value?.textContent?.trim() === '7'
+					// Mutate the counter's template (cosmetic — `<button>` text
+					// changes around the `<span>` value). This is a tier-0
+					// edit; the dev server's log line will say tier-0.
+					c.drain();
+					mutateFile(counterTemplate, (text) =>
+						text.replace('count is', 'tally is')
 					);
-				},
-				undefined,
-				{ timeout: 15_000 }
-			);
+
+					await c.waitFor('angular:component-update', 15_000);
+
+					// Tier-0 surgical preserves the LView instance, so the
+					// new "tally is" text is visible AND the counter value
+					// stays at 7.
+					// Observe the new template and retained value atomically. Separate
+					// locator polls leave a needless browser round trip between the two
+					// halves of the invariant in compiler-heavy aggregate runs.
+					await s.page.waitForFunction(
+						() => {
+							const button =
+								document.querySelector('app-counter button');
+							const value = document.querySelector(
+								'app-counter .counter-value'
+							);
+
+							return (
+								button?.textContent?.includes('tally is') ===
+									true && value?.textContent?.trim() === '7'
+							);
+						},
+						undefined,
+						{ timeout: 15_000 }
+					);
+
+					return;
+				} catch (error) {
+					const message =
+						error instanceof Error ? error.message : String(error);
+					if (
+						!/target page, context or browser has been closed/iu.test(
+							message
+						) ||
+						attempt === 2
+					) {
+						throw error;
+					}
+					lastBrowserError = error;
+					await stopAll();
+					await Bun.sleep(250 * (attempt + 1));
+				}
+			}
+
+			throw lastBrowserError;
 		},
-		// Chromium can be reclaimed by the host after the compiler-heavy
-		// aggregate lane. A retry recreates the complete server/browser
-		// fixture; it does not weaken the state-preservation assertions.
-		{ retry: 2, timeout: 60_000 }
+		{ timeout: 150_000 }
 	);
 });
