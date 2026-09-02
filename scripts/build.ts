@@ -475,6 +475,9 @@ const build = async () => {
 	console.log('Verifying exports...');
 	await verifyExports();
 
+	console.log('Verifying published dev client imports...');
+	await verifyPublishedDevClientImports();
+
 	console.log('Build complete.');
 };
 
@@ -726,6 +729,83 @@ const copyPublishedDevClientSources = async () => {
 		join('src', 'angular', 'hmrPreserveCore.ts'),
 		join(DIST, 'angular', 'hmrPreserveCore.ts')
 	);
+	// The HMR client installs the mobile preview bridge from
+	// `../../mobile/mobilePreviewClient`, so that file ships raw beside the
+	// mobile shell bundles for the same reason. It imports only published
+	// `@absolutejs/*` packages and touches `globalThis` through `Reflect`,
+	// so it needs neither the ambient-globals header nor path rewriting.
+	await mkdir(join(DIST, 'mobile'), { recursive: true });
+	await cp(
+		join('src', 'mobile', 'mobilePreviewClient.ts'),
+		join(DIST, 'mobile', 'mobilePreviewClient.ts')
+	);
+};
+
+const RELATIVE_IMPORT_PATTERN =
+	/\b(?:import|export)\b[^'"]*?\bfrom\s*['"](\.[^'"]+)['"]|\bimport\s*['"](\.[^'"]+)['"]/g;
+const RAW_SOURCE_RESOLUTIONS = [
+	'',
+	'.ts',
+	'.tsx',
+	'.d.ts',
+	'.js',
+	'/index.ts',
+	'/index.js'
+];
+
+const listRawSources = async (directory: string): Promise<string[]> => {
+	const entries = await readdir(directory, { withFileTypes: true });
+	const nested = await Promise.all(
+		entries.map(async (entry) => {
+			const entryPath = join(directory, entry.name);
+			if (entry.isDirectory()) return listRawSources(entryPath);
+
+			return entry.name.endsWith('.ts') ? [entryPath] : [];
+		})
+	);
+
+	return nested.flat();
+};
+
+const rawSourceResolves = async (base: string) => {
+	const candidates = await Promise.all(
+		RAW_SOURCE_RESOLUTIONS.map((suffix) =>
+			stat(`${base}${suffix}`)
+				.then((info) => info.isFile())
+				.catch(() => false)
+		)
+	);
+
+	return candidates.some(Boolean);
+};
+
+/**
+ * The dev client ships as raw TypeScript that the user's app resolves at its
+ * own build time, so every relative import must point at a file that is
+ * also in `dist`. A missing one fails the user's client build (seen as
+ * "Could not resolve" from `hmrClient.ts`), not ours — so check here.
+ */
+const verifyPublishedDevClientImports = async () => {
+	const sources = await listRawSources(join(DIST, 'dev', 'client'));
+	const missing: string[] = [];
+	await runSequentially(sources, async (file) => {
+		const content = await readFile(file, 'utf8');
+		const targets = [...content.matchAll(RELATIVE_IMPORT_PATTERN)]
+			.map((match) => match[1] ?? match[2])
+			.filter((target): target is string => typeof target === 'string');
+		await runSequentially(targets, async (target) => {
+			if (!(await rawSourceResolves(join(dirname(file), target))))
+				missing.push(`${file} → ${target}`);
+		});
+	});
+
+	if (missing.length > 0) {
+		console.error(
+			'\nPublished dev client verification failed! Unresolvable imports:'
+		);
+		for (const msg of missing) console.error(`  ${msg}`);
+		throw new Error('Published dev client has unresolvable imports');
+	}
 };
 
 const buildSvelteDts = (name: string, propsType: string | undefined) => {
