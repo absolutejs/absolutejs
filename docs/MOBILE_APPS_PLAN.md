@@ -2,6 +2,21 @@
 
 Status: Capacitor Android development/release, all-framework embedded bundles, universal native Auth/Sync, Expo hybrid native Auth/Sync, background Sync, automatic device provisioning, provider-neutral native push registration, signed staged Capacitor updates, end-to-end RSA-signed self-hosted Expo production updates, and Android conformance are operational; iOS development/release automation is shipped and awaiting real macOS/physical-device acceptance
 
+Implementation checkpoint (September 2, 2026, all-framework compatibility
+retention): the generated compatibility pipeline now has four-generation
+conformance across React, Vue, Svelte, Angular, HTML, and HTMX. The test compiles
+four successive applications from one stable source identity and consumes the
+actual Elysia 2 finalized route graph and archived server producers. A generation
+4 deployment serves its current representation normally, dispatches generation
+3 and generation 2 clients through their exact retained producers, and returns a
+typed HTTP 426 `upgrade-required` envelope to evicted generation 1 clients. A
+server rollback to generation 3 continues to serve a retained generation 4
+client. React, Vue, Svelte, and Angular prop-shape changes produce distinct
+contracts automatically; HTML and HTMX document changes advance their signed
+bundle and app-build identities. No application route, compatibility declaration,
+or manual version is required. Ember remains explicitly deferred to
+`EMBER_PLAN.md`.
+
 Implementation checkpoint (September 1, 2026, Expo Android/iOS release slice):
 `0.20.0-beta.49` makes Expo Android a production-capable experimental provider.
 The ordinary `mobile build android`, release doctor, immutable release registry,
@@ -272,18 +287,21 @@ Archived execution now uses a cross-bundle async context: nested compatibility
 dispatch is bypassed without a spoofable request header, and the old producer
 emits the exact page contract already validated by the outer dispatcher.
 Build-time route/schema extraction and archived producer compilation are now
-connected for recognized React page handlers. A TypeScript build transform derives
-stable component identity and a canonical prop-schema fingerprint, attaches that
-private metadata to the page call and Elysia route detail, and then consumes Elysia
-2's finalized `app.routes` graph so prefixes and plugin composition are
-authoritative. Mobile-enabled `absolute start` and `absolute compile` hash the
+connected for every supported page handler. A TypeScript build transform derives
+stable component identity and a canonical prop-schema fingerprint for React,
+Vue, Svelte, and Angular, attaches that private metadata to the page call and
+Elysia route detail, and then consumes Elysia 2's finalized `app.routes` graph so
+prefixes and plugin composition are authoritative. HTML and HTMX use the same
+pipeline with signed document-bundle identity. Mobile-enabled `absolute start`
+and `absolute compile` hash the
 actual client bundle and compiled server producer, derive app builds and
 generations automatically, carry forward current plus two, and atomically
 materialize the compatibility bundle already mounted by `prepare()`. Unchanged
-builds reuse their generation; a typed prop or executable bundle change advances
-it without application declarations. The production fixture proves a prefixed
-unchanged route through the generated envelope and generation 1→2 retention. The
-transform/conformance matrix still needs to expand beyond React.
+builds reuse their generation; a typed prop, executable bundle, or static document
+change advances it without application declarations. The production fixtures
+prove prefixed routes through generated envelopes and real N/N+1/N+2 retention
+for every supported framework; N+3 fails closed with `upgrade-required`, and a
+server rollback retains the newer installed representation.
 
 The next transport checkpoint is also operational. Mobile config now owns the app
 identity/name, HTTPS production origin, entry route, platforms, local web bundle,
@@ -3400,8 +3418,8 @@ page code remains unchanged. `absolute mobile doctor release` validates and
 prints the exact generated component/version set when Sync is installed.
 
 The macOS partner should continue physical iOS acceptance using
-`IOS_MACOS_TESTING.md`. Expo remains out of scope until the Capacitor security,
-background, and lifetime boundaries pass on a physical iOS device.
+`IOS_MACOS_TESTING.md`. Expo remains experimental until its Capacitor-shared
+security, background, and lifetime boundaries pass on a physical iOS device.
 
 ## Current local-data policy checkpoint
 
