@@ -461,6 +461,13 @@ export const chainBundleInlineSourcemap = (bundleFilePath: string) => {
 	writeFileSync(bundleFilePath, stripped + inline);
 };
 
+/** Chain every server bundle of a dev build (each bundle is independent). */
+export const chainBundleInlineSourcemaps = async (bundlePaths: string[]) => {
+	for (const bundlePath of bundlePaths) {
+		chainBundleInlineSourcemap(bundlePath);
+	}
+};
+
 /* Chain an EXTERNAL `.js.map` (production builds) the same way
  * `chainBundleInlineSourcemap` chains inline maps: compose the bundle map
  * with each input's own inline map (carried in the bundle map's

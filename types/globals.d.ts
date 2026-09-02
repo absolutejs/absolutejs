@@ -46,6 +46,21 @@ declare global {
 	 *  detect this and call `.reload({ fetch })` on the existing server
 	 *  instead of re-binding the port. Stays unset outside dev. */
 	var __absoluteBunServer: import('bun').Server | null | undefined;
+	/** "Building…" placeholder bound by the dev bootstrap before the entry
+	 *  is imported; released by `networking` right before the real listen.
+	 *  See `src/dev/earlyListener.ts`. */
+	var __absoluteEarlyListener:
+		| import('../src/dev/earlyListener').EarlyListener
+		| undefined;
+	var __absoluteEarlyListenerServeGuard: boolean | undefined;
+	/** Label of the boot step currently running (shown on the placeholder
+	 *  page). See `src/dev/bootLifecycle.ts`. */
+	var __absoluteBootPhase: string | undefined;
+	/** Boot work deferred until the server is serving real traffic. */
+	var __absoluteDeferredBootTasks:
+		| Array<() => void | Promise<void>>
+		| undefined;
+	var __absoluteDeferredBootTasksRan: boolean | undefined;
 
 	/** Dev-only request inspector ring buffer, filled by the global
 	 *  request/afterResponse hooks in `requestInspector` and served at

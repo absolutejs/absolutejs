@@ -5,9 +5,16 @@ export type StartupTimingStep = {
 	durationMs: number;
 };
 
+const isTruthyFlag = (value: string | undefined) =>
+	value === '1' || value === 'true';
+
+/** `ABSOLUTE_DEV_PROFILE=1` is the one-stop profiling switch: it turns on
+ *  these per-step startup timings AND the per-phase build trace
+ *  (`ABSOLUTE_BUILD_TRACE`, written to `<buildDir>/.absolute-trace/`). */
+export const devProfileEnabled = isTruthyFlag(process.env.ABSOLUTE_DEV_PROFILE);
+
 export const startupTimingsEnabled =
-	process.env.ABSOLUTE_STARTUP_TIMINGS === '1' ||
-	process.env.ABSOLUTE_STARTUP_TIMINGS === 'true';
+	devProfileEnabled || isTruthyFlag(process.env.ABSOLUTE_STARTUP_TIMINGS);
 
 export const formatStartupTimingBlock = (
 	title: string,
@@ -32,5 +39,7 @@ export const logStartupTimingBlock = (
 		return;
 	}
 
-	console.log(formatStartupTimingBlock(title, steps));
+	// Profiling output goes to stderr so it never interleaves with (or gets
+	// scraped as) the server's own stdout — e.g. the `Local:` ready line.
+	console.error(formatStartupTimingBlock(title, steps));
 };

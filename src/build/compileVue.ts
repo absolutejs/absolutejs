@@ -35,6 +35,15 @@ import {
 	isStylePath
 } from './stylePreprocessor';
 import type { StylePreprocessorConfig } from '../../types/build';
+import {
+	hashContent,
+	hashParts,
+	readVueCompileCacheEntry,
+	vueCompileCacheEnabled,
+	vueCompileCacheFingerprint,
+	writeVueCompileCacheEntry,
+	type VueCompileCacheEntry
+} from './vueCompileCache';
 
 const resolveDevClientDir = () => {
 	const projectRoot = process.cwd();
@@ -71,6 +80,11 @@ type BuildResult = {
 	 *  CSS side manifest in `core/build.ts`. Empty/undefined for non-
 	 *  entry-point files and entries that don't register routes. */
 	spaRoutes?: ParsedVueSpaRoute[];
+	/** Restart-surviving cache key (see `vueCompileCache.ts`). Unset when
+	 *  the component is not cacheable (external style dependencies) or
+	 *  the cache is disabled; parents of an uncacheable child are
+	 *  uncacheable too. */
+	cacheKey?: string;
 };
 
 // HMR change type detection
@@ -341,11 +355,97 @@ type VueCompiler = {
 	compileScript: typeof CompileScriptFn;
 	compileTemplate: typeof CompileTemplateFn;
 	compileStyle: typeof CompileStyleFn;
+	/** `@vue/compiler-sfc` version — part of the compile-cache key. */
+	version?: string;
 };
 
 // addAutoRouterSetupApp moved to ./vueAutoRouterTransform — shared
 // with the dev module server (src/dev/moduleServer.ts) so the auto
 // router is present in every served version of a page module.
+
+const EXTERNAL_STYLE_DEPENDENCY = /@(?:import|use|forward)\b/;
+
+/** `<style>` blocks that pull in other files (preprocessor `lang`, or
+ *  `@import`/`@use`/`@forward`) make the output depend on content the
+ *  cache key cannot see — such components are compiled every time. */
+const hasExternalStyleDependency = (descriptor: SFCDescriptor) =>
+	descriptor.styles.some(
+		(styleBlock) =>
+			Boolean(styleBlock.lang) ||
+			EXTERNAL_STYLE_DEPENDENCY.test(styleBlock.content)
+	);
+
+const fingerprintCache = new Map<string, string | null>();
+const currentVueCompileFingerprint = (
+	compiler: VueCompiler,
+	outputDirs: { client: string; server: string; css: string },
+	vueRootDir: string,
+	stylePreprocessors: StylePreprocessorConfig | undefined
+) => {
+	const memoKey = JSON.stringify([outputDirs, vueRootDir, stylePreprocessors]);
+	const memoised = fingerprintCache.get(memoKey);
+	if (memoised !== undefined) return memoised;
+	const fingerprint = vueCompileCacheFingerprint({
+		compilerVersion: compiler.version,
+		outputDirs,
+		stylePreprocessors,
+		vueRootDir
+	});
+	fingerprintCache.set(memoKey, fingerprint);
+
+	return fingerprint;
+};
+
+const computeVueCompileCacheKey = (parts: {
+	childResults: BuildResult[];
+	contentHash: string;
+	descriptor: SFCDescriptor;
+	fingerprint: string | null;
+	isEntryPoint: boolean;
+	relativeWithoutExtension: string;
+}) => {
+	if (!parts.fingerprint || !vueCompileCacheEnabled()) return undefined;
+	if (hasExternalStyleDependency(parts.descriptor)) return undefined;
+	const childKeys: string[] = [];
+	for (const child of parts.childResults) {
+		if (!child.cacheKey) return undefined;
+		childKeys.push(child.cacheKey);
+	}
+
+	return hashParts([
+		parts.fingerprint,
+		parts.relativeWithoutExtension,
+		parts.isEntryPoint ? 'entry' : 'child',
+		parts.contentHash,
+		...childKeys
+	]);
+};
+
+/** Re-create the on-disk intermediates for a cache hit. The entry CSS
+ *  file is `cssCodes` joined exactly as the compile path writes it. */
+const materialiseVueCompileCacheEntry = async (
+	entry: VueCompileCacheEntry,
+	cacheKey: string,
+	isEntryPoint: boolean,
+	outputDirs: { client: string; server: string; css: string },
+	fileBaseName: string
+): Promise<BuildResult> => {
+	const { result } = entry;
+	await mkdir(dirname(result.clientPath), { recursive: true });
+	await mkdir(dirname(result.serverPath), { recursive: true });
+	await write(result.clientPath, entry.clientCode);
+	await write(result.serverPath, entry.serverCode);
+	if (isEntryPoint && result.cssCodes.length > 0) {
+		const cssOutputFile = join(
+			outputDirs.css,
+			`${toKebab(fileBaseName)}-compiled.css`
+		);
+		await mkdir(dirname(cssOutputFile), { recursive: true });
+		await write(cssOutputFile, result.cssCodes.join('\n'));
+	}
+
+	return { ...result, cacheKey };
+};
 
 const compileVueFile = async (
 	sourceFilePath: string,
@@ -502,6 +602,42 @@ const compileVueFile = async (
 		)
 	]);
 
+	// Restart-surviving cache lookup. Runs AFTER the child recursion so the
+	// key can fold in every child's key — a child edit invalidates all of
+	// its ancestors, exactly like a fresh compile would re-emit them. All
+	// in-memory side effects (HMR metadata, style importers) were already
+	// applied above, so a hit only has to re-materialise the outputs.
+	const cacheKey = computeVueCompileCacheKey({
+		childResults: childBuildResults,
+		contentHash,
+		descriptor,
+		fingerprint: currentVueCompileFingerprint(
+			compiler,
+			outputDirs,
+			vueRootDir,
+			stylePreprocessors
+		),
+		isEntryPoint,
+		relativeWithoutExtension
+	});
+	const typeDepHashes: Record<string, string> = {};
+	if (cacheKey) {
+		const restored = readVueCompileCacheEntry(sourceFilePath, cacheKey);
+		if (restored) {
+			const result = await materialiseVueCompileCacheEntry(
+				restored,
+				cacheKey,
+				isEntryPoint,
+				outputDirs,
+				fileBaseName
+			);
+			cacheMap.set(sourceFilePath, result);
+			persistentBuildCache.set(sourceFilePath, result);
+
+			return result;
+		}
+	}
+
 	const hasScript = descriptor.script || descriptor.scriptSetup;
 	// Vue's compileScript falls back to `typescript.sys` for filesystem
 	// access when resolving cross-file type references in
@@ -514,10 +650,15 @@ const compileVueFile = async (
 		? compiler.compileScript(descriptor, {
 				fs: {
 					fileExists: existsSync,
-					readFile: (file) =>
-						existsSync(file)
-							? readFileSync(file, 'utf-8')
-							: undefined,
+					readFile: (file) => {
+						if (!existsSync(file)) return undefined;
+						const content = readFileSync(file, 'utf-8');
+						// Anything read here shapes the output (imported
+						// prop/emit types), so the cache re-verifies it.
+						typeDepHashes[file] = hashContent(content);
+
+						return content;
+					},
 					realpath: realpathSync
 				},
 				id: componentId,
@@ -525,6 +666,15 @@ const compileVueFile = async (
 				sourceMap: true
 			})
 		: { bindings: {}, content: 'export default {};', map: undefined };
+	// `deps` lists every file the script's imported types were resolved
+	// from. Vue caches those scopes in-process, so the fs adapter above
+	// only observes the first read — `deps` is the authoritative list.
+	const typeDependencies =
+		'deps' in compiledScript ? (compiledScript.deps ?? []) : [];
+	for (const dep of typeDependencies) {
+		if (dep in typeDepHashes || !existsSync(dep)) continue;
+		typeDepHashes[dep] = hashContent(readFileSync(dep, 'utf-8'));
+	}
 	const strippedScript = stripExports(compiledScript.content);
 	const sourceDir = dirname(sourceFilePath);
 	const transpiledScript = transpiler
@@ -734,16 +884,12 @@ if (typeof __VUE_HMR_RUNTIME__ !== 'undefined') {
 		).toString('base64')}\n`;
 	};
 
-	await write(
-		clientOutputPath,
-		clientFinal + inlineSourceMapFor(clientFinal)
-	);
-	await write(
-		serverOutputPath,
-		serverFinal + inlineSourceMapFor(serverFinal)
-	);
+	const clientOutput = clientFinal + inlineSourceMapFor(clientFinal);
+	const serverOutput = serverFinal + inlineSourceMapFor(serverFinal);
+	await write(clientOutputPath, clientOutput);
+	await write(serverOutputPath, serverOutput);
 
-	const result: BuildResult = {
+	const cacheableResult: VueCompileCacheEntry['result'] = {
 		clientPath: clientOutputPath,
 		cssCodes: allCss,
 		cssPaths: cssOutputPaths,
@@ -757,9 +903,19 @@ if (typeof __VUE_HMR_RUNTIME__ !== 'undefined') {
 			...childBuildResults.flatMap((child) => child.tsHelperPaths)
 		]
 	};
+	const result: BuildResult = { ...cacheableResult, cacheKey };
 
 	cacheMap.set(sourceFilePath, result);
 	persistentBuildCache.set(sourceFilePath, result);
+	if (cacheKey) {
+		writeVueCompileCacheEntry(sourceFilePath, {
+			clientCode: clientOutput,
+			key: cacheKey,
+			result: cacheableResult,
+			serverCode: serverOutput,
+			typeDeps: typeDepHashes
+		});
+	}
 
 	return result;
 };

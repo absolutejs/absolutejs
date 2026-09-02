@@ -1,5 +1,6 @@
 import { copyFileSync, existsSync, readdirSync, unlinkSync } from 'node:fs';
 import { dirname, extname, join, resolve } from 'node:path';
+import { DEFAULT_PORT } from '../constants';
 import { isStaleAbsoluteServerEntryCopy } from './serverEntryCopies';
 
 const originalEntry = process.env.ABSOLUTE_SERVER_ENTRY;
@@ -64,6 +65,46 @@ if (!globalThis.__absoluteEntryCleanupRegistered) {
 			removeEntryCopy(path);
 		}
 	});
+}
+
+// Bind the port NOW with a "Building…" placeholder so browsers, hosted
+// previews and health probes get a 503 + Retry-After instead of a refused
+// connection for the whole boot build. The `networking` plugin releases it
+// right before the real `app.listen()`. Skipped on `bun --hot`
+// re-evaluation (the real server is already bound) and when
+// `ABSOLUTE_EARLY_LISTEN=0` opts out.
+if (
+	!isHotReevaluation &&
+	!globalThis.__absoluteBunServer &&
+	process.env.ABSOLUTE_EARLY_LISTEN !== '0'
+) {
+	const { startEarlyListener, installEarlyListenerServeGuard } = await import(
+		'./earlyListener'
+	);
+	const earlyHost =
+		process.env.ABSOLUTE_HOST ?? process.env.HOST ?? 'localhost';
+	const earlyPort = Number(
+		process.env.ABSOLUTE_PORT ?? process.env.PORT ?? DEFAULT_PORT
+	);
+	const loadEarlyTls = async () => {
+		if (process.env.NODE_ENV !== 'development') return null;
+		if (process.env.ABSOLUTE_HTTPS !== 'true') return null;
+		try {
+			const { loadDevCert } = await import('./devCert');
+
+			return loadDevCert();
+		} catch {
+			return null;
+		}
+	};
+	if (Number.isInteger(earlyPort) && earlyPort > 0) {
+		startEarlyListener({
+			host: earlyHost,
+			port: earlyPort,
+			tls: await loadEarlyTls()
+		});
+		installEarlyListenerServeGuard(earlyPort);
+	}
 }
 
 // Keep the user's original entry out of Bun's --hot module graph. Bun can

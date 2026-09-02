@@ -84,6 +84,7 @@ import { createIslandRegistryDefinitionPlugin } from '../build/islandRegistryTra
 import { createAngularHmrInjectionPlugin } from '../dev/angular/hmrInjectionPlugin';
 import { cleanStaleOutputs } from '../utils/cleanStaleOutputs';
 import { cleanup } from '../utils/cleanup';
+import { devProfileEnabled } from '../utils/startupTimings';
 import {
 	resolveBuildDevelopmentMode,
 	resolveVueFeatureFlags
@@ -119,7 +120,12 @@ type BuildTracePhase = <T>(
 const isBuildTraceEnabled = () => {
 	const value = env.ABSOLUTE_BUILD_TRACE?.toLowerCase();
 
-	return value === '1' || value === 'true' || value === 'yes';
+	return (
+		devProfileEnabled ||
+		value === '1' ||
+		value === 'true' ||
+		value === 'yes'
+	);
 };
 
 const collectConventionSourceFiles = (
@@ -2747,12 +2753,17 @@ const buildUnlocked = async ({
 	// not chain through it. Post-process here so SSR error stacks
 	// resolve to the user's source files.
 	if (isDev && serverResult?.success) {
-		const { chainBundleInlineSourcemap } = await import(
+		const { chainBundleInlineSourcemaps } = await import(
 			'../build/chainInlineSourcemaps'
 		);
-		for (const out of serverOutputs) {
-			if (out.path.endsWith('.js')) chainBundleInlineSourcemap(out.path);
-		}
+		const serverBundlePaths = serverOutputs
+			.map((out) => out.path)
+			.filter((path) => path.endsWith('.js'));
+		await tracePhase(
+			'postprocess/server-sourcemap-chain',
+			() => chainBundleInlineSourcemaps(serverBundlePaths),
+			{ bundles: serverBundlePaths.length }
+		);
 	}
 
 	// Production EXTERNAL client source maps (`sourcemaps: 'external'`): chain
