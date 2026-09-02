@@ -1,7 +1,7 @@
 # Signed mobile updates
 
-Status: Capacitor beta. Expo uses its own experimental update runtime until the
-shared control-plane adapter is complete.
+Status: Capacitor and self-hosted Expo beta. Both engines use one AbsoluteJS
+build/publish/promote/rollback control plane.
 
 AbsoluteJS mobile updates replace the embedded web bundle without changing the
 native application binary. Routes, page code, Auth calls, Sync calls, and device
@@ -46,25 +46,18 @@ signed immutable manifest ---- immutable, individually hashed files
               anonymous stable rollout cohort
                           |
                           v
-            installed Capacitor application
-              verify signature + native ABI
-              download into app-private staging
-              verify every byte before commit
-                          |
-                non-persistent WebView switch
-                  /                     \
-       first page renders          boot cannot complete
-              |                           |
-       cancel watchdog            native deadline expires
-       persist new root           restore previous root now
-                                          |
-                                quarantine failed release
+           exact native-runtime match
+                  /             \
+         Capacitor client       Expo client
+        verify signed files    verify asset hashes
+        native boot watchdog   native Expo recovery
 ```
 
 The signing private key is never put in application config, a mobile bundle, the
-deployment registry, telemetry, or a device. Applications contain only one or more
-ECDSA P-256 public keys. Provision the next public key in a store build before retiring
-an old key.
+deployment registry, telemetry, or a device. Capacitor applications contain only
+one or more ECDSA P-256 public keys; the self-hosted Expo beta keeps those keys at
+the trusted registry boundary. Provision the next public key before retiring an old
+key.
 
 The native-runtime fingerprint is generated automatically from:
 
@@ -115,6 +108,13 @@ plugin only when updates are configured. They also generate a native Android/iOS
 boot watchdog. `absolute mobile doctor release` verifies that the generated
 watchdog and its deadline match this config before a store build can ship.
 
+For `mobile.engine: 'expo'`, the same config generates an exact Expo
+`runtimeVersion`, configures `expo-updates`, and installs the internal update
+controller. AbsoluteJS stores an anonymous installation UUID in Expo SecureStore,
+adds it to update requests, and checks after startup without exposing Expo APIs to
+application routes. No Auth principal, advertising identifier, or device
+fingerprint is used.
+
 Run these commands from the application root—the directory containing
 `package.json` and `absolute.config.ts`:
 
@@ -128,7 +128,8 @@ fingerprint.
 
 ## Build, publish, promote, and roll back
 
-Build a signed update from unchanged AbsoluteJS application code:
+Build a signed update from unchanged AbsoluteJS application code. The command is
+identical for Capacitor and Expo:
 
 ```bash
 bunx absolute mobile update build src/backend/server.ts \
@@ -204,6 +205,16 @@ The handler permits Capacitor's standard `capacitor://localhost` and
 project deliberately uses another local origin. It never emits wildcard credential
 CORS.
 
+For Expo, the build command runs a production `expo export` for iOS and Android,
+validates every path in Expo's `metadata.json`, records the public Expo config,
+and places the Metro launch bundles and assets inside the same signed immutable
+AbsoluteJS release. The handler negotiates Expo Updates protocol v1 from the
+standard `expo-*` request headers, returns only the matching platform and generated
+runtime version, preserves deterministic rollout cohorts, and emits Expo's
+`rollBackToEmbedded` directive for a channel rollback. A downloaded update is
+applied by Expo on a later restart; Expo's native launcher retains its embedded
+recovery update.
+
 ## Failure behavior
 
 - An invalid signature, unknown signing key, changed manifest, path traversal,
@@ -253,6 +264,12 @@ The iOS suite requires macOS and Xcode and is included in
 
 - Delta transfer is not implemented. Immutable files are fetched independently,
   which already avoids an archive/unzip dependency and permits CDN caching.
-- Expo remains on its runtime-version/EAS-compatible adapter track. Expo updates
-  must preserve the same native fingerprint, signature, rollout, and rollback
-  invariants before AbsoluteJS exposes one shared command surface.
+- The self-hosted registry verifies AbsoluteJS's ECDSA signature before accepting
+  an Expo release, and clients require HTTPS, but Expo's optional client-side RSA
+  manifest verification is not provisioned yet. A server/CDN compromise after
+  publication is therefore outside the current Expo beta trust boundary. Do not
+  configure an Expo code-signing certificate until the matching AbsoluteJS
+  signing adapter lands; the handler deliberately rejects `expo-expect-signature`
+  instead of serving an unverifiable response.
+- EAS-hosted publishing is not yet an AbsoluteJS registry provider. The current
+  Expo path is the provider-neutral self-hosted `@absolutejs/deploy` registry.

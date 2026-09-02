@@ -12,23 +12,12 @@ import {
 } from './materializedBundle';
 import { ABSOLUTE_MOBILE_PAGE_PROTOCOL_VERSION } from './pageProtocol';
 import { retainAbsoluteMobileCompatibilityArtifacts } from './releaseArtifact';
-import {
-	projectUsesAbsoluteSync,
-	resolveAbsoluteMobileAuthManifest
-} from './nativeAuth';
-import { discoverAbsoluteSyncSchema } from './syncSchema';
-import {
-	assertAbsoluteDeviceCapabilityPackages,
-	resolveAbsoluteDeviceCapabilityPlan
-} from './deviceCapabilities';
+import { assertAbsoluteDeviceCapabilityPackages } from './deviceCapabilities';
 import {
 	syncAbsoluteExpoWebAssets,
 	writeAbsoluteExpoProject
 } from './expoProject';
-import {
-	createAbsoluteMobileUpdateRuntimeDescriptor,
-	fingerprintAbsoluteMobileUpdateRuntime
-} from './updateRuntime';
+import { resolveAbsoluteMobileUpdateRuntime } from './updateRuntime';
 
 export type FinalizeAbsoluteMobileBuildOptions = {
 	buildDirectory: string;
@@ -157,24 +146,13 @@ export const finalizeAbsoluteMobileCompatibilityBuild = async (
 		producerPath: resolve(options.producerPath),
 		runtime: String(ABSOLUTE_MOBILE_PAGE_PROTOCOL_VERSION)
 	});
-	const auth = resolveAbsoluteMobileAuthManifest(options.projectRoot, mobile);
-	const sync =
-		auth !== undefined && projectUsesAbsoluteSync(options.projectRoot);
-	const syncSchema = sync
-		? discoverAbsoluteSyncSchema(options.projectRoot)
-		: undefined;
-	const deviceCapabilities = resolveAbsoluteDeviceCapabilityPlan(
-		options.projectRoot,
-		mobile.engine
-	);
-	const runtimeFingerprint = fingerprintAbsoluteMobileUpdateRuntime(
-		createAbsoluteMobileUpdateRuntimeDescriptor({
-			...(auth ? { auth } : {}),
-			config: mobile,
-			deviceCapabilities,
-			...(syncSchema ? { syncSchema } : {})
-		})
-	);
+	const {
+		auth,
+		deviceCapabilities,
+		fingerprint: runtimeFingerprint,
+		sync,
+		syncSchema
+	} = resolveAbsoluteMobileUpdateRuntime(mobile, options.projectRoot);
 	const usesPush =
 		deviceCapabilities.capabilities.includes('pushNotifications');
 	if (usesPush && !auth)

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { generateKeyPairSync } from 'node:crypto';
 import { normalizeAbsoluteMobileConfig } from '../../../src/mobile/config';
 import {
 	syncAbsoluteExpoWebAssets,
@@ -18,7 +19,7 @@ afterEach(async () => {
 	);
 });
 
-const fixture = async (auth = false, sync = false) => {
+const fixture = async (auth = false, sync = false, updates = false) => {
 	const root = await mkdtemp(join(tmpdir(), 'absolute-expo-project-'));
 	temporaryDirectories.push(root);
 	await mkdir(join(root, 'mobile', 'native'), { recursive: true });
@@ -48,7 +49,23 @@ const fixture = async (auth = false, sync = false) => {
 					'/scanner': 'mobile/native/scanner.tsx'
 				}
 			},
-			server: { productionOrigin: 'https://api.example.com' }
+			server: { productionOrigin: 'https://api.example.com' },
+			...(updates
+				? {
+						updates: {
+							publicKeys: {
+								main: generateKeyPairSync('ec', {
+									namedCurve: 'prime256v1'
+								})
+									.publicKey.export({
+										format: 'der',
+										type: 'spki'
+									})
+									.toString('base64')
+							}
+						}
+					}
+				: {})
 		},
 		root
 	);
@@ -386,6 +403,39 @@ describe('experimental Expo project', () => {
 		await expect(
 			new Bun.Transpiler({ loader: 'ts' }).transform(syncSource)
 		).resolves.toBeString();
+	});
+
+	test('configures Expo Updates with the generated AbsoluteJS runtime identity', async () => {
+		const { config, root } = await fixture(false, false, true);
+		await writeAbsoluteExpoProject(config, { projectRoot: root });
+		const project = config.nativeProjectDirectory;
+		const [appConfig, packageSource] = await Promise.all([
+			readFile(join(project, 'app.json'), 'utf8'),
+			readFile(join(project, 'package.json'), 'utf8')
+		]);
+		const app = JSON.parse(appConfig).expo;
+
+		expect(app.runtimeVersion).toMatch(/^[a-f0-9]{64}$/u);
+		expect(app.updates).toEqual({
+			checkAutomatically: 'NEVER',
+			fallbackToCacheTimeout: 20_000,
+			requestHeaders: {
+				'x-absolute-mobile-app': 'com.example.product',
+				'x-absolute-mobile-channel': 'production'
+			},
+			url: 'https://api.example.com/__absolute/mobile/updates/production/update.json'
+		});
+		expect(packageSource).toContain('"expo-updates": "~57.0.19"');
+		expect(packageSource).toContain('"expo-crypto": "~57.0.1"');
+		const updateRuntime = await readFile(
+			join(project, 'src', 'generated', 'AbsoluteUpdates.ts'),
+			'utf8'
+		);
+		expect(updateRuntime).toContain('setUpdateRequestHeadersOverride');
+		expect(updateRuntime).toContain('x-absolute-mobile-installation');
+		expect(updateRuntime).toContain('SecureStore.setItemAsync');
+		expect(updateRuntime).toContain('Updates.fetchUpdateAsync');
+		expect(updateRuntime).toContain('result.isRollBackToEmbedded');
 	});
 
 	test('does not adopt a populated custom directory without force', async () => {

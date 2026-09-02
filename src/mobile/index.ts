@@ -20,6 +20,7 @@ export * from './deviceCapabilities';
 export * from './expoBridge';
 export * from './expoDevController';
 export * from './expoProject';
+export * from './expoUpdate';
 export * from './capacitorProject';
 export * from './config';
 export * from './client';

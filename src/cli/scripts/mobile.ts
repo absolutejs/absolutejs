@@ -1,4 +1,11 @@
-import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
+import {
+	access,
+	mkdir,
+	mkdtemp,
+	readFile,
+	rm,
+	writeFile
+} from 'node:fs/promises';
 import { createPublicKey } from 'node:crypto';
 import { join, relative, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
@@ -110,6 +117,8 @@ import {
 	buildAbsoluteMobileUpdate,
 	verifyAbsoluteMobileUpdateSignature
 } from '../../mobile/updateSigning';
+import { finalizeAbsoluteExpoUpdateExport } from '../../mobile/expoUpdate';
+import { resolveAbsoluteMobileUpdateRuntime } from '../../mobile/updateRuntime';
 import {
 	loadAbsoluteMobileUpdatePublisher,
 	promoteAbsoluteMobileUpdate,
@@ -995,10 +1004,80 @@ const requireUpdateClassification = (value?: string) => {
 	);
 };
 
+const prepareExpoMobileUpdateExport = async (options: {
+	args: string[];
+	mobile: NormalizedAbsoluteMobileConfig;
+	projectRoot: string;
+	runtimeFingerprint: string;
+}) => {
+	const { mobile } = options;
+	if (mobile.engine !== 'expo')
+		return {
+			bundleDirectory: mobile.bundleDirectory,
+			temporaryDirectory: undefined
+		};
+	await ensureExpoPackages(mobile.nativeProjectDirectory, options.args);
+	const temporaryParent = join(
+		options.projectRoot,
+		'.absolutejs',
+		'mobile',
+		'expo-update-exports'
+	);
+	await mkdir(temporaryParent, { recursive: true });
+	const temporaryDirectory = await mkdtemp(join(temporaryParent, '.stage-'));
+	try {
+		await runExpo(
+			mobile.nativeProjectDirectory,
+			[
+				'export',
+				'--platform',
+				'ios',
+				'--platform',
+				'android',
+				'--output-dir',
+				temporaryDirectory,
+				'--clear'
+			],
+			{ production: true }
+		);
+		const generatedApp: unknown = JSON.parse(
+			await readFile(
+				join(mobile.nativeProjectDirectory, 'app.json'),
+				'utf8'
+			)
+		);
+		const expoConfig = isRecord(generatedApp)
+			? generatedApp.expo
+			: undefined;
+		if (!isRecord(expoConfig))
+			throw new TypeError('Generated Expo app configuration is invalid.');
+		const computedRuntime = resolveAbsoluteMobileUpdateRuntime(
+			mobile,
+			options.projectRoot
+		).fingerprint;
+		if (computedRuntime !== options.runtimeFingerprint)
+			throw new TypeError(
+				'Expo native runtime changed while exporting the update.'
+			);
+		await finalizeAbsoluteExpoUpdateExport({
+			expoConfig,
+			exportDirectory: temporaryDirectory,
+			runtimeVersion: options.runtimeFingerprint
+		});
+
+		return {
+			bundleDirectory: temporaryDirectory,
+			temporaryDirectory
+		};
+	} catch (error) {
+		await rm(temporaryDirectory, { force: true, recursive: true });
+		throw error;
+	}
+};
+
 const buildMobileUpdate = async (args: string[]) => {
 	const configPath = valueAfter(args, '--config');
 	const { mobile, projectRoot } = await loadMobile(configPath);
-	requireCapacitorEngine(mobile, 'mobile update build');
 	if (!mobile.updates)
 		throw new TypeError(
 			'mobile update build requires mobile.updates.publicKeys in absolute.config.ts.'
@@ -1023,6 +1102,7 @@ const buildMobileUpdate = async (args: string[]) => {
 
 	const startedAt = performance.now();
 	let success = false;
+	let expoExportDirectory: string | undefined;
 	try {
 		await start(
 			mobileBuildServerEntry(args),
@@ -1059,9 +1139,16 @@ const buildMobileUpdate = async (args: string[]) => {
 			throw new TypeError(
 				`The private key does not match mobile.updates.publicKeys.${keyId}.`
 			);
+		const expoExport = await prepareExpoMobileUpdateExport({
+			args,
+			mobile,
+			projectRoot,
+			runtimeFingerprint
+		});
+		expoExportDirectory = expoExport.temporaryDirectory;
 		const result = await buildAbsoluteMobileUpdate({
 			appId: mobile.appId,
-			bundleDirectory: mobile.bundleDirectory,
+			bundleDirectory: expoExport.bundleDirectory,
 			channel: mobile.updates.channel,
 			classification,
 			keyId,
@@ -1079,6 +1166,8 @@ const buildMobileUpdate = async (args: string[]) => {
 
 		return result;
 	} finally {
+		if (expoExportDirectory)
+			await rm(expoExportDirectory, { force: true, recursive: true });
 		sendTelemetryEvent('mobile:update-build', {
 			classification: classification ?? 'invalid',
 			durationMs: Math.round(performance.now() - startedAt),

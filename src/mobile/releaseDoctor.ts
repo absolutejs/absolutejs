@@ -10,6 +10,7 @@ import {
 	resolveAbsoluteDeviceCapabilityPlan,
 	type AbsoluteIosUsageDescription
 } from './deviceCapabilities';
+import { resolveAbsoluteMobileUpdateRuntime } from './updateRuntime';
 
 export type AbsoluteMobileReleaseCheck = {
 	detail: string;
@@ -593,7 +594,8 @@ const contentSecurityPolicyCheck = async (
 };
 
 const expoApplicationConfigCheck = async (
-	config: NormalizedAbsoluteMobileConfig
+	config: NormalizedAbsoluteMobileConfig,
+	projectRoot: string
 ) => {
 	const path = join(config.nativeProjectDirectory, 'app.json');
 	try {
@@ -616,12 +618,13 @@ const expoApplicationConfigCheck = async (
 				'Generated Expo application identity does not match mobile config.'
 			);
 		}
-		if (
-			!isRecord(expo.runtimeVersion) ||
-			expo.runtimeVersion.policy !== 'appVersion'
-		) {
+		const expectedRuntime = resolveAbsoluteMobileUpdateRuntime(
+			config,
+			projectRoot
+		).fingerprint;
+		if (expo.runtimeVersion !== expectedRuntime) {
 			throw new TypeError(
-				'Generated Expo runtimeVersion must follow the native app version.'
+				'Generated Expo runtimeVersion does not match the AbsoluteJS native contract.'
 			);
 		}
 		if (
@@ -639,7 +642,7 @@ const expoApplicationConfigCheck = async (
 
 		return pass(
 			'expo.app-config',
-			'Expo application identity and runtime policy match the production mobile config.',
+			'Expo application identity and generated native runtime match the production mobile config.',
 			path
 		);
 	} catch (error) {
@@ -1454,7 +1457,7 @@ const inspectExpoAndroidRelease = async (
 	);
 	const checks = await Promise.all([
 		journalReleaseCheck(journalPath, 'android'),
-		expoApplicationConfigCheck(config),
+		expoApplicationConfigCheck(config, projectRoot),
 		expoEmbeddedAssetsCheck(config),
 		manifestReleaseCheck(manifestPath),
 		hmrAssetsReleaseCheck(config.bundleDirectory),
@@ -1601,7 +1604,7 @@ const inspectExpoIosRelease = async (
 	);
 	checks.push(
 		...(await Promise.all([
-			expoApplicationConfigCheck(config),
+			expoApplicationConfigCheck(config, projectRoot),
 			expoEmbeddedAssetsCheck(config),
 			hmrAssetsReleaseCheck(config.bundleDirectory),
 			embeddedBundleReleaseCheck(
